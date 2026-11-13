@@ -89,6 +89,7 @@ export function InstancesSection({
   appUID,
   perCluster,
   multiInstance,
+  notInstallableReason,
 }: {
   blueprint: string
   appUID?: string
@@ -100,6 +101,12 @@ export function InstancesSection({
    * is treated as multi-instance (button shows once the list resolves).
    */
   multiInstance?: boolean
+  /**
+   * SVC-030 — set when the Blueprint cannot be installed (it has no published
+   * chart). Both "+ New instance" buttons are then disabled and the reason is
+   * shown under the heading. The instances list still renders.
+   */
+  notInstallableReason?: string
 }) {
   const [dialogOpen, setDialogOpen] = useState(false)
   const qc = useQueryClient()
@@ -138,6 +145,8 @@ export function InstancesSection({
           <button
             type="button"
             data-testid="btn-new-instance"
+            disabled={!!notInstallableReason}
+            title={notInstallableReason}
             onClick={() => setDialogOpen(true)}
             className="btn btn-primary"
             style={{
@@ -147,7 +156,8 @@ export function InstancesSection({
               color: 'white',
               border: '0',
               borderRadius: '6px',
-              cursor: 'pointer',
+              cursor: notInstallableReason ? 'not-allowed' : 'pointer',
+              opacity: notInstallableReason ? 0.55 : 1,
               fontWeight: 600,
             }}
             aria-label="Create a new instance of this Blueprint"
@@ -156,6 +166,16 @@ export function InstancesSection({
           </button>
         ) : null}
       </div>
+
+      {notInstallableReason ? (
+        <p
+          className="section-hint"
+          data-testid="sov-instances-not-installable"
+          style={{ margin: '0 0 0.5rem' }}
+        >
+          {notInstallableReason}
+        </p>
+      ) : null}
 
       {instancesQuery.isPending ? (
         <p
@@ -188,6 +208,8 @@ export function InstancesSection({
           <button
             type="button"
             data-testid="btn-new-instance-empty"
+            disabled={!!notInstallableReason}
+            title={notInstallableReason}
             onClick={() => setDialogOpen(true)}
             className="btn btn-primary"
             style={{
@@ -197,7 +219,8 @@ export function InstancesSection({
               color: 'white',
               border: '0',
               borderRadius: '6px',
-              cursor: 'pointer',
+              cursor: notInstallableReason ? 'not-allowed' : 'pointer',
+              opacity: notInstallableReason ? 0.55 : 1,
               fontWeight: 600,
             }}
             aria-label="Create the first instance of this Blueprint"

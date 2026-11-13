@@ -17,9 +17,8 @@
  *   #2 (never compromise): the parser rejects unknown values; an
  *      out-of-band string from a hostile or buggy backend cannot trick
  *      the UI into rendering "sovereign" when reality says "tethered".
- *   #4 (never hardcode): the canonical step list lives ONCE here. The
- *      progress card iterates it; the SSE reducer keys off it; the
- *      Playwright E2E reads it. One file = one truth.
+ *   #4 (never hardcode): the step titles live ONCE here. The progress
+ *      card renders the steps that the status response lists.
  */
 
 /* ────────────────────────────────────────────────────────────────
@@ -125,7 +124,7 @@ export interface CutoverStepDef {
  * NOTE the slug is `helmrepository-patches` (NOT the prior `helmrepo-patches`)
  * — the old FE id never matched the chart, so that row could never light up.
  */
-export type CutoverStepID =
+export type KnownCutoverStepID =
   | 'gitea-mirror'
   | 'harbor-projects'
   | 'harbor-prewarm'
@@ -137,6 +136,14 @@ export type CutoverStepID =
   | 'gitea-token-mint'
   | 'vcluster-registry-pivot'
   | 'crossplane-provider-pivot'
+  | 'ownership-pivot'
+  | 'upstream-flip'
+  | 'parent-release'
+
+/** Any step name of the status response; isCutoverStepID brands an unknown one. */
+export type CutoverStepID = KnownCutoverStepID | (string & { readonly __brand: 'CutoverStepID' })
+
+const CUTOVER_STEP_ID_PATTERN = /^[a-z0-9-]{1,40}$/
 
 /**
  * Per-step status the SSE stream + `/status` endpoint emit.
@@ -153,9 +160,9 @@ export type CutoverStepID =
 export type CutoverStepStatus = 'pending' | 'running' | 'done' | 'failed'
 
 /**
- * The canonical, ordered 11-step list. ANY code path that needs to
- * iterate the chain (UI rendering, reducer initialisation, e2e) MUST
- * read from this list — adding or removing a step ripples here once.
+ * Titles of the eleven steps of today's chain. They seed the first paint
+ * until the status response arrives; the progress card renders the steps
+ * of the status response (`cutoverStepRows`) and takes only titles here.
  *
  * Order + ids mirror the chart's `bp.openova.io/cutover-order` labels
  * (platform/self-sovereign-cutover/chart/templates/NN-*.yaml). The
@@ -247,12 +254,40 @@ export const CUTOVER_STEPS: readonly CutoverStepDef[] = [
 
 export const CUTOVER_STEP_COUNT = CUTOVER_STEPS.length
 
-const CUTOVER_STEP_IDS: ReadonlySet<string> = new Set(
-  CUTOVER_STEPS.map((s) => s.id),
+export function isCutoverStepID(s: unknown): s is CutoverStepID {
+  return typeof s === 'string' && CUTOVER_STEP_ID_PATTERN.test(s)
+}
+
+/** Titles of the steps of the shorter hand-over chain. */
+const HANDOVER_STEPS: readonly CutoverStepDef[] = [
+  { id: 'ownership-pivot', label: 'Take ownership of the infrastructure',
+    description: 'Push the infrastructure state into this Sovereign under its own key and hand its resources to the local Crossplane.' },
+  { id: 'upstream-flip', label: 'Switch to local sources',
+    description: 'Repoint Flux, the Helm repositories, the catalyst-api and the Crossplane packages at the local Gitea and Harbor.' },
+  { id: 'parent-release', label: 'Release the parent',
+    description: 'Revoke the credential and the access of the parent, and record its proof that it holds nothing of this Sovereign.' },
+]
+
+const STEP_DEFS = new Map<string, CutoverStepDef>(
+  [...CUTOVER_STEPS, ...HANDOVER_STEPS].map((d) => [d.id, d] as const),
 )
 
-export function isCutoverStepID(s: unknown): s is CutoverStepID {
-  return typeof s === 'string' && CUTOVER_STEP_IDS.has(s)
+/** Display order of the known step names: the order the steps run in. */
+const STEP_ORDER: readonly string[] = ['gitea-mirror', 'harbor-projects', 'harbor-prewarm',
+  'ownership-pivot', 'upstream-flip', 'registry-pivot', 'parent-release', 'flux-gitrepository-patch',
+  'helmrepository-patches', 'catalyst-api-env-patch', 'gitea-token-mint', 'vcluster-registry-pivot',
+  'crossplane-provider-pivot', 'egress-block-test']
+
+/** Title and description of a step. An unknown name is its own title. */
+export function cutoverStepDef(id: CutoverStepID): CutoverStepDef {
+  return STEP_DEFS.get(id) ?? { id, label: id, description: '' }
+}
+
+/** The rows of the progress card: the steps of the status response, which lists names
+ *  alphabetically. Known names are sorted into STEP_ORDER; unknown names follow, in order. */
+export function cutoverStepRows(steps: readonly CutoverStepStatusRecord[]): CutoverStepStatusRecord[] {
+  const rank = (id: string) => (STEP_ORDER.includes(id) ? STEP_ORDER.indexOf(id) : STEP_ORDER.length)
+  return [...steps].sort((a, b) => rank(a.step) - rank(b.step))
 }
 
 /**
@@ -368,6 +403,8 @@ export interface CutoverStatus {
   steps: readonly CutoverStepStatusRecord[]
   /** SHA mirrored into local Gitea — populated after gitea-mirror done. */
   mirroredCommitSHA?: string
+  /** Number of steps of the running chain (`totalSteps` on the wire). */
+  totalSteps?: number
   /** Number of Harbor proxy projects created — ≥ 7 at completion. */
   harborProjectCount?: number
   /** True iff the egress-block test ran for 10 min with all reconciles green. */
@@ -509,6 +546,7 @@ export function parseCutoverStatus(input: unknown): CutoverStatus {
     // typed top-level value first, then fall back to the raw key.
     mirroredCommitSHA: firstString(raw.mirroredCommitSHA, rawKey(raw, 'mirroredCommitSHA')),
     harborProjectCount: firstNumber(raw.harborProjectCount, rawKey(raw, 'harborProjectCount')),
+    totalSteps: firstNumber(raw.totalSteps),
     egressTestPassed,
     settledRollOverrides: firstString(
       raw.settledRollOverrides,

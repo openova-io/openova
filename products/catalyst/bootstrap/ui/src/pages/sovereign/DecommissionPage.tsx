@@ -219,7 +219,7 @@ export function DecommissionPage() {
         `${API_BASE}/v1/deployments/${encodeURIComponent(deploymentId)}/wipe`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-Confirm-Sovereign-FQDN': confirmText.trim() },
           // The wipe endpoint accepts the optional backup field; absent
           // means "no backup" which matches the pre-handover failure
           // recovery semantics. The customer-side decommission ALWAYS
@@ -412,6 +412,7 @@ export function DecommissionPage() {
         <li>tofu destroy against the per-deployment workdir</li>
         <li>Hetzner orphan force-purge (servers, load balancers, networks, firewalls, ssh-keys, S3 buckets)</li>
         <li>PDM allocation release (pool-subdomain only)</li>
+        <li>Every virtual machine the Sovereign created itself</li>
         <li>Kubeconfig + workdir + on-disk record removed</li>
       </ul>
 

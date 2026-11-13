@@ -83,7 +83,6 @@ export const COMPONENT_FOOTPRINTS: Record<string, ComponentFootprint> = {
 
   /* ── SPINE — Networking & Service Mesh ────────────────────────── */
   cilium:         { ramMb: 768,  cpuMilli: 300 }, // operator + agent DaemonSet (per-node) — single-node assumed
-  coraza:         { ramMb: 256,  cpuMilli: 100 },
   powerdns:       { ramMb: 512,  cpuMilli: 200 }, // pdns-auth + cnpg-pg side
   'external-dns': { ramMb: 64,   cpuMilli: 50  },
   // envoy / frpc / strongswan removed with their catalog cards — UAT row

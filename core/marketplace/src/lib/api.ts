@@ -576,7 +576,7 @@ export interface AddOn {
   // step then shows no icon at all; nothing is looked up by key.
   image?: { src: string; alt: string; bg?: string };
   // #6971 — a catalog add-on that is an application the Sovereign installs
-  // (CrowdSec, Trivy, Loki, the Coraza WAF) rather than a commercial
+  // (CrowdSec, Trivy, Loki) rather than a commercial
   // entitlement; listed with the applications, never beside a price.
   app?: boolean;
 }

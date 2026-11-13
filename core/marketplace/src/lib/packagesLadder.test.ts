@@ -67,7 +67,6 @@ function v1(): PublicPackages {
 /** The catalog's add-ons as api.ts::getAddons shapes them (baisa prices). */
 const CATALOG_ADDONS: AddOn[] = [
   { id: 'a-backup', slug: 'daily-backup', name: 'Daily Backup', tagline: 'Automated daily backups', icon: '', monthly_price: 3000, included: false },
-  { id: 'a-waf', slug: 'waf', name: 'Web Application Firewall', tagline: 'Coraza WAF', icon: '', monthly_price: 4000, included: false },
   { id: 'a-ips', slug: 'ips', name: 'Intrusion Prevention', tagline: 'CrowdSec', icon: '', monthly_price: 3000, included: false },
   { id: 'a-support', slug: 'priority-support', name: '24/7 customer support', tagline: 'Around the clock', icon: '', monthly_price: 5000, included: false },
 ];
@@ -333,12 +332,11 @@ describe('step 3: the three blocks for a package', () => {
     // Daily Backup → addon.backup on L; on XL (included) it is dropped.
     expect(pruneAddonsForPackage(doc, 'plan.l', ['a-backup'], CATALOG_ADDONS)).toEqual(['addon.backup']);
     expect(pruneAddonsForPackage(doc, 'plan.xl', ['a-backup'], CATALOG_ADDONS)).toEqual([]);
-    // The WAF and 24/7 support are FLOOR items — every package includes them,
-    // nothing is sold, so the catalog entries are dropped, not offered.
-    expect(twinFeatureKey(CATALOG_ADDONS[1], doc.features, doc.floor)).toBe('waf');
-    expect(twinFeatureKey(CATALOG_ADDONS[3], doc.features, doc.floor)).toBe('support');
-    expect(twinFeatureKey(CATALOG_ADDONS[1], doc.features)).toBeNull();
-    expect(pruneAddonsForPackage(doc, 'plan.l', ['a-waf', 'a-support', 'a-ips'], CATALOG_ADDONS)).toEqual([]);
+    // 24/7 support is a FLOOR item — every package includes it, nothing is
+    // sold, so the catalog entry is dropped, not offered.
+    expect(twinFeatureKey(CATALOG_ADDONS[2], doc.features, doc.floor)).toBe('support');
+    expect(twinFeatureKey(CATALOG_ADDONS[2], doc.features)).toBeNull();
+    expect(pruneAddonsForPackage(doc, 'plan.l', ['a-support', 'a-ips'], CATALOG_ADDONS)).toEqual([]);
   });
 
   it('the fixture blurbs carry no number — every figure in the journey is the price book\'s', () => {
