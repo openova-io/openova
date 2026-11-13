@@ -1833,3 +1833,85 @@ resource "hcloud_load_balancer_service" "secondary_dns" {
     retries  = 3
   }
 }
+
+# ── Network registry (NET-100) ────────────────────────────────────────────
+# The record of every address, cluster name and cluster identifier of this
+# Sovereign: the region "primary", then every region of local.secondary_regions
+# in the order of local.all_region_keys. Output network_registry is its JSON
+# form; scripts/check-network-registry.py checks it. The values are the
+# module's own:
+#   - code: the module's region key, the key of control_plane_ips_per_region;
+#   - cloudRegion: the Hetzner location; az: "none" (Hetzner has no zones);
+#   - clusterName and clusterID: the mesh name and identifier the template
+#     receives ("" and 0 when var.cluster_mesh_name and var.cluster_mesh_id
+#     are not set);
+#   - nodeCIDR: the region's subnet, the same 10.0.1.0/24 in every region's
+#     own network;
+#   - meshEndpoint: absent; this module publishes no mesh endpoint;
+#   - edgeAddress: the region's load balancer;
+#   - egressAddresses: the public IPv4 of every node of the region;
+#   - controlPlaneAccess: the module has no sovereign-admin or provisioner
+#     source list, so both lists are empty;
+#   - mtu: 1420, the default of the substitution CILIUM_MTU in
+#     clusters/_template/bootstrap-kit/01-cilium.yaml, which no module sets.
+# regionSeparation: "site" when every region has a different location,
+# otherwise "none".
+locals {
+  network_registry_cloud_region = merge(
+    { primary = var.region },
+    { for k, r in local.secondary_regions : k => r.cloudRegion },
+  )
+
+  network_registry_cluster_name = merge(
+    { primary = var.cluster_mesh_name },
+    local.secondary_region_cluster_mesh_name,
+  )
+
+  network_registry_cluster_id = merge(
+    { primary = var.cluster_mesh_id },
+    local.secondary_region_cluster_mesh_id,
+  )
+
+  network_registry_edge = merge(
+    { primary = hcloud_load_balancer.main.ipv4 },
+    { for k, _ in local.secondary_regions : k => hcloud_load_balancer.secondary[k].ipv4 },
+  )
+
+  network_registry_egress = merge(
+    { primary = concat(hcloud_server.control_plane[*].ipv4_address, hcloud_server.worker[*].ipv4_address) },
+    {
+      for k, _ in local.secondary_regions : k => concat(
+        [hcloud_server.secondary_control_plane[k].ipv4_address],
+        [for wk, w in local.secondary_workers : hcloud_server.secondary_worker[wk].ipv4_address if w.region_key == k],
+      )
+    },
+  )
+
+  network_registry_separation = (
+    length(local.all_region_keys) > 1 && length(distinct(values(local.network_registry_cloud_region))) == length(local.all_region_keys) ? "site" : "none"
+  )
+
+  network_registry = {
+    podSupernet      = length(local.all_region_keys) <= 2 ? "10.42.0.0/15" : "10.40.0.0/13"
+    mtu              = 1420
+    regionSeparation = local.network_registry_separation
+    controlPlaneAccess = {
+      adminCIDRs       = []
+      provisionerCIDRs = []
+    }
+    regions = [
+      for k in local.all_region_keys : {
+        code            = k
+        cloudRegion     = local.network_registry_cloud_region[k]
+        az              = "none"
+        clusterName     = local.network_registry_cluster_name[k]
+        clusterID       = local.network_registry_cluster_id[k]
+        nodeCIDR        = hcloud_network_subnet.region[k].ip_range
+        podCIDR         = local.region_cluster_cidr[k]
+        serviceCIDR     = local.region_service_cidr[k]
+        edgeAddress     = local.network_registry_edge[k]
+        egressAddresses = local.network_registry_egress[k]
+      }
+    ]
+  }
+}
