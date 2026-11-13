@@ -40,3 +40,8 @@ jobs:
         run: |
           bash scripts/check-kyverno-legacy-policies.sh --self-test
           bash scripts/check-kyverno-legacy-policies.sh
+      - name: Kit slot 27a reads the policy values document and passes the hand-over variable
+        run: |
+          python3 -m pip install --quiet pyyaml
+          python3 scripts/check-policy-wiring.py --self-test
+          python3 scripts/check-policy-wiring.py
