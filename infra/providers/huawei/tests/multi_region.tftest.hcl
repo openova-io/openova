@@ -605,6 +605,46 @@ run "post_back_sends_parent_bootstrap_kubeconfig" {
   }
 }
 
+# SOV-141 — the peer token. In a region that is not the primary, cloud-init
+# creates ServiceAccount kube-system/handover-peer with its cluster-admin
+# binding and token Secret, writes /var/lib/catalyst/handover-peer.kubeconfig
+# before the post-back, sends it in the post-back body under the key
+# peerKubeconfig with the server set to the region's address, and deletes it
+# after the post-back. The primary region has no handover-peer at all.
+run "post_back_sends_handover_peer_kubeconfig" {
+  command = plan
+
+  variables {
+    kubeconfig_bearer_token = "test-bearer"
+    regions = [
+      {
+        code               = "me-east-215-a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      },
+      {
+        code               = "me-east-215-b"
+        role               = "secondary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  assert {
+    condition     = length(regexall("(?s)\n    export KUBECONFIG=/etc/rancher/k3s/k3s\\.yaml N=handover-peer S=kube-system K=/var/lib/catalyst/handover-peer\\.kubeconfig\n.*exit 97; }\n.*sed -i \"s\\|server: https://127\\.0\\.0\\.1:6443\\|server: https://\\$\\{MY_EIP\\}:6443\\|\" /var/lib/catalyst/handover-peer\\.kubeconfig\n.*'peerKubeconfig':open\\('/var/lib/catalyst/handover-peer\\.kubeconfig'\\)\\.read\\(\\).*\n  - rm -f /var/lib/catalyst/parent-bootstrap\\.kubeconfig\n  - rm -f /var/lib/catalyst/handover-peer\\.kubeconfig\n", local.cp_cloud_init_by_region["me-east-215-b"])) == 1 && length(regexall("    type: kubernetes\\.io/service-account-token\n", local.cp_cloud_init_by_region["me-east-215-b"])) == 2
+    error_message = "SOV-141: the secondary region must create the handover-peer account and its token Secret, write /var/lib/catalyst/handover-peer.kubeconfig before the post-back, send it under peerKubeconfig with its server set to the region's address, and delete it after the post-back."
+  }
+
+  assert {
+    condition     = !strcontains(local.cp_cloud_init_by_region["me-east-215-a"], "handover-peer") && !strcontains(local.cp_cloud_init_by_region["me-east-215-a"], "exit 97")
+    error_message = "SOV-141: the primary region must not create a handover-peer account or send a peer kubeconfig."
+  }
+}
+
 # NET-010 — the peer ports are closed to the internet. The mesh dial port
 # (var.clustermesh_proxy_port, 12379) admits only the Sovereign's own public
 # addresses (every region's control-plane and NAT EIP, as /32) and every
