@@ -88,6 +88,36 @@ run "hetzner_render_is_valid" {
     condition     = strcontains(output.rendered_cloud_init, " --disable-network-policy --disable-kube-proxy ")
     error_message = "NET-020: the k3s server line must pass --disable-kube-proxy (Cilium runs with kubeProxyReplacement: true)."
   }
+
+  # SOV-130 — the substituted values live in ConfigMap
+  # flux-system/sovereign-variables, which every inline Kustomization reads
+  # with postBuild.substituteFrom. No Kustomization keeps an inline
+  # substitute map, and the DNS-01 API key is only in the Secret
+  # flux-system/sovereign-tls-secrets.
+  assert {
+    condition     = strcontains(output.rendered_cloud_init, "      kind: ConfigMap\n      metadata:\n        name: sovereign-variables\n        namespace: flux-system\n      data:\n")
+    error_message = "SOV-130: the ConfigMap flux-system/sovereign-variables is missing from flux-bootstrap.yaml."
+  }
+
+  assert {
+    condition     = length(regexall("(?m)^              name: sovereign-variables$", output.rendered_cloud_init)) == 4
+    error_message = "SOV-130: every inline Flux Kustomization (4 in this fixture) must list ConfigMap sovereign-variables under postBuild.substituteFrom."
+  }
+
+  assert {
+    condition     = !strcontains(output.rendered_cloud_init, "          substitute:\n")
+    error_message = "SOV-130: an inline Flux Kustomization still carries a postBuild.substitute map; its values belong in ConfigMap sovereign-variables."
+  }
+
+  assert {
+    condition     = length(regexall("POWERDNS_API_KEY:", output.rendered_cloud_init)) == 1 && strcontains(output.rendered_cloud_init, "        name: sovereign-tls-secrets\n        namespace: flux-system\n      type: Opaque\n      stringData:\n        POWERDNS_API_KEY: \"${base64encode("render-test-pdns-key")}\"\n")
+    error_message = "SOV-130: POWERDNS_API_KEY must appear once, as the one key of the Secret flux-system/sovereign-tls-secrets, never in the ConfigMap sovereign-variables."
+  }
+
+  assert {
+    condition     = strcontains(output.rendered_cloud_init, " -f cloud-credentials-secret.yaml -f sovereign-tls-secrets.yaml\n")
+    error_message = "SOV-130: the Secret file sovereign-tls-secrets.yaml must be applied with the other bootstrap Secrets."
+  }
 }
 
 run "huawei_render_is_valid" {
@@ -145,6 +175,36 @@ run "huawei_render_is_valid" {
   assert {
     condition     = strcontains(output.rendered_cloud_init, " --disable-network-policy --disable-kube-proxy ")
     error_message = "NET-020 (huawei branch): the k3s server line must pass --disable-kube-proxy (Cilium runs with kubeProxyReplacement: true)."
+  }
+
+  # SOV-130 (huawei branch) — the substituted values live in ConfigMap
+  # flux-system/sovereign-variables, which every inline Kustomization reads
+  # with postBuild.substituteFrom. No Kustomization keeps an inline
+  # substitute map, and the DNS-01 API key is only in the Secret
+  # flux-system/sovereign-tls-secrets.
+  assert {
+    condition     = strcontains(output.rendered_cloud_init, "      kind: ConfigMap\n      metadata:\n        name: sovereign-variables\n        namespace: flux-system\n      data:\n")
+    error_message = "SOV-130 (huawei branch): the ConfigMap flux-system/sovereign-variables is missing from flux-bootstrap.yaml."
+  }
+
+  assert {
+    condition     = length(regexall("(?m)^              name: sovereign-variables$", output.rendered_cloud_init)) == 5
+    error_message = "SOV-130 (huawei branch): every inline Flux Kustomization (5 in this fixture) must list ConfigMap sovereign-variables under postBuild.substituteFrom."
+  }
+
+  assert {
+    condition     = !strcontains(output.rendered_cloud_init, "          substitute:\n")
+    error_message = "SOV-130 (huawei branch): an inline Flux Kustomization still carries a postBuild.substitute map; its values belong in ConfigMap sovereign-variables."
+  }
+
+  assert {
+    condition     = length(regexall("POWERDNS_API_KEY:", output.rendered_cloud_init)) == 1 && strcontains(output.rendered_cloud_init, "        name: sovereign-tls-secrets\n        namespace: flux-system\n      type: Opaque\n      stringData:\n        POWERDNS_API_KEY: \"${base64encode("render-test-pdns-key")}\"\n")
+    error_message = "SOV-130 (huawei branch): POWERDNS_API_KEY must appear once, as the one key of the Secret flux-system/sovereign-tls-secrets, never in the ConfigMap sovereign-variables."
+  }
+
+  assert {
+    condition     = strcontains(output.rendered_cloud_init, " -f cloud-credentials-secret.yaml -f sovereign-tls-secrets.yaml\n")
+    error_message = "SOV-130 (huawei branch): the Secret file sovereign-tls-secrets.yaml must be applied with the other bootstrap Secrets."
   }
 }
 

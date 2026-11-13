@@ -34,7 +34,7 @@ patches:
       spec:
         infrastructure:
           annotations:
-            load-balancer.hetzner.cloud/name: "${SOVEREIGN_FQDN_SLUG:=catalyst}-${SOVEREIGN_REGION_KEY:=primary}-gateway"
+            load-balancer.hetzner.cloud/name: "${SOVEREIGN_FQDN_SLUG:=catalyst}-${SOVEREIGN_PRIMARY_REGION:=primary}-gateway"
             load-balancer.hetzner.cloud/location: "${HCLOUD_LB_LOCATION}"
             load-balancer.hetzner.cloud/type: "lb11"
             load-balancer.hetzner.cloud/use-private-ip: "false"
@@ -55,7 +55,7 @@ patches:
       spec:
         infrastructure:
           annotations:
-            load-balancer.hetzner.cloud/name: "${SOVEREIGN_FQDN_SLUG:=catalyst}-${SOVEREIGN_REGION_KEY:=primary}-console-gateway"
+            load-balancer.hetzner.cloud/name: "${SOVEREIGN_FQDN_SLUG:=catalyst}-${SOVEREIGN_PRIMARY_REGION:=primary}-console-gateway"
             load-balancer.hetzner.cloud/location: "${HCLOUD_LB_LOCATION}"
             load-balancer.hetzner.cloud/type: "lb11"
             load-balancer.hetzner.cloud/use-private-ip: "false"
