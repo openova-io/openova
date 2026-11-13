@@ -140,10 +140,10 @@ products/agenity/chart/templates/cilium-egress-networkpolicy.yaml	1
 products/agenity/chart/templates/oidc-gate.yaml	3
 products/catalyst/bootstrap/api/cmd/catalyst-dns/main.go	1
 products/catalyst/bootstrap/api/cmd/verify-purge/main.go	4
-products/catalyst/bootstrap/api/internal/handler/clustermesh.go	4
+products/catalyst/bootstrap/api/internal/handler/clustermesh.go	1
 products/catalyst/bootstrap/api/internal/handler/credentials.go	7
 products/catalyst/bootstrap/api/internal/handler/deployments.go	16
-products/catalyst/bootstrap/api/internal/handler/infrastructure.go	2
+products/catalyst/bootstrap/api/internal/handler/infrastructure.go	1
 products/catalyst/bootstrap/api/internal/handler/janitor.go	53
 products/catalyst/bootstrap/api/internal/handler/k8s.go	2
 products/catalyst/bootstrap/api/internal/handler/org_console_tls.go	3
@@ -158,7 +158,7 @@ products/catalyst/bootstrap/api/internal/handler/sovereign_secondary_kubeconfig_
 products/catalyst/bootstrap/api/internal/handler/wipe.go	73
 products/catalyst/bootstrap/api/internal/handler/wipe_drain.go	1
 products/catalyst/bootstrap/api/internal/handler/wipe_evs_backstop.go	8
-products/catalyst/bootstrap/api/internal/infrastructure/topology_loader.go	9
+products/catalyst/bootstrap/api/internal/infrastructure/topology_loader.go	3
 products/catalyst/bootstrap/api/internal/infrastructure/types.go	2
 products/catalyst/bootstrap/api/internal/jobs/display.go	1
 products/catalyst/bootstrap/api/internal/jobs/types.go	3

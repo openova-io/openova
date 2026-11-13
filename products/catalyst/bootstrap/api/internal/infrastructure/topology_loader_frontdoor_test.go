@@ -10,10 +10,16 @@
 // though Result.LoadBalancerIP held the live EIP/cloud-LB. On hw174
 // (Huawei, EIP DNAT'd to the Cilium Gateway NodePort) that meant the
 // operator could not answer "how is the platform fronted".
+//
+// The front-door kind comes from the cloud profile of the provider
+// (spec.network.loadBalancer.mode). These tests read the profiles of this
+// repository: the Huawei pack is external-hostport, the Hetzner pack
+// controller.
 package infrastructure
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -23,8 +29,20 @@ import (
 	"k8s.io/client-go/dynamic"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/cloudprofile"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
+
+// useRepositoryProfiles points the loader at infra/providers of this
+// repository and names the Sovereign's own pack (empty: none).
+func useRepositoryProfiles(t *testing.T, sovereignPack string) {
+	t.Helper()
+	old := providersDir
+	providersDir = filepath.Join("..", "..", "..", "..", "..", "..", "infra", "providers")
+	t.Cleanup(func() { providersDir = old })
+	t.Setenv(cloudprofile.ProviderEnv, sovereignPack)
+	t.Setenv(cloudprofile.InstallationEnv, "")
+}
 
 // liveNodeClient builds a fake dynamic client carrying real Nodes so the
 // loader's live chroot path (buildRegionFromLiveNodes) fires. The vcluster
@@ -71,6 +89,7 @@ func lbsOf(r Region) []LoadBalancer {
 // regression guard: the live chroot path now emits a non-empty LB sourced
 // from Result.LoadBalancerIP, with FrontDoorKind=gateway-eip on Huawei.
 func TestFrontDoor_LiveChrootPath_SurfacesLBFromRecord(t *testing.T) {
+	useRepositoryProfiles(t, "huawei")
 	const depID = "ea30d1d816f2eee2"
 	in := LoaderInput{
 		DeploymentID:  depID,
@@ -78,7 +97,8 @@ func TestFrontDoor_LiveChrootPath_SurfacesLBFromRecord(t *testing.T) {
 		SovereignFQDN: "hw174.omani.works",
 		// No declared Provider + no Regions → forces the live chroot path
 		// (buildRegionFromLiveNodes), exactly like the in-cluster catalyst-api
-		// on a real Sovereign. Provider is sniffed from the node providerID.
+		// on a real Sovereign. The provider is the Sovereign's own pack
+		// (CLOUD_PROVIDER), never sniffed from the node providerID.
 		Result:        &provisioner.Result{LoadBalancerIP: "212.72.24.33"},
 		DynamicClient: liveNodeClient(t, "huawei:///me-east-215-a/abc-123"),
 	}
@@ -86,6 +106,12 @@ func TestFrontDoor_LiveChrootPath_SurfacesLBFromRecord(t *testing.T) {
 	resp := Load(context.Background(), in)
 	if len(resp.Topology.Regions) != 1 {
 		t.Fatalf("expected 1 region from live nodes, got %d", len(resp.Topology.Regions))
+	}
+	if got := resp.Topology.Regions[0].Provider; got != "huawei" {
+		t.Errorf("region provider = %q, want the Sovereign's pack huawei", got)
+	}
+	if len(resp.Cloud) != 1 || resp.Cloud[0].Provider != "huawei" {
+		t.Errorf("cloud entries = %+v, want one for huawei", resp.Cloud)
 	}
 	lbs := lbsOf(resp.Topology.Regions[0])
 	if len(lbs) != 1 {
@@ -115,6 +141,7 @@ func TestFrontDoor_LiveChrootPath_SurfacesLBFromRecord(t *testing.T) {
 // declared path also emits the structured listeners + a cloud-lb
 // FrontDoorKind for a provider that provisions a real cloud LB.
 func TestFrontDoor_DeclaredPath_CloudLBForHetzner(t *testing.T) {
+	useRepositoryProfiles(t, "")
 	in := LoaderInput{
 		DeploymentID:  "depHZ",
 		Status:        "ready",
@@ -167,5 +194,29 @@ func TestFrontDoor_NoIPYields_EmptyNotFabricated(t *testing.T) {
 	}
 	if got := len(lbsOf(resp.Topology.Regions[0])); got != 0 {
 		t.Errorf("expected 0 LBs when no LoadBalancerIP is known, got %d (fabricated placeholder)", got)
+	}
+}
+
+// TestFrontDoor_UnknownProviderStaysEmpty: with no CLOUD_PROVIDER on the live
+// path (providerID is not read) and a pack name that names no pack on the
+// declared path, the provider, the cloud entry and the front-door kind stay
+// empty. Nothing defaults to a provider name.
+func TestFrontDoor_UnknownProviderStaysEmpty(t *testing.T) {
+	useRepositoryProfiles(t, "")
+	for _, in := range []LoaderInput{
+		{DeploymentID: "depLive", SovereignFQDN: "live.omani.works", DynamicClient: liveNodeClient(t, "hcloud://12345")},
+		{DeploymentID: "depOther", Provider: "nothere", Region: "r1", Regions: []provisioner.RegionSpec{{CloudRegion: "r1", WorkerCount: 1}}},
+	} {
+		in.Result = &provisioner.Result{LoadBalancerIP: "192.0.2.10"}
+		resp := Load(context.Background(), in)
+		if len(resp.Topology.Regions) != 1 || resp.Topology.Regions[0].Provider != "" {
+			t.Fatalf("%s: regions %+v, want one with an empty provider", in.DeploymentID, resp.Topology.Regions)
+		}
+		if lbs := lbsOf(resp.Topology.Regions[0]); len(lbs) != 1 || lbs[0].FrontDoorKind != "" {
+			t.Errorf("%s: LBs %+v, want one with an empty FrontDoorKind", in.DeploymentID, lbs)
+		}
+		if in.Provider == "" && len(resp.Cloud) != 0 {
+			t.Errorf("%s: cloud entries %+v, want none", in.DeploymentID, resp.Cloud)
+		}
 	}
 }
