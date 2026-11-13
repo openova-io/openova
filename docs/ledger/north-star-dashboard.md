@@ -2,6 +2,184 @@
 
 Status on 13 November 2026. The baseline is the platform as it stood on 12 November 2026, after nine months of work by its agents. All work is done by agents; effort is in agent-hours and tokens, from the tasks that were actually run.
 
+## Right now
+
+Measured from GitHub at 18:30 UTC on 13 November 2026. This block is rebuilt automatically every 30 minutes.
+
+| | |
+|---|---|
+| **Overall completion** | **19.8%** of the tasks are merged (174 of 879). By effort that is 18.8% (122 of 649 agent-hours). Proven on a live environment: 4 tasks (0.5%). |
+| **Estimated time still needed** | About **192 running hours** until every task is merged (about 8 days if the agents run day and night). About **264 running hours** until every task is also proven on an environment. Agent effort still to spend: about 527 agent-hours. |
+| How the estimate is made | Merged: 705 tasks are left; the last 12 hours merged 3.7 tasks an hour, lab results not counted, which gives 192 hours; the longest row of tasks that must follow one another is 28 long, at about 2 hours each, which gives 56 hours; the larger number is shown. Proven: the plan's simulation of six agents with an update of the environment every 4 hours and a fresh install every 24. Both move as the work goes; a stop or an interruption adds to them. |
+| **Tokens used so far** | **11.6 billion** tokens, nearly all of them since 11 November: 3.2 billion to design the plan and 8.4 billion to carry it out so far. Of the total, 11.3 billion are re-reads of text the models had already read once, which is the cheap kind; 228 million are text read for the first time and 55 million are text the models wrote. By model: Opus 5.5 7.4 billion, Fable 5.2 4.2 billion. At the published pay-as-you-go prices these tokens would cost about $5,400. |
+| **Tokens still expected** | About **36 billion** more until every task is merged, which makes about 48 billion in all; 24% of that is spent. Basis: carrying out the plan has used 69 million tokens for each agent-hour of merged work, and 527 agent-hours are left. Proving the tasks on an environment comes on top; too few are proven to measure it. |
+| **Accounts needed on the $200 plan** | The one account in use (plan Max 20x) has spent **70%** of this week's allowance, 55 hours into the week (the week runs from 11 Nov 12:00 to 18 Nov 12:00 UTC). Over the last 6.0 hours the usage meter rose by 22 points. At that rise this account's allowance is used up around **14 Nov 02:00 UTC**, 4 days before it is filled again. Paid extra usage is switched off on the account, so the agents stop there unless another account is logged in. Holding that rise for a whole week would take **7 accounts**; measured from the tokens of the last 24 hours it is 3.3. The two do not agree: the tokens counted on this machine explain about 38% of the meter's rise in those hours. Either the account is also used from somewhere this machine cannot see, or the meter weighs this kind of work more heavily than its first two days suggested. The meter decides when the work stops. The work still to merge needs about 2.1 weekly allowances by the token measure. |
+| How the tokens and the allowance are measured | Tokens are counted from the transcripts on the build machine, each model call once, for every agent of this work. Anthropic states no token figure for the plan, so the share of the weekly allowance that is used is read from the account's own usage meter every 30 minutes and set against the tokens counted in the same hours; by that measure one weekly allowance is about 17 billion tokens of this mix. The meter counts Fable and Opus differently, so each is weighed on its own. The pace is taken from the meter itself once it has been read for an hour (the oldest reading of the last six hours); until then from the tokens. Every session on the account counts, also work that is not this plan. |
+| Tasks merged to the main branch | **174 of 879** |
+| Tasks with a written ticket | 140 |
+| Being worked on by an agent now | CTL-041 ([#7492](https://github.com/openova-io/openova/pull/7492)), SOV-120 ([#7490](https://github.com/openova-io/openova/pull/7490)), SOV-180 ([#7491](https://github.com/openova-io/openova/pull/7491)) |
+| Lab-test results waiting to merge | none |
+| Lab tests started, each on its own branch in CI | 27: ACC-020, ACC-030, AIP-010, AIP-020, CLD-050, CLD-055, CMP-S1, CMP-S2, CMP-S3, CMP-S4, CMP-S5, CMP-S6, CTL-050, CTL-055, INF-030, MIG-050, PRD-040, PRD-060, PRD-070, PRD-080, SEC-130, SEC-140, SEC-280, SOV-060, SVC-120, SVC-210, SVC-340 |
+| Merged per day | 2026-11-12: 8, 2026-11-13: 159, 2026-11-14: 7 |
+| Proven on the live environment hw307 | **4**: BSS-035, NET-041, NET-070, NET-072. Each was seen working in a browser there and its ticket is closed. hw307 does not follow the main branch: a merged task reaches it by a separate release, and only then counts as proven. |
+| Milestone: replacement mothership on Hetzner (SOV-920) | 91 tasks before it are not merged yet. The three proofs it needs: SOV-810 open, SOV-820 open, CLD-182 open. The founder is told on issue #7087 when it starts. |
+| Board with every task as a card | [github.com/orgs/openova-io/projects/2](https://github.com/orgs/openova-io/projects/2) |
+
+### Burndown: effort left to merge, planned and actual
+
+![Burndown of the effort left to merge, planned and actual](dashboard/burndown.svg)
+
+**527 agent-hours** are left to merge; the plan's own schedule expected **508** by now. The work is **19 agent-hours behind** that schedule. The plan's schedule ends on 19 November; at the present pace the last task merges around 21 November.
+
+How to read it. Planned: the plan as first published on 12 November (843 tasks, 619 agent-hours), run through the roadmap's schedule model (six agents over the plan's dependencies, 16 running hours a day). Actual: the tasks of the plan at each moment, less those merged by then, in the same agent-hours by task size. 36 tasks were added to the plan since; the actual line steps up where each appears. The dashed line runs from now to the estimate above. Both lines count merging; proof on an environment is not in this chart.
+
+| Midnight UTC | Planned left | Actual left |
+|---|---|---|
+| 13 Nov | 582 | 597 |
+| now (13 Nov 18:30) | 508 | 527 |
+
+### On the environment: deployed and validated
+
+Read from the standing environment hw307 itself at 18:30 UTC on 13 November. A task counts as deployed only when the release that carried it is the one running there, and as validated only when it was seen working there.
+
+| | Tasks |
+|---|---|
+| Merged tasks that can be proven on the running environment | 49 |
+| — **deployed** there (their release is running, checked against the cluster) | **7** |
+| — **validated** there (seen working, with evidence) | **4** |
+| — merged and **waiting for a release** to the environment | **42** |
+| Merged tasks that change first boot: proven only by a fresh install | 23, none proven |
+
+| Release to the environment | When | Running now (checked) | Tasks it carried | Validated | Evidence |
+|---|---|---|---|---|---|
+| hw307-ns.1 (umbrella 1.4.1906-hw307.23-ns.1) | 2026-11-13 05:10 | region a: yes, region b: yes | SVC-030, NET-041, NET-070, NET-072, SOV-030, SOV-220, BSS-035 | NET-041, NET-070, NET-072, BSS-035 | [record](screenshots/north-star/README.md) |
+
+| Region | Releases ready | Switched off on purpose | Not ready | Umbrella chart | Images running |
+|---|---|---|---|---|---|
+| a | 73 of 75 | 5 | **2**: acmewalk307/bp-agenity, acmewalk307/bp-wordpress-tenant | 1.4.1906-hw307.23-ns.1 | catalyst-api `hw307-b98777d`, catalyst-ui `hw307-2e1d885`, marketplace `hw307-2e1d885`, marketplace-api `0d9531a` |
+| b | 67 of 67 | 7 | none | 1.4.1906-hw307.23-ns.1 | none of the console images run in this region |
+
+Waiting for a release to the environment (42): BSS-030, CLD-021, CLD-022, CLD-161, CMP-010, CMP-016, CMP-030, CTL-030, CTL-035, CTL-040, CTL-110, CTL-112, CTL-150, CTL-160, CTL-240, FND-014, FND-032, FND-033, FND-034, FND-093, FND-094, FND-095, FND-097, FND-171, NET-030, NET-042, NET-060, NET-125, PRD-101, PRD-102, PRD-103, PRD-104, PRD-105, PRD-502, SEC-071, SEC-080, SEC-120, SOV-035, SOV-110, SOV-150, SOV-320, SVC-125.
+
+The environment runs its own line of the code, not main, so a merged task reaches it only by a release built for it. The plan's release train (cut a candidate, update the environment in place, run the gate twice) is tasks FND-015, FND-035 and FND-073; until they are merged a release is built by hand.
+
+### Is it real? Delivery and quality, measured
+
+A merged task has passed its checks in CI. It is **delivered** only when it has been seen working on a running Sovereign. Today **4 of the 110** merged tasks that need an environment have been seen working on one. Nothing merged since 12 November runs on an environment yet: no Sovereign has been installed from main, and hw307 runs a separate line. The figures below are taken from GitHub and from main by script.
+
+![From plan to proof: how many tasks reached each stage](dashboard/funnel.svg)
+
+| Stage | Tasks | Agent-hours |
+|---|---|---|
+| In the plan | 879 | 649 |
+| Ticket written | 177 | 124 |
+| Merged to main | 174 | 122 |
+| — of these: final at merge (a document, a guard, a check) | 64 | 42 |
+| — of these: need proof on an environment | 110 | 80 |
+| — reached an environment | 7 | 4 |
+| — seen working there | 4 | 2 |
+
+**What kind of work is merged.** If the merged work were mostly records and checks while the plan is mostly product, the bars would differ.
+
+![The merged work and the whole plan, by kind of work](dashboard/mix.svg)
+
+| Kind of work | Merged: share of effort | Merged: tasks | Whole plan: share of effort | Whole plan: tasks |
+|---|---|---|---|---|
+| Product changes | 26% | 44 | 62% | 525 |
+| Dead code removed | 11% | 21 | 10% | 93 |
+| Guards and tests | 27% | 44 | 17% | 154 |
+| Records and decisions | 36% | 65 | 11% | 107 |
+
+| Measure | Now | What it tells |
+|---|---|---|
+| The plan's own checks (237) by state | 213 not-built, 17 expected-fail, 7 required | A check is the plan's definition of done for a capability. "required" means it must pass on a fresh install; none has been run on one yet. |
+| Acceptance commands of merged tasks, run again on main | a run is in progress: 65 of 174 tasks so far | Whether later merges broke earlier ones. The result replaces this line when the run ends. |
+| Workflow runs on main that ended red, per day | 12 Nov: 3 red of 982 (0.3%); 13 Nov: 8 red of 2508 (0.3%) | Whether main is a base one can build on. A red run on main is a defect that reached main or a check that is not reliable. |
+| Times an executor stopped and reported a ticket or main as wrong | 23 reports on 20 tasks, against 174 merged | A stop is the system refusing to guess. Many stops for one cause point at a defect of main or of the tickets. |
+| Lines changed on main since the plan started | Product code and configuration: +121,693 −54,460; Tests: +20,018 −18,551; Checks and tooling: +22,540 −1,214; Plan, tickets and documents: +162,555 −1,807; Other: +29 −2,507 | How much of the change is the product itself. Tickets and the plan are large by nature. Generated files count too (one generated client is about 70,000 lines), and so do the release bot's version lines. |
+| Fresh install from main: did it start, how long, how many releases ready | **not measured: no environment installed from main exists** | The only proof that the merged first-boot changes work together. |
+| Acceptance suite and walk on that install | **not measured, same reason** | That a person can do the thing: the five pillars. |
+
+### The last 25 merged tasks
+
+| Merged (UTC) | Task | What it did | Pull request |
+|---|---|---|---|
+| 13 Nov 18:04 | [CLD-185](plan/tickets/CLD-185.md) | fix(cloud-init): pack seven boot files so a Hetzner render with the post-back fits its size guard | [#7485](https://github.com/openova-io/openova/pull/7485) |
+| 13 Nov 17:44 | [CLD-086](plan/tickets/CLD-086.md) | feat(providers): local provider pack module, reduced kit and its generator | [#7481](https://github.com/openova-io/openova/pull/7481) |
+| 13 Nov 17:43 | [FND-096](plan/tickets/FND-096.md) | chore: remove the withdrawn Sandbox sources and count the remaining mentions | [#7482](https://github.com/openova-io/openova/pull/7482) |
+| 13 Nov 17:43 | [FND-013](plan/tickets/FND-013.md) | ci: one aggregate check, merge-group triggers, rulesets and code owners as files | [#7480](https://github.com/openova-io/openova/pull/7480) |
+| 13 Nov 16:34 | [SOV-133](plan/tickets/SOV-133.md) | refactor(cloud-init): the boot template and the provider contract take the variables document | [#7475](https://github.com/openova-io/openova/pull/7475) |
+| 13 Nov 16:22 | [SOV-141](plan/tickets/SOV-141.md) | feat(cloud-init): each peer region posts its own handover-peer kubeconfig and the parent forwards it at hand-over | [#7474](https://github.com/openova-io/openova/pull/7474) |
+| 13 Nov 16:03 | [FND-020](plan/tickets/FND-020.md) | ci: the pin audit and the umbrella republish gate judge a pull request on the drift it adds | [#7469](https://github.com/openova-io/openova/pull/7469) |
+| 13 Nov 15:38 | [CLD-141](plan/tickets/CLD-141.md) | chore(bootstrap-kit): keep the four provider releases when Flux stops listing them | [#7466](https://github.com/openova-io/openova/pull/7466) |
+| 13 Nov 15:26 | [CLD-113](plan/tickets/CLD-113.md) | refactor(api): the mesh port and the topology front door stop naming providers | [#7459](https://github.com/openova-io/openova/pull/7459) |
+| 13 Nov 15:03 | [CTL-045](plan/tickets/CTL-045.md) | feat(contracts): publish contract C9, the mutating-route table, with its generator and router test | [#7463](https://github.com/openova-io/openova/pull/7463) |
+| 13 Nov 14:26 | [SOV-035](plan/tickets/SOV-035.md) | refactor: delete the ProvisioningState kind and its unwired store | [#7456](https://github.com/openova-io/openova/pull/7456) |
+| 13 Nov 14:26 | [CLD-142](plan/tickets/CLD-142.md) | refactor(kit): neutral storage gate storage-ready replaces the disk-driver dependencies of bp-cnpg | [#7455](https://github.com/openova-io/openova/pull/7455) |
+| 13 Nov 14:24 | [FND-018](plan/tickets/FND-018.md) | ci: the release writer never moves a version back, and the umbrella chart follows a catalogue move | [#7458](https://github.com/openova-io/openova/pull/7458) |
+| 13 Nov 14:13 | [SOV-131](plan/tickets/SOV-131.md) | refactor(providers): the modules take the variables document and the provisioner passes it | [#7452](https://github.com/openova-io/openova/pull/7452) |
+| 13 Nov 13:51 | [FND-098](plan/tickets/FND-098.md) | chore: remove one retired chart folder and one dead harness | [#7447](https://github.com/openova-io/openova/pull/7447) |
+| 13 Nov 13:12 | [CTL-150](plan/tickets/CTL-150.md) | feat(chart): install the intent lock in audit mode with guard G6 | [#7441](https://github.com/openova-io/openova/pull/7441) |
+| 13 Nov 13:11 | [CTL-040](plan/tickets/CTL-040.md) | refactor(flux): declare HelmRepository at source v1 outside the bootstrap kit | [#7442](https://github.com/openova-io/openova/pull/7442) |
+| 13 Nov 13:04 | [SOV-320](plan/tickets/SOV-320.md) | fix(stalwart-sovereign): a bounded setup job that is no install hook, reaches the admin API and takes no parent password | [#7440](https://github.com/openova-io/openova/pull/7440) |
+| 13 Nov 13:03 | [SOV-160](plan/tickets/SOV-160.md) | feat(sovereign): Harbor and Gitea create the registry projects and the platform repositories at install | [#7425](https://github.com/openova-io/openova/pull/7425) |
+| 13 Nov 12:37 | [FND-095](plan/tickets/FND-095.md) | chore(tenant): remove the Sandbox orchestrator, its grants and its cutover entries | [#7432](https://github.com/openova-io/openova/pull/7432) |
+| 13 Nov 12:21 | [NET-030](plan/tickets/NET-030.md) | chore(policy): retired names lose their policy privileges | [#7428](https://github.com/openova-io/openova/pull/7428) |
+| 13 Nov 12:21 | [CTL-035](plan/tickets/CTL-035.md) | refactor(api): move route registration out of main into one register function per concern | [#7427](https://github.com/openova-io/openova/pull/7427) |
+| 13 Nov 12:17 | [SEC-080](plan/tickets/SEC-080.md) | fix(secrets): scope the OpenBao keys of External Secrets at admission and require SEC-G07 | [#7426](https://github.com/openova-io/openova/pull/7426) |
+| 13 Nov 12:17 | [FND-099](plan/tickets/FND-099.md) | chore(chart): remove the Runbook and SecretPolicy definitions that nothing reads | [#7424](https://github.com/openova-io/openova/pull/7424) |
+| 13 Nov 11:26 | [ACC-020](plan/tickets/ACC-020.md) | docs(ledger): result of the lab test ACC-020 | [#7408](https://github.com/openova-io/openova/pull/7408) |
+
+### Merged changes a user can see
+
+Of the 174 merged tasks, 64 are documents, decisions and checks that change no running product. The tasks below change a screen. The last column says whether the change has been seen working on hw307. The record of the walk, with screenshots, is [screenshots/north-star](screenshots/north-star/README.md).
+
+| Task | What changes on the screen | Pull request | On hw307 |
+|---|---|---|---|
+| [FND-094](plan/tickets/FND-094.md) | Remove the Sandbox pages of the console | [#7181](https://github.com/openova-io/openova/pull/7181) | not proven yet |
+| [FND-097](plan/tickets/FND-097.md) | Remove the unshipped console, the one job that drives it and the tests that only target it | [#7156](https://github.com/openova-io/openova/pull/7156) | not proven yet |
+| [CLD-022](plan/tickets/CLD-022.md) | Delete the infrastructure mutation dialogs from the console | [#7366](https://github.com/openova-io/openova/pull/7366) | not proven yet |
+| [SOV-030](plan/tickets/SOV-030.md) | Wipe refuses a handed-over Sovereign without confirmation | [#7205](https://github.com/openova-io/openova/pull/7205) | not proven yet |
+| [SOV-220](plan/tickets/SOV-220.md) | The console's step list comes from the status response | [#7303](https://github.com/openova-io/openova/pull/7303) | not proven yet |
+| [NET-041](plan/tickets/NET-041.md) | Remove the firewall claims from the storefront and the console | [#7288](https://github.com/openova-io/openova/pull/7288) | **seen working, ticket closed** |
+| [NET-070](plan/tickets/NET-070.md) | Wizard shows what the provisioner builds | [#7256](https://github.com/openova-io/openova/pull/7256) | **seen working, ticket closed** |
+| [NET-072](plan/tickets/NET-072.md) | Placement selectors offer the host only | [#7245](https://github.com/openova-io/openova/pull/7245) | **seen working, ticket closed** |
+| [SVC-030](plan/tickets/SVC-030.md) | The Catalog page honours visibility and refuses what has no chart | [#7273](https://github.com/openova-io/openova/pull/7273) | not proven yet |
+| [CTL-030](plan/tickets/CTL-030.md) | Delete the endpoint pipeline and the two duplicate registrations | [#7361](https://github.com/openova-io/openova/pull/7361) | not proven yet |
+| [BSS-035](plan/tickets/BSS-035.md) | The storefront says when prices are unavailable | [#7202](https://github.com/openova-io/openova/pull/7202) | **seen working, ticket closed** |
+
+### Merged changes that show on the next fresh install
+
+| Task | What changes | Pull request |
+|---|---|---|
+| [CLD-040](plan/tickets/CLD-040.md) | Run the shared render test in CI and pin a golden render | [#7127](https://github.com/openova-io/openova/pull/7127) |
+| [CLD-070](plan/tickets/CLD-070.md) | Decision record and truthful contract documents | [#7129](https://github.com/openova-io/openova/pull/7129) |
+| [CLD-075](plan/tickets/CLD-075.md) | Generator for the provider and profile tables | [#7309](https://github.com/openova-io/openova/pull/7309) |
+| [CLD-080](plan/tickets/CLD-080.md) | Contract directory: module contract, profile schema, pack schema, conventions, two profiles | [#7297](https://github.com/openova-io/openova/pull/7297) |
+| [CLD-086](plan/tickets/CLD-086.md) | local module and reduced kit | [#7481](https://github.com/openova-io/openova/pull/7481) |
+| [CLD-113](plan/tickets/CLD-113.md) | Mesh and topology read the profile | [#7459](https://github.com/openova-io/openova/pull/7459) |
+| [CLD-141](plan/tickets/CLD-141.md) | Protect provider releases from pruning before they move | [#7466](https://github.com/openova-io/openova/pull/7466) |
+| [CLD-142](plan/tickets/CLD-142.md) | Neutral storage gate | [#7455](https://github.com/openova-io/openova/pull/7455) |
+| [CLD-185](plan/tickets/CLD-185.md) | Hetzner control-plane cloud-init with the post-back on fits the module size guard | [#7485](https://github.com/openova-io/openova/pull/7485) |
+| [SOV-130](plan/tickets/SOV-130.md) | Substrate window, part 1: modules and cloud-init take the variables document | [#7363](https://github.com/openova-io/openova/pull/7363) |
+| [SOV-131](plan/tickets/SOV-131.md) | Provider modules take the variables map of the upstream contract | [#7452](https://github.com/openova-io/openova/pull/7452) |
+| [SOV-133](plan/tickets/SOV-133.md) | The boot template and the provider contract take the variables document | [#7475](https://github.com/openova-io/openova/pull/7475) |
+| [SOV-140](plan/tickets/SOV-140.md) | Substrate window, part 2: revocable bootstrap access, peer tokens, node artifacts from the registry | [#7406](https://github.com/openova-io/openova/pull/7406) |
+| [SOV-141](plan/tickets/SOV-141.md) | Each peer region gets its own handover-peer token, given to the primary once at hand-over | [#7474](https://github.com/openova-io/openova/pull/7474) |
+| [SOV-160](plan/tickets/SOV-160.md) | Registry projects, the Organization Git token and the two repositories are created at install | [#7425](https://github.com/openova-io/openova/pull/7425) |
+| [SEC-020](plan/tickets/SEC-020.md) | Random k3s server token and separate agent token | [#7178](https://github.com/openova-io/openova/pull/7178) |
+| [SEC-030](plan/tickets/SEC-030.md) | etcd encryption on at first boot | [#7400](https://github.com/openova-io/openova/pull/7400) |
+| [NET-010](plan/tickets/NET-010.md) | Close peer and stale ports on the reference provider | [#7195](https://github.com/openova-io/openova/pull/7195) |
+| [NET-020](plan/tickets/NET-020.md) | Disable the k3s kube-proxy | [#7302](https://github.com/openova-io/openova/pull/7302) |
+| [NET-031](plan/tickets/NET-031.md) | Stop reflecting the object-storage Secret to retired namespaces | [#7103](https://github.com/openova-io/openova/pull/7103) |
+| [NET-100](plan/tickets/NET-100.md) | Network registry output and validator | [#7318](https://github.com/openova-io/openova/pull/7318) |
+| [SVC-060](plan/tickets/SVC-060.md) | Function-test convention and the data charts | [#7401](https://github.com/openova-io/openova/pull/7401) |
+| [CMP-036](plan/tickets/CMP-036.md) | Kit slot 27a: values document, hand-over variable, definitions on upgrade | [#7277](https://github.com/openova-io/openova/pull/7277) |
+
+A further 76 merged tasks change a running service without a screen of their own; they are proven by a test on the environment.
+
+
+
 ## What was built before the baseline
 
 This is the ground the plan stands on. It is measured from the repository.
