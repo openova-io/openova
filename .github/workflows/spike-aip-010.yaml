@@ -1,0 +1,117 @@
+# Lab test AIP-010 (spike branch only, never merged).
+# Question: does agentgateway, the named model gateway, meet the model contract
+# on this platform? The newest agentgateway release at least 14 days old
+# (v1.7.0, published 2026-10-27) is installed from its upstream charts by a
+# Flux HelmRelease onto one k3s node with Cilium, under the platform's own
+# baseline policies (platform/kyverno-policies, bootstrapMode=false). A
+# scripted backend and a key-set server run as throwaway pods. Tests T1-T8 form
+# the pass rule; T9-T14 are informative.
+#
+# Two legs: "platform" uses the versions Sovereigns run today (k3s v1.31.4,
+# Gateway API CRDs v1.3.0 from bp-gateway-api); "supported" uses the lowest
+# Kubernetes minor and the Gateway API release that agentgateway 1.7 lists as
+# supported (k3s v1.32.13, Gateway API v1.6.3).
+#
+# No cloud account, no secret, no cluster outside this job, no NodePort: the
+# gateway Service is ClusterIP and test traffic goes from the node to ClusterIPs.
+name: spike-aip-010
+
+on:
+  push:
+    branches: [spike/AIP-010]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spike-aip-010
+  cancel-in-progress: false
+
+jobs:
+  gateway-proof:
+    name: gateway proof (${{ matrix.leg }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 130
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - leg: platform
+            k3s: v1.31.4+k3s1
+            gwapi: chart
+            gwapi_label: v1.3.0 experimental (platform/gateway-api chart)
+          - leg: supported
+            k3s: v1.32.13+k3s1
+            gwapi: v1.6.3
+            gwapi_label: v1.6.3 standard
+    env:
+      LEG: ${{ matrix.leg }}
+      K3S_VERSION: ${{ matrix.k3s }}
+      GWAPI: ${{ matrix.gwapi }}
+      GWAPI_LABEL: ${{ matrix.gwapi_label }}
+      CILIUM_VERSION: 1.19.3
+      FLUX_VERSION: v2.4.0
+      KYVERNO_CHART: 3.8.0
+      AGW_VERSION: v1.7.0
+      KUBECTL_VERSION: v1.32.13
+      HELM_VERSION: v3.16.3
+      KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      OUT: ${{ github.workspace }}/.spike/out/${{ matrix.leg }}
+      PY: ${{ github.workspace }}/.spike/venv/bin/python
+      SPIKE: tests/spikes/AIP-010/run.sh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Tools (kubectl ${{ env.KUBECTL_VERSION }}, Python venv with cryptography and PyYAML)
+        run: |
+          set -euo pipefail
+          sudo curl -fsSL -o /usr/local/bin/kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          sudo chmod +x /usr/local/bin/kubectl
+          python3 -m venv .spike/venv
+          .spike/venv/bin/pip install -q cryptography==43.0.3 PyYAML==6.0.2
+          helm version; kubectl version --client; jq --version; docker version --format '{{.Server.Version}}'
+          nproc; free -g; df -h /
+
+      - name: Setup - k3s ${{ matrix.k3s }}, Gateway API ${{ matrix.gwapi }}, Cilium, Flux, Kyverno and the baseline policies
+        timeout-minutes: 30
+        run: bash "$SPIKE" setup
+
+      - name: T1 - install agentgateway under the baseline policies (rounds A, B and exceptions)
+        if: always()
+        timeout-minutes: 40
+        run: bash "$SPIKE" install
+
+      - name: Scaffold - key-set server and scripted backend
+        if: always()
+        timeout-minutes: 6
+        run: bash "$SPIKE" scaffold
+
+      - name: Configure - aliases, token policy, identity headers, timeouts, virtual keys
+        if: always()
+        timeout-minutes: 5
+        run: bash "$SPIKE" configure
+
+      - name: T2-T14 - probe the gateway (T7 waits 600 s)
+        if: always()
+        timeout-minutes: 35
+        run: bash "$SPIKE" probe
+
+      - name: Results
+        if: always()
+        run: bash "$SPIKE" results
+
+      - name: Diagnostics
+        if: always()
+        run: bash "$SPIKE" diag
+
+      - name: Evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aip-010-evidence-${{ matrix.leg }}
+          path: .spike/out/
+          if-no-files-found: warn
