@@ -1,0 +1,10 @@
+# Value written into the ConfigMap the chart installs.
+greeting: hello
+# Changing marker forces a new Helm revision without changing the test.
+marker: "1"
+functionTest:
+  # false renders no test hook (the "none" case of the proof record).
+  enabled: true
+  # The test passes only when the ConfigMap holds this value.
+  expect: hello
+image: busybox:1.36

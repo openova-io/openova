@@ -1,0 +1,10 @@
+apiVersion: v2
+name: spike-fn
+description: >-
+  Lab chart for spike SVC-120. It installs one ConfigMap and ships one
+  function-test hook Pod in the shape of the function-test contract. The
+  test reads the ConfigMap back and passes only when the value matches
+  functionTest.expect, so one chart gives a passing and a failing release.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-data
+  annotations:
+    spike.openova.io/marker: {{ .Values.marker | quote }}
+data:
+  greeting: {{ .Values.greeting | quote }}

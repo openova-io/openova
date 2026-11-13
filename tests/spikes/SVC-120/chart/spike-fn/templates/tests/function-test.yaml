@@ -1,0 +1,39 @@
+{{- if .Values.functionTest.enabled }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+  labels:
+    catalyst.openova.io/function-test: "true"
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 300
+  containers:
+    - name: function-test
+      image: {{ .Values.image }}
+      env:
+        - name: EXPECT
+          value: {{ .Values.functionTest.expect | quote }}
+      command:
+        - sh
+        - -c
+        - |
+          got="$(cat /data/greeting)"
+          if [ "$got" = "$EXPECT" ]; then
+            echo "FUNCTION-TEST pass spike-fn read back greeting=$got"
+            exit 0
+          fi
+          echo "FUNCTION-TEST fail spike-fn expected=$EXPECT got=$got"
+          exit 1
+      volumeMounts:
+        - name: data
+          mountPath: /data
+          readOnly: true
+  volumes:
+    - name: data
+      configMap:
+        name: {{ .Release.Name }}-data
+{{- end }}

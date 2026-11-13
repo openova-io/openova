@@ -1,0 +1,166 @@
+# Four HelmReleases in the shape of a bootstrap-kit slot: object in
+# flux-system, releaseName + targetNamespace, OCI HelmRepository,
+# install/upgrade timeout 15m, disableWait, install retries -1,
+# upgrade retries 3. Only spec.test and the values differ.
+#
+#   spike-pass         test.enable + ignoreFailures, hook passes
+#   spike-fail         test.enable + ignoreFailures, hook fails
+#   spike-none         test.enable + ignoreFailures, chart renders no hook
+#   spike-fail-strict  test.enable only (control), hook fails
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: spike-charts
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://registry.spike-registry.svc.cluster.local:5000/charts
+  insecure: true
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: spike-pass
+  namespace: flux-system
+  labels:
+    spike.openova.io/svc-120: "true"
+spec:
+  interval: 15m
+  releaseName: spike-pass
+  targetNamespace: spikes
+  chart:
+    spec:
+      chart: spike-fn
+      version: 0.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: spike-charts
+        namespace: flux-system
+  install:
+    timeout: 15m
+    disableWait: true
+    createNamespace: true
+    remediation:
+      retries: -1
+  upgrade:
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 3
+  test:
+    enable: true
+    ignoreFailures: true
+  values:
+    functionTest:
+      expect: hello
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: spike-fail
+  namespace: flux-system
+  labels:
+    spike.openova.io/svc-120: "true"
+spec:
+  interval: 15m
+  releaseName: spike-fail
+  targetNamespace: spikes
+  chart:
+    spec:
+      chart: spike-fn
+      version: 0.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: spike-charts
+        namespace: flux-system
+  install:
+    timeout: 15m
+    disableWait: true
+    createNamespace: true
+    remediation:
+      retries: -1
+  upgrade:
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 3
+  test:
+    enable: true
+    ignoreFailures: true
+  values:
+    functionTest:
+      expect: not-the-value
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: spike-none
+  namespace: flux-system
+  labels:
+    spike.openova.io/svc-120: "true"
+spec:
+  interval: 15m
+  releaseName: spike-none
+  targetNamespace: spikes
+  chart:
+    spec:
+      chart: spike-fn
+      version: 0.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: spike-charts
+        namespace: flux-system
+  install:
+    timeout: 15m
+    disableWait: true
+    createNamespace: true
+    remediation:
+      retries: -1
+  upgrade:
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 3
+  test:
+    enable: true
+    ignoreFailures: true
+  values:
+    functionTest:
+      enabled: false
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: spike-fail-strict
+  namespace: flux-system
+  labels:
+    spike.openova.io/svc-120: "true"
+spec:
+  interval: 15m
+  releaseName: spike-fail-strict
+  targetNamespace: spikes
+  chart:
+    spec:
+      chart: spike-fn
+      version: 0.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: spike-charts
+        namespace: flux-system
+  install:
+    timeout: 15m
+    disableWait: true
+    createNamespace: true
+    remediation:
+      retries: -1
+  upgrade:
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 3
+  test:
+    enable: true
+  values:
+    functionTest:
+      expect: not-the-value

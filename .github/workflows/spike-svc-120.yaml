@@ -1,0 +1,82 @@
+# Spike SVC-120 (lab test, never merged): does the pinned Flux helm-controller,
+# with `spec.test.enable: true` + `ignoreFailures: true`, record test-hook
+# phases in `status.history[].testHooks` and leave `Ready` untouched when a
+# hook fails?
+#
+# Runs only on a push to the spike branch. Everything happens inside a kind
+# cluster in this job: no cloud account, no secret, no cluster outside CI.
+name: spike-svc-120
+
+on:
+  push:
+    branches: [spike/SVC-120]
+
+permissions:
+  contents: read
+
+jobs:
+  hooks-and-ready:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      FLUX_VERSION: v2.4.0
+      KIND_VERSION: v0.25.0
+      KIND_NODE_IMAGE: kindest/node:v1.30.6
+      HELM_VERSION: v3.16.3
+      OUT: ${{ github.workspace }}/out
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up kind
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: svc120
+          version: ${{ env.KIND_VERSION }}
+          node_image: ${{ env.KIND_NODE_IMAGE }}
+
+      - name: Set up helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Tool versions
+        run: |
+          kind version
+          kubectl version
+          helm version
+          jq --version
+          python3 --version
+
+      - name: Run the experiment
+        run: bash tests/spikes/SVC-120/run.sh
+
+      - name: Evaluate
+        if: always()
+        run: |
+          set -o pipefail
+          python3 tests/spikes/SVC-120/measure.py evaluate --dir "$OUT" | tee "$OUT/evaluate.txt"
+          cat "$OUT/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Evidence (printed so the job log carries it)
+        if: always()
+        run: |
+          for f in images.txt flux-version.txt helmrelease-crd-versions.txt \
+                   A-table.txt B-table.txt C-table.txt test-pods.txt \
+                   test-pod-logs.txt helm-status.txt helmrelease-events.txt \
+                   watch.jsonl; do
+            echo "::group::$f"
+            cat "$OUT/$f" 2>/dev/null || echo "(missing)"
+            echo "::endgroup::"
+          done
+          echo "::group::helm-controller.log (spike releases only)"
+          grep -E 'spike-(pass|fail|none|fail-strict)' "$OUT/helm-controller.log" | tail -n 200 || true
+          echo "::endgroup::"
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spike-svc-120-evidence
+          path: out/
+          retention-days: 90
