@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T12:30:08Z` |
+| Last refreshed | `2026-11-13T12:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T12:31 | [#7439](https://github.com/openova-io/openova/pull/7439) | #7087 | docs(ledger): plan update |
+| 2026-11-13T12:37 | [#7432](https://github.com/openova-io/openova/pull/7432) | #7420 | chore(tenant): remove the Sandbox orchestrator, its grants a |
+| 2026-11-13T12:36 | [#7431](https://github.com/openova-io/openova/pull/7431) | #7425 | fix(ci): four workflows install Helm 3.16.3 instead of 3.16. |
 | 2026-11-13T12:21 | [#7428](https://github.com/openova-io/openova/pull/7428) | #7095 | chore(policy): retired names lose their policy privileges (N |
 | 2026-11-13T12:21 | [#7427](https://github.com/openova-io/openova/pull/7427) | #7419 | refactor(api): move route registration out of main into one  |
 | 2026-11-13T12:17 | [#7426](https://github.com/openova-io/openova/pull/7426) | #7422 | fix(secrets): scope the OpenBao keys of External Secrets at  |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-13T10:03 | [#7398](https://github.com/openova-io/openova/pull/7398) | #7087 | docs(ledger): plan update |
 | 2026-11-13T09:41 | [#7397](https://github.com/openova-io/openova/pull/7397) | #7384 | feat(fingate): add the sandbox ledger, a test bank that serv |
 | 2026-11-13T09:30 | [#7393](https://github.com/openova-io/openova/pull/7393) | #7087 | docs(ledger): plan update |
-| 2026-11-13T09:29 | [#7392](https://github.com/openova-io/openova/pull/7392) | #7087 | docs(ledger): result of the lab test NET-290 (NET-290) |
-| 2026-11-13T09:29 | [#7391](https://github.com/openova-io/openova/pull/7391) | #7087 | docs(ledger): result of the lab test SOV-090 (SOV-090) |
-| 2026-11-13T09:33 | [#7390](https://github.com/openova-io/openova/pull/7390) | #7363 | fix(provisioner): the cloud-init test follows the variables  |
 
 ---
 
