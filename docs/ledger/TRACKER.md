@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T00:00:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-13T00:15:02Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,14 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6501](https://github.com/openova-io/openova/issues/6501) | FUNNEL/agenity: funnel door omits the openova-MCP bearer + RS256 verify-pubkey w | Other |
-| [#6506](https://github.com/openova-io/openova/issues/6506) | PIN storm residual: MultiSubscriber MaxDeliver:-1 still redelivers a doomed app_ | Other |
-| [#6508](https://github.com/openova-io/openova/issues/6508) | fresh-prov Flux bootstrap stalls ~1h: unauthenticated openova GitRepository clon | Other |
-| [#6509](https://github.com/openova-io/openova/issues/6509) | per-Org console login still 400s on fresh prov: #6504 mid-host wildcard console. | Other |
-| [#6511](https://github.com/openova-io/openova/issues/6511) | cutover step-01 gitea-mirror halts with DeadlineExceeded on the ~470MB monorepo  | Other |
-| [#6573](https://github.com/openova-io/openova/issues/6573) | reset-uat.py carry-forward silently no-ops on HTML UAT.md (scans raw HTML with a | Other |
-| [#6582](https://github.com/openova-io/openova/issues/6582) | bp-postgres@0.2.23 HR upgrade times out (context deadline exceeded) → 16-app c | Other |
-| [#6627](https://github.com/openova-io/openova/issues/6627) | Singleton shared-pg netpol: region-B keycloak cross-mesh :5432 DROP → JDBC acq | Other |
 | [#6629](https://github.com/openova-io/openova/issues/6629) | Customer-org (vcluster/plan-M) provisioning wedges at bp_charts_installed — CN | Other |
 | [#6645](https://github.com/openova-io/openova/issues/6645) | cutover step-01 wedge on hw305: #6490 secondary-region gitea-mirror push fails ' | Other |
 | [#6695](https://github.com/openova-io/openova/issues/6695) | dashboard(treemap): converged Sovereign defaults to real resource/health map, no | Other |
@@ -300,6 +292,14 @@ flowchart LR
 | [#7217](https://github.com/openova-io/openova/issues/7217) | SEC-006 Decision record 0018: secrets and trust | Other |
 | [#7218](https://github.com/openova-io/openova/issues/7218) | SEC-071 Ratchet on passwords the provisioning service writes to Git | Other |
 | [#7219](https://github.com/openova-io/openova/issues/7219) | SEC-110 Truth in the security documents | Other |
+| [#7231](https://github.com/openova-io/openova/issues/7231) | INF-070 Decision record for the infrastructure plane | Other |
+| [#7232](https://github.com/openova-io/openova/issues/7232) | NET-041 Remove the firewall claims from the storefront and the console | Other |
+| [#7233](https://github.com/openova-io/openova/issues/7233) | NET-052 Decision record 0026: NodePort ban and the gateway serving model | Other |
+| [#7234](https://github.com/openova-io/openova/issues/7234) | NET-070 Wizard shows what the provisioner builds | Other |
+| [#7235](https://github.com/openova-io/openova/issues/7235) | NET-072 Placement selectors offer the host only | Other |
+| [#7236](https://github.com/openova-io/openova/issues/7236) | PRD-010 Remove the unbacked open-banking claims from the Keycloak README | Other |
+| [#7237](https://github.com/openova-io/openova/issues/7237) | PRD-020 Decision record: later products | Other |
+| [#7238](https://github.com/openova-io/openova/issues/7238) | SOV-040 Guard G1: source-address ratchet | Other |
 
 ---
 
@@ -307,11 +307,16 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T00:14 | [#7243](https://github.com/openova-io/openova/pull/7243) | #7087 | docs(ledger): plan update: next tickets |
+| 2026-11-13T00:15 | [#7241](https://github.com/openova-io/openova/pull/7241) | #7116 | chore(ci): guard that the API handler package and main only  |
+| 2026-11-13T00:03 | [#7230](https://github.com/openova-io/openova/pull/7230) | #7087 | docs(ledger): plan update: five tickets rewritten, one order |
+| 2026-11-13T00:00 | [#7229](https://github.com/openova-io/openova/pull/7229) | #7212 | docs(adr): record 0024 on the move of the primary substrate  |
 | 2026-11-12T23:50 | [#7228](https://github.com/openova-io/openova/pull/7228) | #7217 | docs(adr): record 0018 on secrets and trust (SEC-006) |
 | 2026-11-12T23:50 | [#7227](https://github.com/openova-io/openova/pull/7227) | #4249 | fix(provisioning): the funnel installs bp-openclaw 0.2.20, t |
 | 2026-11-12T23:41 | [#7226](https://github.com/openova-io/openova/pull/7226) | #7211 | chore(ci): ratchets of the billing area at their current val |
 | 2026-11-12T23:41 | [#7224](https://github.com/openova-io/openova/pull/7224) | #7216 | ci: Trivy vulnerability and secret scan, new findings only ( |
 | 2026-11-12T23:40 | [#7223](https://github.com/openova-io/openova/pull/7223) | #7214 | ci: hold the legacy Kyverno policy count and forbid the upgr |
+| 2026-11-13T00:00 | [#7221](https://github.com/openova-io/openova/pull/7221) | #7218 | test(provisioning): ratchet the password literals the genera |
 | 2026-11-12T23:40 | [#7220](https://github.com/openova-io/openova/pull/7220) | #7213 | docs(adr): record 0029 on the compliance plane (CMP-005) |
 | 2026-11-12T23:21 | [#7208](https://github.com/openova-io/openova/pull/7208) | #7087 | docs(ledger): plan update: next tickets, one ordering |
 | 2026-11-12T23:06 | [#7207](https://github.com/openova-io/openova/pull/7207) | #7188 | ci: add the provider-leak scanner with a falling baseline (C |
@@ -332,11 +337,6 @@ flowchart LR
 | 2026-11-12T21:06 | [#7178](https://github.com/openova-io/openova/pull/7178) | #7174 | fix(infra): random k3s server token and a separate agent tok |
 | 2026-11-12T21:04 | [#7177](https://github.com/openova-io/openova/pull/7177) | #7171 | chore(ci): guard that the machine plane gains no unsafe patt |
 | 2026-11-12T21:05 | [#7176](https://github.com/openova-io/openova/pull/7176) | #7173 | chore(ci): guard the AI-hub charts at their current values ( |
-| 2026-11-12T20:31 | [#7164](https://github.com/openova-io/openova/pull/7164) | #7087 | docs(ledger): plan update: nine more tickets |
-| 2026-11-12T20:12 | [#7163](https://github.com/openova-io/openova/pull/7163) | #7140 | docs(adr): record 0028 on commerce and billing, superseding  |
-| 2026-11-12T20:06 | [#7162](https://github.com/openova-io/openova/pull/7162) | #7146 | ci: console lint ratchet; remove the switched-off console su |
-| 2026-11-12T20:06 | [#7161](https://github.com/openova-io/openova/pull/7161) | #7149 | docs(adr): record the zone model, the withdrawn zone trial a |
-| 2026-11-12T19:48 | [#7160](https://github.com/openova-io/openova/pull/7160) | #7087 | docs(ledger): dashboard refreshed: 27 tasks delivered |
 
 ---
 
