@@ -1,0 +1,11 @@
+path "sys/policies/acl/*" { capabilities = ["create", "read", "update", "list"] }
+path "sys/policy/*" { capabilities = ["create", "read", "update", "list"] }
+path "sys/auth" { capabilities = ["read"] }
+path "sys/auth/*" { capabilities = ["create", "read", "update", "sudo"] }
+path "sys/mounts" { capabilities = ["read"] }
+path "auth/+/role/*" { capabilities = ["create", "read", "update", "list"] }
+path "auth/+/role/openbao-config-admin" { capabilities = ["read"] }
+path "auth/+/config" { capabilities = ["create", "read", "update"] }
+path "identity/oidc/*" { capabilities = ["create", "read", "update", "list"] }
+path "sys/mounts/secret" { capabilities = ["create", "update"] }
+path "sys/mounts/mounted" { capabilities = ["create", "update"] }

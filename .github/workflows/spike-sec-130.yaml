@@ -1,0 +1,80 @@
+# Lab test SEC-130 (spike branch only, never merged).
+# Measures, on a throwaway kind cluster inside this job, OpenBao 2.7.2 on the
+# upstream chart 0.30.7 with a static seal read from a node directory,
+# self-initialisation and a declared audit device (step 1); the declarative
+# reconciler of bp-openbao against it (step 2); a templated policy with the
+# real auth accessor (step 3); the upgrade path from the release today's
+# bp-openbao runs, Shamir 1 of 1, and the seal migration (step 4); what the
+# old key can still do after migration and the authenticated recovery-key
+# rotation (step 5); External Secrets 0.10.7 PushSecret IfNotExists through
+# the peer JWT store (step 6). No cloud, no secret, no Service of type
+# NodePort; HTTP probes go through kubectl port-forward.
+name: spike-sec-130
+
+on:
+  push:
+    branches: [spike/SEC-130]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spike-sec-130
+  cancel-in-progress: false
+
+jobs:
+  measure:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
+    env:
+      KIND_VERSION: v0.29.0
+      KIND_NODE_IMAGE: kindest/node:v1.33.1
+      SPIKE: tests/spikes/SEC-130/run.sh
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cluster (kind ${{ env.KIND_VERSION }}, ${{ env.KIND_NODE_IMAGE }}) and chart repositories
+        timeout-minutes: 10
+        run: bash "$SPIKE" setup
+
+      - name: Step 1 fresh path - static seal, self-initialisation, audit, unseal time
+        if: always()
+        timeout-minutes: 18
+        run: bash "$SPIKE" step1
+
+      - name: Step 2 reconciler logs in, applies today's desired state, writes its own policy
+        if: always()
+        timeout-minutes: 8
+        run: bash "$SPIKE" step2
+
+      - name: Step 3 templated policy with the real accessor
+        if: always()
+        timeout-minutes: 5
+        run: bash "$SPIKE" step3
+
+      - name: Step 4 upgrade from today's release (Shamir 1 of 1) and seal migration
+        if: always()
+        timeout-minutes: 30
+        run: bash "$SPIKE" step4
+
+      - name: Step 5 old key after migration; authenticated recovery-key rotation
+        if: always()
+        timeout-minutes: 6
+        run: bash "$SPIKE" step5
+
+      - name: Step 6 External Secrets 0.10.7 PushSecret IfNotExists through the peer JWT store
+        if: always()
+        timeout-minutes: 15
+        run: bash "$SPIKE" step6
+
+      - name: Results
+        if: always()
+        run: bash "$SPIKE" results
+
+      - name: Evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sec-130-evidence
+          path: .spike/out/
+          if-no-files-found: warn
