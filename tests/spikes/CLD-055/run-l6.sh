@@ -36,7 +36,7 @@ if [ "$BOOT_OK" != yes ]; then
   result "L6 verdict=fail reason=boot-failed"
   exit 0
 fi
-for m in $MS; do export_kubeconfig "$m"; done
+for m in $MS; do export_kubeconfig "$m"; start_net_monitor "$m"; done
 # shellcheck disable=SC2086
 wait $PIDS
 for m in $MS; do cat "$OUT/hold-$m.log"; done
@@ -73,6 +73,7 @@ for m in $MS; do
   if [ -n "${READY_AT[$m]:-}" ]; then RS=$(( READY_AT[$m] - T_KIT )); else RS=none; fi
   if [ "$RS" = none ] || [ "$RS" -gt "$LIMIT" ]; then L6=fail; fi
   result "L6 cluster=$m kit_ready_s=$RS hr_total=$(wc -l < "$OUT/l6-hr-$m.txt") hr_ready=$(awk '$2=="True"' "$OUT/l6-hr-$m.txt" | wc -l) suspended=\"$(awk '$2=="suspended"{printf "%s ", $1}' "$OUT/l6-hr-$m.txt")\" not_ready=\"$(awk '$2!="True" && $2!="suspended"{printf "%s(%s,%s) ", $1, $2, $3}' "$OUT/l6-hr-$m.txt")\" machine_mem_peak_mib=$(container_mem_peak_mib "$m") top3=\"$(head -3 "$OUT/l6-top-namespaces-$m.txt" | awk '{printf "%s=%dMi ", $2, $1}')\""
+  result "L6 network cluster=$m machine_egress_first_failure=$(F=$(first_egress_failure "$m" "$T_KIT"); [ "$F" = never ] && echo never || echo "$(( F - T_KIT ))s") runner_to_apiserver_now=$(runner_apiserver_probe "$m") lb_services=\"$(lb_evidence "$m" | tr '\n' ' ')\""
 done
 [ "$OOM" = 0 ] || L6=fail
 result "L6 verdict=$L6 limit_s=$LIMIT observed_s=$(( T_END - T_KIT )) peak_host_used_mib=$PEAK peak_swap_used_mib=$SWAP mem_total_mib=$(mem_total_mib) oom_kills=$OOM"

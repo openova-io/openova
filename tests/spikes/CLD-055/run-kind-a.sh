@@ -58,6 +58,7 @@ if [ "$L1" != pass ]; then
   exit 0
 fi
 export_kubeconfig "$M"
+start_net_monitor "$M"
 wait "$HOLD_PID"
 cat "$OUT/hold-$M.log"
 kc "$M" get nodes -o wide
@@ -103,8 +104,12 @@ T_KIT=$(now); echo "$T_KIT" > "$OUT/kit-start-$M.epoch"
 start_kit "$M" kit-l3
 wire_object_store "$M" > "$OUT/objstore-$M.log" 2>&1 &
 KIT_READY=""
-while [ $(( $(now) - T_KIT )) -lt "$L3_LIMIT" ]; do
+L3_OBSERVE=3600   # past the limit, only to record a late convergence
+while [ $(( $(now) - T_KIT )) -lt "$L3_OBSERVE" ]; do
   if kit_ready "$M"; then KIT_READY=$(now); break; fi
+  if [ $(( $(now) - T_KIT )) -ge "$L3_LIMIT" ] && [ ! -f "$OUT/l3-hr-at-limit.txt" ]; then
+    hr_lines "$M" > "$OUT/l3-hr-at-limit.txt"; top_namespaces "$M" > "$OUT/l3-top-at-limit.txt"
+  fi
   if [ $(( ( $(now) - T_KIT ) % 120 )) -lt 15 ]; then
     log "L3 t=$(( $(now) - T_KIT ))s HR ready $(hr_lines "$M" | awk '$2=="True"' | wc -l)/$(hr_lines "$M" | wc -l), host used $(tail -1 "$OUT/mem.txt" | awk '{print $2}') MiB"
   fi
@@ -121,8 +126,9 @@ for i in json.load(sys.stdin)["items"]:
 HEAVY=$(awk 'NR==FNR{rel[$1]=(rel[$1]?rel[$1]"+":"")$2; next} ($2 in rel){printf "%s=%dMi ", rel[$2], $1; n++} n==3{exit}' "$OUT/l3-hr-ns.txt" "$OUT/l3-top-namespaces.txt")
 NOT_READY=$(awk '$2!="True"{printf "%s(%s,%s) ", $1, $2, $3}' "$OUT/l3-hr.txt")
 OOM=$(oom_kills)
-if [ -n "$KIT_READY" ] && [ "$OOM" = 0 ]; then L3=pass; else L3=fail; fi
-result "L3 verdict=$L3 kit_ready_s=$([ -n "$KIT_READY" ] && echo $(( KIT_READY - T_KIT )) || echo "not-ready-at-$L3_LIMIT") hr_total=$(wc -l < "$OUT/l3-hr.txt") hr_ready=$(awk '$2=="True"' "$OUT/l3-hr.txt" | wc -l) hr_present_before_kit=$HR_BEFORE peak_host_used_mib=$PEAK peak_swap_used_mib=$SWAP mem_total_mib=$(mem_total_mib) machine_mem_peak_mib=$(container_mem_peak_mib "$M") oom_kills=$OOM heaviest=\"$HEAVY\" not_ready=\"$NOT_READY\""
+if [ -n "$KIT_READY" ] && [ $(( KIT_READY - T_KIT )) -le "$L3_LIMIT" ] && [ "$OOM" = 0 ]; then L3=pass; else L3=fail; fi
+result "L3 verdict=$L3 limit_s=$L3_LIMIT kit_ready_s=$([ -n "$KIT_READY" ] && echo $(( KIT_READY - T_KIT )) || echo "not-ready-at-$L3_OBSERVE") not_ready_at_limit=\"$(awk '$2!="True"{printf "%s ", $1}' "$OUT/l3-hr-at-limit.txt" 2>/dev/null)\" hr_total=$(wc -l < "$OUT/l3-hr.txt") hr_ready=$(awk '$2=="True"' "$OUT/l3-hr.txt" | wc -l) hr_present_before_kit=$HR_BEFORE peak_host_used_mib=$PEAK peak_swap_used_mib=$SWAP mem_total_mib=$(mem_total_mib) machine_mem_peak_mib=$(container_mem_peak_mib "$M") oom_kills=$OOM heaviest=\"$HEAVY\" not_ready=\"$NOT_READY\""
+result "L3 network machine_egress_first_failure=$(F=$(first_egress_failure "$M" "$T_KIT"); [ "$F" = never ] && echo never || echo "$(( F - T_KIT ))s") runner_to_apiserver_now=$(runner_apiserver_probe "$M") lb_services=\"$(lb_evidence "$M" | tr '\n' ' ')\""
 cat "$OUT/objstore-$M.log" 2>/dev/null
 kc "$M" get storageclass
 
@@ -152,7 +158,7 @@ else
     sleep 10
   done
   python3 "$SPIKE_DIR/l4/workspace.py" "$SPIKE_DIR/l4" > "$OUT/l4-workspace.json"
-  kc "$M" apply -f "$OUT/l4-workspace.json"
+  kc "$M" apply -f - < "$OUT/l4-workspace.json"
   T_WS=$(now)
   WS=""; RUN=""
   for _ in $(seq 1 90); do

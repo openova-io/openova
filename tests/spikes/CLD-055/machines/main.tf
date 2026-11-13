@@ -18,7 +18,7 @@ provider "docker" {
 }
 
 variable "shape" {
-  description = "single = one control plane (L1, L3, L4, L7); two-region = two control planes (L6)."
+  description = "single = one control plane (L1, L3, L4, L7); two-region = two control planes (L6); diag = one control plane whose external address is its own (root cause of run 43358110034)."
   type        = string
   default     = "single"
 }
@@ -35,11 +35,15 @@ variable "registry_mirror_yaml" {
 locals {
   subnet  = "172.30.0.0/24"
   gateway = "172.30.0.1"
-  machines = var.shape == "single" ? {
-    "cp-a" = { ip = "172.30.0.10", region_index = -1 }
+  # ext: the address the Huawei branch treats as the node's EIP. Like an EIP
+  # it is not on any interface of the machine (documentation range).
+  machines = var.shape == "two-region" ? {
+    "cp-a" = { ip = "172.30.0.10", ext = "198.51.100.10", region_index = 0 }
+    "cp-b" = { ip = "172.30.0.20", ext = "198.51.100.20", region_index = 1 }
+    } : var.shape == "diag" ? {
+    "cp-a" = { ip = "172.30.0.10", ext = "172.30.0.10", region_index = -1 }
     } : {
-    "cp-a" = { ip = "172.30.0.10", region_index = 0 }
-    "cp-b" = { ip = "172.30.0.20", region_index = 1 }
+    "cp-a" = { ip = "172.30.0.10", ext = "198.51.100.10", region_index = -1 }
   }
 }
 
@@ -48,6 +52,7 @@ module "render" {
   for_each = local.machines
 
   node_ip                 = each.value.ip
+  external_ip             = each.value.ext
   two_region_index        = each.value.region_index
   object_storage_endpoint = "http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333"
   catalyst_api_url        = "http://${local.gateway}:8089"

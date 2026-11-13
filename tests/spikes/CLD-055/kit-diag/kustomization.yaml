@@ -1,0 +1,8 @@
+# CLD-055 spike, diagnosis of run 43358110034: only the Cilium slots
+# (01a-gateway-api, 01-cilium), on a machine whose external address is its
+# own interface address.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../../../clusters/_template/bootstrap-kit/01a-gateway-api.yaml
+  - ../../../../clusters/_template/bootstrap-kit/01-cilium.yaml

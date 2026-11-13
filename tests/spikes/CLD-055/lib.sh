@@ -14,8 +14,44 @@ result() { echo "CLD055-RESULT $*" | tee -a "$OUT/results.txt"; }
 # kubectl inside a machine (works before the kubeconfig is copied out).
 kin() { local m=$1; shift; docker exec "cld055-$m" kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml "$@"; }
 
-# kubectl from the runner against a machine's apiserver.
-kc() { local m=$1; shift; kubectl --kubeconfig "$OUT/kubeconfig-$m" --request-timeout=20s "$@"; }
+# kubectl for the measurements. It runs inside the machine against
+# 127.0.0.1:6443, so a measurement never depends on the runner reaching the
+# machine (in run 43358110034 the runner's own kubectl timed out; see
+# runner_apiserver_probe for that path, measured on its own).
+kc() { local m=$1; shift; docker exec -i "cld055-$m" kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml --request-timeout=20s "$@"; }
+
+# The runner's view of the machine's apiserver (what CI tooling would use).
+runner_apiserver_probe() {
+  kubectl --kubeconfig "$OUT/kubeconfig-$1" --request-timeout=10s get --raw /readyz >/dev/null 2>&1 && echo ok || echo fail
+}
+
+# The machine's own TCP egress, from the machine (its container runtime pulls
+# images this way). Prints the HTTP code or 000.
+machine_egress_probe() {
+  docker exec "cld055-$1" curl -s -o /dev/null -w '%{http_code}' --max-time 10 https://quay.io/v2/ 2>/dev/null || echo 000
+}
+
+# Background monitor: one line per minute, "epoch egress_code runner_apiserver".
+start_net_monitor() {
+  local m=$1
+  ( while true; do
+      echo "$(date +%s) $(machine_egress_probe "$m") $(runner_apiserver_probe "$m")" >> "$OUT/net-$m.txt"
+      sleep 60
+    done ) >/dev/null 2>&1 &
+}
+
+# First epoch at which the machine's egress failed, or "never".
+first_egress_failure() {
+  awk -v a="$2" '$1>=a && $2=="000" {print $1; f=1; exit} END {if (!f) print "never"}' "$OUT/net-$1.txt" 2>/dev/null
+}
+
+# LoadBalancer Services, their addresses, and the LB-IPAM pools.
+lb_evidence() {
+  local m=$1
+  kc "$m" get svc -A -o jsonpath='{range .items[?(@.spec.type=="LoadBalancer")]}{.metadata.namespace}/{.metadata.name}={.status.loadBalancer.ingress[*].ip}:{.spec.ports[*].port}{" "}{end}' 2>/dev/null
+  echo
+  kc "$m" get ciliumloadbalancerippools.cilium.io -o jsonpath='{range .items[*]}pool {.metadata.name} {.spec.blocks[*].cidr}{" "}{end}' 2>/dev/null
+}
 
 machine_ip() { docker inspect -f '{{(index .NetworkSettings.Networks "cld055").IPAddress}}' "cld055-$1"; }
 
@@ -209,7 +245,10 @@ collect_machine() {
   docker exec "cld055-$m" journalctl -u k3s --no-pager -n 400 > "$d/k3s-journal.txt" 2>&1 || true
   docker exec "cld055-$m" systemctl --failed --no-pager > "$d/systemd-failed.txt" 2>&1 || true
   docker inspect "cld055-$m" > "$d/docker-inspect.json" 2>&1 || true
-  if [ -f "$OUT/kubeconfig-$m" ]; then
+  docker exec "cld055-$m" cat /var/lib/catalyst/prepull.log > "$d/prepull.log" 2>&1 || true
+  lb_evidence "$m" > "$d/lb-ipam.txt" 2>&1 || true
+  cp "$OUT/net-$m.txt" "$d/" 2>/dev/null || true
+  if docker exec "cld055-$m" test -f /etc/rancher/k3s/k3s.yaml 2>/dev/null; then
     kc "$m" get nodes -o wide > "$d/nodes.txt" 2>&1 || true
     kc "$m" get pods -A -o wide > "$d/pods.txt" 2>&1 || true
     kc "$m" get hr -A > "$d/helmreleases.txt" 2>&1 || true

@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: false
 
 # Jobs measured in an earlier run are switched off here, so as not to run
-# them twice: L5 passed in run 43357201647; L2 runs in run 43357201647.
+# them twice: L5 passed in run 43357201647.
 
 env:
   OUT: /tmp/cld055
@@ -67,7 +67,6 @@ jobs:
 
   kind-b:
     name: L2 (machine kind B, KVM)
-    if: ${{ false }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
@@ -161,10 +160,44 @@ jobs:
           path: /tmp/cld055
           if-no-files-found: warn
 
+  diag:
+    name: Diagnosis (LB-IPAM pool on the node's own address)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Runner facts and preparation
+        run: bash tests/spikes/CLD-055/prepare-runner.sh
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.11.6
+          tofu_wrapper: false
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.31.4
+      - name: Build the machine image (kind A)
+        run: docker build -f tests/spikes/CLD-055/machine/Containerfile -t cld055-machine:local tests/spikes/CLD-055/machine
+      - name: Init the machine module
+        run: tofu -chdir=tests/spikes/CLD-055/machines init -input=false -no-color
+      - name: Diagnosis
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ github.token }}
+        run: bash tests/spikes/CLD-055/run-diag.sh
+      - name: Results
+        if: always()
+        run: grep '^CLD055-RESULT' "$OUT/results.txt" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cld055-diag
+          path: /tmp/cld055
+          if-no-files-found: warn
+
   summary:
     name: Result table
     runs-on: ubuntu-latest
-    needs: [kind-a, kind-b, l5, l6]
+    needs: [kind-a, kind-b, l5, l6, diag]
     if: always()
     steps:
       - uses: actions/download-artifact@v4

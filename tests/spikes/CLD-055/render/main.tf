@@ -10,7 +10,18 @@
 # The comment-strip is the one the provider modules apply.
 
 variable "node_ip" {
-  description = "The machine's own address. Feeds cp_private_ip, node_ip_cmd, node_external_ip_cmd, node_external_ip_value and load_balancer_ipv4."
+  description = "The machine's own address. Feeds cp_private_ip, node_ip_cmd and load_balancer_ipv4 (the front door is the machine's own address)."
+  type        = string
+  default     = ""
+}
+
+# The Huawei branch builds the LB-IPAM pool from node_external_ip_value/32.
+# On Huawei that is the EIP, which is NOT on the node (1:1 NAT). Run
+# 43358110034 used the node's own address here: once bp-cilium applied the
+# pool, the machine's own TCP egress and its apiserver stopped answering.
+# Empty = the node's own address.
+variable "external_ip" {
+  description = "Feeds node_external_ip_cmd and node_external_ip_value."
   type        = string
   default     = ""
 }
@@ -55,10 +66,11 @@ variable "two_region_index" {
 }
 
 locals {
-  two_codes = ["me-east-215-a", "me-east-215-b"]
-  two       = var.two_region_index >= 0
-  code      = local.two ? local.two_codes[var.two_region_index] : "me-east-215-a"
-  label     = "hw-${local.code}-rtz-prod"
+  external_ip = var.external_ip != "" ? var.external_ip : var.node_ip
+  two_codes   = ["me-east-215-a", "me-east-215-b"]
+  two         = var.two_region_index >= 0
+  code        = local.two ? local.two_codes[var.two_region_index] : "me-east-215-a"
+  label       = "hw-${local.code}-rtz-prod"
 
   # Single-region values: render.tf's Huawei fixture, verbatim.
   # Two-region values: huawei/main.tf lines 149-156 and 1117-1223.
@@ -113,8 +125,8 @@ locals {
     object_storage_endpoint = var.object_storage_endpoint
     pdns_api_host           = var.pdns_api_host
     node_ip_cmd             = "echo ${var.node_ip}"
-    node_external_ip_cmd    = "echo ${var.node_ip}"
-    node_external_ip_value  = var.node_ip
+    node_external_ip_cmd    = "echo ${local.external_ip}"
+    node_external_ip_value  = local.external_ip
     registry_mirror_yaml    = var.registry_mirror_yaml
     catalyst_api_url        = var.catalyst_api_url
   }

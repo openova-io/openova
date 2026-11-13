@@ -96,6 +96,14 @@ resource "libvirt_domain" "cp" {
     volume_id = libvirt_volume.root.id
   }
 
+  # The provider adds a SPICE display when none is given; the runner's QEMU
+  # (10.2.1 on Ubuntu 26.04) is built without SPICE (run 43357201647).
+  graphics {
+    type           = "vnc"
+    listen_type    = "address"
+    listen_address = "127.0.0.1"
+  }
+
   console {
     type        = "file"
     target_port = "0"
