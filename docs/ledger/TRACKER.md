@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T12:00:03Z` |
+| Last refreshed | `2026-11-13T12:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T12:01 | [#7418](https://github.com/openova-io/openova/pull/7418) | #7087 | docs(ledger): plan update |
 | 2026-11-13T11:26 | [#7417](https://github.com/openova-io/openova/pull/7417) | #7087 | docs(ledger): result of the lab test PRD-080 (PRD-080) |
 | 2026-11-13T11:25 | [#7416](https://github.com/openova-io/openova/pull/7416) | #7087 | docs(ledger): result of the lab test PRD-060 (PRD-060) |
 | 2026-11-13T11:24 | [#7415](https://github.com/openova-io/openova/pull/7415) | #7087 | docs(ledger): result of the lab test PRD-040 (PRD-040) |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-13T08:58 | [#7382](https://github.com/openova-io/openova/pull/7382) | #7087 | docs(ledger): plan update |
 | 2026-11-13T10:13 | [#7381](https://github.com/openova-io/openova/pull/7381) | #7378 | refactor(api): commit the catalogue writers through the comm |
 | 2026-11-13T10:13 | [#7380](https://github.com/openova-io/openova/pull/7380) | #7377 | feat(api): add the intent package that validates, commits an |
-| 2026-11-13T10:12 | [#7379](https://github.com/openova-io/openova/pull/7379) | #7376 | feat(controllers): add the region scopes of the commit libra |
 
 ---
 
