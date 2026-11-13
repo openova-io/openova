@@ -29,6 +29,7 @@ OPENBAO_TAG = os.environ.get("OPENBAO_TAG", "2.7.2")
 OPENBAO_CHART = os.environ.get("OPENBAO_CHART", "0.30.7")
 CNPG_CHART = os.environ.get("CNPG_CHART", "0.28.0")
 CSI_CHART = os.environ.get("CSI_CHART", "1.6.2")
+CSI_POLL = os.environ.get("CSI_POLL", "30s")
 OUTAGE_SECONDS = int(os.environ.get("OUTAGE_SECONDS", "1800"))
 NORMAL_SECONDS = int(os.environ.get("NORMAL_SECONDS", "1200"))
 OUT = os.environ.get("OUT_DIR", "out")
@@ -486,7 +487,7 @@ def install_common(csi):
     if csi:
         helm("upgrade", "--install", "csi", "secrets-store-csi-driver/secrets-store-csi-driver", "--version",
              CSI_CHART, "-n", "kube-system", "--set", "syncSecret.enabled=false", "--set",
-             "enableSecretRotation=true", "--set", "rotationPollInterval=30s", "--set",
+             "enableSecretRotation=true", "--set", f"rotationPollInterval={CSI_POLL}", "--set",
              "tokenRequests[0].audience=openbao", "--wait", "--timeout", "10m")
 
 
@@ -1243,7 +1244,7 @@ def analyse(path, t0, t_stop, t_up):
 
 
 POOLS = (("pool-1h", "acme.app.appdb.rw1h"), ("pool-15m", "acme.app.appdb.rw15m"),
-         ("pool-1h-term", "acme.app.appdb.rw1hterm"))
+         ("pool-1h-term", "acme.app.appdb.rw1hterm"), ("pool-fixed", "acme.app.appdb.rw1hterm"))
 
 
 def pool_tail():
@@ -1285,6 +1286,7 @@ def step5():
                                             "env": [{"name": "OPENBAO_ADDR",
                                                      "value": "http://openbao.bao-a.svc.cluster.local:8200"},
                                                     {"name": "DB_ROLE", "value": role},
+                                                    {"name": "FIX", "value": "1" if name == "pool-fixed" else "0"},
                                                     {"name": "PG_BASE", "value": f"host={RW['a']} port=5432 dbname=appdb "
                                                                                  "sslmode=require connect_timeout=5"}],
                                             "volumeMounts": [{"name": "tok", "mountPath": "/var/run/secrets/openova-token",
@@ -1343,6 +1345,113 @@ def step5():
         [one(l, 300) for l in out.splitlines() if "revok" in l.lower()][-6:])
 
 
+def single_region_v2(csi):
+    """One region: CloudNativePG, OpenBao, the management role created outside managed.roles."""
+    install_common(csi=csi)
+    BAO["a"] = {"ns": "bao-a"}
+    ns("acme-a")
+    secret("acme-a", "app-static-ctl", {"username": "app_static_ctl", "password": CTL_PW}, "kubernetes.io/basic-auth")
+    STATE["admin_managed"] = False
+    STATE["tag"] = "v2"
+    install_openbao("a", csi=csi)
+    client_pod()
+    apply(cluster_a(with_replica=False))
+    rec("T", "cluster healthy after seconds", str(wait_cluster("acme-a", "pg-a")))
+    app_schema("a")
+    su_ok("a", f"create role openbao_dbadmin login createrole password '{DBADMIN_PW}'; "
+               "alter role openbao_dbadmin set createrole_self_grant = 'set, inherit'; "
+               "grant appdb_rw, appdb_ro to openbao_dbadmin with admin option")
+    bao_init("a")
+    bao_setup_engine("a", k8s_auth_ns=("app", "acme-a"))
+    record_versions("T")
+
+
+@step("T-renew")
+def token_renew(ctx):
+    rec("T-renew", "auth role workload-2m-renewable (token_ttl 2m, token_max_ttl 10m)", baor(
+        "a", "write", "auth/kubernetes/role/workload-2m-renewable", "bound_service_account_names=app",
+        "bound_service_account_namespaces=acme-a", "audience=openbao", "token_policies=db-read",
+        "token_ttl=2m", "token_max_ttl=10m"))
+    _, jwt, _ = kc("create", "token", "app", "-n", "acme-a", "--audience", "openbao", "--duration", "30m")
+    ok, j = baoj("a", "write", "-format=json", "auth/kubernetes/login", "role=workload-2m-renewable",
+                 f"jwt={jwt.strip()}")
+    if not ok:
+        rec("T-renew", "login", j)
+        return
+    tok = j["auth"]["client_token"]
+    rc, out, err = bao("a", "read", "-format=json", "db/creds/acme.app.appdb.rw", token=tok)
+    if rc != 0:
+        rec("T-renew", "read db/creds", one(err))
+        return
+    c = json.loads(out)
+    user, pw = c["data"]["username"], c["data"]["password"]
+    t0 = time.time()
+    seen = []
+    while time.time() < t0 + 300:
+        time.sleep(60)
+        rc, out, err = bao("a", "token", "renew", "-format=json", token=tok)
+        ttl = json.loads(out)["auth"]["lease_duration"] if rc == 0 else one(err)
+        seen.append(f"{round(time.time() - t0)}s renew ttl={ttl} user_present={user in roles('a')}")
+    rec("T-renew", "token renewed every 60s for 5 minutes", seen)
+    rec("T-renew", "login after 5 minutes (token kept alive)", login(RW["a"], user, pw))
+    t1 = time.time()
+    ok, took = wait_for("user dropped after renewals stop", lambda: user not in roles("a"), timeout=240, interval=5)
+    rec("T-renew", "renewals stopped: user dropped, seconds later", f"{ok} {round(time.time() - t1)}")
+
+
+@step("T-CSI")
+def csi_dynamic(ctx):
+    """A pod mounts db/creds through CSI with a login token shorter than the driver's poll interval."""
+    rec("T-CSI", "driver rotationPollInterval", CSI_POLL)
+    rec("T-CSI", "auth role workload-2m (token_ttl 2m)", baor(
+        "a", "write", "auth/kubernetes/role/workload-2m", "bound_service_account_names=app",
+        "bound_service_account_namespaces=acme-a", "audience=openbao", "token_policies=db-read",
+        "token_ttl=2m", "token_max_ttl=2m"))
+    objects = ("- objectName: username\n  secretPath: db/creds/acme.app.appdb.rw\n  secretKey: username\n"
+               "- objectName: password\n  secretPath: db/creds/acme.app.appdb.rw\n  secretKey: password\n")
+    apply({"apiVersion": "secrets-store.csi.x-k8s.io/v1", "kind": "SecretProviderClass",
+           "metadata": {"name": "dyn", "namespace": "acme-a"},
+           "spec": {"provider": "openbao", "parameters": {
+               "vaultAddress": "http://openbao.bao-a.svc.cluster.local:8200", "roleName": "workload-2m",
+               "audience": "openbao", "objects": objects}}})
+    apply({"apiVersion": "v1", "kind": "Pod", "metadata": {"name": "dyn-reader", "namespace": "acme-a"},
+           "spec": {"serviceAccountName": "app",
+                    "containers": [{"name": "c", "image": PG_IMAGE, "command": ["sleep", "infinity"],
+                                    "volumeMounts": [{"name": "db", "mountPath": "/var/run/secrets/openova",
+                                                      "readOnly": True}]}],
+                    "volumes": [{"name": "db", "csi": {"driver": "secrets-store.csi.k8s.io", "readOnly": True,
+                                                        "volumeAttributes": {"secretProviderClass": "dyn"}}}]}})
+    rc, out, err = kc("wait", "pod/dyn-reader", "-n", "acme-a", "--for=condition=Ready", "--timeout=240s",
+                      timeout=260)
+    rec("T-CSI", "pod with db/creds CSI mount Ready", res(rc, out, err))
+    if rc != 0:
+        return
+    t0 = time.time()
+    states = []
+    while time.time() < t0 + 450:
+        rc, out, err = kc("exec", "-n", "acme-a", "dyn-reader", "--", "sh", "-c",
+                          'u=$(cat /var/run/secrets/openova/username); PGPASSWORD="$(cat /var/run/secrets/openova/'
+                          'password)" psql "host=' + RW["a"] + ' dbname=appdb sslmode=require connect_timeout=5 '
+                          'user=$u" -AtXc "select 1" >/dev/null 2>&1 && echo "$u ok" || echo "$u refused"')
+        user, _, state = out.strip().rpartition(" ")
+        key = (user[-10:], state)
+        if not states or states[-1][1:] != key:
+            states.append((round(time.time() - t0),) + key)
+        time.sleep(10)
+    rec("T-CSI", "mounted user and login state over 450 s (seconds after Ready, user suffix, state)",
+        [f"{t}s {u} {st}" for t, u, st in states])
+
+
+def tokenlife():
+    single_region_v2(csi=True)
+    rec("T", "db/config", bao_config("a"))
+    rec("T", "role rw (1h)", bao_dyn_role("a", "acme.app.appdb.rw"))
+    apply({"apiVersion": "v1", "kind": "ServiceAccount", "metadata": {"name": "app", "namespace": "acme-a"}})
+    ctx = {}
+    token_renew(ctx)
+    csi_dynamic(ctx)
+
+
 def diag():
     for args in (["get", "pods", "-A", "-o", "wide"], ["get", "cluster.postgresql.cnpg.io", "-A", "-o", "wide"],
                  ["get", "events", "-A", "--sort-by=.lastTimestamp"],
@@ -1359,6 +1468,8 @@ if __name__ == "__main__":
         steps1to4()
     elif mode == "switchfix":
         switchfix()
+    elif mode == "tokenlife":
+        tokenlife()
     elif mode == "step5":
         step5()
     elif mode == "diag":

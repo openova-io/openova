@@ -73,6 +73,32 @@ jobs:
           name: sec-280-switch-window
           path: out/
 
+  token-lifetime:
+    name: follow-up (login token lifetime, renewal, CSI dynamic mount)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      CSI_POLL: 300s
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install kind
+        run: |
+          curl -fsSLo /tmp/kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          sudo install -m 0755 /tmp/kind /usr/local/bin/kind
+          kind version; kubectl version --client; helm version --short
+      - name: Create kind cluster
+        run: kind create cluster --name lab --wait 180s
+      - name: Run the token-lifetime measurements
+        run: python3 -u tests/spikes/SEC-280/lab.py tokenlife
+      - name: Diagnostics
+        if: always()
+        run: python3 -u tests/spikes/SEC-280/lab.py diag || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sec-280-token-lifetime
+          path: out/
+
   step-5:
     name: step 5 (OpenBao stopped 30 minutes under a pool)
     runs-on: ubuntu-24.04

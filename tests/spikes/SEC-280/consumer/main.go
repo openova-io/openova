@@ -2,7 +2,9 @@
 // pool whose connector asks OpenBao for dynamic database credentials: log in
 // with the projected service account token, fetch new credentials at half the
 // lease, and hand out only credentials that stay valid for at least one more
-// minute. The pool settings
+// minute. With FIX=1 it also refreshes at half of the shorter of the lease and
+// the login token, and fetches new credentials once when a login is refused.
+// The pool settings
 // are those of the chargeback store (16 open, 4 idle, 30 minute lifetime).
 // It writes one JSON line every 10 seconds.
 package main
@@ -32,11 +34,13 @@ type creds struct {
 	Issued  time.Time
 	Expires time.Time
 	Lease   time.Duration
+	Refresh time.Duration // the span renewAt applies to: the lease, or with FIX the shorter of lease and token
 }
 
 type source struct {
 	addr, authRole, dbRole, tokenPath string
 	renewAt                           float64
+	fix                               bool
 	hc                                *http.Client
 
 	mu       sync.Mutex
@@ -81,7 +85,8 @@ func (s *source) fetch(ctx context.Context) (*creds, error) {
 	}
 	var login struct {
 		Auth struct {
-			ClientToken string `json:"client_token"`
+			ClientToken   string `json:"client_token"`
+			LeaseDuration int    `json:"lease_duration"`
 		} `json:"auth"`
 	}
 	if err := s.call(ctx, http.MethodPost, "/v1/auth/kubernetes/login", "",
@@ -100,14 +105,19 @@ func (s *source) fetch(ctx context.Context) (*creds, error) {
 	}
 	now := time.Now()
 	d := time.Duration(cr.LeaseDuration) * time.Second
-	return &creds{User: cr.Data.Username, Pass: cr.Data.Password, Issued: now, Expires: now.Add(d), Lease: d}, nil
+	r := d
+	if tok := time.Duration(login.Auth.LeaseDuration) * time.Second; s.fix && tok > 0 && tok < r {
+		r = tok
+	}
+	return &creds{User: cr.Data.Username, Pass: cr.Data.Password, Issued: now, Expires: now.Add(d), Lease: d,
+		Refresh: r}, nil
 }
 
 // Current returns credentials valid for at least one more minute, fetching new ones when due.
 func (s *source) Current(ctx context.Context) (*creds, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.cur == nil || time.Now().After(s.cur.Issued.Add(time.Duration(float64(s.cur.Lease)*s.renewAt))) {
+	if s.cur == nil || time.Now().After(s.cur.Issued.Add(time.Duration(float64(s.cur.Refresh)*s.renewAt))) {
 		fctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		c, err := s.fetch(fctx)
 		cancel()
@@ -126,6 +136,15 @@ func (s *source) Current(ctx context.Context) (*creds, error) {
 	return &c, nil
 }
 
+// invalidate drops the cached credentials when they belong to user.
+func (s *source) invalidate(user string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cur != nil && s.cur.User == user {
+		s.cur = nil
+	}
+}
+
 type connector struct {
 	src  *source
 	base string
@@ -135,16 +154,29 @@ func quote(v string) string {
 	return "'" + strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(v) + "'"
 }
 
-func (c *connector) Connect(ctx context.Context) (driver.Conn, error) {
-	cr, err := c.src.Current(ctx)
-	if err != nil {
-		return nil, err
-	}
+func (c *connector) open(ctx context.Context, cr *creds) (driver.Conn, error) {
 	pc, err := pq.NewConnector(c.base + " user=" + quote(cr.User) + " password=" + quote(cr.Pass))
 	if err != nil {
 		return nil, err
 	}
 	return pc.Connect(ctx)
+}
+
+func (c *connector) Connect(ctx context.Context) (driver.Conn, error) {
+	cr, err := c.src.Current(ctx)
+	if err != nil {
+		return nil, err
+	}
+	conn, err := c.open(ctx, cr)
+	if err != nil && c.src.fix && strings.Contains(err.Error(), "password authentication failed") {
+		c.src.invalidate(cr.User)
+		cr2, err2 := c.src.Current(ctx)
+		if err2 != nil {
+			return nil, err
+		}
+		return c.open(ctx, cr2)
+	}
+	return conn, err
 }
 
 func (c *connector) Driver() driver.Driver { return &pq.Driver{} }
@@ -173,6 +205,7 @@ func main() {
 		dbRole:    os.Getenv("DB_ROLE"),
 		tokenPath: env("TOKEN_PATH", "/var/run/secrets/openova-token/token"),
 		renewAt:   0.5,
+		fix:       os.Getenv("FIX") == "1",
 		hc:        &http.Client{Timeout: 3 * time.Second},
 	}
 	db := sql.OpenDB(&connector{src: src, base: os.Getenv("PG_BASE")})
