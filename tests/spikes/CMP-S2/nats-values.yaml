@@ -1,0 +1,23 @@
+# Lab test CMP-S2: values added to platform/nats-jetstream/chart for a kind
+# cluster in CI. Only the image registry changes: the chart routes every image
+# through the Sovereign-local Harbor proxy, which a CI runner does not have.
+# Image names and tags stay the chart's own.
+nats:
+  container:
+    image:
+      registry: docker.io
+      repository: library/nats
+  reloader:
+    image:
+      registry: docker.io
+      repository: natsio/nats-server-config-reloader
+  natsBox:
+    container:
+      image:
+        registry: docker.io
+        repository: natsio/nats-box
+nack:
+  jetstream:
+    image:
+      registry: docker.io
+      repository: natsio/jetstream-controller

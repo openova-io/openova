@@ -1,0 +1,279 @@
+# Lab test CMP-S2 (spike branch only, never merged).
+#
+# Question: does a plain publish from the runtime sensor's side-car
+# (Falco -> Falcosidekick NATS output) to a fixed subject under catalyst.>
+# land in the JetStream stream CATALYST_ORG; what exactly is the payload; and
+# does the sensor's periodic metrics event pass through the side-car?
+#
+# Everything runs inside this job: a kind cluster, the platform's own NATS
+# chart (platform/nats-jetstream/chart) and sensor chart (platform/falco/chart)
+# with images from docker.io, the stream created by the platform's own Go
+# function, a trigger Pod shaped like gate check CMP-G16, and an ordered
+# ephemeral consumer reading the stream back.
+name: spike-cmp-s2
+
+on:
+  push:
+    branches: [spike/CMP-S2]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spike-cmp-s2
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  SUBJECT: catalyst.security.runtime_detected.v1
+  NATS_LOCAL: nats://127.0.0.1:4222
+  SPIKE: tests/spikes/CMP-S2
+
+jobs:
+  spike:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: false
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.18.4
+
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: cmp-s2
+          version: v0.25.0
+          node_image: kindest/node:v1.30.6
+          wait: 120s
+
+      - name: Facts (versions, kernel)
+        run: |
+          mkdir -p out
+          {
+            echo "runner: $(lsb_release -ds)"
+            echo "kernel: $(uname -r)"
+            ls -l /sys/kernel/btf/vmlinux || echo "no BTF"
+            echo "docker: $(docker version --format '{{.Server.Version}}')"
+            echo "kind: $(kind version)"
+            echo "helm: $(helm version --short)"
+            echo "kubectl: $(kubectl version --client | sed -n '1p')"
+            echo "go: $(go version)"
+            kubectl get nodes -o wide
+          } | tee out/facts.txt
+
+      - name: Build the probe (uses core/services/shared/events)
+        run: |
+          cd "$SPIKE/probe"
+          go mod tidy
+          go build -o "$RUNNER_TEMP/probe" .
+          grep -E 'nats-io/nats.go ' go.sum | sed -n '1p' | tee -a "$GITHUB_WORKSPACE/out/facts.txt"
+
+      - name: Chart dependencies
+        run: |
+          helm dependency build platform/nats-jetstream/chart
+          helm dependency build platform/falco/chart
+          {
+            echo "--- bp-nats-jetstream Chart.lock"; cat platform/nats-jetstream/chart/Chart.lock
+            echo "--- bp-falco Chart.lock"; cat platform/falco/chart/Chart.lock
+            echo "--- subcharts inside falco-8.0.2.tgz"
+            tar -tzf platform/falco/chart/charts/falco-8.0.2.tgz | grep -E '^falco/charts/[^/]+/Chart.yaml$' || true
+            for c in $(tar -tzf platform/falco/chart/charts/falco-8.0.2.tgz | grep -E '^falco/charts/[^/]+/Chart.yaml$'); do
+              tar -xzOf platform/falco/chart/charts/falco-8.0.2.tgz "$c" | grep -E '^(name|version|appVersion):' | tr '\n' ' '; echo
+            done
+          } | tee out/charts.txt
+
+      - name: Static readings (render)
+        continue-on-error: true
+        run: |
+          # Spike render: exactly what is installed below.
+          helm template falco platform/falco/chart -n falco -f "$SPIKE/falco-values.yaml" > out/render-falco-spike.yaml
+          # Live-shaped render: the chart's own values plus only the side-car
+          # settings of CMP-101 step 1 (no CI image overrides), to read what a
+          # Sovereign would get.
+          helm template falco platform/falco/chart -n falco \
+            --set falco.falcosidekick.enabled=true \
+            --set falco.falcosidekick.config.nats.hostport=nats://nats-jetstream.nats-system.svc.cluster.local:4222 \
+            --set falco.falcosidekick.config.nats.subjecttemplate=$SUBJECT \
+            --set falco.falcosidekick.config.nats.minimumpriority=warning \
+            > out/render-falco-liveshape.yaml
+          {
+            echo "=== falco.yaml (spike render): metrics, outputs, rules"
+            yq 'select(.kind=="ConfigMap" and .metadata.name=="falco") | .data["falco.yaml"]' out/render-falco-spike.yaml \
+              | yq '{"priority": .priority, "json_output": .json_output, "json_include_output_property": .json_include_output_property, "json_include_tags_property": .json_include_tags_property, "http_output": .http_output, "metrics": .metrics, "rules_files": .rules_files, "load_plugins": .load_plugins}'
+            echo "=== side-car NATS settings (spike render, Secret)"
+            yq 'select(.kind=="Secret" and .metadata.name=="falco-falcosidekick") | .data | to_entries | .[] | select(.key | test("^NATS")) | .key + "=" + (.value | @base64d)' out/render-falco-spike.yaml
+            echo "=== live-shaped render: workloads, images, requests, probes"
+            yq 'select(.kind=="Deployment" or .kind=="DaemonSet") | .metadata.name as $n | .kind as $k | .spec.template.spec.containers[] | {"workload": ($k + "/" + $n), "container": .name, "image": .image, "requests": (.resources.requests // "NONE"), "liveness": (.livenessProbe != null), "readiness": (.readinessProbe != null)}' out/render-falco-liveshape.yaml
+            echo "=== live-shaped render: side-car replicas"
+            yq 'select(.kind=="Deployment" and .metadata.name=="falco-falcosidekick") | .spec.replicas' out/render-falco-liveshape.yaml
+            echo "=== live-shaped render: does the side-car pod template carry a config checksum annotation?"
+            yq 'select(.kind=="Deployment" and .metadata.name=="falco-falcosidekick") | .spec.template.metadata.annotations // {}' out/render-falco-liveshape.yaml
+          } | tee out/static-readings.txt
+
+      - name: Install NATS (platform chart, release nats-jetstream in nats-system)
+        run: |
+          helm install nats-jetstream platform/nats-jetstream/chart -n nats-system --create-namespace -f "$SPIKE/nats-values.yaml"
+          kubectl -n nats-system rollout status statefulset/nats-jetstream --timeout=8m
+          kubectl -n nats-system get pods -o wide | tee out/nats-pods.txt
+          kubectl -n nats-system exec nats-jetstream-0 -c nats -- nats-server --version | tee -a out/facts.txt
+
+      - name: Create CATALYST_ORG with the platform's own function
+        run: |
+          bash "$SPIKE/pf.sh" nats-system svc/nats-jetstream 4222 out/port-forward-nats.log
+          "$RUNNER_TEMP/probe" ensure -url "$NATS_LOCAL" | tee out/stream-ensure.json
+          kubectl -n nats-system rollout status deploy/nats-jetstream-box --timeout=3m
+          kubectl -n nats-system exec deploy/nats-jetstream-box -- nats -s nats://nats-jetstream:4222 stream info CATALYST_ORG --json | tee out/stream-info-natsbox-before.json
+
+      - name: Install the sensor (platform chart, release falco in falco) - phase A values
+        run: |
+          helm install falco platform/falco/chart -n falco --create-namespace -f "$SPIKE/falco-values.yaml"
+          kubectl -n falco rollout status deploy/falco-falcosidekick --timeout=5m
+          kubectl -n falco rollout status ds/falco --timeout=12m
+          kubectl -n falco get pods -o wide | tee out/falco-pods.txt
+          kubectl -n falco get pods -o jsonpath='{range .items[*]}{range .status.containerStatuses[*]}{.name}{"  "}{.image}{"  "}{.imageID}{"\n"}{end}{end}' | tee -a out/facts.txt
+          kubectl -n falco logs ds/falco -c falco --tail=-1 | grep -v '^{' | sed -n '1,60p' | tee out/falco-startup.log
+
+      - name: "Trigger: a bare Pod in the gate shape reads /etc/shadow"
+        run: |
+          NS="cmp-gate-${GITHUB_RUN_ID}"
+          IMG=$(kubectl -n falco get ds falco -o jsonpath='{.spec.template.spec.containers[?(@.name=="falco")].image}')
+          echo "trigger image (from DaemonSet falco): $IMG" | tee out/trigger.txt
+          kubectl create namespace "$NS"
+          bash "$SPIKE/pf.sh" nats-system svc/nats-jetstream 4222 out/port-forward-nats.log
+          "$RUNNER_TEMP/probe" read -url "$NATS_LOCAL" -subject "$SUBJECT" -label before-trigger -out out/msgs-before-trigger.jsonl > out/read-before-trigger.json
+          jq '{stream_messages, by_rule}' out/read-before-trigger.json | tee -a out/trigger.txt
+          run_trigger() {
+            local pod=$1 image=$2
+            cat <<EOF | kubectl apply -f -
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: ${pod}
+            namespace: ${NS}
+          spec:
+            restartPolicy: Never
+            containers:
+              - name: reader
+                image: ${image}
+                command: ["cat", "/etc/shadow"]
+                resources:
+                  requests: {cpu: 10m, memory: 16Mi}
+                  limits: {memory: 64Mi}
+          EOF
+            date -u +%FT%TZ > "out/${pod}.applied"
+            for _ in $(seq 1 45); do
+              phase=$(kubectl -n "$NS" get pod "$pod" -o jsonpath='{.status.phase}')
+              case "$phase" in Succeeded|Failed) break ;; esac
+              sleep 2
+            done
+            kubectl -n "$NS" get pod "$pod" -o json | jq '{pod: .metadata.name, image: .spec.containers[0].image, phase: .status.phase, terminated: .status.containerStatuses[0].state.terminated, waiting: .status.containerStatuses[0].state.waiting}' | tee -a out/trigger.txt
+            echo "lines printed by the pod: $(kubectl -n "$NS" logs "$pod" 2>/dev/null | wc -l)" | tee -a out/trigger.txt
+            bash "$SPIKE/pf.sh" nats-system svc/nats-jetstream 4222 out/port-forward-nats.log
+            "$RUNNER_TEMP/probe" read -url "$NATS_LOCAL" -subject "$SUBJECT" -want-pod "$pod" -timeout 120s -label "trigger-${pod}" -out "out/msgs-trigger-${pod}.jsonl" > "out/read-trigger-${pod}.json"
+            jq '{label, found, waited_seconds, stream_messages, by_rule, by_priority, first_match}' "out/read-trigger-${pod}.json" | tee -a out/trigger.txt
+            started=$(kubectl -n "$NS" get pod "$pod" -o jsonpath='{.status.containerStatuses[0].state.terminated.startedAt}')
+            st=$(jq -r '.first_match.stream_time // empty' "out/read-trigger-${pod}.json")
+            if [ -n "$started" ] && [ -n "$st" ]; then
+              a=$(date -u -d "$started" +%s.%N); b=$(date -u -d "$st" +%s.%N)
+              echo "container start -> message in stream: $(awk -v a="$a" -v b="$b" 'BEGIN{printf "%.3f", b-a}') s" | tee -a out/trigger.txt
+            fi
+          }
+          run_trigger shadow-reader "$IMG"
+          if [ "$(jq -r '.found' out/read-trigger-shadow-reader.json)" != "true" ]; then
+            echo "no message for the sensor-image trigger within 120 s; second trigger with busybox" | tee -a out/trigger.txt
+            run_trigger shadow-reader-busybox docker.io/library/busybox:1.36.1
+          fi
+
+      - name: "Heartbeat, phase A (side-car minimum priority warning)"
+        run: |
+          for _ in $(seq 1 50); do
+            c=$(kubectl -n falco logs ds/falco -c falco --tail=-1 | grep -c 'Falco internal: metrics snapshot' || true)
+            [ "${c:-0}" -ge 3 ] && break
+            sleep 3
+          done
+          {
+            echo "metrics events in the sensor's own log: $(kubectl -n falco logs ds/falco -c falco --tail=-1 | grep -c 'Falco internal: metrics snapshot' || true)"
+            echo "metrics events received by the side-car (debug log): $(kubectl -n falco logs deploy/falco-falcosidekick --tail=-1 | grep -c 'Falco internal: metrics snapshot' || true)"
+            echo "side-car 'NATS - Publish OK' lines: $(kubectl -n falco logs deploy/falco-falcosidekick --tail=-1 | grep -c 'NATS - Publish OK' || true)"
+            echo "side-car NATS error lines: $(kubectl -n falco logs deploy/falco-falcosidekick --tail=-1 | grep -ci 'error.*nats\|nats.*error' || true)"
+          } | tee out/heartbeat-a.txt
+          bash "$SPIKE/pf.sh" falco deploy/falco-falcosidekick 2801 out/port-forward-sidekick.log
+          curl -s http://127.0.0.1:2801/metrics | grep -E '^falcosidekick_(inputs|outputs|falco_events)' | grep -Ei 'nats|priority|input' | tee -a out/heartbeat-a.txt || true
+          curl -s http://127.0.0.1:2801/debug/vars | jq '{nats: .nats, falco: .falco, requests: .requests}' | tee -a out/heartbeat-a.txt || true
+          pkill -f 'port-forward deploy/falco-falcosidekick' || true
+          bash "$SPIKE/pf.sh" nats-system svc/nats-jetstream 4222 out/port-forward-nats.log
+          "$RUNNER_TEMP/probe" read -url "$NATS_LOCAL" -subject "$SUBJECT" -label phase-A -out out/msgs-phase-a.jsonl > out/read-phase-a.json
+          jq '{label, stream_messages, stream_subjects, by_rule, by_priority, by_source}' out/read-phase-a.json | tee -a out/heartbeat-a.txt
+          # one metrics event exactly as the sensor printed it (for its shape)
+          kubectl -n falco logs ds/falco -c falco --tail=-1 | grep 'Falco internal: metrics snapshot' | sed -n '1p' > out/metrics-event-from-sensor-log.json || true
+          jq -c '{rule, priority, source, tags, hostname, output_field_count: (.output_fields | length)}' out/metrics-event-from-sensor-log.json | tee -a out/heartbeat-a.txt || true
+
+      - name: "Heartbeat, phase B (side-car minimum priority informational)"
+        run: |
+          helm upgrade falco platform/falco/chart -n falco -f "$SPIKE/falco-values.yaml" -f "$SPIKE/falco-values-phase-b.yaml"
+          kubectl -n falco rollout restart deploy/falco-falcosidekick
+          kubectl -n falco rollout status deploy/falco-falcosidekick --timeout=5m
+          date -u +%FT%TZ | tee out/phase-b-start.txt
+          bash "$SPIKE/pf.sh" nats-system svc/nats-jetstream 4222 out/port-forward-nats.log
+          "$RUNNER_TEMP/probe" read -url "$NATS_LOCAL" -subject "$SUBJECT" -want-rule "Falco internal: metrics snapshot" -timeout 150s -label phase-B -out out/msgs-phase-b.jsonl > out/read-phase-b.json
+          jq '{label, found, waited_seconds, stream_messages, by_rule, by_priority, by_source, first_match}' out/read-phase-b.json | tee out/heartbeat-b.txt
+          echo "side-car 'NATS - Publish OK' lines since restart: $(kubectl -n falco logs deploy/falco-falcosidekick --tail=-1 | grep -c 'NATS - Publish OK' || true)" | tee -a out/heartbeat-b.txt
+
+      - name: Final read, payload shape and draft schema
+        run: |
+          bash "$SPIKE/pf.sh" nats-system svc/nats-jetstream 4222 out/port-forward-nats.log
+          "$RUNNER_TEMP/probe" read -url "$NATS_LOCAL" -subject "$SUBJECT" -label final -out out/stream-final.jsonl > out/read-final.json
+          "$RUNNER_TEMP/probe" schema -in out/stream-final.jsonl | tee out/runtime_event.schema.draft.json
+          kubectl -n nats-system exec deploy/nats-jetstream-box -- nats -s nats://nats-jetstream:4222 stream info CATALYST_ORG --json > out/stream-info-natsbox-after.json || true
+          kubectl -n nats-system exec deploy/nats-jetstream-box -- nats -s nats://nats-jetstream:4222 stream subjects CATALYST_ORG | tee out/stream-subjects.txt || true
+          echo "=== payload shape (per rule)"; jq '.payload_shape' out/read-final.json
+          echo "=== header keys seen"; jq -c '.header_keys_seen' out/read-final.json
+          echo "=== time field"; jq -c '.time_field_rfc3339' out/read-final.json
+          echo "=== first payload per rule"; jq '.first_payload_per_rule' out/read-final.json
+
+      - name: Result lines
+        if: always()
+        run: |
+          f() { [ -f "$1" ] && jq -r "$2" "$1" 2>/dev/null || echo "n/a"; }
+          {
+            echo "RESULT stream_config=$(f out/stream-ensure.json '.config | {name, subjects, retention, storage, max_age, num_replicas} | tostring')"
+            echo "RESULT capture_sensor_image=$(f out/read-trigger-shadow-reader.json '.found')"
+            echo "RESULT capture_busybox=$(f out/read-trigger-shadow-reader-busybox.json '.found')"
+            echo "RESULT detection_rule=$(f out/read-trigger-shadow-reader.json '.first_match_payload.rule // empty')$(f out/read-trigger-shadow-reader-busybox.json '.first_match_payload.rule // empty' | sed 's/^n\/a$//')"
+            echo "RESULT phase_a_by_rule=$(f out/read-phase-a.json '.by_rule | tostring')"
+            echo "RESULT phase_b_metrics_found=$(f out/read-phase-b.json '.found')"
+            echo "RESULT phase_b_by_rule=$(f out/read-phase-b.json '.by_rule | tostring')"
+            echo "RESULT final_stream_subjects=$(f out/read-final.json '.stream_subjects | tostring')"
+          } | tee out/results.txt
+          cat out/results.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Collect evidence
+        if: always()
+        run: |
+          mkdir -p out
+          kubectl get pods -A -o wide > out/pods-all.txt 2>&1 || true
+          kubectl get events -A --sort-by=.lastTimestamp > out/events-all.txt 2>&1 || true
+          kubectl -n falco describe pods > out/falco-describe.txt 2>&1 || true
+          kubectl -n falco logs ds/falco -c falco --tail=400 > out/falco-tail.log 2>&1 || true
+          kubectl -n falco logs ds/falco -c falcoctl-artifact-install --tail=200 > out/falcoctl-install.log 2>&1 || true
+          kubectl -n falco logs deploy/falco-falcosidekick --tail=400 > out/sidekick-tail.log 2>&1 || true
+          kubectl -n falco logs deploy/falco-falcosidekick --previous --tail=400 > out/sidekick-previous.log 2>&1 || true
+          kubectl -n nats-system logs nats-jetstream-0 -c nats --tail=200 > out/nats-0.log 2>&1 || true
+          tail -n 40 out/pods-all.txt || true
+          grep -iE 'error|fail|denied' out/sidekick-tail.log | sed -n '1,20p' || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cmp-s2-evidence
+          path: out/
+          retention-days: 90

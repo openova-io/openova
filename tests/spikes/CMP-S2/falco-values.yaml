@@ -1,0 +1,46 @@
+# Lab test CMP-S2, phase A: values added to platform/falco/chart.
+#
+# Two kinds of change:
+#  1. CI only: images from docker.io instead of the Sovereign-local Harbor
+#     proxy, and the metrics interval at 30s instead of 1h so that a CI job
+#     sees several metrics events. Nothing else about the event changes with
+#     the interval.
+#  2. The side-car settings as the design writes them for CMP-101 step 1:
+#     side-car on, NATS output to the in-cluster address the API uses
+#     (the CATALYST_NATS_URL default), the fixed subject, minimum priority
+#     equal to runtime.minPriority (default warning), and the sensor's
+#     periodic metrics event on.
+falco:
+  image:
+    registry: docker.io
+    repository: falcosecurity/falco
+  falcoctl:
+    image:
+      registry: docker.io
+      repository: falcosecurity/falcoctl
+
+  falco:
+    # The sensor's periodic metrics event ("Falco internal: metrics snapshot").
+    # Sub-keys mirror the upstream chart's own metrics defaults.
+    metrics:
+      enabled: true
+      interval: 30s
+      output_rule: true
+      rules_counters_enabled: true
+      resource_utilization_enabled: true
+      state_counters_enabled: true
+      kernel_event_counters_enabled: true
+      libbpf_stats_enabled: true
+      plugins_metrics_enabled: true
+      convert_memory_to_mb: true
+      include_empty_values: false
+
+  falcosidekick:
+    enabled: true
+    config:
+      # debug logs every payload the side-car receives; it changes no output.
+      debug: true
+      nats:
+        hostport: nats://nats-jetstream.nats-system.svc.cluster.local:4222
+        subjecttemplate: catalyst.security.runtime_detected.v1
+        minimumpriority: warning
