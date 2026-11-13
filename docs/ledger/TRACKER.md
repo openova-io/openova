@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-12T23:45:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-11-13T00:00:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-12T23:50 | [#7228](https://github.com/openova-io/openova/pull/7228) | #7217 | docs(adr): record 0018 on secrets and trust (SEC-006) |
+| 2026-11-12T23:50 | [#7227](https://github.com/openova-io/openova/pull/7227) | #4249 | fix(provisioning): the funnel installs bp-openclaw 0.2.20, t |
 | 2026-11-12T23:41 | [#7226](https://github.com/openova-io/openova/pull/7226) | #7211 | chore(ci): ratchets of the billing area at their current val |
 | 2026-11-12T23:41 | [#7224](https://github.com/openova-io/openova/pull/7224) | #7216 | ci: Trivy vulnerability and secret scan, new findings only ( |
 | 2026-11-12T23:40 | [#7223](https://github.com/openova-io/openova/pull/7223) | #7214 | ci: hold the legacy Kyverno policy count and forbid the upgr |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-12T20:06 | [#7162](https://github.com/openova-io/openova/pull/7162) | #7146 | ci: console lint ratchet; remove the switched-off console su |
 | 2026-11-12T20:06 | [#7161](https://github.com/openova-io/openova/pull/7161) | #7149 | docs(adr): record the zone model, the withdrawn zone trial a |
 | 2026-11-12T19:48 | [#7160](https://github.com/openova-io/openova/pull/7160) | #7087 | docs(ledger): dashboard refreshed: 27 tasks delivered |
-| 2026-11-12T19:39 | [#7159](https://github.com/openova-io/openova/pull/7159) | #7144 | feat(contracts): publish contracts C3 and C4 with the event- |
-| 2026-11-12T19:38 | [#7158](https://github.com/openova-io/openova/pull/7158) | #7143 | chore(ci): guard that catalyst-api and core/services gain no |
 
 ---
 
