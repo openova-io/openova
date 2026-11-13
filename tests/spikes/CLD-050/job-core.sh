@@ -557,21 +557,31 @@ state {
   local w="$WORK/drill"
   mkdir -p "$w"
   s3_backend_hcl "http://127.0.0.1:8333" > "$w/main.tf"
-  local enc_scratch enc_other pulled_count=-1 other_rc
-  enc_scratch='key_provider "openbao" "offline" {
+  # The drill keeps the live block NAMES (key_provider "openbao" "sovereign"):
+  # OpenTofu stores the wrapped data key in the state's meta under the key
+  # provider's address (meta."key_provider.openbao.sovereign"), so a block
+  # with another name finds no key. Run 2 measured that case; it is kept
+  # below as a third pull.
+  local enc_scratch enc_other enc_renamed pulled_count=-1 other_rc renamed_rc
+  enc_scratch='key_provider "openbao" "sovereign" {
   address  = "http://127.0.0.1:8300"
   token    = "scratch-root"
   key_name = "sovereign-tofu-state"
 }
-method "aes_gcm" "offline" {
-  keys = key_provider.openbao.offline
+method "aes_gcm" "sovereign" {
+  keys = key_provider.openbao.sovereign
 }
 state {
-  method   = method.aes_gcm.offline
+  method   = method.aes_gcm.sovereign
   enforced = true
 }'
   enc_other="${enc_scratch//8300/8301}"
   enc_other="${enc_other//scratch-root/other-root}"
+  enc_renamed="${enc_scratch//sovereign\"/offline\"}"
+  enc_renamed="${enc_renamed//openbao.sovereign/openbao.offline}"
+  enc_renamed="${enc_renamed//aes_gcm.sovereign/aes_gcm.offline}"
+  printf '%s\n' "$enc_scratch" > "$d/TF_ENCRYPTION-drill.hcl"
+  printf '%s\n' "$enc_renamed" > "$d/TF_ENCRYPTION-drill-renamed.hcl"
   (cd "$w" && TF_ENCRYPTION="$enc_scratch" TF_WORKSPACE=catalyst-infra-state-canary tofu init -input=false -no-color) > "$d/drill-init.txt" 2>&1
   if (cd "$w" && TF_ENCRYPTION="$enc_scratch" TF_WORKSPACE=catalyst-infra-state-canary tofu state pull) > "$WORK/pulled.json" 2> "$d/drill-pull.err"; then
     pulled_count=$(jq '[.resources[].instances[]] | length' "$WORK/pulled.json")
@@ -584,8 +594,11 @@ state {
   (cd "$w" && TF_ENCRYPTION="$enc_other" TF_WORKSPACE=catalyst-infra-state-canary tofu state pull) > /dev/null 2> "$d/negative-pull.err"
   other_rc=$?
   measure E13 state_pull_with_a_different_key "exit=$other_rc $(tr '\n' ' ' < "$d/negative-pull.err" | cut -c1-200)"
+  (cd "$w" && TF_ENCRYPTION="$enc_renamed" TF_WORKSPACE=catalyst-infra-state-canary tofu state pull) > /dev/null 2> "$d/renamed-pull.err"
+  renamed_rc=$?
+  measure E13 state_pull_restored_key_but_renamed_key_provider_block "exit=$renamed_rc $(tr '\n' ' ' < "$d/renamed-pull.err" | cut -c1-200)"
   if [[ $pulled_count -ge 1 && $pulled_count -eq $live_count && $other_rc -ne 0 ]]; then
-    verdict E13 PASS "transit key backup restored into a scratch OpenBao outside the cluster decrypts the canary state (resources $pulled_count = live $live_count); a different key cannot. Backup needs exportable=true and allow_plaintext_backup=true on the key"
+    verdict E13 PASS "transit key backup restored into a scratch OpenBao outside the cluster decrypts the canary state (resources $pulled_count = live $live_count); a different key cannot. Needs exportable=true and allow_plaintext_backup=true on the key, and the drill must keep the live key_provider block name"
   else
     verdict E13 FAIL "pulled=$pulled_count live=$live_count negative_exit=$other_rc"
   fi
@@ -665,10 +678,21 @@ EOF
 
     mk e15-b e15-a '["Observe"]' > "$d/ws-e15-b.yaml"
     kubectl apply -f "$d/ws-e15-b.yaml"
-    if ws_wait_ready e15 e15-b 180; then
+    # e15-d: a second Observe-only Workspace over the same state, left
+    # untouched until the end of the job (when does it report Ready alone?).
+    mk e15-d e15-a '["Observe"]' | kubectl apply -f -
+    E15D_CREATED=$SECONDS
+    if ws_wait_ready e15 e15-b 60; then
       measure E15 b_observe_only_over_existing_state "Ready in ${WAITED}s, output cm=$(ws_out e15 e15-b cm)"
     else
       measure E15 b_observe_only_over_existing_state "not Ready after ${WAITED}s: Synced=$(ws_cond e15 e15-b Synced) Ready=$(ws_cond e15 e15-b Ready) outputs.cm=$(ws_out e15 e15-b cm) checksum=$(ws_get e15 e15-b '{.status.atProvider.checksum}') msg=$(ws_msg e15 e15-b | cut -c1-200)"
+      # A metadata change passes the provider's event filter and triggers a new observation.
+      kubectl -n e15 annotate "$WSR" e15-b spike.openova.io/poke="$(date +%s)" --overwrite
+      if ws_wait_ready e15 e15-b 90; then
+        measure E15 b_after_annotation_poke "Ready ${WAITED}s after an annotation change, output cm=$(ws_out e15 e15-b cm)"
+      else
+        measure E15 b_after_annotation_poke "still not Ready ${WAITED}s after an annotation change"
+      fi
     fi
     ws_dump e15 e15-b "$d/e15-b-status.yaml"
     kubectl -n e15 get "$WSR" e15-b -o yaml > "$d/e15-b-full.yaml" 2>&1
@@ -774,6 +798,16 @@ else
     verdict E16 NOT-RUN "no Ready Workspace to patch"
     verdict E17 NOT-RUN "no Ready Workspace to patch"
   fi
+fi
+if [[ -n ${E15D_CREATED:-} ]]; then
+  # How long an untouched Observe-only Workspace takes to report Ready.
+  s=$SECONDS
+  while (( SECONDS - s < 780 )); do
+    [[ $(ws_cond e15 e15-d Ready) == True ]] && break
+    sleep 5
+  done
+  measure E15 d_untouched_observe_only_ready_after "$([[ $(ws_cond e15 e15-d Ready) == True ]] && echo "$((SECONDS - E15D_CREATED))s after creation, output cm=$(ws_out e15 e15-d cm)" || echo "not Ready $((SECONDS - E15D_CREATED))s after creation")"
+  provider_logs 5000 | grep -E '"name":"e15-d"' | grep -E 'up to date|Reconciling' | tail -6 > "$EV/E15/provider-log-e15-d.txt"
 fi
 echo "=== OUTCOME encryption option: $E3_OPTION"
 summary core
