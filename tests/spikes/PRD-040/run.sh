@@ -101,13 +101,23 @@ ARGS=(
 printf '%s\n' "${ARGS[@]}" > "$OUT/plans.txt"
 docker exec keycloak-fapi-server-1 mkdir -p /conformance-suite/report/prd040
 START=$SECONDS
-docker exec -w /conformance-suite keycloak-fapi-server-1 timeout 7800 \
-  python3 scripts/run-test-plan.py --verbose --export-dir /conformance-suite/report/prd040 "${ARGS[@]}" \
+# One plan and one module at a time; no circuit breaker, so a module that
+# cannot finish is recorded and the run goes on.
+docker exec -w /conformance-suite -e CONFORMANCE_MAX_CONSECUTIVE_FAILURES=100000 keycloak-fapi-server-1 timeout 7800 \
+  python3 scripts/run-test-plan.py --verbose --no-parallel --export-dir /conformance-suite/report/prd040 "${ARGS[@]}" \
   > "$OUT/run-test-plan.log" 2>&1
 RC=$?
 echo "run-test-plan exit code: $RC after $((SECONDS - START))s" | tee -a "$OUT/run-test-plan.log"
-grep -E "^(.\[[0-9;]*m)?(Test \[|Overall totals|Running plan|\*\*)" "$OUT/run-test-plan.log" | tail -n 400
+sed 's/\x1b\[[0-9;]*m//g' "$OUT/run-test-plan.log" | grep -E "^Test \[|Overall totals|Running plan \[|\*\*" | tail -n 400
 
+echo "== export every plan the suite holds"
+docker exec -i keycloak-fapi-server-1 python3 - < "$HERE/harvest.py" 2>&1 | tee "$OUT/harvest.txt"
 collect
+mkdir -p "$OUT/plans"
+for z in "$OUT"/report/prd040/all/*.zip; do
+  [ -f "$z" ] || continue
+  d="$OUT/plans/$(basename "$z" .zip)"
+  mkdir -p "$d" && unzip -q -o "$z" -d "$d"
+done
 python3 "$HERE/summarize.py" "$OUT" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
 exit 0

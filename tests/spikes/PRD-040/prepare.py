@@ -260,6 +260,17 @@ def patch_images():
     alias = "    networks:\n      default:\n        aliases:\n          - " + RS_ALIAS + "\n"
     compose.write_text(text.replace(anchor, anchor + alias))
 
+    # Load balancer in front of every host name: its 30 s client/server timeouts
+    # equal the plan runner's 30 s long-poll, which cut polls mid-response in
+    # the first run and made the runner abort. Raise both to 300 s.
+    lb = KCSIG / "common/load-balancer/haproxy.cfg"
+    text = lb.read_text()
+    for key in ("timeout client 30s", "timeout server 30s"):
+        if key not in text:
+            die("haproxy setting not found: " + key)
+        text = text.replace(key, key.replace("30s", "300s"))
+    lb.write_text(text)
+
     # Conformance suite build: the FAPI1 Advanced Final plan refuses PAR for the
     # openbanking_uk profile in its certification-profile naming. Remove only
     # "par ||" from that one condition so the suite's own modules can run the
