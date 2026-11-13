@@ -154,8 +154,8 @@ ALTER TABLE document ENABLE ROW LEVEL SECURITY;
 ALTER TABLE document FORCE ROW LEVEL SECURITY;
 """
 
-# Literal reading of "the same pair of policies on document, with document.id in
-# place of chunk.document_id": the chunk policy's body with that one substitution.
+# Variant: the chunk policy's body reused on document, joined on document.id, so
+# the policy on document selects from document itself.
 DOCUMENT_READ_LITERAL = """CREATE POLICY document_read ON document FOR SELECT TO cortex_query USING (
   EXISTS (SELECT 1 FROM document d WHERE d.id = document.id AND (
     EXISTS (SELECT 1 FROM source_acl s

@@ -66,9 +66,9 @@ CREATE POLICY chunk_read ON chunk FOR SELECT TO cortex_query USING (
 CREATE POLICY chunk_write ON chunk FOR ALL TO cortex_index USING (true) WITH CHECK (true);
 
 -- The pair on document. The read rule tests the document row's own columns.
--- (A policy on document that selects FROM document is the literal reading of
--- "with document.id in place of chunk.document_id"; spike.py schema shows
--- what PostgreSQL does with it, in a separate database.)
+-- (The variant where the chunk policy's body is reused on document, so that
+-- the policy selects from document itself, is tried by spike.py schema in a
+-- separate database.)
 ALTER TABLE document ENABLE ROW LEVEL SECURITY;
 ALTER TABLE document FORCE ROW LEVEL SECURITY;
 CREATE POLICY document_read ON document FOR SELECT TO cortex_query USING (
