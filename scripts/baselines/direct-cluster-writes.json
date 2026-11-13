@@ -2,8 +2,6 @@
   "allow": [],
   "counts": {
     "K": {
-      "core/services/tenant/handlers/sandbox_consumer.go": 1,
-      "core/services/tenant/main.go": 1,
       "products/catalyst/bootstrap/api/cmd/api/main.go": 2,
       "products/catalyst/bootstrap/api/internal/handler/applications.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/applications_update.go": 2,

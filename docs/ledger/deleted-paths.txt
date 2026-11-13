@@ -79,3 +79,6 @@ products/catalyst/bootstrap/api/internal/infrastructure/xrc.go
 products/catalyst/bootstrap/api/internal/jobs/mutation_bridge.go
 products/catalyst/chart/crds/runbook.yaml
 products/catalyst/chart/crds/secretpolicy.yaml
+core/services/tenant/handlers/sandbox_consumer.go
+core/services/tenant/handlers/sandbox_consumer_integration_test.go
+core/services/tenant/handlers/sandbox_consumer_test.go
