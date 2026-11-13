@@ -119,32 +119,22 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/meshstatus"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
 
-// ClusterMeshStatus is the per-region terminal summary returned to the
-// caller. One entry per region; PeerStatus describes whether the
-// outbound trust to each OTHER region was successfully wired.
-type ClusterMeshStatus struct {
-	RegionKey      string       `json:"regionKey"`
-	ClusterName    string       `json:"clusterName"`
-	ClusterID      int          `json:"clusterID"`
-	LoadBalancerIP string       `json:"loadBalancerIP"`
-	Peers          []PeerStatus `json:"peers"`
-	ReadyAt        time.Time    `json:"readyAt,omitempty"`
-}
+// ClusterMeshStatus and PeerStatus are the per-region summary of the mesh
+// step, defined in package meshstatus so that both modes return them.
+type (
+	ClusterMeshStatus = meshstatus.ClusterMeshStatus
+	PeerStatus        = meshstatus.PeerStatus
+)
 
-// PeerStatus describes the trust wiring outbound from one region to
-// another. Connected=true means the cross-cluster Secret entries were
-// written successfully; it does NOT mean Cilium has finished its peer
-// handshake (that's observed in the cilium-clustermesh-apiserver Pod
-// logs and surfaced via the optional WaitForPeerLogs step).
-type PeerStatus struct {
-	Name           string `json:"name"`
-	LoadBalancerIP string `json:"loadBalancerIP"`
-	Connected      bool   `json:"connected"`
-	Error          string `json:"error,omitempty"`
-}
+// clusterMeshObserve: CATALYST_CLUSTERMESH_MODE is "observe", so the mesh step only reads the
+// mesh (meshstatus.Observe) and writes nothing. Set at start-up; an invalid value stops the process.
+var clusterMeshObserve atomic.Bool
+
+func init() { clusterMeshObserve.Store(meshstatus.MustModeFromEnv() == meshstatus.ModeObserve) }
 
 // regionSlot is a per-region intermediate the orchestrator carries
 // through the three steps (LB IP discovery, CA snapshot, peer write).
@@ -1166,6 +1156,16 @@ func (h *Handler) autoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 	// Cluster CRs they feed exist only post-flip.
 	h.syncSharedPGConsumerHubSecrets(ctx, dep, slots)
 
+	statuses := make([]ClusterMeshStatus, 0, len(slots))
+	if clusterMeshObserve.Load() {
+		observed := make([]meshstatus.Region, len(slots))
+		for i, s := range slots {
+			observed[i] = meshstatus.Region{Key: s.key, Client: s.clientset, Err: s.err}
+		}
+		statuses = meshstatus.Observe(ctx, observed, time.Now().UTC())
+		goto meshRead
+	}
+
 	// Step 1: per-region LB IP discovery (poll up to 5 min each).
 	for i := range slots {
 		s := &slots[i]
@@ -1219,7 +1219,6 @@ func (h *Handler) autoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 	// Step 3: for every ordered pair (A, B), write into A the trust
 	// bundle that lets A's clustermesh-apiserver contact B. Builds a
 	// cilium-clustermesh Secret entry per peer.
-	statuses := make([]ClusterMeshStatus, 0, len(slots))
 	for i := range slots {
 		a := &slots[i]
 		st := ClusterMeshStatus{
@@ -1444,6 +1443,7 @@ func (h *Handler) autoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 			fmt.Sprintf("ClusterMesh: region %q wired %d/%d peers", a.key, readyCount, len(slots)-1))
 	}
 
+meshRead:
 	// Stable order for the caller — primary first, then secondaries by
 	// region key.
 	sort.SliceStable(statuses, func(i, j int) bool {
