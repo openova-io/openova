@@ -59,7 +59,7 @@
 # The HelmRelease's targetNamespace below installs hcloud-CCM into
 # kube-system (canonical CCM placement; mirrors hcloud-CCM upstream
 # documentation).
-apiVersion: source.toolkit.fluxcd.io/v1beta2
+apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:
   name: bp-hcloud-ccm

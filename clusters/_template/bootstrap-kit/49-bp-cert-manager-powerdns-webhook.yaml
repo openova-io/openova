@@ -65,7 +65,7 @@
 # the legacy Traefik + per-host HTTP-01 stack).
 
 ---
-apiVersion: source.toolkit.fluxcd.io/v1beta2
+apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:
   name: bp-cert-manager-powerdns-webhook
