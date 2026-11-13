@@ -9,6 +9,7 @@
 | **Superseded by** | — |
 | **Partially superseded by** | [ADR-0011](0011-opentofu-crossplane-adoption-seam.md): the provisioning seam of §2 principle 2 and §9.1 (see the errata below). A later record that replaces another part adds its own line here; the [index](README.md) lists the allocated numbers. |
 | **Partially superseded by** | [ADR-0028](0028-commerce-and-billing.md): the retirement of the services `auth`, `tenant`, `catalog`, `provisioning`, `domain` and `gateway` in §4.3 and items B6 to B11 of §9.2. The six stay as the storefront back end, frozen in scope. |
+| **Partially superseded by** | [ADR-0021](0021-git-first-write-path-and-event-backbone.md): the stream layout of §6, which the chart `platform/nats-jetstream` renders as three streams for audit, events and billing. One stream, `CATALYST_ORG` on `catalyst.>`, is the declared layout. |
 | **Related** | #309, #320, #321, #322, #324, #325, #326, #347, #68; ratified under #1094 / #1095 (Phase-0 Foundation) — see [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md). |
 
 > **2026-05-08 amendment (rule 3 clarification)**: Reconciling RoleBindings, Kustomizations, ConfigMaps, and other K8s-to-K8s objects is the responsibility of Flux Kustomizations or thin in-cluster controllers — not Crossplane Compositions. The `useraccess-controller` is the canonical example: it watches `UserAccess` CRs and reconciles RoleBindings/ClusterRoleBindings via the kubernetes Go clientset. The earlier `XUserAccess` Composition that used `provider-kubernetes` is retired in EPIC-0 (#1095).
