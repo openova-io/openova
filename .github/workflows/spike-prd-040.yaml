@@ -1,0 +1,88 @@
+# PRD-040 lab test (never merged): can Keycloak, with a small extension, pass
+# the OpenID Foundation FAPI1 Advanced Final plan for an open-banking profile,
+# and does the consent identifier travel as a claim in a pushed, signed request
+# object? Runs only on pushes to its own branch.
+name: spike-prd-040
+
+on:
+  push:
+    branches: [spike/PRD-040]
+
+permissions:
+  contents: read
+
+env:
+  # Keycloak FAPI SIG conformance environment (public), pinned commit.
+  KCSIG_REPO: https://github.com/keycloak/kc-sig-fapi.git
+  KCSIG_SHA: 64b97d552fa6c0f85aa5a9ead64f7dd5bfd8dbdc
+
+jobs:
+  facts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Keycloak version pinned by the platform chart
+        run: |
+          grep -n -B2 -A2 'repository: proxy-dockerhub/bitnamilegacy/keycloak' platform/keycloak/chart/values.yaml
+          docker pull -q docker.io/bitnamilegacy/keycloak:26.3.3-debian-12-r0
+          docker run --rm --entrypoint sh docker.io/bitnamilegacy/keycloak:26.3.3-debian-12-r0 -c \
+            'ls /opt/bitnami/keycloak/lib/lib/main | grep -E "^org\.keycloak\.keycloak-(core|services)-[0-9]"'
+          docker pull -q quay.io/keycloak/keycloak:26.3.3
+          docker run --rm --entrypoint sh quay.io/keycloak/keycloak:26.3.3 -c \
+            'ls /opt/keycloak/lib/lib/main | grep -E "^org\.keycloak\.keycloak-(core|services)-[0-9]"'
+
+      - name: Publisher functional suite and Read/Write 4.0 (public release notes)
+        run: |
+          curl -sf "https://api.github.com/repos/OpenBankingUK/conformance-suite/releases?per_page=10" \
+            | jq -r '.[] | "\(.tag_name)\t\(.published_at)\tprerelease=\(.prerelease)\tmentions_v4.0=\((.body // "") | test("v4\\.0"))"'
+
+  spike:
+    strategy:
+      fail-fast: false
+      matrix:
+        keycloak: ["26.3.3", "26.8.2"]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 175
+    env:
+      KC_VERSION: ${{ matrix.keycloak }}
+      OUT: ${{ github.workspace }}/out
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Host names of the conformance environment
+        run: |
+          echo "127.0.0.1 as.keycloak-fapi.org aes.keycloak-fapi.org rs.keycloak-fapi.org cs.keycloak-fapi.org conformance-suite.keycloak-fapi.org" | sudo tee -a /etc/hosts
+          docker version --format 'docker {{.Server.Version}}'
+          docker compose version
+          df -h / | tail -n 1
+
+      - name: Fetch the FAPI SIG environment at the pinned commit
+        run: |
+          mkdir -p "$RUNNER_TEMP/kcsig"
+          cd "$RUNNER_TEMP/kcsig"
+          git init -q
+          git fetch -q --depth 1 "$KCSIG_REPO" "$KCSIG_SHA"
+          git checkout -q FETCH_HEAD
+          git log -1 --format='kc-sig-fapi %H %cs'
+          echo "KCSIG=$RUNNER_TEMP/kcsig" >> "$GITHUB_ENV"
+
+      - name: Build the stub extension against this Keycloak's jars
+        run: bash tests/spikes/PRD-040/build-extension.sh
+
+      - name: Prepare realm, suite configurations and images
+        run: python3 tests/spikes/PRD-040/prepare.py
+
+      - name: Run the lab test
+        run: bash tests/spikes/PRD-040/run.sh
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prd-040-keycloak-${{ matrix.keycloak }}
+          path: out/
+          if-no-files-found: warn
