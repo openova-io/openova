@@ -98,6 +98,13 @@ unseeded:
       (12a-bp-sovereign-tls-vars.yaml). Carries the Sovereign's own TLS/domain
       substitution vars for the GitOps loop; not a catalog item.
 
+  - chart: bp-storage-ready
+    source: platform/storage-ready
+    reason: >-
+      Bootstrap-kit-owned — installs from slot 15b (15b-storage-ready.yaml).
+      The neutral storage gate that holds bp-cnpg until the default
+      StorageClass exists; not a catalog item.
+
   # ── Group B — no bootstrap-kit slot AND no seed entry. These are NOT
   # "deliberately excluded" in the same sense as Group A: nothing installs them
   # today through either door. They are recorded here so the set is ENUMERATED

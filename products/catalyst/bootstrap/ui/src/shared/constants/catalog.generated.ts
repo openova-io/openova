@@ -5150,6 +5150,56 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "hasUserUIEndpoint": true
   },
   {
+    "id": "bp-storage-ready",
+    "slug": "storage-ready",
+    "title": "Storage Ready",
+    "summary": "Neutral storage gate of the bootstrap kit. A hook Job waits until the expected StorageClass is the cluster default.",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "0.1.0",
+    "section": null,
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "producesInstances": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    },
+    "hasUserUIEndpoint": false
+  },
+  {
     "id": "bp-strimzi",
     "slug": "strimzi",
     "title": "Strimzi",
@@ -6096,6 +6146,7 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/sso-bridge/blueprint.yaml",
   "platform/stalwart-sovereign/blueprint.yaml",
   "platform/stalwart-tenant/blueprint.yaml",
+  "platform/storage-ready/blueprint.yaml",
   "platform/strimzi/blueprint.yaml",
   "platform/stunner/blueprint.yaml",
   "platform/syft-grype/blueprint.yaml",
