@@ -38,3 +38,6 @@ products/catalyst/bootstrap/api/internal/natspub/sandbox_publisher_test.go
 products/catalyst/bootstrap/api/internal/handler/continuum_dr_preflight02_6156_test.go
 products/catalyst/bootstrap/api/internal/handler/continuum_dr_preflight02_callsite_6156_test.go
 products/catalyst/bootstrap/api/internal/handler/continuum_dr_preflight_test.go
+products/catalyst/bootstrap/api/internal/precheck
+products/catalyst/bootstrap/api/internal/handler/endpoint_handler_integration_test.go
+products/catalyst/bootstrap/api/internal/handler/endpoint_handler_per_org_token_test.go

@@ -27,7 +27,6 @@ import (
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/audit"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
-	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/giteapr"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handler"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
@@ -37,7 +36,6 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/oidcprovider"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/powerdns"
-	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/precheck"
 	// Side-effect import: registers every CloudProvider adapter
 	// (hetzner + huawei stub) against internal/providers/registry
 	// at init() time. Wave 2 — the registrations are passive; no
@@ -569,61 +567,28 @@ func main() {
 		log.Info("gitea: client not wired (CATALYST_GITEA_URL or CATALYST_GITEA_TOKEN unset); /blueprints/* will return 503")
 	}
 
-	// ── G117.3 (#2742) — endpoint CRUD + IaC PR pipeline wiring.
+	// ── G117.3 (#2742) — endpoint read + Application-instance wiring.
 	// Wires the EndpointPrecheckDeps bundle the endpoint_handler.go
-	// handlers consume. Each lookup closure is nil-tolerant:
-	//
-	//   - CertLookup nil → cert-manager-precheck 503 (lookup-unavailable)
-	//   - DNSLookup nil → dns-conflict-precheck 503 (lookup-unavailable)
-	//   - KyvernoLookup nil → deferred to per-Org repo workflow (pass)
-	//
-	// The WriterFactory uses CATALYST_GITEA_URL + per-Org OpenBao token
-	// read from `kv/data/org/<slug>/iac-bot-token` (key `token`) per
-	// ADR-0009; falls back to the global CATALYST_GITEA_TOKEN env var
-	// when the per-Org secret isn't seeded yet OR the openbao client
-	// isn't wired (chroot dev surface). G117.3b #2765.
+	// handlers consume.
 	// G117.3d #2780 — RegionsCounter wires Sovereign.spec.regions as the
 	// truth-source for multi-region topology selection. Falls back to
 	// SOVEREIGN_REGIONS env when the dynamic client is unwired or the
 	// Sovereign CRD is absent (chroot dev surface).
 	var regionsCounter func(ctx context.Context) (int, error)
-	var certLookup precheck.CertConflictLookup
 	if dynCfg, derr := rest.InClusterConfig(); derr == nil {
 		if dynClient, dcerr := dynamic.NewForConfig(dynCfg); dcerr == nil {
 			regionsCounter = func(ctx context.Context) (int, error) {
 				return handler.CountSovereignRegions(ctx, dynClient)
 			}
-			// G117 #2864 (Gap 6) — wire the production cert-manager
-			// Certificate lookup so cert-manager-precheck auto-PASSes
-			// hostnames under the Sovereign's `*.<sov-fqdn>` wildcard
-			// Certificate. Without this wire the precheck returns
-			// `lookup-unavailable` (503) and every endpoint mutation
-			// fails on a live Sovereign.
-			certLookup = handler.NewProductionCertConflictLookup(dynClient)
 		}
 	}
-	// Production WriterFactory closure — routes through the per-Handler
-	// method so the openbao path is honoured. If h.openbao is nil at
-	// the time of the call, the method falls back to the env-var shim
-	// transparently.
-	writerFactory := func(org string) (*giteapr.Writer, error) {
-		// 30s ceiling matches OpenBao client timeout (15s) × 2 for
-		// optional retry on transient transport.
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		return h.NewProductionGiteaIaCWriter(ctx, org)
-	}
 	h.SetEndpointPrecheckDeps(handler.EndpointPrecheckDeps{
-		WriterFactory:  writerFactory,
 		SovereignFQDN:  env("SOVEREIGN_FQDN", ""),
 		RegionsCounter: regionsCounter,
-		CertLookup:     certLookup,
 	})
-	log.Info("g117.3: endpoint precheck deps wired",
+	log.Info("g117.3: endpoint deps wired",
 		"sovereignFQDN", env("SOVEREIGN_FQDN", ""),
-		"writerFactory", "Handler.NewProductionGiteaIaCWriter (per-Org openbao token, env fallback)",
 		"regionsCounter", regionsCounter != nil,
-		"certLookup", certLookup != nil,
 	)
 
 	// EPIC-3 #1098 slice U8 — RBAC audit Bus. Owns:
@@ -1349,18 +1314,7 @@ func main() {
 		// kind-list path which already uses /k8s/{kind}/{ns}/{name}.
 		rg.Get("/api/v1/sovereigns/{id}/k8s/events-for/{kind}/{ns}/{name}", h.HandleK8sEventsForResource)
 		rg.Post("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/scale", h.HandleK8sResourceScale)
-		// PUT /scale alias (qa-loop iter-7 Cluster-C, #1227): the
-		// Sovereign Console UI + qa-loop matrix use PUT to align with
-		// REST verb-resource semantics ("update the scale subresource").
-		// The handler is identical — both verbs land on the same
-		// MergePatch.
-		rg.Put("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/scale", h.HandleK8sResourceScale)
 		rg.Post("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/restart", h.HandleK8sResourceRestart)
-		// PUT alias for ConfigMap / Secret update (qa-loop iter-7
-		// Cluster-C, #1227). Mirrors the YAML-editor's apply path but
-		// accepts a structured body so the matrix + UI can update a
-		// single field without round-tripping the whole YAML.
-		rg.Put("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}", h.HandleK8sResourceApply)
 		rg.Post("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/dry-run", h.HandleK8sResourceDryRun)
 		rg.Post("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/apply", h.HandleK8sResourceApply)
 		rg.Delete("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}", h.HandleK8sResourceDelete)
@@ -1812,20 +1766,12 @@ func main() {
 		// edit lands via the GitOps flow rather than side-stepping flux.
 		rg.Post("/api/v1/sovereigns/{id}/blueprints/edit-pr", h.HandleBlueprintEditPR)
 
-		// ── G117.3 (#2742) — endpoint CRUD + Gitea-IaC PR pipeline +
-		// silent-SSO Launch URL + multi-instance Application create.
+		// ── G117.3 (#2742) — endpoint list + silent-SSO Launch URL +
+		// multi-instance Application create.
 		// Routes match docs/api/catalyst-api-openapi.yaml exactly.
 		// See products/catalyst/bootstrap/api/internal/handler/
-		// endpoint_handler.go for the per-handler contract + the
-		// ADR-0009 PR-pipeline architecture.
-		//
-		// Authz: each mutation handler enforces tier-admin or higher
-		// (same gate as Application install) via the request-context
-		// claims. Read handlers fall through to RequireSession only.
+		// endpoint_handler.go for the per-handler contract.
 		rg.Get("/catalyst/v1/apps/{id}/endpoints", h.HandleListAppEndpoints)
-		rg.Post("/catalyst/v1/apps/{id}/endpoints", h.HandleCreateAppEndpoint)
-		rg.Patch("/catalyst/v1/apps/{id}/endpoints/{name}", h.HandlePatchAppEndpoint)
-		rg.Delete("/catalyst/v1/apps/{id}/endpoints/{name}", h.HandleDeleteAppEndpoint)
 		rg.Get("/catalyst/v1/apps/{id}/launch-url", h.HandleGetLaunchURL)
 		// NOTE: the OpenBao silent-SSO shim (openbao-sso-init) is
 		// registered OUTSIDE this RequireSession group — see the public
