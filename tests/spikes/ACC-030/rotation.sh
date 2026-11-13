@@ -28,25 +28,30 @@ setup_db
 sshd_ready
 ns_with_sa spike access-session
 
-OBJS="$(objs_ssh)
-$(objs_pki pki/issue/access-exec-self urn:openova:access:exec:spike:rot:tool)
-$(objs_db)
-- objectName: db-lease
-  secretPath: db/creds/$DBROLE"
-spc spike acc-rot access-session "$OBJS"
-spc spike acc-rot-1h access-session-1h "$OBJS"
+objs_all() { # db role
+  printf '%s\n%s\n%s\n- objectName: db-lease\n  secretPath: db/creds/%s\n' "$(objs_ssh)" \
+    "$(objs_pki pki/issue/access-exec-self urn:openova:access:exec:spike:rot:tool)" "$(objs_db "$1")" "$1"
+}
+# rot and rot1h use the design's revocation statements (connection user
+# openbao_dbadmin); rot2 uses the same statements through openbao_dbadmin2,
+# whose createrole_self_grant lets the revocation succeed.
+spc spike acc-rot access-session "$(objs_all "$DBROLE")"
+spc spike acc-rot-1h access-session-1h "$(objs_all "$DBROLE")"
+spc spike acc-rot-2 access-session "$(objs_all "${DBROLE}2")"
+PODS="rot rot1h rot2"
 session_pod spike rot acc-rot
 session_pod spike rot1h acc-rot-1h
-RR1=$(pod_result spike rot); RR2=$(pod_result spike rot1h)
+session_pod spike rot2 acc-rot-2
+RR1=$(pod_result spike rot); RR2=$(pod_result spike rot1h); RR3=$(pod_result spike rot2)
 T0=$(date -d "$(kubectl -n spike get pod rot -o jsonpath='{.status.startTime}')" +%s)
-rec "ITEM-I pod rot (role access-session, token 5m/10m): $RR1 | pod rot1h (role access-session-1h, token 1h): $RR2 | both ready $(( $(date +%s) - T0 ))s after pod start"
+rec "ITEM-I pod rot (role access-session, token 5m/10m): $RR1 | pod rot1h (role access-session-1h, token 1h): $RR2 | pod rot2 (role access-session, token 5m/10m, revocation that works): $RR3 | all ready $(( $(date +%s) - T0 ))s after pod start"
 declare -A FIRSTLEASE
-for p in rot rot1h; do FIRSTLEASE[$p]=$(pf spike $p db-lease | jq -r '.lease_id // empty' 2>/dev/null); done
+for p in $PODS; do FIRSTLEASE[$p]=$(pf spike $p db-lease | jq -r '.lease_id // empty' 2>/dev/null); done
 
 sample() {
   local t p f hs u pw
   t=$(( $(date +%s) - T0 ))
-  for p in rot rot1h; do
+  for p in $PODS; do
     hs=""
     for f in private-key public-key exec-cert db-username; do hs="$hs$(pf spike $p $f | h8)/"; done
     hs=${hs%/}
@@ -54,12 +59,12 @@ sample() {
     rec "ITEM-I t=${t}s pod=$p files(private-key/public-key/exec-cert/db-username)=$hs dbuser=$u connect=$(pg_try "$u" "$pw")"
     echo "$t $p $hs $u" >>"$WORK/seen"
   done
-  rec "ITEM-I t=${t}s pg dynamic users=[$(pg_users)] leases=$(lease_count) backends-of-dynamic-users=$(psql_admin -c "select count(*) from pg_stat_activity where usename like 'v-%'" 2>/dev/null)"
+  rec "ITEM-I t=${t}s pg dynamic users=$(pg_users | tr ',' '\n' | grep -c .) leases ro=$(lease_count) ro2=$(lease_count "${DBROLE}2") backends-of-dynamic-users=$(psql_admin -c "select count(*) from pg_stat_activity where usename like 'v-%'" 2>/dev/null)"
 }
 ssh_at_eight() {
   local t p
   t=$(( $(date +%s) - T0 ))
-  for p in rot rot1h; do
+  for p in $PODS; do
     pf spike $p private-key >"$WORK/$p.key"; chmod 600 "$WORK/$p.key"; pf spike $p public-key >"$WORK/$p.cert"; pf spike $p exec-cert >"$WORK/$p.crt"
     rec "ITEM-I t=${t}s pod=$p SSH certificate read from the files now ($(now)): $(ssh-keygen -L -f "$WORK/$p.cert" 2>&1 | grep 'Valid:' | oneline 120) login as alice: $(ssh_try "$WORK/$p.key" "$WORK/$p.cert" alice) | exec-cert $(openssl x509 -in "$WORK/$p.crt" -noout -enddate 2>&1) valid now: $(openssl x509 -in "$WORK/$p.crt" -noout -checkend 0 >/dev/null 2>&1 && echo yes || echo no)"
   done
@@ -67,9 +72,11 @@ ssh_at_eight() {
 
 # A long-lived connection with the first user of pod rot, as db-proxy would hold one.
 sleep 20
-LU=$(pf spike rot db-username); LP=$(pf spike rot db-password)
-( kubectl -n spike-db exec "$PGPOD" -- env PGPASSWORD="$LP" psql -h 127.0.0.1 -U "$LU" -d billing -Atc "select pg_sleep(540); select 'still connected as ' || current_user" \
-    >"$WORK/longconn.out" 2>&1 </dev/null; echo "rc=$?" >>"$WORK/longconn.out" ) &
+for p in rot rot2; do
+  LU=$(pf spike $p db-username); LP=$(pf spike $p db-password)
+  ( kubectl -n spike-db exec "$PGPOD" -- env PGPASSWORD="$LP" psql -h 127.0.0.1 -U "$LU" -d billing -Atc "select pg_sleep(540); select 'still connected as ' || current_user" \
+      >"$WORK/longconn-$p.out" 2>&1 </dev/null; echo "rc=$?" >>"$WORK/longconn-$p.out" ) &
+done
 LC0=$(( $(date +%s) - T0 ))
 
 did8=0
@@ -85,18 +92,20 @@ while :; do
   sl=$(( target - $(date +%s) )); [ $sl -gt 0 ] && sleep $sl
 done
 rec "ITEM-I t=$(( $(date +%s) - T0 ))s deleting both pods (ten-minute life)"
-kubectl -n spike delete pod rot rot1h --wait=true >/dev/null 2>&1
+kubectl -n spike delete pod $PODS --wait=true >/dev/null 2>&1
 sleep 20
-rec "ITEM-I after deletion: pg dynamic users=[$(pg_users)] leases=$(lease_count)"
-for p in rot rot1h; do
+rec "ITEM-I after deletion: pg dynamic users=$(pg_users | tr ',' '\n' | grep -c .) leases ro=$(lease_count) ro2=$(lease_count "${DBROLE}2")"
+for p in $PODS; do
   l=${FIRSTLEASE[$p]:-}
-  rec "ITEM-I first lease of pod $p: $( [ -n "$l" ] && { bx write -format=json sys/leases/lookup lease_id="$l" >/dev/null 2>&1 && echo present || echo 'absent (revoked)'; } || echo 'not captured')"
+  rec "ITEM-I first lease of pod $p: $( [ -n "$l" ] && { bx write -format=json sys/leases/lookup lease_id="$l" >/dev/null 2>&1 && echo present || echo 'absent (revoked)'; } || echo 'not captured') server log: $( [ -n "$l" ] && rev_log "$l" "$T0")"
 done
-wait_lc=0; while [ ! -s "$WORK/longconn.out" ] || ! grep -q '^rc=' "$WORK/longconn.out"; do sleep 5; wait_lc=$((wait_lc + 5)); [ $wait_lc -ge 120 ] && break; done
-rec "ITEM-I long-lived connection of pod rot's first user (opened at t=${LC0}s, held 540 s): $(oneline 300 <"$WORK/longconn.out")"
+for p in rot rot2; do
+  wait_lc=0; while ! grep -q '^rc=' "$WORK/longconn-$p.out" 2>/dev/null; do sleep 5; wait_lc=$((wait_lc + 5)); [ $wait_lc -ge 120 ] && break; done
+  rec "ITEM-I long-lived connection of pod $p's first user (opened at t=${LC0}s, held 540 s): $(oneline 300 <"$WORK/longconn-$p.out")"
+done
 
 hdr "SUMMARY item (i)"
-for p in rot rot1h; do
+for p in $PODS; do
   for i in 1 2 3 4; do
     f=$(echo "private-key public-key exec-cert db-username" | cut -d' ' -f$i)
     vals=$(awk -v p=$p '$2==p{print $3}' "$WORK/seen" | cut -d/ -f$i | grep -v '^e3b0c442$' | uniq)
@@ -107,8 +116,7 @@ for p in rot rot1h; do
 done
 for r in access-session access-session-1h; do
   logins=$(bao_log | jq -R -r --arg r "$r" 'fromjson? | select(.type=="response" and .request.path=="auth/kubernetes/login" and (.error // "")=="" and (.auth.metadata.role // "")==$r) | .request.id' | sort -u | wc -l)
-  rec "ITEM-I SUMMARY role=$r openbao successful logins=$logins db/creds issued=$(audit_ok "db/creds/$DBROLE" "$r") ssh/issue=$(audit_ok ssh/issue/acc.spike.target1 "$r") pki/issue=$(audit_ok pki/issue/access-exec-self "$r") refused requests=$(bao_log | jq -R -r --arg r "$r" 'fromjson? | select(.type=="response" and (.error // "")!="" and (.auth.metadata.role // "")==$r) | .request.path + ": " + .error' | sort | uniq -c | oneline 300)"
+  rec "ITEM-I SUMMARY role=$r (both db roles) openbao successful logins=$logins db/creds ro issued=$(audit_ok "db/creds/$DBROLE" "$r") db/creds ro2 issued=$(audit_ok "db/creds/${DBROLE}2" "$r") ssh/issue=$(audit_ok ssh/issue/acc.spike.target1 "$r") pki/issue=$(audit_ok pki/issue/access-exec-self "$r") refused requests=$(bao_log | jq -R -r --arg r "$r" 'fromjson? | select(.type=="response" and (.error // "")!="" and (.auth.metadata.role // "")==$r) | .request.path + ": " + .error' | sort | uniq -c | oneline 300)"
 done
-rec "ITEM-I SUMMARY csi driver log lines on rotation: $(kubectl -n kube-system logs -l app=secrets-store-csi-driver -c secrets-store --tail=-1 2>/dev/null | grep -i -E 'rotat|republish|remount' | sed -E 's/^[IWE][0-9]{4} [0-9:.]+ +[0-9]+ //' | cut -c1-140 | sort | uniq -c | sort -rn | head -5 | oneline 800)"
-rec "ITEM-I SUMMARY openbao server log on lease revocation: $(kubectl -n openbao logs openbao-0 -c openbao --tail=-1 | grep -v '^{' | grep -i -E 'revok|expiration' | sed -E 's/lease_id=[^ ]+/lease_id=<id>/g' | cut -c1-260 | sort | uniq -c | sort -rn | head -6 | oneline 1200)"
+rec "ITEM-I SUMMARY openbao server log on lease revocation (lease ids removed): $(kubectl -n openbao logs openbao-0 -c openbao --tail=-1 | grep -v '^{' | grep -i -E 'revok|expiration' | sed -E 's/^[^ ]+ //; s/lease_id=[^ ]+//g; s/attempts=[0-9]+ next_attempt=[^ ]+//' | cut -c1-200 | sort | uniq -c | sort -rn | head -6 | oneline 1200)"
 grep -E '^ITEM-I' "$RES"

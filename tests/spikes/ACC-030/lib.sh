@@ -43,12 +43,21 @@ prov_log() { kubectl -n openbao logs -l app.kubernetes.io/name=openbao-csi-provi
 bget() { curl -sS --max-time 10 "http://127.0.0.1:18200/v1/$1"; }
 
 # Audit: successful responses on one path (exact), optionally only for one auth role.
+# A backend refusal (4xx from the engine) is in .response.data.error, an ACL
+# refusal in .error; both count as errors.
 audit_ok() { # path [role]
-  bao_log | jq -R -r --arg p "$1" --arg r "${2:-}" 'fromjson? | select(.type=="response" and .request.path==$p and (.error // "")=="")
+  bao_log | jq -R -r --arg p "$1" --arg r "${2:-}" 'fromjson? | select(.type=="response" and .request.path==$p and (.error // "")=="" and ((.response.data.error // "")==""))
     | select($r=="" or ((.auth.metadata.role // "")==$r)) | .request.id' | sort -u | wc -l
 }
 audit_err() { # path
-  bao_log | jq -R -r --arg p "$1" 'fromjson? | select(.type=="response" and .request.path==$p and (.error // "")!="") | .error' | sort | uniq -c | oneline 300
+  bao_log | jq -R -r --arg p "$1" 'fromjson? | select(.type=="response" and .request.path==$p and ((.error // "")!="" or (.response.data.error // "")!="")) | "refused"' | sort | uniq -c | oneline 300
+}
+# OpenBao server log lines (not audit) that name one lease, with seconds since $2 (epoch).
+rev_log() { # lease_id t0
+  local l
+  kubectl -n openbao logs openbao-0 -c openbao --tail=-1 2>/dev/null | grep -v '^{' | grep -F "$1" | head -4 | while read -r l; do
+    printf '[t=%ss %s] ' "$(( $(date -d "$(cut -d' ' -f1 <<<"$l")" +%s) - $2 ))" "$(sed -E 's/^[^ ]+ //; s/lease_id=[^ ]+ //' <<<"$l" | cut -c1-170)"
+  done
 }
 
 helm_repos() {
@@ -252,7 +261,7 @@ pg_try() { # user password -> ok | fail(...)
   o=$(kubectl -n spike-db exec "$PGPOD" -- env PGPASSWORD="$2" psql -h 127.0.0.1 -U "$1" -d billing -Atc 'select current_user' 2>&1 </dev/null); rc=$?
   if [ $rc -eq 0 ]; then echo "ok"; else echo "fail($(printf '%s' "$o" | oneline 140))"; fi
 }
-lease_count() { local o; o=$(bx list -format=json "sys/leases/lookup/db/creds/$DBROLE/" 2>/dev/null); if [ -n "$o" ]; then jq -r 'length' <<<"$o" 2>/dev/null; else echo 0; fi; }
+lease_count() { local o; o=$(bx list -format=json "sys/leases/lookup/db/creds/${1:-$DBROLE}/" 2>/dev/null); if [ -n "$o" ]; then jq -r 'length' <<<"$o" 2>/dev/null; else echo 0; fi; }
 pg_users() { psql_admin -d postgres -c "select rolname from pg_roles where rolname like 'v-%' order by 1" 2>/dev/null | paste -sd, -; }
 
 setup_db() {
@@ -369,8 +378,14 @@ EOF
 pod_result() { # ns name [timeout] -> PASS | FAIL(<last mount event>)
   local ev
   if kubectl -n "$1" wait --for=condition=Ready "pod/$2" --timeout="${3:-120}s" >/dev/null 2>&1; then echo PASS; return 0; fi
-  ev=$(kubectl -n "$1" get events --field-selector "involvedObject.name=$2" -o jsonpath='{range .items[*]}{.reason}: {.message}{"\n"}{end}' 2>/dev/null | grep -E 'FailedMount|Failed|Error' | tail -1 | oneline 700)
+  ev=$(event_msg "$1" "$2")
   echo "FAIL(${ev:-not ready, no event})"; return 1
+}
+event_msg() { # ns pod: last warning event of the pod, on one line, without the driver's wrapping
+  kubectl -n "$1" get events --field-selector "involvedObject.name=$2" -o json 2>/dev/null \
+    | jq -r '[.items[] | select(.type=="Warning")] | last | if . == null then "" else "\(.reason): \(.message)" end' \
+    | sed -E 's/rpc error: code = Unknown desc = failed to mount secrets store objects for pod [^,]+, err: rpc error: code = Unknown desc = //' \
+    | oneline 700
 }
 pf() { kubectl -n "$1" exec "$2" -- cat "/var/run/secrets/openova/$3" 2>/dev/null; }
 
@@ -413,12 +428,13 @@ objs_pki() { # role-path uri
   secretKey: issuing_ca
 EOF
 }
-objs_db() { cat <<EOF
+objs_db() { # [db role]
+  cat <<EOF
 - objectName: db-username
-  secretPath: db/creds/$DBROLE
+  secretPath: db/creds/${1:-$DBROLE}
   secretKey: username
 - objectName: db-password
-  secretPath: db/creds/$DBROLE
+  secretPath: db/creds/${1:-$DBROLE}
   secretKey: password
 EOF
 }

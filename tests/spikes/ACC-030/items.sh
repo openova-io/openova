@@ -97,7 +97,7 @@ session_pod spike access-sa access-s-a
 RA=$(pod_result spike access-sa)
 rec "ITEM-A mount of ssh/issue/acc.spike.target1 (method PUT, secretArgs) in a pod of namespace spike: $RA"
 if [ "$RA" = PASS ]; then
-  rec "ITEM-A files: $(kubectl -n spike exec access-sa -- ls -ln /var/run/secrets/openova/ 2>&1 | grep -v '^total' | awk '{print $1, $3":"$4, $5"B", $NF}' | paste -sd';' -)"
+  rec "ITEM-A files: $(kubectl -n spike exec access-sa -- ls -lnL /var/run/secrets/openova/ 2>&1 | grep -v '^total' | awk '{print $1, $3":"$4, $5"B", $NF}' | paste -sd';' -)"
   pf spike access-sa private-key >"$WORK/a.key"; pf spike access-sa public-key >"$WORK/a.cert"; chmod 600 "$WORK/a.key"
   rec "ITEM-A private-key first line: $(head -1 "$WORK/a.key") | public-key type: $(cut -d' ' -f1 "$WORK/a.cert")"
   L=$(ssh-keygen -L -f "$WORK/a.cert" 2>&1)
@@ -167,6 +167,28 @@ if [ "$RC" = PASS ]; then
   sleep 10
   rec "ITEM-C 10 s after pod deletion: user in pg_roles=$(pg_users | tr ',' '\n' | grep -cxF "$CU") lease present=$(bx write -format=json sys/leases/lookup lease_id="$CLEASE" >/dev/null 2>&1 && echo yes || echo no) connect=$(pg_try "$CU" "$CP")"
 fi
+# The same through a role whose revocation works (connection user openbao_dbadmin2,
+# createrole_self_grant 'set, inherit'); the pod stays alive and a connection is held.
+spc spike access-s-c2 access-session "$(objs_db "${DBROLE}2")
+- objectName: db-lease
+  secretPath: db/creds/${DBROLE}2"
+session_pod spike access-sc2 access-s-c2
+RC2=$(pod_result spike access-sc2)
+TC2=$(date +%s)
+C2U=""; C2P=""; C2LEASE=""
+rec "ITEM-C mount of db/creds/${DBROLE}2 (revocation statements that work, see below) in pod access-sc2: $RC2"
+if [ "$RC2" = PASS ]; then
+  C2U=$(pf spike access-sc2 db-username); C2P=$(pf spike access-sc2 db-password)
+  C2LEASE=$(pf spike access-sc2 db-lease | jq -r '.lease_id // empty')
+  rec "ITEM-C access-sc2 user=$C2U connect=$(pg_try "$C2U" "$C2P") lease=$C2LEASE"
+  ( kubectl -n spike-db exec "$PGPOD" -- env PGPASSWORD="$C2P" psql -h 127.0.0.1 -U "$C2U" -d billing -Atc "select pg_sleep(390); select 'still connected as ' || current_user" \
+      >"$WORK/c2-longconn.out" 2>&1 </dev/null; echo "rc=$?" >>"$WORK/c2-longconn.out" ) &
+fi
+spc spike access-s-c3 access-session "- objectName: db-lease-id
+  secretPath: db/creds/$DBROLE
+  secretKey: lease_id"
+session_pod spike access-sc3 access-s-c3
+rec "ITEM-C an object with secretKey lease_id: $(pod_result spike access-sc3 60)"
 for r in "$DBROLE" "${DBROLE}2"; do
   j=$(bx read -format=json "db/creds/$r" 2>&1); u=$(jq -r '.data.username // empty' <<<"$j" 2>/dev/null); l=$(jq -r '.lease_id // empty' <<<"$j" 2>/dev/null)
   o=$(bx lease revoke -sync "$l" 2>&1); rc=$?
@@ -196,7 +218,8 @@ rec "ITEM-H sign: $([ -n "$SIG" ] && echo "ok signature-prefix=$(cut -d: -f1-2 <
 rec "ITEM-H verify original: $(bxt "$TB" write -format=json transit/verify/access-recordings input="$B64" signature="$SIG" 2>&1 | jq -c '.data' 2>/dev/null)"
 B64X=$(sed 's/v1/v2/' "$WORK/m.json" | base64 -w0)
 rec "ITEM-H verify one changed byte: $(bxt "$TB" write -format=json transit/verify/access-recordings input="$B64X" signature="$SIG" 2>&1 | jq -c '.data' 2>/dev/null)"
-rec "ITEM-H sign with prehashed=true: $(bxt "$TB" write -format=json transit/sign/access-recordings input="$(printf x | sha256sum | cut -c1-64 | xxd -r -p | base64 -w0)" prehashed=true 2>&1 | oneline 200)"
+o=$(bxt "$TB" write -format=json transit/sign/access-recordings input="$(printf x | sha256sum | cut -c1-64 | xxd -r -p | base64 -w0)" prehashed=true 2>&1)
+rec "ITEM-H sign with prehashed=true: $(jq -e '.data.signature' >/dev/null 2>&1 <<<"$o" && echo 'accepted (a signature is returned)' || echo "refused $(oneline 200 <<<"$o")")"
 PUB=$(bx read -format=json transit/keys/access-recordings | jq -r '.data.keys["1"].public_key // empty')
 waitfile "$WORK/pip.rc" 300
 rec "ITEM-H offline verify with the exported public key (python cryptography): $("$WORK/venv/bin/python" -I - "$PUB" "$(cut -d: -f3 <<<"$SIG")" "$WORK/m.json" <<'PY' 2>&1 | oneline 200
@@ -287,7 +310,9 @@ j=$(bx write -format=json pki2/issue/access-exec common_name="session-$SUID" uri
 jq -r .data.certificate <<<"$j" >"$WORK/c2.crt"; jq -r .data.private_key <<<"$j" >"$WORK/c2.key"; jq -r .data.issuing_ca <<<"$j" >"$WORK/c2.ca"
 j=$(bx write -format=json pki/issue/access-exec common_name="someone-else" uri_sans=urn:openova:access:exec:spike:target:app ttl=5m)
 jq -r .data.certificate <<<"$j" >"$WORK/c3.crt"; jq -r .data.private_key <<<"$j" >"$WORK/c3.key"
-cat "$WORK/p.crt" "$WORK/p.ca" >"$WORK/p.chain"; cat "$WORK/c2.crt" "$WORK/c2.ca" >"$WORK/c2.chain"
+# The mounted files carry no trailing newline, so a newline goes between the two PEM blocks.
+{ cat "$WORK/p.crt"; echo; cat "$WORK/p.ca"; echo; } >"$WORK/p.chain"; { cat "$WORK/c2.crt"; echo; cat "$WORK/c2.ca"; echo; } >"$WORK/c2.chain"
+rec "ITEM-F client chain files: p.chain $(pem_desc "$WORK/p.chain") c2.chain $(pem_desc "$WORK/c2.chain")"
 rec "ITEM-F C2 (pki2) issuing_ca $(pem_desc "$WORK/c2.ca") ca_chain-in-response n=$(jq -r '.data.ca_chain | length' <<<"$j" 2>/dev/null)"
 sudo mkdir -p /var/run/secrets/kubernetes.io/serviceaccount && echo spike | sudo tee /var/run/secrets/kubernetes.io/serviceaccount/token >/dev/null
 openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -subj /CN=k8s-ws-proxy -days 1 \
@@ -382,7 +407,7 @@ vpod_result() { # hostns vns vname
   for i in $(seq 1 60); do hp=$(host_pod "$1" "$2" "$3" | cut -d' ' -f1); [ -n "$hp" ] && break; sleep 2; done
   [ -z "$hp" ] && { echo "FAIL(never synced to the host)"; return 1; }
   if kubectl -n "$1" wait --for=condition=Ready "pod/$hp" --timeout=120s >/dev/null 2>&1; then echo PASS; return 0; fi
-  ev=$(kubectl -n "$1" get events --field-selector "involvedObject.name=$hp" -o jsonpath='{range .items[*]}{.reason}: {.message}{"\n"}{end}' 2>/dev/null | grep -E 'FailedMount|Failed|Error' | tail -1 | oneline 600)
+  ev=$(event_msg "$1" "$hp")
   echo "FAIL(${ev:-not ready, no event})"; return 1
 }
 for o in org1 org2; do waitfile "$WORK/vc-$o.rc" 600; done
@@ -433,8 +458,15 @@ rec "ITEM-E openbao logins from org1/org2 (role:namespace/serviceaccount x count
 hdr "(c) late check: the database user of the deleted pod after the login token's lifetime"
 if [ -n "$CLEASE" ]; then
   left=$((TC0 + 420 - $(date +%s))); [ $left -gt 0 ] && sleep $left
-  rec "ITEM-C $(( $(date +%s) - TC0 )) s after the mount (pod deleted at about 15 s; login token lifetime 5m): user in pg_roles=$(pg_users | tr ',' '\n' | grep -cxF "$CU") lease present=$(bx write -format=json sys/leases/lookup lease_id="$CLEASE" >/dev/null 2>&1 && echo yes || echo no) connect=$(pg_try "$CU" "$CP")"
-  rec "ITEM-C openbao server log on revocation: $(kubectl -n openbao logs openbao-0 -c openbao --tail=-1 | grep -v '^{' | grep -i -E 'revok|expiration' | sed -E 's/lease_id=[^ ]+/lease_id=<id>/g' | cut -c1-260 | sort | uniq -c | sort -rn | head -6 | oneline 1200)"
+  rec "ITEM-C $(( $(date +%s) - TC0 )) s after the mount of access-sc (pod deleted at about 15 s; login token lifetime 5m; design revocation statements): user in pg_roles=$(pg_users | tr ',' '\n' | grep -cxF "$CU") lease present=$(bx write -format=json sys/leases/lookup lease_id="$CLEASE" >/dev/null 2>&1 && echo yes || echo no) connect=$(pg_try "$CU" "$CP")"
+  rec "ITEM-C server log for the lease of access-sc (t from its mount): $(rev_log "$CLEASE" "$TC0")"
+fi
+if [ -n "$C2LEASE" ]; then
+  left=$((TC2 + 420 - $(date +%s))); [ $left -gt 0 ] && sleep $left
+  rec "ITEM-C $(( $(date +%s) - TC2 )) s after the mount of access-sc2 (pod still running; login token lifetime 5m; working revocation): user in pg_roles=$(pg_users | tr ',' '\n' | grep -cxF "$C2U") lease present=$(bx write -format=json sys/leases/lookup lease_id="$C2LEASE" >/dev/null 2>&1 && echo yes || echo no) files unchanged=$([ "$(pf spike access-sc2 db-username)" = "$C2U" ] && echo yes || echo no) new connection with the mounted pair=$(pg_try "$C2U" "$C2P")"
+  rec "ITEM-C server log for the lease of access-sc2 (t from its mount): $(rev_log "$C2LEASE" "$TC2")"
+  for i in $(seq 1 30); do grep -q '^rc=' "$WORK/c2-longconn.out" 2>/dev/null && break; sleep 2; done
+  rec "ITEM-C connection of access-sc2's user opened at mount and held 390 s: $(oneline 300 <"$WORK/c2-longconn.out" 2>/dev/null)"
 fi
 rec "END pg dynamic users now: $(pg_users)"
 
