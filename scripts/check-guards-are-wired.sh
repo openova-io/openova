@@ -98,10 +98,32 @@ invoked_set() {
     | sort -u || true
 }
 
+# in_set <name> <list> — is <name> one whole line of the newline-separated
+# <list>? Pure bash: no pipe, no child process. The former test piped the list
+# into `grep -q` under `set -o pipefail`. grep -q exits at its first match; the
+# writer then wrote into a closed pipe, died of SIGPIPE, and pipefail turned a
+# found name into "not found". So a guard that a workflow runs was now and then
+# reported as orphaned. A test without a pipe cannot fail that way.
+in_set() {
+  case $'\n'"$2"$'\n' in
+    *$'\n'"$1"$'\n'*) return 0 ;;
+  esac
+  return 1
+}
+
+# contains <text> <needle> — does <text> contain <needle> anywhere? Pure bash,
+# for the same reason as in_set.
+contains() {
+  case "$1" in
+    *"$2"*) return 0 ;;
+  esac
+  return 1
+}
+
 # is_invoked <basename> <workflow-dir> — thin wrapper, used by the self-test so
-# it exercises the SAME matcher the real run uses.
+# it exercises the SAME matcher and the SAME membership test the real run uses.
 is_invoked() {
-  invoked_set "$2" | grep -qxF -- "$1"
+  in_set "$1" "$(invoked_set "$2")"
 }
 
 # ── Self-test — fixtures only, no repo state, no cluster ────────────────
@@ -153,11 +175,30 @@ YAML
   expect "--self-test advertised is detected"            0 advertises_self_test "$T/scripts/check-orphan.sh"
   expect "CONTROL: cluster-only guard has no --self-test" 1 advertises_self_test "$T/scripts/check-cluster-only.sh"
 
+  # (e) MEMBERSHIP GIVES THE SAME ANSWER ON EVERY RUN. The list is far larger
+  #     than a pipe's buffer (64 KiB), so a membership test that pipes the list
+  #     into a reader which exits at its first match fails here on every run,
+  #     not only now and then as it did on the real invoked set.
+  BIG="$(printf 'check-big-%05d.sh\n' $(seq 1 20000))"
+  stable=1
+  for _ in $(seq 1 20); do
+    in_set "check-big-00001.sh" "$BIG" || stable=0
+  done
+  if [ "$stable" -eq 1 ]; then
+    echo "  ok  the first name of a 20000-name list is a member on 20 runs in a row"
+  else
+    echo "  FAIL: the first name of a 20000-name list was not a member on every run" >&2; fails=1
+  fi
+  expect "the last name of a large list is a member"     0 in_set "check-big-20000.sh" "$BIG"
+  expect "a name not in a large list is not a member"    1 in_set "check-big-20001.sh" "$BIG"
+  expect "part of a line is not a member"                1 in_set "big-00001.sh"       "$BIG"
+  expect "a line plus more is not a member"              1 in_set "check-big-00001.sh.x" "$BIG"
+
   # End-to-end over the fixture tree: exactly the two orphans, never the control.
   out="$(ROOT="$T" "$0" --root "$T" 2>&1 || true)"
-  printf '%s' "$out" | grep -q 'check-orphan.sh'      && echo "  ok  end-to-end flags the orphan"          || { echo "  FAIL: orphan not reported" >&2; fails=1; }
-  printf '%s' "$out" | grep -q 'check-paths-only.sh'  && echo "  ok  end-to-end flags the paths-only shape" || { echo "  FAIL: paths-only not reported" >&2; fails=1; }
-  if printf '%s' "$out" | grep -q 'check-cluster-only.sh'; then
+  contains "$out" 'check-orphan.sh'      && echo "  ok  end-to-end flags the orphan"          || { echo "  FAIL: orphan not reported" >&2; fails=1; }
+  contains "$out" 'check-paths-only.sh'  && echo "  ok  end-to-end flags the paths-only shape" || { echo "  FAIL: paths-only not reported" >&2; fails=1; }
+  if contains "$out" 'check-cluster-only.sh'; then
     echo "  FAIL: CONTROL was flagged — the exemption is broken" >&2; fails=1
   else
     echo "  ok  CONTROL (cluster-only, unwired) stays green"
@@ -187,7 +228,7 @@ for s in scripts/check-*.sh; do
   advertises_self_test "$s" || continue      # cluster-only guards are exempt
   checked=$((checked + 1))
   b="$(basename "$s")"
-  if ! printf '%s\n' "$INVOKED" | grep -qxF -- "$b"; then
+  if ! in_set "$b" "$INVOKED"; then
     echo "ORPHANED GUARD: $s advertises --self-test but no workflow INVOKES it"
     orphans=$((orphans + 1))
   fi
