@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T13:15:03Z` |
+| Last refreshed | `2026-11-13T13:30:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T13:17 | [#7445](https://github.com/openova-io/openova/pull/7445) | #7087 | docs(ledger): plan update |
 | 2026-11-13T13:11 | [#7442](https://github.com/openova-io/openova/pull/7442) | #7434 | refactor(flux): declare HelmRepository at source v1 outside  |
 | 2026-11-13T13:12 | [#7441](https://github.com/openova-io/openova/pull/7441) | #7435 | feat(chart): install the intent lock in audit mode with guar |
 | 2026-11-13T13:04 | [#7440](https://github.com/openova-io/openova/pull/7440) | #7438 | fix(stalwart-sovereign): a bounded setup job that is no inst |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-13T10:39 | [#7403](https://github.com/openova-io/openova/pull/7403) | #7394 | ci: the release writer bumps chart versions; a pull request  |
 | 2026-11-13T10:08 | [#7402](https://github.com/openova-io/openova/pull/7402) | #7087 | docs(ledger): plan update |
 | 2026-11-13T10:10 | [#7401](https://github.com/openova-io/openova/pull/7401) | #7194 | test(charts): function tests for the cnpg, postgres, valkey, |
-| 2026-11-13T10:13 | [#7400](https://github.com/openova-io/openova/pull/7400) | #7385 | fix(cloud-init): encrypt Secrets in etcd with secretbox at f |
 
 ---
 
