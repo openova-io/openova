@@ -1,0 +1,13 @@
+schema: openova.io/plan-wrong/v1
+id: FND-012
+ticket_rev: 1
+base_commit: 97db7f282e6cc9a8f62e2d7ddd4c73737ba8edcb
+stage: preflight
+ref: P1
+command: |
+    git log origin/main --since='3 hours ago' --format=%h -- docs/ledger/TRACKER.md | wc -l
+expected: |
+    0
+actual: |
+    12
+reported_at: 2026-11-13T20:08:24Z
