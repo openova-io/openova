@@ -11,7 +11,9 @@
 #                                      `docker run` as root, no --privileged,
 #                                      no /dev/kvm: how a worker-image test runs
 #   debian-stable-container (dev-kvm)- same plus `--device /dev/kvm`
-# The guest boot always uses -machine q35,accel=tcg.
+# The guest boot always uses -machine q35,accel=tcg. Each job then times a
+# second case: two disks (a fresh fixture copy + an empty 64 MiB file) through
+# virt-v2v-in-place -i libvirtxml.
 name: spike-mig-050
 
 on:

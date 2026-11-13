@@ -118,7 +118,8 @@ as_user() {
   runuser -u "$CONV_USER" -- env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     HOME="$UHOME" USER="$CONV_USER" TMPDIR=/tmp LIBGUESTFS_BACKEND=direct "${extra[@]}" "$@"
 }
-if as_user sh -c 'exec 3<>/dev/kvm' 2>/dev/null; then kv conv_user_kvm_openable yes; else kv conv_user_kvm_openable no; fi
+# (run 2 lesson: without the -c test, `exec 3<>` CREATES a plain file /dev/kvm when the device is absent)
+if as_user sh -c '[ -c /dev/kvm ] && exec 3<>/dev/kvm' 2>/dev/null; then kv conv_user_kvm_openable yes; else kv conv_user_kvm_openable no; fi
 
 # ---------------------------------------------------------------- 2. fixture
 cd "$WORK_DIR"
@@ -159,15 +160,15 @@ convert_once() {
   CONV_RC=$rc; CONV_MS=$(ms "$a" "$b"); CONV_S=$(ceil_s "$a" "$b")
 }
 convert_once "$OUT_DIR/v2v.log"
-variant=nonroot
+if [ "$(id -u "$CONV_USER")" = 0 ]; then variant=root; else variant=nonroot; fi
 if [ "$CONV_RC" != 0 ] && [ -n "$PASST" ] && grep -aq 'passt' "$OUT_DIR/v2v.log"; then
-  kv convert_nonroot_with_passt "fail exit=$CONV_RC after ${CONV_S}s: $(grep -aiE 'error|denied|couldn' "$OUT_DIR/v2v.log" | grep -ai passt -m1 | tr -cd '[:print:]' || true)"
+  kv "convert_${variant}_with_passt" "fail exit=$CONV_RC after ${CONV_S}s: $(grep -aiE 'error|denied|couldn' "$OUT_DIR/v2v.log" | grep -ai passt -m1 | tr -cd '[:print:]' || true)"
   grep -aiE 'passt|namespace|denied|couldn' "$OUT_DIR/v2v.log" | tail -n 15 >&2 || true
   mv "$PASST" "$PASST.mig050-off"
   make_raw
   convert_once "$OUT_DIR/v2v-nopasst.log"
   mv "$PASST.mig050-off" "$PASST"
-  variant=nonroot-passt-hidden
+  variant=$variant-passt-hidden
   cp "$OUT_DIR/v2v-nopasst.log" "$OUT_DIR/v2v-measured.log"
 else
   cp "$OUT_DIR/v2v.log" "$OUT_DIR/v2v-measured.log"
@@ -214,6 +215,52 @@ kv boot_seconds "$(ceil_s "$t0" "$t1")"
 kv boot_ms "$(ms "$t0" "$t1")"
 kv boot_login_line "$(grep -aoE '[^[:space:]]* login:' "$SERIAL" | head -1)"
 kv convert_plus_boot_seconds "$(( (CONV_MS + $(ms "$t0" "$t1") + 999) / 1000 ))"
+
+# ---------------------------------------------------------------- 5b. second case
+# Two disks through the libvirt-description input: a fresh raw copy of the
+# fixture plus an empty 64 MiB raw file, converted in place by
+# virt-v2v-in-place -i libvirtxml <domain.xml>. Only the exit and time count.
+if [ "${SECOND_CASE:-1}" = 1 ]; then
+  qemu-img convert -f qcow2 -O raw fixture.qcow2 disk2.raw
+  qemu-img create -q -f raw empty.raw 64M
+  chown "$CONV_USER" disk2.raw empty.raw
+  cat >domain.xml <<XML
+<domain type='kvm'>
+  <name>mig050</name>
+  <memory unit='KiB'>1048576</memory>
+  <vcpu>1</vcpu>
+  <os><type arch='x86_64' machine='q35'>hvm</type><boot dev='hd'/></os>
+  <devices>
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='raw'/>
+      <source file='$WORK_DIR/disk2.raw'/>
+      <target dev='vda' bus='virtio'/>
+    </disk>
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='raw'/>
+      <source file='$WORK_DIR/empty.raw'/>
+      <target dev='vdb' bus='virtio'/>
+    </disk>
+    <interface type='network'>
+      <mac address='52:54:00:00:00:01'/>
+      <source network='default'/>
+      <model type='virtio'/>
+    </interface>
+  </devices>
+</domain>
+XML
+  rc=0
+  [ "${variant%-passt-hidden}" != "$variant" ] && mv "$PASST" "$PASST.mig050-off"
+  t2=$(now_ns)
+  as_user "$V2V_IN_PLACE" -v -x -i libvirtxml "$WORK_DIR/domain.xml" >"$OUT_DIR/v2v-two-disks.log" 2>&1 || rc=$?
+  t3=$(now_ns)
+  [ "${variant%-passt-hidden}" != "$variant" ] && mv "$PASST.mig050-off" "$PASST"
+  kv two_disk_convert_exit "$rc"
+  kv two_disk_convert_seconds "$(ceil_s "$t2" "$t3")"
+  grep -aE '^\[ *[0-9]+\.[0-9]\] ' "$OUT_DIR/v2v-two-disks.log" >"$OUT_DIR/v2v-two-disks-stages.txt" || true
+  if [ "$rc" != 0 ]; then tail -n 40 "$OUT_DIR/v2v-two-disks.log" >&2; fi
+  rm -f disk2.raw empty.raw
+fi
 
 # ---------------------------------------------------------------- 6. root probes
 # Does the libguestfs appliance launch as root, with and without its network?
