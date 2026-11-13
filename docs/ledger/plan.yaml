@@ -13127,7 +13127,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 2
+  ticket_rev: 3
   dropped: false
   delivers: The charts bp-cnpg, bp-postgres, bp-valkey, bp-seaweedfs and bp-nats-jetstream each carry one helm test Pod that proves the chart works, a render test holds each Pod to the function-test contract, and docs/RUNBOOKS.md states that contract.
 - id: SVC-070
@@ -26857,7 +26857,7 @@ packages:
   - id: A4
     run: "(cd products/fingate/tools && go generate ./...) && printf '%s  %s\\n' 7171c2e831d78db95abfa7995bbbe08358692bae4ee8f2a9172fa06b93dde512 products/fingate/internal/gen/accountinfo/accountinfo.gen.go ecabbf05f0db27705e73eef1526428db3eda403916a5f0c50ca84a79d9140480 products/fingate/internal/gen/paymentinitiation/paymentinitiation.gen.go 16b16ca77bdceacbfa34ce2545d87f9da15ab5f12aa8784b567ea8e35afb04c3 products/fingate/internal/gen/vrp/vrp.gen.go 3abb767f11b3e868d5c56d8ae697bc1a1b42a98a986b2798eb54cec88a1bac79 products/fingate/internal/gen/confirmationfunds/confirmationfunds.gen.go 75ee433a4b3be783b93eb16e14f63e90e95ee46333a6b0a0bd86e72a3c77f98e products/fingate/internal/gen/events/events.gen.go eb975a33472051e26b8c804943babed0f36815ce0fbd33645594effb8780b01c products/fingate/internal/gen/eventnotifications/eventnotifications.gen.go | sha256sum --check --quiet -"
   - id: A5
-    run: "grep -q -x -F \"$(printf '\\tgithub.com/oapi-codegen/runtime v1.8.0')\" products/fingate/go.mod && (cd products/fingate && go mod tidy -diff) && (cd products/fingate/tools && go mod tidy -diff)"
+    run: "grep -q -x -F \"$(printf '\\tgithub.com/oapi-codegen/runtime v1.8.0')\" products/fingate/go.mod && grep -q -x -F 'go 1.26.0' products/fingate/go.mod && (cd products/fingate && go mod tidy -diff) && (cd products/fingate/tools && go mod tidy -diff)"
   - id: A6
     run: "python3 scripts/check-modules-tested.py && python3 -B -c 'import importlib.util, yaml; s = importlib.util.spec_from_file_location(\"guard\", \"scripts/check-modules-tested.py\"); g = importlib.util.module_from_spec(s); s.loader.exec_module(g); text = open(\".github/workflows/test-ungated-trees.yaml\", encoding=\"utf-8\").read(); m = yaml.safe_load(text)[\"jobs\"][\"go-modules\"][\"strategy\"][\"matrix\"][\"module\"]; t = g.tested_by(text, [\"products/fingate/tools\"]); print(sorted(t), m.count(\"products/fingate/tools\")); raise SystemExit(0 if t == {\"products/fingate/tools\"} and m.count(\"products/fingate/tools\") == 1 else 1)'"
   rollback: revert
