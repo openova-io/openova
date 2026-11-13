@@ -195,3 +195,44 @@ describe('CutoverProgressCard — #5391 settled-roll override audit banner', () 
     ).toMatch(/bp-keycloak/)
   })
 })
+
+describe('CutoverProgressCard — the rows are the steps of the status response', () => {
+  const rowIds = (c: HTMLElement) =>
+    [...c.querySelectorAll('li[data-step-status]')].map((li) => li.getAttribute('data-testid'))
+
+  it('renders six rows, in the order they run, for a six-step response', () => {
+    // The API lists step names alphabetically.
+    const names = ['egress-block-test', 'harbor-prewarm', 'ownership-pivot', 'parent-release', 'registry-pivot', 'upstream-flip']
+    const status = parseCutoverStatus({
+      totalSteps: 6,
+      steps: names.map((name) => ({ name, result: name === 'harbor-prewarm' ? 'success' : '' })),
+    })
+    const { container } = render(<CutoverProgressCard status={status} />)
+    expect(rowIds(container)).toEqual(
+      ['harbor-prewarm', 'ownership-pivot', 'upstream-flip', 'registry-pivot', 'parent-release', 'egress-block-test'].map((n) => `cutover-step-${n}`),
+    )
+    expect(screen.getByText('Release the parent')).toBeTruthy()
+    expect(screen.getByTestId('cutover-progress-pct').textContent).toBe('17%')
+  })
+
+  it('renders the same eleven rows, in the same order, for the eleven-step response', () => {
+    const ids = CUTOVER_STEPS.map((s) => s.id)
+    const status = parseCutoverStatus({
+      cutoverComplete: true,
+      steps: [...ids].sort().map((name) => ({ name, result: 'success' })),
+    })
+    const { container } = render(<CutoverProgressCard status={status} />)
+    expect(rowIds(container)).toEqual(ids.map((id) => `cutover-step-${id}`))
+  })
+
+  it('renders an unknown step with its name as the title and counts against totalSteps', () => {
+    const status = parseCutoverStatus({
+      totalSteps: 11,
+      steps: [{ name: 'gitea-mirror', result: 'success' }, { name: 'future-step', result: 'running' }],
+    })
+    const { container } = render(<CutoverProgressCard status={status} />)
+    expect(rowIds(container)).toEqual(['cutover-step-gitea-mirror', 'cutover-step-future-step'])
+    expect(screen.getByText('future-step')).toBeTruthy()
+    expect(screen.getByTestId('cutover-progress-pct').textContent).toBe('9%')
+  })
+})
