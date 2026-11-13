@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T15:45:06Z` |
+| Last refreshed | `2026-11-13T16:00:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7145](https://github.com/openova-io/openova/issues/7145) | FND-023 Ticket template, linter and the executor rules in PROTOCOL.md | Other |
 | [#7146](https://github.com/openova-io/openova/issues/7146) | FND-054 Console lint ratchet; the switched-off suite is deleted | Other |
 | [#7147](https://github.com/openova-io/openova/issues/7147) | FND-097 Remove the unshipped console, the one job that drives it and the tests t | Other |
 | [#7148](https://github.com/openova-io/openova/issues/7148) | NET-033 The definition-of-done verifier stops requiring retired releases | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#7454](https://github.com/openova-io/openova/issues/7454) | FND-018 The release writer leaves main in step: no pin goes backwards, and the u | Other |
 | [#7461](https://github.com/openova-io/openova/issues/7461) | CLD-141 Protect provider releases from pruning before they move | Other |
 | [#7462](https://github.com/openova-io/openova/issues/7462) | CTL-045 Publish contract C9 and its tool | Other |
+| [#7468](https://github.com/openova-io/openova/issues/7468) | FND-020 A pull request is not red because main was between two commits of a rele | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T15:48 | [#7467](https://github.com/openova-io/openova/pull/7467) | #7087 | docs(ledger): plan update |
 | 2026-11-13T15:38 | [#7466](https://github.com/openova-io/openova/pull/7466) | #7461 | chore(bootstrap-kit): keep the four provider releases when F |
 | 2026-11-13T15:24 | [#7465](https://github.com/openova-io/openova/pull/7465) | #7087 | docs(ledger): plan update |
 | 2026-11-13T15:03 | [#7463](https://github.com/openova-io/openova/pull/7463) | #7462 | feat(contracts): publish contract C9, the mutating-route tab |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-13T11:25 | [#7416](https://github.com/openova-io/openova/pull/7416) | #7087 | docs(ledger): result of the lab test PRD-060 (PRD-060) |
 | 2026-11-13T11:24 | [#7415](https://github.com/openova-io/openova/pull/7415) | #7087 | docs(ledger): result of the lab test PRD-040 (PRD-040) |
 | 2026-11-13T11:25 | [#7414](https://github.com/openova-io/openova/pull/7414) | #7087 | docs(ledger): result of the lab test PRD-070 (PRD-070) |
-| 2026-11-13T11:25 | [#7413](https://github.com/openova-io/openova/pull/7413) | #7087 | docs(ledger): result of the lab test ACC-030 (ACC-030) |
 
 ---
 
