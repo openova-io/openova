@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T04:15:03Z` |
+| Last refreshed | `2026-11-13T04:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,7 +307,14 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T04:22 | [#7306](https://github.com/openova-io/openova/pull/7306) | #7087 | docs(ledger): dashboard refreshed: 79 tasks merged |
 | 2026-11-13T04:13 | [#7305](https://github.com/openova-io/openova/pull/7305) | #7087 | docs(ledger): dashboard refreshed: 79 tasks merged |
+| 2026-11-13T04:25 | [#7304](https://github.com/openova-io/openova/pull/7304) | #7291 | ci: sign and attest the console and API images through one s |
+| 2026-11-13T04:25 | [#7303](https://github.com/openova-io/openova/pull/7303) | #7295 | refactor(console): the cutover progress card renders the ste |
+| 2026-11-13T04:25 | [#7302](https://github.com/openova-io/openova/pull/7302) | #7292 | fix(cloud-init): start k3s without kube-proxy and add gate c |
+| 2026-11-13T04:24 | [#7301](https://github.com/openova-io/openova/pull/7301) | #7283 | test(fingate): add the consent state machine with its wire c |
+| 2026-11-13T04:24 | [#7300](https://github.com/openova-io/openova/pull/7300) | #7284 | feat(fingate): add the token rules T1 to T10 of the resource |
+| 2026-11-13T04:24 | [#7299](https://github.com/openova-io/openova/pull/7299) | #7285 | ci(fingate): vet, test and check the generated code of the o |
 | 2026-11-13T03:40 | [#7298](https://github.com/openova-io/openova/pull/7298) | #7087 | docs(ledger): plan update |
 | 2026-11-13T03:39 | [#7297](https://github.com/openova-io/openova/pull/7297) | #7260 | feat(providers): publish the provider contract files, the pr |
 | 2026-11-13T03:39 | [#7296](https://github.com/openova-io/openova/pull/7296) | #7266 | test(fingate): vendor the Read/Write API 4.0.0 documents and |
@@ -330,13 +337,6 @@ flowchart LR
 | 2026-11-13T01:23 | [#7254](https://github.com/openova-io/openova/pull/7254) | #7233 | docs(adr): record 0026 on the NodePort ban and the gateway s |
 | 2026-11-13T00:51 | [#7253](https://github.com/openova-io/openova/pull/7253) | #7219 | docs(security): state what is true of secrets today and name |
 | 2026-11-13T00:51 | [#7252](https://github.com/openova-io/openova/pull/7252) | #7238 | chore(ci): guard that source addresses written into the code |
-| 2026-11-13T00:51 | [#7250](https://github.com/openova-io/openova/pull/7250) | #7167 | chore(api): remove the Sandbox routes, handlers and event pu |
-| 2026-11-13T00:50 | [#7248](https://github.com/openova-io/openova/pull/7248) | #7142 | feat(gate): checks for the compliance score moving by push a |
-| 2026-11-13T00:49 | [#7247](https://github.com/openova-io/openova/pull/7247) | #7231 | docs(adr): record 0031 on the infrastructure plane (INF-070) |
-| 2026-11-13T00:50 | [#7246](https://github.com/openova-io/openova/pull/7246) | #7236 | docs(keycloak): remove the unbacked open-banking claims from |
-| 2026-11-13T00:50 | [#7245](https://github.com/openova-io/openova/pull/7245) | #7235 | fix(console): fall back to the host vCluster in the legacy p |
-| 2026-11-13T00:18 | [#7244](https://github.com/openova-io/openova/pull/7244) | #7087 | docs(ledger): plan update: the check list names the implemen |
-| 2026-11-13T00:14 | [#7243](https://github.com/openova-io/openova/pull/7243) | #7087 | docs(ledger): plan update: next tickets |
 
 ---
 
