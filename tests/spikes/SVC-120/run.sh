@@ -36,8 +36,14 @@ snap() {
 log "install Flux ${FLUX_VERSION}"
 curl -fsSL --max-time 60 -o "$OUT/flux-install.yaml" \
   "https://github.com/fluxcd/flux2/releases/download/${FLUX_VERSION}/install.yaml"
-# The generated install.yaml names its own version in a header comment.
-grep -m1 -oE '^# Flux Version: v[0-9.]+' "$OUT/flux-install.yaml" | awk '{print $4}' | tee "$OUT/flux-version.txt"
+# install.yaml carries no version marker of its own: the version is the
+# release tag it was downloaded from, and the controller image tags it
+# deploys are compared below with the tags the bp-flux chart pins.
+echo "$FLUX_VERSION" | tee "$OUT/flux-version.txt"
+sha256sum "$OUT/flux-install.yaml" | tee "$OUT/flux-install.sha256"
+awk '/image: .*\/fluxcd\/[a-z-]+-controller/ { n = $2; sub(/.*\//, "", n); next }
+     n != "" && /tag:/ { print n "=" $2; n = "" }' "$HERE/../../../platform/flux/chart/values.yaml" \
+  | tee "$OUT/bp-flux-pinned-tags.txt"
 kubectl apply -f "$OUT/flux-install.yaml"
 kubectl -n flux-system rollout status deploy/source-controller --timeout=300s
 kubectl -n flux-system rollout status deploy/helm-controller --timeout=300s

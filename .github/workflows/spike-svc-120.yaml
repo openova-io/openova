@@ -61,7 +61,8 @@ jobs:
       - name: Evidence (printed so the job log carries it)
         if: always()
         run: |
-          for f in images.txt flux-version.txt helmrelease-crd-versions.txt \
+          for f in images.txt flux-version.txt flux-install.sha256 bp-flux-pinned-tags.txt \
+                   helmrelease-crd-versions.txt \
                    A-table.txt B-table.txt C-table.txt test-pods.txt \
                    test-pod-logs.txt helm-status.txt helmrelease-events.txt \
                    watch.jsonl; do

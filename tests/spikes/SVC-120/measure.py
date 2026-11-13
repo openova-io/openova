@@ -350,6 +350,15 @@ def cmd_evaluate(a):
 
     checks["helmControllerIsPinnedV1_1_0"] = hc_image.endswith(":v1.1.0")
     checks["fluxIsPinnedV2_4_0"] = flux_version == "v2.4.0"
+    pinned = dict(l.split("=", 1) for l in read_text(out, "bp-flux-pinned-tags.txt").splitlines() if "=" in l)
+    running = {}
+    for l in images.splitlines():
+        if "=" in l:
+            name, img = l.split("=", 1)
+            running[name] = img.rsplit(":", 1)[-1]
+    obs["bpFluxPinnedTags"] = pinned
+    obs["runningControllerTags"] = running
+    checks["controllerTagsEqualBpFluxPins"] = bool(pinned) and pinned == running
 
     # ---- Observations that bear on the proof record (not part of the outcome).
     def awaiting(w):
@@ -395,6 +404,8 @@ def cmd_evaluate(a):
         missing.append("helmControllerIsPinnedV1_1_0 (the cluster does not run the pinned controller)")
     if not checks["fluxIsPinnedV2_4_0"]:
         missing.append("fluxIsPinnedV2_4_0 (the applied install.yaml is not the pinned Flux)")
+    if not checks["controllerTagsEqualBpFluxPins"]:
+        missing.append("controllerTagsEqualBpFluxPins (the running controllers differ from the bp-flux chart pins)")
     if missing:
         outcome = "inconclusive"
     elif not all(checks[k] for k in required_q2):
