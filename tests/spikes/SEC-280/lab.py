@@ -18,7 +18,9 @@ import json
 import os
 import secrets
 import subprocess
+import re
 import sys
+import threading
 import time
 import traceback
 
@@ -28,6 +30,7 @@ OPENBAO_CHART = os.environ.get("OPENBAO_CHART", "0.30.7")
 CNPG_CHART = os.environ.get("CNPG_CHART", "0.28.0")
 CSI_CHART = os.environ.get("CSI_CHART", "1.6.2")
 OUTAGE_SECONDS = int(os.environ.get("OUTAGE_SECONDS", "1800"))
+NORMAL_SECONDS = int(os.environ.get("NORMAL_SECONDS", "1200"))
 OUT = os.environ.get("OUT_DIR", "out")
 os.makedirs(OUT, exist_ok=True)
 
@@ -42,6 +45,8 @@ REVOKE = ('REASSIGN OWNED BY "{{name}}" TO "appdb_rw"; DROP OWNED BY "{{name}}";
           'DROP ROLE IF EXISTS "{{name}}";')
 # Variant measured beside it: the dynamic user acts as the group role, so it never owns objects.
 SET_ROLE = ' ALTER ROLE "{{name}}" SET role TO \'appdb_rw\';'
+# Variant measured beside it: revocation also ends the user's open sessions.
+TERMINATE = "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = '{{name}}'; "
 REVOKE_NO_REASSIGN = 'DROP OWNED BY "{{name}}"; DROP ROLE IF EXISTS "{{name}}";'
 
 RESULTS = []
@@ -210,11 +215,11 @@ def in_recovery(r):
 BAO = {"a": {"ns": "bao-a"}, "b": {"ns": "bao-b"}}
 
 
-def bao(r, *args, data=None, timeout=90):
+def bao(r, *args, data=None, timeout=90, token=None):
     b = BAO[r]
     cmd = ["exec"] + (["-i"] if data is not None else []) + [
         "-n", b["ns"], "openbao-0", "-c", "openbao", "--", "env", "BAO_ADDR=http://127.0.0.1:8200",
-        f"BAO_TOKEN={b.get('token', '')}", "bao", *args]
+        f"BAO_TOKEN={token or b.get('token', '')}", "bao", *args]
     return kc(*cmd, input=data, timeout=timeout)
 
 
@@ -552,7 +557,8 @@ def s0_facts(ctx):
             ("acme.app.appdb.rw", "appdb_rw", "1h", "24h", "", REVOKE),
             ("acme.app.appdb.ro", "appdb_ro", "1h", "24h", "", REVOKE),
             ("acme.app.appdb.short", "appdb_rw", "90s", "120s", "", REVOKE),
-            ("acme.app.appdb.rwset", "appdb_rw", "90s", "120s", SET_ROLE, REVOKE)):
+            ("acme.app.appdb.rwset", "appdb_rw", "90s", "120s", SET_ROLE, REVOKE),
+            ("acme.app.appdb.shortterm", "appdb_rw", "90s", "120s", "", TERMINATE + REVOKE)):
         rec("S0", f"db/roles/{name}", bao_dyn_role("a", name, group, ttl, mx, extra, rv))
     _, msg = issue("a", "acme.app.appdb.rw")
     rec("S0", "issue rw user with managed.roles only (no admin option on appdb_rw)", msg)
@@ -812,6 +818,8 @@ def s4(ctx):
     rec("S4", "issue short user that will own a table", msg)
     us, msg = issue("a", "acme.app.appdb.rwset")
     rec("S4", "issue short user with SET role variant", msg)
+    ut, msg = issue("a", "acme.app.appdb.shortterm")
+    rec("S4", "issue short user whose revocation terminates sessions", msg)
     if not uo:
         return
     t_issue = time.time()
@@ -824,6 +832,11 @@ def s4(ctx):
     apply({"apiVersion": "v1", "kind": "Pod", "metadata": {"name": "session-open", "namespace": "client"},
            "spec": {"restartPolicy": "Never", "containers": [{"name": "c", "image": PG_IMAGE, "env": [
                {"name": "PGPASSWORD", "value": uo["pw"]}], "command": ["sh", "-c", script]}]}})
+    if ut:
+        apply({"apiVersion": "v1", "kind": "Pod", "metadata": {"name": "session-term", "namespace": "client"},
+               "spec": {"restartPolicy": "Never", "containers": [{"name": "c", "image": PG_IMAGE, "env": [
+                   {"name": "PGPASSWORD", "value": ut["pw"]}], "command": ["sh", "-c",
+                                                                         script.replace(uo["user"], ut["user"])]}]}})
     if uw:
         rec("S4", "short user creates a table in appdb", login(RW["a"], uw["user"], uw["pw"],
             "create table owned_by_dyn(id int); select tableowner from pg_tables where tablename='owned_by_dyn'"))
@@ -834,11 +847,11 @@ def s4(ctx):
     deadline = t_issue + 240
     while time.time() < deadline:
         rl = roles("a")
-        for name, u in (("open", uo), ("owner", uw), ("setrole", us)):
+        for name, u in (("open", uo), ("owner", uw), ("setrole", us), ("terminate", ut)):
             if u and u["user"] not in rl and name not in gone:
                 gone[name] = round(time.time() - t_issue)
         time.sleep(5)
-    for name, u in (("open", uo), ("owner", uw), ("setrole", us)):
+    for name, u in (("open", uo), ("owner", uw), ("setrole", us), ("terminate", ut)):
         if not u:
             continue
         rec("S4", f"{name} user: dropped from pg_roles, seconds after issue", str(gone.get(name, "not dropped")))
@@ -853,6 +866,16 @@ def s4(ctx):
     rec("S4", "open session: ticks answered / error lines", f"{len(ticks)} / {len(errs)}")
     rec("S4", "open session: first error line", errs[0] if errs else "none")
     rec("S4", "open session: last tick line", ticks[-1] if ticks else "none")
+    if ut:
+        _, out, _ = kc("logs", "-n", "client", "session-term", timeout=60)
+        with open(f"{OUT}/s4-session-term.log", "w") as f:
+            f.write(out)
+        print(out, flush=True)
+        ticks = [l for l in out.splitlines() if l.startswith("tick ")]
+        tail = [l for l in out.splitlines() if l.strip()][-4:]
+        rec("S4", "terminate variant session: ticks answered", str(len(ticks)))
+        rec("S4", "terminate variant session: last tick line", ticks[-1] if ticks else "none")
+        rec("S4", "terminate variant session: last lines", tail)
     _, out, _ = kc("logs", "-n", "bao-a", "openbao-0", "-c", "openbao", "--since=6m")
     lines = [one(l, 400) for l in out.splitlines() if "revok" in l.lower()]
     rec("S4", "OpenBao log lines about revocation", lines[-6:])
@@ -861,8 +884,81 @@ def s4(ctx):
                                                                       "tablename='owned_by_set'"))
 
 
-def switch(frm, to):
+def transitions(samples, r):
+    out, last = [], None
+    for t, rr, ok, msg in samples:
+        if rr != r:
+            continue
+        if ok != last:
+            out.append(f"{'ok' if ok else 'fail'} from {t}s" + ("" if ok else f" ({msg})"))
+            last = ok
+    return out
+
+
+def instance_log(r, since="6m"):
+    _, out, _ = kc("logs", "-n", f"acme-{r}", f"pg-{r}-1", "-c", "postgres", f"--since={since}", timeout=60)
+    keep = []
+    for line in out.splitlines():
+        try:
+            j = json.loads(line)
+        except ValueError:
+            continue
+        msg = j.get("msg", "")
+        rec_ = j.get("record") or {}
+        if isinstance(rec_, dict) and rec_.get("message"):
+            msg = f"{msg}: {rec_.get('message')}"
+        if re.search(r"shut ?down|promot|token|smart|fast|restart|waiting|demot|timeout", msg, re.I):
+            keep.append(f"{str(j.get('ts', ''))[11:19]} {msg[:160]}")
+    return keep
+
+
+@step("S6")
+def s6(ctx):
+    """A dynamic user read with a short-lived login token: does the user outlive the token?"""
+    rec("S6", "auth role workload-2m (token_ttl 2m, as workload but shorter)", baor(
+        "a", "write", "auth/kubernetes/role/workload-2m", "bound_service_account_names=app",
+        "bound_service_account_namespaces=acme-a", "audience=openbao", "token_policies=db-read",
+        "token_ttl=2m", "token_max_ttl=2m"))
+    rc, jwt, err = kc("create", "token", "app", "-n", "acme-a", "--audience", "openbao", "--duration", "10m")
+    ok, j = baoj("a", "write", "-format=json", "auth/kubernetes/login", "role=workload-2m", f"jwt={jwt.strip()}")
+    if not ok:
+        rec("S6", "login", j)
+        return
+    tok = j["auth"]["client_token"]
+    rec("S6", "login token lease seconds", str(j["auth"]["lease_duration"]))
+    rc, out, err = bao("a", "read", "-format=json", "db/creds/acme.app.appdb.rw", token=tok)
+    if rc != 0:
+        rec("S6", "read db/creds with that token", one(err))
+        return
+    c = json.loads(out)
+    user, pw, lease = c["data"]["username"], c["data"]["password"], c["lease_id"]
+    rec("S6", "db/creds lease seconds (role default_ttl 1h)", str(c["lease_duration"]))
+    rec("S6", "login with the user", login(RW["a"], user, pw))
     t0 = time.time()
+    ok, took = wait_for("dynamic user dropped", lambda: user not in roles("a"), timeout=240, interval=5)
+    rec("S6", "user dropped while its own lease still runs, seconds after read", f"{ok} {round(time.time() - t0)}")
+    rec("S6", "db/creds lease after that", lease_state("a", lease))
+    rec("S6", "login with the user after that", login(RW["a"], user, pw))
+    _, out, _ = kc("logs", "-n", "bao-a", "openbao-0", "-c", "openbao", "--since=5m")
+    rec("S6", "OpenBao log lines for that lease", [one(l, 300) for l in out.splitlines()
+                                                    if lease.split("/")[-1] in l][-4:])
+
+
+def switch(frm, to):
+    sessions = su(to, "select usename, count(*) from pg_stat_activity where backend_type='client backend' "
+                      "and pid <> pg_backend_pid() group by 1 order by 1", db="postgres")[1].strip()
+    rec("S1", f"client sessions on pg-{to} (standby) before the switch", sessions.replace("\n", "; ") or "none")
+    t0 = time.time()
+    stop, samples = threading.Event(), []
+
+    def probe():
+        while not stop.is_set():
+            for r in ("a", "b"):
+                u, msg = issue(r, "acme.app.appdb.rw")
+                samples.append((round(time.time() - t0), r, bool(u), "" if u else one(msg, 400)[-90:]))
+            stop.wait(8)
+    th = threading.Thread(target=probe, daemon=True)
+    th.start()
     rc, out, err = patch("cluster.postgresql.cnpg.io", f"pg-{frm}", f"acme-{frm}",
                          {"spec": {"replica": {"primary": f"pg-{to}", "promotionToken": None}}})
     log(f"demote pg-{frm}: {res(rc, out, err)}")
@@ -884,6 +980,13 @@ def switch(frm, to):
         frm, "select coalesce((select status from pg_stat_wal_receiver),'none')", db="postgres") == "streaming",
         timeout=420)
     t_stream = round(time.time() - t0)
+    time.sleep(16)
+    stop.set()
+    th.join(timeout=120)
+    rec("S1", f"issuance probe during {frm}->{to}, region A", transitions(samples, "a"))
+    rec("S1", f"issuance probe during {frm}->{to}, region B", transitions(samples, "b"))
+    rec("S1", f"pg-{to} instance log during promotion", instance_log(to)[-14:])
+    rec("S1", f"pg-{frm} instance log during demotion", instance_log(frm)[-10:])
     return f"demotion token {ok1} at {t_dem}s, new primary writable {ok2} at {t_prom}s, old primary streaming {ok3} at {t_stream}s"
 
 
@@ -903,6 +1006,8 @@ def s1(ctx):
     rec("S1", "region B static role while B is standby",
         baor("b", "write", "db/static-roles/acme.app.appdb", "-", data=data))
 
+    ush, msg = issue("a", "acme.app.appdb.short")
+    rec("S1", "short user (ttl 90s) issued by A just before the switch", msg)
     rec("S1", "switchover A -> B", switch("a", "b"))
     rec("S1", "after switch: A in recovery / B in recovery", f"{in_recovery('a')} / {in_recovery('b')}")
     if u5:
@@ -947,31 +1052,60 @@ def s1(ctx):
         rec("S1", "u6 still in pg_roles", str(u6["user"] in roles("a")))
         rec("S1", "u6 lease on B", lease_state("b", u6["lease"]))
         rec("S1", "u6 login on A (new primary)", login(RW["a"], u6["user"], u6["pw"]))
+    if ush:
+        rec("S1", "short user of A (expired during the switch): lease now", lease_state("a", ush["lease"]))
+        rec("S1", "short user of A (expired during the switch): still in pg_roles", str(ush["user"] in roles("a")))
+        _, out, _ = kc("logs", "-n", "bao-a", "openbao-0", "-c", "openbao", "--since=12m")
+        rec("S1", "OpenBao A log lines for that lease", [one(l, 300) for l in out.splitlines()
+                                                         if ush["lease"].split("/")[-1] in l][-6:])
 
 
 @step("S2-V3")
 def s2_v3(ctx):
-    """V3: management role without data read: group memberships with admin option only."""
-    rec("S2-V3", "grant options: admin true, inherit false, set false on group roles", res(*su(
-        "a", "grant appdb_rw, appdb_ro to openbao_dbadmin with admin option, inherit false, set false")))
+    """V3: management role with no read on data. Admin option only, no inherit, dynamic users own nothing,
+    revocation is DROP ROLE only."""
+    rec("S2-V3", "superuser cleanup of every earlier dynamic user", res(*su("a", (
+        "DO $$ DECLARE r text; BEGIN FOR r IN SELECT rolname FROM pg_roles WHERE rolname LIKE 'v-%' LOOP "
+        "BEGIN EXECUTE format('REASSIGN OWNED BY %I TO appdb_rw', r); EXECUTE format('DROP OWNED BY %I', r); "
+        "EXECUTE format('DROP ROLE %I', r); EXCEPTION WHEN others THEN RAISE NOTICE '%: %', r, SQLERRM; END; "
+        "END LOOP; END $$;"))))
+    rec("S2-V3", "dynamic users left after cleanup", str(sum(1 for u in roles("a") if u.startswith("v-"))))
+    rec("S2-V3", "reset createrole_self_grant; group roles: admin true, inherit false, set false", res(*su(
+        "a", "alter role openbao_dbadmin reset createrole_self_grant; "
+             "grant appdb_rw, appdb_ro to openbao_dbadmin with admin option, inherit false, set false")))
     rec("S2-V3", "openbao_dbadmin memberships", mem_of(members("a"), member="openbao_dbadmin"))
-    rec("S2-V3", "openbao_dbadmin reads data", login(RW["a"], "openbao_dbadmin", DBADMIN_PW, "select count(*) from t"))
-    rec("S2-V3", "role rw3: SET role + no REASSIGN", bao_dyn_role("a", "acme.app.appdb.rw3", "appdb_rw", "1h", "24h",
-                                                               SET_ROLE, REVOKE_NO_REASSIGN))
+    rec("S2-V3", "openbao_dbadmin reads data (expect denied)",
+        login(RW["a"], "openbao_dbadmin", DBADMIN_PW, "select count(*) from t"))
+    rec("S2-V3", "role rw3: SET role at login, revocation DROP ROLE only", bao_dyn_role(
+        "a", "acme.app.appdb.rw3", "appdb_rw", "1h", "24h", SET_ROLE, 'DROP ROLE IF EXISTS "{{name}}";'))
     rec("S2-V3", "db/reset", baor("a", "write", "-f", "db/reset/acme.pg"))
     u7, msg = issue("a", "acme.app.appdb.rw3")
     rec("S2-V3", "issue u7", msg)
     if u7:
-        rec("S2-V3", "u7 creates a table, owner", login(RW["a"], u7["user"], u7["pw"],
-            "create table owned_by_u7(id int); select tableowner from pg_tables where tablename='owned_by_u7'"))
+        rec("S2-V3", "creator membership row of u7", mem_of(members("a"), role=u7["user"]))
+        rec("S2-V3", "u7 inserts and creates a table; table owner", login(RW["a"], u7["user"], u7["pw"],
+            "insert into t(note) values ('u7'); create table owned_by_u7(id int); "
+            "select tableowner from pg_tables where tablename='owned_by_u7'"))
+        rec("S2-V3", "openbao_dbadmin reads data while u7 lives (expect denied)",
+            login(RW["a"], "openbao_dbadmin", DBADMIN_PW, "select count(*) from t"))
         ok, took = trigger("a")
         rec("S2-V3", "reconcile ran", f"{ok} {took}")
+        rec("S2-V3", "u7 login after reconcile", login(RW["a"], u7["user"], u7["pw"]))
         rec("S2-V3", "revoke u7 (sync)", revoke("a", u7["lease"]))
         rec("S2-V3", "u7 still in pg_roles", str(u7["user"] in roles("a")))
+    u9, msg = issue("a", "acme.app.appdb.rw3")
+    rec("S2-V3", "issue u9 (will own a table on purpose: SET ROLE NONE)", msg)
+    if u9:
+        rec("S2-V3", "u9 creates a table as itself", login(RW["a"], u9["user"], u9["pw"],
+            "set role none; create table owned_by_u9(id int); select tableowner from pg_tables "
+            "where tablename='owned_by_u9'"))
+        rec("S2-V3", "revoke u9 (sync)", revoke("a", u9["lease"]))
+        rec("S2-V3", "u9 still in pg_roles", str(u9["user"] in roles("a")))
     u8, msg = issue("a", "acme.app.appdb.rw")
-    rec("S2-V3", "issue u8 with 4.10 statements", msg)
+    rec("S2-V3", "issue u8 with the 4.10 statements", msg)
     if u8:
-        rec("S2-V3", "revoke u8 with 4.10 statements (REASSIGN TO appdb_rw)", revoke("a", u8["lease"]))
+        rec("S2-V3", "revoke u8 with the 4.10 statements (REASSIGN TO appdb_rw)", revoke("a", u8["lease"]))
+        rec("S2-V3", "u8 still in pg_roles", str(u8["user"] in roles("a")))
 
 
 def steps1to4():
@@ -984,6 +1118,7 @@ def steps1to4():
     s2_v2(ctx)
     s3_v2(ctx)
     s4(ctx)
+    s6(ctx)
     s1(ctx)
     s2_v3(ctx)
     rec("END", "final roles on A", roles("a"))
@@ -991,7 +1126,7 @@ def steps1to4():
 
 
 # =================================================================== JOB 2
-def analyse(path, t_stop, t_up):
+def analyse(path, t0, t_stop, t_up):
     rows = []
     with open(path) as f:
         for line in f:
@@ -1002,29 +1137,48 @@ def analyse(path, t_stop, t_up):
                 except ValueError:
                     pass
 
+    def rel(t):
+        return round((t - t0) / 60, 1)
+
     def window(a, b):
         w = [x for x in rows if a <= x["t"] < b]
         return {"ok": sum(x["ok"] for x in w), "err": sum(x["err"] for x in w),
                 "pinned_ok": sum(x["pinned_ok"] for x in w), "pinned_err": sum(x["pinned_err"] for x in w)}
-    end = rows[-1]["t"] + 1 if rows else t_up
-    first_err = next((x for x in rows if x["t"] >= t_stop and x["err"] > 0), None)
-    last_err = next((x for x in reversed(rows) if x["err"] > 0), None)
-    first_pin_err = next((x for x in rows if x["t"] >= t_stop and x["pinned_err"] > 0), None)
+    bursts, cur = [], None
+    for x in rows:
+        if x["err"] + x["pinned_err"] > 0:
+            if cur is None:
+                cur = {"from_min": rel(x["t"]), "query_err": 0, "pinned_err": 0,
+                       "first_error": (x["last_err"] or x["pinned_last_err"])[:120]}
+            cur["to_min"] = rel(x["t"])
+            cur["query_err"] += x["err"]
+            cur["pinned_err"] += x["pinned_err"]
+        elif cur:
+            bursts.append(cur)
+            cur = None
+    if cur:
+        bursts.append(cur)
     users = []
     for x in rows:
-        if x.get("user") and (not users or users[-1][1] != x["user"]):
-            users.append((round((x["t"] - t_stop) / 60, 1), x["user"], x.get("expires")))
+        if x.get("user") and (not users or users[-1][1] != x["user"][-24:]):
+            users.append((rel(x["t"]), x["user"][-24:], x.get("expires")))
+    end = rows[-1]["t"] + 1 if rows else t_up
     return {
-        "before": window(0, t_stop), "outage": window(t_stop, t_up), "after": window(t_up, end),
-        "first_query_error_min_after_stop": round((first_err["t"] - t_stop) / 60, 1) if first_err else None,
-        "first_query_error": first_err["last_err"] if first_err else None,
-        "last_query_error_min_after_stop": round((last_err["t"] - t_stop) / 60, 1) if last_err else None,
-        "first_pinned_error_min_after_stop": round((first_pin_err["t"] - t_stop) / 60, 1) if first_pin_err else None,
-        "first_pinned_error": first_pin_err["pinned_last_err"] if first_pin_err else None,
-        "credential_changes(min_after_stop,user,expires)": users,
-        "last_fetch_error": next((x["last_fetch_err"] for x in reversed(rows) if x.get("last_fetch_err")), None),
-        "lifetime_closed_total": rows[-1]["lifetime_closed"] if rows else None,
+        "queries (normal, outage, after)": [window(0, t_stop), window(t_stop, t_up), window(t_up, end)],
+        "error bursts (minutes after start)": bursts,
+        "credential changes (minute, user, expires)": users,
+        "fetch attempts ok / failed": f"{rows[-1]['fetch_ok']} / {rows[-1]['fetch_err']}" if rows else None,
+        "connections closed at max lifetime": rows[-1]["lifetime_closed"] if rows else None,
     }
+
+
+POOLS = (("pool-1h", "acme.app.appdb.rw1h"), ("pool-15m", "acme.app.appdb.rw15m"),
+         ("pool-1h-term", "acme.app.appdb.rw1hterm"))
+
+
+def pool_tail():
+    for name, _ in POOLS:
+        log(f"{name}: {kc('logs', '-n', 'acme-a', f'deploy/{name}', '--tail=1')[1].strip()}")
 
 
 def step5():
@@ -1048,8 +1202,11 @@ def step5():
     rec("S5", "db/config", bao_config("a"))
     rec("S5", "role rw1h", bao_dyn_role("a", "acme.app.appdb.rw1h", ttl="1h", max_ttl="24h"))
     rec("S5", "role rw15m", bao_dyn_role("a", "acme.app.appdb.rw15m", ttl="15m", max_ttl="24h"))
+    rec("S5", "role rw1hterm (revocation ends sessions)", bao_dyn_role("a", "acme.app.appdb.rw1hterm", ttl="1h",
+                                                                       max_ttl="24h", revoke=TERMINATE + REVOKE))
     apply({"apiVersion": "v1", "kind": "ServiceAccount", "metadata": {"name": "consumer", "namespace": "acme-a"}})
-    for name, role in (("pool-1h", "acme.app.appdb.rw1h"), ("pool-15m", "acme.app.appdb.rw15m")):
+    t0 = time.time()
+    for name, role in POOLS:
         apply({"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": name, "namespace": "acme-a"},
                "spec": {"replicas": 1, "selector": {"matchLabels": {"app": name}},
                         "template": {"metadata": {"labels": {"app": name}}, "spec": {
@@ -1064,40 +1221,51 @@ def step5():
                                                               "readOnly": True}]}],
                             "volumes": [{"name": "tok", "projected": {"sources": [{"serviceAccountToken": {
                                 "audience": "openbao", "expirationSeconds": 3600, "path": "token"}}]}}]}}}})
-    for name in ("pool-1h", "pool-15m"):
+    for name, _ in POOLS:
         ok, took = wait_for(f"{name} answers queries", lambda n=name: '"ok":' in kc(
             "logs", "-n", "acme-a", f"deploy/{n}", "--tail=1")[1] and '"ok":0,' not in kc(
             "logs", "-n", "acme-a", f"deploy/{n}", "--tail=1")[1], timeout=300)
         rec("S5", f"{name} serving before the outage", f"{ok} {took}")
-    time.sleep(120)
-    rec("S5", "dynamic users before outage", sorted(u for u in roles("a") if u.startswith("v-")))
+    marks = {}
+    while time.time() < t0 + NORMAL_SECONDS:
+        pool_tail()
+        m = round((time.time() - t0) / 60)
+        if m in (5, 10, 14, 16, 18) and m not in marks:
+            marks[m] = sorted(u[-24:] for u in roles("a") if u.startswith("v-"))
+            rec("S5", f"dynamic users at minute {m} (normal operation)", marks[m])
+        time.sleep(30)
+    rec("S5", "dynamic users before outage", sorted(u[-24:] for u in roles("a") if u.startswith("v-")))
+    _, out, _ = kc("logs", "-n", "bao-a", "openbao-0", "-c", "openbao", "--since=25m")
+    rec("S5", "OpenBao revocations during normal operation", [one(l, 200) for l in out.splitlines()
+                                                              if "revoked lease" in l or "failed to revoke" in l][-8:])
     t_stop = time.time()
     kc("scale", "statefulset", "openbao", "-n", "bao-a", "--replicas=0", check=True)
     ok, took = wait_for("openbao pod gone", lambda: kc("get", "pod", "openbao-0", "-n", "bao-a")[0] != 0,
                         timeout=180)
     rec("S5", "OpenBao stopped (pod gone) seconds", f"{ok} {took}")
     while time.time() < t_stop + OUTAGE_SECONDS:
-        for name in ("pool-1h", "pool-15m"):
-            log(f"{name}: {kc('logs', '-n', 'acme-a', f'deploy/{name}', '--tail=1')[1].strip()}")
+        pool_tail()
         time.sleep(60)
     kc("scale", "statefulset", "openbao", "-n", "bao-a", "--replicas=1", check=True)
     bao_wait_started("a")
     bao_unseal("a")
     t_up = time.time()
     rec("S5", "outage length, minutes (stop to unsealed)", str(round((t_up - t_stop) / 60, 1)))
-    rec("S5", "dynamic users when OpenBao is back", sorted(u for u in roles("a") if u.startswith("v-")))
+    rec("S5", "timeline marks (minutes after start): stop, unsealed",
+        f"{round((t_stop - t0) / 60, 1)}, {round((t_up - t0) / 60, 1)}")
+    time.sleep(20)
+    rec("S5", "dynamic users 20s after OpenBao is back", sorted(u[-24:] for u in roles("a") if u.startswith("v-")))
     t_end = time.time() + 480
     while time.time() < t_end:
-        for name in ("pool-1h", "pool-15m"):
-            log(f"{name}: {kc('logs', '-n', 'acme-a', f'deploy/{name}', '--tail=1')[1].strip()}")
+        pool_tail()
         time.sleep(60)
-    rec("S5", "dynamic users at the end", sorted(u for u in roles("a") if u.startswith("v-")))
-    for name in ("pool-1h", "pool-15m"):
+    rec("S5", "dynamic users at the end", sorted(u[-24:] for u in roles("a") if u.startswith("v-")))
+    for name, _ in POOLS:
         _, out, _ = kc("logs", "-n", "acme-a", f"deploy/{name}", timeout=120)
         path = f"{OUT}/{name}.log"
         with open(path, "w") as f:
             f.write(out)
-        a = analyse(path, t_stop, t_up)
+        a = analyse(path, t0, t_stop, t_up)
         for k, v in a.items():
             rec("S5", f"{name}: {k}", v)
     _, out, _ = kc("logs", "-n", "bao-a", "openbao-0", "-c", "openbao", "--since=10m")
