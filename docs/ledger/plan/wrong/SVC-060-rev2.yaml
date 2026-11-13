@@ -1,0 +1,13 @@
+schema: openova.io/plan-wrong/v1
+id: SVC-060
+ticket_rev: 2
+base_commit: 6e8a4aea9b69bc44f3ac298d1eed7acbf879f328
+stage: preflight
+ref: P11
+command: |
+    cat .github/workflows/check-chart-version-bumped.yaml 2>/dev/null | grep -c 'platform/\*/chart'
+expected: |
+    0
+actual: |
+    1
+reported_at: 2026-11-13T06:32:22Z
