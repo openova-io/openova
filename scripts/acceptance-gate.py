@@ -154,9 +154,12 @@ RECORD = {
                           # The wipe that the fire follows. The suite writes them from its flags; check FND-G13 reads them.
                           "previous_deployment_id": (False, "str"), "previous_wipe_orphans": (False, "int")}),
     # What ran. Check FND-G01 of the suite observes it; pass rule 2 compares it between the two records of a pair.
+    # Check SVC-G06 adds to a chart its Blueprint and the result of its function test.
     "artifacts": (False, {"charts": (True, ("list", {"region": (True, "str"), "namespace": (True, "str"),
                                                      "release": (True, "str"), "chart": (True, "str"),
-                                                     "version": (True, "str"), "pinned": (True, "str")})),
+                                                     "version": (True, "str"), "pinned": (True, "str"),
+                                                     "blueprint": (False, "str"),
+                                                     "functionTest": (False, ("enum", ("pass", "fail", "none")))})),
                           "images": (True, ("list", {"region": (True, "str"), "ref": (True, "str"),
                                                      "digest": (True, "str"), "containers": (True, "int")}))}),
     "checks": (True, ("list", {"id": (True, "str"), "state_at_run": (True, ("enum", ("expected-fail", "required"))),
@@ -1096,6 +1099,14 @@ def self_test():
     check("record: an image of the artifacts without its digest is refused", has(r, "artifacts.images[0].digest: missing"), r)
     r = validate_record(dict(valid, artifacts={"charts": []}), mv)
     check("record: artifacts without the list of images are refused", has(r, "artifacts.images: missing"), r)
+    proven = json.loads(json.dumps(valid))
+    proven["artifacts"]["charts"][0].update(blueprint="bp-cilium", functionTest="pass")
+    r = validate_record(proven, mv)
+    check("CONTROL: a chart with its Blueprint and the result of its function test is valid", r == [], r)
+    proven["artifacts"]["charts"][0]["functionTest"] = "pending"
+    r = validate_record(proven, mv)
+    check("record: a function-test result other than pass, fail and none is refused",
+          has(r, "artifacts.charts[0].functionTest: must be one of pass, fail, none"), r)
     r = validate_record(dict(valid, result="PASS"), mv)
     check("rule 5: result PASS with a failed required check is refused", has(r, "required check FND-G05 has status FAIL"), r)
     skipped = with_check(valid, "FND-G05", "SKIP")
