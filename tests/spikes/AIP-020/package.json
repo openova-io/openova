@@ -1,0 +1,12 @@
+{
+  "name": "spike-aip-020",
+  "private": true,
+  "type": "module",
+  "description": "Throwaway spike: the agent kit driven against a scripted model endpoint. Never merged.",
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.220",
+    "@anthropic-ai/sdk": "0.111.0",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "zod": "4.3.6"
+  }
+}
