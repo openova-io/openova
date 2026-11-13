@@ -38,12 +38,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/openova-io/openova/core/controllers/pkg/upstream"
 )
 
 // Wave 5.93 (#2445) — pluggable hook for post-tofu-apply NAT EIP
@@ -693,15 +696,14 @@ type Request struct {
 	// QATestEnabled=false to drive a browser-trusted Sovereign to
 	// cutoverComplete with ZERO manual steps.
 	//
-	// Threading mirrors qa_fixtures_enabled EXACTLY: this Request field →
-	// writeTfvars `fire_cutover_on_handover` tofu var (string "true"/"false")
-	// → the cloud-init control-plane template's FIRE_CUTOVER_ON_HANDOVER
-	// substitute → bootstrap-kit slot-13 catalyst-api env
-	// CATALYST_FIRE_CUTOVER_ON_HANDOVER. The final env value is the OR of
-	// qa_fixtures_enabled and fire_cutover_on_handover (the qa path is
-	// preserved). infra/providers/{hetzner,huawei}/variables.tf declare the
-	// matching `variable "fire_cutover_on_handover"` with `["true","false"]`
-	// validation so a typo fails at `tofu plan`. The chart's
+	// Threading (SOV-131): this Request field → the key HANDOVER_AUTO
+	// (string "true"/"false") of the variables document that writeTfvars
+	// passes as the module input `variables` → the cloud-init control-plane
+	// template's FIRE_CUTOVER_ON_HANDOVER substitute → bootstrap-kit slot-13
+	// catalyst-api env CATALYST_FIRE_CUTOVER_ON_HANDOVER. The final env value
+	// is the OR of qa_fixtures_enabled and this field (the qa path is
+	// preserved). infra/providers/{hetzner,huawei}/variables.tf refuse a
+	// HANDOVER_AUTO other than "true" or "false" at `tofu plan`. The chart's
 	// api-deployment.yaml already ORs `.Values.catalystApi.fireCutoverOnHandover`
 	// with `.Values.qaFixtures.enabled` (#4648) — this closes the wire→tfvars
 	// →cloud-init half that #4648 left coupled to qaTestEnabled.
@@ -2494,6 +2496,11 @@ func (p *Provisioner) Destroy(ctx context.Context, req Request, events chan<- Ev
 		len(req.Regions) == 0 && tfvarsStatErr == nil
 	if preserveExistingTfvars {
 		emit("tofu-destroy", "info", "#3140: preserving complete provision-time tofu.auto.tfvars.json (wipe req lacks topology)")
+		// SOV-131: a file written before the module input `variables`
+		// existed lacks it, and `tofu destroy` needs every required input.
+		if err := addVariablesIfMissing(tfvarsPath, req); err != nil {
+			return fmt.Errorf("add variables to tfvars: %w", err)
+		}
 	} else if err := writeTfvars(deployDir, req); err != nil {
 		return fmt.Errorf("write tfvars: %w", err)
 	}
@@ -2832,6 +2839,16 @@ func writeTfvars(deployDir string, req Request) error {
 	if err != nil {
 		return err
 	}
+	// The address the new Sovereign calls back to. The variables document
+	// names it as its parent's API address.
+	apiURL := env(
+		"CATALYST_API_PUBLIC_URL",
+		"https://console.openova.io/sovereign",
+	)
+	doc, err := childVariables(req, apiURL)
+	if err != nil {
+		return err
+	}
 	vars := map[string]any{
 		// Identity
 		"sovereign_fqdn":      req.SovereignFQDN,
@@ -2870,21 +2887,9 @@ func writeTfvars(deployDir string, req Request) error {
 		"qa_fixtures_enabled":     map[bool]string{true: "true", false: "false"}[req.QATestEnabled],
 		"qa_test_session_enabled": map[bool]string{true: "true", false: "false"}[req.QATestEnabled],
 
-		// Self-Sovereignty cutover auto-fire toggle (North Star — decouple
-		// cutover auto-fire from qaTestEnabled). INDEPENDENT of qa_fixtures_
-		// enabled. The final CATALYST_FIRE_CUTOVER_ON_HANDOVER env on the
-		// Sovereign catalyst-api is the OR of qa_fixtures_enabled (preserve
-		// existing QA behaviour — a qaTestEnabled prov still auto-cutovers)
-		// and this flag, so a PROD-cert Sovereign (qaTestEnabled=false +
-		// fireCutoverOnHandover=true) reaches cutoverComplete with ZERO manual
-		// steps. The OR is rendered in the cloud-init control-plane template's
-		// FIRE_CUTOVER_ON_HANDOVER substitute (slot-13 catalyst-api env).
-		// Default TRUE (zero-touch, founder 2026-11-06; supersedes the #4061
-		// operator-gated default) — only an explicit false opts out. Stringified for the same
-		// envsubst-passthrough reason as qa_fixtures_enabled;
-		// infra/providers/{hetzner,huawei}/variables.tf carry the matching
-		// `["true","false"]` validation so a typo fails at `tofu plan`.
-		"fire_cutover_on_handover": map[bool]string{true: "true", false: "false"}[req.FireCutoverOnHandover == nil || *req.FireCutoverOnHandover],
+		// The variables document (contract C5), the module input
+		// `variables`. Its HANDOVER_AUTO replaces fire_cutover_on_handover.
+		"variables": doc,
 
 		// Wildcard cert staging-LE selector (Fix #123 — qa-loop iter-1 LE
 		// rate-limit unblock). When QATestEnabled=true the per-Sovereign
@@ -3168,10 +3173,7 @@ func writeTfvars(deployDir string, req Request) error {
 		// FlowNodes (one per HelmRelease per region) under the same id
 		// the catalyst-api proxy /api/v1/flows/{deploymentId}/* queries.
 		"sovereign_deployment_id": req.DeploymentID,
-		"catalyst_api_url": env(
-			"CATALYST_API_PUBLIC_URL",
-			"https://console.openova.io/sovereign",
-		),
+		"catalyst_api_url":        apiURL,
 
 		// Phase-8b handover JWK (issue #605). Stamped server-side from
 		// h.handoverSigner.PublicJWK() in CreateDeployment. cloud-init
@@ -3325,6 +3327,100 @@ func writeTfvars(deployDir string, req Request) error {
 		return err
 	}
 	return os.WriteFile(filepath.Join(deployDir, "tofu.auto.tfvars.json"), raw, 0o600)
+}
+
+// moduleK3sVersion is the default of variable k3s_version in both provider
+// modules. writeTfvars does not set k3s_version, so it is what a new
+// Sovereign runs. TestModuleK3sVersionIsTheModuleDefault fails when they differ.
+const moduleK3sVersion = "v1.31.8+k3s1"
+
+// legacyOwnVariables returns the name and the variables document of a parent
+// without a ConfigMap flux-system/sovereign-variables of its own (every
+// mothership installed before contract C5). The name is the host of apiURL
+// without a leading "console.". The registry values are those its children
+// use today: charts from ghcr.io under openova-io, images through the proxy
+// projects below. Work package SOV-940 deletes this function.
+func legacyOwnVariables(apiURL string) (string, upstream.Variables, error) {
+	u, err := url.Parse(strings.TrimSpace(apiURL))
+	if err != nil || u.Hostname() == "" {
+		return "", upstream.Variables{}, fmt.Errorf("variables document: the callback address %q has no host", apiURL)
+	}
+	parentFQDN := strings.TrimPrefix(strings.ToLower(u.Hostname()), "console.")
+	own := upstream.Variables{
+		Mode:              "mothership",
+		LocalRegistryHost: "ghcr.io",
+		PathCharts:        "openova-io",
+		PathRelease:       "openova-io/release",
+		PathProviderPacks: "openova-io/provider-packs",
+		PathXpkg:          "proxy-xpkg",
+		PathTofuProviders: "tofu-providers",
+		PathNodeArtifacts: "node-artifacts",
+		ProxyProjects: map[string]string{
+			"docker.io":            "proxy-dockerhub",
+			"registry-1.docker.io": "proxy-dockerhub",
+			"quay.io":              "proxy-quay",
+			"gcr.io":               "proxy-gcr",
+			"registry.k8s.io":      "proxy-k8s",
+			"ghcr.io":              "proxy-ghcr",
+			"xpkg.upbound.io":      "proxy-xpkg",
+			"public.ecr.aws":       "proxy-ecr",
+		},
+		ReleaseChannel: "stable",
+	}
+	return parentFQDN, own, nil
+}
+
+// childVariables returns the variables document (contract C5) of a new
+// Sovereign: what the parent serves to a child (upstream.Served), with the
+// keys of this child filled in. It fails when the document breaks the contract.
+func childVariables(req Request, apiURL string) (map[string]string, error) {
+	parentFQDN, own, err := legacyOwnVariables(apiURL)
+	if err != nil {
+		return nil, err
+	}
+	v := upstream.Served(parentFQDN, own)
+	v.ParentAPIURL = strings.TrimSpace(apiURL)
+	v.HandoverAuto = req.FireCutoverOnHandover == nil || *req.FireCutoverOnHandover
+	v.LocalRegistryHost = "registry." + strings.ToLower(strings.TrimSpace(req.SovereignFQDN))
+	v.K3sVersion = moduleK3sVersion
+	v.MailMode = "local"
+	v.CloudCredentialMode = "supplied"
+	doc := v.ToMap()
+	if _, err := upstream.FromMap(doc); err != nil {
+		return nil, fmt.Errorf("variables document: %w", err)
+	}
+	if errs := v.Validate(req.SovereignFQDN); len(errs) > 0 {
+		return nil, fmt.Errorf("variables document: %w", errors.Join(errs...))
+	}
+	return doc, nil
+}
+
+// addVariablesIfMissing adds the module input `variables` to a
+// tofu.auto.tfvars.json that has none (one written before SOV-131), built for
+// req with the file's own catalyst_api_url. A file that has it is not changed.
+func addVariablesIfMissing(path string, req Request) error {
+	raw, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		return err
+	}
+	var vars map[string]any
+	if err := json.Unmarshal(raw, &vars); err != nil {
+		return fmt.Errorf("decode tfvars: %w", err)
+	}
+	if _, ok := vars["variables"]; ok {
+		return nil
+	}
+	apiURL, _ := vars["catalyst_api_url"].(string)
+	doc, err := childVariables(req, apiURL)
+	if err != nil {
+		return err
+	}
+	vars["variables"] = doc
+	out, err := json.MarshalIndent(vars, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, out, 0o600)
 }
 
 // extractFailedAddrs parses tofu's stderr-formatted error block for

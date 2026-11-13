@@ -12,8 +12,12 @@ package provisioner
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/openova-io/openova/core/controllers/pkg/upstream"
 )
 
 // jsonMarshal is a tiny helper so the GHCR-token serialization-leak test
@@ -606,8 +610,8 @@ func TestWriteTfvars_QAFixtures_DefaultDisabled(t *testing.T) {
 	}
 	// Zero-touch (founder 2026-11-06, supersedes #4061): a Sovereign that
 	// sets neither flag auto-fires the cutover on handover.
-	if v, _ := parsed["fire_cutover_on_handover"].(string); v != "true" {
-		t.Fatalf("fire_cutover_on_handover MUST default 'true' (zero-touch cutover), got %q", v)
+	if v := handoverAuto(parsed); v != "true" {
+		t.Fatalf("variables[HANDOVER_AUTO] MUST default 'true' (zero-touch cutover), got %q", v)
 	}
 	// Fix #123 — wildcard_cert_use_staging MUST default 'false' so a
 	// customer Sovereign issues real-trusted production LE certs (not
@@ -698,8 +702,8 @@ func TestWriteTfvars_QAFixtures_EnabledDerivesNamespaceAndOrg(t *testing.T) {
 			// NOT set, which is exactly what lets a PROD-cert prov auto-cutover.
 			// Zero-touch default: the flag is unset here, so it renders
 			// true regardless of QATestEnabled.
-			if v, _ := parsed["fire_cutover_on_handover"].(string); v != "true" {
-				t.Errorf("fire_cutover_on_handover: got %q want \"true\" (zero-touch default)", v)
+			if v := handoverAuto(parsed); v != "true" {
+				t.Errorf("variables[HANDOVER_AUTO]: got %q want \"true\" (zero-touch default)", v)
 			}
 		})
 	}
@@ -744,8 +748,8 @@ func TestWriteTfvars_FireCutoverOnHandover_DecoupledFromQA(t *testing.T) {
 		t.Fatalf("parse: %v", err)
 	}
 	// The independent flag is TRUE.
-	if v, _ := parsed["fire_cutover_on_handover"].(string); v != "true" {
-		t.Fatalf("fire_cutover_on_handover: got %q want \"true\" (North Star — PROD-cert Sovereign opts into auto-cutover)", v)
+	if v := handoverAuto(parsed); v != "true" {
+		t.Fatalf("variables[HANDOVER_AUTO]: got %q want \"true\" (North Star — PROD-cert Sovereign opts into auto-cutover)", v)
 	}
 	// ...while EVERY qaTestEnabled-coupled var stays false. This is the proof
 	// the cutover auto-fire is DECOUPLED from QA: a browser-trusted Sovereign
@@ -824,9 +828,121 @@ func TestWriteTfvars_FireCutoverOnHandover_DefaultsTrue(t *testing.T) {
 			if err := json.Unmarshal(raw, &parsed); err != nil {
 				t.Fatal(err)
 			}
-			if got, _ := parsed["fire_cutover_on_handover"].(string); got != tc.want {
-				t.Fatalf("fire_cutover_on_handover=%q want %q", got, tc.want)
+			if got := handoverAuto(parsed); got != tc.want {
+				t.Fatalf("variables[HANDOVER_AUTO]=%q want %q", got, tc.want)
+			}
+			if _, ok := parsed["fire_cutover_on_handover"]; ok {
+				t.Fatalf("tfvars still carry fire_cutover_on_handover; HANDOVER_AUTO of the variables document replaces it")
 			}
 		})
+	}
+}
+
+// handoverAuto returns HANDOVER_AUTO of the variables document of parsed tfvars.
+func handoverAuto(parsed map[string]any) string {
+	doc, _ := parsed["variables"].(map[string]any)
+	v, _ := doc["HANDOVER_AUTO"].(string)
+	return v
+}
+
+// checkVariablesDocument fails when doc does not hold exactly the keys of
+// contract C5, or breaks its schema or a cross-field rule.
+func checkVariablesDocument(t *testing.T, name string, doc map[string]string, ownFQDN string) {
+	t.Helper()
+	v, err := upstream.FromMap(doc)
+	if err != nil {
+		t.Fatalf("%s: %v", name, err)
+	}
+	full := v.ToMap()
+	for k := range doc {
+		if _, ok := full[k]; !ok {
+			t.Errorf("%s: %s is not a contract key", name, k)
+		}
+	}
+	if len(doc) != len(full) {
+		t.Errorf("%s: %d keys, want the %d contract keys", name, len(doc), len(full))
+	}
+	if errs := v.Validate(ownFQDN); len(errs) > 0 {
+		t.Errorf("%s: %v", name, errs)
+	}
+}
+
+// SOV-131: writeTfvars passes the variables document as the module input
+// `variables`. It passes contract C5 and names today's values.
+func TestWriteTfvars_VariablesDocument(t *testing.T) {
+	dir := t.TempDir()
+	req := Request{SovereignFQDN: "t31.omani.works", OrgName: "T", OrgEmail: "ops@omani.works",
+		HetznerToken: "tok", HetznerProjectID: "p1", Region: "fsn1", WorkerCount: 2}
+	if err := writeTfvars(dir, req); err != nil {
+		t.Fatalf("writeTfvars: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Clean(filepath.Join(dir, "tofu.auto.tfvars.json")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed struct {
+		Variables map[string]string `json:"variables"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("variables is not a map of strings: %v", err)
+	}
+	checkVariablesDocument(t, "tfvars", parsed.Variables, req.SovereignFQDN)
+	for key, want := range map[string]string{
+		"SOVEREIGN_CONSUME": "origin", "HANDOVER_AUTO": "true", "LOCAL_REGISTRY_HOST": "registry.t31.omani.works",
+		"REGISTRY_HOST": "ghcr.io", "REGISTRY_PATH_CHARTS": "openova-io", "ORIGIN_PARENT_FQDN": "openova.io",
+		"ORIGIN_PARENT_API_URL": "https://console.openova.io/sovereign", "K3S_VERSION": moduleK3sVersion,
+	} {
+		if parsed.Variables[key] != want {
+			t.Errorf("variables[%s] = %q, want %q", key, parsed.Variables[key], want)
+		}
+	}
+}
+
+// SOV-131: K3S_VERSION states the k3s version that the modules install.
+func TestModuleK3sVersionIsTheModuleDefault(t *testing.T) {
+	re := regexp.MustCompile(`(?s)variable "k3s_version" \{.*?\n  default +=\s*"([^"]+)"`)
+	for _, p := range []string{"hetzner", "huawei"} {
+		raw, err := os.ReadFile(filepath.Clean(filepath.Join("..", "..", "..", "..", "..", "..", "infra", "providers", p, "variables.tf")))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m := re.FindSubmatch(raw); m == nil || string(m[1]) != moduleK3sVersion {
+			t.Errorf("%s: the k3s_version default is not moduleK3sVersion %q: change both together", p, moduleK3sVersion)
+		}
+	}
+}
+
+// SOV-131: a tfvars file written before the module input `variables` existed
+// gets it before a destroy; a file that has it is left as it is.
+func TestAddVariablesIfMissing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tofu.auto.tfvars.json")
+	old := `{"catalyst_api_url": "https://console.openova.io/sovereign", "fire_cutover_on_handover": "false"}`
+	if err := os.WriteFile(path, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	req := Request{SovereignFQDN: "t31.omani.works", FireCutoverOnHandover: boolPtr(false)}
+	if err := addVariablesIfMissing(path, req); err != nil {
+		t.Fatalf("addVariablesIfMissing: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed struct {
+		Variables map[string]string `json:"variables"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	checkVariablesDocument(t, "added", parsed.Variables, req.SovereignFQDN)
+	if parsed.Variables["HANDOVER_AUTO"] != "false" {
+		t.Errorf("variables[HANDOVER_AUTO] = %q, want \"false\"", parsed.Variables["HANDOVER_AUTO"])
+	}
+	if err := addVariablesIfMissing(path, Request{SovereignFQDN: "t31.omani.works"}); err != nil {
+		t.Fatal(err)
+	}
+	again, err := os.ReadFile(filepath.Clean(path))
+	if err != nil || string(again) != string(raw) {
+		t.Errorf("a file that has variables was changed (%v)", err)
 	}
 }
