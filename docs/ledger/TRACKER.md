@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T19:30:03Z` |
+| Last refreshed | `2026-11-13T19:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T19:40 | [#7498](https://github.com/openova-io/openova/pull/7498) | #7494 | ci: bring the local provider pack up with two regions on pul |
+| 2026-11-13T19:40 | [#7497](https://github.com/openova-io/openova/pull/7497) | #7495 | ci: a tool and a workflow that cut an immutable release cand |
 | 2026-11-13T18:50 | [#7493](https://github.com/openova-io/openova/pull/7493) | #7087 | docs(ledger): plan update |
 | 2026-11-13T18:35 | [#7492](https://github.com/openova-io/openova/pull/7492) | #7487 | refactor(bootstrap-kit): declare every kit HelmRepository at |
 | 2026-11-13T18:35 | [#7491](https://github.com/openova-io/openova/pull/7491) | #7489 | feat(catalyst-api): the self route reports the mode and phas |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-13T14:02 | [#7453](https://github.com/openova-io/openova/pull/7453) | #7087 | docs(ledger): plan update |
 | 2026-11-13T14:13 | [#7452](https://github.com/openova-io/openova/pull/7452) | #7451 | refactor(providers): the modules take the variables document |
 | 2026-11-13T13:49 | [#7448](https://github.com/openova-io/openova/pull/7448) | #7087 | docs(ledger): plan update |
-| 2026-11-13T13:51 | [#7447](https://github.com/openova-io/openova/pull/7447) | #7436 | chore: remove one retired chart folder and one dead harness  |
-| 2026-11-13T13:17 | [#7445](https://github.com/openova-io/openova/pull/7445) | #7087 | docs(ledger): plan update |
 
 ---
 
