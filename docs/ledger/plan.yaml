@@ -26421,7 +26421,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 25
+    lines: 67000
   repeatable: false
   ticket_rev: 1
   dropped: false
@@ -26461,7 +26463,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 15
+    lines: 5400
   repeatable: false
   ticket_rev: 1
   dropped: false
