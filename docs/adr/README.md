@@ -12,7 +12,7 @@ Format: lightweight ADR (Status / Context / Decision / Consequences / Shipped-vi
 | [0002](0002-post-handover-sovereignty-cutover.md) | Post-handover sovereignty cutover (8-tether pivot) | Accepted |
 | [0003](0003-rbac-newapi-user-create-hook.md) | RBAC `newapi` user-create hook | Accepted; superseded by [0030](0030-model-plane.md) |
 | [0004](0004-cnpg-sync-replication.md) | CNPG Pillar 3 synchronous replication (remote_apply over ClusterMesh) | Accepted |
-| [0009](0009-per-org-iac-repo-bootstrap.md) | Per-Organization IaC repo bootstrap on Org creation | Accepted |
+| [0009](0009-per-org-iac-repo-bootstrap.md) | Per-Organization IaC repo bootstrap on Org creation | Accepted; superseded by [0021](0021-git-first-write-path-and-event-backbone.md) |
 | [0010](0010-reusable-shareable-backing-services.md) | Reusable, shareable backing-services model (declarative, no controller/Crossplane) | Accepted |
 | [0011](0011-opentofu-crossplane-adoption-seam.md) | OpenTofu→Crossplane adoption seam (provider-opentofu Workspace, Observe-first) | Accepted |
 | [0012](0012-dragonfly-p2p-registry-cutover.md) | Dragonfly P2P registry distribution + cloud-agnostic cutover (kills the kom4dc hairpin + the bastion proxy-cache) | Accepted |
@@ -23,6 +23,7 @@ Format: lightweight ADR (Status / Context / Decision / Consequences / Shipped-vi
 | [0018](0018-secrets-and-trust.md) | Secrets and trust: credentials injected from OpenBao and never Secret objects, four tiers, the seal-provider contract, the state key, producer identities, one image verifier at admission | Accepted |
 | [0019](0019-zones-are-namespaces-and-an-edge-pool.md) | Zones are namespaces and an edge pool: platform planes are host namespaces, a vCluster is the boundary of an Organization only, the zone trial and its withdrawal; closes the numbers 0005 to 0008 | Accepted |
 | [0020](0020-service-model-classes-and-capability-contracts.md) | Service model: classes, lifecycle, capability contracts, one catalogue source, function tests and kit rings | Accepted |
+| [0021](0021-git-first-write-path-and-event-backbone.md) | Control plane: Git-first write path, one commit library, the intent lock in audit mode, push from Git to Flux, one event stream | Accepted |
 | [0022](0022-foundation-gate-release-train-and-execution-protocol.md) | Foundation gate, release train, stability register and execution protocol (supersedes the gate wiring of ADR-0015 decision D9) | Accepted |
 | [0023](0023-sandbox-withdrawn.md) | Sandbox withdrawn; the per-Organization agent workspace and the tool server replace it | Accepted |
 | [0024](0024-primary-substrate.md) | The primary substrate moved on 2026-05-22: a Huawei Cloud Stack installation is the primary substrate; Hetzner stays an unproven second provider until it is proven again or retired | Accepted |
