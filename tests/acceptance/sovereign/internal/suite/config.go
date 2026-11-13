@@ -29,6 +29,10 @@ type Config struct {
 	// NodesRequested is what the deployment request asked for:
 	// "<region id>=<nodes>,<region id>=<nodes>". Check FND-G03 reads it.
 	NodesRequested string
+	// The wipe that this fire follows: the deployment that was wiped, and the
+	// number of its resources that a listing of the cloud account still found
+	// after the wipe. Both are given, or neither. Check FND-G13 reads them.
+	PreviousDeploymentID, PreviousWipeOrphans string
 
 	Record     bool
 	RecordDir  string
