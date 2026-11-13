@@ -1,0 +1,59 @@
+# SOV-060 spike: born-local node registry list. Throwaway: runs only on the
+# spike/SOV-060 branch, which is never merged. Each job builds its own k3s
+# node, Harbor and origin registry on the runner and measures pulls through
+# the node's CRI. Scripts and the design of each row: tests/spikes/SOV-060/.
+name: spike-sov-060
+
+on:
+  push:
+    branches: [spike/SOV-060]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spike-sov-060
+  cancel-in-progress: false
+
+jobs:
+  node:
+    name: "E1 E2 E3 E4 E6 E7 + controls"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
+    env:
+      K3S_VERSION: v1.31.4+k3s1
+      HARBOR_VERSION: v2.14.3
+      ORIGIN_IMAGE: registry:2.8.3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the node experiment
+        run: bash tests/spikes/SOV-060/node.sh
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sov-060-node-evidence
+          path: sov060-evidence
+          if-no-files-found: warn
+
+  dragonfly:
+    name: "E5 (Dragonfly proxy first)"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
+    env:
+      K3S_VERSION: v1.31.4+k3s1
+      HARBOR_VERSION: v2.14.3
+      ORIGIN_IMAGE: registry:2.8.3
+      DF_TAG: v2.5.0
+      CLIENT_TAG: v1.4.0
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the Dragonfly experiment
+        run: bash tests/spikes/SOV-060/dragonfly.sh
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sov-060-dragonfly-evidence
+          path: sov060-evidence
+          if-no-files-found: warn

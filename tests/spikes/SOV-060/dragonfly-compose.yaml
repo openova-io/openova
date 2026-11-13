@@ -1,0 +1,117 @@
+# SOV-060 spike (E5): the upstream Dragonfly docker-compose deployment
+# (dragonflyoss/dragonfly, deploy/docker-compose at v2.5.0) with:
+#   - the image tags of the platform's Dragonfly slot pinned
+#     (upstream chart 1.7.0: manager/scheduler v2.5.0, client v1.4.0);
+#   - the two dfdaemon containers on the host network, as the slot's
+#     DaemonSet runs them, so the node's containerd reaches 127.0.0.1:4001;
+#   - the test registry's name and CA given to both dfdaemon containers.
+# Started by dragonfly.sh from a work directory that holds config/ and log/.
+services:
+  redis:
+    image: redis:6-alpine
+    container_name: dragonfly-redis
+    command: --requirepass dragonfly
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "dragonfly", "ping"]
+      interval: 1s
+      timeout: 2s
+      retries: 60
+    ports:
+      - 6379:6379
+
+  mysql:
+    image: mariadb:10.6
+    container_name: dragonfly-mysql
+    environment:
+      - MARIADB_USER=dragonfly
+      - MARIADB_PASSWORD=dragonfly
+      - MARIADB_DATABASE=manager
+      - MARIADB_ALLOW_EMPTY_ROOT_PASSWORD=yes
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost"]
+      interval: 1s
+      timeout: 2s
+      retries: 60
+    ports:
+      - 3306:3306
+
+  manager:
+    image: dragonflyoss/manager:${DF_TAG}
+    container_name: manager
+    depends_on:
+      redis:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+    restart: always
+    volumes:
+      - ./log/manager:/var/log/dragonfly
+      - ./config/manager.yaml:/etc/dragonfly/manager.yaml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "/bin/grpc_health_probe -addr=:65003 || exit 1"]
+      interval: 2s
+      timeout: 2s
+      retries: 60
+    ports:
+      - 65003:65003
+      - 8080:8080
+
+  scheduler:
+    image: dragonflyoss/scheduler:${DF_TAG}
+    container_name: scheduler
+    depends_on:
+      manager:
+        condition: service_healthy
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "/bin/grpc_health_probe -addr=:8002 || exit 1"]
+      interval: 2s
+      timeout: 2s
+      retries: 60
+    volumes:
+      - ./log/scheduler:/var/log/dragonfly
+      - ./config/scheduler.yaml:/etc/dragonfly/scheduler.yaml:ro
+    ports:
+      - 8002:8002
+
+  seed-client:
+    image: dragonflyoss/client:${CLIENT_TAG}
+    container_name: seed-client
+    depends_on:
+      scheduler:
+        condition: service_healthy
+    restart: always
+    network_mode: host
+    extra_hosts:
+      - "harbor.local.test:${HOST_IP}"
+    healthcheck:
+      test: ["CMD-SHELL", "/bin/grpc_health_probe -addr=unix:///var/run/dragonfly/dfdaemon.sock || exit 1"]
+      interval: 2s
+      timeout: 2s
+      retries: 60
+    volumes:
+      - ./log/seed-client:/var/log/dragonfly
+      - ./config/seed-client.yaml:/etc/dragonfly/dfdaemon.yaml:ro
+      - /etc/sov060/ca.crt:/etc/dragonfly-ca/ca.crt:ro
+      - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
+
+  client:
+    image: dragonflyoss/client:${CLIENT_TAG}
+    container_name: client
+    depends_on:
+      seed-client:
+        condition: service_healthy
+    restart: always
+    network_mode: host
+    extra_hosts:
+      - "harbor.local.test:${HOST_IP}"
+    healthcheck:
+      test: ["CMD-SHELL", "/bin/grpc_health_probe -addr=unix:///var/run/dragonfly/dfdaemon.sock || exit 1"]
+      interval: 2s
+      timeout: 2s
+      retries: 60
+    volumes:
+      - ./log/client:/var/log/dragonfly
+      - ./config/client.yaml:/etc/dragonfly/dfdaemon.yaml:ro
+      - /etc/sov060/ca.crt:/etc/dragonfly-ca/ca.crt:ro
+      - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
