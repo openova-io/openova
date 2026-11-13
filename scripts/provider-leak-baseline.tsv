@@ -168,7 +168,6 @@ products/catalyst/bootstrap/api/internal/provisioner/adoption.go	18
 products/catalyst/bootstrap/api/internal/provisioner/provisioner.go	96
 products/catalyst/bootstrap/api/internal/provisioner/region_health.go	4
 products/catalyst/bootstrap/api/internal/provisioner/sku_availability.go	3
-products/catalyst/bootstrap/api/internal/store/crd_store.go	2
 products/catalyst/bootstrap/api/internal/store/store.go	7
 products/catalyst/bootstrap/ui/src/app/layouts/AuthLayout.tsx	1
 products/catalyst/bootstrap/ui/src/components/CrudModals/DeleteDeploymentModal.tsx	19
@@ -203,7 +202,6 @@ products/catalyst/bootstrap/ui/src/widgets/cloud-provider-card/CloudProviderCard
 products/catalyst/chart/Chart.yaml	2
 products/catalyst/chart/crds/environment.yaml	1
 products/catalyst/chart/crds/organization.yaml	6
-products/catalyst/chart/crds/provisioningstate.yaml	2
 products/catalyst/chart/crds/sovereign.yaml	7
 products/catalyst/chart/templates/api-deployment-kustomize.yaml	10
 products/catalyst/chart/templates/api-deployment.yaml	12

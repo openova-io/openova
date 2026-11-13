@@ -1280,7 +1280,7 @@ services:
 # bp-catalyst-platform umbrella values
 #
 # As of 1.1.9 this umbrella ships ONLY the Catalyst-Zero control-plane
-# workloads (catalyst-ui, catalyst-api, ProvisioningState CRD, Sovereign
+# workloads (catalyst-ui, catalyst-api, Sovereign
 # HTTPRoute). The 10 foundation Blueprints (cilium, cert-manager, flux,
 # crossplane, sealed-secrets, spire, nats-jetstream, openbao, keycloak,
 # gitea) are installed independently by clusters/_template/bootstrap-kit/
@@ -1293,22 +1293,6 @@ services:
 # Flux HelmReleases under separate namespaces (bp-keycloak →
 # `keycloak`, bp-gitea → `gitea`), the collision is gone and the
 # overrides are unnecessary.
-
-# ProvisioningState CRD — the canonical persistence shape for Sovereign
-# provisioning runs (issue #88). Keeps observability of in-flight wizard
-# runs on the K8s plane (`kubectl get provisioningstates -A`) in addition
-# to the catalyst-api Pod's local flat-file store at
-# /var/lib/catalyst/deployments. The two stores compose: the flat file is
-# authoritative (full event log, fsync-rename atomic), the CRD is the
-# coarse-grained projection (state machine pending → ... → ready | failed)
-# that operators and sibling controllers consume.
-provisioningState:
-  crd:
-    # Default true: the CRD is part of the bp-catalyst-platform contract.
-    # Disable only if the cluster has the CRD installed by an out-of-band
-    # mechanism (test envtest harness, sibling Catalyst instance) and a
-    # second install would conflict.
-    enabled: true
 
 # ─── catalyst-api runtime config ──────────────────────────────────────────
 # Knobs the api-deployment.yaml template threads as env vars. Empty values

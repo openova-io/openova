@@ -18,7 +18,6 @@ This file says what the tree defines. It does not say what a cluster has install
 | Blueprint | catalyst.openova.io | v1alpha1, v1 (storage) | Cluster | blueprints | products/catalyst/chart/crds/blueprint.yaml | yes |
 | Environment | catalyst.openova.io | v1 | Cluster | environments | products/catalyst/chart/crds/environment.yaml | yes |
 | EnvironmentPolicy | catalyst.openova.io | v1 | Cluster | environmentpolicies | products/catalyst/chart/crds/environmentpolicy.yaml | yes |
-| ProvisioningState | catalyst.openova.io | v1alpha1 | Namespaced | provisioningstates | products/catalyst/chart/crds/provisioningstate.yaml | yes |
 | Sovereign | catalyst.openova.io | v1alpha1 | Cluster | sovereigns | products/catalyst/chart/crds/sovereign.yaml | yes |
 | CNPGPair | dr.openova.io | v1 | Namespaced | cnpgpairs | products/catalyst/chart/crds/cnpgpair.yaml | yes |
 | Continuum | dr.openova.io | v1 | Namespaced | continuums | products/catalyst/chart/crds/continuum.yaml | yes |

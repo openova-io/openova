@@ -4687,7 +4687,7 @@ description: |
   Per docs/PROVISIONING-PLAN.md — this is the canonical bp-catalyst-platform Helm chart.
 
   As of 1.1.9 this umbrella contains ONLY the Catalyst-Zero control-plane
-  workloads (catalyst-ui, catalyst-api, ProvisioningState CRD, Sovereign
+  workloads (catalyst-ui, catalyst-api, Sovereign
   HTTPRoute). Foundation Blueprints (cilium, cert-manager, flux,
   crossplane, sealed-secrets, spire, nats-jetstream, openbao, keycloak,
   gitea) are installed independently by the bootstrap-kit at slots
@@ -5586,7 +5586,7 @@ type: application
 
 # Opt-out from the blueprint-release hollow-chart guard (issue #181 / #510).
 # This umbrella legitimately ships only Catalyst-authored workloads
-# (catalyst-ui, catalyst-api, ProvisioningState CRD, Sovereign HTTPRoute);
+# (catalyst-ui, catalyst-api, Sovereign HTTPRoute);
 # the foundation layer is installed independently by the bootstrap-kit
 # and must NOT be re-rendered into catalyst-system as subcharts.
 annotations:
@@ -5596,5 +5596,5 @@ annotations:
 # foundation Blueprints are installed by clusters/_template/bootstrap-kit/
 # at their own slots, each as a top-level Flux HelmRelease in its own
 # canonical namespace. This umbrella renders only the Catalyst-Zero
-# control-plane workloads (catalyst-ui, catalyst-api, ProvisioningState
-# CRD, Sovereign HTTPRoute) into targetNamespace: catalyst-system.
+# control-plane workloads (catalyst-ui, catalyst-api, Sovereign
+# HTTPRoute) into targetNamespace: catalyst-system.
