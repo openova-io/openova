@@ -1371,7 +1371,9 @@ locals {
       # The file sent is the parent-bootstrap kubeconfig that the shared
       # template writes just before this block (SOV-140), never the node's
       # administrator file /etc/rancher/k3s/k3s.yaml. Each /tmp copy is
-      # deleted after the post-back.
+      # deleted after the post-back. A secondary region's body also carries,
+      # under peerKubeconfig, the handover-peer kubeconfig that the shared
+      # template writes for every region that is not the primary (SOV-141).
       # runcmd 0-indent items (the shared template re-indents via indent(2,…)).
       # Content sits at column 0 on purpose: `<<-` dedent does NOT apply to a
       # heredoc carrying %{ … } directives (measured with tofu 1.12), so an
@@ -1431,7 +1433,8 @@ locals {
   export MY_NODE_IP=$(ip -4 -o addr show dev eth0 | awk '{print $4}' | cut -d/ -f1)
   if [ -n "${var.deployment_id}" ] && [ -n "${var.kubeconfig_bearer_token}" ] && [ "$${HOSTNAME}" != "$${PRIMARY_HOST}" ] && [ -n "$${MY_REGION}" ] && [ -n "$${MY_EIP}" ]; then
     sed "s|server: https://127.0.0.1:6443|server: https://$${MY_EIP}:6443|" /var/lib/catalyst/parent-bootstrap.kubeconfig > /tmp/kubeconfig-secondary.yaml
-    python3 -c "import json,os; print(json.dumps({'deploymentId':'${var.deployment_id}','regionKey':'$${MY_REGION}','kubeconfigYaml':open('/tmp/kubeconfig-secondary.yaml').read(),'nodeInternalIp':os.environ.get('MY_NODE_IP','')}))" > /tmp/secondary-kubeconfig-body.json
+    sed -i "s|server: https://127.0.0.1:6443|server: https://$${MY_EIP}:6443|" /var/lib/catalyst/handover-peer.kubeconfig
+    python3 -c "import json,os; print(json.dumps({'deploymentId':'${var.deployment_id}','regionKey':'$${MY_REGION}','kubeconfigYaml':open('/tmp/kubeconfig-secondary.yaml').read(),'peerKubeconfig':open('/var/lib/catalyst/handover-peer.kubeconfig').read(),'nodeInternalIp':os.environ.get('MY_NODE_IP','')}))" > /tmp/secondary-kubeconfig-body.json
     for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
       HTTP_CODE=$(curl -sk -o /dev/null -w '%%{http_code}' -X POST \
         -H "Authorization: Bearer ${var.kubeconfig_bearer_token}" \

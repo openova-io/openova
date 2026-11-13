@@ -1588,9 +1588,11 @@ locals {
       # kubeconfig PUT-back — secondary region appends `?region=<k>` so
       # catalyst-api stores at <id>-<k>.yaml + phase1Watch spawns a per-region
       # helmwatch.Bridge. Public IP from Hetzner metadata. runcmd 0-indent items.
-      # Sends the parent-bootstrap kubeconfig, never k3s.yaml (SOV-140).
+      # Sends the parent-bootstrap kubeconfig, never k3s.yaml (SOV-140). Then
+      # posts it once more to the per-region channel with the handover-peer
+      # kubeconfig under the key peerKubeconfig (SOV-141).
       kubeconfig_put_block = <<-PUT
-        - 'CP_PUBLIC_IPV4=$(curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/public-ipv4) && sed -i "s|https://127.0.0.1:6443|https://$${CP_PUBLIC_IPV4}:6443|g" /var/lib/catalyst/parent-bootstrap.kubeconfig'
+        - 'CP_PUBLIC_IPV4=$(curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/public-ipv4) && sed -i "s|https://127.0.0.1:6443|https://$${CP_PUBLIC_IPV4}:6443|g" /var/lib/catalyst/parent-bootstrap.kubeconfig /var/lib/catalyst/handover-peer.kubeconfig'
         - |
           curl -fsSL --retry 60 --retry-delay 10 --retry-all-errors \
             -X PUT \
@@ -1598,6 +1600,13 @@ locals {
             -H "Content-Type: application/x-yaml" \
             --data-binary @/var/lib/catalyst/parent-bootstrap.kubeconfig \
             "${var.catalyst_api_url}/api/v1/deployments/${var.deployment_id}/kubeconfig?region=${k}"
+        - |
+          jq -n --arg r '${k}' --rawfile kc /var/lib/catalyst/parent-bootstrap.kubeconfig --rawfile pk /var/lib/catalyst/handover-peer.kubeconfig '{deploymentId:"${var.deployment_id}",regionKey:$r,kubeconfigYaml:$kc,peerKubeconfig:$pk}' | curl -fsSL --retry 60 --retry-delay 10 --retry-all-errors \
+            -X POST \
+            -H "Authorization: Bearer ${var.kubeconfig_bearer_token}" \
+            -H "Content-Type: application/json" \
+            --data-binary @- \
+            "${var.catalyst_api_url}/api/v1/sovereign/secondary-kubeconfig"
       PUT
     }), "/(?m)^[ ]*#( |$).*\n/", "")
   }

@@ -1575,8 +1575,40 @@ runcmd:
     E
     sleep 2; done
     [ "$T" ] && (umask 077; sed /client-/d $KUBECONFIG >$K) && kubectl --kubeconfig=$K config set-credentials default --token="$(echo $T|base64 -d)" || { sh /var/lib/catalyst/mark $N-FAILED || touch /var/lib/catalyst/$N-FAILED; exit 96; }
+%{ if sovereign_region_role != "primary" ~}
+  # SOV-141 — the peer token. A region that is not the primary also creates
+  # ServiceAccount kube-system/handover-peer (cluster-admin; its token Secret
+  # kube-system/handover-peer-token has no expiry) and writes its kubeconfig
+  # the same way. The provider's post-back sends it under the key
+  # peerKubeconfig; the parent gives it to the primary at hand-over. It
+  # survives the deletion of parent-bootstrap. The item after the post-back
+  # deletes the file. Fail-loud: sentinel handover-peer-FAILED + exit 97.
+  - |
+    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml N=handover-peer S=kube-system K=/var/lib/catalyst/handover-peer.kubeconfig
+    for i in $(seq 60); do kubectl apply -f- <<E >/dev/null && T=$(kubectl -n $S get secret $N-token -o jsonpath='{.data.token}') && [ "$T" ] && break
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata: {name: $N, namespace: $S}
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata: {name: $N}
+    roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cluster-admin}
+    subjects: [{kind: ServiceAccount, name: $N, namespace: $S}]
+    ---
+    apiVersion: v1
+    kind: Secret
+    type: kubernetes.io/service-account-token
+    metadata: {name: $N-token, namespace: $S, annotations: {kubernetes.io/service-account.name: $N}}
+    E
+    sleep 2; done
+    [ "$T" ] && (umask 077; sed /client-/d $KUBECONFIG >$K) && kubectl --kubeconfig=$K config set-credentials default --token="$(echo $T|base64 -d)" || { sh /var/lib/catalyst/mark $N-FAILED || touch /var/lib/catalyst/$N-FAILED; exit 97; }
+%{ endif ~}
   ${indent(2, kubeconfig_put_block)}
   - rm -f /var/lib/catalyst/parent-bootstrap.kubeconfig
+%{ if sovereign_region_role != "primary" ~}
+  - rm -f /var/lib/catalyst/handover-peer.kubeconfig
+%{ endif ~}
 %{ endif ~}
 
   # ── gateway-api CRDs: ONE official bundle apply (Flux's bp-gateway-api
