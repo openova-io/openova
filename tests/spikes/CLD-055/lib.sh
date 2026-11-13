@@ -28,7 +28,9 @@ runner_apiserver_probe() {
 # The machine's own TCP egress, from the machine (its container runtime pulls
 # images this way). Prints the HTTP code or 000.
 machine_egress_probe() {
-  docker exec "cld055-$1" curl -s -o /dev/null -w '%{http_code}' --max-time 10 https://quay.io/v2/ 2>/dev/null || echo 000
+  local c
+  c=$(docker exec "cld055-$1" curl -s -o /dev/null -w '%{http_code}' --max-time 10 https://quay.io/v2/ 2>/dev/null)
+  echo "${c:0:3}" | grep -E '^[0-9]{3}$' || echo 000
 }
 
 # Background monitor: one line per minute, "epoch egress_code runner_apiserver".
@@ -237,7 +239,8 @@ ssh_probe_from_pod() {
 
 # Evidence snapshot of a machine.
 collect_machine() {
-  local m=$1 d="$OUT/evidence/$m"
+  local m=$1
+  local d="$OUT/evidence/$m"
   mkdir -p "$d"
   docker exec "cld055-$m" cloud-init status --long > "$d/cloud-init-status.txt" 2>&1 || true
   docker exec "cld055-$m" cat /var/log/cloud-init-output.log > "$d/cloud-init-output.log" 2>&1 || true

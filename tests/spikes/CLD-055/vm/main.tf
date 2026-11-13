@@ -104,11 +104,13 @@ resource "libvirt_domain" "cp" {
     listen_address = "127.0.0.1"
   }
 
+  # A pty console: the runner's libvirt has no /var/log/libvirt/qemu for a
+  # serial file (run 43369604232). The template's own log helper sends
+  # cloud-init-output.log to the runner instead.
   console {
-    type        = "file"
+    type        = "pty"
     target_port = "0"
     target_type = "serial"
-    source_path = "/var/log/libvirt/qemu/cld055-cp-a-serial.log"
   }
 }
 

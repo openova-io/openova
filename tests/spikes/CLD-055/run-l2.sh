@@ -87,7 +87,7 @@ if [ -n "$READY" ] && [ -n "$COMPLETE" ]; then L2=pass; else L2=fail; fi
 result "L2 verdict=$L2 node_ready_s=$([ -n "$READY" ] && echo $(( READY - T0 )) || echo none) template_runcmd_complete_seen=$([ -n "$COMPLETE" ] && echo yes || echo no) failed_markers=\"$FAILED\" peak_host_used_mib=$(peak_mem "$T0" "$(now)" | awk '{print $1}')"
 kubectl --server "https://$VM_IP:6443" --insecure-skip-tls-verify --client-certificate "$K/admin.crt" --client-key "$K/admin.key" get nodes -o wide 2>&1 | tee "$OUT/vm-nodes.txt" || true
 kubectl --server "https://$VM_IP:6443" --insecure-skip-tls-verify --client-certificate "$K/admin.crt" --client-key "$K/admin.key" get pods -A > "$OUT/vm-pods.txt" 2>&1 || true
-sudo cp /var/log/libvirt/qemu/cld055-cp-a-serial.log "$OUT/vm-serial.log" 2>/dev/null && sudo chmod 644 "$OUT/vm-serial.log"
-tail -40 "$OUT/vm-serial.log" 2>/dev/null || true
+sudo virsh -c qemu:///system dominfo cld055-cp-a 2>&1 | head -12 || true
+tail -25 "$(ls -t "$OUT"/sink/cp-a-*.log 2>/dev/null | head -1)" 2>/dev/null || true
 rm -f "$K"/*.key
 exit 0

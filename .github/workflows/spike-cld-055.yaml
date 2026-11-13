@@ -17,16 +17,31 @@ concurrency:
   cancel-in-progress: false
 
 # Jobs measured in an earlier run are switched off here, so as not to run
-# them twice: L5 passed in run 43357201647.
+# them twice: L5 passed in run 43357201647; the diagnosis ran in run
+# 43369604232.
 
 env:
   OUT: /tmp/cld055
-  # docker.io through Google's public mirror, falling back to docker.io.
+  # The k3s registries file (a host value of the template). docker.io goes
+  # through Google's public mirror. Images the kit's charts pin to the
+  # mothership's Harbor proxy (harbor.openova.io/proxy-*) go to the upstream
+  # registries instead: in run 43369604232 that proxy answered the index but
+  # not the content for fluxcd/flux-cli:v2.4.0 and kubernetes-reflector.
+  # If every endpoint fails, k3s falls back to harbor.openova.io itself.
   MIRROR: |
     mirrors:
       docker.io:
         endpoint:
           - "https://mirror.gcr.io"
+      harbor.openova.io:
+        endpoint:
+          - "https://ghcr.io"
+          - "https://quay.io"
+          - "https://registry.k8s.io"
+          - "https://mirror.gcr.io"
+          - "https://registry-1.docker.io"
+        rewrite:
+          "^proxy-(ghcr|quay|k8s|dockerhub|docker)/(.*)": "$2"
 
 jobs:
   kind-a:
@@ -162,6 +177,7 @@ jobs:
 
   diag:
     name: Diagnosis (LB-IPAM pool on the node's own address)
+    if: ${{ false }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
