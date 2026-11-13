@@ -1,0 +1,52 @@
+schema: openova.io/plan-wrong/v1
+id: PRD-102
+ticket_rev: 1
+base_commit: 840fbe2b28a4001cb17db5ce439f7610ff4121ea
+stage: check
+ref: security-scan
+command: |
+    gh api repos/openova-io/openova/actions/jobs/131733911376/logs | grep -B 40 -m 1 '##\[error\]' | cut -c30-300
+expected: |
+    the check finishes green
+actual: |
+    2026-11-13T06:39:32Z	INFO	[secret] If your scanning is slow, please try '--scanners vuln' to disable secret scanning
+    2026-11-13T06:39:32Z	INFO	[secret] Please see https://trivy.dev/docs/v0.76/guide/scanner/secret#recommendation for faster secret detection
+    2026-11-13T06:39:34Z	INFO	[npm] Run "npm install" to collect the license information of packages	dir="core/admin/node_modules"
+    2026-11-13T06:39:34Z	INFO	[npm] Run "npm install" to collect the license information of packages	dir="core/marketplace/node_modules"
+    2026-11-13T06:39:34Z	INFO	[npm] Run "npm install" to collect the license information of packages	dir="node_modules"
+    2026-11-13T06:39:34Z	INFO	[npm] Run "npm install" to collect the license information of packages	dir="products/axon/node_modules"
+    2026-11-13T06:39:34Z	INFO	[npm] Run "npm install" to collect the license information of packages	dir="products/catalyst/bootstrap/ui/node_modules"
+    2026-11-13T06:39:34Z	INFO	[npm] Run "npm install" to collect the license information of packages	dir="products/chargeback/ui/node_modules"
+    2026-11-13T06:39:34Z	INFO	[npm] Run "npm install" to collect the license information of packages	dir="products/continuum/cloudflare-worker/node_modules"
+    2026-11-13T06:39:34Z	INFO	Suppressing dependencies for development and testing. To display them, try the '--include-dev-deps' flag.
+    2026-11-13T06:39:34Z	INFO	Number of language-specific files	num=44
+    2026-11-13T06:39:34Z	INFO	[gomod] Detecting vulnerabilities...
+    2026-11-13T06:39:34Z	INFO	[npm] Detecting vulnerabilities...
+    2026-11-13T06:39:34Z	WARN	Using severities from other vendors for some vulnerabilities. Read https://trivy.dev/docs/v0.76/guide/scanner/vulnerability#severity-selection for details.
+    ##[group]Run python3 scripts/scan-baseline.py compare "$RUNNER_TEMP/base.json" "$RUNNER_TEMP/head.json"
+    [36;1mpython3 scripts/scan-baseline.py compare "$RUNNER_TEMP/base.json" "$RUNNER_TEMP/head.json"[0m
+    shell: /usr/bin/bash -e {0}
+    env:
+      TRIVY_VERSION: 0.76.1
+      TRIVY_TARBALL_SHA256: c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
+      TRIVY_NO_PROGRESS: true
+      TRIVY_DISABLE_TELEMETRY: true
+      TRIVY_SKIP_VERSION_CHECK: true
+    ##[endgroup]
+    scan-baseline: merge base 702 finding(s), change 716 finding(s), 14 new
+    NEW vulnerability CVE-2026-100347 in package github.com/getkin/kin-openapi v0.133.0, severity MEDIUM, in products/fingate/tools/go.mod
+    NEW vulnerability CVE-2026-100348 in package github.com/getkin/kin-openapi v0.133.0, severity MEDIUM, in products/fingate/tools/go.mod
+    NEW vulnerability CVE-2026-100349 in package github.com/getkin/kin-openapi v0.133.0, severity HIGH, in products/fingate/tools/go.mod
+    NEW vulnerability CVE-2026-100352 in package github.com/getkin/kin-openapi v0.133.0, severity HIGH, in products/fingate/tools/go.mod
+    NEW vulnerability CVE-2026-100354 in package github.com/getkin/kin-openapi v0.133.0, severity HIGH, in products/fingate/tools/go.mod
+    NEW vulnerability CVE-2026-73502 in package github.com/getkin/kin-openapi v0.133.0, severity MEDIUM, in products/fingate/tools/go.mod
+    NEW vulnerability CVE-2026-76905 in package github.com/getkin/kin-openapi v0.133.0, severity HIGH, in products/fingate/tools/go.mod
+    NEW vulnerability CVE-2026-77354 in package github.com/getkin/kin-openapi v0.133.0, severity HIGH, in products/fingate/tools/go.mod
+    NEW vulnerability GHSA-r277-6w6q-xmqw in package github.com/getkin/kin-openapi v0.133.0, severity CRITICAL, in products/fingate/tools/go.mod
+    NEW vulnerability GHSA-rjwr-m7qx-3fjr in package github.com/oapi-codegen/oapi-codegen/v2 v2.6.0, severity LOW, in products/fingate/tools/go.mod
+    NEW vulnerability CVE-2026-56864 in package golang.org/x/mod v0.23.0, severity HIGH, in products/fingate/tools/go.mod
+    NEW vulnerability CVE-2026-56865 in package golang.org/x/mod v0.23.0, severity HIGH, in products/fingate/tools/go.mod
+    NEW vulnerability CVE-2026-56851 in package golang.org/x/text v0.20.0, severity HIGH, in products/fingate/tools/go.mod
+    NEW vulnerability CVE-2026-56852 in package golang.org/x/text v0.20.0, severity HIGH, in products/fingate/tools/go.mod
+    ##[error]Process completed with exit code 1.
+reported_at: 2026-11-13T06:40:51Z
