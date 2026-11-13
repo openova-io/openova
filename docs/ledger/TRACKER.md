@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T14:15:05Z` |
+| Last refreshed | `2026-11-13T14:30:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T14:24 | [#7458](https://github.com/openova-io/openova/pull/7458) | #7454 | ci: the release writer never moves a version back, and the u |
+| 2026-11-13T14:26 | [#7456](https://github.com/openova-io/openova/pull/7456) | #7437 | refactor: delete the ProvisioningState kind and its unwired  |
+| 2026-11-13T14:26 | [#7455](https://github.com/openova-io/openova/pull/7455) | #7449 | refactor(kit): neutral storage gate storage-ready replaces t |
 | 2026-11-13T14:02 | [#7453](https://github.com/openova-io/openova/pull/7453) | #7087 | docs(ledger): plan update |
 | 2026-11-13T14:13 | [#7452](https://github.com/openova-io/openova/pull/7452) | #7451 | refactor(providers): the modules take the variables document |
 | 2026-11-13T13:49 | [#7448](https://github.com/openova-io/openova/pull/7448) | #7087 | docs(ledger): plan update |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-13T11:25 | [#7410](https://github.com/openova-io/openova/pull/7410) | #7087 | docs(ledger): result of the lab test AIP-020 (AIP-020) |
 | 2026-11-13T11:25 | [#7409](https://github.com/openova-io/openova/pull/7409) | #7087 | docs(ledger): result of the lab test AIP-010 (AIP-010) |
 | 2026-11-13T11:26 | [#7408](https://github.com/openova-io/openova/pull/7408) | #7087 | docs(ledger): result of the lab test ACC-020 (ACC-020) |
-| 2026-11-13T11:25 | [#7407](https://github.com/openova-io/openova/pull/7407) | #7087 | docs(ledger): result of the lab test CLD-055 (CLD-055) |
-| 2026-11-13T10:57 | [#7406](https://github.com/openova-io/openova/pull/7406) | #7395 | feat(cloud-init): post back a revocable service-account kube |
-| 2026-11-13T10:41 | [#7405](https://github.com/openova-io/openova/pull/7405) | #7383 | chore(api): remove the 24 infrastructure write routes and th |
 
 ---
 
