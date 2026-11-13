@@ -380,7 +380,7 @@ openova/
 │   ├── console/            # per-Organization console (`org-console`, Astro + Svelte).
 │   │                       # NOT the sovereign-admin console — see the note below the tree.
 │   ├── controllers/        # CRD reconcilers: application, blueprint, continuum,
-│   │                       # environment, organization, sandbox, useraccess
+│   │                       # environment, organization, useraccess
 │   ├── marketplace/        # marketplace projector
 │   ├── marketplace-api/    # marketplace REST API
 │   ├── pool-domain-manager/# subdomain-pool reconciler (.omani.* etc.)
@@ -402,8 +402,7 @@ openova/
 │   ├── fingate/            # Open Banking                    (scaffold)
 │   ├── openova-flow/       # flow graph engine (server/ canvas/ core/ adapter-flux/)
 │   ├── openova-mcp/        # bp-openova-mcp — RBAC-scoped OpenOva MCP server (Pillar 4; Go)
-│   ├── relay/              # Communication                   (scaffold)
-│   └── sandbox/            # LEGACY — Sandbox concept removed 2026-06-30; superseded by agenity/ + openova-mcp/
+│   └── relay/              # Communication                   (scaffold)
 └── docs/                   # Canonical platform documentation (lean strategy — see above)
     ├── adr/                # Architecture Decision Records (immutable, numbered)
     ├── ledger/             # TRUST.md + TRACKER.md + UAT.md + PATH-TO-100.md (cron/walk-refreshed)

@@ -4586,75 +4586,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "hasUserUIEndpoint": false
   },
   {
-    "id": "bp-sandbox",
-    "slug": "sandbox",
-    "title": "Sandbox",
-    "summary": "|",
-    "icon": "sandbox.svg",
-    "category": "devtools",
-    "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
-    "version": "0.3.12",
-    "section": "pts-4-sandbox",
-    "depends": [
-      "bp-rtz-vcluster",
-      "bp-vcluster-helmrepo",
-      "bp-catalyst-platform",
-      "bp-harbor"
-    ],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "active-hot-standby",
-        "singleton"
-      ],
-      "multiRegion": "active-hot-standby",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "active-hot-standby": {
-          "replication": {
-            "backend": "none",
-            "mode": "async",
-            "lagSloSeconds": 0
-          },
-          "switchover": {
-            "mechanism": "bp-continuum",
-            "rtoSeconds": 30,
-            "rpoSeconds": 0
-          },
-          "placement": {
-            "tier": "",
-            "clusters": [
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "rtz-A": "active",
-              "rtz-B": "passive"
-            }
-          }
-        },
-        "singleton": {
-          "replication": null,
-          "switchover": null,
-          "placement": {
-            "tier": "",
-            "clusters": [
-              "rtz-A"
-            ],
-            "roles": {
-              "rtz-A": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": true
-  },
-  {
     "id": "bp-sealed-secrets",
     "slug": "sealed-secrets",
     "title": "sealed-secrets",
@@ -6136,7 +6067,6 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/reflector/blueprint.yaml",
   "platform/reloader/blueprint.yaml",
   "platform/rtz-vcluster/blueprint.yaml",
-  "platform/sandbox/blueprint.yaml",
   "platform/sealed-secrets/blueprint.yaml",
   "platform/seaweedfs/blueprint.yaml",
   "platform/self-sovereign-cutover/blueprint.yaml",

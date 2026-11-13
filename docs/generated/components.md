@@ -95,7 +95,6 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | platform/qa-app | bp-qa-app | bp-qa-app | listed | - |
 | platform/reflector | bp-reflector | bp-reflector | - | 05a |
 | platform/reloader | bp-reloader | reloader | - | 28 |
-| platform/sandbox | sandbox | bp-sandbox | unlisted | - |
 | platform/sealed-secrets | bp-sealed-secrets | bp-sealed-secrets | unlisted | 05 |
 | platform/seaweedfs | bp-seaweedfs | seaweedfs | unlisted | 18 |
 | platform/self-sovereign-cutover | bp-self-sovereign-cutover | bp-self-sovereign-cutover | unlisted | 06a |
@@ -133,4 +132,3 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | products/openova-flow | - | - | - | - |
 | products/openova-mcp | bp-openova-mcp | bp-openova-mcp | unlisted | 13d |
 | products/relay | - | - | - | - |
-| products/sandbox | - | - | - | - |

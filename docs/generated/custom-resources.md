@@ -25,4 +25,3 @@ This file says what the tree defines. It does not say what a cluster has install
 | PDM | dr.openova.io | v1 | Cluster | pdms | products/catalyst/chart/crds/pdm.yaml | yes |
 | Instrumentation | opentelemetry.io | v1alpha1 | Namespaced | instrumentations | platform/opentelemetry-operator/chart/crds/instrumentation-crd.yaml | no |
 | Organization | orgs.openova.io | v1 | Cluster | organizations | products/catalyst/chart/crds/organization.yaml | yes |
-| Sandbox | sandbox.openova.io | v1 | Namespaced | sandboxes | products/catalyst/chart/crds/sandbox.yaml | yes |

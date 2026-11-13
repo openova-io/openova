@@ -27,7 +27,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # Two commits deep: the guard of the word sandbox compares its baseline with the
+      # first parent of the commit under test.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
       - name: Self-test of the guard (every rule can fail)
         run: python3 scripts/check-repo-hygiene.py --self-test
       - name: Deleted paths stay deleted
@@ -45,3 +49,7 @@ jobs:
           python3 -m pip install --quiet pyyaml
           python3 scripts/check-policy-wiring.py --self-test
           python3 scripts/check-policy-wiring.py
+      - name: The word sandbox outside docs only becomes rarer
+        run: |
+          python3 scripts/check-sandbox-word.py --self-test
+          python3 scripts/check-sandbox-word.py --base HEAD^1

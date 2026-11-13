@@ -32,7 +32,6 @@
     },
     "go_ticker": {
       "core/controllers/application/internal/controller/application_controller.go": 1,
-      "core/controllers/sandbox/internal/idlescaler/idlescaler.go": 1,
       "core/pool-domain-manager/internal/allocator/allocator.go": 1,
       "core/services/billing/handlers/settlement_launch_reconciler.go": 1,
       "core/services/metering-sidecar/proxy/publisher.go": 1,
@@ -69,8 +68,7 @@
     },
     "requeue": {
       "core/controllers/environment/internal/controller/environment_controller.go": 4,
-      "core/controllers/organization/internal/controller/organization_controller.go": 7,
-      "core/controllers/sandbox/internal/controller/sandbox_controller.go": 1
+      "core/controllers/organization/internal/controller/organization_controller.go": 7
     },
     "shell_loop": {
       "platform/cilium/chart/templates/vpc-podcidr-route-reconciler.yaml": 1,
