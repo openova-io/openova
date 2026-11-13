@@ -4,14 +4,14 @@ Status on 13 November 2026. The baseline is the platform as it stood on 12 Novem
 
 ## Right now
 
-Measured from GitHub at 04:05 UTC on 13 November 2026. This block is rewritten after every round of merges.
+Measured from GitHub at 04:20 UTC on 13 November 2026. This block is rewritten after every round of merges.
 
 | | |
 |---|---|
 | Tasks merged to the main branch | **79 of 850** |
 | Tasks with a written ticket | 94 |
 | Being worked on by an agent now | FND-061 ([#7304](https://github.com/openova-io/openova/pull/7304)), NET-020 ([#7302](https://github.com/openova-io/openova/pull/7302)), PRD-104 ([#7301](https://github.com/openova-io/openova/pull/7301)), PRD-105 ([#7300](https://github.com/openova-io/openova/pull/7300)), PRD-106 ([#7299](https://github.com/openova-io/openova/pull/7299)), SOV-220 ([#7303](https://github.com/openova-io/openova/pull/7303)) |
-| Lab tests started, each on its own branch in CI | 16: CLD-050, CLD-055, CMP-S1, CMP-S2, CMP-S5, CMP-S6, CTL-050, CTL-055, INF-030, MIG-050, SEC-130, SEC-140, SEC-280, SOV-060, SVC-120, SVC-210 |
+| Lab tests started, each on its own branch in CI | 17: CLD-050, CLD-055, CMP-S1, CMP-S2, CMP-S3, CMP-S5, CMP-S6, CTL-050, CTL-055, INF-030, MIG-050, SEC-130, SEC-140, SEC-280, SOV-060, SVC-120, SVC-210 |
 | Merged per day | 2026-11-12: 8, 2026-11-13: 71 |
 | Running on the live environment hw307 | **None of these tasks yet.** hw307 runs the build of 8 November. The merged work reaches it with the next roll-forward of the environment; only then is a task proven end to end. |
 
@@ -72,34 +72,61 @@ Against the target of this plan, that work stands at **24% built** across the 14
 | Last feature done, six agents in parallel | about 3 Dec (312 running hours at 16 a day) |
 | Releases | 64 updates of the environment and 13 fresh installs |
 
-## Where we started and where we are
+## Where we started and where we are, to scale
 
-Each bar is the whole target for that area. Dark blue is what was already built on 12 November. Green is what has been added since. Grey is still to do.
+The length of a bar is the size of that area, so a long bar is a big area and a short bar a small one. Dark blue is what was already built on 12 November. Green is what has been merged since. Grey is still to do. Sizes are in agent-hours: the green and grey parts are the plan's own estimate; the dark part is scaled from the audit percentage, so it is an estimate of size, not a record of hours spent.
 
-![Progress per product area](dashboard/progress.svg)
+All 14 areas together: 24% was built before the baseline, and the target is now 30.4% built. 53 agent-hours of the plan are merged and 576 are still to do.
 
-## The product today, against its target
+![Progress per product area, to scale](dashboard/progress.svg)
 
-Score from 0 to 100, measured from the code. Red is a critical gap, orange a serious one, yellow partly there.
+| Product area | Built before | Tasks merged | Agent-hours merged | Agent-hours to do | Share of all remaining work |
+|---|---:|---:|---:|---:|---:|
+| Network and zones | 42% | 9 of 77 | 5 | 52 | 9% |
+| Billing | 60% | 4 of 42 | 2 | 31 | 5% |
+| Multi-cloud | 29% | 6 of 77 | 4 | 51 | 9% |
+| Delivery engine | 23% | 27 of 80 | 19 | 37 | 7% |
+| Console and change through Git | 25% | 5 of 74 | 3 | 49 | 8% |
+| Independent Sovereign | 25% | 4 of 68 | 3 | 48 | 8% |
+| Security and secrets | 10% | 6 of 76 | 4 | 52 | 9% |
+| Compliance | 28% | 7 of 58 | 5 | 38 | 7% |
+| AI and agents | 22% | 1 of 59 | 1 | 44 | 8% |
+| Machines and virtual machines | 17% | 2 of 61 | 1 | 45 | 8% |
+| AI hub and open banking | 5% | 4 of 63 | 3 | 45 | 8% |
+| Service catalogue | 35% | 3 of 43 | 2 | 30 | 5% |
+| Privileged access | 17% | 1 of 38 | 1 | 30 | 5% |
+| Migration | 0% | 0 of 34 | 0 | 25 | 4% |
 
-![Score per product area](dashboard/scores.svg)
+## Every epic, to scale
 
-| Product area | Today | Target | Epics | Tasks | Agent-hours | Tokens, M | Done by |
+Every piece of work in the plan, grouped by product area. A large tile is one epic; a small square is one single task that belongs to no epic. The area of a tile is its size in agent-hours, so the big tiles are the big pieces of work. Green is merged: a whole green square is a merged task, and the green part of an epic tile is the share of it already merged. An epic tile shows tasks merged of tasks in the epic, and its hours. The table of every epic is further down.
+
+![Every epic as a tile sized by effort](dashboard/epics.svg)
+
+## The product: where it started and where it is now
+
+Score from 0 to 100 against the target. The red, orange or yellow part is where the area stood on 12 November, measured from the code by the audit: red is a critical gap, orange a serious one, yellow partly there. The green part is what has been added since. Each row reads start → now.
+
+The number for now is the start score plus the share of the remaining distance that is merged, counted in agent-hours. It counts work merged to the main branch. A task counts as proven only when it runs on the live environment, and the block at the top of this page says how much of it does.
+
+![Score per product area, at the start and now](dashboard/scores.svg)
+
+| Product area (start → now) | At the start | Target | Epics | Tasks | Agent-hours to do | Tokens to do, M | Done by |
 |---|---|---|---:|---:|---:|---:|---|
-| **Independent Sovereign** (25) | Installs and runs in two regions, but still depends on its parent after hand-over. | Local from first boot, owns its keys, upgrades in place, can create a child Sovereign. | 9 | 68 | 48 | 48 | 28 Nov |
-| **Multi-cloud** (29) | Runs on the National Cloud and one other cloud by special cases in shared code. | A cloud is a pack of files behind one contract. A second cloud and a hyperscaler proven. Managed Kubernetes as an option. | 13 | 77 | 51 | 51 | 1 Dec |
-| **Security and secrets** (10) | The vault runs, but every application credential is still stored in etcd. | Credentials are mounted from the vault into the running workload. Urgent holes closed first. | 7 | 76 | 52 | 52 | 29 Nov |
-| **Network and zones** (42) | The data plane is sound. The network is open by default. | Deny by default, mesh declared in Git, edge nodes and a load balancer per region. | 6 | 77 | 52 | 52 | 3 Dec |
-| **Console and change through Git** (25) | Delivery goes through Git. Most console actions write straight to the cluster. | Every change is a commit. Screens update by push. | 1 | 74 | 49 | 48 | 25 Nov |
-| **Service catalogue** (35) | The bootstrap kit is real. Users cannot choose a cloud's native service. | Every Blueprint has a class. Object storage and PostgreSQL offered as native or self-hosted. | 3 | 43 | 30 | 30 | 28 Nov |
-| **Compliance** (28) | 24 policies and one proven score. | Posture hub, waivers, scanner reports, runtime and resilience views, frameworks. | 8 | 58 | 38 | 38 | 30 Nov |
-| **Billing** (60) | The strongest area. Works on the live environment, structurally tangled. | One plan source, metered model usage, collectors per cloud, standalone option for a cloud operator. | 7 | 42 | 31 | 31 | 29 Nov |
-| **AI and agents** (22) | Four model gateways, one agent workspace, no usable metering. | One gateway with Axon as simulator, an agent runtime, metering, service-management agents. | 7 | 59 | 44 | 44 | 1 Dec |
-| **Machines and virtual machines** (17) | No virtual-machine service exists. | Virtual machines, machine operations over SSH, golden images. | 9 | 61 | 45 | 45 | 3 Dec |
-| **Privileged access** (17) | Access control, approval and recording are not in place yet. | Controlled sessions with approval, recording and review. | 7 | 38 | 30 | 30 | 3 Dec |
-| **Migration** (0) | Nothing exists. | A migration engine with landing on the National Cloud and network extension. | 4 | 34 | 25 | 25 | 2 Dec |
-| **AI hub and open banking** (5) | Scaffolds only. | AI hub with knowledge search and chat. Open banking sandbox, payments, portal. | 7 | 63 | 45 | 46 | 28 Nov |
-| **Delivery engine** (23) | The acceptance suite exists. Very little is proven on the live environment. | Every feature proven by automatic checks on a real environment, twice, before it counts. | 13 | 80 | 37 | 37 | 25 Nov |
+| **Independent Sovereign** (25 → 29) | Installs and runs in two regions, but still depends on its parent after hand-over. | Local from first boot, owns its keys, upgrades in place, can create a child Sovereign. | 9 | 68 | 48 | 48 | 28 Nov |
+| **Multi-cloud** (29 → 34) | Runs on the National Cloud and one other cloud by special cases in shared code. | A cloud is a pack of files behind one contract. A second cloud and a hyperscaler proven. Managed Kubernetes as an option. | 13 | 77 | 51 | 51 | 1 Dec |
+| **Security and secrets** (10 → 16) | The vault runs, but every application credential is still stored in etcd. | Credentials are mounted from the vault into the running workload. Urgent holes closed first. | 7 | 76 | 52 | 52 | 29 Nov |
+| **Network and zones** (42 → 47) | The data plane is sound. The network is open by default. | Deny by default, mesh declared in Git, edge nodes and a load balancer per region. | 6 | 77 | 52 | 52 | 3 Dec |
+| **Console and change through Git** (25 → 30) | Delivery goes through Git. Most console actions write straight to the cluster. | Every change is a commit. Screens update by push. | 1 | 74 | 49 | 48 | 25 Nov |
+| **Service catalogue** (35 → 39) | The bootstrap kit is real. Users cannot choose a cloud's native service. | Every Blueprint has a class. Object storage and PostgreSQL offered as native or self-hosted. | 3 | 43 | 30 | 30 | 28 Nov |
+| **Compliance** (28 → 36) | 24 policies and one proven score. | Posture hub, waivers, scanner reports, runtime and resilience views, frameworks. | 8 | 58 | 38 | 38 | 30 Nov |
+| **Billing** (60 → 63) | The strongest area. Works on the live environment, structurally tangled. | One plan source, metered model usage, collectors per cloud, standalone option for a cloud operator. | 7 | 42 | 31 | 31 | 29 Nov |
+| **AI and agents** (22 → 23) | Four model gateways, one agent workspace, no usable metering. | One gateway with Axon as simulator, an agent runtime, metering, service-management agents. | 7 | 59 | 44 | 44 | 1 Dec |
+| **Machines and virtual machines** (17 → 19) | No virtual-machine service exists. | Virtual machines, machine operations over SSH, golden images. | 9 | 61 | 45 | 45 | 3 Dec |
+| **Privileged access** (17 → 19) | Access control, approval and recording are not in place yet. | Controlled sessions with approval, recording and review. | 7 | 38 | 30 | 30 | 3 Dec |
+| **Migration** (0 → 0) | Nothing exists. | A migration engine with landing on the National Cloud and network extension. | 4 | 34 | 25 | 25 | 2 Dec |
+| **AI hub and open banking** (5 → 10) | Scaffolds only. | AI hub with knowledge search and chat. Open banking sandbox, payments, portal. | 7 | 63 | 45 | 46 | 28 Nov |
+| **Delivery engine** (23 → 49) | The acceptance suite exists. Very little is proven on the live environment. | Every feature proven by automatic checks on a real environment, twice, before it counts. | 13 | 80 | 37 | 37 | 25 Nov |
 
 ## When each product area is worked on
 
@@ -1647,6 +1674,6 @@ How tickets are proven: 92 in a browser as an end user (Playwright with a screen
 
 ## Delivered since the baseline
 
-`ACC-060`, `AIP-060`, `BSS-010`, `BSS-020`, `BSS-035`, `BSS-050`, `CLD-010`, `CLD-040`, `CLD-063`, `CLD-070`, `CLD-071`, `CLD-080`, `CMP-005`, `CMP-010`, `CMP-012`, `CMP-014`, `CMP-016`, `CMP-030`, `CMP-036`, `CTL-010`, `CTL-020`, `CTL-025`, `CTL-044`, `CTL-201`, `FND-014`, `FND-021`, `FND-022`, `FND-023`, `FND-031`, `FND-032`, `FND-033`, `FND-034`, `FND-040`, `FND-051`, `FND-052`, `FND-053`, `FND-054`, `FND-055`, `FND-091`, `FND-092`, `FND-093`, `FND-094`, `FND-097`, `FND-101`, `FND-102`, `FND-103`, `FND-105`, `FND-106`, `FND-110`, `FND-173`, `FND-181`, `INF-010`, `INF-070`, `NET-010`, `NET-031`, `NET-033`, `NET-041`, `NET-042`, `NET-050`, `NET-052`, `NET-070`, `NET-072`, `PRD-010`, `PRD-020`, `PRD-030`, `PRD-101`, `SEC-005`, `SEC-006`, `SEC-020`, `SEC-071`, `SEC-110`, `SEC-125`, `SOV-030`, `SOV-040`, `SOV-050`, `SOV-110`, `SVC-010`, `SVC-020`, `SVC-030`. These are delivery rails, not product features.
+`ACC-060`, `AIP-060`, `BSS-010`, `BSS-020`, `BSS-035`, `BSS-050`, `CLD-010`, `CLD-040`, `CLD-063`, `CLD-070`, `CLD-071`, `CLD-080`, `CMP-005`, `CMP-010`, `CMP-012`, `CMP-014`, `CMP-016`, `CMP-030`, `CMP-036`, `CTL-010`, `CTL-020`, `CTL-025`, `CTL-044`, `CTL-201`, `FND-014`, `FND-021`, `FND-022`, `FND-023`, `FND-031`, `FND-032`, `FND-033`, `FND-034`, `FND-040`, `FND-051`, `FND-052`, `FND-053`, `FND-054`, `FND-055`, `FND-091`, `FND-092`, `FND-093`, `FND-094`, `FND-097`, `FND-101`, `FND-102`, `FND-103`, `FND-105`, `FND-106`, `FND-110`, `FND-173`, `FND-181`, `INF-010`, `INF-070`, `NET-010`, `NET-031`, `NET-033`, `NET-041`, `NET-042`, `NET-050`, `NET-052`, `NET-070`, `NET-072`, `PRD-010`, `PRD-020`, `PRD-030`, `PRD-101`, `SEC-005`, `SEC-006`, `SEC-020`, `SEC-071`, `SEC-110`, `SEC-125`, `SOV-030`, `SOV-040`, `SOV-050`, `SOV-110`, `SVC-010`, `SVC-020`, `SVC-030`.
 
 The same page with hover and filters is the file `north-star-dashboard.html` beside this one: download it and open it in a browser.
