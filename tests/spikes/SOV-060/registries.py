@@ -61,6 +61,8 @@ mirrors = {
     "registry.k8s.io": mirror(["https://blackhole.local.test", ORIGIN], "proxy-k8s"),
     # E7a: the local Harbor, reached under a name whose login is wrong (401)
     "public.ecr.aws": mirror([LOCAL_BADAUTH, ORIGIN], "proxy-ecr"),
+    # E7 extra: the same wrong login against a PRIVATE local project (Harbor's own 401)
+    "nvcr.io": mirror([LOCAL_BADAUTH, ORIGIN], "proxy-priv"),
     # E7b: the first endpoint answers 503 to everything
     "docker.io": mirror(["https://stub.local.test:7443", ORIGIN], "proxy-docker"),
     # E7d: the first endpoint answers 401 and refuses every token

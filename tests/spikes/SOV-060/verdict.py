@@ -105,7 +105,7 @@ if job == "node":
         add("E7", "yes" if ok else "no", " | ".join(brief(R[i]) for i in e7))
     else:
         add("E7", "not run", "")
-    for extra in ("E7-401-harbor", "E7-harbor-core-down"):
+    for extra in ("E7-401-harbor", "E7-401-harbor-private", "E7-harbor-core-down"):
         if extra in R:
             r = R[extra]
             add(extra + " (extra)", ("pulled" if r["pulled"] else "failed")
@@ -129,9 +129,17 @@ elif job == "dragonfly":
         local_first = R[ids[2]]["pulled"] and R[ids[2]]["origin_requests"] == 0
         public = sum(egress(R[i], ["quay.io"]) for i in ids)
         proxied = sum(via_proxy(R[i]) for i in ids)
-        verdict = "yes" if falls and local_first and public == 0 else "no"
-        detail = "fall-through=%s, origin unused once local holds the image=%s, lookups/SYNs to quay.io=%d, local-registry requests sent by the proxy=%d" % (
-            falls, local_first, public, proxied)
+        refused = sum(R[i].get("proxy_refused", 0) for i in ids)
+        # Without a running proxy these cases measure nothing about the proxy:
+        # run 1 printed "yes" here with the proxy down, which proves nothing.
+        if refused:
+            verdict = "not measured (the proxy refused connections)"
+        elif falls and local_first and public == 0 and proxied > 0:
+            verdict = "yes"
+        else:
+            verdict = "no"
+        detail = "proxy refused=%d, fall-through=%s, origin unused once local holds the image=%s, lookups/SYNs to quay.io=%d, local-registry requests sent by the proxy=%d" % (
+            refused, falls, local_first, public, proxied)
         add(form, verdict, detail + " | " + " | ".join(brief(R[i]) for i in ids))
     if "E5-0-proxy-down" in R:
         r = R["E5-0-proxy-down"]

@@ -17,6 +17,9 @@ start_origin || exit 1
 install_harbor || exit 1
 # proxy-ghcr is deliberately not created (row E2-noproject)
 for p in proxy-quay proxy-docker proxy-gcr proxy-k8s proxy-ecr proxy-gitlab; do harbor_project "$p"; done
+# One private project, so a wrong login meets Harbor's own 401 (row E7 extra).
+hapi -o /dev/null -w "harbor project proxy-priv (private) -> HTTP %{http_code}\n" -X POST "https://$LOCAL_HOST/api/v2.0/projects" \
+  -d '{"project_name":"proxy-priv","public":false,"metadata":{"public":"false"}}'
 harbor_robot
 resolve_watched
 
@@ -32,7 +35,7 @@ log "public image outside the list: $MCR_REF (tags listed: $(wc -w <<<"$tags"))"
 declare -A ORIGIN_PROJECT=(
   [e1]=proxy-quay [e1nx]=proxy-gcr [e1bh]=proxy-k8s
   [e2]=proxy-quay [e2b]=proxy-ghcr [e3]=proxy-quay
-  [e7a]=proxy-ecr [e7b]=proxy-docker [e7c]=proxy-quay [e7d]=proxy-gitlab
+  [e7a]=proxy-ecr [e7b]=proxy-docker [e7c]=proxy-quay [e7d]=proxy-gitlab [e7p]=proxy-priv
   [e6base]=proxy-quay [e6a]=proxy-quay [e6b]=proxy-quay [e6c]=proxy-quay
 )
 for n in "${!ORIGIN_PROJECT[@]}"; do
@@ -69,6 +72,8 @@ pull_case E3-originhost "$ORIGIN_HOST/proxy-quay/spike/e3:1"
 section "E7: the first endpoint answers 401 or 503"
 push_image e7a "$LOCAL_HOST/proxy-ecr/spike/e7a:1"
 pull_case E7-401-harbor public.ecr.aws/spike/e7a:1
+push_image e7p "$LOCAL_HOST/proxy-priv/spike/e7p:1"
+pull_case E7-401-harbor-private nvcr.io/spike/e7p:1
 pull_case E7-503-stub docker.io/spike/e7b:1
 pull_case E7-401-stub registry.gitlab.com/spike/e7d:1
 docker stop harbor-core >/dev/null

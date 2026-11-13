@@ -39,28 +39,36 @@ start_dragonfly() {
     grep -v '^\s*#' "$dir/config/$t.yaml" | grep -v '^\s*$'
   done
   cp "$SPIKE_DIR/dragonfly-compose.yaml" "$dir/docker-compose.yaml"
-  ( cd "$dir" && docker compose up -d ) || { (cd "$dir" && docker compose ps -a); return 1; }
-  local i st=""
-  for i in $(seq 1 120); do
-    st=$(docker inspect -f '{{.State.Health.Status}}' client 2>/dev/null || true)
-    [ "$st" = "healthy" ] && break
-    sleep 2
+  # Start in stages, each one healthy before the next (run 1: the manager
+  # exited on a database still initialising and compose gave up on the rest).
+  local svc ok=0
+  ( cd "$dir" && docker compose up -d --no-deps redis mysql ) || ok=1
+  wait_healthy dragonfly-mysql 180 || ok=1
+  wait_healthy dragonfly-redis 60 || ok=1
+  for svc in manager scheduler seed-client client; do
+    ( cd "$dir" && docker compose up -d --no-deps "$svc" ) || ok=1
+    wait_healthy "$svc" 240 || { ok=1; docker logs "$svc" 2>&1 | tail -40; }
   done
   ( cd "$dir" && docker compose ps -a )
-  log "dfdaemon (client) health: $st"
-  docker logs client 2>&1 | tail -15
-  [ "$st" = "healthy" ]
+  for svc in manager scheduler seed-client client; do
+    log "last log lines of $svc:"
+    docker logs "$svc" 2>&1 | tail -8
+  done
+  return $ok
 }
 
-wait_client() {
-  local i
-  for i in $(seq 1 90); do
-    [ "$(docker inspect -f '{{.State.Health.Status}}' client 2>/dev/null)" = "healthy" ] && { log "dfdaemon healthy"; return 0; }
+wait_healthy() { # container max-seconds
+  local i st=""
+  for i in $(seq 1 "$(( ${2:-120} / 2 ))"); do
+    st=$(docker inspect -f '{{.State.Health.Status}}' "$1" 2>/dev/null || true)
+    if [ "$st" = "healthy" ]; then log "$1 healthy"; return 0; fi
     sleep 2
   done
-  log "dfdaemon NOT healthy"
+  log "$1 NOT healthy (state: $(docker inspect -f '{{.State.Status}} restarts={{.RestartCount}} health={{.State.Health.Status}}' "$1" 2>/dev/null))"
   return 1
 }
+
+wait_client() { wait_healthy client 180; }
 
 # Tell the proxy its upstream with the header dfdaemon reads before the `ns`
 # query parameter that containerd adds. k3s's registries.yaml has no field

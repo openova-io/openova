@@ -126,6 +126,8 @@ for w, ips in watched_ips.items():
         syn_to_watched[w] = n
 
 next_host = [line for line in ctrd if "trying next host" in line]
+# The node-local proxy (Dragonfly job): containerd could not even connect to it.
+proxy_refused = sum(1 for line in next_host if "127.0.0.1:4001" in line and "dial tcp" in line)
 errors = [line for line in ctrd if "level=error" in line or "level=warning" in line]
 
 report = {
@@ -143,6 +145,7 @@ report = {
     "stub": ["%s %s %d" % (r["method"], r["path"], r["status"]) for r in stub],
     "dragonfly_log_lines": len(client_lines),
     "containerd_next_host": len(next_host),
+    "proxy_refused": proxy_refused,
     "watched_lookups": {k: v for k, v in watched_queries.items() if v},
     "syn_to_watched": syn_to_watched,
     "public_syn_destinations": public_syns,

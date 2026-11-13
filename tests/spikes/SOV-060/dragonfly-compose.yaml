@@ -27,8 +27,10 @@ services:
       - MARIADB_PASSWORD=dragonfly
       - MARIADB_DATABASE=manager
       - MARIADB_ALLOW_EMPTY_ROOT_PASSWORD=yes
+    # Over TCP: the socket answers during first-time initialisation, before
+    # the server the manager connects to is listening (run 1 failed on this).
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h localhost"]
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 --protocol=tcp -udragonfly -pdragonfly --silent"]
       interval: 1s
       timeout: 2s
       retries: 60
