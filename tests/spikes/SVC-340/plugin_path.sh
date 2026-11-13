@@ -334,4 +334,44 @@ for _ in $(seq 1 15); do [ "$(link2)" = master_link_status:up ] && break; sleep 
 rec valkey-replication-dedicated-admin link_up_after_root_rotate_and_replica_restart \
   "$([ "$(link2)" = master_link_status:up ] && echo yes || echo no)" "$(link2)"
 
+# Targets 11-13: restart controls. Run 2 showed OpenBao unable to issue after
+# a cache restart that followed a root rotation. A restart WITHOUT a root
+# rotation separates "the plug-in does not reconnect" from "the cache forgot
+# the rotated password"; the newest OpenBao shows whether a later release
+# behaves differently.
+restart_probe() { # LABEL ROTATE(yes|no)
+  local T=$1 ROT=$2 C="rp-${1//./-}" o rc a
+  echo "== target $T"
+  docker run -d --name "$C" --network "$NET" "$UPSTREAM_VALKEY_IMAGE" \
+    valkey-server --requirepass "$PW" >/dev/null
+  wait_up "$C"
+  rec "$T" openbao "-" "$(bao version 2>&1 | head -1)"
+  bao write "database/config/$T" plugin_name="$PLUGIN" host="$C" port=6379 \
+    username=default password="$PW" allowed_roles='*' >/dev/null 2>&1
+  bao write "database/roles/$T-dyn" db_name="$T" \
+    'creation_statements=["~spike:*","+@read","+@write","+@connection"]' default_ttl=10m >/dev/null 2>&1
+  cred "$T-dyn"; rc=$?
+  rec "$T" dyn_issued_before_restart "$(yn $rc)" "$LAST"
+  if [ "$ROT" = yes ]; then
+    o=$(bao write -f "database/rotate-root/$T" 2>&1); rc=$?
+    rec "$T" root_rotate_accepted "$(yn $rc)" "$o"
+  fi
+  docker restart "$C" >/dev/null; wait_up "$C"
+  for a in 1 2 3; do
+    cred "$T-dyn"; rc=$?
+    rec "$T" "after_restart_issue_attempt_$a" "$(yn $rc)" "$LAST"
+    [ $rc -eq 0 ] && break
+    sleep 5
+  done
+}
+restart_probe restart-control-bao-$SCEN_TAG no
+LATEST=$(printf '%s\n' $BAO_PROBE_TAGS | tail -1)
+if start_bao "$LATEST" bao-latest; then
+  bao secrets enable database >/dev/null
+  restart_probe "restart-control-bao-$LATEST" no
+  restart_probe "restart-rotated-bao-$LATEST" yes
+else
+  rec "openbao-$LATEST" dev_server_up no "$(docker logs bao-latest 2>&1 | tail -3)"
+fi
+
 echo "== done"
