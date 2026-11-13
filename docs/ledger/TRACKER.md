@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T15:15:06Z` |
+| Last refreshed | `2026-11-13T15:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,8 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T15:24 | [#7465](https://github.com/openova-io/openova/pull/7465) | #7087 | docs(ledger): plan update |
 | 2026-11-13T15:03 | [#7463](https://github.com/openova-io/openova/pull/7463) | #7462 | feat(contracts): publish contract C9, the mutating-route tab |
 | 2026-11-13T14:51 | [#7460](https://github.com/openova-io/openova/pull/7460) | #7087 | docs(ledger): plan update |
+| 2026-11-13T15:26 | [#7459](https://github.com/openova-io/openova/pull/7459) | #7446 | refactor(api): the mesh port and the topology front door sto |
 | 2026-11-13T14:24 | [#7458](https://github.com/openova-io/openova/pull/7458) | #7454 | ci: the release writer never moves a version back, and the u |
 | 2026-11-13T14:26 | [#7456](https://github.com/openova-io/openova/pull/7456) | #7437 | refactor: delete the ProvisioningState kind and its unwired  |
 | 2026-11-13T14:26 | [#7455](https://github.com/openova-io/openova/pull/7455) | #7449 | refactor(kit): neutral storage gate storage-ready replaces t |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-13T11:25 | [#7414](https://github.com/openova-io/openova/pull/7414) | #7087 | docs(ledger): result of the lab test PRD-070 (PRD-070) |
 | 2026-11-13T11:25 | [#7413](https://github.com/openova-io/openova/pull/7413) | #7087 | docs(ledger): result of the lab test ACC-030 (ACC-030) |
 | 2026-11-13T11:24 | [#7412](https://github.com/openova-io/openova/pull/7412) | #7087 | docs(ledger): result of the lab test CMP-S4 (CMP-S4) |
-| 2026-11-13T11:25 | [#7411](https://github.com/openova-io/openova/pull/7411) | #7087 | docs(ledger): result of the lab test CMP-S3 (CMP-S3) |
-| 2026-11-13T11:25 | [#7410](https://github.com/openova-io/openova/pull/7410) | #7087 | docs(ledger): result of the lab test AIP-020 (AIP-020) |
 
 ---
 
