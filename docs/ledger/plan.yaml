@@ -3024,6 +3024,7 @@ packages:
   - products/catalyst/bootstrap/api/internal/handler/continuum_dr_preflight02_callsite_6156_test.go
   - docs/ledger/deleted-paths.txt
   - scripts/baselines/api-structure.json
+  - scripts/baselines/polling.json
   resources: []
   flips: []
   implements: []
@@ -3046,6 +3047,8 @@ packages:
     run: "! grep -r -q -w -E 'HandleDRRunbookPlayback|HandleDRRunbookPreflight|classifyPreflight|continuumRTOSeconds|continuumStandbyForPairs|drCNPGPairGVR|drPDMGVR|drRunbookPlaybackRequest|drRunbookPlaybackResponse|drRunbookPlaybackStep|drRunbookPreflightCheck|drRunbookPreflightResponse|newDRPreflightMatrix|numericNestedFound|preflightCNPGPairStreaming|preflightContinuumReady|preflightFail|preflightPass|preflightQuorumWitnesses|preflightSkipped|preflightWALLagUnderRTO|preflightWarn|runDRPreflight' --include='*.go' products/catalyst/bootstrap/api"
   - id: A7
     run: "python3 scripts/check-api-structure.py"
+  - id: A8
+    run: "python3 scripts/check-no-new-polling.py"
   rollback: revert
   adr: null
   due: null
@@ -7768,7 +7771,7 @@ packages:
   size: M
   lane: GATE
   depends_on: [SOV-820]
-  after: [SVC-060]
+  after: []
   touches:
   - docs/RUNBOOKS.md
   resources: []
@@ -7794,7 +7797,7 @@ packages:
   size: S
   lane: GATE
   depends_on: [SOV-920]
-  after: [SVC-060]
+  after: []
   touches:
   - docs/RUNBOOKS.md
   resources: []
@@ -11008,7 +11011,7 @@ packages:
   size: S
   lane: RAILS
   depends_on: []
-  after: []
+  after: [SVC-060]
   touches:
   - scripts/check-network-guards.py
   - scripts/network-guards-baseline.tsv
@@ -11101,9 +11104,9 @@ packages:
   - id: A2
     run: "python3 scripts/check-vpc-cidr-no-pod-overlap.py --self-test && out=\"$(python3 scripts/check-vpc-cidr-no-pod-overlap.py)\" && grep -q -x -F 'OK: no node-VPC octet can land on the pod/service overlay for any hash byte, N=1..6' <<<\"$out\""
   - id: A3
-    run: "printf '%s  %s\\n' 6edfb07cb9c63dfcfa1a49d09616702c70a792b6bc85b7819c16eb9420aa0816 scripts/check-network-registry.py c6781b8b1383000452d0e5f6c4e7b3a425d1168f11abf55c4af9b16780e9d4dd scripts/check-vpc-cidr-no-pod-overlap.py 9a8b9918dbb7057a871ec27698c7ffdebda832196a266e1beb6a607617f4ea9d scripts/tests/check-network-registry/valid-one-region.json 96fd1e8b331634bfe45e59ae0730127f8f2d3b30de86e9e636769f91a5ca81c6 scripts/tests/check-network-registry/valid-three-regions.json 226c1dea6805b36610b61de5711020a45e2507465c39052b59b2735cf33fdff4 scripts/tests/check-network-registry/valid-two-regions.json 4c81b150b139445d9d8087c53c22b1f63422888a0027c478c0f1d32bb70b3c45 scripts/tests/check-network-registry/invalid/document-shape.json 216ac632b9a7683a332bb617e285555cf76c1c8275cf4d14ad0dfc03bc373d42 scripts/tests/check-network-registry/invalid/mesh-endpoint-when-multi-region.json d7a76804b8225f61987daaf31dba5f612da5b57b0439992dab55199ae92e0022 scripts/tests/check-network-registry/invalid/no-any-source.json 3de612850ac77576234fb6bde45d8506d82bf066298d8e33c7f0b43a82977bd5 scripts/tests/check-network-registry/invalid/supernet-covers-pods.json d13e1c6f6860f3cbc8179abf6383642881c2f713a5db3ba7521e526f21e5f116 scripts/tests/check-network-registry/invalid/supernet-excludes-nodes-and-services.json 0dba713b11c6e26580f8075046671001a8db230ca1b98588ef2b75fe46abb625 scripts/tests/check-network-registry/invalid/unique-cluster-id.json 60407cd28b49cb161da3b1c4157f7682e48fe215fceace6a16f0d9a441e9d657 scripts/tests/check-network-registry/invalid/unique-cluster-name.json 34f91f311102d121a54e12ce1eb81280b555934997e835753c5019418eb291cd scripts/tests/check-network-registry/invalid/unique-ranges.json | sha256sum --check --quiet -"
+    run: "printf '%s  %s\\n' 0344e2cb7806d8404e16059e90794533bc8ca6ba2880b61f475e96773de28c31 scripts/check-network-registry.py c6781b8b1383000452d0e5f6c4e7b3a425d1168f11abf55c4af9b16780e9d4dd scripts/check-vpc-cidr-no-pod-overlap.py f9e94f2fd465ed0d23e7949fd0638a8b8ea8070b7ee5385f7c4245e486686006 scripts/tests/check-network-registry/valid-one-region.json fc07c617526bd11572785bc74362e2702826d2c972b7d4a06bc63111d5baee05 scripts/tests/check-network-registry/valid-three-regions.json 750be79aacde623d0f0138ad628aa0677917073eac22ae27516258701bbe843a scripts/tests/check-network-registry/valid-two-regions.json f1d9ee53f82d13ebd77c3e373b58cc3dbf35fbe0b56c0baaabdcc417284c7ac3 scripts/tests/check-network-registry/invalid/document-shape.json c6c641cd28ee5df6aa7ffd6909b4dc3e7e0925baace5648f0937d38acd88291f scripts/tests/check-network-registry/invalid/mesh-endpoint-when-multi-region.json 38e91ac3f10ff3e7e40aecab9fe8b3d90f59dc922e6461fa1df39680d3bad74f scripts/tests/check-network-registry/invalid/no-any-source.json bb10254191b037ec5ee5cb3dda76d0164d8e6e51933d24bf3698a512e1f31f4e scripts/tests/check-network-registry/invalid/supernet-covers-pods.json c248779daed487cdf0545073a25eb7af04972e156f7709fed328321d187ecfd1 scripts/tests/check-network-registry/invalid/supernet-excludes-nodes-and-services.json 2a665d4a4509582cc338532250f7143c66ec9e368a4a2375d1a2597d54bda55d scripts/tests/check-network-registry/invalid/unique-cluster-id.json 8d9ac3b61a11629449d6ae814e4174392115f33b4bb32a4b22e174e30eb47063 scripts/tests/check-network-registry/invalid/unique-cluster-name.json f1d2ad64f257148c48cca350af502b6b5be415258349c9991a20e1ea07cac84c scripts/tests/check-network-registry/invalid/unique-ranges.json | sha256sum --check --quiet -"
   - id: A4
-    run: "t=\"$(mktemp)\" && python3 -c \"import json; print(json.dumps(json.dumps(json.load(open('scripts/tests/check-network-registry/valid-two-regions.json')))))\" > \"$t\" && python3 scripts/check-network-registry.py \"$t\" && python3 -c \"import json; d = json.load(open('scripts/tests/check-network-registry/valid-two-regions.json')); d['controlPlaneAccess']['operatorCIDRs'] = ['0.0.0.0/0']; print(json.dumps(json.dumps(d)))\" > \"$t\" && ! python3 scripts/check-network-registry.py \"$t\""
+    run: "t=\"$(mktemp)\" && python3 -c \"import json; print(json.dumps(json.dumps(json.load(open('scripts/tests/check-network-registry/valid-two-regions.json')))))\" > \"$t\" && python3 scripts/check-network-registry.py \"$t\" && python3 -c \"import json; d = json.load(open('scripts/tests/check-network-registry/valid-two-regions.json')); d['controlPlaneAccess']['adminCIDRs'] = ['0.0.0.0/0']; print(json.dumps(json.dumps(d)))\" > \"$t\" && ! python3 scripts/check-network-registry.py \"$t\""
   - id: A5
     run: "test \"$(grep -c '^output \"network_registry\" {$' infra/providers/huawei/outputs.tf)\" = 1 && test \"$(grep -c '^output \"network_registry\" {$' infra/providers/hetzner/outputs.tf)\" = 1 && grep -q -x -F '  value       = jsonencode(local.network_registry)' infra/providers/huawei/outputs.tf && grep -q -x -F '  value       = jsonencode(local.network_registry)' infra/providers/hetzner/outputs.tf && grep -q -x -F '    condition     = length(var.regions) <= 6' infra/providers/huawei/variables.tf && grep -q -x -F '  pod_supernet = length(var.regions) <= 2 ? \"10.42.0.0/15\" : \"10.40.0.0/13\"' infra/providers/huawei/main.tf && grep -q -x -F '  cidr_base = local.cidr_base_raw + (length(var.regions) <= 2 || contains(local.cidr_base_free_shifts, local.cidr_base_old_shift) ? local.cidr_base_old_shift : local.cidr_base_free_shifts[0])' infra/providers/huawei/main.tf && test \"$(git diff \"$(git merge-base origin/main HEAD)\" -- infra/providers/huawei infra/providers/hetzner | grep -c -E '^[-+](resource|data|module|moved|variable|output) ')\" = 2"
   - id: A6
@@ -16023,7 +16026,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-020]
-  after: [FND-011]
+  after: [FND-011, FND-171]
   touches:
   - core/controllers/organization/internal/controller/organization_controller.go
   - core/controllers/environment/internal/controller/environment_controller.go
