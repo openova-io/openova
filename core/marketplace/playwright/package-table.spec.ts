@@ -14,7 +14,10 @@
 //                     catalog twins hidden, ticking writes the BSS SKU
 //   /review         — the add-on line shows as any add-on; a plan change prunes
 //   /checkout       — the add-on line, the total, and both POST bodies
-//   fallback        — 503 / no host: every step exactly as today
+//   fallback        — 404 / no host (nothing published): every step exactly
+//                     as today; 503 / a failed request (prices unavailable):
+//                     /plans says so with no plan cards and no way on, the
+//                     later steps exactly as today
 //
 // READ-ONLY against clusters: no kubectl, no chart bumps, no Pod ops.
 
@@ -260,13 +263,14 @@ test.describe('step 1: package comparison table (/plans, #6971)', () => {
     expect(cart.addons).toEqual([])
   })
 
-  test('falls back to the legacy plan deck, unchanged, and logs once when the endpoint fails', async ({ page }) => {
+  test('falls back to the legacy plan deck, unchanged, and logs once when nothing is published (404)', async ({ page }) => {
     const warnings: string[] = []
     page.on('console', (m) => {
       if (m.type() === 'warning' && m.text().includes('[packages]')) warnings.push(m.text())
     })
     await pointAtChargeback(page)
-    await mockPackages(page, 503, { error: 'down' })
+    // What the engine answers until its plans book exists.
+    await mockPackages(page, 404, { error: 'no packages are published yet' })
     await page.goto('/plans')
 
     await expect(page.locator('.pcard')).toHaveCount(4, { timeout: 10_000 })
@@ -280,8 +284,26 @@ test.describe('step 1: package comparison table (/plans, #6971)', () => {
     await expect(page.locator('.pd-g-row', { hasText: 'Response SLA' })).toHaveCount(0)
     await expect(page.getByTestId('package-table')).toHaveCount(0)
     expect(warnings, 'one warning, not zero and not one per retry').toHaveLength(1)
-    expect(warnings[0]).toMatch(/answered 503/)
+    expect(warnings[0]).toMatch(/answered 404/)
   })
+
+  for (const [label, answer] of [
+    ['answers 503', (page: Page) => mockPackages(page, 503, { error: 'down' })],
+    ['request fails at the network layer', (page: Page) => page.route(PACKAGES_URL, (route) => route.abort('failed'))],
+  ] as const) {
+    test(`says prices are unavailable, with no plan cards and the continue control disabled, when the price list ${label}`, async ({ page }) => {
+      await pointAtChargeback(page)
+      await answer(page)
+      await page.goto('/plans')
+      const notice = page.getByTestId('packages-unavailable')
+      await expect(notice).toBeVisible({ timeout: 10_000 })
+      await expect(notice).toContainText('Prices are unavailable. Please try again shortly.')
+      await expect(page.locator('.pcard')).toHaveCount(0)
+      await expect(page.getByTestId('package-table')).toHaveCount(0)
+      await expect(page.getByTestId('package-ladder')).toHaveCount(0)
+      await expect(page.getByTestId('packages-unavailable-continue')).toBeDisabled()
+    })
+  }
 
   test('with no chargeback host at all (dev localhost) the legacy deck renders', async ({ page }) => {
     // No init script: localhost has no marketplace. prefix and no override.
@@ -291,7 +313,7 @@ test.describe('step 1: package comparison table (/plans, #6971)', () => {
   })
 
   // Regression for the live hw307 shape after PR #6972: the endpoint did not
-  // exist, the browser reported the request as failed, the deck rendered — as
+  // exist and the deck rendered — as
   // a bare vertical list, because PlanStep's stylesheet was missing from the
   // PRODUCTION bundle (the component had been tree-shaken out of the server
   // render, and Vite keeps a component's scoped CSS only while the component
@@ -301,9 +323,10 @@ test.describe('step 1: package comparison table (/plans, #6971)', () => {
   // server, which injects every stylesheet regardless.
   test('fallback deck keeps its stylesheet in the production build — laid out as a row of cards, not a bare list', async ({ page }, testInfo) => {
     await pointAtChargeback(page)
-    // What the live browser does on a Sovereign without the endpoint: the
-    // request fails at the network layer and fetch rejects ("Failed to fetch").
-    await page.route(PACKAGES_URL, (route) => route.abort('failed'))
+    // Nothing published: the engine answers 404 until its plans book exists,
+    // and the deck is the step. (A request that fails at the network layer is
+    // "prices unavailable", which shows no deck: see the test above.)
+    await mockPackages(page, 404, { error: 'no packages are published yet' })
     const response = await page.goto('/plans')
 
     // The deck is the server-rendered first paint, not a client-side swap-in:

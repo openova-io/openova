@@ -159,8 +159,10 @@ describe('isCutoverStepID — guards forward-compat', () => {
   it('accepts every canonical id', () => {
     for (const s of CUTOVER_STEPS) expect(isCutoverStepID(s.id)).toBe(true)
   })
-  it('rejects unknown ids (a future api adding step 9 must NOT crash a stale UI)', () => {
-    expect(isCutoverStepID('chaos-monkey')).toBe(false)
+  it('accepts an unknown name of the step-name pattern and rejects any other string', () => {
+    expect(isCutoverStepID('chaos-monkey')).toBe(true)
+    expect(isCutoverStepID('Chaos_Monkey')).toBe(false)
+    expect(isCutoverStepID('a'.repeat(41))).toBe(false)
     expect(isCutoverStepID('')).toBe(false)
     expect(isCutoverStepID(null)).toBe(false)
     expect(isCutoverStepID(123)).toBe(false)

@@ -5,8 +5,10 @@
 //
 //   1. step 1 — the render model shows the THREE states and the "Included from
 //      XL" hint, and the recommended column follows ?recommended=;
-//   2. the chargeback URL and the fallback: a failed / non-2xx / empty fetch
-//      resolves to null and logs exactly ONCE per page;
+//   2. the chargeback URL and the loader's three results: `ok`; `none` for no
+//      host, a 404 or a document with no package; `unavailable` for a failed
+//      request, another non-2xx status or a body that is not the contract —
+//      each logged exactly ONCE per page;
 //   3. step 1 → cart: choosing a package writes the catalog plan id (what the
 //      legacy deck wrote) plus the package sku;
 //   4. step 3 — the chosen package's optional features ARE the add-ons (M lists
@@ -16,8 +18,8 @@
 //
 // Plus a markup contract in the redeemMarkupContract.test.ts shape: /plans
 // mounts PackageTable, PackageTable falls back to PlanStep and holds no
-// checkbox, AddonsStep consumes the document — asserted against the files on
-// disk rather than a reconstruction.
+// checkbox, says when prices are unavailable, AddonsStep consumes the
+// document — asserted against the files on disk rather than a reconstruction.
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -27,6 +29,7 @@ import {
   buildPackageTable,
   CATALOG_ADDON_TWINS,
   catalogPlanIdForPackage,
+  documentOf,
   funnelAddonsFor,
   includesLines,
   loadPublicPackages,
@@ -79,7 +82,6 @@ const CATALOG_PLANS = [
 /** The catalog's add-ons as api.ts::getAddons shapes them (baisa prices). */
 const CATALOG_ADDONS: AddOn[] = [
   { id: 'a-backup', slug: 'daily-backup', name: 'Daily Backup', tagline: 'Automated daily backups', icon: '', monthly_price: 3000, included: false },
-  { id: 'a-waf', slug: 'waf', name: 'Web Application Firewall', tagline: 'Coraza WAF', icon: '', monthly_price: 4000, included: false },
   { id: 'a-ips', slug: 'ips', name: 'Intrusion Prevention', tagline: 'CrowdSec', icon: '', monthly_price: 3000, included: false },
   { id: 'a-domain', slug: 'custom-domain', name: 'Custom Domain', tagline: 'Your domain', icon: '', monthly_price: 2000, included: false },
   { id: 'a-ip', slug: 'dedicated-ip', name: 'Dedicated IP', tagline: 'A public IPv4', icon: '', monthly_price: 2500, included: false },
@@ -245,48 +247,12 @@ describe('the chargeback base URL', () => {
   });
 });
 
-describe('the fallback: no document → every step behaves as today', () => {
+describe('the loader: ok, none (nothing published) or unavailable (could not be read)', () => {
   beforeEach(() => resetPackagesLogOnce());
 
-  it('resolves null and logs once when the request rejects', async () => {
-    const warn = vi.fn();
-    const fetchImpl = vi.fn(async () => { throw new TypeError('Failed to fetch'); }) as unknown as typeof fetch;
-    const base = 'https://chargeback.t99.omani.works';
-    expect(await loadPublicPackages(base, { fetchImpl, warn })).toBeNull();
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect((fetchImpl as any).mock.calls[0][0]).toBe(`${base}${PUBLIC_PACKAGES_PATH}`);
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0][0]).toMatch(/\[packages\].*unreachable/);
-    // A second failure on the same page does not log again.
-    expect(await loadPublicPackages(base, { fetchImpl, warn })).toBeNull();
-    expect(warn).toHaveBeenCalledTimes(1);
-  });
+  const base = 'https://chargeback.t99.omani.works';
 
-  it('resolves null and logs once on a non-2xx status', async () => {
-    const warn = vi.fn();
-    const fetchImpl = vi.fn(async () => response(503, { error: 'down' })) as unknown as typeof fetch;
-    expect(await loadPublicPackages('https://chargeback.t99.omani.works', { fetchImpl, warn })).toBeNull();
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0][0]).toMatch(/answered 503/);
-  });
-
-  it('resolves null and logs once when the body publishes no packages', async () => {
-    const warn = vi.fn();
-    const fetchImpl = vi.fn(async () => response(200, { currency: 'OMR', packages: [], features: [] })) as unknown as typeof fetch;
-    expect(await loadPublicPackages('https://chargeback.t99.omani.works', { fetchImpl, warn })).toBeNull();
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0][0]).toMatch(/published no packages/);
-  });
-
-  it('resolves null and logs once when there is no chargeback host at all, without fetching', async () => {
-    const warn = vi.fn();
-    const fetchImpl = vi.fn() as unknown as typeof fetch;
-    expect(await loadPublicPackages(null, { fetchImpl, warn })).toBeNull();
-    expect(fetchImpl).not.toHaveBeenCalled();
-    expect(warn).toHaveBeenCalledTimes(1);
-  });
-
-  it('CONTROL: a healthy response parses and logs nothing', async () => {
+  it('200 with packages: ok, the document parsed, nothing logged', async () => {
     const warn = vi.fn();
     const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
       // Public + CORS: a simple GET with no credentials.
@@ -294,16 +260,88 @@ describe('the fallback: no document → every step behaves as today', () => {
       expect(init.mode).toBe('cors');
       return response(200, fixture());
     }) as unknown as typeof fetch;
-    const data = await loadPublicPackages('https://chargeback.t99.omani.works', { fetchImpl, warn });
-    expect(data?.packages.map(p => p.sku)).toEqual(['plan.s', 'plan.m', 'plan.l', 'plan.xl']);
+    const r = await loadPublicPackages(base, { fetchImpl, warn });
+    expect(r.state).toBe('ok');
+    expect(documentOf(r)?.packages.map(p => p.sku)).toEqual(['plan.s', 'plan.m', 'plan.l', 'plan.xl']);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect((fetchImpl as any).mock.calls[0][0]).toBe(`${base}${PUBLIC_PACKAGES_PATH}`);
     expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('200 without packages: none, logged once', async () => {
+    const warn = vi.fn();
+    const fetchImpl = vi.fn(async () => response(200, { currency: 'OMR', packages: [], features: [] })) as unknown as typeof fetch;
+    expect(await loadPublicPackages(base, { fetchImpl, warn })).toEqual({ state: 'none' });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toMatch(/published no packages/);
+  });
+
+  it('404 (the engine before its plans book exists): none, logged once', async () => {
+    const warn = vi.fn();
+    const fetchImpl = vi.fn(async () => response(404, { error: 'no packages are published yet' })) as unknown as typeof fetch;
+    expect(await loadPublicPackages(base, { fetchImpl, warn })).toEqual({ state: 'none' });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toMatch(/answered 404/);
+  });
+
+  it('500: unavailable, logged once', async () => {
+    const warn = vi.fn();
+    const fetchImpl = vi.fn(async () => response(500, { error: 'down' })) as unknown as typeof fetch;
+    expect(await loadPublicPackages(base, { fetchImpl, warn })).toEqual({ state: 'unavailable' });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toMatch(/answered 500/);
+  });
+
+  it('network error: unavailable, logged once per page, and asked again on the next call (nothing cached)', async () => {
+    const warn = vi.fn();
+    const fetchImpl = vi.fn(async () => { throw new TypeError('Failed to fetch'); }) as unknown as typeof fetch;
+    expect(await loadPublicPackages(base, { fetchImpl, warn })).toEqual({ state: 'unavailable' });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toMatch(/\[packages\].*unreachable/);
+    // A second failure on the same page fetches again and does not log again.
+    expect(await loadPublicPackages(base, { fetchImpl, warn })).toEqual({ state: 'unavailable' });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('a 200 body that is not the contract: unavailable', async () => {
+    const warn = vi.fn();
+    const fetchImpl = vi.fn(async () => response(200, { error: 'not a document' })) as unknown as typeof fetch;
+    expect(await loadPublicPackages(base, { fetchImpl, warn })).toEqual({ state: 'unavailable' });
+    expect(warn.mock.calls[0][0]).toMatch(/not the packages document/);
+    resetPackagesLogOnce();
+    const notJSON = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => { throw new SyntaxError('Unexpected token <'); },
+    }) as unknown as Response) as unknown as typeof fetch;
+    expect(await loadPublicPackages(base, { fetchImpl: notJSON, warn })).toEqual({ state: 'unavailable' });
+  });
+
+  it('no chargeback host at all: none, logged once, without fetching', async () => {
+    const warn = vi.fn();
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
+    expect(await loadPublicPackages(null, { fetchImpl, warn })).toEqual({ state: 'none' });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('documentOf: the document for ok, null for none and unavailable', () => {
+    const doc = parsed();
+    expect(documentOf({ state: 'ok', packages: doc })).toBe(doc);
+    expect(documentOf({ state: 'none' })).toBeNull();
+    expect(documentOf({ state: 'unavailable' })).toBeNull();
+  });
+
+  it('the plan step text is the one the contract names', () => {
+    expect(PACKAGE_STRINGS.pricesUnavailable).toBe('Prices are unavailable. Please try again shortly.');
   });
 
   it('with no document the add-ons step keeps the catalog list untouched (no twin filtering, no included group)', () => {
     // There is no document to call funnelAddonsFor with — the steps branch on
     // `doc && pkg` and hand the catalog list straight through. This pins the
     // shape they hand through: the catalog's own ids and prices.
-    expect(CATALOG_ADDONS.map(a => a.id)).toEqual(['a-backup', 'a-waf', 'a-ips', 'a-domain', 'a-ip', 'a-logs']);
+    expect(CATALOG_ADDONS.map(a => a.id)).toEqual(['a-backup', 'a-ips', 'a-domain', 'a-ip', 'a-logs']);
   });
 });
 
@@ -490,6 +528,27 @@ describe('wizard markup contract', () => {
     // No add-on selection on step 1: no checkbox, no toggle.
     expect(table).not.toMatch(/type="checkbox"/);
     expect(table).not.toMatch(/toggleAddon|addonPicksFor|packageAddons/);
+  });
+
+  it('PackageTable: on unavailable the message, no deck and a disabled continue; on none the deck', () => {
+    // `none` returns before anything changes, so the deck (the server render) stays.
+    expect(table).toMatch(/if \(result\.state === 'none'\) return;/);
+    expect(table).toMatch(/if \(result\.state === 'unavailable'\) \{\s*unavailable = true;\s*return;/);
+    // The unavailable branch comes first and holds the text and a disabled
+    // control, and no PlanStep, table or ladder.
+    const branch = table.match(/\{#if unavailable\}([\s\S]*?)\{:else if/);
+    expect(branch).not.toBeNull();
+    expect(branch![1]).toMatch(/\{S\.pricesUnavailable\}/);
+    expect(branch![1]).toMatch(/<button[^>]*data-testid="packages-unavailable-continue"[^>]*\sdisabled[\s>]/);
+    expect(branch![1]).not.toMatch(/PlanStep|PackageLadder|package-table|<a /);
+  });
+
+  it('the other steps read the result through documentOf: none and unavailable are "no document", as before', () => {
+    const bcp = readFileSync(join(ROOT, 'src', 'components', 'BCPStep.svelte'), 'utf8');
+    for (const [name, src] of [['AddonsStep', addonsStep], ['BCPStep', bcp], ['ReviewStep', review]] as const) {
+      expect(src, name).toMatch(/loadPublicPackages\(chargebackBaseURL\(\)\)\.then\(documentOf\)/);
+      expect(src.match(/loadPublicPackages\(/g), name).toHaveLength(1);
+    }
   });
 
   it('the Add-ons step consumes the document; Review resolves ids through the same list; Checkout and both totals take the server quote', () => {

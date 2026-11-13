@@ -14,6 +14,7 @@
     growUpgradeHint,
     isLadderDocument,
     isPackageCeiling,
+    documentOf,
     loadPublicPackages,
     minorUnits,
     normalizeSpendLimit,
@@ -123,7 +124,6 @@
   // page that is not in the price book.
   const FALLBACK_ADDONS: AddOn[] = [
     { id: 'daily-backup', name: 'Daily Backup', slug: 'daily-backup', tagline: 'Scheduled backups of your sites and databases', icon: '🛡️', monthly_price: 0, included: false },
-    { id: 'waf', name: 'Web Application Firewall', slug: 'waf', tagline: 'Coraza WAF — OWASP CRS protection', icon: '🔥', monthly_price: 0, included: false },
     { id: 'ips', name: 'Intrusion Prevention', slug: 'ips', tagline: 'Community-powered threat intelligence — CrowdSec', icon: '🚨', monthly_price: 0, included: false },
     { id: 'vuln-scan', name: 'Vulnerability Scanner', slug: 'vuln-scan', tagline: 'Scheduled CVE scans + remediation reports', icon: '🔍', monthly_price: 0, included: false },
     { id: 'custom-domain', name: 'Custom Domain', slug: 'custom-domain', tagline: 'Your brand, your domain — with automatic TLS', icon: '🌐', monthly_price: 0, included: false },
@@ -139,7 +139,7 @@
   $effect(() => {
     Promise.all([
       getAddons().catch(() => FALLBACK_ADDONS),
-      loadPublicPackages(chargebackBaseURL()),
+      loadPublicPackages(chargebackBaseURL()).then(documentOf),
       getPlans().catch(() => [] as Plan[]),
     ]).then(([catalog, d, pl]) => {
       catalogAddons = catalog;

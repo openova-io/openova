@@ -10,6 +10,7 @@
     funnelAddonsFor,
     growModelFor,
     growSelectionFor,
+    documentOf,
     loadPublicPackages,
     packageCapacity,
     packageForCart,
@@ -265,7 +266,7 @@
   }
 
   $effect(() => {
-    Promise.all([getPlans(), getApps(), getAddons(), loadPublicPackages(chargebackBaseURL())])
+    Promise.all([getPlans(), getApps(), getAddons(), loadPublicPackages(chargebackBaseURL()).then(documentOf)])
       .then(([p, a, ad, d]) => {
         plans = p;
         apps = a.filter(x => !x.system);

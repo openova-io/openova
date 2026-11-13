@@ -1,9 +1,9 @@
 /**
- * CutoverProgressCard — 8-step checklist for the in-flight + completed
+ * CutoverProgressCard — per-step checklist for the in-flight + completed
  * sovereignty cutover.
  *
- * Renders ALL 8 steps from CUTOVER_STEPS at all times so the operator
- * sees the complete chain on first paint, with rows transitioning
+ * Renders one row per step of the status response (`cutoverStepRows`),
+ * in the order the steps run, with rows transitioning
  * pending → running → done as the SSE stream emits updates. A failed
  * step renders red + halts visual progression of subsequent steps.
  *
@@ -14,14 +14,14 @@
  *   #1 (waterfall) — every visual affordance ships here on first cut:
  *      pending circle, running spinner, done check, failed alert,
  *      timestamps, sovereignty-achieved summary.
- *   #4 (never hardcode) — the step list comes from CUTOVER_STEPS, never
- *      inlined. Adding a step in shared/types/cutover.ts ripples here
- *      automatically.
+ *   #4 (never hardcode) — the step list comes from the status response;
+ *      an unknown step renders with its name as the title.
  */
 
 import { AlertCircle, Check, CircleDashed, Loader2 } from 'lucide-react'
 import {
-  CUTOVER_STEPS,
+  cutoverStepDef,
+  cutoverStepRows,
   type CutoverStatus,
   type CutoverStepDef,
   type CutoverStepStatus,
@@ -32,20 +32,6 @@ export interface CutoverProgressCardProps {
   status: CutoverStatus
   /** Stream-level error to surface above the rows; trumps per-step error. */
   streamError?: string | null
-}
-
-/**
- * Find the current per-step record for a given step id. Returns a
- * `pending` placeholder if no record has been emitted yet — the rows
- * render at all times, never disappear.
- */
-function recordFor(
-  status: CutoverStatus,
-  stepId: CutoverStepDef['id'],
-): CutoverStepStatusRecord {
-  const found = status.steps.find((s) => s.step === stepId)
-  if (found) return found
-  return { step: stepId, status: 'pending' }
 }
 
 const STEP_DOT_CLASSES: Record<CutoverStepStatus, string> = {
@@ -214,7 +200,10 @@ export function CutoverProgressCard({
   // Compute progress: count `done` steps for the % bar.
   const doneCount = status.steps.filter((s) => s.status === 'done').length
   const failed = status.steps.find((s) => s.status === 'failed') ?? null
-  const pct = Math.round((doneCount / CUTOVER_STEPS.length) * 100)
+  // Mid-cutover the response lists only the started steps; `totalSteps` counts all.
+  const rows = cutoverStepRows(status.steps)
+  const total = Math.max(rows.length, status.totalSteps ?? 0)
+  const pct = total === 0 ? 0 : Math.round((doneCount / total) * 100)
 
   return (
     <section
@@ -231,8 +220,8 @@ export function CutoverProgressCard({
             {failed
               ? 'Cutover halted on a failed step. Review the error and re-trigger after the underlying issue is fixed.'
               : status.state === 'sovereign'
-                ? `All ${CUTOVER_STEPS.length} steps completed.`
-                : `Step ${doneCount} of ${CUTOVER_STEPS.length} complete — the operator is not required to keep this tab open.`}
+                ? `All ${total} steps completed.`
+                : `Step ${doneCount} of ${total} complete — the operator is not required to keep this tab open.`}
           </p>
         </div>
         <span
@@ -295,8 +284,8 @@ export function CutoverProgressCard({
       ) : null}
 
       <ol className="flex flex-col gap-2">
-        {CUTOVER_STEPS.map((def) => (
-          <CutoverStepRow key={def.id} def={def} rec={recordFor(status, def.id)} />
+        {rows.map((rec) => (
+          <CutoverStepRow key={rec.step} def={cutoverStepDef(rec.step)} rec={rec} />
         ))}
       </ol>
 
