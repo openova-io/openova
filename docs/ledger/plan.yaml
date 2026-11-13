@@ -4,10 +4,10 @@ schema: openova.io/plan/v1
 lanes: [GATE, RAILS, SUBSTRATE, CONTROL, CHARTS, CONSOLE, CONTRACTS, SPIKE]
 resources: [env]
 limits:
-  executors: 3
-  open_prs: 8
-  in_progress_per_lane: 2
-  spikes: 2
+  executors: 12
+  open_prs: 40
+  in_progress_per_lane: 6
+  spikes: 40
 budgets:
   XS:
     files: 5
