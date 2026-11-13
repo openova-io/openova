@@ -68,7 +68,7 @@ GET /api/v1/sovereign/jobs handler.(*Handler).HandleSovereignJobs-fm 2
 GET /api/v1/sovereign/parent-domains handler.(*Handler).ListParentDomains-fm 2
 GET /api/v1/sovereign/parent-domains/{name}/propagation handler.(*Handler).GetPropagation-fm 2
 GET /api/v1/sovereign/rbac/matrix handler.(*Handler).HandleSovereignRBACMatrix-fm 2
-GET /api/v1/sovereign/self handler.(*Handler).HandleSovereignSelf-fm 1
+GET /api/v1/sovereign/self sovself.(*Route).Serve-fm 1
 GET /api/v1/sovereign/status handler.(*Handler).HandleSovereignStatus-fm 2
 GET /api/v1/sovereign/users handler.(*Handler).HandleSovereignUsers-fm 2
 GET /api/v1/sovereigns/{id}/applications handler.(*Handler).HandleApplicationList-fm 2
