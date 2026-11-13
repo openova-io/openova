@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T17:15:03Z` |
+| Last refreshed | `2026-11-13T17:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7151](https://github.com/openova-io/openova/issues/7151) | SVC-020 Service-model ratchet guard | Other |
 | [#7165](https://github.com/openova-io/openova/issues/7165) | CMP-016 An optional informer kind starts when its definition arrives | Other |
 | [#7166](https://github.com/openova-io/openova/issues/7166) | FND-034 Checks: NodePort, front doors, mesh, encryption, clean wipe; journeys as | Other |
 | [#7167](https://github.com/openova-io/openova/issues/7167) | FND-093 Remove the Sandbox surface of the API | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#7477](https://github.com/openova-io/openova/issues/7477) | CLD-086 local module and reduced kit | Other |
 | [#7478](https://github.com/openova-io/openova/issues/7478) | FND-013 Merge queue: aggregate check, queue triggers, rulesets and code owners a | Other |
 | [#7479](https://github.com/openova-io/openova/issues/7479) | FND-096 Remove the Sandbox sources | Other |
+| [#7484](https://github.com/openova-io/openova/issues/7484) | CLD-185 Hetzner control-plane cloud-init with the post-back on fits the module s | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T17:16 | [#7476](https://github.com/openova-io/openova/pull/7476) | #7087 | docs(ledger): plan update |
 | 2026-11-13T16:34 | [#7475](https://github.com/openova-io/openova/pull/7475) | #7473 | refactor(cloud-init): the boot template and the provider con |
 | 2026-11-13T16:22 | [#7474](https://github.com/openova-io/openova/pull/7474) | #7471 | feat(cloud-init): each peer region posts its own handover-pe |
 | 2026-11-13T16:13 | [#7472](https://github.com/openova-io/openova/pull/7472) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-13T12:21 | [#7427](https://github.com/openova-io/openova/pull/7427) | #7419 | refactor(api): move route registration out of main into one  |
 | 2026-11-13T12:17 | [#7426](https://github.com/openova-io/openova/pull/7426) | #7422 | fix(secrets): scope the OpenBao keys of External Secrets at  |
 | 2026-11-13T13:03 | [#7425](https://github.com/openova-io/openova/pull/7425) | #7423 | feat(sovereign): Harbor and Gitea create the registry projec |
-| 2026-11-13T12:17 | [#7424](https://github.com/openova-io/openova/pull/7424) | #7421 | chore(chart): remove the Runbook and SecretPolicy definition |
 
 ---
 
