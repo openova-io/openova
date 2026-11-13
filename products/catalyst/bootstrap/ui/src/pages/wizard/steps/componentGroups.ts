@@ -209,11 +209,10 @@ export const GROUPS: GroupDef[] = [
   },
   {
     id: 'spine', productName: 'SPINE', subtitle: 'Networking & Service Mesh',
-    description: 'CNI, service mesh, load balancing, WAF, and encrypted VPN connectivity',
+    description: 'CNI, service mesh, load balancing, and encrypted VPN connectivity',
     required: true,
     components: [
       { id: 'cilium',       name: 'Cilium',       desc: 'eBPF CNI and service mesh with kernel-level policy',       tier: 'mandatory',   dependencies: [] },
-      { id: 'coraza',       name: 'Coraza WAF',   desc: 'OWASP Core Rule Set L7 firewall on Envoy',                 tier: 'mandatory',   dependencies: [], logoUrl: basePath('component-logos/coraza.png') },
       // PowerDNS (#167) — authoritative DNS for every Sovereign zone, DNSSEC + lua-records.
       // Lua-records (ifurlup, pickclosest, ifportup) cover geo + health-checked failover
       // natively — see docs/MULTI-REGION-DNS.md for the failover patterns.
@@ -441,9 +440,9 @@ export const PRODUCTS: Product[] = [
     id: 'spine',
     name: 'SPINE',
     subtitle: 'Networking & Service Mesh',
-    description: 'CNI, service mesh, load balancing, WAF, and encrypted VPN connectivity',
+    description: 'CNI, service mesh, load balancing, and encrypted VPN connectivity',
     tier: 'mandatory',
-    components: ['cilium', 'coraza', 'powerdns', 'external-dns', 'netbird'],
+    components: ['cilium', 'powerdns', 'external-dns', 'netbird'],
     cascadeOnMemberSelection: false,
     familyDependencies: [],
   },

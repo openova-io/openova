@@ -82,7 +82,6 @@ const CATALOG_PLANS = [
 /** The catalog's add-ons as api.ts::getAddons shapes them (baisa prices). */
 const CATALOG_ADDONS: AddOn[] = [
   { id: 'a-backup', slug: 'daily-backup', name: 'Daily Backup', tagline: 'Automated daily backups', icon: '', monthly_price: 3000, included: false },
-  { id: 'a-waf', slug: 'waf', name: 'Web Application Firewall', tagline: 'Coraza WAF', icon: '', monthly_price: 4000, included: false },
   { id: 'a-ips', slug: 'ips', name: 'Intrusion Prevention', tagline: 'CrowdSec', icon: '', monthly_price: 3000, included: false },
   { id: 'a-domain', slug: 'custom-domain', name: 'Custom Domain', tagline: 'Your domain', icon: '', monthly_price: 2000, included: false },
   { id: 'a-ip', slug: 'dedicated-ip', name: 'Dedicated IP', tagline: 'A public IPv4', icon: '', monthly_price: 2500, included: false },
@@ -342,7 +341,7 @@ describe('the loader: ok, none (nothing published) or unavailable (could not be 
     // There is no document to call funnelAddonsFor with — the steps branch on
     // `doc && pkg` and hand the catalog list straight through. This pins the
     // shape they hand through: the catalog's own ids and prices.
-    expect(CATALOG_ADDONS.map(a => a.id)).toEqual(['a-backup', 'a-waf', 'a-ips', 'a-domain', 'a-ip', 'a-logs']);
+    expect(CATALOG_ADDONS.map(a => a.id)).toEqual(['a-backup', 'a-ips', 'a-domain', 'a-ip', 'a-logs']);
   });
 });
 
