@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T00:15:02Z` |
+| Last refreshed | `2026-11-13T00:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,8 +307,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T00:18 | [#7244](https://github.com/openova-io/openova/pull/7244) | #7087 | docs(ledger): plan update: the check list names the implemen |
 | 2026-11-13T00:14 | [#7243](https://github.com/openova-io/openova/pull/7243) | #7087 | docs(ledger): plan update: next tickets |
+| 2026-11-13T00:15 | [#7242](https://github.com/openova-io/openova/pull/7242) | #7145 | docs(protocol): ticket linter, Issue template and the execut |
 | 2026-11-13T00:15 | [#7241](https://github.com/openova-io/openova/pull/7241) | #7116 | chore(ci): guard that the API handler package and main only  |
+| 2026-11-13T00:15 | [#7240](https://github.com/openova-io/openova/pull/7240) | #7209 | docs(adr): record 0030 on the model plane, and the model con |
 | 2026-11-13T00:03 | [#7230](https://github.com/openova-io/openova/pull/7230) | #7087 | docs(ledger): plan update: five tickets rewritten, one order |
 | 2026-11-13T00:00 | [#7229](https://github.com/openova-io/openova/pull/7229) | #7212 | docs(adr): record 0024 on the move of the primary substrate  |
 | 2026-11-12T23:50 | [#7228](https://github.com/openova-io/openova/pull/7228) | #7217 | docs(adr): record 0018 on secrets and trust (SEC-006) |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-12T21:06 | [#7181](https://github.com/openova-io/openova/pull/7181) | #7168 | chore(console): remove the Sandbox pages, routes and browser |
 | 2026-11-12T21:05 | [#7180](https://github.com/openova-io/openova/pull/7180) | #7170 | ci: check the state markers of the canonical documents, and  |
 | 2026-11-12T21:06 | [#7179](https://github.com/openova-io/openova/pull/7179) | #7165 | fix(k8scache): start an optional kinds informer when its def |
-| 2026-11-12T21:06 | [#7178](https://github.com/openova-io/openova/pull/7178) | #7174 | fix(infra): random k3s server token and a separate agent tok |
-| 2026-11-12T21:04 | [#7177](https://github.com/openova-io/openova/pull/7177) | #7171 | chore(ci): guard that the machine plane gains no unsafe patt |
-| 2026-11-12T21:05 | [#7176](https://github.com/openova-io/openova/pull/7176) | #7173 | chore(ci): guard the AI-hub charts at their current values ( |
 
 ---
 
