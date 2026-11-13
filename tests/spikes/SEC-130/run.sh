@@ -188,7 +188,8 @@ PY
   if [ -n "$tok" ]; then note "step1 login as openbao-config-admin with SA openbao/openbao-config: OK"
   else note "step1 login as openbao-config-admin: FAILED"; ok=0; fi
   local c; c=$(api GET "$ns" sys/policies/acl/openbao-config-admin "$tok")
-  note "step1 policy openbao-config-admin read back: HTTP $c, byte-equal to the configured text: $(jq -r .data.policy "$BODY" 2>/dev/null | cmp -s - "$HERE/config-admin-policy.hcl" && echo yes || echo no)"
+  local want; want=$(python3 -c 'import json, sys; print(json.dumps(open(sys.argv[1]).read()))' "$HERE/config-admin-policy.hcl")
+  note "step1 policy openbao-config-admin read back: HTTP $c, byte-equal to the configured text: $([ "$(jq -c .data.policy "$BODY" 2>/dev/null)" = "$want" ] && echo yes || echo no)"
   c=$(api GET "$ns" sys/init); note "step1 sys/init: HTTP $c $(body 100)"
   c=$(api POST "$ns" sys/generate-root/attempt "" '{}'); note "step1 unauthenticated sys/generate-root/attempt on the self-initialised server: HTTP $c $(body 160)"
   [ "$c" = 200 ] && api DELETE "$ns" sys/generate-root/attempt >/dev/null
@@ -446,6 +447,44 @@ step4() {
 }
 
 # ── step 5: what the old key can still do after migration ───────────────
+local_port() { case "$1" in legacy21) echo 18241 ;; legacy23) echo 18242 ;; *) echo 18249 ;; esac; }
+local_listener() { # NS on|off — add or remove a second listener on 127.0.0.1:8210 that re-enables the legacy generate-root endpoints
+  local ns=$1
+  if [ "$2" = on ]; then
+    $K -n "$ns" patch configmap openbao-seal-config --type merge -p '{"data":{"listener-local.hcl":"listener \"tcp\" {\n  address = \"127.0.0.1:8210\"\n  cluster_address = \"127.0.0.1:8211\"\n  tls_disable = 1\n  disable_unauthed_generate_root_endpoints = false\n}\n"}}' >/dev/null
+  else
+    $K -n "$ns" patch configmap openbao-seal-config --type json -p '[{"op":"remove","path":"/data/listener-local.hcl"}]' >/dev/null
+  fi
+  roll_pod "$ns" && wait_unsealed "$ns" 120; sleep 3
+}
+local_generate_root() { # NS KEY -> one-line summary; any token produced is revoked
+  local ns=$1 key=$2 p c otp nonce enc tokn pol out
+  p=$(local_port "$ns")
+  pkill -f "port-forward -n $ns pod/openbao-0 $p:8210" 2>/dev/null
+  nohup $K port-forward -n "$ns" pod/openbao-0 "$p:8210" >>"$OUT/pf-$ns-local.log" 2>&1 </dev/null &
+  for _ in $(seq 40); do curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$p/v1/sys/seal-status" && break; sleep 0.5; done
+  c=$(curl -s -o "$BODY" -w '%{http_code}' --max-time 20 -X POST -H 'Content-Type: application/json' --data '{}' "http://127.0.0.1:$p/v1/sys/generate-root/attempt")
+  otp=$(jq -r '.otp // empty' "$BODY" 2>/dev/null); nonce=$(jq -r '.nonce // empty' "$BODY" 2>/dev/null)
+  out="attempt HTTP $c$([ "$c" != 200 ] && echo " $(body 140)") (otp issued: $([ -n "$otp" ] && echo yes || echo no))"
+  if [ "$c" = 200 ]; then
+    c=$(curl -s -o "$BODY" -w '%{http_code}' --max-time 20 -X POST -H 'Content-Type: application/json' \
+      --data "$(jq -nc --arg k "$key" --arg n "$nonce" '{key:$k,nonce:$n}')" "http://127.0.0.1:$p/v1/sys/generate-root/update")
+    enc=$(jq -r '.encoded_token // .encoded_root_token // empty' "$BODY" 2>/dev/null)
+    out="$out; update with the key HTTP $c $(jq -c '{complete, progress, required}' "$BODY" 2>/dev/null)$([ "$c" != 200 ] && echo " $(body 140)")"
+    if [ -n "$enc" ] && [ -n "$otp" ]; then
+      tokn=$(python3 -c 'import base64, sys
+e, o = sys.argv[1:]
+r = base64.b64decode(e + "=" * (-len(e) % 4))
+print(bytes(a ^ b for a, b in zip(r, o.encode())).decode())' "$enc" "$otp" 2>/dev/null)
+      api GET "$ns" auth/token/lookup-self "$tokn" >/dev/null; pol=$(jq -c '.data.policies' "$BODY" 2>/dev/null)
+      out="$out; decoded token is valid with policies: ${pol:-none}"
+      api POST "$ns" auth/token/revoke-self "$tokn" >/dev/null
+    fi
+    curl -s -o /dev/null --max-time 20 -X DELETE "http://127.0.0.1:$p/v1/sys/generate-root/attempt"
+  fi
+  pkill -f "port-forward -n $ns pod/openbao-0 $p:8210" 2>/dev/null
+  echo "$out"
+}
 step5_one() { # NS TAG
   local ns=$1 tag=$2 ok=1 key root c nonce any=0
   key=$(jq -r '.unseal_keys_b64[0]' "$SEC/init-$ns.json"); root=$(jq -r .root_token "$SEC/init-$ns.json")
@@ -472,6 +511,11 @@ step5_one() { # NS TAG
     fi
   done
   note "step5 [$tag] token-free path from the old key to a root token or new keys: $([ $any = 1 ] && echo FOUND || echo none)"
+  # The same, after someone with write access to the server configuration
+  # re-enables the legacy endpoints on a pod-local listener.
+  local_listener "$ns" on
+  local lgr; lgr=$(local_generate_root "$ns" "$key")
+  note "step5 [$tag] with a pod-local listener that sets disable_unauthed_generate_root_endpoints = false: $lgr"
   # Authenticated rotation of the recovery keys, wrapped with PGP.
   export GNUPGHOME="$SEC/gnupg-$ns"; mkdir -p -m 0700 "$GNUPGHOME"
   gpg --batch --pinentry-mode loopback --passphrase '' --quick-gen-key "sec130-$ns@example.invalid" rsa2048 encr never >/dev/null 2>&1
@@ -503,6 +547,8 @@ step5_one() { # NS TAG
   c=$(api POST "$ns" sys/rotate/recovery/update "$rtok" "$(jq -nc --arg k "$key" --arg n "$nonce" '{key:$k,nonce:$n}')"); note "step5 [$tag] old key after rotation: HTTP $c $(body 160)"
   [ "$c" != 200 ] || ok=0
   api DELETE "$ns" sys/rotate/recovery/init "$rtok" >/dev/null
+  note "step5 [$tag] pod-local legacy listener, old key after rotation: $(local_generate_root "$ns" "$key")"
+  local_listener "$ns" off
   if [ -n "$newkey" ]; then
     c=$(api POST "$ns" sys/rotate/recovery/init "$rtok" '{"secret_shares":1,"secret_threshold":1}'); nonce=$(jq -r '(.data // .).nonce // empty' "$BODY")
     c=$(api POST "$ns" sys/rotate/recovery/update "$rtok" "$(jq -nc --arg k "$newkey" --arg n "$nonce" '{key:$k,nonce:$n}')"); note "step5 [$tag] new key accepted: HTTP $c complete=$(jq -r '(.data // .).complete' "$BODY" 2>/dev/null)"
