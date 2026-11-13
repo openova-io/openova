@@ -23,7 +23,7 @@ OpenBao provides centralized secrets management with:
 
 ## Architecture: independent Raft per region (NOT a stretched cluster)
 
-Each region runs its **own** OpenBao. Today that is one member (`replicas: 1` in `clusters/_template/bootstrap-kit/08-openbao.yaml`), not three. Region failures are independent failure domains. Between regions peer push is wired: the primary region writes the shared material of a multi-region Application into the OpenBao of each region (`peerTrust` in `chart/values.yaml`). On a Sovereign with a hot standby (the topology `active-hotstandby` or `active-active`), the bootstrap-kit slot also turns on a snapshot copy through object storage (`snapshotReplication`): every ten minutes the primary region saves a snapshot of its OpenBao, and the other region fetches it onto a staging volume without restoring it. OpenBao does not replicate between the clusters of two regions.
+Each region runs its **own** OpenBao. Today that is one member (`replicas: 1` in `clusters/_template/bootstrap-kit/08-openbao.yaml`), not three. Region failures are independent failure domains. Between regions peer push is wired: the primary region writes the shared material of a multi-region Application into the OpenBao of each region (`peerTrust` in `chart/values.yaml`). OpenBao does not replicate between the clusters of two regions.
 
 ```mermaid
 flowchart TB
@@ -58,7 +58,7 @@ flowchart TB
 **Key design** (canonical in [`docs/SECURITY.md`](../../docs/SECURITY.md) §5):
 - **Independent Raft per region.** No cross-region quorum. A whole-region failure does NOT block any other region.
 - **Single-primary writes.** Rotations and new-secret writes go to the primary OpenBao only.
-- **Peer push, not replication.** The primary region writes shared material into the OpenBao of every region. On a Sovereign with a hot standby, a snapshot of the primary region's OpenBao is also copied through object storage to the other region, and it is not restored there.
+- **Peer push, not replication.** The primary region writes shared material into the OpenBao of every region.
 - **Explicit DR promotion.** Either `sovereign-admin`-approved or automated via failover-controller (with strict criteria — not on every blip).
 - **Apps read locally.** Each region's ExternalSecret pulls from its local OpenBao replica.
 - **No SOPS.** Plaintext never in Git.
@@ -200,7 +200,7 @@ If the primary region fails, a replica is explicitly promoted (sovereign-admin a
 3a. **Declarative configuration (1.2.72, ADR-0015, Refs #7067):** every ACL policy, auth role, auth mount and identity object the chart needs is desired state in ConfigMap `openbao-config-desired` (`chart/templates/_config.tpl`). The `openbao-config` Deployment applies it every 60 s, idempotently (`chart/files/openbao-config-reconcile.sh`). It logs in as k8s-auth role `openbao-config-admin`, whose policy covers configuration surfaces only: no secret data, no `sys/raw`, no seal, no delete, and it cannot rewrite its own grant. A chart bump is therefore the whole change; there is no manual root step.
     - **How the role is kept current:** the auth-bootstrap hook re-writes `openbao-config-admin` on every install/upgrade. The first time it uses the init root token. Later it generates a short-lived root from the `openbao-unseal-keys` shares (`chart/files/openbao-generate-root.sh`) and revokes it in the same run. Whoever can read that Secret can already unseal, so this adds no exposure. No root token is kept.
     - **One-time upgrade, only if `openbao-unseal-keys` is absent** (an init older than chart 1.2.4): the hook logs a WARN and exits 0. Write the `openbao-config-admin` policy and role once with an admin token. Either sign in through SSO at `bao.<fqdn>` (sovereign-admins get full rights) or use `bao operator generate-root` with your own key shares. The policy text is `openbao.configAdminPolicy` in `_config.tpl`; the role binds SA `openbao-config` in ns `openbao`.
-4. Between regions peer push is configured, and on a Sovereign with a hot standby also a snapshot copy through object storage (see the architecture section above). OpenBao does not replicate.
+4. Between regions peer push is configured (see the architecture section above). OpenBao does not replicate.
 5. ESO configured with local-region ClusterSecretStores; every region reads from its local OpenBao replica via ESO Kubernetes auth (TokenReview), never cross-region.
 6. Initial secrets created via K8s + PushSecrets, never plaintext in Git.
 
