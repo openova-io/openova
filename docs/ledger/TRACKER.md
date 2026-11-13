@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T02:00:04Z` |
+| Last refreshed | `2026-11-13T02:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,7 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T02:11 | [#7272](https://github.com/openova-io/openova/pull/7272) | #7267 | chore(ci): guard that the hand-over machinery only shrinks ( |
 | 2026-11-13T01:57 | [#7271](https://github.com/openova-io/openova/pull/7271) | #7264 | docs(adr): record 0036 on backup and restore of etcd, databa |
+| 2026-11-13T02:03 | [#7270](https://github.com/openova-io/openova/pull/7270) | #7263 | docs(ledger): map every Organization pipeline step to the or |
 | 2026-11-13T01:49 | [#7259](https://github.com/openova-io/openova/pull/7259) | #7087 | docs(ledger): plan update |
 | 2026-11-13T01:30 | [#7257](https://github.com/openova-io/openova/pull/7257) | #7237 | docs(adr): record 0034 on the later products, the AI hub and |
 | 2026-11-13T01:23 | [#7256](https://github.com/openova-io/openova/pull/7256) | #7234 | fix(console): the wizard offers one region or two, as the pr |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-13T00:00 | [#7221](https://github.com/openova-io/openova/pull/7221) | #7218 | test(provisioning): ratchet the password literals the genera |
 | 2026-11-12T23:40 | [#7220](https://github.com/openova-io/openova/pull/7220) | #7213 | docs(adr): record 0029 on the compliance plane (CMP-005) |
 | 2026-11-12T23:21 | [#7208](https://github.com/openova-io/openova/pull/7208) | #7087 | docs(ledger): plan update: next tickets, one ordering |
-| 2026-11-12T23:06 | [#7207](https://github.com/openova-io/openova/pull/7207) | #7188 | ci: add the provider-leak scanner with a falling baseline (C |
-| 2026-11-12T23:05 | [#7206](https://github.com/openova-io/openova/pull/7206) | #7190 | docs(security): generate the security control matrix from a  |
 
 ---
 
