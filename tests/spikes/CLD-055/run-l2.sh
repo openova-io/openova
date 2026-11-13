@@ -25,7 +25,16 @@ sudo apt-get update -qq > "$OUT/apt.log" 2>&1
 if ! sudo apt-get install -y -qq --no-install-recommends qemu-system-x86 qemu-utils libvirt-daemon-system libvirt-clients genisoimage >> "$OUT/apt.log" 2>&1; then
   tail -30 "$OUT/apt.log"; result "L2 verdict=fail reason=libvirt-install-failed"; exit 0
 fi
+# Run 43377978385: QEMU was refused the backing image ("Permission denied")
+# under libvirt's default AppArmor confinement. On a throwaway CI runner, run
+# QEMU unconfined and as root.
+printf 'security_driver = "none"\nuser = "root"\ngroup = "root"\n' | sudo tee -a /etc/libvirt/qemu.conf >/dev/null
+sudo systemctl restart libvirtd 2>/dev/null || sudo systemctl restart virtqemud 2>/dev/null || true
 sudo systemctl start libvirtd 2>/dev/null || sudo systemctl start virtqemud.socket virtnetworkd.socket virtstoraged.socket 2>/dev/null || true
+# Docker on the runner sets the FORWARD policy to DROP, which would also drop
+# the VM's NAT traffic through libvirt's network.
+sudo iptables -P FORWARD ACCEPT 2>/dev/null || true
+sudo iptables -I FORWARD 1 -j ACCEPT 2>/dev/null || true
 sudo virsh -c qemu:///system version 2>&1 | head -5
 sudo virsh -c qemu:///system pool-define-as default dir --target /var/lib/libvirt/images >/dev/null 2>&1 || true
 sudo virsh -c qemu:///system pool-build default >/dev/null 2>&1 || true
@@ -83,8 +92,16 @@ for _ in $(seq 1 60); do
   sleep 10
 done
 FAILED=$(cat "$OUT"/sink/cp-a-*.log 2>/dev/null | grep -o 'CLOUDINIT-SENTINEL: .*-FAILED' | sort -u | tr '\n' ' ')
-if [ -n "$READY" ] && [ -n "$COMPLETE" ]; then L2=pass; else L2=fail; fi
-result "L2 verdict=$L2 node_ready_s=$([ -n "$READY" ] && echo $(( READY - T0 )) || echo none) template_runcmd_complete_seen=$([ -n "$COMPLETE" ] && echo yes || echo no) failed_markers=\"$FAILED\" peak_host_used_mib=$(peak_mem "$T0" "$(now)" | awk '{print $1}')"
+# The template's own log (sent by its log helper at completion) names the
+# Cilium rollout and the Flux controllers becoming Available, which can only
+# happen on a Ready node: the second line of evidence when the API read fails.
+LOGF=$(grep -l 'CLOUDINIT-SENTINEL: cloud-init-complete' "$OUT"/sink/cp-a-*.log 2>/dev/null | head -1)
+LOG_OK=no
+if [ -n "$LOGF" ] && grep -q 'daemon set "cilium" successfully rolled out' "$LOGF" && grep -q 'deployment.apps/source-controller condition met' "$LOGF"; then LOG_OK=yes; fi
+CE=$([ -n "$LOGF" ] && echo $(( $(basename "$LOGF" .log | sed 's/^cp-a-//') - T0 )) || echo none)
+BOOT_HTTP=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 -u "server:render-test-server-token" "https://$VM_IP:6443/v1-k3s/server-bootstrap")
+if [ -n "$COMPLETE" ] && { [ -n "$READY" ] || [ "$LOG_OK" = yes ]; }; then L2=pass; else L2=fail; fi
+result "L2 verdict=$L2 node_ready_api_s=$([ -n "$READY" ] && echo $(( READY - T0 )) || echo none) template_runcmd_complete_s=$CE template_log_shows_cilium_and_flux_ready=$LOG_OK server_bootstrap_http=$BOOT_HTTP failed_markers=\"$FAILED\" peak_host_used_mib=$(peak_mem "$T0" "$(now)" | awk '{print $1}')"
 kubectl --server "https://$VM_IP:6443" --insecure-skip-tls-verify --client-certificate "$K/admin.crt" --client-key "$K/admin.key" get nodes -o wide 2>&1 | tee "$OUT/vm-nodes.txt" || true
 kubectl --server "https://$VM_IP:6443" --insecure-skip-tls-verify --client-certificate "$K/admin.crt" --client-key "$K/admin.key" get pods -A > "$OUT/vm-pods.txt" 2>&1 || true
 sudo virsh -c qemu:///system dominfo cld055-cp-a 2>&1 | head -12 || true

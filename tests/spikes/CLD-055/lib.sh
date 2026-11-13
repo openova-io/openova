@@ -222,6 +222,25 @@ top_namespaces() {
            END { for (n in m) printf "%d %s\n", m[n], n }' | sort -rn
 }
 
+# Requests per namespace (scheduler's view), written to $2; prints a summary:
+# allocatable CPU of the machine's nodes, requested CPU scheduled + pending,
+# pods Pending on "Insufficient cpu", and the three heaviest releases by CPU
+# request (namespace mapped to the HelmRelease that targets it).
+requests_summary() {
+  local m=$1 f=$2 alloc pend
+  kc "$m" get pods -A -o json 2>/dev/null | python3 "$SPIKE_DIR/cpu_requests.py" > "$f"
+  alloc=$(kc "$m" get nodes -o jsonpath='{range .items[*]}{.status.allocatable.cpu}{" "}{end}' 2>/dev/null)
+  pend=$(kc "$m" get events -A --field-selector reason=FailedScheduling -o json 2>/dev/null \
+    | python3 -c 'import json,sys; print(len({(e["involvedObject"]["namespace"], e["involvedObject"]["name"]) for e in json.load(sys.stdin)["items"] if "Insufficient cpu" in e.get("message","")}))')
+  kc "$m" get hr -A -o json 2>/dev/null | python3 -c '
+import json,sys
+for i in json.load(sys.stdin)["items"]:
+    print(i["spec"].get("targetNamespace") or i["metadata"]["namespace"], i["metadata"]["name"])' > "$f.hr-ns"
+  local heavy
+  heavy=$(awk 'NR==FNR{rel[$1]=(rel[$1]?rel[$1]"+":"")$2; next} $5!="TOTAL" && ($5 in rel){printf "%s=%dm(+%dm pending),%dMi ", rel[$5], $1, $2, $3+$4; n++} n==3{exit}' "$f.hr-ns" "$f")
+  echo "node_allocatable_cpu=\"$alloc\" cpu_requested_scheduled_m=$(awk '$5=="TOTAL"{print $1}' "$f") cpu_requested_pending_m=$(awk '$5=="TOTAL"{print $2}' "$f") mem_requested_mi=$(awk '$5=="TOTAL"{print $3+$4}' "$f") pods_unschedulable_insufficient_cpu=$pend heaviest_by_cpu_request=\"$heavy\""
+}
+
 # A TCP 22 probe from a pod; prints the banner line or nothing.
 ssh_probe_from_pod() {
   local m=$1 target=$2 name="cld055-ssh-$RANDOM"

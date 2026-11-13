@@ -6,7 +6,7 @@ set -uo pipefail
 source "$(dirname "$0")/lib.sh"
 
 LIMIT=2400      # the L3 time limit, 40 minutes
-OBSERVE=3600    # keep observing to record a late convergence
+OBSERVE=2400    # run 43377978385 observed to 3600 s: no late convergence
 MS="cp-a cp-b"
 
 trap stop_background EXIT
@@ -73,6 +73,7 @@ for m in $MS; do
   if [ -n "${READY_AT[$m]:-}" ]; then RS=$(( READY_AT[$m] - T_KIT )); else RS=none; fi
   if [ "$RS" = none ] || [ "$RS" -gt "$LIMIT" ]; then L6=fail; fi
   result "L6 cluster=$m kit_ready_s=$RS hr_total=$(wc -l < "$OUT/l6-hr-$m.txt") hr_ready=$(awk '$2=="True"' "$OUT/l6-hr-$m.txt" | wc -l) suspended=\"$(awk '$2=="suspended"{printf "%s ", $1}' "$OUT/l6-hr-$m.txt")\" not_ready=\"$(awk '$2!="True" && $2!="suspended"{printf "%s(%s,%s) ", $1, $2, $3}' "$OUT/l6-hr-$m.txt")\" machine_mem_peak_mib=$(container_mem_peak_mib "$m") top3=\"$(head -3 "$OUT/l6-top-namespaces-$m.txt" | awk '{printf "%s=%dMi ", $2, $1}')\""
+  result "L6 requests cluster=$m $(requests_summary "$m" "$OUT/l6-requests-$m.txt")"
   result "L6 network cluster=$m machine_egress_first_failure=$(F=$(first_egress_failure "$m" "$T_KIT"); [ "$F" = never ] && echo never || echo "$(( F - T_KIT ))s") runner_to_apiserver_now=$(runner_apiserver_probe "$m") lb_services=\"$(lb_evidence "$m" | tr '\n' ' ')\""
 done
 [ "$OOM" = 0 ] || L6=fail

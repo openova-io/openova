@@ -104,7 +104,7 @@ T_KIT=$(now); echo "$T_KIT" > "$OUT/kit-start-$M.epoch"
 start_kit "$M" kit-l3
 wire_object_store "$M" > "$OUT/objstore-$M.log" 2>&1 &
 KIT_READY=""
-L3_OBSERVE=3600   # past the limit, only to record a late convergence
+L3_OBSERVE=2400   # runs 43377978385/43369604232 observed to 3600 s: no late convergence
 while [ $(( $(now) - T_KIT )) -lt "$L3_OBSERVE" ]; do
   if kit_ready "$M"; then KIT_READY=$(now); break; fi
   if [ $(( $(now) - T_KIT )) -ge "$L3_LIMIT" ] && [ ! -f "$OUT/l3-hr-at-limit.txt" ]; then
@@ -118,6 +118,7 @@ done
 T_END=$(now)
 read -r PEAK SWAP <<< "$(peak_mem "$T_KIT" "$T_END")"
 hr_lines "$M" > "$OUT/l3-hr.txt"
+[ -f "$OUT/l3-hr-at-limit.txt" ] || cp "$OUT/l3-hr.txt" "$OUT/l3-hr-at-limit.txt"
 top_namespaces "$M" > "$OUT/l3-top-namespaces.txt"
 kc "$M" get hr -A -o json | python3 -c '
 import json,sys
@@ -127,7 +128,8 @@ HEAVY=$(awk 'NR==FNR{rel[$1]=(rel[$1]?rel[$1]"+":"")$2; next} ($2 in rel){printf
 NOT_READY=$(awk '$2!="True"{printf "%s(%s,%s) ", $1, $2, $3}' "$OUT/l3-hr.txt")
 OOM=$(oom_kills)
 if [ -n "$KIT_READY" ] && [ $(( KIT_READY - T_KIT )) -le "$L3_LIMIT" ] && [ "$OOM" = 0 ]; then L3=pass; else L3=fail; fi
-result "L3 verdict=$L3 limit_s=$L3_LIMIT kit_ready_s=$([ -n "$KIT_READY" ] && echo $(( KIT_READY - T_KIT )) || echo "not-ready-at-$L3_OBSERVE") not_ready_at_limit=\"$(awk '$2!="True"{printf "%s ", $1}' "$OUT/l3-hr-at-limit.txt" 2>/dev/null)\" hr_total=$(wc -l < "$OUT/l3-hr.txt") hr_ready=$(awk '$2=="True"' "$OUT/l3-hr.txt" | wc -l) hr_present_before_kit=$HR_BEFORE peak_host_used_mib=$PEAK peak_swap_used_mib=$SWAP mem_total_mib=$(mem_total_mib) machine_mem_peak_mib=$(container_mem_peak_mib "$M") oom_kills=$OOM heaviest=\"$HEAVY\" not_ready=\"$NOT_READY\""
+result "L3 verdict=$L3 limit_s=$L3_LIMIT kit_ready_s=$([ -n "$KIT_READY" ] && echo $(( KIT_READY - T_KIT )) || echo "not-ready-at-$L3_OBSERVE") not_ready_at_limit=\"$(awk '$2!="True"{printf "%s ", $1}' "$OUT/l3-hr-at-limit.txt" 2>/dev/null)\" hr_total=$(wc -l < "$OUT/l3-hr.txt") hr_ready=$(awk '$2=="True"' "$OUT/l3-hr.txt" | wc -l) hr_present_before_kit=$HR_BEFORE peak_host_used_mib=$PEAK peak_swap_used_mib=$SWAP mem_total_mib=$(mem_total_mib) machine_mem_peak_mib=$(container_mem_peak_mib "$M") oom_kills=$OOM heaviest_by_memory_use=\"$HEAVY\" not_ready=\"$NOT_READY\""
+result "L3 requests $(requests_summary "$M" "$OUT/l3-requests.txt")"
 result "L3 network machine_egress_first_failure=$(F=$(first_egress_failure "$M" "$T_KIT"); [ "$F" = never ] && echo never || echo "$(( F - T_KIT ))s") runner_to_apiserver_now=$(runner_apiserver_probe "$M") lb_services=\"$(lb_evidence "$M" | tr '\n' ' ')\""
 cat "$OUT/objstore-$M.log" 2>/dev/null
 kc "$M" get storageclass
@@ -143,6 +145,23 @@ if [ -z "$PROV" ]; then
   kc "$M" get providers.pkg.crossplane.io -o wide || true
   result "L4 verdict=fail reason=provider-opentofu-not-healthy"
 else
+  # Run 43377978385: the provider pod that carries the socket stayed Pending
+  # on "Insufficient cpu" because the kit had used the machine's CPU
+  # requests (L3). L4 asks about the mechanism, so hold Flux and remove the
+  # releases L4 does not use before changing the runtime configuration.
+  for ks in bootstrap-kit bootstrap-kit-crs; do
+    kc "$M" -n flux-system patch kustomization "$ks" --type merge -p '{"spec":{"suspend":true}}' >/dev/null
+  done
+  FREED="bp-gitea bp-keycloak bp-harbor bp-openbao bp-powerdns bp-seaweedfs"
+  REQ_BEFORE=$(kc "$M" get pods -A -o json | python3 "$SPIKE_DIR/cpu_requests.py" | awk '$5=="TOTAL"{print $1+$2}')
+  for hr in $FREED; do kc "$M" -n flux-system delete hr "$hr" --wait=false >/dev/null 2>&1; done
+  for _ in $(seq 1 30); do
+    [ "$(kc "$M" get hr -A --no-headers 2>/dev/null | grep -cE "bp-(gitea|keycloak|harbor|openbao|powerdns|seaweedfs) ")" = 0 ] && break
+    sleep 10
+  done
+  sleep 30
+  REQ_AFTER=$(kc "$M" get pods -A -o json | python3 "$SPIKE_DIR/cpu_requests.py" | awk '$5=="TOTAL"{print $1+$2}')
+  result "L4 setup removed=\"$FREED\" cpu_requested_m_before=$REQ_BEFORE cpu_requested_m_after=$REQ_AFTER"
   # The runtime configuration hands the machine driver's socket to the
   # provider pod. infrastructure-providers owns that object, so hold it first.
   kc "$M" -n flux-system patch kustomization infrastructure-providers --type merge -p '{"spec":{"suspend":true}}' >/dev/null
@@ -178,7 +197,8 @@ else
   fi
   kc "$M" get workspaces.opentofu.upbound.io cld055-unit -o yaml > "$OUT/l4-workspace-status.yaml" 2>&1 || true
   if [ -n "$MOUNTED" ] && [ -n "$WS" ]; then L4=pass; else L4=fail; fi
-  result "L4 verdict=$L4 socket_mounted=${MOUNTED:-no} workspace_ready_s=$([ -n "$WS" ] && echo $(( WS - T_WS )) || echo none) machine_running_s=$([ -n "$RUN" ] && echo $(( RUN - T_WS )) || echo none) worker_node_ready_s=$([ -n "$JOINED" ] && echo $(( JOINED - T_WS )) || echo none) worker_tcp22=\"${B3:-none}\" nodes=$(kc "$M" get nodes --no-headers 2>/dev/null | wc -l)"
+  WMSG=$(kc "$M" get workspaces.opentofu.upbound.io cld055-unit -o jsonpath='{.status.conditions[?(@.type=="Synced")].message}' 2>/dev/null | tr '\n"' "  " | cut -c1-300)
+  result "L4 verdict=$L4 socket_mounted=${MOUNTED:-no} workspace_ready_s=$([ -n "$WS" ] && echo $(( WS - T_WS )) || echo none) machine_running_s=$([ -n "$RUN" ] && echo $(( RUN - T_WS )) || echo none) worker_node_ready_s=$([ -n "$JOINED" ] && echo $(( JOINED - T_WS )) || echo none) worker_tcp22=\"${B3:-none}\" nodes=$(kc "$M" get nodes --no-headers 2>/dev/null | wc -l) workspace_synced_message=\"${WMSG:-none}\""
   kc "$M" get workspaces.opentofu.upbound.io -o wide || true
 fi
 
