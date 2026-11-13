@@ -96,6 +96,7 @@ function startRun(name, { prompt, tools = true, annotate = false, extraEnv = {},
     mcpServers: tools ? { t: toolServer(run, annotate) } : {}, allowedTools: tools ? ["mcp__t"] : [], permissionMode: "dontAsk",
     persistSession: false, includePartialMessages: true, env, cwd, abortController: run.ac,
     debugFile: path.join(OUT, `debug-${name}.log`), stderr: (d) => run.stderr.push(d), ...extraOptions } });
+  run.q = q;
   run.loop = (async () => {
     try { for await (const m of q) { run.msgs.push({ at: Date.now(), m }); if (m.type === "result") break; } }
     catch (e) { run.error = String(e?.message || e); }
@@ -138,16 +139,24 @@ if ((process.env.SPIKE_SUITE || "full") === "extra") {
     R.values.rss12ParkedTotalMi = total; R.values.parentRssMi = parent;
     rec("X1", true, `informative: 12 chains parked at once: children total ${total} MiB; per child ${JSON.stringify(per.map((p) => p.mi))}; processes per child ${JSON.stringify([...new Set(per.map((p) => p.procs))])}; parent node process ${parent} MiB; ${ok}/12 ended with success after their handlers were answered`);
   });
-  await guard("X2", async () => { // abort of a parked run frees its child
-    const r = startRun("qab", { prompt: "SPIKE:qab What is the weather in Muscat?" });
-    await until(() => r.calls.length || r.done, 180000, "qab handler");
+  for (const [id, name, how] of [["X2a", "qab", "abort"], ["X2b", "qcl", "close"], ["X2c", "qin", "interrupt"]]) await guard(id, async () => { // ending a parked run
+    const r = startRun(name, { prompt: `SPIKE:${name} What is the weather in Muscat?` });
+    await until(() => r.calls.length || r.done, 180000, `${name} handler`);
     await sleep(2000);
-    const before = rss("qab"), n0 = mock.log.length, t = Date.now();
-    r.ac.abort();
+    const before = rss(name), n0 = reqs(name).length, t = Date.now();
+    let ret = null;
+    try {
+      if (how === "abort") r.ac.abort();
+      else if (how === "close") r.q.close();
+      else ret = await Promise.race([r.q.interrupt(), sleep(10000).then(() => "no answer in 10 s")]);
+    } catch (e) { ret = `threw: ${e.message}`; }
     let goneMs = null;
-    while (Date.now() - t < 30000) { if (rss("qab").procs === 0) { goneMs = Date.now() - t; break; } await sleep(50); }
-    await until(() => r.done, 30000, "qab loop end").catch(() => {});
-    rec("X2", true, `informative: abort of a parked run: child processes before ${before.procs} (${before.mi} MiB), gone after ${goneMs} ms; iterator ended ${r.done} with error ${JSON.stringify(r.error ?? null)}; result message ${JSON.stringify(resultOf(r)?.subtype ?? null)}; endpoint requests after abort ${mock.log.length - n0}`);
+    while (Date.now() - t < 30000) { if (rss(name).procs === 0) { goneMs = Date.now() - t; break; } await sleep(50); }
+    await until(() => r.done, 30000, `${name} loop end`).catch(() => {});
+    await sleep(2000);
+    const after = reqs(name).slice(n0).map((e) => ({ at: `+${e.at - t} ms`, results: e.toolResults }));
+    rec(id, true, `informative: ${how}() on a parked run: child before ${before.procs} (${before.mi} MiB), gone after ${goneMs} ms; call returned ${JSON.stringify(ret)}; iterator ended ${r.done}, error ${JSON.stringify(r.error ?? null)}; result message ${JSON.stringify(resultOf(r)?.subtype ?? null)}; model requests after the call: ${JSON.stringify(after)}`);
+    if (rss(name).procs) r.q.close();
   });
   for (const [id, name, env, what] of [["X3a", "qeb", {}, "default environment"], ["X3b", "qen", { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1"]]) await guard(id, async () => {
     await sleep(5000);
