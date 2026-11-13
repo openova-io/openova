@@ -113,7 +113,12 @@ that namespace before it ends. SEC-G01 and SEC-G02 create a namespace
 `sec-etcd-<run>` or `sec-node-<run>` of their own in every region, start one
 probe Pod on every control-plane node in it, run a script that only reads
 files of the node in each Pod with `kubectl exec`, and delete that namespace
-before they end. SEC-G01 also creates one Secret, the canary. Two other
+before they end. SEC-G01 also creates one Secret, the canary. SEC-G07
+stores nothing: its `create` and `apply` are server-side dry runs. It asks
+the API server for a token of the service account of the store
+`vault-region1` that lives 10 minutes, logs in to OpenBao with it in an
+OpenBao server pod with `kubectl exec`, reads two paths with the output
+thrown away, and revokes the OpenBao token. Two other
 `kubectl exec` calls are made, both on the app's own pods. One is the J2.1
 author setup in the WordPress container. The other runs single
 read-only `SELECT`s on CNPG instances; `PSQLSelect` refuses anything else. The
@@ -176,6 +181,7 @@ platform namespace is a namespace without the label `openova.io/organization`.
 | CMP-G02 The shown mode is the engine's mode | `check_compliance_mode.go` | A policy that `GET /api/v1/sovereigns/{id}/compliance/policies` lists shows another mode than its engine object carries, or has no engine object. The engine object is the `ClusterPolicy` of that name, or the `ValidatingPolicy` when there is none. `enforcing` and `enforce` are the engine's enforce; `permissive` and `audit` are its audit. A policy of source `evaluator` without an engine object is not compared. |
 | SEC-G01 etcd at rest | `check_sec_etcd.go` | On a control-plane node the value of the canary is in the clear in the etcd file `/var/lib/rancher/k3s/server/db/etcd/member/snap/db` or in a write-ahead log file beside it, or a record of the canary in the etcd file does not hold `k8s:enc:secretbox:v1:`. The canary is the Secret `etcd-canary` with a random value that the check creates in its namespace. A node whose files hold no record of the canary fails: nothing was measured. A probe Pod on each node reads the files (`sec_probe.go`). |
 | SEC-G02 Node hygiene | `check_sec_node.go` | On a control-plane node the part after `::server:` of `/var/lib/rancher/k3s/server/token` is 64 lower-case hexadecimal characters, the form of a token derived from identifiers; `/etc/rancher/k3s/k3s.yaml` is missing or its mode is not 600; or a file `/var/lib/catalyst/*-secret.yaml` or `/var/lib/catalyst/flux-bootstrap.yaml` remains. The probe prints the class of the token, never the token. |
+| SEC-G07 External Secrets scope | `check_sec_scope.go` | In a region, a server-side dry run of an ExternalSecret in namespace `default` with the remote key `sso/sec-g07-probe`, or in namespace `gitea` with the key `catalyst/tofu-phase0-archive`, is not refused by the admission rule `external-secret-remote-key-scope`; one in `gitea` with the key `sso/sec-g07-probe` is refused; an ExternalSecret or PushSecret outside the namespaces labelled `openova.io/organization` would be refused on its next update, or there is none to replay; or a token of the service account of the store `vault-region1`, logged in to OpenBao in a server pod, reads `<kv>/data/catalyst/tofu-phase0-archive` without a 403, or gets a 403 or an error on `<kv>/data/sso/sec-g07-probe`. |
 
 FND-G02 also asserts that the deployment record shows no retry call. The
 suite has no source for that yet, so the step is recorded **SKIP** and the
