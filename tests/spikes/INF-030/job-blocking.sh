@@ -113,7 +113,7 @@ H upgrade kured kubereboot/kured -n kube-system --version "$KURED_CHART_VERSION"
   -f "$SPIKE_DIR/kured-values-4.19.yaml" -f "$WORK/kured-values-narrow.yaml" \
   --wait --timeout 8m > "$OUT/helm-kured-2.log" 2>&1 || cat "$OUT/helm-kured-2.log" >&2
 K -n kube-system rollout status ds/kured --timeout=8m >&2
-res x_kured_args_after_change "$(K -n kube-system get ds kured -o json | jq -r '.spec.template.spec.args | map(select(startswith("--blocking"))) | join(" ")')"
+res x_kured_args_after_change "$(K -n kube-system get ds kured -o json | jq -r '.spec.template.spec.containers[0].args | map(select(startswith("--blocking"))) | join(" ")')"
 SELCHANGE=$(now)
 c_back() { node_back "$C" "${OLD[$C]}"; }
 if wait_until $((45*60)) "C=$C rebooted with the narrower selector" c_back; then

@@ -128,9 +128,30 @@ def kuredlog(path, prefix, since=None):
         emit(f"{prefix}_blocking_pods", "; ".join(sorted(pods)))
 
 
+def overlap(timeline):
+    data = rows(timeline)
+    hits = [r for r in data if r[3] >= 2]
+    emit("x_overlap_polls_with_two_or_more_unavailable", f"{len(hits)} of {len(data)} polls")
+    if not hits:
+        return
+    spans, start, prev = [], hits[0][0], hits[0][0]
+    for t, _n, _l, _u in hits[1:]:
+        if (t - prev).total_seconds() > 15:
+            spans.append((start, prev))
+            start = t
+        prev = t
+    spans.append((start, prev))
+    emit("x_overlap_spans", "; ".join(f"{a:%H:%M:%S}-{b:%H:%M:%S} ({int((b - a).total_seconds()) + 5}s)" for a, b in spans))
+    t, nodes, lock, u = hits[0]
+    cells = ", ".join(f"{n} ready={s['ready']} cordoned={s['cordoned']}" for n, s in sorted(nodes.items()))
+    emit("x_overlap_first_poll", f"{t:%H:%M:%S}: {cells}; kured lock holder {lock}; unavailable {u}")
+
+
 if __name__ == "__main__":
     mode = sys.argv[1]
-    if mode == "reboots":
+    if mode == "overlap":
+        overlap(sys.argv[2])
+    elif mode == "reboots":
         reboots(sys.argv[2], sys.argv[3:])
     elif mode == "kuredlog":
         kuredlog(sys.argv[2], sys.argv[3], sys.argv[4] if len(sys.argv) > 4 else None)

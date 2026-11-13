@@ -63,6 +63,29 @@ jobs:
           path: out/
           retention-days: 30
 
+  overlap:
+    name: "Extra: disjoint windows and a rollout that outlives its window"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run
+        env:
+          OUT: ${{ github.workspace }}/out
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash tests/spikes/INF-030/job-overlap.sh
+      - name: Timeline and events
+        if: always()
+        run: |
+          echo "--- events.log"; cat out/events.log 2>/dev/null || true
+          echo "--- steps.log";  cat out/steps.log 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: inf-030-overlap
+          path: out/
+          retention-days: 30
+
   blocking:
     name: "Q4: kured waits on the node of the upgrade Pod"
     runs-on: ubuntu-24.04

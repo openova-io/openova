@@ -234,7 +234,14 @@ etcd_ctl() {
 }
 etcd_members()        { etcd_ctl member list 2>/dev/null; }
 etcd_endpoint_json()  { etcd_ctl endpoint status -w json 2>/dev/null || echo '[]'; }
-etcd_healthy_count()  { etcd_ctl endpoint health -w json 2>/dev/null | jq '[.[] | select(.health==true)] | length' 2>/dev/null || echo 0; }
+etcd_healthy_count()  {
+  local ip c=0
+  for ip in $SERVER_IPS; do
+    ETCDCTL_API=3 etcdctl --endpoints="https://$ip:2379" --cacert "$WORK/etcd-ca.crt" --cert "$WORK/etcd-client.crt" \
+      --key "$WORK/etcd-client.key" --dial-timeout=2s --command-timeout=3s endpoint health 2>&1 | grep -q "is healthy" && c=$((c+1))
+  done
+  echo "$c"
+}
 
 # ---------------------------------------------------------------- node state
 node_json()   { K get node "$1" -o json 2>/dev/null; }

@@ -43,17 +43,29 @@ def kubectl(args):
 
 
 def etcd_healthy():
-    eps = ",".join(f"https://{ip}:2379" for ip in IPS)
-    try:
-        r = subprocess.run(
-            ["etcdctl", f"--endpoints={eps}", "--cacert", f"{WORK}/etcd-ca.crt",
+    """Members that answer a health check, asked one endpoint at a time and in parallel.
+
+    A combined call over all three endpoints can print nothing when one endpoint
+    does not answer, which would read as zero healthy members.
+    """
+    procs = []
+    for ip in IPS:
+        procs.append(subprocess.Popen(
+            ["etcdctl", f"--endpoints=https://{ip}:2379", "--cacert", f"{WORK}/etcd-ca.crt",
              "--cert", f"{WORK}/etcd-client.crt", "--key", f"{WORK}/etcd-client.key",
-             "--dial-timeout=2s", "--command-timeout=3s", "endpoint", "health", "-w", "json"],
-            capture_output=True, text=True, timeout=10, env=dict(os.environ, ETCDCTL_API="3"))
-        data = json.loads(r.stdout or "[]")
-        return sum(1 for e in data if e.get("health") is True)
-    except Exception:
-        return -1
+             "--dial-timeout=2s", "--command-timeout=3s", "endpoint", "health"],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            env=dict(os.environ, ETCDCTL_API="3")))
+    healthy = 0
+    for p in procs:
+        try:
+            out, _ = p.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            continue
+        if p.returncode == 0 and "is healthy" in out:
+            healthy += 1
+    return healthy
 
 
 def main():
