@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T05:15:05Z` |
+| Last refreshed | `2026-11-13T05:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,6 +200,10 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
+| [#6776](https://github.com/openova-io/openova/issues/6776) | 3 catalog charts pin the nonexistent cloudnative-pg/postgresql:16.4 (latent ErrI | Other |
+| [#6778](https://github.com/openova-io/openova/issues/6778) | hw306 — fresh 2-region prov train: manifest → wipe hw305 → fire → cutove | Other |
+| [#6799](https://github.com/openova-io/openova/issues/6799) | NAT-EIP rotation at prov time drifts tofu state (rotated SNAT rule/EIP outside s | Other |
+| [#6803](https://github.com/openova-io/openova/issues/6803) | Harbor proxy-cache serves an index whose child manifests are gone — invisible  | Other |
 | [#6815](https://github.com/openova-io/openova/issues/6815) | A region-A worker has never joined k3s and nothing reports it — Phase 1 counts | Other |
 | [#6825](https://github.com/openova-io/openova/issues/6825) | Every self-upgrade takes the Sovereign's console and API down for 2-3 minutes � | Other |
 | [#6832](https://github.com/openova-io/openova/issues/6832) | kyverno pvc-volume-expansion errors on every PVC — the policy's APICall has no | Other |
@@ -249,7 +253,6 @@ flowchart LR
 | [#7174](https://github.com/openova-io/openova/issues/7174) | SEC-020 Random k3s server token and separate agent token | Other |
 | [#7185](https://github.com/openova-io/openova/issues/7185) | ACC-060 Decision record for the access plane | Other |
 | [#7186](https://github.com/openova-io/openova/issues/7186) | BSS-030 Order capture never prices from a second list | Other |
-| [#7187](https://github.com/openova-io/openova/issues/7187) | BSS-035 The storefront says when prices are unavailable | Other |
 | [#7188](https://github.com/openova-io/openova/issues/7188) | CLD-010 Provider-leak scanner with a falling baseline | Other |
 | [#7189](https://github.com/openova-io/openova/issues/7189) | CTL-020 Guard: no new polling loop | Other |
 | [#7190](https://github.com/openova-io/openova/issues/7190) | FND-105 Security control matrix: format and generator | Other |
@@ -270,10 +273,7 @@ flowchart LR
 | [#7218](https://github.com/openova-io/openova/issues/7218) | SEC-071 Ratchet on passwords the provisioning service writes to Git | Other |
 | [#7219](https://github.com/openova-io/openova/issues/7219) | SEC-110 Truth in the security documents | Other |
 | [#7231](https://github.com/openova-io/openova/issues/7231) | INF-070 Decision record for the infrastructure plane | Other |
-| [#7232](https://github.com/openova-io/openova/issues/7232) | NET-041 Remove the firewall claims from the storefront and the console | Other |
 | [#7233](https://github.com/openova-io/openova/issues/7233) | NET-052 Decision record 0026: NodePort ban and the gateway serving model | Other |
-| [#7234](https://github.com/openova-io/openova/issues/7234) | NET-070 Wizard shows what the provisioner builds | Other |
-| [#7235](https://github.com/openova-io/openova/issues/7235) | NET-072 Placement selectors offer the host only | Other |
 | [#7236](https://github.com/openova-io/openova/issues/7236) | PRD-010 Remove the unbacked open-banking claims from the Keycloak README | Other |
 | [#7237](https://github.com/openova-io/openova/issues/7237) | PRD-020 Decision record: later products | Other |
 | [#7238](https://github.com/openova-io/openova/issues/7238) | SOV-040 Guard G1: source-address ratchet | Other |
@@ -307,6 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T05:19 | [#7321](https://github.com/openova-io/openova/pull/7321) | #7087 | docs(ledger): plan update |
+| 2026-11-13T05:25 | [#7320](https://github.com/openova-io/openova/pull/7320) | #7186 | fix(billing): order capture never prices from a second list; |
+| 2026-11-13T05:25 | [#7319](https://github.com/openova-io/openova/pull/7319) | #7265 | refactor(api): read the ClusterMesh state, and a mode switch |
+| 2026-11-13T05:25 | [#7318](https://github.com/openova-io/openova/pull/7318) | #7282 | feat(providers): publish the network registry of a Sovereign |
 | 2026-11-13T05:11 | [#7316](https://github.com/openova-io/openova/pull/7316) | #7087 | docs(ledger): plan update |
 | 2026-11-13T05:04 | [#7315](https://github.com/openova-io/openova/pull/7315) | #7087 | docs(ledger): dashboard refreshed: 85 tasks merged |
 | 2026-11-13T05:00 | [#7310](https://github.com/openova-io/openova/pull/7310) | #7087 | docs(ledger): plan update |
@@ -333,10 +337,6 @@ flowchart LR
 | 2026-11-13T02:18 | [#7275](https://github.com/openova-io/openova/pull/7275) | #7268 | feat(contracts): publish contract C5, the variables document |
 | 2026-11-13T02:19 | [#7273](https://github.com/openova-io/openova/pull/7273) | #7269 | fix(console): the Catalog page shows listed Blueprints and r |
 | 2026-11-13T02:11 | [#7272](https://github.com/openova-io/openova/pull/7272) | #7267 | chore(ci): guard that the hand-over machinery only shrinks ( |
-| 2026-11-13T01:57 | [#7271](https://github.com/openova-io/openova/pull/7271) | #7264 | docs(adr): record 0036 on backup and restore of etcd, databa |
-| 2026-11-13T02:03 | [#7270](https://github.com/openova-io/openova/pull/7270) | #7263 | docs(ledger): map every Organization pipeline step to the or |
-| 2026-11-13T01:49 | [#7259](https://github.com/openova-io/openova/pull/7259) | #7087 | docs(ledger): plan update |
-| 2026-11-13T01:30 | [#7257](https://github.com/openova-io/openova/pull/7257) | #7237 | docs(adr): record 0034 on the later products, the AI hub and |
 
 ---
 
