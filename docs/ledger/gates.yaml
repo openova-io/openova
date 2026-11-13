@@ -1246,23 +1246,25 @@ checks:
 - id: FND-G05
   title: No NodePort
   owner: FND
-  state: not-built
+  state: expected-fail
   runs_in: [local, cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Zero live NodePort services in every region.
+  implementation: tests/acceptance/sovereign/internal/suite/check_nodeport.go
   implemented_by: FND-034
   delivered_by: FND-080
 - id: FND-G06
   title: Front doors
   owner: FND
-  state: not-built
+  state: expected-fail
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Each public host answers 200 or a redirect with a publicly trusted certificate, four samples per host. A 404 fails. A host that must refuse anonymous access answers 401 or 403 and is listed as such.
+  implementation: tests/acceptance/sovereign/internal/suite/check_front_doors.go
   implemented_by: FND-034
   delivered_by: FND-080
 - id: FND-G07
@@ -1285,18 +1287,19 @@ checks:
   needs: [multi-region]
   proof: running
   asserts: 'Every Cilium agent holds the gateway address of every node of the peer region as an ingress identity. Nothing more: that every pair of regions is connected and that a global service resolves from every region is the network area''s mesh check.'
-  implementation: tests/acceptance/sovereign/internal/suite/discover.go
+  implementation: tests/acceptance/sovereign/internal/suite/check_mesh.go
   implemented_by: FND-034
   delivered_by: FND-080
 - id: FND-G09
   title: Transit encryption
   owner: FND
-  state: not-built
+  state: expected-fail
   runs_in: [cloud]
   destructive: false
   needs: [multi-region]
   proof: running
   asserts: Traffic between regions is encrypted on the data path. The verdict of scripts/check-live-node-encryption.sh is the check's verdict.
+  implementation: tests/acceptance/sovereign/internal/suite/check_encryption.go
   implemented_by: FND-034
   delivered_by: FND-080
 - id: FND-G10
@@ -1308,7 +1311,7 @@ checks:
   needs: [multi-region]
   proof: running
   asserts: 'Journeys J1 and J2: install a two-region application, write, read, the replica holds the data.'
-  implementation: tests/acceptance/sovereign/internal/suite/journeys.go
+  implementation: tests/acceptance/sovereign/internal/suite/check_journeys.go
   implemented_by: FND-034
   delivered_by: FND-080
 - id: FND-G11
@@ -1320,7 +1323,7 @@ checks:
   needs: [multi-region]
   proof: running
   asserts: The Primary of a two-region application moves to the other region and back, data follows, and each move leaves a complete transition record.
-  implementation: tests/acceptance/sovereign/internal/suite/journeys.go
+  implementation: tests/acceptance/sovereign/internal/suite/check_journeys.go
   implemented_by: FND-034
   delivered_by: FND-080
 - id: FND-G12
@@ -1332,18 +1335,19 @@ checks:
   needs: [multi-region]
   proof: running
   asserts: 'Journey J5: nothing of the application remains in any region.'
-  implementation: tests/acceptance/sovereign/internal/suite/journeys.go
+  implementation: tests/acceptance/sovereign/internal/suite/check_journeys.go
   implemented_by: FND-034
   delivered_by: FND-080
 - id: FND-G13
   title: Clean wipe
   owner: FND
-  state: not-built
+  state: expected-fail
   runs_in: [cloud]
   destructive: false
   needs: [previous-wipe]
   proof: fresh
   asserts: The wipe of the previous deployment left nothing behind of any kind the platform creates (servers, disks, addresses, load balancers, networks, security groups, buckets, DNS records), counted by listing the cloud account, and the quota headroom was measured before this deployment was fired.
+  implementation: tests/acceptance/sovereign/internal/suite/check_wipe.go
   implemented_by: FND-034
   delivered_by: FND-120
 - id: FND-G14

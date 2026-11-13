@@ -75,6 +75,13 @@ type DeploymentInfo struct {
 	// for, by region id. It is the value of --nodes-requested. It is nil when
 	// the run did not say; check FND-G03 then fails.
 	NodesRequested map[string]int
+	// PreviousDeploymentID is the deployment whose wipe this fire follows, and
+	// PreviousWipeOrphans the number of its resources that the cloud account
+	// still listed after the wipe: the values of --previous-deployment-id and
+	// --previous-wipe-orphans. They are "" and -1 when the run did not say;
+	// check FND-G13 then fails.
+	PreviousDeploymentID string
+	PreviousWipeOrphans  int
 }
 
 // CheckContext is what a check may read. A check must not modify it.

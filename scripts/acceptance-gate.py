@@ -150,7 +150,9 @@ RECORD = {
     "provision": (False, {"provider": (True, "str"), "created_at": (True, "time"), "ready_at": (True, "time"),
                           "regions": (True, ("list", {"id": (True, "str"), "nodes_requested": (True, "int"),
                                                       "nodes_ready": (True, "int")})),
-                          "fresh": (True, "bool")}),
+                          "fresh": (True, "bool"),
+                          # The wipe that the fire follows. The suite writes them from its flags; check FND-G13 reads them.
+                          "previous_deployment_id": (False, "str"), "previous_wipe_orphans": (False, "int")}),
     # What ran. Check FND-G01 of the suite observes it; pass rule 2 compares it between the two records of a pair.
     "artifacts": (False, {"charts": (True, ("list", {"region": (True, "str"), "namespace": (True, "str"),
                                                      "release": (True, "str"), "chart": (True, "str"),
@@ -710,6 +712,11 @@ def validate_record(rec, m):
             out.append("deployment_id: required when run_in is cloud")
         if "provision" not in rec:
             out.append("provision: required when run_in is cloud")
+    provision = rec.get("provision", {})
+    if provision.get("previous_deployment_id") and "previous_wipe_orphans" not in provision:
+        out.append("provision.previous_wipe_orphans: required when previous_deployment_id is set")
+    if provision.get("previous_wipe_orphans", 0) < 0:
+        out.append("provision.previous_wipe_orphans: must not be negative")
     cand = rec["candidate"]
     if cand["id"] and (not CANDIDATE_ID.match(cand["id"]) or not cand["id"].endswith("-" + cand["commit"][:7])):
         out.append("candidate.id: must be empty or <UTC yyyymmddThhmmssZ>-<first 7 characters of candidate.commit>")
@@ -1109,6 +1116,14 @@ def self_test():
     check("record: a capability outside the closed list is refused", has(r, "capabilities[0]"), r)
     r = validate_record({k: x for k, x in valid.items() if k != "provision"}, mv)
     check("record: a cloud record without provision is refused", has(r, "provision: required"), r)
+    wiped = dict(valid, provision=dict(valid["provision"], previous_deployment_id="deployment-0", previous_wipe_orphans=0))
+    r = validate_record(wiped, mv)
+    check("CONTROL: a record with the wipe before the fire is valid", r == [], r)
+    r = validate_record(dict(wiped, provision={k: x for k, x in wiped["provision"].items() if k != "previous_wipe_orphans"}), mv)
+    check("record: a previous deployment without the orphans of its wipe is refused",
+          has(r, "provision.previous_wipe_orphans: required when previous_deployment_id is set"), r)
+    r = validate_record(dict(wiped, provision=dict(wiped["provision"], previous_wipe_orphans=-1)), mv)
+    check("record: a negative number of orphans is refused", has(r, "provision.previous_wipe_orphans: must not be negative"), r)
     r = validate_record(dict(valid, candidate={"id": "20261101T000000Z-bbbbbbb", "commit": commit}), mv)
     check("record: a candidate id that does not end in its commit is refused", has(r, "candidate.id"), r)
     r = validate_record(dict(valid, producer={"kind": "workflow"}), mv)

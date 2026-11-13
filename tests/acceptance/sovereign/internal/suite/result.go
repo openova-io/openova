@@ -86,6 +86,16 @@ type Artifacts struct {
 // the record. Finalize moves the value to the field Artifacts of the record.
 const ArtifactsKey = "artifacts"
 
+// Provision is the part of the record about the installation under test. The
+// suite writes two fields of it, and only in a run that follows a wipe: the
+// deployment that was wiped and the number of its resources that the cloud
+// account still listed after the wipe (check FND-G13). The other fields of
+// the object in the schema have no writer yet.
+type Provision struct {
+	PreviousDeploymentID string `json:"previous_deployment_id"`
+	PreviousWipeOrphans  int    `json:"previous_wipe_orphans"`
+}
+
 // Run is the JSON record written to docs/ledger/acceptance/<env>-<runid>.json.
 // The schema is version 2. It is read by scripts/acceptance-gate.py (the
 // table RECORD) and by scripts/acceptance_record.py: change all three together.
@@ -104,6 +114,7 @@ type Run struct {
 	Result       string            `json:"result"`
 	Candidate    Candidate         `json:"candidate"`
 	Producer     Producer          `json:"producer"`
+	Provision    *Provision        `json:"provision,omitempty"`
 	Artifacts    *Artifacts        `json:"artifacts,omitempty"`
 	Checks       []CheckResult     `json:"checks"`
 	Journeys     map[string]string `json:"journeys"`
