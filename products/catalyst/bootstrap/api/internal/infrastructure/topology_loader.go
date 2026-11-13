@@ -1,5 +1,5 @@
 // topology_loader.go — composes the unified TopologyResponse from the
-// three available data sources:
+// two available data sources:
 //
 //  1. The deployment record's Phase-0 OpenTofu outputs (provisioner.
 //     Result + Request) — always available post-Phase-0; carries
@@ -10,10 +10,6 @@
 //     by the helmwatch.Watcher attached to this deployment. Reads
 //     vcluster.com/v1alpha1 VClusters when the operator is installed
 //     plus core/v1 PVCs from the live cluster.
-//
-//  3. The Crossplane managed-resource list — surfaces XRCs the
-//     catalyst-api itself wrote. Populated by the same dynamic
-//     client; empty when no claims exist.
 //
 // Per docs/INVIOLABLE-PRINCIPLES.md (no placeholder data) every
 // per-source query that fails or returns empty results in an empty
@@ -880,10 +876,8 @@ func frontDoorLBs(in LoaderInput, region string) []LoadBalancer {
 }
 
 func buildNetworks(ctx context.Context, in LoaderInput, rs provisioner.RegionSpec) []Network {
-	// Per-region VPC stamped by the Phase-0 module; follow-on
-	// Day-2 PeeringClaim XRCs bind regions together. Today we
-	// surface one Network per region with empty Peerings until the
-	// Crossplane Composition lands and Peering objects exist.
+	// Per-region VPC stamped by the Phase-0 module. No source of
+	// peerings is wired, so Peerings is an honest empty list.
 	netID := "net-" + rs.CloudRegion + "-" + in.DeploymentID
 	if rs.CloudRegion == "" {
 		netID = "net-" + in.DeploymentID
@@ -893,7 +887,7 @@ func buildNetworks(ctx context.Context, in LoaderInput, rs provisioner.RegionSpe
 		Name:     "vpc-" + rs.CloudRegion,
 		CIDR:     "",
 		Region:   rs.CloudRegion,
-		Peerings: loadPeerings(ctx, in, rs),
+		Peerings: []Peering{},
 		Firewall: nil,
 		Status:   in.Status,
 	}}
@@ -1043,43 +1037,6 @@ func vclusterRole(labels map[string]string) string {
 		return v
 	}
 	return "other"
-}
-
-// loadPeerings — query Crossplane PeeringClaim XRCs scoped to this
-// deployment via the LabelDeploymentID selector.
-//
-// The recover guard tolerates fake-client panics in unit tests as
-// described on loadVClusters.
-func loadPeerings(ctx context.Context, in LoaderInput, rs provisioner.RegionSpec) (out []Peering) {
-	out = []Peering{}
-	defer func() {
-		if r := recover(); r != nil {
-			out = []Peering{}
-		}
-	}()
-	if in.DynamicClient == nil {
-		return out
-	}
-	gvr := gvrForKind(KindPeeringClaim)
-	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	list, err := in.DynamicClient.Resource(gvr).Namespace(XRCNamespace).List(cctx, metav1.ListOptions{
-		LabelSelector: LabelDeploymentID + "=" + in.DeploymentID,
-	})
-	if err != nil || list == nil {
-		return out
-	}
-	for _, item := range list.Items {
-		spec, _, _ := nestedMap(item.Object, "spec")
-		out = append(out, Peering{
-			ID:      string(item.GetUID()),
-			Name:    item.GetName(),
-			VPCPair: stringField(spec, "vpcPair"),
-			Subnets: stringField(spec, "subnets"),
-			Status:  statusFromUnstructured(item.Object),
-		})
-	}
-	return out
 }
 
 // buildStorage — PVCs + block Volumes from the live cluster. Empty
@@ -1380,101 +1337,6 @@ func pvPhaseToTopologyStatus(phase string) string {
 		// unknown — present, not-yet-attached, no false health claim.
 		return "unknown"
 	}
-}
-
-// CascadeFor — given a delete target (kind + id) and the current
-// topology, lists the child resources that would be reaped. Used by
-// the DELETE handler to populate the 202 response's Cascade slice.
-func CascadeFor(kind, id string, topology TopologyResponse) []CascadeImpact {
-	out := []CascadeImpact{}
-	switch strings.ToLower(kind) {
-	case "region":
-		for _, rg := range topology.Topology.Regions {
-			if rg.ID != id {
-				continue
-			}
-			for _, c := range rg.Clusters {
-				out = append(out, CascadeImpact{
-					Kind: "cluster", ID: c.ID, Name: c.Name,
-					Note: "cluster will drain + be reaped",
-				})
-				for _, np := range c.NodePools {
-					out = append(out, CascadeImpact{
-						Kind: "nodePool", ID: np.ID, Name: np.Name,
-						Note: "node pool will be deleted",
-					})
-				}
-				for _, n := range c.Nodes {
-					out = append(out, CascadeImpact{
-						Kind: "node", ID: n.ID, Name: n.Name,
-						Note: "workloads will be drained",
-					})
-				}
-				for _, lb := range c.LoadBalancers {
-					out = append(out, CascadeImpact{
-						Kind: "lb", ID: lb.ID, Name: lb.Name,
-						Note: "load balancer will be released",
-					})
-				}
-			}
-			for _, n := range rg.Networks {
-				out = append(out, CascadeImpact{
-					Kind: "network", ID: n.ID, Name: n.Name,
-					Note: "VPC will be released; peerings disconnected",
-				})
-				for _, p := range n.Peerings {
-					out = append(out, CascadeImpact{
-						Kind: "peering", ID: p.ID, Name: p.Name,
-						Note: "peering will be torn down",
-					})
-				}
-			}
-		}
-	case "cluster":
-		for _, rg := range topology.Topology.Regions {
-			for _, c := range rg.Clusters {
-				if c.ID != id {
-					continue
-				}
-				for _, np := range c.NodePools {
-					out = append(out, CascadeImpact{Kind: "nodePool", ID: np.ID, Name: np.Name})
-				}
-				for _, n := range c.Nodes {
-					out = append(out, CascadeImpact{Kind: "node", ID: n.ID, Name: n.Name})
-				}
-				for _, lb := range c.LoadBalancers {
-					out = append(out, CascadeImpact{Kind: "lb", ID: lb.ID, Name: lb.Name})
-				}
-			}
-		}
-	case "nodepool", "pool":
-		for _, rg := range topology.Topology.Regions {
-			for _, c := range rg.Clusters {
-				for _, np := range c.NodePools {
-					if np.ID != id {
-						continue
-					}
-					for _, n := range c.Nodes {
-						if n.NodePoolID == np.ID {
-							out = append(out, CascadeImpact{Kind: "node", ID: n.ID, Name: n.Name,
-								Note: "node will be drained + cordoned"})
-						}
-					}
-				}
-			}
-		}
-	}
-	// Always emit at least one descriptor so the FE confirm dialog
-	// can render a row even when no children are observable.
-	if len(out) == 0 {
-		out = append(out, CascadeImpact{
-			Kind: kind,
-			ID:   id,
-			Name: id,
-			Note: "no observable child resources — proceeding will reap the underlying cloud resources",
-		})
-	}
-	return out
 }
 
 /* ─── Helpers (no client-go mutation here; reads only) ─── */

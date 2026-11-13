@@ -73,3 +73,7 @@ products/catalyst/bootstrap/ui/src/components/CrudModals/NodeActionConfirm.tsx
 products/catalyst/bootstrap/ui/src/components/CrudModals/ScalePoolModal.tsx
 products/catalyst/bootstrap/ui/src/components/CrudModals/SimpleDeleteConfirm.tsx
 products/catalyst/bootstrap/ui/src/lib/infrastructure-crud.ts
+products/catalyst/bootstrap/api/internal/handler/infrastructure_crud_breadth_test.go
+products/catalyst/bootstrap/api/internal/handler/infrastructure_crud_test.go
+products/catalyst/bootstrap/api/internal/infrastructure/xrc.go
+products/catalyst/bootstrap/api/internal/jobs/mutation_bridge.go
