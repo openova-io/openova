@@ -20,7 +20,6 @@
       "products/catalyst/bootstrap/api/internal/handler/auth_test_session.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/blueprints.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/blueprints_wire_compat.go": 1,
-      "products/catalyst/bootstrap/api/internal/handler/byos_claude_code.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/catalog_client.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/catalog_client_cluster_fallback.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/catalog_edit_blueprint_yaml.go": 1,
@@ -148,7 +147,6 @@
       "products/catalyst/bootstrap/api/internal/handler/registrar.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/resource_preflight.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/retry.go": 1,
-      "products/catalyst/bootstrap/api/internal/handler/sandbox_sessions.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/schedules.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/secondary_kubeconfig_completeness.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/secondary_kubeconfig_forward_client.go": 1,
@@ -184,13 +182,13 @@
       "products/catalyst/bootstrap/api/internal/handler/wipe_evs_backstop.go": 1
     },
     "handler_lines": {
-      "products/catalyst/bootstrap/api/internal/handler": 102798
+      "products/catalyst/bootstrap/api/internal/handler": 100892
     },
     "handler_methods": {
-      "products/catalyst/bootstrap/api/internal/handler": 688
+      "products/catalyst/bootstrap/api/internal/handler": 674
     },
     "main_lines": {
-      "products/catalyst/bootstrap/api/cmd/api/main.go": 2224
+      "products/catalyst/bootstrap/api/cmd/api/main.go": 2180
     }
   },
   "schema": "openova.io/guard-baseline/v1"

@@ -644,16 +644,6 @@ func main() {
 	h.SetAuditBus(auditBus)
 	log.Info("audit: bus wired", "ringCapacity", auditRingCap)
 
-	// TBD-D35b / #1776 — Sandbox-create NATS publish. Wires a
-	// `catalyst.tenant.*` publisher when CATALYST_NATS_URL is set so
-	// every Sandbox CR Create leaves a corresponding
-	// `catalyst.tenant.sandbox_requested` event on the audit stream.
-	// Returns nil today (placeholder mirroring newRBACAuditPublisher
-	// FromEnv); the real nats.go-importing publisher lands in the
-	// same follow-up slice that swaps the RBAC stub. Nil is safe:
-	// the sandbox_sessions handler treats a nil publisher as a no-op.
-	h.SetTenantEventPublisher(newTenantEventPublisherFromEnv(log))
-
 	// CATALYST_ORG_JWT_SECRET — bridge secret for /api/v1/org/* proxies
 	// (PR #1625 follow-up). The chart's api-deployment.yaml feeds this
 	// via secretKeyRef on `org-services-secrets/JWT_SECRET`, mirrored from the
@@ -1282,40 +1272,6 @@ func main() {
 
 		// Whoami — UI auth guard polls this; 401 → redirect to /login.
 		rg.Get("/api/v1/whoami", h.HandleWhoami)
-
-		// Sandbox BYOS — Claude Code "Bring Your Own Subscription"
-		// (Wave 1b scaffold; design in
-		// products/sandbox/docs/claude-code-byos.md).
-		//
-		// Lets a user attach their personal Anthropic Max / Pro
-		// subscription so Sandbox-Pod Claude Code sessions bypass
-		// the Sovereign newapi gateway. All four endpoints sit
-		// inside RequireSession — every BYOS action is bound to
-		// the authenticated user's `sub` claim.
-		rg.Post("/api/v1/sandbox/byos/claude-code/start", h.HandleByosClaudeCodeStart)
-		rg.Get("/api/v1/sandbox/byos/claude-code/callback", h.HandleByosClaudeCodeCallback)
-		rg.Delete("/api/v1/sandbox/byos/claude-code", h.HandleByosClaudeCodeDisconnect)
-		rg.Get("/api/v1/sandbox/byos/claude-code/status", h.HandleByosClaudeCodeStatus)
-		// /config — FE pre-flight: reports whether the chart's OAuth
-		// client_id is the placeholder (PR #1619). The SandboxSettings
-		// card uses this to disable the Connect button + show an amber
-		// "pending operator setup" tooltip instead of letting the user
-		// click a button whose OAuth URL would 400 at Anthropic.
-		rg.Get("/api/v1/sandbox/byos/claude-code/config", h.HandleByosClaudeCodeConfig)
-
-		// Sandbox sessions — Wave 7 CRUD on the Sandbox CRD
-		// (sandbox.openova.io/v1). The FE in
-		// products/catalyst/bootstrap/ui/src/lib/sandbox.api.ts
-		// (PR #1621) calls getSandboxes() + createSandbox() + a
-		// per-row delete; the BE handler lives in
-		// products/catalyst/bootstrap/api/internal/handler/
-		// sandbox_sessions.go. All four endpoints sit inside
-		// RequireSession — Sandbox ops are scoped to the operator's
-		// org_id claim per PR #1619.
-		rg.Get("/api/v1/sandbox/sessions", h.HandleListSandboxSessions)
-		rg.Post("/api/v1/sandbox/sessions", h.HandleCreateSandboxSession)
-		rg.Get("/api/v1/sandbox/sessions/{id}", h.HandleGetSandboxSession)
-		rg.Delete("/api/v1/sandbox/sessions/{id}", h.HandleDeleteSandboxSession)
 
 		// K8s data-plane endpoints — list + SSE stream + sync map per
 		// Sovereign cluster (issue #321). Per ADR-0001 §5 the catalyst-api
@@ -2599,44 +2555,6 @@ func newRBACAuditPublisherFromEnv(log *slog.Logger) audit.Publisher {
 	return nil
 }
 
-// newTenantEventPublisherFromEnv constructs the cross-process forwarder
-// for the `catalyst.tenant.*` event taxonomy used by the
-// sandbox_sessions handler (TBD-D35b / #1776). When CATALYST_NATS_URL
-// is set, dials NATS and returns the concrete natspub.Publisher; the
-// handler's tenantEvents field then publishes
-// `catalyst.tenant.sandbox_requested` on every successful Sandbox CR
-// Create. When CATALYST_NATS_URL is unset OR the dial fails, returns
-// nil so the handler runs in publish-disabled mode — the Sandbox CR
-// Create still succeeds + the FE still observes the new sandbox, but
-// no audit envelope is emitted. Dial failure is logged + non-fatal so
-// a Pod cold-start doesn't crash-loop on a transiently unreachable
-// broker (the chroot-Sovereign cold-start sequence brings nats-system
-// up after catalyst-system).
-//
-// Per ADR-0001 §6 the subject taxonomy is `catalyst.tenant.<event>`.
-// Per docs/INVIOLABLE-PRINCIPLES.md #4 the URL is env-driven.
-//
-// TBD-D35c — wired concrete nats.go binding (this PR). The previous
-// scaffold returned nil unconditionally because catalyst-api shipped
-// without the `nats.go` SDK in its go.mod (see PR #1918 placeholder).
-func newTenantEventPublisherFromEnv(log *slog.Logger) handler.TenantEventPublisher {
-	url := os.Getenv("CATALYST_NATS_URL")
-	if url == "" {
-		log.Info("tenant-events: CATALYST_NATS_URL unset — running in publish-disabled mode")
-		return nil
-	}
-	pub, err := natspub.Dial(url, log)
-	if err != nil {
-		// Non-fatal: log + return nil. The handler's nil-tolerant
-		// publish guard keeps the Sandbox-create hot path working.
-		log.Warn("tenant-events: NATS dial failed — running in publish-disabled mode",
-			"url", url, "err", err,
-		)
-		return nil
-	}
-	return pub
-}
-
 // envBool returns the parsed boolean value of an env var, or fallback
 // when unset / unparseable. Truthy values: 1, t, T, true, TRUE, True.
 func envBool(key string, fallback bool) bool {
@@ -2949,8 +2867,7 @@ func newCompliancePolicyRollupPublisherFromEnv(log *slog.Logger) handler.PolicyR
 	source := env("CATALYST_SOURCE_FQDN", env("HOSTNAME", "catalyst-api"))
 	// Wave 5.44 (#2251) wired the real NATS JetStream KV publisher via
 	// internal/natspub — replacing the prior nil-returning stub. nats.go
-	// landed in catalyst-api's go.mod via TBD-D35c PR #1918 (the same
-	// dependency that backs sandbox_publisher.go).
+	// landed in catalyst-api's go.mod via TBD-D35c PR #1918.
 	p, err := natspub.NewComplianceRollupPublisher(url, bucket, source, log,
 		handler.IncrementComplianceNATSPublishFailure)
 	if err != nil {

@@ -28,7 +28,6 @@
       "products/catalyst/bootstrap/api/internal/handler/post_handover_spine_apps.go": 2,
       "products/catalyst/bootstrap/api/internal/handler/rbac_assign.go": 2,
       "products/catalyst/bootstrap/api/internal/handler/reconcilers.go": 1,
-      "products/catalyst/bootstrap/api/internal/handler/sandbox_sessions.go": 2,
       "products/catalyst/bootstrap/api/internal/handler/schedules.go": 3,
       "products/catalyst/bootstrap/api/internal/handler/sovereign_anthropic_seed_mothership.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/sovereign_smtp_seed.go": 2,

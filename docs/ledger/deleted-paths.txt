@@ -26,3 +26,12 @@ products/catalyst/bootstrap/ui/src/lib/sandbox.api.ts
 products/catalyst/bootstrap/ui/e2e/sandbox.spec.ts
 clusters/omantel.omani.works
 clusters/otech.omani.works
+products/catalyst/bootstrap/api/internal/handler/byos_claude_code.go
+products/catalyst/bootstrap/api/internal/handler/sandbox_sessions.go
+products/catalyst/bootstrap/api/internal/handler/sandbox_sessions_integration_test.go
+products/catalyst/bootstrap/api/internal/handler/sandbox_sessions_nats_test.go
+products/catalyst/bootstrap/api/internal/handler/sandbox_sessions_reresolve_5140_test.go
+products/catalyst/bootstrap/api/internal/handler/sandbox_sessions_test.go
+products/catalyst/bootstrap/api/internal/handler/sandbox_unreconciled_6260_test.go
+products/catalyst/bootstrap/api/internal/natspub/sandbox_publisher.go
+products/catalyst/bootstrap/api/internal/natspub/sandbox_publisher_test.go
