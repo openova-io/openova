@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T03:30:04Z` |
+| Last refreshed | `2026-11-13T03:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T03:40 | [#7298](https://github.com/openova-io/openova/pull/7298) | #7087 | docs(ledger): plan update |
+| 2026-11-13T03:39 | [#7297](https://github.com/openova-io/openova/pull/7297) | #7260 | feat(providers): publish the provider contract files, the pr |
+| 2026-11-13T03:39 | [#7296](https://github.com/openova-io/openova/pull/7296) | #7266 | test(fingate): vendor the Read/Write API 4.0.0 documents and |
 | 2026-11-13T03:09 | [#7290](https://github.com/openova-io/openova/pull/7290) | #7087 | docs(ledger): plan update |
 | 2026-11-13T03:11 | [#7288](https://github.com/openova-io/openova/pull/7288) | #7232 | fix: remove the firewall claims from the storefront and the  |
 | 2026-11-13T03:10 | [#7287](https://github.com/openova-io/openova/pull/7287) | #7166 | feat(gate): checks for node ports, front doors, mesh, transi |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-13T00:18 | [#7244](https://github.com/openova-io/openova/pull/7244) | #7087 | docs(ledger): plan update: the check list names the implemen |
 | 2026-11-13T00:14 | [#7243](https://github.com/openova-io/openova/pull/7243) | #7087 | docs(ledger): plan update: next tickets |
 | 2026-11-13T00:15 | [#7242](https://github.com/openova-io/openova/pull/7242) | #7145 | docs(protocol): ticket linter, Issue template and the execut |
-| 2026-11-13T00:15 | [#7241](https://github.com/openova-io/openova/pull/7241) | #7116 | chore(ci): guard that the API handler package and main only  |
-| 2026-11-13T00:15 | [#7240](https://github.com/openova-io/openova/pull/7240) | #7209 | docs(adr): record 0030 on the model plane, and the model con |
-| 2026-11-13T00:03 | [#7230](https://github.com/openova-io/openova/pull/7230) | #7087 | docs(ledger): plan update: five tickets rewritten, one order |
 
 ---
 
