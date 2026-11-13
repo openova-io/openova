@@ -106,11 +106,16 @@ Region IPs come from `CILIUM_LB_IPAM_CIDRS` unless `ACCEPT_REGION_IPS` is set.
 
 It writes through the console API: one create, the placement PUTs and one
 delete, plus the WordPress REST writes and the installer form. It writes with
-`kubectl create`, `apply` and `delete` in gate check CMP-G01 only. That check
-creates a namespace `cmp-gate-<run>` of its own in the first region, applies
-one Deployment with zero replicas in it, and deletes that namespace before it
-ends. Two other `kubectl exec` calls are made, both on the app's own pods. One
-is the J2.1 author setup in the WordPress container. The other runs single
+`kubectl create`, `apply` and `delete` in gate checks CMP-G01, SEC-G01 and
+SEC-G02 only. CMP-G01 creates a namespace `cmp-gate-<run>` of its own in the
+first region, applies one Deployment with zero replicas in it, and deletes
+that namespace before it ends. SEC-G01 and SEC-G02 create a namespace
+`sec-etcd-<run>` or `sec-node-<run>` of their own in every region, start one
+probe Pod on every control-plane node in it, run a script that only reads
+files of the node in each Pod with `kubectl exec`, and delete that namespace
+before they end. SEC-G01 also creates one Secret, the canary. Two other
+`kubectl exec` calls are made, both on the app's own pods. One is the J2.1
+author setup in the WordPress container. The other runs single
 read-only `SELECT`s on CNPG instances; `PSQLSelect` refuses anything else. The
 suite never runs `kubectl patch`. Gate checks FND-G05 and FND-G09 run
 `scripts/check-live-nodeports.sh` and `scripts/check-live-node-encryption.sh`
@@ -148,8 +153,10 @@ The checks of the suite. Checks FND-G01 to FND-G05 and FND-G09 read every
 region; a region that cannot be read fails the check. Checks FND-G08 and
 FND-G10 to FND-G12 read no cluster: they report steps that the run recorded
 before the checks, and a step that is missing fails the check. The two CMP
-checks read the first region, the region the API runs in. A platform
-namespace is a namespace without the label `openova.io/organization`.
+checks read the first region, the region the API runs in. The two SEC
+checks read every control-plane node of every region; a region without a
+node labelled `node-role.kubernetes.io/control-plane=true` fails them. A
+platform namespace is a namespace without the label `openova.io/organization`.
 
 | Check | File | It fails when |
 |---|---|---|
@@ -167,6 +174,8 @@ namespace is a namespace without the label `openova.io/organization`.
 | FND-G13 Clean wipe | `check_wipe.go` | The run did not get `--previous-deployment-id` and `--previous-wipe-orphans`, the previous deployment is the deployment under test, or the number of orphans is not `0`. |
 | CMP-G01 The score moves by push | `check_compliance_push.go` | The scorecard of the Sovereign is empty. No frame of the compliance stream names the seed within 120 seconds. The Sovereign score does not count the seed, or the violations do not list it. The violations still list the seed 120 seconds after it was deleted. The seed is the Deployment `cmp-bad` with zero replicas in a namespace `cmp-gate-<run>` of its own; the check applies it with `kubectl` and deletes the namespace before it ends. It makes no request on a timer: it reads a route again only after a frame arrived. |
 | CMP-G02 The shown mode is the engine's mode | `check_compliance_mode.go` | A policy that `GET /api/v1/sovereigns/{id}/compliance/policies` lists shows another mode than its engine object carries, or has no engine object. The engine object is the `ClusterPolicy` of that name, or the `ValidatingPolicy` when there is none. `enforcing` and `enforce` are the engine's enforce; `permissive` and `audit` are its audit. A policy of source `evaluator` without an engine object is not compared. |
+| SEC-G01 etcd at rest | `check_sec_etcd.go` | On a control-plane node the value of the canary is in the clear in the etcd file `/var/lib/rancher/k3s/server/db/etcd/member/snap/db` or in a write-ahead log file beside it, or a record of the canary in the etcd file does not hold `k8s:enc:secretbox:v1:`. The canary is the Secret `etcd-canary` with a random value that the check creates in its namespace. A node whose files hold no record of the canary fails: nothing was measured. A probe Pod on each node reads the files (`sec_probe.go`). |
+| SEC-G02 Node hygiene | `check_sec_node.go` | On a control-plane node the part after `::server:` of `/var/lib/rancher/k3s/server/token` is 64 lower-case hexadecimal characters, the form of a token derived from identifiers; `/etc/rancher/k3s/k3s.yaml` is missing or its mode is not 600; or a file `/var/lib/catalyst/*-secret.yaml` or `/var/lib/catalyst/flux-bootstrap.yaml` remains. The probe prints the class of the token, never the token. |
 
 FND-G02 also asserts that the deployment record shows no retry call. The
 suite has no source for that yet, so the step is recorded **SKIP** and the

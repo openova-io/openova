@@ -3,11 +3,15 @@
 // The suite reads cluster state to prove WHERE an object actually lives: the
 // region is the kubeconfig that returned it, never a label on the object. The
 // verbs it uses are `get` and `exec` (psql SELECT, WordPress pod setup), and
-// `create`, `apply` and `delete` in gate check CMP-G01 only. It never patches —
-// every mutation of the Sovereign goes through the console API the way a
-// sovereign-admin would. One gate check writes to a cluster: CMP-G01
-// (suite/check_compliance_push.go) creates a namespace of its own, applies
-// one Deployment with zero replicas in it, and deletes that namespace.
+// `create`, `apply`, `wait` and `delete` in gate checks CMP-G01, SEC-G01 and
+// SEC-G02 only. It never patches — every other mutation of the Sovereign goes
+// through the console API the way a sovereign-admin would. Three gate checks
+// write to a cluster. CMP-G01 (suite/check_compliance_push.go) creates a
+// namespace of its own, applies one Deployment with zero replicas in it, and
+// deletes that namespace. SEC-G01 and SEC-G02 (suite/sec_probe.go) create a
+// namespace of their own in every region and one probe Pod per control-plane
+// node in it, SEC-G01 also one Secret; they run a script that only reads in
+// each Pod with `exec`, and delete that namespace.
 package kube
 
 import (
