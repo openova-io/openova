@@ -1,0 +1,17 @@
+# Spike CMP-S5: record Pod and workload writes at Metadata level, so the
+# pod-security `audit` mode annotations (pod-security.kubernetes.io/audit-*)
+# land in the API server's audit log. Everything else is not logged.
+apiVersion: audit.k8s.io/v1
+kind: Policy
+omitStages: ["RequestReceived"]
+rules:
+  - level: Metadata
+    verbs: ["create", "update", "patch"]
+    resources:
+      - group: ""
+        resources: ["pods"]
+      - group: "apps"
+        resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+      - group: "batch"
+        resources: ["jobs", "cronjobs"]
+  - level: None

@@ -1,0 +1,43 @@
+package gitops
+
+// Spike CMP-S5 helper. The spike workflow copies this file into
+// core/controllers/organization/internal/gitops/ inside the CI job only, so
+// the Organization boundary is rendered by the organization-controller's own
+// Render function and not by a hand copy of its templates. It is never
+// committed to that package.
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestSpikeCMPS5RenderBoundary(t *testing.T) {
+	out := os.Getenv("CMPS5_OUT")
+	if out == "" {
+		t.Skip("CMPS5_OUT not set")
+	}
+	files, err := Render(Inputs{
+		Slug:                  os.Getenv("CMPS5_SLUG"),
+		DisplayName:           "CMP-S5 spike Organization",
+		Tier:                  "org",
+		PlanSlug:              "m",
+		SovereignFQDN:         "spike.omani.works",
+		HostCluster:           "kind-cmps5",
+		VClusterChartVersion:  "0.33.*",
+		VClusterImageRegistry: "harbor.openova.io",
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	for path, body := range files {
+		dst := filepath.Join(out, path)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(dst, body, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("wrote %s", path)
+	}
+}

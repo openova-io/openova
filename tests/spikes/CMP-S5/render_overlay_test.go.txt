@@ -1,0 +1,48 @@
+package handler
+
+// Spike CMP-S5 helper. The spike workflow copies this file into
+// products/catalyst/bootstrap/api/internal/handler/ inside the CI job only, so
+// the Organization's own charts (bp-keycloak and the five funnel
+// Applications) get exactly the Helm values the catalyst-api renders. It is
+// never committed to that package.
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
+)
+
+func TestSpikeCMPS5RenderOverlay(t *testing.T) {
+	out := os.Getenv("CMPS5_OUT")
+	if out == "" {
+		t.Skip("CMPS5_OUT not set")
+	}
+	slug := os.Getenv("CMPS5_SLUG")
+	rec := store.OrganizationProvisionRecord{
+		OrganizationID:  "t-" + slug,
+		Subdomain:       slug,
+		DomainMode:      store.OrganizationDomainFreeSubdomain,
+		AdminEmail:      "owner@" + slug + ".omani.homes",
+		CompanyName:     "CMP-S5 spike Organization",
+		OTECHFQDN:       "spike.omani.works",
+		ParentDomain:    "omani.homes",
+		VClusterName:    slug,
+		TenantNamespace: slug,
+	}
+	files, err := renderOrganizationOverlay(rec, OrganizationChartVersions{})
+	if err != nil {
+		t.Fatalf("renderOrganizationOverlay: %v", err)
+	}
+	for name, body := range files {
+		dst := filepath.Join(out, name)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(dst, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("wrote %s (application=%v)", name, isFunnelApplicationFile(name))
+	}
+}

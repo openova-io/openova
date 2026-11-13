@@ -1,0 +1,134 @@
+# Spike CMP-S5 (lab test, never merged): do an Organization's workloads --
+# the vCluster's own control-plane Pod, the Pods it syncs into the host
+# namespace, and the Organization's own charts -- pass the pod-security
+# `baseline` level?
+#
+# Runs only on a push to the spike branch. Everything happens inside a kind
+# cluster in this job: no cloud account, no secret, no cluster outside CI.
+# The Organization boundary and the Organization's chart values are rendered
+# by the product's own renderers (two helper tests copied into their packages
+# inside this job only).
+name: spike-cmp-s5
+
+on:
+  push:
+    branches: [spike/CMP-S5]
+
+permissions:
+  contents: read
+
+jobs:
+  baseline-pod-security:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
+    env:
+      KIND_VERSION: v0.25.0
+      KIND_NODE_IMAGE: kindest/node:v1.31.2
+      KUBECTL_VERSION: v1.31.2
+      # live Sovereigns run k3s v1.31.4 (infra/providers/huawei variables.tf);
+      # pod-security policy versions move only with the minor
+      KUBE_VERSION: v1.31.4
+      HELM_VERSION: v3.16.3
+      YQ_VERSION: v4.44.3
+      GATEWAY_API_VERSION: v1.2.1
+      # the platform's own bp-cnpg pin (platform/cnpg/chart/Chart.yaml)
+      CNPG_CHART_REPO: https://raw.githubusercontent.com/cloudnative-pg/charts/gh-pages
+      CNPG_CHART_VERSION: 0.28.0
+      CMPS5_SLUG: acme
+      OUT: ${{ github.workspace }}/out
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: products/catalyst/bootstrap/api/go.mod
+          cache-dependency-path: |
+            core/controllers/go.sum
+            products/catalyst/bootstrap/api/go.sum
+
+      - name: Render the Organization boundary (organization-controller Render)
+        run: |
+          set -euo pipefail
+          cp tests/spikes/CMP-S5/render_boundary_test.go.txt \
+            core/controllers/organization/internal/gitops/zz_cmps5_spike_test.go
+          cd core/controllers
+          CMPS5_OUT="$OUT/render/boundary" go test ./organization/internal/gitops/ \
+            -run '^TestSpikeCMPS5RenderBoundary$' -count=1 -v
+          find "$OUT/render/boundary" -type f | sort
+
+      - name: Render the Organization's chart values (catalyst-api renderOrganizationOverlay)
+        run: |
+          set -euo pipefail
+          cp tests/spikes/CMP-S5/render_overlay_test.go.txt \
+            products/catalyst/bootstrap/api/internal/handler/zz_cmps5_spike_test.go
+          cd products/catalyst/bootstrap/api
+          CMPS5_OUT="$OUT/render/overlay" go test ./internal/handler/ \
+            -run '^TestSpikeCMPS5RenderOverlay$' -count=1 -v
+          find "$OUT/render/overlay" -type f | sort
+
+      - name: Install kind and kubectl
+        uses: helm/kind-action@v1
+        with:
+          install_only: true
+          version: ${{ env.KIND_VERSION }}
+          kubectl_version: ${{ env.KUBECTL_VERSION }}
+
+      - name: Install helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Install yq
+        run: |
+          sudo curl -fsSL -o /usr/local/bin/yq \
+            "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Tool versions
+        run: |
+          kind version
+          kubectl version --client
+          helm version
+          yq --version
+          jq --version
+          go version
+          python3 --version
+          nproc; free -g
+
+      - name: Run the experiment
+        run: bash tests/spikes/CMP-S5/run.sh
+
+      - name: Evaluate
+        if: always()
+        run: |
+          set -o pipefail
+          python3 tests/spikes/CMP-S5/measure.py --dir "$OUT" | tee "$OUT/evaluate.txt"
+          cat "$OUT/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Dump the result files into the log
+        if: always()
+        run: |
+          for f in "$OUT"/live/enforce.jsonl "$OUT"/charts/org-stack.tsv "$OUT"/charts/catalog.tsv \
+                   "$OUT"/live/vcluster-values.diff "$OUT"/live/assess-*.txt "$OUT"/live/restart-host.txt \
+                   "$OUT"/live/restart-virtual.txt "$OUT"/live/pods-*.txt "$OUT"/live/vcluster-install.txt \
+                   "$OUT"/live/enforce-label.txt "$OUT"/logs/psa-metrics.txt "$OUT"/logs/audit-psa.jsonl \
+                   "$OUT"/live/probe-priv-virtual.yaml; do
+            [ -f "$f" ] || continue
+            echo "::group::$f"; head -c 60000 "$f"; echo; echo "::endgroup::"
+          done
+          echo "::group::syncer PodSecurity lines"
+          grep -h -i "podsecurity" "$OUT"/logs/syncer*.log | head -50 || true
+          echo "::endgroup::"
+          echo "::group::render logs (tails)"
+          for f in "$OUT"/charts/*.render.log; do echo "--- $f"; tail -5 "$f"; done
+          echo "::endgroup::"
+
+      - name: Keep the evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spike-cmp-s5-out
+          path: out/
+          retention-days: 30
