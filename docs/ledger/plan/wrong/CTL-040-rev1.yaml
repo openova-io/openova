@@ -1,0 +1,25 @@
+schema: openova.io/plan-wrong/v1
+id: CTL-040
+ticket_rev: 1
+base_commit: 8858b073b879f55b30c1df60705a0c2af932ab92
+stage: check
+ref: pin-sync-audit
+command: |
+    gh api repos/openova-io/openova/actions/jobs/131895422459/logs | grep -B 40 -m 1 '##\[error\]' | cut -c30-300
+expected: |
+    the check finishes green
+actual: |
+    FAIL: umbrella-republish gate (#5734) — 2 catalog-seed pin(s) were last moved by a commit AFTER WHICH products/catalyst/chart/Chart.yaml's `version:` was NEVER changed (still 1.4.1952), so the published bp-catalyst-platform OCI artifact never carries them:
+
+      bp-kyverno-policies spec.version = '1.0.54' (blueprints.yaml:4594, last touched by commit 822d8a0a5dae) — the umbrella
+        chart version was 1.4.1952 then and is STILL 1.4.1952 now.
+        Fix: bump products/catalyst/chart/Chart.yaml's `version:` (and its
+        bootstrap-kit slot-13 pin, clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml)
+        in the SAME PR that moves this pin.
+      bp-kyverno-policies source.version = '1.0.54' (blueprints.yaml:4611, last touched by commit 822d8a0a5dae) — the umbrella
+        chart version was 1.4.1952 then and is STILL 1.4.1952 now.
+        Fix: bump products/catalyst/chart/Chart.yaml's `version:` (and its
+        bootstrap-kit slot-13 pin, clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml)
+        in the SAME PR that moves this pin.
+    ##[error]Process completed with exit code 1.
+reported_at: 2026-11-13T12:53:19Z
