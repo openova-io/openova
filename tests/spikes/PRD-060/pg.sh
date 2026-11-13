@@ -47,7 +47,8 @@ case "$profile" in
             -c maintenance_work_mem=7GB -c max_parallel_maintenance_workers=3
             -c max_parallel_workers=4 -c max_worker_processes=8
             -c wal_level=minimal -c max_wal_senders=0 -c fsync=off -c synchronous_commit=off
-            -c full_page_writes=off -c max_wal_size=8GB -c checkpoint_timeout=30min) ;;
+            -c full_page_writes=off -c max_wal_size=8GB -c checkpoint_timeout=30min
+            -c max_locks_per_transaction=256) ;;
   chart)
     opts=(--memory=512m --memory-swap=512m --cpus=0.5 --shm-size=256m)
     params=(-c shared_buffers=64MB -c effective_cache_size=192MB -c work_mem=4MB

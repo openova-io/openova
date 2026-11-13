@@ -400,23 +400,40 @@ def readable(plist, Q):
     return r, sources, exact, set(ids.tolist())
 
 
-def search_pass(plist, sources, Q, iterative=None, extra=None, max_seconds=0):
-    lat_tx, lat_q, got, short, misordered = [], [], [], 0, 0
+RELAXED = "SET LOCAL hnsw.iterative_scan = relaxed_order"
+# Over-fetch 40 with the same statement, then re-sort and keep 10 (pgvector's
+# documented way to put relaxed_order results back in order).
+OVERFETCH = "WITH r AS MATERIALIZED (\n" + SEARCH + "\n) SELECT * FROM r ORDER BY score DESC LIMIT 10"
+KNOBS = {
+    "ef_search_100": ((RELAXED, "SET LOCAL hnsw.ef_search = 100"), SEARCH, K),
+    "ef_search_200": ((RELAXED, "SET LOCAL hnsw.ef_search = 200"), SEARCH, K),
+    "strict_order": (("SET LOCAL hnsw.iterative_scan = strict_order",), SEARCH, K),
+    "overfetch_40_resort": ((RELAXED,), OVERFETCH, 40),
+}
+
+
+def search_pass(plist, sources, Q, sets=(RELAXED,), statement=SEARCH, k=K, max_seconds=0, timeout_ms=0):
+    import psycopg
+    lat_tx, lat_q, got, short, misordered, timeouts = [], [], [], 0, 0, 0
     with connect(user="cortex_query", vector=True) as c:
         start = time.perf_counter()
         for q in Q:
             if max_seconds and time.perf_counter() - start > max_seconds:
                 break
-            t0 = time.perf_counter()
-            with c.transaction():
-                c.execute(SET_PRINCIPALS, (plist,))
-                if iterative:
-                    c.execute(f"SET LOCAL hnsw.iterative_scan = {iterative}")
-                if extra:
-                    c.execute(extra)
-                t1 = time.perf_counter()
-                rows = c.execute(SEARCH, {"q": q, "src": sources, "k": K}).fetchall()
-                t2 = time.perf_counter()
+            t0 = t1 = time.perf_counter()
+            rows = []
+            try:
+                with c.transaction():
+                    c.execute(SET_PRINCIPALS, (plist,))
+                    if timeout_ms:
+                        c.execute(f"SET LOCAL statement_timeout = {int(timeout_ms)}")
+                    for s in sets:
+                        c.execute(s)
+                    t1 = time.perf_counter()
+                    rows = c.execute(statement, {"q": q, "src": sources, "k": k}).fetchall()
+            except psycopg.errors.QueryCanceled:
+                timeouts += 1  # counted with its elapsed time and zero rows (recall 0)
+            t2 = time.perf_counter()
             t3 = time.perf_counter()
             lat_tx.append((t3 - t0) * 1000)
             lat_q.append((t2 - t1) * 1000)
@@ -428,19 +445,31 @@ def search_pass(plist, sources, Q, iterative=None, extra=None, max_seconds=0):
                     for s, g, cu in c.execute(
                         "SELECT statement, generic_plans, custom_plans FROM pg_prepared_statements").fetchall()]
     return {"lat_tx": lat_tx, "lat_q": lat_q, "got": got, "short": short, "misordered": misordered,
-            "prepared": prepared, "seconds": round(time.perf_counter() - start, 1)}
+            "timeouts": timeouts, "prepared": prepared, "seconds": round(time.perf_counter() - start, 1)}
 
 
 def plan_walk(node, chain, scan):
     label = node["Node Type"] + (f" ({node['Index Name']})" if node.get("Index Name") else "")
-    chain.append(label)
+    chain.append(re.sub(r"_\d{4}", "_NNNN", label))
     if node["Node Type"] in ("Index Scan", "Bitmap Heap Scan", "Seq Scan", "Index Only Scan"):
-        scan["rows_removed_by_filter"] = node.get("Rows Removed by Filter", 0)
-        scan["rows_out"] = node.get("Actual Rows")
+        scan["rows_removed_by_filter"] = scan.get("rows_removed_by_filter", 0) + node.get("Rows Removed by Filter", 0)
+        scan["scan_nodes"] = scan.get("scan_nodes", 0) + 1
+    if node.get("Filter") and "hashed SubPlan" in node["Filter"]:
+        scan["hashed_subplan"] = True
     for ch in node.get("Plans", []):
         if ch.get("Parent Relationship") in ("SubPlan", "InitPlan"):
             continue
         plan_walk(ch, chain, scan)
+
+
+def compress(labels):
+    out = []
+    for lab in labels:
+        if out and out[-1][0] == lab:
+            out[-1][1] += 1
+        else:
+            out.append([lab, 1])
+    return " -> ".join(f"{lab} x{n}" if n > 1 else lab for lab, n in out)
 
 
 def explain_sample(plist, sources, Q, n, iterative="relaxed_order"):
@@ -451,17 +480,26 @@ def explain_sample(plist, sources, Q, n, iterative="relaxed_order"):
         for i, q in enumerate(Q[:n]):
             vec = "[" + ",".join(repr(float(x)) for x in q) + "]"
             body = sql.SQL(SEARCH_LITERAL).format(q=sql.Literal(vec), src=sql.Literal(arr), k=sql.Literal(K))
-            with c.transaction():
-                c.execute(SET_PRINCIPALS, (plist,))
-                c.execute(f"SET LOCAL hnsw.iterative_scan = {iterative}")
-                js = c.execute(sql.SQL("EXPLAIN (ANALYZE, BUFFERS, SETTINGS, FORMAT JSON) ") + body).fetchone()[0]
-                if i == 0:
-                    first_text = "\n".join(x[0] for x in c.execute(
-                        sql.SQL("EXPLAIN (ANALYZE, BUFFERS, SETTINGS) ") + body).fetchall())
+            import psycopg
+            try:
+                with c.transaction():
+                    c.execute(SET_PRINCIPALS, (plist,))
+                    c.execute(f"SET LOCAL hnsw.iterative_scan = {iterative}")
+                    c.execute("SET LOCAL statement_timeout = 120000")
+                    js = c.execute(sql.SQL("EXPLAIN (ANALYZE, BUFFERS, SETTINGS, FORMAT JSON) ") + body).fetchone()[0]
+                    if i == 0:
+                        first_text = "\n".join(x[0] for x in c.execute(
+                            sql.SQL("EXPLAIN (ANALYZE, BUFFERS, SETTINGS) ") + body).fetchall())
+                        first_text = re.sub(r"'\[[^\]]*\]'", "'[query vector]'", first_text)
+                        first_text = re.sub(r"'\{src-[^}]*\}'", "'{readable sources}'", first_text)[:8000]
+            except psycopg.errors.QueryCanceled:
+                out.append({"chain": "timeout after 120 s", "execution_ms": 120000.0, "planning_ms": 0.0,
+                            "shared_hit": None, "shared_read": None})
+                continue
             top = js[0]
             chain, scan = [], {}
             plan_walk(top["Plan"], chain, scan)
-            out.append({"chain": " -> ".join(chain), "execution_ms": round(top["Execution Time"], 2),
+            out.append({"chain": compress(chain), "execution_ms": round(top["Execution Time"], 2),
                         "planning_ms": round(top["Planning Time"], 2),
                         "shared_hit": top["Plan"].get("Shared Hit Blocks"),
                         "shared_read": top["Plan"].get("Shared Read Blocks"), **scan})
@@ -469,6 +507,8 @@ def explain_sample(plist, sources, Q, n, iterative="relaxed_order"):
     import numpy as np
     return {"n": len(out), "plan_shapes": dict(chains),
             "execution_ms": stats([x["execution_ms"] for x in out]),
+            "planning_ms": stats([x["planning_ms"] for x in out]),
+            "queries_with_hashed_subplan": sum(1 for x in out if x.get("hashed_subplan")),
             "rows_removed_by_filter_median": float(np.median([x.get("rows_removed_by_filter", 0) for x in out])) if out else None,
             "shared_read_median": float(np.median([x["shared_read"] or 0 for x in out])) if out else None,
             "shared_hit_median": float(np.median([x["shared_hit"] or 0 for x in out])) if out else None,
@@ -484,7 +524,7 @@ def summarize_pass(p, exact, allowed):
             "recall_min": round(float(np.min(rec)), 2) if rec else None,
             "queries_recall_below_0_9": int(sum(r < 0.9 for r in rec)),
             "queries_fewer_than_10_rows": p["short"], "queries_rows_out_of_order": p["misordered"],
-            "rows_outside_readable_set": leaks,
+            "rows_outside_readable_set": leaks, "timeouts": p.get("timeouts", 0),
             "latency_transaction_ms": stats(p["lat_tx"]), "latency_select_ms": stats(p["lat_q"]),
             "prepared_statements": p["prepared"], "wall_seconds": p["seconds"]}
 
@@ -517,12 +557,12 @@ def cmd_measure(a):
         passes = {}
         if a.profile == "runner":
             n_sql = 50 if p == "p1" else 5
-            sx = search_pass(plist, sources, Q[:n_sql], extra="SET LOCAL enable_indexscan = off")
+            sx = search_pass(plist, sources, Q[:n_sql], sets=("SET LOCAL enable_indexscan = off",))
             passes["exact_sql_no_index_scan"] = summarize_pass(sx, exact, allowed)
         names = ["relaxed_order_pass1", "relaxed_order_pass2"] + (["iterative_off"] if a.profile == "runner" else [])
         for name in names:
-            it = "off" if name == "iterative_off" else "relaxed_order"
-            sp = search_pass(plist, sources, Q, iterative=it, max_seconds=a.max_seconds)
+            sets = ("SET LOCAL hnsw.iterative_scan = off",) if name == "iterative_off" else (RELAXED,)
+            sp = search_pass(plist, sources, Q, sets=sets, max_seconds=a.max_seconds, timeout_ms=a.timeout_ms)
             passes[name] = summarize_pass(sp, exact, allowed)
             print(f"[{time.strftime('%H:%M:%S')}] {a.profile} {p} {name}: recall={passes[name]['recall_at_10']} "
                   f"p95={passes[name]['latency_transaction_ms'].get('p95')} ms n={passes[name]['queries']}", flush=True)
@@ -534,12 +574,92 @@ def cmd_measure(a):
     save(out, f"measure-{a.profile}.json", res)
 
 
+# ---------------------------------------------------------------- knobs (additional, unpartitioned table)
+def cmd_knobs(a):
+    import numpy as np
+    out = Path(a.out)
+    Q = np.load(out / "queries.npy")
+    gt = json.loads((out / "groundtruth.json").read_text())
+    res = {}
+    for p, plist in PRINCIPALS.items():
+        n = a.queries if p == "p1" else a.queries_p2
+        sources, exact, allowed = gt[p]["sources"], gt[p]["exact"], set(gt[p]["allowed"])
+        res[p] = {}
+        for name, (sets, stmt, k) in KNOBS.items():
+            sp = search_pass(plist, sources, Q[:n], sets=sets, statement=stmt, k=k, max_seconds=a.max_seconds,
+                             timeout_ms=30000)
+            res[p][name] = summarize_pass(sp, exact, allowed)
+            s = res[p][name]
+            print(f"[{time.strftime('%H:%M:%S')}] knobs {p} {name}: recall={s['recall_at_10']} "
+                  f"p95={s['latency_transaction_ms'].get('p95')} ms n={s['queries']}", flush=True)
+    save(out, "knobs.json", res)
+
+
+# ---------------------------------------------------------------- partition (outcome C repeat)
+def cmd_partition(a):
+    from concurrent.futures import ThreadPoolExecutor
+    schema_text = Path(a.sql).read_text()
+    t0 = time.time()
+    with connect() as c:
+        c.execute("""CREATE TABLE chunk_part (
+  id bigint NOT NULL,
+  document_id uuid NOT NULL REFERENCES document ON DELETE CASCADE,
+  source_id text NOT NULL, ordinal int NOT NULL, page int, text text NOT NULL,
+  embedding vector(1024) NOT NULL,
+  PRIMARY KEY (source_id, id)) PARTITION BY LIST (source_id)""")
+        for i in range(SOURCES):
+            c.execute(f"CREATE TABLE chunk_part_{i:04d} PARTITION OF chunk_part FOR VALUES IN ('src-{i:04d}')")
+
+    def fill(i):
+        with connect() as w:
+            w.execute(f"INSERT INTO chunk_part_{i:04d} SELECT id, document_id, source_id, ordinal, page, text, embedding"
+                      f" FROM chunk WHERE source_id = 'src-{i:04d}'")
+            t = time.time()
+            w.execute(f"CREATE INDEX chunk_part_{i:04d}_embedding ON chunk_part_{i:04d}"
+                      f" USING hnsw (embedding vector_cosine_ops)")
+            return time.time() - t
+
+    t1 = time.time()
+    with ThreadPoolExecutor(4) as ex:
+        build_seconds = list(ex.map(fill, range(SOURCES)))
+    t2 = time.time()
+    chunk_read = (policy_from(schema_text, "chunk_read").replace("ON chunk FOR", "ON chunk_part FOR")
+                  .replace("chunk.document_id", "chunk_part.document_id"))
+    with connect() as c:
+        c.execute("CREATE INDEX chunk_part_embedding ON chunk_part USING hnsw (embedding vector_cosine_ops)")
+        c.execute("CREATE INDEX chunk_part_source ON chunk_part (source_id)")
+        c.execute("GRANT SELECT ON chunk_part TO cortex_query")
+        c.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON chunk_part TO cortex_index")
+        c.execute("ALTER TABLE chunk_part ENABLE ROW LEVEL SECURITY")
+        c.execute("ALTER TABLE chunk_part FORCE ROW LEVEL SECURITY")
+        c.execute(chunk_read)
+        c.execute("CREATE POLICY chunk_write ON chunk_part FOR ALL TO cortex_index USING (true) WITH CHECK (true)")
+        c.execute("VACUUM ANALYZE chunk_part")
+        t3 = time.time()
+        n = c.execute("SELECT count(*) FROM chunk_part").fetchone()[0]
+        parts = c.execute("SELECT count(*) FROM pg_partition_tree('chunk_part') WHERE isleaf").fetchone()[0]
+        attached = c.execute("SELECT count(*) FROM pg_partition_tree('chunk_part_embedding') WHERE isleaf").fetchone()[0]
+        size = c.execute("SELECT sum(pg_total_relation_size(relid)) FROM pg_partition_tree('chunk_part')").fetchone()[0]
+        isize = c.execute("SELECT sum(pg_relation_size(relid)) FROM pg_partition_tree('chunk_part_embedding')").fetchone()[0]
+        c.execute("ALTER TABLE chunk RENAME TO chunk_flat")
+        c.execute("ALTER TABLE chunk_part RENAME TO chunk")
+        pol = c.execute("SELECT policyname, qual FROM pg_policies WHERE tablename='chunk' AND policyname='chunk_read'").fetchone()
+    res = {"rows": n, "partitions": parts, "hnsw_indexes_attached": attached,
+           "seconds": {"create": round(t1 - t0, 1), "fill_and_hnsw_4_sessions": round(t2 - t1, 1),
+                       "attach_rls_vacuum_analyze": round(t3 - t2, 1)},
+           "hnsw_build_seconds_per_partition": stats(build_seconds),
+           "total_size_GiB": round(size / 2**30, 3), "hnsw_size_GiB": round(isize / 2**30, 3),
+           "chunk_read_policy_present": pol is not None}
+    save(a.out, "partition.json", res)
+
+
 # ---------------------------------------------------------------- summarize
 def cmd_summarize(a):
     out = Path(a.out)
     rd = lambda n: json.loads((out / n).read_text()) if (out / n).exists() else None
     facts, pol, load, build = rd("facts.json"), rd("policycheck.json"), rd("load.json"), rd("build.json")
-    mr, mc = rd("measure-runner.json"), rd("measure-chart.json")
+    mr, mc, mp = rd("measure-runner.json"), rd("measure-chart.json"), rd("measure-partitioned.json")
+    knobs, part = rd("knobs.json"), rd("partition.json")
     L = ["# PRD-060 measured values", ""]
     if facts:
         L += [f"- image: `{facts['image']}`, server {facts['server_version']}",
@@ -552,8 +672,10 @@ def cmd_summarize(a):
     if pol:
         L += [f"- literal document policy: {pol['literal_document_policy']}",
               f"- self-column document policy: {pol['self_column_document_policy']}"]
-    verdict = []
-    for prof, m in (("runner", mr), ("chart", mc)):
+    if part:
+        L += [f"- partitioned copy: {part}"]
+    verdict, pverdict = [], []
+    for prof, m in (("runner", mr), ("chart", mc), ("partitioned", mp)):
         if not m:
             continue
         L += ["", f"## profile {prof}", "",
@@ -566,9 +688,24 @@ def cmd_summarize(a):
                          f"{s['queries_fewer_than_10_rows']} | {s['queries_rows_out_of_order']} | "
                          f"{s['rows_outside_readable_set']} | {lt.get('p50')} | {lt.get('p95')} | {lt.get('p99')} |")
             L.append(f"| {p} | plans | {r['explain_relaxed_order']['plan_shapes']} |")
-            if prof == "runner":
+            if prof in ("runner", "partitioned"):
                 s = r["passes"]["relaxed_order_pass2"]
-                verdict.append((p, s["recall_at_10"], s["latency_transaction_ms"]["p95"]))
+                (verdict if prof == "runner" else pverdict).append(
+                    (p, s["recall_at_10"], s["latency_transaction_ms"].get("p95")))
+    if knobs:
+        L += ["", "## additional settings on the unpartitioned table (warm)", "",
+              "| principal | setting | n | recall@10 | min | out of order | leaks | p50 ms | p95 ms | p99 ms |",
+              "|---|---|---|---|---|---|---|---|---|---|"]
+        for p, d in knobs.items():
+            for name, s in d.items():
+                lt = s["latency_transaction_ms"]
+                L.append(f"| {p} | {name} | {s['queries']} | {s['recall_at_10']} | {s['recall_min']} | "
+                         f"{s['queries_rows_out_of_order']} | {s['rows_outside_readable_set']} | "
+                         f"{lt.get('p50')} | {lt.get('p95')} | {lt.get('p99')} |")
+    holds = lambda v: len(v) == 2 and all(rc is not None and p95 is not None and rc >= RECALL_MIN and p95 < P95_MAX_MS
+                                          for _, rc, p95 in v)
+    if pverdict:
+        L += ["", f"Partitioned repeat holds for both principals: {holds(pverdict)} {pverdict}"]
     outcome = "none"
     if facts is not None:
         if not facts["iterative_capable"]:
@@ -590,8 +727,12 @@ def main():
     s = sub.add_parser("load"); s.add_argument("--corpus", required=True); s.add_argument("--query-file", required=True)
     s.add_argument("--rows", type=int, default=1_000_000); s.add_argument("--queries", type=int, default=1000)
     sub.add_parser("build")
-    s = sub.add_parser("measure"); s.add_argument("--profile", choices=["runner", "chart"], required=True)
+    s = sub.add_parser("measure"); s.add_argument("--profile", choices=["runner", "chart", "partitioned"], required=True)
     s.add_argument("--queries", type=int, default=1000); s.add_argument("--max-seconds", type=float, default=0)
+    s.add_argument("--timeout-ms", type=int, default=0)
+    s = sub.add_parser("knobs"); s.add_argument("--queries", type=int, default=1000)
+    s.add_argument("--queries-p2", type=int, default=200); s.add_argument("--max-seconds", type=float, default=0)
+    s = sub.add_parser("partition"); s.add_argument("--sql", required=True)
     sub.add_parser("summarize")
     for p in sub.choices.values():
         p.add_argument("--out", required=True)

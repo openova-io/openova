@@ -26,6 +26,8 @@ jobs:
       FALLBACK_IMAGE: pgvector/pgvector:0.8.1-pg16
       DATASET: CohereLabs/wikipedia-2023-11-embed-multilingual-v3
       DATASET_REV: ade45fb52bd549f5e8c065636fe4160a43c2af36
+      CHART_PROFILE: 'false'   # run 1 (43382702533) measured it
+      REPEAT_C: 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -133,13 +135,35 @@ jobs:
         timeout-minutes: 100
         run: python "$SPIKE/spike.py" measure --profile runner --queries 1000 --max-seconds 600 --out "$OUT"
 
+      # Run 2 onwards: the outcome-C repeat (chunk partitioned by source) and
+      # additional settings on the unpartitioned table. The chart-size profile
+      # was measured in run 1 and is off from run 2 (CHART_PROFILE).
+      - name: Additional settings on the unpartitioned table
+        if: env.REPEAT_C == 'true'
+        timeout-minutes: 45
+        run: python "$SPIKE/spike.py" knobs --queries 1000 --queries-p2 200 --max-seconds 300 --out "$OUT"
+
+      - name: Partition chunk by source (outcome C, repeat once)
+        if: env.REPEAT_C == 'true'
+        timeout-minutes: 60
+        run: |
+          python "$SPIKE/spike.py" partition --sql "$SPIKE/schema.sql" --out "$OUT"
+          df -h "$DATA"; free -g
+
+      - name: Measure (partitioned, runner-sized instance)
+        if: env.REPEAT_C == 'true'
+        timeout-minutes: 60
+        run: python "$SPIKE/spike.py" measure --profile partitioned --queries 1000 --max-seconds 600 --timeout-ms 30000 --out "$OUT"
+
       - name: Restart at the chart's default size (500m CPU, 512Mi, chart GUCs), cold cache
+        if: env.CHART_PROFILE == 'true'
         run: |
           bash "$SPIKE/pg.sh" stop pg
           sync; echo 3 | sudo tee /proc/sys/vm/drop_caches
           bash "$SPIKE/pg.sh" start pg "$MAIN_IMAGE" "$DATA/pg" chart
 
       - name: Measure (chart-sized instance, supplementary)
+        if: env.CHART_PROFILE == 'true'
         timeout-minutes: 90
         run: |
           python "$SPIKE/spike.py" measure --profile chart --queries 200 --max-seconds 600 --out "$OUT"
