@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T18:00:03Z` |
+| Last refreshed | `2026-11-13T18:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,9 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7165](https://github.com/openova-io/openova/issues/7165) | CMP-016 An optional informer kind starts when its definition arrives | Other |
-| [#7166](https://github.com/openova-io/openova/issues/7166) | FND-034 Checks: NodePort, front doors, mesh, encryption, clean wipe; journeys as | Other |
-| [#7167](https://github.com/openova-io/openova/issues/7167) | FND-093 Remove the Sandbox surface of the API | Other |
 | [#7168](https://github.com/openova-io/openova/issues/7168) | FND-094 Remove the Sandbox pages of the console | Other |
 | [#7169](https://github.com/openova-io/openova/issues/7169) | FND-101 Truth reset of the status surfaces | Other |
 | [#7170](https://github.com/openova-io/openova/issues/7170) | FND-103 State markers and their ratchet | Other |
@@ -300,6 +297,9 @@ flowchart LR
 | [#7478](https://github.com/openova-io/openova/issues/7478) | FND-013 Merge queue: aggregate check, queue triggers, rulesets and code owners a | Other |
 | [#7479](https://github.com/openova-io/openova/issues/7479) | FND-096 Remove the Sandbox sources | Other |
 | [#7484](https://github.com/openova-io/openova/issues/7484) | CLD-185 Hetzner control-plane cloud-init with the post-back on fits the module s | Other |
+| [#7487](https://github.com/openova-io/openova/issues/7487) | CTL-041 Bootstrap-kit HelmRepository documents to source v1 | Other |
+| [#7488](https://github.com/openova-io/openova/issues/7488) | SOV-120 The sovereign-ops command and its image | Other |
+| [#7489](https://github.com/openova-io/openova/issues/7489) | SOV-180 The API serves the Sovereign's mode and variables, with the contract's d | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T18:11 | [#7486](https://github.com/openova-io/openova/pull/7486) | #7087 | docs(ledger): plan update |
+| 2026-11-13T18:04 | [#7485](https://github.com/openova-io/openova/pull/7485) | #7484 | fix(cloud-init): pack seven boot files so a Hetzner render w |
 | 2026-11-13T17:33 | [#7483](https://github.com/openova-io/openova/pull/7483) | #7087 | docs(ledger): plan update |
 | 2026-11-13T17:43 | [#7482](https://github.com/openova-io/openova/pull/7482) | #7479 | chore: remove the withdrawn Sandbox sources and count the re |
 | 2026-11-13T17:44 | [#7481](https://github.com/openova-io/openova/pull/7481) | #7477 | feat(providers): local provider pack module, reduced kit and |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-13T13:12 | [#7441](https://github.com/openova-io/openova/pull/7441) | #7435 | feat(chart): install the intent lock in audit mode with guar |
 | 2026-11-13T13:04 | [#7440](https://github.com/openova-io/openova/pull/7440) | #7438 | fix(stalwart-sovereign): a bounded setup job that is no inst |
 | 2026-11-13T12:31 | [#7439](https://github.com/openova-io/openova/pull/7439) | #7087 | docs(ledger): plan update |
-| 2026-11-13T12:37 | [#7432](https://github.com/openova-io/openova/pull/7432) | #7420 | chore(tenant): remove the Sandbox orchestrator, its grants a |
-| 2026-11-13T12:36 | [#7431](https://github.com/openova-io/openova/pull/7431) | #7425 | fix(ci): four workflows install Helm 3.16.3 instead of 3.16. |
 
 ---
 
