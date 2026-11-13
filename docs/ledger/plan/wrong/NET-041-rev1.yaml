@@ -1,0 +1,52 @@
+schema: openova.io/plan-wrong/v1
+id: NET-041
+ticket_rev: 1
+base_commit: 435fea9078d666e9b0d68cb218a12b9ff205bf8b
+stage: check
+ref: check-service-model
+command: |
+    gh api repos/openova-io/openova/actions/jobs/131595606988/logs | grep -B 40 -m 1 '##\[error\]' | cut -c30-300
+expected: |
+    the check finishes green
+actual: |
+    ok G9 one more coming-soon row (exit 1, wanted 1)
+    ok G9 one more system row with an outside chart (exit 1, wanted 1)
+    ok fall: a count below its baseline fails until it is lowered (exit 1, wanted 1)
+    ok rise: a count above its baseline fails until it is raised (exit 1, wanted 1)
+    ok rise: a function test that is removed fails (exit 1, wanted 1)
+    ok cap: a storefront count below its baseline passes with a note (exit 0, wanted 0)
+    ok a missing source with a baseline above 0 judges nothing (exit 2, wanted 2)
+    ok a missing baseline judges nothing (exit 2, wanted 2)
+    ok a generated seed counts 0 (exit 1, wanted 1)
+    ok --write-baseline refuses a rise of a fall count (exit 1, wanted 1)
+    ok a Blueprint file that is not YAML judges nothing (exit 2, wanted 2)
+    check-service-model: self-test passed: 32 of 32 cases as expected
+    ##[group]Run python3 scripts/check-service-model.py
+    [36;1mpython3 scripts/check-service-model.py[0m
+    shell: /usr/bin/bash -e {0}
+    ##[endgroup]
+    G1.name-without-bp-prefix=24
+    G2.visibility-missing=30
+    G2.api-version-not-v1=60
+    G3.wizard-groups-entries=57
+    check-service-model: FAIL G3.wizard-groups-entries is at 57, its baseline is 58: lower the baseline to 57 in the same change
+    G3.hand-seed-blueprints=81
+    G3.storefront-seed-rows=31
+    G3.provisioning-map-keys=15
+    G4.bp-literal-lines-api=43
+    G4.bp-literal-lines-controllers=23
+    G5.card-category=42
+    G5.card-family=36
+    G5.label-category=30
+    G5.label-tier=20
+    G5.label-section=102
+    G6.function-test-charts=0
+    G7.seed-exclusions=0
+    G8.slots-without-ring=68
+    G8.ring-edges-outside=0
+    G9.wizard-ids-without-chart=13
+    G9.raw-image-apps=12
+    G9.coming-soon-rows=13
+    G9.system-rows-external-chart=3
+    ##[error]Process completed with exit code 1.
+reported_at: 2026-11-13T00:28:34Z
