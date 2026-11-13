@@ -29,7 +29,7 @@ name: bp-vcluster-helmrepo
 # \"loft\" not found" — convergence blocker #2 (vCluster CRD-equivalent
 # install on Sovereign). Spawning any tenant org's vCluster gates on
 # this slot.
-version: 0.2.0
+version: 0.2.1
 appVersion: "0.33.0"
 description: |
   Catalyst Blueprint that pre-stages the upstream loft-sh vcluster
