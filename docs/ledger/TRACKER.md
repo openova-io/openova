@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T06:30:06Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-11-13T06:45:02Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -310,6 +310,15 @@ flowchart LR
 | 2026-11-13T06:14 | [#7338](https://github.com/openova-io/openova/pull/7338) | #7087 | docs(ledger): plan update |
 | 2026-11-13T06:06 | [#7337](https://github.com/openova-io/openova/pull/7337) | #7197 | chore(api): remove the DR runbook playback and preflight rou |
 | 2026-11-13T06:06 | [#7336](https://github.com/openova-io/openova/pull/7336) | #7317 | feat(cloudprofile): check an installation document and print |
+| 2026-11-13T06:33 | [#7335](https://github.com/openova-io/openova/pull/7335) | #7087 | docs(ledger): result of the lab test SOV-060 (SOV-060) |
+| 2026-11-13T06:34 | [#7334](https://github.com/openova-io/openova/pull/7334) | #7087 | docs(ledger): result of the lab test CMP-S2 (CMP-S2) |
+| 2026-11-13T06:34 | [#7333](https://github.com/openova-io/openova/pull/7333) | #7087 | docs(ledger): result of the lab test INF-030 (INF-030) |
+| 2026-11-13T06:34 | [#7332](https://github.com/openova-io/openova/pull/7332) | #7087 | docs(ledger): result of the lab test CLD-050 (CLD-050) |
+| 2026-11-13T06:35 | [#7331](https://github.com/openova-io/openova/pull/7331) | #7087 | docs(ledger): result of the lab test SEC-140 (SEC-140) |
+| 2026-11-13T06:34 | [#7330](https://github.com/openova-io/openova/pull/7330) | #7087 | docs(ledger): result of the lab test SEC-130 (SEC-130) |
+| 2026-11-13T06:35 | [#7328](https://github.com/openova-io/openova/pull/7328) | #7087 | docs(ledger): result of the lab test SVC-210 (SVC-210) |
+| 2026-11-13T06:33 | [#7327](https://github.com/openova-io/openova/pull/7327) | #7087 | docs(ledger): result of the lab test SVC-120 (SVC-120) |
+| 2026-11-13T06:33 | [#7326](https://github.com/openova-io/openova/pull/7326) | #7087 | docs(ledger): result of the lab test CMP-S5 (CMP-S5) |
 | 2026-11-13T05:38 | [#7325](https://github.com/openova-io/openova/pull/7325) | #7087 | docs(ledger): plan update |
 | 2026-11-13T05:37 | [#7324](https://github.com/openova-io/openova/pull/7324) | #7087 | docs(sessions): hw307 browser walk of six north-star screen  |
 | 2026-11-13T05:19 | [#7321](https://github.com/openova-io/openova/pull/7321) | #7087 | docs(ledger): plan update |
@@ -318,25 +327,16 @@ flowchart LR
 | 2026-11-13T05:25 | [#7318](https://github.com/openova-io/openova/pull/7318) | #7282 | feat(providers): publish the network registry of a Sovereign |
 | 2026-11-13T05:11 | [#7316](https://github.com/openova-io/openova/pull/7316) | #7087 | docs(ledger): plan update |
 | 2026-11-13T05:04 | [#7315](https://github.com/openova-io/openova/pull/7315) | #7087 | docs(ledger): dashboard refreshed: 85 tasks merged |
+| 2026-11-13T06:33 | [#7314](https://github.com/openova-io/openova/pull/7314) | #7087 | docs(ledger): result of the lab test CTL-055 (CTL-055) |
+| 2026-11-13T06:33 | [#7313](https://github.com/openova-io/openova/pull/7313) | #7087 | docs(ledger): result of the lab test CTL-050 (CTL-050) |
+| 2026-11-13T06:33 | [#7312](https://github.com/openova-io/openova/pull/7312) | #7087 | docs(ledger): result of the lab test CMP-S6 (CMP-S6) |
+| 2026-11-13T06:33 | [#7311](https://github.com/openova-io/openova/pull/7311) | #7087 | docs(ledger): result of the lab test CMP-S1 (CMP-S1) |
 | 2026-11-13T05:00 | [#7310](https://github.com/openova-io/openova/pull/7310) | #7087 | docs(ledger): plan update |
 | 2026-11-13T04:58 | [#7309](https://github.com/openova-io/openova/pull/7309) | #7281 | docs(generated): generate the tables of the provider packs a |
 | 2026-11-13T04:58 | [#7308](https://github.com/openova-io/openova/pull/7308) | #7293 | test(acceptance): record the network census of every region  |
 | 2026-11-13T04:22 | [#7306](https://github.com/openova-io/openova/pull/7306) | #7087 | docs(ledger): dashboard refreshed: 79 tasks merged |
 | 2026-11-13T04:13 | [#7305](https://github.com/openova-io/openova/pull/7305) | #7087 | docs(ledger): dashboard refreshed: 79 tasks merged |
 | 2026-11-13T04:25 | [#7304](https://github.com/openova-io/openova/pull/7304) | #7291 | ci: sign and attest the console and API images through one s |
-| 2026-11-13T04:25 | [#7303](https://github.com/openova-io/openova/pull/7303) | #7295 | refactor(console): the cutover progress card renders the ste |
-| 2026-11-13T04:25 | [#7302](https://github.com/openova-io/openova/pull/7302) | #7292 | fix(cloud-init): start k3s without kube-proxy and add gate c |
-| 2026-11-13T04:24 | [#7301](https://github.com/openova-io/openova/pull/7301) | #7283 | test(fingate): add the consent state machine with its wire c |
-| 2026-11-13T04:24 | [#7300](https://github.com/openova-io/openova/pull/7300) | #7284 | feat(fingate): add the token rules T1 to T10 of the resource |
-| 2026-11-13T04:24 | [#7299](https://github.com/openova-io/openova/pull/7299) | #7285 | ci(fingate): vet, test and check the generated code of the o |
-| 2026-11-13T03:40 | [#7298](https://github.com/openova-io/openova/pull/7298) | #7087 | docs(ledger): plan update |
-| 2026-11-13T03:39 | [#7297](https://github.com/openova-io/openova/pull/7297) | #7260 | feat(providers): publish the provider contract files, the pr |
-| 2026-11-13T03:39 | [#7296](https://github.com/openova-io/openova/pull/7296) | #7266 | test(fingate): vendor the Read/Write API 4.0.0 documents and |
-| 2026-11-13T03:09 | [#7290](https://github.com/openova-io/openova/pull/7290) | #7087 | docs(ledger): plan update |
-| 2026-11-13T03:11 | [#7288](https://github.com/openova-io/openova/pull/7288) | #7232 | fix: remove the firewall claims from the storefront and the  |
-| 2026-11-13T03:10 | [#7287](https://github.com/openova-io/openova/pull/7287) | #7166 | feat(gate): checks for node ports, front doors, mesh, transi |
-| 2026-11-13T03:10 | [#7286](https://github.com/openova-io/openova/pull/7286) | #7210 | docs(chargeback): name ADR-0028 as the decision record in th |
-| 2026-11-13T02:38 | [#7280](https://github.com/openova-io/openova/pull/7280) | #7087 | docs(ledger): plan update |
 
 ---
 
