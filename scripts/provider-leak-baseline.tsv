@@ -172,7 +172,6 @@ products/catalyst/bootstrap/api/internal/provisioner/sku_availability.go	3
 products/catalyst/bootstrap/api/internal/store/crd_store.go	2
 products/catalyst/bootstrap/api/internal/store/store.go	7
 products/catalyst/bootstrap/ui/src/app/layouts/AuthLayout.tsx	1
-products/catalyst/bootstrap/ui/src/components/CrudModals/AddRegionModal.tsx	2
 products/catalyst/bootstrap/ui/src/components/CrudModals/DeleteDeploymentModal.tsx	19
 products/catalyst/bootstrap/ui/src/components/CrudModals/WipeDeploymentModal.tsx	21
 products/catalyst/bootstrap/ui/src/entities/deployment/model.ts	11
@@ -184,9 +183,6 @@ products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail.tsx	2
 products/catalyst/bootstrap/ui/src/pages/sovereign/DecommissionPage.tsx	19
 products/catalyst/bootstrap/ui/src/pages/sovereign/JobsTable.tsx	1
 products/catalyst/bootstrap/ui/src/pages/sovereign/SettingsPage.tsx	2
-products/catalyst/bootstrap/ui/src/pages/sovereign/cloud-compute/ClustersPage.tsx	2
-products/catalyst/bootstrap/ui/src/pages/sovereign/cloud-compute/NodePoolsPage.tsx	2
-products/catalyst/bootstrap/ui/src/pages/sovereign/cloud-compute/WorkerNodesPage.tsx	2
 products/catalyst/bootstrap/ui/src/pages/sovereign/cloud-list/kinds.ts	1
 products/catalyst/bootstrap/ui/src/pages/sovereign/cloud-network/LoadBalancersPage.tsx	2
 products/catalyst/bootstrap/ui/src/pages/sovereign/dashboardJobsTreemap.ts	1
@@ -200,7 +196,6 @@ products/catalyst/bootstrap/ui/src/pages/wizard/steps/StepReview.tsx	10
 products/catalyst/bootstrap/ui/src/pages/wizard/steps/StepTopology.tsx	1
 products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts	25
 products/catalyst/bootstrap/ui/src/shared/constants/providerSizes.ts	15
-products/catalyst/bootstrap/ui/src/widgets/architecture-graph/ArchitectureGraphPage.tsx	10
 products/catalyst/bootstrap/ui/src/widgets/architecture-graph/k8sAdapter.ts	10
 products/catalyst/bootstrap/ui/src/widgets/architecture-graph/types.ts	2
 products/catalyst/bootstrap/ui/src/widgets/architecture-graph/useK8sCacheStream.ts	2
