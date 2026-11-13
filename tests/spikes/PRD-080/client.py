@@ -243,10 +243,22 @@ def cmd_transcribe(spec):
     return {"code": code, "seconds": round(dt, 2), "text": text, "head": short(raw) if code != 200 else ""}
 
 
+def cmd_transcribe_clips(spec):
+    """One request per short clip, as a caller with short utterances would send them."""
+    total, texts = 0.0, []
+    for f in spec["files"]:
+        r = cmd_transcribe(dict(spec, file=f))
+        if r["code"] != 200:
+            return dict(r, done=len(texts))
+        total += r["seconds"]
+        texts.append(r["text"].strip())
+    return {"code": 200, "seconds": round(total, 2), "text": " ".join(texts), "head": "", "done": len(texts)}
+
+
 def main():
     cmd, spec = sys.argv[1], json.loads(sys.argv[2])
     fn = {"probe": cmd_probe, "embed": cmd_embed, "rerank": cmd_rerank,
-          "convert": cmd_convert, "transcribe": cmd_transcribe}[cmd]
+          "convert": cmd_convert, "transcribe": cmd_transcribe, "transcribe-clips": cmd_transcribe_clips}[cmd]
     try:
         out = fn(spec)
     except Exception as e:

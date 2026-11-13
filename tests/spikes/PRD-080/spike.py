@@ -452,10 +452,8 @@ CONV_CANDIDATES = [
                                       # writable places under a read-only root: all on the /tmp emptyDir
                                       "HOME": "/tmp", "XDG_CACHE_HOME": "/tmp/.cache", "MPLCONFIGDIR": "/tmp/mpl",
                                       "EASYOCR_MODULE_PATH": "/tmp/easyocr"},
-         configs=[("rapidocr", "rapidocr"), ("tesserocr", "tesserocr"), ("tesseract", "tesseract"),
-                  ("easyocr", "easyocr")],
-         ar_configs=[("rapidocr", "rapidocr"), ("tesserocr", "tesserocr"), ("tesseract", "tesseract"),
-                     ("easyocr", "easyocr")]),
+         configs=[("rapidocr", "rapidocr"), ("tesserocr", "tesserocr:eng"), ("tesseract", "tesseract:eng")],
+         ar_configs=[("tesserocr", "tesserocr:ara"), ("tesseract", "tesseract:ara"), ("rapidocr", "rapidocr:arabic")]),
     dict(name="tika", image="apache/tika:3.3.3.0-full", source="github.com/apache/tika-docker",
          source_licence="Apache-2.0", port=9998, health=["/version"], api="tika",
          args=["-c", "/config/tika-config.xml"], env={}, configs=[("tesseract", "eng")],
@@ -674,7 +672,8 @@ def run_conversion():
                     lang = docs[doc]["lang"]
                     spec = {"base": base, "api": c["api"]}
                     if c["api"] == "docling":
-                        spec.update({"ocr": val, "lang": [lang], "ocr_field": "ocr_engine"})
+                        engine, _, code = val.partition(":")
+                        spec.update({"ocr": engine, "lang": [code or lang], "ocr_field": "ocr_preset"})
                     elif c["api"] == "tika":
                         spec["lang"] = val
                     else:
@@ -767,7 +766,14 @@ def prep_audio(rows):
         sh(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", lst, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
             dst], check=True, timeout=600)
         _, d = sh(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", dst])
+        clip_s = 0.0
+        for k in range(len(picked)):
+            _, cd = sh(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
+                        os.path.join(adir, f"{lang}-{k:02d}.wav")])
+            clip_s += float(cd.strip())
         out[lang] = {"file": f"/data/audio/{lang}.wav", "seconds": float(d.strip()), "clips": len(picked),
+                     "clip_files": [f"/data/audio/{lang}-{k:02d}.wav" for k in range(len(picked))],
+                     "clip_seconds": clip_s,
                      "ref": " ".join(r["raw_transcription"] for r in picked),
                      "ref_fleurs_norm": " ".join(r["transcription"] for r in picked)}
         open(os.path.join(OUT, "asr", f"ref-{lang}.txt"), "w").write(out[lang]["ref"])
@@ -809,20 +815,25 @@ def run_transcription():
                 for m, (variant, extra) in [(m, v) for m in group for v in c["variants"]]:
                     spec = {"base": base, "api": c["api"], "model": c["model_id"](m), "extra": extra}
                     warm = client("transcribe", dict(spec, file="/data/audio/warm.wav", language="en"))
-                    for lang in ("en", "ar"):
-                        r = client("transcribe", dict(spec, file=audio[lang]["file"], language=lang))
+                    for lang, mode in (("en", "long"), ("ar", "long"), ("en", "clips"), ("ar", "clips")):
+                        if mode == "long":
+                            r = client("transcribe", dict(spec, file=audio[lang]["file"], language=lang))
+                            secs = audio[lang]["seconds"]
+                        else:
+                            r = client("transcribe-clips", dict(spec, files=audio[lang]["clip_files"], language=lang))
+                            secs = audio[lang]["clip_seconds"]
                         x = {"kind": "measure", "task": "transcription", "candidate": c["name"], "model": m,
-                             "model_id": spec["model"], "variant": variant,
+                             "model_id": spec["model"], "variant": variant, "mode": mode,
                              "lang": lang, "profile": prof, "warmup_s": warm.get("seconds"),
-                             "warmup_code": warm.get("code"), "audio_s": round(audio[lang]["seconds"], 1),
+                             "warmup_code": warm.get("code"), "audio_s": round(secs, 1),
                              **{k: r.get(k) for k in ("code", "seconds", "head", "error")}}
                         if r.get("code") == 200 and r.get("seconds"):
-                            x["audio_s_per_s"] = round(audio[lang]["seconds"] / r["seconds"], 3)
+                            x["audio_s_per_s"] = round(secs / r["seconds"], 3)
                             x.update(scores(r.get("text", ""), audio[lang]["ref"], lang))
                             x["wer_vs_fleurs_normalised"] = scores(r.get("text", ""), audio[lang]["ref_fleurs_norm"],
                                                                    lang)["wer"]
                             x["sample"] = (r.get("text") or "")[:160]
-                            tag = f"{c['name']}-{m}-{variant}-{lang}"
+                            tag = f"{c['name']}-{m}-{variant}-{mode}-{lang}"
                             open(os.path.join(OUT, "asr", tag + ".txt"), "w").write(r.get("text") or "")
                             print("PRD080-TEXT", tag, json.dumps(r.get("text") or "", ensure_ascii=False), flush=True)
                         result(x)
