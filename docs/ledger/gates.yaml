@@ -778,6 +778,7 @@ checks:
   needs: []
   proof: running
   asserts: The score moves by push
+  implemented_by: CMP-010
   delivered_by: CMP-020
 - id: CMP-G02
   title: The shown mode is the engine's mode
@@ -788,6 +789,7 @@ checks:
   needs: []
   proof: running
   asserts: The shown mode is the engine's mode
+  implemented_by: CMP-010
   delivered_by: CMP-020
 - id: CMP-G03
   title: The model is loaded in every region and agrees with the policies

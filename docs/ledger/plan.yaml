@@ -16165,7 +16165,7 @@ packages:
   - docs/ledger/gates.yaml
   resources: []
   flips: []
-  implements: []
+  implements: [CMP-G01, CMP-G02]
   proven_by: null
   precondition:
     run: "ls tests/acceptance/sovereign/internal/suite | grep -c '^check_compliance'"
