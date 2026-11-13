@@ -5,7 +5,7 @@ It reads docs/ledger/plan.yaml and docs/ledger/gates.yaml from the checkout it i
 architect changes those two files. The state of a package is derived from the repository (the done
 markers and the wrong reports on origin/main, and the remote branches wp/<ID>) and is stored nowhere.
 
-    python3 scripts/plan.py validate                   one line per violation of the plan file
+    python3 scripts/plan.py validate                   one line per violation of the plan file and of its ticket files
     python3 scripts/plan.py state [ID]                 the state of one package, or of every package
     python3 scripts/plan.py ready [--lane L]           the packages that may be started now
     python3 scripts/plan.py parallel A B               "yes", or "no: <reason>"
@@ -15,7 +15,8 @@ markers and the wrong reports on origin/main, and the remote branches wp/<ID>) a
     python3 scripts/plan.py --self-test                the built-in cases; every rule is shown to be able to fail
 
 Each of these commands runs "git fetch origin --prune" first unless --no-fetch is given.
-validate prints nothing when the plan is valid.
+validate prints nothing when the plan is valid. It applies the rules of scripts/ticket-lint.py to the ticket of every
+package with ticket_rev 1 or more.
 
 Commands for one pull request. They never fetch: they read the commits they are given.
 
@@ -43,6 +44,7 @@ It needs Python 3 and PyYAML and nothing else.
 import argparse
 import bisect
 import datetime
+import importlib.util
 import json
 import os
 import re
@@ -69,6 +71,7 @@ WRONG = "docs/ledger/plan/wrong"
 TRACKER = "docs/ledger/TRACKER.md"
 MAIN = "origin/main"
 GATE_TOOL = "scripts/acceptance-gate.py"
+LINTER = "scripts/ticket-lint.py"
 
 ID_RE = re.compile(r"^[A-Z]{3}-([0-9]{3}|S[0-9])$")
 TYPES = ["fix", "guard", "delete", "refactor", "new", "test", "doc", "spike", "decision"]
@@ -341,11 +344,12 @@ def find_cycle(pk):
     return None
 
 
-def validate(plan, gates, has_ticket):
+def validate(plan, gates, has_ticket, lint=None):
     """Every violation of the plan file, one line each.
 
     gates: the parsed gate manifest, or a text that says why it could not be read.
     has_ticket: a function that says whether the ticket file of an id exists.
+    lint: a function that takes the ids whose ticket file exists and returns one line per violation of those files.
     """
     v = shape(plan)
     if v:
@@ -375,6 +379,7 @@ def validate(plan, gates, has_ticket):
         v.append("cycle over depends_on and after: " + " -> ".join(cycle))
     deps = closure(pk)
     adrs = {}
+    ticketed = []
     for i, p in pk.items():
         if p["area"] != i[:3]:
             v.append("%s: area is %s, not the prefix of the id" % (i, p["area"]))
@@ -430,6 +435,10 @@ def validate(plan, gates, has_ticket):
                 v.append("%s: ticket_rev is %d but touches is empty" % (i, p["ticket_rev"]))
             if not has_ticket(i):
                 v.append("%s: ticket_rev is %d but %s/%s.md does not exist" % (i, p["ticket_rev"], TICKETS, i))
+            else:
+                ticketed.append(i)
+    if lint and ticketed:
+        v += lint(ticketed)
     return v
 
 
@@ -951,13 +960,31 @@ def known(model, *ids):
             die("%s is not a package of %s" % (i, PLAN))
 
 
+def ticket_linter(root, plan, tool=None):
+    """A function that applies the rules of scripts/ticket-lint.py to the ticket files of the given ids, in one run."""
+    tool = tool or os.path.join(root, LINTER)
+    if not os.path.exists(tool):
+        die("%s does not exist" % tool)
+    spec = importlib.util.spec_from_file_location("ticket_lint", tool)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    def lint(ids):
+        files = {}
+        for i in ids:
+            with open(os.path.join(root, TICKETS, i + ".md"), encoding="utf-8") as fh:
+                files["%s/%s.md" % (TICKETS, i)] = fh.read()
+        return mod.lint(files, plan)
+    return lint
+
+
 def cmd_validate(root, a):
     plan, problem = read_yaml(os.path.join(root, PLAN))
     if problem:
         print("%s: %s" % (PLAN, problem))
         return 1
     gates, problem = read_yaml(os.path.join(root, GATES))
-    v = validate(plan, problem or gates, lambda i: os.path.exists(os.path.join(root, TICKETS, i + ".md")))
+    v = validate(plan, problem or gates, lambda i: os.path.exists(os.path.join(root, TICKETS, i + ".md")), ticket_linter(root, plan))
     for line in v:
         print(line)
     return 1 if v else 0                                       # a valid plan prints nothing: the exit code is the answer
@@ -1408,6 +1435,19 @@ def test_repository(t):
         t.ok(not gate_verdict(work)("AAA-G01"), "repository: without the gate tool no cloud check is green; the rule can fail")
         v = validate(plan, read_yaml(os.path.join(work, GATES))[0], lambda i: os.path.exists(os.path.join(work, TICKETS, i + ".md")))
         t.ok(len(v) == 2 and all("does not exist" in x for x in v), "repository: validate asks for the ticket file of every package with a ticket; the rule can fail")
+        tool = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ticket-lint.py")
+        r = subprocess.run((sys.executable, tool, "--self-test"), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        t.ok(r.returncode == 0, "repository: the self-test of scripts/ticket-lint.py passes; it runs inside this self-test")
+        v = validate(plan, t_gates(("AAA-G01", "required", ["cloud"], "AAA-003", None)), lambda i: os.path.exists(os.path.join(work, TICKETS, i + ".md")), ticket_linter(work, plan, tool))
+        t.ok(any(x.startswith("%s/AAA-001.md: rule " % TICKETS) for x in v) and any(x.startswith("%s/AAA-003.md: rule " % TICKETS) for x in v),
+             "repository: validate applies the rules of scripts/ticket-lint.py to every ticket file; the rule can fail")
+        spec = importlib.util.spec_from_file_location("ticket_lint", tool)
+        lint_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(lint_mod)
+        text, entry = lint_mod.good_ticket()
+        put("%s/XXX-001.md" % TICKETS, text)
+        good = t_plan(t_pkg("XXX-001", **{k: entry[k] for k in ("title", "ticket_rev", "lane", "type", "size", "touches", "precondition", "acceptance")}))
+        t.ok(validate(good, t_gates(), lambda i: True, ticket_linter(work, good, tool)) == [], "repository: a ticket file that keeps the rules of scripts/ticket-lint.py passes validate")
         text = m.tracker("no verdict")
         t.ok("| AAA-001 | A title | merged | RAILS |" in text.split("\n") and text.endswith("## Gate verdict\n\n%stext\nno verdict\n%s\n" % ("`" * 3, "`" * 3)),
              "render: one table row per package with its state, then the gate verdict")
