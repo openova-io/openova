@@ -23,6 +23,8 @@ on:
   push:
     paths:
       - 'products/catalyst/bootstrap/api/**'
+      # The provisioner tests read the first-boot templates (cloudinit_path_test.go).
+      - 'infra/providers/_shared/**'
       - 'platform/newapi/chart/**'
       - 'platform/openclaw/chart/**'
       - 'core/controllers/organization/internal/gitops/**'
@@ -32,6 +34,8 @@ on:
   pull_request:
     paths:
       - 'products/catalyst/bootstrap/api/**'
+      # The provisioner tests read the first-boot templates (cloudinit_path_test.go).
+      - 'infra/providers/_shared/**'
       - 'platform/newapi/chart/**'
       - 'platform/openclaw/chart/**'
       - 'core/controllers/organization/internal/gitops/**'
