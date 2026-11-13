@@ -4,7 +4,7 @@ Status on 13 November 2026. The baseline is the platform as it stood on 12 Novem
 
 ## Right now
 
-Measured from GitHub at 16:30 UTC on 13 November 2026. This block is rebuilt automatically every 30 minutes.
+Measured from GitHub at 16:31 UTC on 13 November 2026. This block is rebuilt automatically every 30 minutes.
 
 | | |
 |---|---|
@@ -36,7 +36,7 @@ How to read it. Planned: the plan as first published on 12 November (843 tasks, 
 | Midnight UTC | Planned left | Actual left |
 |---|---|---|
 | 13 Nov | 582 | 597 |
-| now (13 Nov 16:30) | 515 | 528 |
+| now (13 Nov 16:31) | 515 | 528 |
 
 ### The last 25 merged tasks
 
