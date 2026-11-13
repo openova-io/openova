@@ -20,7 +20,6 @@
       "core/services/provisioning/handlers/handlers.go": 2,
       "products/catalyst/bootstrap/api/cmd/api/main.go": 1,
       "products/catalyst/bootstrap/api/internal/flowemit/client.go": 1,
-      "products/catalyst/bootstrap/api/internal/handler/continuum_dr_extras.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/deployment_handover_export.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/handover_export_retry.go": 2,
       "products/catalyst/bootstrap/api/internal/handler/phase1_watch.go": 3,
