@@ -341,29 +341,44 @@ EMBED_MODELS = {
                                   allow=["bge-reranker-v2-m3-Q8_0.gguf"], file="bge-reranker-v2-m3-Q8_0.gguf"),
 }
 
+# The same weights as granite-107m-ml without the ONNX file, so TEI uses its own (candle) back end:
+# run 1 showed TEI's ONNX back end exits on this model's ONNX export.
+EMBED_MODELS["granite-107m-ml-st"] = dict(EMBED_MODELS["granite-107m-ml"],
+                                          ignore=["*.onnx", "onnx/*", "pytorch_model.bin", "*.md"])
+# Embedding model and reranker served by one release (rule 5: one embedding model and at most one reranker).
+EMBED_MODELS["granite-107m-ml+mmarco-ml-minilm"] = dict(kind="both")
+
+
+def infinity_args(m, k, v):
+    a = ["v2"]
+    for x in m.split("+"):
+        a += ["--model-id", f"/models/{x}", "--served-model-name", x, "--engine", v, "--device", "cpu"]
+    return a + ["--port", "7997", "--url-prefix", "/v1"]
+
+
+# Run 1 (43388368504) measured every pair below plus bge-reranker-v2-m3 on TEI and Infinity and the
+# llama.cpp server (server-b11718) with the Q8_0 GGUF of bge-m3 and bge-reranker-v2-m3. Run 4 repeats
+# the values the outcome rests on and adds what run 1 could not measure:
+#   - Infinity under the hardened profile, with its cache moved to the /tmp emptyDir (INFINITY_HOME,
+#     HF_HOME); in run 1 it exited on a read-only root ("Read-only file system: '/app/.cache'");
+#   - granite-107m-ml on TEI through the candle back end;
+#   - the embedding model and the reranker in one Infinity release.
 EMBED_CANDIDATES = [
     dict(name="tei", image="ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.4",
          source="github.com/huggingface/text-embeddings-inference", source_licence="Apache-2.0", port=8080,
          health=["/health"],
-         models=[("bge-m3", ""), ("granite-107m-ml", ""), ("bge-reranker-v2-m3", ""), ("mmarco-ml-minilm", "")],
+         models=[("granite-107m-ml-st", ""), ("mmarco-ml-minilm", ""), ("bge-m3", "")],
          args=lambda m, k, v: ["--model-id", f"/models/{m}", "--hostname", "0.0.0.0", "--port", "8080",
                                "--auto-truncate"],
          env={"HF_HUB_OFFLINE": "1"}, embed_path="/v1/embeddings", rerank_api="tei", rerank_path="/rerank"),
     dict(name="infinity", image="michaelf34/infinity:0.0.78-cpu", source="github.com/michaelfeil/infinity",
          source_licence="MIT", port=7997, health=["/v1/health", "/health"],
-         models=[("bge-m3", "torch"), ("bge-m3", "optimum"), ("granite-107m-ml", "torch"),
-                 ("granite-107m-ml", "optimum"), ("bge-reranker-v2-m3", "torch"), ("mmarco-ml-minilm", "torch"),
-                 ("mmarco-ml-minilm", "optimum")],
-         args=lambda m, k, v: ["v2", "--model-id", f"/models/{m}", "--served-model-name", m, "--port", "7997",
-                               "--url-prefix", "/v1", "--device", "cpu", "--engine", v],
-         env={"HF_HUB_OFFLINE": "1", "INFINITY_ANONYMOUS_USAGE_STATS": "0", "DO_NOT_TRACK": "1"},
+         models=[("granite-107m-ml+mmarco-ml-minilm", "optimum"), ("granite-107m-ml", "optimum"),
+                 ("mmarco-ml-minilm", "optimum"), ("granite-107m-ml", "torch"), ("bge-m3", "optimum")],
+         args=infinity_args,
+         env={"HF_HUB_OFFLINE": "1", "INFINITY_ANONYMOUS_USAGE_STATS": "0", "DO_NOT_TRACK": "1",
+              "INFINITY_HOME": "/tmp/infinity", "HF_HOME": "/tmp/hf"},
          embed_path="/v1/embeddings", rerank_api="n1", rerank_path="/v1/rerank"),
-    dict(name="llama.cpp", image="ghcr.io/ggml-org/llama.cpp:server-b11718", source="github.com/ggml-org/llama.cpp",
-         source_licence="MIT", port=8080, health=["/health"], models=[("bge-m3-q8", ""), ("bge-reranker-v2-m3-q8", "")],
-         args=lambda m, k, v: ["-m", f"/models/{m}/{EMBED_MODELS[m]['file']}", "--host", "0.0.0.0", "--port", "8080",
-                            "-t", "4", "-c", "8192", "-np", "8", "-b", "8192", "-ub", "8192"]
-         + (["--embeddings", "--pooling", "cls"] if k == "embed" else ["--reranking"]),
-         env={}, embed_path="/v1/embeddings", rerank_api="n1", rerank_path="/v1/rerank"),
 ]
 
 
@@ -400,7 +415,10 @@ def prep_embed(rows):
 
 def run_embeddings():
     rows = fleurs()
+    used = {x for c in EMBED_CANDIDATES for m, _ in c["models"] for x in m.split("+")} | {"bge-m3"}
     for m, d in EMBED_MODELS.items():
+        if m not in used or d.get("kind") == "both":
+            continue
         try:
             snapshot(d["repo"], d["rev"], local=os.path.join(MODELS, m), allow=d.get("allow"), ignore=d.get("ignore"))
         except Exception as e:
@@ -422,16 +440,20 @@ def run_embeddings():
                     continue
                 mem = MemPeak()
                 base = f"http://{SRV}:{c['port']}"
-                spec = {"base": base, "model": m, "embed_path": c["embed_path"], "rerank_api": c["rerank_api"],
-                        "rerank_path": c["rerank_path"], "cap": 300}
-                r = client("embed" if d["kind"] == "embed" else "rerank", spec)
-                if d["kind"] == "rerank":
-                    n1 = client("probe", {"urls": [base + "/v1/rerank"], "ok": [200, 405]})
-                    r["n1_route_present"] = bool(n1.get("ready"))
-                r.update({"kind": "measure", "task": "embeddings", "candidate": c["name"], "model": m,
-                          "variant": variant, "model_kind": d["kind"], "profile": prof, "mem_peak_gb": mem.done(),
-                          "declared_dims": d.get("dims")})
-                result(r)
+                for part in m.split("+"):
+                    pk = EMBED_MODELS[part]["kind"]
+                    spec = {"base": base, "model": part, "embed_path": c["embed_path"],
+                            "rerank_api": c["rerank_api"], "rerank_path": c["rerank_path"], "cap": 300}
+                    r = client("embed" if pk == "embed" else "rerank", spec)
+                    if pk == "rerank":
+                        n1 = client("probe", {"urls": [base + "/v1/rerank"], "ok": [200, 405]})
+                        r["n1_route_present"] = bool(n1.get("ready"))
+                    r.update({"kind": "measure", "task": "embeddings", "candidate": c["name"], "model": part,
+                              "served_with": m, "variant": variant, "model_kind": pk, "profile": prof,
+                              "declared_dims": EMBED_MODELS[part].get("dims")})
+                    result(r)
+                result({"kind": "memory", "task": "embeddings", "candidate": c["name"], "label": label,
+                        "mem_peak_gb": mem.done()})
             except Exception as e:
                 result({"kind": "measure", "task": "embeddings", "candidate": c["name"], "model": m,
                         "variant": variant, "error": str(e)[:400]})

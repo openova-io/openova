@@ -21,8 +21,9 @@ jobs:
       fail-fast: false
       max-parallel: 3
       matrix:
-        # run 1 (43388368504) ran all three; runs 2 and 3 re-run the two that needed fixes
-        task: [conversion, transcription]
+        # run 1 (43388368504) ran all three; runs 2 and 3 re-ran conversion and transcription;
+        # run 4 re-runs embeddings with the fixes run 1 showed were needed
+        task: [embeddings]
     runs-on: ubuntu-24.04
     timeout-minutes: 330
     env:
