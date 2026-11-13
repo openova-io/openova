@@ -33,7 +33,7 @@ jobs:
       PLAYWRIGHT_VERSION: 1.49.1
       EXPIRY_WAIT: "100"
       OUT: ${{ github.workspace }}/out
-      PW_DIR: ${{ runner.temp }}/pw
+      PW_DIR: /tmp/pw-spike-prd-070
     steps:
       - name: Checkout
         uses: actions/checkout@v4

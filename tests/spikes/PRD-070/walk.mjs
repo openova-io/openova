@@ -47,9 +47,9 @@ async function send(page, user, marker, steps) {
   const step = { user, marker, sent_at: Date.now() / 1000 };
   try {
     const box = await promptBox(page);
-    await box.click();
+    await page.keyboard.press('Escape');
     await box.fill(`${marker}: what is the capital of Oman?`);
-    await page.keyboard.press('Enter');
+    await box.press('Enter');
     step.sent_at = Date.now() / 1000;
     const hit = await waitForCapture(marker, 60000);
     step.captured = Boolean(hit);
