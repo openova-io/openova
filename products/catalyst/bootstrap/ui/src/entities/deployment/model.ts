@@ -468,7 +468,7 @@ export const DEFAULT_COMPONENT_GROUPS: Record<string, string[]> = {
   // alone would still have left both ids pre-selected on every fresh wizard
   // run. componentGroups.catalog-integrity.5575.test.ts now cross-checks
   // this table too.
-  spine:    ['cilium', 'coraza', 'powerdns', 'external-dns', 'netbird'],
+  spine:    ['cilium', 'powerdns', 'external-dns', 'netbird'],
   surge:    ['vpa', 'keda', 'reloader', 'continuum'],
   silo:     ['seaweedfs', 'velero', 'harbor'],
   guardian: ['kyverno', 'openbao', 'external-secrets', 'cert-manager', 'falco', 'trivy', 'syft-grype', 'sigstore', 'keycloak'],

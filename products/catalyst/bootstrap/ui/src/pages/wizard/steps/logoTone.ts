@@ -64,8 +64,6 @@ export const LOGO_SURFACE: Record<string, LogoSurface> = {
   /* ── SPINE ─────────────────────────────────────────────────────── */
   // Cilium — hexagon mosaic over navy ; cilium.io hero uses `#1A2236` navy. Vendored SVG is the multi-colour hex mosaic on transparent — navy lets the colours read.
   cilium:       { background: '#1A2236', border: 'rgba(255,255,255,0.12)', text: '#ffffff' },
-  // Coraza — OWASP red on near-black ; coraza.io hero uses `#1A1A1A` with red `#E53E3E` accent. Vendored PNG is red-on-transparent.
-  coraza:       { background: '#1A1A1A', border: 'rgba(255,255,255,0.10)', text: '#E53E3E' },
   // PowerDNS — internal letter-mark ; navy from OpenOva SPINE palette.
   powerdns:     { background: '#0B1B33', border: 'rgba(255,255,255,0.10)', text: '#60A5FA' },
   // External-DNS — Kubernetes-sigs project ; vendored mark is wordmark on white. Use white tile to match.
