@@ -100,6 +100,8 @@ spec:
        namespace: external-secrets-system, justification: "HOST-MINIMUM §4 — ESO substrate (resolves synced ExternalSecret CRs, fix (c))"}
     - {file: 15a-external-secrets-stores.yaml, hr: bp-external-secrets-stores, vcluster: host, target: host,
        namespace: external-secrets-system, justification: "HOST-MINIMUM §4 — ESO stores substrate"}
+    - {file: 15b-storage-ready.yaml, hr: storage-ready, vcluster: host, target: host,
+       namespace: flux-system, justification: "HOST-MINIMUM §4 — storage gate: holds the database operator until the default StorageClass exists"}
     - {file: 16-cnpg.yaml, hr: bp-cnpg, vcluster: host, target: host,
        namespace: cnpg-system, justification: "HOST-MINIMUM §4 — CNPG operator substrate (reconciles synced Cluster CRs)"}
     - {file: 19c-opentelemetry-operator.yaml, hr: bp-opentelemetry-operator, vcluster: host, target: host,

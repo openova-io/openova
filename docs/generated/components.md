@@ -106,6 +106,7 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | platform/stalwart | - | - | - | - |
 | platform/stalwart-sovereign | bp-stalwart-sovereign | bp-stalwart-sovereign | listed | - |
 | platform/stalwart-tenant | bp-stalwart-tenant | bp-stalwart-tenant | listed | - |
+| platform/storage-ready | bp-storage-ready | bp-storage-ready | unlisted | 15b |
 | platform/strimzi | - | bp-strimzi | - | - |
 | platform/stunner | bp-stunner | bp-stunner | unlisted | - |
 | platform/syft-grype | bp-syft-grype | syft-grype | - | 33 |
