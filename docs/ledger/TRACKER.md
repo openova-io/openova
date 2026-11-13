@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T02:15:05Z` |
+| Last refreshed | `2026-11-13T02:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T02:23 | [#7278](https://github.com/openova-io/openova/pull/7278) | #7261 | feat(compliance): add the compliance types, the model loader |
+| 2026-11-13T02:23 | [#7277](https://github.com/openova-io/openova/pull/7277) | #7262 | refactor(kit): wire slot 27a to the policy values document a |
+| 2026-11-13T02:18 | [#7275](https://github.com/openova-io/openova/pull/7275) | #7268 | feat(contracts): publish contract C5, the variables document |
+| 2026-11-13T02:19 | [#7273](https://github.com/openova-io/openova/pull/7273) | #7269 | fix(console): the Catalog page shows listed Blueprints and r |
 | 2026-11-13T02:11 | [#7272](https://github.com/openova-io/openova/pull/7272) | #7267 | chore(ci): guard that the hand-over machinery only shrinks ( |
 | 2026-11-13T01:57 | [#7271](https://github.com/openova-io/openova/pull/7271) | #7264 | docs(adr): record 0036 on backup and restore of etcd, databa |
 | 2026-11-13T02:03 | [#7270](https://github.com/openova-io/openova/pull/7270) | #7263 | docs(ledger): map every Organization pipeline step to the or |
@@ -333,10 +337,6 @@ flowchart LR
 | 2026-11-12T23:50 | [#7227](https://github.com/openova-io/openova/pull/7227) | #4249 | fix(provisioning): the funnel installs bp-openclaw 0.2.20, t |
 | 2026-11-12T23:41 | [#7226](https://github.com/openova-io/openova/pull/7226) | #7211 | chore(ci): ratchets of the billing area at their current val |
 | 2026-11-12T23:41 | [#7224](https://github.com/openova-io/openova/pull/7224) | #7216 | ci: Trivy vulnerability and secret scan, new findings only ( |
-| 2026-11-12T23:40 | [#7223](https://github.com/openova-io/openova/pull/7223) | #7214 | ci: hold the legacy Kyverno policy count and forbid the upgr |
-| 2026-11-13T00:00 | [#7221](https://github.com/openova-io/openova/pull/7221) | #7218 | test(provisioning): ratchet the password literals the genera |
-| 2026-11-12T23:40 | [#7220](https://github.com/openova-io/openova/pull/7220) | #7213 | docs(adr): record 0029 on the compliance plane (CMP-005) |
-| 2026-11-12T23:21 | [#7208](https://github.com/openova-io/openova/pull/7208) | #7087 | docs(ledger): plan update: next tickets, one ordering |
 
 ---
 
