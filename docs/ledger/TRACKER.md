@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T01:15:03Z` |
+| Last refreshed | `2026-11-13T01:30:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T01:23 | [#7256](https://github.com/openova-io/openova/pull/7256) | #7234 | fix(console): the wizard offers one region or two, as the pr |
+| 2026-11-13T01:23 | [#7255](https://github.com/openova-io/openova/pull/7255) | #7215 | feat(plan): stability register and the frozen-path check (FN |
+| 2026-11-13T01:23 | [#7254](https://github.com/openova-io/openova/pull/7254) | #7233 | docs(adr): record 0026 on the NodePort ban and the gateway s |
 | 2026-11-13T00:51 | [#7253](https://github.com/openova-io/openova/pull/7253) | #7219 | docs(security): state what is true of secrets today and name |
 | 2026-11-13T00:51 | [#7252](https://github.com/openova-io/openova/pull/7252) | #7238 | chore(ci): guard that source addresses written into the code |
 | 2026-11-13T00:51 | [#7250](https://github.com/openova-io/openova/pull/7250) | #7167 | chore(api): remove the Sandbox routes, handlers and event pu |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-12T22:51 | [#7205](https://github.com/openova-io/openova/pull/7205) | #7193 | fix(catalyst-api): refuse to wipe a handed-over Sovereign un |
 | 2026-11-12T22:50 | [#7204](https://github.com/openova-io/openova/pull/7204) | #7191 | ci: fail a Kyverno engine upgrade to 1.20 while a legacy pol |
 | 2026-11-12T22:50 | [#7203](https://github.com/openova-io/openova/pull/7203) | #7189 | chore(ci): guard that the platform gains no new polling loop |
-| 2026-11-12T22:51 | [#7202](https://github.com/openova-io/openova/pull/7202) | #7187 | fix(marketplace): the plan step says when prices are unavail |
-| 2026-11-12T22:50 | [#7201](https://github.com/openova-io/openova/pull/7201) | #7192 | chore(clusters): delete the two legacy per-Sovereign overlay |
-| 2026-11-12T22:50 | [#7200](https://github.com/openova-io/openova/pull/7200) | #7185 | docs(adr): record 0033 on the access plane (ACC-060) |
 
 ---
 
