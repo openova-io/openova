@@ -47,6 +47,76 @@ measure() { # $1 = phase
 
 count() { kubectl get "$1" -n "$TEST_NS" --no-headers 2>/dev/null | wc -l | tr -d ' '; }
 
+# Scan job failures the operator logged since $2: one line per job and
+# container, with the end of the container's termination message.
+errors() { # $1 = phase, $2 = RFC 3339 start time
+  kubectl -n "$NS" logs -l app.kubernetes.io/name=trivy-operator --tail=-1 --since-time="$2" \
+    >"$OUT/operator-$1.log" 2>&1 || true
+  python3 - "$OUT/operator-$1.log" "$1" <<'EOF' | tee "$OUT/scan-failures-$1.txt"
+import json, sys
+seen = {}
+for line in open(sys.argv[1]):
+    try:
+        d = json.loads(line)
+    except ValueError:
+        continue
+    if d.get("level") != "error" or "job" not in d:
+        continue
+    key = (d.get("job"), d.get("container"), d.get("status.reason"))
+    seen.setdefault(key, [0, d.get("status.message", "")])[0] += 1
+print(f"phase {sys.argv[2]}: scan job failures logged by the operator: {len(seen)} distinct")
+for (job, cont, reason), (n, msg) in sorted(seen.items(), key=lambda kv: str(kv[0])):
+    tail = " | ".join(l.strip() for l in msg.strip().splitlines()[-2:])[-400:]
+    print(f"  job={job} container={cont} reason={reason} times={n}")
+    print(f"    last lines: {tail}")
+EOF
+}
+
+current_rs() {
+  kubectl -n "$TEST_NS" get rs -l app=web -o json |
+    jq -r '.items[] | select(.status.replicas > 0 and .status.replicas == .status.readyReplicas) | .metadata.name' | head -1
+}
+
+# One remedy round: change the scanner values, restart the operator, re-roll
+# the two workloads whose reports were missing, and count their reports.
+round() { # $1 = phase, rest = extra helm arguments
+  local ph=$1 since rs web agent act cur last="" stable=0 deadline opdep
+  shift
+  since=$(date -u +%FT%TZ)
+  log "phase $ph: helm upgrade with $*"
+  helm upgrade "$REL" "$CHART" -n "$NS" "${SETS[@]}" -f "$HERE/values-compliance.yaml" "$@" --wait --timeout 10m
+  kubectl -n "$NS" get cm -o json |
+    jq -r '.items[] | select(.metadata.name | endswith("trivy-config")) | .data | to_entries[] |
+      select(.key | test("tag|resources")) | "\(.key)=\(.value)"' | tee -a "$OUT/timeline.txt"
+  opdep=$(kubectl -n "$NS" get deploy -l app.kubernetes.io/name=trivy-operator -o name | head -1)
+  kubectl -n "$NS" rollout restart "$opdep"
+  kubectl -n "$NS" rollout status "$opdep" --timeout=300s
+  kubectl -n "$TEST_NS" delete vulnerabilityreports -l trivy-operator.resource.kind=DaemonSet --ignore-not-found
+  kubectl -n "$TEST_NS" rollout restart deploy/web daemonset/agent
+  kubectl -n "$TEST_NS" rollout status deploy/web --timeout=300s
+  kubectl -n "$TEST_NS" rollout status daemonset/agent --timeout=300s
+  sleep 5
+  rs=$(current_rs)
+  deadline=$((SECONDS + 720))
+  while :; do
+    web=$(kubectl -n "$TEST_NS" get vulnerabilityreports -l "trivy-operator.resource.name=$rs" --no-headers 2>/dev/null | wc -l | tr -d ' ')
+    agent=$(kubectl -n "$TEST_NS" get vulnerabilityreports -l "trivy-operator.resource.kind=DaemonSet" --no-headers 2>/dev/null | wc -l | tr -d ' ')
+    act=$(active_scans)
+    log "phase $ph: web ReplicaSet $rs containers with a report $web of 2; DaemonSet agent $agent of 1; activeScanJobs=$act"
+    if [ "$web" -ge 2 ] && [ "$agent" -ge 1 ] && [ "$act" -eq 0 ]; then break; fi
+    cur="$web/$agent"
+    if [ "$cur" = "$last" ] && [ "$act" -eq 0 ]; then stable=$((stable + 1)); else stable=0; fi
+    last=$cur
+    [ "$stable" -ge 10 ] && break
+    [ $SECONDS -ge $deadline ] && break
+    sleep 30
+  done
+  log "phase $ph result: web $web of 2 containers reported, agent $agent of 1"
+  kubectl -n "$TEST_NS" get vulnerabilityreports -L trivy-operator.resource.kind,trivy-operator.resource.name,trivy-operator.container.name |
+    tee -a "$OUT/timeline.txt"
+  errors "$ph" "$since"
+}
+
 active_scans() {
   kubectl get jobs -n "$NS" -o json |
     jq '[.items[] | select((.status.succeeded // 0) == 0 and (.status.failed // 0) == 0)] | length'
@@ -116,6 +186,7 @@ done
 # ---------------------------------------------------------------------------
 etcd_measure "baseline"
 
+T_START_A=$(date -u +%FT%TZ)
 log "phase A: helm install $REL (bp-trivy, chart values)"
 helm upgrade --install "$REL" "$CHART" -n "$NS" --create-namespace "${SETS[@]}" --wait --timeout 10m
 kubectl -n "$NS" get deploy,pods -o wide | tee -a "$OUT/timeline.txt"
@@ -130,9 +201,11 @@ kubectl -n "$TEST_NS" get all -o wide | tee "$OUT/workloads.txt"
 
 log "phase A: waiting for reports (expect $EXPECTED_VULN_REPORTS vulnerability reports in $TEST_NS, then an empty scan queue)"
 quiet=0
+idle=0
+last=""
 first_vr=""
 iter=0
-deadline=$((SECONDS + 2100))
+deadline=$((SECONDS + 1800))
 while :; do
   iter=$((iter + 1))
   vr=$(count vulnerabilityreports)
@@ -149,6 +222,15 @@ while :; do
   fi
   if [ "$vr" -ge "$EXPECTED_VULN_REPORTS" ] && [ "$act" -eq 0 ]; then quiet=$((quiet + 1)); else quiet=0; fi
   [ "$quiet" -ge 3 ] && break
+  # nothing changes and nothing runs for six minutes after the first report:
+  # the remaining scans have failed and are not retried
+  cur="$vr/$ca/$es"
+  if [ -n "$first_vr" ] && [ "$cur" = "$last" ] && [ "$act" -eq 0 ]; then idle=$((idle + 1)); else idle=0; fi
+  last=$cur
+  if [ "$idle" -ge 12 ]; then
+    log "phase A: no change and no scan job for six minutes; measuring what exists"
+    break
+  fi
   if [ $SECONDS -ge $deadline ]; then
     log "phase A deadline reached; measuring what exists"
     break
@@ -159,6 +241,14 @@ log "phase A settled $((SECONDS - T_INSTALL))s after install"
 kubectl -n "$NS" get jobs,pods -o wide | tee -a "$OUT/timeline.txt" || true
 kubectl get clustercompliancereports -o wide | tee -a "$OUT/timeline.txt" || true
 measure A || log "measure A failed"
+errors A "$T_START_A"
+{
+  echo "control-plane files that the CIS file checks read, on this k3s node:"
+  for p in /etc/kubernetes/manifests /etc/kubernetes/admin.conf /etc/kubernetes/pki \
+    /var/lib/rancher/k3s/agent/pod-manifests /var/lib/rancher/k3s/server/manifests; do
+    if sudo test -e "$p"; then echo "present: $p"; else echo "absent:  $p"; fi
+  done
+} | tee "$OUT/node-files.txt"
 
 # ---------------------------------------------------------------------------
 log "phase R: roll deploy/web to a new nginx image"
@@ -169,15 +259,17 @@ kubectl -n "$TEST_NS" rollout status deploy/web --timeout=300s
 NEW_RS=$(kubectl -n "$TEST_NS" get rs -l app=web -o json |
   jq -r '.items[] | select(.status.replicas > 0) | .metadata.name' | head -1)
 log "old ReplicaSet $OLD_RS, new ReplicaSet $NEW_RS"
-deadline=$((SECONDS + 1200))
+deadline=$((SECONDS + 720))
 quiet=0
+last=""
 while :; do
   n_new=$(kubectl -n "$TEST_NS" get vulnerabilityreports -l "trivy-operator.resource.name=$NEW_RS" --no-headers 2>/dev/null | wc -l | tr -d ' ')
   n_old=$(kubectl -n "$TEST_NS" get vulnerabilityreports -l "trivy-operator.resource.name=$OLD_RS" --no-headers 2>/dev/null | wc -l | tr -d ' ')
   act=$(active_scans)
   log "reports for new ReplicaSet=$n_new old ReplicaSet=$n_old activeScanJobs=$act"
-  if [ "$n_new" -ge 2 ] && [ "$act" -eq 0 ]; then quiet=$((quiet + 1)); else quiet=0; fi
-  [ "$quiet" -ge 4 ] && break
+  if [ "$n_new" -ge 1 ] && [ "$act" -eq 0 ] && [ "$n_new/$n_old" = "$last" ]; then quiet=$((quiet + 1)); else quiet=0; fi
+  last="$n_new/$n_old"
+  [ "$quiet" -ge 6 ] && break
   if [ $SECONDS -ge $deadline ]; then
     log "phase R deadline reached"
     break
@@ -207,6 +299,24 @@ while :; do
 done
 kubectl get clustercompliancereports -o wide | tee -a "$OUT/timeline.txt"
 measure B || log "measure B failed"
+
+# ---------------------------------------------------------------------------
+# Phases D1 and D2: the two failures phase A shows on the chart's values
+# (a second container's scan losing the shared cache lock; the database
+# download running out of memory). D1 runs the scanner tag the operator
+# release was built with instead of the chart's override; D2 keeps the
+# chart's tag and doubles the scan job memory limit. Each round deletes the
+# DaemonSet's report and re-rolls both workloads, so each count is fresh.
+OP_DEFAULT_TR_TAG=$(tar -xOzf "$SUB" trivy-operator/values.yaml |
+  python3 -c 'import sys,yaml; print(yaml.safe_load(sys.stdin)["trivy"]["image"]["tag"])')
+log "scanner tag the operator chart ships: $OP_DEFAULT_TR_TAG; the platform overrides it to $TR_TAG"
+if docker manifest inspect "$REG/$ORG/trivy:$OP_DEFAULT_TR_TAG" >/dev/null 2>&1; then
+  round D1 --set "trivy-operator.trivy.image.tag=$OP_DEFAULT_TR_TAG"
+else
+  log "phase D1 skipped: $REG/$ORG/trivy:$OP_DEFAULT_TR_TAG not served"
+fi
+round D2 --set trivy-operator.trivy.resources.limits.memory=1Gi
+measure D || log "measure D failed"
 
 kubectl -n "$NS" logs -l app.kubernetes.io/name=trivy-operator --tail=-1 >"$OUT/operator.log" 2>&1 || true
 {

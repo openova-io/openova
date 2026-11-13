@@ -191,7 +191,24 @@ def benchmarks(items):
         sr = st.get("summaryReport") or {}
         cc = sr.get("controlCheck") or []
         fields = sorted({k for x in cc for k in x})
+        # Which producer feeds each control: AVD-KCV checks are node and
+        # control-plane file and flag checks (node-collector); AVD-KSV are
+        # workload and role checks (config audit, role assessment).
+        fail_by_id = {x.get("id"): x.get("totalFail") for x in cc}
+        by_source = collections.defaultdict(collections.Counter)
+        for ctl in controls:
+            ids = [ch.get("id", "") for ch in ctl.get("checks") or []]
+            prefixes = sorted({re.sub(r"-\d+$", "", i) for i in ids}) or ["(manual)"]
+            src = "+".join(prefixes)
+            tf = fail_by_id.get(ctl.get("id"), "absent")
+            by_source[src]["controls"] += 1
+            by_source[src]["fail" if isinstance(tf, int) and tf > 0 else ("zero" if tf == 0 else "absent")] += 1
+        failing = [{"id": x.get("id"), "name": x.get("name"), "totalFail": x.get("totalFail")}
+                   for x in cc if (x.get("totalFail") or 0) > 0]
         out.append({
+            "controlsBySource": {k: dict(v) for k, v in by_source.items()},
+            "failingControls": failing,
+            "manualControls": [x.get("id") for x in controls if not x.get("checks")],
             "name": md["name"],
             "complianceId": comp.get("id"), "title": comp.get("title"),
             "platform": comp.get("platform"), "type": comp.get("type"), "version": comp.get("version"),
@@ -288,6 +305,23 @@ def main():
           f"failAbsent={b['controlsTotalFailAbsent']} fields={b['controlCheckFields']}")
         for s in b["controlCheckSample"][:2]:
             p(f"    sample: {s}")
+        if b["controlCheckEntries"]:
+            p(f"    controls by producer: {b['controlsBySource']}")
+            p(f"    manual controls (no checks): {b['manualControls']}")
+            for f in b["failingControls"]:
+                p(f"    failing: {f}")
+    p("--- node assessment (ClusterInfraAssessmentReport)")
+    for c in items.get("clusterinfraassessmentreports", []):
+        rep = c.get("report") or {}
+        p(f"{c['metadata']['name']}: summary={rep.get('summary')}")
+        for ch in rep.get("checks") or []:
+            p(f"    {ch.get('checkID')} success={ch.get('success')} {ch.get('title')}")
+    if a.namespace:
+        p(f"--- report annotations and hash labels in {a.namespace}")
+        for o in result["owners"]:
+            if o["report"] == "vulnerabilityreports":
+                p(f"    {o['name']}: {o['annotations']} "
+                  f"{ {k: v for k, v in o['labels'].items() if not k.startswith(PREFIX)} }")
     return 0
 
 

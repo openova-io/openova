@@ -23,7 +23,7 @@ permissions:
 jobs:
   scanner-reports:
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 110
     env:
       # the k3s release Sovereigns run (infra/providers/huawei/variables.tf)
       K3S_VERSION: v1.31.4+k3s1
