@@ -13,11 +13,11 @@ The check `generated-docs` fails a pull request in which this file is stale.
 - Guard: a CI guard that fails a pull request which weakens the control.
 - A dash means none.
 
-Built: 0 of 19. Target: 19 of 19.
+Built: 1 of 19. Target: 18 of 19.
 
 | State | Control | Claim | Mechanism | Exists | On by default | Mode | Guard | Gate check | Decision |
 |---|---|---|---|---|---|---|---|---|---|
-| target | secrets-at-rest | Kubernetes Secrets are encrypted at rest in etcd. | k3s secrets encryption on every server | no | no | none | - | SEC-G01 | - |
+| built | secrets-at-rest | Kubernetes Secrets are encrypted at rest in etcd. | k3s secrets encryption with the secretbox provider on every server | yes | yes | enforce | scripts/check-k3s-secrets-encryption.sh | SEC-G01 | ADR-0018 |
 | target | signed-artefacts-only | A Kyverno policy denies unsigned artefacts and artefacts signed by the wrong issuer. | Kyverno verifyImages policy cosignVerified of platform/kyverno-policies, off by default | yes | no | none | - | SEC-G14 | - |
 | target | admission-policy | Kyverno admission control denies manifests that break a platform policy. | Kyverno ClusterPolicies of platform/kyverno-policies | yes | no | audit | - | - | - |
 | target | admin-mfa | A sovereign-admin account must sign in to Keycloak with a second factor. | Keycloak required action for a WebAuthn or OTP credential | yes | no | none | - | - | - |

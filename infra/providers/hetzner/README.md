@@ -132,7 +132,7 @@ Per [`docs/ARCHITECTURE.md`](../../../docs/ARCHITECTURE.md) §3.8 + §11, the EP
     { "provider": "hetzner", "cloudRegion": "hel1", "controlPlaneSize": "cpx32", "workerSize": "cpx32", "workerCount": 2 }
   ],
 
-  "k3s_version":        "v1.31.4+k3s1",
+  "k3s_version":        "v1.31.8+k3s1",
   "object_storage_region":      "nbg1",
   "object_storage_access_key":  "<from Hetzner Console>",
   "object_storage_secret_key":  "<from Hetzner Console>",
@@ -322,6 +322,8 @@ k3s is installed via `curl get.k3s.io | sh -` from cloud-init. The `INSTALL_K3S_
 | Flag | Why |
 |---|---|
 | `--cluster-init` | Initialise embedded etcd. Required for Phase-1 hand-off to add additional control-plane nodes (`ha_enabled=true`) without re-bootstrapping. |
+| `--secrets-encryption` | k3s encrypts every Secret before it writes it to etcd. The key rests in `/var/lib/rancher/k3s/server/cred/encryption-config.json` on each server and, in etcd, under the server token. Gate check SEC-G01 proves that a Secret is stored as ciphertext only. |
+| `--secrets-encryption-provider=secretbox` | The cipher is secretbox (XSalsa20 and Poly1305), not the k3s default `aescbc`. The lowest k3s version the platform runs it with is `v1.31.8+k3s1`. `scripts/check-k3s-secrets-encryption.sh` fails a pull request whose server line lacks either flag or whose `k3s_version` default is older. |
 | `--flannel-backend=none` | k3s ships with flannel; we replace the CNI with Cilium (gateway API, eBPF, mTLS via wireguard). Setting `none` keeps k3s from racing flannel against Cilium during boot. |
 | `--disable=traefik` | k3s ships with Traefik; we use **Cilium Gateway API** (already part of the Cilium install). Catalyst's Gateway/HTTPRoute manifests assume Gateway API, not Traefik IngressRoute. |
 | `--disable=servicelb` | k3s ships with klipper-lb; we use the Hetzner load balancer for ingress (`hcloud_load_balancer.main`) and PowerDNS lua-records (`ifurlup`) for cross-region failover. klipper-lb would otherwise race hcloud-ccm to materialise the Cilium Gateway's `type=LoadBalancer` Service (:443/:80; #4682). |
@@ -334,7 +336,7 @@ k3s is installed via `curl get.k3s.io | sh -` from cloud-init. The `INSTALL_K3S_
 | `--node-label catalyst.openova.io/role=control-plane` | Used by NodeAffinity on Catalyst control-plane services (Console, projector, etc.) to pin them off worker nodes. |
 | `--write-kubeconfig-mode=0644` | Lets the catalyst-api fetch the kubeconfig over the wizard channel without sudo. The kubeconfig is rotated and replaced with a SPIFFE-issued identity in Phase 2. |
 
-The `INSTALL_K3S_VERSION` environment variable is `var.k3s_version` (default `v1.31.4+k3s1`). Pinned so a Sovereign provisioned today and one provisioned next month land on the same Kubernetes minor — the Catalyst compatibility matrix in `docs/ARCHITECTURE.md` §8.1 is keyed to k3s minor versions.
+The `INSTALL_K3S_VERSION` environment variable is `var.k3s_version` (default `v1.31.8+k3s1`). Pinned so a Sovereign provisioned today and one provisioned next month land on the same Kubernetes minor — the Catalyst compatibility matrix in `docs/ARCHITECTURE.md` §8.1 is keyed to k3s minor versions.
 
 ---
 
@@ -376,7 +378,7 @@ See [`variables.tf`](variables.tf) for the authoritative source. Highlights:
 | `worker_size` | `cx32` | `^(cx[0-9]+|ccx[0-9]+|cax[0-9]+)$` |
 | `worker_count` | `0` | `0 ≤ n ≤ 50` |
 | `ha_enabled` | `false` | bool |
-| `k3s_version` | `v1.31.4+k3s1` | `^v\d+\.\d+\.\d+\+k3s\d+$` |
+| `k3s_version` | `v1.31.8+k3s1` | `^v\d+\.\d+\.\d+\+k3s\d+$` |
 | `ssh_public_key` | (required) | OpenSSH formats only |
 | `ssh_allowed_cidrs` | `[]` | every entry must be a valid CIDR |
 | `enable_unattended_upgrades` | `true` | bool |
@@ -414,7 +416,7 @@ cat > sovereign.tfvars.json <<EOF
   "control_plane_size": "cx42",
   "worker_count":       0,
   "ha_enabled":         false,
-  "k3s_version":        "v1.31.4+k3s1",
+  "k3s_version":        "v1.31.8+k3s1",
   "ssh_public_key":     "ssh-ed25519 AAAA... operator@laptop",
   "ssh_allowed_cidrs":  ["203.0.113.7/32"],
   "domain_mode":        "byo",

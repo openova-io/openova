@@ -2013,7 +2013,7 @@ checks:
 - id: SEC-G01
   title: Security check SEC-G01
   owner: SEC
-  state: expected-fail
+  state: required
   runs_in: [local, cloud]
   destructive: false
   needs: []
