@@ -17,22 +17,22 @@ Built: 0 of 19. Target: 19 of 19.
 
 | State | Control | Claim | Mechanism | Exists | On by default | Mode | Guard | Gate check | Decision |
 |---|---|---|---|---|---|---|---|---|---|
-| target | secrets-at-rest | Kubernetes Secrets are encrypted at rest in etcd. | k3s secrets encryption on every server | no | no | none | - | - | - |
-| target | signed-artefacts-only | A Kyverno policy denies unsigned artefacts and artefacts signed by the wrong issuer. | Kyverno verifyImages policy cosignVerified of platform/kyverno-policies, off by default | yes | no | none | - | - | - |
+| target | secrets-at-rest | Kubernetes Secrets are encrypted at rest in etcd. | k3s secrets encryption on every server | no | no | none | - | SEC-G01 | - |
+| target | signed-artefacts-only | A Kyverno policy denies unsigned artefacts and artefacts signed by the wrong issuer. | Kyverno verifyImages policy cosignVerified of platform/kyverno-policies, off by default | yes | no | none | - | SEC-G14 | - |
 | target | admission-policy | Kyverno admission control denies manifests that break a platform policy. | Kyverno ClusterPolicies of platform/kyverno-policies | yes | no | audit | - | - | - |
 | target | admin-mfa | A sovereign-admin account must sign in to Keycloak with a second factor. | Keycloak required action for a WebAuthn or OTP credential | yes | no | none | - | - | - |
 | target | jit-elevation | An action that affects production needs a just-in-time elevation. | Just-in-time elevation of a sovereign-admin | no | no | none | - | - | - |
 | target | openbao-raft-quorum | A write to OpenBao needs a quorum of 2 of 3 Raft members. | OpenBao integrated Raft storage with three members per region | yes | no | none | - | - | - |
-| target | openbao-audit-log | The OpenBao audit log records every read. | OpenBao audit device | no | no | none | - | - | - |
+| target | openbao-audit-log | The OpenBao audit log records every read. | OpenBao audit device | no | no | none | - | SEC-G05 | - |
 | target | openbao-regions-independent | Each region runs its own OpenBao Raft cluster, never one cluster stretched across regions. | One independent OpenBao Raft cluster per region | no | no | none | - | - | - |
 | target | openbao-root-rotation | The OpenBao root token is rotated and the unseal keys are re-shared every quarter. | A scheduled root rotation and rekey of OpenBao | no | no | none | - | - | - |
 | target | nats-account-isolation | Each Organization has its own NATS Account. | NATS Accounts configured by platform/nats-jetstream | no | no | none | - | - | - |
 | target | secret-rotation-policy | A SecretPolicy drives the automatic rotation of every credential class. | A controller for the SecretPolicy custom resource; only the definition exists | no | no | none | - | - | - |
-| target | dynamic-db-credentials | Database credentials are dynamic and reach a Pod through a secret sidecar. | OpenBao database secrets engine with a sidecar in the Pod | no | no | none | - | - | - |
+| target | dynamic-db-credentials | Database credentials are dynamic and reach a Pod through a secret sidecar. | OpenBao database secrets engine with a sidecar in the Pod | no | no | none | - | SEC-G13 | - |
 | target | build-provenance | Every build carries SLSA level 3 provenance. | SLSA level 3 provenance attestation in the build workflows | no | no | none | - | - | - |
 | target | siem-export | The audit log is exported to a SIEM, by default OpenSearch in the Sovereign. | OpenSearch in the Sovereign as the SIEM; platform/opensearch has no chart | no | no | none | - | - | - |
 | target | static-secrets-via-eso | Static secrets live in OpenBao and reach a Pod only through the External Secrets Operator. | OpenBao with the External Secrets Operator | yes | no | none | - | - | - |
 | target | cloud-credential-not-persisted | The cloud provider credential is never persisted. | The provisioning credential held in memory only | no | no | none | - | - | - |
 | target | token-lifetimes | A refresh lasts 30 days and an access token 15 minutes. | Token lifetimes of the Keycloak realm | yes | no | enforce | - | - | - |
-| target | network-policy | NetworkPolicy limits the blast radius of a compromised Pod. | A default-deny NetworkPolicy in every namespace, enforced by Cilium | yes | no | enforce | - | - | - |
+| target | network-policy | NetworkPolicy limits the blast radius of a compromised Pod. | A default-deny NetworkPolicy in every namespace, enforced by Cilium | yes | no | enforce | - | NET-G06 | ADR-0019 |
 | target | build-signing-sbom | Every build is signed with cosign and carries a Syft SBOM. | cosign signing and Syft SBOM attestation in the build workflows | yes | no | none | - | - | - |

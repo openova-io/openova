@@ -12,12 +12,14 @@ controls:
     exists: false
     default_on: false
     mode: none
+    gate_check: SEC-G01
   - id: signed-artefacts-only
     claim: "A Kyverno policy denies unsigned artefacts and artefacts signed by the wrong issuer."
     mechanism: "Kyverno verifyImages policy cosignVerified of platform/kyverno-policies, off by default"
     exists: true
     default_on: false
     mode: none
+    gate_check: SEC-G14
   - id: admission-policy
     claim: "Kyverno admission control denies manifests that break a platform policy."
     mechanism: "Kyverno ClusterPolicies of platform/kyverno-policies"
@@ -48,6 +50,7 @@ controls:
     exists: false
     default_on: false
     mode: none
+    gate_check: SEC-G05
   - id: openbao-regions-independent
     claim: "Each region runs its own OpenBao Raft cluster, never one cluster stretched across regions."
     mechanism: "One independent OpenBao Raft cluster per region"
@@ -78,6 +81,7 @@ controls:
     exists: false
     default_on: false
     mode: none
+    gate_check: SEC-G13
   - id: build-provenance
     claim: "Every build carries SLSA level 3 provenance."
     mechanism: "SLSA level 3 provenance attestation in the build workflows"
@@ -114,6 +118,8 @@ controls:
     exists: true
     default_on: false
     mode: enforce
+    gate_check: NET-G06
+    decision: ADR-0019
   - id: build-signing-sbom
     claim: "Every build is signed with cosign and carries a Syft SBOM."
     mechanism: "cosign signing and Syft SBOM attestation in the build workflows"
