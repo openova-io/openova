@@ -182,13 +182,13 @@
       "products/catalyst/bootstrap/api/internal/handler/wipe_evs_backstop.go": 1
     },
     "handler_lines": {
-      "products/catalyst/bootstrap/api/internal/handler": 100892
+      "products/catalyst/bootstrap/api/internal/handler": 100216
     },
     "handler_methods": {
-      "products/catalyst/bootstrap/api/internal/handler": 674
+      "products/catalyst/bootstrap/api/internal/handler": 671
     },
     "main_lines": {
-      "products/catalyst/bootstrap/api/cmd/api/main.go": 2180
+      "products/catalyst/bootstrap/api/cmd/api/main.go": 2176
     }
   },
   "schema": "openova.io/guard-baseline/v1"

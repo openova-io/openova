@@ -35,3 +35,6 @@ products/catalyst/bootstrap/api/internal/handler/sandbox_sessions_test.go
 products/catalyst/bootstrap/api/internal/handler/sandbox_unreconciled_6260_test.go
 products/catalyst/bootstrap/api/internal/natspub/sandbox_publisher.go
 products/catalyst/bootstrap/api/internal/natspub/sandbox_publisher_test.go
+products/catalyst/bootstrap/api/internal/handler/continuum_dr_preflight02_6156_test.go
+products/catalyst/bootstrap/api/internal/handler/continuum_dr_preflight02_callsite_6156_test.go
+products/catalyst/bootstrap/api/internal/handler/continuum_dr_preflight_test.go
