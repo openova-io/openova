@@ -502,8 +502,16 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/FND-001-merge-queue.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/FND-001-merge-queue.md"
+  - id: A2
+    run: "grep -c '^Outcome: (a)$\\|^Outcome: (b)$\\|^Outcome: (c)$' docs/ledger/plan/spikes/FND-001-merge-queue.md | grep -qx 1"
+  - id: A3
+    run: "grep -c '^Identity kind: \\|^Push starts workflows: \\|^Checks red between the two commits: ' docs/ledger/plan/spikes/FND-001-merge-queue.md | grep -qx 3"
   rollback: revert
   adr: null
   due: null
@@ -531,8 +539,14 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/FND-002-gate-runner.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/FND-002-gate-runner.md"
+  - id: A2
+    run: "grep -c '^Outcome: reachable$\\|^Outcome: not reachable$' docs/ledger/plan/spikes/FND-002-gate-runner.md | grep -qx 1"
   rollback: revert
   adr: null
   due: null
@@ -3394,8 +3408,16 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/FND-201-observability.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/FND-201-observability.md"
+  - id: A2
+    run: "grep -c '^Collector that stays: ' docs/ledger/plan/spikes/FND-201-observability.md | grep -qx 1"
+  - id: A3
+    run: "grep -c '^Alert source: \\|^Objective object kind: ' docs/ledger/plan/spikes/FND-201-observability.md | grep -qx 2"
   rollback: revert
   adr: null
   due: null
@@ -3826,8 +3848,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/CLD-050.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/CLD-050.md && grep -q '^## Evidence' docs/ledger/plan/spikes/CLD-050.md"
   rollback: revert
   adr: null
   due: null
@@ -3854,8 +3880,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/CLD-055.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/CLD-055.md && grep -q '^## Evidence' docs/ledger/plan/spikes/CLD-055.md"
   rollback: revert
   adr: null
   due: null
@@ -6162,8 +6192,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/SOV-060.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/SOV-060.md && grep -q '^## Evidence' docs/ledger/plan/spikes/SOV-060.md"
   rollback: revert
   adr: null
   due: null
@@ -6191,8 +6225,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/SOV-070.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/SOV-070.md && grep -q '^## Evidence' docs/ledger/plan/spikes/SOV-070.md"
   rollback: revert
   adr: null
   due: null
@@ -6220,8 +6258,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/SOV-080.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/SOV-080.md && grep -q '^## Evidence' docs/ledger/plan/spikes/SOV-080.md"
   rollback: revert
   adr: null
   due: null
@@ -6249,8 +6291,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/SOV-090.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/SOV-090.md && grep -q '^## Evidence' docs/ledger/plan/spikes/SOV-090.md"
   rollback: revert
   adr: null
   due: null
@@ -7643,8 +7689,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/SOV-750.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/SOV-750.md && grep -q '^## Evidence' docs/ledger/plan/spikes/SOV-750.md"
   rollback: revert
   adr: null
   due: null
@@ -8607,8 +8657,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/SEC-130.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/SEC-130.md && grep -q '^## Evidence' docs/ledger/plan/spikes/SEC-130.md"
   rollback: revert
   adr: null
   due: null
@@ -8636,8 +8690,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/SEC-135.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/SEC-135.md && grep -q '^## Evidence' docs/ledger/plan/spikes/SEC-135.md"
   rollback: revert
   adr: null
   due: null
@@ -8665,8 +8723,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/SEC-140.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/SEC-140.md && grep -q '^## Evidence' docs/ledger/plan/spikes/SEC-140.md"
   rollback: revert
   adr: null
   due: null
@@ -9889,8 +9951,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/SEC-271.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/SEC-271.md && grep -q '^## Evidence' docs/ledger/plan/spikes/SEC-271.md"
   rollback: revert
   adr: null
   due: null
@@ -10007,8 +10073,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/SEC-280.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/SEC-280.md && grep -q '^## Evidence' docs/ledger/plan/spikes/SEC-280.md"
   rollback: revert
   adr: null
   due: null
@@ -10158,8 +10228,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/SEC-335.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/SEC-335.md && grep -q '^## Evidence' docs/ledger/plan/spikes/SEC-335.md"
   rollback: revert
   adr: null
   due: null
@@ -12364,8 +12438,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/NET-270.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/NET-270.md && grep -q '^## Evidence' docs/ledger/plan/spikes/NET-270.md"
   rollback: revert
   adr: null
   due: null
@@ -12393,8 +12471,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/NET-280.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/NET-280.md && grep -q '^## Evidence' docs/ledger/plan/spikes/NET-280.md"
   rollback: revert
   adr: null
   due: null
@@ -12422,8 +12504,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/NET-290.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/NET-290.md && grep -q '^## Evidence' docs/ledger/plan/spikes/NET-290.md"
   rollback: revert
   adr: null
   due: null
@@ -12451,8 +12537,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/NET-300.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/NET-300.md && grep -q '^## Evidence' docs/ledger/plan/spikes/NET-300.md"
   rollback: revert
   adr: null
   due: null
@@ -12746,8 +12836,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/NET-330.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/NET-330.md && grep -q '^## Evidence' docs/ledger/plan/spikes/NET-330.md"
   rollback: revert
   adr: null
   due: null
@@ -13119,8 +13213,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/SVC-120.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/SVC-120.md && grep -q '^## Evidence' docs/ledger/plan/spikes/SVC-120.md"
   rollback: revert
   adr: null
   due: null
@@ -13620,8 +13718,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/SVC-210.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/SVC-210.md && grep -q '^## Evidence' docs/ledger/plan/spikes/SVC-210.md"
   rollback: revert
   adr: null
   due: null
@@ -13706,8 +13808,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/SVC-250.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/SVC-250.md && grep -q '^## Evidence' docs/ledger/plan/spikes/SVC-250.md"
   rollback: revert
   adr: null
   due: null
@@ -13921,8 +14027,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/SVC-315.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/SVC-315.md && grep -q '^## Evidence' docs/ledger/plan/spikes/SVC-315.md"
   rollback: revert
   adr: null
   due: null
@@ -14010,8 +14120,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/SVC-340.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/SVC-340.md && grep -q '^## Evidence' docs/ledger/plan/spikes/SVC-340.md"
   rollback: revert
   adr: null
   due: null
@@ -14498,8 +14612,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/CTL-050.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/CTL-050.md && grep -q '^## Evidence' docs/ledger/plan/spikes/CTL-050.md"
   rollback: revert
   adr: null
   due: null
@@ -14526,8 +14644,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/CTL-055.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/CTL-055.md && grep -q '^## Evidence' docs/ledger/plan/spikes/CTL-055.md"
   rollback: revert
   adr: null
   due: null
@@ -14897,8 +15019,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/CTL-170.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/CTL-170.md && grep -q '^## Evidence' docs/ledger/plan/spikes/CTL-170.md"
   rollback: revert
   adr: null
   due: null
@@ -18131,8 +18257,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/CMP-S1.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/CMP-S1.md && grep -q '^## Evidence' docs/ledger/plan/spikes/CMP-S1.md"
   rollback: revert
   adr: null
   due: null
@@ -18159,8 +18289,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/CMP-S2.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/CMP-S2.md && grep -q '^## Evidence' docs/ledger/plan/spikes/CMP-S2.md"
   rollback: revert
   adr: null
   due: null
@@ -18187,8 +18321,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/CMP-S3.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/CMP-S3.md && grep -q '^## Evidence' docs/ledger/plan/spikes/CMP-S3.md"
   rollback: revert
   adr: null
   due: null
@@ -18215,8 +18353,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/CMP-S4.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/CMP-S4.md && grep -q '^## Evidence' docs/ledger/plan/spikes/CMP-S4.md"
   rollback: revert
   adr: null
   due: null
@@ -18243,8 +18385,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/CMP-S5.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/CMP-S5.md && grep -q '^## Evidence' docs/ledger/plan/spikes/CMP-S5.md"
   rollback: revert
   adr: null
   due: null
@@ -18271,8 +18417,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/CMP-S6.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/CMP-S6.md && grep -q '^## Evidence' docs/ledger/plan/spikes/CMP-S6.md"
   rollback: revert
   adr: null
   due: null
@@ -19679,8 +19829,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/BSS-S1.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/BSS-S1.md && grep -q '^## Evidence' docs/ledger/plan/spikes/BSS-S1.md"
   rollback: revert
   adr: null
   due: null
@@ -19707,8 +19861,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/BSS-S2.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/BSS-S2.md && grep -q '^## Evidence' docs/ledger/plan/spikes/BSS-S2.md"
   rollback: revert
   adr: null
   due: null
@@ -19736,8 +19894,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/AIP-010.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/AIP-010.md && grep -q '^## Evidence' docs/ledger/plan/spikes/AIP-010.md"
   rollback: revert
   adr: null
   due: null
@@ -19765,8 +19927,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/AIP-020.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/AIP-020.md && grep -q '^## Evidence' docs/ledger/plan/spikes/AIP-020.md"
   rollback: revert
   adr: null
   due: null
@@ -19794,8 +19960,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/AIP-030.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/AIP-030.md && grep -q '^## Evidence' docs/ledger/plan/spikes/AIP-030.md"
   rollback: revert
   adr: null
   due: null
@@ -21280,8 +21450,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/AIP-250.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/AIP-250.md && grep -q '^## Evidence' docs/ledger/plan/spikes/AIP-250.md"
   rollback: revert
   adr: null
   due: null
@@ -21604,8 +21778,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/INF-020.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/INF-020.md && grep -q '^## Evidence' docs/ledger/plan/spikes/INF-020.md"
   rollback: revert
   adr: null
   due: null
@@ -21632,8 +21810,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/INF-030.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/INF-030.md && grep -q '^## Evidence' docs/ledger/plan/spikes/INF-030.md"
   rollback: revert
   adr: null
   due: null
@@ -22168,8 +22350,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/INF-210.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/INF-210.md && grep -q '^## Evidence' docs/ledger/plan/spikes/INF-210.md"
   rollback: revert
   adr: null
   due: null
@@ -22484,8 +22670,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/INF-350.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/INF-350.md && grep -q '^## Evidence' docs/ledger/plan/spikes/INF-350.md"
   rollback: revert
   adr: null
   due: null
@@ -23087,8 +23277,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/INF-610.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/INF-610.md && grep -q '^## Evidence' docs/ledger/plan/spikes/INF-610.md"
   rollback: revert
   adr: null
   due: null
@@ -23205,8 +23399,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/INF-710.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/INF-710.md && grep -q '^## Evidence' docs/ledger/plan/spikes/INF-710.md"
   rollback: revert
   adr: null
   due: null
@@ -23483,8 +23681,20 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test ! -e docs/ledger/plan/spikes/MIG-020-read-path.md && echo absent"
+    expect: "absent"
+  acceptance:
+  - id: A1
+    run: "test \"$(grep -c -E '^outcome: A[123]$' docs/ledger/plan/spikes/MIG-020-read-path.md)\" = \"1\""
+  - id: A2
+    run: "grep -q -E '^nbdkit_tag: .+' docs/ledger/plan/spikes/MIG-020-read-path.md"
+  - id: A3
+    run: "grep -q -E '^library_versions_tested: .+' docs/ledger/plan/spikes/MIG-020-read-path.md"
+  - id: A4
+    run: "grep -q -E '^connections_per_host: [0-9]+$' docs/ledger/plan/spikes/MIG-020-read-path.md"
+  - id: A5
+    run: "bash scripts/check-no-vendor-disk-library.sh --repo"
   rollback: revert
   adr: null
   due: null
@@ -23512,8 +23722,22 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test ! -e docs/ledger/plan/spikes/MIG-030-target-writer.md && echo absent"
+    expect: "absent"
+  acceptance:
+  - id: A1
+    run: "test \"$(grep -c -E '^outcome: B[1234]$' docs/ledger/plan/spikes/MIG-030-target-writer.md)\" = \"1\""
+  - id: A2
+    run: "grep -q -E '^boot_mode: (image-from-volume|swap-system-disk|image-import|none)$' docs/ledger/plan/spikes/MIG-030-target-writer.md"
+  - id: A3
+    run: "grep -q -E '^max_disks_per_worker: [0-9]+$' docs/ledger/plan/spikes/MIG-030-target-writer.md"
+  - id: A4
+    run: "grep -q -E '^fixed_mac: (true|false)$' docs/ledger/plan/spikes/MIG-030-target-writer.md"
+  - id: A5
+    run: "grep -q -E '^windows_boot: (pass|fail|not-run)$' docs/ledger/plan/spikes/MIG-030-target-writer.md"
+  - id: A6
+    run: "grep -q -E '^landing_apply_seconds: [0-9]+$' docs/ledger/plan/spikes/MIG-030-target-writer.md"
   rollback: revert
   adr: null
   due: null
@@ -23541,8 +23765,18 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test ! -e docs/ledger/plan/spikes/MIG-040-address-preservation.md && echo absent"
+    expect: "absent"
+  acceptance:
+  - id: A1
+    run: "test \"$(grep -c -E '^outcome: C[123]$' docs/ledger/plan/spikes/MIG-040-address-preservation.md)\" = \"1\""
+  - id: A2
+    run: "grep -q -E '^variant: (proxy-arp|proxy-arp-snat|none)$' docs/ledger/plan/spikes/MIG-040-address-preservation.md"
+  - id: A3
+    run: "grep -q -E '^foreign_address_mechanism: (port-check-off|allowed-address-pairs|none)$' docs/ledger/plan/spikes/MIG-040-address-preservation.md"
+  - id: A4
+    run: "grep -q -E '^native_layer2_gateway: (present|absent)$' docs/ledger/plan/spikes/MIG-040-address-preservation.md"
   rollback: revert
   adr: null
   due: null
@@ -23570,8 +23804,20 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test ! -e docs/ledger/plan/spikes/MIG-050-hermetic.md && echo absent"
+    expect: "absent"
+  acceptance:
+  - id: A1
+    run: "test \"$(grep -c -E '^outcome: D[12]$' docs/ledger/plan/spikes/MIG-050-hermetic.md)\" = \"1\""
+  - id: A2
+    run: "grep -q -E '^convert_seconds: [0-9]+$' docs/ledger/plan/spikes/MIG-050-hermetic.md"
+  - id: A3
+    run: "grep -q -E '^boot_seconds: [0-9]+$' docs/ledger/plan/spikes/MIG-050-hermetic.md"
+  - id: A4
+    run: "grep -q -E '^fixture_sha256: [0-9a-f]{64}$' docs/ledger/plan/spikes/MIG-050-hermetic.md"
+  - id: A5
+    run: "grep -q -E '^virt_v2v_in_place: (packaged|absent)$' docs/ledger/plan/spikes/MIG-050-hermetic.md"
   rollback: revert
   adr: null
   due: null
@@ -24815,8 +25061,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/ACC-020.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/ACC-020.md && grep -q '^## Evidence' docs/ledger/plan/spikes/ACC-020.md"
   rollback: revert
   adr: null
   due: null
@@ -24843,8 +25093,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/ACC-030.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/ACC-030.md && grep -q '^## Evidence' docs/ledger/plan/spikes/ACC-030.md"
   rollback: revert
   adr: null
   due: null
@@ -25577,8 +25831,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/ACC-201.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/ACC-201.md && grep -q '^## Evidence' docs/ledger/plan/spikes/ACC-201.md"
   rollback: revert
   adr: null
   due: null
@@ -25836,8 +26094,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/ACC-221.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/ACC-221.md && grep -q '^## Evidence' docs/ledger/plan/spikes/ACC-221.md"
   rollback: revert
   adr: null
   due: null
@@ -26176,8 +26438,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/PRD-040.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/PRD-040.md && grep -q '^## Evidence' docs/ledger/plan/spikes/PRD-040.md"
   rollback: revert
   adr: null
   due: null
@@ -26205,8 +26471,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/PRD-050.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/PRD-050.md && grep -q '^## Evidence' docs/ledger/plan/spikes/PRD-050.md"
   rollback: revert
   adr: null
   due: null
@@ -26234,8 +26504,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/PRD-060.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/PRD-060.md && grep -q '^## Evidence' docs/ledger/plan/spikes/PRD-060.md"
   rollback: revert
   adr: null
   due: null
@@ -26263,8 +26537,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/PRD-070.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/PRD-070.md && grep -q '^## Evidence' docs/ledger/plan/spikes/PRD-070.md"
   rollback: revert
   adr: null
   due: null
@@ -26292,8 +26570,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/PRD-080.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/PRD-080.md && grep -q '^## Evidence' docs/ledger/plan/spikes/PRD-080.md"
   rollback: revert
   adr: null
   due: null
@@ -26321,8 +26603,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/PRD-090.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/PRD-090.md && grep -q '^## Evidence' docs/ledger/plan/spikes/PRD-090.md"
   rollback: revert
   adr: null
   due: null
@@ -27194,8 +27480,12 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/PRD-402.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/PRD-402.md && grep -q '^## Evidence' docs/ledger/plan/spikes/PRD-402.md"
   rollback: revert
   adr: null
   due: null
