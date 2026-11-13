@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-13T13:06:25.390Z",
+  "generatedAt": "2026-11-13T13:06:43.544Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -4967,7 +4967,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "section": "pts-4-5-communication",
       "depends": [
         "bp-cert-manager",
