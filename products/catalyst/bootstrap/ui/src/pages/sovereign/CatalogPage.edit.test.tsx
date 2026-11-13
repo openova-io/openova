@@ -75,7 +75,7 @@ function renderCatalog() {
   const tree = rootRoute.addChildren([catalogRoute, catalogDetailRoute])
   const router = createRouter({
     routeTree: tree,
-    history: createMemoryHistory({ initialEntries: ['/provision/d-1/catalog'] }),
+    history: createMemoryHistory({ initialEntries: ['/provision/d-1/catalog?unlisted=1'] }),
   })
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
   return render(

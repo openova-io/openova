@@ -28,13 +28,14 @@ import { authedFetch } from '@/shared/lib/authedFetch'
 import { useWizardStore } from '@/entities/deployment/store'
 import { PortalShell } from './PortalShell'
 import { AppCard } from './AppsPage'
-import { useNavigate } from '@tanstack/react-router'
+import { useNavigate, useSearch } from '@tanstack/react-router'
 import { resolveApplications, type ApplicationDescriptor } from './applicationCatalog'
 import type { ApplicationStatus } from './eventReducer'
 import { useCatalogAdmin } from '@/shared/lib/useCatalogAdmin'
 import { listApps, type CommerceApp } from '@/lib/commerce.api'
 import { useCatalog } from '@/lib/useCatalog'
 import type { CatalogItem } from '@/lib/catalog.api'
+import { BLUEPRINT_BY_ID } from '@/shared/constants/catalog.generated'
 
 const DEFAULT_APP_ENVIRONMENT = 'dev'
 
@@ -71,6 +72,18 @@ function catalogItemToDescriptor(it: CatalogItem): ApplicationDescriptor | null 
     dependencies: [],
     bootstrapKit: false,
   }
+}
+
+/**
+ * SVC-030 — the Catalog page shows only listed Blueprints unless the URL
+ * carries `?unlisted=1` ("Show unlisted"). A card's visibility is the live
+ * catalog item's `visibility` (the Sovereign's own Blueprint, edits
+ * included); a card the live catalog does not serve falls back to the
+ * build-time catalog. A card with neither counts as unlisted.
+ */
+function isListed(id: string, liveVisibility: Record<string, string>): boolean {
+  const visibility = liveVisibility[id] || BLUEPRINT_BY_ID[id]?.visibility || ''
+  return visibility === 'listed'
 }
 
 /**
@@ -131,6 +144,20 @@ export function CatalogPage() {
         iconLight: it.card?.iconLight ?? '',
         iconDark: it.card?.iconDark ?? '',
       }
+    }
+    return m
+  }, [catalogItems])
+
+  // SVC-030 — the live visibility per card id. A `bp-`-qualified item is the
+  // live Blueprint CR and wins over a bare-name item of the same Blueprint.
+  const liveVisibilityById = useMemo(() => {
+    const m: Record<string, string> = {}
+    for (const it of catalogItems) {
+      const raw = it.name ?? ''
+      if (!raw || !it.visibility) continue
+      const qualified = raw.startsWith('bp-')
+      const id = qualified ? raw : `bp-${raw}`
+      if (qualified || !m[id]) m[id] = it.visibility
     }
     return m
   }, [catalogItems])
@@ -252,11 +279,27 @@ export function CatalogPage() {
   // chip navigates to the catalog detail page, which edits in place.
   const navigate = useNavigate()
 
+  // SVC-030 — "Show unlisted" lives in the URL as `?unlisted=1`, default off.
+  const search = useSearch({ strict: false }) as { unlisted?: unknown }
+  const showUnlisted = String(search.unlisted ?? '') === '1'
+  const setShowUnlisted = (next: boolean) => {
+    void navigate({
+      to: '.',
+      search: (prev: Record<string, unknown>) => ({ ...prev, unlisted: next ? 1 : undefined }),
+      replace: true,
+    } as never)
+  }
+
+  const shownApps = useMemo<ApplicationDescriptor[]>(
+    () => (showUnlisted ? catalogApps : catalogApps.filter((a) => isListed(a.id, liveVisibilityById))),
+    [catalogApps, showUnlisted, liveVisibilityById],
+  )
+
   const [query, setQuery] = useState('')
 
   const visibleApps = useMemo<ApplicationDescriptor[]>(() => {
     const filtered = query
-      ? catalogApps.filter((a) => {
+      ? shownApps.filter((a) => {
           const q = query.toLowerCase()
           return (
             a.title.toLowerCase().includes(q) ||
@@ -264,9 +307,9 @@ export function CatalogPage() {
             (a.familyName ?? '').toLowerCase().includes(q)
           )
         })
-      : catalogApps
+      : shownApps
     return [...filtered].sort((a, b) => a.title.localeCompare(b.title))
-  }, [catalogApps, query])
+  }, [shownApps, query])
 
   return (
     <PortalShell deploymentId={deploymentId} pageTitle="Catalog">
@@ -281,19 +324,32 @@ export function CatalogPage() {
           </svg>
           <input
             type="text"
-            placeholder={`Search ${catalogApps.length} apps…`}
+            placeholder={`Search ${shownApps.length} apps…`}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="search-input"
             data-testid="sov-catalog-search"
           />
         </div>
+        <label className="unlisted-toggle">
+          <input
+            type="checkbox"
+            checked={showUnlisted}
+            onChange={(e) => setShowUnlisted(e.target.checked)}
+            data-testid="sov-catalog-show-unlisted"
+          />
+          Show unlisted
+        </label>
       </div>
 
       {visibleApps.length === 0 ? (
         <div className="empty-state" data-testid="sov-catalog-empty">
           <p className="empty-title">No catalog entries match.</p>
-          <p className="empty-sub">Clear the search to see the full catalog.</p>
+          <p className="empty-sub">
+            {showUnlisted
+              ? 'Clear the search to see the full catalog.'
+              : 'Clear the search, or turn on Show unlisted, to see the full catalog.'}
+          </p>
         </div>
       ) : (
         <div className="apps-grid" data-testid="sov-catalog-grid">
@@ -408,6 +464,10 @@ const CATALOG_PAGE_CSS = `
   font-size: 0.88rem;
 }
 .search-input:focus { outline: 2px solid var(--color-accent); border-color: transparent; }
+.unlisted-toggle {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  font-size: 0.82rem; color: var(--color-text); white-space: nowrap; cursor: pointer;
+}
 
 .apps-grid {
   display: grid;
