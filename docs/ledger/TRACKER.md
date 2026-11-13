@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T07:45:03Z` |
+| Last refreshed | `2026-11-13T08:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,7 +307,12 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T07:51 | [#7363](https://github.com/openova-io/openova/pull/7363) | #7356 | refactor(cloud-init): one variables ConfigMap for the inline |
 | 2026-11-13T07:41 | [#7362](https://github.com/openova-io/openova/pull/7362) | #7087 | docs(ledger): plan update |
+| 2026-11-13T07:49 | [#7361](https://github.com/openova-io/openova/pull/7361) | #7350 | refactor(api): delete the endpoint pull-request pipeline and |
+| 2026-11-13T07:49 | [#7360](https://github.com/openova-io/openova/pull/7360) | #7353 | feat(gate): checks for etcd at rest and for control-plane no |
+| 2026-11-13T07:48 | [#7359](https://github.com/openova-io/openova/pull/7359) | #7351 | docs(adr): record 0021 on the Git-first write path, the inte |
+| 2026-11-13T07:48 | [#7357](https://github.com/openova-io/openova/pull/7357) | #7352 | feat(controllers): add the commit library gitwrite and the G |
 | 2026-11-13T07:17 | [#7355](https://github.com/openova-io/openova/pull/7355) | #7087 | docs(ledger): plan update |
 | 2026-11-13T07:08 | [#7348](https://github.com/openova-io/openova/pull/7348) | #7087 | docs(ledger): plan update |
 | 2026-11-13T06:47 | [#7344](https://github.com/openova-io/openova/pull/7344) | #7087 | docs(ledger): result of the lab test SVC-340 (SVC-340) |
@@ -332,11 +337,6 @@ flowchart LR
 | 2026-11-13T05:25 | [#7320](https://github.com/openova-io/openova/pull/7320) | #7186 | fix(billing): order capture never prices from a second list; |
 | 2026-11-13T05:25 | [#7319](https://github.com/openova-io/openova/pull/7319) | #7265 | refactor(api): read the ClusterMesh state, and a mode switch |
 | 2026-11-13T05:25 | [#7318](https://github.com/openova-io/openova/pull/7318) | #7282 | feat(providers): publish the network registry of a Sovereign |
-| 2026-11-13T05:11 | [#7316](https://github.com/openova-io/openova/pull/7316) | #7087 | docs(ledger): plan update |
-| 2026-11-13T05:04 | [#7315](https://github.com/openova-io/openova/pull/7315) | #7087 | docs(ledger): dashboard refreshed: 85 tasks merged |
-| 2026-11-13T06:33 | [#7314](https://github.com/openova-io/openova/pull/7314) | #7087 | docs(ledger): result of the lab test CTL-055 (CTL-055) |
-| 2026-11-13T06:33 | [#7313](https://github.com/openova-io/openova/pull/7313) | #7087 | docs(ledger): result of the lab test CTL-050 (CTL-050) |
-| 2026-11-13T06:33 | [#7312](https://github.com/openova-io/openova/pull/7312) | #7087 | docs(ledger): result of the lab test CMP-S6 (CMP-S6) |
 
 ---
 
