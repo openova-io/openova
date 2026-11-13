@@ -25,6 +25,7 @@ Format: lightweight ADR (Status / Context / Decision / Consequences / Shipped-vi
 | [0020](0020-service-model-classes-and-capability-contracts.md) | Service model: classes, lifecycle, capability contracts, one catalogue source, function tests and kit rings | Accepted |
 | [0022](0022-foundation-gate-release-train-and-execution-protocol.md) | Foundation gate, release train, stability register and execution protocol (supersedes the gate wiring of ADR-0015 decision D9) | Accepted |
 | [0023](0023-sandbox-withdrawn.md) | Sandbox withdrawn; the per-Organization agent workspace and the tool server replace it | Accepted |
+| [0024](0024-primary-substrate.md) | The primary substrate moved on 2026-05-22: a Huawei Cloud Stack installation is the primary substrate; Hetzner stays an unproven second provider until it is proven again or retired | Accepted |
 | [0025](0025-organization-vcluster-tier-gate-added-and-removed.md) | The per-Organization vCluster tier gate, added 2026-06-25 and removed 2026-09-10 | Accepted |
 | [0028](0028-commerce-and-billing.md) | Commerce and billing: one billing product with two installation options, one owner per money entity, one plan source | Accepted |
 | [0029](0029-compliance-plane.md) | Compliance plane: one read model, one model object in Git, policy mode and waivers by commit | Accepted |
