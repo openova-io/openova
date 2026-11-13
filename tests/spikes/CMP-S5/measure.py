@@ -90,6 +90,14 @@ def evaluate(out_dir, ns):
     def in_org_ns(key):
         return ons.get(key, "") in ("", ns) or key[0].startswith("live-")
 
+    dropped = {}
+    for r in rows:
+        if r["level"] != "baseline":
+            continue
+        fields = re.findall(r'unknown field "([^"]+)"', r["out"])
+        if fields:
+            dropped[f"{r['group']}/{r['release']} {r['kind']}/{r['name']}"] = sorted(set(fields))
+
     table = []
     for key in sorted(objs):
         b = objs[key].get("baseline", ("missing", []))
@@ -140,6 +148,7 @@ def evaluate(out_dir, ns):
         "namespace": ns,
         "clusterVariant": read(os.path.join(out_dir, "cluster-variant")).strip(),
         "vclusterChartVersion": read(os.path.join(out_dir, "vcluster-chart-version.txt")).strip(),
+        "vclusterVariant": read(os.path.join(out_dir, "vcluster-variant")).strip(),
         "cnpgOperator": read(os.path.join(out_dir, "logs", "cnpg-operator-image.txt")).strip(),
         "orgStackCharts": read(os.path.join(out_dir, "charts", "org-stack.tsv")).strip().splitlines(),
         "catalogCharts": read(os.path.join(out_dir, "charts", "catalog.tsv")).strip().splitlines(),
@@ -157,6 +166,10 @@ def evaluate(out_dir, ns):
         },
         "failing": fails,
         "errors": errors,
+        "droppedUnknownFields": dropped,
+        "syncedPods": sorted({t["release"] for t in table if t["group"].startswith("live-") and "-x-" in t["release"]}),
+        "applied": [dict({k: a.get(k) for k in ("release", "where", "kind", "name", "rc")},
+                         err=((a.get("out") or "").strip().splitlines() or [""])[-1][:300]) for a in applied],
         "table": table,
         "live": live,
         "enforce": enforce,
@@ -171,7 +184,7 @@ def md(res):
     c = res["counts"]
     L.append(f"# Spike CMP-S5: outcome `{res['outcome']}`\n")
     L.append(f"- Organization namespace: `{res['namespace']}`; kind audit patch: `{res['clusterVariant']}`")
-    L.append(f"- vcluster chart resolved for `0.33.*`: `{res['vclusterChartVersion']}`")
+    L.append(f"- vcluster chart resolved for `0.33.*`: `{res['vclusterChartVersion']}`; live values variant: `{res['vclusterVariant']}`")
     L.append(f"- CNPG operator: `{res['cnpgOperator']}`")
     L.append(f"- Organization objects evaluated: {c['orgObjectsEvaluated']} "
              f"(baseline fail {c['orgBaselineFail']}, error {c['orgBaselineError']}, restricted fail {c['orgRestrictedFail']})")
@@ -191,6 +204,18 @@ def md(res):
         L.append("\n## Not evaluated (create error)\n")
         for t in res["errors"]:
             L.append(f"- [{t['group']}] `{t['release']}` {t['kind']}/{t['name']}: " + "; ".join(t["baselineControls"]))
+
+    L.append("\n## Synced Pods seen in the host namespace\n")
+    L.append(", ".join(f"`{p}`" for p in res["syncedPods"]) or "None.")
+    L.append("\n## Unknown fields the API server dropped (field validation Warn)\n")
+    if not res["droppedUnknownFields"]:
+        L.append("None.")
+    for k, v in res["droppedUnknownFields"].items():
+        L.append(f"- {k}: " + ", ".join(v))
+    bad = [a for a in res["applied"] if a["rc"] != 0]
+    L.append(f"\n## Live apply: {len(res['applied'])} objects, {len(bad)} refused or failed\n")
+    for a in bad[:30]:
+        L.append(f"- {a['where']} {a['release']} {a['kind']}/{a['name']} rc={a['rc']}: {a['err']}")
 
     L.append("\n## Every Organization object\n")
     L.append("| group | release | object | baseline | restricted |")

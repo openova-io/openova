@@ -112,14 +112,17 @@ jobs:
         run: |
           for f in "$OUT"/live/enforce.jsonl "$OUT"/charts/org-stack.tsv "$OUT"/charts/catalog.tsv \
                    "$OUT"/live/vcluster-values.diff "$OUT"/live/assess-*.txt "$OUT"/live/restart-host.txt \
-                   "$OUT"/live/restart-virtual.txt "$OUT"/live/pods-*.txt "$OUT"/live/vcluster-install.txt \
+                   "$OUT"/live/restart-virtual.txt "$OUT"/live/pods-*.txt "$OUT"/live/vcluster-install*.txt "$OUT"/vcluster-variant \
                    "$OUT"/live/enforce-label.txt "$OUT"/logs/psa-metrics.txt "$OUT"/logs/audit-psa.jsonl \
-                   "$OUT"/live/probe-priv-virtual.yaml; do
+                   "$OUT"/live/probe-priv-virtual.yaml "$OUT"/live/vcluster-values.live.diff \
+                   "$OUT"/live/vcluster-virtual-pods.txt "$OUT"/live/events-enforce.txt; do
             [ -f "$f" ] || continue
             echo "::group::$f"; head -c 60000 "$f"; echo; echo "::endgroup::"
           done
           echo "::group::syncer PodSecurity lines"
           grep -h -i "podsecurity" "$OUT"/logs/syncer*.log | head -50 || true
+          echo "--- syncer ERROR lines"
+          grep -h "ERROR" "$OUT"/logs/syncer*.log | cut -c1-600 | head -30 || true
           echo "::endgroup::"
           echo "::group::render logs (tails)"
           for f in "$OUT"/charts/*.render.log; do echo "--- $f"; tail -5 "$f"; done

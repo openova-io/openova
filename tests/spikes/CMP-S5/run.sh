@@ -34,6 +34,8 @@ R="$OUT/render"
 DRY_B=cmps5-dry-baseline
 DRY_R=cmps5-dry-restricted
 TOPO_REGION="kind-cmps5"
+# listed catalog charts installed INSIDE the Org vCluster (their Pods are synced)
+SYNC_APPS="${SYNC_APPS:-bp-matrix bp-llm-gateway}"
 VCKC="$OUT/vc.kubeconfig"
 API_VERSIONS=(
   --api-versions postgresql.cnpg.io/v1
@@ -185,7 +187,10 @@ eval_one() { # <group> <release> <docfile> <original-namespace>
     ns=${pair%%:*}; lvl=${pair##*:}
     yq ".metadata.namespace = \"$ns\"" "$f" > "$f.$lvl.yaml"
     if [ "$kind" = Pod ]; then ensure_sa "$ns" "$(yq -r '.spec.serviceAccountName // ""' "$f")"; fi
-    out=$(kubectl create --dry-run=server -f "$f.$lvl.yaml" -o name 2>&1); rc=$?
+    # --validate=warn: the API server drops unknown fields with a warning and
+    # stores the object, as for a client that sends no field-validation mode;
+    # pod security then judges the object as stored
+    out=$(kubectl create --dry-run=server --validate=warn -f "$f.$lvl.yaml" -o name 2>&1); rc=$?
     jq -cn --arg group "$g" --arg release "$rel" --arg kind "$kind" --arg name "$name" \
       --arg level "$lvl" --arg ons "$ons" --arg out "$out" --argjson rc "$rc" \
       '{group:$group,release:$release,kind:$kind,name:$name,level:$level,originalNamespace:$ons,rc:$rc,out:$out}' \
@@ -223,15 +228,18 @@ eval_rendered() {
   done
 }
 
-# apply_live <release> <rendered.yaml>: create the objects a Pod needs plus the
-# pod-bearing objects themselves (and CNPG Clusters) in the Org namespace
+# apply_live <release> <docs-dir> <target-ns> [kubeconfig]: create the objects a
+# Pod needs plus the pod-bearing objects themselves (and CNPG Clusters) in the
+# target namespace; with a kubeconfig, inside the Org vCluster
 apply_live() {
-  local rel="$1" d="$OUT/dryrun/docs/org-stack/$1" f kind ons out rc
+  local rel="$1" d="$2" tns="$3" kc="${4:-}" f kind ons out rc k=(kubectl)
+  [ -n "$kc" ] && k=(kubectl --kubeconfig "$kc")
   for f in "$d"/doc-*.yml; do
     [ -e "$f" ] || continue
     kind=$(yq -r '.kind' "$f")
     ons=$(yq -r '.metadata.namespace // ""' "$f")
-    if [ -n "$ons" ] && [ "$ons" != "$NS" ]; then continue; fi
+    if [ -z "$kc" ] && [ -n "$ons" ] && [ "$ons" != "$NS" ]; then continue; fi
+    if [ -n "$kc" ] && [ "$kind" = Cluster ]; then continue; fi
     case "$kind" in
       ServiceAccount|ConfigMap|Secret|Service|PersistentVolumeClaim|Pod|Deployment|StatefulSet|DaemonSet|Job|CronJob|Cluster) ;;
       *) continue ;;
@@ -239,17 +247,16 @@ apply_live() {
     # Resource requests and limits are removed from the live copies so one kind
     # node holds every Pod next to the vCluster control plane. Pod security
     # reads no resource field; the dry-run of phase B keeps them.
-    yq ".metadata.namespace = \"$NS\"
+    yq ".metadata.namespace = \"$tns\"
         | (.. | select(tag == \"!!map\") | select(has(\"containers\")) | .containers[]) |= del(.resources)
         | (.. | select(tag == \"!!map\") | select(has(\"initContainers\")) | .initContainers[]) |= del(.resources)" \
       "$f" > "$f.live.yaml"
-    if [ "$(yq -r '.metadata.name // ""' "$f")" = "" ]; then
-      out=$(kubectl create -f "$f.live.yaml" 2>&1); rc=$?
-    else
-      out=$(kubectl apply --server-side --force-conflicts -f "$f.live.yaml" 2>&1); rc=$?
-    fi
+    # client-side create, as Helm creates on install: server-side apply refuses
+    # unknown fields outright ("field not declared in schema", run 1)
+    out=$("${k[@]}" create --validate=warn -f "$f.live.yaml" 2>&1); rc=$?
     jq -cn --arg release "$rel" --arg kind "$kind" --arg name "$(yq -r '.metadata.name // .metadata.generateName' "$f")" \
-      --arg out "$out" --argjson rc "$rc" '{release:$release,kind:$kind,name:$name,rc:$rc,out:$out}' >> "$OUT/live/applied.jsonl"
+      --arg where "${kc:+vcluster/}$tns" --arg out "$out" --argjson rc "$rc" \
+      '{release:$release,where:$where,kind:$kind,name:$name,rc:$rc,out:$out}' >> "$OUT/live/applied.jsonl"
   done
 }
 
@@ -401,6 +408,28 @@ for hr in "$R"/overlay/bp-*.yaml; do
   fi
 done
 
+phase "E dry-run: the listed marketplace catalog, default values (secondary)"
+CAT_DIRS=()
+for bp in "$ROOT"/platform/*/blueprint.yaml "$ROOT"/products/*/blueprint.yaml; do
+  [ "$(yq -r '.spec.visibility // ""' "$bp")" = listed ] || continue
+  d="$(dirname "$bp")/chart"
+  [ -f "$d/Chart.yaml" ] && CAT_DIRS+=("$d")
+done
+add_dep_repos "${CAT_DIRS[@]}"
+: > "$OUT/charts/catalog.tsv"
+for d in "${CAT_DIRS[@]}"; do
+  chart=$(yq -r '.name' "$d/Chart.yaml")
+  v="$OUT/charts/cat-$chart.values.yaml"
+  printf 'openova:\n  topology: {mode: singleton, self: %s, primary: %s, peers: []}\n  application: {name: %s, namespace: %s}\n' \
+    "$TOPO_REGION" "$TOPO_REGION" "${chart#bp-}" "$NS" > "$v"
+  if render_chart "$chart" "$d" "$v" "$OUT/charts/cat-$chart.yaml"; then
+    printf '%s\t%s\trendered\t%s\n' "$chart" "${d#$ROOT/}" "$(yq -r '.version' "$d/Chart.yaml")" >> "$OUT/charts/catalog.tsv"
+    eval_rendered catalog "$chart" "$OUT/charts/cat-$chart.yaml"
+  else
+    printf '%s\t%s\trender-failed\t%s\n' "$chart" "${d#$ROOT/}" "$(tail -2 "$OUT/charts/$chart.render.log" | tr '\n\t' '  ')" >> "$OUT/charts/catalog.tsv"
+  fi
+done
+
 phase "C live: Organization namespace, warn+audit=baseline"
 kubectl apply -f "$R/boundary/vcluster/namespace.yaml" > "$OUT/live/namespace-apply.txt" 2>&1
 kubectl label ns "$NS" --overwrite \
@@ -410,10 +439,39 @@ kubectl label ns "$NS" --overwrite \
 kubectl get ns "$NS" -o yaml > "$OUT/live/namespace-experiment.yaml"
 
 phase "C live: vCluster install"
-helm upgrade --install vcluster loft/vcluster --version "$VC_VERSION" -n "$NS" \
-  -f "$OUT/live/vcluster-values.ci.yaml" --wait --timeout 10m > "$OUT/live/vcluster-install.txt" 2>&1
-echo "rc=$?" >> "$OUT/live/vcluster-install.txt"
-wait_until 300 host_pod_ready vcluster-0 && log "vcluster-0 Ready" || log "vcluster-0 NOT Ready"
+# Run 1 (same values as the dry-run) crash-looped vcluster-0 on 0.33.4 OSS:
+# "register to host syncer httproutes.gateway.networking.k8s.io: you are trying
+# to use a vCluster pro feature 'Generic Sync'". That key syncs HTTPRoute
+# objects, not Pods; it is dropped from the live install only so the control
+# plane runs and syncs Pods. The dry-run above keeps the full values.
+yq 'del(.sync.toHost.customResources)' "$OUT/live/vcluster-values.ci.yaml" > "$OUT/live/vcluster-values.live.yaml"
+diff "$OUT/live/vcluster-values.ci.yaml" "$OUT/live/vcluster-values.live.yaml" > "$OUT/live/vcluster-values.live.diff"
+vc_install() { # <values> <tag>: install, wait for Ready, stop early on a crash loop
+  local rs end
+  helm upgrade --install vcluster loft/vcluster --version "$VC_VERSION" -n "$NS" -f "$1" \
+    > "$OUT/live/vcluster-install-$2.txt" 2>&1
+  echo "rc=$?" >> "$OUT/live/vcluster-install-$2.txt"
+  end=$((SECONDS + 480))
+  while [ "$SECONDS" -lt "$end" ]; do
+    if host_pod_ready vcluster-0; then echo "$2" > "$OUT/vcluster-variant"; return 0; fi
+    rs=$(kubectl -n "$NS" get pod vcluster-0 -o jsonpath='{.status.containerStatuses[0].restartCount}' 2>/dev/null)
+    [ "${rs:-0}" -ge 3 ] && break
+    sleep 5
+  done
+  kubectl -n "$NS" logs vcluster-0 -c syncer --previous > "$OUT/logs/syncer-$2-failed.log" 2>&1
+  return 1
+}
+if vc_install "$OUT/live/vcluster-values.live.yaml" live; then
+  log "vcluster-0 Ready (values: rendered minus customResources)"
+else
+  log "vcluster-0 NOT Ready with the live values; falling back to a reduced set"
+  helm uninstall vcluster -n "$NS" --wait > /dev/null 2>&1
+  kubectl -n "$NS" delete pvc data-vcluster-0 --wait=true > /dev/null 2>&1
+  yq 'del(.experimental) | del(.networking.replicateServices)' "$OUT/live/vcluster-values.live.yaml" \
+    > "$OUT/live/vcluster-values.reduced.yaml"
+  vc_install "$OUT/live/vcluster-values.reduced.yaml" reduced && log "vcluster-0 Ready (reduced values)" \
+    || { log "vcluster-0 NOT Ready"; echo none > "$OUT/vcluster-variant"; }
+fi
 if vc_connect; then
   log "connected to the Org vCluster"
   vk version -o json > "$OUT/live/vcluster-version.json" 2>&1
@@ -441,7 +499,13 @@ spec:
       allowPrivilegeEscalation: false
       capabilities: {drop: ["ALL"]}
 EOF
-  sleep 30
+  # customer applications inside the vCluster: two listed catalog charts whose
+  # dry-run passed baseline, so their Pods reach the host through the syncer
+  vk create namespace apps > /dev/null 2>&1
+  for c in $SYNC_APPS; do
+    [ -d "$OUT/dryrun/docs/catalog/$c" ] && apply_live "$c" "$OUT/dryrun/docs/catalog/$c" apps "$VCKC"
+  done
+  sleep 60
   vk get pods -A -o wide > "$OUT/live/vcluster-virtual-pods.txt" 2>&1
   vk -n kube-system get pods -o json > "$OUT/live/vcluster-virtual-kube-system.json" 2>/dev/null
   vk -n default get pods -o json > "$OUT/live/vcluster-virtual-default.json" 2>/dev/null
@@ -453,7 +517,7 @@ phase "C live: the Organization's charts and a CNPG cluster"
 for f in "$OUT"/charts/bp-*.yaml; do
   case "$f" in *.values.yaml) continue ;; esac
   rel=$(basename "$f" .yaml)
-  apply_live "$rel" "$f"
+  apply_live "$rel" "$OUT/dryrun/docs/org-stack/$rel" "$NS"
 done
 cat <<EOF | kubectl apply -n "$NS" -f - > "$OUT/live/cnpg-probe.txt" 2>&1
 apiVersion: postgresql.cnpg.io/v1
@@ -471,9 +535,19 @@ phase "C live: assessment before restart"
 assess_live before
 
 phase "C live: restart every workload, read the warnings"
-kubectl -n "$NS" rollout restart statefulset,deployment --all > "$OUT/live/restart-host.txt" 2>&1
+: > "$OUT/live/restart-host.txt"
+for o in $(kubectl -n "$NS" get statefulset,deployment -o name); do
+  echo "== $o" >> "$OUT/live/restart-host.txt"
+  kubectl -n "$NS" rollout restart "$o" >> "$OUT/live/restart-host.txt" 2>&1
+done
 if vc_connect; then
-  vk -n kube-system rollout restart deployment --all > "$OUT/live/restart-virtual.txt" 2>&1
+  : > "$OUT/live/restart-virtual.txt"
+  for vns in $(vk get ns -o jsonpath='{.items[*].metadata.name}'); do
+    for o in $(vk -n "$vns" get statefulset,deployment -o name); do
+      echo "== $vns/$o" >> "$OUT/live/restart-virtual.txt"
+      vk -n "$vns" rollout restart "$o" >> "$OUT/live/restart-virtual.txt" 2>&1
+    done
+  done
 fi
 wait_until 300 host_pod_ready vcluster-0 || true
 sleep 60
@@ -587,28 +661,6 @@ fi
 kubectl -n "$NS" get events --sort-by=.lastTimestamp > "$OUT/live/events-enforce.txt" 2>&1
 kubectl -n "$NS" get pods -o wide > "$OUT/live/pods-enforce.txt" 2>&1
 kubectl -n "$NS" logs vcluster-0 -c syncer --tail=-1 > "$OUT/logs/syncer-enforce.log" 2>&1
-
-phase "E dry-run: the listed marketplace catalog (secondary)"
-CAT_DIRS=()
-for bp in "$ROOT"/platform/*/blueprint.yaml "$ROOT"/products/*/blueprint.yaml; do
-  [ "$(yq -r '.spec.visibility // ""' "$bp")" = listed ] || continue
-  d="$(dirname "$bp")/chart"
-  [ -f "$d/Chart.yaml" ] && CAT_DIRS+=("$d")
-done
-add_dep_repos "${CAT_DIRS[@]}"
-: > "$OUT/charts/catalog.tsv"
-for d in "${CAT_DIRS[@]}"; do
-  chart=$(yq -r '.name' "$d/Chart.yaml")
-  v="$OUT/charts/cat-$chart.values.yaml"
-  printf 'openova:\n  topology: {mode: singleton, self: %s, primary: %s, peers: []}\n  application: {name: %s, namespace: %s}\n' \
-    "$TOPO_REGION" "$TOPO_REGION" "${chart#bp-}" "$NS" > "$v"
-  if render_chart "$chart" "$d" "$v" "$OUT/charts/cat-$chart.yaml"; then
-    printf '%s\t%s\trendered\t%s\n' "$chart" "${d#$ROOT/}" "$(yq -r '.version' "$d/Chart.yaml")" >> "$OUT/charts/catalog.tsv"
-    eval_rendered catalog "$chart" "$OUT/charts/cat-$chart.yaml"
-  else
-    printf '%s\t%s\trender-failed\t%s\n' "$chart" "${d#$ROOT/}" "$(tail -2 "$OUT/charts/$chart.render.log" | tr '\n\t' '  ')" >> "$OUT/charts/catalog.tsv"
-  fi
-done
 
 phase "F evidence: audit log and metrics"
 docker exec "$NODE" cat /var/log/kubernetes/kube-apiserver-audit.log 2> /dev/null \
