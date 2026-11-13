@@ -1,0 +1,57 @@
+# Mirrors slot 27a (clusters/_template/bootstrap-kit/27a-kyverno-policies.yaml):
+# an OCI HelmRepository, a HelmRelease with interval 15m, disableWait,
+# the same remediation, plus the values / valuesFrom block the compliance
+# design adds. Only the chart is a stand-in.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: bp-kyverno
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  insecure: true
+  url: oci://registry.spike-registry.svc.cluster.local:5000/charts
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: spike
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-kyverno-policies
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: kyverno-policies
+  targetNamespace: spike
+  chart:
+    spec:
+      chart: cmp-s6-probe
+      version: 0.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-kyverno
+        namespace: flux-system
+  values:
+    compliancePolicies:
+      sovereignConsume: origin
+  valuesFrom:
+    - kind: ConfigMap
+      name: compliance-policy-values
+      valuesKey: values.yaml
+      optional: true
+  install:
+    timeout: 10m
+    disableWait: true
+    crds: CreateReplace
+    remediation:
+      retries: -1
+  upgrade:
+    timeout: 10m
+    disableWait: true
+    crds: CreateReplace
+    remediation:
+      retries: 3

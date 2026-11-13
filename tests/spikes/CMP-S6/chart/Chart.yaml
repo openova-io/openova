@@ -1,0 +1,5 @@
+apiVersion: v2
+name: cmp-s6-probe
+description: Stand-in for the policy chart in lab test CMP-S6. It renders its effective values into one ConfigMap so a trial can read what Helm applied.
+type: application
+version: 0.1.0

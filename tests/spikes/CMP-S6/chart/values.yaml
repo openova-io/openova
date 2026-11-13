@@ -1,0 +1,6 @@
+# Same key shape as the policy chart: compliancePolicies.<valuesKey>.action.
+compliancePolicies:
+  bootstrapMode: true
+  sovereignConsume: origin
+  probesPresent:
+    action: Audit

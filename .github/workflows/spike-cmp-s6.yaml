@@ -1,0 +1,102 @@
+# Lab test CMP-S6 (throwaway; lives only on branch spike/CMP-S6, never merged).
+#
+# Question: on the installed Flux line, after a ConfigMap read through
+# HelmRelease valuesFrom changes, does stamping reconcile.fluxcd.io/requestedAt
+# on the HelmRelease make it re-read the values at once?
+#
+# Leg "installed" runs the Flux line the platform pins today: v2.4.0, the
+# install.yaml cloud-init applies and the flux2 2.14.1 chart (helm-controller
+# v1.1.0), on Kubernetes 1.31 (production k3s is v1.31.4). Leg "contrast"
+# runs Flux v2.10.0, the line the design waits for before the stamps can go;
+# it is the positive control for the watch-label trial. Same manifests, same
+# script, same trials on both legs.
+name: spike-cmp-s6
+
+on:
+  push:
+    branches: [spike/CMP-S6]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spike-cmp-s6
+  cancel-in-progress: false
+
+jobs:
+  measure:
+    name: measure (${{ matrix.leg }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - leg: installed-flux-v2.4.0
+            flux: v2.4.0
+            kind: v0.31.0
+            node: kindest/node:v1.31.14@sha256:6f86cf509dbb42767b6e79debc3f2c32e4ee01386f0489b3b2be24b0a55aac2b
+            kubectl: v1.31.14
+          - leg: contrast-flux-v2.10.0
+            flux: v2.10.0
+            kind: v0.33.0
+            node: kindest/node:v1.35.8@sha256:07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0
+            kubectl: v1.35.8
+    env:
+      HELM_VERSION: v3.21.4
+      REGISTRY_IMAGE: registry:2.8.3
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kind, kubectl, helm (pinned)
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/bin"
+          curl -fsSL -o "$HOME/bin/kind" "https://github.com/kubernetes-sigs/kind/releases/download/${{ matrix.kind }}/kind-linux-amd64"
+          curl -fsSL -o "$HOME/bin/kubectl" "https://dl.k8s.io/release/${{ matrix.kubectl }}/bin/linux/amd64/kubectl"
+          curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz -C "$HOME/bin" --strip-components=1 linux-amd64/helm
+          chmod +x "$HOME/bin/kind" "$HOME/bin/kubectl" "$HOME/bin/helm"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+          "$HOME/bin/kind" version
+          "$HOME/bin/kubectl" version --client
+          "$HOME/bin/helm" version --short
+          docker version --format 'docker {{.Server.Version}}'
+          jq --version
+
+      - name: Create kind cluster
+        run: |
+          set -euo pipefail
+          kind create cluster --name cmp-s6 --image "${{ matrix.node }}" --wait 180s
+          docker pull "$REGISTRY_IMAGE"
+          kind load docker-image "$REGISTRY_IMAGE" --name cmp-s6
+          kubectl get nodes -o wide
+
+      - name: Install Flux ${{ matrix.flux }} from the upstream install.yaml
+        run: |
+          set -euo pipefail
+          kubectl apply -f "https://github.com/fluxcd/flux2/releases/download/${{ matrix.flux }}/install.yaml"
+          kubectl -n flux-system wait --for=condition=Available deploy --all --timeout=300s
+          kubectl -n flux-system get deploy -o custom-columns='NAME:.metadata.name,IMAGE:.spec.template.spec.containers[0].image,ARGS:.spec.template.spec.containers[0].args'
+
+      - name: Run the trials
+        env:
+          OUT_DIR: ${{ github.workspace }}/out
+        run: bash tests/spikes/CMP-S6/measure.sh "${{ matrix.leg }}"
+
+      - name: Print evidence
+        if: always()
+        run: |
+          set -u
+          for f in out/trials.jsonl out/helm-history.txt out/flux-system-events.txt; do
+            echo "===== $f"; cat "$f" 2>/dev/null || true
+          done
+          echo "===== helm-controller log lines for the release"
+          grep -h 'bp-kyverno-policies' out/helm-controller.log 2>/dev/null | tail -n 150 || true
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cmp-s6-${{ matrix.leg }}
+          path: out/
+          if-no-files-found: warn

@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cmp-s6-rendered
+data:
+  action: {{ .Values.compliancePolicies.probesPresent.action | default "unset" | quote }}
+  sovereignConsume: {{ .Values.compliancePolicies.sovereignConsume | default "unset" | quote }}
