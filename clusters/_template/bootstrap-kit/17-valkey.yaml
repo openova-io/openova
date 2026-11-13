@@ -88,7 +88,7 @@ spec:
       # now scoped to the declared consumers — ns `org-services` and ns
       # `newapi`, the same pair bp-plane-isolation (slot 26b) already
       # declares for this namespace.
-      version: 1.1.6
+      version: 1.1.7
       sourceRef:
         kind: HelmRepository
         name: bp-valkey
