@@ -82,3 +82,6 @@ products/catalyst/chart/crds/secretpolicy.yaml
 core/services/tenant/handlers/sandbox_consumer.go
 core/services/tenant/handlers/sandbox_consumer_integration_test.go
 core/services/tenant/handlers/sandbox_consumer_test.go
+platform/cert-manager-dynadot-webhook
+tests/e2e/hetzner-provisioning
+.github/workflows/test-hetzner-e2e.yaml

@@ -556,58 +556,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "hasUserUIEndpoint": false
   },
   {
-    "id": "bp-cert-manager-dynadot-webhook",
-    "slug": "cert-manager-dynadot-webhook",
-    "title": "cert-manager-dynadot-webhook",
-    "summary": "|",
-    "icon": null,
-    "category": null,
-    "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
-    "version": "1.1.2",
-    "section": "pts-3-3-security-and-policy",
-    "depends": [
-      "bp-cert-manager"
-    ],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "singleton"
-      ],
-      "multiRegion": "singleton",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "singleton": {
-          "replication": null,
-          "switchover": null,
-          "placement": {
-            "tier": "",
-            "clusters": [
-              "mgmt-A",
-              "mgmt-B",
-              "dmz-A",
-              "dmz-B",
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "mgmt-A": "singleton",
-              "mgmt-B": "singleton",
-              "dmz-A": "singleton",
-              "dmz-B": "singleton",
-              "rtz-A": "singleton",
-              "rtz-B": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": false
-  },
-  {
     "id": "bp-cert-manager-issuers",
     "slug": "cert-manager-issuers",
     "title": "cert-manager — Issuers",
@@ -6068,7 +6016,6 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/bge/blueprint.yaml",
   "platform/catalyst-edge-routes/blueprint.yaml",
   "platform/catalyst-platform/blueprint.yaml",
-  "platform/cert-manager-dynadot-webhook/blueprint.yaml",
   "platform/cert-manager-issuers/blueprint.yaml",
   "platform/cert-manager-powerdns-webhook/blueprint.yaml",
   "platform/cert-manager/blueprint.yaml",

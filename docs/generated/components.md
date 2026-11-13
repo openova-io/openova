@@ -25,7 +25,6 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | platform/catalyst-edge-routes | bp-catalyst-edge-routes | bp-catalyst-edge-routes | unlisted | 13e |
 | platform/catalyst-platform | - | bp-catalyst-platform | unlisted | - |
 | platform/cert-manager | bp-cert-manager | bp-cert-manager | unlisted | 02 |
-| platform/cert-manager-dynadot-webhook | bp-cert-manager-dynadot-webhook | bp-cert-manager-dynadot-webhook | unlisted | - |
 | platform/cert-manager-issuers | bp-cert-manager-issuers | bp-cert-manager-issuers | unlisted | 02a |
 | platform/cert-manager-powerdns-webhook | bp-cert-manager-powerdns-webhook | bp-cert-manager-powerdns-webhook | unlisted | 49 |
 | platform/cilium | bp-cilium | bp-cilium | unlisted | 01 |

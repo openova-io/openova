@@ -182,10 +182,11 @@ fi
 # Build the list of Chart.yaml paths to scan.
 declare -a CHART_YAMLS=()
 if [ -n "${CHANGED_ONLY}" ]; then
-  # Only Chart.yaml files modified between BASE_REF and HEAD.
+  # Only Chart.yaml files modified between BASE_REF and HEAD. A deleted
+  # Chart.yaml is left out (--diff-filter=d): a deleted chart has no pin.
   while IFS= read -r line; do
     [ -n "${line}" ] && CHART_YAMLS+=("${REPO_ROOT}/${line}")
-  done < <(cd "${REPO_ROOT}" && git diff --name-only "${BASE_REF}" -- \
+  done < <(cd "${REPO_ROOT}" && git diff --name-only --diff-filter=d "${BASE_REF}" -- \
     'platform/*/chart/Chart.yaml' 'products/*/chart/Chart.yaml' 2>/dev/null | sort)
   if [ "${#CHART_YAMLS[@]}" -eq 0 ]; then
     echo "No platform/products Chart.yaml files changed since ${BASE_REF} — nothing to check."
