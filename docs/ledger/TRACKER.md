@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T02:30:06Z` |
+| Last refreshed | `2026-11-13T02:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,11 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6749](https://github.com/openova-io/openova/issues/6749) | fix(jobs): /jobs + dashboard treemap block 73-98s per call — synchronous multi | Other |
-| [#6751](https://github.com/openova-io/openova/issues/6751) | Huawei Sovereign: 4 provider/role-gated HRs show blank READY (suspend-by-design) | Other |
-| [#6753](https://github.com/openova-io/openova/issues/6753) | bp-postgres: consumer -mesh-rw write alias does not follow a #6149 automatic DR  | Other |
-| [#6754](https://github.com/openova-io/openova/issues/6754) | 2-region cutover wedges at step-01: secondary-mirror auth depends on drifting pe | Other |
-| [#6759](https://github.com/openova-io/openova/issues/6759) | fix(bp-newapi): admin-promote CronJob pins nonexistent cloudnative-pg/postgresql | Other |
 | [#6760](https://github.com/openova-io/openova/issues/6760) | fix(bp-mimir/bp-vpa/bp-external-secrets): #6757 chart bumps fail to UPGRADE live | Other |
 | [#6761](https://github.com/openova-io/openova/issues/6761) | gitea chart over the #6004 payload ceiling (91.86%) — blocks publishing 1.2.50 | Other |
 | [#6764](https://github.com/openova-io/openova/issues/6764) | 2-region cutover cannot complete: secondary region runs its own EMPTY Harbor ins | Other |
@@ -300,6 +295,11 @@ flowchart LR
 | [#7267](https://github.com/openova-io/openova/issues/7267) | SOV-050 Guards G2, G3, G4, G7: shrink ratchets | Other |
 | [#7268](https://github.com/openova-io/openova/issues/7268) | SOV-110 Contract C5: schema, kit key list, the upstream package and its validato | Other |
 | [#7269](https://github.com/openova-io/openova/issues/7269) | SVC-030 The Catalog page honours visibility and refuses what has no chart | Other |
+| [#7281](https://github.com/openova-io/openova/issues/7281) | CLD-075 Generator for the provider and profile tables | Other |
+| [#7282](https://github.com/openova-io/openova/issues/7282) | NET-100 Network registry output and validator | Other |
+| [#7283](https://github.com/openova-io/openova/issues/7283) | PRD-104 Consent package | Other |
+| [#7284](https://github.com/openova-io/openova/issues/7284) | PRD-105 Token package | Other |
+| [#7285](https://github.com/openova-io/openova/issues/7285) | PRD-106 CI workflow for the fingate module | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T02:38 | [#7280](https://github.com/openova-io/openova/pull/7280) | #7087 | docs(ledger): plan update |
 | 2026-11-13T02:23 | [#7278](https://github.com/openova-io/openova/pull/7278) | #7261 | feat(compliance): add the compliance types, the model loader |
 | 2026-11-13T02:23 | [#7277](https://github.com/openova-io/openova/pull/7277) | #7262 | refactor(kit): wire slot 27a to the policy values document a |
 | 2026-11-13T02:18 | [#7275](https://github.com/openova-io/openova/pull/7275) | #7268 | feat(contracts): publish contract C5, the variables document |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-12T23:50 | [#7228](https://github.com/openova-io/openova/pull/7228) | #7217 | docs(adr): record 0018 on secrets and trust (SEC-006) |
 | 2026-11-12T23:50 | [#7227](https://github.com/openova-io/openova/pull/7227) | #4249 | fix(provisioning): the funnel installs bp-openclaw 0.2.20, t |
 | 2026-11-12T23:41 | [#7226](https://github.com/openova-io/openova/pull/7226) | #7211 | chore(ci): ratchets of the billing area at their current val |
-| 2026-11-12T23:41 | [#7224](https://github.com/openova-io/openova/pull/7224) | #7216 | ci: Trivy vulnerability and secret scan, new findings only ( |
 
 ---
 
