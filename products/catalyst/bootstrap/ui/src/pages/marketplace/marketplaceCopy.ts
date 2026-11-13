@@ -55,7 +55,7 @@ export const FAMILY_COPY: Record<string, FamilyCopy> = {
     overview: [
       'SPINE is the connective tissue between every workload, every Sovereign, ' +
         'and the operators who run them. Cilium provides eBPF-accelerated CNI and ' +
-        'service-mesh primitives; Envoy serves L7 traffic; Coraza filters it.',
+        'service-mesh primitives; Envoy serves L7 traffic.',
       'Authoritative DNS is owned by the Sovereign through PowerDNS — DNSSEC, ' +
         'lua-records, and geographic failover are first-class. NetBird and strongSwan ' +
         'extend that perimeter to private networks and partner sites.',
@@ -63,7 +63,7 @@ export const FAMILY_COPY: Record<string, FamilyCopy> = {
     capabilities: [
       'eBPF CNI with native service mesh and L4/L7 policy',
       'Authoritative DNS with DNSSEC and geo-aware lua-records',
-      'L7 ingress with WAF protection and external-DNS automation',
+      'L7 ingress with external-DNS automation',
       'Mesh VPN and IPsec for workforce and site-to-site connectivity',
       'Reverse-tunnel exposure for hybrid edge deployments',
     ],
@@ -346,22 +346,6 @@ export const COMPONENT_COPY: Record<string, ComponentCopy> = {
     upstreamUrl: 'https://cilium.io',
     upstreamLabel: 'cilium.io',
   },
-  coraza: {
-    positioning:
-      'Coraza is the Sovereign’s L7 web application firewall. It filters request traffic against ' +
-      'the OWASP Core Rule Set before it reaches workloads, with rule sets the operator can extend ' +
-      'or override per-domain.',
-    integration:
-      'Coraza runs as an Envoy filter chain in front of every public ingress. Rule decisions and ' +
-      'audit logs feed into the observability stack for incident response.',
-    highlights: [
-      'OWASP Core Rule Set baseline with per-domain overrides',
-      'Envoy filter integration with structured audit logging',
-      'No external WAF dependency for sovereign deployments',
-    ],
-    upstreamUrl: 'https://coraza.io',
-    upstreamLabel: 'coraza.io',
-  },
   powerdns: {
     positioning:
       'PowerDNS is the authoritative DNS server for every Sovereign zone. DNSSEC, lua-records, and ' +
@@ -396,15 +380,13 @@ export const COMPONENT_COPY: Record<string, ComponentCopy> = {
   },
   envoy: {
     positioning:
-      'Envoy is the Sovereign’s programmable L7 proxy. It terminates TLS, routes HTTP and gRPC, ' +
-      'and runs the WAF filter chain that protects every public ingress.',
+      'Envoy is the Sovereign’s programmable L7 proxy. It terminates TLS and routes HTTP and gRPC.',
     integration:
       'Envoy is deployed as a DaemonSet at the edge and as a sidecar inside the service mesh. xDS ' +
       'configuration is delivered through the Cilium control plane and the Catalyst gateway operator.',
     highlights: [
       'L7 routing, TLS termination, and gRPC support',
       'xDS-driven configuration with hot-reload',
-      'Filter chain integration with Coraza WAF',
     ],
     upstreamUrl: 'https://www.envoyproxy.io',
     upstreamLabel: 'envoyproxy.io',

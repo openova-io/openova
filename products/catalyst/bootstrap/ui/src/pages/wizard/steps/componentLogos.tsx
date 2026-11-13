@@ -47,11 +47,6 @@ export const logo_cilium = Badge('#F4A01C', '#fff',
   <path d="M9 3l5 3v6l-5 3-5-3V6z" stroke="#fff" strokeWidth="1.4" fill="none"/>
 )
 
-export const logo_coraza = Badge('#2E7D32', '#fff',
-  // Coraza WAF: shield
-  <path d="M9 3l5 2.5v4C14 12.5 11.5 15 9 16 6.5 15 4 12.5 4 9.5v-4z" stroke="#fff" strokeWidth="1.3" fill="none"/>
-)
-
 export const logo_externalDns = Badge('#326CE5', '#fff',
   // External DNS: globe + arrow
   <><circle cx="9" cy="9" r="5" stroke="#fff" strokeWidth="1.3" fill="none"/>
@@ -392,7 +387,6 @@ export const COMPONENT_LOGOS: Record<string, React.ReactNode> = {
   gitea:            logo_gitea,
   opentofu:         logo_opentofu,
   cilium:           logo_cilium,
-  coraza:           logo_coraza,
   'external-dns':   logo_externalDns,
   envoy:            logo_envoy,
   frpc:             logo_frpc,

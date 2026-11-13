@@ -34,8 +34,8 @@ export type Pattern = 'singleton' | 'active-passive' | 'active-hot-standby' | 'a
  * #5616 established it as the safe default (the application-controller
  * normalises `host` to the Organization's own namespace, so it never resolves
  * to a namespace that does not exist). #5945 showed it needs a SHARED home:
- * the editor owned the constant while the Topology tab hardcoded `'mgmt'` —
- * a tier #4325 deleted — as its own display fallback and target seed, so the
+ * the editor owned the constant while the Topology tab hardcoded the name
+ * of a tier #4325 deleted as its own display fallback and target seed, so the
  * two surfaces disagreed about what "no vCluster specified" means. Placement
  * vocabulary lives here; both consumers now read the same word.
  */
@@ -261,7 +261,7 @@ export function targetsFromLegacy(args: {
   vcluster?: string
   statusRegions?: Array<{ name: string; role?: string }>
 }): PlacementTarget[] {
-  const vcluster = args.vcluster || 'mgmt'
+  const vcluster = args.vcluster || HOST_VCLUSTER
 
   // Prefer the observed per-region rollup when present (it carries roles).
   if (args.statusRegions && args.statusRegions.length > 0) {

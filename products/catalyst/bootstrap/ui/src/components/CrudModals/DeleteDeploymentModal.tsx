@@ -85,7 +85,7 @@ export function DeleteDeploymentModal({
           `${API_BASE}/v1/deployments/${encodeURIComponent(deploymentId)}/wipe`,
           {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-Confirm-Sovereign-FQDN': confirmText.trim() },
             credentials: 'include',
             body: JSON.stringify({ hetznerToken: hetznerToken.trim() }),
           },
@@ -264,7 +264,8 @@ export function DeleteDeploymentModal({
               <code style={{ background: 'var(--color-bg-2)', padding: '0 4px', borderRadius: 3 }}>
                 catalyst-deployment-id={deploymentId.slice(0, 12)}…
               </code>{' '}
-              is destroyed. THIS CANNOT BE UNDONE.
+              is destroyed, and so is every virtual machine the Sovereign
+              created itself. THIS CANNOT BE UNDONE.
             </span>
           </span>
         </label>

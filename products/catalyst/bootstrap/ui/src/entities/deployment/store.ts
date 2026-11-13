@@ -313,8 +313,8 @@ export const useWizardStore = create<WizardStore>()(
 
         // Reset regionProviders, regionCloudRegions, AND the per-region
         // sizing arrays when topology changes — the new topology may have
-        // a different region count, and a stale SKU at index 3 carried
-        // over from CITADEL into a SOLO would silently feed the cost
+        // a different region count, and a stale SKU at index 1 carried
+        // over from two regions into one would silently feed the cost
         // rollup an unreachable region. The legacy single workerCount
         // field is also reset (StepProvider seeds per-region counts now).
         setTopology: (topology) =>
@@ -796,10 +796,11 @@ export const useWizardStore = create<WizardStore>()(
           p.registrarType = (p.registrarType ?? null) as import('./model').RegistrarType | null
           p.registrarToken = ''
           p.registrarTokenValidated = false
-          // Sanitize stale topology values
-          const validTopologies: TopologyTemplate[] = ['citadel', 'triangle', 'dual', 'zoned', 'compact', 'solo']
+          // A stored topology that is not a current choice (the retired
+          // templates included) becomes the default choice, two regions.
+          const validTopologies: TopologyTemplate[] = ['dual', 'solo']
           if (p.topology && !validTopologies.includes(p.topology)) {
-            p.topology = null
+            p.topology = 'dual'
             p.regionProviders = {}
             p.regionCloudRegions = {}
             p.regionControlPlaneSizes = []

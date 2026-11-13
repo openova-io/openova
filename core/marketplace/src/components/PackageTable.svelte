@@ -2,7 +2,12 @@
   // Step 1 of the wizard — the package comparison (#6971). Fed ONLY from
   // GET /api/v1/public/packages on the Sovereign's chargeback host, and the
   // document's shape picks the rendering:
-  //   - no document (unreachable / empty)  → the legacy PlanStep deck, unchanged;
+  //   - nothing published (no chargeback host, 404, no package)
+  //                                        → the legacy PlanStep deck, unchanged;
+  //   - the price list could not be read (request failed, another non-2xx
+  //     status, a body that is not the contract)
+  //                                        → "Prices are unavailable", no plan
+  //     cards, and a disabled continue control — never the deck;
   //   - a v1 document (no `groups`)        → the flat table below: columns are
   //     the packages, rows its features, cells ✓ / a muted "add-on" with its
   //     price and the "Included from XL" hint / —;
@@ -43,9 +48,12 @@
     type PublicPackages,
   } from '../lib/packages';
 
-  // 'deck' until the document is in hand; it stays 'deck' when the document
-  // never comes (loadPublicPackages has already warned once by then).
+  // 'deck' until the document is in hand; it stays 'deck' when nothing is
+  // published (loadPublicPackages has already warned once by then).
   let status = $state<'deck' | 'table' | 'ladder'>('deck');
+  // True once the price list could not be read. False on the server render,
+  // so the deck stays the first paint (see the note above).
+  let unavailable = $state(false);
   let data = $state<PublicPackages | null>(null);
   let model = $state<PackageTableModel | null>(null);
   let ladder = $state<LadderModel | null>(null);
@@ -55,13 +63,19 @@
   $effect(() => {
     let cancelled = false;
     (async () => {
-      const [pk, pl] = await Promise.all([
+      const [result, pl] = await Promise.all([
         loadPublicPackages(chargebackBaseURL()),
         getPlans().catch(() => [] as Plan[]),
       ]);
       if (cancelled) return;
-      // No document: the deck already on screen is the step, as before #6971.
-      if (!pk) return;
+      // Nothing published: the deck already on screen is the step.
+      if (result.state === 'none') return;
+      // The price list could not be read: no plan, no way on.
+      if (result.state === 'unavailable') {
+        unavailable = true;
+        return;
+      }
+      const pk = result.packages;
       plans = pl;
       data = pk;
       const query = new URLSearchParams(window.location.search).get('recommended');
@@ -105,7 +119,17 @@
   }
 </script>
 
-{#if status === 'ladder' && ladder}
+{#if unavailable}
+  <!-- The price list could not be read: the message, no plan cards, and a
+       continue control that is disabled. -->
+  <div class="pk-page" data-testid="packages-unavailable">
+    <h1 class="pk-title">{S.title}</h1>
+    <p class="pk-sub" role="status">{S.pricesUnavailable}</p>
+  </div>
+  <div class="float-nav">
+    <button type="button" class="float-cta" data-testid="packages-unavailable-continue" disabled>{S.continueCta}</button>
+  </div>
+{:else if status === 'ladder' && ladder}
   <!-- v2 document: the ladder. Styled by src/styles/package-ladder.css, a
        page stylesheet plans.astro imports — see the note in the component. -->
   <PackageLadder model={ladder} {selectedSku} onchoose={choose} />
@@ -433,6 +457,14 @@
     transition: filter 0.15s;
   }
   .float-cta:hover { filter: brightness(0.9); }
+  .float-cta:disabled {
+    border: none;
+    font-family: inherit;
+    cursor: not-allowed;
+    opacity: 0.5;
+    box-shadow: none;
+    filter: none;
+  }
 
   @media (max-width: 1000px) {
     .pk-feature-head { width: 170px; }

@@ -125,6 +125,11 @@ function CatalogLogoPair({
 // The namespace every bootstrap-kit HelmRelease object lives in.
 const BOOTSTRAP_KIT_NAMESPACE = 'flux-system'
 
+// SVC-030 — a catalog entry at version 0.0.0 has no published chart, so it
+// cannot be installed: "+ New instance" is disabled and this reason is shown.
+const NO_CHART_VERSION = '0.0.0'
+const NOT_INSTALLABLE_NO_CHART = 'Not installable: no published chart'
+
 export function CatalogDetail() {
   const params = useParams({ strict: false }) as {
     blueprintName?: string
@@ -767,7 +772,13 @@ export function CatalogDetail() {
         // #3090 / #3165 — shared CLASS-page instances list + "+ New
         // instance" (inline topology-picker dialog). Instance rows link
         // to the INSTANCE page `/app/$componentId`.
-        <InstancesSection blueprint={qualifiedName} multiInstance={multiInstance} />
+        <InstancesSection
+          blueprint={qualifiedName}
+          multiInstance={multiInstance}
+          notInstallableReason={
+            cat.version === NO_CHART_VERSION ? NOT_INSTALLABLE_NO_CHART : undefined
+          }
+        />
       )}
 
       {/* Supported topologies. The read-only grid (with per-topology placement)
