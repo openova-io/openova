@@ -32,7 +32,7 @@ func refTestBlueprintWithVolumes(name string, vols ...[2]string) *unstructured.U
 func TestCreateInstance_RegionLocalVolumeNotReplicated_MultiRegion_422NamesVolume(t *testing.T) {
 	for _, mode := range []string{"active-hot-standby", "active-passive"} {
 		t.Run(mode, func(t *testing.T) {
-			h, _, dyn := newTestHandlerWithEndpoint(t,
+			h, dyn := newTestHandlerWithEndpoint(t,
 				refTestBlueprintWithVolumes("bp-media", [2]string{"uploads", "s3-replicated"}, [2]string{"wp-content", "none"}))
 			h.SetCatalogClient(fakeBlueprintInCatalog("bp-media", nil, true, []string{"singleton", mode}))
 			rec := postInstance(t, h, `{"blueprint":"bp-media","org":"acme","environment":"acme-prod","name":"m-1",`+
@@ -52,7 +52,7 @@ func TestCreateInstance_RegionLocalVolumeNotReplicated_MultiRegion_422NamesVolum
 }
 
 func TestCreateInstance_RegionLocalVolumeNotReplicated_Singleton_Admitted(t *testing.T) {
-	h, _, _ := newTestHandlerWithEndpoint(t, refTestBlueprintWithVolumes("bp-media", [2]string{"wp-content", "none"}))
+	h, _ := newTestHandlerWithEndpoint(t, refTestBlueprintWithVolumes("bp-media", [2]string{"wp-content", "none"}))
 	h.SetCatalogClient(fakeBlueprintInCatalog("bp-media", nil, true, []string{"singleton"}))
 	rec := postInstance(t, h, `{"blueprint":"bp-media","org":"acme","environment":"acme-prod","name":"m-1","topology":"singleton"}`)
 	if rec.Code != http.StatusCreated {
@@ -61,7 +61,7 @@ func TestCreateInstance_RegionLocalVolumeNotReplicated_Singleton_Admitted(t *tes
 }
 
 func TestCreateInstance_RegionLocalVolumesReplicated_MultiRegion_Admitted(t *testing.T) {
-	h, _, _ := newTestHandlerWithEndpoint(t,
+	h, _ := newTestHandlerWithEndpoint(t,
 		refTestBlueprintWithVolumes("bp-media", [2]string{"uploads", "s3-replicated"}, [2]string{"wp-content", "none-needed"}))
 	h.SetCatalogClient(fakeBlueprintInCatalog("bp-media", nil, true, []string{"singleton", "active-hot-standby"}))
 	rec := postInstance(t, h, `{"blueprint":"bp-media","org":"acme","environment":"acme-prod","name":"m-1",`+
@@ -74,7 +74,7 @@ func TestCreateInstance_RegionLocalVolumesReplicated_MultiRegion_Admitted(t *tes
 // The gate lives in validateInstallRefs, so a door that passes no mode but
 // names two regions is refused too.
 func TestValidateInstallRefs_TwoRegionsNoMode_RegionLocalVolume_422(t *testing.T) {
-	h, _, _ := newTestHandlerWithEndpoint(t, refTestBlueprintWithVolumes("bp-media", [2]string{"data", "none"}))
+	h, _ := newTestHandlerWithEndpoint(t, refTestBlueprintWithVolumes("bp-media", [2]string{"data", "none"}))
 	c, err := h.dynamicClientOrFallback()
 	if err != nil {
 		t.Fatal(err)

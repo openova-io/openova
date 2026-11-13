@@ -2,9 +2,20 @@
 //
 // The suite reads cluster state to prove WHERE an object actually lives: the
 // region is the kubeconfig that returned it, never a label on the object. The
-// verbs it uses are `get` and `exec` (psql SELECT, WordPress pod setup); it
-// never applies, patches or deletes — every mutation goes through the console
-// API the way an operator would.
+// verbs it uses are `get` and `exec` (psql SELECT, WordPress pod setup), and
+// `create`, `apply`, `wait` and `delete` in gate checks CMP-G01, SEC-G01,
+// SEC-G02 and SEC-G07 only. It never patches — every other mutation of the
+// Sovereign goes through the console API the way a sovereign-admin would.
+// SEC-G07 (suite/check_sec_scope.go) stores nothing: its `create` and `apply`
+// are server-side dry runs, its `create token` returns a token of 10 minutes
+// that is not stored, and its one `exec` in an OpenBao server pod logs in,
+// reads two paths with the output thrown away and revokes its token. Three gate checks
+// write to a cluster. CMP-G01 (suite/check_compliance_push.go) creates a
+// namespace of its own, applies one Deployment with zero replicas in it, and
+// deletes that namespace. SEC-G01 and SEC-G02 (suite/sec_probe.go) create a
+// namespace of their own in every region and one probe Pod per control-plane
+// node in it, SEC-G01 also one Secret; they run a script that only reads in
+// each Pod with `exec`, and delete that namespace.
 package kube
 
 import (
@@ -154,6 +165,47 @@ func (o Object) Int(path ...string) int {
 		return v
 	}
 	return 0
+}
+
+// Objects walks a path of map keys and returns the objects of the list at the
+// end. A missing path, or a value that is not a list, gives an empty list.
+func (o Object) Objects(path ...string) []Object {
+	list, _ := o.Get(path...).([]any)
+	out := make([]Object, 0, len(list))
+	for _, x := range list {
+		if m, ok := x.(map[string]any); ok {
+			out = append(out, Object(m))
+		}
+	}
+	return out
+}
+
+// OrganizationLabel is the label on the host namespace of an Organization.
+// A namespace without it is a platform namespace.
+const OrganizationLabel = "openova.io/organization"
+
+// PlatformPods returns the pods of every platform namespace of this region:
+// every namespace that does not carry OrganizationLabel.
+func (r Region) PlatformPods(ctx context.Context) ([]Object, error) {
+	orgs, err := r.GetList(ctx, "namespaces", "", "-l", OrganizationLabel)
+	if err != nil {
+		return nil, err
+	}
+	organization := map[string]bool{}
+	for _, ns := range orgs {
+		organization[ns.Name()] = true
+	}
+	pods, err := r.GetList(ctx, "pods", "")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Object, 0, len(pods))
+	for _, p := range pods {
+		if !organization[p.Namespace()] {
+			out = append(out, p)
+		}
+	}
+	return out, nil
 }
 
 // Name / Namespace shortcuts.

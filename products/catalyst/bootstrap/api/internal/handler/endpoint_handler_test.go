@@ -1,5 +1,5 @@
 // endpoint_handler_test.go — unit coverage for the G117.3 endpoint
-// CRUD + IaC PR pipeline + Launch URL + multi-instance create.
+// list + Launch URL + multi-instance create.
 package handler
 
 import (
@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -23,11 +22,8 @@ import (
 	"k8s.io/client-go/dynamic"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
-	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
-	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/giteapr"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/instances"
-	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/precheck"
 )
 
 // ── Test helpers ───────────────────────────────────────────────────
@@ -126,119 +122,8 @@ func fakeBlueprintInCatalogWithCap(name string, endpoints []map[string]interface
 	return newFakeCatalog(bp)
 }
 
-// fakeIaCAndStatus builds a fake gitea client + status checker that
-// scripts all-pass — sufficient for happy-path tests.
-type fakeIaCWriter struct {
-	mu       sync.Mutex
-	branches map[string]bool
-	files    map[string][]byte
-	prs      map[string]gitea.PullRequest
-	prSeq    int64
-	merged   map[int64]bool
-}
-
-func newFakeIaCWriter() *fakeIaCWriter {
-	return &fakeIaCWriter{
-		branches: map[string]bool{},
-		files:    map[string][]byte{},
-		prs:      map[string]gitea.PullRequest{},
-		merged:   map[int64]bool{},
-	}
-}
-
-func (f *fakeIaCWriter) EnsureBranch(_ context.Context, org, repo, branch string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.branches[org+"/"+repo+"/"+branch] = true
-	return nil
-}
-
-func (f *fakeIaCWriter) PutFile(_ context.Context, org, repo, branch, path string, data []byte, _ string, _ ...gitea.PutFileOpts) (gitea.File, bool, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.files[org+"/"+repo+"/"+branch+"/"+path] = data
-	return gitea.File{Path: path}, true, nil
-}
-
-func (f *fakeIaCWriter) DeleteFile(_ context.Context, org, repo, branch, path, _ string) (bool, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	delete(f.files, org+"/"+repo+"/"+branch+"/"+path)
-	return true, nil
-}
-
-func (f *fakeIaCWriter) CreatePullRequest(_ context.Context, org, repo, head, base, title, body string) (gitea.PullRequest, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	key := org + "/" + repo + "/" + head + "→" + base
-	if pr, ok := f.prs[key]; ok {
-		return pr, nil
-	}
-	f.prSeq++
-	pr := gitea.PullRequest{
-		Number: f.prSeq,
-		URL:    "https://gitea.t01.test/" + org + "/" + repo + "/pulls/" + itoaTest(f.prSeq),
-		Title:  title,
-		Body:   body,
-	}
-	pr.Head.Ref = head
-	pr.Base.Ref = base
-	f.prs[key] = pr
-	return pr, nil
-}
-
-func (f *fakeIaCWriter) MergePullRequest(_ context.Context, _, _ string, number int64, _ gitea.MergePROpts) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.merged[number] = true
-	return nil
-}
-
-type allPassStatus struct{}
-
-func (allPassStatus) GetStatuses(_ context.Context, _, _, _ string) (map[string]giteapr.CheckStatus, error) {
-	return map[string]giteapr.CheckStatus{
-		"kyverno-admission":     giteapr.CheckPass,
-		"cert-manager-precheck": giteapr.CheckPass,
-		"dns-conflict-precheck": giteapr.CheckPass,
-	}, nil
-}
-
-func newWriterFactoryAllPass(t *testing.T) (func(string) (*giteapr.Writer, error), *fakeIaCWriter) {
-	t.Helper()
-	iac := newFakeIaCWriter()
-	w := giteapr.NewWriter(iac, allPassStatus{}, giteapr.PollConfig{Interval: 1, Budget: 50})
-	return func(_ string) (*giteapr.Writer, error) { return w, nil }, iac
-}
-
-// passthroughCertDNS returns lookups that always indicate no existing
-// owner/record — i.e. precheck pass.
-func passthroughCertDNS() (precheck.CertConflictLookup, precheck.DNSConflictLookup) {
-	cert := func(_ context.Context, _ string) (precheck.CertOwner, bool, error) {
-		return precheck.CertOwner{}, false, nil
-	}
-	dns := func(_ context.Context, _ string) (string, bool, error) {
-		return "", false, nil
-	}
-	return cert, dns
-}
-
-func itoaTest(n int64) string {
-	if n == 0 {
-		return "0"
-	}
-	var buf [20]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(buf[i:])
-}
-
 // newTestHandler returns a Handler with the endpoint deps prewired.
-func newTestHandlerWithEndpoint(t *testing.T, seed ...runtime.Object) (*Handler, *fakeIaCWriter, *dynamicfake.FakeDynamicClient) {
+func newTestHandlerWithEndpoint(t *testing.T, seed ...runtime.Object) (*Handler, *dynamicfake.FakeDynamicClient) {
 	t.Helper()
 	h := NewWithPDM(slog.New(slog.NewTextHandler(io_discard{}, nil)), nil)
 	// ADR-0015 D4 — the Organization "acme" these tests install into is a
@@ -247,17 +132,11 @@ func newTestHandlerWithEndpoint(t *testing.T, seed ...runtime.Object) (*Handler,
 	setRefTestRegistry(t)
 	seed = append(refTestReadyOrg("acme", "wordpress", "grafana", "bp-postgres"), seed...)
 	dynFactory, dyn := fakeEndpointDynamic(seed...)
-	factory, iac := newWriterFactoryAllPass(t)
-	cert, dns := passthroughCertDNS()
 	h.SetEndpointPrecheckDeps(EndpointPrecheckDeps{
-		CertLookup:    cert,
-		DNSLookup:     dns,
-		WriterFactory: factory,
 		DynamicClient: dynFactory,
-		Requester:     func(_ context.Context) string { return "tester" },
 		SovereignFQDN: "t01.omani.works",
 	})
-	return h, iac, dyn
+	return h, dyn
 }
 
 // io_discard is a minimal io.Writer that drops bytes — slog-compatible.
@@ -269,9 +148,6 @@ func (io_discard) Write(p []byte) (int, error) { return len(p), nil }
 func newTestRouter(h *Handler) *chi.Mux {
 	r := chi.NewMux()
 	r.Get("/catalyst/v1/apps/{id}/endpoints", h.HandleListAppEndpoints)
-	r.Post("/catalyst/v1/apps/{id}/endpoints", h.HandleCreateAppEndpoint)
-	r.Patch("/catalyst/v1/apps/{id}/endpoints/{name}", h.HandlePatchAppEndpoint)
-	r.Delete("/catalyst/v1/apps/{id}/endpoints/{name}", h.HandleDeleteAppEndpoint)
 	r.Get("/catalyst/v1/apps/{id}/launch-url", h.HandleGetLaunchURL)
 	r.Post("/catalyst/v1/apps/instances", h.HandleCreateInstance)
 	r.Get("/catalyst/v1/catalog/{blueprint}/instances", h.HandleListBlueprintInstances)
@@ -282,7 +158,7 @@ func newTestRouter(h *Handler) *chi.Mux {
 
 func TestListAppEndpoints_HappyPath(t *testing.T) {
 	app := seedApp("uid-001", "wp-prod", "acme", "wordpress")
-	h, _, _ := newTestHandlerWithEndpoint(t, app)
+	h, _ := newTestHandlerWithEndpoint(t, app)
 	h.SetCatalogClient(fakeBlueprintInCatalog("wordpress",
 		[]map[string]interface{}{
 			{"name": "ui", "hostnameTemplate": "{AppName}.{OrgSlug}.{SovereignFQDN}", "port": 443, "protocol": "https", "tls": true, "ssoEnabled": true, "launchDefault": true},
@@ -310,7 +186,7 @@ func TestListAppEndpoints_HappyPath(t *testing.T) {
 }
 
 func TestListAppEndpoints_NotFound(t *testing.T) {
-	h, _, _ := newTestHandlerWithEndpoint(t)
+	h, _ := newTestHandlerWithEndpoint(t)
 	h.SetCatalogClient(newFakeCatalog())
 	r := newTestRouter(h)
 	rec := httptest.NewRecorder()
@@ -321,161 +197,9 @@ func TestListAppEndpoints_NotFound(t *testing.T) {
 	}
 }
 
-func TestCreateAppEndpoint_HappyPath_OpensAndMerges(t *testing.T) {
-	app := seedApp("uid-002", "wp", "acme", "wordpress")
-	h, iac, _ := newTestHandlerWithEndpoint(t, app)
-	h.SetCatalogClient(newFakeCatalog())
-	r := newTestRouter(h)
-
-	body := []byte(`{"name":"ui","hostname":"wp.acme.example.com","port":443,"protocol":"https","tls":true,"visibility":"public","ssoEnabled":true}`)
-	req := httptest.NewRequest("POST", "/catalyst/v1/apps/uid-002/endpoints", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusAccepted {
-		t.Fatalf("expected 202, got %d (body=%s)", rec.Code, rec.Body.String())
-	}
-	var resp endpointPRResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if resp.Status != string(giteapr.StatusMerged) {
-		t.Fatalf("expected merged, got %s", resp.Status)
-	}
-	if !strings.HasPrefix(resp.PRURL, "https://gitea.t01.test/acme/iac/pulls/") {
-		t.Fatalf("unexpected PR URL: %s", resp.PRURL)
-	}
-	if resp.PreCheckResults.CertManager != "pass" || resp.PreCheckResults.DNSConflict != "pass" || resp.PreCheckResults.Kyverno != "pass" {
-		t.Fatalf("expected all checks pass, got %+v", resp.PreCheckResults)
-	}
-	// File landed
-	found := false
-	for k := range iac.files {
-		if strings.HasSuffix(k, "apps/wp/endpoints/ui.yaml") {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("expected endpoint manifest in fake IaC")
-	}
-}
-
-func TestCreateAppEndpoint_DuplicateOpensSamePR(t *testing.T) {
-	app := seedApp("uid-003", "wp", "acme", "wordpress")
-	h, iac, _ := newTestHandlerWithEndpoint(t, app)
-	h.SetCatalogClient(newFakeCatalog())
-	r := newTestRouter(h)
-
-	body := []byte(`{"name":"ui","hostname":"wp.acme.example.com","port":443,"protocol":"https","tls":true,"visibility":"public","ssoEnabled":true}`)
-	for i := 0; i < 2; i++ {
-		req := httptest.NewRequest("POST", "/catalyst/v1/apps/uid-003/endpoints", bytes.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
-		rec := httptest.NewRecorder()
-		r.ServeHTTP(rec, req)
-		if rec.Code != http.StatusAccepted {
-			t.Fatalf("iter %d: expected 202, got %d", i, rec.Code)
-		}
-	}
-	// Should have opened exactly ONE PR (idempotent on same manifest hash).
-	if len(iac.prs) != 1 {
-		t.Fatalf("expected 1 PR (idempotent); got %d", len(iac.prs))
-	}
-}
-
-func TestPatchAppEndpoint_BodyNameDefaultsFromPath(t *testing.T) {
-	app := seedApp("uid-004", "wp", "acme", "wordpress")
-	h, iac, _ := newTestHandlerWithEndpoint(t, app)
-	h.SetCatalogClient(newFakeCatalog())
-	r := newTestRouter(h)
-
-	body := []byte(`{"hostname":"wp-new.acme.example.com","port":443,"protocol":"https","tls":true,"visibility":"public","ssoEnabled":true}`)
-	req := httptest.NewRequest("PATCH", "/catalyst/v1/apps/uid-004/endpoints/ui", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	if rec.Code != http.StatusAccepted {
-		t.Fatalf("expected 202, got %d (body=%s)", rec.Code, rec.Body.String())
-	}
-	found := false
-	for k := range iac.files {
-		if strings.HasSuffix(k, "apps/wp/endpoints/ui.yaml") {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("expected ui.yaml manifest landed on patch")
-	}
-}
-
-func TestDeleteAppEndpoint_OpensDeletePR(t *testing.T) {
-	app := seedApp("uid-005", "wp", "acme", "wordpress")
-	h, iac, _ := newTestHandlerWithEndpoint(t, app)
-	h.SetCatalogClient(newFakeCatalog())
-	// Seed the file so DeleteFile path is the one exercised
-	iac.files["acme/iac/main/apps/wp/endpoints/ui.yaml"] = []byte("seed")
-	r := newTestRouter(h)
-	req := httptest.NewRequest("DELETE", "/catalyst/v1/apps/uid-005/endpoints/ui", nil)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	if rec.Code != http.StatusAccepted {
-		t.Fatalf("expected 202, got %d (body=%s)", rec.Code, rec.Body.String())
-	}
-	if len(iac.prs) != 1 {
-		t.Fatalf("expected 1 PR for delete; got %d", len(iac.prs))
-	}
-}
-
-func TestCreateAppEndpoint_FailedPrecheckDoesNotOpenPR(t *testing.T) {
-	app := seedApp("uid-006", "wp", "acme", "wordpress")
-	h, iac, _ := newTestHandlerWithEndpoint(t, app)
-	h.SetCatalogClient(newFakeCatalog())
-	// Override the cert lookup to return a different owner.
-	deps := h.EndpointPrecheckDepsForTest()
-	deps.CertLookup = func(_ context.Context, _ string) (precheck.CertOwner, bool, error) {
-		return precheck.CertOwner{Org: "competitor", App: "x"}, true, nil
-	}
-	h.SetEndpointPrecheckDeps(deps)
-	r := newTestRouter(h)
-
-	body := []byte(`{"name":"ui","hostname":"wp.acme.example.com","port":443,"protocol":"https","tls":true,"visibility":"public","ssoEnabled":true}`)
-	req := httptest.NewRequest("POST", "/catalyst/v1/apps/uid-006/endpoints", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	if rec.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d (body=%s)", rec.Code, rec.Body.String())
-	}
-	if len(iac.prs) != 0 {
-		t.Fatalf("expected 0 PRs on failed precheck; got %d", len(iac.prs))
-	}
-	var resp endpointPRResponse
-	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
-	if resp.Status != "failed-precheck" {
-		t.Fatalf("expected failed-precheck status; got %s", resp.Status)
-	}
-	if resp.PreCheckResults.CertManager != "fail" {
-		t.Fatalf("expected cert-manager fail; got %s", resp.PreCheckResults.CertManager)
-	}
-}
-
-func TestCreateAppEndpoint_BadBody(t *testing.T) {
-	app := seedApp("uid-007", "wp", "acme", "wordpress")
-	h, _, _ := newTestHandlerWithEndpoint(t, app)
-	h.SetCatalogClient(newFakeCatalog())
-	r := newTestRouter(h)
-	req := httptest.NewRequest("POST", "/catalyst/v1/apps/uid-007/endpoints", strings.NewReader("not-json"))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", rec.Code)
-	}
-}
-
 func TestGetLaunchURL_HappyPath(t *testing.T) {
 	app := seedApp("uid-008", "wp", "acme", "wordpress")
-	h, _, _ := newTestHandlerWithEndpoint(t, app)
+	h, _ := newTestHandlerWithEndpoint(t, app)
 	h.SetCatalogClient(fakeBlueprintInCatalog("wordpress",
 		[]map[string]interface{}{
 			{"name": "ui", "hostnameTemplate": "{AppName}.{OrgSlug}.{SovereignFQDN}", "tls": true, "ssoEnabled": true, "launchDefault": true},
@@ -498,7 +222,7 @@ func TestGetLaunchURL_HappyPath(t *testing.T) {
 
 func TestGetLaunchURL_NoSSOEnabledIs409(t *testing.T) {
 	app := seedApp("uid-009", "wp", "acme", "wordpress")
-	h, _, _ := newTestHandlerWithEndpoint(t, app)
+	h, _ := newTestHandlerWithEndpoint(t, app)
 	h.SetCatalogClient(fakeBlueprintInCatalog("wordpress",
 		[]map[string]interface{}{
 			{"name": "ui", "hostnameTemplate": "ui.example.com", "tls": true, "ssoEnabled": false, "launchDefault": true},
@@ -518,7 +242,7 @@ func TestGetLaunchURL_NoSSOEnabledIs409(t *testing.T) {
 // Applications and address the launch-url by the blueprint name "grafana".
 func TestGetLaunchURL_HRBacked_NoApplicationCR(t *testing.T) {
 	// No Application CR seeded — only the catalog blueprint exists.
-	h, _, _ := newTestHandlerWithEndpoint(t)
+	h, _ := newTestHandlerWithEndpoint(t)
 	h.SetCatalogClient(fakeBlueprintInCatalog("grafana",
 		[]map[string]interface{}{
 			{"name": "ui", "hostnameTemplate": "grafana.{SovereignFQDN}", "tls": true, "ssoEnabled": true, "launchDefault": true, "ssoInitPath": "/login/generic_oauth"},
@@ -545,7 +269,7 @@ func TestGetLaunchURL_HRBacked_NoApplicationCR(t *testing.T) {
 // #3150 — the `bp-` prefixed form must resolve identically (the FE may
 // pass either "grafana" or "bp-grafana").
 func TestGetLaunchURL_HRBacked_BpPrefixedID(t *testing.T) {
-	h, _, _ := newTestHandlerWithEndpoint(t)
+	h, _ := newTestHandlerWithEndpoint(t)
 	h.SetCatalogClient(fakeBlueprintInCatalog("grafana",
 		[]map[string]interface{}{
 			{"name": "ui", "hostnameTemplate": "grafana.{SovereignFQDN}", "tls": true, "ssoEnabled": true, "launchDefault": true, "ssoInitPath": "/login/generic_oauth"},
@@ -567,7 +291,7 @@ func TestGetLaunchURL_HRBacked_BpPrefixedID(t *testing.T) {
 // ssoInitPath still works, falling back to the legacy app-root+query
 // silent-SSO shape.
 func TestGetLaunchURL_HRBacked_NoInitPathFallsBackLegacy(t *testing.T) {
-	h, _, _ := newTestHandlerWithEndpoint(t)
+	h, _ := newTestHandlerWithEndpoint(t)
 	h.SetCatalogClient(fakeBlueprintInCatalog("someapp",
 		[]map[string]interface{}{
 			{"name": "ui", "hostnameTemplate": "someapp.{SovereignFQDN}", "tls": true, "ssoEnabled": true, "launchDefault": true},
@@ -591,7 +315,7 @@ func TestGetLaunchURL_HRBacked_NoInitPathFallsBackLegacy(t *testing.T) {
 // window.open() on that URL follows the shim's 302 to Keycloak, giving
 // grafana/harbor zero-click parity.
 func TestGetLaunchURL_SSOShimReturnsShimURL(t *testing.T) {
-	h, _, _ := newTestHandlerWithEndpoint(t)
+	h, _ := newTestHandlerWithEndpoint(t)
 	h.SetCatalogClient(fakeBlueprintInCatalog("openbao",
 		[]map[string]interface{}{
 			{"name": "api", "hostnameTemplate": "bao.{SovereignFQDN}", "tls": true,
@@ -613,7 +337,7 @@ func TestGetLaunchURL_SSOShimReturnsShimURL(t *testing.T) {
 }
 
 func TestCreateInstance_HappyPath(t *testing.T) {
-	h, _, dyn := newTestHandlerWithEndpoint(t)
+	h, dyn := newTestHandlerWithEndpoint(t)
 	h.SetCatalogClient(fakeBlueprintInCatalog("wordpress",
 		[]map[string]interface{}{}, true, []string{"singleton", "active-hot-standby"}))
 	r := newTestRouter(h)
@@ -653,7 +377,7 @@ func TestCreateInstance_PlacementStampedOnCR(t *testing.T) {
 	// internal/instances/placement_availability_5616_test.go.
 	instances.SetAvailableVClusterTiers("rtz")
 	t.Cleanup(func() { instances.SetAvailableVClusterTiers("") })
-	h, _, dyn := newTestHandlerWithEndpoint(t)
+	h, dyn := newTestHandlerWithEndpoint(t)
 	h.SetCatalogClient(fakeBlueprintInCatalog("wordpress",
 		[]map[string]interface{}{}, true, []string{"singleton", "active-hot-standby"}))
 	r := newTestRouter(h)
@@ -698,7 +422,7 @@ func TestCreateInstance_PlacementStampedOnCR(t *testing.T) {
 }
 
 func TestCreateInstance_TopologyNotSupported(t *testing.T) {
-	h, _, _ := newTestHandlerWithEndpoint(t)
+	h, _ := newTestHandlerWithEndpoint(t)
 	h.SetCatalogClient(fakeBlueprintInCatalog("wordpress",
 		[]map[string]interface{}{}, true, []string{"singleton"}))
 	r := newTestRouter(h)
@@ -714,7 +438,7 @@ func TestCreateInstance_TopologyNotSupported(t *testing.T) {
 
 func TestCreateInstance_MultiInstanceDisabled409(t *testing.T) {
 	existing := seedApp("uid-010", "wp", "acme", "wordpress")
-	h, _, _ := newTestHandlerWithEndpoint(t, existing)
+	h, _ := newTestHandlerWithEndpoint(t, existing)
 	h.SetCatalogClient(fakeBlueprintInCatalog("wordpress",
 		[]map[string]interface{}{}, false, []string{"singleton"}))
 	r := newTestRouter(h)
@@ -730,7 +454,7 @@ func TestCreateInstance_MultiInstanceDisabled409(t *testing.T) {
 
 func TestCreateInstance_NameConflict(t *testing.T) {
 	existing := seedApp("uid-011", "wp", "acme", "wordpress")
-	h, _, _ := newTestHandlerWithEndpoint(t, existing)
+	h, _ := newTestHandlerWithEndpoint(t, existing)
 	h.SetCatalogClient(fakeBlueprintInCatalog("wordpress",
 		[]map[string]interface{}{}, true, []string{"singleton"}))
 	r := newTestRouter(h)
@@ -748,7 +472,7 @@ func TestListBlueprintInstances_FilterByOrg(t *testing.T) {
 	a1 := seedApp("uid-100", "wp1", "acme", "wordpress")
 	a2 := seedApp("uid-101", "wp2", "bigcorp", "wordpress")
 	a3 := seedApp("uid-102", "graf", "acme", "grafana")
-	h, _, _ := newTestHandlerWithEndpoint(t, a1, a2, a3)
+	h, _ := newTestHandlerWithEndpoint(t, a1, a2, a3)
 	h.SetCatalogClient(newFakeCatalog())
 	r := newTestRouter(h)
 
@@ -907,7 +631,7 @@ func shareablePostgresCatalog() *fakeCatalogClient {
 // the contextSchema declaration. Status: gitea\u2019s credential Secret is
 // reflected \u2192 ready; harbor\u2019s is not yet \u2192 pending.
 func TestListBlueprintInstances_HRFallback_ContextsProjected(t *testing.T) {
-	h, _, _ := newTestHandlerWithEndpoint(t, seedSlotHR(true), seedSecret("gitea-database-secret", "gitea"))
+	h, _ := newTestHandlerWithEndpoint(t, seedSlotHR(true), seedSecret("gitea-database-secret", "gitea"))
 	h.SetCatalogClient(shareablePostgresCatalog())
 	r := newTestRouter(h)
 
@@ -946,7 +670,7 @@ func TestListBlueprintInstances_HRFallback_ContextsProjected(t *testing.T) {
 // dedupes on spec.releaseName. Contexts project from the CR\u2019s
 // spec.parameters (the same Git-committed bytes).
 func TestListBlueprintInstances_AdoptionDedup(t *testing.T) {
-	h, _, _ := newTestHandlerWithEndpoint(t,
+	h, _ := newTestHandlerWithEndpoint(t,
 		seedBootstrapOwnedAppCR(), seedSlotHR(true), seedSecret("gitea-database-secret", "gitea"))
 	h.SetCatalogClient(shareablePostgresCatalog())
 	r := newTestRouter(h)
@@ -981,7 +705,7 @@ func TestCreateInstance_BackingReuse(t *testing.T) {
 	target := seedApp("uid-pg-demo", "demo-pg", "acme", "postgres")
 	_ = unstructured.SetNestedMap(target.Object, map[string]interface{}{}, "spec", "parameters")
 
-	h, _, dyn := newTestHandlerWithEndpoint(t, target)
+	h, dyn := newTestHandlerWithEndpoint(t, target)
 	h.SetCatalogClient(newFakeCatalog(
 		shareablePostgresCatalog().byKey["bp-postgres@0.1.6"],
 		fakeBlueprintInCatalog("wordpress", []map[string]interface{}{}, true, []string{"singleton"}).byKey["wordpress@1.0.0"],
@@ -1039,7 +763,7 @@ func TestCreateInstance_BackingReuse(t *testing.T) {
 // with a Context for the consumer; the consumer carries the dependsOn
 // edge. The operator sees TWO new cards.
 func TestCreateInstance_BackingCreate(t *testing.T) {
-	h, _, dyn := newTestHandlerWithEndpoint(t)
+	h, dyn := newTestHandlerWithEndpoint(t)
 	h.SetCatalogClient(newFakeCatalog(
 		shareablePostgresCatalog().byKey["bp-postgres@0.1.6"],
 		fakeBlueprintInCatalog("wordpress", []map[string]interface{}{}, true, []string{"singleton"}).byKey["wordpress@1.0.0"],
@@ -1092,7 +816,7 @@ func TestCreateInstance_BackingCreate(t *testing.T) {
 // bootstrap-owned instance\u2019s Contexts live in the bootstrap-kit slot
 // values in Git; the API must refuse to append to the CR.
 func TestCreateInstance_BackingReuse_BootstrapOwnedRejected(t *testing.T) {
-	h, _, _ := newTestHandlerWithEndpoint(t, seedBootstrapOwnedAppCR())
+	h, _ := newTestHandlerWithEndpoint(t, seedBootstrapOwnedAppCR())
 	h.SetCatalogClient(newFakeCatalog(
 		shareablePostgresCatalog().byKey["bp-postgres@0.1.6"],
 		fakeBlueprintInCatalog("wordpress", []map[string]interface{}{}, true, []string{"singleton"}).byKey["wordpress@1.0.0"],
@@ -1243,7 +967,7 @@ func TestChooseTopology_CanonicalisesEditorDialect(t *testing.T) {
 // multiInstance.enabled=true. Each instance lands with a distinct
 // metadata.uid AND a distinct spec.instanceId.
 func TestCreateInstance_MultiInstanceEnabled_3Instances(t *testing.T) {
-	h, _, dyn := newTestHandlerWithEndpoint(t)
+	h, dyn := newTestHandlerWithEndpoint(t)
 	h.SetCatalogClient(fakeBlueprintInCatalogWithCap("grafana", nil, true, 5, []string{"singleton"}))
 	r := newTestRouter(h)
 
@@ -1300,7 +1024,7 @@ func TestCreateInstance_MultiInstanceEnabled_3Instances(t *testing.T) {
 // 409 + multi-instance-disabled contract.
 func TestCreateInstance_MultiInstanceDisabled_BlocksSecond(t *testing.T) {
 	existing := seedApp("uid-mi-disabled-1", "marketing-1", "acme", "wordpress")
-	h, _, _ := newTestHandlerWithEndpoint(t, existing)
+	h, _ := newTestHandlerWithEndpoint(t, existing)
 	h.SetCatalogClient(fakeBlueprintInCatalogWithCap("wordpress", nil, false, 0, []string{"singleton"}))
 	r := newTestRouter(h)
 
@@ -1328,7 +1052,7 @@ func TestCreateInstance_MaxPerOrgExceeded(t *testing.T) {
 	a := seedApp("uid-cap-1", "obs-1", "acme", "grafana")
 	b := seedApp("uid-cap-2", "obs-2", "acme", "grafana")
 	c := seedApp("uid-cap-3", "obs-3", "acme", "grafana")
-	h, _, _ := newTestHandlerWithEndpoint(t, a, b, c)
+	h, _ := newTestHandlerWithEndpoint(t, a, b, c)
 	h.SetCatalogClient(fakeBlueprintInCatalogWithCap("grafana", nil, true, 3, []string{"singleton"}))
 	r := newTestRouter(h)
 
@@ -1354,7 +1078,7 @@ func TestCreateInstance_MaxPerOrgExceeded(t *testing.T) {
 // rejected regardless of multiInstance.enabled.
 func TestCreateInstance_NameCollision_MultiInstanceEnabled(t *testing.T) {
 	existing := seedApp("uid-coll-1", "obs-1", "acme", "grafana")
-	h, _, _ := newTestHandlerWithEndpoint(t, existing)
+	h, _ := newTestHandlerWithEndpoint(t, existing)
 	h.SetCatalogClient(fakeBlueprintInCatalogWithCap("grafana", nil, true, 5, []string{"singleton"}))
 	r := newTestRouter(h)
 
@@ -1379,7 +1103,7 @@ func TestCreateInstance_NameCollision_MultiInstanceEnabled(t *testing.T) {
 // TestCreateInstance_IsolationLevelInvalid verifies the 422
 // isolation-level-invalid contract.
 func TestCreateInstance_IsolationLevelInvalid(t *testing.T) {
-	h, _, _ := newTestHandlerWithEndpoint(t)
+	h, _ := newTestHandlerWithEndpoint(t)
 	h.SetCatalogClient(fakeBlueprintInCatalogWithCap("grafana", nil, true, 5, []string{"singleton"}))
 	r := newTestRouter(h)
 
@@ -1404,7 +1128,7 @@ func TestCreateInstance_IsolationLevelInvalid(t *testing.T) {
 // TestCreateInstance_VClusterIsolation verifies the vCluster
 // isolation flow stamps the AppName-only namingTemplate.
 func TestCreateInstance_VClusterIsolation_NamingTemplateDefault(t *testing.T) {
-	h, _, dyn := newTestHandlerWithEndpoint(t)
+	h, dyn := newTestHandlerWithEndpoint(t)
 	h.SetCatalogClient(fakeBlueprintInCatalogWithCap("grafana", nil, true, 5, []string{"singleton"}))
 	r := newTestRouter(h)
 
@@ -1533,7 +1257,7 @@ func TestCountSovereignRegions_PicksLargest(t *testing.T) {
 	}
 }
 
-// ── G117.3a #2757 — Org-membership gate on endpoint mutation.
+// ── G117.3a #2757 — Org-membership gate.
 
 // withTestClaims wraps a request with auth.Claims in the chi context.
 // The existing handler reads `auth.ClaimsFromContext(r.Context())` —
@@ -1565,126 +1289,6 @@ type testClaimsSpec struct {
 	Org        string
 	Groups     []string
 	RealmRoles []string
-}
-
-func TestCreateAppEndpoint_DenyCrossOrgWhenCallerNotMember(t *testing.T) {
-	// Application owned by `acme`; caller is tier-admin in `beta`.
-	app := seedApp("uid-201", "wp", "acme", "wordpress")
-	h, _, _ := newTestHandlerWithEndpoint(t, app)
-	h.SetCatalogClient(newFakeCatalog())
-	r := newTestRouter(h)
-
-	body := []byte(`{"name":"ui","hostname":"wp.acme.example.com","port":443,"protocol":"https","tls":true,"visibility":"public","ssoEnabled":true}`)
-	req := httptest.NewRequest("POST", "/catalyst/v1/apps/uid-201/endpoints", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	req = withTestClaims(req, &testClaimsSpec{
-		Tier:       "admin",
-		Org:        "beta", // ← different Org
-		RealmRoles: []string{"catalyst-admin-beta"},
-	})
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d (body=%s)", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "forbidden-cross-org") {
-		t.Fatalf("expected forbidden-cross-org code, got body=%s", rec.Body.String())
-	}
-}
-
-func TestCreateAppEndpoint_AllowSameOrgTierAdmin(t *testing.T) {
-	app := seedApp("uid-202", "wp", "acme", "wordpress")
-	h, _, _ := newTestHandlerWithEndpoint(t, app)
-	h.SetCatalogClient(newFakeCatalog())
-	r := newTestRouter(h)
-
-	body := []byte(`{"name":"ui","hostname":"wp.acme.example.com","port":443,"protocol":"https","tls":true,"visibility":"public","ssoEnabled":true}`)
-	req := httptest.NewRequest("POST", "/catalyst/v1/apps/uid-202/endpoints", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	req = withTestClaims(req, &testClaimsSpec{
-		Tier: "admin",
-		Org:  "acme",
-	})
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	if rec.Code != http.StatusAccepted {
-		t.Fatalf("expected 202, got %d (body=%s)", rec.Code, rec.Body.String())
-	}
-}
-
-func TestCreateAppEndpoint_AllowSovereignCrossOrgRole(t *testing.T) {
-	app := seedApp("uid-203", "wp", "acme", "wordpress")
-	h, _, _ := newTestHandlerWithEndpoint(t, app)
-	h.SetCatalogClient(newFakeCatalog())
-	r := newTestRouter(h)
-
-	body := []byte(`{"name":"ui","hostname":"wp.acme.example.com","port":443,"protocol":"https","tls":true,"visibility":"public","ssoEnabled":true}`)
-	req := httptest.NewRequest("POST", "/catalyst/v1/apps/uid-203/endpoints", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	// caller in beta but holds sovereign-admin → allowed.
-	req = withTestClaims(req, &testClaimsSpec{
-		Tier:       "admin",
-		Org:        "beta",
-		RealmRoles: []string{"sovereign-admin"},
-	})
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	if rec.Code != http.StatusAccepted {
-		t.Fatalf("expected 202 (sovereign-admin bypass), got %d (body=%s)", rec.Code, rec.Body.String())
-	}
-}
-
-func TestCreateAppEndpoint_AllowViaGroupsClaim(t *testing.T) {
-	app := seedApp("uid-204", "wp", "acme", "wordpress")
-	h, _, _ := newTestHandlerWithEndpoint(t, app)
-	h.SetCatalogClient(newFakeCatalog())
-	r := newTestRouter(h)
-
-	body := []byte(`{"name":"ui","hostname":"wp.acme.example.com","port":443,"protocol":"https","tls":true,"visibility":"public","ssoEnabled":true}`)
-	req := httptest.NewRequest("POST", "/catalyst/v1/apps/uid-204/endpoints", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	// claims.Org empty (multi-Org user) but groups carries /acme/admins.
-	req = withTestClaims(req, &testClaimsSpec{
-		Tier:   "admin",
-		Groups: []string{"/acme/admins", "/beta/developers"},
-	})
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	if rec.Code != http.StatusAccepted {
-		t.Fatalf("expected 202 (groups membership), got %d (body=%s)", rec.Code, rec.Body.String())
-	}
-}
-
-func TestPatchAppEndpoint_DenyCrossOrg(t *testing.T) {
-	app := seedApp("uid-205", "wp", "acme", "wordpress")
-	h, _, _ := newTestHandlerWithEndpoint(t, app)
-	h.SetCatalogClient(newFakeCatalog())
-	r := newTestRouter(h)
-
-	body := []byte(`{"hostname":"wp.acme.example.com","port":443,"protocol":"https","tls":true,"visibility":"public","ssoEnabled":true}`)
-	req := httptest.NewRequest("PATCH", "/catalyst/v1/apps/uid-205/endpoints/ui", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	req = withTestClaims(req, &testClaimsSpec{Tier: "admin", Org: "beta"})
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 on PATCH cross-Org, got %d", rec.Code)
-	}
-}
-
-func TestDeleteAppEndpoint_DenyCrossOrg(t *testing.T) {
-	app := seedApp("uid-206", "wp", "acme", "wordpress")
-	h, _, _ := newTestHandlerWithEndpoint(t, app)
-	h.SetCatalogClient(newFakeCatalog())
-	r := newTestRouter(h)
-
-	req := httptest.NewRequest("DELETE", "/catalyst/v1/apps/uid-206/endpoints/ui", nil)
-	req = withTestClaims(req, &testClaimsSpec{Tier: "admin", Org: "beta"})
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 on DELETE cross-Org, got %d", rec.Code)
-	}
 }
 
 func TestCallerInOrg_RejectsEmptyOrg(t *testing.T) {

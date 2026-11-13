@@ -169,7 +169,7 @@ func TestGenerateTree_PostCutover_DerivedFromIssuerFact(t *testing.T) {
 func TestHelmRepoBlock_PreCutover_ByteIdentical(t *testing.T) {
 	clearCutoverFactEnv(t)
 	got := helmRepoBlock("bp-openclaw")
-	want := `apiVersion: source.toolkit.fluxcd.io/v1beta2
+	want := `apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:
   name: bp-openclaw

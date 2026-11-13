@@ -15,9 +15,7 @@
 //	(a) the catalog placementSchema enum + this package's accepted set
 //	    (the CRD products/catalyst/chart/crds/blueprint.yaml + the Go
 //	    canonicalPlacementModes map)
-//	(b) the console editor type (products/catalyst/console/src/lib/api/
-//	    types.ts BcpTopology union)
-//	(c) the bootstrap-ui editor option set
+//	(b) the bootstrap-ui editor option set
 //	    (products/catalyst/bootstrap/ui/.../topology/modes.ts ALL_MODES)
 //
 // The catalyst-api surface + the FE canonicaliser parity are pinned by
@@ -74,23 +72,6 @@ func TestPlacementVocabulary_CRDEnumHasCanonical(t *testing.T) {
 	for _, m := range placement.CanonicalModes() {
 		if !containsYAMLEnumValue(crd, m) {
 			t.Errorf("CRD blueprint.yaml placementSchema enum is missing canonical token %q", m)
-		}
-	}
-}
-
-func TestPlacementVocabulary_ConsoleBcpTopologyIsCanonical(t *testing.T) {
-	root := findRepoRoot(t)
-	types := mustReadRepoFile(t, root, "products", "catalyst", "console", "src", "lib", "api", "types.ts")
-	// The console BcpTopology union must carry exactly the canonical set
-	// (no legacy spelling).
-	for _, m := range placement.CanonicalModes() {
-		if !strings.Contains(types, "'"+m+"'") {
-			t.Errorf("console types.ts BcpTopology is missing canonical token %q", m)
-		}
-	}
-	for _, legacy := range []string{"'single-region'", "'active-hotstandby'"} {
-		if strings.Contains(types, legacy) {
-			t.Errorf("console types.ts BcpTopology must NOT carry the legacy spelling %s", legacy)
 		}
 	}
 }

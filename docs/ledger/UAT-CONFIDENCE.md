@@ -1,3 +1,5 @@
+Historical. Describes environment hw294, wiped by 2026-09-02. Not a statement about the product today.
+
 # UAT — verdict and confidence, on one line per case
 
 > **DERIVED — regenerate, never hand-edit.** `UAT.md` is the verdict of

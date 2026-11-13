@@ -1,0 +1,130 @@
+{{- /*
+Function test of bp-cnpg (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
+
+It proves that the operator's admission webhooks answer: a server-side dry-run
+create of a minimal postgresql.cnpg.io/v1 Cluster must be accepted. Both webhook
+configurations of this chart use failurePolicy Fail, so the API server refuses
+the request when a webhook does not answer. Nothing is created.
+
+It renders only when this release creates the webhook configurations
+(bp-cnpg.webhookConfigsCreated in templates/_helpers.tpl). A webhook-less
+install (cloudnative-pg.webhook.mutating.create and .validating.create both
+false) has no webhook of its own to test.
+
+The image is the kubectl image this chart already uses for its webhook gate.
+functionTest.image overrides it.
+*/ -}}
+{{- if eq (include "bp-cnpg.webhookConfigsCreated" .) "true" }}
+{{- $ft := .Values.functionTest | default dict }}
+{{- $image := $ft.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["clusters"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-function-test
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ .Release.Name }}-function-test
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 300
+  serviceAccountName: {{ .Release.Name }}-function-test
+  containers:
+    - name: function-test
+      image: {{ $image | quote }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: HOME
+          value: /tmp
+        - name: TEST_NAMESPACE
+          value: {{ .Release.Namespace | quote }}
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -u
+          fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          probe='{"apiVersion":"postgresql.cnpg.io/v1","kind":"Cluster","metadata":{"name":"function-test-probe","namespace":"'"${TEST_NAMESPACE}"'"},"spec":{"instances":1,"storage":{"size":"1Gi"}}}'
+          if ! answer="$(printf '%s' "${probe}" | kubectl create --dry-run=server -f - -o jsonpath='{.metadata.name}' 2>/tmp/error)"; then
+            fail "the dry-run create of a Cluster was refused: $(tr '\n' ' ' </tmp/error | cut -c1-200)"
+          fi
+          [ "${answer}" = "function-test-probe" ] || fail "the dry-run create answered '$(printf '%s' "${answer}" | tr '\n' ' ' | cut -c1-200)'"
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} the admission webhooks accepted a dry-run create of a Cluster in ${TEST_NAMESPACE}"
+  volumes:
+    - name: tmp
+      emptyDir: {}
+{{- end }}

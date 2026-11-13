@@ -32,7 +32,7 @@ metadata:
   labels:
     catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
 ---
-apiVersion: source.toolkit.fluxcd.io/v1beta2
+apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:
   name: bp-openbao
@@ -182,7 +182,7 @@ spec:
       #   trusting it into /ui/vault/secrets, instead of trusting a
       #   client-side-only tokenExpirationEpoch that can't see a server-side
       #   revoke — closes the "no login form but 403 on mounts" gap.
-      version: 1.2.72-hw307.1
+      version: 1.2.73
       sourceRef:
         kind: HelmRepository
         name: bp-openbao

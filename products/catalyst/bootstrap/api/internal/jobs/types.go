@@ -160,6 +160,10 @@ const (
 	TaskJobPrefix = "task-"
 	// ReconcilerJobPrefix — long-running reconciler Deployment leaf.
 	ReconcilerJobPrefix = "reconciler-"
+	// MutationJobNamePrefix — leaf of a Day-2 infrastructure mutation.
+	// No code writes such a Job any more; stored rows keep their kind
+	// and display name through it.
+	MutationJobNamePrefix = "mutation-"
 )
 
 // HealthStatus — the extra status tone recurring/reconciler kinds report

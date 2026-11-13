@@ -81,7 +81,11 @@ script = job["spec"]["template"]["spec"]["containers"][0]["args"][0] if job else
 # ── LEGACY: exactly what bp-openbao 1.2.71 auth-bootstrap wrote ───────────
 RW, R = ["create", "read", "update"], ["list", "read"]
 LEGACY_POLICIES = {
-    "external-secrets-read": (set(), {"secret/data/*": R, "secret/metadata/*": R}),
+    "external-secrets-read": (set(), {"secret/data/sso/*": ["read"], "secret/metadata/sso/*": R,
+                                   "secret/data/catalyst/*": ["read"], "secret/metadata/catalyst/*": R,
+                                   "secret/data/openova/apps/*": ["read"], "secret/metadata/openova/apps/*": R,
+                                   "secret/data/catalyst/tofu-phase0-archive": ["deny"],
+                                   "secret/metadata/catalyst/tofu-phase0-archive": ["deny"]}),
     "external-secrets-push": (set(), {"secret/data/catalyst/newapi/admin-token": RW, "secret/metadata/catalyst/newapi/admin-token": RW,
                                    "secret/data/openova/apps/*": RW, "secret/metadata/openova/apps/*": RW}),
     "sso-bridge-write": (set(), {"secret/data/sso/*": ["create", "delete", "list", "read", "update"], "secret/metadata/sso/*": ["delete", "list", "read"]}),
@@ -97,11 +101,11 @@ LEGACY_POLICIES = {
 }
 LEGACY_ROLES = [  # (mount, role, sa, ns, policies, needs)
     ("kubernetes", "external-secrets", "external-secrets", "external-secrets-system", ["external-secrets-read", "external-secrets-push"], set()),
-    ("kubernetes", "sso-bridge", "sso-bridge-reconciler", "sso-bridge", ["sso-bridge-write", "external-secrets-read"], set()),
+    ("kubernetes", "sso-bridge", "sso-bridge-reconciler", "sso-bridge", ["sso-bridge-write"], set()),
     ("kubernetes", "sso-configure", "openbao-sso-configure", "openbao", ["sso-configure-admin"], set()),
     ("kubernetes", "catalyst-api", "catalyst-api-cutover-driver", "catalyst-system", ["catalyst-api-write"], {"capi"}),
     ("kubernetes", "openbao-snapshot", "openbao-snapshot", "openbao", ["openbao-snapshot"], {"snap"}),
-    ("kubernetes-vcluster", "sso-bridge", "sso-bridge-reconciler", "sso-bridge", ["sso-bridge-write", "external-secrets-read"], {"xcr"}),
+    ("kubernetes-vcluster", "sso-bridge", "sso-bridge-reconciler", "sso-bridge", ["sso-bridge-write"], {"xcr"}),
     ("kubernetes-vcluster", "sso-configure", "openbao-sso-configure", "openbao", ["sso-configure-admin"], {"xcr"}),
     ("kubernetes-vcluster", "openbao-snapshot", "openbao-snapshot", "openbao", ["openbao-snapshot"], {"xcr", "snap"}),
 ]

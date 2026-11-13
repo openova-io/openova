@@ -1,0 +1,64 @@
+name: gate-manifest
+
+# The gate manifest docs/ledger/gates.yaml lists every gate check with its
+# state: not-built, expected-fail or required. A check moves forward only.
+#
+# On a pull request this workflow compares the manifest of the merged result
+# with the manifest of the base branch and fails when a rule of
+# scripts/acceptance-gate.py is broken: a backward move, a move to required by
+# a package other than the one the entry names, a check removed without a
+# decision record, an implementation path that does not exist. Who makes the
+# change is read from the pull-request body (the lines `Work-Package: <ID>` and
+# `Decision: ADR-NNNN`), so the run starts again when the body is edited.
+#
+# On a merge group it checks the merged tree alone: the manifest is well
+# formed, every implementation path exists, and every package it names is in
+# docs/ledger/plan.yaml. The squash commits of a merge group do not carry the
+# pull-request body, so the rules that need it are proven on the pull request.
+#
+# No path filter: a pull request that never opens the manifest can still break
+# it, by deleting a file the manifest names or by changing the plan.
+#
+# The self-test runs first, before PyYAML is installed: it needs the Python
+# standard library only.
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: gate-manifest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history: the manifest of the base commit is read with git show.
+          fetch-depth: 0
+
+      - name: Self-test (each rule can fail)
+        run: python3 scripts/acceptance-gate.py --self-test
+
+      - name: Install PyYAML
+        run: python3 -m pip install --quiet pyyaml
+
+      - name: Validate the manifest against the base of the pull request
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          # The checkout is the merge of the pull request into its base branch.
+          # Its first parent is the base.
+          printf '%s\n' "${PR_BODY:-}" > "$RUNNER_TEMP/pr-body.txt"
+          python3 scripts/acceptance-gate.py validate --base "HEAD^1" --body-file "$RUNNER_TEMP/pr-body.txt"
+
+      - name: Validate the manifest of the merged tree
+        if: github.event_name == 'merge_group'
+        run: python3 scripts/acceptance-gate.py validate --base HEAD --body-file /dev/null

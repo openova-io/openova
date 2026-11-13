@@ -1,0 +1,18 @@
+# golangci-lint settings for every Go module in this repository (FND-053).
+# The workflow .github/workflows/go-lint.yaml passes this file with --config.
+# Only findings on lines changed since the merge base with main are reported.
+# Do not add a baseline file of old findings. Do not add //nolint comments.
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - gosec
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+
+issues:
+  new-from-merge-base: origin/main

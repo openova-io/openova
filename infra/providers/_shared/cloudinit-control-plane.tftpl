@@ -176,10 +176,18 @@ write_files:
   #   Huawei  → bastion-openova registry:2 mirrors (kom4dc NAT bypass).
   #   AWS/Azure/GCP → empty (no mirror) renders no `mirrors:` block.
   # k3s reads this at start to configure containerd.
+  #
+  # CLD-185: this file and six more below (the four bootstrap Secrets, the
+  # cloud-credentials Secret and the Crossplane provider) travel packed:
+  # `encoding: gz+b64`, the text gzipped and base64-encoded in the template.
+  # cloud-init writes the decoded text, the same bytes the plain file had, so
+  # the Hetzner render stays under its user_data cap. A provider-injected
+  # body loses its comment lines before packing, as the modules strip them
+  # from the plain render, and ends with one newline, as the plain block did.
   - path: /etc/rancher/k3s/registries.yaml
     permissions: '0600'
-    content: |
-      ${indent(6, registry_mirror_yaml)}
+    encoding: gz+b64
+    content: ${base64gzip(format("%s\n", chomp(replace(registry_mirror_yaml, "/(?m)^[ ]*#( |$).*\n/", ""))))}
 
   # ── flux-system/ghcr-pull Secret ──────────────────────────────────────
   # imagePullSecret for ghcr.io/openova-io/*. bp-reflector (slot 05a) mirrors
@@ -220,7 +228,8 @@ write_files:
   # Refs #3383, #4246, #4293, #4328, #4423.
   - path: /var/lib/catalyst/ghcr-pull-secret.yaml
     permissions: '0600'
-    content: |
+    encoding: gz+b64
+    content: ${base64gzip(<<-EOT
       apiVersion: v1
       kind: Secret
       metadata:
@@ -242,13 +251,16 @@ write_files:
             }
           }
         }))}
+      EOT
+    )}
 
   # ── flux-system/harbor-robot-token Secret (issue #557) ────────────────
   # catalyst-api references it via REQUIRED secretKeyRef. bp-reflector
   # mirrors flux-system → catalyst-system on first reconcile.
   - path: /var/lib/catalyst/harbor-robot-token-secret.yaml
     permissions: '0600'
-    content: |
+    encoding: gz+b64
+    content: ${base64gzip(<<-EOT
       apiVersion: v1
       kind: Secret
       metadata:
@@ -262,6 +274,8 @@ write_files:
       type: Opaque
       data:
         token: ${base64encode(harbor_robot_token)}
+      EOT
+    )}
 
   # ── powerdns-api-credentials Secret — EVICTED to Flux (#3888 / Refs #3847)
   # The cert-manager DNS-01 webhook (bp-cert-manager-powerdns-webhook, slot 49)
@@ -285,13 +299,31 @@ write_files:
   # (it issues the Certificate this key's DNS-01 solver fulfils), reconciles in
   # PARALLEL with a 1m retryInterval, and retries until the `cert-manager` ns
   # exists — so the Secret is present before the DNS-01 challenge fires.
+  #
+  # SOV-130: the key reaches sovereign-tls through this Secret,
+  # flux-system/sovereign-tls-secrets (its postBuild.substituteFrom), not
+  # through the Kustomization's spec. Its one key, POWERDNS_API_KEY, holds the
+  # base64 form of the API key, as the inline value did. Applied below with
+  # the other bootstrap Secrets; it is never committed to Git.
+  - path: /var/lib/catalyst/sovereign-tls-secrets.yaml
+    permissions: '0600'
+    content: |
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: sovereign-tls-secrets
+        namespace: flux-system
+      type: Opaque
+      stringData:
+        POWERDNS_API_KEY: "${base64encode(powerdns_api_key)}"
 
   # ── flux-system/pdm-basicauth Secret (issue #879 Bug 2) ───────────────
   # catalyst-api calls PDM (Pool Domain Manager) with Basic auth for the
   # Day-2 "Add another parent domain" flow. Reflector mirrors it out.
   - path: /var/lib/catalyst/pdm-basicauth-secret.yaml
     permissions: '0600'
-    content: |
+    encoding: gz+b64
+    content: ${base64gzip(<<-EOT
       apiVersion: v1
       kind: Secret
       metadata:
@@ -306,34 +338,23 @@ write_files:
       data:
         username: ${base64encode(pdm_basic_auth_user)}
         password: ${base64encode(pdm_basic_auth_pass)}
+      EOT
+    )}
 
   # ── flux-system/object-storage Secret ─────────────────────────────────
   # S3-compatible object storage (Hetzner Object Storage / Huawei OBS /
   # AWS S3 / …). Harbor + Velero HelmReleases read these keys. Emit BOTH
   # the canonical `s3-*` keys and the bare aliases so every chart variant
   # resolves (Wave 5.101 #2447 — bp-harbor/bp-velero want `s3-bucket`).
-  #
-  # #3373 coupling fix (c) — reflector annotations (same pattern as
-  # ghcr-pull above): Flux `valuesFrom` resolves a Secret in the HR's
-  # OWN namespace, so when a slot re-homes into a vCluster its HR moves
-  # to the vCluster host namespace (mgmt/dmz/rtz) and a flux-system-only
-  # object-storage Secret would dangle (the #2697 revert class).
-  # bp-reflector (slot 05a, host substrate) mirrors it into the three
-  # vCluster host namespaces so every re-homed HR's valuesFrom keeps
-  # resolving — placement stays a pure data change.
   - path: /var/lib/catalyst/object-storage-secret.yaml
     permissions: '0600'
-    content: |
+    encoding: gz+b64
+    content: ${base64gzip(<<-EOT
       apiVersion: v1
       kind: Secret
       metadata:
         name: object-storage
         namespace: flux-system
-        annotations:
-          reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
-          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "mgmt,dmz,rtz"
-          reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
-          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "mgmt,dmz,rtz"
       type: Opaque
       stringData:
         endpoint: "${object_storage_endpoint}"
@@ -346,6 +367,8 @@ write_files:
         s3-secret-key: "${object_storage_secret_key}"
         access-key: "${object_storage_access_key}"
         secret-key: "${object_storage_secret_key}"
+      EOT
+    )}
 
   # ── flux-system/cloud-credentials Secret — PROVIDER-INJECTED ──────────
   # Vendor-agnostic name (#425). Body composed per-provider in main.tf:
@@ -354,8 +377,8 @@ write_files:
   # Crossplane Provider + any Day-2 controller reads these keys.
   - path: /var/lib/catalyst/cloud-credentials-secret.yaml
     permissions: '0600'
-    content: |
-      ${indent(6, cloud_credentials_secret_yaml)}
+    encoding: gz+b64
+    content: ${base64gzip(format("%s\n", chomp(replace(cloud_credentials_secret_yaml, "/(?m)^[ ]*#( |$).*\n/", ""))))}
 
 %{ if crossplane_provider_yaml != "" ~}
   # ── Crossplane Provider + ProviderConfig — PROVIDER-INJECTED ──────────
@@ -363,8 +386,8 @@ write_files:
   # Empty string on providers without a Crossplane provider package yet.
   - path: /var/lib/catalyst/crossplane-provider.yaml
     permissions: '0644'
-    content: |
-      ${indent(6, crossplane_provider_yaml)}
+    encoding: gz+b64
+    content: ${base64gzip(format("%s\n", chomp(replace(crossplane_provider_yaml, "/(?m)^[ ]*#( |$).*\n/", ""))))}
 %{ endif ~}
 
   # ── Handover-JWT public key (raw JWK + K8s Secret) ────────────────────
@@ -587,7 +610,22 @@ write_files:
         wait: true
         timeout: 5m
         postBuild:
-          substitute:
+          substituteFrom:
+            - kind: ConfigMap
+              name: sovereign-variables
+      ---
+      # SOV-130: ConfigMap sovereign-variables holds every value that the
+      # inline Kustomizations of this file substitute (postBuild.substituteFrom).
+      # Flux reads it only after the GitRepository above has an artifact, so it
+      # exists by then although bootstrap-kit is applied a moment earlier.
+      # The one secret value, POWERDNS_API_KEY, is not here: it is the Secret
+      # flux-system/sovereign-tls-secrets (file sovereign-tls-secrets.yaml).
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: sovereign-variables
+        namespace: flux-system
+      data:
             SOVEREIGN_FQDN: ${sovereign_fqdn}
             SOVEREIGN_FQDN_DASHED: ${sovereign_fqdn_slug}
             PROVIDER: ${provider}
@@ -597,7 +635,9 @@ write_files:
 %{ endif ~}
             SOVEREIGN_DEPLOYMENT_ID: ${deployment_id}
             # #4236 console-ELB IPv4 → slot-13 sovereignConsoleLBIP (see that file).
-            SOVEREIGN_CONSOLE_LB_IP: ${console_load_balancer_ipv4}
+            # Quoted (SOV-130): with no console ELB the value is empty, and a
+            # ConfigMap value must be a string, never null.
+            SOVEREIGN_CONSOLE_LB_IP: "${console_load_balancer_ipv4}"
             # #4053 console-isolation toggle (Refs #4431 #4212) → slot-13
             # ingress.gateway.parentRef.name. When console_isolation_enabled is
             # "true" (default) the console HTTPRoutes parent the DEDICATED
@@ -660,10 +700,10 @@ write_files:
             # on the child catalyst-api. INDEPENDENT of QA_FIXTURES_ENABLED so a
             # PROD-cert Sovereign (qa_fixtures_enabled=false) can ALSO auto-fire
             # the cutover on handover and reach cutoverComplete with ZERO manual
-            # steps. Sourced from var.fire_cutover_on_handover (catalyst-api
-            # Request.FireCutoverOnHandover). Default "false" (#4061 — customer
-            # Sovereigns that set neither flag stay operator-gated).
-            FIRE_CUTOVER_ON_HANDOVER: "${fire_cutover_on_handover}"
+            # steps. SOV-133: the value is HANDOVER_AUTO of the template input
+            # `variables`, the variables document of contract C5
+            # (docs/contracts/c5-upstream-variables.schema.json).
+            FIRE_CUTOVER_ON_HANDOVER: "${variables["HANDOVER_AUTO"]}"
             PARENT_DOMAINS_YAML: '${parent_domains_yaml}'
             # PARENT_DOMAINS_FILTER (#3376) — the external-dns domainFilters
             # list (bootstrap-kit slot 12, clusters/_template/bootstrap-kit/
@@ -1009,6 +1049,11 @@ write_files:
             # routing rides the WireGuard node mesh; no VPC route table).
             HUAWEI_VPC_ROUTES_ENABLED: "true"
 %{ endif ~}
+            WILDCARD_CERT_ISSUER: "${wildcard_cert_issuer}"
+%{ if provider != "hetzner" ~}
+            SOVEREIGN_REGION_ID: "${region_canonical_label}"
+            SOVEREIGN_WRITER_REGION_ID: "${primary_region_canonical_label}"
+%{ endif ~}
       ---
       # sovereign-tls Kustomization — carries the cert-manager Certificate
       # that backs Cilium Gateway's wildcard-TLS listener. Split out so its
@@ -1061,17 +1106,12 @@ write_files:
           name: openova
         wait: false
         postBuild:
-          substitute:
-            SOVEREIGN_FQDN: ${sovereign_fqdn}
-            SOVEREIGN_FQDN_DASHED: ${sovereign_fqdn_slug}
-            SOVEREIGN_LB_IP: ${load_balancer_ipv4}
-            MARKETPLACE_ENABLED: "${marketplace_enabled}"
-            QA_FIXTURES_ENABLED: "${qa_fixtures_enabled}"
-            PARENT_DOMAINS_YAML: '${parent_domains_yaml}'
-            WILDCARD_CERT_ISSUER: "${wildcard_cert_issuer}"
-            SOVEREIGN_FQDN_SLUG: "${sovereign_fqdn_slug}"
-            SOVEREIGN_REGION_KEY: "${primary_region_canonical_label}"
-            HCLOUD_LB_LOCATION: "${region}"
+          substituteFrom:
+            - kind: ConfigMap
+              name: sovereign-tls-vars
+              optional: false
+            - kind: ConfigMap
+              name: sovereign-variables
             # POWERDNS_API_KEY (#3888 / Refs #3847) — the central pdns.openova.io
             # DNS-01 API key, base64-encoded so it threads into the cert-manager/
             # powerdns-api-credentials Secret's `data.api-key` cluster-side
@@ -1086,12 +1126,11 @@ write_files:
             # resource fixes #3847's prune-orphan (cloud-init applied it
             # imperatively into the bootstrap-kit-pruned `cert-manager` ns) and
             # reverts #3884 (whose flux-system+reflector workaround pushed the
-            # 3-region render past the 32256 cap).
-            POWERDNS_API_KEY: ${base64encode(powerdns_api_key)}
-          substituteFrom:
-            - kind: ConfigMap
-              name: sovereign-tls-vars
-              optional: false
+            # 3-region render past the 32256 cap). SOV-130: it is the one key of
+            # the Secret flux-system/sovereign-tls-secrets, never a value of the
+            # ConfigMap sovereign-variables or of this Kustomization's spec.
+            - kind: Secret
+              name: sovereign-tls-secrets
       ---
       # bootstrap-kit-crs Kustomization (#3804 / Refs #3642) — the host-bridge
       # CRD-dependent CRs tier. #3642 re-homed 7 host apps into the mgmt
@@ -1141,8 +1180,9 @@ write_files:
           name: openova
         wait: false
         postBuild:
-          substitute:
-            SOVEREIGN_FQDN: ${sovereign_fqdn}
+          substituteFrom:
+            - kind: ConfigMap
+              name: sovereign-variables
             # #4206 — the host-shared CNPG Cluster CRs reconciled by THIS
             # Kustomization (gitea-pg / harbor-pg / guacamole-pg, slots
             # 10/19/52) name their storageClass via this var so their PVCs are
@@ -1152,8 +1192,8 @@ write_files:
             # that "" is PERMANENT (opts out of dynamic provisioning) → Pending
             # forever. The same per-provider durable class the bootstrap-kit
             # block uses (evs-ssd on Huawei, hcloud-volumes on Hetzner); the
-            # tofu var validation rejects "" and "local-path".
-            SOVEREIGN_CNPG_STORAGE_CLASS: "${default_storage_class}"
+            # tofu var validation rejects "" and "local-path". SOV-130: the
+            # value is SOVEREIGN_CNPG_STORAGE_CLASS of sovereign-variables.
 %{ if provider != "hetzner" ~}
       ---
       # ADR-0015 D1: region path from this region's own Gitea (every region).
@@ -1177,10 +1217,9 @@ write_files:
           name: openova
         wait: false
         postBuild:
-          substitute:
-            SOVEREIGN_FQDN: ${sovereign_fqdn}
-            SOVEREIGN_REGION_ID: "${region_canonical_label}"
-            SOVEREIGN_WRITER_REGION_ID: "${primary_region_canonical_label}"
+          substituteFrom:
+            - kind: ConfigMap
+              name: sovereign-variables
 %{ endif ~}
 %{ if sovereign_region_role == "primary" ~}
       ---
@@ -1248,6 +1287,12 @@ write_files:
           kind: GitRepository
           name: openova
         wait: false
+        # SOV-130: reads sovereign-variables like the Kustomizations above. The
+        # providers tree names no variable today, so nothing in it changes.
+        postBuild:
+          substituteFrom:
+            - kind: ConfigMap
+              name: sovereign-variables
         # #4600 — NO XPKG_REGISTRY postBuild substitution on ANY cloud.
         # provider-opentofu pulls DIRECTLY from xpkg.upbound.io (the manifest's
         # XPKG_REGISTRY := xpkg.upbound.io default) on Hetzner AND Huawei.
@@ -1404,6 +1449,16 @@ runcmd:
   # k3s_extra_args carries provider-specific server flags (OIDC, taints,
   # watch-cache tuning, topology labels). The CNI is disabled (Cilium owns
   # the network from first pod); flannel/servicelb/traefik all off.
+  # SEC-020: K3S_TOKEN is the region's random server token; --agent-token is
+  # the separate random token that workers join with. The provider module
+  # holds both as random_password resources.
+  # NET-020: --disable-kube-proxy. Cilium is the only Service proxy
+  # (kubeProxyReplacement: true in cilium-values.yaml above), so k3s starts
+  # no kube-proxy. Gate check NET-G03 proves it on every node.
+  # SEC-030: --secrets-encryption with the secretbox provider. k3s writes
+  # every Secret to etcd as ciphertext. The key rests in
+  # /var/lib/rancher/k3s/server/cred/encryption-config.json on each server,
+  # and in etcd under the server token. Gate check SEC-G01 proves it.
   #
   # #3971 — `--disable=local-storage` FORBIDS the k3s local-path provisioner
   # entirely: it is NEVER installed on a fresh prov. local-path is ephemeral
@@ -1470,8 +1525,8 @@ runcmd:
     # exit 88, huawei log-push). Re-run is idempotent.
     for i in 1 2 3 4 5; do
       curl -fsSL --max-time 60 https://get.k3s.io -o /var/lib/catalyst/k3s-install.sh \
-        && INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_token} \
-           INSTALL_K3S_EXEC="server --cluster-init --flannel-backend=none --disable-network-policy --disable=traefik --disable=servicelb --disable=local-storage --cluster-cidr=${cluster_cidr} --service-cidr=${service_cidr} --node-ip=$${NODE_IP} --node-external-ip=$${NODE_EXTERNAL_IP} --advertise-address=$${NODE_IP} --kubelet-arg=max-pods=220 --kubelet-arg=image-gc-high-threshold=70 --kubelet-arg=image-gc-low-threshold=60 --kubelet-arg=minimum-image-ttl-duration=2h --tls-san=${sovereign_fqdn} --tls-san=$${NODE_IP} --tls-san=$${NODE_EXTERNAL_IP} --node-label catalyst.openova.io/role=control-plane --node-label openova.io/region=${region_canonical_label} ${k3s_extra_args} --write-kubeconfig-mode=0644" \
+        && INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_server_token} \
+           INSTALL_K3S_EXEC="server --cluster-init --secrets-encryption --secrets-encryption-provider=secretbox --flannel-backend=none --disable-network-policy --disable-kube-proxy --disable=traefik --disable=servicelb --disable=local-storage --cluster-cidr=${cluster_cidr} --service-cidr=${service_cidr} --node-ip=$${NODE_IP} --node-external-ip=$${NODE_EXTERNAL_IP} --advertise-address=$${NODE_IP} --kubelet-arg=max-pods=220 --kubelet-arg=image-gc-high-threshold=70 --kubelet-arg=image-gc-low-threshold=60 --kubelet-arg=minimum-image-ttl-duration=2h --tls-san=${sovereign_fqdn} --tls-san=$${NODE_IP} --tls-san=$${NODE_EXTERNAL_IP} --node-label catalyst.openova.io/role=control-plane --node-label openova.io/region=${region_canonical_label} --agent-token=${k3s_agent_token} ${k3s_extra_args} --write-kubeconfig-mode=0644" \
            sh /var/lib/catalyst/k3s-install.sh \
         && break
       [ "$i" = 5 ] && { echo "[k3s] FATAL: install failed after 5 attempts" >&2; %{ if provider == "huawei" }sh /var/lib/catalyst/mark k3s-install-FAILED||true%{ else }touch /var/lib/catalyst/k3s-install-FAILED%{ endif }; exit 88; }
@@ -1510,7 +1565,70 @@ runcmd:
   # downstream can block it. The PUT block is provider-injected (the public-IP
   # source + multi-region gating differ — a hard dependency), but the ORDERING
   # is identical and fixed for every cloud.
+  #
+  # SOV-140 — revocable parent access. The post-back sends the kubeconfig of
+  # ServiceAccount kube-system/parent-bootstrap (bound to cluster-admin; its
+  # token Secret kube-system/parent-bootstrap-token has no expiry), never the
+  # node's administrator file /etc/rancher/k3s/k3s.yaml. Deleting the
+  # ServiceAccount revokes the parent's access. The file is k3s.yaml with its
+  # client-certificate lines removed and the token as the user's credential.
+  # It exists only until the post-back has run: the item after the post-back
+  # deletes it. Fail-loud: sentinel parent-bootstrap-FAILED + exit 96.
+  # Written tight: every byte counts against the 32 KiB user-data cap.
+  - |
+    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml N=parent-bootstrap S=kube-system K=/var/lib/catalyst/parent-bootstrap.kubeconfig
+    for i in $(seq 60); do kubectl apply -f- <<E >/dev/null && T=$(kubectl -n $S get secret $N-token -o jsonpath='{.data.token}') && [ "$T" ] && break
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata: {name: $N, namespace: $S}
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata: {name: $N}
+    roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cluster-admin}
+    subjects: [{kind: ServiceAccount, name: $N, namespace: $S}]
+    ---
+    apiVersion: v1
+    kind: Secret
+    type: kubernetes.io/service-account-token
+    metadata: {name: $N-token, namespace: $S, annotations: {kubernetes.io/service-account.name: $N}}
+    E
+    sleep 2; done
+    [ "$T" ] && (umask 077; sed /client-/d $KUBECONFIG >$K) && kubectl --kubeconfig=$K config set-credentials default --token="$(echo $T|base64 -d)" || { sh /var/lib/catalyst/mark $N-FAILED || touch /var/lib/catalyst/$N-FAILED; exit 96; }
+%{ if sovereign_region_role != "primary" ~}
+  # SOV-141 — the peer token. A region that is not the primary also creates
+  # ServiceAccount kube-system/handover-peer (cluster-admin; its token Secret
+  # kube-system/handover-peer-token has no expiry) and writes its kubeconfig
+  # the same way. The provider's post-back sends it under the key
+  # peerKubeconfig; the parent gives it to the primary at hand-over. It
+  # survives the deletion of parent-bootstrap. The item after the post-back
+  # deletes the file. Fail-loud: sentinel handover-peer-FAILED + exit 97.
+  - |
+    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml N=handover-peer S=kube-system K=/var/lib/catalyst/handover-peer.kubeconfig
+    for i in $(seq 60); do kubectl apply -f- <<E >/dev/null && T=$(kubectl -n $S get secret $N-token -o jsonpath='{.data.token}') && [ "$T" ] && break
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata: {name: $N, namespace: $S}
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata: {name: $N}
+    roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cluster-admin}
+    subjects: [{kind: ServiceAccount, name: $N, namespace: $S}]
+    ---
+    apiVersion: v1
+    kind: Secret
+    type: kubernetes.io/service-account-token
+    metadata: {name: $N-token, namespace: $S, annotations: {kubernetes.io/service-account.name: $N}}
+    E
+    sleep 2; done
+    [ "$T" ] && (umask 077; sed /client-/d $KUBECONFIG >$K) && kubectl --kubeconfig=$K config set-credentials default --token="$(echo $T|base64 -d)" || { sh /var/lib/catalyst/mark $N-FAILED || touch /var/lib/catalyst/$N-FAILED; exit 97; }
+%{ endif ~}
   ${indent(2, kubeconfig_put_block)}
+  - rm -f /var/lib/catalyst/parent-bootstrap.kubeconfig
+%{ if sovereign_region_role != "primary" ~}
+  - rm -f /var/lib/catalyst/handover-peer.kubeconfig
+%{ endif ~}
 %{ endif ~}
 
   # ── gateway-api CRDs: ONE official bundle apply (Flux's bp-gateway-api
@@ -1826,7 +1944,7 @@ runcmd:
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
     for ns in catalyst-system openbao; do kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -; done
     cd /var/lib/catalyst
-    kubectl apply -f ghcr-pull-secret.yaml -f harbor-robot-token-secret.yaml -f pdm-basicauth-secret.yaml -f handover-jwt-public-secret.yaml -f object-storage-secret.yaml -f cloud-credentials-secret.yaml
+    kubectl apply -f ghcr-pull-secret.yaml -f harbor-robot-token-secret.yaml -f pdm-basicauth-secret.yaml -f handover-jwt-public-secret.yaml -f object-storage-secret.yaml -f cloud-credentials-secret.yaml -f sovereign-tls-secrets.yaml
 
   # openbao-recovery-seed: one-shot 32-byte seed the bp-openbao init Job
   # consumes + deletes on first success. Never in tfstate; node-local only.

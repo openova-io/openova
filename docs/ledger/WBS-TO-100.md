@@ -1,3 +1,5 @@
+Historical. Describes environments hw292 to hw295, from 2026-08-09 to 2026-08-13, all wiped by 2026-09-02. Not a statement about the product today.
+
 # WBS — the sequenced path to 100% STONE
 
 > Companion to `PATH-TO-100.md`. That file is the per-row **fix map** (what each

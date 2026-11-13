@@ -139,7 +139,7 @@ func TestNewAPIBlueprint_DeclaresLaunchableUIEndpoint(t *testing.T) {
 // and the pre-#5389 `endpoints: []` shape must reproduce the live 404.
 func TestGetLaunchURL_NewAPI_FromShippedBlueprint(t *testing.T) {
 	t.Run("shipped blueprint mints the front door", func(t *testing.T) {
-		h, _, _ := newTestHandlerWithEndpoint(t)
+		h, _ := newTestHandlerWithEndpoint(t)
 		h.SetCatalogClient(fakeBlueprintInCatalog("newapi", newapiBlueprintEndpoints(t), false, []string{"singleton"}))
 
 		rec := httptest.NewRecorder()
@@ -164,7 +164,7 @@ func TestGetLaunchURL_NewAPI_FromShippedBlueprint(t *testing.T) {
 	})
 
 	t.Run("pre-#5389 empty endpoints reproduce the live 404", func(t *testing.T) {
-		h, _, _ := newTestHandlerWithEndpoint(t)
+		h, _ := newTestHandlerWithEndpoint(t)
 		h.SetCatalogClient(fakeBlueprintInCatalog("newapi", []map[string]interface{}{}, false, []string{"singleton"}))
 
 		rec := httptest.NewRecorder()

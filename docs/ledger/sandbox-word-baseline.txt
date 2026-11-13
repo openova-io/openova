@@ -1,0 +1,3 @@
+# The highest number of files outside docs/ whose content holds the word sandbox, in any case.
+# It is lowered when mentions go and never raised. Checked by: python3 scripts/check-sandbox-word.py
+195

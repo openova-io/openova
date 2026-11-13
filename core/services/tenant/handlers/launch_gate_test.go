@@ -24,10 +24,10 @@ func eventsByType(evs []*events.Event, typ string) []*events.Event {
 // core #4956 guard. It proves that launchTenant — the SINGLE place a funnel Org
 // is provisioned, now invoked ONLY after billing settlement on the deferred
 // path — emits every provisioning trigger using values read off the PERSISTED
-// tenant (owner_email + agents), NOT the original HTTP request. The deferred
-// launch runs server-to-server from billing with no user context, so if these
-// fields weren't persisted the Organization CR would mint without an owner and
-// the sandbox catalogue would be lost. This is what makes "a customer who
+// tenant (owner_email), NOT the original HTTP request. The deferred launch
+// runs server-to-server from billing with no user context, so if the owner
+// email weren't persisted the Organization CR would mint without an owner.
+// It also proves no Sandbox is requested. This is what makes "a customer who
 // orders WordPress gets WordPress" hold on the settled path.
 func TestLaunchTenant_FiresAllProvisioningTriggersFromPersistedFields(t *testing.T) {
 	prod := &recordingProducer{}
@@ -68,7 +68,7 @@ func TestLaunchTenant_FiresAllProvisioningTriggersFromPersistedFields(t *testing
 	}
 
 	// 2. The purchased app stack is attached — one install per deployable cart
-	//    app (sandbox excluded, it has its own dispatch).
+	//    app (sandbox excluded, it has no Application template).
 	installs := appSlugsFromInstallEvents(t, prod.published)
 	want := map[string]bool{"wordpress": true, "umami": true}
 	if len(installs) != len(want) {
@@ -80,18 +80,10 @@ func TestLaunchTenant_FiresAllProvisioningTriggersFromPersistedFields(t *testing
 		}
 	}
 
-	// 3. Sandbox request fired with the PERSISTED agent catalogue.
-	sb := eventsByType(prod.published, "tenant.sandbox_requested")
-	if len(sb) != 1 {
-		t.Fatalf("expected 1 tenant.sandbox_requested, got %d", len(sb))
-	}
-	var sbData map[string]any
-	if err := json.Unmarshal(sb[0].Data, &sbData); err != nil {
-		t.Fatalf("decode sandbox payload: %v", err)
-	}
-	agents, _ := sbData["agents"].([]any)
-	if len(agents) != 2 {
-		t.Errorf("sandbox agents: got %v, want the 2 persisted picks (agents lost if not persisted for deferred launch)", sbData["agents"])
+	// 3. No Sandbox request: the Sandbox product is withdrawn (decision record
+	//    0023), so a cart that still names it requests nothing.
+	if n := len(eventsByType(prod.published, "tenant.sandbox_requested")); n != 0 {
+		t.Fatalf("expected no tenant.sandbox_requested, got %d", n)
 	}
 }
 
@@ -105,9 +97,8 @@ func TestLaunchTenant_NilTenantNoPanic(t *testing.T) {
 	}
 }
 
-// TestLaunchTenant_NoSandboxWhenNotInCart proves the sandbox request is only
-// emitted when the cart holds the sandbox product — a WordPress-only Org must
-// not spuriously request a Sandbox.
+// TestLaunchTenant_NoSandboxWhenNotInCart proves that a WordPress-only Org
+// launches its shell and requests no Sandbox.
 func TestLaunchTenant_NoSandboxWhenNotInCart(t *testing.T) {
 	prod := &recordingProducer{}
 	h := &Handler{Producer: prod}

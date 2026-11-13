@@ -23,7 +23,7 @@
 # Same both-regions-need-it rationale as slot 12a-bp-sovereign-tls-vars.
 
 ---
-apiVersion: source.toolkit.fluxcd.io/v1beta2
+apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:
   name: bp-catalyst-edge-routes

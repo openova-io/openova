@@ -160,8 +160,8 @@ func TestCatalogIaCEdit_503WhenGiteaUnwired(t *testing.T) {
 	// no SetGiteaClient → h.giteaClient == nil
 	body := `{"blueprintYaml":` + jsonQuote(fullAlloyBlueprintYAML("1.0.2")) + `}`
 	rec := callCatalogIaCEdit(t, h, "bp-alloy", body, adminClaims())
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status: got %d want 503; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), `"git-unavailable"`) {
+		t.Fatalf("status: got %d want 503 git-unavailable; body=%s", rec.Code, rec.Body.String())
 	}
 }
 

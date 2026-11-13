@@ -186,7 +186,7 @@ spec:
           # values.yaml `images.catalystApi.tag` is also bumped (but
           # unused for catalyst-api; kept for Organization services that DO read
           # from values).
-          image: "ghcr.io/openova-io/openova/catalyst-api:03bcc36"
+          image: "ghcr.io/openova-io/openova/catalyst-api:ec35a66"
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
@@ -901,6 +901,16 @@ spec:
                   name: sovereign-fqdn
                   key: fqdn
                   optional: true
+            # CLOUD_PROVIDER / CLOUD_INSTALLATION — the provider pack and the
+            # installation document of the Sovereign this API runs on
+            # (contract C2), read by cloudprofile.ForSovereign. The Helm
+            # sibling api-deployment.yaml sets them from global.cloud. This
+            # raw-Kustomize copy runs only on the mothership, which reads no
+            # profile of its own, so both stay empty here.
+            - name: CLOUD_PROVIDER
+              value: ""
+            - name: CLOUD_INSTALLATION
+              value: ""
             # SOVEREIGN_REGIONS_JSON — the canonical multi-region request
             # array threaded from the mothership's prov body via the
             # `sovereign-fqdn` ConfigMap key `regionsJson`. Read by the

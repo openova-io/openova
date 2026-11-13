@@ -48,9 +48,6 @@ func scannerExclusionListScheme() *runtime.Scheme {
 		schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "JobList"},
 		&unstructured.UnstructuredList{})
 	scheme.AddKnownTypeWithName(
-		schema.GroupVersionKind{Group: "events.k8s.io", Version: "v1", Kind: "EventList"},
-		&unstructured.UnstructuredList{})
-	scheme.AddKnownTypeWithName(
 		schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "DeploymentList"},
 		&unstructured.UnstructuredList{})
 	return scheme
@@ -63,7 +60,6 @@ func scannerExclusionFakeClient(objs ...runtime.Object) *dynamicfake.FakeDynamic
 			helmwatch.KustomizationGVR: "KustomizationList",
 			helmwatch.CronJobGVR:       "CronJobList",
 			helmwatch.JobGVR:           "JobList",
-			helmwatch.JobEventGVR:      "EventList",
 			helmwatch.DeploymentGVR:    "DeploymentList",
 		},
 		objs...,

@@ -1,0 +1,45 @@
+{
+  "allow": [],
+  "counts": {
+    "K": {
+      "products/catalyst/bootstrap/api/cmd/api/main.go": 2,
+      "products/catalyst/bootstrap/api/internal/handler/applications.go": 1,
+      "products/catalyst/bootstrap/api/internal/handler/applications_update.go": 2,
+      "products/catalyst/bootstrap/api/internal/handler/clustermesh.go": 11,
+      "products/catalyst/bootstrap/api/internal/handler/console_ui.go": 2,
+      "products/catalyst/bootstrap/api/internal/handler/cutover.go": 5,
+      "products/catalyst/bootstrap/api/internal/handler/cutover_engine_lease.go": 4,
+      "products/catalyst/bootstrap/api/internal/handler/cutover_secondary_kubeconfigs.go": 3,
+      "products/catalyst/bootstrap/api/internal/handler/endpoint_handler.go": 3,
+      "products/catalyst/bootstrap/api/internal/handler/internal_auth.go": 1,
+      "products/catalyst/bootstrap/api/internal/handler/jobs_retry.go": 5,
+      "products/catalyst/bootstrap/api/internal/handler/k8s_resource_actions.go": 6,
+      "products/catalyst/bootstrap/api/internal/handler/k8s_resource_put_apply.go": 6,
+      "products/catalyst/bootstrap/api/internal/handler/org_console_tls.go": 2,
+      "products/catalyst/bootstrap/api/internal/handler/org_console_tls_reap.go": 2,
+      "products/catalyst/bootstrap/api/internal/handler/org_overage_stop_internal.go": 1,
+      "products/catalyst/bootstrap/api/internal/handler/org_suspend.go": 1,
+      "products/catalyst/bootstrap/api/internal/handler/org_tenant_org_cr.go": 2,
+      "products/catalyst/bootstrap/api/internal/handler/org_users.go": 1,
+      "products/catalyst/bootstrap/api/internal/handler/policy_mode.go": 2,
+      "products/catalyst/bootstrap/api/internal/handler/post_handover_policy_enforce.go": 1,
+      "products/catalyst/bootstrap/api/internal/handler/post_handover_spine_apps.go": 2,
+      "products/catalyst/bootstrap/api/internal/handler/rbac_assign.go": 2,
+      "products/catalyst/bootstrap/api/internal/handler/reconcilers.go": 1,
+      "products/catalyst/bootstrap/api/internal/handler/schedules.go": 3,
+      "products/catalyst/bootstrap/api/internal/handler/sovereign_anthropic_seed_mothership.go": 1,
+      "products/catalyst/bootstrap/api/internal/handler/sovereign_smtp_seed.go": 2,
+      "products/catalyst/bootstrap/api/internal/handler/user_access.go": 3,
+      "products/catalyst/bootstrap/api/internal/handler/wipe_drain.go": 3,
+      "products/catalyst/bootstrap/api/internal/k8scache/sar.go": 1,
+      "products/catalyst/bootstrap/api/internal/provisioner/provisioner.go": 1
+    },
+    "R": {
+      "core/services/provisioning/handlers/consumer.go": 4,
+      "core/services/provisioning/handlers/handlers.go": 6,
+      "core/services/provisioning/handlers/organization_create.go": 1,
+      "core/services/provisioning/handlers/tenant_public_patch.go": 1
+    }
+  },
+  "schema": "openova.io/guard-baseline/v1"
+}

@@ -73,7 +73,7 @@ metadata:
   labels:
     catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
 ---
-apiVersion: source.toolkit.fluxcd.io/v1beta2
+apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:
   name: bp-harbor
@@ -237,7 +237,7 @@ spec:
       # single-zone Sovereigns; Org-pool Sovereigns name it https-<zone-dashed>).
       # It parents the wildcard listener by hostname like every other route.
       # hw305 live: harbor.<fqdn> 404 (Accepted=False NoMatchingParent) → fixed.
-      version: 1.2.50
+      version: 1.2.51
       sourceRef:
         kind: HelmRepository
         name: bp-harbor
@@ -410,6 +410,18 @@ spec:
       enabled: true
       useExistingSecret: false
       credentialsSecretName: harbor-objectstorage-credentials
+    # SOV-160: the registry projects the chart creates at install come from
+    # contract C5. Each default is the contract's default. The JSON value
+    # stays quoted: it is a string, read by the chart with fromJson.
+    registryProjects:
+      proxyProjectsJSON: '${REGISTRY_PROXY_PROJECTS_JSON:=}'
+      paths:
+        charts: ${REGISTRY_PATH_CHARTS:=openova-io}
+        release: ${REGISTRY_PATH_RELEASE:=openova-io/release}
+        providerPacks: ${REGISTRY_PATH_PROVIDER_PACKS:=openova-io/provider-packs}
+        tofuProviders: ${REGISTRY_PATH_TOFU_PROVIDERS:=tofu-providers}
+        nodeArtifacts: ${REGISTRY_PATH_NODE_ARTIFACTS:=node-artifacts}
+      xpkgPath: ${REGISTRY_PATH_XPKG:=proxy-xpkg}
     harbor:
       # G117.E2E-H12 #2844 (2026-06-03): per-Sovereign externalURL override.
       # Chart default is "https://harbor.example.local" (placeholder for smoke

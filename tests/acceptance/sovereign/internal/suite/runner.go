@@ -68,16 +68,44 @@ func Execute(ctx context.Context, cfg Config, out io.Writer) (*Run, error) {
 	if cfg.ReadOnly {
 		mode = "discover"
 	}
+	// The checks are selected before anything runs: a manifest that cannot be
+	// read, or an entry without a registered check, stops the run at once.
+	// A discover run certifies nothing and runs no check.
+	var manifest *Manifest
+	var checks []Check
+	if cfg.Manifest != "" && !cfg.ReadOnly {
+		var err error
+		if manifest, err = LoadManifest(cfg.Manifest); err != nil {
+			return nil, err
+		}
+		if checks, err = SelectChecks(manifest, RunIn(cfg.RunIn)); err != nil {
+			return nil, err
+		}
+	}
+	nodesRequested, err := parseNodesRequested(cfg.NodesRequested)
+	if err != nil {
+		return nil, err
+	}
+	previousID, previousOrphans, err := parsePreviousWipe(cfg.PreviousDeploymentID, cfg.PreviousWipeOrphans)
+	if err != nil {
+		return nil, err
+	}
 	now := time.Now().UTC()
 	r := &runner{
 		cfg: cfg, out: out,
 		api: api.New(cfg.Console, cfg.Session),
 		run: &Run{Schema: SchemaVersion, RunID: NewRunID(now), Env: cfg.Env, Console: cfg.Console, Mode: mode,
-			StartedAt: now, Subject: Evidence{}, SuiteGitSHA: gitSHA()},
+			StartedAt: now, Subject: Evidence{}, SuiteGitSHA: gitSHA(),
+			RunIn: cfg.RunIn, Capabilities: splitList(cfg.Capabilities), Checks: []CheckResult{},
+			Candidate: Candidate{ID: cfg.CandidateID, Commit: headCommit(cfg.RepoRoot)},
+			Producer:  producerFromEnv(os.Getenv)},
 		A: kube.Region{Kubeconfig: cfg.KubeconfigA},
 		B: kube.Region{Kubeconfig: cfg.KubeconfigB},
 	}
 	r.api.ReadOnly = cfg.ReadOnly
+	if previousID != "" {
+		r.run.Provision = &Provision{PreviousDeploymentID: previousID, PreviousWipeOrphans: previousOrphans}
+	}
 	fmt.Fprintf(out, "acceptance %s env=%s run=%s console=%s\n", mode, cfg.Env, r.run.RunID, cfg.Console)
 
 	requested := []string{}
@@ -94,6 +122,12 @@ func Execute(ctx context.Context, cfg Config, out io.Writer) (*Run, error) {
 	}
 
 	ok := r.discover(ctx)
+	// Check FND-G02 looks at the clusters twice. This is the first look,
+	// before the journeys. The check takes the second one and reads this one.
+	var firstLook []*Step
+	if ok {
+		firstLook = zeroTouchStart(ctx, r, checks)
+	}
 	switch {
 	case cfg.ReadOnly:
 		r.probeReadOnly(ctx)
@@ -103,6 +137,18 @@ func Execute(ctx context.Context, cfg Config, out io.Writer) (*Run, error) {
 		}
 	default:
 		r.journeys(ctx, want)
+	}
+	if manifest != nil {
+		// The steps of the first look join the record after the journeys,
+		// so that no journey sees them.
+		r.run.Steps = append(r.run.Steps, firstLook...)
+		cc := &CheckContext{RunIn: RunIn(cfg.RunIn), Regions: []kube.Region{r.A, r.B}, API: r.api,
+			Candidate: r.run.Candidate, RepoRoot: cfg.RepoRoot, Deploy: &DeploymentInfo{ID: r.dep, NodesRequested: nodesRequested,
+				PreviousDeploymentID: previousID, PreviousWipeOrphans: previousOrphans}, Caps: map[string]bool{}}
+		for _, c := range r.run.Capabilities {
+			cc.Caps[c] = true
+		}
+		r.runChecks(ctx, manifest, checks, cc, ok)
 	}
 
 	r.run.FinishedAt = time.Now().UTC()

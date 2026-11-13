@@ -15,8 +15,9 @@ core security win of Workstream C: the allow-set tightens from coarse
 whole-plane to per-component, so a compromised component's blast radius is
 one component instead of the whole plane.
 
-Canonical placement of the planes: [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md)
-(EPIC #4293 — a vcluster is the per-Organization boundary ONLY).
+The decision: [ADR-0019](../../docs/adr/0019-zones-are-namespaces-and-an-edge-pool.md).
+The platform planes are host namespaces, and a vCluster is the boundary of an
+Organization only.
 
 ## What it renders
 

@@ -21,7 +21,7 @@ class at the root (hw274, dep d51a69f885872a81).
 
 WHY awk, not kubectl/yq: a `kubectl create --dry-run=client` parse resolves
 each doc's kind through discovery, so it breaks the moment a slot file's CRD
-apiVersion (e.g. source.toolkit.fluxcd.io/v1beta2) stops being served — a
+apiVersion (e.g. source.toolkit.fluxcd.io/v1) stops being served — a
 flux-lifecycle coupling this enumeration must not have. yq is not in the
 alpine/k8s image and an `apk add` mid-cutover is a network dependency (the
 G69 skopeo lesson). Plain awk over the repo-controlled slot corpus has ZERO

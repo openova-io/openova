@@ -41,7 +41,7 @@ G8,apps,4277,anthropic credential seeded into the agentic runtime — chat works
 G9,apps,4111,agentic-run half — the agenity solo agent chats + drives create_application.
 G10,placement,3969,"Placement EPIC acceptance: EVERY Application CR carries a non-empty `spec.placement` drawn from the canonical set (singleton / active-passive / active-hot-standby) — the count of placed apps equals the count of Application CRs, with no app left unplaced."
 G11,cutover,"3379,6082,6111","sovereignty cutover — the **11-step** chain runs to completion and the 10-min deny-egress hold at step 08 (`egress-block-test`) holds green, so `cutoverComplete=true` is EARNED rather than asserted. ADR-0002 specified eight sequential Jobs; the shipped `platform/self-sovereign-cutover/chart` runs 11, which is what the live `catalyst/self-sovereign-cutover-status` ConfigMap enumerates and what rows 159 / 162 / 166 already assert."
-G12,dr,4275,"region-kill (Pillar-3) — kill a region, prove failover + recovery."
+G12,dr,4275,Retired to gate check CTL-G10: region loss is recovered within the recovery point and recovery time of decision record 0027. This row is no longer walked.
 1,model,3687,Console bare URL → lands `/dashboard` signed-in as the owner (no PIN/login form).
 2,model,3687,Full sidebar renders (Dashboard / Cloud / Apps / Catalog / Agenity / Jobs / Compliance / Users / Organizations / Settings).
 3,model,3687,The voucher-redeem URL opened in an AUTHED OWNER browser session bounces to `/dashboard` CLIENT-side and leaves NO redeem form rendered for the owner (the marketplace is a static build with client-side auth — the #4546 contract written for this row).
@@ -98,13 +98,13 @@ G12,dr,4275,"region-kill (Pillar-3) — kill a region, prove failover + recovery
 54,topology,3375,`shared-pg` Topology tab declared-topology strip renders the canonical mode in ONE vocabulary — header dialect and picker dialect MATCH (no `singleton` header over an `active-hotstandby` chip).
 55,topology,3375,"`shared-pg` Topology tab renders EXACTLY ONE topology value, runtime-derived (`derivedFromRuntime:true`) not a build-time constant — and NO contradictory second value appears anywhere on the app's screen, including the Overview tab's Placement field (#3969: a mismatch is NEVER a second contradictory value)."
 56,topology,3375,"`shared-pg` Topology tab per-region placement + replication block: region-a primary, region-b replica, and a live replication-lag in seconds (not a hardcoded `—`)."
-57,topology,3375,`shared-pg` Topology tab Switchover button is present and armed because a live 2-region cnpg-pair backs the app.
-58,topology,3375,"A **singleton** app (cilium) Topology tab: the DR section / Switchover button does NOT render (honestly hidden, not armed against a phantom region)."
-59,topology,3375,"Catalog New instance → pick `singleton` → Provision → that app's Topology tab shows single-region placement (no region-b standby, no Switchover)."
-60,topology,3375,Catalog New instance → pick `active-hot-standby` → Provision → that app's Topology tab shows a 2-region pair (region-a primary + region-b replica + armed Switchover).
-61,topology,3375,"Apps grid shows newly-provisioned postgres instances as their own cards, each carrying a topology badge matching the mode picked at create time."
-62,topology,3375,"On an app WITH a live pair, the Topology DR section shows the live Continuum status (Ready / lease holder / standby) from the live API, not a static badge."
-63,topology,3375,"An Application declaring **active-hot-standby** with NO Continuum backing renders an honest no-backing DR section: ""Switchover unavailable"" copy, the control **disabled**, and NO synthesized lag / standby / target-region values."
+57,topology,3375,"Retired to gate check FND-G11: the Primary of a two-region application moves to the other region and back, data follows, and each move leaves a complete transition record. This row is no longer walked."
+58,topology,3375,"Retired to gate check FND-G11: the Primary of a two-region application moves to the other region and back, data follows, and each move leaves a complete transition record. This row is no longer walked."
+59,topology,3375,"Retired to gate check FND-G11: the Primary of a two-region application moves to the other region and back, data follows, and each move leaves a complete transition record. This row is no longer walked."
+60,topology,3375,"Retired to gate check FND-G11: the Primary of a two-region application moves to the other region and back, data follows, and each move leaves a complete transition record. This row is no longer walked."
+61,topology,3375,"Retired to gate check FND-G11: the Primary of a two-region application moves to the other region and back, data follows, and each move leaves a complete transition record. This row is no longer walked."
+62,topology,3375,"Retired to gate check FND-G11: the Primary of a two-region application moves to the other region and back, data follows, and each move leaves a complete transition record. This row is no longer walked."
+63,topology,3375,"Retired to gate check FND-G11: the Primary of a two-region application moves to the other region and back, data follows, and each move leaves a complete transition record. This row is no longer walked."
 64,topology,3375,"`shared-pg` Topology tab replication-lag field shows a live numeric seconds value (or explicit ""no replica""), never a hardcoded `—`."
 65,topology,3375,Cloud/regions view shows the true region count — a healthy 2-region prov reads `Cluster 2/2` with no phantom region-B bubble.
 66,topology,3375,"Cloud→Clusters renders 2/2 HEALTHY clusters, one per region (me-east-215-a + me-east-215-b), no phantom region."

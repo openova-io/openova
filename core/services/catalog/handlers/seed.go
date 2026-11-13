@@ -328,8 +328,8 @@ func expectedSandboxPlans() []store.Plan {
 // SLA" is gone with its number: the workbook's support line is "24/7 customer
 // support", included on every package (packageIncludedFeatures).
 //
-// App marks the rows that are applications the Sovereign installs (the
-// Coraza WAF, CrowdSec, Trivy, Grafana Loki) rather than commercial
+// App marks the rows that are applications the Sovereign installs
+// (CrowdSec, Trivy, Grafana Loki) rather than commercial
 // entitlements; the storefront lists those with the applications.
 func expectedAddOns() []store.AddOn {
 	return []store.AddOn{
