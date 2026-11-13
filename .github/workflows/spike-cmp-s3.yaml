@@ -86,8 +86,12 @@ jobs:
           python3 --version
           nproc; free -g; df -h /
 
+      # run.sh is the experiment of runs 1 and 2 (the five questions);
+      # remedy.sh is run 3 (can every container of a workload get a report).
       - name: Run the experiment
-        run: bash tests/spikes/CMP-S3/run.sh
+        env:
+          CMPS3_SCRIPT: remedy.sh
+        run: bash "tests/spikes/CMP-S3/${CMPS3_SCRIPT}"
 
       - name: Dump the result files into the log
         if: always()
