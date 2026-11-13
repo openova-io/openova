@@ -800,24 +800,25 @@ locals {
       fi
   EOT
 
-  # kubeconfig PUT-back — Hetzner. Rewrites k3s.yaml's 127.0.0.1 to the CP's
-  # PUBLIC IPv4 (from metadata) so the cross-cloud mothership can reach the
-  # apiserver on 6443, then PUTs with a Bearer header (issue #183 Option D).
+  # kubeconfig PUT-back — Hetzner. Rewrites, in place, the 127.0.0.1 of the
+  # parent-bootstrap kubeconfig (written by the shared template just before
+  # this block, SOV-140) to the CP's PUBLIC IPv4 (from metadata) so the
+  # cross-cloud mothership can reach the apiserver on 6443, then PUTs it with a
+  # Bearer header (issue #183 Option D). The node's administrator file
+  # /etc/rancher/k3s/k3s.yaml is never sent; the shared template deletes the
+  # parent-bootstrap file after this block.
   # runcmd list-items (0-indent; the shared template re-indents via indent(2,…)).
   # Primary region → no `?region=` suffix (stored at <id>.yaml). Plain POSIX.
   # The `kubeconfig_put_region_suffix_*` differs primary("") vs secondary("?region=<k>").
   kubeconfig_put_block_hetzner_primary = <<-EOT
-    - install -m 0600 /dev/null /etc/rancher/k3s/k3s.yaml.public
-    - 'CP_PUBLIC_IPV4=$(curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/public-ipv4) && sed "s|https://127.0.0.1:6443|https://$${CP_PUBLIC_IPV4}:6443|g" /etc/rancher/k3s/k3s.yaml > /etc/rancher/k3s/k3s.yaml.public'
-    - chmod 0600 /etc/rancher/k3s/k3s.yaml.public
+    - 'CP_PUBLIC_IPV4=$(curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/public-ipv4) && sed -i "s|https://127.0.0.1:6443|https://$${CP_PUBLIC_IPV4}:6443|g" /var/lib/catalyst/parent-bootstrap.kubeconfig'
     - |
       curl -fsSL --retry 60 --retry-delay 10 --retry-all-errors \
         -X PUT \
         -H "Authorization: Bearer ${var.kubeconfig_bearer_token}" \
         -H "Content-Type: application/x-yaml" \
-        --data-binary @/etc/rancher/k3s/k3s.yaml.public \
+        --data-binary @/var/lib/catalyst/parent-bootstrap.kubeconfig \
         "${var.catalyst_api_url}/api/v1/deployments/${var.deployment_id}/kubeconfig"
-    - rm -f /etc/rancher/k3s/k3s.yaml.public
   EOT
 
   # cloud-credentials Secret — Hetzner. hcloud-token + the autoscaler keys
@@ -1589,18 +1590,16 @@ locals {
       # kubeconfig PUT-back — secondary region appends `?region=<k>` so
       # catalyst-api stores at <id>-<k>.yaml + phase1Watch spawns a per-region
       # helmwatch.Bridge. Public IP from Hetzner metadata. runcmd 0-indent items.
+      # Sends the parent-bootstrap kubeconfig, never k3s.yaml (SOV-140).
       kubeconfig_put_block = <<-PUT
-        - install -m 0600 /dev/null /etc/rancher/k3s/k3s.yaml.public
-        - 'CP_PUBLIC_IPV4=$(curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/public-ipv4) && sed "s|https://127.0.0.1:6443|https://$${CP_PUBLIC_IPV4}:6443|g" /etc/rancher/k3s/k3s.yaml > /etc/rancher/k3s/k3s.yaml.public'
-        - chmod 0600 /etc/rancher/k3s/k3s.yaml.public
+        - 'CP_PUBLIC_IPV4=$(curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/public-ipv4) && sed -i "s|https://127.0.0.1:6443|https://$${CP_PUBLIC_IPV4}:6443|g" /var/lib/catalyst/parent-bootstrap.kubeconfig'
         - |
           curl -fsSL --retry 60 --retry-delay 10 --retry-all-errors \
             -X PUT \
             -H "Authorization: Bearer ${var.kubeconfig_bearer_token}" \
             -H "Content-Type: application/x-yaml" \
-            --data-binary @/etc/rancher/k3s/k3s.yaml.public \
+            --data-binary @/var/lib/catalyst/parent-bootstrap.kubeconfig \
             "${var.catalyst_api_url}/api/v1/deployments/${var.deployment_id}/kubeconfig?region=${k}"
-        - rm -f /etc/rancher/k3s/k3s.yaml.public
       PUT
     }), "/(?m)^[ ]*#( |$).*\n/", "")
   }

@@ -124,6 +124,20 @@ run "hetzner_render_is_valid" {
     condition     = strcontains(output.rendered_cloud_init, " -f cloud-credentials-secret.yaml -f sovereign-tls-secrets.yaml\n")
     error_message = "SOV-130: the Secret file sovereign-tls-secrets.yaml must be applied with the other bootstrap Secrets."
   }
+
+  # SOV-140 — before the post-back, cloud-init creates
+  # ServiceAccount kube-system/parent-bootstrap, its cluster-admin binding and
+  # its token Secret, and writes the kubeconfig the post-back sends; right
+  # after the post-back it deletes that file.
+  assert {
+    condition     = strcontains(output.rendered_cloud_init, "    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml N=parent-bootstrap S=kube-system K=/var/lib/catalyst/parent-bootstrap.kubeconfig\n") && strcontains(output.rendered_cloud_init, "    roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cluster-admin}\n    subjects: [{kind: ServiceAccount, name: $N, namespace: $S}]\n") && strcontains(output.rendered_cloud_init, "    type: kubernetes.io/service-account-token\n    metadata: {name: $N-token, namespace: $S, annotations: {kubernetes.io/service-account.name: $N}}\n")
+    error_message = "SOV-140: the ServiceAccount kube-system/parent-bootstrap, its cluster-admin binding or its token Secret parent-bootstrap-token is missing."
+  }
+
+  assert {
+    condition     = length(regexall("(?s)K=/var/lib/catalyst/parent-bootstrap\\.kubeconfig\n.*config set-credentials default --token=.*\n  - rm -f /var/lib/catalyst/parent-bootstrap\\.kubeconfig\n", output.rendered_cloud_init)) == 1
+    error_message = "SOV-140: the parent-bootstrap kubeconfig must be written before the post-back and deleted right after it."
+  }
 }
 
 run "huawei_render_is_valid" {
@@ -217,6 +231,20 @@ run "huawei_render_is_valid" {
   assert {
     condition     = strcontains(output.rendered_cloud_init, " -f cloud-credentials-secret.yaml -f sovereign-tls-secrets.yaml\n")
     error_message = "SOV-130 (huawei branch): the Secret file sovereign-tls-secrets.yaml must be applied with the other bootstrap Secrets."
+  }
+
+  # SOV-140 (huawei branch) — before the post-back, cloud-init creates
+  # ServiceAccount kube-system/parent-bootstrap, its cluster-admin binding and
+  # its token Secret, and writes the kubeconfig the post-back sends; right
+  # after the post-back it deletes that file.
+  assert {
+    condition     = strcontains(output.rendered_cloud_init, "    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml N=parent-bootstrap S=kube-system K=/var/lib/catalyst/parent-bootstrap.kubeconfig\n") && strcontains(output.rendered_cloud_init, "    roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cluster-admin}\n    subjects: [{kind: ServiceAccount, name: $N, namespace: $S}]\n") && strcontains(output.rendered_cloud_init, "    type: kubernetes.io/service-account-token\n    metadata: {name: $N-token, namespace: $S, annotations: {kubernetes.io/service-account.name: $N}}\n")
+    error_message = "SOV-140 (huawei branch): the ServiceAccount kube-system/parent-bootstrap, its cluster-admin binding or its token Secret parent-bootstrap-token is missing."
+  }
+
+  assert {
+    condition     = length(regexall("(?s)K=/var/lib/catalyst/parent-bootstrap\\.kubeconfig\n.*config set-credentials default --token=.*\n  - rm -f /var/lib/catalyst/parent-bootstrap\\.kubeconfig\n", output.rendered_cloud_init)) == 1
+    error_message = "SOV-140 (huawei branch): the parent-bootstrap kubeconfig must be written before the post-back and deleted right after it."
   }
 }
 

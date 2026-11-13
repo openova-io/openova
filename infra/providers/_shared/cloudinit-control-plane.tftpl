@@ -1545,7 +1545,38 @@ runcmd:
   # downstream can block it. The PUT block is provider-injected (the public-IP
   # source + multi-region gating differ — a hard dependency), but the ORDERING
   # is identical and fixed for every cloud.
+  #
+  # SOV-140 — revocable parent access. The post-back sends the kubeconfig of
+  # ServiceAccount kube-system/parent-bootstrap (bound to cluster-admin; its
+  # token Secret kube-system/parent-bootstrap-token has no expiry), never the
+  # node's administrator file /etc/rancher/k3s/k3s.yaml. Deleting the
+  # ServiceAccount revokes the parent's access. The file is k3s.yaml with its
+  # client-certificate lines removed and the token as the user's credential.
+  # It exists only until the post-back has run: the item after the post-back
+  # deletes it. Fail-loud: sentinel parent-bootstrap-FAILED + exit 96.
+  # Written tight: every byte counts against the 32 KiB user-data cap.
+  - |
+    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml N=parent-bootstrap S=kube-system K=/var/lib/catalyst/parent-bootstrap.kubeconfig
+    for i in $(seq 60); do kubectl apply -f- <<E >/dev/null && T=$(kubectl -n $S get secret $N-token -o jsonpath='{.data.token}') && [ "$T" ] && break
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata: {name: $N, namespace: $S}
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata: {name: $N}
+    roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cluster-admin}
+    subjects: [{kind: ServiceAccount, name: $N, namespace: $S}]
+    ---
+    apiVersion: v1
+    kind: Secret
+    type: kubernetes.io/service-account-token
+    metadata: {name: $N-token, namespace: $S, annotations: {kubernetes.io/service-account.name: $N}}
+    E
+    sleep 2; done
+    [ "$T" ] && (umask 077; sed /client-/d $KUBECONFIG >$K) && kubectl --kubeconfig=$K config set-credentials default --token="$(echo $T|base64 -d)" || { sh /var/lib/catalyst/mark $N-FAILED || touch /var/lib/catalyst/$N-FAILED; exit 96; }
   ${indent(2, kubeconfig_put_block)}
+  - rm -f /var/lib/catalyst/parent-bootstrap.kubeconfig
 %{ endif ~}
 
   # ── gateway-api CRDs: ONE official bundle apply (Flux's bp-gateway-api

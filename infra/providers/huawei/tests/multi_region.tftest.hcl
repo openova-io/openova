@@ -520,6 +520,47 @@ run "k3s_server_and_agent_tokens" {
   }
 }
 
+# ── SOV-140: the post-back sends the parent-bootstrap kubeconfig ──────────
+# The kubeconfig post-back of every region's first control plane reads
+# /var/lib/catalyst/parent-bootstrap.kubeconfig: the kubeconfig of
+# ServiceAccount kube-system/parent-bootstrap that the shared template writes
+# just before the post-back and deletes just after it. It never reads the
+# node's administrator file /etc/rancher/k3s/k3s.yaml, and it deletes its
+# /tmp copy when it is done.
+run "post_back_sends_parent_bootstrap_kubeconfig" {
+  command = plan
+
+  variables {
+    kubeconfig_bearer_token = "test-bearer"
+    regions = [
+      {
+        code               = "me-east-215-a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      },
+      {
+        code               = "me-east-215-b"
+        role               = "secondary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  assert {
+    condition     = length(regexall("(?s)config set-credentials default --token=.*/var/lib/catalyst/parent-bootstrap\\.kubeconfig > /tmp/kubeconfig-rewritten\\.yaml\n.*\n      rm -f /tmp/kubeconfig-rewritten\\.yaml\n.*\n  - rm -f /var/lib/catalyst/parent-bootstrap\\.kubeconfig\n", local.cp_cloud_init_by_region["me-east-215-a"])) == 1 && !strcontains(local.cp_cloud_init_by_region["me-east-215-a"], "/etc/rancher/k3s/k3s.yaml > /tmp/")
+    error_message = "SOV-140: the primary region's post-back must read /var/lib/catalyst/parent-bootstrap.kubeconfig, between the step that writes it and the step that deletes it, delete its /tmp copy, and never read /etc/rancher/k3s/k3s.yaml."
+  }
+
+  assert {
+    condition     = length(regexall("(?s)config set-credentials default --token=.*/var/lib/catalyst/parent-bootstrap\\.kubeconfig > /tmp/kubeconfig-secondary\\.yaml\n.*\n      rm -f /tmp/secondary-kubeconfig-body\\.json /tmp/kubeconfig-secondary\\.yaml\n.*\n  - rm -f /var/lib/catalyst/parent-bootstrap\\.kubeconfig\n", local.cp_cloud_init_by_region["me-east-215-b"])) == 1 && !strcontains(local.cp_cloud_init_by_region["me-east-215-b"], "/etc/rancher/k3s/k3s.yaml > /tmp/")
+    error_message = "SOV-140: the secondary region's post-back must read /var/lib/catalyst/parent-bootstrap.kubeconfig, between the step that writes it and the step that deletes it, delete its /tmp copy, and never read /etc/rancher/k3s/k3s.yaml."
+  }
+}
+
 # NET-010 — the peer ports are closed to the internet. The mesh dial port
 # (var.clustermesh_proxy_port, 12379) admits only the Sovereign's own public
 # addresses (every region's control-plane and NAT EIP, as /32) and every
