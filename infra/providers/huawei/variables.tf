@@ -260,7 +260,7 @@ variable "org_email" {
 variable "k3s_version" {
   type        = string
   description = "k3s release pinned for CP + workers (INSTALL_K3S_VERSION format)."
-  default     = "v1.31.4+k3s1"
+  default     = "v1.31.8+k3s1"
   validation {
     condition     = can(regex("^v[0-9]+\\.[0-9]+\\.[0-9]+\\+k3s[0-9]+$", var.k3s_version))
     error_message = "k3s_version must match vMAJOR.MINOR.PATCH+k3sN."

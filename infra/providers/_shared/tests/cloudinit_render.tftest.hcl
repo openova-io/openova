@@ -89,6 +89,12 @@ run "hetzner_render_is_valid" {
     error_message = "NET-020: the k3s server line must pass --disable-kube-proxy (Cilium runs with kubeProxyReplacement: true)."
   }
 
+  # SEC-030 — the k3s server writes Secrets to etcd as secretbox ciphertext.
+  assert {
+    condition     = strcontains(output.rendered_cloud_init, "INSTALL_K3S_EXEC=\"server --cluster-init --secrets-encryption --secrets-encryption-provider=secretbox ")
+    error_message = "SEC-030: the k3s server line must pass --secrets-encryption --secrets-encryption-provider=secretbox (etcd encryption at rest)."
+  }
+
   # SOV-130 — the substituted values live in ConfigMap
   # flux-system/sovereign-variables, which every inline Kustomization reads
   # with postBuild.substituteFrom. No Kustomization keeps an inline
@@ -175,6 +181,12 @@ run "huawei_render_is_valid" {
   assert {
     condition     = strcontains(output.rendered_cloud_init, " --disable-network-policy --disable-kube-proxy ")
     error_message = "NET-020 (huawei branch): the k3s server line must pass --disable-kube-proxy (Cilium runs with kubeProxyReplacement: true)."
+  }
+
+  # SEC-030 (huawei branch) — etcd encryption with the secretbox provider.
+  assert {
+    condition     = strcontains(output.rendered_cloud_init, "INSTALL_K3S_EXEC=\"server --cluster-init --secrets-encryption --secrets-encryption-provider=secretbox ")
+    error_message = "SEC-030 (huawei branch): the k3s server line must pass --secrets-encryption --secrets-encryption-provider=secretbox (etcd encryption at rest)."
   }
 
   # SOV-130 (huawei branch) — the substituted values live in ConfigMap

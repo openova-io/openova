@@ -8,11 +8,13 @@ schema: openova.io/controls/v1
 controls:
   - id: secrets-at-rest
     claim: "Kubernetes Secrets are encrypted at rest in etcd."
-    mechanism: "k3s secrets encryption on every server"
-    exists: false
-    default_on: false
-    mode: none
+    mechanism: "k3s secrets encryption with the secretbox provider on every server"
+    exists: true
+    default_on: true
+    mode: enforce
+    guard: scripts/check-k3s-secrets-encryption.sh
     gate_check: SEC-G01
+    decision: ADR-0018
   - id: signed-artefacts-only
     claim: "A Kyverno policy denies unsigned artefacts and artefacts signed by the wrong issuer."
     mechanism: "Kyverno verifyImages policy cosignVerified of platform/kyverno-policies, off by default"

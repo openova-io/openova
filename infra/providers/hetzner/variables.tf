@@ -622,7 +622,7 @@ variable "k3s_version" {
     Kubernetes minor — required for blueprint compatibility guarantees
     documented in docs/PLATFORM-TECH-STACK.md §8.1.
   EOT
-  default     = "v1.31.4+k3s1"
+  default     = "v1.31.8+k3s1"
   validation {
     condition     = can(regex("^v[0-9]+\\.[0-9]+\\.[0-9]+\\+k3s[0-9]+$", var.k3s_version))
     error_message = "k3s_version must match the INSTALL_K3S_VERSION format vMAJOR.MINOR.PATCH+k3sN (e.g. v1.31.4+k3s1)."
