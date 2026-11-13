@@ -179,8 +179,11 @@ PY
   if kb "$ns" sh -c 'touch /openbao/seal/probe' 2>"$SEC/ro.err"; then note "step1 seal mount writable: YES (unexpected)"; ok=0
   else note "step1 seal mount read-only: $(tr '\n' ' ' < "$SEC/ro.err")"; fi
   note "step1 node directory: $(docker exec "$NODE" stat -c '%a %u:%g %n' /var/lib/catalyst/seal /var/lib/catalyst/seal/openbao-seal-"$id".key | tr '\n' ' ')"
-  note "step1 server log lines about self-initialisation: $(server_log "$ns" | grep -i -E 'initializ|self-init|initialize' | head -12 | cut -c1-220 | tr '\n' '|')"
-  # The self-init role must exist and work: log in as openbao-config-admin.
+  note "step1 server log lines about initialisation: $(server_log "$ns" | grep -i -E 'initializ|self-init|initialize|request' | head -30 | cut -c1-200 | tr '\n' '|')"
+  note "step1 audited requests of the first start, in order: $($K -n "$ns" logs openbao-0 -c openbao 2>/dev/null | grep '^{.*"type":"response"' | jq -c '[.request.operation, .request.path, (.auth.policies // [] | join(",")), (.error // "")]' 2>/dev/null | head -12 | tr '\n' ' ')"
+  # The self-init role must exist and work: log in as openbao-config-admin with
+  # the reconciler's service account (normally rendered by the chart).
+  $K -n "$ns" create sa openbao-config >/dev/null 2>&1
   local tok; tok=$(admin_token "$ns")
   if [ -n "$tok" ]; then note "step1 login as openbao-config-admin with SA openbao/openbao-config: OK"
   else note "step1 login as openbao-config-admin: FAILED"; ok=0; fi
@@ -192,6 +195,8 @@ PY
   note "step1 audit lines on stdout so far: $(audit_lines "$ns")"
   $K -n "$ns" logs openbao-0 -c openbao 2>/dev/null | grep -m1 '^{.*"type":"response"' | jq -c '{type, path: .request.path, op: .request.operation, mount: .request.mount_type}' 2>/dev/null | sed 's/^/step1 sample audit entry: /' | tee -a "$OUT/measured.txt"
   for i in 1 2 3; do kill_measure "$ns" "step1 restart $i (static seal, auto-unseal)" || ok=0; done
+  sleep 3; tok=$(admin_token "$ns")
+  note "step1 after the restarts: audit lines in the new pod after one login: $(audit_lines "$ns")"
   [ "$(audit_lines "$ns")" -gt 0 ] || { note "step1 no audit line after restart"; ok=0; }
   # Fail closed: the key file missing on the node.
   docker exec "$NODE" sh -c "mkdir -p /var/lib/catalyst/seal-off && mv /var/lib/catalyst/seal/openbao-seal-$id.key /var/lib/catalyst/seal-off/"
@@ -483,23 +488,24 @@ step5_one() { # NS TAG
     used="recovery-rotate (with sudo)"
     c=$(api POST "$ns" sys/rotate/recovery/init "$rtok" "$(jq -nc --arg k "$pgp" '{secret_shares:1,secret_threshold:1,pgp_keys:[$k]}')")
   fi
-  nonce=$(jq -r '.nonce // .data.nonce // empty' "$BODY")
-  note "step5 [$tag] POST /v1/sys/rotate/recovery/init {secret_shares:1, secret_threshold:1, pgp_keys:[<base64 public key>]} with a token of policy $used: HTTP $c $(jq -c '{started, t, n, required, pgp_fingerprints, verification_required}' "$BODY" 2>/dev/null)"
+  # The rotate endpoints answer under "data".
+  nonce=$(jq -r '(.data // .).nonce // empty' "$BODY")
+  note "step5 [$tag] POST /v1/sys/rotate/recovery/init {secret_shares:1, secret_threshold:1, pgp_keys:[<base64 public key>]} with a token of policy $used: HTTP $c $(jq -c '(.data // .) | del(.nonce)' "$BODY" 2>/dev/null)"
   c=$(api POST "$ns" sys/rotate/recovery/update "$rtok" "$(jq -nc --arg k "$key" --arg n "$nonce" '{key:$k,nonce:$n}')")
-  local enc; enc=$(jq -r '(.keys_base64 // .keys // [])[0] // empty' "$BODY")
-  note "step5 [$tag] POST /v1/sys/rotate/recovery/update {key:<old key>, nonce}: HTTP $c complete=$(jq -r .complete "$BODY") pgp_fingerprints=$(jq -c .pgp_fingerprints "$BODY")"
+  local enc; enc=$(jq -r '((.data // .).keys_base64 // (.data // .).keys // [])[0] // empty' "$BODY")
+  note "step5 [$tag] POST /v1/sys/rotate/recovery/update {key:<old key>, nonce}: HTTP $c $(jq -c '(.data // .) | del(.keys, .keys_base64, .nonce)' "$BODY" 2>/dev/null | cut -c1-300) encrypted keys returned: $(jq -r '((.data // .).keys_base64 // []) | length' "$BODY" 2>/dev/null)"
   local newkey=""
   if [ -n "$enc" ]; then newkey=$(printf '%s' "$enc" | base64 -d 2>/dev/null | gpg --batch --pinentry-mode loopback --passphrase '' --decrypt 2>/dev/null)
     note "step5 [$tag] new recovery key decrypts with the PGP private key: $([ -n "$newkey" ] && echo "yes ($(printf '%s' "$newkey" | wc -c) characters)" || echo no)"
   else ok=0; fi
   # The old key must now be refused, the new one accepted (each in its own attempt).
-  c=$(api POST "$ns" sys/rotate/recovery/init "$rtok" '{"secret_shares":1,"secret_threshold":1}'); nonce=$(jq -r '.nonce // empty' "$BODY")
-  c=$(api POST "$ns" sys/rotate/recovery/update "$rtok" "$(jq -nc --arg k "$key" --arg n "$nonce" '{key:$k,nonce:$n}')"); note "step5 [$tag] old key after rotation: HTTP $c $(body 120)"
+  c=$(api POST "$ns" sys/rotate/recovery/init "$rtok" '{"secret_shares":1,"secret_threshold":1}'); nonce=$(jq -r '(.data // .).nonce // empty' "$BODY")
+  c=$(api POST "$ns" sys/rotate/recovery/update "$rtok" "$(jq -nc --arg k "$key" --arg n "$nonce" '{key:$k,nonce:$n}')"); note "step5 [$tag] old key after rotation: HTTP $c $(body 160)"
   [ "$c" != 200 ] || ok=0
   api DELETE "$ns" sys/rotate/recovery/init "$rtok" >/dev/null
   if [ -n "$newkey" ]; then
-    c=$(api POST "$ns" sys/rotate/recovery/init "$rtok" '{"secret_shares":1,"secret_threshold":1}'); nonce=$(jq -r '.nonce // empty' "$BODY")
-    c=$(api POST "$ns" sys/rotate/recovery/update "$rtok" "$(jq -nc --arg k "$newkey" --arg n "$nonce" '{key:$k,nonce:$n}')"); note "step5 [$tag] new key accepted: HTTP $c complete=$(jq -r .complete "$BODY" 2>/dev/null)"
+    c=$(api POST "$ns" sys/rotate/recovery/init "$rtok" '{"secret_shares":1,"secret_threshold":1}'); nonce=$(jq -r '(.data // .).nonce // empty' "$BODY")
+    c=$(api POST "$ns" sys/rotate/recovery/update "$rtok" "$(jq -nc --arg k "$newkey" --arg n "$nonce" '{key:$k,nonce:$n}')"); note "step5 [$tag] new key accepted: HTTP $c complete=$(jq -r '(.data // .).complete' "$BODY" 2>/dev/null)"
     [ "$c" = 200 ] || ok=0
     api DELETE "$ns" sys/rotate/recovery/init "$rtok" >/dev/null
   fi
@@ -633,7 +639,14 @@ EOF
 results() {
   echo "================ verdicts"; cat "$OUT/verdicts.txt" 2>/dev/null
   echo "================ measured"; cat "$OUT/measured.txt" 2>/dev/null
-  echo "================ final values (upstream chart $CHART_NEW)"; cat "$OUT/final-values.json" 2>/dev/null
+  echo "================ final values (upstream chart $CHART_NEW): the keys added to today's openbao block"
+  python3 "$HERE/values.py" today "$BAO_NEW" > "$SEC/t.json"; python3 "$HERE/values.py" new "$BAO_NEW" > "$SEC/n.json"
+  python3 - "$SEC/t.json" "$SEC/n.json" <<'PY' | tee "$OUT/final-values-delta.yaml"
+import json, sys, yaml
+t, n = (json.load(open(p)) for p in sys.argv[1:])
+d = {"server": {k: v for k, v in n["server"].items() if t["server"].get(k) != v}}
+print(yaml.safe_dump(d, sort_keys=False))
+PY
   echo "================ final seal-config ConfigMap (key id of this run)"; cat "$OUT/final-seal-config.yaml" 2>/dev/null
 }
 
