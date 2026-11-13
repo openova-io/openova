@@ -144,6 +144,11 @@ elif job == "dragonfly":
     if "E5-0-proxy-down" in R:
         r = R["E5-0-proxy-down"]
         add("E5-0-proxy-down (extra)", "pulled" if r["pulled"] else "failed", brief(r))
+    for extra in ("E5after-1-local-empty", "E5after-2-local-holds", "E5p-1-local-holds", "E5p-2-local-empty"):
+        if extra in R:
+            r = R[extra]
+            add(extra + " (extra)", "pulled=%s, quay.io lookups/SYNs=%d, requests the proxy carried to the local registry=%d"
+                % (r["pulled"], egress(r, ["quay.io"]), via_proxy(r)), brief(r))
 
 with open(os.path.join(ev, "verdict.json"), "w") as f:
     json.dump(rows, f, indent=2)

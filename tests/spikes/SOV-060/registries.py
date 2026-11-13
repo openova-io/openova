@@ -108,6 +108,22 @@ elif MODE == "dragonfly":
         "harbor.local.test": login(),
         "origin.parent.test:5443": tls(),
     }
+elif MODE in ("dragonfly-after", "dragonfly-handwritten"):
+    # dragonfly-after: the fallback order for "E5 no" (local registry, proxy, origin).
+    # dragonfly-handwritten: no quay.io entry at all; its hosts.toml is written
+    # by hand, and k3s leaves alone a directory it does not generate.
+    mirrors = {
+        "quay.io": mirror([LOCAL, DRAGONFLY, ORIGIN], "proxy-quay"),
+        "harbor.local.test": mirror([LOCAL]),
+        "origin.parent.test:5443": mirror([LOCAL, ORIGIN]),
+        "*": mirror([LOCAL]),
+    }
+    if MODE == "dragonfly-handwritten":
+        del mirrors["quay.io"]
+    configs = {
+        "harbor.local.test": login(),
+        "origin.parent.test:5443": tls(),
+    }
 else:
     sys.exit("unknown mode " + MODE)
 

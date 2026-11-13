@@ -90,7 +90,7 @@ install_harbor || exit 1
 harbor_project proxy-quay
 harbor_robot
 resolve_watched
-for n in e5z e5a e5b e5c e5ha e5hb e5hc; do
+for n in e5z e5a e5b e5c e5ha e5hb e5hc e5fa e5fb e5pa e5pb; do
   build_image "$n"
   push_image "$n" "$ORIGIN_HOST/proxy-quay/spike/$n:1"
 done
@@ -129,6 +129,45 @@ wait_harbor
 pull_case E5h-2-local-empty quay.io/spike/e5hb:1
 push_image e5hc "$LOCAL_HOST/proxy-quay/spike/e5hc:1"
 pull_case E5h-3-local-holds quay.io/spike/e5hc:1
+
+section "E5-after: the fallback order for 'E5 no' (local registry, proxy, origin)"
+write_registries dragonfly-after
+restart_k3s
+sudo cat "$CERTS_D/quay.io/hosts.toml"
+pull_case E5after-1-local-empty quay.io/spike/e5fa:1
+push_image e5fb "$LOCAL_HOST/proxy-quay/spike/e5fb:1"
+pull_case E5after-2-local-holds quay.io/spike/e5fb:1
+
+section "E5p: a hand-written hosts.toml (proxy with header first) across a k3s restart"
+write_registries dragonfly-handwritten
+sudo mkdir -p "$CERTS_D/quay.io"
+sudo tee "$CERTS_D/quay.io/hosts.toml" >/dev/null <<EOF
+# Written by the SOV-060 spike, not by k3s (no k3s header line, so k3s keeps it).
+[host."http://127.0.0.1:4001/v2"]
+  capabilities = ["pull", "resolve"]
+  [host."http://127.0.0.1:4001/v2".header]
+    X-Dragonfly-Registry = ["https://$LOCAL_HOST"]
+  [host."http://127.0.0.1:4001/v2".rewrite]
+    "(.*)" = "proxy-quay/\$1"
+[host."https://$LOCAL_HOST/v2"]
+  capabilities = ["pull", "resolve"]
+  ca = ["$PKI/ca.crt"]
+  [host."https://$LOCAL_HOST/v2".rewrite]
+    "(.*)" = "proxy-quay/\$1"
+[host."https://$ORIGIN_HOST/v2"]
+  capabilities = ["pull", "resolve"]
+  ca = ["$PKI/ca.crt"]
+  [host."https://$ORIGIN_HOST/v2".rewrite]
+    "(.*)" = "proxy-quay/\$1"
+EOF
+hw_before=$(sudo sha256sum "$CERTS_D/quay.io/hosts.toml" | cut -c1-16)
+restart_k3s
+hw_after=$(sudo sha256sum "$CERTS_D/quay.io/hosts.toml" 2>/dev/null | cut -c1-16)
+log "hand-written quay.io hosts.toml hash before restart=$hw_before after=${hw_after:-missing} (kept by k3s: $([ "$hw_before" = "$hw_after" ] && echo yes || echo no))"
+sudo cat "$CERTS_D/quay.io/hosts.toml"
+push_image e5pa "$LOCAL_HOST/proxy-quay/spike/e5pa:1"
+pull_case E5p-1-local-holds quay.io/spike/e5pa:1
+pull_case E5p-2-local-empty quay.io/spike/e5pb:1
 
 section "results"
 cat "$SOV060_RESULTS"

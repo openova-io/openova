@@ -18,6 +18,8 @@ concurrency:
 jobs:
   node:
     name: "E1 E2 E3 E4 E6 E7 + controls"
+    # A commit marked [dragonfly-only] re-runs E5 alone (the shared runner queue is busy).
+    if: ${{ !contains(github.event.head_commit.message, '[dragonfly-only]') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 80
     env:
