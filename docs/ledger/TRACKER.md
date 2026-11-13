@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T06:00:04Z` |
+| Last refreshed | `2026-11-13T06:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T06:14 | [#7338](https://github.com/openova-io/openova/pull/7338) | #7087 | docs(ledger): plan update |
+| 2026-11-13T06:06 | [#7337](https://github.com/openova-io/openova/pull/7337) | #7197 | chore(api): remove the DR runbook playback and preflight rou |
+| 2026-11-13T06:06 | [#7336](https://github.com/openova-io/openova/pull/7336) | #7317 | feat(cloudprofile): check an installation document and print |
 | 2026-11-13T05:38 | [#7325](https://github.com/openova-io/openova/pull/7325) | #7087 | docs(ledger): plan update |
 | 2026-11-13T05:37 | [#7324](https://github.com/openova-io/openova/pull/7324) | #7087 | docs(sessions): hw307 browser walk of six north-star screen  |
 | 2026-11-13T05:19 | [#7321](https://github.com/openova-io/openova/pull/7321) | #7087 | docs(ledger): plan update |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-13T03:10 | [#7287](https://github.com/openova-io/openova/pull/7287) | #7166 | feat(gate): checks for node ports, front doors, mesh, transi |
 | 2026-11-13T03:10 | [#7286](https://github.com/openova-io/openova/pull/7286) | #7210 | docs(chargeback): name ADR-0028 as the decision record in th |
 | 2026-11-13T02:38 | [#7280](https://github.com/openova-io/openova/pull/7280) | #7087 | docs(ledger): plan update |
-| 2026-11-13T02:23 | [#7278](https://github.com/openova-io/openova/pull/7278) | #7261 | feat(compliance): add the compliance types, the model loader |
-| 2026-11-13T02:23 | [#7277](https://github.com/openova-io/openova/pull/7277) | #7262 | refactor(kit): wire slot 27a to the policy values document a |
-| 2026-11-13T02:18 | [#7275](https://github.com/openova-io/openova/pull/7275) | #7268 | feat(contracts): publish contract C5, the variables document |
 
 ---
 
