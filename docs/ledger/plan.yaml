@@ -7243,7 +7243,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [SOV-140, SOV-435]
-  after: [NET-041, NET-070]
+  after: [NET-041, NET-070, CTL-160]
   touches:
   - infra/providers/huawei/main.tf
   - infra/providers/huawei/variables.tf
@@ -7750,7 +7750,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-035, CTL-110, SOV-170, SOV-180]
-  after: [SOV-030]
+  after: [SOV-030, CTL-160]
   touches:
   - products/catalyst/bootstrap/api/internal/lifecycle/kitkeys.go
   - products/catalyst/bootstrap/api/internal/lifecycle/kitkeys_test.go
@@ -7781,7 +7781,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CTL-035, CTL-110, FND-032, FND-120, SOV-130, SOV-170, SVC-220]
-  after: [CLD-040, SOV-030, SEC-020, NET-020, NET-031]
+  after: [CLD-040, SOV-030, SEC-020, NET-020, NET-031, CTL-160]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - infra/providers/_shared/tests/cloudinit_render.tftest.hcl
@@ -10037,7 +10037,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271]
-  after: [FND-011, FND-014, FND-021, FND-022, FND-023, FND-031, FND-032, FND-033, FND-034, FND-040, FND-052, FND-053, FND-054, FND-055, FND-091, FND-092, FND-093, FND-094, FND-097, FND-101, FND-102, FND-103, FND-105, FND-110, FND-171, CLD-010, CLD-022, CLD-040, CLD-063, CLD-075, CLD-080, SOV-030, SOV-040, SOV-050, SOV-110, SEC-020, SEC-125, NET-030, NET-033, NET-041, NET-050, NET-090, NET-100, SVC-020, SVC-060, SVC-125, CTL-010, CTL-020, CTL-025, CTL-030, CTL-044, CTL-201, CMP-012, CMP-014, CMP-036, BSS-050, INF-010, PRD-030, PRD-101, PRD-102, PRD-106]
+  after: [FND-011, FND-014, FND-021, FND-022, FND-023, FND-031, FND-032, FND-033, FND-034, FND-040, FND-052, FND-053, FND-054, FND-055, FND-091, FND-092, FND-093, FND-094, FND-097, FND-101, FND-102, FND-103, FND-105, FND-110, FND-171, CLD-010, CLD-022, CLD-040, CLD-063, CLD-075, CLD-080, SOV-030, SOV-040, SOV-050, SOV-110, SEC-020, SEC-125, NET-030, NET-033, NET-041, NET-050, NET-090, NET-100, SVC-020, SVC-060, SVC-125, CTL-010, CTL-020, CTL-025, CTL-030, CTL-044, CTL-160, CTL-201, CTL-240, CMP-012, CMP-014, CMP-036, BSS-050, INF-010, PRD-030, PRD-101, PRD-102, PRD-106]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/26-image-signature.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -12837,7 +12837,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [NET-322, NET-327]
-  after: [FND-014, FND-093, FND-094, FND-171, CLD-022, CLD-161, SOV-030, NET-125, SVC-030, CTL-030, CMP-016, CMP-030]
+  after: [FND-014, FND-093, FND-094, FND-171, CLD-022, CLD-161, SOV-030, NET-125, SVC-030, CTL-030, CTL-160, CTL-240, CMP-016, CMP-030]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/
   - products/catalyst/bootstrap/api/
@@ -13048,7 +13048,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-011, SVC-020]
-  after: [FND-014, FND-054, FND-091, FND-093, FND-094, FND-097, FND-171, CLD-022, CLD-070, CLD-080, CLD-161, SOV-030, SOV-220, SEC-110, NET-030, NET-041, NET-050, NET-070, NET-072, NET-125, SVC-030, SVC-060, CTL-030, CMP-016, CMP-030, BSS-020, PRD-010, PRD-101, PRD-102, PRD-103, PRD-104, PRD-105]
+  after: [FND-014, FND-054, FND-091, FND-093, FND-094, FND-097, FND-171, CLD-022, CLD-070, CLD-080, CLD-161, SOV-030, SOV-220, SEC-110, NET-030, NET-041, NET-050, NET-070, NET-072, NET-125, SVC-030, SVC-060, CTL-030, CTL-160, CTL-240, CMP-016, CMP-030, BSS-020, PRD-010, PRD-101, PRD-102, PRD-103, PRD-104, PRD-105]
   touches:
   - platform/*/blueprint.yaml
   - products/*/blueprint.yaml
@@ -13731,7 +13731,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [SVC-170]
-  after: []
+  after: [CTL-240]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/catalog_edit_git.go
   - products/catalyst/bootstrap/api/internal/handler/blueprints.go
@@ -14537,7 +14537,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CLD-021, CTL-025, CTL-030]
-  after: []
+  after: [CTL-240]
   touches:
   - products/catalyst/bootstrap/api/cmd/api/main.go
   - products/catalyst/bootstrap/api/cmd/api/routes*.go
@@ -14883,21 +14883,30 @@ packages:
   depends_on: [CTL-044, CTL-110]
   after: []
   touches:
-  - core/controllers/pkg/gitwrite/**
+  - core/controllers/pkg/gitwrite/scope.go
+  - core/controllers/pkg/gitwrite/scope_test.go
   resources: []
   flips: []
   implements: []
   proven_by: SOV-420
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls core/controllers/pkg/gitwrite | grep -c '^scope'"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "cd core/controllers && go vet ./pkg/gitwrite/... && go test -count=1 ./pkg/gitwrite/... && go doc ./pkg/gitwrite RegionPlatform > /dev/null && go doc ./pkg/gitwrite Regions > /dev/null && go doc ./pkg/gitwrite WriteAllRegions > /dev/null"
+  - id: A2
+    run: "cd core/controllers && test \"$(go test -count=1 -v -run '^(TestRegionPlatformScope|TestRegionPlatformPaths|TestRegionInfrastructure|TestRegions|TestWriteAllRegionsOneCommit|TestWriteAllRegionsCompareAndSwap|TestWriteAllRegionsRefusals)$' ./pkg/gitwrite/ | grep -c '^--- PASS: ')\" = 7"
+  - id: A3
+    run: "printf '%s\\n' '4b1828f0ae21cf2f803779f6e16a0620500295e5fbcc7158dc7cfe859d35fa51  core/controllers/pkg/gitwrite/scope.go' 'b7a545a59d310789f2b17d1581d0cb919ab6be81026bf0eafec322fbbdf9e097  core/controllers/pkg/gitwrite/scope_test.go' | sha256sum --check --quiet"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Region scopes of the commit library.
+  delivers: The commit library gitwrite gains RegionPlatform, a scope that allows only the listed module folders under platform/ of the listed region folders of the fleet repository, Regions, which lists a Sovereign's region folders, and WriteAllRegions, which writes the same files into every listed region folder in one commit with compare-and-swap on the first region's copy.
 - id: CTL-120
   title: Fleet intent path and its Kustomization
   area: CTL
@@ -15101,23 +15110,43 @@ packages:
   depends_on: [CTL-110]
   after: []
   touches:
-  - products/catalyst/bootstrap/api/internal/intent/**
+  - products/catalyst/bootstrap/api/internal/intent/intent.go
+  - products/catalyst/bootstrap/api/internal/intent/intent_test.go
+  - products/catalyst/bootstrap/api/internal/intent/validate.go
+  - products/catalyst/bootstrap/api/internal/intent/validate_test.go
+  - products/catalyst/bootstrap/api/internal/intent/crds/schemas.json
   - products/catalyst/bootstrap/api/cmd/api/intent_wire.go
+  - products/catalyst/bootstrap/api/cmd/api/intent_wire_test.go
   - scripts/intent-detach.py
+  - .github/workflows/test-bootstrap-api.yaml
   resources: []
   flips: []
   implements: []
   proven_by: CTL-162
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls products/catalyst/bootstrap/api/internal | grep -c '^intent$'"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "cd products/catalyst/bootstrap/api && go vet ./internal/intent/... ./cmd/api/ && go test -count=1 ./internal/intent/... ./cmd/api/"
+  - id: A2
+    run: "cd products/catalyst/bootstrap/api && test \"$(go test -count=1 -v -run '^(TestSerialize|TestSubmitCreate|TestSubmitNoop|TestSubmitUpdateIfMatch|TestSubmitIfMatchRace|TestSubmitConflict|TestSubmitDelete|TestSubmitTimeout|TestSubmitSchemaInvalid|TestSubmitTwoObjectsOneCommit|TestSubmitInvalid|TestSchemasMatchSources|TestValidateSamples|TestValidate|TestIntentCacheGetAndWatch|TestIntentGitConfig|TestNewIntentDeps|TestIntentSubmitThroughCache)$' ./internal/intent/ ./cmd/api/ | grep -c '^--- PASS: ')\" = 18"
+  - id: A3
+    run: "python3 scripts/intent-detach.py --help > /dev/null && python3 scripts/intent-detach.py --self-test"
+  - id: A4
+    run: "printf '%s\\n' 'bfb6c4ae4a166ff87e18731a92e21ff655039dd67767cc7d16b30c5d1cd9d26c  products/catalyst/bootstrap/api/internal/intent/intent.go' '884e49bcd863ea1a27ad3899f9bfb69b5650bdb0e01db6f04ad04ccab3c7a2a5  products/catalyst/bootstrap/api/internal/intent/intent_test.go' '70631a91d136d4f65c7525ad5afa4824c281f902a0348d2a29df70146a059d7c  products/catalyst/bootstrap/api/internal/intent/validate.go' 'a75b08bf5b288169482f0bb04533aad66da51d19db1a8963e35fc025ac258931  products/catalyst/bootstrap/api/internal/intent/validate_test.go' '54b36bf3c7f0fd5ca7b85adf1e2c4de84d6479d08680f0e89aa47a3f8c682d04  products/catalyst/bootstrap/api/cmd/api/intent_wire.go' '547932cff9dbb2693716225319c234e50d232c5e7b3da40bea56934129fb91f1  products/catalyst/bootstrap/api/cmd/api/intent_wire_test.go' '3ac4da5b3321d928aa253e1ec32f728c45e97e9858a04f8dac820d5770afd03e  scripts/intent-detach.py' | sha256sum --check --quiet"
+  - id: A5
+    run: "python3 -c \"import yaml,sys; d=yaml.safe_load(open('.github/workflows/test-bootstrap-api.yaml')); on=d.get(True, d.get('on')); need={'products/catalyst/chart/crds/**','platform/crossplane-claims/chart/templates/crds/**'}; sys.exit(0 if all(need <= set(on[e]['paths']) for e in ('push','pull_request')) else 1)\""
+  - id: A6
+    run: "python3 scripts/check-api-structure.py && python3 scripts/check-no-direct-cluster-write.py && python3 scripts/check-no-new-polling.py"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: intent.Validate, Serialize, Submit with no-op detection and informer sync-wait; cache adapter; rollback tool intent-detach.py
+  delivers: The Go package intent of catalyst-api validates an object against its embedded schema, serialises it, commits it to Git through gitwrite with no-op and If-Match handling, and waits on the informer cache until it is applied; an adapter in cmd/api builds its dependencies, and scripts/intent-detach.py is the rollback tool.
 - id: CTL-162
   title: 'Batch A: Application intent from Git'
   area: CTL
@@ -15127,7 +15156,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-122, CTL-130, CTL-160, FND-032, FND-130]
-  after: [CLD-010, NET-010, NET-020, NET-060, CTL-020, CMP-012, BSS-030, BSS-050, INF-010, PRD-030]
+  after: [CLD-010, NET-010, NET-020, NET-060, CTL-020, CTL-240, CMP-012, BSS-030, BSS-050, INF-010, PRD-030]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/handler.go
   - products/catalyst/bootstrap/api/internal/handler/applications.go
@@ -15556,7 +15585,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-205]
-  after: [SEC-071, NET-042, CTL-020, CMP-012, BSS-050, INF-010, PRD-030]
+  after: [SEC-071, NET-042, CTL-020, CTL-240, CMP-012, BSS-050, INF-010, PRD-030]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/organization_gitops.go
   - organization_provisioning.go
@@ -15647,7 +15676,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-120, CTL-130, CTL-162, FND-032]
-  after: [CLD-010, NET-010, NET-020, NET-060, CTL-020, CMP-012, BSS-030, BSS-050, INF-010, PRD-030]
+  after: [CLD-010, NET-010, NET-020, NET-060, CTL-020, CTL-240, CMP-012, BSS-030, BSS-050, INF-010, PRD-030]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/user_access.go
   - rbac_assign.go
@@ -15708,7 +15737,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CTL-120, CTL-130, CTL-162]
-  after: [CTL-020, CMP-012, BSS-050, INF-010, PRD-030]
+  after: [CTL-020, CTL-240, CMP-012, BSS-050, INF-010, PRD-030]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/marketplace_settings.go
   - products/catalyst/bootstrap/api/internal/intent/settings.go
@@ -15827,23 +15856,50 @@ packages:
   depends_on: [CTL-110]
   after: []
   touches:
+  - products/catalyst/bootstrap/api/internal/handler/blueprints.go
+  - products/catalyst/bootstrap/api/internal/handler/blueprints_test.go
   - products/catalyst/bootstrap/api/internal/handler/catalog_edit_git.go
-  - catalog_iac_edit.go
-  - blueprints.go
+  - products/catalyst/bootstrap/api/internal/handler/catalog_edit_git_test.go
+  - products/catalyst/bootstrap/api/internal/handler/catalog_gitwrite_test.go
+  - products/catalyst/bootstrap/api/internal/handler/catalog_iac_edit.go
+  - products/catalyst/bootstrap/api/internal/handler/catalog_iac_edit_test.go
+  - scripts/baselines/api-structure.json
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "cat products/catalyst/bootstrap/api/internal/handler/blueprints.go products/catalyst/bootstrap/api/internal/handler/catalog_edit_git.go products/catalyst/bootstrap/api/internal/handler/catalog_iac_edit.go | grep -c -E '\\.(PutFile|CreatePullRequest)\\('"
+    expect: "7"
+  acceptance:
+  - id: A1
+    run: "cd products/catalyst/bootstrap/api && go build ./... && go vet ./internal/handler/"
+  - id: A2
+    run: "cd products/catalyst/bootstrap/api && go test -count=1 -v -run '^(TestCommitCatalogFile_RealLibrary|TestCatalogWriters_CommitThroughGitwrite|TestCatalogWriteRoutes_503WithoutCommitLibrary|TestNewGiteaClientFromEnv_WriterNeedsFQDN|TestHandleBlueprintEditPR_CommitsToMain|TestWriteCatalogEditToGit_UnwiredIsRefused)$' ./internal/handler/ | grep -c '^--- PASS: Test' | grep -qx 6"
+  - id: A3
+    run: "cd products/catalyst/bootstrap/api && go test -count=1 -run 'Blueprint|Catalog|IaC|EditPR' ./internal/handler/"
+  - id: A4
+    run: "! git grep -n -E '\\.(PutFile|PutFileIfMatch|DeleteFile|CreatePullRequest|EnsureBranch)\\(' -- products/catalyst/bootstrap/api/internal/handler/blueprints.go products/catalyst/bootstrap/api/internal/handler/catalog_edit_git.go products/catalyst/bootstrap/api/internal/handler/catalog_iac_edit.go"
+  - id: A5
+    run: "! git grep -n -F 'gitea-not-wired' -- products/catalyst/bootstrap/api/internal/handler/blueprints.go products/catalyst/bootstrap/api/internal/handler/catalog_edit_git.go products/catalyst/bootstrap/api/internal/handler/catalog_iac_edit.go"
+  - id: A6
+    run: "python3 scripts/check-api-structure.py"
+  - id: A7
+    run: "python3 scripts/check-no-direct-cluster-write.py"
+  - id: A8
+    run: "python3 scripts/check-no-new-polling.py"
+  - id: A9
+    run: "bash scripts/check-upstream-literals.sh"
+  - id: A10
+    run: "python3 scripts/check-provider-leaks.py"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Catalogue edit, publish, curate and edit-pr commit through gitwrite; silent skip replaced by 503
+  delivers: The catalogue writers of the API (publish, curate, edit-pr, the card edit, the full IaC edit and the Flux aggregator) commit through the commit library gitwrite with scope catalog, edit-pr commits straight to main, and without a configured commit library the four catalogue write routes answer 503 git-unavailable.
 - id: CTL-242
   title: Catalogue edits are stored as the edited card fields only
   area: CTL
@@ -16136,7 +16192,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-035]
-  after: [CTL-020, CTL-044, CMP-012, BSS-050, INF-010, PRD-030]
+  after: [CTL-020, CTL-044, CTL-240, CMP-012, BSS-050, INF-010, PRD-030]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/sovereign.go
   - applications.go
@@ -16167,7 +16223,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-035]
-  after: [FND-054, FND-097, FND-173, NET-042]
+  after: [FND-054, FND-097, FND-173, NET-042, CTL-240]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/org_consumption.go
   - products/catalyst/bootstrap/api/internal/handler/org_consumption_test.go
@@ -16528,7 +16584,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CMP-005, CTL-110, CTL-160]
-  after: []
+  after: [CTL-112]
   touches:
   - core/controllers/pkg/gitwrite/**
   - products/catalyst/bootstrap/api/internal/intent/**
@@ -17487,7 +17543,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CMP-030, CMP-036, CTL-035, CTL-045, CTL-110, FND-120]
-  after: []
+  after: [CTL-112, CTL-160]
   touches:
   - core/controllers/pkg/gitwrite/**
   - docs/contracts/C4-git-layout-and-commit-library.md
@@ -20813,7 +20869,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [AIP-155]
-  after: [FND-054, FND-097, FND-173, NET-042]
+  after: [FND-054, FND-097, FND-173, NET-042, CTL-240]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/sovereign_mcp_bearer_seed.go
   - products/catalyst/bootstrap/api/internal/handler/sovereign_mcp_bearer_seed_test.go
@@ -20970,7 +21026,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [AIP-181]
-  after: [FND-011, NET-042]
+  after: [FND-011, NET-042, CTL-240]
   touches:
   - products/catalyst/bootstrap/api/internal/newapi/**
   - products/catalyst/bootstrap/api/internal/handler/sovereign_newapi_admin_token_seed.go
@@ -21097,7 +21153,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [AIP-106, AIP-155, AIP-156, AIP-160, AIP-182]
-  after: [FND-011, NET-042]
+  after: [FND-011, NET-042, CTL-240]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/sovereign_anthropic_*.go
   - products/catalyst/bootstrap/api/internal/handler/anthropic_credential_class.go
@@ -26865,7 +26921,7 @@ packages:
   due: null
   budget:
     files: 25
-    lines: 67000
+    lines: 72000
   repeatable: false
   ticket_rev: 2
   dropped: false
