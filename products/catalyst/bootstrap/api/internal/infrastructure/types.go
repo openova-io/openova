@@ -1,19 +1,6 @@
-// Package infrastructure carries the wire-contract types + Crossplane
-// XRC writer helpers + topology loader the catalyst-api Sovereign
-// Infrastructure surface emits.
-//
-// # Architectural rule (docs/INVIOLABLE-PRINCIPLES.md #3)
-//
-// All Day-2 mutations MUST go through Crossplane. The catalyst-api
-// writes a Crossplane Composite Resource Claim (XRC) into the Sovereign
-// cluster (NOT contabo-mkt) and returns 202. The Crossplane provider
-// does the cloud work. The UI watches the Job that wraps the XRC
-// submission via the existing Jobs/Executions surface (issue #205).
-//
-// catalyst-api MUST NOT call hcloud-go, NEVER `exec.Command("kubectl",
-// ...)` for mutation, NEVER use client-go for direct mutation of cluster
-// resources outside the XRC-write path. The dynamic client created from
-// the deployment's persisted kubeconfig is the ONLY mutation seam.
+// Package infrastructure carries the wire-contract types + topology
+// loader the catalyst-api Sovereign Infrastructure surface emits.
+// It reads only: it writes no cluster object and calls no cloud API.
 //
 // # Wire contract — TopologyResponse
 //
@@ -30,8 +17,6 @@
 // placeholder rows. The frontend's empty-card UX is the canonical
 // surface for that state.
 package infrastructure
-
-import "time"
 
 // TopologyResponse — unified hierarchical view of the Sovereign's
 // infrastructure. The four tabs filter views off this single shape.
@@ -305,28 +290,4 @@ type Volume struct {
 	Region     string `json:"region"`
 	AttachedTo string `json:"attachedTo"`
 	Status     string `json:"status"`
-}
-
-// MutationResponse — uniform 202 Accepted shape every CRUD endpoint
-// emits. The frontend keys off jobId to deep-link to the
-// GitLab-style log viewer in the Jobs surface.
-type MutationResponse struct {
-	JobID    string `json:"jobId"`
-	XRCKind  string `json:"xrcKind"`
-	XRCName  string `json:"xrcName"`
-	Status   string `json:"status"`
-	SubmittedAt time.Time `json:"submittedAt"`
-
-	// Cascade — populated only on DELETE. Lists the child resources
-	// the cascade would affect so the FE confirm dialog can render
-	// "deleting region X will drain Y workloads, remove Z PVCs".
-	Cascade []CascadeImpact `json:"cascade,omitempty"`
-}
-
-// CascadeImpact — one row in a delete cascade preview.
-type CascadeImpact struct {
-	Kind  string `json:"kind"`  // region | cluster | nodePool | node | pvc | volume | lb | peering
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Note  string `json:"note,omitempty"` // operator-readable detail
 }

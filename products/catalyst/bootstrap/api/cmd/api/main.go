@@ -37,10 +37,9 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/powerdns"
 	// Side-effect import: registers every CloudProvider adapter
-	// (hetzner + huawei stub) against internal/providers/registry
-	// at init() time. Wave 2 — the registrations are passive; no
-	// handler yet calls providers.Get(). Wave 3 wires the handlers
-	// through the registry once Huawei has a concrete impl.
+	// (hetzner, huawei) against internal/providers/registry at
+	// init() time. The wipe handler resolves the adapter of a
+	// deployment with providers.Get().
 	_ "github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers/all"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
@@ -1544,47 +1543,13 @@ func main() {
 		// validationFailureAction. Requires tier-admin or higher per
 		// INVIOLABLE-PRINCIPLES #5.
 		rg.Put("/api/v1/sovereigns/{id}/environments/{env}/policy", h.HandleEnvironmentPolicyMode)
-		// Sovereign Infrastructure surface — unified topology read +
-		// Day-2 CRUD via Crossplane XRC writes (issue #227 + Day-2 IaC).
-		// Read endpoints compose from the deployment record + live
-		// cluster informer cache; mutation endpoints write Composite
-		// Resource Claims to the Sovereign cluster's kubeconfig per
-		// docs/INVIOLABLE-PRINCIPLES.md #3 (Crossplane is the ONLY
-		// Day-2 IaC seam). Every mutation also commits a Job entry to
-		// the existing /jobs surface for full audit-trail.
+		// Sovereign Infrastructure surface — read only (issue #227).
+		// The endpoints compose from the deployment record + live
+		// cluster informer cache. They write nothing.
 		rg.Get("/api/v1/deployments/{depId}/infrastructure/topology", h.GetInfrastructureTopology)
 		rg.Get("/api/v1/deployments/{depId}/infrastructure/compute", h.GetInfrastructureCompute)
 		rg.Get("/api/v1/deployments/{depId}/infrastructure/storage", h.GetInfrastructureStorage)
 		rg.Get("/api/v1/deployments/{depId}/infrastructure/network", h.GetInfrastructureNetwork)
-
-		// CRUD — every endpoint writes a Crossplane XRC + a mutation Job.
-		// The third-sibling chart authors the matching Compositions; until
-		// they land Crossplane sits the claim Pending and the catalyst-api
-		// surfaces "Awaiting Composition for <kind>" in the audit log.
-		rg.Post("/api/v1/deployments/{depId}/infrastructure/regions", h.CreateInfrastructureRegion)
-		rg.Patch("/api/v1/deployments/{depId}/infrastructure/regions/{id}", h.PatchInfrastructureRegion)
-		rg.Post("/api/v1/deployments/{depId}/infrastructure/regions/{id}/clusters", h.CreateInfrastructureCluster)
-		rg.Patch("/api/v1/deployments/{depId}/infrastructure/clusters/{id}", h.PatchInfrastructureCluster)
-		rg.Post("/api/v1/deployments/{depId}/infrastructure/clusters/{id}/vclusters", h.CreateInfrastructureVCluster)
-		rg.Patch("/api/v1/deployments/{depId}/infrastructure/vclusters/{id}", h.PatchInfrastructureVCluster)
-		rg.Post("/api/v1/deployments/{depId}/infrastructure/clusters/{id}/pools", h.CreateInfrastructurePool)
-		rg.Patch("/api/v1/deployments/{depId}/infrastructure/pools/{id}", h.PatchInfrastructurePool)
-		rg.Post("/api/v1/deployments/{depId}/infrastructure/clusters/{id}/nodes", h.CreateInfrastructureWorkerNode)
-		rg.Patch("/api/v1/deployments/{depId}/infrastructure/nodes/{id}", h.PatchInfrastructureWorkerNode)
-		rg.Post("/api/v1/deployments/{depId}/infrastructure/loadbalancers", h.CreateInfrastructureLoadBalancer)
-		rg.Patch("/api/v1/deployments/{depId}/infrastructure/loadbalancers/{id}", h.PatchInfrastructureLoadBalancer)
-		rg.Post("/api/v1/deployments/{depId}/infrastructure/networks", h.CreateInfrastructureNetwork)
-		rg.Patch("/api/v1/deployments/{depId}/infrastructure/networks/{id}", h.PatchInfrastructureNetwork)
-		rg.Post("/api/v1/deployments/{depId}/infrastructure/pvcs", h.CreateInfrastructurePVC)
-		rg.Patch("/api/v1/deployments/{depId}/infrastructure/pvcs/{id}", h.PatchInfrastructurePVC)
-		rg.Post("/api/v1/deployments/{depId}/infrastructure/buckets", h.CreateInfrastructureBucket)
-		rg.Patch("/api/v1/deployments/{depId}/infrastructure/buckets/{id}", h.PatchInfrastructureBucket)
-		rg.Post("/api/v1/deployments/{depId}/infrastructure/volumes", h.CreateInfrastructureVolume)
-		rg.Patch("/api/v1/deployments/{depId}/infrastructure/volumes/{id}", h.PatchInfrastructureVolume)
-		rg.Post("/api/v1/deployments/{depId}/infrastructure/peerings", h.CreateInfrastructurePeering)
-		rg.Post("/api/v1/deployments/{depId}/infrastructure/firewalls/{id}/rules", h.CreateInfrastructureFirewallRule)
-		rg.Post("/api/v1/deployments/{depId}/infrastructure/nodes/{id}/{action}", h.CreateInfrastructureNodeAction)
-		rg.Delete("/api/v1/deployments/{depId}/infrastructure/{kind}/{id}", h.DeleteInfrastructureResource)
 
 		// Marketplace mode toggle (issue #710 wave 3b). The Sovereign
 		// Settings → Marketplace page POSTs here to enable/disable the
