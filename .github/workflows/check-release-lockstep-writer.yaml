@@ -30,6 +30,8 @@ on:
       - '.github/workflows/check-release-lockstep-writer.yaml'
       - 'scripts/check-release-lockstep-writer.py'
       - 'scripts/sync-catalog-seed-pin.py'
+      - 'scripts/check-bootstrap-kit-pin-sync.sh'
+      - 'scripts/check-umbrella-republish-gate.py'
       - 'products/catalyst/bootstrap/ui/scripts/build-catalog.mjs'
       - 'products/catalyst/chart/templates/catalog-seed/blueprints.yaml'
       - 'clusters/_template/bootstrap-kit/**'
@@ -40,6 +42,8 @@ on:
       - '.github/workflows/check-release-lockstep-writer.yaml'
       - 'scripts/check-release-lockstep-writer.py'
       - 'scripts/sync-catalog-seed-pin.py'
+      - 'scripts/check-bootstrap-kit-pin-sync.sh'
+      - 'scripts/check-umbrella-republish-gate.py'
       - 'products/catalyst/bootstrap/ui/scripts/build-catalog.mjs'
   workflow_dispatch:
 

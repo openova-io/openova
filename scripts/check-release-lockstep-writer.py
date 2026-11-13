@@ -73,10 +73,26 @@ Cases
             Afterwards scripts/check-umbrella-republish-gate.py passes on the
             pushed tree. → RED before FND-018: nothing follows the seed move.
 
+  mid-release (FND-020)
+            Main sits between the two commits of a release: the umbrella's
+            chart version before its kit pin, and a leaf's catalogue move
+            before the umbrella release that carries it. The pin audit
+            (--changed-only --base HEAD^1) and the umbrella republish gate
+            (--base HEAD^1), as a pull request runs them, must pass a change
+            that touches no pin and fail a change that moves a chart version,
+            a kit pin or a catalogue pin by hand. → RED before FND-020: the
+            change that touches no pin is judged on main's own drift, and a
+            pin moved by hand is not seen.
+
   noop      CONTROL, must be GREEN on both trees. Run the writer with NO chart
             bump at all. Nothing may drift and nothing may be pushed backwards.
             This is the vacuity check: it proves the harness can go green, so a
             red `bump` case is signal and not a harness that always fails.
+            The repo gates of noop, bump, retry and umbrella judge the pin
+            audit against the tested tree (FND-020): a drift the tested tree
+            already has, as main has between the two commits of a release, is
+            printed as INHERITED and does not fail; a drift the writer adds,
+            such as a kit pin it leaves behind, fails.
 
 Usage
 ─────
@@ -485,8 +501,14 @@ def assert_generated_in_sync(pushed, problems):
                         "(#5520 gate would be red on every open PR):\n%s" % d.stdout.strip())
 
 
-def assert_repo_gates(pushed, problems, skip_slow):
-    """Run the repo's OWN lockstep gates against the pushed tree."""
+def pin_audit_cmd(baseline):
+    """The kit pin audit as a pull request runs it: judged against `baseline` (FND-020)."""
+    return "bash scripts/check-bootstrap-kit-pin-sync.sh --changed-only --base %s" % baseline
+
+
+def assert_repo_gates(pushed, problems, skip_slow, baseline):
+    """Run the repo's OWN lockstep gates against the pushed tree. The pin audit
+    judges only the drift added since `baseline`, the tested tree (FND-020)."""
     go = shutil.which("go")
     if go:
         r = sh("go test -count=1 -run "
@@ -501,7 +523,10 @@ def assert_repo_gates(pushed, problems, skip_slow):
         problems.append("`go` not on PATH — the Go lockstep guards could not be run, so this "
                         "guard would be reporting on less than it claims. Install Go.")
 
-    r = sh("bash scripts/check-bootstrap-kit-pin-sync.sh", cwd=pushed, check=False)
+    r = sh(pin_audit_cmd(baseline), cwd=pushed, check=False)
+    for line in (r.stdout or "").splitlines():
+        if line.startswith("  INHERITED "):
+            print("    inherited from the tested tree:%s" % line[len("  INHERITED"):])
     if r.returncode != 0:
         problems.append("check-bootstrap-kit-pin-sync.sh RED on the pushed main:\n%s"
                         % r.stdout.strip()[-3000:])
@@ -581,7 +606,18 @@ CASES = {
         path="platform/keycloak", do_bump=False,
         expect=dict(blueprint="literal", seed="literal", kit="literal"),
         why="CONTROL / vacuity check — no bump at all; nothing may drift, so a red "
-            "`bump` case cannot be a harness that is simply always red",
+            "`bump` case cannot be a harness that is simply always red. The pin audit "
+            "is judged against the tested tree (FND-020): a drift the tested tree already "
+            "has, as main has between the two commits of a release, is inherited and "
+            "does not fail; a drift the writer adds fails",
+    ),
+    "mid-release": dict(
+        path="platform/keycloak", do_bump=False, kind="mid-release",
+        expect=dict(blueprint="literal", seed="literal", kit="literal"),
+        why="POSITIVE (FND-020) — main sits between two commits of a release; the pin "
+            "audit and the umbrella republish gate, judged against the base as a pull "
+            "request runs them, pass a change that touches no pin and fail a change that "
+            "moves a chart version, a kit pin or a catalogue pin by hand",
     ),
 }
 
@@ -846,7 +882,112 @@ def run_umbrella_case(name, case, keep, base):
             shutil.rmtree(root, ignore_errors=True)
 
 
+def run_midrelease_case(name, case, keep, base):
+    """FND-020: main sits between two commits of a release; a change is judged on what it adds."""
+    print("\n%s─── case %s ───%s  %s" % (GREEN, name, RESET, case["why"]))
+    chart, cur = precheck_in_scope(case, name)
+    path = case["path"]
+    umbrella_name, umbrella_cur = read_chart(REPO_ROOT, UMBRELLA_PATH)
+    umbrella_slots = kit_slots(REPO_ROOT, umbrella_name)
+    if len(umbrella_slots) != 1:
+        raise Failure("expected one kit slot for %s, found %s" % (umbrella_name, umbrella_slots))
+    umbrella_slot = "%s/%s" % (KIT_REL, umbrella_slots[0][0])
+    chart_slot = "%s/%s" % (KIT_REL, kit_slots(REPO_ROOT, chart)[0][0])
+    root = tempfile.mkdtemp(prefix="lockstep-writer-%s-" % name, dir=base)
+    problems = []
+    try:
+        work, _ = build_scratch(root)
+        baseline = sh("git rev-parse HEAD", cwd=work).stdout.strip()
+
+        def commit_on(tip, message, edit):
+            sh("git reset -q --hard %s" % tip, cwd=work)
+            edit()
+            sh('git add -A && git commit -q -m "%s"' % message, cwd=work)
+            return sh("git rev-parse HEAD", cwd=work).stdout.strip()
+
+        def set_line(rel, regex, line):
+            f = os.path.join(work, rel)
+            txt = open(f).read()
+            new = re.sub(regex, line, txt, count=1, flags=re.M)
+            if new == txt:
+                raise Failure("could not rewrite %r in %s" % (regex, rel))
+            open(f, "w").write(new)
+
+        def chart_version(tree_path, v):
+            return lambda: set_line("%s/chart/Chart.yaml" % tree_path, r"^version:.*$", "version: %s" % v)
+
+        def kit_pin(rel, v):
+            return lambda: set_line(rel, r"^      version:.*$", "      version: %s" % v)
+
+        def seed_pin(v):
+            return lambda: sh("python3 scripts/sync-catalog-seed-pin.py %s %s --quiet" % (chart, v), cwd=work)
+
+        def no_pin_change():
+            with open(os.path.join(work, "README.md"), "a") as fh:
+                fh.write("\n<!-- a change that touches no pin, injected by the lockstep writer guard -->\n")
+
+        def expect(label, cmd, rc, text):
+            r = sh(cmd, cwd=work, check=False)
+            out = (r.stdout or "").strip()
+            ok = r.returncode == rc and text in out
+            print("    %s %s: exit %d" % ("ok  " if ok else "FAIL", label, r.returncode))
+            if not ok:
+                problems.append("%s: `%s` exits %d; it must exit %d and print %r:\n%s"
+                                % (label, cmd, r.returncode, rc, text, out[-2000:]))
+
+        gate = "python3 scripts/check-umbrella-republish-gate.py --ref HEAD"
+
+        # Window 1: the umbrella's chart version moved; its kit pin follows after the publish.
+        umbrella_next = bump_patch(umbrella_cur)
+        v = commit_on(baseline, "deploy(%s): bump chart version -> %s (simulated)" % (umbrella_name, umbrella_next),
+                      chart_version(UMBRELLA_PATH, umbrella_next))
+        print("    window 1: main holds %s %s, its kit pin not yet moved" % (umbrella_name, umbrella_next))
+        expect("main itself: the full pin audit sees the drift",
+               "bash scripts/check-bootstrap-kit-pin-sync.sh", 1, "DRIFT %s" % umbrella_name)
+        commit_on(v, "change: touches no pin (simulated pull request)", no_pin_change)
+        expect("a change that touches no pin: the drift is inherited",
+               pin_audit_cmd("HEAD^1"), 0, "INHERITED %s" % umbrella_name)
+        commit_on(v, "change: moves a chart version by hand", chart_version(path, bump_patch(cur)))
+        expect("a change that moves a chart version by hand, as a writer that leaves the pin behind",
+               pin_audit_cmd("HEAD^1"), 1, "DRIFT %s" % chart)
+        commit_on(v, "change: moves a kit pin by hand", kit_pin(chart_slot, bump_patch(cur)))
+        expect("a change that moves a kit pin by hand", pin_audit_cmd("HEAD^1"), 1, "DRIFT %s" % chart)
+        commit_on(v, "change: moves the umbrella kit pin by hand", kit_pin(umbrella_slot, bump_patch(umbrella_next)))
+        expect("a change that moves the umbrella kit pin to another version",
+               pin_audit_cmd("HEAD^1"), 1, "DRIFT %s" % umbrella_name)
+
+        # Window 2: a leaf release moved its catalogue pins; the umbrella release follows.
+        seed_next = bump_patch(cur)
+        leaf = commit_on(baseline, "deploy(%s): lockstep -> %s (simulated)" % (chart, seed_next), seed_pin(seed_next))
+        print("    window 2: main holds the catalogue pins of %s at %s, the umbrella not yet released"
+              % (chart, seed_next))
+        expect("main itself: the republish gate sees the catalogue move", gate, 1, "FAIL: umbrella-republish gate")
+        commit_on(leaf, "change: touches no pin (simulated pull request)", no_pin_change)
+        expect("a change that touches no pin: the gate failure is inherited",
+               gate + " --base HEAD^1", 0, "INHERITED")
+        commit_on(leaf, "change: moves a catalogue pin by hand", seed_pin(bump_patch(seed_next)))
+        expect("a change that moves a catalogue pin by hand",
+               gate + " --base HEAD^1", 1, "FAIL: umbrella-republish gate")
+
+        if problems:
+            print("%s  FAIL case %s — a change was judged on main's own drift, or a pin moved by "
+                  "hand was not seen%s" % (RED, name, RESET))
+            for p in problems:
+                print("    ✗ " + p)
+            return False
+        print("%s  PASS case %s — a change that touches no pin passes on a main between two "
+              "commits of a release, and a pin or version moved by hand fails%s" % (GREEN, name, RESET))
+        return True
+    finally:
+        if keep:
+            print("    scratch kept at %s" % root)
+        else:
+            shutil.rmtree(root, ignore_errors=True)
+
+
 def run_case(name, case, keep, skip_slow, base):
+    if case.get("kind") == "mid-release":
+        return run_midrelease_case(name, case, keep, base)
     if case.get("kind") == "stale":
         return run_stale_case(name, case, keep, base)
     if case.get("kind") == "umbrella-follow":
@@ -858,6 +999,7 @@ def run_case(name, case, keep, skip_slow, base):
     root = tempfile.mkdtemp(prefix="lockstep-writer-%s-" % name, dir=base)
     try:
         work, remote = build_scratch(root)
+        baseline = sh("git rev-parse HEAD", cwd=work).stdout.strip()
 
         if case["do_bump"]:
             # Simulate the deploy-bot: it writes site 1 and NOTHING else, then
@@ -931,7 +1073,7 @@ def run_case(name, case, keep, skip_slow, base):
                 if f not in last:
                     problems.append("the writer's last commit does not carry %s: the sites moved in more than one commit" % f)
         elif not case.get("change"):
-            assert_repo_gates(pushed, problems, skip_slow)
+            assert_repo_gates(pushed, problems, skip_slow, baseline)
 
         head = sh("git log -1 --format=%s", cwd=pushed).stdout.strip()
         files = sh("git show --name-only --format= HEAD", cwd=pushed).stdout.strip()
