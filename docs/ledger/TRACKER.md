@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T05:30:05Z` |
+| Last refreshed | `2026-11-13T05:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T05:38 | [#7325](https://github.com/openova-io/openova/pull/7325) | #7087 | docs(ledger): plan update |
+| 2026-11-13T05:37 | [#7324](https://github.com/openova-io/openova/pull/7324) | #7087 | docs(sessions): hw307 browser walk of six north-star screen  |
 | 2026-11-13T05:19 | [#7321](https://github.com/openova-io/openova/pull/7321) | #7087 | docs(ledger): plan update |
 | 2026-11-13T05:25 | [#7320](https://github.com/openova-io/openova/pull/7320) | #7186 | fix(billing): order capture never prices from a second list; |
 | 2026-11-13T05:25 | [#7319](https://github.com/openova-io/openova/pull/7319) | #7265 | refactor(api): read the ClusterMesh state, and a mode switch |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-13T02:23 | [#7278](https://github.com/openova-io/openova/pull/7278) | #7261 | feat(compliance): add the compliance types, the model loader |
 | 2026-11-13T02:23 | [#7277](https://github.com/openova-io/openova/pull/7277) | #7262 | refactor(kit): wire slot 27a to the policy values document a |
 | 2026-11-13T02:18 | [#7275](https://github.com/openova-io/openova/pull/7275) | #7268 | feat(contracts): publish contract C5, the variables document |
-| 2026-11-13T02:19 | [#7273](https://github.com/openova-io/openova/pull/7273) | #7269 | fix(console): the Catalog page shows listed Blueprints and r |
-| 2026-11-13T02:11 | [#7272](https://github.com/openova-io/openova/pull/7272) | #7267 | chore(ci): guard that the hand-over machinery only shrinks ( |
 
 ---
 
