@@ -67,7 +67,7 @@ export interface CommerceAddOn {
   price_baisa?: number
   included: boolean
   category: string
-  /** An application the Sovereign installs (CrowdSec, Trivy, Loki, WAF)
+  /** An application the Sovereign installs (CrowdSec, Trivy, Loki)
    *  rather than a commercial entitlement (#6971). */
   app?: boolean
 }
