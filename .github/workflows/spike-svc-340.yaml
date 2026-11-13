@@ -1,0 +1,137 @@
+# Spike SVC-340 (lab test, never merged): can the credentials of a cache be
+# rotated without a cloud console, through the OpenBao Valkey plug-in or
+# through the cloud API resource?
+#
+# Runs only on a push to the spike branch. Everything happens in containers
+# inside this job: no cloud account, no secret, no cluster outside CI.
+# Part 1 (plugin-path) measures the plug-in against cache stand-ins. Part 2
+# (cloud-api-path) asks the pinned cloud provider, with fake credentials and
+# no network path to a cloud, how it changes a cache password.
+name: spike-svc-340
+
+on:
+  push:
+    branches: [spike/SVC-340]
+
+permissions:
+  contents: read
+
+jobs:
+  plugin-path:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      HELM_VERSION: v3.16.3
+      BAO_REPO: quay.io/openbao/openbao
+      BAO_PROBE_TAGS: "2.1.0 2.2.0 2.3.1 2.4.0 2.5.0 2.6.5 2.7.2"
+      UPSTREAM_VALKEY_IMAGE: valkey/valkey:8.1.3
+      OUT: ${{ github.workspace }}/out
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Read the platform pins
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUT"
+          OB_CHART=$(yq '.dependencies[] | select(.name == "openbao") | .version' platform/openbao/chart/Chart.yaml)
+          helm repo add openbao https://openbao.github.io/openbao-helm >/dev/null
+          helm show values openbao/openbao --version "$OB_CHART" > "$OUT/openbao-chart-values.yaml"
+          TAG=$(yq '.server.image.tag' "$OUT/openbao-chart-values.yaml")
+          OVR=$(yq '.openbao.server.image.tag // ""' platform/openbao/chart/values.yaml)
+          if [ -n "$OVR" ]; then TAG=$OVR; fi
+          VK_REPO=$(yq '.valkey.image.repository' platform/valkey/chart/values.yaml | sed 's#^proxy-dockerhub/##')
+          VK_TAG=$(yq '.valkey.image.tag' platform/valkey/chart/values.yaml)
+          echo "bp-openbao upstream chart: $OB_CHART; server image tag: $TAG (override: '${OVR}')"
+          echo "bp-valkey image: $VK_REPO:$VK_TAG"
+          echo "CHART_BAO_TAG=$TAG" >> "$GITHUB_ENV"
+          echo "BP_VALKEY_IMAGE=docker.io/$VK_REPO:$VK_TAG" >> "$GITHUB_ENV"
+
+      - name: Tool versions
+        run: |
+          docker version --format '{{.Server.Version}}'
+          helm version --short
+          jq --version
+          yq --version
+
+      - name: Run the plug-in experiment
+        run: bash tests/spikes/SVC-340/plugin_path.sh
+
+      - name: Results
+        if: always()
+        run: |
+          column -t -s $'\t' "$OUT/results.tsv" || cat "$OUT/results.tsv"
+          {
+            echo "## SVC-340 plug-in path"
+            echo
+            echo "| target | observation | value | detail |"
+            echo "|---|---|---|---|"
+            awk -F'\t' '{gsub(/\|/,"/",$4); printf "| %s | %s | %s | %s |\n", $1, $2, $3, $4}' "$OUT/results.tsv"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Container logs
+        if: always()
+        run: |
+          for c in $(docker ps -a --format '{{.Names}}'); do
+            echo "::group::$c"; docker logs --tail 30 "$c" 2>&1; echo "::endgroup::"
+          done
+
+      - name: Keep the results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: svc-340-plugin-path
+          path: |
+            out/results.tsv
+            out/plugins-database-*.txt
+            out/openbao-chart-values.yaml
+
+  cloud-api-path:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      OUT: ${{ github.workspace }}/out
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.8.5
+          tofu_wrapper: false
+
+      - name: Tool versions
+        run: |
+          tofu version
+          jq --version
+
+      - name: Run the cloud API experiment
+        run: bash tests/spikes/SVC-340/cloud_api.sh
+
+      - name: Results
+        if: always()
+        run: |
+          column -t -s $'\t' "$OUT/cloud-results.tsv" || cat "$OUT/cloud-results.tsv"
+          {
+            echo "## SVC-340 cloud API path"
+            echo
+            echo "| subject | observation | value | detail |"
+            echo "|---|---|---|---|"
+            awk -F'\t' '{gsub(/\|/,"/",$4); printf "| %s | %s | %s | %s |\n", $1, $2, $3, $4}' "$OUT/cloud-results.tsv"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: svc-340-cloud-api-path
+          path: |
+            out/cloud-results.tsv
+            out/tf-huaweicloud_dcs_*/main.tf
+            out/tf-huaweicloud_dcs_*/*.log
