@@ -1,0 +1,68 @@
+# CTL-055 lab test (throwaway, never merged): does Gitea's native push
+# mirror, with sync on commit, carry every commit from one Gitea to a second
+# Gitea that shares its database but keeps its own repository disk?
+# Runs only on pushes to spike/CTL-055.
+#
+# Everything runs in containers on the runner: one Postgres 16, two Giteas of
+# the version that chart gitea-10.5.0 ships (the platform's pin), each with
+# its own data volume and its own SECRET_KEY. The outcome rule is written at
+# the top of tests/spikes/CTL-055/measure.sh.
+name: spike-ctl-055
+
+on:
+  push:
+    branches: [spike/CTL-055]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spike-ctl-055
+  cancel-in-progress: false
+
+jobs:
+  push-mirror:
+    name: push mirror between two Giteas on one database
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Runner facts
+        run: |
+          grep -E '^(NAME|VERSION)=' /etc/os-release
+          uname -r
+          nproc
+          free -m | head -2
+          docker version --format 'docker server {{.Server.Version}}'
+          helm version --short
+          jq --version
+          git --version
+          echo "ImageOS=${ImageOS:-} ImageVersion=${ImageVersion:-}"
+
+      - name: Measure
+        env:
+          OUT_DIR: ${{ github.workspace }}/out
+          CHART_VERSION: "10.5.0"
+          PG_IMAGE: postgres:16
+        run: bash tests/spikes/CTL-055/measure.sh
+
+      - name: Result
+        if: always()
+        run: |
+          echo "===== CTL-055 results ====="
+          cat out/results.txt || true
+          {
+            echo '### CTL-055 results'
+            echo '```'
+            cat out/results.txt || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ctl-055-out
+          path: out/
+          retention-days: 30
