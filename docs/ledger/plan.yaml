@@ -1316,7 +1316,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [FND-080, FND-091]
-  after: [NET-033, FND-120, CLD-021, CLD-022, NET-042, SVC-060, CTL-030]
+  after: [NET-033, FND-120, CLD-021, CLD-022, CLD-141, NET-042, SVC-060, CTL-030]
   touches:
   - scripts/sovereign-dod-verify.sh
   - scripts/sovereign-3x-zero-touch-cycle.sh
@@ -5301,21 +5301,33 @@ packages:
   lane: SUBSTRATE
   depends_on: [CLD-055]
   after: []
-  touches: []
+  touches:
+  - clusters/_template/bootstrap-kit/50-cluster-autoscaler.yaml
+  - clusters/_template/bootstrap-kit/55-bp-hcloud-ccm.yaml
+  - clusters/_template/bootstrap-kit/55a-bp-hcloud-csi.yaml
+  - clusters/_template/bootstrap-kit/55b-bp-huawei-evs-csi.yaml
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "git grep -l 'kustomize.toolkit.fluxcd.io/prune' -- clusters/_template/bootstrap-kit | wc -l"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "python3 -c 'import glob, yaml\nk = \"clusters/_template/bootstrap-kit/\"\nkey = \"kustomize.toolkit.fluxcd.io/prune\"\nwant = {\"50-cluster-autoscaler.yaml\": \"bp-cluster-autoscaler-hcloud\", \"55-bp-hcloud-ccm.yaml\": \"bp-hcloud-ccm\", \"55a-bp-hcloud-csi.yaml\": \"bp-hcloud-csi\", \"55b-bp-huawei-evs-csi.yaml\": \"bp-huawei-evs-csi\"}\nfor f, name in sorted(want.items()):\n    docs = [d for d in yaml.safe_load_all(open(k + f)) if d]\n    hrs = [d for d in docs if d.get(\"kind\") == \"HelmRelease\"]\n    assert [h[\"metadata\"][\"name\"] for h in hrs] == [name], (f, [h[\"metadata\"][\"name\"] for h in hrs])\n    assert hrs[0][\"metadata\"].get(\"annotations\") == {key: \"disabled\"}, (f, hrs[0][\"metadata\"].get(\"annotations\"))\n    assert [d[\"kind\"] for d in docs if key in str(d)] == [\"HelmRelease\"], (f, \"the annotation is on another object of the file\")\nfound = sorted(p[len(k):] for p in glob.glob(k + \"**/*.yaml\", recursive=True) if key in open(p).read())\nassert found == sorted(want), (\"files of the kit that name the annotation\", found)'"
+  - id: A2
+    run: "for f in 50-cluster-autoscaler.yaml 55-bp-hcloud-ccm.yaml 55a-bp-hcloud-csi.yaml 55b-bp-huawei-evs-csi.yaml; do test \"$(git diff origin/main -- \"clusters/_template/bootstrap-kit/$f\" | grep -E '^[-+]' | grep -v -E '^(\\+\\+\\+|---) ')\" = \"$(printf '%s\\n' '+  annotations:' '+    kustomize.toolkit.fluxcd.io/prune: disabled')\" || { echo \"the change to $f is not exactly the two annotation lines\"; exit 1; }; done"
+  - id: A3
+    run: "python3 scripts/render-slot-placement.py check > /dev/null && python3 scripts/audit-placement-conformance.py rendered > /dev/null && bash scripts/check-kit-render-equivalence.sh --print > /dev/null && python3 scripts/check-provider-leaks.py --check && python3 scripts/generators/slots.py --check"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Prune-disabled annotation on four HelmReleases
+  delivers: The HelmRelease objects bp-cluster-autoscaler-hcloud, bp-hcloud-ccm, bp-hcloud-csi and bp-huawei-evs-csi in clusters/_template/bootstrap-kit carry the annotation kustomize.toolkit.fluxcd.io/prune set to disabled, and nothing else in the kit changes.
 - id: CLD-142
   title: Neutral storage gate
   area: CLD
@@ -7141,7 +7153,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [SOV-150, SOV-130, SOV-110, SOV-131, SOV-133]
-  after: [CLD-113, CLD-142, SOV-040, SOV-160, SVC-060, CMP-036]
+  after: [CLD-113, CLD-141, CLD-142, SOV-040, SOV-160, SVC-060, CMP-036]
   touches:
   - clusters/_template/bootstrap-kit/*.yaml
   - clusters/_template/bootstrap-kit/06a-bp-self-sovereign-cutover.yaml
@@ -10982,7 +10994,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271]
-  after: [FND-011, FND-014, FND-018, FND-021, FND-022, FND-023, FND-031, FND-032, FND-033, FND-034, FND-040, FND-052, FND-053, FND-054, FND-055, FND-091, FND-092, FND-093, FND-094, FND-095, FND-097, FND-098, FND-101, FND-102, FND-103, FND-105, FND-110, FND-171, CLD-010, CLD-021, CLD-022, CLD-040, CLD-063, CLD-075, CLD-080, CLD-113, CLD-142, SOV-030, SOV-035, SOV-040, SOV-050, SOV-110, SOV-150, SEC-020, SEC-030, SEC-125, NET-030, NET-033, NET-041, NET-050, NET-090, NET-100, SVC-020, SVC-060, SVC-125, CTL-010, CTL-020, CTL-025, CTL-030, CTL-035, CTL-044, CTL-150, CTL-160, CTL-201, CTL-240, CMP-012, CMP-014, CMP-036, BSS-050, INF-010, PRD-030, PRD-101, PRD-102, PRD-106]
+  after: [FND-011, FND-014, FND-018, FND-021, FND-022, FND-023, FND-031, FND-032, FND-033, FND-034, FND-040, FND-052, FND-053, FND-054, FND-055, FND-091, FND-092, FND-093, FND-094, FND-095, FND-097, FND-098, FND-101, FND-102, FND-103, FND-105, FND-110, FND-171, CLD-010, CLD-021, CLD-022, CLD-040, CLD-063, CLD-075, CLD-080, CLD-113, CLD-142, SOV-030, SOV-035, SOV-040, SOV-050, SOV-110, SOV-150, SEC-020, SEC-030, SEC-125, NET-030, NET-033, NET-041, NET-050, NET-090, NET-100, SVC-020, SVC-060, SVC-125, CTL-010, CTL-020, CTL-025, CTL-030, CTL-035, CTL-044, CTL-045, CTL-150, CTL-160, CTL-201, CTL-240, CMP-012, CMP-014, CMP-036, BSS-050, INF-010, PRD-030, PRD-101, PRD-102, PRD-106]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/26-image-signature.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -13378,7 +13390,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [NET-227, SOV-240]
-  after: [FND-011, CLD-113, SEC-040, NET-010, NET-020, NET-100, SVC-060, CMP-036]
+  after: [FND-011, CLD-113, CLD-141, SEC-040, NET-010, NET-020, NET-100, SVC-060, CMP-036]
   touches:
   - platform/self-sovereign-cutover/chart/templates/00-mgmt-isolation-carveout.yaml
   - platform/self-sovereign-cutover/chart/values.yaml
@@ -13676,7 +13688,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [NET-323]
-  after: [CLD-113, CLD-142, SOV-130, SOV-160, SVC-060, CMP-036]
+  after: [CLD-113, CLD-141, CLD-142, SOV-130, SOV-160, SVC-060, CMP-036]
   touches:
   - clusters/_template/
   resources: []
@@ -13756,7 +13768,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [NET-324]
-  after: [CLD-113, CLD-142, SOV-160, SVC-060, CMP-036]
+  after: [CLD-113, CLD-141, CLD-142, SOV-160, SVC-060, CMP-036]
   touches:
   - clusters/_template/bootstrap-kit/
   resources: []
@@ -13782,7 +13794,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [NET-322, NET-327]
-  after: [FND-014, FND-093, FND-094, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-113, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, NET-125, SVC-030, SVC-060, CTL-030, CTL-035, CTL-040, CTL-160, CTL-240, CMP-016, CMP-030]
+  after: [FND-014, FND-093, FND-094, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-113, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, NET-125, SVC-030, SVC-060, CTL-030, CTL-035, CTL-040, CTL-045, CTL-160, CTL-240, CMP-016, CMP-030]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/
   - products/catalyst/bootstrap/api/
@@ -13993,7 +14005,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-011, SVC-020]
-  after: [FND-014, FND-054, FND-091, FND-093, FND-094, FND-095, FND-097, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-070, CLD-080, CLD-113, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-160, SOV-220, SOV-320, SEC-080, SEC-110, NET-030, NET-041, NET-050, NET-070, NET-072, NET-125, SVC-030, SVC-060, CTL-030, CTL-035, CTL-040, CTL-150, CTL-160, CTL-240, CMP-016, CMP-030, BSS-020, PRD-010, PRD-101, PRD-102, PRD-103, PRD-104, PRD-105, PRD-502]
+  after: [FND-014, FND-054, FND-091, FND-093, FND-094, FND-095, FND-097, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-070, CLD-080, CLD-113, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-160, SOV-220, SOV-320, SEC-080, SEC-110, NET-030, NET-041, NET-050, NET-070, NET-072, NET-125, SVC-030, SVC-060, CTL-030, CTL-035, CTL-040, CTL-045, CTL-150, CTL-160, CTL-240, CMP-016, CMP-030, BSS-020, PRD-010, PRD-101, PRD-102, PRD-103, PRD-104, PRD-105, PRD-502]
   touches:
   - platform/*/blueprint.yaml
   - products/*/blueprint.yaml
@@ -15591,10 +15603,11 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-035]
-  after: []
+  after: [CTL-045]
   touches:
   - products/catalyst/bootstrap/api/internal/jobauth/**
   - products/catalyst/bootstrap/api/cmd/api/routes*.go
+  - docs/contracts/C9-mutating-routes.yaml
   resources: []
   flips: []
   implements: []
@@ -15618,11 +15631,12 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-035]
-  after: []
+  after: [CTL-045]
   touches:
   - products/catalyst/bootstrap/api/internal/topologyread/**
   - products/catalyst/bootstrap/api/cmd/api/routes*.go
   - tests/acceptance/sovereign/internal/suite/discover.go
+  - docs/contracts/C9-mutating-routes.yaml
   resources: []
   flips: []
   implements: []
@@ -15702,7 +15716,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [FND-011, CTL-040]
-  after: [CLD-113, CLD-142, SOV-160, SVC-060, CMP-036]
+  after: [CLD-113, CLD-141, CLD-142, SOV-160, SVC-060, CMP-036]
   touches:
   - clusters/_template/bootstrap-kit/*.yaml
   resources: []
@@ -15773,29 +15787,48 @@ packages:
   epic: null
   type: doc
   wave: W0
-  size: S
+  size: M
   lane: CONTRACTS
   depends_on: [CTL-030, CTL-035, CTL-044]
   after: []
   touches:
   - docs/contracts/C9-mutating-routes.yaml
-  - products/catalyst/bootstrap/api/cmd/api/routes_contract_test.go
-  - .github/workflows/check-contracts-ctl.yaml
+  - docs/contracts/README.md
   - scripts/generators/mutating-routes.py
+  - scripts/baselines/mutating-routes.json
+  - products/catalyst/bootstrap/api/cmd/api/routes_contract_test.go
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls docs/contracts/C9-mutating-routes.yaml scripts/generators/mutating-routes.py scripts/baselines/mutating-routes.json products/catalyst/bootstrap/api/cmd/api/routes_contract_test.go 2>/dev/null | wc -l"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "printf '%s\\n' '83a9c8a4f62686cdf51f8579f077451e132d51f4f91ff998ef847d6e9056abb1  docs/contracts/C9-mutating-routes.yaml' '25cf711dabfc2c898089991bb9365b76e5110a7a6ea9d27d1ebc9ddbf0e7140b  scripts/generators/mutating-routes.py' '18eebf72d60dbd9686a5f062d82bad5e54c349fda96eec906651feefccd63afe  scripts/baselines/mutating-routes.json' '88b0f6c1a49f304e9971421be4e11f76d7ffc76fc7785bea627f2dacea4897ea  products/catalyst/bootstrap/api/cmd/api/routes_contract_test.go' | sha256sum --check --quiet"
+  - id: A2
+    run: "python3 scripts/generators/mutating-routes.py --self-test"
+  - id: A3
+    run: "out=\"$(python3 scripts/generators/mutating-routes.py --check)\"; grep -qx 'routes=314' <<<\"$out\"; grep -qx 'open_cluster_writers=40' <<<\"$out\""
+  - id: A4
+    run: "cd products/catalyst/bootstrap/api && go test -count=1 -v -run '^(TestMutatingRoutesContract|TestRoutesGolden)$' ./cmd/api/ | grep -c '^--- PASS: Test' | grep -qx 2"
+  - id: A5
+    run: "f=core/services/notification/handlers/zz_c9_probe.go; trap 'rm -f \"$f\"' EXIT; printf 'package handlers\\n\\nfunc c9Probe(mux *http.ServeMux) {\\n\\tmux.HandleFunc(\"POST /notification/c9-probe\", nil)\\n}\\n' > \"$f\"; code=0; out=\"$(python3 scripts/generators/mutating-routes.py --check)\" || code=$?; test \"$code\" = 1; grep -qx 'FAIL rule 4: notification POST /notification/c9-probe is registered in the code and has no entry' <<<\"$out\""
+  - id: A6
+    run: "test \"$(grep -c '^| C[1-9] ' docs/contracts/README.md)\" = 9 && grep -q -F 'and on every change to catalyst-api by the test `TestMutatingRoutesContract`.' docs/contracts/README.md && grep -q -F 'Its rules are written at the head of `scripts/generators/mutating-routes.py`.' docs/contracts/README.md"
+  - id: A7
+    run: "python3 scripts/check-api-structure.py"
+  - id: A8
+    run: "python3 scripts/check-repo-hygiene.py paths"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'Contract file C9 with its two checks (guard G7): every mutating route classified. The tool is scripts/generators/mutating-routes.py with --check. The operation values are a list inside the contract file, so a package that adds an operation edits the file only. C3 and C4 moved to CTL-044.'
+  delivers: Contract C9 lists every route and tool of the platform that changes state, with the class of its write today, where its effect goes in the target and the package that moves it; a generator keeps the file sorted and fails when a registered route has no entry, an entry has no route, or the number of open cluster writers changes without its baseline, and a Go test of catalyst-api checks the table against the router itself.
 - id: CTL-050
   title: 'Spike: push trigger, batch commit and lock on the pinned versions'
   area: CTL
@@ -16113,7 +16146,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-035, CTL-050, CTL-120, FND-032, FND-120, SEC-095, SEC-200, SEC-211]
-  after: [FND-011, CLD-010, SOV-160, NET-010, NET-020, NET-060, BSS-030]
+  after: [FND-011, CLD-010, SOV-160, NET-010, NET-020, NET-060, CTL-045, BSS-030]
   touches:
   - clusters/_template/sovereign-region/base/receiver.yaml
   - clusters/_template/sovereign-region/base/kustomization.yaml
@@ -16304,7 +16337,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-122, CTL-130, CTL-160, FND-032, FND-130]
-  after: [CLD-010, CLD-113, NET-010, NET-020, NET-060, CTL-020, CTL-150, CMP-012, BSS-030, BSS-050, INF-010, PRD-030]
+  after: [CLD-010, CLD-113, NET-010, NET-020, NET-060, CTL-020, CTL-045, CTL-150, CMP-012, BSS-030, BSS-050, INF-010, PRD-030]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/handler.go
   - products/catalyst/bootstrap/api/internal/handler/applications.go
@@ -16322,6 +16355,7 @@ packages:
   - tests/acceptance/sovereign/internal/suite/check_ctl_git_wins.go
   - tests/acceptance/sovereign/internal/suite/check_ctl_intent_test.go
   - docs/ledger/gates.yaml
+  - scripts/baselines/mutating-routes.json
   resources: []
   flips: [CTL-G02, CTL-G03]
   implements: []
@@ -16483,7 +16517,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-120, CTL-162, FND-032]
-  after: [CLD-010, NET-010, NET-020, NET-060, BSS-030]
+  after: [CLD-010, NET-010, NET-020, NET-060, CTL-045, BSS-030]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/organization_provisioning.go
   - org_tenant_org_cr.go
@@ -16493,6 +16527,7 @@ packages:
   - tests/acceptance/sovereign/internal/suite/check_ctl_organization_from_git.go
   - tests/acceptance/sovereign/internal/suite/check_ctl_organization_from_git_test.go
   - docs/ledger/gates.yaml
+  - scripts/baselines/mutating-routes.json
   resources: []
   flips: [CTL-G09]
   implements: []
@@ -16516,7 +16551,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-180, FND-032]
-  after: [CLD-010, NET-010, NET-020, NET-060, BSS-030]
+  after: [CLD-010, NET-010, NET-020, NET-060, CTL-045, BSS-030]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/org_suspend.go
   - org_suspend_internal.go
@@ -16526,6 +16561,7 @@ packages:
   - tests/acceptance/sovereign/internal/suite/check_ctl_decision_by_commit.go
   - tests/acceptance/sovereign/internal/suite/check_ctl_decision_by_commit_test.go
   - docs/ledger/gates.yaml
+  - scripts/baselines/mutating-routes.json
   resources: []
   flips: [CTL-G06]
   implements: []
@@ -16702,7 +16738,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-204]
-  after: []
+  after: [CTL-045]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/organization_provisioning.go
   - organization_funnel_apps.go
@@ -16710,6 +16746,7 @@ packages:
   - core/services/provisioning/handlers/**
   - core/services/provisioning/main.go
   - docs/contracts/C9-mutating-routes.yaml
+  - scripts/baselines/mutating-routes.json
   resources: []
   flips: []
   implements: []
@@ -16733,7 +16770,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-205]
-  after: [CLD-113, SEC-071, NET-042, CTL-020, CTL-040, CTL-150, CMP-012, BSS-050, INF-010, PRD-030]
+  after: [CLD-113, SEC-071, NET-042, CTL-020, CTL-040, CTL-045, CTL-150, CMP-012, BSS-050, INF-010, PRD-030]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/organization_gitops.go
   - organization_provisioning.go
@@ -16824,7 +16861,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-120, CTL-130, CTL-162, FND-032]
-  after: [CLD-010, CLD-113, NET-010, NET-020, NET-060, CTL-020, CTL-150, CMP-012, BSS-030, BSS-050, INF-010, PRD-030]
+  after: [CLD-010, CLD-113, NET-010, NET-020, NET-060, CTL-020, CTL-045, CTL-150, CMP-012, BSS-030, BSS-050, INF-010, PRD-030]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/user_access.go
   - rbac_assign.go
@@ -16835,6 +16872,7 @@ packages:
   - tests/acceptance/sovereign/internal/suite/check_ctl_access_from_git.go
   - tests/acceptance/sovereign/internal/suite/check_ctl_access_from_git_test.go
   - docs/ledger/gates.yaml
+  - scripts/baselines/mutating-routes.json
   resources: []
   flips: [CTL-G11]
   implements: []
@@ -16885,13 +16923,14 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CTL-120, CTL-130, CTL-162]
-  after: [CLD-113, SVC-060, CTL-020, CTL-150, CMP-012, BSS-050, INF-010, PRD-030]
+  after: [CLD-113, SVC-060, CTL-020, CTL-045, CTL-150, CMP-012, BSS-050, INF-010, PRD-030]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/marketplace_settings.go
   - products/catalyst/bootstrap/api/internal/intent/settings.go
   - clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml
   - docs/contracts/C9-mutating-routes.yaml
   - scripts/baselines/*.json
+  - scripts/baselines/mutating-routes.json
   resources: []
   flips: []
   implements: []
@@ -16915,10 +16954,12 @@ packages:
   size: XS
   lane: CONTROL
   depends_on: [CTL-220]
-  after: []
+  after: [CTL-045]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/console_ui.go
   - products/catalyst/bootstrap/api/internal/intent/settings.go
+  - docs/contracts/C9-mutating-routes.yaml
+  - scripts/baselines/mutating-routes.json
   resources: []
   flips: []
   implements: []
@@ -16942,10 +16983,12 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-120, CTL-130, CTL-162]
-  after: []
+  after: [CTL-045]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/schedules.go
   - products/catalyst/bootstrap/api/internal/intent/schedules.go
+  - docs/contracts/C9-mutating-routes.yaml
+  - scripts/baselines/mutating-routes.json
   resources: []
   flips: []
   implements: []
@@ -16969,7 +17012,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-320]
-  after: [FND-093, FND-095, CLD-021, SOV-035, CTL-010]
+  after: [FND-093, FND-095, CLD-021, SOV-035, CTL-010, CTL-045]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/k8s_resource_actions.go
   - k8s_resource_put_apply.go
@@ -16979,6 +17022,7 @@ packages:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/resources/
   - docs/contracts/C9-mutating-routes.yaml
   - scripts/baselines/direct-cluster-writes.json
+  - scripts/baselines/mutating-routes.json
   resources: []
   flips: []
   implements: []
@@ -17274,7 +17318,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-035]
-  after: [CTL-020]
+  after: [CTL-020, CTL-045]
   touches:
   - products/catalyst/bootstrap/api/internal/jobs/store.go
   - products/catalyst/bootstrap/api/internal/jobs/stream.go
@@ -17282,6 +17326,7 @@ packages:
   - products/catalyst/bootstrap/api/internal/handler/flow_snapshot_local.go
   - jobs.go
   - scripts/baselines/polling.json
+  - docs/contracts/C9-mutating-routes.yaml
   resources: []
   flips: []
   implements: []
@@ -17340,7 +17385,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-035]
-  after: [FND-095, CLD-113, SOV-035, CTL-020, CTL-150, CMP-012, BSS-050, INF-010, PRD-030]
+  after: [FND-095, CLD-113, SOV-035, CTL-020, CTL-045, CTL-150, CMP-012, BSS-050, INF-010, PRD-030]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/sovereign.go
   - applications.go
@@ -17371,7 +17416,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-035]
-  after: [FND-054, FND-095, FND-097, FND-098, FND-099, FND-173, CLD-113, SOV-035, NET-042]
+  after: [FND-054, FND-095, FND-097, FND-098, FND-099, FND-173, CLD-113, SOV-035, NET-042, CTL-045]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/org_consumption.go
   - products/catalyst/bootstrap/api/internal/handler/org_consumption_test.go
@@ -17383,6 +17428,7 @@ packages:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/organizations/BillingModeGate.test.tsx
   - scripts/baselines/api-structure.json
   - docs/ledger/deleted-paths.txt
+  - docs/contracts/C9-mutating-routes.yaml
   resources: []
   flips: []
   implements: []
@@ -20145,7 +20191,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [BSS-070, BSS-S1]
-  after: [CLD-080, CTL-044, BSS-050]
+  after: [CLD-080, CTL-044, CTL-045, BSS-050]
   touches:
   - core/controllers/pkg/offer/**
   - docs/contracts/commerce-offer.schema.json
@@ -20179,7 +20225,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [BSS-101, CTL-035, CTL-110, CTL-120, CTL-160]
-  after: [CLD-010, CLD-080, SEC-030, SEC-040, SEC-080, SEC-120, NET-010, NET-020, NET-060]
+  after: [CLD-010, CLD-080, SEC-030, SEC-040, SEC-080, SEC-120, NET-010, NET-020, NET-060, CTL-045]
   touches:
   - products/catalyst/bootstrap/api/internal/intent/offer.go
   - products/catalyst/bootstrap/api/internal/intent/offer_test.go
@@ -20190,6 +20236,7 @@ packages:
   - products/catalyst/bootstrap/api/internal/k8scache/kinds.go
   - tests/acceptance/sovereign/internal/suite/check_bss_offer_served.go
   - docs/ledger/gates.yaml
+  - docs/contracts/C9-mutating-routes.yaml
   resources: []
   flips: [BSS-G03]
   implements: []
@@ -20257,6 +20304,7 @@ packages:
   - products/catalyst/chart/templates/org-services/billing.yaml
   - tests/acceptance/sovereign/internal/suite/check_bss_order_price.go
   - docs/ledger/gates.yaml
+  - docs/contracts/C9-mutating-routes.yaml
   resources: []
   flips: [BSS-G05]
   implements: []
@@ -20334,6 +20382,7 @@ packages:
   - tests/acceptance/sovereign/internal/suite/check_bss_offer_publication.go
   - tests/acceptance/sovereign/internal/engine/client.go
   - docs/ledger/gates.yaml
+  - docs/contracts/C9-mutating-routes.yaml
   resources: []
   flips: [BSS-G06]
   implements: []
@@ -20367,6 +20416,7 @@ packages:
   - products/chargeback/internal/api/packages.go
   - products/chargeback/chart/templates/rbac.yaml
   - scripts/baselines/bss.json
+  - docs/contracts/C9-mutating-routes.yaml
   resources: []
   flips: []
   implements: []
@@ -20508,6 +20558,7 @@ packages:
   - docs/ledger/deleted-paths.txt
   - tests/acceptance/sovereign/internal/suite/check_bss_suspend_resume.go
   - docs/ledger/gates.yaml
+  - scripts/baselines/mutating-routes.json
   resources: []
   flips: [BSS-G08]
   implements: []
@@ -20601,6 +20652,7 @@ packages:
   - clusters/_template/bootstrap-kit/13f-bp-chargeback.yaml
   - tests/acceptance/sovereign/internal/suite/check_bss_paid_statement.go
   - docs/ledger/gates.yaml
+  - docs/contracts/C9-mutating-routes.yaml
   resources: []
   flips: [BSS-G07]
   implements: []
@@ -20662,7 +20714,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [BSS-121]
-  after: [FND-011]
+  after: [FND-011, CTL-045]
   touches:
   - core/services/billing/store/store.go
   - core/services/billing/handlers/metering.go
@@ -20894,6 +20946,7 @@ packages:
   - products/chargeback/ui/src/pages/**
   - tests/acceptance/sovereign/internal/suite/check_bss_modules.go
   - docs/ledger/gates.yaml
+  - docs/contracts/C9-mutating-routes.yaml
   resources: []
   flips: [BSS-G10]
   implements: []
@@ -20996,6 +21049,7 @@ packages:
   - core/controllers/organization/internal/orgapi/types.go
   - scripts/baselines/bss.json
   - scripts/provider-leak-baseline.tsv
+  - docs/contracts/C9-mutating-routes.yaml
   resources: []
   flips: []
   implements: []
@@ -21028,6 +21082,7 @@ packages:
   - products/chargeback/cmd/seed-history/apply.go
   - tests/acceptance/sovereign/internal/suite/check_bss_bill_file.go
   - docs/ledger/gates.yaml
+  - docs/contracts/C9-mutating-routes.yaml
   resources: []
   flips: [BSS-G11]
   implements: []
@@ -21094,6 +21149,7 @@ packages:
   - products/chargeback/ui/src/pages/**
   - tests/acceptance/sovereign/internal/suite/check_bss_statement_intake.go
   - docs/ledger/gates.yaml
+  - docs/contracts/C9-mutating-routes.yaml
   resources: []
   flips: [BSS-G12]
   implements: []
@@ -21130,6 +21186,7 @@ packages:
   - products/chargeback/cmd/chargeback/main.go
   - tests/acceptance/sovereign/internal/suite/check_bss_uplink.go
   - docs/ledger/gates.yaml
+  - docs/contracts/C9-mutating-routes.yaml
   resources: []
   flips: [BSS-G13]
   implements: []
@@ -26575,7 +26632,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-035, CTL-230]
-  after: [FND-054, FND-095, FND-097, FND-098, FND-099, FND-173, SOV-035, NET-042]
+  after: [FND-054, FND-095, FND-097, FND-098, FND-099, FND-173, SOV-035, NET-042, CTL-045]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/shells_issue.go
   - products/catalyst/bootstrap/api/internal/handler/shells_issue_test.go
