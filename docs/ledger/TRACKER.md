@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T14:00:08Z` |
+| Last refreshed | `2026-11-13T14:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T14:02 | [#7453](https://github.com/openova-io/openova/pull/7453) | #7087 | docs(ledger): plan update |
+| 2026-11-13T14:13 | [#7452](https://github.com/openova-io/openova/pull/7452) | #7451 | refactor(providers): the modules take the variables document |
 | 2026-11-13T13:49 | [#7448](https://github.com/openova-io/openova/pull/7448) | #7087 | docs(ledger): plan update |
 | 2026-11-13T13:51 | [#7447](https://github.com/openova-io/openova/pull/7447) | #7436 | chore: remove one retired chart folder and one dead harness  |
 | 2026-11-13T13:17 | [#7445](https://github.com/openova-io/openova/pull/7445) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-13T11:25 | [#7407](https://github.com/openova-io/openova/pull/7407) | #7087 | docs(ledger): result of the lab test CLD-055 (CLD-055) |
 | 2026-11-13T10:57 | [#7406](https://github.com/openova-io/openova/pull/7406) | #7395 | feat(cloud-init): post back a revocable service-account kube |
 | 2026-11-13T10:41 | [#7405](https://github.com/openova-io/openova/pull/7405) | #7383 | chore(api): remove the 24 infrastructure write routes and th |
-| 2026-11-13T10:40 | [#7404](https://github.com/openova-io/openova/pull/7404) | #7294 | ci: add the network guards G1, G2, G4 to G7 with a baseline  |
-| 2026-11-13T10:39 | [#7403](https://github.com/openova-io/openova/pull/7403) | #7394 | ci: the release writer bumps chart versions; a pull request  |
 
 ---
 
