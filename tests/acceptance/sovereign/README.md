@@ -104,12 +104,15 @@ Region IPs come from `CILIUM_LB_IPAM_CIDRS` unless `ACCEPT_REGION_IPS` is set.
 
 ## What the suite writes, and what it never does
 
-It writes only through the console API: one create, the placement PUTs and one
-delete, plus the WordPress REST writes and the installer form. Two other
-`kubectl exec` calls are made, both on the app's own pods. One is the J2.1
-author setup in the WordPress container. The other runs single read-only
-`SELECT`s on CNPG instances; `PSQLSelect` refuses anything else. The suite
-never runs `kubectl apply`, `patch` or `delete`.
+It writes through the console API: one create, the placement PUTs and one
+delete, plus the WordPress REST writes and the installer form. It writes with
+`kubectl create`, `apply` and `delete` in gate check CMP-G01 only. That check
+creates a namespace `cmp-gate-<run>` of its own in the first region, applies
+one Deployment with zero replicas in it, and deletes that namespace before it
+ends. Two other `kubectl exec` calls are made, both on the app's own pods. One
+is the J2.1 author setup in the WordPress container. The other runs single
+read-only `SELECT`s on CNPG instances; `PSQLSelect` refuses anything else. The
+suite never runs `kubectl patch`.
 
 ## Gate checks
 
@@ -136,8 +139,9 @@ check is run; each is recorded **SKIP**. A `required` check that does not
 PASS fails the run, except a SKIP for `needs` that were not declared. An
 `expected-fail` check never fails the run. `discover` runs no check.
 
-The checks of the suite. Each reads every region; a region that cannot be
-read fails the check. A platform namespace is a namespace without the label
+The checks of the suite. Each FND check reads every region; a region that
+cannot be read fails the check. The two CMP checks read the first region, the
+region the API runs in. A platform namespace is a namespace without the label
 `openova.io/organization`.
 
 | Check | File | It fails when |
@@ -146,6 +150,8 @@ read fails the check. A platform namespace is a namespace without the label
 | FND-G02 Zero touch | `check_zero_touch.go` | A HelmRelease, or a Deployment or DaemonSet of `catalyst-system`, `cnpg-system` or `kube-system`, has a field manager named `kubectl` or `kubectl-…`. A Deployment, DaemonSet or StatefulSet of those namespaces or of `flux-system` has the annotation `kubectl.kubernetes.io/restartedAt` on its pod template. The clusters are looked at twice: before the journeys (steps `FND-G02.start.*`) and when the checks run. |
 | FND-G03 Nodes | `check_nodes.go` | The Ready nodes of a region differ from `--nodes-requested`, in either direction, or the run did not say the number. |
 | FND-G04 Releases and pods | `check_releases.go` | A HelmRelease that is not suspended is not `Ready=True`, or is stalled. A container of a platform namespace is in `CrashLoopBackOff`, or has more than 3 restarts. |
+| CMP-G01 The score moves by push | `check_compliance_push.go` | The scorecard of the Sovereign is empty. No frame of the compliance stream names the seed within 120 seconds. The Sovereign score does not count the seed, or the violations do not list it. The violations still list the seed 120 seconds after it was deleted. The seed is the Deployment `cmp-bad` with zero replicas in a namespace `cmp-gate-<run>` of its own; the check applies it with `kubectl` and deletes the namespace before it ends. It makes no request on a timer: it reads a route again only after a frame arrived. |
+| CMP-G02 The shown mode is the engine's mode | `check_compliance_mode.go` | A policy that `GET /api/v1/sovereigns/{id}/compliance/policies` lists shows another mode than its engine object carries, or has no engine object. The engine object is the `ClusterPolicy` of that name, or the `ValidatingPolicy` when there is none. `enforcing` and `enforce` are the engine's enforce; `permissive` and `audit` are its audit. A policy of source `evaluator` without an engine object is not compared. |
 
 FND-G02 also asserts that the deployment record shows no retry call. The
 suite has no source for that yet, so the step is recorded **SKIP** and the

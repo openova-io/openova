@@ -772,23 +772,25 @@ checks:
 - id: CMP-G01
   title: The score moves by push
   owner: CMP
-  state: not-built
+  state: expected-fail
   runs_in: [local, cloud]
   destructive: false
   needs: []
   proof: running
   asserts: The score moves by push
+  implementation: tests/acceptance/sovereign/internal/suite/check_compliance_push.go
   implemented_by: CMP-010
   delivered_by: CMP-020
 - id: CMP-G02
   title: The shown mode is the engine's mode
   owner: CMP
-  state: not-built
+  state: expected-fail
   runs_in: [local, cloud]
   destructive: false
   needs: []
   proof: running
   asserts: The shown mode is the engine's mode
+  implementation: tests/acceptance/sovereign/internal/suite/check_compliance_mode.go
   implemented_by: CMP-010
   delivered_by: CMP-020
 - id: CMP-G03
