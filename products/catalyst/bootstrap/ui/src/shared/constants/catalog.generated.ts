@@ -4209,7 +4209,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.13",
+    "version": "0.1.14",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-cilium"
