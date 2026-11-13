@@ -80,6 +80,50 @@ variables {
   obs_bucket_name     = "catalyst-t99-omani-works-deadbeef"
   ssh_public_key      = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakeKeyForTest test@bastion"
   parent_domains_yaml = ""
+
+  # SOV-131: the variables document (contract C5); HANDOVER_AUTO is "false"
+  # so that variables_handover_auto_reaches_cloud_init sees where it goes.
+  variables = {
+    SOVEREIGN_MODE                     = "sovereign"
+    SOVEREIGN_CONSUME                  = "origin"
+    HANDOVER_AUTO                      = "false"
+    HANDOVER_HOLD_SECONDS              = "600"
+    REGISTRY_HOST                      = "registry.parent.example.test"
+    REGISTRY_SCHEME                    = "https"
+    LOCAL_REGISTRY_HOST                = "registry.sov.example.test"
+    ORIGIN_REGISTRY_HOST               = "registry.parent.example.test"
+    ORIGIN_REGISTRY_SCHEME             = "https"
+    ORIGIN_REGISTRY_CA_B64             = ""
+    ORIGIN_PROXY_ENDPOINTS_JSON        = "{}"
+    REGISTRY_PULL_SECRET               = "ghcr-pull"
+    REGISTRY_PATH_CHARTS               = "openova-io"
+    REGISTRY_PATH_RELEASE              = "openova-io/release"
+    REGISTRY_PATH_PROVIDER_PACKS       = "openova-io/provider-packs"
+    REGISTRY_PATH_XPKG                 = "proxy-xpkg"
+    REGISTRY_PATH_TOFU_PROVIDERS       = "tofu-providers"
+    REGISTRY_PATH_NODE_ARTIFACTS       = "node-artifacts"
+    REGISTRY_PROXY_PROJECTS_JSON       = "{\"docker.io\":\"proxy-dockerhub\",\"gcr.io\":\"proxy-gcr\",\"ghcr.io\":\"proxy-ghcr\",\"public.ecr.aws\":\"proxy-ecr\",\"quay.io\":\"proxy-quay\",\"registry-1.docker.io\":\"proxy-dockerhub\",\"registry.k8s.io\":\"proxy-k8s\",\"xpkg.upbound.io\":\"proxy-xpkg\"}"
+    RELEASE_PUBLIC_KEY_B64             = ""
+    RELEASE_CHANNEL                    = "stable"
+    RELEASE_VERSION                    = ""
+    RELEASE_AUTO                       = "false"
+    RELEASE_SYNC_SCHEDULE              = "0 3 * * *"
+    ORIGIN_PARENT_FQDN                 = "parent.example.test"
+    ORIGIN_PARENT_API_URL              = "https://console.parent.example.test/sovereign"
+    DNS_MODE                           = "delegated"
+    DNS_UPSTREAM_API_URL               = ""
+    MAIL_MODE                          = "local"
+    MAIL_RELAY_HOST                    = ""
+    MAIL_RELAY_PORT                    = "587"
+    MAIL_FROM                          = ""
+    MAIL_RELAY_SECRET                  = ""
+    K3S_VERSION                        = "v1.31.8+k3s1"
+    K3S_UPGRADE_CONCURRENCY            = "1"
+    CLOUD_CREDENTIAL_MODE              = "supplied"
+    CLOUD_CREDENTIAL_ROTATION_SCHEDULE = "0 2 1 * *"
+    CLOUD_CREDENTIAL_ROTATION_NONCE    = ""
+    GITOPS_REPO_URL                    = "http://gitea-http.gitea.svc.cluster.local:3000/openova/provider-pack"
+  }
 }
 
 # Scenario 1 — Tier-B canonical two-region shape (primary + secondary)
@@ -850,4 +894,46 @@ run "network_registry_seven_regions_refused" {
   }
 
   expect_failures = [var.regions]
+}
+
+# ── SOV-131: HANDOVER_AUTO reaches FIRE_CUTOVER_ON_HANDOVER; a document
+# without exactly the keys of contract C5 is refused at plan time.
+run "variables_handover_auto_reaches_cloud_init" {
+  command = plan
+
+  variables {
+    regions = [
+      {
+        code               = "me-east-215-a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  assert {
+    condition     = strcontains(local.cp_cloud_init_by_region["me-east-215-a"], "FIRE_CUTOVER_ON_HANDOVER: \"false\"")
+    error_message = "SOV-131: variables[\"HANDOVER_AUTO\"] must reach the substitute FIRE_CUTOVER_ON_HANDOVER of the control-plane cloud-init."
+  }
+}
+
+run "variables_refuses_a_document_without_the_contract_keys" {
+  command = plan
+
+  variables {
+    variables = { HANDOVER_AUTO = "true", NOT_A_CONTRACT_KEY = "x" }
+    regions = [
+      {
+        code               = "me-east-215-a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  expect_failures = [var.variables]
 }

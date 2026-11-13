@@ -924,12 +924,11 @@ locals {
     gitops_branch       = var.gitops_branch
     marketplace_enabled = var.marketplace_enabled
     qa_fixtures_enabled = var.qa_fixtures_enabled
-    # North Star — decouple cutover auto-fire from qaTestEnabled. → shared
-    # template's FIRE_CUTOVER_ON_HANDOVER substitute → slot-13
+    # SOV-131: HANDOVER_AUTO of the variables document → shared template's
+    # FIRE_CUTOVER_ON_HANDOVER substitute → slot-13
     # catalystApi.fireCutoverOnHandover (ORed with qaFixtures.enabled by the
-    # chart, #4648). INDEPENDENT of qa_fixtures_enabled so a PROD-cert Sovereign
-    # auto-fires the cutover too.
-    fire_cutover_on_handover = var.fire_cutover_on_handover
+    # chart, #4648).
+    fire_cutover_on_handover = var.variables["HANDOVER_AUTO"]
     # #4053 console-isolation toggle (Refs #4431 #4212) → shared template's
     # SOVEREIGN_CONSOLE_GATEWAY substitute → slot-13 ingress.gateway.parentRef.name.
     console_isolation_enabled = var.console_isolation_enabled
@@ -1506,10 +1505,9 @@ locals {
       gitops_branch       = var.gitops_branch
       marketplace_enabled = var.marketplace_enabled
       qa_fixtures_enabled = var.qa_fixtures_enabled
-      # North Star — decouple cutover auto-fire from qaTestEnabled (secondary
-      # region). → shared template's FIRE_CUTOVER_ON_HANDOVER substitute →
-      # slot-13 catalystApi.fireCutoverOnHandover. INDEPENDENT of qa_fixtures_enabled.
-      fire_cutover_on_handover = var.fire_cutover_on_handover
+      # SOV-131: HANDOVER_AUTO of the variables document (secondary region)
+      # → shared template's FIRE_CUTOVER_ON_HANDOVER substitute.
+      fire_cutover_on_handover = var.variables["HANDOVER_AUTO"]
       # #4053 console-isolation toggle (Refs #4431 #4212) → shared template's
       # SOVEREIGN_CONSOLE_GATEWAY substitute → slot-13 ingress.gateway.parentRef.name.
       console_isolation_enabled = var.console_isolation_enabled
