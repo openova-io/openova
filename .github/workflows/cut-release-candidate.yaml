@@ -1,0 +1,105 @@
+# cut-release-candidate.yaml - cut the release candidate rc/<id> from one commit of main.
+#
+# The rules are in scripts/release-candidate.sh. A pull request that changes the tool, its
+# test or this file runs the test only. A run started by hand runs the test, then
+# "release-candidate.sh cut", and writes the candidate into the job summary.
+#
+# The cut pushes rc/<id> with the token in the secret RELEASE_WRITER_TOKEN, never with the
+# workflow token: the ruleset .github/rulesets/rc.json lets only the release-writer team
+# create a ref under rc/. Until that secret exists, start a run with dry_run set to true: it
+# runs every check of the cut and pushes nothing.
+name: cut-release-candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: The commit of main to cut. Empty means the head of main.
+        required: false
+        default: ''
+        type: string
+      dry_run:
+        description: Run every check of the cut and push nothing.
+        required: false
+        default: false
+        type: boolean
+  pull_request:
+    paths:
+      - 'scripts/release-candidate.sh'
+      - 'scripts/test-release-candidate.sh'
+      - '.github/workflows/cut-release-candidate.yaml'
+
+permissions:
+  actions: read
+  contents: read
+  packages: read
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: release-candidate self-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Every exit code of the tool is proven
+        run: bash scripts/test-release-candidate.sh
+
+  cut:
+    name: cut
+    needs: test
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install PyYAML and yq
+        run: |
+          set -e
+          pip install --quiet pyyaml
+          sudo wget -q https://github.com/mikefarah/yq/releases/download/v4.45.1/yq_linux_amd64 -O /usr/local/bin/yq
+          sudo chmod +x /usr/local/bin/yq
+          yq --version
+          helm version --short
+      - name: Push access for rc/<id>
+        if: ${{ !inputs.dry_run }}
+        env:
+          RELEASE_WRITER_TOKEN: ${{ secrets.RELEASE_WRITER_TOKEN }}
+        run: |
+          if [ -z "$RELEASE_WRITER_TOKEN" ]; then
+            echo "::error::The secret RELEASE_WRITER_TOKEN does not exist. Start the run with dry_run set to true."
+            exit 1
+          fi
+          git remote set-url --push origin "https://x-access-token:${RELEASE_WRITER_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+      - name: Cut
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ inputs.commit }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          args=(cut)
+          if [ -n "$COMMIT" ]; then args+=(--commit "$COMMIT"); fi
+          if [ "$DRY_RUN" = "true" ]; then args+=(--dry-run); fi
+          rc=0
+          id="$(bash scripts/release-candidate.sh "${args[@]}")" || rc=$?
+          if [ "$rc" -ne 0 ]; then
+            echo "No candidate: release-candidate.sh cut exited $rc. The log of this step says why." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$DRY_RUN" = "true" ]; then
+            echo "Dry run: rc/$id would be cut. Nothing was pushed." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Candidate: rc/$id" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$rc"
