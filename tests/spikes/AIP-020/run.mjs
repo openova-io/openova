@@ -12,9 +12,12 @@ import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprot
 import { startMock } from "./mock.mjs";
 
 const MODEL = "claude-sonnet-4-6";
+const T0 = Date.now();
 const PARK_MS = +(process.env.SPIKE_PARK_MS || 600000);
 const OUT = path.resolve(process.env.SPIKE_OUT || "out");
 fs.mkdirSync(OUT, { recursive: true });
+process.on("uncaughtException", (e) => console.log(`WARN uncaught: ${e?.stack || e}`));
+process.on("unhandledRejection", (e) => console.log(`WARN unhandled rejection: ${e?.stack || e}`));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const shm = (p) => fs.mkdtempSync(`/dev/shm/${p}-`);
 const sha = (p) => crypto.createHash("sha256").update(fs.readFileSync(p)).digest("hex").slice(0, 16);
@@ -24,6 +27,15 @@ const secretMarker = `SPIKE-SECRET-${crypto.randomBytes(6).toString("hex")}`;
 const secretPath = path.join(shm("secret"), "secret.txt");
 fs.writeFileSync(secretPath, `${secretMarker}\n`);
 const mock = await startMock({ mainModel: MODEL, tokens, secretPath, secretMarker });
+function dump() {
+  for (const e of mock.log) console.log(`REQ ${e.n} +${Math.round((e.at - T0) / 1000)}s ${e.kind} ${e.method} ${e.path}${e.viaProxy ? " (via proxy)" : ""} sc=${e.scenario ?? "-"} ph=${e.phase ?? "-"} model=${e.model ?? "-"} stream=${e.stream ?? "-"} auth=${e.auth.scheme}/${e.auth.token} tools=[${(e.tools || []).map((t) => t.name + (t.defer ? "(deferred)" : "")).join(",")}] results=${JSON.stringify(e.toolResults || [])} reply=${JSON.stringify(e.reply?.blocks?.map((b) => b.tool ?? "text") ?? [])}`);
+  for (const x of mock.egress) console.log(`EGRESS +${Math.round((x.at - T0) / 1000)}s ${x.via} ${x.host}`);
+  fs.writeFileSync(path.join(OUT, "result.json"), JSON.stringify({ ...R, requests: mock.log, egress: mock.egress }, null, 1));
+  console.log(`RESULT_JSON ${JSON.stringify(R)}`);
+}
+process.on("SIGTERM", () => { console.log("WARN SIGTERM: dumping partial result"); dump(); process.exit(1); });
+const beat = setInterval(() => console.log(`BEAT +${Math.round((Date.now() - T0) / 1000)}s requests=${mock.log.length} egress=${mock.egress.length} tests=${R.tests.map((t) => t.id).join(",")}`), 60000);
+beat.unref();
 const TOOLS = [
   { name: "lookup", description: "Look up the weather forecast for a city.",
     parameters: { type: "object", properties: { city: { type: "string", description: "City name" }, days: { type: "integer", minimum: 1, maximum: 7 } }, required: ["city"], additionalProperties: false } },
@@ -268,8 +280,6 @@ R.info.auxModels = [...new Set(mock.log.filter((e) => e.kind === "messages" && e
 const mandatory = ["T1", "T3", "T5", "T9"];
 const res = (id) => R.tests.find((t) => t.id === id)?.result;
 R.verdict = mandatory.every((id) => res(id) === "pass") && (res("T4a") === "pass" || res("T4b") === "pass") ? "pass" : "fail";
-for (const e of mock.log) console.log(`REQ ${e.n} ${e.kind} ${e.method} ${e.path} sc=${e.scenario ?? "-"} ph=${e.phase ?? "-"} model=${e.model ?? "-"} stream=${e.stream ?? "-"} auth=${e.auth.scheme}/${e.auth.token} tools=[${(e.tools || []).map((t) => t.name + (t.defer ? "(deferred)" : "")).join(",")}] results=${JSON.stringify(e.toolResults || [])} reply=${JSON.stringify(e.reply?.blocks?.map((b) => b.tool ?? "text") ?? [])}`);
-fs.writeFileSync(path.join(OUT, "result.json"), JSON.stringify({ ...R, requests: mock.log, egress: mock.egress }, null, 1));
-console.log(`RESULT_JSON ${JSON.stringify(R)}`);
+dump();
 mock.close();
 process.exit(0);

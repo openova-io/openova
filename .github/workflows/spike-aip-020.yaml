@@ -36,7 +36,8 @@ jobs:
       - name: Debug log tails
         if: always()
         run: |
-          for f in out/debug-*.log; do echo "=== $f"; grep -v '^\s*$' "$f" | tail -n 40 | cut -c1-400; done || true
+          noise='temp file|Temp file|Renaming|written atomically|Preserving file permissions|Applied original permissions'
+          for f in out/debug-*.log; do echo "=== $f"; grep -Ev "$noise" "$f" | grep -v '^\s*$' | tail -n 60 | cut -c1-400; done || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:

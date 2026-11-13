@@ -17,7 +17,8 @@ export function startMock({ mainModel, tokens, secretPath, secretMarker }) {
     return { scheme: a ? a.split(" ")[0] : "none", token: a ? tag ?? "unknown" : "none", xApiKey: !!h["x-api-key"] };
   };
   let self = "";
-  const server = http.createServer(async (req, res) => {
+  const server = http.createServer((req, res) => handle(req, res).catch((err) => { console.log(`WARN mock: ${err.message}`); try { res.destroy(); } catch {} }));
+  async function handle(req, res) {
     let viaProxy = false;
     if (/^https?:\/\//.test(req.url)) { // a request sent to us as a proxy
       const u = new URL(req.url);
@@ -100,8 +101,10 @@ export function startMock({ mainModel, tokens, secretPath, secretMarker }) {
     ev("message_stop", {});
     e.streamEndAt = Date.now();
     res.end();
-  });
-  server.on("connect", (req, socket) => { egress.push({ at: Date.now(), via: "connect", host: req.url }); socket.end("HTTP/1.1 403 Forbidden\r\n\r\n"); });
+  }
+  server.on("connect", (req, socket) => { socket.on("error", () => {}); egress.push({ at: Date.now(), via: "connect", host: req.url }); socket.end("HTTP/1.1 403 Forbidden\r\n\r\n"); });
+  server.on("connection", (s) => s.on("error", () => {}));
+  server.on("clientError", (err, s) => { try { s.destroy(); } catch {} });
   return new Promise((ok) => server.listen(0, "127.0.0.1", () => { self = String(server.address().port);
     ok({ url: `http://127.0.0.1:${self}`, log, egress, sent, close: () => server.close() }); }));
 }
