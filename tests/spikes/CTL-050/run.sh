@@ -197,7 +197,7 @@ ks_not_ready() { [ "$(kubectl -n $FS get kustomization "$1" -o jsonpath='{.statu
 nudge() { kubectl -n $FS annotate --overwrite "$1" reconcile.fluxcd.io/requestedAt="$2" >/dev/null; }
 
 obj_report() { # NS NAME PREFIX
-  local j; j=$(kubectl -n "$1" get application "$2" -o json) || { rec "$3: object missing"; return; }
+  local j; j=$(kubectl -n "$1" get application "$2" -o json --show-managed-fields) || { rec "$3: object missing"; return; }
   rec "$3.generation: $(jq -r .metadata.generation <<<"$j")"
   rec "$3.resourceVersion: $(jq -r .metadata.resourceVersion <<<"$j")"
   rec "$3.managers: $(jq -c '[.metadata.managedFields[] | {manager, operation, ownsSpec: ((.fieldsV1 // {}) | has("f:spec"))}]' <<<"$j")"
@@ -400,8 +400,19 @@ s_s1() {
     code=$(g POST /admin/hooks "$body")
     rec "S1.B.admin_hook_create.http: $code"
     rec "S1.B.admin_hook_create.response: $(jq -c '{id, type, active, events, config: (.config | del(.secret))}' "$WORK/g.body" 2>/dev/null || gb | one)"
+    save HOOK_B_ID "$(jq -r .id "$WORK/g.body")"
+    code=$(g GET /admin/hooks)
+    rec "S1.B.admin_hook_list.http: $code $(jq -c '[.[] | {id, type, active, events}]' "$WORK/g.body" 2>/dev/null || gb | one)"
     if push_measure B; then
       save S1_WORKING B
+      note "S1 fall-back measured too: system hook set inactive with PATCH, organisation webhook instead"
+      code=$(g PATCH "/admin/hooks/$HOOK_B_ID" '{"active":false}')
+      rec "S1.B.admin_hook_patch_inactive.http: $code active=$(jq -r .active "$WORK/g.body" 2>/dev/null)"
+      body=$(jq -cn --arg u "$HOOK_URL" --arg s "$HOOK_TOKEN" \
+        '{type:"gitea", active:true, events:["push"], config:{url:$u, content_type:"json", secret:$s}}')
+      code=$(g POST /orgs/openova/hooks "$body")
+      rec "S1.C.org_hook_create.http: $code"
+      if push_measure C; then rec "S1.C.org_hook_triggers: yes"; else rec "S1.C.org_hook_triggers: no"; fi
     else
       note "S1 variant C: organisation webhook POST /api/v1/orgs/openova/hooks"
       body=$(jq -cn --arg u "$HOOK_URL" --arg s "$HOOK_TOKEN" \
@@ -465,6 +476,15 @@ s_s2() {
   rec "S2.v3.create_a_applied: $(exists $R s2/a.yaml)"
 
   h0=$(head_sha $R)
+  code=$(g POST /repos/$R/contents "$(batch_body 'S2 v5' "create|s2/a.yaml|$S/a.yaml|" "update|s1/marker.txt|$S/c.yaml|$WRONG" "update|$P|$S/intent-root-2.yaml|$WRONG")")
+  msg=$(jq -r '.message // empty' "$WORK/g.body" 2>/dev/null); [ -z "$msg" ] && msg=$(gb)
+  rec "S2.v5.create_then_two_wrong_sha_updates.http: $code"
+  rec "S2.v5.message: $(one 300 <<<"$msg")"
+  rec "S2.v5.mismatches_reported: $(grep -o 'sha does not match' <<<"$msg" | wc -l)"
+  rec "S2.v5.head_unchanged: $([ "$(head_sha $R)" = "$h0" ] && echo yes || echo no)"
+  rec "S2.v5.create_a_applied: $(exists $R s2/a.yaml)"
+
+  h0=$(head_sha $R)
   code=$(g POST /repos/$R/contents "$(batch_body 'S2 v4' "create|s2/a.yaml|$S/a.yaml|" "create|s2/b.yaml|$S/b.yaml|" "update|$P|$S/intent-root-2.yaml|$cur")")
   rec "S2.v4.control_correct_sha.http: $code"
   rec "S2.v4.response_files: $(jq -c '[.files[]? | .path]' "$WORK/g.body" 2>/dev/null) commit $(jq -r '.commit.sha // empty' "$WORK/g.body" 2>/dev/null)"
@@ -475,19 +495,55 @@ s_s2() {
 }
 
 # ---------------------------------------------------------------- S3, audit stage
+# apply_policy: the planned policy first; when the API server refuses it, the
+# smallest amendments of the one refused expression, in order. Each attempt is
+# a server-side dry run, so the first that compiles is the one applied.
+apply_policy() {
+  local base="$WORK/policy.json" v expr out
+  kubectl create --dry-run=client -o json -f "$M/lock-policy.yaml" > "$base"
+  local orig; orig=$(jq -r '.spec.auditAnnotations[0].valueExpression' "$base")
+  local reason="variables.target.metadata.annotations['catalyst.openova.io/break-glass-reason']"
+  local -a names=(as-planned dyn-true-branch dyn-null-branch no-audit-annotation)
+  local -a exprs=(
+    "$orig"
+    "variables.isBreakGlass && !variables.isWriter ? dyn(variables.user + ': ' + $reason) : null"
+    "variables.isBreakGlass && !variables.isWriter ? variables.user + ': ' + $reason : dyn(null)"
+    ""
+  )
+  for v in 0 1 2 3; do
+    if [ -n "${exprs[$v]}" ]; then
+      jq --arg e "${exprs[$v]}" '.spec.auditAnnotations[0].valueExpression = $e' "$base" > "$WORK/policy-$v.json"
+    else
+      jq 'del(.spec.auditAnnotations)' "$base" > "$WORK/policy-$v.json"
+    fi
+    out=$(kubectl apply --dry-run=server -f "$WORK/policy-$v.json" 2>&1)
+    if [ $? -eq 0 ]; then
+      rec "S3.policy.compile.${names[$v]}: accepted"
+      [ -n "${exprs[$v]}" ] && rec "S3.policy.compile.${names[$v]}.expression: ${exprs[$v]}"
+      kubectl apply -f "$WORK/policy-$v.json"
+      rec "S3.policy.applied_variant: ${names[$v]}"
+      return 0
+    fi
+    rec "S3.policy.compile.${names[$v]}: refused $(grep -o 'compilation failed.*' <<<"$out" | head -1 | one 200)"
+  done
+  rec "S3.policy.applied_variant: none"
+  return 1
+}
+
 s_s3a() {
   note "S3 lock with the binding at Audit,Warn"
   kubectl apply -f "$M/rbac.yaml"
-  kubectl apply -f "$M/lock-policy.yaml"
+  apply_policy
   bind '["Audit","Warn"]'
   kubectl create ns lock
   wait_lock "Validation failed for ValidatingAdmissionPolicy" || true
-  rec "S3.policy.status: $(kubectl get validatingadmissionpolicy catalyst-intent-lock -o json | jq -c '.status' | one 400)"
+  rec "S3.policy.status: $(kubectl get validatingadmissionpolicy catalyst-intent-lock -o json | jq -c '.status' | one 600)"
   snap_metrics "$WORK/m0"
   app_json lock-a lock > "$WORK/lock-a.json"
   try S3.audit.cluster_admin_create ok -- kubectl create -f "$WORK/lock-a.json"
   snap_metrics "$WORK/m1"
   rec "S3.audit.metric_lines_present: $(wc -l < "$WORK/m1")"
+  rec "S3.metric_names_exposed: $(kubectl get --raw /metrics | grep -o '^[a-z_]*validating_admission_polic[a-z_]*' | sort -u | tr '\n' ' ')"
   delta_metrics "$WORK/m0" "$WORK/m1" | while read -r l v; do rec "S3.audit.metric_delta: $l +$v"; done
   sudo grep -c 'validation.policy.admission.k8s.io/validation_failure' /var/lib/rancher/k3s/server/logs/audit.log \
     | while read -r n; do rec "S3.audit.audit_log_validation_failure_annotations: $n"; done
