@@ -556,58 +556,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "hasUserUIEndpoint": false
   },
   {
-    "id": "bp-cert-manager-dynadot-webhook",
-    "slug": "cert-manager-dynadot-webhook",
-    "title": "cert-manager-dynadot-webhook",
-    "summary": "|",
-    "icon": null,
-    "category": null,
-    "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
-    "version": "1.1.2",
-    "section": "pts-3-3-security-and-policy",
-    "depends": [
-      "bp-cert-manager"
-    ],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "singleton"
-      ],
-      "multiRegion": "singleton",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "singleton": {
-          "replication": null,
-          "switchover": null,
-          "placement": {
-            "tier": "",
-            "clusters": [
-              "mgmt-A",
-              "mgmt-B",
-              "dmz-A",
-              "dmz-B",
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "mgmt-A": "singleton",
-              "mgmt-B": "singleton",
-              "dmz-A": "singleton",
-              "dmz-B": "singleton",
-              "rtz-A": "singleton",
-              "rtz-B": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": false
-  },
-  {
     "id": "bp-cert-manager-issuers",
     "slug": "cert-manager-issuers",
     "title": "cert-manager — Issuers",
@@ -990,7 +938,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.16",
+    "version": "1.0.17",
     "section": "pts-4-1-data-services",
     "depends": [
       "bp-flux"
@@ -1045,7 +993,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.2.32-hw307.1",
+    "version": "0.2.32",
     "section": "pts-9-disaster-recovery",
     "depends": [
       "bp-cnpg",
@@ -1529,7 +1477,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.11",
+    "version": "1.0.12",
     "section": "pts-3-3-security-and-policy",
     "depends": [],
     "shareable": false,
@@ -1869,7 +1817,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.51",
+    "version": "1.2.52",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-postgres"
@@ -2069,7 +2017,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.50",
+    "version": "1.2.51",
     "section": "pts-3-5-storage-and-data",
     "depends": [
       "bp-cnpg",
@@ -2672,7 +2620,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.53",
+    "version": "1.0.54",
     "section": "pts-3-3-security-and-policy",
     "depends": [],
     "shareable": false,
@@ -3346,7 +3294,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.3.5",
+    "version": "1.3.6",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [],
     "shareable": false,
@@ -3608,7 +3556,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-cilium"
@@ -3802,7 +3750,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.72",
+    "version": "1.2.73",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [],
     "shareable": false,
@@ -3866,7 +3814,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.2.19",
+    "version": "0.2.20",
     "section": "pts-4-7-agentic-workspace",
     "depends": [
       "bp-newapi",
@@ -4209,7 +4157,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.13",
+    "version": "0.1.14",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-cilium"
@@ -4265,7 +4213,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.2.33-hw307.1",
+    "version": "0.2.34",
     "section": "pts-4-1-data-services",
     "depends": [
       "bp-cnpg",
@@ -4494,7 +4442,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.2-hw307.1",
+    "version": "1.0.2",
     "section": "pts-3-3-security-and-policy",
     "depends": [],
     "shareable": false,
@@ -4638,75 +4586,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "hasUserUIEndpoint": false
   },
   {
-    "id": "bp-sandbox",
-    "slug": "sandbox",
-    "title": "Sandbox",
-    "summary": "|",
-    "icon": "sandbox.svg",
-    "category": "devtools",
-    "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
-    "version": "0.3.12",
-    "section": "pts-4-sandbox",
-    "depends": [
-      "bp-rtz-vcluster",
-      "bp-vcluster-helmrepo",
-      "bp-catalyst-platform",
-      "bp-harbor"
-    ],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "active-hot-standby",
-        "singleton"
-      ],
-      "multiRegion": "active-hot-standby",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "active-hot-standby": {
-          "replication": {
-            "backend": "none",
-            "mode": "async",
-            "lagSloSeconds": 0
-          },
-          "switchover": {
-            "mechanism": "bp-continuum",
-            "rtoSeconds": 30,
-            "rpoSeconds": 0
-          },
-          "placement": {
-            "tier": "",
-            "clusters": [
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "rtz-A": "active",
-              "rtz-B": "passive"
-            }
-          }
-        },
-        "singleton": {
-          "replication": null,
-          "switchover": null,
-          "placement": {
-            "tier": "",
-            "clusters": [
-              "rtz-A"
-            ],
-            "roles": {
-              "rtz-A": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": true
-  },
-  {
     "id": "bp-sealed-secrets",
     "slug": "sealed-secrets",
     "title": "sealed-secrets",
@@ -4766,7 +4645,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.3.1",
+    "version": "1.3.2",
     "section": "pts-3-5-storage-and-data",
     "depends": [
       "bp-cert-manager"
@@ -4822,7 +4701,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.207",
+    "version": "0.1.209",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-gitea",
@@ -5102,7 +4981,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "section": "pts-4-5-communication",
     "depends": [
       "bp-cert-manager",
@@ -5200,6 +5079,56 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       }
     },
     "hasUserUIEndpoint": true
+  },
+  {
+    "id": "bp-storage-ready",
+    "slug": "storage-ready",
+    "title": "Storage Ready",
+    "summary": "Neutral storage gate of the bootstrap kit. A hook Job waits until the expected StorageClass is the cluster default.",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "0.1.0",
+    "section": null,
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "producesInstances": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    },
+    "hasUserUIEndpoint": false
   },
   {
     "id": "bp-strimzi",
@@ -5597,7 +5526,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.6",
+    "version": "1.1.7",
     "section": "pts-4-1-data-services",
     "depends": [
       "bp-flux"
@@ -5673,7 +5602,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-flux"
@@ -5949,7 +5878,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.6.1-hw307.11",
+    "version": "0.6.2",
     "section": "pts-7-org-tenant",
     "depends": [
       "bp-cnpg",
@@ -6068,7 +5997,6 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/bge/blueprint.yaml",
   "platform/catalyst-edge-routes/blueprint.yaml",
   "platform/catalyst-platform/blueprint.yaml",
-  "platform/cert-manager-dynadot-webhook/blueprint.yaml",
   "platform/cert-manager-issuers/blueprint.yaml",
   "platform/cert-manager-powerdns-webhook/blueprint.yaml",
   "platform/cert-manager/blueprint.yaml",
@@ -6139,7 +6067,6 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/reflector/blueprint.yaml",
   "platform/reloader/blueprint.yaml",
   "platform/rtz-vcluster/blueprint.yaml",
-  "platform/sandbox/blueprint.yaml",
   "platform/sealed-secrets/blueprint.yaml",
   "platform/seaweedfs/blueprint.yaml",
   "platform/self-sovereign-cutover/blueprint.yaml",
@@ -6149,6 +6076,7 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/sso-bridge/blueprint.yaml",
   "platform/stalwart-sovereign/blueprint.yaml",
   "platform/stalwart-tenant/blueprint.yaml",
+  "platform/storage-ready/blueprint.yaml",
   "platform/strimzi/blueprint.yaml",
   "platform/stunner/blueprint.yaml",
   "platform/syft-grype/blueprint.yaml",

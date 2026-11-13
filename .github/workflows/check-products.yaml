@@ -1,0 +1,33 @@
+# check-products.yaml - the product guard keeps the AI-hub charts at today's values.
+#
+# scripts/check-products.py holds the rules G-P1 to G-P3:
+#   G-P1  no HTTPRoute, Ingress, Gateway or GRPCRoute in the chart templates of
+#         platform/vllm and platform/bge (hard zero)
+#   G-P2  no model-provider host name under platform/vllm, platform/bge and
+#         platform/librechat (hard zero)
+#   G-P3  the lines with secretKeyRef in the chart templates of those three folders,
+#         per file, may only fall (baseline scripts/baselines/products.json)
+# A later rule is added to the same script, so this workflow does not change for it.
+#
+# The workflow runs on every pull request and on every merge group. It has no path filter
+# on purpose: a required check that a path filter skips never reports.
+# The self-test runs first. It shows, on a tree it builds itself, that every rule can fail.
+name: check-products
+
+on:
+  pull_request:
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  check-products:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Self-test of the guard
+        run: python3 scripts/check-products.py --self-test
+      - name: The product rules hold
+        run: python3 scripts/check-products.py

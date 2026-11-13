@@ -1,0 +1,106 @@
+# ADR-0029 — Compliance plane: one read model, one model object in Git, policy mode and waivers by commit
+
+Status: Accepted
+Date: 2026-11-13
+
+Written by work package CMP-005. It records how a Sovereign judges its own posture: which signals count, who judges each check, how a score is computed, where the policy mode and the waivers live, and what the sovereign-admin and an Organization user see. The decisions are K1 to K14; the alternatives that K1 to K13 reject follow them.
+
+Terms used here:
+
+- **The engine** is the admission policy engine Kyverno, Blueprint `bp-kyverno` (`platform/kyverno/chart`). **The policy chart** is `bp-kyverno-policies` (`platform/kyverno-policies/chart`), which holds the policies. **The scanner** is `bp-trivy` (`platform/trivy`). **The sensor** is `bp-falco` (`platform/falco`).
+- **Check**: one rule that judges a subject, with one producer. **Finding**: one result of one check on one subject. **Subject**: what a finding is about; for a Pod it is the Pod's top owner, the workload.
+- **Mode**: whether the engine enforces a policy at admission (`Enforce`) or only reports (`Audit`).
+- **Bootstrap window**: the time during which the policy chart audits every policy whatever its mode, so that a fresh installation is not blocked by its own policies.
+- **Waiver**: an accepted risk for one check on one scope, with an owner, a reason and an expiry.
+- **Blueprint kind**: a resource kind whose definition ships in a Blueprint's chart. It exists only where that Blueprint is installed, and it is not a platform kind.
+
+## Context
+
+- One path works. `products/catalyst/bootstrap/api/internal/handler/compliance.go` joins the policy reports of the engine and the rows of the evaluators in `products/catalyst/bootstrap/api/internal/k8scache/evaluators` through the informer fan-out of the API, keeps an in-memory roll-up, and serves it as JSON and as a server-sent event stream.
+- The score of a resource is the weight of passed policies over the weight of passed, failed and warned ones. A skipped result leaves the denominator, the default weight is 1, and an empty denominator gives `null`.
+- Weights and modes are read from `EnvironmentPolicy.spec.compliance` (`products/catalyst/chart/crds/environmentpolicy.yaml`). No controller under `core` creates or reads that kind.
+- The mode toggle (`products/catalyst/bootstrap/ui/src/widgets/compliance/PolicyModeToggle.tsx`, route in `products/catalyst/bootstrap/api/internal/handler/policy_mode.go`) writes only an `EnvironmentPolicy`; the drill-down page sends the environment `default`. It changes nothing in the engine, and its dialog says that the change reaches the cluster within 30 seconds.
+- The policy chart audits every policy while its value `compliancePolicies.bootstrapMode` is `true`, the default. After hand-over the parent ends the window by merge-patching `bootstrapMode: false` into the live HelmRelease of every region (`products/catalyst/bootstrap/api/internal/handler/post_handover_policy_enforce.go`, started from `phase1_watch.go` and `phase1_converged_late.go`). Git does not describe what the cluster enforces. SOV-240 makes hand-over a commit inside the Sovereign, and SOV-450 deletes the parent's post-hand-over hooks.
+- The engine is pinned at `v1.18.0` (`platform/kyverno/chart/Chart.yaml`). The tree holds 47 policy objects of the legacy kinds `ClusterPolicy` and `Policy` in 29 template files: 25 in the policy chart (one of them off by default), 2 in the engine chart (off), 1 in `platform/crossplane-claims/chart` (on) and 19 in a test fixture of the umbrella chart (off). The 1.19 line still runs the legacy kinds; from the 1.20 line on they are kept but enforce nothing.
+- Four evaluators carry the names of four policies of the policy chart (`hpa-effective`, `otel-injected`, `harbor-proxy-pull`, `flux-managed`). The evaluators judge Pods and the policies judge mostly the objects that own Pods, so one fact is counted twice under different subjects. The fifth evaluator, `hubble.go`, skips every Pod by default.
+- The score history is published to the NATS key-value bucket `policy-rollup` (ten revisions, 168 hours) and read by nothing.
+- The API runs in the primary region only: `clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml` carries the label `catalyst.openova.io/region-role: primary` and is suspended on every other region. NATS runs in every region with no link between regions. The API reads the other regions through informers.
+- Since CMP-016 the API starts the informer of an optional kind when the kind's definition arrives, so a kind delivered by a later chart upgrade is watched without a restart.
+- Organization sessions are confined to a deny-by-default list of path prefixes in `products/catalyst/bootstrap/api/internal/handler/org_scope.go`. No compliance path is on it.
+
+## Decision
+
+**K1 One watcher, one read model, one finding type.** The watch-fed pipeline is kept. Every signal reaches one read model as one finding, through one adapter per source kind. A producer outside the API writes Kubernetes objects and is read by informer. A derived check runs inside the API over the informer cache and publishes to the same fan-out, as the evaluators do today. A runtime detection is an event on NATS. It reaches the API only from the region the API runs in; every other region is shown as "not delivered" for runtime until cross-region events exist. This limit is accepted. No signal is copied into a second report object.
+
+**K2 One check, one judge; the workload is the subject.** Each check has exactly one producer, named in the model. A finding for that check from any other producer is dropped and counted. Findings on a Pod are attributed to the Pod's top owner, and a workload is judged once per check.
+
+**K3 The catalogue of checks and the score model are one object in Git.** One cluster-scoped object `ComplianceModel` holds every check, axis, weight, level band, cap, deadline, exemption and framework mapping. The policy chart renders it from data files, and each cluster carries its own copy. It is release content: there is no per-Sovereign override. It is a Blueprint kind of `bp-kyverno-policies`, in group `compliance.openova.io`. `EnvironmentPolicy.spec.compliance` is deleted: nothing creates it and nothing obeys it.
+
+**K4 Score grammar.** A result is one of `pass`, `fail`, `warn`, `na`, `waived`, `exempt` and `not-measured`. Only `pass`, `fail` and `warn` enter the denominator. A score with an empty denominator is `null` and is shown as "not measured" with a sentence that says why, never as 0 and never as 100. Every score carries its level, its biggest gap in words, its evidence, the fix and who must make it.
+
+**K5 The policy mode is a file in Git, per Sovereign, read back live.** The mode of each policy is a value in one document, `policy-values.yaml`. It is written, identical, into every region's own folder of the fleet repository, `clusters/<fqdn>/regions/<region-id>/platform/policy/`, in one commit. That is the folder `policy` of the every-region scope of contract C4 (`docs/contracts/C4-git-layout-and-commit-library.md`, section 2.2). The Kustomization `sovereign-region` that already runs in each region applies it; the region template is not changed. A change from the screen is one commit through the commit library `gitwrite`. A sovereign-admin of tier `admin` or `owner` makes it as a direct commit, and the screen shows its impact before the change is confirmed. The end of the bootstrap window follows the hand-over variable `SOVEREIGN_CONSUME`, which the hand-over flip commit inside the Sovereign sets to `local`; it is not a call from the parent. The screen shows the mode that the engine's object carries, never the requested one. A mode per Environment is dropped; a relaxation for one scope is a waiver.
+
+**K6 Waivers and remediation requests are one kind, with approvals as data.** One kind, `ComplianceDecision`, with the decision `waive` or `remediate`, is a Blueprint kind of `bp-kyverno-policies` in group `compliance.openova.io`. It is committed to Git as the same file in every region's policy folder. A waiver takes effect only when a second person, who is not the requester, has approved it in a second commit; the number of approvals is a value of the model, one by default. For a policy that the engine enforces, the same commit renders an engine exception whose match condition carries the expiry. No pull request is opened for a waiver.
+
+**K7 Frameworks: a reviewable mapping file; the standard format on export.** The mapping from a framework's controls to the checks of the model is one YAML file per framework, checked against a JSON Schema. A mapping is a draft, hidden from Organization users, until a named reviewer signs the file. OSCAL 1.1 component-definition and assessment-results documents are generated from it on export and validated in CI. Benchmarks that the scanner already evaluates control by control are read as they are. A framework without a mapping is not shown. The export is its own package, built after the Frameworks screen.
+
+**K8 The engine moves one line, then the policies migrate; one home for policies.** The engine moves first to the 1.19 line, where the legacy kinds still run and the new kinds are complete. Then the 25 legacy policy objects that render by default (24 in the policy chart and the one in `platform/crossplane-claims/chart`) are rewritten to the kinds of group `policies.kyverno.io`, in place, batch by batch, each batch proven by the same test resources before and after. The policy of the claims chart moves into the policy chart. The other 22 legacy objects, off by default or used only by a fixture, are deleted. The engine moves to the 1.20 line only when no legacy object is left in the tree.
+
+**K9 Pod security: the in-tree admission plug-in enforces, the scanner judges.** Organization namespaces carry the Pod Security Admission label `pod-security.kubernetes.io/enforce: baseline`. The same controls are made visible by the configuration-audit reports that the scanner already writes. No second set of pod-security policies is written.
+
+**K10 Screens.** One posture hub with one grammar: one filter bar, one tab bar, tiles that filter one table, a drawer for one record, and all state in the address. The present dashboard pages under `products/catalyst/bootstrap/ui/src/pages/admin/compliance` are replaced, not kept beside it.
+
+**K11 Organization view.** An Organization user sees the same hub on the Organization console host, restricted by the API to that Organization's namespaces. It is the same single-page application and the same read model. No second front end is built. An Organization user may read and may request waivers and fixes, and never approves.
+
+**K12 History and evidence.** One immutable posture snapshot per day is committed to the fleet repository under `clusters/<fqdn>/evidence/`, a folder that no cluster applies. Trend, compare and the export read snapshots. The bucket `policy-rollup` and its publisher are deleted. Reports stay in etcd; moving them to an external report store is a recorded option, taken only when the measurement of spike CMP-S4 crosses its trigger.
+
+**K13 Regions and fleet.** The read model is keyed by cluster. A Sovereign figure is the sum over its regions, and every screen can show one region. Aggregation from child Sovereigns to a parent is not built; when it is built, the child pushes.
+
+**K14 Order.** First prove the one number that exists. Then make what is shown true. Then move the engine one line and migrate the policies. Then extend: the model, the mode in Git, waivers, scanner reports, runtime, resilience, frameworks, history and the Organization view.
+
+## Alternatives rejected
+
+**K1.** (a) Convert every scanner report into a policy-report object with an upstream adapter: a second copy of each report in etcd and one more component, to feed a read model that can read the original. (b) Let the evaluators write report objects: they run inside the API over the cache it already holds and already reach the roll-up through the fan-out; an object per verdict adds an API-server round trip and gains nothing until an evaluator leaves the process. The rule is therefore by process boundary: outside the API, write an object; inside it, publish. (c) Runtime detections as report objects: one etcd write per detection, at a rate the workload controls. (d) An off-the-shelf report viewer: a second console with no Organization model and no Git write path. (e) Report objects from the sensor's side-car in every region, so that follower regions are covered: this is (c) again. Rejecting it is the price of the regional limit stated in K1.
+
+**K2.** (a) Keep "the latest verdict wins": the four evaluators and the four policies of the same names count one fact twice under two subjects. (b) Score Pods: they churn, and a Deployment with ten Pods would weigh ten times a StatefulSet with one.
+
+**K3.** (a) Extend `EnvironmentPolicy.spec.compliance`: it is one object per Environment, and only the mode toggle ever creates one; axes, bands and caps are facts of the whole Sovereign; and a weight per Environment makes roll-ups incomparable. (b) Weights as annotations on each policy: scanner and derived checks have no policy object to annotate. (c) A ConfigMap: the API's cache strips ConfigMap data before any reader sees it (`products/catalyst/bootstrap/api/internal/k8scache/factory.go`). (d) Two kinds, catalogue and model: two objects that always change together. (e) A field on the `Sovereign` object: the model is not a choice of one Sovereign; it is the same on every installation of a release and must change in the same upgrade as the policies it describes. (f) A file compiled into the API: the API and the policy chart are upgraded at different moments, and the exemptions are derived from the chart's own values. (g) Per-Sovereign weights through chart values: no screen and no route would write them, and no field is added without a reader.
+
+**K4.** (a) Today's rule alone: it has no word for "not scanned" and no cap, so a workload that nobody measured and a workload that passes look the same on a roll-up. (b) A risk-point curve for vulnerabilities fed by exploit-probability data: it needs internet feeds that an isolated Sovereign cannot reach. Deadlines by severity and exposure need no feed.
+
+**K5.** (a) Keep the live HelmRelease patch: Git does not describe what the cluster enforces. (b) A mode per Environment through the engine's namespace override: the new policy kinds have no such override, and upstream points to exceptions instead. (c) The mode as a custom resource with a new controller: a controller to copy one string into a chart value. (d) Enforcement through extra native bindings on the admission policies that the engine generates: it depends on generated object names. (e) A shared folder `clusters/<fqdn>/policy/` with its own Flux Kustomization in every region: it adds an object and an ignore line to the region template under `clusters/_template/sovereign-region/`, which is topology surface. A file inside each region's own folder needs neither. (f) The folder `intent/policy/` of the fleet intent: fleet intent is applied in the writer region only, and contract C4 releases that folder. (g) The hand-over switch as a call from the parent's provisioning watch, as today: the parent would write a child's desired state after hand-over.
+
+**K6.** (a) An engine exception alone: it covers only the engine's own findings, not those of the scanner, the sensor or a derived check; it has no owner, reason or expiry field; and it cannot hold a pending state. (b) A pull request per waiver through the pull-request mode of the commit library (CTL-700): the approval would happen in the Git server's own screen, whose users are not the console's users, and a pending waiver must exist as an object before anyone approves it. (c) Two kinds, waiver and remediation request: most of their fields are the same. (d) A database table: an accepted risk that is not in Git is lost when the Sovereign is rebuilt from Git. (e) A deleter in the cluster that removes expired waivers: Flux would restore the object.
+
+**K7.** (a) Hand-written OSCAL as the source: documents full of generated identifiers cannot be reviewed in a diff, and the mapping needs a named reviewer. (b) A private format with no standard export: an auditor's tools read OSCAL. (c) Keep the eight framework buttons of today's console: none of them filters anything. (d) Copy a published policy set that carries framework tags: the one examined is licensed under AGPL-3.0.
+
+**K8.** (a) Run the legacy and the new kinds side by side under the same names: every check would have two judges during the overlap. (b) Migrate on the 1.18 line and move the engine afterwards: upstream states full parity of the new kinds for the 1.19 line, not for 1.18, and the 1.19 line still runs the legacy kinds, so moving the engine first costs nothing. (c) Move the engine to 1.20 first: the legacy objects would stay, marked not ready, and enforce nothing, with no error. (d) Move simple rules to native admission policies: they write no report unless a flag is set, so they would leave the score.
+
+**K9.** (a) Nineteen pod-security policies in the engine's own form: the scanner already judges the same controls per workload, so each control would have two judges, and nineteen more policies would join the migration. (b) Enforcement by the engine only: the engine holds one action per policy, so "audit everywhere, deny in Organization namespaces" would need two copies of each policy. (c) No enforcement: a privileged Pod in an Organization namespace is the first thing an assessor tries.
+
+**K10.** (a) Keep the two dashboard pages and add tabs: the Security Lead page (`SecLeadDashboardPage.tsx`) is the SRE page with another palette and a filter, so the two pages show one view twice.
+
+**K11.** (a) Build the Organization view in the per-Organization console `core/console`: a second front end over the same read model. Organization sessions already reach the same API through the deny-by-default path list of `org_scope.go`.
+
+**K12.** (a) The key-value bucket as history: ten revisions for 168 hours, and no reader. (b) The metrics store as the only history: a time series is not evidence. (c) An external report store on PostgreSQL now: a new aggregated API and a database for a load that nobody has measured; spike CMP-S4 measures it. (d) Back-filling snapshots: a snapshot that changes later is not evidence.
+
+**K13.** (a) The parent pulls from its children with stored credentials: the wrong direction for independent Sovereigns. (b) Build the aggregation now: no parent and child pair of Sovereigns exists to prove it on.
+
+## Guarded change classes
+
+Guarded change classes: none.
+
+This area names no class of change that must wait for a second person's approval through the pull-request mode of the commit library (CTL-700). Every write of this area is a direct commit. The second approval of a waiver is not such a class: it is data, committed as a second commit (K6). If a second approver is ever required for a change of a policy's mode, that adds exactly one guarded class, the change of a policy's mode, and it is decided in a new record.
+
+## Consequences
+
+- Two Blueprint kinds arrive with `bp-kyverno-policies`: `ComplianceModel` and `ComplianceDecision`, group `compliance.openova.io`, version `v1alpha1`, both cluster-scoped. Their definitions ship in the policy chart and are absent without it. No platform kind is added, and the group `catalyst.openova.io` gains nothing.
+- The policy files live in every region's folder of the fleet repository, `clusters/<fqdn>/regions/<region-id>/platform/policy/`: the values document, the decisions and the engine exceptions rendered from waivers. The snapshots live in `clusters/<fqdn>/evidence/`. No Flux object is added and the region template is not changed.
+- The bootstrap window ends with the hand-over variable: it is open while `bootstrapMode` is `true` and `sovereignConsume` is not `local`. Slot 27a passes `SOVEREIGN_CONSUME` to the policy chart (CMP-036), the chart applies the rule (CMP-073), and the parent's live patch is deleted (CMP-076).
+- Runtime detections cover the primary region until cross-region events exist. Every other region is listed as "not delivered" for runtime (CMP-101, gate check CMP-G16).
+- The score, the shown mode and the waivers become gate checks: CMP-G01 to CMP-G31 in `docs/ledger/gates.yaml`.
+- The engine's upgrades are ordinary packages: CMP-058 to the 1.19 line, CMP-069 to the 1.20 line. FND-110 refuses the 1.20 line while a legacy policy object is left, and CMP-012 lets the count of legacy objects only fall.
+
+## Shipped via
+
+Work packages of area CMP in `docs/ledger/plan.yaml`: CMP-010, CMP-012, CMP-014, CMP-016, CMP-020, CMP-022, CMP-030, CMP-032, CMP-131, CMP-141, CMP-150, CMP-152, CMP-154, CMP-155, CMP-156 and CMP-170; the epics CMP-040 (model and posture hub), CMP-060 (policy migration), CMP-070 (policy mode in Git), CMP-080 (waivers and remediation requests), CMP-090 (scanner reports), CMP-100 (runtime), CMP-110 (resilience) and CMP-120 (frameworks); and the spikes CMP-S1 to CMP-S6.

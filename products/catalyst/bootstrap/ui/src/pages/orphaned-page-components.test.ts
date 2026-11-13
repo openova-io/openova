@@ -190,12 +190,15 @@ describe('#5831 — page components must be reachable from something other than 
   // file in this set". If the walk returned nothing, every component would look
   // orphaned (loud, so survivable) — but more dangerously, a walk that returned
   // only the pages themselves would make self-reference look like coverage.
+  // The factor is 1.5, not 2: deleting the infrastructure mutation dialogs
+  // removed 41 source files outside src/pages, and the tree now holds about
+  // 1.9 source files per page file.
   it('the file walk found a real component tree', () => {
     expect(pageFiles.length, 'no page components found — the walk is broken').toBeGreaterThan(20)
     expect(
       allSource.length,
       'the source walk found no more files than the pages themselves — nothing could ever be shown as referenced',
-    ).toBeGreaterThan(pageFiles.length * 2)
+    ).toBeGreaterThan(pageFiles.length * 1.5)
   })
 
   it('no page component is referenced only by its own test', () => {

@@ -1,0 +1,26 @@
+# Network guards G1, G2, G4, G5, G6 and G7 (scripts/check-network-guards.py). What the network
+# design wants gone may only become less: each offending file has a line in
+# scripts/network-guards-baseline.tsv, a count may only fall, and a line whose file no longer
+# offends is removed in the same change. Guard G2 also reads the named exceptions of
+# scripts/network-guards-exceptions.tsv. The self-test runs first and shows on a repository of
+# its own that every rule can fail. Python 3 and Git only.
+# No path filter, on purpose: a check that a path filter skips never reports.
+name: check-network-guards
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  network-guards:
+    name: network-guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Self-test of the guards (every rule can fail)
+        run: python3 scripts/check-network-guards.py self-test
+      - name: No file offends more than its baseline line allows
+        run: python3 scripts/check-network-guards.py check

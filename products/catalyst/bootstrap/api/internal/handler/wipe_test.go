@@ -579,3 +579,186 @@ func TestWipeDeployment_NoS3CredsAnywhereSurfacesError(t *testing.T) {
 		t.Errorf("expected hard error naming both creds sources in lastWipeReport.errors; got errors=%v", report.Errors)
 	}
 }
+
+// ── hand-over confirmation (internal/lifecycle) ─────────────────────
+//
+// A Sovereign that has been handed over is wiped only when the request
+// carries header X-Confirm-Sovereign-FQDN with the Sovereign's FQDN.
+// Otherwise the route answers 412 before anything is destroyed. A
+// deployment that was never handed over needs no header.
+
+// callWipeDeploymentConfirm is callWipeDeployment with the confirmation
+// header set to confirm. An empty confirm sends no header.
+func callWipeDeploymentConfirm(h *Handler, id, confirm, bodyJSON string) *httptest.ResponseRecorder {
+	r := chi.NewRouter()
+	r.Post("/api/v1/deployments/{id}/wipe", h.WipeDeployment)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/deployments/"+id+"/wipe", bytes.NewBufferString(bodyJSON))
+	req.Header.Set("Content-Type", "application/json")
+	if confirm != "" {
+		req.Header.Set("X-Confirm-Sovereign-FQDN", confirm)
+	}
+	r.ServeHTTP(w, req)
+	return w
+}
+
+// handedOverDeployment is a ready deployment whose hand-over completed.
+func handedOverDeployment(id string) *Deployment {
+	at := time.Now().Add(-time.Hour).UTC()
+	return &Deployment{
+		ID:        id,
+		Status:    "ready",
+		StartedAt: time.Now().Add(-2 * time.Hour),
+		Request: provisioner.Request{
+			SovereignFQDN:       "otech-handed.omani.works",
+			SovereignDomainMode: "pool",
+		},
+		Result: &provisioner.Result{
+			SovereignFQDN:       "otech-handed.omani.works",
+			HandoverFiredAt:     &at,
+			HandoverCompletedAt: &at,
+		},
+	}
+}
+
+// assertWipeRefused412 checks the 412 answer and that nothing started.
+func assertWipeRefused412(t *testing.T, w *httptest.ResponseRecorder, dep *Deployment, wantStatus string) {
+	t.Helper()
+	if w.Code != http.StatusPreconditionFailed {
+		t.Fatalf("status=%d, want 412 — body=%s", w.Code, w.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v — raw=%s", err, w.Body.String())
+	}
+	if body["error"] != "confirm-fqdn-required" {
+		t.Errorf("error=%v, want confirm-fqdn-required", body["error"])
+	}
+	dep.mu.Lock()
+	defer dep.mu.Unlock()
+	if dep.Status != wantStatus || dep.wipeInFlight {
+		t.Errorf("a refused wipe changed the record: status=%q wipeInFlight=%v, want status %q and no wipe in flight", dep.Status, dep.wipeInFlight, wantStatus)
+	}
+}
+
+func TestWipeDeployment_HandedOverWithoutConfirmIs412(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	dep := handedOverDeployment("dep-handed-noconfirm")
+	h.deployments.Store(dep.ID, dep)
+
+	w := callWipeDeploymentConfirm(h, dep.ID, "", `{"hetznerToken":"fake-hetzner-token"}`)
+	assertWipeRefused412(t, w, dep, "ready")
+}
+
+func TestWipeDeployment_HandedOverWrongConfirmIs412(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	dep := handedOverDeployment("dep-handed-wrong")
+	h.deployments.Store(dep.ID, dep)
+
+	w := callWipeDeploymentConfirm(h, dep.ID, "otech-other.omani.works", `{"hetznerToken":"fake-hetzner-token"}`)
+	assertWipeRefused412(t, w, dep, "ready")
+}
+
+// The force flag lifts only the minimum-life guard, never the confirmation.
+func TestWipeDeployment_HandedOverForceWithoutConfirmIs412(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	dep := handedOverDeployment("dep-handed-force")
+	h.deployments.Store(dep.ID, dep)
+
+	w := callWipeDeployment(h, dep.ID, "force=true", `{"hetznerToken":"fake-hetzner-token"}`)
+	assertWipeRefused412(t, w, dep, "ready")
+}
+
+// A record handed over before HandoverCompletedAt existed carries only
+// HandoverFiredAt; it is protected too.
+func TestWipeDeployment_HandoverFiredOnlyWithoutConfirmIs412(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	dep := handedOverDeployment("dep-handed-fired-only")
+	dep.Result.HandoverCompletedAt = nil
+	h.deployments.Store(dep.ID, dep)
+
+	w := callWipeDeploymentConfirm(h, dep.ID, "", `{"hetznerToken":"fake-hetzner-token"}`)
+	assertWipeRefused412(t, w, dep, "ready")
+}
+
+// The slim record that stays after the owner adopted the Sovereign has
+// no Result, only AdoptedAt; it is protected too.
+func TestWipeDeployment_AdoptedWithoutConfirmIs412(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	at := time.Now().Add(-time.Hour).UTC()
+	dep := &Deployment{
+		ID:        "dep-adopted-noconfirm",
+		Status:    "adopted",
+		StartedAt: time.Now().Add(-2 * time.Hour),
+		Request:   provisioner.Request{SovereignFQDN: "otech-adopted.omani.works"},
+		AdoptedAt: &at,
+	}
+	h.deployments.Store(dep.ID, dep)
+
+	w := callWipeDeploymentConfirm(h, dep.ID, "", `{"hetznerToken":"fake-hetzner-token"}`)
+	assertWipeRefused412(t, w, dep, "adopted")
+}
+
+func TestWipeDeployment_HandedOverRightConfirmProceeds(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	dep := handedOverDeployment("dep-handed-confirmed")
+	h.deployments.Store(dep.ID, dep)
+
+	w := callWipeDeploymentConfirm(h, dep.ID, "otech-handed.omani.works", `{"hetznerToken":"fake-hetzner-token"}`)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status=%d, want 202 — body=%s", w.Code, w.Body.String())
+	}
+	waitForWipeDone(t, dep, 60*time.Second)
+}
+
+func TestWipeDeployment_NeverHandedOverNeedsNoConfirm(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	dep := &Deployment{
+		ID:        "dep-never-handed",
+		Status:    "failed",
+		StartedAt: time.Now().Add(-2 * time.Hour),
+		Request: provisioner.Request{
+			SovereignFQDN:       "otech-never.omani.works",
+			SovereignDomainMode: "pool",
+		},
+		Result: &provisioner.Result{SovereignFQDN: "otech-never.omani.works"},
+	}
+	h.deployments.Store(dep.ID, dep)
+
+	w := callWipeDeploymentConfirm(h, dep.ID, "", `{"hetznerToken":"fake-hetzner-token"}`)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status=%d, want 202 — body=%s", w.Code, w.Body.String())
+	}
+	waitForWipeDone(t, dep, 60*time.Second)
+}
+
+// fireHandover completes the hand-over: it stamps HandoverCompletedAt,
+// and from then on a wipe needs the confirmation header.
+func TestFireHandover_StampsHandoverCompletedAt(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	h.SetHandoverSigner(loadTestSigner(t))
+	dep := &Deployment{
+		ID:         "dep-handover-completes",
+		Status:     "ready",
+		StartedAt:  time.Now().Add(-2 * time.Hour),
+		eventsCh:   make(chan provisioner.Event, 256),
+		done:       make(chan struct{}),
+		Request:    provisioner.Request{SovereignFQDN: "otech-completes.omani.works"},
+		Result:     &provisioner.Result{SovereignFQDN: "otech-completes.omani.works"},
+		OwnerEmail: "owner@completes.example.com",
+	}
+	h.deployments.Store(dep.ID, dep)
+
+	h.fireHandover(dep)
+	dep.mu.Lock()
+	completed := dep.Result.HandoverCompletedAt
+	dep.mu.Unlock()
+	if completed == nil {
+		t.Fatal("fireHandover did not set Result.HandoverCompletedAt")
+	}
+
+	w := callWipeDeploymentConfirm(h, dep.ID, "", `{"hetznerToken":"fake-hetzner-token"}`)
+	if w.Code != http.StatusPreconditionFailed {
+		t.Fatalf("wipe after the hand-over without the header: status=%d, want 412 — body=%s", w.Code, w.Body.String())
+	}
+}

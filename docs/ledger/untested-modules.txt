@@ -1,0 +1,5 @@
+# One Go module directory per line. No pull-request workflow tests it. Lines are only removed.
+platform/newapi/internal/handler
+platform/openclaw/controller
+platform/openclaw/runtime
+tests/dod

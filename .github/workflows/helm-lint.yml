@@ -76,7 +76,7 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@v4
         with:
-          version: v3.16.0
+          version: v3.16.3
 
       - name: Determine changed charts
         id: changed
@@ -101,6 +101,11 @@ jobs:
         if: steps.changed.outputs.charts != ''
         run: |
           for c in ${{ steps.changed.outputs.charts }}; do
+            # A chart that the change deletes has nothing to lint.
+            if [ ! -f "$c/Chart.yaml" ]; then
+              echo "▸ $c is deleted by this change: nothing to lint"
+              continue
+            fi
             # ADR-0015 D2 (#7067): a chart whose templates call a vendored
             # library (file://../../topology-lib/chart) cannot lint without its
             # declared dependencies — build them first (charts/ is gitignored).

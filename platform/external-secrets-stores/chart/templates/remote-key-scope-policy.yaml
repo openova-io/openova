@@ -1,0 +1,82 @@
+{{- /*
+remote-key-scope-policy.yaml — which OpenBao key an ExternalSecret or a
+PushSecret may name (SEC-080).
+
+Every namespace may use the cluster-wide stores vault-region1 and
+vault-<peer>. So this rule limits the remote KEY, not the store. A key is
+admitted when it starts with
+  - <appsPrefix>/<namespace>/   the namespace's own prefix on the mount secret/
+  - <namespace>/                the namespace's own prefix on the mount mounted/
+  - a prefix that ConfigMap eso-legacy-key-map lists for the namespace
+    (legacy-key-map.yaml, values.legacyKeyMap).
+A dataFrom entry with neither extract nor find is a generator and names no
+key. A find without a path searches the whole store and is refused.
+
+Namespaces with the label openova.io/organization are not judged. They are
+created at run time, and their keys carry the Organization's name, which no
+static list can hold.
+
+failurePolicy Fail and parameterNotFoundAction Deny: when the rule or its
+ConfigMap cannot be read, the request is refused, never let through.
+*/ -}}
+{{- $rks := .Values.remoteKeyScope | default dict }}
+{{- $name := $rks.name | default "external-secret-remote-key-scope" }}
+{{- $cm := $rks.configMapName | default "eso-legacy-key-map" }}
+{{- $apps := $rks.appsPrefix | default "openova/apps" | trimSuffix "/" }}
+{{- if not (regexMatch "^[a-z0-9][-a-z0-9._/]*[a-z0-9]$" $apps) }}
+{{- fail (printf "remoteKeyScope.appsPrefix: %q is not a path" $apps) }}
+{{- end }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $name | quote }}
+  labels:
+    catalyst.openova.io/component: external-secrets
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["external-secrets.io"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["externalsecrets", "pushsecrets"]
+  variables:
+    - name: ns
+      expression: "object.metadata.namespace"
+    - name: ownA
+      expression: "'{{ $apps }}/' + object.metadata.namespace + '/'"
+    - name: ownB
+      expression: "object.metadata.namespace + '/'"
+    - name: legacy
+      expression: "has(params.data) && variables.ns in params.data ? params.data[variables.ns].split(',') : []"
+    - name: keys
+      expression: >-
+        (has(object.spec.data) ? object.spec.data.map(d,
+        has(d.remoteRef) ? d.remoteRef.key : (has(d.match) && has(d.match.remoteRef) ? d.match.remoteRef.remoteKey : '')) : [])
+        + (has(object.spec.dataFrom) ? object.spec.dataFrom.map(f,
+        has(f.extract) ? f.extract.key : (has(f.find) ? (has(f.find.path) && f.find.path != '' ? f.find.path : '*') : '')) : [])
+  validations:
+    - expression: "variables.keys.all(k, k == '' || k.startsWith(variables.ownA) || k.startsWith(variables.ownB) || variables.legacy.exists(p, p != '' && k.startsWith(p)))"
+      message: "remote key must start with {{ $apps }}/<namespace>/, with <namespace>/, or with a prefix listed for this namespace in ConfigMap {{ $cm }}"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $name | quote }}
+  labels:
+    catalyst.openova.io/component: external-secrets
+spec:
+  policyName: {{ $name | quote }}
+  validationActions: ["Deny"]
+  paramRef:
+    name: {{ $cm | quote }}
+    namespace: {{ .Release.Namespace | quote }}
+    parameterNotFoundAction: Deny
+  matchResources:
+    namespaceSelector:
+      matchExpressions:
+        - key: openova.io/organization
+          operator: DoesNotExist

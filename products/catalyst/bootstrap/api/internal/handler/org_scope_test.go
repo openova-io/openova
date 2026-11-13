@@ -56,7 +56,6 @@ func TestPathIsOrgSafe(t *testing.T) {
 		"/api/v1/org/users/abc",
 		"/api/v1/catalog",
 		"/api/v1/catalog/bp-agenity",
-		"/api/v1/sandbox/sessions",
 		"/api/v1/sovereign/apps",
 		"/api/v1/sovereign/self",
 		// #4937 — self-service app list + install (server-side confined to
@@ -102,6 +101,10 @@ func TestPathIsOrgSafe(t *testing.T) {
 		// route on this API whose successful call is unrecoverable.
 		"/api/v1/deployments/4635277cae4ffed9/wipe",
 		"/api/v1/deployments/4635277cae4ffed9/cloudinit-log",
+		// ADR-0023 — the Sandbox is withdrawn and its routes are gone, so the
+		// allowlist holds no entry for them any more.
+		"/api/v1/sandbox/sessions",
+		"/api/v1/sandbox/byos/claude-code/status",
 	}
 	for _, p := range unsafe {
 		if pathIsOrgSafe(p) {

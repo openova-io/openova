@@ -136,3 +136,10 @@ output "control_plane_ips_per_region" {
     }
   )
 }
+
+# NET-100 — the network registry of this Sovereign as one JSON string (contract
+# output network_registry; infra/providers/PROVIDER-INTERFACE.md section 2).
+output "network_registry" {
+  description = "Network registry (JSON): pod supernet, MTU, region separation, control-plane access lists, and per region the cluster name and identifier, node, pod and service ranges, edge address and egress addresses."
+  value       = jsonencode(local.network_registry)
+}

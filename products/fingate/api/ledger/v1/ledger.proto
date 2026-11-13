@@ -1,0 +1,113 @@
+syntax = "proto3";
+package openova.fingate.ledger.v1;
+option go_package = "github.com/openova-io/openova/products/fingate/api/ledger/v1;ledgerv1";
+
+// ledger.pb.go and ledger_grpc.pb.go are generated from this file and are never
+// edited by hand. They were generated with protoc 3.12.4, protoc-gen-go v1.36.12
+// and protoc-gen-go-grpc v1.6.1, run in the folder products/fingate:
+//   protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative api/ledger/v1/ledger.proto
+
+// Ledger is the port of the open-banking product to core banking, version 1.
+//
+// Core banking is reached only through this service. An adapter serves it:
+// the sandbox ledger is the first one, and a bank or a partner writes the
+// adapter of its own core-banking system. The program
+// fingate-ledger-conformance proves that an adapter serves the port.
+//
+// Transport: gRPC over TLS. The adapter presents a certificate from the
+// Sovereign's internal issuer or one the bank supplies. Amounts are decimal
+// strings, currencies are ISO 4217 codes, times are RFC 3339.
+//
+// Error codes, fixed:
+//   NOT_FOUND            unknown customer, account or payment
+//   PERMISSION_DENIED    the account is not the customer's
+//   FAILED_PRECONDITION  the ledger refuses the payment; the status message says why
+//   UNIMPLEMENTED        a resource or payment type absent from Capabilities
+//   UNAVAILABLE          retry is safe
+//   ALREADY_EXISTS       an idempotency key reused with different content
+//
+// The port has no consent, subscription, token or event operation. Version 1
+// carries domestic payments only: immediate, scheduled and standing order.
+service Ledger {
+  rpc GetCapabilities(GetCapabilitiesRequest) returns (Capabilities);
+  rpc ResolveCustomer(ResolveCustomerRequest) returns (Customer);
+  rpc ListAccounts(ListAccountsRequest) returns (ListAccountsResponse);
+  rpc GetAccount(GetAccountRequest) returns (Account);
+  rpc ListBalances(AccountRequest) returns (ListBalancesResponse);
+  rpc ListTransactions(ListTransactionsRequest) returns (ListTransactionsResponse);
+  rpc ListBeneficiaries(AccountPageRequest) returns (ListBeneficiariesResponse);
+  rpc ListStandingOrders(AccountPageRequest) returns (ListStandingOrdersResponse);
+  rpc ListDirectDebits(AccountPageRequest) returns (ListDirectDebitsResponse);
+  rpc ListScheduledPayments(AccountPageRequest) returns (ListScheduledPaymentsResponse);
+  rpc GetParty(GetPartyRequest) returns (Party);
+  rpc CheckFunds(CheckFundsRequest) returns (CheckFundsResponse);
+  rpc SubmitPayment(SubmitPaymentRequest) returns (Payment);
+  rpc GetPayment(GetPaymentRequest) returns (Payment);
+}
+
+message Money { string amount = 1; string currency = 2; }
+message GetCapabilitiesRequest {}
+message Capabilities {
+  repeated string resources = 1;        // any of: beneficiaries, standing-orders, direct-debits, scheduled-payments, party
+  repeated string payment_types = 2;    // any of: domestic, domestic-scheduled, domestic-standing-order
+  repeated string currencies = 3;
+}
+message ResolveCustomerRequest { string scheme = 1; string subject = 2; map<string, string> attributes = 3; }
+message Customer { string customer_id = 1; string display_name = 2; }
+message ListAccountsRequest { string customer_id = 1; }
+message ListAccountsResponse { repeated Account accounts = 1; }
+message GetAccountRequest { string customer_id = 1; string account_id = 2; }
+message Account {
+  string account_id = 1; string currency = 2; string type = 3; string sub_type = 4;
+  string nickname = 5; string scheme_name = 6; string identification = 7; string holder_name = 8;
+  string status = 9; string opened_at = 10;
+}
+message AccountRequest { string customer_id = 1; string account_id = 2; }
+message AccountPageRequest { string customer_id = 1; string account_id = 2; string page_token = 3; int32 page_size = 4; }
+message Balance { string type = 1; Money amount = 2; string credit_debit = 3; string at = 4; }
+message ListBalancesResponse { repeated Balance balances = 1; }
+message ListTransactionsRequest {
+  string customer_id = 1; string account_id = 2; string from = 3; string to = 4;
+  string page_token = 5; int32 page_size = 6;
+}
+message Transaction {
+  string transaction_id = 1; Money amount = 2; string credit_debit = 3; string status = 4;
+  string booked_at = 5; string value_at = 6; string information = 7; string reference = 8;
+  string counterparty_name = 9; string counterparty_identification = 10; Money balance_after = 11;
+}
+message ListTransactionsResponse { repeated Transaction transactions = 1; string next_page_token = 2; }
+message Beneficiary { string beneficiary_id = 1; string name = 2; string scheme_name = 3; string identification = 4; string reference = 5; }
+message ListBeneficiariesResponse { repeated Beneficiary items = 1; string next_page_token = 2; }
+message StandingOrder {
+  string standing_order_id = 1; string frequency = 2; string reference = 3; Money next_amount = 4;
+  string next_at = 5; string final_at = 6; string status = 7; string creditor_name = 8;
+  string creditor_scheme_name = 9; string creditor_identification = 10;
+}
+message ListStandingOrdersResponse { repeated StandingOrder items = 1; string next_page_token = 2; }
+message DirectDebit { string direct_debit_id = 1; string mandate_id = 2; string name = 3; string status = 4; string previous_at = 5; Money previous_amount = 6; }
+message ListDirectDebitsResponse { repeated DirectDebit items = 1; string next_page_token = 2; }
+message ScheduledPayment { string scheduled_payment_id = 1; string execution_at = 2; Money amount = 3; string reference = 4; string creditor_name = 5; string creditor_scheme_name = 6; string creditor_identification = 7; }
+message ListScheduledPaymentsResponse { repeated ScheduledPayment items = 1; string next_page_token = 2; }
+message GetPartyRequest { string customer_id = 1; string account_id = 2; }   // account_id empty = the customer
+message Party { string party_id = 1; string type = 2; string name = 3; string email = 4; string phone = 5; }
+message CheckFundsRequest { string customer_id = 1; string account_id = 2; Money amount = 3; }
+message CheckFundsResponse { bool available = 1; string at = 2; }
+message SubmitPaymentRequest {
+  string idempotency_key = 1;       // the same key with the same content returns the same Payment
+  string customer_id = 2; string debtor_account_id = 3; string type = 4;   // one of Capabilities.payment_types
+  Money amount = 5; string creditor_name = 6; string creditor_scheme_name = 7; string creditor_identification = 8;
+  string reference = 9; string end_to_end_id = 10; string requested_execution_at = 11;   // empty = now
+  Recurrence recurrence = 12;       // set when type is domestic-standing-order, unset otherwise; amount is then the recurring amount
+}
+message Recurrence {
+  string frequency = 1;             // the frequency type code of the documents, passed through unchanged
+  int32 count_per_period = 2;       // 0 = not given
+  string point_in_time = 3;         // empty = not given
+  string first_payment_at = 4; string recurring_payment_at = 5; string final_payment_at = 6;   // empty = not given
+  int32 number_of_payments = 7;     // 0 = not given
+  Money first_amount = 8;           // always set
+  Money final_amount = 9;           // unset = not given
+}
+message GetPaymentRequest { string payment_id = 1; }
+message Payment { string payment_id = 1; string status = 2; string status_reason = 3; string status_at = 4; }
+  // status: pending | accepted | settled | rejected

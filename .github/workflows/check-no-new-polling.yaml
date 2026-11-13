@@ -1,0 +1,27 @@
+# check-no-new-polling.yaml - no new polling loop in the platform's code, front ends and manifests.
+#
+# scripts/check-no-new-polling.py counts six kinds of poll per file (Go tickers, Go sleeps,
+# controller requeues, console refetch intervals, front-end setInterval calls and shell loops
+# in manifests) and compares them with scripts/baselines/polling.json. A count above its
+# baseline entry fails; a count below it fails too, until the baseline is lowered in the same
+# change. No path filter, on purpose: a required check that a path filter skips never reports.
+# The self-test runs first. It shows, on a tree it builds itself, that every rule can fail.
+name: check-no-new-polling
+
+on:
+  pull_request:
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  no-new-polling:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Self-test of the guard
+        run: python3 scripts/check-no-new-polling.py --self-test
+      - name: No new polling loop
+        run: python3 scripts/check-no-new-polling.py

@@ -1,0 +1,12 @@
+[Unit]
+Description=Mark / as a shared mount (systemd does this on a virtual machine, not in a container)
+DefaultDependencies=no
+Before=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/mount --make-rshared /
+RemainAfterExit=yes
+
+[Install]
+WantedBy=local-fs.target

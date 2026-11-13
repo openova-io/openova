@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Alert changed, version 1: the data of the CloudEvent",
+  "description": "Published once each time an alert starts firing and once when it is resolved. The twelve fields are required; a producer may add more.",
+  "type": "object",
+  "required": ["alertId", "organization", "cluster", "namespace", "entityKind", "entityName", "name", "state", "severity", "startsAt", "summary", "labels"],
+  "properties": {
+    "alertId": {"type": "string", "description": "Identifies one alert; the same value when it fires and when it is resolved."},
+    "organization": {"type": "string", "description": "The slug of the Organization, or the empty string for a platform alert."},
+    "cluster": {"type": "string", "description": "The cluster the alert is about."},
+    "namespace": {"type": "string", "description": "The namespace of the entity."},
+    "entityKind": {"type": "string", "description": "The kind of the entity the alert is about."},
+    "entityName": {"type": "string", "description": "The name of the entity the alert is about."},
+    "name": {"type": "string", "description": "The name of the alert."},
+    "state": {"type": "string", "enum": ["firing", "resolved"]},
+    "severity": {"type": "string", "description": "The severity of the alert."},
+    "startsAt": {"type": "string", "format": "date-time", "description": "When the alert started firing, in RFC 3339."},
+    "summary": {"type": "string", "description": "One line for a person."},
+    "labels": {"type": "object", "additionalProperties": {"type": "string"}, "description": "The labels of the alert."}
+  }
+}

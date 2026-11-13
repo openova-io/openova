@@ -5,7 +5,7 @@ name: bp-reflector
 #   Secrets watched, steady 95Mi against the 128Mi limit), region B 44 times.
 #   ADR-0015 D1 kubeconfig mirroring and the cutover ghcr-pull fan-out now
 #   depend on it. Upstream 7.1.288 offers no watch narrowing (values.yaml).
-version: 1.0.2-hw307.1
+version: 1.0.2
 description: |
   Catalyst-curated Blueprint umbrella chart for emberstack/reflector.
   Reflector mirrors Kubernetes Secrets and ConfigMaps across namespaces

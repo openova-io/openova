@@ -38,27 +38,112 @@ type Step struct {
 	Error      string    `json:"error,omitempty"`
 }
 
+// Producer says who wrote the record. Only a workflow record counts for a verdict.
+type Producer struct {
+	Kind       string `json:"kind"` // workflow | manual
+	Workflow   string `json:"workflow,omitempty"`
+	RunID      string `json:"run_id,omitempty"`
+	RunAttempt int    `json:"run_attempt,omitempty"`
+}
+
+// CheckResult is the result of one selected gate check.
+type CheckResult struct {
+	ID         string `json:"id"`
+	StateAtRun string `json:"state_at_run"` // expected-fail | required
+	Status     string `json:"status"`
+	Reason     string `json:"reason,omitempty"`
+	unmet      bool   // SKIP because the run did not declare the needs of the check
+}
+
+// ChartArtifact is one HelmRelease of one region: the chart version that is
+// deployed and the version that the candidate pins ("" when it pins none).
+type ChartArtifact struct {
+	Region    string `json:"region"`
+	Namespace string `json:"namespace"`
+	Release   string `json:"release"`
+	Chart     string `json:"chart"`
+	Version   string `json:"version"`
+	Pinned    string `json:"pinned"`
+
+	// Check SVC-G06 fills these two: the Blueprint name of the chart and the
+	// result of the function test of the newest revision (pass, fail or none).
+	// They are left out when that check did not run or the test had not
+	// finished.
+	Blueprint    string `json:"blueprint,omitempty"`
+	FunctionTest string `json:"functionTest,omitempty"`
+}
+
+// ImageArtifact is one image reference of one region with the digest that
+// runs, and the number of containers that run it.
+type ImageArtifact struct {
+	Region     string `json:"region"`
+	Ref        string `json:"ref"`
+	Digest     string `json:"digest"`
+	Containers int    `json:"containers"`
+}
+
+// Artifacts is what ran: every HelmRelease and every image of the platform
+// namespaces, per region. Check FND-G01 observes it.
+type Artifacts struct {
+	Charts []ChartArtifact `json:"charts"`
+	Images []ImageArtifact `json:"images"`
+}
+
+// ArtifactsKey is the evidence key under which a check hands a *Artifacts to
+// the record. Finalize moves the value to the field Artifacts of the record.
+const ArtifactsKey = "artifacts"
+
+// ProofsKey is the evidence key under which check SVC-G06 hands the
+// function-test results of one region to the record, as a
+// map[string]ChartProof keyed by "<region>/<namespace>/<release>". Finalize
+// copies each result onto the chart of the same release in the artifacts.
+const ProofsKey = "proofs"
+
+// ChartProof is the Blueprint name of one HelmRelease and the result of the
+// function test of its newest revision: pass, fail or none.
+type ChartProof struct {
+	Blueprint    string `json:"blueprint"`
+	FunctionTest string `json:"functionTest"`
+}
+
+// Provision is the part of the record about the installation under test. The
+// suite writes two fields of it, and only in a run that follows a wipe: the
+// deployment that was wiped and the number of its resources that the cloud
+// account still listed after the wipe (check FND-G13). The other fields of
+// the object in the schema have no writer yet.
+type Provision struct {
+	PreviousDeploymentID string `json:"previous_deployment_id"`
+	PreviousWipeOrphans  int    `json:"previous_wipe_orphans"`
+}
+
 // Run is the JSON record written to docs/ledger/acceptance/<env>-<runid>.json.
-// The schema is read by scripts/check-function-rows-cite-acceptance.py and
-// scripts/acceptance-gate.sh — change all three together.
+// The schema is version 2. It is read by scripts/acceptance-gate.py (the
+// table RECORD) and by scripts/acceptance_record.py: change all three together.
 type Run struct {
 	Schema       string            `json:"schema"`
 	RunID        string            `json:"run_id"`
 	Env          string            `json:"env"`
 	Console      string            `json:"console"`
 	DeploymentID string            `json:"deployment_id"`
-	Mode         string            `json:"mode"` // run | discover
+	Mode         string            `json:"mode"`   // run | discover
+	RunIn        string            `json:"run_in"` // local | cloud
+	Capabilities []string          `json:"capabilities"`
 	SuiteGitSHA  string            `json:"suite_git_sha,omitempty"`
 	StartedAt    time.Time         `json:"started_at"`
 	FinishedAt   time.Time         `json:"finished_at"`
 	Result       string            `json:"result"`
+	Candidate    Candidate         `json:"candidate"`
+	Producer     Producer          `json:"producer"`
+	Provision    *Provision        `json:"provision,omitempty"`
+	Artifacts    *Artifacts        `json:"artifacts,omitempty"`
+	Checks       []CheckResult     `json:"checks"`
 	Journeys     map[string]string `json:"journeys"`
 	Subject      Evidence          `json:"subject"` // what was tested: org/env/regions/app/blueprint/delivered images
 	Steps        []*Step           `json:"steps"`
 }
 
 // SchemaVersion of the record.
-const SchemaVersion = "openova.io/acceptance-sovereign/v1"
+const SchemaVersion = "openova.io/acceptance-sovereign/v2"
 
 // NewRunID is <UTC timestamp>-<4 random hex>, sortable and unique.
 func NewRunID(now time.Time) string {
@@ -72,6 +157,28 @@ func NewRunID(now time.Time) string {
 // skipped entirely is SKIP, and any SKIP of a REQUESTED journey makes the run
 // FAIL: "not measured" never reads as green.
 func (r *Run) Finalize(requested []string) {
+	// The artifacts are observed by a check, which hands them over in the
+	// evidence of one step. They belong to the record, not to the step.
+	for _, s := range r.Steps {
+		if a, ok := s.Evidence[ArtifactsKey].(*Artifacts); ok {
+			r.Artifacts = a
+			delete(s.Evidence, ArtifactsKey)
+		}
+	}
+	// The function-test results stay in the evidence of their step; each one
+	// is also written onto the chart of the same release.
+	for _, s := range r.Steps {
+		proofs, ok := s.Evidence[ProofsKey].(map[string]ChartProof)
+		if !ok || r.Artifacts == nil {
+			continue
+		}
+		for i := range r.Artifacts.Charts {
+			c := &r.Artifacts.Charts[i]
+			if p, found := proofs[c.Region+"/"+c.Namespace+"/"+c.Release]; found {
+				c.Blueprint, c.FunctionTest = p.Blueprint, p.FunctionTest
+			}
+		}
+	}
 	r.Journeys = map[string]string{}
 	for _, j := range requested {
 		r.Journeys[j] = Skip
@@ -108,6 +215,13 @@ func (r *Run) Finalize(requested []string) {
 			r.Result = Fail
 		}
 	}
+	// A required check must pass. A skip passes only when the run did not
+	// declare what the check needs.
+	for _, c := range r.Checks {
+		if c.StateAtRun == StateRequired && c.Status != Pass && !c.unmet {
+			r.Result = Fail
+		}
+	}
 	if r.Mode == "discover" {
 		// discover asserts only reachability of the contract; it never
 		// certifies function and its record is refused by the UAT gate.
@@ -136,6 +250,9 @@ func (r *Run) PrintTable(w io.Writer) {
 	sort.Strings(keys)
 	for _, k := range keys {
 		fmt.Fprintf(w, "  %s %s\n", k, r.Journeys[k])
+	}
+	for _, c := range r.Checks {
+		_, _ = fmt.Fprintf(w, "  %s %s (%s) %s\n", c.ID, c.Status, c.StateAtRun, c.Reason)
 	}
 	fmt.Fprintf(w, "RESULT %s\n", r.Result)
 }

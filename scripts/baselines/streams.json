@@ -1,0 +1,3 @@
+{"schema": "openova.io/guard-baseline/v1",
+ "counts": {"event_type_indirections": {"core/services/domain/handlers/handlers.go": 1, "core/services/notification/main.go": 1, "core/services/provisioning/handlers/consumer.go": 1}, "stream_create_calls": {"core/services/shared/events/bridge_subscriber.go": 1, "core/services/shared/events/nats.go": 1}},
+ "allow": []}

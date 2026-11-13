@@ -1,24 +1,16 @@
 // Package handler — endpoint_handler.go: G117.3 catalyst-api endpoint
-// CRUD + Gitea-IaC PR pipeline + silent-SSO Launch URL minter +
-// multi-instance Application create. Backs the OpenAPI contract at
+// list + silent-SSO Launch URL minter + multi-instance Application
+// create. Backs the OpenAPI contract at
 // docs/api/catalyst-api-openapi.yaml.
 //
-// The seven routes:
+// The four routes:
 //
 //	GET    /catalyst/v1/apps/{id}/endpoints
-//	POST   /catalyst/v1/apps/{id}/endpoints
-//	PATCH  /catalyst/v1/apps/{id}/endpoints/{name}
-//	DELETE /catalyst/v1/apps/{id}/endpoints/{name}
 //	GET    /catalyst/v1/apps/{id}/launch-url
 //	POST   /catalyst/v1/apps/instances
 //	GET    /catalyst/v1/catalog/{blueprint}/instances
 //
 // Architecture (locked decisions #1-#7 in the G117 brief):
-//
-//   - Endpoint mutations are PR-pipelined through `gitea.<sov>/<org>/iac`
-//     per ADR-0009. catalyst-api opens the PR, runs the three named
-//     pre-checks (decision #4), and auto-merges on green. Flux
-//     reconciles ~30s after merge.
 //
 //   - Multi-instance creates require Blueprint.spec.multiInstance.enabled
 //     true OR a fresh Application name in the Org's namespace. The
@@ -37,7 +29,7 @@
 //     on UID.
 //
 // Anti-theater: every handler returns a concrete response that
-// validates against the OpenAPI schema (`schema/EndpointPR`,
+// validates against the OpenAPI schema (`schema/ResolvedEndpoint`,
 // `schema/Application`, etc.). No null-guards on never-empty data;
 // no `enabled:false` defaults; no scaffold-only paths.
 package handler
@@ -54,7 +46,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	yamlv3 "gopkg.in/yaml.v3"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -64,41 +55,12 @@ import (
 
 	"github.com/openova-io/openova/core/controllers/application/admission"
 	bpv1 "github.com/openova-io/openova/core/controllers/pkg/apis/blueprint/v1alpha1"
-	"github.com/openova-io/openova/core/controllers/pkg/gitea"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/catalog"
-	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/giteapr"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/instances"
-	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
-	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/precheck"
 )
 
 // ── Wire shapes (mirror docs/api/catalyst-api-openapi.yaml) ─────────
-
-// endpointMutationRequest is the body of POST /apps/{id}/endpoints
-// and PATCH /apps/{id}/endpoints/{name}.
-type endpointMutationRequest struct {
-	Name       string `json:"name"`
-	Hostname   string `json:"hostname,omitempty"`
-	Port       int    `json:"port,omitempty"`
-	Protocol   string `json:"protocol,omitempty"`
-	TLS        *bool  `json:"tls,omitempty"`
-	Visibility string `json:"visibility,omitempty"`
-	SSOEnabled *bool  `json:"ssoEnabled,omitempty"`
-}
-
-// endpointPRResponse mirrors `schema/EndpointPR`.
-type endpointPRResponse struct {
-	PRURL           string                  `json:"prURL"`
-	Status          string                  `json:"status"`
-	PreCheckResults endpointPreCheckResults `json:"preCheckResults"`
-}
-
-type endpointPreCheckResults struct {
-	Kyverno     string `json:"kyverno"`
-	CertManager string `json:"certManager"`
-	DNSConflict string `json:"dnsConflict"`
-}
 
 // resolvedEndpoint mirrors `schema/ResolvedEndpoint`.
 type resolvedEndpoint struct {
@@ -254,34 +216,16 @@ type listEndpointsResponse struct {
 	Items []resolvedEndpoint `json:"items"`
 }
 
-// ── Endpoint precheck wiring (test seam) ────────────────────────────
+// ── Endpoint handler wiring (test seam) ─────────────────────────────
 
-// EndpointPrecheckDeps is the bundle of lookups + writer the endpoint
+// EndpointPrecheckDeps is the bundle of dependencies the endpoint
 // handlers consume. Production main.go wires production implementations;
 // tests inject in-memory fakes.
 type EndpointPrecheckDeps struct {
-	CertLookup    precheck.CertConflictLookup
-	DNSLookup     precheck.DNSConflictLookup
-	KyvernoLookup precheck.KyvernoLookup
-	// ExpectedDNSTarget is the canonical Gateway target hostname for
-	// this Sovereign. Used by precheck.CheckDNSConflict; empty means
-	// "any pre-existing record is a conflict".
-	ExpectedDNSTarget string
-
-	// Writer is the giteapr.Writer wrapping the per-Org IaC repo.
-	// Production wires a real one; tests inject a stub via the
-	// WriterFactory below.
-	WriterFactory func(org string) (*giteapr.Writer, error)
-
 	// DynamicClient returns the cluster client for Application CR
 	// reads/writes. Production = rest.InClusterConfig wrapper; tests
 	// inject a fake.NewSimpleDynamicClient.
 	DynamicClient func() (dynamic.Interface, error)
-
-	// Requester is read by FormatPRBody so the PR body cites the
-	// caller. Production reads from the auth.Claims on the request
-	// context; tests inject a stable value.
-	Requester func(ctx context.Context) string
 
 	// SovereignFQDN is the host suffix used when evaluating endpoint
 	// hostname templates and when building launch URLs. Reads
@@ -317,9 +261,6 @@ type EndpointPrecheckDeps struct {
 // SetEndpointPrecheckDeps wires the dependency bundle. Tests override
 // this with stubs; production main.go calls it once at startup.
 func (h *Handler) SetEndpointPrecheckDeps(d EndpointPrecheckDeps) { h.endpointDeps = d }
-
-// EndpointPrecheckDepsForTest returns the wired bundle (for tests).
-func (h *Handler) EndpointPrecheckDepsForTest() EndpointPrecheckDeps { return h.endpointDeps }
 
 // inClusterDynamicClient — fallback dynamic client builder when no
 // per-deployment kubeconfig is available. Used by endpoint handlers
@@ -450,194 +391,6 @@ func (h *Handler) HandleListAppEndpoints(w http.ResponseWriter, r *http.Request)
 	}
 	endpoints := h.resolveEndpoints(r.Context(), client, app, bpDoc)
 	writeJSON(w, http.StatusOK, listEndpointsResponse{Items: endpoints})
-}
-
-// HandleCreateAppEndpoint — POST /catalyst/v1/apps/{id}/endpoints
-func (h *Handler) HandleCreateAppEndpoint(w http.ResponseWriter, r *http.Request) {
-	h.mutateAppEndpoint(w, r, precheck.OpCreate)
-}
-
-// HandlePatchAppEndpoint — PATCH /catalyst/v1/apps/{id}/endpoints/{name}
-func (h *Handler) HandlePatchAppEndpoint(w http.ResponseWriter, r *http.Request) {
-	h.mutateAppEndpoint(w, r, precheck.OpUpdate)
-}
-
-// HandleDeleteAppEndpoint — DELETE /catalyst/v1/apps/{id}/endpoints/{name}
-func (h *Handler) HandleDeleteAppEndpoint(w http.ResponseWriter, r *http.Request) {
-	h.mutateAppEndpoint(w, r, precheck.OpDelete)
-}
-
-// mutateAppEndpoint is the shared body for create/update/delete.
-func (h *Handler) mutateAppEndpoint(w http.ResponseWriter, r *http.Request, op precheck.Operation) {
-	uid := chi.URLParam(r, "id")
-	pathName := chi.URLParam(r, "name")
-
-	client, err := h.dynamicClientOrFallback()
-	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"code":    "cluster-unavailable",
-			"message": err.Error(),
-		})
-		return
-	}
-	app, err := findApplicationByUID(r.Context(), client, uid)
-	if err != nil {
-		writeAppNotFound(w, uid, err)
-		return
-	}
-
-	// Authz — same role gate as application install (tier-admin or
-	// higher) PLUS the G117.3a #2757 per-Org membership check. The
-	// realm-role check alone allowed an Org-A tier-admin to mutate an
-	// App owned by Org-B by addressing the App UID; the per-Org IaC
-	// robot would then PR into the wrong Org's repo. The membership
-	// gate closes that hole.
-	appOrg := extractOrgFromApp(app)
-	if claims := auth.ClaimsFromContext(r.Context()); claims != nil {
-		if !applicationInstallCallerAuthorized(claims) {
-			writeJSON(w, http.StatusForbidden, map[string]string{
-				"code":    "forbidden",
-				"message": "endpoint mutation requires tier-admin or higher",
-			})
-			return
-		}
-		if !h.callerInOrg(r.Context(), claims, appOrg) {
-			writeJSON(w, http.StatusForbidden, map[string]string{
-				"code":    "forbidden-cross-org",
-				"message": fmt.Sprintf("caller is not a member of Organization %q (the Application's Org)", appOrg),
-			})
-			return
-		}
-	}
-
-	body := endpointMutationRequest{}
-	if op != precheck.OpDelete {
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{
-				"code":    "invalid-body",
-				"message": err.Error(),
-			})
-			return
-		}
-	} else {
-		// DELETE — endpoint name comes from the path.
-		body.Name = pathName
-	}
-	if op == precheck.OpUpdate {
-		// Name on path wins for PATCH; allow the body to omit it.
-		if body.Name == "" {
-			body.Name = pathName
-		}
-	}
-
-	mut := precheck.Mutation{
-		Org:        extractOrgFromApp(app),
-		App:        app.GetName(),
-		Name:       body.Name,
-		Hostname:   body.Hostname,
-		Port:       body.Port,
-		Protocol:   body.Protocol,
-		Visibility: body.Visibility,
-		Op:         op,
-	}
-	if body.TLS != nil {
-		mut.TLS = *body.TLS
-	}
-	if body.SSOEnabled != nil {
-		mut.SSOEnabled = *body.SSOEnabled
-	}
-	if err := precheck.ValidateMutation(mut); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"code":    "invalid-mutation",
-			"message": err.Error(),
-		})
-		return
-	}
-
-	// Run pre-checks BEFORE opening the PR (per locked decision #4).
-	bundle := precheck.Run(r.Context(), mut,
-		h.endpointDeps.ExpectedDNSTarget,
-		h.endpointDeps.CertLookup,
-		h.endpointDeps.DNSLookup,
-		h.endpointDeps.KyvernoLookup,
-	)
-	if !bundle.AllPass() {
-		// Don't open a known-bad PR. Surface the precheck verdict
-		// to the caller so the FE can render a precise error.
-		writeJSON(w, http.StatusUnprocessableEntity, endpointPRResponse{
-			Status: "failed-precheck",
-			PreCheckResults: endpointPreCheckResults{
-				Kyverno:     mapResultPass(bundle.Kyverno),
-				CertManager: mapResultPass(bundle.CertManager),
-				DNSConflict: mapResultPass(bundle.DNSConflict),
-			},
-		})
-		return
-	}
-
-	// Build manifest YAML.
-	var manifest []byte
-	if op != precheck.OpDelete {
-		manifest = h.buildEndpointManifest(mut)
-	}
-
-	// Hand off to giteapr.Writer.
-	if h.endpointDeps.WriterFactory == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"code":    "gitea-writer-unwired",
-			"message": "endpoint PR pipeline not wired (writer factory missing)",
-		})
-		return
-	}
-	writer, wErr := h.endpointDeps.WriterFactory(mut.Org)
-	if wErr != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"code":    "gitea-writer-init",
-			"message": wErr.Error(),
-		})
-		return
-	}
-
-	requester := ""
-	if h.endpointDeps.Requester != nil {
-		requester = h.endpointDeps.Requester(r.Context())
-	}
-
-	prMut := giteapr.Mutation{
-		Org:           mut.Org,
-		App:           mut.App,
-		EndpointName:  mut.Name,
-		ManifestYAML:  manifest,
-		Op:            mapPrecheckOp(op),
-		CommitMessage: formatCommit(op, mut),
-		PRTitle:       formatPRTitle(op, mut),
-		PRBody:        giteapr.FormatPRBody(giteapr.Mutation{Org: mut.Org, App: mut.App, EndpointName: mut.Name, Op: mapPrecheckOp(op)}, requester),
-	}
-	res, err := writer.OpenAndMerge(r.Context(), prMut)
-	if err != nil {
-		// Surface the partial result so the caller can see the PR URL
-		// + per-check state if it was opened before failing.
-		writeJSON(w, http.StatusBadGateway, endpointPRResponse{
-			PRURL:  res.PRURL,
-			Status: string(res.Status),
-			PreCheckResults: endpointPreCheckResults{
-				Kyverno:     allPass(bundle.Kyverno),
-				CertManager: allPass(bundle.CertManager),
-				DNSConflict: allPass(bundle.DNSConflict),
-			},
-		})
-		return
-	}
-	code := http.StatusAccepted
-	writeJSON(w, code, endpointPRResponse{
-		PRURL:  res.PRURL,
-		Status: string(res.Status),
-		PreCheckResults: endpointPreCheckResults{
-			Kyverno:     allPass(bundle.Kyverno),
-			CertManager: allPass(bundle.CertManager),
-			DNSConflict: allPass(bundle.DNSConflict),
-		},
-	})
 }
 
 // HandleGetLaunchURL — GET /catalyst/v1/apps/{id}/launch-url?endpoint={name}
@@ -1553,115 +1306,6 @@ func writeAppNotFound(w http.ResponseWriter, uid string, err error) {
 	})
 }
 
-func mapPrecheckOp(op precheck.Operation) giteapr.Op {
-	switch op {
-	case precheck.OpCreate:
-		return giteapr.OpCreate
-	case precheck.OpUpdate:
-		return giteapr.OpUpdate
-	case precheck.OpDelete:
-		return giteapr.OpDelete
-	}
-	return giteapr.OpUnknown
-}
-
-func mapResultPass(r precheck.Result) string {
-	if r.Pass {
-		return "pass"
-	}
-	return "fail"
-}
-
-func allPass(r precheck.Result) string {
-	if r.Pass {
-		return "pass"
-	}
-	return "fail"
-}
-
-// formatCommit builds a stable conventional-commit-shaped message for
-// the per-PR commit on the IaC repo.
-func formatCommit(op precheck.Operation, m precheck.Mutation) string {
-	verb := "update"
-	switch op {
-	case precheck.OpCreate:
-		verb = "add"
-	case precheck.OpDelete:
-		verb = "remove"
-	}
-	return fmt.Sprintf("feat(endpoint): %s %s/%s/%s", verb, m.Org, m.App, m.Name)
-}
-
-func formatPRTitle(op precheck.Operation, m precheck.Mutation) string {
-	verb := "update"
-	switch op {
-	case precheck.OpCreate:
-		verb = "add"
-	case precheck.OpDelete:
-		verb = "remove"
-	}
-	return fmt.Sprintf("endpoint(%s): %s/%s/%s", verb, m.Org, m.App, m.Name)
-}
-
-// buildEndpointManifest emits the per-endpoint YAML the Flux
-// kustomization picks up.
-func (h *Handler) buildEndpointManifest(m precheck.Mutation) []byte {
-	doc := map[string]interface{}{
-		"apiVersion": "catalyst.openova.io/v1",
-		"kind":       "Endpoint",
-		"metadata": map[string]interface{}{
-			"name":      m.Name,
-			"namespace": m.Org,
-			"labels": map[string]interface{}{
-				"app.kubernetes.io/instance":        m.App,
-				"app.kubernetes.io/managed-by":      "catalyst-api",
-				"catalyst.openova.io/organization":  m.Org,
-				"catalyst.openova.io/endpoint-name": m.Name,
-			},
-		},
-		"spec": map[string]interface{}{
-			"applicationRef": m.App,
-			"hostname":       m.Hostname,
-			"port":           portOrDefault(m.Port, m.Protocol),
-			"protocol":       protocolOrDefault(m.Protocol),
-			"tls":            m.TLS,
-			"visibility":     visibilityOrDefault(m.Visibility),
-			"ssoEnabled":     m.SSOEnabled,
-		},
-	}
-	out, err := yamlv3.Marshal(doc)
-	if err != nil {
-		return []byte("# marshal failed: " + err.Error() + "\n")
-	}
-	return out
-}
-
-func portOrDefault(p int, proto string) int {
-	if p > 0 {
-		return p
-	}
-	switch strings.ToLower(strings.TrimSpace(proto)) {
-	case "http":
-		return 80
-	default:
-		return 443
-	}
-}
-
-func protocolOrDefault(p string) string {
-	if v := strings.ToLower(strings.TrimSpace(p)); v != "" {
-		return v
-	}
-	return "https"
-}
-
-func visibilityOrDefault(v string) string {
-	if vv := strings.ToLower(strings.TrimSpace(v)); vv != "" {
-		return vv
-	}
-	return "public"
-}
-
 // ── Blueprint metadata helpers ──────────────────────────────────────
 
 // blueprintMeta is the trimmed projection of Blueprint.spec the
@@ -2479,265 +2123,7 @@ func readTopology(u *unstructured.Unstructured) string {
 	return "singleton"
 }
 
-// NewProductionGiteaIaCWriter — convenience wrapper main.go calls to
-// build a per-Org giteapr.Writer from the unified gitea.Client. The
-// per-Org robot token is stored in OpenBao at
-// `kv/data/org/<slug>/iac-bot-token` per ADR-0009; we look it up via
-// the per-Handler OpenBao client (h.openbao) and assemble the per-call
-// gitea.Client with the per-Org credential.
-//
-// Token resolution order:
-//
-//  1. OpenBao `kv/data/org/<org>/iac-bot-token` (key `token`) — the
-//     canonical per-Org path. Each Org's `tools/bootstrap-org-iac-repo.sh`
-//     seeds this with the robot account's PAT scoped to ONLY that
-//     Org's `iac` repo, so Org-A's writer physically cannot mutate
-//     Org-B's IaC repo (per the W3.D4 #2765 integration test).
-//
-//  2. Fallback to the global `CATALYST_GITEA_TOKEN` env var when:
-//     (a) the Handler has no openbao client wired (test mode /
-//     single-Org bootstrap Sovereign before openbao is up); OR
-//     (b) the per-Org secret returns ErrSecretNotFound (the Org's
-//     token hasn't been seeded yet — typical for the FIRST
-//     reconcile after bootstrap-org-iac-repo.sh provisions the
-//     Gitea side but before the OpenBao seed lands).
-//
-//  3. Transport errors from OpenBao (NOT not-found) are surfaced as
-//     errors — we do NOT silently fall back through a transient
-//     network blip onto the wrong-scope global token. The caller
-//     retries the endpoint mutation and the next reconcile pass
-//     succeeds once OpenBao is reachable.
-//
-// G117.3b (Refs #2765). Cross-Org leak impossibility test lives in
-// endpoint_handler_per_org_token_test.go (TestPerOrgTokenIsolation).
-func (h *Handler) NewProductionGiteaIaCWriter(ctx context.Context, org string) (*giteapr.Writer, error) {
-	base := strings.TrimSpace(os.Getenv("CATALYST_GITEA_URL"))
-	if base == "" {
-		return nil, errors.New("CATALYST_GITEA_URL unset")
-	}
-	tok, err := h.resolveGiteaTokenForOrg(ctx, org)
-	if err != nil {
-		return nil, err
-	}
-	c := gitea.New(base, tok)
-	return giteapr.NewWriter(c, &noopStatusChecker{}, giteapr.PollConfig{}), nil
-}
-
-// NewProductionGiteaIaCWriter is the package-level back-compat shim.
-// Existing callers without a Handler context fall through to the env
-// var only — used by tests + tools that intentionally exercise the
-// "no per-Org secret store wired" path. Production wiring should use
-// the Handler method above.
-func NewProductionGiteaIaCWriter(_org string) (*giteapr.Writer, error) {
-	base := strings.TrimSpace(os.Getenv("CATALYST_GITEA_URL"))
-	tok := strings.TrimSpace(os.Getenv("CATALYST_GITEA_TOKEN"))
-	if base == "" || tok == "" {
-		return nil, errors.New("CATALYST_GITEA_URL or CATALYST_GITEA_TOKEN unset")
-	}
-	c := gitea.New(base, tok)
-	return giteapr.NewWriter(c, &noopStatusChecker{}, giteapr.PollConfig{}), nil
-}
-
-// resolveGiteaTokenForOrg reads the per-Org Gitea robot token from
-// OpenBao at `kv/data/org/<slug>/iac-bot-token` (key `token`). Returns
-// the global env-var fallback only when (a) no openbao client is
-// wired, or (b) the per-Org secret does not yet exist. Real transport
-// errors propagate so the caller can distinguish "use env" from "retry
-// later".
-//
-// G117.3b (Refs #2765).
-func (h *Handler) resolveGiteaTokenForOrg(ctx context.Context, org string) (string, error) {
-	org = strings.TrimSpace(strings.ToLower(org))
-	if org == "" {
-		return "", errors.New("giteapr: org slug required for token lookup")
-	}
-	envTok := strings.TrimSpace(os.Getenv("CATALYST_GITEA_TOKEN"))
-
-	if h == nil || h.openbao == nil {
-		// Test / pre-openbao bootstrap mode — fall through to env.
-		if envTok == "" {
-			return "", errors.New("CATALYST_GITEA_TOKEN unset and no openbao client wired")
-		}
-		return envTok, nil
-	}
-
-	secretPath := "org/" + org + "/iac-bot-token"
-	data, err := h.openbao.GetKVv2(ctx, "secret", secretPath)
-	if err != nil {
-		if errors.Is(err, openbao.ErrSecretNotFound) {
-			// Per-Org token not yet seeded — fall back to env.
-			if envTok == "" {
-				return "", fmt.Errorf("giteapr: no per-Org token at kv/data/%s and CATALYST_GITEA_TOKEN unset", secretPath)
-			}
-			h.log.Info("giteapr: per-Org token absent; falling back to global env token",
-				"org", org, "path", secretPath,
-			)
-			return envTok, nil
-		}
-		// Real transport error — surface, never silent fall-through.
-		return "", fmt.Errorf("giteapr: openbao GetKVv2 %s: %w", secretPath, err)
-	}
-
-	tokAny, ok := data["token"]
-	if !ok {
-		return "", fmt.Errorf("giteapr: openbao secret %s missing required key `token`", secretPath)
-	}
-	tok, ok := tokAny.(string)
-	if !ok || strings.TrimSpace(tok) == "" {
-		return "", fmt.Errorf("giteapr: openbao secret %s key `token` is empty or non-string", secretPath)
-	}
-	return strings.TrimSpace(tok), nil
-}
-
-// noopStatusChecker is the placeholder StatusChecker used until the
-// real Gitea-Actions status-check poller lands. It always returns
-// pending — the writer's budget-elapse path takes over and the caller
-// sees `status: open`. This is the SAFE default: the per-Org repo's
-// branch-protection requires the three named checks to flip green
-// before merge regardless of what we poll.
-type noopStatusChecker struct{}
-
-func (n *noopStatusChecker) GetStatuses(_ context.Context, _, _, _ string) (map[string]giteapr.CheckStatus, error) {
-	return map[string]giteapr.CheckStatus{}, nil
-}
-
 // ── Application GVR shadow (in case dep handlers don't import ours) ─
 
 // _ = silence unused-import linter when build tags vary.
 var _ = schema.GroupVersionResource{}
-
-// ── Production CertConflictLookup (G117 #2864 Gap 6) ────────────────
-
-// NewProductionCertConflictLookup returns a precheck.CertConflictLookup
-// that walks every cert-manager.io/v1 Certificate in the cluster and
-// matches by spec.commonName + spec.dnsNames[]. When the covering
-// Certificate uses a wildcard pattern (e.g. `*.<sov-fqdn>`) the
-// returned CertOwner sets IsWildcard=true + WildcardDomain to the
-// base domain so CheckCertManager can auto-PASS new hostnames under
-// the wildcard's scope (per G117 #2864 / Gap 6 of #2856).
-//
-// Owner labels are sourced from the Certificate's
-// `catalyst.openova.io/organization` + `catalyst.openova.io/app`
-// labels. The Sovereign-Gateway's wildcard Certificate typically
-// carries no per-Application owner labels — in that case we surface
-// (`sovereign`, `gateway`) as a deterministic placeholder so the
-// auto-PASS-by-wildcard branch fires cleanly without leaking
-// namespace/name internals into the verdict.
-//
-// Lookup precedence:
-//
-//  1. Exact match on spec.commonName (or any spec.dnsNames[] entry) —
-//     returns the owner of THAT Certificate directly. IsWildcard
-//     reflects whether the matched entry began with `*.`.
-//  2. Wildcard match: any Certificate whose commonName/dnsNames
-//     contains a `*.<base>` pattern that covers `hostname` (one
-//     label of depth, exact base-domain suffix). Returns the owner
-//     of the wildcard Certificate with IsWildcard=true +
-//     WildcardDomain=<base>.
-//  3. No match — (CertOwner{}, false, nil).
-//
-// Transport errors from the apiserver propagate as the err return so
-// CheckCertManager surfaces `lookup-failed` (HTTP 503-class). A
-// missing cert-manager CRD (chroot dev surface) returns
-// (CertOwner{}, false, nil) — no Certificates means no conflict.
-func NewProductionCertConflictLookup(dynClient dynamic.Interface) precheck.CertConflictLookup {
-	return func(ctx context.Context, hostname string) (precheck.CertOwner, bool, error) {
-		if dynClient == nil {
-			return precheck.CertOwner{}, false, errors.New("cert-manager lookup: dynamic client nil")
-		}
-		hostname = strings.ToLower(strings.TrimSpace(hostname))
-		if hostname == "" {
-			return precheck.CertOwner{}, false, nil
-		}
-		list, err := dynClient.Resource(certificateGVR).Namespace("").List(ctx, metav1.ListOptions{})
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				return precheck.CertOwner{}, false, nil
-			}
-			return precheck.CertOwner{}, false, fmt.Errorf("cert-manager lookup: list certificates: %w", err)
-		}
-		var wildcardHit *precheck.CertOwner
-		for i := range list.Items {
-			c := &list.Items[i]
-			cn, _, _ := unstructured.NestedString(c.Object, "spec", "commonName")
-			dnsNames, _, _ := unstructured.NestedStringSlice(c.Object, "spec", "dnsNames")
-			candidates := make([]string, 0, len(dnsNames)+1)
-			if cn != "" {
-				candidates = append(candidates, cn)
-			}
-			candidates = append(candidates, dnsNames...)
-			owner := certOwnerFromObject(c)
-			for _, name := range candidates {
-				name = strings.ToLower(strings.TrimSpace(name))
-				if name == "" {
-					continue
-				}
-				// Exact match short-circuits regardless of wildcard.
-				if name == hostname {
-					o := owner
-					o.IsWildcard = strings.HasPrefix(name, "*.")
-					if o.IsWildcard {
-						o.WildcardDomain = strings.TrimPrefix(name, "*.")
-					}
-					return o, true, nil
-				}
-				// Wildcard candidate? Stash the first hit; an exact
-				// match later in the scan still wins (continues loop).
-				if strings.HasPrefix(name, "*.") {
-					base := strings.TrimPrefix(name, "*.")
-					if wildcardCovers(hostname, base) && wildcardHit == nil {
-						o := owner
-						o.IsWildcard = true
-						o.WildcardDomain = base
-						wildcardHit = &o
-					}
-				}
-			}
-		}
-		if wildcardHit != nil {
-			return *wildcardHit, true, nil
-		}
-		return precheck.CertOwner{}, false, nil
-	}
-}
-
-// certOwnerFromObject lifts (Org, App) from the Certificate's
-// canonical catalyst.openova.io labels. Sovereign-Gateway wildcard
-// certs typically carry no per-Application labels. ADR-0015 D4 — an
-// unlabelled cert has NO Organization (Org stays ""), never a
-// "sovereign" placeholder; the CheckCertManager wildcard auto-PASS
-// (G117 #2864) keys on IsWildcard, not on the owner Org.
-func certOwnerFromObject(c *unstructured.Unstructured) precheck.CertOwner {
-	labels := c.GetLabels()
-	org := ""
-	app := ""
-	if labels != nil {
-		org = strings.TrimSpace(labels["catalyst.openova.io/organization"])
-		app = strings.TrimSpace(labels[labelCatalystApp])
-	}
-	if app == "" {
-		app = "gateway"
-	}
-	return precheck.CertOwner{Org: org, App: app}
-}
-
-// wildcardCovers mirrors the precheck-package wildcard-scope rule
-// (TLS spec: `*.<base>` covers ONE label of depth, not the apex). We
-// inline it here so the production lookup is self-contained and the
-// precheck package's helper stays unexported.
-func wildcardCovers(hostname, base string) bool {
-	hostname = strings.ToLower(strings.TrimSpace(hostname))
-	base = strings.ToLower(strings.TrimSpace(base))
-	if hostname == "" || base == "" {
-		return false
-	}
-	suffix := "." + base
-	if !strings.HasSuffix(hostname, suffix) {
-		return false
-	}
-	prefix := strings.TrimSuffix(hostname, suffix)
-	if prefix == "" || strings.Contains(prefix, ".") {
-		return false
-	}
-	return true
-}

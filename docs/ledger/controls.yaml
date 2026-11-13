@@ -1,0 +1,130 @@
+# The security controls of the platform, as they are today: the source of
+# docs/generated/security-controls.md. The rules of this file are at the head of
+# scripts/generators/controls.py. After a change here run: python3 scripts/generators/controls.py
+# Optional keys per control: guard (a CI guard), gate_check (the gate check that proves it),
+# decision (ADR-NNNN). A control prints as built only when default_on is true and its gate check
+# has the state required in docs/ledger/gates.yaml.
+schema: openova.io/controls/v1
+controls:
+  - id: secrets-at-rest
+    claim: "Kubernetes Secrets are encrypted at rest in etcd."
+    mechanism: "k3s secrets encryption with the secretbox provider on every server"
+    exists: true
+    default_on: true
+    mode: enforce
+    guard: scripts/check-k3s-secrets-encryption.sh
+    gate_check: SEC-G01
+    decision: ADR-0018
+  - id: signed-artefacts-only
+    claim: "A Kyverno policy denies unsigned artefacts and artefacts signed by the wrong issuer."
+    mechanism: "Kyverno verifyImages policy cosignVerified of platform/kyverno-policies, off by default"
+    exists: true
+    default_on: false
+    mode: none
+    gate_check: SEC-G14
+  - id: admission-policy
+    claim: "Kyverno admission control denies manifests that break a platform policy."
+    mechanism: "Kyverno ClusterPolicies of platform/kyverno-policies"
+    exists: true
+    default_on: false
+    mode: audit
+  - id: admin-mfa
+    claim: "A sovereign-admin account must sign in to Keycloak with a second factor."
+    mechanism: "Keycloak required action for a WebAuthn or OTP credential"
+    exists: true
+    default_on: false
+    mode: none
+  - id: jit-elevation
+    claim: "An action that affects production needs a just-in-time elevation."
+    mechanism: "Just-in-time elevation of a sovereign-admin"
+    exists: false
+    default_on: false
+    mode: none
+  - id: openbao-raft-quorum
+    claim: "A write to OpenBao needs a quorum of 2 of 3 Raft members."
+    mechanism: "OpenBao integrated Raft storage with three members per region"
+    exists: true
+    default_on: false
+    mode: none
+  - id: openbao-audit-log
+    claim: "The OpenBao audit log records every read."
+    mechanism: "OpenBao audit device"
+    exists: false
+    default_on: false
+    mode: none
+    gate_check: SEC-G05
+  - id: openbao-regions-independent
+    claim: "Each region runs its own OpenBao Raft cluster, never one cluster stretched across regions."
+    mechanism: "One independent OpenBao Raft cluster per region"
+    exists: false
+    default_on: false
+    mode: none
+  - id: openbao-root-rotation
+    claim: "The OpenBao root token is rotated and the unseal keys are re-shared every quarter."
+    mechanism: "A scheduled root rotation and rekey of OpenBao"
+    exists: false
+    default_on: false
+    mode: none
+  - id: nats-account-isolation
+    claim: "Each Organization has its own NATS Account."
+    mechanism: "NATS Accounts configured by platform/nats-jetstream"
+    exists: false
+    default_on: false
+    mode: none
+  - id: secret-rotation-policy
+    claim: "A SecretPolicy drives the automatic rotation of every credential class."
+    mechanism: "A controller for the SecretPolicy custom resource; only the definition exists"
+    exists: false
+    default_on: false
+    mode: none
+  - id: dynamic-db-credentials
+    claim: "Database credentials are dynamic and reach a Pod through a secret sidecar."
+    mechanism: "OpenBao database secrets engine with a sidecar in the Pod"
+    exists: false
+    default_on: false
+    mode: none
+    gate_check: SEC-G13
+  - id: build-provenance
+    claim: "Every build carries SLSA level 3 provenance."
+    mechanism: "SLSA level 3 provenance attestation in the build workflows"
+    exists: false
+    default_on: false
+    mode: none
+  - id: siem-export
+    claim: "The audit log is exported to a SIEM, by default OpenSearch in the Sovereign."
+    mechanism: "OpenSearch in the Sovereign as the SIEM; platform/opensearch has no chart"
+    exists: false
+    default_on: false
+    mode: none
+  - id: static-secrets-via-eso
+    claim: "Static secrets live in OpenBao and reach a Pod only through the External Secrets Operator."
+    mechanism: "OpenBao with the External Secrets Operator"
+    exists: true
+    default_on: false
+    mode: none
+  - id: cloud-credential-not-persisted
+    claim: "The cloud provider credential is never persisted."
+    mechanism: "The provisioning credential held in memory only"
+    exists: false
+    default_on: false
+    mode: none
+  - id: token-lifetimes
+    claim: "A refresh lasts 30 days and an access token 15 minutes."
+    mechanism: "Token lifetimes of the Keycloak realm"
+    exists: true
+    default_on: false
+    mode: enforce
+  - id: network-policy
+    claim: "NetworkPolicy limits the blast radius of a compromised Pod."
+    mechanism: "A default-deny NetworkPolicy in every namespace, enforced by Cilium"
+    exists: true
+    default_on: false
+    mode: enforce
+    gate_check: NET-G06
+    decision: ADR-0019
+  - id: build-signing-sbom
+    claim: "Every build is signed with cosign and carries a Syft SBOM."
+    mechanism: "cosign signing and Syft SBOM attestation in the build workflows"
+    exists: true
+    default_on: false
+    mode: none

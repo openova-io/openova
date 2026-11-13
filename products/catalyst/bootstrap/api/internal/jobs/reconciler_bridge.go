@@ -58,35 +58,6 @@ type ReconcilerExecutionObservation struct {
 	StartedAt  time.Time
 	FinishedAt time.Time
 	Message    string
-	// RemovedOnSuccess — Helm deletes this Job exactly when it succeeds
-	// (hook-succeeded without hook-failed). Recorded on the run's seed log
-	// line so CloseVanishedRuns can still read it after the Job is gone.
-	RemovedOnSuccess bool
-}
-
-// removedOnSuccessNote tags a run's seed log line when Helm deletes the Job
-// on success. It is operator-readable text AND the marker CloseVanishedRuns
-// looks for, the same way the "[run <name>]" prefix is both.
-const removedOnSuccessNote = "(Helm deletes this Job when it succeeds)"
-
-// RunLedger is the jobs-side copy of helmwatch.JobLedger: which runs still
-// exist as Jobs, and the terminal verdicts Kubernetes recorded for runs.
-type RunLedger struct {
-	// Listed — the Job LIST succeeded; without it absence proves nothing.
-	Listed bool
-	// Present — run (Job) names that exist right now.
-	Present map[string]bool
-	// EventsListed — the terminal-event LIST succeeded.
-	EventsListed bool
-	// Ended — run name → terminal verdict from a Job event.
-	Ended map[string]RunEnd
-}
-
-// RunEnd is one terminal Job event, in the jobs status vocabulary.
-type RunEnd struct {
-	Status string // StatusSucceeded | StatusFailed
-	At     time.Time
-	Reason string
 }
 
 // Reconciler observation Kind tags (mirror helmwatch.ReconcilerKind*).
@@ -397,14 +368,10 @@ func (b *Bridge) seedCronExecutionsLocked(cronLeafJobName string, o ReconcilerOb
 		// Tag the run name in the first log line so the operator can map
 		// the Execution to a kubectl-visible Job, and so the dedupe above
 		// recognises it on the next read.
-		seedMsg := "[run " + run.Name + "] " + run.Message
-		if run.RemovedOnSuccess {
-			seedMsg += " " + removedOnSuccessNote
-		}
 		if e := b.store.AppendLogLines(b.deploymentID, exec.ID, []LogLine{{
 			Timestamp: start,
 			Level:     LevelInfo,
-			Message:   seedMsg,
+			Message:   "[run " + run.Name + "] " + run.Message,
 		}}); e != nil {
 			return execsSeeded, e
 		}
@@ -624,134 +591,4 @@ func logLevelForHealth(health string) string {
 	default:
 		return LevelInfo
 	}
-}
-
-// CloseVanishedRuns terminates every run the store still holds as in flight
-// whose Job no longer exists. A finished Job is often deleted at once (Helm
-// hook-succeeded, CloudNativePG initdb, CronJob history pruning), so the read
-// that would have seen it terminate never comes, and the row said "Running"
-// forever. The verdict comes only from evidence, strongest first:
-//
-//  1. a terminal Job event (Completed / BackoffLimitExceeded / …) recorded at
-//     or after the run started — Kubernetes keeps these about an hour;
-//  2. the run's own seed line saying Helm deletes it only on success;
-//  3. otherwise, when the event LIST itself succeeded, the run is closed
-//     Failed with a log line saying no completion was recorded — a run that
-//     vanished without a completion event did not verifiably complete.
-//
-// Nothing is concluded when the Job LIST failed (absence then means nothing)
-// and rule 3 is skipped when the event LIST failed. Only task and cron leaves
-// are swept: they are the kinds whose Executions are one-per-Job runs.
-func (b *Bridge) CloseVanishedRuns(l RunLedger, now time.Time) (closed int, err error) {
-	if !l.Listed {
-		return 0, nil
-	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	all, err := b.store.ListJobs(b.deploymentID)
-	if err != nil {
-		return 0, err
-	}
-	for _, j := range all {
-		if j.Type == JobTypeGroup || (j.Kind != KindTask && j.Kind != KindCron) {
-			continue
-		}
-		rec, execs, gerr := b.store.GetJob(b.deploymentID, j.JobName)
-		if gerr != nil {
-			continue
-		}
-		changed := false
-		for _, run := range execs {
-			if IsTerminal(run.Status) {
-				continue
-			}
-			page, perr := b.store.PageLogs(b.deploymentID, run.ID, 1, 1)
-			if perr != nil || len(page.Lines) == 0 {
-				continue
-			}
-			seed := page.Lines[0].Message
-			name := runNameFromLogLine(seed)
-			if name == "" || l.Present[name] {
-				continue
-			}
-			st, at, why := vanishedRunVerdict(name, seed, run.StartedAt, l, now)
-			if st == "" {
-				continue
-			}
-			level := LevelInfo
-			if st == StatusFailed {
-				level = LevelError
-			}
-			if werr := b.store.AppendLogLines(b.deploymentID, run.ID, []LogLine{{
-				Timestamp: at, Level: level, Message: why,
-			}}); werr != nil {
-				return closed, werr
-			}
-			if werr := b.store.FinishExecution(b.deploymentID, run.ID, st, at); werr != nil {
-				return closed, werr
-			}
-			changed = true
-			closed++
-		}
-		if !changed || rec.Status == StatusDormant {
-			continue
-		}
-		// FinishExecution stamped the leaf with the run it just closed; put
-		// the headline back on the rule every other path uses.
-		_, after, gerr := b.store.GetJob(b.deploymentID, j.JobName)
-		if gerr != nil {
-			continue
-		}
-		runs := make([]ReconcilerExecutionObservation, 0, len(after))
-		for _, e := range after {
-			r := ReconcilerExecutionObservation{Status: helmStateFromJobStatus(e.Status), StartedAt: e.StartedAt}
-			if e.FinishedAt != nil {
-				r.FinishedAt = *e.FinishedAt
-			}
-			runs = append(runs, r)
-		}
-		if head, ok := resolveRunHeadline(runs); ok {
-			cur, _, _ := b.store.GetJob(b.deploymentID, j.JobName)
-			if cur.Status != head {
-				cur.Status = head
-				if werr := b.store.UpsertJob(cur); werr != nil {
-					return closed, werr
-				}
-			}
-		}
-	}
-	return closed, nil
-}
-
-// vanishedRunVerdict applies CloseVanishedRuns' evidence rules to one run.
-// An empty status means there is no evidence to act on.
-func vanishedRunVerdict(name, seed string, started time.Time, l RunLedger, now time.Time) (status string, at time.Time, why string) {
-	if ev, ok := l.Ended[name]; ok && (started.IsZero() || !ev.At.Before(started.Add(-time.Minute))) {
-		return ev.Status, ev.At, "run " + name + " ended " + ev.Status + " (Kubernetes event " + ev.Reason +
-			"); the Job has since been removed from the cluster"
-	}
-	if strings.Contains(seed, removedOnSuccessNote) {
-		return StatusSucceeded, now, "run " + name + " succeeded: Helm removed the Job, which its hook-delete-policy does only on success"
-	}
-	if l.EventsListed {
-		return StatusFailed, now, "run " + name + " was removed from the cluster with no completion event on record, so it did not verifiably finish " +
-			"(Kubernetes keeps Job events for about an hour)"
-	}
-	return "", time.Time{}, ""
-}
-
-// helmStateFromJobStatus is the inverse of jobStatusFromHelmState for the
-// statuses an Execution can carry, so stored runs can be re-fed through
-// resolveRunHeadline.
-func helmStateFromJobStatus(st string) string {
-	switch st {
-	case StatusSucceeded:
-		return HelmStateInstalled
-	case StatusFailed:
-		return HelmStateFailed
-	case StatusRunning:
-		return HelmStateInstalling
-	}
-	return HelmStatePending
 }

@@ -18,12 +18,10 @@ import {
   CloudListDetailDrawer,
   CloudListHeader,
   CloudListToolbar,
-  DetailDrawerActions,
   DetailRow,
   EmptyState,
   FilterPills,
   Pagination,
-  RowActionsMenu,
   SortableTH,
   StatusPill,
 } from '../cloud-list/cloudListShared'
@@ -35,12 +33,6 @@ import type {
   RegionSpec,
   TopologyStatus,
 } from '@/lib/infrastructure.types'
-import {
-  AddClusterModal,
-  DeleteCascadeConfirm,
-  EditClusterModal,
-} from '@/components/CrudModals'
-import type { CloudProvider } from '@/entities/deployment/model'
 
 interface ClusterRow {
   id: string
@@ -123,15 +115,6 @@ export function ClustersPage() {
   })
 
   const [openRow, setOpenRow] = useState<ClusterRow | null>(null)
-  const [addOpen, setAddOpen] = useState(false)
-  const [editRow, setEditRow] = useState<ClusterRow | null>(null)
-  const [deleteRow, setDeleteRow] = useState<ClusterRow | null>(null)
-
-  // Picker for the Add modal — when there's one region we pre-select
-  // it; with multiple, the AddClusterModal still requires a region id
-  // so we pop it open against the first region (operator can switch
-  // via the architecture graph later if needed).
-  const firstRegion = data?.topology.regions?.[0]
 
   return (
     <div data-testid={`${TEST_ID}-page`}>
@@ -142,8 +125,6 @@ export function ClustersPage() {
         tagline="k3s / k8s control planes — one row per cluster across all regions."
         count={rows.length}
         deploymentId={deploymentId}
-        newLabel="+ New cluster"
-        onNew={firstRegion ? () => setAddOpen(true) : undefined}
       />
 
       {isLoading ? (
@@ -195,13 +176,12 @@ export function ClustersPage() {
                   <SortableTH testId={`${TEST_ID}-th-status`} column="status" label="Status" state={list.sort} onChange={list.setSort} />
                   <SortableTH testId={`${TEST_ID}-th-nodeCount`} column="nodeCount" label="Nodes" state={list.sort} onChange={list.setSort} />
                   <SortableTH testId={`${TEST_ID}-th-vclusterCount`} column="vclusterCount" label="vClusters" state={list.sort} onChange={list.setSort} />
-                  <th className="cloud-list-th" aria-label="Row actions" />
                 </tr>
               </thead>
               <tbody>
                 {list.visible.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="cloud-list-empty-row" data-testid={`${TEST_ID}-table-empty`}>
+                    <td colSpan={7} className="cloud-list-empty-row" data-testid={`${TEST_ID}-table-empty`}>
                       No clusters match the current filters.
                     </td>
                   </tr>
@@ -220,13 +200,6 @@ export function ClustersPage() {
                       <td className="cloud-list-cell"><StatusPill status={row.cluster.status} /></td>
                       <td className="cloud-list-cell">{row.cluster.nodeCount}</td>
                       <td className="cloud-list-cell">{row.cluster.vclusters?.length ?? 0}</td>
-                      <td className="cloud-list-cell">
-                        <RowActionsMenu
-                          testId={`${TEST_ID}-row-${row.id}`}
-                          onEdit={() => setEditRow(row)}
-                          onDelete={() => setDeleteRow(row)}
-                        />
-                      </td>
                     </tr>
                   ))
                 )}
@@ -252,17 +225,6 @@ export function ClustersPage() {
       >
         {openRow ? (
           <>
-            <DetailDrawerActions
-              testId={`${TEST_ID}-detail`}
-              onEdit={() => {
-                setEditRow(openRow)
-                setOpenRow(null)
-              }}
-              onDelete={() => {
-                setDeleteRow(openRow)
-                setOpenRow(null)
-              }}
-            />
             <DetailRow label="Name" value={openRow.cluster.name} />
             <DetailRow label="ID" value={openRow.cluster.id} mono />
             <DetailRow label="Region" value={openRow.region.providerRegion} />
@@ -279,41 +241,6 @@ export function ClustersPage() {
           </>
         ) : null}
       </CloudListDetailDrawer>
-
-      {/* Add modal — pre-selects first region. */}
-      {firstRegion && (
-        <AddClusterModal
-          open={addOpen}
-          deploymentId={deploymentId}
-          regionId={firstRegion.id}
-          regionProvider={(firstRegion.provider as CloudProvider) ?? 'hetzner'}
-          onClose={() => setAddOpen(false)}
-        />
-      )}
-
-      {/* Edit modal — uses the row's own region+provider. */}
-      {editRow && (
-        <EditClusterModal
-          open={!!editRow}
-          deploymentId={deploymentId}
-          cluster={editRow.cluster}
-          regionProvider={(editRow.region.provider as CloudProvider) ?? 'hetzner'}
-          onClose={() => setEditRow(null)}
-        />
-      )}
-
-      {/* Delete — cascade-aware, since cluster removal cascades to
-          vClusters / pools / nodes / LBs. */}
-      {deleteRow && (
-        <DeleteCascadeConfirm
-          open={!!deleteRow}
-          deploymentId={deploymentId}
-          resource="clusters"
-          resourceId={deleteRow.cluster.id}
-          resourceLabel={deleteRow.cluster.name}
-          onClose={() => setDeleteRow(null)}
-        />
-      )}
     </div>
   )
 }

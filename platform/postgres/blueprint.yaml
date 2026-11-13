@@ -105,7 +105,7 @@ spec:
   #   restarts (`Policy denied DROPPED` on :5432) and region-B SSO was dead for
   #   every app. Unconditional on the replica side; singleton + primary renders
   #   byte-identical.
-  version: 0.2.33-hw307.1
+  version: 0.2.34
   card:
     title: PostgreSQL
     summary: |

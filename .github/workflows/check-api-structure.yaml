@@ -1,0 +1,30 @@
+# check-api-structure.yaml - the handler package and main() of catalyst-api may only shrink.
+#
+# scripts/check-api-structure.py counts the lines and the methods of the Go package
+# products/catalyst/bootstrap/api/internal/handler, the lines of func main and the files of
+# that package, and compares them with scripts/baselines/api-structure.json. A count above
+# its baseline entry fails: new code goes in a new package. A count below its entry fails
+# too, until the baseline is lowered in the same change. So the baseline is always exact.
+#
+# The workflow runs on every pull request and on every merge group. It has no path filter
+# on purpose: a required check that a path filter skips never reports.
+# The self-test runs first. It shows, on a tree it builds itself, that every rule can fail.
+name: check-api-structure
+
+on:
+  pull_request:
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  api-structure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Self-test of the guard
+        run: python3 scripts/check-api-structure.py --self-test
+      - name: The handler package and main() did not grow
+        run: python3 scripts/check-api-structure.py

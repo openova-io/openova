@@ -53,7 +53,6 @@ func blockingListDynamicFactory(block <-chan struct{}, listStarted chan<- struct
 			{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Kind: "KustomizationList"},
 			{Group: "batch", Version: "v1", Kind: "CronJobList"},
 			{Group: "batch", Version: "v1", Kind: "JobList"},
-			{Group: "events.k8s.io", Version: "v1", Kind: "EventList"},
 			{Group: "apps", Version: "v1", Kind: "DeploymentList"},
 			// ADR-0015 D7 — the seed also projects Application + Continuum CRs.
 			{Group: "apps.openova.io", Version: "v1", Kind: "ApplicationList"},
@@ -67,7 +66,6 @@ func blockingListDynamicFactory(block <-chan struct{}, listStarted chan<- struct
 				{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Resource: "kustomizations"}: "KustomizationList",
 				{Group: "batch", Version: "v1", Resource: "cronjobs"}:                             "CronJobList",
 				{Group: "batch", Version: "v1", Resource: "jobs"}:                                 "JobList",
-				{Group: "events.k8s.io", Version: "v1", Resource: "events"}:                       "EventList",
 				{Group: "apps", Version: "v1", Resource: "deployments"}:                           "DeploymentList",
 				ApplicationGVR(): "ApplicationList",
 				ContinuumGVR():   "ContinuumList",

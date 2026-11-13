@@ -39,7 +39,7 @@ name: bp-stalwart-sovereign
 # from silently auto-allocating a nodePort per mail port on apply.
 #
 # Per #817 Chart.yaml version MUST equal blueprint.yaml spec.version.
-version: 0.1.1
+version: 0.1.2
 appVersion: "0.16.3"
 description: |
   Catalyst Blueprint scratch chart for the Sovereign-local Stalwart

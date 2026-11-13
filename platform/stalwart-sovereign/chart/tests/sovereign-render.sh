@@ -145,7 +145,7 @@ sovereignSMTPCredentialsMirror:
 EOF
 out=$("$helm" template smoke "$chart_dir" -f "$values" 2>&1)
 # Mirror disabled — cross-namespace Role into catalyst-system MUST NOT render.
-if grep -q "namespace: catalyst-system" <<<"$out"; then
+if grep -qE 'namespace: "?catalyst-system"?' <<<"$out"; then
   echo "FAIL: mirror Role rendered into catalyst-system despite enabled=false"
   exit 1
 fi

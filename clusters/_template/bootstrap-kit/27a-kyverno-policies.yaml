@@ -158,11 +158,30 @@ spec:
       #   pvc-volume-expansion policy's apiCall needs. Without it the rule
       #   reported `error` on every PVC instead of pass/fail (46 on hw307) —
       #   silent at Audit, and the #5505 shape one action-flip from denying.
-      version: 1.0.53
+      version: 1.0.54
       sourceRef:
         kind: HelmRepository
         name: bp-kyverno
         namespace: flux-system
+  # Policy values document and hand-over variable (CMP-036).
+  # valuesFrom reads the ConfigMap compliance-policy-values: the policy
+  # values document that the API writes into every region's policy folder
+  # of the fleet repository once that writer exists. It is optional: while
+  # it is absent the chart defaults apply, as before.
+  # sovereignConsume passes the hand-over variable SOVEREIGN_CONSUME to the
+  # chart: "origin" until the hand-over flip sets it to "local" in every
+  # region. Until the chart reads this value it changes nothing. Flux merges
+  # `values` after `valuesFrom`, so the document cannot override it.
+  # crds: CreateReplace (install and upgrade below) makes Helm create the
+  # definitions of the chart's crds/ folder and replace them on upgrade.
+  values:
+    compliancePolicies:
+      sovereignConsume: ${SOVEREIGN_CONSUME:=origin}
+  valuesFrom:
+    - kind: ConfigMap
+      name: compliance-policy-values
+      valuesKey: values.yaml
+      optional: true
   # Event-driven install: 18-of-20 ClusterPolicy CRs apply against the
   # Kyverno CRDs that the engine chart's upstream subchart has already
   # registered (via slot 27's Helm install). disableWait keeps Ready
@@ -171,10 +190,12 @@ spec:
   install:
     timeout: 10m
     disableWait: true
+    crds: CreateReplace
     remediation:
       retries: -1
   upgrade:
     timeout: 10m
     disableWait: true
+    crds: CreateReplace
     remediation:
       retries: 3

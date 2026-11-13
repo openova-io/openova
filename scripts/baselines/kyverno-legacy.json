@@ -1,0 +1,37 @@
+{
+  "allow": [],
+  "counts": {
+    "legacy_policy_objects": {
+      "platform/crossplane-claims/chart/templates/policies/userAccess-boundary.yaml": 1,
+      "platform/kyverno-policies/chart/templates/baseline/01-multi-replica.yaml": 1,
+      "platform/kyverno-policies/chart/templates/baseline/02-pdb.yaml": 1,
+      "platform/kyverno-policies/chart/templates/baseline/03-topology-spread.yaml": 1,
+      "platform/kyverno-policies/chart/templates/baseline/04-probes.yaml": 1,
+      "platform/kyverno-policies/chart/templates/baseline/05-resource-requests.yaml": 1,
+      "platform/kyverno-policies/chart/templates/baseline/06-resource-limits.yaml": 1,
+      "platform/kyverno-policies/chart/templates/baseline/07-pvc-expansion.yaml": 1,
+      "platform/kyverno-policies/chart/templates/baseline/08-hpa-effective.yaml": 1,
+      "platform/kyverno-policies/chart/templates/baseline/09-cilium-l7-mtls.yaml": 1,
+      "platform/kyverno-policies/chart/templates/baseline/10-flux-managed.yaml": 1,
+      "platform/kyverno-policies/chart/templates/baseline/11-harbor-proxy.yaml": 1,
+      "platform/kyverno-policies/chart/templates/baseline/12-image-tag-pinned.yaml": 1,
+      "platform/kyverno-policies/chart/templates/baseline/13-prometheus-scrape.yaml": 1,
+      "platform/kyverno-policies/chart/templates/baseline/14-networkpolicy-present.yaml": 1,
+      "platform/kyverno-policies/chart/templates/baseline/15-otel-injected.yaml": 1,
+      "platform/kyverno-policies/chart/templates/baseline/17-runasnonroot-readonlyrootfs.yaml": 1,
+      "platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml": 1,
+      "platform/kyverno-policies/chart/templates/baseline/19-secret-not-in-env.yaml": 1,
+      "platform/kyverno-policies/chart/templates/baseline/20-backup-configured.yaml": 1,
+      "platform/kyverno-policies/chart/templates/baseline/21-app-label-mutate.yaml": 1,
+      "platform/kyverno-policies/chart/templates/baseline/22-substrate-on-host.yaml": 1,
+      "platform/kyverno-policies/chart/templates/baseline/23-forbid-local-path.yaml": 1,
+      "platform/kyverno-policies/chart/templates/baseline/24-forbid-nodeport-service.yaml": 1,
+      "platform/kyverno-policies/chart/templates/mutate/00-stamp-cilium-enforced-label.yaml": 1,
+      "platform/kyverno-policies/chart/templates/mutate/01-inject-gitea-source-secretref.yaml": 1,
+      "platform/kyverno/chart/templates/clusterpolicy-mutate-add-openova-labels.yaml": 1,
+      "platform/kyverno/chart/templates/clusterpolicy-validate-require-openova-labels.yaml": 1,
+      "products/catalyst/chart/templates/qa-fixtures/kyverno-policies-qa.yaml": 19
+    }
+  },
+  "schema": "openova.io/guard-baseline/v1"
+}

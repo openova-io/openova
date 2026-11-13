@@ -47,9 +47,6 @@ func reconcilerListScheme() *runtime.Scheme {
 	scheme.AddKnownTypeWithName(
 		schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "DeploymentList"},
 		&unstructured.UnstructuredList{})
-	scheme.AddKnownTypeWithName(
-		schema.GroupVersionKind{Group: "events.k8s.io", Version: "v1", Kind: "EventList"},
-		&unstructured.UnstructuredList{})
 	return scheme
 }
 
@@ -63,7 +60,6 @@ func reconcilerFakeClient(objs ...runtime.Object) *dynamicfake.FakeDynamicClient
 			CronJobGVR:       "CronJobList",
 			JobGVR:           "JobList",
 			DeploymentGVR:    "DeploymentList",
-			JobEventGVR:      "EventList",
 		},
 		objs...,
 	)

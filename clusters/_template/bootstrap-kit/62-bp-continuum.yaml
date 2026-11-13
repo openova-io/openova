@@ -67,7 +67,7 @@
 # Reconciled by: Flux on the new Sovereign's k3s control plane.
 
 ---
-apiVersion: source.toolkit.fluxcd.io/v1beta2
+apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:
   name: bp-continuum
@@ -178,7 +178,7 @@ spec:
       # phase commits to Git + Git lease + region-loss detection, in every
       # region; the imperative switchover sequencer is deleted. Ships the
       # Continuum CRD in crds/. Pin moves in lockstep (Inviolable Principle #13).
-      version: 0.2.1-hw307.4
+      version: 0.2.1
       sourceRef:
         kind: HelmRepository
         name: bp-continuum
