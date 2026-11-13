@@ -507,7 +507,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -534,7 +536,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -3395,7 +3399,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -3825,7 +3831,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -3851,7 +3859,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -6157,7 +6167,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -6184,7 +6196,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -6211,7 +6225,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -6238,7 +6254,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -7630,7 +7648,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -8592,7 +8612,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -8619,7 +8641,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -8646,7 +8670,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -9868,7 +9894,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -9882,7 +9910,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271]
-  after: [FND-011, FND-014, FND-021, FND-022, FND-023, FND-031, FND-032, FND-033, FND-034, FND-040, FND-052, FND-053, FND-054, FND-055, FND-091, FND-092, FND-093, FND-094, FND-097, FND-101, FND-102, FND-103, FND-105, FND-110, FND-171, CLD-010, CLD-040, CLD-063, CLD-075, CLD-080, SOV-030, SOV-040, SOV-050, SOV-110, SEC-020, SEC-125, NET-030, NET-033, NET-041, NET-050, NET-090, NET-100, SVC-020, SVC-060, CTL-010, CTL-020, CTL-025, CTL-044, CTL-201, CMP-012, CMP-014, CMP-036, BSS-050, INF-010, PRD-030, PRD-101, PRD-106]
+  after: [FND-011, FND-014, FND-021, FND-022, FND-023, FND-031, FND-032, FND-033, FND-034, FND-040, FND-052, FND-053, FND-054, FND-055, FND-091, FND-092, FND-093, FND-094, FND-097, FND-101, FND-102, FND-103, FND-105, FND-110, FND-171, CLD-010, CLD-040, CLD-063, CLD-075, CLD-080, SOV-030, SOV-040, SOV-050, SOV-110, SEC-020, SEC-125, NET-030, NET-033, NET-041, NET-050, NET-090, NET-100, SVC-020, SVC-060, CTL-010, CTL-020, CTL-025, CTL-044, CTL-201, CMP-012, CMP-014, CMP-036, BSS-050, INF-010, PRD-030, PRD-101, PRD-102, PRD-106]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/26-image-signature.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -9984,7 +10012,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -10133,7 +10163,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -12337,7 +12369,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -12364,7 +12398,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -12391,7 +12427,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -12418,7 +12456,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -12711,7 +12751,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -12851,7 +12893,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-011, SVC-020]
-  after: [FND-014, FND-054, FND-091, FND-093, FND-094, FND-097, FND-171, CLD-070, CLD-080, CLD-161, SOV-030, SOV-220, SEC-110, NET-030, NET-041, NET-050, NET-070, NET-072, NET-125, SVC-030, SVC-060, CMP-016, CMP-030, BSS-020, PRD-010, PRD-101, PRD-104, PRD-105]
+  after: [FND-014, FND-054, FND-091, FND-093, FND-094, FND-097, FND-171, CLD-070, CLD-080, CLD-161, SOV-030, SOV-220, SEC-110, NET-030, NET-041, NET-050, NET-070, NET-072, NET-125, SVC-030, SVC-060, CMP-016, CMP-030, BSS-020, PRD-010, PRD-101, PRD-102, PRD-103, PRD-104, PRD-105]
   touches:
   - platform/*/blueprint.yaml
   - products/*/blueprint.yaml
@@ -13082,7 +13124,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -13581,7 +13625,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -13665,7 +13711,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -13878,7 +13926,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -13965,7 +14015,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -14451,7 +14503,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -14477,7 +14531,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -14846,7 +14902,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -18078,7 +18136,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -18104,7 +18164,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -18130,7 +18192,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -18156,7 +18220,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -18210,7 +18276,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -18393,7 +18461,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-045, FND-091]
-  after: [FND-011, FND-054, FND-061, FND-097, FND-173, CLD-040, NET-042, PRD-101]
+  after: [FND-011, FND-054, FND-061, FND-097, FND-173, CLD-040, NET-042, PRD-101, PRD-102]
   touches:
   - core/marketplace-api/**
   - products/catalyst/chart/templates/marketplace-api/**
@@ -19616,7 +19684,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -19642,7 +19712,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -19669,7 +19741,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -19696,7 +19770,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -19723,7 +19799,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -20097,7 +20175,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [AIP-040, CTL-045, CTL-330]
-  after: [FND-054, FND-097, FND-173, NET-042, PRD-101]
+  after: [FND-054, FND-097, FND-173, NET-042, PRD-101, PRD-102]
   touches:
   - core/services/metering-sidecar/**
   - core/services/model-meter/**
@@ -20819,7 +20897,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: []
-  after: [FND-011, FND-052, FND-092, PRD-101]
+  after: [FND-011, FND-052, FND-092, PRD-101, PRD-102]
   touches:
   - products/ops-records/**
   - .github/workflows/test-ungated-trees.yaml
@@ -21207,7 +21285,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -21529,7 +21609,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -21555,7 +21637,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -22089,7 +22173,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -22403,7 +22489,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -23004,7 +23092,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -23120,7 +23210,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -23396,7 +23488,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -23423,7 +23517,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -23450,7 +23546,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -23477,7 +23575,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -24720,7 +24820,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -24746,7 +24848,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -25478,7 +25582,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -25735,7 +25841,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -26073,7 +26181,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -26100,7 +26210,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -26127,7 +26239,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -26154,7 +26268,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -26181,7 +26297,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -26208,7 +26326,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
@@ -26269,8 +26389,12 @@ packages:
   depends_on: [PRD-106]
   after: []
   touches:
+  - .github/workflows/test-ungated-trees.yaml
+  - products/fingate/go.mod
+  - products/fingate/go.sum
   - products/fingate/internal/gen/**
   - products/fingate/tools/generate.go
+  - products/fingate/tools/generate_test.go
   - products/fingate/tools/go.mod
   - products/fingate/tools/go.sum
   - products/fingate/tools/oapi/*.yaml
@@ -26278,16 +26402,30 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "git ls-files -- products/fingate/tools products/fingate/internal/gen | wc -l"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "(cd products/fingate && go vet ./... && go test -count=1 ./... && test \"$(go list ./internal/gen/... | wc -l)\" = 6)"
+  - id: A2
+    run: "test \"$(cd products/fingate/tools && go vet ./... && go test -count=1 -v ./... | grep -c -E '^(--- PASS: Test(GeneratorInputsAndOutputsFit|EveryRuleCanFail) |    --- PASS: TestEveryRuleCanFail/)')\" = 18"
+  - id: A3
+    run: "printf '%s  %s\\n' 8f3d5cdfff9963e5da9ec73819c9d9973d913270b85f248819ca220e0159bee6 products/fingate/tools/go.mod ff08c4feb669bb8e19b73e6bcffbb6560563466e738524ffec80f7d39ba20896 products/fingate/tools/go.sum ecdaef6e0da69e6c9c8fe3344fcf8888e7c46c5e932921eac1eab0baef30fba4 products/fingate/tools/generate.go 20ba7309d298e2c6d92935c2a46c91b2e7a3973044f746464edc0afffe2da502 products/fingate/tools/generate_test.go df54e774eb9752a54ede31f8be8a9b9ba1e7011ea07761143e2e5841439509da products/fingate/tools/oapi/accountinfo.yaml 1d15e9bec264dcaf5620205989d3c1183029673aca5c46c8b6a1afc52040152b products/fingate/tools/oapi/accountinfo-overlay.yaml 5d466d06d03e87cee7b2b4f8ca0d051945da823c8f23ca7743afcdc2cdf60057 products/fingate/tools/oapi/paymentinitiation.yaml 229f1adf7bafda6988721d0edc7701c8cabe33572dc916291a4d6d900fd481cc products/fingate/tools/oapi/vrp.yaml 6cde755fab428c28b012a4b9e442081d5d541995f55ffcad71b4bf7362635b74 products/fingate/tools/oapi/confirmationfunds.yaml 5d57af51cc9b47abe1e10d97bf09755c44a18c7384cf23a8972fa1ae744941c7 products/fingate/tools/oapi/events.yaml a09e8452771bc4d1fdd1ea4d1efe7f17c78907d7333e4379aab82e493db4e6f7 products/fingate/tools/oapi/eventnotifications.yaml | sha256sum --check --quiet -"
+  - id: A4
+    run: "(cd products/fingate/tools && go generate ./...) && printf '%s  %s\\n' 0b5f21ddabb56059e10727b7bc501d5e0ba95da8b1df7b2b52d41d00aa8d2043 products/fingate/internal/gen/accountinfo/accountinfo.gen.go 61a6445d072f3caafbb5e0051f37b68ac5a8112fe7b93b3b0d7ab13a4e881a6d products/fingate/internal/gen/paymentinitiation/paymentinitiation.gen.go 4199b621bb100e30918d148d80d7a0cfe8b49fb4fe8c26eaab7848788af8be7c products/fingate/internal/gen/vrp/vrp.gen.go 3120bbfc987e8da71c674c59b2c1d6d3d9c38a7a124de2efb8391c8151d8d0a3 products/fingate/internal/gen/confirmationfunds/confirmationfunds.gen.go 8cd689d47905374854ffaafb5e8ff1a4491c116d94da5ec753dc9f73a3724ef4 products/fingate/internal/gen/events/events.gen.go 899f9b623df46ce9b47c5521801090166ece083a97d3656d2e04642fba260460 products/fingate/internal/gen/eventnotifications/eventnotifications.gen.go | sha256sum --check --quiet -"
+  - id: A5
+    run: "grep -q -x -F \"$(printf '\\tgithub.com/oapi-codegen/runtime v1.2.0')\" products/fingate/go.mod && (cd products/fingate && go mod tidy -diff) && (cd products/fingate/tools && go mod tidy -diff)"
+  - id: A6
+    run: "python3 scripts/check-modules-tested.py && python3 -B -c 'import importlib.util, yaml; s = importlib.util.spec_from_file_location(\"guard\", \"scripts/check-modules-tested.py\"); g = importlib.util.module_from_spec(s); s.loader.exec_module(g); text = open(\".github/workflows/test-ungated-trees.yaml\", encoding=\"utf-8\").read(); m = yaml.safe_load(text)[\"jobs\"][\"go-modules\"][\"strategy\"][\"matrix\"][\"module\"]; t = g.tested_by(text, [\"products/fingate/tools\"]); print(sorted(t), m.count(\"products/fingate/tools\")); raise SystemExit(0 if t == {\"products/fingate/tools\"} and m.count(\"products/fingate/tools\") == 1 else 1)'"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: One generated package per document; no hand edits.
+  delivers: The open-banking product has one generated Go package per OpenAPI document of profile rw-4.0.0, with its request and response types and a strict server interface for the standard library router, written by one pinned generator that a test and the drift check keep honest.
 - id: PRD-103
   title: Ledger port and conformance kit
   area: PRD
@@ -26302,20 +26440,32 @@ packages:
   - products/fingate/api/ledger/v1/**
   - products/fingate/cmd/fingate-ledger-conformance/**
   - products/fingate/internal/ledgertest/**
+  - products/fingate/go.mod
+  - products/fingate/go.sum
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "git ls-files -- products/fingate/api products/fingate/cmd products/fingate/internal/ledgertest | wc -l"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "(cd products/fingate && go vet ./... && go test -count=1 ./... ./api/ledger/v1 ./cmd/fingate-ledger-conformance ./internal/ledgertest)"
+  - id: A2
+    run: "printf '%s  %s\\n' bd8635fa4c50e055af2145517e7f4013d70d46d3ab024443704a830ba2cedd2f products/fingate/api/ledger/v1/ledger.proto 6ac0460797d83d16e9d205b0216dbb3a469dd2ba94bff0aac0f5bbe602a1e32d products/fingate/api/ledger/v1/ledger.pb.go 2eacb58a783d4dfc23e085507ea9f8bd98c4939e48c494113a63d8ac915cfe41 products/fingate/api/ledger/v1/ledger_grpc.pb.go 6f102b641244b8617458edc0448186e03695d5dec5759ed9d05e909a06f7aec4 products/fingate/api/ledger/v1/ledger_test.go c28b9a7f0f7d4ab1d13a2a9ccae8196b62dc3b36163942748ff977fe17f22762 products/fingate/internal/ledgertest/kit.go a045c6c4ce6e54188b6863f92583ed0eb8617c78c1b0283407aadecc45b0c49c products/fingate/internal/ledgertest/memory.go 8dce23f4830747a2f16f0b63c617fd747a5f0a5fd1c187ac5ddaf32e1482378d products/fingate/internal/ledgertest/kit_test.go 17c1478d7961e3e48cce0544bb48713fb792a18a8c76d87d17803ce0e4b56b30 products/fingate/cmd/fingate-ledger-conformance/main.go 5801238d422e2d1ef4e4750dbe66997b8e1d0f42c8c9cbb1556b44fe6a2bf0b7 products/fingate/cmd/fingate-ledger-conformance/main_test.go 246f14f465ca827af193bfbc74750cdb9507d6bb52a1d5b90879617b296b772b products/fingate/go.mod b4eac2d2465f74dcdaa3b23e9909327860f70465aa784c9ee7f723e6bef799c3 products/fingate/go.sum | sha256sum --check --quiet -"
+  - id: A3
+    run: "(cd products/fingate && go run ./cmd/fingate-ledger-conformance --target inmemory)"
+  - id: A4
+    run: "(cd products/fingate && go test -count=1 -v -run '^(TestGeneratedCodeMatchesTheProtoFile|TestKitFindsBrokenLedgers)$' ./api/ledger/v1 ./internal/ledgertest) | grep -c -E '^(--- PASS: TestGeneratedCodeMatchesTheProtoFile |    --- PASS: TestKitFindsBrokenLedgers/)' | grep -x 15"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: ledger.proto as section 4.14 with stubs, the kit (test C5) and an in-memory ledger.
+  delivers: The open-banking product has its ledger port as a gRPC service with generated Go code, a conformance kit and a program that prove a ledger serves the port, and an in-memory ledger that passes the kit.
 - id: PRD-104
   title: Consent package
   area: PRD
@@ -27045,7 +27195,9 @@ packages:
   rollback: revert
   adr: null
   due: null
-  budget: null
+  budget:
+    files: 5
+    lines: 800
   repeatable: false
   ticket_rev: 0
   dropped: false
