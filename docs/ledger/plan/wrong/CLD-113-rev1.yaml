@@ -1,0 +1,52 @@
+schema: openova.io/plan-wrong/v1
+id: CLD-113
+ticket_rev: 1
+base_commit: 49069a6c076f393d6fdb0051cdde600b1ad8afb7
+stage: check
+ref: run the release writer and assert all five sites converge
+command: |
+    gh api repos/openova-io/openova/actions/jobs/131955187817/logs | grep -B 40 -m 1 '##\[error\]' | cut -c30-300
+expected: |
+    the check finishes green
+actual: |4
+            | INFO: catalog-seed already pins bp-catalyst-platform at 1.4.1960 (1 entry) — no-op.
+            | [build-catalog] wrote 100 blueprints to /home/runner/work/_temp/lockstep-writer-umbrella-hj75dw9o/work/products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts
+            | [build-catalog] wrote 100 blueprints to /home/runner/work/_temp/lockstep-writer-umbrella-hj75dw9o/work/products/catalyst/bootstrap/api/internal/catalog/blueprints.json
+            | [build-catalog]   listed:   21
+            | [build-catalog]   unlisted: 79
+            | [build-catalog]   private:  0
+            | INFO: catalog-seed + generated catalog already in sync for bp-catalyst-platform=1.4.1960 — no-op.
+        - ran   sync_seed      outputs={'bumped': 'false'}
+            | [main 8a0c91f] deploy(bp-catalyst-platform): bump bootstrap-kit pin 1.4.1958 -> 1.4.1960 (auto, Refs TBD-A6)
+            |  1 file changed, 1 insertion(+), 1 deletion(-)
+            | To /home/runner/work/_temp/lockstep-writer-umbrella-hj75dw9o/remote.git
+            |    6244211..8a0c91f  HEAD -> main
+            | Pushed lockstep bump for bp-catalyst-platform=1.4.1960 (pin=true, blueprint=false, seed=false)
+        - ran   commit+push    outputs={}
+        landed on origin/main: deploy(bp-catalyst-platform): bump bootstrap-kit pin 1.4.1958 -> 1.4.1960 (auto, Refs TBD-A6)
+          + clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml
+      PASS case umbrella — all five lockstep sites converged at 1.4.1960 on origin/main
+
+    ─── case umbrella-defer ───  CONTROL (FND-011) — the umbrella's version is written by the deploy job; a push that changes it without a version publishes and pushes nothing
+        in-scope facts for umbrella-defer (bp-catalyst-platform @ 1.4.1959):
+          · bootstrap-kit slots: ['13-bp-catalyst-platform.yaml']
+          · catalog-seed entries: ['bp-catalyst-platform']
+          · blueprint.yaml: none
+        no bot commit — writer runs against an already-lockstep main
+        merged change pushed: bp-catalyst-platform values.yaml, version left at 1.4.1959
+        running the release writer's own steps:
+            | products/catalyst is versioned by its own build workflow, which dispatches this workflow: nothing to publish from this push.
+        - ran   bump_chart     outputs={'bumped': 'false', 'defer': 'true'}
+            | Deferred to the build workflow that versions this chart: nothing to publish from this push.
+        - ran   chart          outputs={'skip': 'true'}
+        - skip  bump_pin       (if: false)
+        - skip  bump_blueprint (if: false)
+        - skip  sync_seed      (if: false)
+        - skip  commit+push    (if: false)
+        landed on origin/main: change: bp-catalyst-platform values (simulated merge)
+          + products/catalyst/chart/values.yaml
+      PASS case umbrella-defer — all five lockstep sites converged at 1.4.1959 on origin/main
+
+    FAIL: the release writer leaves at least one lockstep site behind (#5583). Every deploy-bot chart bump will land drift on main and redden every open PR.
+    ##[error]Process completed with exit code 1.
+reported_at: 2026-11-13T14:57:08Z
