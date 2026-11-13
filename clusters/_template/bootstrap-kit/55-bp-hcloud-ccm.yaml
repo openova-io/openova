@@ -78,6 +78,8 @@ metadata:
   namespace: flux-system
   labels:
     catalyst.openova.io/slot: "55"
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
 spec:
   # Wave 5.102 (#2447): suspend on non-Hetzner providers. The cloudinit's
   # bootstrap-kit Kustomization substitutes ${HCLOUD_HR_SUSPEND} from the
