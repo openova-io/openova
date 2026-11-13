@@ -102,6 +102,23 @@ norm "$OUT/kit-labelled-on.yaml" > "$OUT/kit-labelled-on.norm"
 if cmp -s "$OUT/kit-original.norm" "$OUT/kit-labelled-on.norm"; then identical=true; else identical=false; diff "$OUT/kit-original.norm" "$OUT/kit-labelled-on.norm" | head -c 3000; fi
 # Remaining operations-labelled HelmReleases in the patched render.
 left=$(yq -N "select(.kind == \"HelmRelease\" and .metadata.labels.\"$LABEL\" == \"operations\") | .metadata.name" "$OUT/kit-labelled-off.yaml" | wc -l)
+# A release that stays but names a removed release in dependsOn would wait forever.
+dangling() { jq -r --rawfile rm "$OUT/removed.txt" '
+  ($rm | split("\n") | map(select(length > 0))) as $r | .metadata.name as $n
+  | (.spec.dependsOn // [])[] | select(.name as $d | ($r | index($d)) != null) | "\($n) -> \(.name)"'; }
+yq -o=json -I=0 'select(.kind == "HelmRelease")' "$OUT/kit-labelled-off.yaml" | dangling > "$OUT/dangling-in-kit.txt"
+# The same question for HelmReleases in the other template paths (outside the kit).
+: > "$OUT/dangling-outside-kit.txt"; nout=0
+while IFS= read -r -d '' f; do
+  docs=$(yq -o=json -I=0 'select(.kind == "HelmRelease")' "$f" 2>/dev/null) || continue
+  [ -z "$docs" ] && continue
+  nout=$((nout + $(printf '%s\n' "$docs" | grep -c .)))
+  printf '%s\n' "$docs" | dangling | sed "s|^|${f#"$ROOT"/}: |" >> "$OUT/dangling-outside-kit.txt"
+done < <(find "$ROOT/clusters/_template" -name '*.yaml' -not -path '*/bootstrap-kit/*' -print0)
+echo "== dependsOn edges to a removed release: in the kit =="; cat "$OUT/dangling-in-kit.txt"
+echo "== dependsOn edges to a removed release: other template paths ($nout HelmReleases scanned) =="; cat "$OUT/dangling-outside-kit.txt"
+# An object marked prune-disabled would stay in the cluster after its removal from the build.
+prunedis=$(yq -N 'select(.metadata.annotations."kustomize.toolkit.fluxcd.io/prune" == "disabled") | .kind + "/" + .metadata.name' "$OUT/kit-labelled-on.yaml" | grep -c . || true)
 
 # ---- substituting parent ----------------------------------------------------
 if flux build kustomization svc210-parent --path "$HERE/parent" --kustomization-file "$HERE/flux/ks-parent.yaml" --dry-run > "$OUT/parent.yaml" 2> "$OUT/parent.err"; then pexit=0; else pexit=$?; fi
@@ -119,6 +136,8 @@ jq -n \
   --rawfile removed "$OUT/removed.txt" --rawfile labelled "$OUT/labelled-operations.txt" \
   --rawfile removedobj "$OUT/removed-objects.txt" --rawfile addedobj "$OUT/added-objects.txt" \
   --arg same "$same" --arg identical "$identical" --arg left "$left" \
+  --rawfile dangin "$OUT/dangling-in-kit.txt" --rawfile dangout "$OUT/dangling-outside-kit.txt" \
+  --arg nout "$nout" --arg prunedis "$prunedis" \
   --arg pexit "$pexit" --arg ppatch "$ppatch" --arg psrc "$psrc" --arg pfqdn "$pfqdn" '
   {
     kitHelmReleasesOriginal: ($orig | tonumber),
@@ -133,6 +152,10 @@ jq -n \
     removedObjectsOfAnyKind: ($removedobj | split("\n") | map(select(length > 0))),
     objectsAddedByPatch: ($addedobj | split("\n") | map(select(length > 0))),
     operationsLabelledLeftAfterPatch: ($left | tonumber),
+    danglingDependsOnInKit: ($dangin | split("\n") | map(select(length > 0))),
+    helmReleasesScannedOutsideKit: ($nout | tonumber),
+    danglingDependsOnOutsideKit: ($dangout | split("\n") | map(select(length > 0))),
+    kitObjectsWithPruneDisabled: ($prunedis | tonumber),
     parentRenderExit: ($pexit | tonumber),
     parentSubstitutionRan: ($pfqdn == "svc210.example.test"),
     parentPatchTextUnchanged: ($ppatch == $psrc),
