@@ -85,6 +85,7 @@ for (const u of users) {
     if (!r.url().startsWith(base)) return;
     const path = new URL(r.url()).pathname;
     if (r.status() >= 400) record.http_errors.push(`${r.status()} ${r.request().method()} ${path}`);
+    if (r.status() === 401 && record.first_401_at === undefined) record.first_401_at = Date.now() / 1000;
     if (path.startsWith('/api/auth/') || path.startsWith('/oauth/')) {
       let body = '';
       try { body = redact(await r.text()).slice(0, 160); } catch { body = '(no body)'; }
@@ -106,6 +107,7 @@ for (const u of users) {
     });
     await promptBox(page);
     record.signed_in = true;
+    record.signed_in_at = Date.now() / 1000;
     record.landing_path = new URL(page.url()).pathname;
     await page.screenshot({ path: `${outDir}/${u.username}-signed-in.png`, fullPage: true });
     console.log(`walk: ${u.username} signed in, landing ${record.landing_path}`);

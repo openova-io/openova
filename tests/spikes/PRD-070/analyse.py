@@ -157,6 +157,10 @@ result = {
         "alice_reload_restores_session": next(
             (u.get("reload_restores_session") for u in walk["users"] if u["user"] == "alice"), None),
         "alice_3_after_reload": auth_kind("prd070-alice-3"),
+        "first_401_seconds_after_sign_in": {
+            u["user"]: (round(u["first_401_at"] - u["signed_in_at"], 1)
+                        if u.get("first_401_at") and u.get("signed_in_at") else None)
+            for u in walk["users"]},
     },
 }
 
@@ -175,7 +179,10 @@ with open(f"{out_dir}/result.json", "w") as fh:
 
 lines = [f"### {label}: {image}", ""]
 for u in walk["users"]:
+    first_401 = (round(u["first_401_at"] - u["signed_in_at"], 1)
+                 if u.get("first_401_at") and u.get("signed_in_at") else None)
     lines.append(f"- sign-in {u['user']}: {'ok' if u.get('signed_in') else 'FAILED ' + str(u.get('sign_in_error'))}"
+                 f"; first 401 seen by the browser {first_401}s after sign-in"
                  f"; http errors seen by the browser: {u['http_errors'][:8]}")
 for s in steps:
     if s["request_reached_stub"]:

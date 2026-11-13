@@ -43,11 +43,13 @@ done
 
 docker network create spike >/dev/null
 
-echo "== test realm: Keycloak $KC_VERSION over HTTPS"
+echo "== test realm: Keycloak $KC_VERSION over HTTPS, access-token lifespan ${TOKEN_LIFESPAN:-90}s"
+jq --argjson l "${TOKEN_LIFESPAN:-90}" '.accessTokenLifespan = $l' "$HERE/realm.json" > "$OUT/realm.json"
+chmod 644 "$OUT/realm.json"
 docker run -d --name kc --network spike --network-alias kc.spike.test -p 8443:8443 \
   -e KC_BOOTSTRAP_ADMIN_USERNAME=admin -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
   -e KC_HTTPS_CERTIFICATE_FILE=/certs/tls.pem -e KC_HTTPS_CERTIFICATE_KEY_FILE=/certs/tls.key \
-  -v "$OUT/certs:/certs:ro" -v "$HERE/realm.json:/opt/keycloak/data/import/realm.json:ro" \
+  -v "$OUT/certs:/certs:ro" -v "$OUT/realm.json:/opt/keycloak/data/import/realm.json:ro" \
   "$KC_IMAGE" start-dev --import-realm >/dev/null
 for i in $(seq 1 90); do
   if curl -sf --cacert "$OUT/certs/ca.pem" "$ISSUER/.well-known/openid-configuration" -o "$OUT/discovery.json"; then
@@ -110,7 +112,7 @@ redact < "$OUT/librechat.log" | grep -iE "openid|refresh|federated|placeholder|r
 
 echo "== analysis"
 set +e
-python "$HERE/analyse.py" "$LABEL (OPENID_REUSE_TOKENS=$REUSE)" "$LC_DIGEST" "$OUT/captured.jsonl" "$OUT/shots/walk.json" "$ISSUER" "$OUT/certs/ca.pem" "$OUT" \
+python "$HERE/analyse.py" "$LABEL (OPENID_REUSE_TOKENS=$REUSE, token lifespan ${TOKEN_LIFESPAN:-90}s)" "$LC_DIGEST" "$OUT/captured.jsonl" "$OUT/shots/walk.json" "$ISSUER" "$OUT/certs/ca.pem" "$OUT" \
   | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
 RC=${PIPESTATUS[0]}
 set -e

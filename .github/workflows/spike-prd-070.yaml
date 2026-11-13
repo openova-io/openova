@@ -29,20 +29,29 @@ jobs:
           # The image bp-librechat pins (read from the chart below).
           - arm: pinned
             reuse: "true"
+            lifespan: "90"
           # The newest upstream release. Upstream moved from danny-avila to
           # LibreChat-AI; new tags are published under the new owner only.
           - arm: newest
             image: ghcr.io/librechat-ai/librechat:v0.8.8
             reuse: "true"
+            lifespan: "90"
           # Same newest image without OPENID_REUSE_TOKENS: is the flag needed?
           - arm: newest-no-reuse
             image: ghcr.io/librechat-ai/librechat:v0.8.8
             reuse: "false"
+            lifespan: "90"
+          # Same as newest with Keycloak's default access-token lifespan
+          # (300 s): does the session still drop near the first expiry?
+          - arm: newest-lifespan-300
+            image: ghcr.io/librechat-ai/librechat:v0.8.8
+            reuse: "true"
+            lifespan: "300"
     env:
       MONGO_IMAGE: mongo:7.0.14
       STUB_IMAGE: python:3.12.7-slim
       PLAYWRIGHT_VERSION: 1.49.1
-      EXPIRY_WAIT: "100"
+      TOKEN_LIFESPAN: ${{ matrix.lifespan }}
       OUT: ${{ github.workspace }}/out
       PW_DIR: /tmp/pw-spike-prd-070
     steps:
@@ -77,7 +86,9 @@ jobs:
             echo "LC_IMAGE=$IMAGE"
             echo "CONFIG_VERSION=$CONFIG_VERSION"
             echo "KC_VERSION=$KC_VERSION"
+            echo "EXPIRY_WAIT=$((TOKEN_LIFESPAN + 10))"
           } >> "$GITHUB_ENV"
+          echo "test realm access-token lifespan ${TOKEN_LIFESPAN}s; second message after $((TOKEN_LIFESPAN + 10))s"
 
       - name: Registry facts (which tags exist under each image path)
         if: matrix.arm == 'pinned'
