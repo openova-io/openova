@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T03:00:02Z` |
+| Last refreshed | `2026-11-13T03:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,11 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6760](https://github.com/openova-io/openova/issues/6760) | fix(bp-mimir/bp-vpa/bp-external-secrets): #6757 chart bumps fail to UPGRADE live | Other |
-| [#6761](https://github.com/openova-io/openova/issues/6761) | gitea chart over the #6004 payload ceiling (91.86%) — blocks publishing 1.2.50 | Other |
-| [#6764](https://github.com/openova-io/openova/issues/6764) | 2-region cutover cannot complete: secondary region runs its own EMPTY Harbor ins | Other |
-| [#6773](https://github.com/openova-io/openova/issues/6773) | mothership iogrid: 14 digest-pinned service images lost in Harbor blob-store wip | Other |
-| [#6776](https://github.com/openova-io/openova/issues/6776) | 3 catalog charts pin the nonexistent cloudnative-pg/postgresql:16.4 (latent ErrI | Other |
 | [#6778](https://github.com/openova-io/openova/issues/6778) | hw306 — fresh 2-region prov train: manifest → wipe hw305 → fire → cutove | Other |
 | [#6799](https://github.com/openova-io/openova/issues/6799) | NAT-EIP rotation at prov time drifts tofu state (rotated SNAT rule/EIP outside s | Other |
 | [#6803](https://github.com/openova-io/openova/issues/6803) | Harbor proxy-cache serves an index whose child manifests are gone — invisible  | Other |
@@ -300,6 +295,11 @@ flowchart LR
 | [#7283](https://github.com/openova-io/openova/issues/7283) | PRD-104 Consent package | Other |
 | [#7284](https://github.com/openova-io/openova/issues/7284) | PRD-105 Token package | Other |
 | [#7285](https://github.com/openova-io/openova/issues/7285) | PRD-106 CI workflow for the fingate module | Other |
+| [#7291](https://github.com/openova-io/openova/issues/7291) | FND-061 One signing action, used by the control-plane images first | Other |
+| [#7292](https://github.com/openova-io/openova/issues/7292) | NET-020 Disable the k3s kube-proxy | Other |
+| [#7293](https://github.com/openova-io/openova/issues/7293) | NET-060 Read-only census of the network posture | Other |
+| [#7294](https://github.com/openova-io/openova/issues/7294) | NET-090 Network guards in CI | Other |
+| [#7295](https://github.com/openova-io/openova/issues/7295) | SOV-220 The console's step list comes from the status response | Other |
 
 ---
 
@@ -307,6 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T03:09 | [#7290](https://github.com/openova-io/openova/pull/7290) | #7087 | docs(ledger): plan update |
+| 2026-11-13T03:11 | [#7288](https://github.com/openova-io/openova/pull/7288) | #7232 | fix: remove the firewall claims from the storefront and the  |
+| 2026-11-13T03:10 | [#7287](https://github.com/openova-io/openova/pull/7287) | #7166 | feat(gate): checks for node ports, front doors, mesh, transi |
+| 2026-11-13T03:10 | [#7286](https://github.com/openova-io/openova/pull/7286) | #7210 | docs(chargeback): name ADR-0028 as the decision record in th |
 | 2026-11-13T02:38 | [#7280](https://github.com/openova-io/openova/pull/7280) | #7087 | docs(ledger): plan update |
 | 2026-11-13T02:23 | [#7278](https://github.com/openova-io/openova/pull/7278) | #7261 | feat(compliance): add the compliance types, the model loader |
 | 2026-11-13T02:23 | [#7277](https://github.com/openova-io/openova/pull/7277) | #7262 | refactor(kit): wire slot 27a to the policy values document a |
@@ -333,10 +337,6 @@ flowchart LR
 | 2026-11-13T00:15 | [#7241](https://github.com/openova-io/openova/pull/7241) | #7116 | chore(ci): guard that the API handler package and main only  |
 | 2026-11-13T00:15 | [#7240](https://github.com/openova-io/openova/pull/7240) | #7209 | docs(adr): record 0030 on the model plane, and the model con |
 | 2026-11-13T00:03 | [#7230](https://github.com/openova-io/openova/pull/7230) | #7087 | docs(ledger): plan update: five tickets rewritten, one order |
-| 2026-11-13T00:00 | [#7229](https://github.com/openova-io/openova/pull/7229) | #7212 | docs(adr): record 0024 on the move of the primary substrate  |
-| 2026-11-12T23:50 | [#7228](https://github.com/openova-io/openova/pull/7228) | #7217 | docs(adr): record 0018 on secrets and trust (SEC-006) |
-| 2026-11-12T23:50 | [#7227](https://github.com/openova-io/openova/pull/7227) | #4249 | fix(provisioning): the funnel installs bp-openclaw 0.2.20, t |
-| 2026-11-12T23:41 | [#7226](https://github.com/openova-io/openova/pull/7226) | #7211 | chore(ci): ratchets of the billing area at their current val |
 
 ---
 
