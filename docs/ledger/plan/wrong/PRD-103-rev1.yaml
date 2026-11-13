@@ -1,0 +1,43 @@
+schema: openova.io/plan-wrong/v1
+id: PRD-103
+ticket_rev: 1
+base_commit: a04169a8ab153945798064dbe316e606149b919b
+stage: check
+ref: go-lint
+command: |
+    gh api repos/openova-io/openova/actions/jobs/131737787117/logs | tail -40 | cut -c30-300
+expected: |
+    the check finishes green
+actual: |
+    shell: /usr/bin/bash -e {0}
+    env:
+      GO_VERSION: 1.26
+      GOLANGCI_LINT_VERSION: v2.9.0
+      MODULES: products/fingate
+    ##[endgroup]
+    ##[group]golangci-lint products/fingate
+    ##[error]products/fingate/cmd/fingate-ledger-conformance/main.go:100:2: QF1002: could use tagged switch on *target (staticcheck)
+    	switch {
+    	^
+    1 issues:
+    * staticcheck: 1
+    ##[error]go-lint: products/fingate has a new finding, or golangci-lint could not run
+    ##[endgroup]
+    ##[error]Process completed with exit code 1.
+    Post job cleanup.
+    [command]/usr/bin/git version
+    git version 2.56.0
+    Temporarily overriding HOME='/home/runner/work/_temp/1d682503-9a2f-4abf-a926-dfad16a25498' before making global git config changes
+    Adding repository directory to the temporary git global config as a safe directory
+    [command]/usr/bin/git config --global --add safe.directory /home/runner/work/openova/openova
+    [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+    [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+    [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+    http.https://github.com/.extraheader
+    [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+    [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+    [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+    [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+    Cleaning up orphan processes
+    ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-go@v5. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-r
+reported_at: 2026-11-13T06:49:46Z
