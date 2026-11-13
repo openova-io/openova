@@ -139,6 +139,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.detect.outputs.matrix) }}
+    # FND-011: the next version is read from origin/main, so one chart's push runs queue.
+    concurrency:
+      group: blueprint-release-${{ github.event_name }}-${{ matrix.path }}
+      cancel-in-progress: false
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -192,10 +196,96 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # RELEASE WRITER, the chart version (FND-011). A pull request never
+      # changes a `version:` line (check-release-owned-lines.yaml). When a
+      # push changes files of this chart and leaves its version as it was,
+      # this step writes the next patch version BEFORE the chart is packaged;
+      # the commit step pushes it with every other site in ONE commit.
+      # Not bumped: no push range (dispatch), a new chart, a version that
+      # moved in the push, a library chart. Four charts are versioned by their
+      # own build workflow, which runs on the same push and dispatches this one:
+      # their push run publishes nothing (defer=true).
+      - name: "Release writer: bump the chart version"
+        id: bump_chart
+        env:
+          CHART_PATH: ${{ matrix.path }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          chart_yaml="${CHART_PATH}/chart/Chart.yaml"
+          if [ -z "${PUSH_BEFORE}" ] || [ "${PUSH_BEFORE}" = "0000000000000000000000000000000000000000" ] || [ ! -f "${chart_yaml}" ]; then
+            echo "No push range or no chart: the version is published as it stands."
+            echo "bumped=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$(awk '/^type:/{print $2; exit}' "${chart_yaml}" | tr -d '"')" = "library" ]; then
+            echo "Library chart: never published, so never bumped."
+            echo "bumped=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git cat-file -e "${PUSH_BEFORE}^{commit}" 2>/dev/null || git fetch --quiet --no-tags --depth=1 origin "${PUSH_BEFORE}"
+          if ! git cat-file -e "${PUSH_BEFORE}:${chart_yaml}" 2>/dev/null; then
+            echo "${chart_yaml} is new in this push: its first version is published as it stands."
+            echo "bumped=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "$(git diff --name-only "${PUSH_BEFORE}" "${PUSH_AFTER}" -- "${CHART_PATH}/chart")" ]; then
+            echo "No file of ${CHART_PATH}/chart changed in this push: the version is published as it stands."
+            echo "bumped=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          before_file="$(mktemp)"
+          git show "${PUSH_BEFORE}:${chart_yaml}" > "${before_file}"
+          old="$(awk '/^version:/{print $2; exit}' "${before_file}" | tr -d '"')"
+          cur="$(awk '/^version:/{print $2; exit}' "${chart_yaml}" | tr -d '"')"
+          if [ "${old}" != "${cur}" ]; then
+            echo "The version of ${chart_yaml} moved in this push (${old} -> ${cur}): published as it stands."
+            echo "bumped=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          case "${CHART_PATH}" in
+            products/catalyst|platform/guacamole|platform/newapi|platform/k8s-ws-proxy)
+              echo "${CHART_PATH} is versioned by its own build workflow, which dispatches this workflow: nothing to publish from this push."
+              echo "bumped=false" >> "$GITHUB_OUTPUT"
+              echo "defer=true" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+          esac
+          git fetch --quiet origin main
+          main_file="$(mktemp)"
+          git show "origin/main:${chart_yaml}" > "${main_file}"
+          main_ver="$(awk '/^version:/{print $2; exit}' "${main_file}" | tr -d '"')"
+          for v in "${cur}" "${main_ver}"; do
+            if ! [[ "${v}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error title=Release writer::${chart_yaml} carries version '${v}', which is not MAJOR.MINOR.PATCH."
+              exit 1
+            fi
+          done
+          top="$(printf '%s\n%s\n' "${cur}" "${main_ver}" | sort -V | tail -1)"
+          next="${top%.*}.$(( ${top##*.} + 1 ))"
+          sed -i -E "s|^version: .*\$|version: ${next}|" "${chart_yaml}"
+          wrote="$(awk '/^version:/{print $2; exit}' "${chart_yaml}" | tr -d '"')"
+          if [ "${wrote}" != "${next}" ]; then
+            echo "::error title=Release writer::could not write version ${next} into ${chart_yaml} (it reads '${wrote}')."
+            exit 1
+          fi
+          echo "Release writer: ${chart_yaml} ${cur} -> ${next}"
+          echo "bumped=true" >> "$GITHUB_OUTPUT"
+          echo "chart_yaml=${chart_yaml}" >> "$GITHUB_OUTPUT"
+          echo "prev_version=${cur}" >> "$GITHUB_OUTPUT"
+
       - name: Read chart metadata
         id: chart
+        env:
+          DEFER: ${{ steps.bump_chart.outputs.defer }}
         run: |
           set -e
+          if [ "${DEFER}" = "true" ]; then
+            echo "Deferred to the build workflow that versions this chart: nothing to publish from this push."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           path="${{ matrix.path }}"
           chart_yaml="$path/chart/Chart.yaml"
           if [ ! -f "$chart_yaml" ]; then
@@ -1031,8 +1121,11 @@ jobs:
         # tandem, but a kit-only chart (no blueprint.yaml) or a non-kit
         # leaf (no pin file) might bump only one. Either is sufficient
         # to commit.
-        if: steps.chart.outputs.skip != 'true' && (steps.bump_pin.outputs.bumped == 'true' || steps.bump_blueprint.outputs.bumped == 'true' || steps.sync_seed.outputs.bumped == 'true')
+        if: steps.chart.outputs.skip != 'true' && (steps.bump_chart.outputs.bumped == 'true' || steps.bump_pin.outputs.bumped == 'true' || steps.bump_blueprint.outputs.bumped == 'true' || steps.sync_seed.outputs.bumped == 'true')
         env:
+          CHART_BUMPED: ${{ steps.bump_chart.outputs.bumped }}
+          CHART_FILE: ${{ steps.bump_chart.outputs.chart_yaml }}
+          CHART_PREV_VERSION: ${{ steps.bump_chart.outputs.prev_version }}
           CHART_NAME: ${{ steps.chart.outputs.name }}
           CHART_VERSION: ${{ steps.chart.outputs.version }}
           PIN_FILE: ${{ steps.bump_pin.outputs.pin_file }}
@@ -1060,6 +1153,21 @@ jobs:
           # whatever state is currently on origin/main, and re-commit.
           # The operation is convergent: every retry produces the same
           # final state (pin=CHART_VERSION, blueprint=CHART_VERSION).
+          # FND-011: write the published chart version again after a reset;
+          # a higher version on origin/main stops the run, never moves it back.
+          rewrite_chart() {
+            local cur
+            cur=$(awk '/^version:/{print $2; exit}' "${CHART_FILE}" | tr -d '"')
+            if [ "$cur" = "${CHART_VERSION}" ]; then
+              return 1
+            fi
+            if [ "$(printf '%s\n%s\n' "$cur" "${CHART_VERSION}" | sort -V | tail -1)" != "${CHART_VERSION}" ]; then
+              echo "::error title=Chart version moved::origin/main carries ${CHART_FILE} version ${cur}, above the ${CHART_VERSION} this run published. Run this workflow again." >&2
+              exit 1
+            fi
+            sed -i -E "s|^version: .*\$|version: ${CHART_VERSION}|" "${CHART_FILE}"
+            return 0
+          }
           rewrite_pin() {
             local pf="$1"
             local cur
@@ -1114,6 +1222,9 @@ jobs:
           if [ "${SEED_BUMPED}" = "true" ]; then
             git add "$SEED_SEED" "$SEED_JSON" "$SEED_TS"
           fi
+          if [ "${CHART_BUMPED}" = "true" ] && [ -n "${CHART_FILE}" ]; then
+            git add "${CHART_FILE}"
+          fi
 
           if git diff --staged --quiet; then
             echo "no staged changes — already in sync"
@@ -1159,6 +1270,13 @@ jobs:
           if [ "${SEED_BUMPED}" = "true" ] && { [ "${PIN_BUMPED}" = "true" ] || [ "${BP_BUMPED}" = "true" ]; }; then
             msg=$(printf '%s\n\nAlso locksteps catalog-seed spec.version + delivery pin + generated catalog -> %s (Refs #5583).' "${msg}" "${CHART_VERSION}")
           fi
+          if [ "${CHART_BUMPED}" = "true" ]; then
+            if [ "${PIN_BUMPED}" != "true" ] && [ "${BP_BUMPED}" != "true" ] && [ "${SEED_BUMPED}" != "true" ]; then
+              msg="deploy(${CHART_NAME}): bump chart version ${CHART_PREV_VERSION} -> ${CHART_VERSION} (auto, FND-011)"
+            else
+              msg=$(printf '%s\n\nAlso bumps %s version %s -> %s (FND-011).' "${msg}" "${CHART_FILE}" "${CHART_PREV_VERSION}" "${CHART_VERSION}")
+            fi
+          fi
           git commit -m "${msg}"
 
           for i in 1 2 3; do
@@ -1170,9 +1288,16 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
 
+            did_chart=0
             did_pin=0
             did_bp=0
             did_seed=0
+            if [ "${CHART_BUMPED}" = "true" ] && [ -n "${CHART_FILE}" ]; then
+              if rewrite_chart; then
+                git add "${CHART_FILE}"
+                did_chart=1
+              fi
+            fi
             if [ "${PIN_BUMPED}" = "true" ] && [ -n "${PIN_FILE}" ]; then
               if rewrite_pin "${PIN_FILE}"; then
                 git add "${PIN_FILE}"
@@ -1195,7 +1320,7 @@ jobs:
                 did_seed=1
               fi
             fi
-            if [ "$did_pin" -eq 0 ] && [ "$did_bp" -eq 0 ] && [ "$did_seed" -eq 0 ]; then
+            if [ "$did_chart" -eq 0 ] && [ "$did_pin" -eq 0 ] && [ "$did_bp" -eq 0 ] && [ "$did_seed" -eq 0 ]; then
               echo "origin/main already at ${CHART_VERSION} — nothing to push"
               exit 0
             fi
@@ -1204,7 +1329,8 @@ jobs:
               exit 0
             fi
             parts=""
-            if [ "$did_pin" -eq 1 ]; then parts="pin"; fi
+            if [ "$did_chart" -eq 1 ]; then parts="chart"; fi
+            if [ "$did_pin" -eq 1 ]; then parts="${parts:+${parts}+}pin"; fi
             if [ "$did_bp" -eq 1 ]; then parts="${parts:+${parts}+}blueprint.yaml"; fi
             if [ "$did_seed" -eq 1 ]; then parts="${parts:+${parts}+}catalog-seed"; fi
             git commit -m "deploy(${CHART_NAME}): lockstep ${parts} -> ${CHART_VERSION} (auto, Refs TBD-A6 + TBD-A20 + #5583, retry $i)"
