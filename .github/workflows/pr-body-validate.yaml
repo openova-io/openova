@@ -40,6 +40,7 @@ name: PR body validate
 on:
   pull_request:
     types: [opened, edited, reopened, synchronize, labeled, unlabeled]
+  merge_group:
 
 permissions:
   contents: read
