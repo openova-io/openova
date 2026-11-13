@@ -19,6 +19,10 @@ name: Test — Bootstrap API (Go)
 #   core/controllers/organization/internal/gitops/**  planQuotaTable["s"] — the cap
 #   core/services/provisioning/gitops/**              the OTHER per-Org producer,
 #                                                     cross-checked door-to-door
+# The test TestSchemasMatchSources of internal/intent reads the definition files
+# its schema bundle is built from (CTL-160):
+#   products/catalyst/chart/crds/**                   the CRDs and their samples
+#   platform/crossplane-claims/chart/templates/crds/** the UserAccess CRD
 on:
   push:
     paths:
@@ -27,6 +31,8 @@ on:
       - 'platform/openclaw/chart/**'
       - 'core/controllers/organization/internal/gitops/**'
       - 'core/services/provisioning/gitops/**'
+      - 'products/catalyst/chart/crds/**'
+      - 'platform/crossplane-claims/chart/templates/crds/**'
       - '.github/workflows/test-bootstrap-api.yaml'
     branches: [main]
   pull_request:
@@ -36,6 +42,8 @@ on:
       - 'platform/openclaw/chart/**'
       - 'core/controllers/organization/internal/gitops/**'
       - 'core/services/provisioning/gitops/**'
+      - 'products/catalyst/chart/crds/**'
+      - 'platform/crossplane-claims/chart/templates/crds/**'
       - '.github/workflows/test-bootstrap-api.yaml'
   workflow_dispatch:
 
