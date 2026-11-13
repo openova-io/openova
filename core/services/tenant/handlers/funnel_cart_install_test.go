@@ -45,8 +45,8 @@ func appSlugsFromInstallEvents(t *testing.T, evs []*events.Event) []string {
 // funnel cart-placement gap fix (#4360): a funnel Org created with cart apps
 // emits a tenant.app_install_requested per cart app so the provisioning service
 // renders the Applications into the per-Org gitops tree — the funnel analogue
-// of the BSS door's Step-6. `sandbox` is excluded (it has its own
-// tenant.sandbox_requested dispatch). With the Catalog unwired the helper
+// of the BSS door's Step-6. `sandbox` (the withdrawn Sandbox product) is
+// excluded: it has no Application template. With the Catalog unwired the helper
 // dispatches the raw cart slugs (capacity was validated at checkout).
 func TestDispatchFunnelCartInstall_DispatchesDeployableAppsSkipsSandbox(t *testing.T) {
 	prod := &recordingProducer{}
