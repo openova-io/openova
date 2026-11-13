@@ -1,0 +1,160 @@
+# Lab test PRD-060 (never merged): does the platform's PostgreSQL image carry
+# the `vector` extension at a version with iterative index scans, and does the
+# design's trimmed search (row-level security + source filter + HNSW) hold
+# recall at 10 >= 0.95 and p95 latency < 200 ms on one million 1,024-dimension
+# chunks for a principal that reads one percent of documents?
+#
+# Runs only on a push to the spike branch. Everything happens inside this job:
+# one PostgreSQL container on the runner, a public embedding dataset downloaded
+# from Hugging Face, no cloud account, no secret, no cluster.
+name: spike-prd-060
+
+on:
+  push:
+    branches: [spike/PRD-060]
+
+permissions:
+  contents: read
+
+jobs:
+  vector-trim:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    env:
+      OUT: ${{ github.workspace }}/out
+      SPIKE: tests/spikes/PRD-060
+      FALLBACK_IMAGE: pgvector/pgvector:0.8.1-pg16
+      DATASET: CohereLabs/wikipedia-2023-11-embed-multilingual-v3
+      DATASET_REV: ade45fb52bd549f5e8c065636fe4160a43c2af36
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Runner facts
+        run: |
+          mkdir -p "$OUT"
+          {
+            echo "nproc=$(nproc)"
+            free -g
+            df -h / /mnt || true
+            lscpu | grep -E 'Model name|^CPU\(s\)' || true
+            echo "avx2=$(grep -c avx2 /proc/cpuinfo) avx512f=$(grep -c avx512f /proc/cpuinfo)"
+            echo "docker=$(docker version --format '{{.Server.Version}}')"
+            uname -r
+          } | tee "$OUT/runner.txt"
+
+      - name: Python packages
+        run: |
+          python -m pip install --quiet numpy==2.1.3 pyarrow==18.1.0 "psycopg[binary]==3.2.3" pgvector==0.3.6 pyyaml==6.0.2
+          python --version | tee "$OUT/python.txt"
+          python -m pip freeze | grep -iE '^(numpy|pyarrow|psycopg|psycopg-binary|pgvector|pyyaml)=' | tee -a "$OUT/python.txt"
+
+      - name: Pick the data disk
+        run: |
+          avail=$(df --output=avail -B1G /mnt 2>/dev/null | tail -1 | tr -d ' ' || echo 0)
+          if [ "${avail:-0}" -ge 40 ]; then
+            root=/mnt/prd060
+          else
+            sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+            root=/home/runner/prd060
+          fi
+          sudo mkdir -p "$root" && sudo chmod 777 "$root"
+          echo "DATA=$root" >> "$GITHUB_ENV"
+          df -h "$root" | tee -a "$OUT/runner.txt"
+
+      - name: Pull the chart's PostgreSQL image
+        run: |
+          ref=$(python -c "import yaml; v=yaml.safe_load(open('platform/postgres/chart/values.yaml'))['instance']; print(v['imageName']+':'+str(v['pgVersion']))")
+          upstream="${ref/harbor.openova.io\/proxy-ghcr\//ghcr.io/}"
+          echo "chart_ref=$ref" | tee "$OUT/images.txt"
+          echo "upstream_ref=$upstream" | tee -a "$OUT/images.txt"
+          pulled=""
+          if timeout 300 docker pull "$ref"; then pulled="$ref"; echo "chart_ref_pull=ok" | tee -a "$OUT/images.txt"
+          else echo "chart_ref_pull=failed" | tee -a "$OUT/images.txt"; fi
+          if timeout 300 docker pull "$upstream"; then echo "upstream_pull=ok" | tee -a "$OUT/images.txt"; [ -n "$pulled" ] || pulled="$upstream"
+          else echo "upstream_pull=failed" | tee -a "$OUT/images.txt"; fi
+          [ -n "$pulled" ] || { echo "no image could be pulled"; exit 1; }
+          for i in "$ref" "$upstream"; do
+            docker image inspect "$i" >/dev/null 2>&1 || continue
+            docker image inspect --format "$i id={{.Id}} digests={{.RepoDigests}} created={{.Created}} arch={{.Architecture}}" "$i" | tee -a "$OUT/images.txt"
+            docker image inspect --format '{{json .Config.Labels}}' "$i" | tee -a "$OUT/images.txt"
+          done
+          docker run --rm --entrypoint sh "$pulled" -c "dpkg-query -W -f='\${Package} \${Version}\n' 2>/dev/null | grep -Ei 'vector|^postgresql-[0-9]+ |pgaudit|failover' || echo 'no matching packages'" | tee -a "$OUT/images.txt"
+          echo "FACTS_IMAGE=$pulled" >> "$GITHUB_ENV"
+
+      - name: Extension facts on the chart's image
+        run: |
+          bash "$SPIKE/pg.sh" start pgfacts "$FACTS_IMAGE" "$DATA/facts" facts
+          python "$SPIKE/spike.py" facts --image "$FACTS_IMAGE" --out "$OUT"
+          bash "$SPIKE/pg.sh" stop pgfacts
+          if python -c "import json,sys; sys.exit(0 if json.load(open('$OUT/facts.json'))['iterative_capable'] else 1)"; then
+            echo "MAIN_IMAGE=$FACTS_IMAGE" >> "$GITHUB_ENV"; echo "main image: the chart's image"
+          else
+            docker pull "$FALLBACK_IMAGE"
+            echo "MAIN_IMAGE=$FALLBACK_IMAGE" >> "$GITHUB_ENV"; echo "main image: fallback $FALLBACK_IMAGE (chart image lacks iterative scans)"
+          fi
+
+      - name: Download the corpus (11 parquet files) and the query file
+        run: |
+          mkdir -p "$DATA/corpus" "$DATA/queries"
+          base="https://huggingface.co/datasets/$DATASET/resolve/$DATASET_REV/en"
+          seq 0 10 | xargs -I{} printf '%04d\n' {} | xargs -P 6 -I{} \
+            curl -fsSL --retry 5 --retry-delay 5 -o "$DATA/corpus/en-{}.parquet" "$base/{}.parquet"
+          curl -fsSL --retry 5 --retry-delay 5 -o "$DATA/queries/en-0414.parquet" "$base/0414.parquet"
+          ls -l "$DATA/corpus" "$DATA/queries" | tee "$OUT/corpus.txt"
+          df -h "$DATA"
+
+      - name: Start PostgreSQL (runner-sized)
+        run: bash "$SPIKE/pg.sh" start pg "$MAIN_IMAGE" "$DATA/pg" runner
+
+      - name: Schema, roles, row-level security, policy check
+        run: python "$SPIKE/spike.py" schema --sql "$SPIKE/schema.sql" --out "$OUT"
+
+      - name: Load one million chunks
+        timeout-minutes: 60
+        run: |
+          python "$SPIKE/spike.py" load --corpus "$DATA/corpus" --query-file "$DATA/queries/en-0414.parquet" \
+            --rows 1000000 --queries 1000 --out "$OUT"
+          rm -rf "$DATA/corpus" "$DATA/queries"
+          df -h "$DATA"
+
+      - name: Build the design's indexes
+        timeout-minutes: 200
+        run: |
+          python "$SPIKE/spike.py" build --out "$OUT"
+          df -h "$DATA"; free -g
+
+      - name: Measure (runner-sized instance)
+        timeout-minutes: 100
+        run: python "$SPIKE/spike.py" measure --profile runner --queries 1000 --max-seconds 600 --out "$OUT"
+
+      - name: Restart at the chart's default size (500m CPU, 512Mi, chart GUCs), cold cache
+        run: |
+          bash "$SPIKE/pg.sh" stop pg
+          sync; echo 3 | sudo tee /proc/sys/vm/drop_caches
+          bash "$SPIKE/pg.sh" start pg "$MAIN_IMAGE" "$DATA/pg" chart
+
+      - name: Measure (chart-sized instance, supplementary)
+        timeout-minutes: 90
+        run: |
+          python "$SPIKE/spike.py" measure --profile chart --queries 200 --max-seconds 600 --out "$OUT"
+          docker stats --no-stream pg | tee -a "$OUT/runner.txt"
+
+      - name: Summary
+        if: always()
+        run: |
+          docker logs pg 2>&1 | tail -40 || true
+          python "$SPIKE/spike.py" summarize --out "$OUT" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prd-060-results
+          path: out/
+          retention-days: 30
