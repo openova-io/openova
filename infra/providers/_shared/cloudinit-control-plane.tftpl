@@ -176,10 +176,18 @@ write_files:
   #   Huawei  → bastion-openova registry:2 mirrors (kom4dc NAT bypass).
   #   AWS/Azure/GCP → empty (no mirror) renders no `mirrors:` block.
   # k3s reads this at start to configure containerd.
+  #
+  # CLD-185: this file and six more below (the four bootstrap Secrets, the
+  # cloud-credentials Secret and the Crossplane provider) travel packed:
+  # `encoding: gz+b64`, the text gzipped and base64-encoded in the template.
+  # cloud-init writes the decoded text, the same bytes the plain file had, so
+  # the Hetzner render stays under its user_data cap. A provider-injected
+  # body loses its comment lines before packing, as the modules strip them
+  # from the plain render, and ends with one newline, as the plain block did.
   - path: /etc/rancher/k3s/registries.yaml
     permissions: '0600'
-    content: |
-      ${indent(6, registry_mirror_yaml)}
+    encoding: gz+b64
+    content: ${base64gzip(format("%s\n", chomp(replace(registry_mirror_yaml, "/(?m)^[ ]*#( |$).*\n/", ""))))}
 
   # ── flux-system/ghcr-pull Secret ──────────────────────────────────────
   # imagePullSecret for ghcr.io/openova-io/*. bp-reflector (slot 05a) mirrors
@@ -220,7 +228,8 @@ write_files:
   # Refs #3383, #4246, #4293, #4328, #4423.
   - path: /var/lib/catalyst/ghcr-pull-secret.yaml
     permissions: '0600'
-    content: |
+    encoding: gz+b64
+    content: ${base64gzip(<<-EOT
       apiVersion: v1
       kind: Secret
       metadata:
@@ -242,13 +251,16 @@ write_files:
             }
           }
         }))}
+      EOT
+    )}
 
   # ── flux-system/harbor-robot-token Secret (issue #557) ────────────────
   # catalyst-api references it via REQUIRED secretKeyRef. bp-reflector
   # mirrors flux-system → catalyst-system on first reconcile.
   - path: /var/lib/catalyst/harbor-robot-token-secret.yaml
     permissions: '0600'
-    content: |
+    encoding: gz+b64
+    content: ${base64gzip(<<-EOT
       apiVersion: v1
       kind: Secret
       metadata:
@@ -262,6 +274,8 @@ write_files:
       type: Opaque
       data:
         token: ${base64encode(harbor_robot_token)}
+      EOT
+    )}
 
   # ── powerdns-api-credentials Secret — EVICTED to Flux (#3888 / Refs #3847)
   # The cert-manager DNS-01 webhook (bp-cert-manager-powerdns-webhook, slot 49)
@@ -308,7 +322,8 @@ write_files:
   # Day-2 "Add another parent domain" flow. Reflector mirrors it out.
   - path: /var/lib/catalyst/pdm-basicauth-secret.yaml
     permissions: '0600'
-    content: |
+    encoding: gz+b64
+    content: ${base64gzip(<<-EOT
       apiVersion: v1
       kind: Secret
       metadata:
@@ -323,6 +338,8 @@ write_files:
       data:
         username: ${base64encode(pdm_basic_auth_user)}
         password: ${base64encode(pdm_basic_auth_pass)}
+      EOT
+    )}
 
   # ── flux-system/object-storage Secret ─────────────────────────────────
   # S3-compatible object storage (Hetzner Object Storage / Huawei OBS /
@@ -331,7 +348,8 @@ write_files:
   # resolves (Wave 5.101 #2447 — bp-harbor/bp-velero want `s3-bucket`).
   - path: /var/lib/catalyst/object-storage-secret.yaml
     permissions: '0600'
-    content: |
+    encoding: gz+b64
+    content: ${base64gzip(<<-EOT
       apiVersion: v1
       kind: Secret
       metadata:
@@ -349,6 +367,8 @@ write_files:
         s3-secret-key: "${object_storage_secret_key}"
         access-key: "${object_storage_access_key}"
         secret-key: "${object_storage_secret_key}"
+      EOT
+    )}
 
   # ── flux-system/cloud-credentials Secret — PROVIDER-INJECTED ──────────
   # Vendor-agnostic name (#425). Body composed per-provider in main.tf:
@@ -357,8 +377,8 @@ write_files:
   # Crossplane Provider + any Day-2 controller reads these keys.
   - path: /var/lib/catalyst/cloud-credentials-secret.yaml
     permissions: '0600'
-    content: |
-      ${indent(6, cloud_credentials_secret_yaml)}
+    encoding: gz+b64
+    content: ${base64gzip(format("%s\n", chomp(replace(cloud_credentials_secret_yaml, "/(?m)^[ ]*#( |$).*\n/", ""))))}
 
 %{ if crossplane_provider_yaml != "" ~}
   # ── Crossplane Provider + ProviderConfig — PROVIDER-INJECTED ──────────
@@ -366,8 +386,8 @@ write_files:
   # Empty string on providers without a Crossplane provider package yet.
   - path: /var/lib/catalyst/crossplane-provider.yaml
     permissions: '0644'
-    content: |
-      ${indent(6, crossplane_provider_yaml)}
+    encoding: gz+b64
+    content: ${base64gzip(format("%s\n", chomp(replace(crossplane_provider_yaml, "/(?m)^[ ]*#( |$).*\n/", ""))))}
 %{ endif ~}
 
   # ── Handover-JWT public key (raw JWK + K8s Secret) ────────────────────
