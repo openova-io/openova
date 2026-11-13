@@ -1,0 +1,86 @@
+# Lab test SEC-280 — the OpenBao database engine beside CloudNativePG.
+# A throwaway experiment: it runs only on pushes to the spike/SEC-280 branch,
+# which is never merged. Everything happens inside kind on the runner; no
+# cloud account, no secret, no kept cluster.
+name: spike-sec-280
+
+on:
+  push:
+    branches: [spike/SEC-280]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spike-sec-280
+  cancel-in-progress: true
+
+env:
+  KIND_VERSION: v0.30.0
+  CNPG_CHART: "0.28.0"
+  OPENBAO_CHART: "0.30.7"
+  OPENBAO_TAG: "2.7.2"
+  CSI_CHART: "1.6.2"
+  PG_IMAGE: ghcr.io/cloudnative-pg/postgresql:16.4
+  OUT_DIR: out
+
+jobs:
+  steps-1-to-4:
+    name: steps 1-4 (two-region pair, operator, static role, lease expiry)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install kind
+        run: |
+          curl -fsSLo /tmp/kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          sudo install -m 0755 /tmp/kind /usr/local/bin/kind
+          kind version; kubectl version --client; helm version --short
+      - name: Create kind cluster
+        run: kind create cluster --name lab --wait 180s
+      - name: Run steps 1 to 4
+        run: python3 -u tests/spikes/SEC-280/lab.py steps1to4
+      - name: Diagnostics
+        if: always()
+        run: python3 -u tests/spikes/SEC-280/lab.py diag || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sec-280-steps-1-to-4
+          path: out/
+
+  step-5:
+    name: step 5 (OpenBao stopped 30 minutes under a pool)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: false
+      - name: Install kind
+        run: |
+          curl -fsSLo /tmp/kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          sudo install -m 0755 /tmp/kind /usr/local/bin/kind
+          kind version; kubectl version --client; helm version --short; go version
+      - name: Build the pool probe
+        working-directory: tests/spikes/SEC-280/consumer
+        run: |
+          go mod tidy
+          CGO_ENABLED=0 go build -trimpath -o consumer .
+          docker build -t sec280-consumer:ci .
+      - name: Create kind cluster
+        run: |
+          kind create cluster --name lab --wait 180s
+          kind load docker-image sec280-consumer:ci --name lab
+      - name: Run step 5
+        run: python3 -u tests/spikes/SEC-280/lab.py step5
+      - name: Diagnostics
+        if: always()
+        run: python3 -u tests/spikes/SEC-280/lab.py diag || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sec-280-step-5
+          path: out/
