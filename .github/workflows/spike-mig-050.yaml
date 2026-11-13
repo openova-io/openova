@@ -1,0 +1,120 @@
+# MIG-050 lab test (throwaway, never merged): how long a hermetic conversion
+# (virt-v2v-in-place) and a TCG boot of the converted disk take on a standard
+# GitHub-hosted runner. Runs only on pushes to spike/MIG-050.
+#
+# Three measurements, each on its own fresh runner:
+#   runner-host (kvm-allowed) - packages from the runner's distribution, the
+#                               libguestfs appliance may use /dev/kvm
+#   runner-host (tcg-forced)  - same, appliance forced onto TCG
+#   debian-stable-container   - Debian stable slim in a plain `docker run`
+#                               (no --privileged, no /dev/kvm): the conditions
+#                               under which a worker-image test would run
+# The guest boot always uses -machine q35,accel=tcg.
+name: spike-mig-050
+
+on:
+  push:
+    branches: [spike/MIG-050]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spike-mig-050
+  cancel-in-progress: false
+
+jobs:
+  runner-host:
+    name: runner-host (${{ matrix.appliance }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        appliance: [kvm-allowed, tcg-forced]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Runner facts
+        run: |
+          set -x
+          cat /etc/os-release
+          uname -a
+          nproc
+          free -m
+          df -h / "$RUNNER_TEMP"
+          ls -l /dev/kvm || echo "no /dev/kvm"
+          echo "ImageOS=${ImageOS:-} ImageVersion=${ImageVersion:-}"
+
+      - name: Measure (conversion + boot)
+        env:
+          LABEL: runner-host-${{ matrix.appliance }}
+          FORCE_TCG: ${{ matrix.appliance == 'tcg-forced' && '1' || '0' }}
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          sudo -E env "PATH=$PATH" \
+            LABEL="$LABEL" FORCE_TCG="$FORCE_TCG" \
+            OUT_DIR="$GITHUB_WORKSPACE/out" WORK_DIR="$RUNNER_TEMP/mig050" \
+            bash tests/spikes/MIG-050/measure.sh
+
+      - name: Result
+        if: always()
+        run: |
+          sudo chmod -R a+rwX out || true
+          echo "runner_image: ${ImageOS:-} ${ImageVersion:-}" | tee -a out/result.txt || true
+          echo "===== MIG-050 RESULT ====="
+          cat out/result.txt || true
+          { echo '```'; cat out/result.txt || true; echo '```'; } >>"$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mig050-runner-host-${{ matrix.appliance }}
+          path: out/
+          retention-days: 30
+
+  debian-stable-container:
+    name: debian-stable-container
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Runner facts
+        run: |
+          set -x
+          cat /etc/os-release
+          nproc
+          free -m
+          ls -l /dev/kvm || echo "no /dev/kvm"
+          docker version --format '{{.Server.Version}}'
+
+      - name: Measure inside debian:trixie-slim (no --privileged, no /dev/kvm)
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          docker pull -q debian:trixie-slim
+          echo "base_image: $(docker inspect --format '{{index .RepoDigests 0}}' debian:trixie-slim)" >"$GITHUB_WORKSPACE/out/base.txt"
+          docker run --rm \
+            -e LABEL=debian-stable-container -e FORCE_TCG=0 \
+            -e EXTRA_PKGS=linux-image-amd64 \
+            -e OUT_DIR=/out -e WORK_DIR=/work \
+            -v "$GITHUB_WORKSPACE/tests/spikes/MIG-050:/spike:ro" \
+            -v "$GITHUB_WORKSPACE/out:/out" \
+            debian:trixie-slim bash /spike/measure.sh
+
+      - name: Result
+        if: always()
+        run: |
+          sudo chmod -R a+rwX out || true
+          cat out/base.txt >>out/result.txt || true
+          echo "runner_image: ${ImageOS:-} ${ImageVersion:-}" | tee -a out/result.txt || true
+          echo "===== MIG-050 RESULT ====="
+          cat out/result.txt || true
+          { echo '```'; cat out/result.txt || true; echo '```'; } >>"$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mig050-debian-stable-container
+          path: out/
+          retention-days: 30
