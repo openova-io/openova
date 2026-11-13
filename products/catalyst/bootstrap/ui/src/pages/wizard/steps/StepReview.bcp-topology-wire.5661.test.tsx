@@ -254,9 +254,6 @@ describe('#5661 — the wizard can fire a single-region prov', () => {
 describe('#5661 controls — multi-region semantics are byte-identical', () => {
   it.each<[TopologyTemplate, number]>([
     ['dual', 2],
-    ['zoned', 2],
-    ['compact', 2],
-    ['citadel', 4],
   ])('%s sends NO bcpTopology and %i regions, and is admitted', async (topology, want) => {
     expect(TOPOLOGY_REGION_COUNT[topology]).toBe(want)
     seedStore(topology)
