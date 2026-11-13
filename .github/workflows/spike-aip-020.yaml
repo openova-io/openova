@@ -1,6 +1,7 @@
 name: spike-aip-020
 # Throwaway lab test (spike AIP-020). Runs on pushes to its own branch only and is never merged.
 # The agent kit is driven against a scripted model endpoint inside a container with no network.
+# Suite "full" runs the tests of the spike; suite "extra" measures capacity, abort and egress.
 on:
   push:
     branches: [spike/AIP-020]
@@ -13,8 +14,13 @@ jobs:
   kit:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [full, extra]
     env:
       IMAGE: node:22.17.0-bookworm-slim
+      SUITE: ${{ matrix.suite }}
     defaults:
       run:
         working-directory: tests/spikes/AIP-020
@@ -27,20 +33,22 @@ jobs:
           grep -h '"version"\|claudeCodeVersion' node_modules/@anthropic-ai/claude-agent-sdk/package.json
           ls node_modules/@anthropic-ai/
           du -sh node_modules/@anthropic-ai/* || true
+          nproc; free -m
       - name: Run the tests (container network none, child sees only the scripted endpoint)
         run: |
-          mkdir -p out
+          mkdir -p "out/$SUITE"
           set -o pipefail
           docker run --rm --network none --shm-size=1g --user "$(id -u):$(id -g)" -e HOME=/tmp \
-            -v "$PWD:/w" -w /w "$IMAGE" timeout 2100 node run.mjs 2>&1 | tee out/run.log
+            -e SPIKE_SUITE="$SUITE" -e SPIKE_OUT="out/$SUITE" \
+            -v "$PWD:/w" -w /w "$IMAGE" timeout 2100 node run.mjs 2>&1 | tee "out/$SUITE/run.log"
       - name: Debug log tails
         if: always()
         run: |
           noise='temp file|Temp file|Renaming|written atomically|Preserving file permissions|Applied original permissions'
-          for f in out/debug-*.log; do echo "=== $f"; grep -Ev "$noise" "$f" | grep -v '^\s*$' | tail -n 60 | cut -c1-400; done || true
+          for f in out/$SUITE/debug-*.log; do echo "=== $f"; grep -Ev "$noise" "$f" | grep -v '^\s*$' | tail -n 60 | cut -c1-400; done || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: aip-020-evidence
+          name: aip-020-evidence-${{ matrix.suite }}
           path: tests/spikes/AIP-020/out/
           retention-days: 30

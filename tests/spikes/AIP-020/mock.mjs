@@ -61,7 +61,7 @@ export function startMock({ mainModel, tokens, secretPath, secretMarker }) {
     const id = `msg_spike_${n}`;
     const tid = (i) => `toolu_spike_${n}_${i}`;
     let blocks;
-    if (main && e.phase === "first" && ["t1", "t3", "t3x", "t11a", "t11b"].includes(e.scenario)) {
+    if (main && e.phase === "first" && (["t1", "t3", "t3x", "t11a", "t11b"].includes(e.scenario) || /^q/.test(e.scenario))) {
       blocks = [{ tool: "mcp__t__lookup", input: { city: "Muscat", days: 3 } }];
     } else if (main && e.phase === "first" && ["t6", "t6r"].includes(e.scenario)) {
       blocks = [{ text: ["Let me check ", "both."] }, { tool: "mcp__t__lookup", input: { city: "Salalah" } },

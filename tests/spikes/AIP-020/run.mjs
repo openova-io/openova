@@ -123,6 +123,48 @@ function assembled(r) { // T10: assembled assistant messages per model message i
 }
 async function guard(id, fn) { try { await fn(); } catch (e) { rec(id, false, `error: ${e.message}`); } }
 
+// ---------- extra suite (second job): capacity, abort, and egress, each run alone ----------
+if ((process.env.SPIKE_SUITE || "full") === "extra") {
+  await guard("X1", async () => { // 12 chains parked at once: the AXON_MAX_ACTIVE + AXON_MAX_PARKED default
+    const runs = Array.from({ length: 12 }, (_, i) => startRun(`q${i}`, { prompt: `SPIKE:q${i} What is the weather in Muscat?` }));
+    await until(() => runs.every((r) => r.calls.length || r.done), 240000, "12 handlers");
+    await sleep(10000);
+    const per = runs.map((r) => rss(r.name));
+    const total = Math.round(per.reduce((a, b) => a + b.mi, 0) * 10) / 10;
+    const parent = Math.round((process.memoryUsage().rss / 1048576) * 10) / 10;
+    runs.forEach((r) => r.calls[0]?.resolve("Sunny."));
+    await until(() => runs.every((r) => r.done), 180000, "12 results");
+    const ok = runs.filter((r) => resultOf(r)?.subtype === "success").length;
+    R.values.rss12ParkedTotalMi = total; R.values.parentRssMi = parent;
+    rec("X1", true, `informative: 12 chains parked at once: children total ${total} MiB; per child ${JSON.stringify(per.map((p) => p.mi))}; processes per child ${JSON.stringify([...new Set(per.map((p) => p.procs))])}; parent node process ${parent} MiB; ${ok}/12 ended with success after their handlers were answered`);
+  });
+  await guard("X2", async () => { // abort of a parked run frees its child
+    const r = startRun("qab", { prompt: "SPIKE:qab What is the weather in Muscat?" });
+    await until(() => r.calls.length || r.done, 180000, "qab handler");
+    await sleep(2000);
+    const before = rss("qab"), n0 = mock.log.length, t = Date.now();
+    r.ac.abort();
+    let goneMs = null;
+    while (Date.now() - t < 30000) { if (rss("qab").procs === 0) { goneMs = Date.now() - t; break; } await sleep(50); }
+    await until(() => r.done, 30000, "qab loop end").catch(() => {});
+    rec("X2", true, `informative: abort of a parked run: child processes before ${before.procs} (${before.mi} MiB), gone after ${goneMs} ms; iterator ended ${r.done} with error ${JSON.stringify(r.error ?? null)}; result message ${JSON.stringify(resultOf(r)?.subtype ?? null)}; endpoint requests after abort ${mock.log.length - n0}`);
+  });
+  for (const [id, name, env, what] of [["X3a", "qeb", {}, "default environment"], ["X3b", "qen", { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1"]]) await guard(id, async () => {
+    await sleep(5000);
+    const t = Date.now();
+    const r = startRun(name, { prompt: `SPIKE:${name} What is the weather in Muscat?`, extraEnv: env });
+    await until(() => r.calls.length || r.done, 180000, `${name} handler`);
+    r.calls[0]?.resolve("Sunny.");
+    await until(() => r.done, 120000, `${name} result`);
+    await sleep(5000);
+    const hosts = mock.egress.filter((x) => x.at >= t).map((x) => x.host);
+    rec(id, true, `informative (${what}, run alone): egress attempts from start to 5 s after the end: ${hosts.length} to ${JSON.stringify([...new Set(hosts)])}; kit side calls ${JSON.stringify(side(name))}; ${brief(r)}`);
+  });
+  dump();
+  mock.close();
+  process.exit(0);
+}
+
 // ---------- T3 and T3x start first: they park for PARK_MS while the other tests run ----------
 const t3 = startRun("t3", { prompt: "SPIKE:t3 What is the weather in Muscat?" });
 const t3x = startRun("t3x", { prompt: "SPIKE:t3x What is the weather in Muscat?", extraEnv: { MCP_TOOL_TIMEOUT: String(PARK_MS + 60000) } });
