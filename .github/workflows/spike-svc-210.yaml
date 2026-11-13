@@ -1,0 +1,146 @@
+# SVC-210 lab test (throwaway, never merged): the ring switch on the pinned Flux.
+# Runs only on pushes to spike/SVC-210.
+#
+# Question: a delete patch targeted by a ring label, set in spec.patches of a
+# Flux Kustomization -- does it remove exactly the labelled HelmReleases, does
+# Flux uninstall them, and does removing the patch reinstall them?
+#
+# Two jobs:
+#   cluster     - k3d with the k3s version the Sovereigns pin, Flux installed
+#                 from the same v2.4.0 install.yaml cloud-init applies, a base
+#                 of six trivial HelmReleases (three labelled) under one Flux
+#                 Kustomization with prune: true. Patch on, patch off, three
+#                 rings off, patch off again, and the patch applied from Git by
+#                 a parent Kustomization that runs variable substitution.
+#   kit-render  - the pinned flux CLI renders the real kit path
+#                 (clusters/_template/bootstrap-kit) with and without the patch,
+#                 in a scratch copy where four slots carry the ring label.
+name: spike-svc-210
+
+on:
+  push:
+    branches: [spike/SVC-210]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spike-svc-210
+  cancel-in-progress: false
+
+env:
+  FLUX_VERSION: "2.4.0"
+  K3D_VERSION: v5.7.4
+  K3S_IMAGE: rancher/k3s:v1.31.4-k3s1
+
+jobs:
+  cluster:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools (k3d, flux CLI)
+        run: |
+          set -euo pipefail
+          curl -fsSL -o "$RUNNER_TEMP/k3d" "https://github.com/k3d-io/k3d/releases/download/${K3D_VERSION}/k3d-linux-amd64"
+          sudo install -m 0755 "$RUNNER_TEMP/k3d" /usr/local/bin/k3d
+          cd "$RUNNER_TEMP"
+          curl -fsSLO "https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/flux_${FLUX_VERSION}_linux_amd64.tar.gz"
+          curl -fsSLO "https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/flux_${FLUX_VERSION}_checksums.txt"
+          grep " flux_${FLUX_VERSION}_linux_amd64.tar.gz\$" "flux_${FLUX_VERSION}_checksums.txt" | sha256sum -c -
+          tar -xzf "flux_${FLUX_VERSION}_linux_amd64.tar.gz" flux
+          sudo install -m 0755 flux /usr/local/bin/flux
+
+      - name: Tool versions
+        run: |
+          set -x
+          docker version --format '{{.Server.Version}}'
+          k3d version
+          flux version --client
+          kubectl version --client
+          helm version --short
+          yq --version
+          jq --version
+          echo "ImageOS=${ImageOS:-} ImageVersion=${ImageVersion:-}"
+
+      - name: Create k3d cluster (k3s as pinned for Sovereigns)
+        run: |
+          set -euo pipefail
+          # No Traefik, no servicelb, no k3d load-balancer container: the test
+          # creates no Service of type LoadBalancer or NodePort at all.
+          k3d cluster create svc210 --image "$K3S_IMAGE" --servers 1 --agents 0 --no-lb \
+            --k3s-arg "--disable=traefik@server:0" --k3s-arg "--disable=servicelb@server:0" \
+            --wait --timeout 300s
+          kubectl get svc -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name} {.spec.type}{"\n"}{end}'
+          kubectl get nodes -o wide
+
+      - name: Install Flux (the v2.4.0 install.yaml cloud-init applies)
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/install.yaml" -o "$RUNNER_TEMP/flux-install.yaml"
+          sha256sum "$RUNNER_TEMP/flux-install.yaml"
+          kubectl apply -f "$RUNNER_TEMP/flux-install.yaml"
+          kubectl -n flux-system wait deploy --all --for=condition=Available --timeout=300s
+          kubectl -n flux-system get deploy -o jsonpath='{range .items[*]}{.metadata.name}{"  "}{.spec.template.spec.containers[0].image}{"\n"}{end}'
+          flux version
+
+      - name: Kustomize module inside the pinned controllers
+        run: |
+          set -euo pipefail
+          KC=$(kubectl -n flux-system get deploy kustomize-controller -o jsonpath='{.spec.template.spec.containers[0].image}')
+          echo "kustomize-controller image: $KC"
+          tag=${KC##*:}
+          curl -fsSL "https://raw.githubusercontent.com/fluxcd/kustomize-controller/${tag}/go.mod" | grep -E 'sigs.k8s.io/kustomize|fluxcd/pkg/kustomize' || true
+          curl -fsSL "https://raw.githubusercontent.com/fluxcd/flux2/v${FLUX_VERSION}/go.mod" | grep -E 'sigs.k8s.io/kustomize|fluxcd/pkg/kustomize' || true
+
+      - name: Run the experiment
+        env:
+          OUT_DIR: ${{ github.workspace }}/out
+          EXPECT_SHA: ${{ github.sha }}
+        run: bash tests/spikes/SVC-210/run.sh
+
+      - name: Diagnostics
+        if: always()
+        run: |
+          kubectl get kustomizations,gitrepositories,helmcharts -A || true
+          kubectl -n svc210 get helmreleases,configmaps || true
+          helm ls -A -a || true
+          kubectl -n flux-system get events --sort-by=.lastTimestamp | tail -60 || true
+
+      - name: Upload measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: svc210-cluster
+          path: out/
+
+  kit-render:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install flux CLI
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl -fsSLO "https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/flux_${FLUX_VERSION}_linux_amd64.tar.gz"
+          curl -fsSLO "https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/flux_${FLUX_VERSION}_checksums.txt"
+          grep " flux_${FLUX_VERSION}_linux_amd64.tar.gz\$" "flux_${FLUX_VERSION}_checksums.txt" | sha256sum -c -
+          tar -xzf "flux_${FLUX_VERSION}_linux_amd64.tar.gz" flux
+          sudo install -m 0755 flux /usr/local/bin/flux
+          flux version --client
+          yq --version
+
+      - name: Render the real kit with and without the patch
+        env:
+          OUT_DIR: ${{ github.workspace }}/out-render
+        run: bash tests/spikes/SVC-210/render-kit.sh
+
+      - name: Upload renders
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: svc210-kit-render
+          path: out-render/

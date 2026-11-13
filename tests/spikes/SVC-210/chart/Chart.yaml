@@ -1,0 +1,5 @@
+apiVersion: v2
+name: svc210-trivial
+description: Throwaway chart for lab test SVC-210. It renders one ConfigMap, so an install and an uninstall are visible.
+type: application
+version: 0.1.0

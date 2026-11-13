@@ -1,0 +1,13 @@
+# Lab test SVC-210 fixture: stands in for the kit's kustomization.yaml (lists every slot).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - labelled-configmap.yaml
+  - s1-ops-a.yaml
+  - s2-plain.yaml
+  - s3-ops-b.yaml
+  - s4-found.yaml
+  - s5-ops-c.yaml
+  - s6-obs.yaml

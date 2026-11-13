@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-payload
+  labels:
+    app.kubernetes.io/part-of: svc210
+    svc210.openova.io/payload: "true"
+data:
+  release: {{ .Release.Name | quote }}

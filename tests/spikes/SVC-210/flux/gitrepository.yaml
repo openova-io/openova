@@ -1,0 +1,16 @@
+# Source for lab test SVC-210: this branch of the platform repository, filtered
+# to the fixture directory (the same ignore idiom the Sovereign source uses).
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: svc210
+  namespace: flux-system
+spec:
+  interval: 1h
+  timeout: 15m
+  url: https://github.com/openova-io/openova
+  ref:
+    branch: spike/SVC-210
+  ignore: |
+    /*
+    !/tests/spikes/SVC-210

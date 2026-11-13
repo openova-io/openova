@@ -1,0 +1,12 @@
+# Not a HelmRelease, but it carries the operations ring label. The switch
+# targets kind HelmRelease only, so this object must survive every phase.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: svc210-ops-configmap
+  namespace: svc210
+  labels:
+    app.kubernetes.io/part-of: svc210
+    catalyst.openova.io/ring: operations
+data:
+  fqdn: ${SOVEREIGN_FQDN}
