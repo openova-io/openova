@@ -283,11 +283,50 @@ func TestClient_UnconfiguredAndUnreachable(t *testing.T) {
 	}
 	// A non-contract body is unavailable, not a partial price list.
 	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"currency":"OMR","packages":[]}`))
+		_, _ = w.Write([]byte(`{"currency":"OMR","packages":[{"sku":"plan.s","name":"S"}]}`))
 	}))
 	defer bad.Close()
 	if _, err := NewClient(bad.URL, nil).Get(ctx); !errors.Is(err, ErrUnavailable) {
-		t.Errorf("empty-packages body: want ErrUnavailable, got %v", err)
+		t.Errorf("package without a price: want ErrUnavailable, got %v", err)
+	}
+}
+
+// A price book that publishes no package — BSS answers 404, or the document
+// lists none — is ErrNoPackages, not an outage, and it is not cached: the
+// next Get asks again. A 500 stays ErrUnavailable.
+func TestClient_NoPackagesIsNotAnOutage(t *testing.T) {
+	if _, err := Parse([]byte(`{"currency":"OMR","packages":[]}`)); !errors.Is(err, ErrNoPackages) {
+		t.Errorf("Parse of an empty list: want ErrNoPackages, got %v", err)
+	}
+	for name, tc := range map[string]struct {
+		status int
+		body   string
+		want   error
+	}{
+		"404":        {http.StatusNotFound, "", ErrNoPackages},
+		"empty list": {http.StatusOK, `{"currency":"OMR","packages":[]}`, ErrNoPackages},
+		"500":        {http.StatusInternalServerError, "", ErrUnavailable},
+	} {
+		var hits int32
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			atomic.AddInt32(&hits, 1)
+			w.WriteHeader(tc.status)
+			_, _ = w.Write([]byte(tc.body))
+		}))
+		c := NewClient(srv.URL, nil)
+		for i := 0; i < 2; i++ {
+			_, err := c.Get(context.Background())
+			if !errors.Is(err, tc.want) {
+				t.Errorf("%s: want %v, got %v", name, tc.want, err)
+			}
+			if tc.want == ErrNoPackages && errors.Is(err, ErrUnavailable) {
+				t.Errorf("%s: ErrNoPackages must not be wrapped in ErrUnavailable: %v", name, err)
+			}
+		}
+		if got := atomic.LoadInt32(&hits); got != 2 {
+			t.Errorf("%s: two Gets made %d requests, want 2 (nothing is cached)", name, got)
+		}
+		srv.Close()
 	}
 }
 

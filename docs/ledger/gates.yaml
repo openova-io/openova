@@ -459,12 +459,13 @@ checks:
 - id: BSS-G02
   title: One price list
   owner: BSS
-  state: not-built
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: One price list
+  implementation: tests/acceptance/sovereign/internal/suite/check_bss_price_list.go
   delivered_by: BSS-030
 - id: BSS-G03
   title: Committed offer is served
