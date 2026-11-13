@@ -13,6 +13,7 @@ variables {
   catalyst_api_url      = jsondecode(file("../_contract/fixtures/single-region.tfvars.json")).catalyst_api_url
   default_storage_class = jsondecode(file("../_contract/fixtures/single-region.tfvars.json")).default_storage_class
   regions               = jsondecode(file("../_contract/fixtures/single-region.tfvars.json")).regions
+  variables             = jsondecode(file("../_contract/fixtures/single-region.tfvars.json")).variables
 }
 
 run "contract_single_region" {

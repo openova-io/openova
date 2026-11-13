@@ -1257,11 +1257,9 @@ locals {
       continuum_enabled        = length(var.regions) > 1 ? "true" : "false"
       marketplace_enabled      = var.marketplace_enabled
       qa_fixtures_enabled      = var.qa_fixtures_enabled
-      # SOV-131: HANDOVER_AUTO of the variables document → shared template's
-      # FIRE_CUTOVER_ON_HANDOVER substitute → slot-13
-      # catalystApi.fireCutoverOnHandover (ORed with qaFixtures.enabled by the
-      # chart, #4648).
-      fire_cutover_on_handover = var.variables["HANDOVER_AUTO"]
+      # SOV-133: the variables document (contract C5). The shared template
+      # sets the substitute FIRE_CUTOVER_ON_HANDOVER from its key HANDOVER_AUTO.
+      variables = var.variables
       # #4053 console-isolation toggle (Refs #4431 #4212). Threads into the
       # shared template's SOVEREIGN_CONSOLE_GATEWAY substitute → slot-13
       # ingress.gateway.parentRef.name. "true" → cilium-gateway-console

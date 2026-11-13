@@ -33,6 +33,51 @@ variable "golden_huawei" {
 }
 
 locals {
+  # SOV-133: the variables document (contract C5,
+  # docs/contracts/c5-upstream-variables.schema.json) that the provider modules
+  # pass as the template input `variables`: exactly the 39 contract keys.
+  fixture_variables = {
+    SOVEREIGN_MODE                     = "sovereign"
+    SOVEREIGN_CONSUME                  = "origin"
+    HANDOVER_AUTO                      = "false"
+    HANDOVER_HOLD_SECONDS              = "600"
+    REGISTRY_HOST                      = "registry.parent.example.test"
+    REGISTRY_SCHEME                    = "https"
+    LOCAL_REGISTRY_HOST                = "registry.render-test.example.test"
+    ORIGIN_REGISTRY_HOST               = "registry.parent.example.test"
+    ORIGIN_REGISTRY_SCHEME             = "https"
+    ORIGIN_REGISTRY_CA_B64             = ""
+    ORIGIN_PROXY_ENDPOINTS_JSON        = "{}"
+    REGISTRY_PULL_SECRET               = "ghcr-pull"
+    REGISTRY_PATH_CHARTS               = "openova-io"
+    REGISTRY_PATH_RELEASE              = "openova-io/release"
+    REGISTRY_PATH_PROVIDER_PACKS       = "openova-io/provider-packs"
+    REGISTRY_PATH_XPKG                 = "proxy-xpkg"
+    REGISTRY_PATH_TOFU_PROVIDERS       = "tofu-providers"
+    REGISTRY_PATH_NODE_ARTIFACTS       = "node-artifacts"
+    REGISTRY_PROXY_PROJECTS_JSON       = "{\"docker.io\":\"proxy-dockerhub\",\"gcr.io\":\"proxy-gcr\",\"ghcr.io\":\"proxy-ghcr\",\"public.ecr.aws\":\"proxy-ecr\",\"quay.io\":\"proxy-quay\",\"registry-1.docker.io\":\"proxy-dockerhub\",\"registry.k8s.io\":\"proxy-k8s\",\"xpkg.upbound.io\":\"proxy-xpkg\"}"
+    RELEASE_PUBLIC_KEY_B64             = ""
+    RELEASE_CHANNEL                    = "stable"
+    RELEASE_VERSION                    = ""
+    RELEASE_AUTO                       = "false"
+    RELEASE_SYNC_SCHEDULE              = "0 3 * * *"
+    ORIGIN_PARENT_FQDN                 = "parent.example.test"
+    ORIGIN_PARENT_API_URL              = "https://console.parent.example.test/sovereign"
+    DNS_MODE                           = "delegated"
+    DNS_UPSTREAM_API_URL               = ""
+    MAIL_MODE                          = "local"
+    MAIL_RELAY_HOST                    = ""
+    MAIL_RELAY_PORT                    = "587"
+    MAIL_FROM                          = ""
+    MAIL_RELAY_SECRET                  = ""
+    K3S_VERSION                        = "v1.31.4+k3s1"
+    K3S_UPGRADE_CONCURRENCY            = "1"
+    CLOUD_CREDENTIAL_MODE              = "supplied"
+    CLOUD_CREDENTIAL_ROTATION_SCHEDULE = "0 2 1 * *"
+    CLOUD_CREDENTIAL_ROTATION_NONCE    = ""
+    GITOPS_REPO_URL                    = "http://gitea-http.gitea.svc.cluster.local:3000/openova/provider-pack"
+  }
+
   # One render per fixture, so that one evaluation yields the golden hash of
   # both cloud branches (CLD-040). `rendered_raw` below stays the render of
   # the one fixture that the variable provider_name selects.
@@ -61,7 +106,7 @@ locals {
     gitops_branch                     = "main"
     marketplace_enabled               = "true"
     qa_fixtures_enabled               = "true"
-    fire_cutover_on_handover          = "true"
+    variables                         = local.fixture_variables
     console_isolation_enabled         = "true"
     wildcard_cert_issuer              = "wildcard-issuer"
     bcp_topology                      = "single-region"

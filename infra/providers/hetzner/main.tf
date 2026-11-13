@@ -924,11 +924,9 @@ locals {
     gitops_branch       = var.gitops_branch
     marketplace_enabled = var.marketplace_enabled
     qa_fixtures_enabled = var.qa_fixtures_enabled
-    # SOV-131: HANDOVER_AUTO of the variables document → shared template's
-    # FIRE_CUTOVER_ON_HANDOVER substitute → slot-13
-    # catalystApi.fireCutoverOnHandover (ORed with qaFixtures.enabled by the
-    # chart, #4648).
-    fire_cutover_on_handover = var.variables["HANDOVER_AUTO"]
+    # SOV-133: the variables document (contract C5). The shared template
+    # sets the substitute FIRE_CUTOVER_ON_HANDOVER from its key HANDOVER_AUTO.
+    variables = var.variables
     # #4053 console-isolation toggle (Refs #4431 #4212) → shared template's
     # SOVEREIGN_CONSOLE_GATEWAY substitute → slot-13 ingress.gateway.parentRef.name.
     console_isolation_enabled = var.console_isolation_enabled
@@ -1505,9 +1503,9 @@ locals {
       gitops_branch       = var.gitops_branch
       marketplace_enabled = var.marketplace_enabled
       qa_fixtures_enabled = var.qa_fixtures_enabled
-      # SOV-131: HANDOVER_AUTO of the variables document (secondary region)
-      # → shared template's FIRE_CUTOVER_ON_HANDOVER substitute.
-      fire_cutover_on_handover = var.variables["HANDOVER_AUTO"]
+      # SOV-133: the variables document (contract C5). The shared template
+      # sets the substitute FIRE_CUTOVER_ON_HANDOVER from its key HANDOVER_AUTO.
+      variables = var.variables
       # #4053 console-isolation toggle (Refs #4431 #4212) → shared template's
       # SOVEREIGN_CONSOLE_GATEWAY substitute → slot-13 ingress.gateway.parentRef.name.
       console_isolation_enabled = var.console_isolation_enabled
