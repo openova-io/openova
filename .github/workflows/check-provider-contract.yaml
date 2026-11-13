@@ -1,0 +1,37 @@
+# The provider contract check, gate check CLD-G03 (scripts/check-provider-contract.sh).
+# Every infra/providers/<pack>/profile.yaml and pack.yaml must be valid against the two
+# schemas of contract C2 in infra/providers/_contract/, hold no value of an installation,
+# and infra/providers/_contract/contract.json must keep its form. The self-test proves
+# that each rule can fail. No path filter, on purpose: a check that a path filter skips
+# never reports.
+name: check-provider-contract
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  self-test:
+    name: provider-contract self-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: products/catalyst/bootstrap/api/go.mod
+          cache-dependency-path: products/catalyst/bootstrap/api/go.sum
+      - run: bash scripts/check-provider-contract.sh --self-test
+  check:
+    name: provider-contract check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: products/catalyst/bootstrap/api/go.mod
+          cache-dependency-path: products/catalyst/bootstrap/api/go.sum
+      - run: bash scripts/check-provider-contract.sh

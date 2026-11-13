@@ -1,0 +1,1 @@
+products/catalyst/bootstrap/api/internal/providers/all/all.go

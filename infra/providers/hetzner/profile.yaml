@@ -1,0 +1,57 @@
+# Cloud profile of the Hetzner pack (contract C2). The schema is
+# infra/providers/_contract/cloudprofile.schema.json. Prices are display only.
+# The pack is unproven until epic CLD-180 proves it again (ADR-0024).
+apiVersion: catalyst.openova.io/v1alpha1
+kind: CloudProfile
+metadata:
+  name: hetzner
+spec:
+  displayName: Hetzner Cloud
+  lifecycle: unproven
+  contractVersion: "1"
+  credentials:
+    source: user
+    fields:
+      - {key: hcloud_token, label: API token, secret: true, required: true, pattern: "^.{64,}$"}
+      - {key: hcloud_project_id, label: Project, secret: false, required: false}
+      - {key: object_storage_access_key, label: Object Storage access key, secret: true, required: true}
+      - {key: object_storage_secret_key, label: Object Storage secret key, secret: true, required: true}
+      - {key: object_storage_region, label: Object Storage region, secret: false, required: true, pattern: "^(fsn1|nbg1|hel1)$"}
+  regions:
+    - {code: fsn1, label: FSN1, location: "Falkenstein, Germany", zones: [fsn1], defaultZone: fsn1}
+    - {code: nbg1, label: NBG1, location: "Nuremberg, Germany", zones: [nbg1], defaultZone: nbg1}
+    - {code: hel1, label: HEL1, location: "Helsinki, Finland", zones: [hel1], defaultZone: hel1}
+    - {code: ash, label: ASH, location: "Ashburn, USA", zones: [ash], defaultZone: ash}
+    - {code: hil, label: HIL, location: "Hillsboro, USA", zones: [hil], defaultZone: hil}
+  compute:
+    image: ubuntu-24.04
+    flavors:
+      - {name: cx23, vcpu: 2, memoryGiB: 4, roles: [control-plane, worker], regions: [], price: {amount: 3.99, currency: EUR, per: month}}
+      - {name: cx33, vcpu: 4, memoryGiB: 8, roles: [control-plane, worker], regions: [], price: {amount: 6.49, currency: EUR, per: month}}
+      - {name: cx43, vcpu: 8, memoryGiB: 16, roles: [control-plane, worker], regions: [], price: {amount: 11.99, currency: EUR, per: month}}
+      - {name: cx53, vcpu: 16, memoryGiB: 32, roles: [control-plane, worker], regions: [], price: {amount: 22.49, currency: EUR, per: month}}
+      - {name: cpx11, vcpu: 2, memoryGiB: 2, roles: [control-plane, worker], regions: [], price: {amount: 5.99, currency: EUR, per: month}}
+      - {name: cpx22, vcpu: 2, memoryGiB: 4, roles: [control-plane, worker], regions: [], price: {amount: 9.49, currency: EUR, per: month}}
+      - {name: cpx32, vcpu: 4, memoryGiB: 8, roles: [control-plane, worker], regions: [fsn1, nbg1, hel1], price: {amount: 16.49, currency: EUR, per: month}}
+      - {name: cpx42, vcpu: 8, memoryGiB: 16, roles: [control-plane, worker], regions: [], price: {amount: 25.49, currency: EUR, per: month}}
+      - {name: cpx52, vcpu: 12, memoryGiB: 24, roles: [control-plane, worker], regions: [], price: {amount: 36.49, currency: EUR, per: month}}
+      - {name: cpx62, vcpu: 16, memoryGiB: 32, roles: [control-plane, worker], regions: [], price: {amount: 50.49, currency: EUR, per: month}}
+      - {name: cax11, vcpu: 2, memoryGiB: 4, roles: [control-plane, worker], regions: [], price: {amount: 4.49, currency: EUR, per: month}}
+      - {name: cax21, vcpu: 4, memoryGiB: 8, roles: [control-plane, worker], regions: [], price: {amount: 7.99, currency: EUR, per: month}}
+      - {name: cax31, vcpu: 8, memoryGiB: 16, roles: [control-plane, worker], regions: [], price: {amount: 15.99, currency: EUR, per: month}}
+      - {name: cax41, vcpu: 16, memoryGiB: 32, roles: [control-plane, worker], regions: [], price: {amount: 31.49, currency: EUR, per: month}}
+      - {name: ccx13, vcpu: 2, memoryGiB: 8, roles: [control-plane, worker], regions: [], price: {amount: 15.99, currency: EUR, per: month}}
+      - {name: ccx23, vcpu: 4, memoryGiB: 16, roles: [control-plane, worker], regions: [], price: {amount: 31.49, currency: EUR, per: month}}
+      - {name: ccx33, vcpu: 8, memoryGiB: 32, roles: [control-plane, worker], regions: [], price: {amount: 62.49, currency: EUR, per: month}}
+      - {name: ccx43, vcpu: 16, memoryGiB: 64, roles: [control-plane, worker], regions: [], price: {amount: 124.99, currency: EUR, per: month}}
+      - {name: ccx53, vcpu: 32, memoryGiB: 128, roles: [control-plane, worker], regions: [], price: {amount: 249.99, currency: EUR, per: month}}
+      - {name: ccx63, vcpu: 48, memoryGiB: 192, roles: [control-plane, worker], regions: [], price: {amount: 374.49, currency: EUR, per: month}}
+    defaults: {controlPlaneFlavor: cpx22, workerFlavor: cpx32}
+    minWorkerCount: 0
+  storage: {defaultClass: hcloud-volumes, driver: csi.hetzner.cloud}
+  objectStorage: {checksumAlgorithm: CRC32}
+  network:
+    loadBalancer: {mode: controller}
+  bootstrap: {userDataLimitBytes: 32768}
+  capabilities: {multiRegion: false, multiCloudRegion: true}
+  day2: {contracts: []}
