@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T14:45:05Z` |
+| Last refreshed | `2026-11-13T15:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7143](https://github.com/openova-io/openova/issues/7143) | CTL-010 Guard: no new direct cluster write | Other |
-| [#7144](https://github.com/openova-io/openova/issues/7144) | CTL-044 Publish contracts C3 and C4 | Other |
 | [#7145](https://github.com/openova-io/openova/issues/7145) | FND-023 Ticket template, linter and the executor rules in PROTOCOL.md | Other |
 | [#7146](https://github.com/openova-io/openova/issues/7146) | FND-054 Console lint ratchet; the switched-off suite is deleted | Other |
 | [#7147](https://github.com/openova-io/openova/issues/7147) | FND-097 Remove the unshipped console, the one job that drives it and the tests t | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#7450](https://github.com/openova-io/openova/issues/7450) | SEC-040 Bootstrap secret hygiene on the node and reflector scope | Other |
 | [#7451](https://github.com/openova-io/openova/issues/7451) | SOV-131 Provider modules take the variables map of the upstream contract | Other |
 | [#7454](https://github.com/openova-io/openova/issues/7454) | FND-018 The release writer leaves main in step: no pin goes backwards, and the u | Other |
+| [#7461](https://github.com/openova-io/openova/issues/7461) | CLD-141 Protect provider releases from pruning before they move | Other |
+| [#7462](https://github.com/openova-io/openova/issues/7462) | CTL-045 Publish contract C9 and its tool | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T14:51 | [#7460](https://github.com/openova-io/openova/pull/7460) | #7087 | docs(ledger): plan update |
 | 2026-11-13T14:24 | [#7458](https://github.com/openova-io/openova/pull/7458) | #7454 | ci: the release writer never moves a version back, and the u |
 | 2026-11-13T14:26 | [#7456](https://github.com/openova-io/openova/pull/7456) | #7437 | refactor: delete the ProvisioningState kind and its unwired  |
 | 2026-11-13T14:26 | [#7455](https://github.com/openova-io/openova/pull/7455) | #7449 | refactor(kit): neutral storage gate storage-ready replaces t |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-13T11:25 | [#7411](https://github.com/openova-io/openova/pull/7411) | #7087 | docs(ledger): result of the lab test CMP-S3 (CMP-S3) |
 | 2026-11-13T11:25 | [#7410](https://github.com/openova-io/openova/pull/7410) | #7087 | docs(ledger): result of the lab test AIP-020 (AIP-020) |
 | 2026-11-13T11:25 | [#7409](https://github.com/openova-io/openova/pull/7409) | #7087 | docs(ledger): result of the lab test AIP-010 (AIP-010) |
-| 2026-11-13T11:26 | [#7408](https://github.com/openova-io/openova/pull/7408) | #7087 | docs(ledger): result of the lab test ACC-020 (ACC-020) |
 
 ---
 
