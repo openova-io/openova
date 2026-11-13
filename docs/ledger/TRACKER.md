@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T15:00:05Z` |
+| Last refreshed | `2026-11-13T15:15:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T15:03 | [#7463](https://github.com/openova-io/openova/pull/7463) | #7462 | feat(contracts): publish contract C9, the mutating-route tab |
 | 2026-11-13T14:51 | [#7460](https://github.com/openova-io/openova/pull/7460) | #7087 | docs(ledger): plan update |
 | 2026-11-13T14:24 | [#7458](https://github.com/openova-io/openova/pull/7458) | #7454 | ci: the release writer never moves a version back, and the u |
 | 2026-11-13T14:26 | [#7456](https://github.com/openova-io/openova/pull/7456) | #7437 | refactor: delete the ProvisioningState kind and its unwired  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-13T11:24 | [#7412](https://github.com/openova-io/openova/pull/7412) | #7087 | docs(ledger): result of the lab test CMP-S4 (CMP-S4) |
 | 2026-11-13T11:25 | [#7411](https://github.com/openova-io/openova/pull/7411) | #7087 | docs(ledger): result of the lab test CMP-S3 (CMP-S3) |
 | 2026-11-13T11:25 | [#7410](https://github.com/openova-io/openova/pull/7410) | #7087 | docs(ledger): result of the lab test AIP-020 (AIP-020) |
-| 2026-11-13T11:25 | [#7409](https://github.com/openova-io/openova/pull/7409) | #7087 | docs(ledger): result of the lab test AIP-010 (AIP-010) |
 
 ---
 
