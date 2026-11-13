@@ -1,8 +1,8 @@
 // Command consumer is the probe of SEC-280 step 5. It holds a database/sql
-// pool whose connector asks OpenBao for dynamic database credentials, in the
-// shape of the design's baocreds package: log in with the projected service
-// account token, fetch new credentials at half the lease, and hand out only
-// credentials that stay valid for at least one more minute. The pool settings
+// pool whose connector asks OpenBao for dynamic database credentials: log in
+// with the projected service account token, fetch new credentials at half the
+// lease, and hand out only credentials that stay valid for at least one more
+// minute. The pool settings
 // are those of the chargeback store (16 open, 4 idle, 30 minute lifetime).
 // It writes one JSON line every 10 seconds.
 package main

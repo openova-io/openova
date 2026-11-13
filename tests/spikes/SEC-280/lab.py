@@ -38,7 +38,7 @@ RW = {"a": "pg-a-rw.acme-a.svc", "b": "pg-b-rw.acme-b.svc"}
 DBADMIN_PW = secrets.token_hex(16)
 CTL_PW = secrets.token_hex(16)
 
-# The statements of design section 4.10, verbatim except for the group name.
+# The creation and revocation statements under test.
 CREATE = ('CREATE ROLE "{{name}}" WITH LOGIN PASSWORD \'{{password}}\' '
           'VALID UNTIL \'{{expiration}}\' IN ROLE "GROUP";')
 REVOKE = ('REASSIGN OWNED BY "{{name}}" TO "appdb_rw"; DROP OWNED BY "{{name}}"; '
@@ -301,11 +301,12 @@ def bao_setup_engine(r, k8s_auth_ns=None):
                  "token_ttl=15m"))
 
 
-def bao_config(r):
+def bao_config(r, extra=None):
     cfg = {"plugin_name": "postgresql-database-plugin",
            "connection_url": "postgresql://{{username}}:{{password}}@" + RW[r] + ":5432/postgres?sslmode=require",
            "username": "openbao_dbadmin", "password": DBADMIN_PW,
            "allowed_roles": "acme.*", "password_authentication": "scram-sha-256"}
+    cfg.update(extra or {})
     return baor(r, "write", "db/config/acme.pg", "-", data=json.dumps(cfg))
 
 
@@ -552,7 +553,7 @@ def s0_facts(ctx):
     rec("S0", "memberships of openbao_dbadmin from managed.roles", mem_of(members("a"), member="openbao_dbadmin"))
     rec("S0", "openbao_dbadmin reads data in appdb (select count(*) from t)",
         login(RW["a"], "openbao_dbadmin", DBADMIN_PW, "select count(*) from t"))
-    rec("S0", "db/config as in 4.10 on region A (verify_connection default)", bao_config("a"))
+    rec("S0", "db/config under test on region A (verify_connection default)", bao_config("a"))
     for name, group, ttl, mx, extra, rv in (
             ("acme.app.appdb.rw", "appdb_rw", "1h", "24h", "", REVOKE),
             ("acme.app.appdb.ro", "appdb_ro", "1h", "24h", "", REVOKE),
@@ -586,7 +587,7 @@ def s2_v1(ctx):
     u0, msg = issue("a", "acme.app.appdb.rw")
     rec("S2-V1", "issue u0", msg)
     if u0:
-        rec("S2-V1", "revoke u0 at once, statements of 4.10 (sync)", revoke("a", u0["lease"]))
+        rec("S2-V1", "revoke u0 at once, statements under test (sync)", revoke("a", u0["lease"]))
         rec("S2-V1", "u0 still in pg_roles after revoke", str(u0["user"] in roles("a")))
         rec("S2-V1", "u0 lease after revoke", lease_state("a", u0["lease"]))
         ctx["u0"] = u0
@@ -944,10 +945,10 @@ def s6(ctx):
                                                     if lease.split("/")[-1] in l][-4:])
 
 
-def switch(frm, to):
+def switch(frm, to, sn="S1", probe_user=None):
     sessions = su(to, "select usename, count(*) from pg_stat_activity where backend_type='client backend' "
                       "and pid <> pg_backend_pid() group by 1 order by 1", db="postgres")[1].strip()
-    rec("S1", f"client sessions on pg-{to} (standby) before the switch", sessions.replace("\n", "; ") or "none")
+    rec(sn, f"client sessions on pg-{to} (standby) before the switch", sessions.replace("\n", "; ") or "none")
     t0 = time.time()
     stop, samples = threading.Event(), []
 
@@ -959,6 +960,18 @@ def switch(frm, to):
             stop.wait(8)
     th = threading.Thread(target=probe, daemon=True)
     th.start()
+    conn_samples = []
+
+    def conn_probe():
+        while not stop.is_set():
+            out = login(RW[to], probe_user["user"], probe_user["pw"], "select pg_is_in_recovery()")
+            state = {"ok: f": "writable", "ok: t": "read-only"}.get(out, "refused")
+            conn_samples.append((round(time.time() - t0), "c", state, "" if state != "refused" else out[-90:]))
+            stop.wait(3)
+    th2 = None
+    if probe_user:
+        th2 = threading.Thread(target=conn_probe, daemon=True)
+        th2.start()
     rc, out, err = patch("cluster.postgresql.cnpg.io", f"pg-{frm}", f"acme-{frm}",
                          {"spec": {"replica": {"primary": f"pg-{to}", "promotionToken": None}}})
     log(f"demote pg-{frm}: {res(rc, out, err)}")
@@ -983,10 +996,21 @@ def switch(frm, to):
     time.sleep(16)
     stop.set()
     th.join(timeout=120)
-    rec("S1", f"issuance probe during {frm}->{to}, region A", transitions(samples, "a"))
-    rec("S1", f"issuance probe during {frm}->{to}, region B", transitions(samples, "b"))
-    rec("S1", f"pg-{to} instance log during promotion", instance_log(to)[-14:])
-    rec("S1", f"pg-{frm} instance log during demotion", instance_log(frm)[-10:])
+    rec(sn, f"issuance probe during {frm}->{to}, region A", transitions(samples, "a"))
+    rec(sn, f"issuance probe during {frm}->{to}, region B", transitions(samples, "b"))
+    if th2:
+        th2.join(timeout=120)
+        states = []
+        for t, _, st, msg in conn_samples:
+            if not states or states[-1][1] != st:
+                states.append((t, st, msg))
+        rec(sn, f"new connections to pg-{to}-rw during {frm}->{to}",
+            [f"{st} from {t}s" + (f" ({m})" if m else "") for t, st, m in states])
+    lines = instance_log(to)
+    rec(sn, f"pg-{to} instance log: smart/fast shutdown and restart lines",
+        [l for l in lines if any(k in l.lower() for k in ("smart", "fast shutdown", "restart"))][:8])
+    rec(sn, f"pg-{to} instance log during promotion", lines[-14:])
+    rec(sn, f"pg-{frm} instance log during demotion", instance_log(frm)[-10:])
     return f"demotion token {ok1} at {t_dem}s, new primary writable {ok2} at {t_prom}s, old primary streaming {ok3} at {t_stream}s"
 
 
@@ -1008,7 +1032,7 @@ def s1(ctx):
 
     ush, msg = issue("a", "acme.app.appdb.short")
     rec("S1", "short user (ttl 90s) issued by A just before the switch", msg)
-    rec("S1", "switchover A -> B", switch("a", "b"))
+    rec("S1", "switchover A -> B", switch("a", "b", probe_user=u5))
     rec("S1", "after switch: A in recovery / B in recovery", f"{in_recovery('a')} / {in_recovery('b')}")
     if u5:
         rec("S1", "u5 (issued by A) writes on B", login(RW["b"], u5["user"], u5["pw"],
@@ -1042,7 +1066,7 @@ def s1(ctx):
         u3 = ctx["u3"]
         rec("S1", "u3 (A, before switch) login on B", login(RW["b"], u3["user"], u3["pw"]))
 
-    rec("S1", "switchback B -> A", switch("b", "a"))
+    rec("S1", "switchback B -> A", switch("b", "a", probe_user=u5))
     rec("S1", "after switchback: A in recovery / B in recovery", f"{in_recovery('a')} / {in_recovery('b')}")
     if u5:
         rec("S1", "revoke u5 via A after switchback (sync)", revoke("a", u5["lease"]))
@@ -1102,10 +1126,56 @@ def s2_v3(ctx):
         rec("S2-V3", "revoke u9 (sync)", revoke("a", u9["lease"]))
         rec("S2-V3", "u9 still in pg_roles", str(u9["user"] in roles("a")))
     u8, msg = issue("a", "acme.app.appdb.rw")
-    rec("S2-V3", "issue u8 with the 4.10 statements", msg)
+    rec("S2-V3", "issue u8 with the statements under test", msg)
     if u8:
-        rec("S2-V3", "revoke u8 with the 4.10 statements (REASSIGN TO appdb_rw)", revoke("a", u8["lease"]))
+        rec("S2-V3", "revoke u8 with the statements under test (REASSIGN TO appdb_rw)", revoke("a", u8["lease"]))
         rec("S2-V3", "u8 still in pg_roles", str(u8["user"] in roles("a")))
+
+
+@step("R")
+def remedies(ctx):
+    """The switch window: a same-run baseline against two remedies."""
+    rec("R", "region A db/config", bao_config("a"))
+    rec("R", "region A role", bao_dyn_role("a", "acme.app.appdb.rw"))
+    rec("R", "out-of-band admin option on group roles", res(*su(
+        "a", "grant appdb_rw, appdb_ro to openbao_dbadmin with admin option")))
+    up, msg = issue("a", "acme.app.appdb.rw")
+    rec("R", "probe user (issued by A, replicated to B)", msg)
+    rec("R", "region B db/config", bao_config("b"))
+    rec("R", "region B role", bao_dyn_role("b", "acme.app.appdb.rw"))
+    _, msg = issue("b", "acme.app.appdb.rw")
+    rec("R", "issue from B while standby (opens OpenBao B's connection)", msg)
+    rec("R", "smartShutdownTimeout of both clusters (default)", " / ".join(
+        kc("get", "cluster.postgresql.cnpg.io", f"pg-{r}", "-n", f"acme-{r}", "-o",
+           "jsonpath={.spec.smartShutdownTimeout}")[1] or "unset" for r in ("a", "b")))
+    rec("R", "baseline: switch A -> B, defaults", switch("a", "b", sn="R-base", probe_user=up))
+
+    for r in ("a", "b"):
+        rec("R", f"region {r} db/config with max_connection_lifetime=5s",
+            bao_config(r, {"max_connection_lifetime": "5s"}))
+    _, msg = issue("a", "acme.app.appdb.rw")
+    rec("R", "issue from A while standby (connection then idles out)", msg)
+    time.sleep(30)
+    rec("R", "remedy 1: switch B -> A, OpenBao connection lifetime 5s",
+        switch("b", "a", sn="R-lifetime", probe_user=up))
+
+    for r in ("a", "b"):
+        rec("R", f"region {r} db/config back to default lifetime", bao_config(r, {"max_connection_lifetime": "0s"}))
+    _, msg = issue("b", "acme.app.appdb.rw")
+    rec("R", "issue from B while standby (opens OpenBao B's connection)", msg)
+    for r in ("a", "b"):
+        rc, out, err = patch("cluster.postgresql.cnpg.io", f"pg-{r}", f"acme-{r}", {"spec": {"smartShutdownTimeout": 15}})
+        rec("R", f"pg-{r} smartShutdownTimeout=15", res(rc, out, err))
+    time.sleep(30)
+    for r in ("a", "b"):
+        rec("R", f"pg-{r} healthy after the change, seconds", str(wait_cluster(f"acme-{r}", f"pg-{r}")))
+    rec("R", "remedy 2: switch A -> B, smartShutdownTimeout 15s",
+        switch("a", "b", sn="R-smart15", probe_user=up))
+
+
+def switchfix():
+    setup_pair()
+    remedies({})
 
 
 def steps1to4():
@@ -1287,6 +1357,8 @@ if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
     if mode == "steps1to4":
         steps1to4()
+    elif mode == "switchfix":
+        switchfix()
     elif mode == "step5":
         step5()
     elif mode == "diag":

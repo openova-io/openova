@@ -12,8 +12,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: spike-sec-280
-  cancel-in-progress: true
+  group: spike-sec-280-${{ github.sha }}
+  cancel-in-progress: false
 
 env:
   KIND_VERSION: v0.30.0
@@ -47,6 +47,30 @@ jobs:
         if: always()
         with:
           name: sec-280-steps-1-to-4
+          path: out/
+
+  switch-window:
+    name: step 1 follow-up (switch window, baseline and two remedies)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install kind
+        run: |
+          curl -fsSLo /tmp/kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          sudo install -m 0755 /tmp/kind /usr/local/bin/kind
+          kind version; kubectl version --client; helm version --short
+      - name: Create kind cluster
+        run: kind create cluster --name lab --wait 180s
+      - name: Run the switch-window measurements
+        run: python3 -u tests/spikes/SEC-280/lab.py switchfix
+      - name: Diagnostics
+        if: always()
+        run: python3 -u tests/spikes/SEC-280/lab.py diag || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sec-280-switch-window
           path: out/
 
   step-5:
