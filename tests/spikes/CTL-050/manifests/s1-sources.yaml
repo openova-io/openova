@@ -1,0 +1,53 @@
+# Four sources on the same repository, each with a one-hour interval, so a new
+# revision inside the measurement window can only come from the Receiver.
+# Three are selected by the Receiver (by name, by each of the two labels);
+# the fourth carries a label the Receiver does not select.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: sovereign-region
+  namespace: flux-system
+spec:
+  interval: 1h
+  url: http://gitea-http.gitea.svc.cluster.local:3000/openova/sovereign-regions.git
+  ref:
+    branch: main
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: s1-per-org
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/component: per-org-vcluster-source
+spec:
+  interval: 1h
+  url: http://gitea-http.gitea.svc.cluster.local:3000/openova/sovereign-regions.git
+  ref:
+    branch: main
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: s1-catalog
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/component: catalog-sovereign-source
+spec:
+  interval: 1h
+  url: http://gitea-http.gitea.svc.cluster.local:3000/openova/sovereign-regions.git
+  ref:
+    branch: main
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: s1-unselected
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/component: some-other-source
+spec:
+  interval: 1h
+  url: http://gitea-http.gitea.svc.cluster.local:3000/openova/sovereign-regions.git
+  ref:
+    branch: main

@@ -1,0 +1,72 @@
+# The planned intent lock, unchanged: a request on a listed kind passes when it
+# comes from a Flux writer, is a garbage-collection delete, leaves spec
+# untouched, or is break-glass.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: catalyst-intent-lock
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps.openova.io"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["applications"]
+      - apiGroups: ["orgs.openova.io"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["organizations"]
+      - apiGroups: ["access.openova.io"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["useraccesses"]
+      - apiGroups: ["catalyst.openova.io"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["environments", "environmentpolicies", "blueprints"]
+      - apiGroups: ["dr.openova.io"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["continuums", "cnpgpairs"]
+      - apiGroups: ["source.toolkit.fluxcd.io", "kustomize.toolkit.fluxcd.io", "helm.toolkit.fluxcd.io"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["gitrepositories", "helmrepositories", "ocirepositories", "kustomizations", "helmreleases"]
+  variables:
+    - name: user
+      expression: "request.userInfo.username"
+    - name: target
+      expression: "request.operation == 'DELETE' ? oldObject : object"
+    - name: isWriter
+      expression: >-
+        variables.user in [
+          'system:serviceaccount:flux-system:kustomize-controller',
+          'system:serviceaccount:flux-system:helm-controller'
+        ] || variables.user.startsWith('system:serviceaccount:flux-system:org-intent-')
+    - name: isCollector
+      expression: >-
+        request.operation == 'DELETE' && variables.user in [
+          'system:serviceaccount:kube-system:generic-garbage-collector',
+          'system:serviceaccount:kube-system:namespace-controller',
+          'system:kube-controller-manager'
+        ]
+    - name: specUnchanged
+      expression: >-
+        request.operation == 'UPDATE' &&
+        has(object.spec) == has(oldObject.spec) &&
+        (!has(object.spec) || object.spec == oldObject.spec)
+    - name: isBreakGlass
+      expression: >-
+        request.userInfo.groups.exists(g, g == 'catalyst:break-glass') &&
+        has(variables.target.metadata.annotations) &&
+        'catalyst.openova.io/break-glass-reason' in variables.target.metadata.annotations &&
+        variables.target.metadata.annotations['catalyst.openova.io/break-glass-reason'].size() >= 10
+  validations:
+    - expression: "variables.isWriter || variables.isCollector || variables.specUnchanged || variables.isBreakGlass"
+      messageExpression: >-
+        'desired state of ' + request.kind.kind + ' is owned by Git; commit the change through the Catalyst API (user ' + variables.user + ')'
+      reason: Forbidden
+  auditAnnotations:
+    - key: break-glass
+      valueExpression: "variables.isBreakGlass && !variables.isWriter ? variables.user + ': ' + variables.target.metadata.annotations['catalyst.openova.io/break-glass-reason'] : null"

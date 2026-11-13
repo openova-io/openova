@@ -1,0 +1,26 @@
+# The planned push-trigger Receiver: one per region, type github, push only,
+# selecting the fleet source by name and two source families by label.
+apiVersion: notification.toolkit.fluxcd.io/v1
+kind: Receiver
+metadata:
+  name: sovereign-gitea
+  namespace: flux-system
+spec:
+  type: github
+  events: ["push"]
+  secretRef:
+    name: gitea-webhook-token
+  resources:
+    - apiVersion: source.toolkit.fluxcd.io/v1
+      kind: GitRepository
+      name: sovereign-region
+    - apiVersion: source.toolkit.fluxcd.io/v1
+      kind: GitRepository
+      name: "*"
+      matchLabels:
+        catalyst.openova.io/component: per-org-vcluster-source
+    - apiVersion: source.toolkit.fluxcd.io/v1
+      kind: GitRepository
+      name: "*"
+      matchLabels:
+        catalyst.openova.io/component: catalog-sovereign-source

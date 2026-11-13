@@ -1,0 +1,10 @@
+# Record every request on Applications at Metadata level, so the user of
+# each delete and the policy's audit annotations can be read back.
+apiVersion: audit.k8s.io/v1
+kind: Policy
+omitStages: ["RequestReceived"]
+rules:
+  - level: Metadata
+    resources:
+      - group: apps.openova.io
+  - level: None

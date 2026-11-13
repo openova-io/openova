@@ -1,0 +1,63 @@
+# A controller account (status, finalizers, spec) and the break-glass grants.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: catalyst-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: application-controller
+  namespace: catalyst-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: spike-application-controller
+rules:
+  - apiGroups: ["apps.openova.io"]
+    resources: ["applications"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["apps.openova.io"]
+    resources: ["applications/status"]
+    verbs: ["get", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: spike-application-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: spike-application-controller
+subjects:
+  - kind: ServiceAccount
+    name: application-controller
+    namespace: catalyst-system
+---
+# RBAC lets both the break-glass group and the plain user "alice" write
+# Applications, so any refusal seen in the test comes from the lock.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: spike-break-glass
+rules:
+  - apiGroups: ["apps.openova.io"]
+    resources: ["applications"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: spike-break-glass
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: spike-break-glass
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: catalyst:break-glass
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: alice

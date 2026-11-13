@@ -1,0 +1,86 @@
+# Organization intent: an impersonated account org-intent-acme in flux-system
+# holding the planned Role in namespace acme. A control account tenant-beta
+# (name outside the writer prefix) holds the same Role in namespace beta.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: acme
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: beta
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: org-intent-acme
+  namespace: flux-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tenant-beta
+  namespace: flux-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: org-intent
+  namespace: acme
+rules:
+  - apiGroups: ["apps.openova.io"]
+    resources: ["applications"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["org-intent-root"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: org-intent
+  namespace: acme
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: org-intent
+subjects:
+  - kind: ServiceAccount
+    name: org-intent-acme
+    namespace: flux-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: org-intent
+  namespace: beta
+rules:
+  - apiGroups: ["apps.openova.io"]
+    resources: ["applications"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["org-intent-root"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: org-intent
+  namespace: beta
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: org-intent
+subjects:
+  - kind: ServiceAccount
+    name: tenant-beta
+    namespace: flux-system

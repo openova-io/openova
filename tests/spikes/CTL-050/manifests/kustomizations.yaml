@@ -1,0 +1,23 @@
+# Sources and Kustomizations used by the lock test (writer identities) and
+# the adoption test. fleet-src is not selected by the Receiver.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: fleet-src
+  namespace: flux-system
+spec:
+  interval: 1m
+  url: http://gitea-http.gitea.svc.cluster.local:3000/openova/sovereign-regions.git
+  ref:
+    branch: main
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: catalyst-tenant-acme
+  namespace: flux-system
+spec:
+  interval: 1m
+  url: http://gitea-http.gitea.svc.cluster.local:3000/acme/catalyst-tenant.git
+  ref:
+    branch: main

@@ -1,0 +1,85 @@
+# Lab test CTL-050 (spike branch only, never merged).
+# Measures, on a throwaway single-node k3s inside this job and on the versions
+# the platform pins, whether: a Flux Receiver of type github is triggered by a
+# Gitea instance-wide webhook (S1); Gitea's batch contents call is
+# all-or-nothing (S2); the planned intent-lock admission policy behaves as
+# intended (S3); Flux adopts an existing object without changing it (S4); and
+# records what creates Environment objects in the repository (S6).
+name: spike-ctl-050
+
+on:
+  push:
+    branches: [spike/CTL-050]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spike-ctl-050
+  cancel-in-progress: false
+
+jobs:
+  measure:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    env:
+      K3S_VERSION: v1.31.4+k3s1
+      FLUX_VERSION: v2.4.0
+      GITEA_CHART_VERSION: 10.5.0
+      SPIKE: tests/spikes/CTL-050/run.sh
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cluster (k3s ${{ env.K3S_VERSION }})
+        timeout-minutes: 8
+        run: bash "$SPIKE" cluster
+
+      - name: Flux ${{ env.FLUX_VERSION }} and the platform CRDs
+        timeout-minutes: 8
+        run: bash "$SPIKE" flux
+
+      - name: Gitea (chart ${{ env.GITEA_CHART_VERSION }}) and seed repositories
+        timeout-minutes: 12
+        run: bash "$SPIKE" gitea
+
+      - name: S1 Receiver and instance-wide webhook
+        if: always()
+        timeout-minutes: 8
+        run: bash "$SPIKE" s1
+
+      - name: S2 batch contents call
+        if: always()
+        timeout-minutes: 4
+        run: bash "$SPIKE" s2
+
+      - name: S3 intent lock, audit stage
+        if: always()
+        timeout-minutes: 4
+        run: bash "$SPIKE" s3a
+
+      - name: S4 adoption by a byte-equal file
+        if: always()
+        timeout-minutes: 10
+        run: bash "$SPIKE" s4
+
+      - name: S3 intent lock, deny stage
+        if: always()
+        timeout-minutes: 15
+        run: bash "$SPIKE" s3b
+
+      - name: S6 what creates Environment objects
+        if: always()
+        timeout-minutes: 2
+        run: bash "$SPIKE" s6
+
+      - name: Results
+        if: always()
+        run: bash "$SPIKE" results
+
+      - name: Evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ctl-050-evidence
+          path: .spike/out/
+          if-no-files-found: warn

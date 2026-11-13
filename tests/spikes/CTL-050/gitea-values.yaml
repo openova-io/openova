@@ -1,0 +1,31 @@
+# Single-pod Gitea from the upstream chart pinned by the platform (10.5.0):
+# sqlite, in-memory session and cache, no external database or cache.
+# Only the webhook allow-list is set the way the platform plans to set it.
+redis-cluster:
+  enabled: false
+redis:
+  enabled: false
+postgresql:
+  enabled: false
+postgresql-ha:
+  enabled: false
+persistence:
+  enabled: false
+gitea:
+  admin:
+    username: gitea_admin
+    email: gitea-admin@spike.invalid
+  config:
+    server:
+      DOMAIN: gitea-http.gitea.svc.cluster.local
+      ROOT_URL: http://gitea-http.gitea.svc.cluster.local:3000/
+    database:
+      DB_TYPE: sqlite3
+    session:
+      PROVIDER: memory
+    cache:
+      ADAPTER: memory
+    queue:
+      TYPE: level
+    webhook:
+      ALLOWED_HOST_LIST: webhook-receiver.flux-system.svc.cluster.local
