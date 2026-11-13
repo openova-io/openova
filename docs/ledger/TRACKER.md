@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T11:45:02Z` |
+| Last refreshed | `2026-11-13T12:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,11 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6859](https://github.com/openova-io/openova/issues/6859) | scope_token is unsettable, so the #6855 project-scoping fix is inert — every s | Other |
-| [#6861](https://github.com/openova-io/openova/issues/6861) | Every Blueprint PR races the deploy-bot for the umbrella chart version — auto- | Other |
-| [#6867](https://github.com/openova-io/openova/issues/6867) | chargeback: bring cost analysis to cloud-provider level — overview renders zer | Other |
-| [#6870](https://github.com/openova-io/openova/issues/6870) | Sovereign console sign-out redirects the browser to keycloak.keycloak.svc.cluste | Other |
-| [#6874](https://github.com/openova-io/openova/issues/6874) | shared-pg DR failback: the divergence re-clone never re-renders (helm in-sync),  | Other |
 | [#6963](https://github.com/openova-io/openova/issues/6963) | BSS contracts and plans: the gaps from the founder's training walk (row-level li | Other |
 | [#6971](https://github.com/openova-io/openova/issues/6971) | BSS packages and the entitlement matrix: Included / Optional / Not offered per p | Other |
 | [#7067](https://github.com/openova-io/openova/issues/7067) | ADR-0015: region-symmetric GitOps + one topology contract + native topology tran | Other |
@@ -300,6 +295,11 @@ flowchart LR
 | [#7394](https://github.com/openova-io/openova/issues/7394) | FND-011 CI bumps chart versions; pull requests may not | Other |
 | [#7395](https://github.com/openova-io/openova/issues/7395) | SOV-140 Substrate window, part 2: revocable bootstrap access, peer tokens, node  | Other |
 | [#7396](https://github.com/openova-io/openova/issues/7396) | SOV-150 Kit sources become substitutions, with a render-equivalence test | Other |
+| [#7419](https://github.com/openova-io/openova/issues/7419) | CTL-035 Route registration leaves main() | Other |
+| [#7420](https://github.com/openova-io/openova/issues/7420) | FND-095 Remove the Sandbox orchestrator, grants and cutover entries | Other |
+| [#7421](https://github.com/openova-io/openova/issues/7421) | FND-099 Remove two custom resources that nothing reads | Other |
+| [#7422](https://github.com/openova-io/openova/issues/7422) | SEC-080 External Secrets quick scope | Other |
+| [#7423](https://github.com/openova-io/openova/issues/7423) | SOV-160 Registry projects, the Organization Git token and the two repositories a | Other |
 
 ---
 
