@@ -1,0 +1,11 @@
+# oapi-codegen settings for ../profiles/rw-4.0.0/account-info-openapi.yaml. Run by go generate from generate.go.
+package: accountinfo
+output: ../internal/gen/accountinfo/accountinfo.gen.go
+generate:
+  models: true
+  std-http-server: true
+  strict-server: true
+output-options:
+  resolve-type-name-collisions: true
+  overlay:
+    path: oapi/accountinfo-overlay.yaml

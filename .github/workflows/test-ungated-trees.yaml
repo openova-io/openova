@@ -113,6 +113,8 @@ jobs:
         module:
           # The open-banking specification kit (PRD-101).
           - products/fingate
+          # The generator of the open-banking product (PRD-102).
+          - products/fingate/tools
           # core/pool-domain-manager is deliberately NOT in this list — it
           # has its own `pool-domain-manager` job below with a Postgres
           # service container (#5741 follow-up).

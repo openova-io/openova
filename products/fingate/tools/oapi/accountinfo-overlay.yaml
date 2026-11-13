@@ -1,0 +1,15 @@
+# The document names two pairs of schemas that differ only by an underscore: OBRate1_0 and
+# OB_Rate1_0, OBRate1_1 and OB_Rate1_1. Go names drop the underscore, so the generator would
+# give both of a pair the same name. This overlay keeps the document unchanged and gives the
+# two underscore schemas their own name, as written in the document.
+overlay: 1.0.0
+info:
+  title: Go names for account-info-openapi.yaml
+  version: 1.0.0
+actions:
+  - target: $.components.schemas.OB_Rate1_0
+    update:
+      x-go-name: OB_Rate1_0
+  - target: $.components.schemas.OB_Rate1_1
+    update:
+      x-go-name: OB_Rate1_1
