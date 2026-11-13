@@ -77,3 +77,5 @@ products/catalyst/bootstrap/api/internal/handler/infrastructure_crud_breadth_tes
 products/catalyst/bootstrap/api/internal/handler/infrastructure_crud_test.go
 products/catalyst/bootstrap/api/internal/infrastructure/xrc.go
 products/catalyst/bootstrap/api/internal/jobs/mutation_bridge.go
+products/catalyst/chart/crds/runbook.yaml
+products/catalyst/chart/crds/secretpolicy.yaml
