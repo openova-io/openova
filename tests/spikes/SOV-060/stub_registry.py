@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """SOV-060 spike: a TLS endpoint that answers every registry call with one status.
 
-Usage: stub_registry.py PORT MODE LOGFILE
+Usage: stub_registry.py PORT MODE LOGFILE [CERT KEY]
   MODE 503: every request gets 503 Service Unavailable.
   MODE 401: every request gets 401 with a Bearer challenge whose token
             endpoint (on this same server) also answers 401.
@@ -16,8 +16,9 @@ import time
 PORT = int(sys.argv[1])
 MODE = sys.argv[2]
 LOGFILE = sys.argv[3]
-CERT = "/etc/sov060/server.crt"
-KEY = "/etc/sov060/server.key"
+# Optional certificate and key, for the TLS-failure variants of E1.
+CERT = sys.argv[4] if len(sys.argv) > 4 else "/etc/sov060/server.crt"
+KEY = sys.argv[5] if len(sys.argv) > 5 else "/etc/sov060/server.key"
 
 
 class Handler(http.server.BaseHTTPRequestHandler):

@@ -59,6 +59,10 @@ mirrors = {
     "gcr.io": mirror(["https://nx.local.test", ORIGIN], "proxy-gcr"),
     # E1 variant: the first endpoint drops packets (connect times out)
     "registry.k8s.io": mirror(["https://blackhole.local.test", ORIGIN], "proxy-k8s"),
+    # E1 variant: the first endpoint presents a trusted certificate for other names
+    "k8s.gcr.io": mirror(["https://wrongcert.local.test:7445", ORIGIN], "proxy-k8sgcr"),
+    # E1 variant: the first endpoint presents a self-signed certificate
+    "cgr.dev": mirror(["https://untrusted.local.test:7446", ORIGIN], "proxy-cgr"),
     # E7a: the local Harbor, reached under a name whose login is wrong (401)
     "public.ecr.aws": mirror([LOCAL_BADAUTH, ORIGIN], "proxy-ecr"),
     # E7 extra: the same wrong login against a PRIVATE local project (Harbor's own 401)
@@ -86,6 +90,8 @@ configs = {
     "stub.local.test:7444": tls(),
     "nx.local.test": tls(),
     "blackhole.local.test": tls(),
+    "wrongcert.local.test:7445": tls(),
+    "untrusted.local.test:7446": tls(),
 }
 
 if MODE == "design":

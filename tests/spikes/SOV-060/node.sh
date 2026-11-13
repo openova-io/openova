@@ -33,7 +33,7 @@ log "public image outside the list: $MCR_REF (tags listed: $(wc -w <<<"$tags"))"
 
 # Every test image is in the origin under the proxy project of its name.
 declare -A ORIGIN_PROJECT=(
-  [e1]=proxy-quay [e1nx]=proxy-gcr [e1bh]=proxy-k8s
+  [e1]=proxy-quay [e1nx]=proxy-gcr [e1bh]=proxy-k8s [e1wn]=proxy-k8sgcr [e1ut]=proxy-cgr
   [e2]=proxy-quay [e2b]=proxy-ghcr [e3]=proxy-quay
   [e7a]=proxy-ecr [e7b]=proxy-docker [e7c]=proxy-quay [e7d]=proxy-gitlab [e7p]=proxy-priv
   [e6base]=proxy-quay [e6a]=proxy-quay [e6b]=proxy-quay [e6c]=proxy-quay
@@ -57,6 +57,8 @@ curl -s -o /dev/null -w 'probe https://harbor.local.test/v2/ -> %{http_code} (00
 pull_case E1 quay.io/spike/e1:1
 pull_case E1-nx gcr.io/spike/e1nx:1
 pull_case E1-blackhole registry.k8s.io/spike/e1bh:1 420
+pull_case E1-wrongname-cert k8s.gcr.io/spike/e1wn:1
+pull_case E1-untrusted-cert cgr.dev/spike/e1ut:1
 docker start nginx >/dev/null
 wait_harbor
 
@@ -68,6 +70,7 @@ section "E3: the first endpoint holds the image"
 push_image e3 "$LOCAL_HOST/proxy-quay/spike/e3:1"
 pull_case E3 quay.io/spike/e3:1
 pull_case E3-originhost "$ORIGIN_HOST/proxy-quay/spike/e3:1"
+pull_case E3-localhost "$LOCAL_HOST/proxy-quay/spike/e3:1"
 
 section "E7: the first endpoint answers 401 or 503"
 push_image e7a "$LOCAL_HOST/proxy-ecr/spike/e7a:1"

@@ -67,7 +67,7 @@ make_pki() {
 
 setup_names() {
   printf '%s\n' \
-    "127.0.0.1 harbor.local.test harbor-badauth.local.test origin.parent.test stub.local.test" \
+    "127.0.0.1 harbor.local.test harbor-badauth.local.test origin.parent.test stub.local.test wrongcert.local.test untrusted.local.test" \
     "10.255.255.1 blackhole.local.test" | sudo tee -a /etc/hosts >/dev/null
   log "nx.local.test is deliberately left without an address"
 }
@@ -103,8 +103,18 @@ wait_code() { # url expected-code max-seconds
 start_stubs() {
   setsid nohup python3 "$SPIKE_DIR/stub_registry.py" 7443 503 "$STUB_LOG" > "$WORK/stub503.out" 2>&1 < /dev/null &
   setsid nohup python3 "$SPIKE_DIR/stub_registry.py" 7444 401 "$STUB_LOG" > "$WORK/stub401.out" 2>&1 < /dev/null &
+  # E1 TLS variants: a certificate from the trusted CA but for other names
+  # (wrongcert.local.test is not in it), and a self-signed one nobody trusts.
+  setsid nohup python3 "$SPIKE_DIR/stub_registry.py" 7445 503 "$STUB_LOG" > "$WORK/stubwrongname.out" 2>&1 < /dev/null &
+  ( cd "$WORK" && openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=untrusted.local.test" \
+      -addext "subjectAltName=DNS:untrusted.local.test" -keyout untrusted.key -out untrusted.crt 2>/dev/null )
+  setsid nohup python3 "$SPIKE_DIR/stub_registry.py" 7446 503 "$STUB_LOG" "$WORK/untrusted.crt" "$WORK/untrusted.key" \
+    > "$WORK/stubuntrusted.out" 2>&1 < /dev/null &
   wait_code "https://stub.local.test:7443/v2/" 503 30
   wait_code "https://stub.local.test:7444/v2/" 401 30
+  sleep 1
+  curl -s -o /dev/null -w 'probe wrongcert.local.test:7445 -> %{http_code} (000 = TLS refused by the client)\n' --max-time 5 https://wrongcert.local.test:7445/v2/ || true
+  curl -s -o /dev/null -w 'probe untrusted.local.test:7446 -> %{http_code} (000 = TLS refused by the client)\n' --max-time 5 https://untrusted.local.test:7446/v2/ || true
 }
 
 start_origin() {

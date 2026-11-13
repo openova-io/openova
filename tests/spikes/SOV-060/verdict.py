@@ -50,7 +50,7 @@ if job == "node":
         add("E1", "yes" if e1["pulled"] and e1["origin_requests"] > 0 else "no", brief(e1))
     else:
         add("E1", "not run", "")
-    for extra in ("E1-nx", "E1-blackhole"):
+    for extra in ("E1-nx", "E1-blackhole", "E1-wrongname-cert", "E1-untrusted-cert"):
         if extra in R:
             add(extra + " (extra)", "pulled" if R[extra]["pulled"] else "failed", brief(R[extra]))
 
@@ -69,9 +69,10 @@ if job == "node":
         add("E3", "yes" if ok else "no", brief(e3))
     else:
         add("E3", "not run", "")
-    if "E3-originhost" in R:
-        r = R["E3-originhost"]
-        add("E3-originhost (extra)", "yes" if r["pulled"] and r["origin_requests"] == 0 else "no", brief(r))
+    for extra in ("E3-originhost", "E3-localhost"):
+        if extra in R:
+            r = R[extra]
+            add(extra + " (extra)", "yes" if r["pulled"] and r["origin_requests"] == 0 else "no", brief(r))
 
     # E4 counts only if the controls show the capture sees a lookup when one happens.
     control_ok = (("C1-public" in R and egress(R["C1-public"], ["mcr.microsoft.com"]) > 0)
