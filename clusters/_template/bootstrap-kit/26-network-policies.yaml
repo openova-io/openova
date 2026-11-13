@@ -77,7 +77,7 @@ spec:
       # 1.0.5 (#4291 Workstream C): allowSystemNamespaces drops the retired
       # dmz/mgmt/rtz vCluster syncer namespaces + adds guacamole + sandbox
       # (de-vclustered to their own host namespaces).
-      version: 1.0.5
+      version: 1.0.6
       sourceRef:
         kind: HelmRepository
         name: bp-network-policies
