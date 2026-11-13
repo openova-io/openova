@@ -2,13 +2,15 @@
 # (virt-v2v-in-place) and a TCG boot of the converted disk take on a standard
 # GitHub-hosted runner. Runs only on pushes to spike/MIG-050.
 #
-# Three measurements, each on its own fresh runner:
-#   runner-host (kvm-allowed) - packages from the runner's distribution, the
-#                               libguestfs appliance may use /dev/kvm
-#   runner-host (tcg-forced)  - same, appliance forced onto TCG
-#   debian-stable-container   - Debian stable slim in a plain `docker run`
-#                               (no --privileged, no /dev/kvm): the conditions
-#                               under which a worker-image test would run
+# Four measurements, each on its own fresh runner:
+#   runner-host (kvm-allowed)        - Ubuntu packages on the runner itself,
+#                                      conversion as the runner user, the
+#                                      libguestfs appliance may use /dev/kvm
+#   runner-host (tcg-forced)         - same, appliance forced onto TCG
+#   debian-stable-container (no-kvm) - Debian stable slim in a plain
+#                                      `docker run` as root, no --privileged,
+#                                      no /dev/kvm: how a worker-image test runs
+#   debian-stable-container (dev-kvm)- same plus `--device /dev/kvm`
 # The guest boot always uses -machine q35,accel=tcg.
 name: spike-mig-050
 
@@ -53,7 +55,7 @@ jobs:
         run: |
           mkdir -p "$GITHUB_WORKSPACE/out"
           sudo -E env "PATH=$PATH" \
-            LABEL="$LABEL" FORCE_TCG="$FORCE_TCG" \
+            LABEL="$LABEL" FORCE_TCG="$FORCE_TCG" CONV_USER="$(id -un)" \
             OUT_DIR="$GITHUB_WORKSPACE/out" WORK_DIR="$RUNNER_TEMP/mig050" \
             bash tests/spikes/MIG-050/measure.sh
 
@@ -74,9 +76,15 @@ jobs:
           retention-days: 30
 
   debian-stable-container:
-    name: debian-stable-container
+    name: debian-stable-container (${{ matrix.kvm }})
     runs-on: ubuntu-24.04
     timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        kvm: [no-kvm, dev-kvm]
+    env:
+      BASE: debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2
     steps:
       - uses: actions/checkout@v4
 
@@ -89,18 +97,21 @@ jobs:
           ls -l /dev/kvm || echo "no /dev/kvm"
           docker version --format '{{.Server.Version}}'
 
-      - name: Measure inside debian:trixie-slim (no --privileged, no /dev/kvm)
+      - name: Measure inside Debian stable slim as root (no --privileged)
         run: |
           mkdir -p "$GITHUB_WORKSPACE/out"
-          docker pull -q debian:trixie-slim
-          echo "base_image: $(docker inspect --format '{{index .RepoDigests 0}}' debian:trixie-slim)" >"$GITHUB_WORKSPACE/out/base.txt"
-          docker run --rm \
-            -e LABEL=debian-stable-container -e FORCE_TCG=0 \
-            -e EXTRA_PKGS=linux-image-amd64 \
+          docker pull -q "$BASE"
+          echo "base_image: $BASE" >"$GITHUB_WORKSPACE/out/base.txt"
+          dev=()
+          if [ "${{ matrix.kvm }}" = dev-kvm ]; then dev=(--device /dev/kvm); fi
+          echo "docker_device_flags: ${dev[*]:-none}" >>"$GITHUB_WORKSPACE/out/base.txt"
+          docker run --rm "${dev[@]}" \
+            -e LABEL=debian-stable-container-${{ matrix.kvm }} -e FORCE_TCG=0 \
+            -e EXTRA_PKGS=linux-image-amd64 -e CONV_USER=root \
             -e OUT_DIR=/out -e WORK_DIR=/work \
             -v "$GITHUB_WORKSPACE/tests/spikes/MIG-050:/spike:ro" \
             -v "$GITHUB_WORKSPACE/out:/out" \
-            debian:trixie-slim bash /spike/measure.sh
+            "$BASE" bash /spike/measure.sh
 
       - name: Result
         if: always()
@@ -115,6 +126,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: mig050-debian-stable-container
+          name: mig050-debian-stable-container-${{ matrix.kvm }}
           path: out/
           retention-days: 30
