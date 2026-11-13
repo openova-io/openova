@@ -30,6 +30,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # The step that signs the image needs a GitHub OIDC token (FND-061).
+      id-token: write
     outputs:
       sha_short: ${{ steps.vars.outputs.sha_short }}
     steps:
@@ -276,6 +278,7 @@ jobs:
           echo "All smoke tests passed."
 
       - name: Push UI image
+        id: push
         uses: docker/build-push-action@v6
         with:
           # Build context is the repo root so the Vite prebuild script can
@@ -290,11 +293,21 @@ jobs:
             ${{ env.UI_IMAGE }}:latest
           build-args: VITE_APP_MODE=selfhosted
 
+      # Sign the pushed image and attest its bill of materials before the
+      # deploy job pins its tag (FND-061). A failure here stops the deploy.
+      - name: Sign and attest the UI image
+        uses: ./.github/actions/sign-and-attest
+        with:
+          ref: ${{ env.UI_IMAGE }}
+          digest: ${{ steps.push.outputs.digest }}
+
   build-api:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+      # The step that signs the image needs a GitHub OIDC token (FND-061).
+      id-token: write
     outputs:
       sha_short: ${{ steps.vars.outputs.sha_short }}
     steps:
@@ -506,6 +519,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
 
       - name: Push API image
+        id: push
         uses: docker/build-push-action@v6
         with:
           context: openova-src
@@ -517,6 +531,14 @@ jobs:
           build-args: |
             BUILD_SHA=${{ steps.vars.outputs.sha_short }}
             BUILD_TIME=${{ steps.vars.outputs.build_time }}
+
+      # Sign the pushed image and attest its bill of materials before the
+      # deploy job pins its tag (FND-061). A failure here stops the deploy.
+      - name: Sign and attest the API image
+        uses: ./.github/actions/sign-and-attest
+        with:
+          ref: ${{ env.API_IMAGE }}
+          digest: ${{ steps.push.outputs.digest }}
 
   # #4049 — BASTION HARBOR WARMUP (every image Huawei→Huawei, incl. PRIVATE
   # catalyst). Delegated to the reusable .github/workflows/warmup-bastion-harbor.yaml
