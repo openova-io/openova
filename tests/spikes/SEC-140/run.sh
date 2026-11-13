@@ -42,7 +42,7 @@ k() {
   local i rc errf="$WORK/k.err"
   for i in 1 2 3 4 5 6; do
     kubectl --kubeconfig "$kc" "$@" 2>"$errf"; rc=$?
-    if [ $rc -ne 0 ] && grep -q -E 'connection refused|lost connection|broken pipe|EOF|connection reset|i/o timeout' "$errf"; then
+    if [ $rc -ne 0 ] && grep -q -i -E 'connection refused|lost connection|broken pipe|EOF|connection reset|i/o timeout|unable to upgrade|error dialing|stream' "$errf"; then
       sleep 3; continue
     fi
     break
@@ -103,6 +103,11 @@ host_pod() { # hostns vns vname
 }
 
 file_hash() { k "$1" -n "$2" exec "$3" -- cat /var/run/secrets/openova/db-password 2>/dev/null | sha; }
+# Same, for a virtual-cluster pod, read through its host pod (no port-forward involved).
+vfile_hash() { # hostns vns vname
+  local hp; hp=$(host_pod "$1" "$2" "$3" | cut -d' ' -f1)
+  kubectl -n "$1" exec "$hp" -- cat /var/run/secrets/openova/db-password 2>/dev/null | sha
+}
 value_hash() { bx kv get -mount=mounted -field=password "$1" 2>/dev/null | sha; }
 
 spc() { # ns name secretPath [address line] [audience line]
@@ -518,8 +523,18 @@ csi_pod "$VC1" apps v-noautomount app org-db false
 VH1=$(value_hash org1/shared/db-password/e1)
 for p in v-app v-other v-noautomount; do
   r=$(pod_result "$VC1" apps "$p" 150 org1)
-  m=""; [ "$r" = PASS ] && { [ "$(file_hash "$VC1" apps "$p")" = "$VH1" ] && m=" file-matches=yes" || m=" file-matches=NO"; }
+  m=""; [ "$r" = PASS ] && { [ "$(vfile_hash org1 apps "$p")" = "$VH1" ] && m=" file-matches=yes" || m=" file-matches=NO"; }
   rec "STEP4 org1 sa-sync=off virtual=apps/$p result=$r$m host-pod(name sa automount)=$(host_pod org1 apps "$p")"
+done
+# With service-account sync off, a value scoped to the one host account is readable by
+# every virtual service account: two Applications cannot be told apart.
+birth_job org1 birth-wsa sa/vc-workload-vcluster/db-password/e1
+rec "STEP4 org1 seed-sa exit|log: $(job_out - org1 birth-wsa)"
+spc org1 org-db-wsa mounted/data/org1/sa/vc-workload-vcluster/db-password/e1
+csi_pod "$VC1" apps v-app-wsa app org-db-wsa true
+csi_pod "$VC1" apps v-other-wsa other org-db-wsa true
+for p in v-app-wsa v-other-wsa; do
+  rec "STEP4 org1 sa-sync=off virtual=apps/$p spc=sa/vc-workload-vcluster result=$(pod_result "$VC1" apps "$p" 120 org1) host-pod(name sa automount)=$(host_pod org1 apps "$p")"
 done
 rec "STEP4 org1 logins: $(logins org1)"
 rec "STEP4 org1 reads: $(reads org1)"
@@ -576,7 +591,7 @@ if [ -n "$HSA" ]; then
   rec "STEP4 org2 recreated virtual=apps/v-app-sa result=$(pod_result "$VC2" apps v-app-sa 120 org2) host-pod(name sa automount)=$(host_pod org2 apps v-app-sa)"
 fi
 # A service-account name whose translated host name would pass 63 characters.
-LONGSA=wordpress-application-database-client-account
+LONGSA=wordpress-application-database-client-service-account
 k "$VC2" -n apps create sa "$LONGSA" >/dev/null
 csi_pod "$VC2" apps v-long "$LONGSA" org-db true
 rec "STEP4 org2 long-name virtual-sa=apps/$LONGSA (${#LONGSA} chars) result=$(pod_result "$VC2" apps v-long 120 org2) host-pod(name sa automount)=$(host_pod org2 apps v-long)"
@@ -584,6 +599,14 @@ k "$VC2" -n apps delete pod v-long --wait=true >/dev/null 2>&1
 for i in $(seq 1 30); do [ -z "$(host_pod org2 apps v-long)" ] && break; sleep 2; done
 csi_pod "$VC2" apps v-long "$LONGSA" org-db true
 rec "STEP4 org2 long-name recreated result=$(pod_result "$VC2" apps v-long 120 org2) host-pod(name sa automount)=$(host_pod org2 apps v-long)"
+HSAL=$(host_pod org2 apps v-long | cut -d' ' -f2)
+if [ -n "$HSAL" ]; then
+  birth_job org2 birth-long "sa/$HSAL/db-password/e1"
+  rec "STEP4 org2 long-name seed-sa exit|log: $(job_out - org2 birth-long)"
+  spc org2 org-db-long "mounted/data/org2/sa/$HSAL/db-password/e1"
+  csi_pod "$VC2" apps v-long-sa "$LONGSA" org-db-long true
+  rec "STEP4 org2 long-name virtual=apps/v-long-sa spc=sa/$HSAL result=$(pod_result "$VC2" apps v-long-sa 120 org2)"
+fi
 rec "STEP4 org2 host-serviceaccounts: $(kubectl -n org2 get sa -o name | oneline)"
 rec "STEP4 org2 logins: $(logins org2)"
 rec "STEP4 org2 reads: $(reads org2)"
