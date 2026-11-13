@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T16:15:03Z` |
+| Last refreshed | `2026-11-13T16:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T16:22 | [#7474](https://github.com/openova-io/openova/pull/7474) | #7471 | feat(cloud-init): each peer region posts its own handover-pe |
 | 2026-11-13T16:13 | [#7472](https://github.com/openova-io/openova/pull/7472) | #7087 | docs(ledger): plan update |
 | 2026-11-13T16:09 | [#7470](https://github.com/openova-io/openova/pull/7470) | #7087 | docs(ledger): plan update |
 | 2026-11-13T16:03 | [#7469](https://github.com/openova-io/openova/pull/7469) | #7468 | ci: the pin audit and the umbrella republish gate judge a pu |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-13T13:03 | [#7425](https://github.com/openova-io/openova/pull/7425) | #7423 | feat(sovereign): Harbor and Gitea create the registry projec |
 | 2026-11-13T12:17 | [#7424](https://github.com/openova-io/openova/pull/7424) | #7421 | chore(chart): remove the Runbook and SecretPolicy definition |
 | 2026-11-13T12:01 | [#7418](https://github.com/openova-io/openova/pull/7418) | #7087 | docs(ledger): plan update |
-| 2026-11-13T11:26 | [#7417](https://github.com/openova-io/openova/pull/7417) | #7087 | docs(ledger): result of the lab test PRD-080 (PRD-080) |
 
 ---
 
