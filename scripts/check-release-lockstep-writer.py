@@ -51,6 +51,11 @@ Cases
             demanded a literal rewrite here would be wrong; this control fails if
             someone "fixes" the guard by blanket-asserting every site always moves.
 
+  release, release-retry, umbrella-defer (FND-011)
+            A merged change that leaves the version as it was: the writer bumps
+            Chart.yaml and pushes all sites in ONE commit, also on a retry; for
+            bp-catalyst-platform (deploy-job versioned) it pushes nothing.
+
   noop      CONTROL, must be GREEN on both trees. Run the writer with NO chart
             bump at all. Nothing may drift and nothing may be pushed backwards.
             This is the vacuity check: it proves the harness can go green, so a
@@ -94,7 +99,7 @@ UI_REL = "products/catalyst/bootstrap/ui"
 # `sync_seed` does not exist yet) instead of erroring out on a missing key.
 # Fails CLOSED: a future sixth site added in a step whose id is not listed here
 # will not run, and the convergence assertions below go red until it is added.
-WRITER_STEP_IDS = ["chart", "bump_pin", "bump_blueprint", "sync_seed"]
+WRITER_STEP_IDS = ["bump_chart", "chart", "bump_pin", "bump_blueprint", "sync_seed"]
 
 # The commit step carries no `id:`, so it is located structurally — the one step
 # in the build job whose script pushes to main.
@@ -137,8 +142,8 @@ def _lookup(ref, ctx):
         return ctx["matrix"].get(parts[1], "")
     if parts[0] == "steps" and len(parts) == 4 and parts[2] == "outputs":
         return ctx["steps"].get(parts[1], {}).get(parts[3], "")
-    if parts[0] == "github" and len(parts) == 2:
-        return ctx.get("github", {}).get(parts[1], "")
+    if parts[0] == "github" and len(parts) >= 2:
+        return ctx.get("github", {}).get(".".join(parts[1:]), "")
     raise Failure("unsupported workflow expression reference: %r" % ref)
 
 
@@ -485,6 +490,24 @@ CASES = {
             "`{{ .Chart.Version }}` and there is no blueprint.yaml, so sites 2/3/4 "
             "are legitimate no-ops; must stay green on a pre-fix tree too",
     ),
+    "release": dict(
+        path="platform/keycloak", do_bump=False, change=True,
+        expect=dict(blueprint="literal", seed="literal", kit="literal"),
+        why="POSITIVE (FND-011) — a merged change to the chart's files, its version "
+            "untouched; the writer must bump Chart.yaml and push all five sites in ONE commit",
+    ),
+    "release-retry": dict(
+        path="platform/keycloak", do_bump=False, change=True, conflict=True,
+        expect=dict(blueprint="literal", seed="literal", kit="literal"),
+        why="POSITIVE (FND-011) — the same, with a rival commit forcing the retry; the "
+            "reset wipes the Chart.yaml bump, so the retry must write it again",
+    ),
+    "umbrella-defer": dict(
+        path="products/catalyst", do_bump=False, change=True, defer=True,
+        expect=dict(blueprint="absent", seed="templated", kit="literal"),
+        why="CONTROL (FND-011) — the umbrella's version is written by the deploy job; a "
+            "push that changes it without a version publishes and pushes nothing",
+    ),
     "noop": dict(
         path="platform/keycloak", do_bump=False,
         expect=dict(blueprint="literal", seed="literal", kit="literal"),
@@ -549,7 +572,7 @@ def scratch_base(explicit):
 def run_case(name, case, keep, skip_slow, base):
     print("\n%s─── case %s ───%s  %s" % (GREEN, name, RESET, case["why"]))
     chart, cur = precheck_in_scope(case, name)
-    want = bump_patch(cur) if case["do_bump"] else cur
+    want = bump_patch(cur) if case["do_bump"] or (case.get("change") and not case.get("defer")) else cur
 
     root = tempfile.mkdtemp(prefix="lockstep-writer-%s-" % name, dir=base)
     try:
@@ -573,7 +596,19 @@ def run_case(name, case, keep, skip_slow, base):
 
         wf_env, job_env, steps = load_build_steps()
         by_id = {s.get("id"): s for s in steps if s.get("id")}
-        ctx = {"matrix": {"path": case["path"]}, "steps": {}, "github": {}}
+        github = {}
+        if case.get("change"):
+            # Simulate a merged pull request: it changes a file of the chart and,
+            # as check-release-owned-lines.py requires, no version line.
+            before = sh("git rev-parse HEAD", cwd=work).stdout.strip()
+            with open(os.path.join(work, case["path"], "chart", "values.yaml"), "a") as fh:
+                fh.write("\n# a merged change, injected by the lockstep writer guard\n")
+            sh('git add -A && git commit -q -m "change: %s values (simulated merge)"' % chart, cwd=work)
+            sh("git push -q origin main", cwd=work)
+            after = sh("git rev-parse HEAD", cwd=work).stdout.strip()
+            github = {"event.before": before, "sha": after}
+            print("    merged change pushed: %s values.yaml, version left at %s" % (chart, cur))
+        ctx = {"matrix": {"path": case["path"]}, "steps": {}, "github": github}
 
         print("    running the release writer's own steps:")
         for sid in WRITER_STEP_IDS:
@@ -596,9 +631,26 @@ def run_case(name, case, keep, skip_slow, base):
 
         pushed = clone_pushed(root, remote)
         problems = []
-        assert_sites(pushed, case["path"], chart, want, case["expect"], problems)
-        assert_generated_in_sync(pushed, problems)
-        assert_repo_gates(pushed, problems, skip_slow)
+        if case.get("defer"):
+            if sh("git rev-parse HEAD", cwd=pushed).stdout.strip() != github["sha"]:
+                problems.append("the writer pushed a commit for the umbrella; the deploy job owns its version")
+            if read_chart(pushed, case["path"])[1] != cur:
+                problems.append("site 1 Chart.yaml moved from %s" % cur)
+            if ctx["steps"].get("chart", {}).get("skip") != "true":
+                problems.append("the chart step did not skip: the build would publish the umbrella again as %s" % cur)
+        else:
+            assert_sites(pushed, case["path"], chart, want, case["expect"], problems)
+            assert_generated_in_sync(pushed, problems)
+        if case.get("change") and not case.get("defer"):
+            # ONE commit: the writer's commit carries Chart.yaml AND every other site.
+            last = sh("git show --name-only --format= HEAD", cwd=pushed).stdout.split()
+            need = ["%s/chart/Chart.yaml" % case["path"], os.path.relpath(blueprint_path(pushed, case["path"]), pushed),
+                    SEED_REL, JSON_REL, TS_REL] + ["%s/%s" % (KIT_REL, f) for f, _ in kit_slots(pushed, chart)]
+            for f in need:
+                if f not in last:
+                    problems.append("the writer's last commit does not carry %s: the sites moved in more than one commit" % f)
+        elif not case.get("change"):
+            assert_repo_gates(pushed, problems, skip_slow)
 
         head = sh("git log -1 --format=%s", cwd=pushed).stdout.strip()
         files = sh("git show --name-only --format= HEAD", cwd=pushed).stdout.strip()

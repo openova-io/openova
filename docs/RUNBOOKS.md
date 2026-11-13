@@ -397,27 +397,16 @@ What it does, in order:
 
 After wipe, enumerate EVERY Hetzner endpoint with full listing, never substring-filter. CCM auto-scaler workers + `primary_ip-<digits>` lack FQDN → name filters miss them. Canonical `hetzner.Purge` also misses them. Always do a full-enumeration verification sweep.
 
-### 2.4 Chart-version collision (parallel fix-authors)
+### 2.4 Chart versions are written by CI
 
-A single Blueprint bump is never one file — these sites move **in the same commit**, and the lockstep CI gate fails the PR on any drift:
+Do not edit version lines; CI writes them after the merge. The check `check-release-owned-lines` fails a pull request that changes one of these values in a file that exists before and after it:
 
-```mermaid
-graph LR
-  Bump(["Blueprint version bump"]) --> CY["chart Chart.yaml<br/>version"]
-  Bump --> BY["blueprint.yaml<br/>spec.version"]
-  Bump --> VY["values.yaml<br/>catalystBlueprint.upstream.version"]
-  Bump --> BK["bootstrap-kit slot pin<br/>clusters/.../NN-name.yaml"]
-  CY -. "drift caught by" .-> CI["lockstep CI gate"]
-  BY -. "drift caught by" .-> CI
-  VY -. "drift caught by" .-> CI
-  BK -. "drift caught by" .-> CI
-```
+- the top-level `version:` of `platform/<name>/chart/Chart.yaml` or `products/<name>/chart/Chart.yaml`, and the `appVersion:` of `products/catalyst/chart/Chart.yaml`;
+- `spec.version` of a `blueprint.yaml`;
+- the spec and source version of an entry of `products/catalyst/chart/templates/catalog-seed/blueprints.yaml`;
+- the chart pin of a slot file in `clusters/_template/bootstrap-kit/`.
 
-When parallel fix-authors bump the same chart, version collisions are inevitable:
-
-- Check the latest chart version on `origin/main` BEFORE bumping (don't trust the version cited in the dispatch prompt — it may be stale).
-- On `git push` rejection: rebase + bump to the next free version + force-push-with-lease.
-- **Lockstep bump in the same commit**: chart `Chart.yaml` `version` + `blueprint.yaml` `spec.version` + bootstrap-kit / reconciler pin file. Lockstep CI catches drift.
+When a merge changes files of a chart and leaves its version as it was, the release writer in `.github/workflows/blueprint-release.yaml` writes the next patch version into `Chart.yaml`, publishes the chart, and moves `blueprint.yaml`, the catalog-seed entry, the generated catalog and the slot pin in the same commit. Four charts are versioned by their own build workflow instead: `products/catalyst/chart` (`catalyst-build.yaml`), `platform/guacamole/chart`, `platform/newapi/chart` and `platform/k8s-ws-proxy/chart`. A pull request that adds a new chart sets its first version. The `appVersion:` of every other chart is the upstream version of the software it installs: an upgrade changes it in the pull request.
 
 ### 2.5 cert-manager + Let's Encrypt rate limit
 
