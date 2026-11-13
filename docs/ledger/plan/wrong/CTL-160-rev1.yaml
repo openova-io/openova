@@ -1,0 +1,52 @@
+schema: openova.io/plan-wrong/v1
+id: CTL-160
+ticket_rev: 1
+base_commit: 5340790c50fa20d8c83d4890cd8b4ecaafb186f3
+stage: check
+ref: test
+command: |
+    gh api repos/openova-io/openova/actions/jobs/131793910435/logs | grep -B 40 -m 1 '##\[error\]' | cut -c30-300
+expected: |
+    the check finishes green
+actual: |
+    ok  	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/cloudprofile	1.496s
+    ok  	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/compliance	1.967s
+    ok  	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/dynadot	1.049s
+    ?   	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/flowemit	[no test files]
+    ok  	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/giteapr	1.018s
+    ok  	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handler	270.282s
+    ok  	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handler/jsonutil	1.014s
+    ok  	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt	1.347s
+    ok  	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch	21.267s
+    ok  	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/hetzner	1.372s
+    ok  	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/infrastructure	1.054s
+    ok  	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/instances	1.017s
+    ok  	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/intent	1.698s
+    ok  	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs	27.624s
+    ?   	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jtistore	[no test files]
+    ok  	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache	36.164s
+    ok  	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache/evaluators	1.109s
+    ok  	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/keycloak	1.131s
+    ok  	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/lifecycle	1.013s
+    ok  	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/meshstatus	1.043s
+    ok  	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/natspub	1.055s
+    ok  	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/newapi	1.019s
+    ok  	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/objectstorage	1.012s
+    ok  	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/objectstorage/hetzner	1.015s
+    ?   	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/oidcprovider	[no test files]
+    ok  	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao	1.036s
+    ok  	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/pdm	1.069s
+    ok  	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/powerdns	1.016s
+    ?   	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers	[no test files]
+    ?   	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers/all	[no test files]
+    ?   	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers/hetzner	[no test files]
+    ok  	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers/huawei	2.739s
+    --- FAIL: TestCloudInit_PostBuildSubstituteFQDN (0.00s)
+        cloudinit_path_test.go:197: expected SOVEREIGN_FQDN substitute on BOTH Kustomizations (got 1 occurrences, want ≥2 — issue #218 partial-fix regression)
+    FAIL
+    FAIL	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner	0.076s
+    ok  	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/regions	1.011s
+    ok  	github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store	1.070s
+    FAIL
+    ##[error]Process completed with exit code 1.
+reported_at: 2026-11-13T09:12:09Z
