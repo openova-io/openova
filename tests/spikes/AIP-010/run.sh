@@ -699,8 +699,10 @@ EOF
   for f in models policy-auth policy-timeouts virtual-keys; do
     k apply -f "$MAN/$f.yaml" 2>&1 | tee -a "$OUT/configure-apply.txt"
   done
-  # Cross-namespace key-set reference: grant it, if the API asks for one.
-  for v in v1 v1beta1; do
+  # Cross-namespace key-set reference. Runs 1 and 2 created a ReferenceGrant;
+  # run 3 (REFERENCE_GRANT=no) leaves it out to see whether T4 still passes.
+  echo "${REFERENCE_GRANT:-yes}" >"$OUT/reference-grant.txt"
+  [ "${REFERENCE_GRANT:-yes}" = yes ] && for v in v1 v1beta1; do
     cat <<EOF | k apply -f - 2>&1 | tee -a "$OUT/configure-apply.txt" && break
 apiVersion: gateway.networking.k8s.io/$v
 kind: ReferenceGrant

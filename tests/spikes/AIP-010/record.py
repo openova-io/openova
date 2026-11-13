@@ -160,6 +160,8 @@ def final(out):
     print("# AIP-010 leg %s: verdict %s\n" % (leg, verdict))
     for t in tests:
         print("- %s %s: %s" % (t["id"], t["result"].upper(), t["evidence"]))
+    print("\nReferenceGrant for the key-set Service in catalyst-system created: %s"
+          % text(os.path.join(out, "reference-grant.txt")).strip())
     print("\nobservations: %s" % json.dumps(probe.get("observations", {}), sort_keys=True))
     print("\nvalues: %s" % json.dumps({k: v for k, v in values.items() if not isinstance(v, Literal)}, sort_keys=True))
     print("\nT1 detail: %s" % json.dumps(t1r.get("detail", {}), sort_keys=True)[:4000])

@@ -65,6 +65,8 @@ jobs:
       FLUX_VERSION: v2.4.0
       KYVERNO_CHART: 3.8.0
       AGW_VERSION: v1.7.0
+      # Run 3: no ReferenceGrant for the cross-namespace key-set Service reference.
+      REFERENCE_GRANT: "no"
       KUBECTL_VERSION: v1.32.13
       HELM_VERSION: v3.16.3
       KUBECONFIG: /etc/rancher/k3s/k3s.yaml
