@@ -70,7 +70,10 @@ def cmd_probe(spec):
         except Exception as e:  # connection refused, timeout
             code, raw = 0, str(e).encode()
         if code in spec.get("ok", [200]):
-            return {"ready": True, "url": url, "code": code}
+            out = {"ready": True, "url": url, "code": code}
+            if spec.get("body"):
+                out["body"] = raw[:6000].decode("utf-8", "replace")
+            return out
     return {"ready": False, "code": code, "body": short(raw)}
 
 
@@ -223,6 +226,7 @@ def cmd_transcribe(spec):
         fields = [("model", spec["model"]), ("response_format", "json")]
         if spec.get("language"):
             fields.append(("language", spec["language"]))
+        fields += [tuple(x) for x in spec.get("extra", [])]
         body, ctype = multipart(fields, [("file", "audio.wav", audio, "audio/wav")])
         code, raw, dt = http("POST", spec["base"] + spec.get("path", "/v1/audio/transcriptions"), body,
                              {"Content-Type": ctype})

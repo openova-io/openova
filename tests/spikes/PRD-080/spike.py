@@ -452,8 +452,10 @@ CONV_CANDIDATES = [
                                       # writable places under a read-only root: all on the /tmp emptyDir
                                       "HOME": "/tmp", "XDG_CACHE_HOME": "/tmp/.cache", "MPLCONFIGDIR": "/tmp/mpl",
                                       "EASYOCR_MODULE_PATH": "/tmp/easyocr"},
-         configs=[("easyocr", "easyocr"), ("tesseract", "tesseract"), ("rapidocr", "rapidocr")],
-         ar_configs=[("easyocr", "easyocr"), ("tesseract", "tesseract")]),
+         configs=[("rapidocr", "rapidocr"), ("tesserocr", "tesserocr"), ("tesseract", "tesseract"),
+                  ("easyocr", "easyocr")],
+         ar_configs=[("rapidocr", "rapidocr"), ("tesserocr", "tesserocr"), ("tesseract", "tesseract"),
+                     ("easyocr", "easyocr")]),
     dict(name="tika", image="apache/tika:3.3.3.0-full", source="github.com/apache/tika-docker",
          source_licence="Apache-2.0", port=9998, health=["/version"], api="tika",
          args=["-c", "/config/tika-config.xml"], env={}, configs=[("tesseract", "eng")],
@@ -461,7 +463,9 @@ CONV_CANDIDATES = [
     dict(name="unstructured-api", image="quay.io/unstructured-io/unstructured-api:0.1.16",
          source="github.com/Unstructured-IO/unstructured-api", source_licence="Apache-2.0", port=8000,
          health=["/healthcheck"], api="unstructured", args=[],
-         env={"HF_HUB_OFFLINE": "1", "DO_NOT_TRACK": "true", "SCARF_NO_ANALYTICS": "true"},
+         env={"HF_HUB_OFFLINE": "1", "DO_NOT_TRACK": "true", "SCARF_NO_ANALYTICS": "true",
+              # numba caches compiled functions next to the source unless told otherwise (read-only root)
+              "NUMBA_CACHE_DIR": "/tmp/numba"},
          configs=[("hi_res", "eng")], ar_configs=[("hi_res", "ara")]),
 ]
 
@@ -596,7 +600,12 @@ def tess_dir(image):
     rc, out = sh(["docker", "run", "--rm", "--network", "none", "--entrypoint", "tesseract", image, "--list-langs"],
                  timeout=300)
     m = re.search(r'"([^"]+)"', out)
-    return (m.group(1).rstrip("/") if m else None), out.strip().replace("\n", " ")[:300]
+    path = m.group(1).rstrip("/") if m else None
+    if not path:  # older tesseract does not print the path: use the image's TESSDATA_PREFIX
+        _, env = sh(["docker", "image", "inspect", "-f", "{{range .Config.Env}}{{println .}}{{end}}", image])
+        m = re.search(r"^TESSDATA_PREFIX=(.+)$", env, re.M)
+        path = m.group(1).strip().rstrip("/") if m else None
+    return path, out.strip().replace("\n", " ")[:300]
 
 
 def run_conversion():
@@ -650,11 +659,18 @@ def run_conversion():
                 continue
             base = f"http://{SRV}:{c['port']}"
             if c["api"] == "docling":
-                cap = client("probe", {"urls": [base + "/v1/capabilities"]})
-                result({"kind": "docling-capabilities-endpoint", "ready": cap.get("ready")})
+                cap = client("probe", {"urls": [base + "/v1/capabilities"], "body": True, "timeout": 30})
+                result({"kind": "docling-capabilities", "ready": cap.get("ready"), "body": cap.get("body")})
             mem = MemPeak()
             for doc, cfgs in (("en20", c["configs"]), ("ar3", c["ar_configs"])):
                 for clabel, val in cfgs:
+                    if not running():  # a failed engine took the server down: start it again
+                        result({"kind": "restart", "candidate": c["name"], "before": f"{clabel}-{doc}",
+                                "log": sh(["docker", "logs", "--tail", "30", SRV])[1][-2000:]})
+                        prof = serve(info, label, c["args"], c["port"], c["health"], 900, env=c["env"],
+                                     mounts=mounts)
+                        if not prof:
+                            break
                     lang = docs[doc]["lang"]
                     spec = {"base": base, "api": c["api"]}
                     if c["api"] == "docling":
@@ -665,7 +681,10 @@ def run_conversion():
                         spec["lang"] = [val]
                     tag = f"{c['name']}-{clabel}-{doc}"
                     warm = client("convert", dict(spec, file="/data/docs/warm1.pdf", out=f"/out/conv/{tag}.warm"))
-                    if warm.get("code") == 422 and c["api"] == "docling":
+                    if warm.get("code") != 200 and c["api"] == "docling":
+                        m0 = sh(["docker", "logs", "--tail", "30", SRV])[1][-2500:]
+                        result({"kind": "docling-ocr-field-retry", "tag": tag, "code": warm.get("code"),
+                                "head": warm.get("head"), "server_log": m0})
                         spec["ocr_field"] = "ocr_preset"
                         warm = client("convert", dict(spec, file="/data/docs/warm1.pdf",
                                                       out=f"/out/conv/{tag}.warm"))
@@ -683,6 +702,8 @@ def run_conversion():
                         except Exception as e:
                             m["parse_error"] = str(e)[:300]
                         m["pages_per_min"] = round(docs[doc]["pages"] / (r["seconds"] / 60.0), 2)
+                    if r.get("code") != 200:
+                        m["server_log"] = sh(["docker", "logs", "--tail", "30", SRV])[1][-2500:]
                     result(m)
             result({"kind": "memory", "task": "conversion", "candidate": c["name"], "mem_peak_gb": mem.done()})
         except Exception as e:
@@ -697,7 +718,10 @@ ASR_MODELS = {
     "small": dict(ct2="Systran/faster-whisper-small", ct2_rev="536b0662742c02347bc0e980a01041f333bce120",
                   ggml="ggml-small-q8_0.bin"),
     "large-v3-turbo": dict(ct2="mobiuslabsgmbh/faster-whisper-large-v3-turbo",
-                           ct2_rev="0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf", ggml="ggml-large-v3-turbo-q8_0.bin"),
+                           ct2_rev="0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf", ggml="ggml-large-v3-turbo-q8_0.bin",
+                           # the same weights in the repository speaches lists as supported
+                           ct2_alt="deepdml/faster-whisper-large-v3-turbo-ct2",
+                           ct2_alt_rev="4df90f75321148c3a29a9e2351b7ddf8f5b115a8"),
 }
 GGML_REPO, GGML_REV = "ggerganov/whisper.cpp", "5359861c739e955e79d9a303bcbc70fb988958b1"
 
@@ -706,24 +730,26 @@ ASR_CANDIDATES = [
          source_licence="MIT", port=8000, health=["/health"], api="openai", per_model=False,
          env=lambda m: {"HF_HUB_CACHE": "/models/hf", "HF_HUB_OFFLINE": "1", "WHISPER__COMPUTE_TYPE": "int8",
                         "WHISPER__INFERENCE_DEVICE": "cpu", "ENABLE_UI": "false", "OMP_NUM_THREADS": "4"},
-         args=lambda m: [], entrypoint=None, model_id=lambda m: ASR_MODELS[m]["ct2"]),
+         args=lambda m: [], entrypoint=None, model_id=lambda m: ASR_MODELS[m].get("ct2_alt", ASR_MODELS[m]["ct2"]),
+         variants=[("default", []), ("no-vad", [("vad_filter", "false")])]),
     dict(name="whisper-asr-webservice", image="onerahmet/openai-whisper-asr-webservice:v1.10.0",
          source="github.com/ahmetoner/whisper-asr-webservice", source_licence="MIT", port=9000, health=["/docs"],
          api="asrws", per_model=True,
          env=lambda m: {"ASR_ENGINE": "faster_whisper", "ASR_MODEL": m, "ASR_MODEL_PATH": "/models/hf",
                         "ASR_DEVICE": "cpu", "ASR_QUANTIZATION": "int8", "HF_HUB_OFFLINE": "1"},
-         args=lambda m: [], entrypoint=None, model_id=lambda m: m),
+         args=lambda m: [], entrypoint=None, model_id=lambda m: m, variants=[("default", [])]),
     dict(name="whisper.cpp", image="ghcr.io/ggml-org/whisper.cpp:main-d1be6fde11ac6e0407606b4e42fe72d34add8037",
          source="github.com/ggml-org/whisper.cpp", source_licence="MIT", port=8080, health=["/"], api="openai",
          per_model=True, env=lambda m: {},
          args=lambda m: [f"whisper-server -m /models/ggml/{ASR_MODELS[m]['ggml']} --host 0.0.0.0 --port 8080 -t 4 "
                          "--inference-path /v1/audio/transcriptions"],
-         entrypoint=None, model_id=lambda m: m),
+         entrypoint=None, model_id=lambda m: m, variants=[("default", [])]),
 ]
 
 
 def prep_audio(rows):
     out = {}
+    os.makedirs(os.path.join(OUT, "asr"), exist_ok=True)
     adir = os.path.join(DATA, "audio")
     os.makedirs(adir, exist_ok=True)
     for lang in ("en", "ar"):
@@ -742,7 +768,10 @@ def prep_audio(rows):
             dst], check=True, timeout=600)
         _, d = sh(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", dst])
         out[lang] = {"file": f"/data/audio/{lang}.wav", "seconds": float(d.strip()), "clips": len(picked),
-                     "ref": " ".join(r["transcription"] for r in picked)}
+                     "ref": " ".join(r["raw_transcription"] for r in picked),
+                     "ref_fleurs_norm": " ".join(r["transcription"] for r in picked)}
+        open(os.path.join(OUT, "asr", f"ref-{lang}.txt"), "w").write(out[lang]["ref"])
+        print("PRD080-TEXT", f"ref-{lang}", json.dumps(out[lang]["ref"], ensure_ascii=False), flush=True)
         result({"kind": "audio", "lang": lang, "clips": len(picked), "seconds": round(out[lang]["seconds"], 1),
                 "ref_words": len(norm(out[lang]["ref"], lang).split())})
     sh(["ffmpeg", "-y", "-i", f"{adir}/en-00.wav", "-t", "5", "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
@@ -756,6 +785,8 @@ def run_transcription():
     del rows
     for m, d in ASR_MODELS.items():
         snapshot(d["ct2"], d["ct2_rev"], cache=os.path.join(MODELS, "hf"))
+        if d.get("ct2_alt"):
+            snapshot(d["ct2_alt"], d["ct2_alt_rev"], cache=os.path.join(MODELS, "hf"))
     snapshot(GGML_REPO, GGML_REV, local=os.path.join(MODELS, "ggml"), allow=[d["ggml"] for d in ASR_MODELS.values()])
     for p in glob.glob(os.path.join(MODELS, "**"), recursive=True):
         os.chmod(p, 0o755 if os.path.isdir(p) else 0o644)
@@ -775,19 +806,25 @@ def run_transcription():
                     continue
                 base = f"http://{SRV}:{c['port']}"
                 mem = MemPeak()
-                for m in group:
-                    spec = {"base": base, "api": c["api"], "model": c["model_id"](m)}
+                for m, (variant, extra) in [(m, v) for m in group for v in c["variants"]]:
+                    spec = {"base": base, "api": c["api"], "model": c["model_id"](m), "extra": extra}
                     warm = client("transcribe", dict(spec, file="/data/audio/warm.wav", language="en"))
                     for lang in ("en", "ar"):
                         r = client("transcribe", dict(spec, file=audio[lang]["file"], language=lang))
                         x = {"kind": "measure", "task": "transcription", "candidate": c["name"], "model": m,
+                             "model_id": spec["model"], "variant": variant,
                              "lang": lang, "profile": prof, "warmup_s": warm.get("seconds"),
                              "warmup_code": warm.get("code"), "audio_s": round(audio[lang]["seconds"], 1),
                              **{k: r.get(k) for k in ("code", "seconds", "head", "error")}}
                         if r.get("code") == 200 and r.get("seconds"):
                             x["audio_s_per_s"] = round(audio[lang]["seconds"] / r["seconds"], 3)
                             x.update(scores(r.get("text", ""), audio[lang]["ref"], lang))
+                            x["wer_vs_fleurs_normalised"] = scores(r.get("text", ""), audio[lang]["ref_fleurs_norm"],
+                                                                   lang)["wer"]
                             x["sample"] = (r.get("text") or "")[:160]
+                            tag = f"{c['name']}-{m}-{variant}-{lang}"
+                            open(os.path.join(OUT, "asr", tag + ".txt"), "w").write(r.get("text") or "")
+                            print("PRD080-TEXT", tag, json.dumps(r.get("text") or "", ensure_ascii=False), flush=True)
                         result(x)
                 result({"kind": "memory", "task": "transcription", "candidate": c["name"], "models": group,
                         "mem_peak_gb": mem.done()})
