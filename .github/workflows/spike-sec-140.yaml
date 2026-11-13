@@ -1,0 +1,46 @@
+# SEC-140 lab test (never merged): mounted secret delivery by the Secrets Store
+# CSI driver and the OpenBao CSI provider, on the host and inside an
+# Organization's virtual cluster. Runs only on pushes to its own branch.
+name: spike-sec-140
+
+on:
+  push:
+    branches: [spike/SEC-140]
+
+permissions:
+  contents: read
+
+jobs:
+  spike:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.18.4
+
+      - name: Set up kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: sec140
+          version: v0.27.0
+          node_image: kindest/node:v1.31.6@sha256:28b7cbb993dfe093c76641a0c95807637213c9109b761f1d422c2400e22b8e87
+          kubectl_version: v1.31.6
+          wait: 120s
+
+      - name: Run the lab test
+        env:
+          OUT: ${{ github.workspace }}/out
+        run: bash tests/spikes/SEC-140/run.sh
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sec-140-evidence
+          path: out/
+          if-no-files-found: warn

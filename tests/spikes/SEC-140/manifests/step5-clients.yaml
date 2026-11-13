@@ -1,0 +1,101 @@
+# Step 5b: a client image that reads only a plain variable (psql reads PGPASSWORD),
+# wrapped in an entrypoint shim that exports the variable from the mounted file and
+# then execs the original command. Exit code 78 means a mapped file is missing.
+# Applied inside the Organization's virtual cluster, namespace apps.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: client-shim
+  namespace: apps
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      serviceAccountName: app
+      containers:
+        - name: client
+          image: postgres:16-alpine
+          env:
+            - {name: PGCONNECT_TIMEOUT, value: "10"}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              secret_dir=/var/run/secrets/openova
+              while IFS='=' read -r env_name file_name; do
+                [ -n "$env_name" ] || continue
+                if [ ! -r "$secret_dir/$file_name" ]; then
+                  echo "entrypoint shim: $secret_dir/$file_name is not mounted" >&2
+                  exit 78
+                fi
+                export "$env_name=$(cat "$secret_dir/$file_name")"
+              done <<'ENV_MAP'
+              PGPASSWORD=db-password
+              ENV_MAP
+              exec psql -h db.apps.svc.cluster.local -U postgres -d postgres -tAc "select 'connected as ' || current_user"
+          volumeMounts:
+            - {name: openova, mountPath: /var/run/secrets/openova, readOnly: true}
+      volumes:
+        - name: openova
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes: {secretProviderClass: org-db}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: client-missing
+  namespace: apps
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      serviceAccountName: app
+      containers:
+        - name: client
+          image: postgres:16-alpine
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              secret_dir=/var/run/secrets/openova
+              while IFS='=' read -r env_name file_name; do
+                [ -n "$env_name" ] || continue
+                if [ ! -r "$secret_dir/$file_name" ]; then
+                  echo "entrypoint shim: $secret_dir/$file_name is not mounted" >&2
+                  exit 78
+                fi
+                export "$env_name=$(cat "$secret_dir/$file_name")"
+              done <<'ENV_MAP'
+              PGPASSWORD=not-mounted
+              ENV_MAP
+              exec psql -h db.apps.svc.cluster.local -U postgres -d postgres -tAc "select 1"
+          volumeMounts:
+            - {name: openova, mountPath: /var/run/secrets/openova, readOnly: true}
+      volumes:
+        - name: openova
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes: {secretProviderClass: org-db}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: client-nopass
+  namespace: apps
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      serviceAccountName: app
+      containers:
+        - name: client
+          image: postgres:16-alpine
+          env:
+            - {name: PGCONNECT_TIMEOUT, value: "10"}
+          command: ["psql", "-w", "-h", "db.apps.svc.cluster.local", "-U", "postgres", "-d", "postgres", "-tAc", "select 1"]

@@ -1,0 +1,39 @@
+# Step 5a: a database that reads its password through a file variable.
+# Applied inside the Organization's virtual cluster, namespace apps.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: db
+  namespace: apps
+  labels: {app: db}
+spec:
+  serviceAccountName: app
+  terminationGracePeriodSeconds: 1
+  containers:
+    - name: postgres
+      image: postgres:16-alpine
+      env:
+        - {name: POSTGRES_PASSWORD_FILE, value: /var/run/secrets/openova/db-password}
+      ports:
+        - {containerPort: 5432}
+      readinessProbe:
+        exec: {command: ["pg_isready", "-U", "postgres", "-h", "127.0.0.1"]}
+        periodSeconds: 3
+      volumeMounts:
+        - {name: openova, mountPath: /var/run/secrets/openova, readOnly: true}
+  volumes:
+    - name: openova
+      csi:
+        driver: secrets-store.csi.k8s.io
+        readOnly: true
+        volumeAttributes: {secretProviderClass: org-db}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db
+  namespace: apps
+spec:
+  selector: {app: db}
+  ports:
+    - {port: 5432, targetPort: 5432}
