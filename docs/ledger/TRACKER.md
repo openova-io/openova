@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T08:45:04Z` |
+| Last refreshed | `2026-11-13T09:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,9 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6844](https://github.com/openova-io/openova/issues/6844) | SSO gap audit: verify whether registry/harbor and newapi have zero-click SSO (gi | Other |
-| [#6849](https://github.com/openova-io/openova/issues/6849) | Platform Applications are named spine-* on live Sovereigns, colliding with the S | Other |
-| [#6850](https://github.com/openova-io/openova/issues/6850) | Sovereign cloud cost is collected but never allocated: ADR-0014's 'cloud cost sp | Other |
 | [#6853](https://github.com/openova-io/openova/issues/6853) | chargeback meters only 5 of 16 provisionable resource kinds — everything else  | Other |
 | [#6855](https://github.com/openova-io/openova/issues/6855) | chargeback bills the whole Huawei project to one customer — bastion-openova is | Other |
 | [#6857](https://github.com/openova-io/openova/issues/6857) | Four extended listers 400 against the real Huawei gateway — limit=200 rejected | Other |
@@ -300,6 +297,9 @@ flowchart LR
 | [#7376](https://github.com/openova-io/openova/issues/7376) | CTL-112 Region scopes of the commit library | Other |
 | [#7377](https://github.com/openova-io/openova/issues/7377) | CTL-160 Package intent: validate, serialise, commit, wait | Other |
 | [#7378](https://github.com/openova-io/openova/issues/7378) | CTL-240 Batch G: catalogue writers onto the library | Other |
+| [#7383](https://github.com/openova-io/openova/issues/7383) | CLD-021 Delete the 24 infrastructure mutation routes and the claim writer | Other |
+| [#7384](https://github.com/openova-io/openova/issues/7384) | PRD-502 Sandbox ledger | Other |
+| [#7385](https://github.com/openova-io/openova/issues/7385) | SEC-030 etcd encryption on at first boot | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T08:58 | [#7382](https://github.com/openova-io/openova/pull/7382) | #7087 | docs(ledger): plan update |
+| 2026-11-13T08:45 | [#7375](https://github.com/openova-io/openova/pull/7375) | #7087 | docs(ledger): plan update |
 | 2026-11-13T08:34 | [#7374](https://github.com/openova-io/openova/pull/7374) | #7087 | docs(ledger): result of the lab test FND-001 (FND-001) |
 | 2026-11-13T08:29 | [#7373](https://github.com/openova-io/openova/pull/7373) | #7087 | docs(ledger): result of the lab test SEC-135 (SEC-135) |
 | 2026-11-13T08:28 | [#7372](https://github.com/openova-io/openova/pull/7372) | #7087 | docs(ledger): result of the lab test SEC-271 (SEC-271) |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-13T06:33 | [#7335](https://github.com/openova-io/openova/pull/7335) | #7087 | docs(ledger): result of the lab test SOV-060 (SOV-060) |
 | 2026-11-13T06:34 | [#7334](https://github.com/openova-io/openova/pull/7334) | #7087 | docs(ledger): result of the lab test CMP-S2 (CMP-S2) |
 | 2026-11-13T06:34 | [#7333](https://github.com/openova-io/openova/pull/7333) | #7087 | docs(ledger): result of the lab test INF-030 (INF-030) |
-| 2026-11-13T06:34 | [#7332](https://github.com/openova-io/openova/pull/7332) | #7087 | docs(ledger): result of the lab test CLD-050 (CLD-050) |
-| 2026-11-13T06:35 | [#7331](https://github.com/openova-io/openova/pull/7331) | #7087 | docs(ledger): result of the lab test SEC-140 (SEC-140) |
 
 ---
 
