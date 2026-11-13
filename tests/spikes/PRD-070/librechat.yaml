@@ -1,0 +1,39 @@
+# LibreChat configuration for spike PRD-070. The same file is used for every
+# version under test; only the `version` line is set per version by run.sh.
+#
+# One custom OpenAI-compatible endpoint points at the stub. Its apiKey is a
+# fixed value that is NOT the user's; the headers ask LibreChat to put the
+# signed-in user's OpenID tokens into the request. If a version does not know
+# a placeholder, the literal text arrives at the stub. The stub records which.
+version: __CONFIG_VERSION__
+cache: true
+registration:
+  socialLogins:
+    - openid
+endpoints:
+  custom:
+    - name: "SpikeGW"
+      apiKey: "static-endpoint-key-not-the-user"
+      baseURL: "http://stub:9099/v1"
+      models:
+        default:
+          - "stub-model"
+        fetch: false
+      titleConvo: false
+      modelDisplayLabel: "Spike"
+      headers:
+        Authorization: "Bearer {{LIBRECHAT_OPENID_ACCESS_TOKEN}}"
+        X-Spike-Openid-Token: "{{LIBRECHAT_OPENID_TOKEN}}"
+        X-Spike-Openid-Id-Token: "{{LIBRECHAT_OPENID_ID_TOKEN}}"
+        X-Spike-User-Email: "{{LIBRECHAT_USER_EMAIL}}"
+        X-Spike-User-Openidid: "{{LIBRECHAT_USER_OPENIDID}}"
+modelSpecs:
+  enforce: true
+  prioritize: true
+  list:
+    - name: "spike-stub"
+      label: "Spike stub"
+      default: true
+      preset:
+        endpoint: "SpikeGW"
+        model: "stub-model"

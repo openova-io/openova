@@ -1,0 +1,64 @@
+{
+  "realm": "spike",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "accessTokenLifespan": 90,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "clients": [
+    {
+      "clientId": "librechat",
+      "name": "chat front end (spike PRD-070)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "spike-prd-070-throwaway-client-value",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["http://localhost:3080/oauth/openid/callback"],
+      "webOrigins": ["http://localhost:3080"],
+      "attributes": {
+        "post.logout.redirect.uris": "http://localhost:3080/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "audience-cortex",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "cortex",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "alice",
+      "enabled": true,
+      "email": "alice@spike.test",
+      "emailVerified": true,
+      "firstName": "Alice",
+      "lastName": "Spike",
+      "requiredActions": [],
+      "credentials": [{ "type": "password", "value": "alice-spike-070", "temporary": false }]
+    },
+    {
+      "username": "bob",
+      "enabled": true,
+      "email": "bob@spike.test",
+      "emailVerified": true,
+      "firstName": "Bob",
+      "lastName": "Spike",
+      "requiredActions": [],
+      "credentials": [{ "type": "password", "value": "bob-spike-070", "temporary": false }]
+    }
+  ]
+}
