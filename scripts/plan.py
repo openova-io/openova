@@ -17,6 +17,8 @@ markers and the wrong reports on origin/main, and the remote branches wp/<ID>) a
 Each of these commands runs "git fetch origin --prune" first unless --no-fetch is given.
 validate prints nothing when the plan is valid. It applies the rules of scripts/ticket-lint.py to the ticket of every
 package with ticket_rev 1 or more.
+Two packages that touch one entry of class thrashing or frozen of the stability register, docs/ledger/stability.yaml on
+origin/main, do not run together: parallel says no, and ready, batch and claim-check keep them apart.
 
 Commands for one pull request. They never fetch: they read the commits they are given.
 
@@ -72,6 +74,8 @@ TRACKER = "docs/ledger/TRACKER.md"
 MAIN = "origin/main"
 GATE_TOOL = "scripts/acceptance-gate.py"
 LINTER = "scripts/ticket-lint.py"
+STABILITY = "docs/ledger/stability.yaml"
+FROZEN_TOOL = "scripts/check-frozen-paths.py"
 
 ID_RE = re.compile(r"^[A-Z]{3}-([0-9]{3}|S[0-9])$")
 TYPES = ["fix", "guard", "delete", "refactor", "new", "test", "doc", "spike", "decision"]
@@ -513,7 +517,8 @@ class Model:
         self.w = world
         self.deps = closure(self.pk)
         self._markers = None
-        self._green, self._state, self._expand, self._locks = {}, {}, {}, {}
+        self._green, self._state, self._expand, self._locks, self._entries = {}, {}, {}, {}, {}
+        self._register = None
 
     def merged(self, i):
         """True when the done marker of the package is on main and carries the ticket_rev the plan has now."""
@@ -591,6 +596,26 @@ class Model:
             self._locks[i] = {lock["name"] for lock in self.plan["locks"] if any(matches(lock["paths"], f) for f in files)}
         return self._locks[i]
 
+    def register(self):
+        """The entries of class thrashing or frozen of the stability register on main; none while the register does not exist."""
+        if self._register is None:
+            text = self.w.read([STABILITY]).get(STABILITY)
+            try:
+                data = yaml.load(text, Loader=LOADER) if text is not None else None
+            except yaml.YAMLError:
+                die("%s on main is not valid YAML" % STABILITY)
+            entries = data.get("entries") if isinstance(data, dict) else None
+            self._register = [e for e in (entries if isinstance(entries, list) else []) if isinstance(e, dict) and isinstance(e.get("id"), str)
+                              and e.get("class") in ("thrashing", "frozen") and isinstance(e.get("paths"), list) and all(isinstance(g, str) for g in e["paths"])]
+        return self._register
+
+    def entries(self, i):
+        """The ids of the stability entries of class thrashing or frozen that match a file of the package."""
+        if i not in self._entries:
+            files = self.expand(i)
+            self._entries[i] = {e["id"] for e in self.register() if any(matches(e["paths"], f) for f in files)}
+        return self._entries[i]
+
     def why_not(self, a, b):
         """Why a and b may not run together; None when they may."""
         if a == b:
@@ -610,6 +635,9 @@ class Model:
         lock = self.locks(a) & self.locks(b)
         if lock:
             return "both hold the lock %s" % min(lock)
+        entry = self.entries(a) & self.entries(b)
+        if entry:
+            return "both touch the stability entry %s, whose class is thrashing or frozen" % min(entry)
         resource = set(self.pk[a]["resources"]) & set(self.pk[b]["resources"])
         if resource:
             return "both need the resource %s" % min(resource)
@@ -746,8 +774,8 @@ def manifest_lines(p, old, new):
 def check_pr(model, change, body, author=None, branch=None):
     """The scope fence and the dependency gate: one line per failure. model: the plan and the repository as they are on main.
 
-    Rules 1, 2, 4, 5 and 6 are here. Rule 3 (no release-owned line changes) is the check of the guard that FND-011 adds.
-    Rule 7 (closed and frozen paths) arrives with the stability register of FND-040.
+    Rules 1, 2, 4, 5, 6 and 7 are here. Rule 3 (no release-owned line changes) is the check of the guard that FND-011 adds.
+    Rule 7 applies the policies of the stability register on main to the changed files, with scripts/check-frozen-paths.py.
     """
     i, kind, failure = pr_package(model, change, body, author, branch)
     if failure:
@@ -790,7 +818,21 @@ def check_pr(model, change, body, author=None, branch=None):
     files, lines = sum(1 for st, n in counted if st != "D"), sum(n for st, n in counted)
     if files > budget["files"] or lines > budget["lines"]:
         out.append("rule 6: %d files added or modified and %d changed lines; the budget of %s is %d files and %d lines" % (files, lines, i, budget["files"], budget["lines"]))
+    out += ["rule 7: " + x for x in stability_lines(model, change, body, i)]
     return out
+
+
+def stability_lines(model, change, body, i):
+    """Rule 7: the policies of the stability register on main for the changed files of package i. None while the register does not exist."""
+    if STABILITY not in model.w.fileset:
+        return []
+    tool = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.path.basename(FROZEN_TOOL))
+    if not os.path.exists(tool):
+        return ["%s exists on main, but %s does not, so its policies cannot be applied" % (STABILITY, FROZEN_TOOL)]
+    spec = importlib.util.spec_from_file_location("check_frozen_paths", tool)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.rule7(model, change, body, i)
 
 
 def run_precondition(p, root, say=print):
@@ -1344,6 +1386,15 @@ def test_parallel(t):
     t.refused([m.why_not("AAA-011", "AAA-013") or ""], "AAA-013 is a dependency of AAA-011", "parallel: a dependency through another package")
     t.refused([m.why_not("AAA-013", "AAA-011") or ""], "AAA-013 is a dependency of AAA-011", "parallel: the same dependency, asked the other way round")
     t.refused([m.why_not("AAA-001", "AAA-001") or ""], "the same package", "parallel: a package with itself")
+    reg = yaml.safe_dump({"schema": "openova.io/stability/v1", "entries": [{"id": "hot", "class": "thrashing", "paths": ["hot/"]},
+                                                                         {"id": "calm", "class": "settling", "paths": ["calm/**"]}]})
+    plan = t_plan(t_pkg("AAA-001", touches=["hot/a.go"]), t_pkg("AAA-002", touches=["hot/b.go"]), t_pkg("AAA-003", touches=["calm/a.go"]), t_pkg("AAA-004", touches=["calm/b.go"]))
+    files = ["hot/a.go", "hot/b.go", "calm/a.go", "calm/b.go"]
+    m = Model(plan, None, t_world(files=files, texts={STABILITY: reg}))
+    t.refused([m.why_not("AAA-001", "AAA-002") or ""], "both touch the stability entry hot", "parallel: two packages on one stability entry of class thrashing")
+    t.ok(m.why_not("AAA-003", "AAA-004") is None, "parallel: two packages on one stability entry of class settling may run together")
+    m = Model(plan, None, t_world(files=files, branches=["AAA-001"], texts={STABILITY: reg}))
+    t.ok(m.ready() == ["AAA-003", "AAA-004"], "ready: no package on a stability entry of class thrashing while another package on it is in progress; the rule can fail")
 
 
 def test_ready(t):
@@ -1520,6 +1571,18 @@ def test_check_pr(t):
     t.refused(lines("", [("M", "core/x/main.go", 2)], body="Bump x", author=BOT), "outside the allowed paths of FND-910", "check-pr rule 2: the dependency bot outside its paths")
     early = Model(t_plan(t_pkg("FND-910", repeatable=True, touches=["**/go.mod"], ticket_rev=0, precondition=None, acceptance=[])), gates, t_world())
     t.ok(check_pr(early, Change([("M", "core/x/main.go", 2)], {}.get, {}.get), "Bump x", BOT) == [], "check-pr: a pull request of the dependency bot is not judged while %s has no ticket" % BOT_PACKAGE)
+    evidence = {"date": "2026-11-11", "kind": "churn", "ref": "r"}
+    reg = yaml.safe_dump({"schema": "openova.io/stability/v1", "entries": [
+        {"id": "topo", "title": "T", "class": "settling", "change_policy": "closed", "paths": ["src/closed/"], "evidence": evidence, "allowed_packages": ["FND-900"]},
+        {"id": "kept", "title": "T", "class": "settling", "change_policy": "fix-only", "paths": ["src/kept/"], "evidence": evidence}]})
+    m7 = Model(t_plan(t_pkg("AAA-001", type="new", touches=["src/"]), t_pkg("FND-900", touches=["src/closed/"], repeatable=True)), gates, t_world(texts={STABILITY: reg}))
+
+    def seven(i, path):
+        files = [("M", path, 1)] + ([] if i == "FND-900" else [done(i)])
+        return check_pr(m7, Change(files, {}.get, t_done(i).get), "Work-Package: %s\n" % i)
+    t.ok(seven("AAA-001", "src/open.go") == [] and seven("FND-900", "src/closed/a.go") == [], "check-pr: the stability register lets a package change an open path, and FND-900 a path of an entry that allows it")
+    t.refused(seven("AAA-001", "src/closed/a.go"), "rule 7: register rule 3: src/closed/a.go is in entry topo", "check-pr rule 7: a package that changes a path of a closed stability entry")
+    t.refused(seven("AAA-001", "src/kept/a.go"), "rule 7: register rule 4: src/kept/a.go is in entry kept", "check-pr rule 7: a package of type new that changes a path of a fix-only stability entry")
 
 
 def test_run(t):

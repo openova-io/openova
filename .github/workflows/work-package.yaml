@@ -1,18 +1,20 @@
 # work-package.yaml - the fence around every work package.
 #
 # A work package of docs/ledger/plan.yaml arrives as one pull request. The last line of its
-# body names the package: "Work-Package: <ID>". Three jobs judge the pull request:
+# body names the package: "Work-Package: <ID>". Four jobs judge the pull request:
 #   scope         only the allowed paths of the package changed, its dependencies are merged
 #                 and their gate checks are green, the done marker is there, the budget is kept
 #   precondition  the precondition of the package holds at the commit the branch was cut from
 #   acceptance    the acceptance commands of the package exit 0 on the merged result
+#   frozen-paths  no file of a closed, fix-only or frozen entry of docs/ledger/stability.yaml
+#                 changes against its policy, and an entry becomes frozen only with two gate records
 # The plan on main decides. Every job reads the plan at the base commit, never the copy in
 # the pull request, so a branch cannot change the commands that judge it. On a pull request
 # the checkout is the merge of main and the branch: HEAD^1 is main, HEAD^2 is the branch.
 # A pull request with "Work-Package: PLAN", and one that carries only a wrong report, have
 # nothing to run: for them the jobs precondition and acceptance say so and pass.
 # Only a work package is judged. A pull request whose branch is not wp/<ID> or
-# wrong/<ID>-rev<N> and whose body names no package is not one: the three jobs pass with the
+# wrong/<ID>-rev<N> and whose body names no package is not one: the four jobs pass with the
 # notice "not a work package, not judged". A pull request that changes a file of the plan
 # itself is always judged; when it names no package it is judged as a plan change.
 # On a merge group every commit of the group is one pull request: its message is the body.
@@ -123,5 +125,33 @@ jobs:
             for commit in $(git rev-list --reverse "$GROUP_BASE..$GROUP_HEAD"); do
               git log -1 --format=%B "$commit" > "$RUNNER_TEMP/body.txt"
               python3 scripts/plan.py accept --base "$commit^" --head "$commit" --body-file "$RUNNER_TEMP/body.txt" --author "$(git log -1 --format=%an "$commit")"
+            done
+          fi
+
+  frozen-paths:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # The whole history: classify counts the commits of 90 days, and rule 6 asks whether a candidate commit is on main.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PyYAML
+        run: pip install --quiet pyyaml
+      - name: Self-test of the frozen-path check
+        run: python3 scripts/check-frozen-paths.py --self-test
+      - name: Closed, fix-only and frozen paths, and changes of the register
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            printf '%s\n' "$PR_BODY" > "$RUNNER_TEMP/body.txt"
+            python3 scripts/check-frozen-paths.py check --base "$(git rev-parse HEAD^1)" --head "$(git rev-parse HEAD^2)" --body-file "$RUNNER_TEMP/body.txt" --branch "$PR_BRANCH" --author "$PR_AUTHOR"
+          else
+            for commit in $(git rev-list --reverse "$GROUP_BASE..$GROUP_HEAD"); do
+              git log -1 --format=%B "$commit" > "$RUNNER_TEMP/body.txt"
+              python3 scripts/check-frozen-paths.py check --base "$commit^" --head "$commit" --body-file "$RUNNER_TEMP/body.txt" --author "$(git log -1 --format=%an "$commit")"
             done
           fi
