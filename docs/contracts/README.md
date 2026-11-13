@@ -35,5 +35,9 @@ C7, the gate manifest, is checked on every pull request by the workflow
 C3 is checked on every pull request by the workflow `check-contracts-ctl`. Its
 rules are written at the head of `scripts/check-event-subjects.py`.
 
+C9 is checked on every pull request by the workflow `check-generated-docs`,
+and on every change to catalyst-api by the test `TestMutatingRoutesContract`.
+Its rules are written at the head of `scripts/generators/mutating-routes.py`.
+
 C2 is checked on every pull request by the workflow `check-provider-contract`.
 Its rules are written at the head of `scripts/check-provider-contract.sh`.
