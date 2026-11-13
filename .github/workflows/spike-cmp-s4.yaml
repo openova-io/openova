@@ -1,0 +1,128 @@
+# Spike CMP-S4 (lab test, never merged): is etcd load from report objects a
+# problem? The design's trigger: above 20,000 report objects or 200 MB in one
+# region, the policy engine's report server moves reports out of etcd.
+#
+# Everything runs on the runner: one k3s node at the version and with the
+# server flags Sovereigns run (embedded etcd), the platform's own report
+# producers with their own values (bp-kyverno, bp-kyverno-policies, bp-trivy),
+# real images that platform charts pin. Measured: report objects and stored
+# bytes per report kind in etcd; etcd database size; API-server watch latency
+# and list latency; API-server/etcd memory; producer memory and restarts;
+# first with the real reports, then with the population raised to the trigger
+# and to twice the trigger. No cloud account, no secret, no outside cluster.
+name: spike-cmp-s4
+
+on:
+  push:
+    branches: [spike/CMP-S4]
+
+permissions:
+  contents: read
+
+jobs:
+  report-load:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      # the k3s release Sovereigns run (infra/providers/huawei/variables.tf)
+      K3S_VERSION: v1.31.4+k3s1
+      KUBECTL_VERSION: v1.31.4
+      HELM_VERSION: v3.16.3
+      ETCD_VERSION: v3.5.17
+      # the Flux line the platform installs (only its CRDs are applied)
+      FLUX_VERSION: v2.4.0
+      # platform value is 2; raised only so every scan fits the job time
+      SCAN_CONCURRENCY: "3"
+      OUT: ${{ github.workspace }}/out
+      KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free runner disk (scan jobs unpack images and the vulnerability database)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
+          df -h /
+
+      - name: Install helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Install kubectl and etcdctl
+        run: |
+          set -euo pipefail
+          sudo curl -fsSL -o /usr/local/bin/kubectl \
+            "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          sudo chmod +x /usr/local/bin/kubectl
+          curl -fsSL -o /tmp/etcd.tgz \
+            "https://github.com/etcd-io/etcd/releases/download/${ETCD_VERSION}/etcd-${ETCD_VERSION}-linux-amd64.tar.gz"
+          tar -xzf /tmp/etcd.tgz -C /tmp
+          sudo install -m 0755 "/tmp/etcd-${ETCD_VERSION}-linux-amd64/etcdctl" /usr/local/bin/etcdctl
+
+      - name: Install k3s with the Sovereign server flags
+        run: |
+          set -euo pipefail
+          # Server flags of infra/providers/_shared/cloudinit-control-plane.tftpl
+          # plus the Huawei k3s_extra_args (infra/providers/huawei/main.tf).
+          # Not carried over: the Cilium CNI (flannel stays; no report depends
+          # on the CNI), node IP / TLS SAN / node labels (addressing only).
+          curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="$K3S_VERSION" sh -s - server \
+            --cluster-init \
+            --disable-network-policy \
+            --disable=traefik \
+            --disable=servicelb \
+            --disable=local-storage \
+            --kubelet-arg=max-pods=220 \
+            --kubelet-arg=image-gc-high-threshold=70 \
+            --kubelet-arg=image-gc-low-threshold=60 \
+            --kubelet-arg=minimum-image-ttl-duration=2h \
+            --kube-apiserver-arg=default-watch-cache-size=200 \
+            --kube-apiserver-arg=watch-cache-sizes=secrets#500,configmaps#500 \
+            --etcd-snapshot-retention=5 \
+            --write-kubeconfig-mode=0644
+          for i in $(seq 1 60); do
+            kubectl get nodes 2>/dev/null | grep -q ' Ready ' && break
+            sleep 5
+          done
+          kubectl wait --for=condition=Ready node --all --timeout=180s
+          kubectl -n kube-system rollout status deploy/coredns --timeout=180s
+          kubectl -n kube-system rollout status deploy/metrics-server --timeout=180s || true
+
+      - name: Tool versions
+        run: |
+          python3 -c 'import yaml' 2>/dev/null || sudo apt-get install -y python3-yaml
+          k3s --version
+          kubectl version
+          helm version
+          sudo etcdctl version
+          docker version --format '{{.Client.Version}}'
+          jq --version
+          python3 --version
+          nproc; free -g; df -h /
+
+      - name: Run the experiment
+        run: bash tests/spikes/CMP-S4/run.sh
+
+      - name: Dump the result files into the log
+        if: always()
+        run: |
+          for f in "$OUT"/*.txt; do
+            [ -f "$f" ] || continue
+            echo "::group::$f"; head -c 60000 "$f"; echo; echo "::endgroup::"
+          done
+          for f in "$OUT"/probe-*.json "$OUT"/load-*.json; do
+            [ -f "$f" ] || continue
+            echo "::group::$f"; head -c 40000 "$f"; echo; echo "::endgroup::"
+          done
+
+      - name: Keep the evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spike-cmp-s4-out
+          path: |
+            out/*.txt
+            out/*.json
+            out/workloads.yaml
+          retention-days: 30
