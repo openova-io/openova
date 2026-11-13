@@ -27,7 +27,7 @@
 # subchart — CRDs come from bp-cilium's upstream Cilium chart).
 
 ---
-apiVersion: source.toolkit.fluxcd.io/v1beta2
+apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:
   name: bp-plane-isolation

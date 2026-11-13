@@ -44,7 +44,7 @@
 #                HelmReleases that reference it can't resolve).
 
 ---
-apiVersion: source.toolkit.fluxcd.io/v1beta2
+apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:
   name: bp-vcluster-helmrepo
