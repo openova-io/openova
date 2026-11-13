@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ACC-020 client</title>
+<style>
+  body { margin: 0; background: #1d1f21; color: #e0e0e0; font: 12px monospace; }
+  #status { padding: 4px 8px; }
+  #display { display: inline-block; }
+</style>
+</head>
+<body>
+<div id="status">starting</div>
+<div id="display"></div>
+<script src="lib/all.min.js"></script>
+<script>
+// Throwaway page of lab test ACC-020: drives one session through
+// Guacamole.WebSocketTunnel + Guacamole.Client (the Apache release) against
+// the spike relay and records what the library sends, receives and does.
+(function () {
+  var q = new URLSearchParams(location.search);
+  var observe = parseInt(q.get('observe') || '15000', 10);
+  var doType = q.get('type') === '1';
+  var R = window.__result = {
+    done: false, events: [], sent: [], counts: {}, wsFirst: [], wsFrames: 0, pingEchoes: 0,
+    library: typeof Guacamole !== 'undefined'
+  };
+  var t0 = Date.now();
+  function ev(kind, v) {
+    R.events.push({ t: Date.now() - t0, kind: kind, v: v });
+    document.getElementById('status').textContent = kind + ' ' + JSON.stringify(v);
+  }
+  var TS = ['CONNECTING', 'OPEN', 'CLOSED', 'UNSTABLE'];
+  var CS = ['IDLE', 'CONNECTING', 'WAITING', 'CONNECTED', 'DISCONNECTING', 'DISCONNECTED'];
+
+  // Observe the raw socket the library opens (protocol negotiated, frames).
+  var NativeWS = window.WebSocket;
+  window.WebSocket = function (url, proto) {
+    var s = new NativeWS(url, proto);
+    R.wsUrl = String(url).replace(/\?.*$/, '?…');
+    R.wsRequestedProtocol = proto;
+    s.addEventListener('open', function () { R.wsProtocol = s.protocol; ev('ws-open', s.protocol); });
+    s.addEventListener('message', function (e) {
+      var d = String(e.data);
+      R.wsFrames++;
+      if (R.wsFirst.length < 6) R.wsFirst.push(d.length > 120 ? d.slice(0, 120) + '…' : d);
+      if (d.indexOf('0.,4.ping,') === 0) R.pingEchoes++;
+    });
+    s.addEventListener('error', function () { ev('ws-error', null); });
+    s.addEventListener('close', function (e) { ev('ws-close', { code: e.code, reason: e.reason, clean: e.wasClean }); });
+    return s;
+  };
+  window.WebSocket.prototype = NativeWS.prototype;
+
+  var tunnel, client;
+  function typeText(s) {
+    for (var i = 0; i < s.length; i++) {
+      var c = s.charCodeAt(i);
+      var sym = c === 10 ? 0xff0d : c;
+      client.sendKeyEvent(1, sym);
+      client.sendKeyEvent(0, sym);
+    }
+  }
+  function finish() {
+    try {
+      R.uuid = tunnel.uuid;
+      R.tunnelState = TS[tunnel.state];
+      var d = client.getDisplay();
+      R.display = { w: d.getWidth(), h: d.getHeight() };
+      R.unstableCount = R.events.filter(function (e) { return e.kind === 'tunnel' && e.v === 'UNSTABLE'; }).length;
+      R.clientStates = R.events.filter(function (e) { return e.kind === 'client'; }).map(function (e) { return e.v; });
+      client.disconnect();
+    } catch (e) { R.finishError = String(e); }
+    R.done = true;
+  }
+  try {
+    tunnel = new Guacamole.WebSocketTunnel('tunnel');
+    client = new Guacamole.Client(tunnel);
+    var origSend = tunnel.sendMessage;
+    tunnel.sendMessage = function () {
+      var parts = Array.prototype.slice.call(arguments).map(String);
+      var raw = parts.map(function (p) { return p.length + '.' + p; }).join(',') + ';';
+      var op = parts[0] === '' ? '(internal)' : parts[0];
+      R.counts['sent:' + op] = (R.counts['sent:' + op] || 0) + 1;
+      if (R.sent.length < 12) R.sent.push({ t: Date.now() - t0, raw: raw.length > 120 ? raw.slice(0, 120) + '…' : raw });
+      return origSend.apply(tunnel, arguments);
+    };
+    var origInstr = tunnel.oninstruction;
+    tunnel.oninstruction = function (op, args) {
+      R.counts['recv:' + op] = (R.counts['recv:' + op] || 0) + 1;
+      if (origInstr) origInstr(op, args);
+    };
+    tunnel.onstatechange = function (s) { ev('tunnel', TS[s]); };
+    tunnel.onerror = function (st) { ev('tunnel-error', { code: st.code, message: st.message }); };
+    tunnel.onuuid = function (u) { ev('uuid', u); };
+    client.onstatechange = function (s) { ev('client', CS[s]); };
+    client.onerror = function (st) { ev('client-error', { code: st.code, message: st.message }); };
+    client.onclipboard = function (stream, mimetype) { ev('clipboard', mimetype); };
+    document.getElementById('display').appendChild(client.getDisplay().getElement());
+    var data = new URLSearchParams(q);
+    data.set('width', '1024'); data.set('height', '768'); data.set('dpi', '96'); data.set('timezone', 'UTC');
+    client.connect(data.toString());
+    if (doType) setTimeout(function () { typeText('echo BROWSER-$((9*9))\n'); ev('typed', 'echo BROWSER-$((9*9))'); }, 4000);
+    setTimeout(finish, observe);
+  } catch (e) {
+    R.exception = String(e);
+    R.done = true;
+  }
+})();
+</script>
+</body>
+</html>

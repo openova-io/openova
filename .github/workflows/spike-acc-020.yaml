@@ -1,0 +1,71 @@
+# Lab test ACC-020 — guacd 1.6.0 driven without the web application.
+# Throwaway: runs only on the branch spike/ACC-020, is never merged, and
+# touches nothing outside the job (a single-node k3s on the runner, a
+# development OpenBao container, and the upstream images). No Service of
+# type NodePort or LoadBalancer is created: the runner reaches the session
+# pod on its pod IP.
+name: spike-acc-020
+
+on:
+  push:
+    branches: [spike/ACC-020]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spike-acc-020
+  cancel-in-progress: false
+
+jobs:
+  session:
+    name: session (items a-k)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup - k3s, images, targets, OpenBao SSH mount, session pod (k cold)
+        run: bash tests/spikes/ACC-020/setup.sh
+
+      - name: Scripted sessions (a b c d e h i j k)
+        if: always()
+        continue-on-error: true
+        run: bash tests/spikes/ACC-020/scenarios.sh
+
+      - name: Browser library and replay (a f g)
+        if: always()
+        continue-on-error: true
+        run: bash tests/spikes/ACC-020/browser.sh
+
+      - name: Collect logs
+        if: always()
+        run: |
+          export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+          EV=evidence
+          kubectl -n guacamole logs access-spike -c agent > $EV/agent.log 2>&1 || true
+          kubectl -n guacamole logs access-spike -c guacd > $EV/guacd.log 2>&1 || true
+          kubectl -n spike logs deploy/sshd > $EV/sshd.log 2>&1 || true
+          kubectl -n catalyst-system logs deploy/k8s-ws-proxy > $EV/proxy.log 2>&1 || true
+          kubectl get pods -A -o wide > $EV/pods.txt 2>&1 || true
+          echo "--- guacd log (selected lines)"
+          grep -a -i -E 'guacd\[|error|warn|recording|typescript|clipboard|authentication|certificate|kubernetes|websocket|connect' $EV/guacd.log | grep -v -i 'debug.*sync' | head -150 || true
+
+      - name: Results
+        if: always()
+        run: python3 tests/spikes/ACC-020/summary.py evidence
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: acc-020-evidence
+          path: evidence/
+
+  provenance:
+    name: provenance of the browser library (item l)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Maven Central and the npm registry
+        run: bash tests/spikes/ACC-020/provenance.sh

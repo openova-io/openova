@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ACC-020 replay</title>
+<style>body { margin: 0; background: #1d1f21; color: #e0e0e0; font: 12px monospace; } #display { display: inline-block; }</style>
+</head>
+<body>
+<div id="status">starting</div>
+<div id="display"></div>
+<script src="lib/all.min.js"></script>
+<script>
+// Throwaway page of lab test ACC-020: plays one screen recording with
+// Guacamole.SessionRecording three ways - streamed in pieces through
+// Guacamole.StaticHTTPTunnel, assembled from separately fetched parts (as a
+// broker would read stored chunk objects), and as one whole Blob.
+(async function () {
+  var q = new URLSearchParams(location.search);
+  var file = q.get('file');
+  var piece = q.get('piece') || '4093';
+  var delay = q.get('delay') || '5';
+  var part = parseInt(q.get('part') || '16384', 10);
+  var R = window.__result = { done: false, file: file, modes: {} };
+  function status(s) { document.getElementById('status').textContent = s; }
+
+  function load(source, out) {
+    return new Promise(function (resolve) {
+      var t0 = Date.now();
+      var rec = new Guacamole.SessionRecording(source);
+      var timer = setTimeout(function () { out.loadTimeout = true; resolve(rec); }, 60000);
+      rec.onprogress = function (duration, parsed) { out.progressEvents = (out.progressEvents || 0) + 1; out.parsedBytes = parsed; };
+      rec.onerror = function (m) { out.error = String(m); clearTimeout(timer); resolve(rec); };
+      rec.onload = function () { out.loaded = true; out.loadMs = Date.now() - t0; clearTimeout(timer); resolve(rec); };
+      rec.connect();
+    });
+  }
+
+  function analyse(rec, out) {
+    return new Promise(function (resolve) {
+      out.durationMs = rec.getDuration();
+      var timer = setTimeout(function () { out.seekTimeout = true; resolve(); }, 30000);
+      try {
+        rec.seek(out.durationMs, function () {
+          clearTimeout(timer);
+          var disp = rec.getDisplay();
+          out.display = { w: disp.getWidth(), h: disp.getHeight() };
+          try {
+            var c = disp.flatten();
+            var data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+            var colours = {}, n = 0;
+            for (var i = 0; i < data.length; i += 4 * 97) {
+              var k = data[i] + ',' + data[i + 1] + ',' + data[i + 2];
+              if (!colours[k]) { colours[k] = 1; n++; }
+            }
+            out.distinctColours = n;
+          } catch (e) { out.flattenError = String(e); }
+          resolve();
+        });
+      } catch (e) { clearTimeout(timer); out.seekError = String(e); resolve(); }
+    });
+  }
+
+  try {
+    status('mode 1: tunnel in pieces');
+    var m1 = R.modes.tunnelPieces = { url: 'rec/' + file + '?piece=' + piece + '&delay=' + delay };
+    var r1 = await load(new Guacamole.StaticHTTPTunnel(m1.url), m1);
+    if (m1.loaded) await analyse(r1, m1);
+
+    status('mode 2: parts joined into one Blob');
+    var m2 = R.modes.partsBlob = { part: part, parts: 0 };
+    var parts = [], off = 0;
+    for (;;) {
+      var resp = await fetch('rec/' + file + '?offset=' + off + '&length=' + part);
+      var b = await resp.arrayBuffer();
+      if (b.byteLength === 0) break;
+      parts.push(b); off += b.byteLength; m2.parts++;
+      if (b.byteLength < part) break;
+    }
+    m2.bytes = off;
+    var r2 = await load(new Blob(parts), m2);
+    if (m2.loaded) await analyse(r2, m2);
+
+    status('mode 3: whole Blob');
+    var m3 = R.modes.wholeBlob = {};
+    var whole = await (await fetch('rec/' + file)).blob();
+    m3.bytes = whole.size;
+    var r3 = await load(whole, m3);
+    if (m3.loaded) await analyse(r3, m3);
+    document.getElementById('display').appendChild(r3.getDisplay().getElement());
+  } catch (e) {
+    R.exception = String(e);
+  }
+  status('done');
+  R.done = true;
+})();
+</script>
+</body>
+</html>

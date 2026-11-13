@@ -1,0 +1,89 @@
+# Session pod of lab test ACC-020, in the shape of the design record's
+# session pod: guacd bound to loopback beside the agent, fixed security
+# context, recording volume shared read-write (guacd) / read-only (agent).
+# Lines marked "#strict" are removed only if the strict shape fails to start
+# (the run then says so). No Service, no NodePort: the runner reaches the
+# agent on the pod IP.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: @@NAME@@
+  namespace: guacamole
+  labels:
+    access.openova.io/session: "true"
+    access.openova.io/kind: spike
+    app.kubernetes.io/managed-by: spike-acc-020
+spec:
+  automountServiceAccountToken: false
+  restartPolicy: Never
+  enableServiceLinks: false
+  terminationGracePeriodSeconds: 20
+  securityContext:
+    runAsNonRoot: true #strict
+    runAsUser: 10001 #strict
+    runAsGroup: 10001 #strict
+    fsGroup: 10001
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: guacd
+      image: @@GUACD_IMAGE@@
+      command: ["@@GUACD_BIN@@", "-b", "127.0.0.1", "-l", "4822", "-L", "debug", "-f"]
+      env:
+        - name: HOME
+          value: /tmp
+        - name: XDG_CACHE_HOME
+          value: /tmp
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true #strict
+        capabilities:
+          drop: ["ALL"]
+      volumeMounts:
+        - name: rec
+          mountPath: /rec
+        - name: tmp
+          mountPath: /tmp
+    - name: agent
+      image: spike.local/acc020-agent:1
+      imagePullPolicy: Never
+      args: ["serve"]
+      ports:
+        - containerPort: 8443
+          name: tunnel
+      readinessProbe:
+        httpGet:
+          path: /healthz
+          port: 8443
+        periodSeconds: 1
+        failureThreshold: 1
+        successThreshold: 1
+      securityContext:
+        runAsUser: 10001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+      volumeMounts:
+        - name: rec
+          mountPath: /rec
+          readOnly: true
+        - name: creds
+          mountPath: /var/run/secrets/openova
+          readOnly: true
+        - name: config
+          mountPath: /etc/access
+          readOnly: true
+  volumes:
+    - name: rec
+      emptyDir:
+        sizeLimit: 2Gi
+    - name: tmp
+      emptyDir:
+        medium: Memory
+    - name: creds
+      configMap:
+        name: spike-creds
+    - name: config
+      configMap:
+        name: spike-agent-config
