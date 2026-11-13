@@ -1,0 +1,5 @@
+#cloud-config
+# CLD-055 spike, L4: a minimal worker that joins the control plane with the
+# agent token (the local pack's own worker template does not exist yet).
+runcmd:
+  - [sh, -c, "curl -fsSL --retry 5 https://get.k3s.io -o /root/k3s-install.sh && INSTALL_K3S_VERSION='v1.31.4+k3s1' K3S_URL='https://172.30.0.10:6443' K3S_TOKEN='render-test-agent-token' INSTALL_K3S_EXEC='agent --node-ip=WORKER_IP' sh /root/k3s-install.sh"]

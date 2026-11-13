@@ -1,0 +1,5 @@
+# CLD-055 spike, L5: first Kustomization after the move: both releases gone from it.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../parts/helmrepo.yaml

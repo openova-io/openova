@@ -1,0 +1,5 @@
+# CLD-055 spike, L5: second Kustomization, before the move.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../parts/placeholder.yaml

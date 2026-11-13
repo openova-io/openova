@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ks-b-placeholder
+  namespace: l5
+data:
+  note: the second Kustomization before the move

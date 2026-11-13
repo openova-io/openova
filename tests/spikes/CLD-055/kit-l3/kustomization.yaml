@@ -1,0 +1,27 @@
+# CLD-055 spike, L3: the reduced kit of the local pack, single cluster.
+# The transitive dependsOn closure of slots 01-cilium, 02-cert-manager,
+# 03-flux, 04-crossplane, 08-openbao, 10-gitea, 11-powerdns, 18-seaweedfs and
+# 19-harbor, computed from the shared slot files at the branch point
+# (17 HelmReleases), plus the local-path release, because the shared template
+# starts k3s with --disable=local-storage.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../../../clusters/_template/bootstrap-kit/01-cilium.yaml
+  - ../../../../clusters/_template/bootstrap-kit/01a-gateway-api.yaml
+  - ../../../../clusters/_template/bootstrap-kit/02-cert-manager.yaml
+  - ../../../../clusters/_template/bootstrap-kit/03-flux.yaml
+  - ../../../../clusters/_template/bootstrap-kit/04-crossplane.yaml
+  - ../../../../clusters/_template/bootstrap-kit/05a-reflector.yaml
+  - ../../../../clusters/_template/bootstrap-kit/08-openbao.yaml
+  - ../../../../clusters/_template/bootstrap-kit/09-keycloak.yaml
+  - ../../../../clusters/_template/bootstrap-kit/10-gitea.yaml
+  - ../../../../clusters/_template/bootstrap-kit/11-powerdns.yaml
+  - ../../../../clusters/_template/bootstrap-kit/15-external-secrets.yaml
+  - ../../../../clusters/_template/bootstrap-kit/16-cnpg.yaml
+  - ../../../../clusters/_template/bootstrap-kit/16a-bp-postgres-shared.yaml
+  - ../../../../clusters/_template/bootstrap-kit/18-seaweedfs.yaml
+  - ../../../../clusters/_template/bootstrap-kit/19-harbor.yaml
+  - ../../../../clusters/_template/bootstrap-kit/55a-bp-hcloud-csi.yaml
+  - ../../../../clusters/_template/bootstrap-kit/55b-bp-huawei-evs-csi.yaml
+  - ../local-path.yaml

@@ -1,0 +1,7 @@
+# CLD-055 spike, L5: first Kustomization: dummy carries the prune annotation.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../parts/helmrepo.yaml
+  - ../parts/hr-dummy-annotated.yaml
+  - ../parts/hr-ctl.yaml

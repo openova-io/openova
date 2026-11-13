@@ -1,0 +1,28 @@
+# CLD-055 spike, L6: the two-cluster kit. The L3 closure plus the console
+# slot 13-bp-catalyst-platform and what it adds to the closure
+# (14-crossplane-claims, 16d-bp-postgres-shared-c): 20 HelmReleases, plus the
+# local-path release.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../../../clusters/_template/bootstrap-kit/01-cilium.yaml
+  - ../../../../clusters/_template/bootstrap-kit/01a-gateway-api.yaml
+  - ../../../../clusters/_template/bootstrap-kit/02-cert-manager.yaml
+  - ../../../../clusters/_template/bootstrap-kit/03-flux.yaml
+  - ../../../../clusters/_template/bootstrap-kit/04-crossplane.yaml
+  - ../../../../clusters/_template/bootstrap-kit/05a-reflector.yaml
+  - ../../../../clusters/_template/bootstrap-kit/08-openbao.yaml
+  - ../../../../clusters/_template/bootstrap-kit/09-keycloak.yaml
+  - ../../../../clusters/_template/bootstrap-kit/10-gitea.yaml
+  - ../../../../clusters/_template/bootstrap-kit/11-powerdns.yaml
+  - ../../../../clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml
+  - ../../../../clusters/_template/bootstrap-kit/14-crossplane-claims.yaml
+  - ../../../../clusters/_template/bootstrap-kit/15-external-secrets.yaml
+  - ../../../../clusters/_template/bootstrap-kit/16-cnpg.yaml
+  - ../../../../clusters/_template/bootstrap-kit/16a-bp-postgres-shared.yaml
+  - ../../../../clusters/_template/bootstrap-kit/16d-bp-postgres-shared-c.yaml
+  - ../../../../clusters/_template/bootstrap-kit/18-seaweedfs.yaml
+  - ../../../../clusters/_template/bootstrap-kit/19-harbor.yaml
+  - ../../../../clusters/_template/bootstrap-kit/55a-bp-hcloud-csi.yaml
+  - ../../../../clusters/_template/bootstrap-kit/55b-bp-huawei-evs-csi.yaml
+  - ../local-path.yaml

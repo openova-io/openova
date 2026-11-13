@@ -1,0 +1,19 @@
+# Control: the same move without the prune annotation. It is expected to be
+# uninstalled and installed again, which shows the check can see an uninstall.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: ctl
+  namespace: l5
+spec:
+  interval: 10m
+  releaseName: ctl
+  chart:
+    spec:
+      chart: podinfo
+      version: 6.7.1
+      sourceRef:
+        kind: HelmRepository
+        name: podinfo
+  values:
+    replicaCount: 1

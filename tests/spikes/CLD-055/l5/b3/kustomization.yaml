@@ -1,0 +1,7 @@
+# CLD-055 spike, L5: second Kustomization: annotation removed.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../parts/placeholder.yaml
+  - ../parts/hr-dummy.yaml
+  - ../parts/hr-ctl.yaml

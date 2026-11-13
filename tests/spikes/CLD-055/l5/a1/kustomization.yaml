@@ -1,0 +1,7 @@
+# CLD-055 spike, L5: first Kustomization, before: both releases.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../parts/helmrepo.yaml
+  - ../parts/hr-dummy.yaml
+  - ../parts/hr-ctl.yaml
