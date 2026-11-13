@@ -235,7 +235,7 @@ e1() {
   measure E1 kind_providerconfig "$pc"
   measure E1 served_resources "$served"
   if [[ $ws == Workspace/Namespaced && $cpc == ClusterProviderConfig/Cluster && $served == *workspaces.opentofu.m.upbound.io* && $served == *clusterproviderconfigs.opentofu.m.upbound.io* ]]; then
-    verdict E1 PASS "Workspace (Namespaced) and ClusterProviderConfig (Cluster) are served in opentofu.m.upbound.io/v1beta1 as section 4.7 names them"
+    verdict E1 PASS "Workspace (Namespaced) and ClusterProviderConfig (Cluster) are served in opentofu.m.upbound.io/v1beta1 under the names the plan uses"
   else
     verdict E1 FAIL "kinds differ: workspace=$ws clusterproviderconfig=$cpc served=[$served]"
   fi

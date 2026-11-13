@@ -132,7 +132,7 @@ EOF
 }
 s3() { aws --endpoint-url http://127.0.0.1:8333 "$@"; }
 
-# The s3 back end as section 4.7 names it: key terraform.tfstate,
+# The s3 back end the plan names: key terraform.tfstate,
 # workspace_key_prefix tofu-state => tofu-state/<external-name>/terraform.tfstate
 s3_backend_hcl() { # endpoint
   cat <<EOF
