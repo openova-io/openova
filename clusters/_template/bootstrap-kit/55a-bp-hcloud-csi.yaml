@@ -81,6 +81,8 @@ metadata:
   namespace: flux-system
   labels:
     catalyst.openova.io/slot: "55a"
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
 spec:
   # #3971 — ACTIVE on BOTH providers (NOT suspended). The chart `enabled`
   # toggle below (HCLOUD_CSI_ENABLED) decides whether this installs the real
