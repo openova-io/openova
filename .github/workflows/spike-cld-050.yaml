@@ -1,0 +1,97 @@
+# Spike CLD-050 — Workspace mechanics on Crossplane 2 with bucket state,
+# encryption, mirrors and the offline key. Lab test only: it runs on the
+# throwaway branch spike/CLD-050, is never merged, and touches nothing
+# outside the job (kind cluster + Docker containers on the runner).
+name: spike-cld-050
+
+on:
+  push:
+    branches: [spike/CLD-050]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spike-cld-050
+  cancel-in-progress: false
+
+jobs:
+  core:
+    name: core (E1 E2 E3 E6 E13 E15 E16 E17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: bash tests/spikes/CLD-050/install-tools.sh
+      - name: Run experiments
+        run: bash tests/spikes/CLD-050/job-core.sh
+      - name: Print evidence
+        if: always()
+        run: bash tests/spikes/CLD-050/print-evidence.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cld-050-core
+          path: evidence/
+
+  git:
+    name: git (E4 E8)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: bash tests/spikes/CLD-050/install-tools.sh
+      - name: Run experiments
+        run: bash tests/spikes/CLD-050/job-git.sh
+      - name: Print evidence
+        if: always()
+        run: bash tests/spikes/CLD-050/print-evidence.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cld-050-git
+          path: evidence/
+
+  mirror:
+    name: mirror (E5)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: bash tests/spikes/CLD-050/install-tools.sh
+      - name: Run experiments
+        run: bash tests/spikes/CLD-050/job-mirror.sh
+      - name: Print evidence
+        if: always()
+        run: bash tests/spikes/CLD-050/print-evidence.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cld-050-mirror
+          path: evidence/
+
+  upgrade:
+    name: upgrade (E7 ${{ matrix.mode }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [chain, early]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: bash tests/spikes/CLD-050/install-tools.sh
+      - name: Run experiments
+        run: bash tests/spikes/CLD-050/job-upgrade.sh ${{ matrix.mode }}
+      - name: Print evidence
+        if: always()
+        run: bash tests/spikes/CLD-050/print-evidence.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cld-050-upgrade-${{ matrix.mode }}
+          path: evidence/
