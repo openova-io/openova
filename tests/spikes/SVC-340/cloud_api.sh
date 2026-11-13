@@ -109,11 +109,20 @@ plan_password_change() { # RESOURCE PASSWORD_ATTRIBUTE
         elif (.value.type | type) == "array" and .value.type[0] == "map" then "  \(.key) = {}"
         else "  # unsupported type for \(.key)" end)
     | join("\n")' "$OUT/schema.json")
+  # Arguments that are required only as one of a group (AtLeastOneOf) are
+  # not marked required in the schema; run 1 named them.
+  if [ "$r" = huaweicloud_dcs_instance ]; then
+    body="$body
+  engine_version = \"6.0\"
+  flavor = \"spike-flavor\"
+  availability_zones = [\"spike-az1\"]"
+  fi
   printf 'resource "%s" "spike" {\n%s\n}\n' "$r" "$body" > "$d/main.tf"
   echo "--- $d/main.tf"; cat "$d/main.tf"
   (cd "$d" && tofu init -backend=false -input=false -no-color) > "$d/init.log" 2>&1
   if ! (cd "$d" && tofu plan -refresh=false -input=false -no-color -var pw=spike-old-pw -out=create.tfplan) > "$d/create.log" 2>&1; then
     rec "$r" plan_create_ok no "$(grep -E 'Error|error' "$d/create.log" | head -4)"
+    echo "--- $d/create.log"; tail -30 "$d/create.log"
     return 0
   fi
   rec "$r" plan_create_ok yes ""
@@ -127,6 +136,7 @@ plan_password_change() { # RESOURCE PASSWORD_ATTRIBUTE
     "$d/create.json" > "$d/terraform.tfstate"
   if ! (cd "$d" && tofu plan -refresh=false -input=false -no-color -var pw=spike-new-pw -out=rotate.tfplan) > "$d/rotate.log" 2>&1; then
     rec "$r" plan_rotate_ok no "$(grep -E 'Error|error' "$d/rotate.log" | head -4)"
+    echo "--- $d/rotate.log"; tail -30 "$d/rotate.log"
     return 0
   fi
   (cd "$d" && tofu show -json rotate.tfplan) > "$d/rotate.json"
@@ -171,4 +181,12 @@ for doc in dcs_account.md dcs_instance.md; do
   echo "--- docs/resources/$doc: password and version notes"
   grep -n -i -E 'password|redis 6|redis 7|only.*support|-> ' "$SRC/docs/resources/$doc" | head -30
 done
+echo "--- docs/resources/dcs_account.md: account_role and account_type"
+grep -n -A6 -E '^\* `account_(role|type)`' "$SRC/docs/resources/dcs_account.md"
+rec huaweicloud_dcs_account account_role_documented_values "-" \
+  "$(grep -A6 -E '^\* `account_role`' "$SRC/docs/resources/dcs_account.md" | tr -s ' \n' ' ')"
+echo "--- docs/resources/dcs_instance.md: rename_commands and ssl"
+grep -n -A6 -E '^\* `(rename_commands|ssl_enable)`' "$SRC/docs/resources/dcs_instance.md"
+rec huaweicloud_dcs_instance rename_commands_documented "-" \
+  "$(grep -A4 -E '^\* `rename_commands`' "$SRC/docs/resources/dcs_instance.md" | tr -s ' \n' ' ')"
 echo "== done"

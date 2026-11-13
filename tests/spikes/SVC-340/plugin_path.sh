@@ -204,10 +204,26 @@ run_target() { # NAME HOST CONTAINER ADMIN_PASSWORD
     login "$H" spikeapp "$P2"; rc=$?
     rec "$T" restart_static_rotated_pw_survives "$(yn $rc)" "$LAST"
   fi
+  if [ "$T" = valkey-aclfile ]; then
+    login "$H" spikeapp spike-initial-pw; rc=$?
+    rec "$T" restart_static_initial_pw_back "$(yn $rc)" "$LAST"
+  fi
   login "$H" "" "$APW"; rc=$?
   rec "$T" restart_original_root_pw_back "$(yn $rc)" "$LAST"
+  # The first request after a restart may fail on OpenBao's stale pooled
+  # connection; three attempts show the steady state.
+  local a
+  for a in 1 2 3; do
+    cred "$T-dyn"; rc=$?
+    rec "$T" "restart_openbao_issue_attempt_$a" "$(yn $rc)" "$LAST"
+    [ $rc -eq 0 ] && break
+    sleep 2
+  done
+  # Recovery: write the connection again with the password the cache now has.
+  o=$(bao write "database/config/$T" plugin_name="$PLUGIN" host="$H" port=6379 \
+        username=default password="$APW" allowed_roles='*' 2>&1); rc=$?
   cred "$T-dyn"; rc=$?
-  rec "$T" restart_openbao_can_still_issue "$(yn $rc)" "$LAST"
+  rec "$T" restart_recovered_by_rewriting_config_with_original_pw "$(yn $rc)" "$LAST"
 }
 
 # Target 1: bp-valkey image as pinned, password on, chart default disabled commands.
@@ -221,7 +237,7 @@ docker run -d --name vk-bp-closed --network "$NET" -e VALKEY_PASSWORD="$PW" \
 run_target bp-valkey-acl-closed vk-bp-closed vk-bp-closed "$PW"
 
 # Target 3: upstream Valkey with an ACL file (the persistence form of ACL users).
-printf 'user default on >%s ~* &* +@all\n' "$PW" > "$OUT/cfg/users.acl"
+printf 'user default on >%s ~* &* +@all\nuser spikeapp on >spike-initial-pw ~* &* +@all\n' "$PW" > "$OUT/cfg/users.acl"
 printf 'aclfile /cfg/users.acl\n' > "$OUT/cfg/aclfile.conf"
 chmod 644 "$OUT/cfg/users.acl" "$OUT/cfg/aclfile.conf"
 docker run -d --name vk-aclfile --network "$NET" -v "$OUT/cfg:/cfg:ro" \
@@ -265,7 +281,7 @@ docker run -d --name vkr --network "$NET" "$UPSTREAM_VALKEY_IMAGE" \
   valkey-server --requirepass "$PW" --masterauth "$PW" --replicaof vkp 6379 >/dev/null
 wait_up vkp; wait_up vkr
 link() { vc -h vkr -a "$PW" INFO replication | grep -o 'master_link_status:[a-z]*'; }
-for i in $(seq 1 30); do [ "$(link)" = master_link_status:up ] && break; sleep 1; done
+for _ in $(seq 1 30); do [ "$(link)" = master_link_status:up ] && break; sleep 1; done
 rec valkey-replication link_up_initially "$([ "$(link)" = master_link_status:up ] && echo yes || echo no)" "$(link)"
 o=$(bao write database/config/repl plugin_name="$PLUGIN" host=vkp port=6379 \
       username=default password="$PW" allowed_roles='*' 2>&1); rc=$?
@@ -286,8 +302,36 @@ fi
 o=$(bao write -f database/rotate-root/repl 2>&1); rc=$?
 rec valkey-replication root_rotate_accepted "$(yn $rc)" "$o"
 docker restart vkr >/dev/null; wait_up vkr
-for i in $(seq 1 15); do [ "$(link)" = master_link_status:up ] && break; sleep 1; done
+for _ in $(seq 1 15); do [ "$(link)" = master_link_status:up ] && break; sleep 1; done
 rec valkey-replication link_up_after_root_rotate_and_replica_restart \
-  "$([ "$(link)" = master_link_status:up ] && echo yes || echo no)" "$(link)"
+  "$([ "$(link)" = master_link_status:up ] && echo yes || echo no)" \
+  "$(link) $(docker logs vkr 2>&1 | grep -m1 -o 'Unable to AUTH to PRIMARY.*')"
+
+# Target 10: the same pair, with a dedicated OpenBao admin user on the
+# primary instead of the default user (the form the plug-in docs advise).
+echo "== target valkey-replication-dedicated-admin"
+docker run -d --name vkp2 --network "$NET" "$UPSTREAM_VALKEY_IMAGE" \
+  valkey-server --requirepass "$PW" --masterauth "$PW" >/dev/null
+docker run -d --name vkr2 --network "$NET" "$UPSTREAM_VALKEY_IMAGE" \
+  valkey-server --requirepass "$PW" --masterauth "$PW" --replicaof vkp2 6379 >/dev/null
+wait_up vkp2; wait_up vkr2
+link2() { vc -h vkr2 -a "$PW" INFO replication | grep -o 'master_link_status:[a-z]*'; }
+for _ in $(seq 1 30); do [ "$(link2)" = master_link_status:up ] && break; sleep 1; done
+o=$(vc -h vkp2 -a "$PW" ACL SETUSER baoadmin on '>bao-admin-initial' '~*' '&*' '+@all')
+rec valkey-replication-dedicated-admin admin_user_created "$([ "$o" = OK ] && echo yes || echo no)" "$o"
+o=$(bao write database/config/repl2 plugin_name="$PLUGIN" host=vkp2 port=6379 \
+      username=baoadmin password=bao-admin-initial allowed_roles='*' 2>&1); rc=$?
+rec valkey-replication-dedicated-admin config_accepted "$(yn $rc)" "$o"
+o=$(bao write -f database/rotate-root/repl2 2>&1); rc=$?
+rec valkey-replication-dedicated-admin root_rotate_accepted "$(yn $rc)" "$o"
+login vkp2 baoadmin bao-admin-initial; rc=$?
+rec valkey-replication-dedicated-admin admin_initial_pw_denied "$(ny $rc)" "$LAST"
+o=$(vc -h vkr2 -a "$PW" ACL GETUSER baoadmin | tr '\n' ' ')
+rec valkey-replication-dedicated-admin admin_user_exists_on_replica \
+  "$(grep -q flags <<<"$o" && echo yes || echo no)" "ACL GETUSER on replica: '$o'"
+docker restart vkr2 >/dev/null; wait_up vkr2
+for _ in $(seq 1 15); do [ "$(link2)" = master_link_status:up ] && break; sleep 1; done
+rec valkey-replication-dedicated-admin link_up_after_root_rotate_and_replica_restart \
+  "$([ "$(link2)" = master_link_status:up ] && echo yes || echo no)" "$(link2)"
 
 echo "== done"
