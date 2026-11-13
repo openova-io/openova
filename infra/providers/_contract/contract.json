@@ -20,6 +20,7 @@
     {"name": "pdm_basic_auth_pass", "type": "string", "required": false, "sensitive": true, "default": ""},
     {"name": "k3s_version", "type": "string", "required": false, "sensitive": false, "default": null},
     {"name": "default_storage_class", "type": "string", "required": true, "sensitive": false, "default": null},
+    {"name": "variables", "type": "map(string)", "required": true, "sensitive": false, "default": null},
     {"name": "provider_api_cidrs", "type": "list(string)", "required": false, "sensitive": false, "default": null},
     {"name": "ssh_allowed_cidrs", "type": "list(string)", "required": false, "sensitive": false, "default": []},
     {"name": "bcp_topology", "type": "string", "required": false, "sensitive": false, "default": "single-region"},
@@ -30,7 +31,6 @@
     {"name": "enable_unattended_upgrades", "type": "bool", "required": false, "sensitive": false, "default": true},
     {"name": "enable_hot_standby", "type": "string", "required": false, "sensitive": false, "default": "false"},
     {"name": "enable_shared_pg", "type": "string", "required": false, "sensitive": false, "default": "true"},
-    {"name": "fire_cutover_on_handover", "type": "string", "required": false, "sensitive": false, "default": "true"},
     {"name": "marketplace_enabled", "type": "string", "required": false, "sensitive": false, "default": "true"},
     {"name": "qa_fixtures_enabled", "type": "string", "required": false, "sensitive": false, "default": "false"},
     {"name": "wildcard_cert_use_staging", "type": "string", "required": false, "sensitive": false, "default": "false"}

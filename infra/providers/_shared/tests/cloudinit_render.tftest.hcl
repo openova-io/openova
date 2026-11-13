@@ -138,6 +138,14 @@ run "hetzner_render_is_valid" {
     condition     = length(regexall("(?s)K=/var/lib/catalyst/parent-bootstrap\\.kubeconfig\n.*config set-credentials default --token=.*\n  - rm -f /var/lib/catalyst/parent-bootstrap\\.kubeconfig\n", output.rendered_cloud_init)) == 1
     error_message = "SOV-140: the parent-bootstrap kubeconfig must be written before the post-back and deleted right after it."
   }
+
+  # SOV-133 — the template takes the variables document as its input
+  # `variables`; the kit key FIRE_CUTOVER_ON_HANDOVER takes the value of its
+  # key HANDOVER_AUTO ("false" in render.tf).
+  assert {
+    condition     = strcontains(output.rendered_cloud_init, "\n            FIRE_CUTOVER_ON_HANDOVER: \"false\"\n")
+    error_message = "SOV-133: the kit key FIRE_CUTOVER_ON_HANDOVER must take the value of HANDOVER_AUTO of the template input variables."
+  }
 }
 
 run "huawei_render_is_valid" {
@@ -245,6 +253,14 @@ run "huawei_render_is_valid" {
   assert {
     condition     = length(regexall("(?s)K=/var/lib/catalyst/parent-bootstrap\\.kubeconfig\n.*config set-credentials default --token=.*\n  - rm -f /var/lib/catalyst/parent-bootstrap\\.kubeconfig\n", output.rendered_cloud_init)) == 1
     error_message = "SOV-140 (huawei branch): the parent-bootstrap kubeconfig must be written before the post-back and deleted right after it."
+  }
+
+  # SOV-133 (huawei branch) — the template takes the variables document as its input
+  # `variables`; the kit key FIRE_CUTOVER_ON_HANDOVER takes the value of its
+  # key HANDOVER_AUTO ("false" in render.tf).
+  assert {
+    condition     = strcontains(output.rendered_cloud_init, "\n            FIRE_CUTOVER_ON_HANDOVER: \"false\"\n")
+    error_message = "SOV-133 (huawei branch): the kit key FIRE_CUTOVER_ON_HANDOVER must take the value of HANDOVER_AUTO of the template input variables."
   }
 }
 

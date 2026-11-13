@@ -37,6 +37,7 @@ Every module declares all 33 with exactly this type. "none" in the default colum
 | `pdm_basic_auth_pass` | string | no | `""` | yes | Password of the pool domain manager |
 | `k3s_version` | string | no | module's | no | Version of the Kubernetes distribution |
 | `default_storage_class` | string | yes | none | no | Written from the cloud profile |
+| `variables` | map(string) | yes | none | no | The variables document of the region: exactly the keys of contract C5 (`docs/contracts/c5-upstream-variables.schema.json`). Its key `HANDOVER_AUTO` starts the hand-over flip |
 | `provider_api_cidrs` | list(string) | no | `[]` | no | Address ranges of the cloud API that stay reachable during the egress proof |
 | `ssh_allowed_cidrs` | list(string) | no | `[]` | no | Sources that may reach SSH on a node |
 | `bcp_topology` | string | no | `"single-region"` | no | Topology choice |
@@ -47,7 +48,6 @@ Every module declares all 33 with exactly this type. "none" in the default colum
 | `enable_unattended_upgrades` | bool | no | `true` | no | Node hardening |
 | `enable_hot_standby` | string | no | `"false"` | no | Database option |
 | `enable_shared_pg` | string | no | `"true"` | no | Database option |
-| `fire_cutover_on_handover` | string | no | `"true"` | no | Start the cutover at hand-over |
 | `marketplace_enabled` | string | no | `"true"` | no | Storefront switch |
 | `qa_fixtures_enabled` | string | no | `"false"` | no | Switch for test fixtures |
 | `wildcard_cert_use_staging` | string | no | `"false"` | no | Switch to the staging certificate authority |
