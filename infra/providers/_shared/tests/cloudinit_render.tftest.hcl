@@ -82,6 +82,12 @@ run "hetzner_render_is_valid" {
     condition     = strcontains(output.rendered_cloud_init, " --agent-token=render-test-agent-token ")
     error_message = "SEC-020: the k3s server line must pass --agent-token with the agent token (k3s_agent_token)."
   }
+
+  # NET-020 — Cilium replaces kube-proxy, so the k3s server starts without it.
+  assert {
+    condition     = strcontains(output.rendered_cloud_init, " --disable-network-policy --disable-kube-proxy ")
+    error_message = "NET-020: the k3s server line must pass --disable-kube-proxy (Cilium runs with kubeProxyReplacement: true)."
+  }
 }
 
 run "huawei_render_is_valid" {
@@ -133,6 +139,12 @@ run "huawei_render_is_valid" {
   assert {
     condition     = strcontains(output.rendered_cloud_init, " --agent-token=render-test-agent-token ")
     error_message = "SEC-020 (huawei branch): the k3s server line must pass --agent-token with the agent token (k3s_agent_token)."
+  }
+
+  # NET-020 (huawei branch) — the k3s server starts without kube-proxy.
+  assert {
+    condition     = strcontains(output.rendered_cloud_init, " --disable-network-policy --disable-kube-proxy ")
+    error_message = "NET-020 (huawei branch): the k3s server line must pass --disable-kube-proxy (Cilium runs with kubeProxyReplacement: true)."
   }
 }
 
