@@ -1369,6 +1369,10 @@ locals {
       # dead provision is the wrong trade.
       #
       # Server URL rewritten to this region's EIP (cross-cloud reachability).
+      # The file sent is the parent-bootstrap kubeconfig that the shared
+      # template writes just before this block (SOV-140), never the node's
+      # administrator file /etc/rancher/k3s/k3s.yaml. Each /tmp copy is
+      # deleted after the post-back.
       # runcmd 0-indent items (the shared template re-indents via indent(2,…)).
       # Content sits at column 0 on purpose: `<<-` dedent does NOT apply to a
       # heredoc carrying %{ … } directives (measured with tofu 1.12), so an
@@ -1379,7 +1383,7 @@ locals {
   HOSTNAME=$(hostname)
   PRIMARY_HOST='${local.name_prefix}-${local.region_keys[0]}-cp1-${substr(sha256("${var.deployment_id}-${local.region_keys[0]}-cp0-${var.retry_attempt}"), 0, 6)}'
   if [ -n "${var.deployment_id}" ] && [ -n "${var.kubeconfig_bearer_token}" ] && [ "$${HOSTNAME}" = "$${PRIMARY_HOST}" ]; then
-    sed "s|server: https://127.0.0.1:6443|server: https://${huaweicloud_vpc_eip.cp[local.region_keys[0]].publicip.0.ip_address}:6443|" /etc/rancher/k3s/k3s.yaml > /tmp/kubeconfig-rewritten.yaml
+    sed "s|server: https://127.0.0.1:6443|server: https://${huaweicloud_vpc_eip.cp[local.region_keys[0]].publicip.0.ip_address}:6443|" /var/lib/catalyst/parent-bootstrap.kubeconfig > /tmp/kubeconfig-rewritten.yaml
     LAST_CODE=000
     for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
       LAST_CODE=$(curl -sk -o /dev/null -w '%%{http_code}' -X PUT \
@@ -1409,6 +1413,7 @@ locals {
         sh /var/lib/catalyst/mark kubeconfig-put-FAILED || true
         ;;
     esac
+    rm -f /tmp/kubeconfig-rewritten.yaml
   fi
 %{~else~}
 - |
@@ -1426,7 +1431,7 @@ locals {
   # SAN, so the pinned-CA handshake still validates after the swap.
   export MY_NODE_IP=$(ip -4 -o addr show dev eth0 | awk '{print $4}' | cut -d/ -f1)
   if [ -n "${var.deployment_id}" ] && [ -n "${var.kubeconfig_bearer_token}" ] && [ "$${HOSTNAME}" != "$${PRIMARY_HOST}" ] && [ -n "$${MY_REGION}" ] && [ -n "$${MY_EIP}" ]; then
-    sed "s|server: https://127.0.0.1:6443|server: https://$${MY_EIP}:6443|" /etc/rancher/k3s/k3s.yaml > /tmp/kubeconfig-secondary.yaml
+    sed "s|server: https://127.0.0.1:6443|server: https://$${MY_EIP}:6443|" /var/lib/catalyst/parent-bootstrap.kubeconfig > /tmp/kubeconfig-secondary.yaml
     python3 -c "import json,os; print(json.dumps({'deploymentId':'${var.deployment_id}','regionKey':'$${MY_REGION}','kubeconfigYaml':open('/tmp/kubeconfig-secondary.yaml').read(),'nodeInternalIp':os.environ.get('MY_NODE_IP','')}))" > /tmp/secondary-kubeconfig-body.json
     for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
       HTTP_CODE=$(curl -sk -o /dev/null -w '%%{http_code}' -X POST \
@@ -1443,7 +1448,7 @@ locals {
       case "$${HTTP_CODE}" in 2*) break;; esac
       sleep 30
     done
-    rm -f /tmp/secondary-kubeconfig-body.json
+    rm -f /tmp/secondary-kubeconfig-body.json /tmp/kubeconfig-secondary.yaml
   fi
 %{~endif~}
       PUT
