@@ -112,13 +112,6 @@ unseeded:
       No kit slot and no seed entry — not installable from either door today.
       Enumerated here, not silenced; needs an owner call on seed-or-retire.
 
-  - chart: bp-cert-manager-dynadot-webhook
-    source: platform/cert-manager-dynadot-webhook
-    reason: >-
-      No kit slot and no seed entry. The DNS-01 solver webhook is wired by
-      cert-manager's own issuer config on the provisioning path rather than as
-      a catalog install; recorded so the absence is visible.
-
   - chart: bp-cilium-policies
     source: platform/cilium-policies
     reason: >-

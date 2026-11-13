@@ -9,7 +9,6 @@
 .github/workflows/dod.yaml	9
 .github/workflows/preflight-bootstrap-kit.yaml	1
 .github/workflows/preflight-cloudinit-posix.yml	7
-.github/workflows/test-hetzner-e2e.yaml	14
 clusters/_template/bootstrap-kit/01-cilium.yaml	13
 clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml	1
 clusters/_template/bootstrap-kit/16-cnpg.yaml	2
