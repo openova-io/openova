@@ -141,7 +141,7 @@ flowchart TB
 ### Falco DaemonSet (Helm)
 
 ```yaml
-apiVersion: helm.toolkit.fluxcd.io/v2beta1
+apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: falco
@@ -218,7 +218,7 @@ spec:
 ### Falcosidekick
 
 ```yaml
-apiVersion: helm.toolkit.fluxcd.io/v2beta1
+apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: falcosidekick

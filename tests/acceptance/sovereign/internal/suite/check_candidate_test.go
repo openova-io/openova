@@ -20,7 +20,7 @@ const (
 // keys named chart and version at other paths, and a block of text.
 const candidatePins = `# slot 01
 ---
-apiVersion: source.toolkit.fluxcd.io/v1beta2
+apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:
   name: bp-cilium
