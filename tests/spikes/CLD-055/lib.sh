@@ -156,17 +156,17 @@ wire_object_store() {
     "{\"stringData\":{\"s3-access-key\":\"$ak\",\"s3-secret-key\":\"$sk\",\"access-key\":\"$ak\",\"secret-key\":\"$sk\"}}" >/dev/null
   local code=""
   while [ "$(now)" -lt "$deadline" ]; do
-    kc "$m" -n seaweedfs delete pod cld055-mkbucket --ignore-not-found >/dev/null 2>&1
-    kc "$m" -n seaweedfs run cld055-mkbucket --image=curlimages/curl:8.11.1 --restart=Never --command -- \
+    kc "$m" -n default delete pod cld055-mkbucket --ignore-not-found >/dev/null 2>&1
+    kc "$m" -n default run cld055-mkbucket --image=curlimages/curl:8.11.1 --restart=Never --command -- \
       curl -s -o /dev/null -w '%{http_code}' --aws-sigv4 'aws:amz:us-east-1:s3' --user "$ak:$sk" \
       -X PUT http://seaweedfs-s3.seaweedfs.svc.cluster.local:8333/render-test-bucket >/dev/null 2>&1
     local i phase
     for i in $(seq 1 24); do
-      phase=$(kc "$m" -n seaweedfs get pod cld055-mkbucket -o jsonpath='{.status.phase}' 2>/dev/null)
+      phase=$(kc "$m" -n default get pod cld055-mkbucket -o jsonpath='{.status.phase}' 2>/dev/null)
       case "$phase" in Succeeded|Failed) break ;; esac
       sleep 5
     done
-    code=$(kc "$m" -n seaweedfs logs cld055-mkbucket 2>/dev/null)
+    code=$(kc "$m" -n default logs cld055-mkbucket 2>/dev/null)
     case "$code" in 200|409) break ;; esac
     sleep 20
   done

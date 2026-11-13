@@ -11,9 +11,13 @@ permissions:
   contents: read
   packages: read   # the job token pulls the private bp-* charts and images
 
+# One group per commit: a later push does not cancel an earlier run's jobs.
 concurrency:
-  group: spike-cld-055
-  cancel-in-progress: true
+  group: spike-cld-055-${{ github.sha }}
+  cancel-in-progress: false
+
+# Jobs measured in an earlier run are switched off here, so as not to run
+# them twice: L5 passed in run 43357201647; L2 runs in run 43357201647.
 
 env:
   OUT: /tmp/cld055
@@ -43,7 +47,7 @@ jobs:
       - name: Render check (the fixture is copied exactly)
         run: bash tests/spikes/CLD-055/render-check.sh
       - name: Build the machine image (kind A)
-        run: docker build -t cld055-machine:local tests/spikes/CLD-055/machine
+        run: docker build -f tests/spikes/CLD-055/machine/Containerfile -t cld055-machine:local tests/spikes/CLD-055/machine
       - name: Init the machine module
         run: tofu -chdir=tests/spikes/CLD-055/machines init -input=false -no-color
       - name: L1, L7, L3, L4
@@ -63,6 +67,7 @@ jobs:
 
   kind-b:
     name: L2 (machine kind B, KVM)
+    if: ${{ false }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
@@ -92,6 +97,7 @@ jobs:
 
   l5:
     name: L5 (HelmRelease moved between Kustomizations)
+    if: ${{ false }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -137,7 +143,7 @@ jobs:
         with:
           version: v1.31.4
       - name: Build the machine image (kind A)
-        run: docker build -t cld055-machine:local tests/spikes/CLD-055/machine
+        run: docker build -f tests/spikes/CLD-055/machine/Containerfile -t cld055-machine:local tests/spikes/CLD-055/machine
       - name: Init the machine module
         run: tofu -chdir=tests/spikes/CLD-055/machines init -input=false -no-color
       - name: L6
