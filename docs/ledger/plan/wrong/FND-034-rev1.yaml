@@ -1,0 +1,25 @@
+schema: openova.io/plan-wrong/v1
+id: FND-034
+ticket_rev: 1
+base_commit: c9a0ee09ce21bdcac1b4929572aa8632c3b51e7f
+stage: preflight
+ref: P2
+command: |
+    sha256sum scripts/acceptance-gate.py tests/acceptance/sovereign/README.md tests/acceptance/sovereign/cmd/sovereign-acceptance/main.go tests/acceptance/sovereign/internal/suite/config.go tests/acceptance/sovereign/internal/suite/registry.go tests/acceptance/sovereign/internal/suite/result.go tests/acceptance/sovereign/internal/suite/runner.go
+expected: |
+    8182a4f6158345a13b11a61d8239276ff2e0cc65e9bfa97d73b42883a7938b73  scripts/acceptance-gate.py
+    0d0f93522d6278d26d697aafbcdffc1297cf9d58ff37cef05b764b2e71f4de77  tests/acceptance/sovereign/README.md
+    5f78d4528d3616144cd328280627d1d6a6acd74f25cb9d0e094fb323aacc5c8b  tests/acceptance/sovereign/cmd/sovereign-acceptance/main.go
+    3e37614f0b0c634f0880b2f3104eaed43cf243fb7a6bb0a7f243fa690b95eb93  tests/acceptance/sovereign/internal/suite/config.go
+    ee4bd302015f7d0c52669a6d7ccdb50bd6d0753b28739817eacc2e5524e1d9fd  tests/acceptance/sovereign/internal/suite/registry.go
+    1c5dd1b78da6d68ea3249fdf6511aba74669b4da8e4af389de1151f101d3cc80  tests/acceptance/sovereign/internal/suite/result.go
+    d6c567c4a0e8012d3d3ec925b87cafc205bcf36a6b0d13ae4aaa697f74ff6ce0  tests/acceptance/sovereign/internal/suite/runner.go
+actual: |
+    8182a4f6158345a13b11a61d8239276ff2e0cc65e9bfa97d73b42883a7938b73  scripts/acceptance-gate.py
+    b44e539c7352ebc136d02fdb2585cace20d0ba248002bc09ceac7ce77ea79e7b  tests/acceptance/sovereign/README.md
+    5f78d4528d3616144cd328280627d1d6a6acd74f25cb9d0e094fb323aacc5c8b  tests/acceptance/sovereign/cmd/sovereign-acceptance/main.go
+    3e37614f0b0c634f0880b2f3104eaed43cf243fb7a6bb0a7f243fa690b95eb93  tests/acceptance/sovereign/internal/suite/config.go
+    ee4bd302015f7d0c52669a6d7ccdb50bd6d0753b28739817eacc2e5524e1d9fd  tests/acceptance/sovereign/internal/suite/registry.go
+    1c5dd1b78da6d68ea3249fdf6511aba74669b4da8e4af389de1151f101d3cc80  tests/acceptance/sovereign/internal/suite/result.go
+    d6c567c4a0e8012d3d3ec925b87cafc205bcf36a6b0d13ae4aaa697f74ff6ce0  tests/acceptance/sovereign/internal/suite/runner.go
+reported_at: 2026-11-13T01:25:06Z
