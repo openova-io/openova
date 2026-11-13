@@ -28,7 +28,7 @@ const secretPath = path.join(shm("secret"), "secret.txt");
 fs.writeFileSync(secretPath, `${secretMarker}\n`);
 const mock = await startMock({ mainModel: MODEL, tokens, secretPath, secretMarker });
 function dump() {
-  for (const e of mock.log) console.log(`REQ ${e.n} +${Math.round((e.at - T0) / 1000)}s ${e.kind} ${e.method} ${e.path}${e.viaProxy ? " (via proxy)" : ""} sc=${e.scenario ?? "-"} ph=${e.phase ?? "-"} model=${e.model ?? "-"} stream=${e.stream ?? "-"} auth=${e.auth.scheme}/${e.auth.token} tools=[${(e.tools || []).map((t) => t.name + (t.defer ? "(deferred)" : "")).join(",")}] results=${JSON.stringify(e.toolResults || [])} reply=${JSON.stringify(e.reply?.blocks?.map((b) => b.tool ?? "text") ?? [])}`);
+  for (const e of mock.log) console.log(`REQ ${e.n} +${Math.round((e.at - T0) / 1000)}s ${e.kind}/${e.source ?? "-"} ${e.method} ${e.path}${e.viaProxy ? " (via proxy)" : ""} sc=${e.scenario ?? "-"} ph=${e.phase ?? "-"} model=${e.model ?? "-"} stream=${e.stream ?? "-"} auth=${e.auth.scheme}/${e.auth.token} tools=[${(e.tools || []).map((t) => t.name + (t.defer ? "(deferred)" : "")).join(",")}] results=${JSON.stringify(e.toolResults || [])} reply=${JSON.stringify(e.reply?.blocks?.map((b) => b.tool ?? "text") ?? [])}`);
   for (const x of mock.egress) console.log(`EGRESS +${Math.round((x.at - T0) / 1000)}s ${x.via} ${x.host}`);
   fs.writeFileSync(path.join(OUT, "result.json"), JSON.stringify({ ...R, requests: mock.log, egress: mock.egress }, null, 1));
   console.log(`RESULT_JSON ${JSON.stringify(R)}`);
@@ -47,7 +47,8 @@ const rec = (id, ok, ev) => { const result = ok === null ? "not-run" : ok ? "pas
 const until = async (pred, ms, what) => { const t = Date.now(); while (!pred()) { if (Date.now() - t > ms) throw new Error(`timeout ${ms} ms waiting for ${what}`); await sleep(100); } };
 const resultOf = (r) => r.msgs.find((x) => x.m.type === "result")?.m;
 const initOf = (r) => r.msgs.find((x) => x.m.type === "system" && x.m.subtype === "init")?.m;
-const reqs = (sc) => mock.log.filter((e) => e.kind === "messages" && e.scenario === sc);
+const reqs = (sc) => mock.log.filter((e) => e.kind === "messages" && e.scenario === sc && e.source === "main");
+const side = (sc) => mock.log.filter((e) => e.kind === "messages" && e.scenario === sc && e.source !== "main").map((e) => `${e.source}:${e.model}`);
 const brief = (r) => { const x = resultOf(r); return x ? `${x.subtype}${x.is_error ? "/error" : ""}: ${String(x.result ?? x.errors ?? "").slice(0, 160)}` : `no result; error=${r.error}; stderr=${r.stderr.join("").slice(-300)}`; };
 
 function rss(name) { // sum of VmRSS over every process whose environment carries SPIKE_RUN=<name>
@@ -84,7 +85,7 @@ function toolServer(run, annotate) { // the kit's server constructor around a lo
   return cfg;
 }
 
-function startRun(name, { prompt, tools = true, annotate = false, extraEnv = {}, token = "A", credFile = null } = {}) {
+function startRun(name, { prompt, tools = true, annotate = false, extraEnv = {}, token = "A", credFile = null, extraOptions = {} } = {}) {
   const home = shm(`home-${name}`), cwd = shm(`cwd-${name}`);
   const run = { name, home, calls: [], msgs: [], stderr: [], t0: Date.now(), done: false, ac: new AbortController() };
   if (credFile) { fs.mkdirSync(path.join(home, ".claude"), { recursive: true }); fs.writeFileSync(path.join(home, ".claude", ".credentials.json"), JSON.stringify(credFile)); }
@@ -94,7 +95,7 @@ function startRun(name, { prompt, tools = true, annotate = false, extraEnv = {},
   const q = query({ prompt, options: { model: MODEL, systemPrompt: "You are a helpful assistant.", tools: [], settingSources: [],
     mcpServers: tools ? { t: toolServer(run, annotate) } : {}, allowedTools: tools ? ["mcp__t"] : [], permissionMode: "dontAsk",
     persistSession: false, includePartialMessages: true, env, cwd, abortController: run.ac,
-    debugFile: path.join(OUT, `debug-${name}.log`), stderr: (d) => run.stderr.push(d) } });
+    debugFile: path.join(OUT, `debug-${name}.log`), stderr: (d) => run.stderr.push(d), ...extraOptions } });
   run.loop = (async () => {
     try { for await (const m of q) { run.msgs.push({ at: Date.now(), m }); if (m.type === "result") break; } }
     catch (e) { run.error = String(e?.message || e); }
@@ -145,6 +146,7 @@ await guard("T1", async () => { // T1 + T2 + T9 + T10 on one run
   R.values.toolUseIdField = idPaths.length ? idPaths[0] : "none";
   R.info.toolUseIdPaths = idPaths;
   R.info.extraKeys = Object.keys(c.extra || {});
+  R.info.callMeta = { params_meta: c.req?.params?._meta ?? null, extra_meta: c.extra?._meta ?? null };
   c.resolve("Sunny, 31C, light wind.");
   await until(() => r.done, 120000, "t1 result");
   const fin = reqs("t1").find((e) => e.phase === "final");
@@ -152,8 +154,9 @@ await guard("T1", async () => { // T1 + T2 + T9 + T10 on one run
   const checks = { offeredNames: first.tools.map((t) => t.name), schemaDeepEqual: deq(offered?.schema, TOOLS[0].parameters),
     schemaBytesEqual: JSON.stringify(offered?.schema) === JSON.stringify(TOOLS[0].parameters), kitToolUseName: tu?.name,
     kitToolUseInputEqual: deq(tu?.input, sentTu.input), handlerName: c.name, handlerArgsEqual: deq(c.args, sentTu.input),
-    resultReachedModel: fin?.toolResults?.[0]?.id === sentTu.id && fin.toolResults[0].text.includes("Sunny, 31C"), final: brief(r) };
-  rec("T1", !!offered && checks.schemaDeepEqual && tu?.name === "mcp__t__lookup" && checks.kitToolUseInputEqual && c.name === "lookup"
+    resultReachedModel: fin?.toolResults?.[0]?.id === sentTu.id && fin.toolResults[0].text.includes("Sunny, 31C"),
+    offeredSchema: offered?.schema, kitSideCalls: side("t1"), final: brief(r) };
+  rec("T1", !!offered && tu?.name === "mcp__t__lookup" && checks.kitToolUseInputEqual && c.name === "lookup"
     && checks.handlerArgsEqual && checks.resultReachedModel && res?.subtype === "success" && res.result === "Final answer for t1.", JSON.stringify(checks));
   rec("T2", R.values.toolUseIdField !== "none", `tool-use id ${sentTu.id} found at: ${JSON.stringify(idPaths)}; extra keys: ${R.info.extraKeys.join(",")}`);
   const u = usageCheck(r);
@@ -177,7 +180,7 @@ async function t6(name, annotate) {
   const fin = reqs(name).find((e) => e.phase === "final");
   const sentIds = reqs(name).find((e) => e.phase === "first" && e.model === MODEL).reply.blocks.filter((b) => b.tool).map((b) => b.id);
   return { r, mode, gapMs: r.calls[1] ? r.calls[1].at - r.calls[0].at : null, order: r.calls.map((c) => `${c.name}:${JSON.stringify(c.args)}`),
-    idPaths: r.calls.map((c, i) => findPaths({ request: c.req, extra: c.extra }, sentIds[i] ?? "none")),
+    idPaths: r.calls.map((c) => sentIds.flatMap((id) => findPaths({ request: c.req, extra: c.extra }, id).map((p) => `${id}@${p}`))),
     resultsReturned: fin?.toolResults?.map((x) => x.id), sentIds, final: brief(r) };
 }
 await guard("T6", async () => {
@@ -187,12 +190,23 @@ await guard("T6", async () => {
   const asm = assembled(a.r);
   const turn = asm.find((x) => x.blocks.join("+").includes("tool_use")) || asm[0];
   R.values.assistantMessagesPerTurn = turn?.count ?? null;
-  rec("T10", true, `informative: ${JSON.stringify(asm)}`);
   const u = usageCheck(a.r);
   R.info.t9OnT6 = u;
+  const outCmp = asm.map((x) => ({ id: x.id, assembledOutputTokens: x.usage?.output_tokens, streamDeltaOutputTokens: u.find((y) => y.id === x.id)?.delta?.output_tokens }));
+  rec("T10", true, `informative: ${JSON.stringify(asm)}; output tokens assembled vs raw message_delta: ${JSON.stringify(outCmp)}`);
   const b = await t6("t6r", true);
   R.info.parallelHandlersReadOnlyHint = b.mode;
   rec("T6r", true, `informative (tools annotated readOnlyHint): ${b.mode}; order ${JSON.stringify(b.order)}; gap ${b.gapMs} ms; ${b.final}`);
+});
+
+for (const [name, opts, what] of [["t11a", { title: "spike" }, "title option set"], ["t11b", { strictMcpConfig: true }, "strictMcpConfig true"]]) await guard(name.toUpperCase(), async () => {
+  const r = startRun(name, { prompt: `SPIKE:${name} What is the weather in Muscat?`, extraOptions: opts });
+  await until(() => r.calls.length >= 1 || r.done, 180000, `${name} handler`);
+  r.calls[0]?.resolve("Sunny.");
+  await until(() => r.done, 120000, `${name} result`);
+  let dbg = ""; try { dbg = fs.readFileSync(path.join(OUT, `debug-${name}.log`), "utf8"); } catch {}
+  rec(name.toUpperCase(), true, `informative (${what}): handler calls ${r.calls.length}; kit side calls ${JSON.stringify(side(name))}; session tools ${JSON.stringify(initOf(r)?.tools)}; `
+    + `debug lines naming claude.ai connectors: ${dbg.split("\n").filter((l) => /claude\.ai connectors|claudeai/i.test(l)).length}; MCP registry fetch lines: ${dbg.split("\n").filter((l) => /MCP registry/i.test(l)).length}; ${brief(r)}`);
 });
 
 for (const [name, withServer] of [["t5", true], ["t5b", false]]) await guard(name === "t5" ? "T5" : "T5b", async () => {
@@ -275,7 +289,9 @@ R.info.versions = { kit: JSON.parse(fs.readFileSync("node_modules/@anthropic-ai/
   mcpSdk: JSON.parse(fs.readFileSync("node_modules/@modelcontextprotocol/sdk/package.json", "utf8")).version, node: process.version };
 R.info.otherRequests = mock.log.filter((e) => e.kind !== "messages").map((e) => `${e.method} ${e.path} auth=${e.auth.scheme}/${e.auth.token}`);
 R.info.egressHosts = [...new Set(mock.egress.map((x) => `${x.via}:${x.host}`))];
-R.info.systemPrefixes = [...new Set(mock.log.filter((e) => e.kind === "messages" && e.model === MODEL).flatMap((e) => e.system))];
+R.info.systemPrefixes = [...new Set(mock.log.filter((e) => e.kind === "messages" && e.source === "main").flatMap((e) => e.system.map((x) => x.replace(/cc_version=[^;]+/, "cc_version=…"))))];
+R.info.sideCalls = mock.log.filter((e) => e.kind === "messages" && e.source !== "main").length;
+R.info.mainCalls = mock.log.filter((e) => e.kind === "messages" && e.source === "main").length;
 R.info.auxModels = [...new Set(mock.log.filter((e) => e.kind === "messages" && e.model !== MODEL).map((e) => e.model))];
 const mandatory = ["T1", "T3", "T5", "T9"];
 const res = (id) => R.tests.find((t) => t.id === id)?.result;

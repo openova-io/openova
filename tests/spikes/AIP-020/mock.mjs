@@ -55,11 +55,13 @@ export function startMock({ mainModel, tokens, secretPath, secretMarker }) {
       toolResults: results.map((r) => ({ id: r.tool_use_id, isError: !!r.is_error, text: textOf(r.content).slice(0, 200) })),
       leak: secretMarker ? body.includes(secretMarker) : false,
     });
-    const main = j.model === mainModel;
+    // The main loop carries the caller's system prompt; the kit's own side calls (session title) do not.
+    e.source = e.system.some((s) => s.includes("You are a helpful assistant.")) ? "main" : e.system.some((s) => /title/i.test(s)) ? "title" : "side";
+    const main = j.model === mainModel && e.source === "main";
     const id = `msg_spike_${n}`;
     const tid = (i) => `toolu_spike_${n}_${i}`;
     let blocks;
-    if (main && e.phase === "first" && ["t1", "t3", "t3x"].includes(e.scenario)) {
+    if (main && e.phase === "first" && ["t1", "t3", "t3x", "t11a", "t11b"].includes(e.scenario)) {
       blocks = [{ tool: "mcp__t__lookup", input: { city: "Muscat", days: 3 } }];
     } else if (main && e.phase === "first" && ["t6", "t6r"].includes(e.scenario)) {
       blocks = [{ text: ["Let me check ", "both."] }, { tool: "mcp__t__lookup", input: { city: "Salalah" } },
@@ -68,6 +70,8 @@ export function startMock({ mainModel, tokens, secretPath, secretMarker }) {
       blocks = [{ tool: "Read", input: { file_path: secretPath } }];
     } else if (main && e.phase === "first" && e.scenario === "slow") {
       blocks = [{ text: Array.from({ length: 30 }, (_, i) => `word${i} `), delayMs: 500 }];
+    } else if (!main) {
+      blocks = [{ text: ["Spike side answer"] }];
     } else {
       blocks = [{ text: [`Final answer for ${e.scenario}.`] }];
     }
