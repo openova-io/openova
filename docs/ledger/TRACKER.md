@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T09:00:05Z` |
+| Last refreshed | `2026-11-13T09:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T09:12 | [#7386](https://github.com/openova-io/openova/pull/7386) | #7322 | feat(fingate): generate the types and strict server interfac |
 | 2026-11-13T08:58 | [#7382](https://github.com/openova-io/openova/pull/7382) | #7087 | docs(ledger): plan update |
 | 2026-11-13T08:45 | [#7375](https://github.com/openova-io/openova/pull/7375) | #7087 | docs(ledger): plan update |
 | 2026-11-13T08:34 | [#7374](https://github.com/openova-io/openova/pull/7374) | #7087 | docs(ledger): result of the lab test FND-001 (FND-001) |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-13T06:06 | [#7336](https://github.com/openova-io/openova/pull/7336) | #7317 | feat(cloudprofile): check an installation document and print |
 | 2026-11-13T06:33 | [#7335](https://github.com/openova-io/openova/pull/7335) | #7087 | docs(ledger): result of the lab test SOV-060 (SOV-060) |
 | 2026-11-13T06:34 | [#7334](https://github.com/openova-io/openova/pull/7334) | #7087 | docs(ledger): result of the lab test CMP-S2 (CMP-S2) |
-| 2026-11-13T06:34 | [#7333](https://github.com/openova-io/openova/pull/7333) | #7087 | docs(ledger): result of the lab test INF-030 (INF-030) |
 
 ---
 
