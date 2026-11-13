@@ -34,8 +34,10 @@ LC_DIGEST=$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE")
 docker run --rm --entrypoint node "$IMAGE" --version | sed 's/^/librechat node: /'
 docker run --rm --entrypoint sh "$IMAGE" -c 'grep -m1 "\"version\"" /app/package.json || true' | sed 's/^/librechat package.json: /'
 # Does the shipped server code know the user-token placeholders and the reuse flag at all?
-for needle in LIBRECHAT_OPENID_ACCESS_TOKEN LIBRECHAT_USER_EMAIL OPENID_REUSE_TOKENS federatedTokens; do
-  n=$(docker run --rm --entrypoint sh "$IMAGE" -c "grep -rl --exclude-dir=node_modules --exclude-dir=client '$needle' /app/api /app/packages 2>/dev/null | wc -l")
+# resolveHeaders is a positive control: both versions have that function.
+for needle in resolveHeaders LIBRECHAT_OPENID LIBRECHAT_USER_ OPENID_REUSE_TOKENS federatedTokens; do
+  n=$(docker run --rm --entrypoint sh "$IMAGE" -c \
+    "find /app/api /app/packages -path '*/node_modules' -prune -o -type f -print 2>/dev/null | xargs grep -l '$needle' 2>/dev/null | wc -l")
   echo "librechat image: files under /app/api and /app/packages (outside node_modules) that mention $needle: $n"
 done
 
@@ -101,15 +103,20 @@ cp "$HERE/walk.mjs" "$PW_DIR/walk.mjs"
 echo "== what the stub printed"
 docker logs stub 2>&1 | redact
 
-echo "== analysis"
-python "$HERE/analyse.py" "$LABEL (OPENID_REUSE_TOKENS=$REUSE)" "$LC_DIGEST""$OUT/captured.jsonl" "$OUT/shots/walk.json" "$ISSUER" "$OUT/certs/ca.pem" "$OUT" \
-  | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
-
-echo "== LibreChat log lines about tokens, headers and errors"
+echo "== LibreChat log lines about sign-in, refresh, tokens and errors"
 docker logs librechat > "$OUT/librechat.log" 2>&1 || true
-redact < "$OUT/librechat.log" | grep -iE "openid|federated|placeholder|header|token|error|warn" | grep -viE "tokenizer|tokenCount" | tail -60 || true
+redact < "$OUT/librechat.log" | grep -iE "openid|refresh|federated|placeholder|re-auth|token|error|warn|401" \
+  | grep -viE "tokenizer|tokenCount|\"X-Spike|\"Authorization\"|^\S*\s+\"" | tail -80 || true
+
+echo "== analysis"
+set +e
+python "$HERE/analyse.py" "$LABEL (OPENID_REUSE_TOKENS=$REUSE)" "$LC_DIGEST" "$OUT/captured.jsonl" "$OUT/shots/walk.json" "$ISSUER" "$OUT/certs/ca.pem" "$OUT" \
+  | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
+RC=${PIPESTATUS[0]}
+set -e
 
 # Keep evidence, drop key material and raw tokens of the throwaway realm.
 redact < "$OUT/captured.jsonl" > "$OUT/captured-redacted.jsonl"
 redact < "$OUT/librechat.log" > "$OUT/librechat-redacted.log"
 rm -f "$OUT/captured.jsonl" "$OUT/librechat.log" "$OUT/certs/"*.key
+exit "$RC"

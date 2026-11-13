@@ -80,10 +80,15 @@ const result = { base, users: [], steps: [] };
 for (const u of users) {
   const ctx = await browser.newContext({ ignoreHTTPSErrors: true });
   const page = await ctx.newPage();
-  const record = { user: u.username, http_errors: [], console_errors: [] };
-  page.on('response', (r) => {
-    if (r.url().startsWith(base) && r.status() >= 400) {
-      record.http_errors.push(`${r.status()} ${r.request().method()} ${new URL(r.url()).pathname}`);
+  const record = { user: u.username, http_errors: [], console_errors: [], auth_calls: [] };
+  page.on('response', async (r) => {
+    if (!r.url().startsWith(base)) return;
+    const path = new URL(r.url()).pathname;
+    if (r.status() >= 400) record.http_errors.push(`${r.status()} ${r.request().method()} ${path}`);
+    if (path.startsWith('/api/auth/') || path.startsWith('/oauth/')) {
+      let body = '';
+      try { body = redact(await r.text()).slice(0, 160); } catch { body = '(no body)'; }
+      record.auth_calls.push(`${new Date().toISOString().slice(11, 19)} ${r.status()} ${r.request().method()} ${path} ${body}`);
     }
   });
   page.on('console', (m) => {
@@ -116,9 +121,23 @@ for (const u of users) {
     if (u.username === 'alice' && expiryWait > 0) {
       console.log(`walk: waiting ${expiryWait}s so that alice's first access token expires`);
       await sleep(expiryWait * 1000);
-      await send(page, u.username, `prd070-${u.username}-2`, result.steps);
+      const second = await send(page, u.username, `prd070-${u.username}-2`, result.steps);
+      if (!second.captured) {
+        // Does a reload restore the session without a new sign-in at the realm?
+        await page.goto(`${base}/c/new`, { waitUntil: 'domcontentloaded' });
+        try {
+          await promptBox(page);
+          record.reload_restores_session = true;
+          await send(page, u.username, `prd070-${u.username}-3`, result.steps);
+        } catch {
+          record.reload_restores_session = false;
+          record.after_reload_url = redact(page.url().split('?')[0]);
+        }
+        console.log(`walk: ${u.username} reload restores session: ${record.reload_restores_session}`);
+      }
     }
   }
+  for (const line of record.auth_calls) console.log(`walk: ${u.username} auth call ${line}`);
   result.users.push(record);
   await ctx.close();
 }

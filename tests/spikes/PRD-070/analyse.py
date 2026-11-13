@@ -154,6 +154,9 @@ result = {
         "alice_1": auth_kind("prd070-alice-1"),
         "bob_1": auth_kind("prd070-bob-1"),
         "alice_2_after_expiry": after_expiry,
+        "alice_reload_restores_session": next(
+            (u.get("reload_restores_session") for u in walk["users"] if u["user"] == "alice"), None),
+        "alice_3_after_reload": auth_kind("prd070-alice-3"),
     },
 }
 
@@ -192,7 +195,9 @@ for s in steps:
         lines.append(f"- {s['marker']}: NO request reached the stub; walk error = {s['walk_error']};"
                      f" page tail = {(s.get('page_text_tail') or '')[-200:]!r}")
 lines.append(f"- VERDICT forwards_user_access_token={forwards} two_users_two_subjects={distinct}"
-             f" alice_2_after_expiry={json.dumps(public['verdict']['alice_2_after_expiry'])}")
+             f" alice_2_after_expiry={json.dumps(public['verdict']['alice_2_after_expiry'])}"
+             f" alice_reload_restores_session={public['verdict']['alice_reload_restores_session']}"
+             f" alice_3_after_reload={public['verdict']['alice_3_after_reload']}")
 text = "\n".join(lines) + "\n"
 open(f"{out_dir}/summary.md", "w").write(text)
 print(text)
