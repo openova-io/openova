@@ -884,7 +884,7 @@ packages:
   - id: A2
     run: "python3 scripts/ticket-lint.py docs/ledger/plan/tickets/*.md"
   - id: A3
-    run: "for n in 5 8 9; do diff <(git show origin/main:docs/PROTOCOL.md | awk -v n=\"$n.\" '/^## /{p=($2==n)} p') <(awk -v n=\"$n.\" '/^## /{p=($2==n)} p' docs/PROTOCOL.md) || exit 1; done; old=\"$(git show origin/main:docs/PROTOCOL.md | sed -n '/^## 10\\. /,$p')\"; test -n \"$old\"; test \"$(sed -n '/^## 10\\. /,$p' docs/PROTOCOL.md | head -n \"$(printf '%s\\n' \"$old\" | wc -l)\")\" = \"$old\""
+    run: "old=\"$(git show origin/main:docs/PROTOCOL.md)\"; test -n \"$old\"; diff <(printf '%s\\n' \"$old\" | awk '/^## /{p=($2==\"5.\" || $2==\"8.\" || $2==\"9.\")} p') <(awk '/^## /{p=($2==\"5.\" || $2==\"8.\" || $2==\"9.\")} p' docs/PROTOCOL.md); ten=\"$(printf '%s\\n' \"$old\" | sed -n '/^## 10\\. /,$p')\"; test -n \"$ten\"; test \"$(sed -n '/^## 10\\. /,$p' docs/PROTOCOL.md | head -n \"$(printf '%s\\n' \"$ten\" | wc -l)\")\" = \"$ten\""
   - id: A4
     run: "grep -c '^## 11\\. Execution by a less capable model' docs/PROTOCOL.md | grep -qx 1"
   - id: A5
@@ -892,7 +892,7 @@ packages:
   - id: A6
     run: "python3 scripts/plan.py validate --no-fetch"
   - id: A7
-    run: "printf '%s  %s\\n' 93c9de373471e86f83a046df08db8dca65bc61e569b61cd1f10815e43f4e11b4 scripts/plan.py 0c2e2f13992fb927af3f1eab6b60e04e2b1311efe26b2f0be402426d8376ab72 docs/PROTOCOL.md bd00e06bc5df83045073127c6530e68b4e2dec86d3c743b30630dc33c021ac64 scripts/ticket-lint.py fc2af3d82bd510acf59f456e60f096cb346e218ac22f457409f485ac597082e8 .github/ISSUE_TEMPLATE/dispatch.md | sha256sum -c --quiet -"
+    run: "printf '%s  %s\\n' 0c2e2f13992fb927af3f1eab6b60e04e2b1311efe26b2f0be402426d8376ab72 docs/PROTOCOL.md bd00e06bc5df83045073127c6530e68b4e2dec86d3c743b30630dc33c021ac64 scripts/ticket-lint.py fc2af3d82bd510acf59f456e60f096cb346e218ac22f457409f485ac597082e8 .github/ISSUE_TEMPLATE/dispatch.md | sha256sum -c --quiet -; d=\"$(git diff --no-ext-diff -U0 origin/main -- scripts/plan.py)\"; test \"$(printf '%s\\n' \"$d\" | sed '1,4d' | grep -v '^@@ ' | sha256sum)\" = '4f643fcbeedb537f6bb1f111f59d97f80df61e539410aa93ddabb605a2ac04a3  -'"
   - id: A8
     run: "diff <(awk '/^### 11\\.6 Rules of conduct$/{f=1;next} f && /^[0-9]+\\. /' docs/PROTOCOL.md) <(awk '/^RULES OF CONDUCT:$/{f=1;next} /^## 1\\. /{f=0} f && /^[0-9]+\\. /' docs/ledger/plan/tickets/FND-023.md)"
   rollback: revert
@@ -900,7 +900,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: A linter refuses a work-package ticket that lacks a part, leaves a choice open or differs from its plan entry, the plan tool runs it on every pull request, the tracking Issue has a template, and PROTOCOL.md carries the executor rules as section 11.
 - id: FND-031
@@ -1275,7 +1275,7 @@ packages:
   size: M
   lane: RAILS
   depends_on: [FND-022]
-  after: []
+  after: [FND-023]
   touches:
   - docs/ledger/stability.yaml
   - scripts/check-frozen-paths.py
@@ -1917,7 +1917,7 @@ packages:
   - id: A2
     run: "! grep -q '/api/v1/sandbox' products/catalyst/bootstrap/api/cmd/api/main.go"
   - id: A3
-    run: "! ls products/catalyst/bootstrap/api/internal/handler | grep -qi 'sandbox\\|byos'"
+    run: "! ls products/catalyst/bootstrap/api/internal/handler | grep -i 'sandbox\\|byos' > /dev/null"
   - id: A4
     run: "python3 scripts/check-repo-hygiene.py paths"
   - id: A5
@@ -1937,7 +1937,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: The API serves no Sandbox route and holds no Sandbox handler.
 - id: FND-094
@@ -3101,7 +3101,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-106]
-  after: [CLD-070, CLD-071, SEC-006, NET-050, SVC-010, CMP-005, BSS-010, AIP-060, ACC-060]
+  after: [CLD-070, CLD-071, SEC-006, NET-050, NET-052, SVC-010, CMP-005, BSS-010, AIP-060, INF-070, ACC-060, PRD-020]
   touches:
   - docs/adr/0036-backup-and-restore.md
   - docs/adr/README.md
@@ -3275,7 +3275,7 @@ packages:
   size: S
   lane: CONSOLE
   depends_on: [FND-120]
-  after: [CLD-040]
+  after: [CLD-040, NET-041, NET-070]
   touches:
   - products/catalyst/bootstrap/ui/src/entities/deployment/model.ts
   - products/catalyst/bootstrap/ui/src/pages/marketplace/marketplaceCopy.ts
@@ -3380,7 +3380,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-201, FND-106]
-  after: [CLD-070, CLD-071, SEC-006, NET-050, SVC-010, CMP-005, BSS-010, AIP-060, ACC-060]
+  after: [CLD-070, CLD-071, SEC-006, NET-050, NET-052, SVC-010, CMP-005, BSS-010, AIP-060, INF-070, ACC-060, PRD-020]
   touches:
   - docs/adr/0035-observability-pipeline.md
   - docs/adr/README.md
@@ -4698,7 +4698,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CLD-121]
-  after: []
+  after: [NET-041, NET-070]
   touches:
   - products/catalyst/bootstrap/ui/src/lib/providers.api.ts
   - products/catalyst/bootstrap/ui/src/entities/deployment/model.ts
@@ -5975,16 +5975,28 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls scripts/check-upstream-literals.sh scripts/upstream-literals-baseline.txt .github/workflows/check-upstream-literals.yaml 2>/dev/null | wc -l"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "test \"$(sha256sum < scripts/check-upstream-literals.sh)\" = \"092a17ab0807b6ff0b652c846099d16e1cbef4b68de8b5407b74d1d847b67ba8  -\""
+  - id: A2
+    run: "test \"$(sha256sum < .github/workflows/check-upstream-literals.yaml)\" = \"fbf7f57b0c1f224f77de11371335aecc35fbe71d4b5dbc46cd090469f01eec6d  -\""
+  - id: A3
+    run: "bash scripts/check-upstream-literals.sh --self-test"
+  - id: A4
+    run: "out=\"$(bash scripts/check-upstream-literals.sh)\"; test \"$out\" = \"$(cat scripts/upstream-literals-baseline.txt)\""
+  - id: A5
+    run: "t=\"$(mktemp -d)\"; trap 'rm -rf \"$t\"' EXIT; ln -s \"$PWD/infra\" \"$PWD/platform\" \"$PWD/products\" \"$PWD/core\" \"$PWD/scripts\" \"$t/\"; mkdir -p \"$t/clusters\"; cp -r clusters/_template \"$t/clusters/_template\"; bash scripts/check-upstream-literals.sh --root \"$t\" > /dev/null; printf 'url: oci://ghcr.io/openova-io\\n' >> \"$t/clusters/_template/kustomization.yaml\"; code=0; out=\"$(bash scripts/check-upstream-literals.sh --root \"$t\")\" || code=$?; test \"$code\" = 1; grep -q -F 'check-upstream-literals: FAIL kit: ' <<<\"$out\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Six-scope count of company and public source addresses with baseline and --list option
+  delivers: A pull request fails when it adds a line that writes a company or public source address into one of six parts of the code, counted against a stored baseline.
 - id: SOV-050
   title: 'Guards G2, G3, G4, G7: shrink ratchets'
   area: SOV
@@ -6996,7 +7008,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [SOV-140, SOV-435]
-  after: []
+  after: [NET-041, NET-070]
   touches:
   - infra/providers/huawei/main.tf
   - infra/providers/huawei/variables.tf
@@ -7562,7 +7574,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CLD-104, CLD-106, CLD-172, SEC-080, SEC-196, SOV-180, SOV-190, SOV-310, SOV-330, SOV-405, SOV-430, SOV-510]
-  after: [FND-011]
+  after: [FND-011, NET-041, NET-070]
   touches:
   - products/catalyst/chart/templates/api-deployment.yaml
   - products/catalyst/bootstrap/api/internal/provisioner/provisioner.go
@@ -8331,7 +8343,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: The security documents state what is true of secrets today, mark the sections that describe a design not yet built, hold a threat model between two markers, and the control file names the gate check of five controls.
 - id: SEC-115
@@ -9730,7 +9742,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271]
-  after: [FND-011, FND-014, FND-021, FND-022, FND-023, FND-031, FND-032, FND-033, FND-034, FND-040, FND-052, FND-053, FND-054, FND-055, FND-091, FND-092, FND-093, FND-094, FND-097, FND-101, FND-102, FND-103, FND-105, FND-110, FND-171, CLD-010, CLD-040, CLD-063, SOV-030, SEC-020, SEC-125, NET-030, NET-033, NET-050, SVC-020, SVC-060, CTL-010, CTL-020, CTL-025, CTL-044, CMP-012, CMP-014, BSS-050, INF-010, PRD-030]
+  after: [FND-011, FND-014, FND-021, FND-022, FND-023, FND-031, FND-032, FND-033, FND-034, FND-040, FND-052, FND-053, FND-054, FND-055, FND-091, FND-092, FND-093, FND-094, FND-097, FND-101, FND-102, FND-103, FND-105, FND-110, FND-171, CLD-010, CLD-040, CLD-063, SOV-030, SOV-040, SEC-020, SEC-125, NET-030, NET-033, NET-050, SVC-020, SVC-060, CTL-010, CTL-020, CTL-025, CTL-044, CMP-012, CMP-014, BSS-050, INF-010, PRD-030]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/26-image-signature.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -10455,30 +10467,48 @@ packages:
   size: S
   lane: CONSOLE
   depends_on: []
-  after: [BSS-035]
+  after: []
   touches:
   - core/marketplace/src/components/AddonsStep.svelte
+  - core/marketplace/src/lib/api.ts
   - core/marketplace/src/lib/packages.test.ts
   - core/marketplace/src/lib/packagesLadder.test.ts
-  - core/marketplace/src/lib/api.ts
   - core/services/catalog/handlers/seed.go
   - core/services/catalog/store/store.go
-  - products/catalyst/bootstrap/ui/src/pages/marketplace/marketplaceCopy.ts
   - products/catalyst/bootstrap/ui/src/entities/deployment/model.ts
+  - products/catalyst/bootstrap/ui/src/pages/marketplace/marketplaceCopy.ts
+  - products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentFootprints.ts
+  - products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentGroups.ts
+  - products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentLogos.tsx
+  - products/catalyst/bootstrap/ui/src/pages/wizard/steps/logoTone.ts
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "git grep -l -i coraza -- core/marketplace/src/components/AddonsStep.svelte core/marketplace/src/lib/api.ts core/marketplace/src/lib/packages.test.ts core/marketplace/src/lib/packagesLadder.test.ts core/services/catalog/handlers/seed.go core/services/catalog/store/store.go products/catalyst/bootstrap/ui/src/entities/deployment/model.ts products/catalyst/bootstrap/ui/src/pages/marketplace/marketplaceCopy.ts products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentFootprints.ts products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentGroups.ts products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentLogos.tsx products/catalyst/bootstrap/ui/src/pages/wizard/steps/logoTone.ts | wc -l"
+    expect: "12"
+  acceptance:
+  - id: A1
+    run: "! git grep -n -i coraza -- core/marketplace/src/components/AddonsStep.svelte core/marketplace/src/lib/api.ts core/marketplace/src/lib/packages.test.ts core/marketplace/src/lib/packagesLadder.test.ts core/services/catalog/handlers/seed.go core/services/catalog/store/store.go products/catalyst/bootstrap/ui/src/entities/deployment/model.ts products/catalyst/bootstrap/ui/src/pages/marketplace/marketplaceCopy.ts products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentFootprints.ts products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentGroups.ts products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentLogos.tsx products/catalyst/bootstrap/ui/src/pages/wizard/steps/logoTone.ts"
+  - id: A2
+    run: "! grep -n -i -E 'waf|web application firewall' core/marketplace/src/components/AddonsStep.svelte products/catalyst/bootstrap/ui/src/entities/deployment/model.ts products/catalyst/bootstrap/ui/src/pages/marketplace/marketplaceCopy.ts products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentGroups.ts"
+  - id: A3
+    run: "! grep -n -F \"'a-waf'\" core/marketplace/src/lib/packages.test.ts core/marketplace/src/lib/packagesLadder.test.ts"
+  - id: A4
+    run: "cd core/marketplace && npm ci && npx vitest run"
+  - id: A5
+    run: "cd products/catalyst/bootstrap/ui && npm ci && npm run typecheck && npx vitest run src/pages/wizard src/pages/marketplace src/entities/deployment"
+  - id: A6
+    run: "cd core/services/catalog && go vet ./..."
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: No screen or catalogue entry offers or describes a firewall that does not exist
+  delivers: The storefront's stand-in add-on list, the console's setup wizard, its default component selection and its product copy, and three comments of the storefront and the catalog service no longer offer or describe the Coraza web application firewall, which no listener uses.
 - id: NET-042
   title: Retire the two legacy per-Sovereign overlays
   area: NET
@@ -10576,23 +10606,40 @@ packages:
   size: XS
   lane: CONTRACTS
   depends_on: [FND-106]
-  after: [CLD-070, CLD-071, SEC-006, NET-050, SVC-010, CMP-005, BSS-010, AIP-060, ACC-060]
+  after: []
   touches:
+  - docs/adr/0026-nodeport-ban-and-the-gateway-serving-model.md
   - docs/adr/README.md
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls docs/adr | grep -c '^0026-'"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "test \"$(sha256sum < docs/adr/0026-nodeport-ban-and-the-gateway-serving-model.md | cut -d' ' -f1)\" = dcfc2bc6dfba7705bc8417dc6cb3c0a83ab1913f8844247fe8b409057290324f && test \"$(ls docs/adr | grep -c '^0026-')\" = 1"
+  - id: A2
+    run: "test \"$(sed -n '3p' docs/adr/0026-nodeport-ban-and-the-gateway-serving-model.md)\" = 'Status: Accepted' && test \"$(sed -n '4p' docs/adr/0026-nodeport-ban-and-the-gateway-serving-model.md)\" = 'Date: 2026-11-13' && test \"$(grep -c '^Status: ' docs/adr/0026-nodeport-ban-and-the-gateway-serving-model.md)\" = 1 && test \"$(grep -c -E '^(Supersedes|Unfreezes|Retires-Check):' docs/adr/0026-nodeport-ban-and-the-gateway-serving-model.md)\" = 0"
+  - id: A3
+    run: "test \"$(grep -c -x -F '| [0026](0026-nodeport-ban-and-the-gateway-serving-model.md) | NodePort ban and the gateway serving model: no Service carries a node port on any provider or cluster class; public entries are host ports behind a load balancer | Accepted |' docs/adr/README.md)\" = 1 && test \"$(grep -c -F '[0026]' docs/adr/README.md)\" = 1 && python3 -c 'import re; L = open(\"docs/adr/README.md\", encoding=\"utf-8\").read().split(\"\\n\"); num = lambda l: int(l[3:7]) if re.match(r\"\\| \\[[0-9]{4}\\]\\(\", l) else -1; n = [num(l) for l in L if num(l) >= 0]; i = [num(l) for l in L].index(26); print(n, num(L[i - 1]), num(L[i + 1])); raise SystemExit(0 if n == sorted(set(n)) and 0 <= num(L[i - 1]) < 26 < num(L[i + 1]) else 1)'"
+  - id: A4
+    run: "test \"$(git diff --numstat origin/main -- docs/adr/README.md | cut -f1,2 | tr '\\t' ' ')\" = '1 0'"
+  - id: A5
+    run: "python3 -c 'import os, re, sys; t = open(\"docs/adr/0026-nodeport-ban-and-the-gateway-serving-model.md\", encoding=\"utf-8\").read(); p = sorted(set(re.findall(r\"`((?:CLAUDE\\.md|(?:docs|platform|products|scripts|infra|clusters|\\.github)/[^`*]+))`\", t))); bad = [x for x in p if not os.path.exists(x)]; print(len(p), bad); sys.exit(1 if bad or len(p) < 17 else 0)'"
+  - id: A6
+    run: "python3 -c 'import re, yaml; plan = yaml.safe_load(open(\"docs/ledger/plan.yaml\")); known = {p[\"id\"] for p in plan[\"packages\"] if not p[\"dropped\"]} | {e[\"id\"] for e in plan[\"epics\"]} | {c[\"id\"] for c in yaml.safe_load(open(\"docs/ledger/gates.yaml\"))[\"checks\"]}; cited = set(re.findall(r\"\\b[A-Z]{3}-(?:[0-9]{3}|G[0-9]{2}|S[0-9])\\b\", open(\"docs/adr/0026-nodeport-ban-and-the-gateway-serving-model.md\", encoding=\"utf-8\").read())); missing = sorted(cited - known); print(len(cited), missing); raise SystemExit(1 if missing or len(cited) < 14 else 0)'"
+  - id: A7
+    run: "python3 -c 'import re, subprocess, sys; c = sorted(set(re.findall(r\"`([0-9a-f]{9})`\", open(\"docs/adr/0026-nodeport-ban-and-the-gateway-serving-model.md\", encoding=\"utf-8\").read()))); bad = [x for x in c if subprocess.run([\"git\", \"cat-file\", \"-e\", x + \"^{commit}\"], capture_output=True).returncode != 0]; print(len(c), bad); sys.exit(1 if bad or len(c) < 3 else 0)'"
   rollback: revert
   adr: 26
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Accepted record 0026 with the plain header lines. It states the ban (no NodePort Service, no reliance on allocated node ports, nodePort 0 stated explicitly), the serving model of today (host ports on the host-network gateway pods, or a shared load-balancer address) and the target model after epic NET-180 (host ports on edge nodes behind a load balancer per region). It names the two existing guard scripts and check FND-G05.
+  delivers: Decision record 0026 states the ban on node ports on every provider and cluster class, the serving model of today (host ports of the host-network gateway pods behind the provider's load balancers, and one shared LB-IPAM address), the target model of epic NET-180 (host ports on edge nodes behind a load balancer per region), the guards that enforce the ban and gate check FND-G05, with the header lines Status and Date; the index of decision records lists it in number order.
 - id: NET-055
   title: Canonical documents state the zone, firewall and default-deny design of record 0019
   area: NET
@@ -10660,21 +10707,34 @@ packages:
   after: []
   touches:
   - products/catalyst/bootstrap/ui/src/pages/wizard/steps/StepTopology.tsx
+  - products/catalyst/bootstrap/ui/src/pages/wizard/steps/StepTopology.test.tsx
   - products/catalyst/bootstrap/ui/src/entities/deployment/model.ts
+  - products/catalyst/bootstrap/ui/src/entities/deployment/store.ts
+  - products/catalyst/bootstrap/ui/src/pages/wizard/steps/StepReview.bcp-topology-wire.5661.test.tsx
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c -i 'citadel' products/catalyst/bootstrap/ui/src/pages/wizard/steps/StepTopology.tsx"
+    expect: "3"
+  acceptance:
+  - id: A1
+    run: "test \"$(sha256sum < products/catalyst/bootstrap/ui/src/pages/wizard/steps/StepTopology.tsx | cut -d' ' -f1)\" = ee889a8cc502726c90e814939f664faffd00d4f448ad9927a3bc93a66c44029b && test \"$(sha256sum < products/catalyst/bootstrap/ui/src/pages/wizard/steps/StepTopology.test.tsx | cut -d' ' -f1)\" = 5d6017e6a5731e61cb81942de4314b64ee78263bdde6764ad56ffd2e333644b4"
+  - id: A2
+    run: "! git grep -n -i -E 'citadel|fully separate physical clusters|vClusters per cluster' -- products/catalyst/bootstrap/ui/src ':(exclude)*.test.tsx' ':(exclude)*.test.ts'"
+  - id: A3
+    run: "grep -q -x -F \"export type TopologyTemplate = 'dual' | 'solo'\" products/catalyst/bootstrap/ui/src/entities/deployment/model.ts && grep -q -x -F \"  topology: 'dual',\" products/catalyst/bootstrap/ui/src/entities/deployment/model.ts && ! grep -n -E 'MGMT|DMZ|RTZ' products/catalyst/bootstrap/ui/src/entities/deployment/model.ts && grep -q -x -F \"          const validTopologies: TopologyTemplate[] = ['dual', 'solo']\" products/catalyst/bootstrap/ui/src/entities/deployment/store.ts && grep -q -x -F \"            p.topology = 'dual'\" products/catalyst/bootstrap/ui/src/entities/deployment/store.ts"
+  - id: A4
+    run: "cd products/catalyst/bootstrap/ui && npm ci && npm run typecheck && npx vitest run src/pages/wizard/steps/StepTopology.test.tsx src/pages/wizard/steps/StepReview.bcp-topology-wire.5661.test.tsx src/entities/deployment"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Five zone topology cards replaced by two region-count choices
+  delivers: The topology step of the sovereign-admin wizard offers two choices, "One region" and "Two or more regions", each saying that a region is one cluster whose edge, platform and Organizations are separated by network policy; the four retired template names are gone from the console code.
 - id: NET-071
   title: Remove the zone virtual-cluster dialog, tab and stub kind
   area: NET
@@ -10721,16 +10781,24 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c -x -F \"  const vcluster = args.vcluster || 'mgmt'\" products/catalyst/bootstrap/ui/src/shared/lib/placement.ts"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "! grep -n -i -w -E 'mgmt|dmz|rtz|mgt' products/catalyst/bootstrap/ui/src/shared/lib/placement.ts"
+  - id: A2
+    run: "test \"$(grep -c -x -F '  const vcluster = args.vcluster || HOST_VCLUSTER' products/catalyst/bootstrap/ui/src/shared/lib/placement.ts)\" = 1"
+  - id: A3
+    run: "test \"$(grep -c -x -F \"export const HOST_VCLUSTER = 'host'\" products/catalyst/bootstrap/ui/src/shared/lib/placement.ts)\" = 1"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Fallback mgmt becomes host; selector offers host only
+  delivers: The legacy placement projection of the sovereign-admin console falls back to the host vCluster, so no placement selector preselects or offers the retired tier mgmt.
 - id: NET-080
   title: Pin the Organization virtual cluster chart
   area: NET
@@ -12012,7 +12080,7 @@ packages:
   size: XS
   lane: CONTRACTS
   depends_on: [NET-270]
-  after: [FND-106, CLD-070, CLD-071, SEC-006, NET-050, SVC-010, CMP-005, BSS-010, AIP-060, ACC-060]
+  after: [FND-106, CLD-070, CLD-071, SEC-006, NET-050, NET-052, SVC-010, CMP-005, BSS-010, AIP-060, INF-070, ACC-060, PRD-020]
   touches:
   - docs/adr/README.md
   resources: []
@@ -12170,7 +12238,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [NET-290]
-  after: [FND-106, CLD-070, CLD-071, SEC-006, NET-050, SVC-010, CMP-005, BSS-010, AIP-060, ACC-060]
+  after: [FND-106, CLD-070, CLD-071, SEC-006, NET-050, NET-052, SVC-010, CMP-005, BSS-010, AIP-060, INF-070, ACC-060, PRD-020]
   touches:
   - docs/adr/
   resources: []
@@ -12547,7 +12615,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-011, SVC-020]
-  after: [FND-014, FND-054, FND-091, FND-093, FND-094, FND-097, FND-171, CLD-070, SOV-030, SEC-110, NET-030, NET-050, SVC-060, CMP-016, BSS-020]
+  after: [FND-014, FND-054, FND-091, FND-093, FND-094, FND-097, FND-171, CLD-070, SOV-030, SEC-110, NET-030, NET-041, NET-050, NET-070, NET-072, SVC-060, CMP-016, BSS-020, PRD-010]
   touches:
   - platform/*/blueprint.yaml
   - products/*/blueprint.yaml
@@ -12604,7 +12672,7 @@ packages:
     expect: "0"
   acceptance:
   - id: A1
-    run: "printf '%s\\n' '07804497aa2069524171ceb3e5cd56a601ed97fcf2f241dcc3e099c237189234  scripts/check-function-test.py' '0fae8d6487ad89c428f7ee537751cebf7cb6fe841632c62772e65456231af86b  platform/cnpg/chart/templates/tests/function-test.yaml' '325ab8c2269160f45263719f60fa2e255d2cb5555d40e588b6d5bcec8ca0ce4d  platform/cnpg/chart/tests/function-test-render.sh' 'f0c274577cc81039350b9ba2d52936d211fc7c01a1fcbea23be56c8722943210  platform/postgres/chart/templates/tests/function-test.yaml' 'b44888948a7c206dafe5d2c623be7028fd4b0798bf749177090a6fcf9de16a94  platform/postgres/chart/tests/function-test-render.sh' '04eb3ee82b2b493ad4e5e16b38b4492e1c9d25a78b567e5fd4f6ffffc04e2ade  platform/valkey/chart/templates/tests/function-test.yaml' 'b2c5a40b29210467a1f89d302758ffe926c54eef7dc90653c72bd9514855f993  platform/valkey/chart/tests/function-test-render.sh' '7d40d189c44066eeeaa05f5304448aec749534477e237efeeadca03868259bbd  platform/seaweedfs/chart/templates/tests/function-test.yaml' 'fc9560330a92c1e426285794fda9981c24b242605c996a6e412ca85979b70048  platform/seaweedfs/chart/tests/function-test-render.sh' '9b6f947152ef5e0a6aae4569e8b02159955b561d1d5fc0cb481a846fbb891bc4  platform/nats-jetstream/chart/templates/tests/function-test.yaml' '109dbbe6bbc8d6e4a1c2469f38f59e1853fc46f619d7e39c8fc849b9003a4a0a  platform/nats-jetstream/chart/tests/function-test-render.sh' | sha256sum --check --quiet -"
+    run: "printf '%s\\n' '07804497aa2069524171ceb3e5cd56a601ed97fcf2f241dcc3e099c237189234  scripts/check-function-test.py' '0fae8d6487ad89c428f7ee537751cebf7cb6fe841632c62772e65456231af86b  platform/cnpg/chart/templates/tests/function-test.yaml' '325ab8c2269160f45263719f60fa2e255d2cb5555d40e588b6d5bcec8ca0ce4d  platform/cnpg/chart/tests/function-test-render.sh' '2c01db6c6340001e2f74b5dd0e7377c70b8dec8140396b91234ec01b6c81db3b  platform/postgres/chart/templates/tests/function-test.yaml' 'b44888948a7c206dafe5d2c623be7028fd4b0798bf749177090a6fcf9de16a94  platform/postgres/chart/tests/function-test-render.sh' '04eb3ee82b2b493ad4e5e16b38b4492e1c9d25a78b567e5fd4f6ffffc04e2ade  platform/valkey/chart/templates/tests/function-test.yaml' 'b2c5a40b29210467a1f89d302758ffe926c54eef7dc90653c72bd9514855f993  platform/valkey/chart/tests/function-test-render.sh' '7d40d189c44066eeeaa05f5304448aec749534477e237efeeadca03868259bbd  platform/seaweedfs/chart/templates/tests/function-test.yaml' 'fc9560330a92c1e426285794fda9981c24b242605c996a6e412ca85979b70048  platform/seaweedfs/chart/tests/function-test-render.sh' '9b6f947152ef5e0a6aae4569e8b02159955b561d1d5fc0cb481a846fbb891bc4  platform/nats-jetstream/chart/templates/tests/function-test.yaml' '109dbbe6bbc8d6e4a1c2469f38f59e1853fc46f619d7e39c8fc849b9003a4a0a  platform/nats-jetstream/chart/tests/function-test-render.sh' | sha256sum --check --quiet -"
   - id: A2
     run: "python3 scripts/check-function-test.py --self-test"
   - id: A3
@@ -12626,7 +12694,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: The charts bp-cnpg, bp-postgres, bp-valkey, bp-seaweedfs and bp-nats-jetstream each carry one helm test Pod that proves the chart works, a render test holds each Pod to the function-test contract, and docs/RUNBOOKS.md states that contract.
 - id: SVC-070
@@ -13016,7 +13084,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-091, SVC-160]
-  after: [FND-011, FND-054, FND-092, FND-093, FND-094, FND-097, FND-171, FND-173, CLD-040, NET-042, SVC-060]
+  after: [FND-011, FND-054, FND-092, FND-093, FND-094, FND-097, FND-171, FND-173, CLD-040, NET-041, NET-042, NET-070, SVC-060]
   touches:
   - platform/openmeter/**
   - products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentGroups.ts
@@ -13875,7 +13943,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: A pull request fails when the handler package of the API server or its main function grows, or when a file is added to that package.
 - id: CTL-030
@@ -14183,7 +14251,7 @@ packages:
   size: XS
   lane: CONTRACTS
   depends_on: [CTL-050]
-  after: [FND-106, CLD-070, CLD-071, SEC-006, NET-050, SVC-010, CMP-005, BSS-010, AIP-060, ACC-060]
+  after: [FND-106, CLD-070, CLD-071, SEC-006, NET-050, NET-052, SVC-010, CMP-005, BSS-010, AIP-060, INF-070, ACC-060, PRD-020]
   touches:
   - docs/adr/README.md
   - docs/adr/0009-per-org-iac-repo-bootstrap.md
@@ -15925,7 +15993,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [CTL-055, FND-120]
-  after: [CLD-070, CLD-071, SEC-006, NET-050, SVC-010, CMP-005, BSS-010, AIP-060, ACC-060]
+  after: [CLD-070, CLD-071, SEC-006, NET-050, NET-052, SVC-010, CMP-005, BSS-010, AIP-060, INF-070, ACC-060, PRD-020]
   touches:
   - docs/adr/0027-region-loss-contract.md
   - docs/adr/README.md
@@ -16104,9 +16172,9 @@ packages:
     expect: "0"
   acceptance:
   - id: A1
-    run: "cd tests/acceptance/sovereign && go vet ./... && go test ./... -count=1"
+    run: "(cd tests/acceptance/sovereign && go vet ./... && go test ./... -count=1)"
   - id: A2
-    run: "cd tests/acceptance/sovereign && test \"$(go test ./internal/suite/ -count=1 -v -run '^(TestCompliancePush|TestComplianceMode|TestComplianceFrames|TestComplianceRegistered)$' | grep -c '^--- PASS: ')\" = 4"
+    run: "(cd tests/acceptance/sovereign && test \"$(go test ./internal/suite/ -count=1 -v -run '^(TestCompliancePush|TestComplianceMode|TestComplianceFrames|TestComplianceRegistered)$' | grep -c '^--- PASS: ')\" = 4)"
   - id: A3
     run: "python3 scripts/acceptance-gate.py validate --base origin/main --body-file <(echo 'Work-Package: CMP-010')"
   - id: A4
@@ -16114,17 +16182,17 @@ packages:
   - id: A5
     run: "test -z \"$(gofmt -l tests/acceptance/sovereign/internal/suite/check_compliance_push.go tests/acceptance/sovereign/internal/suite/check_compliance_mode.go tests/acceptance/sovereign/internal/suite/check_compliance_test.go 2>&1)\""
   - id: A6
-    run: "git diff --quiet \"$(git merge-base origin/main HEAD)\" -- tests/acceptance/sovereign/go.mod tests/acceptance/sovereign/cmd tests/acceptance/sovereign/internal/api tests/acceptance/sovereign/internal/session tests/acceptance/sovereign/internal/wordpress tests/acceptance/sovereign/internal/suite/registry.go tests/acceptance/sovereign/internal/suite/registry_test.go tests/acceptance/sovereign/internal/suite/runner.go tests/acceptance/sovereign/internal/suite/result.go tests/acceptance/sovereign/internal/suite/config.go tests/acceptance/sovereign/internal/suite/journeys.go tests/acceptance/sovereign/internal/suite/match.go tests/acceptance/sovereign/internal/suite/discover.go tests/acceptance/sovereign/internal/suite/fake_kubectl_test.go tests/acceptance/sovereign/internal/suite/check_candidate.go tests/acceptance/sovereign/internal/suite/check_zero_touch.go tests/acceptance/sovereign/internal/suite/check_nodes.go tests/acceptance/sovereign/internal/suite/check_releases.go scripts/acceptance-gate.py"
+    run: "git diff --quiet \"$(git merge-base origin/main HEAD)\" -- tests/acceptance/sovereign/go.mod tests/acceptance/sovereign/cmd tests/acceptance/sovereign/internal/api tests/acceptance/sovereign/internal/session tests/acceptance/sovereign/internal/wordpress tests/acceptance/sovereign/internal/suite/registry.go tests/acceptance/sovereign/internal/suite/registry_test.go tests/acceptance/sovereign/internal/suite/runner.go tests/acceptance/sovereign/internal/suite/result.go tests/acceptance/sovereign/internal/suite/config.go tests/acceptance/sovereign/internal/suite/journeys.go tests/acceptance/sovereign/internal/suite/match.go tests/acceptance/sovereign/internal/suite/discover.go tests/acceptance/sovereign/internal/suite/fake_kubectl_test.go tests/acceptance/sovereign/internal/suite/check_candidate.go tests/acceptance/sovereign/internal/suite/check_zero_touch.go tests/acceptance/sovereign/internal/suite/check_nodes.go tests/acceptance/sovereign/internal/suite/check_releases.go tests/acceptance/sovereign/internal/suite/check_peer_ports.go scripts/acceptance-gate.py"
   - id: A7
-    run: "cd tests/acceptance/sovereign && go list -m all | wc -l | grep -qx 1"
+    run: "(cd tests/acceptance/sovereign && go list -m all | wc -l | grep -qx 1)"
   - id: A8
-    run: "f=tests/acceptance/sovereign/README.md; grep -q -F 'check_compliance_push.go' \"$f\" && grep -q -F 'check_compliance_mode.go' \"$f\" && grep -q -F 'gate check CMP-G01 creates a namespace' \"$f\" && grep -q -F 'One gate check writes to a cluster: CMP-G01' tests/acceptance/sovereign/internal/kube/kube.go"
+    run: "f=tests/acceptance/sovereign/README.md; k=tests/acceptance/sovereign/internal/kube/kube.go; grep -q -F 'check_compliance_push.go' \"$f\" && grep -q -F 'check_compliance_mode.go' \"$f\" && grep -q -F '`apply` and `delete` in gate check CMP-G01 only. That check' \"$f\" && ! grep -q -F 'It writes only through the console API' \"$f\" && ! grep -q -F '`patch` or `delete`.' \"$f\" && grep -q -F '`apply` and `delete` in gate check CMP-G01 only. It never patches' \"$k\" && grep -q -F 'One gate check writes to a cluster: CMP-G01' \"$k\" && ! grep -q -F 'never applies, patches or deletes' \"$k\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: 'The acceptance suite has two compliance gate checks that run as expected-fail: a seeded failing workload must move the Sovereign score and reach an open stream without polling, and every listed policy must show the mode that its engine object carries.'
 - id: CMP-012
@@ -18364,7 +18432,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [BSS-104]
-  after: []
+  after: [NET-041]
   touches:
   - core/marketplace/src/lib/packages.ts
   - core/marketplace/src/lib/packages.test.ts
@@ -18474,7 +18542,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [BSS-104, BSS-105, BSS-109]
-  after: [NET-042, BSS-050]
+  after: [NET-041, NET-042, BSS-050]
   touches:
   - core/services/catalog/handlers/routes.go
   - core/services/catalog/handlers/handlers.go
@@ -19031,7 +19099,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [BSS-070, CTL-207, SVC-150, SVC-170]
-  after: []
+  after: [NET-041]
   touches:
   - scripts/generate-catalog.py
   - core/services/catalog/handlers/storefront.generated.json
@@ -21343,20 +21411,39 @@ packages:
   after: []
   touches:
   - docs/adr/0031-infrastructure-plane.md
+  - docs/adr/README.md
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls docs/adr | grep -c '^0031-'"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "test \"$(sha256sum < docs/adr/0031-infrastructure-plane.md | cut -d' ' -f1)\" = d9afdbb5a82a6e59d0a67ed2aeded561e1200e6cb9c934b47bf9a2ab97b19d18 && test \"$(ls docs/adr | grep -c '^0031-')\" = 1"
+  - id: A2
+    run: "test \"$(sed -n '3p' docs/adr/0031-infrastructure-plane.md)\" = 'Status: Accepted' && test \"$(sed -n '4p' docs/adr/0031-infrastructure-plane.md)\" = 'Date: 2026-11-13' && test \"$(grep -c '^Status: ' docs/adr/0031-infrastructure-plane.md)\" = 1 && test \"$(grep -c -E '^(Supersedes|Unfreezes|Retires-Check):' docs/adr/0031-infrastructure-plane.md)\" = 0 && python3 -c 'import re, sys; t = open(\"docs/adr/0031-infrastructure-plane.md\", encoding=\"utf-8\").read(); rows = re.findall(r\"^\\| I[0-9]\", t, re.M); d = [n for n in range(1, 20) if len(re.findall(r\"^\\| I%d \\| \\*\\*[A-Z]\" % n, t, re.M)) == 1]; r = [n for n in range(1, 20) if len(re.findall(r\"^\\*\\*I%d\\.\\*\\* \" % n, t, re.M)) == 1]; print(len(rows), len(d), len(r)); sys.exit(0 if len(rows) == 19 and len(d) == 19 and len(r) == 19 else 1)'"
+  - id: A3
+    run: "test \"$(grep -c -x -F '| [0031](0031-infrastructure-plane.md) | Infrastructure plane: the nodes of the platform first, a virtual machine is an Application, an inventory of machines, one Job per target | Accepted |' docs/adr/README.md)\" = 1 && test \"$(grep -c -F '[0031]' docs/adr/README.md)\" = 1 && python3 -c 'import re; n = [int(l[3:7]) for l in open(\"docs/adr/README.md\", encoding=\"utf-8\") if re.match(r\"\\| \\[[0-9]{4}\\]\\(\", l)]; print(n); raise SystemExit(0 if 31 in n and n == sorted(set(n)) else 1)'"
+  - id: A4
+    run: "test \"$(git diff --numstat origin/main -- docs/adr/README.md | cut -f1,2 | tr '\\t' ' ')\" = '1 0'"
+  - id: A5
+    run: "python3 -c 'import os, re, sys; t = open(\"docs/adr/0031-infrastructure-plane.md\", encoding=\"utf-8\").read(); d = [l.strip().rstrip(\"/\") for l in open(\"docs/ledger/deleted-paths.txt\", encoding=\"utf-8\") if l.strip() and not l.startswith(\"#\")]; p = sorted(set(re.findall(r\"`((?:docs|platform|products|scripts|infra|clusters|core|\\.github)/[^`*]+)`\", t))); bad = [x for x in p if not (os.path.exists(x) or any(x.rstrip(\"/\") == y or x.startswith(y + \"/\") for y in d))]; print(len(p), bad); sys.exit(1 if bad or len(p) < 15 else 0)'"
+  - id: A6
+    run: "python3 -c 'import re, yaml; plan = yaml.safe_load(open(\"docs/ledger/plan.yaml\")); known = {p[\"id\"] for p in plan[\"packages\"] if not p[\"dropped\"]} | {e[\"id\"] for e in plan[\"epics\"]} | {c[\"id\"] for c in yaml.safe_load(open(\"docs/ledger/gates.yaml\"))[\"checks\"]}; cited = set(re.findall(r\"\\b[A-Z]{3}-(?:[0-9]{3}|G[0-9]{2}|S[0-9])\\b\", open(\"docs/adr/0031-infrastructure-plane.md\", encoding=\"utf-8\").read())); missing = sorted(cited - known); print(len(cited), missing); raise SystemExit(1 if missing or len(cited) < 25 else 0)'"
+  - id: A7
+    run: "test -f docs/adr/0031-infrastructure-plane.md && test \"$(grep -ci annex docs/adr/0031-infrastructure-plane.md)\" = 0 && python3 scripts/check-doc-state.py"
+  - id: A8
+    run: "python3 -c 'import re, subprocess, sys; c = sorted(set(re.findall(r\"`([0-9a-f]{9})`\", open(\"docs/adr/0031-infrastructure-plane.md\", encoding=\"utf-8\").read()))); bad = [x for x in c if subprocess.run([\"git\", \"cat-file\", \"-e\", x + \"^{commit}\"], capture_output=True).returncode != 0]; print(len(c), bad); sys.exit(1 if bad or len(c) < 1 else 0)'"
   rollback: revert
   adr: 31
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Decisions I1 to I19 with rejected alternatives, no annex references
+  delivers: Decision record 0031 states how the infrastructure plane works, in decisions I1 to I19 with the alternatives each one rejects, with the header lines Status and Date; the index of decision records lists it in number order.
 - id: INF-110
   title: Kinds Machine and MachineSource; inventory controller with the node source
   area: INF
@@ -25576,16 +25663,26 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c -i fapi platform/keycloak/README.md"
+    expect: "13"
+  acceptance:
+  - id: A1
+    run: "! grep -q -i -E 'fapi|eidas|tpp|psd2' platform/keycloak/README.md"
+  - id: A2
+    run: "test \"$(grep -c -F 'Open banking is not built' platform/keycloak/README.md)\" = \"1\""
+  - id: A3
+    run: "test \"$(grep -c -x -E '## (Overview|Architecture|Configuration|High Availability)|### Keycloak Deployment' platform/keycloak/README.md)\" = \"5\""
+  - id: A4
+    run: "printf '%s  %s\\n' 00a724935eae063bf9eb17e9328c23b0c3a2c77e62e2e83dd7aada795ddb8445 platform/keycloak/README.md | sha256sum -c --status -"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: README without FAPI, eIDAS, TPP and PSD2 claims; one line saying open banking is not built.
+  delivers: The README of the Keycloak component no longer claims an open-banking authorization server, and says in one line that open banking is not built.
 - id: PRD-020
   title: 'Decision record: later products'
   area: PRD
@@ -25595,24 +25692,38 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-106]
-  after: [CLD-070, CLD-071, SEC-006, NET-050, SVC-010, CMP-005, BSS-010, AIP-060, ACC-060]
+  after: []
   touches:
-  - docs/adr/README.md
   - docs/adr/0034-later-products-ai-hub-and-open-banking.md
+  - docs/adr/README.md
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls docs/adr | grep -c '^0034-'"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "test \"$(sha256sum < docs/adr/0034-later-products-ai-hub-and-open-banking.md | cut -d' ' -f1)\" = 84259ba2a811bc45269529c6f0ff830cdc15ccfb1bf2415f63bc386058015e42 && test \"$(ls docs/adr | grep -c '^0034-')\" = 1"
+  - id: A2
+    run: "test \"$(sed -n '3p' docs/adr/0034-later-products-ai-hub-and-open-banking.md)\" = 'Status: Accepted' && test \"$(grep -c '^Status: ' docs/adr/0034-later-products-ai-hub-and-open-banking.md)\" = 1 && python3 -c 'import re, sys; t = open(\"docs/adr/0034-later-products-ai-hub-and-open-banking.md\", encoding=\"utf-8\").read(); d = [n for n in range(1, 21) if len(re.findall(r\"^\\| P%d [A-Z]\" % n, t, re.M)) == 1]; r = [n for n in range(1, 21) if len(re.findall(r\"^\\*\\*P%d\\.\\*\\* \" % n, t, re.M)) == 1]; print(len(d), len(r)); sys.exit(0 if len(d) == 20 and len(r) == 20 else 1)'"
+  - id: A3
+    run: "test \"$(grep -c -x -F '| [0034](0034-later-products-ai-hub-and-open-banking.md) | Later products: the AI hub and open banking, written fresh as Blueprints of their own on the model gateway, Keycloak and the Git write path | Accepted |' docs/adr/README.md)\" = 1 && test \"$(grep -c -F '[0034]' docs/adr/README.md)\" = 1 && python3 -c 'import re; n = [int(l[3:7]) for l in open(\"docs/adr/README.md\", encoding=\"utf-8\") if re.match(r\"\\| \\[[0-9]{4}\\]\\(\", l)]; print(n); raise SystemExit(0 if 34 in n and n == sorted(set(n)) else 1)'"
+  - id: A4
+    run: "test \"$(git diff --numstat origin/main -- docs/adr/README.md | cut -f1,2 | tr '\\t' ' ')\" = '1 0'"
+  - id: A5
+    run: "python3 -c 'import os, re, sys; t = open(\"docs/adr/0034-later-products-ai-hub-and-open-banking.md\", encoding=\"utf-8\").read(); gone = {l.strip().rstrip(\"/\") for l in open(\"docs/ledger/deleted-paths.txt\", encoding=\"utf-8\") if l.strip() and not l.startswith(\"#\")}; p = sorted(set(re.findall(r\"`((?:docs|platform|products|scripts|infra|clusters|core)/[^`*]+)`\", t))); bad = [x for x in p if not os.path.exists(x) and x not in gone]; print(len(p), bad); sys.exit(1 if bad or len(p) < 22 else 0)'"
+  - id: A6
+    run: "python3 -c 'import re, yaml; plan = yaml.safe_load(open(\"docs/ledger/plan.yaml\")); known = {p[\"id\"] for p in plan[\"packages\"] if not p[\"dropped\"]} | {e[\"id\"] for e in plan[\"epics\"]} | {c[\"id\"] for c in yaml.safe_load(open(\"docs/ledger/gates.yaml\"))[\"checks\"]}; cited = set(re.findall(r\"\\b[A-Z]{3}-(?:[0-9]{3}|G[0-9]{2}|S[0-9])\\b\", open(\"docs/adr/0034-later-products-ai-hub-and-open-banking.md\", encoding=\"utf-8\").read())); missing = sorted(cited - known); print(len(cited), missing); raise SystemExit(1 if missing or len(cited) < 40 else 0)'"
   rollback: revert
   adr: 34
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Accepted decision record with the 20 decisions, alternatives, context (section 2 lines 1 to 25) and consequences, client-neutral.
+  delivers: Decision record 0034 states the boundaries of the AI hub and the open-banking product in decisions P1 to P20 with the alternatives each one rejects, with the header line Status Accepted; the index of decision records lists it in number order.
 - id: PRD-030
   title: Product guard at today's values (rules G-P1 to G-P3)
   area: PRD
