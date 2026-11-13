@@ -246,7 +246,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.16"
+  version: "1.0.17"
   visibility: listed
   # #3648 — DECLARED operator→instance edge (lockstep with
   # platform/cnpg/blueprint.yaml). bp-cnpg is the engine that produces
@@ -275,7 +275,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-cnpg
-    version: "1.0.16"
+    version: "1.0.17"
   # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): lockstep with
   # platform/cnpg/blueprint.yaml. Operator pattern: each region runs its
   # own controller (singleton everywhere); HA happens at the per-Cluster
@@ -2629,7 +2629,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.3.1"
+  version: "1.3.2"
   visibility: unlisted
   card:
     title: "SeaweedFS"
@@ -2655,7 +2655,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-seaweedfs
-    version: "1.3.1"
+    version: "1.3.2"
   topology:
     supported:
     - singleton
@@ -2984,7 +2984,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.1.6"
+  version: "1.1.7"
   visibility: unlisted
   # Shareability + Contexts (#3370 generality proof) — seeded verbatim
   # from platform/valkey/blueprint.yaml (lockstep-guarded). One instance
@@ -3027,7 +3027,7 @@ docs/SRE.md §2.5).
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-valkey
-    version: "1.1.6"
+    version: "1.1.7"
   topology:
     supported:
     - active-passive
@@ -4642,7 +4642,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.3.5"
+  version: "1.3.6"
   visibility: unlisted
   card:
     title: "NATS JetStream"
@@ -4659,7 +4659,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-nats-jetstream
-    version: "1.3.5"
+    version: "1.3.6"
   topology:
     supported:
       - active-passive
@@ -5754,7 +5754,7 @@ spec:
   # CNPG's `-rw` selector), so `affinity: local` sent region-B writes to the throwaway
   # DB → keycloak 28P01 (hw307). The stub now carries a selector term no Pod carries in
   # that window → zero local backends by construction. Every other render byte-identical.
-  version: "0.2.33"
+  version: "0.2.34"
   visibility: listed
   # Shareability + Contexts (#3370) — seeded verbatim from
   # platform/postgres/blueprint.yaml (lockstep-guarded). One instance
@@ -5892,7 +5892,7 @@ spec:
     # 0.2.26 (#6796, Refs #4460 #6627 #6753 #5224): pre-flip secondary `-mesh`/`-mesh-rw`
     # stub no longer selects the local #4460 placeholder singleton (region-B keycloak
     # 28P01 on hw307) — zero local backends by construction in that window.
-    version: "0.2.33"
+    version: "0.2.34"
   # Seeded verbatim from platform/postgres/blueprint.yaml spec.topology.
   # singleton = single-instance Cluster; active-hot-standby = sync
   # replication across regions (ADR-0004 Pillar-3 zero-tx-loss) via the

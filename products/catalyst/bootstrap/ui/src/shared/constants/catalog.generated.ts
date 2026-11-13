@@ -990,7 +990,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.16",
+    "version": "1.0.17",
     "section": "pts-4-1-data-services",
     "depends": [
       "bp-flux"
@@ -3346,7 +3346,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.3.5",
+    "version": "1.3.6",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [],
     "shareable": false,
@@ -4265,7 +4265,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.2.33",
+    "version": "0.2.34",
     "section": "pts-4-1-data-services",
     "depends": [
       "bp-cnpg",
@@ -4766,7 +4766,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.3.1",
+    "version": "1.3.2",
     "section": "pts-3-5-storage-and-data",
     "depends": [
       "bp-cert-manager"
@@ -5597,7 +5597,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.6",
+    "version": "1.1.7",
     "section": "pts-4-1-data-services",
     "depends": [
       "bp-flux"
