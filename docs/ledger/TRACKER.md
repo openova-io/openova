@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T20:15:04Z` |
+| Last refreshed | `2026-11-13T20:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -308,6 +308,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-11-13T20:14 | [#7505](https://github.com/openova-io/openova/pull/7505) | #7087 | docs(ledger): plan update |
+| 2026-11-13T20:16 | [#7504](https://github.com/openova-io/openova/pull/7504) | #7502 | fix(ci): the guard-wiring meta-guard tests membership withou |
 | 2026-11-13T20:06 | [#7500](https://github.com/openova-io/openova/pull/7500) | #7087 | docs(ledger): plan update |
 | 2026-11-13T20:10 | [#7499](https://github.com/openova-io/openova/pull/7499) | #7496 | chore(openbao): remove the stretched raft join, the snapshot |
 | 2026-11-13T19:40 | [#7498](https://github.com/openova-io/openova/pull/7498) | #7494 | ci: bring the local provider pack up with two regions on pul |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-13T15:26 | [#7459](https://github.com/openova-io/openova/pull/7459) | #7446 | refactor(api): the mesh port and the topology front door sto |
 | 2026-11-13T14:24 | [#7458](https://github.com/openova-io/openova/pull/7458) | #7454 | ci: the release writer never moves a version back, and the u |
 | 2026-11-13T14:26 | [#7456](https://github.com/openova-io/openova/pull/7456) | #7437 | refactor: delete the ProvisioningState kind and its unwired  |
-| 2026-11-13T14:26 | [#7455](https://github.com/openova-io/openova/pull/7455) | #7449 | refactor(kit): neutral storage gate storage-ready replaces t |
 
 ---
 
