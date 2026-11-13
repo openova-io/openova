@@ -472,12 +472,51 @@ e13() {
   local d="$EV/E13"; mkdir -p "$d"
   log "E13: offline backup of the transit key decrypts the state without the Sovereign's OpenBao"
   local pod uid live live_count
-  pod=$(provider_pod)
-  uid=$(kubectl -n "$NS_INFRA" get "$WSR" state-canary -o jsonpath='{.metadata.uid}')
-  live=$(kubectl -n crossplane-system exec "$pod" -- sh -c "cd /tofu/$uid && tofu state list" 2>&1)
-  echo "$live" > "$d/live-state-list.txt"
-  live_count=$(grep -c '^[a-z]' "$d/live-state-list.txt")
-  measure E13 live_resource_count "$live_count ($(tr '\n' ' ' < "$d/live-state-list.txt"))"
+  if [[ $(ws_cond "$NS_INFRA" state-canary Ready) == True ]]; then
+    measure E13 state_written_by "the provider pod (Workspace $NS_INFRA/state-canary, TF_ENCRYPTION from the pod)"
+    pod=$(provider_pod)
+    uid=$(kubectl -n "$NS_INFRA" get "$WSR" state-canary -o jsonpath='{.metadata.uid}')
+    live=$(kubectl -n crossplane-system exec "$pod" -- sh -c "cd /tofu/$uid && tofu state list" 2>&1)
+    echo "$live" > "$d/live-state-list.txt"
+  else
+    # E3 did not give a pod-written encrypted state: write the same canary
+    # state from the runner with the same key provider and transit key (the
+    # Sovereign's OpenBao reached through a port-forward that is closed
+    # again before the drill), so the offline-key mechanism is still measured.
+    measure E13 state_written_by "the runner (E3 failed in the pod); same transit key, token of role tofu-state"
+    local pf tok rw="$WORK/runner-canary"
+    mkdir -p "$rw"
+    kubectl -n openbao port-forward svc/openbao 18200:8200 > "$d/port-forward.txt" 2>&1 &
+    pf=$!
+    sleep 4
+    tok=$(bao token create -role=tofu-state -ttl=20m -field=token)
+    { s3_backend_hcl "http://127.0.0.1:8333"; tfdata_module "$CANARY_TEXT"; } > "$rw/main.tf"
+    local enc_live="key_provider \"openbao\" \"sovereign\" {
+  address  = \"http://127.0.0.1:18200\"
+  token    = \"$tok\"
+  key_name = \"sovereign-tofu-state\"
+}
+method \"aes_gcm\" \"sovereign\" {
+  keys = key_provider.openbao.sovereign
+}
+state {
+  method   = method.aes_gcm.sovereign
+  enforced = true
+}"
+    (
+      cd "$rw" || exit 1
+      export TF_ENCRYPTION="$enc_live"
+      tofu init -input=false -no-color && tofu workspace new -no-color catalyst-infra-state-canary \
+        && tofu apply -auto-approve -input=false -no-color && tofu state list > "$d/live-state-list.txt"
+    ) > "$d/runner-apply.txt" 2>&1
+    tail -5 "$d/runner-apply.txt"
+    kill "$pf" 2>/dev/null
+    wait "$pf" 2>/dev/null
+  fi
+  live_count=$(grep -c '^[a-z]' "$d/live-state-list.txt" 2>/dev/null)
+  measure E13 live_resource_count "$live_count ($(tr '\n' ' ' < "$d/live-state-list.txt" 2>/dev/null))"
+  s3 s3 cp "s3://$S3_BUCKET/tofu-state/catalyst-infra-state-canary/terraform.tfstate" "$d/state-object.json" >/dev/null 2>&1
+  measure E13 state_object_top_level_keys "$(jq -c 'keys' "$d/state-object.json" 2>/dev/null)"
 
   if bao read -field=backup transit/backup/sovereign-tofu-state > /dev/null 2> "$d/backup-before-config.err"; then
     measure E13 backup_without_key_config "allowed"
@@ -626,12 +665,16 @@ EOF
 
     mk e15-b e15-a '["Observe"]' > "$d/ws-e15-b.yaml"
     kubectl apply -f "$d/ws-e15-b.yaml"
-    if ws_wait_ready e15 e15-b 300; then
+    if ws_wait_ready e15 e15-b 180; then
       measure E15 b_observe_only_over_existing_state "Ready in ${WAITED}s, output cm=$(ws_out e15 e15-b cm)"
     else
-      measure E15 b_observe_only_over_existing_state "not Ready after ${WAITED}s: $(ws_msg e15 e15-b | cut -c1-300)"
+      measure E15 b_observe_only_over_existing_state "not Ready after ${WAITED}s: Synced=$(ws_cond e15 e15-b Synced) Ready=$(ws_cond e15 e15-b Ready) outputs.cm=$(ws_out e15 e15-b cm) checksum=$(ws_get e15 e15-b '{.status.atProvider.checksum}') msg=$(ws_msg e15 e15-b | cut -c1-200)"
     fi
     ws_dump e15 e15-b "$d/e15-b-status.yaml"
+    kubectl -n e15 get "$WSR" e15-b -o yaml > "$d/e15-b-full.yaml" 2>&1
+    kubectl -n e15 get events --field-selector involvedObject.name=e15-b -o custom-columns='TIME:.lastTimestamp,TYPE:.type,REASON:.reason,MSG:.message' > "$d/e15-b-events.txt" 2>&1
+    provider_logs 3000 | grep -E 'e15-b' | tail -40 > "$d/provider-log-e15-b.txt"
+    measure E15 b_provider_log_lines "$(wc -l < "$d/provider-log-e15-b.txt") ($(grep -oE '"msg":"[^"]+"|msg="[^"]+"|External resource [a-z ]+|Skipping update[^"]*|Successfully [a-z ]+' "$d/provider-log-e15-b.txt" | sort | uniq -c | tr '\n' ';' | cut -c1-300))"
     ws_delete e15 e15-b 180
     measure E15 b_configmap_after_delete "$(cm_exists e15-a)"
     [[ $(cm_exists e15-a) == yes ]] && b_ok=yes
@@ -659,14 +702,14 @@ EOF
 }
 
 # ------------------------------------------------------------------ E16 + E17
-e16_e17() {
-  local d="$EV/E16"; mkdir -p "$d" "$EV/E17"
-  log "E16/E17: a patched Workspace applies at once; seconds of one apply"
+e16_e17() { # workspace-name description
+  local d="$EV/E16" ws=$1 what=$2; mkdir -p "$d" "$EV/E17"
+  log "E16/E17: a patched Workspace applies at once; seconds of one apply ($ws, $what)"
   local m all=() ok=yes id0 idn
-  id0=$(ws_out "$NS_INFRA" state-canary id)
+  id0=$(ws_out "$NS_INFRA" "$ws" id)
   for m in m2 m3 m4; do
-    kubectl -n "$NS_INFRA" patch "$WSR" state-canary --type=json -p "[{\"op\":\"replace\",\"path\":\"/spec/forProvider/vars/0/value\",\"value\":\"$m\"}]"
-    if ws_wait_output "$NS_INFRA" state-canary marker "$m" 600; then
+    kubectl -n "$NS_INFRA" patch "$WSR" "$ws" --type=json -p "[{\"op\":\"replace\",\"path\":\"/spec/forProvider/vars/0/value\",\"value\":\"$m\"}]"
+    if ws_wait_output "$NS_INFRA" "$ws" marker "$m" 600; then
       all+=("$WAITED")
       measure E17 "seconds_patch_to_applied_$m" "$WAITED"
     else
@@ -675,10 +718,11 @@ e16_e17() {
       measure E17 "seconds_patch_to_applied_$m" "not applied within ${WAITED}s"
     fi
   done
-  idn=$(ws_out "$NS_INFRA" state-canary id)
+  idn=$(ws_out "$NS_INFRA" "$ws" id)
+  measure E16 workspace "$NS_INFRA/$ws ($what)"
   measure E16 poll_interval_of_provider "10m (provider default --poll)"
   measure E16 resource_id_unchanged "$([[ $id0 == "$idn" ]] && echo yes || echo no)"
-  provider_logs 200 | grep -E 'state-canary' | tail -30 > "$d/provider-log.txt"
+  provider_logs 400 | grep -E "$ws" | tail -30 > "$d/provider-log.txt"
   local slow=no v
   for v in "${all[@]}"; do [[ $v == timeout || $v -ge 120 ]] && slow=yes; done
   if [[ $ok == yes && $slow == no ]]; then
@@ -689,7 +733,7 @@ e16_e17() {
   local med
   med=$(printf '%s\n' "${all[@]}" | grep -E '^[0-9]+$' | sort -n | awk '{a[NR]=$1} END{if(NR) print a[int((NR+1)/2)]}')
   if [[ -n $med ]]; then
-    verdict E17 MEASURED "seconds from patch to applied output, encrypted s3 state, inline one-resource module: ${all[*]} (median $med)"
+    verdict E17 MEASURED "seconds from patch to applied output ($what, inline one-resource module): ${all[*]} (median $med)"
   else
     verdict E17 FAIL "no apply completed"
   fi
@@ -709,17 +753,27 @@ e1
 e2
 e3
 e6
-if [[ $(ws_cond "$NS_INFRA" state-canary Ready) == True ]]; then
-  e13
-else
-  verdict E13 NOT-RUN "no encrypted canary state (E3 failed)"
+CANARY_READY=$(ws_cond "$NS_INFRA" state-canary Ready)
+[[ $CANARY_READY == True ]] || ws_delete "$NS_INFRA" state-canary 60
+e13
+if [[ $CANARY_READY != True ]]; then
+  # E3 failed: remove TF_ENCRYPTION so E15-E17 still measure the provider.
+  note setup "E3 failed: TF_ENCRYPTION removed from the provider pod before E15-E17"
+  drc_core no | kubectl apply -f -
+  WANT_NO_ENV=TF_ENCRYPTION wait_provider_pod "" 420
 fi
 e15
-if [[ $(ws_cond "$NS_INFRA" state-canary Ready) == True ]]; then
-  e16_e17
+if [[ $CANARY_READY == True ]]; then
+  e16_e17 state-canary "encrypted s3 state"
 else
-  verdict E16 NOT-RUN "canary Workspace not Ready"
-  verdict E17 NOT-RUN "canary Workspace not Ready"
+  tfdata_module "e16" > "$WORK/e16.tf"
+  ws_inline "$NS_INFRA" e16-plain cloud catalyst-infra-e16-plain "$WORK/e16.tf" m0 | kubectl apply -f -
+  if ws_wait_ready "$NS_INFRA" e16-plain 300; then
+    e16_e17 e16-plain "s3 state without encryption (E3 failed)"
+  else
+    verdict E16 NOT-RUN "no Ready Workspace to patch"
+    verdict E17 NOT-RUN "no Ready Workspace to patch"
+  fi
 fi
 echo "=== OUTCOME encryption option: $E3_OPTION"
 summary core

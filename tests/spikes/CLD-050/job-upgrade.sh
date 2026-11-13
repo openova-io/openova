@@ -207,7 +207,7 @@ EOF
 convert_composition() {
   local how
   if [[ -x $HOME/bin/crank ]] && crank beta convert pipeline-composition "$WORK/comp-native.yaml" \
-       -o "$WORK/comp-pipeline.yaml" -f function-patch-and-transform > "$EV/E7/convert.txt" 2>&1; then
+       -o "$WORK/comp-pipeline.yaml" --function-patch-and-transform-ref=function-patch-and-transform > "$EV/E7/convert.txt" 2>&1; then
     how="crossplane CLI $(crank version --client 2>/dev/null | head -1) beta convert pipeline-composition"
   else
     cat "$EV/E7/convert.txt" 2>/dev/null

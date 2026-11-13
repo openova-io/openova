@@ -78,11 +78,25 @@ spike_host_aliases() { # one hostAliases item per running spike container (inden
 make_certs() { # writes $WORK/certs/{ca.crt,tls.crt,tls.key,bundle.crt}
   local d="$WORK/certs"
   mkdir -p "$d"
-  openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=cld-050 spike CA" \
+  # Extensions complete enough for strict X.509 verification (Python >= 3.13).
+  cat > "$d/ca.cnf" <<'EOF'
+[req]
+distinguished_name = dn
+x509_extensions = v3_ca
+prompt = no
+[dn]
+CN = cld-050 spike CA
+[v3_ca]
+basicConstraints = critical,CA:TRUE
+keyUsage = critical,keyCertSign,cRLSign
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always
+EOF
+  openssl req -x509 -newkey rsa:2048 -nodes -days 2 -config "$d/ca.cnf" \
     -keyout "$d/ca.key" -out "$d/ca.crt" 2>/dev/null
   openssl req -newkey rsa:2048 -nodes -subj "/CN=cld-050 spike services" \
     -keyout "$d/tls.key" -out "$d/tls.csr" 2>/dev/null
-  printf 'subjectAltName=DNS:%s,DNS:%s,DNS:%s,DNS:localhost,IP:127.0.0.1\nbasicConstraints=CA:FALSE\nextendedKeyUsage=serverAuth\n' \
+  printf 'subjectAltName=DNS:%s,DNS:%s,DNS:%s,DNS:localhost,IP:127.0.0.1\nbasicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid,issuer\n' \
     "$GIT_HOST" "$REG_HOST" "$WEB_HOST" > "$d/ext.cnf"
   openssl x509 -req -in "$d/tls.csr" -CA "$d/ca.crt" -CAkey "$d/ca.key" -CAcreateserial \
     -days 2 -extfile "$d/ext.cnf" -out "$d/tls.crt" 2>/dev/null
@@ -230,7 +244,13 @@ wait_provider_pod() { # [env-name] [timeout]
     if [[ -n $n && $total -eq 1 ]]; then
       ready=$(kubectl -n crossplane-system get pod "$n" -o jsonpath='{.status.containerStatuses[0].ready}')
       if [[ -n $want ]]; then
-        kubectl -n crossplane-system get pod "$n" -o jsonpath='{.spec.containers[0].env[*].name}' | tr ' ' '\n' | grep -qx "$want" || envok=no
+        local names
+        names=$(kubectl -n crossplane-system get pod "$n" -o jsonpath='{.spec.containers[0].env[*].name}' 2>/dev/null)
+        [[ " $names " == *" $want "* ]] || envok=no
+      elif [[ -n ${WANT_NO_ENV:-} ]]; then
+        local names
+        names=$(kubectl -n crossplane-system get pod "$n" -o jsonpath='{.spec.containers[0].env[*].name}' 2>/dev/null)
+        [[ " $names " == *" $WANT_NO_ENV "* ]] && envok=no
       fi
       if [[ $ready == true && $envok == yes ]]; then
         log "provider pod $n ready after $((SECONDS - s))s"
