@@ -4,23 +4,23 @@ Status on 13 November 2026. The baseline is the platform as it stood on 12 Novem
 
 ## Right now
 
-Measured from GitHub at 18:00 UTC on 13 November 2026. This block is rebuilt automatically every 30 minutes.
+Measured from GitHub at 18:12 UTC on 13 November 2026. This block is rebuilt automatically every 30 minutes.
 
 | | |
 |---|---|
-| **Overall completion** | **19.8%** of the tasks are merged (173 of 875). By effort that is 18.8% (121 of 646 agent-hours). Proven on a live environment: 4 tasks (0.5%). |
-| **Estimated time still needed** | About **187 running hours** until every task is merged (about 8 days if the agents run day and night). About **288 running hours** until every task is also proven on an environment. Agent effort still to spend: about 525 agent-hours. |
-| How the estimate is made | Merged: 702 tasks are left; the last 12 hours merged 3.8 tasks an hour, lab results not counted, which gives 187 hours; the longest row of tasks that must follow one another is 28 long, at about 2 hours each, which gives 56 hours; the larger number is shown. Proven: the plan's simulation of six agents with an update of the environment every 4 hours and a fresh install every 24. Both move as the work goes; a stop or an interruption adds to them. |
+| **Overall completion** | **19.9%** of the tasks are merged (174 of 875). By effort that is 18.8% (121 of 646 agent-hours). Proven on a live environment: 4 tasks (0.5%). |
+| **Estimated time still needed** | About **191 running hours** until every task is merged (about 8 days if the agents run day and night). About **288 running hours** until every task is also proven on an environment. Agent effort still to spend: about 525 agent-hours. |
+| How the estimate is made | Merged: 702 tasks are left; the last 12 hours merged 3.7 tasks an hour, lab results not counted, which gives 191 hours; the longest row of tasks that must follow one another is 28 long, at about 2 hours each, which gives 56 hours; the larger number is shown. Proven: the plan's simulation of six agents with an update of the environment every 4 hours and a fresh install every 24. Both move as the work goes; a stop or an interruption adds to them. |
 | **Tokens used so far** | **11.4 billion** tokens, nearly all of them since 11 November: 3.2 billion to design the plan and 8.3 billion to carry it out so far. Of the total, 11.2 billion are re-reads of text the models had already read once, which is the cheap kind; 226 million are text read for the first time and 55 million are text the models wrote. By model: Opus 5.5 7.3 billion, Fable 5.2 4.1 billion. At the published pay-as-you-go prices these tokens would cost about $5,400. |
 | **Tokens still expected** | About **36 billion** more until every task is merged, which makes about 47 billion in all; 24% of that is spent. Basis: carrying out the plan has used 68 million tokens for each agent-hour of merged work, and 525 agent-hours are left. Proving the tasks on an environment comes on top; too few are proven to measure it. |
 | **Accounts needed on the $200 plan** | The one account in use (plan Max 20x) has spent **68%** of this week's allowance, 54 hours into the week (the week runs from 11 Nov 12:00 to 18 Nov 12:00 UTC). Over the last 6.2 hours the usage meter rose by 26 points. At that rise this account's allowance is used up around **14 Nov 01:00 UTC**, 4 days before it is filled again. Paid extra usage is switched off on the account, so the agents stop there unless another account is logged in. Holding that rise for a whole week would take **8 accounts**; measured from the tokens of the last 24 hours it is 3.2. The two do not agree: the tokens counted on this machine explain about 38% of the meter's rise in those hours. Either the account is also used from somewhere this machine cannot see, or the meter weighs this kind of work more heavily than its first two days suggested. The meter decides when the work stops. The work still to merge needs about 2.0 weekly allowances by the token measure. |
 | How the tokens and the allowance are measured | Tokens are counted from the transcripts on the build machine, each model call once, for every agent of this work. Anthropic states no token figure for the plan, so the share of the weekly allowance that is used is read from the account's own usage meter every 30 minutes and set against the tokens counted in the same hours; by that measure one weekly allowance is about 17 billion tokens of this mix. The meter counts Fable and Opus differently, so each is weighed on its own. The pace is taken from the meter itself once it has been read for an hour (the oldest reading of the last six hours); until then from the tokens. Every session on the account counts, also work that is not this plan. |
-| Tasks merged to the main branch | **173 of 875** |
-| Tasks with a written ticket | 137 |
-| Being worked on by an agent now | CLD-185 ([#7485](https://github.com/openova-io/openova/pull/7485)) |
+| Tasks merged to the main branch | **174 of 875** |
+| Tasks with a written ticket | 140 |
+| Being worked on by an agent now | SOV-120 |
 | Lab-test results waiting to merge | none |
 | Lab tests started, each on its own branch in CI | 27: ACC-020, ACC-030, AIP-010, AIP-020, CLD-050, CLD-055, CMP-S1, CMP-S2, CMP-S3, CMP-S4, CMP-S5, CMP-S6, CTL-050, CTL-055, INF-030, MIG-050, PRD-040, PRD-060, PRD-070, PRD-080, SEC-130, SEC-140, SEC-280, SOV-060, SVC-120, SVC-210, SVC-340 |
-| Merged per day | 2026-11-12: 8, 2026-11-13: 159, 2026-11-14: 6 |
+| Merged per day | 2026-11-12: 8, 2026-11-13: 159, 2026-11-14: 7 |
 | Proven on the live environment hw307 | **4**: BSS-035, NET-041, NET-070, NET-072. Each was seen working in a browser there and its ticket is closed. hw307 does not follow the main branch: a merged task reaches it by a separate release, and only then counts as proven. |
 | Milestone: replacement mothership on Hetzner (SOV-920) | 91 tasks before it are not merged yet. The three proofs it needs: SOV-810 open, SOV-820 open, CLD-182 open. The founder is told on issue #7087 when it starts. |
 | Board with every task as a card | [github.com/orgs/openova-io/projects/2](https://github.com/orgs/openova-io/projects/2) |
@@ -29,19 +29,57 @@ Measured from GitHub at 18:00 UTC on 13 November 2026. This block is rebuilt aut
 
 ![Burndown of the effort left to merge, planned and actual](dashboard/burndown.svg)
 
-**525 agent-hours** are left to merge; the plan's own schedule expected **510** by now. The work is **15 agent-hours behind** that schedule. The plan's schedule ends on 19 November; at the present pace the last task merges around 21 November.
+**524 agent-hours** are left to merge; the plan's own schedule expected **508** by now. The work is **16 agent-hours behind** that schedule. The plan's schedule ends on 19 November; at the present pace the last task merges around 21 November.
 
 How to read it. Planned: the plan as first published on 12 November (843 tasks, 619 agent-hours), run through the roadmap's schedule model (six agents over the plan's dependencies, 16 running hours a day). Actual: the tasks of the plan at each moment, less those merged by then, in the same agent-hours by task size. 32 tasks were added to the plan since; the actual line steps up where each appears. The dashed line runs from now to the estimate above. Both lines count merging; proof on an environment is not in this chart.
 
 | Midnight UTC | Planned left | Actual left |
 |---|---|---|
 | 13 Nov | 582 | 597 |
-| now (13 Nov 18:00) | 510 | 525 |
+| now (13 Nov 18:12) | 508 | 524 |
+
+### Is it real? Delivery and quality, measured
+
+A merged task has passed its checks in CI. It is **delivered** only when it has been seen working on a running Sovereign. Today **4 of the 109** merged tasks that need an environment have been seen working on one. Nothing merged since 12 November runs on an environment yet: no Sovereign has been installed from main, and hw307 runs a separate line. The figures below are taken from GitHub and from main by script.
+
+![From plan to proof: how many tasks reached each stage](dashboard/funnel.svg)
+
+| Stage | Tasks | Agent-hours |
+|---|---|---|
+| In the plan | 875 | 646 |
+| Ticket written | 174 | 122 |
+| Merged to main | 173 | 121 |
+| — of these: final at merge (a document, a guard, a check) | 64 | 42 |
+| — of these: need proof on an environment | 109 | 79 |
+| — reached an environment | 7 | 4 |
+| — seen working there | 4 | 2 |
+
+**What kind of work is merged.** If the merged work were mostly records and checks while the plan is mostly product, the bars would differ.
+
+![The merged work and the whole plan, by kind of work](dashboard/mix.svg)
+
+| Kind of work | Merged: share of effort | Merged: tasks | Whole plan: share of effort | Whole plan: tasks |
+|---|---|---|---|---|
+| Product changes | 26% | 43 | 62% | 521 |
+| Dead code removed | 11% | 21 | 10% | 93 |
+| Guards and tests | 27% | 44 | 17% | 154 |
+| Records and decisions | 36% | 65 | 11% | 107 |
+
+| Measure | Now | What it tells |
+|---|---|---|
+| The plan's own checks (237) by state | 213 not-built, 17 expected-fail, 7 required | A check is the plan's definition of done for a capability. "required" means it must pass on a fresh install; none has been run on one yet. |
+| Acceptance commands of merged tasks, run again on main | a run is in progress: 9 of 173 tasks so far | Whether later merges broke earlier ones. The result replaces this line when the run ends. |
+| Workflow runs on main that ended red, per day | 12 Nov: 3 red of 982 (0.3%); 13 Nov: 8 red of 2508 (0.3%) | Whether main is a base one can build on. A red run on main is a defect that reached main or a check that is not reliable. |
+| Times an executor stopped and reported a ticket or main as wrong | 23 reports on 20 tasks, against 173 merged | A stop is the system refusing to guess. Many stops for one cause point at a defect of main or of the tickets. |
+| Lines changed on main since the plan started | Product code and configuration: +121,693 −54,460; Tests: +20,018 −18,551; Checks and tooling: +22,540 −1,214; Plan, tickets and documents: +162,672 −1,807; Other: +29 −2,507 | How much of the change is the product itself. Tickets and the plan are large by nature. Generated files count too (one generated client is about 70,000 lines), and so do the release bot's version lines. |
+| Fresh install from main: did it start, how long, how many releases ready | **not measured: no environment installed from main exists** | The only proof that the merged first-boot changes work together. |
+| Acceptance suite and walk on that install | **not measured, same reason** | That a person can do the thing: the five pillars. |
 
 ### The last 25 merged tasks
 
 | Merged (UTC) | Task | What it did | Pull request |
 |---|---|---|---|
+| 13 Nov 18:04 | [CLD-185](plan/tickets/CLD-185.md) | fix(cloud-init): pack seven boot files so a Hetzner render with the post-back fits its size guard | [#7485](https://github.com/openova-io/openova/pull/7485) |
 | 13 Nov 17:44 | [CLD-086](plan/tickets/CLD-086.md) | feat(providers): local provider pack module, reduced kit and its generator | [#7481](https://github.com/openova-io/openova/pull/7481) |
 | 13 Nov 17:43 | [FND-096](plan/tickets/FND-096.md) | chore: remove the withdrawn Sandbox sources and count the remaining mentions | [#7482](https://github.com/openova-io/openova/pull/7482) |
 | 13 Nov 17:43 | [FND-013](plan/tickets/FND-013.md) | ci: one aggregate check, merge-group triggers, rulesets and code owners as files | [#7480](https://github.com/openova-io/openova/pull/7480) |
@@ -66,11 +104,10 @@ How to read it. Planned: the plan as first published on 12 November (843 tasks, 
 | 13 Nov 12:17 | [SEC-080](plan/tickets/SEC-080.md) | fix(secrets): scope the OpenBao keys of External Secrets at admission and require SEC-G07 | [#7426](https://github.com/openova-io/openova/pull/7426) |
 | 13 Nov 12:17 | [FND-099](plan/tickets/FND-099.md) | chore(chart): remove the Runbook and SecretPolicy definitions that nothing reads | [#7424](https://github.com/openova-io/openova/pull/7424) |
 | 13 Nov 11:26 | [ACC-020](plan/tickets/ACC-020.md) | docs(ledger): result of the lab test ACC-020 | [#7408](https://github.com/openova-io/openova/pull/7408) |
-| 13 Nov 11:25 | [PRD-080](plan/tickets/PRD-080.md) | docs(ledger): result of the lab test PRD-080 | [#7417](https://github.com/openova-io/openova/pull/7417) |
 
 ### Merged changes a user can see
 
-Of the 173 merged tasks, 64 are documents, decisions and checks that change no running product. The tasks below change a screen. The last column says whether the change has been seen working on hw307. The record of the walk, with screenshots, is [screenshots/north-star](screenshots/north-star/README.md).
+Of the 174 merged tasks, 64 are documents, decisions and checks that change no running product. The tasks below change a screen. The last column says whether the change has been seen working on hw307. The record of the walk, with screenshots, is [screenshots/north-star](screenshots/north-star/README.md).
 
 | Task | What changes on the screen | Pull request | On hw307 |
 |---|---|---|---|
