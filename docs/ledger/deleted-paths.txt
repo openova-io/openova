@@ -93,3 +93,10 @@ core/controllers/sandbox
 products/sandbox
 platform/sandbox
 tests/e2e/sandbox-mcp-contract.sh
+platform/openbao/chart/templates/cross-region-raft-config.yaml
+platform/openbao/chart/templates/cross-region-mesh-service.yaml
+platform/openbao/chart/templates/continuum.yaml
+platform/openbao/chart/templates/snapshot-replication.yaml
+platform/openbao/chart/tests/continuum-render.sh
+platform/openbao/chart/tests/cross-region-render.sh
+platform/openbao/chart/tests/snapshot-replication-toggle.sh

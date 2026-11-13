@@ -345,7 +345,7 @@ The sidecar is automatic for any Pod whose Blueprint declares `dynamicSecrets: t
 
 ## 5. Multi-region OpenBao — INDEPENDENT, NOT STRETCHED
 
-Target, not built. The design below, three Raft members per region and one-way replication between regions, is not what runs. Today each region runs one OpenBao member with its own storage and its own unseal key. Between regions peer push is wired: the primary region writes the shared material of a multi-region Application into the OpenBao of every region (`peerTrust` in `platform/openbao/chart/values.yaml`). On a Sovereign with a hot standby (the topology `active-hotstandby` or `active-active`), the bootstrap-kit slot `clusters/_template/bootstrap-kit/08-openbao.yaml` also turns on a snapshot copy through object storage (`snapshotReplication`): every ten minutes the primary region saves a snapshot of its OpenBao, and the other region fetches it onto a staging volume without restoring it. The chart also holds a stretched Raft join (`crossRegion`); the same slot turns it on for a hot standby, but no OpenBao server reads its join configuration. OpenBao does not replicate.
+Target, not built. The design below, three Raft members per region and one-way replication between regions, is not what runs. Today each region runs one OpenBao member with its own storage and its own unseal key. Between regions peer push is wired: the primary region writes the shared material of a multi-region Application into the OpenBao of every region (`peerTrust` in `platform/openbao/chart/values.yaml`). OpenBao does not replicate.
 
 Critical: each region runs its **own** Raft cluster. There is no cross-region Raft quorum. Region failures are independent failure domains.
 

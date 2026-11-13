@@ -12,10 +12,9 @@ true) for its slot-installed HelmRelease; the application-controller
 ADOPTS it (status-only reconcile mirroring spec.helmRelease Ready),
 never re-rendering — the install already belongs to the slot HR.
 
-This chart's _helpers.tpl holds only the cross-region raft HCL helper (no
-name/labels helper), so the house labels are inlined here, matching the
-literal label blocks the chart's other resources hand-write (e.g.
-templates/continuum.yaml).
+This chart's _helpers.tpl has no name/labels helper, so the house labels
+are inlined here, matching the literal label blocks the chart's other
+resources hand-write.
 
 Gates (bp-valkey idiom — no top-level .Values.enabled here):
 `.Values.bootstrapOwned.enabled` (defaults false; the slot opts in) AND

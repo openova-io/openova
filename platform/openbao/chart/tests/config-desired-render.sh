@@ -35,9 +35,7 @@ if ! ls charts/*.tgz >/dev/null 2>&1; then helm dependency build >/dev/null; fi
 R=(helm template openbao . --namespace openbao --set autoUnseal.enabled=true)
 "${R[@]}" > "$TMP/default.yaml"
 "${R[@]}" --set autoUnseal.kubernetesAuth.catalystApi.enabled=false > "$TMP/nocapi.yaml"
-"${R[@]}" --set snapshotReplication.enabled=true --set snapshotReplication.role=primary > "$TMP/snap.yaml"
-"${R[@]}" --set snapshotReplication.enabled=true --set snapshotReplication.role=primary \
-  --set autoUnseal.kubernetesAuth.crossClusterTokenReview.enabled=true > "$TMP/xcr.yaml"
+"${R[@]}" --set autoUnseal.kubernetesAuth.crossClusterTokenReview.enabled=true > "$TMP/xcr.yaml"
 
 cat > "$TMP/check.py" <<'PYEOF'
 import json, re, sys, yaml
@@ -178,8 +176,7 @@ must() { if python3 "$TMP/check.py" "${@:2}"; then pass "$1"; else echo "  FAIL 
 
 must "C1-C6 default (catalyst-api role on)"        render "$TMP/default.yaml" "capi"
 must "C1-C6 catalyst-api role off"                 render "$TMP/nocapi.yaml" ""
-must "C1-C6 snapshot replication on"               render "$TMP/snap.yaml" "capi,snap"
-must "C1-C6 cross-cluster TokenReview (XCR) on"    render "$TMP/xcr.yaml" "capi,snap,xcr"
+must "C1-C6 cross-cluster TokenReview (XCR) on"    render "$TMP/xcr.yaml" "capi,xcr"
 if python3 "$TMP/check.py" scope-mutant "$TMP/mutant.hcl"; then
   echo "  FAIL  C3 vacuity: a policy granting secret/* + sys/seal passed the scope check"; FAIL=1
 else

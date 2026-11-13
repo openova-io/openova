@@ -171,8 +171,6 @@ openbao.configOps — the ordered desired state as JSON
 {{- $esoNs := $kAuth.serviceAccountNamespace | default "external-secrets-system" -}}
 {{- $xcr := (($kAuth.crossClusterTokenReview | default dict).enabled | default false) -}}
 {{- $capi := $kAuth.catalystApi | default dict -}}
-{{- $sr := .Values.snapshotReplication | default dict -}}
-{{- $srRole := (($sr.kubernetesAuth | default dict).role) | default "openbao-snapshot" -}}
 {{- $cfg := .Values.peerTrust | default dict -}}
 {{- $aud := $cfg.audience | default "openbao-peer-push" -}}
 {{- $apps := $cfg.kvPathPrefix | default "openova/apps" | trimSuffix "/" -}}
@@ -182,7 +180,6 @@ openbao.configOps — the ordered desired state as JSON
 
 {{- $policies := list "external-secrets-read" "external-secrets-push" "sso-bridge-write" "sso-configure-admin" -}}
 {{- if $capi.enabled }}{{ $policies = append $policies "catalyst-api-write" }}{{ end -}}
-{{- if $sr.enabled }}{{ $policies = append $policies "openbao-snapshot" }}{{ end -}}
 {{- if $pt.peers }}{{ $policies = concat $policies (list "openbao-peer-token" $aud) }}{{ end -}}
 
 {{- /* role: name, sa, saNs, policies, ttl, maxTTL, alsoVcluster */ -}}
@@ -192,9 +189,6 @@ openbao.configOps — the ordered desired state as JSON
   (dict "name" "sso-configure" "sa" "openbao-sso-configure" "ns" $ns "policies" (list "sso-configure-admin") "ttl" $ttl "max" $maxTTL "vc" true) -}}
 {{- if $capi.enabled -}}
 {{- $roles = append $roles (dict "name" ($capi.role | default "catalyst-api") "sa" ($capi.serviceAccountName | default "catalyst-api-cutover-driver") "ns" ($capi.serviceAccountNamespace | default "catalyst-system") "policies" (list "catalyst-api-write") "ttl" $ttl "max" $maxTTL "vc" false) -}}
-{{- end -}}
-{{- if $sr.enabled -}}
-{{- $roles = append $roles (dict "name" $srRole "sa" "openbao-snapshot" "ns" $ns "policies" (list "openbao-snapshot") "ttl" $ttl "max" $maxTTL "vc" true) -}}
 {{- end -}}
 {{- if $pt.peers -}}
 {{- $roles = append $roles (dict "name" "openbao-peer-token" "sa" $esoSA "ns" $esoNs "policies" (list "openbao-peer-token") "ttl" "15m" "max" "1h" "vc" false) -}}
