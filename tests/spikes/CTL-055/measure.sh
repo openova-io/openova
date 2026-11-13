@@ -95,6 +95,7 @@ COMMON_ENV=(
   -e GITEA__server__START_SSH_SERVER=false
   -e GITEA__session__PROVIDER=db -e GITEA__service__REQUIRE_SIGNIN_VIEW=true
   -e GITEA__log__LEVEL=Trace
+  -e GITEA__webhook__ALLOWED_HOST_LIST=hooksink
 )
 
 save_logs() { # container
@@ -200,8 +201,13 @@ commit_a() { # repo label [branch] [new_branch] -> sets SHA, CODE, API_MS
 mirror_id() { # repo name
   psqlq "select pm.id from push_mirror pm join repository r on r.id=pm.repo_id where r.lower_name='$1' order by pm.id desc limit 1"
 }
-row() { # mirror id -> last_update|next_update|last_error
-  psqlq "select last_update, next_update_unix, coalesce(last_error,'') from push_mirror where id=$1" | mask | oneline
+row() { # mirror id -> the row as JSON, without the address
+  psqlq "select (to_jsonb(pm) - 'remote_address' - 'remote_name' - 'repo_id' - 'created_unix')::text from push_mirror pm where id=$1" | mask | oneline
+}
+b_runs() { docker logs gitea-b 2>&1 | grep -c 'SyncPushMirror \[mirror: [0-9]*\]\[repo: .*\]: Running Sync'; }
+actions_r1() { psqlq "select count(*) from action a join repository r on r.id=a.repo_id where r.lower_name='r1' and a.op_type=5"; }
+hooks_on() { # container repo -> number of Gitea hook files
+  docker exec "$1" sh -c "ls '$REPOS/$2.git/hooks/post-receive.d' '$REPOS/$2.git/hooks/pre-receive.d' 2>/dev/null | grep -c gitea" 2>/dev/null
 }
 last_error() { psqlq "select coalesce(last_error,'') from push_mirror where id=$1" | mask | oneline; }
 mirror_body() { # repo
@@ -278,7 +284,8 @@ wait_healthy "$B" gitea-b
 # --------------------------------------------- S4: where the mirror lives --
 M1=$(mirror_id r1)
 rec s4_mirror_id "$M1"
-rec s4_db_row "$(psqlq "select id, repo_id, remote_name, remote_address, sync_on_commit, interval, last_update, next_update_unix, coalesce(last_error,'') from push_mirror where id=$M1" | mask | oneline)"
+rec s4_db_columns "$(psqlq "select string_agg(column_name, ',' order by ordinal_position) from information_schema.columns where table_name='push_mirror'")"
+rec s4_db_row "$(psqlq "select (to_jsonb(pm))::text from push_mirror pm where id=$M1" | mask | oneline)"
 api "$B" GET /repos/ctl/r1/push_mirrors
 rec s4_mirrors_listed_through_b_api "http=$CODE count=$(printf '%s' "$BODY" | jq 'length' 2>/dev/null)"
 RA=$(docker exec gitea-a git -C "$REPOS/ctl/r1.git" config --get-regexp '^remote\.' 2>/dev/null | mask)
@@ -369,6 +376,20 @@ sleep 2
 rec s8_pull_ref_on_b_disk "$(disk_ref gitea-b ctl/r1 "refs/pull/${PRN:-0}/head" | cut -c1-12)"
 rec s8_row_after_pr "$(row "$M1")"
 
+# -- S8b: the existing job's method (clone --mirror from A, push --mirror to B)
+WD=$(mktemp -d)
+git -c "$GH" clone -q --mirror "$A/ctl/r1.git" "$WD/m.git" 2>"$OUT/s8b-clone.err"
+git -C "$WD/m.git" -c "$GH" push -q --mirror --force "$B/ctl/r1.git" 2>"$OUT/s8b-push.err"
+rec s8b_job_method_push_exit "$?"
+rec s8b_job_method_push_stderr "$(head -3 "$OUT/s8b-push.err" | mask | oneline | cut -c1-200)"
+rec s8b_pull_ref_on_b_disk_after_job_method "$(disk_ref gitea-b ctl/r1 "refs/pull/${PRN:-0}/head" | cut -c1-12)"
+rm -rf "$WD"
+commit_a ctl/r1 after-job-method
+t0=$(now_ms)
+rec s8b_next_mirror_commit_on_b_disk_after_ms "$(wait_b ctl/r1 refs/heads/main "$SHA" "$t0" 60)"
+sleep 2
+rec s8b_pull_ref_on_b_disk_after_next_mirror_run "$(disk_ref gitea-b ctl/r1 "refs/pull/${PRN:-0}/head" | cut -c1-12)"
+
 # ------------------------- S9: the mirror run by B (follower) and by A --
 HB_BEFORE=$(disk_ref gitea-b ctl/r1 refs/heads/main)
 HA_BEFORE=$(disk_ref gitea-a ctl/r1 refs/heads/main)
@@ -381,17 +402,66 @@ rec s9b_sync_requested_on_a_http "$CODE"
 sleep 6
 rec s9b_row_after_a_sync "$(row "$M1")"
 # The periodic path: make the row due, then fire B's mirror cron, then A's.
-psqlq "update push_mirror set next_update_unix = extract(epoch from now())::bigint - 5 where id=$M1" >/dev/null
+psqlq "update push_mirror set last_update = extract(epoch from now())::bigint - 30000 where id=$M1" >/dev/null
 api "$B" POST /admin/cron/update_mirrors
 rec s9c_cron_update_mirrors_on_b_http "$CODE"
 sleep 6
 rec s9c_row_after_b_cron "$(row "$M1")"
-psqlq "update push_mirror set next_update_unix = extract(epoch from now())::bigint - 5 where id=$M1" >/dev/null
+psqlq "update push_mirror set last_update = extract(epoch from now())::bigint - 30000 where id=$M1" >/dev/null
 api "$A" POST /admin/cron/update_mirrors
 rec s9d_cron_update_mirrors_on_a_http "$CODE"
 sleep 6
 rec s9d_row_after_a_cron "$(row "$M1")"
+rec s9_b_mirror_runs_so_far "$(b_runs)"
 rec s9_heads_unchanged_by_b_runs "a=$([ "$(disk_ref gitea-a ctl/r1 refs/heads/main)" = "$HA_BEFORE" ] && echo yes || echo no) b=$([ "$(disk_ref gitea-b ctl/r1 refs/heads/main)" = "$HB_BEFORE" ] && echo yes || echo no)"
+
+# ---- S11: Gitea hooks on B's copy, the follower's webhook, B's reaction --
+# A directory made by reinit_missing_repos may lack Gitea's server hooks.
+# Without them B neither records nor announces a push it receives.
+SINK_PY='import http.server
+class H(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        n = int(self.headers.get("Content-Length", "0")); self.rfile.read(n)
+        print("HOOK", self.client_address[0], self.headers.get("X-Gitea-Event", ""), flush=True)
+        self.send_response(200); self.end_headers(); self.wfile.write(b"ok")
+    def log_message(self, *a): pass
+http.server.ThreadingHTTPServer(("", 8080), H).serve_forever()'
+docker run -d --name hooksink --network "$NET" python:3.12-alpine python -u -c "$SINK_PY" >/dev/null
+sleep 3
+ipof() { docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$1"; }
+IPA=$(ipof gitea-a); IPB=$(ipof gitea-b)
+hooks_from() { docker logs hooksink 2>&1 | grep -c "^HOOK $1 push"; }
+rec s11_gitea_hook_files_r1_a_b "$(hooks_on gitea-a ctl/r1) $(hooks_on gitea-b ctl/r1)"
+api "$A" POST /admin/hooks '{"type":"gitea","config":{"url":"http://hooksink:8080/","content_type":"json"},"events":["push"],"active":true}'
+rec s11_create_system_webhook_http "$CODE"
+ACT0=$(actions_r1); RB0=$(b_runs)
+commit_a ctl/r1 hook-1
+t0=$(now_ms)
+rec s11_commit_before_resync_on_b_disk_after_ms "$(wait_b ctl/r1 refs/heads/main "$SHA" "$t0" 60)"
+sleep 10
+rec s11_before_resync_webhooks_from_a_b "$(hooks_from "$IPA") $(hooks_from "$IPB")"
+rec s11_before_resync_feed_rows_added "$(($(actions_r1) - ACT0))"
+rec s11_before_resync_b_mirror_runs_added "$(($(b_runs) - RB0))"
+rec s11_before_resync_row "$(row "$M1")"
+api "$B" POST /admin/cron/resync_all_hooks
+rec s11_resync_all_hooks_on_b_http "$CODE"
+sleep 3
+rec s11_gitea_hook_files_r1_on_b_after_resync "$(hooks_on gitea-b ctl/r1)"
+HA0=$(hooks_from "$IPA"); HB0=$(hooks_from "$IPB"); ACT0=$(actions_r1); RB0=$(b_runs)
+for i in 1 2 3; do
+  commit_a ctl/r1 "hooked-$i"
+  t0=$(now_ms)
+  lat=$(wait_b ctl/r1 refs/heads/main "$SHA" "$t0" 60)
+  sleep 4
+  rec "s11_after_resync_commit_$i" "on_b_disk_after_ms=$lat row_last_error_4s_later=\"$(last_error "$M1")\""
+done
+sleep 8
+rec s11_after_resync_webhooks_from_a_b "$(($(hooks_from "$IPA") - HA0)) $(($(hooks_from "$IPB") - HB0))"
+rec s11_after_resync_feed_rows_added_for_3_commits "$(($(actions_r1) - ACT0))"
+rec s11_after_resync_b_mirror_runs_added "$(($(b_runs) - RB0))"
+rec s11_after_resync_row "$(row "$M1")"
+HA=$(disk_ref gitea-a ctl/r1 refs/heads/main); HB=$(disk_ref gitea-b ctl/r1 refs/heads/main)
+rec s11_final_main_equal "$([ "$HA" = "$HB" ] && echo yes || echo no)"
 
 # ------------- S10: a repository created after the mirror set-up (r2) --
 api "$A" POST /orgs/ctl/repos '{"name":"r2","auto_init":true,"default_branch":"main","private":true}'
