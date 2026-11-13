@@ -34,13 +34,17 @@ snap() {
 }
 
 log "install Flux ${FLUX_VERSION}"
-kubectl apply -f "https://github.com/fluxcd/flux2/releases/download/${FLUX_VERSION}/install.yaml"
+curl -fsSL --max-time 60 -o "$OUT/flux-install.yaml" \
+  "https://github.com/fluxcd/flux2/releases/download/${FLUX_VERSION}/install.yaml"
+# The generated install.yaml names its own version in a header comment.
+grep -m1 -oE '^# Flux Version: v[0-9.]+' "$OUT/flux-install.yaml" | awk '{print $4}' | tee "$OUT/flux-version.txt"
+kubectl apply -f "$OUT/flux-install.yaml"
 kubectl -n flux-system rollout status deploy/source-controller --timeout=300s
 kubectl -n flux-system rollout status deploy/helm-controller --timeout=300s
 kubectl -n flux-system get deploy \
   -o jsonpath='{range .items[*]}{.metadata.name}{"="}{.spec.template.spec.containers[0].image}{"\n"}{end}' \
   | tee "$OUT/images.txt"
-kubectl get ns flux-system -o jsonpath='{.metadata.labels.app\.kubernetes\.io/version}' | tee "$OUT/flux-version.txt"
+kubectl -n flux-system get deploy helm-controller -o jsonpath='{.metadata.labels}' | tee "$OUT/helm-controller-labels.json"
 echo
 kubectl get crd helmreleases.helm.toolkit.fluxcd.io \
   -o jsonpath='{range .spec.versions[*]}{.name}{" served="}{.served}{" storage="}{.storage}{"\n"}{end}' \
@@ -67,7 +71,8 @@ JQ='{ts: (now|todate), rv: .metadata.resourceVersion, name: .metadata.name,
      conds: ([.status.conditions[]? | {(.type): (.status + "/" + .reason)}] | add),
      hist: [.status.history[]? | {v: .version, s: .status,
             th: ((.testHooks // {}) | with_entries(.value = .value.phase))}],
-     installFailures: .status.installFailures, upgradeFailures: .status.upgradeFailures}'
+     installFailures: .status.installFailures, upgradeFailures: .status.upgradeFailures,
+     failures: .status.failures}'
 kubectl -n flux-system get helmreleases.helm.toolkit.fluxcd.io -l "$SEL" -w -o json --request-timeout=0 \
   2> "$OUT/watch.err" | jq -c --unbuffered "$JQ" > "$OUT/watch.jsonl" &
 WATCH=$!
@@ -95,7 +100,10 @@ done
 python3 "$HERE/measure.py" wait-version --version 2 --names spike-pass,spike-fail --timeout 480 || true
 snap C
 
-sleep 5
+log "phase D: steady window of ${STEADY_SECONDS:-120}s with no change (does a failed hook cause a retry or remediation?)"
+sleep "${STEADY_SECONDS:-120}"
+snap D
+
 kill "$WATCH" 2> /dev/null || true
 
 log "collect Helm and cluster evidence"
