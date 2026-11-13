@@ -503,31 +503,53 @@ apply_policy() {
   kubectl create --dry-run=client -o json -f "$M/lock-policy.yaml" > "$base"
   local orig; orig=$(jq -r '.spec.auditAnnotations[0].valueExpression' "$base")
   local reason="variables.target.metadata.annotations['catalyst.openova.io/break-glass-reason']"
-  local -a names=(as-planned dyn-true-branch dyn-null-branch no-audit-annotation)
+  local -a names=(as-planned empty-string-branch dyn-true-branch dyn-null-branch no-audit-annotation)
   local -a exprs=(
     "$orig"
+    "variables.isBreakGlass && !variables.isWriter ? variables.user + ': ' + $reason : ''"
     "variables.isBreakGlass && !variables.isWriter ? dyn(variables.user + ': ' + $reason) : null"
     "variables.isBreakGlass && !variables.isWriter ? variables.user + ': ' + $reason : dyn(null)"
     ""
   )
-  for v in 0 1 2 3; do
+  local chosen="" rc
+  for v in 0 1 2 3 4; do
     if [ -n "${exprs[$v]}" ]; then
       jq --arg e "${exprs[$v]}" '.spec.auditAnnotations[0].valueExpression = $e' "$base" > "$WORK/policy-$v.json"
     else
       jq 'del(.spec.auditAnnotations)' "$base" > "$WORK/policy-$v.json"
     fi
-    out=$(kubectl apply --dry-run=server -f "$WORK/policy-$v.json" 2>&1)
-    if [ $? -eq 0 ]; then
+    out=$(kubectl apply --dry-run=server -f "$WORK/policy-$v.json" 2>&1); rc=$?
+    if [ $rc -eq 0 ]; then
       rec "S3.policy.compile.${names[$v]}: accepted"
-      [ -n "${exprs[$v]}" ] && rec "S3.policy.compile.${names[$v]}.expression: ${exprs[$v]}"
-      kubectl apply -f "$WORK/policy-$v.json"
-      rec "S3.policy.applied_variant: ${names[$v]}"
-      return 0
+      [ -z "$chosen" ] && chosen=$v
+    else
+      echo "$out"
+      rec "S3.policy.compile.${names[$v]}: refused: $(grep -m1 'valueExpression' <<<"$out" | sed 's/.*Invalid value: ".*": //' | one 220)"
     fi
-    rec "S3.policy.compile.${names[$v]}: refused $(grep -o 'compilation failed.*' <<<"$out" | head -1 | one 200)"
+    [ -n "${exprs[$v]}" ] && rec "S3.policy.compile.${names[$v]}.expression: ${exprs[$v]}"
   done
-  rec "S3.policy.applied_variant: none"
-  return 1
+  if [ -z "$chosen" ]; then rec "S3.policy.applied_variant: none"; return 1; fi
+  kubectl apply -f "$WORK/policy-$chosen.json"
+  rec "S3.policy.applied_variant: ${names[$chosen]}"
+}
+
+# bind_stage NAME GROUP RESOURCE ACTIONS: one more stage binding.
+bind_stage() {
+  cat <<EOF | kubectl apply -f -
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: catalyst-intent-lock-$1
+spec:
+  policyName: catalyst-intent-lock
+  validationActions: $4
+  matchResources:
+    resourceRules:
+      - apiGroups: ["$2"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["$3"]
+EOF
 }
 
 s_s3a() {
@@ -673,6 +695,42 @@ s_s3b() {
   kubectl delete ns lock --wait=false
   rec "S3.deny.namespace_delete_removes_object: $(wait_until 180 absent -n lock application lock-a)"
   rec "S3.deny.namespace_gone: $(wait_until 180 absent namespace lock)"
+
+  note "the two Environment writers found by S6, under an environments binding at Deny"
+  cat <<EOF | kubectl apply -f -
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: spike-environment-writers
+rules:
+  - apiGroups: ["catalyst.openova.io"]
+    resources: ["environments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: spike-environment-writers
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: spike-environment-writers
+subjects:
+  - kind: ServiceAccount
+    name: catalyst-organization-controller
+    namespace: catalyst-system
+  - kind: ServiceAccount
+    name: catalyst-api-cutover-driver
+    namespace: catalyst-system
+EOF
+  bind_stage environments catalyst.openova.io environments '["Deny"]'
+  jq -cn '{apiVersion:"catalyst.openova.io/v1", kind:"Environment", metadata:{name:"acme-prod"},
+    spec:{organizationRef:"acme", envType:"prod", placement:"single-region", regions:[{provider:"huawei", region:"mee", buildingBlock:"rtz"}]}}' > "$WORK/env.json"
+  jq '.metadata.name="openova-cp"' "$WORK/env.json" > "$WORK/env-cp.json"
+  local i
+  for i in $(seq 1 60); do kubectl create --dry-run=server -f "$WORK/env.json" 2>&1 | grep -q "denied request" && break; sleep 1; done
+  try S6.lock.organization-controller_create lock -- kubectl --as=system:serviceaccount:catalyst-system:catalyst-organization-controller create -f "$WORK/env.json"
+  try S6.lock.catalyst-api_server_side_apply lock -- kubectl --as=system:serviceaccount:catalyst-system:catalyst-api-cutover-driver apply --server-side --force-conflicts --field-manager=catalyst-api/spine-application-producer -f "$WORK/env-cp.json"
 
   note "audit log"
   sudo cp /var/lib/rancher/k3s/server/logs/audit.log "$OUT/audit.jsonl"; sudo chmod 644 "$OUT/audit.jsonl"
