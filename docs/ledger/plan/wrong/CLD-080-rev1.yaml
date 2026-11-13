@@ -1,0 +1,52 @@
+schema: openova.io/plan-wrong/v1
+id: CLD-080
+ticket_rev: 1
+base_commit: c9b98c2289231719345efcf8812c49868aedb96a
+stage: check
+ref: upstream-literals
+command: |
+    gh api repos/openova-io/openova/actions/jobs/131632138221/logs | grep -B 40 -m 1 '##\[error\]' | cut -c30-300
+expected: |
+    the check finishes green
+actual: |
+    50e3d3265a60300b6cd4a37decd887e68d5de5f1
+    ##[group]Run bash scripts/check-upstream-literals.sh --self-test
+    [36;1mbash scripts/check-upstream-literals.sh --self-test[0m
+    shell: /usr/bin/bash -e {0}
+    ##[endgroup]
+    ok    an unchanged tree passes and prints the six counts
+    ok    a new address in the kit fails
+    ok    a new address in a provider module fails
+    ok    a new address in a product chart's values fails
+    ok    a new address in the API's Go code fails
+    ok    a new address in a service's Go code fails
+    ok    a new address in the console fails
+    ok    every address form counts
+    ok    comment lines and image names do not count
+    ok    test files and non-Go files of the API do not count
+    ok    test files of the console do not count
+    ok    templates of a platform chart do not count
+    ok    a count below its baseline passes with a note
+    ok    --write-baseline refuses to raise a number and leaves the baseline as it was
+    ok    --write-baseline lowers a number after an address left
+    ok    --list prints path, line and text of each counted line
+    ok    --list refuses an unknown scope
+    ok    a missing baseline is not a pass
+    ok    a baseline without a line for every scope is not a pass
+    ok    a baseline with a line more than the six is not a pass
+    ok    a missing scope directory is not a pass
+    check-upstream-literals: self-test passed: 21 of 21 cases as expected
+    ##[group]Run bash scripts/check-upstream-literals.sh
+    [36;1mbash scripts/check-upstream-literals.sh[0m
+    shell: /usr/bin/bash -e {0}
+    ##[endgroup]
+    infra=49
+    kit=71
+    charts=156
+    api=17
+    controllers=9
+    console=21
+    check-upstream-literals: FAIL infra: 49 lines, the baseline allows 47. List them: bash scripts/check-upstream-literals.sh --list infra
+    check-upstream-literals: a source address is an input of the Sovereign, not a literal in the code
+    ##[error]Process completed with exit code 1.
+reported_at: 2026-11-13T01:56:21Z
