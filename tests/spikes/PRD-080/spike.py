@@ -51,6 +51,8 @@ FLOORS = {
 RTL = {"embed_r1": 0.8, "rerank_top1": 0.8, "ocr_cer": 0.15, "asr_wer_ar": 0.40, "asr_wer_en": 0.15}
 
 FLEURS = "google/fleurs"
+# Run 5 repeats only the pinned candidates (earlier runs measured all of them; see the branch history).
+RUN5 = {"infinity", "docling-serve", "speaches"}
 
 
 # ============================================================== helpers
@@ -350,9 +352,12 @@ EMBED_MODELS["granite-107m-ml+mmarco-ml-minilm"] = dict(kind="both")
 
 
 def infinity_args(m, k, v):
+    engine, _, flag = v.partition("+")
     a = ["v2"]
     for x in m.split("+"):
-        a += ["--model-id", f"/models/{x}", "--served-model-name", x, "--engine", v, "--device", "cpu"]
+        a += ["--model-id", f"/models/{x}", "--served-model-name", x, "--engine", engine, "--device", "cpu"]
+        if flag == "tok":  # usage.prompt_tokens from the tokenizer instead of the text length
+            a += ["--lengths-via-tokenize"]
     return a + ["--port", "7997", "--url-prefix", "/v1"]
 
 
@@ -373,8 +378,7 @@ EMBED_CANDIDATES = [
          env={"HF_HUB_OFFLINE": "1"}, embed_path="/v1/embeddings", rerank_api="tei", rerank_path="/rerank"),
     dict(name="infinity", image="michaelf34/infinity:0.0.78-cpu", source="github.com/michaelfeil/infinity",
          source_licence="MIT", port=7997, health=["/v1/health", "/health"],
-         models=[("granite-107m-ml+mmarco-ml-minilm", "optimum"), ("granite-107m-ml", "optimum"),
-                 ("mmarco-ml-minilm", "optimum"), ("granite-107m-ml", "torch"), ("bge-m3", "optimum")],
+         models=[("granite-107m-ml+mmarco-ml-minilm", "optimum"), ("granite-107m-ml+mmarco-ml-minilm", "optimum+tok")],
          args=infinity_args,
          env={"HF_HUB_OFFLINE": "1", "INFINITY_ANONYMOUS_USAGE_STATS": "0", "DO_NOT_TRACK": "1",
               "INFINITY_HOME": "/tmp/infinity", "HF_HOME": "/tmp/hf"},
@@ -426,6 +430,8 @@ def run_embeddings():
     prep_embed(rows)
     setup_network()
     for c in EMBED_CANDIDATES:
+        if c["name"] not in RUN5:
+            continue
         info = pull(c["image"])
         result({"kind": "candidate", "task": "embeddings", "name": c["name"], "image": c["image"],
                 "source": c["source"], "source_licence": c["source_licence"], "digest": info["digest"],
@@ -474,8 +480,8 @@ CONV_CANDIDATES = [
                                       # writable places under a read-only root: all on the /tmp emptyDir
                                       "HOME": "/tmp", "XDG_CACHE_HOME": "/tmp/.cache", "MPLCONFIGDIR": "/tmp/mpl",
                                       "EASYOCR_MODULE_PATH": "/tmp/easyocr"},
-         configs=[("rapidocr", "rapidocr"), ("tesserocr", "tesserocr:eng"), ("tesseract", "tesseract:eng")],
-         ar_configs=[("tesserocr", "tesserocr:ara"), ("tesseract", "tesseract:ara"), ("rapidocr", "rapidocr:arabic")]),
+         configs=[("rapidocr", "rapidocr"), ("tesseract", "tesseract:eng")],
+         ar_configs=[("rapidocr", "rapidocr:arabic"), ("tesseract", "tesseract:ara")]),
     dict(name="tika", image="apache/tika:3.3.3.0-full", source="github.com/apache/tika-docker",
          source_licence="Apache-2.0", port=9998, health=["/version"], api="tika",
          args=["-c", "/config/tika-config.xml"], env={}, configs=[("tesseract", "eng")],
@@ -651,6 +657,8 @@ def run_conversion():
     os.chmod(os.path.join(OUT, "conv"), 0o777)
     setup_network()
     for c in CONV_CANDIDATES:
+        if c["name"] not in RUN5:
+            continue
         info = pull(c["image"])
         tdir, langs = tess_dir(c["image"])
         result({"kind": "candidate", "task": "conversion", "name": c["name"], "image": c["image"],
@@ -659,8 +667,31 @@ def run_conversion():
                 "tessdata_dir": tdir, "tesseract_langs": langs})
         mounts = [(ara, f"{tdir}/ara.traineddata")] if tdir else []
         if c["name"] == "docling-serve":
-            art = c["env"].get("DOCLING_SERVE_ARTIFACTS_PATH", "/opt/app-root/src/.cache/docling/models")
-            mounts.append((arabic_pth, f"{art}/EasyOcr/arabic.pth"))
+            art = "/opt/app-root/src/.cache/docling/models"
+            # One model volume, as a chart would mount it: the image's models plus the RapidOCR Arabic
+            # files fetched once by the image's own tool (with a route out), then mounted read-only.
+            vol = os.path.join(MODELS, "docling-models")
+            try:
+                os.makedirs(vol, exist_ok=True)
+                sh(["docker", "rm", "-f", "prd080-tmp"])
+                sh(["docker", "create", "--name", "prd080-tmp", c["image"]], check=True)
+                sh(["docker", "cp", f"prd080-tmp:{art}/.", vol], check=True, timeout=900)
+                sh(["docker", "rm", "-f", "prd080-tmp"])
+                sh(["chmod", "-R", "a+rwX", vol])
+                before = set(glob.glob(os.path.join(vol, "**"), recursive=True))
+                rc, dl = sh(["docker", "run", "--rm", "--user", "0", "-v", f"{vol}:/m", "--entrypoint",
+                             "docling-tools", c["image"], "models", "download", "rapidocr",
+                             "--rapidocr-backend-lang", "onnxruntime:arabic", "-o", "/m"], timeout=900)
+                shutil.copy(arabic_pth, os.path.join(vol, "EasyOcr", "arabic.pth"))
+                sh(["chmod", "-R", "a+rX", vol])
+                added = sorted(os.path.relpath(x, vol)
+                               for x in set(glob.glob(os.path.join(vol, "**"), recursive=True)) - before)
+                result({"kind": "docling-model-volume", "download_rc": rc, "download_log": dl[-1200:],
+                        "added": added})
+                mounts.append((vol, "/models-docling"))
+                c["env"]["DOCLING_SERVE_ARTIFACTS_PATH"] = "/models-docling"
+            except Exception as e:  # fall back to the models inside the image
+                result({"kind": "docling-model-volume", "error": str(e)[:600]})
             _, ls = sh(["docker", "run", "--rm", "--network", "none", "--entrypoint", "sh", c["image"], "-c",
                         f"ls {art}; ls {art}/EasyOcr {art}/RapidOcr 2>/dev/null | head -40; "
                         "pip list 2>/dev/null | grep -i -E '^(docling|easyocr|rapidocr|tesserocr|torch) '"])
@@ -820,6 +851,8 @@ def run_transcription():
         os.chmod(p, 0o755 if os.path.isdir(p) else 0o644)
     setup_network()
     for c in ASR_CANDIDATES:
+        if c["name"] not in RUN5:
+            continue
         info = pull(c["image"])
         result({"kind": "candidate", "task": "transcription", "name": c["name"], "image": c["image"],
                 "source": c["source"], "source_licence": c["source_licence"], "digest": info["digest"],
