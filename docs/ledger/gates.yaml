@@ -684,12 +684,13 @@ checks:
 - id: CLD-G11
   title: The local pack comes up with two clusters and a claim binds on its default storage class
   owner: CLD
-  state: not-built
+  state: required
   runs_in: [local]
   destructive: false
   needs: []
   proof: running
   asserts: The local pack comes up with two clusters and a claim binds on its default storage class
+  implementation: scripts/local-pack.sh
   delivered_by: CLD-087
 - id: CLD-G12
   title: Zero-change plan on a copy of a live Huawei working directory with regenerated variables
