@@ -1,0 +1,16 @@
+# The exception under test: a time condition in a match condition, in the
+# shape a waiver renders to. __EXP__ is two minutes after it is applied.
+apiVersion: policies.kyverno.io/__PE__
+kind: PolicyException
+metadata:
+  name: spike-time-exc
+  namespace: catalyst-policy-exceptions
+spec:
+  policyRefs:
+    - name: exc-replicas
+      kind: ValidatingPolicy
+  matchConditions:
+    - name: not-expired
+      expression: "time.now() < timestamp('__EXP__')"
+    - name: scope
+      expression: "object.metadata.?namespace.orValue('') == 'spike-exc'"

@@ -1,0 +1,28 @@
+# Legacy kind: the multi-replica rule, audit only, background on.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: legacy-multi-replica
+  annotations:
+    policies.kyverno.io/title: Workloads must declare 2+ replicas
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: Deployments must declare spec.replicas of 2 or more.
+spec:
+  background: true
+  rules:
+    - name: replicas-at-least-two
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+              namespaces:
+                - spike-rep
+                - spike-lat
+      validate:
+        failureAction: Audit
+        message: This workload declares fewer than 2 replicas.
+        pattern:
+          spec:
+            replicas: ">=2"

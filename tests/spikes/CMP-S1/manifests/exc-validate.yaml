@@ -1,0 +1,27 @@
+# New kind, enforcing: the policy the exceptions refer to.
+apiVersion: policies.kyverno.io/__VP__
+kind: ValidatingPolicy
+metadata:
+  name: exc-replicas
+  annotations:
+    policies.kyverno.io/title: Workloads must declare 2+ replicas (enforced)
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: medium
+spec:
+  validationActions:
+    - Deny
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments"]
+  matchConditions:
+    - name: spike-namespaces
+      expression: "object.metadata.?namespace.orValue('') in ['spike-exc', 'spike-exc2', 'spike-exp', 'spike-off']"
+  validations:
+    - expression: "has(object.spec.replicas) && object.spec.replicas >= 2"
+      message: "exc-replicas: fewer than 2 replicas (__MSG__)"

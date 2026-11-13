@@ -1,0 +1,7 @@
+# Values for the upstream engine chart in the CMP-S1 lab test.
+# Only the exception feature is set; everything else stays at the upstream
+# default, as in the platform's own values today.
+features:
+  policyExceptions:
+    enabled: true
+    namespace: catalyst-policy-exceptions

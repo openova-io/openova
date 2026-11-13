@@ -1,0 +1,17 @@
+# Negative control: one wrong expectation for the validating policy.
+# The tool evaluates the file only if this suite FAILS.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: cmp-s1-neg-vp
+policies:
+  - vpol.yaml
+resources:
+  - resources.yaml
+results:
+  - policy: new-multi-replica
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - spike-rep/rep-one
+    result: pass

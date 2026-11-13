@@ -1,0 +1,97 @@
+# Lab test CMP-S1 (spike, never merged). Runs only on a push to the branch
+# spike/CMP-S1. It answers six questions about engine line 1.19 of the
+# admission policy engine: served version of the new policy kinds, report
+# parity in background scans, the chart values for exceptions, a time
+# condition in an exception, time from a change to its report, and whether
+# the command-line test tool evaluates the new kinds.
+#
+# Everything runs on a throwaway kind cluster inside this job. No secret,
+# no cloud account, no external cluster.
+name: spike-cmp-s1
+
+on:
+  push:
+    branches: [spike/CMP-S1]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spike-cmp-s1
+  cancel-in-progress: false
+
+env:
+  CHART_VERSION: "3.9.2"      # upstream chart that carries engine v1.19.2
+  KYVERNO_VERSION: v1.19.2    # command-line tool of the same engine version
+  KIND_VERSION: v0.31.0
+  HELM_VERSION: v3.22.0
+
+jobs:
+  engine:
+    name: engine on Kubernetes ${{ matrix.k8s }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The minor line the Sovereigns run today (k3s v1.31.4).
+          - k8s: v1.31.14
+            image: kindest/node:v1.31.14@sha256:6f86cf509dbb42767b6e79debc3f2c32e4ee01386f0489b3b2be24b0a55aac2b
+          # A newer line, as a second reading.
+          - k8s: v1.34.3
+            image: kindest/node:v1.34.3@sha256:08497ee19eace7b4b5348db5c6a1591d7752b164530a36f855cb0f2bdcbadd48
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kind, kubectl and helm
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/bin"
+          curl -fsSLo "$HOME/bin/kind" "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64"
+          curl -fsSLo "$HOME/bin/kubectl" "https://dl.k8s.io/release/${{ matrix.k8s }}/bin/linux/amd64/kubectl"
+          curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz -C "$RUNNER_TEMP" linux-amd64/helm
+          mv "$RUNNER_TEMP/linux-amd64/helm" "$HOME/bin/helm"
+          chmod +x "$HOME/bin/kind" "$HOME/bin/kubectl" "$HOME/bin/helm"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+          "$HOME/bin/kind" version
+          "$HOME/bin/kubectl" version --client
+          "$HOME/bin/helm" version
+          yq --version
+          jq --version
+
+      - name: Create kind cluster
+        run: kind create cluster --name cmp-s1 --image "${{ matrix.image }}" --wait 180s
+
+      - name: Run the engine experiment
+        env:
+          OUT: ${{ runner.temp }}/evidence-engine
+        run: bash tests/spikes/CMP-S1/engine.sh
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cmp-s1-engine-${{ matrix.k8s }}
+          path: ${{ runner.temp }}/evidence-engine
+          retention-days: 90
+
+  cli:
+    name: command-line test tool
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the tool experiment
+        env:
+          OUT: ${{ runner.temp }}/evidence-cli
+        run: bash tests/spikes/CMP-S1/cli.sh
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cmp-s1-cli
+          path: ${{ runner.temp }}/evidence-cli
+          retention-days: 90

@@ -1,0 +1,15 @@
+# Side measurement: the native expiry field, applied only when the served
+# schema has it. Same expiry as the time condition.
+apiVersion: policies.kyverno.io/__PE__
+kind: PolicyException
+metadata:
+  name: spike-expiresat
+  namespace: catalyst-policy-exceptions
+spec:
+  expiresAt: "__EXP__"
+  policyRefs:
+    - name: exc-replicas
+      kind: ValidatingPolicy
+  matchConditions:
+    - name: scope
+      expression: "object.metadata.?namespace.orValue('') == 'spike-exp'"

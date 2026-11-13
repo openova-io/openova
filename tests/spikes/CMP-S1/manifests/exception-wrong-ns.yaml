@@ -1,0 +1,14 @@
+# Control: the same exception shape, but outside the exception namespace.
+# The engine must ignore it.
+apiVersion: policies.kyverno.io/__PE__
+kind: PolicyException
+metadata:
+  name: spike-wrong-ns
+  namespace: default
+spec:
+  policyRefs:
+    - name: exc-replicas
+      kind: ValidatingPolicy
+  matchConditions:
+    - name: scope
+      expression: "object.metadata.?namespace.orValue('') == 'spike-exc2'"

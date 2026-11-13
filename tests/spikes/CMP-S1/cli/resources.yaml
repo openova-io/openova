@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rep-one
+  namespace: spike-rep
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rep-one
+  template:
+    metadata:
+      labels:
+        app: rep-one
+    spec:
+      containers:
+        - name: pause
+          image: registry.k8s.io/pause:3.10
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rep-three
+  namespace: spike-rep
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: rep-three
+  template:
+    metadata:
+      labels:
+        app: rep-three
+    spec:
+      containers:
+        - name: pause
+          image: registry.k8s.io/pause:3.10
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cm-1
+  namespace: spike-mut
+data:
+  k: v

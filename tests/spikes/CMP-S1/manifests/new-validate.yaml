@@ -1,0 +1,29 @@
+# New kind: the same rule as legacy-multi-replica, under another name,
+# written in the shape of the post-migration template convention.
+apiVersion: policies.kyverno.io/__VP__
+kind: ValidatingPolicy
+metadata:
+  name: new-multi-replica
+  annotations:
+    policies.kyverno.io/title: Workloads must declare 2+ replicas
+    policies.kyverno.io/category: catalyst-compliance
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: Deployments must declare spec.replicas of 2 or more.
+spec:
+  validationActions:
+    - Audit
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments"]
+  matchConditions:
+    - name: spike-namespaces
+      expression: "object.metadata.?namespace.orValue('') in ['spike-rep', 'spike-lat']"
+  validations:
+    - expression: "has(object.spec.replicas) && object.spec.replicas >= 2"
+      message: This workload declares fewer than 2 replicas.

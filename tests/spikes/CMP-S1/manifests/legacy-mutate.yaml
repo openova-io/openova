@@ -1,0 +1,20 @@
+# Legacy kind: a mutate rule that adds one label to ConfigMaps.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: legacy-add-label
+spec:
+  rules:
+    - name: add-label
+      match:
+        any:
+          - resources:
+              kinds:
+                - ConfigMap
+              namespaces:
+                - spike-mut
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            labels:
+              spike.openova.io/legacy-mutated: "true"

@@ -1,0 +1,18 @@
+# Negative control: a wrong patched resource for the mutating policy.
+# The tool evaluates the file only if this suite FAILS.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: cmp-s1-neg-mp
+policies:
+  - mpol.yaml
+resources:
+  - resources.yaml
+results:
+  - policy: new-add-label
+    isMutatingPolicy: true
+    kind: ConfigMap
+    resources:
+      - spike-mut/cm-1
+    patchedResources: patched-wrong.yaml
+    result: pass

@@ -1,0 +1,23 @@
+apiVersion: policies.kyverno.io/__MP__
+kind: MutatingPolicy
+metadata:
+  name: new-add-label
+spec:
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["configmaps"]
+  matchConditions:
+    - name: spike-namespace
+      expression: "object.metadata.?namespace.orValue('') == 'spike-mut'"
+  mutations:
+    - patchType: ApplyConfiguration
+      applyConfiguration:
+        expression: >-
+          Object{
+            metadata: Object.metadata{
+              labels: {"spike.openova.io/new-mutated": "true"}
+            }
+          }

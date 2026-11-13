@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cm-1
+  namespace: spike-mut
+  labels:
+    spike.openova.io/new-mutated: "true"
+data:
+  k: v

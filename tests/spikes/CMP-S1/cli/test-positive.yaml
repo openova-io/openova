@@ -1,0 +1,30 @@
+# Correct expectations: the suite must pass with 3 tests passed.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: cmp-s1-positive
+policies:
+  - vpol.yaml
+  - mpol.yaml
+resources:
+  - resources.yaml
+results:
+  - policy: new-multi-replica
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - spike-rep/rep-one
+    result: fail
+  - policy: new-multi-replica
+    isValidatingPolicy: true
+    kind: Deployment
+    resources:
+      - spike-rep/rep-three
+    result: pass
+  - policy: new-add-label
+    isMutatingPolicy: true
+    kind: ConfigMap
+    resources:
+      - spike-mut/cm-1
+    patchedResources: patched.yaml
+    result: pass

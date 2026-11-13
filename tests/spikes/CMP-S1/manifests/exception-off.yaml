@@ -1,0 +1,14 @@
+# Control for the exception switch: honoured while the switch is on,
+# then read again after the switch is turned off.
+apiVersion: policies.kyverno.io/__PE__
+kind: PolicyException
+metadata:
+  name: spike-off-exc
+  namespace: catalyst-policy-exceptions
+spec:
+  policyRefs:
+    - name: exc-replicas
+      kind: ValidatingPolicy
+  matchConditions:
+    - name: scope
+      expression: "object.metadata.?namespace.orValue('') == 'spike-off'"
