@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T07:30:05Z` |
+| Last refreshed | `2026-11-13T07:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T07:41 | [#7362](https://github.com/openova-io/openova/pull/7362) | #7087 | docs(ledger): plan update |
 | 2026-11-13T07:17 | [#7355](https://github.com/openova-io/openova/pull/7355) | #7087 | docs(ledger): plan update |
 | 2026-11-13T07:08 | [#7348](https://github.com/openova-io/openova/pull/7348) | #7087 | docs(ledger): plan update |
 | 2026-11-13T06:47 | [#7344](https://github.com/openova-io/openova/pull/7344) | #7087 | docs(ledger): result of the lab test SVC-340 (SVC-340) |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-13T06:33 | [#7314](https://github.com/openova-io/openova/pull/7314) | #7087 | docs(ledger): result of the lab test CTL-055 (CTL-055) |
 | 2026-11-13T06:33 | [#7313](https://github.com/openova-io/openova/pull/7313) | #7087 | docs(ledger): result of the lab test CTL-050 (CTL-050) |
 | 2026-11-13T06:33 | [#7312](https://github.com/openova-io/openova/pull/7312) | #7087 | docs(ledger): result of the lab test CMP-S6 (CMP-S6) |
-| 2026-11-13T06:33 | [#7311](https://github.com/openova-io/openova/pull/7311) | #7087 | docs(ledger): result of the lab test CMP-S1 (CMP-S1) |
 
 ---
 
