@@ -747,7 +747,7 @@ packages:
   size: S
   lane: RAILS
   depends_on: [FND-013, FND-011]
-  after: [FND-001, FND-091, FND-031, FND-110, CLD-040]
+  after: [FND-001, FND-091, FND-031, FND-110, CLD-040, CMP-036]
   touches:
   - scripts/ci/use-release-writer.sh
   - scripts/check-bot-writers.py
@@ -1118,13 +1118,13 @@ packages:
     expect: "2"
   acceptance:
   - id: A1
-    run: "cd tests/acceptance/sovereign && go test ./internal/suite/ -count=1"
+    run: "(cd tests/acceptance/sovereign && go test ./internal/suite/ -count=1)"
   - id: A2
     run: "python3 scripts/acceptance-gate.py validate --base origin/main --body-file <(echo 'Work-Package: FND-034')"
   - id: A3
-    run: "cd tests/acceptance/sovereign && go vet ./... && test -z \"$(gofmt -l . 2>&1)\""
+    run: "(cd tests/acceptance/sovereign && go vet ./... && test -z \"$(gofmt -l . 2>&1)\")"
   - id: A4
-    run: "cd tests/acceptance/sovereign && test \"$(go test ./internal/suite/ -count=1 -v -run '^(TestNodePortCheck|TestNodePortScriptsOfThisRepository|TestLastLines|TestEncryptionCheck|TestFrontDoorsCheck|TestFrontDoorsList|TestMeshCheck|TestJourneysChecks|TestWipeCheck|TestParsePreviousWipe|TestWipeSampleRecord)$' | grep -c '^--- PASS: ')\" = 11"
+    run: "(cd tests/acceptance/sovereign && test \"$(go test ./internal/suite/ -count=1 -v -run '^(TestNodePortCheck|TestNodePortScriptsOfThisRepository|TestLastLines|TestEncryptionCheck|TestFrontDoorsCheck|TestFrontDoorsList|TestMeshCheck|TestJourneysChecks|TestWipeCheck|TestParsePreviousWipe|TestWipeSampleRecord)$' | grep -c '^--- PASS: ')\" = 11)"
   - id: A5
     run: "python3 -c \"import os, yaml; c = {x['id']: x for x in yaml.safe_load(open('docs/ledger/gates.yaml'))['checks']}; d = 'tests/acceptance/sovereign/internal/suite/'; want = {'FND-G05': 'check_nodeport.go', 'FND-G06': 'check_front_doors.go', 'FND-G08': 'check_mesh.go', 'FND-G09': 'check_encryption.go', 'FND-G10': 'check_journeys.go', 'FND-G11': 'check_journeys.go', 'FND-G12': 'check_journeys.go', 'FND-G13': 'check_wipe.go'}; assert all(c[i]['state'] == 'expected-fail' and c[i].get('implementation') == d + f and os.path.isfile(d + f) for i, f in want.items())\""
   - id: A6
@@ -1136,7 +1136,7 @@ packages:
   - id: A9
     run: "git diff --quiet \"$(git merge-base origin/main HEAD)\" -- tests/acceptance/sovereign/go.mod tests/acceptance/sovereign/internal/api tests/acceptance/sovereign/internal/kube tests/acceptance/sovereign/internal/session tests/acceptance/sovereign/internal/wordpress tests/acceptance/sovereign/internal/suite/journeys.go tests/acceptance/sovereign/internal/suite/match.go tests/acceptance/sovereign/internal/suite/discover.go tests/acceptance/sovereign/internal/suite/registry_test.go tests/acceptance/sovereign/internal/suite/fake_kubectl_test.go scripts/check-live-nodeports.sh scripts/check-live-node-encryption.sh scripts/sovereign-dod-verify.sh scripts/acceptance_record.py"
   - id: A10
-    run: "cd tests/acceptance/sovereign && go list -m all | wc -l | grep -qx 1"
+    run: "(cd tests/acceptance/sovereign && go list -m all | wc -l | grep -qx 1)"
   - id: A11
     run: "f=tests/acceptance/sovereign/README.md; grep -q -F -- '--previous-wipe-orphans' \"$f\" && grep -q -F 'check_front_doors.go' \"$f\" && grep -q -F 'Of the object `provision`' \"$f\" && ! grep -q -F 'The object `provision` of the' \"$f\""
   rollback: revert
@@ -1144,7 +1144,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: The acceptance suite has gate checks for node ports, front doors, the mesh, transit encryption and the clean wipe, and reports the five journeys as three gate checks; all of them run as expected-fail.
 - id: FND-035
@@ -1184,7 +1184,7 @@ packages:
   size: S
   lane: GATE
   depends_on: [FND-035]
-  after: [FND-033, FND-034, CLD-010, NET-010, CMP-010, BSS-030]
+  after: [FND-033, FND-034, CLD-010, CLD-080, NET-010, CMP-010, BSS-030]
   touches:
   - scripts/sso-zero-click-probe.mjs
   - .github/workflows/foundation-gate.yaml
@@ -1756,7 +1756,7 @@ packages:
   size: XS
   lane: GATE
   depends_on: [FND-070]
-  after: [CLD-010, NET-010, BSS-030]
+  after: [CLD-010, CLD-080, NET-010, BSS-030]
   touches:
   - docs/ledger/gates.yaml
   resources: []
@@ -2042,7 +2042,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-095]
-  after: [SOV-035, FND-011, FND-054, FND-097, FND-110, FND-171, FND-173, NET-042]
+  after: [SOV-035, FND-011, FND-054, FND-097, FND-110, FND-171, FND-173, NET-042, CMP-036]
   touches:
   - products/catalyst/chart/crds/sandbox.yaml
   - core/controllers/sandbox/**
@@ -2508,7 +2508,7 @@ packages:
   size: S
   lane: GATE
   depends_on: [FND-080]
-  after: [FND-054, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, FND-173, SOV-035, FND-040, CLD-010, NET-010, BSS-030]
+  after: [FND-054, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, FND-173, SOV-035, FND-040, CLD-010, CLD-080, NET-010, BSS-030]
   touches:
   - docs/ledger/stability.yaml
   - docs/ledger/gates.yaml
@@ -2777,7 +2777,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [FND-161]
-  after: [FND-101, CLD-010, NET-010, BSS-030]
+  after: [FND-101, CLD-010, CLD-080, NET-010, BSS-030]
   touches:
   - products/catalyst/bootstrap/ui/e2e/gate/applications/**
   - docs/ledger/UAT.md
@@ -2806,7 +2806,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [FND-161]
-  after: [FND-162, FND-101, CLD-010, NET-010, BSS-030]
+  after: [FND-162, FND-101, CLD-010, CLD-080, NET-010, BSS-030]
   touches:
   - products/catalyst/bootstrap/ui/e2e/gate/operations/**
   - docs/ledger/UAT.md
@@ -2835,7 +2835,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [FND-161]
-  after: [FND-163, FND-101, CLD-010, NET-010, BSS-030]
+  after: [FND-163, FND-101, CLD-010, CLD-080, NET-010, BSS-030]
   touches:
   - products/catalyst/bootstrap/ui/e2e/gate/organizations/**
   - docs/ledger/UAT.md
@@ -2864,7 +2864,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [FND-161]
-  after: [FND-164, FND-101, CLD-010, NET-010, BSS-030]
+  after: [FND-164, FND-101, CLD-010, CLD-080, NET-010, BSS-030]
   touches:
   - products/catalyst/bootstrap/ui/e2e/gate/assurance/**
   - core/marketplace/e2e/gate/**
@@ -3101,7 +3101,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-106]
-  after: [CLD-070, CLD-071, SEC-006, NET-050, NET-052, SVC-010, CMP-005, BSS-010, AIP-060, INF-070, ACC-060, PRD-020]
+  after: []
   touches:
   - docs/adr/0036-backup-and-restore.md
   - docs/adr/README.md
@@ -3109,16 +3109,30 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls docs/adr | grep -c '^0036-'"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "test \"$(sha256sum < docs/adr/0036-backup-and-restore.md | cut -d' ' -f1)\" = 36fb8d3811a05e6a60a65cdb78cf2b87da260005fb4dacc298b5255c328bb6ea && test \"$(ls docs/adr | grep -c '^0036-')\" = 1"
+  - id: A2
+    run: "test \"$(sed -n '3p' docs/adr/0036-backup-and-restore.md)\" = 'Status: Accepted' && test \"$(grep -c '^Status: ' docs/adr/0036-backup-and-restore.md)\" = 1 && test \"$(grep -c '^| etcd \\|^| database \\|^| Git \\|^| OpenBao ' docs/adr/0036-backup-and-restore.md)\" = 4 && python3 -c 'import re, sys; t = open(\"docs/adr/0036-backup-and-restore.md\", encoding=\"utf-8\").read(); c = [k for k in (\"etcd\", \"database\", \"Git\", \"OpenBao\") if len(re.findall(r\"^\\| %s \\|\" % k, t, re.M)) == 1]; d = [n for n in range(1, 9) if len(re.findall(r\"^\\*\\*B%d [A-Z]\" % n, t, re.M)) == 1]; print(len(c), len(d)); sys.exit(0 if len(c) == 4 and len(d) == 8 else 1)'"
+  - id: A3
+    run: "test \"$(grep -c -x -F '| [0036](0036-backup-and-restore.md) | Backup and restore: etcd, the platform databases, Git and OpenBao, each copied by its own mechanism to the bucket of the Sovereign on a stated schedule, with a restore drill for each that is a gate check | Accepted |' docs/adr/README.md)\" = 1 && test \"$(grep -c -F '[0036]' docs/adr/README.md)\" = 1 && python3 -c 'import re; n = [int(l[3:7]) for l in open(\"docs/adr/README.md\", encoding=\"utf-8\") if re.match(r\"\\| \\[[0-9]{4}\\]\\(\", l)]; print(n); raise SystemExit(0 if 36 in n and n == sorted(set(n)) else 1)'"
+  - id: A4
+    run: "test \"$(git diff --numstat origin/main -- docs/adr/README.md | cut -f1,2 | tr '\\t' ' ')\" = '1 0'"
+  - id: A5
+    run: "python3 -c 'import os, re, sys; t = open(\"docs/adr/0036-backup-and-restore.md\", encoding=\"utf-8\").read(); gone = {l.strip().rstrip(\"/\") for l in open(\"docs/ledger/deleted-paths.txt\", encoding=\"utf-8\") if l.strip() and not l.startswith(\"#\")}; p = sorted(set(re.findall(r\"`((?:docs|platform|products|scripts|infra|clusters|core)/[^`*]+)`\", t))); bad = [x for x in p if not os.path.exists(x) and x not in gone]; print(len(p), bad); sys.exit(1 if bad or len(p) < 10 else 0)'"
+  - id: A6
+    run: "python3 -c 'import re, yaml; plan = yaml.safe_load(open(\"docs/ledger/plan.yaml\")); known = {p[\"id\"] for p in plan[\"packages\"] if not p[\"dropped\"]} | {e[\"id\"] for e in plan[\"epics\"]} | {c[\"id\"] for c in yaml.safe_load(open(\"docs/ledger/gates.yaml\"))[\"checks\"]}; cited = set(re.findall(r\"\\b[A-Z]{3}-(?:[0-9]{3}|G[0-9]{2}|S[0-9])\\b\", open(\"docs/adr/0036-backup-and-restore.md\", encoding=\"utf-8\").read())); missing = sorted(cited - known); print(len(cited), missing); raise SystemExit(1 if missing or len(cited) < 15 else 0)'"
   rollback: revert
   adr: 36
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: One accepted record states, per data class, the schedule, the retention, the object-store path and the form of the restore drill.
+  delivers: Decision record 0036 states, for etcd, the platform databases, Git and OpenBao, what is copied, the schedule, the retention, the path in the bucket of the Sovereign, who may read it and the form of the restore drill, with the header line Status Accepted; the index of decision records lists it in number order.
 - id: FND-182
   title: Scheduled etcd snapshots to the Sovereign's object store
   area: FND
@@ -3211,7 +3225,7 @@ packages:
   size: M
   lane: GATE
   depends_on: [FND-182, FND-183, FND-184, FND-034]
-  after: [CLD-010, NET-010, BSS-030]
+  after: [CLD-010, CLD-080, NET-010, BSS-030]
   touches:
   - tests/acceptance/sovereign/internal/suite/check_restore_etcd*.go
   - tests/acceptance/sovereign/internal/suite/check_restore_database*.go
@@ -3380,7 +3394,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-201, FND-106]
-  after: [CLD-070, CLD-071, SEC-006, NET-050, NET-052, SVC-010, CMP-005, BSS-010, AIP-060, INF-070, ACC-060, PRD-020]
+  after: [FND-181, CLD-070, CLD-071, SEC-006, NET-050, NET-052, SVC-010, CMP-005, BSS-010, AIP-060, INF-070, ACC-060, PRD-020]
   touches:
   - docs/adr/0035-observability-pipeline.md
   - docs/adr/README.md
@@ -3471,7 +3485,7 @@ packages:
   size: M
   lane: GATE
   depends_on: [FND-204, FND-034]
-  after: [CLD-010, NET-010, BSS-030]
+  after: [CLD-010, CLD-080, NET-010, BSS-030]
   touches:
   - tests/acceptance/sovereign/internal/suite/check_observability*.go
   - clusters/_template/sovereign-region/observability/**
@@ -4161,24 +4175,51 @@ packages:
   depends_on: [CLD-070, FND-031]
   after: []
   touches:
-  - infra/providers/_contract/**
-  - products/catalyst/bootstrap/api/internal/cloudprofile/**
   - .github/workflows/check-provider-contract.yaml
+  - docs/contracts/README.md
   - docs/contracts/c6-crossplane-conventions.md
+  - docs/ledger/gates.yaml
+  - infra/providers/_contract/**
+  - infra/providers/hetzner/pack.yaml
+  - infra/providers/hetzner/profile.yaml
+  - infra/providers/huawei/pack.yaml
+  - infra/providers/huawei/profile.yaml
+  - products/catalyst/bootstrap/api/internal/cloudprofile/**
+  - scripts/check-provider-contract.sh
   resources: []
   flips: []
   implements: [CLD-G03]
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test ! -e infra/providers/_contract && echo absent"
+    expect: "absent"
+  acceptance:
+  - id: A1
+    run: "bash scripts/check-provider-contract.sh"
+  - id: A2
+    run: "(cd products/catalyst/bootstrap/api && go test -count=1 -v -run '^(TestLoadBothPacks|TestMergeRejectsNonInstallationField|TestValidateRejectsUnknownField|TestIncompleteWhenInstallationRequired)$' ./internal/cloudprofile/) | grep -c '^--- PASS: Test' | grep -qx 4"
+  - id: A3
+    run: "bash scripts/check-provider-contract.sh --self-test"
+  - id: A4
+    run: "python3 -c \"import json; c = json.load(open('infra/providers/_contract/contract.json')); v = {x['name']: x for x in c['variables']}; assert c['version'] == '1' and (len(v), len(c['outputs']), len(c['engine_extras']), len(c['template_inputs'])) == (33, 5, 21, 14), c.keys(); assert [n for n in v if v[n]['required']] == ['deployment_id', 'sovereign_fqdn', 'org_name', 'org_email', 'ssh_public_key', 'regions', 'gitops_repo_url', 'catalyst_api_url', 'default_storage_class']; assert v['provider_api_cidrs']['default'] is None and v['ssh_allowed_cidrs']['default'] == [] and v['enable_fail2ban']['default'] is True; assert [o['name'] for o in c['outputs']] == ['contract_version', 'control_plane_ip', 'load_balancer_ip', 'console_load_balancer_ip', 'control_plane_ips_per_region']; assert c['template_inputs'][-1] == 'gateway_host_network'; b = open('infra/providers/_contract/contract.tftest.body.hcl').read(); assert [r for r in ('contract_single_region', 'contract_two_regions', 'contract_outputs') if b.count('run \\\"' + r + '\\\"') != 1] == []; assert open('infra/providers/_contract/generated-files.txt').read() == 'products/catalyst/bootstrap/api/internal/providers/all/all.go\\n'\""
+  - id: A5
+    run: "python3 -c \"import glob, os, re; f = sorted(glob.glob('infra/providers/[!_]*/profile.yaml') + glob.glob('infra/providers/[!_]*/pack.yaml')) + sorted(x for x in glob.glob('infra/providers/_contract/**', recursive=True) if os.path.isfile(x)) + ['docs/contracts/c6-crossplane-conventions.md']; assert len(f) >= 12, f; bad = [x for x in f if re.search(r'(?i)kom4dc|nationalcloud|212\\.72\\.|me-east-215', open(x).read())]; assert bad == [], bad\""
+  - id: A6
+    run: "test -f docs/contracts/c6-crossplane-conventions.md && grep -q -F '| C2 | Cloud profile | CLD (cloud abstraction) | `infra/providers/_contract/cloudprofile.schema.json` and `infra/providers/_contract/pack.schema.json` |' docs/contracts/README.md && grep -q -F 'bash scripts/check-provider-contract.sh --self-test' .github/workflows/check-provider-contract.yaml"
+  - id: A7
+    run: "python3 scripts/acceptance-gate.py validate --base origin/main --body-file <(echo 'Work-Package: CLD-080') && python3 -c \"import yaml; c = {x['id']: x for x in yaml.safe_load(open('docs/ledger/gates.yaml'))['checks']}['CLD-G03']; assert c['state'] == 'expected-fail' and c.get('implementation') == 'scripts/check-provider-contract.sh' and c.get('implemented_by') == 'CLD-080', c\""
+  - id: A8
+    run: "test -z \"$(gofmt -l products/catalyst/bootstrap/api/internal/cloudprofile 2>&1)\" && (cd products/catalyst/bootstrap/api && go vet ./internal/cloudprofile/)"
+  - id: A9
+    run: "git diff --quiet \"$(git merge-base origin/main HEAD)\" -- infra/providers/hetzner/main.tf infra/providers/hetzner/variables.tf infra/providers/hetzner/outputs.tf infra/providers/hetzner/versions.tf infra/providers/hetzner/tests infra/providers/huawei/main.tf infra/providers/huawei/variables.tf infra/providers/huawei/outputs.tf infra/providers/huawei/versions.tf infra/providers/huawei/tests infra/providers/_shared infra/providers/PROVIDER-INTERFACE.md products/catalyst/bootstrap/api/go.mod products/catalyst/bootstrap/api/go.sum"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'As the body, with the schema of section 4.3 as it now stands: no mesh section, apiCIDRs added, controller a legacy value, no cost section, other areas'' sections reserved by name only, pack.yaml with tofuProviders. Also publishes docs/contracts/c6-crossplane-conventions.md. Moves CLD-G03 from not-built to expected-fail.'
+  delivers: 'The provider contract exists as files that a test checks: the machine-readable module contract, the schemas of the cloud profile and of the pack declaration, a profile and a pack declaration for each of the two clouds, a Go package that loads, merges and validates profiles, and the Crossplane conventions of contract C6.'
 - id: CLD-086
   title: local module and reduced kit
   area: CLD
@@ -4611,7 +4652,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CLD-080]
-  after: [FND-011]
+  after: [FND-011, NET-125]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/clustermesh.go
   - products/catalyst/bootstrap/api/internal/infrastructure/topology_loader.go
@@ -4948,7 +4989,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-080, CLD-132, CLD-141, CLD-142, FND-032]
-  after: [FND-033, FND-034, SEC-020, NET-010, CMP-010, BSS-030]
+  after: [FND-033, FND-034, SOV-110, SEC-020, NET-010, CMP-010, CMP-036, BSS-030]
   touches:
   - clusters/_template/bootstrap-kit/**
   - infra/providers/_shared/cloudinit-control-plane.tftpl
@@ -5147,7 +5188,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-104, CLD-121, CLD-144, CLD-161]
-  after: [FND-011, SEC-020, NET-010]
+  after: [FND-011, SOV-110, SEC-020, NET-010]
   touches:
   - infra/providers/huawei/**
   - products/catalyst/bootstrap/api/internal/providers/huawei/**
@@ -5261,7 +5302,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CLD-050, CLD-066, CLD-087, FND-032, SEC-190, SEC-211]
-  after: [FND-033, FND-034, NET-010, CMP-010, BSS-030]
+  after: [FND-033, FND-034, SOV-110, NET-010, CMP-010, BSS-030]
   touches:
   - clusters/_template/infrastructure/base/**
   - clusters/_template/infrastructure/providers/base/provider-opentofu.yaml
@@ -6003,7 +6044,7 @@ packages:
   epic: null
   type: guard
   wave: W0
-  size: XS
+  size: S
   lane: RAILS
   depends_on: []
   after: []
@@ -6015,16 +6056,28 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls scripts/check-lifecycle-ratchets.sh scripts/lifecycle-ratchets-baseline.txt .github/workflows/check-lifecycle-ratchets.yaml 2>/dev/null | wc -l"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "test \"$(sha256sum < scripts/check-lifecycle-ratchets.sh)\" = \"c5ce7c8d5f9eb3bdf56913bef697a1b321443fd56b60e7d0cc45a705722512b8  -\""
+  - id: A2
+    run: "test \"$(sha256sum < .github/workflows/check-lifecycle-ratchets.yaml)\" = \"93813fe942d700e425c1dbfae90da51a0c5f41860660993141389254c5c20995  -\""
+  - id: A3
+    run: "bash scripts/check-lifecycle-ratchets.sh --self-test"
+  - id: A4
+    run: "out=\"$(bash scripts/check-lifecycle-ratchets.sh)\"; test \"$out\" = \"$(cat scripts/lifecycle-ratchets-baseline.txt)\""
+  - id: A5
+    run: "s=\"$(python3 -c 'import yaml; d = yaml.safe_load(open(\".github/workflows/check-lifecycle-ratchets.yaml\")); print(d[\"jobs\"][\"lifecycle-ratchets\"][\"steps\"][3][\"run\"])')\"; test -n \"$s\"; bash --noprofile --norc -eo pipefail -c \"$s\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Ratchets on chart lines, kubectl mutation lines, git-push lines, sequencer lines, child client sites, twin parity
+  delivers: A pull request fails when it makes the cutover chart, its cluster-changing kubectl lines or git push lines, the API's cutover sequencer, the API's places that build a client for another cluster, or the difference between the two catalyst-api deployment templates grow, each counted against a stored baseline.
 - id: SOV-060
   title: 'Spike: born-local node registry list'
   area: SOV
@@ -6135,7 +6188,7 @@ packages:
   epic: SOV-100
   type: new
   wave: W1a
-  size: S
+  size: M
   lane: CONTROL
   depends_on: [FND-031]
   after: []
@@ -6150,16 +6203,26 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -d core/controllers/pkg/upstream; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "f=\"$(mktemp)\" && cd core/controllers && go vet ./pkg/upstream/... && go test -count=1 -v ./pkg/upstream/... | tee \"$f\" | tail -3 && test \"$(grep -c -E '^--- PASS: (TestContractCopiesMatch|TestRoundTrip|TestFromMapRejectsUnknownKey|TestValidateRules|TestServedNeverCopiesOrigin|TestFlippedChangesThreeKeys|TestRegistriesYAMLTwoEndpointsThenOne|TestLoad) \\(' \"$f\")\" = 8"
+  - id: A2
+    run: "bash scripts/check-variables-documents.sh --self-test && bash scripts/check-variables-documents.sh"
+  - id: A3
+    run: "diff <(awk '/path: \\/var\\/lib\\/catalyst\\/flux-bootstrap.yaml/,/^runcmd:/' infra/providers/_shared/cloudinit-control-plane.tftpl | grep -o '^            [A-Z][A-Z0-9_]*:' | tr -d ' :' | LC_ALL=C sort -u | grep -v '^POWERDNS_API_KEY$') docs/contracts/c5-kit-keys.txt"
+  - id: A4
+    run: "printf '%s\\n' '85b92c2c5ed016994e4b20f5336b3e61ee2f90400f473488aa9b0cda19b0345e  docs/contracts/c5-upstream-variables.schema.json' 'c864182ba01e202389e8f5611fa8a94bf8c1176019c935baf2ca61abba706677  docs/contracts/c5-kit-keys.txt' '85b92c2c5ed016994e4b20f5336b3e61ee2f90400f473488aa9b0cda19b0345e  core/controllers/pkg/upstream/contract/c5-upstream-variables.schema.json' 'c864182ba01e202389e8f5611fa8a94bf8c1176019c935baf2ca61abba706677  core/controllers/pkg/upstream/contract/c5-kit-keys.txt' 'd9610c43ed8393118cefe0e0e629a758a0543cdc3efa9e3c0b0fa43a6a2222b1  core/controllers/pkg/upstream/upstream.go' 'd47cf48bf826c65f830d3932399a9deb13a874afdf12c95b43f125508da68b08  core/controllers/pkg/upstream/upstream_test.go' '2bc3b214338ccc02a177ec3c4d039c913061c1aae566ad10a6a75480a91baea4  core/controllers/pkg/upstream/cmd/check-variables/main.go' 'a450aff1c751339b134df6826aee15733def703e5f6866b6f43bdb35010dc0a0  scripts/check-variables-documents.sh' '0bcc9b02eb800daf34cd2a6ff9b4b55889657c76d90ed563fe614e64198093bf  .github/workflows/check-variables-documents.yaml' '99c28dce1c8a2e62dd74b3256917084dddbc73bd7f90d8be012b031d3af219d1  tests/fixtures/variables/valid.yaml' '3531595562d7713ebb02c68fbb6a779bc74ccb389fc49ac6f338d3c99664064e  tests/fixtures/variables/invalid-rule1.yaml' 'afa313305a20e30bed4b54e6e76ce673d6ecda9c86d3d77b0174fc80658a6a8c  tests/fixtures/variables/invalid-rule2.yaml' '4220653d15a4514df641a738bbce169de6ad537b41441628557f7f3bfdb22fd6  tests/fixtures/variables/invalid-rule3.yaml' 'cc4e69c3ea780be899f66520c66eff2c051be888d7eaa2e798455a8d89583467  tests/fixtures/variables/invalid-rule4.yaml' '42da63d09810dcaafe2bb590687af43529e21f4d3416092ce872175e237df5cd  tests/fixtures/variables/invalid-rule5.yaml' '5f2c213b8244e88b4f381a37e8736bfad1c45a767d5d85932a3db4ed0393a353  tests/fixtures/variables/invalid-rule6.yaml' '6419be0c57067e4b97202f4431ab74dc028f92854fe7434c01f4aa739cc546e8  tests/fixtures/variables/invalid-rule7.yaml' | sha256sum -c --quiet -"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Frozen C5 schema, Go package upstream (FromMap, ToMap, Validate, Served, Flipped, Load, RegistriesYAML), guard G8
+  delivers: Contract C5, the variables document of a Sovereign region, is published as a schema and a list of kit keys; the Go package core/controllers/pkg/upstream parses, renders, checks, serves and flips it and renders the node registry mirrors from it; and every pull request fails when a variables document under clusters/ or tests/ breaks the contract.
 - id: SOV-120
   title: The sovereign-ops command, its image, and seed-repo
   area: SOV
@@ -6255,7 +6318,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [SOV-130]
-  after: []
+  after: [CMP-036]
   touches:
   - clusters/_template/**
   - scripts/check-kit-render-equivalence.sh
@@ -7314,7 +7377,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-035, CTL-110, CTL-112, FND-032, SOV-435, CLD-175]
-  after: []
+  after: [SVC-030]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/
   - products/catalyst/bootstrap/api/internal/lifecycle/pools.go
@@ -7709,7 +7772,7 @@ packages:
   size: XS
   lane: CONTROL
   depends_on: [SOV-930]
-  after: [FND-011, NET-042]
+  after: [FND-011, SOV-050, NET-042]
   touches:
   - products/catalyst/chart/templates/*-kustomize.yaml
   - products/catalyst/chart/templates/kustomization.yaml
@@ -7904,7 +7967,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [FND-032]
-  after: [FND-011, FND-033, FND-034, CLD-010, NET-010, CMP-010, BSS-030]
+  after: [FND-011, FND-033, FND-034, CLD-010, CLD-080, NET-010, CMP-010, BSS-030]
   touches: []
   resources: []
   flips: [SEC-G04]
@@ -8031,7 +8094,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [FND-036, FND-080, SEC-040]
-  after: [FND-011, CLD-010, NET-010, BSS-030]
+  after: [FND-011, CLD-010, CLD-080, NET-010, BSS-030]
   touches: []
   resources: []
   flips: [SEC-G06]
@@ -8118,7 +8181,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [FND-032]
-  after: [FND-011, FND-033, FND-034, CLD-010, NET-010, CMP-010, BSS-030]
+  after: [FND-011, FND-033, FND-034, CLD-010, CLD-080, NET-010, CMP-010, BSS-030]
   touches: []
   resources: []
   flips: [SEC-G07]
@@ -8180,7 +8243,7 @@ packages:
   size: M
   lane: RAILS
   depends_on: [FND-032, FND-070, SEC-090]
-  after: [CLD-010, NET-010, BSS-030]
+  after: [CLD-010, CLD-080, NET-010, BSS-030]
   touches:
   - scripts/secret-guard-baselines/secret-object-register.yaml
   - scripts/secret-guard-baselines/threat-model.md
@@ -8210,7 +8273,7 @@ packages:
   size: XS
   lane: RAILS
   depends_on: [FND-070, SEC-095]
-  after: [CLD-010, NET-010, BSS-030]
+  after: [CLD-010, CLD-080, NET-010, BSS-030]
   touches:
   - scripts/secret-guard-baselines/secret-object-register.yaml
   - docs/ledger/gates.yaml
@@ -8381,7 +8444,7 @@ packages:
   size: S
   lane: GATE
   depends_on: [FND-031, FND-032]
-  after: [FND-033, FND-034, CLD-010, NET-010, CMP-010, BSS-030]
+  after: [FND-033, FND-034, CLD-010, CLD-080, NET-010, CMP-010, BSS-030]
   touches:
   - tests/acceptance/sovereign/internal/suite/sec_etcd_job.yaml
   - docs/ledger/gates.yaml
@@ -9742,7 +9805,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271]
-  after: [FND-011, FND-014, FND-021, FND-022, FND-023, FND-031, FND-032, FND-033, FND-034, FND-040, FND-052, FND-053, FND-054, FND-055, FND-091, FND-092, FND-093, FND-094, FND-097, FND-101, FND-102, FND-103, FND-105, FND-110, FND-171, CLD-010, CLD-040, CLD-063, SOV-030, SOV-040, SEC-020, SEC-125, NET-030, NET-033, NET-050, SVC-020, SVC-060, CTL-010, CTL-020, CTL-025, CTL-044, CMP-012, CMP-014, BSS-050, INF-010, PRD-030]
+  after: [FND-011, FND-014, FND-021, FND-022, FND-023, FND-031, FND-032, FND-033, FND-034, FND-040, FND-052, FND-053, FND-054, FND-055, FND-091, FND-092, FND-093, FND-094, FND-097, FND-101, FND-102, FND-103, FND-105, FND-110, FND-171, CLD-010, CLD-040, CLD-063, CLD-080, SOV-030, SOV-040, SOV-050, SOV-110, SEC-020, SEC-125, NET-030, NET-033, NET-041, NET-050, SVC-020, SVC-060, CTL-010, CTL-020, CTL-025, CTL-044, CTL-201, CMP-012, CMP-014, CMP-036, BSS-050, INF-010, PRD-030, PRD-101]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/26-image-signature.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -9773,7 +9836,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [FND-032, FND-062, FND-141, SEC-272]
-  after: [FND-011, CLD-010, NET-010, NET-030, BSS-030]
+  after: [FND-011, CLD-010, CLD-080, NET-010, NET-030, BSS-030]
   touches:
   - platform/kyverno-policies/chart/values.yaml
   - platform/kyverno-policies/chart/tests/
@@ -10481,6 +10544,7 @@ packages:
   - products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentGroups.ts
   - products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentLogos.tsx
   - products/catalyst/bootstrap/ui/src/pages/wizard/steps/logoTone.ts
+  - scripts/service-model-baseline.yaml
   resources: []
   flips: []
   implements: []
@@ -10496,19 +10560,21 @@ packages:
   - id: A3
     run: "! grep -n -F \"'a-waf'\" core/marketplace/src/lib/packages.test.ts core/marketplace/src/lib/packagesLadder.test.ts"
   - id: A4
-    run: "cd core/marketplace && npm ci && npx vitest run"
+    run: "(cd core/marketplace && npm ci && npx vitest run)"
   - id: A5
-    run: "cd products/catalyst/bootstrap/ui && npm ci && npm run typecheck && npx vitest run src/pages/wizard src/pages/marketplace src/entities/deployment"
+    run: "(cd products/catalyst/bootstrap/ui && npm ci && npm run typecheck && npx vitest run src/pages/wizard src/pages/marketplace src/entities/deployment)"
   - id: A6
-    run: "cd core/services/catalog && go vet ./..."
+    run: "(cd core/services/catalog && go vet ./...)"
+  - id: A7
+    run: "python3 scripts/check-service-model.py"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
-  delivers: The storefront's stand-in add-on list, the console's setup wizard, its default component selection and its product copy, and three comments of the storefront and the catalog service no longer offer or describe the Coraza web application firewall, which no listener uses.
+  delivers: The storefront's stand-in add-on list, the console's setup wizard, its default component selection and its product copy, and three comments of the storefront and the catalog service no longer offer or describe the Coraza web application firewall, which no listener uses; the service-model baseline counts one wizard card less.
 - id: NET-042
   title: Retire the two legacy per-Sovereign overlays
   area: NET
@@ -11040,27 +11106,39 @@ packages:
   epic: null
   type: refactor
   wave: W1a
-  size: S
+  size: M
   lane: CONTROL
   depends_on: []
   after: []
   touches:
+  - products/catalyst/bootstrap/api/internal/meshstatus/meshstatus.go
+  - products/catalyst/bootstrap/api/internal/meshstatus/meshstatus_test.go
   - products/catalyst/bootstrap/api/internal/handler/clustermesh.go
   - products/catalyst/bootstrap/api/internal/handler/clustermesh_test.go
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "echo \"$(grep -c '^func (h \\*Handler) autoEstablishClusterMesh' products/catalyst/bootstrap/api/internal/handler/clustermesh.go) $(git ls-files products/catalyst/bootstrap/api/internal/meshstatus | wc -l)\""
+    expect: "1 0"
+  acceptance:
+  - id: A1
+    run: "(cd products/catalyst/bootstrap/api && out=$(go test -count=1 -v ./internal/meshstatus/) && printf '%s\\n' \"$out\" | grep -c -E '^--- PASS: Test(ParseMode|ModeFromEnv|Observe_Fixture|Observe_ReadyAt|Observe_UnreadableConfig|Observe_OnlyReads) ' | grep -qx 6)"
+  - id: A2
+    run: "(cd products/catalyst/bootstrap/api && out=$(go test -count=1 -v -run 'ClusterMesh|CNPGPair' ./internal/handler/) && printf '%s\\n' \"$out\" | grep -c -E '^--- PASS: TestAutoEstablishClusterMesh_(ObserveModeWritesNothingInKubeSystem|ObserveModeUnconfiguredPeer|DefaultModeEstablishes) ' | grep -qx 3)"
+  - id: A3
+    run: "test \"$(grep -c -F 'statuses = meshstatus.Observe(ctx, observed, time.Now().UTC())' products/catalyst/bootstrap/api/internal/handler/clustermesh.go)\" = 1 && python3 scripts/check-api-structure.py"
+  - id: A4
+    run: "f=products/catalyst/bootstrap/api/internal/meshstatus/meshstatus.go && test -f \"$f\" && ! grep -n -E '\\.(Create|Update|UpdateStatus|Patch|Delete|DeleteCollection|Apply|ApplyStatus)\\(' \"$f\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: observeClusterMesh and CATALYST_CLUSTERMESH_MODE (establish default, observe)
+  delivers: A new package meshstatus reads the Cilium ClusterMesh state of every region of a Sovereign with get calls only, and the variable CATALYST_CLUSTERMESH_MODE (establish by default, or observe) makes the API's mesh step only read the mesh instead of writing it.
 - id: NET-127
   title: Mesh and encryption evidence without exec
   area: NET
@@ -12048,7 +12126,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [NET-227, SOV-240]
-  after: [FND-011, SEC-020, NET-010]
+  after: [FND-011, SEC-020, NET-010, CMP-036]
   touches:
   - platform/self-sovereign-cutover/chart/templates/00-mgmt-isolation-carveout.yaml
   - platform/self-sovereign-cutover/chart/values.yaml
@@ -12080,7 +12158,7 @@ packages:
   size: XS
   lane: CONTRACTS
   depends_on: [NET-270]
-  after: [FND-106, CLD-070, CLD-071, SEC-006, NET-050, NET-052, SVC-010, CMP-005, BSS-010, AIP-060, INF-070, ACC-060, PRD-020]
+  after: [FND-106, FND-181, CLD-070, CLD-071, SEC-006, NET-050, NET-052, SVC-010, CMP-005, BSS-010, AIP-060, INF-070, ACC-060, PRD-020]
   touches:
   - docs/adr/README.md
   resources: []
@@ -12238,7 +12316,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [NET-290]
-  after: [FND-106, CLD-070, CLD-071, SEC-006, NET-050, NET-052, SVC-010, CMP-005, BSS-010, AIP-060, INF-070, ACC-060, PRD-020]
+  after: [FND-106, FND-181, CLD-070, CLD-071, SEC-006, NET-050, NET-052, SVC-010, CMP-005, BSS-010, AIP-060, INF-070, ACC-060, PRD-020]
   touches:
   - docs/adr/
   resources: []
@@ -12291,7 +12369,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [NET-322]
-  after: [SEC-020, NET-010]
+  after: [CLD-080, SEC-020, NET-010]
   touches:
   - infra/providers/huawei/
   resources: []
@@ -12317,7 +12395,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [NET-323]
-  after: []
+  after: [CMP-036]
   touches:
   - clusters/_template/
   resources: []
@@ -12343,7 +12421,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [NET-324]
-  after: [SEC-020, NET-010]
+  after: [CLD-080, SEC-020, NET-010]
   touches:
   - infra/providers/huawei/
   - platform/cilium/
@@ -12396,7 +12474,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [NET-324]
-  after: []
+  after: [CMP-036]
   touches:
   - clusters/_template/bootstrap-kit/
   resources: []
@@ -12422,7 +12500,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [NET-322, NET-327]
-  after: [FND-014, FND-093, FND-094, FND-171, SOV-030, CMP-016]
+  after: [FND-014, FND-093, FND-094, FND-171, CLD-080, SOV-030, NET-125, SVC-030, CMP-016, CMP-030]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/
   - products/catalyst/bootstrap/api/
@@ -12592,20 +12670,31 @@ packages:
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogPage.tsx
   - products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogDetail.tsx
+  - products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/InstancesSection.tsx
+  - products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogPage.test.tsx
+  - products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogPage.edit.test.tsx
+  - products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogPage.visibility.test.tsx
+  - products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogDetail.not-installable.test.tsx
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c -F 'Show unlisted' products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogPage.tsx"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "printf '%s  %s\\n' 1e3763ea5475fc45ff27836775c8a463cf7dc846fb8d2769e7ac4127bc837901 products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogPage.visibility.test.tsx 410211010b62621693648aad26b8dfabeb83d98a65dab44cf665a2e633b2a5e6 products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogDetail.not-installable.test.tsx | sha256sum -c -"
+  - id: A2
+    run: "(cd products/catalyst/bootstrap/ui && test -f src/pages/sovereign/CatalogPage.visibility.test.tsx && test -f src/pages/sovereign/CatalogDetail.not-installable.test.tsx && npm ci && npm run typecheck && npx vitest run src/pages/sovereign/CatalogPage src/pages/sovereign/CatalogDetail src/pages/sovereign/AppDetail/InstancesSection)"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Show-unlisted toggle (default off); New instance disabled for version 0.0.0
+  delivers: The sovereign-admin Catalog page shows only listed Blueprints unless "Show unlisted" is on, and the class page disables "+ New instance" for a catalog entry at version 0.0.0.
 - id: SVC-040
   title: Normalise names, API version and visibility
   area: SVC
@@ -12615,7 +12704,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-011, SVC-020]
-  after: [FND-014, FND-054, FND-091, FND-093, FND-094, FND-097, FND-171, CLD-070, SOV-030, SEC-110, NET-030, NET-041, NET-050, NET-070, NET-072, SVC-060, CMP-016, BSS-020, PRD-010]
+  after: [FND-014, FND-054, FND-091, FND-093, FND-094, FND-097, FND-171, CLD-070, CLD-080, SOV-030, SEC-110, NET-030, NET-041, NET-050, NET-070, NET-072, NET-125, SVC-030, SVC-060, CMP-016, CMP-030, BSS-020, PRD-010, PRD-101]
   touches:
   - platform/*/blueprint.yaml
   - products/*/blueprint.yaml
@@ -12859,7 +12948,7 @@ packages:
   size: S
   lane: GATE
   depends_on: [FND-032, FND-033, SVC-120]
-  after: [FND-034, CLD-010, NET-010, CMP-010, BSS-030]
+  after: [FND-034, CLD-010, CLD-080, NET-010, CMP-010, BSS-030]
   touches:
   - tests/acceptance/sovereign/internal/suite/check_svc_proofs.go
   - tests/acceptance/sovereign/internal/suite/check_svc_proofs_test.go
@@ -12888,7 +12977,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [FND-031, FND-070, SVC-060, SVC-070, SVC-080, SVC-090, SVC-100, SVC-120, SVC-125]
-  after: [SVC-020]
+  after: [NET-041, SVC-020]
   touches:
   - scripts/service-model-baseline.yaml
   resources: []
@@ -12914,7 +13003,7 @@ packages:
   size: XS
   lane: GATE
   depends_on: [SVC-125, SVC-130]
-  after: [CLD-010, NET-010, BSS-030]
+  after: [CLD-010, CLD-080, NET-010, BSS-030]
   touches:
   - docs/ledger/gates.yaml
   resources: []
@@ -13005,7 +13094,7 @@ packages:
   size: M
   lane: RAILS
   depends_on: [FND-031, FND-032, FND-091, SVC-150]
-  after: [FND-011, FND-033, FND-034, FND-054, FND-092, FND-093, FND-094, FND-097, FND-171, FND-173, CLD-010, NET-010, NET-042, CMP-010, BSS-030]
+  after: [FND-011, FND-033, FND-034, FND-054, FND-092, FND-093, FND-094, FND-097, FND-171, FND-173, CLD-010, CLD-080, NET-010, NET-042, CMP-010, BSS-030]
   touches:
   - scripts/generate-catalog.py
   - platform/_catalog/seed-exclusions.yaml
@@ -13041,7 +13130,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-091, FND-102, SVC-160]
-  after: [FND-011, FND-054, FND-092, FND-093, FND-094, FND-097, FND-171, FND-173, CLD-070, NET-042, SVC-060]
+  after: [FND-011, FND-054, FND-092, FND-093, FND-094, FND-097, FND-171, FND-173, CLD-070, NET-041, NET-042, SVC-060]
   touches:
   - platform/clickhouse/**
   - platform/debezium/**
@@ -13155,7 +13244,7 @@ packages:
   size: M
   lane: CONTRACTS
   depends_on: [FND-031, SVC-010, SVC-160]
-  after: [FND-011]
+  after: [FND-011, SVC-030]
   touches:
   - products/catalyst/chart/crds/blueprint.yaml
   - platform/_schemas/blueprint.schema.json
@@ -13540,7 +13629,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [SVC-270]
-  after: []
+  after: [SVC-030]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/catalog_capabilities.go
   - products/catalyst/bootstrap/ui/src/pages/sovereign/AppDetail/InstancesSection.tsx
@@ -14251,7 +14340,7 @@ packages:
   size: XS
   lane: CONTRACTS
   depends_on: [CTL-050]
-  after: [FND-106, CLD-070, CLD-071, SEC-006, NET-050, NET-052, SVC-010, CMP-005, BSS-010, AIP-060, INF-070, ACC-060, PRD-020]
+  after: [FND-106, FND-181, CLD-070, CLD-071, SEC-006, NET-050, NET-052, SVC-010, CMP-005, BSS-010, AIP-060, INF-070, ACC-060, PRD-020]
   touches:
   - docs/adr/README.md
   - docs/adr/0009-per-org-iac-repo-bootstrap.md
@@ -14490,7 +14579,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-050, FND-032]
-  after: [FND-011, FND-033, FND-034, CLD-010, NET-010, CMP-010, BSS-030]
+  after: [FND-011, FND-033, FND-034, CLD-010, CLD-080, NET-010, CMP-010, BSS-030]
   touches:
   - products/catalyst/chart/templates/intent-lock/policy.yaml
   - products/catalyst/chart/templates/intent-lock/bindings.yaml
@@ -14828,16 +14917,28 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls docs/ledger/org-pipeline-parity.md scripts/check-org-pipeline-parity.py 2>/dev/null | wc -l"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "test \"$(sha256sum < scripts/check-org-pipeline-parity.py)\" = \"3f70f42442c6102cda42b8888d01bf6f079dd853de3fd63ee6112cb755ad7ea9  -\""
+  - id: A2
+    run: "test \"$(sha256sum < docs/ledger/org-pipeline-parity.md)\" = \"d6dc5e39683b5b4ec0743239081eb7bd9c01843329c9bf98f58ebb0693de9cdc  -\""
+  - id: A3
+    run: "python3 scripts/check-org-pipeline-parity.py --self-test"
+  - id: A4
+    run: "test \"$(python3 scripts/check-org-pipeline-parity.py)\" = \"missing=24\""
+  - id: A5
+    run: "t=\"$(mktemp -d)\"; trap 'rm -rf \"$t\"' EXIT; cp -r --parents scripts/check-org-pipeline-parity.py docs/ledger/org-pipeline-parity.md core/controllers/organization \"$t\"; python3 \"$t/scripts/check-org-pipeline-parity.py\" > /dev/null; sed -i 's#tenant_dns.go:183`#tenant_dns.go:99999`#' \"$t/docs/ledger/org-pipeline-parity.md\"; code=0; out=\"$(python3 \"$t/scripts/check-org-pipeline-parity.py\")\" || code=$?; test \"$code\" = 1; grep -q -F 'FAIL R6 line' <<<\"$out\"; grep -q -F 'core/controllers/organization/internal/controller/tenant_dns.go has' <<<\"$out\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: One row per pipeline step, legacy overlay resource and provisioning-service cluster write, each mapped to the controller or marked missing. A first table names, for each entry point (console, storefront, internal route), the pipeline that serves it today, with file and function.
+  delivers: A parity file maps every step of the console pipeline, every resource of the legacy overlay and every cluster write of the provisioning service to the place in the organization-controller that already does it, or marks it missing, and a script checks the file and prints how many steps are missing.
 - id: CTL-202
   title: DNS records as a step of the organization-controller
   area: CTL
@@ -15414,7 +15515,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-300, FND-032]
-  after: [FND-033, FND-034, FND-093, FND-171, CLD-010, NET-010, CMP-010, BSS-030]
+  after: [FND-033, FND-034, FND-093, FND-171, CLD-010, CLD-080, NET-010, CMP-010, BSS-030]
   touches:
   - core/controllers/pkg/natsbus/cloudevent.go
   - products/catalyst/bootstrap/api/internal/audit/audit.go
@@ -15993,7 +16094,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [CTL-055, FND-120]
-  after: [CLD-070, CLD-071, SEC-006, NET-050, NET-052, SVC-010, CMP-005, BSS-010, AIP-060, INF-070, ACC-060, PRD-020]
+  after: [FND-181, CLD-070, CLD-071, SEC-006, NET-050, NET-052, SVC-010, CMP-005, BSS-010, AIP-060, INF-070, ACC-060, PRD-020]
   touches:
   - docs/adr/0027-region-loss-contract.md
   - docs/adr/README.md
@@ -16084,7 +16185,7 @@ packages:
   size: M
   lane: GATE
   depends_on: [CTL-800, FND-034]
-  after: [CLD-010, NET-010, BSS-030]
+  after: [CLD-010, CLD-080, NET-010, BSS-030]
   touches:
   - tests/acceptance/sovereign/internal/suite/check_ctl_region_loss.go
   - tests/acceptance/sovereign/internal/suite/check_ctl_region_loss_test.go
@@ -16322,7 +16423,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CMP-010, FND-080]
-  after: [FND-011, CLD-010, NET-010, BSS-030]
+  after: [FND-011, CLD-010, CLD-080, NET-010, BSS-030]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/compliance.go
   - products/catalyst/bootstrap/api/internal/handler/compliance_test.go
@@ -16383,7 +16484,7 @@ packages:
   epic: null
   type: refactor
   wave: W1b
-  size: S
+  size: M
   lane: CONTROL
   depends_on: []
   after: []
@@ -16391,22 +16492,31 @@ packages:
   - products/catalyst/bootstrap/api/internal/compliance/types.go
   - products/catalyst/bootstrap/api/internal/compliance/model.go
   - products/catalyst/bootstrap/api/internal/compliance/score.go
+  - products/catalyst/bootstrap/api/internal/compliance/model_test.go
   - products/catalyst/bootstrap/api/internal/compliance/score_test.go
   - products/catalyst/bootstrap/api/internal/compliance/testdata/**
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls products/catalyst/bootstrap/api/internal | grep -c '^compliance$'"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "(cd products/catalyst/bootstrap/api && go test -count=1 ./internal/compliance/)"
+  - id: A2
+    run: "(cd products/catalyst/bootstrap/api && go vet ./internal/compliance/)"
+  - id: A3
+    run: "printf '%s\\n' '27d80b26391fb74b752b0b8ed9318f0ca77acae60e0d9871f40325c0331180ed  products/catalyst/bootstrap/api/internal/compliance/types.go' 'a603ee162aadb592d546b375b4c697033e4643c18010e1529496e87c220c01cd  products/catalyst/bootstrap/api/internal/compliance/model.go' 'cc33102a517cb54f6c73b3907fe07909f4551ac945d8861edd237bc8d9accaa4  products/catalyst/bootstrap/api/internal/compliance/score.go' 'f33793e395c9939442edbaa665e0854210a4986d67e1d7b8d1a9b0036b2198ce  products/catalyst/bootstrap/api/internal/compliance/model_test.go' 'a24b775213f08091a15ca6ace7d1eae70121404a877e94f7c95fb999dab667fb  products/catalyst/bootstrap/api/internal/compliance/score_test.go' '419d3e3267007a0df6a2e930e3aa46da49d1bc90043a7994ced9976f63072cf0  products/catalyst/bootstrap/api/internal/compliance/testdata/model-default.yaml' '6749f360bbe99a8a16abd3ed157caf73f829332b21d7a3102df8e33cc2f09709  products/catalyst/bootstrap/api/internal/compliance/testdata/model-sample.yaml' | sha256sum -c --quiet -"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Types of section 4.3 and rules 1 to 5 as pure functions with table and property tests
+  delivers: A new Go package of the catalyst-api holds the compliance types, a loader that parses and checks a ComplianceModel object, and the score rules as pure functions, each rule proven by table tests and one property test.
 - id: CMP-032
   title: 'The aggregator uses the package: subjects, one judge, seven results; duplicate evaluators deleted'
   area: CMP
@@ -16445,27 +16555,34 @@ packages:
   epic: CMP-040
   type: refactor
   wave: W1b
-  size: XS
+  size: S
   lane: SUBSTRATE
   depends_on: []
   after: []
   touches:
   - clusters/_template/bootstrap-kit/27a-kyverno-policies.yaml
   - scripts/check-policy-wiring.py
+  - .github/workflows/check-repo-hygiene.yaml
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c 'valuesFrom' clusters/_template/bootstrap-kit/27a-kyverno-policies.yaml"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "python3 scripts/check-policy-wiring.py --self-test && python3 scripts/check-policy-wiring.py"
+  - id: A2
+    run: "python3 -c \"import sys, yaml; w = yaml.safe_load(open('.github/workflows/check-repo-hygiene.yaml')); runs = [l.strip() for s in w['jobs']['check-repo-hygiene']['steps'] for l in str(s.get('run', '')).splitlines()]; sys.exit(0 if 'python3 scripts/check-policy-wiring.py --self-test' in runs and 'python3 scripts/check-policy-wiring.py' in runs else 1)\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'Slot gains valuesFrom (optional ConfigMap), values.compliancePolicies.sovereignConsume from ${SOVEREIGN_CONSUME:=origin}, crds: CreateReplace; wiring guard'
+  delivers: Kit slot 27a reads the optional ConfigMap compliance-policy-values, passes the hand-over variable SOVEREIGN_CONSUME to the policy chart as compliancePolicies.sovereignConsume, lets Helm create and replace the chart's definitions on install and upgrade, and a guard that runs on every pull request holds these three things.
 - id: CMP-041
   title: 'ComplianceModel: definition, data files, chart template, loader, exemptions'
   area: CMP
@@ -16475,7 +16592,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [CMP-016, CMP-032, CMP-036, CMP-014]
-  after: [FND-011, CLD-010, NET-010, BSS-030]
+  after: [FND-011, CLD-010, CLD-080, NET-010, BSS-030]
   touches:
   - platform/kyverno-policies/chart/crds/compliancemodel.yaml
   - platform/kyverno-policies/chart/model/**
@@ -16513,7 +16630,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-041, CTL-035]
-  after: [CLD-010, NET-010, BSS-030]
+  after: [CLD-010, CLD-080, NET-010, BSS-030]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
   - products/catalyst/bootstrap/api/internal/compliance/stream.go
@@ -16784,7 +16901,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [CMP-065]
-  after: [FND-011, CLD-010, NET-010, BSS-030]
+  after: [FND-011, CLD-010, CLD-080, NET-010, BSS-030]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/16-hubble-flows-seen.yaml
   - platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml
@@ -16818,7 +16935,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CMP-041, CMP-S5, FND-038]
-  after: [FND-011, CLD-010, NET-010, BSS-030]
+  after: [FND-011, CLD-010, CLD-080, NET-010, BSS-030]
   touches:
   - core/controllers/organization/internal/gitops/manifests.go
   - core/controllers/organization/internal/gitops/testdata/**
@@ -17034,7 +17151,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-016, CMP-045, CMP-071, CTL-160]
-  after: [FND-011, CLD-010, NET-010, BSS-030]
+  after: [FND-011, CLD-010, CLD-080, NET-010, BSS-030]
   touches:
   - platform/kyverno-policies/chart/crds/compliancedecision.yaml
   - platform/kyverno-policies/chart/templates/decision-admission.yaml
@@ -17100,7 +17217,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CMP-061, CMP-066, CMP-081, CMP-S1]
-  after: [CLD-010, NET-010, BSS-030]
+  after: [CLD-010, CLD-080, NET-010, BSS-030]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/decisions/render.go
   - products/catalyst/bootstrap/api/internal/compliance/decisions/render_test.go
@@ -17189,7 +17306,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-016, CMP-045, CMP-S3]
-  after: [FND-011, CLD-010, NET-010, BSS-030]
+  after: [FND-011, CLD-010, CLD-080, NET-010, BSS-030]
   touches:
   - products/catalyst/bootstrap/api/internal/k8scache/kinds.go
   - products/catalyst/bootstrap/api/internal/k8scache/factory.go
@@ -17225,7 +17342,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CMP-091]
-  after: [FND-011, CLD-010, NET-010, BSS-030]
+  after: [FND-011, CLD-010, CLD-080, NET-010, BSS-030]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/adapters/configaudit.go
   - products/catalyst/bootstrap/api/internal/compliance/adapters/exposedsecret.go
@@ -17355,7 +17472,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-016, CMP-045]
-  after: [FND-011, CLD-010, NET-010, NET-030, BSS-030]
+  after: [FND-011, CLD-010, CLD-080, NET-010, NET-030, BSS-030]
   touches:
   - products/catalyst/bootstrap/api/internal/k8scache/evaluators/evaluators.go
   - products/catalyst/bootstrap/api/internal/k8scache/evaluators/backup.go
@@ -17422,7 +17539,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CMP-111]
-  after: [FND-011, CLD-010, NET-010, BSS-030]
+  after: [FND-011, CLD-010, CLD-080, NET-010, BSS-030]
   touches:
   - products/catalyst/bootstrap/api/internal/k8scache/evaluators/stability.go
   - products/catalyst/bootstrap/api/internal/k8scache/evaluators/certificate.go
@@ -17454,7 +17571,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [CMP-092, CMP-111]
-  after: [FND-011, CLD-010, NET-010, BSS-030]
+  after: [FND-011, CLD-010, CLD-080, NET-010, BSS-030]
   touches:
   - platform/kyverno-policies/chart/crds/compliancemodel.yaml
   - platform/kyverno-policies/chart/model/frameworks/*.yaml
@@ -17683,7 +17800,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CMP-092, SEC-095]
-  after: [FND-011, CLD-010, NET-010, BSS-030]
+  after: [FND-011, CLD-010, CLD-080, NET-010, BSS-030]
   touches:
   - platform/kyverno-policies/chart/model/checks.yaml
   - docs/ledger/gates.yaml
@@ -18008,15 +18125,15 @@ packages:
   implements: []
   proven_by: null
   precondition:
-    run: "grep -c '^| Catalyst BSS (chargeback) | ' docs/STATUS.md"
+    run: "grep -c -F '(`bp-chargeback`, ADR-0014, ' docs/STATUS.md"
     expect: "2"
   acceptance:
   - id: A1
-    run: "test \"$(grep '^| Catalyst BSS (chargeback) | ' docs/STATUS.md | sha256sum | cut -d' ' -f1)\" = 863b963edb075e248895b249d854af099da022976e862bb866c87edf1860b24d"
+    run: "test \"$(grep '^| Catalyst BSS (chargeback) | ' docs/STATUS.md | sha256sum | cut -d' ' -f1)\" = cea162fd60c61b56b633f9090b2acc62da2962356d52b52dd9b353032c494222"
   - id: A2
-    run: "test \"$(grep -c 'Catalyst BSS' docs/STATUS.md)\" = 1"
+    run: "test \"$(grep -c -F '| Catalyst BSS (chargeback) | ✅ | `products/chargeback` (`bp-chargeback`, decision record now [ADR-0028](adr/0028-commerce-and-billing.md), which supersedes ADR-0014, EPICs #6723 → #6867;' docs/STATUS.md)\" = 2"
   - id: A3
-    run: "test \"$(sed -n '1,10p' products/chargeback/README.md | sha256sum | cut -d' ' -f1)\" = d5fed97b82cda949268eb2c6d836f6335db98e3a3cc4be33689aee8540eb9fe6"
+    run: "test \"$(grep -A4 -F 'its Postgres database, its API and its UI.' products/chargeback/README.md | sha256sum | cut -d' ' -f1)\" = 6783814c01209d3041d6cbfc6c22bfef30bacdb01e68763a67c6495a7fe1b8cc"
   - id: A4
     run: "grep -q -F '[ADR-0028](../../docs/adr/0028-commerce-and-billing.md)' products/chargeback/README.md"
   rollback: revert
@@ -18024,9 +18141,9 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
-  delivers: The status document carries one row for Catalyst BSS that states only what the code and the records show, and the engine's README names ADR-0028 as its decision record.
+  delivers: The two status rows of Catalyst BSS and the engine's README name ADR-0028 as the decision record that supersedes ADR-0014, and every other word of the two rows stays as it was.
 - id: BSS-030
   title: Order capture never prices from a second list
   area: BSS
@@ -18123,7 +18240,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-045, FND-091]
-  after: [FND-011, FND-054, FND-097, FND-173, CLD-040, NET-042]
+  after: [FND-011, FND-054, FND-097, FND-173, CLD-040, NET-042, PRD-101]
   touches:
   - core/marketplace-api/**
   - products/catalyst/chart/templates/marketplace-api/**
@@ -18205,7 +18322,7 @@ packages:
   size: M
   lane: GATE
   depends_on: [BSS-030, BSS-S1, FND-031, FND-033]
-  after: [CLD-010, NET-010]
+  after: [CLD-010, CLD-080, NET-010]
   touches:
   - tests/acceptance/sovereign/internal/suite/check_bss_onboarding.go
   - tests/acceptance/sovereign/internal/suite/bss_org.go
@@ -18235,7 +18352,7 @@ packages:
   size: XS
   lane: GATE
   depends_on: [BSS-035, BSS-060, FND-080]
-  after: [CLD-010, NET-010]
+  after: [CLD-010, CLD-080, NET-010]
   touches:
   - docs/ledger/gates.yaml
   resources: []
@@ -18297,7 +18414,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [BSS-070, BSS-S1]
-  after: [CTL-044, BSS-050]
+  after: [CLD-080, CTL-044, BSS-050]
   touches:
   - core/controllers/pkg/offer/**
   - docs/contracts/commerce-offer.schema.json
@@ -18331,7 +18448,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [BSS-101, CTL-035, CTL-110, CTL-120, CTL-160]
-  after: [CLD-010, NET-010]
+  after: [CLD-010, CLD-080, NET-010]
   touches:
   - products/catalyst/bootstrap/api/internal/intent/offer.go
   - products/catalyst/bootstrap/api/internal/intent/offer_test.go
@@ -19464,7 +19581,7 @@ packages:
   size: XS
   lane: CHARTS
   depends_on: [FND-031, FND-032]
-  after: [FND-011, FND-033, FND-034, CLD-010, NET-010, CMP-010, BSS-030]
+  after: [FND-011, FND-033, FND-034, CLD-010, CLD-080, NET-010, CMP-010, BSS-030]
   touches: []
   resources: []
   flips: [AIP-G01]
@@ -19824,7 +19941,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [AIP-040, CTL-045, CTL-330]
-  after: [FND-054, FND-097, FND-173, NET-042]
+  after: [FND-054, FND-097, FND-173, NET-042, PRD-101]
   touches:
   - core/services/metering-sidecar/**
   - core/services/model-meter/**
@@ -20546,7 +20663,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: []
-  after: [FND-011, FND-052, FND-092]
+  after: [FND-011, FND-052, FND-092, PRD-101]
   touches:
   - products/ops-records/**
   - .github/workflows/test-ungated-trees.yaml
@@ -21323,7 +21440,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [INF-040]
-  after: [FND-033, FND-034, CLD-010, NET-010, CMP-010, BSS-030]
+  after: [FND-033, FND-034, CLD-010, CLD-080, NET-010, CMP-010, BSS-030]
   touches:
   - clusters/_template/bootstrap-kit/04b-bp-kured.yaml
   - clusters/_template/bootstrap-kit/kustomization.yaml
@@ -21587,7 +21704,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [INF-112, INF-130]
-  after: [FND-011, FND-033, FND-034, CLD-010, NET-010, CMP-010, BSS-030]
+  after: [FND-011, FND-033, FND-034, CLD-010, CLD-080, NET-010, CMP-010, BSS-030]
   touches:
   - platform/machine-operations/chart/values.yaml
   - platform/machine-operations/chart/templates/deployment-operations.yaml
@@ -21648,7 +21765,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [INF-132]
-  after: [FND-011, FND-033, FND-034, CLD-010, NET-010, CMP-010, BSS-030]
+  after: [FND-011, FND-033, FND-034, CLD-010, CLD-080, NET-010, CMP-010, BSS-030]
   touches:
   - products/catalyst/bootstrap/api/internal/machines/operations/match.go
   - products/catalyst/bootstrap/api/internal/machines/operations/report_vulnerability.go
@@ -24402,7 +24519,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [FND-034, FND-080]
-  after: [FND-011, CLD-010, NET-010, BSS-030]
+  after: [FND-011, CLD-010, CLD-080, NET-010, BSS-030]
   touches: []
   resources: []
   flips: [ACC-G01]
@@ -24646,7 +24763,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [ACC-102, CTL-045, CTL-300, CTL-320, SVC-170]
-  after: [FND-011, FND-033, FND-034, CLD-010, NET-010, CMP-010, BSS-030]
+  after: [FND-011, FND-033, FND-034, CLD-010, CLD-080, NET-010, CMP-010, BSS-030]
   touches:
   - platform/guacamole/chart/crds/accesstarget.yaml
   - platform/guacamole/chart/crds/accessgrant.yaml
@@ -24779,7 +24896,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [ACC-020, ACC-103]
-  after: [FND-011, FND-033, FND-034, CLD-010, NET-010, CMP-010, BSS-030]
+  after: [FND-011, FND-033, FND-034, CLD-010, CLD-080, NET-010, CMP-010, BSS-030]
   touches:
   - core/cmd/access-session-agent/
   - .github/workflows/build-access-session-agent.yaml
@@ -25932,30 +26049,43 @@ packages:
   epic: PRD-100
   type: test
   wave: W4
-  size: S
+  size: M
   lane: CONTROL
   depends_on: [FND-022, FND-023]
   after: []
   touches:
-  - products/fingate/go.mod
+  - .github/workflows/test-ungated-trees.yaml
   - products/fingate/README.md
+  - products/fingate/go.mod
+  - products/fingate/go.sum
+  - products/fingate/internal/profile/*.go
   - products/fingate/profiles/rw-4.0.0/*.yaml
   - products/fingate/profiles/rw-4.0.0/SOURCE.md
-  - products/fingate/internal/profile/*.go
+  - products/fingate/profiles/rw-4.0.0/.gitattributes
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "git ls-files -- products/fingate | wc -l"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "(cd products/fingate && go vet ./... && go test -count=1 ./...)"
+  - id: A2
+    run: "printf '%s  %s\\n' 7d9297935e11971173664ba793c14b6fd64e162a97d2de46967cd7f9cc0ca792 products/fingate/profiles/rw-4.0.0/account-info-openapi.yaml 1cb84c8b6972cb56f414448af94f5c7595d6ebe13a5c41deeba5904e04efb41e products/fingate/profiles/rw-4.0.0/payment-initiation-openapi.yaml f547f3cbc465970c65a744dce9c28fa5f0201fb5f07b8f35af79942e3c64fb20 products/fingate/profiles/rw-4.0.0/vrp-openapi.yaml 2ab1717555e8e960980be39f07821e1c0d280662a0fbb84dd562168cb5604358 products/fingate/profiles/rw-4.0.0/confirmation-funds-openapi.yaml ba248d53243ddad30ee856e175f8df38669eac2b1015c7c10d88db56afbcb642 products/fingate/profiles/rw-4.0.0/events-openapi.yaml c60932f376472697c22af602d4deba5842921732aa547ef71d6c41a67389908a products/fingate/profiles/rw-4.0.0/event-notifications-openapi.yaml b621bd44df112956b7de9646417804fa6b5db05d2f632d8d6c9297af64ec2dde products/fingate/profiles/rw-4.0.0/.gitattributes bf9eb31a23c4e090213c602127fc475c0d475c0484bbbeaf00ee03b409f4db77 products/fingate/profiles/rw-4.0.0/profile.yaml c5e3f04140e14e30f27e5e9e61acbc7acac2cfbeead33a37507d8c0a22db6c67 products/fingate/profiles/rw-4.0.0/SOURCE.md b7e7e70b513ae83e2a8cd9bcc4e62e9990bbdd4800961d849f45bf81cd59749b products/fingate/README.md f76a017a8b94f51b00b5a1c83a27c7eeb95920d2e3aadbc610f716ca9dc3ac72 products/fingate/go.mod eeb569c4e121859f092c179e9f628b5c4306249bf2ca5a072aff1e8847642da5 products/fingate/go.sum 3cfd0be35b1cdc8cd57a839bed1d0a0700777be77c85764a6ba6edfca3f0814b products/fingate/internal/profile/profile.go e81279651f66c8959ce65140a47edbba2d44bec52de6620dfcdba2623c00611c products/fingate/internal/profile/profile_test.go | sha256sum --check --quiet -"
+  - id: A3
+    run: "python3 scripts/check-modules-tested.py"
+  - id: A4
+    run: "python3 -c 'import yaml; w = yaml.safe_load(open(\".github/workflows/test-ungated-trees.yaml\", encoding=\"utf-8\")); m = w[\"jobs\"][\"go-modules\"][\"strategy\"][\"matrix\"][\"module\"]; on = w[True]; n = [m.count(\"products/fingate\")] + [on[e][\"paths\"].count(\"products/fingate/**\") for e in (\"pull_request\", \"push\")]; print(n); raise SystemExit(0 if n == [1, 1, 1] else 1)'"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Vendored documents with hashes, profile.yaml as section 4.9, the not-implemented clause quoted, the old README replaced.
+  delivers: The open-banking product holds the publisher's six OpenAPI documents of the Read/Write API 4.0.0 unchanged, a profile that names them with their checksums and operation counts, and a tested Go loader that checks both, run on every pull request.
 - id: PRD-102
   title: Generated types and server interfaces (oapi-codegen, strict server)
   area: PRD
@@ -26265,7 +26395,7 @@ packages:
   size: S
   lane: GATE
   depends_on: [FND-032, FND-038]
-  after: [CLD-010, NET-010, BSS-030]
+  after: [CLD-010, CLD-080, NET-010, BSS-030]
   touches:
   - tests/acceptance/sovereign/internal/suite/check_prd_serving.go
   - tests/acceptance/sovereign/internal/suite/check_prd_cortex.go
@@ -26952,7 +27082,7 @@ packages:
   size: S
   lane: GATE
   depends_on: [FND-032, FND-038]
-  after: [CLD-010, NET-010, BSS-030]
+  after: [CLD-010, CLD-080, NET-010, BSS-030]
   touches:
   - tests/acceptance/sovereign/internal/suite/check_prd_fingate.go
   - docs/ledger/gates.yaml
