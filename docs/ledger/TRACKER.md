@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-13T07:00:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-13T07:15:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,12 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6776](https://github.com/openova-io/openova/issues/6776) | 3 catalog charts pin the nonexistent cloudnative-pg/postgresql:16.4 (latent ErrI | Other |
-| [#6778](https://github.com/openova-io/openova/issues/6778) | hw306 — fresh 2-region prov train: manifest → wipe hw305 → fire → cutove | Other |
-| [#6799](https://github.com/openova-io/openova/issues/6799) | NAT-EIP rotation at prov time drifts tofu state (rotated SNAT rule/EIP outside s | Other |
-| [#6803](https://github.com/openova-io/openova/issues/6803) | Harbor proxy-cache serves an index whose child manifests are gone — invisible  | Other |
-| [#6815](https://github.com/openova-io/openova/issues/6815) | A region-A worker has never joined k3s and nothing reports it — Phase 1 counts | Other |
-| [#6825](https://github.com/openova-io/openova/issues/6825) | Every self-upgrade takes the Sovereign's console and API down for 2-3 minutes � | Other |
 | [#6832](https://github.com/openova-io/openova/issues/6832) | kyverno pvc-volume-expansion errors on every PVC — the policy's APICall has no | Other |
 | [#6839](https://github.com/openova-io/openova/issues/6839) | Region promotion must flip secondary_region_lb_weight — hot-standby has no aut | Other |
 | [#6840](https://github.com/openova-io/openova/issues/6840) | hw307 primary region silently runs 4 of 5 provisioned workers — w9b4787 ACTIVE | Other |
@@ -300,6 +294,12 @@ flowchart LR
 | [#7317](https://github.com/openova-io/openova/issues/7317) | CLD-161 Installation document for the installation in use | Other |
 | [#7322](https://github.com/openova-io/openova/issues/7322) | PRD-102 Generated types and server interfaces (oapi-codegen, strict server) | Other |
 | [#7323](https://github.com/openova-io/openova/issues/7323) | PRD-103 Ledger port and conformance kit | Other |
+| [#7349](https://github.com/openova-io/openova/issues/7349) | CLD-022 Delete the infrastructure mutation dialogs from the console | Other |
+| [#7350](https://github.com/openova-io/openova/issues/7350) | CTL-030 Delete the endpoint pipeline and the two duplicate registrations | Other |
+| [#7351](https://github.com/openova-io/openova/issues/7351) | CTL-060 Decision record for the write path, the lock and the backbone | Other |
+| [#7352](https://github.com/openova-io/openova/issues/7352) | CTL-110 Commit library gitwrite | Other |
+| [#7353](https://github.com/openova-io/openova/issues/7353) | SEC-120 etcd dump check and node hygiene check, as check files | Other |
+| [#7354](https://github.com/openova-io/openova/issues/7354) | SVC-125 Blueprint proofs check: the function-test result in the gate record | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-13T07:08 | [#7348](https://github.com/openova-io/openova/pull/7348) | #7087 | docs(ledger): plan update |
 | 2026-11-13T06:47 | [#7344](https://github.com/openova-io/openova/pull/7344) | #7087 | docs(ledger): result of the lab test SVC-340 (SVC-340) |
 | 2026-11-13T06:47 | [#7343](https://github.com/openova-io/openova/pull/7343) | #7087 | docs(ledger): result of the lab test SEC-280 (SEC-280) |
 | 2026-11-13T06:14 | [#7338](https://github.com/openova-io/openova/pull/7338) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-13T06:33 | [#7311](https://github.com/openova-io/openova/pull/7311) | #7087 | docs(ledger): result of the lab test CMP-S1 (CMP-S1) |
 | 2026-11-13T05:00 | [#7310](https://github.com/openova-io/openova/pull/7310) | #7087 | docs(ledger): plan update |
 | 2026-11-13T04:58 | [#7309](https://github.com/openova-io/openova/pull/7309) | #7281 | docs(generated): generate the tables of the provider packs a |
-| 2026-11-13T04:58 | [#7308](https://github.com/openova-io/openova/pull/7308) | #7293 | test(acceptance): record the network census of every region  |
 
 ---
 
