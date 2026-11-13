@@ -1,0 +1,126 @@
+# Spike CMP-S3 test workloads: one of each kind the scanner reports on.
+# Images are old public releases, so the reports carry fixable findings.
+# public.ecr.aws mirrors the Docker official images without pull limits.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cmp-s3
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: cmp-s3
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: web}
+  template:
+    metadata:
+      labels: {app: web}
+    spec:
+      containers:
+        - name: nginx
+          image: public.ecr.aws/docker/library/nginx:1.21.6
+          ports:
+            - containerPort: 80
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+        - name: sidecar
+          image: public.ecr.aws/docker/library/busybox:1.36.1
+          command: ["sh", "-c", "sleep 1000000"]
+          resources:
+            requests: {cpu: 10m, memory: 8Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: cmp-s3
+spec:
+  selector: {app: web}
+  ports:
+    - port: 80
+      targetPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db
+  namespace: cmp-s3
+spec:
+  clusterIP: None
+  selector: {app: db}
+  ports:
+    - port: 6379
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: db
+  namespace: cmp-s3
+spec:
+  serviceName: db
+  replicas: 1
+  selector:
+    matchLabels: {app: db}
+  template:
+    metadata:
+      labels: {app: db}
+    spec:
+      containers:
+        - name: redis
+          image: public.ecr.aws/docker/library/redis:6.2.6
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: agent
+  namespace: cmp-s3
+spec:
+  selector:
+    matchLabels: {app: agent}
+  template:
+    metadata:
+      labels: {app: agent}
+    spec:
+      containers:
+        - name: agent
+          image: public.ecr.aws/docker/library/alpine:3.15.0
+          command: ["sh", "-c", "sleep 1000000"]
+          resources:
+            requests: {cpu: 10m, memory: 8Mi}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: tick
+  namespace: cmp-s3
+spec:
+  schedule: "*/10 * * * *"
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: tick
+              image: public.ecr.aws/docker/library/busybox:1.36.1
+              command: ["sh", "-c", "date"]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: solo
+  namespace: cmp-s3
+spec:
+  containers:
+    - name: solo
+      image: public.ecr.aws/docker/library/alpine:3.15.0
+      command: ["sh", "-c", "sleep 1000000"]
+      resources:
+        requests: {cpu: 10m, memory: 8Mi}

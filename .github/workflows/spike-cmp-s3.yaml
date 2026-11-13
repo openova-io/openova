@@ -1,0 +1,106 @@
+# Spike CMP-S3 (lab test, never merged): on the pinned scanner
+# (trivy-operator 0.30.1, chart 0.32.1, bp-trivy 1.0.6):
+#   1. which labels name the owner on a report for a Deployment's Pods;
+#   2. is `publishedDate` present on the vulnerabilities of a report;
+#   3. which benchmark report names exist by default;
+#   4. is there a benchmark profile for the reference distribution (k3s);
+#   5. how many report objects, and how many bytes, an install holds.
+#
+# Runs only on a push to the spike branch. Everything happens on the runner:
+# a single-node k3s at the version Sovereigns run (v1.31.4+k3s1, embedded
+# etcd as in docs/ARCHITECTURE.md section 8.3), the platform's own bp-trivy
+# chart with its own values, a handful of test workloads. No cloud account,
+# no secret, no cluster outside this job.
+name: spike-cmp-s3
+
+on:
+  push:
+    branches: [spike/CMP-S3]
+
+permissions:
+  contents: read
+
+jobs:
+  scanner-reports:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      # the k3s release Sovereigns run (infra/providers/huawei/variables.tf)
+      K3S_VERSION: v1.31.4+k3s1
+      KUBECTL_VERSION: v1.31.4
+      HELM_VERSION: v3.16.3
+      ETCD_VERSION: v3.5.17
+      OUT: ${{ github.workspace }}/out
+      KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Install kubectl and etcdctl
+        run: |
+          set -euo pipefail
+          sudo curl -fsSL -o /usr/local/bin/kubectl \
+            "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          sudo chmod +x /usr/local/bin/kubectl
+          curl -fsSL -o /tmp/etcd.tgz \
+            "https://github.com/etcd-io/etcd/releases/download/${ETCD_VERSION}/etcd-${ETCD_VERSION}-linux-amd64.tar.gz"
+          tar -xzf /tmp/etcd.tgz -C /tmp
+          sudo install -m 0755 "/tmp/etcd-${ETCD_VERSION}-linux-amd64/etcdctl" /usr/local/bin/etcdctl
+
+      - name: Install k3s (reference distribution, Sovereign server flags)
+        run: |
+          set -euo pipefail
+          # Same server flags as docs/ARCHITECTURE.md section 8.3, except the
+          # CNI: flannel stays on (no Cilium) because the scanner does not
+          # depend on it, and local-storage is not needed (no PVC is made).
+          curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="$K3S_VERSION" sh -s - server \
+            --write-kubeconfig-mode=644 \
+            --cluster-init \
+            --disable traefik \
+            --disable servicelb \
+            --disable local-storage \
+            --disable-network-policy \
+            --kube-apiserver-arg=default-watch-cache-size=50 \
+            --etcd-arg=quota-backend-bytes=1073741824 \
+            --kubelet-arg=max-pods=50
+          for i in $(seq 1 60); do
+            kubectl get nodes 2>/dev/null | grep -q ' Ready ' && break
+            sleep 5
+          done
+          kubectl wait --for=condition=Ready node --all --timeout=180s
+          kubectl -n kube-system rollout status deploy/coredns --timeout=180s
+
+      - name: Tool versions
+        run: |
+          python3 -c 'import yaml' 2>/dev/null || sudo apt-get install -y python3-yaml
+          k3s --version
+          kubectl version
+          helm version
+          sudo etcdctl version
+          jq --version
+          python3 --version
+          nproc; free -g; df -h /
+
+      - name: Run the experiment
+        run: bash tests/spikes/CMP-S3/run.sh
+
+      - name: Dump the result files into the log
+        if: always()
+        run: |
+          for f in "$OUT"/*.txt "$OUT"/*.json; do
+            [ -f "$f" ] || continue
+            echo "::group::$f"; head -c 80000 "$f"; echo; echo "::endgroup::"
+          done
+
+      - name: Keep the evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spike-cmp-s3-out
+          path: out/
+          retention-days: 30

@@ -1,0 +1,15 @@
+# Spike CMP-S3 phase B: ask the chart for every benchmark it might know,
+# including a name for the reference distribution (k3s-cis-1.24), and run the
+# benchmark every two minutes instead of every six hours so the job can read
+# the results. Only these two keys differ from phase A.
+trivy-operator:
+  compliance:
+    cron: "*/2 * * * *"
+    specs:
+      - k8s-cis-1.23
+      - k8s-nsa-1.0
+      - k8s-pss-baseline-0.1
+      - k8s-pss-restricted-0.1
+      - eks-cis-1.4
+      - rke2-cis-1.24
+      - k3s-cis-1.24
