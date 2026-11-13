@@ -34,12 +34,26 @@ bao_log() { kubectl -n openbao logs openbao-0 -c openbao --tail=-1 2>/dev/null; 
 prov_log() { kubectl -n openbao logs -l app.kubernetes.io/name=openbao-csi-provider -c openbao-csi-provider --tail=-1 2>/dev/null; }
 
 # k <kubeconfig or -> args: kubectl against the host (-) or a virtual cluster.
-k() { local kc=$1; shift; if [ "$kc" = - ]; then kubectl "$@"; else kubectl --kubeconfig "$kc" "$@"; fi; }
+# A virtual cluster is reached through a port-forward that a loop restarts; a
+# call that hits the restart window is retried. Never pass stdin to k.
+k() {
+  local kc=$1; shift
+  if [ "$kc" = - ]; then kubectl "$@"; return; fi
+  local i rc errf="$WORK/k.err"
+  for i in 1 2 3 4 5 6; do
+    kubectl --kubeconfig "$kc" "$@" 2>"$errf"; rc=$?
+    if [ $rc -ne 0 ] && grep -q -E 'connection refused|lost connection|broken pipe|EOF|connection reset|i/o timeout' "$errf"; then
+      sleep 3; continue
+    fi
+    break
+  done
+  cat "$errf" >&2; return $rc
+}
 vkc() { echo "$WORK/vc-$1.kubeconfig"; }
 
 csi_pod() { # kc ns name serviceaccount spc automount
-  local kc=$1 ns=$2 name=$3 sa=$4 spc=$5 am=$6
-  k "$kc" apply -f - >/dev/null <<EOF
+  local kc=$1 ns=$2 name=$3 sa=$4 spc=$5 am=$6 f="$WORK/pod-$2-$3.yaml"
+  cat >"$f" <<EOF
 apiVersion: v1
 kind: Pod
 metadata: {name: $name, namespace: $ns, labels: {spike: sec-140}}
@@ -60,20 +74,23 @@ spec:
         readOnly: true
         volumeAttributes: {secretProviderClass: $spc}
 EOF
+  k "$kc" apply -f "$f" >/dev/null
 }
 
-# Prints PASS, or FAIL(<last mount event>). Optional 5th arg: host namespace of a
-# virtual-cluster pod, to read the host pod's events as well.
+# Prints PASS, or FAIL(<last mount event>). With a 5th argument (host namespace)
+# the pod is a virtual-cluster pod and its readiness is read from the host pod
+# the virtual cluster synced, which is the pod the kubelet actually runs.
 pod_result() {
-  local kc=$1 ns=$2 name=$3 t=${4:-120} hostns=${5:-} ev
-  if k "$kc" -n "$ns" wait --for=condition=Ready "pod/$name" --timeout="${t}s" >/dev/null 2>&1; then
-    echo PASS; return 0
+  local kc=$1 ns=$2 name=$3 t=${4:-120} hostns=${5:-} ev hp i
+  if [ -z "$hostns" ]; then
+    if kubectl -n "$ns" wait --for=condition=Ready "pod/$name" --timeout="${t}s" >/dev/null 2>&1; then echo PASS; return 0; fi
+    ev=$(kubectl -n "$ns" get events --field-selector "involvedObject.name=$name" -o jsonpath='{range .items[*]}{.reason}: {.message}{"\n"}{end}' 2>/dev/null | grep -E 'FailedMount|Failed|Error' | tail -1 | oneline)
+    echo "FAIL(${ev:-not ready, no event})"; return 1
   fi
-  ev=$(k "$kc" -n "$ns" get events --field-selector "involvedObject.name=$name" -o jsonpath='{range .items[*]}{.reason}: {.message}{"\n"}{end}' 2>/dev/null | grep -E 'FailedMount|Failed|Error' | tail -1 | oneline)
-  if [ -z "$ev" ] && [ -n "$hostns" ]; then
-    local hp; hp=$(host_pod "$hostns" "$ns" "$name" | cut -d' ' -f1)
-    [ -n "$hp" ] && ev=$(kubectl -n "$hostns" get events --field-selector "involvedObject.name=$hp" -o jsonpath='{range .items[*]}{.reason}: {.message}{"\n"}{end}' 2>/dev/null | grep -E 'FailedMount|Failed|Error' | tail -1 | oneline)
-  fi
+  for i in $(seq 1 60); do hp=$(host_pod "$hostns" "$ns" "$name" | cut -d' ' -f1); [ -n "$hp" ] && break; sleep 2; done
+  [ -z "$hp" ] && { echo "FAIL(never synced to the host)"; return 1; }
+  if kubectl -n "$hostns" wait --for=condition=Ready "pod/$hp" --timeout="${t}s" >/dev/null 2>&1; then echo PASS; return 0; fi
+  ev=$(kubectl -n "$hostns" get events --field-selector "involvedObject.name=$hp" -o jsonpath='{range .items[*]}{.reason}: {.message}{"\n"}{end}' 2>/dev/null | grep -E 'FailedMount|Failed|Error|BackOff' | tail -1 | oneline)
   echo "FAIL(${ev:-not ready, no event})"; return 1
 }
 
@@ -240,18 +257,35 @@ ROOT0=$(jq -r '.root_token' <<<"$INIT")
 bx operator unseal "$UNSEAL" >/dev/null
 rec "STEP1 openbao $(bx version | oneline) sealed=$(bx status -format=json | jq -r .sealed)"
 
-# Root token generated from the unseal key (the way a live Sovereign would get one).
-G=$(bx operator generate-root -init -format=json 2>&1)
-NONCE=$(jq -r '.nonce // empty' <<<"$G" 2>/dev/null); OTP=$(jq -r '.otp // empty' <<<"$G" 2>/dev/null)
-E=$(bx operator generate-root -nonce="$NONCE" -format=json "$UNSEAL" 2>&1)
-ENC=$(jq -r '.encoded_token // .encoded_root_token // empty' <<<"$E" 2>/dev/null)
-ROOT=$(bx operator generate-root -decode="$ENC" -otp="$OTP" 2>/dev/null | awk 'NF{t=$NF} END{print t}')
-if [ -n "$ROOT" ] && bx token lookup -format=json 2>/dev/null | jq -e '.data.policies | index("root")' >/dev/null; then
+# Root token generated from the unseal key. First without any token (the way a
+# live Sovereign whose root token is gone would need it), then authenticated with
+# the init root token. ROOT is the token bx sends.
+gen_root() { # prints a new root token, or nothing; details to $WORK/genroot.txt
+  local g e nonce otp enc
+  bx operator generate-root -cancel >/dev/null 2>&1
+  g=$(bx operator generate-root -init -format=json 2>&1)
+  nonce=$(jq -r '.nonce // empty' <<<"$g" 2>/dev/null); otp=$(jq -r '.otp // empty' <<<"$g" 2>/dev/null)
+  e=$(bx operator generate-root -nonce="$nonce" -format=json "$UNSEAL" 2>&1)
+  enc=$(jq -r '.encoded_token // .encoded_root_token // empty' <<<"$e" 2>/dev/null)
+  printf '%s %s' "$g" "$e" | oneline >"$WORK/genroot.txt"
+  [ -n "$enc" ] && bx operator generate-root -decode="$enc" -otp="$otp" 2>/dev/null | awk 'NF{t=$NF} END{print t}'
+}
+ROOT=""
+MODE=without-token
+NEW=$(gen_root)
+if [ -n "$NEW" ]; then
+  rec "STEP1 root-token-from-unseal-key without-token PASS"
+else
+  rec "STEP1 root-token-from-unseal-key without-token FAIL ($(cat "$WORK/genroot.txt"))"
+  ROOT=$ROOT0; MODE=authenticated-with-init-root-token
+  NEW=$(gen_root)
+fi
+if [ -n "$NEW" ] && ROOT=$NEW && bx token lookup -format=json 2>/dev/null | jq -e '.data.policies | index("root")' >/dev/null; then
   bx token revoke "$ROOT0" >/dev/null 2>&1
-  rec "STEP1 root-token-from-unseal-key PASS (init root token revoked: rc=$?)"
+  rec "STEP1 root-token-from-unseal-key $MODE PASS; init root token revoked (rc=$?); the rest runs on the generated token"
 else
   ROOT=$ROOT0
-  rec "STEP1 root-token-from-unseal-key FAIL ($(printf '%s %s' "$G" "$E" | oneline)); using init root token"
+  rec "STEP1 root-token-from-unseal-key authenticated FAIL ($(cat "$WORK/genroot.txt")); using init root token"
 fi
 
 bx auth enable kubernetes >/dev/null
@@ -260,12 +294,12 @@ bx secrets enable -path=mounted -version=2 kv >/dev/null
 ACC=$(bx auth list -format=json | jq -r '."kubernetes/".accessor')
 TNS="{{identity.entity.aliases.$ACC.metadata.service_account_namespace}}"
 TSA="{{identity.entity.aliases.$ACC.metadata.service_account_name}}"
-for p in workload eso-ns eso-ns-p1 eso-ns-p2 birth; do
+for p in workload eso-ns eso-ns-p1 eso-ns-p2 eso-ns-p3 birth; do
   sed -e "s|@NS@|$TNS|g" -e "s|@SA@|$TSA|g" "$HERE/policies/$p.hcl" | bx policy write "$p" - >/dev/null
 done
 bx write auth/kubernetes/role/workload bound_service_account_names='*' bound_service_account_namespaces='*' \
   audience=openbao token_policies=workload token_ttl=15m token_max_ttl=1h >/dev/null
-for r in eso-ns eso-ns-p1 eso-ns-p2; do
+for r in eso-ns eso-ns-p1 eso-ns-p2 eso-ns-p3; do
   bx write "auth/kubernetes/role/$r" bound_service_account_names=eso-reader bound_service_account_namespaces='*' \
     token_policies="$r" token_ttl=15m token_max_ttl=1h >/dev/null
 done
@@ -303,7 +337,7 @@ for V in $ESO_VERSIONS; do
   NS="eso-${V//./-}"
   kubectl create ns "$NS" >/dev/null; kubectl -n "$NS" create sa eso-reader >/dev/null
   M="$WORK/$NS.yaml"; : >"$M"
-  for p in p0 p1 p2; do
+  for p in p0 p1 p2 p3; do
     role=eso-ns; [ "$p" = p0 ] || role="eso-ns-$p"
     cat >>"$M" <<EOF
 ---
@@ -325,7 +359,7 @@ EOF
   done
   for i in $(seq 1 30); do kubectl apply -f "$M" >/dev/null 2>&1 && break; sleep 4; done
   kubectl -n "$NS" wait --for=condition=Ready secretstore --all --timeout=90s >/dev/null 2>&1
-  for p in p0 p1 p2; do
+  for p in p0 p1 p2 p3; do
     rec "STEP2 eso=$V store=openbao-mounted-$p ready=$(kubectl -n "$NS" get secretstore "openbao-mounted-$p" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}') $(kubectl -n "$NS" get secretstore "openbao-mounted-$p" -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}' | oneline)"
   done
   M2="$WORK/$NS-push.yaml"
@@ -335,7 +369,7 @@ kind: Password
 metadata: {name: db-password-e1, namespace: $NS}
 spec: {length: 32, digits: 6, symbols: 0, noUpper: false, allowRepeat: true}
 EOF
-  for p in p0 p1 p2; do
+  for p in p0 p1 p2 p3; do
     cat >>"$M2" <<EOF
 ---
 apiVersion: external-secrets.io/v1alpha1
@@ -357,17 +391,17 @@ EOF
   rec "STEP2 eso=$V apply-generator-and-pushsecrets: $(echo "$out" | oneline)"
   for i in $(seq 1 30); do
     n=$(kubectl -n "$NS" get pushsecret -o json | jq '[.items[] | select((.status.conditions // []) | length > 0)] | length')
-    [ "$n" = 3 ] && break; sleep 3
+    [ "$n" = 4 ] && break; sleep 3
   done
   sleep 20
-  for p in p0 p1 p2; do
+  for p in p0 p1 p2 p3; do
     st=$(kubectl -n "$NS" get pushsecret "db-password-$p-e1" -o json 2>/dev/null | jq -r '((.status.conditions // []) | map(select(.type=="Ready")) | .[0]) as $c | "\($c.status // "none") \($c.reason // "") \($c.message // "")"' | oneline)
     ver=$(bx kv metadata get -mount=mounted -format=json "$NS/sa/wordpress/db-password-$p/e1" 2>/dev/null | jq -r '.data.current_version // empty')
-    rec "STEP2 eso=$V policy=$p pushsecret-ready=${st%% *} remote-value=${ver:+exists(version $ver)}${ver:-absent} status=\"${st#* }\""
+    rec "STEP2 eso=$V policy=$p pushsecret-ready=${st%% *} remote-value=${ver:-absent}${ver:+(current_version)} status=\"${st#* }\""
   done
   # Second reconcile: does IfNotExists keep the first value?
   sleep 35
-  for p in p0 p1 p2; do
+  for p in p0 p1 p2 p3; do
     ver=$(bx kv metadata get -mount=mounted -format=json "$NS/sa/wordpress/db-password-$p/e1" 2>/dev/null | jq -r '.data.current_version // empty')
     [ -n "$ver" ] && rec "STEP2 eso=$V policy=$p after-two-more-refreshes remote-version=$ver ready=$(kubectl -n "$NS" get pushsecret "db-password-$p-e1" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')"
   done
@@ -414,7 +448,7 @@ for p in p3-vaultaddress p3-openbaoaddress p3-baoaddress p3-noaddress p3-noaudie
   m=""; [ "$r" = PASS ] && { [ "$(file_hash - acme "$p")" = "$VH" ] && m=" file-matches-openbao-value=yes" || m=" file-matches-openbao-value=NO"; }
   rec "STEP3 pod=$p result=$r$m"
 done
-rec "STEP3 file-mode-and-owner: $(kubectl -n acme exec p3-vaultaddress -- ls -ln /var/run/secrets/openova/ 2>/dev/null | oneline)"
+rec "STEP3 file-mode-and-owner: $(kubectl -n acme exec p3-vaultaddress -- ls -lnL /var/run/secrets/openova/ 2>/dev/null | oneline)"
 cnt=$(kubectl get secrets -A -o json | jq -r '.items[].data // {} | .[]' | while read -r v; do printf '%s' "$v" | base64 -d 2>/dev/null | sha; echo; done | grep -c -x "$VH")
 rec "STEP3 secret-objects-holding-the-value=$cnt"
 rec "STEP3 secrets-created-by-provider: $(kubectl -n openbao get secrets -o name | oneline)"
@@ -459,7 +493,8 @@ vc_connect() { # ns port
   for i in $(seq 1 60); do kubectl -n "$ns" get secret vc-vcluster >/dev/null 2>&1 && break; sleep 2; done
   kubectl -n "$ns" get secret vc-vcluster -o jsonpath='{.data.config}' | base64 -d \
     | sed -E "s#server: https://[^[:space:]]+#server: https://localhost:$port#" >"$kc"
-  kubectl -n "$ns" port-forward svc/vcluster "$port:443" >"$OUT/port-forward-$ns.log" 2>&1 &
+  # kubectl port-forward exits on the first broken stream; restart it in a loop.
+  ( while :; do kubectl -n "$ns" port-forward svc/vcluster "$port:443" >>"$OUT/port-forward-$ns.log" 2>&1; sleep 1; done ) &
   for i in $(seq 1 60); do kubectl --kubeconfig "$kc" get ns >/dev/null 2>&1 && break; sleep 2; done
 }
 vc_connect org1 18443
@@ -490,7 +525,7 @@ rec "STEP4 org1 logins: $(logins org1)"
 rec "STEP4 org1 reads: $(reads org1)"
 
 # R26: a Job created at run time inside the virtual cluster with one CSI object.
-k "$VC1" apply -f - >/dev/null <<EOF
+cat >"$WORK/v-fetch.yaml" <<EOF
 apiVersion: batch/v1
 kind: Job
 metadata: {name: v-fetch, namespace: apps}
@@ -513,7 +548,8 @@ spec:
             readOnly: true
             volumeAttributes: {secretProviderClass: org-db}
 EOF
-rec "STEP4 org1 runtime-job exit|log: $(job_out "$VC1" apps v-fetch 150)"
+k "$VC1" apply -f "$WORK/v-fetch.yaml" >/dev/null
+rec "STEP4 org1 runtime-job exit|log: $(job_out "$VC1" apps v-fetch 150) host-pod=$(kubectl -n org1 get pods -o json | jq -r '.items[] | select(.metadata.annotations["vcluster.loft.sh/object-name"] // "" | startswith("v-fetch-")) | "\(.metadata.name) \(.spec.serviceAccountName) \(.status.phase)"' | head -1)"
 
 # org2: service-account sync on
 birth_prep org2
@@ -535,9 +571,19 @@ if [ -n "$HSA" ]; then
     rec "STEP4 org2 sa-sync=on virtual=apps/$p spc=sa/$HSA result=$(pod_result "$VC2" apps "$p" 120 org2) host-pod(name sa automount)=$(host_pod org2 apps "$p")"
   done
   k "$VC2" -n apps delete pod v-app-sa --wait=true >/dev/null 2>&1
+  for i in $(seq 1 30); do [ -z "$(host_pod org2 apps v-app-sa)" ] && break; sleep 2; done
   csi_pod "$VC2" apps v-app-sa app org-db-sa true
   rec "STEP4 org2 recreated virtual=apps/v-app-sa result=$(pod_result "$VC2" apps v-app-sa 120 org2) host-pod(name sa automount)=$(host_pod org2 apps v-app-sa)"
 fi
+# A service-account name whose translated host name would pass 63 characters.
+LONGSA=wordpress-application-database-client-account
+k "$VC2" -n apps create sa "$LONGSA" >/dev/null
+csi_pod "$VC2" apps v-long "$LONGSA" org-db true
+rec "STEP4 org2 long-name virtual-sa=apps/$LONGSA (${#LONGSA} chars) result=$(pod_result "$VC2" apps v-long 120 org2) host-pod(name sa automount)=$(host_pod org2 apps v-long)"
+k "$VC2" -n apps delete pod v-long --wait=true >/dev/null 2>&1
+for i in $(seq 1 30); do [ -z "$(host_pod org2 apps v-long)" ] && break; sleep 2; done
+csi_pod "$VC2" apps v-long "$LONGSA" org-db true
+rec "STEP4 org2 long-name recreated result=$(pod_result "$VC2" apps v-long 120 org2) host-pod(name sa automount)=$(host_pod org2 apps v-long)"
 rec "STEP4 org2 host-serviceaccounts: $(kubectl -n org2 get sa -o name | oneline)"
 rec "STEP4 org2 logins: $(logins org2)"
 rec "STEP4 org2 reads: $(reads org2)"
