@@ -56,6 +56,23 @@ Cases
             Chart.yaml and pushes all sites in ONE commit, also on a retry; for
             bp-catalyst-platform (deploy-job versioned) it pushes nothing.
 
+  stale, stale-retry (FND-018)
+            Two runs of one chart can finish out of order. The run of the older
+            version comes after the run of the newer one, which already moved
+            every site. `stale`: the older run's write steps find the newer
+            values in their tree. `stale-retry`: the older run writes its own
+            version, its push is refused because the newer run landed first,
+            and its retry resets to origin/main. In both, every site keeps the
+            newer version, the run says so in its log and summary, and it ends
+            green. → RED before FND-018: the older version is written back.
+
+  release-umbrella (FND-018)
+            A leaf chart is released and its catalogue seed pins move. The job
+            `umbrella-follow` must then bump the umbrella chart and dispatch its
+            release, and the dispatched run must move the umbrella's kit pin.
+            Afterwards scripts/check-umbrella-republish-gate.py passes on the
+            pushed tree. → RED before FND-018: nothing follows the seed move.
+
   noop      CONTROL, must be GREEN on both trees. Run the writer with NO chart
             bump at all. Nothing may drift and nothing may be pushed backwards.
             This is the vacuity check: it proves the harness can go green, so a
@@ -100,6 +117,23 @@ UI_REL = "products/catalyst/bootstrap/ui"
 # Fails CLOSED: a future sixth site added in a step whose id is not listed here
 # will not run, and the convergence assertions below go red until it is added.
 WRITER_STEP_IDS = ["bump_chart", "chart", "bump_pin", "bump_blueprint", "sync_seed"]
+
+# FND-018: the job that releases the umbrella after a catalogue move, and the
+# umbrella chart it releases.
+UMBRELLA_JOB = "umbrella-follow"
+UMBRELLA_PATH = "products/catalyst"
+KEPT_NOTE = "Newer version kept"
+
+# A stand-in for `gh` in release-umbrella: it records every call, answers the
+# open-pull-request listing with an empty list and accepts a workflow dispatch.
+GH_STUB = """#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$GH_STUB_LOG"
+case "$1 $2" in
+  "pr list") echo '[]' ;;
+  "workflow run") ;;
+  *) echo "gh stand-in: unexpected call: $*" >&2; exit 1 ;;
+esac
+"""
 
 # The commit step carries no `id:`, so it is located structurally — the one step
 # in the build job whose script pushes to main.
@@ -185,6 +219,16 @@ def load_build_steps():
     return wf.get("env", {}) or {}, job.get("env", {}) or {}, job["steps"]
 
 
+def load_job_steps(job_name):
+    """The steps of another job of the workflow, or None when it has no such job."""
+    with open(WORKFLOW) as fh:
+        wf = yaml.safe_load(fh)
+    job = (wf.get("jobs") or {}).get(job_name)
+    if job is None:
+        return None
+    return job.get("env", {}) or {}, job["steps"]
+
+
 def find_commit_step(steps):
     hits = [s for s in steps if COMMIT_STEP_MARKER in (s.get("run") or "")]
     if len(hits) != 1:
@@ -202,6 +246,7 @@ def run_step(step, work, ctx, wf_env, job_env, label):
         print("    - skip  %-14s (if: false)" % (step_id or label))
         return
     env = dict(os.environ)
+    env.update(ctx.get("env", {}))
     env.update({k: str(resolve(v, ctx)) for k, v in (wf_env or {}).items()})
     env.update({k: str(resolve(v, ctx)) for k, v in (job_env or {}).items()})
     env.update({k: str(resolve(v, ctx)) for k, v in (step.get("env") or {}).items()})
@@ -215,8 +260,13 @@ def run_step(step, work, ctx, wf_env, job_env, label):
     r = subprocess.run(["bash", "-c", script], cwd=work, env=env,
                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     body = (r.stdout or "").strip()
+    ctx.setdefault("log", []).append(body)
     for line in body.splitlines():
         print("        | " + line)
+    if os.path.exists(env["GITHUB_STEP_SUMMARY"]):
+        with open(env["GITHUB_STEP_SUMMARY"]) as fh:
+            ctx.setdefault("summary", []).append(fh.read())
+        os.unlink(env["GITHUB_STEP_SUMMARY"])
     if r.returncode != 0:
         raise Failure("workflow step %r exited %d" % (step_id or label, r.returncode))
 
@@ -508,6 +558,25 @@ CASES = {
         why="CONTROL (FND-011) — the umbrella's version is written by the deploy job; a "
             "push that changes it without a version publishes and pushes nothing",
     ),
+    "stale": dict(
+        path="platform/keycloak", do_bump=False, kind="stale",
+        expect=dict(blueprint="literal", seed="literal", kit="literal"),
+        why="POSITIVE (FND-018) — the run of an older version follows the run of a newer "
+            "one and finds the newer values in its tree; no site may go back",
+    ),
+    "stale-retry": dict(
+        path="platform/keycloak", do_bump=False, kind="stale", retry=True,
+        expect=dict(blueprint="literal", seed="literal", kit="literal"),
+        why="POSITIVE (FND-018) — the run of an older version writes its version, the "
+            "newer run lands first, and the retry resets to origin/main; no site may go back",
+    ),
+    "release-umbrella": dict(
+        path="platform/keycloak", do_bump=False, change=True, kind="umbrella-follow",
+        expect=dict(blueprint="literal", seed="literal", kit="literal"),
+        why="POSITIVE (FND-018) — a leaf chart is released and its seed pins move; the "
+            "umbrella must be released after it, with its kit pin, and the umbrella "
+            "republish gate must pass on the result",
+    ),
     "noop": dict(
         path="platform/keycloak", do_bump=False,
         expect=dict(blueprint="literal", seed="literal", kit="literal"),
@@ -569,7 +638,219 @@ def scratch_base(explicit):
     return base
 
 
+def version_key(v):
+    m = _RE_SEMVER.match(v or "")
+    if not m:
+        raise Failure("version %r is not MAJOR.MINOR.PATCH" % (v,))
+    return tuple(int(x) for x in m.groups())
+
+
+def set_chart_version(tree, path, version, message):
+    """Commit a Chart.yaml version as the deploy bot would, and push it."""
+    cy = os.path.join(tree, path, "chart", "Chart.yaml")
+    txt = open(cy).read()
+    new = re.sub(r"^version:\s*.*$", "version: %s" % version, txt, count=1, flags=re.M)
+    if new == txt:
+        raise Failure("could not rewrite the Chart.yaml version in %s" % cy)
+    open(cy, "w").write(new)
+    sh('git add -A && git commit -q -m "%s"' % message, cwd=tree)
+    sh("git push -q origin main", cwd=tree)
+    return sh("git rev-parse HEAD", cwd=tree).stdout.strip()
+
+
+def run_writer(tree, ctx, steps, wf_env, job_env, skip=()):
+    """Run the release writer's steps and its commit step in `tree`."""
+    by_id = {s.get("id"): s for s in steps if s.get("id")}
+    for sid in WRITER_STEP_IDS:
+        if sid in skip:
+            continue
+        if sid not in by_id:
+            print("    - absent %-13s (not declared in this workflow)" % sid)
+            continue
+        run_step(by_id[sid], tree, ctx, wf_env, job_env, sid)
+    run_step(find_commit_step(steps), tree, ctx, wf_env, job_env, "commit+push")
+
+
+def assert_kept_notes(ctx, sites, problems):
+    """The run says in its log and in its summary that it left each newer site alone."""
+    log = "\n".join(ctx.get("log", []))
+    summary = "\n".join(ctx.get("summary", []))
+    for site in sites:
+        for label, text in (("log", log), ("summary", summary)):
+            if not any(KEPT_NOTE in ln and site in ln for ln in text.splitlines()):
+                problems.append("the %s of the older run has no '%s' note for %s"
+                                % (label, KEPT_NOTE, site))
+
+
+def run_stale_case(name, case, keep, base):
+    """FND-018: the run of an older version comes after the run of a newer one."""
+    print("\n%s─── case %s ───%s  %s" % (GREEN, name, RESET, case["why"]))
+    chart, cur = precheck_in_scope(case, name)
+    path = case["path"]
+    older = bump_patch(cur)
+    newer = bump_patch(older)
+    root = tempfile.mkdtemp(prefix="lockstep-writer-%s-" % name, dir=base)
+    try:
+        work, remote = build_scratch(root)
+        wf_env, job_env, steps = load_build_steps()
+        by_id = {s.get("id"): s for s in steps if s.get("id")}
+
+        # The deploy bot writes the older version, then the newer one.
+        set_chart_version(work, path, older, "deploy: bump %s to %s (simulated bot)" % (chart, older))
+        print("    bot commit pushed: %s %s -> %s" % (chart, cur, older))
+        rival = os.path.join(root, "newer-run")
+        sh("git clone -q --branch main %s %s" % (remote, rival), cwd=root)
+        sh('git config user.email "rival@openova.io" && git config user.name "rival"', cwd=rival)
+        set_chart_version(rival, path, newer, "deploy: bump %s to %s (simulated bot)" % (chart, newer))
+        print("    bot commit pushed: %s %s -> %s" % (chart, older, newer))
+
+        ctx_old = {"matrix": {"path": path}, "steps": {}, "github": {}}
+        ctx_new = {"matrix": {"path": path}, "steps": {}, "github": {}}
+        if case.get("retry"):
+            # The older run checked out the commit of `older`; it writes its own
+            # version over `cur`, then the newer run lands before its push.
+            print("    the run of %s writes its sites (checkout at %s):" % (older, older))
+            for sid in WRITER_STEP_IDS:
+                if sid in by_id:
+                    run_step(by_id[sid], work, ctx_old, wf_env, job_env, sid)
+            print("    the run of %s lands first:" % newer)
+            run_writer(rival, ctx_new, steps, wf_env, job_env)
+            print("    the run of %s commits and pushes; its push must retry:" % older)
+            run_step(find_commit_step(steps), work, ctx_old, wf_env, job_env, "commit+push")
+        else:
+            print("    the run of %s lands first:" % newer)
+            run_writer(rival, ctx_new, steps, wf_env, job_env)
+            # The older run's write steps find the newer values in their tree.
+            sh("git fetch -q origin && git reset -q --hard origin/main", cwd=work)
+            ctx_old["steps"]["chart"] = {"name": chart, "version": older, "skip": "false"}
+            print("    the run of %s (it published %s) writes its sites:" % (older, older))
+            run_writer(work, ctx_old, steps, wf_env, job_env, skip=("chart",))
+
+        pushed = clone_pushed(root, remote)
+        problems = []
+        assert_sites(pushed, path, chart, newer, case["expect"], problems)
+        assert_generated_in_sync(pushed, problems)
+        kit = ["%s/%s" % (KIT_REL, f) for f, _ in kit_slots(pushed, chart)]
+        bp = os.path.relpath(blueprint_path(pushed, path), pushed)
+        assert_kept_notes(ctx_old, kit + [bp, SEED_REL], problems)
+
+        head = sh("git log -1 --format=%s", cwd=pushed).stdout.strip()
+        print("    landed on origin/main: %s" % head)
+        if problems:
+            print("%s  FAIL case %s — a site went back to the older version%s" % (RED, name, RESET))
+            for p in problems:
+                print("    ✗ " + p)
+            return False
+        print("%s  PASS case %s — every site kept %s, the run of %s ended green%s"
+              % (GREEN, name, newer, older, RESET))
+        return True
+    finally:
+        if keep:
+            print("    scratch kept at %s" % root)
+        else:
+            shutil.rmtree(root, ignore_errors=True)
+
+
+def run_umbrella_case(name, case, keep, base):
+    """FND-018: a leaf release that moves the seed is followed by an umbrella release."""
+    print("\n%s─── case %s ───%s  %s" % (GREEN, name, RESET, case["why"]))
+    chart, cur = precheck_in_scope(case, name)
+    path = case["path"]
+    want = bump_patch(cur)
+    umbrella_name, umbrella_before = read_chart(REPO_ROOT, UMBRELLA_PATH)
+    root = tempfile.mkdtemp(prefix="lockstep-writer-%s-" % name, dir=base)
+    try:
+        work, remote = build_scratch(root)
+        wf_env, job_env, steps = load_build_steps()
+
+        before = sh("git rev-parse HEAD", cwd=work).stdout.strip()
+        with open(os.path.join(work, path, "chart", "values.yaml"), "a") as fh:
+            fh.write("\n# a merged change, injected by the lockstep writer guard\n")
+        sh('git add -A && git commit -q -m "change: %s values (simulated merge)"' % chart, cwd=work)
+        sh("git push -q origin main", cwd=work)
+        after = sh("git rev-parse HEAD", cwd=work).stdout.strip()
+        print("    merged change pushed: %s values.yaml, version left at %s" % (chart, cur))
+
+        print("    the release of %s:" % chart)
+        ctx = {"matrix": {"path": path}, "steps": {}, "github": {"event.before": before, "sha": after}}
+        run_writer(work, ctx, steps, wf_env, job_env)
+
+        stub_dir = os.path.join(root, "gh-stub")
+        os.makedirs(stub_dir)
+        stub = os.path.join(stub_dir, "gh")
+        with open(stub, "w") as fh:
+            fh.write(GH_STUB)
+        os.chmod(stub, 0o755)
+        gh_log = os.path.join(root, "gh-calls.log")
+        open(gh_log, "w").close()
+
+        follow = load_job_steps(UMBRELLA_JOB)
+        if follow is None:
+            print("    - absent job %s (not declared in this workflow)" % UMBRELLA_JOB)
+        else:
+            follow_env, follow_steps = follow
+            fctx = {"matrix": {}, "steps": {}, "github": {"repository": "openova-io/openova"},
+                    "env": {"PATH": stub_dir + os.pathsep + os.environ.get("PATH", ""),
+                            "GH_STUB_LOG": gh_log}}
+            print("    the job %s:" % UMBRELLA_JOB)
+            for st in follow_steps:
+                if st.get("run"):
+                    run_step(st, work, fctx, wf_env, follow_env, st.get("name", "step"))
+
+        calls = open(gh_log).read().splitlines()
+        dispatched = [c for c in calls if c.startswith("workflow run blueprint-release.yaml")
+                      and "-f blueprint=catalyst" in c and "-f tree=products" in c]
+        if dispatched:
+            # The dispatched run checks out main and publishes the umbrella.
+            print("    the dispatched release of %s:" % umbrella_name)
+            sh("git fetch -q origin && git reset -q --hard origin/main", cwd=work)
+            dctx = {"matrix": {"path": UMBRELLA_PATH}, "steps": {}, "github": {}}
+            run_writer(work, dctx, steps, wf_env, job_env)
+
+        pushed = clone_pushed(root, remote)
+        problems = []
+        assert_sites(pushed, path, chart, want, case["expect"], problems)
+        assert_generated_in_sync(pushed, problems)
+        if not dispatched:
+            problems.append("no release of %s was dispatched after the seed moved" % umbrella_name)
+        _, umbrella_after = read_chart(pushed, UMBRELLA_PATH)
+        if version_key(umbrella_after) <= version_key(umbrella_before):
+            problems.append("the umbrella chart is still at %s: no umbrella version carries the "
+                            "moved seed pins" % umbrella_after)
+        for (f, v) in kit_slots(pushed, umbrella_name):
+            if v != umbrella_after:
+                problems.append("the umbrella's kit pin %s/%s is %s, not its chart version %s"
+                                % (KIT_REL, f, v, umbrella_after))
+        r = sh("python3 scripts/check-umbrella-republish-gate.py --ref HEAD", cwd=pushed, check=False)
+        print("    umbrella republish gate on the pushed tree (exit %d):" % r.returncode)
+        for line in (r.stdout or "").strip().splitlines()[:8]:
+            print("        | " + line)
+        if r.returncode != 0:
+            problems.append("scripts/check-umbrella-republish-gate.py exits %d on the pushed tree"
+                            % r.returncode)
+
+        for line in sh("git log -4 --format=%s", cwd=pushed).stdout.strip().splitlines():
+            print("    landed on origin/main: %s" % line)
+        if problems:
+            print("%s  FAIL case %s — the umbrella did not follow the seed move%s" % (RED, name, RESET))
+            for p in problems:
+                print("    ✗ " + p)
+            return False
+        print("%s  PASS case %s — %s at %s, the umbrella released at %s with its kit pin%s"
+              % (GREEN, name, chart, want, umbrella_after, RESET))
+        return True
+    finally:
+        if keep:
+            print("    scratch kept at %s" % root)
+        else:
+            shutil.rmtree(root, ignore_errors=True)
+
+
 def run_case(name, case, keep, skip_slow, base):
+    if case.get("kind") == "stale":
+        return run_stale_case(name, case, keep, base)
+    if case.get("kind") == "umbrella-follow":
+        return run_umbrella_case(name, case, keep, base)
     print("\n%s─── case %s ───%s  %s" % (GREEN, name, RESET, case["why"]))
     chart, cur = precheck_in_scope(case, name)
     want = bump_patch(cur) if case["do_bump"] or (case.get("change") and not case.get("defer")) else cur
