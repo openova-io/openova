@@ -4,8 +4,8 @@ version: 0.1.0
 description: |
   Machine operations on the platform's own nodes. This version ships the two
   custom resource definitions of the inventory, Machine and MachineSource of
-  the group machines.openova.io. The controller templates come in a later
-  version of this chart.
+  the group machines.openova.io, and the inventory controller with the
+  built-in source nodes, switched on by the value enabled.
 type: application
 keywords: [catalyst, blueprint, machines, inventory]
 maintainers:

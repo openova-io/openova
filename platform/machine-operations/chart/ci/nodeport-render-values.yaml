@@ -1,7 +1,8 @@
 # Read by scripts/check-no-nodeports.sh only. This chart renders nothing at
 # its defaults on purpose, so the guard renders it a second time with these
-# values and with its CRDs, and scans that render for a NodePort. This version
-# of the chart has no templates and no value to switch on: the second render
-# is the two definitions. A version that adds templates behind a value sets
-# that value here, so the guard renders them switched on.
-{}
+# values and with its CRDs, and scans that render for a NodePort. These values
+# switch on every template of the chart: the inventory Deployment, its access
+# rules and the built-in source nodes. A version that adds a template behind
+# another value sets that value here too.
+enabled: true
+image: registry.example/catalyst-api:render
