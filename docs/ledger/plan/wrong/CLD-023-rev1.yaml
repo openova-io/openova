@@ -1,0 +1,52 @@
+schema: openova.io/plan-wrong/v1
+id: CLD-023
+ticket_rev: 1
+base_commit: 8fa68f880c01f315842565128ad3727513da1ad4
+stage: check
+ref: upstream-literals
+command: |
+    gh api repos/openova-io/openova/actions/jobs/132386771857/logs | grep -B 40 -m 1 '##\[error\]' | cut -c30-300
+expected: |
+    the check finishes green
+actual: |
+    ok    a missing scope directory is not a pass
+    check-upstream-literals: self-test passed: 21 of 21 cases as expected
+    ##[group]Run bash scripts/check-upstream-literals.sh
+    [36;1mbash scripts/check-upstream-literals.sh[0m
+    shell: /usr/bin/bash -e {0}
+    ##[endgroup]
+    infra=46
+    kit=70
+    charts=156
+    api=17
+    controllers=9
+    console=19
+    check-upstream-literals: note: infra is below its baseline of 47. Lower the baseline in the same change: bash scripts/check-upstream-literals.sh --write-baseline
+    check-upstream-literals: note: kit is below its baseline of 71. Lower the baseline in the same change: bash scripts/check-upstream-literals.sh --write-baseline
+    ##[group]Run t="$(mktemp -d)"
+    [36;1mt="$(mktemp -d)"[0m
+    [36;1mtrap 'rm -rf "$t"' EXIT[0m
+    [36;1mln -s "$PWD/infra" "$PWD/platform" "$PWD/products" "$PWD/core" "$PWD/scripts" "$t/"[0m
+    [36;1mmkdir -p "$t/clusters"[0m
+    [36;1mcp -r clusters/_template "$t/clusters/_template"[0m
+    [36;1mprintf 'url: oci://ghcr.io/openova-io\n' >> "$t/clusters/_template/kustomization.yaml"[0m
+    [36;1mcode=0[0m
+    [36;1mout="$(bash scripts/check-upstream-literals.sh --root "$t")" || code=$?[0m
+    [36;1mif [ "$code" != 1 ] || ! grep -q -F 'check-upstream-literals: FAIL kit: ' <<<"$out"; then[0m
+    [36;1m  printf '%s\n' "$out"[0m
+    [36;1m  echo "The guard did not fail on the added address (exit code $code)."[0m
+    [36;1m  exit 1[0m
+    [36;1mfi[0m
+    [36;1mecho "The guard failed on the added address, as it must."[0m
+    shell: /usr/bin/bash -e {0}
+    ##[endgroup]
+    infra=46
+    kit=71
+    charts=156
+    api=17
+    controllers=9
+    console=19
+    check-upstream-literals: note: infra is below its baseline of 47. Lower the baseline in the same change: bash scripts/check-upstream-literals.sh --write-baseline
+    The guard did not fail on the added address (exit code 0).
+    ##[error]Process completed with exit code 1.
+reported_at: 2026-11-14T08:23:39Z
