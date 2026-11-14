@@ -113,6 +113,8 @@ jobs:
         with:
           ref: ${{ env.IMAGE }}
           digest: ${{ steps.build.outputs.digest }}
+          release-key: ${{ secrets.RELEASE_COSIGN_KEY }}
+          release-key-password: ${{ secrets.RELEASE_COSIGN_PASSWORD }}
 
   promote:
     # Bump the chart's image.tag to the freshly-built SHA AND bump

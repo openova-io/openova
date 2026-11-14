@@ -314,8 +314,8 @@ func TestFleetTreemapLayersParam(t *testing.T) {
 // function proof of the #5613 attribution math: a customer-Org row and
 // an infra-namespace row (no Org label) must land in two DIFFERENT
 // buckets — the real Org and the synthetic platformOrg sentinel — using
-// the EXACT SAME orgForRow resolver org_consumption.go's showback
-// aggregation uses (not a re-implementation, not the billing path).
+// the orgForRow resolver of fleet_treemap.go (not a re-implementation,
+// not the billing path).
 func TestFleetOrgItemsForSovereign_SeparatesCustomerFromPlatform(t *testing.T) {
 	rows := []podRow{
 		{namespace: "uatco", application: "wordpress", org: "uatco", cpuReq: 100, memReq: 256 << 20},
@@ -439,5 +439,48 @@ func TestHandleFleetTreemapDefaultLayerUnchanged(t *testing.T) {
 	}
 	if body.TotalCount != 1 || len(body.Items) != 1 || body.Items[0].Name != "hw292.omani.works" {
 		t.Fatalf("default (no layers param) must stay the single Sovereign row; got %+v", body)
+	}
+}
+
+/* ── Organization attribution helpers (moved here by CTL-355) ───────── */
+
+// TestOrgForRow_KeysOnLabelNotName — the resolver keys on the
+// `openova.io/organization` label carried on podRow.org and on the
+// infra-namespace set, never on a name: a labelled namespace is its
+// Organization, and an infra namespace, a Job-owned pod and an
+// unlabelled namespace are platform overhead.
+func TestOrgForRow_KeysOnLabelNotName(t *testing.T) {
+	infra := infraNamespaceSet("")
+	cases := []struct {
+		name string
+		row  podRow
+		want string
+	}{
+		{"labelled org namespace", podRow{namespace: "acme", org: "acme", ownerKind: "Deployment"}, "acme"},
+		{"infra namespace", podRow{namespace: "kube-system", org: "", ownerKind: "DaemonSet"}, platformOrg},
+		{"job-owned in org namespace", podRow{namespace: "acme", org: "acme", ownerKind: "Job"}, platformOrg},
+		{"unlabelled host pod", podRow{namespace: "some-host-ns", org: "", ownerKind: "Deployment"}, platformOrg},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := orgForRow(tc.row, infra); got != tc.want {
+				t.Errorf("orgForRow(%s) = %q, want %q", tc.name, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestInfraNamespaceSet_EnvOverrideExtendsFloor — the value of
+// SHOWBACK_INFRA_NAMESPACES adds to the built-in floor and never
+// replaces it.
+func TestInfraNamespaceSet_EnvOverrideExtendsFloor(t *testing.T) {
+	set := infraNamespaceSet("my-infra, another-infra ")
+	for _, ns := range []string{"kube-system", "flux-system", "my-infra", "another-infra"} {
+		if _, ok := set[ns]; !ok {
+			t.Errorf("infra set missing %q (floor + env override)", ns)
+		}
+	}
+	if _, ok := set["acme"]; ok {
+		t.Errorf("the namespace of an Organization must NOT be in the infra set")
 	}
 }

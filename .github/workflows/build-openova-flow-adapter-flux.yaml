@@ -110,6 +110,8 @@ jobs:
         with:
           ref: ${{ env.IMAGE }}
           digest: ${{ steps.build.outputs.digest }}
+          release-key: ${{ secrets.RELEASE_COSIGN_KEY }}
+          release-key-password: ${{ secrets.RELEASE_COSIGN_PASSWORD }}
 
       # Auto-bump the chart values.yaml tag. The adapter-flux image is
       # consumed by the bp-openova-flow-emitter chart (chart name is

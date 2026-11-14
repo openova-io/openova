@@ -1,5 +1,6 @@
 {
   "allow": [
+    {"count": 1, "metric": "shell_loop", "owner": "INF", "path": "platform/kured/chart/templates/node-patch-config.yaml", "reason": "node-patch-config re-asserts two node-local apt files once an hour; it reads no remote state"},
     {"count": 1, "metric": "go_ticker", "owner": "CTL", "path": "core/cmd/k8s-ws-proxy/internal/proxy/ws_stream.go", "reason": "connection heartbeat, not a poll of remote state"},
     {"count": 1, "metric": "go_ticker", "owner": "CTL", "path": "products/catalyst/bootstrap/api/internal/handler/compliance.go", "reason": "connection heartbeat, not a poll of remote state"},
     {"count": 1, "metric": "go_ticker", "owner": "CTL", "path": "products/catalyst/bootstrap/api/internal/handler/continuum.go", "reason": "connection heartbeat, not a poll of remote state"},

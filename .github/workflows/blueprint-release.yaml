@@ -781,6 +781,8 @@ jobs:
           ref: ghcr.io/openova-io/${{ steps.chart.outputs.name }}
           digest: ${{ steps.push.outputs.digest }}
           sbom-source: file:/tmp/charts/${{ steps.chart.outputs.name }}-${{ steps.chart.outputs.version }}.tgz
+          release-key: ${{ secrets.RELEASE_COSIGN_KEY }}
+          release-key-password: ${{ secrets.RELEASE_COSIGN_PASSWORD }}
 
       # ──────────────────────────────────────────────────────────────
       # AUTO-BUMP — clusters/_template/bootstrap-kit/<NN>-<chart>.yaml
@@ -1057,13 +1059,19 @@ jobs:
       #      (products/catalyst/bootstrap/api/internal/catalog/blueprints.json +
       #      products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts),
       #      regenerated from the already-bumped blueprint.yaml by build-catalog.mjs.
+      #   6. the funnel pin, DefaultHRAppChartVersions in
+      #      core/services/provisioning/gitops/helmrelease_apps.go — only for a
+      #      chart a funnel app installs (bp-openclaw, bp-newapi,
+      #      bp-stalwart-tenant, bp-agenity); a no-op for every other chart
+      #      (#7829). Written by scripts/sync-funnel-pin.py in the same step.
       #
       # Since the #4432/R21 catalog-seed display-drift guards and the #5520
       # regenerate-and-prove-no-diff gate landed, omitting sites 4+5 REDDENS main
       # on every deploy-bot bump (issue #5583) and cascades that red into every
-      # open PR. Writing them here makes one bump = one atomically-green commit.
+      # open PR; omitting site 6 reddens TestDefaultHRAppPins_MatchCatalogSeed
+      # (#7829). Writing them here makes one bump = one atomically-green commit.
       #
-      # 🛑 THE FIVE SITES ARE GUARDED. `scripts/check-release-lockstep-writer.py`
+      # 🛑 THE SITES ARE GUARDED. `scripts/check-release-lockstep-writer.py`
       # (workflow: check-release-lockstep-writer.yaml) EXECUTES the steps below —
       # `chart`, `bump_pin`, `bump_blueprint`, `sync_seed` and the commit+push
       # step — against a scratch clone with a local bare `origin`, then asserts on
@@ -1101,18 +1109,27 @@ jobs:
           # higher version back (FND-018: the script notes it and leaves it).
           python3 scripts/sync-catalog-seed-pin.py "${CHART_NAME}" "${CHART_VERSION}"
 
+          # (4b) The funnel pin: the entry of DefaultHRAppChartVersions in
+          # core/services/provisioning/gitops/helmrelease_apps.go for the funnel
+          # app whose generator installs CHART_NAME (#7829). The drift test
+          # TestDefaultHRAppPins_MatchCatalogSeed requires it to equal the seed
+          # pin written just above. Same rules as the seed writer: only that one
+          # entry, never a version back (FND-018), a no-op for a chart with no
+          # entry, exit 2 on a file shape it does not know.
+          python3 scripts/sync-funnel-pin.py "${CHART_NAME}" "${CHART_VERSION}"
+
           # (5) Regenerate the committed catalog from the (already-bumped)
           # blueprint.yaml sources. Deterministic + zero npm deps — the same
           # command #5520's drift gate runs.
           ( cd products/catalyst/bootstrap/ui && node scripts/build-catalog.mjs )
 
-          # Did any of the three managed files actually move? Emit `bumped` so
+          # Did any of the four managed files actually move? Emit `bumped` so
           # the commit step stages them — and so a seed-only change (a chart
           # seeded but absent from the kit whose blueprint.yaml was already at
           # spec.version) can still drive a commit.
-          SEED_FILES="products/catalyst/chart/templates/catalog-seed/blueprints.yaml products/catalyst/bootstrap/api/internal/catalog/blueprints.json products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts"
+          SEED_FILES="products/catalyst/chart/templates/catalog-seed/blueprints.yaml products/catalyst/bootstrap/api/internal/catalog/blueprints.json products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts core/services/provisioning/gitops/helmrelease_apps.go"
           if git diff --quiet -- $SEED_FILES; then
-            echo "INFO: catalog-seed + generated catalog already in sync for ${CHART_NAME}=${CHART_VERSION} — no-op."
+            echo "INFO: catalog-seed + generated catalog + funnel pin already in sync for ${CHART_NAME}=${CHART_VERSION} — no-op."
             echo "bumped=false" >> "$GITHUB_OUTPUT"
           else
             echo "catalog-seed / generated catalog updated for ${CHART_NAME}=${CHART_VERSION}."
@@ -1149,12 +1166,14 @@ jobs:
           git config user.name "hatiyildiz"
           git config user.email "hatiyildiz@users.noreply.github.com"
 
-          # The three catalog-seed / generated-catalog files (#5583). Kept as
-          # vars so both the initial stage and the retry re-apply reference the
+          # The three catalog-seed / generated-catalog files (#5583) and the
+          # funnel pin (#7829), all written by the sync_seed step. Kept as vars
+          # so both the initial stage and the retry re-apply reference the
           # identical set.
           SEED_SEED="products/catalyst/chart/templates/catalog-seed/blueprints.yaml"
           SEED_JSON="products/catalyst/bootstrap/api/internal/catalog/blueprints.json"
           SEED_TS="products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts"
+          SEED_FUNNEL="core/services/provisioning/gitops/helmrelease_apps.go"
 
           # Idempotent reset-and-rewrite on push conflict — parallel
           # matrix jobs (multiple Blueprints bumped in one push) can race
@@ -1224,11 +1243,15 @@ jobs:
               echo "::error title=catalog-seed resync failed::sync-catalog-seed-pin.py errored on retry for ${CHART_NAME}=${CHART_VERSION}" >&2
               return 2
             fi
+            if ! python3 scripts/sync-funnel-pin.py "${CHART_NAME}" "${CHART_VERSION}" --quiet; then
+              echo "::error title=funnel pin resync failed::sync-funnel-pin.py errored on retry for ${CHART_NAME}=${CHART_VERSION}" >&2
+              return 2
+            fi
             if ! ( cd products/catalyst/bootstrap/ui && node scripts/build-catalog.mjs ) >/dev/null; then
               echo "::error title=catalog regen failed::build-catalog.mjs errored on retry for ${CHART_NAME}=${CHART_VERSION}" >&2
               return 2
             fi
-            if git diff --quiet -- "$SEED_SEED" "$SEED_JSON" "$SEED_TS"; then
+            if git diff --quiet -- "$SEED_SEED" "$SEED_JSON" "$SEED_TS" "$SEED_FUNNEL"; then
               return 1
             fi
             return 0
@@ -1247,7 +1270,7 @@ jobs:
             git add "${BP_FILE}"
           fi
           if [ "${SEED_BUMPED}" = "true" ]; then
-            git add "$SEED_SEED" "$SEED_JSON" "$SEED_TS"
+            git add "$SEED_SEED" "$SEED_JSON" "$SEED_TS" "$SEED_FUNNEL"
           fi
           if [ "${CHART_BUMPED}" = "true" ] && [ -n "${CHART_FILE}" ]; then
             git add "${CHART_FILE}"
@@ -1347,7 +1370,7 @@ jobs:
             # origin/main already carries this chart's seed sync.
             if [ "${SEED_BUMPED}" = "true" ]; then
               if resync_seed; then
-                git add "$SEED_SEED" "$SEED_JSON" "$SEED_TS"
+                git add "$SEED_SEED" "$SEED_JSON" "$SEED_TS" "$SEED_FUNNEL"
                 did_seed=1
               fi
             fi

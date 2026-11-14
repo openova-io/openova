@@ -21,6 +21,18 @@ func meterPod(namespace, name string, listAndImage ...string) obj {
 	return obj{"metadata": kubeMeta(namespace, name), "spec": spec}
 }
 
+// meterPodIn is meterPod with the phase of the Pod's status, and a reason when
+// one is given.
+func meterPodIn(phase, reason, namespace, name string, listAndImage ...string) obj {
+	pod := meterPod(namespace, name, listAndImage...)
+	status := obj{"phase": phase}
+	if reason != "" {
+		status["reason"] = reason
+	}
+	pod["status"] = status
+	return pod
+}
+
 func init() {
 	clean := kubeList(
 		meterPod("newapi", "bp-newapi-1", "initContainers", "busybox:1.36",
@@ -50,6 +62,33 @@ func init() {
 		"b pods": kubeList(meterPod("acme", "empty")),
 	}
 	fakeAnswers["meter-no-pod"] = map[string]string{"a pods": clean, "b pods": kubeList()}
+	// The measured case: a Pod evicted days before stays in phase Failed with
+	// the sidecar in its spec; the Pod of the Deployment runs without it.
+	fakeAnswers["meter-ended"] = map[string]string{
+		"a pods": kubeList(
+			meterPodIn("Failed", "Evicted", "newapi", "bp-newapi-old", "containers", "ghcr.io/openova-io/openova/newapi-mirror:v0.9.0",
+				"containers", meterSidecarImage),
+			meterPodIn("Succeeded", "", "acme", "bp-newapi-job", "initContainers", meterSidecarImage, "containers", "busybox:1.36"),
+			meterPodIn("Running", "", "newapi", "bp-newapi-new", "containers", "ghcr.io/openova-io/openova/newapi-mirror:v0.9.0"),
+		),
+		"b pods": clean,
+	}
+	fakeAnswers["meter-running"] = map[string]string{
+		"a pods": clean,
+		"b pods": kubeList(meterPodIn("Running", "", "acme", "bp-newapi-6", "containers", meterSidecarImage)),
+	}
+	fakeAnswers["meter-pending"] = map[string]string{
+		"a pods": clean,
+		"b pods": kubeList(meterPodIn("Pending", "", "acme", "bp-newapi-7", "containers", meterSidecarImage)),
+	}
+	fakeAnswers["meter-unknown"] = map[string]string{
+		"a pods": clean,
+		"b pods": kubeList(meterPodIn("Unknown", "NodeLost", "acme", "bp-newapi-8", "containers", meterSidecarImage)),
+	}
+	fakeAnswers["meter-only-ended"] = map[string]string{
+		"a pods": clean,
+		"b pods": kubeList(meterPodIn("Failed", "Evicted", "acme", "bp-newapi-9", "containers", "busybox:1.36")),
+	}
 	fakeAnswers["meter-b-unreachable"] = map[string]string{"a pods": clean}
 }
 
@@ -69,6 +108,11 @@ func TestMeterImageCheck(t *testing.T) {
 		"a region has pods and no container":  {"meter-no-container", "no container was found in region region-b: nothing was measured"},
 		"a region has no pod":                 {"meter-no-pod", "no container was found in region region-b: nothing was measured"},
 		"a region cannot be reached":          {"meter-b-unreachable", "[region-b] kubectl get pods"},
+		"only ended pods hold the sidecar":    {"meter-ended", ""},
+		"a running pod runs the sidecar":      {"meter-running", "acme/bp-newapi-6/c0 " + meterSidecarImage},
+		"a pending pod will run the sidecar":  {"meter-pending", "acme/bp-newapi-7/c0 " + meterSidecarImage},
+		"a pod of an unknown phase holds it":  {"meter-unknown", "acme/bp-newapi-8/c0 " + meterSidecarImage},
+		"a region has only ended pods":        {"meter-only-ended", "no container was found in region region-b: nothing was measured"},
 	} {
 		r := runCheck(t, c.scenario, meterImageCheck{}, &CheckContext{})
 		got := r.run.Checks[0]
@@ -91,6 +135,12 @@ func TestMeterImageCheck(t *testing.T) {
 	if b.ID != "AIP-G01.2" || b.Status != Fail || b.Evidence["images"] != 2 ||
 		strings.Join(b.Evidence["found"].([]string), ",") != "acme/bp-newapi-2/c1 "+meterSidecarImage {
 		t.Errorf("the step of region-b does not hold the evidence: %+v", b)
+	}
+	// An ended Pod is listed and counted as ended; its containers are not judged.
+	r = runCheck(t, "meter-ended", meterImageCheck{}, &CheckContext{})
+	if a := r.run.Steps[0]; a.Status != Pass || a.Evidence["pods"] != 3 || a.Evidence["ended"] != 2 || a.Evidence["images"] != 1 ||
+		len(a.Evidence["found"].([]string)) != 0 {
+		t.Errorf("the step of region-a does not hold the evidence of the ended pods: %+v", a)
 	}
 	// Without a region the check fails; it never passes on nothing.
 	r = runCheck(t, "meter-clean", meterImageCheck{}, &CheckContext{})

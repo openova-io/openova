@@ -19,6 +19,11 @@ validate prints nothing when the plan is valid. It applies the rules of scripts/
 package with ticket_rev 1 or more.
 Two packages that touch one entry of class thrashing or frozen of the stability register, docs/ledger/stability.yaml on
 origin/main, do not run together: parallel says no, and ready, batch and claim-check keep them apart.
+A record file that both packages touch does not keep them apart. The record files of two packages are docs/ledger/gates.yaml
+when no check is named by both (in flips or implements of the plan, or as delivered_by or implemented_by of a check in
+docs/ledger/gates.yaml), docs/ledger/deleted-paths.txt, and every path of the optional top field record_files of the plan
+file. Any other file that both touch keeps them apart, and so does a glob or a folder entry that covers a record file.
+check-pr judges these files as before: it reads one pull request against its merge base and never another branch.
 
 Commands for one pull request. They never fetch: they read the commits they are given.
 
@@ -83,6 +88,7 @@ WAVES = ["W0", "W1a", "W1b", "W1c", "W1d", "W2", "W3", "W4"]
 SIZES = ["XS", "S", "M"]
 ROLLBACKS = ["revert", "forward-fix"]
 TOP_FIELDS = ["schema", "lanes", "resources", "limits", "budgets", "locks", "bootstrap", "adr_next", "epics", "packages"]
+TOP_OPTIONAL = ["record_files"]                             # a top field that may be absent; record_files: see Model.records
 LIMIT_FIELDS = ["executors", "open_prs", "in_progress_per_lane", "spikes"]
 EPIC_FIELDS = ["id", "title", "wave", "packages"]
 PKG_FIELDS = ["id", "title", "area", "epic", "type", "wave", "size", "lane", "depends_on", "after", "touches", "resources", "flips",
@@ -169,18 +175,39 @@ def _texts(x):
     return isinstance(x, list) and all(_text(i) for i in x)
 
 
-def _fields(v, where, obj, names):
-    """Reports a field that is unknown and a field that is missing. True when obj has exactly the named fields."""
+def _fields(v, where, obj, names, optional=()):
+    """Reports a field that is unknown and a field that is missing. True when obj has exactly the named fields, besides
+    those of optional that it holds."""
     if not isinstance(obj, dict):
         v.append("%s: must be an object with the fields %s" % (where, ", ".join(names)))
         return False
     for k in obj:
-        if k not in names:
+        if k not in names and k not in optional:
             v.append("%s: unknown field %s" % (where, k))
     for k in names:
         if k not in obj:
             v.append("%s: field %s is missing" % (where, k))
-    return set(obj) == set(names)
+    return set(obj) - set(optional) == set(names)
+
+
+def _record_files(files):
+    """The rules of the top field record_files: a list of different paths, each naming one file, none a file of the plan
+    itself. A path need not exist: a package may delete or move a listed file, and the plan must stay valid when it merges."""
+    if not isinstance(files, list):
+        return ["plan: record_files must be a list of paths"]
+    v, seen = [], set()
+    for f in files:
+        if glob_problem(f):
+            v.append("record_files: entry %r %s" % (f, glob_problem(f)))
+        elif "*" in f or f.endswith("/"):
+            v.append("record_files: entry %r must name one file, with no wildcard and no final /" % f)
+        elif f in seen:
+            v.append("record_files: entry %r is listed twice" % f)
+        elif matches(PLAN_OWN, f):
+            v.append("record_files: entry %r is a file of the plan itself" % f)
+        if isinstance(f, str):
+            seen.add(f)
+    return v
 
 
 def _budget(v, where, b):
@@ -191,7 +218,7 @@ def _budget(v, where, b):
 def shape(plan):
     """The schema of the plan file: every field present, none unknown, every value of the right kind. One line per violation."""
     v = []
-    if not _fields(v, "plan", plan, TOP_FIELDS):
+    if not _fields(v, "plan", plan, TOP_FIELDS, TOP_OPTIONAL):
         return v
     if plan["schema"] != SCHEMA:
         v.append("plan: schema must be %s" % SCHEMA)
@@ -210,6 +237,8 @@ def shape(plan):
     for k in ("locks", "epics", "packages"):
         if not isinstance(plan[k], list):
             v.append("plan: %s must be a list" % k)
+    if "record_files" in plan:
+        v += _record_files(plan["record_files"])
     if v:
         return v
     names = set()
@@ -514,10 +543,12 @@ class Model:
         self.checks = {}
         if isinstance(gates, dict) and isinstance(gates.get("checks"), list):
             self.checks = {c["id"]: c for c in gates["checks"] if isinstance(c, dict) and "id" in c}
+        listed = plan.get("record_files")
+        self.recorded = {f for f in listed if isinstance(f, str)} if isinstance(listed, list) else set()
         self.w = world
         self.deps = closure(self.pk)
         self._markers = None
-        self._green, self._state, self._expand, self._locks, self._entries = {}, {}, {}, {}, {}
+        self._green, self._state, self._expand, self._locks, self._entries, self._named = {}, {}, {}, {}, {}, {}
         self._register = None
 
     def merged(self, i):
@@ -616,6 +647,22 @@ class Model:
             self._entries[i] = {e["id"] for e in self.register() if any(matches(e["paths"], f) for f in files)}
         return self._entries[i]
 
+    def named(self, i):
+        """The checks that package i names: in its flips or implements, or as delivered_by or implemented_by of the check list."""
+        if i not in self._named:
+            p = self.pk[i]
+            self._named[i] = set(p["flips"]) | set(p["implements"]) | {
+                c for c, x in self.checks.items() if i in (x.get("delivered_by"), x.get("implemented_by"))}
+        return self._named[i]
+
+    def records(self, a, b):
+        """The record files of a and b: a file of these that both touch does not keep them apart. They are the list of deleted
+        paths, every path of record_files, and the check list unless one check is named by both."""
+        out = {DELETED} | self.recorded
+        if not self.named(a) & self.named(b):
+            out.add(GATES)
+        return out
+
     def why_not(self, a, b):
         """Why a and b may not run together; None when they may."""
         if a == b:
@@ -624,11 +671,15 @@ class Model:
             return "%s is a dependency of %s" % (b, a)
         if a in self.deps[b]:
             return "%s is a dependency of %s" % (a, b)
-        shared = self.expand(a) & self.expand(b)
+        records = self.records(a, b)
+        shared = (self.expand(a) & self.expand(b)) - records
         if shared:
-            return "both touch %s" % min(shared)
+            common = self.named(a) & self.named(b) if min(shared) == GATES else set()
+            return "both touch %s" % min(shared) + (", and both name the check %s" % min(common) if common else "")
         for x in self.touch[a]:                               # this also covers a file that does not exist yet
             for y in self.touch[b]:
+                if x == y and x in records:
+                    continue                                   # the same record file in both: it does not keep them apart
                 px, py = prefix(x), prefix(y)
                 if px and py and (px.startswith(py) or py.startswith(px)):
                     return "the paths %s of %s and %s of %s overlap" % (x, a, y, b)
@@ -1337,6 +1388,14 @@ def test_validate(t):
     t.refused(lines(lambda plan, pk: plan.update(bootstrap=["AAA-999"])), "bootstrap: AAA-999 is not a package", "validate: a bootstrap id that does not exist")
     t.refused(lines(lambda plan, pk: pk["AAA-005"].update(proven_by="AAA-999")), "proven_by names AAA-999", "validate: a proven_by that does not exist")
     t.refused(lines(lambda plan, pk: pk["AAA-001"].update(resources=["gpu"])), "resource gpu is not in the resources list", "validate: a resource that is not declared")
+    listed = ["scripts/baselines/a.json", "docs/generated/b.md", "scripts/gone/c.json"]
+    t.ok(lines(lambda plan, pk: plan.update(record_files=listed)) == [], "validate: a plan with the top field record_files is valid, also when a listed file does not exist")
+    t.refused(lines(lambda plan, pk: plan.update(record_files="scripts/baselines/a.json")), "plan: record_files must be a list of paths", "validate: record_files that is not a list")
+    for bad, needle in ((5, "is not a path"), ("../x.json", "is not a path relative to the repository root"),
+                        ("scripts/baselines/*.json", "must name one file, with no wildcard"), ("docs/generated/", "must name one file, with no wildcard and no final /"),
+                        (PLAN, "is a file of the plan itself"), (TICKETS + "/AAA-001.md", "is a file of the plan itself"), ("scripts/plan.py", "is a file of the plan itself")):
+        t.refused(lines(lambda plan, pk: plan.update(record_files=listed + [bad])), "record_files: entry %r %s" % (bad, needle), "validate: the record_files entry %r" % bad)
+    t.refused(lines(lambda plan, pk: plan.update(record_files=listed + [listed[0]])), "record_files: entry 'scripts/baselines/a.json' is listed twice", "validate: a record_files path listed twice")
 
 
 def test_state(t):
@@ -1395,6 +1454,65 @@ def test_parallel(t):
     t.ok(m.why_not("AAA-003", "AAA-004") is None, "parallel: two packages on one stability entry of class settling may run together")
     m = Model(plan, None, t_world(files=files, branches=["AAA-001"], texts={STABILITY: reg}))
     t.ok(m.ready() == ["AAA-003", "AAA-004"], "ready: no package on a stability entry of class thrashing while another package on it is in progress; the rule can fail")
+
+
+def test_record_files(t):
+    """A record file that both packages touch: the check list, the list of deleted paths, a path of record_files."""
+    base = "scripts/baselines/a.json"
+    files = [GATES, DELETED, base, "scripts/baselines/b.json", "src/x.go", "lock/a.go"]
+    gates = t_gates(("AAA-G01", "required", ["local"], "AAA-001", None), ("AAA-G02", "required", ["local"], "AAA-002", None),
+                    ("AAA-G03", "required", ["local"], "AAA-099", None), ("AAA-G04", "required", ["local"], None, "AAA-099"),
+                    ("AAA-G05", "required", ["local"], "AAA-007", None), ("AAA-G06", "required", ["local"], None, "AAA-009"))
+
+    def model(pkgs, branches=(), texts=None, **kw):
+        return Model(t_plan(*pkgs, **kw), gates, t_world(files=files, branches=branches, texts=texts))
+    pair = [t_pkg("AAA-001", touches=["src/AAA-001.txt", GATES], flips=["AAA-G01"]), t_pkg("AAA-002", touches=["src/AAA-002.txt", GATES], flips=["AAA-G02"])]
+    m = model(pair)
+    t.ok(m.why_not("AAA-001", "AAA-002") is None, "parallel: the check list, when the two packages name different checks, is a record file: they may run together")
+    common = [("flips", t_pkg("AAA-003", touches=[GATES], flips=["AAA-G03"]), t_pkg("AAA-004", touches=[GATES], flips=["AAA-G03"])),
+              ("implements", t_pkg("AAA-005", touches=[GATES], implements=["AAA-G04"]), t_pkg("AAA-006", touches=[GATES], implements=["AAA-G04"])),
+              ("delivered_by", t_pkg("AAA-007", touches=[GATES]), t_pkg("AAA-008", touches=[GATES], flips=["AAA-G05"])),
+              ("implemented_by", t_pkg("AAA-009", touches=[GATES]), t_pkg("AAA-010", touches=[GATES], implements=["AAA-G06"]))]
+    for how, a, b in common:
+        t.refused([model([a, b]).why_not(a["id"], b["id"]) or ""], "both touch %s, and both name the check" % GATES,
+                  "parallel: the check list in both is no record file when one check is named by both, here by %s," % how)
+    t.ok(model([t_pkg("AAA-001", touches=[DELETED]), t_pkg("AAA-002", touches=[DELETED])]).why_not("AAA-001", "AAA-002") is None,
+         "parallel: the list of deleted paths is a record file: two packages that share only it may run together")
+    listed = [t_pkg("AAA-001", touches=[base, "src/AAA-001.txt"]), t_pkg("AAA-002", touches=[base])]
+    t.ok(model(listed, record_files=[base]).why_not("AAA-001", "AAA-002") is None and model(listed).why_not("AAA-001", "AAA-002") == "both touch %s" % base,
+         "parallel: a path of record_files is a record file, and the same path not listed keeps the two packages apart; the rule can fail")
+    t.ok(model([t_pkg("AAA-001", touches=["scripts/new.json"]), t_pkg("AAA-002", touches=["scripts/new.json"])], record_files=["scripts/new.json"]).why_not("AAA-001", "AAA-002") is None,
+         "parallel: a path of record_files that does not exist on main is a record file too")
+    rest = [("another file in both", [GATES, DELETED, base, "src/x.go"], [GATES, DELETED, base, "src/x.go"], [base], [], "both touch src/x.go"),
+            ("a folder entry that covers it", [GATES], ["docs/ledger/"], [base], [], "the paths %s of AAA-001 and docs/ledger/** of AAA-002 overlap" % GATES),
+            ("a glob that covers it", [base], ["scripts/baselines/*.json"], [base], [], "the paths %s of AAA-001 and scripts/baselines/*.json of AAA-002 overlap" % base),
+            ("one lock in both", ["lock/a.go", DELETED], ["lock/a.go", DELETED], ["lock/a.go"], [], "both hold the lock root"),
+            ("one resource in both", [DELETED], [DELETED], [base], ["env"], "both need the resource env")]
+    t.refused([model([t_pkg("AAA-001", touches=["new/"]), t_pkg("AAA-002", touches=["new/"])], record_files=[base]).why_not("AAA-001", "AAA-002") or ""],
+              "the paths new/** of AAA-001 and new/** of AAA-002 overlap", "parallel: the same folder entry in both is no record file, also with no file under it on main yet,")
+    for what, x, y, listed_paths, need, needle in rest:
+        m = model([t_pkg("AAA-001", touches=x, resources=need), t_pkg("AAA-002", touches=y, resources=need)], record_files=listed_paths)
+        t.refused([m.why_not("AAA-001", "AAA-002") or ""], needle, "parallel: a record file in both, and %s," % what)
+    reg = yaml.safe_dump({"schema": "openova.io/stability/v1", "entries": [{"id": "list", "class": "thrashing", "paths": [DELETED]}]})
+    t.refused([model([t_pkg("AAA-001", touches=[DELETED]), t_pkg("AAA-002", touches=[DELETED])], texts={STABILITY: reg}).why_not("AAA-001", "AAA-002") or ""],
+              "both touch the stability entry list", "parallel: a record file in both, and one stability entry of class thrashing in both,")
+    four = [t_pkg("AAA-001", touches=[GATES], flips=["AAA-G01"]), t_pkg("AAA-002", touches=[GATES], flips=["AAA-G02"]),
+            t_pkg("AAA-003", touches=[GATES], flips=["AAA-G03"]), t_pkg("AAA-004", touches=[GATES], flips=["AAA-G03"])]
+    m = model(four, branches=["AAA-001", "AAA-002", "AAA-003", "AAA-004"])
+    t.ok(m.claim("AAA-001") == "keep" and m.claim("AAA-002") == "keep",
+         "claim-check: two in progress that share the check list, a record file because they name different checks, both keep")
+    t.ok(m.claim("AAA-003") == "keep" and m.claim("AAA-004") == "yield", "claim-check: two in progress that share the check list and name one check: no record file, the larger id yields; the rule can fail")
+    for what, shared, kw, want in (("the list of deleted paths", DELETED, {}, "keep"), ("a path of record_files", base, {"record_files": [base]}, "keep"),
+                                   ("a path that record_files does not list", base, {}, "yield")):
+        m = model([t_pkg("AAA-001", touches=[shared]), t_pkg("AAA-002", touches=[shared])], branches=["AAA-001", "AAA-002"], **kw)
+        t.ok(m.claim("AAA-001") == "keep" and m.claim("AAA-002") == want, "claim-check: two in progress that share %s: %s, the larger id gets %s%s"
+             % (what, "no record file" if want == "yield" else "a record file", want, "; the rule can fail" if want == "yield" else ""))
+    m = model(pair, branches=["AAA-001"])
+    t.ok(m.ready() == ["AAA-002"], "ready: a package that shares only a record file with a package in progress is handed out")
+    t.ok(model(pair).batch(5) == ["AAA-001", "AAA-002"], "batch: two packages that share only a record file are both handed out")
+    m = model([t_pkg("AAA-001", touches=[GATES], flips=["AAA-G03"]), t_pkg("AAA-002", touches=[GATES], flips=["AAA-G03"])], branches=["AAA-001"])
+    t.ok(m.ready() == [] and model(m.plan["packages"]).batch(5) == ["AAA-001"],
+         "ready and batch: the check list with one check named by both is no record file and keeps the two apart; the rule can fail")
 
 
 def test_ready(t):
@@ -1735,7 +1853,7 @@ def test_pull_request(t):
 
 def self_test():
     t = Cases()
-    for test in (test_validate, test_state, test_parallel, test_ready, test_repository, test_check_pr, test_run, test_pull_request):
+    for test in (test_validate, test_state, test_parallel, test_record_files, test_ready, test_repository, test_check_pr, test_run, test_pull_request):
         test(t)
     print("self-test: %d cases, %d failed" % (t.count, t.bad))
     return 1 if t.bad else 0

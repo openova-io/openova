@@ -32,7 +32,9 @@ the push is judged by what it changes, git diff <before> <after>, file by file:
   P2  a site file that exists before and after the push: a Chart.yaml, blueprint.yaml
       or slot file of R1 to R5, the two generated catalogue files
       products/catalyst/bootstrap/api/internal/catalog/blueprints.json and
-      products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts, or a
+      products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts, the
+      funnel pin file core/services/provisioning/gitops/helmrelease_apps.go (the release
+      writer moves an entry of its constant DefaultHRAppChartVersions, #7829), or a
       chart's values.yaml or template, (platform|products)/<x>/chart/values.yaml and
       (platform|products)/<x>/chart/templates/**.yaml. In it only version values may
       change: in every hunk of `git diff -U0`, without its blank lines, each removed
@@ -89,6 +91,7 @@ QUEUE = "github-merge-queue[bot]"
 GATE_RECORD = re.compile(r"^docs/ledger/acceptance/[^/]+\.json$")
 GENERATED = ("products/catalyst/bootstrap/api/internal/catalog/blueprints.json",
              "products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts")
+FUNNEL = "core/services/provisioning/gitops/helmrelease_apps.go"
 CHART_FILE = re.compile(r"^(platform|products)/[^/]+/chart/(values\.yaml|templates/.+\.yaml)$")
 VERSION_VALUE = re.compile(
     r"sha256[:-][0-9a-f]{64}(?![0-9A-Za-z])"
@@ -200,7 +203,7 @@ def pr_findings(root, base, head):
 
 def site_file(path):
     return bool(CHART.match(path) or BLUEPRINT.match(path) or path == SEED or SLOT.match(path)
-                or path in GENERATED or CHART_FILE.match(path))
+                or path in GENERATED or path == FUNNEL or CHART_FILE.match(path))
 
 
 def masked(line):
@@ -353,7 +356,11 @@ def self_test():
     case("P2 refuses an added line", vc("v", '@@ -3 +3,2 @@\n-    tag: "28d6575"\n+    tag: "2c1f5b0"\n+    pullPolicy: Always\n'), "P2 v: 1 line(s) removed and 2 added")
     case("P2 refuses a removed line", vc("v", "@@ -3,2 +2,0 @@\n-  enabled: true\n-  x: 1\n"), "P2 v: 2 line(s) removed and 0 added")
     case("P2 reads a removed line that starts with two dashes", vc("v", "--- a/v\n+++ b/v\n@@ -3 +3 @@\n--- 1.0.3\n+-- 1.0.4\n@@ -8 +7,0 @@\n--- x\n"), "P2 v: 1 line(s) removed and 0 added")
-    case("site files: a values file, a template, a generated file, a slot", [p for p in ("platform/x/chart/values.yaml", "products/catalyst/chart/templates/a/b.yaml", GENERATED[1], sl, UMBRELLA) if not site_file(p)], 0)
+    case("site files: a values file, a template, a generated file, a slot, the funnel pin file", [p for p in ("platform/x/chart/values.yaml", "products/catalyst/chart/templates/a/b.yaml", GENERATED[1], sl, UMBRELLA, FUNNEL) if not site_file(p)], 0)
+    fp = '@@ -754 +754 @@\n-const DefaultHRAppChartVersions = "openclaw=0.2.20,newapi=1.4.157"\n+const DefaultHRAppChartVersions = %s\n'
+    case("P2 allows a moved entry of the funnel pin", vc(FUNNEL, fp % '"openclaw=0.2.20,newapi=1.4.160"'), 0)
+    case("P2 refuses a renamed entry of the funnel pin", vc(FUNNEL, fp % '"openclaw=0.2.20,evil=1.4.160"'), "P2 %s: more than a version value" % FUNNEL)
+    case("site files: another Go file of the funnel package is not one", [p for p in ("core/services/provisioning/gitops/gitops.go", "core/services/provisioning/main.go") if site_file(p)], 0)
     case("site files: a workflow, a script, a chart's README, the ledger", [p for p in (".github/workflows/x.yaml", "scripts/x.sh", "platform/x/chart/README.md", "docs/ledger/UAT.md", "platform/x/chart/files/a.yaml") if site_file(p)], 0)
     runs = [{"id": 30, "event": "push", "head_branch": "main", "conclusion": None, "head_sha": "c30"},
             {"id": 25, "event": "pull_request", "head_branch": "main", "conclusion": "success", "head_sha": "c25"},

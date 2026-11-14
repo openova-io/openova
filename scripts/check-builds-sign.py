@@ -26,6 +26,10 @@ The rules:
      the job, or, when the job has no permissions, in those of the workflow.
   6. No workflow and no composite action other than the shared action runs `cosign sign` or
      `cosign attest` itself.
+  7. A signing step passes the release key: its input `release-key` is
+     ${{ secrets.RELEASE_COSIGN_KEY }} and its input `release-key-password` is
+     ${{ secrets.RELEASE_COSIGN_PASSWORD }}. A composite action cannot read a secret, so the
+     caller passes it; the action uses it on refs/heads/main only (FND-063).
 
 Files read: .github/workflows/*.yml and *.yaml, and .github/actions/**/action.yml and
 action.yaml. Comment lines of a run step are not read. The allowed number of failures is 0.
@@ -52,6 +56,8 @@ DOCKER_PUSH_RE = re.compile(r"(^|[\s;&|(])docker\s+push\b")
 COSIGN_RE = re.compile(r"\bcosign\s+(sign|attest)\b")
 EXPR_RE = re.compile(r"^\$\{\{\s*(.*?)\s*\}\}$", re.S)
 DIGEST_RE = re.compile(r"steps\.([A-Za-z0-9_-]+)\.outputs\.")
+# The inputs of the shared action that carry the release key, and the secret each must read.
+RELEASE_INPUTS = (("release-key", "RELEASE_COSIGN_KEY"), ("release-key-password", "RELEASE_COSIGN_PASSWORD"))
 
 
 class ReadError(Exception):
@@ -136,7 +142,7 @@ def step_label(index, step):
 
 
 def judge_workflow(path, data, out):
-    """Rules 1 to 5 for one workflow. Returns the number of push steps."""
+    """Rules 1 to 5 and 7 for one workflow. Returns the number of push steps."""
     if not isinstance(data, dict):
         return 0
     jobs = data.get("jobs") or {}
@@ -155,6 +161,10 @@ def judge_workflow(path, data, out):
                 out.append(f"{where}: the signing step has continue-on-error (rule 4)")
             if not has_id_token(permissions):
                 out.append(f"{where}: the job cannot ask for an OIDC token; give it id-token: write (rule 5)")
+            given = step.get("with") or {}
+            for name, secret in RELEASE_INPUTS:
+                if normal(given.get(name)) != f"secrets.{secret}":
+                    out.append(f"{where}: the signing step does not pass {name}: ${{{{ secrets.{secret} }}}} (rule 7)")
         for index, step in enumerate(steps):
             if not pushes(step, builds):
                 continue
@@ -265,6 +275,8 @@ jobs:
         with:
           ref: ghcr.io/x/y
           digest: ${{ steps.push.outputs.digest }}
+          release-key: ${{ secrets.RELEASE_COSIGN_KEY }}
+          release-key-password: ${{ secrets.RELEASE_COSIGN_PASSWORD }}
       - name: Pin the tag
         uses: ./.github/actions/deploy-bump
   pushed-by-expression:
@@ -281,6 +293,8 @@ jobs:
         with:
           ref: ghcr.io/x/z
           digest: ${{ steps.build.outputs.digest }}
+          release-key: ${{ secrets.RELEASE_COSIGN_KEY }}
+          release-key-password: ${{ secrets.RELEASE_COSIGN_PASSWORD }}
   loaded-then-pushed:
     runs-on: ubuntu-latest
     steps:
@@ -299,6 +313,8 @@ jobs:
         with:
           ref: ghcr.io/x/w
           digest: ${{ steps.push.outputs.digest }}
+          release-key: ${{ secrets.RELEASE_COSIGN_KEY }}
+          release-key-password: ${{ secrets.RELEASE_COSIGN_PASSWORD }}
   chart:
     runs-on: ubuntu-latest
     steps:
@@ -313,6 +329,8 @@ jobs:
         with:
           ref: ghcr.io/x/c
           digest: ${{ steps.push.outputs.digest }}
+          release-key: ${{ secrets.RELEASE_COSIGN_KEY }}
+          release-key-password: ${{ secrets.RELEASE_COSIGN_PASSWORD }}
   mirror:
     runs-on: ubuntu-latest
     steps:
@@ -336,8 +354,8 @@ runs:
 BAD = [
     ("push step without id", "        id: push\n        if: github.event_name != 'pull_request'\n", "        if: github.event_name != 'pull_request'\n", "(rule 1)"),
     ("push step without signing step", "      - name: Sign\n        if: ${{ github.event_name != 'pull_request' }}\n        uses: ./.github/actions/sign-and-attest\n", "      - name: Sign\n        if: ${{ github.event_name != 'pull_request' }}\n        uses: ./.github/actions/other\n", "(rule 1)"),
-    ("signing step reads another digest", "          digest: ${{ steps.push.outputs.digest }}\n      - name: Pin the tag\n", "          digest: ${{ steps.vars.outputs.digest }}\n      - name: Pin the tag\n", "(rule 1)"),
-    ("signing step before the push", "      - name: Helm push\n        id: push\n        if: steps.chart.outputs.skip != 'true'\n        run: digest=$(helm push x.tgz oci://ghcr.io/x | awk '/Digest:/{print $2}')\n      - name: Verify\n        run: helm pull oci://ghcr.io/x/c\n      - if: steps.chart.outputs.skip != 'true'\n        uses: ./.github/actions/sign-and-attest\n        with:\n          ref: ghcr.io/x/c\n          digest: ${{ steps.push.outputs.digest }}\n", "      - if: steps.chart.outputs.skip != 'true'\n        uses: ./.github/actions/sign-and-attest\n        with:\n          ref: ghcr.io/x/c\n          digest: ${{ steps.push.outputs.digest }}\n      - name: Helm push\n        id: push\n        if: steps.chart.outputs.skip != 'true'\n        run: digest=$(helm push x.tgz oci://ghcr.io/x | awk '/Digest:/{print $2}')\n", "(rule 1)"),
+    ("signing step reads another digest", "          ref: ghcr.io/x/y\n          digest: ${{ steps.push.outputs.digest }}\n", "          ref: ghcr.io/x/y\n          digest: ${{ steps.vars.outputs.digest }}\n", "(rule 1)"),
+    ("signing step before the push", "      - name: Helm push\n        id: push\n        if: steps.chart.outputs.skip != 'true'\n        run: digest=$(helm push x.tgz oci://ghcr.io/x | awk '/Digest:/{print $2}')\n      - name: Verify\n        run: helm pull oci://ghcr.io/x/c\n      - if: steps.chart.outputs.skip != 'true'\n        uses: ./.github/actions/sign-and-attest\n        with:\n          ref: ghcr.io/x/c\n          digest: ${{ steps.push.outputs.digest }}\n          release-key: ${{ secrets.RELEASE_COSIGN_KEY }}\n          release-key-password: ${{ secrets.RELEASE_COSIGN_PASSWORD }}\n", "      - if: steps.chart.outputs.skip != 'true'\n        uses: ./.github/actions/sign-and-attest\n        with:\n          ref: ghcr.io/x/c\n          digest: ${{ steps.push.outputs.digest }}\n          release-key: ${{ secrets.RELEASE_COSIGN_KEY }}\n          release-key-password: ${{ secrets.RELEASE_COSIGN_PASSWORD }}\n      - name: Helm push\n        id: push\n        if: steps.chart.outputs.skip != 'true'\n        run: digest=$(helm push x.tgz oci://ghcr.io/x | awk '/Digest:/{print $2}')\n", "(rule 1)"),
     ("docker push of a built image unsigned", "      - if: github.event_name == 'push'\n        uses: ./.github/actions/sign-and-attest\n", "      - if: github.event_name == 'push'\n        uses: ./.github/actions/other\n", "(rule 1)"),
     ("helm push unsigned", "      - if: steps.chart.outputs.skip != 'true'\n        uses: ./.github/actions/sign-and-attest\n", "      - if: steps.chart.outputs.skip != 'true'\n        uses: ./.github/actions/other\n", "(rule 1)"),
     ("signing step on another if", "        if: ${{ github.event_name != 'pull_request' }}\n        uses: ./.github/actions/sign-and-attest\n", "        if: github.ref == 'refs/heads/main'\n        uses: ./.github/actions/sign-and-attest\n", "(rule 2)"),
@@ -349,6 +367,9 @@ BAD = [
     ("workflow without id-token", "  packages: write\n  id-token: write\n", "  packages: write\n", "(rule 5)"),
     ("cosign sign in a workflow", "      - run: cosign verify ghcr.io/x/y@sha256:0\n", "      - run: cosign verify ghcr.io/x/y@sha256:0 && cosign sign --yes ghcr.io/x/y@sha256:0\n", "(rule 6)"),
     ("cosign attest in a workflow", "      - run: cosign verify ghcr.io/x/y@sha256:0\n", "      - run: |\n          cosign attest --yes --predicate p ghcr.io/x/y@sha256:0\n", "(rule 6)"),
+    ("caller that does not pass the release key", "          digest: ${{ steps.build.outputs.digest }}\n          release-key: ${{ secrets.RELEASE_COSIGN_KEY }}\n", "          digest: ${{ steps.build.outputs.digest }}\n", "(rule 7)"),
+    ("caller that does not pass the key password", "          ref: ghcr.io/x/w\n          digest: ${{ steps.push.outputs.digest }}\n          release-key: ${{ secrets.RELEASE_COSIGN_KEY }}\n          release-key-password: ${{ secrets.RELEASE_COSIGN_PASSWORD }}\n", "          ref: ghcr.io/x/w\n          digest: ${{ steps.push.outputs.digest }}\n          release-key: ${{ secrets.RELEASE_COSIGN_KEY }}\n", "(rule 7)"),
+    ("caller that passes another secret as the release key", "          ref: ghcr.io/x/y\n          digest: ${{ steps.push.outputs.digest }}\n          release-key: ${{ secrets.RELEASE_COSIGN_KEY }}\n", "          ref: ghcr.io/x/y\n          digest: ${{ steps.push.outputs.digest }}\n          release-key: ${{ secrets.OTHER_KEY }}\n", "(rule 7)"),
 ]
 
 OTHER_ACTION_BAD = """\

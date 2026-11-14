@@ -53,7 +53,6 @@ GET /api/v1/org/billing/revenue handler.(*Handler).HandleGetOrgBillingRevenue-fm
 GET /api/v1/org/billing/vouchers/list handler.(*Handler).HandleListOrgBillingVouchers-fm 2
 GET /api/v1/org/bss/overview handler.(*Handler).HandleGetOrgBssOverview-fm 2
 GET /api/v1/org/commerce/{kind} handler.(*Handler).HandleOrgCommerceList-fm 2
-GET /api/v1/org/consumption handler.(*Handler).HandleSovereignConsumption-fm 2
 GET /api/v1/org/orders handler.(*Handler).HandleListOrgOrders-fm 2
 GET /api/v1/org/users handler.(*Handler).HandleListOrgUsers-fm 2
 GET /api/v1/organizations handler.(*Handler).HandleListOrganizations-fm 2

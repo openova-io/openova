@@ -11,6 +11,12 @@
 # The second job runs scripts/check-builds-sign.py (FND-062): every step that pushes an image or
 # a chart is followed by the shared action .github/actions/sign-and-attest, and no workflow runs
 # cosign sign or cosign attest itself. The allowed number of failures is 0.
+#
+# The third job runs scripts/check-chart-image-tags.py (Refs #7768): no chart values file names an
+# image by a signature (sha256-<digest>.sig) or an attestation (.att) instead of its tag, except
+# the lines in scripts/chart-image-tags-baseline.tsv, a list that only falls. It also runs the
+# self-test of scripts/latest-image-tag.py, the helper that the release jobs use to find the
+# newest image tag of a package.
 name: check-pins
 
 on:
@@ -49,3 +55,18 @@ jobs:
         run: python3 scripts/check-builds-sign.py --self-test
       - name: Every image and chart push is signed through the shared action
         run: python3 scripts/check-builds-sign.py
+
+  check-chart-image-tags:
+    name: check-chart-image-tags
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 2
+      - name: Self-test of the newest-image-tag helper
+        run: python3 scripts/latest-image-tag.py --self-test
+      - name: Self-test of the guard (every rule can fail)
+        run: python3 scripts/check-chart-image-tags.py --self-test
+      - name: No image tag names a signature or an attestation, the list does not grow
+        run: python3 scripts/check-chart-image-tags.py --base HEAD^1
