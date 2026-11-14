@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T10:30:06Z` |
+| Last refreshed | `2026-11-14T10:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,11 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7264](https://github.com/openova-io/openova/issues/7264) | FND-181 Decision record 0036: backup and restore | Other |
-| [#7265](https://github.com/openova-io/openova/issues/7265) | NET-125 Mesh status read, and a mode switch, in the API | Other |
-| [#7266](https://github.com/openova-io/openova/issues/7266) | PRD-101 Vendor the six public documents and write the profile | Other |
-| [#7267](https://github.com/openova-io/openova/issues/7267) | SOV-050 Guards G2, G3, G4, G7: shrink ratchets | Other |
-| [#7268](https://github.com/openova-io/openova/issues/7268) | SOV-110 Contract C5: schema, kit key list, the upstream package and its validato | Other |
 | [#7269](https://github.com/openova-io/openova/issues/7269) | SVC-030 The Catalog page honours visibility and refuses what has no chart | Other |
 | [#7281](https://github.com/openova-io/openova/issues/7281) | CLD-075 Generator for the provider and profile tables | Other |
 | [#7282](https://github.com/openova-io/openova/issues/7282) | NET-100 Network registry output and validator | Other |
@@ -300,6 +295,11 @@ flowchart LR
 | [#7643](https://github.com/openova-io/openova/issues/7643) | FND-035 The gate workflow | Other |
 | [#7644](https://github.com/openova-io/openova/issues/7644) | FND-062 Every image and chart build signs through the action | Other |
 | [#7645](https://github.com/openova-io/openova/issues/7645) | NET-135 The plane-isolation policies admit the cross-region file sync and the sn | Other |
+| [#7654](https://github.com/openova-io/openova/issues/7654) | ACC-040 Access guards with their baselines | Other |
+| [#7655](https://github.com/openova-io/openova/issues/7655) | FND-107 The bot that flips acceptance rows keeps the tally and provenance lines  | Other |
+| [#7656](https://github.com/openova-io/openova/issues/7656) | NET-055 Canonical documents state the zone, firewall and default-deny design of  | Other |
+| [#7657](https://github.com/openova-io/openova/issues/7657) | PRD-800 Adapter template for a second bank | Other |
+| [#7658](https://github.com/openova-io/openova/issues/7658) | SEC-127 The k3s bootstrap-flags test pins its checkout action by commit hash and | Other |
 
 ---
 
@@ -307,6 +307,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-14T10:38 | [#7653](https://github.com/openova-io/openova/pull/7653) | #7087 | docs(ledger): plan update |
+| 2026-11-14T10:39 | [#7652](https://github.com/openova-io/openova/pull/7652) | #7550 | chore(crossplane): delete the Hetzner-only Compositions, the |
+| 2026-11-14T10:39 | [#7651](https://github.com/openova-io/openova/pull/7651) | #7643 | ci: the gate workflow runs the suite against a Sovereign and |
+| 2026-11-14T10:40 | [#7650](https://github.com/openova-io/openova/pull/7650) | #7644 | ci: sign and attest every image and chart build through the  |
+| 2026-11-14T10:41 | [#7649](https://github.com/openova-io/openova/pull/7649) | #7645 | fix(plane-isolation): render every listed namespace and admi |
 | 2026-11-14T10:15 | [#7647](https://github.com/openova-io/openova/pull/7647) | #7558 | feat(machines): kinds Machine and MachineSource, and the inv |
 | 2026-11-14T09:52 | [#7642](https://github.com/openova-io/openova/pull/7642) | #7087 | docs(ledger): plan update |
 | 2026-11-14T09:42 | [#7640](https://github.com/openova-io/openova/pull/7640) | #7087 | docs(ledger): plan update |
@@ -332,11 +337,6 @@ flowchart LR
 | 2026-11-14T07:29 | [#7533](https://github.com/openova-io/openova/pull/7533) | #7087 | docs(ledger): plan update |
 | 2026-11-14T07:40 | [#7532](https://github.com/openova-io/openova/pull/7532) | #7522 | refactor(console): read the mode from the self route, not fr |
 | 2026-11-14T07:40 | [#7531](https://github.com/openova-io/openova/pull/7531) | #7529 | ci: a required check keeps the vendor disk library out of th |
-| 2026-11-14T07:12 | [#7526](https://github.com/openova-io/openova/pull/7526) | #7087 | docs(ledger): plan update |
-| 2026-11-14T07:18 | [#7525](https://github.com/openova-io/openova/pull/7525) | #7516 | refactor(nats): declare the stream CATALYST_ORG in the chart |
-| 2026-11-14T07:17 | [#7524](https://github.com/openova-io/openova/pull/7524) | #7515 | chore(ci): guard that the agent plane gains no provider host |
-| 2026-11-14T07:18 | [#7523](https://github.com/openova-io/openova/pull/7523) | #7506 | refactor(kyverno-policies): end the bootstrap window when th |
-| 2026-11-14T07:04 | [#7521](https://github.com/openova-io/openova/pull/7521) | #7087 | docs(ledger): plan update |
 
 ---
 
