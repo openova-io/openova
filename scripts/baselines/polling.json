@@ -9,6 +9,8 @@
     {"count": 1, "metric": "go_ticker", "owner": "CTL", "path": "products/catalyst/bootstrap/api/internal/jobs/stream.go", "reason": "connection heartbeat, not a poll of remote state"},
     {"count": 1, "metric": "go_ticker", "owner": "CTL", "path": "products/openova-flow/server/internal/api/stream.go", "reason": "connection heartbeat, not a poll of remote state"},
     {"count": 1, "metric": "go_ticker", "owner": "CTL", "path": "core/controllers/continuum/internal/controller/controller.go", "reason": "Continuum controller ticker; kept until the region-loss contract replaces it"},
+    {"count": 1, "metric": "requeue", "owner": "CTL", "path": "core/controllers/environment/internal/controller/environment_controller.go", "reason": "safety net, ten minutes"},
+    {"count": 2, "metric": "requeue", "owner": "CTL", "path": "core/controllers/organization/internal/controller/organization_controller.go", "reason": "safety net, ten minutes; clock event"},
     {"count": 1, "metric": "shell_loop", "owner": "CTL", "path": "clusters/_template/sovereign-region/multi-region-follower/git-sync-script.yaml", "reason": "the follower region's one-minute Git sync job; kept until the follower region's Git has its own database"},
     {"count": 1, "metric": "shell_loop", "owner": "CTL", "path": "platform/cnpg-pair/chart/templates/dr-promoter.yaml", "reason": "legacy region-loss promoter and failback loop; package CTL-810 deletes this template"},
     {"count": 1, "metric": "shell_loop", "owner": "CTL", "path": "platform/cnpg-pair/chart/templates/dr-failback.yaml", "reason": "legacy region-loss promoter and failback loop; package CTL-810 deletes this template"},
@@ -67,8 +69,8 @@
       "products/openova-flow/server/internal/store/listener.go": 1
     },
     "requeue": {
-      "core/controllers/environment/internal/controller/environment_controller.go": 4,
-      "core/controllers/organization/internal/controller/organization_controller.go": 7
+      "core/controllers/environment/internal/controller/environment_controller.go": 3,
+      "core/controllers/organization/internal/controller/organization_controller.go": 5
     },
     "shell_loop": {
       "platform/cilium/chart/templates/vpc-podcidr-route-reconciler.yaml": 1,

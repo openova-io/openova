@@ -126,10 +126,10 @@ type Config struct {
 	// scope; this controller only writes to the Env-scoped repo.
 	EnvRepoSuffix string
 
-	// RequeueAfter is how long to wait before re-running the
-	// reconcile when nothing else triggered it. Defaults to 5
-	// minutes — enough to catch drift in the Gitea-side manifest if
-	// an operator hand-edits it, without burning Gitea quota.
+	// RequeueAfter is how long to wait before retrying a reconcile
+	// that did not reach Ready (parent Org missing, a Gitea error, a
+	// failed commit). Defaults to 5 minutes. A Ready Environment
+	// requeues after a fixed ten minutes instead (CTL-420).
 	RequeueAfter time.Duration
 }
 
@@ -383,7 +383,12 @@ func (r *EnvironmentReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if !allReady {
 		return ctrl.Result{RequeueAfter: cfg.RequeueAfter}, nil
 	}
-	return ctrl.Result{RequeueAfter: cfg.RequeueAfter}, nil
+	// CTL-420 — every region's gitrepository.yaml is committed, so nothing
+	// is left to retry: the Environment watch re-triggers on a spec change
+	// and Flux applies the committed file. This requeue is only the safety
+	// net that re-reads the Gitea-side file for drift: ten minutes,
+	// independent of cfg.RequeueAfter.
+	return ctrl.Result{RequeueAfter: 10 * time.Minute}, nil
 }
 
 // markPending sets phase=Pending + a NotReady condition, persists,
