@@ -50,7 +50,7 @@ jobs:
           # Same version blueprint-release.yaml publishes with, so the sweep
           # measures the bytes that workflow would actually push.
           version: v3.18.4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install PyYAML
