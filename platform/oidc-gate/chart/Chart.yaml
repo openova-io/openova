@@ -206,7 +206,7 @@ name: bp-oidc-gate
 # Guard: chart/tests/netpol-render.sh Cases 5 + 6 (Case 5 FAILS against the
 # pre-fix chart, which allows only :80 to the guacamole namespace).
 # Refs #5358 #5617 #4437.
-version: 0.1.10
+version: 0.1.11
 appVersion: "7.6.0"
 description: |
   Catalyst generic OIDC gate — a per-app oauth2-proxy instance set that

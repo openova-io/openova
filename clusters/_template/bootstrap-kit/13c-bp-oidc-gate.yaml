@@ -97,7 +97,7 @@ spec:
       # absent in a per-Org namespace, 500'd every OAuth callback on hw292.
       # Additive: Cilium unions policies, so the effective egress set here is
       # unchanged while slot 26b is installed.
-      version: 0.1.10
+      version: 0.1.11
       sourceRef:
         kind: HelmRepository
         name: bp-oidc-gate
