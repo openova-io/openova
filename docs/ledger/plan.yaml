@@ -613,7 +613,7 @@ packages:
   epic: FND-010
   type: delete
   wave: W0
-  size: XS
+  size: S
   lane: RAILS
   depends_on: [FND-011]
   after: []
@@ -623,16 +623,24 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "sed -n 3p docs/ledger/TRACKER.md | grep -c 'refresh-dod-dashboard.sh'"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "! grep -q '41 / 41' docs/ledger/TRACKER.md"
+  - id: A2
+    run: "test \"$(wc -l < docs/ledger/TRACKER.md)\" -le 6"
+  - id: A3
+    run: "printf '%s  %s\\n' d41aeac1b89d2dc5e250999a6d87fc77b7e567002e6727b40da5b4dd8ad61d38 docs/ledger/TRACKER.md | sha256sum --check --quiet -"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 3
   dropped: false
-  delivers: The 15-minute tracker commit stops and the file no longer prints a false total.
+  delivers: docs/ledger/TRACKER.md no longer prints the false 41 / 41 total; it is a five-line pointer to the plan tool and the gate verdict, without the rows that the 15-minute commit rewrote.
 - id: FND-013
   title: 'Merge queue: aggregate check, queue triggers, rulesets and code owners as files'
   area: FND
@@ -5765,7 +5773,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CLD-023, CLD-145]
-  after: [FND-011, CLD-185, SOV-130, SOV-133, SOV-134, SOV-140, SOV-141, SEC-020, SEC-030, NET-020, SVC-060]
+  after: [FND-011, CLD-185, SOV-130, SOV-133, SOV-134, SOV-140, SOV-141, SEC-020, SEC-030, NET-020, NET-133, SVC-060]
   touches:
   - clusters/_template/providers/*/sovereign-tls/**
   - clusters/_template/providers/hetzner/values/**
@@ -9352,7 +9360,7 @@ packages:
   size: XS
   lane: CONTROL
   depends_on: [SOV-930]
-  after: [FND-011, SOV-050, NET-042, NET-080]
+  after: [FND-011, SOV-050, NET-042, NET-080, NET-133]
   touches:
   - products/catalyst/chart/templates/*-kustomize.yaml
   - products/catalyst/chart/templates/kustomization.yaml
@@ -10922,7 +10930,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [SEC-060, SEC-200, SEC-212]
-  after: [FND-011, CLD-185, SOV-130, SOV-133, SOV-134, SOV-140, SOV-141, SEC-090, NET-020]
+  after: [FND-011, CLD-185, SOV-130, SOV-133, SOV-134, SOV-140, SOV-141, SEC-090, NET-020, NET-133]
   touches:
   - platform/keycloak/chart/**
   - infra/providers/_shared/cloudinit-control-plane.tftpl
@@ -11004,7 +11012,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [SEC-223]
-  after: [FND-011, FND-093, FND-095, FND-096, FND-099, FND-171, CLD-021, CLD-113, SOV-035, SEC-090, NET-080, SVC-060, CTL-030, CTL-035, CTL-150]
+  after: [FND-011, FND-093, FND-095, FND-096, FND-099, FND-171, CLD-021, CLD-113, SOV-035, SEC-090, NET-080, NET-133, SVC-060, CTL-030, CTL-035, CTL-150]
   touches:
   - products/catalyst/chart/**
   - products/catalyst/bootstrap/api/internal/secretfile/
@@ -11592,7 +11600,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271]
-  after: [FND-011, FND-013, FND-014, FND-015, FND-018, FND-020, FND-021, FND-022, FND-023, FND-031, FND-032, FND-033, FND-034, FND-040, FND-052, FND-053, FND-054, FND-055, FND-056, FND-057, FND-058, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-101, FND-102, FND-103, FND-105, FND-110, FND-171, CLD-010, CLD-021, CLD-022, CLD-040, CLD-063, CLD-075, CLD-080, CLD-086, CLD-087, CLD-113, CLD-142, SOV-030, SOV-035, SOV-040, SOV-050, SOV-110, SOV-120, SOV-121, SOV-133, SOV-141, SOV-150, SOV-180, SOV-190, SEC-020, SEC-030, SEC-090, SEC-125, NET-030, NET-033, NET-041, NET-050, NET-090, NET-100, SVC-020, SVC-060, SVC-125, CTL-010, CTL-020, CTL-025, CTL-030, CTL-035, CTL-044, CTL-045, CTL-150, CTL-151, CTL-160, CTL-201, CTL-240, CTL-300, CMP-012, CMP-014, CMP-036, CMP-073, BSS-050, AIP-050, INF-010, MIG-060, PRD-030, PRD-101, PRD-102, PRD-106]
+  after: [FND-011, FND-013, FND-014, FND-015, FND-018, FND-020, FND-021, FND-022, FND-023, FND-031, FND-032, FND-033, FND-034, FND-040, FND-052, FND-053, FND-054, FND-055, FND-056, FND-057, FND-058, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-101, FND-102, FND-103, FND-105, FND-110, FND-171, CLD-010, CLD-021, CLD-022, CLD-040, CLD-063, CLD-075, CLD-080, CLD-086, CLD-087, CLD-113, CLD-142, SOV-030, SOV-035, SOV-040, SOV-050, SOV-110, SOV-120, SOV-121, SOV-133, SOV-141, SOV-150, SOV-180, SOV-190, SEC-020, SEC-030, SEC-090, SEC-125, NET-030, NET-033, NET-041, NET-050, NET-090, NET-100, NET-133, SVC-020, SVC-060, SVC-125, CTL-010, CTL-020, CTL-025, CTL-030, CTL-035, CTL-044, CTL-045, CTL-150, CTL-151, CTL-160, CTL-201, CTL-240, CTL-300, CMP-012, CMP-014, CMP-036, CMP-073, BSS-050, AIP-050, INF-010, MIG-060, PRD-030, PRD-101, PRD-102, PRD-106]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/26-image-signature.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -11869,7 +11877,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-221, SEC-335]
-  after: [FND-011]
+  after: [FND-011, NET-133]
   touches:
   - platform/keycloak/chart/**
   - scripts/secret-guard-baselines/secret-object-register.yaml
@@ -13134,21 +13142,43 @@ packages:
   lane: CHARTS
   depends_on: [NET-090]
   after: []
-  touches: []
+  touches:
+  - platform/catalyst-edge-routes/chart/templates/marketplace.yaml
+  - platform/catalyst-edge-routes/chart/templates/service-mcp.yaml
+  - platform/catalyst-edge-routes/chart/templates/services.yaml
+  - platform/keycloak/chart/templates/catalyst-api-backchannel-service.yaml
+  - platform/openbao/chart/templates/peer-trust.yaml
+  - platform/seaweedfs/chart/templates/filer-mesh-service.yaml
+  - products/catalyst/chart/templates/api-service.yaml
+  - products/catalyst/chart/templates/org-services/admin.yaml
+  - products/catalyst/chart/templates/org-services/gateway.yaml
+  - products/catalyst/chart/templates/org-services/marketplace.yaml
+  - products/catalyst/chart/templates/services/catalog/service.yaml
+  - products/catalyst/chart/templates/ui-service.yaml
+  - products/openova-mcp/chart/templates/service.yaml
+  - scripts/network-guards-baseline.tsv
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "awk -F'\\t' '$1 == \"G6\"' scripts/network-guards-baseline.tsv | wc -l"
+    expect: "16"
+  acceptance:
+  - id: A1
+    run: "python3 scripts/check-network-guards.py check && test \"$(awk -F'\\t' '$1 == \"G6\" && $2 !~ /^(clusters\\/_template\\/sovereign-region\\/|products\\/continuum\\/chart\\/)/' scripts/network-guards-baseline.tsv | wc -l)\" -eq 0"
+  - id: A2
+    run: "python3 -c 'import sys; F = sys.argv[1:]; L = {p: open(p, encoding=\"utf-8\").read().split(\"\\n\") for p in F}; G = \"service.cilium.io/global:\"; bad = [f\"{p}:{i + 1}: no comment above\" for p in F for i, l in enumerate(L[p]) if l.strip().startswith(G) and (i == 0 or L[p][i - 1].strip() != \"# single-region backend\")] + [f\"{p}: no global annotation\" for p in F if not any(l.strip().startswith(G) for l in L[p])] + [f\"{p}: holds an affinity annotation\" for p in F if any(\"service.cilium.io/affinity\" in l for l in L[p])]; print(\"\\n\".join(bad)); sys.exit(1 if bad else 0)' platform/catalyst-edge-routes/chart/templates/marketplace.yaml platform/catalyst-edge-routes/chart/templates/service-mcp.yaml platform/catalyst-edge-routes/chart/templates/services.yaml platform/keycloak/chart/templates/catalyst-api-backchannel-service.yaml platform/openbao/chart/templates/peer-trust.yaml platform/seaweedfs/chart/templates/filer-mesh-service.yaml products/catalyst/chart/templates/api-service.yaml products/catalyst/chart/templates/org-services/admin.yaml products/catalyst/chart/templates/org-services/gateway.yaml products/catalyst/chart/templates/org-services/marketplace.yaml products/catalyst/chart/templates/services/catalog/service.yaml products/catalyst/chart/templates/ui-service.yaml products/openova-mcp/chart/templates/service.yaml"
+  - id: A3
+    run: "c() { awk 'p == \"    # single-region backend\" && $0 == \"    service.cilium.io/global: \\\"true\\\"\" { n++ } { p = $0 } END { print n + 0 }'; }; e=$(helm template e platform/catalyst-edge-routes/chart --set ingress.gateway.enabled=true --set ingress.hosts.console.host=console.example.test --set ingress.hosts.api.host=api.example.test --set ingress.marketplace.enabled=true --set ingress.hosts.marketplace.host=marketplace.example.test --set ingress.hosts.mcp.host=mcp.example.test --set services.catalog.enabled=true | c); u=$(helm template c products/catalyst/chart --set multiRegion.enabled=true --set ingress.marketplace.enabled=true --set services.catalog.enabled=true | c); m=$(helm template openova-mcp products/openova-mcp/chart --set multiRegion.enabled=true | c); test \"$e $u $m\" = \"7 6 1\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Affinity local or the comment '# single-region backend' on each global Service by a fixed rule
+  delivers: Every ClusterMesh global Service outside the frozen topology paths carries a recorded locality decision, and network guard G6 lists only the three frozen-path files.
 - id: NET-134
   title: Mesh role on the PKI engine and the issuer sovereign-mesh-ca
   area: NET
@@ -14443,7 +14473,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [NET-322, NET-327]
-  after: [FND-014, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-086, CLD-113, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-141, SOV-180, NET-125, SVC-030, SVC-060, CTL-030, CTL-035, CTL-040, CTL-045, CTL-160, CTL-240, CMP-016, CMP-030]
+  after: [FND-014, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-086, CLD-113, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-141, SOV-180, NET-125, SVC-030, SVC-060, CTL-030, CTL-035, CTL-040, CTL-045, CTL-160, CTL-240, CTL-700, CMP-016, CMP-030]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/
   - products/catalyst/bootstrap/api/
@@ -14654,7 +14684,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-011, SVC-020]
-  after: [FND-014, FND-054, FND-091, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-070, CLD-080, CLD-086, CLD-113, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-141, SOV-160, SOV-180, SOV-190, SOV-220, SOV-320, SEC-080, SEC-100, SEC-110, NET-030, NET-041, NET-050, NET-070, NET-072, NET-080, NET-125, SVC-030, SVC-060, CTL-030, CTL-035, CTL-040, CTL-045, CTL-150, CTL-160, CTL-240, CTL-300, CMP-016, CMP-030, CMP-073, BSS-020, PRD-010, PRD-101, PRD-102, PRD-103, PRD-104, PRD-105, PRD-502]
+  after: [FND-014, FND-054, FND-091, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-070, CLD-080, CLD-086, CLD-113, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-141, SOV-160, SOV-180, SOV-190, SOV-220, SOV-320, SEC-080, SEC-100, SEC-110, NET-030, NET-041, NET-050, NET-070, NET-072, NET-080, NET-125, NET-133, SVC-030, SVC-060, CTL-030, CTL-035, CTL-040, CTL-045, CTL-150, CTL-160, CTL-240, CTL-300, CTL-700, CMP-016, CMP-030, CMP-073, BSS-020, PRD-010, PRD-101, PRD-102, PRD-103, PRD-104, PRD-105, PRD-502]
   touches:
   - platform/*/blueprint.yaml
   - products/*/blueprint.yaml
@@ -17114,7 +17144,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CTL-112, CTL-162, CTL-172, FND-120]
-  after: []
+  after: [CTL-700]
   touches:
   - products/catalyst/bootstrap/api/internal/intent/platform.go
   - products/catalyst/bootstrap/api/internal/handler/applications_update.go
@@ -17872,7 +17902,7 @@ packages:
   size: XS
   lane: CONTROL
   depends_on: [CTL-178, CTL-260, SOV-240]
-  after: [FND-011, CLD-113, NET-080, SVC-060]
+  after: [FND-011, CLD-113, NET-080, NET-133, SVC-060]
   touches:
   - products/catalyst/chart/values.yaml
   - products/catalyst/chart/templates/**
@@ -18468,25 +18498,46 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CMP-005, CTL-110, CTL-160]
-  after: [FND-096, FND-099, SOV-035, CTL-112]
+  after: []
   touches:
-  - core/controllers/pkg/gitwrite/**
-  - products/catalyst/bootstrap/api/internal/intent/**
+  - core/controllers/pkg/gitwrite/commit.go
+  - core/controllers/pkg/gitwrite/gitwrite.go
+  - core/controllers/pkg/gitwrite/pullrequest.go
+  - core/controllers/pkg/gitwrite/pullrequest_test.go
+  - core/controllers/pkg/gitwrite/fake/fake.go
+  - core/controllers/pkg/gitwrite/internal/giteadouble/double.go
+  - core/controllers/pkg/gitwrite/internal/giteadouble/pulls.go
+  - products/catalyst/bootstrap/api/internal/intent/intent.go
+  - products/catalyst/bootstrap/api/internal/intent/pullrequest_test.go
   - docs/contracts/C4-git-layout-and-commit-library.md
   resources: []
   flips: []
   implements: []
   proven_by: AIP-245
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c 'ModePullRequest' core/controllers/pkg/gitwrite/gitwrite.go"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "cd core/controllers && go vet ./pkg/gitwrite/... && go test -count=1 ./pkg/gitwrite/... && go doc ./pkg/gitwrite ModePullRequest > /dev/null && go doc ./pkg/gitwrite ChangeBranch > /dev/null"
+  - id: A2
+    run: "cd core/controllers && test \"$(go test -count=1 -v -run '^(TestPullRequestModeCommitsToChangeBranch|TestPullRequestModeNoOpAndIfMatch|TestPullRequestModeRepeat|TestPullRequestModeRefusals)$' ./pkg/gitwrite/ | grep -c '^--- PASS: ')\" = 4"
+  - id: A3
+    run: "cd products/catalyst/bootstrap/api && go vet ./internal/intent/... ./cmd/api/ && go test -count=1 ./internal/intent/... ./cmd/api/"
+  - id: A4
+    run: "cd products/catalyst/bootstrap/api && test \"$(go test -count=1 -v -run '^(TestSubmitPullRequest|TestSubmitStatus)$' ./internal/intent/ | grep -c '^--- PASS: ')\" = 2"
+  - id: A5
+    run: "printf '%s\\n' '8454c4a0878852465d73174d90ede8d763114b010fa6a278faebcde40f6001b3  core/controllers/pkg/gitwrite/pullrequest.go' '41295b9050e3c56ec174a693751dfc23b1b197249b33078b6a3b0f6baf1caae7  core/controllers/pkg/gitwrite/pullrequest_test.go' 'd46541abcf0ff0267f6025ad95aeb4e93c5b294d386ad9a226f9ff9e99ee932d  core/controllers/pkg/gitwrite/internal/giteadouble/pulls.go' '8eb716094326555de7ef9588b422275ab98f6cdf9f7a48954eb3eee4adb23028  products/catalyst/bootstrap/api/internal/intent/pullrequest_test.go' | sha256sum --check --quiet"
+  - id: A6
+    run: "test \"$(grep -c -F '11. **Pull-request mode** (CTL-700).' docs/contracts/C4-git-layout-and-commit-library.md)\" = 1"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'gitwrite Change.Mode pull-request and Result.PullRequestURL; intent.Submit answers 202 awaiting-approval for that mode; contract C4 updated. No console listing and no route uses it here: the first user, AIP-245, brings its own.'
+  delivers: The commit library gitwrite gains Change.Mode with the value pull-request, which commits a change to its own branch change/<ChangeID> and opens a pull request into main without writing main, and Result.PullRequestURL; intent.Submit takes the mode as an optional argument and then answers 202 with the state awaiting-approval and the address of the pull request, without waiting; contract C4 describes the mode.
 - id: CTL-710
   title: Push for the Organization console and the storefront
   area: CTL
@@ -19427,7 +19478,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CMP-030, CMP-036, CTL-035, CTL-045, CTL-110, FND-120]
-  after: [SOV-180, CTL-112, CTL-160]
+  after: [SOV-180, CTL-112, CTL-160, CTL-700]
   touches:
   - core/controllers/pkg/gitwrite/**
   - docs/contracts/C4-git-layout-and-commit-library.md
@@ -25356,7 +25407,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [INF-490, INF-515]
-  after: [FND-011]
+  after: [FND-011, NET-133]
   touches:
   - products/openova-mcp/**
   - products/catalyst/bootstrap/ui/src/pages/sovereign/machine-operations/TestScopes*.tsx
