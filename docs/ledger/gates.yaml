@@ -1201,6 +1201,16 @@ checks:
   proof: running
   asserts: Access grant from Git
   delivered_by: CTL-210
+- id: CTL-G12
+  title: Flow stream answers from the API's own store
+  owner: CTL
+  state: not-built
+  runs_in: [cloud]
+  destructive: false
+  needs: []
+  proof: running
+  asserts: The flow stream of the gate deployment (GET /api/v1/flows/{deploymentId}/stream) answers with a snapshot frame built from the API's own jobs store, with no flow server behind it.
+  delivered_by: CTL-345
 - id: FND-G01
   title: Candidate identity
   owner: FND
@@ -1465,7 +1475,7 @@ checks:
   needs: []
   proof: running
   asserts: Coordinated reboot
-  delivered_by: INF-050
+  delivered_by: INF-051
 - id: INF-G02
   title: Node host scans
   owner: INF
