@@ -84,15 +84,6 @@ if [ -n "${RAW}" ]; then
     # excluding them is correct, not a weakening (same shape as the NodePort
     # gate's kyverno-fixture exclusion, #5088/#5089).
     case "${line%%:*}" in
-      # The local provider pack (CLD-086) runs on one host with no cloud
-      # account, so no cloud block volume exists there. The lab test
-      # docs/ledger/plan/spikes/CLD-055.md found no built-in storage class
-      # on its machines and chose the upstream local-path provisioner for
-      # this pack alone. Exactly two files of the pack name it: the cloud
-      # profile and the kit release that installs it. They are skipped by
-      # their full paths; every other file stays under the ban.
-      infra/providers/local/profile.yaml) continue ;;
-      clusters/_template/providers/local/kit/local-path.yaml) continue ;;
       platform/kyverno-policies/chart/templates/baseline/23-forbid-local-path.yaml) continue ;;
       platform/kyverno-policies/chart/tests/*) continue ;;
     esac

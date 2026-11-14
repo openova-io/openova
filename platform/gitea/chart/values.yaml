@@ -293,21 +293,6 @@ giteaAdmin:
   mirrorNamespaces:
     - "catalyst"
 
-# ─── Platform repositories at install (SOV-160) ───────────────────────────
-# templates/platform-repos-job.yaml creates the organisation `org` and each
-# repository of `repos` in it (private, first commit on main) when Gitea is
-# installed. It runs in the writer region only: bootstrap-kit slot 10 fills
-# regionId and writerRegionId; an empty writerRegionId means one region.
-platformRepos:
-  enabled: true
-  image: "harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1"
-  org: openova
-  repos:
-    - sovereign-regions
-    - provider-pack
-  regionId: ""
-  writerRegionId: ""
-
 # ─── CNPG-managed Postgres cluster for Gitea ──────────────────────────────
 # Per the Harbor pattern (templates/cnpg-cluster.yaml in bp-harbor), Gitea's
 # postgres is provisioned by CNPG rather than the Bitnami subchart. The

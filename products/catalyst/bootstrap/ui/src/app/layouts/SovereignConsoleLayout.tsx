@@ -117,8 +117,8 @@ interface WhoamiClaims {
  * catalyst-api ALSO 403s the underlying data calls, so this redirect is the
  * UX half of the hide-AND-enforce contract — never the only guard.
  *
- * Allowed for an Org session (NOT in this list): /apps, /catalog, /users,
- * /settings, /login, /auth/*.
+ * Allowed for an Org session (NOT in this list): /apps, /catalog, /sandbox,
+ * /users, /settings, /login, /auth/*.
  */
 const SOVEREIGN_ONLY_PATH_RES: readonly RegExp[] = [
   /^\/dashboard(\/|$)/,

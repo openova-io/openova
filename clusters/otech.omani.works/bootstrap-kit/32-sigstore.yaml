@@ -1,0 +1,71 @@
+# bp-sigstore — Catalyst bootstrap-kit Blueprint #32 (W2.K3, Tier 7 — Security/Policy).
+# Sigstore Policy Controller. Admission gate for signed-image enforcement —
+# verifies Cosign signatures + attestations on container images before
+# admission. Pairs with bp-harbor (registry, slot 19) and the CI-side
+# Cosign signing path to close the supply-chain trust loop on the
+# Sovereign.
+#
+# Wrapper chart: platform/sigstore/chart/ (umbrella over upstream
+# sigstore/policy-controller chart, Catalyst-curated values under the
+# `policy-controller:` key).
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# dependsOn:
+#   - bp-cert-manager — Policy Controller is an admission webhook; the
+#     apiserver requires a valid TLS cert on the webhook Service before
+#     it will route AdmissionReview traffic. Without bp-cert-manager
+#     Ready, the Certificate sits Pending and admission fails open or
+#     fails closed (depending on FailurePolicy), neither of which is
+#     the intended security posture.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sigstore-system
+  labels:
+    catalyst.openova.io/sovereign: otech.omani.works
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-sigstore
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-sigstore
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: sigstore
+  targetNamespace: sigstore-system
+  dependsOn:
+    - name: bp-cert-manager
+  chart:
+    spec:
+      chart: bp-sigstore
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-sigstore
+        namespace: flux-system
+  # Event-driven install: Policy Controller bootstraps its admission
+  # webhook TLS via cert-manager and reaches Ready only after the
+  # Certificate is issued + bound. disableWait avoids holding the HR
+  # signal on a runtime-convergence event.
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3

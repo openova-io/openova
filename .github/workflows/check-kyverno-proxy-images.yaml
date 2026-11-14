@@ -54,7 +54,7 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@v4
         with:
-          version: v3.16.3
+          version: v3.16.0
 
       - name: Add upstream subchart repos
         # The vcluster + powerdns charts vendor their subchart .tgz under

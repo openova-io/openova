@@ -1,0 +1,312 @@
+# Wave 1 + Wave 8 sandbox-controller values.
+#
+# Default-off per the chart README — flip `enabled: true` in a
+# per-Sovereign overlay once the controller's image tag is SHA-stamped
+# by CI and the per-Org `catalyst-tenant` Gitea repo exists (i.e.
+# organization-controller has reconciled at least once).
+
+# enabled gates EVERY templated resource. Default off.
+enabled: false
+nameOverride: ""
+fullnameOverride: ""
+replicas: 1
+# ─── Global registry rewrite (matches catalyst / continuum chart pattern) ──
+# When set, the three openova-io images route through this registry instead of
+# ghcr.io: the sandbox-controller (image, below) AND the per-Sandbox pty-server
+# / mcp-server images (runtime.ptyServerImage / runtime.mcpImage), which the
+# controller reads as env values and stamps into each per-Sandbox workload.
+# Per-Sovereign overlays leave this empty; the self-sovereign-cutover step-07
+# image pivot (#4885) sets it to registry.<sovereign-fqdn> so both the
+# controller and every child pty/mcp Pod pull from the Sovereign's own Harbor
+# post-cutover (the step-08 deny-egress hold blocks ghcr.io). Empty = no rewrite.
+# The sandbox.image + sandbox.rewriteImageRef helpers in _helpers.tpl apply it.
+global:
+  imageRegistry: ""
+image:
+  repository: ghcr.io/openova-io/openova/sandbox-controller
+  tag: "03bcc36"
+  pullPolicy: IfNotPresent
+  pullSecrets:
+    - name: ghcr-pull
+leaderElection:
+  enabled: true
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+nodeSelector: {}
+tolerations: []
+affinity: {}
+# Env wiring — every knob is an env var per Inviolable Principle #4.
+env:
+  hostCluster: ""
+  sovereignFQDN: ""
+  giteaURL: "http://gitea-http.gitea.svc.cluster.local:3000"
+  giteaBranch: "main"
+  tenantRepoName: "catalyst-tenant"
+  # NewAPI bridge base URL the controller POSTs to /admin/tokens/sandbox
+  # against. The catalyst-api mounts the bridge handler (PR #1638)
+  # alongside the rest of its REST surface, so this defaults to the
+  # in-cluster NewAPI service. Per Inviolable Principle #4 every
+  # operator may override via per-Sovereign overlay.
+  #
+  # TBD-V14 (issue #2015, t38 walker 2026-05-19): the canonical bp-newapi
+  # ClusterIP Service is named via `bp-newapi.fullname` (release name
+  # `newapi` + chart name `bp-newapi` → `newapi-bp-newapi`) per
+  # platform/newapi/chart/templates/_helpers.tpl. The pre-fix default
+  # (`http://newapi.newapi.svc.cluster.local:3000`) resolves to a DNS
+  # name that no Service ever publishes, so every TokenMint POST from
+  # sandbox-controller returned `lookup newapi.newapi.svc.cluster.local
+  # ... no such host` and the canonical Pillar-4 customer journey
+  # (console.<orgslug>.omani.homes → Sandbox → qwen-code) stalled at
+  # Wave-9 token mint. Verified with `helm template newapi
+  # platform/newapi/chart/ -s templates/service.yaml` → renders
+  # `metadata.name: newapi-bp-newapi`.
+  # Wave 5.57 (#2303): the /admin/tokens/sandbox bridge handler runs as
+  # a SIDECAR in the bp-newapi Pod on :8080, NOT inside the upstream
+  # Calcium-Ion binary on :3000. Pre-fix the controller posted to :3000
+  # and hit the upstream binary's default HTML 404 page → JSON-decode
+  # failed with "invalid character '<'" (hw01 walk 2026-05-24). The bp-
+  # newapi Service exposes a second port `bridge: 8080` (Wave 5.57,
+  # platform/newapi/chart/templates/service.yaml) which targets the
+  # sandbox-bridge sidecar.
+  newapiBaseURL: "http://newapi-bp-newapi.newapi.svc.cluster.local:8080"
+  # Comma-separated list of NewAPI channel names every freshly-minted
+  # Sandbox token is allowed to target. The controller refuses to mint
+  # tokens with an empty channel set (NoAllowedChannels condition on
+  # the affected Sandbox CR — sandbox_controller.go:191), so Wave 32
+  # D35c verifier caught every Sandbox stuck on NoAllowedChannels
+  # because this defaulted to "".
+  #
+  # Default `qwen` per products/sandbox/docs/newapi-proxy-contract.md
+  # §2 — the only channel name surfaced today is `qwen`, the customer-
+  # canonical row name bp-newapi's qwenPartner default channel
+  # writes on every Sovereign install (F1a 2026-05-20 renamed the row's
+  # `name` to `qwen` so the row matches this default). Operators MUST override on per-Sovereign overlays the
+  # moment they wire additional channels (e.g. `qwen,anthropic,openai`)
+  # — bootstrap-kit slot 19a substitutes `${SANDBOX_DEFAULT_CHANNELS:-qwen}`
+  # so the canonical knob lives on the Sovereign overlay's substitute map.
+  newapiDefaultChannels: "qwen"
+# runtime — Wave 8 per-Sandbox pty-server / MCP / NEWAPI wiring.
+# Surfaced as env on the controller; the controller renders these into
+# the per-Sandbox StatefulSet + Deployment + HTTPRoute.
+runtime:
+  # SHA-pinned pty-server image. Empty default fails-fast via the
+  # deployment.yaml `required` guard (Inviolable Principle #4a).
+  # Auto-bumped by .github/workflows/build-sandbox-pty-server.yaml.
+  ptyServerImage: "ghcr.io/openova-io/openova/sandbox-pty-server:03bcc36"
+  # SHA-pinned openova-sandbox-mcp image. Auto-bumped by
+  # .github/workflows/build-sandbox-mcp-server.yaml. 1b0e86c is the
+  # last pre-#1658 green build; the rebuilt workflow (repo-root context)
+  # will land the next real SHA on the next push to main.
+  mcpImage: "ghcr.io/openova-io/openova/sandbox-mcp-server:2692f2d"
+  # Sovereign LLM gateway endpoint (newapi-proxy-contract.md §1).
+  # Bootstrap-kit overlay sets `https://newapi.${SOVEREIGN_FQDN}/v1`.
+  newapiURL: ""
+  # In-namespace Secret the pty-server reads LLM_GATEWAY_TOKEN /
+  # OPENAI_API_KEY from (key `llm-gateway-token`).
+  llmGatewayTokenSecret: "sandbox-tokens"
+  # Prefix for the per-user BYOS Secret (`<prefix>-<owner-uid>`).
+  byosSecretPrefix: "sandbox-byos-claude-code"
+  # Idle timeout (minutes) — architecture.md §7.
+  idleTimeoutMinutes: 30
+  # TBD-V22 #1986 F1 (2026-05-20) — per-PTY replay ring buffer size in
+  # BYTES. The pty-server retains the trailing tail of PTY stdout so a
+  # newly-attaching client (the canonical "close laptop, open phone"
+  # multi-device handoff path in user-journey.md Scene 6) replays a
+  # meaningful slice of the recent terminal context before joining the
+  # live stream. Pre-fix the size was a hardcoded 256 KiB literal in
+  # pty-server (no upstream knob), which on a real coding-agent session
+  # rolled in well under a minute — the multi-device replay claim was
+  # unbacked. New default is 1 MiB; pty-server clamps operator-set
+  # values above 16 MiB (MaxRingBytes) and logs the clamp. Zero / unset
+  # leaves the pty-server's own session.DefaultRingBytes intact (also
+  # 1 MiB) — both layers default to the same value so there is no
+  # silent skew between operator-not-set and operator-set-to-default.
+  ringBufferBytes: 1048576
+# Secret holding the Gitea PAT the controller authenticates with.
+# Defaults to the same Secret organization-controller uses
+# (catalyst-gitea-token / key=token) — single source of truth per
+# #957/#1052.
+giteaTokenSecret:
+  name: "catalyst-gitea-token"
+  key: "token"
+# Secret holding the NewAPI bridge admin bearer the controller passes
+# as `Authorization: Bearer <ADMIN_SECRET>` on every call to POST
+# /admin/tokens/sandbox. Defaults to the chart-emitted name from
+# platform/newapi/chart/templates/sandbox-token-signing-key-secret.yaml.
+#
+# The newapi chart's `bp-newapi.fullname` helper renders as
+# `<release>-<chart>` (e.g. release `newapi` + chart `bp-newapi` =>
+# `newapi-bp-newapi`), and the signing-key Secret template appends
+# `-token-signing-key`, so the canonical name in a stock Sovereign is
+# `newapi-bp-newapi-token-signing-key`. Per-Sovereign overlays may
+# override via either side of the wire (newapi chart's
+# `sandboxTokenSigningKey.autoSecretName` or this value here).
+#
+# Cross-namespace mount: the canonical wiring is via emberstack/
+# reflector — the source Secret carries
+# `reflector.v1.k8s.emberstack.com/reflection-{allowed,auto}-namespaces`
+# annotations naming the sandbox-controller's namespace so a mirror
+# of the Secret materialises locally. The chart template uses an
+# `optional: true` secretKeyRef so a fresh-prov Sovereign with the
+# reflector mirror still in flight does NOT crash the controller —
+# it starts in gitops-only mode and picks up the token-mint path
+# once the env var lands on a Pod restart.
+newapiAdminSecret:
+  name: "newapi-bp-newapi-token-signing-key"
+  key: "ADMIN_SECRET"
+# D31 active-hot-standby — Sovereign-level opt-in for the cross-region
+# CNPG ReplicaCluster shape on every Sandbox-provisioned database. When
+# `cnpg.activeHotStandby.enabled` parses truthy (true/1/yes/on) AND
+# both region keys are non-empty AND distinct, the MCP server's
+# `sandbox.db.provision` handler materialises a primary + replica
+# Cluster.postgresql.cnpg.io pair (one each in the two regions) instead
+# of a single Cluster. Mirrors the bp-cnpg-pair pattern + the
+# bp-wordpress-tenant `pg.activeHotStandby.*` value contract (PR
+# #1562). Default-off keeps every existing Sandbox on single-Cluster
+# CNPG (zero regression).
+#
+# The chart surfaces this stanza to the sandbox-controller as three
+# env vars (SOVEREIGN_ENABLE_HOT_STANDBY, SOVEREIGN_PRIMARY_REGION,
+# SOVEREIGN_REPLICA_REGION) which the controller in turn propagates
+# into every per-Sandbox MCP Pod via gitops.Inputs. Bootstrap-kit slot
+# 61 (clusters/_template/bootstrap-kit/61-bp-sandbox.yaml) wires
+# operator overrides from the per-Sovereign overlay's envsubst
+# placeholders — flip one knob and BOTH the marketplace tenant path
+# (sme_tenant_gitops.go) AND the sandbox.db plane render the HA shape.
+#
+# Region keys MUST match the canonical openova.io/region node label
+# value (e.g. `hz-fsn-rtz-prod`, `hz-hel-rtz-prod`). The CNPG operator's
+# nodeAffinity matches on this label to pin the primary + replica
+# StatefulSet Pods to the right regions.
+cnpg:
+  activeHotStandby:
+    enabled: ""
+    primaryRegion: ""
+    replicaRegion: ""
+# Wave 14 — Grafana dashboard for Sandbox runtime observability.
+#
+# Default-off (zero regression). When `grafanaDashboard.enabled=true` the
+# chart renders ONE ConfigMap (`<release>-dashboard`) labelled
+# `grafana_dashboard: "1"`. The upstream grafana/grafana sidecar
+# (`kiwigrid/k8s-sidecar`) auto-discovers ConfigMaps with that label
+# across all namespaces and loads the JSON into Grafana on the next
+# reconcile.
+#
+# Panels (products/sandbox/docs/architecture.md §7 +
+# newapi-proxy-contract.md):
+#   1. Active Sandboxes (count of Sandbox CRs)
+#   2. pty-server Pods Ready %
+#   3. MCP Pods Ready %
+#   4. WebSocket Connections (Gauge)
+#   5. PVC Usage % per Sandbox
+#   6. Idle-Timeout Scale-Down Events / hour
+#   7. newapi Token Mint Requests / hour (filter tool="sandbox-controller")
+#
+# Per Inviolable Principle #11 (no fabricated metrics) panels whose
+# metric emitter has not yet rolled out across the fleet render as
+# "No data" rather than a synthetic number; this is documented inline
+# on each panel's description field.
+grafanaDashboard:
+  enabled: false
+# Wave 15 (PR #1674 follow-up) — ServiceMonitor for Prometheus scrape
+# of the controller's :8080 /metrics endpoint. Surfaces every controller-
+# runtime auto-instrumented metric plus the Wave 15 emitter
+# `sandbox_controller_idle_timeout_events_total` (labelled by namespace,
+# read by the Grafana panel "Idle-Timeout Scale-Down Events / hour").
+#
+# DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2 — kube-prometheus-
+# stack lands at slot 25; charts that ship a default-true ServiceMonitor
+# break Helm install on pre-slot-25 Sovereigns. The template also gates
+# on `monitoring.coreos.com/v1` capability so even a stale per-Sovereign
+# overlay that sets enabled=true on a cluster without the Operator CRD
+# skip-renders gracefully.
+serviceMonitor:
+  enabled: false
+  interval: "30s"
+  scrapeTimeout: "10s"
+  path: "/metrics"
+  labels: {}
+  # namespace override — defaults to .Release.Namespace.
+  namespace: ""
+# TBD-P4 B4 — canonical SANDBOX_* env-var wiring for the MCP plugin
+# (products/sandbox/mcp-server/internal/tools/env.go). Surfaced by the
+# controller as env vars; the controller in turn passes each through to
+# every per-Sandbox MCP Deployment via gitops.Inputs so the MCP plugin's
+# per-tool guards (gitea / domain / storage / keycloak) see the canonical
+# names instead of the legacy `ORG_ID` / `SOVEREIGN_FQDN` shape.
+#
+# Defaults match the in-cluster Service DNS for a stock Sovereign install
+# (bp-gitea / bp-newapi / bp-seaweedfs / bp-keycloak / bp-marketplace).
+# Per-Sovereign overlays may override any value. Secrets are NEVER written
+# from this chart — name+key references only with `optional: true` so a
+# fresh-prov Sovereign with a credential source still in flight does NOT
+# crash the per-Sandbox MCP Pod; the affected tool family surfaces a clean
+# "not configured" error.
+mcp:
+  giteaBaseURL: "http://gitea-http.gitea.svc.cluster.local:3000"
+  giteaTokenSecret:
+    name: "catalyst-gitea-token"
+    key: "token"
+  domainAPIURL: "http://domain.org-services.svc.cluster.local:8086"
+  marketplaceAPIURL: "http://marketplace-api.marketplace.svc.cluster.local:8082"
+  storage:
+    s3Endpoint: "http://seaweedfs.storage.svc.cluster.local:8333"
+    s3Region: "us-east-1"
+    s3UseTLS: "false"
+    credsSecret:
+      # Empty default — when set, the controller stamps SANDBOX_STORAGE_S3_
+      # ACCESS_KEY / SECRET_KEY secretKeyRefs on every per-Sandbox MCP Pod.
+      # Empty leaves the MCP storage tool family in "not configured" mode.
+      name: ""
+      accessKeyKey: "AWS_ACCESS_KEY_ID"
+      secretKeyKey: "AWS_SECRET_ACCESS_KEY"
+  keycloak:
+    adminURL: "http://keycloak.keycloak.svc.cluster.local:8080"
+    parentRealm: "master"
+    adminTokenSecret:
+      # Empty default — when set, the controller stamps a KEYCLOAK_ADMIN_TOKEN
+      # secretKeyRef on every per-Sandbox MCP Pod. Empty leaves the MCP
+      # keycloak tool family in "not configured" mode.
+      name: ""
+      key: "token"
+extraEnv: {}
+# ─── G91.sandbox (#2657) SSO opt-in ───────────────────────────────────────
+# Per SECURITY.md §6.3 every Application Blueprint declares SSO support
+# with a single value. bp-sso-bridge (G91.1 #2652) watches every HR with
+# `sso.enabled: true` and reconciles a Keycloak Client + OpenBao
+# `secret/sso/sandbox` + ExternalSecret in this namespace.
+#
+# bp-sandbox propagates the resulting Secret into the sandbox-controller
+# Pod as three env vars (SANDBOX_SSO_CLIENT_ID, SANDBOX_SSO_CLIENT_SECRET,
+# SANDBOX_SSO_ISSUER_URL); the controller in turn injects them into the
+# per-Sandbox pty-server PodSpec so each user Sandbox UI is OIDC-fronted
+# without a per-Sandbox Keycloak Client (one parent Client + per-user
+# subject = scales cleanly).
+#
+# G91.sandbox-controller follow-up: the sandbox-controller Go code at
+# core/controllers/sandbox/ must learn to read these env vars and stamp
+# them onto the per-Sandbox pty-server's container env. This chart
+# change is the seam; the controller code follow-up wires the runtime
+# half. The env vars are present + unused until that lands.
+sso:
+  enabled: true
+  realm: sovereign
+  # Per-Sovereign cluster overlay sets this (e.g. `hw86.omani.works`).
+  # When empty the SSO env vars on the controller Pod are empty strings,
+  # and the controller's follow-up code path will skip OIDC injection
+  # (fail-open to local Sandbox auth) rather than half-configuring.
+  sovereignFqdn: ""
+  # OIDC client ID — defaults to "sandbox" (bp-sso-bridge strips "bp-"
+  # from the HR name).
+  clientId: sandbox
+  externalSecretStoreName: vault-region1
+  refreshInterval: 1h
+  # Realm group the controller honors as Sandbox admin (full UI). The
+  # Sovereign operator (deployment.OrgEmail) is auto-added by the realm
+  # import.
+  adminGroup: sovereign-admins

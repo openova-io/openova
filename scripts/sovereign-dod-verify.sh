@@ -168,6 +168,7 @@ REQUIRED_HRS=(
     bp-cilium bp-cert-manager bp-cert-manager-powerdns-webhook
     bp-flux bp-gateway-api bp-gitea bp-grafana bp-harbor
     bp-keycloak bp-kyverno bp-kyverno-policies bp-loki
+    bp-mgmt-vcluster bp-rtz-vcluster bp-dmz-vcluster
     bp-cnpg bp-openbao bp-external-secrets bp-external-secrets-stores
     bp-powerdns bp-external-dns
     bp-falco bp-trivy bp-sigstore bp-syft-grype

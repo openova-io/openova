@@ -37,7 +37,7 @@
 # Reconciled by: Flux on the new Sovereign's k3s control plane.
 
 ---
-apiVersion: source.toolkit.fluxcd.io/v1
+apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
 metadata:
   name: bp-cert-manager-issuers

@@ -49,17 +49,11 @@ that is not exactly representable (`"1.5001"`) is refused.
 ### The fallback — and what is NOT a fallback
 
 - **No `package_sku` on the request** (the legacy plan deck, older clients):
-  the price book decides; there is one price list. While it publishes
-  packages the order is **refused, HTTP 409 `package-required`**. Only while
-  it publishes none (BSS answers 404, the state of a fresh Sovereign before
-  its first Organization, or lists no package) is the order priced from the
-  catalog as before — plan from `/catalog/plans` (`price_omr`; an unknown
-  plan is a 400), add-ons from `/catalog/addons`, the topology surcharge.
-  `price_source = catalog`. A price book that cannot be read is a 503.
-- **`package_sku` present but the price book publishes no package**: the
-  package is not in the price book, **HTTP 422**.
-- **`package_sku` present but the price book cannot be read** — BSS down, an
-  answer other than 200 or 404, a body that is not the contract, a currency other than OMR, or
+  the catalog path exactly as before — plan from `/catalog/plans`
+  (`price_omr`; an unknown plan is a 400), add-ons from `/catalog/addons`,
+  the topology surcharge. `price_source = catalog`. BSS is never consulted.
+- **`package_sku` present but the price book cannot be read** — BSS down, a
+  non-200, a body that is not the contract, a currency other than OMR, or
   `CHARGEBACK_PUBLIC_URL` set empty: **HTTP 503 `prices unavailable`**. The
   order is never silently priced from the catalog instead; the cached copy is
   not served past its TTL either, so a dead BSS is visible within a minute.
@@ -70,13 +64,12 @@ that is not exactly representable (`"1.5001"`) is refused.
 |---|---|---|
 | priced | 200 | checkout response + `price_source`, `package_sku`, `plan_amount_baisa`, `lines[{sku,name,amount_baisa,redundant}]`, `topology_amount_baisa`, `amount_baisa`, `amount_omr` |
 | add-on not offered on the package / unknown add-on / unknown package | 422 | `{"error": "...names both...", "addon_sku": "...", "package_sku": "..."}` |
-| no `package_sku` while the price book publishes packages | 409 | `{"error": "package-required"}` |
-| price book unreadable, or BSS pricing off and the request carries `package_sku` | 503 | `{"error": "prices unavailable — ..."}` |
+| price book unreadable or BSS pricing off, request carries `package_sku` | 503 | `{"error": "prices unavailable — ..."}` |
 | catalog unreachable / unknown plan (catalog path) | 400 | `{"error": "failed to compute order total: ..."}` |
 | overage fields break a rule (see "Overage mode" below) | 400 | `{"error": "<sentence>"}` |
 
 Pricing runs BEFORE the voucher is redeemed and before any row is written, so
-a 409, a 422 or a 503 burns no redemption slot and leaves no order behind.
+a 422 or a 503 burns no redemption slot and leaves no order behind.
 
 ### `POST /billing/quote`
 

@@ -4274,7 +4274,7 @@ name: bp-self-sovereign-cutover
 #   loft-sh/vcluster is mirrored (offlineMirror.mirrorAnyway) though still not rolled (hw307).
 # 0.1.207: step-06 secondary ghcr-pull sync keeps the source Secret's Reflector annotations — the
 #   bare client-side apply stripped them, so region B never reflected ghcr-pull (#7067). Umbrella 1.4.1896.
-version: 0.1.209
+version: 0.1.207
 description: |
   Catalyst Self-Sovereignty Cutover Blueprint. Installs DORMANT — this
   chart ships eight step ConfigMaps (PodSpec ConfigMaps, one per step),

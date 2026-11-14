@@ -707,25 +707,56 @@ func (h *Handler) chrootSeedReconcilerObservations(ctx context.Context, dep *Dep
 		h.log.Debug("chroot seed: reconciler dynamic client unavailable", "depId", dep.ID, "err", err)
 		return
 	}
-	obs, err := helmwatch.ListReconcilerObservations(ctx, dyn)
+	obs, ledger, err := helmwatch.ListReconcilerObservationsWithLedger(ctx, dyn)
 	if err != nil {
 		h.log.Warn("chroot seed: list reconciler observations failed", "depId", dep.ID, "err", err)
 		return
 	}
-	if len(obs) == 0 {
-		return
+	if len(obs) > 0 {
+		jobsCount, execsSeeded, err := bridge.SeedReconcilerObservations(reconcilerObsToBridge(obs))
+		if err != nil {
+			h.log.Warn("chroot seed: reconciler bridge seed failed", "depId", dep.ID, "err", err)
+			return
+		}
+		h.log.Info("chroot seed: reconciler activities projected",
+			"depId", dep.ID,
+			"observations", len(obs),
+			"jobsWritten", jobsCount,
+			"executionsSeeded", execsSeeded,
+		)
 	}
-	jobsCount, execsSeeded, err := bridge.SeedReconcilerObservations(reconcilerObsToBridge(obs))
+	h.closeVanishedRuns(dep, bridge, ledger, "chroot seed")
+}
+
+// closeVanishedRuns closes the in-flight runs whose Job has since been
+// deleted (see jobs.Bridge.CloseVanishedRuns). It runs AFTER the seed so a
+// run that is still listed is refreshed first and never mistaken for gone.
+func (h *Handler) closeVanishedRuns(dep *Deployment, bridge *jobs.Bridge, ledger helmwatch.JobLedger, path string) {
+	closed, err := bridge.CloseVanishedRuns(jobLedgerToBridge(ledger), time.Now().UTC())
 	if err != nil {
-		h.log.Warn("chroot seed: reconciler bridge seed failed", "depId", dep.ID, "err", err)
+		h.log.Warn(path+": close vanished runs failed", "depId", dep.ID, "err", err)
 		return
 	}
-	h.log.Info("chroot seed: reconciler activities projected",
-		"depId", dep.ID,
-		"observations", len(obs),
-		"jobsWritten", jobsCount,
-		"executionsSeeded", execsSeeded,
-	)
+	if closed > 0 {
+		h.log.Info(path+": closed runs whose Job was deleted", "depId", dep.ID, "closed", closed)
+	}
+}
+
+// jobLedgerToBridge translates helmwatch.JobLedger into the jobs-local
+// RunLedger (same indirection reconcilerObsToBridge uses).
+func jobLedgerToBridge(in helmwatch.JobLedger) jobs.RunLedger {
+	out := jobs.RunLedger{Listed: in.Listed, Present: in.Present, EventsListed: in.EventsListed}
+	if len(in.Ended) > 0 {
+		out.Ended = make(map[string]jobs.RunEnd, len(in.Ended))
+		for name, e := range in.Ended {
+			st := jobs.StatusFailed
+			if e.Status == helmwatch.ObsStatusSucceeded {
+				st = jobs.StatusSucceeded
+			}
+			out.Ended[name] = jobs.RunEnd{Status: st, At: e.At, Reason: e.Reason}
+		}
+	}
+	return out
 }
 
 // motherSeedInClusterReconcilers projects the live in-cluster §5a
@@ -791,27 +822,27 @@ func (h *Handler) motherSeedInClusterReconcilers(ctx context.Context, dep *Deplo
 	dep.mu.Unlock()
 	bridge.SetProvider(provider)
 
-	obs, err := helmwatch.ListReconcilerObservations(ctx, dyn)
+	obs, ledger, err := helmwatch.ListReconcilerObservationsWithLedger(ctx, dyn)
 	if err != nil {
 		h.log.Warn("mother seed: list reconciler observations failed",
 			"depId", dep.ID, "err", err)
 		return
 	}
-	if len(obs) == 0 {
-		return
+	if len(obs) > 0 {
+		jobsCount, execsSeeded, err := bridge.SeedReconcilerObservations(reconcilerObsToBridge(obs))
+		if err != nil {
+			h.log.Warn("mother seed: reconciler bridge seed failed",
+				"depId", dep.ID, "err", err)
+			return
+		}
+		h.log.Info("mother seed: in-cluster reconciler activities projected",
+			"depId", dep.ID,
+			"observations", len(obs),
+			"jobsWritten", jobsCount,
+			"executionsSeeded", execsSeeded,
+		)
 	}
-	jobsCount, execsSeeded, err := bridge.SeedReconcilerObservations(reconcilerObsToBridge(obs))
-	if err != nil {
-		h.log.Warn("mother seed: reconciler bridge seed failed",
-			"depId", dep.ID, "err", err)
-		return
-	}
-	h.log.Info("mother seed: in-cluster reconciler activities projected",
-		"depId", dep.ID,
-		"observations", len(obs),
-		"jobsWritten", jobsCount,
-		"executionsSeeded", execsSeeded,
-	)
+	h.closeVanishedRuns(dep, bridge, ledger, "mother seed")
 }
 
 // reconcilerObsToBridge translates the helmwatch wire shape into the
@@ -824,11 +855,12 @@ func reconcilerObsToBridge(in []helmwatch.ReconcilerObservation) []jobs.Reconcil
 		execs := make([]jobs.ReconcilerExecutionObservation, 0, len(o.Executions))
 		for _, e := range o.Executions {
 			execs = append(execs, jobs.ReconcilerExecutionObservation{
-				Name:       e.Name,
-				Status:     e.Status,
-				StartedAt:  e.StartedAt,
-				FinishedAt: e.FinishedAt,
-				Message:    e.Message,
+				Name:             e.Name,
+				Status:           e.Status,
+				StartedAt:        e.StartedAt,
+				FinishedAt:       e.FinishedAt,
+				Message:          e.Message,
+				RemovedOnSuccess: e.RemovedOnSuccess,
 			})
 		}
 		out = append(out, jobs.ReconcilerObservation{

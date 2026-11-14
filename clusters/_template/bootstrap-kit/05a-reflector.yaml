@@ -20,7 +20,7 @@ metadata:
   labels:
     catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
 ---
-apiVersion: source.toolkit.fluxcd.io/v1
+apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
 metadata:
   name: bp-reflector
@@ -50,7 +50,7 @@ spec:
   chart:
     spec:
       chart: bp-reflector
-      version: 1.0.2
+      version: 1.0.2-hw307.1
       sourceRef:
         kind: HelmRepository
         name: bp-reflector

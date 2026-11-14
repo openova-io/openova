@@ -1,0 +1,17 @@
+# build artifacts
+dist/
+.astro/
+node_modules/
+.svelte-kit/
+
+# Playwright
+playwright-report/
+test-results/
+.last-run.json
+
+# generated mock fixture (re-built by scripts/build-mock-fixture.mjs)
+public/mock-fixture.json
+
+# editor / OS
+.DS_Store
+*.log

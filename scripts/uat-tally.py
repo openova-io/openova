@@ -36,26 +36,11 @@ Rules
 
 Usage:  scripts/uat-tally.py [--uat docs/ledger/UAT.md] [--json] [--check N]
         --check N exits non-zero unless the green count equals N (for CI).
-        scripts/uat-tally.py --provenance
-        prints the one header line of UAT.md that says where its greens were
-        measured: "Measured on <env>: N. Carried from earlier environments: M.
-        Newest stamp: <date>."
-
-Provenance rules
-----------------
-* <env> is the environment the ledger title names (`on `hwNNN``), read the way
-  scripts/uat-drift-guard.py reads it. A title that names none, or says
-  ``pending``, is an error: there is nothing to be measured on.
-* N counts the ✅ rows whose stamp (the Result cell's date line) names <env>.
-* M counts every other ✅ row, except a row stamped ``repo-…``: that one was
-  verified in source and was measured on no environment at all.
-* The newest stamp is the latest date found in the stamp of any data row.
 """
 import argparse
 import collections
 import json
 import os
-import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -94,59 +79,6 @@ def classify(line):
     return ("data", first, verdict)
 
 
-# The title line, and the environment it names, read as uat-drift-guard.py
-# header_env() reads them, so the two scripts cannot disagree.
-TITLE = re.compile(r"^#\s+UAT\b")
-TITLE_ENV = re.compile(r"on\s+`?(hw\d+)", re.IGNORECASE)
-STAMP_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
-UNESCAPED_PIPE = re.compile(r"(?<!\\)\|")
-
-
-def title_env(text):
-    """The environment the ledger title names, or None (none named, or pending)."""
-    for line in text.split("\n"):
-        if TITLE.match(line):
-            if re.search(r"\bpending\b", line, re.IGNORECASE):
-                return None
-            m = TITLE_ENV.search(line)
-            return m.group(1).lower() if m else None
-    return None
-
-
-def provenance(text):
-    """(env, measured, carried, newest) for a ledger body.
-
-    Raises ValueError when the title names no environment.
-    """
-    env = title_env(text)
-    if env is None:
-        raise ValueError("the ledger title names no environment")
-    measured = carried = 0
-    newest = None
-    for line in to_pipe(text).split("\n"):
-        kind, _rid, verdict = classify(line.rstrip("\r"))
-        if kind != "data":
-            continue
-        stamp = UNESCAPED_PIPE.split(line)[5].strip().lower()
-        for date in STAMP_DATE.findall(stamp):
-            if newest is None or date > newest:
-                newest = date
-        if verdict != "✅":
-            continue
-        if stamp == env or stamp.startswith(env + "-"):
-            measured += 1
-        elif not stamp.startswith("repo-"):
-            carried += 1
-    return env, measured, carried, newest
-
-
-def provenance_line(text):
-    env, measured, carried, newest = provenance(text)
-    return (f"Measured on {env}: {measured}. "
-            f"Carried from earlier environments: {carried}. "
-            f"Newest stamp: {newest or 'none'}.")
-
-
 def tally(path):
     counts = collections.Counter()
     rows = []
@@ -170,19 +102,7 @@ def main():
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--check", type=int, default=None)
     ap.add_argument("--list", metavar="GLYPH", help="list rows with this verdict")
-    ap.add_argument("--provenance", action="store_true",
-                    help="print the header line: measured here, carried, newest stamp")
     args = ap.parse_args()
-
-    if args.provenance:
-        with open(args.uat, encoding="utf-8") as fh:
-            text = fh.read()
-        try:
-            print(provenance_line(text))
-        except ValueError as exc:
-            print(f"FAIL: {exc}", file=sys.stderr)
-            return 1
-        return 0
 
     counts, rows, meta = tally(args.uat)
     total = len(rows)

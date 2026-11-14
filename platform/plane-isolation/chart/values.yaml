@@ -44,7 +44,7 @@ renderUnconditional: false
 #   * the gateway-ingress CiliumNetworkPolicy fromEntities:[ingress,host,
 #     remote-node] when `gatewayIngress: true` (every component fronted by a
 #     public HTTPRoute needs it; pure-backend components like loki/mimir/tempo/
-#     valkey/seaweedfs/vllm/nats/coraza do NOT face the gateway), and
+#     valkey/seaweedfs/vllm/nats/sandbox/coraza do NOT face the gateway), and
 #   * the kube-apiserver-webhook-ingress CiliumNetworkPolicy fromEntities:
 #     [kube-apiserver,host,remote-node] on the declared TCP port(s) when
 #     `apiserverWebhookPorts: [<port>...]` is set — for a component that runs an
@@ -72,6 +72,11 @@ components:
       - external-secrets-system    # ESO reconciles keycloak ExternalSecrets
       - org-services               # BSS/auth tier validates tokens against keycloak
       - oidc-gate                  # the host auth proxy fronting gateway routes
+      - sandbox                    # sandbox-controller realm/user-mgmt + per-Sandbox MCP OIDC
+                                   # ops (platform/sandbox SANDBOX_MCP_KEYCLOAK_ADMIN_URL →
+                                   # keycloak.keycloak.svc:8080). The sandbox plane is its own
+                                   # host ns post-#4325 → its keycloak admin dial is dropped
+                                   # without this carve-out (Refs #4325 #4382).
       - newapi                     # newapi admin-UI OIDC discovery + token validation
                                    # (platform/newapi auth.adminUI.mode=keycloak → keycloak
                                    # issuer URL). De-vcluster split newapi into its own host ns.
@@ -92,12 +97,16 @@ components:
                                    # Without this the provisioning wait-for-gitea-token init dials
                                    # gitea and Cilium drops it → HTTP 000 → funnel Org bootstrap
                                    # wedged (#4382, live kom4dc dep 4635277cae4ffed9 2026-06-26).
+      - sandbox                    # sandbox-controller + per-Sandbox MCP create/read per-Sandbox
+                                   # repos (platform/sandbox CATALYST_GITEA_URL +
+                                   # SANDBOX_MCP_GITEA_BASE_URL → gitea-http.gitea.svc:3000). The
+                                   # sandbox plane is its own host ns post-#4325 (Refs #4325).
   - namespace: harbor              # OCI registry
     gatewayIngress: true           # registry.<fqdn> public route
     allowIngressFrom:
       - cnpg-system                # CNPG operator → harbor-pg
       - external-secrets-system    # ESO reconciles harbor SSO ExternalSecret
-      - catalyst-system            # catalyst-api pulls chart artifacts from harbor
+      - catalyst-system            # catalyst-api / sandbox pull chart artifacts from harbor
   - namespace: grafana             # dashboards
     gatewayIngress: true           # grafana.<fqdn> public route
     allowIngressFrom:
@@ -139,7 +148,8 @@ components:
     allowIngressFrom:
       - cnpg-system                # CNPG operator → newapi-pg
       - external-secrets-system    # ESO reconciles newapi OIDC + admin-token ExternalSecrets
-      - catalyst-system            # control-plane callers of the newapi admin API
+      - catalyst-system            # sandbox-controller calls newapi admin tokens API
+      - sandbox                    # per-Sandbox runtimes hit the LLM gateway
   - namespace: nats-system         # control-plane event bus (no public route)
     gatewayIngress: false
     allowIngressFrom:
@@ -215,10 +225,17 @@ components:
       - velero                     # cluster backup target
       - guacamole                  # session recordings; cnpg barman backups
       - catalyst-system            # cnpg barman backups, showback
+      - sandbox                    # per-Sandbox MCP S3 object storage (platform/sandbox
+                                   # SANDBOX_MCP storage endpoint → seaweedfs S3, default-off
+                                   # overlay). De-vcluster'd sandbox host ns (Refs #4325).
   - namespace: vllm                # LLM inference (no public route; newapi channel)
     gatewayIngress: false
     allowIngressFrom:
       - newapi                     # the newapi `vllm` channel (default-off)
+  - namespace: sandbox             # sandbox-controller (was catalyst-system in vc-rtz)
+    gatewayIngress: false          # per-Sandbox pty/MCP routes are per-Sandbox, not this ns
+    allowIngressFrom:
+      - catalyst-system            # catalyst-api dispatches Sandbox CRs to the controller
   - namespace: oidc-gate           # host auth proxy (oauth2-proxy) fronting gateway routes
     gatewayIngress: true           # the cilium gateway forwards protected hosts THROUGH oidc-gate
                                    # before the upstream app; the proxy receives the reserved

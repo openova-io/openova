@@ -52,7 +52,7 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@v4
         with:
-          version: v3.16.3
+          version: v3.16.0
 
       - name: Run zero-local-path guard
         run: bash scripts/check-no-local-path.sh

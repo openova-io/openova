@@ -1,0 +1,74 @@
+# bp-keycloak — Catalyst bootstrap-kit Blueprint. User identity. Topology decided by Sovereign CRD spec.keycloakTopology.
+#
+# Wrapper chart: platform/keycloak/chart/
+# Catalyst-curated values: platform/keycloak/chart/values.yaml
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: keycloak
+  labels:
+    catalyst.openova.io/sovereign: omantel.omani.works
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-keycloak
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-keycloak
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: keycloak
+  targetNamespace: keycloak
+  dependsOn:
+    - name: bp-cert-manager
+  chart:
+    spec:
+      chart: bp-keycloak
+      version: 1.4.1
+      sourceRef:
+        kind: HelmRepository
+        name: bp-keycloak
+        namespace: flux-system
+  # Event-driven install: Keycloak DB schema migration + realm import is
+  # legitimately multi-minute on first install (PostgreSQL backend +
+  # 100+ Liquibase changesets). Helm install completes when manifests
+  # apply; downstream dependsOn checks Ready=True independently.
+  # Replaces PR #221 spec.timeout: 15m.
+  install:
+    disableWait: true
+    timeout: 15m
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    timeout: 15m
+    remediation:
+      retries: 3
+  # Per-Sovereign overrides — issue #387 + #604 + qa-loop iter-12:
+  # Wire the per-Sovereign hostname into the HTTPRoute template and
+  # sovereign realm ConfigMap (catalyst-ui redirect URIs).
+  # sovereignRealm.name: per `feedback_no_mvp_no_workarounds.md` target-state
+  # rule, each Sovereign owns its KC realm named after the tenant short-name.
+  # Matrix tests (TC-124, TC-125, TC-159, TC-160, TC-161, TC-176, TC-190,
+  # TC-285) assert paths like `/admin/realms/omantel/...`.
+  values:
+    sovereignFQDN: omantel.omani.works
+    sovereignRealm:
+      name: omantel
+      displayName: "Omantel Sovereign"
+    gateway:
+      host: auth.omantel.omani.works

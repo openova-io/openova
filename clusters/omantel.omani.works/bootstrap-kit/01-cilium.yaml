@@ -1,0 +1,174 @@
+# bp-cilium — Catalyst bootstrap-kit Blueprint. CNI must come first; k3s started with --flannel-backend=none precisely so Cilium can take over.
+#
+# Wrapper chart: platform/cilium/chart/
+# Catalyst-curated values: platform/cilium/chart/values.yaml
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+
+---
+# kube-system is built into every Kubernetes cluster — never re-declare it.
+# Earlier revisions of 01-cilium.yaml AND 05-sealed-secrets.yaml both
+# declared it, which collided when kustomize tried to merge the two:
+#   "may not add resource with an already registered id:
+#    Namespace.v1.[noGrp]/kube-system.[noNs]"
+# This Blueprint installs Cilium INTO kube-system; the HelmRelease's
+# targetNamespace field below is sufficient.
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-cilium
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-cilium
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: cilium
+  targetNamespace: kube-system
+  chart:
+    spec:
+      chart: bp-cilium
+      # 1.3.1 (qa-loop iter-12 Fix #54 Workstream 2): bpf.preallocateMaps=true
+      # + socketLB.hostNamespaceOnly=true defaults so fresh worker pods on
+      # catalyst-omantel-biz-w2/w3 can resolve DNS on first-join.
+      # 1.3.0 (qa-loop iter-12 Fix #53C): Hubble UI HTTPRoute overlay +
+      # Cilium ClusterMesh LoadBalancer-typed Service shape.
+      version: 1.3.2
+      sourceRef:
+        kind: HelmRepository
+        name: bp-cilium
+        namespace: flux-system
+  # Event-driven install: Helm completes when manifests apply, not when
+  # cilium-agent reaches Ready (agent waits for envoyconfig CRDs that the
+  # SAME chart installs — legitimate slow-Ready). Replaces blanket
+  # spec.timeout: 15m band-aid from PR #221.
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3
+  values:
+    cilium:
+      # Enable L7 proxy so Cilium's chart installs the
+      # ciliumenvoyconfigs / ciliumclusterwideenvoyconfigs CRDs that the
+      # cilium-agent waits for at startup. Without this, agent crash-loops
+      # forever and the node.cilium.io/agent-not-ready taint never lifts.
+      l7Proxy: true
+      envoyConfig:
+        enabled: true
+      prometheus:
+        enabled: false
+        serviceMonitor:
+          enabled: false
+      hubble:
+        metrics:
+          enabled: null
+          serviceMonitor:
+            enabled: false
+        # qa-loop iter-12 Fix #53C: enable hubble-relay + hubble-ui so the
+        # Sovereign exposes the hubble.<sovereign-fqdn> network observability
+        # UI per matrix TC-289, TC-290.
+        relay:
+          enabled: true
+        ui:
+          enabled: true
+
+      # ── BGP Control Plane — multi-region peering / on-prem advertisement ─
+      # qa-loop iter-12 Fix #53C: matrix asserts BGPv2 control plane enabled
+      # (TC-349). Per ADR-0001 §9 the BGP control plane is the canonical
+      # path for Sovereign-to-customer-router prefix advertisement (e.g.
+      # advertising LoadBalancer VIPs / Pod CIDRs to the customer's existing
+      # core network). Enabling here is a chart-side flag; per-Sovereign
+      # CiliumBGPClusterConfig CRs are added by the operator post-bootstrap
+      # for each peer relationship.
+      bgpControlPlane:
+        enabled: true
+
+      # ── Cilium ClusterMesh — multi-region peering ──────────────────
+      #
+      # Per ADR-0001 §9 + EPIC-6 #1101 (multi-region active-hotstandby),
+      # ClusterMesh is the canonical inter-region transport for
+      # replication / Service-of-type-global traffic between Sovereign
+      # peer clusters. omantel-fsn is the original (cluster.id=1);
+      # omantel-hel is the Phase-2 peer (cluster.id=2 — see its own
+      # bootstrap-kit overlay).
+      #
+      # cluster.name + cluster.id are the per-Sovereign anchors. They
+      # MUST be unique within a mesh (1-255 range, 0 reserved). The
+      # mapping is registered in docs/CLUSTERMESH-CLUSTER-IDS.md and
+      # MUST be incremented in that table whenever a new peer joins.
+      #
+      # NodePort 32379: the in-cluster clustermesh-apiserver Pod is
+      # exposed via NodePort on every Cilium node so peers reach it
+      # over the Hetzner private network on `<cp-private-ip>:32379`
+      # WITHOUT requiring a Hetzner LoadBalancer per peer (LB count
+      # is project-quota'd). Hetzner firewall rule
+      # `clustermesh-apiserver` opens 32379/tcp from the peer
+      # Sovereigns' Hetzner network CIDRs only.
+      #
+      # qa-loop iter-12 Fix #53D — flip NodePort → LoadBalancer to escape
+      # the Hetzner cross-region NodePort-32379 stateful-firewall filter
+      # documented in qa-loop-state/incidents.md. Per
+      # feedback_no_mvp_no_workarounds.md "no operational hacks instead
+      # of chart fixes": NodePort 32379 was the workaround that triggered
+      # silent cross-region SYN drops; LoadBalancer (path-1) is the
+      # canonical multi-region transport. Hetzner CCM allocates a public
+      # LB IP per peer; quota allows headroom (was 1/5 used).
+      #
+      # PRECONDITION: Hetzner cloud-controller-manager (hcloud-ccm) must
+      # be installed AND each node's spec.providerID rewritten from
+      # `k3s://...` to `hcloud://<server-id>`. Without CCM the LB Service
+      # sits in `<pending>` indefinitely. The CCM bootstrap is tracked as
+      # a separate slot install (bootstrap-kit slot 00 — must run before
+      # cilium since cilium-agent reads providerID at startup). Until
+      # CCM is bootstrapped, the in-cluster clustermesh-apiserver remains
+      # reachable via the ClusterIP for intra-cluster traffic; only
+      # cross-region peering is unblocked when the LB IP materializes.
+      cluster:
+        name: omantel-fsn
+        id: 1
+      clustermesh:
+        useAPIServer: true
+        apiserver:
+          service:
+            # Path (1) per qa-loop-state/incidents.md remediation table.
+            type: LoadBalancer
+            # Hetzner LB allocation hints — fsn1 region matches the
+            # 4 omantel control-plane / worker nodes' location.
+            annotations:
+              load-balancer.hetzner.cloud/location: fsn1
+              load-balancer.hetzner.cloud/use-private-ip: "true"
+              load-balancer.hetzner.cloud/name: omantel-clustermesh-fsn
+
+    # ── Catalyst overlay templates (chart/templates/) ────────────────────
+    # qa-loop iter-12 Fix #53C: enable Hubble UI ingress per matrix TC-289.
+    # Hostname matches the matrix-asserted hubble.console.omantel.biz form
+    # (chroot uses .biz, omani.works for the original FQDN — both wildcards
+    # resolve to the same Sovereign Gateway listener via cert-manager
+    # *.omantel.biz issued cert).
+    catalystOverlay:
+      hubbleUI:
+        enabled: true
+        hostname: hubble.console.omantel.biz
+        gatewayRef:
+          name: cilium-gateway
+          namespace: cilium-gateway
+        # `none` until the Keycloak `hubble-ui` OIDC client is wired
+        # (Fix #53A bp-keycloak 1.5.0 realm rename pre-req); flip to
+        # `oidc` once the client lands in the omantel realm.
+        auth: none
+        serviceRef:
+          name: hubble-ui
+          namespace: kube-system
+          port: 80

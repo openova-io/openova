@@ -52,7 +52,7 @@
 # materialises on the active provider (Hetzner uses slot 34, HCS uses
 # slot 34a) without the duplicate. Refs #2737-followup.
 ---
-apiVersion: source.toolkit.fluxcd.io/v1
+apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
 metadata:
   name: bp-velero-hcs

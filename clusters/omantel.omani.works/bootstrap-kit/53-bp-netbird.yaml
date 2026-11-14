@@ -1,0 +1,96 @@
+# bp-netbird — Catalyst bootstrap-kit Blueprint slot 53. NetBird
+# WireGuard-based zero-trust mesh + remote-access overlay.
+#
+# Per ADR-0001 §3.2.8 + EPIC-5 leftovers slice NB #1100: NetBird is the
+# canonical operator/engineer remote-access path into Sovereign workloads
+# (replaces ad-hoc kubectl-port-forward + VPN tunnels).
+#
+# qa-loop iter-12 Fix #53C: matrix asserts the netbird namespace +
+# management/signal/coturn Deployments exist (TC-281, TC-282, TC-283,
+# TC-284). Without this slot the chart was authored but never installed.
+#
+# Wrapper chart: platform/netbird/chart/
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# dependsOn:
+#   - bp-cilium       — Pod network + Cilium Gateway for the HTTPRoute.
+#   - bp-cert-manager — TLS for netbird.<sovereign-fqdn>.
+#   - bp-keycloak     — OIDC issuer; realm-config-cli Job consumes the
+#                       chart's netbird-realm-patch ConfigMap.
+#   - bp-sealed-secrets — OIDC client + coturn auth secrets.
+#   - bp-nats-jetstream — audit-trail subject for peer-join/peer-leave.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: netbird
+  labels:
+    catalyst.openova.io/sovereign: omantel.omani.works
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-netbird
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-netbird
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: netbird
+  targetNamespace: netbird
+  dependsOn:
+    - name: bp-cilium
+    - name: bp-cert-manager
+    - name: bp-keycloak
+    - name: bp-sealed-secrets
+    - name: bp-nats-jetstream
+  chart:
+    spec:
+      chart: bp-netbird
+      # 0.1.1 (qa-loop iter-12 Fix #53C): pinned upstream image tags
+      # (netbirdio/management:0.34.0, signal:0.34.0, coturn:4.6.2) so
+      # the chart renders + installs without a CI mirror cycle. SHA-pin
+      # migration tracked separately.
+      version: 0.1.1
+      sourceRef:
+        kind: HelmRepository
+        name: bp-netbird
+        namespace: flux-system
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3
+  # Per-Sovereign overlay surface.
+  values:
+    netbird:
+      enabled: true
+      management:
+        domain: netbird.omantel.omani.works
+      coturn:
+        realm: netbird.omantel.omani.works
+      oidc:
+        issuer: https://keycloak.omantel.omani.works/realms/omantel
+        redirectURI: https://netbird.omantel.omani.works/
+        audience: netbird
+      httproute:
+        hostname: netbird.omantel.omani.works
+      realmConfig:
+        enabled: true
+        # Matches bp-keycloak 1.5.0 Sovereign realm name (qa-loop iter-12
+        # Fix #53A — realm renamed to per-Sovereign tenant short-name).
+        realm: omantel

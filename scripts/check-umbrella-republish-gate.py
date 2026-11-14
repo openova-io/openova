@@ -73,18 +73,6 @@ does not apply here).
 itself, templated `{{ .Chart.Version | quote }}`, correct-by-construction
 (see check-release-lockstep-writer.py's `umbrella` CONTROL case).
 
-The question above needs no base. A pull request, though, is judged on what
-it adds: `--base <ref>` (FND-020). On main a catalogue move and the umbrella
-release that carries it are separate commits minutes apart (the leaf release,
-then the bump of the job `umbrella-follow` in blueprint-release.yaml), so main
-itself fails this gate between them, and a pull request tested on that main
-must not fail for it. With `--base` the gate also evaluates that ref; a
-failure the base has too (same entry, same field, same version, same
-last-touching commit) is printed as INHERITED and does not count. On a pull
-request the base is HEAD^1, the main the change was merged onto. A change
-that moves a catalogue pin by hand rewrites its line, so blame names the
-change's own commit and the failure is new.
-
 Exit codes:
   0 — every non-templated catalog-seed pin's last-touching commit sits behind
       at least one umbrella version VALUE change (or there are zero
@@ -96,7 +84,7 @@ Exit codes:
       zero comparable entries found).
 
 Usage:
-  scripts/check-umbrella-republish-gate.py [--ref <ref>] [--base <ref>]
+  scripts/check-umbrella-republish-gate.py [--ref <ref>]
   scripts/check-umbrella-republish-gate.py --self-test
 
 Refs #5734 #817 #960
@@ -175,9 +163,8 @@ def _umbrella_version_value(text):
     return None
 
 
-def _evaluate(ref, err, repo_root, seed_path, umbrella_path):
-    """The failures of the gate at `ref`, as (failures, checked, entries,
-    umbrella version at ref), or an exit code 2 after printing the error."""
+def run(ref, out=sys.stdout, err=sys.stderr, repo_root=REPO_ROOT,
+        seed_path=SEED_PATH, umbrella_path=UMBRELLA_CHART_PATH):
     sync_mod = _load_sync_module()
 
     try:
@@ -316,34 +303,6 @@ def _evaluate(ref, err, repo_root, seed_path, umbrella_path):
         print("ERROR: zero comparable (static-version) catalog-seed entries were found — "
               "the guard would never be able to go red; refusing to report a vacuous PASS", file=err)
         return 2
-    return failures, checked, entries, umbrella_version_at_ref
-
-
-def _failure_key(f):
-    return (f["name"], f["kind"], f["version"], f["seed_commit"])
-
-
-def run(ref, out=sys.stdout, err=sys.stderr, repo_root=REPO_ROOT,
-        seed_path=SEED_PATH, umbrella_path=UMBRELLA_CHART_PATH, base=None):
-    result = _evaluate(ref, err, repo_root, seed_path, umbrella_path)
-    if isinstance(result, int):
-        return result
-    failures, checked, entries, umbrella_version_at_ref = result
-
-    # FND-020: with a base, a failure the base has too is inherited, not added.
-    inherited = []
-    if base is not None:
-        at_base = _evaluate(base, err, repo_root, seed_path, umbrella_path)
-        if isinstance(at_base, int):
-            return at_base
-        seen = {_failure_key(f) for f in at_base[0]}
-        inherited = [f for f in failures if _failure_key(f) in seen]
-        failures = [f for f in failures if _failure_key(f) not in seen]
-        for f in inherited:
-            print("  INHERITED %s %s = %r (blueprints.yaml:%d, last touched by commit %s): %s "
-                  "has the same failure; not added by this change (FND-020)" %
-                  (f["name"], f["kind"], f["version"], f["line"], f["seed_commit"][:12], base),
-                  file=out)
 
     if failures:
         print("FAIL: umbrella-republish gate (#5734) — %d catalog-seed pin(s) were last "
@@ -363,10 +322,6 @@ def run(ref, out=sys.stdout, err=sys.stderr, repo_root=REPO_ROOT,
             )
         return 1
 
-    if inherited:
-        print("PASS: umbrella-republish gate (#5734) — this change adds no failure; %d "
-              "inherited from %s (FND-020)." % (len(inherited), base), file=out)
-        return 0
     print("PASS: umbrella-republish gate (#5734) — checked %d catalog-seed pin(s) across "
           "%d Blueprint(s); the umbrella (now at %s) has been re-bumped at or after every "
           "one's last change, at %s." %
@@ -480,39 +435,9 @@ def _self_test():
                   "check would wrongly pass this" % rc_revert, file=sys.stderr)
             return 2
 
-        # FND-020, --base: main (here c5) already fails. A change on top that
-        # touches no pin inherits the failure and passes with --base; the same
-        # tree without --base still fails.
-        with open(os.path.join(tmp, "README.md"), "w") as fh:
-            fh.write("a change that touches no pin\n")
-        run_git("add", "-A")
-        run_git("commit", "-q", "-m", "c6: a change that touches no pin")
-        rc_inherited = run("HEAD", repo_root=tmp, seed_path=fixture_seed_path,
-                           umbrella_path=fixture_umbrella_path, base="HEAD^1")
-        rc_full = run("HEAD", repo_root=tmp, seed_path=fixture_seed_path,
-                      umbrella_path=fixture_umbrella_path)
-        if rc_inherited != 0 or rc_full != 1:
-            print("SELF-TEST FAIL: a change that touches no pin on a failing main should "
-                  "return exit 0 with --base (got %d) and exit 1 without it (got %d)"
-                  % (rc_inherited, rc_full), file=sys.stderr)
-            return 2
-
-        # FND-020, --base: a change that moves a catalogue pin by hand adds a
-        # failure of its own, on the same failing main.
-        write_seed("1.0.3")
-        run_git("add", "-A")
-        run_git("commit", "-q", "-m", "c7: a change that moves a catalogue pin by hand")
-        rc_added = run("HEAD", repo_root=tmp, seed_path=fixture_seed_path,
-                       umbrella_path=fixture_umbrella_path, base="HEAD^1")
-        if rc_added != 1:
-            print("SELF-TEST FAIL: a change that moves a catalogue pin should return exit 1 "
-                  "with --base (got %d)" % rc_added, file=sys.stderr)
-            return 2
-
         print("SELF-TEST PASS: synthetic RED (seed-only bump) -> exit 1; "
               "synthetic GREEN (umbrella catch-up) -> exit 0; "
-              "synthetic RED (revert-shape umbrella touch) -> exit 1; "
-              "--base: inherited failure -> exit 0, added failure -> exit 1.")
+              "synthetic RED (revert-shape umbrella touch) -> exit 1.")
         return 0
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -521,15 +446,13 @@ def _self_test():
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--ref", default="HEAD", help="git ref to check (default: HEAD)")
-    p.add_argument("--base", default=None,
-                   help="judge only the failures the change adds to this ref (FND-020)")
     p.add_argument("--self-test", action="store_true", help="run the synthetic vacuity check and exit")
     args = p.parse_args()
 
     if args.self_test:
         sys.exit(_self_test())
 
-    sys.exit(run(args.ref, base=args.base))
+    sys.exit(run(args.ref))
 
 
 if __name__ == "__main__":

@@ -1,0 +1,43 @@
+{{- /*
+ServiceMonitor — sandbox-controller metrics scrape (Wave 15, PR #1674).
+
+Targets the metrics Service that fronts the controller's :8080
+`/metrics` endpoint. The endpoint exposes every controller-runtime auto-
+instrumented metric AND the Wave 15 emitter
+`sandbox_controller_idle_timeout_events_total` (idlescaler/metrics.go).
+
+DEFAULT FALSE per docs/BLUEPRINT-AUTHORING.md §11.2 — Prometheus
+Operator (monitoring.coreos.com/v1) is NOT in the bootstrap-kit prior to
+slot 25 (kube-prometheus-stack), so a ServiceMonitor shipped enabled-by-
+default would generate Helm install errors on a Sovereign that hasn't
+reached Phase 2 yet. The `.Capabilities.APIVersions.Has` guard also
+skip-renders on a cluster where the CRD has not yet reconciled — pattern
+matches platform/harbor/chart/templates/servicemonitor.yaml.
+
+Per docs/INVIOLABLE-PRINCIPLES.md #4 every knob (interval, namespace,
+labels) is operator-tunable via the serviceMonitor.* values.
+*/}}
+{{- if and .Values.enabled .Values.serviceMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "sandbox.fullname" . }}
+  namespace: {{ default .Release.Namespace .Values.serviceMonitor.namespace }}
+  labels:
+    {{- include "sandbox.labels" . | nindent 4 }}
+    {{- with .Values.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "sandbox.selectorLabels" . | nindent 6 }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  endpoints:
+    - port: metrics
+      path: {{ .Values.serviceMonitor.path | default "/metrics" }}
+      interval: {{ .Values.serviceMonitor.interval | default "30s" }}
+      scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout | default "10s" }}
+{{- end }}

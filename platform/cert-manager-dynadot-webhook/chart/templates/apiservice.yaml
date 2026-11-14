@@ -1,0 +1,32 @@
+{{- if .Values.apiService.enabled }}
+# The APIService registration is what makes this Deployment look like
+# an aggregated apiserver to the kube-apiserver. cert-manager's DNS-01
+# ClusterIssuer issues a `ChallengeRequest` against
+# /apis/<groupName>/v1alpha1/challengerequests; without this APIService
+# entry, the kube-apiserver returns 404 and the issuer never reaches
+# this binary's Present/CleanUp.
+#
+# `cert-manager.io/inject-ca-from` is a cert-manager admission webhook
+# annotation: it watches the Certificate referenced and writes that
+# cert's CA chain into spec.caBundle so the kube-apiserver trusts the
+# webhook's serving cert. Without the injection the APIService stays
+# `False/Unhealthy` because the kube-apiserver cannot verify the TLS
+# handshake.
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1alpha1.{{ .Values.webhook.groupName }}
+  labels:
+    {{- include "bp-cert-manager-dynadot-webhook.labels" . | nindent 4 }}
+  annotations:
+    cert-manager.io/inject-ca-from: "{{ .Release.Namespace }}/{{ include "bp-cert-manager-dynadot-webhook.servingCertificate" . }}"
+spec:
+  group: {{ .Values.webhook.groupName }}
+  groupPriorityMinimum: {{ .Values.apiService.groupPriorityMinimum }}
+  versionPriority: {{ .Values.apiService.versionPriority }}
+  service:
+    name: {{ include "bp-cert-manager-dynadot-webhook.fullname" . }}
+    namespace: {{ .Release.Namespace }}
+    port: {{ .Values.service.port }}
+  version: v1alpha1
+{{- end }}

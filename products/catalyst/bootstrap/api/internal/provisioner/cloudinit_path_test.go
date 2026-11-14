@@ -164,46 +164,37 @@ func TestCloudInit_InfrastructurePathPointsAtTemplate(t *testing.T) {
 	}
 }
 
-// TestCloudInit_PostBuildSubstituteFQDN proves every inline Flux
-// Kustomization of the template substitutes SOVEREIGN_FQDN, which is
-// what makes the shared template tree usable per Sovereign. Without it
-// the manifests would render with the literal `${SOVEREIGN_FQDN}`
-// placeholder in label values, ingress hostnames and HelmRelease values
-// (issue #218).
-//
-// Since SOV-130 the value is no longer written inline on each
-// Kustomization. It lives once in the ConfigMap
-// flux-system/sovereign-variables, and every inline Kustomization reads
-// that ConfigMap through postBuild.substituteFrom. The test asserts
-// both halves: the ConfigMap carries the key with the OpenTofu variable
-// on its right-hand side, and no inline Kustomization is left without
-// the reference (the partial-fix regression of issue #218, in its new
-// shape).
+// TestCloudInit_PostBuildSubstituteFQDN proves both Kustomizations
+// declare a `postBuild.substitute.SOVEREIGN_FQDN: ${sovereign_fqdn}`
+// hook, which is what makes the shared template tree usable per-
+// Sovereign. Without this hook the manifests would render with the
+// literal `${SOVEREIGN_FQDN}` placeholder in label values, ingress
+// hostnames, and HelmRelease values — producing pods labelled
+// `catalyst.openova.io/sovereign=${SOVEREIGN_FQDN}` instead of the
+// actual FQDN, and console/admin/api ingress hostnames pointing at
+// `${SOVEREIGN_FQDN}` instead of the real DNS records.
 func TestCloudInit_PostBuildSubstituteFQDN(t *testing.T) {
 	tpl := readCloudInit(t)
 
-	// The ConfigMap holds the key. `${sovereign_fqdn}` is the OpenTofu
-	// template variable; OpenTofu interpolates it before the cloud-init
-	// userdata leaves the catalyst-api Pod.
+	// Cheap structural check: the substitute key must appear with the
+	// correct envsubst-style RHS that pulls the FQDN from the
+	// rendered cloud-init context. The `${sovereign_fqdn}` form is
+	// the OpenTofu template variable; OpenTofu interpolates it
+	// before the cloud-init userdata leaves the catalyst-api Pod.
 	const want = "SOVEREIGN_FQDN: ${sovereign_fqdn}"
 	if !strings.Contains(tpl, want) {
-		t.Errorf("the variables ConfigMap must include %q so ${SOVEREIGN_FQDN} placeholders in clusters/_template render correctly (issue #218)", want)
-	}
-	const cm = "name: sovereign-variables"
-	if !strings.Contains(tpl, "kind: ConfigMap") || !strings.Contains(tpl, cm) {
-		t.Fatalf("the template must write the ConfigMap flux-system/sovereign-variables (SOV-130)")
+		t.Errorf("Flux Kustomization postBuild.substitute must include %q so ${SOVEREIGN_FQDN} placeholders in clusters/_template render correctly (issue #218)", want)
 	}
 
-	// Every inline Flux Kustomization reads the ConfigMap. A segment is
-	// the text from one `kind: Kustomization` line to the next.
-	segs := strings.Split(tpl, "kind: Kustomization")
-	if len(segs) < 3 {
-		t.Fatalf("expected at least two inline Flux Kustomizations in the template, found %d", len(segs)-1)
-	}
-	for i, seg := range segs[1:] {
-		if !strings.Contains(seg, "substituteFrom:") || !strings.Contains(seg, cm) {
-			t.Errorf("inline Kustomization %d of %d does not read the ConfigMap sovereign-variables through postBuild.substituteFrom, so it would render ${SOVEREIGN_FQDN} unsubstituted (issue #218 partial-fix regression)", i+1, len(segs)-1)
-		}
+	// Both Kustomizations need the substitute, not just one. The
+	// presence-count is a defence against a partial-fix regression
+	// where one Kustomization gets the postBuild and the other
+	// doesn't (which would manifest as infrastructure-config
+	// rendering provider-hcloud manifests with literal
+	// `${SOVEREIGN_FQDN}` in labels).
+	count := strings.Count(tpl, want)
+	if count < 2 {
+		t.Errorf("expected SOVEREIGN_FQDN substitute on BOTH Kustomizations (got %d occurrences, want ≥2 — issue #218 partial-fix regression)", count)
 	}
 }
 

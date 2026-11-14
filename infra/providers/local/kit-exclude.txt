@@ -1,5 +1,0 @@
-# Releases that the reduced kit of the local provider pack leaves out.
-# One HelmRelease name per line; blank lines and lines starting with # are
-# skipped. scripts/generators/local-kit.py reads this file: a release named
-# here, and its slot file, are not in clusters/_template/providers/local/kit,
-# and no release that stays may depend on it.

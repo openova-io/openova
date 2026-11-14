@@ -99,7 +99,7 @@ compliancePolicies:
       - catalyst
       # 2026-06-13: ns `sme` is the operator's tenant-provisioning control
       # plane (provisioning/ferretdb/billing/marketplace/catalog) — same
-      # operator-trust tier as `catalyst`/`sso-bridge` already
+      # operator-trust tier as `catalyst`/`mgmt`/`rtz`/`sso-bridge` already
       # excluded. Its Deployments legitimately MIX a proxied util init
       # (alpine/k8s) with native openova-io main images; harbor-proxy-pull's
       # anyPattern requires per-pod homogeneity, so the mix is denied on
@@ -109,6 +109,20 @@ compliancePolicies:
       - kyverno
       - monitoring
       - ingress
+      # G84a/G87b #2637 (2026-06-01): the 3 vCluster syncer namespaces
+      # host upstream loft-sh/vcluster StatefulSets we don't own. Their
+      # Pod templates lack readOnlyRootFilesystem / runAsNonRoot /
+      # probes-present / per-region affinity etc. Without these excludes,
+      # Phase-2b bootstrapMode→false flip (post_handover_policy_enforce.go)
+      # cascades into vCluster admission denial → all 3 vClusters
+      # (dmz/mgmt/rtz) stuck Pending forever → dashboard vCluster
+      # grouping shows only "host" because vCluster syncers never start
+      # → Pillar 4 Sandbox (lives in vcluster) silently broken on every
+      # HCS Sovereign that successfully completed Phase 1.
+      # Verified live hw86 2026-06-01.
+      - dmz
+      - mgmt
+      - rtz
       # G109 #2705 (2026-06-01): bp-sso-bridge reconciler is single-writer
       # by design (parallel ticks would race the Keycloak Client upserts +
       # OpenBao secret writes). `multiReplica` / `pdb` / `topologySpread` /
@@ -419,8 +433,8 @@ compliancePolicies:
     action: Enforce
     # Substrate Blueprints — the canonical name set documented in
     # docs/DOD.md §A4. Operators MAY extend this list when shipping
-    # a custom substrate component (rare). A name leaves this list only
-    # when its chart is retired; every name here protects an A4 invariant.
+    # a custom substrate component (rare); MUST NOT shrink it because
+    # every name here protects an A4 invariant.
     substrateBlueprints:
       - bp-cilium
       - bp-flux
@@ -432,9 +446,20 @@ compliancePolicies:
       - bp-external-secrets
       - bp-cnpg
       - bp-cnpg-pair
+      - bp-mgmt-vcluster
+      - bp-dmz-vcluster
+      - bp-rtz-vcluster
       - bp-vcluster-helmrepo
-    # Per-namespace escape hatch. No namespace is exempt.
-    excludeNamespaces: []
+    # Per-namespace escape hatch. The 3 vCluster syncer namespaces
+    # (dmz/mgmt/rtz) legitimately host the bp-*-vcluster syncer
+    # StatefulSets — the syncers themselves land on host k3s via
+    # the bp-*-vcluster HR (which is itself substrate-on-host), but
+    # their namespaces are carved out so per-Sovereign overlays
+    # that re-deploy a syncer don't trip the policy.
+    excludeNamespaces:
+      - dmz
+      - mgmt
+      - rtz
 
   # #3971 — FORBID the ephemeral k3s local-path provisioner cluster-wide.
   # The founder mandate (verbatim): "make the local paths not default even

@@ -22,8 +22,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/lifecycle"
 )
 
 // exportDeploymentToChild ships the deployment record to the child's
@@ -206,7 +204,12 @@ func (h *Handler) exportSecondaryKubeconfigsToChild(dep *Deployment, fqdn, depID
 		}
 	}
 
-	client := currentSecondaryKubeconfigForwardClient()
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // child cert may be seconds behind handover, same rationale as exportDeploymentToChild
+		},
+	}
 	// Fan out one goroutine per secondary region. A slow region (whose
 	// CP cloud-init is still in flight) MUST NOT block another region
 	// that's already ready. The exec waits for all regions in a
@@ -224,9 +227,25 @@ func (h *Handler) exportSecondaryKubeconfigsToChild(dep *Deployment, fqdn, depID
 				)
 				return
 			}
-			// SOV-141: the body carries the region's handover-peer kubeconfig,
-			// not its parent-bootstrap kubeconfig, and the #3991 node address.
-			h.postSecondaryKubeconfigWithRetry(client, url, lifecycle.ForwardBody(dir, depID, regionKey, raw), depID, regionKey)
+			payload := map[string]string{
+				"deploymentId":   depID,
+				"regionKey":      regionKey,
+				"kubeconfigYaml": string(raw),
+			}
+			// #3991 — replay the secondary CP's private node IP (if the
+			// CP supplied one and we stashed it as a sidecar) so the
+			// chroot can rewrite the kubeconfig's server host from the
+			// VPC-external EIP to the VPC-peered private IP it can route
+			// to. Best-effort: a missing sidecar means the chroot keeps
+			// the EIP (pre-#3991 behaviour).
+			clusterID := depID + "-" + regionKey
+			if ipRaw, ierr := os.ReadFile(nodeIPSidecarPath(dir, clusterID)); ierr == nil {
+				if ip := strings.TrimSpace(string(ipRaw)); ip != "" {
+					payload["nodeInternalIp"] = ip
+				}
+			}
+			body, _ := json.Marshal(payload)
+			h.postSecondaryKubeconfigWithRetry(client, url, body, depID, regionKey)
 		}(regionKey)
 	}
 	wg.Wait()
@@ -568,8 +587,19 @@ func (h *Handler) reforwardSecondaryKubeconfigsToChild(dep *Deployment) {
 			)
 			continue
 		}
-		// SOV-141: the same body as the hand-over export (lifecycle.ForwardBody).
-		h.postSecondaryKubeconfigWithRetry(client, url, lifecycle.ForwardBody(dir, depID, regionKey, raw), depID, regionKey)
+		payload := map[string]string{
+			"deploymentId":   depID,
+			"regionKey":      regionKey,
+			"kubeconfigYaml": string(raw),
+		}
+		clusterID := depID + "-" + regionKey
+		if ipRaw, ierr := os.ReadFile(nodeIPSidecarPath(dir, clusterID)); ierr == nil {
+			if ip := strings.TrimSpace(string(ipRaw)); ip != "" {
+				payload["nodeInternalIp"] = ip
+			}
+		}
+		body, _ := json.Marshal(payload)
+		h.postSecondaryKubeconfigWithRetry(client, url, body, depID, regionKey)
 	}
 }
 

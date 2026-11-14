@@ -1,0 +1,26 @@
+{{- /*
+Service exposing the controller-runtime metrics port (:8080) so a
+ServiceMonitor can scrape `sandbox_controller_idle_timeout_events_total`
+(Wave 15, PR #1674 follow-up) and every other controller-runtime
+auto-instrumented metric.
+
+Skipped when the chart is disabled (the Deployment is also skipped).
+*/ -}}
+{{- if .Values.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "sandbox.fullname" . }}-metrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sandbox.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "sandbox.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: metrics
+      protocol: TCP
+{{- end }}

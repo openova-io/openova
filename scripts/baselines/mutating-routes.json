@@ -1,3 +1,0 @@
-{"schema": "openova.io/guard-baseline/v1",
- "counts": {"open_cluster_writers": {"docs/contracts/C9-mutating-routes.yaml": 40}},
- "allow": []}

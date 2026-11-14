@@ -21,7 +21,7 @@ name: bp-nats-jetstream
 # `reloader.merge.resources` + `natsBox.container.merge.resources`. Satisfies
 # the cluster-wide Kyverno `resource-requests` Enforce policy now that #4325
 # installs this chart into the native host namespace (not a vCluster).
-version: 1.3.6
+version: 1.3.5
 description: |
   Catalyst-curated Blueprint umbrella chart for NATS JetStream. Depends
   on TWO upstream subcharts:

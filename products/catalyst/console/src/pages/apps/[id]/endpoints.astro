@@ -1,0 +1,34 @@
+---
+// G117.3 — Endpoints tab (Astro shell at standalone URL).
+import Layout from '../../../layouts/Layout.astro';
+import PortalShell from '../../../components/PortalShell.svelte';
+import EndpointsRoute from '../../../routes/apps/[id]/endpoints/+page.svelte';
+
+export function getStaticPaths() {
+  return [
+    { params: { id: '8a1e9bf2-7c4d-4b3a-9f1e-2c5a8d3f6e0a' } },
+    { params: { id: 'mock-app-1' } },
+    { params: { id: 'mock-instance-1' } },
+    { params: { id: 'mock-instance-2' } },
+    { params: { id: 'mock-instance-3' } },
+    { params: { id: 'mock-instance-4' } },
+    { params: { id: 'mock-instance-5' } },
+  ];
+}
+
+const { id } = Astro.params;
+const appId = (id ?? '') as string;
+---
+<Layout title={`Endpoints · ${appId}`}>
+  <PortalShell
+    title="Endpoints"
+    breadcrumbs={[
+      { label: 'Applications', href: '/' },
+      { label: appId, href: `/apps/${appId}` },
+      { label: 'Endpoints' },
+    ]}
+    client:load
+  >
+    <EndpointsRoute appId={appId} client:load />
+  </PortalShell>
+</Layout>

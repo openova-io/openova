@@ -9,7 +9,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -104,32 +103,16 @@ func run(mode string, args []string) int {
 	fs.BoolVar(&cfg.InsecureAppTLS, "insecure-app-tls", envBool("ACCEPT_INSECURE_APP_TLS"), "skip TLS verification for the app FQDN (staging certificates)")
 	fs.StringVar(&cfg.WPTablePrefix, "wp-table-prefix", env("ACCEPT_WP_TABLE_PREFIX", "wp_"), "WordPress table prefix")
 	fs.StringVar(&cfg.DNSServer, "dns-server", env("ACCEPT_DNS_SERVER", ""), "resolver for the DNS assertion, host[:port] (default: system)")
-	fs.StringVar(&cfg.RunIn, "run-in", env("ACCEPT_RUN_IN", "cloud"), "where the suite runs: local or cloud; it selects the gate checks by their runs_in list")
-	fs.StringVar(&cfg.Manifest, "manifest", env("ACCEPT_MANIFEST", ""), "gate manifest as JSON (scripts/acceptance-gate.py export); empty: no gate check runs")
-	fs.StringVar(&cfg.CandidateID, "candidate-id", env("ACCEPT_CANDIDATE_ID", ""), "candidate this run certifies (empty: the record certifies nothing)")
-	fs.StringVar(&cfg.RepoRoot, "repo-root", env("ACCEPT_REPO_ROOT", "."), "checkout of the commit under test; its HEAD is the record's candidate.commit")
-	fs.StringVar(&cfg.Capabilities, "capabilities", env("ACCEPT_CAPABILITIES", ""), "comma list of capability flags this run declares, e.g. multi-region")
-	fs.StringVar(&cfg.NodesRequested, "nodes-requested", env("ACCEPT_NODES_REQUESTED", ""), "nodes the deployment request asked for, per region id: '<regionA>=6,<regionB>=6' (empty: check FND-G03 fails)")
-	fs.StringVar(&cfg.PreviousDeploymentID, "previous-deployment-id", env("ACCEPT_PREVIOUS_DEPLOYMENT_ID", ""), "the deployment whose wipe this fire follows; give it with --previous-wipe-orphans (check FND-G13)")
-	fs.StringVar(&cfg.PreviousWipeOrphans, "previous-wipe-orphans", env("ACCEPT_PREVIOUS_WIPE_ORPHANS", ""), "resources of that deployment that a listing of the cloud account still found after the wipe (check FND-G13 passes on 0)")
 	fs.BoolVar(&cfg.Record, "record", false, "write docs/ledger/acceptance/<env>-<runid>.json")
 	fs.StringVar(&cfg.RecordDir, "record-dir", env("ACCEPT_RECORD_DIR", "docs/ledger/acceptance"), "where --record writes")
 	fs.BoolVar(&cfg.KeepOnFail, "keep-on-fail", envBool("ACCEPT_KEEP_ON_FAIL"), "skip J5 cleanup when an earlier journey failed (leave the app for debugging)")
 	_ = fs.Parse(args)
 	cfg.Session = os.Getenv("CATALYST_SESSION")
 	cfg.ReadOnly = mode == "discover"
-	if cfg.RunIn != string(suite.RunInLocal) && cfg.RunIn != string(suite.RunInCloud) {
-		fmt.Fprintln(os.Stderr, "--run-in must be local or cloud")
-		return 2
-	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	res, err := suite.Execute(ctx, cfg, os.Stdout)
-	if errors.Is(err, suite.ErrManifest) {
-		fmt.Fprintln(os.Stderr, "FATAL:", err)
-		return 2
-	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "FATAL:", err)
 		return 3

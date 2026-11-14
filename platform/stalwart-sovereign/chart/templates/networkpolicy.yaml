@@ -7,14 +7,11 @@ ADR-0001 multi-tenant isolation). Explicit allows:
       traffic via the LoadBalancer Service).
     - HTTP 8080 (admin API) from the catalyst-system namespace
       (catalyst-api PIN-mail send) AND from this chart's release
-      namespace (setup Job + ops port-forward path).
+      namespace (post-install Job + ops port-forward path).
   Egress:
     - DNS (port 53 anywhere — name resolution for outbound delivery).
     - SMTP port 25 to anywhere (outbound MX delivery).
-    - K8s API server (the setup Job's mirror-Secret writes).
-    - HTTP 8080 (admin API) to this chart's own pods. The setup Job's pod
-      carries the selector labels, so this policy selects it too; without
-      this rule it could never reach the admin API.
+    - K8s API server (the post-install Job's mirror-Secret writes).
 */}}
 {{- if and .Values.stalwart.enabled .Values.networkPolicy.enabled }}
 apiVersion: networking.k8s.io/v1
@@ -68,18 +65,10 @@ spec:
           port: 587
         - protocol: TCP
           port: 465
-    # K8s API server (setup Job mirror-Secret writes).
+    # K8s API server (post-install Job mirror-Secret writes).
     - ports:
         - protocol: TCP
           port: 443
         - protocol: TCP
           port: 6443
-    # Admin API of this chart's own server (the setup Job's calls).
-    - to:
-        - podSelector:
-            matchLabels:
-              {{- include "bp-stalwart-sovereign.selectorLabels" . | nindent 14 }}
-      ports:
-        - protocol: TCP
-          port: 8080
 {{- end }}

@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
@@ -579,10 +578,9 @@ func TestReceiveTofuArchive_FiresCutoverEngineOnSeal(t *testing.T) {
 	h.SetOpenBao(c)
 
 	// A deps factory so cutoverDepsFor() succeeds (a Sovereign WITH the
-	// cutover chart installed). The engine seam does not use the fake
-	// clientset; the hand-over phase is written to it (SOV-180).
+	// cutover chart installed). The fake clientset is unused by the seam.
 	h.SetCutoverDepsFactory(func() (*cutoverDeps, error) {
-		return &cutoverDeps{core: fake.NewSimpleClientset(), ns: "catalyst"}, nil
+		return &cutoverDeps{ns: "catalyst"}, nil
 	})
 
 	// Engine seam: record every call (source + count) under a mutex and

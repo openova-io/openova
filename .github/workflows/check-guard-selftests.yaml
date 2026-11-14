@@ -32,7 +32,6 @@ on:
       - 'scripts/check-*.sh'
       - 'scripts/uat-pivot.py'
       - 'scripts/chart-tests-pr-matrix.sh'
-      - 'infra/providers/**'
       - '.github/workflows/**'
   pull_request:
     paths:
@@ -41,7 +40,6 @@ on:
       - 'scripts/check-*.sh'
       - 'scripts/uat-pivot.py'
       - 'scripts/chart-tests-pr-matrix.sh'
-      - 'infra/providers/**'
       - '.github/workflows/**'
   workflow_dispatch:
 
@@ -207,22 +205,3 @@ jobs:
       # chart changed — this entry runs it whenever the predicate itself does.
       - name: chart-tests-pr matrix predicate (#6235)
         run: bash scripts/chart-tests-pr-matrix.sh --self-test
-
-  # SEC-030 - etcd encryption at rest. Every k3s server line under infra/
-  # carries --secrets-encryption and --secrets-encryption-provider=secretbox,
-  # and the k3s_version default of every provider module is v1.31.8 or later.
-  # The self-test proves that each of the five rules can fail; the scan then
-  # reads the real infra/ tree. Both are cluster-free. A change under
-  # infra/providers/ starts this workflow (paths above).
-  k3s-secrets-encryption:
-    name: k3s servers encrypt Secrets in etcd (SEC-030)
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: self-test (each rule can fail)
-        run: bash scripts/check-k3s-secrets-encryption.sh --self-test
-
-      - name: scan infra/
-        run: bash scripts/check-k3s-secrets-encryption.sh

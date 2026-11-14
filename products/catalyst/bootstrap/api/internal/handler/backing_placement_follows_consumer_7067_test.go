@@ -28,7 +28,7 @@ func TestCreateInstance_BackingFollowsConsumerRegions_7067(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("SOVEREIGN_REGIONS", "") // the probe says single-region
-			h, dyn := newTestHandlerWithEndpoint(t)
+			h, _, dyn := newTestHandlerWithEndpoint(t)
 			h.SetCatalogClient(newFakeCatalog(
 				shareablePostgresCatalog().byKey["bp-postgres@0.1.6"],
 				fakeBlueprintInCatalog("wordpress", []map[string]interface{}{}, true, []string{"singleton", "active-hot-standby"}).byKey["wordpress@1.0.0"],

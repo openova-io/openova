@@ -29,11 +29,6 @@ on:
       - 'core/services/shared/auth/**'
       - '.github/workflows/build-openova-mcp.yaml'
     branches: [main]
-  pull_request:
-    paths:
-      - 'products/openova-mcp/**'
-      - 'core/services/shared/auth/**'
-      - '.github/workflows/build-openova-mcp.yaml'
   workflow_dispatch:
 
 env:
@@ -67,10 +62,7 @@ jobs:
           APPVER=$(grep -E '^appVersion:' products/openova-mcp/chart/Chart.yaml | head -1 | sed -E 's/appVersion:[[:space:]]*"?([^"]+)"?/\1/')
           echo "app_version=${APPVER}" >> "$GITHUB_OUTPUT"
 
-      # Publish steps run only on a push to main (FND-051). Every other run
-      # builds, tests and smoke-tests the image and pushes nothing.
       - name: Login to GHCR
-        if: github.event_name == 'push'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -125,7 +117,6 @@ jobs:
           echo "FAIL: /healthz never served"; docker logs mcp-smoke; docker rm -f mcp-smoke; exit 1
 
       - name: Push image (only after smoke gate is green)
-        if: github.event_name == 'push'
         run: |
           set -euo pipefail
           for TAG in \

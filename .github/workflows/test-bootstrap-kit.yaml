@@ -296,11 +296,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            # FND-020: the checkout is the merge of main and the branch, so
-            # HEAD^1 is the main the change was merged onto. A drift that
-            # main already has there (between the two commits of a release)
-            # is printed as INHERITED and does not fail this pull request.
-            base="$(git rev-parse HEAD^1)"
+            base="${{ github.event.pull_request.base.sha }}"
             echo "Running --changed-only against base ${base}"
             bash scripts/check-bootstrap-kit-pin-sync.sh --changed-only --base "${base}"
           else
@@ -342,25 +338,14 @@ jobs:
         # source (chainedCatalogClient falls straight through to it) — so
         # this is a real delivery gap, not a cosmetic one.
         #
-        # Per catalog-seed pin, blame finds the commit that last wrote it,
+        # No `--base` plumbing needed (unlike the pin-sync audit above):
+        # per catalog-seed pin, blame finds the commit that last wrote it,
         # and the umbrella's version VALUE right before that commit is
-        # compared against the umbrella's version VALUE now. Runs on every
-        # event — PR-time (blocking), push (observational, same
-        # continue-on-error umbrella as the audit above), and the #4409
-        # hourly schedule sweep (fail-loud, not excused). FND-020: on a pull
-        # request it is judged against HEAD^1, the main the change was merged
-        # onto; a failure main already has there (a catalogue move whose
-        # umbrella release has not landed yet) is printed as INHERITED and
-        # does not fail the pull request. Its self-test runs first; it prints
-        # its fixtures' FAIL lines, so only its own verdict (stderr) is kept.
-        run: |
-          set -euo pipefail
-          python3 scripts/check-umbrella-republish-gate.py --self-test > /dev/null
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            python3 scripts/check-umbrella-republish-gate.py --ref HEAD --base HEAD^1
-          else
-            python3 scripts/check-umbrella-republish-gate.py --ref HEAD
-          fi
+        # compared against the umbrella's version VALUE now. Runs the same
+        # way on every event — PR-time (blocking), push (observational,
+        # same continue-on-error umbrella as the audit above), and the
+        # #4409 hourly schedule sweep (fail-loud, not excused).
+        run: python3 scripts/check-umbrella-republish-gate.py --ref HEAD
 
   manifest-validation:
     # Static-only validation: blueprint.yaml + chart Chart.yaml + clusters/_template

@@ -63,17 +63,6 @@ global:
   # (gitops.cnpgStorageClass) so the legacy contabo/Hetzner path is
   # unchanged (NO-REGRESS).
   cloudProvider: ""
-  # cloud — the provider pack and the installation of the Sovereign that the
-  # catalyst-api runs on (contract C2: infra/providers/<pack>/profile.yaml).
-  # Rendered into the catalyst-api env CLOUD_PROVIDER and CLOUD_INSTALLATION,
-  # which cloudprofile.ForSovereign reads. provider: the pack name; the
-  # bootstrap-kit slot 13 sets it from the ${PROVIDER} substitute. installation:
-  # metadata.name of the installation document, kept in the ConfigMap
-  # catalyst-system/cloud-installation-<name>; empty = the pack profile alone.
-  # global.cloudProvider above is the provisioning service's own value.
-  cloud:
-    provider: ""
-    installation: ""
 
 # ─── Multi-region control-plane edge (issue #5289) ─────────────────────
 # On a 2-region Sovereign the control plane (catalyst-api / catalyst-ui /
@@ -570,9 +559,9 @@ images:
     # new chart emits only the new name, so handoverSigner never
     # initialises and /api/v1/auth/pin/issue returns 503 "handover
     # signer unavailable". ff778a36 reads both names with fallback.
-    tag: "ec35a66"
+    tag: "hw307-b98777d"
   catalystUi:
-    tag: "ec35a66"
+    tag: "hw307-2e1d885"
   # 2026-08-11 (#5451): marketplaceApi / console / admin were ALL frozen at
   # "3c2f7e4" (2026-04-28) for three and a half months. Their build workflows
   # sed-ed the `image:` line of their chart template; 83ec889f0 (PR #580,
@@ -634,7 +623,7 @@ images:
   # (verified live on g8mail). 903eed4 is the image built from main AFTER
   # #4390 merged — it carries #4387 (per-Org <slug>/catalyst-tenant commit) for
   # the HR-app path too. Pin it so the cart HR apps land in the per-Org repo.
-  orgTag: "e39991e"
+  orgTag: "3b7690b"
   # Marketplace storefront image tag (the `marketplace` frontend, distinct from
   # the `marketplaceApi` backend). Bumped by .github/workflows/marketplace-build.yaml
   # on every push to core/marketplace/**. Kept as a flat, uniquely-named field
@@ -644,7 +633,7 @@ images:
   # templates/org-services/marketplace.yaml, which now honours global.imageRegistry
   # for the #4885 cutover step-07 pivot (mirrors the 9 templated org-services
   # siblings + ui-deployment.yaml's #4563 split).
-  marketplaceTag: "fe2792b"
+  marketplaceTag: "hw307-2e1d885"
 
 # ─── Runtime service coordinates (qa-loop iter-1, cluster
 # `catalyst-runtime-config-missing`) ────────────────────────────────────
@@ -808,7 +797,7 @@ controllers:
       # re-apply, NOT the sweep). 89993b2 is a direct DESCENDANT of b23af68 so it
       # CONTAINS the #4393 Guaranteed-QoS LimitRange fix AS WELL AS #4455 + #4462.
       # Durable fix to the deploy-bump whole-file clobber tracked in #4464.
-      tag: "fe4478c"
+      tag: "hw307-f6ef148"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -943,7 +932,7 @@ controllers:
       # 0c717f6 (2026-07-02, #4685) — freshness sweep: 8c532a7 had drifted 311
       # commits behind latest GHCR (0c717f6), surfaced the moment #4685 un-masked
       # the blanket false-red. Image published + main-reachable (verified).
-      tag: "fe4478c"
+      tag: "03bcc36"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -995,7 +984,7 @@ controllers:
       # successful push-on-main build per Inviolable Principle #4a.
       # 34ff594 (2026-06-21, #4053) — freshness sweep on the console-gateway-
       # isolation PR: 01db043 had drifted 437 commits behind latest GHCR.
-      tag: "fe4478c"
+      tag: "03bcc36"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -1033,7 +1022,7 @@ controllers:
       # 6d7aacd (2026-06-24, #4236) — freshness sweep on the funnel pool-DNS PR:
       # 34ff594 had drifted 183 commits behind latest GHCR (no code change here,
       # just clearing the staleness gate so the chart ships the current binary).
-      tag: "fe4478c"
+      tag: "hw307-bc282a6"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -1102,7 +1091,7 @@ controllers:
       # #2851 closed the drift gap (auto-bump + sweep + freshness guard).
       # 34ff594 (2026-06-21, #4053) — freshness sweep on the console-gateway-
       # isolation PR: 01db043 had drifted 437 commits behind latest GHCR.
-      tag: "fe4478c"
+      tag: "03bcc36"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -1291,7 +1280,7 @@ services:
 # bp-catalyst-platform umbrella values
 #
 # As of 1.1.9 this umbrella ships ONLY the Catalyst-Zero control-plane
-# workloads (catalyst-ui, catalyst-api, Sovereign
+# workloads (catalyst-ui, catalyst-api, ProvisioningState CRD, Sovereign
 # HTTPRoute). The 10 foundation Blueprints (cilium, cert-manager, flux,
 # crossplane, sealed-secrets, spire, nats-jetstream, openbao, keycloak,
 # gitea) are installed independently by clusters/_template/bootstrap-kit/
@@ -1304,6 +1293,22 @@ services:
 # Flux HelmReleases under separate namespaces (bp-keycloak →
 # `keycloak`, bp-gitea → `gitea`), the collision is gone and the
 # overrides are unnecessary.
+
+# ProvisioningState CRD — the canonical persistence shape for Sovereign
+# provisioning runs (issue #88). Keeps observability of in-flight wizard
+# runs on the K8s plane (`kubectl get provisioningstates -A`) in addition
+# to the catalyst-api Pod's local flat-file store at
+# /var/lib/catalyst/deployments. The two stores compose: the flat file is
+# authoritative (full event log, fsync-rename atomic), the CRD is the
+# coarse-grained projection (state machine pending → ... → ready | failed)
+# that operators and sibling controllers consume.
+provisioningState:
+  crd:
+    # Default true: the CRD is part of the bp-catalyst-platform contract.
+    # Disable only if the cluster has the CRD installed by an out-of-band
+    # mechanism (test envtest harness, sibling Catalyst instance) and a
+    # second install would conflict.
+    enabled: true
 
 # ─── catalyst-api runtime config ──────────────────────────────────────────
 # Knobs the api-deployment.yaml template threads as env vars. Empty values
@@ -2875,49 +2880,3 @@ migrations:
     dryRun: false
     serviceAccountName: catalyst-application-migrator
     image: ghcr.io/openova-io/catalyst-migrator:0.1.0
-
-# ── Intent lock (templates/intent-lock/) ─────────────────────────────────
-# stages.<stage>: the action of the stage's binding catalyst-intent-lock-<stage>,
-# audit (count and warn, reject nothing) or deny (reject). Every stage starts
-# at audit; a stage moves to deny only in the change planned for it, never
-# back (guard scripts/check-lock-stages.py). resources.<stage>: the kinds of
-# the stage. A new stage is one entry in each map and one baseline line.
-intentLock:
-  stages:
-    applications: audit
-    organizations: audit
-    access: audit
-    environments: audit
-    policy: audit
-    blueprints: audit
-    topology: audit
-    flux: audit
-  resources:
-    applications:
-      - apiGroup: apps.openova.io
-        resources: [applications]
-    organizations:
-      - apiGroup: orgs.openova.io
-        resources: [organizations]
-    access:
-      - apiGroup: access.openova.io
-        resources: [useraccesses]
-    environments:
-      - apiGroup: catalyst.openova.io
-        resources: [environments]
-    policy:
-      - apiGroup: catalyst.openova.io
-        resources: [environmentpolicies]
-    blueprints:
-      - apiGroup: catalyst.openova.io
-        resources: [blueprints]
-    topology:
-      - apiGroup: dr.openova.io
-        resources: [continuums, cnpgpairs]
-    flux:
-      - apiGroup: source.toolkit.fluxcd.io
-        resources: [gitrepositories, helmrepositories, ocirepositories]
-      - apiGroup: kustomize.toolkit.fluxcd.io
-        resources: [kustomizations]
-      - apiGroup: helm.toolkit.fluxcd.io
-        resources: [helmreleases]

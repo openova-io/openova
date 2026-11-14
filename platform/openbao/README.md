@@ -15,7 +15,7 @@ OpenBao is a Linux Foundation project forked from HashiCorp Vault after HashiCor
 OpenBao provides centralized secrets management with:
 - Secrets stored securely outside of Git (Git holds only `ExternalSecret` references).
 - **Independent Raft cluster per region** (no stretched cluster).
-- An independent OpenBao per region with peer push: the primary region writes the shared material of a multi-region Application into the OpenBao of every region.
+- Asynchronous Performance Replication from primary region to standbys.
 - Integration with External Secrets Operator (ESO).
 - Workload authentication via Kubernetes ServiceAccount TokenReview (short-lived, auto-rotating tokens); pod-to-pod transport encrypted by Cilium WireGuard. (SPIFFE/SPIRE SVID issuance is deferred — PR #665.)
 
@@ -23,7 +23,7 @@ OpenBao provides centralized secrets management with:
 
 ## Architecture: independent Raft per region (NOT a stretched cluster)
 
-Each region runs its **own** OpenBao. Today that is one member (`replicas: 1` in `clusters/_template/bootstrap-kit/08-openbao.yaml`), not three. Region failures are independent failure domains. Between regions peer push is wired: the primary region writes the shared material of a multi-region Application into the OpenBao of each region (`peerTrust` in `chart/values.yaml`). On a Sovereign with a hot standby (the topology `active-hotstandby` or `active-active`), the bootstrap-kit slot also turns on a snapshot copy through object storage (`snapshotReplication`): every ten minutes the primary region saves a snapshot of its OpenBao, and the other region fetches it onto a staging volume without restoring it. OpenBao does not replicate between the clusters of two regions.
+Each region runs its **own** 3-node Raft cluster. Quorum is **intra-region only** — region failures are independent failure domains. Cross-region replication is asynchronous Performance Replication from primary → secondaries.
 
 ```mermaid
 flowchart TB
@@ -45,8 +45,8 @@ flowchart TB
         KS3[K8s Secret]
     end
 
-    V1 -.->|"peer push"| V2
-    V1 -.->|"peer push"| V3
+    V1 -.->|"async perf replication"| V2
+    V1 -.->|"async perf replication"| V3
     V1 -->|"local read"| ES1
     V2 -->|"local read"| ES2
     V3 -->|"local read"| ES3
@@ -58,7 +58,7 @@ flowchart TB
 **Key design** (canonical in [`docs/SECURITY.md`](../../docs/SECURITY.md) §5):
 - **Independent Raft per region.** No cross-region quorum. A whole-region failure does NOT block any other region.
 - **Single-primary writes.** Rotations and new-secret writes go to the primary OpenBao only.
-- **Peer push, not replication.** The primary region writes shared material into the OpenBao of every region. On a Sovereign with a hot standby, a snapshot of the primary region's OpenBao is also copied through object storage to the other region, and it is not restored there.
+- **Async perf replication.** Lag <1s typical; replicas serve reads at sub-10ms latency.
 - **Explicit DR promotion.** Either `sovereign-admin`-approved or automated via failover-controller (with strict criteria — not on every blip).
 - **Apps read locally.** Each region's ExternalSecret pulls from its local OpenBao replica.
 - **No SOPS.** Plaintext never in Git.
@@ -113,7 +113,7 @@ injector:
 
 ### ClusterSecretStore (local read)
 
-Each region defines ONE ClusterSecretStore pointing at its local OpenBao replica. Apps in any region read from their local replica only. A value that every region needs is written into the OpenBao of each region by peer push; OpenBao does not replicate it.
+Each region defines ONE ClusterSecretStore pointing at its local OpenBao replica. Apps in any region read from their local replica only — replication delivers post-write values within seconds.
 
 ```yaml
 apiVersion: external-secrets.io/v1beta1
@@ -137,7 +137,7 @@ spec:
 
 ### Writes go to the primary region
 
-Secret rotations, new-secret creates, and policy updates target the **primary** OpenBao only. The OpenBao of another region accepts from the primary region only writes under the peer-push subtree (`peerTrust.kvPathPrefix` in `chart/values.yaml`). The ESO `PushSecret` is configured to point at the primary's ClusterSecretStore explicitly:
+Secret rotations, new-secret creates, and policy updates target the **primary** OpenBao only. Replicas refuse writes (Performance Replication is one-way: primary → standby). The ESO `PushSecret` is configured to point at the primary's ClusterSecretStore explicitly:
 
 ```yaml
 apiVersion: external-secrets.io/v1alpha1
@@ -195,12 +195,12 @@ If the primary region fails, a replica is explicitly promoted (sovereign-admin a
 ## Bootstrap Procedure
 
 1. Catalyst bootstrap (Phase 0 of Sovereign provisioning) deploys OpenBao as **independent Raft cluster per region** (no stretched cluster — see [`docs/SECURITY.md`](../../docs/SECURITY.md) §5).
-2. **Unseal flow (chart v1.2.0+):** Cloud-init on the control-plane node writes a 32-byte recovery seed into the Secret `openbao-recovery-seed` in the `openbao` namespace. The bp-openbao Helm chart's post-install init Job (hook weight 5) runs `bao operator init` with one key share and a threshold of one, on the Shamir seal; the `-recovery-shares` form never worked with this seal. The Job keeps the one unseal key in the Secret `openbao-unseal-keys` and writes the first root token into the Secret `openbao-root-token`, both in the `openbao` namespace (`chart/templates/init-job.yaml`). The auth-bootstrap Job of step 3 revokes that root token at the end of its run and then tries to delete the Secret `openbao-root-token`; when the delete fails it logs a warning and the Secret stays (`chart/templates/auth-bootstrap-job.yaml`). After a pod restart the unseal reconciler unseals OpenBao with the key from `openbao-unseal-keys`, without sovereign-admin intervention. Set `autoUnseal.enabled=true` (default off; cluster overlay flips it on per-Sovereign).
+2. **Auto-unseal flow (issue #316, chart v1.2.0+):** Cloud-init on the control-plane node generates a 32-byte recovery seed, writes it to a single-use K8s Secret `openbao-recovery-seed` in the `openbao` namespace. The bp-openbao Helm chart's post-install init Job (hook weight 5) consumes the seed, calls `bao operator init -recovery-shares=1 -recovery-threshold=1`, persists the recovery key inside OpenBao's auto-unseal config, and deletes the seed Secret on success. The recovery key + root token live ONLY inside OpenBao's Raft state — never in a K8s Secret. Subsequent pod restarts unseal automatically without sovereign-admin intervention. Set `autoUnseal.enabled=true` (default off; cluster overlay flips it on per-Sovereign).
 3. **Kubernetes auth bootstrap (issue #316):** A second post-install Job (hook weight 10) enables the Kubernetes auth method and mounts kv-v2 at `secret/`. Since 1.2.72 it writes only one policy and one role, `openbao-config-admin` (see below). Configure under `autoUnseal.kubernetesAuth.*`.
 3a. **Declarative configuration (1.2.72, ADR-0015, Refs #7067):** every ACL policy, auth role, auth mount and identity object the chart needs is desired state in ConfigMap `openbao-config-desired` (`chart/templates/_config.tpl`). The `openbao-config` Deployment applies it every 60 s, idempotently (`chart/files/openbao-config-reconcile.sh`). It logs in as k8s-auth role `openbao-config-admin`, whose policy covers configuration surfaces only: no secret data, no `sys/raw`, no seal, no delete, and it cannot rewrite its own grant. A chart bump is therefore the whole change; there is no manual root step.
     - **How the role is kept current:** the auth-bootstrap hook re-writes `openbao-config-admin` on every install/upgrade. The first time it uses the init root token. Later it generates a short-lived root from the `openbao-unseal-keys` shares (`chart/files/openbao-generate-root.sh`) and revokes it in the same run. Whoever can read that Secret can already unseal, so this adds no exposure. No root token is kept.
     - **One-time upgrade, only if `openbao-unseal-keys` is absent** (an init older than chart 1.2.4): the hook logs a WARN and exits 0. Write the `openbao-config-admin` policy and role once with an admin token. Either sign in through SSO at `bao.<fqdn>` (sovereign-admins get full rights) or use `bao operator generate-root` with your own key shares. The policy text is `openbao.configAdminPolicy` in `_config.tpl`; the role binds SA `openbao-config` in ns `openbao`.
-4. Between regions peer push is configured, and on a Sovereign with a hot standby also a snapshot copy through object storage (see the architecture section above). OpenBao does not replicate.
+4. Cross-region async perf replication is configured for read availability and DR.
 5. ESO configured with local-region ClusterSecretStores; every region reads from its local OpenBao replica via ESO Kubernetes auth (TokenReview), never cross-region.
 6. Initial secrets created via K8s + PushSecrets, never plaintext in Git.
 
@@ -210,7 +210,7 @@ If the primary region fails, a replica is explicitly promoted (sovereign-admin a
 
 | Option | When applicable |
 |--------|-----------------|
-| **A. Shamir + cloud-init seed** | **Default for solo Sovereign — implemented in chart v1.2.0.** No managed-KMS dependency; the one unseal key is kept in the Secret `openbao-unseal-keys` (see step 2 of the bootstrap procedure). |
+| **A. Shamir + cloud-init seed** | **Default for solo Sovereign — implemented in chart v1.2.0.** No managed-KMS dependency; the recovery key is generated on the control-plane at provision time and persisted only inside OpenBao's own Raft state. |
 | B. Transit-seal via peer OpenBao | Multi-region tier-1 corporate cluster (one Sovereign unseals another). Out of scope for omantel/single-region. |
 | C. Cloud-KMS auto-unseal (AWS KMS, GCP KMS, Azure Key Vault) | When the Sovereign runs on a hyperscaler that provides managed-KMS. On a substrate without managed-KMS, Option A is the only viable path. |
 | D. Sovereign-admin-supplied recovery shards (air-gap) | Documented in [`docs/SECURITY.md`](../../docs/SECURITY.md). Used when no automated boot-time secret pipeline is acceptable. |

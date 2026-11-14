@@ -59,7 +59,7 @@
 # The HelmRelease's targetNamespace below installs hcloud-CCM into
 # kube-system (canonical CCM placement; mirrors hcloud-CCM upstream
 # documentation).
-apiVersion: source.toolkit.fluxcd.io/v1
+apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
 metadata:
   name: bp-hcloud-ccm
@@ -80,8 +80,6 @@ metadata:
   namespace: flux-system
   labels:
     catalyst.openova.io/slot: "55"
-  annotations:
-    kustomize.toolkit.fluxcd.io/prune: disabled
 spec:
   # Wave 5.102 (#2447): suspend on non-Hetzner providers. The cloudinit's
   # bootstrap-kit Kustomization substitutes ${HCLOUD_HR_SUSPEND} from the

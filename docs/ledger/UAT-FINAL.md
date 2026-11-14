@@ -1,5 +1,3 @@
-Historical. Describes environment hw295, wiped by 2026-09-02. Not a statement about the product today.
-
 # UAT — final report (hw295)
 
 **Generated** by `scripts/gen-uat-final-report.py`. Do not hand-edit — regenerate and diff to prove the numbers were not typed in.

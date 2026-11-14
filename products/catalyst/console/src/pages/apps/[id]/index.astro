@@ -1,0 +1,39 @@
+---
+// G117.3 / G117.4 — Application detail (Astro shell).
+import Layout from '../../../layouts/Layout.astro';
+import PortalShell from '../../../components/PortalShell.svelte';
+import AppDetail from '../../../routes/apps/[id]/+page.svelte';
+
+export function getStaticPaths() {
+  // The mock fixture seeds two Application IDs (G117 W0 mock-blueprints.yaml).
+  // Live deployments hit the same routes via SPA fallback at the nginx
+  // edge; this list only governs prerender + the Playwright suite.
+  return [
+    { params: { id: '8a1e9bf2-7c4d-4b3a-9f1e-2c5a8d3f6e0a' } },
+    { params: { id: 'mock-app-1' } },
+    // Deterministic IDs minted by the mock backend's createInstance counter.
+    // Pre-listed so Playwright form-submit specs land on a real prerendered
+    // page (Astro static dev-mode 404s otherwise).
+    { params: { id: 'mock-instance-1' } },
+    { params: { id: 'mock-instance-2' } },
+    { params: { id: 'mock-instance-3' } },
+    { params: { id: 'mock-instance-4' } },
+    { params: { id: 'mock-instance-5' } },
+  ];
+}
+
+const { id } = Astro.params;
+const appId = (id ?? '') as string;
+---
+<Layout title={`Application · ${appId}`}>
+  <PortalShell
+    title="Application"
+    breadcrumbs={[
+      { label: 'Applications', href: '/' },
+      { label: appId },
+    ]}
+    client:load
+  >
+    <AppDetail appId={appId} client:load />
+  </PortalShell>
+</Layout>

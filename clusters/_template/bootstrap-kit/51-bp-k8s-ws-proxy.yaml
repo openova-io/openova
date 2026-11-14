@@ -32,7 +32,7 @@
 # session-2026-04-30 architectural decision).
 
 ---
-apiVersion: source.toolkit.fluxcd.io/v1
+apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
 metadata:
   name: bp-k8s-ws-proxy

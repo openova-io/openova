@@ -1,0 +1,48 @@
+---
+import '../styles/global.css';
+
+interface Props {
+  title: string;
+  /** Inject MOCK_API flag into window so the mock harness installs before islands mount. */
+  mock?: boolean;
+}
+
+const { title, mock = import.meta.env.PUBLIC_MOCK_API === '1' } = Astro.props;
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{title} — OpenOva Catalyst</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  {mock && (
+    <script>
+      // G117 mock-mode early boot. Loaded with `type=module` by Astro's
+      // bundler; awaited via top-level-await so all subsequent islands
+      // see window.__MOCK_API__ populated before they run catalystApi.
+      import { createMockBackend } from '../lib/api/mock';
+      try {
+        const res = await fetch('/mock-fixture.json', { cache: 'no-store' });
+        if (res.ok) {
+          const fx = await res.json();
+          (window as any).__MOCK_API__ = createMockBackend(fx);
+          // eslint-disable-next-line no-console
+          console.info('[catalyst-console] mock backend installed', Object.keys(fx.blueprints || {}));
+        } else {
+          // eslint-disable-next-line no-console
+          console.warn('[catalyst-console] mock fixture fetch non-2xx:', res.status);
+        }
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('[catalyst-console] mock fixture install failed:', e);
+      }
+    </script>
+  )}
+</head>
+<body>
+  <slot />
+</body>
+</html>

@@ -37,7 +37,7 @@ tags:
   - name: instances
     description: Application instances — create, list, read, delete
   - name: endpoints
-    description: Per-Application endpoints (read-only; an endpoint comes from the Blueprint's declared endpoints)
+    description: Per-Application endpoint mutation (PR-pipelined into per-Org Gitea iac repo)
   - name: launch
     description: Silent-SSO Launch URL minting
   - name: orgs
@@ -232,6 +232,63 @@ paths:
                   items:
                     type: array
                     items: { $ref: '#/components/schemas/ResolvedEndpoint' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [endpoints]
+      operationId: createAppEndpoint
+      summary: Create a new endpoint (opens a PR against gitea.<sov>/<org>/iac)
+      description: |
+        Triggers the IaC PR pipeline (decision #4): catalyst-api opens
+        a PR against `gitea.<sov>/<org>/iac` with the new endpoint
+        manifest; Kyverno + cert-manager + DNS-conflict pre-check
+        run as status checks; on green, auto-merge fires.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EndpointMutationRequest' }
+      responses:
+        '202':
+          description: PR opened
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EndpointPR' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /apps/{id}/endpoints/{name}:
+    parameters:
+      - $ref: '#/components/parameters/AppId'
+      - name: name
+        in: path
+        required: true
+        schema: { type: string, pattern: '^[a-z][a-z0-9-]{0,30}[a-z0-9]$' }
+    patch:
+      tags: [endpoints]
+      operationId: patchAppEndpoint
+      summary: Update endpoint (PR-pipelined)
+      description: Opens a PR against the Org's iac repo with a patched endpoint manifest. Same Kyverno + cert-manager + DNS-conflict pre-check gate as createAppEndpoint.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EndpointMutationRequest' }
+      responses:
+        '202':
+          description: PR opened
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EndpointPR' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [endpoints]
+      operationId: deleteAppEndpoint
+      summary: Delete endpoint (PR-pipelined)
+      description: Opens a PR removing the endpoint manifest from the Org's iac repo. cert-manager Certificate + Gateway HTTPRoute are removed on merge.
+      responses:
+        '202':
+          description: PR opened
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EndpointPR' }
         '404': { $ref: '#/components/responses/NotFound' }
   /apps/{id}/launch-url:
     parameters:
@@ -523,3 +580,35 @@ components:
               blueprint: { type: string, description: Backing Blueprint id (bp- prefix optional) }
               mode:      { type: string, enum: [create, reuse], default: create }
               instance:  { type: string, description: Existing instance name (required when mode=reuse) }
+    EndpointMutationRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          pattern: '^[a-z][a-z0-9-]{0,30}[a-z0-9]$'
+        hostname:
+          type: string
+          description: Concrete hostname (not template). Server validates uniqueness + DNS conflict.
+        port:        { type: integer, minimum: 1, maximum: 65535 }
+        protocol:    { type: string, enum: [https, http, grpc, tcp, udp] }
+        tls:         { type: boolean }
+        visibility:  { type: string, enum: [public, private, internal] }
+        ssoEnabled:  { type: boolean }
+    EndpointPR:
+      type: object
+      required: [prURL, status]
+      properties:
+        prURL:
+          type: string
+          format: uri
+          description: Per-Org Gitea PR URL.
+        status:
+          type: string
+          enum: [open, merged, closed, failed-precheck]
+        preCheckResults:
+          type: object
+          properties:
+            kyverno:     { type: string, enum: [pending, pass, fail] }
+            certManager: { type: string, enum: [pending, pass, fail] }
+            dnsConflict: { type: string, enum: [pending, pass, fail] }

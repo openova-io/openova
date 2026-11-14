@@ -1,0 +1,56 @@
+name: chart-version-claim
+
+# A chart version is a claim on a namespace shared by every open branch, and it
+# is the one property of a PR that CANNOT be validated by looking at that PR
+# alone. Every existing lockstep guard checks a PR against ITSELF — five sites
+# moved together, seed pin matches the chart, umbrella republished — and all of
+# them pass while two branches quietly claim the same version.
+#
+# That happened on 2026-08-10: four open PRs claimed umbrella 1.4.1332, and two
+# of them (#5964, #5968) published the identical bp-agenity 0.5.22 -> 0.5.23
+# bump for two different fixes, overlapping on ten files including the
+# StatefulSet template. Every one was individually green.
+#
+# The failure mode is not the loud merge conflict. It is the quiet one: the
+# first PR merges and publishes the artifact; the second merges later carrying
+# DIFFERENT content under the SAME version, the registry keeps whichever was
+# pushed first, and the second PR's fix renders correctly, passes every gate,
+# and ships nothing. Same class as a partial lockstep bump — released-looking,
+# delivering no change.
+#
+# Refs #5583, #5734.
+
+on:
+  pull_request:
+    paths:
+      - '**/Chart.yaml'
+      - 'scripts/check-chart-version-not-claimed-by-open-pr.py'
+      - '.github/workflows/check-chart-version-claim.yaml'
+  workflow_dispatch:
+
+jobs:
+  claim:
+    name: no open PR claims the same chart version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # every open PR's head is fetched for comparison, so the full history
+          # has to be here — a shallow clone silently resolves each sibling's
+          # Chart.yaml to None and the check passes by comparing nothing.
+          fetch-depth: 0
+
+      # Run the vacuity check BEFORE the scan. A green scan is only meaningful
+      # if the detector is demonstrably still able to fire.
+      - name: Prove the collision detector can fail
+        run: python3 scripts/check-chart-version-not-claimed-by-open-pr.py --self-test
+
+      - name: No open PR claims the same chart version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 scripts/check-chart-version-not-claimed-by-open-pr.py \
+            --pr "${{ github.event.pull_request.number }}"

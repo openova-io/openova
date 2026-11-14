@@ -1,0 +1,84 @@
+{{/*
+ClusterIssuer paired with the Dynadot webhook above.
+
+Skip-render pattern (mirrors bp-cert-manager-powerdns-webhook/chart/templates/
+clusterissuer.yaml, lesson from #387 follow-up #402): when the operator has
+not opted in (default-values render, e.g. CI smoke test), this template emits
+NOTHING rather than failing the chart. The blueprint-release.yaml smoke-render
+gate (helm template with default values) therefore passes cleanly. Cluster
+overlays that want the ClusterIssuer flip `clusterIssuer.enabled=true` in the
+per-Sovereign values.
+
+Two gates:
+  1. clusterIssuer.enabled — operator opt-in (default false)
+  2. dynadot.credentialsSecret.name — required config; empty = skip render
+
+Rationale for this issuer vs the one already inside bp-cert-manager:
+  bp-cert-manager/chart/templates/clusterissuer-letsencrypt-dns01.yaml
+  renders `letsencrypt-dns01-prod` ONLY when certManager.issuers.dns01.enabled=true
+  (default false). On active Sovereigns that were bootstrapped before that
+  flag was set, OR on Sovereigns where the operator explicitly wants the
+  ClusterIssuer managed here (lifecycle tied to the webhook chart), this
+  paired ClusterIssuer is the more operationally coherent choice — it is
+  created and deleted with the webhook HelmRelease rather than with the
+  bp-cert-manager HelmRelease.
+
+  If both `letsencrypt-dns01-prod` ClusterIssuers coexist (one from
+  bp-cert-manager and one from this chart), they are idempotent — they carry
+  the same spec and the same ACME account-key Secret name. cert-manager last-
+  write-wins reconciliation means they converge on the same state.
+*/}}
+{{- if and .Values.clusterIssuer.enabled .Values.dynadot.credentialsSecret.name }}
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ .Values.clusterIssuer.name }}
+  {{- if .Values.clusterIssuer.helmHookEnabled }}
+  annotations:
+    # Helm post-install/post-upgrade hook: ClusterIssuer is a
+    # cert-manager.io/v1 CRD that only exists AFTER the cert-manager
+    # controllers + CRDs (installed by bp-cert-manager) are running.
+    # Without the hook, Helm renders this template in the same install
+    # pass as the cert-manager controllers and the apply fails with
+    # `no matches for kind "ClusterIssuer"`. Same pattern as
+    # bp-cert-manager's own letsencrypt-dns01-prod / -http01-prod.
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+  {{- end }}
+  labels:
+    {{- include "bp-cert-manager-dynadot-webhook.labels" . | nindent 4 }}
+    catalyst.openova.io/issuer-class: dns01
+    catalyst.openova.io/issuer-backend: dynadot
+spec:
+  acme:
+    server: {{ .Values.clusterIssuer.acmeServer | quote }}
+    email: {{ .Values.clusterIssuer.email | quote }}
+    privateKeySecretRef:
+      name: {{ .Values.clusterIssuer.privateKeySecretRefName }}
+    solvers:
+      - dns01:
+          webhook:
+            groupName: {{ .Values.webhook.groupName | quote }}
+            solverName: {{ .Values.webhook.solverName | quote }}
+            config:
+              # The webhook reads these credentials at ChallengeRequest time
+              # from the Secret in the cert-manager release namespace (the
+              # secretKeyRef env vars in deployment.yaml supply them). The
+              # config block here is the cert-manager wire format — it is
+              # decoded by the webhook's ChallengeRequest handler, NOT by
+              # Kubernetes itself. All three refs below must resolve to a
+              # Secret in the WEBHOOK'S namespace (cert-manager) at runtime.
+              apiKeySecretRef:
+                name: {{ .Values.dynadot.credentialsSecret.name | quote }}
+                namespace: {{ .Values.dynadot.credentialsSecret.namespace | default .Release.Namespace | quote }}
+                key: {{ .Values.dynadot.credentialsSecret.keys.apiKey | quote }}
+              apiSecretSecretRef:
+                name: {{ .Values.dynadot.credentialsSecret.name | quote }}
+                namespace: {{ .Values.dynadot.credentialsSecret.namespace | default .Release.Namespace | quote }}
+                key: {{ .Values.dynadot.credentialsSecret.keys.apiSecret | quote }}
+              managedDomainsSecretRef:
+                name: {{ .Values.dynadot.credentialsSecret.name | quote }}
+                namespace: {{ .Values.dynadot.credentialsSecret.namespace | default .Release.Namespace | quote }}
+                key: {{ .Values.dynadot.credentialsSecret.keys.managedDomains | quote }}
+{{- end }}

@@ -1,0 +1,263 @@
+{{- /*
+sandbox-controller Deployment (Wave 1 + Wave 8).
+
+Reconciles Sandbox.sandbox.openova.io/v1 CRs into per-Sandbox manifests
+(namespace + RBAC + PVCs + Secret + pty-server StatefulSet + MCP
+Deployment + Service + HTTPRoute) written to the per-Org
+`catalyst-tenant` Gitea repo at `sandbox/<owner-uid>/`. Flux on the
+host cluster picks them up and reconciles into the Org vcluster.
+*/ -}}
+{{- if .Values.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "sandbox.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "sandbox.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "sandbox.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "sandbox.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "sandbox.fullname" . }}
+      automountServiceAccountToken: true
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: controller
+          image: {{ include "sandbox.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" }}
+          args:
+            - "--leader-elect={{ .Values.leaderElection.enabled }}"
+            - "--metrics-bind-address=:8080"
+            - "--health-probe-bind-address=:8081"
+          env:
+            - name: CATALYST_HOST_CLUSTER
+              value: {{ required "values.env.hostCluster MUST be set for sandbox-controller (e.g. hz-fsn-rtz-prod)" .Values.env.hostCluster | quote }}
+            - name: CATALYST_SOVEREIGN_FQDN
+              value: {{ required "values.env.sovereignFQDN MUST be set for sandbox-controller (e.g. omantel.omani.works)" .Values.env.sovereignFQDN | quote }}
+            - name: CATALYST_GITEA_URL
+              value: {{ .Values.env.giteaURL | default "http://gitea-http.gitea.svc.cluster.local:3000" | quote }}
+            - name: CATALYST_GITEA_BRANCH
+              value: {{ .Values.env.giteaBranch | default "main" | quote }}
+            - name: CATALYST_TENANT_REPO_NAME
+              value: {{ .Values.env.tenantRepoName | default "catalyst-tenant" | quote }}
+            - name: CATALYST_GITEA_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.giteaTokenSecret.name | default "catalyst-gitea-token" | quote }}
+                  key: {{ .Values.giteaTokenSecret.key | default "token" | quote }}
+                  optional: true
+            # Wave 8 runtime — per-Sandbox pty-server / MCP / NEWAPI.
+            # `required` on the three image / URL inputs fails Helm
+            # render fast if the per-Sovereign overlay forgets to wire
+            # them (Inviolable Principle #4a — no silent :latest).
+            - name: SANDBOX_PTY_SERVER_IMAGE
+              # #4885: honour global.imageRegistry so the child pty-server Pods the
+              # controller stamps this into pivot to local Harbor post-cutover.
+              value: {{ include "sandbox.rewriteImageRef" (dict "ref" (required "values.runtime.ptyServerImage MUST be set (SHA-pinned per docs/INVIOLABLE-PRINCIPLES.md #4a)" .Values.runtime.ptyServerImage) "root" $) | quote }}
+            # TBD-P4 B2 (#1986, 2026-05-20): SANDBOX_MCP_IMAGE is no
+            # longer used by sandbox-controller — the per-Sandbox MCP
+            # Deployment was removed (stdio binary cannot run as a Pod).
+            # The openova-sandbox-mcp binary is now bundled inside the
+            # pty-server image at /usr/local/bin/openova-sandbox-mcp
+            # and launched as a subprocess by the agent (mcp.json). The
+            # env var is preserved (no longer `required`) for backwards
+            # compat with overlays that still set it; the controller
+            # reads it but ignores the value at render time. Safe to
+            # remove from values.yaml + bootstrap-kit overlays in a
+            # later follow-up once all overlays drop the setting.
+            - name: SANDBOX_MCP_IMAGE
+              # #4885: honour global.imageRegistry (empty default → unchanged).
+              value: {{ include "sandbox.rewriteImageRef" (dict "ref" (.Values.runtime.mcpImage | default "") "root" $) | quote }}
+            - name: SANDBOX_NEWAPI_URL
+              value: {{ required "values.runtime.newapiURL MUST be set (e.g. https://newapi.<sov-fqdn>/v1 - newapi-proxy-contract.md)" .Values.runtime.newapiURL | quote }}
+            - name: SANDBOX_LLM_GATEWAY_TOKEN_SECRET
+              value: {{ .Values.runtime.llmGatewayTokenSecret | default "sandbox-tokens" | quote }}
+            - name: SANDBOX_BYOS_SECRET_PREFIX
+              value: {{ .Values.runtime.byosSecretPrefix | default "sandbox-byos-claude-code" | quote }}
+            - name: SANDBOX_IDLE_TIMEOUT_MINUTES
+              value: {{ .Values.runtime.idleTimeoutMinutes | default 30 | quote }}
+            # TBD-V22 #1986 F1 (2026-05-20) — per-PTY replay ring buffer
+            # size. Default 1 MiB (1048576). The controller reads this
+            # env var and stamps it into the per-Sandbox pty-server
+            # StatefulSet via gitops.Inputs.RingBufferBytes →
+            # SANDBOX_RING_BUFFER_BYTES on the pty-server Pod. See
+            # session.LoadDefaultRingBytesFromEnv in pty-server.
+            - name: SANDBOX_RING_BUFFER_BYTES
+              value: {{ .Values.runtime.ringBufferBytes | default 1048576 | int | quote }}
+            # Wave 9 — NewAPI bridge wiring. The controller calls
+            # POST /admin/tokens/sandbox to mint per-Sandbox HS256
+            # bearers; without these two env vars wired the controller
+            # logs a warning at startup and skips the token-mint path
+            # — namespace + RBAC + PVCs + pty-server StatefulSet still
+            # land so a fresh-prov Sovereign with bridge-handler
+            # rollout pending stays usable for the gitops scaffolding.
+            - name: NEWAPI_BASE_URL
+              # TBD-V14 (issue #2015): canonical bp-newapi Service is named
+              # via `bp-newapi.fullname` => `newapi-bp-newapi` (NOT bare
+              # `newapi`). The pre-fix default resolved to a DNS name no
+              # Service publishes, breaking every Sandbox TokenMint.
+              value: {{ .Values.env.newapiBaseURL | default "http://newapi-bp-newapi.newapi.svc.cluster.local:3000" | quote }}
+            - name: NEWAPI_ADMIN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.newapiAdminSecret.name | default "newapi-bp-newapi-token-signing-key" | quote }}
+                  key: {{ .Values.newapiAdminSecret.key | default "ADMIN_SECRET" | quote }}
+                  optional: true
+            - name: NEWAPI_DEFAULT_CHANNELS
+              value: {{ .Values.env.newapiDefaultChannels | default "" | quote }}
+            # D31 active-hot-standby — Sovereign-level toggle + region
+            # pair the controller threads into every per-Sandbox MCP
+            # Pod. When the toggle parses truthy AND both regions are
+            # non-empty AND distinct, sandbox.db.provision materialises
+            # a primary + replica Cluster.postgresql.cnpg.io pair
+            # instead of a single Cluster (mirrors the bp-cnpg-pair
+            # pattern). Default empty (zero regression) — every
+            # Sandbox stays on single-Cluster CNPG until the operator
+            # flips SOVEREIGN_ENABLE_HOT_STANDBY=true on the per-
+            # Sovereign overlay. Bootstrap-kit slot 61 wires those
+            # envsubst placeholders into `.Values.cnpg.activeHotStandby.*`.
+            - name: SOVEREIGN_ENABLE_HOT_STANDBY
+              value: {{ (.Values.cnpg).activeHotStandby.enabled | default "" | quote }}
+            - name: SOVEREIGN_PRIMARY_REGION
+              value: {{ (.Values.cnpg).activeHotStandby.primaryRegion | default "" | quote }}
+            - name: SOVEREIGN_REPLICA_REGION
+              value: {{ (.Values.cnpg).activeHotStandby.replicaRegion | default "" | quote }}
+            # TBD-P4 B4 — canonical SANDBOX_* env-var wiring for the MCP
+            # plugin. The controller passes these straight through to
+            # every per-Sandbox MCP Deployment via gitops.Inputs so the
+            # plugin's per-tool guards (gitea / domain / storage /
+            # keycloak) see the canonical names defined in
+            # products/sandbox/mcp-server/internal/tools/env.go. Before
+            # this slice the renderer emitted `ORG_ID` / `SOVEREIGN_FQDN`
+            # while the MCP read `SANDBOX_ORG_ID` / `SANDBOX_SOVEREIGN_FQDN`
+            # → every tool family silently degraded to "not configured".
+            #
+            # Values are env vars on the CONTROLLER (this Deployment);
+            # the controller reads each and passes via gitops.Inputs into
+            # the rendered MCP Deployment template. Secrets are NEVER
+            # written from the controller — name + key references only,
+            # `optional: true` on the per-Sandbox secretKeyRef so missing
+            # secrets surface a clean "not configured" error from the MCP.
+            - name: SANDBOX_MCP_GITEA_BASE_URL
+              value: {{ .Values.mcp.giteaBaseURL | default "http://gitea-http.gitea.svc.cluster.local:3000" | quote }}
+            - name: SANDBOX_MCP_GITEA_TOKEN_SECRET_NAME
+              value: {{ .Values.mcp.giteaTokenSecret.name | default "catalyst-gitea-token" | quote }}
+            - name: SANDBOX_MCP_GITEA_TOKEN_SECRET_KEY
+              value: {{ .Values.mcp.giteaTokenSecret.key | default "token" | quote }}
+            - name: SANDBOX_MCP_DOMAIN_API_URL
+              value: {{ .Values.mcp.domainAPIURL | default "http://domain.org-services.svc.cluster.local:8086" | quote }}
+            - name: SANDBOX_MCP_MARKETPLACE_API_URL
+              value: {{ .Values.mcp.marketplaceAPIURL | default "http://marketplace-api.marketplace.svc.cluster.local:8082" | quote }}
+            - name: SANDBOX_MCP_STORAGE_S3_ENDPOINT
+              value: {{ .Values.mcp.storage.s3Endpoint | default "http://seaweedfs.storage.svc.cluster.local:8333" | quote }}
+            - name: SANDBOX_MCP_STORAGE_S3_REGION
+              value: {{ .Values.mcp.storage.s3Region | default "us-east-1" | quote }}
+            - name: SANDBOX_MCP_STORAGE_S3_USE_TLS
+              value: {{ .Values.mcp.storage.s3UseTLS | default "false" | quote }}
+            - name: SANDBOX_MCP_STORAGE_S3_CREDS_SECRET_NAME
+              value: {{ .Values.mcp.storage.credsSecret.name | default "" | quote }}
+            - name: SANDBOX_MCP_STORAGE_S3_ACCESS_KEY_KEY
+              value: {{ .Values.mcp.storage.credsSecret.accessKeyKey | default "AWS_ACCESS_KEY_ID" | quote }}
+            - name: SANDBOX_MCP_STORAGE_S3_SECRET_KEY_KEY
+              value: {{ .Values.mcp.storage.credsSecret.secretKeyKey | default "AWS_SECRET_ACCESS_KEY" | quote }}
+            - name: SANDBOX_MCP_KEYCLOAK_ADMIN_URL
+              value: {{ .Values.mcp.keycloak.adminURL | default "http://keycloak.keycloak.svc.cluster.local:8080" | quote }}
+            - name: SANDBOX_MCP_KEYCLOAK_PARENT_REALM
+              value: {{ .Values.mcp.keycloak.parentRealm | default "master" | quote }}
+            - name: SANDBOX_MCP_KEYCLOAK_ADMIN_TOKEN_SECRET_NAME
+              value: {{ .Values.mcp.keycloak.adminTokenSecret.name | default "" | quote }}
+            - name: SANDBOX_MCP_KEYCLOAK_ADMIN_TOKEN_SECRET_KEY
+              value: {{ .Values.mcp.keycloak.adminTokenSecret.key | default "token" | quote }}
+            {{- range $k, $v := .Values.extraEnv }}
+            - name: {{ $k | quote }}
+              value: {{ $v | quote }}
+            {{- end }}
+            {{- /* G91.sandbox (#2657) — SSO env wiring. The
+                   sandbox-controller reads these env vars and (follow-up:
+                   core/controllers/sandbox/) propagates them into the
+                   per-Sandbox pty-server PodSpec for OIDC-fronted UI auth.
+                   secretRef is `optional: true` so a fresh-prov Sovereign
+                   where bp-sso-bridge hasn't yet materialised the
+                   ExternalSecret does NOT crash the controller. */ -}}
+            {{- if .Values.sso.enabled }}
+            - name: SANDBOX_SSO_ENABLED
+              value: "true"
+            - name: SANDBOX_SSO_REALM
+              value: {{ .Values.sso.realm | default "sovereign" | quote }}
+            - name: SANDBOX_SSO_SOVEREIGN_FQDN
+              value: {{ .Values.sso.sovereignFqdn | default "" | quote }}
+            - name: SANDBOX_SSO_ADMIN_GROUP
+              value: {{ .Values.sso.adminGroup | default "sovereign-admins" | quote }}
+            - name: SANDBOX_SSO_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: sandbox-sso-oidc-credentials
+                  key: client_id
+                  optional: true
+            - name: SANDBOX_SSO_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: sandbox-sso-oidc-credentials
+                  key: client_secret
+                  optional: true
+            - name: SANDBOX_SSO_ISSUER_URL
+              valueFrom:
+                secretKeyRef:
+                  name: sandbox-sso-oidc-credentials
+                  key: issuer_url
+                  optional: true
+            {{- end }}
+          ports:
+            - name: metrics
+              containerPort: 8080
+            - name: health
+              containerPort: 8081
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 15
+{{- end }}

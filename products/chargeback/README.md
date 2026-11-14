@@ -2,10 +2,9 @@
 
 **What it is.** A standalone application that meters cloud usage per customer,
 rates it against a price book and produces statements. It owns its customers,
-its Postgres database, its API and its UI. It was built from ADR-0014
-(EPIC #6723). Its decision record is now
-[ADR-0028](../../docs/adr/0028-commerce-and-billing.md). ADR-0014 is
-superseded. The usage ledger is the measurement primitive, `Customer` is an
+its Postgres database, its API and its UI. It is the implementation of
+[ADR-0014](../../docs/adr/0014-chargeback-usage-ledger-and-split-deployment.md)
+(EPIC #6723): the usage ledger is the measurement primitive, `Customer` is an
 app-internal object, and OpenOva is one adapter among others.
 
 **Role in Catalyst.** Application Blueprint. It runs on a Sovereign as the BSS

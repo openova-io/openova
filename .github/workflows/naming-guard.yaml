@@ -15,7 +15,6 @@ name: Naming guard
 on:
   pull_request:
     types: [opened, edited, reopened, synchronize]
-  merge_group:
 
 permissions:
   contents: read

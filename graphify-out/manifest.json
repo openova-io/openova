@@ -1,0 +1,22 @@
+{
+  ".mcp.json": {
+    "mtime": 1785588953.1729314,
+    "ast_hash": "35714e814d031774dacdbd2c905d6c13",
+    "semantic_hash": ""
+  },
+  "Formula/chepherd.rb": {
+    "mtime": 1785581074.0959566,
+    "ast_hash": "3d0968f22f51a537320a27d4dc147758",
+    "semantic_hash": ""
+  },
+  "README.md": {
+    "mtime": 1785581074.0959566,
+    "ast_hash": "279746715d8aea3a56234abd4e55aad5",
+    "semantic_hash": ""
+  },
+  ".claude/settings.local.json": {
+    "mtime": 1785585973.66426,
+    "ast_hash": "cda2485e6ba846e1c14784e44e645d0e",
+    "semantic_hash": ""
+  }
+}

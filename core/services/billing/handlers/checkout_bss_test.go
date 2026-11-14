@@ -8,9 +8,7 @@ package handlers
 //   - plan XL + backup          → 30.000, the add-on marked redundant
 //   - plan S + a not_offered add-on → 422 naming the add-on AND the package
 //   - BSS unreachable           → 503 "prices unavailable", no order
-//   - no package_sku            → 409 "package-required" while BSS publishes
-//                                 packages; the catalog path only while it
-//                                 publishes none (404 or an empty list)
+//   - no package_sku            → the catalog path, BSS never consulted
 //   - POST /billing/quote       → the same lines, no store, no order
 //
 // The fixture numbers are the contract's (S 5.000 / M 9.000 / XL 30.000);
@@ -76,29 +74,12 @@ func fakeBSS(t *testing.T, status int) *httptest.Server {
 	}))
 }
 
-// fakeBSSEmpty serves a document that lists no package: BSS publishes nothing.
-func fakeBSSEmpty(t *testing.T) *httptest.Server {
-	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"currency":"OMR","price_book":"OpenOva plans","packages":[]}`))
-	}))
-}
-
-// deadBSS is the address of a server that is closed: connection refused.
-func deadBSS(t *testing.T) string {
-	t.Helper()
-	srv := httptest.NewServer(http.NotFoundHandler())
-	srv.Close()
-	return srv.URL
-}
-
-// mustNotBeCalledCatalog fails the test on any request — proof an order is
-// never priced from the catalog while BSS publishes packages.
-func mustNotBeCalledCatalog(t *testing.T) *httptest.Server {
+// mustNotBeCalledBSS fails the test on any request — proof the catalog path
+// never consults BSS.
+func mustNotBeCalledBSS(t *testing.T) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Errorf("the catalog was consulted: %s %s", r.Method, r.URL.Path)
+		t.Errorf("BSS was consulted on an order without package_sku: %s %s", r.Method, r.URL.Path)
 		w.WriteHeader(http.StatusTeapot)
 	}))
 }
@@ -353,22 +334,17 @@ func TestCheckout_BSSDown_503PricesUnavailable(t *testing.T) {
 	}
 }
 
-// No package_sku while BSS publishes nothing (404, or a document with no
-// package) → the catalog path exactly as before; the response says so
-// (price_source "catalog").
-func TestCheckout_NoPackageSKU_NothingPublished_CatalogPath(t *testing.T) {
-	for name, bss := range map[string]*httptest.Server{"404": fakeBSS(t, http.StatusNotFound), "empty list": fakeBSSEmpty(t)} {
-		t.Run(name, func(t *testing.T) { checkoutFromCatalog(t, bss) })
-		bss.Close()
-	}
-}
-
-func checkoutFromCatalog(t *testing.T, bss *httptest.Server) {
+// No package_sku → the catalog path exactly as before: BSS is configured and
+// reachable but is NEVER consulted; the response says so (price_source
+// "catalog").
+func TestCheckout_NoPackageSKU_CatalogPathNeverConsultsBSS(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
 	defer db.Close()
+	bss := mustNotBeCalledBSS(t)
+	defer bss.Close()
 	catalog := fakeCatalogServer(t, "plan-pro", 100)
 	defer catalog.Close()
 	h := &Handler{Store: store.New(db), CatalogURL: catalog.URL, Packages: packages.NewClient(bss.URL, nil)}
@@ -575,12 +551,12 @@ func TestQuote_PricesWithoutStoreOrOrder(t *testing.T) {
 	}
 }
 
-// POST /billing/quote without package_sku, while BSS answers 404, prices from
-// the catalog, hot-standby surcharge included, and says so.
+// POST /billing/quote without package_sku prices from the catalog, hot-standby
+// surcharge included, and says so.
 func TestQuote_CatalogPath(t *testing.T) {
 	catalog := fakeCatalogServer(t, "plan-m", 9)
 	defer catalog.Close()
-	bss := fakeBSS(t, http.StatusNotFound)
+	bss := mustNotBeCalledBSS(t)
 	defer bss.Close()
 	h := &Handler{CatalogURL: catalog.URL, Packages: packages.NewClient(bss.URL, nil)}
 
@@ -611,71 +587,5 @@ func TestQuote_BSSDown_503(t *testing.T) {
 	h.Quote(rec, r)
 	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "prices unavailable") {
 		t.Fatalf("want 503 prices unavailable, got %d (body=%s)", rec.Code, rec.Body.String())
-	}
-}
-
-// No package_sku → the price book decides, on the quote route and on the
-// checkout route: refused with 409 package-required while it publishes
-// packages (the catalog is never asked), the catalog price while it
-// publishes none, 503 while it cannot be read. A package_sku while it
-// publishes none → 422 naming the package: not an outage, not the catalog.
-func TestQuote_NoPackageSKU_FollowsThePriceBook(t *testing.T) {
-	published, missing, empty := fakeBSS(t, http.StatusOK), fakeBSS(t, http.StatusNotFound), fakeBSSEmpty(t)
-	defer published.Close()
-	defer missing.Close()
-	defer empty.Close()
-	catalog, unused := fakeCatalogServer(t, "m", 9), mustNotBeCalledCatalog(t)
-	defer catalog.Close()
-	defer unused.Close()
-	plan := `{"plan_id":"m","apps":[],"addons":[],"topology":"single-region","overage_mode":"capped"}`
-	for _, tc := range []struct {
-		name, bssURL, catalogURL, req string
-		status                        int
-		body                          string
-	}{
-		{"published", published.URL, unused.URL, plan, http.StatusConflict, `{"error":"package-required"}`},
-		{"404", missing.URL, catalog.URL, plan, http.StatusOK, `"amount_baisa":9000`},
-		{"empty list", empty.URL, catalog.URL, plan, http.StatusOK, `"amount_baisa":9000`},
-		{"unreachable", deadBSS(t), unused.URL, plan, http.StatusServiceUnavailable, "prices unavailable"},
-		{"package_sku, 404", missing.URL, unused.URL, `{"package_sku":"plan.m"}`, http.StatusUnprocessableEntity, `"package_sku":"plan.m"`},
-	} {
-		h := &Handler{CatalogURL: tc.catalogURL, Packages: packages.NewClient(tc.bssURL, nil)}
-		r := httptest.NewRequest(http.MethodPost, "/billing/quote", strings.NewReader(tc.req))
-		rec := httptest.NewRecorder()
-		h.Quote(rec, r)
-		if rec.Code != tc.status || !strings.Contains(rec.Body.String(), tc.body) {
-			t.Errorf("%s: want %d with %s, got %d (body=%s)", tc.name, tc.status, tc.body, rec.Code, rec.Body.String())
-		}
-	}
-}
-
-func TestCheckout_NoPackageSKU_PublishedOrUnreadable_NoOrder(t *testing.T) {
-	published := fakeBSS(t, http.StatusOK)
-	defer published.Close()
-	unused := mustNotBeCalledCatalog(t)
-	defer unused.Close()
-	for _, tc := range []struct {
-		name, bssURL string
-		status       int
-		body         string
-	}{
-		{"published", published.URL, http.StatusConflict, `{"error":"package-required"}`},
-		{"unreachable", deadBSS(t), http.StatusServiceUnavailable, "prices unavailable"},
-	} {
-		db, mock, err := sqlmock.New()
-		if err != nil {
-			t.Fatalf("sqlmock: %v", err)
-		}
-		h := &Handler{Store: store.New(db), CatalogURL: unused.URL, Packages: packages.NewClient(tc.bssURL, nil)}
-		expectCustomer(mock, "user-np", "cust-np", "org-np")
-		rec := postCheckout(t, h, checkoutRequest{PlanID: "m", TenantID: "org-np", PromoCode: "WOULD-BURN-A-SLOT-IF-REDEEMED"}, "user-np")
-		if rec.Code != tc.status || !strings.Contains(rec.Body.String(), tc.body) {
-			t.Errorf("%s: want %d with %s, got %d (body=%s)", tc.name, tc.status, tc.body, rec.Code, rec.Body.String())
-		}
-		// No promo redemption, no order: the refusal came before any side effect.
-		if err := mock.ExpectationsWereMet(); err != nil {
-			t.Errorf("%s: unexpected store interactions: %v", tc.name, err)
-		}
-		_ = db.Close()
 	}
 }

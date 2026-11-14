@@ -1,0 +1,58 @@
+# bp-crossplane-claims — Catalyst Day-2 CRUD XRDs (compose.openova.io/v1alpha1)
+# + default Hetzner-backed Compositions. Split out of bp-crossplane at
+# release 1.1.3 to resolve intra-chart CRD-ordering: a single Helm release
+# cannot install a CRD AND a CR of that CRD's kind in one apply pass —
+# the apiserver rejects the CR because the CRD is not yet registered.
+#
+# Wrapper chart:  platform/crossplane-claims/chart/
+# Reconciled by:  Flux on the new Sovereign's k3s control plane, AFTER
+#                 bp-crossplane is Ready (dependsOn below) — at which point
+#                 the apiextensions.crossplane.io/v1 CRDs that the upstream
+#                 crossplane subchart registers are live.
+
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-crossplane-claims
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-crossplane-claims
+  namespace: flux-system
+spec:
+  interval: 15m
+  timeout: 15m
+  releaseName: crossplane-claims
+  targetNamespace: crossplane-system
+  # bp-crossplane installs the apiextensions.crossplane.io/v1 CRDs
+  # (CompositeResourceDefinition, Composition) via the upstream subchart's
+  # CRD payload. We MUST wait until that HelmRelease reports Ready=True
+  # before applying the XRDs+Compositions in this chart, otherwise the
+  # apiserver returns:
+  #   no matches for kind "CompositeResourceDefinition" in version
+  #   "apiextensions.crossplane.io/v1" -- ensure CRDs are installed first
+  dependsOn:
+    - name: bp-crossplane
+  chart:
+    spec:
+      chart: bp-crossplane-claims
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-crossplane-claims
+        namespace: flux-system
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3

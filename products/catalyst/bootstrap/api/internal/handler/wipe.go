@@ -1,12 +1,18 @@
-// wipe.go — the wipe route. It destroys a failed or abandoned
-// provisioning attempt, or a Sovereign; a Sovereign that has been handed
-// over only when the request confirms its FQDN (internal/lifecycle). Purge:
+// wipe.go — pre-handover wipe surface (issue #318).
 //
-//  1. Cancel any in-flight context (helmwatch informer, Phase-0 runner).
+// When a provisioning attempt fails (mid-tofu-apply, mid-Phase-1, or just
+// because the operator decided to abandon), the wizard's failed-state
+// banner exposes a "Cancel & Wipe" button that POSTs here. This handler
+// runs the canonical purge sequence:
+//
+//  1. Cancel any in-flight context (helmwatch informer, current Phase-0
+//     runner) for this deployment.
 //  2. Run `tofu destroy -auto-approve` against the per-deployment
 //     workdir. Idempotent — re-runs on partial state are safe.
-//  3. Run the cloud provider's orphan sweep for what tofu missed or what
-//     was created out of band. tofu destroy is the primary path.
+//  3. Run a Hetzner force-purge of any resources tagged with
+//     `catalyst.openova.io/sovereign=<fqdn>` so anything tofu missed (or
+//     anything created out-of-band) is removed. Belt + braces; tofu
+//     destroy is the primary path, Hetzner API the safety net.
 //  4. Release the PDM allocation row (pool subdomain only). Best-effort:
 //     a PDM outage doesn't block local cleanup, the pool-domain-manager
 //     operator can force-release later via `pdm-cli` (#319).
@@ -53,7 +59,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/lifecycle"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/pdm"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
@@ -444,7 +449,6 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 	depStatus := dep.Status
 	depStartedAt := dep.StartedAt
 	depFQDN := dep.Request.SovereignFQDN
-	depHandover := lifecycle.HandoverStamps(dep.AdoptedAt, dep.Result)
 	dep.mu.Unlock()
 
 	now := time.Now()
@@ -480,10 +484,6 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 			"retryAfterSec": retryAfter,
 			"hint":          "wait for status to leave 'phase1-watching', or re-issue with ?force=true to override (only use force if you truly intend to destroy a still-converging Sovereign — see issue #914)",
 		})
-		return
-	}
-
-	if lifecycle.RefuseUnconfirmedWipe(w, r, depFQDN, depHandover...) {
 		return
 	}
 

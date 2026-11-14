@@ -23,32 +23,12 @@ An op may carry a probe URL: when it does not answer (a peer region not yet
 reachable over the mesh) the op is skipped this tick and retried next tick.
 */ -}}
 
-{{- /* SEC-080: the legacy cluster-wide stores read sso/, catalyst/ and the
-apps prefix only, never the hand-over archive. */ -}}
 {{- define "openbao.policy.external-secrets-read" -}}
-path "{{ .kv }}/data/sso/*" {
-  capabilities = ["read"]
-}
-path "{{ .kv }}/metadata/sso/*" {
+path "{{ .kv }}/data/*" {
   capabilities = ["read", "list"]
 }
-path "{{ .kv }}/data/catalyst/*" {
-  capabilities = ["read"]
-}
-path "{{ .kv }}/metadata/catalyst/*" {
+path "{{ .kv }}/metadata/*" {
   capabilities = ["read", "list"]
-}
-path "{{ .kv }}/data/{{ .apps }}/*" {
-  capabilities = ["read"]
-}
-path "{{ .kv }}/metadata/{{ .apps }}/*" {
-  capabilities = ["read", "list"]
-}
-path "{{ .kv }}/data/catalyst/tofu-phase0-archive" {
-  capabilities = ["deny"]
-}
-path "{{ .kv }}/metadata/catalyst/tofu-phase0-archive" {
-  capabilities = ["deny"]
 }
 {{ end -}}
 
@@ -188,7 +168,7 @@ openbao.configOps — the ordered desired state as JSON
 {{- /* role: name, sa, saNs, policies, ttl, maxTTL, alsoVcluster */ -}}
 {{- $roles := list
   (dict "name" $esoRole "sa" $esoSA "ns" $esoNs "policies" (list "external-secrets-read" "external-secrets-push") "ttl" $ttl "max" $maxTTL "vc" false)
-  (dict "name" "sso-bridge" "sa" "sso-bridge-reconciler" "ns" "sso-bridge" "policies" (list "sso-bridge-write") "ttl" $ttl "max" $maxTTL "vc" true)
+  (dict "name" "sso-bridge" "sa" "sso-bridge-reconciler" "ns" "sso-bridge" "policies" (list "sso-bridge-write" "external-secrets-read") "ttl" $ttl "max" $maxTTL "vc" true)
   (dict "name" "sso-configure" "sa" "openbao-sso-configure" "ns" $ns "policies" (list "sso-configure-admin") "ttl" $ttl "max" $maxTTL "vc" true) -}}
 {{- if $capi.enabled -}}
 {{- $roles = append $roles (dict "name" ($capi.role | default "catalyst-api") "sa" ($capi.serviceAccountName | default "catalyst-api-cutover-driver") "ns" ($capi.serviceAccountNamespace | default "catalyst-system") "policies" (list "catalyst-api-write") "ttl" $ttl "max" $maxTTL "vc" false) -}}

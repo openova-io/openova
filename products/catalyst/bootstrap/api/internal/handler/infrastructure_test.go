@@ -33,7 +33,6 @@ func installInfraDeployment(t *testing.T, h *Handler, status string) (*Deploymen
 		Status: status,
 		Request: provisioner.Request{
 			SovereignFQDN:    "omantel.omani.works",
-			Provider:         "hetzner",
 			Region:           "fsn1",
 			ControlPlaneSize: "cpx21",
 			WorkerSize:       "cpx41",

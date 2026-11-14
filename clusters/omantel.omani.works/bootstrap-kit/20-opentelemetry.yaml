@@ -1,0 +1,74 @@
+# bp-opentelemetry — Catalyst Blueprint #20 (W2.K2 Observability batch).
+# OpenTelemetry Collector — pipeline source for the LGTM stack
+# (Loki / Mimir / Tempo). Receives OTLP from workloads and fans out
+# logs → Loki, metrics → Mimir, traces → Tempo.
+#
+# Wrapper chart:  platform/opentelemetry/chart/
+# Reconciled by:  Flux on the new Sovereign's k3s control plane, AFTER
+#                 bp-cert-manager is Ready (the Collector's webhook /
+#                 OTLP-HTTPS receiver request TLS certs from the cluster
+#                 ClusterIssuer).
+#
+# dependsOn:
+#   - bp-cert-manager (slot 02) — TLS for OTLP-HTTPS receiver and any
+#     Collector webhooks.
+#
+# Hard-but-implicit dependencies (CRDs, NOT sibling Blueprints):
+#   - opentelemetry.io/v1beta1.OpenTelemetryCollector — provided by the
+#     OpenTelemetry Operator subchart bundled in this Blueprint.
+#
+# disableWait: the OTel Collector chart deploys multiple components
+# (operator, collector DaemonSet/Deployment, instrumentation CR). Helm
+# `--wait` would block on every Pod becoming Ready, which can't happen
+# until downstream backends (Loki/Mimir/Tempo, slots 22–24) are up to
+# accept exports. The HelmRelease itself reports Ready as soon as
+# manifests apply cleanly; runtime convergence is observed via kubectl.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: opentelemetry
+  labels:
+    catalyst.openova.io/sovereign: omantel.omani.works
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-opentelemetry
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-opentelemetry
+  namespace: flux-system
+spec:
+  interval: 15m
+  timeout: 15m
+  releaseName: opentelemetry
+  targetNamespace: opentelemetry
+  dependsOn:
+    - name: bp-cert-manager
+  chart:
+    spec:
+      chart: bp-opentelemetry
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-opentelemetry
+        namespace: flux-system
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3

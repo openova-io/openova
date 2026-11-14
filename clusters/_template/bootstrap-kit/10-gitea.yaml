@@ -32,7 +32,7 @@ metadata:
   labels:
     catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
 ---
-apiVersion: source.toolkit.fluxcd.io/v1
+apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
 metadata:
   name: bp-gitea
@@ -187,7 +187,7 @@ spec:
       #   (giteaAdmin.mirrorNamespaces) instead of minting a fresh one that
       #   drifts from Gitea's DB (live hw277: cutover step-10 clone 401 /
       #   git exit 128). Refs #5262 #5214 #3379.
-      version: 1.2.52
+      version: 1.2.51
       sourceRef:
         kind: HelmRepository
         name: bp-gitea
@@ -232,10 +232,6 @@ spec:
         namespace: flux-system
     global:
       sovereignFQDN: ${SOVEREIGN_FQDN}
-    # SOV-160: the platform repositories Job runs in the writer region only.
-    platformRepos:
-      regionId: "${SOVEREIGN_REGION_ID:=}"
-      writerRegionId: "${SOVEREIGN_WRITER_REGION_ID:=}"
     # G91.gitea (#2653) — wire bp-sso-bridge framework. The chart-side
     # post-install Job needs sovereignFqdn to compute the OIDC
     # autoDiscoverUrl at chart-template time. Empty default in the

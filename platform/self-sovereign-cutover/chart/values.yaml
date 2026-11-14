@@ -1055,6 +1055,7 @@ helmRepositories:
     - "bp-plane-isolation"
     - "bp-postgres"
     - "bp-powerdns-admin"
+    - "bp-sandbox"
     - "bp-sso-bridge"
     - "bp-vcluster-helmrepo"
     - "bp-velero-hcs"
@@ -1526,6 +1527,9 @@ imageRegistryPivot:
     - name: bp-newapi
       namespace: flux-system
       slotFile: clusters/_template/bootstrap-kit/80-newapi.yaml
+    - name: bp-sandbox
+      namespace: flux-system
+      slotFile: clusters/_template/bootstrap-kit/19a-bp-sandbox.yaml
     # #4961 (Refs #4885): the two remaining un-pivoted bootstrap-kit DaemonSets.
     # Both carried a literal ghcr.io image (their image helpers ignored
     # global.imageRegistry), so under the step-08 generalized fresh-pull

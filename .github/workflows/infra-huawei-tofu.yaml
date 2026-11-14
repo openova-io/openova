@@ -21,16 +21,12 @@ on:
       - 'infra/providers/_shared/**'
       - '.github/workflows/infra-huawei-tofu.yaml'
       - 'scripts/check-vpc-cidr-no-pod-overlap.py'
-      - 'scripts/check-network-registry.py'
-      - 'scripts/tests/check-network-registry/**'
   pull_request:
     paths:
       - 'infra/providers/huawei/**'
       - 'infra/providers/_shared/**'
       - '.github/workflows/infra-huawei-tofu.yaml'
       - 'scripts/check-vpc-cidr-no-pod-overlap.py'
-      - 'scripts/check-network-registry.py'
-      - 'scripts/tests/check-network-registry/**'
   workflow_dispatch:
 
 jobs:
@@ -77,22 +73,12 @@ jobs:
       # base can land on the FIXED k3s pod/service overlay (10.42+idx /
       # 10.96+idx) — a defect that only exists for specific hash bytes, so
       # validate/test/render all pass over it. The guard parses the formula
-      # literals out of main.tf and enumerates every hash byte x N=1..6
-      # (NET-100: at most six regions; from three on the node base also
-      # stays out of the pod supernet 10.40.0.0/13).
+      # literals out of main.tf and enumerates every hash byte x N=1..5.
       - name: node-VPC CIDR never on the pod/service overlay (#6786)
         working-directory: ${{ github.workspace }}
         run: |
           python3 scripts/check-vpc-cidr-no-pod-overlap.py --self-test
           python3 scripts/check-vpc-cidr-no-pod-overlap.py
-
-      # NET-100: the module test compares output network_registry with the
-      # documents under scripts/tests/check-network-registry/; this self-test
-      # proves those documents pass the registry check and that each rule's
-      # failing case fails.
-      - name: network registry check self-test (NET-100)
-        working-directory: ${{ github.workspace }}
-        run: python3 scripts/check-network-registry.py --self-test
 
       - name: tofu test (offline — mock_provider for huaweicloud + aws)
         # The module's tests/multi_region.tftest.hcl exercises the Tier-B

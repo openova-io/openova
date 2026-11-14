@@ -115,10 +115,8 @@ type Handler struct {
 	// GET <CHARGEBACK_PUBLIC_URL>/api/v1/public/packages — that an order
 	// carrying `package_sku` is priced from. nil or unconfigured means BSS
 	// pricing is off: such an order is refused with 503 "prices unavailable",
-	// never priced from the catalog instead. An order without a package_sku
-	// consults it too: while it publishes packages that order is refused with
-	// 409 "package-required"; only while it publishes none (404 or an empty
-	// list) is the order priced from the catalog.
+	// never priced from the catalog instead. Orders without a package_sku
+	// never consult it.
 	Packages *packages.Client
 
 	// NotificationURL is the internal URL of the notification service's
@@ -1410,11 +1408,6 @@ func (p *pricedOrder) response(planID string) *QuoteResponse {
 // Both answer 503 — an order is never priced from the catalog instead.
 var errPricesUnavailable = errors.New("prices unavailable")
 
-// errPackageRequired: the order carries no package_sku while the price book
-// publishes packages. It is refused, never priced from the catalog: the
-// published document is the one price list. 409 "package-required".
-var errPackageRequired = errors.New("package required")
-
 // orderInvalidError is an order body that breaks the overage rules: an
 // unknown overage mode, a grow ceiling or spend limit without grow, grow
 // without a package or on a package that does not offer it, a ceiling
@@ -1433,8 +1426,6 @@ func invalidOrder(format string, args ...any) error {
 //   - *packages.RefusedError (add-on not offered on the package, add-on or
 //     package unknown to the price book) → 422, naming the add-on and the
 //     package in both the message and structured fields;
-//   - errPackageRequired (no package_sku while the price book publishes
-//     packages) → 409 "package-required";
 //   - errPricesUnavailable / packages.ErrUnavailable → 503 "prices unavailable";
 //   - anything else (catalog unreachable, unknown plan) → 400, as before.
 func pricingErrorResponse(err error) (int, map[string]any) {
@@ -1449,8 +1440,6 @@ func pricingErrorResponse(err error) (int, map[string]any) {
 			"addon_sku":   refused.AddonSKU,
 			"package_sku": refused.PackageSKU,
 		}
-	case errors.Is(err, errPackageRequired):
-		return http.StatusConflict, map[string]any{"error": "package-required"}
 	case errors.Is(err, errPricesUnavailable), errors.Is(err, packages.ErrUnavailable):
 		return http.StatusServiceUnavailable, map[string]any{
 			"error": "prices unavailable — the price book could not be read; please retry",
@@ -1464,8 +1453,7 @@ func pricingErrorResponse(err error) (int, map[string]any) {
 
 // priceOrder is the single pricing seam Checkout and Quote share. An order
 // that carries a package_sku is priced from the BSS public packages document;
-// one that does not is priced from the catalog as before #6971, but only
-// while that document publishes no package (priceFromCatalog).
+// one that does not is priced from the catalog exactly as before #6971.
 //
 // The overage fields are checked first, before any price book is read: they
 // are the customer's request, and a wrong one is a 400 whatever BSS says.
@@ -1596,9 +1584,6 @@ func (h *Handler) priceFromPackages(ctx context.Context, req pricingRequest, ov 
 			errPricesUnavailable, req.PackageSKU)
 	}
 	doc, err := h.Packages.Get(ctx)
-	if errors.Is(err, packages.ErrNoPackages) {
-		return nil, packages.Refused(req.PackageSKU, "", fmt.Sprintf("package %q is not in the price book: the price book publishes no packages", req.PackageSKU))
-	}
 	if err != nil {
 		return nil, err // wraps packages.ErrUnavailable
 	}
@@ -1706,22 +1691,10 @@ func prepaidBaisa(p *pricedOrder) int64 {
 	return sum
 }
 
-// priceFromCatalog is the pre-#6971 pricing path: plan from /catalog/plans
-// (an unknown plan is an error), add-ons from /catalog/addons, the topology
-// surcharge from billing's own constant. It answers only while the BSS price
-// book publishes no package. While it publishes packages the order is refused
-// with errPackageRequired; when it cannot be read the order is refused with
-// packages.ErrUnavailable. An order is never priced from a second list.
+// priceFromCatalog is the pre-#6971 pricing path, unchanged in behaviour:
+// plan from /catalog/plans (an unknown plan is an error), add-ons from
+// /catalog/addons, the topology surcharge from billing's own constant.
 func (h *Handler) priceFromCatalog(ctx context.Context, req pricingRequest) (*pricedOrder, error) {
-	if h.Packages.Configured() {
-		_, err := h.Packages.Get(ctx)
-		switch {
-		case err == nil:
-			return nil, errPackageRequired
-		case !errors.Is(err, packages.ErrNoPackages):
-			return nil, err // wraps packages.ErrUnavailable
-		}
-	}
 	if h.CatalogURL == "" {
 		return nil, fmt.Errorf("catalog URL not configured")
 	}

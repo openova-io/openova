@@ -17,7 +17,6 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
-	"github.com/openova-io/openova/core/controllers/pkg/gitwrite"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 )
 
@@ -46,9 +45,6 @@ type fakeGiteaClient struct {
 	// the per-Blueprint source write succeeds. Default nil → unchanged
 	// behaviour for every existing caller.
 	putFileErrFor func(org, repo, branch, path string) error
-
-	changes   []gitwrite.Change // every Change given to Commit, in order
-	commitErr error             // when non-nil, Commit returns it and writes nothing
 }
 
 func newFakeGitea() *fakeGiteaClient {
@@ -109,37 +105,6 @@ func (f *fakeGiteaClient) PutFile(ctx context.Context, org, repo, branch, path s
 	defer f.mu.Unlock()
 	f.files[giteaKey(org, repo, branch, path)] = data
 	return gitea.File{Path: path, ContentBase64: base64.StdEncoding.EncodeToString(data)}, true, nil
-}
-
-// Commit makes the fake a gitwrite.Writer: each file is written as PutFile
-// writes it, with the same injected delay and errors.
-func (f *fakeGiteaClient) Commit(ctx context.Context, c gitwrite.Change) (gitwrite.Result, error) {
-	f.mu.Lock()
-	f.changes = append(f.changes, c)
-	commitErr := f.commitErr
-	f.mu.Unlock()
-	if commitErr != nil {
-		return gitwrite.Result{}, commitErr
-	}
-	branch := c.Repo.Branch
-	if branch == "" {
-		branch = "main"
-	}
-	for _, fc := range c.Files {
-		if _, _, err := f.PutFile(ctx, c.Repo.Owner, c.Repo.Name, branch, fc.Path, fc.Content, c.Summary); err != nil {
-			return gitwrite.Result{}, err
-		}
-	}
-	return gitwrite.Result{Commit: "0123456789abcdef0123456789abcdef01234567", Committed: true}, nil
-}
-
-// Read and List complete gitwrite.Writer; the handlers read through GetFile.
-func (f *fakeGiteaClient) Read(context.Context, gitwrite.Scope, gitwrite.Repo, string) ([]byte, string, error) {
-	return nil, "", gitwrite.ErrNotFound
-}
-
-func (f *fakeGiteaClient) List(context.Context, gitwrite.Scope, gitwrite.Repo, string) ([]gitwrite.Entry, error) {
-	return []gitwrite.Entry{}, nil
 }
 
 func (f *fakeGiteaClient) GetFile(_ context.Context, org, repo, branch, path string) (gitea.File, error) {
@@ -321,8 +286,8 @@ func TestHandleBlueprintPublish_503WhenGiteaUnwired(t *testing.T) {
 	}
 	rec := callUserAccess(t, h, http.MethodPost,
 		"/api/v1/sovereigns/"+dep.ID+"/blueprints/publish", body, registerBlueprintRoutes)
-	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), `"git-unavailable"`) {
-		t.Fatalf("status: got %d want 503 git-unavailable; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status: got %d want 503; body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -491,7 +456,7 @@ func TestHandleBlueprintListCuratable_GiteaUnwiredReturnsEmptyList(t *testing.T)
 
 // ── Edit-PR (slice Z3) ────────────────────────────────────────────────
 
-func TestHandleBlueprintEditPR_CommitsToMain(t *testing.T) {
+func TestHandleBlueprintEditPR_OpensPR(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
 	gc := newFakeGitea()
 	h.SetGiteaClient(gc)
@@ -512,16 +477,58 @@ func TestHandleBlueprintEditPR_CommitsToMain(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	wantURL := "/acme/shared-blueprints/commit/0123456789abcdef0123456789abcdef01234567"
-	if resp.PRURL != wantURL || resp.PR.URL != wantURL || resp.PRNumber != 0 || resp.Branch != blueprintBranch {
-		t.Errorf("response must carry the commit on %s; resp=%+v", blueprintBranch, resp)
+	if resp.PRURL == "" {
+		t.Errorf("PRURL empty; resp=%+v", resp)
 	}
-	wrote, ok := gc.files[giteaKey("acme", sharedBlueprintsRepo, blueprintBranch, body.Path)]
-	if !ok || string(wrote) != body.Content {
-		t.Fatalf("expected the content committed on %s; gitea files=%v", blueprintBranch, gc.files)
+	if resp.PRNumber == 0 {
+		t.Errorf("PRNumber zero; resp=%+v", resp)
 	}
-	if len(gc.prs) != 0 || len(gc.branches) != 0 {
-		t.Errorf("edit-pr must open no pull request and create no branch; prs=%v branches=%v", gc.prs, gc.branches)
+	if !strings.HasPrefix(resp.Branch, "edit/") {
+		t.Errorf("branch should be deterministic edit/<hash>; got %q", resp.Branch)
+	}
+	// Verify content actually landed on the branch.
+	wrote, ok := gc.files[giteaKey("acme", sharedBlueprintsRepo, resp.Branch, body.Path)]
+	if !ok {
+		t.Fatalf("expected commit on branch %s; gitea files=%v", resp.Branch, gc.files)
+	}
+	if string(wrote) != body.Content {
+		t.Fatalf("committed content mismatch: got %q want %q", string(wrote), body.Content)
+	}
+}
+
+func TestHandleBlueprintEditPR_DeterministicBranchPerContent(t *testing.T) {
+	h := NewWithPDM(silentLogger(), &fakePDM{})
+	gc := newFakeGitea()
+	h.SetGiteaClient(gc)
+	dep := installUserAccessDeployment(t, h, "dep-bp-edit-pr-det")
+
+	body := blueprintEditPRRequest{
+		Org:     "acme",
+		Path:    "clusters/sov/website/deployment.yaml",
+		Content: "same-content",
+		Title:   "edit",
+	}
+	r1 := callUserAccess(t, h, http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/blueprints/edit-pr", body, registerBlueprintRoutes)
+	r2 := callUserAccess(t, h, http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/blueprints/edit-pr", body, registerBlueprintRoutes)
+	if r1.Code != http.StatusOK || r2.Code != http.StatusOK {
+		t.Fatalf("statuses: %d, %d (want both 200)", r1.Code, r2.Code)
+	}
+	var resp1, resp2 blueprintEditPRResponse
+	_ = json.Unmarshal(r1.Body.Bytes(), &resp1)
+	_ = json.Unmarshal(r2.Body.Bytes(), &resp2)
+	if resp1.Branch != resp2.Branch {
+		t.Errorf("same content should produce same branch; got %q vs %q", resp1.Branch, resp2.Branch)
+	}
+	// Different content → different branch.
+	body.Content = "other-content"
+	r3 := callUserAccess(t, h, http.MethodPost,
+		"/api/v1/sovereigns/"+dep.ID+"/blueprints/edit-pr", body, registerBlueprintRoutes)
+	var resp3 blueprintEditPRResponse
+	_ = json.Unmarshal(r3.Body.Bytes(), &resp3)
+	if resp1.Branch == resp3.Branch {
+		t.Errorf("different content should produce different branch; got %q == %q", resp1.Branch, resp3.Branch)
 	}
 }
 
@@ -551,15 +558,15 @@ func TestHandleBlueprintEditPR_503WhenGiteaUnwired(t *testing.T) {
 	body := blueprintEditPRRequest{Org: "acme", Path: "x.yaml", Content: "k: v", Title: "x"}
 	rec := callUserAccess(t, h, http.MethodPost,
 		"/api/v1/sovereigns/"+dep.ID+"/blueprints/edit-pr", body, registerBlueprintRoutes)
-	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), `"git-unavailable"`) {
-		t.Fatalf("status: got %d want 503 git-unavailable; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status: got %d want 503; body=%s", rec.Code, rec.Body.String())
 	}
 }
 
 func TestHandleBlueprintEditPR_404WhenRepoMissing(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
 	gc := newFakeGitea()
-	gc.commitErr = fmt.Errorf("%w: repository ghost/shared-blueprints", gitwrite.ErrNotFound)
+	gc.failPRCreate = true // the fake's CreatePullRequest returns ErrRepoNotFound
 	h.SetGiteaClient(gc)
 	dep := installUserAccessDeployment(t, h, "dep-bp-edit-pr-404")
 	body := blueprintEditPRRequest{Org: "ghost", Path: "x.yaml", Content: "k: v", Title: "x"}
@@ -592,6 +599,23 @@ func TestHandleBlueprintEditPR_BadRequest(t *testing.T) {
 				t.Fatalf("status: got %d want 400; body=%s", rec.Code, rec.Body.String())
 			}
 		})
+	}
+}
+
+func TestEditPRBranchName_DeterministicAndPathSensitive(t *testing.T) {
+	t.Parallel()
+	a := editPRBranchName("a.yaml", []byte("body"))
+	b := editPRBranchName("a.yaml", []byte("body"))
+	c := editPRBranchName("b.yaml", []byte("body"))
+	d := editPRBranchName("a.yaml", []byte("different-body"))
+	if a != b {
+		t.Errorf("same (path, content) should yield same branch; got %q vs %q", a, b)
+	}
+	if a == c || a == d {
+		t.Errorf("path / content change should yield different branch; got %q %q %q", a, c, d)
+	}
+	if !strings.HasPrefix(a, "edit/") {
+		t.Errorf("branch should be edit/<hash>; got %q", a)
 	}
 }
 

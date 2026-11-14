@@ -89,7 +89,7 @@ func TestListBlueprintInstances_OrgScoped_ConfinedToOwnOrg(t *testing.T) {
 	// Same Org, different label convention (real org-<uuid> namespace).
 	ownAltLabel := seedAppWithOrgLabel("uid-4937-2", "wp-own-2", "acme", "org-abc123", "wordpress")
 	other := seedApp("uid-4937-3", "wp-other", "bigcorp", "wordpress")
-	h, _ := newTestHandlerWithEndpoint(t, own, ownAltLabel, other)
+	h, _, _ := newTestHandlerWithEndpoint(t, own, ownAltLabel, other)
 	h.tenantRegistry = orgRegistry(t, orgConsoleHost4937, "acme")
 	h.SetCatalogClient(newFakeCatalog())
 	r := newTestRouter(h)
@@ -121,7 +121,7 @@ func TestListBlueprintInstances_OrgScoped_ConfinedToOwnOrg(t *testing.T) {
 func TestListBlueprintInstances_OrgScoped_CrossOrgQuery403(t *testing.T) {
 	own := seedApp("uid-4937-10", "wp-own", "acme", "wordpress")
 	other := seedApp("uid-4937-11", "wp-other", "bigcorp", "wordpress")
-	h, _ := newTestHandlerWithEndpoint(t, own, other)
+	h, _, _ := newTestHandlerWithEndpoint(t, own, other)
 	h.tenantRegistry = orgRegistry(t, orgConsoleHost4937, "acme")
 	h.SetCatalogClient(newFakeCatalog())
 	r := newTestRouter(h)
@@ -145,7 +145,7 @@ func TestListBlueprintInstances_OrgScoped_CrossOrgQuery403(t *testing.T) {
 func TestListBlueprintInstances_Operator_Unchanged(t *testing.T) {
 	a := seedApp("uid-4937-20", "wp-a", "acme", "wordpress")
 	b := seedApp("uid-4937-21", "wp-b", "bigcorp", "wordpress")
-	h, _ := newTestHandlerWithEndpoint(t, a, b)
+	h, _, _ := newTestHandlerWithEndpoint(t, a, b)
 	h.tenantRegistry = orgRegistry(t, orgConsoleHost4937, "acme")
 	h.SetCatalogClient(newFakeCatalog())
 	r := newTestRouter(h)
@@ -174,7 +174,7 @@ func TestListBlueprintInstances_Operator_Unchanged(t *testing.T) {
 // host-anchored own-Org binding IS the authz boundary, and the target is
 // FORCED to the caller's own Org namespace regardless of the body's `org`.
 func TestCreateInstance_OrgScoped_AllowsOwnOrgSkipsTierGate(t *testing.T) {
-	h, dyn := newTestHandlerWithEndpoint(t)
+	h, _, dyn := newTestHandlerWithEndpoint(t)
 	h.tenantRegistry = orgRegistry(t, orgConsoleHost4937, "acme")
 	h.SetCatalogClient(fakeBlueprintInCatalog("wordpress",
 		[]map[string]interface{}{}, true, []string{"singleton", "active-hot-standby"}))
@@ -205,7 +205,7 @@ func TestCreateInstance_OrgScoped_AllowsOwnOrgSkipsTierGate(t *testing.T) {
 // with an unprivileged tier is still rejected by the Sovereign-tier gate.
 // Proves #4937 only relaxes the gate for the confined own-Org path.
 func TestCreateInstance_Operator_TierGateUnchanged(t *testing.T) {
-	h, _ := newTestHandlerWithEndpoint(t)
+	h, _, _ := newTestHandlerWithEndpoint(t)
 	// No Org host in the registry for this request's host → not Org-scoped.
 	h.tenantRegistry = orgRegistry(t, orgConsoleHost4937, "acme")
 	h.SetCatalogClient(fakeBlueprintInCatalog("wordpress",

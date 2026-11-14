@@ -28,7 +28,7 @@ allowSystemNamespaces:
   # #4291 Workstream C — `dmz`/`mgmt`/`rtz` REMOVED: the platform planes are
   # no longer vCluster syncer namespaces. Each former-plane component now runs
   # in its OWN host namespace (gitea/harbor/keycloak/grafana/openbao/guacamole/
-  # newapi/nats-system/loki/mimir/tempo · valkey/seaweedfs/vllm ·
+  # newapi/nats-system/loki/mimir/tempo · valkey/seaweedfs/vllm/sandbox ·
   # coraza), all listed individually below + tightened per-component by slot
   # 26b bp-plane-isolation.
   - external-dns
@@ -62,6 +62,7 @@ allowSystemNamespaces:
   - powerdns
   - reflector
   - reloader
+  - sandbox   # #4291 — sandbox-controller de-vclustered to its own host ns (was catalyst-system in vc-rtz)
   - seaweedfs
   - sigstore-system
   - syft-grype

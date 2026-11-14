@@ -9,10 +9,7 @@ is:
 
 An acceptance record is the JSON that `scripts/acceptance-sovereign.sh <env>
 --record` writes to docs/ledger/acceptance/<env>-<run_id>.json
-(tests/acceptance/sovereign). The suite writes schema
-`openova.io/acceptance-sovereign/v2`; the records it wrote before are
-`openova.io/acceptance-sovereign/v1`. Both are read here: the fields this
-module reads (`env`, `mode`, `journeys`) are the same in both.
+(tests/acceptance/sovereign, schema `openova.io/acceptance-sovereign/v1`).
 
 A ledger row cites a run by writing the token `acceptance:<run_id>` in its
 evidence cell, e.g. `acceptance:20261108T101500Z-3f2a`.
@@ -23,8 +20,6 @@ import os
 import re
 
 SCHEMA = "openova.io/acceptance-sovereign/v1"
-SCHEMA_V2 = "openova.io/acceptance-sovereign/v2"
-SCHEMAS = (SCHEMA, SCHEMA_V2)
 
 # run_id = <UTC yyyymmddThhmmssZ>-<4 hex>, as suite.NewRunID mints it.
 CITATION = re.compile(r"\bacceptance:(\d{8}T\d{6}Z-[0-9a-f]{4})\b")
@@ -85,8 +80,8 @@ def citation_verdict(evidence, env, journeys, acceptance_dir):
         if rec is None:
             reasons.append(f"{rid}: no record docs/ledger/acceptance/{env}-{rid}.json")
             continue
-        if rec.get("schema") not in SCHEMAS:
-            reasons.append(f"{rid}: schema {rec.get('schema')!r} is not one of {', '.join(SCHEMAS)}")
+        if rec.get("schema") != SCHEMA:
+            reasons.append(f"{rid}: schema {rec.get('schema')!r} != {SCHEMA}")
             continue
         if rec.get("env") != env:
             reasons.append(f"{rid}: record is for env {rec.get('env')!r}, ledger header is {env}")
