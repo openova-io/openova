@@ -3638,7 +3638,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "1.4.159",
+    "version": "1.4.160",
     "section": "pts-4-6-llm-serving",
     "depends": [
       "bp-cnpg",
@@ -3840,7 +3840,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.2.21",
+    "version": "0.2.22",
     "section": "pts-4-7-agentic-workspace",
     "depends": [
       "bp-newapi",
