@@ -416,12 +416,11 @@ spec:
             # flips a per-Sovereign overlay to harbor.<sovereign-fqdn>.
             - name: VCLUSTER_IMAGE_REGISTRY
               value: {{ .Values.orgServices.provisioning.vclusterImageRegistry | default "harbor.openova.io" | quote }}
-            # #4060 PILLAR-3: cloud provider ("hetzner" | "huawei") selects
-            # the block-storage StorageClass the per-tenant active-hot-standby
-            # CNPG pair PVCs bind to (hcloud-volumes vs evs-ssd). Empty →
-            # provisioning defaults to "hetzner" (NO-REGRESS for contabo).
-            - name: CLOUD_PROVIDER
-              value: {{ .Values.global.cloudProvider | default "" | quote }}
+            # CLD-030: the Sovereign's storage class, named on the PVCs of the
+            # per-Organization CNPG pair. Empty: the provisioning service
+            # leaves the field out and the cluster's default class applies.
+            - name: DEFAULT_STORAGE_CLASS
+              value: {{ .Values.global.defaultStorageClass | default "" | quote }}
             # #4282/#4275 CROSS-REGION STANDBY: the flux-system Secret holding
             # region-B's (the STANDBY region's) host-cluster kubeconfig. The
             # per-Org active-hot-standby bp-cnpg-pair is split-side — the replica

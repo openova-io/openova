@@ -50,19 +50,13 @@ global:
   # orchestrator writes the per-Sovereign overlay. TBD-A15 (t24 zero-
   # touch, 2026-05-18, issue #1844).
   sovereignSelfDeploymentId: ""
-  # cloudProvider — the IaC cloud this Sovereign was provisioned on
-  # ("hetzner" | "huawei"). Populated by the bootstrap-kit slot from a
-  # ${CLOUD_PROVIDER} cloud-init substitute (same mechanism as
-  # sovereignFQDN / sovereignLBIP above). Consumed by the provisioning
-  # Deployment's CLOUD_PROVIDER env so the per-tenant active-hot-standby
-  # CNPG pair binds its PVCs to the provider-correct block-storage class
-  # (hcloud-volumes on Hetzner / hcloud-csi, evs-ssd on Huawei /
-  # huaweicloud-csi-driver EVS). PILLAR-3 (#4060): a cross-provider
-  # hardcode pinned every customer-Org CNPG PVC Pending on Huawei.
-  # Empty defaults to "hetzner" inside the provisioning binary
-  # (gitops.cnpgStorageClass) so the legacy contabo/Hetzner path is
-  # unchanged (NO-REGRESS).
-  cloudProvider: ""
+  # defaultStorageClass — the storage class of this Sovereign (CLD-030).
+  # The bootstrap-kit slot 13 sets it from the kit key
+  # SOVEREIGN_CNPG_STORAGE_CLASS. The provisioning Deployment passes it as
+  # DEFAULT_STORAGE_CLASS, and the per-Organization CNPG pair names it on
+  # the PVCs of both sides. Empty: the field is left out and the cluster's
+  # default class applies.
+  defaultStorageClass: ""
   # cloud — the provider pack and the installation of the Sovereign that the
   # catalyst-api runs on (contract C2: infra/providers/<pack>/profile.yaml).
   # Rendered into the catalyst-api env CLOUD_PROVIDER and CLOUD_INSTALLATION,
@@ -70,7 +64,7 @@ global:
   # bootstrap-kit slot 13 sets it from the ${PROVIDER} substitute. installation:
   # metadata.name of the installation document, kept in the ConfigMap
   # catalyst-system/cloud-installation-<name>; empty = the pack profile alone.
-  # global.cloudProvider above is the provisioning service's own value.
+  # global.defaultStorageClass above is the provisioning service's own value.
   cloud:
     provider: ""
     installation: ""

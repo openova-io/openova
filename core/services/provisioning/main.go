@@ -170,15 +170,12 @@ func main() {
 	// flips it to harbor.<sovereign-fqdn>.
 	generator.RegistryMirror = getEnv("VCLUSTER_IMAGE_REGISTRY", "harbor.openova.io")
 
-	// #4060 PILLAR-3: the IaC cloud provider this Sovereign runs on
-	// ("hetzner" | "huawei"). Selects the block-storage StorageClass the
-	// per-tenant active-hot-standby CNPG pair PVCs bind to — hcloud-volumes
-	// on Hetzner (hcloud-csi), evs-ssd on Huawei (huaweicloud-csi-driver
-	// EVS). Without this, generateCNPGPair hardcoded hcloud-volumes and
-	// every customer-Org CNPG PVC on a Huawei Sovereign stayed Pending
-	// forever → Pillar-3 silently dead for tenant Orgs. Empty / unknown
-	// defaults to the Hetzner class inside gitops.cnpgStorageClass().
-	generator.CloudProvider = getEnv("CLOUD_PROVIDER", "hetzner")
+	// CLD-030: the storage class of this Sovereign, named on the PVCs of the
+	// per-Organization CNPG pair. The chart sets DEFAULT_STORAGE_CLASS from
+	// global.defaultStorageClass, which the bootstrap kit sets from
+	// SOVEREIGN_CNPG_STORAGE_CLASS. Empty: the field is left out and the
+	// cluster's default class applies.
+	generator.DefaultStorageClass = getEnv("DEFAULT_STORAGE_CLASS", "")
 
 	// #4706 — pin the per-Org HelmRelease-shaped apps' chart versions so a
 	// funnel Org never installs off a floating `version: "*"` (one mis-tagged

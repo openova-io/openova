@@ -538,82 +538,64 @@ func cnpgPairManifest(t *testing.T, files map[string]string) string {
 	return ""
 }
 
-// TestCNPGPair_StorageClass_Huawei is the #4060 PILLAR-3 regression
-// lock: on a Huawei Sovereign the customer-Org CNPG pair MUST render
-// the EVS CSI StorageClass (evs-ssd), NOT hcloud-volumes. The old
-// hardcode left every customer-Org CNPG PVC Pending forever on Huawei
-// because hcloud-volumes does not exist there → the two-region pair
-// never materialized → Pillar-3 silently dead for tenant Orgs.
-func TestCNPGPair_StorageClass_Huawei(t *testing.T) {
-	g := &ManifestGenerator{
-		BasePath:      "clusters/kom4dc/org-tenants",
-		CloudProvider: "huawei",
-	}
-	manifest := cnpgPairManifest(t, g.GenerateAllWithAppConfigs(
-		"acme", "flexi", []string{"umami"}, "deadbeef", cnpgPairAppConfigs()))
-
-	if !strings.Contains(manifest, "storageClass: evs-ssd") {
-		t.Errorf("Huawei CNPG pair missing evs-ssd StorageClass — PVCs would stay Pending; manifest:\n%s", manifest)
-	}
-	if strings.Contains(manifest, "storageClass: hcloud-volumes") {
-		t.Errorf("Huawei CNPG pair STILL renders hcloud-volumes — #4060 landmine not fixed; manifest:\n%s", manifest)
-	}
-	// Both PVCs (primary + replica) must carry the EVS class.
-	if got := strings.Count(manifest, "storageClass: evs-ssd"); got != 2 {
-		t.Errorf("expected evs-ssd on both primary + replica storage (2 occurrences), got %d", got)
-	}
-}
-
-// TestCNPGPair_StorageClass_Hetzner is the NO-REGRESS lock: Hetzner
-// (and the empty/default contabo path) MUST still render hcloud-volumes
-// for both the primary and replica CNPG cluster PVCs.
-func TestCNPGPair_StorageClass_Hetzner(t *testing.T) {
-	g := &ManifestGenerator{
-		BasePath:      "clusters/hz-fsn-rtz-prod/org-tenants",
-		CloudProvider: "hetzner",
-	}
-	manifest := cnpgPairManifest(t, g.GenerateAllWithAppConfigs(
-		"acme", "flexi", []string{"umami"}, "deadbeef", cnpgPairAppConfigs()))
-
-	if got := strings.Count(manifest, "storageClass: hcloud-volumes"); got != 2 {
-		t.Errorf("Hetzner CNPG pair must render hcloud-volumes on both PVCs (2 occurrences), got %d; manifest:\n%s", got, manifest)
-	}
-	if strings.Contains(manifest, "storageClass: evs-ssd") {
-		t.Errorf("Hetzner CNPG pair unexpectedly rendered evs-ssd — regression; manifest:\n%s", manifest)
-	}
-}
-
-// TestCNPGPair_StorageClass_DefaultsToHetzner — an empty CloudProvider
-// (legacy contabo Catalyst-Zero / pre-#4060 chart render) must fall
-// back to hcloud-volumes so the historical default is unchanged.
-func TestCNPGPair_StorageClass_DefaultsToHetzner(t *testing.T) {
-	g := &ManifestGenerator{BasePath: "clusters/contabo-mkt/tenants"} // CloudProvider unset
-	manifest := cnpgPairManifest(t, g.GenerateAllWithAppConfigs(
-		"acme", "flexi", []string{"umami"}, "deadbeef", cnpgPairAppConfigs()))
-
-	if got := strings.Count(manifest, "storageClass: hcloud-volumes"); got != 2 {
-		t.Errorf("empty CloudProvider must default to hcloud-volumes on both PVCs (2 occurrences), got %d", got)
-	}
-}
-
-// TestCNPGStorageClass_Resolver pins the per-provider resolver directly
-// (unit-level), including the unknown-provider safe fallback.
-func TestCNPGStorageClass_Resolver(t *testing.T) {
-	cases := []struct {
-		provider string
-		want     string
-	}{
-		{"huawei", "evs-ssd"},
-		{"Huawei", "evs-ssd"}, // case-insensitive
-		{"hetzner", "hcloud-volumes"},
-		{"", "hcloud-volumes"},            // empty → Hetzner default
-		{"  hetzner  ", "hcloud-volumes"}, // trimmed
-		{"gcp", "hcloud-volumes"},         // unknown → safe Hetzner fallback
-	}
-	for _, tc := range cases {
-		g := &ManifestGenerator{CloudProvider: tc.provider}
-		if got := g.cnpgStorageClass(); got != tc.want {
-			t.Errorf("cnpgStorageClass(%q) = %q, want %q", tc.provider, got, tc.want)
+// TestCNPGPair_StorageClass_Named is the CLD-030 lock for a named class:
+// the per-Organization CNPG pair names the Sovereign's storage class
+// (DefaultStorageClass) on the PVCs of both sides, in both side files,
+// whatever the class is called. No provider name chooses it.
+func TestCNPGPair_StorageClass_Named(t *testing.T) {
+	for _, class := range []string{"durable-ssd", "fast-replicated"} {
+		g := &ManifestGenerator{BasePath: "clusters/sov/org-tenants", DefaultStorageClass: class}
+		files := g.GenerateAllWithAppConfigs("acme", "flexi", []string{"umami"}, "deadbeef", cnpgPairAppConfigs())
+		for _, side := range cnpgPairSides(t, files) {
+			if got := strings.Count(side, "\n          storageClass: "+class+"\n"); got != 2 {
+				t.Errorf("class %q: want it on the primary and the replica storage (2 occurrences), got %d; manifest:\n%s", class, got, side)
+			}
+			if got := strings.Count(side, "storageClass:"); got != 2 {
+				t.Errorf("class %q: want exactly 2 storageClass fields, got %d; manifest:\n%s", class, got, side)
+			}
 		}
 	}
+}
+
+// TestStorageClassOmittedWhenUnset is the CLD-030 lock for no class: a
+// Sovereign that gives no class (DEFAULT_STORAGE_CLASS empty or blank)
+// renders no storageClass field at all, so both PVCs take the cluster's
+// default class. No class is invented, least of all a provider's.
+func TestStorageClassOmittedWhenUnset(t *testing.T) {
+	for _, class := range []string{"", "   "} {
+		g := &ManifestGenerator{BasePath: "clusters/sov/org-tenants", DefaultStorageClass: class}
+		files := g.GenerateAllWithAppConfigs("acme", "flexi", []string{"umami"}, "deadbeef", cnpgPairAppConfigs())
+		for _, side := range cnpgPairSides(t, files) {
+			if strings.Contains(side, "storageClass") {
+				t.Errorf("class %q: the manifest must carry no storageClass field; manifest:\n%s", class, side)
+			}
+			for _, block := range []string{
+				"        storage:\n          size: 50Gi\n        bootstrap:\n",
+				"        storage:\n          size: 50Gi\n      # replication.mode",
+			} {
+				if got := strings.Count(side, block); got != 1 {
+					t.Errorf("class %q: want the storage block %q once, got %d; manifest:\n%s", class, block, got, side)
+				}
+			}
+		}
+	}
+}
+
+// cnpgPairSides returns the two side files of the pair, primary first.
+func cnpgPairSides(t *testing.T, files map[string]string) []string {
+	t.Helper()
+	out := []string{}
+	for _, name := range []string{"db-cnpg-pair-primary.yaml", "db-cnpg-pair-replica.yaml"} {
+		found := ""
+		for path, content := range files {
+			if strings.HasSuffix(path, name) {
+				found = content
+			}
+		}
+		if found == "" {
+			t.Fatalf("%s NOT generated when active_hot_standby=true", name)
+		}
+		out = append(out, found)
+	}
+	return out
 }
