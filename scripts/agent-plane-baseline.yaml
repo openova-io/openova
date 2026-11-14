@@ -1,0 +1,94 @@
+# The stored numbers of scripts/check-agent-plane.py. A max may only fall.
+# Lower them to the measured numbers with: python3 scripts/check-agent-plane.py --write-baseline
+schema: openova.io/agent-plane-baseline/v1
+forbiddenTools:
+- create_application
+rules:
+  G1:
+    max: 13
+    allow:
+    - platform/anthropic-adapter/blueprint.yaml
+    - platform/anthropic-adapter/chart/templates/networkpolicy.yaml
+    - platform/anthropic-adapter/chart/values.yaml
+    - platform/llm-gateway/chart/templates/networkpolicy.yaml
+    - platform/newapi/chart/values.yaml
+    - products/agenity/README.md
+    - products/agenity/chart/Chart.yaml
+    - products/agenity/chart/templates/cilium-egress-networkpolicy.yaml
+    - products/agenity/chart/values.yaml
+    - products/axon/chart/templates/token-refresh-cronjob.yaml
+    - products/axon/src/providers/token-refresh.ts
+    - products/catalyst/bootstrap/api/internal/handler/sovereign_anthropic_refresh.go
+    - scripts/check-products.py
+  G2:
+    max: 23
+    allow:
+    - products/agenity/README.md
+    - products/agenity/chart/Chart.yaml
+    - products/agenity/chart/templates/statefulset.yaml
+    - products/agenity/chart/tests/credential-resync-6317.sh
+    - products/agenity/chart/tests/credential-verdict.sh
+    - products/agenity/chart/values.yaml
+    - products/axon/chart/templates/token-refresh-cronjob.yaml
+    - products/axon/src/providers/token-refresh.ts
+    - products/catalyst/bootstrap/api/internal/handler/anthropic_credential_class.go
+    - products/catalyst/bootstrap/api/internal/handler/anthropic_credential_class_6250_test.go
+    - products/catalyst/bootstrap/api/internal/handler/sovereign_anthropic_refresh.go
+    - products/catalyst/bootstrap/api/internal/handler/sovereign_anthropic_refresh_6317_test.go
+    - products/catalyst/bootstrap/api/internal/handler/sovereign_anthropic_seed.go
+    - products/catalyst/bootstrap/api/internal/handler/sovereign_anthropic_seed_live.go
+    - products/catalyst/bootstrap/api/internal/handler/sovereign_anthropic_seed_live_6163_test.go
+    - products/catalyst/bootstrap/api/internal/handler/sovereign_anthropic_seed_mothership.go
+    - products/catalyst/bootstrap/api/internal/handler/sovereign_anthropic_seed_mothership_test.go
+    - products/catalyst/bootstrap/api/internal/handler/sovereign_anthropic_seed_test.go
+    - products/catalyst/bootstrap/api/internal/handler/sovereign_seed_reconciler.go
+    - products/catalyst/chart/templates/api-deployment.yaml
+    - products/catalyst/chart/templates/clusterrole-cutover-driver.yaml
+    - products/catalyst/chart/values.yaml
+    - scripts/check-anthropic-refresh-vacuity-6317.py
+  G3:
+    max: 3
+    allow:
+    - products/axon/chart/templates/token-refresh-cronjob.yaml
+    - products/axon/src/providers/token-refresh.ts
+    - products/catalyst/bootstrap/api/internal/handler/sovereign_anthropic_refresh.go
+  G4:
+    max: 6
+    allow:
+    - core/services/metering-sidecar/main.go
+    - core/services/metering-sidecar/proxy/proxy.go
+    - platform/newapi/chart/values.yaml
+  G5:
+    max: 5
+    allow:
+    - platform/anthropic-adapter/chart/templates/deployment.yaml
+    - platform/openclaw/chart/Chart.yaml
+    - platform/openclaw/chart/templates/controller-deployment.yaml
+    - platform/openclaw/chart/templates/per-user-pod-template.yaml
+    - platform/openclaw/chart/tests/render-toggles.sh
+  G6:
+    max: 18
+    allow:
+    - core/services/provisioning/gitops/helmrelease_apps.go
+    - products/agenity/README.md
+    - products/agenity/chart/Chart.yaml
+    - products/agenity/chart/templates/_helpers.tpl
+    - products/agenity/chart/templates/externalsecret-mcp-bearer.yaml
+    - products/agenity/chart/templates/statefulset.yaml
+    - products/agenity/chart/values.yaml
+    - products/catalyst/bootstrap/api/internal/handler/application_parameters.go
+    - products/catalyst/bootstrap/api/internal/handler/application_parameters_test.go
+    - products/catalyst/bootstrap/api/internal/handler/organization_gitops.go
+    - products/catalyst/bootstrap/api/internal/handler/organization_provisioning_test.go
+    - products/catalyst/bootstrap/api/internal/handler/sovereign_mcp_bearer_seed.go
+    - products/catalyst/chart/templates/catalog-seed/blueprints.yaml
+    - products/openova-mcp/README.md
+    - products/openova-mcp/chart/templates/deployment.yaml
+    - products/openova-mcp/chart/values.yaml
+    - products/openova-mcp/cmd/openova-mcp/http.go
+    - products/openova-mcp/cmd/openova-mcp/main.go
+  G7d:
+    max: 2
+    allow:
+    - products/axon/src/providers/claude.ts
+    - products/axon/src/providers/session-pool.ts
