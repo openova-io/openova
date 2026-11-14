@@ -1,0 +1,28 @@
+apiVersion: v2
+name: bp-kured
+description: |
+  Catalyst Blueprint umbrella chart for kured, the Kubernetes reboot daemon.
+  Depends on the upstream `kured` chart (kubereboot/charts) as a Helm
+  subchart, so `helm dependency build` pulls the upstream payload into this
+  artifact. Catalyst-curated values flow into the subchart under the `kured:`
+  key in values.yaml.
+
+  The chart also carries the DaemonSet `node-patch-config`, the single owner
+  of every node's unattended-upgrade configuration: nodes install security
+  updates on their own and never reboot themselves; kured reboots them, one
+  node at a time, inside its reboot span.
+type: application
+version: 0.1.0
+appVersion: "1.23.0"
+keywords: [catalyst, blueprint, kured, reboot, unattended-upgrades, node-patching]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+# Pinned to kubereboot/kured 6.1.0 (appVersion 1.23.0): the release measured
+# beside the system-upgrade-controller on k3s v1.31.4+k3s1
+# (docs/ledger/plan/spikes/INF-030.md).
+dependencies:
+  - name: kured
+    version: "6.1.0"
+    repository: "https://kubereboot.github.io/charts"
