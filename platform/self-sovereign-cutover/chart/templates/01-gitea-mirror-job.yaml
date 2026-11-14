@@ -110,11 +110,11 @@ data:
            #6754 BUG 1 — the Secret name region-A copies the shared
            catalyst-gitea-token PAT (${GITEA_PAT}, read above) into, in each
            secondary's gitea namespace, so the in-region mirror Job can
-           secretKeyRef it locally. Same distribution shape as the #6764
-           secondary-ghcr copy.
+           secretKeyRef it locally. #7834: also into followerGitTokenSecret.
           */}}
           - name: SECONDARY_GITEA_PAT_SECRET
             value: {{ .Values.secondaryRegions.secondaryGiteaPatSecretName | quote }}
+          - { name: FOLLOWER_GIT_TOKEN_SECRET, value: {{ .Values.secondaryRegions.followerGitTokenSecret | default "" | quote }} }
           {{- end }}
         command: ["/bin/sh", "-c"]
         args:
@@ -431,15 +431,16 @@ data:
                is impossible). Same /tmp-file + kubectl apply hygiene the step-05
                / step-06 secondary secret copies use — the PAT rides stringData in
                an ephemeral file, never argv. The PAT is valid in this region
-               because both regions share ONE access_token table (bp-cnpg-pair);
-               it sidesteps the per-region admin-password drift entirely.
+               because both regions share ONE access_token table (bp-cnpg-pair).
+               #7834: also written as followerGitTokenSecret (see values.yaml).
               */}}
-              cat >/tmp/sec-gitea-pat.yaml <<EOF
+              for pat_dst in "${SECONDARY_GITEA_NAMESPACE}/${SECONDARY_GITEA_PAT_SECRET}" ${FOLLOWER_GIT_TOKEN_SECRET:-}; do cat <<EOF
+            ---
             apiVersion: v1
             kind: Secret
             metadata:
-              name: ${SECONDARY_GITEA_PAT_SECRET}
-              namespace: ${SECONDARY_GITEA_NAMESPACE}
+              name: ${pat_dst#*/}
+              namespace: ${pat_dst%%/*}
               labels:
                 app.kubernetes.io/managed-by: self-sovereign-cutover
                 app.kubernetes.io/component: secondary-gitea-mirror-pat
@@ -449,7 +450,8 @@ data:
             stringData:
               token: ${GITEA_PAT}
             EOF
-              kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" apply -f /tmp/sec-gitea-pat.yaml
+              done >/tmp/sec-gitea-pat.yaml
+              kubectl --kubeconfig "${skc}" apply -f /tmp/sec-gitea-pat.yaml
               kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" delete job "${jobname}" --ignore-not-found=true >/dev/null 2>&1 || true
               sed "s/__REGION__/${region}/g" /secondary-mirror/secondary-mirror-job.yaml >/tmp/secjob.yaml
               kubectl --kubeconfig "${skc}" apply -f /tmp/secjob.yaml
