@@ -24,7 +24,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 #   - ca-certificates so the Dynadot HTTPS calls can verify the API cert
 #   - tzdata so timestamps render correctly in operator logs
 # Nothing else.
-FROM docker.io/library/alpine:3.20
+FROM docker.io/library/alpine:3.24
 
 RUN apk add --no-cache ca-certificates tzdata
 COPY --from=build /pdm /pdm
