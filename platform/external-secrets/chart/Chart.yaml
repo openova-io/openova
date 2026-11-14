@@ -6,7 +6,7 @@ name: bp-external-secrets
 # harbor-proxy-pull Enforce policy (and races the Docker Hub pull throttle), so
 # the post-upgrade hook Job never ran → `helm upgrade` failed its post-upgrade
 # hook → Flux rolled the 1.1.4->1.1.5 bump back on hw305.
-version: 1.1.6
+version: 1.1.7
 description: |
   Catalyst-curated Blueprint umbrella chart for External Secrets Operator
   (ESO) — controller-only as of 1.1.0. Depends on the upstream

@@ -1420,7 +1420,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.6",
+    "version": "1.1.7",
     "section": "pts-3-3-security-and-policy",
     "depends": [
       "bp-openbao",
