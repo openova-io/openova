@@ -28,7 +28,6 @@ subjects:
   - {subject: catalyst.tenant.app_uninstall_requested, envelope: legacy, owner: BSS, producers: [tenant], consumers: [provisioning], payload: core/services/shared/events/events.go, delivery: at-least-once}
   - {subject: catalyst.tenant.created, envelope: legacy, owner: BSS, producers: [tenant], consumers: [organization-controller, provisioning], payload: core/services/shared/events/events.go, delivery: at-least-once}
   - {subject: catalyst.tenant.deleted, envelope: legacy, owner: BSS, producers: [organization-controller, tenant], consumers: [billing, domain, provisioning, tenant], payload: core/services/shared/events/events.go, delivery: at-least-once}
-  - {subject: catalyst.tenant.sandbox_requested, envelope: legacy, owner: BSS, producers: [catalyst-api, tenant], consumers: [sandbox-controller, tenant], payload: core/services/shared/events/events.go, delivery: at-least-once}
   - {subject: catalyst.usage.recorded, envelope: legacy, owner: BSS, producers: [metering-sidecar], consumers: [billing], payload: core/services/shared/events/nats.go, delivery: at-least-once}
   - {subject: catalyst.user.login, envelope: legacy, owner: BSS, producers: [], consumers: [notification], payload: core/services/shared/events/events.go, delivery: at-least-once}
   - {subject: catalyst.audit.recorded.v1, envelope: cloudevents, owner: CTL, producers: [], consumers: [], payload: products/catalyst/bootstrap/api/internal/audit/audit.go, delivery: at-least-once}
