@@ -7,6 +7,16 @@ filled by bootstrap-kit slot 19 from contract C5): public = each distinct path
 of REGISTRY_PROXY_PROJECTS_JSON; private = the first path segment of the five
 REGISTRY_PATH_* keys of paths. The REGISTRY_PATH_XPKG project is left out while
 createXpkgProject is false: the cutover's prewarm still pulls through it.
+SOV-336: one project is pull-through by design, the project of the
+vulnerability database (the first path segment of REGISTRY_PATH_VULN_DB,
+value vulnDBPath). The Job makes sure the registry endpoint
+<project>-origin (type docker-registry, anonymous) points at
+ORIGIN_REGISTRY_SCHEME://ORIGIN_REGISTRY_HOST (values origin), then makes
+sure the project exists, public, with that endpoint as its registry_id. It is
+left out of the hosted-project rule. An existing endpoint with another URL or
+an existing project with another registry_id fails the Job. With an empty
+origin host (a Sovereign fed by offline bundles) the Job makes no endpoint and
+no such project.
 A plain Job, not a hook: slot 19 installs with disableWait. The name hash
 re-runs it when an input or the chart version changes.
 */ -}}
@@ -38,7 +48,24 @@ re-runs it when an input or the chart version changes.
 {{- end }}
 {{- end }}
 {{- $private = $private | uniq | sortAlpha }}
-{{- $hash := printf "%s|%s|%s|%s" (join " " $public) (join " " $private) $rp.image .Chart.Version | sha256sum | trunc 8 }}
+{{- $origin := $rp.origin | default dict }}
+{{- $originHost := toString ($origin.host | default "") }}
+{{- $originScheme := toString ($origin.scheme | default "https") }}
+{{- if not (has $originScheme (list "https" "http")) }}
+{{- fail "registryProjects.origin.scheme must be https or http" }}
+{{- end }}
+{{- $vulndb := "" }}
+{{- $originURL := "" }}
+{{- if $originHost }}
+{{- $vulndb = first (splitList "/" (toString ($rp.vulnDBPath | default ""))) }}
+{{- end }}
+{{- if $vulndb }}
+{{- $originURL = printf "%s://%s" $originScheme $originHost }}
+{{- if or (has $vulndb $public) (has $vulndb $private) }}
+{{- fail (printf "registryProjects.vulnDBPath: the project %s is also a hosted project" $vulndb) }}
+{{- end }}
+{{- end }}
+{{- $hash := printf "%s|%s|%s|%s|%s|%s" (join " " $public) (join " " $private) $vulndb $originURL $rp.image .Chart.Version | sha256sum | trunc 8 }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -80,6 +107,10 @@ spec:
               value: {{ join " " $public | quote }}
             - name: PRIVATE_PROJECTS
               value: {{ join " " $private | quote }}
+            - name: VULNDB_PROJECT
+              value: {{ $vulndb | quote }}
+            - name: VULNDB_ORIGIN_URL
+              value: {{ $originURL | quote }}
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -119,11 +150,56 @@ spec:
               }
               for p in ${PUBLIC_PROJECTS}; do ensure "${p}" true; done
               for p in ${PRIVATE_PROJECTS}; do ensure "${p}" false; done
+              if [ -n "${VULNDB_PROJECT}" ]; then
+                reg="${VULNDB_PROJECT}-origin"
+                body=$(printf '{"name":"%s","type":"docker-registry","url":"%s","insecure":false}' "${reg}" "${VULNDB_ORIGIN_URL}")
+                code=$(curl -sS -o /tmp/out -w '%{http_code}' --max-time 30 -u "admin:${pw}" \
+                  -H 'Content-Type: application/json' -X POST "${api}/registries" --data "${body}") || code=000
+                case "${code}" in
+                  201) echo "[registry-projects] endpoint ${reg} created (${VULNDB_ORIGIN_URL})" ;;
+                  409) echo "[registry-projects] endpoint ${reg} exists" ;;
+                  *) echo "[registry-projects] FATAL: creating endpoint ${reg} answered ${code}" >&2; cat /tmp/out >&2; exit 1 ;;
+                esac
+                code=$(curl -sS -o /tmp/out -w '%{http_code}' --max-time 30 -u "admin:${pw}" \
+                  "${api}/registries?q=name%3D${reg}") || code=000
+                if [ "${code}" != 200 ]; then
+                  echo "[registry-projects] FATAL: reading endpoint ${reg} answered ${code}" >&2
+                  exit 1
+                fi
+                id=$(tr ',' '\n' < /tmp/out | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
+                if [ -z "${id}" ]; then
+                  echo "[registry-projects] FATAL: endpoint ${reg} has no id" >&2
+                  exit 1
+                fi
+                if ! grep -q -F "\"url\":\"${VULNDB_ORIGIN_URL}\"" /tmp/out; then
+                  echo "[registry-projects] endpoint ${reg} does not point at ${VULNDB_ORIGIN_URL}" >&2
+                  bad="${bad} ${reg}"
+                else
+                  body=$(printf '{"project_name":"%s","public":true,"registry_id":%s,"metadata":{"public":"true"}}' "${VULNDB_PROJECT}" "${id}")
+                  code=$(curl -sS -o /tmp/out -w '%{http_code}' --max-time 30 -u "admin:${pw}" \
+                    -H 'Content-Type: application/json' -X POST "${api}/projects" --data "${body}") || code=000
+                  case "${code}" in
+                    201) echo "[registry-projects] ${VULNDB_PROJECT} created (pull-through ${reg})" ;;
+                    409) echo "[registry-projects] ${VULNDB_PROJECT} exists" ;;
+                    *) echo "[registry-projects] FATAL: creating ${VULNDB_PROJECT} answered ${code}" >&2; cat /tmp/out >&2; exit 1 ;;
+                  esac
+                  code=$(curl -sS -o /tmp/out -w '%{http_code}' --max-time 30 -u "admin:${pw}" \
+                    "${api}/projects/${VULNDB_PROJECT}") || code=000
+                  if [ "${code}" != 200 ]; then
+                    echo "[registry-projects] FATAL: reading ${VULNDB_PROJECT} answered ${code}" >&2
+                    exit 1
+                  fi
+                  if ! grep -q -E "\"registry_id\":${id}([^0-9]|\$)" /tmp/out; then
+                    echo "[registry-projects] ${VULNDB_PROJECT} is not a pull-through project of ${reg}" >&2
+                    bad="${bad} ${VULNDB_PROJECT}"
+                  fi
+                fi
+              fi
               if [ -n "${bad}" ]; then
-                echo "[registry-projects] FATAL: pull-through projects:${bad}" >&2
+                echo "[registry-projects] FATAL: projects or endpoints not as declared:${bad}" >&2
                 exit 1
               fi
-              echo "[registry-projects] every project exists as a hosted project"
+              echo "[registry-projects] every project exists as declared"
           resources:
             requests:
               cpu: 10m

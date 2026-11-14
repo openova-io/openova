@@ -420,6 +420,12 @@ spec:
         tofuProviders: ${REGISTRY_PATH_TOFU_PROVIDERS:=tofu-providers}
         nodeArtifacts: ${REGISTRY_PATH_NODE_ARTIFACTS:=node-artifacts}
       xpkgPath: ${REGISTRY_PATH_XPKG:=proxy-xpkg}
+      # SOV-336: the pull-through project of the vulnerability database.
+      # ORIGIN_REGISTRY_HOST has no contract default; empty means no project.
+      vulnDBPath: ${REGISTRY_PATH_VULN_DB:=proxy-vulndb/aquasecurity/trivy-db}
+      origin:
+        host: ${ORIGIN_REGISTRY_HOST:=}
+        scheme: ${ORIGIN_REGISTRY_SCHEME:=https}
     harbor:
       # G117.E2E-H12 #2844 (2026-06-03): per-Sovereign externalURL override.
       # Chart default is "https://harbor.example.local" (placeholder for smoke
