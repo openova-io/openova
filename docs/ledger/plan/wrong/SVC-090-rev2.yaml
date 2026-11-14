@@ -1,0 +1,52 @@
+schema: openova.io/plan-wrong/v1
+id: SVC-090
+ticket_rev: 2
+base_commit: dd6337d83520b339750359d7b5b63648fde03eb1
+stage: check
+ref: chart/tests/*.sh — platform/plane-isolation
+command: |
+    gh api repos/openova-io/openova/actions/jobs/132464948479/logs | grep -B 40 -m 1 '##\[error\]' | cut -c30-300
+expected: |
+    the check finishes green
+actual: |
+    [36;1mtests_dir="$chart_dir/tests"[0m
+    [36;1mif [ ! -d "$tests_dir" ]; then[0m
+    [36;1m  echo "No tests/ directory at $tests_dir — the scripts were deleted or moved; nothing to run."[0m
+    [36;1m  exit 0[0m
+    [36;1mfi[0m
+    [36;1mshopt -s nullglob[0m
+    [36;1mscripts=( "$tests_dir"/*.sh )[0m
+    [36;1mif [ "${#scripts[@]}" -eq 0 ]; then[0m
+    [36;1m  echo "tests/ directory present at $tests_dir but no *.sh scripts — skipping."[0m
+    [36;1m  exit 0[0m
+    [36;1mfi[0m
+    [36;1mecho "Running ${#scripts[@]} chart-test script(s) under $tests_dir:"[0m
+    [36;1mfor s in "${scripts[@]}"; do[0m
+    [36;1m  echo "  → $s"[0m
+    [36;1mdone[0m
+    [36;1mfor s in "${scripts[@]}"; do[0m
+    [36;1m  echo "── $(basename "$s") ──"[0m
+    [36;1m  bash "$s" "$chart_dir"[0m
+    [36;1mdone[0m
+    [36;1mecho "All chart-test scripts passed."[0m
+    shell: /usr/bin/bash -e {0}
+    ##[endgroup]
+    Running 2 chart-test script(s) under platform/plane-isolation/chart/tests:
+      → platform/plane-isolation/chart/tests/function-test-render.sh
+      → platform/plane-isolation/chart/tests/render-contract.sh
+    ── function-test-render.sh ──
+    [function-test] Case 1: default render tests keycloak from the namespace default
+    check-function-test: ok bp-plane-isolation release plane-isolation: the function test meets the contract
+    [function-test] Case 2: without cilium.io/v2 no test policy renders
+    [function-test] Case 3: a test namespace the target admits renders no test
+    check-function-test: ok bp-plane-isolation release plane-isolation: no function test, as expected
+    [function-test] Case 4: enabled=false renders no test
+    check-function-test: ok bp-plane-isolation release plane-isolation: no function test, as expected
+    function-test-render: all cases passed
+    ── render-contract.sh ──
+    Traceback (most recent call last):
+      File "<stdin>", line 233, in <module>
+      File "<stdin>", line 19, in load
+    IsADirectoryError: [Errno 21] Is a directory: '/home/runner/work/openova/openova/platform/plane-isolation/chart/templates/tests'
+    ##[error]Process completed with exit code 1.
+reported_at: 2026-11-14T13:52:25Z
