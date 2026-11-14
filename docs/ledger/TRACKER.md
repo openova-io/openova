@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T14:00:05Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-11-14T14:15:02Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -308,6 +308,9 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-11-14T13:56 | [#7737](https://github.com/openova-io/openova/pull/7737) | #7087 | docs(ledger): plan update |
+| 2026-11-14T14:08 | [#7733](https://github.com/openova-io/openova/pull/7733) | #7701 | chore: remove the DMZ networking tab and route, the zone iso |
+| 2026-11-14T14:08 | [#7730](https://github.com/openova-io/openova/pull/7730) | #7714 | feat(acceptance): gate check CLD-G06 for the adoption claims |
+| 2026-11-14T14:07 | [#7728](https://github.com/openova-io/openova/pull/7728) | #7715 | feat(providers): a read-only leftover lister that fails clos |
 | 2026-11-14T13:32 | [#7719](https://github.com/openova-io/openova/pull/7719) | #7087 | docs(ledger): plan update |
 | 2026-11-14T13:09 | [#7713](https://github.com/openova-io/openova/pull/7713) | #7087 | docs(ledger): plan update |
 | 2026-11-14T13:17 | [#7712](https://github.com/openova-io/openova/pull/7712) | #7677 | test(charts): function tests for the GitOps, registry and ce |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-14T11:17 | [#7661](https://github.com/openova-io/openova/pull/7661) | #7658 | ci: pin the checkout action and the k3s image of the k3s boo |
 | 2026-11-14T11:17 | [#7660](https://github.com/openova-io/openova/pull/7660) | #7656 | docs: the canonical documents state the zone, firewall and d |
 | 2026-11-14T10:56 | [#7659](https://github.com/openova-io/openova/pull/7659) | #7654 | chore(ci): eight access guards whose counts may only fall (A |
-| 2026-11-14T10:38 | [#7653](https://github.com/openova-io/openova/pull/7653) | #7087 | docs(ledger): plan update |
-| 2026-11-14T10:39 | [#7652](https://github.com/openova-io/openova/pull/7652) | #7550 | chore(crossplane): delete the Hetzner-only Compositions, the |
-| 2026-11-14T10:39 | [#7651](https://github.com/openova-io/openova/pull/7651) | #7643 | ci: the gate workflow runs the suite against a Sovereign and |
 
 ---
 
