@@ -81,7 +81,7 @@ for i in $(seq 1 "${MAX_ATTEMPTS}"); do
     echo "pushed=false" >&2
     exit 0
   fi
-  git commit --quiet -m "${MSG_PREFIX} -> ${NEXT} (auto, Refs #5743)"
+  git commit --quiet -m "${MSG_PREFIX} -> ${NEXT} (auto, Refs #5743) [skip ci]"
   if git push origin HEAD:main; then
     echo "push-chart-version-bump: pushed ${NEXT} (attempt ${i}/${MAX_ATTEMPTS})." >&2
     echo "pushed=true" >&2

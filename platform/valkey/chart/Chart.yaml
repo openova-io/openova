@@ -78,7 +78,7 @@ name: bp-valkey
 #   seeded once and carried forward from the live object (lookup) on
 #   every later render, so an upgrade never reverts the operator's
 #   Topology edit (hw307 2026-11-07, the #7061 cnpg-pair fix).
-version: 1.1.6
+version: 1.1.7
 description: |
   Catalyst-curated Blueprint umbrella chart for Valkey (Redis-compatible
   cache, BSD-3). Depends on the upstream `valkey` chart (Bitnami) as a

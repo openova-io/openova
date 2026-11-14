@@ -117,6 +117,24 @@ override_resource {
   values = {}
 }
 
+# SEC-020: the k3s tokens are random_password resources. Under
+# `command = plan` their `result` is unknown, which would leave every
+# rendered cloud-init unknown and every assertion on it unevaluated. These
+# overrides give the tokens fixed values in the plan.
+override_resource {
+  target = random_password.k3s_server_token
+  values = {
+    result = "test-k3s-server-token"
+  }
+}
+
+override_resource {
+  target = random_password.k3s_agent_token
+  values = {
+    result = "test-k3s-agent-token"
+  }
+}
+
 # ── Variables shared across scenarios ─────────────────────────────────────
 
 variables {
@@ -142,6 +160,50 @@ variables {
   object_storage_bucket_name = "catalyst-test-example-com"
 
   domain_mode = "byo"
+
+  # SOV-131: the variables document (contract C5); HANDOVER_AUTO is "false"
+  # so that variables_handover_auto_reaches_cloud_init sees where it goes.
+  variables = {
+    SOVEREIGN_MODE                     = "sovereign"
+    SOVEREIGN_CONSUME                  = "origin"
+    HANDOVER_AUTO                      = "false"
+    HANDOVER_HOLD_SECONDS              = "600"
+    REGISTRY_HOST                      = "registry.parent.example.test"
+    REGISTRY_SCHEME                    = "https"
+    LOCAL_REGISTRY_HOST                = "registry.sov.example.test"
+    ORIGIN_REGISTRY_HOST               = "registry.parent.example.test"
+    ORIGIN_REGISTRY_SCHEME             = "https"
+    ORIGIN_REGISTRY_CA_B64             = ""
+    ORIGIN_PROXY_ENDPOINTS_JSON        = "{}"
+    REGISTRY_PULL_SECRET               = "ghcr-pull"
+    REGISTRY_PATH_CHARTS               = "openova-io"
+    REGISTRY_PATH_RELEASE              = "openova-io/release"
+    REGISTRY_PATH_PROVIDER_PACKS       = "openova-io/provider-packs"
+    REGISTRY_PATH_XPKG                 = "proxy-xpkg"
+    REGISTRY_PATH_TOFU_PROVIDERS       = "tofu-providers"
+    REGISTRY_PATH_NODE_ARTIFACTS       = "node-artifacts"
+    REGISTRY_PROXY_PROJECTS_JSON       = "{\"docker.io\":\"proxy-dockerhub\",\"gcr.io\":\"proxy-gcr\",\"ghcr.io\":\"proxy-ghcr\",\"public.ecr.aws\":\"proxy-ecr\",\"quay.io\":\"proxy-quay\",\"registry-1.docker.io\":\"proxy-dockerhub\",\"registry.k8s.io\":\"proxy-k8s\",\"xpkg.upbound.io\":\"proxy-xpkg\"}"
+    RELEASE_PUBLIC_KEY_B64             = ""
+    RELEASE_CHANNEL                    = "stable"
+    RELEASE_VERSION                    = ""
+    RELEASE_AUTO                       = "false"
+    RELEASE_SYNC_SCHEDULE              = "0 3 * * *"
+    ORIGIN_PARENT_FQDN                 = "parent.example.test"
+    ORIGIN_PARENT_API_URL              = "https://console.parent.example.test/sovereign"
+    DNS_MODE                           = "delegated"
+    DNS_UPSTREAM_API_URL               = ""
+    MAIL_MODE                          = "local"
+    MAIL_RELAY_HOST                    = ""
+    MAIL_RELAY_PORT                    = "587"
+    MAIL_FROM                          = ""
+    MAIL_RELAY_SECRET                  = ""
+    K3S_VERSION                        = "v1.31.8+k3s1"
+    K3S_UPGRADE_CONCURRENCY            = "1"
+    CLOUD_CREDENTIAL_MODE              = "supplied"
+    CLOUD_CREDENTIAL_ROTATION_SCHEDULE = "0 2 1 * *"
+    CLOUD_CREDENTIAL_ROTATION_NONCE    = ""
+    GITOPS_REPO_URL                    = "http://gitea-http.gitea.svc.cluster.local:3000/openova/provider-pack"
+  }
 }
 
 # ── Scenario 1: legacy single-region (var.regions = []) ──────────────────
@@ -738,5 +800,106 @@ run "default_storage_class_operator_override_renders" {
   assert {
     condition     = !strcontains(local.control_plane_cloud_init, "SOVEREIGN_CNPG_STORAGE_CLASS: \"hcloud-volumes\"")
     error_message = "When the operator overrides default_storage_class, the cloud-init must carry ONLY the chosen class, not the default literal."
+  }
+}
+
+# ── SEC-020: a server token for the control plane, an agent token for workers
+# The control plane starts k3s with K3S_TOKEN set to the server token and
+# --agent-token set to the agent token. Workers join with the agent token and
+# never receive the server token.
+run "k3s_server_and_agent_tokens" {
+  command = plan
+
+  assert {
+    condition     = strcontains(local.control_plane_cloud_init, "K3S_TOKEN=test-k3s-server-token ")
+    error_message = "SEC-020: the control-plane cloud-init must start k3s with K3S_TOKEN set to random_password.k3s_server_token."
+  }
+
+  assert {
+    condition     = strcontains(local.control_plane_cloud_init, " --agent-token=test-k3s-agent-token ")
+    error_message = "SEC-020: the control-plane cloud-init must pass --agent-token set to random_password.k3s_agent_token."
+  }
+
+  assert {
+    condition     = strcontains(local.worker_cloud_init, "K3S_TOKEN=test-k3s-agent-token ")
+    error_message = "SEC-020: the worker cloud-init must join with K3S_TOKEN set to random_password.k3s_agent_token."
+  }
+
+  assert {
+    condition     = !strcontains(local.worker_cloud_init, "test-k3s-server-token")
+    error_message = "SEC-020: the worker cloud-init must not carry the k3s server token."
+  }
+}
+
+# ── SOV-131: HANDOVER_AUTO reaches FIRE_CUTOVER_ON_HANDOVER; a document
+# without exactly the keys of contract C5 is refused at plan time.
+run "variables_handover_auto_reaches_cloud_init" {
+  command = plan
+
+  assert {
+    condition     = strcontains(local.control_plane_cloud_init, "FIRE_CUTOVER_ON_HANDOVER: \"false\"")
+    error_message = "SOV-131: variables[\"HANDOVER_AUTO\"] must reach the substitute FIRE_CUTOVER_ON_HANDOVER of the control-plane cloud-init."
+  }
+}
+
+run "variables_refuses_a_document_without_the_contract_keys" {
+  command = plan
+
+  variables {
+    variables = { HANDOVER_AUTO = "true", NOT_A_CONTRACT_KEY = "x" }
+  }
+
+  expect_failures = [var.variables]
+}
+
+# ── CLD-185: a render of real size fits the size guards.
+# The runs above leave deployment_id empty, so their renders carry no
+# kubeconfig post-back and are smaller than the render of a real Sovereign.
+# This run turns the post-back on for a primary and one secondary region.
+# The plan fails by itself when a render is over its guard (32576 bytes for
+# the primary, 32256 for a secondary region), and the asserts state the same
+# bound. CLD-185 kept 1200 bytes free under each guard; SOV-134 uses them for
+# the packed variables document (30633 and 31814 bytes here). The fixed
+# Secrets and the provider-injected files travel packed (gz+b64); the last
+# assert shows that the packed cloud-credentials file is the provider's
+# Secret body without its comment lines, as the plain file was.
+run "post_back_render_fits_the_size_guards_with_room" {
+  command = plan
+
+  variables {
+    deployment_id           = "0123456789abcdef"
+    sovereign_deployment_id = "0123456789abcdef"
+    kubeconfig_bearer_token = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    regions = [
+      { provider = "hetzner", cloudRegion = "hel1", controlPlaneSize = "cpx32", workerSize = "cpx32", workerCount = 1 },
+      { provider = "hetzner", cloudRegion = "nbg1", controlPlaneSize = "cpx32", workerSize = "cpx32", workerCount = 1 },
+    ]
+    region                = "hel1"
+    object_storage_region = "hel1"
+  }
+
+  assert {
+    condition     = strcontains(local.control_plane_cloud_init, "--data-binary @/var/lib/catalyst/parent-bootstrap.kubeconfig")
+    error_message = "CLD-185: the primary render must carry the post-back, which reads /var/lib/catalyst/parent-bootstrap.kubeconfig."
+  }
+
+  assert {
+    condition     = strcontains(local.secondary_region_cloud_init["nbg1-1"], "--data-binary @/var/lib/catalyst/parent-bootstrap.kubeconfig")
+    error_message = "CLD-185: the secondary render must carry the post-back, which reads /var/lib/catalyst/parent-bootstrap.kubeconfig."
+  }
+
+  assert {
+    condition     = length(local.control_plane_cloud_init) <= 32576
+    error_message = "CLD-185: the primary render is ${nonsensitive(length(local.control_plane_cloud_init))} bytes; it must stay at most 32576, its guard."
+  }
+
+  assert {
+    condition     = length(local.secondary_region_cloud_init["nbg1-1"]) <= 32256
+    error_message = "CLD-185: the secondary render is ${nonsensitive(length(local.secondary_region_cloud_init["nbg1-1"]))} bytes; it must stay at most 32256, its guard."
+  }
+
+  assert {
+    condition     = strcontains(local.control_plane_cloud_init, "    encoding: gz+b64\n    content: ${base64gzip(format("%s\n", chomp(replace(local.cloud_credentials_secret_yaml_hetzner_primary, "/(?m)^[ ]*#( |$).*\n/", ""))))}\n")
+    error_message = "CLD-185: the packed cloud-credentials file of the primary render must be the provider's Secret body without its comment lines."
   }
 }

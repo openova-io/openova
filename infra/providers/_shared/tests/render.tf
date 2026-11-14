@@ -16,9 +16,73 @@ variable "provider_name" {
   default     = "hetzner"
 }
 
+# Golden render (CLD-040). The run "golden" of cloudinit_render.tftest.hcl
+# compares the SHA-256 of each fixture's render with these two values. They
+# are set in golden.auto.tfvars.json, which scripts/update-cloudinit-golden.sh
+# writes. The default is empty, so the run fails when that file is missing.
+variable "golden_hetzner" {
+  description = "Expected SHA-256 of the rendered cloud-init of the hetzner fixture."
+  type        = string
+  default     = ""
+}
+
+variable "golden_huawei" {
+  description = "Expected SHA-256 of the rendered cloud-init of the huawei fixture."
+  type        = string
+  default     = ""
+}
+
 locals {
-  rendered_raw = templatefile("${path.module}/../cloudinit-control-plane.tftpl", {
-    provider                          = var.provider_name
+  # SOV-133: the variables document (contract C5,
+  # docs/contracts/c5-upstream-variables.schema.json) that the provider modules
+  # pass as the template input `variables`: exactly the 39 contract keys.
+  fixture_variables = {
+    SOVEREIGN_MODE                     = "sovereign"
+    SOVEREIGN_CONSUME                  = "origin"
+    HANDOVER_AUTO                      = "false"
+    HANDOVER_HOLD_SECONDS              = "600"
+    REGISTRY_HOST                      = "registry.parent.example.test"
+    REGISTRY_SCHEME                    = "https"
+    LOCAL_REGISTRY_HOST                = "registry.render-test.example.test"
+    ORIGIN_REGISTRY_HOST               = "registry.parent.example.test"
+    ORIGIN_REGISTRY_SCHEME             = "https"
+    ORIGIN_REGISTRY_CA_B64             = ""
+    ORIGIN_PROXY_ENDPOINTS_JSON        = "{}"
+    REGISTRY_PULL_SECRET               = "ghcr-pull"
+    REGISTRY_PATH_CHARTS               = "openova-io"
+    REGISTRY_PATH_RELEASE              = "openova-io/release"
+    REGISTRY_PATH_PROVIDER_PACKS       = "openova-io/provider-packs"
+    REGISTRY_PATH_XPKG                 = "proxy-xpkg"
+    REGISTRY_PATH_TOFU_PROVIDERS       = "tofu-providers"
+    REGISTRY_PATH_NODE_ARTIFACTS       = "node-artifacts"
+    REGISTRY_PROXY_PROJECTS_JSON       = "{\"docker.io\":\"proxy-dockerhub\",\"gcr.io\":\"proxy-gcr\",\"ghcr.io\":\"proxy-ghcr\",\"public.ecr.aws\":\"proxy-ecr\",\"quay.io\":\"proxy-quay\",\"registry-1.docker.io\":\"proxy-dockerhub\",\"registry.k8s.io\":\"proxy-k8s\",\"xpkg.upbound.io\":\"proxy-xpkg\"}"
+    RELEASE_PUBLIC_KEY_B64             = ""
+    RELEASE_CHANNEL                    = "stable"
+    RELEASE_VERSION                    = ""
+    RELEASE_AUTO                       = "false"
+    RELEASE_SYNC_SCHEDULE              = "0 3 * * *"
+    ORIGIN_PARENT_FQDN                 = "parent.example.test"
+    ORIGIN_PARENT_API_URL              = "https://console.parent.example.test/sovereign"
+    DNS_MODE                           = "delegated"
+    DNS_UPSTREAM_API_URL               = ""
+    MAIL_MODE                          = "local"
+    MAIL_RELAY_HOST                    = ""
+    MAIL_RELAY_PORT                    = "587"
+    MAIL_FROM                          = ""
+    MAIL_RELAY_SECRET                  = ""
+    K3S_VERSION                        = "v1.31.4+k3s1"
+    K3S_UPGRADE_CONCURRENCY            = "1"
+    CLOUD_CREDENTIAL_MODE              = "supplied"
+    CLOUD_CREDENTIAL_ROTATION_SCHEDULE = "0 2 1 * *"
+    CLOUD_CREDENTIAL_ROTATION_NONCE    = ""
+    GITOPS_REPO_URL                    = "http://gitea-http.gitea.svc.cluster.local:3000/openova/provider-pack"
+  }
+
+  # One render per fixture, so that one evaluation yields the golden hash of
+  # both cloud branches (CLD-040). `rendered_raw` below stays the render of
+  # the one fixture that the variable provider_name selects.
+  rendered_raw_by_fixture = { for fixture in ["hetzner", "huawei"] : fixture => templatefile("${path.module}/../cloudinit-control-plane.tftpl", {
+    provider                          = fixture
     cp_private_ip                     = "10.0.1.2"
     cluster_cidr                      = "10.42.0.0/16"
     service_cidr                      = "10.43.0.0/16"
@@ -27,8 +91,8 @@ locals {
     deployment_id                     = "deadbeefdeadbeef"
     org_name                          = "Render-Test"
     org_email                         = "render-test@example.test"
-    region                            = var.provider_name == "huawei" ? "me-east-215-a" : "fsn1"
-    sovereign_region_key              = var.provider_name == "huawei" ? "me-east-215-a" : "fsn1"
+    region                            = fixture == "huawei" ? "me-east-215-a" : "fsn1"
+    sovereign_region_key              = fixture == "huawei" ? "me-east-215-a" : "fsn1"
     sovereign_region_role             = "primary"
     region_canonical_label            = "primary"
     primary_region_canonical_label    = "primary"
@@ -36,18 +100,19 @@ locals {
     cluster_mesh_name                 = "render-test"
     cluster_mesh_id                   = "1"
     k3s_version                       = "v1.31.4+k3s1"
-    k3s_token                         = "render-test-token"
+    k3s_server_token                  = "render-test-server-token"
+    k3s_agent_token                   = "render-test-agent-token"
     gitops_repo_url                   = "https://github.com/openova-io/openova"
     gitops_branch                     = "main"
     marketplace_enabled               = "true"
     qa_fixtures_enabled               = "true"
-    fire_cutover_on_handover          = "true"
+    variables                         = local.fixture_variables
     console_isolation_enabled         = "true"
     wildcard_cert_issuer              = "wildcard-issuer"
     bcp_topology                      = "single-region"
     enable_hot_standby                = "false"
     enable_shared_pg                  = "true"
-    default_storage_class             = var.provider_name == "huawei" ? "evs-ssd" : "hcloud-volumes"
+    default_storage_class             = fixture == "huawei" ? "evs-ssd" : "hcloud-volumes"
     sovereign_cnpg_instances          = "1"
     continuum_enabled                 = "false"
     parent_domains_yaml               = "[{name: \"example.test\", role: \"primary\"}]"
@@ -93,12 +158,19 @@ locals {
     kubeconfig_put_block     = ""
     provider_id_cmd          = ""
     crossplane_provider_yaml = ""
-  })
+  }) }
+
+  rendered_raw = local.rendered_raw_by_fixture[var.provider_name]
 
   # Mirror the production comment-strip (hetzner/main.tf:853 — `^[ ]*#( |$).*`)
   # so the regexes + byte budget below run against what actually boots, not the
   # ~44 KB of doc prose the template ships for human readers.
   rendered_cloud_init = replace(local.rendered_raw, "/(?m)^[ ]*#( |$).*\n/", "")
+
+  # Golden render (CLD-040): the SHA-256 of each fixture's render after the
+  # same comment-strip, that is of the text a node would boot with. A change
+  # to a comment line of the template does not change these values.
+  sha256_by_fixture = { for fixture, raw in local.rendered_raw_by_fixture : fixture => sha256(replace(raw, "/(?m)^[ ]*#( |$).*\n/", "")) }
 
   # The infrastructure-config Kustomization spec: `path:` and `prune:` MUST be
   # on separate lines (#4513 regression — an endif tilde collapsed them).
@@ -125,30 +197,36 @@ locals {
   has_providers_kustomization = length(regexall("(?m)^[ ]+name: infrastructure-providers$", local.rendered_cloud_init)) > 0
 
   # The inline Provider-install layer must point at the providers/ tree (NOT
-  # the config tree) so it carries ONLY the Provider package CRs.
-  providers_path_correct = length(regexall("path: ./clusters/_template/infrastructure/providers", local.rendered_cloud_init)) > 0
+  # the config tree) so it carries ONLY the Provider package CRs. The path is
+  # the same on every cloud: CLD-023 deleted the Hetzner overlay.
+  providers_path_correct = length(regexall("(?m)^[ ]+path: ./clusters/_template/infrastructure/providers$", local.rendered_cloud_init)) > 0
 
   # LAYER 2 must NOT be re-inlined into cloud-init (the #1981/#3884 byte-cap
   # regression class): no operative `name: infrastructure-config` Kustomization
   # line in the rendered cloud-init.
   config_not_inlined = length(regexall("(?m)^[ ]+name: infrastructure-config$", local.rendered_cloud_init)) == 0
 
-  # The committed LAYER-2 Flux Kustomization CR (both cloud variants) must
+  # The committed LAYER-2 Flux Kustomization CR (one, for every cloud) must
   # exist and `dependsOn: [infrastructure-providers]` — the ordering gate that
-  # breaks the #4521 deadlock. Read the repo files directly (not the render).
-  config_ks_base    = file("${path.module}/../../../../clusters/_template/infrastructure/providers/infrastructure-config-kustomization.yaml")
-  config_ks_hetzner = file("${path.module}/../../../../clusters/_template/infrastructure/providers/hetzner/infrastructure-config-kustomization.yaml")
+  # breaks the #4521 deadlock. Read the repo file directly (not the render).
+  config_ks_base = file("${path.module}/../../../../clusters/_template/infrastructure/providers/infrastructure-config-kustomization.yaml")
   config_depends_on_providers = (
-    length(regexall("(?s)name: infrastructure-config.*?dependsOn:.*?- name: infrastructure-providers", local.config_ks_base)) > 0 &&
-    length(regexall("(?s)name: infrastructure-config.*?dependsOn:.*?- name: infrastructure-providers", local.config_ks_hetzner)) > 0
+    length(regexall("(?s)name: infrastructure-config.*?dependsOn:.*?- name: infrastructure-providers", local.config_ks_base)) > 0
   )
 
-  # The two committed LAYER-2 CRs must point at the correct cloud config tree:
-  # base → ./clusters/_template/infrastructure ; hetzner → .../infrastructure/hetzner.
+  # The committed LAYER-2 CR must point at the config tree
+  # ./clusters/_template/infrastructure.
   config_paths_correct = (
-    length(regexall("path: ./clusters/_template/infrastructure\n", local.config_ks_base)) > 0 &&
-    length(regexall("path: ./clusters/_template/infrastructure/hetzner\n", local.config_ks_hetzner)) > 0
+    length(regexall("path: ./clusters/_template/infrastructure\n", local.config_ks_base)) > 0
   )
+
+  # SOV-134: the variables document as the file variables.env must hold it,
+  # one KEY=value line per key of fixture_variables in key order, and the
+  # write_files entry that carries it packed (gz+b64). The runcmd creates
+  # ConfigMap flux-system/sovereign-variables from that file.
+  variables_env         = join("", [for k in sort(keys(local.fixture_variables)) : "${k}=${local.fixture_variables[k]}\n"])
+  variables_env_entry   = "  - path: /var/lib/catalyst/variables.env\n    permissions: '0600'\n    encoding: gz+b64\n    content: ${base64gzip(local.variables_env)}\n"
+  variables_env_written = strcontains(local.rendered_cloud_init, local.variables_env_entry)
 }
 
 output "rendered_cloud_init" {
@@ -190,4 +268,20 @@ output "config_depends_on_providers" {
 
 output "config_paths_correct" {
   value = local.config_paths_correct
+}
+
+output "variables_env" {
+  value = local.variables_env
+}
+
+output "variables_env_written" {
+  value = local.variables_env_written
+}
+
+output "sha256_hetzner" {
+  value = local.sha256_by_fixture["hetzner"]
+}
+
+output "sha256_huawei" {
+  value = local.sha256_by_fixture["huawei"]
 }

@@ -1,0 +1,127 @@
+{{- /*
+SOV-160: the platform repositories of this Sovereign, created at install. The
+Job makes sure the organisation platformRepos.org exists (visibility public)
+and each repository of platformRepos.repos in it: private, created with
+auto_init; one without a commit gets a README on main; one with commits is
+left as it is. The regions share one Gitea database with a disk each, so it is
+rendered only when writerRegionId is empty or equals regionId (slot 10).
+A plain Job, not a hook: slot 10 installs with disableWait. The name hash
+re-runs it when an input or the chart version changes.
+*/ -}}
+{{- $pr := .Values.platformRepos }}
+{{- if and $pr.enabled (or (not $pr.writerRegionId) (eq (toString $pr.regionId) (toString $pr.writerRegionId))) }}
+{{- $svc := printf "%s-http" (ternary .Release.Name (printf "%s-gitea" .Release.Name) (contains "gitea" .Release.Name)) }}
+{{- $hash := printf "%s|%s|%s|%s" $pr.org (join " " $pr.repos) $pr.image .Chart.Version | sha256sum | trunc 8 }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-platform-repos-{{ $hash }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-gitea
+    catalyst.openova.io/component: platform-repos
+spec:
+  backoffLimit: 6
+  activeDeadlineSeconds: 3600
+  template:
+    metadata:
+      labels:
+        catalyst.openova.io/blueprint: bp-gitea
+        catalyst.openova.io/component: platform-repos
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ensure
+          image: {{ $pr.image | quote }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          env:
+            - name: GITEA_URL
+              value: "http://{{ $svc }}.{{ .Release.Namespace }}.svc.cluster.local:3000"
+            - name: ORG
+              value: {{ $pr.org | quote }}
+            - name: REPOS
+              value: {{ join " " $pr.repos | quote }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              api="${GITEA_URL}/api/v1"
+              user="$(cat /etc/gitea-admin/username)"
+              pw="$(cat /etc/gitea-admin/password)"
+              code=000
+              call() {
+                if [ $# -ge 3 ]; then
+                  code=$(curl -sS -o /tmp/out -w '%{http_code}' --max-time 40 -u "${user}:${pw}" \
+                    -H 'Content-Type: application/json' -X "$1" "${api}$2" --data "$3") || code=000
+                else
+                  code=$(curl -sS -o /tmp/out -w '%{http_code}' --max-time 40 -u "${user}:${pw}" \
+                    -X "$1" "${api}$2") || code=000
+                fi
+              }
+              fatal() { echo "[platform-repos] FATAL: $1 answered ${code}" >&2; cat /tmp/out >&2 || true; exit 1; }
+              up=""
+              for i in $(seq 1 60); do
+                call GET /user
+                if [ "${code}" = 200 ]; then up=yes; break; fi
+                echo "[platform-repos] waiting for gitea (${i}/60, /user answered ${code})"
+                sleep 10
+              done
+              [ -n "${up}" ] || fatal "GET /user"
+              call GET "/orgs/${ORG}"
+              if [ "${code}" = 404 ]; then
+                call POST /orgs "{\"username\":\"${ORG}\",\"visibility\":\"public\"}"
+                case "${code}" in 201|422) ;; *) fatal "POST /orgs" ;; esac
+                call GET "/orgs/${ORG}"
+              fi
+              [ "${code}" = 200 ] || fatal "GET /orgs/${ORG}"
+              for r in ${REPOS}; do
+                call GET "/repos/${ORG}/${r}"
+                if [ "${code}" = 404 ]; then
+                  call POST "/orgs/${ORG}/repos" "{\"name\":\"${r}\",\"private\":true,\"auto_init\":true,\"default_branch\":\"main\"}"
+                  case "${code}" in 201|409) ;; *) fatal "POST /orgs/${ORG}/repos ${r}" ;; esac
+                  echo "[platform-repos] ${ORG}/${r} created"
+                  call GET "/repos/${ORG}/${r}"
+                fi
+                [ "${code}" = 200 ] || fatal "GET /repos/${ORG}/${r}"
+                if grep -q '"empty":true' /tmp/out; then
+                  readme=$(printf '# %s\n' "${r}" | base64 | tr -d '\n')
+                  call POST "/repos/${ORG}/${r}/contents/README.md" "{\"branch\":\"main\",\"content\":\"${readme}\",\"message\":\"Initial commit\"}"
+                  [ "${code}" = 201 ] || fatal "POST /repos/${ORG}/${r}/contents/README.md"
+                  echo "[platform-repos] ${ORG}/${r} had no commit; README committed on main"
+                else
+                  echo "[platform-repos] ${ORG}/${r} has commits; left as it is"
+                fi
+              done
+              echo "[platform-repos] every repository exists"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: gitea-admin
+              mountPath: /etc/gitea-admin
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: gitea-admin
+          secret:
+            secretName: {{ .Values.giteaAdmin.secretName | default "gitea-admin-secret" }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi
+{{- end }}

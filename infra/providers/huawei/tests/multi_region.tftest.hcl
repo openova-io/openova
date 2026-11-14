@@ -51,6 +51,24 @@ mock_provider "huaweicloud" {
   }
 }
 
+# SEC-020: the k3s tokens are random_password resources. Under
+# `command = plan` their `result` is unknown, which would leave every
+# rendered cloud-init unknown and every assertion on it unevaluated. These
+# overrides give the tokens fixed values in the plan.
+override_resource {
+  target = random_password.k3s_server_token
+  values = {
+    result = "test-k3s-server-token"
+  }
+}
+
+override_resource {
+  target = random_password.k3s_agent_token
+  values = {
+    result = "test-k3s-agent-token"
+  }
+}
+
 variables {
   deployment_id       = "deadbeefcafef00d"
   sovereign_fqdn      = "t99.omani.works"
@@ -62,6 +80,50 @@ variables {
   obs_bucket_name     = "catalyst-t99-omani-works-deadbeef"
   ssh_public_key      = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakeKeyForTest test@bastion"
   parent_domains_yaml = ""
+
+  # SOV-131: the variables document (contract C5); HANDOVER_AUTO is "false"
+  # so that variables_handover_auto_reaches_cloud_init sees where it goes.
+  variables = {
+    SOVEREIGN_MODE                     = "sovereign"
+    SOVEREIGN_CONSUME                  = "origin"
+    HANDOVER_AUTO                      = "false"
+    HANDOVER_HOLD_SECONDS              = "600"
+    REGISTRY_HOST                      = "registry.parent.example.test"
+    REGISTRY_SCHEME                    = "https"
+    LOCAL_REGISTRY_HOST                = "registry.sov.example.test"
+    ORIGIN_REGISTRY_HOST               = "registry.parent.example.test"
+    ORIGIN_REGISTRY_SCHEME             = "https"
+    ORIGIN_REGISTRY_CA_B64             = ""
+    ORIGIN_PROXY_ENDPOINTS_JSON        = "{}"
+    REGISTRY_PULL_SECRET               = "ghcr-pull"
+    REGISTRY_PATH_CHARTS               = "openova-io"
+    REGISTRY_PATH_RELEASE              = "openova-io/release"
+    REGISTRY_PATH_PROVIDER_PACKS       = "openova-io/provider-packs"
+    REGISTRY_PATH_XPKG                 = "proxy-xpkg"
+    REGISTRY_PATH_TOFU_PROVIDERS       = "tofu-providers"
+    REGISTRY_PATH_NODE_ARTIFACTS       = "node-artifacts"
+    REGISTRY_PROXY_PROJECTS_JSON       = "{\"docker.io\":\"proxy-dockerhub\",\"gcr.io\":\"proxy-gcr\",\"ghcr.io\":\"proxy-ghcr\",\"public.ecr.aws\":\"proxy-ecr\",\"quay.io\":\"proxy-quay\",\"registry-1.docker.io\":\"proxy-dockerhub\",\"registry.k8s.io\":\"proxy-k8s\",\"xpkg.upbound.io\":\"proxy-xpkg\"}"
+    RELEASE_PUBLIC_KEY_B64             = ""
+    RELEASE_CHANNEL                    = "stable"
+    RELEASE_VERSION                    = ""
+    RELEASE_AUTO                       = "false"
+    RELEASE_SYNC_SCHEDULE              = "0 3 * * *"
+    ORIGIN_PARENT_FQDN                 = "parent.example.test"
+    ORIGIN_PARENT_API_URL              = "https://console.parent.example.test/sovereign"
+    DNS_MODE                           = "delegated"
+    DNS_UPSTREAM_API_URL               = ""
+    MAIL_MODE                          = "local"
+    MAIL_RELAY_HOST                    = ""
+    MAIL_RELAY_PORT                    = "587"
+    MAIL_FROM                          = ""
+    MAIL_RELAY_SECRET                  = ""
+    K3S_VERSION                        = "v1.31.8+k3s1"
+    K3S_UPGRADE_CONCURRENCY            = "1"
+    CLOUD_CREDENTIAL_MODE              = "supplied"
+    CLOUD_CREDENTIAL_ROTATION_SCHEDULE = "0 2 1 * *"
+    CLOUD_CREDENTIAL_ROTATION_NONCE    = ""
+    GITOPS_REPO_URL                    = "http://gitea-http.gitea.svc.cluster.local:3000/openova/provider-pack"
+  }
 }
 
 # Scenario 1 — Tier-B canonical two-region shape (primary + secondary)
@@ -460,4 +522,458 @@ run "default_storage_class_operator_override_renders_huawei" {
     )
     error_message = "Primary-CP cloud-init must render the operator-chosen default_storage_class verbatim into SOVEREIGN_CNPG_STORAGE_CLASS. #4057"
   }
+}
+
+# ── SEC-020: a server token for the control plane, an agent token for workers
+# The control plane starts k3s with K3S_TOKEN set to the server token and
+# --agent-token set to the agent token. Workers join with the agent token and
+# never receive the server token.
+run "k3s_server_and_agent_tokens" {
+  command = plan
+
+  variables {
+    regions = [
+      {
+        code               = "me-east-215-a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  assert {
+    condition     = strcontains(local.cp_cloud_init_by_region["me-east-215-a"], "K3S_TOKEN=test-k3s-server-token ")
+    error_message = "SEC-020: the control-plane cloud-init must start k3s with K3S_TOKEN set to random_password.k3s_server_token."
+  }
+
+  assert {
+    condition     = strcontains(local.cp_cloud_init_by_region["me-east-215-a"], " --agent-token=test-k3s-agent-token ")
+    error_message = "SEC-020: the control-plane cloud-init must pass --agent-token set to random_password.k3s_agent_token."
+  }
+
+  assert {
+    condition     = strcontains(local.worker_cloud_init_by_region["me-east-215-a"], "K3S_TOKEN=test-k3s-agent-token ")
+    error_message = "SEC-020: the worker cloud-init must join with K3S_TOKEN set to random_password.k3s_agent_token."
+  }
+
+  assert {
+    condition     = !strcontains(local.worker_cloud_init_by_region["me-east-215-a"], "test-k3s-server-token")
+    error_message = "SEC-020: the worker cloud-init must not carry the k3s server token."
+  }
+}
+
+# ── SOV-140: the post-back sends the parent-bootstrap kubeconfig ──────────
+# The kubeconfig post-back of every region's first control plane reads
+# /var/lib/catalyst/parent-bootstrap.kubeconfig: the kubeconfig of
+# ServiceAccount kube-system/parent-bootstrap that the shared template writes
+# just before the post-back and deletes just after it. It never reads the
+# node's administrator file /etc/rancher/k3s/k3s.yaml, and it deletes its
+# /tmp copy when it is done.
+run "post_back_sends_parent_bootstrap_kubeconfig" {
+  command = plan
+
+  variables {
+    kubeconfig_bearer_token = "test-bearer"
+    regions = [
+      {
+        code               = "me-east-215-a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      },
+      {
+        code               = "me-east-215-b"
+        role               = "secondary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  assert {
+    condition     = length(regexall("(?s)config set-credentials default --token=.*/var/lib/catalyst/parent-bootstrap\\.kubeconfig > /tmp/kubeconfig-rewritten\\.yaml\n.*\n      rm -f /tmp/kubeconfig-rewritten\\.yaml\n.*\n  - rm -f /var/lib/catalyst/parent-bootstrap\\.kubeconfig\n", local.cp_cloud_init_by_region["me-east-215-a"])) == 1 && !strcontains(local.cp_cloud_init_by_region["me-east-215-a"], "/etc/rancher/k3s/k3s.yaml > /tmp/")
+    error_message = "SOV-140: the primary region's post-back must read /var/lib/catalyst/parent-bootstrap.kubeconfig, between the step that writes it and the step that deletes it, delete its /tmp copy, and never read /etc/rancher/k3s/k3s.yaml."
+  }
+
+  assert {
+    condition     = length(regexall("(?s)config set-credentials default --token=.*/var/lib/catalyst/parent-bootstrap\\.kubeconfig > /tmp/kubeconfig-secondary\\.yaml\n.*\n      rm -f /tmp/secondary-kubeconfig-body\\.json /tmp/kubeconfig-secondary\\.yaml\n.*\n  - rm -f /var/lib/catalyst/parent-bootstrap\\.kubeconfig\n", local.cp_cloud_init_by_region["me-east-215-b"])) == 1 && !strcontains(local.cp_cloud_init_by_region["me-east-215-b"], "/etc/rancher/k3s/k3s.yaml > /tmp/")
+    error_message = "SOV-140: the secondary region's post-back must read /var/lib/catalyst/parent-bootstrap.kubeconfig, between the step that writes it and the step that deletes it, delete its /tmp copy, and never read /etc/rancher/k3s/k3s.yaml."
+  }
+}
+
+# SOV-141 — the peer token. In a region that is not the primary, cloud-init
+# creates ServiceAccount kube-system/handover-peer with its cluster-admin
+# binding and token Secret, writes /var/lib/catalyst/handover-peer.kubeconfig
+# before the post-back, sends it in the post-back body under the key
+# peerKubeconfig with the server set to the region's address, and deletes it
+# after the post-back. The primary region has no handover-peer at all.
+run "post_back_sends_handover_peer_kubeconfig" {
+  command = plan
+
+  variables {
+    kubeconfig_bearer_token = "test-bearer"
+    regions = [
+      {
+        code               = "me-east-215-a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      },
+      {
+        code               = "me-east-215-b"
+        role               = "secondary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  assert {
+    condition     = length(regexall("(?s)\n    export KUBECONFIG=/etc/rancher/k3s/k3s\\.yaml N=handover-peer S=kube-system K=/var/lib/catalyst/handover-peer\\.kubeconfig\n.*exit 97; }\n.*sed -i \"s\\|server: https://127\\.0\\.0\\.1:6443\\|server: https://\\$\\{MY_EIP\\}:6443\\|\" /var/lib/catalyst/handover-peer\\.kubeconfig\n.*'peerKubeconfig':open\\('/var/lib/catalyst/handover-peer\\.kubeconfig'\\)\\.read\\(\\).*\n  - rm -f /var/lib/catalyst/parent-bootstrap\\.kubeconfig\n  - rm -f /var/lib/catalyst/handover-peer\\.kubeconfig\n", local.cp_cloud_init_by_region["me-east-215-b"])) == 1 && length(regexall("    type: kubernetes\\.io/service-account-token\n", local.cp_cloud_init_by_region["me-east-215-b"])) == 2
+    error_message = "SOV-141: the secondary region must create the handover-peer account and its token Secret, write /var/lib/catalyst/handover-peer.kubeconfig before the post-back, send it under peerKubeconfig with its server set to the region's address, and delete it after the post-back."
+  }
+
+  assert {
+    condition     = !strcontains(local.cp_cloud_init_by_region["me-east-215-a"], "handover-peer") && !strcontains(local.cp_cloud_init_by_region["me-east-215-a"], "exit 97")
+    error_message = "SOV-141: the primary region must not create a handover-peer account or send a peer kubeconfig."
+  }
+}
+
+# NET-010 — the peer ports are closed to the internet. The mesh dial port
+# (var.clustermesh_proxy_port, 12379) admits only the Sovereign's own public
+# addresses (every region's control-plane and NAT EIP, as /32) and every
+# region's node subnet and pod range. Cilium WireGuard (51871) admits only the
+# node subnets and pod ranges. The rules for 2379, 51820, 8472 and 6081 are
+# deleted; ICMP is unchanged. No rule of these two families is 0.0.0.0/0.
+run "peer_ports_closed" {
+  command = plan
+
+  variables {
+    regions = [
+      {
+        code               = "me-east-215-a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      },
+      {
+        code               = "me-east-215-b"
+        role               = "secondary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  # 2 target regions x (4 public addresses + 4 node/pod ranges).
+  assert {
+    condition     = length(huaweicloud_networking_secgroup_rule.ingress_clustermesh_proxy) == 16
+    error_message = "The mesh dial port must have one rule per target region and per source: 2 x (4 public addresses + 4 node/pod ranges) = 16."
+  }
+  assert {
+    condition = alltrue([for k in ["cp|me-east-215-a", "cp|me-east-215-b", "nat|me-east-215-a", "nat|me-east-215-b"] :
+    contains(keys(huaweicloud_networking_secgroup_rule.ingress_clustermesh_proxy), "me-east-215-a|${k}") && contains(keys(huaweicloud_networking_secgroup_rule.ingress_clustermesh_proxy), "me-east-215-b|${k}")])
+    error_message = "Each region's mesh dial port must admit every region's control-plane and NAT address."
+  }
+  assert {
+    condition     = alltrue([for c in local.mesh_ingress_cidrs : contains(keys(huaweicloud_networking_secgroup_rule.ingress_clustermesh_proxy), "me-east-215-b|${c}")])
+    error_message = "The mesh dial port must admit every region's node subnet and pod range."
+  }
+  assert {
+    condition     = length(local.sovereign_public_sources) == 4 && alltrue([for v in values(local.sovereign_public_sources) : endswith(v, "/32")])
+    error_message = "The Sovereign's own public sources must be the 2 control-plane and 2 NAT addresses, each as /32."
+  }
+  assert {
+    condition     = alltrue([for r in huaweicloud_networking_secgroup_rule.ingress_clustermesh_proxy : r.port_range_min == 12379 && r.port_range_max == 12379 && r.protocol == "tcp"])
+    error_message = "Every mesh dial rule must be TCP 12379."
+  }
+  assert {
+    condition     = alltrue([for r in huaweicloud_networking_secgroup_rule.ingress_clustermesh_proxy : r.remote_ip_prefix != "0.0.0.0/0"])
+    error_message = "No rule for the mesh dial port 12379 may have the source 0.0.0.0/0."
+  }
+
+  # 2 target regions x 4 node/pod ranges.
+  assert {
+    condition     = length(huaweicloud_networking_secgroup_rule.ingress_cilium_wireguard) == 8
+    error_message = "Cilium WireGuard (51871) must have one rule per target region and per node/pod range: 2 x 4 = 8."
+  }
+  assert {
+    condition     = alltrue([for r in huaweicloud_networking_secgroup_rule.ingress_cilium_wireguard : r.port_range_min == 51871 && r.remote_ip_prefix != "0.0.0.0/0" && contains(local.mesh_ingress_cidrs, r.remote_ip_prefix)])
+    error_message = "Every Cilium WireGuard (51871) rule must take its source from the node/pod ranges, never 0.0.0.0/0."
+  }
+
+  # ICMP is unchanged: one rule per region, from any source.
+  assert {
+    condition     = length(huaweicloud_networking_secgroup_rule.ingress_icmp) == 2 && alltrue([for r in huaweicloud_networking_secgroup_rule.ingress_icmp : r.remote_ip_prefix == "0.0.0.0/0"])
+    error_message = "ICMP must stay one rule per region from 0.0.0.0/0 (path-MTU discovery)."
+  }
+}
+
+# NET-010 — on a single region the same rules collapse to the region's own
+# addresses and ranges: 2 public addresses + 2 node/pod ranges for the mesh
+# dial port, 2 node/pod ranges for Cilium WireGuard.
+run "peer_ports_closed_single_region" {
+  command = plan
+
+  variables {
+    regions = [
+      {
+        code               = "me-east-215-a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  assert {
+    condition     = length(huaweicloud_networking_secgroup_rule.ingress_clustermesh_proxy) == 4 && length(huaweicloud_networking_secgroup_rule.ingress_cilium_wireguard) == 2
+    error_message = "Single region: the mesh dial port must have 4 rules (2 public addresses + 2 node/pod ranges) and Cilium WireGuard 2 rules."
+  }
+  assert {
+    condition     = alltrue([for r in concat(values(huaweicloud_networking_secgroup_rule.ingress_clustermesh_proxy), values(huaweicloud_networking_secgroup_rule.ingress_cilium_wireguard)) : r.remote_ip_prefix != "0.0.0.0/0"])
+    error_message = "Single region: no rule for 12379 or 51871 may have the source 0.0.0.0/0."
+  }
+}
+
+# NET-100 — the network registry. Each run fixes the addresses of the three
+# EIP resources and compares output network_registry with a document under
+# scripts/tests/check-network-registry/. scripts/check-network-registry.py
+# --self-test checks those documents against every rule of the registry, so a
+# module change that breaks a rule fails here or there.
+run "network_registry_one_region" {
+  command = plan
+
+  override_resource {
+    target = huaweicloud_vpc_eip.elb_primary
+    values = {
+      address = "203.0.113.10"
+    }
+  }
+  override_resource {
+    target = huaweicloud_vpc_eip.cp
+    values = {
+      address = "203.0.113.11"
+    }
+  }
+  override_resource {
+    target = huaweicloud_vpc_eip.nat
+    values = {
+      address = "203.0.113.12"
+    }
+  }
+
+  variables {
+    huawei_region = "region-1"
+    huawei_az     = "region-1a"
+    regions = [
+      {
+        code               = "region-a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  assert {
+    condition     = output.network_registry == jsonencode(jsondecode(file("../../../scripts/tests/check-network-registry/valid-one-region.json")))
+    error_message = "NET-100: network_registry differs from scripts/tests/check-network-registry/valid-one-region.json: ${output.network_registry}"
+  }
+  assert {
+    condition     = !strcontains(output.network_registry, "meshEndpoint")
+    error_message = "NET-100: one region has no meshEndpoint."
+  }
+}
+
+# Two regions: the CIDRs of the Tier-B fixture do not move (raw base 127 for
+# deadbeefcafef00d), and every region carries its meshEndpoint.
+run "network_registry_two_regions" {
+  command = plan
+
+  override_resource {
+    target = huaweicloud_vpc_eip.elb_primary
+    values = {
+      address = "203.0.113.10"
+    }
+  }
+  override_resource {
+    target = huaweicloud_vpc_eip.cp
+    values = {
+      address = "203.0.113.11"
+    }
+  }
+  override_resource {
+    target = huaweicloud_vpc_eip.nat
+    values = {
+      address = "203.0.113.12"
+    }
+  }
+
+  variables {
+    huawei_region = "region-1"
+    huawei_az     = "region-1a"
+    regions = [
+      {
+        code               = "region-a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      },
+      {
+        code               = "region-b"
+        role               = "secondary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  assert {
+    condition     = local.region_vpc_cidr["region-a"] == "10.127.0.0/16" && local.region_vpc_cidr["region-b"] == "10.137.0.0/16"
+    error_message = "NET-100: the node VPC CIDRs of a two-region Sovereign must not move (10.127.0.0/16 and 10.137.0.0/16 for deadbeefcafef00d)."
+  }
+  assert {
+    condition     = output.network_registry == jsonencode(jsondecode(file("../../../scripts/tests/check-network-registry/valid-two-regions.json")))
+    error_message = "NET-100: network_registry differs from scripts/tests/check-network-registry/valid-two-regions.json: ${output.network_registry}"
+  }
+}
+
+# Three regions: the pod supernet is 10.40.0.0/13. 0123456789ef59d0 hashes to
+# raw base 45, whose node VPC 10.45.0.0/16 lies in that supernet; the base
+# moves up by the smallest free shift, 3, to 48.
+run "network_registry_three_regions" {
+  command = plan
+
+  override_resource {
+    target = huaweicloud_vpc_eip.elb_primary
+    values = {
+      address = "203.0.113.10"
+    }
+  }
+  override_resource {
+    target = huaweicloud_vpc_eip.cp
+    values = {
+      address = "203.0.113.11"
+    }
+  }
+  override_resource {
+    target = huaweicloud_vpc_eip.nat
+    values = {
+      address = "203.0.113.12"
+    }
+  }
+
+  variables {
+    deployment_id = "0123456789ef59d0"
+    huawei_region = "region-1"
+    huawei_az     = "region-1a"
+    regions = [
+      {
+        code               = "region-a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 1
+      },
+      {
+        code               = "region-b"
+        role               = "secondary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 1
+      },
+      {
+        code               = "region-c"
+        role               = "secondary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 1
+      }
+    ]
+  }
+
+  assert {
+    condition     = local.cidr_base_raw == 45 && local.cidr_base == 48
+    error_message = "NET-100: with three regions the raw base 45 must move to 48, out of the pod supernet 10.40.0.0/13."
+  }
+  assert {
+    condition     = output.network_registry == jsonencode(jsondecode(file("../../../scripts/tests/check-network-registry/valid-three-regions.json")))
+    error_message = "NET-100: network_registry differs from scripts/tests/check-network-registry/valid-three-regions.json: ${output.network_registry}"
+  }
+}
+
+# More than six regions is refused: the pod supernet holds six pod CIDRs.
+run "network_registry_seven_regions_refused" {
+  command = plan
+
+  variables {
+    huawei_region = "region-1"
+    huawei_az     = "region-1a"
+    regions = [
+      for c in ["a", "b", "c", "d", "e", "f", "g"] : {
+        code               = "region-${c}"
+        role               = c == "a" ? "primary" : "secondary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 1
+      }
+    ]
+  }
+
+  expect_failures = [var.regions]
+}
+
+# ── SOV-131: HANDOVER_AUTO reaches FIRE_CUTOVER_ON_HANDOVER; a document
+# without exactly the keys of contract C5 is refused at plan time.
+run "variables_handover_auto_reaches_cloud_init" {
+  command = plan
+
+  variables {
+    regions = [
+      {
+        code               = "me-east-215-a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  assert {
+    condition     = strcontains(local.cp_cloud_init_by_region["me-east-215-a"], "FIRE_CUTOVER_ON_HANDOVER: \"false\"")
+    error_message = "SOV-131: variables[\"HANDOVER_AUTO\"] must reach the substitute FIRE_CUTOVER_ON_HANDOVER of the control-plane cloud-init."
+  }
+}
+
+run "variables_refuses_a_document_without_the_contract_keys" {
+  command = plan
+
+  variables {
+    variables = { HANDOVER_AUTO = "true", NOT_A_CONTRACT_KEY = "x" }
+    regions = [
+      {
+        code               = "me-east-215-a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  expect_failures = [var.variables]
 }

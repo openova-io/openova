@@ -1,0 +1,305 @@
+# docs/ledger/stability.yaml - the stability register.
+#
+# One entry per surface of the repository: its paths, its class, its change policy and the evidence for the class.
+# Only the architect changes this file. scripts/check-frozen-paths.py reads it; its head states the format and the rules.
+#
+#   class          stable     fewer than 5 human commits in 90 days and a green gate check that exercises the surface
+#                  settling   changing, or quiet without a function proof
+#                  thrashing  at least 10 human commits in 90 days of which 60 percent or more are fixes, or redesigned
+#                             in the last 30 days, or its end-to-end check is red
+#                  frozen     passed its soak; a change needs a decision record
+#   change_policy  open             any package may change the paths
+#                  closed           only the packages in allowed_packages may change the paths
+#                  fix-only         only packages of type fix, test, guard, delete or doc may change the paths
+#                  decision-record  a change carries "Decision: ADR-NNNN" and that record unfreezes the entry
+#
+# The first seven entries are the topology surface. They are closed to every package but FND-900 until their soak
+# checks have passed in two gate records; then they become frozen. The numbers of an entry of kind churn are those of
+# "python3 scripts/check-frozen-paths.py classify" at the commit named in its ref.
+schema: openova.io/stability/v1
+entries:
+  - id: topology-region-file
+    title: Region file format and field ownership
+    class: settling
+    change_policy: closed
+    paths:
+      - core/controllers/pkg/regionfile/**
+    evidence:
+      date: 2026-11-11
+      kind: gate-record
+      ref: hw307-20261111T140635Z-4a0d
+    allowed_packages: [FND-900]
+    soak:
+      checks: [FND-G10, FND-G11, FND-G12]
+      records: []
+  - id: topology-contract
+    title: Topology contract library
+    class: settling
+    change_policy: closed
+    paths:
+      - platform/topology-lib/**
+    evidence:
+      date: 2026-11-11
+      kind: gate-record
+      ref: hw307-20261111T140635Z-4a0d
+    allowed_packages: [FND-900]
+    soak:
+      checks: [FND-G10, FND-G11, FND-G12]
+      records: []
+  - id: topology-continuum
+    title: Continuum chart, controller and its workload guard
+    class: settling
+    change_policy: closed
+    paths:
+      - products/continuum/chart/**
+      - core/controllers/continuum/**
+      - scripts/check-continuum-no-workload-mutation.sh
+    evidence:
+      date: 2026-11-11
+      kind: gate-record
+      ref: hw307-20261111T140635Z-4a0d
+    allowed_packages: [FND-900]
+    soak:
+      checks: [FND-G10, FND-G11, FND-G12]
+      records: []
+  - id: topology-region-git-layout
+    title: Region Git layout and the per-Organization Flux objects
+    class: settling
+    change_policy: closed
+    paths:
+      - clusters/_template/sovereign-region/**
+      - core/controllers/organization/internal/controller/per_org_flux.go
+    evidence:
+      date: 2026-11-11
+      kind: gate-record
+      ref: hw307-20261111T140635Z-4a0d
+    allowed_packages: [FND-900]
+    soak:
+      checks: [FND-G10, FND-G11, FND-G12]
+      records: []
+  - id: topology-region-vocabulary
+    title: Region vocabulary and its guard
+    class: settling
+    change_policy: closed
+    paths:
+      - core/controllers/pkg/regions/**
+      - scripts/check-region-vocabulary.sh
+    evidence:
+      date: 2026-11-11
+      kind: gate-record
+      ref: hw307-20261111T140635Z-4a0d
+    allowed_packages: [FND-900]
+    soak:
+      checks: [FND-G10, FND-G11, FND-G12]
+      records: []
+  - id: topology-journeys
+    title: Journeys of the acceptance suite
+    class: settling
+    change_policy: closed
+    paths:
+      - tests/acceptance/sovereign/internal/suite/journeys.go
+      - tests/acceptance/sovereign/internal/suite/match.go
+    evidence:
+      date: 2026-11-11
+      kind: gate-record
+      ref: hw307-20261111T140635Z-4a0d
+    allowed_packages: [FND-900]
+    soak:
+      checks: [FND-G10, FND-G11, FND-G12]
+      records: []
+    notes: New checks go in new files of the suite, so these two files can freeze.
+  - id: application-controller
+    title: Application controller
+    class: settling
+    change_policy: closed
+    paths:
+      - core/controllers/application/**
+    evidence:
+      date: 2026-11-11
+      kind: gate-record
+      ref: hw307-20261111T140635Z-4a0d
+    allowed_packages: [FND-900]
+    soak:
+      checks: [FND-G10, FND-G11, FND-G12]
+      records: []
+  - id: cutover-chain
+    title: Sovereignty cutover chain and its API handlers
+    class: thrashing
+    change_policy: open
+    paths:
+      - platform/self-sovereign-cutover/**
+      - products/catalyst/bootstrap/api/internal/handler/cutover*.go
+    evidence:
+      date: 2026-11-13
+      kind: churn
+      ref: "commit 8599f27c1, 90 days: 22 human commits, 15 fixes"
+  - id: bootstrap-kit
+    title: Bootstrap kit of the Sovereign template
+    class: thrashing
+    change_policy: open
+    paths:
+      - clusters/_template/bootstrap-kit/**
+    evidence:
+      date: 2026-11-13
+      kind: churn
+      ref: "commit 8599f27c1, 90 days: 355 human commits, 70 fixes"
+  - id: umbrella-chart
+    title: Catalyst platform umbrella chart
+    class: thrashing
+    change_policy: open
+    paths:
+      - products/catalyst/chart/**
+    evidence:
+      date: 2026-11-13
+      kind: churn
+      ref: "commit 8599f27c1, 90 days: 338 human commits, 66 fixes"
+  - id: api-handlers
+    title: Catalyst API handlers
+    class: thrashing
+    change_policy: open
+    paths:
+      - products/catalyst/bootstrap/api/internal/handler/**
+    evidence:
+      date: 2026-11-13
+      kind: churn
+      ref: "commit 8599f27c1, 90 days: 45 human commits, 24 fixes"
+  - id: database-pair-charts
+    title: Database pair and Postgres charts
+    class: thrashing
+    change_policy: open
+    paths:
+      - platform/cnpg-pair/**
+      - platform/postgres/**
+    evidence:
+      date: 2026-11-13
+      kind: churn
+      ref: "commit 8599f27c1, 90 days: 17 human commits, 14 fixes"
+  - id: cloud-provisioning
+    title: Cloud provisioning modules and the provisioner
+    class: thrashing
+    change_policy: open
+    paths:
+      - infra/providers/**
+      - core/services/provisioning/**
+      - products/catalyst/bootstrap/api/internal/provisioner/**
+    evidence:
+      date: 2026-11-13
+      kind: churn
+      ref: "commit 8599f27c1, 90 days: 34 human commits, 20 fixes"
+  - id: sovereign-console
+    title: Sovereign-admin console
+    class: settling
+    change_policy: open
+    paths:
+      - products/catalyst/bootstrap/ui/**
+    evidence:
+      date: 2026-11-13
+      kind: churn
+      ref: "commit 8599f27c1, 90 days: 157 human commits, 77 fixes"
+  - id: organization-controller
+    title: Organization controller
+    class: settling
+    change_policy: open
+    paths:
+      - core/controllers/organization/**
+    evidence:
+      date: 2026-11-13
+      kind: churn
+      ref: "commit 8599f27c1, 90 days: 16 human commits, 4 fixes"
+    notes: per_org_flux.go is also in topology-region-git-layout, whose stricter policy applies to it.
+  - id: identity-and-platform-charts
+    title: Identity, secrets, Git, registry, gateway, network and policy charts
+    class: settling
+    change_policy: open
+    paths:
+      - platform/keycloak/**
+      - platform/openbao/**
+      - platform/gitea/**
+      - platform/harbor/**
+      - platform/newapi/**
+      - platform/cilium/**
+      - platform/kyverno-policies/**
+    evidence:
+      date: 2026-11-13
+      kind: churn
+      ref: "commit 8599f27c1, 90 days: 14 human commits, 11 fixes"
+  - id: ci-and-scripts
+    title: Workflows and scripts
+    class: settling
+    change_policy: open
+    paths:
+      - .github/workflows/**
+      - scripts/**
+    evidence:
+      date: 2026-11-13
+      kind: churn
+      ref: "commit 8599f27c1, 90 days: 80 human commits, 32 fixes"
+    notes: A file that a stricter entry also matches takes that entry's policy.
+  - id: billing-engine
+    title: Billing engine
+    class: settling
+    change_policy: open
+    paths:
+      - products/chargeback/**
+    evidence:
+      date: 2026-11-13
+      kind: churn
+      ref: "commit 8599f27c1, 90 days: 140 human commits, 45 fixes"
+  - id: order-capture
+    title: Order capture service
+    class: settling
+    change_policy: open
+    paths:
+      - core/services/billing/**
+    evidence:
+      date: 2026-11-13
+      kind: churn
+      ref: "commit 8599f27c1, 90 days: 6 human commits, 2 fixes"
+  - id: storefront-back-end
+    title: The six services behind the storefront
+    class: settling
+    change_policy: fix-only
+    paths:
+      - core/services/auth/**
+      - core/services/tenant/**
+      - core/services/catalog/**
+      - core/services/domain/**
+      - core/services/gateway/**
+      - core/services/notification/**
+    evidence:
+      date: 2026-11-13
+      kind: churn
+      ref: "commit 8599f27c1, 90 days: 7 human commits, 1 fixes"
+    notes: They stay as they are; only fixes, tests, guards, deletions and documents change them.
+  - id: wrapper-charts
+    title: Wrapper charts of upstream projects
+    class: settling
+    change_policy: open
+    paths:
+      - platform/crossplane/**
+      - platform/crossplane-claims/**
+      - platform/external-secrets/**
+      - platform/flux/**
+      - platform/cert-manager/**
+      - platform/velero/**
+      - platform/valkey/**
+      - platform/nats-jetstream/**
+      - platform/external-dns/**
+    evidence:
+      date: 2026-11-13
+      kind: churn
+      ref: "commit 8599f27c1, 90 days: 5 human commits, 3 fixes"
+    notes: Quiet, no function proof.
+  - id: quiet-controllers
+    title: Environment and user-access controllers and the pool domain manager
+    class: settling
+    change_policy: open
+    paths:
+      - core/controllers/environment/**
+      - core/controllers/useraccess/**
+      - core/pool-domain-manager/**
+    evidence:
+      date: 2026-11-13
+      kind: churn
+      ref: "commit 8599f27c1, 90 days: 0 human commits, 0 fixes"
+    notes: Quiet, no function proof.

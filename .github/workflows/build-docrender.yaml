@@ -52,6 +52,8 @@ env:
 permissions:
   contents: read
   packages: write
+  # The step that signs the image needs a GitHub OIDC token (FND-062).
+  id-token: write
 
 jobs:
   build-docrender:
@@ -276,6 +278,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Push image (only after the smoke gate is green)
+        id: push
         if: github.event_name != 'pull_request'
         run: |
           set -euo pipefail
@@ -286,3 +289,16 @@ jobs:
             echo "pushing $TAG"
             docker push "$TAG"
           done
+          # The digest that the registry now holds for these tags. The next step
+          # signs exactly that manifest (FND-062).
+          digest="$(docker buildx imagetools inspect "${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}" --format '{{json .Manifest}}' | python3 -c 'import json, sys; print(json.load(sys.stdin)["digest"])')"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      # Sign the image and attest its bill of materials through the shared
+      # action, before its tag is pinned (FND-062).
+      - name: Sign and attest the image
+        if: github.event_name != 'pull_request'
+        uses: ./.github/actions/sign-and-attest
+        with:
+          ref: ${{ env.IMAGE }}
+          digest: ${{ steps.push.outputs.digest }}

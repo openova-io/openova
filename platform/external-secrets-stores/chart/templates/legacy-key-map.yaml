@@ -1,0 +1,39 @@
+{{- /*
+legacy-key-map.yaml — ConfigMap eso-legacy-key-map, the parameter of the
+admission rule in remote-key-scope-policy.yaml (SEC-080).
+
+One data entry per platform namespace whose ExternalSecrets or PushSecrets
+name an OpenBao key outside the namespace's own prefix. The key of an entry
+is the namespace; the value is its allowed prefixes, joined by commas. The
+entries come from values.legacyKeyMap. A namespace that is not listed may
+name only keys under its own prefix.
+*/ -}}
+{{- $rks := .Values.remoteKeyScope | default dict }}
+{{- $map := .Values.legacyKeyMap | default dict }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $rks.configMapName | default "eso-legacy-key-map" | quote }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/component: external-secrets
+{{- if $map }}
+data:
+{{- range $ns, $prefixes := $map }}
+{{- if not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" $ns) }}
+{{- fail (printf "legacyKeyMap: %q is not a namespace name" $ns) }}
+{{- end }}
+{{- if not (kindIs "slice" $prefixes) }}
+{{- fail (printf "legacyKeyMap.%s: the value must be a list of prefixes" $ns) }}
+{{- end }}
+{{- if not $prefixes }}
+{{- fail (printf "legacyKeyMap.%s: the list is empty; remove the namespace instead" $ns) }}
+{{- end }}
+{{- range $prefixes }}
+{{- if not (regexMatch "^[a-z0-9][-a-z0-9._/]*/$" (toString .)) }}
+{{- fail (printf "legacyKeyMap.%s: prefix %q must be a path that ends with a slash, without a comma" $ns (toString .)) }}
+{{- end }}
+{{- end }}
+  {{ $ns }}: {{ join "," $prefixes | quote }}
+{{- end }}
+{{- end }}

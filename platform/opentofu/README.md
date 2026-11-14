@@ -49,16 +49,14 @@ flowchart LR
 
 ## Supported Providers
 
-OpenOva supports multiple cloud providers. Each provider has a corresponding Crossplane provider for day-2 operations.
+An OpenTofu module exists for two clouds. The table shows what is in this repository today. The target contract for a provider is [ADR-0016](../../docs/adr/0016-cloud-abstraction-contract.md).
 
-| Provider | Crossplane Provider |
-|----------|---------------------|
-| Hetzner Cloud | provider-hcloud |
-| Huawei Cloud | provider-huaweicloud |
-| Oracle Cloud (OCI) | provider-oci |
-| AWS | provider-aws |
-| GCP | provider-gcp |
-| Azure | provider-azure |
+| Cloud | Status | OpenTofu module | Crossplane provider packages on a Sovereign of this cloud |
+|-------|--------|-----------------|-----------------------------------------------------------|
+| Huawei Cloud Stack | Delivery target | `infra/providers/huawei/` | `provider-opentofu` |
+| Hetzner Cloud | Retained | `infra/providers/hetzner/` | `provider-opentofu` and `provider-hcloud` |
+
+Oracle Cloud, AWS, GCP and Azure have no OpenTofu module and no Crossplane provider in this repository. No native Crossplane provider for Huawei is installed.
 
 ---
 

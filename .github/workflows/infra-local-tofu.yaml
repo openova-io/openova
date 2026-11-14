@@ -1,0 +1,86 @@
+# infra-local-tofu.yaml - the module of the local provider pack and its reduced kit.
+#
+# The module infra/providers/local starts the machines of a Sovereign as containers on one
+# host; it boots the shared template infra/providers/_shared/cloudinit-control-plane.tftpl.
+# Every pull request that changes the module, the shared template, the shared kit or the
+# reduced kit runs here:
+#   - tofu fmt, validate and test of the module (the providers are mocked; no container
+#     starts). tests/contract.tftest.hcl holds the shared body of the module contract;
+#     tests/local.tftest.hcl proves two regions, the kit path, the pack substitutes, the
+#     workers and the network registry;
+#   - kustomize build of clusters/_template/providers/local/kit, the reduced kit that
+#     scripts/generators/local-kit.py writes. Its slot files lie outside its folder, so the
+#     build lifts the load restriction, as Flux does.
+# The generator's --check runs in check-generated-docs.yaml with every other generator.
+name: infra-local-tofu
+
+on:
+  pull_request:
+    paths:
+      - 'infra/providers/local/**'
+      - 'infra/providers/_shared/**'
+      - 'infra/providers/_contract/**'
+      - 'clusters/_template/bootstrap-kit/**'
+      - 'clusters/_template/providers/local/**'
+      - '.github/workflows/infra-local-tofu.yaml'
+  push:
+    branches: [main]
+    paths:
+      - 'infra/providers/local/**'
+      - 'infra/providers/_shared/**'
+      - 'infra/providers/_contract/**'
+      - 'clusters/_template/bootstrap-kit/**'
+      - 'clusters/_template/providers/local/**'
+      - '.github/workflows/infra-local-tofu.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  module:
+    name: local module validate fmt test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: infra/providers/local
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.11.6
+
+      - name: tofu init (no backend, the providers of the lock file)
+        run: tofu init -backend=false -input=false -no-color
+
+      - name: tofu fmt -check
+        run: tofu fmt -check -recursive
+
+      - name: tofu validate
+        run: tofu validate -no-color
+
+      - name: tofu test (mocked providers)
+        run: tofu test -no-color
+
+  kit:
+    name: local kit kustomize build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install kustomize
+        uses: imranismail/setup-kustomize@v3
+        with:
+          kustomize-version: "5.4.3"
+
+      - name: kustomize build
+        run: |
+          set -euo pipefail
+          kustomize build --load-restrictor=LoadRestrictionsNone clusters/_template/providers/local/kit > "$RUNNER_TEMP/kit.yaml"
+          echo "documents: $(grep -c '^kind: ' "$RUNNER_TEMP/kit.yaml")"

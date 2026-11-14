@@ -1,0 +1,85 @@
+{{- /*
+The intent lock: one ValidatingAdmissionPolicy over the kinds whose desired
+state Git owns. A CREATE, UPDATE or DELETE of a listed kind passes when it
+comes from a Flux writer, is a delete by the garbage or namespace collector,
+leaves spec unchanged, or is break-glass. No rule names /status, so status
+writes are not matched. The policy never acts by itself: the binding of each
+stage carries the action (bindings.yaml). The render fails when
+intentLock.stages and intentLock.resources name different stages, or when an
+action is neither audit nor deny. The audit annotation's false branch is ''
+and not null: the API server refuses a conditional of string and null
+(lab test CTL-050, docs/ledger/plan/spikes/CTL-050.md).
+*/ -}}
+{{- $lock := .Values.intentLock -}}
+{{- range $stage, $action := $lock.stages }}
+{{- if not (regexMatch "^[a-z][a-z0-9-]*$" $stage) }}
+{{- fail (printf "intentLock.stages: the stage name %q is not a lower-case name" $stage) }}
+{{- end }}
+{{- if not (has $action (list "audit" "deny")) }}
+{{- fail (printf "intentLock.stages.%s is %q; it must be audit or deny" $stage (toString $action)) }}
+{{- end }}
+{{- if not (index $lock.resources $stage) }}
+{{- fail (printf "intentLock.stages.%s has no entry in intentLock.resources" $stage) }}
+{{- end }}
+{{- end }}
+{{- range $stage, $_ := $lock.resources }}
+{{- if not (hasKey $lock.stages $stage) }}
+{{- fail (printf "intentLock.resources.%s has no entry in intentLock.stages" $stage) }}
+{{- end }}
+{{- end }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: catalyst-intent-lock
+  labels:
+    app.kubernetes.io/name: catalyst-intent-lock
+    app.kubernetes.io/component: intent-lock
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+{{- range $stage, $rules := $lock.resources }}
+{{- range $rules }}
+      - apiGroups: [{{ .apiGroup | quote }}]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: {{ .resources | toJson }}
+{{- end }}
+{{- end }}
+  variables:
+    - name: user
+      expression: "request.userInfo.username"
+    - name: target
+      expression: "request.operation == 'DELETE' ? oldObject : object"
+    - name: isWriter
+      expression: >-
+        variables.user in [
+          'system:serviceaccount:flux-system:kustomize-controller',
+          'system:serviceaccount:flux-system:helm-controller'
+        ] || variables.user.startsWith('system:serviceaccount:flux-system:org-intent-')
+    - name: isCollector
+      expression: >-
+        request.operation == 'DELETE' && variables.user in [
+          'system:serviceaccount:kube-system:generic-garbage-collector',
+          'system:serviceaccount:kube-system:namespace-controller',
+          'system:kube-controller-manager'
+        ]
+    - name: specUnchanged
+      expression: >-
+        request.operation == 'UPDATE' &&
+        has(object.spec) == has(oldObject.spec) &&
+        (!has(object.spec) || object.spec == oldObject.spec)
+    - name: isBreakGlass
+      expression: >-
+        request.userInfo.groups.exists(g, g == 'catalyst:break-glass') &&
+        has(variables.target.metadata.annotations) &&
+        'catalyst.openova.io/break-glass-reason' in variables.target.metadata.annotations &&
+        variables.target.metadata.annotations['catalyst.openova.io/break-glass-reason'].size() >= 10
+  validations:
+    - expression: "variables.isWriter || variables.isCollector || variables.specUnchanged || variables.isBreakGlass"
+      messageExpression: >-
+        'desired state of ' + request.kind.kind + ' is owned by Git; commit the change through the Catalyst API (user ' + variables.user + ')'
+      reason: Forbidden
+  auditAnnotations:
+    - key: break-glass
+      valueExpression: "variables.isBreakGlass && !variables.isWriter ? variables.user + ': ' + variables.target.metadata.annotations['catalyst.openova.io/break-glass-reason'] : ''"

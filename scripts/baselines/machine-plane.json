@@ -1,0 +1,24 @@
+{
+  "allow": [
+    {
+      "count": 4,
+      "metric": "moving-image-tag",
+      "owner": "CLD",
+      "path": "infra/providers/hetzner/main.tf",
+      "reason": "The Hetzner pack names its server image by a moving tag. It stays until CLD-182 re-proves the pack or CLD-190 retires it."
+    }
+  ],
+  "counts": {
+    "forbidden-tool": {},
+    "free-text-target": {},
+    "host-key-check-disabled": {},
+    "machine-credential-field": {},
+    "moving-image-tag": {},
+    "node-auto-reboot": {
+      "infra/providers/_shared/cloudinit-control-plane.tftpl": 1,
+      "infra/providers/hetzner/cloudinit-worker.tftpl": 1
+    },
+    "unpinned-runner-tool": {}
+  },
+  "schema": "openova.io/guard-baseline/v1"
+}

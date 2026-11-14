@@ -74,7 +74,7 @@ func TestCreateInstance_UnknownReferences_422_NoNamespaceCreated(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			h, _, _ := newTestHandlerWithEndpoint(t,
+			h, _ := newTestHandlerWithEndpoint(t,
 				refTestOrganization("beta"), refTestEnvironment("beta-prod", "beta", "prod"))
 			h.SetCatalogClient(fakeBlueprintInCatalog("wordpress", nil, true, []string{"singleton"}))
 			before := namespaceNames(t, h)
@@ -101,7 +101,7 @@ func TestCreateInstance_UnknownReferences_422_NoNamespaceCreated(t *testing.T) {
 }
 
 func TestCreateInstance_OrgWithoutNamespace_409NotReady_NothingCreated(t *testing.T) {
-	h, _, dyn := newTestHandlerWithEndpoint(t,
+	h, dyn := newTestHandlerWithEndpoint(t,
 		refTestOrganization("fresh"), refTestEnvironment("fresh-prod", "fresh", "prod"))
 	h.SetCatalogClient(fakeBlueprintInCatalog("wordpress", nil, true, []string{"singleton"}))
 	rec := postInstance(t, h, `{"blueprint":"wordpress","org":"fresh","environment":"fresh-prod","name":"wp-1"}`)
@@ -120,7 +120,7 @@ func TestCreateInstance_OrgWithoutNamespace_409NotReady_NothingCreated(t *testin
 }
 
 func TestCreateInstance_ValidReferences_ApplicationCarriesExactRefs(t *testing.T) {
-	h, _, dyn := newTestHandlerWithEndpoint(t, refTestEnvironment("acme-dev", "acme", "dev"))
+	h, dyn := newTestHandlerWithEndpoint(t, refTestEnvironment("acme-dev", "acme", "dev"))
 	h.SetCatalogClient(fakeBlueprintInCatalog("wordpress", nil, true, []string{"singleton", "active-hot-standby"}))
 	rec := postInstance(t, h, `{"blueprint":"wordpress","org":"acme","environment":"acme-dev","name":"wp-ha",`+
 		`"topology":"active-hot-standby","placement":{"regions":["rgn-b","rgn-a"]}}`)
@@ -144,7 +144,7 @@ func TestCreateInstance_ValidReferences_ApplicationCarriesExactRefs(t *testing.T
 }
 
 func TestCreateInstance_OmittedEnvAndRegions_ResolvedFromObjects(t *testing.T) {
-	h, _, dyn := newTestHandlerWithEndpoint(t)
+	h, dyn := newTestHandlerWithEndpoint(t)
 	h.SetCatalogClient(fakeBlueprintInCatalog("wordpress", nil, true, []string{"singleton"}))
 	rec := postInstance(t, h, `{"blueprint":"wordpress","org":"acme","name":"wp-1"}`)
 	if rec.Code != http.StatusCreated {
@@ -160,7 +160,7 @@ func TestCreateInstance_OmittedEnvAndRegions_ResolvedFromObjects(t *testing.T) {
 }
 
 func TestCreateInstance_AmbiguousEnvironment_422(t *testing.T) {
-	h, _, _ := newTestHandlerWithEndpoint(t, refTestEnvironment("acme-prod-2", "acme", "prod"))
+	h, _ := newTestHandlerWithEndpoint(t, refTestEnvironment("acme-prod-2", "acme", "prod"))
 	h.SetCatalogClient(fakeBlueprintInCatalog("wordpress", nil, true, []string{"singleton"}))
 	rec := postInstance(t, h, `{"blueprint":"wordpress","org":"acme","name":"wp-1"}`)
 	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "environment-required") {
@@ -169,7 +169,7 @@ func TestCreateInstance_AmbiguousEnvironment_422(t *testing.T) {
 }
 
 func TestCreateInstance_ModeNotInPlacementSchema_422(t *testing.T) {
-	h, _, _ := newTestHandlerWithEndpoint(t, refTestBlueprint("bp-solo", "single-region"))
+	h, _ := newTestHandlerWithEndpoint(t, refTestBlueprint("bp-solo", "single-region"))
 	h.SetCatalogClient(fakeBlueprintInCatalog("bp-solo", nil, true, []string{"singleton", "active-active"}))
 	rec := postInstance(t, h, `{"blueprint":"bp-solo","org":"acme","environment":"acme-prod","name":"s-1","topology":"active-active",`+
 		`"placement":{"regions":["rgn-a","rgn-b"]}}`)
@@ -205,7 +205,7 @@ func TestRefsEndpoints_ListObjectsVerbatim(t *testing.T) {
 	setRefTestRegistry(t)
 	platform := refTestOrganization("hw307-omani-works")
 	platform.SetLabels(map[string]string{"openova.io/scope": "platform"})
-	h, _, _ := newTestHandlerWithEndpoint(t, platform, refTestEnvironment("beta-prod", "beta", "prod"))
+	h, _ := newTestHandlerWithEndpoint(t, platform, refTestEnvironment("beta-prod", "beta", "prod"))
 	r := chi.NewMux()
 	r.Get("/api/v1/refs/organizations", h.HandleListRefOrganizations)
 	r.Get("/api/v1/refs/organizations/{org}/environments", h.HandleListRefEnvironments)
@@ -286,7 +286,7 @@ func TestInstallFunnelApplications_CreatesApplicationCRs_ThroughSharedCreate(t *
 	for _, bp := range []string{"bp-newapi", "bp-wordpress-tenant", "bp-openclaw", "bp-stalwart-tenant", "bp-agenity"} {
 		seed = append(seed, refTestBlueprint(bp))
 	}
-	h, _, dyn := newTestHandlerWithEndpoint(t, seed...)
+	h, dyn := newTestHandlerWithEndpoint(t, seed...)
 	h.orgTenantDeps.GitOps = DefaultOrganizationGitOpsWriter{}
 	rec := store.OrganizationProvisionRecord{
 		OrganizationID: "t-acme", Subdomain: "acme", ParentDomain: "omani.homes",

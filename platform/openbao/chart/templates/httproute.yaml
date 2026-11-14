@@ -94,6 +94,48 @@ Port is explicit 443 (the #3310 listener-port-leak class).
             statusCode: 302
 {{- end }}
 {{- end }}
+{{- /*
+SEC-010: the OpenBao system paths are not served on the public route.
+These prefixes lead to root-token generation, unseal, seal, init, rekey,
+step-down, raw storage, key rotation, profiling, audit devices, server
+configuration and replication. Each request to one of them is answered by
+the gateway with a 302 to /ui/ on this host and reaches no backend. The
+rules sit outside the bare-URL sign-in block, so they hold with it on and
+off; they use the literal path "/ui/" because $landingPath exists only
+inside that block. A PathPrefix matches whole path segments: /v1/sys/seal
+does not match /v1/sys/seal-status, which the last rule still serves.
+The catch-all rule of gateway.path stays the last rule.
+*/}}
+    - matches:
+{{- range $prefix := list "/v1/sys/generate-root" "/v1/sys/generate-recovery-token" "/v1/sys/unseal" "/v1/sys/seal" "/v1/sys/init" "/v1/sys/rekey" "/v1/sys/rekey-recovery-key" "/v1/sys/step-down" }}
+        - path:
+            type: PathPrefix
+            value: {{ $prefix | quote }}
+{{- end }}
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            hostname: {{ .Values.gateway.host | quote }}
+            port: 443
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: "/ui/"
+            statusCode: 302
+    - matches:
+{{- range $prefix := list "/v1/sys/raw" "/v1/sys/storage" "/v1/sys/rotate" "/v1/sys/pprof" "/v1/sys/audit" "/v1/sys/config" "/v1/sys/replication" }}
+        - path:
+            type: PathPrefix
+            value: {{ $prefix | quote }}
+{{- end }}
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            hostname: {{ .Values.gateway.host | quote }}
+            port: 443
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: "/ui/"
+            statusCode: 302
     - matches:
         - path:
             type: PathPrefix

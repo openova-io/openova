@@ -1,0 +1,59 @@
+# check-repo-hygiene.yaml - the repository stays clean.
+#
+# scripts/check-repo-hygiene.py holds three rules. This workflow runs each of them on every
+# pull request, on every merge group and on every push to main:
+#   paths     a path listed in docs/ledger/deleted-paths.txt is not in the repository
+#   binaries  no tracked file is a compiled Linux program
+#   sessions  the folder docs/sessions holds no more files and no more bytes than
+#             docs/ledger/sessions-baseline.txt says
+# The self-test runs first. It shows for every rule that the rule can fail, so a green run
+# is never the result of a guard that has stopped looking.
+# There is no path filter, on purpose: a check that a path filter skips never reports.
+# A later work package that adds a hygiene rule adds one step at the end of the job.
+name: check-repo-hygiene
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check-repo-hygiene:
+    name: check-repo-hygiene
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Two commits deep: the guard of the word sandbox compares its baseline with the
+      # first parent of the commit under test.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Self-test of the guard (every rule can fail)
+        run: python3 scripts/check-repo-hygiene.py --self-test
+      - name: Deleted paths stay deleted
+        run: python3 scripts/check-repo-hygiene.py paths
+      - name: No compiled program is tracked
+        run: python3 scripts/check-repo-hygiene.py binaries
+      - name: The session tree does not grow
+        run: python3 scripts/check-repo-hygiene.py sessions
+      - name: No Kyverno engine at 1.20 or later while a legacy policy is in a chart template
+        run: |
+          bash scripts/check-kyverno-legacy-policies.sh --self-test
+          bash scripts/check-kyverno-legacy-policies.sh
+      - name: Kit slot 27a reads the policy values document and passes the hand-over variable
+        run: |
+          python3 -m pip install --quiet pyyaml
+          python3 scripts/check-policy-wiring.py --self-test
+          python3 scripts/check-policy-wiring.py
+      - name: The word sandbox outside docs only becomes rarer
+        run: |
+          python3 scripts/check-sandbox-word.py --self-test
+          python3 scripts/check-sandbox-word.py --base HEAD^1
+      - name: Every job that pushes to main pushes with the release-writer key
+        run: |
+          python3 scripts/check-bot-writers.py --self-test
+          python3 scripts/check-bot-writers.py --base HEAD^1

@@ -1,0 +1,17 @@
+apiVersion: v2
+name: bp-machine-operations
+version: 0.1.0
+description: |
+  Machine operations on the platform's own nodes. This version ships the two
+  custom resource definitions of the inventory, Machine and MachineSource of
+  the group machines.openova.io. The controller templates come in a later
+  version of this chart.
+type: application
+keywords: [catalyst, blueprint, machines, inventory]
+maintainers:
+  - name: OpenOva Catalyst
+    email: catalyst@openova.io
+
+annotations:
+  catalyst.openova.io/no-upstream: "true"
+  catalyst.openova.io/smoke-render-mode: default-off

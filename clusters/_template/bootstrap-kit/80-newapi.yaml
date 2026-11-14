@@ -28,7 +28,7 @@ metadata:
   labels:
     catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
 ---
-apiVersion: source.toolkit.fluxcd.io/v1beta2
+apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:
   name: bp-newapi
@@ -322,7 +322,7 @@ spec:
       #   landing on the other region met a database that had never seen the
       #   code → a VALID Keycloak code answered 403 x3 and the app rendered
       #   signed-out. See `crossRegion` in spec.values below.
-      version: 1.4.157
+      version: 1.4.158
       sourceRef:
         kind: HelmRepository
         name: bp-newapi

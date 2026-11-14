@@ -1,0 +1,14 @@
+{
+  "allow": [],
+  "counts": {
+    "G-P1": {},
+    "G-P2": {},
+    "G-P3": {
+      "platform/bge/chart/templates/deployment.yaml": 2,
+      "platform/librechat/chart/templates/deployment.yaml": 9,
+      "platform/librechat/chart/templates/sso-externalsecret.yaml": 1,
+      "platform/vllm/chart/templates/deployment.yaml": 1
+    }
+  },
+  "schema": "openova.io/guard-baseline/v1"
+}

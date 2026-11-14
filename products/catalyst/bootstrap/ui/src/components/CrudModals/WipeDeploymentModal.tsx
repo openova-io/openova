@@ -1,15 +1,8 @@
 /**
  * WipeDeploymentModal — deployment-level destructive op (issue #318).
  *
- * Distinct from DeleteCascadeConfirm in scope:
- *
- * • DeleteCascadeConfirm — DAY-2 path. Operator deletes a single
- *   resource (region / cluster / vCluster / pool / lb / peering / etc).
- *   The path runs through Crossplane: a DELETE request flips the
- *   underlying XRC's deletionPolicy to Delete, the Composition cascades
- *   to the matching managed resources, the cloud provider eventually
- *   reaps. Per docs/INVIOLABLE-PRINCIPLES.md #3 (Crossplane is the
- *   ONLY day-2 IaC).
+ * The console deletes no single infrastructure resource (region,
+ * cluster, vCluster, pool, load balancer): it only reads them.
  *
  * • WipeDeploymentModal (this file) — PHASE-0 RECOVERY path. The
  *   deployment failed before handover (catalyst-api restarted mid-apply,
@@ -20,10 +13,10 @@
  *   subdomains, deletes kubeconfig + on-disk record). This is the
  *   sanctioned Phase-0 fallback per feedback_idempotent_iac_purge.md.
  *
- * Both modals share the ModalShell + same testid prefix conventions; the
- * surface that opens this one is the wizard's failed-state banner
- * (AppsPage FailureCard) and the Cloud → Architecture canvas's `cloud`
- * node detail panel.
+ * It shares the ModalShell and its testid prefix with
+ * DeleteDeploymentModal. The surfaces that open it are the wizard's
+ * failed-state banner (AppsPage FailureCard) and the Cloud →
+ * Architecture canvas's `cloud` node detail panel.
  */
 
 import { useState } from 'react'

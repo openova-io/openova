@@ -336,7 +336,7 @@ spec:
             # field so dashboards can correlate api-version <-> chart-
             # version on a single probe.
             - name: CATALYST_BUILD_SHA
-              value: "03bcc36"
+              value: "1c2de6d"
             - name: CATALYST_CHART_VERSION
               value: "1.4.95"
             # #2940 (2026-06-03): was hardcoded "https://console.openova.io".
@@ -623,6 +623,14 @@ spec:
             # cilium.clustermeshProxy.hostPort + infra clustermesh_proxy_port).
             - name: CLUSTERMESH_APISERVER_DIAL_PORT
               value: '{{ .Values.catalystApi.clusterMeshDialPort | default "2379" }}'
+            # CLOUD_PROVIDER / CLOUD_INSTALLATION — the provider pack and the
+            # installation document of the Sovereign this API runs on
+            # (contract C2), read by cloudprofile.ForSovereign. From
+            # global.cloud (see values.yaml); empty when unset.
+            - name: CLOUD_PROVIDER
+              value: {{ .Values.global.cloud.provider | default "" | quote }}
+            - name: CLOUD_INSTALLATION
+              value: {{ .Values.global.cloud.installation | default "" | quote }}
             # CATALYST_K8SCACHE_KUBECONFIGS_DIR — issue #321. Directory
             # the k8scache.Factory reads kubeconfigs from at startup.
             # The data-plane SharedInformerFactory opens one informer

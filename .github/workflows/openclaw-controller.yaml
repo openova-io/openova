@@ -52,6 +52,8 @@ permissions:
   contents: write
   packages: write
   actions: write
+  # The step that signs the image needs a GitHub OIDC token (FND-062).
+  id-token: write
 
 jobs:
   build-and-publish:
@@ -143,6 +145,7 @@ jobs:
           echo "Smoke OK: container starts, /healthz + /metrics + landing serve, user traffic gated."
 
       - name: Push image (SHA-pinned + latest)
+        id: push
         uses: docker/build-push-action@v6
         with:
           context: ${{ env.CTX }}
@@ -157,6 +160,14 @@ jobs:
           platforms: linux/amd64
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Sign the image and attest its bill of materials through the shared
+      # action, before its tag is pinned (FND-062).
+      - name: Sign and attest the image
+        uses: ./.github/actions/sign-and-attest
+        with:
+          ref: ${{ env.IMAGE }}
+          digest: ${{ steps.push.outputs.digest }}
 
       - name: Install yq
         run: |

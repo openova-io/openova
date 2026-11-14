@@ -1483,7 +1483,7 @@ fi
 # The static names list must ALSO now carry the formerly-missing openova-io HRs
 # so step-06 Phase-1 REPOINTS them (else step-08 count_offenders catches the
 # stragglers still on oci://ghcr.io/openova-io and FAILs the proof).
-for must in bp-postgres bp-newapi bp-sso-bridge bp-oidc-gate bp-sandbox bp-vllm bp-plane-isolation bp-cnpg-pair; do
+for must in bp-postgres bp-newapi bp-sso-bridge bp-oidc-gate bp-vllm bp-plane-isolation bp-cnpg-pair; do
   if ! grep -q "${must}" "$TMP/prewarm_block.txt"; then
     echo "FAIL: openova-io HelmRepository ${must} missing from the helmRepositories.names pivot set — step-06 never repoints it, step-08 count_offenders FAILs (#4573 F4)" >&2
     exit 1

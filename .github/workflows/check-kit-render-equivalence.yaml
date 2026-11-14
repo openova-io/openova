@@ -1,0 +1,54 @@
+name: check-kit-render-equivalence
+
+# The kit (clusters/_template) is rendered by Flux with the values of the ConfigMap
+# flux-system/sovereign-variables. scripts/check-kit-render-equivalence.sh renders every root
+# that the boot template hands to a Flux Kustomization, with the values of
+# tests/fixtures/variables/today.env, and compares two trees. A change that only moves fixed
+# values into substitutions proves with that script, run against its merge base, that every
+# rendered object stays the same.
+#
+# This workflow keeps the script honest on every change to the kit, the values or the script:
+# the self-test shows that each of its rules can fail, and every root of the kit must render
+# with both value sets. It does not compare with the merge base, because a change to the kit
+# that is meant to change what Flux applies (a chart version, a new slot) renders differently
+# by design. It contacts no cluster.
+
+on:
+  pull_request:
+    paths:
+      - 'clusters/_template/**'
+      - 'infra/providers/_shared/cloudinit-control-plane.tftpl'
+      - 'docs/contracts/c5-kit-keys.txt'
+      - 'tests/fixtures/variables/today.env'
+      - 'scripts/check-kit-render-equivalence.sh'
+      - '.github/workflows/check-kit-render-equivalence.yaml'
+  push:
+    branches: [main]
+    paths:
+      - 'clusters/_template/**'
+      - 'infra/providers/_shared/cloudinit-control-plane.tftpl'
+      - 'docs/contracts/c5-kit-keys.txt'
+      - 'tests/fixtures/variables/today.env'
+      - 'scripts/check-kit-render-equivalence.sh'
+      - '.github/workflows/check-kit-render-equivalence.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  kit-render:
+    name: kit render equivalence
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PyYAML
+        run: pip install --quiet pyyaml
+      - name: Self-test
+        run: bash scripts/check-kit-render-equivalence.sh --self-test
+      - name: Every root of the kit renders with both value sets
+        run: bash scripts/check-kit-render-equivalence.sh --print

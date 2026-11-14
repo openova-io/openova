@@ -38,7 +38,6 @@ func fakeReconcilerDynamicFactory(seed ...runtime.Object) (func(string) (dynamic
 		helmwatch.KustomizationGVR: "KustomizationList",
 		helmwatch.CronJobGVR:       "CronJobList",
 		helmwatch.JobGVR:           "JobList",
-		helmwatch.JobEventGVR:      "EventList",
 		helmwatch.DeploymentGVR:    "DeploymentList",
 	}
 	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds, seed...)

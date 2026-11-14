@@ -6,7 +6,7 @@
 # Apply order: Flux dependsOn (slot 45 has no chart-internal deps, but
 # the bootstrap-kit slot file's `dependsOn: bp-flux` keeps Flux's
 # source-controller up before this lands).
-apiVersion: source.toolkit.fluxcd.io/v1beta2
+apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:
   name: {{ .Values.vclusterHelmRepo.name | quote }}

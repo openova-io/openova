@@ -18,7 +18,7 @@ name: bp-network-policies
 # slot 26b bp-plane-isolation; this coarse cluster-wide set stays the
 # safety net for control-plane reachability.
 # 1.0.2 (initial — operator-opt-in).
-version: 1.0.5
+version: 1.0.6
 description: |
   Catalyst zero-trust default-deny CiliumClusterwideNetworkPolicy +
   allow-templates for control-plane namespaces, intra-namespace traffic,

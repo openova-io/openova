@@ -45,17 +45,24 @@ it needs. On a single-region prov this is inert (no peer region → no global
 service resolves remote).
 
 Gated on the cilium.io/v2 Capabilities check (the #2988/#3102 idiom) so the
-chart still installs on CRD-less clusters (kind CI), and on the SAME
-namespace-present defer guard as apiserver-egress-cnp.yaml / the default-deny
-(#4442/#4445/#4456 deadlock-guard parity).
+chart still installs on CRD-less clusters (kind CI). Rendered for every listed
+component, whether or not its namespace exists when the chart renders, like the
+default-deny NetworkPolicy (NET-135).
+
+CROSS-REGION PEER PORTS (NET-135). A component that sets
+`crossRegionPeerPorts` talks to its OWN namespace in the peer region on those
+ports, in both directions: the seaweedfs filer.sync Pods of each region pull
+from the peer region's filer on 8888 (HTTP) and 18888 (gRPC). The default-deny
+NetworkPolicy admits neither direction: its ingress selectors are local-cluster
+only and its egress rules match local Pods and `world`, not a remote-cluster
+identity. The same identity form as the 5432 rule below admits them, with the
+namespace key set to the component's own namespace. Only the listed ports are
+opened, and only to and from the same namespace. The object keeps its name so
+that no live policy is replaced.
 */ -}}
 {{- if and .Values.enabled (.Capabilities.APIVersions.Has "cilium.io/v2") -}}
 {{- range .Values.components }}
 {{- $ns := .namespace }}
-{{- $guardNamespace := not (eq (toString .ensureNamespacePresent) "false") }}
-{{- if and $guardNamespace (not $.Values.renderUnconditional) (not (lookup "v1" "Namespace" "" $ns)) }}
-{{- /* namespace not present yet — defer this component's CNP to a later reconcile */ -}}
-{{- else }}
 ---
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
@@ -102,6 +109,38 @@ spec:
         - ports:
             - port: "5432"
               protocol: TCP
-{{- end }}{{/* end namespace-present guard */}}
+    {{- with .crossRegionPeerPorts }}
+    - toEndpoints:
+        - matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: Exists
+            - key: k8s:io.kubernetes.pod.namespace
+              operator: In
+              values:
+                - {{ $ns | quote }}
+      toPorts:
+        - ports:
+            {{- range . }}
+            - port: {{ . | quote }}
+              protocol: TCP
+            {{- end }}
+    {{- end }}
+  {{- with .crossRegionPeerPorts }}
+  ingress:
+    - fromEndpoints:
+        - matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: Exists
+            - key: k8s:io.kubernetes.pod.namespace
+              operator: In
+              values:
+                - {{ $ns | quote }}
+      toPorts:
+        - ports:
+            {{- range . }}
+            - port: {{ . | quote }}
+              protocol: TCP
+            {{- end }}
+  {{- end }}
 {{- end }}
 {{- end -}}

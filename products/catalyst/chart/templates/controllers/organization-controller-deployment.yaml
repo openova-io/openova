@@ -179,6 +179,12 @@ spec:
             # harbor.<sovereign-fqdn> post-handover.
             - name: CATALYST_VCLUSTER_IMAGE_REGISTRY
               value: {{ .Values.controllers.organization.vclusterImageRegistry | default "harbor.openova.io" | quote }}
+            # The exact vcluster chart version of every per-Org vCluster
+            # HelmRelease the controller renders. It equals the cutover
+            # chart's helmRepositories.vclusterLoftPivot.chartVersion, the
+            # version the cutover mirrors into the Sovereign-local Harbor.
+            - name: CATALYST_VCLUSTER_CHART_VERSION
+              value: {{ .Values.controllers.organization.vclusterChartVersion | quote }}
             # ── #4236 (the #4179 final layer) — per-Org pool-DNS A-record write ──
             # The org-controller writes `console.<slug>.<parentDomain>` + the
             # per-Org wildcard to the CENTRAL PowerDNS so a fresh MARKETPLACE-funnel
