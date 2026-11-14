@@ -261,6 +261,7 @@ jobs:
         with:
           paths: products/continuum/chart/values.yaml
           commit-message: "deploy: bump continuum-controller image to ${{ steps.vars.outputs.sha_short }}"
+          release-writer-key: ${{ secrets.RELEASE_WRITER_KEY }}
 
       # GitHub Actions does NOT trigger workflows from bot pushes by
       # default (anti-recursion safeguard). Without this dispatch the

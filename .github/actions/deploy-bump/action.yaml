@@ -79,6 +79,13 @@ inputs:
       `github-actions[bot]@users.noreply.github.com`.
     required: false
     default: "github-actions[bot]@users.noreply.github.com"
+  release-writer-key:
+    description: |
+      The private half of the release-writer deploy key,
+      secrets.RELEASE_WRITER_KEY. The push to main uses it, and the
+      commit's first line ends with [skip ci], so that the push starts
+      no workflow. Required.
+    required: true
 
 outputs:
   pushed:
@@ -95,6 +102,12 @@ outputs:
 runs:
   using: composite
   steps:
+    # FND-024: a step of its own. test-basic.sh, test-clobber.sh and
+    # test-race.sh run only the body of the step `run`, without a key.
+    - name: Push with the release-writer key
+      uses: ./.github/actions/use-release-writer
+      with:
+        key: ${{ inputs.release-writer-key }}
     - id: run
       shell: bash
       env:
@@ -182,7 +195,9 @@ runs:
           exit 0
         fi
 
-        git commit -m "${DEPLOY_BUMP_MESSAGE}"
+        # FND-024: [skip ci] ends the first line, so this push starts no workflow.
+        subject="${DEPLOY_BUMP_MESSAGE%%$'\n'*}"
+        git commit -m "${subject} [skip ci]${DEPLOY_BUMP_MESSAGE#"$subject"}"
         COMMIT_SHA="$(git rev-parse HEAD)"
         echo "deploy-bump: committed ${COMMIT_SHA}"
 

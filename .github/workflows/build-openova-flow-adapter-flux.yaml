@@ -140,7 +140,8 @@ jobs:
         uses: ./.github/actions/deploy-bump
         with:
           paths: platform/openova-flow-emitter/chart/values.yaml
-          commit-message: "chore(deploy): bump openova-flow-adapter-flux image to ${{ steps.vars.outputs.sha_short }} [skip ci]"
+          commit-message: "chore(deploy): bump openova-flow-adapter-flux image to ${{ steps.vars.outputs.sha_short }}"
+          release-writer-key: ${{ secrets.RELEASE_WRITER_KEY }}
 
       - name: Dispatch blueprint-release for chart re-publish
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && steps.deploy_commit.outputs.pushed == 'true'
