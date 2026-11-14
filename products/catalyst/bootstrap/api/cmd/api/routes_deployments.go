@@ -50,7 +50,11 @@ func registerSessionDeployments(rg chi.Router, d routeDeps) {
 	// function — they are called from the wizard BEFORE the operator
 	// authenticates and gating them on a session cookie produces a
 	// 401 every time, blocking the only flow that matters.
-	rg.Post("/api/v1/deployments", h.CreateDeployment)
+	// The provisioning routes are wrapped by d.self.MothershipOnly: in
+	// mode sovereign they answer 403 not-in-mothership-mode. A Sovereign
+	// that is not a mothership provisions nothing. The read views below
+	// (jobs, component state, reconcilers) stay open on every Sovereign.
+	rg.With(d.self.MothershipOnly).Post("/api/v1/deployments", h.CreateDeployment)
 	// List endpoint (issue #747) — wizard auto-redirect to /provision/<id>
 	// when the signed-in operator already has an in-flight deployment.
 	// Filtered server-side by the X-User-Email header injected by
@@ -64,7 +68,7 @@ func registerSessionDeployments(rg chi.Router, d routeDeps) {
 	// POSTs /wipe instead (which already chains record-delete on
 	// success). Refuses adopted (422) + in-flight (409) deployments
 	// to keep the customer breadcrumb + Commit safety intact.
-	rg.Delete("/api/v1/deployments/{id}", h.DeleteDeployment)
+	rg.With(d.self.MothershipOnly).Delete("/api/v1/deployments/{id}", h.DeleteDeployment)
 	rg.Get("/api/v1/deployments/{id}/logs", h.StreamLogs)
 	// Buffered event history endpoint (issue #180). Returns the full event
 	// slice + state JSON so the wizard's ProvisionPage can render history
@@ -77,7 +81,7 @@ func registerSessionDeployments(rg chi.Router, d routeDeps) {
 	// internal/helmwatch HelmRelease watcher reads from when the
 	// catalyst-api Pod cold-starts mid-Phase-1 and has to reattach
 	// to a deployment whose kubeconfig is on the PVC.
-	rg.Get("/api/v1/deployments/{id}/kubeconfig", h.GetKubeconfig)
+	rg.With(d.self.MothershipOnly).Get("/api/v1/deployments/{id}/kubeconfig", h.GetKubeconfig)
 	// #3132 — GET the last-uploaded cloud-init log for post-mortem
 	// diagnosis of a Phase-1 failure (ownership-checked, like the
 	// kubeconfig GET). The PUT side is on the bearer router above.
@@ -86,13 +90,13 @@ func registerSessionDeployments(rg chi.Router, d routeDeps) {
 	// Phase 0 retries re-run `tofu apply` against the existing workdir;
 	// Phase 1 retries emit operator instructions per the architectural
 	// contract (Flux owns Phase 1 reconciliation).
-	rg.Post("/api/v1/deployments/{id}/phases/{phase}/retry", h.RetryPhase)
+	rg.With(d.self.MothershipOnly).Post("/api/v1/deployments/{id}/phases/{phase}/retry", h.RetryPhase)
 	// Cancel & Wipe endpoint (issue #318). Operator-triggered purge of a
 	// failed or abandoned deployment: tofu destroy + Hetzner orphan purge
 	// + PDM release + local state cleanup. Idempotent. Returns 200 with a
 	// PurgeReport summary. The wizard's failed-state banner renders the
 	// operator confirmation modal that POSTs here.
-	rg.Post("/api/v1/deployments/{id}/wipe", h.WipeDeployment)
+	rg.With(d.self.MothershipOnly).Post("/api/v1/deployments/{id}/wipe", h.WipeDeployment)
 	// DNS re-publish endpoint (Refs #3265 #3263) — idempotent re-trigger
 	// that writes the CURRENT CanonicalSovereignSubdomains list into the
 	// parent PowerDNS zone for an EXISTING deployment.  Used when the
@@ -102,7 +106,7 @@ func registerSessionDeployments(rg chi.Router, d routeDeps) {
 	// Inputs (FQDN, LB IP, parent zones) are reconstructed entirely from
 	// the persisted Deployment record — no external API calls.  The
 	// PowerDNS PATCH is REPLACE-idempotent; re-running is always safe.
-	rg.Post("/api/v1/deployments/{id}/republish-dns", h.HandleRepublishDNS)
+	rg.With(d.self.MothershipOnly).Post("/api/v1/deployments/{id}/republish-dns", h.HandleRepublishDNS)
 	// Handover JWT — issue #605 (minting) + issue #606 (consumption).
 	// MintHandoverToken: Catalyst-Zero operator finalises a deployment;
 	// wizard StepSuccess POSTs here to get a one-time RS256 JWT, then
@@ -112,7 +116,7 @@ func registerSessionDeployments(rg chi.Router, d routeDeps) {
 	// AuthHandover: Sovereign-side receiver — validates the JWT, creates
 	// the operator in Keycloak, exchanges for a session, sets cookies,
 	// and redirects to /console/dashboard.
-	rg.Post("/api/v1/deployments/{id}/mint-handover-token", h.MintHandoverToken)
+	rg.With(d.self.MothershipOnly).Post("/api/v1/deployments/{id}/mint-handover-token", h.MintHandoverToken)
 	// Subdomain-only release endpoint (issue #489). Releases the PDM
 	// allocation row for a failed-or-abandoned deployment WITHOUT
 	// requiring the operator to re-enter their HetznerToken. Lets a
@@ -121,7 +125,7 @@ func registerSessionDeployments(rg chi.Router, d routeDeps) {
 	// NOT touch Hetzner — the Cancel & Wipe flow remains the canonical
 	// path for live cloud cleanup. Refuses on in-flight deployments
 	// (409), wiped deployments (410), or adopted Sovereigns (422).
-	rg.Delete("/api/v1/deployments/{id}/release-subdomain", h.ReleaseSubdomain)
+	rg.With(d.self.MothershipOnly).Delete("/api/v1/deployments/{id}/release-subdomain", h.ReleaseSubdomain)
 	// Jobs/Executions REST surface — the canvas + per-job detail
 	// pages read this in parallel to the existing SSE events feed.
 	// All endpoints are read-only; every mutation flows through the

@@ -1,8 +1,8 @@
 ANY /metrics InstrumentHandlerCounter.(closure) 1
 DELETE /api/v1/auth/session handler.(*Handler).HandleAuthLogout-fm 1
 DELETE /api/v1/deployments/{depId}/admin/user-access/{name} handler.(*Handler).DeleteUserAccess-fm 2
-DELETE /api/v1/deployments/{id} handler.(*Handler).DeleteDeployment-fm 2
-DELETE /api/v1/deployments/{id}/release-subdomain handler.(*Handler).ReleaseSubdomain-fm 2
+DELETE /api/v1/deployments/{id} handler.(*Handler).DeleteDeployment-fm 3
+DELETE /api/v1/deployments/{id}/release-subdomain handler.(*Handler).ReleaseSubdomain-fm 3
 DELETE /api/v1/org/billing/vouchers/revoke/{code} handler.(*Handler).HandleRevokeOrgBillingVoucher-fm 2
 DELETE /api/v1/org/commerce/{kind}/{id} handler.(*Handler).HandleOrgCommerceDelete-fm 2
 DELETE /api/v1/org/users/{uuid} handler.(*Handler).HandleDeleteOrgUser-fm 2
@@ -37,7 +37,7 @@ GET /api/v1/deployments/{depId}/reconciliation handler.(*Handler).GetReconciliat
 GET /api/v1/deployments/{id} handler.(*Handler).GetDeployment-fm 2
 GET /api/v1/deployments/{id}/cloudinit-log handler.(*Handler).GetCloudInitLog-fm 2
 GET /api/v1/deployments/{id}/events handler.(*Handler).GetDeploymentEvents-fm 2
-GET /api/v1/deployments/{id}/kubeconfig handler.(*Handler).GetKubeconfig-fm 2
+GET /api/v1/deployments/{id}/kubeconfig handler.(*Handler).GetKubeconfig-fm 3
 GET /api/v1/deployments/{id}/logs handler.(*Handler).StreamLogs-fm 2
 GET /api/v1/fleet/applications handler.(*Handler).HandleFleetApplications-fm 2
 GET /api/v1/fleet/continuum handler.(*Handler).HandleFleetContinuum-fm 2
@@ -155,15 +155,15 @@ POST /api/v1/auth/test-session handler.(*Handler).HandleAuthTestSession-fm 1
 POST /api/v1/billing/purchase handler.(*Handler).HandleOrgBillingPurchase-fm 2
 POST /api/v1/credentials/object-storage/validate handler.(*Handler).ValidateObjectStorageCredentials-fm 1
 POST /api/v1/credentials/validate handler.(*Handler).ValidateCredentials-fm 1
-POST /api/v1/deployments handler.(*Handler).CreateDeployment-fm 2
+POST /api/v1/deployments handler.(*Handler).CreateDeployment-fm 3
 POST /api/v1/deployments/{depId}/admin/user-access handler.(*Handler).CreateUserAccess-fm 2
 POST /api/v1/deployments/{depId}/jobs/{jobId}/retry handler.(*Handler).RetryJob-fm 2
 POST /api/v1/deployments/{depId}/reconcilers/{kind}/{ns}/{name}/{action} handler.(*Handler).ReconcilerAction-fm 2
 POST /api/v1/deployments/{depId}/refresh-watch handler.(*Handler).RefreshWatch-fm 2
-POST /api/v1/deployments/{id}/mint-handover-token handler.(*Handler).MintHandoverToken-fm 2
-POST /api/v1/deployments/{id}/phases/{phase}/retry handler.(*Handler).RetryPhase-fm 2
-POST /api/v1/deployments/{id}/republish-dns handler.(*Handler).HandleRepublishDNS-fm 2
-POST /api/v1/deployments/{id}/wipe handler.(*Handler).WipeDeployment-fm 2
+POST /api/v1/deployments/{id}/mint-handover-token handler.(*Handler).MintHandoverToken-fm 3
+POST /api/v1/deployments/{id}/phases/{phase}/retry handler.(*Handler).RetryPhase-fm 3
+POST /api/v1/deployments/{id}/republish-dns handler.(*Handler).HandleRepublishDNS-fm 3
+POST /api/v1/deployments/{id}/wipe handler.(*Handler).WipeDeployment-fm 3
 POST /api/v1/handover/finalise/{id} handler.(*Handler).FinaliseHandover-fm 2
 POST /api/v1/handover/tofu-archive handler.(*Handler).ReceiveTofuArchive-fm 1
 POST /api/v1/internal/cutover/trigger handler.(*Handler).HandleCutoverInternalTrigger-fm 1
@@ -184,7 +184,7 @@ POST /api/v1/organizations handler.(*Handler).HandleCreateOrganization-fm 2
 POST /api/v1/organizations/{id}/reconcile handler.(*Handler).HandleReconcileOrganization-fm 2
 POST /api/v1/organizations/{id}/resume handler.(*Handler).HandleResumeOrganization-fm 2
 POST /api/v1/organizations/{id}/suspend handler.(*Handler).HandleSuspendOrganization-fm 2
-POST /api/v1/registrar/{registrar}/set-ns handler.(*Handler).SetNSRegistrar-fm 2
+POST /api/v1/registrar/{registrar}/set-ns handler.(*Handler).SetNSRegistrar-fm 3
 POST /api/v1/registrar/{registrar}/validate handler.(*Handler).ValidateRegistrar-fm 1
 POST /api/v1/sovereign/cutover/start handler.(*Handler).HandleCutoverStart-fm 2
 POST /api/v1/sovereign/parent-domains handler.(*Handler).AddParentDomain-fm 2
@@ -229,3 +229,4 @@ PUT /api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/scale handler.(*Handler).Hand
 PUT /api/v1/sovereigns/{id}/keycloak/groups/{groupId} handler.(*Handler).HandleKeycloakGroupsUpdate-fm 2
 chain 1: middleware.RequestID middleware.RealIP RequestLogger.(closure) middleware.Recoverer cors.(*Cors).Handler-fm
 chain 2: middleware.RequestID middleware.RealIP RequestLogger.(closure) middleware.Recoverer cors.(*Cors).Handler-fm RequireSessionOrJob.(closure) handler.(*Handler).OrgScopeGuard-fm
+chain 3: middleware.RequestID middleware.RealIP RequestLogger.(closure) middleware.Recoverer cors.(*Cors).Handler-fm RequireSessionOrJob.(closure) handler.(*Handler).OrgScopeGuard-fm sovself.(*Route).MothershipOnly-fm
