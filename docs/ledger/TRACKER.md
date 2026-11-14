@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T07:45:03Z` |
+| Last refreshed | `2026-11-14T08:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -317,6 +317,7 @@ flowchart LR
 | 2026-11-14T07:17 | [#7524](https://github.com/openova-io/openova/pull/7524) | #7515 | chore(ci): guard that the agent plane gains no provider host |
 | 2026-11-14T07:18 | [#7523](https://github.com/openova-io/openova/pull/7523) | #7506 | refactor(kyverno-policies): end the bootstrap window when th |
 | 2026-11-14T07:04 | [#7521](https://github.com/openova-io/openova/pull/7521) | #7087 | docs(ledger): plan update |
+| 2026-11-14T07:56 | [#7520](https://github.com/openova-io/openova/pull/7520) | #7517 | ci: the privacy guard fails closed, really searches and runs |
 | 2026-11-14T07:10 | [#7519](https://github.com/openova-io/openova/pull/7519) | #7513 | feat(sovereign): seed-repo commits the root objects of a reg |
 | 2026-11-14T07:19 | [#7518](https://github.com/openova-io/openova/pull/7518) | #7512 | fix(organization-controller): pin the per-Org vcluster chart |
 | 2026-11-14T06:54 | [#7514](https://github.com/openova-io/openova/pull/7514) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-13T18:11 | [#7486](https://github.com/openova-io/openova/pull/7486) | #7087 | docs(ledger): plan update |
 | 2026-11-13T18:04 | [#7485](https://github.com/openova-io/openova/pull/7485) | #7484 | fix(cloud-init): pack seven boot files so a Hetzner render w |
 | 2026-11-13T17:33 | [#7483](https://github.com/openova-io/openova/pull/7483) | #7087 | docs(ledger): plan update |
-| 2026-11-13T17:43 | [#7482](https://github.com/openova-io/openova/pull/7482) | #7479 | chore: remove the withdrawn Sandbox sources and count the re |
 
 ---
 
