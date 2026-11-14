@@ -138,6 +138,13 @@ unseeded:
       No kit slot and no seed entry — not installable from either door today.
       Enumerated here, not silenced; needs an owner call on seed-or-retire.
 
+  - chart: bp-machine-operations
+    source: platform/machine-operations
+    reason: >-
+      No kit slot and no seed entry yet. Its kinds (group machines.openova.io)
+      belong to the Sovereign's machine plane, so a bootstrap-kit slot will
+      install it, never the catalog. Until that slot exists nothing installs it.
+
   - chart: bp-netbird
     source: platform/netbird
     reason: >-

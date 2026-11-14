@@ -1,0 +1,22 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-machine-operations
+spec:
+  version: 0.1.0
+  card:
+    title: Machine operations
+    summary: The inventory of the machines a Sovereign runs on, as the kinds Machine and MachineSource.
+    documentation: ./README.md
+  visibility: unlisted
+  owner:
+    team: platform
+    contact: platform@openova.io
+  manifests:
+    chart: ./chart
+  topology:
+    supported:
+      - singleton
+    defaults:
+      multi-region: singleton
+      single-region: singleton
