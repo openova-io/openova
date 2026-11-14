@@ -1,0 +1,13 @@
+schema: openova.io/plan-wrong/v1
+id: FND-059
+ticket_rev: 1
+base_commit: 814264a1efc669adca9dc78bb1588cb52416f815
+stage: preflight
+ref: P3
+command: |
+    python3 -c "import glob, yaml; n = lambda on: {on: None} if isinstance(on, str) else ({k: None for k in on} if isinstance(on, list) else (on or {})); print(' '.join(sorted(f[18:] for f in glob.glob('.github/workflows/*.y*ml') if 'pull_request' in n(yaml.safe_load(open(f)).get(True)) and not set(n(yaml.safe_load(open(f)).get(True))['pull_request'] or {}) & {'paths', 'paths-ignore'})))"
+expected: |
+    access-guards.yaml agent-plane-guards.yaml banned-words-validate.yaml bss-ratchets.yaml check-api-structure.yaml check-contracts-ctl.yaml check-generated-docs.yaml check-lifecycle-ratchets.yaml check-lock-stages.yaml check-machine-plane.yaml check-network-guards.yaml check-no-conflict-markers.yaml check-no-direct-cluster-write.yaml check-no-new-polling.yaml check-no-vendor-disk-library.yaml check-pins.yaml check-products.yaml check-provider-contract.yaml check-provider-leaks.yaml check-release-owned-lines.yaml check-repo-hygiene.yaml check-service-model.yaml check-upstream-literals.yaml check-variables-documents.yaml ci-gate.yaml console-lint.yaml gate-manifest.yaml go-lint.yaml naming-guard.yaml plan-validate.yaml pr-body-validate.yaml redact-guard.yml rt11-cutover-hold.yaml secret-guards.yaml security-scan.yaml work-package.yaml
+actual: |
+    access-guards.yaml agent-plane-guards.yaml banned-words-validate.yaml bss-ratchets.yaml check-api-structure.yaml check-contracts-ctl.yaml check-generated-docs.yaml check-lifecycle-ratchets.yaml check-lock-stages.yaml check-machine-plane.yaml check-network-guards.yaml check-no-conflict-markers.yaml check-no-direct-cluster-write.yaml check-no-new-polling.yaml check-no-vendor-disk-library.yaml check-pins.yaml check-products.yaml check-provider-contract.yaml check-provider-leaks.yaml check-release-owned-lines.yaml check-repo-hygiene.yaml check-reserved-slugs.yaml check-service-model.yaml check-upstream-literals.yaml check-variables-documents.yaml ci-gate.yaml console-lint.yaml gate-manifest.yaml go-lint.yaml naming-guard.yaml plan-validate.yaml pr-body-validate.yaml redact-guard.yml rt11-cutover-hold.yaml secret-guards.yaml security-scan.yaml work-package.yaml
+reported_at: 2026-11-14T15:46:53Z
