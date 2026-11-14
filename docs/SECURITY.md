@@ -81,8 +81,9 @@ graph TB
 │    node↔node / node↔pod (host-namespace) traffic — on every node      │
 │    EXCEPT one that matches the opt-out selector. Read §2.1 before     │
 │    citing this as fleet-wide host-traffic encryption.                 │
-│  - L7 policy + identity-aware enforcement via Cilium NetworkPolicy    │
-│    and CiliumNetworkPolicy CRs                                        │
+│  - L3/L7 policy at the eBPF datapath for the policies that exist.     │
+│    Default deny per namespace is target, not built (gate check        │
+│    NET-G06, ADR-0019 and §2.2)                                        │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -219,6 +220,14 @@ Live on hw292 (dep `1c56518035a83e03`, 2026-08-03): 8 agents, 2 regions —
 `NodeEncryption Enabled=6  OptedOut=2`, the two being `…-a-cp1-54be6d` and
 `…-b-cp1-6a755c`, exactly the label-selector match. Refs #5637.
 
+### 2.2 Network separation and the firewall
+
+> State: target. Decision: ADR-0019
+
+Target, not built. A region is one cluster, and its zones are the edge node pool, the platform namespaces and one namespace and vCluster per Organization ([ADR-0019](adr/0019-zones-are-namespaces-and-an-edge-pool.md)). ADR-0019 separates the zones by default-deny policy, the Organization fence, the edge taint and security groups. Today the security groups of the provider module are in place, and `platform/plane-isolation` puts an ingress allow-list on each platform namespace it lists, with egress open. The Organization fence and the edge taint do not exist yet. The cluster-wide default deny of `platform/network-policies` is installed switched off (see also §10). Epic NET-160 builds default deny in both directions, proven by gate check NET-G06; NET-170 builds the Organization fence (NET-G07); epic NET-180 builds the edge node pool; epic NET-250 puts a firewall in the path.
+
+The network claims that may be made are the five of ADR-0019 point 7: encryption in transit between nodes, as §2.1 defines it; identity-based default-deny policy, once gate check NET-G06 is required; no workload mutual TLS; no egress gateway; a firewall in the path only where a `WebApplicationFirewall` is Ready. No `WebApplicationFirewall` exists today, so no firewall is in the path.
+
 ### Why this configuration is sufficient today
 
 | Concern | How it's met today |
@@ -229,7 +238,7 @@ Live on hw292 (dep `1c56518035a83e03`, 2026-08-03): 8 agents, 2 regions —
 | Token rotation | Projected SA bound-tokens auto-rotate hourly (kubelet) |
 | Defense against stolen long-lived tokens | Bound tokens are scoped to a single Pod + audience + 1h TTL; the legacy unbound SA secret-tokens are not used |
 | Cross-Org isolation | vcluster boundary + NATS Account boundary + Keycloak realm boundary; SA tokens don't cross vcluster boundaries |
-| Node-level identity | Cilium gives every node a WireGuard public key; CiliumNetworkPolicy + identity labels enforce L3/L7 policy at the eBPF datapath |
+| Node-level identity | Cilium gives every node a WireGuard public key; CiliumNetworkPolicy + identity labels enforce L3/L7 policy at the eBPF datapath for the policies that exist. Default deny per namespace is target, not built (§2.2) |
 
 ### Re-enable triggers (when to re-introduce SPIRE)
 

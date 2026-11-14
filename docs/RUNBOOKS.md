@@ -783,6 +783,36 @@ For a fresh prov, populate `bp-keycloak`'s `tenantRealms[]` via the per-cluster 
 
 Reference: G117.5 W2.C4 #2744. Memory: `feedback_g117_per_org_realm_2hop_pitfalls.md` (gotchas + edge cases).
 
+### 2.15 Leaked Organization database passwords (2026-05)
+
+On 5 and 6 May 2026 the provisioning service committed five database manifests of four Organizations under `clusters/contabo-mkt/tenants/`. Each manifest held its database password in plain text in a `Secret`. The repository is public, so these passwords are leaked. Work package SEC-073 deleted the five files. Git history still holds them, and the same values still stand as literal `value:` entries in the Application manifests beside them (`app-*.yaml`). Deleting a file does not make a leaked password safe: the password is changed, or the database is removed.
+
+There are four distinct values, one per Organization. In each MariaDB manifest the `root` user and the user `app` had the same value. In `bbb` the MariaDB and the PostgreSQL database had the same value.
+
+| Organization namespace | Deleted file | Database server, database |
+|---|---|---|
+| `tenant-bbb` | `clusters/contabo-mkt/tenants/bbb/apps/db-mysql.yaml` | MariaDB, `db_bookstack` |
+| `tenant-bbb` | `clusters/contabo-mkt/tenants/bbb/apps/db-postgres.yaml` | PostgreSQL, `db_cal-com` and `db_gitea` |
+| `tenant-e2e-wp-test` | `clusters/contabo-mkt/tenants/e2e-wp-test/apps/db-mysql.yaml` | MariaDB, `db_wordpress` |
+| `tenant-test` | `clusters/contabo-mkt/tenants/test/apps/db-mysql.yaml` | MariaDB, `db_bookstack` |
+| `tenant-test12-2` | `clusters/contabo-mkt/tenants/test12-2/apps/db-postgres.yaml` | PostgreSQL, `db_nextcloud` |
+
+**What the deletion does on a cluster.** Each `clusters/contabo-mkt/tenants/<org>/apps-sync.yaml` is a Flux `Kustomization` with `prune: true` that applies the folder `apps` into the Organization's virtual cluster. Where a cluster still reconciles it, the merge of SEC-073 removes the database `Deployment`, its `Service`, its `Secret` and its `PersistentVolumeClaim` from that virtual cluster; where the volume's reclaim policy is `Delete`, the data goes with the claim. The Applications stay and can no longer reach a database. `clusters/contabo-mkt/tenants/kustomization.yaml` lists `bbb`, `e2e-wp-test` and `test12-2`, and not `test`.
+
+**What to do, once per Organization namespace.** First find out whether a cluster still reconciles `clusters/contabo-mkt`. Then do one of the two:
+
+1. The Organization is not in use: delete its namespace `tenant-<org>` on that cluster. The virtual cluster, its databases and their volumes go with it.
+2. The Organization is in use: in each of its databases set a new password for every user named above (PostgreSQL: `ALTER ROLE app WITH PASSWORD '<new>'`; MariaDB: `ALTER USER 'app'@'%' IDENTIFIED BY '<new>'`, and the same for `'root'@'%'` and `'root'@'localhost'`). Then give each Application of that Organization the new value. Never write the new value into a file in Git.
+
+Fill one line of the table below when it is done. Never write a password here.
+
+| Organization namespace | What was done | By (work package or session) | Date |
+|---|---|---|---|
+| `tenant-bbb` | not yet | | |
+| `tenant-e2e-wp-test` | not yet | | |
+| `tenant-test` | not yet | | |
+| `tenant-test12-2` | not yet | | |
+
 ---
 
 ## §3 — Blueprint authoring

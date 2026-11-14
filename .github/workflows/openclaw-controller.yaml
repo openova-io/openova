@@ -267,6 +267,7 @@ jobs:
             ${{ env.BLUEPRINT_YAML }}
             ${{ env.CATALOG_SEED }}
           commit-message: "deploy: bump bp-openclaw controller ${{ steps.tag.outputs.tag }} chart ${{ env.CHART_NEW_VERSION }} + seed pin (Refs #4249)"
+          release-writer-key: ${{ secrets.RELEASE_WRITER_KEY }}
 
       - name: Trigger blueprint-release
         if: steps.deploy_commit.outputs.pushed == 'true'

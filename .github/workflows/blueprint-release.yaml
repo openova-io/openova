@@ -1238,7 +1238,10 @@ jobs:
           # carries the bump_pin / bump_blueprint / sync_seed edits from the
           # steps above, so the initial attempt only needs `git add`.
           if [ "${PIN_BUMPED}" = "true" ] && [ -n "${PIN_FILE}" ]; then
-            git add "${PIN_FILE}"
+            # FND-019: PIN_FILE names every kit slot that pins the chart, separated by spaces.
+            for pf in ${PIN_FILE}; do
+              git add "$pf"
+            done
           fi
           if [ "${BP_BUMPED}" = "true" ] && [ -n "${BP_FILE}" ]; then
             git add "${BP_FILE}"
@@ -1325,10 +1328,12 @@ jobs:
               fi
             fi
             if [ "${PIN_BUMPED}" = "true" ] && [ -n "${PIN_FILE}" ]; then
-              if rewrite_pin "${PIN_FILE}"; then
-                git add "${PIN_FILE}"
-                did_pin=1
-              fi
+              for pf in ${PIN_FILE}; do
+                if rewrite_pin "$pf"; then
+                  git add "$pf"
+                  did_pin=1
+                fi
+              done
             fi
             if [ "${BP_BUMPED}" = "true" ] && [ -n "${BP_FILE}" ]; then
               if rewrite_blueprint "${BP_FILE}"; then

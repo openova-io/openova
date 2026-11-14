@@ -71,6 +71,15 @@ if ! grep -q '^pushed=true$' "${GITHUB_OUTPUT}"; then
   exit 1
 fi
 
+# FND-024: the deploy commit's first line ends with [skip ci], so the push
+# with the release-writer key starts no workflow.
+ACTUAL_SUBJECT="$(git -C "${CHECK}" log -1 --format=%s)"
+if [ "${ACTUAL_SUBJECT}" != "deploy: update to abc1234 [skip ci]" ]; then
+  echo "TEST FAIL: the deploy commit's first line does not end with [skip ci]." >&2
+  echo "  actual = ${ACTUAL_SUBJECT}" >&2
+  exit 1
+fi
+
 # Idempotency check: running deploy-bump a second time with the same
 # intent should report pushed=false (no staged changes after re-checkout).
 WORK_D="${WORK}/wf-d"

@@ -3,7 +3,7 @@ kind: Blueprint
 metadata:
   name: bp-machine-operations
 spec:
-  version: 0.1.0
+  version: 0.1.1
   card:
     title: Machine operations
     summary: The inventory of the machines a Sovereign runs on, as the kinds Machine and MachineSource.

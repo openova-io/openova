@@ -123,3 +123,8 @@ platform/powerdns/chart/templates/crossplane-floatingip.yaml
 clusters/_template/infrastructure/hetzner
 clusters/_template/infrastructure/providers/hetzner
 .github/workflows/preflight-crossplane-hcloud.yaml
+clusters/contabo-mkt/tenants/bbb/apps/db-mysql.yaml
+clusters/contabo-mkt/tenants/bbb/apps/db-postgres.yaml
+clusters/contabo-mkt/tenants/e2e-wp-test/apps/db-mysql.yaml
+clusters/contabo-mkt/tenants/test/apps/db-mysql.yaml
+clusters/contabo-mkt/tenants/test12-2/apps/db-postgres.yaml

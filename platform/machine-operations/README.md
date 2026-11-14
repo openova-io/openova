@@ -13,7 +13,8 @@ place of a Blueprint in the model.
 
 ## What this version ships
 
-The chart holds only the two custom resource definitions, in `chart/crds/`:
+The chart holds the two custom resource definitions, in `chart/crds/`, and the
+templates of the inventory controller:
 
 | Kind | Written by | Meaning |
 |---|---|---|
@@ -22,10 +23,16 @@ The chart holds only the two custom resource definitions, in `chart/crds/`:
 
 The inventory controller is the binary `machine-controller` of the
 catalyst-api module (`products/catalyst/bootstrap/api/cmd/machine-controller`),
-run with `--controllers=inventory`. Its code is in
-`products/catalyst/bootstrap/api/internal/machines/`. The chart does not run it
-yet: its Deployment, its access rules and the built-in `nodes` source come
-with the chart templates of a later version.
+built into the catalyst-api image as `/usr/local/bin/machine-controller`. Its
+code is in `products/catalyst/bootstrap/api/internal/machines/`. The chart runs
+it as the Deployment `machine-controller-inventory` in the release namespace:
+one replica, the command
+`/usr/local/bin/machine-controller --controllers=inventory`, and the service
+account of the same name. Its ClusterRole reads Nodes and MachineSources,
+writes Machines and the status of MachineSources, and grants no verb on
+Secrets. A Role in the release namespace covers its leader-election Lease. The
+chart also renders the built-in source `nodes` (type `nodes`) in namespace
+`catalyst-infra`.
 
 ## How the inventory works
 
@@ -47,11 +54,19 @@ with the chart templates of a later version.
 
 ## Configuration
 
-`values.yaml` is empty in this version.
+| Value | Default | Meaning |
+|---|---|---|
+| `enabled` | `false` | Switches the chart on. At `false` it renders nothing; only the definitions are installed. |
+| `image` | `""` | The catalyst-api image, as a full reference. Required when `enabled` is true: the render fails while it is empty. |
+| `sources.nodes.enabled` | `true` | Renders the built-in source `nodes` in `catalyst-infra`. |
+
+`chart/tests/render.sh` checks what the chart renders. Run it with
+`--self-test` to see that each of its rules can fail.
 
 ## Operations
 
-No bootstrap-kit slot installs this chart yet. The definitions are installed
+No bootstrap-kit slot installs this chart yet. The namespace `catalyst-infra`
+must exist before the chart is switched on. The definitions are installed
 from `chart/crds/`, so the slot that installs it must set `install.crds` and
 `upgrade.crds` to `CreateReplace`: only then does a later version that adds a
 field reach a running Sovereign.

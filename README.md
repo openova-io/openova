@@ -109,7 +109,7 @@ openova/
 │   ├── fingate/       # Open Banking (PSD2/FAPI sandbox)
 │   ├── fabric/        # Data & Integration (event-driven + lakehouse)
 │   └── relay/         # Communication (email, video, chat, WebRTC)
-│                      # (specter and exodus are deliverable services, not Blueprints in this layout —
+│                      # (specter is a deliverable service, not a Blueprint in this layout —
 │                      #  docs/ARCHITECTURE.md §3.5 + docs/STATUS.md §1 agree; there is no products/specter/)
 └── docs/              # Platform documentation
 ```

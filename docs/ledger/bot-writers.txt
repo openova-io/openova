@@ -1,22 +1,2 @@
 # "<workflow path> <job id>": jobs whose deploy-bump step still pushes to main with the workflow
-# token. Read by scripts/check-bot-writers.py. Lines are only removed; FND-024 removes the last.
-.github/workflows/admin-build.yaml deploy
-.github/workflows/build-application-controller.yaml build
-.github/workflows/build-blueprint-controller.yaml build
-.github/workflows/build-bp-guacamole.yaml mirror
-.github/workflows/build-bp-newapi-sandbox-bridge.yaml build-and-publish
-.github/workflows/build-bp-newapi.yaml mirror
-.github/workflows/build-bp-wordpress-tenant-pg.yaml build-and-publish
-.github/workflows/build-continuum-controller.yaml build
-.github/workflows/build-environment-controller.yaml build
-.github/workflows/build-k8s-ws-proxy.yaml promote
-.github/workflows/build-openova-flow-adapter-flux.yaml build
-.github/workflows/build-openova-flow-server.yaml build
-.github/workflows/build-organization-controller.yaml build
-.github/workflows/build-projector.yaml build
-.github/workflows/catalyst-build.yaml deploy
-.github/workflows/console-build.yaml deploy
-.github/workflows/marketplace-api-build.yaml deploy
-.github/workflows/marketplace-build.yaml deploy
-.github/workflows/openclaw-controller.yaml build-and-publish
-.github/workflows/useraccess-controller-build.yaml build
+# token. Read by scripts/check-bot-writers.py. Lines are only removed; FND-024 removed the last.

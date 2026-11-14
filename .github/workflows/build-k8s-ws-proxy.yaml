@@ -170,6 +170,7 @@ jobs:
             ${{ env.CHART_VALUES }}
             ${{ env.CHART_YAML }}
           commit-message: "deploy: bump bp-k8s-ws-proxy to image ${{ needs.build.outputs.sha_short }} chart ${{ env.CHART_NEW_VERSION }}"
+          release-writer-key: ${{ secrets.RELEASE_WRITER_KEY }}
 
       # Per #712: GITHUB_TOKEN-authored commits do NOT re-trigger
       # workflows, so blueprint-release would not auto-fire on the
