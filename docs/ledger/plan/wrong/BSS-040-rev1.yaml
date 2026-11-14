@@ -1,0 +1,26 @@
+schema: openova.io/plan-wrong/v1
+id: BSS-040
+ticket_rev: 1
+base_commit: f71293b96f106d23f0e17ee92c0bd0d3e8d5caa5
+stage: check
+ref: Controller-image-tag freshness
+command: |
+    gh api repos/openova-io/openova/actions/jobs/132502393994/logs | grep -B 40 -m 1 '##\[error\]' | cut -c30-300
+expected: |
+    the check finishes green
+actual: |
+    ##[group]Run bash scripts/check-controller-image-tag-freshness.sh
+    bash scripts/check-controller-image-tag-freshness.sh
+    shell: /usr/bin/bash -e {0}
+    env:
+      GH_TOKEN: ***
+      MAX_LAG_COMMITS: 50
+    ##[endgroup]
+      OK         blueprint-controller:89532d2 (lag=0, latest=89532d2)
+      OK         useraccess-controller:89532d2 (lag=0, latest=89532d2)
+      OK         organization-controller:89532d2 (lag=0, latest=89532d2)
+      OK         environment-controller:89532d2 (lag=0, latest=89532d2)
+      OK         application-controller:89532d2 (lag=0, latest=89532d2)
+      OK         console:efe8973 (lag=0, latest=efe8973)
+    ##[error]services-provisioning: pinned da4eea6 is 170 commits behind latest GHCR 315fcae (threshold: 50)
+reported_at: 2026-11-14T16:10:51Z
