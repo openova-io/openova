@@ -70,6 +70,12 @@ trivy-operator:
     # upstream registry on every scan.
     storageClassEnabled: true
     storageSize: 5Gi
+    # Vulnerability database source: the scan Jobs fetch <dbRegistry>/<dbRepository>.
+    # These are the upstream chart's defaults, stated so that a chart bump cannot
+    # move them unseen. Bootstrap-kit slot 30 replaces both with LOCAL_REGISTRY_HOST
+    # and REGISTRY_PATH_VULN_DB of contract C5, and falls back to these two values.
+    dbRegistry: mirror.gcr.io
+    dbRepository: aquasec/trivy-db
 
   # Operator scope — target namespaces follow the `bp-*` prefix convention
   # so Trivy reports map cleanly to Catalyst Blueprint installation units.
@@ -155,9 +161,9 @@ trivy-operator:
   serviceAccount:
     create: true
 
-  # Network access — operator needs to pull vulnerability DBs from
-  # ghcr.io/aquasecurity/trivy-db. Per-Sovereign overlays MAY add an
-  # HTTP proxy via env vars.
+  # Network access — the scan Jobs pull the vulnerability database from
+  # trivy.dbRegistry/trivy.dbRepository above. Per-Sovereign overlays MAY
+  # add an HTTP proxy via env vars.
 
 # ─── Catalyst overlay values (consumed by templates/ in this chart) ──────
 # Reserved for Catalyst-side overlays (NetworkPolicy, alert routing into

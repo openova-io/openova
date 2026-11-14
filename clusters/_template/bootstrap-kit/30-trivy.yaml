@@ -73,3 +73,12 @@ spec:
     disableWait: true
     remediation:
       retries: 3
+  # SOV-337: the scanner reads its vulnerability database at LOCAL_REGISTRY_HOST/
+  # REGISTRY_PATH_VULN_DB of contract C5, served by the pull-through project of
+  # slot 19. Without contract C5 there is no such project, so the defaults keep
+  # the chart's own source (platform/trivy/chart/values.yaml), as before.
+  values:
+    trivy-operator:
+      trivy:
+        dbRegistry: ${LOCAL_REGISTRY_HOST:=mirror.gcr.io}
+        dbRepository: ${REGISTRY_PATH_VULN_DB:=aquasec/trivy-db}
