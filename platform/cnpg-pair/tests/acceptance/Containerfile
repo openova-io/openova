@@ -42,7 +42,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o /d31-acceptance ./cmd/d31-acceptance
 
 # ── Runtime ──────────────────────────────────────────────────────────
-FROM docker.io/library/alpine:3.20
+FROM docker.io/library/alpine:3.24
 
 # postgresql-client provides `psql`; kubectl is downloaded from the
 # stable channel matching the Sovereign's apiserver minor (1.31 era).
