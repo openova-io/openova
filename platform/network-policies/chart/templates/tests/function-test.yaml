@@ -1,0 +1,90 @@
+{{- /*
+Function test of bp-network-policies (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
+
+The chart makes the cluster deny by default: 30-allow-egress-dns gives every
+endpoint an egress rule that admits only cluster DNS, and
+10-allow-system-namespaces opens everything for the namespaces of
+allowSystemNamespaces. So a Pod in any other namespace may resolve names but
+may open no other connection. The test Pod runs in such a namespace,
+functionTest.namespace (default "default", which exists in every cluster),
+and asks for https://kubernetes.default.svc.cluster.local:443/version, an
+address that always answers. It passes when the name resolves through cluster
+DNS (curl does not fail with exit code 6) and the connection is not made
+within 5 seconds (curl fails with exit code 28, or 7 when it is refused). It
+fails when DNS does not resolve, or when the API server answers: then the
+default deny does not hold. It writes nothing.
+
+It renders only when enabled and allowEgressDNS are true and the test
+namespace is not in allowSystemNamespaces. The Pod mounts no service-account
+token. The image is the kubectl image the kit already pulls (bp-cnpg's webhook
+gate), which carries curl; functionTest.image overrides it.
+*/ -}}
+{{- $ft := .Values.functionTest | default dict }}
+{{- $testNamespace := $ft.namespace | default "default" }}
+{{- if and .Values.enabled .Values.allowEgressDNS (not (has $testNamespace (.Values.allowSystemNamespaces | default list))) }}
+{{- $image := $ft.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ $testNamespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 300
+  automountServiceAccountToken: false
+  containers:
+    - name: function-test
+      image: {{ $image | quote }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: HOME
+          value: /tmp
+        - name: TEST_NAMESPACE
+          value: {{ $testNamespace | quote }}
+        - name: TARGET_URL
+          value: "https://kubernetes.default.svc.cluster.local:443/version"
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -u
+          fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          code="$(curl -sS -k --connect-timeout 5 --max-time 10 -o /dev/null -w '%{http_code}' "${TARGET_URL}" 2>/tmp/error)"
+          rc=$?
+          case "${rc}" in
+            28|7) ;;
+            6) fail "cluster DNS did not resolve kubernetes.default.svc.cluster.local from ${TEST_NAMESPACE}: $(tr '\n' ' ' < /tmp/error | cut -c1-160)" ;;
+            0) fail "a Pod in ${TEST_NAMESPACE} reached ${TARGET_URL} (HTTP ${code}): the default deny does not hold" ;;
+            *) fail "the request to ${TARGET_URL} ended with curl exit code ${rc} (HTTP ${code}): $(tr '\n' ' ' < /tmp/error | cut -c1-160)" ;;
+          esac
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} a Pod in ${TEST_NAMESPACE} resolved the name but could not connect (curl exit code ${rc})"
+  volumes:
+    - name: tmp
+      emptyDir: {}
+{{- end }}

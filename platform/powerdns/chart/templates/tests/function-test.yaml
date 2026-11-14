@@ -1,0 +1,133 @@
+{{- /*
+Function test of bp-powerdns (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
+
+PowerDNS is the authoritative name server of the Sovereign's zones (the
+entries of zones[], which templates/zone-bootstrap-job.yaml creates). For each
+zone the test sends one DNS query for the zone's SOA record, over TCP, to the
+subchart's Service <fullname>.<namespace>.svc.cluster.local, port 53 (which
+forwards to the server's port 5353). It passes when every answer has the flags
+QR (an answer) and AA (authoritative), the response code 0 (NOERROR) and at
+least one answer record. It reads no credential and writes nothing.
+
+The query is built and read by bash itself (/dev/tcp, printf and od), so the
+test needs no DNS tool in its image. Opening /dev/tcp has no time limit of its
+own, so every query runs in a shell of its own under `timeout 15`, and no new
+query starts after 240 seconds: the test ends inside its 300 seconds.
+
+It renders only when zones[] is not empty. <fullname> is computed the way the
+subchart computes it. The image is the kubectl image the kit already pulls
+(bp-cnpg's webhook gate), which carries bash; functionTest.image overrides it.
+*/ -}}
+{{- $zones := list }}
+{{- range .Values.zones }}
+{{- if .name }}
+{{- $zones = append $zones (.name | trimSuffix ".") }}
+{{- end }}
+{{- end }}
+{{- if $zones }}
+{{- $sub := .Values.powerdns | default dict }}
+{{- $name := $sub.nameOverride | default "powerdns" }}
+{{- $fullname := "" }}
+{{- if $sub.fullnameOverride }}
+{{- $fullname = $sub.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- else if contains $name .Release.Name }}
+{{- $fullname = .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- $fullname = printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- end }}
+{{- $ft := .Values.functionTest | default dict }}
+{{- $image := $ft.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 300
+  automountServiceAccountToken: false
+  containers:
+    - name: function-test
+      image: {{ $image | quote }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: HOME
+          value: /tmp
+        - name: DNS_HOST
+          value: {{ printf "%s.%s.svc.cluster.local" $fullname .Release.Namespace | quote }}
+        - name: DNS_PORT
+          value: "53"
+        - name: ZONES
+          value: {{ join " " $zones | quote }}
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -u
+          fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          # soa <zone>: sends one SOA query; prints the 2 length bytes and the 12 header bytes of the answer, as hex.
+          hex() { printf '\\x%02x' "$1"; }
+          soa() {
+            local zone="$1" qname="" label length
+            local -a labels
+            IFS=. read -r -a labels <<< "${zone}"
+            for label in "${labels[@]}"; do
+              qname="${qname}$(hex "${#label}")${label}"
+            done
+            length=$(( 12 + ${#zone} + 2 + 4 ))
+            exec 3<>"/dev/tcp/${DNS_HOST}/${DNS_PORT}" || return 1
+            printf '%b' "$(hex $(( length >> 8 )))$(hex $(( length & 255 )))\x4f\x56\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00${qname}\x00\x00\x06\x00\x01" >&3
+            timeout 10 head -c 14 <&3 | od -An -tx1 -v | tr -s ' \n' ' ' | sed 's/^ //; s/ $//'
+            exec 3<&-
+          }
+          # Each query runs in a shell of its own under a time limit: the connect has none.
+          export -f hex soa
+          for zone in ${ZONES}; do
+            answer=""
+            for attempt in 1 2 3 4 5 6; do
+              [ "${SECONDS}" -lt 240 ] || break
+              answer="$(timeout 15 bash -c 'soa "$1"' soa "${zone}" 2>/tmp/error)" && [ -n "${answer}" ] && break
+              sleep 5
+            done
+            [ -n "${answer}" ] || fail "no answer from ${DNS_HOST}:${DNS_PORT} for the SOA of ${zone}: $(tr '\n' ' ' < /tmp/error | cut -c1-160)"
+            read -r -a b <<< "${answer}"
+            [ "${#b[@]}" -ge 12 ] || fail "the answer for the SOA of ${zone} is too short: ${answer}"
+            [ "${b[2]}${b[3]}" = "4f56" ] || fail "the answer for the SOA of ${zone} carries another query id: ${answer}"
+            flags=$(( 16#${b[4]} ))
+            rcode=$(( 16#${b[5]} & 15 ))
+            ancount=$(( 16#${b[8]} * 256 + 16#${b[9]} ))
+            (( flags & 128 )) || fail "the reply for the SOA of ${zone} is not an answer: ${answer}"
+            (( flags & 4 )) || fail "the answer for the SOA of ${zone} is not authoritative: ${answer}"
+            [ "${rcode}" = 0 ] || fail "the answer for the SOA of ${zone} has the response code ${rcode}"
+            [ "${ancount}" -ge 1 ] || fail "the answer for the SOA of ${zone} holds no record"
+          done
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} ${DNS_HOST} answered with authority for the SOA of every zone (${ZONES})"
+  volumes:
+    - name: tmp
+      emptyDir: {}
+{{- end }}

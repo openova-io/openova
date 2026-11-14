@@ -1,0 +1,164 @@
+{{- /*
+Function test of bp-catalyst-edge-routes (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
+
+The chart gives a secondary region the HTTPRoutes of the console, the API,
+the catalogue, the marketplace and the MCP server. A route works only when its
+Gateway has accepted it. The test reads, through the Kubernetes API, every
+HTTPRoute this release renders, with the same gates as the templates:
+catalyst-ui and catalyst-api (templates/httproute.yaml: ingress.gateway.enabled,
+and both the console and the api host set), catalyst-catalog (also
+services.catalog.enabled), marketplace (templates/marketplace.yaml:
+ingress.gateway.enabled, ingress.marketplace.enabled and the marketplace host)
+and openova-mcp (templates/service-mcp.yaml: the mcp host). It passes when,
+within 180 seconds, every parent of every such route reports the condition
+Accepted True. It reads nothing else and writes nothing.
+
+A ServiceAccount, Role (get httproutes of gateway.networking.k8s.io) and
+RoleBinding of this file give the test Pod that right. It renders nothing when
+the chart renders no HTTPRoute. The image is the kubectl image the kit already
+pulls (bp-cnpg's webhook gate); functionTest.image overrides it.
+*/ -}}
+{{- $ing := .Values.ingress | default dict }}
+{{- $gw := $ing.gateway | default dict }}
+{{- $hosts := $ing.hosts | default dict }}
+{{- $routes := list }}
+{{- if $gw.enabled }}
+{{- if and (($hosts.console).host) (($hosts.api).host) }}
+{{- $routes = concat $routes (list "catalyst-ui" "catalyst-api") }}
+{{- if ((.Values.services).catalog).enabled }}
+{{- $routes = append $routes "catalyst-catalog" }}
+{{- end }}
+{{- end }}
+{{- if and (($ing.marketplace).enabled) (($hosts.marketplace).host) }}
+{{- $routes = append $routes "marketplace" }}
+{{- end }}
+{{- end }}
+{{- if ($hosts.mcp).host }}
+{{- $routes = append $routes "openova-mcp" }}
+{{- end }}
+{{- if $routes }}
+{{- $ft := .Values.functionTest | default dict }}
+{{- $image := $ft.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["httproutes"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-function-test
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ .Release.Name }}-function-test
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 300
+  serviceAccountName: {{ .Release.Name }}-function-test
+  containers:
+    - name: function-test
+      image: {{ $image | quote }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: HOME
+          value: /tmp
+        - name: TEST_NAMESPACE
+          value: {{ .Release.Namespace | quote }}
+        - name: ROUTES
+          value: {{ join " " $routes | quote }}
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -u
+          fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          deadline=$(( $(date +%s) + 180 ))
+          for route in ${ROUTES}; do
+            while :; do
+              if accepted="$(kubectl --request-timeout=15s -n "${TEST_NAMESPACE}" get httproute "${route}" -o jsonpath='{.status.parents[*].conditions[?(@.type=="Accepted")].status}' 2>/tmp/error)"; then
+                if [ -n "${accepted}" ] && ! printf '%s\n' ${accepted} | grep -q -v -x 'True'; then
+                  break
+                fi
+                reason="Accepted is '${accepted}': $(kubectl --request-timeout=15s -n "${TEST_NAMESPACE}" get httproute "${route}" -o jsonpath='{.status.parents[*].conditions[?(@.type=="Accepted")].message}' 2>/dev/null | cut -c1-160)"
+              else
+                reason="$(tr '\n' ' ' < /tmp/error | cut -c1-160)"
+              fi
+              [ "$(date +%s)" -lt "${deadline}" ] || fail "the HTTPRoute ${route} is not Accepted within 180 seconds: ${reason}"
+              sleep 10
+            done
+          done
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} every HTTPRoute of this release (${ROUTES}) is Accepted by its Gateway"
+  volumes:
+    - name: tmp
+      emptyDir: {}
+{{- end }}
