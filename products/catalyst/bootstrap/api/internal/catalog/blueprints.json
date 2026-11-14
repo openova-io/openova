@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-14T20:30:26.738Z",
+  "generatedAt": "2026-11-14T20:38:31.114Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -1123,55 +1123,6 @@
               ],
               "roles": {
                 "rtz-A": "singleton"
-              }
-            }
-          }
-        }
-      },
-      "hasUserUIEndpoint": false
-    },
-    {
-      "id": "bp-dmz-vcluster",
-      "slug": "dmz-vcluster",
-      "title": "DMZ vCluster",
-      "summary": "|",
-      "icon": "vcluster.svg",
-      "category": "platform",
-      "tagline": null,
-      "tags": [],
-      "visibility": "unlisted",
-      "version": "0.2.9",
-      "section": "pts-3-1-networking-and-service-mesh",
-      "depends": [
-        "bp-cilium",
-        "bp-cert-manager"
-      ],
-      "shareable": false,
-      "contextSchema": null,
-      "producesInstances": null,
-      "topology": {
-        "supported": [
-          "singleton"
-        ],
-        "multiRegion": "singleton",
-        "singleRegion": "singleton",
-        "perTopology": {
-          "singleton": {
-            "replication": {
-              "backend": "velero",
-              "mode": "async",
-              "lagSloSeconds": null
-            },
-            "switchover": null,
-            "placement": {
-              "tier": "dmz",
-              "clusters": [
-                "dmz-A",
-                "dmz-B"
-              ],
-              "roles": {
-                "dmz-A": "singleton",
-                "dmz-B": "singleton"
               }
             }
           }
@@ -3049,55 +3000,6 @@
       "hasUserUIEndpoint": true
     },
     {
-      "id": "bp-mgmt-vcluster",
-      "slug": "mgmt-vcluster",
-      "title": "Management vCluster",
-      "summary": "|",
-      "icon": "vcluster.svg",
-      "category": "platform",
-      "tagline": null,
-      "tags": [],
-      "visibility": "unlisted",
-      "version": "0.2.29",
-      "section": "pts-3-2-control-plane-isolation",
-      "depends": [
-        "bp-cilium",
-        "bp-cert-manager"
-      ],
-      "shareable": false,
-      "contextSchema": null,
-      "producesInstances": null,
-      "topology": {
-        "supported": [
-          "singleton"
-        ],
-        "multiRegion": "singleton",
-        "singleRegion": "singleton",
-        "perTopology": {
-          "singleton": {
-            "replication": {
-              "backend": "velero",
-              "mode": "async",
-              "lagSloSeconds": null
-            },
-            "switchover": null,
-            "placement": {
-              "tier": "mgmt",
-              "clusters": [
-                "mgmt-A",
-                "mgmt-B"
-              ],
-              "roles": {
-                "mgmt-A": "singleton",
-                "mgmt-B": "singleton"
-              }
-            }
-          }
-        }
-      },
-      "hasUserUIEndpoint": false
-    },
-    {
       "id": "bp-milvus",
       "slug": "milvus",
       "title": "Milvus",
@@ -4468,55 +4370,6 @@
                 "mgmt-B": "singleton",
                 "dmz-A": "singleton",
                 "dmz-B": "singleton",
-                "rtz-A": "singleton",
-                "rtz-B": "singleton"
-              }
-            }
-          }
-        }
-      },
-      "hasUserUIEndpoint": false
-    },
-    {
-      "id": "bp-rtz-vcluster",
-      "slug": "rtz-vcluster",
-      "title": "RTZ vCluster",
-      "summary": "|",
-      "icon": "vcluster.svg",
-      "category": "platform",
-      "tagline": null,
-      "tags": [],
-      "visibility": "unlisted",
-      "version": "0.2.14",
-      "section": "pts-3-2-control-plane-isolation",
-      "depends": [
-        "bp-cilium",
-        "bp-cert-manager"
-      ],
-      "shareable": false,
-      "contextSchema": null,
-      "producesInstances": null,
-      "topology": {
-        "supported": [
-          "singleton"
-        ],
-        "multiRegion": "singleton",
-        "singleRegion": "singleton",
-        "perTopology": {
-          "singleton": {
-            "replication": {
-              "backend": "velero",
-              "mode": "async",
-              "lagSloSeconds": null
-            },
-            "switchover": null,
-            "placement": {
-              "tier": "rtz",
-              "clusters": [
-                "rtz-A",
-                "rtz-B"
-              ],
-              "roles": {
                 "rtz-A": "singleton",
                 "rtz-B": "singleton"
               }

@@ -18,9 +18,6 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | platform/alloy | bp-alloy | alloy | - | 21 |
 | platform/anthropic-adapter | bp-anthropic-adapter | bp-anthropic-adapter | listed | - |
 | platform/bge | bp-bge | bp-bge | listed | - |
-| platform/bp-dmz-vcluster | bp-dmz-vcluster | bp-dmz-vcluster | unlisted | - |
-| platform/bp-mgmt-vcluster | bp-mgmt-vcluster | bp-mgmt-vcluster | unlisted | - |
-| platform/bp-rtz-vcluster | bp-rtz-vcluster | bp-rtz-vcluster | unlisted | - |
 | platform/bp-vcluster-helmrepo | bp-vcluster-helmrepo | bp-vcluster-helmrepo | unlisted | 60 |
 | platform/catalyst-edge-routes | bp-catalyst-edge-routes | bp-catalyst-edge-routes | unlisted | 13e |
 | platform/catalyst-platform | - | bp-catalyst-platform | unlisted | - |
@@ -128,7 +125,6 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | products/chargeback | bp-chargeback, docrender (docrender/chart) | bp-chargeback | listed | 13f |
 | products/continuum | bp-continuum | bp-continuum (chart/blueprint.yaml) | listed | 62 |
 | products/cortex | - | - | - | - |
-| products/dmz-vcluster | bp-dmz-vcluster-tenant | bp-dmz-vcluster-tenant (chart/blueprint.yaml) | listed | - |
 | products/fabric | - | - | - | - |
 | products/fingate | - | - | - | - |
 | products/openova-flow | - | - | - | - |

@@ -103,10 +103,6 @@ RENDER_VALUES: dict[str, list[str]] = {
         "peerTrust.selfRegion=rtz-a",
         'peerTrust.regions=[{"cloudRegion":"rtz-a"}\\,{"cloudRegion":"rtz-b"}]',
     ],
-    "platform/bp-dmz-vcluster/chart": [
-        "dmzVcluster.enabled=true",
-        "dmzVcluster.networkPolicy.enabled=true",
-    ],
     "platform/cluster-autoscaler-hcloud/chart": [
         "clusterAutoscalerHcloud.networkPolicy.enabled=true",
     ],
@@ -152,7 +148,6 @@ RENDER_VALUES: dict[str, list[str]] = {
         "oidcGate.enabled=true",
     ],
     "products/continuum/chart": ["continuum.enabled=true", "continuum.region=hw-me-east-215-a-rtz-prod", "networkPolicy.enabled=true"],
-    "products/dmz-vcluster/chart": ["dmz.enabled=true", "dmz.networkPolicy.enabled=true"],
     "products/openova-mcp/chart": [
         "networkPolicy.enabled=true",
         "networkPolicy.egress.enabled=true",
