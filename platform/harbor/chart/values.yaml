@@ -472,6 +472,27 @@ registryProjects:
     host: ""
     scheme: https
 
+# ─── Pull robot at install (SOV-161) ──────────────────────────────────────
+# templates/pull-robot-job.yaml creates a system robot of this region's
+# Harbor that may pull from every project, and writes its login into the
+# dockerconfigjson Secret secretNamespace/secretName under the key host.
+# Bootstrap-kit slot 19 fills host (LOCAL_REGISTRY_HOST), originHost
+# (ORIGIN_REGISTRY_HOST) and secretName (REGISTRY_PULL_SECRET) from the keys
+# of docs/contracts/c5-upstream-variables.schema.json, and regionKey from the
+# kit key SOVEREIGN_REGION_KEY. Nothing renders while host is empty or equals
+# originHost.
+pullRobot:
+  enabled: true
+  image: "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4"
+  host: ""
+  originHost: ""
+  secretName: ghcr-pull
+  secretNamespace: flux-system
+  # The robot is named <name>-<regionKey>: regionKey in lower case, each run
+  # of other characters one hyphen. Each region's Job owns its own robot.
+  name: local-pull
+  regionKey: ""
+
 # ─── Catalyst overlay values (consumed by templates/ in this chart) ──────
 # Reserved for Catalyst-side overlays added in a follow-up PR once
 # bp-harbor is consumed in clusters/_template/:

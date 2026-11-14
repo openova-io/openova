@@ -426,6 +426,14 @@ spec:
       origin:
         host: ${ORIGIN_REGISTRY_HOST:=}
         scheme: ${ORIGIN_REGISTRY_SCHEME:=https}
+    # SOV-161: the pull robot's login goes into the pull Secret named by
+    # REGISTRY_PULL_SECRET, under this region's registry host. Without
+    # LOCAL_REGISTRY_HOST the chart renders no Job.
+    pullRobot:
+      host: "${LOCAL_REGISTRY_HOST:=}"
+      originHost: "${ORIGIN_REGISTRY_HOST:=}"
+      secretName: ${REGISTRY_PULL_SECRET:=ghcr-pull}
+      regionKey: "${SOVEREIGN_REGION_KEY:=}"
     harbor:
       # G117.E2E-H12 #2844 (2026-06-03): per-Sovereign externalURL override.
       # Chart default is "https://harbor.example.local" (placeholder for smoke
