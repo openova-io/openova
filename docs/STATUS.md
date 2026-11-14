@@ -152,6 +152,14 @@ If a doc says "Catalyst does X" without a 📐 / 🚧 / 🟦 marker, treat it as
 
 ---
 
+## Virtual-machine migration
+
+> State: target. Decision: ADR-0032
+
+Target, not built. Brownfield virtual-machine migration is the optional Blueprint `bp-vm-migration` ([ADR-0032](adr/0032-vm-migration-is-a-platform-product.md)). There is no product code yet: no folder `products/vm-migration/`, no chart and no image. The lab spikes MIG-020 to MIG-050 record their results under `docs/ledger/plan/spikes/`. Nothing about migration is proven until the gate checks MIG-G04, MIG-G05 and MIG-G06 are `required` in `docs/ledger/gates.yaml`.
+
+---
+
 ## 11. How to update this file
 
 This file is updated whenever a status changes:

@@ -33,6 +33,7 @@ Format: lightweight ADR (Status / Context / Decision / Consequences / Shipped-vi
 | [0029](0029-compliance-plane.md) | Compliance plane: one read model, one model object in Git, policy mode and waivers by commit | Accepted |
 | [0030](0030-model-plane.md) | Model plane: one gateway, one model contract, a simulation back end, agent tokens and metered usage | Accepted |
 | [0031](0031-infrastructure-plane.md) | Infrastructure plane: the nodes of the platform first, a virtual machine is an Application, an inventory of machines, one Job per target | Accepted |
+| [0032](0032-vm-migration-is-a-platform-product.md) | Migration is a platform product: brownfield virtual-machine migration is the optional Blueprint `bp-vm-migration`, with its own kinds, the vendor disk library as the read path and the unit module of the provider pack as the target writer | Accepted |
 | [0033](0033-access-plane.md) | Access plane: one Blueprint with three kinds, a fenced pod per session, credentials through the mount, sealed recordings, review by rules | Accepted |
 | [0034](0034-later-products-ai-hub-and-open-banking.md) | Later products: the AI hub and open banking, written fresh as Blueprints of their own on the model gateway, Keycloak and the Git write path | Accepted |
 | [0036](0036-backup-and-restore.md) | Backup and restore: etcd, the platform databases, Git and OpenBao, each copied by its own mechanism to the bucket of the Sovereign on a stated schedule, with a restore drill for each that is a gate check | Accepted |
