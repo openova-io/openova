@@ -123,7 +123,6 @@ GET /api/v1/sovereigns/{id}/keycloak/roles/{name}/members handler.(*Handler).Han
 GET /api/v1/sovereigns/{id}/keycloak/users handler.(*Handler).HandleKeycloakUsersSearch-fm 2
 GET /api/v1/sovereigns/{id}/marketplace handler.(*Handler).HandleGetMarketplace-fm 2
 GET /api/v1/sovereigns/{id}/networking/clustermesh handler.(*Handler).HandleNetworkingClusterMesh-fm 2
-GET /api/v1/sovereigns/{id}/networking/dmz handler.(*Handler).HandleNetworkingDMZ-fm 2
 GET /api/v1/sovereigns/{id}/networking/hubble handler.(*Handler).HandleNetworkingHubble-fm 2
 GET /api/v1/sovereigns/{id}/networking/netbird handler.(*Handler).HandleNetworkingNetBird-fm 2
 GET /api/v1/sovereigns/{id}/networking/policies handler.(*Handler).HandleNetworkingPolicies-fm 2

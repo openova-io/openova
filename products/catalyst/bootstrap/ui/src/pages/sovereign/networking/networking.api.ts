@@ -6,7 +6,6 @@
  *   - networkingPoliciesResponse → NetworkingPoliciesResponse
  *   - clusterMeshResponse        → ClusterMeshResponse
  *   - netbirdResponse            → NetBirdResponse
- *   - dmzResponse                → DMZResponse
  *   - hubbleResponse             → HubbleResponse
  *
  * Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) every URL
@@ -73,20 +72,6 @@ export interface NetBirdResponse {
   hostname_hint?: string
 }
 
-export interface DMZVCluster {
-  name: string
-  namespace: string
-  phase: string
-  running: boolean
-}
-
-export interface DMZResponse {
-  installed: boolean
-  vclusters: DMZVCluster[]
-  isolation_cnps: PolicyRow[]
-  total: number
-}
-
 export interface HubbleResponse {
   hubble_enabled: boolean
   relay_ready: boolean
@@ -126,9 +111,6 @@ export const getNetworkingClusterMesh = (sovereignId: string) =>
 
 export const getNetworkingNetBird = (sovereignId: string) =>
   getJSON<NetBirdResponse>(url(sovereignId, 'netbird'))
-
-export const getNetworkingDMZ = (sovereignId: string) =>
-  getJSON<DMZResponse>(url(sovereignId, 'dmz'))
 
 export const getNetworkingHubble = (sovereignId: string) =>
   getJSON<HubbleResponse>(url(sovereignId, 'hubble'))

@@ -214,9 +214,9 @@ function addCluster(
       id: vcId,
       type: 'vCluster',
       label: vc.name,
-      sublabel: vc.isolationMode,
+      sublabel: vc.namespace,
       status: vc.status,
-      metadata: { isolationMode: vc.isolationMode },
+      metadata: { namespace: vc.namespace ?? '' },
     })
     edges.push({
       id: `e:${vcId}->${clusterId}`,

@@ -3,10 +3,11 @@
  * page (qa-loop iter-11 Fix #48).
  *
  * Coverage:
- *   1. Tab strip renders all 5 slugs (policies / clustermesh / netbird /
- *      dmz / hubble) with the expected data-testid hooks.
+ *   1. Tab strip renders all 4 slugs (policies / clustermesh / netbird /
+ *      hubble) with the expected data-testid hooks. The retired slug dmz
+ *      has no tab and falls back to Policies.
  *   2. Per slug, the corresponding section renders the matrix-required
- *      tokens (CiliumNetworkPolicy, NetBird, DMZ, ClusterMesh, Hubble,
+ *      tokens (CiliumNetworkPolicy, NetBird, ClusterMesh, Hubble,
  *      fsn, hel) when the API returns seeded data.
  *   3. Empty path: when the API returns 0 rows, the empty state renders
  *      WITHOUT the iter-6 stub's "(pending live data)" placeholder.
@@ -108,7 +109,7 @@ function renderAtSlug(slug: string) {
 }
 
 describe('NetworkingPage', () => {
-  it('renders all 5 tabs', async () => {
+  it('renders all 4 tabs and no DMZ tab', async () => {
     setFetchHandler(() => ({
       items: [],
       counts_by_kind: {},
@@ -120,7 +121,7 @@ describe('NetworkingPage', () => {
     expect(screen.getByTestId('networking-tab-policies')).toBeTruthy()
     expect(screen.getByTestId('networking-tab-clustermesh')).toBeTruthy()
     expect(screen.getByTestId('networking-tab-netbird')).toBeTruthy()
-    expect(screen.getByTestId('networking-tab-dmz')).toBeTruthy()
+    expect(screen.queryByTestId('networking-tab-dmz')).toBeNull()
     expect(screen.getByTestId('networking-tab-hubble')).toBeTruthy()
   })
 
@@ -247,26 +248,6 @@ describe('NetworkingPage', () => {
     expect(screen.queryByText(/pending live data/)).toBeNull()
   })
 
-  it('DMZ tab renders vCluster row when installed', async () => {
-    setFetchHandler(() => ({
-      installed: true,
-      vclusters: [{ name: 'dmz', namespace: 'dmz', phase: 'Running', running: true }],
-      isolation_cnps: [
-        {
-          kind: 'CiliumNetworkPolicy',
-          name: 'isolation',
-          namespace: 'dmz',
-          created_at: new Date().toISOString(),
-        },
-      ],
-      total: 1,
-    }))
-    renderAtSlug('dmz')
-    await waitFor(() => screen.getByTestId('dmz-tab'))
-    expect(screen.getByTestId('dmz-vcluster-dmz')).toBeTruthy()
-    expect(screen.getByTestId('dmz-cnp-isolation')).toBeTruthy()
-  })
-
   // qa-loop iter-16 Fix #68 — error path renders empty-state with
   // matrix tokens, NOT a bare "Failed to load …" ErrorBox.
   it('NetBird tab on API 500 renders not-installed empty-state with peers token', async () => {
@@ -281,13 +262,19 @@ describe('NetworkingPage', () => {
     expect(empty.textContent).toMatch(/WireGuard/)
   })
 
-  it('DMZ tab on API 500 renders not-installed empty-state with vCluster token', async () => {
-    setFetchHandler(() => ({ ok: false, status: 500, body: { error: 'boom' } }))
+  it('the retired dmz slug renders the Policies tab and names no DMZ', async () => {
+    setFetchHandler(() => ({
+      items: [],
+      counts_by_kind: {},
+      counts_by_namespace: {},
+      total: 0,
+    }))
     renderAtSlug('dmz')
-    await waitFor(() => screen.getByTestId('dmz-not-installed'))
-    expect(screen.queryByText(/Failed to load/)).toBeNull()
-    expect(screen.getAllByText(/vCluster/).length).toBeGreaterThan(0)
-    expect(screen.getByText(/isolation/)).toBeTruthy()
+    await waitFor(() => screen.getByTestId('policies-empty'))
+    expect(screen.getByTestId('page-title').textContent).toBe('Networking — Policies')
+    expect(screen.queryByTestId('dmz-not-installed')).toBeNull()
+    expect(screen.queryByTestId('dmz-tab')).toBeNull()
+    expect(screen.getByTestId('networking-glossary').textContent).not.toMatch(/DMZ/)
   })
 
   it('ClusterMesh tab on single-region renders empty-state with fsn + hel tokens', async () => {

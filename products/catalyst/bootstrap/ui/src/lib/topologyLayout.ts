@@ -252,7 +252,7 @@ export function topologyLayout(
       id: vc.id,
       kind: 'vcluster',
       label: vc.name,
-      sublabel: vc.isolationMode.toUpperCase(),
+      sublabel: vc.namespace ?? '',
       status: vc.status,
       depth: 3,
       parentId: cluster.id,

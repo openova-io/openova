@@ -120,7 +120,7 @@
       "products/catalyst/bootstrap/ui/src/pages/sovereign/Architecture.tsx": 1,
       "products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogPage.tsx": 1,
       "products/catalyst/bootstrap/ui/src/pages/sovereign/cloud-list/ControllerLogsPane.tsx": 1,
-      "products/catalyst/bootstrap/ui/src/pages/sovereign/networking/NetworkingPage.tsx": 5,
+      "products/catalyst/bootstrap/ui/src/pages/sovereign/networking/NetworkingPage.tsx": 4,
       "products/catalyst/bootstrap/ui/src/pages/sovereign/resources/PodLogsPage.tsx": 1,
       "products/catalyst/bootstrap/ui/src/pages/sovereign/resources/ResourcesListPage.tsx": 1,
       "products/catalyst/bootstrap/ui/src/pages/sovereign/resources/ResourcesSearchPage.tsx": 1,
