@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T20:15:03Z` |
+| Last refreshed | `2026-11-14T20:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-14T20:15 | [#7845](https://github.com/openova-io/openova/pull/7845) | #7792 | fix(crossplane): raise Crossplane core to 1.19.3 and require |
 | 2026-11-14T19:54 | [#7844](https://github.com/openova-io/openova/pull/7844) | #7838 | fix(plan): two tasks that share only record files may run to |
 | 2026-11-14T20:11 | [#7843](https://github.com/openova-io/openova/pull/7843) | #7834 | fix(cutover): the follower region gets its catalog source, C |
 | 2026-11-14T19:45 | [#7836](https://github.com/openova-io/openova/pull/7836) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-14T16:38 | [#7782](https://github.com/openova-io/openova/pull/7782) | #7665 | docs(guacamole): stop stating session recording as present ( |
 | 2026-11-14T15:36 | [#7780](https://github.com/openova-io/openova/pull/7780) | #7767 | feat(harbor): the registry install creates the pull-through  |
 | 2026-11-14T15:41 | [#7779](https://github.com/openova-io/openova/pull/7779) | #7762 | fix: reserve the platform namespace names as Organization sl |
-| 2026-11-14T15:35 | [#7778](https://github.com/openova-io/openova/pull/7778) | #7725 | fix(cloud-init): the parent-bootstrap failure exits 98 and a |
 
 ---
 
