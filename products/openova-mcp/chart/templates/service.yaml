@@ -18,6 +18,7 @@ metadata:
     # secondary CP → region-b has no local mcp Pod/route, so the shared
     # cilium-gateway VIP 404s ~half of mcp requests routed to region-b's envoy.
     # Same idiom bp-catalyst-platform uses for catalyst-api/catalyst-ui (#5289).
+    # single-region backend
     service.cilium.io/global: "true"
     service.cilium.io/shared: "true"
   {{- end }}

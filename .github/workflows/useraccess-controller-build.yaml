@@ -134,6 +134,14 @@ jobs:
           # build-push-action's defaults; the Containerfile is the
           # single source of truth.
 
+      # Sign the image and attest its bill of materials through the shared
+      # action, before its tag is pinned (FND-062).
+      - name: Sign and attest the image
+        uses: ./.github/actions/sign-and-attest
+        with:
+          ref: ${{ env.IMAGE }}
+          digest: ${{ steps.build.outputs.digest }}
+
       # Auto-bump the chart values.yaml tag so the next Sovereign chart
       # rollout picks up this image without a manual edit. Per
       # `feedback_no_mvp_no_workarounds.md` rule 1 (target-state, no

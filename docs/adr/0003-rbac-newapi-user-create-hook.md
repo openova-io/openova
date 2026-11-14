@@ -6,7 +6,7 @@
 | **Authors** | hatiyildiz, Claude (Opus 4.7) |
 | **Date** | 2026-05-04 |
 | **Supersedes** | — |
-| **Superseded by** | — |
+| **Superseded by** | [ADR-0030](0030-model-plane.md), accepted 2026-11-13: `bp-newapi`, its per-user keys and the key Secrets are retired, so this hook has no work left. |
 | **Related** | [ADR-0001](0001-catalyst-control-plane-architecture.md), [ADR-0002](0002-post-handover-sovereignty-cutover.md), #795, #796, #798, #799, #802, #803 |
 
 ---

@@ -4112,7 +4112,7 @@ name: bp-catalyst-platform
 #   push grant on secret/openova/apps/*); bp-self-sovereign-cutover 0.1.207
 #   (secondary ghcr-pull keeps the Reflector annotations); bp-reflector (sized
 #   from hw307 OOMKill evidence).
-version: 1.4.1906-hw307.23-ns.1
+version: 1.4.1981
 # 1.4.1481 — #6293: catalog-seed advances bp-self-sovereign-cutover
 #   0.1.186 -> 0.1.187, the release that stops step-06 from patching five
 #   HelmRepositories it does not own and then grading itself on whether they
@@ -4299,7 +4299,7 @@ version: 1.4.1906-hw307.23-ns.1
 # scripts/check-chart-version-forward.sh (#5743) fails unless the two match —
 # main was carrying a pre-existing 1.4.1330/1.4.1329 split, so this bump heals
 # it in the same commit, exactly as the documented self-heal contract does.
-appVersion: 1.4.1905
+appVersion: 1.4.1981
 # 1.4.239 — Wave 3 / Issue #2140 (2026-05-23): Huawei provider
 # implementation lands behind the Wave 2 CloudProvider interface.
 # Adds the OpenTofu module at infra/providers/huawei/ (VPC + Subnet +
@@ -4687,7 +4687,7 @@ description: |
   Per docs/PROVISIONING-PLAN.md — this is the canonical bp-catalyst-platform Helm chart.
 
   As of 1.1.9 this umbrella contains ONLY the Catalyst-Zero control-plane
-  workloads (catalyst-ui, catalyst-api, ProvisioningState CRD, Sovereign
+  workloads (catalyst-ui, catalyst-api, Sovereign
   HTTPRoute). Foundation Blueprints (cilium, cert-manager, flux,
   crossplane, sealed-secrets, spire, nats-jetstream, openbao, keycloak,
   gitea) are installed independently by the bootstrap-kit at slots
@@ -5586,7 +5586,7 @@ type: application
 
 # Opt-out from the blueprint-release hollow-chart guard (issue #181 / #510).
 # This umbrella legitimately ships only Catalyst-authored workloads
-# (catalyst-ui, catalyst-api, ProvisioningState CRD, Sovereign HTTPRoute);
+# (catalyst-ui, catalyst-api, Sovereign HTTPRoute);
 # the foundation layer is installed independently by the bootstrap-kit
 # and must NOT be re-rendered into catalyst-system as subcharts.
 annotations:
@@ -5596,5 +5596,5 @@ annotations:
 # foundation Blueprints are installed by clusters/_template/bootstrap-kit/
 # at their own slots, each as a top-level Flux HelmRelease in its own
 # canonical namespace. This umbrella renders only the Catalyst-Zero
-# control-plane workloads (catalyst-ui, catalyst-api, ProvisioningState
-# CRD, Sovereign HTTPRoute) into targetNamespace: catalyst-system.
+# control-plane workloads (catalyst-ui, catalyst-api, Sovereign
+# HTTPRoute) into targetNamespace: catalyst-system.

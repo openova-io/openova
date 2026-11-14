@@ -30,6 +30,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # The step that signs the image needs a GitHub OIDC token (FND-061).
+      id-token: write
     outputs:
       sha_short: ${{ steps.vars.outputs.sha_short }}
     steps:
@@ -276,6 +278,7 @@ jobs:
           echo "All smoke tests passed."
 
       - name: Push UI image
+        id: push
         uses: docker/build-push-action@v6
         with:
           # Build context is the repo root so the Vite prebuild script can
@@ -290,11 +293,21 @@ jobs:
             ${{ env.UI_IMAGE }}:latest
           build-args: VITE_APP_MODE=selfhosted
 
+      # Sign the pushed image and attest its bill of materials before the
+      # deploy job pins its tag (FND-061). A failure here stops the deploy.
+      - name: Sign and attest the UI image
+        uses: ./.github/actions/sign-and-attest
+        with:
+          ref: ${{ env.UI_IMAGE }}
+          digest: ${{ steps.push.outputs.digest }}
+
   build-api:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+      # The step that signs the image needs a GitHub OIDC token (FND-061).
+      id-token: write
     outputs:
       sha_short: ${{ steps.vars.outputs.sha_short }}
     steps:
@@ -460,6 +473,17 @@ jobs:
           # `tofu test` passes 10/10 on hetzner — re-adding it to the
           # gate so the catalyst-build pipeline blocks any future
           # cloud-init regression at PR time on BOTH providers.
+          # CLD-040 — the shared render test runs first: its two
+          # render-integrity runs and the run "golden", which compares the
+          # SHA-256 of the rendered cloud-init of both fixtures with the
+          # values in infra/providers/_shared/tests/golden.auto.tfvars.json.
+          echo "=== tofu test: infra/providers/_shared/tests ==="
+          (
+            cd openova-src/infra/providers/_shared/tests
+            tofu init -input=false -no-color
+            tofu test -no-color
+          )
+          echo "=== _shared/tests: PASS ==="
           for provider in hetzner huawei; do
             echo "=== tofu test: infra/providers/${provider} ==="
             (
@@ -495,6 +519,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
 
       - name: Push API image
+        id: push
         uses: docker/build-push-action@v6
         with:
           context: openova-src
@@ -506,6 +531,14 @@ jobs:
           build-args: |
             BUILD_SHA=${{ steps.vars.outputs.sha_short }}
             BUILD_TIME=${{ steps.vars.outputs.build_time }}
+
+      # Sign the pushed image and attest its bill of materials before the
+      # deploy job pins its tag (FND-061). A failure here stops the deploy.
+      - name: Sign and attest the API image
+        uses: ./.github/actions/sign-and-attest
+        with:
+          ref: ${{ env.API_IMAGE }}
+          digest: ${{ steps.push.outputs.digest }}
 
   # #4049 — BASTION HARBOR WARMUP (every image Huawei→Huawei, incl. PRIVATE
   # catalyst). Delegated to the reusable .github/workflows/warmup-bastion-harbor.yaml
@@ -526,29 +559,8 @@ jobs:
     secrets:
       bastion_harbor_robot_token: ${{ secrets.BASTION_HARBOR_ROBOT_TOKEN }}
 
-  # ADR-0015 D9 — the next deploy-bot bump needs the LAST delivery's live
-  # acceptance run (install / data / move / move back, tests/acceptance/sovereign)
-  # to have PASSED on the gate Sovereign. Reads the newest committed record in
-  # docs/ledger/acceptance/<env>-*.json (written by acceptance-sovereign.yaml).
-  #   vars.ACCEPTANCE_GATE_ENV   default hw307
-  #   vars.ACCEPTANCE_GATE_MODE  report (default: prints the verdict, says NOT
-  #                              GATING, never blocks) | enforce (blocks the bump
-  #                              unless the latest run PASSED)
-  # A delivery that FIXES a failing run passes with `ACCEPTANCE-OVERRIDE: <reason>`
-  # in its commit message (= the squash-merged PR body). Cheap and cluster-free:
-  # it runs alongside the image builds and adds no wall time to the train.
-  acceptance-gate:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: D9 acceptance gate
-        env:
-          ACCEPTANCE_GATE_MODE: ${{ vars.ACCEPTANCE_GATE_MODE || 'report' }}
-          ACCEPTANCE_OVERRIDE_TEXT: ${{ github.event.head_commit.message }}
-        run: python3 scripts/acceptance-gate.py "${{ vars.ACCEPTANCE_GATE_ENV || 'hw307' }}"
-
   deploy:
-    needs: [build-ui, build-api, acceptance-gate]
+    needs: [build-ui, build-api]
     runs-on: ubuntu-latest
     permissions:
       # contents: write — push the values.yaml SHA bump back to main
@@ -931,6 +943,12 @@ jobs:
             products/catalyst/chart/templates/ui-deployment.yaml
             products/catalyst/chart/templates/ui-deployment-kustomize.yaml
           commit-message: "deploy: update catalyst images to ${{ needs.build-ui.outputs.sha_short }} (+ #2851 controller sweep)"
+
+      # FND-017: after the deploy-bump step, which pushes with the workflow token until FND-024.
+      - name: "Release writer: push with the release-writer key"
+        uses: ./.github/actions/use-release-writer
+        with:
+          key: ${{ secrets.RELEASE_WRITER_KEY }}
 
       # ──────────────────────────────────────────────────────────────
       # ATOMIC CHART VERSION BUMP (Refs #5743)

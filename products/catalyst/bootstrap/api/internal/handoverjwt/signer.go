@@ -112,6 +112,17 @@ func DefaultIssuer() string {
 // written once", not "the mothership URL is never read".
 func MothershipIssuer() string { return mothershipIssuer }
 
+// OwnIssuer returns the console origin of the Sovereign this process runs
+// on: https://console.<SOVEREIGN_FQDN>. A process without SOVEREIGN_FQDN is
+// the mothership, whose own console origin is the mothership origin.
+func OwnIssuer() string {
+	fqdn := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN"))), ".")
+	if fqdn == "" {
+		return mothershipIssuer
+	}
+	return "https://console." + fqdn
+}
+
 // Claims is the exact JWT claim shape Agent C must accept.
 // Custom fields use lowercase JSON keys per RFC 7519 §4 convention.
 type Claims struct {

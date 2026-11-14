@@ -91,25 +91,10 @@ jobs:
           provenance: true
           sbom: true
 
-      - name: Install cosign
-        uses: sigstore/cosign-installer@v3
-
-      - name: Sign image with cosign (keyless)
-        env:
-          DIGEST: ${{ steps.build.outputs.digest }}
-        run: |
-          cosign sign --yes "${IMAGE}@${DIGEST}"
-        # Per docs/PRINCIPLES.md #3: every Catalyst image must be
-        # cosign-signed via Sigstore keyless flow. The id-token: write
-        # permission above is what enables OIDC for cosign.
-
-      - name: Generate and attest SBOM
-        env:
-          DIGEST: ${{ steps.build.outputs.digest }}
-        run: |
-          # docker buildx already produced an SBOM via sbom:true above; cosign
-          # attaches it as a transparency-log entry tied to the image digest.
-          cosign attest --yes \
-            --predicate <(echo '{"sbom":"in-toto-spdx attached at build time"}') \
-            --type spdx \
-            "${IMAGE}@${DIGEST}"
+      # Sign the image and attest its bill of materials through the shared
+      # action, before its tag is pinned (FND-062).
+      - name: Sign and attest the image
+        uses: ./.github/actions/sign-and-attest
+        with:
+          ref: ${{ env.IMAGE }}
+          digest: ${{ steps.build.outputs.digest }}

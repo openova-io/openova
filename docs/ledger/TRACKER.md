@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-11T04:30:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-14T11:00:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,106 +200,106 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#6202](https://github.com/openova-io/openova/issues/6202) | Cutover engine re-adopts a prior attempt's FAILED step Job instead of recreating | Other |
-| [#6211](https://github.com/openova-io/openova/issues/6211) | harbor-prewarm PUSHes into a Harbor proxy-cache project — the first pass alway | Other |
-| [#6214](https://github.com/openova-io/openova/issues/6214) | P0 Pillar-5: step-08's pre-hold Crossplane lint requires step-11's pivot — the | Other |
-| [#6225](https://github.com/openova-io/openova/issues/6225) | Re-prov after a wipe false-fails on orphaned catalyst-* VPCs when the post-recla | Other |
-| [#6229](https://github.com/openova-io/openova/issues/6229) | /api/v1/version reports a sha from a Deployment env var that a roll never update | Other |
-| [#6231](https://github.com/openova-io/openova/issues/6231) | Topology choice does not survive the round trip: the status endpoint flattens th | Other |
-| [#6238](https://github.com/openova-io/openova/issues/6238) | main is red: the bp-guacamole auto-bump workflow bumps Chart.yaml without the ca | Other |
-| [#6242](https://github.com/openova-io/openova/issues/6242) | fix(funnel): a settled order whose launch call is lost strands the paid Organiza | Other |
-| [#6249](https://github.com/openova-io/openova/issues/6249) | Sovereign /apps estate grid renders 11 cards against 10 Application CRs — a He | Other |
-| [#6253](https://github.com/openova-io/openova/issues/6253) | harbor-prewarm calls an unpublished chart pin 'genuinely mid-roll' and then refu | Other |
-| [#6255](https://github.com/openova-io/openova/issues/6255) | region-B cilium-operator never starts its Gateway-API controller (30s CRD poll l | Other |
-| [#6260](https://github.com/openova-io/openova/issues/6260) | Sandbox retirement is half-landed: the reconciler's only install site was delete | Other |
-| [#6262](https://github.com/openova-io/openova/issues/6262) | harbor-prewarm blocks on the cutover's OWN hollow pin, and the chart's Case 40 g | Other |
-| [#6268](https://github.com/openova-io/openova/issues/6268) | Topology tab shows one target for an active-hot-standby app whose backing pair i | Other |
-| [#6272](https://github.com/openova-io/openova/issues/6272) | check-guards-are-wired.sh globs only *.sh — a python guard is orphaned invisib | Other |
-| [#6273](https://github.com/openova-io/openova/issues/6273) | harbor-prewarm Phase A0: an Organization's failed app install fail-closes the so | Other |
-| [#6278](https://github.com/openova-io/openova/issues/6278) | Funnel + vcluster Org: every per-Org chart rendering a cert-manager Certificate  | Other |
-| [#6280](https://github.com/openova-io/openova/issues/6280) | Phase A0 cannot list Organization namespaces — the #6273 partition ships witho | Other |
-| [#6288](https://github.com/openova-io/openova/issues/6288) | A catalyst-api roll rewinds an in-flight cutover to step 1 — safe only if the  | Other |
-| [#6289](https://github.com/openova-io/openova/issues/6289) | The cutover engine has no Lease — an outgoing catalyst-api Pod can drive the s | Other |
-| [#6294](https://github.com/openova-io/openova/issues/6294) | harbor-prewarm enumerates the same destination twice and the redundant push fail | Other |
-| [#6297](https://github.com/openova-io/openova/issues/6297) | bp-alloy slot 21: the Sovereign's own telemetry DaemonSet is denied on re-admiss | Other |
-| [#6298](https://github.com/openova-io/openova/issues/6298) | Seven workflows run an unpinned azure/setup-helm — including check-no-nodeport | Other |
-| [#6306](https://github.com/openova-io/openova/issues/6306) | noreply@openova.io burns its 25/hour send budget in 83s — PIN sign-in blocked  | Other |
-| [#6307](https://github.com/openova-io/openova/issues/6307) | Post-pivot cutover deadlock: a step that terminal-fails past step-05 can never r | Other |
-| [#6309](https://github.com/openova-io/openova/issues/6309) | No cutover step pivots the per-Org <slug>/catalyst-tenant repos — G11 cannot c | Other |
-| [#6311](https://github.com/openova-io/openova/issues/6311) | bp-wordpress-tenant cannot converge in ANY Org: no cnpg-system carve-out blinds  | Other |
-| [#6312](https://github.com/openova-io/openova/issues/6312) | wizard step 1 still pre-fills the fabricated company's industry — the select h | Other |
-| [#6317](https://github.com/openova-io/openova/issues/6317) | Agenity Anthropic credential expires every ~5h and nothing refreshes it — rows | Other |
-| [#6318](https://github.com/openova-io/openova/issues/6318) | Build bp-specter — realize the AIOps component the wizard catalog used to offe | Other |
-| [#6319](https://github.com/openova-io/openova/issues/6319) | PIN sign-in is dead program-wide: an app_ready event storm NAKs against a 25/hou | Other |
-| [#6324](https://github.com/openova-io/openova/issues/6324) | Per-Org bp-newapi quota guards model one 500m container; the ResourceQuota admit | Other |
-| [#6336](https://github.com/openova-io/openova/issues/6336) | Fresh prov wedges at 0 HelmReleases: bootstrap GitRepository clones 938MB of his | Other |
-| [#6339](https://github.com/openova-io/openova/issues/6339) | Region-b converges to 52/67 then stalls: keycloak and harbor blocked on missing  | Other |
-| [#6344](https://github.com/openova-io/openova/issues/6344) | placement projection joins Pods to an Application by NAME COINCIDENCE — apps w | Other |
-| [#6347](https://github.com/openova-io/openova/issues/6347) | placement projection emits TWO Primaries for an active-hot-standby app, plus a d | Other |
-| [#6352](https://github.com/openova-io/openova/issues/6352) | per-Org GitOps tree is missing four emitters — bp-agenity (Pillar 4), bp-keycl | Other |
-| [#6360](https://github.com/openova-io/openova/issues/6360) | Post-cutover Sovereign sells marketplace apps it cannot install — proxy-docker | Other |
-| [#6362](https://github.com/openova-io/openova/issues/6362) | MCP accepts only handover-signed bearers — a signed-in User cannot reach it; r | Other |
-| [#6364](https://github.com/openova-io/openova/issues/6364) | No vcluster is ever installed — bootstrap-kit slots 54/58/59 that the controll | Other |
-| [#6374](https://github.com/openova-io/openova/issues/6374) | bp-agenity credentialWait: 0 silently renders as 300/5 via sprig default — 'fa | Other |
-| [#6475](https://github.com/openova-io/openova/issues/6475) | Storefront sells four Blueprints the catalog-seed does not carry — purchasable | Other |
-| [#6477](https://github.com/openova-io/openova/issues/6477) | G8/G9/220/221 are INPUT-gated: the Anthropic credential is founder-supplied and  | Other |
-| [#6482](https://github.com/openova-io/openova/issues/6482) | bp-harbor + bp-powerdns: chart-default images route through the Harbor they serv | Other |
-| [#6483](https://github.com/openova-io/openova/issues/6483) | bp-stalwart-tenant 0.1.15: install fails in vcluster Orgs — no matches for kin | Other |
-| [#6485](https://github.com/openova-io/openova/issues/6485) | hw300 (dep c16642c6b17f1721): cyclic re-bootstrap after fire — reaches ready+2 | Other |
-| [#6487](https://github.com/openova-io/openova/issues/6487) | Cutover step-01 gitea-mirror wedges: full clone of grown monorepo fails + error  | Other |
-| [#6490](https://github.com/openova-io/openova/issues/6490) | cutover step-06 fatal on 2-region kom4dc: region-B Flux GitRepository can't ls-r | Other |
-| [#6495](https://github.com/openova-io/openova/issues/6495) | wipe.go: handed-over Huawei Sovereign is un-wipeable (provHint defaults to hetzn | Other |
-| [#6501](https://github.com/openova-io/openova/issues/6501) | FUNNEL/agenity: funnel door omits the openova-MCP bearer + RS256 verify-pubkey w | Other |
-| [#6506](https://github.com/openova-io/openova/issues/6506) | PIN storm residual: MultiSubscriber MaxDeliver:-1 still redelivers a doomed app_ | Other |
-| [#6508](https://github.com/openova-io/openova/issues/6508) | fresh-prov Flux bootstrap stalls ~1h: unauthenticated openova GitRepository clon | Other |
-| [#6509](https://github.com/openova-io/openova/issues/6509) | per-Org console login still 400s on fresh prov: #6504 mid-host wildcard console. | Other |
-| [#6511](https://github.com/openova-io/openova/issues/6511) | cutover step-01 gitea-mirror halts with DeadlineExceeded on the ~470MB monorepo  | Other |
-| [#6573](https://github.com/openova-io/openova/issues/6573) | reset-uat.py carry-forward silently no-ops on HTML UAT.md (scans raw HTML with a | Other |
-| [#6582](https://github.com/openova-io/openova/issues/6582) | bp-postgres@0.2.23 HR upgrade times out (context deadline exceeded) → 16-app c | Other |
-| [#6627](https://github.com/openova-io/openova/issues/6627) | Singleton shared-pg netpol: region-B keycloak cross-mesh :5432 DROP → JDBC acq | Other |
-| [#6629](https://github.com/openova-io/openova/issues/6629) | Customer-org (vcluster/plan-M) provisioning wedges at bp_charts_installed — CN | Other |
-| [#6645](https://github.com/openova-io/openova/issues/6645) | cutover step-01 wedge on hw305: #6490 secondary-region gitea-mirror push fails ' | Other |
-| [#6695](https://github.com/openova-io/openova/issues/6695) | dashboard(treemap): converged Sovereign defaults to real resource/health map, no | Other |
-| [#6697](https://github.com/openova-io/openova/issues/6697) | console: index.html served without Cache-Control — rolled deploys invisible un | Other |
-| [#6703](https://github.com/openova-io/openova/issues/6703) | epic: unified Jobs/Resources surface (chips + list + dependency-DAG + CronJob sc | Other |
-| [#6723](https://github.com/openova-io/openova/issues/6723) | EPIC: bp-chargeback — standalone chargeback application + console menu mapping | Other |
-| [#6727](https://github.com/openova-io/openova/issues/6727) | feat(jobs): map phase-gating deps in the /jobs DAG so no job floats | Other |
-| [#6742](https://github.com/openova-io/openova/issues/6742) | fix(jobs): graph shows open-ended reconcilers the finite list excludes → chip  | Other |
-| [#6744](https://github.com/openova-io/openova/issues/6744) | fix(jobs): list badges show reducer first-paint counts ("OpenTofu 64 / HelmRelea | Other |
-| [#6747](https://github.com/openova-io/openova/issues/6747) | fix(jobs): prune childless phase-container nodes from the graph (stray "Reconcil | Other |
-| [#6749](https://github.com/openova-io/openova/issues/6749) | fix(jobs): /jobs + dashboard treemap block 73-98s per call — synchronous multi | Other |
-| [#6751](https://github.com/openova-io/openova/issues/6751) | Huawei Sovereign: 4 provider/role-gated HRs show blank READY (suspend-by-design) | Other |
-| [#6753](https://github.com/openova-io/openova/issues/6753) | bp-postgres: consumer -mesh-rw write alias does not follow a #6149 automatic DR  | Other |
-| [#6754](https://github.com/openova-io/openova/issues/6754) | 2-region cutover wedges at step-01: secondary-mirror auth depends on drifting pe | Other |
-| [#6759](https://github.com/openova-io/openova/issues/6759) | fix(bp-newapi): admin-promote CronJob pins nonexistent cloudnative-pg/postgresql | Other |
-| [#6760](https://github.com/openova-io/openova/issues/6760) | fix(bp-mimir/bp-vpa/bp-external-secrets): #6757 chart bumps fail to UPGRADE live | Other |
-| [#6761](https://github.com/openova-io/openova/issues/6761) | gitea chart over the #6004 payload ceiling (91.86%) — blocks publishing 1.2.50 | Other |
-| [#6764](https://github.com/openova-io/openova/issues/6764) | 2-region cutover cannot complete: secondary region runs its own EMPTY Harbor ins | Other |
-| [#6773](https://github.com/openova-io/openova/issues/6773) | mothership iogrid: 14 digest-pinned service images lost in Harbor blob-store wip | Other |
-| [#6776](https://github.com/openova-io/openova/issues/6776) | 3 catalog charts pin the nonexistent cloudnative-pg/postgresql:16.4 (latent ErrI | Other |
-| [#6778](https://github.com/openova-io/openova/issues/6778) | hw306 — fresh 2-region prov train: manifest → wipe hw305 → fire → cutove | Other |
-| [#6799](https://github.com/openova-io/openova/issues/6799) | NAT-EIP rotation at prov time drifts tofu state (rotated SNAT rule/EIP outside s | Other |
-| [#6803](https://github.com/openova-io/openova/issues/6803) | Harbor proxy-cache serves an index whose child manifests are gone — invisible  | Other |
-| [#6815](https://github.com/openova-io/openova/issues/6815) | A region-A worker has never joined k3s and nothing reports it — Phase 1 counts | Other |
-| [#6825](https://github.com/openova-io/openova/issues/6825) | Every self-upgrade takes the Sovereign's console and API down for 2-3 minutes � | Other |
-| [#6832](https://github.com/openova-io/openova/issues/6832) | kyverno pvc-volume-expansion errors on every PVC — the policy's APICall has no | Other |
-| [#6839](https://github.com/openova-io/openova/issues/6839) | Region promotion must flip secondary_region_lb_weight — hot-standby has no aut | Other |
-| [#6840](https://github.com/openova-io/openova/issues/6840) | hw307 primary region silently runs 4 of 5 provisioned workers — w9b4787 ACTIVE | Other |
-| [#6843](https://github.com/openova-io/openova/issues/6843) | chargeback silently discards all outbound mail on a Sovereign (invite links, sta | Other |
-| [#6844](https://github.com/openova-io/openova/issues/6844) | SSO gap audit: verify whether registry/harbor and newapi have zero-click SSO (gi | Other |
-| [#6849](https://github.com/openova-io/openova/issues/6849) | Platform Applications are named spine-* on live Sovereigns, colliding with the S | Other |
-| [#6850](https://github.com/openova-io/openova/issues/6850) | Sovereign cloud cost is collected but never allocated: ADR-0014's 'cloud cost sp | Other |
-| [#6853](https://github.com/openova-io/openova/issues/6853) | chargeback meters only 5 of 16 provisionable resource kinds — everything else  | Other |
-| [#6855](https://github.com/openova-io/openova/issues/6855) | chargeback bills the whole Huawei project to one customer — bastion-openova is | Other |
-| [#6857](https://github.com/openova-io/openova/issues/6857) | Four extended listers 400 against the real Huawei gateway — limit=200 rejected | Other |
-| [#6859](https://github.com/openova-io/openova/issues/6859) | scope_token is unsettable, so the #6855 project-scoping fix is inert — every s | Other |
-| [#6861](https://github.com/openova-io/openova/issues/6861) | Every Blueprint PR races the deploy-bot for the umbrella chart version — auto- | Other |
-| [#6867](https://github.com/openova-io/openova/issues/6867) | chargeback: bring cost analysis to cloud-provider level — overview renders zer | Other |
-| [#6870](https://github.com/openova-io/openova/issues/6870) | Sovereign console sign-out redirects the browser to keycloak.keycloak.svc.cluste | Other |
-| [#6874](https://github.com/openova-io/openova/issues/6874) | shared-pg DR failback: the divergence re-clone never re-renders (helm in-sync),  | Other |
-| [#6963](https://github.com/openova-io/openova/issues/6963) | BSS contracts and plans: the gaps from the founder's training walk (row-level li | Other |
-| [#6971](https://github.com/openova-io/openova/issues/6971) | BSS packages and the entitlement matrix: Included / Optional / Not offered per p | Other |
-| [#7067](https://github.com/openova-io/openova/issues/7067) | ADR-0015: region-symmetric GitOps + one topology contract + native topology tran | Other |
+| [#7269](https://github.com/openova-io/openova/issues/7269) | SVC-030 The Catalog page honours visibility and refuses what has no chart | Other |
+| [#7281](https://github.com/openova-io/openova/issues/7281) | CLD-075 Generator for the provider and profile tables | Other |
+| [#7282](https://github.com/openova-io/openova/issues/7282) | NET-100 Network registry output and validator | Other |
+| [#7283](https://github.com/openova-io/openova/issues/7283) | PRD-104 Consent package | Other |
+| [#7284](https://github.com/openova-io/openova/issues/7284) | PRD-105 Token package | Other |
+| [#7285](https://github.com/openova-io/openova/issues/7285) | PRD-106 CI workflow for the fingate module | Other |
+| [#7291](https://github.com/openova-io/openova/issues/7291) | FND-061 One signing action, used by the control-plane images first | Other |
+| [#7292](https://github.com/openova-io/openova/issues/7292) | NET-020 Disable the k3s kube-proxy | Other |
+| [#7293](https://github.com/openova-io/openova/issues/7293) | NET-060 Read-only census of the network posture | Other |
+| [#7294](https://github.com/openova-io/openova/issues/7294) | NET-090 Network guards in CI | Other |
+| [#7295](https://github.com/openova-io/openova/issues/7295) | SOV-220 The console's step list comes from the status response | Other |
+| [#7317](https://github.com/openova-io/openova/issues/7317) | CLD-161 Installation document for the installation in use | Other |
+| [#7322](https://github.com/openova-io/openova/issues/7322) | PRD-102 Generated types and server interfaces (oapi-codegen, strict server) | Other |
+| [#7323](https://github.com/openova-io/openova/issues/7323) | PRD-103 Ledger port and conformance kit | Other |
+| [#7349](https://github.com/openova-io/openova/issues/7349) | CLD-022 Delete the infrastructure mutation dialogs from the console | Other |
+| [#7350](https://github.com/openova-io/openova/issues/7350) | CTL-030 Delete the endpoint pipeline and the two duplicate registrations | Other |
+| [#7351](https://github.com/openova-io/openova/issues/7351) | CTL-060 Decision record for the write path, the lock and the backbone | Other |
+| [#7352](https://github.com/openova-io/openova/issues/7352) | CTL-110 Commit library gitwrite | Other |
+| [#7353](https://github.com/openova-io/openova/issues/7353) | SEC-120 etcd dump check and node hygiene check, as check files | Other |
+| [#7354](https://github.com/openova-io/openova/issues/7354) | SVC-125 Blueprint proofs check: the function-test result in the gate record | Other |
+| [#7356](https://github.com/openova-io/openova/issues/7356) | SOV-130 Substrate window, part 1: modules and cloud-init take the variables docu | Other |
+| [#7376](https://github.com/openova-io/openova/issues/7376) | CTL-112 Region scopes of the commit library | Other |
+| [#7377](https://github.com/openova-io/openova/issues/7377) | CTL-160 Package intent: validate, serialise, commit, wait | Other |
+| [#7378](https://github.com/openova-io/openova/issues/7378) | CTL-240 Batch G: catalogue writers onto the library | Other |
+| [#7383](https://github.com/openova-io/openova/issues/7383) | CLD-021 Delete the 24 infrastructure mutation routes and the claim writer | Other |
+| [#7384](https://github.com/openova-io/openova/issues/7384) | PRD-502 Sandbox ledger | Other |
+| [#7385](https://github.com/openova-io/openova/issues/7385) | SEC-030 etcd encryption on at first boot | Other |
+| [#7394](https://github.com/openova-io/openova/issues/7394) | FND-011 CI bumps chart versions; pull requests may not | Other |
+| [#7395](https://github.com/openova-io/openova/issues/7395) | SOV-140 Substrate window, part 2: revocable bootstrap access, peer tokens, node  | Other |
+| [#7396](https://github.com/openova-io/openova/issues/7396) | SOV-150 Kit sources become substitutions, with a render-equivalence test | Other |
+| [#7419](https://github.com/openova-io/openova/issues/7419) | CTL-035 Route registration leaves main() | Other |
+| [#7420](https://github.com/openova-io/openova/issues/7420) | FND-095 Remove the Sandbox orchestrator, grants and cutover entries | Other |
+| [#7421](https://github.com/openova-io/openova/issues/7421) | FND-099 Remove two custom resources that nothing reads | Other |
+| [#7422](https://github.com/openova-io/openova/issues/7422) | SEC-080 External Secrets quick scope | Other |
+| [#7423](https://github.com/openova-io/openova/issues/7423) | SOV-160 Registry projects, the Organization Git token and the two repositories a | Other |
+| [#7430](https://github.com/openova-io/openova/issues/7430) | The helm lint check fails for a chart whose upstream index uses relative address | Other |
+| [#7434](https://github.com/openova-io/openova/issues/7434) | CTL-040 Flux manifests to stable API versions | Other |
+| [#7435](https://github.com/openova-io/openova/issues/7435) | CTL-150 Intent lock in audit mode, with its report | Other |
+| [#7436](https://github.com/openova-io/openova/issues/7436) | FND-098 Remove two retired chart folders and one dead harness | Other |
+| [#7437](https://github.com/openova-io/openova/issues/7437) | SOV-035 Delete the ProvisioningState kind and its unwired store | Other |
+| [#7438](https://github.com/openova-io/openova/issues/7438) | SOV-320 Sign-in mail without the parent's credential | Other |
+| [#7446](https://github.com/openova-io/openova/issues/7446) | CLD-113 Mesh and topology read the profile | Other |
+| [#7449](https://github.com/openova-io/openova/issues/7449) | CLD-142 Neutral storage gate | Other |
+| [#7450](https://github.com/openova-io/openova/issues/7450) | SEC-040 Bootstrap secret hygiene on the node and reflector scope | Other |
+| [#7451](https://github.com/openova-io/openova/issues/7451) | SOV-131 Provider modules take the variables map of the upstream contract | Other |
+| [#7454](https://github.com/openova-io/openova/issues/7454) | FND-018 The release writer leaves main in step: no pin goes backwards, and the u | Other |
+| [#7461](https://github.com/openova-io/openova/issues/7461) | CLD-141 Protect provider releases from pruning before they move | Other |
+| [#7462](https://github.com/openova-io/openova/issues/7462) | CTL-045 Publish contract C9 and its tool | Other |
+| [#7468](https://github.com/openova-io/openova/issues/7468) | FND-020 A pull request is not red because main was between two commits of a rele | Other |
+| [#7471](https://github.com/openova-io/openova/issues/7471) | SOV-141 Each peer region gets its own handover-peer token, given to the primary  | Other |
+| [#7473](https://github.com/openova-io/openova/issues/7473) | SOV-133 The boot template and the provider contract take the variables document | Other |
+| [#7477](https://github.com/openova-io/openova/issues/7477) | CLD-086 local module and reduced kit | Other |
+| [#7478](https://github.com/openova-io/openova/issues/7478) | FND-013 Merge queue: aggregate check, queue triggers, rulesets and code owners a | Other |
+| [#7479](https://github.com/openova-io/openova/issues/7479) | FND-096 Remove the Sandbox sources | Other |
+| [#7484](https://github.com/openova-io/openova/issues/7484) | CLD-185 Hetzner control-plane cloud-init with the post-back on fits the module s | Other |
+| [#7487](https://github.com/openova-io/openova/issues/7487) | CTL-041 Bootstrap-kit HelmRepository documents to source v1 | Other |
+| [#7488](https://github.com/openova-io/openova/issues/7488) | SOV-120 The sovereign-ops command and its image | Other |
+| [#7489](https://github.com/openova-io/openova/issues/7489) | SOV-180 The API serves the Sovereign's mode and variables, with the contract's d | Other |
+| [#7494](https://github.com/openova-io/openova/issues/7494) | CLD-087 CI job conformance-local | Other |
+| [#7495](https://github.com/openova-io/openova/issues/7495) | FND-015 Candidate tool and cut workflow | Other |
+| [#7496](https://github.com/openova-io/openova/issues/7496) | SEC-100 Delete the abandoned OpenBao multi-region mechanisms | Other |
+| [#7501](https://github.com/openova-io/openova/issues/7501) | FND-012 Stop the tracker commits | Other |
+| [#7502](https://github.com/openova-io/openova/issues/7502) | FND-058 The guard-wiring meta-guard never reports a guard that a workflow runs a | Other |
+| [#7506](https://github.com/openova-io/openova/issues/7506) | CMP-073 The bootstrap window follows the hand-over variable | Other |
+| [#7507](https://github.com/openova-io/openova/issues/7507) | NET-321 Decision record: managed cluster class on the reference cloud | Other |
+| [#7508](https://github.com/openova-io/openova/issues/7508) | SOV-134 The contract keys of the variables document land in the sovereign-variab | Other |
+| [#7512](https://github.com/openova-io/openova/issues/7512) | NET-080 Pin the Organization virtual cluster chart | Other |
+| [#7513](https://github.com/openova-io/openova/issues/7513) | SOV-121 The seed-repo command of sovereign-ops | Other |
+| [#7515](https://github.com/openova-io/openova/issues/7515) | AIP-050 Agent-plane guards | Other |
+| [#7516](https://github.com/openova-io/openova/issues/7516) | CTL-300 The running stream is the declared one | Other |
+| [#7517](https://github.com/openova-io/openova/issues/7517) | FND-057 The privacy guard fails closed and runs on every branch | Other |
+| [#7522](https://github.com/openova-io/openova/issues/7522) | SOV-190 The console reads the mode from the API | Other |
+| [#7527](https://github.com/openova-io/openova/issues/7527) | CTL-151 Intent-lock report and the check that the lock holds | Other |
+| [#7528](https://github.com/openova-io/openova/issues/7528) | FND-056 Pin the two moving actions; ratchets for actions and base images | Other |
+| [#7529](https://github.com/openova-io/openova/issues/7529) | MIG-060 Guard: no vendor disk library in the repository or in public images | Other |
+| [#7534](https://github.com/openova-io/openova/issues/7534) | FND-088 The event registry and the shared bus package no longer name the Sandbox | Other |
+| [#7535](https://github.com/openova-io/openova/issues/7535) | FND-089 The storefront offers no Sandbox agent picks and the order request carri | Other |
+| [#7536](https://github.com/openova-io/openova/issues/7536) | SEC-090 Guards | Other |
+| [#7539](https://github.com/openova-io/openova/issues/7539) | CTL-700 Pull-request mode of the commit library | Other |
+| [#7540](https://github.com/openova-io/openova/issues/7540) | NET-133 A local-affinity decision on every global Service | Other |
+| [#7544](https://github.com/openova-io/openova/issues/7544) | SEC-010 Close the public route to OpenBao system paths | Other |
+| [#7549](https://github.com/openova-io/openova/issues/7549) | AIP-040 Switch off the header-trusting metering sidecar | Other |
+| [#7550](https://github.com/openova-io/openova/issues/7550) | CLD-023 Delete the Hetzner-only Compositions, their definitions and orphan manif | Other |
+| [#7551](https://github.com/openova-io/openova/issues/7551) | CTL-340 Jobs store subscribe; flow stream event-driven; jobs stream route | Other |
+| [#7552](https://github.com/openova-io/openova/issues/7552) | FND-017 The workflows that push to main themselves push under the release-writer | Other |
+| [#7553](https://github.com/openova-io/openova/issues/7553) | FND-104 Truth patch of the canonical documents | Other |
+| [#7554](https://github.com/openova-io/openova/issues/7554) | SEC-161 Reconciler: secrets mounts and accessor substitution | Other |
+| [#7558](https://github.com/openova-io/openova/issues/7558) | INF-110 Kinds Machine and MachineSource; inventory controller with the node sour | Other |
+| [#7568](https://github.com/openova-io/openova/issues/7568) | NET-011 API port limited to declared sources | Other |
+| [#7576](https://github.com/openova-io/openova/issues/7576) | fix(ci): the secret guard for the OpenBao unseal key fails on main since two tas | Other |
+| [#7634](https://github.com/openova-io/openova/issues/7634) | fix(ci): the dependency bot opened 60 pull requests at once and filled the CI qu | Other |
+| [#7641](https://github.com/openova-io/openova/issues/7641) | SVC-070 Function tests: identity and secrets charts | Other |
+| [#7643](https://github.com/openova-io/openova/issues/7643) | FND-035 The gate workflow | Other |
+| [#7644](https://github.com/openova-io/openova/issues/7644) | FND-062 Every image and chart build signs through the action | Other |
+| [#7645](https://github.com/openova-io/openova/issues/7645) | NET-135 The plane-isolation policies admit the cross-region file sync and the sn | Other |
+| [#7654](https://github.com/openova-io/openova/issues/7654) | ACC-040 Access guards with their baselines | Other |
+| [#7655](https://github.com/openova-io/openova/issues/7655) | FND-107 The bot that flips acceptance rows keeps the tally and provenance lines  | Other |
+| [#7656](https://github.com/openova-io/openova/issues/7656) | NET-055 Canonical documents state the zone, firewall and default-deny design of  | Other |
+| [#7657](https://github.com/openova-io/openova/issues/7657) | PRD-800 Adapter template for a second bank | Other |
+| [#7658](https://github.com/openova-io/openova/issues/7658) | SEC-127 The k3s bootstrap-flags test pins its checkout action by commit hash and | Other |
 
 ---
 
@@ -307,36 +307,36 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
-| 2026-11-08T12:17 | [#7082](https://github.com/openova-io/openova/pull/7082) | #7067 | fix(org-quota): always-scoped plan-quota + classless platfor |
-| 2026-11-08T12:16 | [#7081](https://github.com/openova-io/openova/pull/7081) | #7077 | integ: ADR-0015 batch 2 — D6b + D8 + region-local kubeconfig |
-| 2026-11-08T11:05 | [#7078](https://github.com/openova-io/openova/pull/7078) | #7067 | fix(org-quota): split per-Org admission into platform and cu |
-| 2026-11-08T08:17 | [#7075](https://github.com/openova-io/openova/pull/7075) | #7067 | integ: ADR-0015 D1–D7 + D9 (supersedes #7069 #7070 #7071 #70 |
-| 2026-11-08T07:06 | [#7068](https://github.com/openova-io/openova/pull/7068) | #7067 | docs(adr): ADR-0015 region-symmetric GitOps + one topology c |
-| 2026-11-07T17:08 | [#7066](https://github.com/openova-io/openova/pull/7066) | #7065 | deploy(continuum): bp-continuum 0.1.20 ships #7065 (ddd6e05) |
-| 2026-11-07T16:50 | [#7065](https://github.com/openova-io/openova/pull/7065) | #7050 | fix(continuum): a DB-only switchover is not UNHEALTHY for la |
-| 2026-11-07T16:26 | [#7064](https://github.com/openova-io/openova/pull/7064) | #7063 | deploy(continuum): bp-continuum 0.1.19 ships #7063 (cbd4f28) |
-| 2026-11-07T16:11 | [#7063](https://github.com/openova-io/openova/pull/7063) | #3375 | fix(continuum): one Converged condition; a planned remote pr |
-| 2026-11-07T17:49 | [#7062](https://github.com/openova-io/openova/pull/7062) | #7061 | fix(bootstrap-kit): bootstrap Application placement is opera |
-| 2026-11-07T15:41 | [#7061](https://github.com/openova-io/openova/pull/7061) | #3375 | fix(cnpg-pair): the Application's placement is operator-owne |
-| 2026-11-07T14:31 | [#7060](https://github.com/openova-io/openova/pull/7060) | #7058 | deploy(continuum): ship desired-state convergence (bp-contin |
-| 2026-11-07T14:45 | [#7059](https://github.com/openova-io/openova/pull/7059) | #7058 | feat(dr): desired-state switchover in the console API and To |
-| 2026-11-07T14:05 | [#7058](https://github.com/openova-io/openova/pull/7058) | #3375 | feat(continuum): converge the writer onto the declared prima |
-| 2026-11-07T00:36 | [#7057](https://github.com/openova-io/openova/pull/7057) | #5178 | fix(cnpg-pair): dr-promoter yields to the planned owner and  |
-| 2026-11-06T23:53 | [#7056](https://github.com/openova-io/openova/pull/7056) | #7054 | chore(continuum): bp-continuum 0.1.17 ships the switchback e |
-| 2026-11-06T23:37 | [#7055](https://github.com/openova-io/openova/pull/7055) | #3375 | fix(continuum): switchover honours the requested target and  |
-| 2026-11-06T23:17 | [#7054](https://github.com/openova-io/openova/pull/7054) | #3375 | fix(continuum): promotion is the switchover's point of no re |
-| 2026-11-06T23:04 | [#7053](https://github.com/openova-io/openova/pull/7053) | #7052 | fix(continuum): natsURL default + NATS egress; bp-continuum  |
-| 2026-11-06T22:50 | [#7052](https://github.com/openova-io/openova/pull/7052) | #3375 | fix(continuum): audit publish ensures the canonical CATALYST |
-| 2026-11-06T22:35 | [#7051](https://github.com/openova-io/openova/pull/7051) | #7050 | chore(continuum): bp-continuum 0.1.15 ships the #7050 switch |
-| 2026-11-06T22:17 | [#7050](https://github.com/openova-io/openova/pull/7050) | #3375 | fix(continuum): DB-only switchover skips flip-dns; request c |
-| 2026-11-06T21:40 | [#7049](https://github.com/openova-io/openova/pull/7049) | #7048 | chore(bp-continuum): 0.1.14 — ship the cross-region switchov |
-| 2026-11-06T21:27 | [#7048](https://github.com/openova-io/openova/pull/7048) | #7047 | fix(continuum): Containerfile copies core/controllers/pkg (# |
-| 2026-11-06T21:12 | [#7047](https://github.com/openova-io/openova/pull/7047) | #5125 | feat(continuum): lossless planned cnpg-pair switchover acros |
-| 2026-11-06T20:20 | [#7046](https://github.com/openova-io/openova/pull/7046) | #7044 | feat(bp-cnpg-pair): the pair is an Application in the unifie |
-| 2026-11-06T19:21 | [#7045](https://github.com/openova-io/openova/pull/7045) | #7044 | fix(dr): placement claims CNPG pods via their owning Cluster |
-| 2026-11-06T18:42 | [#7044](https://github.com/openova-io/openova/pull/7044) | #4551 | fix(dr): cnpg-pair Topology shows the real pair, the live sw |
-| 2026-11-06T18:39 | [#7043](https://github.com/openova-io/openova/pull/7043) | #3601 | fix(sovereign-ui): Apps search matches ids, slugs, blueprint |
-| 2026-11-06T16:06 | [#7042](https://github.com/openova-io/openova/pull/7042) | #3601 | fix(sovereign-ui): the Applications view lists every install |
+| 2026-11-14T10:56 | [#7659](https://github.com/openova-io/openova/pull/7659) | #7654 | chore(ci): eight access guards whose counts may only fall (A |
+| 2026-11-14T10:38 | [#7653](https://github.com/openova-io/openova/pull/7653) | #7087 | docs(ledger): plan update |
+| 2026-11-14T10:39 | [#7652](https://github.com/openova-io/openova/pull/7652) | #7550 | chore(crossplane): delete the Hetzner-only Compositions, the |
+| 2026-11-14T10:39 | [#7651](https://github.com/openova-io/openova/pull/7651) | #7643 | ci: the gate workflow runs the suite against a Sovereign and |
+| 2026-11-14T10:40 | [#7650](https://github.com/openova-io/openova/pull/7650) | #7644 | ci: sign and attest every image and chart build through the  |
+| 2026-11-14T10:41 | [#7649](https://github.com/openova-io/openova/pull/7649) | #7645 | fix(plane-isolation): render every listed namespace and admi |
+| 2026-11-14T10:15 | [#7647](https://github.com/openova-io/openova/pull/7647) | #7558 | feat(machines): kinds Machine and MachineSource, and the inv |
+| 2026-11-14T09:52 | [#7642](https://github.com/openova-io/openova/pull/7642) | #7087 | docs(ledger): plan update |
+| 2026-11-14T09:42 | [#7640](https://github.com/openova-io/openova/pull/7640) | #7087 | docs(ledger): plan update |
+| 2026-11-14T10:01 | [#7635](https://github.com/openova-io/openova/pull/7635) | #7634 | fix(ci): no version-update pull requests for Go modules and  |
+| 2026-11-14T10:02 | [#7599](https://github.com/openova-io/openova/pull/7599) | #7549 | fix(newapi): switch off the metering sidecar and add gate ch |
+| 2026-11-14T09:17 | [#7578](https://github.com/openova-io/openova/pull/7578) | #7576 | fix(ci): the unseal-key guard's list holds the findings of m |
+| 2026-11-14T09:43 | [#7564](https://github.com/openova-io/openova/pull/7564) | #7553 | docs: point the canonical documents at the generated invento |
+| 2026-11-14T08:51 | [#7562](https://github.com/openova-io/openova/pull/7562) | #7551 | feat(api): the jobs store publishes its writes, a jobs strea |
+| 2026-11-14T08:50 | [#7560](https://github.com/openova-io/openova/pull/7560) | #7554 | refactor(openbao): the config reconciler enables secrets mou |
+| 2026-11-14T08:50 | [#7559](https://github.com/openova-io/openova/pull/7559) | #7552 | ci: the jobs that push to main push with the release-writer  |
+| 2026-11-14T08:23 | [#7557](https://github.com/openova-io/openova/pull/7557) | #7087 | docs(ledger): plan update |
+| 2026-11-14T08:29 | [#7556](https://github.com/openova-io/openova/pull/7556) | #7528 | ci: pin the two moving Flux actions and ratchet unpinned act |
+| 2026-11-14T08:19 | [#7555](https://github.com/openova-io/openova/pull/7555) | #7544 | fix(openbao): close the public route to the OpenBao system p |
+| 2026-11-14T08:11 | [#7548](https://github.com/openova-io/openova/pull/7548) | #7087 | docs(ledger): plan update |
+| 2026-11-14T08:13 | [#7547](https://github.com/openova-io/openova/pull/7547) | #7501 | docs(ledger): replace the 15-minute status board in TRACKER. |
+| 2026-11-14T08:14 | [#7546](https://github.com/openova-io/openova/pull/7546) | #7539 | feat: add the pull-request mode of the commit library gitwri |
+| 2026-11-14T08:14 | [#7545](https://github.com/openova-io/openova/pull/7545) | #7540 | fix(charts): record the single-region backend decision on th |
+| 2026-11-14T08:00 | [#7543](https://github.com/openova-io/openova/pull/7543) | #7087 | docs(ledger): plan update |
+| 2026-11-14T08:07 | [#7542](https://github.com/openova-io/openova/pull/7542) | #7536 | ci: add the secret guards with allow-lists that may only shr |
+| 2026-11-14T08:06 | [#7541](https://github.com/openova-io/openova/pull/7541) | #7534 | chore: drop the Sandbox request subject from the event regis |
+| 2026-11-14T07:41 | [#7538](https://github.com/openova-io/openova/pull/7538) | #7087 | docs(ledger): plan update |
+| 2026-11-14T07:40 | [#7537](https://github.com/openova-io/openova/pull/7537) | #7527 | feat(acceptance): intent-lock report and gate check CTL-G04  |
+| 2026-11-14T07:29 | [#7533](https://github.com/openova-io/openova/pull/7533) | #7087 | docs(ledger): plan update |
+| 2026-11-14T07:40 | [#7532](https://github.com/openova-io/openova/pull/7532) | #7522 | refactor(console): read the mode from the self route, not fr |
 
 ---
 

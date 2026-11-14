@@ -1,0 +1,49 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-storage-ready
+spec:
+  version: 0.1.0
+  card:
+    title: Storage Ready
+    summary: Neutral storage gate of the bootstrap kit. A hook Job waits until the expected StorageClass is the cluster default.
+    documentation: ./README.md
+  visibility: unlisted              # mandatory infra, installed by bootstrap-kit slot 15b
+  owner:
+    team: platform
+    contact: platform@openova.io
+  configSchema:
+    type: object
+    required: [expectedClass]
+    properties:
+      expectedClass:
+        type: string
+        description: |
+          Name of the StorageClass that must be the cluster default. Slot 15b
+          sets it from the kit key SOVEREIGN_CNPG_STORAGE_CLASS.
+  placementSchema:
+    modes: [single-region, active-active]
+    default: active-active           # runs on every region's control plane
+  manifests:
+    chart: ./chart
+  depends: []                        # a hook Job and its RBAC only; no CRDs
+  topology:
+    supported: [singleton]
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ''
+          clusters: [mgmt-A, mgmt-B, dmz-A, dmz-B, rtz-A, rtz-B]
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  endpoints: []
+  multiInstance:
+    enabled: false

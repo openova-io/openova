@@ -1,0 +1,13 @@
+{
+  "schema": "openova.io/lock-stages/v1",
+  "stages": {
+    "access": "audit",
+    "applications": "audit",
+    "blueprints": "audit",
+    "environments": "audit",
+    "flux": "audit",
+    "organizations": "audit",
+    "policy": "audit",
+    "topology": "audit"
+  }
+}

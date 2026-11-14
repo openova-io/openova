@@ -226,7 +226,7 @@ func (p *Plan) NormalizePrice() {
 // carried a number from that workbook, so it carries none.
 //
 // App marks an add-on that is an APPLICATION the Sovereign installs for the
-// Organization (CrowdSec, Trivy, Grafana Loki, the Coraza WAF) rather than a
+// Organization (CrowdSec, Trivy, Grafana Loki) rather than a
 // commercial entitlement (a domain, a dedicated IP, a backup schedule): the
 // storefront lists it with the applications and never beside a price.
 type AddOn struct {

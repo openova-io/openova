@@ -223,7 +223,7 @@ name: bp-gitea
 #   seeded once and carried forward from the live object (lookup) on
 #   every later render, so an upgrade never reverts the operator's
 #   Topology edit (hw307 2026-11-07, the #7061 cnpg-pair fix).
-version: 1.2.51
+version: 1.2.52
 description: |
   Catalyst-curated Blueprint umbrella chart for Gitea. Depends on the
   upstream `gitea` chart (dl.gitea.com) as a Helm subchart so

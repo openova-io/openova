@@ -102,7 +102,7 @@ func (f *Factory) snapshotOnce(_ context.Context) {
 	}
 	f.mu.RUnlock()
 	for _, cs := range clusters {
-		for kindName, idx := range cs.indexers {
+		for kindName, idx := range cs.indexersSnapshot() {
 			items := idx.List()
 			us := make([]*unstructured.Unstructured, 0, len(items))
 			maxRV := ""

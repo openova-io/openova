@@ -160,6 +160,10 @@ const (
 	TaskJobPrefix = "task-"
 	// ReconcilerJobPrefix — long-running reconciler Deployment leaf.
 	ReconcilerJobPrefix = "reconciler-"
+	// MutationJobNamePrefix — leaf of a Day-2 infrastructure mutation.
+	// No code writes such a Job any more; stored rows keep their kind
+	// and display name through it.
+	MutationJobNamePrefix = "mutation-"
 )
 
 // HealthStatus — the extra status tone recurring/reconciler kinds report
@@ -528,6 +532,11 @@ type Execution struct {
 	// log file. The /logs endpoint compares fromLine against this to
 	// derive `total` and pagination boundaries.
 	LineCount int `json:"lineCount"`
+
+	// JobUID — metadata.uid of the Kubernetes Job this Execution records,
+	// when it records one. The Job watch closes the run by this key
+	// (Store.CloseJobRun). Empty for every other Execution.
+	JobUID string `json:"jobUid,omitempty"`
 }
 
 // LogLine is one record in an Execution's append-only NDJSON file.

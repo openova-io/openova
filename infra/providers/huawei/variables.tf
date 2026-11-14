@@ -67,6 +67,12 @@ variable "regions" {
     condition     = length(var.regions) >= 1
     error_message = "Tier-B Huawei Sovereign requires at least 1 region (primary)."
   }
+  # NET-100: the pod supernet 10.40.0.0/13 holds the pod CIDRs of at most
+  # six regions (10.42.0.0/16 to 10.47.0.0/16).
+  validation {
+    condition     = length(var.regions) <= 6
+    error_message = "At most six regions: the pod supernet 10.40.0.0/13 holds the pod CIDRs 10.42.0.0/16 to 10.47.0.0/16."
+  }
   validation {
     condition = alltrue([
       for r in var.regions :
@@ -254,7 +260,7 @@ variable "org_email" {
 variable "k3s_version" {
   type        = string
   description = "k3s release pinned for CP + workers (INSTALL_K3S_VERSION format)."
-  default     = "v1.31.4+k3s1"
+  default     = "v1.31.8+k3s1"
   validation {
     condition     = can(regex("^v[0-9]+\\.[0-9]+\\.[0-9]+\\+k3s[0-9]+$", var.k3s_version))
     error_message = "k3s_version must match vMAJOR.MINOR.PATCH+k3sN."
@@ -582,23 +588,30 @@ variable "qa_fixtures_enabled" {
   }
 }
 
-# fire_cutover_on_handover — North Star: decouple the self-sovereign cutover
-# auto-fire from qa_fixtures_enabled/qaTestEnabled. catalyst-api passes this
-# tfvar from Request.FireCutoverOnHandover; it threads through the shared
-# cloud-init template's FIRE_CUTOVER_ON_HANDOVER substitute → bootstrap-kit
-# slot-13's catalystApi.fireCutoverOnHandover, which the chart ORs with
-# qaFixtures.enabled (#4648) to set CATALYST_FIRE_CUTOVER_ON_HANDOVER. INDEPENDENT
-# of qa_fixtures_enabled so a PROD-cert Sovereign (qa_fixtures_enabled='false')
-# can ALSO auto-fire the cutover on handover and reach cutoverComplete with ZERO
-# manual steps. Default 'false' (#4061 — customer Sovereigns that set neither
-# flag keep the cutover an operator-gated BSS action).
-variable "fire_cutover_on_handover" {
-  type        = string
-  description = "When 'true', the Sovereign's catalyst-api auto-fires the self-sovereign cutover the instant handover seals the tofu-phase0-archive — INDEPENDENT of qa_fixtures_enabled, so a PROD-cert Sovereign reaches cutoverComplete with zero manual steps (North Star). Default 'true' — zero-touch (founder 2026-11-06); 'false' keeps it an operator-gated BSS action."
-  default     = "true"
+# variables — the variables document of this region (contract C5). The key
+# list equals the keys of docs/contracts/c5-upstream-variables.schema.json.
+# HANDOVER_AUTO replaces the former input fire_cutover_on_handover.
+variable "variables" {
+  type        = map(string)
+  description = "The variables document of this region (contract C5): every key of docs/contracts/c5-upstream-variables.schema.json and no other key. HANDOVER_AUTO ('true' or 'false') decides whether the Sovereign starts the hand-over flip by itself."
   validation {
-    condition     = contains(["true", "false"], var.fire_cutover_on_handover)
-    error_message = "fire_cutover_on_handover must be the string 'true' or 'false'."
+    condition = keys(var.variables) == sort([
+      "SOVEREIGN_MODE", "SOVEREIGN_CONSUME", "HANDOVER_AUTO", "HANDOVER_HOLD_SECONDS",
+      "REGISTRY_HOST", "REGISTRY_SCHEME", "LOCAL_REGISTRY_HOST",
+      "ORIGIN_REGISTRY_HOST", "ORIGIN_REGISTRY_SCHEME", "ORIGIN_REGISTRY_CA_B64", "ORIGIN_PROXY_ENDPOINTS_JSON",
+      "REGISTRY_PULL_SECRET", "REGISTRY_PATH_CHARTS", "REGISTRY_PATH_RELEASE", "REGISTRY_PATH_PROVIDER_PACKS",
+      "REGISTRY_PATH_XPKG", "REGISTRY_PATH_TOFU_PROVIDERS", "REGISTRY_PATH_NODE_ARTIFACTS", "REGISTRY_PROXY_PROJECTS_JSON",
+      "RELEASE_PUBLIC_KEY_B64", "RELEASE_CHANNEL", "RELEASE_VERSION", "RELEASE_AUTO", "RELEASE_SYNC_SCHEDULE",
+      "ORIGIN_PARENT_FQDN", "ORIGIN_PARENT_API_URL", "DNS_MODE", "DNS_UPSTREAM_API_URL",
+      "MAIL_MODE", "MAIL_RELAY_HOST", "MAIL_RELAY_PORT", "MAIL_FROM", "MAIL_RELAY_SECRET",
+      "K3S_VERSION", "K3S_UPGRADE_CONCURRENCY", "CLOUD_CREDENTIAL_MODE", "CLOUD_CREDENTIAL_ROTATION_SCHEDULE",
+      "CLOUD_CREDENTIAL_ROTATION_NONCE", "GITOPS_REPO_URL",
+    ])
+    error_message = "variables must hold exactly the keys of contract C5 (docs/contracts/c5-upstream-variables.schema.json), no more and no fewer."
+  }
+  validation {
+    condition     = contains(["true", "false"], lookup(var.variables, "HANDOVER_AUTO", ""))
+    error_message = "variables[\"HANDOVER_AUTO\"] must be the string 'true' or 'false'."
   }
 }
 

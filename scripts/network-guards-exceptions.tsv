@@ -1,0 +1,7 @@
+# Named exceptions of network guard G2 (scripts/check-network-guards.py).
+# A file named here may hold a NetworkPolicy, CiliumNetworkPolicy or CiliumClusterwideNetworkPolicy
+# outside the policy chart. It is not part of the baseline, which may only shrink: an exception stays
+# while its reason holds. One line per file: <path><TAB><owner package><TAB><reason>. No wildcards.
+# The check fails when a named file no longer holds a policy kind. A package adds a line here only
+# for an object that its own work defines, with its own identifier as the owner.
+platform/self-sovereign-cutover/chart/templates/08-egress-block-test-job.yaml	NET-153	The deny-egress object of the sovereignty proof (cutover step 08). It must deny egress for the proof to hold, so it is not an allow rule of the policy chart.

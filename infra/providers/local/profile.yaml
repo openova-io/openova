@@ -1,0 +1,30 @@
+# Cloud profile of the local pack (contract C2). The schema is
+# infra/providers/_contract/cloudprofile.schema.json. The pack runs on one
+# host with no cloud account; it is never offered without include=all.
+apiVersion: catalyst.openova.io/v1alpha1
+kind: CloudProfile
+metadata:
+  name: local
+spec:
+  displayName: Local machines
+  lifecycle: unproven
+  contractVersion: "1"
+  credentials:
+    source: operator
+    fields:
+      - {key: runner_socket, label: Machine driver socket, secret: false, required: false}
+  regions:
+    - {code: local-1, label: Local 1, location: The host that runs the module, zones: [local-1a], defaultZone: local-1a}
+  compute:
+    image: catalyst-local-machine
+    flavors:
+      - {name: small, vcpu: 2, memoryGiB: 4, roles: [control-plane, worker]}
+      - {name: medium, vcpu: 4, memoryGiB: 8, roles: [control-plane, worker]}
+    defaults: {controlPlaneFlavor: medium, workerFlavor: small}
+  storage: {defaultClass: local-path, driver: rancher.io/local-path}
+  objectStorage: {checksumAlgorithm: ""}
+  network:
+    loadBalancer: {mode: external-hostport}
+  bootstrap: {userDataLimitBytes: 0}
+  capabilities: {multiRegion: true, multiCloudRegion: false}
+  day2: {contracts: []}

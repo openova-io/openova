@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:openova:catalyst:providerpack:v1alpha1",
+  "title": "ProviderPack",
+  "description": "Contract C2: the declaration of a provider pack (infra/providers/<name>/pack.yaml). A pack is the module infra/providers/<name>, the overlay clusters/_template/providers/<name>, the adapter products/catalyst/bootstrap/api/internal/providers/<name> and, where needed, plug-in charts under platform/.",
+  "$comment": "spec.bootstrapUnits joins this schema in CLD-176, its reader.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": {"const": "catalyst.openova.io/v1alpha1"},
+    "kind": {"const": "ProviderPack"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$", "description": "Equals the directory name."}
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contractVersion", "module", "overlay", "adapter", "tofuProviders", "leakTokens"],
+      "properties": {
+        "contractVersion": {"const": "1"},
+        "module": {"type": "string", "pattern": "^infra/providers/[a-z0-9]([a-z0-9-]*[a-z0-9])?$"},
+        "overlay": {"type": "string", "pattern": "^clusters/_template/providers/[a-z0-9]([a-z0-9-]*[a-z0-9])?$"},
+        "adapter": {"type": "string", "pattern": "^products/catalyst/bootstrap/api/internal/providers/[a-z0-9]([a-z0-9-]*[a-z0-9])?$"},
+        "charts": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"}, "description": "Folders under platform/ that this pack owns. Reader: leak scanner (CLD-211)."},
+        "tofuProviders": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Every OpenTofu provider the pack's modules declare, by fully qualified source. The version is read from the module's .terraform.lock.hcl. Readers: TestProviderPacks (CLD-090), provider mirror (CLD-172).",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["source"],
+            "properties": {
+              "source": {"type": "string", "pattern": "^[a-z0-9.-]+/[a-z0-9-]+/[a-z0-9-]+$"}
+            }
+          }
+        },
+        "leakTokens": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9.-]*$"}, "description": "Lower-case words that identify this cloud. Reader: leak scanner (CLD-211)."}
+      }
+    }
+  }
+}

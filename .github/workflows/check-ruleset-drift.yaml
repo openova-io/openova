@@ -1,0 +1,27 @@
+# check-ruleset-drift.yaml - the live rulesets equal .github/rulesets/main.json and rc.json.
+#
+# The rules are in scripts/check-ruleset-drift.py. It reads the live rulesets with the token in
+# the secret RULESET_READ_TOKEN and fails when the token is absent: it never passes on a read
+# that did not happen. Started by hand only, until the rulesets are applied; a schedule is
+# added then.
+name: check-ruleset-drift
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ruleset-drift:
+    name: ruleset-drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Self-test of the comparison (every rule can fail)
+        run: python3 scripts/check-ruleset-drift.py --self-test
+      - name: The live rulesets equal the files
+        env:
+          RULESET_READ_TOKEN: ${{ secrets.RULESET_READ_TOKEN }}
+        run: python3 scripts/check-ruleset-drift.py

@@ -1146,11 +1146,11 @@ hpa:
 # completion_tokens, total_tokens}` that we project into the canonical
 # envelope shape per `core/services/shared/events/nats.go`.
 #
-# The sidecar is enabled by default — a deployed bp-newapi without
-# metering would silently drop billing data. Operators that explicitly
-# do NOT want metering set `meteringSidecar.enabled: false` in the per-
-# Sovereign overlay (only valid in regulated environments where every
-# channel carries its own out-of-band ledger).
+# The sidecar is OFF since AIP-040. It took the customer and the
+# Organization of a call from two request headers that any caller can
+# set, so a caller could charge its usage to anyone. Gate check AIP-G01
+# fails while a running image has `metering-sidecar` in its name.
+# AIP-111 replaces it with a meter that takes identity from the gateway.
 
 # Sandbox-bridge sidecar (Wave 5.57, Refs #2303). Catalyst-side bridge
 # handler for POST /admin/tokens/sandbox — the upstream Calcium-Ion
@@ -1207,7 +1207,7 @@ sandboxBridge:
     # a sidecar that's already opt-in-disable-able via
     # sandboxBridge.enabled. Operator overlays can pin to a specific
     # SHA + IfNotPresent if they want air-gap-friendly behavior.
-    tag: "1196146"
+    tag: "b46ef05"
     pullPolicy: Always
   port: 8080
   resources:
@@ -1227,8 +1227,9 @@ sandboxBridge:
       drop: [ALL]
     seccompProfile:
       type: RuntimeDefault
+# Off since AIP-040: the sidecar trusted caller-supplied identity headers.
 meteringSidecar:
-  enabled: true
+  enabled: false
   image:
     # services-build CI publishes this image alongside the Organization services
     # on every push to core/services/metering-sidecar/**.

@@ -32,7 +32,7 @@
 # session-2026-04-30 architectural decision).
 
 ---
-apiVersion: source.toolkit.fluxcd.io/v1beta2
+apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:
   name: bp-k8s-ws-proxy
@@ -102,7 +102,7 @@ spec:
       # `values.global.imageRegistry: ''` seam below). CI promote auto-bumps this
       # to 0.1.16 with the new image SHA on merge; blueprint-release (TBD-A6) then
       # lifts this pin to the published version in lockstep.
-      version: 0.1.18
+      version: 0.1.19
       sourceRef:
         kind: HelmRepository
         name: bp-k8s-ws-proxy

@@ -32,12 +32,9 @@
 // out-of-band edit to `catalog-sovereign/<bp>/blueprint.yaml` round-trips
 // to the UI exactly like a UI edit does.
 //
-// Graceful degradation: when the Gitea client is unwired (chroot
-// Sovereign pre-cutover / CI without a Gitea backend) the git write is a
-// best-effort no-op — the store write already succeeded, so the API call
-// still returns the catalog service's real result. The catalog edit is
-// never failed by a missing local catalog git; it merely isn't yet IaC
-// until Gitea is reachable.
+// Every write goes through the commit library (gitwrite, scope catalog).
+// Without one (no Gitea, or no SOVEREIGN_FQDN) the git write is refused
+// with errCatalogGitUnavailable, never skipped; the caller reports it.
 
 package handler
 
@@ -49,6 +46,7 @@ import (
 	yamlv3 "gopkg.in/yaml.v3"
 
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
+	"github.com/openova-io/openova/core/controllers/pkg/gitwrite"
 )
 
 // catalogEditGitBranch is the branch the catalog-sovereign Blueprint CRs
@@ -114,21 +112,18 @@ func catalogSovereignAggPath(sovereignFQDN, bpName string) string {
 // reconcile — the card-edit path now SURFACES a failure of this leg per
 // #5113 Facet D, mirroring the #5018 honesty fix on the full-CR leg).
 //
-// No-ops (returns committed=false, err=nil) when:
-//   - the Gitea client is unwired (chroot pre-cutover / CI), OR
-//   - SOVEREIGN_FQDN is empty — i.e. the Catalyst-Zero mothership, which has
-//     no local Gitea catalog-sovereign Flux reconcile (it pushes to
-//     github.com and renders no openova-catalog-sovereign GitRepository).
+// No-op (returns committed=false, err=nil) when SOVEREIGN_FQDN is empty —
+// the Catalyst-Zero mothership, which has no local Gitea catalog-sovereign
+// Flux reconcile. Without a commit library it returns errCatalogGitUnavailable.
 //
 // The branch is ensured by the chart's catalog-sovereign repo-bootstrap
-// hook pre-cutover; PutFile creates the file on first write. The repo
+// hook pre-cutover; the commit creates the file on first write. The repo
 // (openova/openova) is auto-init'd by the Organization repo-bootstrap hook, so the
 // branch always has a base commit to write onto.
 func (h *Handler) writeCatalogSovereignAggregator(ctx context.Context, bpName string, merged []byte) (bool, error) {
 	// Same no-op contract as the Bytes trunk, checked BEFORE the canonical
-	// render so an unwired client / mothership never turns into an error.
-	if len(merged) == 0 || h.giteaClient == nil ||
-		strings.TrimSpace(envOr("SOVEREIGN_FQDN", "")) == "" {
+	// render so the mothership never turns into an error.
+	if len(merged) == 0 || strings.TrimSpace(envOr("SOVEREIGN_FQDN", "")) == "" {
 		return false, nil
 	}
 	// #5113 Facets A+B — the payload goes through the SAME canonical
@@ -159,24 +154,26 @@ func (h *Handler) writeCatalogSovereignAggregator(ctx context.Context, bpName st
 // Flux-reconciled aggregator tree — the shared trunk of the card-edit path
 // (which pre-strips the #4415 chart-delivery fields) and the full-CR IaC edit
 // path (#4896/#5018 — which commits the admin's whole document verbatim, name
-// stamped to the live CR identity). Same no-op contract as the wrapper above:
-// (false, nil) when the Gitea client is unwired or SOVEREIGN_FQDN is empty
-// (Catalyst-Zero mothership — no local catalog Flux reconcile exists).
+// stamped to the live CR identity). Same contract as the wrapper above:
+// (false, nil) when SOVEREIGN_FQDN is empty (Catalyst-Zero mothership — no
+// local catalog Flux reconcile exists); errCatalogGitUnavailable without a
+// commit library.
 func (h *Handler) writeCatalogSovereignAggregatorBytes(ctx context.Context, bpName string, fluxBytes []byte) (bool, error) {
-	if h.giteaClient == nil {
-		return false, nil // unwired — best-effort no-op (pre-cutover / CI)
-	}
 	sovereignFQDN := strings.TrimSpace(envOr("SOVEREIGN_FQDN", ""))
 	if sovereignFQDN == "" {
 		return false, nil // Catalyst-Zero mothership — no local catalog Flux
+	}
+	gw := catalogWriterOf(h.giteaClient)
+	if gw == nil {
+		return false, errCatalogGitUnavailable
 	}
 	if strings.TrimSpace(bpName) == "" || len(fluxBytes) == 0 {
 		return false, nil
 	}
 	path := catalogSovereignAggPath(sovereignFQDN, bpName)
 	msg := fmt.Sprintf("catalog: reconcile %s into Blueprint CR via Flux (#3668)", bpName)
-	_, committed, err := h.giteaClient.PutFile(ctx, catalogSovereignAggOrg, catalogSovereignAggRepo,
-		catalogSovereignAggBranch, path, fluxBytes, msg, catalogEditCommitAuthor())
+	committed, _, err := commitCatalogFile(ctx, gw, gitwrite.Repo{Owner: catalogSovereignAggOrg, Name: catalogSovereignAggRepo, Branch: catalogSovereignAggBranch},
+		path, fluxBytes, msg, catalogEditCommitAuthor())
 	if err != nil {
 		return false, fmt.Errorf("put %s/%s@%s/%s: %w",
 			catalogSovereignAggOrg, catalogSovereignAggRepo, catalogSovereignAggBranch, path, err)
@@ -190,10 +187,10 @@ func (h *Handler) writeCatalogSovereignAggregatorBytes(ctx context.Context, bpNa
 // these are overridable via the canonical CATALYST_GITOPS_COMMITTER_*
 // env (shared with the tenant-gitops writer); default to the catalyst-api
 // system identity.
-func catalogEditCommitAuthor() gitea.PutFileOpts {
-	return gitea.PutFileOpts{
-		AuthorName:  envOr("CATALYST_GITOPS_COMMITTER_NAME", "catalyst-api"),
-		AuthorEmail: envOr("CATALYST_GITOPS_COMMITTER_EMAIL", "ops@openova.io"),
+func catalogEditCommitAuthor() gitwrite.Identity {
+	return gitwrite.Identity{
+		Name:  envOr("CATALYST_GITOPS_COMMITTER_NAME", "catalyst-api"),
+		Email: envOr("CATALYST_GITOPS_COMMITTER_EMAIL", "ops@openova.io"),
 	}
 }
 
@@ -220,14 +217,13 @@ func catalogEditBlueprintName(slug string) string {
 // supported topologies is created. Either way the result is a single git
 // commit to the local catalog repo — the IaC source of truth.
 //
-// Returns (committed, err): committed=false + err=nil when the client is
-// unwired (best-effort no-op) OR the bytes were byte-equal (PutFile
-// short-circuit). A non-nil err means the git write genuinely failed and
-// the caller decides whether to surface it (we log + continue so the
-// store-backed API response is unaffected — git is additive here).
+// Returns (committed, err): committed=false + err=nil when the bytes were
+// byte-equal (no commit). errCatalogGitUnavailable without a commit library;
+// any non-nil err is reported by the caller.
 func (h *Handler) writeCatalogEditToGit(ctx context.Context, edit catalogEdit) (bool, error) {
-	if h.giteaClient == nil {
-		return false, nil // unwired — best-effort no-op (pre-cutover / CI)
+	gw := catalogWriterOf(h.giteaClient)
+	if gw == nil {
+		return false, errCatalogGitUnavailable
 	}
 	bpName := catalogEditBlueprintName(edit.Slug)
 	if bpName == "" {
@@ -302,8 +298,8 @@ func (h *Handler) writeCatalogEditToGit(ctx context.Context, edit catalogEdit) (
 	}
 
 	msg := fmt.Sprintf("catalog: edit %s card via catalyst-api (#3648)", bpName)
-	_, committed, err := h.giteaClient.PutFile(ctx, catalogSovereignOrg, bpName,
-		catalogEditGitBranch, catalogEditBlueprintPath, canonical, msg, catalogEditCommitAuthor())
+	committed, _, err := commitCatalogFile(ctx, gw, gitwrite.Repo{Owner: catalogSovereignOrg, Name: bpName, Branch: catalogEditGitBranch},
+		catalogEditBlueprintPath, canonical, msg, catalogEditCommitAuthor())
 	if err != nil {
 		return false, fmt.Errorf("put %s/%s/%s: %w", catalogSovereignOrg, bpName, catalogEditBlueprintPath, err)
 	}

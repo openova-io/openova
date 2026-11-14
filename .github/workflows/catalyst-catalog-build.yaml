@@ -126,6 +126,14 @@ jobs:
             ${{ env.IMAGE }}:${{ github.sha }}
           provenance: false
 
+      # Sign the image and attest its bill of materials through the shared
+      # action, before its tag is pinned (FND-062).
+      - name: Sign and attest the image
+        uses: ./.github/actions/sign-and-attest
+        with:
+          ref: ${{ env.IMAGE }}
+          digest: ${{ steps.build.outputs.digest }}
+
   notify:
     needs: build
     if: github.event_name == 'push'

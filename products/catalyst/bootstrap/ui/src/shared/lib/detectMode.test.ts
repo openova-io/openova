@@ -1,171 +1,186 @@
 /**
- * Tests for detectMode.ts — Catalyst operating mode detection.
+ * Tests for detectMode.ts — the Catalyst operating mode, read once at
+ * start from GET /api/v1/sovereign/self.
  *
- * Related: GitHub issue #607
+ * DETECTED_MODE is a module-level singleton resolved by a top-level await,
+ * so every test loads a fresh copy of the module with vi.resetModules()
+ * after it has stubbed fetch and the window location.
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
 
-// We need to reset module state between tests because DETECTED_MODE is a
-// module-level singleton derived at import time. We use vi.resetModules()
-// and dynamic imports to control the environment in each test.
+/** What the stubbed fetch does: answer with a status and a body, or fail. */
+type Answer = { status: number; body: unknown } | 'network-error' | 'not-json'
 
-// Helper to load detectMode in a controlled environment.
-async function loadDetectMode(
-  hostname: string,
-  viteCatalystMode?: string,
-  viteSovereignFqdn?: string,
-) {
+async function loadDetectMode(opts: {
+  answer: Answer
+  hostname?: string
+  pathname?: string
+  viteCatalystMode?: string
+  viteSovereignFqdn?: string
+}) {
   vi.resetModules()
-
-  // Mock the env constants module so VITE_CATALYST_MODE can be varied.
   vi.doMock('@/shared/constants/env', () => ({
-    VITE_CATALYST_MODE: viteCatalystMode,
-    VITE_SOVEREIGN_FQDN: viteSovereignFqdn,
+    VITE_CATALYST_MODE: opts.viteCatalystMode,
+    VITE_SOVEREIGN_FQDN: opts.viteSovereignFqdn,
     APP_MODE: 'saas',
     IS_SAAS: true,
     IS_SELFHOSTED: false,
     APP_VERSION: 'dev',
   }))
-
-  // Mock window.location.hostname
+  const hostname = opts.hostname ?? 'localhost'
+  // shared/config/urls.ts reads the host and the path at module-init (BASE).
   Object.defineProperty(window, 'location', {
-    value: { hostname },
+    value: { hostname, host: hostname, pathname: opts.pathname ?? '/', origin: `https://${hostname}` },
     writable: true,
     configurable: true,
   })
-
+  const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<unknown>>(async () => {
+    const a = opts.answer
+    if (a === 'network-error') throw new TypeError('Failed to fetch')
+    if (a === 'not-json') {
+      return { ok: true, status: 200, json: async () => { throw new SyntaxError('Unexpected token <') } }
+    }
+    return { ok: a.status < 300, status: a.status, json: async () => a.body }
+  })
+  vi.stubGlobal('fetch', fetchMock)
   const mod = await import('./detectMode')
-  return mod
+  return { mod, fetchMock }
 }
 
 afterEach(() => {
   vi.resetModules()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
-describe('detectMode()', () => {
-  it('returns catalyst-zero for console.openova.io', async () => {
-    const { detectMode } = await loadDetectMode('console.openova.io')
-    expect(detectMode()).toEqual({ mode: 'catalyst-zero', sovereignFQDN: null })
+const SOVEREIGN_ANSWER = {
+  status: 200,
+  body: {
+    deploymentId: 'dep-1',
+    sovereignFQDN: 'otech23.omani.works',
+    mode: 'sovereign',
+    phase: 'Bootstrapping',
+    consume: 'origin',
+    custodyHolder: 'parent',
+    release: { channel: 'stable', version: '' },
+    kubernetesVersion: 'v1.31.4+k3s1',
+  },
+}
+
+const MOTHERSHIP_ANSWER = {
+  status: 404,
+  body: { error: 'not-a-sovereign', mode: 'mothership', status: 404, code: '404' },
+}
+
+describe('DETECTED_MODE from GET /api/v1/sovereign/self', () => {
+  it('the mothership answer (404 not-a-sovereign, mode mothership) gives catalyst-zero', async () => {
+    const { mod } = await loadDetectMode({ answer: MOTHERSHIP_ANSWER })
+    expect(mod.DETECTED_MODE).toEqual({ mode: 'catalyst-zero', sovereignFQDN: null })
   })
 
-  it('returns catalyst-zero for localhost', async () => {
-    const { detectMode } = await loadDetectMode('localhost')
-    expect(detectMode()).toEqual({ mode: 'catalyst-zero', sovereignFQDN: null })
+  it('a Sovereign answer gives sovereign and the FQDN the API names', async () => {
+    const { mod } = await loadDetectMode({ answer: SOVEREIGN_ANSWER })
+    expect(mod.DETECTED_MODE).toEqual({ mode: 'sovereign', sovereignFQDN: 'otech23.omani.works' })
   })
 
-  it('returns catalyst-zero for 127.0.0.1', async () => {
-    const { detectMode } = await loadDetectMode('127.0.0.1')
-    expect(detectMode()).toEqual({ mode: 'catalyst-zero', sovereignFQDN: null })
+  it('the host name is not read: a Sovereign answer on console.openova.io is a Sovereign', async () => {
+    const { mod } = await loadDetectMode({ answer: SOVEREIGN_ANSWER, hostname: 'console.openova.io' })
+    expect(mod.DETECTED_MODE).toEqual({ mode: 'sovereign', sovereignFQDN: 'otech23.omani.works' })
   })
 
-  it('returns sovereign for console.otech23.omani.works', async () => {
-    const { detectMode } = await loadDetectMode('console.otech23.omani.works')
-    expect(detectMode()).toEqual({
-      mode: 'sovereign',
-      sovereignFQDN: 'otech23.omani.works',
+  it('a per-Organization console gets the Sovereign FQDN, not its own apex (#5895)', async () => {
+    const { mod } = await loadDetectMode({
+      answer: { status: 200, body: { sovereignFQDN: 'hw292.omani.works', mode: 'sovereign' } },
+      hostname: 'console.walk-stranger-two.omani.rest',
     })
+    expect(mod.DETECTED_MODE).toEqual({ mode: 'sovereign', sovereignFQDN: 'hw292.omani.works' })
   })
 
-  it('returns sovereign for console.eu-west.acmecorp.com', async () => {
-    const { detectMode } = await loadDetectMode('console.eu-west.acmecorp.com')
-    expect(detectMode()).toEqual({
-      mode: 'sovereign',
-      sovereignFQDN: 'eu-west.acmecorp.com',
+  it('an empty sovereignFQDN gives sovereign with a null FQDN', async () => {
+    const { mod } = await loadDetectMode({
+      answer: { status: 200, body: { sovereignFQDN: '   ', mode: 'sovereign' } },
     })
+    expect(mod.DETECTED_MODE).toEqual({ mode: 'sovereign', sovereignFQDN: null })
   })
 
-  it('strips port from hostname before processing', async () => {
-    const { detectMode } = await loadDetectMode('console.otech99.omani.works:5173')
-    expect(detectMode()).toEqual({
-      mode: 'sovereign',
-      sovereignFQDN: 'otech99.omani.works',
+  it('an answer without a mode gives catalyst-zero', async () => {
+    const { mod } = await loadDetectMode({
+      answer: { status: 200, body: { deploymentId: 'dep-1', sovereignFQDN: 'otech23.omani.works' } },
+      hostname: 'console.otech23.omani.works',
     })
+    expect(mod.DETECTED_MODE).toEqual({ mode: 'catalyst-zero', sovereignFQDN: null })
   })
 
-  it('returns catalyst-zero for an unrecognised hostname (fallback)', async () => {
-    const { detectMode } = await loadDetectMode('unknown-host.internal')
-    expect(detectMode()).toEqual({ mode: 'catalyst-zero', sovereignFQDN: null })
+  it('a network error gives catalyst-zero', async () => {
+    const { mod } = await loadDetectMode({ answer: 'network-error', hostname: 'console.otech23.omani.works' })
+    expect(mod.DETECTED_MODE).toEqual({ mode: 'catalyst-zero', sovereignFQDN: null })
+  })
+
+  it('a body that is not JSON gives catalyst-zero', async () => {
+    const { mod } = await loadDetectMode({ answer: 'not-json' })
+    expect(mod.DETECTED_MODE).toEqual({ mode: 'catalyst-zero', sovereignFQDN: null })
+  })
+
+  it('the request is made once, under the tier base, with a time limit', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout')
+    const { mod, fetchMock } = await loadDetectMode({ answer: SOVEREIGN_ANSWER })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/sovereign/self')
+    expect(fetchMock.mock.calls[0][1]?.signal).toBeDefined()
+    expect(timeout).toHaveBeenCalledWith(mod.SELF_TIMEOUT_MS)
+    expect(mod.SELF_TIMEOUT_MS).toBe(5000)
+  })
+
+  it('on Catalyst-Zero the request goes under /sovereign/api', async () => {
+    const { fetchMock } = await loadDetectMode({
+      answer: MOTHERSHIP_ANSWER,
+      hostname: 'console.openova.io',
+      pathname: '/sovereign/wizard',
+    })
+    expect(fetchMock.mock.calls[0][0]).toBe('/sovereign/api/v1/sovereign/self')
+  })
+
+  it('the answer is not kept in browser storage', async () => {
+    const setItem = vi.spyOn(Storage.prototype, 'setItem')
+    await loadDetectMode({ answer: SOVEREIGN_ANSWER })
+    expect(setItem).not.toHaveBeenCalled()
   })
 })
 
 describe('VITE_CATALYST_MODE override', () => {
-  it('forced sovereign mode returns the VITE_SOVEREIGN_FQDN', async () => {
-    const { detectMode } = await loadDetectMode(
-      'localhost',
-      'sovereign',
-      'otech23.omani.works',
-    )
-    expect(detectMode()).toEqual({
-      mode: 'sovereign',
-      sovereignFQDN: 'otech23.omani.works',
+  it('forced sovereign mode returns the VITE_SOVEREIGN_FQDN and asks no API', async () => {
+    const { mod, fetchMock } = await loadDetectMode({
+      answer: MOTHERSHIP_ANSWER,
+      viteCatalystMode: 'sovereign',
+      viteSovereignFqdn: 'otech23.omani.works',
     })
+    expect(mod.DETECTED_MODE).toEqual({ mode: 'sovereign', sovereignFQDN: 'otech23.omani.works' })
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('forced sovereign mode without VITE_SOVEREIGN_FQDN returns null FQDN', async () => {
-    const { detectMode } = await loadDetectMode('localhost', 'sovereign', undefined)
-    expect(detectMode()).toEqual({ mode: 'sovereign', sovereignFQDN: null })
+    const { mod } = await loadDetectMode({ answer: MOTHERSHIP_ANSWER, viteCatalystMode: 'sovereign' })
+    expect(mod.DETECTED_MODE).toEqual({ mode: 'sovereign', sovereignFQDN: null })
   })
 
-  it('forced catalyst-zero mode overrides a sovereign hostname', async () => {
-    const { detectMode } = await loadDetectMode(
-      'console.otech23.omani.works',
-      'catalyst-zero',
-    )
-    expect(detectMode()).toEqual({ mode: 'catalyst-zero', sovereignFQDN: null })
+  it('forced catalyst-zero mode overrides a Sovereign answer and asks no API', async () => {
+    const { mod, fetchMock } = await loadDetectMode({ answer: SOVEREIGN_ANSWER, viteCatalystMode: 'catalyst-zero' })
+    expect(mod.DETECTED_MODE).toEqual({ mode: 'catalyst-zero', sovereignFQDN: null })
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })
 
-/**
- * #5895 — the per-Org console derives the WRONG Sovereign FQDN.
- *
- * `sovereignFQDNFromHostname` strips one leading `console.` segment and treats
- * whatever remains as the Sovereign. That is correct for the Sovereign console
- * and WRONG for a per-Organization console, because a per-Org console satisfies
- * the `console.*` pattern without being a Sovereign:
- *
- *   console.hw292.omani.works            -> hw292.omani.works            (Sovereign, correct)
- *   console.walk-stranger-two.omani.rest -> walk-stranger-two.omani.rest (an ORG, wrong)
- *
- * The derived value feeds `buildOIDCEndpoints()` (oidc.ts:56), which builds
- * `https://auth.${sovereignFQDN}/realms/sovereign`. Measured live on hw292,
- * same path and query on each host:
- *
- *   auth.hw292.omani.works             -> 400  (Keycloak present, rejecting a bogus redirect_uri)
- *   auth.walk-stranger-two.omani.rest  -> 404  (nothing there; host root and
- *                                               /.well-known/openid-configuration also 404)
- *
- * So the browser is navigated to a host that serves nothing and renders a blank
- * page. There is no per-Org IdP by design — gitops.go:307 builds the single
- * shared issuer at `auth.<SovereignFQDN>/realms/<realm>` (#4272, #4399).
- *
- * WHY `it.fails` RATHER THAN ASSERTING THE BUG: a test that asserts the wrong
- * value would lock the defect in and go green forever. `it.fails` passes only
- * while the expectation below is UNMET — so the day someone makes the per-Org
- * console resolve its real Sovereign, this test starts failing and tells them to
- * delete the wrapper. It is a tripwire, not a spec for the broken behaviour.
- */
-describe('#5895 — per-Org console FQDN derivation', () => {
-  it.fails(
-    'SHOULD NOT treat a per-Org console hostname as a Sovereign FQDN',
-    async () => {
-      const { detectMode } = await loadDetectMode(
-        'console.walk-stranger-two.omani.rest',
-      )
-      // The Org's own domain is NOT a Sovereign, and no IdP is served at
-      // auth.<that>. Anything that makes this pass is a valid fix: injecting
-      // the real FQDN, resolving it from the per-Org API, or declining to
-      // claim sovereign mode for a host that cannot be verified.
-      expect(detectMode().sovereignFQDN).not.toBe('walk-stranger-two.omani.rest')
-    },
-  )
-
-  it('documents the Sovereign console, which is correct and must stay correct', async () => {
-    const { detectMode } = await loadDetectMode('console.hw292.omani.works')
-    expect(detectMode()).toEqual({
-      mode: 'sovereign',
-      sovereignFQDN: 'hw292.omani.works',
-    })
+describe('modeFromSelf()', () => {
+  it.each([
+    ['null', null, { mode: 'catalyst-zero', sovereignFQDN: null }],
+    ['a string', 'sovereign', { mode: 'catalyst-zero', sovereignFQDN: null }],
+    ['an unknown mode', { mode: 'parent', sovereignFQDN: 'a.example' }, { mode: 'catalyst-zero', sovereignFQDN: null }],
+    ['mothership with a name', { mode: 'mothership', sovereignFQDN: 'a.example' }, { mode: 'catalyst-zero', sovereignFQDN: null }],
+    ['sovereign with a padded name', { mode: 'sovereign', sovereignFQDN: ' a.example ' }, { mode: 'sovereign', sovereignFQDN: 'a.example' }],
+    ['sovereign without a name', { mode: 'sovereign' }, { mode: 'sovereign', sovereignFQDN: null }],
+  ])('%s', async (_name, body, want) => {
+    const { mod } = await loadDetectMode({ answer: MOTHERSHIP_ANSWER })
+    expect(mod.modeFromSelf(body)).toEqual(want)
   })
 })

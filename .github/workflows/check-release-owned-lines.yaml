@@ -1,0 +1,57 @@
+name: check-release-owned-lines
+
+# CI is the only writer of chart versions and the pins that follow them
+# (FND-011). After a merge, the release writer in blueprint-release.yaml bumps
+# a changed chart's version and moves its blueprint.yaml, its catalog-seed
+# entry, the generated catalog and its bootstrap-kit pin in one commit. A pull
+# request may add or delete a whole chart, Blueprint, seed entry or slot file;
+# it may not change a version value of one that exists before and after it.
+# The rules are in the head of scripts/check-release-owned-lines.py.
+#
+# The job `push` stays idle until the repository variable RELEASE_WRITER_LOGIN
+# exists. Package FND-017 sets it when it moves every bot writer to that login
+# and switches the merge queue on; from then on a push to main that came
+# neither from the queue nor from that login fails this job.
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  pr:
+    name: no release-owned value changes in a pull request
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prove the guard can fail
+        run: python3 scripts/check-release-owned-lines.py --self-test
+
+      - name: No release-owned value changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python3 scripts/check-release-owned-lines.py pr --base "$BASE_SHA" --head "$HEAD_SHA"
+
+  push:
+    name: a push to main comes from the merge queue or the release writer
+    if: github.event_name == 'push' && vars.RELEASE_WRITER_LOGIN != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Who pushed
+        env:
+          PUSH_ACTOR: ${{ github.actor }}
+          RELEASE_WRITER: ${{ vars.RELEASE_WRITER_LOGIN }}
+        run: python3 scripts/check-release-owned-lines.py push --actor "$PUSH_ACTOR" --writer "$RELEASE_WRITER"

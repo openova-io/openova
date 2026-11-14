@@ -1,0 +1,113 @@
+{{- /*
+Function test of bp-seaweedfs (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
+
+Through the S3 endpoint of this release it creates a scratch bucket, puts one
+object, gets it back and compares it, then deletes the object and the bucket.
+It signs with the admin key pair of the S3 Secret the vendored subchart renders
+(<fullname>-s3-secret), mounted as files.
+
+It renders only when that Secret is rendered with S3 authentication on:
+seaweedfs.s3.enabled and seaweedfs.s3.enableAuth are true and
+seaweedfs.s3.existingConfigSecret is empty. <fullname> is computed the way the
+subchart computes it. The S3 client is the AWS command-line tool of the kubectl
+image the kit already pulls (bp-cnpg uses it). functionTest.image overrides it.
+*/ -}}
+{{- $sub := .Values.seaweedfs | default dict }}
+{{- $s3 := $sub.s3 | default dict }}
+{{- if and $s3.enabled $s3.enableAuth (not $s3.existingConfigSecret) }}
+{{- $name := $sub.nameOverride | default "seaweedfs" }}
+{{- $fullname := "" }}
+{{- if $sub.fullnameOverride }}
+{{- $fullname = $sub.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- else if contains $name .Release.Name }}
+{{- $fullname = .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- $fullname = printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- end }}
+{{- $service := printf "%s-s3" (trunc 60 $fullname | trimSuffix "-") }}
+{{- $ft := .Values.functionTest | default dict }}
+{{- $image := $ft.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 300
+  automountServiceAccountToken: false
+  containers:
+    - name: function-test
+      image: {{ $image | quote }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "64Mi"
+        limits:
+          cpu: "500m"
+          memory: "256Mi"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: HOME
+          value: /tmp
+        - name: AWS_CONFIG_FILE
+          value: /tmp/aws-config
+        - name: S3_ENDPOINT
+          value: {{ printf "http://%s.%s.svc.cluster.local:%v" $service .Release.Namespace ($s3.port | default 8333) | quote }}
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: s3
+          mountPath: /etc/function-test/s3
+          readOnly: true
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -u
+          fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          oneline() { tr '\n' ' ' < "$1" | cut -c1-200; }
+          AWS_ACCESS_KEY_ID="$(cat /etc/function-test/s3/access-key)" || fail "cannot read the S3 access key"
+          AWS_SECRET_ACCESS_KEY="$(cat /etc/function-test/s3/secret-key)" || fail "cannot read the S3 secret key"
+          export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+          printf '[default]\nregion = us-east-1\ns3 =\n    addressing_style = path\n' > "${AWS_CONFIG_FILE}"
+          s3() { aws --endpoint-url "${S3_ENDPOINT}" s3api "$@" > /tmp/out 2> /tmp/error; }
+          bucket="function-test-$(date +%s)-$$"
+          printf 'function test object %s\n' "${bucket}" > /tmp/object
+          s3 create-bucket --bucket "${bucket}" || fail "create-bucket ${bucket} on ${S3_ENDPOINT} failed: $(oneline /tmp/error)"
+          # After the bucket exists every failure removes what it made, then fails.
+          undo() { s3 delete-object --bucket "${bucket}" --key probe; s3 delete-bucket --bucket "${bucket}"; fail "$1"; }
+          s3 put-object --bucket "${bucket}" --key probe --body /tmp/object || undo "put-object failed: $(oneline /tmp/error)"
+          s3 get-object --bucket "${bucket}" --key probe /tmp/object-read || undo "get-object failed: $(oneline /tmp/error)"
+          [ "$(cat /tmp/object-read)" = "$(cat /tmp/object)" ] || undo "the object read back differs from the object written"
+          s3 delete-object --bucket "${bucket}" --key probe || undo "delete-object failed: $(oneline /tmp/error)"
+          s3 delete-bucket --bucket "${bucket}" || fail "delete-bucket ${bucket} failed: $(oneline /tmp/error)"
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} created bucket ${bucket}, put, got and deleted one object, and deleted the bucket through ${S3_ENDPOINT}"
+  volumes:
+    - name: tmp
+      emptyDir: {}
+    - name: s3
+      secret:
+        secretName: {{ printf "%s-s3-secret" $fullname | quote }}
+        items:
+          - key: admin_access_key_id
+            path: access-key
+          - key: admin_secret_access_key
+            path: secret-key
+{{- end }}

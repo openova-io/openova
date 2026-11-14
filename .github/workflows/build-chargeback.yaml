@@ -27,6 +27,10 @@ on:
       - 'products/chargeback/**'
       - '.github/workflows/build-chargeback.yaml'
     branches: [main]
+  pull_request:
+    paths:
+      - 'products/chargeback/**'
+      - '.github/workflows/build-chargeback.yaml'
   workflow_dispatch:
 
 env:
@@ -36,6 +40,8 @@ env:
 permissions:
   contents: read
   packages: write
+  # The step that signs the image needs a GitHub OIDC token (FND-062).
+  id-token: write
 
 jobs:
   build-chargeback:
@@ -94,7 +100,10 @@ jobs:
           APPVER=$(grep -E '^appVersion:' products/chargeback/chart/Chart.yaml | head -1 | sed -E 's/appVersion:[[:space:]]*"?([^"]+)"?/\1/')
           echo "app_version=${APPVER}" >> "$GITHUB_OUTPUT"
 
+      # Publish steps run only on a push to main (FND-051). Every other run
+      # builds, tests and smoke-tests the image and pushes nothing.
       - name: Login to GHCR
+        if: github.event_name == 'push'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -162,6 +171,8 @@ jobs:
           echo "FAIL: /healthz never served"; docker logs cb-smoke; docker rm -f cb-smoke; exit 1
 
       - name: Push image (only after smoke gate is green)
+        id: push
+        if: github.event_name == 'push'
         run: |
           set -euo pipefail
           for TAG in \
@@ -171,3 +182,16 @@ jobs:
             echo "pushing $TAG"
             docker push "$TAG"
           done
+          # The digest that the registry now holds for these tags. The next step
+          # signs exactly that manifest (FND-062).
+          digest="$(docker buildx imagetools inspect "${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}" --format '{{json .Manifest}}' | python3 -c 'import json, sys; print(json.load(sys.stdin)["digest"])')"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      # Sign the image and attest its bill of materials through the shared
+      # action, before its tag is pinned (FND-062).
+      - name: Sign and attest the image
+        if: github.event_name == 'push'
+        uses: ./.github/actions/sign-and-attest
+        with:
+          ref: ${{ env.IMAGE }}
+          digest: ${{ steps.push.outputs.digest }}

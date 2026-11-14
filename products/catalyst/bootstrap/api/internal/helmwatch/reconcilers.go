@@ -52,13 +52,6 @@ var (
 	DeploymentGVR = schema.GroupVersionResource{
 		Group: "apps", Version: "v1", Resource: "deployments",
 	}
-	// JobEventGVR — events.k8s.io/v1 Event. Only the terminal Job events
-	// (Completed / BackoffLimitExceeded / DeadlineExceeded …) are read: they
-	// are the one record of a run's outcome that outlives the Job object
-	// (see JobLedger).
-	JobEventGVR = schema.GroupVersionResource{
-		Group: "events.k8s.io", Version: "v1", Resource: "events",
-	}
 )
 
 // ReconcilerMarkerLabel — a Deployment opts INTO the reconciler kind by
@@ -241,6 +234,9 @@ type ReconcilerObservation struct {
 	// bridge attaches it as an Execution under "install-openbao" instead
 	// of minting a duplicate task-* row. Empty for standalone Jobs.
 	OwnerInstallChart string
+	// JobUID — for an HR install-hook run, the Job's metadata.uid, the key
+	// the Job watch closes the run by. Empty for every other observation.
+	JobUID string
 	// Executions — for a CronJob, the recent spawned-Job runs (newest
 	// first), each becoming an Execution on the cron-<name> leaf. Empty
 	// for the other kinds.
@@ -259,127 +255,9 @@ type ReconcilerExecution struct {
 	FinishedAt time.Time
 	// Message — a short run summary line.
 	Message string
-	// RemovedOnSuccess — the Job is a Helm hook whose delete policy removes
-	// it when (and only when) it succeeds: hook-succeeded without
-	// hook-failed. Recorded while the Job is still visible because it is
-	// the only evidence left about the run once Helm has deleted it.
-	RemovedOnSuccess bool
-}
-
-// JobLedger is what one live Job LIST plus the terminal Job events say about
-// runs that may no longer exist. A Job that finishes is often deleted moments
-// later — Helm deletes hook Jobs on success, CloudNativePG deletes its initdb
-// Job, a CronJob prunes old runs — so a run first seen in flight can vanish
-// before any later read sees it terminate. Without this ledger the Jobs page
-// kept such runs "Running" forever (WordPress admin-user and initdb, hw307
-// 2026-11-12: Ready in 2m41s, both Jobs completed and were deleted, the page
-// still said Running half an hour later).
-type JobLedger struct {
-	// Listed — the Job LIST succeeded, so absence from Present is meaningful.
-	// When false nothing may be concluded from absence.
-	Listed bool
-	// Present — names of every Job that exists right now.
-	Present map[string]bool
-	// EventsListed — the terminal-event LIST succeeded, so a vanished run
-	// with no entry in Ended really has no surviving completion event.
-	EventsListed bool
-	// Ended — Job name → the newest terminal event recorded for it.
-	Ended map[string]JobEnd
-}
-
-// JobEnd is one terminal Job event.
-type JobEnd struct {
-	// Status — ObsStatusSucceeded or ObsStatusFailed.
-	Status string
-	// At — when the event was recorded.
-	At time.Time
-	// Reason — the event reason (Completed, BackoffLimitExceeded, …).
-	Reason string
-}
-
-// jobEventVerdict maps a Job event reason onto a terminal status. Only the
-// reasons the Job controller emits when a Job reaches a terminal condition
-// count; everything else (SuccessfulCreate, policy-engine warnings) is not
-// an outcome.
-func jobEventVerdict(reason string) (string, bool) {
-	switch reason {
-	case "Completed":
-		return ObsStatusSucceeded, true
-	case "BackoffLimitExceeded", "DeadlineExceeded", "PodFailurePolicy",
-		"MaxFailedIndexesExceeded", "FailedIndexes":
-		return ObsStatusFailed, true
-	}
-	return "", false
-}
-
-// removedOnSuccess reports whether Helm deletes this Job exactly when it
-// succeeds (hook-delete-policy contains hook-succeeded but not hook-failed).
-func removedOnSuccess(u *unstructured.Unstructured) bool {
-	annos := u.GetAnnotations()
-	if _, isHook := annos["helm.sh/hook"]; !isHook {
-		return false
-	}
-	succ, fail := false, false
-	for _, p := range strings.Split(annos["helm.sh/hook-delete-policy"], ",") {
-		switch strings.TrimSpace(p) {
-		case "hook-succeeded":
-			succ = true
-		case "hook-failed":
-			fail = true
-		}
-	}
-	return succ && !fail
-}
-
-// eventTime picks the most specific timestamp an events.k8s.io/v1 Event
-// carries.
-func eventTime(u *unstructured.Unstructured) time.Time {
-	for _, path := range [][]string{
-		{"series", "lastObservedTime"},
-		{"deprecatedLastTimestamp"},
-		{"eventTime"},
-	} {
-		if s, ok, _ := unstructured.NestedString(u.Object, path...); ok && s != "" {
-			for _, layout := range []string{time.RFC3339Nano, "2006-01-02T15:04:05.000000Z07:00"} {
-				if t, err := time.Parse(layout, s); err == nil {
-					return t.UTC()
-				}
-			}
-		}
-	}
-	return u.GetCreationTimestamp().Time.UTC()
-}
-
-// listJobEnds reads the terminal Job events. Two field-selected LISTs keep
-// the read small (Completed is Normal, every failure reason is Warning);
-// the reason filter is re-applied here so a client that ignores field
-// selectors still yields only outcomes.
-func listJobEnds(ctx context.Context, dyn dynamic.Interface) (map[string]JobEnd, bool) {
-	ends := map[string]JobEnd{}
-	for _, fs := range []string{"regarding.kind=Job,reason=Completed", "regarding.kind=Job,type=Warning"} {
-		list, err := dyn.Resource(JobEventGVR).Namespace("").List(ctx, metav1.ListOptions{FieldSelector: fs})
-		if err != nil {
-			return nil, false
-		}
-		for i := range list.Items {
-			u := &list.Items[i]
-			if k, _, _ := unstructured.NestedString(u.Object, "regarding", "kind"); k != "Job" {
-				continue
-			}
-			name, _, _ := unstructured.NestedString(u.Object, "regarding", "name")
-			reason, _, _ := unstructured.NestedString(u.Object, "reason")
-			st, ok := jobEventVerdict(reason)
-			if name == "" || !ok {
-				continue
-			}
-			at := eventTime(u)
-			if prev, seen := ends[name]; seen && !at.After(prev.At) {
-				continue
-			}
-			ends[name] = JobEnd{Status: st, At: at, Reason: reason}
-		}
-	}
-	return ends, true
+	// UID — the spawned Job's metadata.uid, the key the Job watch closes
+	// the run by.
+	UID string
 }
 
 // ListReconcilerObservations performs a ONE-SHOT list of every observed
@@ -394,16 +272,8 @@ func listJobEnds(ctx context.Context, dyn dynamic.Interface) (map[string]JobEnd,
 // (kustomizations, cronjobs, jobs, deployments) so callers/tests see a
 // deterministic sequence.
 func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]ReconcilerObservation, error) {
-	obs, _, err := ListReconcilerObservationsWithLedger(ctx, dyn)
-	return obs, err
-}
-
-// ListReconcilerObservationsWithLedger is ListReconcilerObservations plus the
-// JobLedger the bridge needs to close runs whose Job has since been deleted.
-func ListReconcilerObservationsWithLedger(ctx context.Context, dyn dynamic.Interface) ([]ReconcilerObservation, JobLedger, error) {
-	led := JobLedger{}
 	if dyn == nil {
-		return []ReconcilerObservation{}, led, nil
+		return []ReconcilerObservation{}, nil
 	}
 	out := make([]ReconcilerObservation, 0, 16)
 
@@ -512,16 +382,9 @@ func ListReconcilerObservationsWithLedger(ctx context.Context, dyn dynamic.Inter
 	// leaves use), recency-resolving the headline status — the Jobs view shows
 	// "trivy security-scan · N runs" / "syft sbom · N runs", one row each.
 	if list, err := dyn.Resource(JobGVR).Namespace("").List(ctx, metav1.ListOptions{}); err == nil {
-		led.Listed = true
-		led.Present = make(map[string]bool, len(list.Items))
-		for i := range list.Items {
-			led.Present[list.Items[i].GetName()] = true
-		}
-		led.Ended, led.EventsListed = listJobEnds(ctx, dyn)
 		for i := range list.Items {
 			u := &list.Items[i]
-			status, started, finished := jobRunStatus(u)
-			onSuccess := removedOnSuccess(u)
+			status, started, finished := JobRunStatus(u)
 			// Day-2 scanner Job (trivy-operator scan-* OR a syft-grype run)
 			// → fold its run onto the ONE collapsed identity row (#3925).
 			if id, ok := scannerIdentity(u); ok {
@@ -537,12 +400,12 @@ func ListReconcilerObservationsWithLedger(ctx context.Context, dyn dynamic.Inter
 				if idx, ok := cronIdx[key]; ok {
 					c := &out[idx]
 					c.Executions = append(c.Executions, ReconcilerExecution{
-						Name:             u.GetName(),
-						Status:           status,
-						StartedAt:        started,
-						FinishedAt:       finished,
-						Message:          "run " + u.GetName() + ": " + status,
-						RemovedOnSuccess: onSuccess,
+						Name:       u.GetName(),
+						Status:     status,
+						StartedAt:  started,
+						FinishedAt: finished,
+						Message:    "run " + u.GetName() + ": " + status,
+						UID:        string(u.GetUID()),
 					})
 					// Headline = the most recent run, and never a no-verdict
 					// state over a recorded failure. See adoptRunHeadline.
@@ -564,6 +427,7 @@ func ListReconcilerObservationsWithLedger(ctx context.Context, dyn dynamic.Inter
 					Message:           "install-hook run: " + status,
 					ObservedAt:        firstNonZero(finished, started),
 					OwnerInstallChart: chart,
+					JobUID:            string(u.GetUID()),
 				})
 				continue
 			}
@@ -585,12 +449,12 @@ func ListReconcilerObservationsWithLedger(ctx context.Context, dyn dynamic.Inter
 			if idx, ok := taskIdx[key]; ok {
 				c := &out[idx]
 				c.Executions = append(c.Executions, ReconcilerExecution{
-					Name:             u.GetName(),
-					Status:           status,
-					StartedAt:        started,
-					FinishedAt:       finished,
-					Message:          "run " + u.GetName() + ": " + status,
-					RemovedOnSuccess: onSuccess,
+					Name:       u.GetName(),
+					Status:     status,
+					StartedAt:  started,
+					FinishedAt: finished,
+					Message:    "run " + u.GetName() + ": " + status,
+					UID:        string(u.GetUID()),
 				})
 				// Same headline resolution as the cron leaf. See adoptRunHeadline.
 				adoptRunHeadline(c, status, "last run "+u.GetName()+": "+status,
@@ -604,12 +468,12 @@ func ListReconcilerObservationsWithLedger(ctx context.Context, dyn dynamic.Inter
 				Status:    status,
 				Message:   "batch job: " + status,
 				Executions: []ReconcilerExecution{{
-					Name:             u.GetName(),
-					Status:           status,
-					StartedAt:        started,
-					FinishedAt:       finished,
-					Message:          "run " + u.GetName() + ": " + status,
-					RemovedOnSuccess: onSuccess,
+					Name:       u.GetName(),
+					Status:     status,
+					StartedAt:  started,
+					FinishedAt: finished,
+					Message:    "run " + u.GetName() + ": " + status,
+					UID:        string(u.GetUID()),
 				}},
 				ObservedAt: firstNonZero(finished, started),
 			})
@@ -638,7 +502,7 @@ func ListReconcilerObservationsWithLedger(ctx context.Context, dyn dynamic.Inter
 		}
 	}
 
-	return out, led, nil
+	return out, nil
 }
 
 // statusFromReadyCondition maps a Flux Kustomization's Ready condition
@@ -702,10 +566,11 @@ func readyTransitionTime(conds []metav1.Condition) time.Time {
 	return time.Time{}
 }
 
-// jobRunStatus derives a batch Job's run status + timing from its
+// JobRunStatus derives a batch Job's run status + timing from its
 // .status.conditions (Complete / Failed) + .status fields. Running when
-// neither terminal condition is present.
-func jobRunStatus(u *unstructured.Unstructured) (status string, started, finished time.Time) {
+// neither terminal condition is present. The seed and the Job watch
+// (internal/jobwatch) read a Job's outcome through this one function.
+func JobRunStatus(u *unstructured.Unstructured) (status string, started, finished time.Time) {
 	conds, _ := extractConditions(u)
 	for _, c := range conds {
 		if c.Status != metav1.ConditionTrue {
@@ -908,6 +773,7 @@ func foldScannerRun(out *[]ReconcilerObservation, scannerIdx map[string]int, ide
 		StartedAt:  started,
 		FinishedAt: finished,
 		Message:    "scan run " + u.GetName() + ": " + status,
+		UID:        string(u.GetUID()),
 	}
 	runAt := firstNonZero(finished, started)
 	if idx, ok := scannerIdx[identity]; ok {

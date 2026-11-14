@@ -1,0 +1,51 @@
+# check-upstream-literals.yaml - source addresses written into the code may only fall.
+#
+# scripts/check-upstream-literals.sh counts, in six scopes, the lines that write a company
+# or public source address as a literal: oci://, https:// or git:// to an openova.io host,
+# ghcr.io, github.com/openova-io, raw.githubusercontent.com or a Crossplane package host;
+# a package: line that names one of them; get.k3s.io; the parent's bastion address; a named
+# openova.io service host. Comment lines and image names do not count. It compares each
+# count with scripts/upstream-literals-baseline.txt. A count above its baseline fails. A
+# count below it passes with a note, and the change lowers the baseline with --write-baseline.
+#
+# The workflow runs on every pull request and on every merge group. It has no path filter
+# on purpose: a required check that a path filter skips never reports.
+# The self-test runs first. It shows, on a tree it builds itself, that every rule can fail.
+# The last step shows it on the real kit: one address added to a copy must fail the guard.
+# That step prints the guard's output only when the guard did not fail, so a green log holds
+# no line 'check-upstream-literals: FAIL'.
+name: check-upstream-literals
+
+on:
+  pull_request:
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  upstream-literals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Self-test of the guard
+        run: bash scripts/check-upstream-literals.sh --self-test
+      - name: No scope holds more source addresses than its baseline
+        run: bash scripts/check-upstream-literals.sh
+      - name: One address added to a copy of a kit file fails the guard
+        run: |
+          t="$(mktemp -d)"
+          trap 'rm -rf "$t"' EXIT
+          ln -s "$PWD/infra" "$PWD/platform" "$PWD/products" "$PWD/core" "$PWD/scripts" "$t/"
+          mkdir -p "$t/clusters"
+          cp -r clusters/_template "$t/clusters/_template"
+          printf 'url: oci://ghcr.io/openova-io\n' >> "$t/clusters/_template/kustomization.yaml"
+          code=0
+          out="$(bash scripts/check-upstream-literals.sh --root "$t")" || code=$?
+          if [ "$code" != 1 ] || ! grep -q -F 'check-upstream-literals: FAIL kit: ' <<<"$out"; then
+            printf '%s\n' "$out"
+            echo "The guard did not fail on the added address (exit code $code)."
+            exit 1
+          fi
+          echo "The guard failed on the added address, as it must."

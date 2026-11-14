@@ -284,7 +284,7 @@ name: bp-openbao
 #   8200. Inputs: peerTrust.selfRegion/regions (region registry); nothing for
 #   a single region. tests: config-desired-render, config-reconcile-
 #   idempotence, peer-trust-render (+ eso-push / snapshot updated).
-version: 1.2.72-hw307.1
+version: 1.2.77
 # 1.2.51 (#3888, Refs #3847): prov-time openbao KV-seed mechanism — the
 # auth-bootstrap Job reads a one-shot cloud-init `openbao-bootstrap-seed`
 # Secret + writes its keys into KV at secret/<prefix>/* with the still-valid

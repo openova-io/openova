@@ -190,6 +190,8 @@ graph LR
 
 ## 4. Release-train protocol (enforceable checklist)
 
+Since ADR-0022 a fresh installation is started in one of two ways: by a ticket of lane GATE that writes the command, or, once FND-141 has merged, by the workflow `.github/workflows/release-train.yaml`. The checklist RT-1 to RT-11 below stays in force for both.
+
 Every prov fire is a **train departure**. Before ANY `POST /sovereign/api/v1/deployments` (RT-10 additionally covers cutover re-fires):
 
 The departure passes through all eleven gates in order; a failed gate HALTS the train (the checklist below is the authoritative text for each):
@@ -282,7 +284,7 @@ flowchart TD
 
 ## 6. Perfect-ticket template (distilled from #3370 — 24/25 gold standard)
 
-Ship as `.github/ISSUE_TEMPLATE/dispatch.md` + labeler rule: **`status/in-progress` may not be applied to an issue lacking a checkable DoD section.**
+The Issue template is `.github/ISSUE_TEMPLATE/dispatch.md`. The ticket of a work package is `docs/ledger/plan/tickets/<ID>.md`: these 11 fields and the fields 12 to 21 of section 11. `scripts/ticket-lint.py` checks every ticket, and `python3 scripts/plan.py validate` runs it on every pull request.
 
 **Mandatory fields for every sub-agent dispatch ticket:**
 
@@ -328,8 +330,9 @@ flowchart TD
 | `docs/RUNBOOKS.md` | Huawei/kom4dc pre-flight chapter with the §5.1 quota table AND the §5.0 named protect-list (promote `docs/runbooks/preflight-sovereign-provision.md` content); cutover-FIRST prov sequence; converged re-fire runbook (incl. RT-10 walk-first gate); 2-fires/day cap | Canonical doc #6 |
 | `docs/STATUS.md` / `docs/DOD.md` | Re-stamped to hw24x/hw25x truth: Huawei kom4dc substrate, 11-step cutover, Sandbox-Pillar-4 scope removal | Canonical docs #2/#4 |
 | `docs/adr/` | ADR-0014: sovereign-ref canon amending ADR-0012 — "deny-egress hold is the sovereignty proof; containerd redirect is the mechanism; lint rejects only refs outside HOST_PROJECT_MAP" (#5038's ruling; 0013 is now the cross-org-denial-shape decision). The 11-step chain superseding ADR-0002's 8-Job spec is recorded via a Status note on ADR-0002 (body immutable) + STATUS.md §2.2, NOT a new ADR | Immutable, additive |
-| `docs/ledger/TRACKER.md` | Live lanes (§3), rescoped gate denominator, weekly rework%-vs-progress% row, founder-gated-items age column (per §1.3 register) with 48h escalation trigger, close-audit summary row (W5) | Cron-refreshed, dashboard-visible |
-| `scripts/refresh-dod-dashboard.sh` (repo-tracked, MOVED from `/home/openova/bin/` as part of W6) + `docs/ledger/gates.yaml` (NEW — the gate-set/denominator definition) | The DoD dashboard renderer + the machine-readable definition of WHICH gates constitute the north-star denominator (fixes the "41/41 = 100%" theater at its definition, not just its rendering). Host cron becomes a thin wrapper: `exec <repo>/scripts/refresh-dod-dashboard.sh` | Survives host death; auditable in PR review; a fresh container can regenerate the dashboard |
+| `docs/ledger/plan.yaml` | The transition plan as data: every work package with its dependencies, allowed paths, precondition, acceptance commands and size; the lanes, limits and locks. `docs/ledger/TRACKER.md` is rendered from it by `python3 scripts/plan.py render` | `python3 scripts/plan.py validate` on every pull request (`plan-validate.yaml`); the three checks of `work-package.yaml` judge each work package by its entry |
+| `docs/ledger/gates.yaml` | The gate manifest: every gate check, its state (`not-built`, `expected-fail`, `required`), where it runs and the package that delivers it. A state only moves forward (ADR-0022) | `python3 scripts/acceptance-gate.py validate` on every pull request (`gate-manifest.yaml`) |
+| `docs/ledger/stability.yaml` (added by FND-040) | Every surface with its paths and its class (`stable`, `settling`, `thrashing`, `frozen`) | The frozen-path check of FND-040 |
 | `docs/ledger/UAT.md` + `TRUST.md` | Per-row walk stamps with triggering-merge SHA (surface-aware on MERGE-triggered restamps only — §8/C6; fire-triggered full flush per founder canon unless F2 granted); per-fix proof stays attached to ISSUES so it survives env death | Cron + walk agents |
 | `.github/` (CI + templates) | The mechanical gates: cutover harness workflow, `lint-cloudinit.sh`, widened `check-kyverno-proxy-images.sh`, close-evidence Action, preflight-wiring regression check, `ISSUE_TEMPLATE/dispatch.md` + labeler | Model-independent — enforces even on a zero-context session |
 | `~/.claude/skills/` | Procedures, not facts. The `/close` skill now runs `gh issue close` for verified items (the agent owns the full close cycle) — the only-the-user-closes rule was repealed 2026-06-05 and the skill was updated to match | Session-local; must never contradict repo canon |
@@ -446,3 +449,101 @@ Every completion-percentage report to the founder computes EXACTLY this, in this
 6. No other percentage (raw-flushed %, half-credit %, structural %) is ever presented as the completion number.
 
 Why: across July the founder was shown raw-flushed, pct-formula, durable, and carry-forward numbers in different sessions — each defined, but the headline appeared to jump (91→57) without the product changing. One frozen measurement ends that.
+
+---
+
+## 11. Execution by a less capable model
+
+This section is the procedure for every work package of `docs/ledger/plan.yaml`. ADR-0022 records the decision behind it. It extends sections 3, 4, 6 and 7 and does not replace them. Where this section and a ticket differ, the ticket is followed: it is the more exact text.
+
+### 11.1 Roles
+
+- **Architect.** Writes the plan file, the gate manifest, the tickets and their GitHub Issues. Makes every design decision. Starts every executor session, reviews every pull request, merges it and closes its Issue. Amends a ticket that was reported wrong. Never hands out a ticket that `scripts/ticket-lint.py` refuses.
+- **Executor.** Does the one ticket that the architect named, literally, in one session, and opens one pull request. Makes no design decision. Never merges. Never reads a repository other than this one.
+- **Lane GATE.** The only lane that fires, wipes or runs the release train. It is read-only towards product code: it never ships a change to make its own run pass.
+
+### 11.2 The ticket
+
+The ticket `docs/ledger/plan/tickets/<ID>.md` is the complete instruction for one work package. Its parts, in order:
+
+1. A front matter with the lines `id`, `ticket_rev`, `plan_commit`, `lane`, `type` and `size`, then the title line `# <ID> — <title>`.
+2. `## In plain words`: the problem today, what changes, and two to seven sentences that a person can check when the work is done. No code. The GitHub Issue of the package starts with the same text; its form is `.github/ISSUE_TEMPLATE/dispatch.md`.
+3. The rules of conduct of section 11.6, word for word.
+4. The 21 fields: the 11 fields of section 6, then 12 Precondition, 13 Pre-flight checks, 14 Allowed paths, 15 Forbidden paths, 16 Steps, 17 Stop conditions, 18 Acceptance checks, 19 Rollback, 20 Locks, gate check, budget, 21 Return format.
+5. `## If this ticket is wrong`: the procedure of section 11.5.
+
+Field 12 equals the `precondition` of the package in the plan file, field 14 its `touches`, field 18 its `acceptance`, and the ticket's `ticket_rev` the plan's. `scripts/ticket-lint.py` checks the form and these equalities; its rules are printed at its head. `python3 scripts/plan.py validate` runs it over every ticket on every pull request.
+
+### 11.3 One session, one ticket
+
+1. The architect starts one session for one named ticket, in a clean checkout.
+2. The executor creates the branch `wp/<ID>` from `origin/main` and pushes it. That push is the claim. `python3 scripts/plan.py claim-check <ID>` must print `keep`.
+3. It runs the precondition and every pre-flight command and compares each output with the ticket.
+4. It does the work steps of field 16 in order, and changes only the paths of field 14.
+5. It runs `python3 scripts/plan.py accept --id <ID>` to find mistakes early. That output is not evidence.
+6. It adds the marker file `docs/ledger/plan/done/<ID>.yaml`, makes one commit, runs the scope fence with `python3 scripts/plan.py check-pr`, pushes, and opens one pull request whose body ends with `Work-Package: <ID>`.
+7. It waits with `python3 scripts/plan.py checks --pr <pr> --wait`. A pending check is not green. When every check has finished green it says so on the pull request, reports, and stops.
+8. The architect reviews the pull request, merges it as one squash commit, closes the Issue and starts the next session.
+
+The checks `work-package / scope`, `work-package / precondition` and `work-package / acceptance` (workflow `work-package.yaml`) judge every work package by its entry in the plan file on `main`. Evidence is a CI record or a gate record. Output in a terminal is not evidence.
+
+### 11.4 Lanes, limits and locks
+
+A lane is a queue of packages. The plan file assigns each package one lane. Where two rows match a file, the longer path wins.
+
+| Lane | Trees | Notes |
+|---|---|---|
+| GATE | `tests/acceptance/**`, `scripts/acceptance*`, `docs/ledger/acceptance/**`, the gate and train workflows | The only lane that fires, wipes or runs a train. Holds the resource `env`. |
+| RAILS | `.github/**`, `scripts/**` (the rest), `docs/ledger/plan/**` | Never ships product code. |
+| SUBSTRATE | `infra/**`, `clusters/_template/**` | Serial. Other lanes queue their edits here. |
+| CONTROL | `products/catalyst/bootstrap/api/**`, `core/controllers/**`, `core/services/**`, `core/cmd/**`, `products/chargeback/cmd/**`, `products/chargeback/internal/**`, `products/chargeback/docrender/**`, `products/openova-mcp/**`, `products/ops-records/**`, `products/vm-migration/**` without its chart | At most one open package on the billing engine's code (lock `billing-engine`). |
+| CHARTS | `platform/**`, `products/*/chart/**`, `products/axon/**`, `products/agents-*/**` | One package per chart. |
+| CONSOLE | `products/catalyst/bootstrap/ui/**`, `core/console/**`, `core/marketplace/**`, `products/chargeback/ui/**` | One package per page folder. |
+| CONTRACTS | `docs/**` (the rest), custom resource definitions, the `blueprint.yaml` files | Architect-written content. The executor applies codemods and document patches only. |
+| SPIKE | Throwaway branches | Merges only a result record under `docs/ledger/plan/spikes/`. |
+
+- **Limits.** The `limits` of the plan file bound the work in progress: executors, open pull requests, packages in progress per lane, and spikes. `python3 scripts/plan.py batch` offers only packages that keep them and that may run together.
+- **Size budgets.** XS: 5 files and 150 changed lines. S: 15 files and 600. M: 60 files and 3,000. A deleted file counts as one line. A package may carry its own `budget`. Larger work is an epic that lists its packages in order.
+- **Locks.** A lock is a named list of paths in the `locks` of the plan file. A package holds a lock when one of its paths matches. Only one open package holds a lock.
+- **Release-owned lines.** No pull request changes a chart `version:`, an `appVersion:`, a slot pin, a catalogue pin or an image tag line. CI writes them.
+- **Files with many writers.** In `docs/ledger/gates.yaml` a package changes only the `state` and `implementation` lines of the checks it flips or implements. `docs/ledger/deleted-paths.txt` only gains lines. `docs/ledger/plan.yaml`, the tickets, `docs/ledger/stability.yaml` and `docs/adr/` are changed by the architect, in a pull request whose body carries `Work-Package: PLAN`, or by a package whose ticket lists that exact file. Until FND-013 adds code owners and a ruleset, this rests on rule of conduct 5 and on the architect's review.
+
+### 11.5 A ticket that is wrong
+
+A ticket is wrong when the precondition or a pre-flight output differs from the ticket, a step cannot be done as written, the ticket does not say which of two things to do, the work needs a path outside field 14, the budget is exceeded, an acceptance command still fails after one correction, or the same check is red twice.
+
+1. The executor stops the package. Nothing was merged, so nothing is reverted. It leaves the branch `wp/<ID>` as it is.
+2. It writes `docs/ledger/plan/wrong/<ID>-rev<N>.yaml` on a new branch `wrong/<ID>-rev<N>` cut from `origin/main`: the stage, the reference in the ticket, the command, the expected output and the actual output. Facts only.
+3. It opens a pull request titled `wrong(<ID>)` whose body is `Work-Package: <ID>`, notes it on the Issue, and stops.
+4. Once that report is merged, `python3 scripts/plan.py state <ID>` prints `wrong`, and the package is offered to nobody.
+5. The architect amends the ticket, raises `ticket_rev` in the plan file and deletes the old branch. The package is `planned` again.
+
+### 11.6 Rules of conduct
+
+Every ticket carries these lines at its head, word for word.
+
+1. Do one work package at a time. Its ticket is the whole specification.
+2. Before you change anything, run the precondition and every pre-flight command. If any output differs from the ticket, stop this package and file the wrong report.
+3. Change only files under "Allowed paths". If the work needs any other file, stop this package and file the wrong report.
+4. Never edit a chart `version:`, an `appVersion:`, a slot pin, a catalogue pin or an image tag line. CI writes them. If your ticket changes a `blueprint.yaml` or a slot file, run `node scripts/build-catalog.mjs` in `products/catalyst/bootstrap/ui` and commit the two files it writes; do not edit them by hand.
+5. Never edit `docs/ledger/plan.yaml`, `docs/ledger/stability.yaml` or any file under `docs/adr/`, unless the ticket lists that exact file. In `docs/ledger/gates.yaml` change only the lines the ticket quotes.
+6. Make no design decision. If the ticket does not say which of two things to do, stop this package and file the wrong report.
+7. Do not rename, move, reformat or "clean up" anything the ticket does not name.
+8. Do not delete or weaken a test, a guard or a check to make it pass. Do not add `|| true`, `continue-on-error`, a skip, or a wider allow-list unless the ticket names that exact line.
+9. Do not add a feature flag that is off by default. Do not add a fallback value for data the ticket says exists. Do not add a field, a flag or a setting that nothing in your own change reads.
+10. Evidence is a CI check or a gate record. Your own terminal output is not evidence. Never paste an output you did not get from the command.
+11. A command that prints a result is not a pass. Read the exit code. Zero is pass; anything else is fail.
+12. A check that is pending is not green. Never report a pull request as ready while a check has not finished. You never merge a pull request: the architect reviews and merges every one.
+13. Never run a command against a live cluster or a cloud account unless the ticket's lane is GATE and the command is written in the ticket.
+14. Never create a NodePort, in a chart or on a cluster, for any reason.
+15. Never use `git push --force`, `git reset --hard` on a shared branch, `git add -A`, or `git commit --amend` on a pushed commit.
+16. Commit with the identity given in the ticket. Write `Refs #N`, never `Closes #N`. End the pull-request body with `Work-Package: <ID>`. A wrong report is the one exception: its commit and its pull request carry no `Refs` line.
+17. Put no secret, token, key or password in a commit, a pull request, an issue or a log.
+18. Use the terms in `docs/GLOSSARY.md`. Do not use a banned term. In code, commits and documents cite only work-package identifiers, decision-record numbers and the tracking issue as `Refs #N`.
+19. If a step fails, do that step again once. If it fails again, stop this package and file the wrong report. Do not try a different approach.
+20. One session does one package: the one the architect named. When it is reported or stopped, give your report as your final message and stop. Never take another package by yourself, and do not ask anyone whether to continue.
+21. Report only what you did and which checks passed. Do not write "should work", "expected to pass" or "verified" without naming the check run.
+22. If you find a defect that is not in your ticket, do not fix it. Add one line to `docs/ledger/plan/found/<ID>.md` with the file, the line and what you saw.
+23. Never open, search or quote any repository other than the platform repository.
+24. Never wait with `sleep`. The finish step "checks" has the one command that waits. While your pull request waits for its checks, do no other work.
+25. Do not open a pull request with the trailer `Work-Package: PLAN`. Only the architect does.

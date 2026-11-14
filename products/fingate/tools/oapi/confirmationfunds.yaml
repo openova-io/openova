@@ -1,0 +1,7 @@
+# oapi-codegen settings for ../profiles/rw-4.0.0/confirmation-funds-openapi.yaml. Run by go generate from generate.go.
+package: confirmationfunds
+output: ../internal/gen/confirmationfunds/confirmationfunds.gen.go
+generate:
+  models: true
+  std-http-server: true
+  strict-server: true

@@ -39,7 +39,6 @@ CONTROLLERS=(
   "build-continuum-controller.yaml"
   "build-environment-controller.yaml"
   "build-organization-controller.yaml"
-  "build-sandbox-controller.yaml"
   "useraccess-controller-build.yaml"
 )
 
@@ -80,12 +79,6 @@ check_auto_bump() {
 
 check_blueprint_release_dispatch() {
   local file="$1"
-  # sandbox-controller has its own product chart and does NOT need the
-  # catalyst blueprint-release dispatch — it auto-bumps to
-  # platform/sandbox/chart/values.yaml. Exempt by filename.
-  case "$(basename "${file}")" in
-    build-sandbox-controller.yaml) return 0 ;;
-  esac
   if ! grep -qE "gh workflow run blueprint-release\.yaml" "${file}"; then
     echo "::error file=${file}::missing 'gh workflow run blueprint-release.yaml' dispatch — bot push won't fire downstream chart re-publish"
     fail=1

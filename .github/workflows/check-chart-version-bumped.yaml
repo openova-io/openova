@@ -1,4 +1,4 @@
-name: Chart-version-bumped guard (pre-merge hollow-pin check)
+name: Chart-version-bumped guard (self-test)
 
 # Refs #6040. A Blueprint chart reaches a Sovereign by VERSION: the
 # bootstrap-kit slots pin `spec.chart.spec.version` and Flux resolves that pin
@@ -16,15 +16,13 @@ name: Chart-version-bumped guard (pre-merge hollow-pin check)
 # scripts/check-bootstrap-kit-pin-sync.sh cannot catch this: it asserts the pin
 # EQUALS the chart version, and 0.2.18 == 0.2.18 passed.
 #
-# Diff-scoped, so pre-existing debt in charts a PR does not touch never turns
-# this red. Event-driven only — no `schedule:` trigger.
+# FND-011: CI writes chart versions now (the release writer in blueprint-release.yaml),
+# and a pull request may not change one (check-release-owned-lines.yaml). This
+# workflow only runs the script's self-test when the script or this file changes.
 
 on:
   pull_request:
     paths:
-      - 'platform/*/chart/**'
-      - 'products/*/chart/**'
-      - 'products/*/charts/*/**'
       - 'scripts/check-chart-version-bumped.sh'
       - '.github/workflows/check-chart-version-bumped.yaml'
   workflow_dispatch:
@@ -49,14 +47,3 @@ jobs:
         # A guard that has never been observed rejecting the real defect is
         # decorative. This replays #6021 (cc011ba1e) and requires rejection.
         run: bash scripts/check-chart-version-bumped.sh --self-test
-
-      - name: Every touched chart must bump its version
-        run: |
-          set -euo pipefail
-          base_sha="${{ github.event.pull_request.base.sha }}"
-          head_sha="${{ github.event.pull_request.head.sha }}"
-          if [ -z "${base_sha}" ]; then
-            base_sha="origin/main"
-            head_sha="HEAD"
-          fi
-          bash scripts/check-chart-version-bumped.sh "$base_sha" "$head_sha"
