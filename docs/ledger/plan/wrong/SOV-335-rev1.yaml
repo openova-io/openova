@@ -1,0 +1,20 @@
+schema: openova.io/plan-wrong/v1
+id: SOV-335
+ticket_rev: 1
+base_commit: 108af9809829bc319dbf2331522a5221af12c439
+stage: check
+ref: checks
+command: |
+    python3 scripts/plan.py checks --pr 7729 --wait; echo "exit code: $?"
+expected: |
+    exit code: 0 (every check finished green); if it is 3, run the command once more, and if it is 3 again follow "If this ticket is wrong" with stage check and the ref checks
+actual: |
+    first run:
+    plan.py: gh api repos/openova-io/openova/pulls/7729 failed: error connecting to api.github.com
+    check your internet connection or https://githubstatus.com
+    exit code: 3
+    second run:
+    plan.py: gh api repos/openova-io/openova/actions/runs?per_page=100&head_sha=e9145940dc61256490e9fc88a46fd8e139924f61 failed: error connecting to api.github.com
+    check your internet connection or https://githubstatus.com
+    exit code: 3
+reported_at: 2026-11-14T13:28:39Z
