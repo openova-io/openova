@@ -1,0 +1,52 @@
+schema: openova.io/plan-wrong/v1
+id: SVC-070
+ticket_rev: 1
+base_commit: 73326498d6d2214fbefa14d01947a9e5f4d9fe81
+stage: check
+ref: Every constrained workload keeps cluster DNS
+command: |
+    gh api repos/openova-io/openova/actions/jobs/132409499492/logs | grep -B 40 -m 1 '##\[error\]' | cut -c30-300
+expected: |
+    the check finishes green
+actual: |
+    | `platform/oidc-gate/chart` | `bp-oidc-gate` | `bootstrap-kit slot` | `oidc-gate` | `oidc-gate-openova-flow-egress+oidc-gate-openova-flow-gateway-ingress` | ingress+egress | Y | OK |
+    | `platform/openbao/chart` | `bp-openbao` | `bootstrap-kit slot` | `openbao` | `openbao-allow-peer-region-egress` | egress-only | - | exempt — ns `openbao` egress left open by bp-plane-isolation |
+    | `platform/openbao/chart` | `bp-openbao` | `bootstrap-kit slot` | `openbao` | `openbao-allow-peer-region-ingress` | ingress-only | - | exempt — ns `openbao` egress left open by bp-plane-isolation |
+    | `platform/openclaw/chart` | `bp-openclaw` | `per-Organization` | `<org-slug>` | `chart-bp-openclaw-controller+chart-bp-openclaw-controller-gateway-ingress` | ingress+egress | Y | OK |
+    | `platform/openmeter/chart` | `bp-openmeter` | `per-Organization` | `org-slug` | `bp-openmeter` | ingress+egress | Y | OK |
+    | `platform/plane-isolation/chart` | `bp-plane-isolation` | `bootstrap-kit slot` | `opentelemetry` | `opentelemetry-allow-apiserver-webhook-ingress` | ingress-only | Y | OK (via namespace baseline) |
+    | `platform/postgres/chart` | `bp-postgres` | `bootstrap-kit slot` | `shared-data` | `chart-function-test` | egress-only | Y | OK |
+    | `platform/postgres/chart` | `bp-postgres` | `bootstrap-kit slot` | `shared-data` | `postgres-allow-cnpg-operator-probe` | ingress-only | - | n/a — ingress-only, and nothing constrains egress in this namespace |
+    | `platform/seaweedfs/chart` | `bp-seaweedfs` | `bootstrap-kit slot` | `seaweedfs` | `bp-seaweedfs` | ingress+egress | Y | OK |
+    | `platform/sso-bridge/chart` | `bp-sso-bridge` | `bootstrap-kit slot` | `sso-bridge` | `bp-sso-bridge` | egress-only | Y | OK |
+    | `platform/sso-bridge/chart` | `bp-sso-bridge` | `bootstrap-kit slot` | `sso-bridge` | `chart-function-test` | egress-only | - | VIOLATION — egress declared but no 53/UDP and no 53/TCP to cluster DNS |
+    | `platform/sso-bridge/chart` | `bp-sso-bridge` | `bootstrap-kit slot` | `sso-bridge` | `sso-bridge-reconciler-apiserver` | egress-only | Y | OK |
+    | `platform/stalwart-sovereign/chart` | `bp-stalwart-sovereign` | `per-Organization` | `<org-slug>` | `chart-bp-stalwart-sovereign` | ingress+egress | Y | OK |
+    | `platform/stalwart-tenant/chart` | `bp-stalwart-tenant` | `per-Organization` | `<org-slug>` | `chart-bp-stalwart-tenant+chart-bp-stalwart-tenant-gateway-ingress` | ingress+egress | Y | OK |
+    | `platform/stunner/chart` | `bp-stunner` | `per-Organization` | `org-slug` | `bp-stunner` | ingress+egress | Y | OK |
+    | `platform/temporal/chart` | `bp-temporal` | `per-Organization` | `<org-slug>` | `bp-temporal-default` | ingress+egress | Y | OK |
+    | `platform/vllm/chart` | `bp-vllm` | `bootstrap-kit slot` | `vllm` | `chart-bp-vllm` | ingress+egress | Y | OK |
+    | `platform/vpa/chart` | `bp-vpa` | `bootstrap-kit slot` | `vpa` | `bp-vpa` | ingress+egress | Y | OK |
+    | `platform/wordpress-tenant/chart` | `bp-wordpress-tenant` | `per-Organization` | `<org-slug>` | `chart-bp-wordpress-tenant+chart-bp-wordpress-tenant-gateway-ingress` | ingress+egress | Y | OK |
+    | `platform/wordpress-tenant/chart` | `bp-wordpress-tenant` | `per-Organization` | `org-slug` | `wordpress-db-allow-cnpg-operator-probe` | ingress+egress | Y | OK |
+    | `products/agenity/chart` | `bp-agenity` | `per-Organization` | `<org-slug>` | `chart-bp-agenity-external-egress+chart-bp-agenity-gateway-ingress` | ingress+egress | Y | OK |
+    | `products/agenity/chart` | `bp-agenity` | `per-Organization` | `<org-slug>` | `oidc-gate-agenity-t99-egress+oidc-gate-agenity-t99-gateway-ingress` | ingress+egress | Y | OK |
+    | `products/catalyst/chart` | `bp-catalyst-platform` | `bootstrap-kit slot` | `catalyst-system` | `baseline-allow-chargeback-enforcement+baseline-allow-keycloak-oidc-backchannel` | ingress-only | Y | OK (via namespace baseline) |
+    | `products/catalyst/chart` | `bp-catalyst-platform` | `bootstrap-kit slot` | `kube-system` | `baseline-cilium-gateway-allow` | ingress+egress | Y | OK |
+    | `products/chargeback/chart` | `bp-chargeback` | `bootstrap-kit slot` | `chargeback` | `chart-chargeback-egress+chart-chargeback-ingress` | ingress+egress | Y | OK |
+    | `products/continuum/chart` | `bp-continuum` | `bootstrap-kit slot` | `catalyst-system` | `continuum-controller` | ingress+egress | Y | OK |
+    | `products/openova-mcp/chart` | `bp-openova-mcp` | `bootstrap-kit slot` | `catalyst-system` | `chart-bp-openova-mcp-egress+chart-bp-openova-mcp-ingress` | ingress+egress | Y | OK |
+
+    Namespace-baseline policies (empty selector — the namespace author's posture, not a per-workload policy, so this invariant does not apply):
+      - `platform/bp-dmz-vcluster/chart`: 1
+      - `platform/bp-mgmt-vcluster/chart`: 2
+      - `platform/bp-rtz-vcluster/chart`: 1
+      - `platform/keycloak/chart`: 1
+      - `platform/plane-isolation/chart`: 63
+      - `platform/self-sovereign-cutover/chart`: 3
+      - `products/catalyst/chart`: 1
+      - `products/dmz-vcluster/chart`: 2
+
+
+    ##[error]Process completed with exit code 1.
+reported_at: 2026-11-14T09:52:40Z
