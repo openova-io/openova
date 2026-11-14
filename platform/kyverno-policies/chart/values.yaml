@@ -48,6 +48,10 @@ compliancePolicies:
   # (NOT recommended on fresh prov — see #2436 multi-layer RCA).
   bootstrapMode: true
 
+  # Set by kit slot 27a from the variable SOVEREIGN_CONSUME. The audit window
+  # is bootstrapMode AND sovereignConsume is not local.
+  sovereignConsume: origin
+
   # K1 baseline policies
   #
   # Default = enabled: true with action: Audit (permissive). Per #1929 the

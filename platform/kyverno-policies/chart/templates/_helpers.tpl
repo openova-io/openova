@@ -24,11 +24,13 @@ emit for the Compliance Dashboard, but admission passes.
 bp-kyverno-policies.action — resolves the effective validationFailureAction
 for a single ClusterPolicy.
 
-  - When `.Values.compliancePolicies.bootstrapMode` is true (default for
-    fresh Sovereigns), returns "Audit" regardless of the per-policy
-    canonical action.
-  - When false (post-handover Catalyst flips it), returns the per-policy
-    canonical action (.policy), defaulting to "Audit" when unset.
+  - While the bootstrap window is open, returns "Audit" regardless of the
+    per-policy canonical action. The window is open when
+    `.Values.compliancePolicies.bootstrapMode` is true (the default) and
+    `.Values.compliancePolicies.sovereignConsume` is not "local" (unset or
+    empty counts as "origin", the default).
+  - When the window is closed, returns the per-policy canonical action
+    (.policy), defaulting to "Audit" when unset.
 
 Usage in a ClusterPolicy template:
 
@@ -36,7 +38,7 @@ Usage in a ClusterPolicy template:
     validationFailureAction: {{ include "bp-kyverno-policies.action" (dict "ctx" . "policy" .Values.compliancePolicies.<name>.action) }}
 */ -}}
 {{- define "bp-kyverno-policies.action" -}}
-{{- if .ctx.Values.compliancePolicies.bootstrapMode -}}
+{{- if and .ctx.Values.compliancePolicies.bootstrapMode (ne (.ctx.Values.compliancePolicies.sovereignConsume | default "origin") "local") -}}
 Audit
 {{- else -}}
 {{- .policy | default "Audit" -}}
