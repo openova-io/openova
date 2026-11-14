@@ -4477,7 +4477,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.1.18"
+  version: "0.1.19"
   visibility: unlisted
   card:
     title: "k8s-ws-proxy"
@@ -4494,7 +4494,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-k8s-ws-proxy
-    version: "0.1.18"
+    version: "0.1.19"
   topology:
     supported:
       - active-passive
