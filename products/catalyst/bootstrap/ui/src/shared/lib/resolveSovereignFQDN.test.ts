@@ -26,6 +26,17 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
 
+/**
+ * DETECTED_MODE is read once at start from GET /api/v1/sovereign/self
+ * (detectMode.ts). Each host of these tests stands for the answer that
+ * start-up read gave there.
+ */
+const START_UP_READ: Record<string, { mode: string; sovereignFQDN: string | null }> = {
+  'console.openova.io': { mode: 'catalyst-zero', sovereignFQDN: null },
+  'console.hw293.omantel.biz': { mode: 'sovereign', sovereignFQDN: 'hw293.omantel.biz' },
+  'console.walkone.omani.homes': { mode: 'sovereign', sovereignFQDN: 'hw293.omantel.biz' },
+}
+
 async function loadResolver(
   hostname: string,
   viteCatalystMode?: string,
@@ -39,6 +50,11 @@ async function loadResolver(
     IS_SAAS: true,
     IS_SELFHOSTED: false,
     APP_VERSION: 'dev',
+  }))
+  vi.doMock('./detectMode', () => ({
+    DETECTED_MODE: viteCatalystMode
+      ? { mode: viteCatalystMode, sovereignFQDN: viteCatalystMode === 'sovereign' ? (viteSovereignFqdn ?? null) : null }
+      : START_UP_READ[hostname],
   }))
   // pathname/host are read at module-init by shared/config/urls.ts (BASE), so
   // a hostname-only stub would throw before the resolver ever runs.

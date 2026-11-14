@@ -26,18 +26,17 @@ import { currentPathRelativeToBasepath } from '@/shared/lib/basepathRelative'
 const basepath = isCatalystZeroURL() ? '/sovereign' : '/'
 
 /**
- * isCatalystZero — true when the UI is running on Catalyst-Zero
- * (console.openova.io/sovereign/*). Used by wizardAuthGuard to decide
- * whether to enforce session-cookie auth.
+ * isCatalystZero — true when the UI is running on Catalyst-Zero, the
+ * mothership. Used by provisionAuthGuard to decide whether to enforce
+ * session-cookie auth.
  *
- * We detect by hostname rather than IS_SAAS / IS_SELFHOSTED because the
- * same selfhosted build image runs on both Catalyst-Zero (contabo-mkt)
- * and franchised Sovereign consoles (console.<sov-fqdn>). Only Catalyst-Zero
- * has Keycloak + the session middleware wired up; Sovereign clusters
- * manage their own auth separately.
+ * The mode comes from the catalyst-api (GET /api/v1/sovereign/self, read
+ * once at start by detectMode), not from the host name, because the same
+ * build image runs on Catalyst-Zero and on every Sovereign console. Only
+ * Catalyst-Zero has the session middleware wired up for the wizard;
+ * Sovereign clusters manage their own auth separately.
  */
-const isCatalystZero =
-  typeof window !== 'undefined' && window.location.hostname === 'console.openova.io'
+const isCatalystZero = DETECTED_MODE.mode === 'catalyst-zero'
 
 // Lazy page imports
 import { RootLayout } from './layouts/RootLayout'
@@ -435,8 +434,8 @@ const rootRoute = createRootRoute({ component: RootLayout, beforeLoad: rootBefor
  * IS_SAAS is preserved as a higher-priority override for the Catalyst-Zero
  * SaaS variant of the platform where local auth is used.
  *
- * Per INVIOLABLE-PRINCIPLES.md #4, mode detection is runtime-derived from
- * the hostname via DETECTED_MODE — never hardcoded here.
+ * Per INVIOLABLE-PRINCIPLES.md #4, the mode is read at run time from the
+ * catalyst-api via DETECTED_MODE — never hardcoded here.
  *
  * Related: GitHub issue #607
  */

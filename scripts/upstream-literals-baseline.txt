@@ -3,4 +3,4 @@ kit=71
 charts=156
 api=17
 controllers=9
-console=21
+console=19
