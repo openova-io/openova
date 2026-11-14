@@ -39,6 +39,7 @@ metadata:
     catalyst.openova.io/component: openbao-region-service
     openova.io/region: {{ $self | quote }}
   annotations:
+    # single-region backend
     service.cilium.io/global: "true"
     service.cilium.io/shared: "true"
 spec:
@@ -67,6 +68,7 @@ metadata:
     catalyst.openova.io/component: openbao-region-service-stub
     openova.io/region: {{ . | quote }}
   annotations:
+    # single-region backend
     service.cilium.io/global: "true"
     service.cilium.io/shared: "false"
 spec:
