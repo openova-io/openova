@@ -1266,55 +1266,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "hasUserUIEndpoint": false
   },
   {
-    "id": "bp-dmz-vcluster",
-    "slug": "dmz-vcluster",
-    "title": "DMZ vCluster",
-    "summary": "|",
-    "icon": "vcluster.svg",
-    "category": "platform",
-    "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
-    "version": "0.2.9",
-    "section": "pts-3-1-networking-and-service-mesh",
-    "depends": [
-      "bp-cilium",
-      "bp-cert-manager"
-    ],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "singleton"
-      ],
-      "multiRegion": "singleton",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "singleton": {
-          "replication": {
-            "backend": "velero",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
-          "switchover": null,
-          "placement": {
-            "tier": "dmz",
-            "clusters": [
-              "dmz-A",
-              "dmz-B"
-            ],
-            "roles": {
-              "dmz-A": "singleton",
-              "dmz-B": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": false
-  },
-  {
     "id": "bp-dragonfly",
     "slug": "dragonfly",
     "title": "Dragonfly",
@@ -3184,55 +3135,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "hasUserUIEndpoint": true
   },
   {
-    "id": "bp-mgmt-vcluster",
-    "slug": "mgmt-vcluster",
-    "title": "Management vCluster",
-    "summary": "|",
-    "icon": "vcluster.svg",
-    "category": "platform",
-    "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
-    "version": "0.2.29",
-    "section": "pts-3-2-control-plane-isolation",
-    "depends": [
-      "bp-cilium",
-      "bp-cert-manager"
-    ],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "singleton"
-      ],
-      "multiRegion": "singleton",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "singleton": {
-          "replication": {
-            "backend": "velero",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
-          "switchover": null,
-          "placement": {
-            "tier": "mgmt",
-            "clusters": [
-              "mgmt-A",
-              "mgmt-B"
-            ],
-            "roles": {
-              "mgmt-A": "singleton",
-              "mgmt-B": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": false
-  },
-  {
     "id": "bp-milvus",
     "slug": "milvus",
     "title": "Milvus",
@@ -4603,55 +4505,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
               "mgmt-B": "singleton",
               "dmz-A": "singleton",
               "dmz-B": "singleton",
-              "rtz-A": "singleton",
-              "rtz-B": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": false
-  },
-  {
-    "id": "bp-rtz-vcluster",
-    "slug": "rtz-vcluster",
-    "title": "RTZ vCluster",
-    "summary": "|",
-    "icon": "vcluster.svg",
-    "category": "platform",
-    "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
-    "version": "0.2.14",
-    "section": "pts-3-2-control-plane-isolation",
-    "depends": [
-      "bp-cilium",
-      "bp-cert-manager"
-    ],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "singleton"
-      ],
-      "multiRegion": "singleton",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "singleton": {
-          "replication": {
-            "backend": "velero",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
-          "switchover": null,
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
               "rtz-A": "singleton",
               "rtz-B": "singleton"
             }
@@ -6087,7 +5940,6 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/crossplane-claims/blueprint.yaml",
   "platform/crossplane/blueprint.yaml",
   "platform/debezium/blueprint.yaml",
-  "platform/dmz-vcluster/blueprint.yaml",
   "platform/dragonfly/blueprint.yaml",
   "platform/external-dns/blueprint.yaml",
   "platform/external-secrets-stores/blueprint.yaml",
@@ -6120,7 +5972,6 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/loki/blueprint.yaml",
   "platform/machine-operations/blueprint.yaml",
   "platform/matrix/blueprint.yaml",
-  "platform/mgmt-vcluster/blueprint.yaml",
   "platform/milvus/blueprint.yaml",
   "platform/mimir/blueprint.yaml",
   "platform/nats-jetstream/blueprint.yaml",
@@ -6144,7 +5995,6 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/qa-app/blueprint.yaml",
   "platform/reflector/blueprint.yaml",
   "platform/reloader/blueprint.yaml",
-  "platform/rtz-vcluster/blueprint.yaml",
   "platform/sealed-secrets/blueprint.yaml",
   "platform/seaweedfs/blueprint.yaml",
   "platform/self-sovereign-cutover/blueprint.yaml",

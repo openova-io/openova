@@ -4,10 +4,6 @@ G2	clusters/_template/sovereign-region/multi-region-follower/git-sync-egress.yam
 G2	clusters/_template/sovereign-region/multi-region/gitea-sync-ingress.yaml	1
 G2	platform/anthropic-adapter/chart/templates/networkpolicy.yaml	1
 G2	platform/bge/chart/templates/networkpolicy.yaml	1
-G2	platform/bp-dmz-vcluster/chart/templates/networkpolicy.yaml	1
-G2	platform/bp-mgmt-vcluster/chart/templates/gateway-ingress-cnp.yaml	1
-G2	platform/bp-mgmt-vcluster/chart/templates/networkpolicy.yaml	1
-G2	platform/bp-rtz-vcluster/chart/templates/networkpolicy.yaml	1
 G2	platform/cilium-policies/chart/templates/00-placeholder.yaml	1
 G2	platform/cluster-autoscaler-hcloud/chart/templates/networkpolicy.yaml	1
 G2	platform/cnpg-pair/chart/templates/dr-failback.yaml	2
@@ -77,7 +73,6 @@ G2	products/chargeback/chart/templates/cilium-egress-networkpolicy.yaml	1
 G2	products/chargeback/chart/templates/cilium-ingress-networkpolicy.yaml	1
 G2	products/chargeback/docrender/chart/templates/networkpolicy.yaml	1
 G2	products/continuum/chart/templates/networkpolicy.yaml	1
-G2	products/dmz-vcluster/chart/templates/networkpolicy-isolation.yaml	2
 G2	products/openova-mcp/chart/templates/cilium-egress-networkpolicy.yaml	1
 G2	products/openova-mcp/chart/templates/cilium-ingress-networkpolicy.yaml	1
 G4	clusters/_template/bootstrap-kit/01-cilium.yaml	3

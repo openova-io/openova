@@ -137,6 +137,10 @@ products/catalyst/bootstrap/api/internal/handler/org_consumption_test.go
 products/catalyst/bootstrap/api/internal/handler/org_consumption_parent_slug_5819_test.go
 products/catalyst/bootstrap/ui/src/pages/sovereign/organizations/ShowbackPanel.tsx
 products/catalyst/bootstrap/ui/src/pages/sovereign/organizations/ShowbackPanel.test.tsx
+platform/bp-dmz-vcluster
+platform/bp-mgmt-vcluster
+platform/bp-rtz-vcluster
+products/dmz-vcluster
 products/catalyst/bootstrap/api/internal/flowemit
 products/catalyst/bootstrap/api/internal/handler/flow_emitter.go
 products/catalyst/bootstrap/api/internal/handler/openova_flow_proxy.go

@@ -21,8 +21,6 @@ core/controllers/organization/internal/controller/environment_ensure.go	2
 core/controllers/organization/internal/controller/provisioning_postconditions.go	2
 core/controllers/organization/internal/controller/tenant_dns.go	1
 infra/providers/_shared/cloudinit-control-plane.tftpl	34
-platform/bp-dmz-vcluster/chart/Chart.yaml	1
-platform/bp-mgmt-vcluster/chart/Chart.yaml	1
 platform/catalyst-edge-routes/blueprint.yaml	1
 platform/catalyst-edge-routes/chart/templates/marketplace.yaml	1
 platform/catalyst-edge-routes/chart/templates/services.yaml	1
@@ -258,8 +256,6 @@ products/chargeback/ui/src/panels/capacity/RegionsTab.tsx	1
 products/chargeback/ui/src/panels/estimate/Configurator.tsx	9
 products/chargeback/ui/src/panels/estimate/fixture.ts	16
 products/chargeback/ui/src/panels/estimate/model.ts	23
-products/dmz-vcluster/chart/blueprint.yaml	1
-products/dmz-vcluster/chart/values.yaml	1
 products/openova-mcp/chart/templates/cilium-egress-networkpolicy.yaml	1
 scripts/acceptance-gate.py	1
 scripts/check-adoption-endpoint-region.sh	11

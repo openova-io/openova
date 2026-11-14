@@ -100,9 +100,6 @@ ALLOWLIST_REGEX='(\{\{)|(\$\{)|(alpine/k8s)|(alpine/git)|(curlimages/curl)|(libr
 #   render-time guard to assert. Re-add powerdns here only if proxy-docker is
 #   made bootstrap-pullable and the namespace exclude is dropped.
 CHARTS=(
-  "platform/bp-mgmt-vcluster/chart|--set mgmtVcluster.enabled=true"
-  "platform/bp-dmz-vcluster/chart|--set dmzVcluster.enabled=true"
-  "platform/bp-rtz-vcluster/chart|--set rtzVcluster.enabled=true"
   # bp-alloy (slot 21, #3760 hw161): subchart-wrapping (grafana/alloy 1.8.0).
   # The alloy DaemonSet runs in the un-excluded `alloy` namespace, so its
   # upstream image defaults (docker.io/grafana/alloy + quay.io/prometheus-
