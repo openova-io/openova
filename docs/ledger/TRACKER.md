@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T14:30:04Z` |
+| Last refreshed | `2026-11-14T14:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7477](https://github.com/openova-io/openova/issues/7477) | CLD-086 local module and reduced kit | Other |
 | [#7478](https://github.com/openova-io/openova/issues/7478) | FND-013 Merge queue: aggregate check, queue triggers, rulesets and code owners a | Other |
 | [#7479](https://github.com/openova-io/openova/issues/7479) | FND-096 Remove the Sandbox sources | Other |
 | [#7484](https://github.com/openova-io/openova/issues/7484) | CLD-185 Hetzner control-plane cloud-init with the post-back on fits the module s | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#7765](https://github.com/openova-io/openova/issues/7765) | SOV-142 New nodes fetch k3s, Flux and Gateway API install files from the registr | Other |
 | [#7766](https://github.com/openova-io/openova/issues/7766) | SOV-161 The pull robot of the local registry joins the pull secret at install | Other |
 | [#7767](https://github.com/openova-io/openova/issues/7767) | SOV-336 The registry install creates the proxy project of the vulnerability data | Other |
+| [#7768](https://github.com/openova-io/openova/issues/7768) | the release job writes an attestation name as the runtime image tag of the openc | Other |
 
 ---
 
@@ -307,9 +307,14 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-14T14:38 | [#7751](https://github.com/openova-io/openova/pull/7751) | #7746 | feat(fingate): account-information read operations over the  |
+| 2026-11-14T14:36 | [#7749](https://github.com/openova-io/openova/pull/7749) | #7721 | docs(adr): record 0039, Environment objects have one writer  |
+| 2026-11-14T14:37 | [#7748](https://github.com/openova-io/openova/pull/7748) | #7726 | refactor(bootstrap-kit): pull Secret names and the hand-over |
+| 2026-11-14T14:37 | [#7747](https://github.com/openova-io/openova/pull/7747) | #7720 | docs: replace four hand-written provider lists by links to t |
 | 2026-11-14T13:56 | [#7737](https://github.com/openova-io/openova/pull/7737) | #7087 | docs(ledger): plan update |
 | 2026-11-14T14:08 | [#7733](https://github.com/openova-io/openova/pull/7733) | #7701 | chore: remove the DMZ networking tab and route, the zone iso |
 | 2026-11-14T14:08 | [#7730](https://github.com/openova-io/openova/pull/7730) | #7714 | feat(acceptance): gate check CLD-G06 for the adoption claims |
+| 2026-11-14T14:38 | [#7729](https://github.com/openova-io/openova/pull/7729) | #7676 | feat(upstream): the variables document carries the path of t |
 | 2026-11-14T14:07 | [#7728](https://github.com/openova-io/openova/pull/7728) | #7715 | feat(providers): a read-only leftover lister that fails clos |
 | 2026-11-14T13:32 | [#7719](https://github.com/openova-io/openova/pull/7719) | #7087 | docs(ledger): plan update |
 | 2026-11-14T13:09 | [#7713](https://github.com/openova-io/openova/pull/7713) | #7087 | docs(ledger): plan update |
@@ -332,11 +337,6 @@ flowchart LR
 | 2026-11-14T12:02 | [#7681](https://github.com/openova-io/openova/pull/7681) | #7669 | ci: the deploy-bump action pushes with the release-writer de |
 | 2026-11-14T11:59 | [#7680](https://github.com/openova-io/openova/pull/7680) | #7672 | docs(adr): record 0032, migration is a platform product, and |
 | 2026-11-14T11:24 | [#7664](https://github.com/openova-io/openova/pull/7664) | #7087 | docs(ledger): plan update |
-| 2026-11-14T11:17 | [#7663](https://github.com/openova-io/openova/pull/7663) | #7657 | feat(fingate): add a ledger adapter template and a guide to  |
-| 2026-11-14T11:16 | [#7662](https://github.com/openova-io/openova/pull/7662) | #7655 | fix(uat): the SSO flip bot recomputes the tally and provenan |
-| 2026-11-14T11:17 | [#7661](https://github.com/openova-io/openova/pull/7661) | #7658 | ci: pin the checkout action and the k3s image of the k3s boo |
-| 2026-11-14T11:17 | [#7660](https://github.com/openova-io/openova/pull/7660) | #7656 | docs: the canonical documents state the zone, firewall and d |
-| 2026-11-14T10:56 | [#7659](https://github.com/openova-io/openova/pull/7659) | #7654 | chore(ci): eight access guards whose counts may only fall (A |
 
 ---
 
