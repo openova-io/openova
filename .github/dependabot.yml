@@ -74,11 +74,11 @@ updates:
       - "/tests/e2e/bootstrap-kit"
     schedule:
       interval: "weekly"
+      day: "monday"
     # No version-update pull requests for now: on 14 November the first run opened 60 at once and
     # their checks filled the CI queue with 2,400 runs. Security updates are not affected by this limit.
     # A grouped form (one pull request per ecosystem) replaces this line; see the tracking issue.
     open-pull-requests-limit: 0
-      day: "monday"
     commit-message:
       prefix: "chore(deps)"
 
@@ -129,10 +129,10 @@ updates:
       - "/products/openova-mcp"
     schedule:
       interval: "weekly"
+      day: "monday"
     # No version-update pull requests for now: on 14 November the first run opened 60 at once and
     # their checks filled the CI queue with 2,400 runs. Security updates are not affected by this limit.
     # A grouped form (one pull request per ecosystem) replaces this line; see the tracking issue.
     open-pull-requests-limit: 0
-      day: "monday"
     commit-message:
       prefix: "chore(deps)"
