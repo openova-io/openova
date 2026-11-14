@@ -3510,6 +3510,22 @@ func stageModule(src, dst string) error {
 			return err
 		}
 	}
+	// SEC-150: the seal hook of a provider pack is the child module
+	// <module>/seal, and the pack's main.tf calls it with source "./seal"
+	// (contract C8, docs/contracts/c8-seal-provider.md). copyTfFiles does not
+	// descend into directories, so stage that one directory beside the
+	// module's own files. Without it `tofu init` fails in the workdir with an
+	// unreadable module directory, although it passes in the repository.
+	sealSrc := filepath.Join(src, "seal")
+	if fi, err := os.Stat(sealSrc); err == nil && fi.IsDir() {
+		sealDst := filepath.Join(dst, "seal")
+		if err := os.MkdirAll(sealDst, 0o700); err != nil {
+			return err
+		}
+		if err := copyTfFiles(sealSrc, sealDst); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

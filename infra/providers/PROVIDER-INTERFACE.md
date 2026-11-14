@@ -104,6 +104,7 @@ These names are reserved. Each joins the contract in the work package that adds 
 | `edge_pool` | variable | object({size = string, count = number}) | NET-181 |
 | `region_separation` | output | string | NET-210 |
 | `edge_addresses` | output | map(string) | NET-184 |
+| `seal_kind` | output | string | CLD-092 |
 
 Not in the contract: `sovereign_fqdn`, `console_url`, `gitops_repo_url`, `gitops_repo_url_out`, `kubeconfig_path`, `s3_buckets`, `region_primary`, `region_secondaries`, `worker_ips_per_region` and the object-storage outputs. Shared code reads none of them. A module may keep them as extras.
 
@@ -173,6 +174,7 @@ Every module renders the control-plane boot data with the one shared template, `
 - **No node port.** A front door reaches a node on a host port: 443 and 80, and 53 (TCP and UDP) for the DNS front end. A module never declares a load-balancer target or a firewall rule in the range 30000 to 32767.
 - **One control-plane node per region.** A second or third control-plane node per region is a change of the contract, with a work package of its own.
 - **Random cluster tokens.** Every module declares `random_password.k3s_server_token` and `random_password.k3s_agent_token`, each with `for_each` over the region keys, `length = 64` and `special = false`. It passes the server token to the shared template as `k3s_server_token` and the agent token as `k3s_agent_token`. Its workers join with the agent token. No token is derived from an identifier such as the project or the domain name.
+- **Seal hook.** Every module carries the seal hook of contract C8 (`docs/contracts/c8-seal-provider.md`) as the child module `infra/providers/<name>/seal/main.tf`. The file is the text of the contract; only the value of its output `volume_device` differs per pack: `"/dev/vdb"` in the pack `huawei`, `""` in the packs `hetzner` and `local`. The module calls the hook as `module "seal"` with `source = "./seal"`, with `region_keys` set to the region keys of its k3s tokens and `seal_key_generation` set to its own variable `seal_key_generation` (number, default `1`), and it emits the hook's `kind` as the output `seal_kind`. The variable `seal_key_generation` is the input of the same name of contract C8. It is in none of the three classes of variable at the head of this document: the provisioning engine does not write it and no adapter supplies it, so its default `1` applies. Raising it is a key rotation, and contract C8 leaves the rotation form of the hook to the first work package that performs a rotation. The provisioning engine copies the directory `seal` into the directory it runs OpenTofu in, and no other directory of the module: a module calls no other child module by a local path. Not done yet: no module passes the hook's outputs to the shared template, and the pack `huawei` attaches no seal volume. The work package that makes the shared template write the node files adds both in one change.
 
 ### 6. Conformance tests (added by CLD-090)
 
