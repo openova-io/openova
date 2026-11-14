@@ -6149,7 +6149,7 @@ spec:
   # 0.1.8 (ADR-0015 D4, #7067): appVersion 0.2.7 — catalystapi client docs
   #   state the D4 contract (environmentRef / placement.regions resolved from
   #   objects, unknown refs 422; no "<org>-prod" / "primary").
-  version: "0.1.8"
+  version: "0.1.9"
   visibility: unlisted
   card:
     title: "OpenOva MCP"
@@ -6171,7 +6171,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-openova-mcp
-    version: 0.1.8
+    version: 0.1.9
   topology:
     supported:
       - singleton

@@ -3926,7 +3926,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.8",
+    "version": "0.1.9",
     "section": "pts-4-7-agentic-workspace",
     "depends": [],
     "shareable": false,

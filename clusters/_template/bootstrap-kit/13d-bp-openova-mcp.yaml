@@ -130,7 +130,7 @@ spec:
       # catalog-seed (blueprints.json).
       # 0.1.8 (ADR-0015 D4, #7067): appVersion 0.2.7 — client docs state the
       # D4 contract (refs resolved from objects, unknown refs 422).
-      version: 0.1.8
+      version: 0.1.9
       sourceRef:
         kind: HelmRepository
         name: bp-openova-mcp
