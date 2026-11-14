@@ -1,0 +1,24 @@
+schema: openova.io/plan-wrong/v1
+id: PRD-503
+ticket_rev: 1
+base_commit: 8c6c505670f75be04c6411a8f3cd58ebc75defa9
+stage: check
+ref: check-pins
+command: |
+    gh api repos/openova-io/openova/actions/jobs/132436973664/logs | grep -B 40 -m 1 '##\[error\]' | cut -c30-300
+expected: |
+    the check finishes green
+actual: |
+    shell: /usr/bin/bash -e {0}
+    ##[endgroup]
+    check-pins: FAIL 451 action references are not pinned by a commit, more than the baseline 446 in docs/ledger/pin-baseline.json. Pin what this change adds: an action by its 40-character commit hash with the version as a trailing comment, an image by its @sha256: digest
+    check-pins: FAIL 75 base images are not pinned by a digest, more than the baseline 74 in docs/ledger/pin-baseline.json. Pin what this change adds: an action by its 40-character commit hash with the version as a trailing comment, an image by its @sha256: digest
+    check-pins: FAIL .github/workflows/build-keycloak-fapi.yaml:49: the file is new since HEAD^1, and actions/checkout@v4 is not pinned
+    check-pins: FAIL .github/workflows/build-keycloak-fapi.yaml:83: the file is new since HEAD^1, and docker/setup-buildx-action@v3 is not pinned
+    check-pins: FAIL .github/workflows/build-keycloak-fapi.yaml:86: the file is new since HEAD^1, and docker/build-push-action@v6 is not pinned
+    check-pins: FAIL .github/workflows/build-keycloak-fapi.yaml:111: the file is new since HEAD^1, and docker/login-action@v3 is not pinned
+    check-pins: FAIL .github/workflows/build-keycloak-fapi.yaml:120: the file is new since HEAD^1, and docker/build-push-action@v6 is not pinned
+    check-pins: FAIL platform/keycloak/extensions/fapi-consent/Containerfile:7: the file is new since HEAD^1, and docker.io/library/alpine:3.20 is not pinned
+    check-pins: 451 action references are not pinned by a commit (baseline 446); 75 base images are not pinned by a digest (baseline 74)
+    ##[error]Process completed with exit code 1.
+reported_at: 2026-11-14T11:56:10Z
