@@ -39,6 +39,9 @@ on:
       previous_wipe_orphans:
         description: The number of that deployment's resources the cloud account still listed after the wipe.
         default: ''
+      preflight:
+        description: "What the flight checklist counted before the fire: <UTC time>;<kind>=<used>/<allowed>/<left>,... with a number or - for each (tests/acceptance/sovereign/README.md)"
+        default: ''
       nodes_requested:
         description: "The nodes the deployment request asked for, per region id: <regionA>=6,<regionB>=6"
         default: ''
@@ -63,6 +66,9 @@ on:
         type: string
         default: ''
       previous_wipe_orphans:
+        type: string
+        default: ''
+      preflight:
         type: string
         default: ''
       nodes_requested:
@@ -269,6 +275,7 @@ jobs:
           ACCEPT_DEPLOYMENT_ID: ${{ inputs.deployment_id }}
           ACCEPT_PREVIOUS_DEPLOYMENT_ID: ${{ inputs.previous_deployment_id }}
           ACCEPT_PREVIOUS_WIPE_ORPHANS: ${{ inputs.previous_wipe_orphans }}
+          ACCEPT_PREFLIGHT: ${{ inputs.preflight }}
           ACCEPT_NODES_REQUESTED: ${{ inputs.nodes_requested }}
           MORE_CAPABILITIES: ${{ inputs.capabilities }}
           ENV_LABEL: ${{ inputs.env }}

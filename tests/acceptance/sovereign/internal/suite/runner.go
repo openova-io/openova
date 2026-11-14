@@ -90,6 +90,10 @@ func Execute(ctx context.Context, cfg Config, out io.Writer) (*Run, error) {
 	if err != nil {
 		return nil, err
 	}
+	preflight, err := parsePreflight(cfg.Preflight)
+	if err != nil {
+		return nil, err
+	}
 	now := time.Now().UTC()
 	r := &runner{
 		cfg: cfg, out: out,
@@ -105,6 +109,12 @@ func Execute(ctx context.Context, cfg Config, out io.Writer) (*Run, error) {
 	r.api.ReadOnly = cfg.ReadOnly
 	if previousID != "" {
 		r.run.Provision = &Provision{PreviousWipe: &PreviousWipe{PreviousDeploymentID: previousID, PreviousWipeOrphans: previousOrphans}}
+	}
+	if preflight != nil {
+		if r.run.Provision == nil {
+			r.run.Provision = &Provision{}
+		}
+		r.run.Provision.Preflight = preflight
 	}
 	fmt.Fprintf(out, "acceptance %s env=%s run=%s console=%s\n", mode, cfg.Env, r.run.RunID, cfg.Console)
 
@@ -144,7 +154,7 @@ func Execute(ctx context.Context, cfg Config, out io.Writer) (*Run, error) {
 		r.run.Steps = append(r.run.Steps, firstLook...)
 		cc := &CheckContext{RunIn: RunIn(cfg.RunIn), Regions: []kube.Region{r.A, r.B}, API: r.api,
 			Candidate: r.run.Candidate, RepoRoot: cfg.RepoRoot, Deploy: &DeploymentInfo{ID: r.dep, NodesRequested: nodesRequested,
-				PreviousDeploymentID: previousID, PreviousWipeOrphans: previousOrphans}, Caps: map[string]bool{}}
+				PreviousDeploymentID: previousID, PreviousWipeOrphans: previousOrphans, Preflight: preflight}, Caps: map[string]bool{}}
 		for _, c := range r.run.Capabilities {
 			cc.Caps[c] = true
 		}

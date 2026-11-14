@@ -147,6 +147,34 @@ holds the identifier of the check as a string literal. The contract is in
 | `--nodes-requested` (`ACCEPT_NODES_REQUESTED`) | empty | What the deployment request asked for, per region id: `<regionA>=6,<regionB>=6`. Check FND-G03 compares it with the Ready nodes. Empty: FND-G03 fails. A value in another form stops the run with exit code `3`. |
 | `--previous-deployment-id` (`ACCEPT_PREVIOUS_DEPLOYMENT_ID`) | empty | The deployment whose wipe this fire follows. Check FND-G13 reads it, and the record carries it as `provision.previous_deployment_id`. Give it together with `--previous-wipe-orphans`, or neither: one without the other stops the run with exit code `3`. |
 | `--previous-wipe-orphans` (`ACCEPT_PREVIOUS_WIPE_ORPHANS`) | empty | How many resources of that deployment a listing of the cloud account still found after the wipe, a whole number of 0 or more. Check FND-G13 passes on `0`. The record carries it as `provision.previous_wipe_orphans`. Another value stops the run with exit code `3`. |
+| `--preflight` (`ACCEPT_PREFLIGHT`) | empty | What the flight checklist counted in the cloud account before this deployment was fired. See "The pre-flight numbers" below. Check FND-G13 reads it, and the record carries it as `provision.preflight`. Empty: FND-G13 fails. A value in another form stops the run with exit code `3`. |
+
+**The pre-flight numbers.** The value of `--preflight` is one line:
+
+```
+<UTC time>;<kind>=<used>/<allowed>/<left>,<kind>=<used>/<allowed>/<left>,...
+```
+
+for example
+`2026-11-20T05:55:00Z;servers=1/-/0,volumes=38/400/0,addresses=1/-/0,load_balancers=0/-/0,networks=1/5/0,security_groups=3/-/0,buckets=41/100/0,dns_records=-/-/0`.
+The time is when the numbers were read: after the wipe and before the fire.
+A kind is a lower-case name and is given once. `used` is how many resources
+of the kind the account held, `allowed` how many it may hold, and `left` how
+many the wiped deployment left. Each is a whole number of 0 or more, or `-`
+when it was not measured. Nothing is ever written that was not measured. The
+numbers come from the two tools of the flight checklist:
+
+- `used` and `left` of a kind of the cloud account: the report that
+  `scripts/flight-sweep.sh` printed in its last listing before the fire. Each
+  entry of its list `kinds` holds `kind`, `used` and the list `leftovers`;
+  `left` is the length of that list. Every kind of the report is given.
+- `allowed`: the limit that the pre-flight gate `scripts/prov-preflight.sh`
+  printed after the used count in its checks 3c (`networks`), 3d (`volumes`)
+  and 3e (`buckets`). A kind whose limit no tool printed gets `-`.
+- `dns_records`: `left` is the number of DNS records of the wiped deployment
+  that its parent zone still held after the wipe; `used` and `allowed` are
+  `-`. While no tool counts them, write `dns_records=-/-/-`; check FND-G13
+  then fails, because it never assumes 0.
 
 With `--manifest`, a `run` selects every registered check whose entry is
 `expected-fail` or `required`, and runs them after the journeys. An entry that
@@ -179,7 +207,7 @@ platform namespace is a namespace without the label `openova.io/organization`.
 | FND-G10 Install and data | `check_journeys.go` | Journey J1 or J2 recorded no step, or one of its steps is not PASS. |
 | FND-G11 Planned move | `check_journeys.go` | Journey J3 or J4 recorded no step, or one of its steps is not PASS. |
 | FND-G12 Clean delete | `check_journeys.go` | Journey J5 recorded no step, or one of its steps is not PASS. |
-| FND-G13 Clean wipe | `check_wipe.go` | The run did not get `--previous-deployment-id` and `--previous-wipe-orphans`, the previous deployment is the deployment under test, or the number of orphans is not `0`. |
+| FND-G13 Clean wipe | `check_wipe.go` | Step 1: the run did not get `--previous-deployment-id` and `--previous-wipe-orphans`, the previous deployment is the deployment under test, or the number of orphans is not `0`. Step 2: the run did not get `--preflight`; one of the kinds `servers`, `volumes`, `addresses`, `load_balancers`, `networks`, `security_groups`, `buckets` and `dns_records` has no count of leftovers; a kind has a count of leftovers above `0`; `networks` or `volumes` lacks its used or its allowed count; a kind has more used than allowed; or the numbers were not read before the environment was created (the earliest creation of the namespace `kube-system` in the regions), or that time cannot be read. |
 | CMP-G01 The score moves by push | `check_compliance_push.go` | The scorecard of the Sovereign is empty. No frame of the compliance stream names the seed within 120 seconds. The Sovereign score does not count the seed, or the violations do not list it. The violations still list the seed 120 seconds after it was deleted. The seed is the Deployment `cmp-bad` with zero replicas in a namespace `cmp-gate-<run>` of its own; the check applies it with `kubectl` and deletes the namespace before it ends. It makes no request on a timer: it reads a route again only after a frame arrived. |
 | CMP-G02 The shown mode is the engine's mode | `check_compliance_mode.go` | A policy that `GET /api/v1/sovereigns/{id}/compliance/policies` lists shows another mode than its engine object carries, or has no engine object. The engine object is the `ClusterPolicy` of that name, or the `ValidatingPolicy` when there is none. `enforcing` and `enforce` are the engine's enforce; `permissive` and `audit` are its audit. A policy of source `evaluator` without an engine object is not compared. |
 | CTL-G04 The lock holds | `check_ctl_lock.go` | `scripts/intent-lock-report.py --kubeconfig <region>` fails for a region, or its report has no stage. No stage of the intent lock is at deny. A stage at deny is not at zero: a manager other than Flux owns `spec` of one of its objects, or its audit count is not 0 or null. A kind at deny has no live object to copy, or in a region that serves it a create of a copy is not refused by the lock. The service account of Deployment `catalyst-system/catalyst-api` may create, update, patch or delete a kind at deny. The report of each region is kept as evidence. |
@@ -209,8 +237,11 @@ each field are in `internal/suite/provision.go`. It is `fresh` only when the
 run names a candidate, the environment was created after that candidate was
 cut, and check FND-G02 passed at the start and at the end in every region, so
 an environment that was updated in place is never fresh. The two flags of a
-wipe add `previous_deployment_id` and `previous_wipe_orphans`. A run that is
-not in the cloud writes only these two, and only when it is given them.
+wipe add `previous_deployment_id` and `previous_wipe_orphans`, and
+`--preflight` adds the object `preflight`: the time the numbers were read
+(`measured_at`) and one entry per kind (`kind`, and `used`, `allowed` and
+`leftovers` where they were measured). A run that is not in the cloud writes
+only these three, and only when it is given them.
 
 - **UAT.** A function-clause row, as listed in
   `docs/ledger/uat-function-rows.csv`, turns ✅ only if its evidence cites
