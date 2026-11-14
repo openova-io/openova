@@ -89,7 +89,7 @@ spec:
       # 127.0.0.1:4001; upstream registry = ghcr (ghcr-pull auth). Every
       # workload + initContainer carries non-zero resources.requests for the
       # host-ns Kyverno resource-requests Enforce policy.
-      version: 0.1.1
+      version: 0.1.2
       sourceRef:
         kind: HelmRepository
         name: bp-dragonfly

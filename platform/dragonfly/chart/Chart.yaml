@@ -50,7 +50,7 @@ keywords: [catalyst, blueprint, dragonfly, p2p, registry, oci, image, distributi
 # scheduler + seedClient replicas 1, bundled mysql + redis enabled, every
 # workload + initContainer carries non-zero resources.requests so the
 # cluster Kyverno `resource-requests` Enforce policy admits it.
-version: 0.1.1
+version: 0.1.2
 appVersion: "2.5.0"
 maintainers:
   - name: OpenOva Catalyst

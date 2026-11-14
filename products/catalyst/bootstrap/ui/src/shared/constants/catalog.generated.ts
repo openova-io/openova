@@ -1324,7 +1324,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "section": "pts-3-5-storage-and-data",
     "depends": [
       "bp-cilium"

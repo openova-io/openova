@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-14T13:28:06.870Z",
+  "generatedAt": "2026-11-14T13:28:10.814Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -1189,7 +1189,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "section": "pts-3-5-storage-and-data",
       "depends": [
         "bp-cilium"
