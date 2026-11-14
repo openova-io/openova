@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T23:00:05Z` |
+| Last refreshed | `2026-11-14T23:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-14T23:07 | [#7872](https://github.com/openova-io/openova/pull/7872) | #7803 | fix(api): audit events are recorded on the JetStream stream  |
+| 2026-11-14T23:07 | [#7871](https://github.com/openova-io/openova/pull/7871) | #7854 | feat(catalyst-api): the provisioning routes answer 403 on a  |
+| 2026-11-14T23:01 | [#7869](https://github.com/openova-io/openova/pull/7869) | #7793 | refactor(events): the shared events package is NATS only (CT |
 | 2026-11-14T22:27 | [#7868](https://github.com/openova-io/openova/pull/7868) | #7863 | fix(release): a moved funnel pin dispatches the provisioning |
 | 2026-11-14T22:26 | [#7867](https://github.com/openova-io/openova/pull/7867) | #7866 | test(gate): add the capability flag node-reboot to the close |
 | 2026-11-14T22:03 | [#7861](https://github.com/openova-io/openova/pull/7861) | #7087 | docs(ledger): plan update |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-14T18:26 | [#7826](https://github.com/openova-io/openova/pull/7826) | #7772 | fix(acceptance): check AIP-G01 skips Pods that have ended (A |
 | 2026-11-14T18:24 | [#7825](https://github.com/openova-io/openova/pull/7825) | #7087 | docs(ledger): plan update |
 | 2026-11-14T17:49 | [#7819](https://github.com/openova-io/openova/pull/7819) | #7087 | docs(ledger): plan update |
-| 2026-11-14T20:13 | [#7818](https://github.com/openova-io/openova/pull/7818) | #7740 | fix(provisioning): per-Organization databases use the storag |
-| 2026-11-14T18:50 | [#7817](https://github.com/openova-io/openova/pull/7817) | #7716 | feat(kured): chart bp-kured for coordinated node reboots and |
-| 2026-11-14T17:18 | [#7812](https://github.com/openova-io/openova/pull/7812) | #7087 | docs(ledger): plan update |
 
 ---
 
