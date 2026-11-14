@@ -22,12 +22,12 @@ maintainers:
     email: catalyst@openova.io
 
 # Upstream chart pulled in as a Helm subchart so `helm dependency build`
-# bundles it into the OCI artifact. Pinned to crossplane/crossplane 1.18.0
+# bundles it into the OCI artifact. Pinned to crossplane/crossplane 1.19.3
 # (matches platform/crossplane/blueprint.yaml + values.yaml
 # `catalystBlueprint.upstream.version`). Per
 # docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the version is
 # operator-bumpable via PR + Blueprint release.
 dependencies:
   - name: crossplane
-    version: "1.18.0"
+    version: "1.19.3"
     repository: "https://charts.crossplane.io/stable"
