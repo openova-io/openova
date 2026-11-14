@@ -1823,16 +1823,28 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c 'privacy guard skipped' .github/workflows/redact-guard.yml"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "! grep -q 'exit 0' .github/workflows/redact-guard.yml"
+  - id: A2
+    run: "! grep -q 'branches: \\[main\\]' .github/workflows/redact-guard.yml"
+  - id: A3
+    run: "grep -c \"':!.github/workflows/redact-guard.yml'\" .github/workflows/redact-guard.yml | grep -qx 1"
+  - id: A4
+    run: "python3 -c \"import os,subprocess,sys,yaml; s=[x for x in yaml.safe_load(open('.github/workflows/redact-guard.yml'))['jobs']['scan']['steps'] if x.get('name') == 'Reject private partner names'][0]['run']; run=lambda p: subprocess.run(['bash', '-e', '-c', s], env=dict(os.environ, PARTNER_REDACT_REGEX=p), capture_output=True, text=True); f='redact-guard-probe.txt'; open(f, 'w').write('zq9x7' + '-probe' + chr(10)); r=[run(''), run('zq9x7[-]never'), run('zq9x7[-]probe'), run('(')]; os.remove(f); ok=[r[0].returncode == 1, 'PARTNER_REDACT_REGEX is not set; the guard cannot run' in r[0].stdout, r[1].returncode == 0, r[2].returncode == 1, 'Private partner name detected' in r[2].stdout, r[3].returncode == 1]; print(ok); sys.exit(0 if all(ok) else 1)\""
+  - id: A5
+    run: "python3 -c \"import sys,yaml; f='.github/workflows/redact-guard.yml'; w=yaml.safe_load(open(f)); on=w[True]; ok=[w['name'] == 'privacy-redact-guard', list(w['jobs']) == ['scan'], sorted(on) == ['merge_group', 'pull_request', 'push'], all(not set(on[k] or {}) & {'branches', 'branches-ignore', 'tags', 'tags-ignore', 'paths', 'paths-ignore'} for k in on), not [l for l in open(f).read().splitlines() if 'echo' in l and chr(36) + 'PARTNER' in l]]; print(ok); sys.exit(0 if all(ok) else 1)\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: The privacy guard fails when its pattern is missing and runs on every branch.
+  delivers: The privacy guard fails when its pattern is missing or its search cannot run, finds what its pattern matches, and runs on every branch.
 - id: FND-058
   title: The guard-wiring meta-guard never reports a guard that a workflow runs as orphaned
   area: FND
@@ -11511,7 +11523,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271]
-  after: [FND-011, FND-013, FND-014, FND-015, FND-018, FND-020, FND-021, FND-022, FND-023, FND-031, FND-032, FND-033, FND-034, FND-040, FND-052, FND-053, FND-054, FND-055, FND-058, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-101, FND-102, FND-103, FND-105, FND-110, FND-171, CLD-010, CLD-021, CLD-022, CLD-040, CLD-063, CLD-075, CLD-080, CLD-086, CLD-087, CLD-113, CLD-142, SOV-030, SOV-035, SOV-040, SOV-050, SOV-110, SOV-120, SOV-121, SOV-133, SOV-141, SOV-150, SOV-180, SEC-020, SEC-030, SEC-125, NET-030, NET-033, NET-041, NET-050, NET-090, NET-100, SVC-020, SVC-060, SVC-125, CTL-010, CTL-020, CTL-025, CTL-030, CTL-035, CTL-044, CTL-045, CTL-150, CTL-160, CTL-201, CTL-240, CMP-012, CMP-014, CMP-036, CMP-073, BSS-050, INF-010, PRD-030, PRD-101, PRD-102, PRD-106]
+  after: [FND-011, FND-013, FND-014, FND-015, FND-018, FND-020, FND-021, FND-022, FND-023, FND-031, FND-032, FND-033, FND-034, FND-040, FND-052, FND-053, FND-054, FND-055, FND-057, FND-058, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-101, FND-102, FND-103, FND-105, FND-110, FND-171, CLD-010, CLD-021, CLD-022, CLD-040, CLD-063, CLD-075, CLD-080, CLD-086, CLD-087, CLD-113, CLD-142, SOV-030, SOV-035, SOV-040, SOV-050, SOV-110, SOV-120, SOV-121, SOV-133, SOV-141, SOV-150, SOV-180, SEC-020, SEC-030, SEC-125, NET-030, NET-033, NET-041, NET-050, NET-090, NET-100, SVC-020, SVC-060, SVC-125, CTL-010, CTL-020, CTL-025, CTL-030, CTL-035, CTL-044, CTL-045, CTL-150, CTL-160, CTL-201, CTL-240, CTL-300, CMP-012, CMP-014, CMP-036, CMP-073, BSS-050, AIP-050, INF-010, PRD-030, PRD-101, PRD-102, PRD-106]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/26-image-signature.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -14573,7 +14585,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-011, SVC-020]
-  after: [FND-014, FND-054, FND-091, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-070, CLD-080, CLD-086, CLD-113, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-141, SOV-160, SOV-180, SOV-220, SOV-320, SEC-080, SEC-100, SEC-110, NET-030, NET-041, NET-050, NET-070, NET-072, NET-080, NET-125, SVC-030, SVC-060, CTL-030, CTL-035, CTL-040, CTL-045, CTL-150, CTL-160, CTL-240, CMP-016, CMP-030, CMP-073, BSS-020, PRD-010, PRD-101, PRD-102, PRD-103, PRD-104, PRD-105, PRD-502]
+  after: [FND-014, FND-054, FND-091, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-070, CLD-080, CLD-086, CLD-113, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-141, SOV-160, SOV-180, SOV-220, SOV-320, SEC-080, SEC-100, SEC-110, NET-030, NET-041, NET-050, NET-070, NET-072, NET-080, NET-125, SVC-030, SVC-060, CTL-030, CTL-035, CTL-040, CTL-045, CTL-150, CTL-160, CTL-240, CTL-300, CMP-016, CMP-030, CMP-073, BSS-020, PRD-010, PRD-101, PRD-102, PRD-103, PRD-104, PRD-105, PRD-502]
   touches:
   - platform/*/blueprint.yaml
   - products/*/blueprint.yaml
@@ -16919,7 +16931,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-122, CTL-130, CTL-160, FND-032, FND-130]
-  after: [CLD-010, CLD-113, SOV-141, SOV-180, NET-010, NET-020, NET-060, CTL-020, CTL-045, CTL-150, CMP-012, BSS-030, BSS-050, INF-010, PRD-030]
+  after: [CLD-010, CLD-113, SOV-141, SOV-180, NET-010, NET-020, NET-060, CTL-020, CTL-045, CTL-150, CTL-300, CMP-012, BSS-030, BSS-050, INF-010, PRD-030]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/handler.go
   - products/catalyst/bootstrap/api/internal/handler/applications.go
@@ -17352,7 +17364,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-205]
-  after: [CLD-113, SOV-141, SOV-180, SEC-071, NET-042, CTL-020, CTL-040, CTL-045, CTL-150, CMP-012, BSS-050, INF-010, PRD-030]
+  after: [CLD-113, SOV-141, SOV-180, SEC-071, NET-042, CTL-020, CTL-040, CTL-045, CTL-150, CTL-300, CMP-012, BSS-050, INF-010, PRD-030]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/organization_gitops.go
   - organization_provisioning.go
@@ -17443,7 +17455,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-120, CTL-130, CTL-162, FND-032]
-  after: [CLD-010, CLD-113, SOV-141, SOV-180, NET-010, NET-020, NET-060, CTL-020, CTL-045, CTL-150, CMP-012, BSS-030, BSS-050, INF-010, PRD-030]
+  after: [CLD-010, CLD-113, SOV-141, SOV-180, NET-010, NET-020, NET-060, CTL-020, CTL-045, CTL-150, CTL-300, CMP-012, BSS-030, BSS-050, INF-010, PRD-030]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/user_access.go
   - rbac_assign.go
@@ -17505,7 +17517,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CTL-120, CTL-130, CTL-162]
-  after: [CLD-113, SOV-141, SOV-180, SVC-060, CTL-020, CTL-041, CTL-045, CTL-150, CMP-012, BSS-050, INF-010, PRD-030]
+  after: [CLD-113, SOV-141, SOV-180, SVC-060, CTL-020, CTL-041, CTL-045, CTL-150, CTL-300, CMP-012, BSS-050, INF-010, PRD-030]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/marketplace_settings.go
   - products/catalyst/bootstrap/api/internal/intent/settings.go
@@ -17804,29 +17816,41 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [CTL-044, FND-011]
-  after: [SVC-060]
+  after: []
   touches:
-  - platform/nats-jetstream/chart/templates/streams.yaml
-  - kv-buckets.yaml
-  - platform/nats-jetstream/chart/values.yaml
-  - platform/nats-jetstream/chart/tests/**
-  - scripts/check-event-subjects.py
-  - scripts/baselines/streams.json
   - core/services/shared/events/bridge_subscriber.go
+  - core/services/shared/events/bridge_subscriber_test.go
+  - core/services/shared/events/nats.go
+  - platform/nats-jetstream/chart/templates/kv-buckets.yaml
+  - platform/nats-jetstream/chart/templates/streams.yaml
+  - platform/nats-jetstream/chart/tests/catalyst-org-stream.sh
+  - platform/nats-jetstream/chart/tests/kyverno-probes-present.sh
+  - platform/nats-jetstream/chart/values.yaml
+  - scripts/baselines/streams.json
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c 'streamsEnabled: false' platform/nats-jetstream/chart/values.yaml"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "bash platform/nats-jetstream/chart/tests/catalyst-org-stream.sh platform/nats-jetstream/chart && bash platform/nats-jetstream/chart/tests/kyverno-probes-present.sh platform/nats-jetstream/chart"
+  - id: A2
+    run: "cd core/services/shared && go test -count=1 ./events/ && out=\"$(go test -count=1 -v -run '^TestEnsureOrgStreamBindsToTheDeclaredStream$' ./events/)\" && grep -q -F -- '--- PASS: TestEnsureOrgStreamBindsToTheDeclaredStream ' <<<\"$out\""
+  - id: A3
+    run: "python3 scripts/check-event-subjects.py | grep -x -F 'stream_create_calls=1'"
+  - id: A4
+    run: "printf '%s\\n' '340710420a92ed2cd953a967eaceeebc32a72991059aae5b465958718ea7a502  core/services/shared/events/bridge_subscriber.go' '5504acc502e4d7e7d23a1e73796467ce8700f9a74e463753109917241679c0d6  core/services/shared/events/bridge_subscriber_test.go' '72776de5031496b9ff27238660dbf1185e179262ba5b05602556c5227d5374da  core/services/shared/events/nats.go' '320b72fa4a149a8ac297e6a9b1132c94b5554f5a03df6d8afdacc2d883e79cdc  platform/nats-jetstream/chart/templates/kv-buckets.yaml' '66d188557b991da2a31e90cbf5de9e9018ddd5dc9f4f4733eaeab3df1d732a59  platform/nats-jetstream/chart/templates/streams.yaml' '5b2645d279f3c3c20e19ca57c8a3a7bce346d99399c3a8441a3b18c104206b36  platform/nats-jetstream/chart/tests/catalyst-org-stream.sh' '360833f6447a3de6674bd49f7f769233cbb93b220ffb3ad09059daa4101514c9  platform/nats-jetstream/chart/tests/kyverno-probes-present.sh' '375258b24383d433c152ea9813581e4d668b5b5031db9f95613532a62c438b54  platform/nats-jetstream/chart/values.yaml' '861b0812f10f37546cfa7aa5d60dc8d4409353e702fee9e73c35d6a2923bdd12  scripts/baselines/streams.json' | sha256sum --check --quiet -"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: One Stream object CATALYST_ORG equal to the code's configuration; three disabled streams, streamsEnabled and the idempotency bucket deleted; ensureOrgStream binds to the declared stream and fails when it is absent; the bucket policy-rollup is not on the keep list; guard on stream creation in code.
+  delivers: The chart bp-nats-jetstream declares the one JetStream stream CATALYST_ORG with the configuration the code used, the three disabled streams, the value streamsEnabled and the bucket idempotency are gone, the services bind to the declared stream and fail at start while it is absent, and a chart test holds the chart, the event contract and the code to one stream name and subject list.
 - id: CTL-320
   title: Durable audit
   area: CTL
@@ -17967,7 +17991,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-035]
-  after: [FND-095, FND-096, CLD-113, SOV-035, SOV-141, SOV-180, CTL-020, CTL-045, CTL-150, CMP-012, BSS-050, INF-010, PRD-030]
+  after: [FND-095, FND-096, CLD-113, SOV-035, SOV-141, SOV-180, CTL-020, CTL-045, CTL-150, CTL-300, CMP-012, BSS-050, INF-010, PRD-030]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/sovereign.go
   - applications.go
@@ -20007,7 +20031,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-045, CMP-052, CMP-071, CTL-045]
-  after: [FND-011, CLD-010, NET-010, NET-020, NET-042, NET-060, BSS-030]
+  after: [FND-011, CLD-010, NET-010, NET-020, NET-042, NET-060, CTL-300, BSS-030]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/snapshot.go
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
@@ -22057,16 +22081,36 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls scripts/check-agent-plane.py scripts/agent-plane-baseline.yaml .github/workflows/agent-plane-guards.yaml 2>/dev/null | wc -l"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "test \"$(sha256sum < scripts/check-agent-plane.py)\" = \"ea6d961b51931c97fdc582e52dd89f66fb24b41db670e0679fb3d01093ef01f6  -\""
+  - id: A2
+    run: "test \"$(sha256sum < .github/workflows/agent-plane-guards.yaml)\" = \"543cc2df334365d2874de1d533bedf7835d0e2cc69d18f92a56a9f6479812e2c  -\""
+  - id: A3
+    run: "test \"$(sha256sum < scripts/agent-plane-baseline.yaml)\" = \"1f7acf6cabe650ef8d1054a222d57e8d62a1c0ac8a890a215f09960098267284  -\""
+  - id: A4
+    run: "python3 scripts/check-agent-plane.py --self-test"
+  - id: A5
+    run: "python3 scripts/check-agent-plane.py"
+  - id: A6
+    run: "t=\"$(mktemp -d)\"; trap 'rm -rf \"$t\"' EXIT; git init -q \"$t\"; cp --parents scripts/agent-plane-baseline.yaml \"$t\"; python3 scripts/check-agent-plane.py --root \"$t\" > /dev/null; mkdir -p \"$t/b\"; printf 'url: https://api.anthropic.com/v1\\n' > \"$t/b/new.yaml\"; code=0; out=\"$(python3 scripts/check-agent-plane.py --root \"$t\")\" || code=$?; test \"$code\" = 1; grep -q -F 'FAIL G1: b/new.yaml has a hit and is not on the allow-list' <<<\"$out\""
+  - id: A7
+    run: "t=\"$(mktemp -d)\"; trap 'rm -rf \"$t\"' EXIT; git init -q \"$t\"; cp --parents scripts/agent-plane-baseline.yaml core/services/metering-sidecar/main.go core/services/metering-sidecar/proxy/proxy.go platform/newapi/chart/values.yaml \"$t\"; python3 scripts/check-agent-plane.py --root \"$t\" > /dev/null; printf 'h := \"X-Tenant-Id\"\\n' >> \"$t/core/services/metering-sidecar/main.go\"; code=0; out=\"$(python3 scripts/check-agent-plane.py --root \"$t\")\" || code=$?; test \"$code\" = 1; grep -q -F 'FAIL G4: 7 lines, the baseline allows 6' <<<\"$out\""
+  - id: A8
+    run: "t=\"$(mktemp -d)\"; trap 'rm -rf \"$t\"' EXIT; git init -q \"$t\"; cp --parents scripts/agent-plane-baseline.yaml \"$t\"; python3 scripts/check-agent-plane.py --root \"$t\" > /dev/null; mkdir -p \"$t/products/agents-demo/chart\"; printf 'kind: Agent\\nmetadata: { name: demo }\\nspec:\\n  apiKeySecret: key\\n  tools: [create_application]\\n' > \"$t/products/agents-demo/chart/agent.yaml\"; code=0; out=\"$(python3 scripts/check-agent-plane.py --root \"$t\")\" || code=$?; test \"$code\" = 1; grep -q -F 'FAIL G7a: products/agents-demo/chart/agent.yaml:4 sets apiKeySecret' <<<\"$out\"; grep -q -F 'FAIL G7b: products/agents-demo/chart/agent.yaml:5 names a forbidden tool' <<<\"$out\"; grep -q -F 'FAIL G7c: Agent demo in products/agents-demo/chart/agent.yaml has 0 valid case files under products/agents-demo/evals/demo/, needs 20' <<<\"$out\""
+  - id: A9
+    run: "t=\"$(mktemp -d)\"; trap 'rm -rf \"$t\"' EXIT; git init -q \"$t\"; cp --parents scripts/agent-plane-baseline.yaml \"$t\"; git -C \"$t\" add -A; git -C \"$t\" -c user.name=a -c user.email=a@a -c commit.gpgsign=false commit -q -m base; python3 scripts/check-agent-plane.py --root \"$t\" --base HEAD > /dev/null; sed -i 's/^    max: 13$/    max: 14/' \"$t/scripts/agent-plane-baseline.yaml\"; code=0; out=\"$(python3 scripts/check-agent-plane.py --root \"$t\" --base HEAD)\" || code=$?; test \"$code\" = 1; grep -q -F 'FAIL G1: max 14 is above the 13 stored at HEAD' <<<\"$out\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Seven ratchet rules with measured baselines and a self-test
+  delivers: A pull request fails when it spreads a model-provider host, the subscription credential document, the token endpoint's client identifier, a caller-set identity header, a model base URL that bypasses the model gateway, the long-lived tool bearer or an agent-kit import, when an agent definition stores a model key or binds a forbidden tool or has no evaluation set, or when it raises a stored number.
 - id: AIP-060
   title: 'Decision record: the model plane'
   area: AIP
@@ -22123,7 +22167,7 @@ packages:
   size: XS
   lane: CHARTS
   depends_on: [AIP-010, SVC-160]
-  after: [FND-011, FND-054, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, FND-173, CLD-021, CLD-022, CLD-142, SOV-035, SEC-100, NET-042, CTL-030]
+  after: [FND-011, FND-054, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, FND-173, CLD-021, CLD-022, CLD-142, SOV-035, SEC-100, NET-042, CTL-030, AIP-050]
   touches:
   - platform/llm-gateway/**
   - platform/anthropic-adapter/**
@@ -22153,7 +22197,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [AIP-020]
-  after: [FND-011, FND-054, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, FND-173, CLD-021, CLD-022, SOV-035, SEC-100, NET-042, CTL-030]
+  after: [FND-011, FND-054, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, FND-173, CLD-021, CLD-022, SOV-035, SEC-100, NET-042, CTL-030, AIP-050]
   touches:
   - products/axon/src/**
   - products/axon/package.json
@@ -22192,7 +22236,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [AIP-101]
-  after: []
+  after: [AIP-050]
   touches:
   - products/axon/src/upstream.ts
   - products/axon/src/turns.ts
@@ -22286,7 +22330,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [AIP-104]
-  after: []
+  after: [AIP-050]
   touches:
   - products/axon/src/credential.ts
   - products/axon/src/providers/token-refresh.ts
@@ -22383,7 +22427,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [AIP-040, CTL-045, CTL-330]
-  after: [FND-054, FND-095, FND-096, FND-097, FND-098, FND-099, FND-173, SOV-035, SEC-100, NET-042, PRD-101, PRD-102]
+  after: [FND-054, FND-095, FND-096, FND-097, FND-098, FND-099, FND-173, SOV-035, SEC-100, NET-042, AIP-050, PRD-101, PRD-102]
   touches:
   - core/services/metering-sidecar/**
   - core/services/model-meter/**
@@ -22661,7 +22705,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [AIP-150, AIP-250]
-  after: [FND-011]
+  after: [FND-011, AIP-050]
   touches:
   - products/agenity/chart/templates/externalsecret-mcp-bearer.yaml
   - products/agenity/chart/templates/externalsecret-anthropic.yaml
@@ -22695,7 +22739,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [AIP-155]
-  after: [FND-054, FND-095, FND-096, FND-097, FND-099, FND-173, CLD-113, SOV-035, SOV-141, SOV-180, SEC-100, NET-042, CTL-040]
+  after: [FND-054, FND-095, FND-096, FND-097, FND-099, FND-173, CLD-113, SOV-035, SOV-141, SOV-180, SEC-100, NET-042, CTL-040, AIP-050]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/sovereign_mcp_bearer_seed.go
   - products/catalyst/bootstrap/api/internal/handler/sovereign_mcp_bearer_seed_test.go
@@ -22730,7 +22774,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [AIP-106, AIP-120]
-  after: [CLD-010, SOV-180, SEC-080, NET-010, NET-020, NET-060, BSS-030]
+  after: [CLD-010, SOV-180, SEC-080, NET-010, NET-020, NET-060, BSS-030, AIP-050]
   touches:
   - products/catalyst/bootstrap/api/internal/modelsim/**
   - products/catalyst/bootstrap/api/cmd/api/main.go
@@ -22918,7 +22962,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [AIP-183]
-  after: [FND-011, NET-042]
+  after: [FND-011, NET-042, AIP-050]
   touches:
   - platform/newapi/**
   - platform/openclaw/**
@@ -22979,7 +23023,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [AIP-106, AIP-155, AIP-156, AIP-160, AIP-182]
-  after: [FND-011, CLD-113, SOV-141, SOV-180, NET-042, NET-080]
+  after: [FND-011, CLD-113, SOV-141, SOV-180, NET-042, NET-080, AIP-050]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/sovereign_anthropic_*.go
   - products/catalyst/bootstrap/api/internal/handler/anthropic_credential_class.go
@@ -23075,7 +23119,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [AIP-150, AIP-170, AIP-201, AIP-202, SEC-213, SVC-160]
-  after: [FND-011, CLD-010, NET-010, NET-020, BSS-030]
+  after: [FND-011, CLD-010, NET-010, NET-020, BSS-030, AIP-050]
   touches:
   - platform/kagent/**
   - .github/workflows/build-bp-kagent.yaml
@@ -23707,7 +23751,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [AIP-292]
-  after: [FND-011, CTL-041]
+  after: [FND-011, CTL-041, AIP-050]
   touches:
   - products/axon/**
   - clusters/_template/bootstrap-kit/82-bp-axon.yaml
