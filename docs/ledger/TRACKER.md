@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T07:30:06Z` |
+| Last refreshed | `2026-11-14T07:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,9 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7212](https://github.com/openova-io/openova/issues/7212) | CLD-071 Decision record 0024: the primary substrate moved on 2026-05-22; status  | Other |
-| [#7213](https://github.com/openova-io/openova/issues/7213) | CMP-005 Decision record: the compliance plane | Other |
-| [#7214](https://github.com/openova-io/openova/issues/7214) | CMP-012 Guard: legacy policy count may only fall; the upgrade acknowledgement va | Other |
 | [#7215](https://github.com/openova-io/openova/issues/7215) | FND-040 Stability register and the frozen-path check | Other |
 | [#7216](https://github.com/openova-io/openova/issues/7216) | FND-055 Vulnerability and secret scans, new findings only | Other |
 | [#7217](https://github.com/openova-io/openova/issues/7217) | SEC-006 Decision record 0018: secrets and trust | Other |
@@ -300,6 +297,9 @@ flowchart LR
 | [#7534](https://github.com/openova-io/openova/issues/7534) | FND-088 The event registry and the shared bus package no longer name the Sandbox | Other |
 | [#7535](https://github.com/openova-io/openova/issues/7535) | FND-089 The storefront offers no Sandbox agent picks and the order request carri | Other |
 | [#7536](https://github.com/openova-io/openova/issues/7536) | SEC-090 Guards | Other |
+| [#7539](https://github.com/openova-io/openova/issues/7539) | CTL-700 Pull-request mode of the commit library | Other |
+| [#7540](https://github.com/openova-io/openova/issues/7540) | NET-133 A local-affinity decision on every global Service | Other |
+| [#7544](https://github.com/openova-io/openova/issues/7544) | SEC-010 Close the public route to OpenBao system paths | Other |
 
 ---
 
@@ -307,7 +307,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-14T07:41 | [#7538](https://github.com/openova-io/openova/pull/7538) | #7087 | docs(ledger): plan update |
+| 2026-11-14T07:40 | [#7537](https://github.com/openova-io/openova/pull/7537) | #7527 | feat(acceptance): intent-lock report and gate check CTL-G04  |
 | 2026-11-14T07:29 | [#7533](https://github.com/openova-io/openova/pull/7533) | #7087 | docs(ledger): plan update |
+| 2026-11-14T07:40 | [#7532](https://github.com/openova-io/openova/pull/7532) | #7522 | refactor(console): read the mode from the self route, not fr |
+| 2026-11-14T07:40 | [#7531](https://github.com/openova-io/openova/pull/7531) | #7529 | ci: a required check keeps the vendor disk library out of th |
 | 2026-11-14T07:12 | [#7526](https://github.com/openova-io/openova/pull/7526) | #7087 | docs(ledger): plan update |
 | 2026-11-14T07:18 | [#7525](https://github.com/openova-io/openova/pull/7525) | #7516 | refactor(nats): declare the stream CATALYST_ORG in the chart |
 | 2026-11-14T07:17 | [#7524](https://github.com/openova-io/openova/pull/7524) | #7515 | chore(ci): guard that the agent plane gains no provider host |
@@ -333,10 +337,6 @@ flowchart LR
 | 2026-11-13T18:04 | [#7485](https://github.com/openova-io/openova/pull/7485) | #7484 | fix(cloud-init): pack seven boot files so a Hetzner render w |
 | 2026-11-13T17:33 | [#7483](https://github.com/openova-io/openova/pull/7483) | #7087 | docs(ledger): plan update |
 | 2026-11-13T17:43 | [#7482](https://github.com/openova-io/openova/pull/7482) | #7479 | chore: remove the withdrawn Sandbox sources and count the re |
-| 2026-11-13T17:44 | [#7481](https://github.com/openova-io/openova/pull/7481) | #7477 | feat(providers): local provider pack module, reduced kit and |
-| 2026-11-13T17:43 | [#7480](https://github.com/openova-io/openova/pull/7480) | #7478 | ci: one aggregate check, merge-group triggers, rulesets and  |
-| 2026-11-13T17:16 | [#7476](https://github.com/openova-io/openova/pull/7476) | #7087 | docs(ledger): plan update |
-| 2026-11-13T16:34 | [#7475](https://github.com/openova-io/openova/pull/7475) | #7473 | refactor(cloud-init): the boot template and the provider con |
 
 ---
 
