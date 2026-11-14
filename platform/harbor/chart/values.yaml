@@ -463,6 +463,14 @@ registryProjects:
   # self-sovereign-cutover chart creates it as a pull-through project.
   xpkgPath: proxy-xpkg
   createXpkgProject: false
+  # REGISTRY_PATH_VULN_DB. Its first path segment is a pull-through project
+  # to the origin registry: the vulnerability database of the scanner.
+  vulnDBPath: proxy-vulndb/aquasecurity/trivy-db
+  # ORIGIN_REGISTRY_HOST and ORIGIN_REGISTRY_SCHEME: the registry the
+  # database project pulls through from. An empty host: no such project.
+  origin:
+    host: ""
+    scheme: https
 
 # ─── Catalyst overlay values (consumed by templates/ in this chart) ──────
 # Reserved for Catalyst-side overlays added in a follow-up PR once
