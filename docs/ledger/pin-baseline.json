@@ -1,0 +1,5 @@
+{
+  "schema": "openova.io/pin-baseline/v1",
+  "actions_not_pinned_by_commit": 473,
+  "base_images_not_pinned_by_digest": 74
+}
