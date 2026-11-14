@@ -1790,7 +1790,7 @@ checks:
   needs: []
   proof: running
   asserts: Organization isolation
-  delivered_by: NET-170
+  delivered_by: NET-172
 - id: NET-G08
   title: Registry equals live values
   owner: NET
