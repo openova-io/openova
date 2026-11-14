@@ -93,3 +93,4 @@ jobs:
         with:
           paths: products/catalyst/chart/values.yaml
           commit-message: "deploy: update Catalyst marketplace image to ${{ needs.build.outputs.sha_short }}"
+          release-writer-key: ${{ secrets.RELEASE_WRITER_KEY }}

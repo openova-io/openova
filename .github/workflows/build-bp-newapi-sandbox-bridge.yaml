@@ -131,6 +131,7 @@ jobs:
             ${{ env.CHART_VALUES }}
             ${{ env.CHART_YAML }}
           commit-message: "deploy: bump bp-newapi sandbox-bridge ${{ steps.tag.outputs.tag }} chart ${{ env.CHART_NEW_VERSION }} (Wave 5.57)"
+          release-writer-key: ${{ secrets.RELEASE_WRITER_KEY }}
 
       - name: Trigger blueprint-release
         if: steps.deploy_commit.outputs.pushed == 'true'
