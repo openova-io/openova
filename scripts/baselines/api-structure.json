@@ -62,7 +62,6 @@
       "products/catalyst/bootstrap/api/internal/handler/endpoint_org_domain.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/fleet.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/fleet_treemap.go": 1,
-      "products/catalyst/bootstrap/api/internal/handler/flow_emitter.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/flow_snapshot_local.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/handler.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/handover.go": 1,
@@ -99,7 +98,6 @@
       "products/catalyst/bootstrap/api/internal/handler/namespace_ensure.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/networking.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/openbao_sso_init.go": 1,
-      "products/catalyst/bootstrap/api/internal/handler/openova_flow_proxy.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/org_applications.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/org_billing_purchase.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/org_billing_revenue.go": 1,
@@ -181,10 +179,10 @@
       "products/catalyst/bootstrap/api/internal/handler/wipe_evs_backstop.go": 1
     },
     "handler_lines": {
-      "products/catalyst/bootstrap/api/internal/handler": 97707
+      "products/catalyst/bootstrap/api/internal/handler": 97072
     },
     "handler_methods": {
-      "products/catalyst/bootstrap/api/internal/handler": 634
+      "products/catalyst/bootstrap/api/internal/handler": 627
     },
     "main_lines": {
       "products/catalyst/bootstrap/api/cmd/api/main.go": 938

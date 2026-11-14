@@ -22,7 +22,6 @@
     "go_sleep": {
       "core/services/provisioning/handlers/handlers.go": 2,
       "products/catalyst/bootstrap/api/cmd/api/main.go": 1,
-      "products/catalyst/bootstrap/api/internal/flowemit/client.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/deployment_handover_export.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/handover_export_retry.go": 2,
       "products/catalyst/bootstrap/api/internal/handler/phase1_watch.go": 3,
@@ -46,7 +45,6 @@
       "products/catalyst/bootstrap/api/internal/handler/continuum_extras.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/cutover_engine_lease.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/cutover_reconciler.go": 1,
-      "products/catalyst/bootstrap/api/internal/handler/flow_emitter.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/janitor.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/org_console_tls_reconcile.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/phase1_watch.go": 1,
