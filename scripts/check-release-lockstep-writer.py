@@ -66,6 +66,14 @@ Cases
             newer version, the run says so in its log and summary, and it ends
             green. → RED before FND-018: the older version is written back.
 
+  multi-slot, multi-slot-retry (FND-019)
+            A merged change to bp-postgres, a chart that three kit slots pin
+            (16a, 16c, 16d: one per data instance). The writer must move every
+            one of those pins and push them in ONE commit with the other sites,
+            also on a retry. The case refuses a chart that fewer than two slots
+            pin. → RED before FND-019: the commit step hands the slot files to
+            `git add` and to the retry rewrite as one path.
+
   release-umbrella (FND-018)
             A leaf chart is released and its catalogue seed pins move. The job
             `umbrella-follow` must then bump the umbrella chart and dispatch its
@@ -595,6 +603,18 @@ CASES = {
         why="POSITIVE (FND-018) — the run of an older version writes its version, the "
             "newer run lands first, and the retry resets to origin/main; no site may go back",
     ),
+    "multi-slot": dict(
+        path="platform/postgres", do_bump=False, change=True, multi_slot=True,
+        expect=dict(blueprint="literal", seed="literal", kit="literal"),
+        why="POSITIVE (FND-019) — a merged change to a chart that several kit slots pin; "
+            "the writer must move every pin and push all of them with the other sites in ONE commit",
+    ),
+    "multi-slot-retry": dict(
+        path="platform/postgres", do_bump=False, change=True, conflict=True, multi_slot=True,
+        expect=dict(blueprint="literal", seed="literal", kit="literal"),
+        why="POSITIVE (FND-019) — the same, with a rival commit forcing the retry; the reset "
+            "wipes every pin, so the retry must write each slot again",
+    ),
     "release-umbrella": dict(
         path="platform/keycloak", do_bump=False, change=True, kind="umbrella-follow",
         expect=dict(blueprint="literal", seed="literal", kit="literal"),
@@ -649,6 +669,9 @@ def precheck_in_scope(case, name):
             if not (is_static(sraw) and is_static(vraw)):
                 raise Failure("case %r needs STATIC seed version lines; %s has %r / %r"
                               % (name, n, sraw, vraw))
+    if case.get("multi_slot") and len(slots) < 2:
+        raise Failure("case %r needs a chart that at least two kit slots pin; %s is pinned by %d"
+                      % (name, chart, len(slots)))
     if case["expect"]["blueprint"] == "literal" and bp is None:
         raise Failure("case %r expects a blueprint.yaml at %s but none exists" % (name, path))
     return chart, ver
