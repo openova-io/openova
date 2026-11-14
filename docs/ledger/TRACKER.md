@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T23:15:04Z` |
+| Last refreshed | `2026-11-14T23:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-14T23:26 | [#7874](https://github.com/openova-io/openova/pull/7874) | #7087 | docs(ledger): the check INF-G01 needs the capability node-re |
 | 2026-11-14T23:07 | [#7872](https://github.com/openova-io/openova/pull/7872) | #7803 | fix(api): audit events are recorded on the JetStream stream  |
 | 2026-11-14T23:07 | [#7871](https://github.com/openova-io/openova/pull/7871) | #7854 | feat(catalyst-api): the provisioning routes answer 403 on a  |
 | 2026-11-14T23:01 | [#7869](https://github.com/openova-io/openova/pull/7869) | #7793 | refactor(events): the shared events package is NATS only (CT |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-14T18:48 | [#7827](https://github.com/openova-io/openova/pull/7827) | #7763 | feat(fingate): PostgreSQL consent store, definitions informe |
 | 2026-11-14T18:26 | [#7826](https://github.com/openova-io/openova/pull/7826) | #7772 | fix(acceptance): check AIP-G01 skips Pods that have ended (A |
 | 2026-11-14T18:24 | [#7825](https://github.com/openova-io/openova/pull/7825) | #7087 | docs(ledger): plan update |
-| 2026-11-14T17:49 | [#7819](https://github.com/openova-io/openova/pull/7819) | #7087 | docs(ledger): plan update |
 
 ---
 
