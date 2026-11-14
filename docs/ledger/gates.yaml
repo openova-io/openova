@@ -645,13 +645,14 @@ checks:
 - id: CLD-G06
   title: Crossplane upgrade leaves Workspaces and packages intact
   owner: CLD
-  state: not-built
+  state: expected-fail
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: After the upgrade run Crossplane is at the train's version, Workspaces are unchanged in number and Ready, packages are Healthy and came from the named registry
   implemented_by: CLD-067
+  implementation: tests/acceptance/sovereign/internal/suite/check_crossplane.go
   delivered_by: CLD-061
 - id: CLD-G07
   title: Providers route lists the packs; a create request validates
