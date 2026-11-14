@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T10:00:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-14T10:15:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -309,6 +309,8 @@ flowchart LR
 |---|---|---|---|
 | 2026-11-14T09:52 | [#7642](https://github.com/openova-io/openova/pull/7642) | #7087 | docs(ledger): plan update |
 | 2026-11-14T09:42 | [#7640](https://github.com/openova-io/openova/pull/7640) | #7087 | docs(ledger): plan update |
+| 2026-11-14T10:01 | [#7635](https://github.com/openova-io/openova/pull/7635) | #7634 | fix(ci): no version-update pull requests for Go modules and  |
+| 2026-11-14T10:02 | [#7599](https://github.com/openova-io/openova/pull/7599) | #7549 | fix(newapi): switch off the metering sidecar and add gate ch |
 | 2026-11-14T09:17 | [#7578](https://github.com/openova-io/openova/pull/7578) | #7576 | fix(ci): the unseal-key guard's list holds the findings of m |
 | 2026-11-14T09:43 | [#7564](https://github.com/openova-io/openova/pull/7564) | #7553 | docs: point the canonical documents at the generated invento |
 | 2026-11-14T08:51 | [#7562](https://github.com/openova-io/openova/pull/7562) | #7551 | feat(api): the jobs store publishes its writes, a jobs strea |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-14T07:18 | [#7523](https://github.com/openova-io/openova/pull/7523) | #7506 | refactor(kyverno-policies): end the bootstrap window when th |
 | 2026-11-14T07:04 | [#7521](https://github.com/openova-io/openova/pull/7521) | #7087 | docs(ledger): plan update |
 | 2026-11-14T07:56 | [#7520](https://github.com/openova-io/openova/pull/7520) | #7517 | ci: the privacy guard fails closed, really searches and runs |
-| 2026-11-14T07:10 | [#7519](https://github.com/openova-io/openova/pull/7519) | #7513 | feat(sovereign): seed-repo commits the root objects of a reg |
-| 2026-11-14T07:19 | [#7518](https://github.com/openova-io/openova/pull/7518) | #7512 | fix(organization-controller): pin the per-Org vcluster chart |
 
 ---
 
