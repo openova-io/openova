@@ -1,0 +1,40 @@
+schema: openova.io/plan-wrong/v1
+id: PRD-513
+ticket_rev: 1
+base_commit: ece6ef679900911d20a9cacf9d614a6890fb80e6
+stage: step
+ref: step 10
+command: |
+    (cd products/fingate && go vet ./... && go test -count=1 ./...) > /tmp/PRD-513-test.txt 2>&1; echo "exit code: $?"
+expected: |
+    It must print `exit code: 0`.
+actual: |
+    ok  	github.com/openova-io/openova/products/fingate/adapter-template	0.117s
+    ok  	github.com/openova-io/openova/products/fingate/api/ledger/v1	0.031s
+    --- FAIL: TestRunServesTheRoutesWithMutualTLS (10.50s)
+        main_test.go:333: no line "fingate-api: serving the resource server on 127.0.0.1:36537 with mutual TLS, profile rw-4.0.0, host api.bank.example" within ten seconds; output:
+            fingate-api: waiting for the definitions in ConfigMap open-banking/fingate-definitions
+            fingate-api: definitions: loaded ConfigMap open-banking/fingate-definitions version : profile rw-4.0.0, host api.bank.example, 1 partners
+            fingate-api: api: the configuration needs Profile, Documents, Definitions, Checker, Store and Ledger
+    FAIL
+    FAIL	github.com/openova-io/openova/products/fingate/cmd/fingate-api	10.754s
+    ok  	github.com/openova-io/openova/products/fingate/cmd/fingate-ledger-conformance	0.086s
+    ok  	github.com/openova-io/openova/products/fingate/cmd/fingate-sandbox-ledger	0.023s
+    ok  	github.com/openova-io/openova/products/fingate/internal/api	2.895s
+    ok  	github.com/openova-io/openova/products/fingate/internal/consent	0.645s
+    ok  	github.com/openova-io/openova/products/fingate/internal/definitions	0.477s
+    ?   	github.com/openova-io/openova/products/fingate/internal/gen/accountinfo	[no test files]
+    ?   	github.com/openova-io/openova/products/fingate/internal/gen/confirmationfunds	[no test files]
+    ?   	github.com/openova-io/openova/products/fingate/internal/gen/eventnotifications	[no test files]
+    ?   	github.com/openova-io/openova/products/fingate/internal/gen/events	[no test files]
+    ?   	github.com/openova-io/openova/products/fingate/internal/gen/paymentinitiation	[no test files]
+    ?   	github.com/openova-io/openova/products/fingate/internal/gen/vrp	[no test files]
+    ok  	github.com/openova-io/openova/products/fingate/internal/ledgerclient	0.107s
+    ok  	github.com/openova-io/openova/products/fingate/internal/ledgertest	0.090s
+    ok  	github.com/openova-io/openova/products/fingate/internal/profile	0.537s
+    ok  	github.com/openova-io/openova/products/fingate/internal/sandbox	0.066s
+    ok  	github.com/openova-io/openova/products/fingate/internal/store	0.029s
+    ?   	github.com/openova-io/openova/products/fingate/internal/store/storetest	[no test files]
+    ok  	github.com/openova-io/openova/products/fingate/internal/token	0.548s
+    FAIL
+reported_at: 2026-11-14T14:57:41Z
