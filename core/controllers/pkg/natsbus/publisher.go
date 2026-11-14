@@ -19,8 +19,8 @@
 //     wire format is identical (id / type / source / timestamp / tenant_id /
 //     data / metadata). It is re-implemented here (rather than imported) for
 //     the same reason Event is: to keep the controllers module free of a
-//     dependency on core/services/shared/events (which drags in franz-go +
-//     Kafka transports the controllers never touch).
+//     dependency on core/services/shared/events and its service-side bus
+//     code, which the controllers never touch.
 package natsbus
 
 import (
