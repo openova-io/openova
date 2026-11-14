@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T19:30:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-14T19:45:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,12 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7551](https://github.com/openova-io/openova/issues/7551) | CTL-340 Jobs store subscribe; flow stream event-driven; jobs stream route | Other |
-| [#7552](https://github.com/openova-io/openova/issues/7552) | FND-017 The workflows that push to main themselves push under the release-writer | Other |
-| [#7553](https://github.com/openova-io/openova/issues/7553) | FND-104 Truth patch of the canonical documents | Other |
-| [#7554](https://github.com/openova-io/openova/issues/7554) | SEC-161 Reconciler: secrets mounts and accessor substitution | Other |
-| [#7558](https://github.com/openova-io/openova/issues/7558) | INF-110 Kinds Machine and MachineSource; inventory controller with the node sour | Other |
-| [#7568](https://github.com/openova-io/openova/issues/7568) | NET-011 API port limited to declared sources | Other |
 | [#7576](https://github.com/openova-io/openova/issues/7576) | fix(ci): the secret guard for the OpenBao unseal key fails on main since two tas | Other |
 | [#7634](https://github.com/openova-io/openova/issues/7634) | fix(ci): the dependency bot opened 60 pull requests at once and filled the CI qu | Other |
 | [#7641](https://github.com/openova-io/openova/issues/7641) | SVC-070 Function tests: identity and secrets charts | Other |
@@ -300,6 +294,12 @@ flowchart LR
 | [#7829](https://github.com/openova-io/openova/issues/7829) | The release bump never writes the funnel chart pin, so the pin drift test fails  | Other |
 | [#7831](https://github.com/openova-io/openova/issues/7831) | FND-070 Baseline: one fresh provision of main as it stands | Other |
 | [#7834](https://github.com/openova-io/openova/issues/7834) | a fresh two-region Sovereign: the hand-over chain never pivots the follower regi | Other |
+| [#7837](https://github.com/openova-io/openova/issues/7837) | CTL-332 The service modules no longer require the Kafka client | Other |
+| [#7838](https://github.com/openova-io/openova/issues/7838) | FND-026 Two tasks that share only record files may run together | Other |
+| [#7839](https://github.com/openova-io/openova/issues/7839) | FND-077 The flight sweep counts the DNS records a wiped deployment left | Other |
+| [#7840](https://github.com/openova-io/openova/issues/7840) | FND-130 The gate suite runs on the local provider pack on every pull request | Other |
+| [#7841](https://github.com/openova-io/openova/issues/7841) | NET-170 Organization fence: two host-side deny objects for the Organization's ow | Other |
+| [#7842](https://github.com/openova-io/openova/issues/7842) | SVC-100 Function tests: admission, infrastructure and control-plane charts | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-14T19:38 | [#7835](https://github.com/openova-io/openova/pull/7835) | #7818 | fix(release): the release bump writes the funnel chart pin w |
+| 2026-11-14T19:34 | [#7833](https://github.com/openova-io/openova/pull/7833) | #7821 | refactor(api): delete the second showback meter and link the |
 | 2026-11-14T19:07 | [#7832](https://github.com/openova-io/openova/pull/7832) | #7804 | fix(suite): a run without journeys leaves out the discovery  |
 | 2026-11-14T19:01 | [#7830](https://github.com/openova-io/openova/pull/7830) | #7087 | docs(ledger): plan update |
 | 2026-11-14T18:53 | [#7828](https://github.com/openova-io/openova/pull/7828) | #7760 | ci: sign every platform image and chart with the release key |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-14T15:04 | [#7771](https://github.com/openova-io/openova/pull/7771) | #7087 | docs(ledger): plan update |
 | 2026-11-14T18:20 | [#7770](https://github.com/openova-io/openova/pull/7770) | #2851 | fix(ci): pin the openclaw runtime image by its commit tag, n |
 | 2026-11-14T14:52 | [#7759](https://github.com/openova-io/openova/pull/7759) | #7087 | docs(ledger): plan update |
-| 2026-11-14T15:02 | [#7757](https://github.com/openova-io/openova/pull/7757) | #7674 | feat(keycloak): add the open-banking consent extension and i |
-| 2026-11-14T15:01 | [#7756](https://github.com/openova-io/openova/pull/7756) | #7667 | feat(api): admit the service-account token of the conformanc |
 
 ---
 
