@@ -143,3 +143,10 @@ output "network_registry" {
   description = "Network registry (JSON): pod supernet, MTU, region separation, control-plane access lists, and per region the cluster name and identifier, node, pod and service ranges, edge address and egress addresses."
   value       = jsonencode(local.network_registry)
 }
+
+# Contract C8 (docs/contracts/c8-seal-provider.md): the kind of the seal hook
+# of this pack, static-node-file or cloud-key-service.
+output "seal_kind" {
+  description = "Kind of the seal hook of this pack (contract C8): where the OpenBao seal key rests."
+  value       = module.seal.kind
+}

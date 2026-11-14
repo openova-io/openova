@@ -1079,3 +1079,10 @@ variable "provider_api_cidrs" {
     error_message = "provider_api_cidrs entries must be valid CIDR blocks."
   }
 }
+
+# Contract C8 (docs/contracts/c8-seal-provider.md): the input of the seal hook.
+variable "seal_key_generation" {
+  description = "Generation of the OpenBao seal key (contract C8). The seal hook makes a new key when this number is raised. Keep it at 1: the hook does not yet hand over the previous key, so a store sealed with the old key could not be opened."
+  type        = number
+  default     = 1
+}

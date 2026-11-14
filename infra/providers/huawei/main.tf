@@ -2050,3 +2050,14 @@ locals {
     ]
   }
 }
+
+# ── Seal hook (contract C8) ───────────────────────────────────────────────
+# The seal hook of this pack, docs/contracts/c8-seal-provider.md. It makes one
+# 32-byte OpenBao seal key per region and returns the seal stanza, the node
+# files and the volume device of the control-plane nodes of that region. The
+# key is never a Secret object and never rests in etcd.
+module "seal" {
+  source              = "./seal"
+  region_keys         = toset(local.region_keys)
+  seal_key_generation = var.seal_key_generation
+}

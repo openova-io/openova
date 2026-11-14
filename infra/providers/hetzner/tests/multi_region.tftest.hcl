@@ -904,3 +904,26 @@ run "post_back_render_fits_the_size_guards_with_room" {
     error_message = "CLD-185: the packed cloud-credentials file of the primary render must be the provider's Secret body without its comment lines."
   }
 }
+
+# ── SEC-150: the module calls the seal hook with its own region keys ──────
+# Contract C8 (docs/contracts/c8-seal-provider.md): one seal key per region,
+# for the same region keys as the k3s tokens. The hook itself is tested in
+# tests/seal.tftest.hcl.
+run "seal_hook_is_called_with_the_region_keys" {
+  command = plan
+
+  assert {
+    condition     = output.seal_kind == "static-node-file"
+    error_message = "SEC-150: output seal_kind must be the kind of this pack's seal hook, static-node-file."
+  }
+
+  assert {
+    condition     = sort(keys(module.seal.stanza_by_region)) == sort(keys(random_password.k3s_server_token))
+    error_message = "SEC-150: the seal hook must be called with the region keys of the k3s tokens, so that every region gets one seal key."
+  }
+
+  assert {
+    condition     = module.seal.volume_device == ""
+    error_message = "SEC-150: this pack has no separate seal volume, so the hook's volume_device must be empty."
+  }
+}
