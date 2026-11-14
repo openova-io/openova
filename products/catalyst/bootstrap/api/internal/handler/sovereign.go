@@ -54,6 +54,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -127,9 +128,9 @@ var helmReleaseGVR = schema.GroupVersionResource{
 //
 // Resolved via the canonical ApplicationGVR() helper in applications.go
 // so the version stays aligned with the rest of the handler suite (the
-// chart's qa-fixtures Application uses apps.openova.io/v1; the
-// k8scache kinds.go entry still references v1alpha1 for legacy reasons,
-// but the live CRD is v1).
+// chart's qa-fixtures Application uses apps.openova.io/v1, and the
+// kind `application` of internal/k8scache/kinds.go names the same v1,
+// which is why the informer cache can answer for this GVR).
 var applicationGVR = ApplicationGVR()
 
 // defaultSovereignEnvironment is the chip the AppsPage renders for any
@@ -566,6 +567,40 @@ type sovereignAppsResponse struct {
 	ApplicationEstateUnreadable bool `json:"applicationEstateUnreadable,omitempty"`
 }
 
+// sovereignAppsList returns every object of one kind on the cluster this
+// catalyst-api runs in, in the order the API server lists them (by
+// "<namespace>/<name>"), as copies the caller owns.
+//
+// CTL-350 — it reads the informer cache when the cache holds this cluster
+// (a Sovereign; resolveChrootClusterID names it) and the informer of the
+// kind has finished its first LIST. Otherwise it makes one live LIST and
+// logs it: the mothership, whose own cluster is not in the cache, a
+// process that has just started, or a kind whose CRD is not installed
+// yet. The error of that LIST is returned as it is, so the caller still
+// tells "none" from "could not ask".
+func (h *Handler) sovereignAppsList(ctx context.Context, deps *sovereignDeps, kind string, gvr schema.GroupVersionResource) ([]unstructured.Unstructured, error) {
+	if h.k8sCache != nil {
+		if id := h.resolveChrootClusterID(""); id != "" && h.k8sCache.Synced()[id][kind] {
+			if cached, _, err := h.k8sCache.List(id, kind, labels.Everything()); err == nil {
+				items := make([]unstructured.Unstructured, 0, len(cached))
+				for _, u := range cached {
+					items = append(items, *u.DeepCopy())
+				}
+				sort.Slice(items, func(i, j int) bool {
+					return items[i].GetNamespace()+"/"+items[i].GetName() < items[j].GetNamespace()+"/"+items[j].GetName()
+				})
+				return items, nil
+			}
+		}
+	}
+	h.log.Info("sovereign apps: informer cache not synced for this kind, one live LIST", "kind", kind)
+	list, err := deps.dyn.Resource(gvr).Namespace("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return list.Items, nil
+}
+
 // HandleSovereignApps — GET /api/v1/sovereign/apps.
 //
 // Marketplace card grid for the Sovereign Console. Sources:
@@ -663,10 +698,10 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 	if depsErr == nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
-		if hrList, err := deps.dyn.Resource(helmReleaseGVR).Namespace("").List(ctx, metav1.ListOptions{}); err == nil {
-			hrItems = hrList.Items
-			for i := range hrList.Items {
-				hr := hrList.Items[i]
+		if hrList, err := h.sovereignAppsList(ctx, deps, "helmrelease", helmReleaseGVR); err == nil {
+			hrItems = hrList
+			for i := range hrList {
+				hr := hrList[i]
 				name := hr.GetName()
 				// ADR-0015 D7 — the grid's slot rows key HRs by NAME, and two
 				// HRs may share one (hw307: flux-system/bp-keycloak Ready,
@@ -677,7 +712,7 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 				if prev, seen := hrByName[name]; seen && prev.GetNamespace() == "flux-system" {
 					continue
 				}
-				hrByName[name] = &hrList.Items[i]
+				hrByName[name] = &hrList[i]
 				if helmReleaseReady(&hr) {
 					installed[name] = "installed"
 				} else {
@@ -715,8 +750,8 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 		// `harbor` but releaseName also `harbor`). Empty hostnames are
 		// skipped — a route with no hostname can't be launched.
 		hrURL := map[[2]string]string{}
-		if hrlist, err := deps.dyn.Resource(httpRouteGVR).Namespace("").List(ctx, metav1.ListOptions{}); err == nil {
-			for _, rt := range hrlist.Items {
+		if routes, err := h.sovereignAppsList(ctx, deps, "httproute", httpRouteGVR); err == nil {
+			for _, rt := range routes {
 				hosts, _, _ := unstructured.NestedStringSlice(rt.Object, "spec", "hostnames")
 				if len(hosts) == 0 || hosts[0] == "" {
 					continue
@@ -826,10 +861,10 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 		// blank estate. Those are different situations and the old code
 		// could not tell them apart: it discarded `err` at the `if`, so
 		// "zero Applications" and "could not ask" were the same state.
-		appList, appListErr := deps.dyn.Resource(applicationGVR).Namespace("").List(ctx, metav1.ListOptions{})
+		appList, appListErr := h.sovereignAppsList(ctx, deps, "application", applicationGVR)
 		applicationEstateAuthoritative := appListErr == nil
 		if appListErr == nil {
-			for _, app := range appList.Items {
+			for _, app := range appList {
 				// #3370 — every Application CR is one RUNNING INSTANCE
 				// and projects as its OWN card row (the canonical G117
 				// class≠instance model). Built below after this pass so
