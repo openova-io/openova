@@ -5658,7 +5658,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.2.1"
+  version: "0.2.2"
   visibility: unlisted
   card:
     title: "vCluster HelmRepository"
@@ -5675,7 +5675,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-vcluster-helmrepo
-    version: "0.2.1"
+    version: "0.2.2"
   topology:
     supported:
       - singleton
