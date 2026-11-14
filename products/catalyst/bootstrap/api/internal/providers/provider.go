@@ -340,6 +340,47 @@ type ObjectStorageNamer interface {
 	BucketNamePrefixForSovereign(sovereignFQDN string) string
 }
 
+// LeftoverLister is an OPTIONAL extension: a provider that can list what a
+// wiped deployment left in its cloud account. It only reads; it never
+// deletes. cmd/flight-sweep type-asserts the provider to it; a provider
+// without it cannot be swept ("not measured"). Fail closed: when one listing
+// cannot be read completely, ListLeftovers returns an error and no report.
+type LeftoverLister interface {
+	ListLeftovers(ctx context.Context, spec LeftoverSpec) (*LeftoverReport, error)
+}
+
+// LeftoverSpec names the wiped deployment. Creds is the credential bag of
+// its cloud account; each adapter documents the keys it reads.
+type LeftoverSpec struct {
+	DeploymentID  string
+	SovereignFQDN string
+	Creds         ProviderCreds
+}
+
+// LeftoverKind is the result for one kind of resource. Used counts every
+// resource of the kind in the account; Leftovers names, sorted, those the
+// wiped deployment left (never nil).
+type LeftoverKind struct {
+	Kind      string   `json:"kind"`
+	Used      int      `json:"used"`
+	Leftovers []string `json:"leftovers"`
+}
+
+// LeftoverReport is a complete listing; NamePrefix names the deployment's resources.
+type LeftoverReport struct {
+	NamePrefix string         `json:"namePrefix"`
+	Kinds      []LeftoverKind `json:"kinds"`
+}
+
+// LeftoverCount is the number of leftovers over all kinds.
+func (r *LeftoverReport) LeftoverCount() int {
+	n := 0
+	for _, k := range r.Kinds {
+		n += len(k.Leftovers)
+	}
+	return n
+}
+
 // ServerInfo — one cloud-side server in the deployment's inventory.
 // Provider-agnostic shape; per-cloud fields (Hetzner image ID,
 // Huawei AZ) live in Labels.
