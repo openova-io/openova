@@ -30,7 +30,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o /k8s-ws-proxy .
 
 # Stage 3: minimal runtime.
-FROM docker.io/library/alpine:3.20
+FROM docker.io/library/alpine:3.24
 
 # ca-certificates so the apiserver TLS verifies. tzdata so logs render
 # in operator-friendly timezones.
