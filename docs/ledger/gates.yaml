@@ -1820,7 +1820,7 @@ checks:
   needs: []
   proof: running
   asserts: Published with the ticket of the piece that delivers it.
-  delivered_by: NET-095
+  delivered_by: NET-097
 - id: NET-G11
   title: Route admission by owner
   owner: NET
@@ -2095,7 +2095,7 @@ checks:
   title: Security check SEC-G07
   owner: SEC
   state: required
-  runs_in: [local, cloud]
+  runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
