@@ -1,0 +1,206 @@
+# spike-mig-020.yaml - lab test MIG-020: the disk-library read path and change tracking.
+#
+# Runs only on a push to branch spike/MIG-020, which is never merged. It measures the part
+# of the spike that a CI job can measure without a vSphere server and without the vendor
+# disk library (neither may be used here):
+#   nbdkit-148   build every nbdkit 1.48 release from its upstream source archive with the
+#                VDDK plug-in; run nbdkit's own VDDK tests; drive the plug-in with the
+#                stand-in library of nbdkit's test suite (library discovery and versions,
+#                the design's exact command line, password from a file, multi-connection,
+#                copy ceiling with SHA-256 equality).
+#   nbdkit-next  build 1.49.5 (the last series before upstream removes the plug-in in 1.50);
+#                build the 1.48.1 plug-in source out of tree against the 1.49.5 headers and
+#                load it into the 1.49.5 server (the fallback of outcome A3).
+#   vcsim        change tracking calls against govmomi's vSphere API simulator, and the
+#                certificate thumbprint check at login.
+#   vendor-library-guard  the repository guard (acceptance A5) on this branch.
+# Every job writes key=value lines; job "record" prints them all together.
+name: spike-mig-020
+
+on:
+  push:
+    branches: [spike/MIG-020]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  nbdkit-148:
+    name: nbdkit ${{ matrix.version }} with the VDDK plug-in
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    container: debian:trixie
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ["1.48.0", "1.48.1"]
+    env:
+      RESULTS: /tmp/results-nbdkit-${{ matrix.version }}.txt
+    steps:
+      - name: Install build and test tools
+        run: |
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+            ca-certificates curl git gcc g++ make pkg-config perl xz-utils procps expect \
+            libcurl4-openssl-dev libgnutls28-dev libnbd-dev libnbd-bin qemu-utils > /dev/null
+          echo "build_os=debian $(cat /etc/debian_version)" | tee -a "$RESULTS"
+          echo "libnbd=$(dpkg-query -W -f='${Version}' libnbd-bin)" | tee -a "$RESULTS"
+          echo "gcc=$(gcc -dumpfullversion)" | tee -a "$RESULTS"
+          echo "cpus=$(nproc) memory_mib=$(free -m | awk '/^Mem:/ {print $2}')" | tee -a "$RESULTS"
+      - uses: actions/checkout@v4
+      - name: List the upstream 1.48 tags
+        run: |
+          tags="$(git ls-remote --tags https://gitlab.com/nbdkit/nbdkit.git | grep -v '\^{}' | sed 's|.*refs/tags/||' | grep -E '^v1\.4[89]\.' | sort -V)"
+          echo "upstream_tags_1_48=$(grep '^v1\.48\.' <<<"$tags" | tr '\n' ' ' | sed 's/ $//')" | tee -a "$RESULTS"
+          echo "upstream_newest_1_48=$(grep '^v1\.48\.' <<<"$tags" | tail -1)" | tee -a "$RESULTS"
+          echo "upstream_newest_1_49=$(grep '^v1\.49\.' <<<"$tags" | tail -1)" | tee -a "$RESULTS"
+      - name: Build nbdkit ${{ matrix.version }} from the upstream archive
+        run: bash tests/spikes/MIG-020/build-nbdkit.sh "${{ matrix.version }}" /usr/local /tmp/build "$RESULTS"
+      - name: Run nbdkit's own VDDK tests (stand-in library; the real-library tests skip)
+        run: |
+          cd "/tmp/build/nbdkit-${{ matrix.version }}"
+          list="$(cd tests && ls test-vddk*.sh | tr '\n' ' ')"
+          set +e
+          make -C tests check TESTS="$list" > /tmp/vddk-tests.log 2>&1
+          echo "upstream_vddk_tests_make_exit=$?" | tee -a "$RESULTS"
+          for f in tests/test-vddk*.trs; do
+            [ -f "$f" ] || continue
+            echo "upstream_$(basename "$f" .trs | tr - _)=$(grep -m1 ':test-result:' "$f" | cut -d' ' -f2)"
+          done | tee -a "$RESULTS"
+          grep -E '^# (TOTAL|PASS|SKIP|XFAIL|FAIL|XPASS|ERROR):' tests/test-suite.log || tail -40 /tmp/vddk-tests.log
+      - name: Drive the plug-in with the stand-in library
+        run: |
+          make -C "/tmp/build/nbdkit-${{ matrix.version }}/tests" libvixDiskLib.la > /dev/null
+          bash tests/spikes/MIG-020/standin-checks.sh "/tmp/build/nbdkit-${{ matrix.version }}" "$RESULTS"
+      - name: Results
+        if: always()
+        run: |
+          { echo '```'; cat "$RESULTS"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          cat "$RESULTS"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-nbdkit-${{ matrix.version }}
+          path: ${{ env.RESULTS }}
+
+  nbdkit-next:
+    name: nbdkit 1.49.5 and the out-of-tree plug-in
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    container: debian:trixie
+    env:
+      RESULTS: /tmp/results-nbdkit-next.txt
+    steps:
+      - name: Install build and test tools
+        run: |
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+            ca-certificates curl git gcc g++ make pkg-config perl xz-utils procps expect \
+            libcurl4-openssl-dev libgnutls28-dev libnbd-dev libnbd-bin qemu-utils > /dev/null
+      - uses: actions/checkout@v4
+      - name: Build nbdkit 1.49.5 (development series before 1.50)
+        run: bash tests/spikes/MIG-020/build-nbdkit.sh 1.49.5 /opt/nbdkit-next /tmp/build "$RESULTS"
+      - name: Build the nbdkit 1.48.1 tree (source of the out-of-tree plug-in)
+        run: bash tests/spikes/MIG-020/build-nbdkit.sh 1.48.1 /opt/nbdkit-148 /tmp/build "$RESULTS"
+      - name: The 1.49.5 server with its own plug-in and the stand-in
+        run: |
+          make -C /tmp/build/nbdkit-1.49.5/tests libvixDiskLib.la > /dev/null
+          NBDKIT=/opt/nbdkit-next/sbin/nbdkit PFX=next_ bash tests/spikes/MIG-020/standin-checks.sh /tmp/build/nbdkit-1.49.5 "$RESULTS"
+      - name: Out-of-tree build of the 1.48.1 plug-in, loaded into the 1.49.5 server
+        run: |
+          make -C /tmp/build/nbdkit-1.48.1/tests libvixDiskLib.la > /dev/null
+          bash tests/spikes/MIG-020/oot-build.sh /tmp/build/nbdkit-1.48.1 /opt/nbdkit-next /tmp/oot "$RESULTS"
+          if [ -f /tmp/oot/nbdkit-vddk-plugin.so ]; then
+            NBDKIT=/opt/nbdkit-next/sbin/nbdkit PFX=oot_ bash tests/spikes/MIG-020/standin-checks.sh /tmp/build/nbdkit-1.48.1 "$RESULTS" /tmp/oot/nbdkit-vddk-plugin.so
+          fi
+      - name: Results
+        if: always()
+        run: |
+          { echo '```'; cat "$RESULTS"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          cat "$RESULTS"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-nbdkit-next
+          path: ${{ env.RESULTS }}
+
+  vcsim:
+    name: change tracking against the vSphere API simulator
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      RESULTS: /tmp/results-vcsim.txt
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache: false
+      - name: Probe
+        working-directory: tests/spikes/MIG-020/cbt
+        run: |
+          go mod tidy
+          set +e
+          go build -o /tmp/cbt-probe . 2> /tmp/build.err; b=$?
+          if [ "$b" != 0 ]; then cat /tmp/build.err; echo "cbt_probe_build=failed" | tee -a "$RESULTS"; exit 1; fi
+          /tmp/cbt-probe > /tmp/vcsim.out 2> /tmp/vcsim.err; rc=$?
+          cat /tmp/vcsim.out
+          sed -n 's/^RESULT //p' /tmp/vcsim.out >> "$RESULTS"
+          echo "cbt_probe_exit=$rc" | tee -a "$RESULTS"
+          echo "simulator_log_lines_not_implemented=$(grep -c 'does not implement' /tmp/vcsim.err)" | tee -a "$RESULTS"
+          grep 'does not implement' /tmp/vcsim.err | head -5
+          tail -5 /tmp/vcsim.err
+          [ "$rc" = 0 ]
+      - name: Results
+        if: always()
+        run: |
+          { echo '```'; cat "$RESULTS"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          cat "$RESULTS"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-vcsim
+          path: ${{ env.RESULTS }}
+
+  vendor-library-guard:
+    name: no vendor disk library on this branch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      RESULTS: /tmp/results-guard.txt
+    steps:
+      - uses: actions/checkout@v4
+      - name: Guard self-test and repository scan
+        run: |
+          set +e
+          bash scripts/check-no-vendor-disk-library.sh --self-test; st=$?
+          bash scripts/check-no-vendor-disk-library.sh --repo; rp=$?
+          echo "guard_self_test_exit=$st" | tee -a "$RESULTS"
+          echo "guard_repo_exit=$rp" | tee -a "$RESULTS"
+          [ "$st" = 0 ] && [ "$rp" = 0 ]
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-guard
+          path: ${{ env.RESULTS }}
+
+  record:
+    name: all measured values
+    needs: [nbdkit-148, nbdkit-next, vcsim, vendor-library-guard]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: results-*
+          merge-multiple: true
+          path: results
+      - name: Print
+        run: |
+          for f in results/*.txt; do echo "== $(basename "$f")"; cat "$f"; done | tee /tmp/all.txt
+          { echo '```'; cat /tmp/all.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
