@@ -16,8 +16,35 @@ import (
 // shows exactly which inputs were not taken from the API.
 const TEMPORARY = "TEMPORARY-fallback"
 
+// notRequestedKey is the key of the record's subject under which a run names
+// the discovery steps it left out because it requests no journey.
+const notRequestedKey = "discovery_not_requested"
+
+// journeyStep is a discovery step that only the journeys need: the own
+// Organization (D0.3), its Environment over both regions (D0.4) and the
+// Blueprint (D0.5). A run that requests a journey, and a discover run, run it
+// like every other step. A run that requests no journey does not run it. The
+// step then gets no entry in the steps of the record, because nothing was
+// measured: its identifier is added to the list discovery_not_requested of the
+// record's subject, and one line of the output says so. The return value is
+// then true, so that the discovery goes on with the steps that every run needs.
+func (r *runner) journeyStep(id, name string, fn func(ev Evidence) error) bool {
+	if !r.noJourney {
+		return r.step("D0", id, name, fn)
+	}
+	if r.run.Subject == nil {
+		r.run.Subject = Evidence{}
+	}
+	left, _ := r.run.Subject[notRequestedKey].([]string)
+	r.run.Subject[notRequestedKey] = append(left, id)
+	_, _ = fmt.Fprintf(r.out, "  D0 %-6s not requested: the run requests no journey (%s)\n", id, name)
+	return true
+}
+
 // discover resolves every reference the journeys use FROM EXISTING OBJECTS —
-// the suite never fabricates an Org, Environment or Region id.
+// the suite never fabricates an Org, Environment or Region id. A run that
+// requests no journey leaves out the three steps that only the journeys need
+// (journeyStep).
 func (r *runner) discover(ctx context.Context) bool {
 	ok := r.step("D0", "D0.1", "session authenticates as owner (GET /api/v1/whoami)", func(ev Evidence) error {
 		var who struct {
@@ -138,7 +165,7 @@ func (r *runner) discover(ctx context.Context) bool {
 		return false
 	}
 
-	ok = r.step("D0", "D0.3", "Organization = the Sovereign's own (GET /api/v1/organizations)", func(ev Evidence) error {
+	ok = r.journeyStep("D0.3", "Organization = the Sovereign's own (GET /api/v1/organizations)", func(ev Evidence) error {
 		var orgs struct {
 			Items []OrgItem `json:"items"`
 		}
@@ -158,7 +185,7 @@ func (r *runner) discover(ctx context.Context) bool {
 		return false
 	}
 
-	ok = r.step("D0", "D0.4", "Environment of that Org spanning both regions", func(ev Evidence) error {
+	ok = r.journeyStep("D0.4", "Environment of that Org spanning both regions", func(ev Evidence) error {
 		envs, src, err := r.listEnvironments(ctx)
 		if err != nil {
 			return err
@@ -177,7 +204,7 @@ func (r *runner) discover(ctx context.Context) bool {
 		return false
 	}
 
-	okBP := r.step("D0", "D0.5", "Blueprint exists and declares active-hot-standby", func(ev Evidence) error {
+	okBP := r.journeyStep("D0.5", "Blueprint exists and declares active-hot-standby", func(ev Evidence) error {
 		bp := strings.TrimPrefix(r.cfg.Blueprint, "bp-")
 		var item struct {
 			Name    string `json:"name"`

@@ -78,6 +78,12 @@ last state it observed, so the error says what the system was doing.
 A requested journey that never ran counts as **SKIP**, and any SKIP makes the run FAIL.
 A `discover` record never certifies a journey.
 
+A `run` that requests no journey (`--journeys ''`) does not run D0.3, D0.4 and
+D0.5, because only the journeys need what they resolve. Its record holds no step
+for them and names them in `subject.discovery_not_requested`. A `discover` run
+and a run that requests a journey run all three. An empty `ACCEPT_JOURNEYS` is
+not an empty list: it means the default.
+
 ## Which assertions depend on the other ADR-0015 slices
 
 The suite is written against the **target** contract. On hw307 today
