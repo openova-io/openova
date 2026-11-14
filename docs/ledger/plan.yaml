@@ -2118,16 +2118,24 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c -F 'catalyst.tenant.sandbox_requested' docs/contracts/C3-event-subjects.yaml"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "! git grep -q -E 'sandbox_requested|SubjectTenantSandboxRequested' -- docs/contracts core/controllers/pkg"
+  - id: A2
+    run: "python3 scripts/check-event-subjects.py"
+  - id: A3
+    run: "cd core/controllers && go build ./... && go test ./pkg/natsbus/... -count=1"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: The C3 registry has no catalyst.tenant.sandbox_requested entry, and no Go file names that subject or SubjectTenantSandboxRequested.
+  delivers: The C3 event registry has no entry for catalyst.tenant.sandbox_requested, and no file of the shared bus package of the controllers names that subject or the constant SubjectTenantSandboxRequested.
 - id: FND-089
   title: The storefront offers no Sandbox agent picks and the order request carries no agents field
   area: FND
@@ -2137,28 +2145,39 @@ packages:
   size: S
   lane: CONSOLE
   depends_on: [FND-095, FND-096]
-  after: [NET-041]
+  after: []
   touches:
   - core/marketplace/src/components/AppDetail.svelte
   - core/marketplace/src/components/CheckoutStep.svelte
   - core/marketplace/src/lib/cart.ts
   - core/marketplace/src/lib/api.ts
+  - core/marketplace/src/lib/packagesBranding.test.ts
   - core/services/tenant/handlers/handlers.go
-  - core/services/tenant/handlers/funnel_cart_install_test.go
+  - core/services/tenant/store/store.go
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c -F 'export function toggleAgent' core/marketplace/src/lib/cart.ts"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "! git grep -q -i -E 'sandbox|SANDBOX_AGENTS|toggleAgent|agents' -- core/marketplace/src"
+  - id: A2
+    run: "! grep -q -E 'json:\"agents\"|body\\.Agents' core/services/tenant/handlers/handlers.go"
+  - id: A3
+    run: "cd core/marketplace && npm ci && npx vitest run && npm run build"
+  - id: A4
+    run: "cd core/services/tenant && go build ./... && go test ./... -count=1"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: No storefront file names the Sandbox agent picker, SANDBOX_AGENTS, toggleAgent or cart.agents, and the organizations service request body has no Agents field.
+  delivers: No file under core/marketplace/src names the Sandbox, SANDBOX_AGENTS, toggleAgent or a cart agents list, and the request body of the organizations service for a new Organization has no Agents field.
 - id: FND-091
   title: Remove committed binaries and root clutter; add the hygiene guard
   area: FND
@@ -9823,8 +9842,9 @@ packages:
   size: M
   lane: RAILS
   depends_on: [FND-013]
-  after: [SEC-030]
+  after: []
   touches:
+  - scripts/secret-guards.py
   - scripts/check-no-secret-values-in-git.sh
   - scripts/check-no-chart-random-secrets.sh
   - scripts/check-no-plain-secret-manifests.sh
@@ -9833,24 +9853,43 @@ packages:
   - scripts/check-reflector-scope.sh
   - scripts/check-openbao-no-unseal-secret.sh
   - scripts/check-secret-delivery-lint.sh
-  - scripts/secret-guard-baselines/
-  - ​.gitleaks.toml
+  - scripts/secret-guard-baselines/check-no-secret-values-in-git.txt
+  - scripts/secret-guard-baselines/check-no-chart-random-secrets.txt
+  - scripts/secret-guard-baselines/check-no-plain-secret-manifests.txt
+  - scripts/secret-guard-baselines/check-no-derived-credentials.txt
+  - scripts/secret-guard-baselines/check-no-secret-writers.txt
+  - scripts/secret-guard-baselines/check-reflector-scope.txt
+  - scripts/secret-guard-baselines/check-openbao-no-unseal-secret.txt
   - .github/workflows/secret-guards.yaml
-  - .github/workflows/check-guard-selftests.yaml
+  - scripts/check-sandbox-word.py
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "git ls-files scripts/secret-guards.py scripts/secret-guard-baselines .github/workflows/secret-guards.yaml | wc -l"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "printf '%s\\n' '54247fedbbc3ee8c97bca650430d35d00b88775f5862d8ddaf138d9ac05a1d08  scripts/secret-guards.py' 'f7030954151f2f023785326778300fb568ca963fd528df28d0be4ec2825ff3fc  scripts/check-no-secret-values-in-git.sh' '3ee8bcf09752cc0ad76d20f5c3f53adb51cb289b2f508ac6820ad68b9838a49f  scripts/check-no-chart-random-secrets.sh' '076d866f092a73883795e7709e061015dc7e5a5c371bf5de6b1bf5be052702fe  scripts/check-no-plain-secret-manifests.sh' 'f84e60ef73819dc2ec7d30c15a265f9ff812fca04e821dd46934f94a3bfb320c  scripts/check-no-derived-credentials.sh' '142655a0e71efede73021129e9cfc7faf5fa3a689496c61426fa0ceaec67f5ac  scripts/check-no-secret-writers.sh' 'f7cdb0ec90f897d7021b9fdd3eb15c8295bf2749d66ccf2ee86b6024f375ac19  scripts/check-reflector-scope.sh' '19f62f6c1dfcc1f33e9fab911ddbb0dd021404fc614117c9152e3bf26cebb379  scripts/check-openbao-no-unseal-secret.sh' '9ee2e8b1db291877bce1c7b9012bf98cade77de3cf5746ac65c943a6b8dd11e8  scripts/check-secret-delivery-lint.sh' '5120b07c51bc09591dfa582b949f21fea0fdd7e47e7746530673fc964e3b385e  .github/workflows/secret-guards.yaml' | sha256sum -c --quiet -"
+  - id: A2
+    run: "for g in scripts/check-no-secret-values-in-git.sh scripts/check-no-chart-random-secrets.sh scripts/check-no-plain-secret-manifests.sh scripts/check-no-derived-credentials.sh scripts/check-no-secret-writers.sh scripts/check-reflector-scope.sh scripts/check-openbao-no-unseal-secret.sh scripts/check-secret-delivery-lint.sh; do bash \"$g\" --self-test; bash \"$g\"; done"
+  - id: A3
+    run: "d=scripts/secret-guard-baselines; for n in check-no-secret-values-in-git check-no-chart-random-secrets check-no-plain-secret-manifests check-no-derived-credentials check-no-secret-writers check-reflector-scope check-openbao-no-unseal-secret; do test -s \"$d/$n.txt\"; test \"$(grep -c -v -E '^[^:[:space:]]+:[1-9][0-9]*$' \"$d/$n.txt\")\" = 0; done; test \"$(git ls-files --cached --others --exclude-standard -- \"$d\" | wc -l)\" = 7"
+  - id: A4
+    run: "f=\"$(git ls-files 'platform/*/chart/templates/*.yaml' | awk 'NR==1')\"; test -n \"$f\"; trap 'git checkout -- \"$f\"' EXIT; printf '%s\\n' 'probe: {{ randAlphaNum 8 }}' >> \"$f\"; c=0; out=\"$(bash scripts/check-no-chart-random-secrets.sh 2>&1)\" || c=$?; test \"$c\" = 1; grep -q -F \"FAIL no-chart-random-secrets: $f has\" <<< \"$out\""
+  - id: A5
+    run: "python3 -c \"import yaml; d = yaml.safe_load(open('.github/workflows/secret-guards.yaml')); on = d[True]; assert sorted(on) == ['merge_group', 'pull_request', 'push'] and on['pull_request'] is None and on['push'] == {'branches': ['main']}, on; runs = [s.get('run') for s in d['jobs']['secret-guards']['steps']]; gs = ['check-no-secret-values-in-git', 'check-no-chart-random-secrets', 'check-no-plain-secret-manifests', 'check-no-derived-credentials', 'check-no-secret-writers', 'check-reflector-scope', 'check-openbao-no-unseal-secret', 'check-secret-delivery-lint']; missing = [r for g in gs for r in ('bash scripts/%s.sh --self-test' % g, 'bash scripts/%s.sh' % g) if r not in runs]; assert not missing, missing\""
+  - id: A6
+    run: "test \"$(grep -c -F ':(exclude,glob)%s\" % NAME_LISTS, ok=(0, 1))' scripts/check-sandbox-word.py)\" = 1 && python3 scripts/check-sandbox-word.py --self-test && python3 scripts/check-sandbox-word.py"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Guards G1 to G7 and G9 with shrinking allow-lists at today's values.
+  delivers: Eight secret guards scan the whole tree on every pull request, merge group and push to main; seven compare with an allow-list per file, written at the values of the day they merge, that may only shrink, and one allows no finding.
 - id: SEC-095
   title: Exception register, source guard and Secret census
   area: SEC
@@ -10426,7 +10465,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [SEC-100, SEC-130, SEC-150, SEC-161]
-  after: [FND-011, FND-033, FND-034, CLD-010, CLD-087, SEC-080, SEC-110, NET-010, NET-020, NET-060, SVC-125, CTL-041, CTL-151, CMP-010, BSS-030]
+  after: [FND-011, FND-033, FND-034, CLD-010, CLD-087, SEC-080, SEC-090, SEC-110, NET-010, NET-020, NET-060, SVC-125, CTL-041, CTL-151, CMP-010, BSS-030]
   touches:
   - platform/openbao/chart/Chart.yaml
   - platform/openbao/chart/values.yaml
@@ -10644,7 +10683,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [SEC-080, SEC-140, SEC-190]
-  after: [FND-011]
+  after: [FND-011, SEC-090]
   touches:
   - platform/secrets-lib/chart/**
   - platform/secrets-lib/README.md
@@ -10763,7 +10802,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [SEC-200, SEC-211]
-  after: [FND-011, CLD-113, SOV-035, NET-080, SVC-060, CTL-150]
+  after: [FND-011, CLD-113, SOV-035, SEC-090, NET-080, SVC-060, CTL-150]
   touches:
   - core/marketplace-api/internal/secretfile/
   - core/marketplace-api/main.go
@@ -10794,7 +10833,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [FND-120, SEC-140, SEC-200, SEC-211]
-  after: [FND-011, CLD-010, CLD-087, NET-010, NET-020, NET-060, CTL-151, BSS-030]
+  after: [FND-011, CLD-010, CLD-087, SEC-090, NET-010, NET-020, NET-060, CTL-151, BSS-030]
   touches:
   - platform/wordpress-tenant/chart/**
   - scripts/secret-guard-baselines/*.txt
@@ -10823,7 +10862,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-201, SEC-071, SEC-140, SEC-205, SEC-213]
-  after: [CTL-040]
+  after: [SEC-090, CTL-040]
   touches:
   - core/services/provisioning/gitops/gitops.go
   - core/services/provisioning/gitops/perorg_apps_tree.go
@@ -10883,7 +10922,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [SEC-060, SEC-200, SEC-212]
-  after: [FND-011, CLD-185, SOV-130, SOV-133, SOV-134, SOV-140, SOV-141, NET-020]
+  after: [FND-011, CLD-185, SOV-130, SOV-133, SOV-134, SOV-140, SOV-141, SEC-090, NET-020]
   touches:
   - platform/keycloak/chart/**
   - infra/providers/_shared/cloudinit-control-plane.tftpl
@@ -10911,7 +10950,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-221]
-  after: [FND-011]
+  after: [FND-011, SEC-090]
   touches:
   - platform/sso-bridge/chart/**
   - scripts/secret-guard-baselines/*
@@ -10938,7 +10977,7 @@ packages:
   size: XS
   lane: CHARTS
   depends_on: [SEC-222]
-  after: [FND-011]
+  after: [FND-011, SEC-090]
   touches:
   - platform/oidc-gate/chart/**
   - scripts/secret-guard-baselines/*
@@ -10965,7 +11004,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [SEC-223]
-  after: [FND-011, FND-093, FND-095, FND-096, FND-099, FND-171, CLD-021, CLD-113, SOV-035, NET-080, SVC-060, CTL-030, CTL-035, CTL-150]
+  after: [FND-011, FND-093, FND-095, FND-096, FND-099, FND-171, CLD-021, CLD-113, SOV-035, SEC-090, NET-080, SVC-060, CTL-030, CTL-035, CTL-150]
   touches:
   - products/catalyst/chart/**
   - products/catalyst/bootstrap/api/internal/secretfile/
@@ -10994,7 +11033,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-200, SEC-212]
-  after: [FND-011, SVC-060]
+  after: [FND-011, SEC-090, SVC-060]
   touches:
   - platform/postgres/chart/**
   - scripts/secret-guard-baselines/*
@@ -11021,7 +11060,7 @@ packages:
   size: XS
   lane: CHARTS
   depends_on: [SEC-200, SEC-212]
-  after: [FND-011, SVC-060]
+  after: [FND-011, SEC-090, SVC-060]
   touches:
   - platform/valkey/chart/**
   - scripts/secret-guard-baselines/*
@@ -11048,7 +11087,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-200, SEC-212, SEC-231]
-  after: [FND-011, SOV-160]
+  after: [FND-011, SOV-160, SEC-090]
   touches:
   - platform/gitea/chart/**
   - scripts/secret-guard-baselines/*
@@ -11075,7 +11114,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-200, SEC-212, SEC-231]
-  after: [FND-011, SOV-160]
+  after: [FND-011, SOV-160, SEC-090]
   touches:
   - platform/harbor/chart/**
   - scripts/secret-guard-baselines/*
@@ -11102,7 +11141,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-200, SEC-212]
-  after: [FND-011]
+  after: [FND-011, SEC-090]
   touches:
   - platform/powerdns/chart/**
   - scripts/secret-guard-baselines/*
@@ -11129,7 +11168,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-200, SEC-212, SEC-235]
-  after: [FND-011]
+  after: [FND-011, SEC-090]
   touches:
   - platform/powerdns-admin/chart/**
   - scripts/secret-guard-baselines/*
@@ -11156,7 +11195,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [FND-120, NET-140, SEC-215, SEC-221, SEC-222, SEC-224, SEC-231]
-  after: [CLD-113]
+  after: [CLD-113, SEC-090]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/clustermesh.go
   - products/catalyst/bootstrap/api/internal/handler/clustermesh_test.go
@@ -11211,7 +11250,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-200, SEC-212]
-  after: [FND-011]
+  after: [FND-011, SEC-090]
   touches:
   - platform/stalwart-tenant/chart/**
   - scripts/secret-guard-baselines/*
@@ -11292,7 +11331,7 @@ packages:
   size: XS
   lane: CHARTS
   depends_on: [ACC-020, SEC-200, SEC-212]
-  after: [FND-011]
+  after: [FND-011, SEC-090]
   touches:
   - platform/guacamole/chart/**
   - scripts/secret-guard-baselines/*
@@ -11319,7 +11358,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-200, SEC-212]
-  after: [FND-011]
+  after: [FND-011, SEC-090]
   touches:
   - products/chargeback/chart/templates/app-key-job.yaml
   - products/chargeback/chart/**
@@ -11347,7 +11386,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-200, SEC-212]
-  after: [FND-011]
+  after: [FND-011, SEC-090]
   touches:
   - platform/mimir/chart/**
   - platform/velero/chart/**
@@ -11553,7 +11592,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271]
-  after: [FND-011, FND-013, FND-014, FND-015, FND-018, FND-020, FND-021, FND-022, FND-023, FND-031, FND-032, FND-033, FND-034, FND-040, FND-052, FND-053, FND-054, FND-055, FND-056, FND-057, FND-058, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-101, FND-102, FND-103, FND-105, FND-110, FND-171, CLD-010, CLD-021, CLD-022, CLD-040, CLD-063, CLD-075, CLD-080, CLD-086, CLD-087, CLD-113, CLD-142, SOV-030, SOV-035, SOV-040, SOV-050, SOV-110, SOV-120, SOV-121, SOV-133, SOV-141, SOV-150, SOV-180, SOV-190, SEC-020, SEC-030, SEC-125, NET-030, NET-033, NET-041, NET-050, NET-090, NET-100, SVC-020, SVC-060, SVC-125, CTL-010, CTL-020, CTL-025, CTL-030, CTL-035, CTL-044, CTL-045, CTL-150, CTL-151, CTL-160, CTL-201, CTL-240, CTL-300, CMP-012, CMP-014, CMP-036, CMP-073, BSS-050, AIP-050, INF-010, MIG-060, PRD-030, PRD-101, PRD-102, PRD-106]
+  after: [FND-011, FND-013, FND-014, FND-015, FND-018, FND-020, FND-021, FND-022, FND-023, FND-031, FND-032, FND-033, FND-034, FND-040, FND-052, FND-053, FND-054, FND-055, FND-056, FND-057, FND-058, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-101, FND-102, FND-103, FND-105, FND-110, FND-171, CLD-010, CLD-021, CLD-022, CLD-040, CLD-063, CLD-075, CLD-080, CLD-086, CLD-087, CLD-113, CLD-142, SOV-030, SOV-035, SOV-040, SOV-050, SOV-110, SOV-120, SOV-121, SOV-133, SOV-141, SOV-150, SOV-180, SOV-190, SEC-020, SEC-030, SEC-090, SEC-125, NET-030, NET-033, NET-041, NET-050, NET-090, NET-100, SVC-020, SVC-060, SVC-125, CTL-010, CTL-020, CTL-025, CTL-030, CTL-035, CTL-044, CTL-045, CTL-150, CTL-151, CTL-160, CTL-201, CTL-240, CTL-300, CMP-012, CMP-014, CMP-036, CMP-073, BSS-050, AIP-050, INF-010, MIG-060, PRD-030, PRD-101, PRD-102, PRD-106]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/26-image-signature.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -12224,7 +12263,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: []
-  after: [FND-011, FND-095]
+  after: [FND-011, FND-089, FND-095]
   touches:
   - products/catalyst/chart/crds/organization.yaml
   - products/catalyst/chart/crds/tests/
@@ -17224,7 +17263,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [BSS-111, CTL-190, CTL-320]
-  after: []
+  after: [FND-088]
   touches:
   - products/catalyst/bootstrap/api/internal/intent/entitlement_consumer.go
   - products/catalyst/bootstrap/api/cmd/api/intent_wire.go
@@ -17905,7 +17944,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-300, FND-032]
-  after: [FND-033, FND-034, FND-093, FND-171, CLD-010, CLD-021, CLD-080, CLD-087, SEC-030, SEC-080, SEC-120, NET-010, NET-020, NET-060, SVC-125, CTL-030, CTL-035, CTL-151, CMP-010, BSS-030]
+  after: [FND-033, FND-034, FND-088, FND-093, FND-171, CLD-010, CLD-021, CLD-080, CLD-087, SEC-030, SEC-080, SEC-120, NET-010, NET-020, NET-060, SVC-125, CTL-030, CTL-035, CTL-151, CMP-010, BSS-030]
   touches:
   - core/controllers/pkg/natsbus/cloudevent.go
   - products/catalyst/bootstrap/api/internal/audit/audit.go
@@ -18457,7 +18496,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [BSS-010, CTL-205, CTL-360]
-  after: []
+  after: [FND-089]
   touches:
   - core/console/src/components/AppsPage.svelte
   - core/console/src/components/JobsPage.svelte
@@ -19837,7 +19876,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CMP-045, CMP-052, CMP-081, CMP-S2, CTL-045]
-  after: [FND-011, CLD-010, SOV-190, NET-010, NET-020, NET-042, NET-060, CTL-151, BSS-030]
+  after: [FND-011, FND-088, CLD-010, SOV-190, NET-010, NET-020, NET-042, NET-060, CTL-151, BSS-030]
   touches:
   - platform/falco/chart/values.yaml
   - docs/contracts/C3-event-subjects.yaml
@@ -20076,7 +20115,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-045, CMP-052, CMP-071, CTL-045]
-  after: [FND-011, CLD-010, SOV-190, NET-010, NET-020, NET-042, NET-060, CTL-151, CTL-300, BSS-030]
+  after: [FND-011, FND-088, CLD-010, SOV-190, NET-010, NET-020, NET-042, NET-060, CTL-151, CTL-300, BSS-030]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/snapshot.go
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
@@ -20993,7 +21032,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [BSS-104]
-  after: [NET-041]
+  after: [FND-089, NET-041]
   touches:
   - core/marketplace/src/lib/packages.ts
   - core/marketplace/src/lib/packages.test.ts
@@ -21034,7 +21073,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [BSS-090, BSS-102, BSS-S1, CTL-320]
-  after: [CLD-010, CTL-151]
+  after: [FND-088, CLD-010, CTL-151]
   touches:
   - products/chargeback/internal/offerpub/**
   - products/chargeback/internal/api/packages.go
@@ -21171,7 +21210,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [BSS-090, CTL-190]
-  after: []
+  after: [FND-088]
   touches:
   - products/chargeback/internal/store/events.go
   - products/chargeback/internal/platform/platform.go
@@ -21413,7 +21452,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [BSS-122, CTL-330]
-  after: [CLD-010, CTL-151]
+  after: [FND-088, CLD-010, CTL-151]
   touches:
   - core/services/billing/store/store.go
   - core/services/billing/handlers/outbox_relay.go
@@ -21446,7 +21485,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [AIP-111, AIP-130, AIP-140, BSS-090, BSS-106, BSS-113]
-  after: [CLD-010, CTL-151]
+  after: [FND-088, CLD-010, CTL-151]
   touches:
   - products/chargeback/internal/adapter/openova/modelusage.go
   - products/chargeback/internal/store/events.go
@@ -21481,7 +21520,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [AIP-111, BSS-131]
-  after: [NET-042]
+  after: [FND-088, NET-042]
   touches:
   - core/services/billing/handlers/metering_consumer.go
   - core/services/billing/handlers/metering_consumer_test.go
@@ -22472,7 +22511,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [AIP-040, CTL-045, CTL-330]
-  after: [FND-054, FND-095, FND-096, FND-097, FND-098, FND-099, FND-173, SOV-035, SEC-100, NET-042, AIP-050, PRD-101, PRD-102]
+  after: [FND-054, FND-088, FND-095, FND-096, FND-097, FND-098, FND-099, FND-173, SOV-035, SEC-100, NET-042, AIP-050, PRD-101, PRD-102]
   touches:
   - core/services/metering-sidecar/**
   - core/services/model-meter/**
@@ -26470,7 +26509,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [MIG-123, CTL-300, CTL-320]
-  after: [CTL-045]
+  after: [CTL-045, FND-088]
   touches:
   - products/vm-migration/internal/hooks/**
   - products/vm-migration/internal/events/**
@@ -27426,7 +27465,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [ACC-102, CTL-045, CTL-300, CTL-320, SVC-170]
-  after: [FND-011, FND-033, FND-034, CLD-010, CLD-080, CLD-087, SEC-030, SEC-080, SEC-120, NET-010, NET-020, NET-060, SVC-125, CTL-041, CTL-151, CMP-010, BSS-030]
+  after: [FND-011, FND-033, FND-034, FND-088, CLD-010, CLD-080, CLD-087, SEC-030, SEC-080, SEC-120, NET-010, NET-020, NET-060, SVC-125, CTL-041, CTL-151, CMP-010, BSS-030]
   touches:
   - platform/guacamole/chart/crds/accesstarget.yaml
   - platform/guacamole/chart/crds/accessgrant.yaml
@@ -27593,7 +27632,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [ACC-020, ACC-104, ACC-108, CTL-320, FND-161, NET-163]
-  after: [FND-011, CLD-010, SEC-080, CTL-041, CTL-151, BSS-030]
+  after: [FND-011, FND-088, CLD-010, SEC-080, CTL-041, CTL-151, BSS-030]
   touches:
   - platform/guacamole/chart/crds/accesssession.yaml
   - platform/guacamole/chart/crds/accesstarget.yaml
@@ -27671,7 +27710,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [ACC-030, ACC-107, SVC-270]
-  after: [FND-011, CLD-010, SEC-080, CTL-151, BSS-030]
+  after: [FND-011, FND-088, CLD-010, SEC-080, CTL-151, BSS-030]
   touches:
   - platform/guacamole/chart/crds/accesssession.yaml
   - platform/guacamole/chart/crds/accesstarget.yaml
@@ -27714,7 +27753,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [ACC-111]
-  after: [CLD-010, SEC-080, CTL-151, BSS-030]
+  after: [FND-088, CLD-010, SEC-080, CTL-151, BSS-030]
   touches:
   - core/controllers/access/internal/broker/recordings.go
   - core/controllers/access/web/src/player.ts
@@ -27997,7 +28036,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [ACC-133, ACC-201]
-  after: [FND-011, CLD-010, CTL-151, BSS-030]
+  after: [FND-011, FND-088, CLD-010, CTL-151, BSS-030]
   touches:
   - platform/guacamole/chart/files/review-rules.yaml
   - platform/guacamole/chart/templates/review-rules-configmap.yaml
@@ -28064,7 +28103,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [ACC-122, ACC-203]
-  after: [CLD-010, SOV-190, CTL-151, BSS-030]
+  after: [FND-088, CLD-010, SOV-190, CTL-151, BSS-030]
   touches:
   - core/controllers/access/internal/review/action.go
   - core/controllers/access/internal/broker/sessions.go
@@ -28292,7 +28331,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [ACC-112, ACC-122]
-  after: [CLD-010, CTL-151, BSS-030]
+  after: [FND-088, CLD-010, CTL-151, BSS-030]
   touches:
   - core/controllers/access/internal/broker/recordings.go
   - core/controllers/access/web/src/player.ts
