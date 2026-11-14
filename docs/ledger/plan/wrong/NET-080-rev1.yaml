@@ -1,0 +1,52 @@
+schema: openova.io/plan-wrong/v1
+id: NET-080
+ticket_rev: 1
+base_commit: 9eff39bdad76ac79643c35fd8981a98c4305f05f
+stage: check
+ref: Controller-image-tag freshness
+command: |
+    gh api repos/openova-io/openova/actions/jobs/132368759562/logs | grep -B 40 -m 1 '##\[error\]' | cut -c30-300
+expected: |
+    the check finishes green
+actual: |
+    Updating files:  99% (9992/10092)
+    Updating files: 100% (10092/10092)
+    Updating files: 100% (10092/10092), done.
+    Note: switching to 'refs/remotes/pull/7518/merge'.
+
+    You are in 'detached HEAD' state. You can look around, make experimental
+    changes and commit them, and you can discard any commits you make in this
+    state without impacting any branches by switching back to a branch.
+
+    If you want to create a new branch to retain commits you create, you may
+    do so (now or later) by using -c with the switch command. Example:
+
+      git switch -c <new-branch-name>
+
+    Or undo this operation with:
+
+      git switch -
+
+    Turn off this advice by setting config variable advice.detachedHead to false
+
+    HEAD is now at 3087bb531 Merge 65838792162cbd18a6b937e7e400283af913528e into 694f980bfaa312861f5e8969d634ce62d8d1526d
+    ##[endgroup]
+    [command]/usr/bin/git log -1 --format=%H
+    3087bb531d1407574a31c0e9a372d07489675732
+    ##[group]Run bash scripts/check-controller-image-tag-freshness.sh
+    [36;1mbash scripts/check-controller-image-tag-freshness.sh[0m
+    shell: /usr/bin/bash -e {0}
+    env:
+      GH_TOKEN: ***
+      MAX_LAG_COMMITS: 50
+    ##[endgroup]
+      OK         blueprint-controller:fe4478c (lag=0, latest=fe4478c)
+      OK         useraccess-controller:fe4478c (lag=0, latest=fe4478c)
+      OK         organization-controller:fe4478c (lag=0, latest=fe4478c)
+      OK         environment-controller:fe4478c (lag=0, latest=fe4478c)
+      OK         application-controller:fe4478c (lag=0, latest=fe4478c)
+      OK         console:efe8973 (lag=0, latest=efe8973)
+      OK         services-provisioning:e39991e (lag=0, latest=e39991e)
+    grep: write error: Broken pipe
+    ##[error]catalyst-api: pinned ec35a66 is 89 commits behind latest GHCR 3ecd353 (threshold: 50)
+reported_at: 2026-11-14T07:08:28Z
