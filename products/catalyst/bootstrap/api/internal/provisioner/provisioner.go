@@ -2496,8 +2496,9 @@ func (p *Provisioner) Destroy(ctx context.Context, req Request, events chan<- Ev
 		len(req.Regions) == 0 && tfvarsStatErr == nil
 	if preserveExistingTfvars {
 		emit("tofu-destroy", "info", "#3140: preserving complete provision-time tofu.auto.tfvars.json (wipe req lacks topology)")
-		// SOV-131: a file written before the module input `variables`
-		// existed lacks it, and `tofu destroy` needs every required input.
+		// SOV-131, SOV-338: a kept file may lack the module input
+		// `variables` or hold a document of an older contract, and
+		// `tofu destroy` needs that input with exactly the contract keys.
 		if err := addVariablesIfMissing(tfvarsPath, req); err != nil {
 			return fmt.Errorf("add variables to tfvars: %w", err)
 		}
@@ -3395,9 +3396,13 @@ func childVariables(req Request, apiURL string) (map[string]string, error) {
 	return doc, nil
 }
 
-// addVariablesIfMissing adds the module input `variables` to a
-// tofu.auto.tfvars.json that has none (one written before SOV-131), built for
-// req with the file's own catalyst_api_url. A file that has it is not changed.
+// addVariablesIfMissing brings the module input `variables` of a kept
+// tofu.auto.tfvars.json to exactly the keys of contract C5, the only key set
+// the provider modules accept. A missing key gets the value of a new document,
+// built for req with the file's own catalyst_api_url. A key the contract no
+// longer has is dropped. Held values stay. A file without `variables` (one
+// written before SOV-131) gets the whole new document. A file whose document
+// already has exactly the contract keys is not written.
 func addVariablesIfMissing(path string, req Request) error {
 	raw, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
@@ -3407,13 +3412,27 @@ func addVariablesIfMissing(path string, req Request) error {
 	if err := json.Unmarshal(raw, &vars); err != nil {
 		return fmt.Errorf("decode tfvars: %w", err)
 	}
-	if _, ok := vars["variables"]; ok {
-		return nil
+	kept, isObject := vars["variables"].(map[string]any)
+	if !isObject && vars["variables"] != nil {
+		return fmt.Errorf("decode tfvars: variables is not a JSON object")
 	}
-	apiURL, _ := vars["catalyst_api_url"].(string)
-	doc, err := childVariables(req, apiURL)
-	if err != nil {
-		return err
+	doc := map[string]any{}
+	var fresh map[string]string
+	for key := range (upstream.Variables{}).ToMap() {
+		if value, ok := kept[key]; ok {
+			doc[key] = value
+			continue
+		}
+		if fresh == nil {
+			apiURL, _ := vars["catalyst_api_url"].(string)
+			if fresh, err = childVariables(req, apiURL); err != nil {
+				return err
+			}
+		}
+		doc[key] = fresh[key]
+	}
+	if fresh == nil && len(kept) == len(doc) {
+		return nil
 	}
 	vars["variables"] = doc
 	out, err := json.MarshalIndent(vars, "", "  ")
