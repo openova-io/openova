@@ -82,6 +82,7 @@ type Variables struct {
 	OriginProxyEndpoints                                                                       map[string]string
 	PullSecret                                                                                 string
 	PathCharts, PathRelease, PathProviderPacks, PathXpkg, PathTofuProviders, PathNodeArtifacts string
+	PathVulnDB                                                                                 string
 	ProxyProjects                                                                              map[string]string
 	ReleasePublicKeyB64, ReleaseChannel, ReleaseVersion                                        string
 	ReleaseAuto                                                                                bool
@@ -123,6 +124,7 @@ var fields = []field{
 	{key: "REGISTRY_PATH_XPKG", str: func(v *Variables) *string { return &v.PathXpkg }},
 	{key: "REGISTRY_PATH_TOFU_PROVIDERS", str: func(v *Variables) *string { return &v.PathTofuProviders }},
 	{key: "REGISTRY_PATH_NODE_ARTIFACTS", str: func(v *Variables) *string { return &v.PathNodeArtifacts }},
+	{key: "REGISTRY_PATH_VULN_DB", str: func(v *Variables) *string { return &v.PathVulnDB }},
 	{key: "REGISTRY_PROXY_PROJECTS_JSON", obj: func(v *Variables) *map[string]string { return &v.ProxyProjects }},
 	{key: "RELEASE_PUBLIC_KEY_B64", str: func(v *Variables) *string { return &v.ReleasePublicKeyB64 }},
 	{key: "RELEASE_CHANNEL", str: func(v *Variables) *string { return &v.ReleaseChannel }},
@@ -444,9 +446,17 @@ func defaults() Variables {
 	return v
 }
 
+// VulnDBProxyProject is the project of a region's registry that pulls the
+// vulnerability database through from the origin registry. Harbor passes the
+// path after the project name to the origin registry unchanged.
+const VulnDBProxyProject = "proxy-vulndb"
+
 // Served returns the variables a parent hands to a child. Consume is origin. The origin keys name the
 // parent's own hosts (parent.LocalRegistryHost, https, "https://console.<parentFQDN>/sovereign").
 // Paths, proxy projects, channel and release key are copied. The parent's own Origin* values are never copied.
+// One path is not copied: the child reads the vulnerability database through its own proxy project, so its
+// PathVulnDB is VulnDBProxyProject + "/" + parent.PathVulnDB. A parent with an empty PathVulnDB (a parent
+// whose document is built in code, with ghcr.io as its registry) leaves the default, the path for ghcr.io.
 // Per-child keys (LocalRegistryHost, K3sVersion, state and mail keys) are left empty for the caller to fill.
 // Every other key takes its default; a key without a default stays empty.
 func Served(parentFQDN string, parent Variables) Variables {
@@ -466,6 +476,9 @@ func Served(parentFQDN string, parent Variables) Variables {
 	v.PathXpkg = parent.PathXpkg
 	v.PathTofuProviders = parent.PathTofuProviders
 	v.PathNodeArtifacts = parent.PathNodeArtifacts
+	if parent.PathVulnDB != "" {
+		v.PathVulnDB = VulnDBProxyProject + "/" + parent.PathVulnDB
+	}
 	v.ProxyProjects = map[string]string{}
 	for k, p := range parent.ProxyProjects {
 		v.ProxyProjects[k] = p
