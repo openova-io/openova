@@ -1476,10 +1476,10 @@ checks:
   owner: INF
   state: not-built
   runs_in: [cloud]
-  destructive: false
-  needs: []
+  destructive: true
+  needs: [node-reboot]
   proof: running
-  asserts: Coordinated reboot
+  asserts: Region by region, three nodes with a pending reboot, one of them a control-plane node, restart one at a time and drained (judged by boot identifier and unschedulable) within 3 x (period + lock release delay) + 15 minutes; afterwards every node is Ready and schedulable, kured's DaemonSet is fully ready and every HelmRelease that was Ready before the first reboot is Ready again; journey J1 of the same run passed; every upgrade Plan present has a window that ends at least 30 minutes before kured's reboot span starts.
   implemented_by: INF-051
   delivered_by: INF-052
 - id: INF-G02
