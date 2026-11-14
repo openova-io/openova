@@ -104,7 +104,7 @@ func Execute(ctx context.Context, cfg Config, out io.Writer) (*Run, error) {
 	}
 	r.api.ReadOnly = cfg.ReadOnly
 	if previousID != "" {
-		r.run.Provision = &Provision{PreviousDeploymentID: previousID, PreviousWipeOrphans: previousOrphans}
+		r.run.Provision = &Provision{PreviousWipe: &PreviousWipe{PreviousDeploymentID: previousID, PreviousWipeOrphans: previousOrphans}}
 	}
 	fmt.Fprintf(out, "acceptance %s env=%s run=%s console=%s\n", mode, cfg.Env, r.run.RunID, cfg.Console)
 
@@ -151,6 +151,11 @@ func Execute(ctx context.Context, cfg Config, out io.Writer) (*Run, error) {
 		r.runChecks(ctx, manifest, checks, cc, ok)
 	}
 
+	// A run in the cloud measures the installation under test last: whether
+	// it is fresh depends on both looks of check FND-G02 (provision.go).
+	if !cfg.ReadOnly && RunIn(cfg.RunIn) == RunInCloud {
+		r.measureProvision(ctx, nodesRequested)
+	}
 	r.run.FinishedAt = time.Now().UTC()
 	r.run.Finalize(requested)
 	r.run.PrintTable(out)

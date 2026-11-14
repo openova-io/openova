@@ -69,7 +69,7 @@ func (r *runner) discover(ctx context.Context) bool {
 		}
 		r.A.ID, r.B.ID = keyA, keyB
 		ev["regionA"], ev["regionB"] = keyA, keyB
-		ev["identity_source"] = TEMPORARY + ": bootstrap-kit postBuild SOVEREIGN_REGION_KEY per kubeconfig"
+		ev["identity_source"] = TEMPORARY + ": SOVEREIGN_REGION_KEY of the bootstrap variables per kubeconfig"
 
 		// D3 target: the Sovereign's region list is the registry.
 		res, err := r.api.Do(ctx, "GET", "/api/v1/sovereigns/"+url.PathEscape(r.dep)+"/regions", nil)
@@ -116,7 +116,7 @@ func (r *runner) discover(ctx context.Context) bool {
 		}
 		if len(m) == 0 {
 			m = map[string][]string{keyA: ipsA, keyB: ipsB}
-			ev["region_ips_source"] = TEMPORARY + ": bootstrap-kit CILIUM_LB_IPAM_CIDRS per region (override: ACCEPT_REGION_IPS)"
+			ev["region_ips_source"] = TEMPORARY + ": CILIUM_LB_IPAM_CIDRS of the bootstrap variables per region (override: ACCEPT_REGION_IPS)"
 		} else {
 			ev["region_ips_source"] = "ACCEPT_REGION_IPS"
 		}
@@ -292,23 +292,18 @@ func (r *runner) discover(ctx context.Context) bool {
 }
 
 // regionIdentity reads the region key + gateway VIPs a cluster was
-// bootstrapped with (bootstrap-kit Kustomization postBuild substitutions).
+// bootstrapped with (its bootstrap variables, see sovereignVariables).
 func regionIdentity(ctx context.Context, reg kube.Region) (string, []string, error) {
-	out, err := reg.Run(ctx, nil, "-n", "flux-system", "get", "kustomization", "bootstrap-kit", "-o", "json")
+	sub, source, err := sovereignVariables(ctx, reg)
 	if err != nil {
 		return "", nil, err
 	}
-	var k kube.Object
-	if err := json.Unmarshal(out, &k); err != nil {
-		return "", nil, err
-	}
-	sub, _ := k.Get("spec", "postBuild", "substitute").(map[string]any)
-	key, _ := sub["SOVEREIGN_REGION_KEY"].(string)
+	key := sub["SOVEREIGN_REGION_KEY"]
 	if key == "" {
-		return "", nil, fmt.Errorf("kubeconfig %s: bootstrap-kit has no SOVEREIGN_REGION_KEY", reg.Kubeconfig)
+		return "", nil, fmt.Errorf("kubeconfig %s: the bootstrap variables (%s) have no SOVEREIGN_REGION_KEY", reg.Kubeconfig, source)
 	}
 	var ips []string
-	cidrs, _ := sub["CILIUM_LB_IPAM_CIDRS"].(string)
+	cidrs := sub["CILIUM_LB_IPAM_CIDRS"]
 	for _, c := range strings.Split(cidrs, ",") {
 		if c = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(c), "/32")); c != "" && !strings.Contains(c, "/") {
 			ips = append(ips, c)
