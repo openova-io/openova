@@ -55,6 +55,14 @@ const (
 	ViaController Via = "controller" // adoption commits and rendered files
 )
 
+// Mode is how Commit delivers a Change (CTL-700).
+type Mode string
+
+const (
+	ModeDirect      Mode = "direct"       // commit to the branch of Repo; "" means the same
+	ModePullRequest Mode = "pull-request" // commit to ChangeBranch(ChangeID), open a pull request into main
+)
+
 // Change is one atomic commit.
 type Change struct {
 	Scope    Scope             // selects the robot and the allowed paths; required
@@ -65,6 +73,7 @@ type Change struct {
 	ChangeID string            // required; from NewChangeID
 	Via      Via               // required
 	Trailers map[string]string // extra trailers; keys match ^[A-Z][A-Za-z-]*$; default nil
+	Mode     Mode              // "" or ModeDirect: commit to Repo's branch; ModePullRequest: semantics 11
 }
 
 type FileResult struct {
@@ -73,9 +82,10 @@ type FileResult struct {
 }
 
 type Result struct {
-	Commit    string // commit SHA; the current head when Committed is false
-	Committed bool   // false when every file already had the wanted content
-	Files     []FileResult
+	Commit         string // commit SHA; the current head when Committed is false
+	Committed      bool   // false when every file already had the wanted content
+	Files          []FileResult
+	PullRequestURL string // the pull request of a ModePullRequest change; "" otherwise
 }
 
 type Entry struct {
@@ -129,6 +139,7 @@ type Config struct {
 
 func New(cfg Config) (*Client, error) // *Client implements Writer
 func NewChangeID() string             // 26-character ULID
+func ChangeBranch(changeID string) string // "change/" + changeID: the branch of a ModePullRequest change
 
 var (
 	ErrNotFound      = errors.New("gitwrite: not found")
@@ -170,6 +181,7 @@ Semantics:
 8. **Identity.** `author` is `Change.Author` when set, otherwise the committer. `committer` is `{Name: <robot>, Email: <robot> + "@" + RobotDomain}`, where `<robot>` is `Scope.Robot`, or `SharedRobot` when the token source is `SharedTokenSource`.
 9. **No index files.** No caller writes a `kustomization.yaml` into an `intent/` directory. Flux generates one from the directory content.
 10. **Errors from Gitea.** HTTP 5xx, a time-out or a connection error returns `ErrUnavailable` (wrapped). HTTP 401 or 403 returns the Gitea error wrapped, not `ErrUnavailable`.
+11. **Pull-request mode** (CTL-700). `Mode` is `""`, `ModeDirect` or `ModePullRequest`; any other value returns `ErrInvalid`. `ModePullRequest` needs the base branch `main` (`Repo.Branch` `""` or `"main"`), or returns `ErrInvalid`. Items 4 to 8 and 10 hold unchanged. The library reads the files on `main`: when every file has the wanted state it returns the head of `main` with `Committed` false and makes no branch and no pull request; an `IfMatch` mismatch returns `*ConflictError` and creates nothing. Otherwise it creates the branch `ChangeBranch(ChangeID)`, that is `change/<ChangeID>`, from `main` (`POST /api/v1/repos/{owner}/{repo}/branches`; an existing branch is kept), commits the files there in one call as in item 1, and opens a pull request from that branch into `main` (`POST /api/v1/repos/{owner}/{repo}/pulls`) whose title is `Summary` and whose body is the commit message of item 7. `Result.Commit` is the commit on the branch and `Result.PullRequestURL` the pull request's address. `main` is never written, and the library does not wait for the merge or read the pull request's state again. A person merges the pull request in Gitea, and the merge reaches the cluster like any commit to `main`. The same `Change` again makes no second commit and returns the open pull request, so a call that failed after its commit can be repeated. In package `intent` of catalyst-api, `Submit` takes the mode as an optional last argument; in this mode it does not wait for the cache and returns `State` `awaiting-approval`, `PullRequestURL`, and `Status` 202.
 
 ```
 <Summary>

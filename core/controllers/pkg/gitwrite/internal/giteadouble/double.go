@@ -1,10 +1,13 @@
-// Package giteadouble is an in-memory stand-in for the four Gitea API
-// calls that gitwrite makes: read a file, list a directory, read a branch
-// head, and commit a batch of files. It answers as Gitea 1.22 does: the
+// Package giteadouble is an in-memory stand-in for the Gitea API calls
+// that gitwrite makes: read a file, list a directory, read a branch head,
+// commit a batch of files, and, for the pull-request mode, create a branch
+// and open or list pull requests (pulls.go). It answers as Gitea 1.22 does: the
 // batch is checked whole before any file is applied, a wrong SHA is HTTP
 // 422 "sha does not match", a create of an existing file is HTTP 422
 // "repository file already exists". Every repository and branch exists
-// and starts empty. It is used by the tests of gitwrite and by
+// and starts empty, except that the branch-head call answers 404 for a
+// branch other than main that nothing has read, written or created yet.
+// It is used by the tests of gitwrite and by
 // gitwrite/fake; it is not a production server.
 package giteadouble
 
@@ -46,9 +49,11 @@ type Server struct {
 	branches map[string]*branch
 	commits  []Commit
 	calls    map[string]int
+	pulls    []PullRequest
 
 	// Intercept, when set, is called for every request with its method
-	// and kind ("file", "list", "branch" or "change"). A return value
+	// and kind ("file", "branch", "change", "new-branch" or "pull"; a
+	// directory listing is kind "file"). A return value
 	// other than 0 is sent as the HTTP status and nothing changes.
 	Intercept func(method, kind string) int
 	// BeforeChange, when set, runs at the start of every batch call,
@@ -148,7 +153,7 @@ func message(w http.ResponseWriter, status int, text string) {
 	reply(w, status, map[string]string{"message": text})
 }
 
-// ServeHTTP answers the four calls under /api/v1/repos/{owner}/{repo}/.
+// ServeHTTP answers the calls under /api/v1/repos/{owner}/{repo}/.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rest, ok := strings.CutPrefix(r.URL.EscapedPath(), "/api/v1/repos/")
 	parts := strings.SplitN(rest, "/", 4)
@@ -178,6 +183,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		kind = "file"
 	case parts[2] == "branches" && len(parts) == 4 && r.Method == http.MethodGet:
 		kind = "branch"
+	case parts[2] == "branches" && len(parts) == 3 && r.Method == http.MethodPost:
+		kind = "new-branch"
+	case parts[2] == "pulls" && len(parts) == 3 && (r.Method == http.MethodPost || r.Method == http.MethodGet):
+		kind = "pull"
 	default:
 		message(w, http.StatusNotFound, "no such route")
 		return
@@ -207,9 +216,24 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.file(w, owner, repo, br, tail)
 	case "branch":
 		s.mu.Lock()
-		head := s.get(owner, repo, tail).head
+		b, ok := s.branches[key(owner, repo, tail)]
+		if tail == "main" {
+			b, ok = s.get(owner, repo, tail), true
+		}
+		head := ""
+		if ok {
+			head = b.head
+		}
 		s.mu.Unlock()
+		if !ok {
+			message(w, http.StatusNotFound, "branch does not exist [name: "+tail+"]")
+			return
+		}
 		reply(w, http.StatusOK, map[string]any{"name": tail, "commit": map[string]string{"id": head}})
+	case "new-branch":
+		s.newBranch(w, r, owner, repo)
+	case "pull":
+		s.pull(w, r, owner, repo, token)
 	}
 }
 
