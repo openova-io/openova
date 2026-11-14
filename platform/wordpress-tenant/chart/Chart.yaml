@@ -494,7 +494,7 @@ name: bp-wordpress-tenant
 #   write-once material reaches every region's own OpenBao with no operator
 #   values. seed.secretStoreRefs still overrides. 0.6.0's media store is
 #   unchanged. tests/shared-secrets-render.sh S6/S8.
-version: 0.6.3
+version: 0.6.4
 appVersion: "6"
 description: |
   Catalyst Blueprint scratch chart for in-vcluster WordPress, one
