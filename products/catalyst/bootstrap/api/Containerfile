@@ -75,6 +75,11 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # to it. See infra/hetzner/main.tf comments around null_resource.dns_pool.
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /catalyst-dns ./cmd/catalyst-dns \
     && upx -q --best --lzma /catalyst-dns
+# machine-controller: the controllers of the machine plane. The chart
+# bp-machine-operations runs it from this image with the command
+# /usr/local/bin/machine-controller --controllers=<names>.
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /machine-controller ./cmd/machine-controller \
+    && upx -q --best --lzma /machine-controller
 
 # ---------- Stage 2: download + verify the OpenTofu CLI ----------
 # The catalyst-api Pod IS the OpenTofu runner — provisioner.runTofu() execs
@@ -155,6 +160,7 @@ COPY --from=tofu /out/tofu /usr/local/bin/tofu
 
 COPY --from=build /catalyst-api /catalyst-api
 COPY --from=build /catalyst-dns /usr/local/bin/catalyst-dns
+COPY --from=build /machine-controller /usr/local/bin/machine-controller
 
 # Bundle the canonical OpenTofu module(s). provisioner.stageModule() copies these
 # .tf / .tftpl files into a per-deployment workdir at Launch; the path is
