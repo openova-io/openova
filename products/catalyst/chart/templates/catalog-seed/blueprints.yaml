@@ -4231,7 +4231,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.2.8"
+  version: "1.2.9"
   visibility: unlisted
   card:
     title: "Flux"
@@ -4248,7 +4248,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-flux
-    version: "1.2.8"
+    version: "1.2.9"
   topology:
     supported:
       - singleton

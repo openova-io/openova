@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-14T13:25:10.796Z",
+  "generatedAt": "2026-11-14T13:25:35.898Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -1574,7 +1574,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.2.8",
+      "version": "1.2.9",
       "section": "pts-3-2-gitops-and-iac",
       "depends": [],
       "shareable": false,
