@@ -268,12 +268,13 @@ checks:
 - id: AIP-G01
   title: Security check AIP-G01
   owner: AIP
-  state: not-built
+  state: required
   runs_in: [local, cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Published with the ticket of the piece that delivers it.
+  implementation: tests/acceptance/sovereign/internal/suite/check_aip_g01.go
   delivered_by: AIP-040
 - id: AIP-G02
   title: Tool-call round trip through the gateway
