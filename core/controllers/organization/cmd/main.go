@@ -87,7 +87,7 @@ func main() {
 	envRegionProvider := envOr("CATALYST_ENV_REGION_PROVIDER", "huawei")
 	envRegionCode := envOr("CATALYST_ENV_REGION_CODE", "mee")
 	envRegionBuildingBlock := envOr("CATALYST_ENV_REGION_BUILDING_BLOCK", "rtz")
-	chartVer := envOr("CATALYST_VCLUSTER_CHART_VERSION", "0.33.*")
+	chartVer := envOr("CATALYST_VCLUSTER_CHART_VERSION", "0.33.4")
 	helmRepoName := envOr("CATALYST_VCLUSTER_HELMREPO_NAME", "loft")
 	helmRepoNs := envOr("CATALYST_VCLUSTER_HELMREPO_NAMESPACE", "vcluster-system")
 	// #3760 (Refs #3376 #3754): the Sovereign-local Harbor host the per-Org

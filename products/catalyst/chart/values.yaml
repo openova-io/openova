@@ -908,6 +908,12 @@ controllers:
     # per-Sovereign overlay to `harbor.<sovereign-fqdn>` post-handover. Per
     # Inviolable Principle #4 it stays operator-overridable.
     vclusterImageRegistry: "harbor.openova.io"
+    # The exact vcluster chart version of every per-Org vCluster HelmRelease
+    # (env CATALYST_VCLUSTER_CHART_VERSION). Never a range: a range lets each
+    # Sovereign resolve a different patch. It equals the cutover chart's
+    # helmRepositories.vclusterLoftPivot.chartVersion and the controller's
+    # built-in default.
+    vclusterChartVersion: "0.33.4"
     # #4236 (the #4179 final layer) — per-Org pool-DNS A-record write.
     # poolPowerdnsURL: the CENTRAL pdns.openova.io endpoint the controller PATCHes
     # `console.<slug>.<parentDomain>` + the per-Org wildcard into, so a fresh
