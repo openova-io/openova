@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T10:15:03Z` |
+| Last refreshed | `2026-11-14T10:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-14T10:15 | [#7647](https://github.com/openova-io/openova/pull/7647) | #7558 | feat(machines): kinds Machine and MachineSource, and the inv |
 | 2026-11-14T09:52 | [#7642](https://github.com/openova-io/openova/pull/7642) | #7087 | docs(ledger): plan update |
 | 2026-11-14T09:42 | [#7640](https://github.com/openova-io/openova/pull/7640) | #7087 | docs(ledger): plan update |
 | 2026-11-14T10:01 | [#7635](https://github.com/openova-io/openova/pull/7635) | #7634 | fix(ci): no version-update pull requests for Go modules and  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-14T07:17 | [#7524](https://github.com/openova-io/openova/pull/7524) | #7515 | chore(ci): guard that the agent plane gains no provider host |
 | 2026-11-14T07:18 | [#7523](https://github.com/openova-io/openova/pull/7523) | #7506 | refactor(kyverno-policies): end the bootstrap window when th |
 | 2026-11-14T07:04 | [#7521](https://github.com/openova-io/openova/pull/7521) | #7087 | docs(ledger): plan update |
-| 2026-11-14T07:56 | [#7520](https://github.com/openova-io/openova/pull/7520) | #7517 | ci: the privacy guard fails closed, really searches and runs |
 
 ---
 
