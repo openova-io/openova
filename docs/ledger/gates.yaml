@@ -1478,7 +1478,8 @@ checks:
   needs: []
   proof: running
   asserts: Coordinated reboot
-  delivered_by: INF-051
+  implemented_by: INF-051
+  delivered_by: INF-052
 - id: INF-G02
   title: Node host scans
   owner: INF
