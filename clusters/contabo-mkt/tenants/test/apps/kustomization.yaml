@@ -3,5 +3,4 @@ kind: Kustomization
 namespace: apps
 resources:
   - app-bookstack.yaml
-  - db-mysql.yaml
   - namespace.yaml
