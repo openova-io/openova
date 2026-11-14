@@ -1120,12 +1120,13 @@ checks:
 - id: CTL-G04
   title: The lock holds
   owner: CTL
-  state: not-built
+  state: expected-fail
   runs_in: [local, cloud]
   destructive: false
   needs: []
   proof: running
   asserts: The lock holds
+  implementation: tests/acceptance/sovereign/internal/suite/check_ctl_lock.go
   implemented_by: CTL-151
   delivered_by: CTL-178
 - id: CTL-G05

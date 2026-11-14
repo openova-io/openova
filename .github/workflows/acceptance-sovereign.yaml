@@ -78,6 +78,7 @@ on:
       - 'scripts/acceptance-sovereign.sh'
       - 'scripts/acceptance-gate.py'
       - 'scripts/acceptance_record.py'
+      - 'scripts/intent-lock-report.py'
       - '.github/workflows/acceptance-sovereign.yaml'
 
 concurrency:
