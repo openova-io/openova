@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T14:45:03Z` |
+| Last refreshed | `2026-11-14T15:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,11 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7478](https://github.com/openova-io/openova/issues/7478) | FND-013 Merge queue: aggregate check, queue triggers, rulesets and code owners a | Other |
-| [#7479](https://github.com/openova-io/openova/issues/7479) | FND-096 Remove the Sandbox sources | Other |
-| [#7484](https://github.com/openova-io/openova/issues/7484) | CLD-185 Hetzner control-plane cloud-init with the post-back on fits the module s | Other |
-| [#7487](https://github.com/openova-io/openova/issues/7487) | CTL-041 Bootstrap-kit HelmRepository documents to source v1 | Other |
-| [#7488](https://github.com/openova-io/openova/issues/7488) | SOV-120 The sovereign-ops command and its image | Other |
 | [#7489](https://github.com/openova-io/openova/issues/7489) | SOV-180 The API serves the Sovereign's mode and variables, with the contract's d | Other |
 | [#7494](https://github.com/openova-io/openova/issues/7494) | CLD-087 CI job conformance-local | Other |
 | [#7495](https://github.com/openova-io/openova/issues/7495) | FND-015 Candidate tool and cut workflow | Other |
@@ -300,6 +295,11 @@ flowchart LR
 | [#7766](https://github.com/openova-io/openova/issues/7766) | SOV-161 The pull robot of the local registry joins the pull secret at install | Other |
 | [#7767](https://github.com/openova-io/openova/issues/7767) | SOV-336 The registry install creates the proxy project of the vulnerability data | Other |
 | [#7768](https://github.com/openova-io/openova/issues/7768) | the release job writes an attestation name as the runtime image tag of the openc | Other |
+| [#7772](https://github.com/openova-io/openova/issues/7772) | AIP-042 Check AIP-G01 judges running containers only | Other |
+| [#7773](https://github.com/openova-io/openova/issues/7773) | CTL-330 The services stop building the Kafka client | Other |
+| [#7774](https://github.com/openova-io/openova/issues/7774) | CTL-345 The flow endpoints answer only from the local store; check CTL-G12 | Other |
+| [#7775](https://github.com/openova-io/openova/issues/7775) | FND-073 The gate runs twice against the standing environment once it carries the | Other |
+| [#7776](https://github.com/openova-io/openova/issues/7776) | SVC-040 Blueprint files move to apiVersion catalyst.openova.io/v1 | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-14T14:52 | [#7759](https://github.com/openova-io/openova/pull/7759) | #7087 | docs(ledger): plan update |
 | 2026-11-14T14:38 | [#7751](https://github.com/openova-io/openova/pull/7751) | #7746 | feat(fingate): account-information read operations over the  |
 | 2026-11-14T14:36 | [#7749](https://github.com/openova-io/openova/pull/7749) | #7721 | docs(adr): record 0039, Environment objects have one writer  |
 | 2026-11-14T14:37 | [#7748](https://github.com/openova-io/openova/pull/7748) | #7726 | refactor(bootstrap-kit): pull Secret names and the hand-over |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-14T12:00 | [#7682](https://github.com/openova-io/openova/pull/7682) | #7671 | feat(machine-operations): the chart runs the inventory contr |
 | 2026-11-14T12:02 | [#7681](https://github.com/openova-io/openova/pull/7681) | #7669 | ci: the deploy-bump action pushes with the release-writer de |
 | 2026-11-14T11:59 | [#7680](https://github.com/openova-io/openova/pull/7680) | #7672 | docs(adr): record 0032, migration is a platform product, and |
-| 2026-11-14T11:24 | [#7664](https://github.com/openova-io/openova/pull/7664) | #7087 | docs(ledger): plan update |
 
 ---
 
