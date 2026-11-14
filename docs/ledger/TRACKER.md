@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T16:30:07Z` |
+| Last refreshed | `2026-11-14T16:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -314,6 +314,7 @@ flowchart LR
 | 2026-11-14T15:45 | [#7786](https://github.com/openova-io/openova/pull/7786) | #7722 | ci: the rulesets name the release-writer deploy key, and the |
 | 2026-11-14T15:37 | [#7784](https://github.com/openova-io/openova/pull/7784) | #7087 | docs(ledger): plan update |
 | 2026-11-14T15:42 | [#7783](https://github.com/openova-io/openova/pull/7783) | #7742 | fix(api): serve the region registry and the Environment list |
+| 2026-11-14T16:38 | [#7782](https://github.com/openova-io/openova/pull/7782) | #7665 | docs(guacamole): stop stating session recording as present ( |
 | 2026-11-14T15:36 | [#7780](https://github.com/openova-io/openova/pull/7780) | #7767 | feat(harbor): the registry install creates the pull-through  |
 | 2026-11-14T15:41 | [#7779](https://github.com/openova-io/openova/pull/7779) | #7762 | fix: reserve the platform namespace names as Organization sl |
 | 2026-11-14T15:35 | [#7778](https://github.com/openova-io/openova/pull/7778) | #7725 | fix(cloud-init): the parent-bootstrap failure exits 98 and a |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-14T13:32 | [#7719](https://github.com/openova-io/openova/pull/7719) | #7087 | docs(ledger): plan update |
 | 2026-11-14T13:09 | [#7713](https://github.com/openova-io/openova/pull/7713) | #7087 | docs(ledger): plan update |
 | 2026-11-14T13:17 | [#7712](https://github.com/openova-io/openova/pull/7712) | #7677 | test(charts): function tests for the GitOps, registry and ce |
-| 2026-11-14T13:17 | [#7711](https://github.com/openova-io/openova/pull/7711) | #7689 | fix(external-secrets-stores): the remote-key rule holds its  |
 
 ---
 
