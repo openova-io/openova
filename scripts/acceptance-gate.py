@@ -116,10 +116,13 @@ RUNS_IN = ("local", "cloud", "self")
 # The kinds of proof. fresh: only records of fresh installations prove the check.
 PROOFS = ("fresh", "running")
 AREAS = ("ACC", "AIP", "BSS", "CLD", "CMP", "CTL", "FND", "INF", "MIG", "NET", "PRD", "SEC", "SOV", "SVC")
-# The closed list of `needs` values. A flag is added here by a PLAN change.
+# The closed list of `needs` values. A work package adds a flag here, because a plan change may not
+# change this file (PLAN_PATHS of scripts/plan.py); the plan change then names the flag in a check's
+# `needs`. node-reboot: the run may restart nodes (check INF-G01). A gate run declares it only when
+# the input `capabilities` of the gate workflow holds it.
 CAPABILITIES = ("multi-region", "upgrade-path", "previous-wipe", "model-simulation", "model-selfhosted",
                 "host-security-service", "nested-virtualization", "vsphere-lab", "windows-target",
-                "product-ai-hub", "model-transcription", "product-open-banking", "gpu")
+                "product-ai-hub", "model-transcription", "product-open-banking", "gpu", "node-reboot")
 TITLE_MAX = 100
 CHECK_ID = re.compile(r"^[A-Z]{3}-G[0-9]{2}$")
 PACKAGE_ID = re.compile(r"^[A-Z]{3}-([0-9]{3}|S[0-9])$")
