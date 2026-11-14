@@ -61,6 +61,7 @@ on:
       - 'core/services/tenant/**'
       - 'products/catalyst/bootstrap/ui/**'
       - 'products/fingate/**'
+      - 'products/ops-records/**'
       - '.github/workflows/test-ungated-trees.yaml'
       - '.github/workflows/**'
       - '**/go.mod'
@@ -81,6 +82,7 @@ on:
       - 'core/services/tenant/**'
       - 'products/catalyst/bootstrap/ui/**'
       - 'products/fingate/**'
+      - 'products/ops-records/**'
       - '.github/workflows/test-ungated-trees.yaml'
       - '.github/workflows/**'
       - '**/go.mod'
@@ -111,6 +113,8 @@ jobs:
           - products/fingate
           # The generator of the open-banking product (PRD-102).
           - products/fingate/tools
+          # The operations-records service (AIP-221).
+          - products/ops-records
           # core/pool-domain-manager is deliberately NOT in this list — it
           # has its own `pool-domain-manager` job below with a Postgres
           # service container (#5741 follow-up).

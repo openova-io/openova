@@ -132,4 +132,5 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | products/fingate | - | - | - | - |
 | products/openova-flow | - | - | - | - |
 | products/openova-mcp | bp-openova-mcp | bp-openova-mcp | unlisted | 13d |
+| products/ops-records | - | - | - | - |
 | products/relay | - | - | - | - |
