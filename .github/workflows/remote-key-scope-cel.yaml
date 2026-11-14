@@ -1,0 +1,52 @@
+# remote-key-scope-cel.yaml - the remote-key rule of bp-external-secrets-stores, evaluated.
+#
+# The chart platform/external-secrets-stores renders the admission rule
+# external-secret-remote-key-scope (SEC-080). Its render test checks the YAML
+# only. A rule that does not compile, or that refuses every request, renders
+# fine: the first form of this rule passed its render test and refused every
+# ExternalSecret on a running cluster.
+#
+# So this workflow renders the chart with helm and evaluates the rule with the
+# Kubernetes admission CEL evaluator (k8s.io/apiserver), the way the API server
+# compiles a ValidatingAdmissionPolicy. No cluster is started. The test lives
+# in core/cmd/cert-manager-dynadot-webhook/remotekeyscope, because that is the
+# one Go module whose dependencies already hold k8s.io/apiserver.
+#
+# Downloads: the Go toolchain that the module's go.mod names, the module's
+# dependencies (go.sum), and Helm v3.18.4, the version blueprint-release.yaml
+# pins.
+name: remote-key-scope-cel
+
+on:
+  pull_request:
+    paths:
+      - 'platform/external-secrets-stores/chart/**'
+      - 'core/cmd/cert-manager-dynadot-webhook/remotekeyscope/**'
+      - 'core/cmd/cert-manager-dynadot-webhook/go.mod'
+      - 'core/cmd/cert-manager-dynadot-webhook/go.sum'
+      - '.github/workflows/remote-key-scope-cel.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evaluate:
+    name: remote-key rule on the admission CEL evaluator
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: core/cmd/cert-manager-dynadot-webhook/go.mod
+          cache-dependency-path: core/cmd/cert-manager-dynadot-webhook/go.sum
+
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+        with:
+          version: v3.18.4
+
+      - name: Render the chart and evaluate the rule
+        working-directory: core/cmd/cert-manager-dynadot-webhook
+        run: go test -count=1 -v ./remotekeyscope/
