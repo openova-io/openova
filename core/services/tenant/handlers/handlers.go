@@ -27,9 +27,39 @@ import (
 // anything but [a-z0-9-] opens a path-traversal vector. Issue #105 (extended).
 var tenantSlugRE = regexp.MustCompile(`^[a-z][a-z0-9-]{2,30}$`)
 
-// validTenantSlug returns true iff s is a safe tenant slug.
+// reservedSlugs are the slugs no Organization may take: platform names,
+// provider codes, retired zone codes, environment types, and every namespace
+// of the bootstrap kit. An Organization's slug names its namespace on the
+// host cluster, so a slug equal to a platform namespace would take that
+// namespace over. The words are those of the not.enum list of spec.slug in
+// products/catalyst/chart/crds/organization.yaml without the words that name
+// a cloud provider: the Organization kind refuses those on its own, and
+// shared code names no provider. scripts/check-reserved-slugs.py keeps both
+// lists in step with clusters/_template/bootstrap-kit/placement.yaml.
+var reservedSlugs = func() map[string]bool {
+	m := map[string]bool{}
+	for _, s := range strings.Fields(`
+		system flux crossplane catalyst gitea
+		oci aws gcp azure contabo
+		rtz dmz mgt mgmt prod stg uat dev poc
+		monitoring ingress default edge platform org-services
+		alloy catalyst-system cert-manager chargeback cluster-autoscaler
+		cnpg cnpg-system coraza crossplane-system dragonfly external-dns
+		external-secrets-system falco flux-system grafana guacamole harbor
+		keycloak kube-system kyverno loki mimir nats-system newapi
+		oidc-gate openbao opentelemetry powerdns powerdns-admin reflector
+		reloader seaweedfs shared-data sigstore-system sso-bridge
+		syft-grype tempo trivy-system valkey velero vllm vpa
+	`) {
+		m[s] = true
+	}
+	return m
+}()
+
+// validTenantSlug returns true iff s is a safe tenant slug that is not
+// reserved.
 func validTenantSlug(s string) bool {
-	return tenantSlugRE.MatchString(s)
+	return tenantSlugRE.MatchString(s) && !reservedSlugs[s]
 }
 
 // Handler holds dependencies for tenant HTTP handlers.
@@ -272,6 +302,11 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 
 	if body.Slug == "" || body.Name == "" {
 		respond.Error(w, http.StatusBadRequest, "slug and name are required")
+		return
+	}
+	// A reserved slug names a platform namespace (reservedSlugs).
+	if reservedSlugs[body.Slug] {
+		respond.Error(w, http.StatusUnprocessableEntity, "slug is reserved")
 		return
 	}
 	// Slug becomes a DNS subdomain AND a filesystem path component in

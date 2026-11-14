@@ -1,0 +1,19 @@
+# Invalid sample - must FAIL schema validation on exactly one field:
+#   slug: "mgmt"   - a reserved name (the not.enum list of spec.slug)
+# Every other field is valid: with an unreserved slug the object passes.
+# Checked by TestOrganizationSampleReservedSlug in
+# products/catalyst/bootstrap/api/internal/intent/organization_slug_test.go.
+apiVersion: orgs.openova.io/v1
+kind: Organization
+metadata:
+  name: reserved-slug
+spec:
+  slug: mgmt
+  displayName: Reserved Slug
+  kind: customer
+  tier: org
+  billingMode: real
+  sovereignRef: omantel.omani.works
+  owners:
+    - email: owner@reserved-slug.example
+      role: owner
