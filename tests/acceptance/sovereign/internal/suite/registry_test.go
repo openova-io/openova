@@ -48,8 +48,10 @@ func emptyRegistry(t *testing.T) {
 	t.Cleanup(func() { registry = saved })
 }
 
+// entry is a manifest entry whose implementation is a Go file of the suite.
 func entry(id, state string, runsIn ...string) ManifestCheck {
-	return ManifestCheck{ID: id, State: state, RunsIn: runsIn, Needs: []string{}}
+	return ManifestCheck{ID: id, State: state, RunsIn: runsIn, Needs: []string{},
+		Implementation: suiteRoot + "internal/suite/check_fake.go"}
 }
 
 func TestRegisterCheck(t *testing.T) {
@@ -77,9 +79,10 @@ func TestLoadManifest(t *testing.T) {
 		}
 		return p
 	}
-	good := write("good.json", `{"schema":"openova.io/gates/v1","pass_rule":{"consecutive":2},"checks":[{"id":"FND-G03","state":"required","runs_in":["local","cloud"],"destructive":false,"needs":["multi-region"]}]}`)
+	good := write("good.json", `{"schema":"openova.io/gates/v1","pass_rule":{"consecutive":2},"checks":[{"id":"FND-G03","state":"required","runs_in":["local","cloud"],"destructive":false,"needs":["multi-region"],"implementation":"tests/acceptance/sovereign/internal/suite/check_nodes.go"}]}`)
 	m, err := LoadManifest(good)
-	if err != nil || len(m.Checks) != 1 || m.Checks[0].Needs[0] != "multi-region" || m.Checks[0].RunsIn[1] != "cloud" {
+	if err != nil || len(m.Checks) != 1 || m.Checks[0].Needs[0] != "multi-region" || m.Checks[0].RunsIn[1] != "cloud" ||
+		m.Checks[0].Implementation != "tests/acceptance/sovereign/internal/suite/check_nodes.go" {
 		t.Fatalf("a good manifest was not read: %v %+v", err, m)
 	}
 	for name, p := range map[string]string{
@@ -122,6 +125,45 @@ func TestSelectChecks(t *testing.T) {
 	_, err := SelectChecks(m, RunInCloud)
 	if !errors.Is(err, ErrManifest) || !strings.HasSuffix(err.Error(), "no registered check for FND-G03") {
 		t.Fatalf("a selected entry without a registered check must be an error, got %v", err)
+	}
+}
+
+// TestSelectChecksByImplementation: only an entry whose implementation is a Go
+// file of the suite is selected. An entry implemented by a script or by a
+// folder of browser specs is proven by its own job and is left out, even when
+// a check of the same identifier is registered. A Go entry without a
+// registered check still stops the run.
+func TestSelectChecksByImplementation(t *testing.T) {
+	emptyRegistry(t)
+	RegisterCheck(fakeCheck{id: "FND-G01"})
+	RegisterCheck(fakeCheck{id: "CLD-G03"})
+	with := func(id, state, implementation string) ManifestCheck {
+		e := entry(id, state, "local", "cloud")
+		e.Implementation = implementation
+		return e
+	}
+	m := &Manifest{Schema: ManifestSchema, Checks: []ManifestCheck{
+		with("FND-G01", StateRequired, suiteRoot+"internal/suite/check_candidate.go"),
+		with("CLD-G02", StateRequired, "scripts/check-provider-leaks.py"),
+		with("CLD-G03", StateExpectedFail, "scripts/check-provider-contract.sh"),
+		with("FND-G07", StateExpectedFail, "scripts/sso-zero-click-probe.mjs"),
+		with("ACC-G03", StateExpectedFail, "products/catalyst/bootstrap/ui/e2e/gate/apps"),
+		with("ACC-G05", StateRequired, "core/marketplace/e2e/gate/redeem"),
+		with("ACC-G13", StateRequired, ""),
+		with("ACC-G14", StateRequired, suiteRoot+"../../../scripts/probe.go"),
+	}}
+	for _, r := range []RunIn{RunInLocal, RunInCloud} {
+		got, err := SelectChecks(m, r)
+		if err != nil || len(got) != 1 || got[0].ID() != "FND-G01" {
+			t.Errorf("%s: want only FND-G01 selected, got %v (error %v)", r, got, err)
+		}
+	}
+	m.Checks = append(m.Checks, with("ACC-G15", StateExpectedFail, suiteRoot+"internal/suite/check_none.go"))
+	for _, r := range []RunIn{RunInLocal, RunInCloud} {
+		_, err := SelectChecks(m, r)
+		if !errors.Is(err, ErrManifest) || !strings.HasSuffix(err.Error(), "no registered check for ACC-G15") {
+			t.Errorf("%s: a Go entry without a registered check must stop the run, got %v", r, err)
+		}
 	}
 }
 
@@ -202,7 +244,7 @@ func TestExecuteStopsOnManifest(t *testing.T) {
 	emptyRegistry(t)
 	dir := t.TempDir()
 	unregistered := filepath.Join(dir, "gates.json")
-	text := `{"schema":"openova.io/gates/v1","checks":[{"id":"FND-G03","state":"required","runs_in":["cloud"],"destructive":false,"needs":[]}]}`
+	text := `{"schema":"openova.io/gates/v1","checks":[{"id":"FND-G03","state":"required","runs_in":["cloud"],"destructive":false,"needs":[],"implementation":"tests/acceptance/sovereign/internal/suite/check_nodes.go"}]}`
 	if err := os.WriteFile(unregistered, []byte(text), 0o600); err != nil {
 		t.Fatal(err)
 	}
