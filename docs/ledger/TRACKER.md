@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T15:30:04Z` |
+| Last refreshed | `2026-11-14T15:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,12 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-14T15:37 | [#7784](https://github.com/openova-io/openova/pull/7784) | #7087 | docs(ledger): plan update |
+| 2026-11-14T15:42 | [#7783](https://github.com/openova-io/openova/pull/7783) | #7742 | fix(api): serve the region registry and the Environment list |
+| 2026-11-14T15:36 | [#7780](https://github.com/openova-io/openova/pull/7780) | #7767 | feat(harbor): the registry install creates the pull-through  |
+| 2026-11-14T15:41 | [#7779](https://github.com/openova-io/openova/pull/7779) | #7762 | fix: reserve the platform namespace names as Organization sl |
+| 2026-11-14T15:35 | [#7778](https://github.com/openova-io/openova/pull/7778) | #7725 | fix(cloud-init): the parent-bootstrap failure exits 98 and a |
+| 2026-11-14T15:40 | [#7777](https://github.com/openova-io/openova/pull/7777) | #7744 | feat(lifecycle): sweep the cloud account after a wipe and re |
 | 2026-11-14T15:04 | [#7771](https://github.com/openova-io/openova/pull/7771) | #7087 | docs(ledger): plan update |
 | 2026-11-14T14:52 | [#7759](https://github.com/openova-io/openova/pull/7759) | #7087 | docs(ledger): plan update |
 | 2026-11-14T15:02 | [#7757](https://github.com/openova-io/openova/pull/7757) | #7674 | feat(keycloak): add the open-banking consent extension and i |
@@ -331,12 +337,6 @@ flowchart LR
 | 2026-11-14T13:13 | [#7708](https://github.com/openova-io/openova/pull/7708) | #7705 | fix(gate): the suite selects only the checks that are Go fil |
 | 2026-11-14T13:14 | [#7707](https://github.com/openova-io/openova/pull/7707) | #7699 | fix(chargeback): the cost-source credential is never read fr |
 | 2026-11-14T13:15 | [#7706](https://github.com/openova-io/openova/pull/7706) | #7700 | refactor(controllers): the organization controller watches i |
-| 2026-11-14T12:42 | [#7704](https://github.com/openova-io/openova/pull/7704) | #7087 | docs(ledger): plan update |
-| 2026-11-14T12:27 | [#7697](https://github.com/openova-io/openova/pull/7697) | #7087 | docs(ledger): plan update |
-| 2026-11-14T12:46 | [#7695](https://github.com/openova-io/openova/pull/7695) | #7641 | test(charts): function tests for the identity and secrets ch |
-| 2026-11-14T12:21 | [#7694](https://github.com/openova-io/openova/pull/7694) | #7692 | fix(acceptance): the suite writes the whole provision block  |
-| 2026-11-14T11:56 | [#7691](https://github.com/openova-io/openova/pull/7691) | #7087 | docs(ledger): plan update |
-| 2026-11-14T12:01 | [#7687](https://github.com/openova-io/openova/pull/7687) | #7673 | feat(fingate): resource server router with the token check,  |
 
 ---
 
