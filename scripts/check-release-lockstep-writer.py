@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""check-release-lockstep-writer.py — prove the release writer moves ALL FIVE
-lockstep sites, by RUNNING it (issue #5583).
+"""check-release-lockstep-writer.py — prove the release writer moves EVERY
+lockstep site, by RUNNING it (issue #5583).
 
 Why this exists
 ───────────────
-A chart bump is only complete when five sites move together:
+A chart bump is only complete when its sites move together (the sixth only for a
+chart a funnel app installs):
 
   1. platform|products/<x>/chart/Chart.yaml            `version:`        (deploy-bot)
   2. platform|products/<x>/blueprint.yaml              `spec.version`    (release writer)
@@ -14,9 +15,15 @@ A chart bump is only complete when five sites move together:
        products/catalyst/bootstrap/api/internal/catalog/blueprints.json
        products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts
   5. clusters/_template/bootstrap-kit/<NN>-<chart>.yaml `version:`       (the kit pin)
+  6. core/services/provisioning/gitops/helmrelease_apps.go
+                                  the entry of `DefaultHRAppChartVersions` (the funnel
+                                  pin) for a chart a funnel app installs; no other
+                                  chart has one, and for those the file stays as it was
 
-Sites 2..5 are written by `.github/workflows/blueprint-release.yaml` after it
-publishes the chart. Before #5678 that writer covered only sites 2 and 5, so
+Sites 2..6 are written by `.github/workflows/blueprint-release.yaml` after it
+publishes the chart. Site 6 was added by #7829: the writer left it behind, and
+TestDefaultHRAppPins_MatchCatalogSeed went red on main after every release of a
+funnel chart. Before #5678 that writer covered only sites 2 and 5, so
 every deploy-bot bump left main carrying seed + generated-catalog drift, which
 then reddened the `pull_request` legs of check-catalog-seed-lockstep,
 check-catalog-generated-drift (#5520) and the bootstrap-kit Go guards on every
@@ -92,6 +99,19 @@ Cases
             change that touches no pin is judged on main's own drift, and a
             pin moved by hand is not seen.
 
+  funnel, funnel-retry, funnel-stale, funnel-seed-ahead (#7829)
+            The same for bp-newapi, a chart that is in the kit, in the seed,
+            has a blueprint.yaml AND an entry in the funnel pin. The writer
+            must move the funnel pin in the commit that moves the seed, also on
+            a retry, and an older run must leave a newer funnel pin alone with
+            a note. funnel-seed-ahead is the bp-openclaw shape: its own build
+            workflow already moved the seed, so the funnel pin is the only site
+            left and must still drive a commit. The repo's own drift test
+            (TestDefaultHRAppPins_MatchCatalogSeed) must pass on what landed.
+            Every other case runs a chart with no entry, and asserts the funnel
+            file is byte for byte as it was. → RED before #7829: the funnel
+            pin stays at the old version.
+
   noop      CONTROL, must be GREEN on both trees. Run the writer with NO chart
             bump at all. Nothing may drift and nothing may be pushed backwards.
             This is the vacuity check: it proves the harness can go green, so a
@@ -132,6 +152,12 @@ JSON_REL = "products/catalyst/bootstrap/api/internal/catalog/blueprints.json"
 TS_REL = "products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts"
 KIT_REL = "clusters/_template/bootstrap-kit"
 UI_REL = "products/catalyst/bootstrap/ui"
+FUNNEL_REL = "core/services/provisioning/gitops/helmrelease_apps.go"
+FUNNEL_MODULE = "core/services/provisioning"
+FUNNEL_TEST = "TestDefaultHRAppPins_"
+# The funnel pin as this guard reads it: its own reader, not the writer's
+# (scripts/sync-funnel-pin.py), for the reason seed_entries() gives.
+_RE_FUNNEL = re.compile(r'^const DefaultHRAppChartVersions = "([^"\n]*)"\s*$', re.M)
 
 # The steps of the `build` job that are pure local file edits — the release
 # WRITER. Everything else in that job talks to GHCR / cosign / helm and is out
@@ -436,6 +462,19 @@ def seed_entries(tree, chart):
     return [(e["name"], e["spec"], e["source"]) for e in out if e["chart"] == chart]
 
 
+def funnel_text(tree):
+    with open(os.path.join(tree, FUNNEL_REL)) as fh:
+        return fh.read()
+
+
+def funnel_pins(tree):
+    """slug -> version of the one `const DefaultHRAppChartVersions` line in `tree`."""
+    hits = _RE_FUNNEL.findall(funnel_text(tree))
+    if len(hits) != 1:
+        raise Failure("%s holds %d `const DefaultHRAppChartVersions` lines, not one" % (FUNNEL_REL, len(hits)))
+    return dict(e.split("=", 1) for e in hits[0].split(",") if "=" in e)
+
+
 def is_static(raw):
     return raw is not None and re.match(r"^\"?\d", raw) is not None
 
@@ -447,8 +486,20 @@ def bare(raw):
 # ─────────────────────────────────────────────────────────────────────────────
 # Assertions on the tree that actually landed on origin/main
 # ─────────────────────────────────────────────────────────────────────────────
-def assert_sites(pushed, path, chart, want, expect, problems):
-    """expect: dict of site -> 'literal' | 'templated' | 'absent'."""
+def assert_sites(pushed, path, chart, want, expect, problems, funnel_slug=None):
+    """expect: dict of site -> 'literal' | 'templated' | 'absent'.
+
+    expect['funnel'] defaults to 'absent': the case chart has no entry in the
+    funnel pin, and the funnel file must land byte for byte as it was tested."""
+    if expect.get("funnel", "absent") == "literal":
+        pins = funnel_pins(pushed)
+        if pins.get(funnel_slug) != want:
+            problems.append("site 6 %s DefaultHRAppChartVersions %s=%s != %s"
+                            % (FUNNEL_REL, funnel_slug, pins.get(funnel_slug), want))
+    elif funnel_text(pushed) != funnel_text(REPO_ROOT):
+        problems.append("site 6 %s changed for %s, a chart with no entry in DefaultHRAppChartVersions"
+                        % (FUNNEL_REL, chart))
+
     _, chart_ver = read_chart(pushed, path)
     if chart_ver != want:
         problems.append("site 1 Chart.yaml: %s != %s" % (chart_ver, want))
@@ -507,6 +558,18 @@ def assert_generated_in_sync(pushed, problems):
     if d.stdout.strip():
         problems.append("site 4 committed generated catalog is STALE on the pushed main "
                         "(#5520 gate would be red on every open PR):\n%s" % d.stdout.strip())
+
+
+def assert_funnel_gate(pushed, problems):
+    """Site 6 — the repo's own funnel pin drift test, run against what landed on main."""
+    if not shutil.which("go"):
+        problems.append("`go` not on PATH — %s could not be run on the pushed main. Install Go." % FUNNEL_TEST)
+        return
+    r = sh("go test -count=1 -run '^%s' ./gitops/" % FUNNEL_TEST,
+           cwd=os.path.join(pushed, FUNNEL_MODULE), check=False)
+    print("    %s on the pushed main (exit %d)" % (FUNNEL_TEST, r.returncode))
+    if r.returncode != 0:
+        problems.append("%s RED on the pushed main:\n%s" % (FUNNEL_TEST, r.stdout.strip()[-3000:]))
 
 
 def pin_audit_cmd(baseline):
@@ -622,6 +685,34 @@ CASES = {
             "umbrella must be released after it, with its kit pin, and the umbrella "
             "republish gate must pass on the result",
     ),
+    "funnel": dict(
+        path="platform/newapi", do_bump=True, funnel_slug="newapi",
+        expect=dict(blueprint="literal", seed="literal", kit="literal", funnel="literal"),
+        why="POSITIVE (#7829) — a bump of bp-newapi, as its own build workflow makes it: in "
+            "the kit, in the seed, with a blueprint.yaml and an entry in the funnel pin; the "
+            "writer must move the funnel pin in the commit that moves the seed, and the drift "
+            "test must pass on what lands",
+    ),
+    "funnel-retry": dict(
+        path="platform/newapi", do_bump=True, conflict=True, funnel_slug="newapi",
+        expect=dict(blueprint="literal", seed="literal", kit="literal", funnel="literal"),
+        why="POSITIVE (#7829) — the same, with a rival commit forcing the retry; the reset "
+            "wipes the funnel pin edit, so the retry must write it again",
+    ),
+    "funnel-seed-ahead": dict(
+        path="platform/openclaw", do_bump=True, seed_ahead=True, funnel_slug="openclaw",
+        expect=dict(blueprint="literal", seed="literal", kit="absent", funnel="literal"),
+        why="POSITIVE (#7829) — after the shape of openclaw-controller.yaml: the bot commit "
+            "already moved Chart.yaml, blueprint.yaml and the seed of bp-openclaw (here also the "
+            "generated catalog), then the release runs; the funnel pin is the only site left, and "
+            "it alone must still drive a commit",
+    ),
+    "funnel-stale": dict(
+        path="platform/newapi", do_bump=False, kind="stale", funnel_slug="newapi",
+        expect=dict(blueprint="literal", seed="literal", kit="literal", funnel="literal"),
+        why="POSITIVE (#7829, FND-018) — the run of an older bp-newapi follows the run of a "
+            "newer one; the funnel pin keeps the newer version, with a note",
+    ),
     "noop": dict(
         path="platform/keycloak", do_bump=False,
         expect=dict(blueprint="literal", seed="literal", kit="literal"),
@@ -655,6 +746,9 @@ def precheck_in_scope(case, name):
     facts.append("bootstrap-kit slots: %s" % ([f for f, _ in slots] or "none"))
     facts.append("catalog-seed entries: %s" % ([n for n, _, _ in entries] or "none"))
     facts.append("blueprint.yaml: %s" % (os.path.relpath(bp, REPO_ROOT) if bp else "none"))
+    funnel = funnel_pins(REPO_ROOT)
+    slug = case.get("funnel_slug")
+    facts.append("funnel pin entry: %s" % ("%s=%s" % (slug, funnel.get(slug)) if slug else "none"))
     print("    in-scope facts for %s (%s @ %s):" % (name, chart, ver))
     for f in facts:
         print("      · " + f)
@@ -674,6 +768,13 @@ def precheck_in_scope(case, name):
                       % (name, chart, len(slots)))
     if case["expect"]["blueprint"] == "literal" and bp is None:
         raise Failure("case %r expects a blueprint.yaml at %s but none exists" % (name, path))
+    if case["expect"].get("funnel", "absent") == "literal":
+        if slug not in funnel:
+            raise Failure("case %r expects an entry %r in DefaultHRAppChartVersions; it holds %s — the "
+                          "case chart is OUT OF SCOPE of the funnel writer" % (name, slug, sorted(funnel)))
+        if funnel[slug] == bump_patch(ver):
+            raise Failure("case %r: the funnel pin %s=%s already holds the version the case bumps %s to, "
+                          "so a pin left behind would pass by accident" % (name, slug, funnel[slug], chart))
     return chart, ver
 
 
@@ -787,11 +888,14 @@ def run_stale_case(name, case, keep, base):
 
         pushed = clone_pushed(root, remote)
         problems = []
-        assert_sites(pushed, path, chart, newer, case["expect"], problems)
+        assert_sites(pushed, path, chart, newer, case["expect"], problems, case.get("funnel_slug"))
         assert_generated_in_sync(pushed, problems)
         kit = ["%s/%s" % (KIT_REL, f) for f, _ in kit_slots(pushed, chart)]
         bp = os.path.relpath(blueprint_path(pushed, path), pushed)
-        assert_kept_notes(ctx_old, kit + [bp, SEED_REL], problems)
+        funnel = [FUNNEL_REL] if case["expect"].get("funnel") == "literal" else []
+        assert_kept_notes(ctx_old, kit + [bp, SEED_REL] + funnel, problems)
+        if funnel:
+            assert_funnel_gate(pushed, problems)
 
         head = sh("git log -1 --format=%s", cwd=pushed).stdout.strip()
         print("    landed on origin/main: %s" % head)
@@ -868,7 +972,7 @@ def run_umbrella_case(name, case, keep, base):
 
         pushed = clone_pushed(root, remote)
         problems = []
-        assert_sites(pushed, path, chart, want, case["expect"], problems)
+        assert_sites(pushed, path, chart, want, case["expect"], problems, case.get("funnel_slug"))
         assert_generated_in_sync(pushed, problems)
         if not dispatched:
             problems.append("no release of %s was dispatched after the seed moved" % umbrella_name)
@@ -1033,10 +1137,22 @@ def run_case(name, case, keep, skip_slow, base):
             if new == txt:
                 raise Failure("could not rewrite Chart.yaml version in %s" % cy)
             open(cy, "w").write(new)
+            moved = "Chart.yaml ONLY"
+            if case.get("seed_ahead"):
+                # openclaw-controller.yaml writes blueprint.yaml and the seed itself,
+                # then dispatches the release.
+                bp = blueprint_path(work, case["path"])
+                txt = open(bp).read()
+                open(bp, "w").write(re.sub(r"^  version:\s*.*$", "  version: %s" % want, txt, count=1, flags=re.M))
+                sh("python3 scripts/sync-catalog-seed-pin.py %s %s --quiet" % (chart, want), cwd=work)
+                # The generated catalog too, so that the funnel pin is the ONLY site
+                # the release has left to move: it alone must drive the commit.
+                sh("node scripts/build-catalog.mjs", cwd=os.path.join(work, UI_REL))
+                moved = "Chart.yaml + blueprint.yaml + catalog-seed + generated catalog"
             sh('git add -A && git commit -q -m "deploy: bump %s to %s (simulated bot)"'
                % (chart, want), cwd=work)
             sh("git push -q origin main", cwd=work)
-            print("    bot commit pushed: %s %s -> %s (Chart.yaml ONLY)" % (chart, cur, want))
+            print("    bot commit pushed: %s %s -> %s (%s)" % (chart, cur, want, moved))
         else:
             print("    no bot commit — writer runs against an already-lockstep main")
 
@@ -1085,8 +1201,17 @@ def run_case(name, case, keep, skip_slow, base):
             if ctx["steps"].get("chart", {}).get("skip") != "true":
                 problems.append("the chart step did not skip: the build would publish the umbrella again as %s" % cur)
         else:
-            assert_sites(pushed, case["path"], chart, want, case["expect"], problems)
+            assert_sites(pushed, case["path"], chart, want, case["expect"], problems, case.get("funnel_slug"))
             assert_generated_in_sync(pushed, problems)
+        if case["expect"].get("funnel") == "literal":
+            # ONE commit: the funnel pin lands in the commit that moves the seed
+            # (the bot already moved the seed in seed_ahead).
+            last = sh("git show --name-only --format= HEAD", cwd=pushed).stdout.split()
+            for f in [FUNNEL_REL] + ([] if case.get("seed_ahead") else [SEED_REL]):
+                if f not in last:
+                    problems.append("the writer's last commit does not carry %s: the seed and the funnel pin "
+                                    "moved in different commits, or one did not move" % f)
+            assert_funnel_gate(pushed, problems)
         if case.get("change") and not case.get("defer"):
             # ONE commit: the writer's commit carries Chart.yaml AND every other site.
             last = sh("git show --name-only --format= HEAD", cwd=pushed).stdout.split()
@@ -1108,12 +1233,12 @@ def run_case(name, case, keep, skip_slow, base):
             print("      + … %d more" % (len(shown) - 20))
 
         if problems:
-            print("%s  FAIL case %s — the release writer did not converge all five sites%s"
+            print("%s  FAIL case %s — the release writer did not converge every lockstep site%s"
                   % (RED, name, RESET))
             for p in problems:
                 print("    ✗ " + p)
             return False
-        print("%s  PASS case %s — all five lockstep sites converged at %s on origin/main%s"
+        print("%s  PASS case %s — every lockstep site converged at %s on origin/main%s"
               % (GREEN, name, want, RESET))
         return True
     finally:
@@ -1153,7 +1278,7 @@ def main(argv=None):
 
     print()
     if ok:
-        print("PASS: the release writer moves all five lockstep sites in the commit it pushes.")
+        print("PASS: the release writer moves every lockstep site in the commit it pushes.")
         return 0
     print("FAIL: the release writer leaves at least one lockstep site behind (#5583). "
           "Every deploy-bot chart bump will land drift on main and redden every open PR.")
