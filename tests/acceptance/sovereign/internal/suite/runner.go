@@ -29,6 +29,9 @@ type runner struct {
 	sharedIngressIPs []string
 	org              OrgItem
 	env              EnvInfo
+	// noJourney is true for a run that requests no journey. Execute sets it
+	// before the discovery; journeyStep (discover.go) reads it.
+	noJourney bool
 
 	app app
 }
@@ -131,6 +134,10 @@ func Execute(ctx context.Context, cfg Config, out io.Writer) (*Run, error) {
 		want[j] = true
 	}
 
+	// A run that requests no journey leaves out the discovery steps that only
+	// the journeys need. A discover run keeps them: it exists to resolve what
+	// the journeys use.
+	r.noJourney = !cfg.ReadOnly && len(requested) == 0
 	ok := r.discover(ctx)
 	// Check FND-G02 looks at the clusters twice. This is the first look,
 	// before the journeys. The check takes the second one and reads this one.
