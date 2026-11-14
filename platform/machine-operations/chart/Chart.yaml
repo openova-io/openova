@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-machine-operations
-version: 0.1.0
+version: 0.1.1
 description: |
   Machine operations on the platform's own nodes. This version ships the two
   custom resource definitions of the inventory, Machine and MachineSource of
