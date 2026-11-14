@@ -4,10 +4,10 @@
 # test or this file runs the test only. A run started by hand runs the test, then
 # "release-candidate.sh cut", and writes the candidate into the job summary.
 #
-# The cut pushes rc/<id> with the token in the secret RELEASE_WRITER_TOKEN, never with the
-# workflow token: the ruleset .github/rulesets/rc.json lets only the release-writer team
-# create a ref under rc/. Until that secret exists, start a run with dry_run set to true: it
-# runs every check of the cut and pushes nothing.
+# The cut pushes rc/<id> with the release-writer deploy key (the secret RELEASE_WRITER_KEY,
+# through .github/actions/use-release-writer), never with the workflow token: the ruleset
+# .github/rulesets/rc.json lets only a deploy key create a ref under rc/. A run with dry_run
+# set to true runs every check of the cut and pushes nothing.
 name: cut-release-candidate
 
 on:
@@ -75,14 +75,9 @@ jobs:
           helm version --short
       - name: Push access for rc/<id>
         if: ${{ !inputs.dry_run }}
-        env:
-          RELEASE_WRITER_TOKEN: ${{ secrets.RELEASE_WRITER_TOKEN }}
-        run: |
-          if [ -z "$RELEASE_WRITER_TOKEN" ]; then
-            echo "::error::The secret RELEASE_WRITER_TOKEN does not exist. Start the run with dry_run set to true."
-            exit 1
-          fi
-          git remote set-url --push origin "https://x-access-token:${RELEASE_WRITER_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+        uses: ./.github/actions/use-release-writer
+        with:
+          key: ${{ secrets.RELEASE_WRITER_KEY }}
       - name: Cut
         env:
           GH_TOKEN: ${{ github.token }}
