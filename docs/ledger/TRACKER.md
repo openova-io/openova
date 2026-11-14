@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T10:45:03Z` |
+| Last refreshed | `2026-11-14T11:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-14T10:56 | [#7659](https://github.com/openova-io/openova/pull/7659) | #7654 | chore(ci): eight access guards whose counts may only fall (A |
 | 2026-11-14T10:38 | [#7653](https://github.com/openova-io/openova/pull/7653) | #7087 | docs(ledger): plan update |
 | 2026-11-14T10:39 | [#7652](https://github.com/openova-io/openova/pull/7652) | #7550 | chore(crossplane): delete the Hetzner-only Compositions, the |
 | 2026-11-14T10:39 | [#7651](https://github.com/openova-io/openova/pull/7651) | #7643 | ci: the gate workflow runs the suite against a Sovereign and |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-14T07:40 | [#7537](https://github.com/openova-io/openova/pull/7537) | #7527 | feat(acceptance): intent-lock report and gate check CTL-G04  |
 | 2026-11-14T07:29 | [#7533](https://github.com/openova-io/openova/pull/7533) | #7087 | docs(ledger): plan update |
 | 2026-11-14T07:40 | [#7532](https://github.com/openova-io/openova/pull/7532) | #7522 | refactor(console): read the mode from the self route, not fr |
-| 2026-11-14T07:40 | [#7531](https://github.com/openova-io/openova/pull/7531) | #7529 | ci: a required check keeps the vendor disk library out of th |
 
 ---
 
