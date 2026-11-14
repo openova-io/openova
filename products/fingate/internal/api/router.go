@@ -41,6 +41,7 @@ import (
 	"github.com/openova-io/openova/products/fingate/internal/gen/events"
 	"github.com/openova-io/openova/products/fingate/internal/gen/paymentinitiation"
 	"github.com/openova-io/openova/products/fingate/internal/gen/vrp"
+	"github.com/openova-io/openova/products/fingate/internal/ledgerclient"
 	"github.com/openova-io/openova/products/fingate/internal/profile"
 	"github.com/openova-io/openova/products/fingate/internal/store"
 	"github.com/openova-io/openova/products/fingate/internal/token"
@@ -72,8 +73,9 @@ type Config struct {
 	Definitions *definitions.Holder // the installation's definitions; read on every call
 	Checker     *token.Checker      // built with Definitions as its Partners and Consents{Store} as its Consents
 	Store       store.Store
-	Now         func() time.Time // nil: time.Now
-	NewID       func() string    // nil: 32 random hexadecimal characters
+	Ledger      *ledgerclient.Client // the ledger port, the only way to core banking
+	Now         func() time.Time     // nil: time.Now
+	NewID       func() string        // nil: 32 random hexadecimal characters
 }
 
 // Operation is one route of the server.
@@ -115,7 +117,10 @@ type Server struct {
 
 type contextKey int
 
-const claimsKey contextKey = 1
+const (
+	claimsKey contextKey = 1
+	urlKey    contextKey = 2 // the URL of the call, for the links and the page of an answer
+)
 
 // recorder registers every route on the mux and remembers it.
 type recorder struct {
@@ -130,8 +135,8 @@ func (r *recorder) HandleFunc(pattern string, h func(http.ResponseWriter, *http.
 
 // New reads the documents of the profile and builds the routes.
 func New(cfg Config) (*Server, error) {
-	if cfg.Profile == nil || cfg.Documents == nil || cfg.Definitions == nil || cfg.Checker == nil || cfg.Store == nil {
-		return nil, errors.New("api: the configuration needs Profile, Documents, Definitions, Checker and Store")
+	if cfg.Profile == nil || cfg.Documents == nil || cfg.Definitions == nil || cfg.Checker == nil || cfg.Store == nil || cfg.Ledger == nil {
+		return nil, errors.New("api: the configuration needs Profile, Documents, Definitions, Checker, Store and Ledger")
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
@@ -295,7 +300,8 @@ func (s *Server) check(next http.Handler) http.Handler {
 			s.refuse(w, err)
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), claimsKey, claims)))
+		ctx := context.WithValue(context.WithValue(r.Context(), claimsKey, claims), urlKey, *r.URL)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
@@ -339,8 +345,18 @@ func (s *Server) badRequest(w http.ResponseWriter, _ *http.Request, err error) {
 	s.writeError(w, http.StatusBadRequest, err.Error())
 }
 
-func (s *Server) internalError(w http.ResponseWriter, _ *http.Request, _ error) {
-	s.writeError(w, http.StatusInternalServerError, "the answer could not be written")
+// internalError answers an error of an operation: an *answer with its status, and anything
+// else with 500. A 404 has no body, as the documents declare it.
+func (s *Server) internalError(w http.ResponseWriter, _ *http.Request, err error) {
+	var a *answer
+	switch {
+	case !errors.As(err, &a):
+		s.writeError(w, http.StatusInternalServerError, "the answer could not be written")
+	case a.status == http.StatusNotFound:
+		w.WriteHeader(http.StatusNotFound)
+	default:
+		s.writeError(w, a.status, a.message)
+	}
 }
 
 // errorBody is the documents' error schema with one entry.

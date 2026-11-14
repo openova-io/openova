@@ -159,7 +159,7 @@ func TestDocumentConformance(t *testing.T) {
 		}
 	}
 	pending, _ := parseUnimplemented(unimplementedList)
-	if implemented != total-len(pending) || implemented != 3 {
+	if implemented != total-len(pending) || implemented != 29 {
 		t.Fatalf("%d operations are served, the profile serves %d and unimplemented.txt lists %d", implemented, total, len(pending))
 	}
 	t.Logf("C1: %d/%d", implemented, total)

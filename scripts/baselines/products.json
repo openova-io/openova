@@ -11,7 +11,7 @@
     },
     "G-P4": {},
     "G-P7": {
-      "products/fingate/internal/api/unimplemented.txt": 60
+      "products/fingate/internal/api/unimplemented.txt": 34
     }
   },
   "schema": "openova.io/guard-baseline/v1"
