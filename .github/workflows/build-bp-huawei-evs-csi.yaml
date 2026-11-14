@@ -112,13 +112,11 @@ jobs:
           # image-index buildx emits by default (matches every other build-*).
           provenance: false
 
-      - name: Install cosign
+      # Sign the image and attest its bill of materials through the shared
+      # action, before its tag is pinned (FND-062).
+      - name: Sign and attest the image
         if: github.event_name != 'pull_request'
-        uses: sigstore/cosign-installer@v3
-
-      - name: Sign image (keyless)
-        if: github.event_name != 'pull_request'
-        env:
-          IMAGE: ${{ env.IMAGE }}
-          DIGEST: ${{ steps.build.outputs.digest }}
-        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+        uses: ./.github/actions/sign-and-attest
+        with:
+          ref: ${{ env.IMAGE }}
+          digest: ${{ steps.build.outputs.digest }}

@@ -13,6 +13,8 @@ env:
 permissions:
   contents: read
   packages: write
+  # The step that signs the image needs a GitHub OIDC token (FND-062).
+  id-token: write
 
 jobs:
   build-axon:
@@ -62,6 +64,7 @@ jobs:
           docker stop smoke
 
       - name: Push image
+        id: push
         uses: docker/build-push-action@v6
         with:
           context: products/axon
@@ -70,3 +73,11 @@ jobs:
           tags: |
             ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
             ${{ env.IMAGE }}:latest
+
+      # Sign the image and attest its bill of materials through the shared
+      # action, before its tag is pinned (FND-062).
+      - name: Sign and attest the image
+        uses: ./.github/actions/sign-and-attest
+        with:
+          ref: ${{ env.IMAGE }}
+          digest: ${{ steps.push.outputs.digest }}
