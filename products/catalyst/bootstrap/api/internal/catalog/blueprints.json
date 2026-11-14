@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-14T12:15:17.718Z",
+  "generatedAt": "2026-11-14T12:15:32.449Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -5769,7 +5769,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.6.3",
+      "version": "0.6.4",
       "section": "pts-7-org-tenant",
       "depends": [
         "bp-cnpg",
