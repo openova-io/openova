@@ -68,6 +68,7 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | platform/livekit | bp-livekit | bp-livekit | listed | - |
 | platform/llm-gateway | bp-llm-gateway | bp-llm-gateway | listed | - |
 | platform/loki | bp-loki | loki | - | 22 |
+| platform/machine-operations | bp-machine-operations | bp-machine-operations | unlisted | - |
 | platform/matrix | bp-matrix | bp-matrix | listed | - |
 | platform/milvus | - | bp-milvus | - | - |
 | platform/mimir | bp-mimir | mimir | - | 23 |

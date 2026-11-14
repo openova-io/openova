@@ -1,5 +1,13 @@
 {
-  "allow": [],
+  "allow": [
+    {
+      "count": 5,
+      "metric": "K",
+      "owner": "INF",
+      "path": "products/catalyst/bootstrap/api/internal/machines/inventory/reconciler.go",
+      "reason": "the inventory controller is the only writer of Machine objects and of the status of a MachineSource; both are observations of the cluster, never intent, and never go to Git"
+    }
+  ],
   "counts": {
     "K": {
       "products/catalyst/bootstrap/api/cmd/api/main.go": 2,

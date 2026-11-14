@@ -23,5 +23,7 @@ This file says what the tree defines. It does not say what a cluster has install
 | Continuum | dr.openova.io | v1 | Namespaced | continuums | products/catalyst/chart/crds/continuum.yaml | yes |
 | Continuum | dr.openova.io | v1 | Namespaced | continuums | products/continuum/chart/crds/continuum.yaml | yes |
 | PDM | dr.openova.io | v1 | Cluster | pdms | products/catalyst/chart/crds/pdm.yaml | yes |
+| Machine | machines.openova.io | v1alpha1 | Namespaced | machines | platform/machine-operations/chart/crds/machines.yaml | yes |
+| MachineSource | machines.openova.io | v1alpha1 | Namespaced | machinesources | platform/machine-operations/chart/crds/machinesources.yaml | no |
 | Instrumentation | opentelemetry.io | v1alpha1 | Namespaced | instrumentations | platform/opentelemetry-operator/chart/crds/instrumentation-crd.yaml | no |
 | Organization | orgs.openova.io | v1 | Cluster | organizations | products/catalyst/chart/crds/organization.yaml | yes |
