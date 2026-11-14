@@ -162,156 +162,82 @@ ev "operator route config name: $ROUTE_NAME"
 CORAZA_CFG='{"directives_map":{"d":["Include @recommended-conf","SecRuleEngine On","SecResponseBodyAccess Off","Include @crs-setup-conf","SecAction \"id:10001,phase:1,pass,t:none,nolog,setvar:tx.blocking_paranoia_level=1,setvar:tx.detection_paranoia_level=1\"","Include @owasp_crs/*.conf"]},"default_directives":"d"}'
 WASM_FILTER=$(jq -n --arg cfg "$CORAZA_CFG" '{name: "envoy.filters.http.wasm", typedConfig: {"@type": "type.googleapis.com/envoy.extensions.filters.http.wasm.v3.Wasm", config: {name: "coraza", rootId: "", configuration: {"@type": "type.googleapis.com/google.protobuf.StringValue", value: $cfg}, vmConfig: {runtime: "envoy.wasm.runtime.v8", vmId: "coraza", code: {local: {filename: "/var/lib/nslab-wasm/coraza.wasm"}}}}}}')
 
-# ---------------------------------------------------------------- test i-a
-jq -n --argjson f "$WASM_FILTER" --arg route "web/$CEC_NAME/$ROUTE_NAME" '{
-  apiVersion: "cilium.io/v2", kind: "CiliumClusterwideEnvoyConfig", metadata: {name: "nslab-waf"},
-  spec: {resources: [{
-    "@type": "type.googleapis.com/envoy.config.listener.v3.Listener", name: "waf",
-    address: {socketAddress: {address: "0.0.0.0", portValue: 8081}},
-    filterChains: [{filters: [{name: "envoy.filters.network.http_connection_manager", typedConfig: {
-      "@type": "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager",
-      statPrefix: "waf", rds: {routeConfigName: $route},
-      httpFilters: [$f, {name: "envoy.filters.http.router", typedConfig: {"@type": "type.googleapis.com/envoy.extensions.filters.http.router.v3.Router"}}]}}]}]}]}}' >"$EV/ccec-i-a.json"
-kubectl apply -f "$EV/ccec-i-a.json" >"$EV/ccec-i-a.apply.log" 2>&1; ev "i-a CCEC apply rc=$?"
-for i in $(seq 1 40); do c=$(code a.example "$NODE_IP:8081" /); [ "$c" = 200 ] || [ "$c" = 404 ] && break; sleep 3; done
-probe "i-a CCEC listener :8081 route a" a.example "$NODE_IP:8081"
-ev "i-a envoy listeners: $(wl)"
-ev "i-a CCEC listener :8081 route b: clean=$(code b.example "$NODE_IP:8081" /) attack=$(code b.example "$NODE_IP:8081" "$ATT")"
-ev "i-a sqli via :8081: $(curl -s -o /dev/null -w '%{http_code}' -m 5 -H 'Host: a.example' "http://$NODE_IP:8081/?id=1%27%20OR%20%271%27=%271")"
-ev "i-a host ports listening: $(ss -ltnH | awk '{print $4}' | grep -E ':(80|8081|8080)$' | sort -u | tr '\n' ' ')"
-kubectl -n kube-system logs "$CE" --tail=2000 >"$EV/cilium-envoy-i-a.log" 2>&1
-grep -E 'coraza|wasm|Inbound Anomaly|rejected|NACK|error' "$EV/cilium-envoy-i-a.log" | cut -c1-300 | tail -8 | sed 's/^/EVIDENCE: i-a envoy log: /' | tee -a "$EV/evidence.txt"
-kubectl -n kube-system logs ds/cilium --tail=3000 2>&1 | grep -i -E 'nslab-waf|envoy.*(NACK|reject)|CiliumClusterwideEnvoyConfig' | cut -c1-300 | tail -6 | sed 's/^/EVIDENCE: i-a agent log: /' | tee -a "$EV/evidence.txt"
+ROUTER='{"name":"envoy.filters.http.router","typedConfig":{"@type":"type.googleapis.com/envoy.extensions.filters.http.router.v3.Router"}}'
+HCM(){ # statPrefix routeSpecJSON
+  jq -n --argjson f "$WASM_FILTER" --argjson r "$ROUTER" --argjson rs "$2" --arg sp "$1" '{name: "envoy.filters.network.http_connection_manager", typedConfig: ({
+    "@type": "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager",
+    statPrefix: $sp, useRemoteAddress: true, httpFilters: [$f, $r]} + $rs)}'; }
+LIS(){ # name port hcmJSON
+  jq -n --arg n "$1" --argjson p "$2" --argjson h "$3" '{"@type": "type.googleapis.com/envoy.config.listener.v3.Listener", name: $n,
+    address: {socketAddress: {address: "0.0.0.0", portValue: $p}}, filterChains: [{filters: [$h]}]}'; }
+wl(){ adm '/config_dump?resource=dynamic_listeners' | jq -c '[.configs[]? | (.active_state // .activeState).listener | {name, port: .address.socket_address.port_value, wasm: (tostring | test("envoy.filters.http.wasm"))}]'; }
+ev "envoy listeners before: $(wl)"
 
-# ---------------------------------------------------------------- test i-b
+# ---- i-b: edit the operator CEC, measure how fast the operator reverts it
 kubectl -n web get cec $CEC_NAME -o json | jq --argjson f "$WASM_FILTER" '(.. | objects | select(has("httpFilters")) | .httpFilters) |= ([$f] + .) | del(.metadata.managedFields)' >"$EV/cec-operator-edited.json"
-kubectl replace -f "$EV/cec-operator-edited.json" >"$EV/cec-i-b.replace.log" 2>&1; ev "i-b edit of operator CEC rc=$? $(cat "$EV/cec-i-b.replace.log" | head -c 200)"
-cnt(){ kubectl -n web get cec $CEC_NAME -o json | jq -c '[.. | objects | select(has("httpFilters")) | .httpFilters[].name]'; }
-sleep 5; ev "i-b t+5s filters=$(cnt) gen=$(kubectl -n web get cec $CEC_NAME -o jsonpath='{.metadata.generation}')"
-probe "i-b t+5s cilium-gw :80 route a" a.example "$NODE_IP:80"
-ev "i-b t+5s envoy listeners: $(wl)"
-sleep 55; ev "i-b t+60s filters=$(cnt) gen=$(kubectl -n web get cec $CEC_NAME -o jsonpath='{.metadata.generation}')"
-probe "i-b t+60s cilium-gw :80 route a" a.example "$NODE_IP:80"
-kubectl -n web patch httproute route-b --type=merge -p '{"spec":{"rules":[{"matches":[{"path":{"type":"PathPrefix","value":"/"}}],"backendRefs":[{"name":"echo-b","port":80}]}]}}' >/dev/null
-sleep 15; ev "i-b after an HTTPRoute change filters=$(cnt) gen=$(kubectl -n web get cec $CEC_NAME -o jsonpath='{.metadata.generation}')"
-probe "i-b after an HTTPRoute change cilium-gw :80 route a" a.example "$NODE_IP:80"
-kubectl -n kube-system rollout restart deploy/cilium-operator >/dev/null; kubectl -n kube-system rollout status deploy/cilium-operator --timeout=180s >/dev/null 2>&1
-sleep 20; ev "i-b after an operator restart filters=$(cnt) gen=$(kubectl -n web get cec $CEC_NAME -o jsonpath='{.metadata.generation}')"
-probe "i-b after an operator restart cilium-gw :80 route a" a.example "$NODE_IP:80"
-ev "i-b after operator restart envoy listeners: $(wl)"
-probe "i-a after operator restart :8081 route a" a.example "$NODE_IP:8081"
-ev "cilium-envoy rss MiB with coraza: $(ps -eo rss,comm | awk '$2 ~ /cilium-envoy/ && $2 !~ /starter/ {s+=$1} END {print int(s/1024)}')"
+g0=$(kubectl -n web get cec $CEC_NAME -o jsonpath='{.metadata.generation}')
+ts=$(date +%s.%N); kubectl replace -f "$EV/cec-operator-edited.json" >/dev/null 2>&1; rc=$?
+seen=""; rev=""
+for i in $(seq 1 80); do
+  n=$(kubectl -n web get cec $CEC_NAME -o json | jq '[.. | objects | select(has("httpFilters")) | .httpFilters[]] | length')
+  [ "$n" = 4 ] && [ -z "$seen" ] && seen=$(awk -v a="$(date +%s.%N)" -v b="$ts" "BEGIN{printf \"%.1f\", a-b}")
+  [ "$n" = 3 ] && { rev=$(awk -v a="$(date +%s.%N)" -v b="$ts" "BEGIN{printf \"%.1f\", a-b}"); break; }
+  sleep 0.1
+done
+ev "i-b replace rc=$rc gen before=$g0 after=$(kubectl -n web get cec $CEC_NAME -o jsonpath='{.metadata.generation}'); edited object seen at ${seen:-never}s; reverted to 3 filters at ${rev:-not within 10s}s"
+ev "i-b attack through :80 right after the revert: $(code a.example "$NODE_IP:80" "$ATT")"
 
-# ---------------------------------------------------------------- test ii
-helm install eg oci://docker.io/envoyproxy/gateway-helm --version $EG -n envoy-gateway-system --create-namespace >"$EV/eg-install.log" 2>&1
-ev "ii helm install envoy-gateway $EG rc=$?"
-kubectl -n envoy-gateway-system rollout status deploy/envoy-gateway --timeout=300s >/dev/null 2>&1
-ev "ii envoy-gateway controller ready at $(el)s"
+# ---- i-a1: cluster-wide CCEC, own routes, pointing at the operator's clusters
+RS1=$(jq -n '{routeConfig: {name: "waf-routes", virtualHosts: [
+  {name: "a", domains: ["a.example", "a.example:*"], routes: [{match: {prefix: "/"}, route: {cluster: "web/cilium-gateway-gw/web:echo-a:80"}}]},
+  {name: "b", domains: ["b.example", "b.example:*"], routes: [{match: {prefix: "/"}, route: {cluster: "web/cilium-gateway-gw/web:echo-b:80"}}]}]}}')
+jq -n --argjson l "$(LIS waf1 8081 "$(HCM waf1 "$RS1")")" '{apiVersion: "cilium.io/v2", kind: "CiliumClusterwideEnvoyConfig", metadata: {name: "nslab-waf1"}, spec: {resources: [$l]}}' >"$EV/i-a1.json"
+kubectl apply -f "$EV/i-a1.json" >/dev/null 2>&1; ev "i-a1 CCEC (own routes -> operator clusters) apply rc=$?"
+for i in $(seq 1 40); do [ "$(code a.example "$NODE_IP:8081" /)" = 200 ] && break; sleep 2; done
+probe "i-a1 CCEC :8081 route a" a.example "$NODE_IP:8081"
+ev "i-a1 CCEC :8081 route b: clean=$(code b.example "$NODE_IP:8081" /) attack=$(code b.example "$NODE_IP:8081" "$ATT")"
+
+# ---- i-a2: namespaced CEC in the Gateway's namespace, reusing the gateway's own route config
+RS2=$(jq -n --arg r "web/$CEC_NAME/$ROUTE_NAME" '{rds: {routeConfigName: $r}}')
+jq -n --argjson l "$(LIS front 8082 "$(HCM front "$RS2")")" '{apiVersion: "cilium.io/v2", kind: "CiliumEnvoyConfig", metadata: {name: "nslab-front", namespace: "web"}, spec: {resources: [$l]}}' >"$EV/i-a2.json"
+kubectl apply -f "$EV/i-a2.json" >/dev/null 2>&1; ev "i-a2 namespaced CEC (RDS = gateway route config) apply rc=$?"
+for i in $(seq 1 40); do [ "$(code a.example "$NODE_IP:8082" /)" = 200 ] && break; sleep 2; done
+probe "i-a2 CEC :8082 route a" a.example "$NODE_IP:8082"
+ev "i-a2 CEC :8082 route b: clean=$(code b.example "$NODE_IP:8082" /) attack=$(code b.example "$NODE_IP:8082" "$ATT")"
 kubectl apply -f - >/dev/null <<'EOF'
-apiVersion: apps/v1
-kind: Deployment
-metadata: {name: wasm-srv, namespace: web}
-spec:
-  replicas: 1
-  selector: {matchLabels: {app: wasm-srv}}
-  template:
-    metadata: {labels: {app: wasm-srv}}
-    spec:
-      containers:
-      - name: c
-        image: nginx:1.27.3
-        volumeMounts: [{name: w, mountPath: /usr/share/nginx/html, readOnly: true}]
-      volumes: [{name: w, hostPath: {path: /var/lib/nslab-wasm}}]
----
-apiVersion: v1
-kind: Service
-metadata: {name: wasm-srv, namespace: web}
-spec: {type: ClusterIP, selector: {app: wasm-srv}, ports: [{port: 80, targetPort: 80}]}
----
-apiVersion: gateway.envoyproxy.io/v1alpha1
-kind: EnvoyProxy
-metadata: {name: edge, namespace: envoy-gateway-system}
-spec:
-  provider:
-    type: Kubernetes
-    kubernetes:
-      envoyService: {type: ClusterIP}
-      envoyDeployment:
-        replicas: 1
-        pod:
-          nodeSelector: {openova.io/edge: "true"}
-        patch:
-          type: StrategicMerge
-          value:
-            spec:
-              template:
-                spec:
-                  containers:
-                  - name: envoy
-                    ports:
-                    - {containerPort: 10080, hostPort: 8080, protocol: TCP, name: http-hostport}
----
-apiVersion: gateway.networking.k8s.io/v1
-kind: GatewayClass
-metadata: {name: eg}
-spec:
-  controllerName: gateway.envoyproxy.io/gatewayclass-controller
-  parametersRef: {group: gateway.envoyproxy.io, kind: EnvoyProxy, name: edge, namespace: envoy-gateway-system}
----
-apiVersion: gateway.networking.k8s.io/v1
-kind: Gateway
-metadata: {name: waf, namespace: web}
-spec:
-  gatewayClassName: eg
-  listeners:
-  - {name: http, protocol: HTTP, port: 80}
----
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
-metadata: {name: route-a-waf, namespace: web}
+metadata: {name: route-c, namespace: web}
 spec:
-  parentRefs: [{name: waf}]
-  hostnames: ["a.example"]
-  rules: [{backendRefs: [{name: echo-a, port: 80}]}]
+  parentRefs: [{name: gw}]
+  hostnames: ["c.example"]
+  rules: [{backendRefs: [{name: echo-b, port: 80}]}]
 EOF
-kubectl -n web rollout status deploy/wasm-srv --timeout=180s >/dev/null 2>&1
-jq -n --arg cfg "$CORAZA_CFG" --arg sha "$WASM_SHA" '{apiVersion: "gateway.envoyproxy.io/v1alpha1", kind: "EnvoyExtensionPolicy",
-  metadata: {name: "coraza", namespace: "web"},
-  spec: {targetRefs: [{group: "gateway.networking.k8s.io", kind: "Gateway", name: "waf"}],
-    wasm: [{name: "coraza", rootID: "", code: {type: "HTTP", http: {url: "http://wasm-srv.web.svc.cluster.local/coraza.wasm", sha256: $sha}},
-      config: ($cfg | fromjson)}]}}' >"$EV/eep-coraza.json"
-kubectl apply -f "$EV/eep-coraza.json" >"$EV/eep.apply.log" 2>&1; ev "ii EnvoyExtensionPolicy apply rc=$? $(head -c 200 "$EV/eep.apply.log")"
-for i in $(seq 1 36); do c=$(code a.example "$NODE_IP:8080" "$ATT"); [ "$c" = 403 ] && break; sleep 5; done
-ev "ii second tier reached its first 403 at $(el)s (loop $i)"
-probe "ii envoy-gateway tier :8080 route a" a.example "$NODE_IP:8080"
-ev "ii sqli via :8080: $(curl -s -o /dev/null -w '%{http_code}' -m 5 -H 'Host: a.example' "http://$NODE_IP:8080/?id=1%27%20OR%20%271%27=%271")"
-ev "ii EnvoyExtensionPolicy status: $(kubectl -n web get envoyextensionpolicy coraza -o json | jq -c '[.status.ancestors[]?.conditions[]? | {type, status, reason}]')"
-ev "ii Gateway waf status: $(kubectl -n web get gateway waf -o json | jq -c '[.status.conditions[]? | {type, status, reason}]')"
-ev "ii envoy-gateway proxy pods: $(kubectl -n envoy-gateway-system get pod -l app.kubernetes.io/component=proxy -o json | jq -c '[.items[] | {node: .spec.nodeName, hostPorts: [.spec.containers[].ports[]? | select(.hostPort) | .hostPort], phase: .status.phase}]')"
+for i in $(seq 1 30); do [ "$(code c.example "$NODE_IP:8082" /)" = 200 ] && break; sleep 1; done
+ev "i-a2 new HTTPRoute c.example follows into the front listener after ${i}s: :8082 clean=$(code c.example "$NODE_IP:8082" /) attack=$(code c.example "$NODE_IP:8082" "$ATT") | gateway :80 c=$(code c.example "$NODE_IP:80" /)"
 
-# pod-identity policy on the backend: only the two gateway tiers may reach echo-a
-kubectl apply -f - >/dev/null <<'EOF'
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata: {name: echo-a-from-gateways, namespace: web}
-spec:
-  endpointSelector: {matchLabels: {app: echo-a}}
-  ingress:
-  - fromEndpoints:
-    - matchLabels: {"k8s:io.kubernetes.pod.namespace": envoy-gateway-system, app.kubernetes.io/component: proxy}
-  - fromEntities: [ingress]
-EOF
-kubectl -n web run probe --image=registry.k8s.io/e2e-test-images/agnhost:2.53 --restart=Never --command -- sleep 600 >/dev/null
-kubectl -n web wait --for=condition=Ready pod/probe --timeout=120s >/dev/null 2>&1
-sleep 10
-ev "policy: direct pod->echo-a=$(kubectl -n web exec probe -- curl -s -o /dev/null -w '%{http_code}' -m 5 http://echo-a.web.svc.cluster.local/ 2>/dev/null || echo blocked) pod->echo-b=$(kubectl -n web exec probe -- curl -s -o /dev/null -w '%{http_code}' -m 5 http://echo-b.web.svc.cluster.local/ 2>/dev/null)"
-probe "ii with backend policy, envoy-gateway tier :8080 route a" a.example "$NODE_IP:8080"
-ev "Services with a nodePort: $(kubectl get svc -A -o json | jq '[.items[] | select(.spec.ports[]?.nodePort != null)] | length'); Service types: $(kubectl get svc -A -o json | jq -c '[.items[].spec.type] | group_by(.) | map({(.[0]): length}) | add')"
-ev "envoy-gateway proxy rss MiB: $(ps -eo rss,args | awk '/envoy -c|envoy --/ && !/cilium/ {s+=$1} END {print int(s/1024)}')"
-kubectl -n envoy-gateway-system logs deploy/envoy-gateway --tail=400 >"$EV/eg-controller.log" 2>&1
-kubectl -n envoy-gateway-system logs -l app.kubernetes.io/component=proxy -c envoy --tail=400 >"$EV/eg-proxy.log" 2>&1
-grep -E 'Inbound Anomaly|wasm|coraza' "$EV/eg-proxy.log" | cut -c1-300 | tail -4 | sed 's/^/EVIDENCE: ii proxy log: /' | tee -a "$EV/evidence.txt"
-grep -i -E 'error|wasm' "$EV/eg-controller.log" | cut -c1-300 | tail -6 | sed 's/^/EVIDENCE: ii controller log: /' | tee -a "$EV/evidence.txt"
-kubectl get pods -A -o wide >"$EV/pods.txt" 2>&1
+# ---- i-a3: the front listener takes the public port; the Gateway listener moves to an internal port
+kubectl -n web patch gateway gw --type=json -p '[{"op":"replace","path":"/spec/listeners/0/port","value":18080}]' >/dev/null
+for i in $(seq 1 40); do [ "$(code a.example "$NODE_IP:18080" /)" = 200 ] && break; sleep 2; done
+ev "i-a3 gateway moved to :18080 after ${i}x2s: a=$(code a.example "$NODE_IP:18080" /); :80 now $(code a.example "$NODE_IP:80" /)"
+ROUTE3=$(kubectl -n web get cec $CEC_NAME -o json | jq -r '[.spec.resources[] | select(.["@type"] | test("RouteConfiguration")) | .name][0]')
+RS3=$(jq -n --arg r "web/$CEC_NAME/$ROUTE3" '{rds: {routeConfigName: $r}}')
+jq -n --argjson l "$(LIS front 80 "$(HCM front "$RS3")")" '{apiVersion: "cilium.io/v2", kind: "CiliumEnvoyConfig", metadata: {name: "nslab-front", namespace: "web"}, spec: {resources: [$l]}}' >"$EV/i-a3.json"
+kubectl apply -f "$EV/i-a3.json" >/dev/null 2>&1; ev "i-a3 front CEC on :80 (RDS $ROUTE3) apply rc=$?"
+for i in $(seq 1 40); do [ "$(code a.example "$NODE_IP:80" "$ATT")" = 403 ] && break; sleep 2; done
+ev "i-a3 public :80 a: clean=$(code a.example "$NODE_IP:80" /) attack=$(code a.example "$NODE_IP:80" "$ATT") sqli=$(curl -s -o /dev/null -w '%{http_code}' -m 5 -H 'Host: a.example' "http://$NODE_IP:80/?id=1%27%20OR%20%271%27=%271") | b: clean=$(code b.example "$NODE_IP:80" /) attack=$(code b.example "$NODE_IP:80" "$ATT") | c: clean=$(code c.example "$NODE_IP:80" /)"
+ev "envoy listeners i-a3: $(wl)"
+kubectl -n kube-system rollout restart deploy/cilium-operator >/dev/null; kubectl -n kube-system rollout status deploy/cilium-operator --timeout=180s >/dev/null 2>&1; sleep 20
+ev "i-a3 after operator restart :80 a: clean=$(code a.example "$NODE_IP:80" /) attack=$(code a.example "$NODE_IP:80" "$ATT") b=$(code b.example "$NODE_IP:80" /); front CEC still present: $(kubectl -n web get cec nslab-front -o name 2>&1)"
+kubectl -n kube-system rollout restart ds/cilium-envoy >/dev/null; kubectl -n kube-system rollout status ds/cilium-envoy --timeout=180s >/dev/null 2>&1
+for i in $(seq 1 60); do [ "$(code a.example "$NODE_IP:80" "$ATT")" = 403 ] && break; sleep 1; done
+ev "i-a3 after cilium-envoy restart (${i}s to first 403): :80 a clean=$(code a.example "$NODE_IP:80" /) attack=$(code a.example "$NODE_IP:80" "$ATT") b=$(code b.example "$NODE_IP:80" /)"
+kubectl -n kube-system rollout restart ds/cilium >/dev/null; kubectl -n kube-system rollout status ds/cilium --timeout=300s >/dev/null 2>&1
+for i in $(seq 1 60); do [ "$(code a.example "$NODE_IP:80" "$ATT")" = 403 ] && break; sleep 1; done
+ev "i-a3 after cilium agent restart (${i}s): :80 a clean=$(code a.example "$NODE_IP:80" /) attack=$(code a.example "$NODE_IP:80" "$ATT") b=$(code b.example "$NODE_IP:80" /)"
+ev "Gateway gw status: $(kubectl -n web get gateway gw -o json | jq -c '[.status.conditions[]? | {type, status, reason}]')"
+ev "Services with a nodePort: $(kubectl get svc -A -o json | jq '[.items[] | select(.spec.ports[]?.nodePort != null)] | length'); types: $(kubectl get svc -A -o json | jq -c '[.items[].spec.type] | group_by(.) | map({(.[0]): length}) | add')"
+ev "cilium-envoy rss MiB: $(ps -eo rss,comm | awk '$2 ~ /cilium-envoy/ && $2 !~ /starter/ {s+=$1} END {print int(s/1024)}') concurrency: $(adm /server_info | jq -r .command_line_options.concurrency)"
 kubectl get cec,ccec -A -o yaml >"$EV/cec-all.yaml" 2>&1
+kubectl -n kube-system logs ds/cilium-envoy --tail=400 >"$EV/cilium-envoy.log" 2>&1
 ev "done at $(el)s"
