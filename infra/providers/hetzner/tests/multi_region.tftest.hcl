@@ -852,13 +852,14 @@ run "variables_refuses_a_document_without_the_contract_keys" {
   expect_failures = [var.variables]
 }
 
-# ── CLD-185: a render of real size fits the size guards with room to spare.
+# ── CLD-185: a render of real size fits the size guards.
 # The runs above leave deployment_id empty, so their renders carry no
 # kubeconfig post-back and are smaller than the render of a real Sovereign.
 # This run turns the post-back on for a primary and one secondary region.
 # The plan fails by itself when a render is over its guard (32576 bytes for
-# the primary, 32256 for a secondary region). The asserts keep 1200 more
-# bytes free under each guard, the room that SOV-134 needs. The fixed
+# the primary, 32256 for a secondary region), and the asserts state the same
+# bound. CLD-185 kept 1200 bytes free under each guard; SOV-134 uses them for
+# the packed variables document (30633 and 31814 bytes here). The fixed
 # Secrets and the provider-injected files travel packed (gz+b64); the last
 # assert shows that the packed cloud-credentials file is the provider's
 # Secret body without its comment lines, as the plain file was.
@@ -888,13 +889,13 @@ run "post_back_render_fits_the_size_guards_with_room" {
   }
 
   assert {
-    condition     = length(local.control_plane_cloud_init) <= 31376
-    error_message = "CLD-185: the primary render is ${nonsensitive(length(local.control_plane_cloud_init))} bytes; it must stay at most 31376, 1200 under its guard of 32576."
+    condition     = length(local.control_plane_cloud_init) <= 32576
+    error_message = "CLD-185: the primary render is ${nonsensitive(length(local.control_plane_cloud_init))} bytes; it must stay at most 32576, its guard."
   }
 
   assert {
-    condition     = length(local.secondary_region_cloud_init["nbg1-1"]) <= 31056
-    error_message = "CLD-185: the secondary render is ${nonsensitive(length(local.secondary_region_cloud_init["nbg1-1"]))} bytes; it must stay at most 31056, 1200 under its guard of 32256."
+    condition     = length(local.secondary_region_cloud_init["nbg1-1"]) <= 32256
+    error_message = "CLD-185: the secondary render is ${nonsensitive(length(local.secondary_region_cloud_init["nbg1-1"]))} bytes; it must stay at most 32256, its guard."
   }
 
   assert {

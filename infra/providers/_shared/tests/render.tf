@@ -221,6 +221,14 @@ locals {
     length(regexall("path: ./clusters/_template/infrastructure\n", local.config_ks_base)) > 0 &&
     length(regexall("path: ./clusters/_template/infrastructure/hetzner\n", local.config_ks_hetzner)) > 0
   )
+
+  # SOV-134: the variables document as the file variables.env must hold it,
+  # one KEY=value line per key of fixture_variables in key order, and the
+  # write_files entry that carries it packed (gz+b64). The runcmd creates
+  # ConfigMap flux-system/sovereign-variables from that file.
+  variables_env         = join("", [for k in sort(keys(local.fixture_variables)) : "${k}=${local.fixture_variables[k]}\n"])
+  variables_env_entry   = "  - path: /var/lib/catalyst/variables.env\n    permissions: '0600'\n    encoding: gz+b64\n    content: ${base64gzip(local.variables_env)}\n"
+  variables_env_written = strcontains(local.rendered_cloud_init, local.variables_env_entry)
 }
 
 output "rendered_cloud_init" {
@@ -262,6 +270,14 @@ output "config_depends_on_providers" {
 
 output "config_paths_correct" {
   value = local.config_paths_correct
+}
+
+output "variables_env" {
+  value = local.variables_env
+}
+
+output "variables_env_written" {
+  value = local.variables_env_written
 }
 
 output "sha256_hetzner" {
