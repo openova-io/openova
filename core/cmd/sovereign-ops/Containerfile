@@ -17,7 +17,7 @@ COPY core/controllers/pkg/ /src/core/controllers/pkg/
 COPY core/cmd/sovereign-ops/ ./
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/sovereign-ops .
 
-FROM docker.io/library/alpine:3.20 AS tofu
+FROM docker.io/library/alpine:3.24 AS tofu
 ARG TARGETARCH=amd64
 ARG TOFU_VERSION=1.11.6
 ARG TOFU_SHA256_AMD64=02800fafa2753a9f50c38483e2fdf5bc353fd62895eb9e25eec9a5145df3a69e
@@ -35,7 +35,7 @@ RUN apk add --no-cache ca-certificates curl tar \
     && install -D -m 0755 /tmp/tofu /out/tofu \
     && /out/tofu version
 
-FROM docker.io/library/alpine:3.20
+FROM docker.io/library/alpine:3.24
 RUN apk add --no-cache ca-certificates git helm cosign \
     && git --version && helm version --short && cosign version
 COPY --from=tofu /out/tofu /usr/local/bin/tofu
