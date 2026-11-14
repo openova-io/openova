@@ -1,0 +1,193 @@
+{{- /*
+Function test of bp-sso-bridge (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
+
+The bridge has no listener: it is a reconcile loop (templates/configmap-reconciler.yaml).
+Each pass mints a Keycloak admin token and an OpenBao token, resolves the
+Sovereign FQDN, reconciles every SSO-capable HelmRelease, and only then logs
+"tick complete in <n>s". A pass that cannot reach Keycloak or OpenBao logs
+"skipping tick" and never logs that line.
+
+The test reads the log of the Deployment sso-bridge-reconciler through the
+Kubernetes API. It passes when, within 240 seconds, the log of the last 330
+seconds holds a line "tick complete in": one whole reconcile pass against
+Keycloak and OpenBao has finished. It reads nothing else and writes nothing.
+
+A Role of this file lets the test read the Deployment, its Pods and their logs
+in this namespace. The namespace is under the platform's default-deny policy,
+so a CiliumNetworkPolicy of this file lets the test Pod reach the Kubernetes
+API and cluster DNS (rendered when the API cilium.io/v2 is served, as the
+chart's own policy). Every policy that constrains egress names cluster DNS
+(scripts/check-netpol-egress-completeness.py).
+
+It renders only when the chart renders the reconciler (enabled is true). The
+image is the chart's own kubectl image (helper bp-sso-bridge.image);
+functionTest.image overrides it.
+*/ -}}
+{{- if .Values.enabled }}
+{{- $ft := .Values.functionTest | default dict }}
+{{- $image := $ft.image | default (include "bp-sso-bridge.image" .) }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-function-test
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ .Release.Name }}-function-test
+  apiGroup: rbac.authorization.k8s.io
+{{- if .Capabilities.APIVersions.Has "cilium.io/v2" }}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      catalyst.openova.io/function-test: "true"
+  egress:
+    - toEntities:
+        - kube-apiserver
+      toPorts:
+        - ports:
+            - port: "6443"
+              protocol: TCP
+            - port: "443"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+{{- end }}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 300
+  serviceAccountName: {{ .Release.Name }}-function-test
+  containers:
+    - name: function-test
+      image: {{ $image | quote }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: HOME
+          value: /tmp
+        - name: TEST_NAMESPACE
+          value: {{ .Release.Namespace | quote }}
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -u
+          fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          deadline=$(( $(date +%s) + 240 ))
+          while :; do
+            if kubectl --request-timeout=15s -n "${TEST_NAMESPACE}" logs deployment/sso-bridge-reconciler --since=330s > /tmp/log 2>/tmp/error; then
+              line="$(grep -F 'tick complete in' /tmp/log | tail -1)"
+              if [ -n "${line}" ]; then
+                echo "FUNCTION-TEST pass {{ .Chart.Name }} a reconcile pass against Keycloak and OpenBao finished: $(printf '%s' "${line}" | cut -c1-160)"
+                exit 0
+              fi
+              last="$(tail -1 /tmp/log | cut -c1-160)"
+            else
+              last="$(tr '\n' ' ' < /tmp/error | cut -c1-160)"
+            fi
+            [ "$(date +%s)" -lt "${deadline}" ] || fail "no reconcile pass finished within 240 seconds; last: ${last}"
+            sleep 10
+          done
+  volumes:
+    - name: tmp
+      emptyDir: {}
+{{- end }}
