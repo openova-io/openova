@@ -99,12 +99,12 @@ Operator override (#4885 Defect 1 — COUPLED gate):
     the catalyst-api reconciler, #4061) STILL got an auto-fired cutover
     because /internal/cutover/trigger is gated only by the handover-seal
     425, not by the operator flag. The two gates were uncoupled.
-  - trigger.fireCutoverOnHandover defaults FALSE (fail-closed) and is wired
-    on real Sovereigns from the SAME ${FIRE_CUTOVER_ON_HANDOVER:-false}
-    postBuild substitution the catalyst-api reads (06a slot overlay), so
-    both gates always agree: a Sovereign auto-fires ONLY when the operator
-    opted in. When false the cutover fires via the operator's BSS CTA (or
-    the #4669 level-triggered reconciler once the operator flips the flag).
+  - trigger.fireCutoverOnHandover defaults TRUE (zero touch, SOV-020) and is
+    wired from the SAME postBuild substitution the catalyst-api reads (06a
+    slot overlay: HANDOVER_AUTO, else the kit key FIRE_CUTOVER_ON_HANDOVER,
+    else true), so both gates always agree: a Sovereign auto-fires unless
+    HANDOVER_AUTO is false. When false the cutover fires via the BSS CTA (or
+    the level-triggered reconciler once the flag is flipped).
   - trigger.auto=false STILL fully disables the auto-trigger regardless of
     fireCutoverOnHandover (the sandboxed-test-Sovereign override).
 */ -}}
