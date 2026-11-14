@@ -38,6 +38,7 @@ func example() map[string]string {
 		"REGISTRY_PATH_XPKG":                 "proxy-xpkg",
 		"REGISTRY_PATH_TOFU_PROVIDERS":       "tofu-providers",
 		"REGISTRY_PATH_NODE_ARTIFACTS":       "node-artifacts",
+		"REGISTRY_PATH_VULN_DB":              "proxy-vulndb/aquasecurity/trivy-db",
 		"REGISTRY_PROXY_PROJECTS_JSON":       `{"docker.io":"proxy-dockerhub","gcr.io":"proxy-gcr","ghcr.io":"proxy-ghcr","public.ecr.aws":"proxy-ecr","quay.io":"proxy-quay","registry-1.docker.io":"proxy-dockerhub","registry.k8s.io":"proxy-k8s","xpkg.upbound.io":"proxy-xpkg"}`,
 		"RELEASE_PUBLIC_KEY_B64":             "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0K",
 		"RELEASE_CHANNEL":                    "stable",
@@ -116,12 +117,16 @@ func TestRoundTrip(t *testing.T) {
 	short := example()
 	delete(short, "ORIGIN_PROXY_ENDPOINTS_JSON")
 	delete(short, "MAIL_RELAY_PORT")
+	delete(short, "REGISTRY_PATH_VULN_DB")
 	got := mustFromMap(t, short).ToMap()
+	if got["REGISTRY_PATH_VULN_DB"] != "proxy-vulndb/aquasecurity/trivy-db" {
+		t.Errorf("the default of REGISTRY_PATH_VULN_DB is not rendered: %q", got["REGISTRY_PATH_VULN_DB"])
+	}
 	if got["ORIGIN_PROXY_ENDPOINTS_JSON"] != "{}" || got["MAIL_RELAY_PORT"] != "587" {
 		t.Errorf("defaults not rendered: %q %q", got["ORIGIN_PROXY_ENDPOINTS_JSON"], got["MAIL_RELAY_PORT"])
 	}
-	if len(got) != 39 {
-		t.Errorf("ToMap renders %d keys, want the 39 contract keys", len(got))
+	if len(got) != 40 {
+		t.Errorf("ToMap renders %d keys, want the 40 contract keys", len(got))
 	}
 }
 
@@ -243,6 +248,7 @@ func TestServedNeverCopiesOrigin(t *testing.T) {
 		"ORIGIN_PARENT_API_URL":        "https://console.parent.example.net/sovereign",
 		"RELEASE_CHANNEL":              "candidate",
 		"REGISTRY_PATH_CHARTS":         "charts-path",
+		"REGISTRY_PATH_VULN_DB":        "proxy-vulndb/proxy-vulndb/aquasecurity/trivy-db",
 		"REGISTRY_PROXY_PROJECTS_JSON": example()["REGISTRY_PROXY_PROJECTS_JSON"],
 		"RELEASE_PUBLIC_KEY_B64":       "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0K",
 		"LOCAL_REGISTRY_HOST":          "",
@@ -264,6 +270,24 @@ func TestServedNeverCopiesOrigin(t *testing.T) {
 	child.ProxyProjects["quay.io"] = "changed"
 	if parent.ProxyProjects["quay.io"] != "proxy-quay" {
 		t.Errorf("Served shares the parent's proxy project map")
+	}
+}
+
+// A child reads the vulnerability database through its own proxy project: its
+// path is that project followed by the parent's path. A parent without a path
+// leaves the default, which the flip does not change.
+func TestServedVulnDBPath(t *testing.T) {
+	parent := mustFromMap(t, with(example(), "REGISTRY_PATH_VULN_DB", "aquasec/trivy-db"))
+	if got := Served("parent.example.net", parent).PathVulnDB; got != "proxy-vulndb/aquasec/trivy-db" {
+		t.Errorf("Served: PathVulnDB = %q, want %q", got, "proxy-vulndb/aquasec/trivy-db")
+	}
+	parent.PathVulnDB = ""
+	child := Served("parent.example.net", parent)
+	if child.PathVulnDB != "proxy-vulndb/aquasecurity/trivy-db" {
+		t.Errorf("Served with an empty parent path: PathVulnDB = %q, want the default %q", child.PathVulnDB, "proxy-vulndb/aquasecurity/trivy-db")
+	}
+	if got := child.Flipped().PathVulnDB; got != child.PathVulnDB {
+		t.Errorf("Flipped changed PathVulnDB to %q", got)
 	}
 }
 

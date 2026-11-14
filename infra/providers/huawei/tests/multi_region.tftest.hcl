@@ -102,6 +102,7 @@ variables {
     REGISTRY_PATH_XPKG                 = "proxy-xpkg"
     REGISTRY_PATH_TOFU_PROVIDERS       = "tofu-providers"
     REGISTRY_PATH_NODE_ARTIFACTS       = "node-artifacts"
+    REGISTRY_PATH_VULN_DB              = "proxy-vulndb/aquasecurity/trivy-db"
     REGISTRY_PROXY_PROJECTS_JSON       = "{\"docker.io\":\"proxy-dockerhub\",\"gcr.io\":\"proxy-gcr\",\"ghcr.io\":\"proxy-ghcr\",\"public.ecr.aws\":\"proxy-ecr\",\"quay.io\":\"proxy-quay\",\"registry-1.docker.io\":\"proxy-dockerhub\",\"registry.k8s.io\":\"proxy-k8s\",\"xpkg.upbound.io\":\"proxy-xpkg\"}"
     RELEASE_PUBLIC_KEY_B64             = ""
     RELEASE_CHANNEL                    = "stable"
