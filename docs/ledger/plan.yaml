@@ -267,7 +267,7 @@ epics:
 - id: SVC-050
   title: 'Epic: function tests for the foundation ring'
   wave: W0
-  packages: [SVC-060, SVC-120, SVC-070, SVC-080, SVC-090, SVC-100, SVC-125, SVC-130, SVC-135, SVC-110, SVC-140]
+  packages: [SVC-060, SVC-120, SVC-070, SVC-080, SVC-090, SVC-125, SVC-100, SVC-130, SVC-135, SVC-110, SVC-140]
 - id: SVC-240
   title: 'Epic: first capability with two implementations, object storage'
   wave: W1d
@@ -913,7 +913,7 @@ packages:
   size: XS
   lane: RAILS
   depends_on: [FND-018]
-  after: [FND-020, FND-017]
+  after: [FND-020, FND-017, FND-062]
   touches:
   - .github/workflows/blueprint-release.yaml
   - scripts/check-release-lockstep-writer.py
@@ -1105,7 +1105,7 @@ packages:
   size: M
   lane: RAILS
   depends_on: [FND-017]
-  after: [FND-031, FND-061, CLD-040]
+  after: [FND-031, FND-061, FND-062, CLD-040]
   touches:
   - .github/actions/deploy-bump/action.yaml
   - docs/ledger/bot-writers.txt
@@ -1430,25 +1430,42 @@ packages:
   size: S
   lane: GATE
   depends_on: [FND-032]
-  after: [FND-015, FND-002, FND-017, CTL-151]
+  after: [FND-015, FND-002]
   touches:
-  - .github/workflows/foundation-gate.yaml
   - .github/workflows/acceptance-sovereign.yaml
-  - scripts/acceptance-sovereign.sh
+  - .github/workflows/foundation-gate.yaml
+  - scripts/gate-run-outcome.py
+  - tests/acceptance/sovereign/README.md
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c 'workflow_dispatch' .github/workflows/acceptance-sovereign.yaml"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "python3 -c \"import yaml,sys; d=yaml.safe_load(open('.github/workflows/foundation-gate.yaml')); sys.exit(0 if {'unit','live'} <= set(d['jobs']) else 1)\""
+  - id: A2
+    run: "test ! -e .github/workflows/acceptance-sovereign.yaml"
+  - id: A3
+    run: "! git grep -q 'acceptance-sovereign.yaml' -- .github scripts"
+  - id: A4
+    run: "printf '%s  %s\\n' 160255bca4ee6bd615e43b8bf54ca9504469d321b3f02653d54f77dff5ab90db .github/workflows/foundation-gate.yaml 71e8f23b0559fd60ea9a29ce790af90facddb64f97656556ecda150c53f1a8e7 scripts/gate-run-outcome.py | sha256sum -c --quiet -"
+  - id: A5
+    run: "python3 scripts/gate-run-outcome.py --self-test"
+  - id: A6
+    run: "out=\"$(python3 scripts/check-bot-writers.py)\" && grep -q -x -F 'bot-writers: .github/workflows/foundation-gate.yaml job live: the release-writer key' <<<\"$out\""
+  - id: A7
+    run: "grep -q -F 'In CI, use `.github/workflows/foundation-gate.yaml` (`workflow_dispatch` or' tests/acceptance/sovereign/README.md && ! grep -q -F 'acceptance-sovereign.yaml' tests/acceptance/sovereign/README.md"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: A workflow runs the suite against a Sovereign, validates the record and commits it.
+  delivers: The workflow foundation-gate verifies a named candidate, waits until the hand-over chain of the Sovereign has ended, runs the acceptance suite with the gate manifest, commits a record that the schema accepts to main with the release-writer key and judges the run on that environment; it replaces acceptance-sovereign.yaml.
 - id: FND-036
   title: Sign-in as a gate check
   area: FND
@@ -1540,6 +1557,35 @@ packages:
   ticket_rev: 0
   dropped: false
   delivers: Any check can create a test Organization, install a named Blueprint in it and remove both, through the console API.
+- id: FND-039
+  title: The suite writes the provision block of a cloud record
+  area: FND
+  epic: null
+  type: fix
+  wave: W0
+  size: S
+  lane: GATE
+  depends_on: [FND-035]
+  after: [FND-033, FND-034, SVC-125]
+  touches:
+  - tests/acceptance/sovereign/internal/suite/result.go
+  - tests/acceptance/sovereign/internal/suite/runner.go
+  - tests/acceptance/sovereign/internal/suite/config.go
+  - tests/acceptance/sovereign/cmd/sovereign-acceptance/main.go
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: Every cloud run of the suite writes the full provision block, so the gate workflow commits a valid record.
 - id: FND-040
   title: Stability register and the frozen-path check
   area: FND
@@ -1921,6 +1967,37 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: bash scripts/check-guards-are-wired.sh gives the same verdict on every run, so a guard that a workflow runs is never reported as orphaned.
+- id: FND-059
+  title: The guards that run on every pull request share a few jobs
+  area: FND
+  epic: null
+  type: refactor
+  wave: W0
+  size: M
+  lane: RAILS
+  depends_on: [FND-013]
+  after: [FND-015, FND-017, FND-018, FND-020, FND-031, FND-035, FND-040, FND-051, FND-052, FND-053, FND-054, FND-055, FND-056, FND-057, FND-061, FND-062, FND-092, FND-094, FND-096, FND-097, FND-102, FND-103, FND-110, CLD-010, CLD-022, CLD-023, CLD-040, CLD-063, CLD-080, CLD-086, CLD-087, SOV-040, SOV-050, SOV-110, SOV-120, SOV-121, SOV-150, SOV-180, SEC-030, SEC-090, SEC-125, NET-090, NET-100, SVC-020, CTL-010, CTL-020, CTL-025, CTL-044, CTL-150, CTL-151, CTL-160, CMP-014, CMP-036, BSS-050, AIP-050, INF-010, MIG-060, PRD-030, PRD-101, PRD-102, PRD-106]
+  touches:
+  - .github/workflows/*.yaml
+  - .github/workflows/*.yml
+  - scripts/run-pr-guards.sh
+  - .github/rulesets/main.json
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget:
+    files: 45
+    lines: 900
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: The workflows without a path filter, which are one short script each, run as steps of a few shared jobs. A pull request starts far fewer jobs and the hosted runners carry two to three times as many pull requests at once. No guard is dropped and none becomes optional.
 - id: FND-061
   title: One signing action, used by the control-plane images first
   area: FND
@@ -1967,11 +2044,13 @@ packages:
   size: M
   lane: RAILS
   depends_on: [FND-061]
-  after: [FND-056, FND-092, FND-017, FND-018]
+  after: [FND-056, FND-092]
   touches:
+  - .github/actions/sign-and-attest/action.yaml
   - .github/workflows/admin-build.yaml
   - .github/workflows/agenity-build.yaml
   - .github/workflows/axon-build.yaml
+  - .github/workflows/blueprint-release.yaml
   - .github/workflows/build-application-controller.yaml
   - .github/workflows/build-blueprint-controller.yaml
   - .github/workflows/build-bp-huawei-evs-csi.yaml
@@ -1990,7 +2069,9 @@ packages:
   - .github/workflows/build-openova-mcp.yaml
   - .github/workflows/build-organization-controller.yaml
   - .github/workflows/build-projector.yaml
+  - .github/workflows/build-sovereign-ops.yaml
   - .github/workflows/catalyst-catalog-build.yaml
+  - .github/workflows/check-pins.yaml
   - .github/workflows/console-build.yaml
   - .github/workflows/marketplace-api-build.yaml
   - .github/workflows/marketplace-build.yaml
@@ -1999,21 +2080,36 @@ packages:
   - .github/workflows/pool-domain-manager-build.yaml
   - .github/workflows/services-build.yaml
   - .github/workflows/useraccess-controller-build.yaml
-  - .github/workflows/blueprint-release.yaml
+  - docs/ledger/pin-baseline.json
   - scripts/check-builds-sign.py
-  - .github/workflows/check-pins.yaml
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -l 'docker/build-push-action' .github/workflows/* | wc -l"
+    expect: "32"
+  acceptance:
+  - id: A1
+    run: "python3 scripts/check-builds-sign.py --self-test"
+  - id: A2
+    run: "python3 scripts/check-builds-sign.py"
+  - id: A3
+    run: "! grep -rq 'in-toto-spdx attached at build time' .github/workflows"
+  - id: A4
+    run: "python3 -c 'import subprocess, yaml; a = yaml.safe_load(open(\".github/actions/sign-and-attest/action.yaml\")); i = a[\"inputs\"]; assert sorted(i) == [\"digest\", \"ref\", \"sbom-source\"] and i[\"sbom-source\"][\"required\"] is False and i[\"sbom-source\"][\"default\"] == \"\"; r = [x[\"run\"] for x in a[\"runs\"][\"steps\"] if \"run\" in x]; assert len(r) == 2 and \"${SBOM_SOURCE:-registry:${image}}\" in r[1]; [subprocess.run([\"bash\", \"-n\"], input=x.encode(), check=True) for x in r]; s = yaml.safe_load(open(\".github/workflows/blueprint-release.yaml\"))[\"jobs\"][\"build\"][\"steps\"]; p = [x for x in s if x.get(\"id\") == \"push\"]; c = [x for x in s if x.get(\"uses\") == \"./.github/actions/sign-and-attest\"]; assert len(p) == 1 and len(c) == 1 and c[0][\"if\"] == p[0][\"if\"]; assert c[0][\"with\"] == {\"ref\": \"ghcr.io/openova-io/${{ steps.chart.outputs.name }}\", \"digest\": \"${{ steps.push.outputs.digest }}\", \"sbom-source\": \"file:/tmp/charts/${{ steps.chart.outputs.name }}-${{ steps.chart.outputs.version }}.tgz\"}; assert not [x for x in s if \"cosign-installer\" in str(x.get(\"uses\")) or \"download-syft\" in str(x.get(\"uses\"))]'"
+  - id: A5
+    run: "python3 -c 'import yaml; j = yaml.safe_load(open(\".github/workflows/check-pins.yaml\"))[\"jobs\"]; r = [x.get(\"run\") for x in j[\"check-builds-sign\"][\"steps\"]]; assert \"check-pins\" in j and r[-2:] == [\"python3 scripts/check-builds-sign.py --self-test\", \"python3 scripts/check-builds-sign.py\"] and \"pip install --quiet pyyaml\" in r'"
+  - id: A6
+    run: "python3 -c 'import json, subprocess; new = json.load(open(\"docs/ledger/pin-baseline.json\"))[\"actions_not_pinned_by_commit\"]; old = json.loads(subprocess.run([\"git\", \"show\", \"origin/main:docs/ledger/pin-baseline.json\"], check=True, capture_output=True, text=True).stdout)[\"actions_not_pinned_by_commit\"]; out = subprocess.run([\"python3\", \"scripts/check-pins.py\"], capture_output=True, text=True).stdout; assert new < old, (new, old); assert (\"ok, %d action references are not pinned by a commit (baseline %d)\" % (new, new)) in out, out'"
+  - id: A7
+    run: "python3 -c 'import yaml; fs = [\"agenity-build\", \"build-chargeback\", \"build-docrender\", \"build-openova-mcp\"]; st = [s for f in fs for j in yaml.safe_load(open(\".github/workflows/%s.yaml\" % f))[\"jobs\"].values() for s in j[\"steps\"] if s.get(\"id\") == \"push\"]; assert len(st) == 4 and all(\"docker push\" in s[\"run\"] and \"docker buildx imagetools inspect\" in s[\"run\"] and \"digest=${digest}\" in s[\"run\"] and \"GITHUB_OUTPUT\" in s[\"run\"] for s in st)'"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
   delivers: Every image and chart build signs and attests through the shared action, and a guard fails a build that does not.
 - id: FND-070
@@ -2024,7 +2120,7 @@ packages:
   wave: W0
   size: S
   lane: GATE
-  depends_on: [FND-014, FND-015, FND-033, FND-034, FND-035, FND-071]
+  depends_on: [FND-014, FND-015, FND-033, FND-034, FND-035, FND-039, FND-071]
   after: [FND-036, CMP-010]
   touches:
   - docs/ledger/plan/spikes/FND-070-baseline.md
@@ -2078,7 +2174,7 @@ packages:
   wave: W0
   size: S
   lane: GATE
-  depends_on: [FND-014, FND-015, FND-035]
+  depends_on: [FND-014, FND-015, FND-035, FND-039]
   after: []
   touches:
   - .github/workflows/foundation-gate-standing.yaml
@@ -3317,7 +3413,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [FND-036, FND-120]
-  after: []
+  after: [FND-035]
   touches:
   - docs/ledger/uat-row-map.csv
   - products/catalyst/bootstrap/ui/e2e/gate/**
@@ -10337,7 +10433,7 @@ packages:
   size: XS
   lane: RAILS
   depends_on: [SEC-125, FND-056]
-  after: []
+  after: [FND-062]
   touches:
   - .github/workflows/test-k3s-bootstrap-flags.yaml
   - tests/e2e/k3s-bootstrap-flags.sh
@@ -11704,7 +11800,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271]
-  after: [FND-011, FND-013, FND-014, FND-015, FND-017, FND-018, FND-020, FND-021, FND-022, FND-023, FND-031, FND-032, FND-033, FND-034, FND-040, FND-052, FND-053, FND-054, FND-055, FND-056, FND-057, FND-058, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-101, FND-102, FND-103, FND-105, FND-110, FND-171, CLD-010, CLD-021, CLD-022, CLD-023, CLD-040, CLD-063, CLD-075, CLD-080, CLD-086, CLD-087, CLD-113, CLD-142, SOV-030, SOV-035, SOV-040, SOV-050, SOV-110, SOV-120, SOV-121, SOV-133, SOV-141, SOV-150, SOV-180, SOV-190, SEC-020, SEC-030, SEC-090, SEC-125, NET-011, NET-030, NET-033, NET-041, NET-050, NET-090, NET-100, NET-133, SVC-020, SVC-060, SVC-070, SVC-125, CTL-010, CTL-020, CTL-025, CTL-030, CTL-035, CTL-044, CTL-045, CTL-150, CTL-151, CTL-160, CTL-201, CTL-240, CTL-300, CTL-340, CMP-012, CMP-014, CMP-036, CMP-073, BSS-050, AIP-050, INF-010, INF-110, MIG-060, PRD-030, PRD-101, PRD-102, PRD-106]
+  after: [FND-011, FND-013, FND-014, FND-015, FND-017, FND-018, FND-020, FND-021, FND-022, FND-023, FND-031, FND-032, FND-033, FND-034, FND-035, FND-040, FND-052, FND-053, FND-054, FND-055, FND-056, FND-057, FND-058, FND-062, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-101, FND-102, FND-103, FND-105, FND-110, FND-171, CLD-010, CLD-021, CLD-022, CLD-023, CLD-040, CLD-063, CLD-075, CLD-080, CLD-086, CLD-087, CLD-113, CLD-142, SOV-030, SOV-035, SOV-040, SOV-050, SOV-110, SOV-120, SOV-121, SOV-133, SOV-141, SOV-150, SOV-180, SOV-190, SEC-020, SEC-030, SEC-090, SEC-125, NET-011, NET-030, NET-033, NET-041, NET-050, NET-090, NET-100, NET-133, SVC-020, SVC-060, SVC-070, SVC-125, CTL-010, CTL-020, CTL-025, CTL-030, CTL-035, CTL-044, CTL-045, CTL-150, CTL-151, CTL-160, CTL-201, CTL-240, CTL-300, CTL-340, CMP-012, CMP-014, CMP-036, CMP-073, BSS-050, AIP-050, INF-010, INF-110, MIG-060, PRD-030, PRD-101, PRD-102, PRD-106]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/26-image-signature.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -12237,7 +12333,7 @@ packages:
   size: S
   lane: GATE
   depends_on: [NET-011, FND-035]
-  after: [FND-017, FND-033, FND-034, CLD-010, CLD-080, CLD-087, SEC-010, SEC-030, SEC-080, SEC-120, NET-020, NET-060, SVC-125, CTL-151, CMP-010, BSS-030, AIP-040]
+  after: [FND-033, FND-034, CLD-010, CLD-080, CLD-087, SEC-010, SEC-030, SEC-080, SEC-120, NET-020, NET-060, SVC-125, CTL-151, CMP-010, BSS-030, AIP-040]
   touches: []
   resources: []
   flips: [NET-G02]
@@ -12469,7 +12565,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: []
-  after: [NET-030, FND-011, FND-017, FND-031, FND-054, FND-061, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, FND-173, CLD-021, CLD-022, CLD-023, CLD-040, CLD-142, SOV-035, SEC-100, NET-042, NET-080, SVC-060, CTL-030, CTL-041, INF-110]
+  after: [NET-030, FND-011, FND-017, FND-031, FND-054, FND-061, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, FND-173, CLD-021, CLD-022, CLD-023, CLD-040, CLD-142, SOV-035, SEC-100, NET-042, NET-080, NET-135, SVC-060, CTL-030, CTL-041, INF-110]
   touches:
   - clusters/_template/bootstrap-kit/35-coraza.yaml
   - clusters/_template/bootstrap-kit/kustomization.yaml
@@ -13347,25 +13443,39 @@ packages:
   size: S
   lane: CHARTS
   depends_on: []
-  after: [FND-011, NET-030]
+  after: [FND-011]
   touches:
   - platform/plane-isolation/chart/values.yaml
-  - platform/plane-isolation/chart/templates/**
-  - platform/plane-isolation/chart/tests/**
+  - platform/plane-isolation/chart/templates/apiserver-egress-cnp.yaml
+  - platform/plane-isolation/chart/templates/apiserver-webhook-ingress-cnp.yaml
+  - platform/plane-isolation/chart/templates/crossregion-db-egress-cnp.yaml
+  - platform/plane-isolation/chart/templates/default-deny-networkpolicy.yaml
+  - platform/plane-isolation/chart/templates/gateway-ingress-cnp.yaml
+  - platform/plane-isolation/chart/tests/render-contract.sh
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "git grep -c -F 'lookup \"v1\" \"Namespace\"' -- platform/plane-isolation/chart/templates/default-deny-networkpolicy.yaml"
+    expect: "platform/plane-isolation/chart/templates/default-deny-networkpolicy.yaml:1"
+  acceptance:
+  - id: A1
+    run: "bash platform/plane-isolation/chart/tests/render-contract.sh --self-test"
+  - id: A2
+    run: "bash platform/plane-isolation/chart/tests/render-contract.sh platform/plane-isolation/chart"
+  - id: A3
+    run: "! git grep -n -E 'renderUnconditional|ensureNamespacePresent|lookup \"' -- platform/plane-isolation/chart/templates platform/plane-isolation/chart/values.yaml"
+  - id: A4
+    run: "test \"$(python3 -c \"import yaml,json,hashlib,sys;print(hashlib.sha256(json.dumps(yaml.safe_load(open(sys.argv[1],encoding='utf-8')),sort_keys=True).encode()).hexdigest())\" platform/plane-isolation/chart/values.yaml)\" = 42a83449bc8c1765c1dbbc3503e570d96f0f5ae79b84f836cce498ef5357410b"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: A new render of the plane-isolation chart no longer cuts the file sync between regions or the OpenBao snapshot fetch, and what it renders no longer depends on which namespaces happened to exist when it last rendered
+  delivers: The plane-isolation chart renders the same policies whichever namespaces exist, and its policy for the object store admits the peer region's file sync and every namespace on the S3 port.
 - id: NET-140
   title: Delete mesh establishment from the API
   area: NET
@@ -13496,7 +13606,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [FND-193, NET-161]
-  after: [FND-011, NET-030]
+  after: [FND-011, NET-030, NET-135]
   touches:
   - platform/network-policies/chart/values.yaml
   - tests/acceptance/sovereign/policy-dials.yaml
@@ -13524,7 +13634,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [NET-162]
-  after: [FND-011, NET-030]
+  after: [FND-011, NET-030, NET-135]
   touches:
   - platform/network-policies/chart/values.yaml
   - tests/acceptance/sovereign/policy-dials.yaml
@@ -13552,7 +13662,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [CLD-080, NET-163, SOV-110]
-  after: [FND-011, NET-030]
+  after: [FND-011, NET-030, NET-135]
   touches:
   - platform/network-policies/chart/values.yaml
   - tests/acceptance/sovereign/policy-dials.yaml
@@ -13607,7 +13717,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [NET-165]
-  after: [FND-011, NET-030, NET-042, CTL-041]
+  after: [FND-011, NET-030, NET-042, NET-135, CTL-041]
   touches:
   - platform/plane-isolation/**
   - clusters/_template/bootstrap-kit/26b-bp-plane-isolation.yaml
@@ -14660,7 +14770,7 @@ packages:
   size: M
   lane: GATE
   depends_on: [NET-325, NET-326, NET-327, NET-328]
-  after: [FND-032, FND-033, FND-034, SEC-010, SEC-080, SEC-120, NET-010, NET-020, NET-060, SVC-125, CTL-040, CTL-151, CMP-010, BSS-030, AIP-040]
+  after: [FND-032, FND-033, FND-034, FND-035, SEC-010, SEC-080, SEC-120, NET-010, NET-020, NET-060, SVC-125, CTL-040, CTL-151, CMP-010, BSS-030, AIP-040]
   touches:
   - tests/acceptance/sovereign/
   resources: []
@@ -14844,7 +14954,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-011, SVC-020]
-  after: [FND-014, FND-054, FND-091, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-070, CLD-080, CLD-086, CLD-113, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-141, SOV-160, SOV-180, SOV-190, SOV-220, SOV-320, SEC-010, SEC-080, SEC-100, SEC-110, SEC-161, NET-011, NET-030, NET-041, NET-050, NET-070, NET-072, NET-080, NET-125, NET-133, SVC-030, SVC-060, SVC-070, CTL-030, CTL-035, CTL-040, CTL-045, CTL-150, CTL-160, CTL-240, CTL-300, CTL-340, CTL-700, CMP-016, CMP-030, CMP-073, BSS-020, AIP-040, INF-110, PRD-010, PRD-101, PRD-102, PRD-103, PRD-104, PRD-105, PRD-502]
+  after: [FND-014, FND-054, FND-091, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-070, CLD-080, CLD-086, CLD-113, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-141, SOV-160, SOV-180, SOV-190, SOV-220, SOV-320, SEC-010, SEC-080, SEC-100, SEC-110, SEC-161, NET-011, NET-030, NET-041, NET-050, NET-070, NET-072, NET-080, NET-125, NET-133, NET-135, SVC-030, SVC-060, SVC-070, CTL-030, CTL-035, CTL-040, CTL-045, CTL-150, CTL-160, CTL-240, CTL-300, CTL-340, CTL-700, CMP-016, CMP-030, CMP-073, BSS-020, AIP-040, INF-110, PRD-010, PRD-101, PRD-102, PRD-103, PRD-104, PRD-105, PRD-502]
   touches:
   - platform/*/blueprint.yaml
   - products/*/blueprint.yaml
@@ -15025,7 +15135,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [SVC-060]
-  after: []
+  after: [SVC-070]
   touches: []
   resources: []
   flips: []
@@ -15050,7 +15160,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [SVC-060]
-  after: []
+  after: [SVC-080]
   touches: []
   resources: []
   flips: []
@@ -15075,7 +15185,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [SVC-060]
-  after: [FND-011]
+  after: [SVC-090, FND-011]
   touches:
   - products/catalyst/chart/templates/tests/function-test.yaml
   resources: []
@@ -20997,7 +21107,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-045, FND-091]
-  after: [FND-011, FND-017, FND-054, FND-061, FND-095, FND-096, FND-097, FND-098, FND-099, FND-173, CLD-023, CLD-040, CLD-113, SOV-035, SEC-100, NET-011, NET-042, NET-080, CTL-150, PRD-101, PRD-102]
+  after: [FND-011, FND-017, FND-054, FND-061, FND-062, FND-095, FND-096, FND-097, FND-098, FND-099, FND-173, CLD-023, CLD-040, CLD-113, SOV-035, SEC-100, NET-011, NET-042, NET-080, CTL-150, PRD-101, PRD-102]
   touches:
   - core/marketplace-api/**
   - products/catalyst/chart/templates/marketplace-api/**
@@ -22578,7 +22688,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [AIP-020]
-  after: [FND-011, FND-054, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, FND-173, CLD-021, CLD-022, CLD-023, SOV-035, SEC-100, NET-042, CTL-030, AIP-050]
+  after: [FND-011, FND-054, FND-062, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, FND-173, CLD-021, CLD-022, CLD-023, SOV-035, SEC-100, NET-042, CTL-030, AIP-050]
   touches:
   - products/axon/src/**
   - products/axon/package.json
@@ -22743,7 +22853,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [AIP-105, FND-032, SEC-190, SEC-211, SVC-160]
-  after: [FND-011, FND-033, FND-034, CLD-010, CLD-087, CLD-142, SEC-010, SEC-080, NET-010, NET-020, NET-060, SVC-125, CTL-041, CTL-151, CMP-010, BSS-030, AIP-040]
+  after: [FND-011, FND-033, FND-034, FND-062, CLD-010, CLD-087, CLD-142, SEC-010, SEC-080, NET-010, NET-020, NET-060, SVC-125, CTL-041, CTL-151, CMP-010, BSS-030, AIP-040]
   touches:
   - products/axon/chart/**
   - products/axon/blueprint.yaml
@@ -22808,7 +22918,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [AIP-040, CTL-045, CTL-330]
-  after: [FND-017, FND-054, FND-088, FND-095, FND-096, FND-097, FND-098, FND-099, FND-173, CLD-023, SOV-035, SEC-100, NET-042, AIP-050, PRD-101, PRD-102]
+  after: [FND-017, FND-054, FND-062, FND-088, FND-095, FND-096, FND-097, FND-098, FND-099, FND-173, CLD-023, SOV-035, SEC-100, NET-042, AIP-050, PRD-101, PRD-102]
   touches:
   - core/services/metering-sidecar/**
   - core/services/model-meter/**
@@ -26928,7 +27038,7 @@ packages:
   size: S
   lane: GATE
   depends_on: [MIG-131, MIG-132, MIG-114, MIG-127, FND-141]
-  after: [INF-310, SEC-010, NET-010, NET-020, CTL-151, BSS-030, AIP-040]
+  after: [INF-310, FND-035, SEC-010, NET-010, NET-020, CTL-151, BSS-030, AIP-040]
   touches:
   - tests/acceptance/sovereign/internal/suite/check_migration_warm_linux.go
   - tests/acceptance/sovereign/internal/suite/check_migration_warm_linux_test.go
