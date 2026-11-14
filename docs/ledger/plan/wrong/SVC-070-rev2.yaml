@@ -1,0 +1,52 @@
+schema: openova.io/plan-wrong/v1
+id: SVC-070
+ticket_rev: 2
+base_commit: 52f77f3a86c1fac83143c9c8e3f0acfc03d6f469
+stage: check
+ref: manifest-validation
+command: |
+    gh api repos/openova-io/openova/actions/jobs/132444679827/logs | grep -B 40 -m 1 '##\[error\]' | cut -c30-300
+expected: |
+    the check finishes green
+actual: |4
+        main_test.go:1654: CATALOG-SEED DISPLAY DRIFT (#4432 / R21):
+              Blueprint "bp-wordpress-tenant" card spec.version is BEHIND its component chart:
+                catalog-seed spec.version   = "0.6.3"  (blueprints.yaml line 91)
+                component chart/Chart.yaml  = "0.6.4"
+              → the operator-console catalog CARD advertises a STALE version.
+              Sync the card: set spec.version to "0.6.4" for "bp-wordpress-tenant" in
+              products/catalyst/chart/templates/catalog-seed/blueprints.yaml
+        main_test.go:1654: CATALOG-SEED DISPLAY DRIFT (#4432 / R21):
+              Blueprint "bp-guacamole" card spec.version is BEHIND its component chart:
+                catalog-seed spec.version   = "0.2.47"  (blueprints.yaml line 1662)
+                component chart/Chart.yaml  = "0.2.48"
+              → the operator-console catalog CARD advertises a STALE version.
+              Sync the card: set spec.version to "0.2.48" for "bp-guacamole" in
+              products/catalyst/chart/templates/catalog-seed/blueprints.yaml
+        main_test.go:1654: CATALOG-SEED DISPLAY DRIFT (#4432 / R21):
+              Blueprint "bp-newapi" card spec.version is BEHIND its component chart:
+                catalog-seed spec.version   = "1.4.159"  (blueprints.yaml line 2271)
+                component chart/Chart.yaml  = "1.4.160"
+              → the operator-console catalog CARD advertises a STALE version.
+              Sync the card: set spec.version to "1.4.160" for "bp-newapi" in
+              products/catalyst/chart/templates/catalog-seed/blueprints.yaml
+        main_test.go:1654: CATALOG-SEED DISPLAY DRIFT (#4432 / R21):
+              Blueprint "bp-k8s-ws-proxy" card spec.version is BEHIND its component chart:
+                catalog-seed spec.version   = "0.1.19"  (blueprints.yaml line 4480)
+                component chart/Chart.yaml  = "0.1.20"
+              → the operator-console catalog CARD advertises a STALE version.
+              Sync the card: set spec.version to "0.1.20" for "bp-k8s-ws-proxy" in
+              products/catalyst/chart/templates/catalog-seed/blueprints.yaml
+        main_test.go:1692: catalog-seed display-version guard: 75 card versions checked against component charts, 80 card-vs-delivery pairs checked; all aligned
+    --- FAIL: TestCatalogSeed_DisplayVersionNotBehindDeliveryPin (0.02s)
+    === RUN   TestBootstrapKit_LbIpamSharingCrossNamespace
+        main_test.go:1770: sovereign-vip sharing contract: 3 files checked, every sharing-key has its cross-namespace grant, zero wildcard grants
+    --- PASS: TestBootstrapKit_LbIpamSharingCrossNamespace (0.00s)
+    === RUN   TestBootstrapKit_McpSecondaryEdgeArmedBothLegs
+        main_test.go:2012: #5394 mcp secondary-edge chain: slot 13d+13e arms present, both chart legs render armed (input-keyed, value-asserted) and stay empty un-armed, port contract 8080==8080
+    --- PASS: TestBootstrapKit_McpSecondaryEdgeArmedBothLegs (0.12s)
+    FAIL
+    exit status 1
+    FAIL	github.com/openova-io/openova/tests/e2e/bootstrap-kit	6.022s
+    ##[error]Process completed with exit code 1.
+reported_at: 2026-11-14T12:19:24Z
