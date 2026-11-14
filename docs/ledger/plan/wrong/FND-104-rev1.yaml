@@ -1,0 +1,52 @@
+schema: openova.io/plan-wrong/v1
+id: FND-104
+ticket_rev: 1
+base_commit: aa0e31d9940895c30821059ecf493b66e1688de2
+stage: check
+ref: secret-guards
+command: |
+    gh api repos/openova-io/openova/actions/jobs/132393970673/logs | grep -B 40 -m 1 '##\[error\]' | cut -c30-300
+expected: |
+    the check finishes green
+actual: |
+    shell: /usr/bin/bash -e {0}
+    ##[endgroup]
+    OK G6: no new wide reflector scope and no new use of the legacy cluster-wide store: 20 finding(s) in 19 file(s), none above the allow-list.
+    ##[group]Run bash scripts/check-openbao-no-unseal-secret.sh --self-test
+    [36;1mbash scripts/check-openbao-no-unseal-secret.sh --self-test[0m
+    shell: /usr/bin/bash -e {0}
+    ##[endgroup]
+      ok   the allowed file is found once and no look-alike is counted
+      ok   --count and --list select by path
+      ok   the tree at its allow-list passes
+      ok   a rise of an allowed file fails
+      ok   a removed finding passes and asks to delete its line
+      ok   a malformed allow-list line is a setup error
+      ok   fails on a root-token generation call in a workflow
+      ok   fails on the unseal Secret in a test
+    OK openbao-no-unseal-secret: self-test passed; fixtures only, no cluster was contacted.
+    ##[group]Run bash scripts/check-openbao-no-unseal-secret.sh
+    [36;1mbash scripts/check-openbao-no-unseal-secret.sh[0m
+    shell: /usr/bin/bash -e {0}
+    ##[endgroup]
+    FAIL openbao-no-unseal-secret: platform/openbao/chart/templates/httproute.yaml has 1 finding(s) and is not in the allow-list
+      platform/openbao/chart/templates/httproute.yaml:110: {{- range $prefix := list "/v1/sys/generate-root" "/v1/sys/generate-recovery-token" "/v1/sys/unseal" "/v1/sys/seal" "/v1/sys/init" "/v1/sys/rekey" "/v1/sys/reke
+    FAIL openbao-no-unseal-secret: platform/openbao/chart/tests/httproute-render.sh has 1 finding(s) and is not in the allow-list
+      platform/openbao/chart/tests/httproute-render.sh:121: /v1/sys/generate-root /v1/sys/generate-recovery-token /v1/sys/unseal
+    FAIL openbao-no-unseal-secret: tests/acceptance/sovereign/README.md has 1 finding(s) and is not in the allow-list
+      tests/acceptance/sovereign/README.md:187: | SEC-G04 OpenBao system paths closed | `check_sec_route.go` | One of four anonymous `GET` of `https://bao.<FQDN>/v1/sys/seal-status` does not answer 200 with a
+    FAIL openbao-no-unseal-secret: tests/acceptance/sovereign/internal/suite/check_sec_route.go has 4 finding(s) and is not in the allow-list
+      tests/acceptance/sovereign/internal/suite/check_sec_route.go:31: //     path /v1/sys/generate-root/attempt below the first of them, answers 302
+      tests/acceptance/sovereign/internal/suite/check_sec_route.go:36: // route is open: a PUT to /v1/sys/generate-root/attempt would start a
+      tests/acceptance/sovereign/internal/suite/check_sec_route.go:54: "/v1/sys/generate-root", "/v1/sys/generate-recovery-token", "/v1/sys/unseal",
+      tests/acceptance/sovereign/internal/suite/check_sec_route.go:63: return append(append([]string{}, baoClosedPrefixes...), "/v1/sys/generate-root/attempt")
+    FAIL openbao-no-unseal-secret: tests/acceptance/sovereign/internal/suite/check_sec_route_test.go has 6 finding(s) and is not in the allow-list
+      tests/acceptance/sovereign/internal/suite/check_sec_route_test.go:104: "root generation reaches OpenBao": {with("/v1/sys/generate-root/attempt", openBao), true, "sample 1 of https://bao.sov.test/v1/sys/generate-root/attempt: HTTP 2
+      tests/acceptance/sovereign/internal/suite/check_sec_route_test.go:150: b := newBaoServer(t, with("/v1/sys/generate-root", baoAnswerSpec{code: 302, location: "https://bao.sov.test/ui/"}, openBao))
+      tests/acceptance/sovereign/internal/suite/check_sec_route_test.go:162: if step.Evidence["path"] != "/v1/sys/generate-root" || len(samples) != 4 || samples[0]["code"] != 302 ||
+      tests/acceptance/sovereign/internal/suite/check_sec_route_test.go:164: t.Errorf("the step of /v1/sys/generate-root does not hold the samples: %+v", step)
+      tests/acceptance/sovereign/internal/suite/check_sec_route_test.go:180: want := "/v1/sys/generate-root /v1/sys/generate-recovery-token /v1/sys/unseal /v1/sys/seal /v1/sys/init " +
+      tests/acceptance/sovereign/internal/suite/check_sec_route_test.go:186: if got := baoRoutePaths(); len(got) != 16 || got[15] != "/v1/sys/generate-root/attempt" {
+    FAIL G7: no new reference to the OpenBao unseal Secret or to root-token generation: 5 file(s) above the allow-list scripts/secret-guard-baselines/check-openbao-no-unseal-secret.txt. It may only shrink: remove the new finding(s); never raise or add a line.
+    ##[error]Process completed with exit code 1.
+reported_at: 2026-11-14T08:55:35Z
