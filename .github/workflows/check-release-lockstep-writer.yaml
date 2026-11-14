@@ -27,6 +27,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/blueprint-release.yaml'
+      - '.github/workflows/openclaw-controller.yaml'
       - '.github/workflows/check-release-lockstep-writer.yaml'
       - 'scripts/check-release-lockstep-writer.py'
       - 'scripts/sync-catalog-seed-pin.py'
@@ -41,6 +42,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/blueprint-release.yaml'
+      - '.github/workflows/openclaw-controller.yaml'
       - '.github/workflows/check-release-lockstep-writer.yaml'
       - 'scripts/check-release-lockstep-writer.py'
       - 'scripts/sync-catalog-seed-pin.py'

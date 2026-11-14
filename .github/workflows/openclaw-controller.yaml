@@ -23,7 +23,9 @@
 #      the #4257 mutable-tag trap where a values-only edit on the same
 #      chart version is undeliverable to Flux).
 #   6. Dispatches blueprint-release so a fresh bp-openclaw:<semver> OCI
-#      artifact carries the real controller tag.
+#      artifact carries the real controller tag. Its release writer moves the
+#      catalog-seed pins and the funnel pin of bp-openclaw in one commit;
+#      this workflow writes neither (FND-027).
 #
 # Output: ghcr.io/openova-io/openova/openclaw-controller:<sha>
 #
@@ -46,7 +48,6 @@ env:
   CHART_VALUES: platform/openclaw/chart/values.yaml
   CHART_YAML: platform/openclaw/chart/Chart.yaml
   BLUEPRINT_YAML: platform/openclaw/blueprint.yaml
-  CATALOG_SEED: products/catalyst/chart/templates/catalog-seed/blueprints.yaml
 
 permissions:
   contents: write
@@ -237,45 +238,7 @@ jobs:
           echo "CHART_OLD_VERSION=${current}" >> "$GITHUB_ENV"
           echo "CHART_NEW_VERSION=${next}" >> "$GITHUB_ENV"
 
-      # The catalog-seed file is a Helm template (Go `{{ }}` syntax) so yq
-      # cannot parse it. Patch the bp-openclaw block's two version pins
-      # (spec.version + source.version) with a block-scoped sed: rewrite
-      # only `version: "<old>"` lines that fall between the `name:
-      # bp-openclaw` marker and the next `name: bp-` marker. This keeps
-      # the fresh-Org chart pin (Blueprint spec.version → HR chartVersion)
-      # in lockstep with the published bp-openclaw:<new> OCI artifact so a
-      # fresh Org pulls the chart that carries the real controller tag —
-      # never a tag that doesn't exist on GHCR (anti-pattern A12).
-      - name: Bump catalog-seed bp-openclaw version pins
-        env:
-          OLD: ${{ env.CHART_OLD_VERSION }}
-          NEW: ${{ env.CHART_NEW_VERSION }}
-        run: |
-          set -euo pipefail
-          python3 - "$CATALOG_SEED" "$OLD" "$NEW" <<'PY'
-          import re, sys
-          path, old, new = sys.argv[1], sys.argv[2], sys.argv[3]
-          with open(path) as f:
-              lines = f.readlines()
-          in_block = False
-          changed = 0
-          for i, ln in enumerate(lines):
-              if re.match(r'\s*name:\s*bp-openclaw\s*$', ln):
-                  in_block = True
-                  continue
-              if in_block and re.match(r'\s*name:\s*bp-[a-z0-9-]+\s*$', ln):
-                  in_block = False
-              if in_block and re.match(rf'(\s*version:\s*)"{re.escape(old)}"\s*$', ln):
-                  lines[i] = re.sub(rf'"{re.escape(old)}"', f'"{new}"', ln)
-                  changed += 1
-          with open(path, 'w') as f:
-              f.writelines(lines)
-          print(f"catalog-seed: rewrote {changed} bp-openclaw version pin(s) {old} -> {new}")
-          if changed == 0:
-              print("WARN: no bp-openclaw version pin matched — seed may already be ahead", file=sys.stderr)
-          PY
-
-      - name: Commit and push chart + seed bump
+      - name: Commit and push the chart bump
         id: deploy_commit
         uses: ./.github/actions/deploy-bump
         with:
@@ -283,8 +246,7 @@ jobs:
             ${{ env.CHART_VALUES }}
             ${{ env.CHART_YAML }}
             ${{ env.BLUEPRINT_YAML }}
-            ${{ env.CATALOG_SEED }}
-          commit-message: "deploy: bump bp-openclaw controller ${{ steps.tag.outputs.tag }} chart ${{ env.CHART_NEW_VERSION }} + seed pin (Refs #4249)"
+          commit-message: "deploy: bump bp-openclaw controller ${{ steps.tag.outputs.tag }} chart ${{ env.CHART_NEW_VERSION }} (Refs #4249)"
           release-writer-key: ${{ secrets.RELEASE_WRITER_KEY }}
 
       - name: Trigger blueprint-release

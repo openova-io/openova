@@ -104,13 +104,33 @@ Cases
             has a blueprint.yaml AND an entry in the funnel pin. The writer
             must move the funnel pin in the commit that moves the seed, also on
             a retry, and an older run must leave a newer funnel pin alone with
-            a note. funnel-seed-ahead is the bp-openclaw shape: its own build
-            workflow already moved the seed, so the funnel pin is the only site
-            left and must still drive a commit. The repo's own drift test
+            a note. funnel-seed-ahead: something before the release already
+            moved the seed (as openclaw-controller.yaml did before FND-027), so
+            the funnel pin is the only site left and must still drive a commit.
+            The repo's own drift test
             (TestDefaultHRAppPins_MatchCatalogSeed) must pass on what landed.
             Every other case runs a chart with no entry, and asserts the funnel
             file is byte for byte as it was. → RED before #7829: the funnel
             pin stays at the old version.
+
+  funnel-openclaw, no-dispatch, and the dispatch of every case (FND-027)
+            The funnel pin is compiled into the provisioning image, which only
+            .github/workflows/services-build.yaml builds, and the release commit
+            ends its first line with [skip ci]. So the step
+            `dispatch_provisioning` of the build job dispatches services-build.yaml
+            on main when the commit that landed moved the funnel pin. Every case
+            runs that step after the commit step, with a stand-in for `gh` that
+            records the call, and counts the dispatches: one in each case that
+            moves the funnel pin (also on a retry), none in every other case.
+            funnel-openclaw makes the commit of the openclaw build from the
+            `paths` of the deploy-bump step of openclaw-controller.yaml, then
+            runs the release: the openclaw build must commit no catalog-seed
+            line, and the release commit must move the seed and the funnel pin
+            together. no-dispatch is a release of bp-keycloak, which moves the
+            seed but has no funnel pin: it must dispatch nothing. A case that
+            expects a dispatch count fails when the step does not exist, since
+            it would prove nothing. → RED before FND-027: there is no such
+            step, and the openclaw build commits the seed.
 
   noop      CONTROL, must be GREEN on both trees. Run the writer with NO chart
             bump at all. Nothing may drift and nothing may be pushed backwards.
@@ -174,7 +194,15 @@ UMBRELLA_JOB = "umbrella-follow"
 UMBRELLA_PATH = "products/catalyst"
 KEPT_NOTE = "Newer version kept"
 
-# A stand-in for `gh` in release-umbrella: it records every call, answers the
+# FND-027: the step of the build job that dispatches the provisioning build when
+# the release commit moved the funnel pin, the workflow it dispatches, and the
+# openclaw build whose commit funnel-openclaw makes.
+DISPATCH_STEP_ID = "dispatch_provisioning"
+SERVICES_WORKFLOW = "services-build.yaml"
+OPENCLAW_WORKFLOW = os.path.join(REPO_ROOT, ".github", "workflows", "openclaw-controller.yaml")
+DEPLOY_BUMP = "./.github/actions/deploy-bump"
+
+# A stand-in for `gh` in release-umbrella and in the dispatch step (FND-027): it records every call, answers the
 # open-pull-request listing with an empty list and accepts a workflow dispatch.
 GH_STUB = """#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "$GH_STUB_LOG"
@@ -288,6 +316,62 @@ def find_commit_step(steps):
             "this guard rather than deleting it." % (COMMIT_STEP_MARKER, len(hits))
         )
     return hits[0]
+
+
+def write_gh_stub(root):
+    """Write the `gh` stand-in under `root`; return (its directory, its call log)."""
+    stub_dir = os.path.join(root, "gh-stub")
+    os.makedirs(stub_dir, exist_ok=True)
+    stub = os.path.join(stub_dir, "gh")
+    with open(stub, "w") as fh:
+        fh.write(GH_STUB)
+    os.chmod(stub, 0o755)
+    gh_log = os.path.join(root, "gh-calls.log")
+    open(gh_log, "w").close()
+    return stub_dir, gh_log
+
+
+def run_dispatch(steps, work, ctx, wf_env, job_env, root):
+    """FND-027: run the dispatch step of the build job with the `gh` stand-in.
+
+    Returns the number of dispatches of services-build.yaml on main it made, or
+    None when the workflow has no such step."""
+    hits = [s for s in steps if s.get("id") == DISPATCH_STEP_ID]
+    if not hits:
+        print("    - absent %-13s (not declared in this workflow)" % DISPATCH_STEP_ID)
+        return None
+    stub_dir, gh_log = write_gh_stub(os.path.join(root, "dispatch"))
+    dctx = dict(ctx)
+    dctx["github"] = dict(ctx.get("github") or {}, repository="openova-io/openova")
+    dctx["env"] = dict(ctx.get("env") or {}, GH_STUB_LOG=gh_log,
+                       PATH=stub_dir + os.pathsep + os.environ.get("PATH", ""))
+    run_step(hits[0], work, dctx, wf_env, job_env, DISPATCH_STEP_ID)
+    calls = open(gh_log).read().splitlines()
+    return len([c for c in calls if c.startswith("workflow run %s " % SERVICES_WORKFLOW)
+                and "--ref main" in c])
+
+
+def openclaw_bot_paths():
+    """The files the openclaw build commits before it dispatches the release:
+    the `paths` of its deploy-bump step, read from the workflow itself."""
+    with open(OPENCLAW_WORKFLOW) as fh:
+        wf = yaml.safe_load(fh)
+    env = wf.get("env") or {}
+    found = []
+    for job in (wf.get("jobs") or {}).values():
+        for st in job.get("steps") or []:
+            if st.get("uses") == DEPLOY_BUMP:
+                found.append((st.get("with") or {}).get("paths") or "")
+    if len(found) != 1:
+        raise Failure("expected ONE deploy-bump step in %s; found %d"
+                      % (os.path.relpath(OPENCLAW_WORKFLOW, REPO_ROOT), len(found)))
+
+    def env_value(m):
+        if m.group(1) not in env:
+            raise Failure("a deploy-bump path names env.%s, which %s does not set"
+                          % (m.group(1), os.path.relpath(OPENCLAW_WORKFLOW, REPO_ROOT)))
+        return env[m.group(1)]
+    return re.sub(r"\$\{\{\s*env\.([A-Za-z0-9_]+)\s*\}\}", env_value, found[0]).split()
 
 
 def run_step(step, work, ctx, wf_env, job_env, label):
@@ -686,7 +770,7 @@ CASES = {
             "republish gate must pass on the result",
     ),
     "funnel": dict(
-        path="platform/newapi", do_bump=True, funnel_slug="newapi",
+        path="platform/newapi", do_bump=True, funnel_slug="newapi", dispatch=1,
         expect=dict(blueprint="literal", seed="literal", kit="literal", funnel="literal"),
         why="POSITIVE (#7829) — a bump of bp-newapi, as its own build workflow makes it: in "
             "the kit, in the seed, with a blueprint.yaml and an entry in the funnel pin; the "
@@ -694,18 +778,32 @@ CASES = {
             "test must pass on what lands",
     ),
     "funnel-retry": dict(
-        path="platform/newapi", do_bump=True, conflict=True, funnel_slug="newapi",
+        path="platform/newapi", do_bump=True, conflict=True, funnel_slug="newapi", dispatch=1,
         expect=dict(blueprint="literal", seed="literal", kit="literal", funnel="literal"),
         why="POSITIVE (#7829) — the same, with a rival commit forcing the retry; the reset "
             "wipes the funnel pin edit, so the retry must write it again",
     ),
     "funnel-seed-ahead": dict(
-        path="platform/openclaw", do_bump=True, seed_ahead=True, funnel_slug="openclaw",
+        path="platform/openclaw", do_bump=True, seed_ahead=True, funnel_slug="openclaw", dispatch=1,
         expect=dict(blueprint="literal", seed="literal", kit="absent", funnel="literal"),
-        why="POSITIVE (#7829) — after the shape of openclaw-controller.yaml: the bot commit "
-            "already moved Chart.yaml, blueprint.yaml and the seed of bp-openclaw (here also the "
-            "generated catalog), then the release runs; the funnel pin is the only site left, and "
-            "it alone must still drive a commit",
+        why="POSITIVE (#7829) — a commit before the release already moved Chart.yaml, "
+            "blueprint.yaml and the seed of bp-openclaw (here also the generated catalog), as "
+            "openclaw-controller.yaml did before FND-027; the funnel pin is the only site left, "
+            "and it alone must still drive a commit and the dispatch",
+    ),
+    "funnel-openclaw": dict(
+        path="platform/openclaw", do_bump=True, openclaw_build=True, funnel_slug="openclaw", dispatch=1,
+        expect=dict(blueprint="literal", seed="literal", kit="absent", funnel="literal"),
+        why="POSITIVE (FND-027) — the openclaw build commits the files of its deploy-bump step "
+            "and dispatches the release; it must commit no catalog-seed line, and the release "
+            "commit must move the seed and the funnel pin together and dispatch the "
+            "provisioning build once",
+    ),
+    "no-dispatch": dict(
+        path="platform/keycloak", do_bump=False, change=True, dispatch=0,
+        expect=dict(blueprint="literal", seed="literal", kit="literal"),
+        why="CONTROL (FND-027) — a release that moves the seed of a chart with no funnel pin "
+            "leaves the funnel pin as it is and must dispatch no provisioning build",
     ),
     "funnel-stale": dict(
         path="platform/newapi", do_bump=False, kind="stale", funnel_slug="newapi",
@@ -938,14 +1036,7 @@ def run_umbrella_case(name, case, keep, base):
         ctx = {"matrix": {"path": path}, "steps": {}, "github": {"event.before": before, "sha": after}}
         run_writer(work, ctx, steps, wf_env, job_env)
 
-        stub_dir = os.path.join(root, "gh-stub")
-        os.makedirs(stub_dir)
-        stub = os.path.join(stub_dir, "gh")
-        with open(stub, "w") as fh:
-            fh.write(GH_STUB)
-        os.chmod(stub, 0o755)
-        gh_log = os.path.join(root, "gh-calls.log")
-        open(gh_log, "w").close()
+        stub_dir, gh_log = write_gh_stub(root)
 
         follow = load_job_steps(UMBRELLA_JOB)
         if follow is None:
@@ -1124,6 +1215,7 @@ def run_case(name, case, keep, skip_slow, base):
     want = bump_patch(cur) if case["do_bump"] or (case.get("change") and not case.get("defer")) else cur
 
     root = tempfile.mkdtemp(prefix="lockstep-writer-%s-" % name, dir=base)
+    bot_problem = None
     try:
         work, remote = build_scratch(root)
         baseline = sh("git rev-parse HEAD", cwd=work).stdout.strip()
@@ -1138,6 +1230,18 @@ def run_case(name, case, keep, skip_slow, base):
                 raise Failure("could not rewrite Chart.yaml version in %s" % cy)
             open(cy, "w").write(new)
             moved = "Chart.yaml ONLY"
+            committed = None
+            if case.get("openclaw_build"):
+                # FND-027: the commit of openclaw-controller.yaml is the files of its
+                # deploy-bump step. It bumps Chart.yaml and blueprint.yaml; it moves
+                # the seed only if the seed is among those files.
+                committed = openclaw_bot_paths()
+                bp = blueprint_path(work, case["path"])
+                txt = open(bp).read()
+                open(bp, "w").write(re.sub(r"^  version:\s*.*$", "  version: %s" % want, txt, count=1, flags=re.M))
+                if SEED_REL in committed:
+                    sh("python3 scripts/sync-catalog-seed-pin.py %s %s --quiet" % (chart, want), cwd=work)
+                moved = "the deploy-bump paths of openclaw-controller.yaml: %s" % " ".join(committed)
             if case.get("seed_ahead"):
                 # openclaw-controller.yaml writes blueprint.yaml and the seed itself,
                 # then dispatches the release.
@@ -1149,10 +1253,18 @@ def run_case(name, case, keep, skip_slow, base):
                 # the release has left to move: it alone must drive the commit.
                 sh("node scripts/build-catalog.mjs", cwd=os.path.join(work, UI_REL))
                 moved = "Chart.yaml + blueprint.yaml + catalog-seed + generated catalog"
-            sh('git add -A && git commit -q -m "deploy: bump %s to %s (simulated bot)"'
-               % (chart, want), cwd=work)
+            if committed is None:
+                sh("git add -A", cwd=work)
+            else:
+                sh(["git", "add", "--"] + [f for f in committed if os.path.exists(os.path.join(work, f))], cwd=work)
+            sh('git commit -q -m "deploy: bump %s to %s (simulated bot)"' % (chart, want), cwd=work)
+            sh("git reset -q --hard", cwd=work)
             sh("git push -q origin main", cwd=work)
             print("    bot commit pushed: %s %s -> %s (%s)" % (chart, cur, want, moved))
+            if committed is not None and SEED_REL in committed:
+                bot_problem = ("openclaw-controller.yaml commits %s itself (the paths of its deploy-bump "
+                               "step): main holds the seed ahead of the funnel pin until the release "
+                               "commit" % SEED_REL)
         else:
             print("    no bot commit — writer runs against an already-lockstep main")
 
@@ -1190,9 +1302,21 @@ def run_case(name, case, keep, skip_slow, base):
             print("    rival commit pushed to origin/main — the writer's push must now retry")
 
         run_step(find_commit_step(steps), work, ctx, wf_env, job_env, "commit+push")
+        dispatched = run_dispatch(steps, work, ctx, wf_env, job_env, root)
 
         pushed = clone_pushed(root, remote)
         problems = []
+        if bot_problem:
+            problems.append(bot_problem)
+        want_dispatch = case.get("dispatch", 0)
+        if dispatched is None:
+            if "dispatch" in case:
+                problems.append("the build job has no step %r: nothing dispatches %s when the release "
+                                "commit moves the funnel pin, so this case proves nothing"
+                                % (DISPATCH_STEP_ID, SERVICES_WORKFLOW))
+        elif dispatched != want_dispatch:
+            problems.append("%s was dispatched %d time(s); this case expects %d"
+                            % (SERVICES_WORKFLOW, dispatched, want_dispatch))
         if case.get("defer"):
             if sh("git rev-parse HEAD", cwd=pushed).stdout.strip() != github["sha"]:
                 problems.append("the writer pushed a commit for the umbrella; the deploy job owns its version")
