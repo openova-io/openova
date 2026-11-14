@@ -1763,6 +1763,12 @@ spec:
       # cloudprofile.ForSovereign reads. Empty when the substitute is absent.
       cloud:
         provider: '${PROVIDER:-}'
+      # defaultStorageClass — the storage class of this Sovereign (CLD-030),
+      # from the kit key SOVEREIGN_CNPG_STORAGE_CLASS. The chart passes it to
+      # the provisioning service, which names it on the PVCs of every
+      # per-Organization CNPG pair. Empty when the key is absent: the
+      # cluster's default class applies then.
+      defaultStorageClass: '${SOVEREIGN_CNPG_STORAGE_CLASS:-}'
       # G62 (Refs #2613, 2026-05-30): imageRegistry override seam.
       # Empty literal default at Phase 1 (pre-cutover) → chart's
       # `{{ if .Values.global.imageRegistry }}` falls back to

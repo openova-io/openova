@@ -150,27 +150,14 @@ type ManifestGenerator struct {
 	// CATALYST_HR_APP_CHART_VERSIONS in services/provisioning/main.go.
 	HelmReleaseAppVersions map[string]string
 
-	// CloudProvider is the IaC cloud provider this Sovereign runs on —
-	// "hetzner" or "huawei". It selects the block-storage StorageClass
-	// the per-tenant CNPG pair PVCs bind to, because the StorageClass
-	// name is provider-specific and a cross-provider hardcode renders
-	// every customer-Org Postgres PVC permanently Pending.
-	//
-	// PILLAR-3 LANDMINE (#4060): generateCNPGPair previously hardcoded
-	// `storageClass: hcloud-volumes`, which only exists on Hetzner
-	// (hcloud-csi). On a Huawei (kom4dc) Sovereign only `evs-ssd` (the
-	// open-source huaweicloud-csi-driver EVS class from
-	// platform/huawei-evs-csi) exists, so every active-hot-standby
-	// customer-Org CNPG PVC stayed Pending forever and the two-region
-	// CNPG pair never materialized — Pillar-3 (two independent CNPG
-	// clusters + region-kill failover) was SILENTLY dead for tenant
-	// Orgs on the omantel.biz Sovereign.
-	//
-	// Populated from the CLOUD_PROVIDER env in main.go (wired by the
-	// catalyst chart's provisioning Deployment from global.cloudProvider).
-	// Empty / unknown defaults to "hetzner" so the legacy contabo/Hetzner
-	// path renders hcloud-volumes unchanged (NO-REGRESS).
-	CloudProvider string
+	// DefaultStorageClass is the storage class of this Sovereign, the class
+	// that the kit key SOVEREIGN_CNPG_STORAGE_CLASS names (CLD-030). The
+	// per-Organization CNPG pair names it on the PVCs of both of its sides.
+	// Empty leaves the storageClass field out, so the cluster's default
+	// class applies. Populated from the DEFAULT_STORAGE_CLASS env in
+	// main.go, which the catalyst chart's provisioning Deployment sets from
+	// global.defaultStorageClass.
+	DefaultStorageClass string
 
 	// ReplicaRegionKubeSecret is the flux-system Secret name that holds
 	// the STANDBY region's (region-B) host-cluster kubeconfig. The
@@ -337,36 +324,6 @@ const defaultVClusterRegistryMirror = "harbor.openova.io"
 // for why the name must be per-Sovereign-configurable rather than hardcoded
 // (#4761 / Inviolable Principle 4).
 const appsSyncSourceRepoDefault = "openova-org-tenants"
-
-// Block-storage StorageClass names per cloud provider. These are the
-// canonical Catalyst CSI classes installed by the per-provider CSI
-// Blueprints (platform/hcloud-csi → hcloud-volumes,
-// platform/huawei-evs-csi → evs-ssd).
-const (
-	hetznerBlockStorageClass = "hcloud-volumes"
-	huaweiBlockStorageClass  = "evs-ssd"
-)
-
-// cnpgStorageClass resolves the provider-correct block-storage
-// StorageClass for the customer-Org CNPG pair PVCs (#4060). Unknown /
-// empty provider falls back to the Hetzner class so the legacy path is
-// unchanged. Hetzner stays hcloud-volumes (NO-REGRESS); only Huawei
-// flips to its EVS CSI class.
-func (g *ManifestGenerator) cnpgStorageClass() string {
-	switch strings.ToLower(strings.TrimSpace(g.CloudProvider)) {
-	case "huawei":
-		return huaweiBlockStorageClass
-	case "hetzner", "":
-		return hetznerBlockStorageClass
-	default:
-		// An unexpected provider string must not silently render a
-		// nonexistent StorageClass; log loud and fall back to the
-		// historical Hetzner default rather than wedge PVCs.
-		slog.Warn("provisioning/gitops: unknown CLOUD_PROVIDER — defaulting CNPG storageClass to hcloud-volumes",
-			"cloud_provider", g.CloudProvider, "storageClass", hetznerBlockStorageClass)
-		return hetznerBlockStorageClass
-	}
-}
 
 // replicaRegionKubeSecret resolves the flux-system Secret name holding the
 // standby region's (region-B) kubeconfig for the cross-region active-hot-
@@ -612,7 +569,7 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 				cfg:           pgCfg,
 				primaryRegion: primaryRegion,
 				replicaRegion: replicaRegion,
-				storageClass:  g.cnpgStorageClass(),
+				storageClass:  strings.TrimSpace(g.DefaultStorageClass),
 				// #4293 BLOCKER-1 — NO vcluster kubeConfig. The primary Cluster CR
 				// reconciles on region A's HOST (where the cnpg-system operator +
 				// the postgresql.cnpg.io CRD live), installing into the host
@@ -636,7 +593,7 @@ func (g *ManifestGenerator) GenerateAllWithAppConfigs(slug, planSlug string, app
 				cfg:           pgCfg,
 				primaryRegion: primaryRegion,
 				replicaRegion: replicaRegion,
-				storageClass:  g.cnpgStorageClass(),
+				storageClass:  strings.TrimSpace(g.DefaultStorageClass),
 				kubeSecret:    g.replicaRegionKubeSecret(),
 			})
 			// The standalone postgres-credentials Secret the app pods read goes
@@ -1322,6 +1279,14 @@ func generateCNPGPair(opt cnpgPairOpts) string {
 	hrName := "bp-cnpg-pair-" + side
 	releaseName := "cnpg-pair-" + side
 
+	// The storage class of both sides is the Sovereign's class (CLD-030).
+	// An empty class leaves the field out, so the cluster's default class
+	// applies; the chart renders no storageClass then either.
+	storageField := ""
+	if opt.storageClass != "" {
+		storageField = "\n          storageClass: " + opt.storageClass
+	}
+
 	return fmt.Sprintf(`# bp-cnpg-pair (%s side) — Pillar-3 active-hot-standby install path for
 # postgres-backed marketplace apps (TBD-V17 #2068). A 2-region Sovereign is
 # TWO separate clusters joined by Cilium ClusterMesh, so the pair is installed
@@ -1405,11 +1370,7 @@ spec:
         region: %s
         instances: %d
         storage:
-          size: %dGi
-          # Provider-aware block-storage class (#4060): hcloud-volumes on
-          # Hetzner, evs-ssd on Huawei. A cross-provider hardcode pins
-          # every customer-Org CNPG PVC Pending on the wrong cloud.
-          storageClass: %s
+          size: %dGi%s
         bootstrap:
           database: %s
           owner: app
@@ -1417,8 +1378,7 @@ spec:
         region: %s
         instances: %d
         storage:
-          size: %dGi
-          storageClass: %s
+          size: %dGi%s
       # replication.mode + clusterMesh + audit defaults come from the
       # chart's own values.yaml (sync remote_apply + numSync=1 +
       # clusterMesh.enabled + audit subjects). Per-Sovereign overlays
@@ -1430,9 +1390,9 @@ spec:
 		catalogOCIBase(), // cutover-aware OCI base (#5527)
 		hrName, hrNamespace, side, releaseName, ns, kubeConfigBlock, // HR metadata + spec head
 		hrName, hrNamespace, // sourceRef name/ns
-		side,                                                              // cnpgPair.side
-		opt.primaryRegion, instances, diskGB, opt.storageClass, primaryDB, // primary block
-		opt.replicaRegion, instances, diskGB, opt.storageClass, // replica block
+		side,                                                          // cnpgPair.side
+		opt.primaryRegion, instances, diskGB, storageField, primaryDB, // primary block
+		opt.replicaRegion, instances, diskGB, storageField, // replica block
 	)
 }
 
