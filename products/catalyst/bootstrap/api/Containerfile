@@ -89,7 +89,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /catalyst-dns ./cmd/ca
 # $TARGETARCH so the same Containerfile works under buildx multi-arch
 # (linux/amd64 + linux/arm64); the CI workflow today is amd64 only but the
 # Sovereign-side rebuild path may need arm64 in future.
-FROM docker.io/library/alpine:3.20 AS tofu
+FROM docker.io/library/alpine:3.24 AS tofu
 ARG TARGETARCH=amd64
 ARG TOFU_VERSION=1.11.6
 # upx for the post-download compression of the tofu CLI (113MB→22MB on disk,
@@ -118,7 +118,7 @@ RUN apk add --no-cache ca-certificates curl tar upx \
     && /out/tofu version
 
 # ---------- Stage 3: runtime ----------
-FROM docker.io/library/alpine:3.20
+FROM docker.io/library/alpine:3.24
 
 # kubectl + helm must be on PATH so internal/bootstrap can exec them when
 # installing the 11-component bootstrap kit. Pin versions for reproducible
