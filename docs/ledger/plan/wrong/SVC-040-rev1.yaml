@@ -1,0 +1,24 @@
+schema: openova.io/plan-wrong/v1
+id: SVC-040
+ticket_rev: 1
+base_commit: f6f0df4de7e774a567e328088261e1f47e1e40e9
+stage: step
+ref: step 8
+command: |
+    (cd products/catalyst/bootstrap/ui && node scripts/build-catalog.mjs > /dev/null) && git status --porcelain --untracked-files=all | wc -l
+    git diff -U0 -- products/catalyst/bootstrap/api/internal/catalog/blueprints.json products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts | grep -E '^(\+\+\+|---|[-+] )'
+expected: |
+    55
+actual: |
+    57
+    --- a/products/catalyst/bootstrap/api/internal/catalog/blueprints.json
+    +++ b/products/catalyst/bootstrap/api/internal/catalog/blueprints.json
+    -  "generatedAt": "2026-11-14T22:36:13.933Z",
+    +  "generatedAt": "2026-11-14T22:43:24.112Z",
+    -      "version": "0.2.24",
+    +      "version": "0.2.25",
+    --- a/products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts
+    +++ b/products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts
+    -    "version": "0.2.24",
+    +    "version": "0.2.25",
+reported_at: 2026-11-14T22:44:16Z
