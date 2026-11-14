@@ -22,7 +22,6 @@ import (
 	"github.com/valkey-io/valkey-go"
 
 	"github.com/openova-io/openova/core/services/auth/store"
-	"github.com/openova-io/openova/core/services/shared/events"
 	"github.com/openova-io/openova/core/services/shared/middleware"
 	"github.com/openova-io/openova/core/services/shared/respond"
 )
@@ -31,7 +30,6 @@ import (
 type Handler struct {
 	Store              *store.Store
 	Valkey             valkey.Client
-	Producer           *events.Producer
 	JWTSecret          []byte
 	JWTRefreshSecret   []byte
 	GoogleClientID     string
@@ -294,9 +292,6 @@ func (h *Handler) VerifyMagicLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Publish login event.
-	h.publishLoginEvent(ctx, user)
-
 	respond.OK(w, resp)
 }
 
@@ -402,8 +397,6 @@ func (h *Handler) GoogleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.publishLoginEvent(ctx, user)
-
 	respond.OK(w, resp)
 }
 
@@ -437,8 +430,6 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-
-	h.publishLoginEvent(r.Context(), user)
 
 	// Return in the format the admin app expects. Admin now also stores the
 	// refresh_token so silent refresh works there (#84); unchanged for any
@@ -771,24 +762,4 @@ func (h *Handler) fetchGoogleUserInfo(accessToken string) (*googleUserInfo, erro
 		return nil, fmt.Errorf("decode google userinfo: %w", err)
 	}
 	return &info, nil
-}
-
-// publishLoginEvent sends a user.login event to RedPanda asynchronously.
-func (h *Handler) publishLoginEvent(_ context.Context, user *store.User) {
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		evt, err := events.NewEvent("user.login", "auth-service", "", map[string]string{
-			"user_id": user.ID,
-			"email":   user.Email,
-		})
-		if err != nil {
-			slog.Error("failed to create login event", "error", err)
-			return
-		}
-		if err := h.Producer.Publish(ctx, "auth.events", evt); err != nil {
-			slog.Warn("failed to publish login event (non-blocking)", "error", err)
-		}
-	}()
 }

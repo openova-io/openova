@@ -25,9 +25,7 @@ import (
 type Handler struct {
 	Store *store.Store
 	// Producer is the canonical event-bus surface. In production this
-	// is an events.MultiPublisher (NATS + optional Redpanda); a plain
-	// *events.Producer also satisfies the interface so the legacy
-	// Catalyst-Zero path keeps working without a wiring change.
+	// is an events.MultiPublisher wired to NATS only.
 	Producer     events.BrokerPublisher
 	Generator    *gitops.ManifestGenerator
 	GitHubClient *ghclient.Client

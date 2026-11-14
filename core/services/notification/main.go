@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
 	"github.com/openova-io/openova/core/services/notification/handlers"
@@ -29,9 +28,6 @@ func main() {
 	smtpPort := getEnv("SMTP_PORT", "25")
 	smtpFrom := getEnv("SMTP_FROM", "noreply@openova.io")
 	jwtSecret := getEnv("JWT_SECRET", "")
-	// REDPANDA_BROKERS — legacy Kafka-protocol bus. Empty on Sovereigns
-	// (no Redpanda exists in cluster); populated on Catalyst-Zero.
-	redpandaBrokersRaw := getEnv("REDPANDA_BROKERS", "")
 	// NATS_URL — canonical JetStream bus per ADR-0001 §6. On Sovereigns
 	// wired to nats-jetstream.nats-system.svc.cluster.local:4222.
 	natsURL := getEnv("NATS_URL", "")
@@ -49,14 +45,9 @@ func main() {
 
 	mailer := handlers.NewMailer(smtpHost, smtpPort, smtpFrom)
 
-	// Wire NATS + Kafka legs. Kafka leg is optional — when
-	// REDPANDA_BROKERS is empty (Sovereign default) we skip it; same
-	// for NATS_URL on Catalyst-Zero. At least one MUST be present or
-	// MultiSubscriber refuses to construct.
-	var (
-		natsConn  *events.NATSConn
-		kafkaProd *events.Producer
-	)
+	// Wire NATS, the only event bus. Without NATS_URL the
+	// MultiSubscriber refuses to construct and the service exits.
+	var natsConn *events.NATSConn
 	if natsURL != "" {
 		nc, err := events.ConnectNATS(natsURL)
 		if err != nil {
@@ -66,26 +57,15 @@ func main() {
 		natsConn = nc
 		slog.Info("connected to NATS JetStream", "url", natsURL)
 	}
-	if redpandaBrokersRaw != "" {
-		kp, err := events.NewProducer(strings.Split(redpandaBrokersRaw, ","))
-		if err != nil {
-			slog.Warn("failed to create RedPanda producer", "error", err)
-		} else {
-			kafkaProd = kp
-			slog.Info("connected to RedPanda (legacy)", "brokers", redpandaBrokersRaw)
-		}
-	}
 	enricher := handlers.NewEnricher(tenantURL, authURL, parentZone, []byte(jwtSecret))
 
 	h := &handlers.Handler{
 		Mailer:   mailer,
-		Producer: kafkaProd,
 		Enricher: enricher,
 	}
 
 	// Fan in every event type the service reacts to. The MultiSubscriber
-	// maps each to its canonical NATS subject (catalyst.<event.Type>)
-	// AND wraps the legacy Kafka topic list for Catalyst-Zero.
+	// maps each to its canonical NATS subject (catalyst.<event.Type>).
 	eventTypes := []string{
 		// user / auth
 		"user.login",
@@ -106,33 +86,13 @@ func main() {
 		// member
 		"member.invited",
 	}
-	var kafkaConsumer *events.Consumer
-	if kafkaProd != nil {
-		topics := []string{
-			events.TopicUserEvents,
-			events.TopicOrderEvents,
-			events.TopicBillingEvents,
-			events.TopicProvisionEvents,
-			events.TopicTenantEvents,
-			events.TopicDomainEvents,
-			events.LegacyTopics.AuthEvents,
-			events.LegacyTopics.DomainEvents,
-		}
-		kc, err := events.NewConsumer(strings.Split(redpandaBrokersRaw, ","), "notification", topics)
-		if err != nil {
-			slog.Warn("failed to create kafka consumer", "error", err)
-		} else {
-			kafkaConsumer = kc
-		}
-	}
 	subscriber, err := events.NewMultiSubscriber(events.MultiSubscriberConfig{
 		NATS:       natsConn,
-		Kafka:      kafkaConsumer,
 		Group:      "notification",
 		EventTypes: eventTypes,
 	})
 	if err != nil {
-		slog.Error("event bus misconfigured — neither NATS_URL nor REDPANDA_BROKERS set", "error", err)
+		slog.Error("event bus misconfigured — NATS_URL is not set", "error", err)
 		os.Exit(1)
 	}
 
@@ -152,9 +112,6 @@ func main() {
 		<-sigCh
 		cancel()
 		subscriber.Close()
-		if kafkaProd != nil {
-			kafkaProd.Close()
-		}
 		os.Exit(0)
 	}()
 

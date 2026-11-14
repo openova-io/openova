@@ -22,9 +22,6 @@ func main() {
 	// Configuration from environment.
 	mongoURI := getEnv("MONGODB_URI", "mongodb://ferretdb:27017")
 	mongoDBName := getEnv("MONGODB_DB", "domains")
-	// REDPANDA_BROKERS — legacy Kafka-protocol bus. Empty on Sovereigns
-	// (no Redpanda exists in cluster); populated on Catalyst-Zero.
-	redpandaBrokersRaw := getEnv("REDPANDA_BROKERS", "")
 	// NATS_URL — canonical JetStream bus per ADR-0001 §6. On Sovereigns
 	// wired to nats-jetstream.nats-system.svc.cluster.local:4222.
 	natsURL := getEnv("NATS_URL", "")
@@ -54,12 +51,9 @@ func main() {
 	}()
 	slog.Info("connected to FerretDB", "uri", mongoURI, "db", mongoDBName)
 
-	// Wire NATS + Kafka legs. At least one MUST be present or
-	// MultiPublisher / MultiSubscriber refuse to construct.
-	var (
-		natsConn  *events.NATSConn
-		kafkaProd *events.Producer
-	)
+	// Wire NATS, the only event bus. Without NATS_URL the
+	// MultiPublisher refuses to construct and the service exits.
+	var natsConn *events.NATSConn
 	if natsURL != "" {
 		nc, err := events.ConnectNATS(natsURL)
 		if err != nil {
@@ -69,18 +63,9 @@ func main() {
 		natsConn = nc
 		slog.Info("connected to NATS JetStream", "url", natsURL)
 	}
-	if redpandaBrokersRaw != "" {
-		kp, err := events.NewProducer(strings.Split(redpandaBrokersRaw, ","))
-		if err != nil {
-			slog.Error("failed to create RedPanda producer", "error", err)
-			os.Exit(1)
-		}
-		kafkaProd = kp
-		slog.Info("connected to RedPanda (legacy)", "brokers", redpandaBrokersRaw)
-	}
-	publisher, err := events.NewMultiPublisher(natsConn, kafkaProd)
+	publisher, err := events.NewMultiPublisher(natsConn, nil)
 	if err != nil {
-		slog.Error("event bus misconfigured — neither NATS_URL nor REDPANDA_BROKERS set", "error", err)
+		slog.Error("event bus misconfigured — NATS_URL is not set", "error", err)
 		os.Exit(1)
 	}
 	defer publisher.Close()
@@ -95,25 +80,10 @@ func main() {
 	}
 
 	// Start the tenant-events consumer so tenant.deleted cascades remove
-	// domain records (subdomains + BYOD). See issue #95. Listens on
-	// `catalyst.tenant.deleted` (NATS, Sovereign default) AND legacy
-	// `org.tenant.events` (Kafka, Catalyst-Zero default).
-	var kafkaConsumer *events.Consumer
-	if redpandaBrokersRaw != "" {
-		kc, err := events.NewConsumer(
-			strings.Split(redpandaBrokersRaw, ","),
-			"domain-tenant-events",
-			[]string{"org.tenant.events"},
-		)
-		if err != nil {
-			slog.Error("failed to create kafka consumer", "error", err)
-			os.Exit(1)
-		}
-		kafkaConsumer = kc
-	}
+	// domain records (subdomains + BYOD). See issue #95. Listens on the
+	// NATS subject `catalyst.tenant.deleted`.
 	tenantSubscriber, err := events.NewMultiSubscriber(events.MultiSubscriberConfig{
 		NATS:       natsConn,
-		Kafka:      kafkaConsumer,
 		Group:      "domain-tenant-events",
 		EventTypes: []string{"tenant.deleted"},
 	})
@@ -130,8 +100,6 @@ func main() {
 	}()
 	slog.Info("domain tenant-events consumer started",
 		"nats_subject", "catalyst.tenant.deleted",
-		"kafka_topic", "org.tenant.events",
-		"kafka_enabled", kafkaConsumer != nil,
 		"nats_enabled", natsConn != nil,
 		"group", "domain-tenant-events")
 
