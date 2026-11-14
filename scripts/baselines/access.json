@@ -1,0 +1,42 @@
+{
+  "allow": [
+    {"count": 1, "metric": "ACC-GD5", "owner": "FND", "path": "platform/k8s-ws-proxy/chart/values.yaml", "reason": "the image tag that CI writes after each image build; it leaves when CI writes digests"}
+  ],
+  "counts": {
+    "ACC-GD1": {
+      "platform/guacamole/chart/templates/jdbc-schema-seed-job.yaml": 1
+    },
+    "ACC-GD2": {
+      "platform/guacamole/chart/templates/jdbc-schema-seed-job.yaml": 1
+    },
+    "ACC-GD3": {
+      "platform/guacamole/chart/templates/jdbc-schema-seed-job.yaml": 4
+    },
+    "ACC-GD4": {
+      "platform/guacamole/chart/templates/recordings-pvc-migrate-hook.yaml": 1,
+      "platform/guacamole/chart/templates/seaweedfs-pvc.yaml": 1,
+      "platform/guacamole/chart/values.yaml": 3
+    },
+    "ACC-GD5": {
+      "platform/guacamole/chart/values.yaml": 2
+    },
+    "ACC-GD6": {
+      "products/catalyst/bootstrap/api/cmd/api/routes_sovereigns.go": 1,
+      "products/catalyst/bootstrap/api/cmd/api/testdata/routes.golden": 1,
+      "products/catalyst/bootstrap/api/internal/handler/handler.go": 2,
+      "products/catalyst/bootstrap/api/internal/handler/k8s_exec.go": 12,
+      "products/catalyst/bootstrap/api/internal/handler/k8s_exec_test.go": 9,
+      "products/catalyst/bootstrap/api/internal/handler/shells_issue.go": 6,
+      "products/catalyst/bootstrap/api/internal/handler/shells_issue_test.go": 15
+    },
+    "ACC-GD7": {
+      "products/catalyst/bootstrap/api/internal/handler/k8s_exec.go": 2
+    },
+    "ACC-GD8": {
+      "platform/guacamole/README.md": 1,
+      "platform/guacamole/blueprint.yaml": 1,
+      "platform/guacamole/chart/README.md": 1
+    }
+  },
+  "schema": "openova.io/guard-baseline/v1"
+}
