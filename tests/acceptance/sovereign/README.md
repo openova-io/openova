@@ -35,7 +35,7 @@ ACCEPT_MINT=1 scripts/acceptance-sovereign.sh hw307 --record
 
 Exit codes: `0` PASS, `1` an assertion failed, `2` usage error or a gate manifest that cannot be used, `3` harness error.
 
-In CI, use `.github/workflows/acceptance-sovereign.yaml` (`workflow_dispatch` or
+In CI, use `.github/workflows/foundation-gate.yaml` (`workflow_dispatch` or
 `workflow_call`). It needs the `ACCEPTANCE_KUBECONFIG_A/B` secrets, and a
 runner that can reach the Sovereign apiservers.
 
