@@ -30,6 +30,8 @@ on:
       - '.github/workflows/check-release-lockstep-writer.yaml'
       - 'scripts/check-release-lockstep-writer.py'
       - 'scripts/sync-catalog-seed-pin.py'
+      - 'scripts/sync-funnel-pin.py'
+      - 'core/services/provisioning/gitops/helmrelease_apps.go'
       - 'scripts/check-bootstrap-kit-pin-sync.sh'
       - 'scripts/check-umbrella-republish-gate.py'
       - 'products/catalyst/bootstrap/ui/scripts/build-catalog.mjs'
@@ -42,6 +44,8 @@ on:
       - '.github/workflows/check-release-lockstep-writer.yaml'
       - 'scripts/check-release-lockstep-writer.py'
       - 'scripts/sync-catalog-seed-pin.py'
+      - 'scripts/sync-funnel-pin.py'
+      - 'core/services/provisioning/gitops/helmrelease_apps.go'
       - 'scripts/check-bootstrap-kit-pin-sync.sh'
       - 'scripts/check-umbrella-republish-gate.py'
       - 'products/catalyst/bootstrap/ui/scripts/build-catalog.mjs'
@@ -77,3 +81,9 @@ jobs:
 
       - name: Self-test the catalog-seed sync helper
         run: python3 scripts/sync-catalog-seed-pin.py --self-test
+
+      # The funnel pin writer (#7829) reads the generator switch and the constant of
+      # helmrelease_apps.go; its self-test also parses the real file, so a change
+      # there that the writer can no longer read fails here, not in a release run.
+      - name: Self-test the funnel pin sync helper
+        run: python3 scripts/sync-funnel-pin.py --self-test
