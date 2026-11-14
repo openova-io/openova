@@ -1,0 +1,52 @@
+schema: openova.io/plan-wrong/v1
+id: INF-110
+ticket_rev: 1
+base_commit: aa0e31d9940895c30821059ecf493b66e1688de2
+stage: check
+ref: Reject NodePorts (sources + rendered charts)
+command: |
+    gh api repos/openova-io/openova/actions/jobs/132391742857/logs | grep -B 40 -m 1 '##\[error\]' | cut -c30-300
+expected: |
+    the check finishes green
+actual: |
+    OK — platform/seaweedfs/chart renders zero NodePorts.
+    OK — platform/self-sovereign-cutover/chart renders zero NodePorts.
+    OK — platform/sigstore/chart renders zero NodePorts.
+    SKIP: platform/sovereign-tls-vars/chart does not render offline (known fail-loud values guard) — Phase 1 covers its sources.
+    OK — platform/spire/chart renders zero NodePorts.
+    OK — platform/sso-bridge/chart renders zero NodePorts.
+    OK — platform/stalwart-sovereign/chart renders zero NodePorts.
+    OK — platform/stalwart-tenant/chart renders zero NodePorts.
+    OK — platform/storage-ready/chart renders zero NodePorts.
+    OK — platform/stunner/chart renders zero NodePorts.
+    OK — platform/syft-grype/chart renders zero NodePorts.
+    OK — platform/tempo/chart renders zero NodePorts.
+    OK — platform/temporal/chart renders zero NodePorts.
+    SKIP: platform/topology-lib/chart is a library chart (rendered via its consumers).
+    OK — platform/trivy/chart renders zero NodePorts.
+    OK — platform/valkey/chart renders zero NodePorts.
+    OK — platform/velero-hcs/chart renders zero NodePorts.
+    OK — platform/velero/chart renders zero NodePorts.
+    OK — platform/vllm/chart renders zero NodePorts.
+    OK — platform/vpa/chart renders zero NodePorts.
+    OK — platform/wordpress-tenant/chart renders zero NodePorts.
+
+    NOTE: these allowlisted charts rendered ONLY because an untracked
+          dependency tarball is cached in <chart>/charts/ on this machine.
+          CI checks out clean, so they still cannot build there.
+          Do NOT remove their allowlist entries on the strength of this run:
+      platform/sealed-secrets/chart
+          To test for real: git clean -xdf the chart dir, then re-run.
+
+    OK — §854 negative-test fixtures intact (still NodePort): platform/kyverno-policies/chart/tests/forbid-nodeport-service/resource-services.yaml
+
+    ───────────────────────────────────────────────────────────────
+    NodePorts are ABSOLUTELY FORBIDDEN (founder 2026-07-03, #4765).
+    The gateway is served DIRECT (cilium LB-IPAM VIP / shared-EIP, or
+    gateway-api hostNetwork node:443/:80); clustermesh dials the VIP
+    :2379. If a fix appears to need a NodePort, it is the WRONG fix —
+    find the no-NodePort path (LoadBalancer + lbipam.cilium.io/sharing-
+    key: sovereign-vip, or hostNetwork host ports).
+    ───────────────────────────────────────────────────────────────
+    ##[error]Process completed with exit code 1.
+reported_at: 2026-11-14T08:53:05Z
