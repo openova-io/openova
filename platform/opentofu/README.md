@@ -49,14 +49,9 @@ flowchart LR
 
 ## Supported Providers
 
-An OpenTofu module exists for two clouds. The table shows what is in this repository today. The target contract for a provider is [ADR-0016](../../docs/adr/0016-cloud-abstraction-contract.md).
+Each provider pack is a folder `infra/providers/<name>/` that holds one OpenTofu module. The generated file [`docs/generated/providers.md`](../../docs/generated/providers.md) lists every pack, with its module, its lifecycle, its regions and its machine sizes, read from the pack files. The target contract for a provider is [ADR-0016](../../docs/adr/0016-cloud-abstraction-contract.md).
 
-| Cloud | Status | OpenTofu module | Crossplane provider packages on a Sovereign of this cloud |
-|-------|--------|-----------------|-----------------------------------------------------------|
-| Huawei Cloud Stack | Delivery target | `infra/providers/huawei/` | `provider-opentofu` |
-| Hetzner Cloud | Retained | `infra/providers/hetzner/` | `provider-opentofu` and `provider-hcloud` |
-
-Oracle Cloud, AWS, GCP and Azure have no OpenTofu module and no Crossplane provider in this repository. No native Crossplane provider for Huawei is installed.
+The cluster template installs one Crossplane provider package on every Sovereign: `provider-opentofu`, from `clusters/_template/infrastructure/providers/base/provider-opentofu.yaml`. No provider module adds another one.
 
 ---
 
