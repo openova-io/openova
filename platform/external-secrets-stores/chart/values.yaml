@@ -134,18 +134,15 @@ webhookGate:
   image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
   imagePullPolicy: IfNotPresent
 
-# Remote-key scope (SEC-080): templates/remote-key-scope-policy.yaml and
-# templates/legacy-key-map.yaml. Any namespace may use the cluster-wide stores,
-# so an admission rule limits the OpenBao key that an ExternalSecret or a
-# PushSecret names. A key is admitted when it starts with
-# <appsPrefix>/<namespace>/, with <namespace>/, or with a prefix that
-# legacyKeyMap lists for the namespace. Namespaces with the label
+# Remote-key scope (SEC-080): templates/remote-key-scope-policy.yaml. Any
+# namespace may use the cluster-wide stores, so an admission rule limits the
+# OpenBao key that an ExternalSecret or a PushSecret names. A key is admitted
+# when it starts with <appsPrefix>/<namespace>/, with <namespace>/, or with a
+# prefix that legacyKeyMap lists for the namespace. Namespaces with the label
 # openova.io/organization are not judged.
 remoteKeyScope:
   # Name of the ValidatingAdmissionPolicy and of its binding.
   name: external-secret-remote-key-scope
-  # The ConfigMap that carries legacyKeyMap, in the release namespace.
-  configMapName: eso-legacy-key-map
   # A namespace's own prefix on the mount secret/ is <appsPrefix>/<namespace>/.
   # Same value as bp-openbao peerTrust.kvPathPrefix.
   appsPrefix: openova/apps
@@ -156,6 +153,10 @@ remoteKeyScope:
 # that bp-sso-bridge applies (sso/<client> and sso/<realm>/<client>). A prefix
 # is the first segment of the key and a slash. This list only shrinks: a chart
 # that moves to its own prefix removes its namespace here.
+# Helm writes this map into the admission rule itself, as a CEL map literal.
+# The rule reads no ConfigMap: on a k3s v1.31 cluster a rule with a ConfigMap
+# parameter refused every request. A change here reaches the cluster with the
+# next upgrade of this chart.
 legacyKeyMap:
   gitea: ["sso/"]
   grafana: ["sso/"]

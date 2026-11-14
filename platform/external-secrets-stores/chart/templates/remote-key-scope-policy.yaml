@@ -7,24 +7,61 @@ vault-<peer>. So this rule limits the remote KEY, not the store. A key is
 admitted when it starts with
   - <appsPrefix>/<namespace>/   the namespace's own prefix on the mount secret/
   - <namespace>/                the namespace's own prefix on the mount mounted/
-  - a prefix that ConfigMap eso-legacy-key-map lists for the namespace
-    (legacy-key-map.yaml, values.legacyKeyMap).
+  - a prefix that values.legacyKeyMap lists for the namespace.
 A dataFrom entry with neither extract nor find is a generator and names no
 key. A find without a path searches the whole store and is refused.
+
+The policy has no parameter. Helm writes values.legacyKeyMap into the
+variable legacyMap as a CEL map literal, keys in sorted order. An earlier
+form read the map from a ConfigMap parameter. On a k3s v1.31 cluster the
+binding never found that ConfigMap, although it existed, and the rule
+refused every request ("no params found for policy binding"). The map now
+changes with a chart upgrade, like the rule itself.
 
 Namespaces with the label openova.io/organization are not judged. They are
 created at run time, and their keys carry the Organization's name, which no
 static list can hold.
 
-failurePolicy Fail and parameterNotFoundAction Deny: when the rule or its
-ConfigMap cannot be read, the request is refused, never let through.
+failurePolicy Fail: when the rule cannot be evaluated, the request is
+refused, never let through.
+
+The checks of values.legacyKeyMap below fail the render. A key is a
+namespace name. A value is a list that is not empty. A prefix ends with a
+slash and holds no comma. So no key or prefix holds a quote, and the JSON
+form of the map is a valid CEL map literal.
+
+Tests: tests/remote-key-scope-render.sh checks the render.
+core/cmd/cert-manager-dynadot-webhook/remotekeyscope/ evaluates the rendered
+policy with the Kubernetes admission CEL evaluator.
 */ -}}
 {{- $rks := .Values.remoteKeyScope | default dict }}
 {{- $name := $rks.name | default "external-secret-remote-key-scope" }}
-{{- $cm := $rks.configMapName | default "eso-legacy-key-map" }}
 {{- $apps := $rks.appsPrefix | default "openova/apps" | trimSuffix "/" }}
 {{- if not (regexMatch "^[a-z0-9][-a-z0-9._/]*[a-z0-9]$" $apps) }}
 {{- fail (printf "remoteKeyScope.appsPrefix: %q is not a path" $apps) }}
+{{- end }}
+{{- $map := .Values.legacyKeyMap | default dict }}
+{{- if not (kindIs "map" $map) }}
+{{- fail "legacyKeyMap: the value must be a map of namespace to a list of prefixes" }}
+{{- end }}
+{{- range $ns, $prefixes := $map }}
+{{- if not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" $ns) }}
+{{- fail (printf "legacyKeyMap: %q is not a namespace name" $ns) }}
+{{- end }}
+{{- if not (kindIs "slice" $prefixes) }}
+{{- fail (printf "legacyKeyMap.%s: the value must be a list of prefixes" $ns) }}
+{{- end }}
+{{- if not $prefixes }}
+{{- fail (printf "legacyKeyMap.%s: the list is empty; remove the namespace instead" $ns) }}
+{{- end }}
+{{- range $prefixes }}
+{{- if not (kindIs "string" .) }}
+{{- fail (printf "legacyKeyMap.%s: prefix %v is not a string" $ns .) }}
+{{- end }}
+{{- if not (regexMatch "^[a-z0-9][-a-z0-9._/]*/$" .) }}
+{{- fail (printf "legacyKeyMap.%s: prefix %q must be a path that ends with a slash, without a comma" $ns .) }}
+{{- end }}
+{{- end }}
 {{- end }}
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
@@ -34,9 +71,6 @@ metadata:
     catalyst.openova.io/component: external-secrets
 spec:
   failurePolicy: Fail
-  paramKind:
-    apiVersion: v1
-    kind: ConfigMap
   matchConstraints:
     resourceRules:
       - apiGroups: ["external-secrets.io"]
@@ -50,8 +84,10 @@ spec:
       expression: "'{{ $apps }}/' + object.metadata.namespace + '/'"
     - name: ownB
       expression: "object.metadata.namespace + '/'"
+    - name: legacyMap
+      expression: {{ toJson $map | squote }}
     - name: legacy
-      expression: "has(params.data) && variables.ns in params.data ? params.data[variables.ns].split(',') : []"
+      expression: "variables.ns in variables.legacyMap ? variables.legacyMap[variables.ns] : []"
     - name: keys
       expression: >-
         (has(object.spec.data) ? object.spec.data.map(d,
@@ -60,7 +96,7 @@ spec:
         has(f.extract) ? f.extract.key : (has(f.find) ? (has(f.find.path) && f.find.path != '' ? f.find.path : '*') : '')) : [])
   validations:
     - expression: "variables.keys.all(k, k == '' || k.startsWith(variables.ownA) || k.startsWith(variables.ownB) || variables.legacy.exists(p, p != '' && k.startsWith(p)))"
-      message: "remote key must start with {{ $apps }}/<namespace>/, with <namespace>/, or with a prefix listed for this namespace in ConfigMap {{ $cm }}"
+      message: "remote key must start with {{ $apps }}/<namespace>/, with <namespace>/, or with a prefix listed for this namespace in values.legacyKeyMap"
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
@@ -71,10 +107,6 @@ metadata:
 spec:
   policyName: {{ $name | quote }}
   validationActions: ["Deny"]
-  paramRef:
-    name: {{ $cm | quote }}
-    namespace: {{ .Release.Namespace | quote }}
-    parameterNotFoundAction: Deny
   matchResources:
     namespaceSelector:
       matchExpressions:
