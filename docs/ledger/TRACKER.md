@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T19:45:03Z` |
+| Last refreshed | `2026-11-14T20:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-14T19:54 | [#7844](https://github.com/openova-io/openova/pull/7844) | #7838 | fix(plan): two tasks that share only record files may run to |
+| 2026-11-14T19:45 | [#7836](https://github.com/openova-io/openova/pull/7836) | #7087 | docs(ledger): plan update |
 | 2026-11-14T19:38 | [#7835](https://github.com/openova-io/openova/pull/7835) | #7818 | fix(release): the release bump writes the funnel chart pin w |
 | 2026-11-14T19:34 | [#7833](https://github.com/openova-io/openova/pull/7833) | #7821 | refactor(api): delete the second showback meter and link the |
 | 2026-11-14T19:07 | [#7832](https://github.com/openova-io/openova/pull/7832) | #7804 | fix(suite): a run without journeys leaves out the discovery  |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-14T15:35 | [#7778](https://github.com/openova-io/openova/pull/7778) | #7725 | fix(cloud-init): the parent-bootstrap failure exits 98 and a |
 | 2026-11-14T15:40 | [#7777](https://github.com/openova-io/openova/pull/7777) | #7744 | feat(lifecycle): sweep the cloud account after a wipe and re |
 | 2026-11-14T15:04 | [#7771](https://github.com/openova-io/openova/pull/7771) | #7087 | docs(ledger): plan update |
-| 2026-11-14T18:20 | [#7770](https://github.com/openova-io/openova/pull/7770) | #2851 | fix(ci): pin the openclaw runtime image by its commit tag, n |
-| 2026-11-14T14:52 | [#7759](https://github.com/openova-io/openova/pull/7759) | #7087 | docs(ledger): plan update |
 
 ---
 
