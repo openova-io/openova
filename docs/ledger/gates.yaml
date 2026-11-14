@@ -704,7 +704,7 @@ checks:
   needs: []
   proof: running
   asserts: Zero-change plan on a copy of a live Huawei working directory with regenerated variables
-  delivered_by: CLD-090
+  delivered_by: CLD-094
 - id: CLD-G13
   title: The installation-literal check exits 0
   owner: CLD
