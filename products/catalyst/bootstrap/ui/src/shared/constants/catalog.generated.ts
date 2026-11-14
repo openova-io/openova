@@ -4645,7 +4645,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.3.2",
+    "version": "1.3.3",
     "section": "pts-3-5-storage-and-data",
     "depends": [
       "bp-cert-manager"
