@@ -18,17 +18,30 @@ name: go-lint
 # repository: golangci-lint refuses a module that is newer than the Go that
 # built it. The self-test uses that highest line, so it fails when GO_VERSION
 # is too old.
+#
+# The job also runs the guards that need Go and no other tool, as the steps at
+# its end (FND-059): the provider contract (scripts/check-provider-contract.sh)
+# and the variables documents (scripts/check-variables-documents.sh). Each was a
+# workflow of its own. A step is named "<old check name> | <old step name>", and
+# each sets up the Go of its own module first, as its old workflow did. These
+# steps run also when an earlier step failed (!cancelled()), so neither a lint
+# finding nor a red guard hides another guard. They keep the events of their old
+# workflows: the provider contract also runs on every push to main, which is why
+# this workflow has that trigger; the lint finds no changed module there. A push
+# to main is never cancelled by the next one.
 
 on:
   pull_request:
   merge_group:
+  push:
+    branches: [main]
 
 permissions:
   contents: read
 
 concurrency:
   group: go-lint-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 env:
   GO_VERSION: '1.26'
@@ -38,7 +51,7 @@ jobs:
   go-lint:
     name: go-lint
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 80
     steps:
       # Full history: the merge base with origin/main must be reachable.
       - uses: actions/checkout@v4
@@ -158,3 +171,32 @@ jobs:
             echo "::endgroup::"
           done <<< "$MODULES"
           exit "$fail"
+
+      - name: 'provider-contract | set up Go'
+        if: ${{ !cancelled() }}
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: products/catalyst/bootstrap/api/go.mod
+          cache-dependency-path: products/catalyst/bootstrap/api/go.sum
+      - name: 'provider-contract self-test | bash scripts/check-provider-contract.sh --self-test'
+        if: ${{ !cancelled() }}
+        run: bash scripts/check-provider-contract.sh --self-test
+      - name: 'provider-contract check | bash scripts/check-provider-contract.sh'
+        if: ${{ !cancelled() }}
+        run: bash scripts/check-provider-contract.sh
+      - name: 'variables-documents | set up Go'
+        if: ${{ !cancelled() && github.event_name != 'push' }}
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: core/controllers/go.mod
+          cache-dependency-path: core/controllers/go.sum
+      - name: 'variables-documents | Tests of the package upstream'
+        if: ${{ !cancelled() && github.event_name != 'push' }}
+        working-directory: core/controllers
+        run: go test -count=1 ./pkg/upstream/...
+      - name: 'variables-documents | Self-test (each rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'push' }}
+        run: bash scripts/check-variables-documents.sh --self-test
+      - name: 'variables-documents | Guard G8'
+        if: ${{ !cancelled() && github.event_name != 'push' }}
+        run: bash scripts/check-variables-documents.sh
