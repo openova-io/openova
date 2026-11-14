@@ -99,7 +99,7 @@ type: application
 # Migration: rated_lines.service_period_start/end, cost_sources.
 # prepaid_amount, spend_stops. No chart template changed (the platform door
 # and its projected token are the suspension's).
-version: 0.1.65
+version: 0.1.66
 # appVersion is the default image tag (chargeback.image in _helpers.tpl);
 # build-chargeback.yaml derives the pushed tag from this field so the two
 # can never drift.
