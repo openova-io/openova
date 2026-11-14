@@ -177,10 +177,11 @@ numbers come from the two tools of the flight checklist:
 - `allowed`: the limit that the pre-flight gate `scripts/prov-preflight.sh`
   printed after the used count in its checks 3c (`networks`), 3d (`volumes`)
   and 3e (`buckets`). A kind whose limit no tool printed gets `-`.
-- `dns_records`: `left` is the number of DNS records of the wiped deployment
-  that its parent zone still held after the wipe; `used` and `allowed` are
-  `-`. While no tool counts them, write `dns_records=-/-/-`; check FND-G13
-  then fails, because it never assumes 0.
+- `dns_records`: `left` is the length of the list `leftovers` of the entry
+  `dns_records` of the same report: the names of the wiped deployment that the
+  authoritative servers of its parent domain still answer. That entry has no
+  `used`; `used` and `allowed` are `-`. Check FND-G13 never assumes 0: a run
+  without that entry gets `dns_records=-/-/-` and fails.
 
 With `--manifest`, a `run` selects every registered check whose entry is
 `expected-fail` or `required`, and runs them after the journeys. An entry that

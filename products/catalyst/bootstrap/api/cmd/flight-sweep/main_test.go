@@ -41,30 +41,47 @@ func TestRunExitCodes(t *testing.T) {
 	with := func(p providers.CloudProvider) func(string) (providers.CloudProvider, error) {
 		return func(string) (providers.CloudProvider, error) { return p, nil }
 	}
+	dnsGone := func(context.Context, string) (*dnsKind, error) {
+		return &dnsKind{Kind: "dns_records", Asked: 3, Leftovers: []string{}}, nil
+	}
+	dnsLeft := func(context.Context, string) (*dnsKind, error) {
+		return &dnsKind{Kind: "dns_records", Asked: 3, Leftovers: []string{"console.t1.omani.works"}}, nil
+	}
+	dnsFailed := func(context.Context, string) (*dnsKind, error) { return nil, errors.New("no reply") }
 	cases := []struct {
 		name string
 		args []string
 		get  func(string) (providers.CloudProvider, error)
+		dns  func(context.Context, string) (*dnsKind, error)
 		want int
 	}{
-		{"no flag", nil, with(lister{rep: clean}), 2},
-		{"a document that is not there", []string{"-vars", "/nonexistent/doc.json"}, with(lister{rep: clean}), 2},
-		{"a document that is not JSON", []string{"-vars", doc(t, "x")}, with(lister{rep: clean}), 2},
-		{"a document without deployment_id", []string{"-vars", doc(t, `{"provider":"x","sovereign_fqdn":"f"}`)}, with(lister{rep: clean}), 2},
-		{"an unknown provider", []string{"-vars", doc(t, good)}, func(string) (providers.CloudProvider, error) { return nil, errors.New("unknown") }, 3},
-		{"a provider without a lister", []string{"-vars", doc(t, good)}, with(plain{}), 3},
-		{"a listing that failed", []string{"-vars", doc(t, good)}, with(lister{err: errors.New("status 500")}), 3},
-		{"leftovers", []string{"-vars", doc(t, good)}, with(lister{rep: left}), 1},
-		{"a clean account", []string{"-vars", doc(t, good)}, with(lister{rep: clean}), 0},
+		{"no flag", nil, with(lister{rep: clean}), dnsGone, 2},
+		{"a document that is not there", []string{"-vars", "/nonexistent/doc.json"}, with(lister{rep: clean}), dnsGone, 2},
+		{"a document that is not JSON", []string{"-vars", doc(t, "x")}, with(lister{rep: clean}), dnsGone, 2},
+		{"a document without deployment_id", []string{"-vars", doc(t, `{"provider":"x","sovereign_fqdn":"f"}`)}, with(lister{rep: clean}), dnsGone, 2},
+		{"an unknown provider", []string{"-vars", doc(t, good)}, func(string) (providers.CloudProvider, error) { return nil, errors.New("unknown") }, dnsGone, 3},
+		{"a provider without a lister", []string{"-vars", doc(t, good)}, with(plain{}), dnsGone, 3},
+		{"a listing that failed", []string{"-vars", doc(t, good)}, with(lister{err: errors.New("status 500")}), dnsGone, 3},
+		{"a DNS name that could not be asked", []string{"-vars", doc(t, good)}, with(lister{rep: clean}), dnsFailed, 3},
+		{"leftovers", []string{"-vars", doc(t, good)}, with(lister{rep: left}), dnsGone, 1},
+		{"a DNS name that still answers", []string{"-vars", doc(t, good)}, with(lister{rep: clean}), dnsLeft, 1},
+		{"a clean account", []string{"-vars", doc(t, good)}, with(lister{rep: clean}), dnsGone, 0},
 	}
 	for _, c := range cases {
 		var out, errb bytes.Buffer
-		if got := run(c.args, &out, &errb, c.get); got != c.want {
+		if got := run(c.args, &out, &errb, c.get, c.dns); got != c.want {
 			t.Errorf("%s: exit %d, want %d (stderr %q)", c.name, got, c.want, errb.String())
 		}
-		var rep struct{ LeftoverCount *int }
-		if c.want < 2 && (json.Unmarshal(out.Bytes(), &rep) != nil || rep.LeftoverCount == nil || *rep.LeftoverCount != c.want) {
-			t.Errorf("%s: stdout %q is not a report with leftoverCount %d", c.name, out.String(), c.want)
+		var rep struct {
+			LeftoverCount *int
+			Kinds         []map[string]any
+		}
+		if c.want < 2 && (json.Unmarshal(out.Bytes(), &rep) != nil || rep.LeftoverCount == nil || *rep.LeftoverCount != c.want ||
+			len(rep.Kinds) != 2 || rep.Kinds[1]["kind"] != "dns_records") {
+			t.Errorf("%s: stdout %q is not a report with leftoverCount %d that ends with the kind dns_records", c.name, out.String(), c.want)
+		}
+		if c.want >= 2 && out.Len() != 0 {
+			t.Errorf("%s: exit %d printed a report: %q", c.name, c.want, out.String())
 		}
 	}
 }
