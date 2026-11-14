@@ -47,7 +47,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w" \
     -o /continuum-controller ./cmd
 
-FROM docker.io/library/alpine:3.20
+FROM docker.io/library/alpine:3.24
 
 # CA certs for HTTPS calls to PDM, the lease witness (Cloudflare KV),
 # and cross-Sovereign instances. tzdata so log timestamps render
