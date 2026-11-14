@@ -77,12 +77,12 @@ wordpress:
     # digest of the published image; the human-readable tag is kept alongside
     # for forensics.
     repository: ghcr.io/openova-io/openova/wordpress-tenant-pg
-    tag: "2c1f5b0"
+    tag: "b46ef05"
     # Pushed manifest digest of `wordpress-tenant-pg:<tag>` — populated by the
     # build workflow's build-push-action `outputs.digest` on first build.
     # Empty until then; the helper omits `@digest` when empty so the chart
     # still renders + pulls by tag during the bootstrap window.
-    digest: "sha256:22c37ed0ca577d4319353865e31629f253abac48a302f41b30320bf9bc1377cd"
+    digest: "sha256:fa6ff64d6a7f14375c9dea0c7277923cc544650b007468155c1887f3d70b0b7f"
     pullPolicy: IfNotPresent
     # ─── Image pull secrets (#4152, Refs #3858) ──────────────────────────
     # Since #4153 the runtime image is the CUSTOM

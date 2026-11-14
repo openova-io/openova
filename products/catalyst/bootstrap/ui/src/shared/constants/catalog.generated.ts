@@ -1155,7 +1155,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.3.5",
+    "version": "1.3.6",
     "section": "pts-3-2-gitops-and-iac",
     "depends": [
       "bp-crossplane"
@@ -2299,7 +2299,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.18",
+    "version": "0.1.19",
     "section": "pts-3-3-security-and-policy",
     "depends": [
       "bp-sealed-secrets"
@@ -3638,7 +3638,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "1.4.158",
+    "version": "1.4.159",
     "section": "pts-4-6-llm-serving",
     "depends": [
       "bp-cnpg",
@@ -3840,7 +3840,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.2.20",
+    "version": "0.2.21",
     "section": "pts-4-7-agentic-workspace",
     "depends": [
       "bp-newapi",
@@ -4183,7 +4183,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.14",
+    "version": "0.1.15",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-cilium"
@@ -4316,7 +4316,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.24",
+    "version": "1.2.25",
     "section": "pts-3-2-gitops-and-iac",
     "depends": [
       "bp-cert-manager"
@@ -5904,7 +5904,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.6.2",
+    "version": "0.6.3",
     "section": "pts-7-org-tenant",
     "depends": [
       "bp-cnpg",

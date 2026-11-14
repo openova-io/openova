@@ -808,7 +808,7 @@ controllers:
       # re-apply, NOT the sweep). 89993b2 is a direct DESCENDANT of b23af68 so it
       # CONTAINS the #4393 Guaranteed-QoS LimitRange fix AS WELL AS #4455 + #4462.
       # Durable fix to the deploy-bump whole-file clobber tracked in #4464.
-      tag: "da4eea6"
+      tag: "b46ef05"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -949,7 +949,7 @@ controllers:
       # 0c717f6 (2026-07-02, #4685) — freshness sweep: 8c532a7 had drifted 311
       # commits behind latest GHCR (0c717f6), surfaced the moment #4685 un-masked
       # the blanket false-red. Image published + main-reachable (verified).
-      tag: "a6dd867"
+      tag: "b46ef05"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -1001,7 +1001,7 @@ controllers:
       # successful push-on-main build per Inviolable Principle #4a.
       # 34ff594 (2026-06-21, #4053) — freshness sweep on the console-gateway-
       # isolation PR: 01db043 had drifted 437 commits behind latest GHCR.
-      tag: "a6dd867"
+      tag: "b46ef05"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -1108,7 +1108,7 @@ controllers:
       # #2851 closed the drift gap (auto-bump + sweep + freshness guard).
       # 34ff594 (2026-06-21, #4053) — freshness sweep on the console-gateway-
       # isolation PR: 01db043 had drifted 437 commits behind latest GHCR.
-      tag: "a6dd867"
+      tag: "b46ef05"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
