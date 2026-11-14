@@ -12,10 +12,20 @@ on:
     branches: [main]
     paths:
       - 'core/cmd/sovereign-ops/**'
+      - 'core/controllers/go.mod'
+      - 'core/controllers/go.sum'
+      - 'core/controllers/pkg/gitea/**'
+      - 'core/controllers/pkg/gitwrite/**'
+      - 'core/controllers/pkg/upstream/**'
       - '.github/workflows/build-sovereign-ops.yaml'
   pull_request:
     paths:
       - 'core/cmd/sovereign-ops/**'
+      - 'core/controllers/go.mod'
+      - 'core/controllers/go.sum'
+      - 'core/controllers/pkg/gitea/**'
+      - 'core/controllers/pkg/gitwrite/**'
+      - 'core/controllers/pkg/upstream/**'
       - '.github/workflows/build-sovereign-ops.yaml'
   workflow_dispatch:
 
