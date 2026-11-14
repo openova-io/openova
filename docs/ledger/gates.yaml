@@ -2049,12 +2049,13 @@ checks:
 - id: SEC-G04
   title: Security check SEC-G04
   owner: SEC
-  state: not-built
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Published with the ticket of the piece that delivers it.
+  implementation: tests/acceptance/sovereign/internal/suite/check_sec_route.go
   delivered_by: SEC-010
 - id: SEC-G05
   title: The audit device is listed and a test request appears in the log pipeline within 60 seconds

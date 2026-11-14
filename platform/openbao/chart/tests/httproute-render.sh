@@ -109,4 +109,70 @@ if grep -qE '^  placement: single-region$' <<<"$appcr"; then
 fi
 echo "[bp-openbao] Case 5: PASS"
 
+# ── Case 6: OpenBao system paths are not served on the public route ────
+# SEC-010. The route answers each of these 15 path prefixes with a 302 to
+# /ui/ on the same host, and sends none of them to a backend. This holds
+# with the bare-URL sign-in on and off. The catch-all rule of gateway.path
+# stays the last rule, so the rest of /v1/ still reaches OpenBao. The
+# assertions use bash substring matching only (no pipe into grep -q), for
+# the broken-pipe reason given in sso-landing-render.sh.
+echo "[bp-openbao] Case 6: the 15 OpenBao system path prefixes redirect and reach no backend"
+denied_prefixes=(
+  /v1/sys/generate-root /v1/sys/generate-recovery-token /v1/sys/unseal
+  /v1/sys/seal /v1/sys/init /v1/sys/rekey /v1/sys/rekey-recovery-key
+  /v1/sys/step-down /v1/sys/raw /v1/sys/storage /v1/sys/rotate
+  /v1/sys/pprof /v1/sys/audit /v1/sys/config /v1/sys/replication
+)
+# route_rules prints one line per rule of the rendered HTTPRoute: the lines
+# of the rule joined by "|", with a "|" at the end.
+route_rules() {
+  awk '/^---$/{f=0} /^kind: HTTPRoute$/{f=1} f' <<<"$1" |
+    awk '/^    - matches:$/{if (r != "") print r "|"; r = $0; next} r != "" {r = r "|" $0} END{if (r != "") print r "|"}'
+}
+check_denied() {   # $1: label of the render; $2: the render
+  local label="$1" rules rule p n_rules=0 n_redirect=0 n_value=0 last=""
+  rules="$(route_rules "$2")"
+  while IFS= read -r rule; do
+    [ -n "$rule" ] || continue
+    n_rules=$((n_rules + 1))
+    last="$rule"
+    case "$rule" in *'value: "/v1/sys/'*) ;; *) continue ;; esac
+    n_redirect=$((n_redirect + 1))
+    case "$rule" in *backendRefs:*)
+      echo "FAIL ($label): a rule of the system paths has backendRefs: $rule"; exit 1 ;;
+    esac
+    for want in '|        - type: RequestRedirect|' '|            hostname: "openbao.smoke.omani.works"|' \
+                '|            port: 443|' '|              type: ReplaceFullPath|' \
+                '|              replaceFullPath: "/ui/"|' '|            statusCode: 302|'; do
+      case "$rule" in *"$want"*) ;; *)
+        echo "FAIL ($label): a rule of the system paths lacks '${want//|/}': $rule"; exit 1 ;;
+      esac
+    done
+  done <<<"$rules"
+  if [ "$n_redirect" -ne 2 ]; then
+    echo "FAIL ($label): $n_redirect rules carry the system paths, want 2"; exit 1
+  fi
+  for p in "${denied_prefixes[@]}"; do
+    case "$rules" in *"|            type: PathPrefix|            value: \"$p\"|"*) ;; *)
+      echo "FAIL ($label): no PathPrefix match for $p"; exit 1 ;;
+    esac
+  done
+  n_value=$(awk -v s='value: "/v1/sys/' '{n += gsub(s, "")} END{print n + 0}' <<<"$rules")
+  if [ "$n_value" -ne "${#denied_prefixes[@]}" ]; then
+    echo "FAIL ($label): $n_value system path matches, want ${#denied_prefixes[@]}"; exit 1
+  fi
+  case "$last" in *'|            value: "/"|      backendRefs:|'*) ;; *)
+    echo "FAIL ($label): the last rule is not the catch-all of gateway.path: $last"; exit 1 ;;
+  esac
+  if [ "$n_rules" -gt 16 ]; then
+    echo "FAIL ($label): the route has $n_rules rules; Gateway API allows 16"; exit 1
+  fi
+}
+check_denied "bare-URL sign-in on" "$out"
+check_denied "bare-URL sign-in off" "$("$helm" template smoke "$chart_dir" \
+        --set gateway.enabled=true \
+        --set gateway.host=openbao.smoke.omani.works \
+        --set sso.bareURL.enabled=false 2>&1)"
+echo "[bp-openbao] Case 6: PASS"
+
 echo "[bp-openbao] All HTTPRoute render cases PASS"
