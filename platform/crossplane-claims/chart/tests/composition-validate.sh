@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
-# bp-crossplane-claims Composition validation gate (issue #240).
+# bp-crossplane Day-2 CRUD Compositions validation gate (issue #240).
 #
 # This is the chart-level lint+template+kubectl-dry-run pass that runs
-# against every render of bp-crossplane-claims' templates/xrds +
-# templates/compositions + templates/crds directory tree. The one XRD is the
-# cloud-agnostic XCloudAdoption adoption seam, and the default render ships
-# its one Composition, opentofu-cloud-adoption. CLD-023 deleted the six
-# Hetzner-only day-2 kinds (RegionClaim, ClusterClaim, NodePoolClaim,
-# LoadBalancerClaim, PeeringClaim, NodeActionClaim), their Compositions and
-# their fixtures; Case 3e proves that none of them renders.
+# against every render of bp-crossplane's templates/xrds + templates/compositions
+# + templates/crds directory tree. The 7 XRDs back the catalyst-api Day-2
+# CRUD endpoints (RegionClaim, ClusterClaim, NodePoolClaim,
+# LoadBalancerClaim, PeeringClaim, NodeActionClaim) plus the cloud-agnostic
+# XCloudAdoption adoption seam. The default render ships 7 Compositions
+# (6 Hetzner CRUD kinds + opentofu-cloud-adoption).
 #
 # Sovereign IAM access plane (UserAccess — issue #322): as of Refs #4773
 # UserAccess is a PLAIN CustomResourceDefinition (templates/crds/
@@ -21,11 +20,10 @@
 #
 # Verifies, in order:
 #   1. `helm template` renders without error (no Go-template breakage).
-#   2. The render contains exactly 1 XRD (XCloudAdoption) — UserAccess is
-#      NO LONGER an XRD.
-#   3. The render contains the 1 expected default Composition by name,
+#   2. The render contains exactly 7 XRDs (6 Hetzner CRUD kinds +
+#      XCloudAdoption) — UserAccess is NO LONGER an XRD.
+#   3. The render contains the 7 expected default Compositions by name,
 #      AND no useraccess Composition renders (removed Refs #4773).
-#   3e. None of the six deleted day-2 kinds renders (CLD-023).
 #   3d. UserAccess ships as a plain namespaced CRD and NO XUserAccess
 #      composite type is rendered anywhere.
 #   4. Each expected claim/CR kind is present in the render.
@@ -65,19 +63,20 @@ helm template smoke-cp . > "$TMP/render.yaml" 2> "$TMP/render.err" || {
 }
 echo "  PASS"
 
-echo "[composition-validate] Case 2: render contains 1 XRD"
-# The one cloud-agnostic XCloudAdoption (the OpenTofu→Crossplane adoption
-# seam, ADR-0011 / #4002). UserAccess is NO LONGER an XRD — it is a plain
-# CRD (Refs #4773) so it never spawns an XUserAccess composite.
+echo "[composition-validate] Case 2: render contains 7 XRDs"
+# 6 day-2 Hetzner CRUD XRDs + 1 cloud-agnostic XCloudAdoption (the
+# OpenTofu→Crossplane adoption seam, ADR-0011 / #4002). UserAccess is NO
+# LONGER an XRD — it is a plain CRD (Refs #4773) so it never spawns an
+# XUserAccess composite.
 XRD_COUNT="$(grep -c '^kind: CompositeResourceDefinition$' "$TMP/render.yaml" || true)"
-if [ "$XRD_COUNT" -ne 1 ]; then
-  echo "FAIL: expected 1 XRD, found $XRD_COUNT" >&2
+if [ "$XRD_COUNT" -ne 7 ]; then
+  echo "FAIL: expected 7 XRDs, found $XRD_COUNT" >&2
   grep -E '^(kind|  name): ' "$TMP/render.yaml" | head -40 >&2
   exit 1
 fi
 echo "  PASS ($XRD_COUNT XRDs)"
 
-echo "[composition-validate] Case 3: render contains the 1 expected default Composition"
+echo "[composition-validate] Case 3: render contains the 7 expected default Compositions"
 # Explicit-name check (qa-loop iter-16 Fix #89, post PR #1309).
 #
 # The legacy useraccess.compose.openova.io Composition was retired by
@@ -91,6 +90,12 @@ echo "[composition-validate] Case 3: render contains the 1 expected default Comp
 # additions/retirements (Principle 4: target-state, never hardcode the wrong
 # magic number; the names ARE the contract).
 EXPECTED_COMPOSITIONS=(
+  hetzner-cluster.compose.openova.io
+  hetzner-load-balancer-claim.compose.openova.io
+  hetzner-node-action.compose.openova.io
+  hetzner-node-pool.compose.openova.io
+  hetzner-peering.compose.openova.io
+  hetzner-region.compose.openova.io
   opentofu-cloud-adoption.compose.openova.io
 )
 COMPOSITION_COUNT="$(grep -c '^kind: Composition$' "$TMP/render.yaml" || true)"
@@ -144,17 +149,6 @@ if grep -vE '^\s*#' "$TMP/render.yaml" | grep -Ec 'kind: XUserAccess|xuseraccess
 fi
 echo "  PASS (plain UserAccess CRD present, no XUserAccess composite)"
 
-echo "[composition-validate] Case 3e: the six deleted day-2 kinds do not render"
-# CLD-023 deleted the Hetzner-only day-2 definitions and Compositions. Their
-# kinds must not come back: no manifest line names one of them. Comment lines
-# are stripped first, and `grep -Ec` reads to the end (see Case 3d).
-if grep -vE '^\s*#' "$TMP/render.yaml" | grep -Ec 'kind: X?(Region|Cluster|NodePool|LoadBalancer|Peering|NodeAction)Claim$' >/dev/null; then
-  echo "FAIL: a deleted day-2 kind still renders (CLD-023)" >&2
-  grep -vE '^\s*#' "$TMP/render.yaml" | grep -nE 'kind: X?(Region|Cluster|NodePool|LoadBalancer|Peering|NodeAction)Claim$' >&2
-  exit 1
-fi
-echo "  PASS (no deleted day-2 kind)"
-
 echo "[composition-validate] Case 3b: render contains 8 ClusterRoles (Sovereign IAM + 5 catalog tiers)"
 # 3 legacy openova:application-{admin,editor,viewer} + 5 EPIC-3 tier-*
 # ClusterRoles (viewer/developer/operator/admin/owner). When the
@@ -180,10 +174,16 @@ fi
 echo "  PASS ($POLICY_COUNT ClusterPolicy)"
 
 echo "[composition-validate] Case 4: every expected CR kind is present"
-# CloudAdoption is the XRD claim kind; UserAccess is a plain CRD kind
-# (Refs #4773). The grep asserts the kind string is present in the render
-# regardless of which resource declares it.
+# RegionClaim..CloudAdoption are XRD claim kinds; UserAccess is a plain
+# CRD kind (Refs #4773). The grep asserts the kind string is present in
+# the render regardless of which resource declares it.
 EXPECTED_KINDS=(
+  RegionClaim
+  ClusterClaim
+  NodePoolClaim
+  LoadBalancerClaim
+  PeeringClaim
+  NodeActionClaim
   UserAccess
   CloudAdoption
 )
@@ -266,4 +266,4 @@ else
   echo "  SKIP (no live cluster — case enforced from CI integration job)"
 fi
 
-echo "[composition-validate] All bp-crossplane-claims Composition gates green."
+echo "[composition-validate] All bp-crossplane Day-2 CRUD Composition gates green."

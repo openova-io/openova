@@ -12,7 +12,7 @@
 #    Namespace.v1.[noGrp]/kube-system.[noNs]"
 # This Blueprint installs Cilium INTO kube-system; the HelmRelease's
 # targetNamespace field below is sufficient.
-apiVersion: source.toolkit.fluxcd.io/v1
+apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
 metadata:
   name: bp-cilium

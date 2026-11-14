@@ -5,6 +5,34 @@
 # defaults document; future per-Sovereign overrides (e.g.
 # defaultCompositionRef swaps for a non-Hetzner cloud) would land here.
 
+global:
+  # When set, ALL Docker image pulls in this chart route through this registry.
+  # Used post-handover when the Sovereign's own Harbor takes over the proxy_cache
+  # role from contabo's central Harbor. Empty = no rewrite. Tracked under #560.
+  #
+  # NOTE: Hetzner cloud server images (e.g. ubuntu-24.04 in Crossplane Server
+  # resources) are NOT Docker images and MUST NOT be registry-prefixed.
+  # Only the kubectl Job container image is affected by this knob.
+  imageRegistry: ""
+
+  # kubectl container image used in XNodeActionClaim Jobs.
+  # Repository and tag are separately configurable so post-handover per-Sovereign
+  # overlays can point at a Harbor-cached copy without rebuilding this Blueprint.
+  #
+  # 2026-05-11 (Fix #158): switched from docker.io/bitnami/kubectl:1.31
+  # because Bitnami's 2025-08 secure-images cutover deleted all
+  # versioned tags from docker.io/bitnami/kubectl (only :latest +
+  # sha256-named tags remain). bitnamilegacy is Bitnami's deprecation-
+  # fallback registry path; retains bash/sh.
+  #
+  # 2026-05-11 (Fix #163, MIRROR-EVERYTHING): explicit
+  # harbor.openova.io/proxy-dockerhub prefix per CLAUDE.md inviolable
+  # rule. Operator override still works — entire `repository` is one
+  # configurable string.
+  kubectlImage:
+    repository: harbor.openova.io/proxy-dockerhub/alpine/k8s
+    tag: "1.31.4"
+
 catalystBlueprint:
   upstream: null
 
@@ -186,6 +214,17 @@ tierActions:
   admin:
     inherit: operator
     extras:
+      # compute.* — Crossplane compose.openova.io claims (no delete; that
+      # stays owner-only). Day-2 CRUD via the Composition family.
+      - apiGroups: ["compose.openova.io"]
+        resources:
+          - clusterclaims
+          - regionclaims
+          - nodepoolclaims
+          - loadbalancerclaims
+          - peeringclaims
+          - nodeactionclaims
+        verbs: [create, get, list, watch, update, patch]
       # credentials.* — Secrets full CRUD (the line separating editor from
       # admin in the existing application-* ClusterRoles).
       - apiGroups: [""]
@@ -251,6 +290,18 @@ tierActions:
       - apiGroups: ["orgs.openova.io"]
         resources: [organizations]
         verbs: [create, delete]
+      # compute.delete — owners can delete cloud resources too. Listed
+      # here separately so the audit log distinguishes admin (no delete)
+      # from owner (delete).
+      - apiGroups: ["compose.openova.io"]
+        resources:
+          - clusterclaims
+          - regionclaims
+          - nodepoolclaims
+          - loadbalancerclaims
+          - peeringclaims
+          - nodeactionclaims
+        verbs: [delete]
 
 # A3 — UserAccess boundary validator (EPIC-3 #1098). Kyverno
 # ClusterPolicy at templates/policies/userAccess-boundary.yaml denies

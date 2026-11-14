@@ -50,10 +50,12 @@ func newScheduleRig(t *testing.T, objs ...runtime.Object) *scheduleRig {
 	scheme.AddKnownTypeWithName(schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "CronJobList"}, &unstructured.UnstructuredList{})
 	scheme.AddKnownTypeWithName(schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "CronJob"}, &unstructured.Unstructured{})
 	scheme.AddKnownTypeWithName(schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "JobList"}, &unstructured.UnstructuredList{})
+	scheme.AddKnownTypeWithName(schema.GroupVersionKind{Group: "events.k8s.io", Version: "v1", Kind: "EventList"}, &unstructured.UnstructuredList{})
 	scheme.AddKnownTypeWithName(schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"}, &unstructured.Unstructured{})
 	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, map[schema.GroupVersionResource]string{
-		helmwatch.CronJobGVR: "CronJobList",
-		helmwatch.JobGVR:     "JobList",
+		helmwatch.CronJobGVR:  "CronJobList",
+		helmwatch.JobGVR:      "JobList",
+		helmwatch.JobEventGVR: "EventList",
 	}, objs...)
 	reg := k8scache.NewRegistry()
 	_ = reg.Add(k8scache.Kind{Name: "cronjob", GVR: helmwatch.CronJobGVR, Namespaced: true})

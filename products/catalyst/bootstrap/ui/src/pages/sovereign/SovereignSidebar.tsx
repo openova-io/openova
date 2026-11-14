@@ -29,7 +29,8 @@
  * from Settings → Menu). An entry with `parent` renders as a sub-item under
  * that FLAT_NAV item; enabled=false entries are not rendered at all. Agenity
  * itself is the first Blueprint-sourced entry (bp-agenity consoleUI) — the
- * former static `sandbox` FLAT_NAV row and the /sandbox* pages are gone. Scope
+ * former static `sandbox` FLAT_NAV row is gone; the /sandbox* routes and
+ * their redirect to /apps/bp-agenity/dashboard stay in router.tsx. Scope
  * follows the entry's SOURCE: Blueprint-sourced entries render for every
  * session (an Org-scoped console keeps Agenity exactly as before); only
  * Application candidates are Sovereign-level and hidden from Org sessions.
@@ -101,7 +102,7 @@ interface SovereignSidebarProps {
 
 // ── Active-state derivation ───────────────────────────────────────────────────
 
-type ActiveSection = 'apps' | 'catalog' | 'jobs' | 'compliance' | 'dashboard' | 'cloud' | 'users' | 'organizations' | 'billing' | 'sovereignty' | 'settings'
+type ActiveSection = 'apps' | 'catalog' | 'sandbox' | 'jobs' | 'compliance' | 'dashboard' | 'cloud' | 'users' | 'organizations' | 'billing' | 'sovereignty' | 'settings'
 
 const CLOUD_PATH_RE = /^\/(cloud|infrastructure)(\/|$)/
 
@@ -124,6 +125,9 @@ function deriveActiveSection(pathname: string, hash = ''): ActiveSection {
   // for the catalog grid AND the per-Blueprint class page
   // (/catalog/$blueprintName → CatalogDetail).
   if (/^\/catalog(\/|$)/.test(pathname)) return 'catalog'
+  // /sandbox(/*) → 'sandbox' so the nav highlight covers the landing,
+  // /sandbox/$id, and /sandbox/settings (Wave 3).
+  if (/^\/sandbox(\/|$)/.test(pathname)) return 'sandbox'
   if (/^\/jobs(\/|$)/.test(pathname)) return 'jobs'
   // /sre/compliance + /sec/compliance + /compliance/* all highlight
   // the Compliance nav entry (Wave 5.62a, Refs #2318 / #1096). The

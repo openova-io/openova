@@ -34,6 +34,8 @@ check() {
 }
 
 check "default" 
+check "snapshot-primary" --set snapshotReplication.enabled=true --set snapshotReplication.role=primary
+check "snapshot-secondary" --set snapshotReplication.enabled=true --set snapshotReplication.role=secondary
 
 if [ "$fail" -ne 0 ]; then
   echo "[kyverno-harbor-proxy-images] FAILED"

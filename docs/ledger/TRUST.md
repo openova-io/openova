@@ -1,5 +1,3 @@
-Historical. Describes walks from 2026-05-19 to 2026-08-26, on environments t33 to t40 and later ones up to hw305. Not a statement about the product today.
-
 # TRUST.md — Verification Ledger
 
 **Created 2026-05-19 after founder accountability collapse.** Every claimed-done item lives here with one of four states. Default for everything pre-2026-05-19 is **UNVERIFIED**.

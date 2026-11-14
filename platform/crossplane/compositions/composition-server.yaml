@@ -1,0 +1,71 @@
+# Composition: hetzner-server.compose.openova.io — default realization for
+# XHetznerServer. Renders to provider-hcloud's Server managed resource.
+
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: hetzner-server.compose.openova.io
+  labels:
+    catalyst.openova.io/component: crossplane
+    catalyst.openova.io/composition-family: hetzner
+spec:
+  compositeTypeRef:
+    apiVersion: compose.openova.io/v1alpha1
+    kind: XHetznerServer
+
+  writeConnectionSecretsToNamespace: crossplane-system
+
+  resources:
+    - name: server
+      base:
+        apiVersion: server.hcloud.crossplane.io/v1alpha1
+        kind: Server
+        spec:
+          forProvider:
+            serverType: ""    # filled by patch
+            image: ""         # filled by patch
+            location: ""      # filled by patch
+            sshKeys: []       # filled by patch
+            firewallIds: []   # filled by patch
+            userData: ""      # filled by patch
+            network:
+              - networkId: ""
+                ip: ""
+          providerConfigRef:
+            name: default-hcloud
+      patches:
+        - fromFieldPath: spec.parameters.name
+          toFieldPath: metadata.name
+        - fromFieldPath: spec.parameters.serverType
+          toFieldPath: spec.forProvider.serverType
+        - fromFieldPath: spec.parameters.image
+          toFieldPath: spec.forProvider.image
+        - fromFieldPath: spec.parameters.region
+          toFieldPath: spec.forProvider.location
+        - fromFieldPath: spec.parameters.sshKeyName
+          toFieldPath: spec.forProvider.sshKeys[0]
+        - fromFieldPath: spec.parameters.firewallIds
+          toFieldPath: spec.forProvider.firewallIds
+        - fromFieldPath: spec.parameters.userData
+          toFieldPath: spec.forProvider.userData
+        - fromFieldPath: spec.parameters.networkId
+          toFieldPath: spec.forProvider.network[0].networkId
+        - fromFieldPath: spec.parameters.privateIp
+          toFieldPath: spec.forProvider.network[0].ip
+        - fromFieldPath: spec.parameters.placementGroupName
+          toFieldPath: spec.forProvider.placementGroupName
+        - fromFieldPath: spec.providerConfigRef.name
+          toFieldPath: spec.providerConfigRef.name
+        - fromFieldPath: spec.parameters.sovereignFQDN
+          toFieldPath: metadata.labels[catalyst.openova.io/sovereign]
+        - fromFieldPath: spec.parameters.role
+          toFieldPath: metadata.labels[catalyst.openova.io/role]
+        - type: ToCompositeFieldPath
+          fromFieldPath: metadata.annotations[crossplane.io/external-name]
+          toFieldPath: status.serverId
+        - type: ToCompositeFieldPath
+          fromFieldPath: status.atProvider.ipv4Address
+          toFieldPath: status.publicIPv4
+        - type: ToCompositeFieldPath
+          fromFieldPath: status.atProvider.ipv6Address
+          toFieldPath: status.publicIPv6

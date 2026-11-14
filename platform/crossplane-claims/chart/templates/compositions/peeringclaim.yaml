@@ -1,0 +1,120 @@
+# Composition: hetzner-peering.compose.openova.io — default realization
+# for XPeeringClaim.
+#
+# Composes 1 or 2 provider-hcloud Route resources depending on the
+# spec.parameters.bidirectional flag:
+#   route-a-to-b: in network A, destination=cidrB, gateway=gatewayA
+#   route-b-to-a: in network B, destination=cidrA, gateway=gatewayB
+#                 (only when bidirectional=true)
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #3 these are provider-hcloud Routes,
+# never raw API calls.
+#
+# UPDATE flow:
+#   - patch spec.parameters.bidirectional false → true
+#       → route-b-to-a Required gate flips from rejected to passing
+#       → composite controller creates the second Route
+#   - patch any cidr or gateway → Routes update in place via provider
+#
+# DELETE flow:
+#   - delete the PeeringClaim → both Routes deleted (deletionPolicy: Delete)
+
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: hetzner-peering.compose.openova.io
+  labels:
+    catalyst.openova.io/component: crossplane
+    catalyst.openova.io/composition-family: hetzner
+    catalyst.openova.io/day2-crud: "true"
+spec:
+  compositeTypeRef:
+    apiVersion: compose.openova.io/v1alpha1
+    kind: XPeeringClaim
+
+  writeConnectionSecretsToNamespace: crossplane-system
+
+  resources:
+    # ── 1. Route A → B ─────────────────────────────────────────────────
+    - name: route-a-to-b
+      base:
+        apiVersion: network.hcloud.crossplane.io/v1alpha1
+        kind: Route
+        spec:
+          forProvider:
+            networkID:   ""
+            destination: ""
+            gateway:     ""
+          providerConfigRef:
+            name: default-hcloud
+          deletionPolicy: Delete
+      patches:
+        - fromFieldPath: spec.parameters.name
+          toFieldPath: metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-a-to-b"
+        - fromFieldPath: spec.parameters.regionAID
+          toFieldPath: spec.forProvider.networkID
+        - fromFieldPath: spec.parameters.cidrB
+          toFieldPath: spec.forProvider.destination
+        - fromFieldPath: spec.parameters.gatewayA
+          toFieldPath: spec.forProvider.gateway
+        - fromFieldPath: spec.parameters.sovereignFQDN
+          toFieldPath: spec.forProvider.labels[catalyst.openova.io/sovereign]
+        - fromFieldPath: spec.providerConfigRef.name
+          toFieldPath: spec.providerConfigRef.name
+        - type: ToCompositeFieldPath
+          fromFieldPath: metadata.annotations[crossplane.io/external-name]
+          toFieldPath: status.peeringID
+
+    # ── 2. Route B → A (bidirectional only) ────────────────────────────
+    - name: route-b-to-a
+      base:
+        apiVersion: network.hcloud.crossplane.io/v1alpha1
+        kind: Route
+        spec:
+          forProvider:
+            networkID:   ""
+            destination: ""
+            gateway:     ""
+          providerConfigRef:
+            name: default-hcloud
+          deletionPolicy: Delete
+      patches:
+        - fromFieldPath: spec.parameters.name
+          toFieldPath: metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-b-to-a"
+        - fromFieldPath: spec.parameters.regionBID
+          toFieldPath: spec.forProvider.networkID
+        - fromFieldPath: spec.parameters.cidrA
+          toFieldPath: spec.forProvider.destination
+        - fromFieldPath: spec.parameters.gatewayB
+          toFieldPath: spec.forProvider.gateway
+        # Required gate: when bidirectional=false this patch resolves to
+        # empty (because the convert transform turns false → "") and the
+        # Required policy blocks the resource from being composed.
+        - fromFieldPath: spec.parameters.bidirectional
+          toFieldPath: metadata.annotations[catalyst.openova.io/gate]
+          policy:
+            fromFieldPath: Required
+          transforms:
+            - type: match
+              match:
+                patterns:
+                  - type:   literal
+                    literal: "true"
+                    result:  "yes"
+                  - type:   literal
+                    literal: "false"
+                    result:  ""
+                fallbackTo: Value
+                fallbackValue: ""
+        - fromFieldPath: spec.parameters.sovereignFQDN
+          toFieldPath: spec.forProvider.labels[catalyst.openova.io/sovereign]
+        - fromFieldPath: spec.providerConfigRef.name
+          toFieldPath: spec.providerConfigRef.name

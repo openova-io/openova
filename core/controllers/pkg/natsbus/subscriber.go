@@ -1,8 +1,9 @@
 // Package natsbus is a minimal NATS JetStream subscriber for the
-// in-cluster Group-C controllers (organization-controller). It exists
-// to close the consume-leg of DoD D35 (`catalyst.tenant.created` /
-// `catalyst.order.placed` round-trip end-to-end) when the publish-leg
-// PR #1626 wired into core/services/shared/events landed.
+// in-cluster Group-C controllers (organization-controller,
+// sandbox-controller). It exists to close the consume-leg of DoD D35
+// (`catalyst.tenant.created` / `catalyst.order.placed` /
+// `catalyst.tenant.sandbox_requested` round-trip end-to-end) when the
+// publish-leg PR #1626 wired into core/services/shared/events landed.
 //
 // The package is deliberately self-contained inside core/controllers/
 // (separate Go module from core/services/shared/events) — copying the
@@ -79,6 +80,12 @@ const (
 	// Organization CR (so day-1 app installs in the basket land on the
 	// per-Org Gitea repo without the operator polling catalyst-api).
 	SubjectOrderPlaced = "catalyst.billing.order.placed"
+
+	// SubjectTenantSandboxRequested fires when the marketplace cart
+	// contained the sandbox product (publish-side tenant-service in
+	// PR #1633). sandbox-controller subscribes so the per-Sandbox
+	// reconcile loop runs immediately on cart completion.
+	SubjectTenantSandboxRequested = "catalyst.tenant.sandbox_requested"
 
 	// SubjectTenantDeleted is the canonical NATS subject the
 	// organization-controller PUBLISHES on when an Organization CR is being

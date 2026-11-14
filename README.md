@@ -100,7 +100,7 @@ See [`docs/GLOSSARY.md`](docs/GLOSSARY.md) for every term, [`docs/ARCHITECTURE.m
 
 ```
 openova/
-├── core/              # Catalyst control-plane code: controllers, services and consoles (Go; Astro + Svelte)
+├── core/              # Catalyst control-plane application (Go) — design-stage; mostly placeholders today
 ├── platform/          # Component Blueprint folders (one folder per upstream OSS project)
 ├── products/          # Composite Blueprint folders OpenOva publishes
 │   ├── catalyst/      # The Catalyst control plane itself, target umbrella Blueprint
@@ -116,7 +116,7 @@ openova/
 
 Each folder under `platform/` and `products/` is the source of one **Blueprint**, published from CI as a signed OCI artifact at `ghcr.io/openova-io/bp-<name>:<semver>` (the `bp-` prefix is added to the OCI artifact name; folder names stay short). Per-folder isolation is provided at the OCI artifact layer, not the Git repo layer — this is a **monorepo with per-Blueprint fan-out**, not a meta-repo of separate Git repositories. See [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md) §2 for the folder layout contract.
 
-> **Today**, the bootstrap kit is the set of slot files in `clusters/_template/bootstrap-kit/`, listed with their charts in [`docs/generated/bootstrap-slots.md`](docs/generated/bootstrap-slots.md). Which folders under `platform/` and `products/` carry a chart and a Blueprint is listed in [`docs/generated/components.md`](docs/generated/components.md). The `cortex / fabric / fingate / relay` product folders are **design-stage** — README only.
+> **Today**, the 12-component bootstrap kit (cilium, cert-manager, flux, crossplane, sealed-secrets, spire, nats-jetstream, openbao, keycloak, gitea, powerdns + the bp-catalyst-platform umbrella under `products/catalyst/`) ships with full `chart/` + `blueprint.yaml` per [`docs/STATUS.md`](docs/STATUS.md) §7, plus `products/axon/` and the `external-dns` leaf chart. The remaining 45 platform components and the `cortex / fabric / fingate / relay` product folders are **design-stage** — README only — until each lands its Blueprint manifest, chart, Compositions, and CI fan-out.
 
 ---
 
@@ -131,7 +131,7 @@ Each folder under `platform/` and `products/` is the source of one **Blueprint**
 | **IaC for non-K8s** | Crossplane (the only IaC; not user-facing) |
 | **Bootstrap IaC** | OpenTofu (one-shot, archived after Phase 0) |
 | **Multi-tenancy** | vcluster (one per Organization per host cluster) |
-| **Identity (workloads)** | Kubernetes ServiceAccount tokens checked by TokenReview; Cilium WireGuard encrypts traffic between nodes. SPIRE is not in the bootstrap kit. |
+| **Identity (workloads)** | SPIFFE/SPIRE (5-min rotating SVIDs, mTLS everywhere) |
 | **Identity (users)** | Keycloak (per-Org for SME, per-Sovereign for corporate) |
 | **Secrets** | OpenBao (Apache 2.0; independent Raft per region, no stretched cluster) + External Secrets Operator |
 | **Event spine** | NATS JetStream (Apache 2.0; pub/sub + KV; per-Org accounts) |
@@ -171,8 +171,8 @@ Visit `marketplace.openova.io` to install Applications on the openova Sovereign 
 ### Run your own Sovereign
 
 ```
-1. Provision from the wizard of the OpenOva console, console.openova.io/sovereign/wizard.
-   The provisioning code is products/catalyst/bootstrap/api/internal/provisioner/.
+1. Provision via catalyst-provisioner.openova.io (managed bootstrap), OR
+2. Self-host bp-catalyst-provisioner in your own infrastructure (air-gap path).
 
 Then follow the procedure in docs/RUNBOOKS.md §9 (Bring up a Sovereign).
 ```
@@ -185,7 +185,7 @@ See [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md). A Blueprint is a folder under `platf
 
 ## License
 
-All Blueprints and the Catalyst control plane are open source. Each component carries its own upstream license (typically Apache 2.0, MPL 2.0, or BSD-3). This repository does not yet hold a `LICENSE` file at its root.
+All Blueprints and the Catalyst control plane are open source. Each component carries its own upstream license (typically Apache 2.0, MPL 2.0, or BSD-3); see each component's `LICENSE` file.
 
 OpenOva charges for support, managed operations, and expert services — never for access to code. See [`docs/BUSINESS-STRATEGY.md`](docs/BUSINESS-STRATEGY.md) §10.
 

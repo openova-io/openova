@@ -1,0 +1,176 @@
+# XRD: XNodePoolClaim — Catalyst Day-2 CRUD composite for a horizontal
+# pool of worker (or extra control-plane) nodes inside a ClusterClaim.
+# A NodePoolClaim materialises N provider-hcloud Server resources of
+# the same SKU and joins them to the parent cluster. Patching `replicas`
+# scales the pool up or down — Crossplane's reconciler creates or
+# deletes Servers until current matches desired.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md:
+#   #3  Servers are provider-hcloud Server CRs — never bespoke hcloud-go
+#       SDK calls.
+#   #4  sku, replicas, role — all schema fields.
+#
+# UPDATE flow:
+#   patch spec.parameters.replicas from 3 → 5 → Composition's
+#   resource template emits 5 Server objects (1..5 indexed); Crossplane's
+#   composite controller drives the diff. Scaling DOWN (5 → 3): Crossplane
+#   deletes Servers index-4 and index-5 first (stable index ordering).
+#
+# DELETE flow:
+#   delete the NodePoolClaim → cascade deletes every Server in the pool
+#   via deletionPolicy: Delete on the composite.
+
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xnodepoolclaims.compose.openova.io
+  labels:
+    catalyst.openova.io/component: crossplane
+    catalyst.openova.io/composition-family: hetzner
+    catalyst.openova.io/day2-crud: "true"
+spec:
+  group: compose.openova.io
+  names:
+    kind: XNodePoolClaim
+    plural: xnodepoolclaims
+  claimNames:
+    kind: NodePoolClaim
+    plural: nodepoolclaims
+  defaultCompositionRef:
+    name: hetzner-node-pool.compose.openova.io
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [parameters]
+              properties:
+                parameters:
+                  type: object
+                  required: [name, clusterRef, sku, role, region]
+                  properties:
+                    name:
+                      type: string
+                      description: |
+                        Pool name — included in every Server's metadata.name
+                        (e.g. catalyst-<sov>-<pool>-w1). Stable across
+                        scale operations so that monitoring/audit history
+                        is not orphaned.
+                      pattern: '^[a-z0-9][a-z0-9-]{1,62}$'
+                    clusterRef:
+                      type: object
+                      description: |
+                        Reference to the ClusterClaim whose k3s control
+                        plane every Server in this pool joins.
+                      required: [name]
+                      properties:
+                        name:
+                          type: string
+                        namespace:
+                          type: string
+                    sku:
+                      type: string
+                      description: |
+                        Hetzner server type — cx22, cpx31, ccx33, etc.
+                        Mutating sku is a destructive op (it requires
+                        replacing servers, not in-place resize). For that,
+                        operators issue NodeActionClaim(replace) per node.
+                      pattern: '^(cx|cpx|ccx)[0-9]{2}$'
+                    replicas:
+                      type: integer
+                      description: |
+                        Desired number of nodes. Mutable — patching
+                        this triggers up/down scale through the
+                        Composition.
+                      minimum: 0
+                      maximum: 100
+                      default: 1
+                    role:
+                      type: string
+                      description: |
+                        Whether these nodes are workers or extra control-plane
+                        members. Sets `catalyst.openova.io/role` label and
+                        the cloud-init template (control-plane vs worker).
+                      enum: [worker, control-plane]
+                    region:
+                      type: string
+                      description: |
+                        Hetzner location — must match the parent RegionClaim's
+                        region. Repeated here so the Composition can use it
+                        without an extra Required patch hop.
+                      enum: [fsn1, nbg1, hel1, ash, hil]
+                    image:
+                      type: string
+                      description: |
+                        Hetzner image slug. Defaults to ubuntu-24.04 to
+                        match the OpenTofu module.
+                      pattern: '^[a-z]+-[0-9]+\.?[0-9]*$'
+                      default: ubuntu-24.04
+                    sshKeyName:
+                      type: string
+                    networkId:
+                      type: string
+                      description: |
+                        Hetzner numeric network ID — the parent RegionClaim's
+                        status.networkId.
+                    firewallIds:
+                      type: array
+                      items: { type: string }
+                providerConfigRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                  default:
+                    name: default-hcloud
+            status:
+              type: object
+              properties:
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:        { type: string }
+                      status:      { type: string }
+                      reason:      { type: string }
+                      message:     { type: string }
+                      lastTransitionTime: { type: string, format: date-time }
+                currentReplicas:
+                  type: integer
+                  description: |
+                    Number of Server resources currently Ready=True.
+                    Compared against spec.parameters.replicas to surface
+                    "Scaling…" states in the Catalyst UI.
+                nodeIDs:
+                  type: array
+                  items: { type: string }
+                  description: |
+                    Hetzner numeric IDs of every Server in the pool, in
+                    deterministic index order. Read by NodeActionClaim
+                    when an operator targets a node by id.
+      additionalPrinterColumns:
+        - name: NAME
+          type: string
+          jsonPath: .spec.parameters.name
+        - name: SKU
+          type: string
+          jsonPath: .spec.parameters.sku
+        - name: ROLE
+          type: string
+          jsonPath: .spec.parameters.role
+        - name: REPLICAS
+          type: integer
+          jsonPath: .spec.parameters.replicas
+        - name: READY
+          type: integer
+          jsonPath: .status.currentReplicas
+        - name: AGE
+          type: date
+          jsonPath: .metadata.creationTimestamp

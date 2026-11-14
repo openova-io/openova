@@ -13,8 +13,8 @@
  *     OUT of the rendered set (NOT dimmed).
  *   • Clicking a node opens the right-side detail panel with a
  *     populated neighbor list.
- *   • Right-clicking a node opens no context menu: the page offers no
- *     infrastructure add, edit or delete.
+ *   • Right-clicking a node opens the context menu with kind-aware
+ *     add-child / delete items.
  *   • Adjusting the global density slider re-renders without error.
  *   • Screenshots saved at 1440x900 in three states:
  *     default / search-isolated / focus-mode.
@@ -128,7 +128,7 @@ test.describe('Cloud / Architecture force-graph (#309 P2)', () => {
     ).toBeVisible()
   })
 
-  test('right-clicking a node opens no context menu', async ({ page }) => {
+  test('right-clicking a node opens a kind-aware context menu', async ({ page }) => {
     await gotoArchitecture(page)
     const cluster = page.getByTestId(
       'arch-graph-node-Cluster-Cluster:cluster-eu-central-primary',
@@ -136,7 +136,14 @@ test.describe('Cloud / Architecture force-graph (#309 P2)', () => {
     // force: true — see comment in the click-detail-panel test above.
     await cluster.click({ button: 'right', force: true })
 
-    await expect(page.getByTestId('cloud-architecture-context-menu')).toHaveCount(0)
+    const menu = page.getByTestId('cloud-architecture-context-menu')
+    await expect(menu).toBeVisible()
+    await expect(menu).toHaveAttribute('data-context-target', 'Cluster')
+    await expect(page.getByTestId('cloud-architecture-context-add-vcluster')).toBeVisible()
+    await expect(page.getByTestId('cloud-architecture-context-add-nodepool')).toBeVisible()
+    // #349 — every node kind also exposes Edit + Delete.
+    await expect(page.getByTestId('cloud-architecture-context-edit')).toBeVisible()
+    await expect(page.getByTestId('cloud-architecture-context-delete')).toBeVisible()
   })
 
   test('global density slider responds to input', async ({ page }) => {

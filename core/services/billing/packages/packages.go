@@ -53,18 +53,10 @@ const (
 )
 
 // ErrUnavailable is returned when the price book cannot be read: no base URL,
-// the request failed, an answer other than 200 or 404, a body that is not the
-// contract, or a currency billing cannot settle. Callers answer 503 — an
-// order is never priced from a different list because this one was
-// unreachable.
+// the request failed, a non-200 answer, a body that is not the contract, or a
+// currency billing cannot settle. Callers answer 503 — an order is never
+// priced from a different list because this one was unreachable.
 var ErrUnavailable = errors.New("prices unavailable")
-
-// ErrNoPackages is returned when the price book publishes no package: BSS
-// answers 404 until its plan book exists, which is the state of every fresh
-// Sovereign before its first Organization, or the document lists no package.
-// It is not an outage: Get returns it as it is, never wrapped in
-// ErrUnavailable, and never keeps it in the cache.
-var ErrNoPackages = errors.New("price book publishes no packages")
 
 // IsAddonSKU reports whether an order add-on identifier is a BSS add-on SKU.
 func IsAddonSKU(id string) bool { return strings.HasPrefix(id, AddonSKUPrefix) }
@@ -303,7 +295,7 @@ func Parse(body []byte) (*Document, error) {
 		return nil, fmt.Errorf("price book: currency %q is not %s", w.Currency, Currency)
 	}
 	if len(w.Packages) == 0 {
-		return nil, ErrNoPackages
+		return nil, fmt.Errorf("price book: publishes no packages")
 	}
 	doc := &Document{Currency: currency, PriceBook: w.PriceBook, PricesAsOf: w.PricesAsOf}
 	seen := make(map[string]bool, len(w.Packages))
@@ -526,8 +518,7 @@ func (d *Document) Price(packageSKU string, addonSKUs []string) (*Quote, error) 
 
 // Client reads the price book from the chargeback base URL and serves it from
 // a short cache. The zero value / an empty BaseURL is "not configured":
-// Configured() is false and Get returns ErrUnavailable. A price book that
-// publishes no package is ErrNoPackages and is not cached.
+// Configured() is false and Get returns ErrUnavailable.
 type Client struct {
 	// BaseURL is the chargeback host, e.g.
 	// http://chargeback.chargeback.svc.cluster.local:8080 (the Sovereign
@@ -565,10 +556,9 @@ func (c *Client) Configured() bool { return c != nil && c.BaseURL != "" }
 func (c *Client) URL() string { return c.BaseURL + Path }
 
 // Get returns the current document, re-reading it from BSS once the cached
-// copy is older than TTL. A price book that publishes no package returns
-// ErrNoPackages as it is. Every other failure is wrapped in ErrUnavailable
-// with the cause; a cached copy past its TTL is NOT served on failure, so a
-// dead BSS is seen within one TTL instead of being papered over indefinitely.
+// copy is older than TTL. Every failure is wrapped in ErrUnavailable with the
+// cause; a cached copy past its TTL is NOT served on failure, so a dead BSS
+// is seen within one TTL instead of being papered over indefinitely.
 func (c *Client) Get(ctx context.Context) (*Document, error) {
 	if !c.Configured() {
 		return nil, fmt.Errorf("%w: price book URL is not configured", ErrUnavailable)
@@ -580,9 +570,6 @@ func (c *Client) Get(ctx context.Context) (*Document, error) {
 		return c.doc, nil
 	}
 	doc, err := c.fetch(ctx)
-	if errors.Is(err, ErrNoPackages) {
-		return nil, ErrNoPackages
-	}
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}
@@ -601,9 +588,6 @@ func (c *Client) fetch(ctx context.Context) (*Document, error) {
 		return nil, fmt.Errorf("GET %s: %w", c.URL(), err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, ErrNoPackages
-	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GET %s: HTTP %d", c.URL(), resp.StatusCode)
 	}

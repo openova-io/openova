@@ -48,7 +48,6 @@ metadata:
     catalyst.openova.io/blueprint: bp-catalyst-edge-routes
     catalyst.openova.io/component: org-gateway
   annotations:
-    # single-region backend
     service.cilium.io/global: "true"
     service.cilium.io/shared: "true"
 spec:
@@ -68,7 +67,6 @@ metadata:
     catalyst.openova.io/blueprint: bp-catalyst-edge-routes
     catalyst.openova.io/component: org-admin
   annotations:
-    # single-region backend
     service.cilium.io/global: "true"
     service.cilium.io/shared: "true"
 spec:
@@ -88,7 +86,6 @@ metadata:
     catalyst.openova.io/blueprint: bp-catalyst-edge-routes
     catalyst.openova.io/component: org-marketplace
   annotations:
-    # single-region backend
     service.cilium.io/global: "true"
     service.cilium.io/shared: "true"
 spec:

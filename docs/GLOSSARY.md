@@ -19,13 +19,6 @@ Every other document defers to this file. When a term in another doc looks conte
 | **Environment** | An env-typed scope where Applications run. Named `{org}-{env_type}` where `env_type` is one of `prod | stg | uat | dev | poc` (per [`ARCHITECTURE.md`](ARCHITECTURE.md) §2.4). **Logical** concept; can span multiple regions and building blocks via Placement. Realized as a **branch** (`develop`/`staging`/`main`) inside each Application's Gitea repo, plus one or more vclusters per Placement spec. Examples: `acme-prod`, `acme-dev`, `acmebank-uat`. |
 | **Application** | What a User installs into an Environment from a Blueprint. The user-facing object: an App Store-style card representing a running deployment (e.g. WordPress, Postgres, an internal microservice). **Each Application is realized as one Gitea repo** at `gitea.<location-code>.<sovereign-domain>/<org>/<app>` under its owning Organization. Branches `develop`/`staging`/`main` map to the `dev`/`stg`/`prod` Environments. The repo is the unit of CODEOWNERS, branch protection, webhook, and CI — giving every team self-sufficient ownership of their Apps. |
 | **Blueprint** | The reusable, OCI-published, signed unit of installable software. Unifies what previously was split between "module" (primitive) and "template" (composition). A Blueprint can declare dependencies on other Blueprints, with arbitrary depth. Visibility: `listed` (catalog card) / `unlisted` / `private` (Org-scoped). Source layout: see [`RUNBOOKS.md`](RUNBOOKS.md) §2. |
-| **Class** | What sort of thing a Blueprint installs, set by `spec.class` on the Blueprint. Six values: `application`, `data-service`, `network-security-service`, `ai-service`, `infrastructure`, `platform-component`. The console groups Blueprints by class. |
-| **Capability** | A named, versioned contract that an Application can offer to other Applications, for example `object-storage`. It fixes the connection keys that every implementation exposes. Its file is in `platform/_capabilities/`. |
-| **Implementation** | A Blueprint that provides a capability. A capability may have several; the sovereign-admin chooses which are offered on a Sovereign and which is the default. |
-| **Context** | The binding of one consumer Application to a provider Application: for object storage, a bucket and its access key. The consumer receives the keys as mounted files, never as a Secret object. |
-| **Lifecycle** | `experimental`, `supported` or `deprecated`, set by `spec.lifecycle` on the Blueprint. `supported` requires a passed function test in the newest gate record. |
-| **Function test** | A chart's own test of its function, shipped as a Helm test hook and run by Flux after every install and upgrade. |
-| **Ring** | A named group of bootstrap-kit releases, set by the label `catalyst.openova.io/ring` on each slot. The `foundation` ring always installs; other rings can be switched off by a Git commit. |
 | **User** | A person. Authenticates via Keycloak. Belongs to one Organization (or has cross-Org admin scope as `sovereign-admin`). |
 | **Agenity** | The OpenOva AI agent (Pillar 4): a chat-driven assistant that provisions and operates an Organization's cloud in natural language (chat → create Application → 201 + Application CR). Replaces the deprecated "Sandbox" concept (never say "Sandbox" in user-facing copy — see §Banned terms). Delivered as `bp-agenity`. |
 | **bp-openova-mcp** | The MCP (Model Context Protocol) server auto-mounted into Agenity carrying the full Organization knowledge (Applications, Environments, placement, billing), so the agent acts with complete org context. The `create_application` tool it exposes is the load-bearing Pillar-4 capability. |
@@ -157,7 +150,7 @@ This section is the **single source of truth** for forbidden terminology. Cross-
 | Lifecycle Manager *(as a separate product)* | Catalyst | Lifecycle management is one of Catalyst's responsibilities, not a separate product. |
 | Bootstrap wizard *(as a separate product)* | Catalyst (or "Catalyst bootstrap" when referring to a phase) | Bootstrap is one phase of Catalyst provisioning, not a separate product. |
 | Workspace *(as Catalyst scope OR component name)* | Environment / environment-controller | Renamed for industry alignment and to escape collision with VS Code / Slack / Backstage / Terraform workspaces. The controller previously named `workspace-controller` is now `environment-controller`. |
-| Instance *(as a kind name or as a synonym for Application)* | Application | "instance" is allowed only in the phrase "instance of" followed by a Blueprint name (for example "an instance of bp-wordpress") and on the "+ New instance" action. The installed object is an Application. |
+| Instance *(as user-facing object)* | Application | App Store metaphor. The CRD name remains internal. |
 | Sandbox *(as the user-facing AI-agent product / surface)* | Agenity | The North Star replaced the standalone "Sandbox" concept with the **Agenity** agent (chat → provision) plus the auto-mounted **bp-openova-mcp** (full-org-knowledge MCP). User-facing copy, UI, catalog cards, and docs say **Agenity** / **bp-openova-mcp**, never "Sandbox". The internal `Sandbox` CRD + `sandbox-session` plumbing Agenity is built on remain internal (same rule as Instance→Application); their rename is a tracked migration, not a blocker on user-facing correctness. |
 
 **Banned → correct mapping** — a visual mirror of the table above (each banned term, in red on the left, points to its approved replacement in green on the right). It carries exactly the same twelve mappings; the table remains authoritative.
@@ -176,7 +169,7 @@ graph LR
   LM["Lifecycle Manager"]:::banned --> CAT["Catalyst"]:::ok
   BW["Bootstrap wizard"]:::banned --> CAT
   WS["Workspace"]:::banned --> ENVC["Environment /<br/>environment-controller"]:::ok
-  INST["Instance<br/>(as a kind or synonym)"]:::banned --> APP["Application"]:::ok
+  INST["Instance<br/>(user-facing)"]:::banned --> APP["Application"]:::ok
   SBX["Sandbox"]:::banned --> AGEN["Agenity"]:::ok
 ```
 

@@ -26,17 +26,18 @@ import { currentPathRelativeToBasepath } from '@/shared/lib/basepathRelative'
 const basepath = isCatalystZeroURL() ? '/sovereign' : '/'
 
 /**
- * isCatalystZero — true when the UI is running on Catalyst-Zero, the
- * mothership. Used by provisionAuthGuard to decide whether to enforce
- * session-cookie auth.
+ * isCatalystZero — true when the UI is running on Catalyst-Zero
+ * (console.openova.io/sovereign/*). Used by wizardAuthGuard to decide
+ * whether to enforce session-cookie auth.
  *
- * The mode comes from the catalyst-api (GET /api/v1/sovereign/self, read
- * once at start by detectMode), not from the host name, because the same
- * build image runs on Catalyst-Zero and on every Sovereign console. Only
- * Catalyst-Zero has the session middleware wired up for the wizard;
- * Sovereign clusters manage their own auth separately.
+ * We detect by hostname rather than IS_SAAS / IS_SELFHOSTED because the
+ * same selfhosted build image runs on both Catalyst-Zero (contabo-mkt)
+ * and franchised Sovereign consoles (console.<sov-fqdn>). Only Catalyst-Zero
+ * has Keycloak + the session middleware wired up; Sovereign clusters
+ * manage their own auth separately.
  */
-const isCatalystZero = DETECTED_MODE.mode === 'catalyst-zero'
+const isCatalystZero =
+  typeof window !== 'undefined' && window.location.hostname === 'console.openova.io'
 
 // Lazy page imports
 import { RootLayout } from './layouts/RootLayout'
@@ -174,6 +175,14 @@ import { OrganizationDetailPage } from '@/pages/sovereign/organizations/Organiza
 // pages; payment flows render only in real mode, showback/chargeback get
 // the consumption view with zero payment actions.
 import { BillingModeGate } from '@/pages/sovereign/organizations/BillingModeGate'
+// Wave 3 — Sandbox UI scaffold (branch: sandbox-wave3-ui-scaffold).
+// Per-Org agent-coding workspace mounted under /sandbox/* in the chroot
+// Sovereign Console. SandboxLanding is the 6-agent picker;
+// SandboxSession hosts xterm.js for /sandbox/$id; SandboxSettings is
+// the BYOS Claude Max OAuth surface.
+import { SandboxLanding } from '@/pages/sovereign/sandbox/SandboxLanding'
+import { SandboxSession } from '@/pages/sovereign/sandbox/SandboxSession'
+import { SandboxSettings } from '@/pages/sovereign/sandbox/SandboxSettings'
 import {
   canonicalisePath,
   hasCatalystSession,
@@ -434,8 +443,8 @@ const rootRoute = createRootRoute({ component: RootLayout, beforeLoad: rootBefor
  * IS_SAAS is preserved as a higher-priority override for the Catalyst-Zero
  * SaaS variant of the platform where local auth is used.
  *
- * Per INVIOLABLE-PRINCIPLES.md #4, the mode is read at run time from the
- * catalyst-api via DETECTED_MODE — never hardcoded here.
+ * Per INVIOLABLE-PRINCIPLES.md #4, mode detection is runtime-derived from
+ * the hostname via DETECTED_MODE — never hardcoded here.
  *
  * Related: GitHub issue #607
  */
@@ -1973,6 +1982,43 @@ const consoleOrganizationsRedirectRoutes = ORGANIZATIONS_REDIRECTS.map((r) =>
   }),
 )
 
+/* ── Wave 3 — Sandbox UI scaffold (sandbox-wave3-ui-scaffold) ──────────
+ *
+ * Per-Org agent-coding workspace under the chroot Sovereign Console.
+ * See products/sandbox/docs/architecture.md §1 for the surface contract
+ * (xterm.js host in browser ↔ in-pod pty-server ↔ agent CLI).
+ *
+ *   /sandbox            → SandboxLanding (6-agent picker grid + recent
+ *                         sessions rail, PortalShell chrome)
+ *   /sandbox/$id        → SandboxSession (xterm.js terminal host; Wave 2
+ *                         wires the WebSocket attach to pty-server)
+ *   /sandbox/settings   → SandboxSettings (BYOS Claude Max OAuth
+ *                         Connect / Disconnect; wires to Wave 1b
+ *                         /api/v1/sandbox/byos/claude-code/* stubs)
+ *
+ * SandboxSession's path-param is `$id` — TanStack Router's $-syntax —
+ * matched against the Sandbox CR name (sandbox-<slug>). Static children
+ * (`/sandbox/settings`) MUST be declared BEFORE the dynamic `$id`
+ * sibling so the literal segment wins on /sandbox/settings — TanStack
+ * matches in registration order. The route array below preserves that
+ * ordering.
+ */
+const consoleSandboxIndexRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/sandbox',
+  component: SandboxLanding,
+})
+const consoleSandboxSettingsRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/sandbox/settings',
+  component: SandboxSettings,
+})
+const consoleSandboxSessionRoute = createRoute({
+  getParentRoute: () => consoleLayoutRoute,
+  path: '/sandbox/$id',
+  component: SandboxSession,
+})
+
 /* ── Sovereign-mode cloud legacy redirects (TC-090..092 / 2026-05-07) ─
  *
  * Sister set to LEGACY_CLOUD_REDIRECTS (which is mounted under the
@@ -2471,6 +2517,11 @@ const routeTree = rootRoute.addChildren([
     consoleBillingOrdersRoute,
     consoleBillingRevenueRoute,
     ...consoleOrganizationsRedirectRoutes,
+    // Wave 3 — Sandbox UI scaffold. Static /sandbox/settings registered
+    // before /sandbox/$id so the literal segment wins on path match.
+    consoleSandboxIndexRoute,
+    consoleSandboxSettingsRoute,
+    consoleSandboxSessionRoute,
   ]),
 ])
 

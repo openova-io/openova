@@ -29,7 +29,7 @@
 # and serves 302s before the client bundle lands — the ExternalSecret
 # converges eventually, the same pattern as every Tier-1/2 SSO app.)
 ---
-apiVersion: source.toolkit.fluxcd.io/v1
+apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
 metadata:
   name: bp-oidc-gate

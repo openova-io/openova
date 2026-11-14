@@ -32,7 +32,7 @@ spec:
   # 0.1.8 (ADR-0015 D4, #7067): appVersion 0.2.7 — catalystapi client docs
   #   state the D4 contract (environmentRef / placement.regions resolved from
   #   objects, unknown refs 422; no "<org>-prod" / "primary").
-  version: 0.1.9
+  version: 0.1.8
   card:
     title: OpenOva MCP
     summary: |

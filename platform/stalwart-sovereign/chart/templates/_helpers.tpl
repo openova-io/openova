@@ -205,20 +205,20 @@ setup Job to register the submission principal via /api/principal.
 Resolve the submission password — single source of truth.
 
 Source-of-truth precedence (the chart's submission-secret.yaml is
-canonical; the mirror in catalyst-system is written by the setup Job
-from it):
+canonical; the mirror in catalyst-system is hydrated by the post-
+install setup Job from the source):
 
   1. Existing in-namespace submission Secret (steady state — the only
      Secret the chart's `lookup` reads from).
-  2. Fresh randAlphaNum 32 (first install).
+  2. Existing catalyst-system mirror Secret (Phase-1 cutover — when
+     catalyst-api's sovereign_smtp_seed.go pre-seeded mothership
+     creds; the chart picks up those bytes so a session does not
+     break across the cutover).
+  3. Fresh randAlphaNum 32 (first install, neither Secret exists).
 
-The mirror Secret in catalyst-system is never read here: before this
-chart writes it, it may hold a credential that another server issued,
-and a password of another party must never become this server's.
-
-The mirror Secret in catalyst-system is written by the setup Job
-(templates/setup-job.yaml), which reads the source Secret through its
-environment and writes the mirror with identical bytes.
+The mirror Secret in catalyst-system is materialised by the post-
+install setup Job (templates/setup-job.yaml) which reads the source
+Secret via the K8s API and writes the mirror with identical bytes.
 This avoids the helm-render-pass race that would otherwise produce
 mismatched bytes if BOTH Secrets were rendered as templates calling
 this helper (each `randAlphaNum` invocation returns fresh bytes).
@@ -235,7 +235,15 @@ encodes immediately into b64.
 {{- if and $src $src.data (index $src.data "smtp-pass") -}}
   {{- $pwd = index $src.data "smtp-pass" | b64dec -}}
 {{- else -}}
-  {{- $pwd = randAlphaNum 32 -}}
+  {{- $cfg := .Values.sovereignSMTPCredentialsMirror | default dict -}}
+  {{- $mirrorNs := default "catalyst-system" $cfg.namespace -}}
+  {{- $mirrorName := default "sovereign-smtp-credentials" $cfg.secretName -}}
+  {{- $mirror := lookup "v1" "Secret" $mirrorNs $mirrorName -}}
+  {{- if and $mirror $mirror.data (index $mirror.data "smtp-pass") -}}
+    {{- $pwd = index $mirror.data "smtp-pass" | b64dec -}}
+  {{- else -}}
+    {{- $pwd = randAlphaNum 32 -}}
+  {{- end -}}
 {{- end -}}
 {{- $pwd -}}
 {{- end -}}

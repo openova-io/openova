@@ -35,11 +35,10 @@
 # WHAT IT ASSERTS (all fail closed — no WARN, no silent skip)
 #
 #   1. Every region's cilium-config has enable-wireguard=true, encrypt-node=true.
-#   2. The EFFECTIVE opt-out selector equals the posture decided in
-#      docs/adr/0019-zones-are-namespaces-and-an-edge-pool.md (decision 8)
-#      and explained in docs/SECURITY.md §2.1 (EXPECTED_OPT_OUT_SELECTOR
-#      below). An upstream default that drifts — or a hand-widened selector —
-#      is a violation even though every node would still "agree" with it.
+#   2. The EFFECTIVE opt-out selector equals the posture declared in
+#      docs/SECURITY.md §2.1 (EXPECTED_OPT_OUT_SELECTOR below). An upstream
+#      default that drifts — or a hand-widened selector — is a violation even
+#      though every node would still "agree" with it.
 #   3. Every agent reports a NodeEncryption state that is exactly `Enabled` or
 #      `OptedOut`. Unreadable, absent, not-Running, or any other token is a
 #      violation, never a skip.
@@ -94,11 +93,8 @@ set -uo pipefail
 # not by reading the docs:
 #   cilium-agent --help | grep node-encryption-opt-out-labels
 #   →  (default "node-role.kubernetes.io/control-plane")
-# Decided in docs/adr/0019-zones-are-namespaces-and-an-edge-pool.md, decision
-# 8, and explained in docs/SECURITY.md §2.1; keep the three in lockstep.
-# Changing it is a security-posture change: it needs a new decision record
-# that replaces decision 8 and a key rotation proven on a fresh installation,
-# not an edit here.
+# Keep this in lockstep with docs/SECURITY.md §2.1. Changing it is a security-
+# posture change and must be argued there, not here.
 EXPECTED_OPT_OUT_SELECTOR="${EXPECTED_OPT_OUT_SELECTOR:-node-role.kubernetes.io/control-plane}"
 
 KUBECONFIGS=()

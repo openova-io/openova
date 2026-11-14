@@ -1,0 +1,154 @@
+# XRD: XNodeActionClaim — Catalyst Day-2 CRUD composite for an
+# imperative node-level operation on a single Server in a NodePoolClaim.
+#
+# Three actions:
+#   cordon   — Kubernetes-side: a Job that runs `kubectl cordon <node>`
+#              against the parent ClusterClaim's kubeconfig.
+#   drain    — Kubernetes-side: cordon + a Job that runs
+#              `kubectl drain <node> --grace-period=<gracePeriod>
+#              --ignore-daemonsets --delete-emptydir-data`. After the
+#              drain succeeds, the Job exits 0 and the Composition
+#              writes provisioningFinishedAt.
+#   replace  — Sequenced: (1) provider-hcloud Server creation for the
+#              new node, (2) cordon Job + drain Job for the OLD node,
+#              (3) provider-hcloud Server delete for the OLD node. The
+#              composite remains until step 3 completes; deleting it
+#              earlier abandons the rollover.
+#
+# Note: drain is a Kubernetes-side op, NOT a cloud op. Per the task
+# spec, the Composition declares a Kubernetes-Job-resource as part of
+# its resource list — Crossplane's provider-kubernetes lets us do that
+# without ever shelling to kubectl.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #3: never bypass Crossplane —
+# even for k8s-side ops, the Job is a managed resource owned by the
+# composite.
+
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xnodeactionclaims.compose.openova.io
+  labels:
+    catalyst.openova.io/component: crossplane
+    catalyst.openova.io/composition-family: hetzner
+    catalyst.openova.io/day2-crud: "true"
+spec:
+  group: compose.openova.io
+  names:
+    kind: XNodeActionClaim
+    plural: xnodeactionclaims
+  claimNames:
+    kind: NodeActionClaim
+    plural: nodeactionclaims
+  defaultCompositionRef:
+    name: hetzner-node-action.compose.openova.io
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [parameters]
+              properties:
+                parameters:
+                  type: object
+                  required: [nodeRef, action]
+                  properties:
+                    nodeRef:
+                      type: object
+                      description: |
+                        Reference to the target node. `nodeName` is the
+                        Kubernetes node name (matches Hetzner server
+                        hostname), `serverID` is the Hetzner numeric ID
+                        used by `replace` action to locate the cloud
+                        resource for delete.
+                      required: [nodeName]
+                      properties:
+                        nodeName:
+                          type: string
+                          pattern: '^[a-z0-9][a-z0-9-]{1,253}$'
+                        serverID:
+                          type: string
+                        clusterRef:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            namespace:
+                              type: string
+                    action:
+                      type: string
+                      enum: [cordon, drain, replace]
+                    gracePeriod:
+                      type: integer
+                      description: |
+                        Drain grace period in seconds. Passed verbatim
+                        to `kubectl drain --grace-period=`.
+                      minimum: 0
+                      maximum: 3600
+                      default: 300
+                    replaceWith:
+                      type: object
+                      description: |
+                        Only used when action=replace. Specifies the
+                        replacement Server's parameters (sku, image,
+                        cloud-init etc.). When omitted the Composition
+                        clones the existing node's parameters.
+                      properties:
+                        sku:
+                          type: string
+                          pattern: '^(cx|cpx|ccx)[0-9]{2}$'
+                        image:
+                          type: string
+                        sshKeyName:
+                          type: string
+                providerConfigRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                  default:
+                    name: default-hcloud
+            status:
+              type: object
+              properties:
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:        { type: string }
+                      status:      { type: string }
+                      reason:      { type: string }
+                      message:     { type: string }
+                      lastTransitionTime: { type: string, format: date-time }
+                actionStartedAt:
+                  type: string
+                  format: date-time
+                actionFinishedAt:
+                  type: string
+                  format: date-time
+                jobName:
+                  type: string
+                  description: |
+                    Name of the in-cluster Job the Composition created
+                    for cordon/drain steps. Catalyst-api streams its
+                    logs to the operator UI.
+      additionalPrinterColumns:
+        - name: NODE
+          type: string
+          jsonPath: .spec.parameters.nodeRef.nodeName
+        - name: ACTION
+          type: string
+          jsonPath: .spec.parameters.action
+        - name: STARTED
+          type: date
+          jsonPath: .status.actionStartedAt
+        - name: FINISHED
+          type: date
+          jsonPath: .status.actionFinishedAt

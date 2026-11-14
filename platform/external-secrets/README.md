@@ -32,7 +32,7 @@ flowchart LR
     ES -->|"sync"| KS
 ```
 
-> **See also:** [`platform/openbao/README.md`](../openbao/README.md) for the secret-backend architecture (an independent OpenBao per region, with peer push of shared values from the primary region — see also [`docs/SECURITY.md`](../../docs/SECURITY.md) §5).
+> **See also:** [`platform/openbao/README.md`](../openbao/README.md) for the secret-backend architecture (independent Raft per region, async perf replication, single-primary writes — see also [`docs/SECURITY.md`](../../docs/SECURITY.md) §5).
 
 ---
 
@@ -43,7 +43,7 @@ flowchart LR
 | No secrets in Git | SOPS eliminated, interactive bootstrap |
 | OpenBao is source of truth | Secrets live in OpenBao; K8s Secrets are materialized projections |
 | Pull-locally, write-to-primary | ExternalSecret reads from local OpenBao replica; PushSecret writes to the primary region |
-| Multi-region reads | Each region reads its own OpenBao; the primary region pushes shared values into the OpenBao of every region (peer push) |
+| Multi-region reads | Async perf replication propagates writes from primary → replicas |
 | Auto-generation | ESO Generators create complex secrets directly into OpenBao |
 
 ---
@@ -130,7 +130,7 @@ spec:
 
 ### PushSecret to the primary OpenBao
 
-Writes go to the primary region. A value that every region needs is written by the primary region into the OpenBao of each region (peer push); OpenBao does not replicate it.
+Writes go to the primary region only — replicas refuse writes (perf replication is one-way primary→standby).
 
 ```yaml
 apiVersion: external-secrets.io/v1alpha1
@@ -153,7 +153,7 @@ spec:
           property: password
 ```
 
-OpenBao does not replicate the new value to other regions. A value that every region needs is written into the OpenBao of each region by peer push (see [`platform/openbao/README.md`](../openbao/README.md)). Each region's ExternalSecret then materializes the new K8s Secret locally.
+OpenBao's async Performance Replication propagates the new value to all replicas within ~1s. Each region's ExternalSecret then materializes the new K8s Secret locally.
 
 ---
 
@@ -308,7 +308,7 @@ If migrating from SOPS-based setup:
 **Positive:**
 - No secrets in Git (eliminates leak risk)
 - Auto-generation of complex secrets via ESO Generators
-- Each region reads its own OpenBao; shared values reach every region by peer push
+- Cross-region availability via OpenBao Performance Replication (replicas serve reads with sub-10ms latency in same continent)
 - Backend-agnostic (swap without app changes)
 - Gitea tokens managed consistently with all other secrets
 

@@ -276,21 +276,18 @@ slots:
     # bp-crossplane-claims pattern.
     depends_on: [bp-external-secrets, bp-openbao]
     wave: W2.K1
-  - slot: 15b
-    name: storage-ready
-    # The neutral storage gate (chart bp-storage-ready). Its hook Job exits 0
-    # when the StorageClass named by SOVEREIGN_CNPG_STORAGE_CLASS is the
-    # cluster default; it waits at most 10 minutes, then Flux retries. Only
-    # Flux is needed to install it.
-    depends_on: [bp-flux]
-    wave: W2.K1
   - slot: 16
     name: bp-cnpg
-    # The durable default StorageClass EVERY cnpg PVC (shared-pg / cnpg-pair /
-    # harbor / keycloak / gitea downstream) needs must EXIST before any PVC
-    # binds. The neutral storage gate storage-ready (slot 15b) proves it; no
-    # cloud-specific disk-driver release is named.
-    depends_on: [bp-flux, storage-ready]
+    # #3971 / #892 — gate on BOTH per-provider cloud-CSI slots so the durable
+    # default StorageClass EVERY cnpg PVC (shared-pg / cnpg-pair / harbor /
+    # keycloak / gitea downstream) needs EXISTS before any PVC binds now that
+    # k3s runs --disable=local-storage (local-path FORBIDDEN). On Hetzner the
+    # default class is bp-hcloud-csi's hcloud-volumes; on Huawei it is
+    # bp-huawei-evs-csi's evs-ssd. bp-hcloud-csi renders EMPTY on Huawei (Ready
+    # with NO class), so gating on it ALONE froze Huawei PVCs classless before
+    # evs-ssd landed (hw182). Both CSI slots are active-but-empty on the OTHER
+    # provider so neither dependsOn deadlocks.
+    depends_on: [bp-flux, bp-hcloud-csi, bp-huawei-evs-csi]
     wave: W2.K1
   - slot: 16a
     name: bp-postgres-shared

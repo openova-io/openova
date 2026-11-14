@@ -154,7 +154,7 @@ func TestDispatchOne_HandlerError(t *testing.T) {
 // hot-loop the subscriber. Caught by the operator log line, not the
 // transport.
 func TestDispatchOne_MalformedJSON(t *testing.T) {
-	msg := &fakeMsg{data: []byte("not-json{"), subject: SubjectTenantCreated}
+	msg := &fakeMsg{data: []byte("not-json{"), subject: SubjectTenantSandboxRequested}
 
 	called := false
 	handler := Handler(func(context.Context, *Event) error {
@@ -162,7 +162,7 @@ func TestDispatchOne_MalformedJSON(t *testing.T) {
 		return nil
 	})
 
-	dispatchOne(context.Background(), msg, handler, SubjectTenantCreated, "test-d", 5*time.Second)
+	dispatchOne(context.Background(), msg, handler, SubjectTenantSandboxRequested, "test-d", 5*time.Second)
 
 	if called {
 		t.Error("handler should NOT be invoked on malformed JSON")
@@ -172,5 +172,52 @@ func TestDispatchOne_MalformedJSON(t *testing.T) {
 	}
 	if msg.nakCount != 0 {
 		t.Errorf("want Nak count 0 on poison pill (Term/Ack only), got %d", msg.nakCount)
+	}
+}
+
+// TestDispatchOne_SandboxRequestedPayload pins the exact wire format
+// the publish-side (PR #1633 tenant.handlers.CreateOrg) emits — the
+// downstream sandbox-controller handler reads tenant_id, org_slug,
+// owner_id, owner_email, agent_catalogue out of the Data blob. If
+// the publish-side renames a field this test goes red so the consumer
+// stays in lockstep.
+func TestDispatchOne_SandboxRequestedPayload(t *testing.T) {
+	payload := Event{
+		ID:        "evt-sb",
+		Type:      "tenant.sandbox_requested",
+		Source:    "tenant-service",
+		Timestamp: time.Now().UTC(),
+		TenantID:  "tnt-sb",
+		Data: json.RawMessage(`{
+			"tenant_id":"tnt-sb",
+			"org_slug":"acme",
+			"owner_id":"u-1",
+			"owner_email":"ceo@acme.com",
+			"agent_catalogue":["qwen","claude"]
+		}`),
+	}
+	body, _ := json.Marshal(payload)
+	msg := &fakeMsg{data: body, subject: SubjectTenantSandboxRequested}
+
+	var got struct {
+		TenantID       string   `json:"tenant_id"`
+		OrgSlug        string   `json:"org_slug"`
+		OwnerEmail     string   `json:"owner_email"`
+		AgentCatalogue []string `json:"agent_catalogue"`
+	}
+	handler := Handler(func(_ context.Context, ev *Event) error {
+		return json.Unmarshal(ev.Data, &got)
+	})
+
+	dispatchOne(context.Background(), msg, handler, SubjectTenantSandboxRequested, "test-d", 5*time.Second)
+
+	if msg.ackCount != 1 {
+		t.Fatalf("expected Ack=1 on success, got Ack=%d Nak=%d", msg.ackCount, msg.nakCount)
+	}
+	if got.OrgSlug != "acme" || got.OwnerEmail != "ceo@acme.com" {
+		t.Errorf("payload fields not surfaced: %+v", got)
+	}
+	if len(got.AgentCatalogue) != 2 || got.AgentCatalogue[0] != "qwen" {
+		t.Errorf("agent_catalogue not surfaced: %+v", got.AgentCatalogue)
 	}
 }

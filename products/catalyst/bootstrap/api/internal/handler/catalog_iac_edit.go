@@ -50,7 +50,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	yamlv3 "gopkg.in/yaml.v3"
 
-	"github.com/openova-io/openova/core/controllers/pkg/gitwrite"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 )
 
@@ -124,8 +123,13 @@ func (h *Handler) HandleCatalogBlueprintIaCEdit(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	if catalogWriterOf(h.giteaClient) == nil {
-		writeGitUnavailable(w) // no commit library: never a false success
+	if h.giteaClient == nil {
+		// No local catalog git yet (pre-cutover / CI). Report it, never a
+		// false success — the IaC editor is meaningless without the source.
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error":  "gitea-not-wired",
+			"detail": "local catalog git not yet available (pre-cutover); the full-CR IaC edit requires Gitea",
+		})
 		return
 	}
 
@@ -420,9 +424,8 @@ func fillBlueprintSpecVersion(doc map[string]interface{}, version string) {
 // (the file already carried these exact bytes — still durable). A non-nil
 // err is a genuine transport/API failure.
 func (h *Handler) writeCatalogFullBlueprintToGit(ctx context.Context, bpName string, blueprintYAML []byte) (string, bool, error) {
-	gw := catalogWriterOf(h.giteaClient)
-	if gw == nil {
-		return bpName, false, errCatalogGitUnavailable
+	if h.giteaClient == nil {
+		return bpName, false, fmt.Errorf("gitea client unwired")
 	}
 	if _, err := h.giteaClient.EnsureOrg(ctx, catalogSovereignOrg,
 		"Sovereign-curated catalog",
@@ -435,8 +438,8 @@ func (h *Handler) writeCatalogFullBlueprintToGit(ctx context.Context, bpName str
 		return repo, false, fmt.Errorf("ensure repo %s/%s: %w", catalogSovereignOrg, repo, err)
 	}
 	msg := fmt.Sprintf("catalog: edit %s full IaC via catalyst-api (#3668)", bpName)
-	committed, _, err := commitCatalogFile(ctx, gw, gitwrite.Repo{Owner: catalogSovereignOrg, Name: repo, Branch: catalogEditGitBranch},
-		catalogEditBlueprintPath, blueprintYAML, msg, catalogEditCommitAuthor())
+	_, committed, err := h.giteaClient.PutFile(ctx, catalogSovereignOrg, repo,
+		catalogEditGitBranch, catalogEditBlueprintPath, blueprintYAML, msg, catalogEditCommitAuthor())
 	if err != nil {
 		return repo, false, fmt.Errorf("put %s/%s/%s: %w", catalogSovereignOrg, repo, catalogEditBlueprintPath, err)
 	}

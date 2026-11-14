@@ -37,7 +37,6 @@ metadata:
     catalyst.openova.io/blueprint: bp-catalyst-edge-routes
     catalyst.openova.io/component: openova-mcp
   annotations:
-    # single-region backend
     service.cilium.io/global: "true"
     service.cilium.io/shared: "true"
 spec:

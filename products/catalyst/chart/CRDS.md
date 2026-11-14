@@ -2,7 +2,7 @@
 
 ## Provenance
 
-The 6 catalyst-domain CRDs in `crds/` are auto-installed by Helm on
+The 9 catalyst-domain CRDs in `crds/` are auto-installed by Helm on
 `helm install` and `helm upgrade`:
 
 | File | API group | Kind |
@@ -13,6 +13,9 @@ The 6 catalyst-domain CRDs in `crds/` are auto-installed by Helm on
 | `environment.yaml` | catalyst.openova.io | Environment |
 | `environmentpolicy.yaml` | catalyst.openova.io | EnvironmentPolicy |
 | `organization.yaml` | orgs.openova.io | Organization |
+| `provisioningstate.yaml` | catalyst.openova.io | ProvisioningState |
+| `runbook.yaml` | catalyst.openova.io | Runbook |
+| `secretpolicy.yaml` | catalyst.openova.io | SecretPolicy |
 
 These are watched by the in-tree controllers under
 `core/controllers/{environment,organization,application,...}`. If any

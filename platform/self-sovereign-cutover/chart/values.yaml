@@ -1055,6 +1055,7 @@ helmRepositories:
     - "bp-plane-isolation"
     - "bp-postgres"
     - "bp-powerdns-admin"
+    - "bp-sandbox"
     - "bp-sso-bridge"
     - "bp-vcluster-helmrepo"
     - "bp-velero-hcs"
@@ -1219,7 +1220,7 @@ helmRepositories:
   # helmRepositories.namespace), which the org-controller renders every
   # per-Org vcluster boundary HelmRelease against
   # (core/controllers/organization/internal/gitops/manifests.go, sourceRef
-  # name=loft namespace=vcluster-system, chart=vcluster version=<chartVersion>). The
+  # name=loft namespace=vcluster-system, chart=vcluster version=0.33.*). The
   # Phase-1 URL-pivot walks flux-system and matches only the openova-io OCI
   # UPSTREAM_PREFIX, so it misses loft on BOTH axes → post-cutover the loft
   # source keeps re-fetching charts.loft.sh on its 15m interval. That interval
@@ -1240,7 +1241,7 @@ helmRepositories:
   #      (Phase-0 already added the registry.<fqdn> auth) + spec.certSecretRef
   #      to the in-cluster Harbor CA (both replicated into vcluster-system,
   #      where source-controller reads them). The tenant HRs resolve
-  #      chart=vcluster version=<chartVersion> against the mirrored OCI tag unchanged.
+  #      chart=vcluster version=0.33.* against the mirrored OCI tag unchanged.
   #   3. DURABLE — suspend the bp-vcluster-helmrepo HelmRelease (live + a
   #      spec.suspend:true edit to the Gitea slot file) so the next 15m
   #      reconcile does not re-render the loft HR back to charts.loft.sh.
@@ -1290,14 +1291,13 @@ helmRepositories:
     # (the Phase-2 clone's bootstrap-kit tree — the same durable source the
     # other HR pivots write to).
     slotFile: "clusters/_template/bootstrap-kit/60-bp-vcluster-helmrepo.yaml"
-    # Upstream index.yaml chart coordinates to mirror. chartVersion is the
-    # exact vcluster chart version, never a range. It MUST equal the
-    # org-controller's CATALYST_VCLUSTER_CHART_VERSION default and the
-    # platform chart value controllers.organization.vclusterChartVersion, so
-    # the tag helm pulls and pushes is the tag every per-Org HelmRelease asks for.
+    # Upstream index.yaml chart coordinates to mirror. version is a helm
+    # constraint that MUST match the org-controller's
+    # CATALYST_VCLUSTER_CHART_VERSION default so the tag helm resolves +
+    # pushes is the tag Flux resolves the same constraint against.
     upstreamRepoURL: "https://charts.loft.sh"
     chartName: "vcluster"
-    chartVersion: "0.33.4"
+    chartVersion: "0.33.*"
     # Local Harbor push project — the SAME openova-io project the other HR
     # pivots target and Phase-0 already added registry.<fqdn> auth for, so the
     # pivoted loft url reuses ghcr-pull + the cutover-harbor-ca trust ref.
@@ -1527,6 +1527,9 @@ imageRegistryPivot:
     - name: bp-newapi
       namespace: flux-system
       slotFile: clusters/_template/bootstrap-kit/80-newapi.yaml
+    - name: bp-sandbox
+      namespace: flux-system
+      slotFile: clusters/_template/bootstrap-kit/19a-bp-sandbox.yaml
     # #4961 (Refs #4885): the two remaining un-pivoted bootstrap-kit DaemonSets.
     # Both carried a literal ghcr.io image (their image helpers ignored
     # global.imageRegistry), so under the step-08 generalized fresh-pull

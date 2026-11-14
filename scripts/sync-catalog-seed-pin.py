@@ -30,10 +30,6 @@ Behaviour:
     (e.g. `{{ .Chart.Version    `{{ … }}` into a literal — that is the
       | quote }}`)                bp-catalyst-platform self-referential card, #4432)
   * a stale static version line  → rewritten to <version>
-  * a static version line HIGHER → LEFT UNTOUCHED, with a note in the log and the
-    than <version>                 step summary (FND-018: a newer release run
-                                   already moved it; an older run never moves a
-                                   site back)
   * matched entry, static line   → exit 2 (unexpected shape; fail loud rather
     present but post-write          than write the wrong value — mirrors the
     verify fails                    blueprint-release.yaml defensive steps)
@@ -41,21 +37,11 @@ Behaviour:
 Exit codes:
   0  success (updated) or clean no-op (not seeded / already correct / templated)
   1  usage error
-  2  unexpected file shape (matched entry but a rewrite could not be verified),
-     or a version that is not MAJOR.MINOR.PATCH
+  2  unexpected file shape (matched entry but a rewrite could not be verified)
 
 Usage:
   scripts/sync-catalog-seed-pin.py <chart-name> <version> [--file <path>] [--quiet]
-  scripts/sync-catalog-seed-pin.py --order <present> <published> [--site <text>]
   scripts/sync-catalog-seed-pin.py --self-test
-
---order is the release writer's ONE version comparison (FND-018). Every step of
-.github/workflows/blueprint-release.yaml that compares two versions calls it, and
-this script's own seed rule uses the same function. It prints `higher`, `same` or
-`lower`: how <present> compares with <published>, MAJOR, MINOR and PATCH each as a
-number (1.4.1952 is higher than 1.4.1951, 1.10.0 is higher than 1.9.9). It exits
-2 when either is not MAJOR.MINOR.PATCH. With --site, a `higher` result is also
-written as a note to the log and to $GITHUB_STEP_SUMMARY: the site is left alone.
 
 The parser mirrors catalogSeedEntries() /catalogSeedPins() in
 tests/e2e/bootstrap-kit/main_test.go and scripts/lib/parse-catalog-seed-pins.awk:
@@ -105,44 +91,6 @@ _RE_VERSION_REWRITE = re.compile(r"^(\s*version:\s*)([\"']?)([^\"'\s]+)([\"']?)(
 
 class SeedShapeError(Exception):
     """Matched the target chart but the file shape defeats a safe rewrite."""
-
-
-class VersionError(ValueError):
-    """A version that is not MAJOR.MINOR.PATCH."""
-
-
-_RE_SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
-
-
-def version_order(present, published):
-    """How `present` compares with `published`: 'higher', 'same' or 'lower'.
-
-    The release writer's one version comparison (FND-018). MAJOR, MINOR and PATCH
-    are compared as numbers, never as strings. Raises VersionError when either
-    value is not MAJOR.MINOR.PATCH.
-    """
-    keys = []
-    for v in (present, published):
-        m = _RE_SEMVER.match(v or "")
-        if not m:
-            raise VersionError("version %r is not MAJOR.MINOR.PATCH" % (v,))
-        keys.append(tuple(int(x) for x in m.groups()))
-    if keys[0] > keys[1]:
-        return "higher"
-    if keys[0] == keys[1]:
-        return "same"
-    return "lower"
-
-
-def note_kept(site, present, published):
-    """Say in the log and in the step summary that a newer site was left alone."""
-    msg = ("%s holds %s, above the %s this run published: left as it is "
-           "(FND-018)." % (site, present, published))
-    print("::notice title=Newer version kept::%s" % msg, file=sys.stderr)
-    summary = os.environ.get("GITHUB_STEP_SUMMARY")
-    if summary:
-        with open(summary, "a") as fh:
-            fh.write("- Newer version kept: %s\n" % msg)
 
 
 def _parse_entries(lines):
@@ -280,8 +228,7 @@ def sync_seed(text, chart, version):
     entries = _parse_entries(lines)
     matched = [e for e in entries if e["manifests_chart"] == chart]
 
-    report = {"matched": len(matched), "changed": False, "updated": [], "skipped_tmpl": [],
-              "kept_newer": []}
+    report = {"matched": len(matched), "changed": False, "updated": [], "skipped_tmpl": []}
     if not matched:
         return text, report
 
@@ -308,16 +255,6 @@ def sync_seed(text, chart, version):
                 report["skipped_tmpl"].append((idx + 1, kind, raw))
                 continue
             if token == version:
-                continue
-            try:
-                order = version_order(token, version)
-            except VersionError as exc:
-                raise SeedShapeError("%s version line %d for chart %r: %s"
-                                     % (kind, idx + 1, chart, exc))
-            if order == "higher":
-                # FND-018: a newer release run already moved this line. An older
-                # run never moves a site back.
-                report["kept_newer"].append((idx + 1, kind, token))
                 continue
             new_line = _rewrite_line(lines[idx], version)
             report["updated"].append((idx + 1, kind, token, version))
@@ -362,17 +299,13 @@ def _run(chart, version, path, quiet):
             print("INFO: %s is not in the catalog-seed — graceful no-op." % chart)
         return 0
 
-    seed_rel = os.path.relpath(os.path.abspath(path), _REPO_ROOT)
-    for (lineno, kind, present) in report["kept_newer"]:
-        note_kept("%s line %d (%s %s version)" % (seed_rel, lineno, chart, kind),
-                  present, version)
     if report["skipped_tmpl"] and not quiet:
         for (lineno, kind, val) in report["skipped_tmpl"]:
             print("INFO: %s %s version (line %d) is templated (%s) — left untouched."
                   % (chart, kind, lineno, val))
 
     if not report["changed"]:
-        if not quiet and not report["kept_newer"]:
+        if not quiet:
             print("INFO: catalog-seed already pins %s at %s (%d entr%s) — no-op."
                   % (chart, version, report["matched"], "y" if report["matched"] == 1 else "ies"))
         return 0
@@ -565,8 +498,7 @@ def _self_test():
             check(_r == real and repr_["changed"] is False,
                   "bp-guacamole at its own version %s is a byte no-op" % cur)
             # And a fresh bump moves exactly its lines, siblings byte-identical.
-            _maj, _min, _pat = cur.split(".")
-            _r2, repr2 = sync_seed(real, "bp-guacamole", "%s.%s.%d" % (_maj, _min, int(_pat) + 1))
+            _r2, repr2 = sync_seed(real, "bp-guacamole", cur + "-selftest")
             rl, r2l = real.split("\n"), _r2.split("\n")
             diff_idx = [i for i, (a, b) in enumerate(zip(rl, r2l)) if a != b]
             check(len(diff_idx) == len(repr2["updated"]) and len(diff_idx) > 0,
@@ -575,33 +507,6 @@ def _self_test():
             print("  skip: bp-guacamole not resolvable in real seed")
     else:
         print("  skip: real catalog-seed not found at %s" % DEFAULT_SEED)
-
-    # ── FND-018: the one version comparison ──
-    print("[8] versions compare as numbers, never as strings")
-    check(version_order("1.4.1952", "1.4.1951") == "higher", "1.4.1952 is higher than 1.4.1951")
-    check(version_order("1.10.0", "1.9.9") == "higher", "1.10.0 is higher than 1.9.9")
-    check(version_order("1.9.9", "1.10.0") == "lower", "1.9.9 is lower than 1.10.0")
-    check(version_order("2.0.0", "2.0.0") == "same", "2.0.0 is the same as 2.0.0")
-    for bad in ("1.2", "1.2.3-rc1", "v1.2.3", ""):
-        try:
-            version_order(bad, "1.0.0")
-            check(False, "%r is refused" % bad)
-        except VersionError:
-            check(True, "%r is refused" % bad)
-
-    # ── FND-018: a newer seed line is never moved back ──
-    print("[9] a seed line that holds a higher version is left alone")
-    _k, repk = sync_seed(new_text, "bp-foo", "1.0.0")
-    check(_k == new_text, "file byte-identical when the seed is newer than the run")
-    check(repk["changed"] is False, "reported changed=False")
-    check(len(repk["kept_newer"]) == 4, "four newer lines reported kept (got %d)" % len(repk["kept_newer"]))
-    _k2, repk2 = sync_seed(new_text, "bp-foo", "2.0.1")
-    check(repk2["changed"] is True and len(repk2["updated"]) == 4, "a higher run still moves all four lines")
-    try:
-        sync_seed(new_text, "bp-foo", "2.0.0-rc1")
-        check(False, "a run version that is not MAJOR.MINOR.PATCH is refused")
-    except SeedShapeError:
-        check(True, "a run version that is not MAJOR.MINOR.PATCH is refused")
 
     print()
     if failures:
@@ -621,25 +526,10 @@ def main(argv=None):
     ap.add_argument("--file", default=DEFAULT_SEED, help="path to the catalog-seed blueprints.yaml")
     ap.add_argument("--quiet", action="store_true", help="suppress INFO output")
     ap.add_argument("--self-test", action="store_true", help="run the embedded unit tests and exit")
-    ap.add_argument("--order", nargs=2, metavar=("PRESENT", "PUBLISHED"),
-                    help="print higher, same or lower: how PRESENT compares with PUBLISHED (FND-018)")
-    ap.add_argument("--site", default=None,
-                    help="with --order: on `higher`, note that this site was left alone")
     args = ap.parse_args(argv)
 
     if args.self_test:
         return _self_test()
-
-    if args.order:
-        try:
-            order = version_order(args.order[0], args.order[1])
-        except VersionError as exc:
-            print("::error title=Release writer version::%s" % exc, file=sys.stderr)
-            return 2
-        if order == "higher" and args.site:
-            note_kept(args.site, args.order[0], args.order[1])
-        print(order)
-        return 0
 
     if not args.chart or not args.version:
         ap.error("both <chart-name> and <version> are required (or use --self-test)")

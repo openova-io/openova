@@ -446,7 +446,7 @@ func TestGetLaunchURL_FailsLoud_OnUnresolvedToken(t *testing.T) {
 	}
 
 	t.Run("resolvable template still answers 200", func(t *testing.T) {
-		h, _ := newTestHandlerWithEndpoint(t)
+		h, _, _ := newTestHandlerWithEndpoint(t)
 		h.SetCatalogClient(fakeBlueprintInCatalog("demo", ep("demo.{{.SovereignFQDN}}"), false, []string{"singleton"}))
 
 		rec := httptest.NewRecorder()
@@ -464,7 +464,7 @@ func TestGetLaunchURL_FailsLoud_OnUnresolvedToken(t *testing.T) {
 	})
 
 	t.Run("unresolved token answers 409 instead of a dead URL", func(t *testing.T) {
-		h, _ := newTestHandlerWithEndpoint(t)
+		h, _, _ := newTestHandlerWithEndpoint(t)
 		h.SetCatalogClient(fakeBlueprintInCatalog("demo", ep("demo.{{.OrgDomian}}"), false, []string{"singleton"}))
 
 		rec := httptest.NewRecorder()

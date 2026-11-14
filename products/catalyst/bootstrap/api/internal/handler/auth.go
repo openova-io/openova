@@ -65,8 +65,8 @@ import (
 // bp-self-sovereign-cutover (e.g. console.<franchise-fqdn>) still
 // stamped the mothership URL as `iss` claim, so downstream JWT
 // validation rejected the session as foreign-issuer. Now reads from
-// env CATALYST_PIN_ISSUER; falls back to this Sovereign's own console
-// origin, handoverjwt.OwnIssuer() (SOV-180). Per-Sovereign overlays set
+// env CATALYST_PIN_ISSUER; falls back to the mothership origin for
+// back-compat with pre-#2940 Sovereigns. Per-Sovereign overlays set
 // the env var via the catalystApi.env additional-env patch in the
 // per-Sovereign HelmRelease overlay (dual-mode contract — see
 // chart/templates/api-deployment.yaml line 1267+ for context).
@@ -77,14 +77,14 @@ import (
 // NOT reading it (auth_handover.go's session, which kept the raw
 // mothership literal) went unnoticed for that reason. It is a function
 // now so the resolution is observable, and the fallback comes from
-// handoverjwt.OwnIssuer() rather than a second copy of the
+// handoverjwt.MothershipIssuer() rather than a second copy of the
 // literal — the duplicate-literal shape is what #2940 and #5614 each
 // had to fix in turn.
 func pinIssuer() string {
 	if v := strings.TrimSpace(os.Getenv("CATALYST_PIN_ISSUER")); v != "" {
 		return v
 	}
-	return handoverjwt.OwnIssuer()
+	return handoverjwt.MothershipIssuer()
 }
 
 // pinSessionRole — role claim stamped into PIN-derived session JWTs.

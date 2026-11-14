@@ -76,13 +76,13 @@ wordpress:
     # SHA-pinned per docs/PRINCIPLES.md #4 — the digest below is the manifest
     # digest of the published image; the human-readable tag is kept alongside
     # for forensics.
-    repository: ghcr.io/openova-io/openova/wordpress-tenant-pg
-    tag: "b46ef05"
+    repository: registry.hw307.omani.works/openova-io/openova/wordpress-tenant-pg  # HW307-ONLY (in-Sovereign build); revert to ghcr.io before upstreaming
+    tag: "hw307-b110c81"
     # Pushed manifest digest of `wordpress-tenant-pg:<tag>` — populated by the
     # build workflow's build-push-action `outputs.digest` on first build.
     # Empty until then; the helper omits `@digest` when empty so the chart
     # still renders + pulls by tag during the bootstrap window.
-    digest: "sha256:fa6ff64d6a7f14375c9dea0c7277923cc544650b007468155c1887f3d70b0b7f"
+    digest: ""
     pullPolicy: IfNotPresent
     # ─── Image pull secrets (#4152, Refs #3858) ──────────────────────────
     # Since #4153 the runtime image is the CUSTOM
@@ -518,6 +518,7 @@ media:
   # are skipped). auto = run when the legacy PVC `<fullname>-wp-content`
   # exists in the namespace (Helm lookup); always / never = force.
   migrateLegacyPvc: auto
+
 # ─── Persistence ────────────────────────────────────────────────────────
 # LEGACY (media.store=pvc only): /var/www/html/wp-content on a region-local
 # PVC carrying themes, plugins and uploads. Not rendered under media.store=s3.

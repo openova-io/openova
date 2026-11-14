@@ -45,7 +45,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -91,7 +90,7 @@ type BrokerSubscriber interface {
 //     envelopes regardless of which transport the publisher used.
 //
 // MultiSubscriber NEVER swallows configuration errors — if a caller
-// requests a subject but the NATS Stream does not exist, NewMultiSubscriber
+// requests a subject but the NATS Stream cannot be created, Subscribe
 // returns an error so the operator sees the misconfiguration at pod
 // start instead of "every tenant.created event is silently dropped".
 type MultiSubscriber struct {
@@ -150,28 +149,30 @@ type MultiSubscriberConfig struct {
 	// StreamName is the JetStream Stream the subjects live on. Defaults
 	// to StreamCatalystOrg when empty.
 	StreamName string
-	// StreamSubjects are the subject filters the bound Stream must carry.
-	// Defaults to []string{"catalyst.>"}: a single Stream backs every
-	// catalyst.<domain>.<event> subject.
+	// StreamSubjects is the Stream's subject filter when MultiSubscriber
+	// is the lifecycle owner. Defaults to []string{"catalyst.>"} so a
+	// single Stream backs every catalyst.<domain>.<event> subject.
 	StreamSubjects []string
 }
 
 // StreamCatalystOrg is the canonical JetStream Stream backing every
 // Organization convergence event (catalyst.tenant.*, catalyst.billing.*,
-// catalyst.domain.*, catalyst.provision.*). The chart bp-nats-jetstream
-// declares it (platform/nats-jetstream/chart/templates/streams.yaml) and
-// the JetStream controller of that chart creates it. No Go code creates
-// or changes it: a service binds to it at start and fails while it is
-// absent.
+// catalyst.domain.*, catalyst.provision.*). Created idempotently by
+// MultiSubscriber if it does not already exist — first consumer to
+// start on a fresh Sovereign owns lifecycle.
 const StreamCatalystOrg = "CATALYST_ORG"
 
-// ensureOrgStream binds to the declared JetStream Stream name (default
-// StreamCatalystOrg) and checks that it carries every subject filter in
-// subjects (default `catalyst.>`). It never creates or changes a Stream.
-// It returns an error when the Stream is absent (wrapping
-// jetstream.ErrStreamNotFound) or lacks one of the subjects, so a service
-// that starts before the Stream exists fails at start and is restarted,
-// instead of creating a second, undeclared configuration.
+// ensureOrgStream creates an Organization-side JetStream Stream listening on
+// the supplied subject filter (defaulting to `catalyst.>`). Idempotent
+// — calling it on a Sovereign whose Stream was provisioned in a prior
+// startup is a no-op. Lives here (rather than in nats.go) because the
+// MultiSubscriber is its sole caller; per-Sovereign overlays may also
+// own lifecycle out of band but the first consumer to start on a
+// fresh cluster bootstraps the Stream so cold-start is one-shot.
+//
+// File storage + 14-day retention mirror EnsureUsageStream —
+// convergence events (tenant.created, order.placed, …) deserve the
+// same replay window as metering envelopes.
 func (c *NATSConn) ensureOrgStream(ctx context.Context, name string, subjects []string) error {
 	if c == nil || c.js == nil {
 		return errors.New("events: nats publisher not initialised")
@@ -182,18 +183,17 @@ func (c *NATSConn) ensureOrgStream(ctx context.Context, name string, subjects []
 	if len(subjects) == 0 {
 		subjects = []string{"catalyst.>"}
 	}
-	stream, err := c.js.Stream(ctx, name)
+	_, err := c.js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
+		Name:        name,
+		Description: "Catalyst Organization convergence events (catalyst.<domain>.<event>).",
+		Subjects:    subjects,
+		Retention:   jetstream.LimitsPolicy,
+		Storage:     jetstream.FileStorage,
+		MaxAge:      14 * 24 * time.Hour,
+		Replicas:    1,
+	})
 	if err != nil {
-		return fmt.Errorf("events: bind Organization stream %s (declared by the chart bp-nats-jetstream): %w", name, err)
-	}
-	var have []string
-	if info := stream.CachedInfo(); info != nil {
-		have = info.Config.Subjects
-	}
-	for _, want := range subjects {
-		if !slices.Contains(have, want) {
-			return fmt.Errorf("events: stream %s does not carry subject %s (it carries %v)", name, want, have)
-		}
+		return fmt.Errorf("events: ensure Organization stream %s: %w", name, err)
 	}
 	return nil
 }
@@ -204,8 +204,8 @@ func (c *NATSConn) ensureOrgStream(ctx context.Context, name string, subjects []
 // drop every event and is the configuration bug this file exists to
 // catch.
 //
-// The Stream is bound at construction time; the per-subject durable
-// consumers are created on the first Subscribe call. Failures there bubble
+// NATS-side bootstrap is lazy: the Stream + per-subject durable
+// consumers are created on first Subscribe call. Failures there bubble
 // up as an error from Subscribe so the caller (typically a service's
 // main.go goroutine) logs the actual misconfiguration.
 func NewMultiSubscriber(cfg MultiSubscriberConfig) (*MultiSubscriber, error) {
@@ -249,10 +249,10 @@ func NewMultiSubscriber(cfg MultiSubscriberConfig) (*MultiSubscriber, error) {
 	}
 	if natsEnabled {
 		m.nats = cfg.NATS
-		// Bind to the declared Stream at construction time so a missing
-		// Stream or a misconfigured per-Sovereign overlay (wrong Stream
-		// name, no JetStream domain enabled) surfaces at pod start instead
-		// of the first envelope.
+		// Ensure the Stream exists at construction time so a
+		// misconfigured per-Sovereign overlay (wrong Stream name, no
+		// JetStream domain enabled) surfaces at pod start instead of
+		// the first envelope.
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := cfg.NATS.ensureOrgStream(ctx, cfg.StreamName, cfg.StreamSubjects); err != nil {

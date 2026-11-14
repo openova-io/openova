@@ -238,7 +238,11 @@ func (c *Client) PutKVv2(ctx context.Context, mountPath, secretPath string, data
 //
 // Returns the `data.data` map verbatim — the caller picks the key it
 // needs. Returns `ErrSecretNotFound` when OpenBao replies 404 so the
-// caller can distinguish a missing secret from a transport error.
+// caller can distinguish "no per-Org token yet" from transport error
+// (G117.3b: per-Org Gitea robot token lookup at
+// `kv/data/org/<slug>/iac-bot-token` must return a stable not-found
+// signal so NewProductionGiteaIaCWriter can fall back to the global env
+// only on truly-missing — not on transport hiccups).
 //
 // Refs #2765 (G117.3b writer-side).
 func (c *Client) GetKVv2(ctx context.Context, mountPath, secretPath string) (map[string]any, error) {

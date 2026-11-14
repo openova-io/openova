@@ -1,0 +1,140 @@
+# XRD: XClusterClaim — Catalyst Day-2 CRUD composite for a logical
+# Kubernetes cluster inside a region slice. A ClusterClaim is a label
+# applied to a set of Servers + LoadBalancer in a RegionClaim that ties
+# them to a single k3s control plane (HA via 1- or 3-node CP). The
+# Composition's responsibility is narrow: stamp the cluster identity
+# label onto Hetzner labels and write the k3s version + tags to a
+# Kubernetes-side ConfigMap that the catalyst-environment-controller
+# reads when generating per-server cloud-init.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md:
+#   #3  Crossplane is the day-2 IaC. ClusterClaim is the catalyst-api's
+#       declarative way of saying "I want a k3s cluster here, named X,
+#       at version Y, with tags Z" — Crossplane materialises that intent
+#       on the cluster the Composition runs on (the Sovereign management
+#       cluster), then per-host bootstrapping picks up the ConfigMap
+#       and joins.
+#   #4  k3sVersion, name, tags — all schema fields, never hardcoded.
+
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xclusterclaims.compose.openova.io
+  labels:
+    catalyst.openova.io/component: crossplane
+    catalyst.openova.io/composition-family: hetzner
+    catalyst.openova.io/day2-crud: "true"
+spec:
+  group: compose.openova.io
+  names:
+    kind: XClusterClaim
+    plural: xclusterclaims
+  claimNames:
+    kind: ClusterClaim
+    plural: clusterclaims
+  defaultCompositionRef:
+    name: hetzner-cluster.compose.openova.io
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [parameters]
+              properties:
+                parameters:
+                  type: object
+                  required: [name, regionRef, k3sVersion]
+                  properties:
+                    name:
+                      type: string
+                      description: |
+                        Logical cluster name — used for the k3s
+                        --cluster-name and the catalyst.openova.io/cluster
+                        label on every owned Hetzner resource.
+                      pattern: '^[a-z0-9][a-z0-9-]{1,62}$'
+                    regionRef:
+                      type: object
+                      description: |
+                        Reference to the RegionClaim this cluster lives
+                        inside. The Composition uses the RegionClaim's
+                        status.networkId to attach Hetzner-side labels
+                        consistently.
+                      required: [name]
+                      properties:
+                        name:
+                          type: string
+                        namespace:
+                          type: string
+                    k3sVersion:
+                      type: string
+                      description: |
+                        k3s release tag — e.g. v1.31.4+k3s1. Mutable —
+                        patching this field triggers a per-pool rolling
+                        upgrade owned by NodePoolClaim's UPDATE flow.
+                      pattern: '^v[0-9]+\.[0-9]+\.[0-9]+\+k3s[0-9]+$'
+                    tags:
+                      type: object
+                      additionalProperties:
+                        type: string
+                      description: |
+                        Arbitrary string→string labels applied to every
+                        Hetzner resource owned by this cluster (workers,
+                        control plane, LBs). Catalyst convention reserves
+                        keys with the `catalyst.openova.io/` prefix.
+                providerConfigRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                  default:
+                    name: default-hcloud
+            status:
+              type: object
+              properties:
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:        { type: string }
+                      status:      { type: string }
+                      reason:      { type: string }
+                      message:     { type: string }
+                      lastTransitionTime: { type: string, format: date-time }
+                endpoint:
+                  type: string
+                  description: |
+                    Public k3s API endpoint — the LB's IP:6443. Read from
+                    the parent RegionClaim's status.loadBalancerIP.
+                ready:
+                  type: boolean
+                  description: |
+                    Convenience boolean — true iff every cluster-scoped
+                    Composition resource reports Ready=True.
+                clusterID:
+                  type: string
+                  description: |
+                    Stable identifier (UUID) used by NodePoolClaim's
+                    `clusterRef` to bind a worker pool to this cluster.
+      additionalPrinterColumns:
+        - name: NAME
+          type: string
+          jsonPath: .spec.parameters.name
+        - name: K3S
+          type: string
+          jsonPath: .spec.parameters.k3sVersion
+        - name: ENDPOINT
+          type: string
+          jsonPath: .status.endpoint
+        - name: READY
+          type: boolean
+          jsonPath: .status.ready
+        - name: AGE
+          type: date
+          jsonPath: .metadata.creationTimestamp

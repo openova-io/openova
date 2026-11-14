@@ -70,7 +70,7 @@ export const FLAT_NAV: FlatNavItem[] = [
   // /apps/bp-agenity/dashboard, the same terminal glyph) and arrives here
   // through the merged /console-ui/sidebar-entries view, where the
   // sovereign-admin can rename, re-route, re-order, nest or hide it from
-  // Settings → Menu.
+  // Settings → Menu. The /sandbox* routes + redirect remain in router.tsx.
   {
     id: 'jobs',
     label: 'Jobs',

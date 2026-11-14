@@ -14,8 +14,9 @@
 #   - lua-records support
 #   - dnsdist companion for query rate-limiting
 #   - REST API ingress at pdns.openova.io behind Traefik basicAuth
-#   - anycast endpoint Service for the public NS endpoints
-#     (templates/anycast-endpoint.yaml)
+#   - placeholder anycast endpoint Service (XHetznerFloatingIP composition
+#     not yet authored — see Crossplane gap note in
+#     templates/crossplane-floatingip.yaml)
 #
 # Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) every operationally-
 # meaningful value flows from this file or from a referenced K8s Secret —
@@ -133,8 +134,10 @@ powerdns:
 
   service:
     # ClusterIP is fine for the chart's own DNS service — the public NS
-    # endpoints are realised by the LoadBalancer Service in
-    # templates/anycast-endpoint.yaml.
+    # endpoints are realised by the placeholder LoadBalancer Service in
+    # templates/anycast-endpoint.yaml (replaced by XHetznerFloatingIP
+    # once that Crossplane composition is authored — see
+    # templates/crossplane-floatingip.yaml).
     type: ClusterIP
 
   ingress:
@@ -482,7 +485,10 @@ api:
     backendService: ""    # default: powerdns
     backendPort: 8081     # matches powerdns.powerdns.webserver.bindPort default
 
-# Anycast public NS endpoint: the Service of type=LoadBalancer below.
+# Anycast public NS endpoint — placeholder until XHetznerFloatingIP
+# Crossplane composition is authored. The Service of type=LoadBalancer
+# below is a Phase-0 stand-in; per #167 the target state is anycast
+# Floating IPs across regions.
 anycast:
   enabled: true
   serviceName: powerdns-anycast
@@ -495,10 +501,21 @@ anycast:
     # — left empty here; bare-metal overlays add the Cilium LB-IPAM
     # sharing-key. 🛑 NodePort is FORBIDDEN (#4765) — template fails render).
     catalyst.openova.io/comment: |
-      Public NS endpoint Service of bp-powerdns.
+      Placeholder Service. Replaced by XHetznerFloatingIP once the
+      Crossplane composition is authored (see
+      templates/crossplane-floatingip.yaml).
   ports:
     - { name: dns-udp, port: 53, targetPort: dns-udp, protocol: UDP }
     - { name: dns-tcp, port: 53, targetPort: dns-tcp, protocol: TCP }
+
+# Crossplane XHetznerFloatingIP target-state config. Disabled by default;
+# operator flips this on after the composition lands (tracking issue
+# linked from templates/crossplane-floatingip.yaml).
+crossplane:
+  floatingIP:
+    enabled: false                # gap: XHetznerFloatingIP composition not yet authored
+    name: pdns-public-ns          # name used when the XR is created
+    region: fsn1                  # initial region; multi-region added as the composition matures
 
 # ─── Multi-zone bootstrap (issue #827, parent epic #825) ──────────────────
 # A Sovereign supports N parent zones, NOT one. The operator brings 1+

@@ -12,11 +12,11 @@
  *   3. Edge legend lists relations.
  *   4. Search isolates matches + neighbors and shows the counter.
  *   5. Clicking a node opens the right-side detail panel + neighbor list.
- *   6. Right-clicking a node or the canvas opens no menu: the page
- *      offers no infrastructure add, edit or delete.
- *   7. The detail panel of a region or cluster has no actions; the
- *      Cloud root's panel offers the deployment wipe dialog only.
+ *   6. Right-clicking a node opens the context menu with kind-aware items.
+ *   7. Right-clicking the canvas surface offers "Add region".
  *   8. Density slider for a tunable type renders.
+ *   9. CRUD modals (Add cluster / Add vCluster) still mount via the
+ *      detail panel — same testids the legacy tests asserted.
  */
 
 import { describe, it, expect, afterEach } from 'vitest'
@@ -225,21 +225,27 @@ describe('Architecture — detail panel', () => {
   })
 })
 
-describe('Architecture — no infrastructure mutation', () => {
-  it('opens no menu on a right-click of a node', async () => {
+describe('Architecture — context menu', () => {
+  it('opens the node context menu on right-click with kind-aware items', async () => {
     renderArchitecturePage(infrastructureTopologyFixture)
     const node = await screen.findByTestId(
       'arch-graph-node-Cluster-Cluster:cluster-eu-central-primary',
     )
     fireEvent.contextMenu(node)
-    expect(screen.queryByTestId('cloud-architecture-context-menu')).toBeNull()
+    const menu = screen.getByTestId('cloud-architecture-context-menu')
+    expect(menu.getAttribute('data-context-target')).toBe('Cluster')
+    expect(screen.getByTestId('cloud-architecture-context-add-vcluster')).toBeTruthy()
+    expect(screen.getByTestId('cloud-architecture-context-add-nodepool')).toBeTruthy()
+    expect(screen.getByTestId('cloud-architecture-context-delete')).toBeTruthy()
   })
 
-  it('opens no menu on a right-click of the empty canvas', async () => {
+  it('opens the canvas context menu with Add region on empty-canvas right-click', async () => {
     renderArchitecturePage(infrastructureTopologyFixture)
     const svg = await screen.findByTestId('arch-graph-svg')
     fireEvent.contextMenu(svg)
-    expect(screen.queryByTestId('cloud-architecture-context-menu')).toBeNull()
+    const menu = screen.getByTestId('cloud-architecture-context-menu')
+    expect(menu.getAttribute('data-context-target')).toBe('canvas')
+    expect(screen.getByTestId('cloud-architecture-context-add-region')).toBeTruthy()
   })
 })
 
@@ -311,29 +317,30 @@ describe('Architecture — default Cloud lens (#3970)', () => {
   })
 })
 
-describe('Architecture — detail panel actions', () => {
-  it('shows no actions in a region detail panel', async () => {
+describe('Architecture — CRUD modal triggers', () => {
+  it('opens the Add Cluster modal from a region detail panel', async () => {
     renderArchitecturePage(infrastructureTopologyFixture)
     fireEvent.click(
       await screen.findByTestId('arch-graph-node-Region-Region:region-eu-central'),
     )
-    expect(screen.getByTestId('infrastructure-detail-panel')).toBeTruthy()
-    expect(screen.queryByTestId('infrastructure-detail-panel-actions')).toBeNull()
+    fireEvent.click(screen.getByTestId('infrastructure-detail-panel-action-add-cluster'))
+    expect(screen.getByTestId('infrastructure-modal-add-cluster')).toBeTruthy()
   })
 
-  it('shows no actions in a cluster detail panel', async () => {
+  it('opens the Add vCluster modal from a cluster detail panel', async () => {
     renderArchitecturePage(infrastructureTopologyFixture)
     fireEvent.click(
       await screen.findByTestId('arch-graph-node-Cluster-Cluster:cluster-eu-central-primary'),
     )
-    expect(screen.getByTestId('infrastructure-detail-panel')).toBeTruthy()
-    expect(screen.queryByTestId('infrastructure-detail-panel-actions')).toBeNull()
+    fireEvent.click(screen.getByTestId('infrastructure-detail-panel-action-add-vcluster'))
+    expect(screen.getByTestId('infrastructure-modal-add-vcluster')).toBeTruthy()
   })
 
-  it('opens the deployment wipe dialog from the Cloud root detail panel', async () => {
+  it('opens the Add Region modal from the empty-canvas context menu', async () => {
     renderArchitecturePage(infrastructureTopologyFixture)
-    fireEvent.click(await screen.findByTestId('arch-graph-node-Cloud-Cloud:cloud-hetzner'))
-    fireEvent.click(screen.getByTestId('infrastructure-detail-panel-action-wipe-deployment'))
-    expect(screen.getByTestId('infrastructure-modal-wipe-deployment')).toBeTruthy()
+    const svg = await screen.findByTestId('arch-graph-svg')
+    fireEvent.contextMenu(svg)
+    fireEvent.click(screen.getByTestId('cloud-architecture-context-add-region'))
+    expect(screen.getByTestId('infrastructure-modal-add-region')).toBeTruthy()
   })
 })

@@ -6,9 +6,12 @@
 # past the 32256B user-data cap). Applied by the inline `infrastructure-
 # providers` Kustomization (LAYER 1), which reconciles the providers/ tree.
 #
-# This file is the one variant, for every cloud: it points at
+# This file is the HUAWEI / cloud-agnostic variant: it points at
 # ./clusters/_template/infrastructure (base config = the cross-cloud
-# provider-config-opentofu + the Observe-first CloudAdoption placeholder).
+# provider-config-opentofu + the Observe-first CloudAdoption placeholder). The
+# Hetzner overlay ships its own providers/hetzner/infrastructure-config-
+# kustomization.yaml (path ./clusters/_template/infrastructure/hetzner) so it
+# also picks up the native provider-config-hcloud.
 #
 # WHY A SEPARATE KUSTOMIZATION (#4521): the Provider CR and the
 # `tf.upbound.io/v1beta1` ProviderConfig that CONSUMES the CRD the Provider

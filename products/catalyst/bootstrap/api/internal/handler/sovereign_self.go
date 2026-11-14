@@ -25,11 +25,10 @@
 // public identifiers (deployment id + FQDN are both visible in URLs).
 // Bypassing the session gate keeps the SovereignConsoleRedirect helper
 // usable on the very first browser hit before login.
-//
-// Package internal/sovself serves the route and adds the run-time state.
 package handler
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
@@ -37,25 +36,32 @@ import (
 	"strings"
 )
 
-// SovereignSelf returns the active Sovereign's deployment id + FQDN for
-// GET /api/v1/sovereign/self. ok is false on the mothership, where the
-// route answers 404 not-a-sovereign.
+// SovereignSelfResponse — wire shape of GET /api/v1/sovereign/self.
+//
+// Field names mirror the Sovereign deployment record so the UI can use
+// the same schema across mothership-side `/api/v1/deployments/{id}` and
+// Sovereign-side `/api/v1/sovereign/self`.
+type SovereignSelfResponse struct {
+	DeploymentID  string `json:"deploymentId"`
+	SovereignFQDN string `json:"sovereignFQDN"`
+}
+
+// HandleSovereignSelf returns the active Sovereign's deployment id + FQDN.
 //
 // Resolution order:
-//  1. CATALYST_SELF_DEPLOYMENT_ID env (populated by orchestrator overlay).
-//  2. Local store fallback — scan /var/lib/catalyst/deployments for a
-//     record whose Request.SovereignFQDN matches CATALYST_OTECH_FQDN.
-//     The cutover-import endpoint enforces FQDN match before persisting,
-//     so a single matching record is unambiguously this Sovereign's.
-//     This branch is what makes clean URLs render data on first
-//     handover-arrival, before the orchestrator has had a chance to
-//     stamp the env via a chart-values overlay write.
-//  3. CATALYST_OTECH_FQDN populated but no record yet — synthesise
-//     "sovereign-<fqdn>".
-//  4. Both env empty AND no session claims → ok false (mothership).
-func (h *Handler) SovereignSelf(r *http.Request) (deploymentID, fqdn string, ok bool) {
-	deploymentID = strings.TrimSpace(os.Getenv("CATALYST_SELF_DEPLOYMENT_ID"))
-	fqdn = strings.TrimSpace(os.Getenv("CATALYST_OTECH_FQDN"))
+//   1. CATALYST_SELF_DEPLOYMENT_ID env (populated by orchestrator overlay).
+//   2. Local store fallback — scan /var/lib/catalyst/deployments for a
+//      record whose Request.SovereignFQDN matches CATALYST_OTECH_FQDN.
+//      The cutover-import endpoint enforces FQDN match before persisting,
+//      so a single matching record is unambiguously this Sovereign's.
+//      This branch is what makes clean URLs render data on first
+//      handover-arrival, before the orchestrator has had a chance to
+//      stamp the env via a chart-values overlay write.
+//   3. CATALYST_OTECH_FQDN populated but no record yet — return 503.
+//   4. Both env empty AND no record → return 404 (mothership).
+func (h *Handler) HandleSovereignSelf(w http.ResponseWriter, r *http.Request) {
+	deploymentID := strings.TrimSpace(os.Getenv("CATALYST_SELF_DEPLOYMENT_ID"))
+	fqdn := strings.TrimSpace(os.Getenv("CATALYST_OTECH_FQDN"))
 	// SOVEREIGN_FQDN is the standard env every chroot already has from
 	// the bp-catalyst-platform chart's sovereign-fqdn ConfigMap; treat
 	// it as a synonym for CATALYST_OTECH_FQDN so a chroot pod where
@@ -82,10 +88,14 @@ func (h *Handler) SovereignSelf(r *http.Request) (deploymentID, fqdn string, ok 
 		}
 	}
 
-	// Mothership: neither env is set — the route answers 404 so the UI hook
-	// treats this as "not on a Sovereign" and uses URL params instead.
+	// Mothership: neither env is set — surface 404 so the UI hook treats
+	// this as "not on a Sovereign" and uses URL params instead.
 	if deploymentID == "" && fqdn == "" {
-		return "", "", false
+		writeJSON(w, http.StatusNotFound, map[string]string{
+			"error":  "not-a-sovereign",
+			"detail": "this catalyst-api Pod is not running on a Sovereign cluster (no CATALYST_OTECH_FQDN/SELF_DEPLOYMENT_ID env)",
+		})
+		return
 	}
 
 	// Step 2: store fallback — scan the local store for a record whose
@@ -95,9 +105,9 @@ func (h *Handler) SovereignSelf(r *http.Request) (deploymentID, fqdn string, ok 
 	if deploymentID == "" && h.store != nil {
 		recs, err := h.store.LoadAll(nil)
 		if err == nil {
-			for _, rec := range recs {
-				if strings.EqualFold(rec.Request.SovereignFQDN, fqdn) {
-					deploymentID = rec.ID
+			for _, r := range recs {
+				if strings.EqualFold(r.Request.SovereignFQDN, fqdn) {
+					deploymentID = r.ID
 					break
 				}
 			}
@@ -118,7 +128,10 @@ func (h *Handler) SovereignSelf(r *http.Request) (deploymentID, fqdn string, ok 
 		deploymentID = "sovereign-" + fqdn
 	}
 
-	return deploymentID, fqdn, true
+	writeJSON(w, http.StatusOK, SovereignSelfResponse{
+		DeploymentID:  deploymentID,
+		SovereignFQDN: fqdn,
+	})
 }
 
 // readSessionClaimsFromCookie peeks at the catalyst_session cookie's
@@ -154,3 +167,8 @@ func readSessionClaimsFromCookie(r *http.Request) (fqdn, deploymentID string, ok
 	}
 	return claims.SovereignFQDN, claims.DeploymentID, true
 }
+
+// silence unused-import warning when context isn't directly referenced
+// elsewhere in this file's variable wiring.
+var _ = context.Background
+

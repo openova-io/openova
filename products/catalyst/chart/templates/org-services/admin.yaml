@@ -59,7 +59,6 @@ metadata:
   # Cilium ClusterMesh global Service so region-b's edge stub (marketplace.
   # <fqdn> /back-office/*) resolves to this region-a pod. Gated → byte-unchanged.
   annotations:
-    # single-region backend
     service.cilium.io/global: "true"
     service.cilium.io/shared: "true"
   {{- end }}

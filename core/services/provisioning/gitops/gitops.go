@@ -1342,7 +1342,7 @@ func generateCNPGPair(opt cnpgPairOpts) string {
 # (platform/cnpg-pair/chart/templates/*). The companion postgres-credentials
 # Secret is emitted separately into the apps/ tree (generateCNPGPairSecret) so
 # the in-vcluster app pods can read it.
-apiVersion: source.toolkit.fluxcd.io/v1
+apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
 metadata:
   name: %s

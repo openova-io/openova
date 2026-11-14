@@ -1,0 +1,8 @@
+# Crossplane provider-hcloud — installed AFTER bp-crossplane lands core.
+# Adopts Phase-0 OpenTofu-created resources and manages day-2 changes.
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-hcloud
+spec:
+  package: xpkg.upbound.io/crossplane-contrib/provider-hcloud:v0.4.0

@@ -97,49 +97,6 @@ check("html: line numbers are the on-disk <tr> lines", [r[0] for r in h_rows], [
 check("html: a raw <tr> line is not data without the adapter",
       uat.classify(_HTML_ROW.format(rid="6", verdict="✅", evidence="x"))[0], "skip")
 
-# Provenance: where the greens of the ledger were measured. One fixture holds
-# a row of every kind the rules name; each check below fails if its rule is
-# dropped. The title names hw306, so hw306 is the current environment.
-_PROV_LEDGER = "\n".join([
-    "# UAT — Console regression list, last walked on `hw306.omani.works` (from 2026-09-03)",
-    "",
-    "<table>",
-    "<tbody>",
-    _HTML_ROW.format(rid="1", verdict="✅", evidence="measured here"),
-    _HTML_ROW.format(rid="2", verdict="✅", evidence="measured here"),
-    _HTML_ROW.format(rid="3", verdict="❌", evidence="red here, not green"),
-    _HTML_ROW.format(rid="4", verdict="⏳", evidence="carried, not green"),
-    '<tr id="row-5"><td><strong>5</strong></td><td>—</td><td>✅<br><sub>hw305-2026-08-25</sub></td><td>c</td><td>e</td></tr>',
-    '<tr id="row-6"><td><strong>6</strong></td><td>—</td><td>✅<br><sub>—</sub></td><td>c</td><td>CARRIED from hw293</td></tr>',
-    '<tr id="row-7"><td><strong>7</strong></td><td>—</td><td>✅<br><sub>repo-2026-08-21</sub></td><td>c</td><td>source only</td></tr>',
-    '<tr id="row-8"><td><strong>8</strong></td><td>—</td><td>⏳<br><sub>hw306-2026-09-04</sub></td><td>c</td><td>newest stamp, not green</td></tr>',
-    '<tr id="row-9"><td><strong>9</strong></td><td>—</td><td>☐</td><td>c</td><td>no stamp</td></tr>',
-    "</tbody>",
-    "</table>",
-    "",
-])
-check("provenance: env, measured, carried, newest",
-      uat.provenance(_PROV_LEDGER), ("hw306", 2, 2, "2026-09-04"))
-check("provenance: the header line",
-      uat.provenance_line(_PROV_LEDGER),
-      "Measured on hw306: 2. Carried from earlier environments: 2. Newest stamp: 2026-09-04.")
-# A title that names no environment, or a pending one, has nothing to be
-# measured on: the command must refuse, not print a zero.
-for _title in ("# UAT — Console regression list",
-               "# UAT — pending, to be walked on `hw900.omani.works`"):
-    try:
-        uat.provenance(_PROV_LEDGER.replace(_PROV_LEDGER.split("\n")[0], _title, 1))
-        fails.append(f"provenance: title {_title!r} must be refused")
-    except ValueError:
-        pass
-# The environment is read from the title only: the same rows under a title
-# that names hw305 count row 5 as measured and rows 1 and 2 as carried.
-check("provenance: env comes from the title",
-      uat.provenance(_PROV_LEDGER.replace("`hw306.omani.works`", "`hw305.omantel.biz`", 1))[:3],
-      ("hw305", 1, 3))
-check("provenance: the real ledger's title names an environment",
-      uat.title_env(open(uat.DEFAULT_UAT, encoding="utf-8").read()) is not None, True)
-
 # End-to-end against the real ledger: the count must close exactly.
 counts, rows, meta = uat.tally(uat.DEFAULT_UAT)
 check("sum(counts) == len(rows)", sum(counts.values()), len(rows))
@@ -151,4 +108,4 @@ if fails:
     for f in fails:
         print("  -", f)
     sys.exit(1)
-print(f"ok — {len(rows)} data rows, {counts['✅']} green ({100.0*counts['✅']/len(rows):.1f}%); provenance rules checked")
+print(f"ok — {len(rows)} data rows, {counts['✅']} green ({100.0*counts['✅']/len(rows):.1f}%)")

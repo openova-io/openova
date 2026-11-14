@@ -1,0 +1,40 @@
+---
+// G117.2 — New-instance dialog (Astro shell).
+import Layout from '../../../layouts/Layout.astro';
+import PortalShell from '../../../components/PortalShell.svelte';
+import NewInstance from '../../../routes/catalog/[name]/new/+page.svelte';
+
+export function getStaticPaths() {
+  return [
+    { params: { name: 'grafana' } },
+    { params: { name: 'harbor' } },
+    { params: { name: 'gitea' } },
+    { params: { name: 'openbao' } },
+  ];
+}
+
+const { name } = Astro.params;
+const blueprintName = (name ?? 'grafana') as string;
+// Sovereign topology metadata — in production this comes from the
+// `/sovereign/info` endpoint baked into the page; for Wave-1 we default
+// to single-region and let the topology picker handle the multi-region
+// override via prop drilling.
+const regionsCount = 1;
+---
+<Layout title={`New ${blueprintName} instance`}>
+  <PortalShell
+    title={`New ${blueprintName} instance`}
+    breadcrumbs={[
+      { label: 'Catalog', href: '/catalog/grafana' },
+      { label: blueprintName, href: `/catalog/${blueprintName}` },
+      { label: 'New' },
+    ]}
+    client:load
+  >
+    <NewInstance
+      blueprintName={blueprintName}
+      regionsCount={regionsCount}
+      client:load
+    />
+  </PortalShell>
+</Layout>

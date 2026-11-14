@@ -1,0 +1,71 @@
+{{- /*
+Cross-region stretched-raft ClusterMesh global Service — bp-openbao (#3492).
+
+The real OpenBao OSS cross-region mechanism is a single STRETCHED RAFT
+cluster: region-B's openbao node joins region-A's cluster as a NON-VOTER via
+`retry_join` (see _helpers.tpl "openbao.crossRegionRaftConfig" + the
+08-openbao.yaml overlay). For region-B's `retry_join { leader_api_addr = … }`
+to resolve, the leader address must be reachable cluster-locally on region-B
+and route across the Cilium ClusterMesh to region-A's active openbao Pod.
+
+This is the EXACT idiom bp-cnpg-pair uses for its cross-region WAL stream
+(platform/cnpg-pair/chart/templates/replica-mesh-service.yaml):
+
+  - Cilium merges ClusterMesh global services BY name+namespace — a Service
+    with the SAME name+namespace + `service.cilium.io/global: "true"` must
+    exist in EVERY participating cluster. So BOTH region-A (primary) and
+    region-B (secondary) render this Service under the same name.
+  - The selector matches the ACTIVE openbao Pod. On region-A it has a local
+    backend (region-A's active member). On region-B it has ZERO local
+    backends (region-B is only a non-voter of region-A's cluster, not its
+    own active member), so `affinity: local` falls through to the remote
+    region — every dial from region-B's retry_join crosses the mesh to
+    region-A's leader.
+
+Render gating (per #402 — never `{{ fail }}`): emitted ONLY when
+`.Values.crossRegion.enabled=true`. A default `helm template` renders NOTHING
+here, so single-region output is byte-identical to origin/main. Rendered on
+BOTH sides (the mesh-merge contract requires the name to exist in both
+clusters); the selector matching zero local Pods on region-B is by design.
+*/ -}}
+{{- $cr := .Values.crossRegion | default dict -}}
+{{- if $cr.enabled -}}
+{{- $mesh := $cr.meshService | default dict -}}
+{{- $svcName := $mesh.name | default "openbao-active-mesh" -}}
+{{- $affinity := $mesh.affinity | default "local" -}}
+{{- $port := $mesh.port | default 8200 -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $svcName | quote }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-cross-region-mesh
+    app.kubernetes.io/name: openbao
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/cross-region-role: {{ $cr.role | default "primary" | quote }}
+  annotations:
+    # Cilium ClusterMesh — same annotations on both sides so the mesh merges
+    # the two same-named Services into one global service. Zero local backends
+    # on region-B → traffic crosses the mesh to region-A's active openbao Pod.
+    service.cilium.io/global: "true"
+    service.cilium.io/affinity: {{ $affinity | quote }}
+    catalyst.openova.io/blueprint: bp-openbao
+spec:
+  type: ClusterIP
+  selector:
+    # Upstream openbao chart's active-instance selector. With
+    # service_registration "kubernetes" the active (unsealed leader) Pod is
+    # labelled openbao-active=true; target it so writes route to the leader.
+    # On region-B this matches ZERO Pods (no active member of region-A's
+    # cluster lives there) → the dial falls through the mesh to region-A.
+    app.kubernetes.io/name: openbao
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    openbao-active: "true"
+  ports:
+    - name: https
+      port: {{ $port }}
+      targetPort: 8200
+      protocol: TCP
+{{- end }}

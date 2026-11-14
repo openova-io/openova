@@ -32,9 +32,11 @@ type Tenant struct {
 	OwnerEmail string   `bson:"owner_email,omitempty" json:"owner_email,omitempty"`
 	PlanID     string   `bson:"plan_id" json:"plan_id"`
 	Apps       []string `bson:"apps" json:"apps"`
-	// Agents carries the coding-agent picks from the marketplace AppDetail
-	// surface. They were the catalogue of the withdrawn Sandbox product
-	// (decision record 0023); nothing reads them any more. Tolerated empty.
+	// Agents carries the Sandbox coding-agent picks from the marketplace
+	// AppDetail surface. Persisted (#4956) so the deferred-launch path can emit
+	// `tenant.sandbox_requested` with the chosen catalogue on settlement — the
+	// request-body Agents list is otherwise gone by launch time. Only acted on
+	// when Apps contains "sandbox". Tolerated empty.
 	Agents []string `bson:"agents,omitempty" json:"agents,omitempty"`
 	// AppStates tracks per-app lifecycle (keyed by app ID). Values:
 	// "installing" | "uninstalling" | "failed". Absent means the app is in
@@ -655,4 +657,29 @@ func (s *Store) GetMemberRole(ctx context.Context, tenantID, userID string) (str
 		return "", fmt.Errorf("store: get member role: %w", err)
 	}
 	return m.Role, nil
+}
+
+// GetMemberEmail returns the email recorded on the member row, or
+// empty string when the member does not exist. Used by the sandbox
+// orchestrator (handlers/sandbox_consumer.go) to enrich the
+// tenant.sandbox_requested event with the owner's email when the
+// publisher did not inline it. Members inserted via CreateOrg do not
+// currently set Email (only UserID), so this returns "" for the
+// owner-just-created path — the orchestrator then falls back to
+// owner_id. The method exists for the eventual InviteMember path where
+// Email is populated up-front.
+func (s *Store) GetMemberEmail(ctx context.Context, tenantID, userID string) (string, error) {
+	filter := bson.D{
+		{Key: "tenant_id", Value: tenantID},
+		{Key: "user_id", Value: userID},
+	}
+	var m Member
+	err := s.members().FindOne(ctx, filter).Decode(&m)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return "", nil
+		}
+		return "", fmt.Errorf("store: get member email: %w", err)
+	}
+	return m.Email, nil
 }

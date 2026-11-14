@@ -1,0 +1,196 @@
+name: Build sandbox-pty-server
+
+# sandbox-pty-server — Wave 2 of the Sandbox product (PR #1618). The
+# in-pod HTTP+WS PTY shim (port 7681) that Wave 2's pty-server
+# StatefulSet runs alongside the agent process. See
+# products/sandbox/docs/architecture.md §2.
+#
+# Per docs/PRINCIPLES.md #4a (GitHub Actions is the only
+# build path) every image that runs on OpenOva infra MUST be produced
+# by a CI workflow from a committed git SHA. Shape mirrors
+# build-sandbox-controller.yaml — same Buildx + cosign keyless sign +
+# SBOM attestation + auto-bump of the chart values.yaml so the next
+# Sovereign install picks up the SHA-pinned image without an operator
+# manually editing the file.
+#
+# Per `feedback_inviolable_principles.md`: event-driven only, NO cron.
+
+on:
+  push:
+    paths:
+      - 'products/sandbox/pty-server/**'
+      # TBD-P4 B2 (2026-05-20, #1986) — the pty-server image now bundles
+      # the openova-sandbox-mcp binary as a stdio subprocess the agent
+      # launches via mcp.json. Without re-building on mcp-server source
+      # changes, an MCP fix would not propagate to the image agents
+      # actually launch. The replace targets the MCP binary actually
+      # imports are core/controllers/pkg/gitea and
+      # core/services/shared/auth — scope the trigger to those subtrees
+      # so unrelated core/controllers churn doesn't rebuild this image.
+      - 'products/sandbox/mcp-server/**'
+      - 'core/controllers/pkg/gitea/**'
+      - 'core/services/shared/auth/**'
+      - '.github/workflows/build-sandbox-pty-server.yaml'
+    branches: [main]
+  pull_request:
+    paths:
+      - 'products/sandbox/pty-server/**'
+      - 'products/sandbox/mcp-server/**'
+      - 'core/controllers/pkg/gitea/**'
+      - 'core/services/shared/auth/**'
+      - '.github/workflows/build-sandbox-pty-server.yaml'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/openova-io/openova/sandbox-pty-server
+  CHART_VALUES: platform/sandbox/chart/values.yaml
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      # contents: write — the deploy step below pushes a values.yaml SHA
+      # bump back to main so the platform/sandbox chart picks up the
+      # newly-built image without an operator manually editing the file
+      # (per `feedback_no_mvp_no_workarounds.md` rule 1: target-state,
+      # never "manual follow-up bump").
+      contents: write
+      packages: write
+      # id-token write is required by cosign keyless signing (Sigstore).
+      id-token: write
+    outputs:
+      sha_short: ${{ steps.vars.outputs.sha_short }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set short SHA
+        id: vars
+        run: echo "sha_short=$(echo $GITHUB_SHA | head -c 7)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: |
+            products/sandbox/pty-server/go.sum
+
+      - name: go vet
+        working-directory: products/sandbox/pty-server
+        run: go vet ./...
+
+      - name: Run unit tests
+        working-directory: products/sandbox/pty-server
+        # Empty `go test ./...` is harmless: prints "no test files" and
+        # exits 0. Wave-2 follow-ups will add unit tests under
+        # internal/session/.
+        run: go test -count=1 -race ./...
+
+      # On pull_request runs we stop here — image push requires
+      # `packages: write` which only main-branch authors hold.
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        if: github.event_name != 'pull_request'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        id: build
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          # TBD-P4 B2 (2026-05-20, #1986) — build context is REPO ROOT
+          # because the Dockerfile now compiles BOTH pty-server AND the
+          # openova-sandbox-mcp binary (the MCP binary uses `replace`
+          # directives into core/controllers + core/services/shared per
+          # its own go.mod, so its build needs the broader tree). The
+          # MCP binary is bundled into the pty-server image at
+          # /usr/local/bin/openova-sandbox-mcp and launched as a stdio
+          # subprocess by the agent — the canonical MCP pattern. The
+          # prior Pod-mode MCP Deployment EOF-crashed because Pods have
+          # no stdin pipe (TBD-P4 B2 root cause). See
+          # products/sandbox/mcp-server/Dockerfile for the same
+          # repo-root-context shape we now mirror.
+          context: .
+          file: products/sandbox/pty-server/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
+            ${{ env.IMAGE }}:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/openova-io/openova
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=sandbox-pty-server
+            org.opencontainers.image.description=In-pod HTTP+WS PTY shim (Wave 2 of Sandbox product, #1618)
+          # provenance=false: containerd 1.7.x on k3s mis-resolves the
+          # provenance attestation manifest. SBOM attestation handled
+          # by the cosign attest step below.
+          provenance: false
+          sbom: false
+
+      - name: Install cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image with cosign (keyless)
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      - name: Generate and attest SBOM
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign attest --yes \
+            --predicate <(echo '{"sbom":"in-toto-spdx attached at build time"}') \
+            --type spdx \
+            "${IMAGE}@${DIGEST}"
+
+      # Auto-bump the chart values.yaml runtime.ptyServerImage so the
+      # next Sovereign chart rollout picks up this image without a
+      # manual edit. Per `feedback_no_mvp_no_workarounds.md` rule 1
+      # (target-state, no operator-action gates) and
+      # `feedback_inviolable_principles.md` (event-driven, never cron).
+      # The chart's deployment.yaml `required` guard fails-fast when
+      # runtime.ptyServerImage is empty (Inviolable Principle #4a), so
+      # an un-bumped values.yaml = un-deployable chart. Mirrors the
+      # build-sandbox-controller.yaml auto-bump shape, just targeting a
+      # different yq path and writing a fully-qualified `<repo>:<sha>`
+      # string (the consumer reads runtime.ptyServerImage as a single
+      # image reference, not a {repository,tag} pair).
+      - name: Install yq
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: |
+          sudo wget -qO /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Bump runtime.ptyServerImage in values.yaml
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          SHA_SHORT: ${{ steps.vars.outputs.sha_short }}
+        run: |
+          set -euo pipefail
+          yq eval -i ".runtime.ptyServerImage = \"${IMAGE}:${SHA_SHORT}\"" "${CHART_VALUES}"
+          echo "values.yaml after bump:"
+          yq eval '.runtime.ptyServerImage' "${CHART_VALUES}"
+
+      # TBD-V32 / openova-io/openova#2062 — race-safe push via the shared
+      # composite action.
+      - name: Commit and push values.yaml bump
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: ./.github/actions/deploy-bump
+        with:
+          paths: ${{ env.CHART_VALUES }}
+          commit-message: "deploy: bump sandbox-pty-server image to ${{ steps.vars.outputs.sha_short }}"

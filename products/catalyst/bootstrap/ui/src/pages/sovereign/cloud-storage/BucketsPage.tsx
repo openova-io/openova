@@ -9,15 +9,22 @@ import {
   CloudListDetailDrawer,
   CloudListHeader,
   CloudListToolbar,
+  DetailDrawerActions,
   DetailRow,
   EmptyState,
   Pagination,
+  RowActionsMenu,
   SortableTH,
 } from '../cloud-list/cloudListShared'
 import { CLOUD_LIST_CSS } from '../cloud-list/cloudListCss'
 import { useCloudListState } from '../cloud-list/useCloudListState'
 import type { SortState } from '../cloud-list/sortState'
 import type { BucketItem } from '@/lib/infrastructure.types'
+import {
+  AddBucketModal,
+  EditBucketModal,
+  SimpleDeleteConfirm,
+} from '@/components/CrudModals'
 
 const TEST_ID = 'cloud-buckets'
 
@@ -65,6 +72,9 @@ export function BucketsPage() {
   })
 
   const [openRow, setOpenRow] = useState<BucketItem | null>(null)
+  const [addOpen, setAddOpen] = useState(false)
+  const [editRow, setEditRow] = useState<BucketItem | null>(null)
+  const [deleteRow, setDeleteRow] = useState<BucketItem | null>(null)
 
   return (
     <div data-testid={`${TEST_ID}-page`}>
@@ -75,6 +85,8 @@ export function BucketsPage() {
         tagline="S3-compatible buckets — SeaweedFS or provider-native."
         count={rows.length}
         deploymentId={deploymentId}
+        newLabel="+ New bucket"
+        onNew={() => setAddOpen(true)}
       />
 
       {isLoading ? (
@@ -105,12 +117,13 @@ export function BucketsPage() {
                   <SortableTH testId={`${TEST_ID}-th-capacity`} column="capacity" label="Capacity" state={list.sort} onChange={list.setSort} />
                   <SortableTH testId={`${TEST_ID}-th-used`} column="used" label="Used" state={list.sort} onChange={list.setSort} />
                   <SortableTH testId={`${TEST_ID}-th-retentionDays`} column="retentionDays" label="Retention" state={list.sort} onChange={list.setSort} />
+                  <th className="cloud-list-th" aria-label="Row actions" />
                 </tr>
               </thead>
               <tbody>
                 {list.visible.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="cloud-list-empty-row" data-testid={`${TEST_ID}-table-empty`}>
+                    <td colSpan={6} className="cloud-list-empty-row" data-testid={`${TEST_ID}-table-empty`}>
                       No buckets match the current filters.
                     </td>
                   </tr>
@@ -127,6 +140,13 @@ export function BucketsPage() {
                       <td className="cloud-list-cell cloud-list-cell-mono">{row.capacity}</td>
                       <td className="cloud-list-cell cloud-list-cell-mono">{row.used || '—'}</td>
                       <td className="cloud-list-cell">{row.retentionDays || 'indefinite'}</td>
+                      <td className="cloud-list-cell">
+                        <RowActionsMenu
+                          testId={`${TEST_ID}-row-${row.id}`}
+                          onEdit={() => setEditRow(row)}
+                          onDelete={() => setDeleteRow(row)}
+                        />
+                      </td>
                     </tr>
                   ))
                 )}
@@ -151,6 +171,17 @@ export function BucketsPage() {
       >
         {openRow ? (
           <>
+            <DetailDrawerActions
+              testId={`${TEST_ID}-detail`}
+              onEdit={() => {
+                setEditRow(openRow)
+                setOpenRow(null)
+              }}
+              onDelete={() => {
+                setDeleteRow(openRow)
+                setOpenRow(null)
+              }}
+            />
             <DetailRow label="Name" value={openRow.name} />
             <DetailRow label="ID" value={openRow.id} mono />
             <DetailRow label="Endpoint" value={openRow.endpoint} mono />
@@ -160,6 +191,31 @@ export function BucketsPage() {
           </>
         ) : null}
       </CloudListDetailDrawer>
+
+      <AddBucketModal
+        open={addOpen}
+        deploymentId={deploymentId}
+        onClose={() => setAddOpen(false)}
+      />
+      {editRow && (
+        <EditBucketModal
+          open={!!editRow}
+          deploymentId={deploymentId}
+          bucket={editRow}
+          onClose={() => setEditRow(null)}
+        />
+      )}
+      {deleteRow && (
+        <SimpleDeleteConfirm
+          open={!!deleteRow}
+          deploymentId={deploymentId}
+          resource="buckets"
+          resourceId={deleteRow.id}
+          resourceLabel={deleteRow.name}
+          resourceKind="Bucket"
+          onClose={() => setDeleteRow(null)}
+        />
+      )}
     </div>
   )
 }

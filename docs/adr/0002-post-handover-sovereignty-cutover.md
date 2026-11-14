@@ -7,7 +7,6 @@
 | **Date** | 2026-05-04 |
 | **Supersedes** | — |
 | **Superseded by** | — |
-| **Superseded in part by** | [ADR-0012](0012-dragonfly-p2p-registry-cutover.md): the registry-pivot mechanism. ADR-0017 (Sovereign lifecycle), allocated in the [index](README.md), adds its own line here when it is accepted. |
 | **Related** | [ADR-0001](0001-catalyst-control-plane-architecture.md), #790, #791, #792, #793, #794 |
 
 ---

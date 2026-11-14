@@ -1097,17 +1097,27 @@ export async function createApplicationInstance(
   return res.json()
 }
 
-/* ─── #2742 (G117.3) Endpoints / Ingress (read-only) ───────────────────
+/* ─── #2742 (G117.3) Endpoints / Ingress (Git-IaC PR pipeline) ─────────
  *
- * Backed by catalyst-api's endpoint_handler.go:
+ * Full editable-endpoints surface ported from the dead Svelte console
+ * (`products/catalyst/console/src/components/EndpointsTab.svelte`) into
+ * the production React tree. Backed by catalyst-api's endpoint_handler.go:
  *
  *   GET    /catalyst/v1/apps/{id}/endpoints         → { items: ResolvedEndpoint[] }
+ *   POST   /catalyst/v1/apps/{id}/endpoints         → EndpointPR
+ *   PATCH  /catalyst/v1/apps/{id}/endpoints/{name}  → EndpointPR
+ *   DELETE /catalyst/v1/apps/{id}/endpoints/{name}  → EndpointPR
+ *
+ * Every mutation opens a GOVERNED PR against gitea.<sov>/<org>/iac;
+ * kyverno-admission / cert-manager-precheck / dns-conflict-precheck
+ * status checks gate auto-merge (locked decision #4).
  *
  * CRITICAL (per memory feedback_ts_field_casing_vs_go_json_tag): every
  * field name below MUST match the Go `json:"..."` tag VERBATIM —
  * `res.json()` returns wire keys exactly, so a casing mismatch yields a
- * silently-undefined field. The Go shape is `resolvedEndpoint` in
- * endpoint_handler.go.
+ * silently-undefined field. The Go shapes are `resolvedEndpoint`,
+ * `endpointMutationRequest`, `endpointPRResponse`, and
+ * `endpointPreCheckResults` in endpoint_handler.go:78-115.
  */
 
 export type EndpointProtocol = 'https' | 'http' | 'grpc' | 'tcp' | 'udp'
@@ -1145,6 +1155,43 @@ export interface ListEndpointsResponse {
 }
 
 /**
+ * EndpointMutationRequest mirrors the Go `endpointMutationRequest`
+ * (endpoint_handler.go:78). `name` IS serialised in the POST body — the
+ * backend's precheck.ValidateMutation REQUIRES a non-empty, RFC-1123-ish
+ * endpoint name on create (`^[a-z][a-z0-9-]{0,30}[a-z0-9]$`). On PATCH the
+ * name is taken from the path param, so the body may omit it.
+ */
+export interface EndpointMutationRequest {
+  name: string
+  hostname?: string
+  port?: number
+  protocol?: EndpointProtocol
+  tls?: boolean
+  visibility?: EndpointVisibility
+  ssoEnabled?: boolean
+}
+
+/** Mirrors Go `endpointPreCheckResults` (endpoint_handler.go:95). */
+export interface EndpointPreCheckResults {
+  kyverno?: string
+  certManager?: string
+  dnsConflict?: string
+}
+
+/**
+ * EndpointPR mirrors the Go `endpointPRResponse` (endpoint_handler.go:89).
+ * `status` is one of `open` | `merged` | `closed` | `failed-precheck`.
+ */
+export interface EndpointPR {
+  prURL: string
+  status: string
+  preCheckResults?: EndpointPreCheckResults
+}
+
+/** Back-compat alias — older call-sites import `EndpointMutationResponse`. */
+export type EndpointMutationResponse = EndpointPR
+
+/**
  * listEndpoints — GET /catalyst/v1/apps/{id}/endpoints.
  * BASE (not API_BASE) per the /catalyst/v1 no-/api/-prefix rule
  * (same fix as getApplicationInstances / getLaunchURL). 404 → empty.
@@ -1155,4 +1202,92 @@ export async function listEndpoints(appId: string): Promise<ListEndpointsRespons
   if (res.status === 404) return { items: [] }
   if (!res.ok) throw new Error(`listEndpoints: HTTP ${res.status}`)
   return res.json()
+}
+
+/** Shared typed-error decode for the endpoint mutation calls. */
+async function endpointMutationError(res: Response): Promise<Error & { status?: number; code?: string }> {
+  let message = `HTTP ${res.status}`
+  let code = ''
+  try {
+    const detail = (await res.json()) as { code?: string; message?: string }
+    if (detail?.message) message = detail.message
+    if (detail?.code) code = detail.code
+  } catch {
+    /* non-JSON body — keep the HTTP-status message */
+  }
+  const err = new Error(message) as Error & { status?: number; code?: string }
+  err.status = res.status
+  err.code = code
+  return err
+}
+
+/**
+ * createAppEndpoint — POST /catalyst/v1/apps/{id}/endpoints.
+ * Opens a governed Git-IaC PR for a NEW endpoint. The full body is sent
+ * (name + hostname + port + protocol + tls + visibility + ssoEnabled);
+ * `name` is REQUIRED by the backend precheck.
+ */
+export async function createAppEndpoint(
+  appId: string,
+  body: EndpointMutationRequest,
+): Promise<EndpointPR> {
+  const url = `${BASE}catalyst/v1/apps/${encodeURIComponent(appId)}/endpoints`
+  const res = await authedFetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw await endpointMutationError(res)
+  return res.json()
+}
+
+/**
+ * patchAppEndpoint — PATCH /catalyst/v1/apps/{id}/endpoints/{name}.
+ * Opens a governed Git-IaC PR editing an EXISTING endpoint. The endpoint
+ * name is the path param (immutable); the body carries the new values.
+ */
+export async function patchAppEndpoint(
+  appId: string,
+  name: string,
+  body: EndpointMutationRequest,
+): Promise<EndpointPR> {
+  const url = `${BASE}catalyst/v1/apps/${encodeURIComponent(appId)}/endpoints/${encodeURIComponent(name)}`
+  const res = await authedFetch(url, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw await endpointMutationError(res)
+  return res.json()
+}
+
+/**
+ * deleteAppEndpoint — DELETE /catalyst/v1/apps/{id}/endpoints/{name}.
+ * Opens a governed Git-IaC PR removing the endpoint manifest (the
+ * cert-manager Certificate + Gateway HTTPRoute are removed on merge).
+ */
+export async function deleteAppEndpoint(appId: string, name: string): Promise<EndpointPR> {
+  const url = `${BASE}catalyst/v1/apps/${encodeURIComponent(appId)}/endpoints/${encodeURIComponent(name)}`
+  const res = await authedFetch(url, {
+    method: 'DELETE',
+    headers: { Accept: 'application/json' },
+  })
+  if (!res.ok) throw await endpointMutationError(res)
+  return res.json()
+}
+
+/**
+ * mutateEndpoint — back-compat convenience wrapper kept for the prior
+ * call-site shape. POST (create) when `opts.name` is absent, PATCH (edit
+ * by name) when present. Prefer the explicit createAppEndpoint /
+ * patchAppEndpoint for new code.
+ */
+export async function mutateEndpoint(
+  appId: string,
+  body: EndpointMutationRequest,
+  opts: { name?: string } = {},
+): Promise<EndpointPR> {
+  return opts.name
+    ? patchAppEndpoint(appId, opts.name, body)
+    : createAppEndpoint(appId, body)
 }

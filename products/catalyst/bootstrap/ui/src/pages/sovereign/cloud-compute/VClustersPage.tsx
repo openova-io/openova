@@ -9,10 +9,12 @@ import {
   CloudListDetailDrawer,
   CloudListHeader,
   CloudListToolbar,
+  DetailDrawerActions,
   DetailRow,
   EmptyState,
   FilterPills,
   Pagination,
+  RowActionsMenu,
   SortableTH,
   StatusPill,
 } from '../cloud-list/cloudListShared'
@@ -25,6 +27,11 @@ import type {
   TopologyStatus,
   VClusterSpec,
 } from '@/lib/infrastructure.types'
+import {
+  AddVClusterModal,
+  DeleteCascadeConfirm,
+  EditVClusterModal,
+} from '@/components/CrudModals'
 
 interface VClusterRow {
   id: string
@@ -91,6 +98,11 @@ export function VClustersPage() {
   })
 
   const [openRow, setOpenRow] = useState<VClusterRow | null>(null)
+  const [addOpen, setAddOpen] = useState(false)
+  const [editRow, setEditRow] = useState<VClusterRow | null>(null)
+  const [deleteRow, setDeleteRow] = useState<VClusterRow | null>(null)
+
+  const firstCluster = data?.topology.regions?.[0]?.clusters?.[0]
 
   return (
     <div data-testid={`${TEST_ID}-page`}>
@@ -101,6 +113,8 @@ export function VClustersPage() {
         tagline="Logical isolation slices (DMZ / RTZ / MGMT) inside each physical cluster."
         count={rows.length}
         deploymentId={deploymentId}
+        newLabel="+ New vCluster"
+        onNew={firstCluster ? () => setAddOpen(true) : undefined}
       />
 
       {isLoading ? (
@@ -140,12 +154,13 @@ export function VClustersPage() {
                   <SortableTH testId={`${TEST_ID}-th-region`} column="region" label="Region" state={list.sort} onChange={list.setSort} />
                   <SortableTH testId={`${TEST_ID}-th-isolation`} column="isolation" label="Isolation" state={list.sort} onChange={list.setSort} />
                   <SortableTH testId={`${TEST_ID}-th-status`} column="status" label="Status" state={list.sort} onChange={list.setSort} />
+                  <th className="cloud-list-th" aria-label="Row actions" />
                 </tr>
               </thead>
               <tbody>
                 {list.visible.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="cloud-list-empty-row" data-testid={`${TEST_ID}-table-empty`}>
+                    <td colSpan={6} className="cloud-list-empty-row" data-testid={`${TEST_ID}-table-empty`}>
                       No vClusters match the current filters.
                     </td>
                   </tr>
@@ -162,6 +177,13 @@ export function VClustersPage() {
                       <td className="cloud-list-cell">{row.region.providerRegion}</td>
                       <td className="cloud-list-cell cloud-list-cell-mono">{row.vcluster.isolationMode}</td>
                       <td className="cloud-list-cell"><StatusPill status={row.vcluster.status} /></td>
+                      <td className="cloud-list-cell">
+                        <RowActionsMenu
+                          testId={`${TEST_ID}-row-${row.id}`}
+                          onEdit={() => setEditRow(row)}
+                          onDelete={() => setDeleteRow(row)}
+                        />
+                      </td>
                     </tr>
                   ))
                 )}
@@ -186,6 +208,17 @@ export function VClustersPage() {
       >
         {openRow ? (
           <>
+            <DetailDrawerActions
+              testId={`${TEST_ID}-detail`}
+              onEdit={() => {
+                setEditRow(openRow)
+                setOpenRow(null)
+              }}
+              onDelete={() => {
+                setDeleteRow(openRow)
+                setOpenRow(null)
+              }}
+            />
             <DetailRow label="Name" value={openRow.vcluster.name} />
             <DetailRow label="ID" value={openRow.vcluster.id} mono />
             <DetailRow label="Isolation" value={openRow.vcluster.isolationMode} mono />
@@ -197,6 +230,33 @@ export function VClustersPage() {
           </>
         ) : null}
       </CloudListDetailDrawer>
+
+      {firstCluster && (
+        <AddVClusterModal
+          open={addOpen}
+          deploymentId={deploymentId}
+          clusterId={firstCluster.id}
+          onClose={() => setAddOpen(false)}
+        />
+      )}
+      {editRow && (
+        <EditVClusterModal
+          open={!!editRow}
+          deploymentId={deploymentId}
+          vcluster={editRow.vcluster}
+          onClose={() => setEditRow(null)}
+        />
+      )}
+      {deleteRow && (
+        <DeleteCascadeConfirm
+          open={!!deleteRow}
+          deploymentId={deploymentId}
+          resource="vclusters"
+          resourceId={deleteRow.vcluster.id}
+          resourceLabel={deleteRow.vcluster.name}
+          onClose={() => setDeleteRow(null)}
+        />
+      )}
     </div>
   )
 }

@@ -1,0 +1,187 @@
+# Composition: hetzner-load-balancer-claim.compose.openova.io —
+# default realization for XLoadBalancerClaim.
+#
+# Resources composed:
+#   1. LoadBalancer        (provider-hcloud)
+#   2. LoadBalancerNetwork (attach LB to the parent network)
+#   3. LoadBalancerService × N (one per `listeners[]`)
+#   4. LoadBalancerTarget  × N (one per `targets[]`)
+#
+# UPDATE flow:
+#   - patch spec.parameters.algorithm → composite reconciles
+#                                       LoadBalancer.spec.forProvider.algorithm
+#   - patch spec.parameters.listeners → composite controller adds/removes
+#                                       LoadBalancerService resources
+#   - patch spec.parameters.targets   → same for LoadBalancerTarget
+#
+# DELETE flow:
+#   - cascade-delete from LB → composite controller deletes services,
+#     targets, network attachment, then LB itself.
+
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: hetzner-load-balancer-claim.compose.openova.io
+  labels:
+    catalyst.openova.io/component: crossplane
+    catalyst.openova.io/composition-family: hetzner
+    catalyst.openova.io/day2-crud: "true"
+spec:
+  compositeTypeRef:
+    apiVersion: compose.openova.io/v1alpha1
+    kind: XLoadBalancerClaim
+
+  writeConnectionSecretsToNamespace: crossplane-system
+
+  resources:
+    # ── 1. LoadBalancer ─────────────────────────────────────────────────
+    - name: load-balancer
+      base:
+        apiVersion: load_balancer.hcloud.crossplane.io/v1alpha1
+        kind: LoadBalancer
+        spec:
+          forProvider:
+            loadBalancerType: lb11
+            location: ""
+            algorithm:
+              - type: round_robin
+            labels:
+              catalyst.openova.io/managed-by: crossplane
+          providerConfigRef:
+            name: default-hcloud
+          deletionPolicy: Delete
+      patches:
+        - fromFieldPath: spec.parameters.name
+          toFieldPath: metadata.name
+        - fromFieldPath: spec.parameters.region
+          toFieldPath: spec.forProvider.location
+        - fromFieldPath: spec.parameters.loadBalancerType
+          toFieldPath: spec.forProvider.loadBalancerType
+        - fromFieldPath: spec.parameters.algorithm
+          toFieldPath: spec.forProvider.algorithm[0].type
+          transforms:
+            - type: map
+              map:
+                round-robin: round_robin
+                least-conn:  least_connections
+        - fromFieldPath: spec.parameters.sovereignFQDN
+          toFieldPath: spec.forProvider.labels[catalyst.openova.io/sovereign]
+        - fromFieldPath: spec.providerConfigRef.name
+          toFieldPath: spec.providerConfigRef.name
+        - type: ToCompositeFieldPath
+          fromFieldPath: status.atProvider.ipv4
+          toFieldPath: status.publicIP
+        - type: ToCompositeFieldPath
+          fromFieldPath: metadata.annotations[crossplane.io/external-name]
+          toFieldPath: status.loadBalancerID
+
+    # ── 2. LB → network attachment ──────────────────────────────────────
+    - name: load-balancer-network
+      base:
+        apiVersion: load_balancer_network.hcloud.crossplane.io/v1alpha1
+        kind: LoadBalancerNetwork
+        spec:
+          forProvider:
+            networkID: ""
+            loadBalancerIDSelector:
+              matchControllerRef: true
+          providerConfigRef:
+            name: default-hcloud
+          deletionPolicy: Delete
+      patches:
+        - fromFieldPath: spec.parameters.name
+          toFieldPath: metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-net-attach"
+        - fromFieldPath: spec.parameters.networkId
+          toFieldPath: spec.forProvider.networkID
+        - fromFieldPath: spec.providerConfigRef.name
+          toFieldPath: spec.providerConfigRef.name
+
+{{- /*
+  Listener fan-out: up to 50 LoadBalancerService resources. Each is
+  gated on listeners[$i] existing (Required policy on a fromFieldPath
+  that resolves to "" when the array index is past the actual length).
+*/}}
+{{- range $i, $e := until 50 }}
+    # ── 3.{{ $i }} LoadBalancerService listener[{{ $i }}] ─────────────────
+    - name: lb-service-{{ $i }}
+      base:
+        apiVersion: load_balancer_service.hcloud.crossplane.io/v1alpha1
+        kind: LoadBalancerService
+        spec:
+          forProvider:
+            protocol:        tcp
+            listenPort:      0
+            destinationPort: 0
+            loadBalancerIDSelector:
+              matchControllerRef: true
+          providerConfigRef:
+            name: default-hcloud
+          deletionPolicy: Delete
+      patches:
+        - fromFieldPath: spec.parameters.name
+          toFieldPath: metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-svc-{{ $i }}"
+        - fromFieldPath: "spec.parameters.listeners[{{ $i }}].protocol"
+          toFieldPath: spec.forProvider.protocol
+          policy:
+            fromFieldPath: Required
+        - fromFieldPath: "spec.parameters.listeners[{{ $i }}].port"
+          toFieldPath: spec.forProvider.listenPort
+          policy:
+            fromFieldPath: Required
+        - fromFieldPath: "spec.parameters.listeners[{{ $i }}].targetPort"
+          toFieldPath: spec.forProvider.destinationPort
+          policy:
+            fromFieldPath: Required
+        - fromFieldPath: spec.providerConfigRef.name
+          toFieldPath: spec.providerConfigRef.name
+{{- end }}
+
+{{- /*
+  Target fan-out: up to 50 LoadBalancerTarget resources. Each is gated
+  on targets[$i].type existing.
+*/}}
+{{- range $i, $e := until 50 }}
+    # ── 4.{{ $i }} LoadBalancerTarget targets[{{ $i }}] ───────────────────
+    - name: lb-target-{{ $i }}
+      base:
+        apiVersion: load_balancer_target.hcloud.crossplane.io/v1alpha1
+        kind: LoadBalancerTarget
+        spec:
+          forProvider:
+            type: server
+            usePrivateIp: true
+            loadBalancerIDSelector:
+              matchControllerRef: true
+          providerConfigRef:
+            name: default-hcloud
+          deletionPolicy: Delete
+      patches:
+        - fromFieldPath: spec.parameters.name
+          toFieldPath: metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-tgt-{{ $i }}"
+        - fromFieldPath: "spec.parameters.targets[{{ $i }}].type"
+          toFieldPath: spec.forProvider.type
+          policy:
+            fromFieldPath: Required
+        - fromFieldPath: "spec.parameters.targets[{{ $i }}].serverID"
+          toFieldPath: spec.forProvider.serverID
+        - fromFieldPath: "spec.parameters.targets[{{ $i }}].labelSelector"
+          toFieldPath: spec.forProvider.labelSelector
+        - fromFieldPath: "spec.parameters.targets[{{ $i }}].ip"
+          toFieldPath: spec.forProvider.ip
+        - fromFieldPath: "spec.parameters.targets[{{ $i }}].usePrivateIP"
+          toFieldPath: spec.forProvider.usePrivateIp
+        - fromFieldPath: spec.providerConfigRef.name
+          toFieldPath: spec.providerConfigRef.name
+{{- end }}

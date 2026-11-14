@@ -193,11 +193,9 @@ func (c *NATSConn) EnsureUsageStream(ctx context.Context) error {
 	return nil
 }
 
-// EnsureCatalystOrgStream binds to the canonical CATALYST_ORG Stream
-// (subjects `catalyst.>`) and returns an error while it is absent. It
-// never creates the Stream: the chart bp-nats-jetstream declares it
-// (platform/nats-jetstream/chart/templates/streams.yaml) and its JetStream
-// controller creates it.
+// EnsureCatalystOrgStream creates the canonical CATALYST_ORG Stream
+// (subjects `catalyst.>`) if it does not already exist. Idempotent — safe
+// to call on every startup.
 //
 // CATALYST_ORG backs every `catalyst.<domain>.<event>` subject on a
 // Sovereign — tenant events, billing events, domain events, AND the
@@ -206,10 +204,16 @@ func (c *NATSConn) EnsureUsageStream(ctx context.Context) error {
 // comment above for the t20 incident).
 //
 // This is the public wrapper around the package-private ensureOrgStream
-// helper used by NewMultiSubscriber. org-billing calls it at startup and
-// exits while the Stream is absent, so it starts only once the metering
-// sidecar (which deliberately does NOT call any Ensure* — see
-// services/metering-sidecar/main.go) can publish.
+// helper used by NewMultiSubscriber. Exposed so services that own a
+// publish OR consume relationship to `catalyst.*` subjects can bootstrap
+// the Stream at process start — first-writer-wins is fine because the
+// underlying CreateOrUpdateStream call is a no-op on second invocation.
+//
+// Specifically: org-billing calls this at startup so the metering sidecar
+// (which deliberately does NOT call any Ensure* — see
+// services/metering-sidecar/main.go) can begin publishing immediately
+// after a fresh Sovereign cold-start, with billing-side bootstrap
+// guaranteeing the Stream exists.
 func (c *NATSConn) EnsureCatalystOrgStream(ctx context.Context) error {
 	return c.ensureOrgStream(ctx, StreamCatalystOrg, []string{"catalyst.>"})
 }
@@ -340,10 +344,12 @@ func (c *NATSConn) SubscribeUsageRecorded(ctx context.Context) (NATSSubscription
 // AckPolicy + AckWait + MaxDeliver match SubscribeUsageRecorded so the
 // observed delivery semantics are identical to the deprecated path.
 //
-// Stream ownership: the chart bp-nats-jetstream declares CATALYST_ORG.
-// EnsureCatalystOrgStream (which org-billing calls at startup) and
-// NewMultiSubscriber (which every other Organization service's
-// tenant-events consumer calls) only bind to it.
+// Stream ownership: CATALYST_ORG is bootstrapped by
+// EnsureCatalystOrgStream (which org-billing calls at startup) AND by
+// NewMultiSubscriber (which every other Organization service's tenant-events
+// consumer calls). First-writer-wins is fine because the underlying
+// CreateOrUpdateStream call is idempotent on the (`catalyst.>` subject
+// filter, file storage, 14d retention) tuple.
 func (c *NATSConn) SubscribeUsageRecordedOnOrg(ctx context.Context) (NATSSubscription, error) {
 	cons, err := c.js.CreateOrUpdateConsumer(ctx, StreamCatalystOrg, jetstream.ConsumerConfig{
 		Durable:       ConsumerOrgBillingMetering,

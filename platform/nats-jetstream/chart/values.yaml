@@ -158,22 +158,45 @@ nats:
     podMonitor:
       enabled: false
 
-# ─── Catalyst-curated JetStream Stream + KV buckets ──────────────────────
+# ─── Catalyst-curated JetStream Streams + KV buckets ─────────────────────
 #
-# Reconciled by the JetStream controller of the nack subchart (below).
+# Reconciled by NACK (nats-io/nack) when it's installed in the same
+# cluster. NACK is NOT a current dependency of this chart — install it
+# as a sibling Blueprint, then flip `enabled: true` here.
 #
-# templates/streams.yaml declares the one Stream of the platform,
-# CATALYST_ORG (subjects `catalyst.>`), the stream of contract C3
-# (docs/contracts/C3-event-subjects.yaml). Its configuration is fixed in
-# that template and in the Go code that binds to it, so it has no values
-# here. templates/kv-buckets.yaml declares the KeyValue buckets
-# dr-leases and policy-rollup.
+# Per docs/EPICS-1-6-unified-design.md §3.9 row 7 + ADR-0001 §6,
+# Catalyst's own events flow on these streams:
+#   catalyst.audit  / catalyst.events / catalyst.billing  → Stream CRs
+#   idempotency / dr-leases / policy-rollup               → KeyValue CRs
+#
+# Per-Org and per-Application streams are created at runtime by
+# organization-controller (slice C1) and application-controller (slice
+# C4), not statically here.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), every retention
+# value is a variable and operator-overrideable.
 catalystStreams:
-  # Renders the Stream and the KeyValue buckets. The services under
-  # core/services fail at start while CATALYST_ORG is absent, so a
-  # Sovereign keeps this true. The compliance scorer and the DR-lease
-  # witness (Continuum) use the KeyValue buckets.
+  # Wave 5.50 (#2278) flipped default false -> true. Catalyst's compliance
+  # scorer (#1096 Wave 5.44 NATS KV publisher), idempotency keys
+  # (HTTP write paths), and DR-lease witness (#1101 Continuum) all
+  # depend on the 3 KV buckets that kv-buckets.yaml renders. Without
+  # this gate flipped, those buckets never materialise → Wave 5.44
+  # publisher Put auto-creates the bucket on first use but loses the
+  # chart-defined TTL/maxBytes config. Per-Sovereign overlays MAY set
+  # `false` to opt-out, but the default Sovereign experience requires
+  # these primitives.
   enabled: true
+  # Wave 5.52 (#2283) sub-gate: the 3 chart-managed Streams
+  # (catalyst-audit / catalyst-events / catalyst-billing) architecturally
+  # conflict with the in-code CATALYST_ORG wildcard stream that
+  # core/services/shared/events/nats.go declares with subjects
+  # `catalyst.>`. Default-OFF preserves the current production shape
+  # (CATALYST_ORG + FilterSubject consumers per t20 fix). Operators
+  # opt-in only when migrating org-services/billing to the 3-stream model per
+  # original ADR-0001 §6 design. Surfaced live on hw01 2026-05-24T06:30Z
+  # when Wave 5.50 rolled chart 1.3.1 and both attempted to claim
+  # overlapping subjects → upgrade ROLLBACK fired.
+  streamsEnabled: false
   # JetStream replication factor. R=3 is the bank-tier default for
   # in-region quorum; the DR Mirror to a second region is a separate
   # follow-up wired by Continuum (#1101).
@@ -181,6 +204,24 @@ catalystStreams:
   # Override the upstream nats Service URL — defaults to
   # nats://<release>-nats.<release-namespace>.svc.cluster.local:4222
   servers: ""
+  audit:
+    # 90 days. Audit-log retention horizon.
+    maxAge: "2160h"
+    maxBytes: -1
+    duplicateWindow: "5m"
+    placement: {}
+  events:
+    # 24 hours. Cross-replica fan-out + cold-start replay window.
+    maxAge: "24h"
+    maxBytes: -1
+  billing:
+    # 1 year. Billing reconciliation horizon.
+    maxAge: "8760h"
+    maxBytes: -1
+  idempotency:
+    ttl: "24h"
+    # 256 MiB upper bound on the bucket.
+    maxBytes: 268435456
   drLeases:
     # 60 seconds — matches Continuum.spec.leaseClient.config.ttlSeconds
     # default. DR-quorum lease path; Cloudflare-KV path bypasses this.

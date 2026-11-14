@@ -1,0 +1,77 @@
+# bp-gitea — Catalyst Blueprint #10 of 11. Per-Sovereign Git server with
+# the public Blueprint catalog mirror seeded. Catalyst's catalog-svc reads
+# Blueprint metadata from this Gitea (not from the public openova monorepo
+# directly) so the Sovereign is air-gap-ready by construction.
+#
+# Wrapper chart: platform/gitea/chart/
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gitea
+  labels:
+    catalyst.openova.io/sovereign: omantel.omani.works
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-gitea
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-gitea
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: gitea
+  targetNamespace: gitea
+  dependsOn:
+    - name: bp-keycloak
+    # bp-gateway-api (issue #503): chart ships an HTTPRoute template;
+    # gateway.networking.k8s.io/v1 CRDs must be registered first.
+    - name: bp-gateway-api
+    # bp-cnpg (issue #584): chart ships a CNPG Cluster CR;
+    # postgresql.cnpg.io/v1 CRD must be registered before bp-gitea
+    # applies so the Capabilities gate in cnpg-cluster.yaml creates
+    # the Cluster rather than skipping it silently.
+    - name: bp-cnpg
+  chart:
+    spec:
+      chart: bp-gitea
+      version: 1.2.1
+      sourceRef:
+        kind: HelmRepository
+        name: bp-gitea
+        namespace: flux-system
+  # Event-driven install: Gitea PostgreSQL DB init + admin user creation +
+  # public Blueprint catalog mirror seeding is legitimately multi-minute.
+  # Helm install completes when manifests apply; downstream dependsOn
+  # checks Ready=True independently. Replaces PR #221 spec.timeout: 15m.
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3
+  values:
+    global:
+      sovereignFQDN: omantel.omani.works
+    # Per-Sovereign overrides — issue #387:
+    # Cilium Gateway HTTPRoute exposes Gitea at gitea.omantel.omani.works.
+    # Upstream chart's own Ingress is disabled (gitea.ingress.enabled=false
+    # in platform/gitea/chart/values.yaml) — Sovereigns ingress through
+    # cilium-gateway from clusters/_template/bootstrap-kit/01-cilium.yaml.
+    # The DNS A record was already published by the Phase-0 catalyst-dns helper.
+    gateway:
+      host: gitea.omantel.omani.works

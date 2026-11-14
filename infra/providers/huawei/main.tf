@@ -9,12 +9,10 @@
 #     same/different provider").
 #   - 1 subnet per VPC, anchored in `me-east-215a` (the only AZ in
 #     region me-east-215; fake-regions overlay via VPC isolation).
-#   - 1 security group per VPC. Ingress: TCP 443/80/8443/8080 (Gateway)
-#     + TCP 6443 (k3s apiserver) + ICMP from any source; the ClusterMesh
-#     dial port (TCP 12379) only from the Sovereign's own public addresses
-#     and node/pod ranges; Cilium WireGuard (UDP 51871) and health
-#     (TCP 4240) only from the node/pod ranges. No rule for 2379, 51820,
-#     8472 or 6081.
+#   - 1 security group per VPC. Ingress: TCP 443 (Gateway) + TCP 6443
+#     (k3s apiserver, fail-closed via k8s RBAC), UDP 51820 (Cilium WG)
+#     + TCP 2379 (ClusterMesh etcd) + TCP 4240 (Cilium health) all
+#     restricted to the OTHER region's CP EIPs only.
 #   - 3 CP ECS per region (s7n.large.4 — 2 vCPU / 8 GB) + 2 worker
 #     ECS per region (m7n.xlarge.8 — 4 vCPU / 32 GB).
 #   - 1 EIP per CP (3 per region; workers have no EIP — only
@@ -79,13 +77,7 @@ locals {
   # [96, 95+N], shift the base UP by N (the band width). A non-colliding
   # hash is untouched, so every existing Sovereign keeps its CIDRs.
   #
-  # NET-100: that rule holds for one and two regions, and they keep it. From
-  # three regions on the pod supernet is 10.40.0.0/13 (local.pod_supernet),
-  # so the pod band is the whole supernet, octets 40 to 47: a placement of
-  # the rule that lands there takes the smallest free shift instead
-  # (cidr_base_free_shifts below).
-  #
-  # PROOF of the +N rule (N = number of regions, 1 <= N <= 5; used for N <= 2):
+  # PROOF (N = number of regions, 1 <= N <= 5; the guard enforces the bound):
   #   Say region i hit a band [B, B+N-1] (B = 42 or 96) at offset
   #   p = raw + 10*i - B, 0 <= p <= N-1. After the shift every region octet
   #   is (raw + N) + 10*idx = B + (p + N + 10*k) with k = idx - i in
@@ -103,10 +95,9 @@ locals {
   #   <= 145 <= 247 — the OVERFLOW FIX ceiling above still holds.
   #   Worked, N=2 (region-b = +10): raw 32->34, 33->35, 42->44, 43->45,
   #   86->88, 87->89, 96->98, 97->99; e68e79721ecbde62: 42 -> 44 / 54.
-  # Enumerated for every hash byte x N in 1..6 by
+  # Enumerated for every hash byte x N in 1..5 by
   # scripts/check-vpc-cidr-no-pod-overlap.py (CI: infra-huawei-tofu.yaml),
-  # which also parses the 32/216/10/42/96 and 40/47/16 literals so drift is
-  # caught.
+  # which also parses the 32/216/10/42/96 literals so drift is caught.
   cidr_base_raw = 32 + (parseint(substr(sha256(var.deployment_id), 0, 2), 16) % (216 - (length(var.regions) - 1) * 10))
 
   # TRUE when any region's node-VPC second octet (raw + idx*10) lands in the
@@ -119,29 +110,7 @@ locals {
     || (local.cidr_base_raw + idx * 10 >= 96 && local.cidr_base_raw + idx * 10 <= 96 + length(var.regions) - 1)
   ])
 
-  # The shift of the rule above: +N when a region octet hits a band, else 0.
-  cidr_base_old_shift = local.cidr_base_hits_overlay ? length(var.regions) : 0
-
-  # NET-100 — three to six regions (variables.tf allows at most six). The
-  # node-VPC octets must stay out of the whole pod supernet 10.40.0.0/13,
-  # octets 40 to 47, and out of the service band [96, 96+N-1]. This list
-  # holds every shift s in 0..15 for which no region octet (raw + s + idx*10)
-  # lands in either band. The base keeps the shift of the rule above when
-  # that shift is in the list, so a Sovereign keeps its CIDRs unless a node
-  # VPC lies in the supernet; otherwise it takes the smallest shift of the
-  # list. For every hash byte and N in 3..6 the list is not empty and the
-  # last region octet stays at or below 247. One and two regions do not use
-  # this list: their CIDRs never move.
-  cidr_base_free_shifts = [
-    for s in range(16) : s
-    if !anytrue([
-      for idx in range(length(var.regions)) :
-      (local.cidr_base_raw + s + idx * 10 >= 40 && local.cidr_base_raw + s + idx * 10 <= 47)
-      || (local.cidr_base_raw + s + idx * 10 >= 96 && local.cidr_base_raw + s + idx * 10 <= 96 + length(var.regions) - 1)
-    ])
-  ]
-
-  cidr_base = local.cidr_base_raw + (length(var.regions) <= 2 || contains(local.cidr_base_free_shifts, local.cidr_base_old_shift) ? local.cidr_base_old_shift : local.cidr_base_free_shifts[0])
+  cidr_base = local.cidr_base_raw + (local.cidr_base_hits_overlay ? length(var.regions) : 0)
   region_vpc_cidr = {
     for idx, r in var.regions :
     r.code => format("10.%d.0.0/16", local.cidr_base + idx * 10)
@@ -184,11 +153,6 @@ locals {
     r.code => format("10.%d.0.0/16", 96 + idx)
   }
 
-  # NET-100 — the pod supernet: one range that holds the pod CIDR of every
-  # region. 10.42.0.0/15 for one or two regions, 10.40.0.0/13 for three to
-  # six. It is published in the network registry (output network_registry).
-  pod_supernet = length(var.regions) <= 2 ? "10.42.0.0/15" : "10.40.0.0/13"
-
   # #4942 — mesh-wide ingress source CIDRs for the cilium-health (4240) and
   # pod-CIDR security-group rules.
   #
@@ -197,7 +161,7 @@ locals {
   # `encryptkey=0` (proven live hw234 — worker peer nodes read `encryptkey=255`).
   # So the CP's CROSS-REGION cilium-health TCP:4240 probes and host→pod traffic
   # travel NATIVE (unencrypted) over the VPC peering, whereas worker traffic is
-  # WireGuard-wrapped and rides UDP:51871 (opened to these ranges by
+  # WireGuard-wrapped and rides UDP:51871 (opened 0.0.0.0/0 by
   # ingress_cilium_wireguard) — bypassing these L3/L4 rules entirely.
   #
   # The two rule families below were scoped to the node's OWN region only
@@ -217,15 +181,6 @@ locals {
     [for c in local.region_keys : local.region_subnet_cidr[c]],
     [for c in local.region_keys : local.region_cluster_cidr[c]],
   ))
-
-  # The Sovereign's own public addresses, as /32: every region's control-plane
-  # EIP and NAT EIP. Peers dial the mesh endpoint at the control-plane public
-  # address, so their source is one of these. The keys are static
-  # ("cp|<region>", "nat|<region>"); only the values are known after apply.
-  sovereign_public_sources = merge(
-    { for c in local.region_keys : "cp|${c}" => "${huaweicloud_vpc_eip.cp[c].address}/32" },
-    { for c in local.region_keys : "nat|${c}" => "${huaweicloud_vpc_eip.nat[c].address}/32" },
-  )
 
   # Effective per-region SKU — operator-supplied wins; module defaults
   # back-fill empty entries (s7n.large.4 / m7n.xlarge.8).
@@ -274,25 +229,6 @@ locals {
     "catalyst.openova.io/deployment-id" = var.deployment_id
     "catalyst.openova.io/managed-by"    = "catalyst-zero"
   }
-}
-
-# ── k3s tokens per region ─────────────────────────────────────────────────
-# Each region is its own k3s cluster with two random tokens. Servers start
-# with K3S_TOKEN set to the server token and with --agent-token set to the
-# agent token (the shared template). Workers join with the agent token only,
-# so a worker's boot data cannot join a node as a server. k3s also wraps the
-# etcd encryption key with the server token, so it must not be derived from
-# an identifier. The values stay in the state: a re-apply keeps them.
-resource "random_password" "k3s_server_token" {
-  for_each = toset(local.region_keys)
-  length   = 64
-  special  = false
-}
-
-resource "random_password" "k3s_agent_token" {
-  for_each = toset(local.region_keys)
-  length   = 64
-  special  = false
 }
 
 # ── VPC per region ────────────────────────────────────────────────────────
@@ -425,13 +361,14 @@ resource "huaweicloud_vpc_subnet" "region" {
 #   - TCP 80   — Cilium Gateway (HTTP, ACME HTTP-01 + .well-known) from 0/0
 #   - TCP 6443 — k3s apiserver from 0/0 (fail-closed by k8s RBAC,
 #                not by firewall — same shape Hetzner module ships)
+#   - UDP 51820 — Cilium WireGuard inter-region (DMZ-WG)
+#   - TCP 2379  — Cilium clustermesh-apiserver VIP dial (mTLS-protected,
+#                cross-region). #4765 ERADICATED the former 30000-32767
+#                k8s NodePort-range rule; peers now dial the VIP :2379 directly.
 #   - TCP 12379 — Cilium clustermesh-proxy host-socket dial (#4784) — a
 #                hostNetwork socket BELOW the NodePort range that
 #                TCP-passthroughs to the clustermesh-apiserver etcd, dodging
-#                the CP-node k3s-etcd :2379 host collision. Sources: the
-#                Sovereign's own public addresses and node/pod ranges only.
-#   - UDP 51871 — Cilium WireGuard, from the node/pod ranges only.
-#   No rule for TCP 2379, UDP 51820, UDP 8472 or UDP 6081.
+#                the CP-node k3s-etcd :2379 host collision.
 #   §854 (NodePorts absolutely forbidden): NO 30000-32767 rule is opened
 #                anywhere. The Sovereign Gateway uses cilium 1.19.3 gateway-api
 #                hostNetwork mode — cilium-envoy binds node:443/:80 directly and
@@ -516,6 +453,38 @@ resource "huaweicloud_networking_secgroup_rule" "ingress_6443" {
   description       = "k3s apiserver (fail-closed via k8s RBAC, mTLS-protected)"
 }
 
+resource "huaweicloud_networking_secgroup_rule" "ingress_wireguard" {
+  for_each          = { for r in var.regions : r.code => r }
+  security_group_id = huaweicloud_networking_secgroup.region[each.key].id
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "udp"
+  port_range_min    = 51820
+  port_range_max    = 51820
+  remote_ip_prefix  = "0.0.0.0/0"
+  description       = "Cilium WireGuard inter-region (DMZ-WG, static-key crypto is the security boundary)"
+}
+
+resource "huaweicloud_networking_secgroup_rule" "ingress_clustermesh_2379" {
+  for_each          = { for r in var.regions : r.code => r }
+  security_group_id = huaweicloud_networking_secgroup.region[each.key].id
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "tcp"
+  # #4765 (founder 2026-07-03, "FUCK THE NODEPORTS!!!") — the k8s NodePort
+  # range (30000-32767) rule is ERADICATED. Cross-region ClusterMesh peers
+  # now dial the clustermesh-apiserver VIP on :2379 directly (the single
+  # sovereign-vip Cilium LB-IPAM pool serves it on the CP-node EIP; peers
+  # reach it over the WG-encrypted node path). etcd mTLS is the security
+  # boundary — same posture as the k3s apiserver :6443 rule above. The
+  # Sovereign Gateway rides gateway-api hostNetwork (node:443/:80 direct,
+  # opened by ingress_443 / ingress_80), so it needs NO NodePort either.
+  port_range_min   = 2379
+  port_range_max   = 2379
+  remote_ip_prefix = "0.0.0.0/0"
+  description      = "Cilium clustermesh-apiserver VIP dial :2379 (mTLS-protected; #4765 — replaces the forbidden NodePort range)"
+}
+
 # #4784 — clustermesh-proxy host-socket dial port. On no-CCM Huawei the shared
 # Sovereign EIP is the CP-node IP, a 1:1 NAT whose host :2379 is ALREADY bound
 # by k3s' own embedded etcd — so peers dialing <EIP>:2379 hit k3s etcd, never
@@ -525,29 +494,16 @@ resource "huaweicloud_networking_secgroup_rule" "ingress_6443" {
 # catalyst-api points peers here via CLUSTERMESH_APISERVER_DIAL_PORT. This is
 # a hostNetwork bind, NOT a NodePort (the port is well outside the forbidden
 # 30000-32767 range). etcd mTLS remains the security boundary.
-#
-# Sources: the Sovereign's own public addresses (local.sovereign_public_sources)
-# and every region's node subnet and pod range (local.mesh_ingress_cidrs) —
-# never 0.0.0.0/0. One rule per target region and per source; static keys.
 resource "huaweicloud_networking_secgroup_rule" "ingress_clustermesh_proxy" {
-  for_each = merge(
-    {
-      for pair in setproduct(local.region_keys, keys(local.sovereign_public_sources)) :
-      "${pair[0]}|${pair[1]}" => { region = pair[0], cidr = local.sovereign_public_sources[pair[1]] }
-    },
-    {
-      for pair in setproduct(local.region_keys, local.mesh_ingress_cidrs) :
-      "${pair[0]}|${pair[1]}" => { region = pair[0], cidr = pair[1] }
-    },
-  )
-  security_group_id = huaweicloud_networking_secgroup.region[each.value.region].id
+  for_each          = { for r in var.regions : r.code => r }
+  security_group_id = huaweicloud_networking_secgroup.region[each.key].id
   direction         = "ingress"
   ethertype         = "IPv4"
   protocol          = "tcp"
   port_range_min    = var.clustermesh_proxy_port
   port_range_max    = var.clustermesh_proxy_port
-  remote_ip_prefix  = each.value.cidr
-  description       = "Cilium clustermesh-proxy host-socket dial (mTLS-protected) — src ${each.key}"
+  remote_ip_prefix  = "0.0.0.0/0"
+  description       = "Cilium clustermesh-proxy host-socket dial (mTLS-protected; #4784 — non-2379 to dodge the CP-node k3s-etcd host collision)"
 }
 
 resource "huaweicloud_networking_secgroup_rule" "ingress_icmp" {
@@ -585,22 +541,45 @@ resource "huaweicloud_networking_secgroup_rule" "ingress_22_debug" {
 # even when source_dest_check is off. Per Huawei UCS Cilium prerequisites:
 # https://support.huaweicloud.com/intl/en-us/usermanual-ucs/ucs_01_0204.html
 
+# Cilium VXLAN tunnel default port (8472/UDP — NOT 4789).
+resource "huaweicloud_networking_secgroup_rule" "ingress_cilium_vxlan" {
+  for_each          = { for r in var.regions : r.code => r }
+  security_group_id = huaweicloud_networking_secgroup.region[each.key].id
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "udp"
+  port_range_min    = 8472
+  port_range_max    = 8472
+  remote_ip_prefix  = local.region_subnet_cidr[each.key]
+  description       = "Cilium VXLAN tunnel (intra-region pod-to-pod encap)"
+}
+
+# Cilium GENEVE alternative encap (6081/UDP).
+resource "huaweicloud_networking_secgroup_rule" "ingress_cilium_geneve" {
+  for_each          = { for r in var.regions : r.code => r }
+  security_group_id = huaweicloud_networking_secgroup.region[each.key].id
+  direction         = "ingress"
+  ethertype         = "IPv4"
+  protocol          = "udp"
+  port_range_min    = 6081
+  port_range_max    = 6081
+  remote_ip_prefix  = local.region_subnet_cidr[each.key]
+  description       = "Cilium GENEVE tunnel (alternative encap mode)"
+}
+
 # Cilium WireGuard transparent encryption (51871/UDP — Cilium uses
-# this, NOT the kernel-WG default 51820). Sources: every region's node
-# subnet and pod range (local.mesh_ingress_cidrs) — never 0.0.0.0/0.
+# this, NOT the kernel-WG default 51820 that ingress_wireguard above
+# opens for DMZ-WG inter-region).
 resource "huaweicloud_networking_secgroup_rule" "ingress_cilium_wireguard" {
-  for_each = {
-    for pair in setproduct(local.region_keys, local.mesh_ingress_cidrs) :
-    "${pair[0]}|${pair[1]}" => { region = pair[0], cidr = pair[1] }
-  }
-  security_group_id = huaweicloud_networking_secgroup.region[each.value.region].id
+  for_each          = { for r in var.regions : r.code => r }
+  security_group_id = huaweicloud_networking_secgroup.region[each.key].id
   direction         = "ingress"
   ethertype         = "IPv4"
   protocol          = "udp"
   port_range_min    = 51871
   port_range_max    = 51871
-  remote_ip_prefix  = each.value.cidr
-  description       = "Cilium WireGuard transparent encryption (port 51871) — mesh src ${each.value.cidr}"
+  remote_ip_prefix  = "0.0.0.0/0"
+  description       = "Cilium WireGuard transparent encryption (port 51871, not 51820)"
 }
 
 # Cilium health probes (4240/TCP — node-to-node L3 reachability).
@@ -1117,7 +1096,7 @@ locals {
     r.code => replace(templatefile("${path.module}/cloudinit-worker.tftpl", {
       sovereign_fqdn             = var.sovereign_fqdn
       k3s_version                = var.k3s_version
-      k3s_token                  = random_password.k3s_agent_token[r.code].result
+      k3s_token                  = sha256("${var.huawei_project_id}/${var.sovereign_fqdn}/k3s-bootstrap")
       cp_private_ip              = local.cp_primary_private_ip_by_region[r.code]
       enable_unattended_upgrades = var.enable_unattended_upgrades
       enable_fail2ban            = var.enable_fail2ban
@@ -1211,8 +1190,7 @@ locals {
       cluster_mesh_name     = local.cluster_mesh_name_by_region[r.code]
       cluster_mesh_id       = tostring(local.cluster_mesh_id_by_region[r.code])
       k3s_version           = var.k3s_version
-      k3s_server_token      = random_password.k3s_server_token[r.code].result
-      k3s_agent_token       = random_password.k3s_agent_token[r.code].result
+      k3s_token             = sha256("${var.huawei_project_id}/${var.sovereign_fqdn}/k3s-bootstrap")
       # Per-CP region's own subnet first-IP.
       cp_private_ip = cidrhost(local.region_subnet_cidr[r.code], 2)
       # #3504 (Refs #3375): per-region pod/service CIDRs (was hardcoded
@@ -1257,9 +1235,12 @@ locals {
       continuum_enabled        = length(var.regions) > 1 ? "true" : "false"
       marketplace_enabled      = var.marketplace_enabled
       qa_fixtures_enabled      = var.qa_fixtures_enabled
-      # SOV-133: the variables document (contract C5). The shared template
-      # sets the substitute FIRE_CUTOVER_ON_HANDOVER from its key HANDOVER_AUTO.
-      variables = var.variables
+      # North Star — decouple cutover auto-fire from qaTestEnabled. → shared
+      # template's FIRE_CUTOVER_ON_HANDOVER substitute → slot-13
+      # catalystApi.fireCutoverOnHandover (ORed with qaFixtures.enabled by the
+      # chart, #4648). INDEPENDENT of qa_fixtures_enabled so a PROD-cert
+      # Sovereign auto-fires the cutover on handover too.
+      fire_cutover_on_handover = var.fire_cutover_on_handover
       # #4053 console-isolation toggle (Refs #4431 #4212). Threads into the
       # shared template's SOVEREIGN_CONSOLE_GATEWAY substitute → slot-13
       # ingress.gateway.parentRef.name. "true" → cilium-gateway-console
@@ -1366,12 +1347,6 @@ locals {
       # dead provision is the wrong trade.
       #
       # Server URL rewritten to this region's EIP (cross-cloud reachability).
-      # The file sent is the parent-bootstrap kubeconfig that the shared
-      # template writes just before this block (SOV-140), never the node's
-      # administrator file /etc/rancher/k3s/k3s.yaml. Each /tmp copy is
-      # deleted after the post-back. A secondary region's body also carries,
-      # under peerKubeconfig, the handover-peer kubeconfig that the shared
-      # template writes for every region that is not the primary (SOV-141).
       # runcmd 0-indent items (the shared template re-indents via indent(2,…)).
       # Content sits at column 0 on purpose: `<<-` dedent does NOT apply to a
       # heredoc carrying %{ … } directives (measured with tofu 1.12), so an
@@ -1382,7 +1357,7 @@ locals {
   HOSTNAME=$(hostname)
   PRIMARY_HOST='${local.name_prefix}-${local.region_keys[0]}-cp1-${substr(sha256("${var.deployment_id}-${local.region_keys[0]}-cp0-${var.retry_attempt}"), 0, 6)}'
   if [ -n "${var.deployment_id}" ] && [ -n "${var.kubeconfig_bearer_token}" ] && [ "$${HOSTNAME}" = "$${PRIMARY_HOST}" ]; then
-    sed "s|server: https://127.0.0.1:6443|server: https://${huaweicloud_vpc_eip.cp[local.region_keys[0]].publicip.0.ip_address}:6443|" /var/lib/catalyst/parent-bootstrap.kubeconfig > /tmp/kubeconfig-rewritten.yaml
+    sed "s|server: https://127.0.0.1:6443|server: https://${huaweicloud_vpc_eip.cp[local.region_keys[0]].publicip.0.ip_address}:6443|" /etc/rancher/k3s/k3s.yaml > /tmp/kubeconfig-rewritten.yaml
     LAST_CODE=000
     for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
       LAST_CODE=$(curl -sk -o /dev/null -w '%%{http_code}' -X PUT \
@@ -1412,7 +1387,6 @@ locals {
         sh /var/lib/catalyst/mark kubeconfig-put-FAILED || true
         ;;
     esac
-    rm -f /tmp/kubeconfig-rewritten.yaml
   fi
 %{~else~}
 - |
@@ -1430,9 +1404,8 @@ locals {
   # SAN, so the pinned-CA handshake still validates after the swap.
   export MY_NODE_IP=$(ip -4 -o addr show dev eth0 | awk '{print $4}' | cut -d/ -f1)
   if [ -n "${var.deployment_id}" ] && [ -n "${var.kubeconfig_bearer_token}" ] && [ "$${HOSTNAME}" != "$${PRIMARY_HOST}" ] && [ -n "$${MY_REGION}" ] && [ -n "$${MY_EIP}" ]; then
-    sed "s|server: https://127.0.0.1:6443|server: https://$${MY_EIP}:6443|" /var/lib/catalyst/parent-bootstrap.kubeconfig > /tmp/kubeconfig-secondary.yaml
-    sed -i "s|server: https://127.0.0.1:6443|server: https://$${MY_EIP}:6443|" /var/lib/catalyst/handover-peer.kubeconfig
-    python3 -c "import json,os; print(json.dumps({'deploymentId':'${var.deployment_id}','regionKey':'$${MY_REGION}','kubeconfigYaml':open('/tmp/kubeconfig-secondary.yaml').read(),'peerKubeconfig':open('/var/lib/catalyst/handover-peer.kubeconfig').read(),'nodeInternalIp':os.environ.get('MY_NODE_IP','')}))" > /tmp/secondary-kubeconfig-body.json
+    sed "s|server: https://127.0.0.1:6443|server: https://$${MY_EIP}:6443|" /etc/rancher/k3s/k3s.yaml > /tmp/kubeconfig-secondary.yaml
+    python3 -c "import json,os; print(json.dumps({'deploymentId':'${var.deployment_id}','regionKey':'$${MY_REGION}','kubeconfigYaml':open('/tmp/kubeconfig-secondary.yaml').read(),'nodeInternalIp':os.environ.get('MY_NODE_IP','')}))" > /tmp/secondary-kubeconfig-body.json
     for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
       HTTP_CODE=$(curl -sk -o /dev/null -w '%%{http_code}' -X POST \
         -H "Authorization: Bearer ${var.kubeconfig_bearer_token}" \
@@ -1448,7 +1421,7 @@ locals {
       case "$${HTTP_CODE}" in 2*) break;; esac
       sleep 30
     done
-    rm -f /tmp/secondary-kubeconfig-body.json /tmp/kubeconfig-secondary.yaml
+    rm -f /tmp/secondary-kubeconfig-body.json
   fi
 %{~endif~}
       PUT
@@ -1985,68 +1958,4 @@ resource "huaweicloud_elb_monitor" "console_http" {
   interval    = 10
   timeout     = 5
   max_retries = 3
-}
-
-# ── Network registry (NET-100) ────────────────────────────────────────────
-# The record of every address, cluster name and cluster identifier of this
-# Sovereign, one entry per region in the order of var.regions. Output
-# network_registry is its JSON form; scripts/check-network-registry.py
-# checks it. Every value comes from a local or a resource of this module:
-#   - cloudRegion and az: var.huawei_region and var.huawei_az, the same for
-#     every region of this module;
-#   - nodeCIDR: the region's node subnet (region_subnet_cidr);
-#   - meshEndpoint: present only with more than one region; the region's
-#     control-plane EIP and the mesh dial port;
-#   - edgeAddress: the gateway ELB EIP, one for every region;
-#   - egressAddresses: the region's NAT EIP (workers) and control-plane EIP;
-#   - controlPlaneAccess: the module has no sovereign-admin or provisioner
-#     source list yet, so both lists are empty;
-#   - mtu: the pod MTU of Cilium: 1420, the default of the substitution
-#     CILIUM_MTU in clusters/_template/bootstrap-kit/01-cilium.yaml, which no
-#     module sets.
-# regionSeparation: "site" when every region has a different cloud region;
-# "zone" when cloud regions repeat but every (cloud region, zone) pair is
-# different; "none" otherwise and for one region.
-locals {
-  network_registry_mtu = 1420
-
-  network_registry_separation = (
-    length(var.regions) > 1 && length(distinct([for r in var.regions : var.huawei_region])) == length(var.regions) ? "site" :
-    length(var.regions) > 1 && length(distinct([for r in var.regions : "${var.huawei_region}/${var.huawei_az}"])) == length(var.regions) ? "zone" :
-    "none"
-  )
-
-  network_registry = {
-    podSupernet      = local.pod_supernet
-    mtu              = local.network_registry_mtu
-    regionSeparation = local.network_registry_separation
-    controlPlaneAccess = {
-      adminCIDRs       = []
-      provisionerCIDRs = []
-    }
-    regions = [
-      for c in local.region_keys : merge(
-        {
-          code            = c
-          cloudRegion     = var.huawei_region
-          az              = var.huawei_az
-          clusterName     = local.cluster_mesh_name_by_region[c]
-          clusterID       = local.cluster_mesh_id_by_region[c]
-          nodeCIDR        = local.region_subnet_cidr[c]
-          podCIDR         = local.region_cluster_cidr[c]
-          serviceCIDR     = local.region_service_cidr[c]
-          edgeAddress     = huaweicloud_vpc_eip.elb_primary.address
-          egressAddresses = [huaweicloud_vpc_eip.nat[c].address, huaweicloud_vpc_eip.cp[c].address]
-        },
-        {
-          for k, v in {
-            meshEndpoint = {
-              ips  = [huaweicloud_vpc_eip.cp[c].address]
-              port = var.clustermesh_proxy_port
-            }
-          } : k => v if length(var.regions) > 1
-        },
-      )
-    ]
-  }
 }

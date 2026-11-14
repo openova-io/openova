@@ -240,7 +240,7 @@ The **same upstream technology** can serve in multiple categories. For example: 
 | Container registry | **Harbor** | Per-host registry, proxy-cache for upstream, signature verification |
 | Sovereignty pivot | **bp-self-sovereign-cutover** | 8-tether pivot from mothership to local Gitea + local Harbor. ADR-0002. Principle #11 |
 | Failover | **Continuum** (custom CRD + controller) | Lease-based (Cloudflare KV witness or 3-DNS-quorum), low-TTL lua-record flip. Replaced README-only `failover-controller` per Phase 0 #11 |
-| Browser access | **Guacamole** (single per Sovereign) | Bastion, pod consoles, RDP/VNC over Keycloak SSO; session recording is target, not built ([ADR-0033](adr/0033-access-plane.md)) |
+| Browser access | **Guacamole** (single per Sovereign) | Bastion, pod consoles, RDP/VNC over Keycloak SSO; recordings on SeaweedFS |
 | UI | **Astro 5 + Svelte 5 islands** | Static-first, minimal JS, fast interaction-to-paint |
 | Backup | **Velero** | SeaweedFS-backed |
 | Autoscaling | **HPA** + **VPA** + **KEDA** + **cluster-autoscaler** | Four orthogonal autoscalers — see §3.3 |
@@ -409,7 +409,7 @@ These extend [`PRINCIPLES.md`](PRINCIPLES.md) and ADR-0001.
 5. **Event-driven, never polling.** State observed via K8s watch streams. UI updates via SSE. No `time.Tick` poll loops. No `setInterval` HTTP polls anywhere in the read path.
 6. **Tenancy is K8s-native.** An `Organization` is `namespace + vCluster + Keycloak group + Organization CR`. Per-Org isolation lives in the vCluster layer. Resource names below the namespace never embed the Org slug.
 7. **Identity is Keycloak.** Per-Sovereign realm (corporate) or per-Org realm (SME). OIDC tokens flow end-to-end; the Sovereign's K8s api-server validates them via `--oidc-*` flags. Corporate Sovereigns federate Azure SSO via Keycloak Identity Provider broker.
-8. **Browser access is via Guacamole.** Bastion sessions, pod consoles, RDP/VNC. One protocol, one audit log. Session recording is target, not built ([ADR-0033](adr/0033-access-plane.md)).
+8. **Browser access is via Guacamole.** Bastion sessions, pod consoles, RDP/VNC. One protocol, one audit log, one session-recording path (recordings on SeaweedFS).
 9. **Catalyst events flow on NATS JetStream.** Audit log, user actions, billing, cross-replica fan-out, cross-region Mirror streams.
 10. **IaC always — every parameter is a variable.** No region, replica count, TTL, weight, retention, or other knob is hardcoded. UI surfaces them; CRDs persist them in Gitea.
 
@@ -535,11 +535,22 @@ JetStream replaces an older Redpanda + Valkey pairing in the control plane: NATS
 
 ### §5.4 Catalyst CRDs
 
-> State: built. Evidence: docs/generated/custom-resources.md, scripts/generators/custom-resources.py
+All in `apps.openova.io/v1`, `orgs.openova.io/v1`, `catalyst.openova.io/v1`, or `dr.openova.io/v1` per type domain. Land in `products/catalyst/chart/crds/`. Validation hooks run as Kyverno ClusterPolicy.
 
-Every custom resource definition of the tree is listed in the generated file [`docs/generated/custom-resources.md`](generated/custom-resources.md), with its group, versions, scope and file, and whether Go code that is not a test names it. `scripts/generators/custom-resources.py` writes it, and the check `generated-docs` fails a pull request in which it is stale.
+| CRD | Group | Purpose |
+|---|---|---|
+| `Sovereign` | `catalyst.openova.io/v1` | The deployed Catalyst — one per Sovereign |
+| `Organization` | `orgs.openova.io/v1` | Multi-tenancy unit; reconciles to vCluster + Keycloak group + Gitea Org + base RBAC |
+| `Environment` | `catalyst.openova.io/v1` | User-facing scope (`{org}-{env_type}`); reconciles per-region vCluster + Flux + JetStream subjects |
+| `Application` | `apps.openova.io/v1` | Running deployment; validated against `Blueprint.spec.configSchema` at admission |
+| `Blueprint` | `catalyst.openova.io/v1` | Catalog item; CRD-validated `card / visibility / owner / configSchema / topology† / depends / manifests.source / overlays / upgrades / rotation / observability` |
+| `EnvironmentPolicy` | `catalyst.openova.io/v1` | Compliance config + promotion gating + placement defaults (per-Org weight + mode per-policy) |
+| `SecretPolicy` | `catalyst.openova.io/v1` | Rotation rules (TTL, action: rotate/warn/block) |
+| `Runbook` | `catalyst.openova.io/v1` | Auto-remediation hooks |
+| `Continuum` | `dr.openova.io/v1` | Active-hotstandby orchestration: lease, replication health, switchover sequence, lua-record body |
+| `UserAccess` | `catalyst.openova.io/v1` | Tier-based RBAC (scope = label selectors; AND within UA, OR across UAs) |
 
-> **Canonical placement/topology declaration (#3375 DoD-1).** A Blueprint
+> **† Canonical placement/topology declaration (#3375 DoD-1).** A Blueprint
 > declares its multi-region placement in **one canonical shape**:
 > `spec.topology` (`supported[] · defaults · perTopology{<bcp>:{replication,
 > switchover, placement{tier, clusters[], roles{}}}}`). This is the shape the
@@ -1057,7 +1068,7 @@ Optional and à la carte. Users install them as Applications when they need them
 
 ### §7.3 Communication
 
-`bp-stalwart` (email; per-Org vCluster) · `bp-stunner` (TURN/STUN) · `bp-livekit` (WebRTC SFU) · `bp-matrix` (chat; Synapse server) · `bp-guacamole` (clientless remote-desktop; Keycloak SSO; session recording is target, not built: [ADR-0033](adr/0033-access-plane.md)).
+`bp-stalwart` (email; per-Org vCluster) · `bp-stunner` (TURN/STUN) · `bp-livekit` (WebRTC SFU) · `bp-matrix` (chat; Synapse server) · `bp-guacamole` (clientless remote-desktop; Keycloak SSO; session recording to SeaweedFS).
 
 ### §7.4 AI / ML
 
@@ -1724,9 +1735,137 @@ curl -u "operator:$op_pw" -H "X-API-Key: $api_key" https://pdns.openova.io/api/v
 
 ## §9 — Bootstrap-kit slot ordering
 
-> State: built. Evidence: docs/generated/bootstrap-slots.md, scripts/generators/slots.py, scripts/check-bootstrap-deps.sh
+The `clusters/_template/bootstrap-kit/` directory carries the canonical HelmReleases that produce a Sovereign from a fresh K3s + Cilium substrate. Each HR file is prefixed with its slot number (`NN-bp-<name>.yaml`). Numeric slot prefix makes append-merge resolution algorithmic; Flux `dependsOn` is the actual install ordering.
 
-The slots of the bootstrap kit are the files of `clusters/_template/bootstrap-kit/` that its `kustomization.yaml` lists. The generated file [`docs/generated/bootstrap-slots.md`](generated/bootstrap-slots.md) lists every slot with its HelmRelease, chart, dependencies and switches, and the entries of `scripts/expected-bootstrap-deps.yaml` that no slot file installs. `scripts/generators/slots.py` writes it, and the check `generated-docs` fails a pull request in which it is stale. `scripts/check-bootstrap-deps.sh` compares the dependencies of the slot files with `scripts/expected-bootstrap-deps.yaml`.
+### §9.1 Canonical slot list (post-W2; 48 HRs end-state)
+
+| Slot | Blueprint | Tier | Layer | dependsOn |
+|---:|---|---|---|---|
+| 01 | bp-cilium | 0 — Foundation | host | (root) |
+| 02 | bp-cert-manager | 0 | host | bp-cilium |
+| 03 | bp-flux | 0 | host | bp-cert-manager |
+| 04 | bp-crossplane | 0 | mgt | bp-flux |
+| 05 | bp-sealed-secrets | 0 (Phase-0-transient) | host | bp-cert-manager |
+| 06 | *(reserved)* | — | — | **DEFERRED** — was `bp-spire`; removed by PR [#665](https://github.com/openova-io/openova/pull/665). Re-enable triggers in `SECURITY.md` §2; roadmap TBD-V29 ([#2055](https://github.com/openova-io/openova/issues/2055)) |
+| 06a | bp-self-sovereign-cutover | 4 (dormant) | mgt | bp-flux — Phase-1 installs dormant, Jobs created post-handover |
+| 07 | bp-nats-jetstream | 2 — Eventbus | mgt | bp-cert-manager |
+| 08 | bp-openbao | 1 — Identity | mgt | bp-cert-manager |
+| 09 | bp-keycloak | 1 — Identity | mgt | bp-cert-manager, bp-cnpg (when HA) |
+| 10 | bp-gitea | 2 — Git | mgt | bp-keycloak |
+| 11 | bp-powerdns | 3 — DNS authoritative | host | bp-cert-manager, bp-cnpg |
+| 12 | bp-external-dns | 3 — DNS sync | host | bp-powerdns |
+| 13 | bp-catalyst-platform | 4 — Catalyst umbrella | mgt | bp-gitea, bp-nats-jetstream, bp-openbao, bp-keycloak |
+| 14 | bp-crossplane-claims | 0 — Foundation extension | mgt | bp-crossplane |
+| 15 | bp-external-secrets | 0/3 | host | bp-openbao, bp-cert-manager |
+| 16 | bp-cnpg | 5 — Data | mgt | bp-flux |
+| 17 | bp-valkey | 5 | mgt | bp-flux |
+| 18 | bp-seaweedfs | 5 | host | bp-flux, bp-cert-manager |
+| 19 | bp-harbor | 5 — registry | host | bp-cnpg, bp-seaweedfs, bp-cert-manager |
+| 20 | bp-opentelemetry | 6 — Observability | host | bp-cert-manager |
+| 21 | bp-alloy | 6 | host | bp-opentelemetry |
+| 22 | bp-loki | 6 | mgt | bp-seaweedfs |
+| 23 | bp-mimir | 6 | mgt | bp-seaweedfs |
+| 24 | bp-tempo | 6 | mgt | bp-seaweedfs |
+| 25 | bp-grafana | 6 | mgt | bp-cnpg, bp-loki, bp-mimir, bp-tempo, bp-keycloak |
+| 26 | bp-langfuse | 6 — LLM obs | mgt | bp-cnpg, bp-keycloak, bp-cert-manager |
+| 27 | bp-kyverno | 7 — Security/policy | host | bp-cilium |
+| 28 | bp-reloader | 7 | host | (none) |
+| 29 | bp-vpa | 7 | host | (none) |
+| 30 | bp-trivy | 7 | host | bp-cert-manager |
+| 31 | bp-falco | 7 | host | bp-cilium |
+| 32 | bp-sigstore | 7 | host | bp-cert-manager |
+| 33 | bp-syft-grype | 7 | host | bp-cert-manager |
+| 34 | bp-velero | 7 | host | bp-seaweedfs |
+| 35 | bp-coraza | 8 — Edge | host | bp-cilium, bp-cert-manager |
+| 36 | bp-stunner | 8 | host | bp-cilium, bp-cert-manager |
+| 37 | bp-knative | 9 — Apps / AI runtime | host | bp-cert-manager |
+| 38 | bp-kserve | 9 | host | bp-knative |
+| 39 | bp-vllm | 9 | host | bp-kserve |
+| 40 | bp-llm-gateway | 9 | mgt | bp-cnpg, bp-keycloak |
+| 41 | bp-anthropic-adapter | 9 | mgt | bp-llm-gateway |
+| 42 | bp-bge | 9 | host | bp-cnpg |
+| 43 | bp-nemo-guardrails | 9 | mgt | bp-llm-gateway, bp-bge, bp-cnpg |
+| 44 | bp-temporal | 9 | mgt | bp-cnpg, bp-cert-manager |
+| 45 | bp-openmeter | 9 | mgt | bp-cnpg, bp-nats-jetstream (ClickHouse-less profile) |
+| 46 | bp-livekit | 9 — relay | host | bp-stunner, bp-cert-manager |
+| 47 | bp-matrix | 9 — relay | mgt | bp-cnpg, bp-keycloak, bp-cert-manager |
+| 48 | bp-librechat | 9 | mgt | bp-llm-gateway, bp-vllm, bp-bge, bp-keycloak |
+
+End-state: **48 HRs.** `present` = 14 (slots 01–14). `W2.K1` + `W2.K2` + `W2.K3` + `W2.K4` = 5 + 7 + 8 + 14 = **34 added**.
+
+### §9.2 Excluded from the canonical kit (marketplace-registered, opt-in)
+
+| Blueprint | Reason |
+|---|---|
+| `bp-failover-controller` | Replaced by `bp-continuum`; the README-only stub is dead |
+| `bp-clickhouse` | OLAP heavy; OpenMeter uses CNPG-backed profile until an analytics-heavy Org onboards |
+| `bp-strimzi`, `bp-flink`, `bp-debezium`, `bp-iceberg` | Kafka / streaming / lakehouse; opt-in App Blueprints |
+| `bp-opensearch` | Heavy SIEM/search; Loki covers default logs path |
+| `bp-ferretdb`, `bp-milvus`, `bp-neo4j` | App-tier data services; opt-in per consumer |
+| `bp-stalwart` | Per-Org vCluster (Relay product), not host-cluster |
+| `bp-guacamole` | Admin-tooling; post-handoff opt-in |
+| `bp-litmus` | Chaos engineering; production-readiness add-on |
+| `bp-keda` | Deferred for first Sovereigns where HPA + KServe-native autoscale cover the path |
+| `bp-opentofu` | Phase-0-only; never a host-cluster HR |
+| `platform/spire/` | **DEFERRED** — see slot 06 above |
+
+### §9.3 Full DAG depth
+
+```
+Longest chain:
+bp-cilium → bp-cert-manager → bp-openbao → bp-keycloak → bp-gitea → bp-catalyst-platform   (6 hops)
+```
+
+The slot order is a dependency graph, not a line. The key edges (from the `dependsOn` column in §9.1) — cilium is the floor, cert-manager gates TLS, flux gates every HelmRelease, keycloak + openbao gate the control plane, cnpg precedes the data services, and harbor lands late as the cutover pivot target:
+
+```mermaid
+graph TD
+  cilium["01 bp-cilium (CNI + ClusterMesh + LB-IPAM)"] --> certmgr["02 bp-cert-manager"]
+  cilium --> pods["everything with pods"]
+  certmgr --> flux["03 bp-flux"]
+  certmgr --> nats["07 bp-nats-jetstream"]
+  certmgr --> openbao["08 bp-openbao"]
+  flux --> allhr["ALL HelmReleases"]
+  flux --> crossplane["04 bp-crossplane"]
+  crossplane --> claims["14 bp-crossplane-claims"]
+  flux --> cnpg["16 bp-cnpg"]
+  flux --> seaweedfs["18 bp-seaweedfs"]
+  flux --> cutover["06a bp-self-sovereign-cutover (DORMANT)"]
+  openbao --> keycloak["09 bp-keycloak"]
+  openbao --> eso["15 bp-external-secrets"]
+  cnpg --> keycloak
+  keycloak --> gitea["10 bp-gitea"]
+  certmgr --> powerdns["11 bp-powerdns"]
+  cnpg --> powerdns
+  powerdns --> extdns["12 bp-external-dns"]
+  cnpg --> harbor["19 bp-harbor"]
+  seaweedfs --> harbor
+  gitea --> catplat["13 bp-catalyst-platform"]
+  nats --> catplat
+  openbao --> catplat
+  keycloak --> catplat
+  seaweedfs --> obs["20-25 observability (otel/alloy/loki/mimir/tempo/grafana)"]
+  cnpg --> obs
+```
+
+With `bp-spire` deferred (slot 06 reserved), the longest chain is one shorter than the original 7-hop W1.D estimate. At 1-min Flux reconcile interval the worst-case full bring-up is ~6–10 minutes once images are cached.
+
+### §9.4 `kustomization.yaml` merge protocol
+
+Each W2 PR appends only its own slots in numeric order. PR merge order is K0 → K1 → K2 → K3 → K4 (enforced by labels). Subsequent PRs rebase on main; the conflict on `kustomization.yaml` is structural (both branches appended to the same list) — keep both blocks, in slot-number order. Per-HR ownership of CI guard:
+
+```bash
+scripts/check-bootstrap-deps.sh \
+  --kustomization clusters/_template/bootstrap-kit/kustomization.yaml \
+  --hrs clusters/_template/bootstrap-kit/*.yaml \
+  --dag docs/ARCHITECTURE.md
+```
+
+The script parses every HR's `dependsOn`, parses the DAG above, and fails the PR if there's drift in either direction.
+
+### §9.5 Per-Blueprint smoke tests
+
+Each slot ships a 1-line readiness probe in `tests/e2e/bootstrap-kit/<slot>-<bp>.sh`. The harness runs every probe against a fresh prov after the kit reconciles, with a 10-minute timeout. Probes substitute `<sov>` with the test Sovereign FQDN (e.g. `t38.omani.works`) at runtime.
 
 ---
 

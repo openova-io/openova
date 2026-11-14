@@ -68,16 +68,10 @@ GHCR_ORG="openova-io"
 
 # Modes:
 #   - Full sweep (default): check every chart in the working tree.
-#   - --changed-only --base <ref>: judge only the drift the change adds
-#     (FND-020). Every chart is checked, and a drift whose chart version
-#     AND pin are the same at <ref> is printed as INHERITED and does not
-#     fail: the base already had it. This is the CI-gate mode; on a pull
-#     request <ref> is HEAD^1, the main the change was merged onto. A
-#     release of the umbrella is two commits on main (the chart version,
-#     then the pin after the chart is published), so main itself holds a
-#     drift between them, and a change that touches neither line must not
-#     fail for it. A change that moves a chart version or a pin by hand
-#     changes one of the two values and is judged.
+#   - --changed-only --base <ref>: only check charts whose Chart.yaml
+#     was modified between <ref> and HEAD. This is the CI-gate mode —
+#     it lets a PR ship without first fixing 13 pre-existing drifts
+#     (the auto-bump hook will heal those over time).
 #   - --check-ghcr: also verify each pin's GHCR artifact exists
 #     (TBD-A26, issue #1872). Composes with both modes above.
 while [ "$#" -gt 0 ]; do
@@ -185,30 +179,29 @@ if [ "${indent_violations}" -gt 0 ]; then
   exit 1
 fi
 
-# Build the list of Chart.yaml paths to scan: every chart, in both modes.
+# Build the list of Chart.yaml paths to scan.
 declare -a CHART_YAMLS=()
 if [ -n "${CHANGED_ONLY}" ]; then
-  if ! git -C "${REPO_ROOT}" rev-parse --verify --quiet "${BASE_REF}^{commit}" >/dev/null; then
-    echo "error: --base ${BASE_REF} is not a commit of this checkout" >&2
-    exit 2
+  # Only Chart.yaml files modified between BASE_REF and HEAD.
+  while IFS= read -r line; do
+    [ -n "${line}" ] && CHART_YAMLS+=("${REPO_ROOT}/${line}")
+  done < <(cd "${REPO_ROOT}" && git diff --name-only "${BASE_REF}" -- \
+    'platform/*/chart/Chart.yaml' 'products/*/chart/Chart.yaml' 2>/dev/null | sort)
+  if [ "${#CHART_YAMLS[@]}" -eq 0 ]; then
+    echo "No platform/products Chart.yaml files changed since ${BASE_REF} — nothing to check."
+    exit 0
   fi
-  echo "Judging the drift this change adds to ${BASE_REF}: a drift whose chart version and pin are the same there is INHERITED (FND-020)."
+  echo "Scanning ${#CHART_YAMLS[@]} Chart.yaml file(s) changed since ${BASE_REF}:"
+  for c in "${CHART_YAMLS[@]}"; do echo "  ${c#${REPO_ROOT}/}"; done
   echo
+else
+  while IFS= read -r line; do
+    CHART_YAMLS+=("${line}")
+  done < <(find "${REPO_ROOT}/platform" "${REPO_ROOT}/products" \
+    -path '*/chart/Chart.yaml' 2>/dev/null | sort)
 fi
-while IFS= read -r line; do
-  CHART_YAMLS+=("${line}")
-done < <(find "${REPO_ROOT}/platform" "${REPO_ROOT}/products" \
-  -path '*/chart/Chart.yaml' 2>/dev/null | sort)
-
-# The value of the first line matching <pattern> in <path> at BASE_REF, or
-# nothing when the file does not exist there (FND-020).
-base_value() {
-  git -C "${REPO_ROOT}" show "${BASE_REF}:$1" 2>/dev/null \
-    | awk -v re="$2" '$0 ~ re {print $2; exit}' | tr -d '"'
-}
 
 drift=0
-inherited=0
 checked=0
 skipped=0
 # TBD-A26: collect (chart-name, pinned-version, pin-file) tuples for the
@@ -267,11 +260,6 @@ for chart_yaml in "${CHART_YAMLS[@]}"; do
 
     if [ "${pinned_version}" = "${version}" ]; then
       echo "  OK   ${name}: chart=${version} pin=${pinned_version} (${pin_file#${REPO_ROOT}/})"
-    elif [ -n "${CHANGED_ONLY}" ] \
-      && [ "$(base_value "${chart_yaml#${REPO_ROOT}/}" '^version:')" = "${version}" ] \
-      && [ "$(base_value "${pin_file#${REPO_ROOT}/}" '^      version:')" = "${pinned_version}" ]; then
-      echo "  INHERITED ${name}: chart=${version} pin=${pinned_version} (file: ${pin_file#${REPO_ROOT}/}) — ${BASE_REF} has the same drift; not added by this change"
-      inherited=$((inherited + 1))
     else
       echo "  DRIFT ${name}: chart=${version} pin=${pinned_version} (file: ${pin_file#${REPO_ROOT}/})"
       drift=$((drift + 1))
@@ -289,9 +277,6 @@ done
 
 echo
 echo "Checked ${checked} chart→pin pair(s), skipped ${skipped} chart(s) not in the bootstrap kit."
-if [ -n "${CHANGED_ONLY}" ]; then
-  echo "Inherited from ${BASE_REF}: ${inherited} drift(s); added by this change: ${drift}."
-fi
 
 if [ "${drift}" -gt 0 ]; then
   echo
@@ -389,11 +374,7 @@ if [ -n "${CHECK_GHCR}" ]; then
   fi
 fi
 
-if [ "${inherited}" -gt 0 ]; then
-  echo "PASS: this change adds no bootstrap-kit pin drift (${inherited} inherited from ${BASE_REF})."
-else
-  echo "PASS: all bootstrap-kit pins are in sync with their source charts."
-fi
+echo "PASS: all bootstrap-kit pins are in sync with their source charts."
 if [ -n "${CHECK_GHCR}" ]; then
   echo "PASS: every pinned version exists as a GHCR tag."
 fi

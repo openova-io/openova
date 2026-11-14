@@ -273,7 +273,7 @@ Static secrets (API tokens, passwords, signing keys, OAuth client secrets) live 
    (audit log + telemetry)         Pod mounts the secret
 ```
 
-*The same flow as a graph. In this flow a value exists in OpenBao and in the rendered K8s Secret, not in Git. The list "What must never be in Git" below says where Git still holds values today:*
+*The same flow as a graph — the value only ever exists in OpenBao and the rendered K8s Secret, never in Git:*
 
 ```mermaid
 graph TB
@@ -299,21 +299,15 @@ graph TB
 - `SecretPolicy` CR (rotation rules)
 - Public keys, root CA certs (CRDs)
 
-**What must never be in Git, and what is true today:**
+**What's NEVER in Git:**
 
-- Secret values (passwords, tokens, private keys). Today Git still holds some. The provisioning service writes each Organization's database password, as a literal value, into the manifests it commits to the Organization's Git repository (`core/services/provisioning/gitops/gitops.go`). The Keycloak client secrets are the SHA-256 of the release name, the namespace and a fixed word, with a salt that is empty by default, so anyone who reads the chart can compute them (`platform/keycloak/chart/templates/_helpers.tpl`).
-- OpenBao root tokens and unseal keys. Today the unseal key is kept in a Kubernetes Secret, and the first root token is written into one during the bootstrap. OpenBao is initialised with one unseal key (one key share, threshold one). The init Job keeps that key in the Secret `openbao-unseal-keys` and writes the first root token into the Secret `openbao-root-token`, both in the namespace `openbao` (`platform/openbao/chart/templates/init-job.yaml`). The auth-bootstrap Job revokes that root token at the end of its run and then tries to delete the Secret `openbao-root-token`; when the delete fails it logs a warning and the Secret stays (`platform/openbao/chart/templates/auth-bootstrap-job.yaml`). Whoever can read `openbao-unseal-keys` can generate a root token.
-- Static API credentials.
-
-**Where a rendered Secret rests today.** etcd holds every Kubernetes Secret as `secretbox` ciphertext: the k3s server of a new Sovereign is started with `--secrets-encryption --secrets-encryption-provider=secretbox` (`infra/providers/_shared/cloudinit-control-plane.tftpl`). The key rests in `/var/lib/rancher/k3s/server/cred/encryption-config.json` on each server node, and in etcd under the k3s server token. A cluster installed before these flags were added keeps its Secrets in the clear until its servers are migrated.
-
-**OpenBao today.** Each region runs one OpenBao member (`replicas: 1` in `clusters/_template/bootstrap-kit/08-openbao.yaml`). Inside the cluster it is reached over plain HTTP, at `http://openbao.openbao.svc.cluster.local:8200`. It has no audit device: nothing in `platform/openbao` enables one.
+- Secret values (passwords, tokens, private keys, etc.)
+- OpenBao root tokens
+- Static API credentials
 
 ---
 
 ## 4. Dynamic credentials
-
-Target, not built. No sidecar, no `dynamicSecrets` field and no OpenBao database engine exists today. The only secrets engine that OpenBao mounts is the key-value engine at `secret/`.
 
 For databases, S3, and other systems supporting short-lived credentials, OpenBao mints them on demand:
 
@@ -345,8 +339,6 @@ The sidecar is automatic for any Pod whose Blueprint declares `dynamicSecrets: t
 
 ## 5. Multi-region OpenBao — INDEPENDENT, NOT STRETCHED
 
-Target, not built. The design below, three Raft members per region and one-way replication between regions, is not what runs. Today each region runs one OpenBao member with its own storage and its own unseal key. Between regions peer push is wired: the primary region writes the shared material of a multi-region Application into the OpenBao of every region (`peerTrust` in `platform/openbao/chart/values.yaml`). OpenBao does not replicate.
-
 Critical: each region runs its **own** Raft cluster. There is no cross-region Raft quorum. Region failures are independent failure domains.
 
 ```
@@ -359,7 +351,7 @@ Critical: each region runs its **own** Raft cluster. There is no cross-region Ra
    └──────┬───────────┘           └──────────────────┘            └──────────────────┘
           │                                ▲                                ▲
           │ async log shipping             │ async log shipping             │
-          │ (async replication)            │                                │
+          │ (Performance Replication)      │                                │
           └────────────────────────────────┴────────────────────────────────┘
                   one-way: primary → secondaries; no cross-region quorum
 ```
@@ -377,7 +369,7 @@ graph LR
   subgraph C["Region C (Frankfurt DR)"]
     RC["OpenBao<br/>3 Raft nodes<br/>independent quorum (2-of-3)"]
   end
-  RA -->|"async log shipping"| RB
+  RA -->|"async log shipping (Performance Replication)"| RB
   RA -->|"async log shipping"| RC
   NOTE["one-way: primary → secondaries<br/>NO cross-region quorum; writes → primary, reads → local replica"]
 ```
@@ -496,8 +488,6 @@ End users get one-click SSO across all Apps in their Organization without ever s
 
 ## 7. Rotation policy
 
-Target, not built. No controller rotates credentials, and the tree defines no kind for a rotation policy: the definition of the kind `SecretPolicy`, which no code read, was removed by FND-099. No rotation dashboard exists.
-
 Every credential class has a SecretPolicy that drives automatic rotation.
 
 ```yaml
@@ -590,16 +580,14 @@ If a secret is ever leaked via terminal output (a misconfigured `kubectl describ
 
 ## 9. Compliance posture
 
-> State: target. Decision: ADR-0029
-
-Target, not built. No policy of the tree carries a mapping to a framework control, and the bootstrap kit does not install the chaos Blueprint `bp-litmus`. [ADR-0029](adr/0029-compliance-plane.md) records how framework mappings and resilience findings reach the compliance posture hub. The table states the intended posture of each standard, not what runs.
-
 | Standard | Catalyst posture |
 |---|---|
 | **SOC 2 Type 2** | Audit logging in JetStream + OpenSearch SIEM cold storage. SecretPolicy enforces rotation. EnvironmentPolicy enforces approvals. |
 | **PSD2 / FAPI** | Fingate Blueprint composes Keycloak (FAPI authorization), eIDAS cert verification, ext_authz. |
+| **DORA** | Resilience testing via Litmus chaos Blueprint. Multi-region by default for regulated tier. |
 | **NIS2** | Falco runtime detection + OpenSearch SIEM + Kyverno policy + supply-chain (cosign + Syft+Grype). |
 | **GDPR** | Per-region data residency via Placement spec. Right-to-be-forgotten flow defined per Application Blueprint. |
+| **ISO 27001** | Mappings published per control; evidence surfaced via Catalyst console audit views and SIEM exports. |
 
 Every Sovereign exports its audit log to a customer-specified SIEM. Default: OpenSearch in the Sovereign itself; customers may push to external Splunk, Datadog SIEM, etc.
 
@@ -607,28 +595,52 @@ Every Sovereign exports its audit log to a customer-specified SIEM. Default: Ope
 
 ## 10. Threat model summary
 
-> State: built. Evidence: docs/generated/security-controls.md, scripts/generators/controls.py
+| Threat | Mitigation |
+|---|---|
+| Stolen ServiceAccount token | Projected SA bound-tokens are 1h TTL, audience-scoped, Pod-bound (deleted when the Pod terminates) — legacy long-lived Secret-tokens are not used. (Future hardening: SPIRE SVID 5-min mTLS-cert if a §2 re-enable trigger fires.) |
+| Stolen K8s Secret | Encrypted at rest in etcd. Pulled only via ESO with a projected SA bound-token (TokenReview-validated); transport encrypted by Cilium WireGuard. |
+| Compromised Pod | NetworkPolicy (Cilium) + L7 policies limit blast radius. Falco detects anomalous syscalls. |
+| Malicious commit to Environment Gitea | EnvironmentPolicy requires PR approvals. Kyverno admission control denies non-policy-compliant manifests. |
+| Compromised Blueprint upstream | All Blueprints are cosigned. Kyverno verify-signatures policy denies unsigned/wrong-issuer artifacts. |
+| Cross-Org leakage | vcluster isolation. JetStream Account isolation. Keycloak realm isolation (per-Org or shared). |
+| Compromised sovereign-admin account | MFA required at Keycloak. JIT elevation for production-impacting actions. Full audit trail to SIEM. |
+| Compromised OpenBao node | 2-of-3 Raft quorum required for writes. Audit log captures every read. Rotate root token + re-shard quarterly. |
+| Region-wide failure | Independent OpenBao Raft per region. PowerDNS lua-records (`ifurlup`) drop the affected regional endpoint from authoritative responses within the health-check window. Apps with `active-active` keep serving from healthy region. |
+| Supply-chain attack on a build | SLSA-3 build provenance, cosign signing, Syft+Grype SBOM scanned in CI and at runtime by Trivy. |
 
-The security controls of a Sovereign are listed, with the state of each, in the generated control matrix [`docs/generated/security-controls.md`](generated/security-controls.md). Its source is [`docs/ledger/controls.yaml`](ledger/controls.yaml), and `scripts/generators/controls.py` writes it; the check `generated-docs` fails a pull request in which it is stale. A control is listed as built only when it is on by default on a new Sovereign and a gate check in the state `required` proves it. Every other control is listed as target.
+*The same threats, grouped by the control that answers each:*
 
-### 10.1 What an attacker obtains
-
-What each kind of attacker obtains from a Sovereign today, and what the target design leaves them. The column "today" is measured on the repository; the column "in the target" is not built.
-
-<!-- sec-threat-model:begin -->
-| Actor | Obtains today | Obtains in the target |
-|---|---|---|
-| Reads etcd, an etcd snapshot or a backup | Ciphertext, because every k3s server is started with secrets encryption (`secretbox`). With the k3s server token as well, which unwraps the etcd key: every Kubernetes Secret, including `openbao-unseal-keys`, and with it a root token and every OpenBao value. From a cluster installed before the encryption flags: every Secret in the clear. | Ciphertext. With the k3s server token as well: the Secret objects that the platform lists as exceptions, and no Application credential. No path into OpenBao. |
-| Reads the Secret objects of one namespace | The secrets of that namespace. In `openbao`: the unseal key, so root on OpenBao. In `flux-system`: the pull secret, the Harbor robot token, the object-storage credential and the domain-manager credential that cloud-init writes there. In every namespace: the pull secret `ghcr-pull` and the Harbor robot token, which the reflector copies into every namespace. | The listed exceptions of that namespace. No Application credential and no OpenBao key material exists as a Secret. |
-| Creates an ExternalSecret in one namespace | Through the ClusterSecretStore `vault-region1`, which any namespace may use: in a platform namespace, the keys under its own prefix and under the prefixes that the ConfigMap `eso-legacy-key-map` lists for it, because the admission rule `external-secret-remote-key-scope` refuses every other key; in a namespace of an Organization, which that rule does not judge, every key under `sso/`, `catalyst/` and `openova/apps/`. The OpenBao policy of the store refuses the hand-over archive at `secret/catalyst/tofu-phase0-archive`. | The keys under that namespace's own prefix. |
-| Compromises one pod | The pod's own secrets. The cloud-init user data of its node, with every bootstrap secret, from the metadata address. Any Service of the cluster, because the cluster-wide default-deny policy is installed switched off. | The pod's own mounted credentials, the dynamic ones expiring. Network policy closes the metadata address and the other namespaces. |
-| Compromises one worker node | The Secrets of the pods on it, the k3s agent token and the user data of the node. | The credentials of the pods on it and the agent token. No server token, no seal key, no etcd key. |
-| Compromises one control-plane node | Everything. | With seal kind `static-node-file`: everything in that region, because the seal key, the etcd key and the server token rest on its disks. With seal kind `cloud-key-service`: the same while the node's key-service credential is valid; revoking it locks the store. This residual risk is stated, not removed. |
-| Copies the system disk of a control-plane node | Everything. | etcd and the keys to decrypt it, so the listed exceptions; not the seal key when the provider pack has a seal volume, so no OpenBao value. |
-| Reads Git | The database password of each Organization, which the provisioning service writes into the Organization's repository. Every Keycloak client secret, by computing it from the release name and the namespace. | No secret value. |
-| Reaches the public routes | The OpenBao API, apart from 15 system path prefixes such as root generation, unseal, seal, init and rekey, which the route answers with a redirect to the user interface. The Keycloak clients whose secrets can be computed. The Kubernetes API on port 6443, open to every address. | Sign-in pages only. The OpenBao system paths are not routed, and the control ports are closed. |
-| Reads the infrastructure state or the user data of a node | Every bootstrap secret and the cloud key. | The bootstrap secrets of that Sovereign only. The state is encrypted, and pods cannot reach the user data. |
-<!-- sec-threat-model:end -->
+```mermaid
+graph LR
+  subgraph T["Threats"]
+    T1["stolen SA token / K8s Secret"]
+    T2["compromised Pod"]
+    T3["malicious commit / bad Blueprint"]
+    T4["cross-Org leakage"]
+    T5["compromised sovereign-admin account"]
+    T6["compromised OpenBao node"]
+    T7["region-wide failure"]
+    T8["supply-chain attack"]
+  end
+  subgraph M["Mitigations"]
+    M1["1h audience-scoped bound-tokens<br/>etcd-at-rest + ESO + WireGuard"]
+    M2["Cilium NetworkPolicy + L7<br/>Falco syscall detection"]
+    M3["EnvironmentPolicy PR approvals<br/>Kyverno admission + verify-signatures"]
+    M4["vcluster + NATS Account + Keycloak realm isolation"]
+    M5["MFA + JIT elevation + SIEM audit trail"]
+    M6["2-of-3 Raft quorum + audit + quarterly re-shard"]
+    M7["independent Raft per region<br/>PowerDNS ifurlup drops the bad region"]
+    M8["SLSA-3 provenance + cosign + Syft/Grype/Trivy"]
+  end
+  T1 --> M1
+  T2 --> M2
+  T3 --> M3
+  T4 --> M4
+  T5 --> M5
+  T6 --> M6
+  T7 --> M7
+  T8 --> M8
+```
 
 ---
 

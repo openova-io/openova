@@ -75,7 +75,7 @@ name: bp-powerdns
 #   seeded once and carried forward from the live object (lookup) on
 #   every later render, so an upgrade never reverts the operator's
 #   Topology edit (hw307 2026-11-07, the #7061 cnpg-pair fix).
-version: 1.2.25
+version: 1.2.24
 description: |
   Catalyst-curated Blueprint wrapper for PowerDNS Authoritative.
   Carries Catalyst-specific values.yaml + templates (CNPG cluster, dnsdist

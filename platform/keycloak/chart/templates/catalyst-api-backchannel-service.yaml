@@ -138,7 +138,6 @@ metadata:
     # Cilium ClusterMesh: merge this Service with the same-name+namespace
     # Service the peer region renders, so a region-B Keycloak Pod reaches
     # region A's catalyst-api (#5289).
-    # single-region backend
     service.cilium.io/global: "true"
     service.cilium.io/shared: "true"
 spec:

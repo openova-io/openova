@@ -1,0 +1,80 @@
+# Composition: hetzner-network.compose.openova.io — default realization for
+# XHetznerNetwork. Renders to provider-hcloud's Network + NetworkSubnet
+# managed resources. Applied by Crossplane every time an XHetznerNetwork or
+# HetznerNetwork claim is created.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md principle #3 this Composition is the
+# ONLY way day-2 networks get created on a Sovereign. The Phase-0 OpenTofu
+# module creates the bootstrap network exactly once; everything after that
+# is XHetznerNetwork → Crossplane → Hetzner.
+
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: hetzner-network.compose.openova.io
+  labels:
+    catalyst.openova.io/component: crossplane
+    catalyst.openova.io/composition-family: hetzner
+spec:
+  compositeTypeRef:
+    apiVersion: compose.openova.io/v1alpha1
+    kind: XHetznerNetwork
+
+  writeConnectionSecretsToNamespace: crossplane-system
+
+  resources:
+    # ── 1. Top-level private network (VPC) ────────────────────────────────
+    - name: network
+      base:
+        apiVersion: network.hcloud.crossplane.io/v1alpha1
+        kind: Network
+        spec:
+          forProvider:
+            ipRange: ""        # filled by patch from spec.parameters.ipRange
+          providerConfigRef:
+            name: default-hcloud
+      patches:
+        - fromFieldPath: spec.parameters.name
+          toFieldPath: metadata.name
+        - fromFieldPath: spec.parameters.ipRange
+          toFieldPath: spec.forProvider.ipRange
+        - fromFieldPath: spec.providerConfigRef.name
+          toFieldPath: spec.providerConfigRef.name
+        - fromFieldPath: spec.parameters.sovereignFQDN
+          toFieldPath: metadata.labels[catalyst.openova.io/sovereign]
+        - type: ToCompositeFieldPath
+          fromFieldPath: metadata.annotations[crossplane.io/external-name]
+          toFieldPath: status.networkId
+
+    # ── 2. Subnet inside the network ──────────────────────────────────────
+    - name: subnet
+      base:
+        apiVersion: network.hcloud.crossplane.io/v1alpha1
+        kind: NetworkSubnet
+        spec:
+          forProvider:
+            type: cloud
+            networkZone: ""    # filled by patch
+            ipRange: ""        # filled by patch
+            networkIdSelector:
+              matchControllerRef: true
+          providerConfigRef:
+            name: default-hcloud
+      patches:
+        - fromFieldPath: spec.parameters.name
+          toFieldPath: metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-subnet"
+        - fromFieldPath: spec.parameters.networkZone
+          toFieldPath: spec.forProvider.networkZone
+        - fromFieldPath: spec.parameters.subnetIpRange
+          toFieldPath: spec.forProvider.ipRange
+        - fromFieldPath: spec.providerConfigRef.name
+          toFieldPath: spec.providerConfigRef.name
+        - fromFieldPath: spec.parameters.sovereignFQDN
+          toFieldPath: metadata.labels[catalyst.openova.io/sovereign]
+        - type: ToCompositeFieldPath
+          fromFieldPath: spec.forProvider.ipRange
+          toFieldPath: status.subnetIpRange

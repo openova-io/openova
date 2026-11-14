@@ -1,0 +1,131 @@
+# XRD: XPeeringClaim — Catalyst Day-2 CRUD composite for a private
+# network peering between two RegionClaims (cross-region routes inside
+# a single Sovereign, or eventually cross-Sovereign).
+#
+# Hetzner Cloud's primitive for this is hcloud_network_route — a route
+# table entry inside a Network that forwards a destination CIDR to a
+# gateway IP. Bidirectional peering composes TWO routes (A→B and B→A);
+# unidirectional composes one.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #3: routes are provider-hcloud
+# Route managed resources, never raw API calls.
+
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xpeeringclaims.compose.openova.io
+  labels:
+    catalyst.openova.io/component: crossplane
+    catalyst.openova.io/composition-family: hetzner
+    catalyst.openova.io/day2-crud: "true"
+spec:
+  group: compose.openova.io
+  names:
+    kind: XPeeringClaim
+    plural: xpeeringclaims
+  claimNames:
+    kind: PeeringClaim
+    plural: peeringclaims
+  defaultCompositionRef:
+    name: hetzner-peering.compose.openova.io
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [parameters]
+              properties:
+                parameters:
+                  type: object
+                  required: [regionAID, regionBID, cidrA, cidrB]
+                  properties:
+                    name:
+                      type: string
+                      pattern: '^[a-z0-9][a-z0-9-]{1,62}$'
+                    regionAID:
+                      type: string
+                      description: |
+                        Hetzner numeric network ID for region A — sourced
+                        from the corresponding RegionClaim's status.networkId.
+                    regionBID:
+                      type: string
+                      description: |
+                        Hetzner numeric network ID for region B.
+                    cidrA:
+                      type: string
+                      description: |
+                        Subnet CIDR on side A that B should route to.
+                      pattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$'
+                    cidrB:
+                      type: string
+                      description: |
+                        Subnet CIDR on side B that A should route to.
+                      pattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$'
+                    gatewayA:
+                      type: string
+                      description: |
+                        Gateway IP on network A — the IP through which
+                        traffic destined for cidrB should be routed. For
+                        Hetzner private peering this is typically the LB
+                        or a designated NAT server's private IP.
+                      pattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}$'
+                    gatewayB:
+                      type: string
+                      description: |
+                        Gateway IP on network B (only required when
+                        bidirectional=true).
+                      pattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}$'
+                    bidirectional:
+                      type: boolean
+                      default: true
+                      description: |
+                        When true the Composition emits two Route
+                        resources (A→B and B→A). When false only one
+                        (A→B).
+                    sovereignFQDN:
+                      type: string
+                providerConfigRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                  default:
+                    name: default-hcloud
+            status:
+              type: object
+              properties:
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:        { type: string }
+                      status:      { type: string }
+                      reason:      { type: string }
+                      message:     { type: string }
+                      lastTransitionTime: { type: string, format: date-time }
+                peeringID:
+                  type: string
+                  description: |
+                    Composite peering identifier — concatenation of the
+                    two Route resource external-names so catalyst-api can
+                    surface a single id in its UI.
+      additionalPrinterColumns:
+        - name: NET-A
+          type: string
+          jsonPath: .spec.parameters.regionAID
+        - name: NET-B
+          type: string
+          jsonPath: .spec.parameters.regionBID
+        - name: BIDIRECTIONAL
+          type: boolean
+          jsonPath: .spec.parameters.bidirectional
+        - name: AGE
+          type: date
+          jsonPath: .metadata.creationTimestamp

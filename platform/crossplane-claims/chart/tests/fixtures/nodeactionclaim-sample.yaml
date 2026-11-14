@@ -1,0 +1,18 @@
+# NodeActionClaim sample fixture (drain action).
+apiVersion: compose.openova.io/v1alpha1
+kind: NodeActionClaim
+metadata:
+  name: omantel-edge-w2-drain
+  namespace: crossplane-system
+spec:
+  parameters:
+    nodeRef:
+      nodeName: omantel-edge-w2
+      serverID: "98765432"
+      clusterRef:
+        name: omantel-cluster
+        namespace: crossplane-system
+    action: drain
+    gracePeriod: 300
+  providerConfigRef:
+    name: default-hcloud

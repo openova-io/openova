@@ -3,7 +3,7 @@
 # Per docs/ARCHITECTURE.md §10 + docs/SOVEREIGN-PROVISIONING.md §3-§4:
 #   - This module provisions Phase 0 cloud resources on Hetzner.
 #   - Cloud-init on the control-plane node installs k3s + bootstraps Flux +
-#     installs Crossplane with provider-opentofu.
+#     installs Crossplane + provider-hcloud.
 #   - Flux then takes over (Phase 1 hand-off): reconciles
 #     clusters/<sovereign-fqdn>/ from the public OpenOva monorepo, installing
 #     the 11-component bootstrap kit and bp-catalyst-platform umbrella.
@@ -129,25 +129,6 @@ locals {
       k => format("hz-%s-rtz-prod", replace(r.cloudRegion, "/[0-9]+/", ""))
     }
   )
-}
-
-# ── k3s tokens per region ─────────────────────────────────────────────────
-# Each region is its own k3s cluster with two random tokens. Servers start
-# with K3S_TOKEN set to the server token and with --agent-token set to the
-# agent token (the shared template). Workers join with the agent token only,
-# so a worker's boot data cannot join a node as a server. k3s also wraps the
-# etcd encryption key with the server token, so it must not be derived from
-# an identifier. The values stay in the state: a re-apply keeps them.
-resource "random_password" "k3s_server_token" {
-  for_each = toset(local.all_region_keys)
-  length   = 64
-  special  = false
-}
-
-resource "random_password" "k3s_agent_token" {
-  for_each = toset(local.all_region_keys)
-  length   = 64
-  special  = false
 }
 
 resource "hcloud_network" "region" {
@@ -519,6 +500,10 @@ locals {
   effective_cp_size     = local.qa_mode ? coalesce(var.control_plane_size, var.qa_control_plane_size) : var.control_plane_size
   effective_worker_size = local.qa_mode ? coalesce(var.worker_size, var.qa_worker_size) : var.worker_size
 
+  # k3s deterministic bootstrap token derived from project ID + sovereign FQDN.
+  # Workers join with this; k3s rotates it after first join.
+  k3s_token = sha256("${var.hcloud_project_id}/${var.sovereign_fqdn}/k3s-bootstrap")
+
   # ── Hetzner location → network-zone lookup ───────────────────────────────
   # Hetzner Network Subnets are zoned (eu-central / us-east / us-west /
   # ap-southeast). The mapping is documented in the hcloud Terraform
@@ -732,10 +717,31 @@ locals {
     - 'HCLOUD_SERVER_ID=$(curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/instance-id) && NODE_NAME=$(hostname) && for i in $(seq 1 30); do kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get node "$NODE_NAME" >/dev/null 2>&1 && kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml patch node "$NODE_NAME" --type=merge -p "{\"spec\":{\"providerID\":\"hcloud://$HCLOUD_SERVER_ID\"}}" && break || sleep 5; done || echo "providerID patch failed after 30 retries (non-fatal — bp-hcloud-ccm may set it later)"'
   EOT
 
-  # No Crossplane provider package of its own: provider-opentofu, which the
-  # infrastructure-providers Kustomization installs on every cloud, is the
-  # only one (CLD-023). An empty value leaves the file out of cloud-init.
-  crossplane_provider_yaml_hetzner = ""
+  # Crossplane Provider + ProviderConfig (hcloud). Reads cloud-credentials.
+  crossplane_provider_yaml_hetzner = <<-EOT
+    ---
+    apiVersion: pkg.crossplane.io/v1
+    kind: Provider
+    metadata:
+      name: provider-hcloud
+      labels:
+        catalyst.openova.io/sovereign: ${var.sovereign_fqdn}
+    spec:
+      package: xpkg.upbound.io/crossplane-contrib/provider-hcloud:v0.4.0
+      packagePullPolicy: IfNotPresent
+    ---
+    apiVersion: hcloud.crossplane.io/v1beta1
+    kind: ProviderConfig
+    metadata:
+      name: default
+    spec:
+      credentials:
+        source: Secret
+        secretRef:
+          namespace: flux-system
+          name: cloud-credentials
+          key: hcloud-token
+  EOT
 
   # provider prelude — Hetzner private-NIC bring-up. The hcloud private
   # network attaches a second interface post-boot; k3s --node-ip needs it up
@@ -779,25 +785,24 @@ locals {
       fi
   EOT
 
-  # kubeconfig PUT-back — Hetzner. Rewrites, in place, the 127.0.0.1 of the
-  # parent-bootstrap kubeconfig (written by the shared template just before
-  # this block, SOV-140) to the CP's PUBLIC IPv4 (from metadata) so the
-  # cross-cloud mothership can reach the apiserver on 6443, then PUTs it with a
-  # Bearer header (issue #183 Option D). The node's administrator file
-  # /etc/rancher/k3s/k3s.yaml is never sent; the shared template deletes the
-  # parent-bootstrap file after this block.
+  # kubeconfig PUT-back — Hetzner. Rewrites k3s.yaml's 127.0.0.1 to the CP's
+  # PUBLIC IPv4 (from metadata) so the cross-cloud mothership can reach the
+  # apiserver on 6443, then PUTs with a Bearer header (issue #183 Option D).
   # runcmd list-items (0-indent; the shared template re-indents via indent(2,…)).
   # Primary region → no `?region=` suffix (stored at <id>.yaml). Plain POSIX.
   # The `kubeconfig_put_region_suffix_*` differs primary("") vs secondary("?region=<k>").
   kubeconfig_put_block_hetzner_primary = <<-EOT
-    - 'CP_PUBLIC_IPV4=$(curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/public-ipv4) && sed -i "s|https://127.0.0.1:6443|https://$${CP_PUBLIC_IPV4}:6443|g" /var/lib/catalyst/parent-bootstrap.kubeconfig'
+    - install -m 0600 /dev/null /etc/rancher/k3s/k3s.yaml.public
+    - 'CP_PUBLIC_IPV4=$(curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/public-ipv4) && sed "s|https://127.0.0.1:6443|https://$${CP_PUBLIC_IPV4}:6443|g" /etc/rancher/k3s/k3s.yaml > /etc/rancher/k3s/k3s.yaml.public'
+    - chmod 0600 /etc/rancher/k3s/k3s.yaml.public
     - |
       curl -fsSL --retry 60 --retry-delay 10 --retry-all-errors \
         -X PUT \
         -H "Authorization: Bearer ${var.kubeconfig_bearer_token}" \
         -H "Content-Type: application/x-yaml" \
-        --data-binary @/var/lib/catalyst/parent-bootstrap.kubeconfig \
+        --data-binary @/etc/rancher/k3s/k3s.yaml.public \
         "${var.catalyst_api_url}/api/v1/deployments/${var.deployment_id}/kubeconfig"
+    - rm -f /etc/rancher/k3s/k3s.yaml.public
   EOT
 
   # cloud-credentials Secret — Hetzner. hcloud-token + the autoscaler keys
@@ -844,7 +849,7 @@ locals {
   worker_cloud_init = replace(templatefile("${path.module}/cloudinit-worker.tftpl", {
     sovereign_fqdn             = var.sovereign_fqdn
     k3s_version                = var.k3s_version
-    k3s_token                  = random_password.k3s_agent_token["primary"].result
+    k3s_token                  = local.k3s_token
     cp_private_ip              = "10.0.1.2" # First static IP in the subnet — control plane
     enable_unattended_upgrades = var.enable_unattended_upgrades
     enable_fail2ban            = var.enable_fail2ban
@@ -897,15 +902,17 @@ locals {
     cluster_mesh_name   = var.cluster_mesh_name
     cluster_mesh_id     = var.cluster_mesh_id
     k3s_version         = var.k3s_version
-    k3s_server_token    = random_password.k3s_server_token["primary"].result
-    k3s_agent_token     = random_password.k3s_agent_token["primary"].result
+    k3s_token           = local.k3s_token
     gitops_repo_url     = var.gitops_repo_url
     gitops_branch       = var.gitops_branch
     marketplace_enabled = var.marketplace_enabled
     qa_fixtures_enabled = var.qa_fixtures_enabled
-    # SOV-133: the variables document (contract C5). The shared template
-    # sets the substitute FIRE_CUTOVER_ON_HANDOVER from its key HANDOVER_AUTO.
-    variables = var.variables
+    # North Star — decouple cutover auto-fire from qaTestEnabled. → shared
+    # template's FIRE_CUTOVER_ON_HANDOVER substitute → slot-13
+    # catalystApi.fireCutoverOnHandover (ORed with qaFixtures.enabled by the
+    # chart, #4648). INDEPENDENT of qa_fixtures_enabled so a PROD-cert Sovereign
+    # auto-fires the cutover too.
+    fire_cutover_on_handover = var.fire_cutover_on_handover
     # #4053 console-isolation toggle (Refs #4431 #4212) → shared template's
     # SOVEREIGN_CONSOLE_GATEWAY substitute → slot-13 ingress.gateway.parentRef.name.
     console_isolation_enabled = var.console_isolation_enabled
@@ -1476,15 +1483,15 @@ locals {
       cluster_mesh_name   = local.secondary_region_cluster_mesh_name[k]
       cluster_mesh_id     = local.secondary_region_cluster_mesh_id[k]
       k3s_version         = var.k3s_version
-      k3s_server_token    = random_password.k3s_server_token[k].result
-      k3s_agent_token     = random_password.k3s_agent_token[k].result
+      k3s_token           = local.k3s_token
       gitops_repo_url     = var.gitops_repo_url
       gitops_branch       = var.gitops_branch
       marketplace_enabled = var.marketplace_enabled
       qa_fixtures_enabled = var.qa_fixtures_enabled
-      # SOV-133: the variables document (contract C5). The shared template
-      # sets the substitute FIRE_CUTOVER_ON_HANDOVER from its key HANDOVER_AUTO.
-      variables = var.variables
+      # North Star — decouple cutover auto-fire from qaTestEnabled (secondary
+      # region). → shared template's FIRE_CUTOVER_ON_HANDOVER substitute →
+      # slot-13 catalystApi.fireCutoverOnHandover. INDEPENDENT of qa_fixtures_enabled.
+      fire_cutover_on_handover = var.fire_cutover_on_handover
       # #4053 console-isolation toggle (Refs #4431 #4212) → shared template's
       # SOVEREIGN_CONSOLE_GATEWAY substitute → slot-13 ingress.gateway.parentRef.name.
       console_isolation_enabled = var.console_isolation_enabled
@@ -1565,25 +1572,18 @@ locals {
       # kubeconfig PUT-back — secondary region appends `?region=<k>` so
       # catalyst-api stores at <id>-<k>.yaml + phase1Watch spawns a per-region
       # helmwatch.Bridge. Public IP from Hetzner metadata. runcmd 0-indent items.
-      # Sends the parent-bootstrap kubeconfig, never k3s.yaml (SOV-140). Then
-      # posts it once more to the per-region channel with the handover-peer
-      # kubeconfig under the key peerKubeconfig (SOV-141).
       kubeconfig_put_block = <<-PUT
-        - 'CP_PUBLIC_IPV4=$(curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/public-ipv4) && sed -i "s|https://127.0.0.1:6443|https://$${CP_PUBLIC_IPV4}:6443|g" /var/lib/catalyst/parent-bootstrap.kubeconfig /var/lib/catalyst/handover-peer.kubeconfig'
+        - install -m 0600 /dev/null /etc/rancher/k3s/k3s.yaml.public
+        - 'CP_PUBLIC_IPV4=$(curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/public-ipv4) && sed "s|https://127.0.0.1:6443|https://$${CP_PUBLIC_IPV4}:6443|g" /etc/rancher/k3s/k3s.yaml > /etc/rancher/k3s/k3s.yaml.public'
+        - chmod 0600 /etc/rancher/k3s/k3s.yaml.public
         - |
           curl -fsSL --retry 60 --retry-delay 10 --retry-all-errors \
             -X PUT \
             -H "Authorization: Bearer ${var.kubeconfig_bearer_token}" \
             -H "Content-Type: application/x-yaml" \
-            --data-binary @/var/lib/catalyst/parent-bootstrap.kubeconfig \
+            --data-binary @/etc/rancher/k3s/k3s.yaml.public \
             "${var.catalyst_api_url}/api/v1/deployments/${var.deployment_id}/kubeconfig?region=${k}"
-        - |
-          jq -n --arg r '${k}' --rawfile kc /var/lib/catalyst/parent-bootstrap.kubeconfig --rawfile pk /var/lib/catalyst/handover-peer.kubeconfig '{deploymentId:"${var.deployment_id}",regionKey:$r,kubeconfigYaml:$kc,peerKubeconfig:$pk}' | curl -fsSL --retry 60 --retry-delay 10 --retry-all-errors \
-            -X POST \
-            -H "Authorization: Bearer ${var.kubeconfig_bearer_token}" \
-            -H "Content-Type: application/json" \
-            --data-binary @- \
-            "${var.catalyst_api_url}/api/v1/sovereign/secondary-kubeconfig"
+        - rm -f /etc/rancher/k3s/k3s.yaml.public
       PUT
     }), "/(?m)^[ ]*#( |$).*\n/", "")
   }
@@ -1599,7 +1599,7 @@ locals {
     k => replace(templatefile("${path.module}/cloudinit-worker.tftpl", {
       sovereign_fqdn             = var.sovereign_fqdn
       k3s_version                = var.k3s_version
-      k3s_token                  = random_password.k3s_agent_token[k].result
+      k3s_token                  = local.k3s_token
       cp_private_ip              = local.secondary_region_cp_ips[k]
       enable_unattended_upgrades = var.enable_unattended_upgrades
       enable_fail2ban            = var.enable_fail2ban
@@ -1814,87 +1814,5 @@ resource "hcloud_load_balancer_service" "secondary_dns" {
     interval = 15
     timeout  = 10
     retries  = 3
-  }
-}
-
-# ── Network registry (NET-100) ────────────────────────────────────────────
-# The record of every address, cluster name and cluster identifier of this
-# Sovereign: the region "primary", then every region of local.secondary_regions
-# in the order of local.all_region_keys. Output network_registry is its JSON
-# form; scripts/check-network-registry.py checks it. The values are the
-# module's own:
-#   - code: the module's region key, the key of control_plane_ips_per_region;
-#   - cloudRegion: the Hetzner location; az: "none" (Hetzner has no zones);
-#   - clusterName and clusterID: the mesh name and identifier the template
-#     receives ("" and 0 when var.cluster_mesh_name and var.cluster_mesh_id
-#     are not set);
-#   - nodeCIDR: the region's subnet, the same 10.0.1.0/24 in every region's
-#     own network;
-#   - meshEndpoint: absent; this module publishes no mesh endpoint;
-#   - edgeAddress: the region's load balancer;
-#   - egressAddresses: the public IPv4 of every node of the region;
-#   - controlPlaneAccess: the module has no sovereign-admin or provisioner
-#     source list, so both lists are empty;
-#   - mtu: 1420, the default of the substitution CILIUM_MTU in
-#     clusters/_template/bootstrap-kit/01-cilium.yaml, which no module sets.
-# regionSeparation: "site" when every region has a different location,
-# otherwise "none".
-locals {
-  network_registry_cloud_region = merge(
-    { primary = var.region },
-    { for k, r in local.secondary_regions : k => r.cloudRegion },
-  )
-
-  network_registry_cluster_name = merge(
-    { primary = var.cluster_mesh_name },
-    local.secondary_region_cluster_mesh_name,
-  )
-
-  network_registry_cluster_id = merge(
-    { primary = var.cluster_mesh_id },
-    local.secondary_region_cluster_mesh_id,
-  )
-
-  network_registry_edge = merge(
-    { primary = hcloud_load_balancer.main.ipv4 },
-    { for k, _ in local.secondary_regions : k => hcloud_load_balancer.secondary[k].ipv4 },
-  )
-
-  network_registry_egress = merge(
-    { primary = concat(hcloud_server.control_plane[*].ipv4_address, hcloud_server.worker[*].ipv4_address) },
-    {
-      for k, _ in local.secondary_regions : k => concat(
-        [hcloud_server.secondary_control_plane[k].ipv4_address],
-        [for wk, w in local.secondary_workers : hcloud_server.secondary_worker[wk].ipv4_address if w.region_key == k],
-      )
-    },
-  )
-
-  network_registry_separation = (
-    length(local.all_region_keys) > 1 && length(distinct(values(local.network_registry_cloud_region))) == length(local.all_region_keys) ? "site" : "none"
-  )
-
-  network_registry = {
-    podSupernet      = length(local.all_region_keys) <= 2 ? "10.42.0.0/15" : "10.40.0.0/13"
-    mtu              = 1420
-    regionSeparation = local.network_registry_separation
-    controlPlaneAccess = {
-      adminCIDRs       = []
-      provisionerCIDRs = []
-    }
-    regions = [
-      for k in local.all_region_keys : {
-        code            = k
-        cloudRegion     = local.network_registry_cloud_region[k]
-        az              = "none"
-        clusterName     = local.network_registry_cluster_name[k]
-        clusterID       = local.network_registry_cluster_id[k]
-        nodeCIDR        = hcloud_network_subnet.region[k].ip_range
-        podCIDR         = local.region_cluster_cidr[k]
-        serviceCIDR     = local.region_service_cidr[k]
-        edgeAddress     = local.network_registry_edge[k]
-        egressAddresses = local.network_registry_egress[k]
-      }
-    ]
   }
 }

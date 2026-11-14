@@ -129,11 +129,10 @@ func TestKustomizationTimeout_AllAtFiveMinutes(t *testing.T) {
 	// bootstrap-kit.
 	// #4521 moved the `infrastructure-config` Kustomization OUT of the inline
 	// cloud-init into a COMMITTED Flux Kustomization CR
-	// (clusters/_template/infrastructure/providers/
+	// (clusters/_template/infrastructure/providers/{,hetzner}/
 	// infrastructure-config-kustomization.yaml) to keep it off the byte-capped
-	// cloud-init render — so its `timeout: 5m` now lives in that repo file,
-	// not here (asserted separately by
-	// TestKustomizationTimeout_CommittedInfrastructureConfig below).
+	// cloud-init render — so its `timeout: 5m` now lives in those repo files,
+	// not here (asserted separately by configKustomizationTimeoutFiles below).
 	// The inline `infrastructure-providers` LAYER-1 Kustomization carries NO
 	// timeout (it is a wait:false self-retrying applier, like sovereign-tls +
 	// bootstrap-kit-crs). A higher count means a new health-gating Kustomization
@@ -286,11 +285,11 @@ func TestKustomizationTimeout_WaitTrueRetained(t *testing.T) {
 
 // TestKustomizationTimeout_CommittedInfrastructureConfig is the #4521 guard:
 // the `infrastructure-config` LAYER-2 Flux Kustomization was evicted OUT of the
-// byte-capped cloud-init into one COMMITTED Flux Kustomization CR, the same on
-// every cloud (CLD-023 deleted the Hetzner overlay variant). Its `timeout: 5m`
+// byte-capped cloud-init into two COMMITTED Flux Kustomization CRs (the Huawei
+// cloud-agnostic variant + the Hetzner overlay variant). Their `timeout: 5m`
 // protection (issue #492 — release the revision lock at GitRepository-poll
-// cadence) must travel WITH it; this test asserts the committed CR still
-// carries `timeout: 5m`, so the move did not silently drop the guard.
+// cadence) must travel WITH them; this test asserts both committed CRs still
+// carry `timeout: 5m`, so the move did not silently drop the guard.
 func TestKustomizationTimeout_CommittedInfrastructureConfig(t *testing.T) {
 	// repoRoot resolves the same way modulePath() does (six dirs up from the
 	// provisioner package), then down into clusters/_template.
@@ -301,6 +300,7 @@ func TestKustomizationTimeout_CommittedInfrastructureConfig(t *testing.T) {
 	repoRoot := filepath.Clean(filepath.Join(cwd, "..", "..", "..", "..", "..", ".."))
 	files := []string{
 		filepath.Join(repoRoot, "clusters", "_template", "infrastructure", "providers", "infrastructure-config-kustomization.yaml"),
+		filepath.Join(repoRoot, "clusters", "_template", "infrastructure", "providers", "hetzner", "infrastructure-config-kustomization.yaml"),
 	}
 	for _, f := range files {
 		raw, err := os.ReadFile(f)

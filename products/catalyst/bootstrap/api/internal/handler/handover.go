@@ -293,17 +293,6 @@ type tofuArchiveResponse struct {
 	Error      string `json:"error,omitempty"`
 }
 
-// markHandedOver records phase HandedOver in the cutover status ConfigMap
-// once the custody bundle is stored. An absent phase means Bootstrapping;
-// a phase already recorded (HandedOver or Independent) is never changed.
-func markHandedOver(ctx context.Context, deps *cutoverDeps) error {
-	status, err := readCutoverStatus(ctx, deps)
-	if err != nil || strings.TrimSpace(status["phase"]) != "" {
-		return err
-	}
-	return patchCutoverStatus(ctx, deps, map[string]string{"phase": "HandedOver"})
-}
-
 // ReceiveTofuArchive handles POST /api/v1/handover/tofu-archive. This
 // endpoint is served by the SAME catalyst-api binary; production
 // containers running on a Sovereign accept the inbound POST and seal
@@ -400,11 +389,6 @@ func (h *Handler) ReceiveTofuArchive(w http.ResponseWriter, r *http.Request) {
 		"sovereignFqdn", body.SovereignFQDN,
 		"secretPath", "secret/catalyst/tofu-phase0-archive",
 	)
-	if deps, derr := h.cutoverDepsFor(); derr == nil {
-		if perr := markHandedOver(r.Context(), deps); perr != nil {
-			h.log.Warn("handover: phase HandedOver not recorded in the cutover status ConfigMap", "err", perr)
-		}
-	}
 
 	// Fire the Self-Sovereignty Cutover engine now that the durable
 	// handover marker is sealed (issue #933 / #3052).

@@ -26,7 +26,7 @@
 #      launch URL from `pdns-admin.<sov>` + ssoInitPath `/oidc/login`; the
 #      served host must match or the console Open lands on a 404.
 ---
-apiVersion: source.toolkit.fluxcd.io/v1
+apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
 metadata:
   name: bp-powerdns-admin

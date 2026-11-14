@@ -1,8 +1,0 @@
-{
-  "name": "rc",
-  "target": "branch",
-  "enforcement": "active",
-  "conditions": {"ref_name": {"include": ["refs/heads/rc/**"], "exclude": []}},
-  "bypass_actors": [{"actor_type": "Team", "team": "release-writer", "bypass_mode": "always"}],
-  "rules": [{"type": "creation"}, {"type": "update"}, {"type": "deletion"}]
-}

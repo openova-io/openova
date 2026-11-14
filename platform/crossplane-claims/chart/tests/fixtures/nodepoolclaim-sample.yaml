@@ -1,0 +1,22 @@
+# NodePoolClaim sample fixture.
+apiVersion: compose.openova.io/v1alpha1
+kind: NodePoolClaim
+metadata:
+  name: omantel-edge-pool
+  namespace: crossplane-system
+spec:
+  parameters:
+    name: omantel-edge
+    clusterRef:
+      name: omantel-cluster
+      namespace: crossplane-system
+    sku: cpx21
+    replicas: 3
+    role: worker
+    region: fsn1
+    image: ubuntu-24.04
+    sshKeyName: catalyst-omantel-omani-works
+    networkId: "1234567"
+    firewallIds: ["7654321"]
+  providerConfigRef:
+    name: default-hcloud

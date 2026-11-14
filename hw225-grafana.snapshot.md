@@ -1,0 +1,92 @@
+- generic [ref=f18e8]:
+  - link "Skip to main content" [ref=f18e9] [cursor=pointer]:
+    - /url: "#pageContent"
+    - generic [ref=f18e10]: Skip to main content
+  - banner [ref=f18e11]:
+    - generic [ref=f18e12]:
+      - generic [ref=f18e13]:
+        - button "Open menu" [ref=f18e14] [cursor=pointer]:
+          - generic [ref=f18e16]:
+            - img "Grafana" [ref=f18e17]
+            - img [ref=f18e18]
+        - navigation "Breadcrumbs" [ref=f18e20]:
+          - list [ref=f18e21]:
+            - listitem [ref=f18e22]:
+              - link "Home" [ref=f18e23] [cursor=pointer]:
+                - /url: /
+              - img [ref=f18e25]
+            - listitem [ref=f18e27]:
+              - link "Dashboards" [ref=f18e28] [cursor=pointer]:
+                - /url: /dashboards
+              - img [ref=f18e30]
+            - listitem [ref=f18e32]:
+              - generic "Home" [ref=f18e33]
+      - generic [ref=f18e34]:
+        - button "Search..." [ref=f18e35] [cursor=pointer]:
+          - img [ref=f18e36]
+        - button "New" [ref=f18e39] [cursor=pointer]:
+          - img [ref=f18e40]
+          - img [ref=f18e42]
+        - button "Help" [ref=f18e45] [cursor=pointer]:
+          - img [ref=f18e46]
+        - button "Profile" [ref=f18e49] [cursor=pointer]:
+          - img "User avatar" [ref=f18e50]
+  - main [ref=f18e54]:
+    - generic [ref=f18e64]:
+      - generic [ref=f18e72]:
+        - heading "Welcome to Grafana" [level=1] [ref=f18e73]
+        - generic [ref=f18e74]:
+          - heading "Need help?" [level=3] [ref=f18e75]
+          - generic [ref=f18e76]:
+            - link "Documentation" [ref=f18e77] [cursor=pointer]:
+              - /url: https://grafana.com/docs/grafana/latest?utm_source=grafana_gettingstarted
+            - link "Tutorials" [ref=f18e78] [cursor=pointer]:
+              - /url: https://grafana.com/tutorials?utm_source=grafana_gettingstarted
+            - link "Community" [ref=f18e79] [cursor=pointer]:
+              - /url: https://community.grafana.com?utm_source=grafana_gettingstarted
+            - link "Public Slack" [ref=f18e80] [cursor=pointer]:
+              - /url: http://slack.grafana.com?utm_source=grafana_gettingstarted
+      - generic [ref=f18e88]:
+        - button "Remove this panel" [ref=f18e89] [cursor=pointer]:
+          - generic [ref=f18e90]: Remove this panel
+        - generic [ref=f18e92]:
+          - generic [ref=f18e93]:
+            - heading "Basic" [level=2] [ref=f18e94]
+            - paragraph [ref=f18e95]: The steps below will guide you to quickly finish setting up your Grafana installation.
+          - generic [ref=f18e96]:
+            - link "tutorial Data source and dashboards Grafana fundamentals Set up and understand Grafana if you have no prior experience. This tutorial guides you through the entire process and covers the “Data source” and “Dashboards” steps to the right." [ref=f18e97] [cursor=pointer]:
+              - /url: https://grafana.com/tutorials/grafana-fundamentals?utm_source=grafana_gettingstarted
+              - generic [ref=f18e98]:
+                - generic [ref=f18e99]: tutorial
+                - generic [ref=f18e100]: Data source and dashboards
+                - heading "Grafana fundamentals" [level=4] [ref=f18e101]
+                - generic [ref=f18e102]: Set up and understand Grafana if you have no prior experience. This tutorial guides you through the entire process and covers the “Data source” and “Dashboards” steps to the right.
+            - generic [ref=f18e103]:
+              - link "complete Add your first data source" [ref=f18e105] [cursor=pointer]:
+                - /url: datasources/new?utm_source=grafana_gettingstarted
+                - generic [ref=f18e106]: complete
+                - heading "Add your first data source" [level=4] [ref=f18e107]
+              - link "Learn how in the docs" [ref=f18e108] [cursor=pointer]:
+                - /url: https://grafana.com/docs/grafana/latest/features/datasources/add-a-data-source?utm_source=grafana_gettingstarted
+                - text: Learn how in the docs
+                - img [ref=f18e109]
+            - generic [ref=f18e111]:
+              - link "complete Create your first dashboard" [ref=f18e113] [cursor=pointer]:
+                - /url: dashboard/new?utm_source=grafana_gettingstarted
+                - generic [ref=f18e114]: complete
+                - heading "Create your first dashboard" [level=4] [ref=f18e115]
+              - link "Learn how in the docs" [ref=f18e116] [cursor=pointer]:
+                - /url: https://grafana.com/docs/grafana/latest/guides/getting_started/#create-a-dashboard?utm_source=grafana_gettingstarted
+                - text: Learn how in the docs
+                - img [ref=f18e117]
+        - button "To advanced tutorials" [ref=f18e119] [cursor=pointer]:
+          - img [ref=f18e120]
+      - region "Dashboards" [ref=f18e127]:
+        - heading "Dashboards" [level=2] [ref=f18e130]
+        - generic [ref=f18e133]:
+          - generic [ref=f18e134]:
+            - heading "Starred dashboards" [level=6] [ref=f18e136]
+            - list
+          - generic [ref=f18e137]:
+            - heading "Recently viewed dashboards" [level=6] [ref=f18e139]
+            - list

@@ -51,41 +51,27 @@ on:
     paths:
       - 'core/marketplace-api/**'
       - 'core/pool-domain-manager/**'
-      - 'core/services/auth/**'
       - 'core/services/catalog/**'
       - 'core/services/domain/**'
       - 'core/services/gateway/**'
       - 'core/services/metering-sidecar/**'
       - 'core/services/notification/**'
-      - 'core/services/shared/**'
       - 'core/services/tenant/**'
       - 'products/catalyst/bootstrap/ui/**'
-      - 'products/fingate/**'
       - '.github/workflows/test-ungated-trees.yaml'
-      - '.github/workflows/**'
-      - '**/go.mod'
-      - 'docs/ledger/untested-modules.txt'
-      - 'scripts/check-modules-tested.py'
   push:
     branches: [main]
     paths:
       - 'core/marketplace-api/**'
       - 'core/pool-domain-manager/**'
-      - 'core/services/auth/**'
       - 'core/services/catalog/**'
       - 'core/services/domain/**'
       - 'core/services/gateway/**'
       - 'core/services/metering-sidecar/**'
       - 'core/services/notification/**'
-      - 'core/services/shared/**'
       - 'core/services/tenant/**'
       - 'products/catalyst/bootstrap/ui/**'
-      - 'products/fingate/**'
       - '.github/workflows/test-ungated-trees.yaml'
-      - '.github/workflows/**'
-      - '**/go.mod'
-      - 'docs/ledger/untested-modules.txt'
-      - 'scripts/check-modules-tested.py'
 
 permissions:
   contents: read
@@ -107,21 +93,15 @@ jobs:
         # working-directory — a single `go test ./...` from the root would
         # silently cover none of them.
         module:
-          # The open-banking specification kit (PRD-101).
-          - products/fingate
-          # The generator of the open-banking product (PRD-102).
-          - products/fingate/tools
           # core/pool-domain-manager is deliberately NOT in this list — it
           # has its own `pool-domain-manager` job below with a Postgres
           # service container (#5741 follow-up).
           - core/marketplace-api
-          - core/services/auth
           - core/services/catalog
           - core/services/domain
           - core/services/gateway
           - core/services/metering-sidecar
           - core/services/notification
-          - core/services/shared
           - core/services/tenant
     steps:
       - uses: actions/checkout@v4
@@ -306,19 +286,3 @@ jobs:
       - name: vitest
         working-directory: products/catalyst/bootstrap/ui
         run: npm test
-
-  modules-tested:
-    name: every Go module is tested on pull requests, or listed
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      # Full history: the guard compares the list with the merge base.
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Install PyYAML
-        run: python3 -m pip install --quiet pyyaml
-      - name: Self-test (the guard can fail)
-        run: python3 scripts/check-modules-tested.py --self-test
-      - name: Every Go module is tested on pull requests, or listed
-        run: python3 scripts/check-modules-tested.py

@@ -44,7 +44,7 @@ func (f *Factory) GetResourcesByOwner(clusterID, ownerKind, ownerNs, ownerName s
 		return nil, fmt.Errorf("k8scache: cluster %q not registered", clusterID)
 	}
 	out := []*unstructured.Unstructured{}
-	for kindName, idx := range cs.indexersSnapshot() {
+	for kindName, idx := range cs.indexers {
 		kind, ok := f.registry.Get(kindName)
 		if !ok {
 			continue
@@ -99,7 +99,7 @@ func (f *Factory) GetResourcesBySelector(clusterID, targetKind, ns, selector str
 	// Indexers are keyed by canonical singular Kind.Name (set in
 	// AddCluster). Resolve via the Kind we just looked up — `targetKind`
 	// itself may be a plural alias ("services") or short-form ("svc").
-	idx, ok := cs.indexerFor(CanonicalKindName(kind.Name))
+	idx, ok := cs.indexers[CanonicalKindName(kind.Name)]
 	if !ok {
 		return nil, fmt.Errorf("k8scache: kind %q has no indexer on cluster %q", targetKind, clusterID)
 	}

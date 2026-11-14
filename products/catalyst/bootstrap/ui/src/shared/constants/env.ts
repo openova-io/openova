@@ -10,10 +10,10 @@ export const APP_VERSION = import.meta.env['VITE_APP_VERSION'] ?? 'dev'
 /**
  * Catalyst operating mode.
  *
- * - 'catalyst-zero': Running on Catalyst-Zero, the mothership, where new
- *   Sovereigns are provisioned via the Wizard. Without
- *   VITE_CATALYST_MODE this is the mode when GET /api/v1/sovereign/self
- *   answers mode "mothership", or cannot be read (see detectMode.ts).
+ * - 'catalyst-zero': Running on console.openova.io — Catalyst-Zero; the
+ *   operator provisions new Sovereigns via the Wizard. Default when
+ *   VITE_CATALYST_MODE is not set and hostname matches the hardcoded
+ *   Catalyst-Zero apex (see detectMode.ts).
  * - 'sovereign': Running on console.<sov-fqdn> — Sovereign Console; the
  *   operator manages their own Sovereign. Keycloak auth gates all routes.
  *
@@ -22,7 +22,7 @@ export const APP_VERSION = import.meta.env['VITE_APP_VERSION'] ?? 'dev'
  */
 export type CatalystMode = 'catalyst-zero' | 'sovereign'
 
-/** Build-time override (dev / CI). Without it the mode is read from the catalyst-api at start. */
+/** Build-time override (dev / CI). Falls back to runtime hostname detection. */
 export const VITE_CATALYST_MODE = import.meta.env['VITE_CATALYST_MODE'] as
   | CatalystMode
   | undefined

@@ -19,40 +19,23 @@ name: Test — Bootstrap API (Go)
 #   core/controllers/organization/internal/gitops/**  planQuotaTable["s"] — the cap
 #   core/services/provisioning/gitops/**              the OTHER per-Org producer,
 #                                                     cross-checked door-to-door
-# The test TestSchemasMatchSources of internal/intent reads the definition files
-# its schema bundle is built from (CTL-160):
-#   products/catalyst/chart/crds/**                   the CRDs and their samples
-#   platform/crossplane-claims/chart/templates/crds/** the UserAccess CRD
-# The test TestDefaultsAreTheContracts of internal/sovself reads the published
-# schema of the variables document (SOV-180):
-#   docs/contracts/c5-upstream-variables.schema.json
 on:
   push:
     paths:
       - 'products/catalyst/bootstrap/api/**'
-      # The provisioner tests read the first-boot templates (cloudinit_path_test.go).
-      - 'infra/providers/_shared/**'
       - 'platform/newapi/chart/**'
       - 'platform/openclaw/chart/**'
       - 'core/controllers/organization/internal/gitops/**'
       - 'core/services/provisioning/gitops/**'
-      - 'products/catalyst/chart/crds/**'
-      - 'platform/crossplane-claims/chart/templates/crds/**'
-      - 'docs/contracts/c5-upstream-variables.schema.json'
       - '.github/workflows/test-bootstrap-api.yaml'
     branches: [main]
   pull_request:
     paths:
       - 'products/catalyst/bootstrap/api/**'
-      # The provisioner tests read the first-boot templates (cloudinit_path_test.go).
-      - 'infra/providers/_shared/**'
       - 'platform/newapi/chart/**'
       - 'platform/openclaw/chart/**'
       - 'core/controllers/organization/internal/gitops/**'
       - 'core/services/provisioning/gitops/**'
-      - 'products/catalyst/chart/crds/**'
-      - 'platform/crossplane-claims/chart/templates/crds/**'
-      - 'docs/contracts/c5-upstream-variables.schema.json'
       - '.github/workflows/test-bootstrap-api.yaml'
   workflow_dispatch:
 

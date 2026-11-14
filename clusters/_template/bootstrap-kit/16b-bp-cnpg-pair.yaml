@@ -121,7 +121,7 @@ metadata:
   labels:
     catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
 ---
-apiVersion: source.toolkit.fluxcd.io/v1
+apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
 metadata:
   name: bp-cnpg-pair
@@ -345,7 +345,7 @@ spec:
       # Lockstep slot 16b pin -> 0.2.27.
       # 0.2.29: opt-in CNPG distributed topology for the planned cross-region
       # switchover (cnpgPair.distributed below). Lockstep slot 16b pin -> 0.2.29.
-      version: 0.2.32
+      version: 0.2.32-hw307.1
       sourceRef:
         kind: HelmRepository
         name: bp-cnpg-pair

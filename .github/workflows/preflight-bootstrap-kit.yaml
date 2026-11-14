@@ -20,7 +20,7 @@ name: Phase-8a preflight A — bootstrap-kit reconcile dry-run
 # Per the canonical-seam rule (docs/archive/omantel-handover-wbs.md §3a), this
 # workflow REUSES existing seams:
 #   - kind setup pattern from .github/workflows/test-bootstrap-kit.yaml
-#   - Flux install via fluxcd/flux2/action, pinned by commit (same as test-bootstrap-kit)
+#   - Flux install via fluxcd/flux2/action@main (same as test-bootstrap-kit)
 #   - bootstrap-kit kustomization at clusters/_template/bootstrap-kit/
 #     (the same overlay that production Sovereigns consume)
 # It does NOT duplicate the Go test-bootstrap-kit harness — that test
@@ -86,7 +86,7 @@ jobs:
           kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.0/standard-install.yaml
 
       - name: Install Flux CLI
-        uses: fluxcd/flux2/action@3fa784edd773d56630bb9f62645e08f70c2cff0a # v2.10.0
+        uses: fluxcd/flux2/action@main
 
       - name: Install Flux controllers
         run: |

@@ -1,5 +1,3 @@
-Historical. Describes the ledger as it stood on 2026-08-10, on environments wiped by 2026-09-02. Not a statement about the product today.
-
 # The plan to 100%
 
 Written 2026-08-10, after auditing all 50 rows that regressed from the June peak

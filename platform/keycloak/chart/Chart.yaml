@@ -619,7 +619,7 @@ name: bp-keycloak
 #   seeded once and carried forward from the live object (lookup) on
 #   every later render, so an upgrade never reverts the operator's
 #   Topology edit (hw307 2026-11-07, the #7061 cnpg-pair fix).
-version: 1.5.15
+version: 1.5.14
 description: |
   1.5.2 (#4246): the per-tenant `openclaw-oidc-client-secret` Secret now
   emits BOTH `client-secret` AND `OIDC_CLIENT_SECRET` keys (it previously

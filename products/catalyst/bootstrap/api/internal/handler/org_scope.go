@@ -240,6 +240,7 @@ func (h *Handler) orgNamespaceForRequest(r *http.Request) string {
 //   - /api/v1/org/applications  — alias of the above
 //   - /api/v1/org/self          — the Org's identity card
 //   - /api/v1/catalog           — the read-only blueprint catalog (browse)
+//   - /api/v1/sandbox/          — the Org's own Sandbox (scoped by sub/org)
 //   - /api/v1/sovereign/self    — self-discovery (deployment id + FQDN) the
 //     SovereignConsoleLayout + Apps page bootstrap
 //     read; carries no per-org secrets.
@@ -281,6 +282,8 @@ var orgSafePathPrefixes = []string{
 	"/api/v1/org/applications",
 	"/api/v1/org/self",
 	"/api/v1/catalog",
+	"/api/v1/sandbox/",
+	"/api/v1/sandbox",
 	"/api/v1/sovereign/self",
 	"/api/v1/sovereign/apps",
 	// #4937 — self-service app list + install for a customer's OWN Org.

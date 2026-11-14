@@ -1,0 +1,44 @@
+# Composition: hetzner-firewall.compose.openova.io — default realization for
+# XHetznerFirewall.
+#
+# This composition uses Crossplane's "patches with type: FromCompositeFieldPath"
+# to splat the user-supplied rules array directly onto the upstream
+# provider-hcloud Firewall.spec.forProvider.rule list. Each rule's port,
+# protocol, and source/destination CIDRs come from the XR.
+
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: hetzner-firewall.compose.openova.io
+  labels:
+    catalyst.openova.io/component: crossplane
+    catalyst.openova.io/composition-family: hetzner
+spec:
+  compositeTypeRef:
+    apiVersion: compose.openova.io/v1alpha1
+    kind: XHetznerFirewall
+
+  writeConnectionSecretsToNamespace: crossplane-system
+
+  resources:
+    - name: firewall
+      base:
+        apiVersion: firewall.hcloud.crossplane.io/v1alpha1
+        kind: Firewall
+        spec:
+          forProvider:
+            rule: []           # filled by patch
+          providerConfigRef:
+            name: default-hcloud
+      patches:
+        - fromFieldPath: spec.parameters.name
+          toFieldPath: metadata.name
+        - fromFieldPath: spec.parameters.rules
+          toFieldPath: spec.forProvider.rule
+        - fromFieldPath: spec.providerConfigRef.name
+          toFieldPath: spec.providerConfigRef.name
+        - fromFieldPath: spec.parameters.sovereignFQDN
+          toFieldPath: metadata.labels[catalyst.openova.io/sovereign]
+        - type: ToCompositeFieldPath
+          fromFieldPath: metadata.annotations[crossplane.io/external-name]
+          toFieldPath: status.firewallId

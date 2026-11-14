@@ -828,15 +828,20 @@ func jobDisplayLabel(j jobs.Job) string {
 	return j.JobName
 }
 
-// flowSnapshotWindow — the canvas gets at most one snapshot per window
-// however many store writes a seed makes.
-const flowSnapshotWindow = 250 * time.Millisecond
-
 // flowStreamLocal serves the SSE `/stream` endpoint from the local
-// jobs.Store — emit a `snapshot` frame on connect and again after each
-// change the store publishes for the deployment (jobs.Store.Subscribe),
-// coalesced to at most one snapshot per flowSnapshotWindow. The
-// OpenovaFlow consumer's reducer is idempotent on repeated snapshots.
+// jobs.Store — emit a `snapshot` frame on connect AND every 3 seconds
+// thereafter. The OpenovaFlow consumer's reducer is idempotent on
+// repeated snapshots so re-emitting an unchanged envelope costs only
+// the JSON encode + a few bytes on the wire; in exchange the canvas
+// renders the latest Job state without a page refresh.
+//
+// Why poll, not subscribe: jobs.Store does NOT publish update
+// notifications today (intentional — Issue #205 left subscribe out
+// of v1 to keep the API surface small). The poll cadence is shorter
+// than a typical browser reconnect delay so the apparent latency
+// from a Job transition to the canvas updating is ≤ 3s. When
+// jobs.Store grows a subscribe API in a future change, this loop
+// flips to event-driven without touching the wire shape.
 func (h *Handler) flowStreamLocal(w http.ResponseWriter, r *http.Request, flusher http.Flusher, deploymentID string) {
 	// Canonical SSE response headers — must be set BEFORE the first
 	// write byte so the EventSource handshake completes cleanly.
@@ -873,21 +878,21 @@ func (h *Handler) flowStreamLocal(w http.ResponseWriter, r *http.Request, flushe
 		return true
 	}
 
-	// Subscribe before the first frame so no change between the two is lost.
-	st := h.jobsStore()
-	if st == nil {
-		return
-	}
-	changes, cancel := st.Subscribe(deploymentID)
-	defer cancel()
-	changed := jobs.Coalesce(r.Context(), changes, flowSnapshotWindow)
-
 	// First frame — guaranteed snapshot on connect.
 	if msg, ok := h.flowSnapshotFromJobs(deploymentID); ok {
 		if !emit("snapshot", msg) {
 			return
 		}
 	}
+
+	// Poll cadence — 3 seconds. The browser EventSource has its own
+	// 1-2 second retry-on-error timer, so a 3-second emit cadence
+	// keeps the gap between "transition observed" and "canvas
+	// re-renders" within human-perceivable tolerance without
+	// flooding the wire.
+	const pollInterval = 3 * time.Second
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
 
 	// Heartbeat to keep the SSE connection alive through any
 	// intermediaries that idle-time TCP connections out (Cilium
@@ -901,10 +906,7 @@ func (h *Handler) flowStreamLocal(w http.ResponseWriter, r *http.Request, flushe
 		select {
 		case <-r.Context().Done():
 			return
-		case _, open := <-changed:
-			if !open {
-				return
-			}
+		case <-ticker.C:
 			msg, ok := h.flowSnapshotFromJobs(deploymentID)
 			if !ok {
 				// Lost the deployment (e.g. wiped) — close the

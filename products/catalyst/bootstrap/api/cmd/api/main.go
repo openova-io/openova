@@ -14,7 +14,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
@@ -24,6 +27,7 @@ import (
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/audit"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/giteapr"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handler"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
@@ -33,10 +37,12 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/oidcprovider"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/powerdns"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/precheck"
 	// Side-effect import: registers every CloudProvider adapter
-	// (hetzner, huawei) against internal/providers/registry at
-	// init() time. The wipe handler resolves the adapter of a
-	// deployment with providers.Get().
+	// (hetzner + huawei stub) against internal/providers/registry
+	// at init() time. Wave 2 — the registrations are passive; no
+	// handler yet calls providers.Get(). Wave 3 wires the handlers
+	// through the registry once Huawei has a concrete impl.
 	_ "github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers/all"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
@@ -77,6 +83,36 @@ func main() {
 	// the binary and protects every fresh prov regardless of chart env wiring;
 	// an operator can still re-enable via KUBE_FEATURE_WatchListClient=true.
 	disableWatchListClient(log)
+
+	r := chi.NewRouter()
+	r.Use(middleware.RequestID)
+	r.Use(middleware.RealIP)
+	// #4182: use the path-only formatter, NOT chi's default middleware.Logger.
+	// The default emits r.RequestURI verbatim, which leaks every credential
+	// carried in a query string to stdout/access logs — the /auth/handover +
+	// /auth/org-handover `?token=<jwt>` handoff tokens and the chroot SPA's
+	// `?access_token=<jwt>` EventSource tokens. pathOnlyLogFormatter logs the
+	// path only (never the query). Credential hygiene per CLAUDE.md §10.
+	r.Use(middleware.RequestLogger(pathOnlyLogFormatter{}))
+	r.Use(middleware.Recoverer)
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins: []string{corsOrigin},
+		// PUT enabled for the cloud-init kubeconfig postback (issue
+		// #183) — the new Sovereign's cloud-init writes its own
+		// kubeconfig to /api/v1/deployments/{id}/kubeconfig with a
+		// bearer token. CORS is irrelevant for that caller (curl
+		// from the new VM, not a browser), but enabling PUT here
+		// keeps the policy consistent for any future browser-side
+		// resume flow that re-uses the same endpoint.
+		AllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		// Cookie is required for SameSite=Strict session cookies to be
+		// forwarded across the Traefik ingress path (issue #608).
+		// X-User-Email + X-User-Sub are injected by the RequireSession
+		// middleware into downstream requests.
+		AllowedHeaders:   []string{"Accept", "Content-Type", "Authorization", "Cookie"},
+		AllowCredentials: true,
+		MaxAge:           300,
+	}))
 
 	h := handler.New(log)
 
@@ -533,28 +569,61 @@ func main() {
 		log.Info("gitea: client not wired (CATALYST_GITEA_URL or CATALYST_GITEA_TOKEN unset); /blueprints/* will return 503")
 	}
 
-	// ── G117.3 (#2742) — endpoint read + Application-instance wiring.
+	// ── G117.3 (#2742) — endpoint CRUD + IaC PR pipeline wiring.
 	// Wires the EndpointPrecheckDeps bundle the endpoint_handler.go
-	// handlers consume.
+	// handlers consume. Each lookup closure is nil-tolerant:
+	//
+	//   - CertLookup nil → cert-manager-precheck 503 (lookup-unavailable)
+	//   - DNSLookup nil → dns-conflict-precheck 503 (lookup-unavailable)
+	//   - KyvernoLookup nil → deferred to per-Org repo workflow (pass)
+	//
+	// The WriterFactory uses CATALYST_GITEA_URL + per-Org OpenBao token
+	// read from `kv/data/org/<slug>/iac-bot-token` (key `token`) per
+	// ADR-0009; falls back to the global CATALYST_GITEA_TOKEN env var
+	// when the per-Org secret isn't seeded yet OR the openbao client
+	// isn't wired (chroot dev surface). G117.3b #2765.
 	// G117.3d #2780 — RegionsCounter wires Sovereign.spec.regions as the
 	// truth-source for multi-region topology selection. Falls back to
 	// SOVEREIGN_REGIONS env when the dynamic client is unwired or the
 	// Sovereign CRD is absent (chroot dev surface).
 	var regionsCounter func(ctx context.Context) (int, error)
+	var certLookup precheck.CertConflictLookup
 	if dynCfg, derr := rest.InClusterConfig(); derr == nil {
 		if dynClient, dcerr := dynamic.NewForConfig(dynCfg); dcerr == nil {
 			regionsCounter = func(ctx context.Context) (int, error) {
 				return handler.CountSovereignRegions(ctx, dynClient)
 			}
+			// G117 #2864 (Gap 6) — wire the production cert-manager
+			// Certificate lookup so cert-manager-precheck auto-PASSes
+			// hostnames under the Sovereign's `*.<sov-fqdn>` wildcard
+			// Certificate. Without this wire the precheck returns
+			// `lookup-unavailable` (503) and every endpoint mutation
+			// fails on a live Sovereign.
+			certLookup = handler.NewProductionCertConflictLookup(dynClient)
 		}
 	}
+	// Production WriterFactory closure — routes through the per-Handler
+	// method so the openbao path is honoured. If h.openbao is nil at
+	// the time of the call, the method falls back to the env-var shim
+	// transparently.
+	writerFactory := func(org string) (*giteapr.Writer, error) {
+		// 30s ceiling matches OpenBao client timeout (15s) × 2 for
+		// optional retry on transient transport.
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		return h.NewProductionGiteaIaCWriter(ctx, org)
+	}
 	h.SetEndpointPrecheckDeps(handler.EndpointPrecheckDeps{
+		WriterFactory:  writerFactory,
 		SovereignFQDN:  env("SOVEREIGN_FQDN", ""),
 		RegionsCounter: regionsCounter,
+		CertLookup:     certLookup,
 	})
-	log.Info("g117.3: endpoint deps wired",
+	log.Info("g117.3: endpoint precheck deps wired",
 		"sovereignFQDN", env("SOVEREIGN_FQDN", ""),
+		"writerFactory", "Handler.NewProductionGiteaIaCWriter (per-Org openbao token, env fallback)",
 		"regionsCounter", regionsCounter != nil,
+		"certLookup", certLookup != nil,
 	)
 
 	// EPIC-3 #1098 slice U8 — RBAC audit Bus. Owns:
@@ -574,6 +643,16 @@ func main() {
 	})
 	h.SetAuditBus(auditBus)
 	log.Info("audit: bus wired", "ringCapacity", auditRingCap)
+
+	// TBD-D35b / #1776 — Sandbox-create NATS publish. Wires a
+	// `catalyst.tenant.*` publisher when CATALYST_NATS_URL is set so
+	// every Sandbox CR Create leaves a corresponding
+	// `catalyst.tenant.sandbox_requested` event on the audit stream.
+	// Returns nil today (placeholder mirroring newRBACAuditPublisher
+	// FromEnv); the real nats.go-importing publisher lands in the
+	// same follow-up slice that swaps the RBAC stub. Nil is safe:
+	// the sandbox_sessions handler treats a nil publisher as a no-op.
+	h.SetTenantEventPublisher(newTenantEventPublisherFromEnv(log))
 
 	// CATALYST_ORG_JWT_SECRET — bridge secret for /api/v1/org/* proxies
 	// (PR #1625 follow-up). The chart's api-deployment.yaml feeds this
@@ -598,6 +677,18 @@ func main() {
 		log.Info("org: HS256 bridge secret unset — /api/v1/org/* proxies return 503 until org-services-secrets is reflected into catalyst-system")
 	}
 
+	// /healthz is LIVENESS — always 200 if the process is up and the
+	// HTTP server is serving. /readyz is READINESS — 200 only when
+	// the primary Sovereign's informers are synced (or no Sovereigns
+	// registered yet). The chart wires livenessProbe → /healthz and
+	// readinessProbe → /readyz; failing readiness pulls the Pod out
+	// of the Service rotation without restarting it. See the Health
+	// + Ready handler comments and issue #530 for the crashloop
+	// failure mode this split prevents.
+	r.Get("/healthz", h.Health)
+	r.Get("/readyz", h.Ready)
+	r.Handle("/metrics", promhttp.Handler())
+
 	// #5352 — pprof diagnostics, gated behind CATALYST_PPROF_ENABLED (default off).
 	// catalyst-api OOMs periodically on some Sovereigns (RSS grows to the 4Gi
 	// limit → OOMKilled, observed 28× on hw288). pprof isn't exposed, so the
@@ -606,10 +697,32 @@ func main() {
 	// find the growth (k8scache Indexer / SSE fanout buffers / deployment cache),
 	// then turn it back off. Do NOT leave enabled in production — it exposes
 	// process internals on /debug/pprof.
-	pprofEnabled := env("CATALYST_PPROF_ENABLED", "false") == "true"
-	if pprofEnabled {
+	if env("CATALYST_PPROF_ENABLED", "false") == "true" {
+		r.Mount("/debug", middleware.Profiler())
 		log.Warn("pprof diagnostics ENABLED at /debug/pprof (CATALYST_PPROF_ENABLED=true) — transient OOM diagnosis only; do not leave on in production")
 	}
+
+	// /api/v1/version — build identification (git SHA + chart version).
+	// Always 200, no auth gate (probe-friendly). Operators + the QA
+	// matrix probe this to confirm "what version is live right now"
+	// without scraping the Pod spec. See handler/version.go for the
+	// truth-resolution rules + wire shape.
+	r.Get("/api/v1/version", h.HandleVersion)
+
+	// Unauthenticated auth endpoints — 6-digit PIN issue + verify (#688)
+	// and logout. These MUST remain outside the session gate (the user is
+	// not yet authenticated when they hit /pin/issue and /pin/verify).
+	//
+	// PIN auth replaces the magic-link flow rejected by the founder
+	// (looks like phishing, 2026-05-03):
+	//   POST /api/v1/auth/pin/issue   — generate + email a 6-digit code
+	//   POST /api/v1/auth/pin/verify  — validate code + set session cookie
+	//
+	// The legacy /auth/callback and /auth/magic routes are kept as 302
+	// redirects to /login so any cached Keycloak redirect_uri bookmarks
+	// or stale magic-link emails degrade gracefully.
+	r.Post("/api/v1/auth/pin/issue", h.HandlePinIssue)
+	r.Post("/api/v1/auth/pin/verify", h.HandlePinVerify)
 
 	// G113 #2725 Option B Step 2 (2026-06-02): OIDC IDP provider routes.
 	// Keycloak's identity-broker federates catalyst-api as an external
@@ -625,7 +738,6 @@ func main() {
 	// is set; otherwise routes are absent and KC's broker call would
 	// 404 (the realm-config IDP entry is gated by the same env, so
 	// install-order isn't a problem).
-	var oidcProv *oidcprovider.Provider
 	if os.Getenv("CATALYST_OIDC_PROVIDER_ENABLED") == "true" {
 		issuerURL := env("CATALYST_OIDC_PROVIDER_ISSUER_URL", "")
 		// G113-followup: chart used to template the issuer from
@@ -642,19 +754,145 @@ func main() {
 		}
 		clientSecret := os.Getenv("CATALYST_PIN_BROKER_CLIENT_SECRET")
 		if signer := h.GetHandoverSigner(); signer != nil && issuerURL != "" && clientSecret != "" {
-			oidcProv = &oidcprovider.Provider{
+			oidcProv := &oidcprovider.Provider{
 				IssuerURL:                issuerURL,
 				ExpectedClientID:         env("CATALYST_PIN_BROKER_CLIENT_ID", "catalyst-pin"),
 				ExpectedClientSecret:     clientSecret,
 				Signer:                   signer,
 				SessionSubjectFromCookie: makeSessionValidator(signer, log),
 			}
+			r.Get("/oidc/.well-known/openid-configuration", oidcProv.Discovery)
+			r.Get("/oidc/auth", oidcProv.Auth)
+			r.Post("/oidc/token", oidcProv.Token)
+			r.Get("/oidc/userinfo", oidcProv.Userinfo)
+			r.Get("/oidc/certs", oidcProv.Certs)
 			log.Info("oidc-provider: routes wired", "issuer", issuerURL)
 		} else {
 			log.Warn("oidc-provider: env set but signer / issuer / secret missing — routes NOT wired",
 				"has_signer", signer != nil, "has_issuer", issuerURL != "", "has_secret", clientSecret != "")
 		}
 	}
+
+	// QA-loop iter-11 Cluster-A: tier-scoped session minting.
+	// POST /api/v1/auth/test-session?tier=<viewer|developer|operator|admin|owner>
+	// Gated by env CATALYST_TEST_SESSION_ENABLED — returns 404 to
+	// the public when unset (production-safe). On QA Sovereigns
+	// (chroot, omantel-style) the env is set to "true" so the
+	// 5-agent QA executor can mint per-tier session cookies and
+	// assert the tier-boundary 403/200 contract on every privileged
+	// endpoint. See handler/auth_test_session.go for the rationale.
+	r.Post("/api/v1/auth/test-session", h.HandleAuthTestSession)
+
+	// /api/v1/deployments/in-flight-count — public, read-only count of
+	// deployments in any Phase-0 in-flight status (pending /
+	// provisioning / tofu-applying / flux-bootstrapping). The CI
+	// deploy-bot (.github/workflows/catalyst-build.yaml) polls this
+	// before pushing a values.yaml image-SHA bump, to avoid rolling the
+	// catalyst-api Pod mid-tofu-apply (the OpenTofu workdir lives on a
+	// /tmp emptyDir that dies with the Pod, abandoning the prov and
+	// leaking Hetzner resources). MUST live outside RequireSession —
+	// the deploy-bot has no session cookie and runs from a GHA runner.
+	// Same posture as /healthz, /readyz, /api/v1/version. The response
+	// is count+IDs only; no FQDNs or owner emails. See handler/
+	// deployments_in_flight_count.go for the full rationale and the
+	// t13/t17/t21 incident history that motivated this gate.
+	r.Get("/api/v1/deployments/in-flight-count", h.InFlightCount)
+
+	// /api/v1/subdomains/check — public, read-only availability query.
+	// Same model as a username-availability check on a signup form: an
+	// anonymous visitor lands on the wizard's Domain step BEFORE they
+	// authenticate (PIN issue happens AFTER they pick a subdomain), so
+	// requiring a session cookie here would block the only flow that
+	// matters. The handler routes the call to PDM (managed pool) or to
+	// a DNS lookup (BYO) — both are read-only with no state change and
+	// negligible information disclosure ("is this subdomain taken?"
+	// is the same answer DNS itself surfaces to anyone).
+	r.Post("/api/v1/subdomains/check", h.CheckSubdomain)
+
+	// Wizard pre-submit credential validators — also pre-auth surfaces.
+	// The operator types Hetzner / S3 / Dynadot creds in the wizard
+	// BEFORE PIN auth (so a typo surfaces at the prompt, not 5 minutes
+	// into `tofu apply`). Each endpoint is read-only — it probes the
+	// credential against the upstream API and returns 200/400. No state
+	// change on success. Same pre-auth treatment as /subdomains/check.
+	r.Post("/api/v1/credentials/validate", h.ValidateCredentials)
+	r.Post("/api/v1/credentials/object-storage/validate", h.ValidateObjectStorageCredentials)
+	r.Post("/api/v1/sshkey/generate", h.GenerateSSHKey)
+	r.Post("/api/v1/registrar/{registrar}/validate", h.ValidateRegistrar)
+	r.Get("/api/v1/auth/callback", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/login?error=flow_changed", http.StatusFound)
+	})
+	r.Get("/api/v1/auth/magic", func(w http.ResponseWriter, r *http.Request) {
+		// Legacy magic-link callback — replaced by PIN auth in #688.
+		// Redirect to login so cached email links degrade gracefully.
+		http.Redirect(w, r, "/login?error=flow_changed", http.StatusFound)
+	})
+	r.Delete("/api/v1/auth/session", h.HandleAuthLogout)
+	// POST /auth/session — SPA-driven logout (qa-loop iter-4
+	// auth-session-logout-405). DELETE remains for backwards-compat;
+	// POST is the canonical SPA path because some proxies strip
+	// body+credentials from DELETE on cross-origin XHR.
+	r.Post("/api/v1/auth/session", h.HandleAuthSessionLogout)
+
+	// Unauthenticated tenant-discovery endpoint (issue #802) — the SPA
+	// calls this on bootstrap to learn which Keycloak realm to OIDC
+	// against for the current `window.location.host`. Returns 404 for
+	// unknown hosts (the SPA renders a generic landing) and never
+	// exposes admin URLs or credentials. Wired BEFORE the session-cookie
+	// gate because the SPA hasn't authenticated yet at the moment it
+	// calls this.
+	r.Get("/api/v1/tenant/discover", h.HandleTenantDiscover)
+
+	// /api/v1/sovereign/self — Sovereign self-discovery (deployment id +
+	// FQDN) used by the catalyst-ui SovereignConsoleRedirect React
+	// component to map clean `/console/<page>` URLs on a Sovereign to the
+	// canonical deployment-scoped `/provision/<self-id>/<page>` pages
+	// that render the same byte-byte data the mothership serves at
+	// console.openova.io/sovereign/provision/<id>/<page>.
+	//
+	// Outside RequireSession: the response carries only public
+	// identifiers (deployment id + FQDN — both visible in URLs anyway).
+	// Bypassing the session gate keeps the redirect helper usable on
+	// the very first browser hit before the operator has logged in.
+	// Mothership returns 404 (CATALYST_OTECH_FQDN unset) — the UI hook
+	// silently falls back to URL params there. See sovereign_self.go.
+	r.Get("/api/v1/sovereign/self", h.HandleSovereignSelf)
+
+	// /api/v1/internal/deployments/import — Sovereign-side receiver for
+	// the full deployment record POSTed by the contabo mother at
+	// handover time. Mother's fireHandover() ships the record here after
+	// the JWT mint completes; child persists it locally so the child's
+	// own /api/v1/deployments/{id}/* endpoints answer byte-byte-identical
+	// to the mother's view. Closes the data half of the mother→child
+	// contract (PR #976 closed the URL routing half).
+	//
+	// Outside RequireSession: cross-cluster ingress at handover happens
+	// before any operator session exists on the child. Validation is
+	// instead done by FQDN match against CATALYST_OTECH_FQDN env — a
+	// record claiming a different FQDN is rejected.
+	r.Post("/api/v1/internal/deployments/import", h.HandleDeploymentImport)
+
+	// D16 PR F (2026-05-17 t138 bug fix): mothership POSTs each
+	// secondary-region kubeconfig here at handover. Same auth model as
+	// /api/v1/internal/deployments/import — no operator session exists
+	// on the child yet, validation is by depID+regionKey safe-id regex.
+	// Earlier registration inside the auth group (rg) caused mothership
+	// POSTs to 401, suppressing the D16 fan-out silently. Bytes never
+	// leave the chroot disk or enter logged structs (INVIOLABLE-PRINCIPLES #10).
+	r.Post("/api/v1/sovereign/secondary-kubeconfig", h.HandleSovereignSecondaryKubeconfig)
+
+	// /api/v1/internal/jobs/import — Sovereign-side receiver for the
+	// mother's handover jobs snapshot (Refs #3263 #3277). The chroot's
+	// jobs store is seeded only by its own bootstrap watch (region-a);
+	// the secondary regions' install rows live solely in the mothership
+	// store, so the chroot /jobs page showed half the regions until the
+	// mother started shipping its rows here at handover. Same auth model
+	// as /api/v1/internal/deployments/import — no operator session
+	// exists on the child at handover time; validation is by FQDN match
+	// against CATALYST_OTECH_FQDN + the safe-id regex on deploymentId.
+	// Idempotent: jobs.Store.ImportSnapshot never regresses a terminal
+	// row and preserves the chroot's own region-a rows.
+	r.Post("/api/v1/internal/jobs/import", h.HandleJobsImport)
 
 	// Wire the tenant registry — flat-file store at
 	// CATALYST_DEPLOYMENTS_DIR/-tenant-registry.json. Per ADR-0001 §6
@@ -897,13 +1135,1067 @@ func main() {
 	// SetOrganizationDeps (all seed prerequisites) are in place.
 	h.StartSovereignSeedReconciler(context.Background())
 
-	// The routes are registered in routes.go and the routes_<concern>.go files.
-	r := buildRouter(routeDeps{
-		corsOrigin:   corsOrigin,
-		log:          log,
-		h:            h,
-		pprofEnabled: pprofEnabled,
-		oidcProv:     oidcProv,
+	// Unauthenticated cloud-init postback (issue #183, Option D + #634).
+	// The new Sovereign's control plane PUTs its rewritten kubeconfig
+	// here with `Authorization: Bearer <postback-token>`. PutKubeconfig
+	// has its own SHA-256-hash-vs-stored-hash compare — it MUST live
+	// outside the session-cookie middleware because cloud-init has no
+	// browser cookies. Putting this inside the RequireSession group
+	// rejected every postback with 401 {"error":"unauthenticated"} and
+	// stuck Phase-1 in PENDING forever (caught live on otech23).
+	r.Put("/api/v1/deployments/{id}/kubeconfig", h.PutKubeconfig)
+
+	// #3132 — the control-plane cloud-init pushes /var/log/cloud-init-output.log
+	// here on a loop (same bearer router as the kubeconfig PUT; cloud-init has no
+	// session cookie). The log cannot be PULLED on kom4dc HCS — no ECS
+	// console-output API, no reachable sshd (verified hw106) — so the node pushes
+	// it; this is the only diagnosis path for a Phase-1 cloud-init failure (#3129).
+	r.Put("/api/v1/deployments/{id}/cloudinit-log", h.PutCloudInitLog)
+
+	// Sovereign-side handover receiver (issue #606). The operator's
+	// browser arrives at GET /auth/handover?token=<jwt> from the
+	// Catalyst-Zero wizard. The JWT IS the auth — there is NO
+	// catalyst_session cookie yet (the handler MINTS one). Therefore
+	// this route MUST live outside RequireSession. Putting it inside
+	// rejected every handover with 401 {"error":"unauthenticated"}
+	// before AuthHandover ever ran (caught live on otech49 2026-05-03).
+	// AuthHandover validates the RS256 JWT against the public-key file,
+	// creates the user in the Sovereign Keycloak, exchanges for a
+	// session, sets HttpOnly Secure SameSite=Lax cookies, and redirects
+	// to /sovereign/dashboard. The cookies it sets are what gates every
+	// subsequent /sovereign/api/v1/* call inside the RequireSession group.
+	r.Get("/auth/handover", h.AuthHandover)
+
+	// Secure marketplace→console session handoff (issue #4182 + #4186).
+	// The marketplace post-checkout redirect lands the browser here with
+	// the Org member-session token (HS256, signed with the Org mesh's
+	// org-services-secrets/JWT_SECRET). AuthOrgHandover validates it against
+	// CATALYST_ORG_JWT_SECRET, resolves the Org from the request host,
+	// mints an RS256 Org-scoped catalyst_session, sets the HttpOnly Secure
+	// SameSite=Lax cookie, stamps Referrer-Policy: no-referrer, and 302s to
+	// a clean /jobs. Like AuthHandover above, the token IS the auth (no
+	// catalyst_session cookie exists yet — this handler MINTS one), so the
+	// route MUST live OUTSIDE the RequireSession group below; inside it
+	// every handoff would 401 {"error":"unauthenticated"} before the
+	// handler ever ran. This replaces the old token-in-URL handoff that
+	// leaked the bearer+refresh via history/logs/Referer (#4182) and never
+	// established a cookie, bouncing /jobs→/login (#4186).
+	r.Get("/auth/org-handover", h.AuthOrgHandover)
+
+	// In-cluster Self-Sovereignty Cutover trigger (issue #935 Bug 2).
+	// The bp-self-sovereign-cutover chart's auto-trigger Helm
+	// post-install Job (templates/10-auto-trigger-job.yaml, added in
+	// chart 0.1.16 per issue #933) hits this endpoint to fire the
+	// cutover automatically — there is no human session, no browser
+	// cookie. The Job authenticates via its projected ServiceAccount
+	// token (Authorization: Bearer <SA token bytes>) and the handler
+	// validates the token via the apiserver's TokenReview API + checks
+	// the resolved username matches the canonical
+	// `bp-self-sovereign-cutover-runner` SA the chart authored for this
+	// purpose. Same blast radius as the chart's RBAC, expressed at the
+	// HTTP edge instead of only at the K8s API edge.
+	//
+	// MUST live outside RequireSession because the in-cluster Job has
+	// no `catalyst_session` cookie. The session-cookie group below
+	// rejects every Job request with 401 `unauthenticated`, which is
+	// what was hanging cutover on otech113 2026-05-05 (issue #935).
+	r.Post("/api/v1/internal/cutover/trigger", h.HandleCutoverInternalTrigger)
+
+	// Billing enforcement from the chargeback application (products/
+	// chargeback DESIGN.md §9, EPIC #6867). The collections Enforcer is a
+	// Pod with a projected ServiceAccount token and no operator session, so
+	// the operator-only suspend/resume routes inside RequireSession below
+	// refused every call it made and the Organization was never suspended
+	// at the platform. These twins authenticate EXACTLY like the cutover
+	// trigger above — TokenReview on the bearer + the allow-list in
+	// internal/handler/internal_auth.go (system:serviceaccount:chargeback:
+	// chargeback) — and then run the same CR stamp the operator routes do.
+	r.Post("/api/v1/internal/organizations/{id}/suspend", h.HandleInternalSuspendOrganization)
+	r.Post("/api/v1/internal/organizations/{id}/resume", h.HandleInternalResumeOrganization)
+	// #6971 — the BSS spend-limit stop on a grow Organization: the same
+	// ServiceAccount door and allow-list, stamping spec.overageStoppedUntil
+	// (the org-controller then renders the Organization capped until that
+	// instant) and clearing it.
+	r.Post("/api/v1/internal/organizations/{id}/overage-stop", h.HandleInternalOverageStopOrganization)
+	r.Post("/api/v1/internal/organizations/{id}/overage-resume", h.HandleInternalOverageResumeOrganization)
+
+	// Sovereign-side handover ARCHIVE RECEIVER (issue #317 / #933,
+	// fix #3379). Catalyst-Zero's postTofuArchive POSTs the sealed
+	// OpenTofu state here (https://api.<sov-fqdn>/api/v1/handover/
+	// tofu-archive) so the new Sovereign writes it to OpenBao
+	// `secret/catalyst/tofu-phase0-archive` and auto-fires the cutover
+	// engine (ReceiveTofuArchive). The mother→child POST carries ONLY
+	// `Content-Type: application/json` — there is NO catalyst_session
+	// cookie (it is a server-to-server call, no browser). Therefore this
+	// route MUST live OUTSIDE RequireSession, exactly like the kubeconfig
+	// PUT (#183/#634), the cloud-init-log PUT (#3132), AuthHandover
+	// (#606), the cutover trigger (#935) and the openbao SSO shim (#3374)
+	// above. It shipped INSIDE RequireSession (#317) and stayed unnoticed
+	// because Catalyst-Zero's RequireSession is a nil-cfg passthrough — but
+	// on a REAL Sovereign (CATALYST_KC_ADDR set) the active middleware
+	// rejected every handover archive POST with 401 {"error":
+	// "unauthenticated"} before ReceiveTofuArchive ever ran, so the
+	// tofu-phase0-archive marker never sealed → the cutover never fired →
+	// `cutoverComplete` stayed false forever (caught live on the hw136
+	// cutover walk, #3379). The handler's own auth is content-based
+	// (deploymentId + sovereignFqdn validation) + the OpenBao-configured
+	// gate (503 on Catalyst-Zero), the same defence pattern as
+	// PutKubeconfig's SHA-compare — no session cookie required.
+	r.Post("/api/v1/handover/tofu-archive", h.ReceiveTofuArchive)
+
+	// #3374 — server-side zero-click silent-SSO shim for OpenBao.
+	// OpenBao's UI is a client-side SPA, so a static ssoInitPath can only
+	// pre-select the OIDC method (still one click). This shim asks Vault
+	// for the OIDC auth_url server-side and 302s the browser to Keycloak,
+	// giving grafana/harbor parity. The openbao HTTPRoute (bp-openbao)
+	// 302s the BARE URL (`/`, `/ui`, `/ui/`) straight here, so the very
+	// first request comes from a FRESH browser with NO catalyst_session
+	// cookie — therefore this route MUST live OUTSIDE RequireSession.
+	// Putting it inside (where it shipped through #3226) made the session
+	// middleware reject every bare-URL visit with 401 {"error":
+	// "unauthenticated"} before HandleOpenBaoSSOInit ever ran, so the
+	// founder-witnessed token form never got bypassed (caught live on
+	// hw133). The handler is self-contained and session-free: it resolves
+	// the blueprint from the catalog (empty session token tolerated), asks
+	// Vault for the auth_url, and 302s to Keycloak — falling back to the
+	// app deep-link on any error so it can NEVER 500, and 404ing only when
+	// no SSO-enabled openbao endpoint resolves.
+	r.Get("/catalyst/v1/apps/{id}/openbao-sso-init", h.HandleOpenBaoSSOInit)
+
+	// Auth-gated wizard endpoints — RequireSession validates the
+	// HMAC-signed catalyst_session cookie on every request. When
+	// cfg is nil (Sovereign clusters, CI without CATALYST_KC_ADDR)
+	// the middleware is a transparent passthrough and all requests
+	// proceed without any auth check, preserving existing behaviour.
+	r.Group(func(rg chi.Router) {
+		rg.Use(auth.RequireSession(h.GetAuthConfig(), log))
+		// #4110 — Org-console scope guard. Transparent passthrough for
+		// Sovereign-admin/operator sessions (zero regression); for an
+		// Org-scoped customer session (PIN-authenticated on an Org pool-
+		// domain console host, e.g. console.demo.omani.homes) it enforces a
+		// deny-by-default allowlist so the customer can reach ONLY their own
+		// Organization's surfaces — never the deployments API / deployment-
+		// stream, the whole-cluster estate, BSS/billing, parent-domains, the
+		// cross-org directory, or sovereign settings. Must run AFTER
+		// RequireSession (which populates auth.ClaimsFromContext).
+		rg.Use(h.OrgScopeGuard)
+
+		// Whoami — UI auth guard polls this; 401 → redirect to /login.
+		rg.Get("/api/v1/whoami", h.HandleWhoami)
+
+		// Sandbox BYOS — Claude Code "Bring Your Own Subscription"
+		// (Wave 1b scaffold; design in
+		// products/sandbox/docs/claude-code-byos.md).
+		//
+		// Lets a user attach their personal Anthropic Max / Pro
+		// subscription so Sandbox-Pod Claude Code sessions bypass
+		// the Sovereign newapi gateway. All four endpoints sit
+		// inside RequireSession — every BYOS action is bound to
+		// the authenticated user's `sub` claim.
+		rg.Post("/api/v1/sandbox/byos/claude-code/start", h.HandleByosClaudeCodeStart)
+		rg.Get("/api/v1/sandbox/byos/claude-code/callback", h.HandleByosClaudeCodeCallback)
+		rg.Delete("/api/v1/sandbox/byos/claude-code", h.HandleByosClaudeCodeDisconnect)
+		rg.Get("/api/v1/sandbox/byos/claude-code/status", h.HandleByosClaudeCodeStatus)
+		// /config — FE pre-flight: reports whether the chart's OAuth
+		// client_id is the placeholder (PR #1619). The SandboxSettings
+		// card uses this to disable the Connect button + show an amber
+		// "pending operator setup" tooltip instead of letting the user
+		// click a button whose OAuth URL would 400 at Anthropic.
+		rg.Get("/api/v1/sandbox/byos/claude-code/config", h.HandleByosClaudeCodeConfig)
+
+		// Sandbox sessions — Wave 7 CRUD on the Sandbox CRD
+		// (sandbox.openova.io/v1). The FE in
+		// products/catalyst/bootstrap/ui/src/lib/sandbox.api.ts
+		// (PR #1621) calls getSandboxes() + createSandbox() + a
+		// per-row delete; the BE handler lives in
+		// products/catalyst/bootstrap/api/internal/handler/
+		// sandbox_sessions.go. All four endpoints sit inside
+		// RequireSession — Sandbox ops are scoped to the operator's
+		// org_id claim per PR #1619.
+		rg.Get("/api/v1/sandbox/sessions", h.HandleListSandboxSessions)
+		rg.Post("/api/v1/sandbox/sessions", h.HandleCreateSandboxSession)
+		rg.Get("/api/v1/sandbox/sessions/{id}", h.HandleGetSandboxSession)
+		rg.Delete("/api/v1/sandbox/sessions/{id}", h.HandleDeleteSandboxSession)
+
+		// K8s data-plane endpoints — list + SSE stream + sync map per
+		// Sovereign cluster (issue #321). Per ADR-0001 §5 the catalyst-api
+		// is the consolidator; reads flow off the in-process Indexer,
+		// never directly from the apiserver.
+		rg.Get("/api/v1/sovereigns/{id}/k8s/{kind}", h.HandleK8sList)
+		rg.Get("/api/v1/sovereigns/{id}/k8s/stream", h.HandleK8sStream)
+		rg.Get("/api/v1/sovereigns/{id}/k8s/sync", h.HandleK8sSync)
+		// EPIC-4 X1 (#1099) — Pod-log WebSocket. Same chi.Group as the
+		// rest of /k8s/* so RequireSession gates the upgrade handshake
+		// the same way it gates the SSE/REST surface.
+		rg.Get("/api/v1/sovereigns/{id}/k8s/logs/{ns}/{pod}/{container}", h.HandleK8sLogs)
+		// EPIC-4 X2+E (#1099) — exec session creation (Guacamole),
+		// exec WebSocket fallback (X1-style), session list + replay.
+		// Tier-developer or higher for create + WS fallback;
+		// tier-admin or higher for list; admin/owner for replay.
+		rg.Post("/api/v1/sovereigns/{id}/k8s/exec/{ns}/{pod}/{container}/session", h.HandleK8sExecSession)
+		rg.Get("/api/v1/sovereigns/{id}/k8s/exec/{ns}/{pod}/{container}", h.HandleK8sExecWebSocket)
+		rg.Get("/api/v1/sovereigns/{id}/sessions", h.HandleK8sSessionsList)
+		rg.Get("/api/v1/sovereigns/{id}/sessions/{sessionId}/replay", h.HandleK8sSessionReplay)
+		// Wave 5.69b (#2375, EPIC #1099 #1097) — Sovereign-console
+		// sidebar-entries derived from installed Blueprints'
+		// spec.consoleUI.sidebarEntry (Wave 5.69 CRD field, #2370).
+		// SovereignSidebar.tsx subscribes + appends nav entries
+		// between hardcoded BSS (order=60) and Settings.
+		rg.Get("/api/v1/sovereigns/{id}/console-ui/sidebar-entries", h.HandleConsoleUISidebarEntries)
+		// EPIC #6723 lane C — the per-Sovereign sidebar MAPPING (founder
+		// 2026-08-31: "the left menu or sub-menus of the sovereign console
+		// can be connected to the respective applications, like Agenity").
+		// GET returns the stored overrides; PUT validates + persists them
+		// as ConfigMap catalyst-system/console-ui-sidebar on the Sovereign's
+		// cluster. Both are sovereign-admin gated inside the handler
+		// (requireSidebarAdmin) on top of RequireSession; the merged view
+		// the console renders is the sidebar-entries GET above.
+		rg.Get("/api/v1/sovereigns/{id}/console-ui/sidebar-overrides", h.HandleConsoleUISidebarOverridesGet)
+		rg.Put("/api/v1/sovereigns/{id}/console-ui/sidebar-overrides", h.HandleConsoleUISidebarOverridesPut)
+		// qa-loop iter-7 Fix #39 — canonical UAT-matrix vocabulary
+		// surface for "issue a remote-shell session". Same business
+		// logic as POST /k8s/exec/.../session but the matrix-canonical
+		// query-param + response-field shape (`sessionId`,
+		// `guacamoleUrl`, `recordingPath`). See
+		// internal/handler/shells_issue.go for the full contract.
+		// Tier-developer or higher (same gate as the underlying
+		// HandleK8sExecSession).
+		rg.Post("/api/v1/sovereigns/{id}/shells/issue", h.HandleShellsIssue)
+		// qa-loop iter-9 Fix #43, Cluster-B (TC-231): canonical
+		// kubectl-style alias for /sessions — items envelope of
+		// recorded shell sessions on the Sovereign. Same handler.
+		rg.Get("/api/v1/sovereigns/{id}/shells/sessions", h.HandleK8sSessionsList)
+		// qa-loop iter-9 Fix #43, Cluster-A (TC-376): canonical
+		// kubectl-style alias for POST /k8s/exec/.../session — issues
+		// a Guacamole session against the named pod's default
+		// container. The handler resolves a default container name
+		// when the URL omits it (matches `kubectl exec POD --`
+		// behaviour).
+		rg.Post("/api/v1/sovereigns/{id}/k8s/pods/{ns}/{pod}/exec", h.HandleK8sExecSession)
+		// qa-loop iter-9 Fix #43, Cluster-B (TC-265): canonical
+		// search-across-kinds endpoint — items envelope of K8s
+		// resources whose name matches `?q=`.
+		rg.Get("/api/v1/sovereigns/{id}/k8s/search", h.HandleK8sSearch)
+		// EPIC-4 R1+R2+R3+R5+R6 (#1099) — Resource browser drill-down,
+		// resource tree, YAML edit (apply / dry-run), per-row actions
+		// (scale / restart / delete), metrics. Tier-admin gate is enforced
+		// inside each mutation handler (UI hides the buttons too, but the
+		// server is the authoritative gate per INVIOLABLE-PRINCIPLES #5).
+		// /metrics has its own static path-prefix so chi resolves it
+		// correctly against /k8s/{kind} (kind="metrics" would otherwise
+		// shadow it). Static must come BEFORE dynamic.
+		rg.Get("/api/v1/sovereigns/{id}/k8s/metrics/{kind}/{ns}/{name}", h.HandleK8sResourceMetrics)
+		rg.Get("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}", h.HandleK8sResourceGet)
+		rg.Get("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/tree", h.HandleK8sResourceTree)
+		// G89 #2636 (2026-05-31): per-resource Events (direct apiserver
+		// List, bypasses k8scache per TBD-V50). Different prefix
+		// `events-for/{kind}/...` to avoid colliding with the cache's
+		// kind-list path which already uses /k8s/{kind}/{ns}/{name}.
+		rg.Get("/api/v1/sovereigns/{id}/k8s/events-for/{kind}/{ns}/{name}", h.HandleK8sEventsForResource)
+		rg.Post("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/scale", h.HandleK8sResourceScale)
+		// PUT /scale alias (qa-loop iter-7 Cluster-C, #1227): the
+		// Sovereign Console UI + qa-loop matrix use PUT to align with
+		// REST verb-resource semantics ("update the scale subresource").
+		// The handler is identical — both verbs land on the same
+		// MergePatch.
+		rg.Put("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/scale", h.HandleK8sResourceScale)
+		rg.Post("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/restart", h.HandleK8sResourceRestart)
+		// PUT alias for ConfigMap / Secret update (qa-loop iter-7
+		// Cluster-C, #1227). Mirrors the YAML-editor's apply path but
+		// accepts a structured body so the matrix + UI can update a
+		// single field without round-tripping the whole YAML.
+		rg.Put("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}", h.HandleK8sResourceApply)
+		rg.Post("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/dry-run", h.HandleK8sResourceDryRun)
+		rg.Post("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/apply", h.HandleK8sResourceApply)
+		rg.Delete("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}", h.HandleK8sResourceDelete)
+		// QA-loop iter-7 Fix #34 — vocab widening: PUT alias for
+		// /scale and direct resource Update via PUT on the bare path.
+		// The matrix (TC-215, TC-243, TC-206, TC-244, TC-247) and
+		// kubectl-style muscle memory both surface PUT for "edit
+		// replicas" and "edit object yaml". The handlers underneath
+		// are the same as the POST shapes; the chi router needs both
+		// verbs registered explicitly because chi.Group.Post does NOT
+		// silently match PUT.
+		rg.Put("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/scale", h.HandleK8sResourceScale)
+		rg.Put("/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}", h.HandleK8sResourcePut)
+		// QA-loop iter-7 Fix #34 — multi-resource server-side apply.
+		// Body: {yaml: "<one-or-more-docs>"}. Returns one entry per
+		// document with `created` vs `updated`. Matrix TC-271.
+		rg.Post("/api/v1/sovereigns/{id}/k8s/apply", h.HandleK8sMultiApply)
+		// Epic #6703 P4b — ad-hoc CronJob schedules ("New schedule" on the
+		// /jobs/schedule surface). A real batch/v1 CronJob cloned from an
+		// existing CronJob's jobTemplate; edit/delete gated to console-
+		// origin schedules (a chart's CronJob changes in Git). See
+		// internal/handler/schedules.go.
+		rg.Post("/api/v1/sovereigns/{id}/schedules", h.HandleScheduleCreate)
+		rg.Patch("/api/v1/sovereigns/{id}/schedules/{ns}/{name}", h.HandleScheduleUpdate)
+		rg.Delete("/api/v1/sovereigns/{id}/schedules/{ns}/{name}", h.HandleScheduleDelete)
+		// NOTE: wizard pre-submit validation endpoints
+		// (/credentials/validate, /credentials/object-storage/validate,
+		// /sshkey/generate, /registrar/{r}/validate, /subdomains/check)
+		// are registered OUTSIDE the session group at the top of this
+		// function — they are called from the wizard BEFORE the operator
+		// authenticates and gating them on a session cookie produces a
+		// 401 every time, blocking the only flow that matters.
+		rg.Post("/api/v1/deployments", h.CreateDeployment)
+		// List endpoint (issue #747) — wizard auto-redirect to /provision/<id>
+		// when the signed-in operator already has an in-flight deployment.
+		// Filtered server-side by the X-User-Email header injected by
+		// RequireSession; the ?owner= query param is a client hint that is
+		// silently overridden when a session is present.
+		rg.Get("/api/v1/deployments", h.ListDeployments)
+		rg.Get("/api/v1/deployments/{id}", h.GetDeployment)
+		// Record-only delete (issue #178). Removes the deployment from
+		// the in-memory map + on-disk store + kubeconfig file. Does NOT
+		// touch Hetzner — for the "kill the kid" path the operator's UI
+		// POSTs /wipe instead (which already chains record-delete on
+		// success). Refuses adopted (422) + in-flight (409) deployments
+		// to keep the customer breadcrumb + Commit safety intact.
+		rg.Delete("/api/v1/deployments/{id}", h.DeleteDeployment)
+		rg.Get("/api/v1/deployments/{id}/logs", h.StreamLogs)
+		// Buffered event history endpoint (issue #180). Returns the full event
+		// slice + state JSON so the wizard's ProvisionPage can render history
+		// for a deployment that already finished — the SSE replay-on-connect
+		// covers the same path, but the GET is a stateless fast-path test
+		// + reconnect target.
+		rg.Get("/api/v1/deployments/{id}/events", h.GetDeploymentEvents)
+		// Kubeconfig endpoint — wizard StepSuccess "Download kubeconfig"
+		// button + Sovereign Admin break-glass download + the source the
+		// internal/helmwatch HelmRelease watcher reads from when the
+		// catalyst-api Pod cold-starts mid-Phase-1 and has to reattach
+		// to a deployment whose kubeconfig is on the PVC.
+		rg.Get("/api/v1/deployments/{id}/kubeconfig", h.GetKubeconfig)
+		// #3132 — GET the last-uploaded cloud-init log for post-mortem
+		// diagnosis of a Phase-1 failure (ownership-checked, like the
+		// kubeconfig GET). The PUT side is on the bearer router above.
+		rg.Get("/api/v1/deployments/{id}/cloudinit-log", h.GetCloudInitLog)
+		// (PUT /kubeconfig is registered ABOVE the session group — see
+		// the cloud-init postback comment near r.Delete /auth/session.)
+		// Registrar proxy — wizard's BYO Flow B (#169). /validate is OUTSIDE
+		// session group (pre-auth wizard surface). /set-ns is called from
+		// CreateDeployment when domainMode == byo-api (post-auth).
+		rg.Post("/api/v1/registrar/{registrar}/set-ns", h.SetNSRegistrar)
+		// Phase-retry endpoint for the wizard's failed-phase UX (issue #125).
+		// Phase 0 retries re-run `tofu apply` against the existing workdir;
+		// Phase 1 retries emit operator instructions per the architectural
+		// contract (Flux owns Phase 1 reconciliation).
+		rg.Post("/api/v1/deployments/{id}/phases/{phase}/retry", h.RetryPhase)
+		// Cancel & Wipe endpoint (issue #318). Operator-triggered purge of a
+		// failed or abandoned deployment: tofu destroy + Hetzner orphan purge
+		// + PDM release + local state cleanup. Idempotent. Returns 200 with a
+		// PurgeReport summary. The wizard's failed-state banner renders the
+		// operator confirmation modal that POSTs here.
+		rg.Post("/api/v1/deployments/{id}/wipe", h.WipeDeployment)
+		// DNS re-publish endpoint (Refs #3265 #3263) — idempotent re-trigger
+		// that writes the CURRENT CanonicalSovereignSubdomains list into the
+		// parent PowerDNS zone for an EXISTING deployment.  Used when the
+		// canonical subdomain list grows after a Sovereign was provisioned (e.g.
+		// hw126 was provisioned before #3265 added "newapi" + "pdns-admin"), so
+		// operators can pick up the new A records WITHOUT a full re-provision.
+		// Inputs (FQDN, LB IP, parent zones) are reconstructed entirely from
+		// the persisted Deployment record — no external API calls.  The
+		// PowerDNS PATCH is REPLACE-idempotent; re-running is always safe.
+		rg.Post("/api/v1/deployments/{id}/republish-dns", h.HandleRepublishDNS)
+		// Handover JWT — issue #605 (minting) + issue #606 (consumption).
+		// MintHandoverToken: Catalyst-Zero operator finalises a deployment;
+		// wizard StepSuccess POSTs here to get a one-time RS256 JWT, then
+		// redirects the operator's browser to the Sovereign console URL.
+		// GetHandoverPublicKey: Sovereigns fetch the JWK at boot to seed
+		// their CATALYST_HANDOVER_JWT_PUBLIC_KEY_PATH (or via cloud-init).
+		// AuthHandover: Sovereign-side receiver — validates the JWT, creates
+		// the operator in Keycloak, exchanges for a session, sets cookies,
+		// and redirects to /console/dashboard.
+		rg.Post("/api/v1/deployments/{id}/mint-handover-token", h.MintHandoverToken)
+		rg.Get("/api/v1/handover/public-key", h.GetHandoverPublicKey)
+		// Subdomain-only release endpoint (issue #489). Releases the PDM
+		// allocation row for a failed-or-abandoned deployment WITHOUT
+		// requiring the operator to re-enter their HetznerToken. Lets a
+		// franchise customer retry under the same pool subdomain after a
+		// botched provision instead of being forced to pick acmeN+1. Does
+		// NOT touch Hetzner — the Cancel & Wipe flow remains the canonical
+		// path for live cloud cleanup. Refuses on in-flight deployments
+		// (409), wiped deployments (410), or adopted Sovereigns (422).
+		rg.Delete("/api/v1/deployments/{id}/release-subdomain", h.ReleaseSubdomain)
+		// Handover finalisation (issue #317). Catalyst-Zero side ONLY:
+		// stops the helmwatch informer, ships the OpenTofu state to the new
+		// Sovereign's catalyst-api, and purges every local trace once the
+		// new side confirms the archive is sealed in its OpenBao. This route
+		// stays INSIDE RequireSession because it is the operator-driven
+		// wizard finalise — on Catalyst-Zero `cfg` is nil so RequireSession
+		// is a transparent passthrough, and on a Sovereign this route is
+		// never legitimately called (the Sovereign is the RECEIVER, not the
+		// sender). The receiver half (`/handover/tofu-archive`) is registered
+		// OUTSIDE RequireSession above (next to the cutover trigger), because
+		// the inbound POST from Catalyst-Zero's postTofuArchive carries NO
+		// session cookie — see the #3379 comment there.
+		rg.Post("/api/v1/handover/finalise/{id}", h.FinaliseHandover)
+		// Jobs/Executions REST surface — the canvas + per-job detail
+		// pages read this in parallel to the existing SSE events feed.
+		// All endpoints are read-only; every mutation flows through the
+		// helmwatch bridge in internal/jobs. Each Job carries parentId +
+		// childIds so the FE can render the recursive Job tree without
+		// any batch-specific endpoint (issue #351).
+		rg.Get("/api/v1/deployments/{depId}/jobs", h.ListJobs)
+		rg.Get("/api/v1/deployments/{depId}/jobs/{jobId}", h.GetJob)
+		// Generic Flux-native remediation (issue #3646 §5c). ONE write
+		// route dispatching on the leaf's typed Kind re-drives ANY stuck
+		// reconcile (HelmRelease / Kustomization / CronJob / reconciler
+		// Deployment / batch Job) from the console — the operator never
+		// drops to kubectl. Owner-checked (404 cross-tenant) + RBAC-gated
+		// to operator tier (403 otherwise); writes a new Execution with
+		// the operator identity; NEVER shells out (annotation via the
+		// in-cluster dynamic client only). Inside RequireSession so the
+		// operator's claims are populated for the RBAC gate + audit line.
+		rg.Post("/api/v1/deployments/{depId}/jobs/{jobId}/retry", h.RetryJob)
+		rg.Get("/api/v1/actions/executions/{execId}/logs", h.GetExecutionLogs)
+		// Backfill endpoints — give the FE an explicit handshake to
+		// re-attach the helmwatch goroutine after a Pod restart and to
+		// snapshot the in-memory informer cache. The bridge seeds a Job
+		// per HR observed on initial-list so HRs that have been
+		// Ready=True for an hour materialise rows immediately rather
+		// than only on state transitions.
+		rg.Post("/api/v1/deployments/{depId}/refresh-watch", h.RefreshWatch)
+		rg.Get("/api/v1/deployments/{depId}/components/state", h.GetComponentsState)
+		// #3925 surface B — the bounded Flux dependency DAG for the
+		// Convergence-Monitor Reconciliation page. Nodes = HelmReleases +
+		// Kustomizations (the declared desired set), edges = real
+		// dependsOn, coloured by live reconcile state (Reconciled /
+		// Reconciling / Drifted / Degraded). Read-only. Scanner/Job nodes
+		// are EXCLUDED by construction (it's built from reconcilers only).
+		rg.Get("/api/v1/deployments/{depId}/reconciliation", h.GetReconciliationDAG)
+		// #3996 — lightweight ArgoCD/Flux MANAGEMENT surface on the recon
+		// lens. LIST every manageable Flux reconciler (HelmRelease /
+		// Kustomization / GitRepository / OCIRepository / HelmRepository /
+		// HelmChart) with live status + last-reconcile + revision + suspended
+		// flag; DRILL into one object's owning-controller LOGS filtered to
+		// that object; and TRIGGER reconcile/suspend/resume via the
+		// in-cluster dynamic client (annotation / spec.suspend patch — NEVER
+		// a shell-out). The action route is owner-checked (404 cross-tenant)
+		// + operator-RBAC-gated (403 otherwise), the SAME gate the jobs-retry
+		// endpoint uses. Read routes are inside RequireSession so claims are
+		// populated; the action route reads them for the RBAC gate + audit.
+		rg.Get("/api/v1/deployments/{depId}/reconcilers", h.ListReconcilers)
+		rg.Get("/api/v1/deployments/{depId}/reconcilers/{kind}/{ns}/{name}/logs", h.GetReconcilerLogs)
+		rg.Post("/api/v1/deployments/{depId}/reconcilers/{kind}/{ns}/{name}/{action}", h.ReconcilerAction)
+		// OpenovaFlow proxy (Agent #3 integration — PR #1389/#1390
+		// follow-up). Proxies the FlowPage canvas's snapshot/stream/
+		// ingest path to the bp-openova-flow-server inside the
+		// Sovereign's catalyst-system namespace. flowId == deploymentId
+		// (the openova-flow-server treats flowId as an opaque key). The
+		// SSE pass-through is unbuffered (canonical pattern: see
+		// internal/handler/deployments.go StreamLogs lines 1208-1287).
+		// Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), the
+		// upstream URL is sourced from env OPENOVA_FLOW_SERVER_URL
+		// (Sovereign-side defaults to the in-cluster Service DNS).
+		rg.Get("/api/v1/flows/{deploymentId}/snapshot", h.HandleFlowSnapshot)
+		rg.Get("/api/v1/flows/{deploymentId}/stream", h.HandleFlowStream)
+		rg.Post("/api/v1/flows/{deploymentId}/events", h.HandleFlowEvents)
+		// Sovereign Dashboard treemap (resource utilisation). Read-only.
+		// V1 emits a static placeholder shape — see dashboard.go header
+		// for the metrics-server upgrade plan.
+		rg.Get("/api/v1/dashboard/treemap", h.GetDashboardTreemap)
+		// Compliance score aggregator (EPIC-1 #1096 slice S) — joins
+		// Kyverno PolicyReports + 5 custom evaluators + EnvironmentPolicy
+		// weights into per-resource + per-Application + per-Org +
+		// per-Sovereign weighted scores. SSE for live updates, REST for
+		// snapshots, Prometheus /metrics + NATS JetStream KV
+		// `policy-rollup` for replayable history.
+		rg.Get("/api/v1/sovereigns/{id}/compliance/scorecard", h.HandleComplianceScorecard)
+		rg.Get("/api/v1/sovereigns/{id}/compliance/policies", h.HandleCompliancePolicies)
+		rg.Get("/api/v1/sovereigns/{id}/compliance/policies/{name}", h.HandleCompliancePolicyByName)
+		rg.Get("/api/v1/sovereigns/{id}/compliance/violations", h.HandleComplianceViolations)
+		// #4085 — per-resource compliance findings for the resource
+		// detail view's Compliance tab (kind+ns+name → its own policy
+		// pass/fail/skip table).
+		rg.Get("/api/v1/sovereigns/{id}/compliance/resource", h.HandleComplianceResource)
+		rg.Get("/api/v1/sovereigns/{id}/compliance/stream", h.HandleComplianceStream)
+		// Wave-2 Family-E (#1583/Family-E): runtime + supply-chain
+		// compliance aggregators. Falco runtime alerts (C11-008),
+		// Trivy SBOM + CVE reports (C11-010), per-Pod + cluster-wide.
+		rg.Get("/api/v1/sovereigns/{id}/compliance/falco", h.HandleComplianceFalco)
+		rg.Get("/api/v1/sovereigns/{id}/compliance/sbom", h.HandleComplianceSBOMPod)
+		rg.Get("/api/v1/sovereigns/{id}/compliance/sbom/summary", h.HandleComplianceSBOMSummary)
+		// QA-loop iter-11 Fix #48 — Networking page surface. Each
+		// endpoint joins live K8s objects from the in-process k8scache
+		// Indexer (Cilium NetworkPolicies, ClusterMesh ConfigMaps,
+		// NetBird Deployments, DMZ vClusters, Hubble relay/UI) into
+		// the wire shape the UI's NetworkingPage subscribes to.
+		// Per docs/INVIOLABLE-PRINCIPLES.md #2 every byte traces back
+		// to a real K8s object — no fixture data, no stub rows.
+		rg.Get("/api/v1/sovereigns/{id}/networking/policies", h.HandleNetworkingPolicies)
+		rg.Get("/api/v1/sovereigns/{id}/networking/clustermesh", h.HandleNetworkingClusterMesh)
+		rg.Get("/api/v1/sovereigns/{id}/networking/netbird", h.HandleNetworkingNetBird)
+		rg.Get("/api/v1/sovereigns/{id}/networking/dmz", h.HandleNetworkingDMZ)
+		rg.Get("/api/v1/sovereigns/{id}/networking/hubble", h.HandleNetworkingHubble)
+		// EPIC-1 #1096 slice X — EnvironmentPolicy mode toggle backend
+		// for the slice U PolicyModeToggle widget. Writes
+		// EnvironmentPolicy.spec.compliance.modes; the EnvironmentPolicy
+		// controller (separately reconciled) flips Kyverno's per-namespace
+		// validationFailureAction. Requires tier-admin or higher per
+		// INVIOLABLE-PRINCIPLES #5.
+		rg.Put("/api/v1/sovereigns/{id}/environments/{env}/policy", h.HandleEnvironmentPolicyMode)
+		// Sovereign Infrastructure surface — unified topology read +
+		// Day-2 CRUD via Crossplane XRC writes (issue #227 + Day-2 IaC).
+		// Read endpoints compose from the deployment record + live
+		// cluster informer cache; mutation endpoints write Composite
+		// Resource Claims to the Sovereign cluster's kubeconfig per
+		// docs/INVIOLABLE-PRINCIPLES.md #3 (Crossplane is the ONLY
+		// Day-2 IaC seam). Every mutation also commits a Job entry to
+		// the existing /jobs surface for full audit-trail.
+		rg.Get("/api/v1/deployments/{depId}/infrastructure/topology", h.GetInfrastructureTopology)
+		rg.Get("/api/v1/deployments/{depId}/infrastructure/compute", h.GetInfrastructureCompute)
+		rg.Get("/api/v1/deployments/{depId}/infrastructure/storage", h.GetInfrastructureStorage)
+		rg.Get("/api/v1/deployments/{depId}/infrastructure/network", h.GetInfrastructureNetwork)
+
+		// CRUD — every endpoint writes a Crossplane XRC + a mutation Job.
+		// The third-sibling chart authors the matching Compositions; until
+		// they land Crossplane sits the claim Pending and the catalyst-api
+		// surfaces "Awaiting Composition for <kind>" in the audit log.
+		rg.Post("/api/v1/deployments/{depId}/infrastructure/regions", h.CreateInfrastructureRegion)
+		rg.Patch("/api/v1/deployments/{depId}/infrastructure/regions/{id}", h.PatchInfrastructureRegion)
+		rg.Post("/api/v1/deployments/{depId}/infrastructure/regions/{id}/clusters", h.CreateInfrastructureCluster)
+		rg.Patch("/api/v1/deployments/{depId}/infrastructure/clusters/{id}", h.PatchInfrastructureCluster)
+		rg.Post("/api/v1/deployments/{depId}/infrastructure/clusters/{id}/vclusters", h.CreateInfrastructureVCluster)
+		rg.Patch("/api/v1/deployments/{depId}/infrastructure/vclusters/{id}", h.PatchInfrastructureVCluster)
+		rg.Post("/api/v1/deployments/{depId}/infrastructure/clusters/{id}/pools", h.CreateInfrastructurePool)
+		rg.Patch("/api/v1/deployments/{depId}/infrastructure/pools/{id}", h.PatchInfrastructurePool)
+		rg.Post("/api/v1/deployments/{depId}/infrastructure/clusters/{id}/nodes", h.CreateInfrastructureWorkerNode)
+		rg.Patch("/api/v1/deployments/{depId}/infrastructure/nodes/{id}", h.PatchInfrastructureWorkerNode)
+		rg.Post("/api/v1/deployments/{depId}/infrastructure/loadbalancers", h.CreateInfrastructureLoadBalancer)
+		rg.Patch("/api/v1/deployments/{depId}/infrastructure/loadbalancers/{id}", h.PatchInfrastructureLoadBalancer)
+		rg.Post("/api/v1/deployments/{depId}/infrastructure/networks", h.CreateInfrastructureNetwork)
+		rg.Patch("/api/v1/deployments/{depId}/infrastructure/networks/{id}", h.PatchInfrastructureNetwork)
+		rg.Post("/api/v1/deployments/{depId}/infrastructure/pvcs", h.CreateInfrastructurePVC)
+		rg.Patch("/api/v1/deployments/{depId}/infrastructure/pvcs/{id}", h.PatchInfrastructurePVC)
+		rg.Post("/api/v1/deployments/{depId}/infrastructure/buckets", h.CreateInfrastructureBucket)
+		rg.Patch("/api/v1/deployments/{depId}/infrastructure/buckets/{id}", h.PatchInfrastructureBucket)
+		rg.Post("/api/v1/deployments/{depId}/infrastructure/volumes", h.CreateInfrastructureVolume)
+		rg.Patch("/api/v1/deployments/{depId}/infrastructure/volumes/{id}", h.PatchInfrastructureVolume)
+		rg.Post("/api/v1/deployments/{depId}/infrastructure/peerings", h.CreateInfrastructurePeering)
+		rg.Post("/api/v1/deployments/{depId}/infrastructure/firewalls/{id}/rules", h.CreateInfrastructureFirewallRule)
+		rg.Post("/api/v1/deployments/{depId}/infrastructure/nodes/{id}/{action}", h.CreateInfrastructureNodeAction)
+		rg.Delete("/api/v1/deployments/{depId}/infrastructure/{kind}/{id}", h.DeleteInfrastructureResource)
+
+		// Marketplace mode toggle (issue #710 wave 3b). The Sovereign
+		// Settings → Marketplace page POSTs here to enable/disable the
+		// marketplace HTTPRoutes + storefront branding on a live
+		// Sovereign. The handler edits the per-Sovereign overlay file
+		// at clusters/<fqdn>/bootstrap-kit/13-bp-catalyst-platform.yaml
+		// in the GitOps repo and pushes the commit; Flux on the target
+		// Sovereign reconciles within ~1 min and the chart re-renders.
+		// Per the founder's 2026-05-04 GitOps rule, NO ConfigMap-shortcut
+		// path exists — every change is a git commit on the audit trail.
+		rg.Post("/api/v1/sovereigns/{id}/marketplace", h.HandleSetMarketplace)
+		rg.Get("/api/v1/sovereigns/{id}/marketplace", h.HandleGetMarketplace)
+
+		// Sovereign IAM — UserAccess CR editor (issue #323). The UI's
+		// /sovereign/users page calls these endpoints to list / create /
+		// update / delete UserAccess CRs against the Sovereign cluster.
+		// The CRD shape (`access.openova.io/v1alpha1`) is shipped by
+		// issue #322's chart; catalyst-api consumes it via dynamic
+		// client so there's no Go-type build dependency between the
+		// two PRs.
+		rg.Get("/api/v1/deployments/{depId}/admin/user-access", h.ListUserAccess)
+		rg.Post("/api/v1/deployments/{depId}/admin/user-access", h.CreateUserAccess)
+		rg.Put("/api/v1/deployments/{depId}/admin/user-access/{name}", h.UpdateUserAccess)
+		rg.Delete("/api/v1/deployments/{depId}/admin/user-access/{name}", h.DeleteUserAccess)
+
+		// EPIC-3 (#1098) slice A1+A2 — find-or-create role assignment
+		// + access-matrix endpoints. The /rbac/assign endpoint is the
+		// ergonomic wrapper the multi-grant editor (slice U1) calls
+		// when an operator picks a tier + scope combination; idempotent
+		// re-assigns no-op or update the existing UserAccess. The
+		// access-matrix endpoint feeds the EPIC-3 U7 access-matrix UI
+		// with one pre-computed users × applications × tier grid.
+		rg.Post("/api/v1/sovereigns/{id}/rbac/assign", h.HandleRBACAssign)
+		rg.Get("/api/v1/sovereigns/{id}/rbac/access-matrix", h.HandleRBACAccessMatrix)
+
+		// EPIC-3 (#1098) slice U8 — RBAC audit trail endpoints. List is
+		// paginated; stream is SSE. Both filter to the rbac-* audit-type
+		// namespace and the requested SovereignID. Backed by the
+		// in-process audit.Bus (also forwarding to NATS catalyst.audit
+		// when CATALYST_NATS_URL is set per ADR-0001 §3).
+		rg.Get("/api/v1/sovereigns/{id}/audit/rbac", h.HandleRBACAuditList)
+		rg.Get("/api/v1/sovereigns/{id}/audit/rbac/stream", h.HandleRBACAuditStream)
+
+		// EPIC-3 (#1098) slice U2/U3/U4 — Keycloak proxy endpoints
+		// powering the multi-grant editor's user picker (U2),
+		// sovereign-admin group browser (U3), and realm/role browser
+		// (U4). All proxy to the Sovereign realm's KC Admin REST API
+		// via the wired h.kc client. U2 requires tier-admin or higher
+		// (mirrors /rbac/assign); U3 + U4 require sovereign-admin
+		// (admin or owner) per INVIOLABLE-PRINCIPLES #5.
+		rg.Get("/api/v1/sovereigns/{id}/keycloak/users", h.HandleKeycloakUsersSearch)
+		rg.Get("/api/v1/sovereigns/{id}/keycloak/groups", h.HandleKeycloakGroupsList)
+		rg.Post("/api/v1/sovereigns/{id}/keycloak/groups", h.HandleKeycloakGroupsCreate)
+		rg.Put("/api/v1/sovereigns/{id}/keycloak/groups/{groupId}", h.HandleKeycloakGroupsUpdate)
+		rg.Delete("/api/v1/sovereigns/{id}/keycloak/groups/{groupId}", h.HandleKeycloakGroupsDelete)
+		rg.Get("/api/v1/sovereigns/{id}/keycloak/roles", h.HandleKeycloakRolesList)
+		rg.Get("/api/v1/sovereigns/{id}/keycloak/roles/{name}/members", h.HandleKeycloakRoleMembers)
+		rg.Get("/api/v1/sovereigns/{id}/keycloak/clients/{clientId}/roles", h.HandleKeycloakClientRolesList)
+
+		// qa-loop iter-1 Fix #104 — Keycloak admin proxy for the
+		// matrix-asserted endpoints (TC-124 / TC-125 / TC-159 / TC-160 /
+		// TC-161 / TC-176 / TC-190 / TC-285). Keycloak is NOT externally
+		// exposed on the chroot Sovereign and the matrix runner cannot
+		// `kubectl exec`, so without this proxy these 8 TCs were stuck
+		// at FAIL/BLOCKED. The proxy gates every endpoint with the
+		// sovereign-admin tier (admin or owner) — same gate as the U3/U4
+		// browser endpoints — and uses the catalyst-api SA credential to
+		// perform the privileged Keycloak Admin call in-cluster (the
+		// operator's password / SA secret never leaves the cluster).
+		rg.Get("/api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/roles", h.HandleKeycloakAdminRealmRolesList)
+		rg.Get("/api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/roles/{role}/composites", h.HandleKeycloakAdminRoleComposites)
+		rg.Get("/api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/identity-provider/instances", h.HandleKeycloakAdminIdPList)
+		rg.Post("/api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/identity-provider/instances", h.HandleKeycloakAdminIdPCreate)
+		rg.Post("/api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/identity-provider/instances/{alias}/mappers", h.HandleKeycloakAdminIdPMapperCreate)
+		rg.Post("/api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/protocol/openid-connect/token", h.HandleKeycloakAdminTokenMint)
+		rg.Get("/api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/clients", h.HandleKeycloakAdminClientsByClientID)
+		rg.Get("/api/v1/sovereigns/{id}/keycloak/admin/realms/{realm}/clients/{client}/service-account-user/role-mappings/realm", h.HandleKeycloakAdminClientServiceAccountRoles)
+
+		// EPIC-2 (#1097) slice I — live install flow. Operators submit
+		// Application install requests here; the handler validates
+		// parameters against Blueprint.spec.configSchema (via the
+		// promoted core/controllers/pkg/validate package) and creates
+		// the Application CR per ADR-0001 §2.7. The application-
+		// controller (slice C4 #1133) reconciles the rest. The
+		// preview endpoint runs the SAME renderer the controller uses
+		// (core/controllers/pkg/render, promoted in this slice) so a
+		// "looks-good in preview" cannot diverge from the actual
+		// install. Both endpoints require tier-admin or higher per
+		// docs/INVIOLABLE-PRINCIPLES.md #5.
+		rg.Post("/api/v1/sovereigns/{id}/applications", h.HandleApplicationInstall)
+		rg.Post("/api/v1/sovereigns/{id}/applications/preview", h.HandleApplicationPreview)
+		rg.Get("/api/v1/sovereigns/{id}/applications/{name}/status", h.HandleApplicationStatus)
+		rg.Get("/api/v1/sovereigns/{id}/applications/{name}/stream", h.HandleApplicationStream)
+		// #3982 — REAL placement targets derived from the live runtime
+		// (where the component's Pods actually run, across BOTH region
+		// clusters in k8scache). Wires the #3969 placement MODEL to reality
+		// so the Topology tab stops showing a uniform false `singleton`.
+		// Works for bootstrap HelmReleases (no Application CR) AND CR apps.
+		rg.Get("/api/v1/sovereigns/{id}/applications/{name}/placement", h.HandleApplicationPlacement)
+		// qa-loop iter-11 Fix #45 Cluster-C: full Application detail
+		// (identity + spec + status) so the Sovereign Console SPA's
+		// AppDetail page can synthesise an ApplicationDescriptor on the
+		// fly when the Application isn't part of the wizard's
+		// `selectedComponents` (the typical chroot Sovereign case —
+		// Apps installed via `kubectl apply -f application.yaml` or
+		// the catalyst-api install endpoint, NOT via the wizard).
+		// Without this route the SPA fell into the "App not found"
+		// surface for every chroot-installed Application.
+		rg.Get("/api/v1/sovereigns/{id}/applications/{name}", h.HandleApplicationGet)
+		// qa-loop iter-9 Fix #43, Cluster-B (TC-104): canonical items
+		// envelope listing of installed Applications across all Org
+		// namespaces on the Sovereign cluster.
+		rg.Get("/api/v1/sovereigns/{id}/applications", h.HandleApplicationList)
+
+		// qa-loop iter-3 — catalog proxy. Slice-L originally exposed
+		// catalyst-catalog only via a Gateway HTTPRoute on the
+		// `api.<sovereign>` hostname; the Sovereign Console at
+		// `console.<sovereign>` proxies its `/api/*` calls through
+		// catalyst-api's ingress, so without these registrations the
+		// UI's `/api/v1/catalog*` fetches 404'd at chi's NotFound
+		// handler. See internal/handler/catalog_proxy.go for the
+		// architectural rationale (Fix #5's HTTPRoute template
+		// explicitly flagged this as the in-tier follow-up). Routes
+		// are session-gated like the rest of /api/v1/* — anonymous
+		// catalog browsing is not a UI surface and the catalog client
+		// forwards the caller's token so AnonymousReads policy on
+		// catalyst-catalog still applies if the upstream is configured
+		// for it.
+		rg.Get("/api/v1/catalog", h.HandleCatalogList)
+		rg.Get("/api/v1/catalog/{name}", h.HandleCatalogGet)
+		rg.Get("/api/v1/catalog/{name}/versions/{version}", h.HandleCatalogGetVersion)
+		// #3668 §5D — the full-CR catalog IaC editor. Commits the WHOLE
+		// blueprint.yaml the admin edited (spec.source / manifests / sso /
+		// placementSchema / endpoints / shareable / contextSchema — fields
+		// the 7-field card form can never touch) to the SAME Gitea file the
+		// card-edit path writes (catalog-sovereign/<bp>/blueprint.yaml),
+		// under the dedicated git budget, tier-admin-gated. The console's
+		// "Edit IaC" mode (YamlEditor) drives this.
+		rg.Get("/api/v1/catalog/{name}/iac", h.HandleGetCatalogBlueprintIaC)
+		rg.Put("/api/v1/catalog/{name}/iac", h.HandleCatalogBlueprintIaCEdit)
+
+		// EPIC-6 (#1101) slice U-Fleet — multi-Sovereign fleet view.
+		// Read-only aggregator that backs the new live DashboardPage,
+		// per-Sovereign card detail rollup, and cross-Sovereign
+		// Applications table. Per ADR-0001 §2.7 the data is read
+		// LIVE from each Sovereign's CRs (no separate fleet DB);
+		// per INVIOLABLE-PRINCIPLES #5 the per-tier visibility gate
+		// is centralised in fleetCallerVisibility() on the handler
+		// side. See internal/handler/fleet.go for the contract +
+		// per-Sov timeout (4s) so a slow cluster doesn't stall the
+		// whole dashboard.
+		rg.Get("/api/v1/fleet/sovereigns", h.HandleFleetSovereigns)
+		rg.Get("/api/v1/fleet/sovereigns/{id}/summary", h.HandleFleetSovereignSummary)
+		rg.Get("/api/v1/fleet/applications", h.HandleFleetApplications)
+		// TBD-E14 — fleet-wide treemap surface (mothership only).
+		// One cell per Sovereign; layer 2+ deep-links to the per-Sov
+		// /dashboard treemap. See handler/fleet_treemap.go.
+		rg.Get("/api/v1/fleet/treemap", h.HandleFleetTreemap)
+
+		// EPIC-2 (#1097) slice T+O+P — Application page bundle.
+		// PUT/DELETE on the Application CR + topology / upgrade preview
+		// + Blueprint publishing (per-Org) + Curate (sovereign-admin).
+		// Per ADR-0001 §2.7 the CR is still the source of truth; PUT/
+		// DELETE simply patches/removes it and the application-controller
+		// (slice C4 #1133) reconciles. Preview endpoints REUSE the
+		// install-preview renderer so "looks-good" is byte-identical to
+		// the actual write. Blueprint publishing flows through the
+		// unified Gitea client per ADR-0001 §4.3.
+		rg.Put("/api/v1/sovereigns/{id}/applications/{name}", h.HandleApplicationUpdate)
+		rg.Delete("/api/v1/sovereigns/{id}/applications/{name}", h.HandleApplicationDelete)
+		rg.Post("/api/v1/sovereigns/{id}/applications/{name}/topology/preview", h.HandleApplicationTopologyPreview)
+		rg.Post("/api/v1/sovereigns/{id}/applications/{name}/upgrade/preview", h.HandleApplicationUpgradePreview)
+		rg.Post("/api/v1/sovereigns/{id}/blueprints/publish", h.HandleBlueprintPublish)
+		rg.Post("/api/v1/sovereigns/{id}/blueprints/curate", h.HandleBlueprintCurate)
+		rg.Get("/api/v1/sovereigns/{id}/blueprints/curatable", h.HandleBlueprintListCuratable)
+		// Slice Z3 follow-up: YamlEditor's flux-managed Apply path
+		// routes through here. The handler creates a branch + commits
+		// new content + opens a PR on `<org>/shared-blueprints` so the
+		// edit lands via the GitOps flow rather than side-stepping flux.
+		rg.Post("/api/v1/sovereigns/{id}/blueprints/edit-pr", h.HandleBlueprintEditPR)
+
+		// ── G117.3 (#2742) — endpoint CRUD + Gitea-IaC PR pipeline +
+		// silent-SSO Launch URL + multi-instance Application create.
+		// Routes match docs/api/catalyst-api-openapi.yaml exactly.
+		// See products/catalyst/bootstrap/api/internal/handler/
+		// endpoint_handler.go for the per-handler contract + the
+		// ADR-0009 PR-pipeline architecture.
+		//
+		// Authz: each mutation handler enforces tier-admin or higher
+		// (same gate as Application install) via the request-context
+		// claims. Read handlers fall through to RequireSession only.
+		rg.Get("/catalyst/v1/apps/{id}/endpoints", h.HandleListAppEndpoints)
+		rg.Post("/catalyst/v1/apps/{id}/endpoints", h.HandleCreateAppEndpoint)
+		rg.Patch("/catalyst/v1/apps/{id}/endpoints/{name}", h.HandlePatchAppEndpoint)
+		rg.Delete("/catalyst/v1/apps/{id}/endpoints/{name}", h.HandleDeleteAppEndpoint)
+		rg.Get("/catalyst/v1/apps/{id}/launch-url", h.HandleGetLaunchURL)
+		// NOTE: the OpenBao silent-SSO shim (openbao-sso-init) is
+		// registered OUTSIDE this RequireSession group — see the public
+		// route above. A fresh browser hitting bao.<fqdn>/ has NO
+		// catalyst_session cookie, so RequireSession would 401 it before
+		// the shim ever ran (#3374 root cause).
+		rg.Post("/catalyst/v1/apps/instances", h.HandleCreateInstance)
+		// ADR-0015 D4 — the install dialog's option lists, read from the
+		// objects a create request must name (install_refs_api.go).
+		rg.Get("/api/v1/refs/organizations", h.HandleListRefOrganizations)
+		rg.Get("/api/v1/refs/organizations/{org}/environments", h.HandleListRefEnvironments)
+		rg.Get("/api/v1/refs/regions", h.HandleListRefRegions)
+		rg.Get("/catalyst/v1/catalog/{blueprint}/instances", h.HandleListBlueprintInstances)
+
+		// Continuum surfaces are READ-ONLY (ADR-0015 D8). The Continuum CR
+		// is delivered from Git (the application-controller renders it into
+		// every region file from Application.spec.placement) and Flux would
+		// revert any API write; a topology transition is started by editing
+		// the Application's placement, and carried out by Continuum as
+		// ordered Git commits. Deleted with the imperative sequencer: POST
+		// failback / failback/approve, PUT continuum/{name}, PUT
+		// continuum/{name}/settings, POST continuum/{name}/switchover/preview.
+		rg.Get("/api/v1/sovereigns/{id}/continuums/{name}", h.HandleContinuumGet)
+		rg.Get("/api/v1/sovereigns/{id}/audit/continuum", h.HandleContinuumAuditList)
+		rg.Get("/api/v1/sovereigns/{id}/audit/continuum/stream", h.HandleContinuumAuditStream)
+
+		// Singular `/continuum/` read aliases: enriched GET, status SSE,
+		// fleet aggregate, per-Sovereign summary (continuum_extras.go).
+		rg.Get("/api/v1/sovereigns/{id}/continuum/{name}", h.HandleContinuumGetEnriched)
+		rg.Get("/api/v1/sovereigns/{id}/continuum/{name}/stream", h.HandleContinuumStream)
+		rg.Get("/api/v1/fleet/continuum", h.HandleFleetContinuum)
+		rg.Get("/api/v1/fleet/sovereigns/{id}/dr-summary", h.HandleFleetSovereignDRSummary)
+
+		// qa-loop iter-1 prefetch Fix #110 (Continuum DR third batch):
+		// adds the rest of the DR contract the SovereignConsole renders +
+		// the matrix is expected to assert on going forward —
+		// replication-status, switchover-history, runbook preflight +
+		// playback, quorum status, sovereign-wide replication roll-up,
+		// per-Application DR settings GET/PUT. See
+		// continuum_dr_extras.go for shapes + fallback semantics.
+		// Per INVIOLABLE-PRINCIPLES #5 the playback POST + settings PUT
+		// gate on owner tier (REUSE applicationInstallCallerAuthorized);
+		// preflight + GET endpoints gate on viewer.
+		rg.Get("/api/v1/sovereigns/{id}/continuum/{name}/replication-status", h.HandleContinuumReplicationStatus)
+		rg.Get("/api/v1/sovereigns/{id}/continuum/{name}/switchover/history", h.HandleContinuumSwitchoverHistory)
+		rg.Get("/api/v1/sovereigns/{id}/continuum/{name}/settings", h.HandleContinuumSettingsGet)
+		rg.Post("/api/v1/sovereigns/{id}/dr/runbook/preflight", h.HandleDRRunbookPreflight)
+		rg.Post("/api/v1/sovereigns/{id}/dr/runbook/playback", h.HandleDRRunbookPlayback)
+		rg.Get("/api/v1/sovereigns/{id}/dr/quorum/status", h.HandleDRQuorumStatus)
+		rg.Get("/api/v1/sovereigns/{id}/dr/replication-status", h.HandleDRReplicationStatus)
+
+		// Organization-tier user CRUD + role mapping (issue #802, ADR-0003).
+		// Owned by the unified-rbac slice of catalyst-api. Tenant
+		// scoping is by X-Tenant-Host header (sent by the SPA from
+		// window.location.host); the tenant must be registered with
+		// tenant_kind=org. Each create fires the 3-step user-create
+		// hook (Keycloak → NewAPI → K8s Secret) per ADR-0003 §3.
+		// State is persisted in a flat-file user_provision_state
+		// store; on partial failure the response carries the partial
+		// state and the steps[] field so the SPA can render progress.
+		// #3383: canonical `/api/v1/org/users`; legacy `/api/v1/org/users`
+		// kept as one-release deprecation aliases (same handlers).
+		rg.Post("/api/v1/org/users", h.HandleCreateOrgUser)
+		rg.Get("/api/v1/org/users", h.HandleListOrgUsers)
+		rg.Delete("/api/v1/org/users/{uuid}", h.HandleDeleteOrgUser)
+
+		// #4116 — Org-scoped Application install. An Org-scoped customer
+		// session (tier=org-admin) cannot reach the Sovereign-admin seam
+		// `POST /api/v1/sovereigns/{id}/applications` (OrgScopeGuard 403s it,
+		// the #4110/#4112 fix). This own-org route resolves the caller's own
+		// namespace from the request host via the tenant registry and reuses
+		// the shared install core, so the bp-agenity solo agent's openova-mcp
+		// create_application tool can install Applications in the User's own
+		// Org. `/api/v1/org/applications` is already on the OrgScopeGuard
+		// allowlist (org_scope.go orgSafePathPrefixes) — no surface widening.
+		rg.Post("/api/v1/org/applications", h.HandleOrgApplicationInstall)
+
+		// #4113 — the TRUE per-Org Apps projection. GET companion to the
+		// install POST above. An Org-scoped customer session on its own
+		// console used to render the SOVEREIGN-WIDE catalog grid (the only
+		// allowlisted Apps feed was /api/v1/sovereign/apps, which lists every
+		// HelmRelease + Application CR cluster-wide). This route lists ONLY the
+		// Application CRs + HelmReleases in the caller's OWN org-<uuid>
+		// namespace (resolved server-side via the tenant registry with the
+		// #4110 own-org binding) and projects each as a card with its open URL
+		// derived from the Org namespace's HTTPRoute set — so agenity surfaces
+		// with a working Open link. Already on the OrgScopeGuard allowlist
+		// (org_scope.go orgSafePathPrefixes) — no surface widening.
+		rg.Get("/api/v1/org/applications", h.HandleOrgApplications)
+
+		// Organization provisioning pipeline (issue #804). Marketplace
+		// signup → vCluster + bp-* charts + DNS + cert + SSO clients
+		// + Organization registry. State machine surfaced as steps[] in
+		// the response so the SPA can render a progress timeline. The
+		// reconciler is event-driven (NATS heartbeat-to-self per
+		// ADR-0003 §3.5) so a Pod restart never strands a half-
+		// provisioned Organization. See organization_provisioning.go for
+		// the full state machine and organization_gitops.go for the
+		// GitOps overlay generator.
+		//
+		// #3383: canonical routes are `/api/v1/organizations[...]`. The
+		// legacy `/api/v1/org/tenants[...]` paths stay as one-release
+		// deprecation aliases (same handlers) so the marketplace SPA +
+		// funnel-walk evidence survive the rename.
+		rg.Post("/api/v1/organizations", h.HandleCreateOrganization)
+		rg.Get("/api/v1/organizations", h.HandleListOrganizations)
+		rg.Get("/api/v1/organizations/{id}", h.HandleGetOrganization)
+		rg.Post("/api/v1/organizations/{id}/reconcile", h.HandleReconcileOrganization)
+		rg.Delete("/api/v1/organizations/{id}", h.HandleDeleteOrganization)
+		// Billing enforcement (products/chargeback DESIGN.md §9.7): the
+		// NARROWEST reverse seam from a billing decision to the platform —
+		// stamp spec.suspended on the Organization CR, which the
+		// org-controller honours by parking the per-Org Flux reconciliation
+		// and surfacing a Suspended condition. Operator-only (RequireSession
+		// + OrgScopeGuard above); the chargeback application calls it with a
+		// bearer session. See internal/handler/org_suspend.go.
+		rg.Post("/api/v1/organizations/{id}/suspend", h.HandleSuspendOrganization)
+		rg.Post("/api/v1/organizations/{id}/resume", h.HandleResumeOrganization)
+
+		// BSS landing KPI rollup (Refs #1949, TBD-A58). Read-only feed
+		// for the /console/bss landing surface (BssLandingPage.tsx →
+		// getBssOverview() in ui/src/lib/bss.api.ts). Pre-fix the path
+		// returned 404 and the FE flipped `pendingApi=true`, so every
+		// tile rendered the "API pending" pill instead of real zeros.
+		// Today the handler returns a zero-filled payload — the FE
+		// renders the full target-state surface (0 revenue / 0
+		// customers — truthful on a fresh Sovereign) from first paint
+		// (INVIOLABLE-PRINCIPLES.md #1). The non-zero projection lands
+		// with the marketplace/billing wire (siblings:
+		// /api/v1/org/billing/revenue, /api/v1/org/orders,
+		// /api/v1/org/billing/vouchers/list, /api/v1/org/tenants).
+		// #3383: canonical `/api/v1/org/*`; legacy `/api/v1/org/*` aliased.
+		rg.Get("/api/v1/org/bss/overview", h.HandleGetOrgBssOverview)
+		// naming-guard: alias — legacy Organization path, one-release deprecation.
+
+		// BSS Orders rollup (Wave 6 PR 3). Read-only feed for the
+		// /console/bss/orders native React table. Today the handler
+		// returns an empty list — the FE renders its full empty-state
+		// chrome so the operator sees the target-state surface from
+		// first paint (INVIOLABLE-PRINCIPLES.md #1). The non-empty
+		// projection lands with the marketplace/billing wire.
+		rg.Get("/api/v1/org/orders", h.HandleListOrgOrders)
+		// naming-guard: alias — legacy Organization path, one-release deprecation.
+
+		// BSS Revenue rollup (Wave 6 PR 4). Read-only feed for the
+		// /console/bss/revenue native React surface (KPI strip + line
+		// chart + per-plan breakdown table). Today the handler returns
+		// a zero-filled payload — the FE renders its full target-state
+		// chrome so the operator sees the surface from first paint
+		// (INVIOLABLE-PRINCIPLES.md #1). The non-zero projection lands
+		// with the marketplace/billing wire.
+		rg.Get("/api/v1/org/billing/revenue", h.HandleGetOrgBillingRevenue)
+		// naming-guard: alias — legacy Organization path, one-release deprecation.
+
+		// BSS Vouchers proxy (Wave 6 PR 5 — follow-up to FE PR #1609).
+		// Forwards to the Organization gateway (gateway.org-services.svc.cluster.local:8080)
+		// which proxies to the billing service's
+		// `/billing/vouchers/{list,issue,revoke}` handlers
+		// (core/services/billing/handlers/vouchers.go, gated by
+		// requireVoucherIssuer — superadmin OR sovereign-admin per
+		// docs/FRANCHISE-MODEL.md §3). The FE bss.api.ts
+		// listVouchers/issueVoucher/revokeVoucher all hit these paths.
+		// Revoke is registered for BOTH POST (task spec) and DELETE (FE
+		// wire) — the handler always forwards as DELETE so the billing
+		// service's DELETE /billing/vouchers/revoke/{code} route matches.
+		// #3383: canonical `/api/v1/org/billing/vouchers/*`; legacy aliased.
+		rg.Get("/api/v1/org/billing/vouchers/list", h.HandleListOrgBillingVouchers)
+		rg.Post("/api/v1/org/billing/vouchers/issue", h.HandleIssueOrgBillingVoucher)
+		rg.Post("/api/v1/org/billing/vouchers/revoke/{code}", h.HandleRevokeOrgBillingVoucher)
+		rg.Delete("/api/v1/org/billing/vouchers/revoke/{code}", h.HandleRevokeOrgBillingVoucher)
+
+		// BSS Purchase proxy (TBD-C15 / #1750). Mirrors the vouchers proxy
+		// shape above — catalyst-api forwards to the Organization gateway which
+		// proxies to the billing service's `POST /billing/purchase`
+		// alias (see core/services/billing/handlers/routes.go).
+		//
+		// Two paths are registered for symmetry with the DoD validator
+		// vocabulary on console.<sov-fqdn>:
+		//
+		//   POST /api/v1/billing/purchase     — operator-visible alias
+		//   POST /api/v1/org/billing/purchase — org-namespaced (#3383: was
+		//                                       /api/v1/org/billing/purchase)
+		//
+		// Both call the same handler — the upstream is identical. The
+		// canonical UI surface remains the marketplace's
+		// /api/billing/checkout (CheckoutStep.svelte); these console-side
+		// routes exist so the close-audit DoD validator on the Sovereign
+		// host stops 404'ing during the marketplace customer-journey
+		// re-walk (Step 15 — purchase button).
+		rg.Post("/api/v1/billing/purchase", h.HandleOrgBillingPurchase)
+		rg.Post("/api/v1/org/billing/purchase", h.HandleOrgBillingPurchase)
+		// naming-guard: alias — legacy Organization path, one-release deprecation.
+
+		// Sovereign Console populated views (issue #933). Read-only
+		// endpoints the Console pages on console.<sov-fqdn>/console/*
+		// hit to render LIVE local-cluster data (HelmReleases, Jobs,
+		// catalog, nodes/namespaces/ingresses). Without these the
+		// freshly-handed-over Sovereign Console renders only
+		// placeholders — useless on day one.
+		//
+		// All four endpoints use rest.InClusterConfig + the
+		// catalyst-api ServiceAccount on the Sovereign cluster, so
+		// they continue to function after the Self-Sovereignty
+		// Cutover (issue #792) severs every mothership-side tether.
+		// On the mothership these endpoints also work (catalyst-api
+		// runs in-cluster on contabo too), but the mothership
+		// Console serves the per-deployment endpoints instead — the
+		// /api/v1/sovereign/* surface is the customer-side Console's
+		// data plane.
+		rg.Get("/api/v1/sovereign/status", h.HandleSovereignStatus)
+		rg.Get("/api/v1/sovereign/jobs", h.HandleSovereignJobs)
+		rg.Get("/api/v1/sovereign/apps", h.HandleSovereignApps)
+		rg.Get("/api/v1/sovereign/cloud", h.HandleSovereignCloud)
+		// PATCH /api/v1/sovereign/apps/{slug}/publish — operator-admin
+		// toggle to publish/unpublish a SaaS app on this Sovereign's
+		// marketplace. Replaces the deleted /catalog page (PR #1058);
+		// chip lives on each AppsPage card, proxies to the in-cluster
+		// Organization catalog service.
+		rg.Patch("/api/v1/sovereign/apps/{slug}/publish", h.HandleSovereignAppPublish)
+
+		// Organizations commerce editors (issue #3378 DoD 7/8) — the
+		// console's plans/addons/bundles/industries/apps editors proxy
+		// CRUD onto the EXISTING superadmin-JWT /catalog/admin/* endpoints
+		// on the in-cluster Organization commerce catalog. NOT new business
+		// endpoints (§6) — the same mintOrgBridgeToken → orgCatalog proxy
+		// hop HandleSovereignAppPublish uses, generalized to full CRUD so
+		// console.<sovereign>/api/* can reach the admin paths. Reads proxy
+		// the EXISTING public /catalog/{kind} list endpoints through
+		// catalyst-api too (HandleOrgCommerceList) — on the console host
+		// /api/catalog/* doesn't route to the catalog service the way the
+		// Organization gateway does, so a bare GET /api/catalog/plans 404'd even
+		// though the plan existed (issue #3378 plans-table 404).
+		// #3383: canonical `/api/v1/org/commerce/*`; legacy aliased.
+		rg.Get("/api/v1/org/commerce/{kind}", h.HandleOrgCommerceList)
+		rg.Post("/api/v1/org/commerce/{kind}", h.HandleOrgCommerceCreate)
+		rg.Put("/api/v1/org/commerce/{kind}/{id}", h.HandleOrgCommerceUpdate)
+		rg.Delete("/api/v1/org/commerce/{kind}/{id}", h.HandleOrgCommerceDelete)
+
+		// Organizations metering feed (issue #3378 B3) — per-org
+		// consumption aggregation, parent self-showback first. Lean
+		// kube-metrics aggregation (no new component): reuses the
+		// dashboard's per-namespace resource-request rows. The billing
+		// pages read this one GET; 100% attributes to the parent on a
+		// zero-sub-org estate (§5 day-one showback).
+		// #3383: canonical `/api/v1/org/consumption`; legacy aliased.
+		rg.Get("/api/v1/org/consumption", h.HandleSovereignConsumption)
+		// naming-guard: alias — legacy Organization path, one-release deprecation.
+
+		// Organizations Enter-org support session (issue #3378 B2) —
+		// mints the audited, time-boxed (≤60min) impersonation into a
+		// sub-org's OWN console as a support principal in the org's realm
+		// (never the owner's identity). Reuses the handover-redemption
+		// flow + the #3374/#3385 cookie fix. Writes the audit event;
+		// hidden on the parent row (and rejects entering the parent).
+		// #3383: canonical `/api/v1/org/organizations/{slug}/enter`; legacy aliased.
+		rg.Post("/api/v1/org/organizations/{slug}/enter", h.HandleEnterOrg)
+		// naming-guard: alias — legacy Organization path, one-release deprecation.
+
+		// EPIC-3 (#1098) — Sovereign-prefix RBAC access-matrix surface
+		// (TBD-F4 / C6-007). Chroot-friendly mirror of
+		// /api/v1/sovereigns/{id}/rbac/access-matrix; the id is resolved
+		// server-side from SOVEREIGN_FQDN + the catalyst_session cookie
+		// (same chain as HandleSovereignSelf). Same query-param filters
+		// and response shape as the per-deployment endpoint, so the
+		// AccessMatrixPage in the chroot can call this path without
+		// first round-tripping to /sovereign/self.
+		rg.Get("/api/v1/sovereign/rbac/matrix", h.HandleSovereignRBACMatrix)
+
+		// C6-006 / #1739 — Sovereign-prefix RBAC assign surface. Same
+		// wire contract as /api/v1/sovereigns/{id}/rbac/assign but the
+		// active deployment id is resolved server-side from
+		// SOVEREIGN_FQDN + the catalyst_session cookie (mirrors
+		// HandleSovereignRBACMatrix one line above). The Sovereign
+		// Console's Members UI hits this seam directly so it doesn't
+		// have to round-trip /sovereign/self → /sovereigns/{id}/rbac/assign
+		// per click; without it every chroot-side assign 404'd or
+		// stamped a generic 500 `rbac-assign-failed: resource not
+		// found` when the FE constructed the path with an empty id.
+		rg.Post("/api/v1/sovereign/rbac/assign", h.HandleSovereignRBACAssign)
+
+		// TBD-E16 — Sovereign-prefix UserAccess listing. Chroot-friendly
+		// mirror of /api/v1/deployments/{depId}/admin/user-access; the
+		// depId is resolved server-side from SOVEREIGN_FQDN +
+		// catalyst_session cookie (same chain as HandleSovereignSelf).
+		// Operator-side smoke probes / external monitors can hit a
+		// single stable URL without first round-tripping
+		// /sovereign/self. Same response shape as the per-deployment
+		// endpoint (userAccessListResponse).
+		rg.Get("/api/v1/sovereign/users", h.HandleSovereignUsers)
+
+		// Self-Sovereignty Cutover (issue #792 — parent epic #790). The
+		// post-handover step that severs a Sovereign's remaining
+		// tethers to the openova-io mothership: gitea-mirror,
+		// harbor-projects, harbor-prewarm, registry-pivot DaemonSet,
+		// flux-gitrepository-patch, helmrepository-patches,
+		// catalyst-api-env-patch, and an egress-block self-test.
+		// PodSpec ConfigMaps are shipped by bp-self-sovereign-cutover
+		// (issue #791); catalyst-api creates the actual Jobs.
+		// Operator-admin gating is provided by RequireSession above —
+		// only authenticated console operators can fire this.
+		rg.Post("/api/v1/sovereign/cutover/start", h.HandleCutoverStart)
+		rg.Get("/api/v1/sovereign/cutover/status", h.HandleCutoverStatus)
+		rg.Get("/api/v1/sovereign/cutover/events", h.HandleCutoverEvents)
+
+		// Multi-domain Sovereign — admin "Add another parent domain" flow
+		// + live DNS propagation status panel (issue #829, parent #825).
+		// LIST returns the operator's parent-domain pool (primary +
+		// org-pool entries). POST queues a new domain through the
+		// NS-flip → PowerDNS-zone-create → cert-issue pipeline. Per
+		// issue #827 (this PR) the zone-create step now invokes the
+		// real PowerDNS REST API via internal/powerdns.Client when the
+		// catalyst-api Pod has CATALYST_POWERDNS_API_URL +
+		// CATALYST_POWERDNS_API_KEY wired (Sovereign-side); otherwise
+		// the call falls back to the stub no-op so contabo-side
+		// installs stay green.
+		// /propagation fans out to 5 public DNS resolvers via Go's
+		// net.Resolver and reports per-resolver convergence so the
+		// operator can see the gTLD 48h NS TTL window settle.
+		rg.Get("/api/v1/sovereign/parent-domains", h.ListParentDomains)
+		rg.Post("/api/v1/sovereign/parent-domains", h.AddParentDomain)
+		rg.Delete("/api/v1/sovereign/parent-domains/{name}", h.DeleteParentDomain)
+		rg.Get("/api/v1/sovereign/parent-domains/{name}/propagation", h.GetPropagation)
+		// D16 secondary-kubeconfig moved OUT of auth group in PR F
+		// (2026-05-17). Now at top-level r.Post (alongside
+		// /api/v1/internal/deployments/import) so mothership handover
+		// POSTs aren't 401'd before any operator session exists.
 	})
 
 	// TBD-V13 (issue #2016) — on-startup cutover resume.
@@ -1307,6 +2599,44 @@ func newRBACAuditPublisherFromEnv(log *slog.Logger) audit.Publisher {
 	return nil
 }
 
+// newTenantEventPublisherFromEnv constructs the cross-process forwarder
+// for the `catalyst.tenant.*` event taxonomy used by the
+// sandbox_sessions handler (TBD-D35b / #1776). When CATALYST_NATS_URL
+// is set, dials NATS and returns the concrete natspub.Publisher; the
+// handler's tenantEvents field then publishes
+// `catalyst.tenant.sandbox_requested` on every successful Sandbox CR
+// Create. When CATALYST_NATS_URL is unset OR the dial fails, returns
+// nil so the handler runs in publish-disabled mode — the Sandbox CR
+// Create still succeeds + the FE still observes the new sandbox, but
+// no audit envelope is emitted. Dial failure is logged + non-fatal so
+// a Pod cold-start doesn't crash-loop on a transiently unreachable
+// broker (the chroot-Sovereign cold-start sequence brings nats-system
+// up after catalyst-system).
+//
+// Per ADR-0001 §6 the subject taxonomy is `catalyst.tenant.<event>`.
+// Per docs/INVIOLABLE-PRINCIPLES.md #4 the URL is env-driven.
+//
+// TBD-D35c — wired concrete nats.go binding (this PR). The previous
+// scaffold returned nil unconditionally because catalyst-api shipped
+// without the `nats.go` SDK in its go.mod (see PR #1918 placeholder).
+func newTenantEventPublisherFromEnv(log *slog.Logger) handler.TenantEventPublisher {
+	url := os.Getenv("CATALYST_NATS_URL")
+	if url == "" {
+		log.Info("tenant-events: CATALYST_NATS_URL unset — running in publish-disabled mode")
+		return nil
+	}
+	pub, err := natspub.Dial(url, log)
+	if err != nil {
+		// Non-fatal: log + return nil. The handler's nil-tolerant
+		// publish guard keeps the Sandbox-create hot path working.
+		log.Warn("tenant-events: NATS dial failed — running in publish-disabled mode",
+			"url", url, "err", err,
+		)
+		return nil
+	}
+	return pub
+}
+
 // envBool returns the parsed boolean value of an env var, or fallback
 // when unset / unparseable. Truthy values: 1, t, T, true, TRUE, True.
 func envBool(key string, fallback bool) bool {
@@ -1619,7 +2949,8 @@ func newCompliancePolicyRollupPublisherFromEnv(log *slog.Logger) handler.PolicyR
 	source := env("CATALYST_SOURCE_FQDN", env("HOSTNAME", "catalyst-api"))
 	// Wave 5.44 (#2251) wired the real NATS JetStream KV publisher via
 	// internal/natspub — replacing the prior nil-returning stub. nats.go
-	// landed in catalyst-api's go.mod via TBD-D35c PR #1918.
+	// landed in catalyst-api's go.mod via TBD-D35c PR #1918 (the same
+	// dependency that backs sandbox_publisher.go).
 	p, err := natspub.NewComplianceRollupPublisher(url, bucket, source, log,
 		handler.IncrementComplianceNATSPublishFailure)
 	if err != nil {

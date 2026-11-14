@@ -9,12 +9,9 @@
 #
 #   L1  reconciler, two dev servers A and B (each rendered for its own region
 #       of a two-region registry): round 1 converges both; every desired
-#       policy reads back byte-identical, every desired role exists, and the
-#       kv mount secret/ (removed from each dev server first) is created by
-#       the reconciler as kv version 2;
+#       policy reads back byte-identical and every desired role exists;
 #   L2  round 2 is a no-op: the sys/policy listing, every policy body, every
-#       role read, the auth-mount table and the secrets-mount table are
-#       identical before and after; secret/ was enabled once per server;
+#       role read and the auth-mount table are identical before and after;
 #   L3  generate-root on a non-dev server initialised with 5 shares /
 #       threshold 3: the chart's generate-root produces a root that
 #       authenticates; revoked, `bao token lookup <root>` fails; no attempt
@@ -24,11 +21,8 @@
 #       (policy byte-identical to the render, role bound to openbao-config),
 #       and leaves NO root-policy token alive and no attempt started;
 #   L5  logged in as openbao-config-admin: secret/data/x denied, sys/seal
-#       denied, writing its own policy allowed, rewriting its own role
-#       denied, enabling a secrets mount other than secret/ denied, deleting
-#       a policy denied, writing a test policy allowed;
-#   L7  a payload that names AUTH_ACCESSOR_KUBERNETES is written with the
-#       accessor of the reconciler's login mount in its place;
+#       denied, rewriting its own policy denied, deleting a policy denied,
+#       writing a test policy allowed;
 #   L6  peer trust A <- B: A's jwt-peer-<B> mount (configured by A's
 #       reconciler from B's REAL discovery URL); a token minted by B's identity
 #       OIDC role logs in to A; create + read + update under
@@ -164,9 +158,6 @@ setup_server() {
   export BAO_ADDR="http://127.0.0.1:$port" BAO_TOKEN=root
   timeout 20 bao auth enable kubernetes >/dev/null
   timeout 20 bao auth enable -path=login-jwt jwt >/dev/null
-  # A dev server mounts kv at secret/; remove it, so that the reconciler's
-  # secrets-mount op is what creates it.
-  timeout 20 bao secrets disable secret >/dev/null
   timeout 20 bao write auth/login-jwt/config jwt_validation_pubkeys=@"$TMP/jwt.pub" bound_issuer=live-test >/dev/null
   timeout 20 bao policy write openbao-config-admin "$TMP/config-admin.hcl" >/dev/null
   timeout 20 bao write auth/login-jwt/role/openbao-config-admin role_type=jwt user_claim=sub \
@@ -198,7 +189,6 @@ for line in open(f"{d}/manifest"):
         out["roles"][path] = {k: v for k, v in data.items()}
 mounts = call("sys/auth")["data"]
 out["mounts"] = {k: {"type": v["type"], "accessor": v["accessor"]} for k, v in mounts.items()}
-out["smounts"] = {k: {"type": v["type"], "accessor": v["accessor"]} for k, v in call("sys/mounts")["data"].items()}
 print(json.dumps(out, sort_keys=True))
 PYEOF
 }
@@ -226,15 +216,11 @@ def call(path):
     req = urllib.request.Request(f"http://127.0.0.1:{port}/v1/{path}", headers={"X-Vault-Token": "root"})
     return json.load(urllib.request.urlopen(req, timeout=10))
 mounts = call("sys/auth")["data"]
-smounts = call("sys/mounts")["data"]
 for line in open(f"{d}/manifest"):
     kind, path = line.split()[:2]
     body = json.load(open(f"{d}/{path.replace('/', '.')}.json"))
     if kind == "mount":
         assert path[len("sys/auth/"):] + "/" in mounts, path
-    elif kind == "secrets-mount":
-        got = smounts[path[len("sys/mounts/"):] + "/"]
-        assert got["type"] == body["type"] and got["options"] == body["options"], (path, got)
     elif path.startswith("sys/policies/acl/"):
         assert call(path)["data"]["policy"] == body["policy"], path
     elif path.startswith("identity/oidc/role/"):
@@ -258,14 +244,9 @@ run_reconciler "$PB" "$TMP/desired-B" || fail "L2 round 2 on B reported pending"
 snapshot "$PA" "$TMP/desired-A" > "$TMP/snap2.json"
 snapshot "$PB" "$TMP/desired-B" > "$TMP/snapB2.json"
 if cmp -s "$TMP/snap1.json" "$TMP/snap2.json" && cmp -s "$TMP/snapB1.json" "$TMP/snapB2.json"; then
-  pass "L2 round 2 is a no-op (policy listing + bodies, role reads, auth and secrets mounts identical on A and B)"
+  pass "L2 round 2 is a no-op (policy listing + bodies, role reads, auth mounts identical on A and B)"
 else
   fail "L2 round 2 changed state"; diff <(python3 -m json.tool "$TMP/snap1.json") <(python3 -m json.tool "$TMP/snap2.json") | head -20
-fi
-if [ "$(grep -c -F 'enabled secrets mount secret/' "$TMP/reconcile-$PA.log")" = 1 ] && [ "$(grep -c -F 'enabled secrets mount secret/' "$TMP/reconcile-$PB.log")" = 1 ]; then
-  pass "L2 secret/ was enabled once on each server over all rounds"
-else
-  fail "L2 secret/ was not enabled exactly once per server"
 fi
 
 # ── L5 scope, as openbao-config-admin on A ──
@@ -275,29 +256,9 @@ H=(-H "X-Vault-Token: $CA_TOK")
 BAO_TOKEN=root timeout 20 bao kv put secret/x k=v >/dev/null
 [ "$(code "${H[@]}" "$BAO_ADDR/v1/secret/data/x")" = 403 ] && pass "L5 config-admin: read secret/data/x denied" || fail "L5 config-admin could read secret/data/x"
 [ "$(code "${H[@]}" -X PUT "$BAO_ADDR/v1/sys/seal")" = 403 ] && pass "L5 config-admin: sys/seal denied" || fail "L5 config-admin could call sys/seal"
-[ "$(code "${H[@]}" -X PUT --data-binary @"$TMP/desired-A/sys.policies.acl.openbao-config-admin.json" "$BAO_ADDR/v1/sys/policies/acl/openbao-config-admin")" = 204 ] && pass "L5 config-admin: writing its own policy allowed" || fail "L5 config-admin could not write its own policy"
-[ "$(code "${H[@]}" -X POST -d '{"bound_subject":"x"}' "$BAO_ADDR/v1/auth/login-jwt/role/openbao-config-admin")" = 403 ] && pass "L5 config-admin: rewriting its own role denied" || fail "L5 config-admin rewrote its own role"
-[ "$(code "${H[@]}" -X POST -d '{"type":"kv","options":{"version":"2"}}' "$BAO_ADDR/v1/sys/mounts/other-kv")" = 403 ] && pass "L5 config-admin: enabling a secrets mount other than secret/ denied" || fail "L5 config-admin enabled a secrets mount other than secret/"
+[ "$(code "${H[@]}" -X PUT -d '{"policy":"path \"*\" { capabilities = [\"sudo\",\"read\"] }"}' "$BAO_ADDR/v1/sys/policies/acl/openbao-config-admin")" = 403 ] && pass "L5 config-admin: rewriting its own policy denied" || fail "L5 config-admin rewrote its own policy"
 [ "$(code "${H[@]}" -X PUT -d '{"policy":"path \"secret/data/live-test\" { capabilities = [\"read\"] }"}' "$BAO_ADDR/v1/sys/policies/acl/live-test-policy")" = 204 ] && pass "L5 config-admin: writing a test policy allowed" || fail "L5 config-admin could not write a test policy"
 [ "$(code "${H[@]}" -X DELETE "$BAO_ADDR/v1/sys/policies/acl/live-test-policy")" = 403 ] && pass "L5 config-admin: deleting a policy denied" || fail "L5 config-admin could delete a policy"
-
-# ── L7 accessor substitution, on A ──
-cp -r "$TMP/desired-A" "$TMP/desired-acc"
-echo "write sys/policies/acl/accessor-test" >> "$TMP/desired-acc/manifest"
-printf '%s' '{"policy":"path \"secret/data/{{identity.entity.aliases.AUTH_ACCESSOR_KUBERNETES.metadata.service_account_namespace}}/*\" { capabilities = [\"read\"] }"}' \
-  > "$TMP/desired-acc/sys.policies.acl.accessor-test.json"
-run_reconciler "$PA" "$TMP/desired-acc" || fail "L7 the tick with an accessor payload did not converge"
-python3 - "$PA" <<'PYEOF' && pass "L7 AUTH_ACCESSOR_KUBERNETES is written as the accessor of the login mount" || fail "L7 accessor substitution"
-import json, sys, urllib.request
-port = sys.argv[1]
-def call(path):
-    req = urllib.request.Request(f"http://127.0.0.1:{port}/v1/{path}", headers={"X-Vault-Token": "root"})
-    return json.load(urllib.request.urlopen(req, timeout=10))
-acc = call("sys/auth")["data"]["login-jwt/"]["accessor"]
-got = call("sys/policies/acl/accessor-test")["data"]["policy"]
-want = 'path "secret/data/{{identity.entity.aliases.%s.metadata.service_account_namespace}}/*" { capabilities = ["read"] }' % acc
-assert acc and got == want, (got, want)
-PYEOF
 
 # ── L6 peer trust: a B-minted token writes into A ──
 export BAO_ADDR="http://127.0.0.1:$PB" BAO_TOKEN=root

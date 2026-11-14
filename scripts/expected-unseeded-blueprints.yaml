@@ -98,13 +98,6 @@ unseeded:
       (12a-bp-sovereign-tls-vars.yaml). Carries the Sovereign's own TLS/domain
       substitution vars for the GitOps loop; not a catalog item.
 
-  - chart: bp-storage-ready
-    source: platform/storage-ready
-    reason: >-
-      Bootstrap-kit-owned — installs from slot 15b (15b-storage-ready.yaml).
-      The neutral storage gate that holds bp-cnpg until the default
-      StorageClass exists; not a catalog item.
-
   # ── Group B — no bootstrap-kit slot AND no seed entry. These are NOT
   # "deliberately excluded" in the same sense as Group A: nothing installs them
   # today through either door. They are recorded here so the set is ENUMERATED
@@ -118,6 +111,13 @@ unseeded:
     reason: >-
       No kit slot and no seed entry — not installable from either door today.
       Enumerated here, not silenced; needs an owner call on seed-or-retire.
+
+  - chart: bp-cert-manager-dynadot-webhook
+    source: platform/cert-manager-dynadot-webhook
+    reason: >-
+      No kit slot and no seed entry. The DNS-01 solver webhook is wired by
+      cert-manager's own issuer config on the provisioning path rather than as
+      a catalog install; recorded so the absence is visible.
 
   - chart: bp-cilium-policies
     source: platform/cilium-policies
@@ -138,13 +138,6 @@ unseeded:
       No kit slot and no seed entry — not installable from either door today.
       Enumerated here, not silenced; needs an owner call on seed-or-retire.
 
-  - chart: bp-machine-operations
-    source: platform/machine-operations
-    reason: >-
-      No kit slot and no seed entry yet. Its kinds (group machines.openova.io)
-      belong to the Sovereign's machine plane, so a bootstrap-kit slot will
-      install it, never the catalog. Until that slot exists nothing installs it.
-
   - chart: bp-netbird
     source: platform/netbird
     reason: >-
@@ -157,6 +150,13 @@ unseeded:
       QA fixture Blueprint, default-OFF on production Sovereigns
       (qaTestEnabled). Deliberately kept out of the production catalog seed so
       a customer-reachable Sovereign never carries a test fixture card.
+
+  - chart: sandbox
+    source: platform/sandbox
+    reason: >-
+      LEGACY — the Sandbox concept was removed on 2026-06-30 and superseded by
+      products/agenity + products/openova-mcp. Deliberately unseeded; the
+      directory is retained for history only.
 
   - chart: bp-spire
     source: platform/spire

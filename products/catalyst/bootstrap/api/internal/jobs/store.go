@@ -24,7 +24,6 @@ package jobs
 
 import (
 	"bufio"
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -33,7 +32,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -80,141 +78,6 @@ type Store struct {
 	dir string
 
 	mu sync.Mutex
-
-	// The subscribers of Subscribe. Guarded by subMu and never by mu: a
-	// writer publishes while it holds mu, and a publish never waits for a
-	// reader.
-	subMu   sync.Mutex
-	subs    map[uint64]*subscriber
-	lastSub uint64 // the id of the last subscriber
-	lastSeq uint64 // the Seq of the last published Change
-}
-
-// ChangeKind names what a Change reports. The values are the "kind" of a
-// frame of GET /api/v1/deployments/{depId}/jobs/stream.
-type ChangeKind string
-
-// The change kinds.
-const (
-	JobUpserted       ChangeKind = "job-upserted"
-	ExecutionStarted  ChangeKind = "execution-started"
-	ExecutionFinished ChangeKind = "execution-finished"
-	LogAppended       ChangeKind = "log-appended"
-	Resync            ChangeKind = "resync"
-)
-
-// Change is one write the store made. It is a hint, not the data: a reader
-// refetches what it shows. Resync means "refetch everything for this
-// deployment".
-type Change struct {
-	DeploymentID string
-	JobID        string // "" for log-appended and resync
-	ExecutionID  string // "" for job-upserted and resync
-	Kind         ChangeKind
-	Seq          uint64 // increases per store instance
-	At           time.Time
-}
-
-// SubscribeBuffer is the capacity of the channel Subscribe returns.
-const SubscribeBuffer = 256
-
-type subscriber struct {
-	deploymentID string
-	ch           chan Change
-}
-
-// Subscribe delivers every later change for one deployment ("" means all).
-// The channel is buffered (SubscribeBuffer). When it is full, the changes
-// it holds are dropped and the next delivered Change has Kind Resync.
-// cancel closes the channel; calling it more than once is safe.
-func (s *Store) Subscribe(deploymentID string) (ch <-chan Change, cancel func()) {
-	sub := &subscriber{deploymentID: deploymentID, ch: make(chan Change, SubscribeBuffer)}
-	s.subMu.Lock()
-	if s.subs == nil {
-		s.subs = map[uint64]*subscriber{}
-	}
-	s.lastSub++
-	id := s.lastSub
-	s.subs[id] = sub
-	s.subMu.Unlock()
-	var once sync.Once
-	return sub.ch, func() {
-		once.Do(func() {
-			s.subMu.Lock()
-			delete(s.subs, id)
-			close(sub.ch)
-			s.subMu.Unlock()
-		})
-	}
-}
-
-// publish hands c to every subscriber of its deployment and never waits.
-// A subscriber whose channel is full loses what it holds and receives one
-// Resync instead, so a slow reader refetches rather than misses a change.
-func (s *Store) publish(c Change) {
-	s.subMu.Lock()
-	defer s.subMu.Unlock()
-	s.lastSeq++
-	c.Seq = s.lastSeq
-	c.At = time.Now().UTC()
-	for _, sub := range s.subs {
-		if sub.deploymentID != "" && sub.deploymentID != c.DeploymentID {
-			continue
-		}
-		select {
-		case sub.ch <- c:
-			continue
-		default:
-		}
-	drain:
-		for {
-			select {
-			case <-sub.ch:
-			default:
-				break drain
-			}
-		}
-		sub.ch <- Change{DeploymentID: sub.deploymentID, Kind: Resync, Seq: c.Seq, At: c.At}
-	}
-}
-
-// Coalesce turns a change channel into a signal that fires at most once per
-// window: the first change after a quiet spell opens a window, and one
-// signal is sent when the window ends, however many changes came in it. The
-// returned channel is closed when in is closed or ctx ends.
-func Coalesce(ctx context.Context, in <-chan Change, window time.Duration) <-chan struct{} {
-	out := make(chan struct{}, 1)
-	go func() {
-		defer close(out)
-		var timer *time.Timer
-		var fire <-chan time.Time
-		defer func() {
-			if timer != nil {
-				timer.Stop()
-			}
-		}()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case _, ok := <-in:
-				if !ok {
-					return
-				}
-				if fire == nil {
-					timer = time.NewTimer(window)
-					fire = timer.C
-				}
-			case <-fire:
-				fire = nil
-				select {
-				case out <- struct{}{}:
-				default:
-				}
-			}
-		}
-	}()
-	return out
 }
 
 // NewStore returns a Store rooted at dir, creating the directory at
@@ -419,13 +282,8 @@ func (s *Store) UpsertJob(j Job) error {
 	for i := range idx.Jobs {
 		if idx.Jobs[i].ID == j.ID {
 			merged := mergeJob(idx.Jobs[i], j)
-			// A write that changes nothing is not made and not published, so
-			// a re-seed of an unchanged tree sends no change to the streams.
-			if reflect.DeepEqual(merged, idx.Jobs[i]) {
-				return nil
-			}
 			idx.Jobs[i] = merged
-			return s.persistAndPublish(idx, Change{DeploymentID: j.DeploymentID, JobID: j.ID, Kind: JobUpserted})
+			return s.persistIndex(idx)
 		}
 	}
 	// First write for this id — there is no prior edge set to preserve or
@@ -434,17 +292,7 @@ func (s *Store) UpsertJob(j Job) error {
 	// (#6131).
 	j.DependsOnAuthoritative = false
 	idx.Jobs = append(idx.Jobs, j)
-	return s.persistAndPublish(idx, Change{DeploymentID: j.DeploymentID, JobID: j.ID, Kind: JobUpserted})
-}
-
-// persistAndPublish writes idx and, when the write succeeded, publishes c.
-// Caller MUST hold s.mu.
-func (s *Store) persistAndPublish(idx *Index, c Change) error {
-	if err := s.persistIndex(idx); err != nil {
-		return err
-	}
-	s.publish(c)
-	return nil
+	return s.persistIndex(idx)
 }
 
 // mergeJob keeps monotonic timestamps + the latest non-empty
@@ -534,13 +382,6 @@ func mergeJob(prev, next Job) Job {
 // Job upsert with appId/parentId metadata BEFORE the first
 // StartExecution — the store does not back-fill those fields.
 func (s *Store) StartExecution(deploymentID, jobName string, startedAt time.Time) (Execution, error) {
-	return s.StartJobRun(deploymentID, jobName, "", startedAt)
-}
-
-// StartJobRun is StartExecution for a run of a Kubernetes Job: the new
-// Execution records the Job's metadata.uid, the key CloseJobRun closes the
-// run by. jobUID may be "".
-func (s *Store) StartJobRun(deploymentID, jobName, jobUID string, startedAt time.Time) (Execution, error) {
 	if strings.TrimSpace(deploymentID) == "" {
 		return Execution{}, errors.New("jobs: StartExecution: deploymentID is required")
 	}
@@ -560,7 +401,6 @@ func (s *Store) StartJobRun(deploymentID, jobName, jobUID string, startedAt time
 		DeploymentID: deploymentID,
 		Status:       StatusRunning,
 		StartedAt:    startedAt.UTC(),
-		JobUID:       jobUID,
 	}
 
 	s.mu.Lock()
@@ -585,7 +425,7 @@ func (s *Store) StartJobRun(deploymentID, jobName, jobUID string, startedAt time
 			break
 		}
 	}
-	if err := s.persistAndPublish(idx, Change{DeploymentID: deploymentID, JobID: jobID, ExecutionID: execID, Kind: ExecutionStarted}); err != nil {
+	if err := s.persistIndex(idx); err != nil {
 		return Execution{}, err
 	}
 	return exec, nil
@@ -630,83 +470,7 @@ func (s *Store) FinishExecution(deploymentID, execID, status string, finishedAt 
 			break
 		}
 	}
-	return s.persistAndPublish(idx, Change{DeploymentID: deploymentID, JobID: jobID, ExecutionID: execID, Kind: ExecutionFinished})
-}
-
-// CloseJobRun records the outcome the Job watch saw for the run whose
-// Kubernetes Job has metadata.uid jobUID: status (StatusSucceeded or
-// StatusFailed) at the time of the Job's terminal condition. It returns
-// false and changes nothing when the deployment has no index, when no open
-// Execution carries jobUID, or when deploymentID or jobUID is empty. It
-// never creates a deployment directory. The parent of a cron or task leaf
-// takes the headline of all its stored runs (foldRunHeadline); a parent of
-// any other kind keeps its status.
-func (s *Store) CloseJobRun(deploymentID, jobUID, status string, finishedAt time.Time) (bool, error) {
-	if !IsTerminal(status) {
-		return false, fmt.Errorf("jobs: CloseJobRun: status must be terminal, got %q", status)
-	}
-	if strings.TrimSpace(jobUID) == "" || strings.TrimSpace(deploymentID) == "" || strings.ContainsAny(deploymentID, "/\\") {
-		return false, nil
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if _, err := os.Stat(filepath.Join(s.dir, deploymentID, indexFileName)); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return false, nil
-		}
-		return false, fmt.Errorf("jobs: CloseJobRun: %w", err)
-	}
-	idx, err := s.loadIndex(deploymentID)
-	if err != nil {
-		return false, err
-	}
-	var exec *Execution
-	for i := range idx.Executions {
-		if idx.Executions[i].JobUID == jobUID && !IsTerminal(idx.Executions[i].Status) {
-			exec = &idx.Executions[i]
-			break
-		}
-	}
-	if exec == nil {
-		return false, nil
-	}
-	finished := finishedAt.UTC()
-	exec.Status = status
-	exec.FinishedAt = &finished
-	for i := range idx.Jobs {
-		j := &idx.Jobs[i]
-		if j.ID != exec.JobID {
-			continue
-		}
-		kind := j.Kind
-		if kind == "" {
-			kind = kindForLeaf(j.JobName)
-		}
-		if kind != KindCron && kind != KindTask {
-			break
-		}
-		runs := []runVerdict{}
-		for _, e := range idx.Executions {
-			if e.JobID == j.ID {
-				runs = append(runs, verdictOfExecution(e))
-			}
-		}
-		if headline, ok := foldRunHeadline(runs); ok {
-			j.Status = headline
-		}
-		if j.LatestExecutionID == exec.ID {
-			j.FinishedAt = &finished
-			if j.StartedAt != nil {
-				j.DurationMs = finished.Sub(*j.StartedAt).Milliseconds()
-			}
-		}
-		break
-	}
-	if err := s.persistAndPublish(idx, Change{DeploymentID: deploymentID, JobID: exec.JobID, ExecutionID: exec.ID, Kind: ExecutionFinished}); err != nil {
-		return false, err
-	}
-	return true, nil
+	return s.persistIndex(idx)
 }
 
 // AppendLogLines appends one or more LogLines to the per-execution
@@ -781,7 +545,7 @@ func (s *Store) AppendLogLines(deploymentID, execID string, lines []LogLine) err
 		return fmt.Errorf("jobs: fsync log %q: %w", logPath, err)
 	}
 	exec.LineCount = startLine
-	return s.persistAndPublish(idx, Change{DeploymentID: deploymentID, ExecutionID: execID, Kind: LogAppended})
+	return s.persistIndex(idx)
 }
 
 // ListJobs returns every Job for the deployment, sorted started-at

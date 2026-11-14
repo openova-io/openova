@@ -14,7 +14,7 @@ spec:
   # cross-cluster state to replicate (the source Secret/ConfigMap is
   # already replicated by whatever Blueprint owns it, e.g.
   # flux-system/ghcr-pull Secret created by bp-flux).
-  version: 1.0.2
+  version: 1.0.2-hw307.1
   card:
     title: Reflector
     family: guardian

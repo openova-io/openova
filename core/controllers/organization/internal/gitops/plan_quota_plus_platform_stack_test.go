@@ -474,10 +474,8 @@ func TestPlatformStack_PinnedToSources(t *testing.T) {
 		t.Errorf("sandboxBridge.enabled = %q — platformStack models the sandbox-bridge sidecar as rendered", v)
 	}
 	sameShape(t, wlNewAPI+" sandbox-bridge", naPod.Containers[1], shapeAt(t, nv, "sandboxBridge", "resources"))
-	// The metering sidecar is off since AIP-040. platformStack still carries
-	// its term, a reserve that AIP-041 drops after every Pod has rolled.
-	if v := scalarAt(t, nv, "meteringSidecar", "enabled"); v != "false" {
-		t.Errorf("meteringSidecar.enabled = %q — the metering sidecar is off since AIP-040; platformStack keeps its term as a reserve until AIP-041", v)
+	if v := scalarAt(t, nv, "meteringSidecar", "enabled"); v != "true" {
+		t.Errorf("meteringSidecar.enabled = %q — platformStack models the metering-sidecar as rendered", v)
 	}
 	sameShape(t, wlNewAPI+" metering-sidecar", naPod.Containers[2], shapeAt(t, nv, "meteringSidecar", "resources"))
 	dep := readRepo(t, "platform", "newapi", "chart", "templates", "deployment.yaml")

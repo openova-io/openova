@@ -52,6 +52,9 @@ assert_probes() {
 fail=0
 # Default render (server StatefulSet + reloader sidecar + nats-box + jsc).
 assert_probes "default" || fail=1
+# Catalyst streams enabled (also renders the JetStream CRs; must not regress the
+# workload probe set).
+assert_probes "streams-enabled" --set catalystStreams.streamsEnabled=true || fail=1
 
 if [ "$fail" -ne 0 ]; then
   echo "kyverno-probes-present: one or more workload containers lack liveness/readiness probes (would be DENIED by the host-ns Kyverno probes-present Enforce policy)."

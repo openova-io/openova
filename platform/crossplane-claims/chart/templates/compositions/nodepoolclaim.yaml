@@ -1,0 +1,152 @@
+# Composition: hetzner-node-pool.compose.openova.io — default realization
+# for XNodePoolClaim.
+#
+# A NodePoolClaim composes ONE provider-hcloud Server per replica. The
+# Server resources are named deterministically:
+#
+#   catalyst-<sov>-<pool>-<role-prefix><index>
+#       e.g. catalyst-omantel-omani-works-edge-w1
+#            catalyst-omantel-omani-works-edge-w2
+#            catalyst-omantel-omani-works-edge-w3
+#
+# The Composition uses Crossplane's "indexed-template" pattern: a single
+# resource entry templated N times via a count-bound transform. As of
+# Crossplane v1.16 the canonical way to do indexed fan-out in a
+# PatchAndTransform Composition is to declare resources with explicit
+# names index-1..index-N up to the schema's maxReplicas (here 100), and
+# patch each one's metadata.name + Server fields from
+# spec.parameters.replicas with a math-comparison gate: when index >
+# replicas, the resource is omitted by setting an unsatisfiable
+# `policy.fromFieldPath: Required` patch.
+#
+# This is verbose but deterministic and survives Composition rebuilds.
+# The same approach is used by Upbound's reference compositions for
+# auto-scaling-group-style resources.
+#
+# To keep this file readable, the helper template `_pool-server` (below)
+# is replicated by `tpl` on render-time. Helm renders the `range` and
+# emits 100 Server entries. Crossplane's composite controller filters
+# the ones whose name patches resolved to empty by the math-comparison
+# gate.
+#
+# UPDATE flow:
+#   - patch spec.parameters.replicas: 3 → 5
+#       → indices 4 and 5's name-patch gate flips from rejected to passing
+#       → composite controller reconciles two new Server CRs
+#       → provider-hcloud creates two Hetzner servers
+#       → cloud-init joins them to the parent ClusterClaim's k3s endpoint
+#   - patch spec.parameters.replicas: 5 → 3
+#       → indices 4 and 5 flip back to rejected
+#       → composite controller deletes the two CRs (deletionPolicy: Delete)
+#       → provider-hcloud deletes the Hetzner servers
+#       → catalyst-environment-controller drains them via
+#         NodeActionClaim before the cloud delete fires (the SAFE drain
+#         pattern is to issue NodeActionClaim FIRST and only patch
+#         replicas down once the action completes)
+#
+# DELETE flow:
+#   - delete the NodePoolClaim → cascade-deletes every Server in the pool.
+
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: hetzner-node-pool.compose.openova.io
+  labels:
+    catalyst.openova.io/component: crossplane
+    catalyst.openova.io/composition-family: hetzner
+    catalyst.openova.io/day2-crud: "true"
+spec:
+  compositeTypeRef:
+    apiVersion: compose.openova.io/v1alpha1
+    kind: XNodePoolClaim
+
+  writeConnectionSecretsToNamespace: crossplane-system
+
+  resources:
+{{- /*
+  Helm-side fan-out: render 100 indexed Server resources. Crossplane's
+  per-resource math-comparison patch gate (policy.fromFieldPath: Required +
+  multiply transform 0/1) keeps inactive indices from materialising — the
+  Required policy fails when the gate field resolves to empty, blocking the
+  resource from rendering for that composite while the rest reconcile.
+*/}}
+{{- range $i, $e := until 100 }}
+{{- $idx := add $i 1 }}
+    - name: server-{{ $idx }}
+      base:
+        apiVersion: server.hcloud.crossplane.io/v1alpha1
+        kind: Server
+        spec:
+          forProvider:
+            serverType: ""
+            image:      ubuntu-24.04
+            location:   ""
+            sshKeys:    []
+            firewallIds: []
+            network:
+              - networkId: ""
+                ip: ""
+            labels: {}
+          providerConfigRef:
+            name: default-hcloud
+          deletionPolicy: Delete
+      patches:
+        # Deterministic name per pool + index.
+        - fromFieldPath: spec.parameters.name
+          toFieldPath: metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-{{ $idx }}"
+        - fromFieldPath: spec.parameters.name
+          toFieldPath: spec.forProvider.labels[catalyst.openova.io/pool]
+        - fromFieldPath: spec.parameters.role
+          toFieldPath: spec.forProvider.labels[catalyst.openova.io/role]
+        - fromFieldPath: spec.parameters.clusterRef.name
+          toFieldPath: spec.forProvider.labels[catalyst.openova.io/cluster]
+        - fromFieldPath: spec.parameters.sku
+          toFieldPath: spec.forProvider.serverType
+        - fromFieldPath: spec.parameters.image
+          toFieldPath: spec.forProvider.image
+        - fromFieldPath: spec.parameters.region
+          toFieldPath: spec.forProvider.location
+        - fromFieldPath: spec.parameters.sshKeyName
+          toFieldPath: spec.forProvider.sshKeys[0]
+        - fromFieldPath: spec.parameters.firewallIds
+          toFieldPath: spec.forProvider.firewallIds
+        - fromFieldPath: spec.parameters.networkId
+          toFieldPath: spec.forProvider.network[0].networkId
+        # Stable per-index private IP: workers .{{ add $idx 9 }} (10..109)
+        - fromFieldPath: spec.parameters.networkId
+          toFieldPath: spec.forProvider.network[0].ip
+          transforms:
+            - type: string
+              string:
+                fmt: "10.0.1.{{ add $idx 9 }}"
+        - fromFieldPath: spec.providerConfigRef.name
+          toFieldPath: spec.providerConfigRef.name
+        # ── Replica gate: reject this resource when replicas < {{ $idx }} ──
+        # Math: replicas - {{ $idx }} → if < 0 the convert transform sets
+        # the patch to "" and Required policy fails the patch, blocking
+        # the resource from being created.
+        - fromFieldPath: spec.parameters.replicas
+          toFieldPath: metadata.annotations[catalyst.openova.io/gate]
+          policy:
+            fromFieldPath: Required
+          transforms:
+            - type: math
+              math:
+                type: ClampMin
+                clampMin: {{ $idx }}
+            - type: math
+              math:
+                type: Multiply
+                multiply: 0
+            - type: convert
+              convert:
+                toType: string
+        # Status: collect node id back to the composite array.
+        - type: ToCompositeFieldPath
+          fromFieldPath: metadata.annotations[crossplane.io/external-name]
+          toFieldPath: status.nodeIDs[{{ $i }}]
+{{- end }}

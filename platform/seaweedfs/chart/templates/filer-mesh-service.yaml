@@ -51,7 +51,6 @@ metadata:
     catalyst.openova.io/seaweedfs-region: {{ $region | quote }}
     catalyst.openova.io/cross-region-role: {{ ternary "self" "peer" $isSelf | quote }}
   annotations:
-    # single-region backend
     service.cilium.io/global: "true"
     service.cilium.io/shared: {{ ternary "true" "false" $isSelf | quote }}
     catalyst.openova.io/blueprint: bp-seaweedfs

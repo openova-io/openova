@@ -116,7 +116,7 @@ chmod +x "${TMP}/bin/kubectl"
 # ── Fixtures: a real bare origin with a real main and a real org-tenants ───
 hr_doc() {
   # $1 = name, $2 = url
-  printf -- '---\napiVersion: source.toolkit.fluxcd.io/v1\nkind: HelmRepository\nmetadata:\n  name: %s\n  namespace: flux-system\nspec:\n  type: oci\n  interval: 15m\n  url: %s\n  secretRef:\n    name: ghcr-pull\n' "$1" "$2"
+  printf -- '---\napiVersion: source.toolkit.fluxcd.io/v1beta2\nkind: HelmRepository\nmetadata:\n  name: %s\n  namespace: flux-system\nspec:\n  type: oci\n  interval: 15m\n  url: %s\n  secretRef:\n    name: ghcr-pull\n' "$1" "$2"
 }
 
 build_origin() {

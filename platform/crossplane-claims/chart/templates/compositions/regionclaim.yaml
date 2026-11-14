@@ -1,0 +1,310 @@
+# Composition: hetzner-region.compose.openova.io — default realization
+# for XRegionClaim. Materialises an entire region slice through
+# provider-hcloud.
+#
+# Resources composed (mirrors infra/hetzner/main.tf 1:1):
+#   1. Network        (hcloud_network)
+#   2. NetworkSubnet  (hcloud_network_subnet)
+#   3. Firewall       (hcloud_firewall) — 80/443/6443/icmp open
+#   4. Server (cp1)   (hcloud_server, role=control-plane, ip=10.0.1.2)
+#   5. LoadBalancer   (hcloud_load_balancer, lb11)
+#   6. LoadBalancerNetwork (attach LB to the private network)
+#   7. LoadBalancerService (port 443 → 31443) — for the catalyst-api
+#                          ingress chain that will land here once Phase 1
+#                          finishes.
+#   8. LoadBalancerTarget  (cp1 by server-id, private-ip)
+#
+# Worker servers are intentionally NOT composed by this XRD. Workers
+# are the responsibility of NodePoolClaim — when an operator wants
+# more workers, catalyst-api writes a NodePoolClaim, not a patch
+# back to RegionClaim.workerCount. The `workerCount` field on the
+# RegionClaim is metadata only (the wizard's "I want N workers at launch"
+# desire); the catalyst-environment-controller seeds an initial
+# NodePoolClaim with that count, and from then on the NodePoolClaim is
+# the source of truth.
+#
+# UPDATE flow:
+#   - patch spec.parameters.skuCP    → the cp1 Server's serverType
+#                                     is patched in place; provider-hcloud
+#                                     resizes the server (Hetzner allows
+#                                     in-place resize between same family).
+#   - patch spec.parameters.region   → forbidden by schema enum; you can't
+#                                     move a region slice. Operator must
+#                                     create a new RegionClaim and migrate.
+#
+# DELETE flow:
+#   - delete the RegionClaim → composite controller deletes every
+#     resource with deletionPolicy: Delete in REVERSE composition order.
+#     Hetzner's API enforces dependency ordering: LB targets first, then
+#     LB, then servers, then subnet, then network, then firewall.
+#     Crossplane retries on ProviderResourceFailed until the dep chain
+#     unblocks.
+
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: hetzner-region.compose.openova.io
+  labels:
+    catalyst.openova.io/component: crossplane
+    catalyst.openova.io/composition-family: hetzner
+    catalyst.openova.io/day2-crud: "true"
+spec:
+  compositeTypeRef:
+    apiVersion: compose.openova.io/v1alpha1
+    kind: XRegionClaim
+
+  writeConnectionSecretsToNamespace: crossplane-system
+
+  resources:
+    # ── 1. Private network (VPC) ──────────────────────────────────────────
+    - name: network
+      base:
+        apiVersion: network.hcloud.crossplane.io/v1alpha1
+        kind: Network
+        spec:
+          forProvider:
+            ipRange: ""        # filled by patch
+          providerConfigRef:
+            name: default-hcloud
+          deletionPolicy: Delete
+      patches:
+        - fromFieldPath: spec.parameters.sovereignFQDN
+          toFieldPath: metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "catalyst-%s-net"
+        - fromFieldPath: spec.parameters.ipRange
+          toFieldPath: spec.forProvider.ipRange
+        - fromFieldPath: spec.providerConfigRef.name
+          toFieldPath: spec.providerConfigRef.name
+        - fromFieldPath: spec.parameters.sovereignFQDN
+          toFieldPath: spec.forProvider.labels[catalyst.openova.io/sovereign]
+        - type: ToCompositeFieldPath
+          fromFieldPath: metadata.annotations[crossplane.io/external-name]
+          toFieldPath: status.networkId
+
+    # ── 2. Subnet ─────────────────────────────────────────────────────────
+    - name: subnet
+      base:
+        apiVersion: network.hcloud.crossplane.io/v1alpha1
+        kind: NetworkSubnet
+        spec:
+          forProvider:
+            type: cloud
+            networkZone: ""
+            ipRange: ""
+            networkIdSelector:
+              matchControllerRef: true
+          providerConfigRef:
+            name: default-hcloud
+          deletionPolicy: Delete
+      patches:
+        - fromFieldPath: spec.parameters.sovereignFQDN
+          toFieldPath: metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "catalyst-%s-subnet"
+        - fromFieldPath: spec.parameters.region
+          toFieldPath: spec.forProvider.networkZone
+          transforms:
+            - type: map
+              map:
+                fsn1: eu-central
+                nbg1: eu-central
+                hel1: eu-central
+                ash:  us-east
+                hil:  us-west
+        - fromFieldPath: spec.parameters.subnetIpRange
+          toFieldPath: spec.forProvider.ipRange
+        - fromFieldPath: spec.providerConfigRef.name
+          toFieldPath: spec.providerConfigRef.name
+
+    # ── 3. Firewall ───────────────────────────────────────────────────────
+    - name: firewall
+      base:
+        apiVersion: firewall.hcloud.crossplane.io/v1alpha1
+        kind: Firewall
+        spec:
+          forProvider:
+            rules:
+              - direction: in
+                protocol:  tcp
+                port:      "80"
+                sourceIps: ["0.0.0.0/0", "::/0"]
+              - direction: in
+                protocol:  tcp
+                port:      "443"
+                sourceIps: ["0.0.0.0/0", "::/0"]
+              - direction: in
+                protocol:  tcp
+                port:      "6443"
+                sourceIps: ["0.0.0.0/0", "::/0"]
+              - direction: in
+                protocol:  icmp
+                sourceIps: ["0.0.0.0/0", "::/0"]
+          providerConfigRef:
+            name: default-hcloud
+          deletionPolicy: Delete
+      patches:
+        - fromFieldPath: spec.parameters.sovereignFQDN
+          toFieldPath: metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "catalyst-%s-fw"
+        - fromFieldPath: spec.parameters.sovereignFQDN
+          toFieldPath: spec.forProvider.labels[catalyst.openova.io/sovereign]
+        - fromFieldPath: spec.providerConfigRef.name
+          toFieldPath: spec.providerConfigRef.name
+
+    # ── 4. Control-plane server (cp1) ─────────────────────────────────────
+    - name: control-plane-1
+      base:
+        apiVersion: server.hcloud.crossplane.io/v1alpha1
+        kind: Server
+        spec:
+          forProvider:
+            serverType: ""
+            image: ubuntu-24.04
+            location: ""
+            sshKeys:    []
+            firewallIds: []
+            network:
+              - networkId: ""
+                ip: 10.0.1.2
+            labels:
+              catalyst.openova.io/role: control-plane
+          providerConfigRef:
+            name: default-hcloud
+          deletionPolicy: Delete
+      patches:
+        - fromFieldPath: spec.parameters.sovereignFQDN
+          toFieldPath: metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "catalyst-%s-cp1"
+        - fromFieldPath: spec.parameters.skuCP
+          toFieldPath: spec.forProvider.serverType
+        - fromFieldPath: spec.parameters.region
+          toFieldPath: spec.forProvider.location
+        - fromFieldPath: spec.parameters.sshKeyName
+          toFieldPath: spec.forProvider.sshKeys[0]
+        - fromFieldPath: spec.parameters.sovereignFQDN
+          toFieldPath: spec.forProvider.labels[catalyst.openova.io/sovereign]
+        - fromFieldPath: spec.providerConfigRef.name
+          toFieldPath: spec.providerConfigRef.name
+        - type: ToCompositeFieldPath
+          fromFieldPath: status.atProvider.ipv4Address
+          toFieldPath: status.controlPlaneIP
+
+    # ── 5. Load balancer ──────────────────────────────────────────────────
+    - name: load-balancer
+      base:
+        apiVersion: load_balancer.hcloud.crossplane.io/v1alpha1
+        kind: LoadBalancer
+        spec:
+          forProvider:
+            loadBalancerType: lb11
+            location: ""
+            algorithm:
+              - type: round_robin
+            labels:
+              catalyst.openova.io/managed-by: crossplane
+          providerConfigRef:
+            name: default-hcloud
+          deletionPolicy: Delete
+      patches:
+        - fromFieldPath: spec.parameters.sovereignFQDN
+          toFieldPath: metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "catalyst-%s-lb"
+        - fromFieldPath: spec.parameters.region
+          toFieldPath: spec.forProvider.location
+        - fromFieldPath: spec.parameters.sovereignFQDN
+          toFieldPath: spec.forProvider.labels[catalyst.openova.io/sovereign]
+        - fromFieldPath: spec.providerConfigRef.name
+          toFieldPath: spec.providerConfigRef.name
+        - type: ToCompositeFieldPath
+          fromFieldPath: status.atProvider.ipv4
+          toFieldPath: status.loadBalancerIP
+
+    # ── 6. LB network attachment ──────────────────────────────────────────
+    - name: load-balancer-network
+      base:
+        apiVersion: load_balancer_network.hcloud.crossplane.io/v1alpha1
+        kind: LoadBalancerNetwork
+        spec:
+          forProvider:
+            loadBalancerIDSelector:
+              matchControllerRef: true
+            networkIDSelector:
+              matchControllerRef: true
+          providerConfigRef:
+            name: default-hcloud
+          deletionPolicy: Delete
+      patches:
+        - fromFieldPath: spec.providerConfigRef.name
+          toFieldPath: spec.providerConfigRef.name
+
+    # ── 7. LB HTTPS service (443 → 31443) ────────────────────────────────
+    - name: lb-service-https
+      base:
+        apiVersion: load_balancer_service.hcloud.crossplane.io/v1alpha1
+        kind: LoadBalancerService
+        spec:
+          forProvider:
+            protocol:        tcp
+            listenPort:      443
+            destinationPort: 31443
+            loadBalancerIDSelector:
+              matchControllerRef: true
+          providerConfigRef:
+            name: default-hcloud
+          deletionPolicy: Delete
+      patches:
+        - fromFieldPath: spec.providerConfigRef.name
+          toFieldPath: spec.providerConfigRef.name
+
+    # ── 8. LB HTTP service (80 → 31080) ──────────────────────────────────
+    - name: lb-service-http
+      base:
+        apiVersion: load_balancer_service.hcloud.crossplane.io/v1alpha1
+        kind: LoadBalancerService
+        spec:
+          forProvider:
+            protocol:        tcp
+            listenPort:      80
+            destinationPort: 31080
+            loadBalancerIDSelector:
+              matchControllerRef: true
+          providerConfigRef:
+            name: default-hcloud
+          deletionPolicy: Delete
+      patches:
+        - fromFieldPath: spec.providerConfigRef.name
+          toFieldPath: spec.providerConfigRef.name
+
+    # ── 9. LB target → cp1 (by controller ref + private IP) ──────────────
+    - name: lb-target-cp1
+      base:
+        apiVersion: load_balancer_target.hcloud.crossplane.io/v1alpha1
+        kind: LoadBalancerTarget
+        spec:
+          forProvider:
+            type: server
+            usePrivateIp: true
+            loadBalancerIDSelector:
+              matchControllerRef: true
+            serverIDSelector:
+              matchControllerRef: true
+          providerConfigRef:
+            name: default-hcloud
+          deletionPolicy: Delete
+      patches:
+        - fromFieldPath: spec.providerConfigRef.name
+          toFieldPath: spec.providerConfigRef.name

@@ -131,14 +131,16 @@ jobs:
           cache-to: type=gha,mode=max
           provenance: false
 
-      # Sign the image and attest its bill of materials through the shared
-      # action, before its tag is pinned (FND-062).
-      - name: Sign and attest the image
+      - name: Install cosign
         if: github.event_name != 'pull_request'
-        uses: ./.github/actions/sign-and-attest
-        with:
-          ref: ${{ env.WP_IMAGE }}
-          digest: ${{ steps.build.outputs.digest }}
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image (keyless)
+        if: github.event_name != 'pull_request'
+        env:
+          IMAGE: ${{ env.WP_IMAGE }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "${IMAGE}@${DIGEST}"
 
       - name: Install yq
         if: github.event_name != 'pull_request'

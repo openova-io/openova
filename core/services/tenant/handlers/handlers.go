@@ -229,10 +229,11 @@ type createOrgRequest struct {
 	// empty (legacy / single-domain Sovereigns fall back to the
 	// Sovereign FQDN in deriveConsoleHost).
 	ParentDomain string `json:"parent_domain"`
-	// Agents — coding-agent picks the marketplace still sends with a
-	// cart. They were the catalogue of the withdrawn Sandbox product
-	// (decision record 0023); nothing acts on them any more. They are
-	// still persisted, so a stored record keeps its shape. Tolerated empty.
+	// Wave 4 Sandbox — coding-agent picks from the marketplace
+	// detail page. Only acted on when `Apps` contains "sandbox":
+	// CreateOrg publishes an extra `tenant.sandbox_requested`
+	// event the sandbox-controller consumes to mint a Sandbox CR
+	// with `spec.agentCatalogue` = these slugs. Tolerated empty.
 	Agents []string `json:"agents"`
 	// TBD-V18-D follow-up to PR #2038 — per-app configSchema
 	// values, keyed by app SLUG. Each inner map is `ConfigField.Key`
@@ -246,7 +247,7 @@ type createOrgRequest struct {
 	AppConfigs map[string]map[string]any `json:"app_configs"`
 	// DeferLaunch (#4956) — when true, CreateOrg persists the Org shell
 	// but does NOT fire the provisioning triggers (tenant.created →
-	// Organization CR, funnel cart-install). The Org
+	// Organization CR, funnel cart-install, sandbox request). The Org
 	// stays `pending_payment` until billing settlement calls the internal
 	// launch endpoint. The marketplace funnel sets this so a checkout that
 	// 400s (bad/unseeded voucher, payment declined) can NEVER leave a
@@ -382,7 +383,7 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// #4956 — fire the provisioning triggers (tenant.created → Organization CR,
-	// funnel cart-install) INLINE only when the caller did NOT
+	// funnel cart-install, sandbox request) INLINE only when the caller did NOT
 	// request a deferred launch. The marketplace funnel sets defer_launch=true
 	// so nothing provisions until billing settlement calls the internal launch
 	// endpoint; every non-funnel caller (BSS door, direct API) leaves it false
@@ -423,8 +424,8 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 //
 // Best-effort + non-fatal: a catalog miss, a non-deployable slug, or a publish
 // failure is logged loud but never fails Org creation (the shell is already
-// minted; the day-2 page can re-install). `sandbox`, the withdrawn product,
-// is excluded (no Application template). When the Catalog client is unwired
+// minted; the day-2 page can re-install). `sandbox` is excluded — it has its
+// own `tenant.sandbox_requested` dispatch. When the Catalog client is unwired
 // (capacity was validated at checkout, the consumer resolves slugs itself) the
 // helper still dispatches the raw cart slugs so provisioning can render them.
 func (h *Handler) dispatchFunnelCartInstall(ctx context.Context, t *store.Tenant) {
@@ -463,8 +464,8 @@ func (h *Handler) dispatchFunnelCartInstall(ctx context.Context, t *store.Tenant
 				slug, id = a.Slug, a.ID
 			}
 		}
-		// The withdrawn Sandbox product (decision record 0023) has no provisioning
-		// Deployment template — never push it through the app-install path.
+		// Sandbox has its own dispatch (tenant.sandbox_requested) — never push it
+		// through the app-install path (it has no provisioning Deployment template).
 		if slug == "sandbox" {
 			continue
 		}
@@ -523,18 +524,18 @@ func (h *Handler) dispatchFunnelCartInstall(ctx context.Context, t *store.Tenant
 
 // launchTenant fires the provisioning triggers for a tenant: the
 // `tenant.created` event (→ provisioning mints the Organization CR → the
-// org-controller renders the boundary ns + vCluster + network policies) and the
+// org-controller renders the boundary ns + vCluster + network policies), the
 // funnel cart-install (→ the customer's purchased Applications land in the
-// per-Org gitops tree).
+// per-Org gitops tree), and the Sandbox request (when the cart holds sandbox).
 //
 // #4956 — this is the SINGLE place the funnel Org is provisioned. On the
 // immediate path (defer_launch=false) CreateOrg calls it inline; on the
 // deferred path it is called by InternalLaunchTenant ONLY after billing
 // settlement, so a checkout that 400s / is abandoned can never leave a
-// provisioned Org behind. owner_email is read off the persisted tenant (not
-// the request), so the deferred call — which runs server-to-server with no
-// user context — still emits a complete tenant.created. Best-effort +
-// non-blocking: broker outages log loud but never fail
+// provisioned Org behind. owner_email + agents are read off the persisted
+// tenant (not the request), so the deferred call — which runs server-to-server
+// with no user context — still emits a complete tenant.created / sandbox
+// request. Best-effort + non-blocking: broker outages log loud but never fail
 // the caller (the Org shell already exists; the day-2 page / redelivery
 // recover).
 func (h *Handler) launchTenant(ctx context.Context, t *store.Tenant) {
@@ -584,6 +585,28 @@ func (h *Handler) launchTenant(ctx context.Context, t *store.Tenant) {
 	// per-Org gitops tree. Absent here, the customer's purchased apps never land
 	// (the vcluster/apps tree carried only networkpolicy.yaml).
 	h.dispatchFunnelCartInstall(ctx, t)
+
+	// Wave 4 — Sandbox: when the cart contains the sandbox product, emit
+	// `tenant.sandbox_requested` so the sandbox-orchestrator can mint a Sandbox
+	// CR with `spec.agentCatalogue` matching the persisted picks (t.Agents).
+	if containsSlug(t.Apps, "sandbox") {
+		sandboxPayload := map[string]any{
+			"tenant_id":    t.ID,
+			"org_slug":     t.Slug,
+			"owner_id":     t.OwnerID,
+			"agents":       t.Agents,
+			"sovereign":    "", // populated by the consumer from its env / cluster context
+			"plan_id":      t.PlanID,
+			"requested_at": time.Now().UTC().Format(time.RFC3339),
+		}
+		if sbEvt, sbErr := events.NewEvent("tenant.sandbox_requested", "tenant-service", t.ID, sandboxPayload); sbErr == nil {
+			pubCtx, pubCancel := context.WithTimeout(context.Background(), 3*time.Second)
+			if pubErr := h.Producer.Publish(pubCtx, "org.tenant.events", sbEvt); pubErr != nil {
+				slog.Error("failed to publish tenant.sandbox_requested event", "tenant_id", t.ID, "error", pubErr)
+			}
+			pubCancel()
+		}
+	}
 }
 
 // InternalLaunchTenant transitions a DEFERRED (pending_payment) Org to
@@ -829,7 +852,10 @@ func deriveTenantConsoleHost(t *store.Tenant) string {
 	return "console." + sub + "." + parent
 }
 
-// containsSlug returns true iff slug appears in slugs.
+// containsSlug returns true iff slug appears in slugs. Used to gate the
+// Sandbox-specific `tenant.sandbox_requested` event emission so the
+// CreateOrg hot path doesn't pay an event marshal for tenants that
+// never picked the Sandbox product.
 func containsSlug(slugs []string, slug string) bool {
 	for _, s := range slugs {
 		if s == slug {

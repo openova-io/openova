@@ -1,0 +1,94 @@
+# Composition: hetzner-cluster.compose.openova.io — default realization
+# for XClusterClaim.
+#
+# A ClusterClaim is a thin overlay on top of a RegionClaim — it does not
+# create new cloud resources by itself. Instead it stamps cluster identity
+# onto a Kubernetes-side ConfigMap that the
+# catalyst-environment-controller reads to template per-server cloud-init
+# (k3s --cluster-name, --node-label catalyst.openova.io/cluster=<name>,
+# join token derived from the cluster's UUID).
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md #3 the ConfigMap is composed via
+# provider-kubernetes Object — never raw `kubectl apply`. provider-kubernetes
+# is shipped by the bp-crossplane chart alongside provider-hcloud (the
+# bootstrap-kit installs both providers and binds them to the same
+# ProviderConfig family).
+#
+# UPDATE flow:
+#   - patch spec.parameters.k3sVersion → ConfigMap data.k3sVersion changes
+#                                       → catalyst-environment-controller
+#                                         picks up the diff and triggers a
+#                                         per-pool rolling upgrade through
+#                                         NodeActionClaim(replace).
+#   - patch spec.parameters.tags        → ConfigMap data.tags is rewritten;
+#                                         tags propagate to new servers on
+#                                         next reconcile.
+#
+# DELETE flow:
+#   - delete the ClusterClaim → composite controller deletes the ConfigMap.
+#     Servers in the cluster are NOT touched (those belong to NodePoolClaim).
+#     Operator MUST delete dependent NodePoolClaims first (catalyst-api
+#     enforces the order; this Composition does not).
+
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: hetzner-cluster.compose.openova.io
+  labels:
+    catalyst.openova.io/component: crossplane
+    catalyst.openova.io/composition-family: hetzner
+    catalyst.openova.io/day2-crud: "true"
+spec:
+  compositeTypeRef:
+    apiVersion: compose.openova.io/v1alpha1
+    kind: XClusterClaim
+
+  writeConnectionSecretsToNamespace: crossplane-system
+
+  resources:
+    # ── 1. Cluster-identity ConfigMap (provider-kubernetes Object) ────────
+    - name: cluster-identity-configmap
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha2
+        kind: Object
+        spec:
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                namespace: crossplane-system
+                labels:
+                  catalyst.openova.io/managed-by: crossplane
+              data:
+                clusterName:  ""
+                k3sVersion:   ""
+                regionName:   ""
+                tags:         "{}"
+          providerConfigRef:
+            name: default-kubernetes
+          deletionPolicy: Delete
+      patches:
+        - fromFieldPath: spec.parameters.name
+          toFieldPath: metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "catalyst-cluster-%s"
+        - fromFieldPath: spec.parameters.name
+          toFieldPath: spec.forProvider.manifest.metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "catalyst-cluster-%s"
+        - fromFieldPath: spec.parameters.name
+          toFieldPath: spec.forProvider.manifest.data.clusterName
+        - fromFieldPath: spec.parameters.k3sVersion
+          toFieldPath: spec.forProvider.manifest.data.k3sVersion
+        - fromFieldPath: spec.parameters.regionRef.name
+          toFieldPath: spec.forProvider.manifest.data.regionName
+        - fromFieldPath: metadata.uid
+          toFieldPath: spec.forProvider.manifest.data.clusterID
+        - type: ToCompositeFieldPath
+          fromFieldPath: metadata.uid
+          toFieldPath: status.clusterID

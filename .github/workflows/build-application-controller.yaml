@@ -140,14 +140,26 @@ jobs:
           provenance: false
           sbom: false
 
-      # Sign the image and attest its bill of materials through the shared
-      # action, before its tag is pinned (FND-062).
-      - name: Sign and attest the image
+      - name: Install cosign
         if: github.event_name != 'pull_request'
-        uses: ./.github/actions/sign-and-attest
-        with:
-          ref: ${{ env.IMAGE }}
-          digest: ${{ steps.build.outputs.digest }}
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image with cosign (keyless)
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      - name: Generate and attest SBOM
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign attest --yes \
+            --predicate <(echo '{"sbom":"in-toto-spdx attached at build time"}') \
+            --type spdx \
+            "${IMAGE}@${DIGEST}"
 
       # Auto-bump the chart values.yaml tag so the next Sovereign chart
       # rollout picks up this image without a manual edit. Per

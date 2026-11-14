@@ -53,7 +53,7 @@ metadata:
   labels:
     catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
 ---
-apiVersion: source.toolkit.fluxcd.io/v1
+apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
 metadata:
   name: bp-powerdns
@@ -164,7 +164,7 @@ spec:
       #         nodePort=32015/31425 at the same time (§854 violation invisible
       #         to every source-side check).
       # 1.2.22 (#5086): render-contract regression lock (no chart behaviour change).
-      version: 1.2.25
+      version: 1.2.24
       sourceRef:
         kind: HelmRepository
         name: bp-powerdns

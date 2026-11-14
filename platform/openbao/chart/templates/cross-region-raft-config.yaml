@@ -1,0 +1,40 @@
+{{- /*
+Cross-region stretched-raft config ConfigMap — bp-openbao (#3492).
+
+Emits the SECONDARY-side (region-B) `server.ha.raft.config` HCL (the
+openbao.crossRegionRaftConfig helper) as a ConfigMap so:
+
+  1. `helm template --set crossRegion.enabled=true --set crossRegion.role=secondary`
+     PROVES the retry_join + retry_join_as_non_voter stanza renders correctly
+     (tests/cross-region-render.sh asserts it). The upstream chart renders the
+     ACTIVE raft.config into its own ConfigMap from a `tpl`'d string the parent
+     `.Values.crossRegion` is NOT visible inside — so the parent overlay
+     (08-openbao.yaml) injects this exact HCL into
+     `openbao.server.ha.raft.config`; this ConfigMap is the version-controlled,
+     render-testable source-of-truth for that string.
+  2. An operator inspecting region-B can read the exact intended raft.config.
+
+Render gating (per #402 — never `{{ fail }}`): emitted ONLY when
+`crossRegion.enabled=true` AND `crossRegion.role=secondary` (region-B is the
+side that joins; region-A is the unmodified seed). A default `helm template`
+renders NOTHING here → single-region output byte-identical to origin/main.
+*/ -}}
+{{- $cr := .Values.crossRegion | default dict -}}
+{{- if and $cr.enabled (eq ($cr.role | default "primary") "secondary") -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openbao-cross-region-raft-config
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    catalyst.openova.io/blueprint: bp-openbao
+    catalyst.openova.io/component: openbao-cross-region-raft
+    app.kubernetes.io/name: openbao
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  # The exact server.ha.raft.config the secondary (region-B) cluster runs to
+  # join region-A's raft cluster as a non-voter. The 08-openbao.yaml overlay
+  # copies this into openbao.server.ha.raft.config for the secondary side.
+  raft-config.hcl: |
+{{ include "openbao.crossRegionRaftConfig" . | indent 4 }}
+{{- end }}

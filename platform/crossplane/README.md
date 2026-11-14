@@ -58,14 +58,14 @@ Catalyst uses **OpenTofu** (the open-source Terraform fork) for bootstrap IaC, n
 
 ## Supported Providers
 
-What is installed on a Sovereign today, from `clusters/_template/infrastructure/providers/`. The target contract for a provider is [ADR-0016](../../docs/adr/0016-cloud-abstraction-contract.md).
-
-| Cloud of the Sovereign | Status | Crossplane provider packages installed |
-|------------------------|--------|----------------------------------------|
-| Huawei Cloud Stack | Delivery target | `provider-opentofu` |
-| Hetzner Cloud | Retained | `provider-opentofu` and `provider-hcloud` |
-
-No native Crossplane provider for Huawei is installed. On both clouds Crossplane reaches the cloud resources that OpenTofu created through `provider-opentofu` ([ADR-0011](../../docs/adr/0011-opentofu-crossplane-adoption-seam.md)). Oracle Cloud, AWS, GCP and Azure have no OpenTofu module and no Crossplane provider in this repository.
+| Provider | Status | Crossplane Provider |
+|----------|--------|---------------------|
+| Huawei Cloud | Available (current substrate — kom4dc) | huaweicloud |
+| Hetzner Cloud | Legacy | hcloud |
+| Oracle Cloud | Coming | oci |
+| AWS | Coming | aws |
+| GCP | Coming | gcp |
+| Azure | Coming | azure |
 
 ---
 

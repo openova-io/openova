@@ -24,8 +24,6 @@ import (
 	"time"
 
 	yamlv3 "gopkg.in/yaml.v3"
-
-	"github.com/openova-io/openova/core/controllers/pkg/gitwrite"
 )
 
 // TestMergeCatalogEditIntoBlueprintYAML_FreshCR — with no existing CR the
@@ -204,16 +202,17 @@ func TestWriteCatalogEditToGit_CommitsAndReadsBack(t *testing.T) {
 	}
 }
 
-// TestWriteCatalogEditToGit_UnwiredIsRefused — with no Gitea client the
-// write is refused with gitwrite.ErrUnavailable, never skipped in silence.
-func TestWriteCatalogEditToGit_UnwiredIsRefused(t *testing.T) {
+// TestWriteCatalogEditToGit_UnwiredIsBestEffortNoop — with no Gitea client
+// (chroot pre-cutover / CI) the write is a silent no-op, never an error,
+// so the catalog edit API never fails for lack of a local catalog git.
+func TestWriteCatalogEditToGit_UnwiredIsBestEffortNoop(t *testing.T) {
 	h := NewWithPDM(silentLogger(), &fakePDM{})
 	// no SetGiteaClient → h.giteaClient == nil
 	committed, err := h.writeCatalogEditToGit(context.Background(), catalogEdit{
 		Slug: "grafana", Name: "X",
 	})
-	if !errors.Is(err, gitwrite.ErrUnavailable) {
-		t.Fatalf("unwired write must fail with gitwrite.ErrUnavailable; got %v", err)
+	if err != nil {
+		t.Fatalf("unwired write must not error: %v", err)
 	}
 	if committed {
 		t.Fatalf("unwired write must not report a commit")
@@ -606,15 +605,14 @@ func TestWriteCatalogEditToGit_NoAggregatorOnMothership(t *testing.T) {
 }
 
 // TestWriteCatalogSovereignAggregator_BestEffortGuards — the aggregator
-// mirror no-ops (committed=false, err=nil) when FQDN-less, and is refused
-// with gitwrite.ErrUnavailable when unwired. Erroring Gitea surfaces an err
-// for the caller to log+swallow (the edit API still returns the per-Blueprint verdict).
+// mirror no-ops (committed=false, err=nil) when unwired or FQDN-less, and
+// never blocks the edit. Erroring Gitea surfaces an err for the caller to
+// log+swallow (the edit API still returns the per-Blueprint verdict).
 func TestWriteCatalogSovereignAggregator_BestEffortGuards(t *testing.T) {
-	// Unwired client on a Sovereign → refused, not skipped.
-	t.Setenv("SOVEREIGN_FQDN", "t99.omani.works")
+	// Unwired client → no-op.
 	h := NewWithPDM(silentLogger(), &fakePDM{})
-	if c, err := h.writeCatalogSovereignAggregator(context.Background(), "bp-alloy", []byte("kind: Blueprint\n")); c || !errors.Is(err, gitwrite.ErrUnavailable) {
-		t.Errorf("unwired: want (false, gitwrite.ErrUnavailable); got (%v,%v)", c, err)
+	if c, err := h.writeCatalogSovereignAggregator(context.Background(), "bp-alloy", []byte("x")); c || err != nil {
+		t.Errorf("unwired: want (false,nil); got (%v,%v)", c, err)
 	}
 
 	// Wired but FQDN empty → no-op.

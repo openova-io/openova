@@ -28,8 +28,10 @@ kind: Kustomization
 # provider could never install → its CRD never registered → permanent ordering
 # deadlock. See ../providers/base/kustomization.yaml for the full rationale.
 #
-# Referenced by the top-level ../kustomization.yaml, the config entrypoint on
-# every cloud.
+# Referenced by the top-level ../kustomization.yaml (Huawei path) AND by the
+# ../hetzner overlay (Hetzner path, which adds the native provider-config-hcloud).
+# Sibling-dir layout so the hetzner overlay can `../base`-reference this
+# without the kustomize ancestor-cycle / security-boundary errors.
 resources:
   - provider-config-opentofu.yaml
   - adoption-claims.yaml

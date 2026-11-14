@@ -1,7 +1,0 @@
-chart_lines=21276
-chart_mutations=200
-chart_git_push=38
-sequencer_lines=6346
-child_client_sites=12
-twin_helm_only=21
-twin_kustomize_only=1

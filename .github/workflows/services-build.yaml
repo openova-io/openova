@@ -16,8 +16,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-      # The step that signs the image needs a GitHub OIDC token (FND-062).
-      id-token: write
     strategy:
       matrix:
         # `metering-sidecar` (#798) builds on the same Containerfile
@@ -42,7 +40,6 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push ${{ matrix.service }}
-        id: push
         uses: docker/build-push-action@v6
         with:
           context: core/services
@@ -51,14 +48,6 @@ jobs:
           tags: |
             ${{ env.IMAGE_BASE }}-${{ matrix.service }}:${{ steps.vars.outputs.sha_short }}
             ${{ env.IMAGE_BASE }}-${{ matrix.service }}:latest
-
-      # Sign the image and attest its bill of materials through the shared
-      # action, before its tag is pinned (FND-062).
-      - name: Sign and attest the ${{ matrix.service }} image
-        uses: ./.github/actions/sign-and-attest
-        with:
-          ref: ${{ env.IMAGE_BASE }}-${{ matrix.service }}
-          digest: ${{ steps.push.outputs.digest }}
 
   deploy:
     needs: build
@@ -195,10 +184,6 @@ jobs:
           # deploy-bots can never diverge on "what is the next version"
           # again.
 
-      - name: "Release writer: push with the release-writer key"
-        uses: ./.github/actions/use-release-writer
-        with:
-          key: ${{ secrets.RELEASE_WRITER_KEY }}
       - name: Commit and push manifest updates
         id: deploy_commit
         run: |
@@ -241,7 +226,7 @@ jobs:
             echo "pushed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          git commit -m "deploy: update org service images to ${SHA} [skip ci]"
+          git commit -m "deploy: update org service images to ${SHA}"
 
           # TBD-V32 / openova-io/openova#2062 — race-safe push loop.
           # NOTE: this workflow deliberately does NOT use the shared
@@ -267,7 +252,7 @@ jobs:
               echo "pushed=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            git commit -m "deploy: update org service images to ${SHA} [skip ci]"
+            git commit -m "deploy: update org service images to ${SHA}"
             sleep $((i * 2))
           done
           echo "push failed after 5 attempts"

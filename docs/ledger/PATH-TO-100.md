@@ -1,5 +1,3 @@
-Historical. Describes environment hw307 as walked on 2026-09-02, and environments hw291 to hw305 before it, all wiped by 2026-09-02. Not a statement about the product today.
-
 # PATH TO 100% — **hw307 partition** (opened 2026-09-02, env live)
 
 > **Point-in-time: hw307 (`hw307.omani.works`, dep `9a1f230f320d7ff9`), `ready` 15:15:30Z, stability watch passed 16:16:59Z.** `UAT.md` on `origin/main` reads **✅98 · ❌12 · ⚠️8 · ⏳168 of 286** after the carry-forward (#6810) and the first walk (#6811). The ⏳ count is the scheduler's work-list, not a regression: 156 rows carried their evidence verbatim and 103 are held at high confidence. **merge ≠ green** (founder rule): a fix on main clears a row only after a walk on an env that booted it.

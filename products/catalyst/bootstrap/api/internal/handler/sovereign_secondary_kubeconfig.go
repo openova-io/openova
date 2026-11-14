@@ -43,7 +43,6 @@ import (
 	"strings"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
-	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/lifecycle"
 )
 
 // kubeconfigsDir is the canonical on-disk path FactoryFromEnv reads at
@@ -82,7 +81,6 @@ type secondaryKubeconfigRequest struct {
 	RegionKey      string `json:"regionKey"`
 	KubeconfigYAML string `json:"kubeconfigYaml"`
 	NodeInternalIP string `json:"nodeInternalIp,omitempty"`
-	PeerKubeconfig string `json:"peerKubeconfig,omitempty"` // SOV-141: the region's handover-peer kubeconfig
 }
 
 // rewriteKubeconfigServerHost replaces the host:port host portion of the
@@ -143,6 +141,15 @@ func isChroot() bool {
 // depth — the filename is composed from these and written to a
 // shared-PVC directory.
 var safeIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
+
+// nodeIPSidecarPath is the on-disk path of the private-node-IP sidecar
+// for a secondary cluster (#3991). It sits next to `<clusterID>.yaml` as
+// `<clusterID>.nodeip` so the mothership's handover forward can replay
+// the IP to the chroot. The `.nodeip` extension keeps it out of
+// LoadClustersFromDir's `*.yaml` glob.
+func nodeIPSidecarPath(dir, clusterID string) string {
+	return filepath.Join(dir, clusterID+".nodeip")
+}
 
 // persistSecondaryKubeconfig writes one region's kubeconfig into dir under its
 // canonical `<clusterID>.yaml` name and returns the path it wrote. The single
@@ -252,7 +259,7 @@ func (h *Handler) HandleSovereignSecondaryKubeconfig(w http.ResponseWriter, r *h
 	// #3991 rewrite and the #4000 self-heal below are skipped for a
 	// document that can never register, which is where the two live
 	// requests each burned 6002ms/6001ms of dial timeouts.
-	if defects := append(secondaryKubeconfigDefects(raw), lifecycle.PeerKubeconfigDefects(body.PeerKubeconfig)...); len(defects) > 0 {
+	if defects := secondaryKubeconfigDefects(raw); len(defects) > 0 {
 		h.log.Warn("secondary-kubeconfig: REFUSED — document cannot produce a client; not persisted (region keeps any previously-delivered kubeconfig)",
 			"depId", body.DeploymentID,
 			"region", body.RegionKey,
@@ -333,10 +340,6 @@ func (h *Handler) HandleSovereignSecondaryKubeconfig(w http.ResponseWriter, r *h
 		return
 	}
 	clusterID := fmt.Sprintf("%s-%s", body.DeploymentID, body.RegionKey)
-	if err := lifecycle.StorePeerKubeconfig(dir, clusterID, body.PeerKubeconfig); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "write-failed", "detail": err.Error()})
-		return
-	}
 	path, err := persistSecondaryKubeconfig(dir, clusterID, raw)
 	if err != nil {
 		h.log.Warn("secondary-kubeconfig: write failed", "path", path, "err", err)
@@ -353,7 +356,7 @@ func (h *Handler) HandleSovereignSecondaryKubeconfig(w http.ResponseWriter, r *h
 	// Best-effort: a missing sidecar simply means the chroot keeps the EIP
 	// (the pre-#3991 behaviour), so a write failure must not fail the POST.
 	if nodeIP != "" {
-		sidecar := lifecycle.NodeIPPath(dir, clusterID)
+		sidecar := nodeIPSidecarPath(dir, clusterID)
 		if werr := os.WriteFile(sidecar, []byte(nodeIP), 0o600); werr != nil {
 			h.log.Warn("secondary-kubeconfig: node-ip sidecar write failed (non-fatal)",
 				"path", sidecar, "err", werr)

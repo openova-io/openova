@@ -1,0 +1,89 @@
+# Composition for XHetznerLoadBalancer.
+#
+# Per docs/INVIOLABLE-PRINCIPLES.md principle #3: Crossplane is the ONLY day-2
+# IaC. After OpenTofu Phase-0 creates the initial Hetzner load balancer for
+# the Sovereign's control plane, additional load balancers (e.g. per-Org
+# vcluster ingress, regional DR replicas) are managed via this Composition.
+#
+# Canonical XRD group: compose.openova.io/v1alpha1 (per Pass 42/48 + BLUEPRINT-AUTHORING.md §8).
+
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: hetzner-load-balancer.compose.openova.io
+  labels:
+    catalyst.openova.io/provider: hetzner
+spec:
+  compositeTypeRef:
+    apiVersion: compose.openova.io/v1alpha1
+    kind: XHetznerLoadBalancer
+
+  resources:
+    - name: load-balancer
+      base:
+        apiVersion: load_balancer.hcloud.crossplane.io/v1alpha1
+        kind: LoadBalancer
+        spec:
+          forProvider:
+            loadBalancerType: lb11
+            algorithm:
+              - type: round_robin
+            labels:
+              "catalyst.openova.io/managed-by": crossplane
+          providerConfigRef:
+            name: default
+      patches:
+        - fromFieldPath: spec.parameters.name
+          toFieldPath: metadata.name
+        - fromFieldPath: spec.parameters.location
+          toFieldPath: spec.forProvider.location
+        - fromFieldPath: spec.parameters.loadBalancerType
+          toFieldPath: spec.forProvider.loadBalancerType
+        - fromFieldPath: spec.parameters.networkID
+          toFieldPath: spec.forProvider.network
+        - fromFieldPath: spec.parameters.sovereignFQDN
+          toFieldPath: spec.forProvider.labels["catalyst.openova.io/sovereign"]
+
+    - name: http-service
+      base:
+        apiVersion: load_balancer_service.hcloud.crossplane.io/v1alpha1
+        kind: LoadBalancerService
+        spec:
+          forProvider:
+            protocol: tcp
+            listenPort: 80
+            destinationPort: 31080
+          providerConfigRef:
+            name: default
+      patches:
+        - fromFieldPath: spec.parameters.name
+          toFieldPath: metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-http"
+        - fromFieldPath: status.atProvider.id
+          toFieldPath: spec.forProvider.loadBalancerID
+          policy:
+            fromFieldPath: Required
+
+    - name: https-service
+      base:
+        apiVersion: load_balancer_service.hcloud.crossplane.io/v1alpha1
+        kind: LoadBalancerService
+        spec:
+          forProvider:
+            protocol: tcp
+            listenPort: 443
+            destinationPort: 31443
+          providerConfigRef:
+            name: default
+      patches:
+        - fromFieldPath: spec.parameters.name
+          toFieldPath: metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-https"
+
+  writeConnectionSecretsToNamespace: crossplane-system

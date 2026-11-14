@@ -1,7 +1,6 @@
 # ADR-0009 — Per-Organization IaC repo bootstrap on Org creation
 
 > Status: **Accepted** (G117 Wave-0 pre-flight, 2026-06-02)
-> **Superseded by:** [ADR-0021](0021-git-first-write-path-and-event-backbone.md), accepted 2026-11-13. Intent is a direct commit to the fleet repository or to the `catalyst-tenant` repository of the Organization; the `iac` repository and its pull-request pipeline are retired (work packages CTL-162 and CTL-250).
 >
 > ADR numbering preserves slots 0005-0008 for in-flight EPICs (G92/G105/G108/G112 candidates) — Wave-0 picks 0009 deliberately so this ADR can land without ordering coupling. Wave-1 may renumber if the in-flight ADRs collapse out of scope; renumbering this one is a pure-rename refactor.
 

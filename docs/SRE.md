@@ -306,9 +306,14 @@ The Catalyst control plane runs its own Grafana stack (Alloy + Loki + Mimir + Te
 
 ### 8.3 Per-Organization dashboards
 
-> State: target. Decision: ADR-0029
+Each Organization sees their own slice:
 
-Target, not built. The per-Organization console `core/console` has no compliance view and no incident view today; [ADR-0029](adr/0029-compliance-plane.md) gives an Organization user the compliance posture hub on the Organization console host, restricted to that Organization's namespaces.
+| Dashboard | Purpose |
+|---|---|
+| Apps Overview | All Applications across Environments |
+| Budget | Cost projection, billing |
+| Compliance Posture | Per-control evidence |
+| Incidents | Open issues, MTTR |
 
 ---
 

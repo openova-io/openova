@@ -1,0 +1,33 @@
+# infrastructure-config Flux Kustomization — LAYER 2, HETZNER variant (#4521,
+# Refs #1947 #4212). Identical to the cloud-agnostic
+# providers/infrastructure-config-kustomization.yaml EXCEPT the `path` points
+# at ./clusters/_template/infrastructure/hetzner so it also applies the native
+# `hcloud.crossplane.io/v1beta1` ProviderConfig (provider-config-hcloud) on top
+# of the base config. Same #4521 ordering fix: provider-config-hcloud is a CRD
+# the provider-hcloud package registers, so — exactly like the cross-cloud
+# ProviderConfig — it MUST be dry-run only AFTER its Provider installs, which
+# the `dependsOn: [infrastructure-providers]` here guarantees.
+#
+# Shipped in the providers/hetzner overlay (applied by the inline
+# `infrastructure-providers` Kustomization when its cloud-conditional path
+# resolves to providers/hetzner). On Huawei the providers/ tree ships the
+# cloud-agnostic variant instead; the two are mutually exclusive per the
+# inline Kustomization's cloud-conditional path.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: infrastructure-config
+  namespace: flux-system
+spec:
+  interval: 5m
+  retryInterval: 1m
+  path: ./clusters/_template/infrastructure/hetzner
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: openova
+  dependsOn:
+    - name: infrastructure-providers
+    - name: sovereign-tls
+  wait: false
+  timeout: 5m

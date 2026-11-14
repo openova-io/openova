@@ -119,22 +119,32 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
-	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/meshstatus"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
 
-// ClusterMeshStatus and PeerStatus are the per-region summary of the mesh
-// step, defined in package meshstatus so that both modes return them.
-type (
-	ClusterMeshStatus = meshstatus.ClusterMeshStatus
-	PeerStatus        = meshstatus.PeerStatus
-)
+// ClusterMeshStatus is the per-region terminal summary returned to the
+// caller. One entry per region; PeerStatus describes whether the
+// outbound trust to each OTHER region was successfully wired.
+type ClusterMeshStatus struct {
+	RegionKey      string       `json:"regionKey"`
+	ClusterName    string       `json:"clusterName"`
+	ClusterID      int          `json:"clusterID"`
+	LoadBalancerIP string       `json:"loadBalancerIP"`
+	Peers          []PeerStatus `json:"peers"`
+	ReadyAt        time.Time    `json:"readyAt,omitempty"`
+}
 
-// clusterMeshObserve: CATALYST_CLUSTERMESH_MODE is "observe", so the mesh step only reads the
-// mesh (meshstatus.Observe) and writes nothing. Set at start-up; an invalid value stops the process.
-var clusterMeshObserve atomic.Bool
-
-func init() { clusterMeshObserve.Store(meshstatus.MustModeFromEnv() == meshstatus.ModeObserve) }
+// PeerStatus describes the trust wiring outbound from one region to
+// another. Connected=true means the cross-cluster Secret entries were
+// written successfully; it does NOT mean Cilium has finished its peer
+// handshake (that's observed in the cilium-clustermesh-apiserver Pod
+// logs and surfaced via the optional WaitForPeerLogs step).
+type PeerStatus struct {
+	Name           string `json:"name"`
+	LoadBalancerIP string `json:"loadBalancerIP"`
+	Connected      bool   `json:"connected"`
+	Error          string `json:"error,omitempty"`
+}
 
 // regionSlot is a per-region intermediate the orchestrator carries
 // through the three steps (LB IP discovery, CA snapshot, peer write).
@@ -143,9 +153,10 @@ type regionSlot struct {
 	kubeconfigPath string               // on-disk path to the region's kubeconfig YAML
 	clusterName    string               // Cilium cluster.name for this region
 	clusterID      int                  // Cilium cluster.id (1..255)
+	provider       string               // cloud provider of THIS region ("huawei"/"hetzner"/…) — selects the dial port (#4811)
 	clientset      kubernetes.Interface // typed client built from kubeconfig
 	lbIP           string               // public LB IP of clustermesh-apiserver Service
-	apiPort        int                  // port peers DIAL on lbIP — clusterMeshDialPort(), the clustermesh-proxy host port. Never a NodePort (#4765).
+	apiPort        int                  // port peers DIAL on lbIP — 2379 on a real cloud LB (Hetzner hcloud-ccm); the clustermesh-proxy hostPort (12379) on a no-CCM cloud (Huawei/kom4dc, CP-EIP ingress collides with k3s-etcd :2379). Never a NodePort (#4765).
 	caCert         []byte               // cilium-ca tls.crt bytes
 	caKey          []byte               // cilium-ca tls.key bytes
 	err            error                // non-nil if LB lookup / CA snapshot failed
@@ -160,9 +171,21 @@ const (
 	clusterMeshCASecretName     = "cilium-ca"
 	clusterMeshApiserverService = "clustermesh-apiserver"
 	clusterMeshNamespace        = "kube-system"
-	// clusterMeshAPIServerPort — the etcd port of the clustermesh-apiserver
-	// (2379). A peer never dials it: on the CP node's address it is answered
-	// by k3s' own embedded etcd (#4784). Tests use it as the stale port.
+	// clusterMeshAPIServerPort — the DEFAULT etcd port a peer dials
+	// (2379). Overridable at runtime via CLUSTERMESH_APISERVER_DIAL_PORT
+	// (see clusterMeshDialPort). On no-CCM Huawei the CP-node public EIP is
+	// a Huawei-fabric 1:1 NAT AND the CP node runs k3s' own embedded etcd on
+	// the host :2379 — so an off-cluster peer dialing <CP-EIP>:2379 is
+	// DNAT'd to <CP-private-IP>:2379 and lands on K3S ETCD (server cert
+	// CN=etcd-server, k3s CA), NEVER the Cilium clustermesh-apiserver
+	// (CN=clustermesh-apiserver.cilium.io, Cilium CA). The peer's etcd
+	// client then hangs on "Connecting to etcd server…" → "context
+	// canceled" → heartbeat-watcher timeout (issue #4784, proven live on
+	// hw225 with openssl: <EIP>:2379 → etcd-server cert; a host-socket on a
+	// NON-2379 port → clustermesh-apiserver.cilium.io cert, Verify OK). The
+	// durable fix routes peers to the clustermesh-proxy host-socket on a
+	// dedicated non-2379 port (bp-cilium clustermesh-proxy DaemonSet) via
+	// this override; Hetzner keeps the default 2379 behind hcloud-ccm.
 	clusterMeshAPIServerPort = 2379
 	// clusterMeshProxyDialPort — the bp-cilium clustermesh-proxy DaemonSet
 	// hostPort (#4784). On a no-CCM cloud (Huawei/kom4dc) there is no real
@@ -1143,23 +1166,13 @@ func (h *Handler) autoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 	// Cluster CRs they feed exist only post-flip.
 	h.syncSharedPGConsumerHubSecrets(ctx, dep, slots)
 
-	statuses := make([]ClusterMeshStatus, 0, len(slots))
-	if clusterMeshObserve.Load() {
-		observed := make([]meshstatus.Region, len(slots))
-		for i, s := range slots {
-			observed[i] = meshstatus.Region{Key: s.key, Client: s.clientset, Err: s.err}
-		}
-		statuses = meshstatus.Observe(ctx, observed, time.Now().UTC())
-		goto meshRead
-	}
-
 	// Step 1: per-region LB IP discovery (poll up to 5 min each).
 	for i := range slots {
 		s := &slots[i]
 		if s.err != nil {
 			continue
 		}
-		lbIP, apiPort, err := h.waitForClusterMeshLB(ctx, s.clientset)
+		lbIP, apiPort, err := h.waitForClusterMeshLB(ctx, s.clientset, s.provider)
 		if err != nil {
 			s.err = fmt.Errorf("lb-discovery: %w", err)
 			h.log.Warn("clustermesh: LB lookup failed for region",
@@ -1206,6 +1219,7 @@ func (h *Handler) autoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 	// Step 3: for every ordered pair (A, B), write into A the trust
 	// bundle that lets A's clustermesh-apiserver contact B. Builds a
 	// cilium-clustermesh Secret entry per peer.
+	statuses := make([]ClusterMeshStatus, 0, len(slots))
 	for i := range slots {
 		a := &slots[i]
 		st := ClusterMeshStatus{
@@ -1430,7 +1444,6 @@ func (h *Handler) autoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 			fmt.Sprintf("ClusterMesh: region %q wired %d/%d peers", a.key, readyCount, len(slots)-1))
 	}
 
-meshRead:
 	// Stable order for the caller — primary first, then secondaries by
 	// region key.
 	sort.SliceStable(statuses, func(i, j int) bool {
@@ -3146,10 +3159,19 @@ func (h *Handler) buildRegionSlots(
 			}
 		}
 
+		// #4811 — the dial port keys on THIS region's cloud. Prefer the
+		// per-region Provider; fall back to the deployment-level Provider
+		// (single-cloud provs often set only the top-level field).
+		regionProvider := strings.TrimSpace(rs.Provider)
+		if regionProvider == "" {
+			regionProvider = strings.TrimSpace(dep.Request.Provider)
+		}
+
 		slot := regionSlot{
 			key:            key,
 			kubeconfigPath: kc,
 			clusterName:    clusterName,
+			provider:       regionProvider,
 		}
 		if isPrimary {
 			slot.clusterID = primaryID
@@ -3212,29 +3234,65 @@ func regionKeyFromSpec(rs provisioner.RegionSpec, idx int) string {
 	return fmt.Sprintf("%s-%d", rs.CloudRegion, idx)
 }
 
-// clusterMeshDialPort returns the port a peer dials for the
-// clustermesh-apiserver endpoint: the clustermesh-proxy host port
-// (clusterMeshProxyDialPort, 12379) on every cloud; no provider name selects
-// it. CLUSTERMESH_APISERVER_DIAL_PORT, when it holds a valid port, overrides
-// it for this API process. Never a NodePort (#4765).
-func clusterMeshDialPort() int {
+// waitForClusterMeshLB polls Service kube-system/clustermesh-apiserver
+// up to clusterMeshLBLookupTimeout for a LoadBalancer ingress IP, then
+// returns that IP paired with the canonical dial port :2379. Per #4765
+// (founder 2026-07-03) peers ALWAYS dial the VIP on 2379 — NodePort is
+// ABSOLUTELY FORBIDDEN, so there is no node-owned-EIP NodePort branch:
+// the single sovereign-vip LB-IPAM pool gives the Service a real VIP that
+// Cilium's kube-proxy-replacement LB frontend serves on 2379. The Service
+// type MUST be LoadBalancer; a typed-mismatch is a hard failure rather
+// than retried. A missing ingress after the timeout is likewise a hard
+// failure — the slot never silently falls back to a NodePort.
+// clusterMeshDialPort returns the etcd port a peer dials for the
+// clustermesh-apiserver endpoint. Default is clusterMeshAPIServerPort
+// (2379, the canonical Hetzner-hcloud-ccm path). On no-CCM Huawei the
+// cloud-init/deploy sets CLUSTERMESH_APISERVER_DIAL_PORT to the
+// clustermesh-proxy host-socket port (a dedicated non-2379 port that does
+// NOT collide with k3s' embedded etcd on the CP-node host :2379) — see
+// clusterMeshAPIServerPort's doc + issue #4784. A NodePort value here is
+// still forbidden; the proxy binds a hostNetwork socket, not a NodePort.
+//
+// #4811 — the port MUST key on the DIALED region's cloud, not on a single
+// static env. The mothership catalyst-api establishes meshes for BOTH
+// Hetzner and Huawei Sovereigns from ONE (env-unset) deployment, so a static
+// CLUSTERMESH_APISERVER_DIAL_PORT env can never be right for a multi-cloud
+// mothership: with the env unset it defaulted to 2379 and wrote every Huawei
+// Sovereign's peer endpoint as `:2379` (→ k3s KINE, ClusterMesh 0/1). The
+// env is retained as an explicit single-cloud override (highest precedence),
+// but when it is unset the default is resolved from `provider`: a no-CCM
+// cloud (Huawei/kom4dc) dials the clustermesh-proxy hostPort (12379); a CCM
+// cloud (Hetzner, real hcloud-ccm LB IP with no k3s-etcd host collision)
+// dials the canonical etcd :2379.
+func clusterMeshDialPort(provider string) int {
 	if v := strings.TrimSpace(os.Getenv(clusterMeshDialPortEnvVar)); v != "" {
 		if p, err := strconv.Atoi(v); err == nil && p > 0 && p <= 65535 {
 			return p
 		}
 	}
-	return clusterMeshProxyDialPort
+	if isNoCCMCloud(provider) {
+		return clusterMeshProxyDialPort
+	}
+	return clusterMeshAPIServerPort
 }
 
-// waitForClusterMeshLB polls Service kube-system/clustermesh-apiserver
-// up to clusterMeshLBLookupTimeout for a LoadBalancer ingress IP, then
-// returns that IP paired with clusterMeshDialPort(). Per #4765 (founder
-// 2026-07-03) NodePort is ABSOLUTELY FORBIDDEN, so there is no
-// node-owned-EIP NodePort branch. The Service
-// type MUST be LoadBalancer; a typed-mismatch is a hard failure rather
-// than retried. A missing ingress after the timeout is likewise a hard
-// failure — the slot never silently falls back to a NodePort.
-func (h *Handler) waitForClusterMeshLB(ctx context.Context, client kubernetes.Interface) (string, int, error) {
+// isNoCCMCloud reports whether the given deployment/region provider runs
+// WITHOUT a cloud-controller-manager LoadBalancer — i.e. the
+// clustermesh-apiserver Service has no real LB IP and the CP-node public EIP
+// (which serves the ingress) collides with k3s' embedded etcd on host :2379,
+// so peers must dial the clustermesh-proxy hostPort (clusterMeshProxyDialPort)
+// instead of :2379. Hetzner (hcloud-ccm) returns false. Matches the provider
+// strings validated in deployments.go (req.Provider / Regions[i].Provider).
+func isNoCCMCloud(provider string) bool {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "huawei", "hcs", "kom4dc":
+		return true
+	default:
+		return false
+	}
+}
+
+func (h *Handler) waitForClusterMeshLB(ctx context.Context, client kubernetes.Interface, provider string) (string, int, error) {
 	timeout := clusterMeshLBLookupTimeout
 	if v := clusterMeshTestOverrideLBTimeout(); v > 0 {
 		timeout = v
@@ -3296,8 +3354,10 @@ func (h *Handler) waitForClusterMeshLB(ctx context.Context, client kubernetes.In
 			// cilium.io (Cilium CA, Verify 0). The durable fix therefore
 			// serves the clustermesh etcd on a dedicated non-2379 host socket
 			// (clustermesh-proxy DaemonSet) and points peers at it via
-			// clusterMeshDialPort() — still NO NodePort.
-			return ip, clusterMeshDialPort(), nil
+			// CLUSTERMESH_APISERVER_DIAL_PORT — still NO NodePort. Hetzner
+			// keeps the default 2379 (hcloud-ccm real LB, no k3s-etcd host
+			// collision on the LB IP).
+			return ip, clusterMeshDialPort(provider), nil
 		}
 		if time.Now().After(deadline) {
 			return "", 0, fmt.Errorf("Service %s/%s has no LoadBalancer ingress after %s",

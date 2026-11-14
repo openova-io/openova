@@ -1,0 +1,69 @@
+# bp-falco — Catalyst bootstrap-kit Blueprint #31 (W2.K3, Tier 7 — Security/Policy).
+# Runtime threat detection (CNCF Graduated). eBPF kernel-level syscall
+# monitoring for container escapes, privilege escalation, anomalous
+# behavior. Runs as a DaemonSet on every host of the Sovereign;
+# Falcosidekick fans events into the SIEM pipeline (Loki/JetStream).
+#
+# Wrapper chart: platform/falco/chart/ (umbrella over upstream
+# falcosecurity/falco chart, Catalyst-curated values under the `falco:`
+# key — modern_ebpf driver, falcosidekick enabled).
+# Reconciled by: Flux on the new Sovereign's k3s control plane.
+#
+# dependsOn:
+#   - bp-cilium — Falco's modern_ebpf probe loads alongside Cilium's
+#     eBPF programs on the same kernel hook points. Bringing Falco up
+#     before the CNI is finalised has produced flaky probe-load races
+#     in field testing; sequencing after bp-cilium Ready avoids that.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: falco
+  labels:
+    catalyst.openova.io/sovereign: omantel.omani.works
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: bp-falco
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 15m
+  url: oci://ghcr.io/openova-io
+  secretRef:
+    name: ghcr-pull
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-falco
+  namespace: flux-system
+spec:
+  interval: 15m
+  releaseName: falco
+  targetNamespace: falco
+  dependsOn:
+    - name: bp-cilium
+  chart:
+    spec:
+      chart: bp-falco
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-falco
+        namespace: flux-system
+  # Event-driven install: Falco's DaemonSet rolls out per-node and the
+  # eBPF probe load is sensitive to kernel headers / module presence.
+  # Per-node Ready is properly observed via DaemonSet status, not via
+  # Helm `--wait`. disableWait keeps Flux's signal aligned with
+  # manifest apply.
+  install:
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    disableWait: true
+    remediation:
+      retries: 3

@@ -45,7 +45,6 @@ import (
 	yamlv3 "gopkg.in/yaml.v3"
 
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
-	"github.com/openova-io/openova/core/controllers/pkg/gitwrite"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 )
 
@@ -74,64 +73,16 @@ type GiteaBlueprintClient interface {
 func (h *Handler) SetGiteaClient(c GiteaBlueprintClient) { h.giteaClient = c }
 
 // NewGiteaClientFromEnv returns the production Gitea client built from
-// CATALYST_GITEA_URL + CATALYST_GITEA_TOKEN, or nil when either is unset.
-// When SOVEREIGN_FQDN is set too, the client is also the gitwrite.Writer
-// the catalogue routes commit through (catalogGitClient); without it they
-// answer 503 git-unavailable.
+// CATALYST_GITEA_URL + CATALYST_GITEA_TOKEN. Returns nil when either
+// env var is unset (tests / CI without a Gitea backend) so the handler
+// surfaces 503 instead of panicking.
 func NewGiteaClientFromEnv() GiteaBlueprintClient {
 	base := strings.TrimSpace(os.Getenv("CATALYST_GITEA_URL"))
 	tok := strings.TrimSpace(os.Getenv("CATALYST_GITEA_TOKEN"))
 	if base == "" || tok == "" {
 		return nil
 	}
-	gc := gitea.New(base, tok)
-	if fqdn := strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN")); fqdn != "" {
-		w, err := gitwrite.New(gitwrite.Config{BaseURL: base, Tokens: gitwrite.SharedTokenSource(tok), RobotDomain: "robots." + fqdn})
-		if err == nil {
-			return catalogGitClient{Client: gc, Writer: w}
-		}
-	}
-	return gc
-}
-
-// catalogGitClient is the Gitea client that also carries the commit
-// library: reads go to gitea, every catalogue write goes to gitwrite.
-type catalogGitClient struct {
-	*gitea.Client
-	gitwrite.Writer
-}
-
-// errCatalogGitUnavailable is returned when no commit library is configured.
-var errCatalogGitUnavailable = fmt.Errorf("%w: no commit library configured (CATALYST_GITEA_URL, CATALYST_GITEA_TOKEN, SOVEREIGN_FQDN)", gitwrite.ErrUnavailable)
-
-// catalogWriterOf returns the commit library of c, or nil when c has none.
-func catalogWriterOf(c GiteaBlueprintClient) gitwrite.Writer {
-	w, _ := c.(gitwrite.Writer)
-	return w
-}
-
-// writeGitUnavailable answers 503 git-unavailable on a catalogue write route.
-func writeGitUnavailable(w http.ResponseWriter) {
-	writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "git-unavailable", "detail": errCatalogGitUnavailable.Error()})
-}
-
-// commitCatalogFile commits one file of a catalogue repository through
-// gitwrite, scope catalog. summary is cut to its first line and 72
-// characters. It returns whether a commit was made and the commit SHA.
-func commitCatalogFile(ctx context.Context, w gitwrite.Writer, repo gitwrite.Repo, path string, content []byte, summary string, author gitwrite.Identity) (bool, string, error) {
-	summary = strings.TrimSpace(strings.SplitN(strings.ReplaceAll(summary, "\r", "\n"), "\n", 2)[0])
-	if summary == "" {
-		summary = "catalog: update " + path
-	}
-	if r := []rune(summary); len(r) > 72 {
-		summary = strings.TrimSpace(string(r[:72]))
-	}
-	res, err := w.Commit(ctx, gitwrite.Change{
-		Scope: gitwrite.Catalog(), Repo: repo, Summary: summary, Author: author,
-		Files:    []gitwrite.FileChange{{Path: path, Op: gitwrite.OpUpsert, Content: content}},
-		ChangeID: gitwrite.NewChangeID(), Via: gitwrite.ViaAPI,
-	})
-	return res.Committed, res.Commit, err
+	return gitea.New(base, tok)
 }
 
 // ── Wire shapes ──────────────────────────────────────────────────────
@@ -251,9 +202,11 @@ func (h *Handler) HandleBlueprintPublish(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	gw := catalogWriterOf(h.giteaClient)
-	if gw == nil {
-		writeGitUnavailable(w)
+	if h.giteaClient == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error":  "gitea-not-wired",
+			"detail": "Gitea client unconfigured (CATALYST_GITEA_URL/TOKEN); publish requires Gitea",
+		})
 		return
 	}
 
@@ -307,13 +260,15 @@ func (h *Handler) HandleBlueprintPublish(w http.ResponseWriter, r *http.Request)
 
 	path := fmt.Sprintf("%s/blueprint.yaml", body.Name)
 	commitMsg := fmt.Sprintf("publish %s@%s via catalyst-api", body.Name, body.Version)
-	if _, _, err := commitCatalogFile(ctx, gw, gitwrite.Repo{Owner: body.Org, Name: sharedBlueprintsRepo, Branch: blueprintBranch},
-		path, []byte(body.BlueprintYAML), commitMsg, gitwrite.Identity{}); err != nil {
-		h.log.Warn("blueprint publish: commit failed",
+	if _, _, err := h.giteaClient.PutFile(
+		ctx, body.Org, sharedBlueprintsRepo, blueprintBranch, path,
+		[]byte(body.BlueprintYAML), commitMsg,
+	); err != nil {
+		h.log.Warn("blueprint publish: put file failed",
 			"org", body.Org, "repo", sharedBlueprintsRepo, "path", path, "err", err)
 		writeJSON(w, http.StatusBadGateway, map[string]string{
 			"error":  "gitea-upstream",
-			"detail": fmt.Sprintf("commit %s: %v", path, err),
+			"detail": fmt.Sprintf("put file %s: %v", path, err),
 		})
 		return
 	}
@@ -353,9 +308,11 @@ func (h *Handler) HandleBlueprintCurate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	gw := catalogWriterOf(h.giteaClient)
-	if gw == nil {
-		writeGitUnavailable(w)
+	if h.giteaClient == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error":  "gitea-not-wired",
+			"detail": "Gitea client unconfigured; curate requires Gitea",
+		})
 		return
 	}
 
@@ -425,11 +382,13 @@ func (h *Handler) HandleBlueprintCurate(w http.ResponseWriter, r *http.Request) 
 	}
 
 	commitMsg := fmt.Sprintf("curate %s from %s/%s", body.BlueprintName, body.SourceOrg, sharedBlueprintsRepo)
-	if _, _, err := commitCatalogFile(ctx, gw, gitwrite.Repo{Owner: catalogSovereignOrg, Name: body.BlueprintName, Branch: blueprintBranch},
-		"blueprint.yaml", srcBytes, commitMsg, gitwrite.Identity{}); err != nil {
+	if _, _, err := h.giteaClient.PutFile(
+		ctx, catalogSovereignOrg, body.BlueprintName, blueprintBranch, "blueprint.yaml",
+		srcBytes, commitMsg,
+	); err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{
 			"error":  "gitea-upstream",
-			"detail": fmt.Sprintf("commit blueprint.yaml: %v", err),
+			"detail": fmt.Sprintf("put file blueprint.yaml: %v", err),
 		})
 		return
 	}
@@ -560,8 +519,12 @@ func (h *Handler) HandleBlueprintListCuratable(w http.ResponseWriter, r *http.Re
 // ── Edit-PR (slice Z3 follow-up) ────────────────────────────────────
 
 // blueprintEditPRRequest — body of POST /api/v1/sovereigns/{id}/blueprints/edit-pr.
-// The YamlEditor widget posts it for a flux-managed resource; the handler
-// commits the content to `main` of the per-Org shared-blueprints repo.
+//
+// The YamlEditor widget posts this when the operator clicks "Open PR"
+// on a flux-managed resource. The handler creates a branch on the
+// per-Org shared-blueprints repo, commits the new content, then opens
+// a PR against `main` so a reviewer can merge through the GitOps flow
+// (rather than the operator side-stepping flux with a direct /apply).
 type blueprintEditPRRequest struct {
 	Org     string `json:"org"`
 	Path    string `json:"path"`
@@ -595,10 +558,13 @@ type blueprintEditPRRef struct {
 
 // HandleBlueprintEditPR — POST /api/v1/sovereigns/{id}/blueprints/edit-pr
 //
-// Commits the supplied path directly to `main` of `<org>/shared-blueprints`,
-// as publish does. Auth: tier-admin or higher (mirrors /blueprints/publish).
-// The response keeps the former field names: prURL and pr.url carry the
-// commit address, prNumber and pr.number are 0, branch is `main`.
+// Creates a branch + commits + opens a PR on `<org>/shared-blueprints`
+// for the supplied path. Auth: tier-admin or higher (mirrors
+// /blueprints/publish per INVIOLABLE-PRINCIPLES #5).
+//
+// Branch name is deterministic per (path, content-hash) so re-posting
+// the same edit re-targets the same PR (Gitea 409 fallback in the
+// underlying client surfaces the existing one as success).
 func (h *Handler) HandleBlueprintEditPR(w http.ResponseWriter, r *http.Request) {
 	depID := chi.URLParam(r, "id")
 	if _, ok := h.lookupDeploymentForInfra(depID); !ok {
@@ -614,9 +580,11 @@ func (h *Handler) HandleBlueprintEditPR(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 	}
-	gw := catalogWriterOf(h.giteaClient)
-	if gw == nil {
-		writeGitUnavailable(w)
+	if h.giteaClient == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error":  "gitea-not-wired",
+			"detail": "Gitea client unconfigured (CATALYST_GITEA_URL/TOKEN); edit-pr requires Gitea",
+		})
 		return
 	}
 
@@ -638,36 +606,75 @@ func (h *Handler) HandleBlueprintEditPR(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	branch := editPRBranchName(body.Path, []byte(body.Content))
+	title := strings.TrimSpace(body.Title)
+	if title == "" {
+		title = fmt.Sprintf("Edit %s via Catalyst", body.Path)
+	}
 	commitMsg := strings.TrimSpace(body.Message)
 	if commitMsg == "" {
-		commitMsg = strings.TrimSpace(body.Title)
+		commitMsg = title
 	}
-	if commitMsg == "" {
-		commitMsg = fmt.Sprintf("Edit %s via Catalyst", body.Path)
-	}
-	_, sha, err := commitCatalogFile(r.Context(), gw, gitwrite.Repo{Owner: body.Org, Name: sharedBlueprintsRepo, Branch: blueprintBranch},
-		body.Path, []byte(body.Content), commitMsg, gitwrite.Identity{})
-	if err != nil {
-		if errors.Is(err, gitwrite.ErrNotFound) {
+
+	ctx := r.Context()
+
+	// Ensure target branch exists. EnsureBranch is idempotent.
+	if err := h.giteaClient.EnsureBranch(ctx, body.Org, sharedBlueprintsRepo, branch); err != nil {
+		if gitea.IsNotFound(err) {
 			writeNotFound(w, fmt.Sprintf("%s/%s", body.Org, sharedBlueprintsRepo))
 			return
 		}
-		h.log.Warn("blueprint edit-pr: commit failed", "org", body.Org, "path", body.Path, "err", err)
+		h.log.Warn("blueprint edit-pr: ensure branch failed", "org", body.Org, "branch", branch, "err", err)
 		writeJSON(w, http.StatusBadGateway, map[string]string{
 			"error":  "gitea-upstream",
-			"detail": fmt.Sprintf("commit %s: %v", body.Path, err),
+			"detail": fmt.Sprintf("ensure branch %s: %v", branch, err),
 		})
 		return
 	}
 
-	commitURL := fmt.Sprintf("/%s/%s/commit/%s", body.Org, sharedBlueprintsRepo, sha)
+	// PutFile honors the byte-equal short-circuit; the operator can
+	// re-post the same edit safely.
+	if _, _, err := h.giteaClient.PutFile(
+		ctx, body.Org, sharedBlueprintsRepo, branch, body.Path,
+		[]byte(body.Content), commitMsg,
+	); err != nil {
+		if gitea.IsNotFound(err) {
+			writeNotFound(w, fmt.Sprintf("%s/%s/%s", body.Org, sharedBlueprintsRepo, body.Path))
+			return
+		}
+		h.log.Warn("blueprint edit-pr: put file failed", "org", body.Org, "branch", branch, "path", body.Path, "err", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error":  "gitea-upstream",
+			"detail": fmt.Sprintf("put file %s: %v", body.Path, err),
+		})
+		return
+	}
+
+	pr, err := h.giteaClient.CreatePullRequest(ctx, body.Org, sharedBlueprintsRepo, branch, blueprintBranch, title, body.Message)
+	if err != nil {
+		if gitea.IsNotFound(err) {
+			writeNotFound(w, fmt.Sprintf("%s/%s", body.Org, sharedBlueprintsRepo))
+			return
+		}
+		h.log.Warn("blueprint edit-pr: create PR failed", "org", body.Org, "branch", branch, "err", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error":  "gitea-upstream",
+			"detail": fmt.Sprintf("create PR: %v", err),
+		})
+		return
+	}
+
 	writeJSON(w, http.StatusOK, blueprintEditPRResponse{
-		PRURL:   commitURL,
-		PR:      blueprintEditPRRef{URL: commitURL},
-		Branch:  blueprintBranch,
+		PRURL:    pr.URL,
+		PRNumber: pr.Number,
+		PR: blueprintEditPRRef{
+			Number: pr.Number,
+			URL:    pr.URL,
+		},
+		Branch:  branch,
 		Repo:    sharedBlueprintsRepo,
 		Path:    body.Path,
-		Message: fmt.Sprintf("committed %s to %s", sha, blueprintBranch),
+		Message: fmt.Sprintf("pr number %d opened against %s", pr.Number, blueprintBranch),
 	})
 }
 
@@ -695,6 +702,34 @@ func validateBlueprintEditPRRequest(req blueprintEditPRRequest) (string, bool) {
 		return "content exceeds 1 MiB", false
 	}
 	return "", true
+}
+
+// editPRBranchName produces a deterministic branch name per
+// (path, content-hash). Two posts with the same content re-target the
+// same branch — the underlying Gitea client's PR-create 409 fallback
+// then surfaces the existing PR as success, so the UI sees "PR
+// re-opened" rather than "duplicate".
+func editPRBranchName(path string, content []byte) string {
+	h := fnv1a64(append([]byte(path+"\x00"), content...))
+	// fnv64 hex is 16 chars; truncating to 12 keeps the branch readable
+	// while still collision-safe for per-path single-operator workloads.
+	return fmt.Sprintf("edit/%s", h[:12])
+}
+
+// fnv1a64 — small zero-dep FNV-1a 64-bit hex digest. Avoids a hash/fnv
+// import in this file; the math is simple enough to inline + the
+// determinism is the contract.
+func fnv1a64(data []byte) string {
+	const (
+		offset uint64 = 14695981039346656037
+		prime  uint64 = 1099511628211
+	)
+	hash := offset
+	for _, b := range data {
+		hash ^= uint64(b)
+		hash *= prime
+	}
+	return fmt.Sprintf("%016x", hash)
 }
 
 // ── Validation + helpers ────────────────────────────────────────────
