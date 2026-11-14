@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T09:30:05Z` |
+| Last refreshed | `2026-11-14T09:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,7 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-14T09:42 | [#7640](https://github.com/openova-io/openova/pull/7640) | #7087 | docs(ledger): plan update |
 | 2026-11-14T09:17 | [#7578](https://github.com/openova-io/openova/pull/7578) | #7576 | fix(ci): the unseal-key guard's list holds the findings of m |
+| 2026-11-14T09:43 | [#7564](https://github.com/openova-io/openova/pull/7564) | #7553 | docs: point the canonical documents at the generated invento |
 | 2026-11-14T08:51 | [#7562](https://github.com/openova-io/openova/pull/7562) | #7551 | feat(api): the jobs store publishes its writes, a jobs strea |
 | 2026-11-14T08:50 | [#7560](https://github.com/openova-io/openova/pull/7560) | #7554 | refactor(openbao): the config reconciler enables secrets mou |
 | 2026-11-14T08:50 | [#7559](https://github.com/openova-io/openova/pull/7559) | #7552 | ci: the jobs that push to main push with the release-writer  |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-14T07:10 | [#7519](https://github.com/openova-io/openova/pull/7519) | #7513 | feat(sovereign): seed-repo commits the root objects of a reg |
 | 2026-11-14T07:19 | [#7518](https://github.com/openova-io/openova/pull/7518) | #7512 | fix(organization-controller): pin the per-Org vcluster chart |
 | 2026-11-14T06:54 | [#7514](https://github.com/openova-io/openova/pull/7514) | #7087 | docs(ledger): plan update |
-| 2026-11-14T06:49 | [#7511](https://github.com/openova-io/openova/pull/7511) | #7087 | docs(ledger): plan update |
-| 2026-11-14T06:49 | [#7510](https://github.com/openova-io/openova/pull/7510) | #7508 | refactor(cloud-init): the sovereign-variables ConfigMap hold |
 
 ---
 
