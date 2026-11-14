@@ -30,8 +30,8 @@ func TestNewMultiSubscriberRequiresGroup(t *testing.T) {
 }
 
 // TestNewMultiSubscriberNATSWithoutEventTypes — passing a NATS conn
-// without any event types is not subscribable; without Kafka either
-// the constructor refuses (would silently drop everything).
+// without any event types is not subscribable; the constructor
+// refuses (would silently drop everything).
 func TestNewMultiSubscriberNATSWithoutEventTypes(t *testing.T) {
 	if _, err := NewMultiSubscriber(MultiSubscriberConfig{
 		Group: "g",

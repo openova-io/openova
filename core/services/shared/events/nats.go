@@ -1,11 +1,9 @@
 package events
 
 // Per #795 [Q-mine-3] + #798 + ADR-0001 §6, NATS JetStream is the canonical
-// event bus going forward. The legacy RedPanda producer/consumer in
-// events.go remains for backward compatibility with org.tenant.events,
-// org.order.events, org.user.events (consumed by services that have not
-// yet migrated). NEW topics — starting with `catalyst.usage.recorded` —
-// flow through the JetStream surface defined here.
+// event bus. Every event of the Organization services — the domain
+// events of bridge.go and the `catalyst.usage.recorded` metering
+// envelopes — flows through the JetStream surface defined here.
 //
 // Why a thin abstraction over nats.go and jetstream:
 //
@@ -34,7 +32,6 @@ import (
 // NATS canonical subjects. Canonical convention from ADR-0001 §6:
 //
 //	catalyst.<domain>.<event>            // platform / control-plane events
-//	org.<producer>.events                // legacy Organization bus (RedPanda topics)
 //
 // New subjects MUST follow the catalyst.<domain>.<event> shape.
 const (
@@ -44,16 +41,8 @@ const (
 	// Payload shape: see UsageRecordedPayload below.
 	SubjectUsageRecorded = "catalyst.usage.recorded"
 
-	// StreamCatalystUsage is the JetStream Stream that retains envelopes
-	// on SubjectUsageRecorded. The Stream is created idempotently by
-	// EnsureUsageStream during org-billing startup (and by any other
-	// service that publishes/consumes it on cold start). 14-day retention
-	// gives ample replay window for billing reconciliation; storage stays
-	// bounded via MaxBytes set in the JetStream chart.
-	StreamCatalystUsage = "CATALYST_USAGE"
-
 	// ConsumerOrgBillingMetering is the durable consumer name on
-	// StreamCatalystUsage that org-billing reads from. Durable name lives
+	// StreamCatalystOrg that org-billing reads from. Durable name lives
 	// here so the publisher (sidecar) and the consumer (billing) cannot
 	// drift on naming.
 	ConsumerOrgBillingMetering = "org-billing-metering"
@@ -132,9 +121,8 @@ type NATSConn struct {
 // not configured).
 //
 // On success the returned NATSConn is ready for PublishUsage calls.
-// EnsureUsageStream MUST be called once at startup by whichever
-// service owns the Stream lifecycle (org-billing); publishers that do
-// not own the Stream may rely on the consumer side to have created it.
+// No Go code creates a Stream: the chart bp-nats-jetstream declares
+// CATALYST_ORG and a service binds to it (see EnsureCatalystOrgStream).
 func ConnectNATS(url string) (*NATSConn, error) {
 	if url == "" {
 		url = nats.DefaultURL
@@ -157,42 +145,6 @@ func ConnectNATS(url string) (*NATSConn, error) {
 	return &NATSConn{nc: nc, js: js}, nil
 }
 
-// EnsureUsageStream is DEPRECATED — kept only as a back-compat shim for
-// any caller that has not yet migrated to the canonical CATALYST_ORG
-// Stream (subjects `catalyst.>`). t20 (2026-05-18) caught the bug this
-// deprecation exists to prevent: when CATALYST_ORG already exists with
-// subject filter `catalyst.>` (created by the tenant / notification /
-// provisioning MultiSubscribers — any consumer of `catalyst.tenant.*`),
-// creating CATALYST_USAGE with subject `catalyst.usage.recorded` fails
-// with NATS error code 10065 "subjects overlap with an existing stream".
-// JetStream forbids two Streams from owning overlapping subject filters.
-//
-// New code MUST NOT call EnsureUsageStream. Billing now consumes
-// `catalyst.usage.recorded` directly off CATALYST_ORG via
-// SubscribeUsageRecordedOnOrg, which uses a consumer-side FilterSubject
-// to scope reads to the metering envelopes only. The metering sidecar
-// publishes to the same subject — JetStream routes the envelope to
-// CATALYST_ORG on the basis of its `catalyst.>` filter.
-//
-// Use EnsureCatalystOrgStream instead.
-//
-// Deprecated: use EnsureCatalystOrgStream + SubscribeUsageRecordedOnOrg.
-func (c *NATSConn) EnsureUsageStream(ctx context.Context) error {
-	_, err := c.js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
-		Name:        StreamCatalystUsage,
-		Description: "Catalyst per-LLM-request metering envelopes (#798).",
-		Subjects:    []string{SubjectUsageRecorded},
-		Retention:   jetstream.LimitsPolicy,
-		Storage:     jetstream.FileStorage,
-		MaxAge:      14 * 24 * time.Hour,
-		Replicas:    1,
-	})
-	if err != nil {
-		return fmt.Errorf("events: ensure usage stream: %w", err)
-	}
-	return nil
-}
-
 // EnsureCatalystOrgStream binds to the canonical CATALYST_ORG Stream
 // (subjects `catalyst.>`) and returns an error while it is absent. It
 // never creates the Stream: the chart bp-nats-jetstream declares it
@@ -201,9 +153,9 @@ func (c *NATSConn) EnsureUsageStream(ctx context.Context) error {
 //
 // CATALYST_ORG backs every `catalyst.<domain>.<event>` subject on a
 // Sovereign — tenant events, billing events, domain events, AND the
-// `catalyst.usage.recorded` metering envelopes that previously lived on
-// the now-deprecated CATALYST_USAGE Stream (see EnsureUsageStream
-// comment above for the t20 incident).
+// `catalyst.usage.recorded` metering envelopes. A second Stream on that
+// subject cannot exist: JetStream refuses two Streams with overlapping
+// subject filters (NATS error 10065).
 //
 // This is the public wrapper around the package-private ensureOrgStream
 // helper used by NewMultiSubscriber. org-billing calls it at startup and
@@ -241,9 +193,8 @@ func (c *NATSConn) PublishUsage(ctx context.Context, payload UsageRecordedPayloa
 
 // PublishEvent publishes a generic domain Event envelope (events.go) on
 // the supplied JetStream subject. Used by MultiPublisher (bridge.go) to
-// route the same tenant.created / order.placed / tenant.deleted events
-// that legacy code emitted to Redpanda onto the canonical
-// `catalyst.<event.Type>` NATS subjects per ADR-0001 §6.
+// route the tenant.created / order.placed / tenant.deleted events onto
+// the canonical `catalyst.<event.Type>` NATS subjects per ADR-0001 §6.
 //
 // Event.ID is set as the JetStream Msg-Id so duplicate publishes inside
 // the broker's de-dup window collapse at the broker — gives the
@@ -307,38 +258,12 @@ type natsSub struct {
 	cc   jetstream.ConsumeContext
 }
 
-// SubscribeUsageRecorded is DEPRECATED — kept only as a back-compat
-// shim for the legacy CATALYST_USAGE Stream layout. New code MUST call
-// SubscribeUsageRecordedOnOrg instead. See the comment on
-// EnsureUsageStream for the t20 stream-overlap incident this deprecation
-// prevents.
-//
-// Deprecated: use SubscribeUsageRecordedOnOrg.
-func (c *NATSConn) SubscribeUsageRecorded(ctx context.Context) (NATSSubscription, error) {
-	cons, err := c.js.CreateOrUpdateConsumer(ctx, StreamCatalystUsage, jetstream.ConsumerConfig{
-		Durable:       ConsumerOrgBillingMetering,
-		Description:   "org-billing metering consumer (#798).",
-		AckPolicy:     jetstream.AckExplicitPolicy,
-		AckWait:       30 * time.Second,
-		FilterSubject: SubjectUsageRecorded,
-		DeliverPolicy: jetstream.DeliverAllPolicy,
-		MaxDeliver:    -1,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("events: subscribe usage: %w", err)
-	}
-	return &natsSub{cons: cons}, nil
-}
-
 // SubscribeUsageRecordedOnOrg creates (or attaches to) the durable
 // consumer ConsumerOrgBillingMetering on the canonical CATALYST_ORG
 // Stream and returns a NATSSubscription ready to Consume. The consumer
 // uses FilterSubject = `catalyst.usage.recorded` so it ONLY receives
 // metering envelopes even though CATALYST_ORG also carries tenant,
 // billing, domain, and provisioning events.
-//
-// AckPolicy + AckWait + MaxDeliver match SubscribeUsageRecorded so the
-// observed delivery semantics are identical to the deprecated path.
 //
 // Stream ownership: the chart bp-nats-jetstream declares CATALYST_ORG.
 // EnsureCatalystOrgStream (which org-billing calls at startup) and

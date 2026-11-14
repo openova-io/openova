@@ -75,7 +75,7 @@ func main() {
 		natsConn = nc
 		slog.Info("connected to NATS JetStream", "url", natsURL)
 	}
-	producer, err := events.NewMultiPublisher(natsConn, nil)
+	producer, err := events.NewMultiPublisher(natsConn)
 	if err != nil {
 		slog.Error("event bus misconfigured — NATS_URL is not set", "error", err)
 		os.Exit(1)
