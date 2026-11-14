@@ -73,7 +73,7 @@ controls:
     mode: none
   - id: secret-rotation-policy
     claim: "A SecretPolicy drives the automatic rotation of every credential class."
-    mechanism: "A controller for the SecretPolicy custom resource; only the definition exists"
+    mechanism: "A controller for a rotation-policy custom resource; neither the controller nor the definition exists"
     exists: false
     default_on: false
     mode: none

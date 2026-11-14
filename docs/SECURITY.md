@@ -496,7 +496,7 @@ End users get one-click SSO across all Apps in their Organization without ever s
 
 ## 7. Rotation policy
 
-Target, not built. No controller acts on the kind `SecretPolicy`: it is defined in `products/catalyst/chart/crds/secretpolicy.yaml`, and no code reads it. No rotation dashboard exists.
+Target, not built. No controller rotates credentials, and the tree defines no kind for a rotation policy: the definition of the kind `SecretPolicy`, which no code read, was removed by FND-099. No rotation dashboard exists.
 
 Every credential class has a SecretPolicy that drives automatic rotation.
 
@@ -590,14 +590,16 @@ If a secret is ever leaked via terminal output (a misconfigured `kubectl describ
 
 ## 9. Compliance posture
 
+> State: target. Decision: ADR-0029
+
+Target, not built. No policy of the tree carries a mapping to a framework control, and the bootstrap kit does not install the chaos Blueprint `bp-litmus`. [ADR-0029](adr/0029-compliance-plane.md) records how framework mappings and resilience findings reach the compliance posture hub. The table states the intended posture of each standard, not what runs.
+
 | Standard | Catalyst posture |
 |---|---|
 | **SOC 2 Type 2** | Audit logging in JetStream + OpenSearch SIEM cold storage. SecretPolicy enforces rotation. EnvironmentPolicy enforces approvals. |
 | **PSD2 / FAPI** | Fingate Blueprint composes Keycloak (FAPI authorization), eIDAS cert verification, ext_authz. |
-| **DORA** | Resilience testing via Litmus chaos Blueprint. Multi-region by default for regulated tier. |
 | **NIS2** | Falco runtime detection + OpenSearch SIEM + Kyverno policy + supply-chain (cosign + Syft+Grype). |
 | **GDPR** | Per-region data residency via Placement spec. Right-to-be-forgotten flow defined per Application Blueprint. |
-| **ISO 27001** | Mappings published per control; evidence surfaced via Catalyst console audit views and SIEM exports. |
 
 Every Sovereign exports its audit log to a customer-specified SIEM. Default: OpenSearch in the Sovereign itself; customers may push to external Splunk, Datadog SIEM, etc.
 
