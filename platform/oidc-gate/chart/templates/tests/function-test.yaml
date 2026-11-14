@@ -1,0 +1,173 @@
+{{- /*
+Function test of bp-oidc-gate (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
+
+For every gate this release renders (an entry of instances[] that is not
+disabled and has a hostname, as templates/instances.yaml decides), it sends an
+unauthenticated GET for the path /catalyst-function-test to the gate's Service
+oidc-gate-<name>.<namespace>.svc.cluster.local:80. No skip-auth route of the
+chart names that path. It passes when every gate answers HTTP 302 with a
+Location that starts with the realm's authorisation endpoint
+https://auth.<sovereignFQDN>/realms/<realm>/protocol/openid-connect/auth, the
+--login-url of the gate: the gate let nothing through to its upstream and sent
+the browser to Keycloak.
+
+The gate Pods admit, on port 4180, only the gateway (CiliumNetworkPolicy
+oidc-gate-<name>-gateway-ingress). So, when the API cilium.io/v2 is served,
+this file renders two CiliumNetworkPolicies for the test: one lets the test
+Pod reach cluster DNS and the gate Pods on port 4180, one lets the gate Pods
+admit the test Pod on port 4180. Both are hooks of the test and go with it.
+
+It renders nothing when the chart renders no gate. The image is the kubectl
+image the kit already pulls (bp-cnpg's webhook gate), which carries curl;
+functionTest.image overrides it.
+*/ -}}
+{{- $root := . }}
+{{- $gates := list }}
+{{- range $inst := .Values.instances }}
+{{- if ne (toString $inst.enabled | default "true") "false" }}
+{{- if include "bp-oidc-gate.instanceHostname" (dict "root" $root "inst" $inst) }}
+{{- $gates = append $gates (printf "oidc-gate-%s" $inst.name) }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if $gates }}
+{{- $loginURL := printf "https://auth.%s/realms/%s/protocol/openid-connect/auth" .Values.sovereignFQDN .Values.realm }}
+{{- $ft := .Values.functionTest | default dict }}
+{{- $image := $ft.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" }}
+{{- if .Capabilities.APIVersions.Has "cilium.io/v2" }}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      catalyst.openova.io/function-test: "true"
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: bp-oidc-gate
+      toPorts:
+        - ports:
+            - port: "4180"
+              protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-function-test-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: bp-oidc-gate
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/instance: {{ .Release.Name }}
+            catalyst.openova.io/function-test: "true"
+      toPorts:
+        - ports:
+            - port: "4180"
+              protocol: TCP
+---
+{{- end }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 300
+  automountServiceAccountToken: false
+  containers:
+    - name: function-test
+      image: {{ $image | quote }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: HOME
+          value: /tmp
+        - name: TEST_NAMESPACE
+          value: {{ .Release.Namespace | quote }}
+        - name: GATES
+          value: {{ join " " $gates | quote }}
+        - name: LOGIN_URL
+          value: {{ $loginURL | quote }}
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -u
+          fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          for gate in ${GATES}; do
+            url="http://${gate}.${TEST_NAMESPACE}.svc.cluster.local/catalyst-function-test"
+            answer=""
+            for attempt in 1 2 3 4 5 6; do
+              answer="$(curl -sS --max-time 10 -o /dev/null -w '%{http_code} %{redirect_url}' "${url}" 2>/tmp/error)" && [ "${answer%% *}" = "302" ] && break
+              sleep 5
+            done
+            code="${answer%% *}"
+            location="${answer#* }"
+            [ "${code}" = "302" ] || fail "the gate ${gate} answered '${code}', not 302: $(tr '\n' ' ' < /tmp/error | cut -c1-160)"
+            case "${location}" in
+              "${LOGIN_URL}"*) ;;
+              *) fail "the gate ${gate} redirected to '$(printf '%s' "${location}" | cut -c1-160)', not to ${LOGIN_URL}" ;;
+            esac
+          done
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} every gate (${GATES}) redirected an unauthenticated request to ${LOGIN_URL}"
+  volumes:
+    - name: tmp
+      emptyDir: {}
+{{- end }}

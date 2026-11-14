@@ -1,0 +1,129 @@
+{{- /*
+Function test of bp-openbao (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
+
+It asks the store two questions on its in-cluster address:
+  1. GET /v1/sys/health?standbyok=true must answer HTTP 200 with
+     "initialized":true and "sealed":false.
+  2. A Kubernetes-auth login on the mount autoUnseal.kubernetesAuth.mountPath,
+     for the role autoUnseal.kubernetesAuth.role, with this Pod's own
+     service-account token, must reach the role and be refused because the
+     role is bound to another service account ("service account name not
+     authorized" or "namespace not authorized"). That proves the auth method
+     is mounted and the role that External Secrets logs in with exists. The
+     test gets no token, and it writes nothing.
+
+It renders only when autoUnseal.enabled is true: only then does the chart
+initialise and unseal the store itself. Question 2 is asked only when
+autoUnseal.kubernetesAuth.enabled is true.
+
+The address is autoUnseal.baoAddress, or the subchart's Service
+<fullname>.<namespace>.svc.cluster.local:8200. The image is the kubectl image
+the kit already pulls (bp-cnpg's webhook gate); functionTest.image overrides it.
+*/ -}}
+{{- $au := .Values.autoUnseal | default dict }}
+{{- if $au.enabled }}
+{{- $kAuth := $au.kubernetesAuth | default dict }}
+{{- $sub := .Values.openbao | default dict }}
+{{- $name := $sub.nameOverride | default "openbao" }}
+{{- $fullname := "" }}
+{{- if $sub.fullnameOverride }}
+{{- $fullname = $sub.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- else if contains $name .Release.Name }}
+{{- $fullname = .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- $fullname = printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- end }}
+{{- $addr := $au.baoAddress | default (printf "http://%s.%s.svc.cluster.local:8200" $fullname .Release.Namespace) }}
+{{- $ft := .Values.functionTest | default dict }}
+{{- $image := $ft.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 300
+  serviceAccountName: {{ .Release.Name }}-function-test
+  containers:
+    - name: function-test
+      image: {{ $image | quote }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: HOME
+          value: /tmp
+        - name: BAO_ADDR
+          value: {{ $addr | quote }}
+        - name: AUTH_MOUNT
+          value: {{ $kAuth.mountPath | default "kubernetes" | quote }}
+        - name: AUTH_ROLE
+          value: {{ $kAuth.role | default "external-secrets" | quote }}
+        - name: CHECK_LOGIN
+          value: {{ ternary "yes" "no" (ne (toString $kAuth.enabled) "false") | quote }}
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -u
+          fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          oneline() { [ -f "$1" ] && tr '\n' ' ' < "$1" | cut -c1-200; }
+          code=""
+          for attempt in 1 2 3 4 5 6; do
+            code="$(curl -sS --max-time 10 -o /tmp/health -w '%{http_code}' "${BAO_ADDR}/v1/sys/health?standbyok=true" 2>/tmp/error)" && [ "${code}" = "200" ] && break
+            sleep 5
+          done
+          [ "${code}" = "200" ] || fail "GET ${BAO_ADDR}/v1/sys/health answered '${code}': $(oneline /tmp/error) $(oneline /tmp/health)"
+          grep -q -F '"initialized":true' /tmp/health || fail "the store is not initialised: $(oneline /tmp/health)"
+          grep -q -F '"sealed":false' /tmp/health || fail "the store is sealed: $(oneline /tmp/health)"
+          if [ "${CHECK_LOGIN}" = "yes" ]; then
+            jwt="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" || fail "the Pod has no service-account token"
+            printf '{"role":"%s","jwt":"%s"}' "${AUTH_ROLE}" "${jwt}" > /tmp/login-request
+            code="$(curl -sS --max-time 10 -o /tmp/login -w '%{http_code}' -X POST --data @/tmp/login-request "${BAO_ADDR}/v1/auth/${AUTH_MOUNT}/login" 2>/tmp/error)" || fail "the login request to auth/${AUTH_MOUNT} failed: $(oneline /tmp/error)"
+            grep -q -E 'service account name not authorized|namespace not authorized' /tmp/login || fail "the login on auth/${AUTH_MOUNT} for the role ${AUTH_ROLE} answered '${code}': $(oneline /tmp/login)"
+            echo "FUNCTION-TEST pass {{ .Chart.Name }} ${BAO_ADDR} is initialised and unsealed, and auth/${AUTH_MOUNT} judged a login for the role ${AUTH_ROLE}"
+          else
+            echo "FUNCTION-TEST pass {{ .Chart.Name }} ${BAO_ADDR} is initialised and unsealed"
+          fi
+  volumes:
+    - name: tmp
+      emptyDir: {}
+{{- end }}

@@ -17,7 +17,7 @@ Rules (default mode), each named in the failure line:
   FT2   every document of the file has the annotation helm.sh/hook: test
   FT3   every document of the file has helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
   FT4   the file renders exactly one Pod, and else only ServiceAccount, Role, RoleBinding,
-        NetworkPolicy and CiliumNetworkPolicy
+        ClusterRole, ClusterRoleBinding, NetworkPolicy and CiliumNetworkPolicy
   FT5   the Pod is named <release>-function-test
   FT6   the Pod has the label catalyst.openova.io/function-test: "true"
   FT7   spec.restartPolicy is Never
@@ -38,7 +38,8 @@ import sys
 ME = "check-function-test"
 LABEL = "catalyst.openova.io/function-test"
 DELETE_POLICY = "before-hook-creation,hook-succeeded"
-HELPERS = ("ServiceAccount", "Role", "RoleBinding", "NetworkPolicy", "CiliumNetworkPolicy")
+HELPERS = ("ServiceAccount", "Role", "RoleBinding", "ClusterRole", "ClusterRoleBinding", "NetworkPolicy",
+           "CiliumNetworkPolicy")
 SOURCE = re.compile(r"^# Source: (.+?)\s*$", re.M)
 SPLIT = re.compile(r"^---\s*$", re.M)
 
@@ -198,6 +199,9 @@ CASES = [
         ("bp-x/charts/up/templates/tests/function-test.yaml", GOOD_POD)), False, "FT1"),
     ("FT2 a document without the test hook", GOOD.replace("helm.sh/hook: test\n    helm.sh/hook-delete", "helm.sh/hook: post-install\n    helm.sh/hook-delete", 1), False, "FT2"),
     ("FT3 a document without the delete policy", GOOD.replace("before-hook-creation,hook-succeeded", "before-hook-creation", 1), False, "FT3"),
+    ("a ClusterRole and a ClusterRoleBinding beside the Pod are allowed", GOOD + render(
+        (OWN, GOOD_SA.replace("kind: ServiceAccount", "kind: ClusterRole")),
+        (OWN, GOOD_SA.replace("kind: ServiceAccount", "kind: ClusterRoleBinding"))), False, None),
     ("FT4 two Pods", GOOD + render((OWN, GOOD_POD)), False, "FT4"),
     ("FT4 a Secret in the file", GOOD + render((OWN, GOOD_SA.replace("kind: ServiceAccount", "kind: Secret"))), False, "FT4"),
     ("FT5 a wrong Pod name", GOOD.replace("name: rel-function-test\n  labels", "name: rel-test\n  labels"), False, "FT5"),
