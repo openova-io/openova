@@ -7,6 +7,7 @@ import (
 	"io"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -22,45 +23,82 @@ import (
 // has not booted, the API does not answer. The clock moves only when the
 // check waits.
 type rebootWorld struct {
-	t        *testing.T
-	clock    time.Time
-	nodes    []string
-	args     []string          // of kured; nil: no DaemonSet
-	restarts map[string][3]int // by node
-	sick     map[string]string // node -> "cordoned" or "not ready" from the start, or "not ready after" its restart
-	waitErr  error             // of kubectl wait for the sentinel Pods
-	placed   map[string]time.Time
-	created  []string // the regions that got a namespace
-	deleted  []string // the regions whose namespace was deleted
-	pods     []string // the nodes that got a sentinel Pod
+	t          *testing.T
+	clock      time.Time
+	nodes      []string
+	args       []string          // of kured; nil: no DaemonSet
+	restarts   map[string][3]int // by node
+	sick       map[string]string // node -> "cordoned" or "not ready" from the start, or "not ready after" its restart
+	noPlanKind bool              // the cluster does not serve the kind of the upgrade Plans
+	plans      []obj             // the upgrade Plans
+	kuredBack  int               // the second from which kured has every Pod ready again after the Pods were placed; -1 never
+	releases   map[string]string // HelmRelease -> "ready" always, "never" Ready, "lost" from the first restart on, "back" Ready again at 3300 s
+	noReleases [2]int            // the seconds from and to which the HelmReleases cannot be read; -1 is never
+	waitErr    error             // of kubectl wait for the sentinel Pods
+	placed     map[string]time.Time
+	created    []string // the regions that got a namespace
+	deleted    []string // the regions whose namespace was deleted
+	pods       []string // the nodes that got a sentinel Pod
 }
+
+// rebootPlan is an upgrade Plan whose window is start, end and zone, on the given days.
+func rebootPlan(name, start, end, zone string, days ...string) obj {
+	return obj{"metadata": obj{"name": name, "namespace": "system-upgrade"}, "spec": obj{"concurrency": 1,
+		"window": obj{"days": days, "startTime": start, "endTime": end, "timeZone": zone}}}
+}
+
+var rebootAllDays = []string{"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}
 
 func newRebootWorld() *rebootWorld {
 	return &rebootWorld{clock: time.Date(2026, 11, 20, 6, 0, 0, 0, time.UTC), nodes: []string{"cp-1", "cp-2", "w-1", "w-2"},
 		args: []string{"--period=15m", "--lock-release-delay=5m", "--drain-timeout=15m", "--reboot-days=su", "--reboot-days=mo",
 			"--start-time=00:30", "--end-time=22:00", "--time-zone=UTC", "--reboot-sentinel=/sentinel/reboot-required", "--concurrency=1"},
-		restarts: map[string][3]int{"cp-1": {600, 640, 700}, "w-1": {1800, 1840, 1900}, "w-2": {3000, 3040, 3100}, "cp-2": {-1, -1, -1}},
-		sick:     map[string]string{}, placed: map[string]time.Time{}}
+		restarts:  map[string][3]int{"cp-1": {600, 640, 700}, "w-1": {1800, 1840, 1900}, "w-2": {3000, 3040, 3100}, "cp-2": {-1, -1, -1}},
+		plans:     []obj{rebootPlan("k3s-server", "22:00", "00:00", "UTC", rebootAllDays...), rebootPlan("k3s-agent", "22:00", "00:00", "UTC", rebootAllDays...)},
+		kuredBack: 3150, releases: map[string]string{"flux-system/bp-cilium": "ready", "catalyst-system/bp-catalyst-platform": "back", "kube-system/bp-kured": "ready"},
+		noReleases: [2]int{-1, -1}, sick: map[string]string{}, placed: map[string]time.Time{}}
 }
 
 func (w *rebootWorld) kubectl(r kube.Region, _ context.Context, stdin io.Reader, args ...string) ([]byte, error) {
 	at, placed := w.placed[r.ID]
+	second := int(w.clock.Sub(at).Seconds())
 	in := func(from, to int) bool {
-		second := int(w.clock.Sub(at).Seconds())
 		return placed && from >= 0 && second >= from && (to < 0 || second < to)
+	}
+	if cp := w.restarts[w.nodes[0]]; args[0] == "get" && in(cp[0], cp[1]) {
+		return nil, errors.New("the API server does not answer")
 	}
 	switch joined := strings.Join(args, " "); {
 	case strings.HasSuffix(joined, " daemonsets -n kube-system"):
 		if w.args == nil {
 			return []byte(kubeList(obj{"metadata": obj{"name": "node-patch-config"}})), nil
 		}
+		ready := len(w.nodes)
+		if placed && (w.kuredBack < 0 || second < w.kuredBack) {
+			ready--
+		}
 		return []byte(kubeList(obj{"metadata": obj{"name": "kured"}, "spec": obj{"template": obj{"spec": obj{
 			"containers": []obj{{"name": "kured", "args": w.args}},
-			"volumes":    []obj{{"name": "sentinel", "hostPath": obj{"path": "/var/run"}}}}}}})), nil
-	case strings.HasSuffix(joined, " nodes"):
-		if cp := w.restarts[w.nodes[0]]; in(cp[0], cp[1]) {
+			"volumes":    []obj{{"name": "sentinel", "hostPath": obj{"path": "/var/run"}}}}}},
+			"status": obj{"desiredNumberScheduled": len(w.nodes), "numberReady": ready}})), nil
+	case strings.HasSuffix(joined, " plans.upgrade.cattle.io -A"):
+		if w.noPlanKind {
+			return nil, errors.New(`[` + r.ID + `] kubectl get plans.upgrade.cattle.io: exit status 1: error: the server doesn't have a resource type "plans"`)
+		}
+		return []byte(kubeList(w.plans...)), nil
+	case strings.HasSuffix(joined, " helmreleases.helm.toolkit.fluxcd.io -A"):
+		if in(w.noReleases[0], w.noReleases[1]) {
 			return nil, errors.New("the API server does not answer")
 		}
+		list := []obj{}
+		for name, state := range w.releases {
+			ns, n, _ := strings.Cut(name, "/")
+			ready := state == "ready" || (state == "lost" && !in(600, -1)) || (state == "back" && !in(600, 3300))
+			list = append(list, obj{"metadata": obj{"namespace": ns, "name": n},
+				"status": obj{"conditions": kubeConditions("Ready", map[bool]string{true: "True", false: "False"}[ready])}})
+		}
+		return []byte(kubeList(list...)), nil
+	case strings.HasSuffix(joined, " nodes"):
 		list := []obj{}
 		for _, name := range w.nodes {
 			at, boot, ready := w.restarts[name], "boot-1", "True"
@@ -115,6 +153,10 @@ func TestRebootCheck(t *testing.T) {
 	without := func(flag string) func(*rebootWorld) {
 		return func(w *rebootWorld) { w.args = slices.DeleteFunc(w.args, func(a string) bool { return a == flag }) }
 	}
+	plan := func(p obj) func(*rebootWorld) { return func(w *rebootWorld) { w.plans[1] = p } }
+	release := func(state string) func(*rebootWorld) {
+		return func(w *rebootWorld) { w.releases["flux-system/bp-cilium"] = state }
+	}
 	for name, tc := range map[string]struct {
 		change  func(w *rebootWorld)
 		j1      string // the status of journey J1; "" is PASS
@@ -150,6 +192,35 @@ func TestRebootCheck(t *testing.T) {
 		"a longer period gives a longer limit": {change: func(w *rebootWorld) {
 			w.args[0], w.restarts["w-2"] = "--period=30m", [3]int{6000, 6040, 6100}
 		}, regions: 2},
+		"the cluster does not serve the Plan kind": {change: func(w *rebootWorld) { w.noPlanKind = true }, regions: 2},
+		"the cluster has no Plan":                  {change: func(w *rebootWorld) { w.plans = nil }, regions: 2},
+		"a Plan has no window": {change: plan(obj{"metadata": obj{"name": "k3s-agent", "namespace": "system-upgrade"}, "spec": obj{"concurrency": 1}}),
+			fails: "1 of 2 upgrade Plans break the rule that a window ends at least 30 minutes before the reboot span starts: Plan system-upgrade/k3s-agent has no spec.window"},
+		"a Plan window overlaps the reboot span": {change: plan(rebootPlan("k3s-agent", "21:00", "23:00", "UTC", rebootAllDays...)),
+			fails: "Plan system-upgrade/k3s-agent has a window that overlaps the reboot span 00:30-22:00 UTC"},
+		"a Plan window ends 20 minutes before the span": {change: plan(rebootPlan("k3s-agent", "22:00", "00:10", "UTC", rebootAllDays...)),
+			fails: "Plan system-upgrade/k3s-agent has a window that ends 20 minutes before the reboot span 00:30-22:00 UTC starts, less than 30"},
+		"a Plan window of one day is judged as every day": {change: plan(rebootPlan("k3s-agent", "12:00", "13:00", "UTC", "sunday")),
+			fails: "Plan system-upgrade/k3s-agent has a window that overlaps the reboot span"},
+		"a Plan window in another time zone": {change: plan(rebootPlan("k3s-agent", "02:00", "04:00", "Asia/Muscat", rebootAllDays...)), regions: 2},
+		"a Plan window is not written as HH:MM": {change: plan(rebootPlan("k3s-agent", "10pm", "00:00", "UTC", rebootAllDays...)),
+			fails: "Plan system-upgrade/k3s-agent has no startTime and endTime of the form HH:MM"},
+		"a Plan window starts when it ends": {change: plan(rebootPlan("k3s-agent", "22:00", "22:00", "UTC", rebootAllDays...)),
+			fails: "Plan system-upgrade/k3s-agent has a window that starts when it ends"},
+		"a Plan window has no time zone": {change: plan(rebootPlan("k3s-agent", "22:00", "00:00", "", rebootAllDays...)),
+			fails: "Plan system-upgrade/k3s-agent has no time zone that the check knows"},
+		"kured is not fully ready at the limit": {change: func(w *rebootWorld) { w.kuredBack = -1 },
+			fails: "3 of 3 nodes restarted, 0 unschedulable, 0 not Ready; DaemonSet kube-system/kured has 3 of 4 Pods ready", regions: 1},
+		"a failed read of the recovery is no observation": {change: func(w *rebootWorld) { w.kuredBack, w.noReleases = -1, [2]int{3100, 3400} },
+			fails: "DaemonSet kube-system/kured has 3 of 4 Pods ready", regions: 1},
+		"a HelmRelease does not become Ready again": {change: release("lost"),
+			fails: "1 of 3 HelmReleases that were Ready before are not Ready: flux-system/bp-cilium", regions: 1},
+		"a HelmRelease that was not Ready before is not judged": {change: release("never"), regions: 2},
+		"no HelmRelease is Ready before": {change: func(w *rebootWorld) {
+			for name := range w.releases {
+				w.releases[name] = "never"
+			}
+		}, fails: "none of 3 HelmReleases is Ready, so their recovery cannot be judged"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			w := newRebootWorld()
@@ -167,11 +238,14 @@ func TestRebootCheck(t *testing.T) {
 			if want := strings.TrimSpace(strings.Repeat(nonEmpty(tc.chosen, "cp-1 w-1 w-2")+" ", len(w.placed))); strings.Join(w.pods, " ") != want {
 				t.Errorf("the sentinel Pods are on %v, want %s", w.pods, want)
 			}
-			if at, placed := w.placed["region-a"]; placed && (at.Sub(start).String() != nonEmpty(tc.waited, "0s") || steps[3].Evidence["waited"] != at.Sub(start).String()) {
-				t.Errorf("the first region waited %s for the reboot span and recorded %v, want %q", at.Sub(start), steps[3].Evidence["waited"], tc.waited)
+			if at, placed := w.placed["region-a"]; placed {
+				span := slices.IndexFunc(steps, func(s *Step) bool { return strings.HasPrefix(s.Name, "the reboot span is open") })
+				if span < 0 || at.Sub(start).String() != nonEmpty(tc.waited, "0s") || steps[span].Evidence["waited"] != at.Sub(start).String() {
+					t.Errorf("the first region waited %s for the reboot span, want %q", at.Sub(start), tc.waited)
+				}
 			}
 			if last := steps[len(steps)-1]; tc.fails == "" && (last.Evidence["most_unschedulable"] != 1 || last.Evidence["failed_readings"] != 8 ||
-				len(last.Evidence["boot_ids_after"].(map[string]string)) != 3) {
+				len(last.Evidence["boot_ids_after"].(map[string]string)) != 3 || last.Evidence["kured_ready"] != strconv.Itoa(len(w.nodes))+"/"+strconv.Itoa(len(w.nodes))) {
 				t.Errorf("the evidence of the last step is %v", last.Evidence)
 			}
 		})

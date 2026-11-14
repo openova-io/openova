@@ -22,36 +22,49 @@ import (
 //  1. reads the settings of kured from the arguments of DaemonSet
 //     kube-system/kured. A setting that is not an argument fails the step:
 //     the check assumes no default;
-//  2. chooses rebootNodes nodes: the first control-plane node by name, then
+//  2. reads every upgrade Plan (rebootPlans) of every namespace. Each must
+//     have spec.window with startTime and endTime (HH:MM) and timeZone, and
+//     the window must end at least rebootGap before the reboot span starts
+//     and must not overlap it. A cluster that does not serve the kind, or
+//     has no Plan, passes. Both spans are compared as times of the day in
+//     UTC, each converted with the offset of its time zone at the moment of
+//     the step. The days of a window are not read, as the days of the span
+//     are not: both are judged as if they were open every day, which is the
+//     strictest reading;
+//  3. chooses rebootNodes nodes: the first control-plane node by name, then
 //     the first other nodes by name, nodes without the control-plane label
 //     first. Fewer nodes, no control-plane node, or a node that is
 //     unschedulable or not Ready already, fail the step;
-//  3. waits when the reboot span is not open for the whole time limit: until
+//  4. waits when the reboot span is not open for the whole time limit: until
 //     the span opens the next time, at most rebootMaxWait. A longer wait
-//     fails the step. The days of the span are not read;
-//  4. creates a namespace of its own and one Pod on each chosen node that
+//     fails the step;
+//  5. reads the HelmReleases of every namespace once and keeps those that are
+//     Ready. None fails the step;
+//  6. creates a namespace of its own and one Pod on each chosen node that
 //     creates the file kured looks for, and deletes the namespace;
-//  5. reads the nodes every rebootEvery until each chosen node has a new
-//     boot identifier, no node is unschedulable and every node is Ready. The
-//     time limit is one round of kured (period + lock release delay) per
-//     chosen node plus rebootSettle. The step fails at once when two nodes
-//     are unschedulable in one reading, when a node is unschedulable for
-//     longer than drain timeout + lock release delay, or when a chosen node
-//     shows a new boot identifier and was never read unschedulable. A
-//     reading that fails is no observation: the API of a region with one
-//     control-plane node is away while that node restarts.
+//  7. reads the nodes every rebootEvery until each chosen node has a new
+//     boot identifier, no node is unschedulable, every node is Ready, the
+//     DaemonSet of kured has every Pod ready, and every HelmRelease of step 5
+//     is Ready again. The time limit is one round of kured (period + lock
+//     release delay) per chosen node plus rebootSettle. The step fails at
+//     once when two nodes are unschedulable in one reading, when a node is
+//     unschedulable for longer than drain timeout + lock release delay, or
+//     when a chosen node shows a new boot identifier and was never read
+//     unschedulable. A reading that fails is no observation: the API of a
+//     region with one control-plane node is away while that node restarts.
 //
-// The check never restarts a node itself and never changes kured. It does
-// not read the upgrade Plans, the pods of kured or the HelmReleases.
+// The check never restarts a node itself and never changes kured.
 const (
 	rebootID        = "INF-G01"
 	rebootNamespace = "kube-system" // of the DaemonSet of kured
 	rebootDaemonSet = "kured"       // also the name of its container
 	rebootVolume    = "sentinel"    // the volume of the DaemonSet with the folder of the sentinel file
+	rebootPlans     = "plans.upgrade.cattle.io"
 	rebootNodes     = 3
 	rebootEvery     = 5 * time.Second
 	rebootSettle    = 15 * time.Minute
 	rebootMaxWait   = 150 * time.Minute
+	rebootGap       = 30 // minutes from the end of a Plan window to the start of the reboot span, at least
 )
 
 // rebootPod creates the sentinel file of its node and ends. Its values are
@@ -110,6 +123,46 @@ func (k rebootSettings) window(now time.Time) (open, next time.Duration) {
 
 // rebootMod is m modulo the minutes of a day, never negative.
 func rebootMod(m int) int { return (m%1440 + 1440) % 1440 }
+
+// rebootUTC turns a minute of the day in zone into a minute of the day in
+// UTC, with the offset that zone has at now.
+func rebootUTC(minute int, zone *time.Location, now time.Time) int {
+	_, offset := now.In(zone).Zone()
+	return rebootMod(minute - offset/60)
+}
+
+// rebootWindow judges the window of one upgrade Plan against the reboot span
+// of k at now. It returns the window as the Plan writes it and why it fails,
+// "" when it passes.
+func rebootWindow(plan kube.Object, k rebootSettings, now time.Time) (window, problem string) {
+	w, _ := plan.Get("spec", "window").(map[string]any)
+	if w == nil {
+		return "", "has no spec.window"
+	}
+	o := kube.Object(w)
+	window = o.Str("startTime") + "-" + o.Str("endTime") + " " + o.Str("timeZone")
+	start, errStart := time.Parse("15:04", o.Str("startTime"))
+	end, errEnd := time.Parse("15:04", o.Str("endTime"))
+	zone, errZone := time.LoadLocation(o.Str("timeZone"))
+	switch {
+	case errStart != nil || errEnd != nil:
+		return window, "has no startTime and endTime of the form HH:MM in spec.window"
+	case errZone != nil || o.Str("timeZone") == "":
+		return window, "has no time zone that the check knows in spec.window.timeZone"
+	}
+	ws := rebootUTC(start.Hour()*60+start.Minute(), zone, now)
+	length := rebootMod(end.Hour()*60 + end.Minute() - start.Hour()*60 - start.Minute())
+	ks, span := rebootUTC(k.start, k.zone, now), rebootMod(k.end-k.start)
+	switch {
+	case length == 0:
+		return window, "has a window that starts when it ends"
+	case rebootMod(ks-ws) < length || rebootMod(ws-ks) < span:
+		return window, "has a window that overlaps the reboot span " + k.span
+	case rebootMod(ks-ws-length) < rebootGap:
+		return window, fmt.Sprintf("has a window that ends %d minutes before the reboot span %s starts, less than %d", rebootMod(ks-ws-length), k.span, rebootGap)
+	}
+	return window, ""
+}
 
 // list runs `kubectl get -o json <args>` and returns the objects of the list.
 func (c rebootCheck) list(ctx context.Context, region kube.Region, args ...string) ([]kube.Object, error) {
@@ -226,6 +279,78 @@ func rebootChoose(nodes map[string]rebootNode) ([]string, error) {
 	return append([]string{servers[0]}, append(others, servers[1:]...)[:rebootNodes-1]...), nil
 }
 
+// plans judges the upgrade Plans of every namespace. It puts into ev whether
+// the cluster serves the kind, how many Plans there are and the window of each.
+func (c rebootCheck) plans(ctx context.Context, region kube.Region, k rebootSettings, ev Evidence) error {
+	items, err := c.list(ctx, region, rebootPlans, "-A")
+	served := err == nil || !strings.Contains(err.Error(), notServed)
+	ev["plan_kind_served"], ev["plans"] = served, len(items)
+	if !served {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	windows, bad := map[string]string{}, []string{}
+	for _, p := range items {
+		name := p.Namespace() + "/" + p.Name()
+		window, problem := rebootWindow(p, k, c.now())
+		if windows[name] = window; problem != "" {
+			bad = append(bad, "Plan "+name+" "+problem)
+		}
+	}
+	ev["plan_windows"] = windows
+	if sort.Strings(bad); len(bad) > 0 {
+		return fmt.Errorf("%d of %d upgrade Plans break the rule that a window ends at least %d minutes before the reboot span starts: %s", len(bad), len(items), rebootGap, strings.Join(bad, "; "))
+	}
+	return nil
+}
+
+// releases returns the Ready state of every HelmRelease, by namespace/name.
+func (c rebootCheck) releases(ctx context.Context, region kube.Region) (map[string]bool, error) {
+	items, err := c.list(ctx, region, hrResource, "-A")
+	out := map[string]bool{}
+	for _, hr := range items {
+		status, _, _, _ := hr.Condition("Ready")
+		out[hr.Namespace()+"/"+hr.Name()] = status == "True"
+	}
+	return out, err
+}
+
+// recovery reads the DaemonSet of kured and the HelmReleases. It returns what
+// has not recovered yet, "" when kured has every Pod ready and every
+// HelmRelease of ready is Ready again.
+func (c rebootCheck) recovery(ctx context.Context, region kube.Region, ready []string, ev Evidence) (string, error) {
+	sets, err := c.list(ctx, region, "daemonsets", "-n", rebootNamespace)
+	if err != nil {
+		return "", err
+	}
+	now, err := c.releases(ctx, region)
+	if err != nil {
+		return "", err
+	}
+	podsReady, desired := 0, 0
+	for _, ds := range sets {
+		if ds.Name() == rebootDaemonSet {
+			podsReady, desired = ds.Int("status", "numberReady"), ds.Int("status", "desiredNumberScheduled")
+		}
+	}
+	waiting, notAgain := []string{}, []string{}
+	for _, name := range ready {
+		if !now[name] {
+			notAgain = append(notAgain, name)
+		}
+	}
+	ev["kured_ready"], ev["helmreleases_not_ready_again"] = fmt.Sprintf("%d/%d", podsReady, desired), notAgain
+	if desired == 0 || podsReady != desired {
+		waiting = append(waiting, fmt.Sprintf("DaemonSet %s/%s has %d of %d Pods ready", rebootNamespace, rebootDaemonSet, podsReady, desired))
+	}
+	if len(notAgain) > 0 {
+		waiting = append(waiting, fmt.Sprintf("%d of %d HelmReleases that were Ready before are not Ready: %s", len(notAgain), len(ready), strings.Join(notAgain, ", ")))
+	}
+	return strings.Join(waiting, "; "), nil
+}
+
 func (c rebootCheck) Run(ctx context.Context, cc *CheckContext, rec StepRecorder) error {
 	if len(cc.Regions) == 0 {
 		return errors.New("the run has no region")
@@ -251,13 +376,15 @@ func (c rebootCheck) region(ctx context.Context, region kube.Region, rec StepRec
 		return checkStep(rec, rebootID, *n, name+" in region "+region.ID, fn)
 	}
 	var k rebootSettings
-	var chosen []string
+	var chosen, ready []string
 	var before map[string]rebootNode
 	ns, created := "inf-reboot-"+strings.ToLower(NewRunID(c.now())), false
 	ok := step("kured is installed and its arguments give the settings", func(ev Evidence) (err error) {
 		k, err = c.settings(ctx, region)
 		ev["reboot_span"], ev["time_limit"], ev["sentinel"] = k.span, k.limit().String(), path.Join(k.dir, k.file)
 		return err
+	}) && step("every upgrade Plan has a window that ends at least "+strconv.Itoa(rebootGap)+" minutes before the reboot span starts", func(ev Evidence) error {
+		return c.plans(ctx, region, k, ev)
 	}) && step("three nodes are chosen, one of them a control-plane node, and every node is schedulable and Ready", func(ev Evidence) (err error) {
 		if before, err = c.nodes(ctx, region); err != nil {
 			return err
@@ -276,6 +403,22 @@ func (c rebootCheck) region(ctx context.Context, region kube.Region, rec StepRec
 		}
 		ev["waited"] = next.String()
 		return c.wait(ctx, next)
+	}) && step("the HelmReleases that are Ready before the first reboot are read", func(ev Evidence) error {
+		all, err := c.releases(ctx, region)
+		if err != nil {
+			return err
+		}
+		for name, isReady := range all {
+			if isReady {
+				ready = append(ready, name)
+			}
+		}
+		sort.Strings(ready)
+		ev["helmreleases"], ev["ready_before"] = len(all), len(ready)
+		if len(ready) == 0 {
+			return fmt.Errorf("none of %d HelmReleases is Ready, so their recovery cannot be judged: no node was touched", len(all))
+		}
+		return nil
 	}) && step("a pending reboot is put on the three nodes", func(ev Evidence) error {
 		ev["namespace"] = ns
 		if _, err := c.kubectl(region, ctx, nil, "create", "namespace", ns); err != nil {
@@ -301,14 +444,15 @@ func (c rebootCheck) region(ctx context.Context, region kube.Region, rec StepRec
 		})
 		ok = ok && deleted
 	}
-	return ok && step("the three nodes restart one at a time, drained, and every node is schedulable and Ready again within "+k.limit().String(), func(ev Evidence) error {
-		return c.watch(ctx, region, k, chosen, before, placed, ev)
+	return ok && step("the three nodes restart one at a time, drained, and every node, kured and every HelmRelease that was Ready is ready again within "+k.limit().String(), func(ev Evidence) error {
+		return c.watch(ctx, region, k, chosen, before, ready, placed, ev)
 	})
 }
 
-// watch reads the nodes until the three chosen nodes have restarted and every
-// node is schedulable and Ready, a rule is broken or the time limit ends.
-func (c rebootCheck) watch(ctx context.Context, region kube.Region, k rebootSettings, chosen []string, before map[string]rebootNode, placed time.Time, ev Evidence) error {
+// watch reads the nodes until the three chosen nodes have restarted, every
+// node is schedulable and Ready, kured has every Pod ready and every
+// HelmRelease of ready is Ready again, a rule is broken or the time limit ends.
+func (c rebootCheck) watch(ctx context.Context, region kube.Region, k rebootSettings, chosen []string, before map[string]rebootNode, ready []string, placed time.Time, ev Evidence) error {
 	since, drained, oldIDs, newIDs := map[string]time.Time{}, map[string]bool{}, map[string]string{}, map[string]string{}
 	for _, name := range chosen {
 		oldIDs[name] = before[name].boot
@@ -359,10 +503,19 @@ func (c rebootCheck) watch(ctx context.Context, region kube.Region, k rebootSett
 				}
 				newIDs[name] = node.boot
 			}
-			if len(newIDs) == len(chosen) && len(down) == 0 && notReady == 0 {
-				return nil
-			}
 			last = fmt.Sprintf("%d of %d nodes restarted, %d unschedulable, %d not Ready", len(newIDs), len(chosen), len(down), notReady)
+			if len(newIDs) == len(chosen) && len(down) == 0 && notReady == 0 {
+				waiting, err := c.recovery(ctx, region, ready, ev)
+				switch {
+				case err != nil:
+					failed++
+					ev["failed_readings"] = failed
+				case waiting == "":
+					return nil
+				default:
+					last += "; " + waiting
+				}
+			}
 		}
 		if now.Sub(placed) >= k.limit() {
 			return fmt.Errorf("%s after the pending reboots were placed: %s", k.limit(), last)
