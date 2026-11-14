@@ -1,0 +1,138 @@
+{{- /*
+Function test of bp-gateway-api (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
+
+The chart installs the Gateway API resource definitions; every HTTPRoute of
+the platform depends on them. The test asks the Kubernetes API two questions:
+  1. the discovery document /apis/gateway.networking.k8s.io/v1 lists the
+     resource gateways: the API server serves the definition;
+  2. the definition gateways.gateway.networking.k8s.io carries the annotation
+     gateway.networking.k8s.io/bundle-version with the version this chart pins
+     (its Chart.yaml annotation catalyst.openova.io/upstream-gateway-api-version),
+     and reports the condition Established True.
+It passes when both hold. It writes nothing.
+
+A ServiceAccount, a ClusterRole (get on that one definition of
+customresourcedefinitions) and a ClusterRoleBinding of this file give the
+test Pod that right; reading a discovery document needs none. Their
+cluster-wide names carry the namespace. The chart has no master gate, so the
+test always renders. The image is the kubectl image the kit already pulls
+(bp-cnpg's webhook gate); functionTest.image overrides it.
+*/ -}}
+{{- $ft := .Values.functionTest | default dict }}
+{{- $image := $ft.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" }}
+{{- $pin := index .Chart.Annotations "catalyst.openova.io/upstream-gateway-api-version" | default "" }}
+{{- $clusterName := printf "%s-%s-function-test" .Release.Namespace .Release.Name | trunc 63 | trimSuffix "-" }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $clusterName }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    resourceNames: ["gateways.gateway.networking.k8s.io"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $clusterName }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-function-test
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ $clusterName }}
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 300
+  serviceAccountName: {{ .Release.Name }}-function-test
+  containers:
+    - name: function-test
+      image: {{ $image | quote }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: HOME
+          value: /tmp
+        - name: WANT_VERSION
+          value: {{ $pin | quote }}
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -u
+          fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          crd=gateways.gateway.networking.k8s.io
+          [ -n "${WANT_VERSION}" ] || fail "the chart pins no Gateway API version"
+          kubectl --request-timeout=15s get --raw /apis/gateway.networking.k8s.io/v1 > /tmp/answer 2>/tmp/error \
+            || fail "GET /apis/gateway.networking.k8s.io/v1 failed: $(tr '\n' ' ' < /tmp/error | cut -c1-160)"
+          grep -q -E '"name" *: *"gateways"' /tmp/answer || fail "the API group gateway.networking.k8s.io/v1 serves no resource gateways"
+          version="$(kubectl --request-timeout=15s get crd "${crd}" -o jsonpath='{.metadata.annotations.gateway\.networking\.k8s\.io/bundle-version}' 2>/tmp/error)" \
+            || fail "the definition ${crd} cannot be read: $(tr '\n' ' ' < /tmp/error | cut -c1-160)"
+          [ "${version}" = "${WANT_VERSION}" ] || fail "the definition ${crd} is at bundle version '${version}', not ${WANT_VERSION}"
+          established="$(kubectl --request-timeout=15s get crd "${crd}" -o jsonpath='{.status.conditions[?(@.type=="Established")].status}' 2>/dev/null)"
+          [ "${established}" = "True" ] || fail "the definition ${crd} is not Established ('${established}')"
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} gateways.gateway.networking.k8s.io is served at ${version}"
+  volumes:
+    - name: tmp
+      emptyDir: {}
