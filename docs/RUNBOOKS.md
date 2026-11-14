@@ -144,6 +144,16 @@ On kom4dc the pushed cloud-init log is the **ONLY** Phase-1 forensic (no sshd, n
 
 Wipe via the canonical endpoint only — `POST https://console.openova.io/sovereign/api/v1/deployments/{id}/wipe` — and **never wipe a converged env while it retains verification value**: walk everything walkable and commit the evidence before any wipe (§0.5 gate (b) applies to wipes too).
 
+### 0.7 Flight checklist — wipe, sweep, fire
+
+A flight is one fresh installation. Every flight runs these three steps in this order, through `scripts/sovereign-lifecycle.sh`. Each step fails closed: a step that cannot measure refuses.
+
+1. **Wipe** the standing environment: `scripts/sovereign-lifecycle.sh wipe <id> [fqdn]`. Its capture step saves the cloud-init log (§0.6) and keeps the deployment's variables document at `/tmp/flight/<id>-vars.json`, readable by you only (set `FLIGHT_DIR` to keep it elsewhere). A wipe that converges deletes the tofu workdir, so this copy is the only one the sweep can read. Before a wipe made any other way, run `scripts/sovereign-lifecycle.sh capture <id>`.
+2. **Sweep** the wiped deployment: `scripts/sovereign-lifecycle.sh sweep <id>`. It runs `scripts/flight-sweep.sh` on the kept document, which only reads and lists what the deployment left in the cloud account. Leftovers are listed again every 60 seconds for up to 30 minutes, because the cloud frees quota about 15 minutes after the wipe returns (§0.2). Exit 0 and the line `SWEEP PASS <id> leftovers=0`: nothing is left. Exit 1: leftovers remain; run the wipe again (a partial wipe keeps its tofu state, and the next wipe destroys against it) and sweep again. Exit 3: not measured; no fire.
+3. **Pre-flight and fire**: `PREV_ID=<id> scripts/sovereign-lifecycle.sh fire <subdomain> [pool]`. The fire lists the account once more and refuses when `PREV_ID` is not set or that listing is not clean. Then it runs the pre-flight gate of §0.3 and only then creates the deployment. Paste the `SWEEP PASS` line into the train manifest next to the `PRE-FLIGHT PASS` line: it carries the leftover count for the gate record.
+
+**Certificate limit.** The Let's Encrypt limit that binds is five certificates for the same set of names in seven days. Rotate the parent domain (`omani.works` ↔ `omantel.biz`, §0.3 step 1) before a fire would reach it.
+
 ---
 
 ## §1 — Fresh provisioning
@@ -1913,7 +1923,7 @@ Common failure modes + first-look diagnostics, condensed from 18 documented inci
 | SSE stream closes within seconds — admin UI shows zero components | catalyst-api helmwatch loop terminated at 0 HelmReleases (first-seen-gate bug) | Refresh page after Phase 1 30+s in; wizard falls back to REST poll. Long-term: deploy catalyst-api with the gate fix |
 | Wizard SSE shows `flux-bootstrap` complete but per-component grid stays empty; catalyst-api logs `failed to load Sovereign kubeconfig: connection refused` | Cloud-init POST-back kubeconfig not implemented (issue #183) | Interim: SSH to CP, replace `127.0.0.1` with LB IP in `/etc/rancher/k3s/k3s.yaml`, save as `sovereign-<fqdn>-kubeconfig` Secret in `catalyst` ns |
 | Admin UI shows every app card as "INSTALLED" even when underlying HelmReleases reconciling | Admin UI read `deployment.status` instead of live helmwatch SSE — fix `64d7de97` | Confirm `catalyst-ui` image at or after `64d7de97` |
-| `Certificate/wildcard` reports `too many certificates already issued for "<sovereign-fqdn>"` | Let's Encrypt rate limit: 5 per registered domain per week | Switch ClusterIssuer to `letsencrypt-staging`; wait for rate-limit expiry; switch back |
+| `Certificate/wildcard` reports `too many certificates already issued for "<sovereign-fqdn>"` | Let's Encrypt rate limit: 5 certificates for the same set of names in 7 days | Switch ClusterIssuer to `letsencrypt-staging`; wait for rate-limit expiry; switch back |
 | Phase 1 watch banner: `0 HelmReleases in 15m0s` | Flux on new Sovereign isn't materialising bootstrap-kit | Walk §2.8 playbook (GitRepository, Kustomization, controller logs, manual reconcile) |
 | `kubectl get hr` shows N bp-* HRs with **blank READY/STATUS and no conditions** on a Huawei Sovereign (e.g. `bp-hcloud-ccm`, `bp-cluster-autoscaler-hcloud`, `bp-velero`, `bp-catalyst-secondary-edge`) | Provider/role-gated HRs are `spec.suspend: true`; Flux never writes a Ready condition on a suspended HR — this is BY DESIGN, not a stuck install | **Do not investigate.** Confirm with `kubectl get hr -n flux-system <name> -o jsonpath='{.spec.suspend}'` → `true`. See §7.5 for the full per-provider list + the suspended-vs-stuck distinction |
 

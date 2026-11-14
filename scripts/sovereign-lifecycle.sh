@@ -6,6 +6,8 @@
 #             docs/PROTOCOL.md §5), then scripts/reset-uat.py, then POST /deployments
 #   * wipe  -> CAPTURES the cloud-init log FIRST (GET /cloudinit-log, #3132),
 #             then POST /wipe   <-- debug-before-wipe
+#   * sweep -> lists what a wiped deployment left (scripts/flight-sweep.sh) until
+#             nothing is left, at most 30 min; fire refuses without a clean sweep
 # The capture relies on the control-plane self-uploading its log (#3132); on
 # kom4dc the log cannot be pulled (no console-output API, no reachable sshd), so
 # this is the only forensic for a Phase-1 failure. Refs #3132.
@@ -17,6 +19,8 @@ API="https://console.openova.io/sovereign/api/v1/deployments"
 export KEY="${CATALYST_MOTHERSHIP_KEY:-/tmp/hw-priv.pem}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 EVID_DIR="${REPO_ROOT}/docs/sessions/$(date +%F)/prov-diagnostics"
+# Kept variables documents (they hold cloud credentials): outside the repository.
+FLIGHT_DIR="${FLIGHT_DIR:-/tmp/flight}"
 
 _tok() {
   python3 -c 'import jwt,time,os;k=open(os.environ["KEY"]).read();n=int(time.time());print(jwt.encode({"email":"emrah.baysal@openova.io","sub":"emrah.baysal@openova.io","realm_access":{"roles":["catalyst-owner"]},"tier":"owner","iat":n,"exp":n+900},k,algorithm="RS256"))'
@@ -35,6 +39,47 @@ capture() {
     echo "WARN: no cloud-init log (HTTP $code) — env predates #3132 or never uploaded; proceeding."
     rm -f "$out"
   fi
+  keep_vars "$id"
+}
+
+# keep_vars <id> — copy the deployment's tofu.auto.tfvars.json out of the
+# mothership catalyst-api Pod to ${FLIGHT_DIR}/<id>-vars.json. A wipe that
+# converges deletes the tofu workdir that holds it, and `sweep <id>` reads it.
+# A failed copy leaves an earlier copy in place.
+keep_vars() {
+  local id="$1" apod tmp out="${FLIGHT_DIR}/${1}-vars.json"
+  case "$id" in ''|*[!A-Za-z0-9-]*) echo "WARN: '${id}' is not a deployment id; variables document not kept."; return 0 ;; esac
+  mkdir -p "$FLIGHT_DIR" && chmod 700 "$FLIGHT_DIR" && tmp="$(mktemp "${FLIGHT_DIR}/.keep.XXXXXX")" || { echo "WARN: cannot write ${FLIGHT_DIR}; variables document not kept."; return 0; }
+  apod=$(kubectl -n catalyst get pods -o name 2>/dev/null | grep -m1 catalyst-api | cut -d/ -f2)
+  if [ -n "$apod" ] && kubectl -n catalyst exec "$apod" --request-timeout=25s -- sh -c "cat /var/lib/catalyst/tofu/${id}/tofu.auto.tfvars.json 2>/dev/null || cat /deps/tofu/${id}/tofu.auto.tfvars.json" > "$tmp" 2>/dev/null \
+     && python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$tmp" 2>/dev/null; then
+    mv "$tmp" "$out"; echo "kept variables document -> $out"
+  else
+    rm -f "$tmp"
+    if [ -s "$out" ]; then echo "WARN: variables document of ${id} not read now; the earlier copy $out stays."
+    else echo "WARN: variables document of ${id} not kept; 'sweep ${id}' will report NOT MEASURED and a fire with PREV_ID=${id} will refuse."; fi
+  fi
+}
+
+# sweep <id> — FLIGHT CHECKLIST: run scripts/flight-sweep.sh on the kept document
+# until it finds nothing; the cloud frees quota ~15 min after a wipe, so it lists
+# again every SWEEP_INTERVAL s (60) for up to SWEEP_TIMEOUT s (1800). Exit 0: the
+# line "SWEEP PASS <id> leftovers=0", the leftover count for the gate input.
+# 1: leftovers at the deadline. 2: usage. 3: not measured (no document, no listing).
+sweep() {
+  local id="${1:-}" vars rc start=$SECONDS timeout="${SWEEP_TIMEOUT:-1800}" interval="${SWEEP_INTERVAL:-60}"
+  case "$id" in ''|*[!A-Za-z0-9-]*) echo "usage: $0 sweep <deployment id>"; return 2 ;; esac
+  vars="${FLIGHT_DIR}/${id}-vars.json"
+  if [ ! -s "$vars" ]; then echo "SWEEP NOT MEASURED ${id}: no kept variables document ${vars} (capture <id> keeps it; wipe runs capture first)"; return 3; fi
+  while :; do
+    bash "${REPO_ROOT}/scripts/flight-sweep.sh" "$vars"; rc=$?
+    case "$rc" in
+      0) echo "SWEEP PASS ${id} leftovers=0"; return 0 ;;
+      1) if [ $((SECONDS - start + interval)) -ge "$timeout" ]; then echo "SWEEP FAIL ${id}: leftovers remain after $((SECONDS - start))s"; return 1; fi
+         echo "leftovers remain; listing again in ${interval}s"; sleep "$interval" ;;
+      *) echo "SWEEP NOT MEASURED ${id}: scripts/flight-sweep.sh exit ${rc}"; return 3 ;;
+    esac
+  done
 }
 
 # wipe <id> [fqdn] — DEBUG-BEFORE-WIPE: capture first, ALWAYS, then wipe.
@@ -62,6 +107,11 @@ wipe() {
 fire() {
   local sub="$1" pool="${2:-omani.works}" pub body
   local qatest="${QATEST:-false}" firecut="${FIRECUT:-true}"
+  # FLIGHT CHECKLIST: PREV_ID names the deployment the last wipe removed; its
+  # sweep must be clean. One listing, no waiting; fail-closed.
+  if ! SWEEP_TIMEOUT=0 sweep "${PREV_ID:-}"; then
+    echo "!! NO CLEAN SWEEP — fire ABORTED: set PREV_ID to the last wiped deployment and run '$0 sweep <that id>' until it prints SWEEP PASS"; return 1
+  fi
   # MANDATORY pre-flight gate (docs/PROTOCOL.md §5; founder mandate 2026-06-30:
   # never fire blind). Fail-closed, no bypass. Runs BEFORE reset_uat so a
   # refused fire never flushes ledger evidence. HW_TFVARS auto-fetched from the
@@ -122,7 +172,8 @@ case "${1:-}" in
   fire)      shift; fire "$@" ;;
   wipe)      shift; wipe "$@" ;;
   capture)   shift; capture "$@" ;;
+  sweep)     shift; sweep "$@" ;;
   reset-uat) shift; reset_uat "$@" ;;
-  *) echo "usage: $0 {fire <subdomain> [pool] | wipe <id> [fqdn] | capture <id> | reset-uat <env>}"
-     echo "  fire ALWAYS resets UAT first; wipe ALWAYS captures the cloud-init log first (#3132)."; exit 2 ;;
+  *) echo "usage: $0 {fire <subdomain> [pool] | wipe <id> [fqdn] | capture <id> | sweep <id> | reset-uat <env>}"
+     echo "  fire ALWAYS resets UAT first and needs PREV_ID=<last wiped id> with a clean sweep; wipe ALWAYS captures first."; exit 2 ;;
 esac

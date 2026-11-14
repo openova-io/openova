@@ -101,6 +101,7 @@ GET /api/v1/sovereigns/{id}/continuum/{name}/switchover/history handler.(*Handle
 GET /api/v1/sovereigns/{id}/continuums/{name} handler.(*Handler).HandleContinuumGet-fm 2
 GET /api/v1/sovereigns/{id}/dr/quorum/status handler.(*Handler).HandleDRQuorumStatus-fm 2
 GET /api/v1/sovereigns/{id}/dr/replication-status handler.(*Handler).HandleDRReplicationStatus-fm 2
+GET /api/v1/sovereigns/{id}/environments topologyread.(*Routes).Environments-fm 2
 GET /api/v1/sovereigns/{id}/k8s/events-for/{kind}/{ns}/{name} handler.(*Handler).HandleK8sEventsForResource-fm 2
 GET /api/v1/sovereigns/{id}/k8s/exec/{ns}/{pod}/{container} handler.(*Handler).HandleK8sExecWebSocket-fm 2
 GET /api/v1/sovereigns/{id}/k8s/logs/{ns}/{pod}/{container} handler.(*Handler).HandleK8sLogs-fm 2
@@ -127,6 +128,7 @@ GET /api/v1/sovereigns/{id}/networking/hubble handler.(*Handler).HandleNetworkin
 GET /api/v1/sovereigns/{id}/networking/netbird handler.(*Handler).HandleNetworkingNetBird-fm 2
 GET /api/v1/sovereigns/{id}/networking/policies handler.(*Handler).HandleNetworkingPolicies-fm 2
 GET /api/v1/sovereigns/{id}/rbac/access-matrix handler.(*Handler).HandleRBACAccessMatrix-fm 2
+GET /api/v1/sovereigns/{id}/regions topologyread.(*Routes).Regions-fm 2
 GET /api/v1/sovereigns/{id}/sessions handler.(*Handler).HandleK8sSessionsList-fm 2
 GET /api/v1/sovereigns/{id}/sessions/{sessionId}/replay handler.(*Handler).HandleK8sSessionReplay-fm 2
 GET /api/v1/sovereigns/{id}/shells/sessions handler.(*Handler).HandleK8sSessionsList-fm 2
@@ -228,4 +230,4 @@ PUT /api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name} handler.(*Handler).HandleK8sR
 PUT /api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/scale handler.(*Handler).HandleK8sResourceScale-fm 2
 PUT /api/v1/sovereigns/{id}/keycloak/groups/{groupId} handler.(*Handler).HandleKeycloakGroupsUpdate-fm 2
 chain 1: middleware.RequestID middleware.RealIP RequestLogger.(closure) middleware.Recoverer cors.(*Cors).Handler-fm
-chain 2: middleware.RequestID middleware.RealIP RequestLogger.(closure) middleware.Recoverer cors.(*Cors).Handler-fm RequireSession.(closure) handler.(*Handler).OrgScopeGuard-fm
+chain 2: middleware.RequestID middleware.RealIP RequestLogger.(closure) middleware.Recoverer cors.(*Cors).Handler-fm RequireSessionOrJob.(closure) handler.(*Handler).OrgScopeGuard-fm

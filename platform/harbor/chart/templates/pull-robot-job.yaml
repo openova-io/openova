@@ -1,0 +1,203 @@
+{{- /*
+SOV-161: the pull robot of this region's registry, created at install. The Job
+makes sure a system robot named <pullRobot.name>-<pullRobot.regionKey> exists
+in this region's Harbor with pull access to every project, and that the pull
+Secret (pullRobot.secretNamespace/secretName, a dockerconfigjson Secret) holds
+its login under the key pullRobot.host. Every other entry of the Secret is
+kept. Harbor shows a robot's secret only when it creates the robot, so a run
+that finds the robot without a working login in the Secret deletes the robot
+and creates it again; a run that finds a working login changes nothing.
+Each region names its own robot, so the Jobs of two regions that share one
+Harbor database never replace each other's login.
+Rendered only when pullRobot.host is set and differs from pullRobot.originHost
+(the login of the origin registry is never replaced). Slot 19 fills host,
+originHost, secretName and regionKey from the Sovereign's variables (the keys
+of docs/contracts/c5-upstream-variables.schema.json and one kit key). A plain
+Job, not a hook: slot 19 installs with disableWait. The name hash re-runs it
+when an input or the chart version changes.
+*/ -}}
+{{- $pr := .Values.pullRobot }}
+{{- $host := toString ($pr.host | default "") | trim }}
+{{- $origin := toString ($pr.originHost | default "") | trim }}
+{{- $cfgNs := $pr.secretNamespace }}
+{{- $cfgName := $pr.secretName }}
+{{- if and $pr.enabled $host (ne $host $origin) }}
+{{- $region := regexReplaceAll "[^a-z0-9]+" (lower (toString ($pr.regionKey | default ""))) "-" | trimAll "-" }}
+{{- $robot := $pr.name }}
+{{- if $region }}
+{{- $robot = printf "%s-%s" $pr.name $region }}
+{{- end }}
+{{- $sa := printf "%s-pull-robot" .Release.Name }}
+{{- $hash := printf "%s|%s|%s|%s|%s|%s" $host $cfgNs $cfgName $robot $pr.image .Chart.Version | sha256sum | trunc 8 }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $sa }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-harbor
+    catalyst.openova.io/component: pull-robot
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $sa }}
+  namespace: {{ $cfgNs }}
+  labels:
+    catalyst.openova.io/blueprint: bp-harbor
+    catalyst.openova.io/component: pull-robot
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: [{{ $cfgName | quote }}]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $sa }}
+  namespace: {{ $cfgNs }}
+  labels:
+    catalyst.openova.io/blueprint: bp-harbor
+    catalyst.openova.io/component: pull-robot
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $sa }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $sa }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-pull-robot-{{ $hash }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    catalyst.openova.io/blueprint: bp-harbor
+    catalyst.openova.io/component: pull-robot
+spec:
+  backoffLimit: 6
+  activeDeadlineSeconds: 3600
+  template:
+    metadata:
+      labels:
+        catalyst.openova.io/blueprint: bp-harbor
+        catalyst.openova.io/component: pull-robot
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ $sa }}
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ensure
+          image: {{ $pr.image | quote }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          env:
+            - name: HOME
+              value: /tmp
+            - name: HARBOR_CORE_URL
+              value: "http://{{ .Release.Name }}-core.{{ .Release.Namespace }}.svc.cluster.local"
+            - name: LOCAL_REGISTRY_HOST
+              value: {{ $host | quote }}
+            - name: ROBOT_NAME
+              value: {{ $robot | quote }}
+            - name: PULL_CONFIG_NAME
+              value: {{ $cfgName | quote }}
+            - name: PULL_CONFIG_NAMESPACE
+              value: {{ $cfgNs | quote }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              log() { echo "[pull-robot] $*"; }
+              die() { echo "[pull-robot] FATAL: $*" >&2; exit 1; }
+              api="${HARBOR_CORE_URL}/api/v2.0"
+              pw="$(cat /etc/harbor-admin/HARBOR_ADMIN_PASSWORD)"
+              where="${PULL_CONFIG_NAMESPACE}/${PULL_CONFIG_NAME}"
+              up=""
+              for i in $(seq 1 90); do
+                if curl -fsS -o /dev/null --max-time 5 "${api}/ping"; then up=yes; break; fi
+                log "waiting for harbor-core (${i}/90)"
+                sleep 10
+              done
+              [ -n "${up}" ] || die "harbor-core did not answer"
+              kubectl -n "${PULL_CONFIG_NAMESPACE}" get secret "${PULL_CONFIG_NAME}" -o json > /tmp/pull.json \
+                || die "cannot read the Secret ${where}"
+              cfg="$(jq -r '.data[".dockerconfigjson"] // empty' /tmp/pull.json)"
+              [ -n "${cfg}" ] || die "the Secret ${where} has no key .dockerconfigjson"
+              printf '%s' "${cfg}" | base64 -d > /tmp/config.json || die "the key .dockerconfigjson of ${where} is not base64"
+              jq -e '.auths | type == "object"' /tmp/config.json > /dev/null \
+                || die "the key .dockerconfigjson of ${where} has no auths object"
+              user="$(jq -r --arg h "${LOCAL_REGISTRY_HOST}" '.auths[$h].username // empty' /tmp/config.json)"
+              pass="$(jq -r --arg h "${LOCAL_REGISTRY_HOST}" '.auths[$h].password // empty' /tmp/config.json)"
+              login_ok() {
+                c=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 -u "$1:$2" \
+                  "${HARBOR_CORE_URL}/service/token?service=harbor-registry") || c=000
+                [ "${c}" = 200 ]
+              }
+              code=$(curl -sS -o /tmp/robots.json -w '%{http_code}' --max-time 30 -u "admin:${pw}" \
+                "${api}/robots?page=1&page_size=100") || code=000
+              [ "${code}" = 200 ] || die "listing the robots answered ${code}"
+              robot="$(jq -c --arg n "${ROBOT_NAME}" \
+                '[.[] | select(.level == "system" and ((.name | split("$") | last) == $n))] | first // empty' /tmp/robots.json)"
+              if [ -n "${robot}" ]; then
+                full="$(printf '%s' "${robot}" | jq -r '.name')"
+                id="$(printf '%s' "${robot}" | jq -r '.id')"
+                off="$(printf '%s' "${robot}" | jq -r '.disable')"
+                if [ "${user}" = "${full}" ] && [ -n "${pass}" ] && [ "${off}" = false ] && login_ok "${user}" "${pass}"; then
+                  log "${where} holds a working login of ${full} for ${LOCAL_REGISTRY_HOST}; nothing to do"
+                  exit 0
+                fi
+                code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 -u "admin:${pw}" \
+                  -X DELETE "${api}/robots/${id}") || code=000
+                [ "${code}" = 200 ] || die "deleting the robot ${full} answered ${code}"
+                log "deleted the robot ${full}: ${where} holds no working login of it"
+              fi
+              body="$(jq -n -c --arg n "${ROBOT_NAME}" '{name: $n, description: "Pull login of the local registry, kept in the pull Secret by bp-harbor", level: "system", duration: -1, disable: false, permissions: [{kind: "project", namespace: "*", access: [{resource: "repository", action: "pull"}]}]}')"
+              code=$(curl -sS -o /tmp/robot.json -w '%{http_code}' --max-time 30 -u "admin:${pw}" \
+                -H 'Content-Type: application/json' -X POST "${api}/robots" --data "${body}") || code=000
+              [ "${code}" = 201 ] || die "creating the robot ${ROBOT_NAME} answered ${code}"
+              full="$(jq -r '.name // empty' /tmp/robot.json)"
+              sec="$(jq -r '.secret // empty' /tmp/robot.json)"
+              rm -f /tmp/robot.json
+              [ -n "${full}" ] && [ -n "${sec}" ] || die "the answer to creating ${ROBOT_NAME} has no name or no secret"
+              login_ok "${full}" "${sec}" || die "harbor-core refuses the new login of ${full}"
+              jq -c --arg h "${LOCAL_REGISTRY_HOST}" --arg u "${full}" --arg p "${sec}" \
+                '.auths[$h] = {username: $u, password: $p, auth: (($u + ":" + $p) | @base64)}' /tmp/config.json > /tmp/new.json
+              patch="$(jq -n -c --arg v "$(base64 -w0 < /tmp/new.json)" '{data: {".dockerconfigjson": $v}}')"
+              rm -f /tmp/new.json
+              kubectl -n "${PULL_CONFIG_NAMESPACE}" patch secret "${PULL_CONFIG_NAME}" --type=merge -p "${patch}" > /dev/null \
+                || die "patching the Secret ${where} failed"
+              log "${where} holds the login of ${full} for ${LOCAL_REGISTRY_HOST}"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          volumeMounts:
+            - name: harbor-admin
+              mountPath: /etc/harbor-admin
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: harbor-admin
+          secret:
+            secretName: {{ .Values.harborAdmin.secretName | default "harbor-admin" }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi
+{{- end }}

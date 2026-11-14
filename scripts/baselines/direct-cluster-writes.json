@@ -1,6 +1,13 @@
 {
   "allow": [
     {
+      "count": 1,
+      "metric": "K",
+      "owner": "CTL",
+      "path": "products/catalyst/bootstrap/api/internal/jobauth/jobauth.go",
+      "reason": "a TokenReview asks the cluster to judge a token and stores nothing"
+    },
+    {
       "count": 5,
       "metric": "K",
       "owner": "INF",

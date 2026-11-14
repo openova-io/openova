@@ -1584,7 +1584,7 @@ runcmd:
   # ServiceAccount revokes the parent's access. The file is k3s.yaml with its
   # client-certificate lines removed and the token as the user's credential.
   # It exists only until the post-back has run: the item after the post-back
-  # deletes it. Fail-loud: sentinel parent-bootstrap-FAILED + exit 96.
+  # deletes it. Fail-loud: sentinel parent-bootstrap-FAILED + exit 98.
   # Written tight: every byte counts against the 32 KiB user-data cap.
   - |
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml N=parent-bootstrap S=kube-system K=/var/lib/catalyst/parent-bootstrap.kubeconfig
@@ -1605,7 +1605,7 @@ runcmd:
     metadata: {name: $N-token, namespace: $S, annotations: {kubernetes.io/service-account.name: $N}}
     E
     sleep 2; done
-    [ "$T" ] && (umask 077; sed /client-/d $KUBECONFIG >$K) && kubectl --kubeconfig=$K config set-credentials default --token="$(echo $T|base64 -d)" || { sh /var/lib/catalyst/mark $N-FAILED || touch /var/lib/catalyst/$N-FAILED; exit 96; }
+    [ "$T" ] && (umask 077; sed /client-/d $KUBECONFIG >$K) && kubectl --kubeconfig=$K config set-credentials default --token="$(echo $T|base64 -d)" || { sh /var/lib/catalyst/mark $N-FAILED || touch /var/lib/catalyst/$N-FAILED; exit 98; }
 %{ if sovereign_region_role != "primary" ~}
   # SOV-141 — the peer token. A region that is not the primary also creates
   # ServiceAccount kube-system/handover-peer (cluster-admin; its token Secret

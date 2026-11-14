@@ -1,0 +1,138 @@
+name: Build keycloak-fapi
+
+# Builds and tests the Keycloak extension fapi-consent (platform/keycloak/extensions/fapi-consent)
+# and publishes the image that carries its provider archive.
+#
+# The extension is built inside the upstream Keycloak image of the version the Keycloak chart
+# pins (platform/keycloak/chart/values.yaml, keycloak.image.tag, the part before the first "-"),
+# so it compiles against exactly the jars that will load it. Both of its parts implement
+# Keycloak SPIs that Keycloak marks internal, so a change of that pin starts this workflow and
+# the extension is built and tested against the new version before the pin can roll.
+#
+# Every run builds the archive, runs its unit tests, runs the integration test (Keycloak with
+# the archive, a test realm and a stand-in for the authorisation API, all on the runner), builds
+# the image and checks that it holds the tested archive. Only a push to main logs in, pushes the
+# image and signs it through .github/actions/sign-and-attest. The image tag is the short commit.
+#
+# Every action is pinned by its commit; the comment names the release that commit is.
+
+on:
+  pull_request:
+    paths:
+      - 'platform/keycloak/extensions/fapi-consent/**'
+      - 'platform/keycloak/chart/values.yaml'
+      - '.github/workflows/build-keycloak-fapi.yaml'
+  push:
+    branches: [main]
+    paths:
+      - 'platform/keycloak/extensions/fapi-consent/**'
+      - 'platform/keycloak/chart/values.yaml'
+      - '.github/workflows/build-keycloak-fapi.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/openova-io/openova/keycloak-fapi-consent
+  EXTENSION: platform/keycloak/extensions/fapi-consent
+
+jobs:
+  build-keycloak-fapi:
+    name: build and test fapi-consent
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      # The step that signs the image needs a GitHub OIDC token.
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Keycloak version of the chart
+        id: vars
+        run: |
+          set -euo pipefail
+          python3 -c 'import yaml' 2>/dev/null || python3 -m pip install --quiet pyyaml
+          tag="$(python3 -c 'import yaml; print(yaml.safe_load(open("platform/keycloak/chart/values.yaml", encoding="utf-8"))["keycloak"]["image"]["tag"])')"
+          version="${tag%%-*}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::the Keycloak version cannot be read from the chart's tag '${tag}'"
+            exit 1
+          fi
+          echo "Keycloak ${version} (chart tag ${tag})"
+          {
+            echo "version=${version}"
+            echo "keycloak=quay.io/keycloak/keycloak:${version}"
+            echo "sha_short=${GITHUB_SHA::7}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build the provider archive and run the unit tests
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/fapi"
+          docker run --rm --network none \
+            -v "$PWD/${EXTENSION}:/src:ro" \
+            --entrypoint /bin/bash "${{ steps.vars.outputs.keycloak }}" /src/build.sh \
+            > "$RUNNER_TEMP/fapi/fapi-consent.jar"
+          sha256sum "$RUNNER_TEMP/fapi/fapi-consent.jar"
+
+      - name: Integration test
+        run: bash "${EXTENSION}/test/integration.sh" "${{ steps.vars.outputs.keycloak }}" "$RUNNER_TEMP/fapi/fapi-consent.jar"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Build image (load)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: ${{ runner.temp }}/fapi
+          file: ${{ env.EXTENSION }}/Containerfile
+          load: true
+          push: false
+          tags: ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            io.openova.keycloak.version=${{ steps.vars.outputs.version }}
+
+      - name: The image holds the tested archive
+        run: |
+          set -euo pipefail
+          want="$(sha256sum "$RUNNER_TEMP/fapi/fapi-consent.jar" | cut -d' ' -f1)"
+          got="$(docker run --rm --network none --entrypoint sha256sum "${IMAGE}:${{ steps.vars.outputs.sha_short }}" /providers/fapi-consent.jar | cut -d' ' -f1)"
+          if [ "$want" != "$got" ]; then
+            echo "::error::the image holds ${got}, the tested archive is ${want}"
+            exit 1
+          fi
+          echo "the image holds the tested archive ${want}"
+
+      - name: Login to GHCR
+        if: github.event_name == 'push'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push image
+        if: github.event_name == 'push'
+        id: push
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: ${{ runner.temp }}/fapi
+          file: ${{ env.EXTENSION }}/Containerfile
+          push: true
+          tags: ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            io.openova.keycloak.version=${{ steps.vars.outputs.version }}
+
+      - name: Sign and attest the image
+        if: github.event_name == 'push'
+        uses: ./.github/actions/sign-and-attest
+        with:
+          ref: ${{ env.IMAGE }}
+          digest: ${{ steps.push.outputs.digest }}

@@ -412,7 +412,7 @@ name: bp-cilium
 #   region A admits TWO per-Org wildcards simultaneously and reports 10/10,
 #   which is #5511's own proposed regression check, passing. Refs #6255 #5511
 #   #3376 #4290.
-version: 1.4.20
+version: 1.4.21
 description: |
   Catalyst-curated Blueprint umbrella chart for Cilium. Depends on the
   upstream `cilium` chart as a Helm subchart so `helm dependency build`

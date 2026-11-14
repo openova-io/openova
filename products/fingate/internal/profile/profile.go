@@ -84,7 +84,7 @@ var (
 		"options": true, "head": true, "patch": true, "trace": true}
 	clientAuths     = map[string]bool{"tls_client_auth": true, "private_key_jwt": true}
 	algorithms      = map[string]bool{"PS256": true}
-	consentCarriers = map[string]bool{"intent-claim": true, "authorization-details": true}
+	consentCarriers = map[string]bool{"intent-claim": true}
 	families        = []string{"account-access", "funds-confirmation", "payment", "vrp"}
 	states          = map[string]bool{"awaiting": true, "authorised": true, "rejected": true,
 		"revoked": true, "expired": true, "consumed": true}
@@ -252,7 +252,7 @@ func (p *Profile) check(id string) error {
 		bad("security.signingAlgorithms %q must be a non-empty list of different values, each PS256", s.SigningAlgorithms)
 	}
 	if !consentCarriers[s.ConsentCarrier] {
-		bad("security.consentCarrier %q is not intent-claim or authorization-details", s.ConsentCarrier)
+		bad("security.consentCarrier %q is not intent-claim", s.ConsentCarrier)
 	}
 	if s.AccessTokenSeconds < 60 || s.AccessTokenSeconds > 600 {
 		bad("security.accessTokenSeconds %d is not from 60 to 600", s.AccessTokenSeconds)

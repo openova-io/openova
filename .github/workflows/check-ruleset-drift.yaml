@@ -1,9 +1,12 @@
-# check-ruleset-drift.yaml - the live rulesets equal .github/rulesets/main.json and rc.json.
+# check-ruleset-drift.yaml - the live rulesets equal .github/rulesets/main.json and rc.json, and
+# the write deploy keys equal .github/rulesets/deploy-keys.json.
 #
-# The rules are in scripts/check-ruleset-drift.py. It reads the live rulesets with the token in
-# the secret RULESET_READ_TOKEN and fails when the token is absent: it never passes on a read
-# that did not happen. Started by hand only, until the rulesets are applied; a schedule is
-# added then.
+# The rules are in scripts/check-ruleset-drift.py. It reads the live rulesets and the deploy keys
+# with the token in the secret RULESET_READ_TOKEN and fails when the token is absent: it never
+# passes on a read that did not happen. Both reads need the right to read the administration of
+# the repository. Started by hand only. No schedule is added: until the repository has an
+# application identity, the architect's own scheduled job runs the same script with an
+# administrator's credential.
 name: check-ruleset-drift
 
 on:

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Render test of templates/registry-projects-job.yaml (SOV-160). CI runs every
+# Render test of templates/registry-projects-job.yaml (SOV-160, SOV-336). CI runs every
 # chart/tests/*.sh as `bash <script> <chart dir>`. Each case is named where it runs.
 set -euo pipefail
 
@@ -18,7 +18,8 @@ render() {
   helm template harbor . --namespace harbor --show-only templates/registry-projects-job.yaml "$@"
 }
 
-# Prints "<job name> | <public projects> | <private projects>" of one rendered Job and checks its shape.
+# Prints "<job name> | <public projects> | <private projects> | <database project> | <origin URL>"
+# of one rendered Job and checks its shape.
 inspect() {
   python3 - "$1" <<'PY'
 import sys, yaml
@@ -43,8 +44,14 @@ assert vols["harbor-admin"]["secret"]["secretName"] == "harbor-admin"
 script = c["args"][0]
 assert '"${api}/projects" --data "${body}"' in script, "the Job must POST /projects"
 assert '{"project_name":"%s","public":%s,"metadata":{"public":"%s"}}' in script, "the project body changed"
-assert "registries" not in script, "the Job must not create a registry endpoint"
-print("%s | %s | %s" % (job["metadata"]["name"], env["PUBLIC_PROJECTS"], env["PRIVATE_PROJECTS"]))
+assert '-X POST "${api}/registries" --data "${body}"' in script, "the Job must POST /registries"
+assert '{"name":"%s","type":"docker-registry","url":"%s","insecure":false}' in script, "the endpoint body changed"
+assert '"${api}/registries?q=name%3D${reg}"' in script, "the endpoint must be read by its exact name"
+assert '{"project_name":"%s","public":true,"registry_id":%s,"metadata":{"public":"true"}}' in script, "the pull-through project body changed"
+assert script.count('"${api}/registries') == 2, "the Job may create and read one endpoint only"
+assert 'if [ -n "${VULNDB_PROJECT}" ]; then' in script, "the endpoint must be made only for the database project"
+print("%s | %s | %s | %s | %s" % (job["metadata"]["name"], env["PUBLIC_PROJECTS"], env["PRIVATE_PROJECTS"],
+                                 env["VULNDB_PROJECT"], env["VULNDB_ORIGIN_URL"]))
 PY
 }
 
@@ -54,14 +61,14 @@ PRIVATE_DEFAULT="node-artifacts openova-io tofu-providers"
 echo "[registry-projects] Case 1: default render"
 render > "$TMP/1.yaml"
 r1="$(inspect "$TMP/1.yaml")"
-[ "${r1#* | }" = "$PUBLIC_DEFAULT | $PRIVATE_DEFAULT" ] || fail "default projects: $r1"
+[ "${r1#* | }" = "$PUBLIC_DEFAULT | $PRIVATE_DEFAULT |  | " ] || fail "default projects: $r1"
 render > "$TMP/1b.yaml"
 [ "$(inspect "$TMP/1b.yaml")" = "$r1" ] || fail "two renders of the same values differ"
 
 echo "[registry-projects] Case 2: createXpkgProject=true"
 render --set registryProjects.createXpkgProject=true > "$TMP/2.yaml"
 r2="$(inspect "$TMP/2.yaml")"
-[ "${r2#* | }" = "$PUBLIC_DEFAULT proxy-xpkg | $PRIVATE_DEFAULT" ] || fail "with createXpkgProject: $r2"
+[ "${r2#* | }" = "$PUBLIC_DEFAULT proxy-xpkg | $PRIVATE_DEFAULT |  | " ] || fail "with createXpkgProject: $r2"
 
 echo "[registry-projects] Case 3: proxyProjectsJSON as a JSON string"
 cat > "$TMP/3-values.yaml" <<'EOF'
@@ -70,7 +77,7 @@ registryProjects:
 EOF
 render -f "$TMP/3-values.yaml" > "$TMP/3.yaml"
 r3="$(inspect "$TMP/3.yaml")"
-[ "${r3#* | }" = "proxy-chainguard proxy-quay | $PRIVATE_DEFAULT" ] || fail "from the JSON string: $r3"
+[ "${r3#* | }" = "proxy-chainguard proxy-quay | $PRIVATE_DEFAULT |  | " ] || fail "from the JSON string: $r3"
 [ "${r3%% | *}" != "${r1%% | *}" ] || fail "the Job name did not change with its projects"
 
 echo "[registry-projects] Case 4: proxyProjectsJSON that is not a JSON object"
@@ -112,7 +119,47 @@ print(yaml.safe_dump({"registryProjects": sub(hr["spec"]["values"]["registryProj
 PY
   render -f "$TMP/6-$set-values.yaml" > "$TMP/6-$set.yaml"
   r6="$(inspect "$TMP/6-$set.yaml")"
-  [ "${r6#* | }" = "$PUBLIC_DEFAULT | $PRIVATE_DEFAULT" ] || fail "slot 19 with the $set values: $r6"
+  if [ "$set" = full ]; then
+    want="$PUBLIC_DEFAULT | $PRIVATE_DEFAULT | proxy-vulndb | https://ghcr.io"
+  else
+    want="$PUBLIC_DEFAULT | $PRIVATE_DEFAULT |  | "
+  fi
+  [ "${r6#* | }" = "$want" ] || fail "slot 19 with the $set values: $r6"
+done
+
+echo "[registry-projects] Case 7: an origin host makes the database project"
+render --set registryProjects.origin.host=registry.parent.example.test > "$TMP/7.yaml"
+r7="$(inspect "$TMP/7.yaml")"
+[ "${r7#* | }" = "$PUBLIC_DEFAULT | $PRIVATE_DEFAULT | proxy-vulndb | https://registry.parent.example.test" ] \
+  || fail "with an origin host: $r7"
+[ "${r7%% | *}" != "${r1%% | *}" ] || fail "the Job name did not change with the database project"
+
+echo "[registry-projects] Case 8: origin scheme http and another database path"
+render --set registryProjects.origin.host=registry.parent.example.test:5000 \
+  --set registryProjects.origin.scheme=http --set registryProjects.vulnDBPath=db-cache/aquasec/trivy-db > "$TMP/8.yaml"
+r8="$(inspect "$TMP/8.yaml")"
+[ "${r8#* | }" = "$PUBLIC_DEFAULT | $PRIVATE_DEFAULT | db-cache | http://registry.parent.example.test:5000" ] \
+  || fail "with scheme http: $r8"
+
+echo "[registry-projects] Case 9: an empty database path makes no database project"
+render --set registryProjects.origin.host=registry.parent.example.test --set registryProjects.vulnDBPath= > "$TMP/9.yaml"
+r9="$(inspect "$TMP/9.yaml")"
+[ "${r9#* | }" = "$PUBLIC_DEFAULT | $PRIVATE_DEFAULT |  | " ] || fail "with an empty database path: $r9"
+
+echo "[registry-projects] Case 10: an origin scheme that is neither https nor http"
+if render --set registryProjects.origin.host=registry.parent.example.test \
+  --set registryProjects.origin.scheme=ftp > "$TMP/10.yaml" 2>&1; then
+  fail "scheme ftp rendered"
+fi
+grep -q 'must be https or http' "$TMP/10.yaml" || fail "the render failed for another reason: $(cat "$TMP/10.yaml")"
+
+echo "[registry-projects] Case 11: a database project that is also a hosted project"
+for clash in proxy-quay/aquasec/trivy-db node-artifacts/trivy-db; do
+  if render --set registryProjects.origin.host=registry.parent.example.test \
+    --set "registryProjects.vulnDBPath=$clash" > "$TMP/11.yaml" 2>&1; then
+    fail "the database path $clash rendered"
+  fi
+  grep -q 'is also a hosted project' "$TMP/11.yaml" || fail "the render failed for another reason: $(cat "$TMP/11.yaml")"
 done
 
 echo "registry-projects-job: all cases passed"

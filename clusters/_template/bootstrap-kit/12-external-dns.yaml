@@ -66,7 +66,7 @@ spec:
       # (default policy-cidr-match-mode=""). Fixes #770 — the vanilla
       # NetworkPolicy 0.0.0.0/0 ipBlock does NOT match apiserver traffic
       # under Cilium's identity model.
-      version: 1.1.9
+      version: 1.1.10
       sourceRef:
         kind: HelmRepository
         name: bp-external-dns

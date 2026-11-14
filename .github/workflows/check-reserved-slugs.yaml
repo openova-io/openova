@@ -1,0 +1,32 @@
+# check-reserved-slugs.yaml - an Organization never takes the name of a platform namespace.
+#
+# scripts/check-reserved-slugs.py checks that every namespace of
+# clusters/_template/bootstrap-kit/placement.yaml is in the not.enum list of spec.slug in
+# products/catalyst/chart/crds/organization.yaml, and that reservedSlugs in
+# core/services/tenant/handlers/handlers.go holds exactly the words of that list that name no
+# cloud provider. The self-test runs first and shows that every rule can fail.
+# No path filter, on purpose: a check that a path filter skips never reports.
+name: check-reserved-slugs
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  reserved-slugs:
+    name: reserved-slugs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Install PyYAML
+        run: python3 -m pip install --quiet pyyaml
+      - name: Self-test of the guard (every rule can fail)
+        run: python3 scripts/check-reserved-slugs.py --self-test
+      - name: The kit namespaces are reserved in the kind and in the organizations service
+        run: python3 scripts/check-reserved-slugs.py

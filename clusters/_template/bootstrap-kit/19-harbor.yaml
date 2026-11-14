@@ -235,7 +235,7 @@ spec:
       # single-zone Sovereigns; Org-pool Sovereigns name it https-<zone-dashed>).
       # It parents the wildcard listener by hostname like every other route.
       # hw305 live: harbor.<fqdn> 404 (Accepted=False NoMatchingParent) → fixed.
-      version: 1.2.52
+      version: 1.2.54
       sourceRef:
         kind: HelmRepository
         name: bp-harbor
@@ -420,6 +420,20 @@ spec:
         tofuProviders: ${REGISTRY_PATH_TOFU_PROVIDERS:=tofu-providers}
         nodeArtifacts: ${REGISTRY_PATH_NODE_ARTIFACTS:=node-artifacts}
       xpkgPath: ${REGISTRY_PATH_XPKG:=proxy-xpkg}
+      # SOV-336: the pull-through project of the vulnerability database.
+      # ORIGIN_REGISTRY_HOST has no contract default; empty means no project.
+      vulnDBPath: ${REGISTRY_PATH_VULN_DB:=proxy-vulndb/aquasecurity/trivy-db}
+      origin:
+        host: ${ORIGIN_REGISTRY_HOST:=}
+        scheme: ${ORIGIN_REGISTRY_SCHEME:=https}
+    # SOV-161: the pull robot's login goes into the pull Secret named by
+    # REGISTRY_PULL_SECRET, under this region's registry host. Without
+    # LOCAL_REGISTRY_HOST the chart renders no Job.
+    pullRobot:
+      host: "${LOCAL_REGISTRY_HOST:=}"
+      originHost: "${ORIGIN_REGISTRY_HOST:=}"
+      secretName: ${REGISTRY_PULL_SECRET:=ghcr-pull}
+      regionKey: "${SOVEREIGN_REGION_KEY:=}"
     harbor:
       # G117.E2E-H12 #2844 (2026-06-03): per-Sovereign externalURL override.
       # Chart default is "https://harbor.example.local" (placeholder for smoke
