@@ -645,7 +645,7 @@ checks:
 - id: CLD-G06
   title: Crossplane upgrade leaves Workspaces and packages intact
   owner: CLD
-  state: expected-fail
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []

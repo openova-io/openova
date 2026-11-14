@@ -50,8 +50,8 @@ echo "[image-proxy-route] Case 2: crossplane image resolves to the Harbor proxy-
 # All four crossplane container images (core init+main, rbac-manager init+main)
 # read crossplane.image.repository, so every rendered crossplane/crossplane ref
 # must carry the harbor proxy prefix.
-if ! grep -qE "image:\s*\"?${EXPECTED}:v1\.18\.0\"?" "$TMP/default.yaml"; then
-  echo "FAIL: expected image '${EXPECTED}:v1.18.0' not found in rendered output." >&2
+if ! grep -qE "image:\s*\"?${EXPECTED}:v1\.19\.3\"?" "$TMP/default.yaml"; then
+  echo "FAIL: expected image '${EXPECTED}:v1.19.3' not found in rendered output." >&2
   echo "      Found these crossplane image refs instead:" >&2
   grep -nE 'image:.*crossplane/crossplane' "$TMP/default.yaml" | head -10 >&2
   exit 1
@@ -63,7 +63,7 @@ if [ -n "$BAD" ]; then
   echo "$BAD" >&2
   exit 1
 fi
-COUNT="$(grep -cE "image:\s*\"?${EXPECTED}:v1\.18\.0\"?" "$TMP/default.yaml")"
+COUNT="$(grep -cE "image:\s*\"?${EXPECTED}:v1\.19\.3\"?" "$TMP/default.yaml")"
 echo "  PASS (${COUNT} crossplane image refs all on ${EXPECTED})"
 
 echo "[image-proxy-route] All bp-crossplane image-proxy-route gates green."
