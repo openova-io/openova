@@ -113,8 +113,8 @@ Region IPs come from `CILIUM_LB_IPAM_CIDRS` unless `ACCEPT_REGION_IPS` is set.
 
 It writes through the console API: one create, the placement PUTs and one
 delete, plus the WordPress REST writes and the installer form. It writes with
-`kubectl create`, `apply` and `delete` in gate checks CMP-G01, CTL-G04, SEC-G01 and
-SEC-G02 only. CMP-G01 creates a namespace `cmp-gate-<run>` of its own in the
+`kubectl create`, `apply` and `delete` in gate checks CMP-G01, CTL-G04, CTL-G07,
+SEC-G01 and SEC-G02 only. CMP-G01 creates a namespace `cmp-gate-<run>` of its own in the
 first region, applies one Deployment with zero replicas in it, and deletes
 that namespace before it ends. SEC-G01 and SEC-G02 create a namespace
 `sec-etcd-<run>` or `sec-node-<run>` of their own in every region, start one
@@ -135,6 +135,14 @@ of the checkout of `--repo-root`. Both only read: the first lists Services and
 policies, the second also runs `cilium-dbg status` in every Cilium agent.
 CTL-G04 tries to create, in a namespace `ctl-lock-<run>` of its own, a copy of an
 object that the intent lock must refuse, and deletes both; `auth can-i` only asks.
+CTL-G07 makes one grant through the console API (`POST …/rbac/assign`, tier
+`viewer`) for a subject `ctl-g07-<run>` that no user has and an Application of
+that name that does not exist, and removes it through the console API
+(`DELETE …/admin/user-access/{name}`) before it ends. In every region that
+runs pods of Deployment `catalyst-system/catalyst-api` it deletes those pods
+with `kubectl delete pod` and waits with `kubectl rollout status` until the
+Deployment has replaced them. It changes no object of the Deployment, so the
+Deployment carries no restart annotation after it.
 
 ## Gate checks
 
@@ -218,6 +226,7 @@ platform namespace is a namespace without the label `openova.io/organization`.
 | CMP-G01 The score moves by push | `check_compliance_push.go` | The scorecard of the Sovereign is empty. No frame of the compliance stream names the seed within 120 seconds. The Sovereign score does not count the seed, or the violations do not list it. The violations still list the seed 120 seconds after it was deleted. The seed is the Deployment `cmp-bad` with zero replicas in a namespace `cmp-gate-<run>` of its own; the check applies it with `kubectl` and deletes the namespace before it ends. It makes no request on a timer: it reads a route again only after a frame arrived. |
 | CMP-G02 The shown mode is the engine's mode | `check_compliance_mode.go` | A policy that `GET /api/v1/sovereigns/{id}/compliance/policies` lists shows another mode than its engine object carries, or has no engine object. The engine object is the `ClusterPolicy` of that name, or the `ValidatingPolicy` when there is none. `enforcing` and `enforce` are the engine's enforce; `permissive` and `audit` are its audit. A policy of source `evaluator` without an engine object is not compared. |
 | CTL-G04 The lock holds | `check_ctl_lock.go` | `scripts/intent-lock-report.py --kubeconfig <region>` fails for a region, or its report has no stage. No stage of the intent lock is at deny. A stage at deny is not at zero: a manager other than Flux owns `spec` of one of its objects, or its audit count is not 0 or null. A kind at deny has no live object to copy, or in a region that serves it a create of a copy is not refused by the lock. The service account of Deployment `catalyst-system/catalyst-api` may create, update, patch or delete a kind at deny. The report of each region is kept as evidence. |
+| CTL-G07 Audit survives a restart | `check_ctl_audit_survives_restart.go` | The grant is not answered with 201 and `created`. `GET /api/v1/sovereigns/{id}/audit/rbac` lists no `rbac-grant-created` event of that grant with an `id`, or its `transport` is not `jetstream:CATALYST_ORG`. No region runs a pod of the API, a pod is not replaced, the rollout does not finish, or a new pod is not Ready. After the restart the listing no longer holds the event with that `id`: the audit was kept in the memory of the pod only. The listing is asked at most five times, three seconds apart, and again only after no answer or a 502, 503 or 504. The grant cannot be removed. The check needs a console session and the deployment identifier. |
 | SEC-G01 etcd at rest | `check_sec_etcd.go` | On a control-plane node the value of the canary is in the clear in the etcd file `/var/lib/rancher/k3s/server/db/etcd/member/snap/db` or in a write-ahead log file beside it, or a record of the canary in the etcd file does not hold `k8s:enc:secretbox:v1:`. The canary is the Secret `etcd-canary` with a random value that the check creates in its namespace. A node whose files hold no record of the canary fails: nothing was measured. A probe Pod on each node reads the files (`sec_probe.go`). |
 | SEC-G02 Node hygiene | `check_sec_node.go` | On a control-plane node the part after `::server:` of `/var/lib/rancher/k3s/server/token` is 64 lower-case hexadecimal characters, the form of a token derived from identifiers; `/etc/rancher/k3s/k3s.yaml` is missing or its mode is not 600; or a file `/var/lib/catalyst/*-secret.yaml` or `/var/lib/catalyst/flux-bootstrap.yaml` remains. The probe prints the class of the token, never the token. |
 | SEC-G04 OpenBao system paths closed | `check_sec_route.go` | One of four anonymous `GET` of `https://bao.<FQDN>/v1/sys/seal-status` does not answer 200 with a JSON body that holds the boolean `sealed`. One of four anonymous `GET` of one of the 15 system path prefixes that `platform/openbao/chart/templates/httproute.yaml` closes, or of `/v1/sys/generate-root/attempt`, does not answer 302 with the Location `https://bao.<FQDN>/ui/` (the port 443 may be written). A redirect is not followed. `<FQDN>` is the `sovereignFQDN` of step D0.1. |

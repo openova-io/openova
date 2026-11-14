@@ -3,14 +3,16 @@
 // The suite reads cluster state to prove WHERE an object actually lives: the
 // region is the kubeconfig that returned it, never a label on the object. The
 // verbs it uses are `get` and `exec` (psql SELECT, WordPress pod setup), and
-// `create`, `apply`, `wait` and `delete` in gate checks CMP-G01, SEC-G01,
-// SEC-G02, SEC-G07 and CTL-G04 only. It never patches — every other mutation of the
+// `create`, `apply`, `wait`, `delete` and `rollout status` in gate checks CMP-G01,
+// SEC-G01, SEC-G02, SEC-G07, CTL-G04 and CTL-G07 only. It never patches — every other mutation of the
 // Sovereign goes through the console API the way a sovereign-admin would.
 // SEC-G07 (suite/check_sec_scope.go) stores nothing: its `create` and `apply`
 // are server-side dry runs, its `create token` returns a token of 10 minutes
 // that is not stored, and its one `exec` in an OpenBao server pod logs in,
-// reads two paths with the output thrown away and revokes its token. Four gate checks
-// write to a cluster. CTL-G04 (suite/check_ctl_lock.go) tries to create, in a namespace
+// reads two paths with the output thrown away and revokes its token. Five gate checks
+// write to a cluster. CTL-G07 (suite/check_ctl_audit_survives_restart.go) deletes the
+// pods of the API with `delete pod` and waits with `rollout status` until the
+// Deployment has replaced them. CTL-G04 (suite/check_ctl_lock.go) tries to create, in a namespace
 // of its own, a copy of an object that the intent lock must refuse, and deletes
 // both; its `auth can-i` only asks. CMP-G01 (suite/check_compliance_push.go) creates a
 // namespace of its own, applies one Deployment with zero replicas in it, and

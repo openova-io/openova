@@ -1156,12 +1156,13 @@ checks:
 - id: CTL-G07
   title: Audit survives a restart
   owner: CTL
-  state: not-built
+  state: required
   runs_in: [local, cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Audit survives a restart
+  implementation: tests/acceptance/sovereign/internal/suite/check_ctl_audit_survives_restart.go
   delivered_by: CTL-320
 - id: CTL-G08
   title: Git survives the cluster

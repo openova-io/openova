@@ -1,15 +1,16 @@
-// Package audit ships the catalyst.audit JetStream event surface for
-// catalyst-api: type-tagged Event records, an in-process ring buffer
-// (the audit log surface for the U8 audit trail UI when no NATS is
-// wired), an SSE fan-out for live-tail consumers, and a publisher
-// interface that production main.go binds to a real NATS JetStream
-// publisher when CATALYST_NATS_URL is set.
+// Package audit is the audit trail of catalyst-api: type-tagged Event
+// records, an in-process ring buffer that the listing routes read, an SSE
+// fan-out for live-tail consumers, and a Publisher interface that main.go
+// binds to the JetStream publisher of internal/natspub when
+// CATALYST_NATS_URL is set.
 //
-// Per ADR-0001 §3 and §9 the canonical audit transport is the
-// `catalyst.audit` JetStream subject — there is NO secondary audit DB.
-// The in-process ring buffer in this package is the local mirror that
-// powers the catalyst-api's `GET /api/v1/sovereigns/{id}/audit/rbac`
-// listing endpoint without making the UI poll JetStream directly.
+// The durable record is the subject `catalyst.audit.recorded.v1` of the
+// JetStream stream CATALYST_ORG (contract C3,
+// docs/contracts/C3-event-subjects.yaml). There is NO audit database. The
+// ring buffer is a mirror of the newest events: main.go fills it at start
+// from the stream (Bus.Load), so a restart of the Pod loses no event that
+// `GET /api/v1/sovereigns/{id}/audit/rbac` listed. Without a Publisher the
+// ring is all there is, and Bus.Transport says so.
 //
 // Per docs/INVIOLABLE-PRINCIPLES.md #4 audit-type names are NEVER
 // invented. The canonical RBAC events shipped by EPIC-3 (#1098) are:
@@ -23,26 +24,31 @@
 // same Event shape via their own constants — the ring buffer doesn't
 // know about specific names so it stays generic.
 //
-// ── Why a Publisher interface (not a concrete NATS client) ────────────
+// ── Publish and PublishStrict ─────────────────────────────────────────
 //
-// catalyst-api ships without a hard `nats.go` dependency in its
-// go.mod (mirrors the compliance handler's `PolicyRollupPublisher`
-// pattern in compliance.go). The Publisher interface lets the
-// rbac_assign.go handler call `Publish()` synchronously after a
-// successful UserAccess CR write, while production wiring binds a
-// real NATS publisher and tests bind a recorder that asserts on
-// captured events. Nil-tolerant: a nil publisher is safe — the
-// in-memory ring buffer + SSE fan-out still work and the audit-trail
-// UI degrades to "in-process audit log only" gracefully.
+// Publish records a change that has already happened: the event goes to
+// the ring and the subscribers, then to the Publisher, and a Publisher
+// error is logged, not returned. A nil Publisher is safe: the ring and
+// the SSE fan-out still work.
+//
+// PublishStrict is for a caller that must not act without a durable
+// record: it returns the Publisher's error, or ErrNoPublisher, and then
+// the event is not in the ring either. Both write one log line per event
+// with the key `audit` set to true.
 package audit
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/openova-io/openova/core/controllers/pkg/natsbus"
 )
 
 // ── Canonical audit-type names (per EPIC-3 #1098 §6 design doc) ──────
@@ -85,7 +91,8 @@ func IsRBACAuditType(t string) bool {
 
 // ── Event shape ──────────────────────────────────────────────────────
 
-// Event is the on-the-wire record published to `catalyst.audit`. The
+// Event is the on-the-wire record: the `data` of the CloudEvent published
+// to `catalyst.audit.recorded.v1`, and one item of a listing. The
 // shape is shared across every audit-type — readers branch on
 // `AuditType` to interpret `Detail`. Every field is optional except
 // `AuditType` and `Timestamp` so a RBAC event populates only the
@@ -146,7 +153,22 @@ type Event struct {
 	// rendering when the structured fields don't capture the full
 	// nuance).
 	Detail string `json:"detail,omitempty"`
+
+	// ID — the identifier of the event: a ULID, and the id of its
+	// envelope on the stream. The Bus sets it when it is empty.
+	ID string `json:"id"`
+
+	// Phase — PhaseIntent for the event published before an operation
+	// runs, PhaseResult for the one published after it. Empty for an
+	// event that records one finished change.
+	Phase string `json:"phase,omitempty"`
 }
+
+// The values of Event.Phase.
+const (
+	PhaseIntent = "intent"
+	PhaseResult = "result"
+)
 
 // EventScope is one (key, value) pair in Event.Scopes. Mirrors
 // rbacAssignScopeBody so the rbac_assign.go emit-side can pass a
@@ -158,16 +180,28 @@ type EventScope struct {
 
 // ── Publisher interface (NATS adapter binding point) ─────────────────
 
-// Publisher publishes an Event to the catalyst.audit JetStream
-// subject. Production main.go binds this to a real NATS-JetStream
-// client (when CATALYST_NATS_URL is set); tests bind a recorder.
-// Nil-tolerant on the consumer side — see audit.Bus.Publish.
+// Publisher publishes an Event to the subject catalyst.audit.recorded.v1
+// of the JetStream stream. Production main.go binds this to
+// natspub.AuditPublisher (when CATALYST_NATS_URL is set); tests bind a
+// recorder. Nil-tolerant on the consumer side — see audit.Bus.Publish.
 type Publisher interface {
-	// Publish writes the event to NATS. MUST NOT panic on error;
-	// production callers log and continue so a transient NATS outage
-	// never wedges the in-process hot path.
+	// Publish writes the event to the stream and returns only after the
+	// stream acknowledged it. ev.ID is set. MUST NOT panic on error.
 	Publish(ctx context.Context, ev Event) error
 }
+
+// The values of Bus.Transport.
+const (
+	// TransportInProcess: no Publisher is set. The ring buffer is the
+	// only record, and a restart of the Pod empties it.
+	TransportInProcess = "in-process"
+	// TransportJetStream: every event goes to the JetStream stream.
+	TransportJetStream = "jetstream:" + natsbus.StreamCatalystOrg
+)
+
+// ErrNoPublisher is what PublishStrict returns when the Bus has no
+// Publisher: the event cannot be recorded durably.
+var ErrNoPublisher = errors.New("audit: no publisher is set")
 
 // ── In-process Bus (ring buffer + SSE fan-out) ───────────────────────
 
@@ -180,12 +214,13 @@ type Publisher interface {
 //     hitting NATS
 //   - a subscriber map for SSE fan-out (mirrors the compliance handler
 //     pattern; see internal/handler/compliance.go's subscribers field)
-//   - an optional Publisher for cross-instance / persistent storage
-//     (catalyst.audit JetStream subject)
+//   - an optional Publisher for persistent storage
+//     (the subject catalyst.audit.recorded.v1 of the JetStream stream)
 //
-// Bus.Publish is the single entry point — it appends to the ring,
-// fans out to subscribers, AND forwards to the Publisher when set.
-// Callers don't have to coordinate.
+// Bus.Publish and Bus.PublishStrict are the two entry points — each
+// appends to the ring, fans out to subscribers, forwards to the
+// Publisher when set and writes the log line. Callers don't have to
+// coordinate.
 type Bus struct {
 	mu sync.RWMutex
 
@@ -205,8 +240,11 @@ type Bus struct {
 
 	// publisher — optional cross-process forwarder. Nil-tolerant:
 	// when nil, ring + SSE still work; when set, every Publish() is
-	// also forwarded.
+	// also forwarded. Never changed after NewBus.
 	publisher Publisher
+
+	// log — receives one line per event. Nil: no line is written.
+	log *slog.Logger
 }
 
 // BusConfig lets the caller tune the ring + subscriber buffer sizes.
@@ -224,6 +262,11 @@ type BusConfig struct {
 
 	// Publisher is the optional NATS forwarder. Nil ⇒ in-process only.
 	Publisher Publisher
+
+	// Log receives one line per event, with the key `audit` set to true
+	// and the event under `event`. Production main.go passes the API's
+	// JSON logger. Nil ⇒ no line is written.
+	Log *slog.Logger
 }
 
 const (
@@ -242,18 +285,24 @@ func NewBus(cfg BusConfig) *Bus {
 		ring:        make([]Event, cap),
 		subscribers: make(map[uint64]chan Event),
 		publisher:   cfg.Publisher,
+		log:         cfg.Log,
 	}
 }
 
-// Publish appends `ev` to the ring buffer, fans out to all
-// subscribers (best-effort, drops to full channels), and forwards to
-// the Publisher when configured. Always non-blocking — the publisher
-// call goes through the caller's context but the SSE fan-out drops
-// on full to keep the in-process path bounded.
-//
-// `ev.Timestamp` is set to time.Now().UTC() if zero. `ev.Result`
-// defaults to "ok" when empty.
-func (b *Bus) Publish(ctx context.Context, ev Event) {
+// Transport says where the events of this Bus are recorded:
+// TransportJetStream when a Publisher is set, TransportInProcess
+// otherwise. The listing routes report it.
+func (b *Bus) Transport() string {
+	if b.publisher != nil {
+		return TransportJetStream
+	}
+	return TransportInProcess
+}
+
+// stamp fills what the Bus owns: `ev.Timestamp` is set to
+// time.Now().UTC() if zero, `ev.Result` defaults to "ok" when empty,
+// and `ev.ID` is a new ULID when empty.
+func stamp(ev Event) Event {
 	if ev.Timestamp.IsZero() {
 		ev.Timestamp = time.Now().UTC()
 	} else {
@@ -262,7 +311,91 @@ func (b *Bus) Publish(ctx context.Context, ev Event) {
 	if ev.Result == "" {
 		ev.Result = "ok"
 	}
+	if ev.ID == "" {
+		ev.ID = natsbus.NewID()
+	}
+	return ev
+}
 
+// Publish appends `ev` to the ring buffer, fans out to all
+// subscribers (best-effort, drops to full channels), and forwards to
+// the Publisher when configured. A Publisher error is written to the
+// log line and not returned: the event stays in the ring.
+//
+// Use it for a change that has already happened. A caller that must
+// not act without a durable record uses PublishStrict.
+func (b *Bus) Publish(ctx context.Context, ev Event) {
+	ev = stamp(ev)
+	b.record(ev)
+	var err error
+	if b.publisher != nil {
+		err = b.publisher.Publish(ctx, ev)
+	}
+	b.logEvent(ctx, ev, err)
+}
+
+// PublishStrict forwards `ev` to the Publisher first and waits for the
+// stream's acknowledgement. Only then does it append the event to the
+// ring buffer and fan it out. It returns the Publisher's error, or
+// ErrNoPublisher when no Publisher is set; the event is then not in
+// the ring, because the stream does not hold it. The log line is
+// written in both cases.
+func (b *Bus) PublishStrict(ctx context.Context, ev Event) error {
+	ev = stamp(ev)
+	err := ErrNoPublisher
+	if b.publisher != nil {
+		err = b.publisher.Publish(ctx, ev)
+	}
+	b.logEvent(ctx, ev, err)
+	if err != nil {
+		return fmt.Errorf("audit: event %s (%s) is not recorded: %w", ev.ID, ev.AuditType, err)
+	}
+	b.record(ev)
+	return nil
+}
+
+// Load appends events that the stream already holds to the ring
+// buffer, oldest first, and returns how many it appended. It does not
+// fan out, does not forward to the Publisher and writes no log line:
+// the events are not new. main.go calls it once at start, before the
+// first Publish, with the events natspub.AuditPublisher.Replay read.
+// An event without an AuditType is skipped.
+func (b *Bus) Load(events []Event) int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	n := 0
+	for _, ev := range events {
+		if ev.AuditType == "" {
+			continue
+		}
+		b.ring[b.head] = ev
+		b.head = (b.head + 1) % len(b.ring)
+		if b.count < len(b.ring) {
+			b.count++
+		}
+		n++
+	}
+	return n
+}
+
+// logEvent writes the log line of one event: the key `audit` is true,
+// `event` holds the event, and `publishError` the Publisher's error
+// when there is one (the line is then at level ERROR).
+func (b *Bus) logEvent(ctx context.Context, ev Event, publishErr error) {
+	if b.log == nil {
+		return
+	}
+	if publishErr != nil {
+		b.log.LogAttrs(ctx, slog.LevelError, "audit event", slog.Bool("audit", true),
+			slog.Any("event", ev), slog.String("publishError", publishErr.Error()))
+		return
+	}
+	b.log.LogAttrs(ctx, slog.LevelInfo, "audit event", slog.Bool("audit", true), slog.Any("event", ev))
+}
+
+// record appends `ev` to the ring buffer and fans it out to all
+// subscribers (best-effort, drops to full channels).
+func (b *Bus) record(ev Event) {
 	// Append to ring.
 	b.mu.Lock()
 	b.ring[b.head] = ev
@@ -276,7 +409,6 @@ func (b *Bus) Publish(ctx context.Context, ev Event) {
 	for _, ch := range b.subscribers {
 		subs = append(subs, ch)
 	}
-	pub := b.publisher
 	b.mu.Unlock()
 
 	// Fan out (best-effort).
@@ -288,15 +420,6 @@ func (b *Bus) Publish(ctx context.Context, ev Event) {
 			// alternative (block) would let one slow client wedge
 			// the entire bus.
 		}
-	}
-
-	// Forward to NATS.
-	if pub != nil {
-		// Best-effort — log nothing here (no logger in this package),
-		// the handler caller logs on the rbac_assign.go side using
-		// h.log when needed. Production main.go can wrap pub with a
-		// logging adapter if desired.
-		_ = pub.Publish(ctx, ev)
 	}
 }
 

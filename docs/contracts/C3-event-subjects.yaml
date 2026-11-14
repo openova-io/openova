@@ -30,5 +30,5 @@ subjects:
   - {subject: catalyst.tenant.deleted, envelope: legacy, owner: BSS, producers: [organization-controller, tenant], consumers: [billing, domain, provisioning, tenant], payload: core/services/shared/events/events.go, delivery: at-least-once}
   - {subject: catalyst.usage.recorded, envelope: legacy, owner: BSS, producers: [metering-sidecar], consumers: [billing], payload: core/services/shared/events/nats.go, delivery: at-least-once}
   - {subject: catalyst.user.login, envelope: legacy, owner: BSS, producers: [], consumers: [notification], payload: core/services/shared/events/events.go, delivery: at-least-once}
-  - {subject: catalyst.audit.recorded.v1, envelope: cloudevents, owner: CTL, producers: [], consumers: [], payload: products/catalyst/bootstrap/api/internal/audit/audit.go, delivery: at-least-once}
+  - {subject: catalyst.audit.recorded.v1, envelope: cloudevents, owner: CTL, producers: [catalyst-api], consumers: [catalyst-api], payload: products/catalyst/bootstrap/api/internal/audit/audit.go, delivery: at-least-once}
   - {subject: catalyst.alert.changed.v1, envelope: cloudevents, owner: FND, producers: [], consumers: [], payload: docs/contracts/C3-alert-changed-v1.schema.json, delivery: at-least-once}
