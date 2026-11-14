@@ -46,7 +46,7 @@ jobs:
           apt-get update -qq
           DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
             ca-certificates curl git gcc g++ make pkg-config perl xz-utils procps expect \
-            libcurl4-openssl-dev libgnutls28-dev libnbd-dev libnbd-bin qemu-utils > /dev/null
+            libcurl4-openssl-dev libgnutls28-dev libnbd-dev libnbd-bin python3-libnbd qemu-utils > /dev/null
           echo "build_os=debian $(cat /etc/debian_version)" | tee -a "$RESULTS"
           echo "libnbd=$(dpkg-query -W -f='${Version}' libnbd-bin)" | tee -a "$RESULTS"
           echo "gcc=$(gcc -dumpfullversion)" | tee -a "$RESULTS"
@@ -71,7 +71,7 @@ jobs:
             [ -f "$f" ] || continue
             res="$(grep -m1 ':test-result:' "$f" | cut -d' ' -f2)"
             why=""
-            [ "$res" = SKIP ] && why=" reason=\"$(grep -m1 -i -E 'skip|requires|not (found|supported|set)' "${f%.trs}.log" | cut -c1-140)\""
+            [ "$res" = SKIP ] && why=" reason=\"$(grep -v -E '^\+|^[[:space:]]*$' "${f%.trs}.log" | grep -v -E '^(SKIP|PASS|FAIL) ' | tail -1 | cut -c1-160)\" last_check=\"$(grep -E '^\+ (requires|skip_)' "${f%.trs}.log" | tail -1 | cut -c1-100)\""
             echo "upstream_$(basename "$f" .trs | tr - _)=${res}${why}"
           done | tee -a "$RESULTS"
           grep -E '^# (TOTAL|PASS|SKIP|XFAIL|FAIL|XPASS|ERROR):' tests/test-suite.log || tail -40 /tmp/vddk-tests.log
@@ -103,7 +103,7 @@ jobs:
           apt-get update -qq
           DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
             ca-certificates curl git gcc g++ make pkg-config perl xz-utils procps expect \
-            libcurl4-openssl-dev libgnutls28-dev libnbd-dev libnbd-bin qemu-utils > /dev/null
+            libcurl4-openssl-dev libgnutls28-dev libnbd-dev libnbd-bin python3-libnbd qemu-utils > /dev/null
       - uses: actions/checkout@v4
       - name: Build nbdkit 1.49.5 (development series before 1.50)
         run: bash tests/spikes/MIG-020/build-nbdkit.sh 1.49.5 /opt/nbdkit-next /tmp/build "$RESULTS"

@@ -176,5 +176,12 @@ count_conns() { # <label> [filters ...]
 count_conns plain --filter=retry
 count_conns multiconn --filter=multi-conn --filter=retry
 r nproc "$(nproc)"
+
+# 6. --exit-with-parent: the server must stop when the process that started it ends.
+r dump_config "$("$nbdkit" --dump-config 2>&1 | grep -E '^(exit_with_parent|host_os|host_cpu)=' | tr '\n' ' ' | sed 's/ $//')"
+ewp="$(bash -c '"$0" --exit-with-parent -U "$1" "$2" libdir="$3" file=disk.vmdk > /dev/null 2>&1 & sleep 1; [ -S "$1" ] && echo listening || echo not-listening' "$nbdkit" "$work/ewp.sock" "$plugin" "$d")"
+sleep 2
+left="$(pgrep -f -c -- "$work/ewp.sock" || true)"
+r exit_with_parent "while_parent_alive=$ewp processes_left_after_parent_exit=${left:-0}"
 rm -rf "$work"
 exit 0
