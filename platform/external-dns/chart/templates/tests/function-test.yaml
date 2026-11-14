@@ -1,0 +1,127 @@
+{{- /*
+Function test of bp-external-dns (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
+
+external-dns reads Services, Ingresses and HTTPRoutes (its sources) and
+writes their names into PowerDNS. Every failed read of a source adds one to
+its counter external_dns_source_errors_total. The test sends GET /metrics to
+the subchart's Service <fullname>.<namespace>.svc.cluster.local:<external-dns.service.port, default 7979>.
+It passes when the answer is HTTP 200 and the counter
+external_dns_source_errors_total is 0. It writes nothing.
+
+The subchart's Pods admit port 7979 only from Prometheus (templates/networkpolicy.yaml).
+So, when the API cilium.io/v2 is served, a CiliumNetworkPolicy of this file
+lets those Pods admit the test Pod on their container port 7979, for the life
+of the test.
+
+<fullname> is computed the way the subchart computes it. The chart has no
+master gate, so the test always renders. The image is the kubectl image the
+kit already pulls (bp-cnpg's webhook gate), which carries curl;
+functionTest.image overrides it.
+*/ -}}
+{{- $sub := index .Values "external-dns" | default dict }}
+{{- $name := $sub.nameOverride | default "external-dns" }}
+{{- $fullname := "" }}
+{{- if $sub.fullnameOverride }}
+{{- $fullname = $sub.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- else if contains $name .Release.Name }}
+{{- $fullname = .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- $fullname = printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- end }}
+{{- $port := ($sub.service | default dict).port | default 7979 }}
+{{- $ft := .Values.functionTest | default dict }}
+{{- $image := $ft.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" }}
+{{- if .Capabilities.APIVersions.Has "cilium.io/v2" }}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-function-test-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name | quote }}
+      app.kubernetes.io/instance: {{ .Release.Name | quote }}
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/instance: {{ .Release.Name }}
+            catalyst.openova.io/function-test: "true"
+      toPorts:
+        - ports:
+            - port: "7979"
+              protocol: TCP
+---
+{{- end }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 300
+  automountServiceAccountToken: false
+  containers:
+    - name: function-test
+      image: {{ $image | quote }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: HOME
+          value: /tmp
+        - name: METRICS_URL
+          value: {{ printf "http://%s.%s.svc.cluster.local:%v/metrics" $fullname .Release.Namespace $port | quote }}
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -u
+          fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          code=""
+          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            code="$(curl -sS --max-time 10 -o /tmp/metrics -w '%{http_code}' "${METRICS_URL}" 2>/tmp/error)" && [ "${code}" = "200" ] && break
+            sleep 5
+          done
+          [ "${code}" = "200" ] || fail "GET ${METRICS_URL} answered '${code}': $(tr '\n' ' ' < /tmp/error | cut -c1-160)"
+          errors="$(grep -E '^external_dns_source_errors_total ' /tmp/metrics | head -1 | cut -d' ' -f2)"
+          [ -n "${errors}" ] || fail "the metrics hold no counter external_dns_source_errors_total"
+          case "${errors}" in
+            0|0.0|0e+00) ;;
+            *) fail "external_dns_source_errors_total is ${errors}, not 0" ;;
+          esac
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} the metrics answered and external_dns_source_errors_total is 0"
+  volumes:
+    - name: tmp
+      emptyDir: {}

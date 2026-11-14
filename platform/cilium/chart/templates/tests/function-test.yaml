@@ -1,0 +1,96 @@
+{{- /*
+Function test of bp-cilium (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
+
+Cilium is the network of the cluster: it carries every Pod's packets, it
+replaces kube-proxy (cilium.kubeProxyReplacement) and so balances every
+Service address. The test Pod resolves the name kubernetes.default.svc.cluster.local
+through cluster DNS, which is itself a Service behind Cilium, then sends
+GET /version to the Kubernetes API Service on that name, port 443, with its
+own service-account token and the cluster CA. It passes when the answer is
+HTTP 200 and names a gitVersion: name resolution, Service balancing and the
+Pod network all work. It writes nothing.
+
+Every authenticated user may read /version, so the ServiceAccount of this
+file needs no binding. The chart has no master gate, so the test always
+renders. The image is the kubectl image the kit already pulls (bp-cnpg's
+webhook gate), which carries curl; functionTest.image overrides it.
+*/ -}}
+{{- $ft := .Values.functionTest | default dict }}
+{{- $image := $ft.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 300
+  serviceAccountName: {{ .Release.Name }}-function-test
+  containers:
+    - name: function-test
+      image: {{ $image | quote }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: HOME
+          value: /tmp
+        - name: API_URL
+          value: "https://kubernetes.default.svc.cluster.local:443/version"
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -u
+          fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          sa=/var/run/secrets/kubernetes.io/serviceaccount
+          [ -s "${sa}/token" ] || fail "the Pod has no service-account token"
+          code=""
+          for attempt in 1 2 3 4 5 6; do
+            code="$(curl -sS --max-time 10 --cacert "${sa}/ca.crt" -H "Authorization: Bearer $(cat "${sa}/token")" -o /tmp/answer -w '%{http_code}' "${API_URL}" 2>/tmp/error)" && [ "${code}" = "200" ] && break
+            sleep 5
+          done
+          [ "${code}" = "200" ] || fail "GET ${API_URL} answered '${code}': $(tr '\n' ' ' < /tmp/error | cut -c1-160)"
+          version="$(grep -o -E '"gitVersion" *: *"[^"]+"' /tmp/answer | head -1 | sed -E 's/^"gitVersion" *: *"//; s/"$//')"
+          [ -n "${version}" ] || fail "the answer names no gitVersion: $(tr '\n' ' ' < /tmp/answer | cut -c1-160)"
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} kubernetes.default.svc.cluster.local resolved and the API Service answered with ${version}"
+  volumes:
+    - name: tmp
+      emptyDir: {}

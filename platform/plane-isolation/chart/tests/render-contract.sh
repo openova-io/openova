@@ -19,6 +19,9 @@
 #       (the filer.sync of the peer region).
 #   R5  No other namespace's crossregion CiliumNetworkPolicy has an ingress
 #       section or an egress rule on a port other than 5432.
+#   The rules judge the policy templates directly under templates/. A folder
+#   there, such as templates/tests with the helm test of the chart, is not
+#   read, and the render leaves out test hooks (helm template --skip-tests).
 #   R3 and R4 hold while seaweedfs is a component of this chart. When a later
 #   change moves seaweedfs out of `components`, they no longer apply, and the
 #   self-test skips their cases and says so.
@@ -39,7 +42,7 @@ chart="$(cd "$chart" && pwd)"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-helm template plane-isolation "$chart" --api-versions cilium.io/v2 > "$tmp/render.yaml"
+helm template plane-isolation "$chart" --api-versions cilium.io/v2 --skip-tests > "$tmp/render.yaml"
 
 python3 - "$mode" "$chart" "$tmp/render.yaml" <<'PY'
 import copy, glob, os, re, sys
@@ -60,6 +63,8 @@ def load():
         docs = [d for d in yaml.safe_load_all(f) if isinstance(d, dict)]
     templates = {}
     for p in sorted(glob.glob(os.path.join(chart, "templates", "*"))):
+        if not os.path.isfile(p):
+            continue
         with open(p, encoding="utf-8") as f:
             templates[os.path.basename(p)] = f.read()
     return values, docs, templates
