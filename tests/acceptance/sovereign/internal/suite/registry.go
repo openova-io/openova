@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -36,6 +37,12 @@ const (
 // ManifestSchema is the schema string of the exported gate manifest.
 const ManifestSchema = "openova.io/gates/v1"
 
+// suiteRoot is the folder of this suite in the repository. A manifest entry
+// whose implementation is a Go file under it is a check of the suite. Any
+// other implementation (a script under scripts/, a folder of browser specs)
+// is proven by a job of its own, and the suite does not select it.
+const suiteRoot = "tests/acceptance/sovereign/"
+
 // The states of a manifest entry that the suite selects.
 const (
 	StateExpectedFail = "expected-fail"
@@ -53,6 +60,15 @@ type ManifestCheck struct {
 	RunsIn      []string `json:"runs_in"`
 	Destructive bool     `json:"destructive"`
 	Needs       []string `json:"needs"`
+	// Implementation is the repository path of the code that proves the
+	// check. It is empty while the state is not-built.
+	Implementation string `json:"implementation"`
+}
+
+// inSuite reports whether the implementation of e is a Go file of this suite.
+func (e ManifestCheck) inSuite() bool {
+	p := path.Clean(e.Implementation)
+	return strings.HasPrefix(p, suiteRoot) && strings.HasSuffix(p, ".go")
 }
 
 // Manifest is the exported gates.yaml (scripts/acceptance-gate.py export).
@@ -153,9 +169,11 @@ func LoadManifest(path string) (*Manifest, error) {
 }
 
 // SelectChecks returns the registered checks whose manifest entry has state
-// expected-fail or required, lists r in runs_in, and is not destructive when
-// r is RunInSelf. It returns an error if such an entry has no registered
-// check: a missing check is never a pass.
+// expected-fail or required, lists r in runs_in, is not destructive when r is
+// RunInSelf, and has a Go file of this suite as its implementation. An entry
+// implemented by a script or by browser specs is proven by its own job and is
+// left out. It returns an error if a selected entry has no registered check:
+// a missing check is never a pass.
 func SelectChecks(m *Manifest, r RunIn) ([]Check, error) {
 	out := []Check{}
 	for _, e := range m.Checks {
@@ -163,6 +181,9 @@ func SelectChecks(m *Manifest, r RunIn) ([]Check, error) {
 			continue
 		}
 		if !slices.Contains(e.RunsIn, string(r)) || (e.Destructive && r == RunInSelf) {
+			continue
+		}
+		if !e.inSuite() {
 			continue
 		}
 		c, ok := registry[e.ID]
