@@ -16,23 +16,26 @@
 #   H3  catalyst-system/catalyst-gitea-token. The follower's continuum-controller
 #       reads GITEA_TOKEN from it; only bp-catalyst-platform (primary region
 #       only) mints it, and step-01 copied the shared PAT into the follower's
-#       gitea namespace only.
+#       gitea namespace only. The running pod reads the copy when H2's
+#       imageRegistry edit rolls it in step-06 (after step-01).
 #
 # Evidence, each part able to fail:
 #   (a) render gating — every new byte is absent from the single-region render
 #       and present in the two-region one.
 #   (b) the values are tied to the tree they act on — the follower path
 #       cloud-init renders, the slot files and their seam, the continuum
-#       chart's token Secret, namespace and Deployment name.
+#       chart's token Secret and namespace, and that the continuum chart's pod
+#       image follows global.imageRegistry (the roll that makes the pod read
+#       the copied token).
 #   (c) EXECUTION of the real rendered secondary-pivot.sh + kit-rewrite.sh,
 #       with the env of the rendered in-region Job, against a bare git origin
 #       holding the REAL clusters/_template trees; the verdict is read from the
 #       origin's main. Idempotent re-run. Two mutants (each new input emptied)
 #       must turn H1 and H2 red.
 #   (d) EXECUTION of step-01's real rendered secondary leg with a recording
-#       kubectl stub: the Secret lands in the follower's catalyst-system, then
-#       continuum-controller is restarted there; a follower without the
-#       namespace or the Deployment is handled without a failure.
+#       kubectl stub: the Secret lands in the follower's catalyst-system in the
+#       same apply as the existing gitea-namespace copy; the value set empty
+#       writes the gitea copy only.
 #
 # Usage: bash tests/follower-region-pivots.sh [CHART_DIR]
 # REPO_ROOT (env) overrides where clusters/, infra/ and products/ are read from.
@@ -64,7 +67,7 @@ render "--set secondaryRegions.mirrorToSecondaryGitea=true" "${TMP}/on.yaml"
 render "" "${TMP}/off.yaml"
 
 echo "[follower] (a) render gating — single-region carries none of it, two-region carries all of it"
-for tok in 'FOLLOWER_SOURCE_DIRS' 'IMAGE_REGISTRY_SLOT_FILES' 'FOLLOWER_GIT_TOKEN_NAMESPACE' 'follower-git-token' 'pivot_dirs='; do
+for tok in 'FOLLOWER_SOURCE_DIRS' 'IMAGE_REGISTRY_SLOT_FILES' 'FOLLOWER_GIT_TOKEN_SECRET' 'pat_dst' 'pivot_paths='; do
   if grep -qF "${tok}" "${TMP}/off.yaml"; then fail "OFF render contains '${tok}' (single-region is not a no-op)"; else pass "OFF render is free of '${tok}'"; fi
   if grep -qF "${tok}" "${TMP}/on.yaml"; then pass "ON render contains '${tok}'"; else fail "ON render is missing '${tok}'"; fi
 done
@@ -92,15 +95,15 @@ PY
 envval() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get(sys.argv[2], ""))' "$1" "$2"; }
 DIRS="$(envval "${TMP}/pivot-env.json" FOLLOWER_SOURCE_DIRS)"
 SLOTS="$(envval "${TMP}/pivot-env.json" IMAGE_REGISTRY_SLOT_FILES)"
-TOK_NS="$(envval "${TMP}/step01-env.json" FOLLOWER_GIT_TOKEN_NAMESPACE)"
-TOK_NAME="$(envval "${TMP}/step01-env.json" FOLLOWER_GIT_TOKEN_SECRET)"
-TOK_RESTART="$(envval "${TMP}/step01-env.json" FOLLOWER_GIT_TOKEN_RESTART)"
+TOK="$(envval "${TMP}/step01-env.json" FOLLOWER_GIT_TOKEN_SECRET)"
+TOK_NS="${TOK%%/*}"
+TOK_NAME="${TOK#*/}"
 
 echo "[follower] (b) the values are tied to the tree they act on"
-python3 - "${REPO_ROOT}" "${DIRS}" "${SLOTS}" "${TOK_NS}" "${TOK_NAME}" "${TOK_RESTART}" "${UP}" <<'PY' || FAILURES=$((FAILURES + 1))
+python3 - "${REPO_ROOT}" "${DIRS}" "${SLOTS}" "${TOK_NS}" "${TOK_NAME}" "${UP}" <<'PY' || FAILURES=$((FAILURES + 1))
 import glob, os, re, sys, yaml
-root, dirs, slots, tok_ns, tok_name, tok_restart, up = sys.argv[1:8]
-dirs, slots, restart = dirs.split(), slots.split(), tok_restart.split()
+root, dirs, slots, tok_ns, tok_name, up = sys.argv[1:7]
+dirs, slots = dirs.split(), slots.split()
 bad = 0
 def say(ok, msg):
     global bad
@@ -130,13 +133,23 @@ for s in slots:
     say(bool(hrs) and "SECONDARY_HR_SUSPEND" not in susp and susp.lower() != "true", f"{s} is not suspended in a follower region (spec.suspend={susp!r})")
 s62 = [d for d in yaml.safe_load_all(open(os.path.join(root, slot62))) if d and d.get("kind") == "HelmRelease"][0]
 cv = yaml.safe_load(open(os.path.join(root, "products/continuum/chart/values.yaml")))
-helpers = open(os.path.join(root, "products/continuum/chart/templates/_helpers.tpl")).read()
-fm = re.search(r'define "continuum.fullname" -\}\}\s*\n\s*([a-z0-9-]+)', helpers)
-say(s62["spec"]["targetNamespace"] == tok_ns, f"the token goes where slot 62 runs Continuum ({tok_ns})")
-say(cv["continuum"]["git"]["tokenSecret"]["name"] == tok_name, f"the token Secret is the one the continuum chart reads ({tok_name})")
-say(fm is not None and fm.group(1) in restart, f"the restart list {restart} names the continuum Deployment ({fm.group(1) if fm else None})")
+say(s62["spec"]["targetNamespace"] == tok_ns, f"the token goes where slot 62 runs Continuum ({tok_ns!r})")
+say(cv["continuum"]["git"]["tokenSecret"]["name"] == tok_name, f"the token Secret is the one the continuum chart reads ({tok_name!r})")
+k13 = [d for d in yaml.safe_load_all(open(os.path.join(root, "clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml"))) if d]
+say(any(d.get("kind") == "Namespace" and d["metadata"]["name"] == tok_ns for d in k13),
+    f"the kit itself creates namespace {tok_ns!r} in every region (slot 13's Namespace object, applied even where its HelmRelease is suspended)")
 sys.exit(1 if bad else 0)
 PY
+# The copied token reaches the RUNNING follower pod through H2: the continuum
+# chart's pod image follows global.imageRegistry, so the slot-62 edit rolls it.
+img() { helm template c "${REPO_ROOT}/products/continuum/chart" --set continuum.enabled=true --set continuum.region="hw-${REGION}" "$@" 2>/dev/null \
+  | python3 -c 'import sys,yaml; print([c["image"] for d in yaml.safe_load_all(sys.stdin) if d and d.get("kind")=="Deployment" for c in d["spec"]["template"]["spec"]["containers"]])'; }
+i0="$(img)"; i1="$(img --set global.imageRegistry="${REG}")"
+if [ -n "${i0}" ] && [ "${i0}" != "[]" ] && [ "${i0}" != "${i1}" ] && grep -qF "${REG}/" <<<"${i1}"; then
+  pass "the continuum pod image follows global.imageRegistry (${i0} -> ${i1}): H2's edit rolls the follower pod after step-01's copy"
+else
+  fail "the continuum pod image does not follow global.imageRegistry (${i0} / ${i1}) — nothing restarts the follower pod after the token copy"
+fi
 
 echo "[follower] (c) EXECUTE the real secondary-pivot.sh against a bare origin holding the real kit + sovereign-region trees"
 mkdir -p "${TMP}/sp" "${TMP}/home"
@@ -229,7 +242,7 @@ rc=$(run_pivot "${DIRS}" "")
 origin_tree
 if out=$(h2_state); then fail "m2: IMAGE_REGISTRY_SLOT_FILES empty and H2 still green (${out}) — the H2 check is vacuous"; else pass "m2: without IMAGE_REGISTRY_SLOT_FILES slot 62 stays on the default (${out}); H2 detects it"; fi
 
-echo "[follower] (d) EXECUTE step-01's secondary leg: the token reaches the follower's readers (H3)"
+echo "[follower] (d) EXECUTE step-01's secondary leg: the token reaches the follower (H3)"
 # The leg (its start echo .. the no-op echo), closed, with the mount and /tmp paths moved under ${TMP}.
 awk '/#6490 secondary-region mirror leg/,/secondary mirror is a no-op/' "${TMP}/step01.sh" >"${TMP}/leg.body"
 mkdir -p "${TMP}/skc" "${TMP}/smir" "${TMP}/t" "${TMP}/applied"
@@ -239,6 +252,7 @@ for k, v in json.load(open(sys.argv[1])).items():
     print(f"{k}={shlex.quote(v)}")
 PY
 { echo 'set -eu'
+  echo '[ -z "${OVERRIDE_TOKEN+x}" ] || FOLLOWER_GIT_TOKEN_SECRET="${OVERRIDE_TOKEN}"'
   echo "MIRROR_JOB_WAIT_SECONDS=5; MIRROR_JOB_POLL_SECONDS=1"
   echo "PAT_SOURCE_NAMESPACE=catalyst-system; PAT_SOURCE_SECRET_NAME=catalyst-gitea-token; GITEA_PAT=${PAT}"
   # /tmp/ first: the later expressions insert ${TMP} paths, which must not be rewritten again.
@@ -248,16 +262,11 @@ PY
 printf 'x\n' >"${TMP}/smir/secondary-mirror.sh"
 printf 'kind: Job\n' >"${TMP}/smir/secondary-mirror-job.yaml"
 printf 'kubeconfig\n' >"${TMP}/skc/${REGION}.yaml"
-# Recording stub: every call to calls.log; `apply -f F` keeps a copy of F; a Job reports Succeeded;
-# NS_ABSENT / DEP_ABSENT make `get namespace` / `get deployment` fail.
+# Recording stub: every call to calls.log; `apply -f F` keeps a copy of F; a Job reports Succeeded.
 cat >"${TMP}/kubectl" <<STUB
 #!/bin/sh
 echo "\$*" >> "${TMP}/calls.log"
 for a in "\$@"; do case "\$a" in *succeeded*) echo 1; exit 0;; esac; done
-case "\$*" in
-  *" get namespace "*) [ -z "\${NS_ABSENT:-}" ] || exit 1 ;;
-  *" get deployment "*) [ -z "\${DEP_ABSENT:-}" ] || exit 1 ;;
-esac
 prev=""
 for a in "\$@"; do
   if [ "\${prev}" = "-f" ] && [ -f "\$a" ]; then n=\$(ls "${TMP}/applied" | wc -l); cp "\$a" "${TMP}/applied/\${n}.yaml"; echo "APPLIED \${n}" >> "${TMP}/calls.log"; fi
@@ -268,48 +277,36 @@ STUB
 chmod +x "${TMP}/kubectl"
 run_leg() { rm -rf "${TMP}/applied" "${TMP}/calls.log"; mkdir -p "${TMP}/applied"; : >"${TMP}/calls.log"
   ( PATH="${TMP}:${PATH}" sh "${TMP}/leg.sh" >"${TMP}/leg.out" 2>&1 ); echo $?; }
-h3_state() { # the follower token Secret applied through the follower kubeconfig, then the restart
-  python3 - "${TMP}/applied" "${TMP}/calls.log" "${TMP}/skc/${REGION}.yaml" "${TOK_NS:-catalyst-system}" "${TOK_NAME:-catalyst-gitea-token}" "${PAT}" <<'PY'
+copies() { # every Secret carrying the shared PAT applied through the follower kubeconfig, one "<ns>/<name>" per line
+  python3 - "${TMP}/applied" "${TMP}/calls.log" "${TMP}/skc/${REGION}.yaml" "${PAT}" <<'PY'
 import glob, os, sys, yaml
-applied, calls, skc, ns, name, pat = sys.argv[1:7]
+applied, calls, skc, pat = sys.argv[1:5]
 lines = open(calls).read().splitlines()
-hit = None
 for f in sorted(glob.glob(applied + "/*.yaml"), key=lambda p: int(os.path.basename(p)[:-5])):
+    call = lines[lines.index("APPLIED " + os.path.basename(f)[:-5]) - 1]
+    if f"--kubeconfig {skc}" not in call:
+        continue
     try:
-        d = yaml.safe_load(open(f))
+        docs = [d for d in yaml.safe_load_all(open(f)) if isinstance(d, dict)]
     except yaml.YAMLError:
         continue
-    if isinstance(d, dict) and d.get("kind") == "Secret" and d["metadata"].get("name") == name and d["metadata"].get("namespace") == ns \
-       and (d.get("stringData") or {}).get("token") == pat:
-        hit = os.path.basename(f)[:-5]
-if hit is None:
-    print(f"no Secret {ns}/{name} carrying the shared PAT was applied"); sys.exit(1)
-i_apply = lines.index("APPLIED " + hit) - 1
-if f"--kubeconfig {skc}" not in lines[i_apply]:
-    print(f"the Secret was applied, but not through the follower kubeconfig: {lines[i_apply]}"); sys.exit(1)
-restart = [i for i, l in enumerate(lines) if f"--kubeconfig {skc} -n {ns} rollout restart deployment continuum-controller" in l]
-if not restart or restart[0] < i_apply:
-    print("no restart of continuum-controller after the copy"); sys.exit(1)
-print(f"{ns}/{name} applied in the follower, continuum-controller restarted after it")
+    for d in docs:
+        if d.get("kind") == "Secret" and (d.get("stringData") or {}).get("token") == pat:
+            print("%s/%s" % (d["metadata"].get("namespace"), d["metadata"].get("name")))
 PY
 }
 rc=$(run_leg)
 [ "${rc}" = "0" ] && pass "the leg exits 0 with one follower region" || { fail "the leg exit ${rc}"; sed 's/^/      /' "${TMP}/leg.out" | tail -20; }
-if out=$(h3_state); then pass "H3: ${out}"; else fail "H3: ${out}"; fi
-[ ! -e "${TMP}/t/follower-git-token.yaml" ] && pass "the PAT file is removed after the apply" || fail "the PAT file is left on disk"
+got="$(copies | sort | tr '\n' ' ')"
+if grep -qxF "${TOK_NS}/${TOK_NAME}" <(copies); then pass "H3: ${TOK_NS}/${TOK_NAME} carrying the shared PAT is applied in the follower (copies: ${got})"; else fail "H3: no Secret ${TOK_NS:-catalyst-system}/${TOK_NAME:-catalyst-gitea-token} carrying the shared PAT was applied in the follower (copies: ${got:-none})"; fi
+if grep -qxF "gitea/cutover-secondary-gitea-pat" <(copies); then pass "the existing copy gitea/cutover-secondary-gitea-pat is still applied"; else fail "the existing copy gitea/cutover-secondary-gitea-pat is gone (copies: ${got:-none})"; fi
 grep -qF -- "${PAT}" "${TMP}/calls.log" && fail "the PAT appears on a kubectl command line" || pass "the PAT never appears on a kubectl command line"
-
-rc=$(NS_ABSENT=1 run_leg)
-if [ "${rc}" = "0" ] && grep -q "no namespace ${TOK_NS}" "${TMP}/leg.out" && ! grep -q 'rollout restart' "${TMP}/calls.log" && ! h3_state >/dev/null; then
-  pass "a follower without ${TOK_NS}: nothing is copied or restarted, the leg goes on"
+rc=$(OVERRIDE_TOKEN= run_leg)
+got="$(copies | sort | tr '\n' ' ')"
+if [ "${rc}" = "0" ] && [ "${got}" = "gitea/cutover-secondary-gitea-pat " ]; then
+  pass "followerGitTokenSecret empty: only the gitea copy is written (${got})"
 else
-  fail "a follower without ${TOK_NS} is not handled (exit ${rc})"; sed 's/^/      /' "${TMP}/leg.out" | tail -8
-fi
-rc=$(DEP_ABSENT=1 run_leg)
-if [ "${rc}" = "0" ] && grep -q 'it reads the token when it starts' "${TMP}/leg.out" && ! grep -q 'rollout restart' "${TMP}/calls.log"; then
-  pass "a follower without the Deployment yet: the token is copied, nothing is restarted, the leg goes on"
-else
-  fail "a follower without the Deployment is not handled (exit ${rc})"; sed 's/^/      /' "${TMP}/leg.out" | tail -8
+  fail "followerGitTokenSecret empty: exit ${rc}, copies ${got:-none}"; sed 's/^/      /' "${TMP}/leg.out" | tail -8
 fi
 
 echo

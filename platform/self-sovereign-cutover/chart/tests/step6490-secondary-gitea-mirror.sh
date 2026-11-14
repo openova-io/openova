@@ -351,11 +351,6 @@ awk '/#6490 secondary-region mirror leg/,/secondary mirror is a no-op/' "${TMP}/
   echo 'PAT_SOURCE_NAMESPACE=catalyst-system'
   echo 'PAT_SOURCE_SECRET_NAME=catalyst-gitea-token'
   echo 'GITEA_PAT=testpat'
-  # #7834 — the leg also copies the PAT to the follower's own readers
-  # (tests/follower-region-pivots.sh executes that part).
-  echo 'FOLLOWER_GIT_TOKEN_NAMESPACE=catalyst-system'
-  echo 'FOLLOWER_GIT_TOKEN_SECRET=catalyst-gitea-token'
-  echo 'FOLLOWER_GIT_TOKEN_RESTART=continuum-controller'
   sed -e "s#/secondary-kubeconfigs/#${TMP}/skc/#g" -e "s#/secondary-mirror/#${TMP}/smir/#g" "${TMP}/leg.body"
   echo 'fi'
 } >"${TMP}/leg.sh"

@@ -3510,22 +3510,24 @@ secondaryRegions:
   # skipped with a log line.
   followerSourceDirs:
     - "clusters/_template/sovereign-region/multi-region-follower"
-  # #7834 — the shared catalyst-gitea-token PAT, copied by step-01 into each
-  # follower region for the readers there. bp-continuum runs in every region
-  # (slot 62, ADR-0015 D8) and reads env GITEA_TOKEN from this Secret
-  # (products/continuum/chart values continuum.git.tokenSecret, optional: true);
-  # in the primary region bp-catalyst-platform mints it, and a follower runs no
+  # #7834 — <namespace>/<name> of a second copy of the shared catalyst-gitea-token
+  # PAT that step-01 writes into each follower region, in the same apply as the
+  # secondaryGiteaPatSecretName copy (key `token`). bp-continuum runs in every
+  # region (slot 62, ADR-0015 D8) and reads env GITEA_TOKEN from this Secret
+  # (products/continuum/chart values continuum.git.tokenSecret, optional: true).
+  # In the primary region bp-catalyst-platform mints it; a follower runs no
   # bp-catalyst-platform, so without the copy a follower's Continuum calls the
-  # writer Gitea with no token. namespace/secretName MUST equal slot 62's
-  # targetNamespace and the continuum chart's tokenSecret.name. An env value is
-  # read once at container start, so the Deployments listed here are restarted
-  # after the copy. A follower without the namespace is skipped with a log line.
-  followerGitToken:
-    enabled: true
-    namespace: "catalyst-system"
-    secretName: "catalyst-gitea-token"
-    restartDeployments:
-      - "continuum-controller"
+  # writer Gitea with an empty token. MUST equal slot 62's targetNamespace and
+  # the continuum chart's tokenSecret.name (tests/follower-region-pivots.sh).
+  # The namespace comes from slot 13's Namespace object, applied in every region.
+  #
+  # An env value is read at container start. No separate restart is made: the
+  # follower's continuum-controller started at Phase 1 rolls in step-06, after
+  # this copy, because the in-region pivot Job writes slot 62's imageRegistry
+  # (imageRegistryPivot.additionalHRs followerRegions: true) and the new image
+  # name rolls the pod. A follower whose slot 62 was pivoted before any copy
+  # (a hand change) keeps an empty token until that pod restarts. Empty = off.
+  followerGitTokenSecret: "catalyst-system/catalyst-gitea-token"
   # #6764 — SECONDARY-region Harbor prewarm. A 2-region Sovereign runs bp-harbor
   # in BOTH regions, so region-B has its OWN empty local Harbor; step-03's
   # PRIMARY prewarm (Phase A/A2) populates region-A's Harbor only, so step-06

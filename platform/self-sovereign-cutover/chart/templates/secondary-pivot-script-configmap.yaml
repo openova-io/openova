@@ -7,49 +7,21 @@ in-region pattern, applied to the durable SOURCE of the pivot.
 WHY. Since #6490 (0.1.193) each secondary's Flux consumes that region's OWN
 in-cluster Gitea (gitea-http.gitea.svc, headless, unreachable cross-region),
 populated by the step-01 secondary-mirror Job from UPSTREAM GitHub. Step-06
-Phase 2 pushes the bootstrap-kit rewrite (ghcr -> local Harbor + certSecretRef)
-to region-A's Gitea ONLY, so region-B's durable source never carries the pivot
-and its bootstrap-kit Kustomization re-applies the 65 literal
-`url: oci://ghcr.io/openova-io` lines on every reconcile. hw305 (dep
-b2b00ce4c833badf, 0.1.199) looped FATAL every ~16 min for 10 days:
-  #5359 secondary me-east-215-b-1: pivot ok=65 skip=0 fail=0
-  #5596 ... poked 1 HR-owning Kustomization(s) + flux-system/openova ...
-  FATAL: #5596 secondary me-east-215-b-1: 63 HelmRepository(ies) on
-         oci://ghcr.io/openova-io after the pivot
-Region-A only survived because its own kit Kustomization is suspended.
+Phase 2 pushes the kit rewrite to region-A's Gitea ONLY, so region-B's durable
+source never carries the pivot and its Kustomizations re-apply the literal
+`url: oci://ghcr.io/openova-io` lines (hw305; forensics in Chart.yaml 0.1.202).
 
 WHAT. The Job clones the secondary's OWN openova/openova main (depth 1),
-applies the SAME kit transform region-A applies (kit-rewrite.sh, distributed
-alongside this script — one copy, never two, #5646), commits, pushes with the
-shared catalyst-gitea-token PAT (#6754: valid in every region because the two
-regions share one gitea DB), and self-verifies the remote main sha. The region-A
-leg then forces the secondary's GitRepository to that revision BEFORE the live
-patch loop and the #5596 durable assert run. No Kubernetes API calls: default SA
-in the gitea namespace, exactly like the secondary-mirror Job.
-
-#7834 — the same commit carries the two other durable edits a FOLLOWER region
-needs and that nothing else makes in its Gitea:
-  - every directory of secondaryRegions.followerSourceDirs gets the SAME
-    kit-rewrite.sh transform. multi-region-follower holds the follower's
-    flux-system/openova-catalog (catalog-helmrepository.yaml), applied by its
-    `sovereign-region-bootstrap` Kustomization; unpivoted, it went back to
-    ghcr.io within 5 minutes and step-08's per-region source-host lint failed
-    the region, so cutoverComplete was unreachable on a fresh install.
-  - every imageRegistryPivot.additionalHRs slot marked followerRegions: true
-    gets its 6-space `imageRegistry:` seam set to the host of LOCAL_PREFIX —
-    the edit step-07 makes in the primary region's Gitea only.
-
-RENDER-GATED on secondaryRegions.mirrorToSecondaryGitea (the same 2-region
-signal): a single-region Sovereign renders none of this.
+applies the SAME kit transform region-A applies (kit-rewrite.sh, one copy, #5646)
+to the kit and to secondaryRegions.followerSourceDirs (#7834: the follower
+catalog source), writes the imageRegistry seam of the additionalHRs slots marked
+followerRegions (#7834: step-07 edits region-A's Gitea only), commits, pushes
+with the shared PAT (#6754) and self-verifies the remote main sha. Region-A then
+forces the secondary's GitRepository to that revision BEFORE the live patch loop
+and the #5596 durable assert. No Kubernetes API calls (default SA, ns gitea).
+RENDER-GATED on secondaryRegions.mirrorToSecondaryGitea (single-region: none).
 */ -}}
 {{- if .Values.secondaryRegions.mirrorToSecondaryGitea }}
-{{- $excludeHR := .Values.imageRegistryPivot.excludeHelmReleases | default (list) }}
-{{- $followerSlots := list }}
-{{- range .Values.imageRegistryPivot.additionalHRs }}
-{{- if and .followerRegions (not (has .name $excludeHR)) }}
-{{- $followerSlots = append $followerSlots .slotFile }}
-{{- end }}
-{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -123,64 +95,23 @@ data:
     trust_secret="${TRUST_SECRET:-}"
     . "${SECONDARY_PIVOT_DIR}/kit-rewrite.sh"
     rewrite_kit_tree "${target_dir}"
-
-    {{- /*
-     #7834 — the follower's other Flux-applied directories (follower catalog
-     source). Same transform, same commit. The Phase-2.5 SKIP line rewrite_kit_tree
-     prints for them is expected: slot 13 lives in the kit directory only.
-    */}}
-    pivot_dirs="${target_dir}"
-    for follower_dir in ${FOLLOWER_SOURCE_DIRS:-}; do
-      if [ ! -d "${follower_dir}" ]; then
-        echo "[secondary-pivot] ${follower_dir} not present in this region's mirror — nothing of it is applied here, nothing to pivot (#7834)"
-        continue
-      fi
-      echo "[secondary-pivot] follower source ${follower_dir}: the kit transform (#7834)"
-      rewrite_kit_tree "${follower_dir}"
-      pivot_dirs="${pivot_dirs} ${follower_dir}"
-    done
-
-    {{- /*
-     #7834 — the follower half of step-07's durable imageRegistry edit (its
-     `pivot_extra_hr`, same sed), for the slots marked followerRegions. The host
-     is the one this region's charts now come from: LOCAL_PREFIX without its
-     scheme and path, i.e. step-07's REGISTRY.
-    */}}
-    image_registry="${LOCAL_PREFIX#oci://}"
-    image_registry="${image_registry%%/*}"
-    image_slots=""
-    for slot in ${IMAGE_REGISTRY_SLOT_FILES:-}; do
-      if [ ! -f "${slot}" ]; then
-        echo "[secondary-pivot] ${slot} not present in this region's mirror — no imageRegistry edit (#7834)"
-        continue
-      fi
-      sed -i -E "s|^([[:space:]]{6}imageRegistry:[[:space:]]*)['\"]?[^'\"]*['\"]?[[:space:]]*\$|\1'${image_registry}'|" "${slot}"
-      if grep -qxF "      imageRegistry: '${image_registry}'" "${slot}"; then
-        if ! git diff --quiet -- "${slot}"; then edited=$((edited+1)); fi
-        echo "[secondary-pivot] ${slot}: global.imageRegistry='${image_registry}' (#7834)"
-        image_slots="${image_slots} ${slot}"
-      else
-        echo "[secondary-pivot] WARN: ${slot} carries no 6-space imageRegistry seam — its HelmRelease keeps the chart's default registry in region ${REGION} (#7834)" >&2
-      fi
-    done
+    pivot_paths="${target_dir}"
+    for d in ${FOLLOWER_SOURCE_DIRS:-}; do [ ! -d "${d}" ] || { rewrite_kit_tree "${d}"; pivot_paths="${pivot_paths} ${d}"; }; done
+    reg="${LOCAL_PREFIX#oci://}"; reg="${reg%%/*}"
+    for s in ${IMAGE_REGISTRY_SLOT_FILES:-}; do [ ! -f "${s}" ] || { sed -i -E "s|^([[:space:]]{6}imageRegistry:[[:space:]]*)['\"]?[^'\"]*['\"]?[[:space:]]*\$|\1'${reg}'|" "${s}"; echo "[secondary-pivot] ${s}: imageRegistry='${reg}' (#7834)"; }; done
 
     {{- /* Fail closed (the #6293 shape): a tree still declaring the upstream prefix must never be pushed as "pivoted". */}}
-    left=0
-    for d in ${pivot_dirs}; do
-      n=$(grep -lE "^[[:space:]]*url:[[:space:]]*${UPSTREAM_PREFIX}[[:space:]]*$" "${d}"/*.yaml 2>/dev/null | grep -c . || true)
-      left=$((left+n))
-    done
+    left=$(for d in ${pivot_paths}; do grep -lE "^[[:space:]]*url:[[:space:]]*${UPSTREAM_PREFIX}[[:space:]]*$" "${d}"/*.yaml 2>/dev/null; done | grep -c . || true)
     if [ "${left}" -ne 0 ]; then
-      echo "[secondary-pivot] FATAL: ${left} file(s) under ${pivot_dirs} still declare ${UPSTREAM_PREFIX} after the rewrite — pushing now would record a durable pivot that does not exist" >&2
+      echo "[secondary-pivot] FATAL: ${left} file(s) under ${pivot_paths} still declare ${UPSTREAM_PREFIX} after the rewrite — pushing now would record a durable pivot that does not exist" >&2
       exit 1
     fi
 
-    # shellcheck disable=SC2086
-    git add ${pivot_dirs} ${image_slots}
+    git add ${pivot_paths}
     if git diff --staged --quiet; then
       echo "[secondary-pivot] already pivoted in this region's Gitea — nothing to commit (idempotent re-run)"
     else
-      git commit -q -m "cutover: pivot ${edited} HelmRepository URL(s) and imageRegistry seam(s) to the local registry (secondary region ${REGION}, #5596 #7834)"
+      git commit -q -m "cutover: pivot HelmRepository URLs and imageRegistry seams to the local registry (secondary region ${REGION}, #5596 #7834)"
       if ! push_err=$(git -c http.extraHeader="Authorization: Basic ${token_auth}" push origin "HEAD:refs/heads/${UPSTREAM_BRANCH}" 2>&1); then
         echo "[secondary-pivot] FATAL: git push to ${push_url} ${UPSTREAM_BRANCH} failed — this region's Kustomization keeps re-applying ${UPSTREAM_PREFIX} (#5596)" >&2
         printf '%s\n' "${push_err}" | redact >&2
@@ -262,10 +193,8 @@ data:
                   value: "__LOCAL_PREFIX__"
                 - name: TRUST_SECRET
                   value: "__TRUST_SECRET__"
-                - name: FOLLOWER_SOURCE_DIRS
-                  value: {{ join " " (.Values.secondaryRegions.followerSourceDirs | default (list)) | quote }}
-                - name: IMAGE_REGISTRY_SLOT_FILES
-                  value: {{ join " " $followerSlots | quote }}
+                - { name: FOLLOWER_SOURCE_DIRS, value: {{ join " " (.Values.secondaryRegions.followerSourceDirs | default (list)) | quote }} }
+                - { name: IMAGE_REGISTRY_SLOT_FILES, value: "{{ range .Values.imageRegistryPivot.additionalHRs }}{{ if and .followerRegions (not (has .name ($.Values.imageRegistryPivot.excludeHelmReleases | default (list)))) }}{{ .slotFile }} {{ end }}{{ end }}" }
               volumeMounts:
                 - name: secondary-pivot
                   mountPath: /secondary-pivot
