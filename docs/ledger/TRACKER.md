@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T08:15:04Z` |
+| Last refreshed | `2026-11-14T08:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-14T08:23 | [#7557](https://github.com/openova-io/openova/pull/7557) | #7087 | docs(ledger): plan update |
+| 2026-11-14T08:29 | [#7556](https://github.com/openova-io/openova/pull/7556) | #7528 | ci: pin the two moving Flux actions and ratchet unpinned act |
+| 2026-11-14T08:19 | [#7555](https://github.com/openova-io/openova/pull/7555) | #7544 | fix(openbao): close the public route to the OpenBao system p |
 | 2026-11-14T08:11 | [#7548](https://github.com/openova-io/openova/pull/7548) | #7087 | docs(ledger): plan update |
 | 2026-11-14T08:13 | [#7547](https://github.com/openova-io/openova/pull/7547) | #7501 | docs(ledger): replace the 15-minute status board in TRACKER. |
 | 2026-11-14T08:14 | [#7546](https://github.com/openova-io/openova/pull/7546) | #7539 | feat: add the pull-request mode of the commit library gitwri |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-13T20:14 | [#7505](https://github.com/openova-io/openova/pull/7505) | #7087 | docs(ledger): plan update |
 | 2026-11-13T20:16 | [#7504](https://github.com/openova-io/openova/pull/7504) | #7502 | fix(ci): the guard-wiring meta-guard tests membership withou |
 | 2026-11-13T20:06 | [#7500](https://github.com/openova-io/openova/pull/7500) | #7087 | docs(ledger): plan update |
-| 2026-11-13T20:10 | [#7499](https://github.com/openova-io/openova/pull/7499) | #7496 | chore(openbao): remove the stretched raft join, the snapshot |
-| 2026-11-13T19:40 | [#7498](https://github.com/openova-io/openova/pull/7498) | #7494 | ci: bring the local provider pack up with two regions on pul |
-| 2026-11-13T19:40 | [#7497](https://github.com/openova-io/openova/pull/7497) | #7495 | ci: a tool and a workflow that cut an immutable release cand |
 
 ---
 
