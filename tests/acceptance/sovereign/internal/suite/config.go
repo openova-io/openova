@@ -33,6 +33,10 @@ type Config struct {
 	// number of its resources that a listing of the cloud account still found
 	// after the wipe. Both are given, or neither. Check FND-G13 reads them.
 	PreviousDeploymentID, PreviousWipeOrphans string
+	// Preflight is the numbers of the flight checklist, read before the fire:
+	// "<UTC time>;<kind>=<used>/<allowed>/<left>,..." (see parsePreflight).
+	// The record carries them as provision.preflight; check FND-G13 reads them.
+	Preflight string
 
 	Record     bool
 	RecordDir  string
