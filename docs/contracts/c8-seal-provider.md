@@ -121,7 +121,7 @@ data:
     }
 ```
 
-Errors: the `runcmd` script exits with code 96 when the seal volume device is not present; the node never starts k3s. The code 96 is reserved for this step: the shared template uses codes from 86 to 95 for its other fatal steps. An OpenBao pod on a node whose seal directory is empty stays sealed and not Ready (fail closed).
+Errors: the `runcmd` script exits with code 96 when the seal volume device is not present; the node never starts k3s. The code 96 is reserved for this step: the other fatal steps of the shared template use the codes 86 to 95, 97 and 98, and `scripts/check-cloudinit-exit-codes.py` fails a change that gives a fatal step another code or uses 96 outside this step. An OpenBao pod on a node whose seal directory is empty stays sealed and not Ready (fail closed).
 
 Reserved for `cloud-key-service`: three more ConfigMap keys, `pluginStanza` (the `plugin "kms" "<name>" { command = "..." }` block), `pluginImage` (an image that carries the plug-in binary) and `pluginCommand` (its file name). They are added, together with their reader in the chart, only by the package that implements the kind (SEC-155). No other package may add them.
 
