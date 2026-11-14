@@ -1,0 +1,21 @@
+schema: openova.io/plan-wrong/v1
+id: CLD-067
+ticket_rev: 1
+base_commit: ff5064382eafc03ab651f01961e2a16c4033c1ee
+stage: check
+ref: checks
+command: |
+    python3 scripts/plan.py checks --pr 7730 --wait > /tmp/CLD-067-checks.txt 2>&1; rc=$?; grep -v '^green' /tmp/CLD-067-checks.txt | tail -30; echo "exit code: $rc"
+expected: |
+    Exit code 0: all finished green. Exit code 3: the tool could not read the checks: run the command once more, and if it is 3 again follow "If this ticket is wrong" with stage check and the ref checks.
+actual: |
+    first run:
+    plan.py: gh api repos/openova-io/openova/commits/320ad0e6e27905d82a26d9d5a783ceb66f209b11/check-runs?per_page=100&filter=latest failed: error connecting to api.github.com
+    check your internet connection or https://githubstatus.com
+    exit code: 3
+    second run:
+    plan.py: gh api repos/openova-io/openova/actions/runs?per_page=100&head_sha=320ad0e6e27905d82a26d9d5a783ceb66f209b11 failed: error connecting to api.github.com
+    check your internet connection or https://githubstatus.com
+    exit code: 3
+    The work is on wp/CLD-067 (head 320ad0e6e279, pull request #7730); the fence run and the acceptance run exited 0 before the push; the checks were still queued when the tool lost its connection.
+reported_at: 2026-11-14T13:35:24Z
