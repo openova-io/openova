@@ -196,7 +196,7 @@ func TestReconcile_SingleRegionHappyPath(t *testing.T) {
 
 	res, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: "acme-prod"}})
 	require.NoError(t, err)
-	assert.Equal(t, 2*time.Minute, res.RequeueAfter, "should requeue at the configured drift-detection interval")
+	assert.Equal(t, 10*time.Minute, res.RequeueAfter, "a Ready Environment requeues on the ten-minute safety net, not at the configured retry interval")
 
 	got := mustGet(t, c, "acme-prod")
 	assert.Equal(t, envv1.PhaseReady, got.Status.Phase)

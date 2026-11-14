@@ -459,10 +459,12 @@ type httpDoer interface {
 }
 
 // SetupWithManager registers the reconciler with the controller-runtime
-// manager. The manager's scheme must already have orgapi registered.
+// manager. The manager's scheme must already have orgapi registered. Besides
+// the Organization itself it watches the HelmReleases labelled with an
+// Organization and the console Gateway (organization_watches.go, CTL-420).
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&orgapi.Organization{}).
+	return r.withDependencyWatches(ctrl.NewControllerManagedBy(mgr).
+		For(&orgapi.Organization{})).
 		Complete(r)
 }
 
@@ -952,8 +954,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	// invisible. Naming the missing artifact is the fix; the requeue below is
 	// the self-heal that follows from it — and because a non-empty result keeps
 	// the requeue alive, this also closes the drift hole where a Ready Org
-	// (which returns ctrl.Result{} and has no Gateway watch) could lose its
-	// listener to an external rewrite and never re-converge.
+	// (which returns ctrl.Result{}) could lose its listener to an external
+	// rewrite and never re-converge. Since CTL-420 a Programmed change of the
+	// console Gateway also wakes every Org that engages tenant networking.
 	//
 	// ensureEnvironment above stays gated on vcReady, NOT on this: an Org with a
 	// broken console edge must still get its Environment, or a cosmetic status
@@ -1034,29 +1037,24 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		"vcluster_phase", vcPhase,
 		"vcluster_ready", vcReady)
 
-	// Requeue until the vCluster HR is Ready so status.vcluster.phase +
-	// the Ready condition converge as Flux applies the Git-authored
-	// manifest. A steady-state (Ready) Org needs no periodic requeue —
-	// the Organization watch re-triggers on spec changes; the HR's own
-	// Flux reconcile drives the cluster state. While provisioning we poll
-	// the readback every 30s (matching the fail() cadence).
-	// Requeue while the vCluster is still coming up OR the console-serving trio
-	// (#4999) reported a transient failure — so the console DNS/TLS/HTTPRoute
-	// retry on the 30s cadence even for an Org that is otherwise Ready (without
-	// this a transient console route write would sit un-retried until the next
-	// spec change).
+	// CTL-420 — the Org waits for its dependencies by WATCHING them, not by
+	// asking again every 30 seconds. A Ready or observedGeneration change of a
+	// HelmRelease labelled openova.io/organization=<slug> (the vCluster HR) and
+	// a Programmed change of the console Gateway enqueue the Org at once
+	// (organization_watches.go). A steady-state (Ready) Org needs no periodic
+	// requeue: the Organization watch re-triggers on spec changes.
 	//
-	// #5395 — ALSO requeue while any provisioning postcondition is missing or
-	// could not be verified. This is what makes the check self-healing rather
-	// than merely diagnostic: each pass re-runs reconcileConsoleServing (which
-	// re-appends a listener that was never written or was rewritten away) and
-	// re-reads the boundary tree, and the Org converges to Ready=True the moment
-	// the artifacts are genuinely there. Without it a Ready Org returns
-	// ctrl.Result{} and — since SetupWithManager registers no Gateway watch —
-	// would never look again.
+	// The requeue below is the safety net, ten minutes, for what no watch
+	// announces: a transient failure of the console-serving trio (#4999), a
+	// provisioning postcondition that is missing or could not be verified
+	// (#5395), and the console Gateways of the other regions. It is still what
+	// makes the #5395 check self-healing rather than merely diagnostic: each
+	// pass re-runs reconcileConsoleServing (which re-appends a listener that was
+	// never written or was rewritten away) and re-reads the boundary tree, and
+	// the Org converges to Ready=True once the artifacts are genuinely there.
 	if !vcReady || consoleServingDegraded ||
 		!postconditions.complete() || len(postconditions.Unverifiable) > 0 {
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		return ctrl.Result{RequeueAfter: 10 * time.Minute}, nil
 	}
 	// #6971 - a BSS spend-limit stop in force lifts at a known instant (the
 	// next billing-period start). Nothing else would wake this Org then, so
@@ -1274,8 +1272,8 @@ func (r *Reconciler) vclusterReadiness(ctx context.Context, slug string) (phase 
 		// were created (step 3b / per_org_flux.go) — this is the transient
 		// window before Flux has cloned the repo and applied ./vcluster.
 		// Still surfaced honestly as Pending (not a false green) so the
-		// operator sees the vCluster is not up yet; the 30s requeue walks
-		// it to Provisioning → Ready as Flux converges.
+		// operator sees the vCluster is not up yet; the HelmRelease watch
+		// (CTL-420) walks it to Provisioning → Ready as Flux converges.
 		return "Pending", false,
 			"vCluster HelmRelease not yet applied by Flux (manifest authored in Gitea + per-Org Flux source created; awaiting first reconcile of ./vcluster)"
 	case err != nil:
@@ -1380,7 +1378,7 @@ func (r *Reconciler) patchStatus(ctx context.Context, org *orgapi.Organization, 
 	// purchased app never landed (hw282). Carry forward each condition's
 	// LastTransitionTime when its (Status,Reason,Message) is unchanged, then SKIP
 	// the write entirely when the resulting status is byte-equal to the live one.
-	// The reconciler now re-fires only on a real state change or the explicit 30s
+	// The reconciler now re-fires only on a real state change or the explicit
 	// provisioning requeue, so its per-Org repo writes collapse to a FINITE seed
 	// burst the funnel's retry budget straddles.
 	desired.Conditions = carryForwardConditionTimestamps(org.Status.Conditions, desired.Conditions)
