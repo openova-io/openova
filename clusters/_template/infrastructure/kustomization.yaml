@@ -2,7 +2,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 # clusters/_template/infrastructure — the Crossplane object-model CONFIG
-# entrypoint for HUAWEI (and any non-Hetzner cloud) (#4212 #4521, un-gates
+# entrypoint for every cloud (#4212 #4521, un-gates
 # #4002/#4018). It pulls in the cloud-agnostic ./base — provider-config-opentofu
 # + the Observe-first CloudAdoption placeholder — all of which work on every
 # cloud.
@@ -17,9 +17,9 @@ kind: Kustomization
 # the Provider CR never applied → provider never installed → permanent
 # ordering deadlock.
 #
-# Both `infrastructure-providers` and `infrastructure-config` point their
-# cloud-conditional `path` HERE on Huawei (base only) and at the ./hetzner
-# sibling on Hetzner (base + native provider-(config-)hcloud). Before #4212 the
+# The `infrastructure-config` Flux Kustomization points its `path` HERE on
+# every cloud. CLD-023 deleted the Hetzner sibling ./hetzner and its native
+# provider-config-hcloud. Before #4212 the
 # whole Kustomization was hard-gated to Hetzner, so on Huawei Crossplane owned
 # NOTHING and `kubectl get providers.pkg.crossplane.io` was empty (the
 # #4002/#4018 gap this un-gates).

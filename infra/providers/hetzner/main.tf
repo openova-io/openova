@@ -3,7 +3,7 @@
 # Per docs/ARCHITECTURE.md §10 + docs/SOVEREIGN-PROVISIONING.md §3-§4:
 #   - This module provisions Phase 0 cloud resources on Hetzner.
 #   - Cloud-init on the control-plane node installs k3s + bootstraps Flux +
-#     installs Crossplane + provider-hcloud.
+#     installs Crossplane with provider-opentofu.
 #   - Flux then takes over (Phase 1 hand-off): reconciles
 #     clusters/<sovereign-fqdn>/ from the public OpenOva monorepo, installing
 #     the 11-component bootstrap kit and bp-catalyst-platform umbrella.
@@ -732,31 +732,10 @@ locals {
     - 'HCLOUD_SERVER_ID=$(curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/instance-id) && NODE_NAME=$(hostname) && for i in $(seq 1 30); do kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get node "$NODE_NAME" >/dev/null 2>&1 && kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml patch node "$NODE_NAME" --type=merge -p "{\"spec\":{\"providerID\":\"hcloud://$HCLOUD_SERVER_ID\"}}" && break || sleep 5; done || echo "providerID patch failed after 30 retries (non-fatal — bp-hcloud-ccm may set it later)"'
   EOT
 
-  # Crossplane Provider + ProviderConfig (hcloud). Reads cloud-credentials.
-  crossplane_provider_yaml_hetzner = <<-EOT
-    ---
-    apiVersion: pkg.crossplane.io/v1
-    kind: Provider
-    metadata:
-      name: provider-hcloud
-      labels:
-        catalyst.openova.io/sovereign: ${var.sovereign_fqdn}
-    spec:
-      package: xpkg.upbound.io/crossplane-contrib/provider-hcloud:v0.4.0
-      packagePullPolicy: IfNotPresent
-    ---
-    apiVersion: hcloud.crossplane.io/v1beta1
-    kind: ProviderConfig
-    metadata:
-      name: default
-    spec:
-      credentials:
-        source: Secret
-        secretRef:
-          namespace: flux-system
-          name: cloud-credentials
-          key: hcloud-token
-  EOT
+  # No Crossplane provider package of its own: provider-opentofu, which the
+  # infrastructure-providers Kustomization installs on every cloud, is the
+  # only one (CLD-023). An empty value leaves the file out of cloud-init.
+  crossplane_provider_yaml_hetzner = ""
 
   # provider prelude — Hetzner private-NIC bring-up. The hcloud private
   # network attaches a second interface post-boot; k3s --node-ip needs it up
