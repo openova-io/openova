@@ -1941,7 +1941,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-guacamole",
     "slug": "guacamole",
     "title": "Apache Guacamole",
-    "summary": "Clientless HTML5 remote-desktop gateway. Browser-based RDP / VNC / SSH and kubectl-exec into Pods, with Keycloak SSO and full session recording to SeaweedFS. One Guacamole per Sovereign per ADR-0001 §11.",
+    "summary": "Clientless HTML5 remote-desktop gateway. Browser-based RDP / VNC / SSH and kubectl-exec into Pods, with Keycloak SSO. One Guacamole per Sovereign per ADR-0001 §11.",
     "icon": "guacamole.svg",
     "category": "platform",
     "tagline": null,

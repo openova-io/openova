@@ -1,6 +1,6 @@
 # Apache Guacamole
 
-Clientless remote-desktop gateway. **Application Blueprint** (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §4.5 — Communication). Provides browser-based RDP / VNC / SSH / Kubernetes-shell access to internal hosts and Pods, with Keycloak SSO, full session recording to SeaweedFS, and Kyverno-enforced access policies. Used by `bp-relay` and corporate Sovereigns that need auditable remote-access without distributing native clients to users.
+Clientless remote-desktop gateway. **Application Blueprint** (see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §4.5 — Communication). Provides browser-based SSH and Kubernetes-shell access behind Keycloak sign-on. Sessions are not recorded and there is no approval or time-bound grant today; the target design is decision record [`docs/adr/0033-access-plane.md`](../../docs/adr/0033-access-plane.md).
 
 **Status:** Accepted | **Updated:** 2026-04-28
 
@@ -8,14 +8,13 @@ Clientless remote-desktop gateway. **Application Blueprint** (see [`docs/ARCHITE
 
 ## Overview
 
-Apache Guacamole is an HTML5-based remote desktop gateway. End users open a browser, authenticate via Keycloak (Catalyst's identity), and reach RDP / VNC / SSH endpoints inside the Sovereign — without installing any native client. Every session is recorded as a `.guac` capture to SeaweedFS for compliance review.
+Apache Guacamole is an HTML5-based remote desktop gateway. End users open a browser, authenticate via Keycloak (Catalyst's identity), and reach RDP / VNC / SSH endpoints inside the Sovereign — without installing any native client.
 
 Within OpenOva, Guacamole is the standard remote-access layer for:
-- Sovereign-admins who need shell access to a vcluster's debug Pod (kubectl exec via Guacamole, JIT-elevated)
+- Sovereign-admins who need shell access to a vcluster's debug Pod (kubectl exec via Guacamole)
 - Corporate Org-admins reaching Windows-based legacy systems hosted as Apps
-- Auditors reviewing recorded sessions during compliance evidence gathering
 
-It replaces VPN + native RDP/VNC client distribution with one browser-accessible, SSO-gated, fully-audited surface.
+It replaces VPN + native RDP/VNC client distribution with one browser-accessible, SSO-gated surface.
 
 ---
 
@@ -35,10 +34,6 @@ flowchart LR
 
         subgraph Identity["Identity"]
             KC[Keycloak]
-        end
-
-        subgraph Recording["Session recording"]
-            SW[SeaweedFS bucket: guacamole-recordings]
         end
 
         subgraph Policy["Policy"]
@@ -61,7 +56,6 @@ flowchart LR
     Guacd -->|"VNC"| VNC
     Guacd -->|"SSH"| SSH
     Guacd -->|"kubectl WebSocket"| K8s
-    Guacd -->|"Recording stream"| SW
     GuacWeb -->|"Authz check"| Policy
 ```
 
@@ -74,9 +68,7 @@ flowchart LR
 | **License** | Apache 2.0 |
 | **Clientless** | Pure HTML5 + WebSocket — no native RDP / VNC client distribution |
 | **Auth** | OAuth2 / OIDC (works directly with Keycloak) — SSO across Catalyst |
-| **Session recording** | Native `.guac` capture, replayable in browser; ships to SeaweedFS |
 | **Protocols** | RDP, VNC, SSH, Telnet, kubernetes (via the Guacamole K8s plugin) |
-| **Auditability** | Every connection logged with user identity, target, duration, recording URL |
 
 ---
 
@@ -111,8 +103,6 @@ spec:
               value: guacamole
             - name: OPENID_REDIRECT_URI
               value: "https://guacamole.<env>.<sovereign-domain>/"
-            - name: RECORDING_PATH
-              value: s3://seaweedfs.storage.svc:8333/guacamole-recordings/
             - name: POSTGRES_HOSTNAME
               value: guacamole-db-rw.relay.svc
 ---
@@ -270,24 +260,9 @@ CRD, a controller, or a console surface.
 
 ---
 
-## Use Cases
+## Target, not built
 
-| Use case | Protocol | JIT required | Recording |
-|---|---|---|---|
-| Sovereign-admin debug into vcluster Pod | kubectl WebSocket | Yes | Always |
-| Corporate-admin reaches legacy Windows ERP | RDP | Yes (per EnvironmentPolicy) | Always |
-| Developer reaches lab VM in dev Environment | SSH | Optional | Configurable |
-| Auditor reviews recorded session | replay only | No (read role only) | N/A |
-
----
-
-## Compliance integration
-
-Session recordings count as **PSD2/DORA/SOX evidence**:
-
-- Every recording has the user's Keycloak `sub` claim, target identity, start/end timestamps, and content hash committed to the Catalyst audit log via OpenSearch SIEM.
-- `bp-specter` Compliance Agent (planned — Blueprint not yet shipped) will index recordings as audit evidence for the Compliance Mappings table (per [`BUSINESS-STRATEGY.md`](../../docs/BUSINESS-STRATEGY.md) §5.3).
-- `EnvironmentPolicy.rules` of kind `recording-required` blocks any unrecorded session attempt to prod targets.
+Target, not built. Session recording, approval of access, time-bound grants and review of sessions are the target design of the decision record named at the top of this page; none of them exists today.
 
 ---
 
@@ -297,7 +272,6 @@ Session recordings count as **PSD2/DORA/SOX evidence**:
 |---|---|
 | `guacamole_active_sessions` | Live session count |
 | `guacamole_session_duration_seconds` | Per-session duration histogram |
-| `guacamole_recording_bytes_total` | Bytes written to SeaweedFS |
 | `guacamole_auth_failures_total` | Failed Keycloak handshakes |
 
 ---

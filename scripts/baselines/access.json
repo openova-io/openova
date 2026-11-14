@@ -32,11 +32,7 @@
     "ACC-GD7": {
       "products/catalyst/bootstrap/api/internal/handler/k8s_exec.go": 2
     },
-    "ACC-GD8": {
-      "platform/guacamole/README.md": 1,
-      "platform/guacamole/blueprint.yaml": 1,
-      "platform/guacamole/chart/README.md": 1
-    }
+    "ACC-GD8": {}
   },
   "schema": "openova.io/guard-baseline/v1"
 }
