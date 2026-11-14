@@ -292,4 +292,114 @@ spec:
                 observedGeneration:
                   type: integer
                   format: int64
+                network:
+                  type: object
+                  description: |
+                    The network registry of the Sovereign: the output
+                    `network_registry` of the provider module, copied
+                    unchanged by the writer of this object. Its fields and
+                    rules are those of infra/providers/PROVIDER-INTERFACE.md,
+                    section 2.1; scripts/check-network-registry.py checks a
+                    document. Gate check NET-G08 compares podSupernet, mtu and
+                    the clusterName and clusterID of each region with the
+                    ConfigMap kube-system/cilium-config of that region.
+                    Absent until the writer fills it.
+                  required: [podSupernet, mtu, regionSeparation, controlPlaneAccess, regions]
+                  properties:
+                    podSupernet:
+                      type: string
+                      description: One IPv4 range that holds every regions[].podCIDR.
+                    mtu:
+                      type: integer
+                      description: Pod MTU of Cilium.
+                      minimum: 1280
+                      maximum: 9000
+                    regionSeparation:
+                      type: string
+                      description: |
+                        `site` when every region has another cloudRegion,
+                        `zone` when cloud regions repeat but every pair of
+                        cloudRegion and az differs, `none` otherwise.
+                      enum: [none, zone, site]
+                    controlPlaneAccess:
+                      type: object
+                      description: Sources of the API port.
+                      required: [adminCIDRs, provisionerCIDRs]
+                      properties:
+                        adminCIDRs:
+                          type: array
+                          description: The sovereign-admin source list.
+                          items:
+                            type: string
+                        provisionerCIDRs:
+                          type: array
+                          description: The provisioner source list.
+                          items:
+                            type: string
+                    regions:
+                      type: array
+                      description: One entry per region, in the region order of the provider module.
+                      minItems: 1
+                      maxItems: 6
+                      items:
+                        type: object
+                        required: [code, cloudRegion, az, clusterName, clusterID, nodeCIDR, podCIDR, serviceCIDR, edgeAddress, egressAddresses]
+                        properties:
+                          code:
+                            type: string
+                            description: The region code of the provider module.
+                            minLength: 1
+                            maxLength: 64
+                          cloudRegion:
+                            type: string
+                            description: Cloud region of the region.
+                            minLength: 1
+                          az:
+                            type: string
+                            description: Zone of the region; `none` where the cloud has no zones.
+                            minLength: 1
+                          clusterName:
+                            type: string
+                            description: Mesh name of the cluster.
+                            pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                            maxLength: 32
+                          clusterID:
+                            type: integer
+                            description: Mesh identifier of the cluster.
+                            minimum: 1
+                            maximum: 255
+                          nodeCIDR:
+                            type: string
+                            description: The node subnet.
+                          podCIDR:
+                            type: string
+                            description: The pod range, prefix length 16.
+                          serviceCIDR:
+                            type: string
+                            description: The service range, prefix length 16.
+                          meshEndpoint:
+                            type: object
+                            description: Present when there is more than one region.
+                            required: [ips, port]
+                            properties:
+                              ips:
+                                type: array
+                                description: The addresses peers dial.
+                                minItems: 1
+                                items:
+                                  type: string
+                              port:
+                                type: integer
+                                description: The dial port.
+                                minimum: 1
+                                maximum: 65535
+                          edgeAddress:
+                            type: string
+                            description: The public address clients reach in the region.
+                          egressAddresses:
+                            type: array
+                            description: Source addresses of traffic that leaves the region.
+                            minItems: 1
+                            items:
+                              type: string
               x-kubernetes-preserve-unknown-fields: true
