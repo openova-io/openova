@@ -12,12 +12,12 @@
 // SSE fan-out for the same filter; new events arrive on `data:`
 // frames as JSON.
 //
-// Per ADR-0001 §3 the canonical transport is `catalyst.audit`
-// JetStream — this handler is the read-side mirror, NOT a separate
-// audit DB. The Bus forwards published events to NATS when a
-// Publisher is wired (production main.go binds one when
-// CATALYST_NATS_URL is set); when no NATS is wired, the in-process
-// ring still serves the audit trail until the Pod restarts.
+// The durable record is the subject `catalyst.audit.recorded.v1` of
+// the JetStream stream — this handler is the read-side mirror, NOT a
+// separate audit DB. The Bus publishes every event there when a
+// Publisher is wired (main.go binds one when CATALYST_NATS_URL is set)
+// and is filled from the stream at start; when no NATS is wired, the
+// in-process ring serves the audit trail until the Pod restarts.
 //
 // ── Authorization ─────────────────────────────────────────────────────
 //
@@ -73,12 +73,11 @@ import (
 // name even on an empty result set. The schema is informational; the
 // per-Item `actor` field is still authoritative for populated rows.
 //
-// `Transport` is the canonical NATS subject the same events stream
-// to (`catalyst.audit`). qa-loop iter-1 prefetch Fix #93 (TC-166):
-// the matrix asserts the literal `catalyst.audit` token so consumers
-// reading the audit envelope can confirm the subject without needing
-// a separate /transport endpoint. Per ADR-0001 §3 the subject is
-// the source of truth for cross-Sovereign audit fan-out.
+// `Transport` says where the listed events are recorded. It is
+// audit.Bus.Transport: `jetstream:CATALYST_ORG` when the Bus publishes
+// to the JetStream stream, `in-process` when it has no publisher and
+// a restart of the Pod empties the listing. It never names a
+// transport that is not wired.
 type rbacAuditListResponse struct {
 	Items      []audit.Event `json:"items"`
 	Schema     []string      `json:"schema"`
@@ -95,13 +94,6 @@ type rbacAuditListResponse struct {
 	Total     int    `json:"total"`
 	Transport string `json:"transport"`
 }
-
-// rbacAuditTransport is the canonical NATS subject the audit Bus
-// forwards events to when CATALYST_NATS_URL is wired (per ADR-0001
-// §3). Surfaced in every list response under the `transport` field so
-// consumers (audit-trail UI, qa-loop matrix TC-166) can confirm the
-// off-API source of truth without a separate /transport endpoint.
-const rbacAuditTransport = "catalyst.audit"
 
 // complianceAuditPrefix matches the catalyst-platform reservation for
 // audit events emitted by the compliance subsystem (PUT
@@ -342,7 +334,7 @@ func (h *Handler) HandleRBACAuditList(w http.ResponseWriter, r *http.Request) {
 		Items:     page,
 		Schema:    rbacAuditEventSchema,
 		Total:     len(filtered),
-		Transport: rbacAuditTransport,
+		Transport: h.auditBus.Transport(),
 	}
 	// qa-loop iter-1 prefetch Fix #93 (TC-399) — emit nextOffset +
 	// cursor on EVERY page, not just non-final pages, so the matrix's

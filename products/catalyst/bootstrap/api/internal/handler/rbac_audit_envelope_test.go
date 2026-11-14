@@ -4,8 +4,8 @@
 // /audit/rbac so the test matrix's literal-token assertions resolve
 // regardless of whether real RBAC events have been published yet.
 //
-// Tests pin on: (a) the `transport` field carrying the canonical
-// `catalyst.audit` NATS subject; (b) the `nextOffset` + `cursor` +
+// Tests pin on: (a) the `transport` field saying where the events
+// are recorded; (b) the `nextOffset` + `cursor` +
 // `hasMore` fields being present on EVERY page (final or otherwise);
 // (c) the synthesized empty-ring rows for `?type=secret-reveal`,
 // `?type=continuum-*`, and the default RBAC list.
@@ -25,34 +25,46 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/audit"
 )
 
-// TestRBACAuditList_TransportField — TC-166: every list response carries
-// the canonical NATS subject name so consumers can confirm the audit
-// transport without a separate /transport endpoint.
+// auditTransportPublisher is a Publisher that accepts every event.
+type auditTransportPublisher struct{}
+
+func (auditTransportPublisher) Publish(context.Context, audit.Event) error { return nil }
+
+// TestRBACAuditList_TransportField — every list response says where the
+// events are recorded: `in-process` while the Bus has no publisher,
+// `jetstream:CATALYST_ORG` when it has one. It never names a transport
+// that is not wired. A real event is listed with its identifier.
 func TestRBACAuditList_TransportField(t *testing.T) {
-	h := NewWithPDM(silentLogger(), &fakePDM{})
-	bus := audit.NewBus(audit.BusConfig{RingCapacity: 5})
-	h.SetAuditBus(bus)
-	dep := installUserAccessDeployment(t, h, "dep-audit-transport")
+	for want, cfg := range map[string]audit.BusConfig{
+		"in-process":             {RingCapacity: 5},
+		"jetstream:CATALYST_ORG": {RingCapacity: 5, Publisher: auditTransportPublisher{}},
+	} {
+		h := NewWithPDM(silentLogger(), &fakePDM{})
+		bus := audit.NewBus(cfg)
+		h.SetAuditBus(bus)
+		dep := installUserAccessDeployment(t, h, "dep-audit-transport")
+		bus.Publish(context.Background(), audit.Event{AuditType: audit.AuditTypeRBACGrantCreated, SovereignID: dep.ID})
 
-	r := chi.NewRouter()
-	registerRBACAuditRoutes(r, h)
+		r := chi.NewRouter()
+		registerRBACAuditRoutes(r, h)
 
-	req := httptest.NewRequest(http.MethodGet,
-		"/api/v1/sovereigns/"+dep.ID+"/audit/rbac", nil)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "catalyst.audit") {
-		t.Errorf("response missing 'catalyst.audit' transport literal; body=%s", rec.Body.String())
-	}
-	var resp rbacAuditListResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if resp.Transport != "catalyst.audit" {
-		t.Errorf("transport: got %q want catalyst.audit", resp.Transport)
+		req := httptest.NewRequest(http.MethodGet,
+			"/api/v1/sovereigns/"+dep.ID+"/audit/rbac", nil)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status: got %d want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		var resp rbacAuditListResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if resp.Transport != want {
+			t.Errorf("transport: got %q want %q", resp.Transport, want)
+		}
+		if len(resp.Items) != 1 || len(resp.Items[0].ID) != 26 || !strings.Contains(rec.Body.String(), `"id":"`+resp.Items[0].ID+`"`) {
+			t.Errorf("the listed event has no identifier; body=%s", rec.Body.String())
+		}
 	}
 }
 

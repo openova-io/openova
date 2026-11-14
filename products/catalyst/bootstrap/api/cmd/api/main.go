@@ -557,23 +557,11 @@ func main() {
 		"regionsCounter", regionsCounter != nil,
 	)
 
-	// EPIC-3 #1098 slice U8 — RBAC audit Bus. Owns:
-	//   • the in-process ring buffer the GET /audit/rbac listing reads
-	//   • the SSE fan-out the GET /audit/rbac/stream subscribes to
-	//   • optional cross-process forwarding to NATS catalyst.audit
-	//
-	// Per ADR-0001 §3 the canonical audit transport is the
-	// `catalyst.audit` JetStream subject; the Bus mirrors locally so
-	// the audit-trail UI works even when NATS is briefly unreachable.
-	// Per docs/INVIOLABLE-PRINCIPLES.md #4 the ring capacity is
-	// env-overridable (CATALYST_AUDIT_RING_CAPACITY); default 1000.
-	auditRingCap := envInt("CATALYST_AUDIT_RING_CAPACITY", audit.DefaultRingCapacity)
-	auditBus := audit.NewBus(audit.BusConfig{
-		RingCapacity: auditRingCap,
-		Publisher:    newRBACAuditPublisherFromEnv(log),
-	})
-	h.SetAuditBus(auditBus)
-	log.Info("audit: bus wired", "ringCapacity", auditRingCap)
+	// The audit Bus: the ring buffer that the audit listings read, the
+	// SSE fan-out of the audit streams, and, when CATALYST_NATS_URL is
+	// set, the publisher of the subject catalyst.audit.recorded.v1. The
+	// ring is filled from the stream at start. See newAuditBusFromEnv.
+	h.SetAuditBus(newAuditBusFromEnv(log))
 
 	// CATALYST_ORG_JWT_SECRET — bridge secret for /api/v1/org/* proxies
 	// (PR #1625 follow-up). The chart's api-deployment.yaml feeds this
@@ -1279,32 +1267,52 @@ func envInt(key string, fallback int) int {
 	return out
 }
 
-// newRBACAuditPublisherFromEnv constructs the cross-process forwarder
-// for the RBAC audit Bus when CATALYST_NATS_URL is set. Currently
-// returns nil (no Publisher) because catalyst-api ships without the
-// `nats.go` SDK in its go.mod (mirrors the
-// `newCompliancePolicyRollupPublisherFromEnv` pattern). Production
-// adoption of NATS forwarding lands in a follow-up slice that imports
-// `nats.go` directly. Until then, the Bus runs in in-process-only
-// mode: ring buffer + SSE work normally, but events are not persisted
-// across catalyst-api Pod restarts.
-//
-// Per ADR-0001 §3 the audit subject is `catalyst.audit`. Per
-// docs/INVIOLABLE-PRINCIPLES.md #4 the URL is env-driven.
-func newRBACAuditPublisherFromEnv(log *slog.Logger) audit.Publisher {
+// newAuditBusFromEnv builds the audit Bus of the API. The capacity of its
+// ring buffer is CATALYST_AUDIT_RING_CAPACITY (default
+// audit.DefaultRingCapacity). With a publisher (see
+// newRBACAuditPublisherFromEnv) every audit event goes to the JetStream
+// stream, and natspub.NewAuditBus fills the ring at start with the newest
+// events that the stream holds, so a restart of the Pod loses no listed
+// event. Without one the Bus runs in process only.
+func newAuditBusFromEnv(log *slog.Logger) *audit.Bus {
+	ringCap := envInt("CATALYST_AUDIT_RING_CAPACITY", audit.DefaultRingCapacity)
+	return natspub.NewAuditBus(newRBACAuditPublisherFromEnv(log), ringCap, log)
+}
+
+// auditEventSource is the `source` attribute of every audit event:
+// catalyst-api/<SOVEREIGN_FQDN>/<SOVEREIGN_PRIMARY_REGION>. A variable that
+// is not set is written as "-".
+func auditEventSource(getenv func(string) string) string {
+	part := func(name string) string {
+		if v := strings.TrimSpace(getenv(name)); v != "" {
+			return v
+		}
+		return "-"
+	}
+	return "catalyst-api/" + part("SOVEREIGN_FQDN") + "/" + part("SOVEREIGN_PRIMARY_REGION")
+}
+
+// newRBACAuditPublisherFromEnv returns the publisher of the audit events
+// (subject catalyst.audit.recorded.v1, contract C3) when CATALYST_NATS_URL
+// is set. It returns nil when the variable is not set, or when NATS cannot
+// be reached at start; that failure is logged as an error. With nil the
+// audit Bus runs in process only: the audit listing reports the transport
+// `in-process`, and audit.Bus.PublishStrict fails until the Pod starts
+// again with NATS reachable.
+func newRBACAuditPublisherFromEnv(log *slog.Logger) *natspub.AuditPublisher {
 	url := os.Getenv("CATALYST_NATS_URL")
 	if url == "" {
 		return nil
 	}
-	subject := env("CATALYST_AUDIT_NATS_SUBJECT", "catalyst.audit")
-	log.Info("audit: NATS publisher placeholder wired (forwarding will land in follow-up slice)",
-		"url", url, "subject", subject,
-	)
-	// Returning nil keeps the bus in in-process-only mode until the
-	// nats.go-importing follow-up slice replaces this stub with a
-	// real publisher. The wiring contract (env vars + Bus.Publisher
-	// field) is intact.
-	return nil
+	source := auditEventSource(os.Getenv)
+	p, err := natspub.NewAuditPublisher(url, source, log)
+	if err != nil {
+		log.Error("audit: NATS publisher init failed; audit events are kept in process only until the next start",
+			"url", url, "err", err)
+		return nil
+	}
+	log.Info("audit: NATS publisher wired", "url", url, "subject", natspub.AuditSubject, "source", source)
+	return p
 }
 
 // envBool returns the parsed boolean value of an env var, or fallback
