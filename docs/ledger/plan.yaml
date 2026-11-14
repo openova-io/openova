@@ -1670,7 +1670,7 @@ packages:
   size: XS
   lane: GATE
   depends_on: [FND-035]
-  after: [FND-033, FND-034]
+  after: []
   touches:
   - tests/acceptance/sovereign/internal/suite/registry.go
   - tests/acceptance/sovereign/internal/suite/registry_test.go
@@ -1678,16 +1678,28 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c 'func (e ManifestCheck) inSuite' tests/acceptance/sovereign/internal/suite/registry.go"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "cd tests/acceptance/sovereign && go vet ./... && go test -count=1 ./..."
+  - id: A2
+    run: "cd tests/acceptance/sovereign && out=$(go test -count=1 -v -run '^TestSelectChecksByImplementation$' ./internal/suite/) && grep -q -- '^--- PASS: TestSelectChecksByImplementation ' <<<\"$out\""
+  - id: A3
+    run: "d=$(mktemp -d); (cd tests/acceptance/sovereign && go build -o \"$d/sa\" ./cmd/sovereign-acceptance); printf '%s\\n' '{\"schema\":\"openova.io/gates/v1\",\"checks\":[{\"id\":\"CLD-G02\",\"state\":\"required\",\"runs_in\":[\"local\",\"cloud\"],\"destructive\":false,\"needs\":[],\"implementation\":\"scripts/check-provider-leaks.py\"},{\"id\":\"FND-G07\",\"state\":\"expected-fail\",\"runs_in\":[\"local\",\"cloud\"],\"destructive\":false,\"needs\":[],\"implementation\":\"scripts/sso-zero-click-probe.mjs\"},{\"id\":\"ACC-G03\",\"state\":\"expected-fail\",\"runs_in\":[\"local\",\"cloud\"],\"destructive\":false,\"needs\":[],\"implementation\":\"products/catalyst/bootstrap/ui/e2e/gate/apps\"},{\"id\":\"FND-G03\",\"state\":\"expected-fail\",\"runs_in\":[\"local\",\"cloud\"],\"destructive\":false,\"needs\":[],\"implementation\":\"tests/acceptance/sovereign/internal/suite/check_nodes.go\"}]}' > \"$d/m.json\"; for p in local cloud; do rc=0; CATALYST_SESSION=x \"$d/sa\" run --env sample --console http://127.0.0.1:9 --kubeconfig-a \"$d/a\" --kubeconfig-b \"$d/b\" --run-in \"$p\" --manifest \"$d/m.json\" > \"$d/out-$p.txt\" 2>&1 || rc=$?; test \"$rc\" -eq 1; grep -q '^RESULT ' \"$d/out-$p.txt\"; grep -q 'FND-G03 .*SKIP (expected-fail)' \"$d/out-$p.txt\"; if grep -q -e 'no registered check' -e 'CLD-G02' -e 'FND-G07' -e 'ACC-G03' \"$d/out-$p.txt\"; then exit 1; fi; done"
+  - id: A4
+    run: "d=$(mktemp -d); (cd tests/acceptance/sovereign && go build -o \"$d/sa\" ./cmd/sovereign-acceptance); printf '%s\\n' '{\"schema\":\"openova.io/gates/v1\",\"checks\":[{\"id\":\"CLD-G02\",\"state\":\"required\",\"runs_in\":[\"local\",\"cloud\"],\"destructive\":false,\"needs\":[],\"implementation\":\"scripts/check-provider-leaks.py\"},{\"id\":\"ACC-G01\",\"state\":\"expected-fail\",\"runs_in\":[\"local\",\"cloud\"],\"destructive\":false,\"needs\":[],\"implementation\":\"tests/acceptance/sovereign/internal/suite/check_none.go\"}]}' > \"$d/m.json\"; for p in local cloud; do rc=0; CATALYST_SESSION=x \"$d/sa\" run --env sample --console http://127.0.0.1:9 --kubeconfig-a \"$d/a\" --kubeconfig-b \"$d/b\" --run-in \"$p\" --manifest \"$d/m.json\" > \"$d/out-$p.txt\" 2>&1 || rc=$?; test \"$rc\" -eq 2; test \"$(tail -n 1 \"$d/out-$p.txt\")\" = 'FATAL: gate manifest: no registered check for ACC-G01'; done"
+  - id: A5
+    run: "d=$(mktemp -d); python3 scripts/acceptance-gate.py export > \"$d/gates.json\"; (cd tests/acceptance/sovereign && go build -o \"$d/sa\" ./cmd/sovereign-acceptance); for p in local cloud; do rc=0; CATALYST_SESSION=x \"$d/sa\" run --env sample --console http://127.0.0.1:9 --kubeconfig-a \"$d/a\" --kubeconfig-b \"$d/b\" --run-in \"$p\" --manifest \"$d/gates.json\" > \"$d/out-$p.txt\" 2>&1 || rc=$?; test \"$rc\" -eq 1; grep -q '^RESULT ' \"$d/out-$p.txt\"; if grep -q 'no registered check' \"$d/out-$p.txt\"; then exit 1; fi; done"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: SelectChecks takes a manifest entry only when its implementation is a Go file under tests/acceptance/sovereign; an entry implemented by a script or a browser spec is proven by its own job and is left out; an entry with a Go implementation and no registration still stops the run.
+  delivers: The acceptance suite selects a manifest entry only when its implementation is a Go file under tests/acceptance/sovereign; an entry implemented by a script or by browser specs is proven by its own job and is left out; a selected entry without a registered check still stops the run.
 - id: FND-051
   title: Billing-engine and tool-server tests run on pull requests
   area: FND
@@ -7991,7 +8003,7 @@ packages:
   dropped: false
   delivers: A script renders every root of the kit that the boot template hands to Flux with a stored set of values and tells whether a change leaves every rendered object as it was, and a workflow runs its self-test and the render on every change to the kit.
 - id: SOV-151
-  title: Kit chart sources, pull Secret names and the hand-over switch read the Sovereign's variables
+  title: Kit pull Secret names and the hand-over switch read the Sovereign's variables
   area: SOV
   epic: SOV-100
   type: refactor
@@ -7999,13 +8011,11 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [SOV-150, SOV-130, SOV-110, SOV-131, SOV-134]
-  after: [CLD-023, CLD-113, CLD-141, CLD-142, SOV-040, SOV-160, SOV-190, SEC-100, NET-221, SVC-060, CTL-041, CMP-036]
+  after: [CLD-113, CLD-141, CLD-142, SOV-160, SEC-100, SVC-060, CTL-041, CMP-036]
   touches:
   - clusters/_template/bootstrap-kit/*.yaml
   - clusters/_template/bootstrap-kit/06a-bp-self-sovereign-cutover.yaml
   - clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml
-  - clusters/_template/sovereign-region/multi-region-follower/catalog-helmrepository.yaml
-  - scripts/upstream-literals-baseline.txt
   resources: []
   flips: []
   implements: []
@@ -8482,7 +8492,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-110, CTL-112, FND-144, SOV-150, SOV-170, SOV-180, SOV-225, SOV-230, SOV-510, SOV-131, SOV-151, SOV-134]
-  after: [FND-011, CLD-023, SEC-100, NET-042, NET-071, NET-080, NET-221]
+  after: [FND-011, CLD-023, CLD-113, CLD-141, SOV-040, SOV-190, SEC-100, NET-042, NET-071, NET-080, NET-221, CMP-036]
   touches:
   - core/cmd/sovereign-ops/internal/flip/**
   - platform/self-sovereign-cutover/chart/templates/05-upstream-flip-job.yaml
@@ -8491,6 +8501,9 @@ packages:
   - platform/self-sovereign-cutover/chart/templates/rbac.yaml
   - platform/self-sovereign-cutover/chart/values.yaml
   - docs/ledger/deleted-paths.txt
+  - clusters/_template/bootstrap-kit/*.yaml
+  - clusters/_template/sovereign-region/multi-region-follower/catalog-helmrepository.yaml
+  - scripts/upstream-literals-baseline.txt
   resources: []
   flips: []
   implements: []
@@ -8959,7 +8972,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [FND-032, NET-131, SOV-030, SOV-140, SOV-141]
-  after: [FND-033, FND-034, FND-039, FND-900, SEC-010, SEC-080, NET-060, SVC-125, CTL-040, CTL-151, CMP-010, BSS-030, AIP-040]
+  after: [FND-033, FND-034, FND-039, FND-041, FND-900, SEC-010, SEC-080, NET-060, SVC-125, CTL-040, CTL-151, CMP-010, BSS-030, AIP-040]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/phase1_watch.go
   - products/catalyst/bootstrap/api/internal/handler/deployment_handover_export.go
@@ -12171,7 +12184,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271]
-  after: [FND-011, FND-013, FND-014, FND-015, FND-017, FND-018, FND-019, FND-020, FND-021, FND-022, FND-023, FND-024, FND-031, FND-032, FND-033, FND-034, FND-035, FND-040, FND-052, FND-053, FND-054, FND-055, FND-056, FND-057, FND-058, FND-062, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-101, FND-102, FND-103, FND-105, FND-107, FND-110, FND-171, CLD-010, CLD-021, CLD-022, CLD-023, CLD-040, CLD-063, CLD-075, CLD-080, CLD-086, CLD-087, CLD-113, CLD-142, SOV-030, SOV-035, SOV-040, SOV-050, SOV-110, SOV-120, SOV-121, SOV-133, SOV-141, SOV-150, SOV-180, SOV-190, SOV-335, SEC-020, SEC-030, SEC-073, SEC-090, SEC-125, SEC-127, NET-011, NET-030, NET-033, NET-041, NET-050, NET-071, NET-090, NET-100, NET-133, NET-221, SVC-020, SVC-060, SVC-070, SVC-080, SVC-090, SVC-125, CTL-010, CTL-020, CTL-025, CTL-030, CTL-035, CTL-038, CTL-044, CTL-045, CTL-150, CTL-151, CTL-160, CTL-201, CTL-240, CTL-300, CTL-340, CTL-420, CMP-012, CMP-014, CMP-036, CMP-073, BSS-050, BSS-141, AIP-050, AIP-221, INF-010, INF-110, MIG-060, ACC-040, PRD-030, PRD-101, PRD-102, PRD-106, PRD-501, PRD-503]
+  after: [FND-011, FND-013, FND-014, FND-015, FND-017, FND-018, FND-019, FND-020, FND-021, FND-022, FND-023, FND-024, FND-031, FND-032, FND-033, FND-034, FND-035, FND-040, FND-052, FND-053, FND-054, FND-055, FND-056, FND-057, FND-058, FND-062, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-101, FND-102, FND-103, FND-105, FND-107, FND-110, FND-171, CLD-010, CLD-021, CLD-022, CLD-023, CLD-040, CLD-063, CLD-075, CLD-080, CLD-086, CLD-087, CLD-113, CLD-142, SOV-030, SOV-035, SOV-040, SOV-050, SOV-110, SOV-120, SOV-121, SOV-133, SOV-141, SOV-150, SOV-180, SOV-190, SOV-335, SEC-020, SEC-030, SEC-073, SEC-090, SEC-125, SEC-127, NET-011, NET-030, NET-033, NET-041, NET-050, NET-071, NET-090, NET-100, NET-133, NET-221, SVC-020, SVC-060, SVC-070, SVC-080, SVC-090, SVC-125, CTL-010, CTL-020, CTL-025, CTL-030, CTL-035, CTL-038, CTL-044, CTL-045, CTL-150, CTL-151, CTL-160, CTL-201, CTL-240, CTL-300, CTL-340, CTL-420, CMP-012, CMP-014, CMP-036, CMP-073, BSS-050, BSS-141, AIP-050, AIP-221, INF-010, INF-110, MIG-060, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-501, PRD-503]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/26-image-signature.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -15033,7 +15046,7 @@ packages:
   size: M
   lane: GATE
   depends_on: [NET-321]
-  after: [FND-032, FND-033, FND-034, FND-039, FND-900, SEC-010, SEC-080, SEC-120, NET-010, NET-020, NET-060, SVC-125, CTL-040, CTL-151, CMP-010, BSS-030, AIP-040]
+  after: [FND-032, FND-033, FND-034, FND-039, FND-041, FND-900, SEC-010, SEC-080, SEC-120, NET-010, NET-020, NET-060, SVC-125, CTL-040, CTL-151, CMP-010, BSS-030, AIP-040]
   touches:
   - platform/cluster-classes/
   - tests/acceptance/sovereign/internal/suite/
@@ -15220,7 +15233,7 @@ packages:
   size: M
   lane: GATE
   depends_on: [NET-325, NET-326, NET-327, NET-328]
-  after: [FND-032, FND-033, FND-034, FND-035, FND-039, FND-900, SEC-010, SEC-080, SEC-120, NET-010, NET-020, NET-060, SVC-125, CTL-040, CTL-151, CMP-010, BSS-030, AIP-040]
+  after: [FND-032, FND-033, FND-034, FND-035, FND-039, FND-041, FND-900, SEC-010, SEC-080, SEC-120, NET-010, NET-020, NET-060, SVC-125, CTL-040, CTL-151, CMP-010, BSS-030, AIP-040]
   touches:
   - tests/acceptance/sovereign/
   resources: []
@@ -17152,7 +17165,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: A projected token of ServiceAccount catalyst-conformance in namespace catalyst-system, checked by TokenReview, may create, move and delete Applications of the Organization named conformance through catalyst-api and nothing else; every other token goes to the session check unchanged. The check is one middleware in the new package internal/jobauth.
 - id: CTL-039
@@ -17899,7 +17912,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-122, CTL-130, CTL-160, FND-032, FND-130]
-  after: [CLD-010, CLD-113, SOV-141, SOV-180, SEC-010, NET-010, NET-020, NET-060, NET-071, CTL-020, CTL-038, CTL-045, CTL-150, CTL-151, CTL-300, CTL-340, CTL-420, CMP-012, BSS-030, BSS-050, BSS-141, AIP-040, INF-010, INF-110, ACC-040, PRD-030, PRD-501]
+  after: [CLD-010, CLD-113, SOV-141, SOV-180, SEC-010, NET-010, NET-020, NET-060, NET-071, CTL-020, CTL-038, CTL-045, CTL-150, CTL-151, CTL-300, CTL-340, CTL-420, CMP-012, BSS-030, BSS-050, BSS-141, AIP-040, INF-010, INF-110, ACC-040, ACC-050, PRD-030, PRD-501]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/handler.go
   - products/catalyst/bootstrap/api/internal/handler/applications.go
@@ -18332,7 +18345,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-205]
-  after: [CLD-023, CLD-113, SOV-141, SOV-180, SEC-071, NET-042, NET-071, NET-221, CTL-020, CTL-038, CTL-040, CTL-045, CTL-150, CTL-300, CTL-340, CTL-420, CMP-012, BSS-050, BSS-141, AIP-040, AIP-041, INF-010, INF-110, ACC-040, PRD-030, PRD-501]
+  after: [CLD-023, CLD-113, SOV-141, SOV-180, SEC-071, NET-042, NET-071, NET-221, CTL-020, CTL-038, CTL-040, CTL-045, CTL-150, CTL-300, CTL-340, CTL-420, CMP-012, BSS-050, BSS-141, AIP-040, AIP-041, INF-010, INF-110, ACC-040, ACC-050, PRD-030, PRD-501]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/organization_gitops.go
   - organization_provisioning.go
@@ -18423,7 +18436,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-120, CTL-130, CTL-162, FND-032]
-  after: [CLD-010, CLD-113, SOV-141, SOV-180, SEC-010, NET-010, NET-020, NET-060, NET-071, CTL-020, CTL-038, CTL-045, CTL-150, CTL-151, CTL-300, CTL-340, CTL-420, CMP-012, BSS-030, BSS-050, BSS-141, AIP-040, INF-010, INF-110, ACC-040, PRD-030, PRD-501]
+  after: [CLD-010, CLD-113, SOV-141, SOV-180, SEC-010, NET-010, NET-020, NET-060, NET-071, CTL-020, CTL-038, CTL-045, CTL-150, CTL-151, CTL-300, CTL-340, CTL-420, CMP-012, BSS-030, BSS-050, BSS-141, AIP-040, INF-010, INF-110, ACC-040, ACC-050, PRD-030, PRD-501]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/user_access.go
   - rbac_assign.go
@@ -18485,7 +18498,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CTL-120, CTL-130, CTL-162]
-  after: [CLD-113, SOV-141, SOV-180, NET-071, CTL-020, CTL-038, CTL-041, CTL-045, CTL-150, CTL-300, CTL-340, CTL-420, CMP-012, BSS-050, BSS-141, INF-010, INF-110, ACC-040, PRD-030, PRD-501]
+  after: [CLD-113, SOV-141, SOV-180, NET-071, CTL-020, CTL-038, CTL-041, CTL-045, CTL-150, CTL-300, CTL-340, CTL-420, CMP-012, BSS-050, BSS-141, INF-010, INF-110, ACC-040, ACC-050, PRD-030, PRD-501]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/marketplace_settings.go
   - products/catalyst/bootstrap/api/internal/intent/settings.go
@@ -18987,7 +19000,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-035]
-  after: [FND-095, FND-096, CLD-113, SOV-035, SOV-141, SOV-180, NET-071, CTL-020, CTL-038, CTL-045, CTL-150, CTL-300, CTL-340, CTL-420, CMP-012, BSS-050, BSS-141, INF-010, INF-110, ACC-040, PRD-030, PRD-501]
+  after: [FND-095, FND-096, CLD-113, SOV-035, SOV-141, SOV-180, NET-071, CTL-020, CTL-038, CTL-045, CTL-150, CTL-300, CTL-340, CTL-420, CMP-012, BSS-050, BSS-141, INF-010, INF-110, ACC-040, ACC-050, PRD-030, PRD-501]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/sovereign.go
   - applications.go
@@ -28504,6 +28517,7 @@ packages:
   - platform/guacamole/blueprint.yaml
   - products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts
   - products/catalyst/bootstrap/api/internal/catalog/blueprints.json
+  - scripts/baselines/access.json
   resources: []
   flips: []
   implements: []
@@ -28524,14 +28538,16 @@ packages:
     run: "test \"$(git diff --numstat origin/main -- platform/guacamole/blueprint.yaml | cut -f1,2 | tr '\\t' ' ')\" = '2 2'"
   - id: A6
     run: "d=\"$(mktemp -d)\" && cp products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts products/catalyst/bootstrap/api/internal/catalog/blueprints.json \"$d\"/ && (cd products/catalyst/bootstrap/ui && node scripts/build-catalog.mjs > /dev/null) && cmp -s \"$d/catalog.generated.ts\" products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts && cmp -s \"$d/blueprints.json\" products/catalyst/bootstrap/api/internal/catalog/blueprints.json"
+  - id: A7
+    run: "bash scripts/check-access-guards.sh && python3 -c 'import json, sys; g = json.load(open(\"scripts/baselines/access.json\", encoding=\"utf-8\"))[\"counts\"][\"ACC-GD8\"]; print(\"ACC-GD8 baseline: %s\" % json.dumps(g, sort_keys=True)); sys.exit(0 if g == {} else 1)'"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
-  delivers: The README, the chart README and the Blueprint card of the access gateway no longer state session recording as present, the README points once to decision record 0033, and the generated catalogue carries the corrected card.
+  delivers: The README, the chart README and the Blueprint card of the access gateway no longer state session recording as present, the README points once to decision record 0033, the generated catalogue carries the corrected card, and the stored counts of the access guard fall by the three claims removed.
 - id: ACC-060
   title: Decision record for the access plane
   area: ACC
@@ -28618,7 +28634,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [ACC-020, ACC-060, ACC-101]
-  after: [FND-011, FND-024, FND-054, FND-095, FND-096, FND-097, FND-098, FND-099, FND-173, CLD-023, SOV-035, SEC-073, SEC-100, NET-042, NET-071, NET-221, CTL-041, ACC-040]
+  after: [FND-011, FND-024, FND-054, FND-095, FND-096, FND-097, FND-098, FND-099, FND-173, CLD-023, SOV-035, SEC-073, SEC-100, NET-042, NET-071, NET-221, CTL-041, ACC-040, ACC-050]
   touches:
   - platform/guacamole/chart/files/postgresql/
   - platform/guacamole/chart/values.yaml
@@ -31097,7 +31113,7 @@ packages:
     expect: "0"
   acceptance:
   - id: A1
-    run: "printf '%s  %s\\n' 74e22edabe9b9114cb57a2cd81862cb4b7b835b2ec081db7d477c09fabfa564e .github/workflows/build-keycloak-fapi.yaml 4cb06c379387f68092e01ad65f92e9452d4bb22491a16e65434945d24d852ffe platform/keycloak/extensions/fapi-consent/build.sh a49bc52647edaaa3dad987264d8e7e026d0e65155b4dd39a2e813c3feff838c8 platform/keycloak/extensions/fapi-consent/Containerfile 0e946852b7235609cefac26ad283f4b7cf3e905ac47de8a06a78c99eb3d5ddb7 platform/keycloak/extensions/fapi-consent/README.md 07156d44d95f4e97e5544cef6e9bc1c73631f013db380a2e283026ddd077de51 platform/keycloak/extensions/fapi-consent/src/main/java/io/openova/keycloak/fapi/AuthzClient.java d87dd5620aa93bedb68878a7e009c4622fde207475f7d9d46d850d7463133348 platform/keycloak/extensions/fapi-consent/src/main/java/io/openova/keycloak/fapi/ConsentRequest.java 5a57e0dcffb81e8f317ad04932bd3de0e6804a46033027d568aef0063b715635 platform/keycloak/extensions/fapi-consent/src/main/java/io/openova/keycloak/fapi/Decision.java 5aebacfcded8bb0873409a453c00c9de0275ccb63d8ec434f001214bb10cae0d platform/keycloak/extensions/fapi-consent/src/main/java/io/openova/keycloak/fapi/FapiConsentAuthenticatorFactory.java d51b7bf95f4a67f2a96d4da3cac72879faaa3901f883176d6558ca949ee467d5 platform/keycloak/extensions/fapi-consent/src/main/java/io/openova/keycloak/fapi/FapiConsentAuthenticator.java 68a5c6e4d7f7615026cf935dcb9066df1fc18143d92556cb98e62472ba181570 platform/keycloak/extensions/fapi-consent/src/main/java/io/openova/keycloak/fapi/FapiConsentClaimMapper.java 1ad24cf6480c6b943682446f71ecc7fb9177a6be2dd02830e6dadce80184b6f0 platform/keycloak/extensions/fapi-consent/src/main/java/io/openova/keycloak/fapi/FapiParEndpoint.java d1493d6042b0fc2e50f33cb12556ef26cd4d9b10c1692935e130efe6a3958912 platform/keycloak/extensions/fapi-consent/src/main/java/io/openova/keycloak/fapi/FapiParRootEndpoint.java efb0c1066ba6e86f5b7bc787b14808b5721d56baf63e875f1d1750b0219fdac8 platform/keycloak/extensions/fapi-consent/src/main/resources/META-INF/services/org.keycloak.authentication.AuthenticatorFactory b3266915aa5d9e0ec2c698c12bc30d1d73dea598185d70c2f1dbaad465dc98e8 platform/keycloak/extensions/fapi-consent/src/main/resources/META-INF/services/org.keycloak.protocol.oidc.ext.OIDCExtProviderFactory 269bba2f32665482c456a5a8f84a00621966eeecdc6c5452fe0aa6c88d88aa14 platform/keycloak/extensions/fapi-consent/src/main/resources/META-INF/services/org.keycloak.protocol.ProtocolMapper 96f36bb55dbe51d15d62bcb8f6ae0fec329b5eb4fa5561c1387f3ecb65b3210b platform/keycloak/extensions/fapi-consent/src/main/resources/theme-resources/messages/messages_en.properties 76c8e9ac2eb32a4f2d3e271411947559a4d74599d8bc522c6ede71d556ec38b9 platform/keycloak/extensions/fapi-consent/src/main/resources/theme-resources/templates/fapi-consent.ftl 197e27b5660a5212d42d31535eb179d40ac79d8af56039d7d7c4ff7aa9243e4a platform/keycloak/extensions/fapi-consent/src/test/java/io/openova/keycloak/fapi/UnitTests.java 0cf01395d0ec15cf5ee678534d185b7881f3f2a0bfbe2ace71329db069c6c8cf platform/keycloak/extensions/fapi-consent/test/drive.py 23c84447ac7d8e9a63cbb3739d4cc314f1708ae1ae602bcd12169a23874f045d platform/keycloak/extensions/fapi-consent/test/integration.sh da86960520bd61f5d7053c9d642774879a090d35d6e92d2afba7c397707f3f40 platform/keycloak/extensions/fapi-consent/test/realm.json b16f52d34ea9fd0ffdb8b5fd30f0bf9de48d3a8150cbf9ebf0693273eb6c8e75 platform/keycloak/extensions/fapi-consent/test/stub_authz.py | sha256sum --check --quiet -"
+    run: "printf '%s  %s\\n' da5537247048261c46f15cf5f9620b93abf7e5b75bfd6961a4434b4a66f10b1f .github/workflows/build-keycloak-fapi.yaml 4cb06c379387f68092e01ad65f92e9452d4bb22491a16e65434945d24d852ffe platform/keycloak/extensions/fapi-consent/build.sh 251adb2a795ca58a186229f46494109a0d7ce2be00e661179faf0517b9b0bace platform/keycloak/extensions/fapi-consent/Containerfile 0e946852b7235609cefac26ad283f4b7cf3e905ac47de8a06a78c99eb3d5ddb7 platform/keycloak/extensions/fapi-consent/README.md 07156d44d95f4e97e5544cef6e9bc1c73631f013db380a2e283026ddd077de51 platform/keycloak/extensions/fapi-consent/src/main/java/io/openova/keycloak/fapi/AuthzClient.java d87dd5620aa93bedb68878a7e009c4622fde207475f7d9d46d850d7463133348 platform/keycloak/extensions/fapi-consent/src/main/java/io/openova/keycloak/fapi/ConsentRequest.java 5a57e0dcffb81e8f317ad04932bd3de0e6804a46033027d568aef0063b715635 platform/keycloak/extensions/fapi-consent/src/main/java/io/openova/keycloak/fapi/Decision.java 5aebacfcded8bb0873409a453c00c9de0275ccb63d8ec434f001214bb10cae0d platform/keycloak/extensions/fapi-consent/src/main/java/io/openova/keycloak/fapi/FapiConsentAuthenticatorFactory.java d51b7bf95f4a67f2a96d4da3cac72879faaa3901f883176d6558ca949ee467d5 platform/keycloak/extensions/fapi-consent/src/main/java/io/openova/keycloak/fapi/FapiConsentAuthenticator.java 68a5c6e4d7f7615026cf935dcb9066df1fc18143d92556cb98e62472ba181570 platform/keycloak/extensions/fapi-consent/src/main/java/io/openova/keycloak/fapi/FapiConsentClaimMapper.java 1ad24cf6480c6b943682446f71ecc7fb9177a6be2dd02830e6dadce80184b6f0 platform/keycloak/extensions/fapi-consent/src/main/java/io/openova/keycloak/fapi/FapiParEndpoint.java d1493d6042b0fc2e50f33cb12556ef26cd4d9b10c1692935e130efe6a3958912 platform/keycloak/extensions/fapi-consent/src/main/java/io/openova/keycloak/fapi/FapiParRootEndpoint.java efb0c1066ba6e86f5b7bc787b14808b5721d56baf63e875f1d1750b0219fdac8 platform/keycloak/extensions/fapi-consent/src/main/resources/META-INF/services/org.keycloak.authentication.AuthenticatorFactory b3266915aa5d9e0ec2c698c12bc30d1d73dea598185d70c2f1dbaad465dc98e8 platform/keycloak/extensions/fapi-consent/src/main/resources/META-INF/services/org.keycloak.protocol.oidc.ext.OIDCExtProviderFactory 269bba2f32665482c456a5a8f84a00621966eeecdc6c5452fe0aa6c88d88aa14 platform/keycloak/extensions/fapi-consent/src/main/resources/META-INF/services/org.keycloak.protocol.ProtocolMapper 96f36bb55dbe51d15d62bcb8f6ae0fec329b5eb4fa5561c1387f3ecb65b3210b platform/keycloak/extensions/fapi-consent/src/main/resources/theme-resources/messages/messages_en.properties 76c8e9ac2eb32a4f2d3e271411947559a4d74599d8bc522c6ede71d556ec38b9 platform/keycloak/extensions/fapi-consent/src/main/resources/theme-resources/templates/fapi-consent.ftl 197e27b5660a5212d42d31535eb179d40ac79d8af56039d7d7c4ff7aa9243e4a platform/keycloak/extensions/fapi-consent/src/test/java/io/openova/keycloak/fapi/UnitTests.java 0cf01395d0ec15cf5ee678534d185b7881f3f2a0bfbe2ace71329db069c6c8cf platform/keycloak/extensions/fapi-consent/test/drive.py 23c84447ac7d8e9a63cbb3739d4cc314f1708ae1ae602bcd12169a23874f045d platform/keycloak/extensions/fapi-consent/test/integration.sh da86960520bd61f5d7053c9d642774879a090d35d6e92d2afba7c397707f3f40 platform/keycloak/extensions/fapi-consent/test/realm.json b16f52d34ea9fd0ffdb8b5fd30f0bf9de48d3a8150cbf9ebf0693273eb6c8e75 platform/keycloak/extensions/fapi-consent/test/stub_authz.py | sha256sum --check --quiet -"
   - id: A2
     run: "(cd products/fingate && go vet ./... && go test -count=1 ./...)"
   - id: A3
@@ -31106,12 +31122,14 @@ packages:
     run: "test \"$(grep -c -F 'consentCarriers = map[string]bool{\"intent-claim\": true}' products/fingate/internal/profile/profile.go)\" = 1 && test \"$(grep -c -F 'authorization-details' products/fingate/internal/profile/profile.go)\" = 0"
   - id: A5
     run: "python3 scripts/check-sandbox-word.py && python3 scripts/check-no-new-polling.py && python3 scripts/check-repo-hygiene.py binaries && bash scripts/check-no-banned-words.sh"
+  - id: A6
+    run: "python3 scripts/check-pins.py && python3 scripts/check-builds-sign.py"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: A Keycloak extension under platform/keycloak/extensions/fapi-consent runs the open-banking consent step against the internal authorisation API, writes the authorised consent into the tokens and corrects the error code of the pushed-request endpoint; a workflow builds it against the Keycloak version the chart pins, tests it end to end and publishes a signed image that holds the provider archive; the product profile accepts only the consent carrier intent-claim.
 - id: PRD-504
