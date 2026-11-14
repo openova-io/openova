@@ -212,7 +212,9 @@ type OrganizationTenantPublic struct {
 // OrganizationCostSource is one GitOps-declared external cost source
 // (spec.costSources[]) synced into the chargeback application
 // (ADR-0014 D2/D8). The chargeback OpenOva adapter upserts one
-// cost_source per entry, keyed (customer, kind, region, projectId).
+// cost_source per entry, keyed (customer, kind, region, projectId). The
+// project's read-only credential is entered in the chargeback application;
+// the Organization never names one.
 type OrganizationCostSource struct {
 	// Kind is the cost-source kind. Today only "huawei-project".
 	Kind string `json:"kind"`
@@ -220,19 +222,6 @@ type OrganizationCostSource struct {
 	Region string `json:"region"`
 	// ProjectID is the cloud project id metered for this Organization.
 	ProjectID string `json:"projectId"`
-	// CredentialRef optionally names a Secret in the Organization's
-	// host namespace (= spec.slug) whose key holds the read-only IAM
-	// AK/SK (ADR-0014 D8). Plaintext NEVER on the CR. A pointer, so an
-	// absent ref round-trips as absent (the #4471 value-struct lesson).
-	CredentialRef *OrganizationCostSourceCredentialRef `json:"credentialRef,omitempty"`
-}
-
-// OrganizationCostSourceCredentialRef points at the Secret key holding
-// a cost source's read-only AK/SK. Both fields are validated by the
-// chargeback adapter at read time, not by the CRD schema.
-type OrganizationCostSourceCredentialRef struct {
-	Name string `json:"name,omitempty"`
-	Key  string `json:"key,omitempty"`
 }
 
 // OrganizationCommerce is spec.commerce — the purchase an Organization was
@@ -517,13 +506,7 @@ func (s *OrganizationSpec) DeepCopyInto(out *OrganizationSpec) {
 	}
 	if s.CostSources != nil {
 		out.CostSources = make([]OrganizationCostSource, len(s.CostSources))
-		for i := range s.CostSources {
-			out.CostSources[i] = s.CostSources[i]
-			if s.CostSources[i].CredentialRef != nil {
-				ref := *s.CostSources[i].CredentialRef
-				out.CostSources[i].CredentialRef = &ref
-			}
-		}
+		copy(out.CostSources, s.CostSources)
 	}
 	if s.Commerce != nil {
 		c := *s.Commerce

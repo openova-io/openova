@@ -13,7 +13,7 @@ import (
 // and so does a previous owner's.
 func TestOrgSyncGrantsOwnerBindingAndNeverRevokes(t *testing.T) {
 	repo := newFakeRepo()
-	s := &OrgSync{Repo: repo, Keys: testKeys(t)}
+	s := &OrgSync{Repo: repo}
 	ctx := context.Background()
 
 	if err := s.SyncOrganization(ctx, orgUnstructured("acme", nil)); err != nil {
@@ -66,7 +66,7 @@ func TestOrgSyncGrantsOwnerBindingAndNeverRevokes(t *testing.T) {
 // the sync must not invent one for an empty address.
 func TestOrgSyncWithoutOwnerGrantsNoBinding(t *testing.T) {
 	repo := newFakeRepo()
-	s := &OrgSync{Repo: repo, Keys: testKeys(t)}
+	s := &OrgSync{Repo: repo}
 	ctx := context.Background()
 	if err := s.SyncOrganization(ctx, orgUnstructured("ghost", func(spec map[string]any) { spec["owners"] = []any{} })); err != nil {
 		t.Fatal(err)
@@ -83,7 +83,7 @@ func TestOrgSyncWithoutOwnerGrantsNoBinding(t *testing.T) {
 // The Sovereign's own Organization is not a customer and grants nothing.
 func TestOrgSyncInternalOrganizationGrantsNoBinding(t *testing.T) {
 	repo := newFakeRepo()
-	s := &OrgSync{Repo: repo, Keys: testKeys(t)}
+	s := &OrgSync{Repo: repo}
 	if err := s.SyncOrganization(context.Background(), orgUnstructured("openova", func(spec map[string]any) { spec["kind"] = "internal" })); err != nil {
 		t.Fatal(err)
 	}

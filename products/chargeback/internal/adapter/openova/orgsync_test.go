@@ -3,34 +3,20 @@ package openova
 import (
 	"bytes"
 	"context"
-	"errors"
 	"log/slog"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
-	k8sfake "k8s.io/client-go/kubernetes/fake"
 
-	"github.com/openova-io/openova/products/chargeback/internal/crypto"
 	"github.com/openova-io/openova/products/chargeback/internal/metrics"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
-
-func testKeys(t *testing.T) *crypto.Keyring {
-	t.Helper()
-	keys, err := crypto.NewKeyringFromBytes(bytes.Repeat([]byte{7}, 32))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return keys
-}
 
 // orgUnstructured builds an Organization CR the way the apiserver would
 // hand it to the dynamic informer.
@@ -57,19 +43,6 @@ func orgUnstructured(slug string, mutate func(spec map[string]any)) *unstructure
 	}}
 }
 
-type fakeVerifier struct {
-	mu    sync.Mutex
-	calls []string
-	err   error
-}
-
-func (v *fakeVerifier) VerifyProject(_ context.Context, region, projectID, accessKey, _ string) error {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	v.calls = append(v.calls, region+"/"+projectID+"/"+accessKey)
-	return v.err
-}
-
 func waitFor(t *testing.T, d time.Duration, what string, fn func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(d)
@@ -91,7 +64,7 @@ func TestOrgSyncInformerCreatesAndSuspends(t *testing.T) {
 		map[schema.GroupVersionResource]string{OrganizationGVR: "OrganizationList"},
 		orgUnstructured("acme", nil))
 	repo := newFakeRepo()
-	s := &OrgSync{Dyn: dyn, Core: k8sfake.NewSimpleClientset(), Repo: repo, Keys: testKeys(t), Metrics: metrics.New(), Resync: time.Hour}
+	s := &OrgSync{Dyn: dyn, Repo: repo, Metrics: metrics.New(), Resync: time.Hour}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go s.Run(ctx)
@@ -126,18 +99,12 @@ func TestOrgSyncInformerCreatesAndSuspends(t *testing.T) {
 }
 
 // TestSyncOrganizationCostSources: spec.costSources[] become cost_sources
-// with the credential resolved read-only from the named Secret in the Org's
-// host namespace, verified through the Verifier, and a resync never mints a
-// second credential.
+// that stay pending with no credential. A credentialRef left on an old
+// Organization is ignored: the sync reads no Secret and stores no credential.
+// A resync neither duplicates a source nor stores a credential.
 func TestSyncOrganizationCostSources(t *testing.T) {
 	repo := newFakeRepo()
-	keys := testKeys(t)
-	core := k8sfake.NewSimpleClientset(&corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "acme", Name: "acme-huawei-aksk"},
-		Data:       map[string][]byte{"aksk": []byte("AKTEST:SKSECRET")},
-	})
-	ver := &fakeVerifier{}
-	s := &OrgSync{Core: core, Repo: repo, Keys: keys, Verifier: ver, Metrics: metrics.New()}
+	s := &OrgSync{Repo: repo, Metrics: metrics.New()}
 	org := orgUnstructured("acme", func(spec map[string]any) {
 		spec["costSources"] = []any{
 			map[string]any{"kind": "huawei-project", "region": "me-east-215", "projectId": "proj-1",
@@ -146,83 +113,31 @@ func TestSyncOrganizationCostSources(t *testing.T) {
 		}
 	})
 	ctx := context.Background()
-	if err := s.SyncOrganization(ctx, org); err != nil {
-		t.Fatal(err)
-	}
-	c, ok := repo.customerBySlug("acme")
-	if !ok || c.Status != "active" {
-		t.Fatalf("customer = %+v ok=%v", c, ok)
-	}
-	var declared, bare, platform int
-	for _, src := range repo.sourcesOf(c.ID) {
-		switch {
-		case src.Kind == SourceKindOrg && src.Status == "verified":
-			platform++
-		case src.Kind == "huawei-project" && src.ProjectID == "proj-1":
-			declared++
-			if src.Status != "verified" || src.AccessKey != "AKTEST" {
-				t.Fatalf("declared source = %+v", src)
-			}
-			sk, err := keys.Open(repo.credEnc[*src.CredentialID])
-			if err != nil || string(sk) != "SKSECRET" {
-				t.Fatalf("stored secret = %q err=%v", sk, err)
-			}
-		case src.Kind == "huawei-project" && src.ProjectID == "proj-2":
-			bare++
-			if src.Status != "pending" || src.CredentialID != nil {
-				t.Fatalf("bare source must stay pending for UI credential entry: %+v", src)
+	for round := 1; round <= 2; round++ {
+		if err := s.SyncOrganization(ctx, org); err != nil {
+			t.Fatalf("sync %d: %v", round, err)
+		}
+		c, ok := repo.customerBySlug("acme")
+		if !ok || c.Status != "active" {
+			t.Fatalf("sync %d: customer = %+v ok=%v", round, c, ok)
+		}
+		var declared, platform int
+		for _, src := range repo.sourcesOf(c.ID) {
+			switch {
+			case src.Kind == SourceKindOrg && src.Status == "verified":
+				platform++
+			case src.Kind == "huawei-project":
+				declared++
+				if src.Status != "pending" || src.CredentialID != nil || src.AccessKey != "" {
+					t.Fatalf("sync %d: a declared source must stay pending with no credential: %+v", round, src)
+				}
 			}
 		}
-	}
-	if platform != 1 || declared != 1 || bare != 1 {
-		t.Fatalf("sources platform=%d declared=%d bare=%d, want 1/1/1", platform, declared, bare)
-	}
-	if len(ver.calls) != 1 || ver.calls[0] != "me-east-215/proj-1/AKTEST" {
-		t.Fatalf("verifier calls = %v", ver.calls)
-	}
-
-	// Resync: nothing changed → no new credential, no duplicate source.
-	if err := s.SyncOrganization(ctx, org); err != nil {
-		t.Fatal(err)
-	}
-	if len(repo.creds) != 1 {
-		t.Fatalf("resync minted credentials: %d, want 1", len(repo.creds))
-	}
-	if n := len(repo.sourcesOf(c.ID)); n != 3 {
-		t.Fatalf("resync duplicated sources: %d, want 3", n)
-	}
-}
-
-// TestSyncOrganizationFailedVerificationRedactsSecret: a failing declared
-// credential flips the source to failed with the secret redacted from
-// last_error, and the sync itself still succeeds (per-source isolation).
-func TestSyncOrganizationFailedVerificationRedactsSecret(t *testing.T) {
-	repo := newFakeRepo()
-	core := k8sfake.NewSimpleClientset(&corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "acme", Name: "aksk"},
-		Data:       map[string][]byte{"v": []byte(`{"accessKey":"AKX","secretKey":"SKX"}`)},
-	})
-	ver := &fakeVerifier{err: errors.New("gateway said no to SKX")}
-	s := &OrgSync{Core: core, Repo: repo, Keys: testKeys(t), Verifier: ver, Metrics: metrics.New()}
-	org := orgUnstructured("acme", func(spec map[string]any) {
-		spec["costSources"] = []any{
-			map[string]any{"kind": "huawei-project", "region": "me-east-215", "projectId": "proj-9",
-				"credentialRef": map[string]any{"name": "aksk", "key": "v"}},
+		if platform != 1 || declared != 2 {
+			t.Fatalf("sync %d: sources platform=%d declared=%d, want 1/2", round, platform, declared)
 		}
-	})
-	if err := s.SyncOrganization(context.Background(), org); err != nil {
-		t.Fatal(err)
-	}
-	c, _ := repo.customerBySlug("acme")
-	for _, src := range repo.sourcesOf(c.ID) {
-		if src.Kind != "huawei-project" {
-			continue
-		}
-		if src.Status != "failed" || src.LastError == nil {
-			t.Fatalf("source = %+v", src)
-		}
-		if strings.Contains(*src.LastError, "SKX") {
-			t.Fatalf("last_error leaks the secret: %q", *src.LastError)
+		if len(repo.creds) != 0 {
+			t.Fatalf("sync %d: the sync stored %d credentials, want 0", round, len(repo.creds))
 		}
 	}
 }
@@ -258,20 +173,6 @@ func TestReadOrgOwnerAndBillingDefaults(t *testing.T) {
 	}
 }
 
-func TestParseAKSK(t *testing.T) {
-	ak, sk, err := parseAKSK([]byte("AK1:SK1\n"))
-	if err != nil || ak != "AK1" || string(sk) != "SK1" {
-		t.Fatalf("colon form: %q/%q err=%v", ak, sk, err)
-	}
-	ak, sk, err = parseAKSK([]byte(`{"access_key":"AK2","secret_key":"SK2"}`))
-	if err != nil || ak != "AK2" || string(sk) != "SK2" {
-		t.Fatalf("snake json: %q/%q err=%v", ak, sk, err)
-	}
-	if _, _, err := parseAKSK([]byte("just-one-token")); err == nil {
-		t.Fatal("want error for a value with no separator")
-	}
-}
-
 // TestReadOrgPlanSlug: spec.planSlug lower-cased; absent → "s" (the
 // org-controller's default); the Sovereign's own Organization has no plan.
 func TestReadOrgPlanSlug(t *testing.T) {
@@ -297,7 +198,7 @@ func TestReadOrgPlanSlug(t *testing.T) {
 // counts calls and returns the same book).
 func TestSyncOrganizationPlanAndBook(t *testing.T) {
 	repo := newFakeRepo()
-	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: repo, Keys: testKeys(t), Metrics: metrics.New()}
+	s := &OrgSync{Repo: repo, Metrics: metrics.New()}
 	ctx := context.Background()
 	acme := orgUnstructured("acme", func(spec map[string]any) { spec["planSlug"] = "m" })
 	if err := s.SyncOrganization(ctx, acme); err != nil {
@@ -362,7 +263,7 @@ func TestSyncOrganizationPlanAndBook(t *testing.T) {
 func TestSyncInternalOrganizationIsNotACustomer(t *testing.T) {
 	repo := newFakeRepo()
 	sink := &fakeOverheadSink{}
-	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: repo, Keys: testKeys(t), Metrics: metrics.New(), OverheadSink: sink}
+	s := &OrgSync{Repo: repo, Metrics: metrics.New(), OverheadSink: sink}
 	ctx := context.Background()
 	org := orgUnstructured("platform", func(spec map[string]any) { spec["kind"] = "internal"; spec["planSlug"] = "xl" })
 	if err := s.SyncOrganization(ctx, org); err != nil {
@@ -414,7 +315,7 @@ func TestSyncInternalOrganizationRetiresTheOldCustomer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: repo, Keys: testKeys(t), Metrics: metrics.New()}
+	s := &OrgSync{Repo: repo, Metrics: metrics.New()}
 	if err := s.SyncOrganization(ctx, orgUnstructured("hw307-omani-works", func(spec map[string]any) { spec["kind"] = "internal" })); err != nil {
 		t.Fatal(err)
 	}
@@ -458,7 +359,7 @@ func (f *fakeOverheadSink) SetOverheadOrg(slug string) { f.slug = slug }
 func TestSyncOrganizationResumeStampsPlatformSource(t *testing.T) {
 	repo := newFakeRepo()
 	now := time.Date(2026, 9, 7, 12, 0, 0, 0, time.UTC)
-	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: repo, Keys: testKeys(t), Metrics: metrics.New(), Now: func() time.Time { return now }}
+	s := &OrgSync{Repo: repo, Metrics: metrics.New(), Now: func() time.Time { return now }}
 	ctx := context.Background()
 	org := orgUnstructured("acme", func(spec map[string]any) { spec["planSlug"] = "m" })
 	if err := s.SyncOrganization(ctx, org); err != nil {
@@ -596,7 +497,7 @@ func TestReadOrgCommerce(t *testing.T) {
 func TestSyncOrganizationAttachesAddonsFromOrder(t *testing.T) {
 	repo := commerceRepo(t)
 	logs := captureLogs(t)
-	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: repo, Keys: testKeys(t), Metrics: metrics.New()}
+	s := &OrgSync{Repo: repo, Metrics: metrics.New()}
 	ctx := context.Background()
 	org := orgUnstructured("acme", func(spec map[string]any) {
 		spec["planSlug"] = "m"
@@ -654,7 +555,7 @@ func TestSyncOrganizationAttachesAddonsFromOrder(t *testing.T) {
 func TestSyncOrganizationRefusedAddonIsLoggedNotFatal(t *testing.T) {
 	repo := commerceRepo(t)
 	logs := captureLogs(t)
-	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: repo, Keys: testKeys(t), Metrics: metrics.New()}
+	s := &OrgSync{Repo: repo, Metrics: metrics.New()}
 	ctx := context.Background()
 	org := orgUnstructured("big", func(spec map[string]any) {
 		spec["planSlug"] = "xl"
@@ -698,7 +599,7 @@ func TestSyncOrganizationRefusedAddonIsLoggedNotFatal(t *testing.T) {
 func TestSyncOrganizationUnknownAddonSKUIsSkipped(t *testing.T) {
 	repo := commerceRepo(t)
 	logs := captureLogs(t)
-	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: repo, Keys: testKeys(t), Metrics: metrics.New()}
+	s := &OrgSync{Repo: repo, Metrics: metrics.New()}
 	ctx := context.Background()
 	org := orgUnstructured("acme", func(spec map[string]any) {
 		spec["planSlug"] = "m"
@@ -730,7 +631,7 @@ func TestSyncOrganizationUnknownAddonSKUIsSkipped(t *testing.T) {
 // explicit, non-empty spec.commerce.addons drives the set.
 func TestSyncOrganizationAbsentCommerceLeavesHandSetAddons(t *testing.T) {
 	repo := commerceRepo(t)
-	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: repo, Keys: testKeys(t), Metrics: metrics.New()}
+	s := &OrgSync{Repo: repo, Metrics: metrics.New()}
 	ctx := context.Background()
 	plain := orgUnstructured("acme", func(spec map[string]any) { spec["planSlug"] = "m" })
 	if err := s.SyncOrganization(ctx, plain); err != nil {
@@ -763,7 +664,7 @@ func TestSyncOrganizationAbsentCommerceLeavesHandSetAddons(t *testing.T) {
 func TestSyncOrganizationPackageSKUMismatchWarnsAndKeepsPlanSlug(t *testing.T) {
 	repo := commerceRepo(t)
 	logs := captureLogs(t)
-	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: repo, Keys: testKeys(t), Metrics: metrics.New()}
+	s := &OrgSync{Repo: repo, Metrics: metrics.New()}
 	ctx := context.Background()
 	org := orgUnstructured("acme", func(spec map[string]any) { spec["planSlug"] = "s"; withCommerce("plan.m", nil, nil)(spec) })
 	if err := s.SyncOrganization(ctx, org); err != nil {
@@ -797,7 +698,7 @@ func TestSyncOrganizationPackageSKUMismatchWarnsAndKeepsPlanSlug(t *testing.T) {
 func TestSyncOrganizationPackageSKUAloneSetsThePlan(t *testing.T) {
 	repo := commerceRepo(t)
 	logs := captureLogs(t)
-	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: repo, Keys: testKeys(t), Metrics: metrics.New()}
+	s := &OrgSync{Repo: repo, Metrics: metrics.New()}
 	ctx := context.Background()
 	org := orgUnstructured("shop", func(spec map[string]any) {
 		delete(spec, "planSlug")

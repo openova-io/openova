@@ -4,8 +4,6 @@ import (
 	"context"
 	"testing"
 
-	k8sfake "k8s.io/client-go/kubernetes/fake"
-
 	"github.com/openova-io/openova/products/chargeback/internal/metrics"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
@@ -60,7 +58,7 @@ func TestSyncAssignsTheBookThePlanCallsFor(t *testing.T) {
 		{"platinum", store.PlanBookName}, // unknown → today's fallback, never invented
 	} {
 		repo := newFakeRepo()
-		s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: repo, Keys: testKeys(t), Metrics: metrics.New()}
+		s := &OrgSync{Repo: repo, Metrics: metrics.New()}
 		org := orgUnstructured("acme", func(spec map[string]any) {
 			if tc.plan != "" {
 				spec["planSlug"] = tc.plan
@@ -82,7 +80,7 @@ func TestSyncAssignsTheBookThePlanCallsFor(t *testing.T) {
 // rates flexi any more.
 func TestSyncMapsTheRetiredFlexiPlanToSGrow(t *testing.T) {
 	repo := newFakeRepo()
-	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: repo, Keys: testKeys(t), Metrics: metrics.New()}
+	s := &OrgSync{Repo: repo, Metrics: metrics.New()}
 	ctx := context.Background()
 	sync := func(plan string) {
 		t.Helper()
@@ -123,7 +121,7 @@ func TestSyncMapsTheRetiredFlexiPlanToSGrow(t *testing.T) {
 // and however often the plan changes.
 func TestSyncNeverOverwritesAnOperatorsBook(t *testing.T) {
 	repo := newFakeRepo()
-	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: repo, Keys: testKeys(t), Metrics: metrics.New()}
+	s := &OrgSync{Repo: repo, Metrics: metrics.New()}
 	ctx := context.Background()
 	if err := s.SyncOrganization(ctx, orgUnstructured("acme", func(spec map[string]any) { spec["planSlug"] = "flexi" })); err != nil {
 		t.Fatal(err)
@@ -161,7 +159,7 @@ func TestSyncNeverOverwritesAnOperatorsBook(t *testing.T) {
 func TestSyncSkipsAPlatformBookOfTheWrongScope(t *testing.T) {
 	repo := newFakeRepo()
 	repo.paygBook = &store.PriceBook{ID: "book-cloud-scoped", Name: store.PAYGBookName, Scope: store.LayerCloud, Currency: "OMR", AnnualDivisor: store.PAYGBookDivisor}
-	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: repo, Keys: testKeys(t), Metrics: metrics.New()}
+	s := &OrgSync{Repo: repo, Metrics: metrics.New()}
 	ctx := context.Background()
 	if err := s.SyncOrganization(ctx, orgUnstructured("acme", func(spec map[string]any) { spec["planSlug"] = "flexi" })); err != nil {
 		t.Fatalf("a wrong-scope book must not wedge the Organization sync: %v", err)

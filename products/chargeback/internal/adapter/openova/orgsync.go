@@ -2,7 +2,6 @@ package openova
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -16,10 +15,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/dynamic/dynamicinformer"
-	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 
-	"github.com/openova-io/openova/products/chargeback/internal/crypto"
 	"github.com/openova-io/openova/products/chargeback/internal/metrics"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
@@ -41,8 +38,10 @@ const SourceKindPlatform = store.SourceKindPlatform
 // kind = organization, billing_mode from spec.billingMode, admin_email from
 // the owner roster (blank-pending when absent), plan_slug from spec.planSlug
 // (DESIGN.md §2.8 "Plan revenue"). spec.costSources[] become cost_sources
-// rows; a deleted Organization SUSPENDS its customer — history is billing
-// data and is never deleted.
+// rows that stay pending until their credential is entered through the
+// engine's API or console; the sync never reads a Kubernetes Secret. A
+// deleted Organization SUSPENDS its customer — history is billing data and is
+// never deleted.
 //
 // The Sovereign's OWN Organization (spec.kind = internal) is NOT a customer
 // (DESIGN.md §2): it gets no customer row; its platform footprint is
@@ -64,13 +63,10 @@ const SourceKindPlatform = store.SourceKindPlatform
 // platform source to those add-ons through the entitlement matrix and, when
 // spec.planSlug is absent, takes the plan from the package.
 type OrgSync struct {
-	Dyn      dynamic.Interface
-	Core     kubernetes.Interface
-	Repo     Repository
-	Keys     *crypto.Keyring
-	Verifier Verifier // optional; nil leaves declared sources pending
-	Metrics  *metrics.Registry
-	Resync   time.Duration // informer resync period; 0 = 1h
+	Dyn     dynamic.Interface
+	Repo    Repository
+	Metrics *metrics.Registry
+	Resync  time.Duration // informer resync period; 0 = 1h
 
 	// OverheadSink receives the slug of the Sovereign's OWN Organization
 	// (spec.kind = internal) when one is observed. The platform collector
@@ -333,15 +329,9 @@ func planSlugOfPackage(sku string) (string, bool) {
 }
 
 type costSourceSpec struct {
-	Kind          string
-	Region        string
-	ProjectID     string
-	CredentialRef *credentialRef
-}
-
-type credentialRef struct {
-	Name string
-	Key  string
+	Kind      string
+	Region    string
+	ProjectID string
 }
 
 func readOrg(u *unstructured.Unstructured) (orgFields, error) {
@@ -427,13 +417,6 @@ func readOrg(u *unstructured.Unstructured) (orgFields, error) {
 		cs.Kind, _ = m["kind"].(string)
 		cs.Region, _ = m["region"].(string)
 		cs.ProjectID, _ = m["projectId"].(string)
-		if ref, ok := m["credentialRef"].(map[string]any); ok {
-			name, _ := ref["name"].(string)
-			key, _ := ref["key"].(string)
-			if name != "" || key != "" {
-				cs.CredentialRef = &credentialRef{Name: name, Key: key}
-			}
-		}
 		f.CostSources = append(f.CostSources, cs)
 	}
 	return f, nil
@@ -856,8 +839,10 @@ func (s *OrgSync) syncInternalOrganization(ctx context.Context, f orgFields) err
 }
 
 // syncCostSource mirrors one spec.costSources[] entry into a cost_sources
-// row, resolving credentialRef from the named Secret in the Organization's
-// host namespace (= slug), read-only.
+// row. The row stays pending until its read-only credential is entered
+// through the engine's API (POST /api/v1/sources/{id}/credential) or its
+// console, which seal it with the engine's own key (ADR-0014 D8a). The sync
+// never reads a Kubernetes Secret.
 func (s *OrgSync) syncCostSource(ctx context.Context, c store.Customer, slug string, cs costSourceSpec) error {
 	if cs.Kind != "huawei-project" {
 		return fmt.Errorf("unsupported cost source kind %q", cs.Kind)
@@ -867,66 +852,13 @@ func (s *OrgSync) syncCostSource(ctx context.Context, c store.Customer, slug str
 	if region == "" || projectID == "" {
 		return errors.New("cost source needs region and projectId")
 	}
-	src, created, err := s.Repo.UpsertSource(ctx, c.ID, cs.Kind, region, projectID)
+	_, created, err := s.Repo.UpsertSource(ctx, c.ID, cs.Kind, region, projectID)
 	if err != nil {
 		return fmt.Errorf("upsert source: %w", err)
 	}
 	if created {
-		slog.Info("openova adapter: declared cost source registered", "org", slug, "region", region, "project", projectID)
+		slog.Info("openova adapter: declared cost source registered; it stays pending until its credential is entered", "org", slug, "region", region, "project", projectID)
 	}
-	if cs.CredentialRef == nil {
-		return nil // credential arrives through the UI/API instead (ADR-0014 D8a)
-	}
-	if cs.CredentialRef.Name == "" || cs.CredentialRef.Key == "" {
-		return errors.New("credentialRef needs both name and key")
-	}
-	if s.Core == nil {
-		return errors.New("no core clientset to read the credential Secret")
-	}
-	sec, err := s.Core.CoreV1().Secrets(slug).Get(ctx, cs.CredentialRef.Name, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("read credential secret %s/%s: %w", slug, cs.CredentialRef.Name, err)
-	}
-	raw, ok := sec.Data[cs.CredentialRef.Key]
-	if !ok {
-		return fmt.Errorf("secret %s/%s has no key %q", slug, cs.CredentialRef.Name, cs.CredentialRef.Key)
-	}
-	ak, sk, err := parseAKSK(raw)
-	if err != nil {
-		return fmt.Errorf("secret %s/%s key %q: %w", slug, cs.CredentialRef.Name, cs.CredentialRef.Key, err)
-	}
-	defer zero(sk)
-	if src.AccessKey == ak && src.Status == "verified" {
-		return nil // already synced and healthy — a resync must not mint a new credential
-	}
-	enc, err := s.Keys.Seal(sk)
-	if err != nil {
-		return fmt.Errorf("seal credential: %w", err)
-	}
-	cred, err := s.Repo.CreateCredential(ctx, c.ID, ak, enc)
-	if err != nil {
-		return fmt.Errorf("store credential: %w", err)
-	}
-	if src.CredentialID != nil && *src.CredentialID != cred.ID {
-		_ = s.Repo.MarkCredentialRotated(ctx, *src.CredentialID)
-	}
-	if err := s.Repo.SetSourceCredential(ctx, src.ID, cred.ID); err != nil {
-		return fmt.Errorf("link credential: %w", err)
-	}
-	if s.Verifier == nil {
-		return nil // stays pending until verified through the API
-	}
-	if verr := s.Verifier.VerifyProject(ctx, region, projectID, ak, string(sk)); verr != nil {
-		msg := strings.ReplaceAll(verr.Error(), string(sk), "[redacted]")
-		if serr := s.Repo.SetSourceFailed(ctx, src.ID, msg); serr != nil {
-			return serr
-		}
-		return fmt.Errorf("verification failed: %s", msg)
-	}
-	if err := s.Repo.SetSourceVerified(ctx, src.ID, ""); err != nil {
-		return err
-	}
-	slog.Info("openova adapter: declared cost source verified", "org", slug, "region", region, "project", projectID)
 	return nil
 }
 
@@ -956,44 +888,4 @@ func (s *OrgSync) SuspendOrganization(ctx context.Context, u *unstructured.Unstr
 	}
 	slog.Info("openova adapter: organization deleted; customer suspended (history kept)", "org", f.Slug, "customer", c.ID)
 	return nil
-}
-
-// parseAKSK reads a credential Secret value: JSON
-// {"accessKey":"...","secretKey":"..."} (snake_case accepted), or the colon
-// form ACCESSKEY:SECRETKEY.
-func parseAKSK(raw []byte) (string, []byte, error) {
-	trimmed := strings.TrimSpace(string(raw))
-	if strings.HasPrefix(trimmed, "{") {
-		var v struct {
-			AccessKey  string `json:"accessKey"`
-			SecretKey  string `json:"secretKey"`
-			AccessKey2 string `json:"access_key"`
-			SecretKey2 string `json:"secret_key"`
-		}
-		if err := json.Unmarshal([]byte(trimmed), &v); err != nil {
-			return "", nil, fmt.Errorf("credential value is not valid JSON: %w", err)
-		}
-		ak, sk := v.AccessKey, v.SecretKey
-		if ak == "" {
-			ak = v.AccessKey2
-		}
-		if sk == "" {
-			sk = v.SecretKey2
-		}
-		if ak == "" || sk == "" {
-			return "", nil, errors.New("credential JSON needs accessKey and secretKey")
-		}
-		return ak, []byte(sk), nil
-	}
-	ak, sk, found := strings.Cut(trimmed, ":")
-	if !found || ak == "" || sk == "" {
-		return "", nil, errors.New("credential value must be JSON {accessKey, secretKey} or ACCESSKEY:SECRETKEY")
-	}
-	return ak, []byte(sk), nil
-}
-
-func zero(b []byte) {
-	for i := range b {
-		b[i] = 0
-	}
 }

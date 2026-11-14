@@ -8,10 +8,6 @@ import (
 	"testing"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	k8sfake "k8s.io/client-go/kubernetes/fake"
-
 	"github.com/openova-io/openova/products/chargeback/internal/metrics"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 	"github.com/openova-io/openova/products/chargeback/internal/testdb"
@@ -19,23 +15,17 @@ import (
 
 // TestIntegrationOrgSyncAgainstStore proves *store.Store satisfies the
 // adapter contract on real SQL: sync creates the customer + sources, a
-// resync is idempotent, the platform collector writes usage rows, and a
+// declared source stays pending with no credential, a resync is idempotent, the platform collector writes usage rows, and a
 // delete suspends without touching history. Skipped unless
 // CHARGEBACK_TEST_DATABASE_URL is set (the module's integration pattern).
 func TestIntegrationOrgSyncAgainstStore(t *testing.T) {
 	st := testdb.Open(t)
 	ctx := context.Background()
-	core := k8sfake.NewSimpleClientset(&corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "agwalk", Name: "aksk"},
-		Data:       map[string][]byte{"v": []byte("AKINT:SKINT")},
-	})
-	ver := &fakeVerifier{}
-	s := &OrgSync{Core: core, Repo: st, Keys: testKeys(t), Verifier: ver, Metrics: metrics.New()}
+	s := &OrgSync{Repo: st, Metrics: metrics.New()}
 	org := orgUnstructured("agwalk", func(spec map[string]any) {
 		spec["billingMode"] = "chargeback"
 		spec["costSources"] = []any{
-			map[string]any{"kind": "huawei-project", "region": "me-east-215", "projectId": "proj-int",
-				"credentialRef": map[string]any{"name": "aksk", "key": "v"}},
+			map[string]any{"kind": "huawei-project", "region": "me-east-215", "projectId": "proj-int"},
 		}
 	})
 	if err := s.SyncOrganization(ctx, org); err != nil {
@@ -61,8 +51,8 @@ func TestIntegrationOrgSyncAgainstStore(t *testing.T) {
 				t.Fatalf("platform source = %+v", src)
 			}
 		case "huawei-project":
-			if src.Status != "verified" || src.AccessKey != "AKINT" {
-				t.Fatalf("declared source = %+v", src)
+			if src.Status != "pending" || src.CredentialID != nil {
+				t.Fatalf("declared source must stay pending with no credential = %+v", src)
 			}
 		}
 	}
@@ -154,7 +144,7 @@ func TestIntegrationBillingHookOnIssuedStatement(t *testing.T) {
 func TestIntegrationPlanLineAgainstStore(t *testing.T) {
 	st := testdb.Open(t)
 	ctx := context.Background()
-	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: st, Keys: testKeys(t), Metrics: metrics.New()}
+	s := &OrgSync{Repo: st, Metrics: metrics.New()}
 	org := orgUnstructured("agwalk", func(spec map[string]any) { spec["planSlug"] = "m" })
 	if err := s.SyncOrganization(ctx, org); err != nil {
 		t.Fatal(err)
@@ -244,7 +234,7 @@ func TestIntegrationCommerceAddonsAgainstStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: st, Keys: testKeys(t), Metrics: metrics.New()}
+	s := &OrgSync{Repo: st, Metrics: metrics.New()}
 	// Created by the storefront: no spec.planSlug, the package and the add-on
 	// in spec.commerce.
 	org := orgUnstructured("agshop", func(spec map[string]any) {
