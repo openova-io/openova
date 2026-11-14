@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T17:30:06Z` |
+| Last refreshed | `2026-11-14T17:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,11 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7534](https://github.com/openova-io/openova/issues/7534) | FND-088 The event registry and the shared bus package no longer name the Sandbox | Other |
-| [#7535](https://github.com/openova-io/openova/issues/7535) | FND-089 The storefront offers no Sandbox agent picks and the order request carri | Other |
-| [#7536](https://github.com/openova-io/openova/issues/7536) | SEC-090 Guards | Other |
-| [#7539](https://github.com/openova-io/openova/issues/7539) | CTL-700 Pull-request mode of the commit library | Other |
-| [#7540](https://github.com/openova-io/openova/issues/7540) | NET-133 A local-affinity decision on every global Service | Other |
 | [#7544](https://github.com/openova-io/openova/issues/7544) | SEC-010 Close the public route to OpenBao system paths | Other |
 | [#7549](https://github.com/openova-io/openova/issues/7549) | AIP-040 Switch off the header-trusting metering sidecar | Other |
 | [#7550](https://github.com/openova-io/openova/issues/7550) | CLD-023 Delete the Hetzner-only Compositions, their definitions and orphan manif | Other |
@@ -300,6 +295,11 @@ flowchart LR
 | [#7814](https://github.com/openova-io/openova/issues/7814) | CTL-333 The org-services chart stops setting REDPANDA_BROKERS | Other |
 | [#7815](https://github.com/openova-io/openova/issues/7815) | NET-013 The gate dials the API port from an address in no list | Other |
 | [#7816](https://github.com/openova-io/openova/issues/7816) | PRD-509 Internal authorisation API | Other |
+| [#7820](https://github.com/openova-io/openova/issues/7820) | CTL-346 Kit slots 56 and 57 (flow server and emitter) leave the kit | Other |
+| [#7821](https://github.com/openova-io/openova/issues/7821) | CTL-355 Delete the second showback meter | Other |
+| [#7822](https://github.com/openova-io/openova/issues/7822) | INF-051 Check INF-G01: coordinated reboot, as a suite file | Other |
+| [#7823](https://github.com/openova-io/openova/issues/7823) | SEC-104 Unwire bootstrap-kit slot 05 | Other |
+| [#7824](https://github.com/openova-io/openova/issues/7824) | SOV-337 The scanner reads the vulnerability database from the Sovereign's own re | Other |
 
 ---
 
