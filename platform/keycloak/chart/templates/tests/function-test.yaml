@@ -1,0 +1,112 @@
+{{- /*
+Function test of bp-keycloak (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
+
+It fetches the OpenID discovery document of the Sovereign realm
+(sovereignRealm.name) from the subchart's in-cluster Service
+<fullname>.<namespace>.svc.cluster.local:<keycloak.service.ports.http>.
+It passes when the answer is HTTP 200 and its "issuer" is this Sovereign's:
+  - when gateway.host is set (the kit sets auth.<sovereign FQDN>), exactly
+    https://<gateway.host>/realms/<realm>, the frontend URL that
+    templates/keycloak-frontend-env.yaml pins;
+  - otherwise, an issuer that ends in /realms/<realm>.
+
+It renders only when sovereignRealm.enabled is true: without it the chart
+imports no realm. The image is the kubectl image the kit already pulls
+(bp-cnpg's webhook gate), which carries curl; functionTest.image overrides it.
+*/ -}}
+{{- $realm := .Values.sovereignRealm | default dict }}
+{{- if $realm.enabled }}
+{{- $sub := .Values.keycloak | default dict }}
+{{- $name := $sub.nameOverride | default "keycloak" }}
+{{- $fullname := "" }}
+{{- if $sub.fullnameOverride }}
+{{- $fullname = $sub.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- else if contains $name .Release.Name }}
+{{- $fullname = .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- $fullname = printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- end }}
+{{- $port := (($sub.service | default dict).ports | default dict).http | default 80 }}
+{{- $realmName := $realm.name | default "sovereign" }}
+{{- $issuer := "" }}
+{{- if and .Values.gateway .Values.gateway.host }}
+{{- $issuer = printf "https://%s/realms/%s" .Values.gateway.host $realmName }}
+{{- end }}
+{{- $ft := .Values.functionTest | default dict }}
+{{- $image := $ft.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 300
+  automountServiceAccountToken: false
+  containers:
+    - name: function-test
+      image: {{ $image | quote }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: HOME
+          value: /tmp
+        - name: DISCOVERY_URL
+          value: {{ printf "http://%s.%s.svc.cluster.local:%v/realms/%s/.well-known/openid-configuration" $fullname .Release.Namespace $port $realmName | quote }}
+        - name: REALM
+          value: {{ $realmName | quote }}
+        - name: WANT_ISSUER
+          value: {{ $issuer | quote }}
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -u
+          fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          oneline() { tr '\n' ' ' < "$1" | cut -c1-200; }
+          code=""
+          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            code="$(curl -sS --max-time 10 -o /tmp/discovery -w '%{http_code}' "${DISCOVERY_URL}" 2>/tmp/error)" && [ "${code}" = "200" ] && break
+            sleep 5
+          done
+          [ "${code}" = "200" ] || fail "GET ${DISCOVERY_URL} answered '${code}': $(oneline /tmp/error)"
+          issuer="$(grep -o -E '"issuer" *: *"[^"]*"' /tmp/discovery | head -1 | sed -E 's/^"issuer" *: *"//; s/"$//')"
+          [ -n "${issuer}" ] || fail "the discovery document names no issuer: $(oneline /tmp/discovery)"
+          if [ -n "${WANT_ISSUER}" ]; then
+            [ "${issuer}" = "${WANT_ISSUER}" ] || fail "the issuer is '${issuer}', not '${WANT_ISSUER}'"
+          else
+            case "${issuer}" in
+              */realms/"${REALM}") ;;
+              *) fail "the issuer '${issuer}' is not the one of the realm ${REALM}" ;;
+            esac
+          fi
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} the realm ${REALM} serves its discovery document with the issuer ${issuer}"
+  volumes:
+    - name: tmp
+      emptyDir: {}
+{{- end }}

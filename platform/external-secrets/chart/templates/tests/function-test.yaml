@@ -1,0 +1,153 @@
+{{- /*
+Function test of bp-external-secrets (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
+
+It proves that the admission webhook for ExternalSecrets answers and judges.
+The subchart's ValidatingWebhookConfiguration externalsecret-validate uses
+failurePolicy Fail, so the API server refuses the request when the webhook
+does not answer. Two server-side dry-run creates in this namespace, of
+ExternalSecrets that read the store vault-region1:
+  1. one with a data entry must be accepted. Its remote key starts with
+     openova/apps/<namespace>/, the key prefix that the stores chart's
+     admission policy admits for this namespace;
+  2. one with neither data nor dataFrom must be refused by the webhook with
+     "either data or dataFrom should be specified". No schema rule refuses it.
+Nothing is created, and no Secret comes of it.
+
+A ServiceAccount, Role (verb create on externalsecrets of external-secrets.io)
+and RoleBinding of this file give the Pod that right. The ExternalSecrets use
+external-secrets.io/v1 when the cluster serves it, else v1beta1.
+
+It renders only when the subchart creates the webhook
+(external-secrets.webhook.create is not false). The image is the kubectl image
+this chart already uses for its webhook gate; functionTest.image overrides it.
+*/ -}}
+{{- $sub := index .Values "external-secrets" | default dict }}
+{{- $webhook := $sub.webhook | default dict }}
+{{- if ne (toString $webhook.create) "false" }}
+{{- $ft := .Values.functionTest | default dict }}
+{{- $gate := .Values.webhookGate | default dict }}
+{{- $image := $ft.image | default ($gate.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4") }}
+{{- $apiVersion := "external-secrets.io/v1beta1" }}
+{{- if .Capabilities.APIVersions.Has "external-secrets.io/v1" }}
+{{- $apiVersion = "external-secrets.io/v1" }}
+{{- end }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: ["external-secrets.io"]
+    resources: ["externalsecrets"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-function-test
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ .Release.Name }}-function-test
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 300
+  serviceAccountName: {{ .Release.Name }}-function-test
+  containers:
+    - name: function-test
+      image: {{ $image | quote }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: HOME
+          value: /tmp
+        - name: TEST_NAMESPACE
+          value: {{ .Release.Namespace | quote }}
+        - name: ES_API_VERSION
+          value: {{ $apiVersion | quote }}
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -u
+          fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          oneline() { tr '\n' ' ' < "$1" | cut -c1-200; }
+          head='{"apiVersion":"'"${ES_API_VERSION}"'","kind":"ExternalSecret","metadata":{"name":"function-test-probe","namespace":"'"${TEST_NAMESPACE}"'"},"spec":{"secretStoreRef":{"kind":"ClusterSecretStore","name":"vault-region1"},"target":{"name":"function-test-probe"}'
+          good="${head}"',"data":[{"secretKey":"probe","remoteRef":{"key":"openova/apps/'"${TEST_NAMESPACE}"'/function-test-probe"}}]}}'
+          bad="${head}"'}}'
+          if ! answer="$(printf '%s' "${good}" | kubectl create --dry-run=server -f - -o jsonpath='{.metadata.name}' 2>/tmp/error)"; then
+            fail "the dry-run create of a valid ExternalSecret was refused: $(oneline /tmp/error)"
+          fi
+          [ "${answer}" = "function-test-probe" ] || fail "the dry-run create answered '$(printf '%s' "${answer}" | tr '\n' ' ' | cut -c1-200)'"
+          if printf '%s' "${bad}" | kubectl create --dry-run=server -f - -o name > /tmp/answer 2>/tmp/error; then
+            fail "the webhook accepted an ExternalSecret with neither data nor dataFrom"
+          fi
+          grep -q -F 'either data or dataFrom should be specified' /tmp/error || fail "the ExternalSecret without data was refused, but not by the webhook: $(oneline /tmp/error)"
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} the webhook accepted a valid ExternalSecret and refused an empty one in ${TEST_NAMESPACE}"
+  volumes:
+    - name: tmp
+      emptyDir: {}
+{{- end }}
