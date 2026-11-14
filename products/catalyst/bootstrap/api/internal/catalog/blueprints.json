@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-14T17:07:13.715Z",
+  "generatedAt": "2026-11-14T18:24:48.227Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -3705,7 +3705,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.2.22",
+      "version": "0.2.23",
       "section": "pts-4-7-agentic-workspace",
       "depends": [
         "bp-newapi",
