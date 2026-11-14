@@ -20,6 +20,7 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobwatch"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/openbao"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/pdm"
@@ -970,6 +971,10 @@ func (h *Handler) SetK8sCache(f *k8scache.Factory, sar *k8scache.SARCache, userH
 	h.k8sCache = f
 	h.sarCache = sar
 	h.k8sUserHeader = userHeader
+	// The Job watch closes the runs of the Jobs page (internal/jobwatch).
+	if f != nil && h.jobs != nil {
+		go jobwatch.Run(context.Background(), f, h.jobs, h.log)
+	}
 
 	// #5285 — make the terminal-failed quarantine DURABLE across a
 	// catalyst-api restart. The QuarantineDeployment call on terminal
