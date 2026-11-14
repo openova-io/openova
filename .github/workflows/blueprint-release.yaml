@@ -177,14 +177,6 @@ jobs:
         with:
           version: v3.18.4
 
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@v3
-        with:
-          cosign-release: v2.4.1
-
-      - name: Install Syft
-        uses: anchore/sbom-action/download-syft@v0
-
       - name: Install yq (declared-deps parser)
         run: |
           # We need a streaming YAML parser to read Chart.yaml's dependencies:
@@ -778,34 +770,17 @@ jobs:
           fi
           echo "All $dep_count declared upstream subcharts present in pulled GHCR artifact."
 
-      - name: Cosign keyless sign
+      # Sign the chart and attest its bill of materials through the shared
+      # action, before any pin moves to it (FND-062). A chart is not an image:
+      # the bill of materials is written from the packaged .tgz, the file that
+      # was pushed.
+      - name: Sign and attest the chart
         if: steps.chart.outputs.skip != 'true'
-        env:
-          COSIGN_EXPERIMENTAL: "true"
-        run: |
-          cosign sign --yes "${{ steps.push.outputs.ref }}@${{ steps.push.outputs.digest }}"
-
-      - name: Generate SBOM via Syft
-        if: steps.chart.outputs.skip != 'true'
-        run: |
-          # Scan the local .tgz file rather than the published OCI artifact so
-          # we don't need containerd permissions on the runner. The .tgz
-          # carries everything we'd want to inventory anyway (values.yaml +
-          # Chart.yaml + templates + blueprint.yaml + the upstream-chart
-          # reference metadata).
-          mkdir -p /tmp/sbom
-          name="${{ steps.chart.outputs.name }}"
-          version="${{ steps.chart.outputs.version }}"
-          # Chart name already includes `bp-` prefix (read from Chart.yaml).
-          syft "file:/tmp/charts/${name}-${version}.tgz" -o spdx-json="/tmp/sbom/sbom.spdx.json"
-
-      - name: Attest SBOM via cosign
-        if: steps.chart.outputs.skip != 'true'
-        env:
-          COSIGN_EXPERIMENTAL: "true"
-        run: |
-          cosign attest --yes --predicate /tmp/sbom/sbom.spdx.json --type spdxjson \
-            "${{ steps.push.outputs.ref }}@${{ steps.push.outputs.digest }}"
+        uses: ./.github/actions/sign-and-attest
+        with:
+          ref: ghcr.io/openova-io/${{ steps.chart.outputs.name }}
+          digest: ${{ steps.push.outputs.digest }}
+          sbom-source: file:/tmp/charts/${{ steps.chart.outputs.name }}-${{ steps.chart.outputs.version }}.tgz
 
       # ──────────────────────────────────────────────────────────────
       # AUTO-BUMP — clusters/_template/bootstrap-kit/<NN>-<chart>.yaml
