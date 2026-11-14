@@ -2299,7 +2299,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.19",
+    "version": "0.1.20",
     "section": "pts-3-3-security-and-policy",
     "depends": [
       "bp-sealed-secrets"
