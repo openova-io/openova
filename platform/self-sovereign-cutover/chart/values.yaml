@@ -1505,9 +1505,19 @@ orgController:
 # longer the sole thing standing between a new chart and a wedged cutover.
 imageRegistryPivot:
   additionalHRs:
+    # followerRegions: true (#7834) — the same durable edit of this slot file is
+    # also made in every FOLLOWER region's own Gitea, by the step-06 in-region
+    # pivot Job (secondary-pivot-script-configmap.yaml). Step-07 above edits only
+    # the primary region's Gitea, and since ADR-0015 D8 slot 62 runs in EVERY
+    # region (catalyst.openova.io/region-role: every-region), so without it a
+    # follower region's continuum-controller keeps its ghcr.io image name after
+    # the cutover. Set on an entry only when its HelmRelease runs unsuspended in
+    # a follower region and that region's own Harbor (step-03 secondary prewarm)
+    # holds its image; excludeHelmReleases below wins here too.
     - name: bp-continuum
       namespace: flux-system
       slotFile: clusters/_template/bootstrap-kit/62-bp-continuum.yaml
+      followerRegions: true
     # #4892 (Refs #4885): the charts formerly excluded above now honour
     # global.imageRegistry, so their HRs pivot cleanly (no longer silent no-ops).
     # Each metadata.name matches the live HelmRelease the cutover patches, and
@@ -3481,6 +3491,41 @@ secondaryRegions:
   pivotJobWaitSeconds: 1080
   # Poll cadence (seconds) for the pivot-Job wait loop.
   pivotJobPollSeconds: 10
+  # #7834 — further directories of the repository that a FOLLOWER region's Flux
+  # applies and that declare a HelmRepository on helmRepositories.upstreamPrefix.
+  # The in-region pivot Job applies the same kit-rewrite.sh transform to each
+  # (url -> the local registry, certSecretRef -> the trust Secret) and pushes it
+  # in the same commit as the bootstrap-kit rewrite.
+  #
+  # multi-region-follower is the path cloud-init gives a follower region's
+  # `sovereign-region-bootstrap` Kustomization (infra/providers/_shared/
+  # cloudinit-control-plane.tftpl). It holds catalog-helmrepository.yaml, the
+  # flux-system/openova-catalog source of every per-region Application
+  # HelmRelease (ADR-0015 D1). In the primary region that object comes from
+  # bp-catalyst-platform and step-06 Phase-2.5 pivots it; a follower runs no
+  # bp-catalyst-platform. Without this entry the Kustomization re-applies
+  # `url: oci://ghcr.io/openova-io` within 5 minutes of step-06's live patch, and
+  # step-08's per-region source-host lint fails the follower region, so
+  # cutoverComplete never becomes true. A directory missing from the mirror is
+  # skipped with a log line.
+  followerSourceDirs:
+    - "clusters/_template/sovereign-region/multi-region-follower"
+  # #7834 — the shared catalyst-gitea-token PAT, copied by step-01 into each
+  # follower region for the readers there. bp-continuum runs in every region
+  # (slot 62, ADR-0015 D8) and reads env GITEA_TOKEN from this Secret
+  # (products/continuum/chart values continuum.git.tokenSecret, optional: true);
+  # in the primary region bp-catalyst-platform mints it, and a follower runs no
+  # bp-catalyst-platform, so without the copy a follower's Continuum calls the
+  # writer Gitea with no token. namespace/secretName MUST equal slot 62's
+  # targetNamespace and the continuum chart's tokenSecret.name. An env value is
+  # read once at container start, so the Deployments listed here are restarted
+  # after the copy. A follower without the namespace is skipped with a log line.
+  followerGitToken:
+    enabled: true
+    namespace: "catalyst-system"
+    secretName: "catalyst-gitea-token"
+    restartDeployments:
+      - "continuum-controller"
   # #6764 — SECONDARY-region Harbor prewarm. A 2-region Sovereign runs bp-harbor
   # in BOTH regions, so region-B has its OWN empty local Harbor; step-03's
   # PRIMARY prewarm (Phase A/A2) populates region-A's Harbor only, so step-06

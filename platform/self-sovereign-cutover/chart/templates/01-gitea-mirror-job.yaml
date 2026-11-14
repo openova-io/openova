@@ -115,6 +115,19 @@ data:
           */}}
           - name: SECONDARY_GITEA_PAT_SECRET
             value: {{ .Values.secondaryRegions.secondaryGiteaPatSecretName | quote }}
+          {{- if .Values.secondaryRegions.followerGitToken.enabled }}
+          {{- /*
+           #7834 — where, in each follower region, the readers of the shared PAT
+           expect it (bp-continuum's GITEA_TOKEN secretKeyRef), and which of
+           their Deployments to restart after the copy.
+          */}}
+          - name: FOLLOWER_GIT_TOKEN_NAMESPACE
+            value: {{ .Values.secondaryRegions.followerGitToken.namespace | quote }}
+          - name: FOLLOWER_GIT_TOKEN_SECRET
+            value: {{ .Values.secondaryRegions.followerGitToken.secretName | quote }}
+          - name: FOLLOWER_GIT_TOKEN_RESTART
+            value: {{ join " " (.Values.secondaryRegions.followerGitToken.restartDeployments | default (list)) | quote }}
+          {{- end }}
           {{- end }}
         command: ["/bin/sh", "-c"]
         args:
@@ -450,6 +463,50 @@ data:
               token: ${GITEA_PAT}
             EOF
               kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" apply -f /tmp/sec-gitea-pat.yaml
+              {{- if .Values.secondaryRegions.followerGitToken.enabled }}
+              {{- /*
+               #7834 — the follower's own readers of the shared PAT. Its
+               continuum-controller (slot 62, every region since ADR-0015 D8)
+               reads GITEA_TOKEN from ${FOLLOWER_GIT_TOKEN_NAMESPACE}/
+               ${FOLLOWER_GIT_TOKEN_SECRET}; in the primary region
+               bp-catalyst-platform mints that Secret, a follower runs no
+               bp-catalyst-platform, so nothing else creates it there. Same
+               ephemeral-file hygiene as the copy above. The env is read at
+               container start, so the listed Deployments are restarted after
+               the copy, every run: a run killed between the two must not leave
+               a reader on an empty token.
+              */}}
+              if kubectl --kubeconfig "${skc}" get namespace "${FOLLOWER_GIT_TOKEN_NAMESPACE}" >/dev/null 2>&1; then
+                cat >/tmp/follower-git-token.yaml <<EOF
+            apiVersion: v1
+            kind: Secret
+            metadata:
+              name: ${FOLLOWER_GIT_TOKEN_SECRET}
+              namespace: ${FOLLOWER_GIT_TOKEN_NAMESPACE}
+              labels:
+                app.kubernetes.io/managed-by: self-sovereign-cutover
+                app.kubernetes.io/component: follower-git-token
+              annotations:
+                catalyst.openova.io/mirrored-from: ${PAT_SOURCE_NAMESPACE}/${PAT_SOURCE_SECRET_NAME}
+            type: Opaque
+            stringData:
+              token: ${GITEA_PAT}
+            EOF
+                kubectl --kubeconfig "${skc}" -n "${FOLLOWER_GIT_TOKEN_NAMESPACE}" apply -f /tmp/follower-git-token.yaml
+                rm -f /tmp/follower-git-token.yaml
+                echo "[gitea-mirror] #7834 secondary region ${region}: shared PAT copied to ${FOLLOWER_GIT_TOKEN_NAMESPACE}/${FOLLOWER_GIT_TOKEN_SECRET}"
+                for fdep in ${FOLLOWER_GIT_TOKEN_RESTART}; do
+                  if kubectl --kubeconfig "${skc}" -n "${FOLLOWER_GIT_TOKEN_NAMESPACE}" get deployment "${fdep}" >/dev/null 2>&1; then
+                    kubectl --kubeconfig "${skc}" -n "${FOLLOWER_GIT_TOKEN_NAMESPACE}" rollout restart deployment "${fdep}"
+                    echo "[gitea-mirror] #7834 secondary region ${region}: restarted ${FOLLOWER_GIT_TOKEN_NAMESPACE}/${fdep} so it reads the token"
+                  else
+                    echo "[gitea-mirror] #7834 secondary region ${region}: no Deployment ${FOLLOWER_GIT_TOKEN_NAMESPACE}/${fdep} yet — it reads the token when it starts"
+                  fi
+                done
+              else
+                echo "[gitea-mirror] #7834 secondary region ${region}: no namespace ${FOLLOWER_GIT_TOKEN_NAMESPACE} — no reader of the shared PAT runs here, nothing to copy"
+              fi
+              {{- end }}
               kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" delete job "${jobname}" --ignore-not-found=true >/dev/null 2>&1 || true
               sed "s/__REGION__/${region}/g" /secondary-mirror/secondary-mirror-job.yaml >/tmp/secjob.yaml
               kubectl --kubeconfig "${skc}" apply -f /tmp/secjob.yaml
