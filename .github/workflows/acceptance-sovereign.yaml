@@ -72,6 +72,8 @@ on:
         required: true
       ACCEPTANCE_CATALYST_SESSION:
         required: false
+      RELEASE_WRITER_KEY:
+        required: false
   pull_request:
     paths:
       - 'tests/acceptance/sovereign/**'
@@ -157,6 +159,11 @@ jobs:
             docs/ledger/acceptance/*.json
             ${{ runner.temp }}/acceptance.log
           if-no-files-found: warn
+      - name: "Release writer: push with the release-writer key"
+        if: always() && inputs.record
+        uses: ./.github/actions/use-release-writer
+        with:
+          key: ${{ secrets.RELEASE_WRITER_KEY }}
       - name: Commit the record (PASS or FAIL — a failure is evidence too)
         if: always() && inputs.record
         run: |

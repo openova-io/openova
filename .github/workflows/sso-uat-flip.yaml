@@ -108,6 +108,10 @@ jobs:
       - name: Flip SSO UAT rows to UNVERIFIED
         run: python3 scripts/uat-sso-flip.py --ref "${GITHUB_SHA::8}"
 
+      - name: "Release writer: push with the release-writer key"
+        uses: ./.github/actions/use-release-writer
+        with:
+          key: ${{ secrets.RELEASE_WRITER_KEY }}
       - name: Commit flip (if any)
         run: |
           set -euo pipefail
@@ -116,6 +120,6 @@ jobs:
             exit 0
           fi
           git -c user.name=openova-uat-bot -c user.email=bot@openova.io \
-            commit -m "docs(uat): flip SSO rows UNVERIFIED after SSO-chain merge ${GITHUB_SHA::8} (mechanical, Refs #3374)" \
+            commit -m "docs(uat): flip SSO rows UNVERIFIED after SSO-chain merge ${GITHUB_SHA::8} (mechanical, Refs #3374) [skip ci]" \
             docs/ledger/UAT.md
           git push origin main

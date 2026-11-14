@@ -1144,6 +1144,12 @@ jobs:
             echo "bumped=true" >> "$GITHUB_OUTPUT"
           fi
 
+      # FND-017: its own step; scripts/check-release-lockstep-writer.py runs the next one keyless.
+      - name: "Release writer: push with the release-writer key"
+        if: steps.chart.outputs.skip != 'true' && (steps.bump_chart.outputs.bumped == 'true' || steps.bump_pin.outputs.bumped == 'true' || steps.bump_blueprint.outputs.bumped == 'true' || steps.sync_seed.outputs.bumped == 'true')
+        uses: ./.github/actions/use-release-writer
+        with:
+          key: ${{ secrets.RELEASE_WRITER_KEY }}
       - name: "Commit + push bootstrap-kit pin bump + blueprint.yaml lockstep"
         # Run if either side has staged changes — usually they bump in
         # tandem, but a kit-only chart (no blueprint.yaml) or a non-kit
@@ -1320,7 +1326,9 @@ jobs:
               msg=$(printf '%s\n\nAlso bumps %s version %s -> %s (FND-011).' "${msg}" "${CHART_FILE}" "${CHART_PREV_VERSION}" "${CHART_VERSION}")
             fi
           fi
-          git commit -m "${msg}"
+          # FND-017: [skip ci] ends the first line, so this push starts no workflow.
+          subject="${msg%%$'\n'*}"
+          git commit -m "${subject} [skip ci]${msg#"$subject"}"
 
           for i in 1 2 3; do
             if git push origin HEAD:main; then
@@ -1376,7 +1384,7 @@ jobs:
             if [ "$did_pin" -eq 1 ]; then parts="${parts:+${parts}+}pin"; fi
             if [ "$did_bp" -eq 1 ]; then parts="${parts:+${parts}+}blueprint.yaml"; fi
             if [ "$did_seed" -eq 1 ]; then parts="${parts:+${parts}+}catalog-seed"; fi
-            git commit -m "deploy(${CHART_NAME}): lockstep ${parts} -> ${CHART_VERSION} (auto, Refs TBD-A6 + TBD-A20 + #5583, retry $i)"
+            git commit -m "deploy(${CHART_NAME}): lockstep ${parts} -> ${CHART_VERSION} (auto, Refs TBD-A6 + TBD-A20 + #5583, retry $i) [skip ci]"
           done
           echo "::error title=Lockstep push failed::3 attempts exhausted for ${CHART_NAME}=${CHART_VERSION}."
           exit 1
@@ -1449,6 +1457,10 @@ jobs:
           ref: main
           fetch-depth: 0
 
+      - name: "Release writer: push with the release-writer key"
+        uses: ./.github/actions/use-release-writer
+        with:
+          key: ${{ secrets.RELEASE_WRITER_KEY }}
       - name: "Umbrella: bump when a catalogue pin is newer than the last umbrella version"
         id: umbrella_bump
         env:
