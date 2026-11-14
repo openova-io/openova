@@ -62,6 +62,7 @@ MAX_LAG_COMMITS="${MAX_LAG_COMMITS:-50}"
 VALUES_YAML="${VALUES_YAML:-products/catalyst/chart/values.yaml}"
 GHCR_ORG="${GHCR_ORG:-openova-io}"
 SKIP_GHCR="${SKIP_GHCR:-}"
+LATEST_IMAGE_TAG="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/latest-image-tag.py"
 
 # Controllers covered. Add new entries here when a new controller lands
 # in core/controllers/ and is added to scripts/check-controller-
@@ -153,10 +154,11 @@ freshness_check() {
     return 0
   fi
 
-  # Latest GHCR-pushed 7-hex tag for this package. Same shape as
-  # the #2851 sweep step in catalyst-build.yaml. We filter cosign
-  # signature artifacts + the rolling `latest` alias, keep only true
-  # 7-hex tags, and take the most-recently-updated one.
+  # Latest GHCR-pushed 7-hex tag for this package, chosen by
+  # scripts/latest-image-tag.py, the helper the #2851 sweep step in
+  # catalyst-build.yaml uses too: the first tag of 7 hex characters among
+  # the versions, newest created_at first. Signatures, attestations and
+  # the rolling `latest` alias never match (Refs #7768).
   #
   # Package PATH fix (caught on PR #3012; gate had been red on every
   # run incl. main): the images are pushed to
@@ -183,13 +185,8 @@ freshness_check() {
     return 0
   fi
 
-  latest=$(echo "${versions_json}" \
-    | jq -r '[.[] | {u:.updated_at, tags:(.metadata.container.tags // [])}]
-             | sort_by(.u) | reverse
-             | .[].tags[]?' 2>/dev/null \
-    | grep -vE '^(sha256-|latest$)' \
-    | grep -E '^[0-9a-f]{7}$' \
-    | head -1 || true)
+  latest=$(printf '%s' "${versions_json}" \
+    | python3 "${LATEST_IMAGE_TAG}" --versions-file - || true)
 
   if [ -z "${latest}" ]; then
     echo "::warning::no 7-hex GHCR tag found for ${pkg} — skipping freshness check (package may be brand-new)"

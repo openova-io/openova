@@ -1,0 +1,4 @@
+# Chart values lines whose image tag names a signature or an attestation instead of an image.
+# Read by scripts/check-chart-image-tags.py. One line per offence: path, tag, owning issue, tab-separated.
+# The list only falls. A line is removed once the tree no longer holds it.
+platform/openclaw/chart/values.yaml	sha256-feaf7f681c40e6d079ac086d6390767b6ec609d50d7c6398a26509b93e7b9913.att	#7768

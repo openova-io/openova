@@ -32,12 +32,14 @@ on:
     paths:
       - 'products/catalyst/chart/values.yaml'
       - 'scripts/check-controller-image-tag-freshness.sh'
+      - 'scripts/latest-image-tag.py'
       - '.github/workflows/check-controller-image-tag-freshness.yaml'
   push:
     branches: [main]
     paths:
       - 'products/catalyst/chart/values.yaml'
       - 'scripts/check-controller-image-tag-freshness.sh'
+      - 'scripts/latest-image-tag.py'
       - '.github/workflows/check-controller-image-tag-freshness.yaml'
   workflow_dispatch:
 
