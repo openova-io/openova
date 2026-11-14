@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""check-release-owned-lines.py - a pull request does not change a release-owned line (FND-011).
+"""check-release-owned-lines.py - a pull request does not change a release-owned line (FND-011), and a
+push to main outside the merge queue changes nothing else (FND-025).
 
 CI is the only writer of chart versions and the pins that follow them: after a
 merge, the release writer in .github/workflows/blueprint-release.yaml bumps every
@@ -22,21 +23,62 @@ A file or seed entry that the pull request adds or deletes is exempt. Values are
 compared without quotes and comments. The `appVersion:` of every other chart is the
 upstream version of what it installs; an upgrade changes it, so it is not release-owned.
 
-Commands
-  pr --base <ref> [--head <ref>]          judge merge-base(<base>, <head>)..<head> (default HEAD)
-  push --actor <login> --writer <login>   only the merge queue and the release writer may push to main
-  --self-test                             one failing case per rule and per command, and passing controls
+A push to main that the merge queue did not make comes from the release writer: the
+one bypass actor of .github/rulesets/main.json is the release-writer deploy key. Such
+a push carries the login of the person who added the key, so the login proves nothing;
+the push is judged by what it changes, git diff <before> <after>, file by file:
 
-Exit 0: nothing refused. Exit 1: refused. Exit 2: usage or git error.
+  P1  a gate record: a file docs/ledger/acceptance/<name>.json that the push adds.
+  P2  a site file that exists before and after the push: a Chart.yaml, blueprint.yaml
+      or slot file of R1 to R5, the two generated catalogue files
+      products/catalyst/bootstrap/api/internal/catalog/blueprints.json and
+      products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts, or a
+      chart's values.yaml or template, (platform|products)/<x>/chart/values.yaml and
+      (platform|products)/<x>/chart/templates/**.yaml. In it only version values may
+      change: in every hunk of `git diff -U0`, without its blank lines, each removed
+      line equals the added line in the same place once quotes, a trailing " # comment"
+      and every version value are taken out. A version value is a sha256 digest
+      (sha256:<64 hex> or sha256-<64 hex>), a UTC time stamp (2026-11-14T12:15:17.718Z),
+      a semantic version (1.4.10, v2.0.0-rc.1) or a commit id (7 to 40 hex digits).
+  Every other change is refused: a file the push adds (outside P1) or deletes, a
+  changed gate record, any other path, and in a site file a line that changes more
+  than a version value or a line added or removed.
+
+A push whose head commit holds [skip ci] starts no workflow, and every commit pushed with
+the release-writer key holds it (scripts/check-bot-writers.py). So a run does not judge
+its own push only:
+
+  P3  every first-parent commit after <since> up to <before> is judged by itself,
+      <commit>^1..<commit>, by P1 and P2, whoever pushed it: the exemption of the merge
+      queue does not apply to it. <since> is the head commit of the previous run of this
+      workflow on a push to main (command previous-run), so these are the commits whose
+      pushes started no run. <since> must be <before> or an ancestor of it.
+
+A push that started no run is judged by the run of the next push to main that starts one.
+
+Commands
+  pr --base <ref> [--head <ref>]                        judge merge-base(<base>, <head>)..<head> (default HEAD)
+  push --actor <login> [--since <sha>] --before <sha> --after <sha>
+                                                        P3 for <since>..<before>; then a push by the merge queue
+                                                        passes, and any other push is judged by P1 and P2
+  previous-run --run-id <id>                            print the head commit of the newest run of
+                                                        .github/workflows/check-release-owned-lines.yaml on a
+                                                        push to main whose id is lower than <id>, a cancelled run
+                                                        left out; reads GITHUB_TOKEN and GITHUB_REPOSITORY
+  --self-test                                           one failing case per rule and per command, and passing controls
+
+Exit 0: nothing refused. Exit 1: refused. Exit 2: usage, git or API error, or no previous run.
 """
 
 import argparse
+import json
 import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.request
 
 CHART = re.compile(r"^(platform|products)/[^/]+/chart/Chart\.yaml$")
 UMBRELLA = "products/catalyst/chart/Chart.yaml"
@@ -44,6 +86,17 @@ BLUEPRINT = re.compile(r"^(platform/[^/]+/blueprint\.yaml|products/[^/]+/bluepri
 SEED = "products/catalyst/chart/templates/catalog-seed/blueprints.yaml"
 SLOT = re.compile(r"^clusters/_template/bootstrap-kit/[^/]+\.yaml$")
 QUEUE = "github-merge-queue[bot]"
+GATE_RECORD = re.compile(r"^docs/ledger/acceptance/[^/]+\.json$")
+GENERATED = ("products/catalyst/bootstrap/api/internal/catalog/blueprints.json",
+             "products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts")
+CHART_FILE = re.compile(r"^(platform|products)/[^/]+/chart/(values\.yaml|templates/.+\.yaml)$")
+VERSION_VALUE = re.compile(
+    r"sha256[:-][0-9a-f]{64}(?![0-9A-Za-z])"
+    r"|(?<![0-9A-Za-z])\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z(?![0-9A-Za-z])"
+    r"|(?<![0-9A-Za-z])v?\d+\.\d+\.\d+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?(?:\+[0-9A-Za-z.-]+)?(?![0-9A-Za-z])"
+    r"|(?<![0-9A-Za-z])[0-9a-f]{7,40}(?![0-9A-Za-z])")
+TRAILING_COMMENT = re.compile(r"\s+#.*$")
+WORKFLOW = "check-release-owned-lines.yaml"
 
 
 class GitError(Exception):
@@ -145,10 +198,97 @@ def pr_findings(root, base, head):
     return found
 
 
-def push_findings(actor, writer):
-    if actor == QUEUE or actor == writer:
+def site_file(path):
+    return bool(CHART.match(path) or BLUEPRINT.match(path) or path == SEED or SLOT.match(path)
+                or path in GENERATED or CHART_FILE.match(path))
+
+
+def masked(line):
+    """A line without its trailing comment, its version values and its quotes."""
+    line = TRAILING_COMMENT.sub("", line.rstrip())
+    return VERSION_VALUE.sub("<v>", line).replace('"', "").replace("'", "")
+
+
+def value_changes(path, diff_text):
+    """The refused hunks of the `git diff -U0` text of one site file. Returns a list of finding lines.
+    The file header comes before the first @@ line and is not read."""
+    hunks = []
+    for ln in diff_text.split("\n"):
+        if ln.startswith("@@"):
+            hunks.append(([], []))
+        elif hunks and ln.startswith("-"):
+            hunks[-1][0].append(ln[1:])
+        elif hunks and ln.startswith("+"):
+            hunks[-1][1].append(ln[1:])
+    found = []
+    for old, new in hunks:
+        old = [x for x in old if x.strip()]
+        new = [x for x in new if x.strip()]
+        if len(old) != len(new):
+            found.append("P2 %s: %d line(s) removed and %d added in one place; only a value may change" % (path, len(old), len(new)))
+            continue
+        for a, b in zip(old, new):
+            if masked(a) != masked(b):
+                found.append("P2 %s: more than a version value changed: %r -> %r" % (path, a.strip()[:100], b.strip()[:100]))
+                break
+    return found
+
+
+def push_findings(root, actor, before, after):
+    if actor == QUEUE:
         return []
-    return ["push to main by %s: only the merge queue (%s) and the release writer (%s) may push" % (actor, QUEUE, writer)]
+    return content_findings(root, before, after)
+
+
+def skipped_findings(root, since, before):
+    """P3: every first-parent commit after <since> up to <before>, each judged by itself."""
+    if subprocess.run(["git", "-C", root, "merge-base", "--is-ancestor", since, before],
+                      stdout=subprocess.PIPE, stderr=subprocess.PIPE).returncode != 0:
+        return ["P3 %s: the head of the previous run is not %s or an ancestor of it; the commits between cannot be judged" % (since, before)]
+    found = []
+    for c in git(root, "rev-list", "--first-parent", "--reverse", "%s..%s" % (since, before)).split():
+        found += ["%s (commit %s, pushed without a run)" % (f, c[:12]) for f in content_findings(root, c + "^1", c)]
+    return found
+
+
+def previous_head(runs, own_id):
+    """The head commit of the newest run on a push to main whose id is lower than own_id, a cancelled run left out; None if none."""
+    earlier = [r for r in runs if r.get("event") == "push" and r.get("head_branch") == "main"
+               and r.get("conclusion") != "cancelled" and int(r.get("id", 0)) < own_id and r.get("head_sha")]
+    return max(earlier, key=lambda r: int(r["id"]))["head_sha"] if earlier else None
+
+
+def read_runs(repo, token, own_id, max_pages=5):
+    """The runs of this workflow on a push to main, newest first, page by page until one is older than own_id."""
+    base, rows = os.environ.get("GITHUB_API_URL", "https://api.github.com"), []
+    for page in range(1, max_pages + 1):
+        req = urllib.request.Request("%s/repos/%s/actions/workflows/%s/runs?event=push&branch=main&per_page=100&page=%d"
+                                     % (base, repo, WORKFLOW, page), headers={
+                                         "Authorization": "Bearer " + token, "Accept": "application/vnd.github+json",
+                                         "X-GitHub-Api-Version": "2022-11-28"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            batch = json.load(r)["workflow_runs"]
+        rows += batch
+        if not batch or any(int(x.get("id", 0)) < own_id for x in batch):
+            break
+    return rows
+
+
+def content_findings(root, before, after):
+    st = git(root, "diff", "--no-renames", "--name-status", "-z", before, after).split("\0")
+    found = []
+    for n in range(0, len(st) - 1, 2):
+        status, path = st[n], st[n + 1]
+        if GATE_RECORD.match(path):
+            if status != "A":
+                found.append("P1 %s: a gate record is only added, never changed or deleted (status %s)" % (path, status))
+        elif not site_file(path):
+            found.append("P2 %s: not a release-owned file (status %s)" % (path, status))
+        elif status != "M":
+            found.append("P2 %s: a release-owned file is changed in place, never added or deleted (status %s)" % (path, status))
+        else:
+            found += value_changes(path, git(root, "diff", "--no-renames", "-U0", before, after, "--", path))
+    return found
 
 
 def report(found, fail, ok):
@@ -202,9 +342,27 @@ def self_test():
     case("R5 refuses a changed slot pin", judge(sl, SLOT_OLD, SLOT_OLD.replace("      version: 1.0.3", "      version: 1.0.4")), "R5 ")
     case("R5 allows a changed value deeper in the slot", judge(sl, SLOT_OLD, SLOT_OLD.replace("        version: 7", "        version: 8")), 0)
     case("unrelated file is not judged", judge("platform/x/chart/values.yaml", "version: 1\n", "version: 2\n"), 0)
-    case("push: a merge by the queue passes", push_findings(QUEUE, "writer-bot"), 0)
-    case("push: the release writer passes", push_findings("writer-bot", "writer-bot"), 0)
-    case("push: any other account is refused", push_findings("someone", "writer-bot"), "push to main by someone")
+    vc = value_changes
+    case("P2 allows a changed image tag", vc("v", '@@ -3 +3 @@\n-    tag: "28d6575"\n+    tag: "2c1f5b0"\n'), 0)
+    case("P2 allows a changed digest in either form", vc("v", '@@ -4,2 +4,2 @@\n-    digest: "sha256:%s"\n-    tag: "5ea1b38" # OVERRIDE\n+    digest: "sha256:%s"\n+    tag: "sha256-%s" # OVERRIDE\n' % ("a" * 64, "b" * 64, "c" * 64)), 0)
+    case("P2 allows a version with a dropped comment and new quotes", vc("c", "@@ -6 +6 @@\n-  version: 1.0.3  # lockstep with chart\n+  version: \"1.0.4\"\n"), 0)
+    case("P2 allows a changed time stamp and a removed blank line", vc("g", '@@ -2 +2 @@\n-  "generatedAt": "2026-11-14T12:15:17.718Z",\n+  "generatedAt": "2026-11-14T12:15:32.449Z",\n@@ -9 +8,0 @@\n-\n'), 0)
+    case("P2 allows a changed image reference", vc("t", '@@ -9 +9 @@\n-          image: "ghcr.io/o/catalyst-api:c0a25ff"\n+          image: "ghcr.io/o/catalyst-api:6749aff"\n'), 0)
+    case("P2 refuses a changed value that is not a version", vc("v", "@@ -7 +7 @@\n-  replicas: 3\n+  replicas: 4\n"), "P2 v: more than a version value")
+    case("P2 refuses a changed image repository", vc("t", '@@ -9 +9 @@\n-          image: "ghcr.io/o/x:c0a25ff"\n+          image: "evil.example/o/x:6749aff"\n'), "P2 t: more than a version value")
+    case("P2 refuses an added line", vc("v", '@@ -3 +3,2 @@\n-    tag: "28d6575"\n+    tag: "2c1f5b0"\n+    pullPolicy: Always\n'), "P2 v: 1 line(s) removed and 2 added")
+    case("P2 refuses a removed line", vc("v", "@@ -3,2 +2,0 @@\n-  enabled: true\n-  x: 1\n"), "P2 v: 2 line(s) removed and 0 added")
+    case("P2 reads a removed line that starts with two dashes", vc("v", "--- a/v\n+++ b/v\n@@ -3 +3 @@\n--- 1.0.3\n+-- 1.0.4\n@@ -8 +7,0 @@\n--- x\n"), "P2 v: 1 line(s) removed and 0 added")
+    case("site files: a values file, a template, a generated file, a slot", [p for p in ("platform/x/chart/values.yaml", "products/catalyst/chart/templates/a/b.yaml", GENERATED[1], sl, UMBRELLA) if not site_file(p)], 0)
+    case("site files: a workflow, a script, a chart's README, the ledger", [p for p in (".github/workflows/x.yaml", "scripts/x.sh", "platform/x/chart/README.md", "docs/ledger/UAT.md", "platform/x/chart/files/a.yaml") if site_file(p)], 0)
+    runs = [{"id": 30, "event": "push", "head_branch": "main", "conclusion": None, "head_sha": "c30"},
+            {"id": 25, "event": "pull_request", "head_branch": "main", "conclusion": "success", "head_sha": "c25"},
+            {"id": 22, "event": "push", "head_branch": "wp/x", "conclusion": "success", "head_sha": "c22"},
+            {"id": 20, "event": "push", "head_branch": "main", "conclusion": "cancelled", "head_sha": "c20"},
+            {"id": 10, "event": "push", "head_branch": "main", "conclusion": "failure", "head_sha": "c10"}]
+    case("previous-run: the newest earlier run counts, also while it runs", [h for h in [previous_head(runs, 31)] if h != "c30"], 0)
+    case("previous-run: the own run, a cancelled run, another event and another branch are left out", [h for h in [previous_head(runs, 30)] if h != "c10"], 0)
+    case("previous-run: no earlier run gives none", [h for h in [previous_head(runs, 10)] if h is not None], 0)
 
     # The pr command end to end, on a scratch repository: a modified file is judged, an added or deleted one is not.
     root = tempfile.mkdtemp(prefix="release-owned-selftest-")
@@ -231,6 +389,52 @@ def self_test():
         got = pr_findings(root, base, "HEAD")
         case("pr: only the modified chart's version is refused, not the added or deleted chart", got, "R1 platform/x/chart/Chart.yaml")
         case("pr: nothing is refused when the change touches no release-owned value", pr_findings(root, "HEAD", "HEAD"), 0)
+
+        # The push command end to end on the same repository.
+        write("docs/ledger/acceptance/hw1-1.json", "{}\n")
+        write(".github/workflows/w.yaml", "on: push\n")
+        git(root, "add", "-A")
+        git(root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base2")
+        b2 = git(root, "rev-parse", "HEAD").strip()
+
+        def push_case(name, edits, actor, want):
+            git(root, "checkout", "-q", "--detach", b2)
+            for rel, text in edits:
+                if text is None:
+                    os.remove(os.path.join(root, rel))
+                else:
+                    write(rel, text)
+            git(root, "add", "-A")
+            git(root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", name)
+            case(name, push_findings(root, actor, b2, "HEAD"), want)
+
+        slot = SLOT_OLD + "  interval: 5m\n"
+        bump = slot.replace("      version: 1.0.3", "      version: 1.0.4")
+        push_case("push: a version bump and a new gate record pass, whoever pushed", [(sl, bump), ("docs/ledger/acceptance/hw1-2.json", "{}\n")], "a-person", 0)
+        push_case("push: the queue passes without being judged", [(".github/workflows/w.yaml", "on: pull_request\n")], QUEUE, 0)
+        push_case("push: P2 refuses a changed workflow", [(".github/workflows/w.yaml", "on: pull_request\n")], "a-person", "P2 .github/workflows/w.yaml: not a release-owned file")
+        push_case("push: P2 refuses a changed value that is not a version", [(sl, slot.replace("        version: 7", "        replicas: 7"))], "a-person", "P2 clusters/_template/bootstrap-kit/40-x.yaml: more than a version value")
+        push_case("push: P2 refuses an added chart", [("platform/z/chart/Chart.yaml", CHART_OLD)], "a-person", "P2 platform/z/chart/Chart.yaml: a release-owned file is changed in place")
+        push_case("push: P2 refuses a deleted chart", [("platform/new/chart/Chart.yaml", None)], "a-person", "P2 platform/new/chart/Chart.yaml: a release-owned file is changed in place")
+        push_case("push: P1 refuses a changed gate record", [("docs/ledger/acceptance/hw1-1.json", '{"result": "PASS"}\n')], "a-person", "P1 docs/ledger/acceptance/hw1-1.json")
+        push_case("push: a file in the gate-record folder that is not a .json record is refused", [("docs/ledger/acceptance/notes.md", "x\n")], "a-person", "P2 docs/ledger/acceptance/notes.md: not a release-owned file")
+
+        # P3: commits whose pushes started no run, then a push by the queue that does.
+        def commit(name, rel, text):
+            write(rel, text)
+            git(root, "add", "-A")
+            git(root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", name + " [skip ci]")
+            return git(root, "rev-parse", "HEAD").strip()
+
+        git(root, "checkout", "-q", "--detach", b2)
+        s1 = commit("bump", sl, bump)
+        s2 = commit("workflow", ".github/workflows/w.yaml", "on: pull_request\n")
+        s3 = commit("merge", "README.md", "x\n")
+        case("P3: a version bump pushed without a run passes", skipped_findings(root, b2, s1), 0)
+        case("P3: a changed workflow pushed without a run is refused, also when the queue makes the next push",
+             skipped_findings(root, b2, s2) + push_findings(root, QUEUE, s2, s3), "P2 .github/workflows/w.yaml: not a release-owned file")
+        case("P3: nothing is judged when since is before", skipped_findings(root, s2, s2), 0)
+        case("P3: a since that is not an ancestor of before is refused", skipped_findings(root, s3, s1), "P3 %s" % s3)
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
@@ -256,7 +460,11 @@ def main(argv=None):
     p.add_argument("--head", default="HEAD")
     q = sub.add_parser("push")
     q.add_argument("--actor", required=True)
-    q.add_argument("--writer", required=True)
+    q.add_argument("--since")
+    q.add_argument("--before", required=True)
+    q.add_argument("--after", required=True)
+    r = sub.add_parser("previous-run")
+    r.add_argument("--run-id", type=int, required=True)
     try:
         args = ap.parse_args(argv)
     except SystemExit as exc:
@@ -270,8 +478,29 @@ def main(argv=None):
         return report(found, "%d release-owned value(s) changed. CI writes them after the merge: leave them as they are on the base." % len(found),
                       "no release-owned value changed.")
     if args.cmd == "push":
-        return report(push_findings(args.actor, args.writer), "this push did not come through the merge queue.",
-                      "%s may push to main." % args.actor)
+        try:
+            found = skipped_findings(os.getcwd(), args.since, args.before) if args.since else []
+            found += push_findings(os.getcwd(), args.actor, args.before, args.after)
+        except GitError as exc:
+            print("ERROR: %s" % exc)
+            return 2
+        return report(found, "%d change(s) outside the merge queue that are not release-owned lines or gate records. This is a breach: find who pushed it." % len(found),
+                      "the push by %s, and every commit before it that was pushed without a run, change only release-owned lines and gate records, or came from the merge queue." % args.actor)
+    if args.cmd == "previous-run":
+        token, repo = os.environ.get("GITHUB_TOKEN", ""), os.environ.get("GITHUB_REPOSITORY", "")
+        if not token or not repo:
+            print("ERROR: previous-run reads GITHUB_TOKEN and GITHUB_REPOSITORY; one is empty", file=sys.stderr)
+            return 2
+        try:
+            head = previous_head(read_runs(repo, token, args.run_id), args.run_id)
+        except Exception as exc:
+            print("ERROR: the runs of %s could not be read: %s" % (WORKFLOW, exc), file=sys.stderr)
+            return 2
+        if not head:
+            print("ERROR: no earlier run of %s on a push to main was found" % WORKFLOW, file=sys.stderr)
+            return 2
+        print(head)
+        return 0
     ap.print_help()
     return 2
 

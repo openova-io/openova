@@ -7,6 +7,11 @@ POST /repos/{owner}/{repo}/rulesets, with one difference: a bypass actor of type
 its team by the slug, "team": "<slug>", instead of "actor_id". A team has no fixed number
 before it exists; the slug is resolved when the file is compared or applied.
 
+The one bypass actor of both files is {"actor_type": "DeployKey", "bypass_mode": "always"}.
+The API stores it with "actor_id": null: it names no key and covers every write deploy key of
+the repository. So the write deploy keys are part of what is compared:
+.github/rulesets/deploy-keys.json records them by fingerprint.
+
 Usage:
 
   python3 scripts/check-ruleset-drift.py                          compare the live rulesets
@@ -14,6 +19,8 @@ Usage:
   python3 scripts/check-ruleset-drift.py --self-test              proves that each rule can fail
 
 The comparison reads the token in RULESET_READ_TOKEN and the repository in GITHUB_REPOSITORY.
+Reading the bypass list and the deploy keys needs the right to read the administration of the
+repository.
 
 The rules, exactly.
 
@@ -25,19 +32,28 @@ The rules, exactly.
 4. A team slug is compared through the team's number, read from the organisation.
 5. A token that is absent, a read that fails, or a live copy without bypass actors (the token
    cannot see them) is a failure, never a pass.
+6. The write deploy keys of the repository (read_only false, or the field absent) are exactly
+   the keys of .github/rulesets/deploy-keys.json, compared by the SHA256 fingerprint of the
+   public key. A second write key, another key, or none at all is a difference. A read-only key
+   cannot push and is not judged.
 
 Exit code 0: the live rulesets equal the files. 1: a difference, or what the check reads is
 missing; one line per finding. 2: wrong usage. Only the Python standard library is used.
 """
+import base64
 import copy
+import hashlib
 import json
 import os
+import re
 import sys
 import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FILES = (".github/rulesets/main.json", ".github/rulesets/rc.json")
 KEYS = ("name", "target", "enforcement", "conditions", "bypass_actors", "rules")
+DEPLOY_KEYS = ".github/rulesets/deploy-keys.json"
+FINGERPRINT = re.compile(r"^SHA256:[A-Za-z0-9+/]{43}$")
 
 
 class Unreadable(Exception):
@@ -54,9 +70,45 @@ def load(path):
     if missing:
         raise Unreadable("%s: missing %s" % (path, ", ".join(missing)))
     for a in body["bypass_actors"]:
-        if "bypass_mode" not in a or not ("actor_id" in a or (a.get("actor_type") == "Team" and a.get("team"))):
-            raise Unreadable("%s: bypass actor %s needs bypass_mode and actor_id, or type Team and team" % (path, a))
+        if "bypass_mode" not in a or not ("actor_id" in a or a.get("actor_type") == "DeployKey"
+                                          or (a.get("actor_type") == "Team" and a.get("team"))):
+            raise Unreadable("%s: bypass actor %s needs bypass_mode and actor_id, or type DeployKey, or type Team and team" % (path, a))
     return body
+
+
+def fingerprint(public_key):
+    """The SHA256 fingerprint of an OpenSSH public key line, as ssh-keygen -l prints it."""
+    try:
+        blob = base64.b64decode(public_key.split()[1], validate=True)
+    except Exception:
+        raise Unreadable("a deploy key is not an OpenSSH public key: %r" % public_key[:40])
+    return "SHA256:" + base64.b64encode(hashlib.sha256(blob).digest()).decode().rstrip("=")
+
+
+def load_keys(path):
+    """The recorded fingerprints of the write deploy keys."""
+    try:
+        with open(os.path.join(ROOT, path)) as f:
+            keys = json.load(f)["write_keys"]
+        prints = [k["fingerprint"] for k in keys]
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        raise Unreadable("%s: %s" % (path, e))
+    bad = [p for p in prints if not isinstance(p, str) or not FINGERPRINT.match(p)]
+    if not prints or bad:
+        raise Unreadable("%s: needs one or more write_keys, each with a fingerprint SHA256:<43 characters>" % path)
+    return set(prints)
+
+
+def compare_keys(recorded, live_keys):
+    """Rule 6: the live write deploy keys equal the recorded fingerprints."""
+    live = {}
+    for k in live_keys:
+        if k.get("read_only") is True:
+            continue
+        live[fingerprint(str(k.get("key", "")))] = k.get("title", "")
+    found = ["%s: write key %s (%s) is not recorded" % (DEPLOY_KEYS, fp, live[fp]) for fp in sorted(set(live) - recorded)]
+    found += ["%s: recorded write key %s is not on the repository" % (DEPLOY_KEYS, fp) for fp in sorted(recorded - set(live))]
+    return found
 
 
 def resolve(body, team_id):
@@ -134,12 +186,22 @@ def live_readers(get, repo):
     return by_name, team_id
 
 
+def live_keys(get, repo):
+    keys = get("/repos/%s/keys?per_page=100" % repo)
+    if not isinstance(keys, list) or len(keys) >= 100:
+        raise Unreadable("the deploy keys of %s: not a list, or 100 or more (only one page is read)" % repo)
+    return keys
+
+
 def self_test():
     failed = 0
     cases = []
     for path in FILES:
         body = load(path)
         live = resolve(body, lambda slug: 42)
+        for a in live["bypass_actors"]:
+            if a.get("actor_type") == "DeployKey":
+                a["actor_id"] = None
         live.update({"id": 7, "node_id": "RRS_x", "source": "o/r", "source_type": "Repository",
                      "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z",
                      "_links": {}, "current_user_can_bypass": "always"})
@@ -153,7 +215,7 @@ def self_test():
             ("%s: live enforcement changed" % path, path, mutant(lambda m: m.update(enforcement="evaluate")), 1),
             ("%s: a live rule is missing" % path, path, mutant(lambda m: m["rules"].pop()), 1),
             ("%s: an extra live rule" % path, path, mutant(lambda m: m["rules"].append({"type": "required_signatures"})), 1),
-            ("%s: another team bypasses" % path, path, mutant(lambda m: m["bypass_actors"][0].update(actor_id=43)), 1),
+            ("%s: a team bypasses instead of the deploy key" % path, path, mutant(lambda m: m["bypass_actors"][0].update(actor_type="Team", actor_id=43)), 1),
             ("%s: an extra bypass actor" % path, path, mutant(lambda m: m["bypass_actors"].append(
                 {"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"})), 1),
             ("%s: bypass actors not visible" % path, path, mutant(lambda m: m.pop("bypass_actors")), 1),
@@ -192,11 +254,49 @@ def self_test():
         got = 1
     print("%s a failed read fails (%d, want 1)" % ("ok  " if got == 1 else "FAIL", got))
     failed += got != 1
-    body = resolve(load(FILES[0]), lambda slug: 99)
-    good = all("team" not in a for a in body["bypass_actors"]) and any(a.get("actor_id") == 99 for a in body["bypass_actors"])
+    body = resolve({"bypass_actors": [{"actor_type": "Team", "team": "t", "bypass_mode": "always"}]}, lambda slug: 99)
+    good = body["bypass_actors"] == [{"actor_type": "Team", "actor_id": 99, "bypass_mode": "always"}]
     print("%s --body puts the team number in place of the slug" % ("ok  " if good else "FAIL"))
     failed += not good
-    print("self-test: %s" % ("FAIL" if failed else "%d cases passed" % (len(cases) + 3)))
+    deploy = [a for f in FILES for a in load(f)["bypass_actors"]]
+    good = deploy == [{"actor_type": "DeployKey", "bypass_mode": "always"}] * len(FILES)
+    print("%s both files name the deploy key as their one bypass actor" % ("ok  " if good else "FAIL"))
+    failed += not good
+
+    # Rule 6. The public key is GitHub's published ed25519 host key, whose fingerprint GitHub publishes.
+    pub = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
+    other = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBh2oF0Fq2Qr0UEGqZQ+0cX9MZ4wEbJ0dJZRpbCJbHqT"
+    fp = fingerprint(pub)
+    good = fp == "SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU"
+    print("%s the fingerprint equals the one ssh-keygen prints (%s)" % ("ok  " if good else "FAIL", fp))
+    failed += not good
+    key_cases = [
+        ("rule 6: the recorded write key alone passes", [{"key": pub, "read_only": False, "title": "release-writer"}], 0),
+        ("rule 6: a read-only key beside it is not judged", [{"key": pub, "read_only": False}, {"key": other, "read_only": True}], 0),
+        ("rule 6: a second write key fails", [{"key": pub, "read_only": False}, {"key": other, "read_only": False}], 1),
+        ("rule 6: another write key in its place fails", [{"key": other, "read_only": False}], 1),
+        ("rule 6: no write key fails", [{"key": pub, "read_only": True}], 1),
+        ("rule 6: a key without read_only counts as a write key", [{"key": pub, "read_only": False}, {"key": other}], 1),
+    ]
+    for name, keys, want in key_cases:
+        got = 1 if compare_keys({fp}, keys) else 0
+        print("%s %s (%d, want %d)" % ("ok  " if got == want else "FAIL", name, got, want))
+        failed += got != want
+    try:
+        compare_keys({fp}, [{"key": "ssh-ed25519 not-base64!", "read_only": False}])
+        got = 0
+    except Unreadable:
+        got = 1
+    print("%s rule 6: a key that cannot be read fails (%d, want 1)" % ("ok  " if got == 1 else "FAIL", got))
+    failed += got != 1
+    try:
+        got = 0 if load_keys(DEPLOY_KEYS) else 1
+    except Unreadable as e:
+        print("     %s" % e)
+        got = 1
+    print("%s %s holds valid fingerprints (%d, want 0)" % ("ok  " if got == 0 else "FAIL", DEPLOY_KEYS, got))
+    failed += got != 0
+    print("self-test: %s" % ("FAIL" if failed else "%d cases passed" % (len(cases) + len(key_cases) + 7)))
     return 1 if failed else 0
 
 
@@ -218,7 +318,9 @@ def main(argv):
         print("FAIL RULESET_READ_TOKEN and GITHUB_REPOSITORY must be set")
         return 1
     try:
-        found = compare(FILES, *live_readers(api(token), repo))
+        get = api(token)
+        found = compare(FILES, *live_readers(get, repo))
+        found += compare_keys(load_keys(DEPLOY_KEYS), live_keys(get, repo))
     except Unreadable as e:
         found = ["unreadable: %s" % e]
     for line in found:
