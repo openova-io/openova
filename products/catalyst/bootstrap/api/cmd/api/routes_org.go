@@ -115,16 +115,6 @@ func registerSessionOrg(rg chi.Router, d routeDeps) {
 	rg.Put("/api/v1/org/commerce/{kind}/{id}", h.HandleOrgCommerceUpdate)
 	rg.Delete("/api/v1/org/commerce/{kind}/{id}", h.HandleOrgCommerceDelete)
 
-	// Organizations metering feed (issue #3378 B3) — per-org
-	// consumption aggregation, parent self-showback first. Lean
-	// kube-metrics aggregation (no new component): reuses the
-	// dashboard's per-namespace resource-request rows. The billing
-	// pages read this one GET; 100% attributes to the parent on a
-	// zero-sub-org estate (§5 day-one showback).
-	// #3383: canonical `/api/v1/org/consumption`; legacy aliased.
-	rg.Get("/api/v1/org/consumption", h.HandleSovereignConsumption)
-	// naming-guard: alias — legacy Organization path, one-release deprecation.
-
 	// Organizations Enter-org support session (issue #3378 B2) —
 	// mints the audited, time-boxed (≤60min) impersonation into a
 	// sub-org's OWN console as a support principal in the org's realm

@@ -132,3 +132,8 @@ platform/bp-vcluster-helmrepo/chart/templates/vcluster-crd.yaml
 core/marketplace-api
 products/catalyst/chart/templates/marketplace-api
 .github/workflows/marketplace-api-build.yaml
+products/catalyst/bootstrap/api/internal/handler/org_consumption.go
+products/catalyst/bootstrap/api/internal/handler/org_consumption_test.go
+products/catalyst/bootstrap/api/internal/handler/org_consumption_parent_slug_5819_test.go
+products/catalyst/bootstrap/ui/src/pages/sovereign/organizations/ShowbackPanel.tsx
+products/catalyst/bootstrap/ui/src/pages/sovereign/organizations/ShowbackPanel.test.tsx

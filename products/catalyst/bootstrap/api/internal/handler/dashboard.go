@@ -312,10 +312,9 @@ func (h *Handler) GetDashboardTreemap(w http.ResponseWriter, r *http.Request) {
 // classify here as well.
 //
 // THE single definition of "ephemeral" for every display layer. The
-// treemap drops these rows outright (dropEphemeralRows); showback keeps
-// their cost but collapses them into one Platform-overhead line
-// (aggregateConsumption). Both call this predicate so the two surfaces
-// can never disagree about what counts as one-shot (#5485).
+// treemap drops these rows outright (dropEphemeralRows). A further
+// view calls this predicate too, so that no two surfaces disagree about
+// what counts as one-shot (#5485).
 func isEphemeralRow(r podRow) bool {
 	return strings.EqualFold(r.ownerKind, "Job")
 }

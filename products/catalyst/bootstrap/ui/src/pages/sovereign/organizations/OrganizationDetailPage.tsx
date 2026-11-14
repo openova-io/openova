@@ -1,8 +1,8 @@
 /**
  * OrganizationDetailPage — /organizations/$org (issue #3378 §4).
  *
- * The org detail surface: the identity card (the CR fields), the mode-
- * aware consumption panel (showback/chargeback orgs), realm/console
+ * The org detail surface: the identity card (the CR fields), the link
+ * to the cost view of the billing engine (CostViewLink), realm/console
  * links, and the `Enter org` button (sub-orgs only — the §2.4 support
  * session; absent on the parent row, "you are already inside it"). The
  * org's people belong on the org's page — the users + roles tabs absorb
@@ -22,7 +22,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import { PortalShell } from '../PortalShell'
-import { ShowbackPanel } from './ShowbackPanel'
+import { CostViewLink } from './CostViewLink'
 import { EnterOrgButton } from './EnterOrgButton'
 import { listOrganizations, type OrgRow } from '@/lib/organizations.api'
 
@@ -140,9 +140,9 @@ export function OrganizationDetailPage({ org, initialOrgsOverride }: Organizatio
               </dl>
             </section>
 
-            {/* Consumption panel — mode-aware (showback/chargeback). The
-                org's slice of the showback feed. */}
-            <ShowbackPanel org={target.isParent ? undefined : target.slug} />
+            {/* Usage and cost live in the billing engine; this is the
+                link to its cost view (CTL-355). */}
+            <CostViewLink />
           </div>
         )}
       </div>

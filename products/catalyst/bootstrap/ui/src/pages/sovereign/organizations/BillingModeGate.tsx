@@ -3,11 +3,12 @@
  *
  * The billing pages are mode-filtered, never separate systems (§2.6):
  *   • real    → the full payment flows (the wrapped page renders as-is).
- *   • showback/chargeback → consumption only, ZERO payment actions: the
- *     gate renders the ShowbackPanel + the §5 empty-state explaining that
- *     real billing exists when the marketplace sells to external orgs,
- *     and does NOT mount the payment page at all (so no Issue-voucher /
- *     checkout CTA is reachable).
+ *   • showback/chargeback → ZERO payment actions: the gate renders the
+ *     §5 notice explaining that real billing exists when the marketplace
+ *     sells to external orgs, and the link to the cost view of the
+ *     billing engine (CostViewLink, CTL-355). It does NOT mount the
+ *     payment page at all (so no Issue-voucher / checkout CTA is
+ *     reachable).
  *
  * The parent org is showback (§5), so on a single-org Sovereign the
  * billing routes render the showback view by default — real billing is
@@ -23,7 +24,7 @@
 
 import type { ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ShowbackPanel } from './ShowbackPanel'
+import { CostViewLink } from './CostViewLink'
 import {
   listOrganizations,
   type OrgBillingMode,
@@ -67,7 +68,7 @@ export function BillingModeGate({ children, modeOverride }: BillingModeGateProps
         consumption is attributed, not invoiced. Real billing (invoices, vouchers,
         checkout) exists when the marketplace sells to external organizations.
       </div>
-      <ShowbackPanel />
+      <CostViewLink />
     </div>
   )
 }

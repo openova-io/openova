@@ -179,10 +179,10 @@ var fleetTreemapAllowedRoles = []string{
 // Organization layer: when `layers`/`group_by` requests it (either
 // param name — the UI and the issue's curl repro both appear), the
 // handler projects per-Organization items INSTEAD of one row per
-// Sovereign, via collectFleetOrgItems. That reuses the exact same
-// pod→Org resource-attribution join the per-Org showback endpoint uses
-// (buildPodRows + orgForRow + the platformOrg sentinel, all in
-// org_consumption.go / dashboard.go) — NOT the billing-orders path
+// Sovereign, via collectFleetOrgItems. That attributes live pods to
+// Organizations with the pod→Org join of the dashboard treemap
+// (buildPodRows in dashboard.go, then orgForRow + the platformOrg
+// sentinel at the end of this file) — NOT the billing-orders path
 // (org_billing_revenue.go), which would size cells by revenue instead
 // of live workload footprint. See the issue's triage comments for why
 // the billing path was rejected.
@@ -392,17 +392,16 @@ func fleetTreemapLayers(layersParam, groupByParam string) []string {
 // collectFleetOrgItems — #5613 Organization-layer projection.
 //
 // For every Sovereign collectFleetSovereigns knows about, attribute its
-// LIVE pods to Organizations using the EXACT SAME resource-attribution
-// join the per-Org showback endpoint uses: buildPodRows (dashboard.go)
+// LIVE pods to Organizations with the resource-attribution join of
+// the dashboard treemap: buildPodRows (dashboard.go)
 // to build the pod rows, then orgForRow + the platformOrg sentinel
-// (org_consumption.go) to bucket each row into its owning Org, a
+// (at the end of this file) to bucket each row into its owning Org, a
 // customer namespace's real Org, or the synthetic "Platform overhead"
 // bucket. This is deliberately NOT the billing path
 // (HandleGetOrgBillingRevenue / org_billing_revenue.go attributes by
 // order $, keyed on TenantID — the wrong data source for a
 // resource-sized treemap; see the issue's triage comments) — every
-// number here traces to a live Pod's resource requests, same as
-// showback.
+// number here traces to a live Pod's resource requests.
 //
 // A Sovereign whose cluster this catalyst-api process cannot list pods
 // for (h.k8sCache has no entry for it — a genuinely remote fleet member,
@@ -410,8 +409,8 @@ func fleetTreemapLayers(layersParam, groupByParam string) []string {
 // single Sovereign-level cell rather than being silently dropped or
 // having Org data invented for it (Principle #2 — no fixtures). On the
 // common case — this catalyst-api's own chroot Sovereign, whose cluster
-// self-registers in h.k8sCache exactly like /dashboard/treemap and
-// /org/consumption already read it — the full per-Org fan-out applies.
+// self-registers in h.k8sCache exactly like /dashboard/treemap already
+// reads it — the full per-Org fan-out applies.
 func (h *Handler) collectFleetOrgItems(ctx context.Context) []fleetTreemapItem {
 	infraNamespaces := infraNamespaceSet(os.Getenv("SHOWBACK_INFRA_NAMESPACES"))
 	items := make([]fleetTreemapItem, 0)
@@ -451,13 +450,13 @@ func (h *Handler) collectFleetOrgItems(ctx context.Context) []fleetTreemapItem {
 // collectFleetOrgItems: attribute one Sovereign's already-built pod rows
 // to Organizations and project the result into the fleet-treemap wire
 // shape, so the attribution math is unit-testable with no live
-// k8scache. Mirrors aggregateConsumption's org/parent/platform bucketing
-// (org_consumption.go) — same orgForRow resolver, same platformOrg
-// sentinel, same "seed the parent so the estate is never blank"
-// contract — but emits fleetTreemapItem rows (id/name/count/percentage/
-// size_value) instead of the showback wire shape. SizeValue reuses the
-// showback cost-unit weights (CPU+memory+storage requests) so cell area
-// reflects live resource footprint, never a billing $ figure.
+// k8scache. The bucketing is org / parent / platform: the orgForRow
+// resolver, the platformOrg sentinel, and "seed the parent so the
+// estate is never blank". It emits fleetTreemapItem rows (id/name/
+// count/percentage/size_value). SizeValue is the weighted sum of the
+// CPU, memory and storage requests (the weights at the end of this
+// file), so cell area reflects live resource footprint, never a
+// billing $ figure.
 func fleetOrgItemsForSovereign(rows []podRow, parentOrg string, infraNamespaces map[string]struct{}) []fleetTreemapItem {
 	type orgTally struct {
 		count int
@@ -474,9 +473,9 @@ func fleetOrgItemsForSovereign(rows []podRow, parentOrg string, infraNamespaces 
 		}
 		return t
 	}
-	// Seed the parent so the Sovereign's own estate is never blank,
-	// mirroring aggregateConsumption's §5 "never blank" contract. An
-	// unnamed parent is not seeded (ADR-0015 D4).
+	// Seed the parent so the Sovereign's own estate is never blank (the
+	// §5 "never blank" contract). An unnamed parent is not seeded
+	// (ADR-0015 D4).
 	if parentOrg != "" {
 		ensure(parentOrg)
 	}
@@ -518,4 +517,106 @@ func fleetOrgItemsForSovereign(rows []podRow, parentOrg string, infraNamespaces 
 		})
 	}
 	return items
+}
+
+// ── Organization attribution of pod rows ────────────────────────────
+//
+// The helpers below decide which Organization a pod row belongs to and
+// how much it weighs. Two views use them: the Organization layer of
+// this fleet treemap (fleetOrgItemsForSovereign) and the organization
+// dimension of the dashboard treemap (dimensionKey in dashboard.go).
+// The console's own per-Organization cost feed that also used them is
+// deleted (CTL-355): cost per Organization is metered, priced and shown
+// by the billing engine, products/chargeback.
+
+// Weights of a pod row — transparent + stable. CPU is the scarcest
+// resource on these clusters, so a millicore weighs more than a MiB; the
+// exact constants matter less than that the same weights apply to every
+// org, so that the shares of the treemap cells are comparable.
+const (
+	weightCPUPerMilli   = 1.0     // per millicore of request
+	weightMemPerGiB     = 4.0     // per GiB of memory request
+	weightStoragePerGiB = 0.25    // per GiB of storage request
+	bytesPerGiB         = 1 << 30 // 1 GiB
+)
+
+// platformOrg is the synthetic bucket every control-plane / infra /
+// one-shot-Job pod rolls into. It is distinct from every customer
+// Organization and from the parent estate so a view can render it as a
+// single "Platform overhead" cell (#3687 fold #3677 §6). The
+// double-underscore guards against collision with a real slug (slugs
+// match [a-z][a-z0-9-]{2,30}).
+const platformOrg = "__platform__"
+
+// defaultInfraNamespaces is the baked-in default set of host /
+// control-plane namespaces whose pods never count for an Organization. It
+// is the floor, not the law: SHOWBACK_INFRA_NAMESPACES (comma-separated)
+// extends it per Sovereign (Principle #4 — config, not a frozen literal).
+// Pods in these namespaces roll into the platformOrg bucket regardless of
+// any Org label, because the join key only becomes meaningful once a real
+// per-Org namespace exists.
+var defaultInfraNamespaces = []string{
+	"kube-system",
+	"flux-system",
+	"trivy-system",
+	"kyverno",
+	"cnpg",
+	"falco",
+	"cert-manager",
+	"external-secrets-system",
+	"sigstore-system",
+	"monitoring",
+	"observability",
+	"cilium-secrets",
+	"gateway-system",
+	"catalyst",
+	"catalyst-system",
+	"shared-data",
+	"dmz",
+	"rtz",
+	"mgmt",
+}
+
+// infraNamespaceSet builds the effective infra-namespace exclusion set:
+// the baked-in default floor merged with the SHOWBACK_INFRA_NAMESPACES
+// env override. Returned as a set for O(1) membership. A unit test passes
+// its own value, so it needs no environment.
+func infraNamespaceSet(envValue string) map[string]struct{} {
+	set := make(map[string]struct{}, len(defaultInfraNamespaces)+8)
+	for _, ns := range defaultInfraNamespaces {
+		set[ns] = struct{}{}
+	}
+	for _, ns := range strings.Split(envValue, ",") {
+		ns = strings.TrimSpace(ns)
+		if ns != "" {
+			set[ns] = struct{}{}
+		}
+	}
+	return set
+}
+
+// orgForRow resolves the owning org of a pod row (#3687 fold #3677). It
+// reads the real `openova.io/organization` join key carried on podRow.org
+// (resolved in buildPodRows from the namespace label the
+// organization-controller stamps). Control-plane / infra namespaces,
+// one-shot Job-owned pods, and any pod whose namespace lacks an Org label
+// roll into the synthetic platformOrg bucket, never into the share of an
+// Organization. No per-org-name or per-namespace-name special-casing: the
+// resolver keys purely on the label + the config-driven exclusion set.
+func orgForRow(row podRow, infraNamespaces map[string]struct{}) string {
+	if _, infra := infraNamespaces[row.namespace]; infra {
+		return platformOrg
+	}
+	if strings.EqualFold(row.ownerKind, "Job") {
+		return platformOrg
+	}
+	if org := strings.TrimSpace(row.org); org != "" {
+		return org
+	}
+	return platformOrg
+}
+
+// round2 rounds to two decimal places.
+func round2(v float64) float64 {
+	return float64(int64(v*100+0.5)) / 100
 }
