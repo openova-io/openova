@@ -1,0 +1,13 @@
+schema: openova.io/plan-wrong/v1
+id: ACC-050
+ticket_rev: 1
+base_commit: 290570ebfa6606477a0e21f596cf7d9f0b39708a
+stage: preflight
+ref: P6
+command: |
+    ls scripts/check-access-guards.sh scripts/baselines/access.json 2>/dev/null | wc -l
+expected: |
+    0
+actual: |
+    2
+reported_at: 2026-11-14T11:25:44Z
