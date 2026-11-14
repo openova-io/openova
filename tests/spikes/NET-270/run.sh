@@ -191,7 +191,7 @@ ev "i-b attack through :80 right after the revert: $(code a.example "$NODE_IP:80
 RS1=$(jq -n '{routeConfig: {name: "waf-routes", virtualHosts: [
   {name: "a", domains: ["a.example", "a.example:*"], routes: [{match: {prefix: "/"}, route: {cluster: "web/cilium-gateway-gw/web:echo-a:80"}}]},
   {name: "b", domains: ["b.example", "b.example:*"], routes: [{match: {prefix: "/"}, route: {cluster: "web/cilium-gateway-gw/web:echo-b:80"}}]}]}}')
-jq -n --argjson l "$(LIS waf1 8081 "$(HCM waf1 "$RS1")")" '{apiVersion: "cilium.io/v2", kind: "CiliumClusterwideEnvoyConfig", metadata: {name: "nslab-waf1"}, spec: {resources: [$l]}}' >"$EV/i-a1.json"
+jq -n --argjson l "$(LIS waf1 8081 "$(HCM waf1 "$RS1")")" '{apiVersion: "cilium.io/v2", kind: "CiliumClusterwideEnvoyConfig", metadata: {name: "nslab-waf1", annotations: {"cec.cilium.io/use-original-source-address": "false"}}, spec: {resources: [$l]}}' >"$EV/i-a1.json"
 kubectl apply -f "$EV/i-a1.json" >/dev/null 2>&1; ev "i-a1 CCEC (own routes -> operator clusters) apply rc=$?"
 for i in $(seq 1 40); do [ "$(code a.example "$NODE_IP:8081" /)" = 200 ] && break; sleep 2; done
 probe "i-a1 CCEC :8081 route a" a.example "$NODE_IP:8081"
@@ -199,7 +199,7 @@ ev "i-a1 CCEC :8081 route b: clean=$(code b.example "$NODE_IP:8081" /) attack=$(
 
 # ---- i-a2: namespaced CEC in the Gateway's namespace, reusing the gateway's own route config
 RS2=$(jq -n --arg r "web/$CEC_NAME/$ROUTE_NAME" '{rds: {routeConfigName: $r}}')
-jq -n --argjson l "$(LIS front 8082 "$(HCM front "$RS2")")" '{apiVersion: "cilium.io/v2", kind: "CiliumEnvoyConfig", metadata: {name: "nslab-front", namespace: "web"}, spec: {resources: [$l]}}' >"$EV/i-a2.json"
+jq -n --argjson l "$(LIS front 8082 "$(HCM front "$RS2")")" '{apiVersion: "cilium.io/v2", kind: "CiliumEnvoyConfig", metadata: {name: "nslab-front", namespace: "web", annotations: {"cec.cilium.io/use-original-source-address": "false"}}, spec: {resources: [$l]}}' >"$EV/i-a2.json"
 kubectl apply -f "$EV/i-a2.json" >/dev/null 2>&1; ev "i-a2 namespaced CEC (RDS = gateway route config) apply rc=$?"
 for i in $(seq 1 40); do [ "$(code a.example "$NODE_IP:8082" /)" = 200 ] && break; sleep 2; done
 probe "i-a2 CEC :8082 route a" a.example "$NODE_IP:8082"
@@ -222,7 +222,7 @@ for i in $(seq 1 40); do [ "$(code a.example "$NODE_IP:18080" /)" = 200 ] && bre
 ev "i-a3 gateway moved to :18080 after ${i}x2s: a=$(code a.example "$NODE_IP:18080" /); :80 now $(code a.example "$NODE_IP:80" /)"
 ROUTE3=$(kubectl -n web get cec $CEC_NAME -o json | jq -r '[.spec.resources[] | select(.["@type"] | test("RouteConfiguration")) | .name][0]')
 RS3=$(jq -n --arg r "web/$CEC_NAME/$ROUTE3" '{rds: {routeConfigName: $r}}')
-jq -n --argjson l "$(LIS front 80 "$(HCM front "$RS3")")" '{apiVersion: "cilium.io/v2", kind: "CiliumEnvoyConfig", metadata: {name: "nslab-front", namespace: "web"}, spec: {resources: [$l]}}' >"$EV/i-a3.json"
+jq -n --argjson l "$(LIS front 80 "$(HCM front "$RS3")")" '{apiVersion: "cilium.io/v2", kind: "CiliumEnvoyConfig", metadata: {name: "nslab-front", namespace: "web", annotations: {"cec.cilium.io/use-original-source-address": "false"}}, spec: {resources: [$l]}}' >"$EV/i-a3.json"
 kubectl apply -f "$EV/i-a3.json" >/dev/null 2>&1; ev "i-a3 front CEC on :80 (RDS $ROUTE3) apply rc=$?"
 for i in $(seq 1 40); do [ "$(code a.example "$NODE_IP:80" "$ATT")" = 403 ] && break; sleep 2; done
 ev "i-a3 public :80 a: clean=$(code a.example "$NODE_IP:80" /) attack=$(code a.example "$NODE_IP:80" "$ATT") sqli=$(curl -s -o /dev/null -w '%{http_code}' -m 5 -H 'Host: a.example' "http://$NODE_IP:80/?id=1%27%20OR%20%271%27=%271") | b: clean=$(code b.example "$NODE_IP:80" /) attack=$(code b.example "$NODE_IP:80" "$ATT") | c: clean=$(code c.example "$NODE_IP:80" /)"
