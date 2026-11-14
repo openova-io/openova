@@ -12,6 +12,11 @@ name: foundation-gate
 #              catalyst/self-sovereign-cutover-status), runs the suite with --run-in cloud --record,
 #              commits the record only if acceptance-gate.py validate-record accepts it, then lets
 #              scripts/gate-run-outcome.py judge the run on this environment.
+#              Between the suite and the validation it runs gate check FND-G07: it creates the user
+#              gate-<run id>@<env>.omani.works in the realm sovereign of region A (kcadm.sh in the Pod
+#              keycloak/keycloak-0), mints its session with the Sovereign's own signer, runs
+#              scripts/sso-zero-click-probe.mjs as that user, deletes the user in a step that always
+#              runs, and adds the result to the record with acceptance-gate.py merge-check.
 # Secrets of the environment gate: ACCEPTANCE_KUBECONFIG_A and ACCEPTANCE_KUBECONFIG_B (base64 of
 # the kubeconfigs of the regions that start as Primary and as Standby), ACCEPTANCE_CATALYST_SESSION
 # (optional owner session; when empty the run mints one from the Sovereign's own signer).
@@ -281,6 +286,130 @@ jobs:
           set -e
           { echo '### Gate run'; echo; echo '```'; sed -n '/^ACCEPTANCE /,$p' "$RUNNER_TEMP/acceptance.log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           echo "suite exit code: $rc"
+      - name: "Sign-in check FND-G07: Node for the probe"
+        continue-on-error: true # without Node the next step records no result, and FND-G07 is a FAIL
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: "Sign-in check FND-G07: a user of this run signs in through the identity provider"
+        id: sso
+        env:
+          KA: ${{ runner.temp }}/kube/a.yaml
+          ENV_LABEL: ${{ inputs.env }}
+          GATE_RUN: ${{ github.run_id }}
+        run: |
+          set +e
+          set -uo pipefail
+          # This step never fails the job. When a part cannot be done it writes why into the summary
+          # and leaves no result file; the step "add the result" then records FND-G07 as FAIL.
+          d="$RUNNER_TEMP/sso"
+          mkdir -p "$d"
+          rm -f "$d/result.json" "$d/session"
+          fqdn="$ENV_LABEL.omani.works" # the console the suite drives: https://console.<env>.omani.works
+          user="gate-$GATE_RUN@$fqdn"
+          # kcadm.sh inside region A's identity provider. The administrator password is read from the
+          # Pod's own mount of Secret keycloak/keycloak-admin and never leaves the Pod.
+          kc() {
+            kubectl --kubeconfig "$KA" -n keycloak exec keycloak-0 -c keycloak -- sh -c '
+              c=/tmp/kcadm-gate.config; k=/opt/bitnami/keycloak/bin/kcadm.sh
+              "$k" config credentials --config "$c" --server http://localhost:8080 --realm master --user admin \
+                --password "$(cat /opt/bitnami/keycloak/secrets/admin-password)" >/dev/null || exit 1
+              exec "$k" "$@" --config "$c"' sh "$@"
+          }
+          stop() {
+            echo "::error::Sign-in check FND-G07: $1"
+            echo "Sign-in check FND-G07: not run, $1" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          }
+          # 1. Delete every user an earlier run left: gate-<run id>@<fqdn>.
+          kc get users -r sovereign -q search=gate- --limit 1000 --fields id,username > "$d/users.json" \
+            || stop "the users of the realm sovereign could not be listed"
+          ids="$(python3 -c 'import json, re, sys; p = re.compile(r"^gate-[0-9]+@" + re.escape(sys.argv[2]) + "$", re.I); print(" ".join(u["id"] for u in json.load(open(sys.argv[1])) if p.match(u.get("username", ""))))' "$d/users.json" "$fqdn")" \
+            || stop "the list of users could not be read"
+          for id in $ids; do
+            kc delete "users/$id" -r sovereign || stop "the user $id that an earlier run left could not be deleted"
+          done
+          # 2. Create the user of this run, in the groups /sovereign-admins and /sovereign-viewers.
+          uid="$(kc create users -r sovereign -s "username=$user" -s "email=$user" -s enabled=true -s emailVerified=true -i)" \
+            || stop "the user $user could not be created"
+          [[ "$uid" =~ ^[0-9a-f-]{36}$ ]] || stop "creating the user $user printed no id"
+          kc get groups -r sovereign -q search=sovereign- --limit 1000 --fields id,name > "$d/groups.json" \
+            || stop "the groups of the realm sovereign could not be listed"
+          for g in sovereign-admins sovereign-viewers; do
+            gid="$(python3 -c 'import json, sys; print(next(x["id"] for x in json.load(open(sys.argv[1])) if x.get("name") == sys.argv[2]))' "$d/groups.json" "$g")" \
+              || stop "the group /$g is not in the realm sovereign"
+            kc update "users/$uid/groups/$gid" -r sovereign -s realm=sovereign -s "userId=$uid" -s "groupId=$gid" -n \
+              || stop "the user $user could not join the group /$g"
+          done
+          kc get "users/$uid/groups" -r sovereign --fields name > "$d/member.json" \
+            || stop "the groups of the user $user could not be read"
+          python3 -c 'import json, sys; n = {x.get("name") for x in json.load(open(sys.argv[1]))}; sys.exit(0 if {"sovereign-admins", "sovereign-viewers"} <= n else 1)' "$d/member.json" \
+            || stop "the user $user is not in both groups /sovereign-admins and /sovereign-viewers"
+          # 3. Mint the user's console session with the Sovereign's own signer, as scripts/acceptance-sovereign.sh does.
+          bin="$d/sovereign-acceptance"
+          ( cd "$GITHUB_WORKSPACE/tests/acceptance/sovereign" && go build -o "$bin" ./cmd/sovereign-acceptance ) \
+            || stop "the session minter could not be built"
+          issuer="$(kubectl --kubeconfig "$KA" -n catalyst-system get deploy catalyst-api \
+            -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="CATALYST_PIN_ISSUER")].value}')"
+          issuer="${issuer:-https://console.$fqdn}"
+          signer="$(kubectl --kubeconfig "$KA" -n catalyst-system get deploy catalyst-api \
+            -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="CATALYST_HANDOVER_SIGNER_PATH")].value}')"
+          signer="${signer:-/var/lib/catalyst/handover-jwt-private.pem}"
+          ( umask 077; kubectl --kubeconfig "$KA" -n catalyst-system exec deploy/catalyst-api -- cat "$signer" \
+              | "$bin" mint-session --key - --issuer "$issuer" --email "$user" --ttl 1h > "$d/session" ) \
+            || stop "the session of $user could not be minted"
+          [ -s "$d/session" ] || stop "the session of $user is empty"
+          # 4. Run the probe with that session. It writes the result file, PASS or FAIL.
+          command -v node > /dev/null || stop "node is not on the PATH"
+          cd "$d" || stop "the folder $d cannot be entered"
+          printf '{"private": true}\n' > "$d/package.json"
+          npm install --no-audit --no-fund playwright@1.46.0 || stop "playwright could not be installed"
+          bash "$GITHUB_WORKSPACE/scripts/playwright-chromium-install.sh" || stop "Chromium could not be installed"
+          cp "$GITHUB_WORKSPACE/scripts/sso-zero-click-probe.mjs" "$d/probe.mjs"
+          node "$d/probe.mjs" --fqdn "$fqdn" --session-file "$d/session" --result-file "$d/result.json" | tee "$d/probe.log"
+          rc=${PIPESTATUS[0]}
+          { echo "### Sign-in check FND-G07 as $user (probe exit code $rc)"; echo; echo '```'; cat "$d/probe.log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: "Sign-in check FND-G07: delete the user of this run"
+        if: always() && steps.sso.outcome != 'skipped'
+        env:
+          KA: ${{ runner.temp }}/kube/a.yaml
+          ENV_LABEL: ${{ inputs.env }}
+          GATE_RUN: ${{ github.run_id }}
+        run: |
+          set +e
+          set -uo pipefail
+          # Runs whenever the step before it ran, whatever it did. It never fails the job: a user it
+          # cannot delete is deleted by the next run's first step.
+          d="$RUNNER_TEMP/sso"
+          rm -f "$d/session"
+          user="gate-$GATE_RUN@$ENV_LABEL.omani.works"
+          kc() {
+            kubectl --kubeconfig "$KA" -n keycloak exec keycloak-0 -c keycloak -- sh -c '
+              c=/tmp/kcadm-gate.config; k=/opt/bitnami/keycloak/bin/kcadm.sh
+              "$k" config credentials --config "$c" --server http://localhost:8080 --realm master --user admin \
+                --password "$(cat /opt/bitnami/keycloak/secrets/admin-password)" >/dev/null || exit 1
+              exec "$k" "$@" --config "$c"' sh "$@"
+          }
+          if ! kc get users -r sovereign -q search=gate- --limit 1000 --fields id,username > "$d/left.json"; then
+            echo "::warning::Sign-in check FND-G07: the users could not be listed; the next run deletes $user."
+            exit 0
+          fi
+          ids="$(python3 -c 'import json, sys; print(" ".join(u["id"] for u in json.load(open(sys.argv[1])) if u.get("username", "").lower() == sys.argv[2].lower()))' "$d/left.json" "$user")"
+          for id in $ids; do
+            kc delete "users/$id" -r sovereign || echo "::warning::Sign-in check FND-G07: $user could not be deleted; the next run deletes it."
+          done
+          echo "Sign-in check FND-G07: the user $user is deleted." >> "$GITHUB_STEP_SUMMARY"
+      - name: "Sign-in check FND-G07: add the result to the record"
+        run: |
+          set +e
+          set -uo pipefail
+          files="$(git -C candidate ls-files --others --exclude-standard -- docs/ledger/acceptance/)"
+          n="$(printf '%s' "$files" | grep -c .)"
+          if [ "$n" != 1 ]; then
+            echo "::warning::The suite wrote $n records, not 1, so the sign-in result is not added. The next step fails on it."
+            exit 0
+          fi
+          python3 scripts/acceptance-gate.py merge-check "candidate/$files" "$RUNNER_TEMP/sso/result.json" --check FND-G07
       - name: Validate the record
         id: record
         run: |

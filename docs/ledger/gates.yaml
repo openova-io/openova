@@ -1287,12 +1287,13 @@ checks:
 - id: FND-G07
   title: Sign-in
   owner: FND
-  state: not-built
+  state: expected-fail
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: A user created for the run signs in through the identity provider and reaches the console, the Git server, the registry and the dashboards without a second prompt.
+  implementation: scripts/sso-zero-click-probe.mjs
   implemented_by: FND-036
   delivered_by: FND-080
 - id: FND-G08

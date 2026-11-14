@@ -10,7 +10,8 @@
 //
 // Session model: ONE fresh Chromium context per run. The operator
 // session is established exactly the way the acceptance walk does it —
-// the handover URL into the console — then every bare URL must land
+// the handover URL into the console, or a console session cookie the
+// caller minted (--session-file) — then every bare URL must land
 // signed in via the silent Keycloak chain (catalyst-pin). App-local
 // state (bao localStorage token, app cookies) starts EMPTY, so a green
 // row proves the zero-click chain, not a stale session.
@@ -23,7 +24,9 @@
 //     --fqdn hw130.omantel.biz \
 //     --handover-url 'https://console.hw130.omantel.biz/auth/handover?token=...' \
 //     [--jwt-key /tmp/hw-priv.pem --deployment-id <id>]   # mint instead
+//     [--session-file <file>]   # or: the raw catalyst_session cookie value
 //     [--rows grafana,openbao] [--json out.json]
+//     [--result-file <file>]    # gate check FND-G07 result (see below)
 //     [--expect-broken openbao,pdns-admin,...]  # negative validation:
 //          exit 0 ONLY if exactly these rows are RED (proves the probe
 //          reds on broken apps — #3374 DoD-6)
@@ -31,13 +34,22 @@
 // Exit codes: 0 = all probed rows green (or --expect-broken satisfied),
 // 1 = contract violations, 2 = harness error.
 //
-// Runs in CI (workflow_dispatch / cron in sso-probe.yaml) and on-env
-// (bastion cron with --jwt-key). Requires the `playwright` package
-// (resolvable from the repo root) + Chromium.
+// --result-file writes the result of gate check FND-G07 as JSON:
+//   {"id":"FND-G07","status":"PASS"|"FAIL","steps":[<one step per row>]}
+// A step has the fields of a step of the gate record: journey (FND-G07),
+// id (the row name), name, status (PASS|FAIL), started_at, finished_at,
+// duration_ms, evidence, error. PASS only when every probed row is GREEN.
+// A harness error (no --fqdn, no session, no browser) writes FAIL with one
+// step that names the error. scripts/acceptance-gate.py merge-check adds
+// the file to the gate record.
+//
+// Runs in CI in the live job of foundation-gate.yaml (gate check FND-G07,
+// with --session-file and --result-file) and on-env (bastion cron with
+// --jwt-key). Requires the `playwright` package (resolvable from the
+// directory of this file) + Chromium.
 
-import { chromium } from 'playwright';
 import { execFileSync } from 'node:child_process';
-import { writeFileSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+import { writeFileSync, mkdirSync, readdirSync, statSync, readFileSync } from 'node:fs';
 import crypto from 'node:crypto';
 
 // Resolve a Chromium binary: PROBE_CHROMIUM wins; else pick any installed
@@ -67,11 +79,22 @@ for (let i = 2; i < process.argv.length; i++) {
     args[k] = v;
   }
 }
-const FQDN = args.fqdn;
-if (!FQDN) {
-  console.error('FATAL: --fqdn is required (e.g. hw130.omantel.biz)');
+// ── gate check result (--result-file) ─────────────────────────────────
+const CHECK_ID = 'FND-G07';
+const RESULT_FILE = args['result-file'] && args['result-file'] !== 'true' ? args['result-file'] : null;
+function writeResult(status, steps) {
+  if (RESULT_FILE) writeFileSync(RESULT_FILE, JSON.stringify({ id: CHECK_ID, status, steps }, null, 2) + '\n');
+}
+function fatal(msg) {
+  console.error(`FATAL: ${msg}`);
+  const now = new Date().toISOString();
+  writeResult('FAIL', [{ journey: CHECK_ID, id: '-', name: 'the probe could run', status: 'FAIL',
+    started_at: now, finished_at: now, duration_ms: 0, error: msg }]);
   process.exit(2);
 }
+
+const FQDN = args.fqdn && args.fqdn !== 'true' ? args.fqdn : null;
+if (!FQDN) fatal('--fqdn is required (e.g. hw130.omantel.biz)');
 const host = (sub) => `https://${sub}.${FQDN}`;
 const SHOTS = args.shots && args.shots !== 'true' ? args.shots : null;
 const ENVTAG = FQDN.split('.')[0];
@@ -101,11 +124,20 @@ function mintHandoverURL() {
   const sig = execFileSync('openssl', ['dgst', '-sha256', '-sign', args['jwt-key']], { input: signingInput });
   return `https://console.${FQDN}/auth/handover?token=${signingInput}.${b64url(sig)}`;
 }
-const handoverURL = args['handover-url'] || (args['jwt-key'] ? mintHandoverURL() : null);
-if (!handoverURL) {
-  console.error('FATAL: provide --handover-url or --jwt-key (+ --deployment-id)');
-  process.exit(2);
+// --session-file: the raw value of the console's catalyst_session cookie,
+// minted by the caller. It is set on .<fqdn>, the domain the console itself
+// gives that cookie, and the console row opens /dashboard with it.
+let sessionValue = null;
+if (args['session-file']) {
+  try { sessionValue = readFileSync(args['session-file'], 'utf8').trim(); } catch (e) {
+    fatal(`--session-file ${args['session-file']}: ${e.message.split('\n')[0]}`);
+  }
+  if (!sessionValue) fatal(`--session-file ${args['session-file']}: the file is empty`);
 }
+const handoverURL = sessionValue ? null
+  : args['handover-url'] || (args['jwt-key'] ? mintHandoverURL() : null);
+if (!sessionValue && !handoverURL) fatal('provide --handover-url, --jwt-key (+ --deployment-id) or --session-file');
+const consoleURL = sessionValue ? `https://console.${FQDN}/dashboard` : handoverURL;
 
 // ── row definitions ───────────────────────────────────────────────────
 // Each row: { name, url, ctx: 'authed'|'anon', settleMs,
@@ -115,7 +147,7 @@ if (!handoverURL) {
 // page); positive markers are the authenticated-landing proof.
 const ROWS = [
   {
-    name: 'console', url: handoverURL, ctx: 'authed', settleMs: 6000,
+    name: 'console', url: consoleURL, ctx: 'authed', settleMs: 6000,
     positive: [{ kind: 'url-includes', v: '/dashboard' }, { kind: 'text', v: 'Dashboard' }],
     loginMarkers: [{ kind: 'text', v: 'Sign in' }],
   },
@@ -251,6 +283,7 @@ async function evalMarker(page, m) {
 async function probeRow(ctx, row) {
   const page = await ctx.newPage();
   const result = { name: row.name, url: row.url.replace(/token=[^&]+/, 'token=<redacted>'), status: 'RED', finalURL: '', shot: '', details: [] };
+  const started = new Date();
   try {
     await page.goto(row.url, { waitUntil: 'load', timeout: 45000 }).catch((e) => {
       result.details.push(`goto: ${e.message.split('\n')[0]}`);
@@ -276,6 +309,12 @@ async function probeRow(ctx, row) {
   } finally {
     await page.close().catch(() => {});
   }
+  const finished = new Date();
+  result.step = { journey: CHECK_ID, id: row.name, name: `${row.name}: the bare URL lands as the row asserts`,
+    status: result.status === 'GREEN' ? 'PASS' : 'FAIL', started_at: started.toISOString(),
+    finished_at: finished.toISOString(), duration_ms: finished.getTime() - started.getTime(),
+    evidence: { url: result.url, finalURL: result.finalURL } };
+  if (result.status !== 'GREEN') result.step.error = result.details.join('; ') || 'RED';
   return result;
 }
 
@@ -286,12 +325,22 @@ const rows = only ? ROWS.filter((r) => only.includes(r.name)) : ROWS;
 // PROBE_CHROMIUM: optional explicit Chromium binary (e.g. when the
 // resolvable playwright package's pinned browser build isn't installed
 // but another build is — common on shared runners/bastions).
-const browser = await chromium.launch({
-  headless: true,
-  executablePath: resolveChromium(),
-});
-const authedCtx = await browser.newContext({ ignoreHTTPSErrors: false });
-const anonCtx = await browser.newContext({ ignoreHTTPSErrors: false });
+let browser, authedCtx, anonCtx;
+try {
+  const { chromium } = await import('playwright');
+  browser = await chromium.launch({
+    headless: true,
+    executablePath: resolveChromium(),
+  });
+  authedCtx = await browser.newContext({ ignoreHTTPSErrors: false });
+  anonCtx = await browser.newContext({ ignoreHTTPSErrors: false });
+  if (sessionValue) {
+    await authedCtx.addCookies([{ name: 'catalyst_session', value: sessionValue, domain: `.${FQDN}`, path: '/',
+      httpOnly: true, secure: true, sameSite: 'Lax' }]);
+  }
+} catch (e) {
+  fatal(`the browser could not start: ${String(e.message).split('\n')[0]}`);
+}
 
 // Establish the operator session FIRST (console row is also the probe
 // of the handover entry itself).
@@ -305,9 +354,12 @@ for (const row of rows) {
 }
 await browser.close();
 
+const steps = results.map((r) => r.step);
+for (const r of results) delete r.step;
 if (args.json) writeFileSync(args.json, JSON.stringify({ fqdn: FQDN, at: new Date().toISOString(), results }, null, 2));
 
 const red = results.filter((r) => r.status === 'RED').map((r) => r.name);
+writeResult(red.length === 0 && results.length > 0 ? 'PASS' : 'FAIL', steps);
 if (args['expect-broken']) {
   // Negative validation (#3374 DoD-6): the probe proves it REDS on
   // broken rows — pass ONLY if the red set matches expectation.
