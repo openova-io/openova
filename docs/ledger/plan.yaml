@@ -103,7 +103,7 @@ epics:
 - id: FND-140
   title: The release train as a workflow
   wave: W1a
-  packages: [FND-141, FND-144, FND-143, FND-142]
+  packages: [FND-141, FND-143, FND-144, FND-142]
 - id: FND-150
   title: Self-conformance in the Sovereign
   wave: W1b
@@ -203,7 +203,7 @@ epics:
 - id: SOV-700
   title: 'EPIC: Day-2 with the parent switched off'
   wave: W1b
-  packages: [SOV-750, SOV-760, SOV-765, SOV-720, SOV-725, SOV-740, SOV-726, SOV-710, SOV-730]
+  packages: [SOV-750, SOV-760, SOV-765, SOV-720, SOV-725, SOV-726, SOV-740, SOV-710, SOV-730]
 - id: SOV-800
   title: 'EPIC: Mothership mode and the child walk'
   wave: W1b
@@ -363,7 +363,7 @@ epics:
 - id: AIP-220
   title: 'EPIC: ops-records'
   wave: W3
-  packages: [AIP-221, AIP-222, AIP-224, AIP-229, AIP-223, AIP-225, AIP-227, AIP-226, AIP-228]
+  packages: [AIP-221, AIP-224, AIP-229, AIP-222, AIP-223, AIP-225, AIP-227, AIP-226, AIP-228]
 - id: AIP-240
   title: 'EPIC: bp-agents-service-management'
   wave: W3
@@ -389,9 +389,9 @@ epics:
   wave: W3
   packages: [INF-410, INF-420, INF-465, INF-430, INF-440, INF-450, INF-455, INF-460, INF-470, INF-480, INF-490, INF-540, INF-495]
 - id: INF-500
-  title: 'Epic: light testing (INF-510, 512, 515, 520, 530)'
+  title: 'Epic: light testing (INF-510, 512, 513, 515, 520, 530)'
   wave: W3
-  packages: [INF-512, INF-510, INF-515, INF-520, INF-530]
+  packages: [INF-512, INF-513, INF-510, INF-515, INF-520, INF-530]
 - id: INF-600
   title: 'Epic: golden images and rotation (INF-610, 620, 630, 640) — outline; tickets written after the spike'
   wave: W3
@@ -5847,7 +5847,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-104, CLD-144, CLD-211, FND-031]
-  after: [SVC-040]
+  after: [CLD-089, SVC-040]
   touches:
   - products/catalyst/bootstrap/api/internal/providers/local/**
   - clusters/_template/providers/local/**
@@ -5875,25 +5875,40 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-087]
-  after: [SOV-335, SEC-150]
+  after: []
   touches:
   - scripts/local-pack.sh
-  - infra/providers/local/**
   - .github/workflows/conformance-local.yaml
+  - infra/providers/local/kit-exclude.txt
+  - clusters/_template/providers/local/kit/kustomization.yaml
+  - clusters/_template/providers/local/kit/no-plane-isolation.yaml
+  - scripts/network-guards-exceptions.tsv
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test \"$(sha256sum < .github/workflows/conformance-local.yaml)\" = \"5b62346fc2db6ea9fbe37789a5b1f93ff50f2077988f35338bcd9b87b451ebe3  -\" && sha256sum < scripts/local-pack.sh"
+    expect: "3971d2abe7145a92f3cb64dd71ddd0fe3d7578bde13fee9412ff62805fd00cd2  -"
+  acceptance:
+  - id: A1
+    run: "test \"$(sha256sum < scripts/local-pack.sh)\" = \"a90186ef3f982511eb21207a104bd555de5b3bc018416e2cb188ca7f6ecab02b  -\" && bash scripts/local-pack.sh --self-test && python3 scripts/check-provider-leaks.py --check"
+  - id: A2
+    run: "test \"$(sha256sum < .github/workflows/conformance-local.yaml)\" = \"177da01e856057190b0c8a24d4c65419948ba892b812f1c3e0b4f63a113c82e9  -\" && python3 scripts/check-pins.py --base origin/main"
+  - id: A3
+    run: "python3 scripts/generators/local-kit.py --check && python3 -c \"import yaml; ex = sorted(l.strip() for l in open('infra/providers/local/kit-exclude.txt') if l.strip() and not l.strip().startswith('#')); kit = [r.split('/')[-1] for r in yaml.safe_load(open('clusters/_template/providers/local/kit/kustomization.yaml'))['resources']]; assert ex == ['bp-external-secrets', 'bp-harbor', 'bp-openbao', 'bp-powerdns', 'bp-seaweedfs'], ex; assert not set(kit) & {'08-openbao.yaml', '11-powerdns.yaml', '15-external-secrets.yaml', '18-seaweedfs.yaml', '19-harbor.yaml'}, kit; assert {'09-keycloak.yaml', '10-gitea.yaml', '13-bp-catalyst-platform.yaml', 'no-plane-isolation.yaml'} <= set(kit), kit\""
+  - id: A4
+    run: "test \"$(sha256sum < clusters/_template/providers/local/kit/no-plane-isolation.yaml)\" = \"234c872110ca787f368e130affbe5fa3b841c033c36c61d0822addab33489eb4  -\" && python3 -c \"import yaml; d = [x for x in yaml.safe_load_all(open('clusters/_template/providers/local/kit/no-plane-isolation.yaml')) if x]; assert [(x['apiVersion'], x['kind'], x['metadata']['namespace'], x['metadata']['name']) for x in d] == [('networking.k8s.io/v1', 'NetworkPolicy', 'keycloak', 'local-pack-allow-egress'), ('networking.k8s.io/v1', 'NetworkPolicy', 'gitea', 'local-pack-allow-ingress')], d; assert d[0]['spec'] == {'podSelector': {}, 'policyTypes': ['Egress'], 'egress': [{}]}, d[0]; assert d[1]['spec'] == {'podSelector': {}, 'policyTypes': ['Ingress'], 'ingress': [{}]}, d[1]\""
+  - id: A5
+    run: "python3 -c 'import importlib.util, subprocess, sys; s = importlib.util.spec_from_file_location(\"ng\", \"scripts/check-network-guards.py\"); m = importlib.util.module_from_spec(s); s.loader.exec_module(m); t = m.tracked; m.tracked = lambda repo: sorted(set(t(repo)) | set(subprocess.run([\"git\", \"-C\", repo, \"ls-files\", \"--others\", \"--exclude-standard\"], check=True, stdout=subprocess.PIPE, text=True).stdout.split())); sys.exit(m.run_check(\".\", m.GUARDS))' && python3 -c \"rows = [l.rstrip('\\n').split('\\t') for l in open('scripts/network-guards-exceptions.tsv') if l.startswith('clusters/_template/providers/local/')]; assert len(rows) == 1 and len(rows[0]) == 3 and rows[0][0] == 'clusters/_template/providers/local/kit/no-plane-isolation.yaml' and rows[0][1] == 'CLD-089' and len(rows[0][2]) > 40, rows\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 2
   dropped: false
-  delivers: 'The local pack runs the console: the kit core includes it within the CPU limit of a machine, the env file names the console address and a file with an owner session, and a scheduled workflow keeps the image cache warm'
+  delivers: The local provider pack leaves five releases out of its reduced kit, adds two network policies that stand in for the base policy of the release it does not run, gives the primary region one worker machine, waits until the console release is Ready and its API is available there, mints an owner session with the console's own signer, and writes CONSOLE_URL and SESSION_TOKEN_FILE into the env file; a wait that reaches its time limit prints the state of every HelmRelease and Flux Kustomization of every region; the command scripts/local-pack.sh discovery passes when the suite's discovery steps D0.1 and D0.2 pass on the pack, and the workflow conformance-local runs it on every pull request that changes the pack.
 - id: CLD-090
   title: The three modules meet contract version 1; conformance tests
   area: CLD
@@ -5973,7 +5988,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CLD-090, SEC-020, SEC-150]
-  after: [CLD-075, CLD-023, CLD-113, CLD-161, CLD-185, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-335, SEC-030, SEC-040, NET-020, NET-100, SVC-040]
+  after: [CLD-075, CLD-023, CLD-089, CLD-113, CLD-161, CLD-185, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-335, SEC-030, SEC-040, NET-020, NET-100, SVC-040]
   touches:
   - infra/providers/_contract/cloudprofile.schema.json
   - infra/providers/*/profile.yaml
@@ -6769,7 +6784,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CLD-023, CLD-145]
-  after: [FND-011, CLD-185, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SEC-030, SEC-040, NET-020, NET-133, SVC-040, SVC-041, SVC-060]
+  after: [FND-011, CLD-089, CLD-185, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SEC-030, SEC-040, NET-020, NET-133, SVC-040, SVC-041, SVC-060]
   touches:
   - clusters/_template/providers/*/sovereign-tls/**
   - clusters/_template/providers/hetzner/values/**
@@ -7061,7 +7076,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CLD-050, CLD-066, CLD-087, FND-032, SEC-190, SEC-211]
-  after: [FND-033, FND-034, FND-075, CLD-030, CLD-090, SOV-335, SEC-010, SEC-080, NET-010, NET-011, NET-013, NET-020, NET-060, NET-100, NET-102, SVC-125, CTL-040, CTL-151, CTL-320, CTL-345, CMP-010, BSS-030, AIP-040, AIP-042, INF-051]
+  after: [FND-033, FND-034, FND-075, CLD-030, CLD-089, CLD-090, SOV-335, SEC-010, SEC-080, NET-010, NET-011, NET-013, NET-020, NET-060, NET-100, NET-102, SVC-125, CTL-040, CTL-151, CTL-320, CTL-345, CMP-010, BSS-030, AIP-040, AIP-042, INF-051]
   touches:
   - clusters/_template/infrastructure/base/**
   - clusters/_template/infrastructure/providers/base/provider-opentofu.yaml
@@ -16246,7 +16261,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [NET-323]
-  after: [CLD-023, CLD-030, CLD-086, CLD-113, CLD-141, CLD-142, SOV-020, SOV-130, SOV-151, SOV-160, SOV-161, SOV-336, SOV-337, SEC-100, SEC-104, SVC-060, CTL-041, CTL-346, CMP-036, INF-050]
+  after: [CLD-023, CLD-030, CLD-086, CLD-089, CLD-113, CLD-141, CLD-142, SOV-020, SOV-130, SOV-151, SOV-160, SOV-161, SOV-336, SOV-337, SEC-100, SEC-104, SVC-060, CTL-041, CTL-346, CMP-036, INF-050]
   touches:
   - clusters/_template/
   resources: []
@@ -16964,7 +16979,7 @@ packages:
   - id: A6
     run: "bash platform/bp-vcluster-helmrepo/chart/tests/function-test-render.sh platform/bp-vcluster-helmrepo/chart"
   - id: A7
-    run: "test -f platform/crossplane-claims/chart/templates/tests/function-test.yaml && bash platform/crossplane-claims/chart/tests/composition-validate.sh platform/crossplane-claims/chart"
+    run: "test -f platform/crossplane-claims/chart/templates/tests/function-test.yaml && env -u KUBECONFIG bash platform/crossplane-claims/chart/tests/composition-validate.sh platform/crossplane-claims/chart"
   - id: A8
     run: "old=\"$(git show \"$(git merge-base origin/main HEAD)\":scripts/service-model-baseline.yaml | sed -n 's/^  G6\\.function-test-charts: \\([0-9][0-9]*\\)$/\\1/p')\" && new=\"$(sed -n 's/^  G6\\.function-test-charts: \\([0-9][0-9]*\\)$/\\1/p' scripts/service-model-baseline.yaml)\" && test \"$((new - old))\" = 5 && python3 scripts/check-service-model.py > /dev/null"
   rollback: revert
@@ -16972,7 +16987,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: The charts bp-kyverno-policies, bp-reloader, bp-crossplane, bp-crossplane-claims and bp-vcluster-helmrepo each carry one helm test Pod that proves the chart works, a render test holds each Pod to the function-test contract, and the composition test of bp-crossplane-claims counts only the objects the chart installs.
 - id: SVC-110
@@ -24083,7 +24098,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [BSS-122]
-  after: [SVC-040, CTL-332, CTL-345, BSS-040, BSS-050, BSS-141]
+  after: [CTL-332, SVC-040, CTL-345, BSS-040, BSS-050, BSS-141]
   touches:
   - core/services/billing/store/store.go
   - core/services/billing/handlers/handlers.go
@@ -26146,7 +26161,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [AIP-221]
-  after: []
+  after: [AIP-229]
   touches:
   - products/ops-records/internal/signals/**
   - products/ops-records/internal/correlate/**
@@ -26181,7 +26196,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [AIP-120, AIP-222]
-  after: [SVC-040, AIP-229]
+  after: [SVC-040]
   touches:
   - products/ops-records/internal/judge/**
   resources: []
@@ -26952,7 +26967,7 @@ packages:
   resources: []
   flips: []
   implements: []
-  proven_by: INF-051
+  proven_by: INF-052
   precondition:
     run: "ls -d platform/kured 2>/dev/null | wc -l"
     expect: "0"
@@ -26999,7 +27014,7 @@ packages:
   resources: []
   flips: []
   implements: []
-  proven_by: INF-051
+  proven_by: INF-052
   precondition:
     run: "ls clusters/_template/bootstrap-kit | grep -c '^04b-'"
     expect: "0"
@@ -27031,7 +27046,7 @@ packages:
   size: S
   lane: GATE
   depends_on: [INF-050]
-  after: [CTL-320]
+  after: [CTL-320, INF-053]
   touches:
   - tests/acceptance/sovereign/internal/suite/check_inf_g01.go
   - tests/acceptance/sovereign/internal/suite/check_inf_g01_test.go
@@ -27039,8 +27054,8 @@ packages:
   - tests/acceptance/sovereign/README.md
   - tests/acceptance/sovereign/internal/kube/kube.go
   resources: []
-  flips: [INF-G01]
-  implements: []
+  flips: []
+  implements: [INF-G01]
   proven_by: null
   precondition:
     run: "ls tests/acceptance/sovereign/internal/suite | grep -c '^check_inf_g01'"
@@ -27066,6 +27081,61 @@ packages:
   ticket_rev: 3
   dropped: false
   delivers: 'The acceptance suite has gate check INF-G01 as expected-fail: after journey J1 passed it puts a pending reboot on one control-plane node and two other nodes of each region in turn, and fails unless kured restarts them one at a time, drained, within 3 x (period + lock release delay) + 15 minutes, with every node schedulable and Ready again.'
+- id: INF-052
+  title: 'Check INF-G01: upgrade windows and recovery; set to required'
+  area: INF
+  epic: null
+  type: test
+  wave: W0
+  size: S
+  lane: GATE
+  depends_on: [INF-051]
+  after: [FND-033, FND-034, FND-035, FND-039, FND-075, FND-077, FND-131, SEC-010, SEC-080, SEC-120, NET-013, CTL-151, CMP-010]
+  touches:
+  - tests/acceptance/sovereign/internal/suite/check_inf_g01.go
+  - tests/acceptance/sovereign/internal/suite/check_inf_g01_test.go
+  - tests/acceptance/sovereign/README.md
+  - docs/ledger/gates.yaml
+  resources: []
+  flips: [INF-G01]
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: forward-fix
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'Check INF-G01 asserts the whole text of its manifest entry. Besides the restarts that INF-051 watches: every plans.upgrade.cattle.io object has a window outside kured''s reboot span that ends at least 30 minutes before the span starts (no Plan kind or no Plan passes), and within the same time limit DaemonSet kube-system/kured is fully ready and every HelmRelease that was Ready before the first reboot is Ready again. The entry is required.'
+- id: INF-053
+  title: 'Capability flag node-reboot: a gate run restarts nodes only when it declares the flag'
+  area: INF
+  epic: null
+  type: test
+  wave: W0
+  size: XS
+  lane: GATE
+  depends_on: []
+  after: [FND-031, FND-032, FND-033, FND-034, FND-036, FND-075, SVC-125]
+  touches:
+  - scripts/acceptance-gate.py
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: forward-fix
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'The closed list of capability flags in scripts/acceptance-gate.py gains node-reboot. A gate run declares it only when the input capabilities of the gate workflow holds it (default empty). A check that needs it, INF-G01, is recorded SKIP for unmet needs in every other run, so an ordinary gate run restarts no node and does not wait for kured''s reboot span. No workflow file changes: the workflow already passes capabilities to the suite.'
 - id: INF-055
   title: Leave the kured slot out of the local reduced kit
   area: INF
@@ -27099,7 +27169,7 @@ packages:
   wave: W0
   size: XS
   lane: SUBSTRATE
-  depends_on: [INF-051]
+  depends_on: [INF-052]
   after: [CLD-023, CLD-040, CLD-185, SOV-130, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-335, SEC-020, SEC-030, SEC-040, NET-020, NET-031, INF-010]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
@@ -28403,7 +28473,7 @@ packages:
   dropped: false
   delivers: The definition, fail-closed scope rules, egress policy limited to resolved targets and ports, kill handling
 - id: INF-512
-  title: Runner test task and its tools
+  title: 'Runner test task: arguments, target check and Nuclei (profile network-passive)'
   area: INF
   epic: INF-500
   type: new
@@ -28418,6 +28488,9 @@ packages:
   - products/machine-runner/Containerfile
   - products/machine-runner/tools.lock.yaml
   - products/machine-runner/LICENSES.md
+  - products/catalyst/bootstrap/api/internal/machines/runner/config.go
+  - products/catalyst/bootstrap/api/internal/machines/runner/runner.go
+  - products/machine-runner/README.md
   resources: []
   flips: []
   implements: []
@@ -28431,7 +28504,40 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: Nuclei with signed templates and ZAP baseline in the image; exact argument lists per profile
+  delivers: 'Task test of the runner, in the Job shape of SSH mode with no SSH session: the flags --test-profile, --ports (comma-separated) and --requests-per-second, a target list built only from --address and --ports, and profile network-passive, Nuclei 3.11.1 with the signed templates of a tag archive in the image; findings are written as test.sarif.json (evidence kind test-sarif) and counted in the result member test.'
+- id: INF-513
+  title: 'Runner test task: the ZAP baseline scan and its SARIF report (profile web-passive)'
+  area: INF
+  epic: INF-500
+  type: new
+  wave: W3
+  size: S
+  lane: CONTROL
+  depends_on: [INF-512]
+  after: []
+  touches:
+  - products/catalyst/bootstrap/api/internal/machines/runner/test.go
+  - products/catalyst/bootstrap/api/internal/machines/runner/test_test.go
+  - products/catalyst/bootstrap/api/internal/machines/runner/sarif.go
+  - products/catalyst/bootstrap/api/internal/machines/runner/sarif_test.go
+  - products/machine-runner/Containerfile
+  - products/machine-runner/tools.lock.yaml
+  - products/machine-runner/LICENSES.md
+  - products/machine-runner/README.md
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'Profile web-passive of the task test: the ZAP 2.17.0 baseline scan in the image, run once per port of the scope against the target address, with its Java runtime from the Debian archive of the base image; the runner converts each JSON report and writes the findings as test.sarif.json (evidence kind test-sarif).'
 - id: INF-515
   title: Kill route; check INF-G07
   area: INF
@@ -28440,7 +28546,7 @@ packages:
   wave: W3
   size: S
   lane: CONTROL
-  depends_on: [INF-510, INF-512]
+  depends_on: [INF-510, INF-512, INF-513]
   after: [CTL-345, BSS-040]
   touches:
   - products/catalyst/bootstrap/api/internal/machines/routes/kill.go
