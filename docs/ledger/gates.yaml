@@ -651,6 +651,7 @@ checks:
   needs: []
   proof: running
   asserts: After the upgrade run Crossplane is at the train's version, Workspaces are unchanged in number and Ready, packages are Healthy and came from the named registry
+  implemented_by: CLD-067
   delivered_by: CLD-061
 - id: CLD-G07
   title: Providers route lists the packs; a create request validates
