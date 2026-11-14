@@ -22,7 +22,9 @@ count
   anywhere in its content, and its path does not start with "docs/". The files read are the
   files that Git tracks and that are in the checkout, and the new files that Git does not
   ignore. A tracked file that was deleted in the checkout is not read. The name of a file
-  does not count, only its content. The count must not be higher than the number in
+  does not count, only its content. The allow-lists of the secret guards
+  (scripts/secret-guard-baselines/*.txt, not in a deeper folder) are not read either: each
+  of their lines is the name of a file. The count must not be higher than the number in
   docs/ledger/sandbox-word-baseline.txt. A count below that number passes, and the output
   names the number the baseline can be lowered to.
 
@@ -41,6 +43,8 @@ import tempfile
 WORD = "sandbox"
 BASELINE = "docs/ledger/sandbox-word-baseline.txt"
 EXCLUDED = "docs"
+# The allow-lists of the secret guards: each line names a file, and a name does not count.
+NAME_LISTS = "scripts/secret-guard-baselines/*.txt"
 
 
 class Unreadable(Exception):
@@ -72,7 +76,7 @@ def read_baseline(root):
 
 def counted(root):
     """The sorted paths of the files that rule count counts."""
-    code, out = git(root, "grep", "-l", "-z", "-i", "-F", "--untracked", "-e", WORD, "--", ".", ":(exclude)%s" % EXCLUDED, ok=(0, 1))
+    code, out = git(root, "grep", "-l", "-z", "-i", "-F", "--untracked", "-e", WORD, "--", ".", ":(exclude)%s" % EXCLUDED, ":(exclude,glob)%s" % NAME_LISTS, ok=(0, 1))
     if code == 1:
         return []
     return sorted(p for p in out.decode("utf-8", "surrogateescape").split("\0") if p)
@@ -189,6 +193,10 @@ def self_test():
             case("count: the malformed baseline %r fails" % text, r, 1, "must hold one line with a whole number")
         r = repo(tmp, "m9", {"a/one.go": "sandbox\n"})
         case("count: a missing baseline fails", r, 1, "is missing or cannot be read")
+        r = repo(tmp, "c8", dict(two, **{"scripts/secret-guard-baselines/check-x.txt": "platform/a/sandbox-x.yaml:1\n"}))
+        case("count: an allow-list of the secret guards names files and is not counted", r, 0, "2 files outside docs/")
+        r = repo(tmp, "c9", dict(two, **{"scripts/secret-guard-baselines/register.yaml": "sandbox\n", "scripts/secret-guard-baselines/deep/x.txt": "sandbox\n"}))
+        case("count: other files of that folder are counted and fail", r, 1, "4 files outside docs/")
         # base
         r = repo(tmp, "b1", two)
         sh(r, "git", "tag", "before")
