@@ -1,0 +1,93 @@
+{{- /*
+Function test of bp-gitea (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
+
+It sends GET /api/v1/version to the subchart's HTTP Service
+<fullname>-http.<namespace>.svc.cluster.local:<gitea.service.http.port, default 3000>.
+It passes when the answer is HTTP 200 and names a version: Gitea's web
+server, its configuration and its API router answer. It sends no credential
+and writes nothing.
+
+<fullname> is computed the way the subchart computes it. The chart has no
+master gate, so the test always renders. The image is the kubectl image this
+chart already uses for its git-data guard (it carries curl);
+functionTest.image overrides it.
+
+The subchart ships a test Pod of its own (gitea-test-connection); this file
+does not change it.
+*/ -}}
+{{- $sub := .Values.gitea | default dict }}
+{{- $name := $sub.nameOverride | default "gitea" }}
+{{- $fullname := "" }}
+{{- if $sub.fullnameOverride }}
+{{- $fullname = $sub.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- else if contains $name .Release.Name }}
+{{- $fullname = .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- $fullname = printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- end }}
+{{- $svcNamespace := $sub.namespace | default .Release.Namespace }}
+{{- $port := ((($sub.service | default dict).http | default dict).port | default 3000) }}
+{{- $ft := .Values.functionTest | default dict }}
+{{- $image := $ft.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 300
+  automountServiceAccountToken: false
+  containers:
+    - name: function-test
+      image: {{ $image | quote }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: HOME
+          value: /tmp
+        - name: VERSION_URL
+          value: {{ printf "http://%s-http.%s.svc.cluster.local:%v/api/v1/version" $fullname $svcNamespace $port | quote }}
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -u
+          fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          code=""
+          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            code="$(curl -sS --max-time 10 -o /tmp/answer -w '%{http_code}' "${VERSION_URL}" 2>/tmp/error)" && [ "${code}" = "200" ] && break
+            sleep 5
+          done
+          [ "${code}" = "200" ] || fail "GET ${VERSION_URL} answered '${code}': $(tr '\n' ' ' < /tmp/error | cut -c1-160)"
+          version="$(grep -o -E '"version" *: *"[^"]+"' /tmp/answer | head -1 | sed -E 's/^"version" *: *"//; s/"$//')"
+          [ -n "${version}" ] || fail "the answer names no version: $(tr '\n' ' ' < /tmp/answer | cut -c1-160)"
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} the Gitea API answered with version ${version}"
+  volumes:
+    - name: tmp
+      emptyDir: {}

@@ -6,8 +6,10 @@
 # so packaging it is pure payload with zero runtime value. Verified no
 # template reads any of these via .Files.Get/Glob/Lines.
 
-# CI integration tests + their fixtures/helpers
-tests/
+# CI integration tests + their fixtures/helpers. The leading slash anchors the
+# pattern to the chart root: an unanchored tests/ would also drop
+# templates/tests/, the helm test hooks.
+/tests/
 ci/
 fixtures/
 *.sh

@@ -1,0 +1,99 @@
+{{- /*
+Function test of bp-cert-manager-powerdns-webhook (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
+
+The chart registers the webhook as an aggregated API: the APIService
+v1alpha1.<webhook.groupName> sends every request for that API group to the
+webhook Pod. The test asks the Kubernetes API for the discovery document of
+that group, GET /apis/<webhook.groupName>/v1alpha1. The API server can answer
+only through the webhook, so it passes when the answer names the group
+version <webhook.groupName>/v1alpha1 and the resource kind ChallengePayload
+that cert-manager sends to a DNS-01 solver. It writes nothing.
+
+Every authenticated user may read discovery documents, so the ServiceAccount
+of this file needs no binding. It renders only when the chart renders the
+APIService (apiService.enabled). The image is the kubectl image the kit
+already pulls (bp-cnpg's webhook gate); functionTest.image overrides it.
+*/ -}}
+{{- if .Values.apiService.enabled }}
+{{- $group := .Values.webhook.groupName }}
+{{- $ft := .Values.functionTest | default dict }}
+{{- $image := $ft.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 300
+  serviceAccountName: {{ .Release.Name }}-function-test
+  containers:
+    - name: function-test
+      image: {{ $image | quote }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: HOME
+          value: /tmp
+        - name: GROUP_VERSION
+          value: {{ printf "%s/v1alpha1" $group | quote }}
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -u
+          fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          ok=""
+          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            if kubectl --request-timeout=10s get --raw "/apis/${GROUP_VERSION}" > /tmp/answer 2>/tmp/error; then
+              ok="yes"
+              break
+            fi
+            sleep 5
+          done
+          [ -n "${ok}" ] || fail "GET /apis/${GROUP_VERSION} failed: $(tr '\n' ' ' < /tmp/error | cut -c1-160)"
+          grep -q -E "\"groupVersion\" *: *\"${GROUP_VERSION}\"" /tmp/answer || fail "the answer names another group version: $(tr '\n' ' ' < /tmp/answer | cut -c1-160)"
+          grep -q -E '"kind" *: *"ChallengePayload"' /tmp/answer || fail "the API group serves no ChallengePayload: $(tr '\n' ' ' < /tmp/answer | cut -c1-160)"
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} the webhook serves the API group ${GROUP_VERSION}"
+  volumes:
+    - name: tmp
+      emptyDir: {}
+{{- end }}
