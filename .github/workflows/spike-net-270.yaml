@@ -1,0 +1,22 @@
+# Spike NET-270 (firewall attachment). Runs only on branch spike/NET-270,
+# which is never merged. Hermetic: one hosted runner, no cloud account.
+name: spike-net-270
+on:
+  push:
+    branches: [spike/NET-270]
+permissions:
+  contents: read
+jobs:
+  waf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Firewall attachment tests (i) and (ii)
+        run: sudo -E bash tests/spikes/NET-270/run.sh
+      - name: Evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: net-270-evidence
+          path: evidence/
