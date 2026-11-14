@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T14:15:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-14T14:30:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,14 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7450](https://github.com/openova-io/openova/issues/7450) | SEC-040 Bootstrap secret hygiene on the node and reflector scope | Other |
-| [#7451](https://github.com/openova-io/openova/issues/7451) | SOV-131 Provider modules take the variables map of the upstream contract | Other |
-| [#7454](https://github.com/openova-io/openova/issues/7454) | FND-018 The release writer leaves main in step: no pin goes backwards, and the u | Other |
-| [#7461](https://github.com/openova-io/openova/issues/7461) | CLD-141 Protect provider releases from pruning before they move | Other |
-| [#7462](https://github.com/openova-io/openova/issues/7462) | CTL-045 Publish contract C9 and its tool | Other |
-| [#7468](https://github.com/openova-io/openova/issues/7468) | FND-020 A pull request is not red because main was between two commits of a rele | Other |
-| [#7471](https://github.com/openova-io/openova/issues/7471) | SOV-141 Each peer region gets its own handover-peer token, given to the primary  | Other |
-| [#7473](https://github.com/openova-io/openova/issues/7473) | SOV-133 The boot template and the provider contract take the variables document | Other |
 | [#7477](https://github.com/openova-io/openova/issues/7477) | CLD-086 local module and reduced kit | Other |
 | [#7478](https://github.com/openova-io/openova/issues/7478) | FND-013 Merge queue: aggregate check, queue triggers, rulesets and code owners a | Other |
 | [#7479](https://github.com/openova-io/openova/issues/7479) | FND-096 Remove the Sandbox sources | Other |
@@ -300,6 +292,14 @@ flowchart LR
 | [#7744](https://github.com/openova-io/openova/issues/7744) | FND-072 Flight checklist in the lifecycle script: the sweep command and the fire | Other |
 | [#7745](https://github.com/openova-io/openova/issues/7745) | INF-120 Runner image and node-mode tasks | Other |
 | [#7746](https://github.com/openova-io/openova/issues/7746) | PRD-508 Account-information read operations and the ledger client | Other |
+| [#7760](https://github.com/openova-io/openova/issues/7760) | FND-063 Release key pair: platform images carry a key signature | Other |
+| [#7761](https://github.com/openova-io/openova/issues/7761) | INF-050 Install kured | Other |
+| [#7762](https://github.com/openova-io/openova/issues/7762) | NET-032 Reserve platform namespace names as Organization slugs | Other |
+| [#7763](https://github.com/openova-io/openova/issues/7763) | PRD-513 Resource server: PostgreSQL consent store with migration 0001, the defin | Other |
+| [#7764](https://github.com/openova-io/openova/issues/7764) | SOV-020 One default for the zero-touch switch | Other |
+| [#7765](https://github.com/openova-io/openova/issues/7765) | SOV-142 New nodes fetch k3s, Flux and Gateway API install files from the registr | Other |
+| [#7766](https://github.com/openova-io/openova/issues/7766) | SOV-161 The pull robot of the local registry joins the pull secret at install | Other |
+| [#7767](https://github.com/openova-io/openova/issues/7767) | SOV-336 The registry install creates the proxy project of the vulnerability data | Other |
 
 ---
 
