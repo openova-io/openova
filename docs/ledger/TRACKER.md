@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T20:00:05Z` |
+| Last refreshed | `2026-11-14T20:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -308,6 +308,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-11-14T19:54 | [#7844](https://github.com/openova-io/openova/pull/7844) | #7838 | fix(plan): two tasks that share only record files may run to |
+| 2026-11-14T20:11 | [#7843](https://github.com/openova-io/openova/pull/7843) | #7834 | fix(cutover): the follower region gets its catalog source, C |
 | 2026-11-14T19:45 | [#7836](https://github.com/openova-io/openova/pull/7836) | #7087 | docs(ledger): plan update |
 | 2026-11-14T19:38 | [#7835](https://github.com/openova-io/openova/pull/7835) | #7818 | fix(release): the release bump writes the funnel chart pin w |
 | 2026-11-14T19:34 | [#7833](https://github.com/openova-io/openova/pull/7833) | #7821 | refactor(api): delete the second showback meter and link the |
@@ -318,6 +319,7 @@ flowchart LR
 | 2026-11-14T18:26 | [#7826](https://github.com/openova-io/openova/pull/7826) | #7772 | fix(acceptance): check AIP-G01 skips Pods that have ended (A |
 | 2026-11-14T18:24 | [#7825](https://github.com/openova-io/openova/pull/7825) | #7087 | docs(ledger): plan update |
 | 2026-11-14T17:49 | [#7819](https://github.com/openova-io/openova/pull/7819) | #7087 | docs(ledger): plan update |
+| 2026-11-14T20:13 | [#7818](https://github.com/openova-io/openova/pull/7818) | #7740 | fix(provisioning): per-Organization databases use the storag |
 | 2026-11-14T18:50 | [#7817](https://github.com/openova-io/openova/pull/7817) | #7716 | feat(kured): chart bp-kured for coordinated node reboots and |
 | 2026-11-14T17:18 | [#7812](https://github.com/openova-io/openova/pull/7812) | #7087 | docs(ledger): plan update |
 | 2026-11-14T16:55 | [#7810](https://github.com/openova-io/openova/pull/7810) | #7678 | test(charts): function tests for the network, names and edge |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-14T15:36 | [#7780](https://github.com/openova-io/openova/pull/7780) | #7767 | feat(harbor): the registry install creates the pull-through  |
 | 2026-11-14T15:41 | [#7779](https://github.com/openova-io/openova/pull/7779) | #7762 | fix: reserve the platform namespace names as Organization sl |
 | 2026-11-14T15:35 | [#7778](https://github.com/openova-io/openova/pull/7778) | #7725 | fix(cloud-init): the parent-bootstrap failure exits 98 and a |
-| 2026-11-14T15:40 | [#7777](https://github.com/openova-io/openova/pull/7777) | #7744 | feat(lifecycle): sweep the cloud account after a wipe and re |
-| 2026-11-14T15:04 | [#7771](https://github.com/openova-io/openova/pull/7771) | #7087 | docs(ledger): plan update |
 
 ---
 
