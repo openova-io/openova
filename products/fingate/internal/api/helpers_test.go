@@ -20,8 +20,12 @@ import (
 	"testing"
 	"time"
 
+	ledgerv1 "github.com/openova-io/openova/products/fingate/api/ledger/v1"
 	"github.com/openova-io/openova/products/fingate/internal/definitions"
+	"github.com/openova-io/openova/products/fingate/internal/ledgerclient"
+	"github.com/openova-io/openova/products/fingate/internal/ledgertest"
 	"github.com/openova-io/openova/products/fingate/internal/profile"
+	"github.com/openova-io/openova/products/fingate/internal/sandbox"
 	"github.com/openova-io/openova/products/fingate/internal/store"
 	"github.com/openova-io/openova/products/fingate/internal/token"
 )
@@ -120,8 +124,20 @@ type fixture struct {
 	now     *time.Time
 }
 
+// newFixture serves the sandbox ledger of package sandbox, whose codes are the documents' codes.
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
+	return newFixtureOn(t, sandbox.New())
+}
+
+// newFixtureOn serves the ledger led.
+func newFixtureOn(t *testing.T, led ledgerv1.LedgerServer) *fixture {
+	t.Helper()
+	conn, stop, err := ledgertest.Serve(led)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close(); stop() })
 	p, err := profile.LoadDir(profileDir)
 	if err != nil {
 		t.Fatal(err)
@@ -140,7 +156,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 	n := 0
 	f.srv, err = New(Config{Profile: p, Documents: os.DirFS(profileDir), Definitions: f.holder, Checker: checker,
-		Store: f.store, Now: clock, NewID: func() string { n++; return fmt.Sprintf("%032d", n) }})
+		Store: f.store, Ledger: ledgerclient.New(conn, 0), Now: clock, NewID: func() string { n++; return fmt.Sprintf("%032d", n) }})
 	if err != nil {
 		t.Fatal(err)
 	}
