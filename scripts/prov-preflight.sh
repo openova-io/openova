@@ -48,6 +48,12 @@ def protected(x):
 print(len([x for x in live if not protected(x)]))' 2>/dev/null)
 [ "${act:-x}" = "0" ] && pass "2. 0 other active deployments (one-env-at-a-time holds)" || bad "2. ${act:-unknown} active deployment(s) still live — COMPLETELY wipe the existing env first (ONE environment at a time, founder 2026-07-15; #5111)"
 
+# 2b. At most four fires on one parent domain in seven days (the domain rotation of docs/RUNBOOKS.md,
+#     section 0.3): the fifth is refused and the other domain is named. A list that cannot be read refuses.
+dlist=$(curl -sf -H "$AUTH_HDR" "${CONSOLE}/deployments" 2>/dev/null)
+dfires=$(printf '%s' "$dlist" | python3 "$(dirname "$0")/preflight-domain-fires.py" --fqdn "$FQDN" 2>&1); drc=$?
+[ "$drc" = "0" ] && pass "2b. ${dfires}" || bad "2b. ${dfires:-preflight-domain-fires.py exit ${drc}, no verdict}"
+
 # 3. EIP headroom: no genuinely-orphaned EIPs (status=DOWN + no port binding).
 #    ELB-type EIPs report NO port_id even when serving a live gateway/console
 #    ELB (their binding is to the ELB, status=ELB) — a port_id-only heuristic
