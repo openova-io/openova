@@ -9,8 +9,8 @@ import (
 	"strings"
 )
 
-// Check AIP-G01, No header-trusting meter: no Pod of any namespace of any
-// region has a container whose image reference holds the text
+// Check AIP-G01, No header-trusting meter: no Pod that has not ended, in any
+// namespace of any region, has a container whose image reference holds the text
 // meterImageText. The metering sidecar of bp-newapi took the customer and
 // the Organization of a model call from two request headers that any caller
 // can set, so its usage records could be charged to anyone. It is switched
@@ -22,6 +22,14 @@ import (
 // container of a Pod is judged: its init containers, its containers and its
 // ephemeral containers. A region whose Pods hold no container fails: nothing
 // was measured, and that is never a pass.
+//
+// Only a Pod that has not ended is judged. A Pod in phase Failed or Succeeded
+// (meterEndedPhases) runs no container: an evicted Pod stays in the list in
+// phase Failed until it is deleted, and it would fail the check for a sidecar
+// that runs nowhere. Every other phase is judged, an empty one too: Pending
+// (the container is about to run), Running, and Unknown (the node does not
+// answer, so the container may still run). The containers of an ended Pod are
+// not counted, so a region whose every Pod has ended fails as unmeasured.
 const meterImageID = "AIP-G01"
 
 // meterImageText is the text that no image reference of a Pod may hold.
@@ -29,6 +37,10 @@ const meterImageText = "metering-sidecar"
 
 // meterContainerLists are the lists of a Pod spec that hold containers.
 var meterContainerLists = []string{"initContainers", "containers", "ephemeralContainers"}
+
+// meterEndedPhases are the phases of a Pod whose containers have all stopped
+// for good.
+var meterEndedPhases = map[string]bool{"Failed": true, "Succeeded": true}
 
 type meterImageCheck struct{}
 
@@ -46,8 +58,12 @@ func (meterImageCheck) Run(ctx context.Context, cc *CheckContext, rec StepRecord
 			if err != nil {
 				return err
 			}
-			images, found := 0, []string{}
+			images, ended, found := 0, 0, []string{}
 			for _, pod := range pods {
+				if meterEndedPhases[pod.Str("status", "phase")] {
+					ended++
+					continue
+				}
 				for _, list := range meterContainerLists {
 					for _, c := range pod.Objects("spec", list) {
 						images++
@@ -58,7 +74,7 @@ func (meterImageCheck) Run(ctx context.Context, cc *CheckContext, rec StepRecord
 				}
 			}
 			sort.Strings(found)
-			ev["pods"], ev["images"], ev["found"] = len(pods), images, found
+			ev["pods"], ev["ended"], ev["images"], ev["found"] = len(pods), ended, images, found
 			switch {
 			case images == 0:
 				return fmt.Errorf("no container was found in region %s: nothing was measured", region.ID)
