@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T22:15:03Z` |
+| Last refreshed | `2026-11-14T22:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,9 +307,16 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-14T22:27 | [#7868](https://github.com/openova-io/openova/pull/7868) | #7863 | fix(release): a moved funnel pin dispatches the provisioning |
+| 2026-11-14T22:26 | [#7867](https://github.com/openova-io/openova/pull/7867) | #7866 | test(gate): add the capability flag node-reboot to the close |
 | 2026-11-14T22:03 | [#7861](https://github.com/openova-io/openova/pull/7861) | #7087 | docs(ledger): plan update |
+| 2026-11-14T22:25 | [#7860](https://github.com/openova-io/openova/pull/7860) | #7839 | feat(flight): the flight sweep counts the DNS names a wiped  |
 | 2026-11-14T21:17 | [#7859](https://github.com/openova-io/openova/pull/7859) | #7087 | docs(ledger): plan update |
+| 2026-11-14T22:23 | [#7857](https://github.com/openova-io/openova/pull/7857) | #7738 | feat(ops-records): PostgreSQL store with migration 0001 and  |
+| 2026-11-14T22:23 | [#7856](https://github.com/openova-io/openova/pull/7856) | #7824 | feat(trivy): slot 30 points the scanner at the vulnerability |
 | 2026-11-14T20:54 | [#7851](https://github.com/openova-io/openova/pull/7851) | #7087 | docs(ledger): plan update |
+| 2026-11-14T22:25 | [#7850](https://github.com/openova-io/openova/pull/7850) | #7773 | refactor(services): the seven Organization services stop bui |
+| 2026-11-14T22:22 | [#7849](https://github.com/openova-io/openova/pull/7849) | #7702 | chore: delete the four retired vcluster charts and their see |
 | 2026-11-14T20:35 | [#7848](https://github.com/openova-io/openova/pull/7848) | #7717 | feat(acceptance): the network registry in the Sovereign stat |
 | 2026-11-14T20:36 | [#7847](https://github.com/openova-io/openova/pull/7847) | #7806 | feat(providers): every provider pack carries the seal hook o |
 | 2026-11-14T20:35 | [#7846](https://github.com/openova-io/openova/pull/7846) | #7761 | feat(kit): install kured in kit slot 04b (INF-050) |
@@ -330,13 +337,6 @@ flowchart LR
 | 2026-11-14T18:50 | [#7817](https://github.com/openova-io/openova/pull/7817) | #7716 | feat(kured): chart bp-kured for coordinated node reboots and |
 | 2026-11-14T17:18 | [#7812](https://github.com/openova-io/openova/pull/7812) | #7087 | docs(ledger): plan update |
 | 2026-11-14T16:55 | [#7810](https://github.com/openova-io/openova/pull/7810) | #7678 | test(charts): function tests for the network, names and edge |
-| 2026-11-14T16:54 | [#7809](https://github.com/openova-io/openova/pull/7809) | #7796 | test(gate): the gate record carries the pre-flight numbers a |
-| 2026-11-14T16:56 | [#7808](https://github.com/openova-io/openova/pull/7808) | #7766 | feat(sovereign): the pull robot of the local registry joins  |
-| 2026-11-14T16:29 | [#7802](https://github.com/openova-io/openova/pull/7802) | #7087 | docs(ledger): plan update |
-| 2026-11-14T16:16 | [#7800](https://github.com/openova-io/openova/pull/7800) | #7795 | fix(ci): the console smoke test reads every JavaScript file  |
-| 2026-11-14T16:12 | [#7791](https://github.com/openova-io/openova/pull/7791) | #7087 | docs(ledger): plan update |
-| 2026-11-14T16:25 | [#7789](https://github.com/openova-io/openova/pull/7789) | #7764 | fix(cutover): the zero-touch switch falls back to true in sl |
-| 2026-11-14T17:29 | [#7787](https://github.com/openova-io/openova/pull/7787) | #7739 | chore: delete the unused marketplace API module, its chart t |
 
 ---
 
