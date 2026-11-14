@@ -3169,18 +3169,19 @@ trigger:
   # fireCutoverOnHandover are BOTH true (see templates/10-auto-trigger-job.yaml
   # `{{ if and .Values.trigger.auto .Values.trigger.fireCutoverOnHandover }}`).
   #
-  # DEFAULT false — fail-closed / operator-gated, CONSISTENT with the source
-  # catalyst-api reads: the catalyst chart plumbs
-  # CATALYST_FIRE_CUTOVER_ON_HANDOVER from catalystApi.fireCutoverOnHandover =
-  # ${FIRE_CUTOVER_ON_HANDOVER:-false} (13-bp-catalyst-platform.yaml), so a
-  # Sovereign auto-fires ONLY when the operator opted in (tofu var
-  # fire_cutover_on_handover=true → FIRE_CUTOVER_ON_HANDOVER=true). The 06a
-  # slot overlay (clusters/_template/bootstrap-kit/06a-bp-self-sovereign-
-  # cutover.yaml) wires this value from the SAME ${FIRE_CUTOVER_ON_HANDOVER:-
-  # false} postBuild substitution so both gates always agree. When false the
-  # cutover fires via the operator's BSS CTA (or the #4669 level-triggered
-  # reconciler once the operator flips the flag). Overlay always wins.
-  fireCutoverOnHandover: false
+  # DEFAULT true (SOV-020) — zero touch, the same default as every other source
+  # of the switch: the catalyst-api (CATALYST_FIRE_CUTOVER_ON_HANDOVER counts as
+  # true unless it is "false"), the catalyst chart's
+  # catalystApi.fireCutoverOnHandover and slot 13's
+  # ${HANDOVER_AUTO:=${FIRE_CUTOVER_ON_HANDOVER:-true}}. The 06a slot overlay
+  # (clusters/_template/bootstrap-kit/06a-bp-self-sovereign-cutover.yaml) wires
+  # this value from the SAME postBuild substitution: HANDOVER_AUTO of the
+  # variables document, else the kit key FIRE_CUTOVER_ON_HANDOVER, else true.
+  # So both gates always agree. Set false to keep the
+  # cutover a deliberate action: it then fires via the BSS CTA (or the
+  # level-triggered reconciler once the flag is flipped).
+  # Overlay always wins.
+  fireCutoverOnHandover: true
   # Optional pre-flight delay before the hook POSTs /start. 0 = fire
   # immediately. Useful for soak Sovereigns where the operator wants a
   # short window to inspect the freshly-handed-over dashboard before
