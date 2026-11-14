@@ -111,7 +111,6 @@
       "products/catalyst/bootstrap/api/internal/handler/org_console_tls.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/org_console_tls_reap.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/org_console_tls_reconcile.go": 1,
-      "products/catalyst/bootstrap/api/internal/handler/org_consumption.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/org_enter_org.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/org_handover.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/org_list_from_cr.go": 1,
@@ -182,10 +181,10 @@
       "products/catalyst/bootstrap/api/internal/handler/wipe_evs_backstop.go": 1
     },
     "handler_lines": {
-      "products/catalyst/bootstrap/api/internal/handler": 98041
+      "products/catalyst/bootstrap/api/internal/handler": 97707
     },
     "handler_methods": {
-      "products/catalyst/bootstrap/api/internal/handler": 636
+      "products/catalyst/bootstrap/api/internal/handler": 634
     },
     "main_lines": {
       "products/catalyst/bootstrap/api/cmd/api/main.go": 938
