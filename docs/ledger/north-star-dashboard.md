@@ -4,16 +4,16 @@ Status on 13 November 2026. The baseline is the platform as it stood on 12 Novem
 
 ## On the environment: what is deployed and what is not
 
-Read from the environment hw307 itself at 07:30 UTC on 14 November. Merged means the code is on the main branch with green checks. Deployed means the release that carries it runs on the environment in both regions. Validated means it was seen working there, with evidence.
+Read from the environment hw307 itself at 08:00 UTC on 14 November. Merged means the code is on the main branch with green checks. Deployed means the release that carries it runs on the environment in both regions. Validated means it was seen working there, with evidence.
 
 | State of the merged tasks | Tasks |
 |---|---|
 | **Validated** on the environment | **4** |
 | **Deployed** on the environment, not yet validated | **3** |
-| **Merged, NOT deployed** (can be proven on the running environment) | **48** |
+| **Merged, NOT deployed** (can be proven on the running environment) | **50** |
 | Merged, proven only by a fresh installation: not done yet | 24 |
-| Merged, needs no environment (CI checks, guards, tests, records, lab results) | 109 |
-| Merged in total | 188 |
+| Merged, needs no environment (CI checks, guards, tests, records, lab results) | 111 |
+| Merged in total | 192 |
 
 **The next release to the environment.** One catch-up update brings the environment to main, region b first, then region a. Its fixes are already on main (checked commit by commit on 14 November), so it follows main itself and no side branch. The delivery tool is written and its read-only plan step ran against both regions. After the catch-up, the environment is updated once per release candidate cut from main.
 
@@ -29,7 +29,7 @@ Read from the environment hw307 itself at 07:30 UTC on 14 November. Merged means
 | [SOV-220](plan/tickets/SOV-220.md) | The console's step list comes from the status response | deployed, not yet validated, release hw307-ns.1 |
 | [SVC-030](plan/tickets/SVC-030.md) | The Catalog page honours visibility and refuses what has no chart | deployed, not yet validated, release hw307-ns.1 |
 
-### Merged and NOT deployed (48)
+### Merged and NOT deployed (50)
 
 | Task | What it does | State on the environment |
 |---|---|---|
@@ -47,6 +47,7 @@ Read from the environment hw307 itself at 07:30 UTC on 14 November. Merged means
 | [CTL-110](plan/tickets/CTL-110.md) | Commit library gitwrite | **not deployed** |
 | [CTL-112](plan/tickets/CTL-112.md) | Region scopes of the commit library | **not deployed** |
 | [CTL-150](plan/tickets/CTL-150.md) | Intent lock in audit mode, with its report | **not deployed** |
+| [CTL-151](plan/tickets/CTL-151.md) | Intent-lock report and the check that the lock holds | **not deployed** |
 | [CTL-160](plan/tickets/CTL-160.md) | Package intent: validate, serialise, commit, wait | **not deployed** |
 | [CTL-240](plan/tickets/CTL-240.md) | Batch G: catalogue writers onto the library | **not deployed** |
 | [CTL-300](plan/tickets/CTL-300.md) | The running stream is the declared one | **not deployed** |
@@ -79,6 +80,7 @@ Read from the environment hw307 itself at 07:30 UTC on 14 November. Merged means
 | [SOV-121](plan/tickets/SOV-121.md) | The seed-repo command of sovereign-ops | **not deployed** |
 | [SOV-150](plan/tickets/SOV-150.md) | Kit sources become substitutions, with a render-equivalence test | **not deployed** |
 | [SOV-180](plan/tickets/SOV-180.md) | The API serves the Sovereign's mode and variables, with the contract's defaults | **not deployed** |
+| [SOV-190](plan/tickets/SOV-190.md) | The console reads the mode from the API | **not deployed** |
 | [SOV-320](plan/tickets/SOV-320.md) | Sign-in mail without the parent's credential | **not deployed** |
 | [SVC-125](plan/tickets/SVC-125.md) | Blueprint proofs check: the function-test result in the gate record | **not deployed** |
 
@@ -113,40 +115,40 @@ Read from the environment hw307 itself at 07:30 UTC on 14 November. Merged means
 
 </details>
 
-<details><summary>Merged, needs no environment (109)</summary>
+<details><summary>Merged, needs no environment (111)</summary>
 
-ACC-020, ACC-030, [ACC-060](plan/tickets/ACC-060.md), AIP-010, AIP-020, [AIP-050](plan/tickets/AIP-050.md), [AIP-060](plan/tickets/AIP-060.md), [BSS-010](plan/tickets/BSS-010.md), [BSS-020](plan/tickets/BSS-020.md), [BSS-050](plan/tickets/BSS-050.md), BSS-S2, [CLD-010](plan/tickets/CLD-010.md), CLD-050, CLD-055, [CLD-063](plan/tickets/CLD-063.md), [CLD-070](plan/tickets/CLD-070.md), [CLD-071](plan/tickets/CLD-071.md), [CLD-075](plan/tickets/CLD-075.md), [CLD-087](plan/tickets/CLD-087.md), [CMP-005](plan/tickets/CMP-005.md), [CMP-012](plan/tickets/CMP-012.md), [CMP-014](plan/tickets/CMP-014.md), CMP-S1, CMP-S2, CMP-S3, CMP-S4, CMP-S5, CMP-S6, [CTL-010](plan/tickets/CTL-010.md), [CTL-020](plan/tickets/CTL-020.md), [CTL-025](plan/tickets/CTL-025.md), [CTL-044](plan/tickets/CTL-044.md), [CTL-045](plan/tickets/CTL-045.md), CTL-050, CTL-055, [CTL-060](plan/tickets/CTL-060.md), [CTL-201](plan/tickets/CTL-201.md), FND-001, FND-002, [FND-011](plan/tickets/FND-011.md), [FND-013](plan/tickets/FND-013.md), [FND-015](plan/tickets/FND-015.md), [FND-018](plan/tickets/FND-018.md), [FND-020](plan/tickets/FND-020.md), [FND-021](plan/tickets/FND-021.md), [FND-022](plan/tickets/FND-022.md), [FND-023](plan/tickets/FND-023.md), [FND-031](plan/tickets/FND-031.md), [FND-040](plan/tickets/FND-040.md), [FND-051](plan/tickets/FND-051.md), [FND-052](plan/tickets/FND-052.md), [FND-053](plan/tickets/FND-053.md), [FND-054](plan/tickets/FND-054.md), [FND-055](plan/tickets/FND-055.md), [FND-058](plan/tickets/FND-058.md), [FND-061](plan/tickets/FND-061.md), [FND-091](plan/tickets/FND-091.md), [FND-092](plan/tickets/FND-092.md), [FND-096](plan/tickets/FND-096.md), [FND-098](plan/tickets/FND-098.md), [FND-099](plan/tickets/FND-099.md), [FND-101](plan/tickets/FND-101.md), [FND-102](plan/tickets/FND-102.md), [FND-103](plan/tickets/FND-103.md), [FND-105](plan/tickets/FND-105.md), [FND-106](plan/tickets/FND-106.md), [FND-110](plan/tickets/FND-110.md), [FND-173](plan/tickets/FND-173.md), [FND-181](plan/tickets/FND-181.md), [INF-010](plan/tickets/INF-010.md), INF-030, [INF-070](plan/tickets/INF-070.md), MIG-050, [NET-033](plan/tickets/NET-033.md), [NET-050](plan/tickets/NET-050.md), [NET-052](plan/tickets/NET-052.md), [NET-090](plan/tickets/NET-090.md), NET-290, NET-300, [NET-321](plan/tickets/NET-321.md), [PRD-010](plan/tickets/PRD-010.md), [PRD-020](plan/tickets/PRD-020.md), [PRD-030](plan/tickets/PRD-030.md), PRD-040, PRD-060, PRD-070, PRD-080, [PRD-106](plan/tickets/PRD-106.md), [SEC-005](plan/tickets/SEC-005.md), [SEC-006](plan/tickets/SEC-006.md), [SEC-110](plan/tickets/SEC-110.md), [SEC-125](plan/tickets/SEC-125.md), SEC-130, SEC-135, SEC-140, SEC-271, SEC-280, [SOV-040](plan/tickets/SOV-040.md), [SOV-050](plan/tickets/SOV-050.md), SOV-060, SOV-070, SOV-080, SOV-090, [SVC-010](plan/tickets/SVC-010.md), [SVC-020](plan/tickets/SVC-020.md), SVC-120, SVC-210, SVC-315, SVC-340.
+ACC-020, ACC-030, [ACC-060](plan/tickets/ACC-060.md), AIP-010, AIP-020, [AIP-050](plan/tickets/AIP-050.md), [AIP-060](plan/tickets/AIP-060.md), [BSS-010](plan/tickets/BSS-010.md), [BSS-020](plan/tickets/BSS-020.md), [BSS-050](plan/tickets/BSS-050.md), BSS-S2, [CLD-010](plan/tickets/CLD-010.md), CLD-050, CLD-055, [CLD-063](plan/tickets/CLD-063.md), [CLD-070](plan/tickets/CLD-070.md), [CLD-071](plan/tickets/CLD-071.md), [CLD-075](plan/tickets/CLD-075.md), [CLD-087](plan/tickets/CLD-087.md), [CMP-005](plan/tickets/CMP-005.md), [CMP-012](plan/tickets/CMP-012.md), [CMP-014](plan/tickets/CMP-014.md), CMP-S1, CMP-S2, CMP-S3, CMP-S4, CMP-S5, CMP-S6, [CTL-010](plan/tickets/CTL-010.md), [CTL-020](plan/tickets/CTL-020.md), [CTL-025](plan/tickets/CTL-025.md), [CTL-044](plan/tickets/CTL-044.md), [CTL-045](plan/tickets/CTL-045.md), CTL-050, CTL-055, [CTL-060](plan/tickets/CTL-060.md), [CTL-201](plan/tickets/CTL-201.md), FND-001, FND-002, [FND-011](plan/tickets/FND-011.md), [FND-013](plan/tickets/FND-013.md), [FND-015](plan/tickets/FND-015.md), [FND-018](plan/tickets/FND-018.md), [FND-020](plan/tickets/FND-020.md), [FND-021](plan/tickets/FND-021.md), [FND-022](plan/tickets/FND-022.md), [FND-023](plan/tickets/FND-023.md), [FND-031](plan/tickets/FND-031.md), [FND-040](plan/tickets/FND-040.md), [FND-051](plan/tickets/FND-051.md), [FND-052](plan/tickets/FND-052.md), [FND-053](plan/tickets/FND-053.md), [FND-054](plan/tickets/FND-054.md), [FND-055](plan/tickets/FND-055.md), [FND-057](plan/tickets/FND-057.md), [FND-058](plan/tickets/FND-058.md), [FND-061](plan/tickets/FND-061.md), [FND-091](plan/tickets/FND-091.md), [FND-092](plan/tickets/FND-092.md), [FND-096](plan/tickets/FND-096.md), [FND-098](plan/tickets/FND-098.md), [FND-099](plan/tickets/FND-099.md), [FND-101](plan/tickets/FND-101.md), [FND-102](plan/tickets/FND-102.md), [FND-103](plan/tickets/FND-103.md), [FND-105](plan/tickets/FND-105.md), [FND-106](plan/tickets/FND-106.md), [FND-110](plan/tickets/FND-110.md), [FND-173](plan/tickets/FND-173.md), [FND-181](plan/tickets/FND-181.md), [INF-010](plan/tickets/INF-010.md), INF-030, [INF-070](plan/tickets/INF-070.md), MIG-050, [MIG-060](plan/tickets/MIG-060.md), [NET-033](plan/tickets/NET-033.md), [NET-050](plan/tickets/NET-050.md), [NET-052](plan/tickets/NET-052.md), [NET-090](plan/tickets/NET-090.md), NET-290, NET-300, [NET-321](plan/tickets/NET-321.md), [PRD-010](plan/tickets/PRD-010.md), [PRD-020](plan/tickets/PRD-020.md), [PRD-030](plan/tickets/PRD-030.md), PRD-040, PRD-060, PRD-070, PRD-080, [PRD-106](plan/tickets/PRD-106.md), [SEC-005](plan/tickets/SEC-005.md), [SEC-006](plan/tickets/SEC-006.md), [SEC-110](plan/tickets/SEC-110.md), [SEC-125](plan/tickets/SEC-125.md), SEC-130, SEC-135, SEC-140, SEC-271, SEC-280, [SOV-040](plan/tickets/SOV-040.md), [SOV-050](plan/tickets/SOV-050.md), SOV-060, SOV-070, SOV-080, SOV-090, [SVC-010](plan/tickets/SVC-010.md), [SVC-020](plan/tickets/SVC-020.md), SVC-120, SVC-210, SVC-315, SVC-340.
 
 </details>
 
 ## Right now
 
-Measured from GitHub at 07:30 UTC on 14 November 2026. This block is rebuilt automatically every 30 minutes.
+Measured from GitHub at 08:00 UTC on 14 November 2026. This block is rebuilt automatically every 30 minutes.
 
 | | |
 |---|---|
-| **Overall completion** | **21.2%** of the tasks are merged (188 of 886). By effort that is 20.1% (132 of 655 agent-hours). Proven on a live environment: 4 tasks (0.5%). |
-| **Estimated time still needed** | About **761 running hours** until every task is merged (about 32 days if the agents run day and night). About **761 running hours** until every task is also proven on an environment. Agent effort still to spend: about 523 agent-hours. |
-| How the estimate is made | Merged: 698 tasks are left; the last 12 hours merged 0.9 tasks an hour, lab results not counted, which gives 761 hours; the longest row of tasks that must follow one another is 28 long, at about 2 hours each, which gives 56 hours; the larger number is shown. Proven: the plan's simulation of six agents with an update of the environment every 4 hours and a fresh install every 24. Both move as the work goes; a stop or an interruption adds to them. |
-| **Tokens used so far** | **13.2 billion** tokens, nearly all of them since 11 November: 3.2 billion to design the plan and 10.1 billion to carry it out so far. Of the total, 12.9 billion are re-reads of text the models had already read once, which is the cheap kind; 268 million are text read for the first time and 62 million are text the models wrote. By model: Opus 5.5 8.9 billion, Fable 5.2 4.3 billion. At the published pay-as-you-go prices these tokens would cost about $6,100. |
-| **Tokens still expected** | About **40 billion** more until every task is merged, which makes about 53 billion in all; 25% of that is spent. Basis: carrying out the plan has used 76 million tokens for each agent-hour of merged work, and 523 agent-hours are left. Proving the tasks on an environment comes on top; too few are proven to measure it. |
-| **Accounts needed on the $200 plan** | Two accounts are used, one at a time. The first stood at **72%** when the work moved to the second on 13 Nov 19:20 UTC; its remaining 28% can be used until 18 Nov 12:00 UTC. Together about **72 points** are left before the two are filled again. The account in use now (plan Max 20x) has spent **56%** of this week's allowance, 74 hours into the week (the week runs from 11 Nov 06:00 to 18 Nov 06:00 UTC). Over the last 6.0 hours the usage meter rose by 12 points. At that rise this account's allowance is used up around **15 Nov 05:00 UTC**, 3 days before it is filled again. Paid extra usage is switched off on the account, so the agents stop there unless another account is logged in. Holding that rise for a whole week would take **4 accounts**; measured from the tokens of the last 24 hours it is 2.1. The two do not agree: the tokens counted on this machine explain about 35% of the meter's rise in those hours. Either the account is also used from somewhere this machine cannot see, or the meter weighs this kind of work more heavily than its first two days suggested. The meter decides when the work stops. The work still to merge needs about 2.4 weekly allowances by the token measure. |
+| **Overall completion** | **21.7%** of the tasks are merged (192 of 886). By effort that is 20.4% (134 of 655 agent-hours). Proven on a live environment: 4 tasks (0.5%). |
+| **Estimated time still needed** | About **641 running hours** until every task is merged (about 27 days if the agents run day and night). About **641 running hours** until every task is also proven on an environment. Agent effort still to spend: about 521 agent-hours. |
+| How the estimate is made | Merged: 694 tasks are left; the last 12 hours merged 1.1 tasks an hour, lab results not counted, which gives 641 hours; the longest row of tasks that must follow one another is 28 long, at about 2 hours each, which gives 56 hours; the larger number is shown. Proven: the plan's simulation of six agents with an update of the environment every 4 hours and a fresh install every 24. Both move as the work goes; a stop or an interruption adds to them. |
+| **Tokens used so far** | **13.5 billion** tokens, nearly all of them since 11 November: 3.2 billion to design the plan and 10.3 billion to carry it out so far. Of the total, 13.2 billion are re-reads of text the models had already read once, which is the cheap kind; 273 million are text read for the first time and 63 million are text the models wrote. By model: Opus 5.5 9.1 billion, Fable 5.2 4.4 billion. At the published pay-as-you-go prices these tokens would cost about $6,200. |
+| **Tokens still expected** | About **40 billion** more until every task is merged, which makes about 54 billion in all; 25% of that is spent. Basis: carrying out the plan has used 77 million tokens for each agent-hour of merged work, and 521 agent-hours are left. Proving the tasks on an environment comes on top; too few are proven to measure it. |
+| **Accounts needed on the $200 plan** | Two accounts are used, one at a time. The first stood at **72%** when the work moved to the second on 13 Nov 19:20 UTC; its remaining 28% can be used until 18 Nov 12:00 UTC. Together about **68 points** are left before the two are filled again. The account in use now (plan Max 20x) has spent **60%** of this week's allowance, 74 hours into the week (the week runs from 11 Nov 06:00 to 18 Nov 06:00 UTC). Over the last 6.0 hours the usage meter rose by 16 points. At that rise this account's allowance is used up around **14 Nov 23:00 UTC**, 3 days before it is filled again. Paid extra usage is switched off on the account, so the agents stop there unless another account is logged in. Holding that rise for a whole week would take **5 accounts**; measured from the tokens of the last 24 hours it is 2.0. The two do not agree: the tokens counted on this machine explain about 37% of the meter's rise in those hours. Either the account is also used from somewhere this machine cannot see, or the meter weighs this kind of work more heavily than its first two days suggested. The meter decides when the work stops. The work still to merge needs about 2.4 weekly allowances by the token measure. |
 | How the tokens and the allowance are measured | Tokens are counted from the transcripts on the build machine, each model call once, for every agent of this work. Anthropic states no token figure for the plan, so the share of the weekly allowance that is used is read from the account's own usage meter every 30 minutes and set against the tokens counted in the same hours; by that measure one weekly allowance is about 17 billion tokens of this mix. The meter counts Fable and Opus differently, so each is weighed on its own. The pace is taken from the meter itself once it has been read for an hour (the oldest reading of the last six hours); until then from the tokens. Every session on the account counts, also work that is not this plan. |
-| Tasks merged to the main branch | **188 of 886** |
-| Tasks with a written ticket | 158 |
-| Being worked on by an agent now | CTL-151 ([#7537](https://github.com/openova-io/openova/pull/7537)), FND-057 ([#7520](https://github.com/openova-io/openova/pull/7520)), MIG-060 ([#7531](https://github.com/openova-io/openova/pull/7531)), SOV-190 ([#7532](https://github.com/openova-io/openova/pull/7532)) |
+| Tasks merged to the main branch | **192 of 886** |
+| Tasks with a written ticket | 161 |
+| Being worked on by an agent now | CTL-700 ([#7546](https://github.com/openova-io/openova/pull/7546)), FND-012 ([#7547](https://github.com/openova-io/openova/pull/7547)), FND-088 ([#7541](https://github.com/openova-io/openova/pull/7541)), NET-133 ([#7545](https://github.com/openova-io/openova/pull/7545)), SEC-090 ([#7542](https://github.com/openova-io/openova/pull/7542)) |
 | Lab-test results waiting to merge | none |
 | Lab tests started, each on its own branch in CI | 27: ACC-020, ACC-030, AIP-010, AIP-020, CLD-050, CLD-055, CMP-S1, CMP-S2, CMP-S3, CMP-S4, CMP-S5, CMP-S6, CTL-050, CTL-055, INF-030, MIG-050, PRD-040, PRD-060, PRD-070, PRD-080, SEC-130, SEC-140, SEC-280, SOV-060, SVC-120, SVC-210, SVC-340 |
-| Merged per day | 2026-11-12: 8, 2026-11-13: 159, 2026-11-14: 21 |
+| Merged per day | 2026-11-12: 8, 2026-11-13: 159, 2026-11-14: 25 |
 | Proven on the live environment hw307 | **4**: BSS-035, NET-041, NET-070, NET-072. Each was seen working in a browser there and its ticket is closed. hw307 does not follow the main branch: a merged task reaches it by a separate release, and only then counts as proven. |
-| Milestone: replacement mothership on Hetzner (SOV-920) | 85 tasks before it are not merged yet. The three proofs it needs: SOV-810 open, SOV-820 open, CLD-182 open. The founder is told on issue #7087 when it starts. |
+| Milestone: replacement mothership on Hetzner (SOV-920) | 83 tasks before it are not merged yet. The three proofs it needs: SOV-810 open, SOV-820 open, CLD-182 open. The founder is told on issue #7087 when it starts. |
 | Board with every task as a card | [github.com/orgs/openova-io/projects/2](https://github.com/orgs/openova-io/projects/2) |
 
 ### Burndown: effort left to merge, planned and actual
 
 ![Burndown of the effort left to merge, planned and actual](dashboard/burndown.svg)
 
-**523 agent-hours** are left to merge; the plan's own schedule expected **455** by now. The work is **68 agent-hours behind** that schedule. The plan's schedule ends on 19 November; at the present pace the last task merges around 16 December.
+**521 agent-hours** are left to merge; the plan's own schedule expected **454** by now. The work is **67 agent-hours behind** that schedule. The plan's schedule ends on 19 November; at the present pace the last task merges around 11 December.
 
 How to read it. Planned: the plan as first published on 12 November (843 tasks, 619 agent-hours), run through the roadmap's schedule model (six agents over the plan's dependencies, 16 running hours a day). Actual: the tasks of the plan at each moment, less those merged by then, in the same agent-hours by task size. 43 tasks were added to the plan since; the actual line steps up where each appears. The dashed line runs from now to the estimate above. Both lines count merging; proof on an environment is not in this chart.
 
@@ -154,18 +156,18 @@ How to read it. Planned: the plan as first published on 12 November (843 tasks, 
 |---|---|---|
 | 13 Nov | 582 | 598 |
 | 14 Nov | 486 | 528 |
-| now (14 Nov 07:30) | 455 | 523 |
+| now (14 Nov 08:00) | 454 | 521 |
 
 ### On the environment: deployed and validated
 
-Read from the standing environment hw307 itself at 07:30 UTC on 14 November. A task counts as deployed only when the release that carried it is the one running there, and as validated only when it was seen working there.
+Read from the standing environment hw307 itself at 08:00 UTC on 14 November. A task counts as deployed only when the release that carried it is the one running there, and as validated only when it was seen working there.
 
 | | Tasks |
 |---|---|
-| Merged tasks that can be proven on the running environment | 55 |
+| Merged tasks that can be proven on the running environment | 57 |
 | — **deployed** there (their release is running, checked against the cluster) | **7** |
 | — **validated** there (seen working, with evidence) | **4** |
-| — merged and **waiting for a release** to the environment | **48** |
+| — merged and **waiting for a release** to the environment | **50** |
 | Merged tasks that change first boot: proven only by a fresh install | 26, none proven |
 
 | Release to the environment | When | Running now (checked) | Tasks it carried | Validated | Evidence |
@@ -177,23 +179,23 @@ Read from the standing environment hw307 itself at 07:30 UTC on 14 November. A t
 | a | 73 of 75 | 5 | **2**: acmewalk307/bp-agenity, acmewalk307/bp-wordpress-tenant | 1.4.1906-hw307.23-ns.1 | catalyst-api `hw307-b98777d`, catalyst-ui `hw307-2e1d885`, marketplace `hw307-2e1d885`, marketplace-api `0d9531a` |
 | b | 67 of 67 | 7 | none | 1.4.1906-hw307.23-ns.1 | none of the console images run in this region |
 
-Waiting for a release to the environment (48): BSS-030, CLD-021, CLD-022, CLD-161, CMP-010, CMP-016, CMP-030, CMP-073, CTL-030, CTL-035, CTL-040, CTL-110, CTL-112, CTL-150, CTL-160, CTL-240, CTL-300, FND-014, FND-032, FND-033, FND-034, FND-093, FND-094, FND-095, FND-097, FND-171, NET-030, NET-042, NET-060, NET-080, NET-125, PRD-101, PRD-102, PRD-103, PRD-104, PRD-105, PRD-502, SEC-071, SEC-080, SEC-120, SOV-035, SOV-110, SOV-120, SOV-121, SOV-150, SOV-180, SOV-320, SVC-125.
+Waiting for a release to the environment (50): BSS-030, CLD-021, CLD-022, CLD-161, CMP-010, CMP-016, CMP-030, CMP-073, CTL-030, CTL-035, CTL-040, CTL-110, CTL-112, CTL-150, CTL-151, CTL-160, CTL-240, CTL-300, FND-014, FND-032, FND-033, FND-034, FND-093, FND-094, FND-095, FND-097, FND-171, NET-030, NET-042, NET-060, NET-080, NET-125, PRD-101, PRD-102, PRD-103, PRD-104, PRD-105, PRD-502, SEC-071, SEC-080, SEC-120, SOV-035, SOV-110, SOV-120, SOV-121, SOV-150, SOV-180, SOV-190, SOV-320, SVC-125.
 
 The environment runs its own line of the code, not main, so a merged task reaches it only by a release built for it. The plan's release train (cut a candidate, update the environment in place, run the gate twice) is tasks FND-015, FND-035 and FND-073; until they are merged a release is built by hand.
 
 ### Is it real? Delivery and quality, measured
 
-A merged task has passed its checks in CI. It is **delivered** only when it has been seen working on a running Sovereign. Today **4 of the 119** merged tasks that need an environment have been seen working on one. Nothing merged since 12 November runs on an environment yet: no Sovereign has been installed from main, and hw307 runs a separate line. The figures below are taken from GitHub and from main by script.
+A merged task has passed its checks in CI. It is **delivered** only when it has been seen working on a running Sovereign. Today **4 of the 121** merged tasks that need an environment have been seen working on one. Nothing merged since 12 November runs on an environment yet: no Sovereign has been installed from main, and hw307 runs a separate line. The figures below are taken from GitHub and from main by script.
 
 ![From plan to proof: how many tasks reached each stage](dashboard/funnel.svg)
 
 | Stage | Tasks | Agent-hours |
 |---|---|---|
 | In the plan | 886 | 655 |
-| Ticket written | 199 | 139 |
-| Merged to main | 188 | 132 |
-| — of these: final at merge (a document, a guard, a check) | 69 | 45 |
-| — of these: need proof on an environment | 119 | 87 |
+| Ticket written | 201 | 140 |
+| Merged to main | 192 | 134 |
+| — of these: final at merge (a document, a guard, a check) | 71 | 46 |
+| — of these: need proof on an environment | 121 | 88 |
 | — reached an environment | 7 | 4 |
 | — seen working there | 4 | 2 |
 
@@ -203,18 +205,18 @@ A merged task has passed its checks in CI. It is **delivered** only when it has 
 
 | Kind of work | Merged: share of effort | Merged: tasks | Whole plan: share of effort | Whole plan: tasks |
 |---|---|---|---|---|
-| Product changes | 29% | 53 | 62% | 529 |
+| Product changes | 30% | 55 | 62% | 529 |
 | Dead code removed | 11% | 22 | 10% | 93 |
-| Guards and tests | 26% | 47 | 17% | 157 |
-| Records and decisions | 34% | 66 | 11% | 107 |
+| Guards and tests | 26% | 49 | 17% | 157 |
+| Records and decisions | 33% | 66 | 11% | 107 |
 
 | Measure | Now | What it tells |
 |---|---|---|
-| The plan's own checks (237) by state | 212 not-built, 17 expected-fail, 8 required | A check is the plan's definition of done for a capability. "required" means it must pass on a fresh install; none has been run on one yet. |
+| The plan's own checks (237) by state | 211 not-built, 18 expected-fail, 8 required | A check is the plan's definition of done for a capability. "required" means it must pass on a fresh install; none has been run on one yet. |
 | Acceptance commands of merged tasks, run again on main (2026-11-13 19:00 UTC, commit b44ef5300) | **842 of 891** still pass. 49 do not: 45 replaced on purpose by a later task, 4 broken by a later merge, 0 not yet explained. 30 more compare a change with its base and can only run on the pull request. | A command that passed on its pull request and fails on today's main was either replaced by plan or broken by a later merge. Each failure is explained by name. |
-| Workflow runs on main that ended red, per day | 12 Nov: 3 red of 982 (0.3%); 13 Nov: 8 red of 2508 (0.3%); 14 Nov: 0 red of 522 (0.0%) | Whether main is a base one can build on. A red run on main is a defect that reached main or a check that is not reliable. |
-| Times an executor stopped and reported a ticket or main as wrong | 25 reports on 22 tasks, against 188 merged | A stop is the system refusing to guess. Many stops for one cause point at a defect of main or of the tickets. |
-| Lines changed on main since the plan started | Product code and configuration: +122,766 −56,080; Tests: +21,070 −19,020; Checks and tooling: +24,255 −1,220; Plan, tickets and documents: +177,928 −1,891; Other: +29 −2,507 | How much of the change is the product itself. Tickets and the plan are large by nature. Generated files count too (one generated client is about 70,000 lines), and so do the release bot's version lines. |
+| Workflow runs on main that ended red, per day | 12 Nov: 3 red of 982 (0.3%); 13 Nov: 8 red of 2508 (0.3%); 14 Nov: 1 red of 685 (0.1%) | Whether main is a base one can build on. A red run on main is a defect that reached main or a check that is not reliable. |
+| Times an executor stopped and reported a ticket or main as wrong | 25 reports on 22 tasks, against 192 merged | A stop is the system refusing to guess. Many stops for one cause point at a defect of main or of the tickets. |
+| Lines changed on main since the plan started | Product code and configuration: +122,849 −56,165; Tests: +21,604 −19,135; Checks and tooling: +24,593 −1,227; Plan, tickets and documents: +180,098 −1,927; Other: +29 −2,507 | How much of the change is the product itself. Tickets and the plan are large by nature. Generated files count too (one generated client is about 70,000 lines), and so do the release bot's version lines. |
 | Fresh install from main: did it start, how long, how many releases ready | **not measured: no environment installed from main exists** | The only proof that the merged first-boot changes work together. |
 | Acceptance suite and walk on that install | **not measured, same reason** | That a person can do the thing: the five pillars. |
 
@@ -222,6 +224,10 @@ A merged task has passed its checks in CI. It is **delivered** only when it has 
 
 | Merged (UTC) | Task | What it did | Pull request |
 |---|---|---|---|
+| 14 Nov 07:56 | [FND-057](plan/tickets/FND-057.md) | ci: the privacy guard fails closed, really searches and runs on every branch | [#7520](https://github.com/openova-io/openova/pull/7520) |
+| 14 Nov 07:40 | [SOV-190](plan/tickets/SOV-190.md) | refactor(console): read the mode from the self route, not from the host name | [#7532](https://github.com/openova-io/openova/pull/7532) |
+| 14 Nov 07:40 | [MIG-060](plan/tickets/MIG-060.md) | ci: a required check keeps the vendor disk library out of the repository | [#7531](https://github.com/openova-io/openova/pull/7531) |
+| 14 Nov 07:40 | [CTL-151](plan/tickets/CTL-151.md) | feat(acceptance): intent-lock report and gate check CTL-G04 as expected-fail | [#7537](https://github.com/openova-io/openova/pull/7537) |
 | 14 Nov 07:19 | [NET-080](plan/tickets/NET-080.md) | fix(organization-controller): pin the per-Org vcluster chart to 0.33.4 | [#7518](https://github.com/openova-io/openova/pull/7518) |
 | 14 Nov 07:18 | [CMP-073](plan/tickets/CMP-073.md) | refactor(kyverno-policies): end the bootstrap window when the hand-over variable is local | [#7523](https://github.com/openova-io/openova/pull/7523) |
 | 14 Nov 07:18 | [CTL-300](plan/tickets/CTL-300.md) | refactor(nats): declare the stream CATALYST_ORG in the chart and bind to it in code | [#7525](https://github.com/openova-io/openova/pull/7525) |
@@ -243,14 +249,10 @@ A merged task has passed its checks in CI. It is **delivered** only when it has 
 | 13 Nov 16:34 | [SOV-133](plan/tickets/SOV-133.md) | refactor(cloud-init): the boot template and the provider contract take the variables document | [#7475](https://github.com/openova-io/openova/pull/7475) |
 | 13 Nov 16:22 | [SOV-141](plan/tickets/SOV-141.md) | feat(cloud-init): each peer region posts its own handover-peer kubeconfig and the parent forwards it at hand-over | [#7474](https://github.com/openova-io/openova/pull/7474) |
 | 13 Nov 16:03 | [FND-020](plan/tickets/FND-020.md) | ci: the pin audit and the umbrella republish gate judge a pull request on the drift it adds | [#7469](https://github.com/openova-io/openova/pull/7469) |
-| 13 Nov 15:38 | [CLD-141](plan/tickets/CLD-141.md) | chore(bootstrap-kit): keep the four provider releases when Flux stops listing them | [#7466](https://github.com/openova-io/openova/pull/7466) |
-| 13 Nov 15:26 | [CLD-113](plan/tickets/CLD-113.md) | refactor(api): the mesh port and the topology front door stop naming providers | [#7459](https://github.com/openova-io/openova/pull/7459) |
-| 13 Nov 15:03 | [CTL-045](plan/tickets/CTL-045.md) | feat(contracts): publish contract C9, the mutating-route table, with its generator and router test | [#7463](https://github.com/openova-io/openova/pull/7463) |
-| 13 Nov 14:26 | [SOV-035](plan/tickets/SOV-035.md) | refactor: delete the ProvisioningState kind and its unwired store | [#7456](https://github.com/openova-io/openova/pull/7456) |
 
 ### Merged changes a user can see
 
-Of the 188 merged tasks, 69 are documents, decisions and checks that change no running product. The tasks below change a screen. The last column says whether the change has been seen working on hw307. The record of the walk, with screenshots, is [screenshots/north-star](screenshots/north-star/README.md).
+Of the 192 merged tasks, 71 are documents, decisions and checks that change no running product. The tasks below change a screen. The last column says whether the change has been seen working on hw307. The record of the walk, with screenshots, is [screenshots/north-star](screenshots/north-star/README.md).
 
 | Task | What changes on the screen | Pull request | On hw307 |
 |---|---|---|---|
@@ -258,6 +260,7 @@ Of the 188 merged tasks, 69 are documents, decisions and checks that change no r
 | [FND-097](plan/tickets/FND-097.md) | Remove the unshipped console, the one job that drives it and the tests that only target it | [#7156](https://github.com/openova-io/openova/pull/7156) | not proven yet |
 | [CLD-022](plan/tickets/CLD-022.md) | Delete the infrastructure mutation dialogs from the console | [#7366](https://github.com/openova-io/openova/pull/7366) | not proven yet |
 | [SOV-030](plan/tickets/SOV-030.md) | Wipe refuses a handed-over Sovereign without confirmation | [#7205](https://github.com/openova-io/openova/pull/7205) | not proven yet |
+| [SOV-190](plan/tickets/SOV-190.md) | The console reads the mode from the API | [#7532](https://github.com/openova-io/openova/pull/7532) | not proven yet |
 | [SOV-220](plan/tickets/SOV-220.md) | The console's step list comes from the status response | [#7303](https://github.com/openova-io/openova/pull/7303) | not proven yet |
 | [NET-041](plan/tickets/NET-041.md) | Remove the firewall claims from the storefront and the console | [#7288](https://github.com/openova-io/openova/pull/7288) | **seen working, ticket closed** |
 | [NET-070](plan/tickets/NET-070.md) | Wizard shows what the provisioner builds | [#7256](https://github.com/openova-io/openova/pull/7256) | **seen working, ticket closed** |
@@ -297,7 +300,7 @@ Of the 188 merged tasks, 69 are documents, decisions and checks that change no r
 | [CTL-041](plan/tickets/CTL-041.md) | Bootstrap-kit HelmRepository documents to source v1 | [#7492](https://github.com/openova-io/openova/pull/7492) |
 | [CMP-036](plan/tickets/CMP-036.md) | Kit slot 27a: values document, hand-over variable, definitions on upgrade | [#7277](https://github.com/openova-io/openova/pull/7277) |
 
-A further 82 merged tasks change a running service without a screen of their own; they are proven by a test on the environment.
+A further 83 merged tasks change a running service without a screen of their own; they are proven by a test on the environment.
 
 
 
@@ -321,9 +324,9 @@ Against the target of this plan, that work stands at **24% built** across the 14
 | | |
 |---|---|
 | Built before the baseline | **24%** of the target, by the code audit |
-| Tasks of the plan delivered since | **188 of 886** |
+| Tasks of the plan delivered since | **192 of 886** |
 | Epics in the backlog | 102, plus single fixes in 14 areas |
-| Still to spend | about 523 agent-hours and 523 million tokens |
+| Still to spend | about 520 agent-hours and 521 million tokens |
 | Last feature done, six agents in parallel | about 29 Nov (264 running hours at 16 a day) |
 | Releases | 54 updates of the environment and 11 fresh installs |
 
@@ -331,18 +334,18 @@ Against the target of this plan, that work stands at **24% built** across the 14
 
 The length of a bar is the size of that area, so a long bar is a big area and a short bar a small one. Dark blue is what was already built on 12 November. Green is what has been merged since. Grey is still to do. Sizes are in agent-hours: the green and grey parts are the plan's own estimate; the dark part is scaled from the audit percentage, so it is an estimate of size, not a record of hours spent.
 
-All 14 areas together: 24% was built before the baseline, and the target is now 39.3% built. 132 agent-hours of the plan are merged and 523 are still to do.
+All 14 areas together: 24% was built before the baseline, and the target is now 39.6% built. 134 agent-hours of the plan are merged and 520 are still to do.
 
 ![Progress per product area, to scale](dashboard/progress.svg)
 
 | Product area | Built before | Tasks merged | Agent-hours merged | Agent-hours to do | Share of all remaining work |
 |---|---:|---:|---:|---:|---:|
 | Network and zones | 42% | 19 of 78 | 12 | 45 | 9% |
-| Independent Sovereign | 25% | 22 of 85 | 16 | 47 | 9% |
+| Independent Sovereign | 25% | 23 of 85 | 16 | 46 | 9% |
 | Billing | 60% | 6 of 42 | 4 | 30 | 6% |
-| Delivery engine | 23% | 41 of 90 | 28 | 35 | 7% |
+| Delivery engine | 23% | 42 of 90 | 29 | 35 | 7% |
 | Multi-cloud | 29% | 18 of 79 | 13 | 44 | 8% |
-| Console and change through Git | 25% | 19 of 77 | 14 | 41 | 8% |
+| Console and change through Git | 25% | 20 of 77 | 14 | 40 | 8% |
 | Security and secrets | 10% | 15 of 78 | 11 | 46 | 9% |
 | Compliance | 28% | 14 of 58 | 9 | 34 | 7% |
 | AI and agents | 22% | 4 of 60 | 3 | 42 | 8% |
@@ -350,7 +353,7 @@ All 14 areas together: 24% was built before the baseline, and the target is now 
 | AI hub and open banking | 5% | 14 of 63 | 11 | 37 | 7% |
 | Service catalogue | 35% | 9 of 43 | 6 | 25 | 5% |
 | Privileged access | 17% | 3 of 38 | 2 | 28 | 5% |
-| Migration | 0% | 1 of 34 | 0 | 24 | 5% |
+| Migration | 0% | 2 of 34 | 1 | 24 | 5% |
 
 ## Every epic, to scale
 
@@ -368,20 +371,20 @@ The number for now is the start score plus the share of the remaining distance t
 
 | Product area (start → now) | At the start | Target | Epics | Tasks | Agent-hours to do | Tokens to do, M | Done by |
 |---|---|---|---:|---:|---:|---:|---|
-| **Independent Sovereign** (25 → 44) | Installs and runs in two regions, but still depends on its parent after hand-over. | Local from first boot, owns its keys, upgrades in place, can create a child Sovereign. | 9 | 85 | 47 | 47 | 25 Nov |
+| **Independent Sovereign** (25 → 45) | Installs and runs in two regions, but still depends on its parent after hand-over. | Local from first boot, owns its keys, upgrades in place, can create a child Sovereign. | 9 | 85 | 46 | 46 | 25 Nov |
 | **Multi-cloud** (29 → 45) | Runs on the National Cloud and one other cloud by special cases in shared code. | A cloud is a pack of files behind one contract. A second cloud and a hyperscaler proven. Managed Kubernetes as an option. | 13 | 79 | 44 | 44 | 28 Nov |
 | **Security and secrets** (10 → 28) | The vault runs, but every application credential is still stored in etcd. | Credentials are mounted from the vault into the running workload. Urgent holes closed first. | 7 | 78 | 46 | 46 | 25 Nov |
 | **Network and zones** (42 → 54) | The data plane is sound. The network is open by default. | Deny by default, mesh declared in Git, edge nodes and a load balancer per region. | 6 | 78 | 45 | 46 | 29 Nov |
-| **Console and change through Git** (25 → 44) | Delivery goes through Git. Most console actions write straight to the cluster. | Every change is a commit. Screens update by push. | 2 | 77 | 41 | 40 | 23 Nov |
+| **Console and change through Git** (25 → 45) | Delivery goes through Git. Most console actions write straight to the cluster. | Every change is a commit. Screens update by push. | 2 | 77 | 40 | 40 | 23 Nov |
 | **Service catalogue** (35 → 48) | The bootstrap kit is real. Users cannot choose a cloud's native service. | Every Blueprint has a class. Object storage and PostgreSQL offered as native or self-hosted. | 3 | 43 | 25 | 25 | 25 Nov |
 | **Compliance** (28 → 43) | 24 policies and one proven score. | Posture hub, waivers, scanner reports, runtime and resilience views, frameworks. | 8 | 58 | 34 | 34 | 27 Nov |
 | **Billing** (60 → 64) | The strongest area. Works on the live environment, structurally tangled. | One plan source, metered model usage, collectors per cloud, standalone option for a cloud operator. | 7 | 42 | 30 | 30 | 25 Nov |
 | **AI and agents** (22 → 28) | Four model gateways, one agent workspace, no usable metering. | One gateway with Axon as simulator, an agent runtime, metering, service-management agents. | 7 | 60 | 42 | 42 | 28 Nov |
 | **Machines and virtual machines** (17 → 20) | No virtual-machine service exists. | Virtual machines, machine operations over SSH, golden images. | 9 | 61 | 44 | 44 | 29 Nov |
 | **Privileged access** (17 → 24) | Access control, approval and recording are not in place yet. | Controlled sessions with approval, recording and review. | 7 | 38 | 28 | 28 | 29 Nov |
-| **Migration** (0 → 2) | Nothing exists. | A migration engine with landing on the National Cloud and network extension. | 4 | 34 | 24 | 24 | 29 Nov |
+| **Migration** (0 → 4) | Nothing exists. | A migration engine with landing on the National Cloud and network extension. | 4 | 34 | 24 | 24 | 29 Nov |
 | **AI hub and open banking** (5 → 26) | Scaffolds only. | AI hub with knowledge search and chat. Open banking sandbox, payments, portal. | 7 | 63 | 37 | 37 | 25 Nov |
-| **Delivery engine** (23 → 57) | The acceptance suite exists. Very little is proven on the live environment. | Every feature proven by automatic checks on a real environment, twice, before it counts. | 13 | 90 | 35 | 35 | 22 Nov |
+| **Delivery engine** (23 → 58) | The acceptance suite exists. Very little is proven on the live environment. | Every feature proven by automatic checks on a real environment, twice, before it counts. | 13 | 90 | 35 | 35 | 22 Nov |
 
 ## When each product area is worked on
 
@@ -391,11 +394,11 @@ Dates come from a simulation of six agents over the plan's dependencies, 16 runn
 
 ## The backlog: every epic
 
-<details><summary><b>Independent Sovereign</b>: 9 epics, 85 tasks, 47 agent-hours, done by 25 Nov</summary>
+<details><summary><b>Independent Sovereign</b>: 9 epics, 85 tasks, 46 agent-hours, done by 25 Nov</summary>
 
 | Feature (epic) | Tasks | Delivered | Agent-hours | Tokens, M | Starts | Done by |
 |---|---:|---:|---:|---:|---|---|
-| A Sovereign is local from its first boot | 23 | 12 | 7.7 | 7.6 | 13 Nov | 16 Nov |
+| A Sovereign is local from its first boot | 23 | 13 | 7.0 | 6.9 | 13 Nov | 16 Nov |
 | Hand-over in one short ordered step | 9 | 1 | 6.6 | 6.7 | 15 Nov | 21 Nov |
 | Ties to the parent cut at boot | 8 | 1 | 5.2 | 5.2 | 13 Nov | 21 Nov |
 | Release channel and in-place upgrade | 4 | 0 | 3.2 | 3.2 | 17 Nov | 21 Nov |
@@ -414,7 +417,7 @@ Dates come from a simulation of six agents over the plan's dependencies, 16 runn
 |---|---:|---:|---:|---:|---|---|
 | Dead infrastructure code removed | 3 | 2 | 0.7 | 0.7 | 15 Nov | 15 Nov |
 | Code stops naming cloud providers | 4 | 1 | 2.2 | 2.2 | 14 Nov | 15 Nov |
-| The console reads the cloud's profile | 4 | 0 | 2.8 | 2.7 | 15 Nov | 15 Nov |
+| The console reads the cloud's profile | 4 | 0 | 2.8 | 2.7 | 15 Nov | 16 Nov |
 | One boot template with no provider special cases | 3 | 0 | 1.8 | 1.8 | 15 Nov | 17 Nov |
 | A local test cloud on every pull request | 4 | 3 | 0.9 | 0.9 | 19 Nov | 19 Nov |
 | One overlay per cloud | 7 | 2 | 3.4 | 3.4 | 17 Nov | 19 Nov |
@@ -424,7 +427,7 @@ Dates come from a simulation of six agents over the plan's dependencies, 16 runn
 | No cloud name left in shared code | 2 | 0 | 1.3 | 1.3 | 14 Nov | 22 Nov |
 | Crossplane owns node pools and infrastructure | 7 | 0 | 5.2 | 5.2 | 21 Nov | 23 Nov |
 | Second cloud proven (Hetzner, one region) | 5 | 1 | 3.2 | 3.2 | 19 Nov | 23 Nov |
-| Cloud: single fixes and lab tests | 21 | 8 | 9.0 | 8.9 | 13 Nov | 25 Nov |
+| Cloud: single fixes and lab tests | 21 | 8 | 9.0 | 8.9 | 14 Nov | 25 Nov |
 | A hyperscaler proven (AWS), by adding files only | 4 | 0 | 3.2 | 3.2 | 23 Nov | 28 Nov |
 
 </details>
@@ -458,11 +461,11 @@ Dates come from a simulation of six agents over the plan's dependencies, 16 runn
 
 </details>
 
-<details><summary><b>Console and change through Git</b>: 2 epics, 77 tasks, 41 agent-hours, done by 23 Nov</summary>
+<details><summary><b>Console and change through Git</b>: 2 epics, 77 tasks, 40 agent-hours, done by 23 Nov</summary>
 
 | Feature (epic) | Tasks | Delivered | Agent-hours | Tokens, M | Starts | Done by |
 |---|---:|---:|---:|---:|---|---|
-| Epic: the intent lock | 3 | 1 | 1.2 | 1.1 | 13 Nov | 21 Nov |
+| Epic: the intent lock | 3 | 2 | 0.5 | 0.5 | 21 Nov | 21 Nov |
 | One pipeline for an Organization, every change through Git | 8 | 1 | 5.0 | 5.0 | 21 Nov | 23 Nov |
 | Control plane: every screen writes through Git, one by one | 66 | 17 | 34.6 | 34.1 | 13 Nov | 23 Nov |
 
@@ -473,7 +476,7 @@ Dates come from a simulation of six agents over the plan's dependencies, 16 runn
 | Feature (epic) | Tasks | Delivered | Agent-hours | Tokens, M | Starts | Done by |
 |---|---:|---:|---:|---:|---|---|
 | Function tests for the core services | 11 | 3 | 5.8 | 5.8 | 13 Nov | 15 Nov |
-| Service model: classes on every Blueprint, single fixes | 23 | 6 | 11.9 | 11.7 | 14 Nov | 19 Nov |
+| Service model: classes on every Blueprint, single fixes | 23 | 6 | 11.9 | 11.7 | 13 Nov | 19 Nov |
 | Choose native or self-hosted: object storage | 7 | 0 | 5.9 | 6.0 | 18 Nov | 23 Nov |
 | Choose native or self-hosted: PostgreSQL | 2 | 0 | 1.8 | 1.9 | 23 Nov | 25 Nov |
 
@@ -506,7 +509,7 @@ Dates come from a simulation of six agents over the plan's dependencies, 16 runn
 | Billing: one owner per money record | 5 | 0 | 4.3 | 4.5 | 15 Nov | 24 Nov |
 | Billing: its secrets secured | 2 | 0 | 1.3 | 1.3 | 13 Nov | 24 Nov |
 | Billing: standalone for a cloud operator | 3 | 0 | 2.5 | 2.5 | 23 Nov | 24 Nov |
-| Billing: single fixes | 14 | 6 | 6.4 | 6.5 | 13 Nov | 25 Nov |
+| Billing: single fixes | 14 | 6 | 6.4 | 6.5 | 14 Nov | 25 Nov |
 
 </details>
 
@@ -564,7 +567,7 @@ Dates come from a simulation of six agents over the plan's dependencies, 16 runn
 | Migration engine | 16 | 0 | 12.4 | 12.5 | 25 Nov | 28 Nov |
 | Migration: landing on the National Cloud | 1 | 0 | 0.7 | 0.7 | 28 Nov | 28 Nov |
 | Migration: screens | 4 | 0 | 3.2 | 3.2 | 28 Nov | 29 Nov |
-| Migration: lab tests and single fixes | 8 | 1 | 4.6 | 4.5 | 13 Nov | 29 Nov |
+| Migration: lab tests and single fixes | 8 | 2 | 4.1 | 4.0 | 13 Nov | 29 Nov |
 | Migration: network extension | 5 | 0 | 3.6 | 3.5 | 25 Nov | 29 Nov |
 
 </details>
@@ -589,11 +592,11 @@ Dates come from a simulation of six agents over the plan's dependencies, 16 runn
 | Feature (epic) | Tasks | Delivered | Agent-hours | Tokens, M | Starts | Done by |
 |---|---:|---:|---:|---:|---|---|
 | The plan as data and the tools that guard it | 3 | 3 | 0.0 | 0 | 13 Nov | 13 Nov |
-| Documents match the code | 6 | 5 | 0.7 | 0.7 | 13 Nov | 13 Nov |
 | Dead code removed (foundation) | 13 | 11 | 1.2 | 1.1 | 13 Nov | 13 Nov |
-| Tests run on every pull request | 8 | 6 | 1.2 | 1.1 | 13 Nov | 14 Nov |
-| Signed releases | 2 | 1 | 0.9 | 0.9 | 14 Nov | 14 Nov |
+| Tests run on every pull request | 8 | 7 | 0.7 | 0.7 | 14 Nov | 14 Nov |
+| Documents match the code | 6 | 5 | 0.7 | 0.7 | 14 Nov | 14 Nov |
 | Release rails: CI owns versions and the merge queue | 11 | 6 | 3.4 | 3.4 | 13 Nov | 14 Nov |
+| Signed releases | 2 | 1 | 0.9 | 0.9 | 14 Nov | 14 Nov |
 | The test gate: one list of automatic checks and their records | 7 | 4 | 2.0 | 2.0 | 14 Nov | 16 Nov |
 | Foundation: single fixes and lab tests | 15 | 4 | 7.4 | 7.3 | 14 Nov | 16 Nov |
 | Console regression tests as code | 6 | 0 | 5.2 | 5.4 | 15 Nov | 16 Nov |
@@ -618,12 +621,9 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 | AIP-030 | Spike: agent runtime proof (kagent 1.x on k3s, Cilium, vcluster) | test on the environment |
 | AIP-101 | Shrink Axon and give it a test rail | test on the environment |
 | AIP-221 | Service skeleton, schema with migrations, outbox table, health | test on the environment |
-| BSS-040 | Delete core/marketplace-api | browser, as an end user |
-| CLD-090 | The three modules meet contract version 1; conformance tests | test on the environment |
 | CLD-166 | The mothership holds the checked installation document of the installation in use | test on the environment |
 | CTL-038 | The API accepts a Job's service-account token, confined to one Organization | test on the environment |
 | CTL-039 | Read routes for the region registry and the Environment list | test on the environment |
-| CTL-151 | Intent-lock report and the check that the lock holds | test on the environment |
 | CTL-330 | Delete the Kafka client | test on the environment |
 | CTL-340 | Jobs store subscribe; flow stream event-driven; jobs stream route | test on the environment |
 | CTL-350 | Applications views from the informer cache | browser, as an end user |
@@ -633,34 +633,39 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 | FND-089 | The storefront offers no Sandbox agent picks and the order request carries no agents field | browser, as an end user |
 | INF-040 | Chart bp-kured with the node patch configuration | test on the environment |
 | INF-110 | Kinds Machine and MachineSource; inventory controller with the node source | test on the environment |
+| MIG-020 | Spike: the disk-library read path and change tracking | test on the environment |
 | MIG-030 | Spike: a written volume boots on the reference cloud, through a unit Workspace | test on the environment |
+| NET-071 | Remove the zone virtual-cluster dialog, tab and stub kind | browser, as an end user |
+| NET-133 | A local-affinity decision on every global Service | test on the environment |
 
 </details>
 
-<details><summary><b>R-002</b> Update of hw307 · 16 tickets · about 13 Nov</summary>
+<details><summary><b>R-002</b> Update of hw307 · 18 tickets · about 13 Nov</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
-| NET-071 | Remove the zone virtual-cluster dialog, tab and stub kind | browser, as an end user |
-| NET-133 | A local-affinity decision on every global Service | test on the environment |
 | NET-270 | Spike: firewall attachment | test on the environment |
 | NET-280 | Spike: overlay profile | test on the environment |
 | PRD-202 | cortex store: migrations, roles, trimmed query | test on the environment |
 | PRD-501 | Resource server base: store, definitions loader, router with the token check, account-access consent resources | test on the environment |
 | PRD-503 | Keycloak consent extension | test on the environment |
 | PRD-800 | Adapter template for a second bank | test on the environment |
+| SEC-010 | Close the public route to OpenBao system paths | test on the environment |
 | SEC-161 | Reconciler: secrets mounts and accessor substitution | test on the environment |
 | SOV-181 | The provisioning routes refuse a Sovereign that is not a mothership | test on the environment |
 | SOV-182 | The API takes its company-host fallbacks from the Sovereign's variables | test on the environment |
 | SOV-183 | The Organization controller and the provisioning service render sources and the pull secret from the variables | test on the environment |
-| SOV-190 | The console reads the mode from the API | browser, as an end user |
 | SOV-321 | Spike: the Sovereign's own mail server on a running Sovereign | test on the environment |
 | SOV-750 | Spike: an auto-scaling group worker pool on the reference cloud | test on the environment |
 | SVC-070 | Function tests: identity and secrets charts | test on the environment |
+| SVC-080 | Function tests: GitOps, registry and certificate charts | test on the environment |
+| SVC-090 | Function tests: network, names and edge charts | test on the environment |
+| SVC-100 | Function tests: admission, infrastructure and control-plane charts | test on the environment |
+| SVC-190 | Delete the Blueprint controller | test on the environment |
 
 </details>
 
-<details><summary><b>R-003</b> Update of hw307 · 20 tickets · about 14 Nov · waits for R-001, R-002</summary>
+<details><summary><b>R-003</b> Update of hw307 · 16 tickets · about 14 Nov · waits for R-001, R-002</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -669,21 +674,17 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 | AIP-201 | Node preparation for the sandbox class, exactly as the spike recorded | test on the environment |
 | AIP-222 | Signal intake, grouping, candidate scoring, rule results | test on the environment |
 | AIP-224 | Guard library agentguard and its adversarial corpus | test on the environment |
-| CLD-101 | Golden files for the variables the engine writes | test on the environment |
+| BSS-040 | Delete core/marketplace-api | browser, as an end user |
+| CLD-090 | The three modules meet contract version 1; conformance tests | test on the environment |
 | CTL-320 | Durable audit | test on the environment |
 | FND-035 | The gate workflow | test on the environment |
-| MIG-020 | Spike: the disk-library read path and change tracking | test on the environment |
+| FND-130 | The gate suite runs on the local provider pack on every pull request | test on the environment |
 | MIG-040 | Spike: address preservation while a subnet is split | test on the environment |
 | NET-032 | Reserve platform namespace names as Organization slugs | test on the environment |
 | NET-322 | Class file, schema and conformance probe as a suite profile | test on the environment |
 | PRD-203 | cortex query process: token check, gateway client, search, definitions loader | test on the environment |
 | PRD-508 | Account-information read operations and the ledger client | test on the environment |
-| SEC-010 | Close the public route to OpenBao system paths | test on the environment |
 | SEC-073 | Remove the committed database passwords and rotate them | test on the environment |
-| SVC-080 | Function tests: GitOps, registry and certificate charts | test on the environment |
-| SVC-090 | Function tests: network, names and edge charts | test on the environment |
-| SVC-100 | Function tests: admission, infrastructure and control-plane charts | test on the environment |
-| SVC-190 | Delete the Blueprint controller | test on the environment |
 
 </details>
 
@@ -696,11 +697,11 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 | AIP-103 | Real streaming and real usage | test on the environment |
 | AIP-111 | Move the sidecar, take identity from the gateway, publish quantity | test on the environment |
 | BSS-S1 | Spike: suite sign-in, suite access to the engine API, and the price list a fresh Sovereign shows | test on the environment |
-| CLD-102 | Port interface, capability interfaces, generated registry | test on the environment |
+| CLD-101 | Golden files for the variables the engine writes | test on the environment |
 | CTL-230 | Batch F: resource browser | browser, as an end user |
 | FND-036 | Sign-in as a gate check | test on the environment |
 | FND-073 | The gate runs against the standing environment after each candidate, with no wipe | test on the environment |
-| FND-130 | The gate suite runs on the local provider pack on every pull request | test on the environment |
+| FND-151 | The suite as an image, with the `self` selection | test on the environment |
 | INF-112 | Chart templates and image for the inventory controller | test on the environment |
 | INF-120 | Runner image and node-mode tasks | test on the environment |
 | PRD-204 | cortex ingestion of uploads: job table, upload and document routes, index process, text parser, chunker, event | test on the environment |
@@ -717,10 +718,10 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 | ACC-101 | Delete the fabricated session surface in the API and the console | browser, as an end user |
 | AIP-104 | Limits, queue, time-outs, admin listener | test on the environment |
 | AIP-112 | Streamed responses are metered | test on the environment |
+| AIP-120 | Agent tokens and the signer key set route | test on the environment |
 | BSS-060 | Gate check: self-service onboarding | test on the environment |
-| CLD-103 | Credentials map, validation through the port, storage class from the profile | test on the environment |
+| CLD-102 | Port interface, capability interfaces, generated registry | test on the environment |
 | FND-070 | Baseline: one fresh provision of `main` as it stands | test on the environment |
-| FND-151 | The suite as an image, with the `self` selection | test on the environment |
 | INF-130 | Kinds ScanPolicy, HardeningBaseline, MachineRun; operations controller | test on the environment |
 | INF-512 | Runner test task and its tools | test on the environment |
 | PRD-201 | bp-bge chart to the serving rules | test on the environment |
@@ -768,17 +769,17 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-006</b> Update of hw308 · 17 tickets · about 15 Nov · waits for R-001, R-002, R-003, R-004, R-005</summary>
+<details><summary><b>R-006</b> Update of hw308 · 17 tickets · about 15 Nov · waits for R-002, R-003, R-004, R-005</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
 | AIP-105 | One owner of the credential | test on the environment |
 | AIP-113 | Durable spool, admin routes, scripted backend | test on the environment |
-| AIP-120 | Agent tokens and the signer key set route | test on the environment |
+| AIP-150 | The tool server accepts agent tokens | test on the environment |
+| AIP-223 | Judge dispatcher: lanes, deadlines, agent tokens, A2A call, validation, late revision | test on the environment |
+| AIP-250 | Spike: agent workspace on the Organization's own sign-in with a short-lived tool identity | test on the environment |
 | BSS-070 | BSS-G01 becomes required | test on the environment |
-| CLD-104 | The engine writes neutral variables; adapters write their own | test on the environment |
-| CLD-112 | Credential check from the profile; one registry | test on the environment |
-| CLD-121 | Providers routes | test on the environment |
+| CLD-103 | Credentials map, validation through the port, storage class from the profile | test on the environment |
 | CMP-020 | The API tells the truth: live mode, no fixture data, no invented list | test on the environment |
 | CTL-242 | Catalogue edits are stored as the edited card fields only | test on the environment |
 | FND-120 | W0 exit: two consecutive records on one candidate; freeze the topology surface | test on the environment |
@@ -792,19 +793,19 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-007</b> Update of hw308 · 23 tickets · about 15 Nov · waits for F-01, R-001, R-002, R-003, R-004, R-006</summary>
+<details><summary><b>R-007</b> Update of hw308 · 23 tickets · about 15 Nov · waits for R-001, R-002, R-003, R-004, R-005, R-006 and 1 earlier</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
 | AIP-130 | Model contract conformance client and checks | test on the environment |
-| AIP-150 | The tool server accepts agent tokens | test on the environment |
-| AIP-223 | Judge dispatcher: lanes, deadlines, agent tokens, A2A call, validation, late revision | test on the environment |
-| AIP-250 | Spike: agent workspace on the Organization's own sign-in with a short-lived tool identity | test on the environment |
+| AIP-155 | Agent workspace: the Organization's own sign-in by mount and a short-lived tool identity, as the spike record  | test on the environment |
+| AIP-225 | MCP endpoint and console HTTP routes inside the service | test on the environment |
 | BSS-101 | Package offer, the default offer, and the controller's table built from it | test on the environment |
 | BSS-121 | Checkout books exact amounts in the wallet | test on the environment |
 | CLD-061 | Crossplane 1.18 to 1.19 | test on the environment |
-| CLD-105 | Hook variables become capability interfaces | test on the environment |
-| CLD-122 | The wizard renders providers, credentials, regions and flavors from the profile | browser, as an end user |
+| CLD-104 | The engine writes neutral variables; adapters write their own | test on the environment |
+| CLD-112 | Credential check from the profile; one registry | test on the environment |
+| CLD-121 | Providers routes | test on the environment |
 | CMP-022 | The console stops claiming what does not exist | browser, as an end user |
 | CMP-032 | The aggregator uses the package: subjects, one judge, seven results; duplicate evaluators deleted | test on the environment |
 | CMP-058 | Engine to the 1.19 line | test on the environment |
@@ -822,15 +823,16 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-008</b> Update of hw308 · 22 tickets · about 15 Nov · waits for F-01, R-001, R-003, R-006, R-007</summary>
+<details><summary><b>R-008</b> Update of hw308 · 23 tickets · about 15 Nov · waits for F-01, R-002, R-003, R-006, R-007</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
-| AIP-155 | Agent workspace: the Organization's own sign-in by mount and a short-lived tool identity, as the spike record  | test on the environment |
-| AIP-225 | MCP endpoint and console HTTP routes inside the service | test on the environment |
+| AIP-156 | Delete the long-lived bearer seed | test on the environment |
+| AIP-227 | Console read path: reverse proxy /api/v1/ops/* in catalyst-api | test on the environment |
 | BSS-124 | The debit port: found by order, no overdraft, engine only | test on the environment |
 | CLD-062 | Crossplane 1.19 to 1.20 | test on the environment |
-| CLD-111 | Wipe and janitor through capabilities | test on the environment |
+| CLD-105 | Hook variables become capability interfaces | test on the environment |
+| CLD-122 | The wizard renders providers, credentials, regions and flavors from the profile | browser, as an end user |
 | CMP-041 | ComplianceModel: definition, data files, chart template, loader, exemptions | test on the environment |
 | CMP-061 | Engine values, informer kinds and mode adapter for the current policy kinds | test on the environment |
 | CTL-172 | Platform charts take placement from values | test on the environment |
@@ -851,13 +853,11 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-009</b> Update of hw308 · 15 tickets · about 15 Nov · waits for F-01, R-001, R-004, R-007, R-008</summary>
+<details><summary><b>R-009</b> Update of hw308 · 13 tickets · about 15 Nov · waits for F-01, R-002, R-004, R-007, R-008</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
-| AIP-156 | Delete the long-lived bearer seed | test on the environment |
-| AIP-227 | Console read path: reverse proxy /api/v1/ops/* in catalyst-api | test on the environment |
-| CLD-123 | Wipe, decommission and cloud pages without provider names | browser, as an end user |
+| CLD-111 | Wipe and janitor through capabilities | test on the environment |
 | CMP-045 | Posture routes and the change stream | test on the environment |
 | CMP-062 | Validate policies to ValidatingPolicy, batch 1 (7 policies) | test on the environment |
 | CMP-068 | Pod security: enforce baseline on Organization namespaces | test on the environment |
@@ -873,11 +873,11 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-010</b> Update of hw308 · 10 tickets · about 15 Nov · waits for R-001, R-007, R-009</summary>
+<details><summary><b>R-010</b> Update of hw308 · 10 tickets · about 15 Nov · waits for R-002, R-007, R-008, R-009</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
-| CLD-124 | Remove the legacy credential aliases | test on the environment |
+| CLD-123 | Wipe, decommission and cloud pages without provider names | browser, as an end user |
 | CMP-063 | Validate policies to ValidatingPolicy, batch 2 (7 policies) | test on the environment |
 | CMP-081 | ComplianceDecision: kind, admission rule, routes, effect on findings | test on the environment |
 | CMP-091 | Scanner kinds in the cache; vulnerabilities by workload | test on the environment |
@@ -890,10 +890,11 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-011</b> Update of hw308 · 7 tickets · about 16 Nov · waits for R-001, R-007, R-009, R-010</summary>
+<details><summary><b>R-011</b> Update of hw308 · 8 tickets · about 16 Nov · waits for R-002, R-007, R-009, R-010</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
+| CLD-124 | Remove the legacy credential aliases | test on the environment |
 | CMP-064 | Validate policies to ValidatingPolicy, batch 3 (7 policies) | test on the environment |
 | CMP-088 | Scanner to the current line | test on the environment |
 | CMP-092 | Configuration audit, secrets in images, risky roles, benchmark | test on the environment |
@@ -904,7 +905,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>F-02</b> Fresh install, creates hw309 · 18 tickets · about 16 Nov · waits for R-001, R-003, R-004, R-006, R-007, R-008 and 1 earlier</summary>
+<details><summary><b>F-02</b> Fresh install, creates hw309 · 18 tickets · about 16 Nov · waits for R-002, R-003, R-004, R-006, R-007, R-008 and 1 earlier</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -929,7 +930,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-012</b> Update of hw309 · 4 tickets · about 16 Nov · waits for R-001, R-007, R-010, R-011</summary>
+<details><summary><b>R-012</b> Update of hw309 · 4 tickets · about 16 Nov · waits for R-002, R-007, R-010, R-011</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -940,7 +941,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-013</b> Update of hw309 · 9 tickets · about 16 Nov · waits for F-02, R-001, R-006, R-007, R-012</summary>
+<details><summary><b>R-013</b> Update of hw309 · 9 tickets · about 16 Nov · waits for F-02, R-002, R-006, R-007, R-012</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -956,7 +957,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-014</b> Update of hw309 · 2 tickets · about 17 Nov · waits for R-001, R-005, R-008, R-010, R-013</summary>
+<details><summary><b>R-014</b> Update of hw309 · 2 tickets · about 17 Nov · waits for R-002, R-004, R-008, R-010, R-013</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -982,7 +983,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-015</b> Update of hw310 · 5 tickets · about 18 Nov · waits for F-03, R-001, R-003, R-013</summary>
+<details><summary><b>R-015</b> Update of hw310 · 5 tickets · about 18 Nov · waits for F-03, R-001, R-002, R-003, R-013</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -994,7 +995,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-016</b> Update of hw310 · 5 tickets · about 18 Nov · waits for F-03, R-001, R-013, R-015</summary>
+<details><summary><b>R-016</b> Update of hw310 · 5 tickets · about 18 Nov · waits for F-03, R-002, R-013, R-015</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1015,7 +1016,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>F-04</b> Fresh install, creates hw311 · 7 tickets · about 19 Nov · waits for R-006, R-008, R-009, R-010, R-011, R-015 and 5 earlier</summary>
+<details><summary><b>F-04</b> Fresh install, creates hw311 · 7 tickets · about 19 Nov · waits for R-007, R-008, R-009, R-010, R-011, R-015 and 5 earlier</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1029,7 +1030,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-018</b> Update of hw311 · 15 tickets · about 19 Nov · waits for R-005, R-006, R-008, R-013, R-015, R-016 and 6 earlier</summary>
+<details><summary><b>R-018</b> Update of hw311 · 15 tickets · about 19 Nov · waits for R-005, R-006, R-009, R-013, R-015, R-016 and 4 earlier</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1051,7 +1052,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-019</b> Update of hw311 · 15 tickets · about 19 Nov · waits for R-006, R-008, R-015, R-016, R-017, R-018 and 2 earlier</summary>
+<details><summary><b>R-019</b> Update of hw311 · 15 tickets · about 19 Nov · waits for R-006, R-007, R-015, R-016, R-017, R-018 and 2 earlier</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1073,7 +1074,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-020</b> Update of hw311 · 6 tickets · about 20 Nov · waits for R-001, R-006, R-016, R-018, R-019</summary>
+<details><summary><b>R-020</b> Update of hw311 · 6 tickets · about 20 Nov · waits for R-002, R-006, R-016, R-018, R-019</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1117,7 +1118,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-022</b> Update of hw312 · 13 tickets · about 21 Nov · waits for R-008, R-010, R-013, R-016, R-018, R-019 and 10 earlier</summary>
+<details><summary><b>R-022</b> Update of hw312 · 13 tickets · about 21 Nov · waits for R-009, R-010, R-013, R-016, R-018, R-019 and 11 earlier</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1137,7 +1138,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-023</b> Update of hw312 · 13 tickets · about 21 Nov · waits for R-006, R-007, R-008, R-015, R-018, R-022 and 5 earlier</summary>
+<details><summary><b>R-023</b> Update of hw312 · 13 tickets · about 21 Nov · waits for R-006, R-007, R-008, R-015, R-018, R-022 and 6 earlier</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1157,7 +1158,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-024</b> Update of hw312 · 14 tickets · about 21 Nov · waits for R-009, R-013, R-018, R-019, R-022, R-023 and 9 earlier</summary>
+<details><summary><b>R-024</b> Update of hw312 · 14 tickets · about 21 Nov · waits for R-009, R-013, R-018, R-019, R-022, R-023 and 8 earlier</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1178,7 +1179,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-025</b> Update of hw312 · 14 tickets · about 21 Nov · waits for R-018, R-019, R-020, R-022, R-023, R-024 and 11 earlier</summary>
+<details><summary><b>R-025</b> Update of hw312 · 14 tickets · about 21 Nov · waits for R-018, R-019, R-020, R-022, R-023, R-024 and 10 earlier</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1199,7 +1200,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-026</b> Update of hw312 · 12 tickets · about 22 Nov · waits for R-010, R-014, R-018, R-023, R-024, R-025 and 8 earlier</summary>
+<details><summary><b>R-026</b> Update of hw312 · 12 tickets · about 22 Nov · waits for R-010, R-014, R-018, R-023, R-024, R-025 and 7 earlier</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1218,7 +1219,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>F-06</b> Fresh install, creates hw313 · 18 tickets · about 22 Nov · waits for R-018, R-019, R-021, R-022, R-024, R-026 and 14 earlier</summary>
+<details><summary><b>F-06</b> Fresh install, creates hw313 · 18 tickets · about 22 Nov · waits for R-018, R-019, R-021, R-022, R-024, R-026 and 16 earlier</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1277,7 +1278,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-029</b> Update of hw313 · 9 tickets · about 23 Nov · waits for R-001, R-003, R-006, R-008, R-024, R-028 and 2 earlier</summary>
+<details><summary><b>R-029</b> Update of hw313 · 9 tickets · about 23 Nov · waits for R-002, R-003, R-006, R-008, R-024, R-028 and 2 earlier</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1293,7 +1294,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-030</b> Update of hw313 · 8 tickets · about 23 Nov · waits for R-007, R-018, R-019, R-024, R-028, R-029 and 5 earlier</summary>
+<details><summary><b>R-030</b> Update of hw313 · 8 tickets · about 23 Nov · waits for R-007, R-018, R-019, R-024, R-028, R-029 and 6 earlier</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1308,7 +1309,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-031</b> Update of hw313 · 11 tickets · about 23 Nov · waits for R-009, R-020, R-022, R-025, R-028, R-030 and 7 earlier</summary>
+<details><summary><b>R-031</b> Update of hw313 · 11 tickets · about 23 Nov · waits for R-008, R-020, R-022, R-025, R-028, R-030 and 7 earlier</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1326,7 +1327,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-032</b> Update of hw313 · 5 tickets · about 23 Nov · waits for F-02, R-001, R-008, R-030, R-031</summary>
+<details><summary><b>R-032</b> Update of hw313 · 5 tickets · about 23 Nov · waits for F-02, R-002, R-008, R-030, R-031</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1363,7 +1364,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-033</b> Update of hw314 · 3 tickets · about 23 Nov · waits for R-001, R-007, R-032</summary>
+<details><summary><b>R-033</b> Update of hw314 · 3 tickets · about 23 Nov · waits for R-002, R-007, R-032</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1406,7 +1407,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-036</b> Update of hw314 · 6 tickets · about 24 Nov · waits for R-006, R-015, R-018, R-029, R-030, R-035 and 1 earlier</summary>
+<details><summary><b>R-036</b> Update of hw314 · 6 tickets · about 24 Nov · waits for R-005, R-015, R-018, R-029, R-030, R-035 and 1 earlier</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1419,7 +1420,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-037</b> Update of hw314 · 4 tickets · about 25 Nov · waits for R-001, R-015, R-018, R-026, R-035, R-036</summary>
+<details><summary><b>R-037</b> Update of hw314 · 4 tickets · about 25 Nov · waits for R-002, R-015, R-018, R-026, R-035, R-036</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1430,7 +1431,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-038</b> Update of hw314 · 6 tickets · about 25 Nov · waits for R-001, R-037</summary>
+<details><summary><b>R-038</b> Update of hw314 · 6 tickets · about 25 Nov · waits for R-001, R-002, R-037</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1458,7 +1459,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-039</b> Update of hw315 · 1 tickets · about 25 Nov · waits for R-001, R-038</summary>
+<details><summary><b>R-039</b> Update of hw315 · 1 tickets · about 25 Nov · waits for R-002, R-038</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1486,7 +1487,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-041</b> Update of hw315 · 10 tickets · about 25 Nov · waits for R-023, R-024, R-026, R-028, R-032, R-040 and 6 earlier</summary>
+<details><summary><b>R-041</b> Update of hw315 · 10 tickets · about 25 Nov · waits for R-023, R-024, R-026, R-028, R-032, R-040 and 5 earlier</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1503,7 +1504,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-042</b> Update of hw315 · 7 tickets · about 26 Nov · waits for F-06, R-001, R-003, R-018, R-040, R-041</summary>
+<details><summary><b>R-042</b> Update of hw315 · 7 tickets · about 26 Nov · waits for F-06, R-001, R-002, R-018, R-040, R-041</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1517,7 +1518,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-043</b> Update of hw315 · 5 tickets · about 26 Nov · waits for R-003, R-008, R-015, R-020, R-040, R-042 and 3 earlier</summary>
+<details><summary><b>R-043</b> Update of hw315 · 5 tickets · about 26 Nov · waits for R-002, R-008, R-015, R-020, R-040, R-042 and 3 earlier</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1529,7 +1530,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-044</b> Update of hw315 · 2 tickets · about 26 Nov · waits for R-001, R-008, R-043</summary>
+<details><summary><b>R-044</b> Update of hw315 · 2 tickets · about 26 Nov · waits for R-002, R-008, R-043</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1538,7 +1539,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>F-09</b> Fresh install, creates hw316 · 8 tickets · about 27 Nov · waits for R-001, R-005, R-024, R-028, R-040, R-042 and 2 earlier</summary>
+<details><summary><b>F-09</b> Fresh install, creates hw316 · 8 tickets · about 27 Nov · waits for R-003, R-005, R-024, R-028, R-040, R-042 and 3 earlier</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1553,7 +1554,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-045</b> Update of hw316 · 4 tickets · about 27 Nov · waits for R-001, R-042, R-044</summary>
+<details><summary><b>R-045</b> Update of hw316 · 4 tickets · about 27 Nov · waits for R-002, R-042, R-044</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1564,7 +1565,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-046</b> Update of hw316 · 6 tickets · about 27 Nov · waits for F-09, R-001, R-043, R-045</summary>
+<details><summary><b>R-046</b> Update of hw316 · 6 tickets · about 27 Nov · waits for F-09, R-002, R-043, R-045</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1577,7 +1578,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-047</b> Update of hw316 · 6 tickets · about 27 Nov · waits for R-002, R-006, R-041, R-042, R-045, R-046 and 1 earlier</summary>
+<details><summary><b>R-047</b> Update of hw316 · 6 tickets · about 27 Nov · waits for R-002, R-006, R-041, R-042, R-045, R-046</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1590,7 +1591,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-048</b> Update of hw316 · 3 tickets · about 27 Nov · waits for F-02, R-001, R-003, R-026, R-047</summary>
+<details><summary><b>R-048</b> Update of hw316 · 3 tickets · about 27 Nov · waits for F-02, R-002, R-003, R-026, R-047</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1614,7 +1615,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-050</b> Update of hw316 · 3 tickets · about 28 Nov · waits for R-001, R-005, R-015, R-049</summary>
+<details><summary><b>R-050</b> Update of hw316 · 3 tickets · about 28 Nov · waits for R-002, R-005, R-015, R-049</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1624,7 +1625,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>F-10</b> Fresh install, creates hw317 · 8 tickets · about 28 Nov · waits for R-040, R-041, R-042, R-047, R-048, R-049 and 3 earlier</summary>
+<details><summary><b>F-10</b> Fresh install, creates hw317 · 8 tickets · about 28 Nov · waits for R-040, R-041, R-042, R-047, R-048, R-049 and 4 earlier</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1639,7 +1640,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-051</b> Update of hw317 · 4 tickets · about 28 Nov · waits for R-002, R-004, R-015, R-042, R-049, R-050 and 3 earlier</summary>
+<details><summary><b>R-051</b> Update of hw317 · 4 tickets · about 28 Nov · waits for R-002, R-003, R-015, R-042, R-049, R-050 and 3 earlier</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1650,7 +1651,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-052</b> Update of hw317 · 3 tickets · about 28 Nov · waits for R-002, R-007, R-018, R-023, R-043, R-051 and 2 earlier</summary>
+<details><summary><b>R-052</b> Update of hw317 · 3 tickets · about 28 Nov · waits for R-002, R-007, R-018, R-023, R-043, R-051 and 1 earlier</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1660,7 +1661,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-053</b> Update of hw317 · 2 tickets · about 29 Nov · waits for R-001, R-002, R-051, R-052</summary>
+<details><summary><b>R-053</b> Update of hw317 · 2 tickets · about 29 Nov · waits for R-002, R-051, R-052</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1669,7 +1670,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>R-054</b> Update of hw317 · 1 tickets · about 29 Nov · waits for R-002, R-053</summary>
+<details><summary><b>R-054</b> Update of hw317 · 1 tickets · about 29 Nov · waits for R-053</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1677,7 +1678,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>F-11</b> Fresh install, creates hw318 · 5 tickets · about 29 Nov · waits for F-10, R-001, R-024, R-029, R-044, R-048 and 1 earlier</summary>
+<details><summary><b>F-11</b> Fresh install, creates hw318 · 5 tickets · about 29 Nov · waits for F-10, R-002, R-024, R-029, R-044, R-048 and 1 earlier</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1689,7 +1690,7 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 </details>
 
-<details><summary><b>Merged one by one, no deployment</b> · 75 tickets</summary>
+<details><summary><b>Merged one by one, no deployment</b> · 73 tickets</summary>
 
 | Ticket | What it does | About |
 |---|---|---|
@@ -1697,30 +1698,28 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 | ACC-050 | Truth in the access documents | 13 Nov |
 | CTL-061 | A decision record names the one writer of Environment objects and the package that denies their stage | 13 Nov |
 | FND-012 | Stop the tracker commits | 13 Nov |
-| FND-019 | The release writer moves the pin of a chart that several kit slots install | 13 Nov |
-| FND-057 | The privacy guard fails closed and runs on every branch | 13 Nov |
 | FND-088 | The event registry and the shared bus package no longer name the Sandbox request subject | 13 Nov |
-| FND-104 | Truth patch of the canonical documents | 13 Nov |
-| MIG-060 | Guard: no vendor disk library in the repository or in public images | 13 Nov |
+| FND-017 | The workflows that push to main themselves push under the release-writer identity | 13 Nov |
 | NET-102 | Registry in the Sovereign status, checked against the live cluster | 13 Nov |
 | NET-221 | Delete the four retired charts and their seed entries | 13 Nov |
 | SEC-126 | The runbook states how and when to rotate the etcd encryption key of a running Sovereign | 13 Nov |
 | SEC-090 | Guards | 13 Nov |
-| MIG-010 | Decision record: migration is a platform product; correct the documents | 14 Nov |
-| NET-055 | Canonical documents state the zone, firewall and default-deny design of record 0019 | 14 Nov |
-| FND-017 | The workflows that push to main themselves push under the release-writer identity | 14 Nov |
+| ACC-040 | Access guards with their baselines | 13 Nov |
+| FND-019 | The release writer moves the pin of a chart that several kit slots install | 14 Nov |
+| FND-107 | The bot that flips acceptance rows keeps the tally and provenance lines true | 14 Nov |
+| FND-024 | The deploy-bump action and its 20 callers push under the release-writer identity | 14 Nov |
 | FND-056 | Pin the two moving actions; ratchets for actions and base images | 14 Nov |
+| FND-104 | Truth patch of the canonical documents | 14 Nov |
 | NET-251 | Decision record: firewall mechanism and the package list of epic NET-250 | 14 Nov |
 | SVC-040 | Normalise names, API version and visibility | 14 Nov |
-| ACC-040 | Access guards with their baselines | 14 Nov |
-| FND-107 | The bot that flips acceptance rows keeps the tally and provenance lines true | 14 Nov |
-| SEC-127 | The k3s bootstrap-flags test pins its checkout action by commit hash and its k3s image by digest | 14 Nov |
-| FND-024 | The deploy-bump action and its 20 callers push under the release-writer identity | 14 Nov |
+| FND-025 | The rulesets name the release-writer key; a push outside the queue is judged by what it changes | 14 Nov |
 | FND-910 | Dependency updates (standing package) | 14 Nov |
+| SEC-127 | The k3s bootstrap-flags test pins its checkout action by commit hash and its k3s image by digest | 14 Nov |
 | FND-062 | Every image and chart build signs through the action | 14 Nov |
+| MIG-010 | Decision record: migration is a platform product; correct the documents | 14 Nov |
+| NET-055 | Canonical documents state the zone, firewall and default-deny design of record 0019 | 14 Nov |
 | SVC-150 | One generator, part 1: embedded and console catalogue | 14 Nov |
 | FND-071 | Flight checklist: pre-flight gate before every fresh installation, leftover sweep after every wipe | 14 Nov |
-| FND-025 | The rulesets name the release-writer key; a push outside the queue is judged by what it changes | 14 Nov |
 | SVC-160 | One generator, part 2: the seed becomes generated | 14 Nov |
 | SVC-166 | The umbrella chart's Blueprint file moves beside its chart | 14 Nov |
 | SVC-205 | Lock stage blueprints to deny | 14 Nov |
@@ -1773,6 +1772,6 @@ How tickets are proven: 94 in a browser as an end user (Playwright with a screen
 
 ## Delivered since the baseline
 
-`ACC-020`, `ACC-030`, `ACC-060`, `AIP-010`, `AIP-020`, `AIP-050`, `AIP-060`, `BSS-010`, `BSS-020`, `BSS-030`, `BSS-035`, `BSS-050`, `BSS-S2`, `CLD-010`, `CLD-021`, `CLD-022`, `CLD-040`, `CLD-050`, `CLD-055`, `CLD-063`, `CLD-070`, `CLD-071`, `CLD-075`, `CLD-080`, `CLD-086`, `CLD-087`, `CLD-113`, `CLD-141`, `CLD-142`, `CLD-161`, `CLD-185`, `CMP-005`, `CMP-010`, `CMP-012`, `CMP-014`, `CMP-016`, `CMP-030`, `CMP-036`, `CMP-073`, `CMP-S1`, `CMP-S2`, `CMP-S3`, `CMP-S4`, `CMP-S5`, `CMP-S6`, `CTL-010`, `CTL-020`, `CTL-025`, `CTL-030`, `CTL-035`, `CTL-040`, `CTL-041`, `CTL-044`, `CTL-045`, `CTL-050`, `CTL-055`, `CTL-060`, `CTL-110`, `CTL-112`, `CTL-150`, `CTL-160`, `CTL-201`, `CTL-240`, `CTL-300`, `FND-001`, `FND-002`, `FND-011`, `FND-013`, `FND-014`, `FND-015`, `FND-018`, `FND-020`, `FND-021`, `FND-022`, `FND-023`, `FND-031`, `FND-032`, `FND-033`, `FND-034`, `FND-040`, `FND-051`, `FND-052`, `FND-053`, `FND-054`, `FND-055`, `FND-058`, `FND-061`, `FND-091`, `FND-092`, `FND-093`, `FND-094`, `FND-095`, `FND-096`, `FND-097`, `FND-098`, `FND-099`, `FND-101`, `FND-102`, `FND-103`, `FND-105`, `FND-106`, `FND-110`, `FND-171`, `FND-173`, `FND-181`, `INF-010`, `INF-030`, `INF-070`, `MIG-050`, `NET-010`, `NET-020`, `NET-030`, `NET-031`, `NET-033`, `NET-041`, `NET-042`, `NET-050`, `NET-052`, `NET-060`, `NET-070`, `NET-072`, `NET-080`, `NET-090`, `NET-100`, `NET-125`, `NET-290`, `NET-300`, `NET-321`, `PRD-010`, `PRD-020`, `PRD-030`, `PRD-040`, `PRD-060`, `PRD-070`, `PRD-080`, `PRD-101`, `PRD-102`, `PRD-103`, `PRD-104`, `PRD-105`, `PRD-106`, `PRD-502`, `SEC-005`, `SEC-006`, `SEC-020`, `SEC-030`, `SEC-071`, `SEC-080`, `SEC-100`, `SEC-110`, `SEC-120`, `SEC-125`, `SEC-130`, `SEC-135`, `SEC-140`, `SEC-271`, `SEC-280`, `SOV-030`, `SOV-035`, `SOV-040`, `SOV-050`, `SOV-060`, `SOV-070`, `SOV-080`, `SOV-090`, `SOV-110`, `SOV-120`, `SOV-121`, `SOV-130`, `SOV-131`, `SOV-133`, `SOV-134`, `SOV-140`, `SOV-141`, `SOV-150`, `SOV-160`, `SOV-180`, `SOV-220`, `SOV-320`, `SVC-010`, `SVC-020`, `SVC-030`, `SVC-060`, `SVC-120`, `SVC-125`, `SVC-210`, `SVC-315`, `SVC-340`.
+`ACC-020`, `ACC-030`, `ACC-060`, `AIP-010`, `AIP-020`, `AIP-050`, `AIP-060`, `BSS-010`, `BSS-020`, `BSS-030`, `BSS-035`, `BSS-050`, `BSS-S2`, `CLD-010`, `CLD-021`, `CLD-022`, `CLD-040`, `CLD-050`, `CLD-055`, `CLD-063`, `CLD-070`, `CLD-071`, `CLD-075`, `CLD-080`, `CLD-086`, `CLD-087`, `CLD-113`, `CLD-141`, `CLD-142`, `CLD-161`, `CLD-185`, `CMP-005`, `CMP-010`, `CMP-012`, `CMP-014`, `CMP-016`, `CMP-030`, `CMP-036`, `CMP-073`, `CMP-S1`, `CMP-S2`, `CMP-S3`, `CMP-S4`, `CMP-S5`, `CMP-S6`, `CTL-010`, `CTL-020`, `CTL-025`, `CTL-030`, `CTL-035`, `CTL-040`, `CTL-041`, `CTL-044`, `CTL-045`, `CTL-050`, `CTL-055`, `CTL-060`, `CTL-110`, `CTL-112`, `CTL-150`, `CTL-151`, `CTL-160`, `CTL-201`, `CTL-240`, `CTL-300`, `FND-001`, `FND-002`, `FND-011`, `FND-013`, `FND-014`, `FND-015`, `FND-018`, `FND-020`, `FND-021`, `FND-022`, `FND-023`, `FND-031`, `FND-032`, `FND-033`, `FND-034`, `FND-040`, `FND-051`, `FND-052`, `FND-053`, `FND-054`, `FND-055`, `FND-057`, `FND-058`, `FND-061`, `FND-091`, `FND-092`, `FND-093`, `FND-094`, `FND-095`, `FND-096`, `FND-097`, `FND-098`, `FND-099`, `FND-101`, `FND-102`, `FND-103`, `FND-105`, `FND-106`, `FND-110`, `FND-171`, `FND-173`, `FND-181`, `INF-010`, `INF-030`, `INF-070`, `MIG-050`, `MIG-060`, `NET-010`, `NET-020`, `NET-030`, `NET-031`, `NET-033`, `NET-041`, `NET-042`, `NET-050`, `NET-052`, `NET-060`, `NET-070`, `NET-072`, `NET-080`, `NET-090`, `NET-100`, `NET-125`, `NET-290`, `NET-300`, `NET-321`, `PRD-010`, `PRD-020`, `PRD-030`, `PRD-040`, `PRD-060`, `PRD-070`, `PRD-080`, `PRD-101`, `PRD-102`, `PRD-103`, `PRD-104`, `PRD-105`, `PRD-106`, `PRD-502`, `SEC-005`, `SEC-006`, `SEC-020`, `SEC-030`, `SEC-071`, `SEC-080`, `SEC-100`, `SEC-110`, `SEC-120`, `SEC-125`, `SEC-130`, `SEC-135`, `SEC-140`, `SEC-271`, `SEC-280`, `SOV-030`, `SOV-035`, `SOV-040`, `SOV-050`, `SOV-060`, `SOV-070`, `SOV-080`, `SOV-090`, `SOV-110`, `SOV-120`, `SOV-121`, `SOV-130`, `SOV-131`, `SOV-133`, `SOV-134`, `SOV-140`, `SOV-141`, `SOV-150`, `SOV-160`, `SOV-180`, `SOV-190`, `SOV-220`, `SOV-320`, `SVC-010`, `SVC-020`, `SVC-030`, `SVC-060`, `SVC-120`, `SVC-125`, `SVC-210`, `SVC-315`, `SVC-340`.
 
 The same page with hover and filters is the file `north-star-dashboard.html` beside this one: download it and open it in a browser.
