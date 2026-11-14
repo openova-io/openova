@@ -15,6 +15,7 @@ on:
       - 'products/catalyst/bootstrap/**'
       - 'products/catalyst/chart/**'
       - 'infra/providers/**'
+      - 'scripts/check-console-bundle.sh'
       - '.github/workflows/catalyst-build.yaml'
   workflow_dispatch:
 
@@ -244,34 +245,28 @@ jobs:
           # page rendered only the 2 supernodes. Asserting the bundle
           # contains every bp-* id makes that regression impossible.
           #
-          # Implementation note: we extract the entire bundle once via
-          # `tar c -C ... --transform`, then grep locally. Earlier we ran
-          # `grep` inside docker run -c "..." and the nested quote escaping
-          # produced false negatives (bp-cilium was in the bundle but the
-          # grep argument matched a literal `"bp-cilium"` whose surrounding
-          # quotes were eaten by shell expansion). Local grep on the
-          # extracted file removes that whole class of escaping bugs.
-          BUNDLE_TMP=$(mktemp)
-          docker run --rm --entrypoint sh ${{ env.UI_IMAGE }}:test \
-            -c 'cat $(find /usr/share/nginx/html/assets -name "index-*.js" | head -1)' \
-            > "$BUNDLE_TMP"
-          BUNDLE_BYTES=$(wc -c < "$BUNDLE_TMP")
-          echo "Bundle size: $BUNDLE_BYTES bytes"
-          if [ "$BUNDLE_BYTES" -lt 100000 ]; then
-            echo "Bootstrap-kit smoke FAILED: bundle suspiciously small ($BUNDLE_BYTES bytes)"
+          # The check reads EVERY *.js file the image serves, not one named
+          # file: the bundler decides which chunk holds the list. Reading
+          # only the first index-*.js failed every build of main from
+          # 14 Nov 2026 08:51 UTC, when a top-level await moved the route
+          # tree (and the list with it) into router-*.js while the console
+          # still served all ten names. scripts/check-console-bundle.sh
+          # holds the names and the rules; test-ungated-trees.yaml runs the
+          # same script on the Vite build output of every pull request.
+          #
+          # Implementation note: the assets folder is copied out of the
+          # container and grepped on the runner. Earlier we ran `grep`
+          # inside docker run -c "..." and the nested quote escaping
+          # produced false negatives. Local grep on the copied files
+          # removes that whole class of escaping bugs.
+          BUNDLE_DIR=$(mktemp -d)
+          docker cp smoke-ui:/usr/share/nginx/html/assets "$BUNDLE_DIR/assets"
+          if ! bash scripts/check-console-bundle.sh "$BUNDLE_DIR/assets" ; then
+            echo "Bootstrap-kit smoke FAILED"
             docker stop smoke-ui
             exit 1
           fi
-          for bp in bp-cilium bp-cert-manager bp-flux bp-crossplane bp-sealed-secrets \
-                    bp-spire bp-nats-jetstream bp-openbao bp-keycloak bp-gitea ; do
-            if ! grep -q -F "$bp" "$BUNDLE_TMP" ; then
-              echo "Bootstrap-kit smoke FAILED: ${bp} missing from bundle"
-              docker stop smoke-ui
-              exit 1
-            fi
-            echo "Bootstrap-kit smoke OK: ${bp}"
-          done
-          rm -f "$BUNDLE_TMP"
+          rm -rf "$BUNDLE_DIR"
 
           docker stop smoke-ui
           echo "All smoke tests passed."

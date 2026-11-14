@@ -1,0 +1,216 @@
+{{- /*
+Function test of bp-plane-isolation (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
+
+The chart gives each platform namespace of components[] a default-deny
+NetworkPolicy that admits only its own Pods, flux-system and the namespaces of
+its allowIngressFrom. The test checks that this holds for one protected
+namespace, the target: functionTest.target.namespace (default keycloak, the
+sign-in service every application depends on), through its Service
+functionTest.target.host on functionTest.target.port (default
+keycloak.keycloak.svc.cluster.local, port 80).
+
+The test Pod runs in functionTest.namespace (default "default"), a namespace
+that the target does not admit. It first reads, through the Kubernetes API, the
+Endpoints of the target Service and requires at least one ready address, so a
+target that is down cannot pass the test. Then it connects to the Service. It
+passes when the name resolves (curl does not fail with exit code 6) and the
+connection is not made within 5 seconds (curl exit code 28, or 7 when it is
+refused). It fails when the connection is made: then a namespace outside the
+allow-list reaches the protected namespace. It writes nothing.
+
+So that only the target's own policies decide, a CiliumNetworkPolicy of this
+file (rendered when the API cilium.io/v2 is served) lets the test Pod send to
+cluster DNS, the Kubernetes API and every Pod of the target namespace. A
+ServiceAccount in the test namespace, and a Role and RoleBinding in the target
+namespace (get on the Endpoints of the target Service), give the Pod the right
+to read the Endpoints.
+
+It renders only when enabled is true, the target namespace is one of
+components[], and the test namespace is neither on its allowIngressFrom nor
+flux-system. The image is the kubectl image the kit already pulls (bp-cnpg's
+webhook gate), which carries curl; functionTest.image overrides it.
+*/ -}}
+{{- $ft := .Values.functionTest | default dict }}
+{{- $testNamespace := $ft.namespace | default "default" }}
+{{- $target := $ft.target | default dict }}
+{{- $targetNamespace := $target.namespace | default "keycloak" }}
+{{- $targetHost := $target.host | default "keycloak.keycloak.svc.cluster.local" }}
+{{- $targetPort := $target.port | default 80 }}
+{{- $targetService := first (splitList "." $targetHost) }}
+{{- $protected := false }}
+{{- range .Values.components }}
+{{- if and (eq .namespace $targetNamespace) (not (has $testNamespace (.allowIngressFrom | default list))) }}
+{{- $protected = true }}
+{{- end }}
+{{- end }}
+{{- if and .Values.enabled $protected (ne $testNamespace "flux-system") (ne $testNamespace $targetNamespace) }}
+{{- $image := $ft.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ $testNamespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ $targetNamespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    resourceNames: [{{ $targetService | quote }}]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ $targetNamespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-function-test
+    namespace: {{ $testNamespace }}
+roleRef:
+  kind: Role
+  name: {{ .Release.Name }}-function-test
+  apiGroup: rbac.authorization.k8s.io
+{{- if .Capabilities.APIVersions.Has "cilium.io/v2" }}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ $testNamespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      catalyst.openova.io/function-test: "true"
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ .Values.dnsNamespace | default "kube-system" }}
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    - toEntities:
+        - kube-apiserver
+      toPorts:
+        - ports:
+            - port: "6443"
+              protocol: TCP
+            - port: "443"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ $targetNamespace }}
+{{- end }}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ $testNamespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 300
+  serviceAccountName: {{ .Release.Name }}-function-test
+  containers:
+    - name: function-test
+      image: {{ $image | quote }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: HOME
+          value: /tmp
+        - name: TEST_NAMESPACE
+          value: {{ $testNamespace | quote }}
+        - name: TARGET_NAMESPACE
+          value: {{ $targetNamespace | quote }}
+        - name: TARGET_SERVICE
+          value: {{ $targetService | quote }}
+        - name: TARGET_URL
+          value: {{ printf "http://%s:%v/" $targetHost $targetPort | quote }}
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -u
+          fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          ready=""
+          for attempt in 1 2 3 4 5 6; do
+            ready="$(kubectl --request-timeout=15s -n "${TARGET_NAMESPACE}" get endpoints "${TARGET_SERVICE}" -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/tmp/error)" && [ -n "${ready}" ] && break
+            sleep 5
+          done
+          [ -n "${ready}" ] || fail "the Service ${TARGET_NAMESPACE}/${TARGET_SERVICE} has no ready address, so the test cannot judge: $(tr '\n' ' ' < /tmp/error | cut -c1-160)"
+          code="$(curl -sS --connect-timeout 5 --max-time 10 -o /dev/null -w '%{http_code}' "${TARGET_URL}" 2>/tmp/error)"
+          rc=$?
+          case "${rc}" in
+            28|7) ;;
+            6) fail "cluster DNS did not resolve the target ${TARGET_URL} from ${TEST_NAMESPACE}: $(tr '\n' ' ' < /tmp/error | cut -c1-160)" ;;
+            0) fail "a Pod in ${TEST_NAMESPACE} reached ${TARGET_URL} (HTTP ${code}): the namespace ${TARGET_NAMESPACE} is not isolated" ;;
+            *) fail "the request to ${TARGET_URL} ended with curl exit code ${rc} (HTTP ${code}): $(tr '\n' ' ' < /tmp/error | cut -c1-160)" ;;
+          esac
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} a Pod in ${TEST_NAMESPACE} could not connect to ${TARGET_URL} (curl exit code ${rc}), which has a ready address"
+  volumes:
+    - name: tmp
+      emptyDir: {}
+{{- end }}

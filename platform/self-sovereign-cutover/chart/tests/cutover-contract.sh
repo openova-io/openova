@@ -305,8 +305,12 @@ fi
 # variant with fireCutoverOnHandover=true so the auto-trigger-internals cases
 # (8/10/11/13/14) can assert against a render where the hook is PRESENT.
 helm template smoke-fire . --set trigger.fireCutoverOnHandover=true > "$TMP/render-fire.yaml"
+# SOV-020: the chart default of trigger.fireCutoverOnHandover is true, so the
+# default render ($TMP/render.yaml) carries the hook as well. Render an "off"
+# variant with fireCutoverOnHandover=false for the off switch of Case 8 (c).
+helm template smoke-off . --set trigger.fireCutoverOnHandover=false > "$TMP/render-off.yaml"
 
-echo "[cutover-contract] Case 8: auto-trigger Job renders when fireCutoverOnHandover=true; ABSENT by default (#4885 Defect 1, Refs #4061)"
+echo "[cutover-contract] Case 8: auto-trigger Job renders by default and when fireCutoverOnHandover=true; ABSENT when it is false (SOV-020)"
 # BEFORE #4885 the founder-rule-#933 default was "auto-fire always" (gated on
 # trigger.auto alone). But /internal/cutover/trigger is gated only by the
 # handover-seal 425, NOT by the operator flag — so an operator who set
@@ -314,9 +318,10 @@ echo "[cutover-contract] Case 8: auto-trigger Job renders when fireCutoverOnHand
 # operator-gated Sovereign) STILL got an auto-fired cutover. #4061 already made
 # the cutover operator-gated-by-default; #4885 couples the hook to the SAME
 # flag. The hook now renders ONLY when trigger.auto AND
-# trigger.fireCutoverOnHandover are BOTH true, and is fail-closed by default
-# (fireCutoverOnHandover: false). On a real Sovereign the 06a overlay wires the
-# flag from ${FIRE_CUTOVER_ON_HANDOVER:-false} so both gates always agree.
+# trigger.fireCutoverOnHandover are BOTH true. Since SOV-020 the default of
+# that flag is true everywhere (the catalyst-api, slot 13, this chart, and the
+# 06a overlay's ${HANDOVER_AUTO:=${FIRE_CUTOVER_ON_HANDOVER:-true}}), so a
+# Sovereign is zero touch by default and a false still suppresses the hook.
 #
 # (a) with fireCutoverOnHandover=true the hook MUST render + be hook-annotated.
 if ! grep -q 'cutover-auto-trigger' "$TMP/render-fire.yaml"; then
@@ -327,14 +332,19 @@ if ! grep -q '"helm.sh/hook": "post-install,post-upgrade"' "$TMP/render-fire.yam
   echo "FAIL: auto-trigger Job missing post-install + post-upgrade hook annotations (#4885)" >&2
   exit 1
 fi
-# (b) THE DEFECT-1 GUARD: with the chart default (fireCutoverOnHandover=false)
-#     the hook MUST NOT render — else an operator's `false` is silently
-#     overridden (the exact hw232 bug).
-if grep -q 'cutover-auto-trigger' "$TMP/render.yaml"; then
-  echo "FAIL: auto-trigger Job rendered by default (fireCutoverOnHandover=false) — the operator gate is silently overridden (#4885 Defect 1)" >&2
+# (b) the chart default (fireCutoverOnHandover: true, SOV-020) MUST render the
+#     hook: zero touch needs no manual input.
+if ! grep -q 'cutover-auto-trigger' "$TMP/render.yaml"; then
+  echo "FAIL: auto-trigger Job missing by default — the chart default of trigger.fireCutoverOnHandover must be true (SOV-020)" >&2
   exit 1
 fi
-echo "  PASS (auto-trigger renders iff fireCutoverOnHandover=true; suppressed by default)"
+# (c) the off switch: with fireCutoverOnHandover=false the hook MUST NOT
+#     render — else a `false` is silently overridden.
+if grep -q 'cutover-auto-trigger' "$TMP/render-off.yaml"; then
+  echo "FAIL: auto-trigger Job rendered with fireCutoverOnHandover=false — the false value is silently overridden (SOV-020)" >&2
+  exit 1
+fi
+echo "  PASS (auto-trigger renders by default and with true; suppressed with false)"
 
 echo "[cutover-contract] Case 9: auto-trigger absent when trigger.auto=false (even with fireCutoverOnHandover=true)"
 # Operator override path — trigger.auto=false MUST fully disable the auto-

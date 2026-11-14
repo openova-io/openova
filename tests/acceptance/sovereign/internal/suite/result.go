@@ -108,10 +108,12 @@ type ChartProof struct {
 
 // Provision is the part of the record about the installation under test. A run
 // in the cloud always writes the Installation (provision.go); a run that
-// follows a wipe writes the PreviousWipe. A nil part is left out of the record.
+// follows a wipe writes the PreviousWipe; a run that is given --preflight
+// writes the Preflight. A nil part is left out of the record.
 type Provision struct {
 	*Installation
 	*PreviousWipe
+	Preflight *Preflight `json:"preflight,omitempty"`
 }
 
 // Installation is what step D0.11 measured (provision.go).
@@ -135,6 +137,23 @@ type ProvisionRegion struct {
 type PreviousWipe struct {
 	PreviousDeploymentID string `json:"previous_deployment_id"`
 	PreviousWipeOrphans  int    `json:"previous_wipe_orphans"`
+}
+
+// Preflight is what the flight checklist counted in the cloud account before
+// this deployment was fired: the value of --preflight (check_wipe.go).
+type Preflight struct {
+	MeasuredAt time.Time       `json:"measured_at"`
+	Kinds      []PreflightKind `json:"kinds"`
+}
+
+// PreflightKind is one kind of resource: how many the account held (used), how
+// many it may hold (allowed) and how many the wiped deployment left
+// (leftovers). A number that was not measured is nil and left out of the record.
+type PreflightKind struct {
+	Kind      string `json:"kind"`
+	Used      *int   `json:"used,omitempty"`
+	Allowed   *int   `json:"allowed,omitempty"`
+	Leftovers *int   `json:"leftovers,omitempty"`
 }
 
 // Run is the JSON record written to docs/ledger/acceptance/<env>-<runid>.json.

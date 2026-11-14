@@ -98,6 +98,10 @@ type DeploymentInfo struct {
 	// check FND-G13 then fails.
 	PreviousDeploymentID string
 	PreviousWipeOrphans  int
+	// Preflight is the value of --preflight: what the flight checklist counted
+	// in the cloud account before this deployment was fired. It is nil when
+	// the run did not say; check FND-G13 then fails.
+	Preflight *Preflight
 }
 
 // CheckContext is what a check may read. A check must not modify it.

@@ -167,7 +167,14 @@ RECORD = {
                                                       "nodes_ready": (True, "int")})),
                           "fresh": (True, "bool"),
                           # The wipe that the fire follows. The suite writes them from its flags; check FND-G13 reads them.
-                          "previous_deployment_id": (False, "str"), "previous_wipe_orphans": (False, "int")}),
+                          "previous_deployment_id": (False, "str"), "previous_wipe_orphans": (False, "int"),
+                          # What the flight checklist counted before the fire, per kind of resource: how many the
+                          # account held, how many it may hold, how many the wiped deployment left. A number that
+                          # was not measured is left out. The suite writes it from --preflight; check FND-G13 reads it.
+                          "preflight": (False, {"measured_at": (True, "time"),
+                                                "kinds": (True, ("list", {"kind": (True, "str"), "used": (False, "int"),
+                                                                          "allowed": (False, "int"),
+                                                                          "leftovers": (False, "int")}))})}),
     # What ran. Check FND-G01 of the suite observes it; pass rule 2 compares it between the two records of a pair.
     # Check SVC-G06 adds to a chart its Blueprint and the result of its function test.
     "artifacts": (False, {"charts": (True, ("list", {"region": (True, "str"), "namespace": (True, "str"),
@@ -735,6 +742,19 @@ def validate_record(rec, m):
         out.append("provision.previous_wipe_orphans: required when previous_deployment_id is set")
     if provision.get("previous_wipe_orphans", 0) < 0:
         out.append("provision.previous_wipe_orphans: must not be negative")
+    if "preflight" in provision:
+        kinds = provision["preflight"]["kinds"]
+        if not kinds:
+            out.append("provision.preflight.kinds: must not be empty")
+        names = [k["kind"] for k in kinds]
+        for i, k in enumerate(kinds):
+            if not k["kind"]:
+                out.append(f"provision.preflight.kinds[{i}].kind: must not be empty")
+            elif names.index(k["kind"]) != i:
+                out.append(f"provision.preflight.kinds[{i}].kind: {k['kind']} is listed twice")
+            for n in ("used", "allowed", "leftovers"):
+                if k.get(n, 0) < 0:
+                    out.append(f"provision.preflight.kinds[{i}].{n}: must not be negative")
     cand = rec["candidate"]
     if cand["id"] and (not CANDIDATE_ID.match(cand["id"]) or not cand["id"].endswith("-" + cand["commit"][:7])):
         out.append("candidate.id: must be empty or <UTC yyyymmddThhmmssZ>-<first 7 characters of candidate.commit>")
@@ -1224,6 +1244,31 @@ def self_test():
           has(r, "provision.previous_wipe_orphans: required when previous_deployment_id is set"), r)
     r = validate_record(dict(wiped, provision=dict(wiped["provision"], previous_wipe_orphans=-1)), mv)
     check("record: a negative number of orphans is refused", has(r, "provision.previous_wipe_orphans: must not be negative"), r)
+
+    def flown(kinds, at="2026-11-20T05:55:00Z"):
+        return dict(wiped, provision=dict(wiped["provision"], preflight={"measured_at": at, "kinds": kinds}))
+    counted = [{"kind": "networks", "used": 1, "allowed": 5, "leftovers": 0}, {"kind": "dns_records", "leftovers": 0}, {"kind": "servers"}]
+    r = validate_record(flown(counted), mv)
+    check("CONTROL: a record with the numbers of the flight checklist is valid", r == [], r)
+    r = validate_record(flown([]), mv)
+    check("record: pre-flight numbers of no kind are refused", has(r, "provision.preflight.kinds: must not be empty"), r)
+    r = validate_record(flown(counted + [{"kind": "networks", "leftovers": 0}]), mv)
+    check("record: a kind listed twice in the pre-flight numbers is refused",
+          has(r, "provision.preflight.kinds[3].kind: networks is listed twice"), r)
+    r = validate_record(flown([{"kind": "", "leftovers": 0}]), mv)
+    check("record: a pre-flight kind without a name is refused", has(r, "provision.preflight.kinds[0].kind: must not be empty"), r)
+    for n in ("used", "allowed", "leftovers"):
+        r = validate_record(flown([{"kind": "networks", n: -1}]), mv)
+        check(f"record: a negative {n} count is refused", has(r, f"provision.preflight.kinds[0].{n}: must not be negative"), r)
+    r = validate_record(flown([{"kind": "networks", "used": "1"}]), mv)
+    check("record: a pre-flight count that is not a whole number is refused",
+          has(r, "provision.preflight.kinds[0].used: must be a whole number"), r)
+    r = validate_record(flown([{"kind": "networks", "free": 4}]), mv)
+    check("record: a pre-flight field that is not in the schema is refused",
+          has(r, "provision.preflight.kinds[0].free: unknown field"), r)
+    r = validate_record(flown(counted, at="before the fire"), mv)
+    check("record: pre-flight numbers without the time they were read are refused",
+          has(r, "provision.preflight.measured_at: must be a time"), r)
     r = validate_record(dict(valid, candidate={"id": "20261101T000000Z-bbbbbbb", "commit": commit}), mv)
     check("record: a candidate id that does not end in its commit is refused", has(r, "candidate.id"), r)
     r = validate_record(dict(valid, producer={"kind": "workflow"}), mv)

@@ -66,6 +66,7 @@ on:
       - '**/go.mod'
       - 'docs/ledger/untested-modules.txt'
       - 'scripts/check-modules-tested.py'
+      - 'scripts/check-console-bundle.sh'
   push:
     branches: [main]
     paths:
@@ -86,6 +87,7 @@ on:
       - '**/go.mod'
       - 'docs/ledger/untested-modules.txt'
       - 'scripts/check-modules-tested.py'
+      - 'scripts/check-console-bundle.sh'
 
 permissions:
   contents: read
@@ -307,6 +309,30 @@ jobs:
       - name: vitest
         working-directory: products/catalyst/bootstrap/ui
         run: npm test
+
+      # BUNDLE CHECK - the pull-request half of the step `Smoke test UI` in
+      # catalyst-build.yaml, which runs on pushes to main only. That step
+      # asserts that the JavaScript of the console image holds every
+      # bootstrap-kit Blueprint name. On 14 Nov 2026 a change moved the names
+      # from index-*.js into router-*.js; the step read one file, went red
+      # on main, and every later image build of main stopped before its
+      # deploy job. No pull-request check built the bundle, so nothing was
+      # red before the merge.
+      #
+      # Here the same script reads the output of the same build command the
+      # Containerfile runs (`npm run build` with VITE_APP_MODE=selfhosted).
+      # The self-test runs first and shows that every rule can fail.
+      - name: bundle check self-test (every rule can fail)
+        run: bash scripts/check-console-bundle.sh --self-test
+
+      - name: build (vite)
+        working-directory: products/catalyst/bootstrap/ui
+        env:
+          VITE_APP_MODE: selfhosted
+        run: npm run build
+
+      - name: the built JavaScript holds every bootstrap-kit Blueprint name
+        run: bash scripts/check-console-bundle.sh products/catalyst/bootstrap/ui/dist/assets
 
   modules-tested:
     name: every Go module is tested on pull requests, or listed

@@ -168,7 +168,7 @@ spec:
       # region-local watchdog running the UNBOUNDED CRD retry the operator lacks,
       # which restarts the local operator when the controller is provably not
       # reconciling. Refs #6255 #5511.
-      version: 1.4.20
+      version: 1.4.21
       sourceRef:
         kind: HelmRepository
         name: bp-cilium

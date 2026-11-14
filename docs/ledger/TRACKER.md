@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T15:45:05Z` |
+| Last refreshed | `2026-11-14T17:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,19 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7494](https://github.com/openova-io/openova/issues/7494) | CLD-087 CI job conformance-local | Other |
-| [#7495](https://github.com/openova-io/openova/issues/7495) | FND-015 Candidate tool and cut workflow | Other |
-| [#7496](https://github.com/openova-io/openova/issues/7496) | SEC-100 Delete the abandoned OpenBao multi-region mechanisms | Other |
-| [#7501](https://github.com/openova-io/openova/issues/7501) | FND-012 Stop the tracker commits | Other |
-| [#7502](https://github.com/openova-io/openova/issues/7502) | FND-058 The guard-wiring meta-guard never reports a guard that a workflow runs a | Other |
-| [#7506](https://github.com/openova-io/openova/issues/7506) | CMP-073 The bootstrap window follows the hand-over variable | Other |
-| [#7507](https://github.com/openova-io/openova/issues/7507) | NET-321 Decision record: managed cluster class on the reference cloud | Other |
-| [#7508](https://github.com/openova-io/openova/issues/7508) | SOV-134 The contract keys of the variables document land in the sovereign-variab | Other |
-| [#7512](https://github.com/openova-io/openova/issues/7512) | NET-080 Pin the Organization virtual cluster chart | Other |
-| [#7513](https://github.com/openova-io/openova/issues/7513) | SOV-121 The seed-repo command of sovereign-ops | Other |
-| [#7515](https://github.com/openova-io/openova/issues/7515) | AIP-050 Agent-plane guards | Other |
-| [#7516](https://github.com/openova-io/openova/issues/7516) | CTL-300 The running stream is the declared one | Other |
-| [#7517](https://github.com/openova-io/openova/issues/7517) | FND-057 The privacy guard fails closed and runs on every branch | Other |
 | [#7522](https://github.com/openova-io/openova/issues/7522) | SOV-190 The console reads the mode from the API | Other |
 | [#7527](https://github.com/openova-io/openova/issues/7527) | CTL-151 Intent-lock report and the check that the lock holds | Other |
 | [#7528](https://github.com/openova-io/openova/issues/7528) | FND-056 Pin the two moving actions; ratchets for actions and base images | Other |
@@ -300,6 +287,19 @@ flowchart LR
 | [#7775](https://github.com/openova-io/openova/issues/7775) | FND-073 The gate runs twice against the standing environment once it carries the | Other |
 | [#7776](https://github.com/openova-io/openova/issues/7776) | SVC-040 Blueprint files move to apiVersion catalyst.openova.io/v1 | Other |
 | [#7785](https://github.com/openova-io/openova/issues/7785) | SEC-103 Remove the SealedSecret templates from the guacamole and netbird charts | Other |
+| [#7792](https://github.com/openova-io/openova/issues/7792) | CLD-061 Crossplane 1.18 to 1.19 | Other |
+| [#7793](https://github.com/openova-io/openova/issues/7793) | CTL-331 The shared events package is Kafka-free | Other |
+| [#7794](https://github.com/openova-io/openova/issues/7794) | CTL-350 Applications views from the informer cache | Other |
+| [#7795](https://github.com/openova-io/openova/issues/7795) | The image build of main fails its console smoke test since 14 Nov 2026 07:40 UTC | Other |
+| [#7796](https://github.com/openova-io/openova/issues/7796) | FND-075 The gate record carries the pre-flight numbers: quota headroom and the l | Other |
+| [#7797](https://github.com/openova-io/openova/issues/7797) | NET-095 Block the instance metadata address from pods | Other |
+| [#7798](https://github.com/openova-io/openova/issues/7798) | NET-110 Cilium base values to target | Other |
+| [#7799](https://github.com/openova-io/openova/issues/7799) | SVC-041 Blueprint names bp-<folder>, explicit visibility, and the two missing Bl | Other |
+| [#7803](https://github.com/openova-io/openova/issues/7803) | CTL-320 Durable audit | Other |
+| [#7804](https://github.com/openova-io/openova/issues/7804) | FND-131 A run without journeys asserts only what the pack holds: discovery of th | Other |
+| [#7805](https://github.com/openova-io/openova/issues/7805) | INF-130 Kinds ScanPolicy, HardeningBaseline, MachineRun; operations controller | Other |
+| [#7806](https://github.com/openova-io/openova/issues/7806) | SEC-150 Seal-provider contract and the static node-file implementation | Other |
+| [#7807](https://github.com/openova-io/openova/issues/7807) | SOV-135 The mothership registry name is a proxy name served at the root, with an | Other |
 
 ---
 
@@ -307,8 +307,17 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-14T16:55 | [#7810](https://github.com/openova-io/openova/pull/7810) | #7678 | test(charts): function tests for the network, names and edge |
+| 2026-11-14T16:54 | [#7809](https://github.com/openova-io/openova/pull/7809) | #7796 | test(gate): the gate record carries the pre-flight numbers a |
+| 2026-11-14T16:56 | [#7808](https://github.com/openova-io/openova/pull/7808) | #7766 | feat(sovereign): the pull robot of the local registry joins  |
+| 2026-11-14T16:29 | [#7802](https://github.com/openova-io/openova/pull/7802) | #7087 | docs(ledger): plan update |
+| 2026-11-14T16:16 | [#7800](https://github.com/openova-io/openova/pull/7800) | #7795 | fix(ci): the console smoke test reads every JavaScript file  |
+| 2026-11-14T16:12 | [#7791](https://github.com/openova-io/openova/pull/7791) | #7087 | docs(ledger): plan update |
+| 2026-11-14T16:25 | [#7789](https://github.com/openova-io/openova/pull/7789) | #7764 | fix(cutover): the zero-touch switch falls back to true in sl |
+| 2026-11-14T15:45 | [#7786](https://github.com/openova-io/openova/pull/7786) | #7722 | ci: the rulesets name the release-writer deploy key, and the |
 | 2026-11-14T15:37 | [#7784](https://github.com/openova-io/openova/pull/7784) | #7087 | docs(ledger): plan update |
 | 2026-11-14T15:42 | [#7783](https://github.com/openova-io/openova/pull/7783) | #7742 | fix(api): serve the region registry and the Environment list |
+| 2026-11-14T16:38 | [#7782](https://github.com/openova-io/openova/pull/7782) | #7665 | docs(guacamole): stop stating session recording as present ( |
 | 2026-11-14T15:36 | [#7780](https://github.com/openova-io/openova/pull/7780) | #7767 | feat(harbor): the registry install creates the pull-through  |
 | 2026-11-14T15:41 | [#7779](https://github.com/openova-io/openova/pull/7779) | #7762 | fix: reserve the platform namespace names as Organization sl |
 | 2026-11-14T15:35 | [#7778](https://github.com/openova-io/openova/pull/7778) | #7725 | fix(cloud-init): the parent-bootstrap failure exits 98 and a |
@@ -328,15 +337,6 @@ flowchart LR
 | 2026-11-14T14:08 | [#7730](https://github.com/openova-io/openova/pull/7730) | #7714 | feat(acceptance): gate check CLD-G06 for the adoption claims |
 | 2026-11-14T14:38 | [#7729](https://github.com/openova-io/openova/pull/7729) | #7676 | feat(upstream): the variables document carries the path of t |
 | 2026-11-14T14:07 | [#7728](https://github.com/openova-io/openova/pull/7728) | #7715 | feat(providers): a read-only leftover lister that fails clos |
-| 2026-11-14T13:32 | [#7719](https://github.com/openova-io/openova/pull/7719) | #7087 | docs(ledger): plan update |
-| 2026-11-14T13:09 | [#7713](https://github.com/openova-io/openova/pull/7713) | #7087 | docs(ledger): plan update |
-| 2026-11-14T13:17 | [#7712](https://github.com/openova-io/openova/pull/7712) | #7677 | test(charts): function tests for the GitOps, registry and ce |
-| 2026-11-14T13:17 | [#7711](https://github.com/openova-io/openova/pull/7711) | #7689 | fix(external-secrets-stores): the remote-key rule holds its  |
-| 2026-11-14T13:13 | [#7710](https://github.com/openova-io/openova/pull/7710) | #7703 | fix(provisioner): a kept variables document is brought to th |
-| 2026-11-14T13:15 | [#7709](https://github.com/openova-io/openova/pull/7709) | #7698 | feat(ops-records): identifiers, health routes and the in-mem |
-| 2026-11-14T13:13 | [#7708](https://github.com/openova-io/openova/pull/7708) | #7705 | fix(gate): the suite selects only the checks that are Go fil |
-| 2026-11-14T13:14 | [#7707](https://github.com/openova-io/openova/pull/7707) | #7699 | fix(chargeback): the cost-source credential is never read fr |
-| 2026-11-14T13:15 | [#7706](https://github.com/openova-io/openova/pull/7706) | #7700 | refactor(controllers): the organization controller watches i |
 
 ---
 

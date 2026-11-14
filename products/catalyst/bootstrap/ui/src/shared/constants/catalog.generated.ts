@@ -374,7 +374,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.2.1",
+    "version": "0.2.2",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-cilium",
@@ -720,7 +720,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.4.20",
+    "version": "1.4.21",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [],
     "shareable": false,
@@ -1366,7 +1366,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.9",
+    "version": "1.1.10",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [],
     "shareable": false,
@@ -1763,7 +1763,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.3.0",
+    "version": "1.3.1",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [],
     "shareable": false,
@@ -1941,13 +1941,13 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-guacamole",
     "slug": "guacamole",
     "title": "Apache Guacamole",
-    "summary": "Clientless HTML5 remote-desktop gateway. Browser-based RDP / VNC / SSH and kubectl-exec into Pods, with Keycloak SSO and full session recording to SeaweedFS. One Guacamole per Sovereign per ADR-0001 §11.",
+    "summary": "Clientless HTML5 remote-desktop gateway. Browser-based RDP / VNC / SSH and kubectl-exec into Pods, with Keycloak SSO. One Guacamole per Sovereign per ADR-0001 §11.",
     "icon": "guacamole.svg",
     "category": "platform",
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.2.48",
+    "version": "0.2.49",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-keycloak",
@@ -2017,7 +2017,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.53",
+    "version": "1.2.54",
     "section": "pts-3-5-storage-and-data",
     "depends": [
       "bp-cnpg",
@@ -3582,7 +3582,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-cilium"
@@ -4183,7 +4183,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.15",
+    "version": "0.1.16",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-cilium"
@@ -4316,7 +4316,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.25",
+    "version": "1.2.26",
     "section": "pts-3-2-gitops-and-iac",
     "depends": [
       "bp-cert-manager"
@@ -4727,7 +4727,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.210",
+    "version": "0.1.211",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-gitea",
@@ -4825,7 +4825,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [],
     "shareable": false,
