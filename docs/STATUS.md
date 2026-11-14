@@ -48,248 +48,33 @@ graph LR
 
 ## 1. Repository structure
 
-*(Section re-stamped 2026-07-14.)*
+> State: built. Evidence: docs/generated/components.md, scripts/generators/components.py
 
-| Item | Status | Notes |
-|---|---|---|
-| Public repo at `github.com/openova-io/openova` | ✅ | Monorepo. Source of truth for documentation and (eventually) for every Blueprint's manifests. |
-| Per-folder Blueprint convention (`platform/<name>/` and `products/<name>/`) | 🚧 | Many folders carry chart/ + blueprint.yaml + CI; many still README-only. |
-| `bp-<name>:<semver>` OCI artifacts in `ghcr.io/openova-io/` | ✅ | `.github/workflows/blueprint-release.yaml` fans out per-Blueprint to signed OCI artifacts with SBOM + cosign signature. |
-| `core/{console,admin,marketplace,marketplace-api}/` | 🚧 | Consolidated 2026-04-28 from `openova-private`. Astro+Svelte UIs + Go backend. Deployed on Catalyst-Zero. |
-| `products/axon/` | ✅ | Real implementation (chart/, src/, scripts/). |
-| `products/agenity/` + `products/openova-mcp/` | 🟦 | The **Pillar 4 pair** (re-scoped — see §2.2 and §9): `bp-agenity` (chart 0.5.20 — per-Org multi-agent runtime + dashboard) + `openova-mcp` (Go MCP server: RBAC-scoped thin facade over live catalyst-api, JSON-RPC over stdio). |
-| `products/catalyst/` umbrella (`bp-catalyst-platform`) | 🟦 | Has `bootstrap/{ui,api}/` (React SPA wizard + Go bootstrap API) + `chart/` with Chart.yaml + Helm templates for the full Catalyst-Zero deployment + `crds/` with the 13 CRDs enumerated in §4. Canonical Helm chart for Catalyst-Zero and every franchised Sovereign. |
-| `products/{cortex,fabric,fingate,relay}/` | 📐 | README only. No charts or manifests. (`products/specter/` does not exist — Specter is a deliverable service, not a Blueprint in this layout, per `README.md` §"What's in this repo" and [`ARCHITECTURE.md`](ARCHITECTURE.md) §3.5, which agreed with this row as of #6114.) |
-
-*Repository areas by status — what carries real code today vs what is still README-only:*
-
-```mermaid
-graph TD
-  subgraph sImpl["✅ Implemented"]
-    PUB["Public monorepo"]:::done
-    OCI["bp-* signed OCI artifacts (SBOM + cosign)"]:::done
-    AXON["products/axon (chart + src + scripts)"]:::done
-  end
-  subgraph sCode["🟦 CODE-COMPLETE"]
-    P4["agenity + openova-mcp — the Pillar-4 pair"]:::cc
-    CATP["catalyst umbrella (bp-catalyst-platform)"]:::cc
-  end
-  subgraph sPart["🚧 Partial"]
-    CORE["core/ console · admin · marketplace · marketplace-api"]:::partial
-    CONV["Per-folder Blueprint convention"]:::partial
-  end
-  subgraph sDes["📐 Design (README only)"]
-    SCAF["cortex · fabric · fingate · relay"]:::design
-  end
-  classDef done fill:#d4edda,stroke:#28a745,color:#155724;
-  classDef cc fill:#d6e4ff,stroke:#3366cc,color:#1a3d7c;
-  classDef partial fill:#fff3cd,stroke:#e0a800,color:#7a5c00;
-  classDef design fill:#e9ecef,stroke:#868e96,color:#343a40;
-```
+Every folder directly under `platform/` and `products/` is listed in the generated file [`docs/generated/components.md`](generated/components.md), with its charts, its Blueprint and the Blueprint's visibility. `scripts/generators/components.py` writes it from the tree, and the check `generated-docs` fails a pull request in which it is stale.
 
 ---
 
 ## 2. Catalyst control plane components (per [`ARCHITECTURE.md`](ARCHITECTURE.md) §2)
 
-*(Section re-stamped 2026-07-14.)*
+> State: built. Evidence: docs/generated/bootstrap-slots.md, scripts/generators/slots.py
 
-These run **per-Sovereign** on the management cluster.
-
-### 2.1 User-facing surfaces and backend services
-
-| Component | Status | Notes |
-|---|---|---|
-| console (Catalyst UI) | 🚧 | Astro + Svelte UI at `core/console/`. Deployed on Catalyst-Zero. BSS menu (vouchers, billing, catalog, orders, Organizations) now lives inside the operator console at `/bss` — replaces the legacy `admin.<sovereign-fqdn>` URL. |
-| marketplace (public Blueprint card grid) | 🟦 | Astro + Svelte UI at `core/marketplace/`. **CODE-COMPLETE** for Pillar 1 step 2: configSchema fields now render on AppDetail (PR [#2038](https://github.com/openova-io/openova/pull/2038), 2026-05-19, TBD-V18); form values thread into the install POST (PR [#2043](https://github.com/openova-io/openova/pull/2043), TBD-V18-D). |
-| admin (sovereign-admin operations UI) | 🚧 | Astro + Svelte UI at `core/admin/`. Voucher / billing / catalog / orders / Organizations admin surface — being folded into console `/bss` per BSS migration. |
-| catalyst-ui (provisioning wizard) | 🟦 | React SPA wizard scaffold at `products/catalyst/bootstrap/ui/`. **CODE-COMPLETE** Pillar 2 (multi-region BCP topology choice at signup): wizard surfaces region picker + BCP mode, threads into Topology step output (PR [#2029](https://github.com/openova-io/openova/pull/2029), TBD-V20). Canonical order: Org → Topology → Provider → Credentials → Components → Domain → Review. |
-| catalyst-api | 🟦 | Go bootstrap API at `products/catalyst/bootstrap/api/`. **CODE-COMPLETE** Pillar 3 install path: provisioning now generalises `bp-cnpg-pair` install beyond WP-only (PR [#2073](https://github.com/openova-io/openova/pull/2073)); threads `Tenant.AppConfigs` (Go struct in `internal/store/tenant_registry.go`) into rendered manifests (PR [#2053](https://github.com/openova-io/openova/pull/2053), TBD-V27); emits a `Continuum` CR for each multi-region Organization Application (PR [#2074](https://github.com/openova-io/openova/pull/2074)). |
-| marketplace-api | 🚧 | Go backend at `core/marketplace-api/`. Has `provisioner/` and `store/` modules. |
-| catalog-svc | 📐 | Designed. No code. |
-| projector (CQRS read-side, JetStream → KV → SSE) | 📐 | Designed. No code. |
-| provisioning service | 🟦 | Pillar 3 logic at `core/marketplace-api/provisioner/`. Multi-region CNPG pair + Continuum emission CODE-COMPLETE post PR #2073 / #2074. |
-| environment-controller | 🚧 | Controller scaffolded with Reconcile at `core/controllers/environment/internal/controller/environment_controller.go` (post-2026-05-20). Not yet walked on a fresh prov. |
-| blueprint-controller | 🚧 | Controller scaffolded with Reconcile at `core/controllers/blueprint/internal/controller/blueprint_controller.go` (post-2026-05-20). Not yet walked on a fresh prov. |
-| billing | 🚧 | Shipped and walked: `core/services/billing` — vouchers (`promo_codes`), `credit_ledger`, orders, credit-covered checkout, LLM-token metering consumer; BSS pages (Vouchers · Orders · Revenue). Not built: recurring billing, infra metering→rating→statements inside this service — that concern moved to `products/chargeback` (ADR-0014). |
-| Catalyst BSS (chargeback) | ✅ | `products/chargeback` (`bp-chargeback`, decision record now [ADR-0028](adr/0028-commerce-and-billing.md), which supersedes ADR-0014, EPICs #6723 → #6867; product name **Catalyst BSS** since 2026-09-11, identifiers rename together at 0.2.0): **live on hw307 at chart 0.1.57 / image 0.1.55 (2026-10-10)**. Packages (0.1.57, #6971, DESIGN.md §22): the SME offering as S/M/L/XL packages with an entitlement matrix — each feature Included, Optional (a priced add-on) or Not offered per package, quantity features as allowances — edited in Price books → Packages, billed by the rating run (included → 0.000 line, optional → add-on line), published at `GET /api/v1/public/packages` for the storefront and the public calculator's comparison table; the showcase seeds the 15-feature matrix. The package ladder (0.1.61, #6971, DESIGN.md §22): a package is a position on seven groups (capacity · features · access · managed operations · scope · resilience · service level) over a floor of platform-wide items, a feature is boolean, quantity (with a metered / hard-cap / unlimited overage), level (an ordered list of labels, the next purchasable) or access (a platform door), a not-offered cell can tease the package that has it, each package carries its settings (shape with guaranteed floors, recommended, term rule) and the step-up rule is computed and published per package — all at the pricing workbook's numbers (S 2.490 · M 4.490 · L 7.990 · XL 13.990), with a grouped console tab, a grouped comparison table with the step-up hint, and `PACKAGE_INCLUDED_LINES` to turn the included 0.000 lines off; the calculator's comparison table fits all four packages in the family card from 1280 px up and scrolls inside it under 1100 px (0.1.62, measured in Chromium at 1400 / 1280 / 1600 / 900 px). Icons and branding (0.1.63, #6971, DESIGN.md §22.10): every visual of the package table is defined in BSS and published by the packages document — a content-addressed icon store (`POST /api/v1/icons`, the bytes public and immutable at `/api/v1/public/icons/{sha256}`, an SVG that could run or link out refused), an icon and tile colour per feature and floor item, an icon per group, an icon, accent and badge per package, each omitted from the document when unset; the console edits them from its modals and the calculator draws them; the seeder brands the ladder with vendored Lucide / Simple Icons SVGs. Capped or grow (0.1.64, #6971, DESIGN.md §22.11): a package is a prepaid commitment whose shape is an allowance, and the customer chooses per subscription capped (nothing billed beyond the package) or grow (the vCluster quota limits raised to a ceiling — the XL shape, twice it on XL — and the usage above the allowance billed in arrears at the package's own compute rates, the package's unit price + 10 %, measured on new limit meters, plus the flat disk and bandwidth rates); a monthly spend limit on the usage above the package; active-passive DR on S/M/L comes with grow only, at no upfront price; the order, the Organization (spec.commerce.overageMode / growCeiling / spendLimitMonth), the controller quota, the adapter and the console carry it end to end. Not yet walked on hw307. Prepaid, flat, the spend stop and the disk cap (0.1.65, #6971, DESIGN.md §22.11): the package is billed one month in advance at its flat monthly price (M 4.490 in any month), an upgrade bills the prorated difference at once, a downgrade takes effect at the next period, the first statement credits what the checkout collected (spec.commerce.prepaidAmount); the spend limit stops the usage above the package — an hourly evaluator holds the Organization at its package until the next period start through the sovereign-admin overage-stop door (spec.overageStoppedUntil), mails the customer and bills exactly up to the limit; Capped mode caps the application disk with an in-vCluster app-storage quota (the platform databases on the host are untouched); flexi Organizations are reconciled as S in grow mode. Not yet walked on hw307. What a contract did (0.1.60, #6963 item 7, DESIGN.md §15.10): the contract page lists the periods rated under it — `GET /api/v1/contracts/{id}/periods`, one row per statement with the floor in force, the true-up and, opened from the row, every allowance and commitment as used / included with a bar — derived from the statements' frozen lines, no new table; the showcase contracts are rated under by the seeder so the card is never blank. Contracts (0.1.56, #6963): lines added, edited and deleted one at a time from the row, the SKU chosen from the customer's price books with unit and list price filled in, a human reading under every time-integrated quantity, and a third line kind — the **spend commitment** (an amount per period for a percentage off the whole bill, with the same true-up floor); the showcase seeds three contracts (Gulf Retail Group, Dhofar Logistics, Nizwa Fintech) so the module demonstrates itself on a fresh environment. Public cost calculator (0.1.54, DESIGN.md §12.5): a service catalogue by product family with friendly names (Compute, Storage, Networking, Databases, Containers, Platform plans), a configurator per service (family → size as vCPU · GB chips → quantity → usage → attached disk → Elastic IP), and an estimate summary grouped by service with a per-family breakdown bar and gauge, monthly and 12-month totals, edit and remove per item; the same pricing endpoint prices every line. Page speed (0.1.52–0.1.53): the database pod runs with 1–2 GiB and `work_mem` 32 MB (it had 1 GiB and 4 MB, spilling 149 GB of sort files), the API with 500m CPU, and every summary — Sovereign overview, customer overview, budgets, anomalies — is answered from ONE read of the priced ledger (`store.CostBatch`: 98 → 12 statements per Sovereign summary, 78 → 8 per customer summary, pinned by `TestIntegrationSummaryIsOneLedgerRead`); measured on the hw307 data the Sovereign summary went 8.3 s → 0.4 s and the customer summary 2.7 s → 0.05 s at the server. Console primitives (#6946): one real tab strip, one form-row primitive with no inline form stacked on a page, regions and zones as a table with row-level add/edit/delete; every entity in the console has create, read, edit and delete through the product or a worded refusal (resource kinds, a customer's own notification preferences, draft statement PO and terms, payment allocate and refund, the Finance → Outbox page). Capacity (DESIGN.md §11, rebuilt 2026-09-20): four tabs (Pools · Placements · Shapes · Regions & zones); a pool lists the classes it can ENFORCE (guaranteed and spot everywhere — spot is a cheaper price plus the right to delete — burstable only where the host throttles at runtime), one SKU or family sits on a pool once per class, each running resource counts at its override, else its `lifecycle` tag, else the most cautious placed class, a guaranteed floor per resource keeps burstable out of guaranteed room, and a reclaim proposal names which spot to give back, newest first (BSS says how much and which; the platform deletes). Every SKU, family, resource, pool and class is chosen from a list. Partners: a tier and a partner can be deleted, refused by name while anything depends on them; permanent records (issued statements, ledger entries) mean suspend, not delete. All of it walked on hw307 by clicking (#6942, #6943, #6944; #6936 and #6937 closed with live evidence). Metering: Huawei cloud collector (15-min inventory + CTS events + hourly CES; Elastic IP billed on reservation OR traffic from the bandwidth charge mode; in-place resize split at the minute) and the platform collector (Organizations, plan-hours, k8s meters). Rating: price books scoped cloud/platform and assigned per source, committed plans vs pay-per-use on disjoint meters, discounts with a stated combination rule, reporting currency + rates, 5 % tax with per-customer profile and a frozen tax snapshot. Billing: four-field commercial profile (charging, payment model, method, gateway), gapless invoices with PO/terms/due date and a store-enforced lifecycle, payments with part payment and settlement at the currency minor unit, account ledger and per-customer balance, top-up, apply-credit, allocation across invoices, refunds, credit notes (gapless CN numbering), collections (aging, reminder schedule, escalation, suspend/resume on command). Integration: billing-system-of-record seam (internal/external, TMF-shaped outbox, CSV exporter, signed status/payment/balance/enforcement imports, summary-charge variant) and the payment-gateway seam (Stripe registered; signed gateway callback route). Synthetic three-month showcase history plus a converging landlord backfill on the traffic model. Enforcement is live end to end: chargeback suspends and resumes an Organization at the platform through an internal ServiceAccount-authenticated route (walked on hw307). Access control is live: six roles at two scopes (sovereign, customer), role bindings, directory group mapping from the SSO gate, permission-gated console, `/api/v1/me`; the signed gateway callback books payments with the callback secret alone; the host-namespace quota is the purchased plan plus the vCluster control plane plus the per-Organization platform stack (Keycloak, newapi, openclaw, Agenity), all three derived from rendered values and pinned by tests; the platform collector excludes those pods from customer usage and keeps them on the overhead line. Known follow-ups: a plan-change route on the sovereign-admin API (today only the CR carries a plan change), Agenity PVC labels for exclusion, the per-Organization Anthropic credential is operator-supplied. Waiting on Omantel's specification: their gateway and billing adapters. Evidence: PRs #6903, #6907, #6908 and the #6867 comments. |
-| Catalyst BSS (chargeback) | ✅ | `products/chargeback` (`bp-chargeback`, decision record now [ADR-0028](adr/0028-commerce-and-billing.md), which supersedes ADR-0014, EPICs #6723 → #6867; product name **Catalyst BSS** since 2026-09-11, identifiers rename together at 0.2.0): **live on hw307 at chart 0.1.57 / image 0.1.55 (2026-10-10)**. The hand-over (0.1.59, #6971 item 8, DESIGN.md §22.9): the OpenOva adapter reads the Organization's optional `spec.commerce` block — the package SKU, the add-on SKUs bought with it, the price source and the order — and attaches the Organization's platform Source to the add-ons through the entitlement matrix (idempotent; a refusal is a WARN, never a sync failure; an Organization without the block keeps the add-ons set by hand), takes the plan from the package when `spec.planSlug` is absent, and warns once per sync when the two disagree. Packages (0.1.57, #6971, DESIGN.md §22): the SME offering as S/M/L/XL packages with an entitlement matrix — each feature Included, Optional (a priced add-on) or Not offered per package, quantity features as allowances — edited in Price books → Packages, billed by the rating run (included → 0.000 line, optional → add-on line), published at `GET /api/v1/public/packages` for the storefront and the public calculator's comparison table; the showcase seeds the 15-feature matrix. Contracts (0.1.56, #6963): lines added, edited and deleted one at a time from the row, the SKU chosen from the customer's price books with unit and list price filled in, a human reading under every time-integrated quantity, and a third line kind — the **spend commitment** (an amount per period for a percentage off the whole bill, with the same true-up floor); the showcase seeds three contracts (Gulf Retail Group, Dhofar Logistics, Nizwa Fintech) so the module demonstrates itself on a fresh environment. Public cost calculator (0.1.54, DESIGN.md §12.5): a service catalogue by product family with friendly names (Compute, Storage, Networking, Databases, Containers, Platform plans), a configurator per service (family → size as vCPU · GB chips → quantity → usage → attached disk → Elastic IP), and an estimate summary grouped by service with a per-family breakdown bar and gauge, monthly and 12-month totals, edit and remove per item; the same pricing endpoint prices every line. Page speed (0.1.52–0.1.53): the database pod runs with 1–2 GiB and `work_mem` 32 MB (it had 1 GiB and 4 MB, spilling 149 GB of sort files), the API with 500m CPU, and every summary — Sovereign overview, customer overview, budgets, anomalies — is answered from ONE read of the priced ledger (`store.CostBatch`: 98 → 12 statements per Sovereign summary, 78 → 8 per customer summary, pinned by `TestIntegrationSummaryIsOneLedgerRead`); measured on the hw307 data the Sovereign summary went 8.3 s → 0.4 s and the customer summary 2.7 s → 0.05 s at the server. Console primitives (#6946): one real tab strip, one form-row primitive with no inline form stacked on a page, regions and zones as a table with row-level add/edit/delete; every entity in the console has create, read, edit and delete through the product or a worded refusal (resource kinds, a customer's own notification preferences, draft statement PO and terms, payment allocate and refund, the Finance → Outbox page). Capacity (DESIGN.md §11, rebuilt 2026-09-20): four tabs (Pools · Placements · Shapes · Regions & zones); a pool lists the classes it can ENFORCE (guaranteed and spot everywhere — spot is a cheaper price plus the right to delete — burstable only where the host throttles at runtime), one SKU or family sits on a pool once per class, each running resource counts at its override, else its `lifecycle` tag, else the most cautious placed class, a guaranteed floor per resource keeps burstable out of guaranteed room, and a reclaim proposal names which spot to give back, newest first (BSS says how much and which; the platform deletes). Every SKU, family, resource, pool and class is chosen from a list. Partners: a tier and a partner can be deleted, refused by name while anything depends on them; permanent records (issued statements, ledger entries) mean suspend, not delete. All of it walked on hw307 by clicking (#6942, #6943, #6944; #6936 and #6937 closed with live evidence). Metering: Huawei cloud collector (15-min inventory + CTS events + hourly CES; Elastic IP billed on reservation OR traffic from the bandwidth charge mode; in-place resize split at the minute) and the platform collector (Organizations, plan-hours, k8s meters). Rating: price books scoped cloud/platform and assigned per source, committed plans vs pay-per-use on disjoint meters, discounts with a stated combination rule, reporting currency + rates, 5 % tax with per-customer profile and a frozen tax snapshot. Billing: four-field commercial profile (charging, payment model, method, gateway), gapless invoices with PO/terms/due date and a store-enforced lifecycle, payments with part payment and settlement at the currency minor unit, account ledger and per-customer balance, top-up, apply-credit, allocation across invoices, refunds, credit notes (gapless CN numbering), collections (aging, reminder schedule, escalation, suspend/resume on command). Integration: billing-system-of-record seam (internal/external, TMF-shaped outbox, CSV exporter, signed status/payment/balance/enforcement imports, summary-charge variant) and the payment-gateway seam (Stripe registered; signed gateway callback route). Synthetic three-month showcase history plus a converging landlord backfill on the traffic model. Enforcement is live end to end: chargeback suspends and resumes an Organization at the platform through an internal ServiceAccount-authenticated route (walked on hw307). Access control is live: six roles at two scopes (sovereign, customer), role bindings, directory group mapping from the SSO gate, permission-gated console, `/api/v1/me`; the signed gateway callback books payments with the callback secret alone; the host-namespace quota is the purchased plan plus the vCluster control plane plus the per-Organization platform stack (Keycloak, newapi, openclaw, Agenity), all three derived from rendered values and pinned by tests; the platform collector excludes those pods from customer usage and keeps them on the overhead line. Known follow-ups: a plan-change route on the sovereign-admin API (today only the CR carries a plan change), Agenity PVC labels for exclusion, the per-Organization Anthropic credential is operator-supplied. Waiting on Omantel's specification: their gateway and billing adapters. Evidence: PRs #6903, #6907, #6908 and the #6867 comments. |
-
-*User-facing surfaces + backend services, grouped by status:*
-
-```mermaid
-graph TD
-  subgraph sCode["🟦 CODE-COMPLETE"]
-    MKT["marketplace — Pillar 1 card grid"]:::cc
-    CUI["catalyst-ui wizard — Pillar 2"]:::cc
-    CAPI["catalyst-api — Pillar 3 install path"]:::cc
-    PROVS["provisioning service"]:::cc
-  end
-  subgraph sPart["🚧 Partial"]
-    CON["console (Catalyst UI + BSS menu)"]:::partial
-    ADM["admin — sovereign-admin ops UI"]:::partial
-    MAPI["marketplace-api"]:::partial
-    ENVC["environment-controller (scaffolded)"]:::partial
-    BPC["blueprint-controller (scaffolded)"]:::partial
-  end
-  subgraph sDes["📐 Design (no code)"]
-    CSVC["catalog-svc"]:::design
-    PROJ["projector — CQRS read-side"]:::design
-    BILL["billing"]:::partial
-  end
-  classDef cc fill:#d6e4ff,stroke:#3366cc,color:#1a3d7c;
-  classDef partial fill:#fff3cd,stroke:#e0a800,color:#7a5c00;
-  classDef design fill:#e9ecef,stroke:#868e96,color:#343a40;
-```
-
-### 2.2 Per-Sovereign supporting services
-
-| Component | Status | Notes |
-|---|---|---|
-| Gitea (per Sovereign) | 🚧 | Chart + blueprint.yaml shipped. Per-Sovereign deployment manifests landing per ADR-0002 cutover. |
-| NATS JetStream (per Sovereign) | 🚧 | Chart + blueprint.yaml shipped. Per-Org Account isolation pending. |
-| OpenBao (per region, independent Raft) | 🚧 | Installed by the bootstrap kit (slot `08-openbao.yaml`): one member per region, the Shamir seal with its one unseal key kept in the Secret `openbao-unseal-keys`, no audit device. Between regions peer push is wired: the primary region writes the shared material of a multi-region Application into the OpenBao of every region. On a Sovereign with a hot standby the slot also turns on a snapshot copy through object storage. OpenBao does not replicate. |
-| Keycloak (per-Org SME / per-Sovereign corporate) | 🚧 | Chart + blueprint.yaml shipped. Topology choice is a Catalyst-level concern not yet wired. |
-| Agenity workspace + `bp-openova-mcp` (Pillar 4 — re-scoped) | 🟦 | **Pillar 4 is Agenity + `bp-openova-mcp`** per [`DOD.md`](DOD.md) §Pillar-4 (founder re-scope; the Sandbox surface is REMOVED from Pillar 4). `bp-agenity` ([`products/agenity/`](../products/agenity/), chart 0.5.20): per-Org multi-agent runtime + dashboard whose solo agent drives the RBAC-scoped [`products/openova-mcp/`](../products/openova-mcp/) facade over live catalyst-api to provision Applications in the User's own Organization. Proven live twice (dep 91dc0591, omantel.biz, 2026-06-28; zero-touch hw220, 2026-07-03). Outstanding: durable per-Sovereign Anthropic credential + credential-propagation design call (founder-gated — #4111/#4277) and `bp-agenity` auto-install on clean provs. The legacy Sandbox controller + `openova-sandbox-mcp` auto-mount chain (PRs #1615/#1618/#1621/#1622/#1626/#1631/#1632) is retained as **internal machinery only**, exempt from pillar DoD (see §4). |
-| SPIRE server + agent | ⏸ | **DEFERRED — opt-in only.** PR [#665](https://github.com/openova-io/openova/pull/665) (2026-05-03) dropped bp-spire from the canonical bootstrap-kit. `clusters/_template/bootstrap-kit/06-spire.yaml` deleted; bp-spire `dependsOn` removed from `07-nats-jetstream.yaml` and `08-openbao.yaml`. Doc-alignment sweeps: PRs [#2056](https://github.com/openova-io/openova/pull/2056), [#2061](https://github.com/openova-io/openova/pull/2061) (Refs [#2055](https://github.com/openova-io/openova/issues/2055), TBD-V29). The `platform/spire/` chart is retained as opt-in. Workload identity today: Cilium WireGuard (kernel-layer east-west encryption, 100% mesh coverage) + K8s ServiceAccount TokenReview (audience-scoped 1h projected bound-tokens via the OpenBao `kubernetes` auth method). Re-enable triggers per [`SECURITY.md`](SECURITY.md) §2: (a) cross-Sovereign workload federation, (b) compliance audit requiring sub-hour cryptographic workload attestation (SOC2/PCI-DSS/FedRAMP), (c) per-workload-fingerprint authorization beyond `(namespace, ServiceAccount)`. Re-introduction roadmap sketched in TBD-V29. |
-| Continuum (failover orchestrator, Pillar 3) | 🟦 | **CODE-COMPLETE.** `bp-continuum` wired into bootstrap-kit by PR [#2072](https://github.com/openova-io/openova/pull/2072). Continuum CRD ships in `products/catalyst/chart/crds/continuum.yaml`. Used by Pillar 3 region-kill recovery walk. |
-| cnpg-pair (Pillar 3) | 🟦 | **CODE-COMPLETE.** `bp-cnpg-pair` ships synchronous replication (`remote_apply`) for zero-tx-loss (PR [#2071](https://github.com/openova-io/openova/pull/2071)). CRD ships in `products/catalyst/chart/crds/cnpgpair.yaml`. D31 acceptance test harness landed: PR [#2075](https://github.com/openova-io/openova/pull/2075). |
-| bp-self-sovereign-cutover (Pillar 5) | 🚧 | Dormant slot 06a in bootstrap-kit. **11-step post-handover chain** ([`platform/self-sovereign-cutover/chart`](../platform/self-sovereign-cutover/chart/), currently **0.1.126**) pivots every mothership tether — step Jobs 01–11: gitea-mirror, harbor-projects, harbor-prewarm (+ offline-mirror-resolver), containerd registry-pivot DaemonSet, flux-gitrepository-patch, helmrepository-patches, catalyst-api-env-patch, egress-block-test, cutover-status + gitea-token-mint, vcluster-registry-pivot + auto-trigger, crossplane-provider-pivot + mirror-resync CronJob. The sovereignty proof is the **10-minute deny-egress hold** against `github.com`, `ghcr.io`, `harbor.openova.io`; `cutoverComplete=true` only if the cluster reconciles green during the hold. **Keystone — zero-touch `cutoverComplete=true` on a fresh 2-region kom4dc prov — is PENDING**: furthest ever hw246 (green through step-7, died at the step-8 pre-hold ref-host lint); the redirect-aware lint ruling merged as #5038 (2026-07-12), not yet proven live. ADR-0002's original "eight sequential Jobs" spec is superseded by this shipped 11-step chain. |
-| Catalyst observability (Grafana stack) | 🚧 | Per-component READMEs exist; not yet wired as a Catalyst-level umbrella. |
-
-*Per-Sovereign supporting services, grouped by status:*
-
-```mermaid
-graph TD
-  subgraph sCode["🟦 CODE-COMPLETE"]
-    AGEN["Agenity workspace + bp-openova-mcp — Pillar 4"]:::cc
-    CONT["Continuum failover orchestrator — Pillar 3"]:::cc
-    CNPG["cnpg-pair sync replication — Pillar 3"]:::cc
-  end
-  subgraph sPart["🚧 Partial — chart + blueprint.yaml shipped"]
-    GIT["Gitea"]:::partial
-    NATS["NATS JetStream"]:::partial
-    BAO["OpenBao"]:::partial
-    KC["Keycloak"]:::partial
-    CUT["bp-self-sovereign-cutover — 11-step, Pillar 5"]:::partial
-    OBS["Catalyst observability (Grafana stack)"]:::partial
-  end
-  subgraph sDef["⏸ Deferred — opt-in only"]
-    SPIRE["SPIRE server + agent"]:::deferred
-  end
-  classDef cc fill:#d6e4ff,stroke:#3366cc,color:#1a3d7c;
-  classDef partial fill:#fff3cd,stroke:#e0a800,color:#7a5c00;
-  classDef deferred fill:#f1f3f5,stroke:#adb5bd,color:#495057;
-```
+The components that every Sovereign runs are installed by the slots of the bootstrap kit, the files of `clusters/_template/bootstrap-kit/`. The generated file [`docs/generated/bootstrap-slots.md`](generated/bootstrap-slots.md) lists each slot with its HelmRelease, chart, target namespace, dependencies and switches. The control plane is the slot of the umbrella chart `bp-catalyst-platform`. `scripts/generators/slots.py` writes the file from the tree, and the check `generated-docs` fails a pull request in which it is stale.
 
 ---
 
 ## 3. Per-host-cluster infrastructure (per [`ARCHITECTURE.md`](ARCHITECTURE.md) §3)
 
-*(Section re-stamped 2026-07-14.)*
+> State: built. Evidence: docs/generated/bootstrap-slots.md, docs/generated/components.md
 
-These run on **every host cluster** (mgt, rtz, dmz).
-
-| Component | Status | Notes |
-|---|---|---|
-| Cilium | 🚧 | Chart + blueprint.yaml shipped at `platform/cilium/`. WireGuard east-west mesh enabled by default per PR #665. |
-| External-DNS | 🚧 | README only. |
-| PowerDNS | ✅ | bp-powerdns:1.0.6 deployed (#167; gpgsql-dnssec=yes) — authoritative DNS for every Sovereign zone (pool + BYO), CNPG-backed Postgres at `pdns-pg`, dnsdist front-end. See [`ARCHITECTURE.md`](ARCHITECTURE.md) §8.9 (deployment shape) and §8.8 (multi-region lua-records). |
-| pool-domain-manager (PDM) | ✅ | Deployed at `pool-domain-manager` in `openova-system` (#163, #168, #170). CNPG-backed `pdm-pg`. Allocates pool subdomains under `omani.works`/`omani.homes`/`omani.rest`/`omani.trade`/`omantel.biz`, owns the per-Sovereign PowerDNS zone lifecycle, and exposes registrar adapters (Cloudflare / Namecheap / GoDaddy / OVH / Dynadot) for BYO Flow B (registrar-API NS-flip). REST API: `/v1/reserve`, `/v1/commit`, `/v1/validate`, `/v1/registrars`. Source: [`core/pool-domain-manager/`](../core/pool-domain-manager/). |
-| Coraza | 🚧 | README only. |
-| Flux | 🚧 | Chart + blueprint.yaml shipped. Per-vcluster Flux convention is Catalyst-managed; not yet implemented. |
-| Crossplane | 🚧 | Chart + blueprint.yaml shipped. Compositions live in product folders. |
-| OpenTofu (bootstrap IaC) | ✅ | Provider-split modules at `infra/providers/{huawei,hetzner,_shared}` — **Huawei kom4dc is the delivery target** (HCS region `me-east-215`; 2-region topology via fake-regions `me-east-215-a`/`-b` with per-region VPC isolation). Runs at Phase 0 from the catalyst-api wrapper. Pre-fire quota gates (VPC 5-total/2-per-prov, EVS 400-volume cap, ~15-min wipe-release lag): [`docs/runbooks/preflight-sovereign-provision.md`](runbooks/preflight-sovereign-provision.md). |
-| cert-manager | 🚧 | Chart + blueprint.yaml shipped. ClusterIssuer rendered by Catalyst overlay. |
-| External Secrets Operator | 🚧 | Installed by the bootstrap kit (slots `15-external-secrets.yaml` and `15a-external-secrets-stores.yaml`) with the ClusterSecretStore `vault-region1`, which any namespace may use. Every value it delivers becomes a Kubernetes Secret. |
-| Kyverno | 🚧 | README only. |
-| Trivy | 🚧 | README only. |
-| Falco | 🚧 | README only. |
-| Sigstore | 🚧 | README only. |
-| Syft + Grype | 🚧 | README only. |
-| VPA, KEDA, Reloader | 🚧 | READMEs only. |
-| SeaweedFS, Velero, Harbor | 🚧 | READMEs only. |
-| failover-controller | 🚧 | README only. Replaced by `Continuum` controller pattern (EPIC-6 #1101). |
-
-*Per-host-cluster infrastructure by status — three surfaces are walked live today; the rest ship a chart or README and await wiring:*
-
-```mermaid
-graph TD
-  subgraph sImpl["✅ Implemented — deployed + walked live"]
-    PDNS["PowerDNS (bp-powerdns:1.0.6)"]:::done
-    PDM["pool-domain-manager (PDM)"]:::done
-    TOFU["OpenTofu bootstrap IaC — Huawei kom4dc"]:::done
-  end
-  subgraph sPart["🚧 Partial — chart/blueprint shipped or README only"]
-    CIL["Cilium (WireGuard mesh)"]:::partial
-    FLUX["Flux"]:::partial
-    XP["Crossplane"]:::partial
-    CM["cert-manager"]:::partial
-    EDNS["External-DNS"]:::partial
-    ESO["External Secrets Operator"]:::partial
-    KYV["Kyverno"]:::partial
-    SEC["Trivy · Falco · Sigstore · Syft+Grype"]:::partial
-    COR["Coraza"]:::partial
-    OPSX["VPA · KEDA · Reloader"]:::partial
-    STORE["SeaweedFS · Velero · Harbor"]:::partial
-    FOC["failover-controller (superseded by Continuum)"]:::partial
-  end
-  classDef done fill:#d4edda,stroke:#28a745,color:#155724;
-  classDef partial fill:#fff3cd,stroke:#e0a800,color:#7a5c00;
-```
+The infrastructure of every cluster is installed by the same slots of the bootstrap kit, listed in [`docs/generated/bootstrap-slots.md`](generated/bootstrap-slots.md). A component whose folder is listed in [`docs/generated/components.md`](generated/components.md) and that has no slot is not installed by the bootstrap kit.
 
 ---
 
 ## 4. CRDs
 
-*(Section re-stamped 2026-07-14.)*
+> State: built. Evidence: docs/generated/custom-resources.md, scripts/generators/custom-resources.py
 
-All canonical CRD schemas now ship in `products/catalyst/chart/crds/`. Go types + reconciliation controllers (Group C of #1095) land per pillar work.
-
-| CRD | Status | Notes |
-|---|---|---|
-| `Sovereign` | 📐 | Top-level deployment object. No Go type yet. |
-| `Organization` | 🚧 | Schema in `organization.yaml` (slice B1, PR #1106). organization-controller (slice C1) scaffolded with Reconcile at `core/controllers/organization/internal/controller/` (post-2026-05-20) — see §8 ADR-0009 iac-bootstrap row. |
-| `Environment` | 🚧 | Schema in `environment.yaml` (slice B2, PR #1107). environment-controller (slice C2) scaffolded with Reconcile at `core/controllers/environment/internal/controller/` (post-2026-05-20). |
-| `Application` | 🚧 | Schema in `application.yaml` (slice B3, PR #1105). application-controller (slice C4) scaffolded with Reconcile at `core/controllers/application/internal/controller/` (post-2026-05-20). **G117.6 (Wave-2/C1)** — application-controller now resolves typed `Blueprint.spec.topology` (W1.B1 contract), fans HelmReleases per `perTopology[<choice>].placement.clusters[]` with `catalyst.openova.io/{role,topology,app,cluster}` labels, and writes `Application.status.perCluster[]` for operator-console drill-down + catalyst-api `GET /apps/{id}.perCluster[]`. Operator-override via `Application.spec.topology`; default keyed on Sovereign-region-count (locked decision #7). Reasons: `InvalidTopology` on mismatch with `Blueprint.spec.topology.supported[]`. Refs #2674 + #2745. **G117.2 W2.C2 (multi-instance Applications)** — Application CRD now carries `spec.instanceId` (immutable per CRD `x-kubernetes-validations`), `spec.isolationLevel` (enum `namespace` (default) / `vcluster`), and `spec.namingTemplate` (Go-template; default depends on isolationLevel). New admission package at `core/controllers/application/admission/` enforces multi-instance + name-collision + maxPerOrg gates per the OpenAPI 409 contract; catalyst-api `POST /apps/instances` delegates through `instances.MapDecision`. Migration tool at `tools/migrate-applications-instanceId.py` (idempotent) wired into `products/catalyst/chart/templates/migrate-applications-instanceId-job.yaml` as a post-install / post-upgrade Helm hook Job. Refs G117.2 #2741. |
-| `Blueprint` | 🚧 | Schema in `blueprint.yaml` (slice B4, PR #1112). Serves `v1alpha1` (legacy) + `v1` (canonical). All platform/products blueprint.yamls existing as of PR #1112 (59 then) validate. blueprint-controller (slice C3) scaffolded with Reconcile at `core/controllers/blueprint/internal/controller/` (post-2026-05-20). **G117.1 (Wave-1/B3)** — every Application-tier `platform/<bp>/blueprint.yaml` (29 Blueprints) now declares typed `spec.topology` + `spec.endpoints` + `spec.sso` + `spec.multiInstance` per `platform/_schemas/blueprint-topology.json`. 9 scaffold-only Blueprints (ferretdb / strimzi / clickhouse / opensearch / milvus / neo4j / flink / debezium / iceberg) got a new minimal `blueprint.yaml` carrying the 4 blocks ahead of chart authoring. Helper at `tools/g117_w1b3_apply.py` is idempotent for re-runs. |
-| `EnvironmentPolicy` | 🚧 | Schema in `environmentpolicy.yaml` (slice B5, PR #1108). Promotion gating + per-policy compliance weights + permissive/enforcing modes. Consumer (compliance-aggregator) lives in EPIC-1 #1096. |
-| `SecretPolicy` | 🚧 | Schema in `secretpolicy.yaml` (slices B6+B7, PR #1111). Skeleton — populated by SRE Lead post-Phase-0; rotation engine is a future controller. |
-| `Runbook` | 🚧 | Schema in `runbook.yaml` (slices B6+B7, PR #1111). Skeleton — auto-remediation hooks for prometheus-alert / cr-condition / nats-event / schedule triggers. Executor is a future controller. |
-| `Continuum` | 🟦 | Schema in `continuum.yaml` (slice B8, PR #1110). Group `dr.openova.io/v1`. Switchover orchestration with Cloudflare-KV or DNS-quorum lease witness. **bp-continuum wired into bootstrap-kit** by PR [#2072](https://github.com/openova-io/openova/pull/2072). continuum-controller in EPIC-6 #1101. |
-| `ProvisioningState` | 🚧 | Schema in `provisioningstate.yaml` (slice H3, PR #1104). Writer is `internal/store/crd_store.go`. |
-| `CNPGPair` *(Pillar 3, new 2026-05-20)* | 🟦 | Schema in `cnpgpair.yaml`. Group `dr.openova.io/v1`. Defines a paired CNPG cluster across two regions over Cilium ClusterMesh with synchronous replication (`remote_apply`, `ReplicaCluster`). Used by `bp-cnpg-pair` (PR [#2071](https://github.com/openova-io/openova/pull/2071)) for zero-tx-loss Pillar 3 walk. D31 acceptance test PR [#2075](https://github.com/openova-io/openova/pull/2075). |
-| `PDM` *(Pool Domain Manager allocations, new 2026-05-20)* | 🚧 | Schema in `pdm.yaml`. Tracks per-Sovereign pool subdomain allocation, parent-zone NS delegation state, and registrar-adapter flow (Cloudflare / Namecheap / GoDaddy / OVH / Dynadot). Consumed by PDM service at `core/pool-domain-manager/`. |
-| `Sandbox` *(internal — REMOVED from Pillar 4 scope)* | 🟦 | Schema in `sandbox.yaml`. Controller + auto-mounted `openova-sandbox-mcp` chain landed (PRs #1615 scaffold, #1618, #1621, #1622, #1626, #1631, #1632) — but per the founder Pillar-4 re-scope the Sandbox surface is **no longer a pillar surface**: Pillar 4 = Agenity + `bp-openova-mcp` (§2.2, §9, [`DOD.md`](DOD.md) §Pillar-4). The CRD + controller are retained as internal machinery, exempt from pillar DoD. |
-
-*All CRD schemas ship in `products/catalyst/chart/crds/`; Go types + reconcilers land per pillar. Status by CRD:*
-
-```mermaid
-graph TD
-  subgraph sCode["🟦 CODE-COMPLETE — schema + wired"]
-    CONT["Continuum (dr.openova.io)"]:::cc
-    CNPG["CNPGPair (dr.openova.io)"]:::cc
-    SBX["Sandbox (internal — removed from Pillar-4 scope)"]:::cc
-  end
-  subgraph sPart["🚧 Partial — schema ships; controller lands per pillar"]
-    ORG["Organization (orgs.openova.io)"]:::partial
-    ENV["Environment"]:::partial
-    APP["Application (apps.openova.io)"]:::partial
-    BP["Blueprint (catalyst.openova.io)"]:::partial
-    EP["EnvironmentPolicy"]:::partial
-    SP["SecretPolicy"]:::partial
-    RB["Runbook"]:::partial
-    PS["ProvisioningState"]:::partial
-    PDMX["PDM (pool allocations)"]:::partial
-  end
-  subgraph sDes["📐 Design — no Go type yet"]
-    SOV["Sovereign (top-level)"]:::design
-  end
-  classDef cc fill:#d6e4ff,stroke:#3366cc,color:#1a3d7c;
-  classDef partial fill:#fff3cd,stroke:#e0a800,color:#7a5c00;
-  classDef design fill:#e9ecef,stroke:#868e96,color:#343a40;
-```
-
-Go types live at `core/pkg/apis/<group>/v1alpha1/` (e.g. `application/v1alpha1/application_types.go`, `blueprint/v1alpha1/topology_types.go`) and at `core/controllers/pkg/apis/`; further types are added as control-plane services are scaffolded (slice C1..C5 of #1095).
+Every custom resource definition of the tree is listed in the generated file [`docs/generated/custom-resources.md`](generated/custom-resources.md), with its group, versions, scope and file, and whether Go code that is not a test names it. `scripts/generators/custom-resources.py` writes it, and the check `generated-docs` fails a pull request in which it is stale.
 
 ---
 
@@ -340,19 +125,9 @@ Every guard listed here is a pre-merge check that fails the PR if violated. This
 
 ## 8. Catalyst provisioner
 
-*(Section re-stamped 2026-07-14.)*
+> State: built. Evidence: products/catalyst/bootstrap/api/internal/provisioner, infra/providers, docs/generated/bootstrap-slots.md
 
-| Item | Status | Notes |
-|---|---|---|
-| `catalyst-provisioner.<mothership-fqdn>` always-on service | ✅ | Live at `console.openova.io` — the mothership IS the catalyst-provisioner. Real Go provisioning code lives at [`products/catalyst/bootstrap/api/internal/provisioner/`](../products/catalyst/bootstrap/api/internal/provisioner/) — a thin wrapper around `tofu` that writes `tofu.auto.tfvars.json` from wizard input, runs `tofu init && tofu plan && tofu apply` against [`infra/providers/`](../infra/providers/)`<provider>/` (**Huawei kom4dc = delivery target**; Hetzner retained), and streams events back to the wizard via SSE. Per Inviolable Principle #3, no cloud APIs called from Go code; OpenTofu does Phase 0, Crossplane adopts day-2 at Phase 1 hand-off. End-to-end zero-touch provisioning **through handover is proven repeatedly** on the hw2xx series (e.g. hw235/hw236 conclusion provs, 2026-07-10); the outstanding keystone is zero-touch `cutoverComplete=true` (§9 Pillar 5). |
-| Provider OpenTofu modules | ✅ | Provider-split layout at [`infra/providers/`](../infra/providers/): `huawei/` (**delivery target** — kom4dc HCS, region `me-east-215`, fake-regions `me-east-215-a`/`-b` via per-region VPC isolation), `hetzner/` (retained — VPC + subnet + firewall + servers + LB + DNS), `_shared/` (`cloudinit-control-plane.tftpl` installs k3s and bootstraps Flux pointing at `clusters/<sovereign-fqdn>/`). Provider contract: [`infra/providers/PROVIDER-INTERFACE.md`](../infra/providers/PROVIDER-INTERFACE.md). All values are runtime variables — no hardcoded region, sizes, or k3s flags. |
-| Bootstrap kit (cilium → cert-manager → flux → crossplane → sealed-secrets → nats-jetstream → openbao → keycloak → gitea → powerdns → bp-catalyst-platform) | 🚧 | G2 wrapper Helm charts exist under `platform/<x>/chart/`. Each carries blueprint.yaml, values.yaml, Chart.yaml, published as `bp-<name>:<semver>` OCI artifact. `platform/spire/` retained as opt-in but NOT in the bootstrap chain (PR #665, 2026-05-03). Steady-state DoD pending real Huawei kom4dc provisioning (Group M). |
-| `bp-continuum` (Pillar 3 failover orchestrator) | 🟦 | Wired into bootstrap-kit by PR #2072. Used by Continuum CR to coordinate multi-region failover with lease witness. |
-| `bp-self-sovereign-cutover` (Pillar 5 sovereignty cutover) | 🚧 | Dormant slot 06a. **11-step** post-handover chain at chart **0.1.126** — full step map + keystone state in the §2.2 row (furthest ever hw246, died at the step-8 pre-hold ref-host lint; #5038 redirect-aware ruling merged 2026-07-12, unproven live). ADR-0002's "eight sequential Jobs" wording is superseded by the shipped chain. |
-| Per-Org Keycloak realm + 2-hop SSO federation to sovereign realm (G117.5 W2.C4 [#2744](https://github.com/openova-io/openova/issues/2744)) | 🟦 CODE-COMPLETE | bp-keycloak 1.4.12 ships `templates/configmap-per-org-realms.yaml` rendering one ConfigMap per `.Values.tenantRealms[]` entry, each carrying a full per-Org realm-import JSON with `sovereign-broker` keycloak-oidc IdP federating into the sovereign realm + IDR `defaultProvider=sovereign-broker` binding (no KC login form) + `first broker login auto link` flow (G113 Bug-6 carryover, bypasses SMTP) + `groups` clientScope (G91 manual recovery mandate). New `bp-keycloak.tenantBrokerClientSecret` helper derives per-Org broker secrets deterministically. bp-sso-bridge 0.2.2 adds `provision_org_realm` + `reconcile_per_org_realms` shell functions in the reconcile loop: discovers ConfigMaps with `catalyst.openova.io/per-org-realm=true`, POSTs `/admin/realms` (idempotent on 409), POST/PUTs matching `<slug>-broker` Client in sovereign realm with same secret, persists in OpenBao `kv/org/<slug>/keycloak/sovereign-broker-secret`. Cross-Org isolation invariant: each realm issues id_tokens with distinct `iss=https://auth.<sov>/realms/<slug>` so Org-A tokens are rejected at OIDC discovery by Org-B applications. 11 chart-test cases + 12 reconciler-shape test cases all green. Playwright `tests/e2e/playwright/tests/g117-2hop-sso-cross-org-isolation.spec.ts` (5 tests, SOV_FQDN+ORG_A+ORG_B-gated) awaits fresh prov with ≥2 Orgs for ✅. |
-| Tier-1 silent SSO across grafana / gitea / harbor / openbao (G117.5 [#2744](https://github.com/openova-io/openova/issues/2744)) | 🟦 CODE-COMPLETE | bp-keycloak 1.4.10 codifies all 4 OIDC clients in the sovereign realm-import with stable derived secrets via `bp-keycloak.tier1ClientSecret` helper. bp-grafana 1.0.5 / bp-gitea 1.2.13 / bp-harbor 1.2.23 wire `kc_idp_hint=catalyst-pin` defense-in-depth at the per-app layer (Grafana env-override, Gitea `--use-custom-url-mapping`, Harbor `oidc_extra_redirect_parms`). bp-openbao 1.2.23 omits the hint (architectural limitation: hashicorp/cap library has no auth_url query-param knob); silent SSO for openbao is delivered EXCLUSIVELY by the realm-config IDR `defaultProvider` binding shipped in 1.4.9. Awaits fresh-prov 4-hop curl walk (`tests/e2e/playwright/tests/g117-5-silent-sso-tier1.spec.ts` gated on SOV_FQDN) for ✅. |
-| Grafana fresh-install data population (G115 [#2744](https://github.com/openova-io/openova/issues/2744)) | 🟦 CODE-COMPLETE | bp-grafana 1.0.5 ships `templates/datasource-configmaps.yaml` (Prometheus/Loki/Tempo via canonical in-cluster Service DNS) + `templates/dashboard-configmaps.yaml` (5-dashboard starter pack: cluster-overview, node-exporter, kube-state, openbao-audit, flux-reconcile-health). `grafana.sidecar.{datasources,dashboards}.enabled: true` so the upstream kiwigrid/k8s-sidecar auto-discovers cluster-wide. Per-Sovereign overlay may opt-out individual datasources/dashboards via `observabilityStack.*` knobs. Awaits fresh-prov walk (Playwright spec asserts `/api/datasources` returns ≥3 entries) for ✅. |
-| Per-Org IaC repo bootstrap on Org create (G117.3 / W2.C3 [#2742](https://github.com/openova-io/openova/issues/2742) + G117.3b [#2765](https://github.com/openova-io/openova/issues/2765)) | 🟦 CODE-COMPLETE | ADR-0009 codified end-to-end in `core/controllers/organization/internal/iacbootstrap/` (Bootstrap + Teardown + RotateRobotToken + OpenBaoStore). organization-controller's Reconcile loop now adds the `orgs.openova.io/iac-bootstrap` finalizer on first observation, runs the 6-step bootstrap (Org → repo → tree → robot user → collaborator → branch protection on main with locked status checks), persists the freshly-minted plaintext token to OpenBao at `kv/org/<slug>/iac-bot-token` (G117.3b), surfaces `status.iacBootstrap{state, repoURL, robotUsername, lastError}` + emits an `IacRepoBootstrapped` Condition. Not wired today: the organization-controller Deployment sets neither `CATALYST_OPENBAO_ADDR` nor `CATALYST_OPENBAO_TOKEN`, so the controller starts with the IaC bootstrap disabled, and OpenBao has no `kv/` mount, only `secret/`. Finalizer reverses provisioning in order (branch-protection → collaborator → repo → token → user → OpenBao path). Gitea client extended with `CreateAdminUser` / `CreateUserAccessToken` / `AddCollaborator` / `EnsureBranchProtection` + deletes. 50+ unit tests across `core/controllers/pkg/gitea` + `core/controllers/organization/internal/iacbootstrap` + `core/controllers/organization/internal/controller`. OpenAPI doc extended with `/orgs/{org}/iac-bootstrap` (informational — describes the controller's behavior). Awaits fresh-prov walk for ✅. |
+The provisioner is Go code of catalyst-api, in `products/catalyst/bootstrap/api/internal/provisioner/`. It writes the variables file of the OpenTofu module of the chosen cloud, one folder per provider under `infra/providers/`, and runs `tofu apply`. The new cluster then installs the bootstrap kit, whose slots [`docs/generated/bootstrap-slots.md`](generated/bootstrap-slots.md) lists.
 
 ---
 
