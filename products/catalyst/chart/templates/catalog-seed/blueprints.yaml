@@ -3744,7 +3744,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.1.0"
+  version: "1.1.1"
   visibility: unlisted
   card:
     title: "cert-manager PowerDNS Webhook"
@@ -3761,7 +3761,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-cert-manager-powerdns-webhook
-    version: "1.1.0"
+    version: "1.1.1"
   topology:
     supported:
       - singleton
