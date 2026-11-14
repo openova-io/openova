@@ -5147,7 +5147,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.2.27"
+  version: "0.2.28"
   visibility: unlisted
   card:
     title: "SSO Bridge"
@@ -5164,7 +5164,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-sso-bridge
-    version: "0.2.27"
+    version: "0.2.28"
   topology:
     supported:
       - active-passive
