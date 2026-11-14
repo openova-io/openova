@@ -1,0 +1,14 @@
+schema: openova.io/plan-wrong/v1
+id: PRD-503
+ticket_rev: 2
+base_commit: 360031319fe4b6e5fbc646557ae28327a26d94b2
+stage: step
+ref: branch
+command: |
+    git switch -c wp/PRD-503 origin/main; echo "exit code: $?"
+expected: |
+    Run `git switch -c wp/PRD-503 origin/main`.
+actual: |
+    fatal: A branch named 'wp/PRD-503' already exists.
+    exit code: 128
+reported_at: 2026-11-14T13:21:59Z
