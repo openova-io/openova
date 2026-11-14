@@ -781,6 +781,8 @@ jobs:
           ref: ghcr.io/openova-io/${{ steps.chart.outputs.name }}
           digest: ${{ steps.push.outputs.digest }}
           sbom-source: file:/tmp/charts/${{ steps.chart.outputs.name }}-${{ steps.chart.outputs.version }}.tgz
+          release-key: ${{ secrets.RELEASE_COSIGN_KEY }}
+          release-key-password: ${{ secrets.RELEASE_COSIGN_PASSWORD }}
 
       # ──────────────────────────────────────────────────────────────
       # AUTO-BUMP — clusters/_template/bootstrap-kit/<NN>-<chart>.yaml

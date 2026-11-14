@@ -128,6 +128,8 @@ jobs:
         with:
           ref: ${{ env.IMAGE }}
           digest: ${{ steps.build.outputs.digest }}
+          release-key: ${{ secrets.RELEASE_COSIGN_KEY }}
+          release-key-password: ${{ secrets.RELEASE_COSIGN_PASSWORD }}
 
       # Auto-bump the chart values.yaml tag so the next Sovereign chart
       # rollout picks up this image without a manual edit. Per

@@ -53,6 +53,8 @@ jobs:
         with:
           ref: ${{ env.IMAGE }}
           digest: ${{ steps.push.outputs.digest }}
+          release-key: ${{ secrets.RELEASE_COSIGN_KEY }}
+          release-key-password: ${{ secrets.RELEASE_COSIGN_PASSWORD }}
 
   deploy:
     needs: build
