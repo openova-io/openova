@@ -81,7 +81,9 @@ permissions:
   contents: write
   packages: write
   id-token: write              # for cosign keyless signing
-  actions: read                # #6262: read this run's sibling job outcomes
+  # actions: write — #6262 reads this run's sibling job outcomes, and the step
+  # "Provisioning image: dispatch its build" starts services-build.yaml (FND-027).
+  actions: write
 
 jobs:
   detect:
@@ -1143,6 +1145,7 @@ jobs:
         with:
           key: ${{ secrets.RELEASE_WRITER_KEY }}
       - name: "Commit + push bootstrap-kit pin bump + blueprint.yaml lockstep"
+        id: lockstep_push
         # Run if either side has staged changes — usually they bump in
         # tandem, but a kit-only chart (no blueprint.yaml) or a non-kit
         # leaf (no pin file) might bump only one. Either is sufficient
@@ -1334,6 +1337,13 @@ jobs:
           for i in 1 2 3; do
             if git push origin HEAD:main; then
               echo "Pushed lockstep bump for ${CHART_NAME}=${CHART_VERSION} (pin=${PIN_BUMPED}, blueprint=${BP_BUMPED}, seed=${SEED_BUMPED})"
+              # FND-027: say whether the commit that landed moved the funnel pin.
+              # Written once, after the one push that succeeded, also on a retry.
+              if git diff --quiet HEAD~1 HEAD -- "$SEED_FUNNEL"; then
+                echo "funnel_moved=false" >> "$GITHUB_OUTPUT"
+              else
+                echo "funnel_moved=true" >> "$GITHUB_OUTPUT"
+              fi
               exit 0
             fi
             echo "push attempt $i failed — re-fetching origin/main and re-applying lockstep"
@@ -1391,6 +1401,25 @@ jobs:
           done
           echo "::error title=Lockstep push failed::3 attempts exhausted for ${CHART_NAME}=${CHART_VERSION}."
           exit 1
+
+      # FND-027: the funnel pin DefaultHRAppChartVersions is compiled into the
+      # provisioning image (core/services/provisioning/main.go), and only
+      # services-build.yaml builds that image. The commit above ends its first
+      # line with [skip ci], so its push starts no build. When that commit moved
+      # the funnel pin, this step dispatches services-build.yaml on main, once
+      # per job. A dispatch made with the job token starts a run, as in the job
+      # umbrella-follow.
+      - name: "Provisioning image: dispatch its build when the funnel pin moved"
+        id: dispatch_provisioning
+        if: steps.chart.outputs.skip != 'true' && steps.lockstep_push.outputs.funnel_moved == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run services-build.yaml \
+            --repo "${{ github.repository }}" \
+            --ref main
+          echo "services-build dispatched @ main: the release commit of ${{ steps.chart.outputs.name }} moved DefaultHRAppChartVersions (FND-027)"
 
       - name: Summary
         if: steps.chart.outputs.skip != 'true'
