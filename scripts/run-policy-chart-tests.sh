@@ -29,6 +29,7 @@ TAG="[policy-chart-tests]"
 SHELL_TESTS=(
   nodeport-enforce-5491.sh
   apicall-rbac-correspondence.sh
+  bootstrap-window.sh
 )
 
 # step <label> <command...>

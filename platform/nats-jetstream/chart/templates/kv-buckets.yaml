@@ -3,9 +3,6 @@ Catalyst-curated JetStream KeyValue buckets. Same NACK gate as Streams —
 templates render only when `.Values.catalystStreams.enabled` is true.
 
 Per docs/EPICS-1-6-unified-design.md §3.9 row 7:
-  - idempotency  : idempotency keys for HTTP write paths (catalyst-api,
-                   provisioner). 24h TTL is enough for the longest
-                   provision-and-confirm window in the wizard flow.
   - dr-leases    : DR lease witness for Continuum (#1101) when the
                    leaseClient.kind is dns-quorum (Cloudflare-KV path
                    uses CF KV instead of this bucket).
@@ -17,22 +14,6 @@ inherit replicas + storage from the same R=3 settings unless
 overridden.
 */}}
 {{- if .Values.catalystStreams.enabled -}}
----
-apiVersion: jetstream.nats.io/v1beta2
-kind: KeyValue
-metadata:
-  name: catalyst-idempotency
-  labels: {{- include "catalyst-nats.labels" . | nindent 4 }}
-    catalyst.openova.io/kv: idempotency
-spec:
-  bucket: idempotency
-  servers:
-    - {{ include "catalyst-nats.servers" . }}
-  replicas: {{ .Values.catalystStreams.replicas | default 3 }}
-  history: 1
-  ttl: {{ .Values.catalystStreams.idempotency.ttl | default "24h" | quote }}
-  maxBytes: {{ .Values.catalystStreams.idempotency.maxBytes | default 268435456 }}
-  storage: file
 ---
 apiVersion: jetstream.nats.io/v1beta2
 kind: KeyValue

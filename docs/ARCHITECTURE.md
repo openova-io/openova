@@ -79,36 +79,38 @@ Everything else is identical in code.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│ Sovereign: <sovereign-fqdn>                                              │
-│                                                                          │
-│  Management host cluster: hz-nbg-mgt-prod                                │
+│ Sovereign: <sovereign-fqdn>                                             │
+│ One cluster per region (ADR-0019): hz-fsn-rtz-prod, hz-hel-rtz-prod     │
+│ Each region's cluster holds three zones:                                │
+│                                                                         │
 │  ┌────────────────────────────────────────────────────────────────────┐ │
-│  │ Catalyst control plane (in catalyst-* namespaces)                  │ │
-│  │   console   marketplace   admin   catalog-svc   projector          │ │
-│  │   provisioning   environment-controller   blueprint-controller     │ │
-│  │   billing                                                          │ │
-│  │   gitea   nats-jetstream   openbao   keycloak                      │ │
-│  │   observability (Grafana stack)                                    │ │
+│  │ Platform zone: one host namespace per bootstrap-kit component      │ │
+│  │   Catalyst control plane, primary region only:                     │ │
+│  │     console   marketplace   admin   catalog-svc   projector        │ │
+│  │     provisioning   environment-controller   blueprint-controller   │ │
+│  │     billing                                                        │ │
+│  │   Platform services:                                               │ │
+│  │     gitea   nats-jetstream   openbao   keycloak                    │ │
+│  │     observability (Grafana stack)                                  │ │
 │  └────────────────────────────────────────────────────────────────────┘ │
 │  Plus per-host-cluster infrastructure (Cilium, Flux, Crossplane,        │
 │  cert-manager, External-Secrets, Kyverno, Harbor, Reloader, Trivy,      │
 │  Falco, Sigstore, Syft+Grype, VPA, KEDA, External-DNS, PowerDNS, Coraza,│
 │  SeaweedFS, Velero, Continuum failover orchestrator) — see §3.          │
-│                                                                          │
-│  Workload host clusters: hz-fsn-rtz-prod, hz-hel-rtz-prod                │
-│  ┌──────────────────────────────────────────────────────────────────┐   │
-│  │ Per-Org vCluster (named {org}):                                  │   │
-│  │   muscatpharmacy   acme-shop   blue-pharmacy   …                 │   │
-│  │   each runs its own lightweight Flux pointed at the Environment  │   │
-│  │   Gitea repo                                                     │   │
-│  └──────────────────────────────────────────────────────────────────┘   │
-│                                                                          │
-│  DMZ host clusters: hz-fsn-dmz-prod, hz-hel-dmz-prod                     │
-│   Cilium Gateway, WAF (Coraza), PowerDNS authoritative + lua-records,   │
-│   dnsdist rate-limit, WireGuard endpoints                                │
+│                                                                         │
+│  ┌────────────────────────────────────────────────────────────────────┐ │
+│  │ Organization zone: one namespace + one vCluster per Organization   │ │
+│  │   muscatpharmacy   acme-shop   blue-pharmacy   …                   │ │
+│  │   each vCluster runs its own lightweight Flux pointed at the       │ │
+│  │   Environment Gitea repo                                           │ │
+│  └────────────────────────────────────────────────────────────────────┘ │
+│                                                                         │
+│  Edge zone: a tainted edge node pool for the public listeners. Target,  │
+│  not built (epic NET-180). Today the Cilium Gateway's Envoy binds host  │
+│  ports 443 and 80 on every node (ADR-0026).                             │
 └─────────────────────────────────────────────────────────────────────────┘
                               ↕
-                  Gitea (in management cluster) — 5 conventional Gitea Orgs
+                  Gitea (the Sovereign's own Git server) — 5 conventional Gitea Orgs
                   ──────────────────────────────────────────────────────────
                   catalog/                    ← public Blueprint mirror (read-only)
                   catalog-sovereign/          ← Sovereign-owner-curated private Blueprints (optional)
@@ -127,25 +129,24 @@ Everything else is identical in code.
                     └── runbooks              (auto-remediation)
 ```
 
-The same topology, drawn as the four architectural layers a Sovereign is built from — edge, control plane, the GitOps/IaC engine that drives every cluster, and the data plane:
+The same topology, drawn as the layers of one region's cluster — the edge zone, the platform zone with the control plane and the GitOps/IaC engine that drives the cluster, and the Organization zone. A region is one cluster and its zones are namespaces and an edge pool ([ADR-0019](adr/0019-zones-are-namespaces-and-an-edge-pool.md)). The edge node pool is target, not built (epic NET-180):
 
 ```mermaid
 graph TB
-  subgraph Edge["DMZ host clusters — edge"]
-    GWE["Cilium Gateway + Coraza WAF"]
+  subgraph Edge["Edge zone — public listeners (edge node pool: target, epic NET-180)"]
+    GWE["Cilium Gateway (Envoy)"]
     DNS["PowerDNS authoritative + lua-records"]
-    WG["WireGuard endpoints"]
   end
-  subgraph Mgt["Management cluster (mgt) — Catalyst control plane"]
+  subgraph Mgt["Platform zone — Catalyst control plane (primary region only)"]
     API["catalyst-api: console · marketplace · projector"]
     CTRL["controllers: organization / environment / application / blueprint / continuum / useraccess"]
     IDP["Keycloak · OpenBao · NATS JetStream · Gitea"]
   end
-  subgraph Engine["GitOps + IaC engine (every cluster)"]
+  subgraph Engine["GitOps + IaC engine (every region)"]
     FLUX["Flux — source / kustomize / helm"]
     XP["Crossplane — cloud-only"]
   end
-  subgraph Data["Workload clusters (rtz) — data plane"]
+  subgraph Data["Organization zone — one namespace + vCluster per Organization"]
     VC["per-Org vClusters — Applications"]
     PG["CNPG / shared-pg"]
   end
@@ -204,8 +205,8 @@ Components are categorized by where they run:
 
 | Category | Where it runs | Examples |
 |---|---|---|
-| **Catalyst control plane** | The Sovereign's `mgt` cluster (once per Sovereign) | console, marketplace, admin, projector, catalog-svc, provisioning, environment-controller, blueprint-controller, useraccess-controller, organization-controller, application-controller, continuum-controller, billing, gitea, nats-jetstream, openbao, keycloak, observability (Grafana stack) |
-| **Per-host-cluster infrastructure** | Every host cluster (`mgt`, `rtz`, `dmz`) | cilium, external-dns, powerdns, coraza, flux, crossplane, opentofu (Phase-0 only), sealed-secrets (Phase-0 only), cert-manager, external-secrets, kyverno, trivy, falco, sigstore, syft-grype, vpa, keda, reloader, seaweedfs, velero, harbor |
+| **Catalyst control plane** | Host namespaces of the region clusters. `bp-catalyst-platform`, which carries the API, the console and most controllers, runs in the primary region only (§10.7). A region is one cluster, with no separate management cluster ([ADR-0019](adr/0019-zones-are-namespaces-and-an-edge-pool.md)) | console, marketplace, admin, projector, catalog-svc, provisioning, environment-controller, blueprint-controller, useraccess-controller, organization-controller, application-controller, continuum-controller, billing, gitea, nats-jetstream, openbao, keycloak, observability (Grafana stack) |
+| **Per-host-cluster infrastructure** | Every region's cluster, one host namespace per component ([ADR-0019](adr/0019-zones-are-namespaces-and-an-edge-pool.md)) | cilium, external-dns, powerdns, coraza, flux, crossplane, opentofu (Phase-0 only), sealed-secrets (Phase-0 only), cert-manager, external-secrets, kyverno, trivy, falco, sigstore, syft-grype, vpa, keda, reloader, seaweedfs, velero, harbor |
 | **Application Blueprints** | Inside per-Org vClusters | cnpg, cnpg-pair, ferretdb, valkey, strimzi, clickhouse, opensearch, stalwart, livekit, matrix, stunner, guacamole, milvus, neo4j, vllm, kserve, knative, librechat, bge, llm-gateway, anthropic-adapter, langfuse, nemo-guardrails, temporal, flink, debezium, iceberg, openmeter, litmus |
 
 The **same upstream technology** can serve in multiple categories. For example: Valkey is **not** part of the control plane (JetStream KV replaces it there) but **is** available as an Application Blueprint when a User wants Redis-compatible caching. Similarly, Strimzi/Kafka is an Application Blueprint; the Catalyst control plane uses NATS JetStream for events.
@@ -214,7 +215,7 @@ The **same upstream technology** can serve in multiple categories. For example: 
 
 | Layer | Canonical choice | Why |
 |---|---|---|
-| CNI + service mesh | **Cilium eBPF** (no sidecars) — Gateway API, mTLS via WireGuard, Hubble flow observability | Kernel-level enforcement; lowest overhead at scale |
+| CNI + service mesh | **Cilium eBPF** (no sidecars) — Gateway API, WireGuard encryption between nodes (no workload mutual TLS, [ADR-0019](adr/0019-zones-are-namespaces-and-an-edge-pool.md) point 7), Hubble flow observability | Kernel-level enforcement; lowest overhead at scale |
 | GitOps | **Flux** | Lightweight, native CRDs, no UI dep, multi-tenant by Kustomization. One Flux per vCluster (source + kustomize + helm controllers); host-level Flux on every host cluster |
 | IaC | **Crossplane** (Day-2) + **OpenTofu** (Phase-0 only) | Composition + declarative; never user-facing |
 | Organization isolation | **vCluster** | Strong boundary without per-Org control-plane overhead |
@@ -232,7 +233,7 @@ The **same upstream technology** can serve in multiple categories. For example: 
 | Runtime security | **Falco** (eBPF) | DROP-class detection at kernel level |
 | Supply chain | **Sigstore** + **cosign** + **Syft+Grype** + **Trivy** | Signature verification, SBOM, image+IaC vuln scan. SLSA-3 build provenance |
 | Edge / DNS | **PowerDNS** (authoritative + DNSSEC + lua-records) + **external-dns** | Geo-failover via lua, no proprietary DNS lock-in. PDM owns zone lifecycle + registrar adapters |
-| WAF | **Coraza** (OWASP CRS) | DMZ-edge, sits in front of Cilium Gateway |
+| WAF | Target, not built: one firewall contract with two implementations, the cloud's own firewall and **Coraza** (OWASP CRS) (epic NET-250) | Nothing filters traffic today: no route of the gateway sends traffic to a firewall. A firewall is in the path only where a `WebApplicationFirewall` is Ready ([ADR-0019](adr/0019-zones-are-namespaces-and-an-edge-pool.md) point 7) |
 | Mail | **Stalwart** | Modern, programmable; per-Org vCluster, not host-cluster |
 | AI runtime | **Knative** → **KServe** → **vLLM**; **bge** for embeddings, **llm-gateway** + **anthropic-adapter**, **nemo-guardrails** | KServe model serving on Knative serverless; vLLM inference; bge embeddings; LLM gateway for subscription proxy and adapter; guardrails for safety |
 | AI observability | **Langfuse** | CNPG-backed; OIDC via Keycloak |
@@ -240,7 +241,7 @@ The **same upstream technology** can serve in multiple categories. For example: 
 | Container registry | **Harbor** | Per-host registry, proxy-cache for upstream, signature verification |
 | Sovereignty pivot | **bp-self-sovereign-cutover** | 8-tether pivot from mothership to local Gitea + local Harbor. ADR-0002. Principle #11 |
 | Failover | **Continuum** (custom CRD + controller) | Lease-based (Cloudflare KV witness or 3-DNS-quorum), low-TTL lua-record flip. Replaced README-only `failover-controller` per Phase 0 #11 |
-| Browser access | **Guacamole** (single per Sovereign) | Bastion, pod consoles, RDP/VNC over Keycloak SSO; recordings on SeaweedFS |
+| Browser access | **Guacamole** (single per Sovereign) | Bastion, pod consoles, RDP/VNC over Keycloak SSO; session recording is target, not built ([ADR-0033](adr/0033-access-plane.md)) |
 | UI | **Astro 5 + Svelte 5 islands** | Static-first, minimal JS, fast interaction-to-paint |
 | Backup | **Velero** | SeaweedFS-backed |
 | Autoscaling | **HPA** + **VPA** + **KEDA** + **cluster-autoscaler** | Four orthogonal autoscalers — see §3.3 |
@@ -306,13 +307,13 @@ Every Catalyst control-plane component carries an open-source license that allow
 | `bp-chargeback` | Standalone chargeback application ([ADR-0014](adr/0014-chargeback-usage-ledger-and-split-deployment.md)): app-internal `Customer` model, usage ledger, Huawei cloud collector, rating + statements, own UI; OpenOva is one adapter (Organization sync + platform collector); sidebar entry via `Blueprint.spec.consoleUI`; profiles `sovereign` / `operator-central` |
 | `bp-self-sovereign-cutover` | 8-tether pivot — see §5.6 |
 
-**Specter (AIOps agents) and Exodus (migration program) are NOT composite Blueprints** — both are deliverable services, and neither appears in the table above. This corrects a long-standing contradiction (#6114): this line previously called Specter "a composite Blueprint typically installed in corporate Sovereigns", while [`README.md`](../README.md) §"What's in this repo" and [`STATUS.md`](STATUS.md) §1 both said the opposite. The code decides, and it is unambiguous: there is no `products/specter/` directory (zero paths in the tree match `specter`), no chart, no `blueprint.yaml`, no `bp-specter` OCI artifact, and no catalog-seed entry. `bp-specter` is in fact *unpublishable* as things stand — `.github/workflows/blueprint-release.yaml` enumerates release candidates by scanning for `(platform|products)/<name>/(chart/|blueprint.yaml)`, so a name with no such directory can never produce an artifact. `specter` used to survive as a **wizard catalog component id** (`products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentGroups.ts`), carried by the catalog-integrity gate in an explicit `KNOWN_UNBUILT` debt allowlist. That card was **removed** under UAT row **W5** / [#6183](https://github.com/openova-io/openova/issues/6183): it installed nothing, yet its `familyRequires: ['cortex']` cascaded nine real CORTEX components into any deployment that ticked it. `KNOWN_UNBUILT` is now empty and the gate's assertion is bidirectional, so re-adding a component that resolves to no Blueprint fails CI. Building a real `bp-specter` — which would restore the card — is tracked separately at [#6318](https://github.com/openova-io/openova/issues/6318); an empty `products/specter/` directory created only to satisfy the resolver would be scaffold theater ([`PRINCIPLES.md`](PRINCIPLES.md) §Anti-pattern-catalog), not a fix.
+**Specter (AIOps agents) is not a composite Blueprint** — it is a deliverable service and does not appear in the table above. Brownfield virtual-machine migration is the optional Blueprint `bp-vm-migration`: designed, not built ([ADR-0032](adr/0032-vm-migration-is-a-platform-product.md)); it joins the table above when its folder `products/vm-migration/` exists. This corrects a long-standing contradiction (#6114): this line previously called Specter "a composite Blueprint typically installed in corporate Sovereigns", while [`README.md`](../README.md) §"What's in this repo" and [`STATUS.md`](STATUS.md) §1 both said the opposite. The code decides, and it is unambiguous: there is no `products/specter/` directory (zero paths in the tree match `specter`), no chart, no `blueprint.yaml`, no `bp-specter` OCI artifact, and no catalog-seed entry. `bp-specter` is in fact *unpublishable* as things stand — `.github/workflows/blueprint-release.yaml` enumerates release candidates by scanning for `(platform|products)/<name>/(chart/|blueprint.yaml)`, so a name with no such directory can never produce an artifact. `specter` used to survive as a **wizard catalog component id** (`products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentGroups.ts`), carried by the catalog-integrity gate in an explicit `KNOWN_UNBUILT` debt allowlist. That card was **removed** under UAT row **W5** / [#6183](https://github.com/openova-io/openova/issues/6183): it installed nothing, yet its `familyRequires: ['cortex']` cascaded nine real CORTEX components into any deployment that ticked it. `KNOWN_UNBUILT` is now empty and the gate's assertion is bidirectional, so re-adding a component that resolves to no Blueprint fails CI. Building a real `bp-specter` — which would restore the card — is tracked separately at [#6318](https://github.com/openova-io/openova/issues/6318); an empty `products/specter/` directory created only to satisfy the resolver would be scaffold theater ([`PRINCIPLES.md`](PRINCIPLES.md) §Anti-pattern-catalog), not a fix.
 
 ---
 
 ## §4 — Naming conventions
 
-Every name is a **composition of typed dimensions** — never free-text, never descriptive prose. Names are deterministic: given the dimensions, the name is computable. **Don't repeat the parent**: when an object lives inside a container that already encodes location, do not repeat that information. **Building blocks, not failover roles**: clusters are named by their functional security zone, not "primary" or "dr". (The former standalone `NAMING-CONVENTION.md` is folded into this section.)
+Every name is a **composition of typed dimensions** — never free-text, never descriptive prose. Names are deterministic: given the dimensions, the name is computable. **Don't repeat the parent**: when an object lives inside a container that already encodes location, do not repeat that information. **Not failover roles**: clusters are never named "primary" or "dr". (The former standalone `NAMING-CONVENTION.md` is folded into this section.)
 
 ### §4.1 Dimensions
 
@@ -320,7 +321,7 @@ Every name is a **composition of typed dimensions** — never free-text, never d
 
 **Region** (provider-scoped). Hetzner examples: `fsn/f` Falkenstein · `nbg/n` Nuremberg · `hel/l` Helsinki · `ash/a` Ashburn · `hil/i` Hillsboro · `sin/s` Singapore. (`h` reserved for Hetzner provider.) Huawei: `apse/p`, `cnn/c`, `las/q`, `mer/r`. OCI: `dxb/x`, `fra/r`, `sg/g`, `iad/d`, `syd/y`.
 
-**Building block** (security zone): `rtz/r` Restricted Trust Zone (production workloads) · `dmz/d` (internet-facing — WAF, ingress, WireGuard endpoints) · `mgt/m` (Catalyst control plane).
+**Building block**: the fixed token `rtz/r`. It carries no zone meaning and is not changed ([ADR-0019](adr/0019-zones-are-namespaces-and-an-edge-pool.md) point 5). A region is one cluster, and its zones are inside it: the edge node pool, the platform namespaces and the Organizations.
 
 **Env type**: `prod/p` · `stg/s` · `uat/u` · `dev/d` · `poc/c`. **DR is a Placement, not an env_type** — disaster recovery is expressed by the Application's Placement spec across regions, not by a separate `*-dr` Environment.
 
@@ -333,7 +334,7 @@ Every name is a **composition of typed dimensions** — never free-text, never d
 | K8s cluster context | `{prov}-{reg}-{bb}-{env_type}` | `hz-fsn-rtz-prod` |
 | Server / VM | `{prov}{reg}{bb}-{app}-{#}{env_type}` | `hzfsnr-k8s-1p` |
 | DNS location code | `{p}{r}{b}{e}` (4 chars) | `hfrp` |
-| VPC / Network | `{bb}-{env_type}` | `rtz-prod`, `dmz-prod` |
+| VPC / Network | `{bb}-{env_type}` | `rtz-prod` |
 | vCluster (within host cluster) | `{org}` | `acme`, `acmebank` |
 | vCluster (cross-cluster qualified) | `{prov}-{reg}-{bb}-{env_type}-{org}` | `hz-fsn-rtz-prod-acme` |
 | Catalyst Environment | `{org}-{env_type}` | `acme-prod`, `acmebank-uat` |
@@ -350,7 +351,7 @@ graph LR
   N["hz-fsn-rtz-prod<br/>{prov}-{reg}-{bb}-{env_type}"]
   N --> P["hz = provider<br/>Hetzner"]
   N --> R["fsn = region<br/>Falkenstein"]
-  N --> BB["rtz = building block<br/>Restricted Trust Zone"]
+  N --> BB["rtz = building block<br/>fixed token, no zone meaning"]
   N --> ET["prod = env type<br/>prod / stg / uat / dev / poc"]
 ```
 
@@ -372,7 +373,7 @@ metadata:
     # Cluster scope (set by infrastructure)
     openova.io/provider:        hetzner|huawei|oci|aws|gcp|azure|contabo
     openova.io/region:          fsn|nbg|hel|...        # 3-char
-    openova.io/building-block:  rtz|dmz|mgt
+    openova.io/building-block:  rtz                    # fixed token, no zone meaning
     openova.io/env-type:        prod|stg|uat|dev|poc
     openova.io/sovereign:       <sovereign-fqdn>       # e.g. omantel.omani.works, t38.omani.works
     openova.io/host-cluster:    <prov>-<reg>-<bb>-<env_type>
@@ -409,7 +410,7 @@ These extend [`PRINCIPLES.md`](PRINCIPLES.md) and ADR-0001.
 5. **Event-driven, never polling.** State observed via K8s watch streams. UI updates via SSE. No `time.Tick` poll loops. No `setInterval` HTTP polls anywhere in the read path.
 6. **Tenancy is K8s-native.** An `Organization` is `namespace + vCluster + Keycloak group + Organization CR`. Per-Org isolation lives in the vCluster layer. Resource names below the namespace never embed the Org slug.
 7. **Identity is Keycloak.** Per-Sovereign realm (corporate) or per-Org realm (SME). OIDC tokens flow end-to-end; the Sovereign's K8s api-server validates them via `--oidc-*` flags. Corporate Sovereigns federate Azure SSO via Keycloak Identity Provider broker.
-8. **Browser access is via Guacamole.** Bastion sessions, pod consoles, RDP/VNC. One protocol, one audit log, one session-recording path (recordings on SeaweedFS).
+8. **Browser access is via Guacamole.** Bastion sessions, pod consoles, RDP/VNC. One protocol, one audit log. Session recording is target, not built ([ADR-0033](adr/0033-access-plane.md)).
 9. **Catalyst events flow on NATS JetStream.** Audit log, user actions, billing, cross-replica fan-out, cross-region Mirror streams.
 10. **IaC always — every parameter is a variable.** No region, replica count, TTL, weight, retention, or other knob is hardcoded. UI surfaces them; CRDs persist them in Gitea.
 
@@ -535,22 +536,11 @@ JetStream replaces an older Redpanda + Valkey pairing in the control plane: NATS
 
 ### §5.4 Catalyst CRDs
 
-All in `apps.openova.io/v1`, `orgs.openova.io/v1`, `catalyst.openova.io/v1`, or `dr.openova.io/v1` per type domain. Land in `products/catalyst/chart/crds/`. Validation hooks run as Kyverno ClusterPolicy.
+> State: built. Evidence: docs/generated/custom-resources.md, scripts/generators/custom-resources.py
 
-| CRD | Group | Purpose |
-|---|---|---|
-| `Sovereign` | `catalyst.openova.io/v1` | The deployed Catalyst — one per Sovereign |
-| `Organization` | `orgs.openova.io/v1` | Multi-tenancy unit; reconciles to vCluster + Keycloak group + Gitea Org + base RBAC |
-| `Environment` | `catalyst.openova.io/v1` | User-facing scope (`{org}-{env_type}`); reconciles per-region vCluster + Flux + JetStream subjects |
-| `Application` | `apps.openova.io/v1` | Running deployment; validated against `Blueprint.spec.configSchema` at admission |
-| `Blueprint` | `catalyst.openova.io/v1` | Catalog item; CRD-validated `card / visibility / owner / configSchema / topology† / depends / manifests.source / overlays / upgrades / rotation / observability` |
-| `EnvironmentPolicy` | `catalyst.openova.io/v1` | Compliance config + promotion gating + placement defaults (per-Org weight + mode per-policy) |
-| `SecretPolicy` | `catalyst.openova.io/v1` | Rotation rules (TTL, action: rotate/warn/block) |
-| `Runbook` | `catalyst.openova.io/v1` | Auto-remediation hooks |
-| `Continuum` | `dr.openova.io/v1` | Active-hotstandby orchestration: lease, replication health, switchover sequence, lua-record body |
-| `UserAccess` | `catalyst.openova.io/v1` | Tier-based RBAC (scope = label selectors; AND within UA, OR across UAs) |
+Every custom resource definition of the tree is listed in the generated file [`docs/generated/custom-resources.md`](generated/custom-resources.md), with its group, versions, scope and file, and whether Go code that is not a test names it. `scripts/generators/custom-resources.py` writes it, and the check `generated-docs` fails a pull request in which it is stale.
 
-> **† Canonical placement/topology declaration (#3375 DoD-1).** A Blueprint
+> **Canonical placement/topology declaration (#3375 DoD-1).** A Blueprint
 > declares its multi-region placement in **one canonical shape**:
 > `spec.topology` (`supported[] · defaults · perTopology{<bcp>:{replication,
 > switchover, placement{tier, clusters[], roles{}}}}`). This is the shape the
@@ -711,15 +701,17 @@ All Go binaries under `core/controllers/<name>/cmd/main.go`, `controller-runtime
 
 | Controller | Watches | Reconciles | Where |
 |---|---|---|---|
-| `organization-controller` | `Organization` | vCluster + Keycloak group + Gitea Org + base RBAC | mgt |
-| `environment-controller` | `Environment` | per-app Gitea repo branches + per-vCluster Flux GitRepository + JetStream subjects | mgt |
-| `blueprint-controller` | `Blueprint` | catalog mirror (public → sovereign-curated → per-Org) | mgt |
-| `application-controller` | `Application` | per-region Gitea manifest writes; honors Placement | mgt |
+| `organization-controller` | `Organization` | vCluster + Keycloak group + Gitea Org + base RBAC | primary region |
+| `environment-controller` | `Environment` | per-app Gitea repo branches + per-vCluster Flux GitRepository + JetStream subjects | primary region |
+| `blueprint-controller` | `Blueprint` | catalog mirror (public → sovereign-curated → per-Org) | primary region |
+| `application-controller` | `Application` | per-region Gitea manifest writes; honors Placement | primary region |
 | `useraccess-controller` | `UserAccess` | RoleBinding + ClusterRoleBinding via kubernetes clientset | per data-plane cluster |
-| `continuum-controller` | `Continuum` + `Application` | lease, replication health, switchover sequence, lua-record body via PDM | mgt |
+| `continuum-controller` | `Continuum` + `Application` | lease, replication health, switchover sequence, lua-record body via PDM | every region |
 | `compliance-aggregator` | `PolicyReport`, `ClusterPolicyReport`, custom evaluators | Score rollups → SSE + NATS `policy-rollup` KV | per data-plane cluster |
 
 The `useraccess-controller` replaces the older `XUserAccess` Crossplane Composition (which depended on `provider-kubernetes` — never installed). Phase 0 ships the Go controller; the Composition + orphaned Provider reference are deleted.
+
+The column Where names a region, not a cluster of its own: a Sovereign has one cluster per region and no separate management cluster ([ADR-0019](adr/0019-zones-are-namespaces-and-an-edge-pool.md)). The first four controllers ship in `bp-catalyst-platform` (slot 13, label `catalyst.openova.io/region-role: primary`); `bp-continuum` (slot 62) carries `catalyst.openova.io/region-role: every-region`.
 
 Each CRD is driven to `Ready` by exactly one reconciler that renders its downstream objects and reads their status back:
 
@@ -900,11 +892,11 @@ Every host cluster a Sovereign owns gets the same substrate, installed by the bo
 
 ### §6.1 Networking and service mesh
 
-- **Cilium** — CNI + Service Mesh (eBPF). Kernel-level mTLS via WireGuard. L7 policies. Gateway API. Default-deny CCNP baseline + per-namespace allow templates instantiated by organization-controller. Application-controller adds per-Application egress rules from `Blueprint.spec.networking.egress`.
+- **Cilium** — CNI (eBPF). WireGuard encryption between nodes, with the control-plane exclusion of [ADR-0019](adr/0019-zones-are-namespaces-and-an-edge-pool.md) point 8; no workload mutual TLS. L7 policies. Gateway API. Default deny is target, not built: the cluster-wide default deny of `platform/network-policies` is installed switched off, and `platform/plane-isolation` puts an ingress allow-list on each platform namespace it lists while egress stays open. Epic NET-160 brings default deny in both directions to every platform namespace (gate check NET-G06).
 - **Hubble** — relay + UI enabled; UI exposed behind Cilium Gateway with OIDC (Keycloak `hubble-ui` client). RBAC: `hubble.read` on viewer+ tier.
 - **PowerDNS** + **dnsdist** — per-Sovereign authoritative DNS, DNSSEC, lua-records for geo + health-checked failover. `pdns-pg` CNPG-backed. PDM owns zone lifecycle.
 - **external-dns** — `pdns` provider; reconciles Service / Ingress hostnames.
-- **Coraza** — WAF (OWASP CRS) at DMZ edge.
+- **Coraza** — WAF (OWASP CRS). Target, not built: nothing sends traffic to it. A firewall is in the path only where a `WebApplicationFirewall` is Ready ([ADR-0019](adr/0019-zones-are-namespaces-and-an-edge-pool.md) point 7, epic NET-250).
 
 ### §6.2 GitOps and IaC
 
@@ -1068,7 +1060,7 @@ Optional and à la carte. Users install them as Applications when they need them
 
 ### §7.3 Communication
 
-`bp-stalwart` (email; per-Org vCluster) · `bp-stunner` (TURN/STUN) · `bp-livekit` (WebRTC SFU) · `bp-matrix` (chat; Synapse server) · `bp-guacamole` (clientless remote-desktop; Keycloak SSO; session recording to SeaweedFS).
+`bp-stalwart` (email; per-Org vCluster) · `bp-stunner` (TURN/STUN) · `bp-livekit` (WebRTC SFU) · `bp-matrix` (chat; Synapse server) · `bp-guacamole` (clientless remote-desktop; Keycloak SSO; session recording is target, not built: [ADR-0033](adr/0033-access-plane.md)).
 
 ### §7.4 AI / ML
 
@@ -1084,7 +1076,7 @@ Optional and à la carte. Users install them as Applications when they need them
 
 ```mermaid
 flowchart TB
-    subgraph Mgt["Management host cluster (one per Sovereign)"]
+    subgraph Mgt["Catalyst control plane (primary region's cluster)"]
         CC[Catalyst control plane]
         Gitea
         Bao0[OpenBao primary]
@@ -1092,18 +1084,18 @@ flowchart TB
         KC[Keycloak]
     end
 
-    subgraph RegionA["Region A (rtz + dmz)"]
-        K8sA[Workload host cluster<br>per-Org vClusters]
+    subgraph RegionA["Region A — one cluster"]
+        K8sA["Region cluster<br>platform namespaces + per-Org vClusters"]
         BaoA[OpenBao replica<br>region-local Raft]
         NatsA[NATS leaf node]
-        IngressA[Cilium Gateway + WAF]
+        IngressA[Cilium Gateway]
     end
 
-    subgraph RegionB["Region B (rtz + dmz)"]
-        K8sB[Workload host cluster<br>per-Org vClusters]
+    subgraph RegionB["Region B — one cluster"]
+        K8sB["Region cluster<br>platform namespaces + per-Org vClusters"]
         BaoB[OpenBao replica<br>region-local Raft]
         NatsB[NATS leaf node]
-        IngressB[Cilium Gateway + WAF]
+        IngressB[Cilium Gateway]
     end
 
     Mgt -->|"Crossplane provisions"| RegionA
@@ -1120,11 +1112,11 @@ Each region is its own failure domain. OpenBao Raft is **intra-region only**; cr
 ### §8.1 Canonical multi-region rules
 
 - **N regions × 1 node per region** (e.g. Hetzner `cpx52` or the equivalent Huawei kom4dc flavor). Each node is CP **and** worker (untainted), `workerCount=0` in the cluster body. 3 regions = 3 servers, NOT 9. Wrong topology (e.g. N × node × workerCount=2) triggers the provider's `resource_limit_exceeded` quota error.
-- **ClusterMesh apiserver** via **LoadBalancer** type Service — never `NodePort`. NodePort breaks the WireGuard-encrypted DMZ flow.
-- **Inter-region transport** = **DMZ WireGuard over PUBLIC IPs ALWAYS** (DoD A2 invariant). No RFC1918 tunnels over cloud-provider VPC peering — that locks the Sovereign to one provider.
+- **ClusterMesh apiserver** via **LoadBalancer** type Service — never `NodePort` ([ADR-0026](adr/0026-nodeport-ban-and-the-gateway-serving-model.md)). On the reference provider, peers dial the public address of the peer region's control-plane node on host port 12379, where the DaemonSet `clustermesh-proxy` forwards to the apiserver.
+- **Inter-region transport.** Each region is one cluster ([ADR-0019](adr/0019-zones-are-namespaces-and-an-edge-pool.md)). Pod traffic between regions is encrypted by Cilium WireGuard between nodes, with the control-plane exclusion of ADR-0019 point 8 (DoD A2). The network path is the provider module's: the reference provider `infra/providers/huawei` joins the networks of every pair of regions with a VPC peering connection (`huaweicloud_vpc_peering_connection.mesh`).
 - **Provider-mix canonical** — a single Sovereign may span Hetzner + Huawei + OCI + AWS regions; Crossplane providers cover all.
 - **Sibling vClusters** named `acme` on `hz-fsn-rtz-prod` and `hz-hel-rtz-prod` are two physical realizations of the **same logical Catalyst Environment** `acme-prod`.
-- **The mgt cluster does NOT join ClusterMesh** — it reaches data planes via the configured inter-cluster mesh (NetBird is one option) and direct K8s API calls.
+- **No separate management cluster.** The Catalyst control plane runs in host namespaces of the primary region's cluster, and that cluster is a mesh peer like every other region (ADR-0019 point 2).
 
 ### §8.2 Failover semantics
 
@@ -1303,7 +1295,7 @@ values:
 
 > **Note on Service type.** The ClusterMesh apiserver is exposed as a **`LoadBalancer`** Service allocated by Cilium LB-IPAM (shared-EIP / VIP) on every provider — see §8.1 for the canonical multi-region invariants. **NodePort is ABSOLUTELY FORBIDDEN** (no exceptions, including on-prem or quota-constrained projects); where a provider lacks a cloud LB, use LB-IPAM or a hostPort-direct stand-in on the hostNetwork cilium-envoy pods, never a nodePort.
 
-The apiserver `LoadBalancer` listens on the standard ClusterMesh apiserver port (`2379`). The per-provider firewall / security-group rules `catalyst-*-fw` must open that port from peer Sovereigns' CIDRs; analogous rules MUST be added for every new peer.
+On the reference provider the apiserver `LoadBalancer` listens on port `2379` of the shared address `sovereign-vip`. Peers do not dial 2379: on the control-plane node that host port belongs to the etcd of k3s, so peers dial host port 12379 of the DaemonSet `clustermesh-proxy` (ADR-0026). The security group of the reference provider opens 12379 only to the Sovereign's own public addresses and to the node and pod ranges of its regions, and has no rule for 2379 (`infra/providers/huawei/main.tf`). Security groups are one of the means of separation of ADR-0019 point 3.
 
 #### §8.7.2 Convention: cluster.name format
 
@@ -1358,7 +1350,7 @@ Geographic redundancy in OpenOva is realized at the **authoritative DNS** layer,
 - **Geo-aware response selection** — answer the closest healthy backend for the resolver's source IP / ECS subnet.
 - **Health-checked failover** — drop a backend from the response set when a TCP/HTTP probe fails, restore it when the probe recovers.
 - **Latency-aware routing** — combine `ifurlup` (health) with `pickclosest` (geo) for active-active steering.
-- **Same operational layer Catalyst already runs** — PowerDNS is bp-powerdns, deployed by the bootstrap kit on every Sovereign's `mgt` cluster. No separate operator, no extra CRDs, no extra reconciliation loop.
+- **Same operational layer Catalyst already runs** — PowerDNS is bp-powerdns, deployed by the bootstrap kit on every Sovereign. No separate operator, no extra CRDs, no extra reconciliation loop.
 
 This subsumes the role previously assigned to k8gb. The k8gb component has been removed from `componentGroups.ts`, the umbrella chart, and the wizard; lua-records cover every failover scenario k8gb covered without the dedicated GSLB controller.
 
@@ -1482,7 +1474,7 @@ A single-region Sovereign is the SME default. For corporate / regulated tier (an
 
 1. **Sovereign provisioned in Region A** (e.g. `hz-fsn-rtz-prod`) — single LB IP, plain A records.
 2. **Sovereign-admin decides to add Region B** via the Catalyst admin UI: Admin → Infrastructure → Add Region.
-3. Crossplane provisions Region B's clusters (rtz + dmz) with **the same building blocks** as Region A.
+3. Crossplane provisions Region B's cluster with **the same components** as Region A: one cluster per region (ADR-0019).
 4. Region B's PowerDNS replicas join the Sovereign's authoritative NS set via SOA NOTIFY + AXFR (PowerDNS-native zone replication; no external sync layer needed).
 5. **catalyst-dns rewrites every Application's lua-record from `single-region` → `active-active`** (or whichever Placement the Application opts into). Old plain A records are replaced with `ifurlup(...)` lua-records pointing at both regional LBs.
 6. The cloud witness (Continuum) starts arbitrating leases across the two clusters.
@@ -1735,137 +1727,9 @@ curl -u "operator:$op_pw" -H "X-API-Key: $api_key" https://pdns.openova.io/api/v
 
 ## §9 — Bootstrap-kit slot ordering
 
-The `clusters/_template/bootstrap-kit/` directory carries the canonical HelmReleases that produce a Sovereign from a fresh K3s + Cilium substrate. Each HR file is prefixed with its slot number (`NN-bp-<name>.yaml`). Numeric slot prefix makes append-merge resolution algorithmic; Flux `dependsOn` is the actual install ordering.
+> State: built. Evidence: docs/generated/bootstrap-slots.md, scripts/generators/slots.py, scripts/check-bootstrap-deps.sh
 
-### §9.1 Canonical slot list (post-W2; 48 HRs end-state)
-
-| Slot | Blueprint | Tier | Layer | dependsOn |
-|---:|---|---|---|---|
-| 01 | bp-cilium | 0 — Foundation | host | (root) |
-| 02 | bp-cert-manager | 0 | host | bp-cilium |
-| 03 | bp-flux | 0 | host | bp-cert-manager |
-| 04 | bp-crossplane | 0 | mgt | bp-flux |
-| 05 | bp-sealed-secrets | 0 (Phase-0-transient) | host | bp-cert-manager |
-| 06 | *(reserved)* | — | — | **DEFERRED** — was `bp-spire`; removed by PR [#665](https://github.com/openova-io/openova/pull/665). Re-enable triggers in `SECURITY.md` §2; roadmap TBD-V29 ([#2055](https://github.com/openova-io/openova/issues/2055)) |
-| 06a | bp-self-sovereign-cutover | 4 (dormant) | mgt | bp-flux — Phase-1 installs dormant, Jobs created post-handover |
-| 07 | bp-nats-jetstream | 2 — Eventbus | mgt | bp-cert-manager |
-| 08 | bp-openbao | 1 — Identity | mgt | bp-cert-manager |
-| 09 | bp-keycloak | 1 — Identity | mgt | bp-cert-manager, bp-cnpg (when HA) |
-| 10 | bp-gitea | 2 — Git | mgt | bp-keycloak |
-| 11 | bp-powerdns | 3 — DNS authoritative | host | bp-cert-manager, bp-cnpg |
-| 12 | bp-external-dns | 3 — DNS sync | host | bp-powerdns |
-| 13 | bp-catalyst-platform | 4 — Catalyst umbrella | mgt | bp-gitea, bp-nats-jetstream, bp-openbao, bp-keycloak |
-| 14 | bp-crossplane-claims | 0 — Foundation extension | mgt | bp-crossplane |
-| 15 | bp-external-secrets | 0/3 | host | bp-openbao, bp-cert-manager |
-| 16 | bp-cnpg | 5 — Data | mgt | bp-flux |
-| 17 | bp-valkey | 5 | mgt | bp-flux |
-| 18 | bp-seaweedfs | 5 | host | bp-flux, bp-cert-manager |
-| 19 | bp-harbor | 5 — registry | host | bp-cnpg, bp-seaweedfs, bp-cert-manager |
-| 20 | bp-opentelemetry | 6 — Observability | host | bp-cert-manager |
-| 21 | bp-alloy | 6 | host | bp-opentelemetry |
-| 22 | bp-loki | 6 | mgt | bp-seaweedfs |
-| 23 | bp-mimir | 6 | mgt | bp-seaweedfs |
-| 24 | bp-tempo | 6 | mgt | bp-seaweedfs |
-| 25 | bp-grafana | 6 | mgt | bp-cnpg, bp-loki, bp-mimir, bp-tempo, bp-keycloak |
-| 26 | bp-langfuse | 6 — LLM obs | mgt | bp-cnpg, bp-keycloak, bp-cert-manager |
-| 27 | bp-kyverno | 7 — Security/policy | host | bp-cilium |
-| 28 | bp-reloader | 7 | host | (none) |
-| 29 | bp-vpa | 7 | host | (none) |
-| 30 | bp-trivy | 7 | host | bp-cert-manager |
-| 31 | bp-falco | 7 | host | bp-cilium |
-| 32 | bp-sigstore | 7 | host | bp-cert-manager |
-| 33 | bp-syft-grype | 7 | host | bp-cert-manager |
-| 34 | bp-velero | 7 | host | bp-seaweedfs |
-| 35 | bp-coraza | 8 — Edge | host | bp-cilium, bp-cert-manager |
-| 36 | bp-stunner | 8 | host | bp-cilium, bp-cert-manager |
-| 37 | bp-knative | 9 — Apps / AI runtime | host | bp-cert-manager |
-| 38 | bp-kserve | 9 | host | bp-knative |
-| 39 | bp-vllm | 9 | host | bp-kserve |
-| 40 | bp-llm-gateway | 9 | mgt | bp-cnpg, bp-keycloak |
-| 41 | bp-anthropic-adapter | 9 | mgt | bp-llm-gateway |
-| 42 | bp-bge | 9 | host | bp-cnpg |
-| 43 | bp-nemo-guardrails | 9 | mgt | bp-llm-gateway, bp-bge, bp-cnpg |
-| 44 | bp-temporal | 9 | mgt | bp-cnpg, bp-cert-manager |
-| 45 | bp-openmeter | 9 | mgt | bp-cnpg, bp-nats-jetstream (ClickHouse-less profile) |
-| 46 | bp-livekit | 9 — relay | host | bp-stunner, bp-cert-manager |
-| 47 | bp-matrix | 9 — relay | mgt | bp-cnpg, bp-keycloak, bp-cert-manager |
-| 48 | bp-librechat | 9 | mgt | bp-llm-gateway, bp-vllm, bp-bge, bp-keycloak |
-
-End-state: **48 HRs.** `present` = 14 (slots 01–14). `W2.K1` + `W2.K2` + `W2.K3` + `W2.K4` = 5 + 7 + 8 + 14 = **34 added**.
-
-### §9.2 Excluded from the canonical kit (marketplace-registered, opt-in)
-
-| Blueprint | Reason |
-|---|---|
-| `bp-failover-controller` | Replaced by `bp-continuum`; the README-only stub is dead |
-| `bp-clickhouse` | OLAP heavy; OpenMeter uses CNPG-backed profile until an analytics-heavy Org onboards |
-| `bp-strimzi`, `bp-flink`, `bp-debezium`, `bp-iceberg` | Kafka / streaming / lakehouse; opt-in App Blueprints |
-| `bp-opensearch` | Heavy SIEM/search; Loki covers default logs path |
-| `bp-ferretdb`, `bp-milvus`, `bp-neo4j` | App-tier data services; opt-in per consumer |
-| `bp-stalwart` | Per-Org vCluster (Relay product), not host-cluster |
-| `bp-guacamole` | Admin-tooling; post-handoff opt-in |
-| `bp-litmus` | Chaos engineering; production-readiness add-on |
-| `bp-keda` | Deferred for first Sovereigns where HPA + KServe-native autoscale cover the path |
-| `bp-opentofu` | Phase-0-only; never a host-cluster HR |
-| `platform/spire/` | **DEFERRED** — see slot 06 above |
-
-### §9.3 Full DAG depth
-
-```
-Longest chain:
-bp-cilium → bp-cert-manager → bp-openbao → bp-keycloak → bp-gitea → bp-catalyst-platform   (6 hops)
-```
-
-The slot order is a dependency graph, not a line. The key edges (from the `dependsOn` column in §9.1) — cilium is the floor, cert-manager gates TLS, flux gates every HelmRelease, keycloak + openbao gate the control plane, cnpg precedes the data services, and harbor lands late as the cutover pivot target:
-
-```mermaid
-graph TD
-  cilium["01 bp-cilium (CNI + ClusterMesh + LB-IPAM)"] --> certmgr["02 bp-cert-manager"]
-  cilium --> pods["everything with pods"]
-  certmgr --> flux["03 bp-flux"]
-  certmgr --> nats["07 bp-nats-jetstream"]
-  certmgr --> openbao["08 bp-openbao"]
-  flux --> allhr["ALL HelmReleases"]
-  flux --> crossplane["04 bp-crossplane"]
-  crossplane --> claims["14 bp-crossplane-claims"]
-  flux --> cnpg["16 bp-cnpg"]
-  flux --> seaweedfs["18 bp-seaweedfs"]
-  flux --> cutover["06a bp-self-sovereign-cutover (DORMANT)"]
-  openbao --> keycloak["09 bp-keycloak"]
-  openbao --> eso["15 bp-external-secrets"]
-  cnpg --> keycloak
-  keycloak --> gitea["10 bp-gitea"]
-  certmgr --> powerdns["11 bp-powerdns"]
-  cnpg --> powerdns
-  powerdns --> extdns["12 bp-external-dns"]
-  cnpg --> harbor["19 bp-harbor"]
-  seaweedfs --> harbor
-  gitea --> catplat["13 bp-catalyst-platform"]
-  nats --> catplat
-  openbao --> catplat
-  keycloak --> catplat
-  seaweedfs --> obs["20-25 observability (otel/alloy/loki/mimir/tempo/grafana)"]
-  cnpg --> obs
-```
-
-With `bp-spire` deferred (slot 06 reserved), the longest chain is one shorter than the original 7-hop W1.D estimate. At 1-min Flux reconcile interval the worst-case full bring-up is ~6–10 minutes once images are cached.
-
-### §9.4 `kustomization.yaml` merge protocol
-
-Each W2 PR appends only its own slots in numeric order. PR merge order is K0 → K1 → K2 → K3 → K4 (enforced by labels). Subsequent PRs rebase on main; the conflict on `kustomization.yaml` is structural (both branches appended to the same list) — keep both blocks, in slot-number order. Per-HR ownership of CI guard:
-
-```bash
-scripts/check-bootstrap-deps.sh \
-  --kustomization clusters/_template/bootstrap-kit/kustomization.yaml \
-  --hrs clusters/_template/bootstrap-kit/*.yaml \
-  --dag docs/ARCHITECTURE.md
-```
-
-The script parses every HR's `dependsOn`, parses the DAG above, and fails the PR if there's drift in either direction.
-
-### §9.5 Per-Blueprint smoke tests
-
-Each slot ships a 1-line readiness probe in `tests/e2e/bootstrap-kit/<slot>-<bp>.sh`. The harness runs every probe against a fresh prov after the kit reconciles, with a 10-minute timeout. Probes substitute `<sov>` with the test Sovereign FQDN (e.g. `t38.omani.works`) at runtime.
+The slots of the bootstrap kit are the files of `clusters/_template/bootstrap-kit/` that its `kustomization.yaml` lists. The generated file [`docs/generated/bootstrap-slots.md`](generated/bootstrap-slots.md) lists every slot with its HelmRelease, chart, dependencies and switches, and the entries of `scripts/expected-bootstrap-deps.yaml` that no slot file installs. `scripts/generators/slots.py` writes it, and the check `generated-docs` fails a pull request in which it is stale. `scripts/check-bootstrap-deps.sh` compares the dependencies of the slot files with `scripts/expected-bootstrap-deps.yaml`.
 
 ---
 
@@ -1880,7 +1744,7 @@ Six EPICs roll the platform from Foundation contracts → DR. Phase 0 (#1095) is
 | 2 | Applications | #1097 | Application/Blueprint CRDs, controllers, catalog-svc, install + topology editor |
 | 3 | RBAC | #1098 | useraccess-controller, Keycloak full-CRUD, claims, catalog tiers, multi-grant UI |
 | 4 | Cloud Resources | #1099 | k9s-on-web + Guacamole + projector |
-| 5 | Networking | #1100 | default-deny, Hubble, OTel Operator, ClusterMesh, DMZ vCluster, inter-Sovereign mesh |
+| 5 | Networking | #1100 | default-deny, Hubble, OTel Operator, ClusterMesh, inter-Sovereign mesh |
 | 6 | Multi-cluster + Continuum DR | #1101 | 3 regions, CNPG cluster-pair, Continuum CRD/controller, switchover UI |
 
 EPIC-0 is serial and gates everything; once its Phase 0 acceptance lands, the six Phase 1 EPICs run in parallel:
@@ -1893,7 +1757,7 @@ graph TB
   P1 --> E2["EPIC-2 Applications (#1097)<br/>Application/Blueprint + catalog-svc + topology editor"]
   P1 --> E3["EPIC-3 RBAC (#1098)<br/>useraccess-controller + 5 tiers"]
   P1 --> E4["EPIC-4 Cloud Resources (#1099)<br/>k9s-on-web + Guacamole + projector"]
-  P1 --> E5["EPIC-5 Networking (#1100)<br/>default-deny + Hubble + ClusterMesh + DMZ"]
+  P1 --> E5["EPIC-5 Networking (#1100)<br/>default-deny + Hubble + ClusterMesh"]
   P1 --> E6["EPIC-6 Multi-cluster + Continuum DR (#1101)<br/>3 regions + cnpg-pair + switchover"]
 ```
 
@@ -1957,13 +1821,13 @@ Projector (CQRS read-side): subscribes to NATS `catalyst.events`, projects into 
 
 ### §10.6 EPIC-5 Networking
 
-Cilium pinned subchart + values.yaml to one recent stable (**1.19.x** — the current fleet pin). Default-deny CCNP baseline + per-namespace allow templates. Hubble relay+UI on; UI behind Cilium Gateway with OIDC. ClusterMesh enabled between `hz-fsn-rtz-prod` ↔ `hz-hel-rtz-prod`; WireGuard transparent encryption on; FQDN pattern `<svc>.<ns>.svc.<cluster>.global` documented for Application authors.
+Cilium pinned subchart + values.yaml to one recent stable (**1.19.x** — the current fleet pin). Default deny per namespace, audit then enforce, is target, not built (epic NET-160, gate check NET-G06). Hubble relay+UI on; UI behind Cilium Gateway with OIDC. ClusterMesh enabled between `hz-fsn-rtz-prod` ↔ `hz-hel-rtz-prod`; WireGuard transparent encryption on; FQDN pattern `<svc>.<ns>.svc.<cluster>.global` documented for Application authors.
 
 OTel auto-instrumentation via OpenTelemetry Operator + default `Instrumentation` CR per Application namespace (Java/.NET/Node/Python first; Go eBPF later). Wire collector exporters: traces → Tempo, logs → Loki, metrics → Mimir. Trace context propagation via Cilium Envoy.
 
-DMZ vCluster pattern: `{org}-dmz` vCluster auto-created for `Organization.spec.kind: customer + tier: corporate`. DMZ blueprint set: inter-Sovereign mesh endpoint, ingress controller, WAF (Coraza), Stalwart-relay. Cilium L7 policy enforcing dmz → workload egress on declared service ports only. SME-style Orgs skip DMZ.
+Zones: a region is one cluster, and its zones are the edge node pool, the platform namespaces and one namespace and vCluster per Organization ([ADR-0019](adr/0019-zones-are-namespaces-and-an-edge-pool.md)). The earlier pattern of a second zone vCluster for each corporate Organization is withdrawn: a vCluster is created only per Organization (ADR-0019 point 4). The edge node pool is target, not built (epic NET-180), and so is a firewall in the path (epic NET-250).
 
-Inter-Sovereign mesh: control plane on management cluster, agents on every cluster, routes catalyst-api → data-plane K8s APIs, Continuum lease channels traverse the mesh. Mesh mTLS via SPIRE-issued certs is the DEFERRED path (see §3 spire row); the canonical near-term path uses Cilium WireGuard + a workload-identity gateway.
+Inter-Sovereign mesh: control plane in the primary region's cluster, agents on every cluster, routes catalyst-api → data-plane K8s APIs, Continuum lease channels traverse the mesh. Mutual authentication with SPIRE is rejected (ADR-0019); traffic between clusters is encrypted by Cilium WireGuard between nodes.
 
 ### §10.7 EPIC-6 Multi-cluster + Continuum DR
 
@@ -1975,7 +1839,7 @@ Continuum controller (`core/controllers/continuum/`; the `bp-continuum` chart + 
 
 Application-page topology UI: editor (`single-region` | `active-active` | `active-hotstandby`); region picker; switchover button (RBAC: owner; confirms with diff); live status (replication lag, lease health, last switchover, RPO/RTO observed vs target); switchover history with audit trail.
 
-**Acceptance**: 3-region cluster up (1 mgt + 2 data planes). Demo Application with `active-hotstandby` runs primary in fsn, hot-standby in hel; CNPG replication healthy. Switchover from Application page completes in <60s with <5s write disruption. Resolver clients within 30–90s observe new primary (lua-record TTL window). Reverse failback once original primary recovers.
+**Acceptance**: 3 regions up, one cluster each (ADR-0019). Demo Application with `active-hotstandby` runs primary in fsn, hot-standby in hel; CNPG replication healthy. Switchover from Application page completes in <60s with <5s write disruption. Resolver clients within 30–90s observe new primary (lua-record TTL window). Reverse failback once original primary recovers.
 
 **Control-plane DR posture (#5267, deliberate)**: the Catalyst control plane (catalyst-api serving console / api / marketplace) is **primary-region-only** — G2 (#2574) suspends `bp-catalyst-platform` on secondary CPs (`SECONDARY_HR_SUSPEND`), and catalyst-api is single-replica `strategy: Recreate` on RWO zone-scoped EVS PVCs (single-writer flat-file deployment store, no leader election). During a primary-region kill the gateway VIP fails over to the surviving region's envoy (#5246) and the console returns **HTTP 404 `server: envoy`** for the outage window, then 200 on failback — that 404 signature is the expected PASS state, gated by `products/catalyst/chart/tests/api-single-writer-dr-contract.sh` and specified in [`DOD.md`](DOD.md) §6 "Service-plane contract during the kill". Data-plane failover (CNPG + customer workloads + gateway) is the Pillar-3 contract; control-plane HA needs a persistence redesign (DB-backed store + leader election) and is deferred with that reason.
 

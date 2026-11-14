@@ -12,10 +12,20 @@ on:
     branches: [main]
     paths:
       - 'core/cmd/sovereign-ops/**'
+      - 'core/controllers/go.mod'
+      - 'core/controllers/go.sum'
+      - 'core/controllers/pkg/gitea/**'
+      - 'core/controllers/pkg/gitwrite/**'
+      - 'core/controllers/pkg/upstream/**'
       - '.github/workflows/build-sovereign-ops.yaml'
   pull_request:
     paths:
       - 'core/cmd/sovereign-ops/**'
+      - 'core/controllers/go.mod'
+      - 'core/controllers/go.sum'
+      - 'core/controllers/pkg/gitea/**'
+      - 'core/controllers/pkg/gitwrite/**'
+      - 'core/controllers/pkg/upstream/**'
       - '.github/workflows/build-sovereign-ops.yaml'
   workflow_dispatch:
 
@@ -78,12 +88,11 @@ jobs:
           provenance: false
           sbom: false
 
-      - name: Install cosign
+      # Sign the image and attest its bill of materials through the shared
+      # action, before its tag is pinned (FND-062).
+      - name: Sign and attest the image
         if: github.event_name != 'pull_request'
-        uses: sigstore/cosign-installer@v3
-
-      - name: Sign the image (keyless)
-        if: github.event_name != 'pull_request'
-        env:
-          DIGEST: ${{ steps.build.outputs.digest }}
-        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+        uses: ./.github/actions/sign-and-attest
+        with:
+          ref: ${{ env.IMAGE }}
+          digest: ${{ steps.build.outputs.digest }}

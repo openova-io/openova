@@ -48,6 +48,7 @@ type ReconcilerObservation struct {
 	Message           string
 	ObservedAt        time.Time
 	OwnerInstallChart string // non-empty ⇒ attach as Execution under install-<chart>
+	JobUID            string // metadata.uid of the Job, for an install-hook run
 	Executions        []ReconcilerExecutionObservation
 }
 
@@ -58,6 +59,7 @@ type ReconcilerExecutionObservation struct {
 	StartedAt  time.Time
 	FinishedAt time.Time
 	Message    string
+	UID        string // metadata.uid of the spawned Job
 }
 
 // Reconciler observation Kind tags (mirror helmwatch.ReconcilerKind*).
@@ -261,7 +263,7 @@ func (b *Bridge) onReconcilerObservationLocked(o ReconcilerObservation) (jobsWri
 				return jobsWritten, execsSeeded, err
 			}
 		} else if isTerminalOrRunningObs(status) {
-			es, e := b.seedSingleExecutionLocked(jobName, status, o.Message, at)
+			es, e := b.seedSingleExecutionLocked(jobName, status, o.Message, "", at)
 			execsSeeded += es
 			if e != nil {
 				return jobsWritten, execsSeeded, e
@@ -273,7 +275,7 @@ func (b *Bridge) onReconcilerObservationLocked(o ReconcilerObservation) (jobsWri
 		// row renders a duration cell rather than an em-dash. Pending leaves
 		// stay Job-only (no empty NDJSON file).
 		if isTerminalOrRunningObs(status) {
-			es, e := b.seedSingleExecutionLocked(jobName, status, o.Message, at)
+			es, e := b.seedSingleExecutionLocked(jobName, status, o.Message, "", at)
 			execsSeeded += es
 			if e != nil {
 				return jobsWritten, execsSeeded, e
@@ -319,7 +321,7 @@ func (b *Bridge) attachExecutionToInstallLeafLocked(o ReconcilerObservation) (ex
 	if at.IsZero() {
 		at = time.Now().UTC()
 	}
-	return b.seedSingleExecutionLocked(leafJobName, status, "[install-hook] "+o.Name+": "+o.Message, at)
+	return b.seedSingleExecutionLocked(leafJobName, status, "[install-hook] "+o.Name+": "+o.Message, o.JobUID, at)
 }
 
 // seedCronExecutionsLocked writes one Execution per spawned CronJob run,
@@ -361,7 +363,7 @@ func (b *Bridge) seedCronExecutionsLocked(cronLeafJobName string, o ReconcilerOb
 		if start.IsZero() {
 			start = time.Now().UTC()
 		}
-		exec, e := b.store.StartExecution(b.deploymentID, cronLeafJobName, start)
+		exec, e := b.store.StartJobRun(b.deploymentID, cronLeafJobName, run.UID, start)
 		if e != nil {
 			return execsSeeded, e
 		}
@@ -402,14 +404,42 @@ func (b *Bridge) seedCronExecutionsLocked(cronLeafJobName string, o ReconcilerOb
 // Returns ok=false when there are no runs, so the caller leaves the leaf's
 // existing status alone rather than blanking it.
 func resolveRunHeadline(runs []ReconcilerExecutionObservation) (string, bool) {
-	headline := ""
-	var at time.Time
+	verdicts := make([]runVerdict, 0, len(runs))
 	for _, r := range runs {
-		st := jobStatusFromHelmState(r.Status)
 		runAt := r.FinishedAt
 		if runAt.IsZero() {
 			runAt = r.StartedAt
 		}
+		verdicts = append(verdicts, runVerdict{status: jobStatusFromHelmState(r.Status), at: runAt})
+	}
+	return foldRunHeadline(verdicts)
+}
+
+// runVerdict is one run as the headline rules see it: its status in the
+// store's vocabulary and its time (FinishedAt when it terminated, else
+// StartedAt).
+type runVerdict struct {
+	status string
+	at     time.Time
+}
+
+// verdictOfExecution is the runVerdict of a stored Execution.
+func verdictOfExecution(e Execution) runVerdict {
+	if e.FinishedAt != nil {
+		return runVerdict{status: e.Status, at: *e.FinishedAt}
+	}
+	return runVerdict{status: e.Status, at: e.StartedAt}
+}
+
+// foldRunHeadline applies the three rules of resolveRunHeadline to runs
+// already in the store's vocabulary. It is the one place the rules live:
+// the seed folds the listed runs through resolveRunHeadline, and
+// Store.CloseJobRun folds the stored runs of a leaf.
+func foldRunHeadline(runs []runVerdict) (string, bool) {
+	headline := ""
+	var at time.Time
+	for _, r := range runs {
+		st, runAt := r.status, r.at
 		if headline == "" {
 			headline, at = st, runAt
 			continue
@@ -470,7 +500,7 @@ func runNameFromLogLine(msg string) string {
 // seedSingleExecutionLocked writes one Execution for a one-shot leaf,
 // idempotent: if the leaf already has a terminal Execution at the same
 // status it is left untouched (no duplicate row on re-read).
-func (b *Bridge) seedSingleExecutionLocked(jobName, status, message string, at time.Time) (execsSeeded int, err error) {
+func (b *Bridge) seedSingleExecutionLocked(jobName, status, message, jobUID string, at time.Time) (execsSeeded int, err error) {
 	job, execs, gerr := b.store.GetJob(b.deploymentID, jobName)
 	if gerr == nil && job.LatestExecutionID != "" {
 		for _, e := range execs {
@@ -480,7 +510,7 @@ func (b *Bridge) seedSingleExecutionLocked(jobName, status, message string, at t
 			}
 		}
 	}
-	exec, e := b.store.StartExecution(b.deploymentID, jobName, at)
+	exec, e := b.store.StartJobRun(b.deploymentID, jobName, jobUID, at)
 	if e != nil {
 		return 0, e
 	}

@@ -35,7 +35,7 @@ ACCEPT_MINT=1 scripts/acceptance-sovereign.sh hw307 --record
 
 Exit codes: `0` PASS, `1` an assertion failed, `2` usage error or a gate manifest that cannot be used, `3` harness error.
 
-In CI, use `.github/workflows/acceptance-sovereign.yaml` (`workflow_dispatch` or
+In CI, use `.github/workflows/foundation-gate.yaml` (`workflow_dispatch` or
 `workflow_call`). It needs the `ACCEPTANCE_KUBECONFIG_A/B` secrets, and a
 runner that can reach the Sovereign apiservers.
 
@@ -106,7 +106,7 @@ Region IPs come from `CILIUM_LB_IPAM_CIDRS` unless `ACCEPT_REGION_IPS` is set.
 
 It writes through the console API: one create, the placement PUTs and one
 delete, plus the WordPress REST writes and the installer form. It writes with
-`kubectl create`, `apply` and `delete` in gate checks CMP-G01, SEC-G01 and
+`kubectl create`, `apply` and `delete` in gate checks CMP-G01, CTL-G04, SEC-G01 and
 SEC-G02 only. CMP-G01 creates a namespace `cmp-gate-<run>` of its own in the
 first region, applies one Deployment with zero replicas in it, and deletes
 that namespace before it ends. SEC-G01 and SEC-G02 create a namespace
@@ -126,6 +126,8 @@ suite never runs `kubectl patch`. Gate checks FND-G05 and FND-G09 run
 `scripts/check-live-nodeports.sh` and `scripts/check-live-node-encryption.sh`
 of the checkout of `--repo-root`. Both only read: the first lists Services and
 policies, the second also runs `cilium-dbg status` in every Cilium agent.
+CTL-G04 tries to create, in a namespace `ctl-lock-<run>` of its own, a copy of an
+object that the intent lock must refuse, and deletes both; `auth can-i` only asks.
 
 ## Gate checks
 
@@ -179,8 +181,10 @@ platform namespace is a namespace without the label `openova.io/organization`.
 | FND-G13 Clean wipe | `check_wipe.go` | The run did not get `--previous-deployment-id` and `--previous-wipe-orphans`, the previous deployment is the deployment under test, or the number of orphans is not `0`. |
 | CMP-G01 The score moves by push | `check_compliance_push.go` | The scorecard of the Sovereign is empty. No frame of the compliance stream names the seed within 120 seconds. The Sovereign score does not count the seed, or the violations do not list it. The violations still list the seed 120 seconds after it was deleted. The seed is the Deployment `cmp-bad` with zero replicas in a namespace `cmp-gate-<run>` of its own; the check applies it with `kubectl` and deletes the namespace before it ends. It makes no request on a timer: it reads a route again only after a frame arrived. |
 | CMP-G02 The shown mode is the engine's mode | `check_compliance_mode.go` | A policy that `GET /api/v1/sovereigns/{id}/compliance/policies` lists shows another mode than its engine object carries, or has no engine object. The engine object is the `ClusterPolicy` of that name, or the `ValidatingPolicy` when there is none. `enforcing` and `enforce` are the engine's enforce; `permissive` and `audit` are its audit. A policy of source `evaluator` without an engine object is not compared. |
+| CTL-G04 The lock holds | `check_ctl_lock.go` | `scripts/intent-lock-report.py --kubeconfig <region>` fails for a region, or its report has no stage. No stage of the intent lock is at deny. A stage at deny is not at zero: a manager other than Flux owns `spec` of one of its objects, or its audit count is not 0 or null. A kind at deny has no live object to copy, or in a region that serves it a create of a copy is not refused by the lock. The service account of Deployment `catalyst-system/catalyst-api` may create, update, patch or delete a kind at deny. The report of each region is kept as evidence. |
 | SEC-G01 etcd at rest | `check_sec_etcd.go` | On a control-plane node the value of the canary is in the clear in the etcd file `/var/lib/rancher/k3s/server/db/etcd/member/snap/db` or in a write-ahead log file beside it, or a record of the canary in the etcd file does not hold `k8s:enc:secretbox:v1:`. The canary is the Secret `etcd-canary` with a random value that the check creates in its namespace. A node whose files hold no record of the canary fails: nothing was measured. A probe Pod on each node reads the files (`sec_probe.go`). |
 | SEC-G02 Node hygiene | `check_sec_node.go` | On a control-plane node the part after `::server:` of `/var/lib/rancher/k3s/server/token` is 64 lower-case hexadecimal characters, the form of a token derived from identifiers; `/etc/rancher/k3s/k3s.yaml` is missing or its mode is not 600; or a file `/var/lib/catalyst/*-secret.yaml` or `/var/lib/catalyst/flux-bootstrap.yaml` remains. The probe prints the class of the token, never the token. |
+| SEC-G04 OpenBao system paths closed | `check_sec_route.go` | One of four anonymous `GET` of `https://bao.<FQDN>/v1/sys/seal-status` does not answer 200 with a JSON body that holds the boolean `sealed`. One of four anonymous `GET` of one of the 15 system path prefixes that `platform/openbao/chart/templates/httproute.yaml` closes, or of `/v1/sys/generate-root/attempt`, does not answer 302 with the Location `https://bao.<FQDN>/ui/` (the port 443 may be written). A redirect is not followed. `<FQDN>` is the `sovereignFQDN` of step D0.1. |
 | SEC-G07 External Secrets scope | `check_sec_scope.go` | In a region, a server-side dry run of an ExternalSecret in namespace `default` with the remote key `sso/sec-g07-probe`, or in namespace `gitea` with the key `catalyst/tofu-phase0-archive`, is not refused by the admission rule `external-secret-remote-key-scope`; one in `gitea` with the key `sso/sec-g07-probe` is refused; an ExternalSecret or PushSecret outside the namespaces labelled `openova.io/organization` would be refused on its next update, or there is none to replay; or a token of the service account of the store `vault-region1`, logged in to OpenBao in a server pod, reads `<kv>/data/catalyst/tofu-phase0-archive` without a 403, or gets a 403 or an error on `<kv>/data/sso/sec-g07-probe`. |
 
 FND-G02 also asserts that the deployment record shows no retry call. The

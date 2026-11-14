@@ -27,7 +27,7 @@ Built: 1 of 19. Target: 18 of 19.
 | target | openbao-regions-independent | Each region runs its own OpenBao Raft cluster, never one cluster stretched across regions. | One independent OpenBao Raft cluster per region | no | no | none | - | - | - |
 | target | openbao-root-rotation | The OpenBao root token is rotated and the unseal keys are re-shared every quarter. | A scheduled root rotation and rekey of OpenBao | no | no | none | - | - | - |
 | target | nats-account-isolation | Each Organization has its own NATS Account. | NATS Accounts configured by platform/nats-jetstream | no | no | none | - | - | - |
-| target | secret-rotation-policy | A SecretPolicy drives the automatic rotation of every credential class. | A controller for the SecretPolicy custom resource; only the definition exists | no | no | none | - | - | - |
+| target | secret-rotation-policy | A SecretPolicy drives the automatic rotation of every credential class. | A controller for a rotation-policy custom resource; neither the controller nor the definition exists | no | no | none | - | - | - |
 | target | dynamic-db-credentials | Database credentials are dynamic and reach a Pod through a secret sidecar. | OpenBao database secrets engine with a sidecar in the Pod | no | no | none | - | SEC-G13 | - |
 | target | build-provenance | Every build carries SLSA level 3 provenance. | SLSA level 3 provenance attestation in the build workflows | no | no | none | - | - | - |
 | target | siem-export | The audit log is exported to a SIEM, by default OpenSearch in the Sovereign. | OpenSearch in the Sovereign as the SIEM; platform/opensearch has no chart | no | no | none | - | - | - |

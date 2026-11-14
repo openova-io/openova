@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -29,6 +30,18 @@ const (
 	ManagedByValue = "flux"
 	// DefaultSyncWait is the wait when Deps.SyncWait is not above zero.
 	DefaultSyncWait = 15 * time.Second
+)
+
+// The values of Outcome.State: the "state" field of the 202 answer of an
+// intent route.
+const (
+	// StateCommitted: the change is committed to the branch the cluster
+	// applies, and the cache did not show it applied within SyncWait.
+	StateCommitted = "committed"
+	// StateAwaitingApproval: the change is committed to its own branch and
+	// waits in a pull request for a person to merge it. Nothing reaches
+	// the cluster before that merge.
+	StateAwaitingApproval = "awaiting-approval"
 )
 
 // Deps is what the package needs; built once in cmd/api.
@@ -64,12 +77,32 @@ type Target struct {
 
 // Outcome is the result of Submit.
 type Outcome struct {
-	ChangeID string
-	Commit   string
-	Noop     bool
-	Applied  bool // every target carried ChangeID (or was gone) within SyncWait
-	Targets  []Target
-	ETag     string
+	ChangeID       string
+	Commit         string
+	Noop           bool
+	Applied        bool // every target carried ChangeID (or was gone) within SyncWait
+	Targets        []Target
+	ETag           string
+	State          string // "" when Applied; otherwise StateCommitted or StateAwaitingApproval
+	PullRequestURL string // the pull request of a change in gitwrite.ModePullRequest; "" otherwise
+}
+
+// Status is the HTTP status of an intent route's answer for o: applied,
+// the route's own status, when the change was applied within SyncWait, and
+// 202 Accepted otherwise, with o.State as the "state" of the answer.
+func (o Outcome) Status(applied int) int {
+	if o.State == "" {
+		return applied
+	}
+	return http.StatusAccepted
+}
+
+// withState sets State to StateCommitted when the change was not applied.
+func withState(o Outcome) Outcome {
+	if !o.Applied {
+		o.State = StateCommitted
+	}
+	return o
 }
 
 // SchemaError is returned by Submit when an object fails its schema.
@@ -250,9 +283,26 @@ func await(ctx context.Context, d Deps, ws []waitTarget) bool {
 // SyncWait for the informer cache. ifMatch applies to the first object
 // only: the first upsert, or the first delete when there is no upsert.
 // pathOf gives the repository path of each upsert.
-func Submit(ctx context.Context, d Deps, scope gitwrite.Scope, repo gitwrite.Repo, upserts []*unstructured.Unstructured, deletes []Target, pathOf func(*unstructured.Unstructured) string, summary string, author gitwrite.Identity, via gitwrite.Via, ifMatch string, trailers map[string]string) (Outcome, error) {
+//
+// mode is optional and given at most once. Without it, or with
+// gitwrite.ModeDirect, the change is committed to repo's branch. With
+// gitwrite.ModePullRequest it is committed to its own branch and a pull
+// request into main is opened: Submit then does not wait, and returns
+// State StateAwaitingApproval with the address of the pull request. The
+// change reaches the cluster when a person merges the pull request.
+func Submit(ctx context.Context, d Deps, scope gitwrite.Scope, repo gitwrite.Repo, upserts []*unstructured.Unstructured, deletes []Target, pathOf func(*unstructured.Unstructured) string, summary string, author gitwrite.Identity, via gitwrite.Via, ifMatch string, trailers map[string]string, mode ...gitwrite.Mode) (Outcome, error) {
 	if d.Git == nil || d.Cache == nil {
 		return Outcome{}, fmt.Errorf("%w: Deps needs Git and Cache", ErrInvalid)
+	}
+	var m gitwrite.Mode
+	if len(mode) > 1 {
+		return Outcome{}, fmt.Errorf("%w: mode is given %d times", ErrInvalid, len(mode))
+	}
+	if len(mode) == 1 {
+		m = mode[0]
+	}
+	if m != "" && m != gitwrite.ModeDirect && m != gitwrite.ModePullRequest {
+		return Outcome{}, fmt.Errorf("%w: mode %q is not direct or pull-request", ErrInvalid, m)
 	}
 	if len(upserts)+len(deletes) == 0 {
 		return Outcome{}, fmt.Errorf("%w: no object to change", ErrInvalid)
@@ -395,9 +445,10 @@ func Submit(ctx context.Context, d Deps, scope gitwrite.Scope, repo gitwrite.Rep
 			ws = append(ws, waitTarget{kind: cacheKind(t.Kind), namespace: t.Namespace, name: t.Name, absent: true})
 		}
 		out.Applied = allDone(d, ws)
-		return out, nil
+		return withState(out), nil
 	}
 
+	change.Mode = m
 	for i, u := range ups {
 		fc := gitwrite.FileChange{Path: u.path, Op: gitwrite.OpUpsert, Content: u.bytes}
 		if i == 0 {
@@ -420,6 +471,12 @@ func Submit(ctx context.Context, d Deps, scope gitwrite.Scope, repo gitwrite.Rep
 	if len(res.Files) > 0 {
 		out.ETag = res.Files[0].BlobSHA
 	}
+	if res.PullRequestURL != "" {
+		// The change waits in its pull request; nothing reaches the
+		// cluster before a person merges it, so Submit does not wait.
+		out.State, out.PullRequestURL = StateAwaitingApproval, res.PullRequestURL
+		return out, nil
+	}
 	var ws []waitTarget
 	for _, u := range ups {
 		ws = append(ws, waitTarget{kind: cacheKind(u.obj.GetKind()), namespace: u.obj.GetNamespace(), name: u.obj.GetName(), wantID: changeID})
@@ -429,8 +486,8 @@ func Submit(ctx context.Context, d Deps, scope gitwrite.Scope, repo gitwrite.Rep
 	}
 	if !res.Committed {
 		out.Applied = allDone(d, ws)
-		return out, nil
+		return withState(out), nil
 	}
 	out.Applied = await(ctx, d, ws)
-	return out, nil
+	return withState(out), nil
 }

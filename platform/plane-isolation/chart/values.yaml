@@ -22,17 +22,6 @@ dnsNamespace: kube-system
 # dropped. This CIDR is the toCIDR target of the crossregion-db-egress CNP.
 serviceCIDR: 10.96.0.0/12
 
-# #4442 deferral escape hatch. The per-component default-deny is normally
-# DEFERRED for a component whose namespace does not yet exist (a `lookup` guard
-# that breaks the fresh-prov circular deadlock — see Chart.yaml 0.1.7). But
-# `lookup` ALWAYS returns empty under a CLIENT-side render (`helm template`,
-# `--dry-run=client`, the #4325 dial-graph contract test), which would defer
-# EVERY component there. Set `renderUnconditional: true` to force every
-# component to render regardless of `lookup` — used by the static dial-graph
-# coverage render. MUST stay false on a live helm-controller install so the
-# deferral (and thus the deadlock fix) actually engages.
-renderUnconditional: false
-
 # ── Per-component policy set ───────────────────────────────────────────────
 # Each entry is ONE de-vclustered platform component's host namespace. The
 # generator renders, for each:
@@ -52,7 +41,13 @@ renderUnconditional: false
 #     reserved `kube-apiserver` identity is host-network → no namespaceSelector
 #     can admit it). Optional `apiserverWebhookSelector` (matchLabels) narrows
 #     the policy to just the webhook pods. Only bp-opentelemetry-operator needs
-#     it today (`minstrumentation.kb.io` on :9443, #4579).
+#     it today (`minstrumentation.kb.io` on :9443, #4579), and
+#   * an ingress rule that admits EVERY namespace of this cluster on the TCP
+#     port(s) of `allowIngressFromAnyNamespaceOnPorts`, for a service whose
+#     callers are not a fixed list (NET-135), and
+#   * in the crossregion-db-egress CiliumNetworkPolicy, ingress from and egress
+#     to the SAME namespace in the peer region on the TCP port(s) of
+#     `crossRegionPeerPorts` (NET-135).
 #
 # allowIngressFrom is the EXPLICIT cross-component call graph, derived from the
 # whole-plane bp-{mgmt,rtz,dmz}-vcluster allow-lists + each chart's own NP. It
@@ -63,6 +58,11 @@ renderUnconditional: false
 #   * flux-system (the helm-controller reconciles the component's HR + CRs),
 #   * DNS egress to kube-system CoreDNS.
 # Those are NOT repeated per-entry; the template adds them.
+#
+# Every listed namespace must exist on the cluster. The chart renders the
+# policies of every entry, and the apply fails, naming the namespace, while one
+# is missing (NET-135). A change that removes a component's kit slot removes its
+# entry here in the same change.
 components:
   # ── mgmt-tier platform components ──────────────────────────────────────
   - namespace: keycloak            # SSO IdP — the front door every app's OIDC depends on
@@ -215,6 +215,14 @@ components:
       - velero                     # cluster backup target
       - guacamole                  # session recordings; cnpg barman backups
       - catalyst-system            # cnpg barman backups, showback
+    allowIngressFromAnyNamespaceOnPorts:
+      - 8333                       # S3 gateway. Organization namespaces store media here
+                                   # (platform/wordpress-tenant media.s3, default store s3);
+                                   # their names are not fixed. bp-seaweedfs's own
+                                   # NetworkPolicy admits every namespace on this port too.
+    crossRegionPeerPorts:
+      - 8888                       # filer HTTP: the peer region's filer.sync reads through it
+      - 18888                      # filer gRPC: the filer.sync metadata subscription
   - namespace: vllm                # LLM inference (no public route; newapi channel)
     gatewayIngress: false
     allowIngressFrom:

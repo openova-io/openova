@@ -197,30 +197,36 @@ locals {
   has_providers_kustomization = length(regexall("(?m)^[ ]+name: infrastructure-providers$", local.rendered_cloud_init)) > 0
 
   # The inline Provider-install layer must point at the providers/ tree (NOT
-  # the config tree) so it carries ONLY the Provider package CRs.
-  providers_path_correct = length(regexall("path: ./clusters/_template/infrastructure/providers", local.rendered_cloud_init)) > 0
+  # the config tree) so it carries ONLY the Provider package CRs. The path is
+  # the same on every cloud: CLD-023 deleted the Hetzner overlay.
+  providers_path_correct = length(regexall("(?m)^[ ]+path: ./clusters/_template/infrastructure/providers$", local.rendered_cloud_init)) > 0
 
   # LAYER 2 must NOT be re-inlined into cloud-init (the #1981/#3884 byte-cap
   # regression class): no operative `name: infrastructure-config` Kustomization
   # line in the rendered cloud-init.
   config_not_inlined = length(regexall("(?m)^[ ]+name: infrastructure-config$", local.rendered_cloud_init)) == 0
 
-  # The committed LAYER-2 Flux Kustomization CR (both cloud variants) must
+  # The committed LAYER-2 Flux Kustomization CR (one, for every cloud) must
   # exist and `dependsOn: [infrastructure-providers]` — the ordering gate that
-  # breaks the #4521 deadlock. Read the repo files directly (not the render).
-  config_ks_base    = file("${path.module}/../../../../clusters/_template/infrastructure/providers/infrastructure-config-kustomization.yaml")
-  config_ks_hetzner = file("${path.module}/../../../../clusters/_template/infrastructure/providers/hetzner/infrastructure-config-kustomization.yaml")
+  # breaks the #4521 deadlock. Read the repo file directly (not the render).
+  config_ks_base = file("${path.module}/../../../../clusters/_template/infrastructure/providers/infrastructure-config-kustomization.yaml")
   config_depends_on_providers = (
-    length(regexall("(?s)name: infrastructure-config.*?dependsOn:.*?- name: infrastructure-providers", local.config_ks_base)) > 0 &&
-    length(regexall("(?s)name: infrastructure-config.*?dependsOn:.*?- name: infrastructure-providers", local.config_ks_hetzner)) > 0
+    length(regexall("(?s)name: infrastructure-config.*?dependsOn:.*?- name: infrastructure-providers", local.config_ks_base)) > 0
   )
 
-  # The two committed LAYER-2 CRs must point at the correct cloud config tree:
-  # base → ./clusters/_template/infrastructure ; hetzner → .../infrastructure/hetzner.
+  # The committed LAYER-2 CR must point at the config tree
+  # ./clusters/_template/infrastructure.
   config_paths_correct = (
-    length(regexall("path: ./clusters/_template/infrastructure\n", local.config_ks_base)) > 0 &&
-    length(regexall("path: ./clusters/_template/infrastructure/hetzner\n", local.config_ks_hetzner)) > 0
+    length(regexall("path: ./clusters/_template/infrastructure\n", local.config_ks_base)) > 0
   )
+
+  # SOV-134: the variables document as the file variables.env must hold it,
+  # one KEY=value line per key of fixture_variables in key order, and the
+  # write_files entry that carries it packed (gz+b64). The runcmd creates
+  # ConfigMap flux-system/sovereign-variables from that file.
+  variables_env         = join("", [for k in sort(keys(local.fixture_variables)) : "${k}=${local.fixture_variables[k]}\n"])
+  variables_env_entry   = "  - path: /var/lib/catalyst/variables.env\n    permissions: '0600'\n    encoding: gz+b64\n    content: ${base64gzip(local.variables_env)}\n"
+  variables_env_written = strcontains(local.rendered_cloud_init, local.variables_env_entry)
 }
 
 output "rendered_cloud_init" {
@@ -262,6 +268,14 @@ output "config_depends_on_providers" {
 
 output "config_paths_correct" {
   value = local.config_paths_correct
+}
+
+output "variables_env" {
+  value = local.variables_env
+}
+
+output "variables_env_written" {
+  value = local.variables_env_written
 }
 
 output "sha256_hetzner" {

@@ -5,6 +5,4 @@ resources:
   - app-bookstack.yaml
   - app-cal-com.yaml
   - app-gitea.yaml
-  - db-mysql.yaml
-  - db-postgres.yaml
   - namespace.yaml

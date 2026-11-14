@@ -12,7 +12,7 @@
       "check_response_timeout_minutes": 120}},
     {"type": "required_status_checks", "parameters": {
       "strict_required_status_checks_policy": false,
-      "required_status_checks": [{"context": "ci-gate"}, {"context": "scope"}, {"context": "acceptance"}]}},
+      "required_status_checks": [{"context": "ci-gate"}, {"context": "scope"}, {"context": "acceptance"}, {"context": "vendor-disk-library"}]}},
     {"type": "pull_request", "parameters": {
       "required_approving_review_count": 0, "require_code_owner_review": true,
       "dismiss_stale_reviews_on_push": false, "require_last_push_approval": false,

@@ -1,0 +1,93 @@
+{{- if .Values.enabled }}
+# Access of the inventory controller. It reads Nodes and MachineSources, writes
+# Machines and the status of MachineSources, and holds its leader-election
+# Lease in the release namespace. It has no verb on Secrets.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: machine-controller-inventory
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-machine-operations.labels" . | nindent 4 }}
+    app.kubernetes.io/component: inventory
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: machine-controller-inventory
+  labels:
+    {{- include "bp-machine-operations.labels" . | nindent 4 }}
+    app.kubernetes.io/component: inventory
+rules:
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get, list, watch]
+  - apiGroups: [machines.openova.io]
+    resources: [machines]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [machines.openova.io]
+    resources: [machines/status]
+    verbs: [get, update, patch]
+  - apiGroups: [machines.openova.io]
+    resources: [machinesources]
+    verbs: [get, list, watch]
+  - apiGroups: [machines.openova.io]
+    resources: [machinesources/status]
+    verbs: [update, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: machine-controller-inventory
+  labels:
+    {{- include "bp-machine-operations.labels" . | nindent 4 }}
+    app.kubernetes.io/component: inventory
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: machine-controller-inventory
+subjects:
+  - kind: ServiceAccount
+    name: machine-controller-inventory
+    namespace: {{ .Release.Namespace }}
+---
+# Leader election: the Lease machine-controller-inventory, and the Events that
+# record who holds it. A create cannot be limited by name, so it is a rule of
+# its own.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: machine-controller-inventory-leader-election
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-machine-operations.labels" . | nindent 4 }}
+    app.kubernetes.io/component: inventory
+rules:
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [create]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    resourceNames: [machine-controller-inventory]
+    verbs: [get, update]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: machine-controller-inventory-leader-election
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-machine-operations.labels" . | nindent 4 }}
+    app.kubernetes.io/component: inventory
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: machine-controller-inventory-leader-election
+subjects:
+  - kind: ServiceAccount
+    name: machine-controller-inventory
+    namespace: {{ .Release.Namespace }}
+{{- end }}

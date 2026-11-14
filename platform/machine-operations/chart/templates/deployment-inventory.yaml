@@ -1,0 +1,70 @@
+{{- if .Values.enabled }}
+# The inventory controller: reads every MachineSource and keeps one Machine for
+# every machine a source lists. One replica; leader election on the Lease
+# machine-controller-inventory keeps a second copy idle during a roll.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: machine-controller-inventory
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-machine-operations.labels" . | nindent 4 }}
+    app.kubernetes.io/component: inventory
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bp-machine-operations
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: inventory
+  template:
+    metadata:
+      labels:
+        {{- include "bp-machine-operations.labels" . | nindent 8 }}
+        app.kubernetes.io/component: inventory
+    spec:
+      serviceAccountName: machine-controller-inventory
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: machine-controller
+          image: {{ include "bp-machine-operations.image" . | quote }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - /usr/local/bin/machine-controller
+            - --controllers=inventory
+          ports:
+            - name: health
+              containerPort: 8081
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+{{- end }}

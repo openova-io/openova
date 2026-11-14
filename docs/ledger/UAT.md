@@ -1,8 +1,8 @@
 # UAT — Console regression list, last walked on `hw307.omani.works` (from 2026-09-02)
 
-**Tally (286 rows):** ✅ 107 · ❌ 12 · ⚠️ 11 · ⏳ 147 · ☐ 9
+**Tally (286 rows):** ✅ 80 · ❌ 12 · ⚠️ 9 · ⏳ 147 · ☐ 38
 
-Measured on hw307: 17. Carried from earlier environments: 88. Newest stamp: 2026-09-02.
+Measured on hw307: 15. Carried from earlier environments: 63. Newest stamp: 2026-09-02.
 
 > **One acceptance case per row, walked on the env in the title.** Result: `✅` pass · `❌` fail · `⚠️` partial · `☐` open · `⏳` carried/due · `⛔` blocked. Test-case + Evidence show the gist (full walk history in git); `#NNNN` = issue; 📷 opens the screenshot (also collected in the gallery below the table).
 

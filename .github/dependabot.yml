@@ -33,3 +33,106 @@ updates:
       - "area/ci-cd"
     commit-message:
       prefix: "chore(ci)"
+
+  - package-ecosystem: "gomod"
+    # The directories that hold a go.mod. A new Go module adds its directory here.
+    # A directory whose path names a cloud provider is left out: this file names no provider.
+    directories:
+      - "/core/cmd/cert-manager-dynadot-webhook"
+      - "/core/cmd/k8s-ws-proxy"
+      - "/core/cmd/projector"
+      - "/core/cmd/sovereign-ops"
+      - "/core/controllers"
+      - "/core/marketplace-api"
+      - "/core/pkg/dynadot-client"
+      - "/core/pool-domain-manager"
+      - "/core/services/auth"
+      - "/core/services/billing"
+      - "/core/services/catalog"
+      - "/core/services/catalyst-catalog"
+      - "/core/services/domain"
+      - "/core/services/gateway"
+      - "/core/services/metering-sidecar"
+      - "/core/services/notification"
+      - "/core/services/provisioning"
+      - "/core/services/shared"
+      - "/core/services/tenant"
+      - "/platform/cnpg-pair/tests/acceptance"
+      - "/platform/newapi/internal/handler"
+      - "/platform/openclaw/controller"
+      - "/platform/openclaw/runtime"
+      - "/products/catalyst/bootstrap/api"
+      - "/products/chargeback"
+      - "/products/chargeback/docrender"
+      - "/products/fingate"
+      - "/products/fingate/tools"
+      - "/products/openova-flow/adapter-flux"
+      - "/products/openova-flow/server"
+      - "/products/openova-mcp"
+      - "/tests/acceptance/sovereign"
+      - "/tests/dod"
+      - "/tests/e2e/bootstrap-kit"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    # No version-update pull requests for now: on 14 November the first run opened 60 at once and
+    # their checks filled the CI queue with 2,400 runs. Security updates are not affected by this limit.
+    # A grouped form (one pull request per ecosystem) replaces this line; see the tracking issue.
+    open-pull-requests-limit: 0
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: "docker"
+    # The directories that hold a Containerfile or a Dockerfile. A new one adds its directory here.
+    # A directory whose path names a cloud provider is left out: this file names no provider.
+    directories:
+      - "/core/admin"
+      - "/core/cmd/cert-manager-dynadot-webhook"
+      - "/core/cmd/k8s-ws-proxy"
+      - "/core/cmd/projector"
+      - "/core/cmd/sovereign-ops"
+      - "/core/console"
+      - "/core/controllers/application"
+      - "/core/controllers/blueprint"
+      - "/core/controllers/continuum"
+      - "/core/controllers/environment"
+      - "/core/controllers/organization"
+      - "/core/controllers/useraccess"
+      - "/core/marketplace"
+      - "/core/marketplace-api"
+      - "/core/pool-domain-manager"
+      - "/core/services/auth"
+      - "/core/services/billing"
+      - "/core/services/catalog"
+      - "/core/services/catalyst-catalog"
+      - "/core/services/domain"
+      - "/core/services/gateway"
+      - "/core/services/metering-sidecar"
+      - "/core/services/notification"
+      - "/core/services/provisioning"
+      - "/core/services/tenant"
+      - "/infra/providers/local/image"
+      - "/platform/cnpg-pair/tests/acceptance"
+      - "/platform/newapi/internal/handler"
+      - "/platform/openclaw/controller"
+      - "/platform/openclaw/runtime"
+      - "/platform/wordpress-tenant/image"
+      - "/products/agenity"
+      - "/products/axon"
+      - "/products/catalyst-migrator"
+      - "/products/catalyst/bootstrap/api"
+      - "/products/catalyst/bootstrap/ui"
+      - "/products/chargeback"
+      - "/products/chargeback/docrender"
+      - "/products/openova-flow/adapter-flux"
+      - "/products/openova-flow/server"
+      - "/products/openova-mcp"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    # No version-update pull requests for now: on 14 November the first run opened 60 at once and
+    # their checks filled the CI queue with 2,400 runs. Security updates are not affected by this limit.
+    # A grouped form (one pull request per ecosystem) replaces this line; see the tracking issue.
+    open-pull-requests-limit: 0
+    commit-message:
+      prefix: "chore(deps)"

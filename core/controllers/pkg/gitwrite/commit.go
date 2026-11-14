@@ -39,7 +39,8 @@ type current struct {
 // no-op detection, IfMatch check, one ChangeFiles call. When Gitea
 // refuses the call because a file moved after the read, Commit returns
 // *ConflictError if any file has IfMatch, and otherwise starts again
-// from the read, at most MaxRetries times.
+// from the read, at most MaxRetries times. A change in ModePullRequest
+// goes to commitPullRequest after the Secret scan.
 func (c *Client) Commit(ctx context.Context, ch Change) (Result, error) {
 	if err := checkFields(ch); err != nil {
 		return Result{}, err
@@ -63,6 +64,9 @@ func (c *Client) Commit(ctx context.Context, ch Change) (Result, error) {
 		requestedBy = ch.Author.Email
 	}
 	message := commitMessage(ch, requestedBy)
+	if ch.Mode == ModePullRequest {
+		return commitPullRequest(ctx, gc, ch, message, author, committer)
+	}
 	withIfMatch := false
 	for _, f := range ch.Files {
 		if f.IfMatch != "" {
@@ -232,6 +236,15 @@ func checkFields(ch Change) error {
 	case ViaConsole, ViaAPI, ViaMCP, ViaEvent, ViaController:
 	default:
 		return invalid("via %q is not one of console, api, mcp, event, controller", ch.Via)
+	}
+	switch ch.Mode {
+	case "", ModeDirect:
+	case ModePullRequest:
+		if branchOf(ch.Repo) != "main" {
+			return invalid("mode pull-request opens pull requests into main only, not into %q", ch.Repo.Branch)
+		}
+	default:
+		return invalid("mode %q is not direct or pull-request", ch.Mode)
 	}
 	if (ch.Author.Name == "") != (ch.Author.Email == "") {
 		return invalid("the author needs both a name and an e-mail, or neither")

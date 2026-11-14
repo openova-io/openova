@@ -168,6 +168,7 @@ jobs:
             ${{ env.CHART_YAML }}
             ${{ env.BLUEPRINT_YAML }}
           commit-message: "deploy: bump bp-newapi upstream ${{ steps.vars.outputs.upstream_version }} chart ${{ env.CHART_NEW_VERSION }}"
+          release-writer-key: ${{ secrets.RELEASE_WRITER_KEY }}
 
       - name: Trigger blueprint-release for the chart bump
         if: steps.deploy_commit.outputs.pushed == 'true'

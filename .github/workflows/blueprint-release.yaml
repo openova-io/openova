@@ -177,14 +177,6 @@ jobs:
         with:
           version: v3.18.4
 
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@v3
-        with:
-          cosign-release: v2.4.1
-
-      - name: Install Syft
-        uses: anchore/sbom-action/download-syft@v0
-
       - name: Install yq (declared-deps parser)
         run: |
           # We need a streaming YAML parser to read Chart.yaml's dependencies:
@@ -778,34 +770,17 @@ jobs:
           fi
           echo "All $dep_count declared upstream subcharts present in pulled GHCR artifact."
 
-      - name: Cosign keyless sign
+      # Sign the chart and attest its bill of materials through the shared
+      # action, before any pin moves to it (FND-062). A chart is not an image:
+      # the bill of materials is written from the packaged .tgz, the file that
+      # was pushed.
+      - name: Sign and attest the chart
         if: steps.chart.outputs.skip != 'true'
-        env:
-          COSIGN_EXPERIMENTAL: "true"
-        run: |
-          cosign sign --yes "${{ steps.push.outputs.ref }}@${{ steps.push.outputs.digest }}"
-
-      - name: Generate SBOM via Syft
-        if: steps.chart.outputs.skip != 'true'
-        run: |
-          # Scan the local .tgz file rather than the published OCI artifact so
-          # we don't need containerd permissions on the runner. The .tgz
-          # carries everything we'd want to inventory anyway (values.yaml +
-          # Chart.yaml + templates + blueprint.yaml + the upstream-chart
-          # reference metadata).
-          mkdir -p /tmp/sbom
-          name="${{ steps.chart.outputs.name }}"
-          version="${{ steps.chart.outputs.version }}"
-          # Chart name already includes `bp-` prefix (read from Chart.yaml).
-          syft "file:/tmp/charts/${name}-${version}.tgz" -o spdx-json="/tmp/sbom/sbom.spdx.json"
-
-      - name: Attest SBOM via cosign
-        if: steps.chart.outputs.skip != 'true'
-        env:
-          COSIGN_EXPERIMENTAL: "true"
-        run: |
-          cosign attest --yes --predicate /tmp/sbom/sbom.spdx.json --type spdxjson \
-            "${{ steps.push.outputs.ref }}@${{ steps.push.outputs.digest }}"
+        uses: ./.github/actions/sign-and-attest
+        with:
+          ref: ghcr.io/openova-io/${{ steps.chart.outputs.name }}
+          digest: ${{ steps.push.outputs.digest }}
+          sbom-source: file:/tmp/charts/${{ steps.chart.outputs.name }}-${{ steps.chart.outputs.version }}.tgz
 
       # ──────────────────────────────────────────────────────────────
       # AUTO-BUMP — clusters/_template/bootstrap-kit/<NN>-<chart>.yaml
@@ -1144,6 +1119,12 @@ jobs:
             echo "bumped=true" >> "$GITHUB_OUTPUT"
           fi
 
+      # FND-017: its own step; scripts/check-release-lockstep-writer.py runs the next one keyless.
+      - name: "Release writer: push with the release-writer key"
+        if: steps.chart.outputs.skip != 'true' && (steps.bump_chart.outputs.bumped == 'true' || steps.bump_pin.outputs.bumped == 'true' || steps.bump_blueprint.outputs.bumped == 'true' || steps.sync_seed.outputs.bumped == 'true')
+        uses: ./.github/actions/use-release-writer
+        with:
+          key: ${{ secrets.RELEASE_WRITER_KEY }}
       - name: "Commit + push bootstrap-kit pin bump + blueprint.yaml lockstep"
         # Run if either side has staged changes — usually they bump in
         # tandem, but a kit-only chart (no blueprint.yaml) or a non-kit
@@ -1257,7 +1238,10 @@ jobs:
           # carries the bump_pin / bump_blueprint / sync_seed edits from the
           # steps above, so the initial attempt only needs `git add`.
           if [ "${PIN_BUMPED}" = "true" ] && [ -n "${PIN_FILE}" ]; then
-            git add "${PIN_FILE}"
+            # FND-019: PIN_FILE names every kit slot that pins the chart, separated by spaces.
+            for pf in ${PIN_FILE}; do
+              git add "$pf"
+            done
           fi
           if [ "${BP_BUMPED}" = "true" ] && [ -n "${BP_FILE}" ]; then
             git add "${BP_FILE}"
@@ -1320,7 +1304,9 @@ jobs:
               msg=$(printf '%s\n\nAlso bumps %s version %s -> %s (FND-011).' "${msg}" "${CHART_FILE}" "${CHART_PREV_VERSION}" "${CHART_VERSION}")
             fi
           fi
-          git commit -m "${msg}"
+          # FND-017: [skip ci] ends the first line, so this push starts no workflow.
+          subject="${msg%%$'\n'*}"
+          git commit -m "${subject} [skip ci]${msg#"$subject"}"
 
           for i in 1 2 3; do
             if git push origin HEAD:main; then
@@ -1342,10 +1328,12 @@ jobs:
               fi
             fi
             if [ "${PIN_BUMPED}" = "true" ] && [ -n "${PIN_FILE}" ]; then
-              if rewrite_pin "${PIN_FILE}"; then
-                git add "${PIN_FILE}"
-                did_pin=1
-              fi
+              for pf in ${PIN_FILE}; do
+                if rewrite_pin "$pf"; then
+                  git add "$pf"
+                  did_pin=1
+                fi
+              done
             fi
             if [ "${BP_BUMPED}" = "true" ] && [ -n "${BP_FILE}" ]; then
               if rewrite_blueprint "${BP_FILE}"; then
@@ -1376,7 +1364,7 @@ jobs:
             if [ "$did_pin" -eq 1 ]; then parts="${parts:+${parts}+}pin"; fi
             if [ "$did_bp" -eq 1 ]; then parts="${parts:+${parts}+}blueprint.yaml"; fi
             if [ "$did_seed" -eq 1 ]; then parts="${parts:+${parts}+}catalog-seed"; fi
-            git commit -m "deploy(${CHART_NAME}): lockstep ${parts} -> ${CHART_VERSION} (auto, Refs TBD-A6 + TBD-A20 + #5583, retry $i)"
+            git commit -m "deploy(${CHART_NAME}): lockstep ${parts} -> ${CHART_VERSION} (auto, Refs TBD-A6 + TBD-A20 + #5583, retry $i) [skip ci]"
           done
           echo "::error title=Lockstep push failed::3 attempts exhausted for ${CHART_NAME}=${CHART_VERSION}."
           exit 1
@@ -1449,6 +1437,10 @@ jobs:
           ref: main
           fetch-depth: 0
 
+      - name: "Release writer: push with the release-writer key"
+        uses: ./.github/actions/use-release-writer
+        with:
+          key: ${{ secrets.RELEASE_WRITER_KEY }}
       - name: "Umbrella: bump when a catalogue pin is newer than the last umbrella version"
         id: umbrella_bump
         env:

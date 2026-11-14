@@ -27,7 +27,7 @@ One row for each HelmRelease of each file that `clusters/_template/bootstrap-kit
 | 05a | 05a-reflector.yaml | bp-reflector | reflector | reflector | bp-reflector | bp-cert-manager | - | same |
 | 06 | 06-bp-dragonfly.yaml | bp-dragonfly | dragonfly | dragonfly | bp-dragonfly | bp-cilium | - | same |
 | 07 | 07-nats-jetstream.yaml | bp-nats-jetstream | nats-jetstream | nats-system | bp-nats-jetstream | - | - | same |
-| 08 | 08-openbao.yaml | bp-openbao | openbao | openbao | bp-openbao | bp-gateway-api, bp-cnpg | `values.crossRegion.enabled=${SOVEREIGN_ENABLE_HOT_STANDBY:-false}`, `values.snapshotReplication.enabled=${SOVEREIGN_ENABLE_HOT_STANDBY:-false}`, `values.continuum.enabled=${SOVEREIGN_ENABLE_HOT_STANDBY:-false}` | same |
+| 08 | 08-openbao.yaml | bp-openbao | openbao | openbao | bp-openbao | bp-gateway-api, bp-cnpg | - | same |
 | 09 | 09-keycloak.yaml | bp-keycloak | keycloak | keycloak | bp-keycloak | bp-cert-manager, bp-gateway-api, bp-postgres-shared | - | same |
 | 10 | 10-gitea.yaml | bp-gitea | gitea | gitea | bp-gitea | bp-keycloak, bp-gateway-api, bp-cnpg, bp-postgres-shared | - | same |
 | 11 | 11-powerdns.yaml | bp-powerdns | powerdns | powerdns | bp-powerdns | bp-cert-manager, bp-gateway-api, bp-cnpg | - | same |

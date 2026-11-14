@@ -1,0 +1,25 @@
+# access-guards.yaml - the eight guards of the access area, ACC-GD1 to ACC-GD8.
+#
+# scripts/check-access-guards.sh counts per file what the access design removes and compares the
+# counts with scripts/baselines/access.json: a count above its entry fails, and a count below it
+# fails until the baseline is lowered in the same change. No path filter, on purpose: a required
+# check that a path filter skips never reports. The self-test runs first.
+name: access-guards
+
+on:
+  pull_request:
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  access-guards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Self-test of the guards
+        run: bash scripts/check-access-guards.sh --self-test
+      - name: The access guards
+        run: bash scripts/check-access-guards.sh

@@ -105,26 +105,14 @@ jobs:
           provenance: false
           sbom: false
 
-      - name: Install cosign
+      # Sign the image and attest its bill of materials through the shared
+      # action, before its tag is pinned (FND-062).
+      - name: Sign and attest the image
         if: github.event_name != 'pull_request'
-        uses: sigstore/cosign-installer@v3
-
-      - name: Sign image with cosign (keyless)
-        if: github.event_name != 'pull_request'
-        env:
-          DIGEST: ${{ steps.build.outputs.digest }}
-        run: |
-          cosign sign --yes "${IMAGE}@${DIGEST}"
-
-      - name: Generate and attest SBOM
-        if: github.event_name != 'pull_request'
-        env:
-          DIGEST: ${{ steps.build.outputs.digest }}
-        run: |
-          cosign attest --yes \
-            --predicate <(echo '{"sbom":"in-toto-spdx attached at build time"}') \
-            --type spdx \
-            "${IMAGE}@${DIGEST}"
+        uses: ./.github/actions/sign-and-attest
+        with:
+          ref: ${{ env.IMAGE }}
+          digest: ${{ steps.build.outputs.digest }}
 
   promote:
     # Bump the chart's image.tag to the freshly-built SHA AND bump
@@ -182,6 +170,7 @@ jobs:
             ${{ env.CHART_VALUES }}
             ${{ env.CHART_YAML }}
           commit-message: "deploy: bump bp-k8s-ws-proxy to image ${{ needs.build.outputs.sha_short }} chart ${{ env.CHART_NEW_VERSION }}"
+          release-writer-key: ${{ secrets.RELEASE_WRITER_KEY }}
 
       # Per #712: GITHUB_TOKEN-authored commits do NOT re-trigger
       # workflows, so blueprint-release would not auto-fire on the

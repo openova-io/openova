@@ -1,0 +1,2 @@
+# "<workflow path> <job id>": jobs whose deploy-bump step still pushes to main with the workflow
+# token. Read by scripts/check-bot-writers.py. Lines are only removed; FND-024 removed the last.

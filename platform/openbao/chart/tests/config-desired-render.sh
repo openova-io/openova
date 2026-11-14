@@ -16,14 +16,19 @@
 #   C3  config-admin SCOPE: configuration surfaces only — no secret data (kv
 #       mount), no sys/raw, sys/seal, sys/unseal, sys/generate-root,
 #       sys/rekey, sys/storage, auth/token, sys/leases, no bare `*`, no delete,
-#       sys/mounts read-only; it cannot rewrite its own policy or role;
+#       sys/mounts read-only, sys/mounts/secret create + update and no other
+#       sys/mounts/ path; it can rewrite its own policy, not its own role;
 #   C4  the hook re-asserts config-admin on EVERY run: with the init root, or
 #       a root generated from the unseal-key shares, revoked in the same run;
 #   C5  policies are written before any role (ordering, #5829);
 #   C6  the reconciler logs in on the mount the role is bound on (XCR ⇒
-#       kubernetes-vcluster).
+#       kubernetes-vcluster);
+#   C7  the first op writes sys/policies/acl/openbao-config-admin with the
+#       policy text the hook writes; the second is `secrets-mount
+#       sys/mounts/secret` with a kv version 2 payload.
 #
-# Vacuity: C3's checker must reject a policy granting secret/* and sys/seal.
+# Vacuity: C3's checker must reject a policy granting secret/* and sys/seal,
+# and the self-locked policy that has no grant on sys/mounts/secret.
 set -euo pipefail
 
 CHART_DIR="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -35,9 +40,7 @@ if ! ls charts/*.tgz >/dev/null 2>&1; then helm dependency build >/dev/null; fi
 R=(helm template openbao . --namespace openbao --set autoUnseal.enabled=true)
 "${R[@]}" > "$TMP/default.yaml"
 "${R[@]}" --set autoUnseal.kubernetesAuth.catalystApi.enabled=false > "$TMP/nocapi.yaml"
-"${R[@]}" --set snapshotReplication.enabled=true --set snapshotReplication.role=primary > "$TMP/snap.yaml"
-"${R[@]}" --set snapshotReplication.enabled=true --set snapshotReplication.role=primary \
-  --set autoUnseal.kubernetesAuth.crossClusterTokenReview.enabled=true > "$TMP/xcr.yaml"
+"${R[@]}" --set autoUnseal.kubernetesAuth.crossClusterTokenReview.enabled=true > "$TMP/xcr.yaml"
 
 cat > "$TMP/check.py" <<'PYEOF'
 import json, re, sys, yaml
@@ -55,14 +58,16 @@ def check_scope(hcl):
     pc = caps(hcl)
     if not pc: out.append("C3 config-admin policy is empty / unparsable")
     for p, c in pc.items():
-        if p == "*" or p.startswith(("secret", "sys/raw", "sys/seal", "sys/unseal", "sys/generate-root", "sys/rekey", "sys/storage", "auth/token", "sys/leases", "sys/mounts/")):
+        if p == "*" or (p.startswith(("secret", "sys/raw", "sys/seal", "sys/unseal", "sys/generate-root", "sys/rekey", "sys/storage", "auth/token", "sys/leases", "sys/mounts/")) and p != "sys/mounts/secret"):
             out.append(f"C3 config-admin reaches forbidden path {p}")
         if "delete" in c: out.append(f"C3 config-admin may delete {p}")
         if not p.startswith(("sys/policies/acl/", "sys/policy/", "sys/auth", "sys/mounts", "auth/+/", "identity/oidc/")):
             out.append(f"C3 config-admin path outside the configuration surfaces: {p}")
     if pc.get("sys/mounts") != ["read"]: out.append(f"C3 sys/mounts must be read-only, got {pc.get('sys/mounts')}")
-    for own in ("sys/policies/acl/openbao-config-admin", "auth/+/role/openbao-config-admin"):
-        if pc.get(own) != ["read"]: out.append(f"C3 config-admin must not rewrite {own} (got {pc.get(own)})")
+    if pc.get("sys/mounts/secret") != ["create", "update"]: out.append(f"C3 sys/mounts/secret must be create + update, got {pc.get('sys/mounts/secret')}")
+    if pc.get("auth/+/role/openbao-config-admin") != ["read"]: out.append(f"C3 config-admin must not rewrite auth/+/role/openbao-config-admin (got {pc.get('auth/+/role/openbao-config-admin')})")
+    for own in ("sys/policies/acl/openbao-config-admin", "sys/policy/openbao-config-admin"):
+        if own in pc: out.append(f"C3 config-admin must be able to rewrite its own policy, but {own} is narrowed to {pc[own]}")
     return out
 
 if mode == "scope-mutant":
@@ -149,7 +154,7 @@ if mode == "render":
     i_admin, i_rev = script.find("bao policy write openbao-config-admin"), script.find("bao token revoke -self")
     ok(0 <= i_admin < i_rev, "C4 the (generated) root must be revoked after the config-admin write")
     # C5
-    kinds = [("policy" if o[1].startswith("sys/policies/") else "other") for o in man]
+    kinds = [("policy" if o[1].startswith("sys/policies/") else "other") for o in man if o[0] != "secrets-mount"]
     ok("policy" not in kinds[kinds.index("other"):] if "other" in kinds else True, "C5 a policy op comes after a role/mount op")
     # C6
     dep = get("Deployment", "openbao-config")
@@ -157,6 +162,13 @@ if mode == "render":
     want_mount = "kubernetes-vcluster" if "xcr" in flags else "kubernetes"
     ok(env.get("BAO_K8S_AUTH_PATH") == want_mount and env.get("BAO_ROLE") == "openbao-config-admin", f"C6 reconciler login {env}")
     ok(f"bao write auth/{want_mount}/role/openbao-config-admin" in script, f"C6 config-admin must be bound on auth/{want_mount}")
+    # C7
+    ok(man[:1] == [["write", "sys/policies/acl/openbao-config-admin"]], f"C7 the first op must write sys/policies/acl/openbao-config-admin, got {man[:1]}")
+    own = pl("sys/policies/acl/openbao-config-admin")
+    lines = lambda t: [l.strip() for l in t.splitlines() if l.strip()]
+    ok(bool(own and m) and lines(own["policy"]) == lines(m.group(1)), "C7 the policy text of the first op differs from the text the hook writes")
+    ok(man[1:2] == [["secrets-mount", "sys/mounts/secret"]], f"C7 the second op must be secrets-mount sys/mounts/secret, got {man[1:2]}")
+    ok(pl("sys/mounts/secret") == {"type": "kv", "options": {"version": "2"}}, f"C7 the kv mount payload is {pl('sys/mounts/secret')}")
 else:
     raise SystemExit("bad mode")
 if errs:
@@ -171,19 +183,36 @@ path "sys/mounts" { capabilities = ["read"] }
 path "secret/data/*" { capabilities = ["read"] }
 path "sys/seal" { capabilities = ["update", "sudo"] }
 EOF
+cat > "$TMP/self-locked.hcl" <<'EOF'
+path "sys/policies/acl/*" { capabilities = ["create", "read", "update", "list"] }
+path "sys/policy/*" { capabilities = ["create", "read", "update", "list"] }
+path "sys/policies/acl/openbao-config-admin" { capabilities = ["read"] }
+path "sys/policy/openbao-config-admin" { capabilities = ["read"] }
+path "sys/auth" { capabilities = ["read"] }
+path "sys/auth/*" { capabilities = ["create", "read", "update", "sudo"] }
+path "sys/mounts" { capabilities = ["read"] }
+path "auth/+/role/*" { capabilities = ["create", "read", "update", "list"] }
+path "auth/+/role/openbao-config-admin" { capabilities = ["read"] }
+path "auth/+/config" { capabilities = ["create", "read", "update"] }
+path "identity/oidc/*" { capabilities = ["create", "read", "update", "list"] }
+EOF
 
 FAIL=0
 pass() { echo "  PASS  $1"; }
 must() { if python3 "$TMP/check.py" "${@:2}"; then pass "$1"; else echo "  FAIL  $1"; FAIL=1; fi; }
 
-must "C1-C6 default (catalyst-api role on)"        render "$TMP/default.yaml" "capi"
-must "C1-C6 catalyst-api role off"                 render "$TMP/nocapi.yaml" ""
-must "C1-C6 snapshot replication on"               render "$TMP/snap.yaml" "capi,snap"
-must "C1-C6 cross-cluster TokenReview (XCR) on"    render "$TMP/xcr.yaml" "capi,snap,xcr"
+must "C1-C7 default (catalyst-api role on)"        render "$TMP/default.yaml" "capi"
+must "C1-C7 catalyst-api role off"                 render "$TMP/nocapi.yaml" ""
+must "C1-C7 cross-cluster TokenReview (XCR) on"    render "$TMP/xcr.yaml" "capi,xcr"
 if python3 "$TMP/check.py" scope-mutant "$TMP/mutant.hcl"; then
   echo "  FAIL  C3 vacuity: a policy granting secret/* + sys/seal passed the scope check"; FAIL=1
 else
   pass "C3 vacuity: the scope check rejects secret/* + sys/seal"
+fi
+if python3 "$TMP/check.py" scope-mutant "$TMP/self-locked.hcl"; then
+  echo "  FAIL  C3 vacuity: the self-locked policy without sys/mounts/secret passed the scope check"; FAIL=1
+else
+  pass "C3 vacuity: the scope check rejects the self-locked policy without sys/mounts/secret"
 fi
 if python3 "$TMP/check.py" render "$TMP/nocapi.yaml" "capi" >/dev/null; then
   echo "  FAIL  C1 vacuity: a render without catalyst-api passed as if it had it"; FAIL=1

@@ -81,8 +81,9 @@ graph TB
 │    node↔node / node↔pod (host-namespace) traffic — on every node      │
 │    EXCEPT one that matches the opt-out selector. Read §2.1 before     │
 │    citing this as fleet-wide host-traffic encryption.                 │
-│  - L7 policy + identity-aware enforcement via Cilium NetworkPolicy    │
-│    and CiliumNetworkPolicy CRs                                        │
+│  - L3/L7 policy at the eBPF datapath for the policies that exist.     │
+│    Default deny per namespace is target, not built (gate check        │
+│    NET-G06, ADR-0019 and §2.2)                                        │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -219,6 +220,14 @@ Live on hw292 (dep `1c56518035a83e03`, 2026-08-03): 8 agents, 2 regions —
 `NodeEncryption Enabled=6  OptedOut=2`, the two being `…-a-cp1-54be6d` and
 `…-b-cp1-6a755c`, exactly the label-selector match. Refs #5637.
 
+### 2.2 Network separation and the firewall
+
+> State: target. Decision: ADR-0019
+
+Target, not built. A region is one cluster, and its zones are the edge node pool, the platform namespaces and one namespace and vCluster per Organization ([ADR-0019](adr/0019-zones-are-namespaces-and-an-edge-pool.md)). ADR-0019 separates the zones by default-deny policy, the Organization fence, the edge taint and security groups. Today the security groups of the provider module are in place, and `platform/plane-isolation` puts an ingress allow-list on each platform namespace it lists, with egress open. The Organization fence and the edge taint do not exist yet. The cluster-wide default deny of `platform/network-policies` is installed switched off (see also §10). Epic NET-160 builds default deny in both directions, proven by gate check NET-G06; NET-170 builds the Organization fence (NET-G07); epic NET-180 builds the edge node pool; epic NET-250 puts a firewall in the path.
+
+The network claims that may be made are the five of ADR-0019 point 7: encryption in transit between nodes, as §2.1 defines it; identity-based default-deny policy, once gate check NET-G06 is required; no workload mutual TLS; no egress gateway; a firewall in the path only where a `WebApplicationFirewall` is Ready. No `WebApplicationFirewall` exists today, so no firewall is in the path.
+
 ### Why this configuration is sufficient today
 
 | Concern | How it's met today |
@@ -229,7 +238,7 @@ Live on hw292 (dep `1c56518035a83e03`, 2026-08-03): 8 agents, 2 regions —
 | Token rotation | Projected SA bound-tokens auto-rotate hourly (kubelet) |
 | Defense against stolen long-lived tokens | Bound tokens are scoped to a single Pod + audience + 1h TTL; the legacy unbound SA secret-tokens are not used |
 | Cross-Org isolation | vcluster boundary + NATS Account boundary + Keycloak realm boundary; SA tokens don't cross vcluster boundaries |
-| Node-level identity | Cilium gives every node a WireGuard public key; CiliumNetworkPolicy + identity labels enforce L3/L7 policy at the eBPF datapath |
+| Node-level identity | Cilium gives every node a WireGuard public key; CiliumNetworkPolicy + identity labels enforce L3/L7 policy at the eBPF datapath for the policies that exist. Default deny per namespace is target, not built (§2.2) |
 
 ### Re-enable triggers (when to re-introduce SPIRE)
 
@@ -345,7 +354,7 @@ The sidecar is automatic for any Pod whose Blueprint declares `dynamicSecrets: t
 
 ## 5. Multi-region OpenBao — INDEPENDENT, NOT STRETCHED
 
-Target, not built. The design below, three Raft members per region and one-way replication between regions, is not what runs. Today each region runs one OpenBao member with its own storage and its own unseal key. Between regions peer push is wired: the primary region writes the shared material of a multi-region Application into the OpenBao of every region (`peerTrust` in `platform/openbao/chart/values.yaml`). On a Sovereign with a hot standby (the topology `active-hotstandby` or `active-active`), the bootstrap-kit slot `clusters/_template/bootstrap-kit/08-openbao.yaml` also turns on a snapshot copy through object storage (`snapshotReplication`): every ten minutes the primary region saves a snapshot of its OpenBao, and the other region fetches it onto a staging volume without restoring it. The chart also holds a stretched Raft join (`crossRegion`); the same slot turns it on for a hot standby, but no OpenBao server reads its join configuration. OpenBao does not replicate.
+Target, not built. The design below, three Raft members per region and one-way replication between regions, is not what runs. Today each region runs one OpenBao member with its own storage and its own unseal key. Between regions peer push is wired: the primary region writes the shared material of a multi-region Application into the OpenBao of every region (`peerTrust` in `platform/openbao/chart/values.yaml`). OpenBao does not replicate.
 
 Critical: each region runs its **own** Raft cluster. There is no cross-region Raft quorum. Region failures are independent failure domains.
 
@@ -496,7 +505,7 @@ End users get one-click SSO across all Apps in their Organization without ever s
 
 ## 7. Rotation policy
 
-Target, not built. No controller acts on the kind `SecretPolicy`: it is defined in `products/catalyst/chart/crds/secretpolicy.yaml`, and no code reads it. No rotation dashboard exists.
+Target, not built. No controller rotates credentials, and the tree defines no kind for a rotation policy: the definition of the kind `SecretPolicy`, which no code read, was removed by FND-099. No rotation dashboard exists.
 
 Every credential class has a SecretPolicy that drives automatic rotation.
 
@@ -590,14 +599,16 @@ If a secret is ever leaked via terminal output (a misconfigured `kubectl describ
 
 ## 9. Compliance posture
 
+> State: target. Decision: ADR-0029
+
+Target, not built. No policy of the tree carries a mapping to a framework control, and the bootstrap kit does not install the chaos Blueprint `bp-litmus`. [ADR-0029](adr/0029-compliance-plane.md) records how framework mappings and resilience findings reach the compliance posture hub. The table states the intended posture of each standard, not what runs.
+
 | Standard | Catalyst posture |
 |---|---|
 | **SOC 2 Type 2** | Audit logging in JetStream + OpenSearch SIEM cold storage. SecretPolicy enforces rotation. EnvironmentPolicy enforces approvals. |
 | **PSD2 / FAPI** | Fingate Blueprint composes Keycloak (FAPI authorization), eIDAS cert verification, ext_authz. |
-| **DORA** | Resilience testing via Litmus chaos Blueprint. Multi-region by default for regulated tier. |
 | **NIS2** | Falco runtime detection + OpenSearch SIEM + Kyverno policy + supply-chain (cosign + Syft+Grype). |
 | **GDPR** | Per-region data residency via Placement spec. Right-to-be-forgotten flow defined per Application Blueprint. |
-| **ISO 27001** | Mappings published per control; evidence surfaced via Catalyst console audit views and SIEM exports. |
 
 Every Sovereign exports its audit log to a customer-specified SIEM. Default: OpenSearch in the Sovereign itself; customers may push to external Splunk, Datadog SIEM, etc.
 
@@ -624,7 +635,7 @@ What each kind of attacker obtains from a Sovereign today, and what the target d
 | Compromises one control-plane node | Everything. | With seal kind `static-node-file`: everything in that region, because the seal key, the etcd key and the server token rest on its disks. With seal kind `cloud-key-service`: the same while the node's key-service credential is valid; revoking it locks the store. This residual risk is stated, not removed. |
 | Copies the system disk of a control-plane node | Everything. | etcd and the keys to decrypt it, so the listed exceptions; not the seal key when the provider pack has a seal volume, so no OpenBao value. |
 | Reads Git | The database password of each Organization, which the provisioning service writes into the Organization's repository. Every Keycloak client secret, by computing it from the release name and the namespace. | No secret value. |
-| Reaches the public routes | The OpenBao API, including root generation without a token for anyone who holds the unseal key. The Keycloak clients whose secrets can be computed. The Kubernetes API on port 6443, open to every address. | Sign-in pages only. The OpenBao system paths are not routed, and the control ports are closed. |
+| Reaches the public routes | The OpenBao API, apart from 15 system path prefixes such as root generation, unseal, seal, init and rekey, which the route answers with a redirect to the user interface. The Keycloak clients whose secrets can be computed. The Kubernetes API on port 6443, open to every address. | Sign-in pages only. The OpenBao system paths are not routed, and the control ports are closed. |
 | Reads the infrastructure state or the user data of a node | Every bootstrap secret and the cloud key. | The bootstrap secrets of that Sovereign only. The state is encrypted, and pods cannot reach the user data. |
 <!-- sec-threat-model:end -->
 

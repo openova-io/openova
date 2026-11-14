@@ -9,6 +9,11 @@
 
 FROM docker.io/library/golang:1.26-alpine AS build
 WORKDIR /src/core/cmd/sovereign-ops
+# The module requires core/controllers through its replace directive
+# (../../controllers). Only what it builds from is copied: the module file
+# and the shared packages.
+COPY core/controllers/go.mod core/controllers/go.sum /src/core/controllers/
+COPY core/controllers/pkg/ /src/core/controllers/pkg/
 COPY core/cmd/sovereign-ops/ ./
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/sovereign-ops .
 

@@ -49,6 +49,8 @@ jobs:
       contents: write
       packages: write
       actions: write
+      # The step that signs the image needs a GitHub OIDC token (FND-062).
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -74,6 +76,7 @@ jobs:
           echo "Will tag bridge image: ${BRIDGE_IMAGE}:${short_sha}"
 
       - name: Build + push sandbox-bridge image
+        id: push
         uses: docker/build-push-action@v6
         with:
           context: ${{ env.BRIDGE_CTX }}
@@ -85,6 +88,14 @@ jobs:
           platforms: linux/amd64
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Sign the image and attest its bill of materials through the shared
+      # action, before its tag is pinned (FND-062).
+      - name: Sign and attest the image
+        uses: ./.github/actions/sign-and-attest
+        with:
+          ref: ${{ env.BRIDGE_IMAGE }}
+          digest: ${{ steps.push.outputs.digest }}
 
       - name: Install yq
         run: |
@@ -120,6 +131,7 @@ jobs:
             ${{ env.CHART_VALUES }}
             ${{ env.CHART_YAML }}
           commit-message: "deploy: bump bp-newapi sandbox-bridge ${{ steps.tag.outputs.tag }} chart ${{ env.CHART_NEW_VERSION }} (Wave 5.57)"
+          release-writer-key: ${{ secrets.RELEASE_WRITER_KEY }}
 
       - name: Trigger blueprint-release
         if: steps.deploy_commit.outputs.pushed == 'true'

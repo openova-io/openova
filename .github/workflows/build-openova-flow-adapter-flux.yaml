@@ -102,26 +102,14 @@ jobs:
           provenance: false
           sbom: false
 
-      - name: Install cosign
+      # Sign the image and attest its bill of materials through the shared
+      # action, before its tag is pinned (FND-062).
+      - name: Sign and attest the image
         if: github.event_name != 'pull_request'
-        uses: sigstore/cosign-installer@v3
-
-      - name: Sign image with cosign (keyless)
-        if: github.event_name != 'pull_request'
-        env:
-          DIGEST: ${{ steps.build.outputs.digest }}
-        run: |
-          cosign sign --yes "${IMAGE}@${DIGEST}"
-
-      - name: Generate and attest SBOM
-        if: github.event_name != 'pull_request'
-        env:
-          DIGEST: ${{ steps.build.outputs.digest }}
-        run: |
-          cosign attest --yes \
-            --predicate <(echo '{"sbom":"in-toto-spdx attached at build time"}') \
-            --type spdx \
-            "${IMAGE}@${DIGEST}"
+        uses: ./.github/actions/sign-and-attest
+        with:
+          ref: ${{ env.IMAGE }}
+          digest: ${{ steps.build.outputs.digest }}
 
       # Auto-bump the chart values.yaml tag. The adapter-flux image is
       # consumed by the bp-openova-flow-emitter chart (chart name is
@@ -152,7 +140,8 @@ jobs:
         uses: ./.github/actions/deploy-bump
         with:
           paths: platform/openova-flow-emitter/chart/values.yaml
-          commit-message: "chore(deploy): bump openova-flow-adapter-flux image to ${{ steps.vars.outputs.sha_short }} [skip ci]"
+          commit-message: "chore(deploy): bump openova-flow-adapter-flux image to ${{ steps.vars.outputs.sha_short }}"
+          release-writer-key: ${{ secrets.RELEASE_WRITER_KEY }}
 
       - name: Dispatch blueprint-release for chart re-publish
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && steps.deploy_commit.outputs.pushed == 'true'

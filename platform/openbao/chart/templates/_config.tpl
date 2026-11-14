@@ -11,14 +11,17 @@ could ever change them on a running Sovereign. Now a chart bump IS the change.
 
 What stays in auth-bootstrap (needs root, happens once, or cannot be done by
 the reconciler without locking itself out): the kubernetes auth mount + its
-TokenReview config (the reconciler logs in through it), the kv mount
-(`sys/mounts` is read-only for the reconciler), the prov-time KV seed (data,
-never config), and the `openbao-config-admin` policy + role themselves
-(openbao.configAdminPolicy below).
+TokenReview config (the reconciler logs in through it), the kv mount (also
+the secrets-mount op below), the prov-time KV seed (data, never config), and
+the `openbao-config-admin` policy + role themselves (openbao.configAdminPolicy
+below; the policy is also the first op, so a later chart version changes it).
 
 Ops, applied in order (policies before the roles that name them, #5829):
   write <api-path>          POST the payload (idempotent on every path used)
   mount <sys/auth/x>        enable the auth mount unless already enabled
+  secrets-mount <sys/mounts/x>  enable the secrets mount unless already enabled
+The reconciler replaces AUTH_ACCESSOR_KUBERNETES in every payload by the
+accessor of its login mount.
 An op may carry a probe URL: when it does not answer (a peer region not yet
 reachable over the mesh) the op is skipped this tick and retried next tick.
 */ -}}
@@ -129,20 +132,21 @@ path "{{ .kv }}/metadata/{{ .apps }}/*" {
 openbao.configAdminPolicy — the reconciler's own grant, written by the
 auth-bootstrap hook (the only privileged writer left). Configuration surfaces
 only: policies, auth mounts + their roles/config, identity OIDC. No secret
-data, no sys/raw, no seal, no token creation, no delete. It may not rewrite
-its own policy or role (the exact-path read-only entries win over the
-wildcards). It CAN write any policy and bind any role, so it is a privileged
+data, no sys/raw, no seal, no token creation, no delete. It may rewrite its
+own policy (the first op of the desired state) but not its own role (the
+exact-path read-only entry wins over the wildcard), and it may enable only the
+kv mount. It CAN write any policy and bind any role, so it is a privileged
 writer by composition — that is what a declarative config owner is; the
 narrowing keeps it off data and seal, and its only input is this chart.
 */ -}}
 {{- define "openbao.configAdminPolicy" -}}
+{{- $kv := ((.Values.autoUnseal | default dict).kubernetesAuth | default dict).kvMountPath | default "secret" -}}
 path "sys/policies/acl/*" { capabilities = ["create", "read", "update", "list"] }
 path "sys/policy/*" { capabilities = ["create", "read", "update", "list"] }
-path "sys/policies/acl/openbao-config-admin" { capabilities = ["read"] }
-path "sys/policy/openbao-config-admin" { capabilities = ["read"] }
 path "sys/auth" { capabilities = ["read"] }
 path "sys/auth/*" { capabilities = ["create", "read", "update", "sudo"] }
 path "sys/mounts" { capabilities = ["read"] }
+path "sys/mounts/{{ $kv }}" { capabilities = ["create", "update"] }
 path "auth/+/role/*" { capabilities = ["create", "read", "update", "list"] }
 path "auth/+/role/openbao-config-admin" { capabilities = ["read"] }
 path "auth/+/config" { capabilities = ["create", "read", "update"] }
@@ -171,8 +175,6 @@ openbao.configOps — the ordered desired state as JSON
 {{- $esoNs := $kAuth.serviceAccountNamespace | default "external-secrets-system" -}}
 {{- $xcr := (($kAuth.crossClusterTokenReview | default dict).enabled | default false) -}}
 {{- $capi := $kAuth.catalystApi | default dict -}}
-{{- $sr := .Values.snapshotReplication | default dict -}}
-{{- $srRole := (($sr.kubernetesAuth | default dict).role) | default "openbao-snapshot" -}}
 {{- $cfg := .Values.peerTrust | default dict -}}
 {{- $aud := $cfg.audience | default "openbao-peer-push" -}}
 {{- $apps := $cfg.kvPathPrefix | default "openova/apps" | trimSuffix "/" -}}
@@ -182,7 +184,6 @@ openbao.configOps — the ordered desired state as JSON
 
 {{- $policies := list "external-secrets-read" "external-secrets-push" "sso-bridge-write" "sso-configure-admin" -}}
 {{- if $capi.enabled }}{{ $policies = append $policies "catalyst-api-write" }}{{ end -}}
-{{- if $sr.enabled }}{{ $policies = append $policies "openbao-snapshot" }}{{ end -}}
 {{- if $pt.peers }}{{ $policies = concat $policies (list "openbao-peer-token" $aud) }}{{ end -}}
 
 {{- /* role: name, sa, saNs, policies, ttl, maxTTL, alsoVcluster */ -}}
@@ -193,14 +194,13 @@ openbao.configOps — the ordered desired state as JSON
 {{- if $capi.enabled -}}
 {{- $roles = append $roles (dict "name" ($capi.role | default "catalyst-api") "sa" ($capi.serviceAccountName | default "catalyst-api-cutover-driver") "ns" ($capi.serviceAccountNamespace | default "catalyst-system") "policies" (list "catalyst-api-write") "ttl" $ttl "max" $maxTTL "vc" false) -}}
 {{- end -}}
-{{- if $sr.enabled -}}
-{{- $roles = append $roles (dict "name" $srRole "sa" "openbao-snapshot" "ns" $ns "policies" (list "openbao-snapshot") "ttl" $ttl "max" $maxTTL "vc" true) -}}
-{{- end -}}
 {{- if $pt.peers -}}
 {{- $roles = append $roles (dict "name" "openbao-peer-token" "sa" $esoSA "ns" $esoNs "policies" (list "openbao-peer-token") "ttl" "15m" "max" "1h" "vc" false) -}}
 {{- end -}}
 
-{{- $ops := list -}}
+{{- $ops := list
+  (dict "kind" "write" "path" "sys/policies/acl/openbao-config-admin" "payload" (dict "policy" (include "openbao.configAdminPolicy" $)))
+  (dict "kind" "secrets-mount" "path" (printf "sys/mounts/%s" $kv) "payload" (dict "type" "kv" "options" (dict "version" "2"))) -}}
 {{- range $policies -}}
 {{- $ops = append $ops (dict "kind" "write" "path" (printf "sys/policies/acl/%s" .) "payload" (dict "policy" (include (printf "openbao.policy.%s" (ternary "openbao-peer-push" . (eq . $aud))) $ctx))) -}}
 {{- end -}}

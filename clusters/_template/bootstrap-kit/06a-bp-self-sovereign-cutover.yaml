@@ -1119,7 +1119,7 @@ spec:
       #   artifact no longer race one local path (the second push into a proxy-<x>
       #   project answered `unauthorized ... action: push` and FATALed the step for
       #   an image that was already mirrored; hw296, ~55 min + a retry burned).
-      version: 0.1.209
+      version: 0.1.210
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

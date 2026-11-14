@@ -158,7 +158,7 @@ spec:
       #   pvc-volume-expansion policy's apiCall needs. Without it the rule
       #   reported `error` on every PVC instead of pass/fail (46 on hw307) —
       #   silent at Audit, and the #5505 shape one action-flip from denying.
-      version: 1.0.54
+      version: 1.0.55
       sourceRef:
         kind: HelmRepository
         name: bp-kyverno

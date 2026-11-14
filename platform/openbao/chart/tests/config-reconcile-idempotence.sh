@@ -6,13 +6,19 @@
 # mounts — against a fake OpenBao HTTP API, with the chart's own rendered
 # desired state (region A of a two-region registry):
 #
-#   I1  tick 1 applies EVERY manifest op; the jwt mount is enabled once;
-#   I2  tick 2 is idempotent: no mount is re-enabled, the stored state is
-#       byte-identical to tick 1, the login token is reused (one login);
+#   I1  tick 1 applies EVERY manifest op; the jwt mount and the kv secrets
+#       mount are enabled once;
+#   I2  tick 2 is idempotent: no auth or secrets mount is re-enabled, the
+#       stored state is byte-identical to tick 1, the login token is reused
+#       (one login);
 #   I3  a peer whose discovery URL does not answer: its 3 ops are skipped and
 #       the tick reports pending; every other op is still applied;
 #   I4  login refused (role not bound yet) ⇒ zero writes, tick pending;
-#   I5  a failed POLICY write ends the tick before any role is written.
+#   I5  a failed POLICY write ends the tick before any role is written;
+#   I6  every AUTH_ACCESSOR_KUBERNETES in a payload is posted as the accessor
+#       of the login mount; every other payload is posted byte-identical;
+#   I7  no accessor for the login mount ⇒ the tick ends non-zero with
+#       "WARN: no accessor for kubernetes" and that payload is not posted.
 #
 # And files/openbao-generate-root.sh against a fake `bao` CLI + a fake
 # apiserver serving the openbao-unseal-keys Secret:
@@ -41,22 +47,27 @@ cat > "$TMP/fake.py" <<'PYEOF'
 import json, sys, threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 CTL = {"login_ok": True, "fail": set()}
-STATE, MOUNTS, LOG = {}, {"kubernetes/": {"type": "kubernetes"}}, []
+K8S = {"kubernetes/": {"accessor": "auth_kubernetes_f00d", "type": "kubernetes"}}
+BASE_SMOUNTS = {"cubbyhole/": {"type": "cubbyhole"}, "identity/": {"type": "identity"}, "sys/": {"type": "system"}}
+STATE, MOUNTS, SMOUNTS, LOG = {}, dict(K8S), dict(BASE_SMOUNTS), []
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def _send(self, code, body=None):
-        b = json.dumps(body).encode() if body is not None else b""
+        b = json.dumps(body, separators=(",", ":")).encode() if body is not None else b""
         self.send_response(code); self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
     def do_GET(self):
         p = self.path
-        if p.startswith("/ctl/state"): return self._send(200, {"state": STATE, "mounts": sorted(MOUNTS), "log": LOG})
+        if p.startswith("/ctl/state"): return self._send(200, {"state": STATE, "mounts": sorted(MOUNTS), "smounts": sorted(SMOUNTS), "log": LOG})
         if p.startswith("/peer-up/"): return self._send(200, {"issuer": "x"})
         if p == "/v1/auth/token/lookup-self":
             return self._send(200, {"data": {}}) if self.headers.get("X-Vault-Token") == "t1" else self._send(403, {"errors": ["denied"]})
         if p == "/v1/sys/auth":
             if self.headers.get("X-Vault-Token") != "t1": return self._send(403, {"errors": ["denied"]})
             return self._send(200, dict(MOUNTS))
+        if p == "/v1/sys/mounts":
+            if self.headers.get("X-Vault-Token") != "t1": return self._send(403, {"errors": ["denied"]})
+            return self._send(200, dict(SMOUNTS))
         self._send(404, {"errors": ["nf"]})
     def do_POST(self):
         n = int(self.headers.get("Content-Length") or 0)
@@ -64,7 +75,8 @@ class H(BaseHTTPRequestHandler):
         p = self.path
         if p.startswith("/ctl/"):
             c = json.loads(body); CTL["login_ok"] = c.get("login_ok", True); CTL["fail"] = set(c.get("fail", []))
-            STATE.clear(); LOG.clear(); MOUNTS.clear(); MOUNTS["kubernetes/"] = {"type": "kubernetes"}
+            STATE.clear(); LOG.clear(); MOUNTS.clear(); SMOUNTS.clear(); SMOUNTS.update(BASE_SMOUNTS)
+            if not c.get("no_k8s"): MOUNTS.update(K8S)
             return self._send(204)
         if p == "/v1/auth/kubernetes/login":
             LOG.append(("login", ""))
@@ -81,6 +93,11 @@ class H(BaseHTTPRequestHandler):
             LOG.append(("mount", api))
             if m in MOUNTS: return self._send(400, {"errors": ["path is already in use"]})
             MOUNTS[m] = json.loads(body); return self._send(204)
+        if api.startswith("sys/mounts/"):
+            m = api[len("sys/mounts/"):] + "/"
+            LOG.append(("smount", api))
+            if m in SMOUNTS: return self._send(400, {"errors": ["path is already in use"]})
+            SMOUNTS[m] = json.loads(body); return self._send(204)
         LOG.append(("write", api)); STATE[api] = body; self._send(204)
 srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
 print(srv.server_address[1], flush=True)
@@ -111,7 +128,7 @@ state() { wget -qO- "$BASE/ctl/state"; }
 run()   {  # $1 desired dir, $2 ticks → exit code of the last tick
   local rc=0
   BAO_ADDR="$BASE" BAO_K8S_AUTH_PATH=kubernetes BAO_ROLE=openbao-config-admin INTERVAL_SECONDS=0 \
-    CONFIG_DIR="$1" SA_TOKEN_FILE="$TMP/sa" HEARTBEAT_FILE="$TMP/hb" MAX_TICKS="$2" \
+    CONFIG_DIR="$1" SA_TOKEN_FILE="$TMP/sa" HEARTBEAT_FILE="$TMP/hb" PAYLOAD_FILE="$TMP/payload.json" MAX_TICKS="$2" \
     sh files/openbao-config-reconcile.sh > "$TMP/run.log" 2>&1 || rc=$?
   return "$rc"
 }
@@ -131,11 +148,15 @@ import json, sys
 s = json.load(open(sys.argv[1])); man = [l.split() for l in open(sys.argv[2]) if l.strip()]
 writes = {o[1] for o in man if o[0] == "write"}
 mounts = {o[1][len("sys/auth/"):] + "/" for o in man if o[0] == "mount"}
+smounts = [o[1] for o in man if o[0] == "secrets-mount"]
 assert set(s["state"]) == writes, (sorted(writes - set(s["state"])), sorted(set(s["state"]) - writes))
 assert mounts <= set(s["mounts"]), s["mounts"]
 assert [l for l in s["log"] if l[0] == "mount"] == [["mount", "sys/auth/" + m[:-1]] for m in sorted(mounts)], s["log"]
+assert smounts == ["sys/mounts/secret"], smounts
+assert "secret/" in s["smounts"], s["smounts"]
+assert [l for l in s["log"] if l[0] == "smount"] == [["smount", "sys/mounts/secret"]], s["log"]
 PYEOF
-  then pass "I1 tick 1 applies all ${OPS} ops (mount enabled once)"; else bad "I1 tick 1 did not apply the full desired state"; fi
+  then pass "I1 tick 1 applies all ${OPS} ops (auth mount and kv mount enabled once)"; else bad "I1 tick 1 did not apply the full desired state"; fi
 else bad "I1 tick 1 did not converge"; fi
 ctl '{}'
 if run "$TMP/desired-up" 2; then
@@ -146,10 +167,12 @@ s1, s2 = json.load(open(sys.argv[1])), json.load(open(sys.argv[2]))
 assert s1["state"] == s2["state"], "state differs after a second tick"
 assert s1["mounts"] == s2["mounts"]
 assert sum(1 for l in s2["log"] if l[0] == "mount") == sum(1 for l in s1["log"] if l[0] == "mount"), "a mount was re-enabled"
+assert s1["smounts"] == s2["smounts"]
+assert sum(1 for l in s2["log"] if l[0] == "smount") == sum(1 for l in s1["log"] if l[0] == "smount") == 1, "a secrets mount was re-enabled"
 assert sum(1 for l in s2["log"] if l[0] == "login") == 1, "token not reused across ticks"
 assert sum(1 for l in s2["log"] if l[0] == "write") == 2 * sum(1 for l in s1["log"] if l[0] == "write")
 PYEOF
-  then pass "I2 tick 2 is idempotent (same state, no re-mount, one login)"; else bad "I2 second tick was not idempotent"; fi
+  then pass "I2 tick 2 is idempotent (same state, no auth or secrets re-mount, one login)"; else bad "I2 second tick was not idempotent"; fi
 else bad "I2 two ticks did not converge"; fi
 
 # I3
@@ -185,6 +208,30 @@ assert not any(k.startswith("auth/") for k in s["state"]), sorted(s["state"])
 assert "sys/policies/acl/external-secrets-read" in s["state"]
 '; then pass "I5 failed policy write ends the tick before any role"
 else bad "I5 a role was written after a failed policy write"; fi
+
+# I6 + I7: one extra policy op whose payload names the accessor twice.
+cp -r "$TMP/desired-up" "$TMP/desired-acc"
+echo "write sys/policies/acl/accessor-test" >> "$TMP/desired-acc/manifest"
+printf '%s' '{"policy":"path \"secret/data/{{identity.entity.aliases.AUTH_ACCESSOR_KUBERNETES.metadata.service_account_namespace}}/*\" { capabilities = [\"read\"] } # AUTH_ACCESSOR_KUBERNETES"}' \
+  > "$TMP/desired-acc/sys.policies.acl.accessor-test.json"
+ctl '{}'
+if run "$TMP/desired-acc" 1; then
+  if state | python3 -c '
+import json,os,sys
+s=json.load(sys.stdin)["state"]; d=sys.argv[1]
+t=s["sys/policies/acl/accessor-test"]
+assert t.count("auth_kubernetes_f00d")==2 and "AUTH_ACCESSOR_KUBERNETES" not in t, t
+for k, v in s.items():
+    if k != "sys/policies/acl/accessor-test": assert v == open(os.path.join(d, k.replace("/", ".") + ".json")).read(), k
+' "$TMP/desired-acc"; then pass "I6 the accessor is substituted in the payload that names it; every other payload is posted unchanged"
+  else bad "I6 accessor substitution"; fi
+else bad "I6 a tick with an accessor payload did not converge"; fi
+ctl '{"no_k8s": true}'
+if run "$TMP/desired-acc" 1; then bad "I7 a payload that needs a missing accessor must leave the tick non-zero"
+elif grep -q -F 'WARN: no accessor for kubernetes' "$TMP/run.log" \
+  && state | python3 -c 'import json,sys; assert "sys/policies/acl/accessor-test" not in json.load(sys.stdin)["state"]'; then
+  pass "I7 no accessor: the tick ends non-zero with the warning and the payload is not posted"
+else bad "I7 missing accessor handling"; fi
 
 # ── generate-root against a fake bao CLI ─────────────────────────────────
 mkdir -p "$TMP/bin" "$TMP/gr"

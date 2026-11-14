@@ -88,7 +88,7 @@ spec:
   # (S3-Uploads + openova-media-store mu-plugin), no wp-content PVC by
   # default; regionLocalVolumes below carry a replication for every entry
   # (the D6 admission gate reads them off THIS CR).
-  version: "0.6.2"
+  version: "0.6.3"
   visibility: listed
   card:
     title: "WordPress (per-Organization)"
@@ -133,7 +133,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-wordpress-tenant
-    version: "0.6.2"
+    version: "0.6.3"
   # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): lockstep with
   # platform/wordpress-tenant/blueprint.yaml. Uses {{.AppName}} so
   # multi-instance tenants get distinct hostnames per Application.
@@ -511,7 +511,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.5.14"
+  version: "1.5.15"
   visibility: listed
   card:
     title: "Keycloak"
@@ -539,7 +539,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-keycloak
-    version: "1.5.14"
+    version: "1.5.15"
   # G117.1+G117.4+G117.6 #2744-followup (2026-06-03): bp-keycloak
   # catalog-seed needs topology + endpoints + sso so application-
   # controller can fan out HRs and operator console can mint silent-SSO
@@ -2268,7 +2268,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.4.157"
+  version: "1.4.159"
   visibility: listed
   card:
     title: "NewAPI"
@@ -2317,7 +2317,7 @@ business model is reselling LLM access to its own customers; use
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-newapi
-    version: "1.4.157"
+    version: "1.4.159"
   topology:
     supported:
     - active-passive
@@ -2388,7 +2388,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.2.20"
+  version: "0.2.21"
   visibility: listed
   card:
     title: "OpenClaw"
@@ -2423,7 +2423,7 @@ hook (ADR-0003). Identity-blind by construction.
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-openclaw
-    version: "0.2.20"
+    version: "0.2.21"
   topology:
     supported:
       - singleton
@@ -2629,7 +2629,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.3.2"
+  version: "1.3.3"
   visibility: unlisted
   card:
     title: "SeaweedFS"
@@ -2655,7 +2655,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-seaweedfs
-    version: "1.3.2"
+    version: "1.3.3"
   topology:
     supported:
     - singleton
@@ -3411,7 +3411,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.2.73"
+  version: "1.2.77"
   visibility: unlisted
   card:
     title: "OpenBao"
@@ -3436,7 +3436,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-openbao
-    version: "1.2.73"
+    version: "1.2.77"
   topology:
     supported:
     - active-passive
@@ -3986,7 +3986,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.3.5"
+  version: "1.3.6"
   visibility: unlisted
   card:
     title: "Crossplane Claims"
@@ -4003,7 +4003,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-crossplane-claims
-    version: "1.3.5"
+    version: "1.3.6"
   topology:
     supported:
       - singleton
@@ -4477,7 +4477,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.1.18"
+  version: "0.1.19"
   visibility: unlisted
   card:
     title: "k8s-ws-proxy"
@@ -4494,7 +4494,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-k8s-ws-proxy
-    version: "0.1.18"
+    version: "0.1.19"
   topology:
     supported:
       - active-passive
@@ -4591,7 +4591,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.54"
+  version: "1.0.55"
   visibility: unlisted
   card:
     title: "Kyverno Policy Library"
@@ -4608,7 +4608,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-kyverno-policies
-    version: "1.0.54"
+    version: "1.0.55"
   topology:
     supported:
       - singleton
@@ -4642,7 +4642,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.3.6"
+  version: "1.3.7"
   visibility: unlisted
   card:
     title: "NATS JetStream"
@@ -4659,7 +4659,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-nats-jetstream
-    version: "1.3.6"
+    version: "1.3.7"
   topology:
     supported:
       - active-passive
@@ -4754,7 +4754,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.2.24"
+  version: "1.2.25"
   visibility: unlisted
   card:
     title: "PowerDNS"
@@ -4771,7 +4771,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-powerdns
-    version: "1.2.24"
+    version: "1.2.25"
   topology:
     supported:
       - singleton
@@ -5042,7 +5042,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.1.209"
+  version: "0.1.210"
   visibility: unlisted
   card:
     title: "Self-Sovereignty Cutover"
@@ -5059,7 +5059,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-self-sovereign-cutover
-    version: "0.1.209"
+    version: "0.1.210"
   topology:
     supported:
       - singleton
@@ -6149,7 +6149,7 @@ spec:
   # 0.1.8 (ADR-0015 D4, #7067): appVersion 0.2.7 — catalystapi client docs
   #   state the D4 contract (environmentRef / placement.regions resolved from
   #   objects, unknown refs 422; no "<org>-prod" / "primary").
-  version: "0.1.8"
+  version: "0.1.9"
   visibility: unlisted
   card:
     title: "OpenOva MCP"
@@ -6171,7 +6171,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-openova-mcp
-    version: 0.1.8
+    version: 0.1.9
   topology:
     supported:
       - singleton

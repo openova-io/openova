@@ -374,7 +374,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-cilium",
@@ -1155,7 +1155,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.3.5",
+    "version": "1.3.6",
     "section": "pts-3-2-gitops-and-iac",
     "depends": [
       "bp-crossplane"
@@ -2299,7 +2299,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.18",
+    "version": "0.1.19",
     "section": "pts-3-3-security-and-policy",
     "depends": [
       "bp-sealed-secrets"
@@ -2365,7 +2365,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.5.14",
+    "version": "1.5.15",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-postgres"
@@ -2620,7 +2620,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.54",
+    "version": "1.0.55",
     "section": "pts-3-3-security-and-policy",
     "depends": [],
     "shareable": false,
@@ -3040,6 +3040,32 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "hasUserUIEndpoint": false
   },
   {
+    "id": "bp-machine-operations",
+    "slug": "machine-operations",
+    "title": "Machine operations",
+    "summary": "The inventory of the machines a Sovereign runs on, as the kinds Machine and MachineSource.",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "0.1.1",
+    "section": null,
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "producesInstances": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {}
+    },
+    "hasUserUIEndpoint": false
+  },
+  {
     "id": "bp-matrix",
     "slug": "matrix",
     "title": "Matrix (Synapse)",
@@ -3294,7 +3320,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.3.6",
+    "version": "1.3.7",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [],
     "shareable": false,
@@ -3612,7 +3638,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "1.4.157",
+    "version": "1.4.159",
     "section": "pts-4-6-llm-serving",
     "depends": [
       "bp-cnpg",
@@ -3750,7 +3776,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.73",
+    "version": "1.2.77",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [],
     "shareable": false,
@@ -3814,7 +3840,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.2.20",
+    "version": "0.2.21",
     "section": "pts-4-7-agentic-workspace",
     "depends": [
       "bp-newapi",
@@ -3926,7 +3952,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.8",
+    "version": "0.1.9",
     "section": "pts-4-7-agentic-workspace",
     "depends": [],
     "shareable": false,
@@ -4157,7 +4183,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.14",
+    "version": "0.1.15",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-cilium"
@@ -4290,7 +4316,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.24",
+    "version": "1.2.25",
     "section": "pts-3-2-gitops-and-iac",
     "depends": [
       "bp-cert-manager"
@@ -4645,7 +4671,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.3.2",
+    "version": "1.3.3",
     "section": "pts-3-5-storage-and-data",
     "depends": [
       "bp-cert-manager"
@@ -4701,7 +4727,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.209",
+    "version": "0.1.210",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-gitea",
@@ -5878,7 +5904,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.6.2",
+    "version": "0.6.3",
     "section": "pts-7-org-tenant",
     "depends": [
       "bp-cnpg",
@@ -6041,6 +6067,7 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/livekit/blueprint.yaml",
   "platform/llm-gateway/blueprint.yaml",
   "platform/loki/blueprint.yaml",
+  "platform/machine-operations/blueprint.yaml",
   "platform/matrix/blueprint.yaml",
   "platform/mgmt-vcluster/blueprint.yaml",
   "platform/milvus/blueprint.yaml",

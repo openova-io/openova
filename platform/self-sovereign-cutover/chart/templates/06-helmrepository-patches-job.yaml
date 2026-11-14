@@ -735,7 +735,7 @@ data:
           (Phase-0's registry.<fqdn> auth) + certSecretRef (Harbor CA),
           replicating both secrets into vcluster-system where
           source-controller reads them. Tenant HRs resolve chart=
-          vcluster version=0.33.* against the mirrored OCI tag unchanged.
+          vcluster version=<chartVersion> against the mirrored OCI tag unchanged.
        3. DURABLE — suspend the bp-vcluster-helmrepo HelmRelease (live +
           spec.suspend:true in the Gitea slot) so the 15m reconcile does
           not re-render loft back to charts.loft.sh.

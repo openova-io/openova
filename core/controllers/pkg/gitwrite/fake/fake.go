@@ -6,7 +6,8 @@
 // refusal, compare-and-swap, the no-op and the commit message. Every
 // repository and branch exists and starts empty. The committer of a
 // commit is the robot of its scope, with the e-mail domain
-// "robots.fake.invalid".
+// "robots.fake.invalid". A Change in gitwrite.ModePullRequest commits to
+// its branch and opens a pull request, which the fake never merges.
 package fake
 
 import (

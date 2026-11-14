@@ -1,6 +1,10 @@
 package main
 
-import "github.com/go-chi/chi/v5"
+import (
+	"github.com/go-chi/chi/v5"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
+)
 
 func registerPublicDeployments(r chi.Router, d routeDeps) {
 	h := d.h
@@ -125,6 +129,9 @@ func registerSessionDeployments(rg chi.Router, d routeDeps) {
 	// childIds so the FE can render the recursive Job tree without
 	// any batch-specific endpoint (issue #351).
 	rg.Get("/api/v1/deployments/{depId}/jobs", h.ListJobs)
+	// The jobs stream: one hint frame per store write for the deployment,
+	// so a reader refetches instead of polling (internal/jobs/stream.go).
+	rg.Get("/api/v1/deployments/{depId}/jobs/stream", jobs.StreamHandler(h.JobsReadAccess))
 	rg.Get("/api/v1/deployments/{depId}/jobs/{jobId}", h.GetJob)
 	// Generic Flux-native remediation (issue #3646 §5c). ONE write
 	// route dispatching on the leaf's typed Kind re-drives ANY stuck

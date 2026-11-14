@@ -234,6 +234,9 @@ type ReconcilerObservation struct {
 	// bridge attaches it as an Execution under "install-openbao" instead
 	// of minting a duplicate task-* row. Empty for standalone Jobs.
 	OwnerInstallChart string
+	// JobUID — for an HR install-hook run, the Job's metadata.uid, the key
+	// the Job watch closes the run by. Empty for every other observation.
+	JobUID string
 	// Executions — for a CronJob, the recent spawned-Job runs (newest
 	// first), each becoming an Execution on the cron-<name> leaf. Empty
 	// for the other kinds.
@@ -252,6 +255,9 @@ type ReconcilerExecution struct {
 	FinishedAt time.Time
 	// Message — a short run summary line.
 	Message string
+	// UID — the spawned Job's metadata.uid, the key the Job watch closes
+	// the run by.
+	UID string
 }
 
 // ListReconcilerObservations performs a ONE-SHOT list of every observed
@@ -378,7 +384,7 @@ func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]R
 	if list, err := dyn.Resource(JobGVR).Namespace("").List(ctx, metav1.ListOptions{}); err == nil {
 		for i := range list.Items {
 			u := &list.Items[i]
-			status, started, finished := jobRunStatus(u)
+			status, started, finished := JobRunStatus(u)
 			// Day-2 scanner Job (trivy-operator scan-* OR a syft-grype run)
 			// → fold its run onto the ONE collapsed identity row (#3925).
 			if id, ok := scannerIdentity(u); ok {
@@ -399,6 +405,7 @@ func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]R
 						StartedAt:  started,
 						FinishedAt: finished,
 						Message:    "run " + u.GetName() + ": " + status,
+						UID:        string(u.GetUID()),
 					})
 					// Headline = the most recent run, and never a no-verdict
 					// state over a recorded failure. See adoptRunHeadline.
@@ -420,6 +427,7 @@ func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]R
 					Message:           "install-hook run: " + status,
 					ObservedAt:        firstNonZero(finished, started),
 					OwnerInstallChart: chart,
+					JobUID:            string(u.GetUID()),
 				})
 				continue
 			}
@@ -446,6 +454,7 @@ func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]R
 					StartedAt:  started,
 					FinishedAt: finished,
 					Message:    "run " + u.GetName() + ": " + status,
+					UID:        string(u.GetUID()),
 				})
 				// Same headline resolution as the cron leaf. See adoptRunHeadline.
 				adoptRunHeadline(c, status, "last run "+u.GetName()+": "+status,
@@ -464,6 +473,7 @@ func ListReconcilerObservations(ctx context.Context, dyn dynamic.Interface) ([]R
 					StartedAt:  started,
 					FinishedAt: finished,
 					Message:    "run " + u.GetName() + ": " + status,
+					UID:        string(u.GetUID()),
 				}},
 				ObservedAt: firstNonZero(finished, started),
 			})
@@ -556,10 +566,11 @@ func readyTransitionTime(conds []metav1.Condition) time.Time {
 	return time.Time{}
 }
 
-// jobRunStatus derives a batch Job's run status + timing from its
+// JobRunStatus derives a batch Job's run status + timing from its
 // .status.conditions (Complete / Failed) + .status fields. Running when
-// neither terminal condition is present.
-func jobRunStatus(u *unstructured.Unstructured) (status string, started, finished time.Time) {
+// neither terminal condition is present. The seed and the Job watch
+// (internal/jobwatch) read a Job's outcome through this one function.
+func JobRunStatus(u *unstructured.Unstructured) (status string, started, finished time.Time) {
 	conds, _ := extractConditions(u)
 	for _, c := range conds {
 		if c.Status != metav1.ConditionTrue {
@@ -762,6 +773,7 @@ func foldScannerRun(out *[]ReconcilerObservation, scannerIdx map[string]int, ide
 		StartedAt:  started,
 		FinishedAt: finished,
 		Message:    "scan run " + u.GetName() + ": " + status,
+		UID:        string(u.GetUID()),
 	}
 	runAt := firstNonZero(finished, started)
 	if idx, ok := scannerIdx[identity]; ok {

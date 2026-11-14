@@ -1,0 +1,20 @@
+# bp-machine-operations values.
+#
+# At these defaults the chart renders nothing: only the two definitions of
+# crds/ are installed. The kit slot that installs the Blueprint sets `enabled`
+# and `image`.
+
+# Switches the chart on: the inventory controller's Deployment, its service
+# account, its access rules and the built-in sources.
+enabled: false
+
+# The catalyst-api image, which holds /usr/local/bin/machine-controller, as a
+# full reference (registry/repository:tag). Required when `enabled` is true:
+# the render fails while it is empty.
+image: ""
+
+sources:
+  nodes:
+    # The built-in source `nodes` (type nodes) in namespace catalyst-infra: one
+    # Machine for every Kubernetes Node of this cluster.
+    enabled: true

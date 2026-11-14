@@ -64,6 +64,18 @@ const (
 	ViaController Via = "controller" // adoption commits and rendered files
 )
 
+// Mode is how Commit delivers a Change.
+type Mode string
+
+const (
+	// ModeDirect commits to the branch of Repo. Mode "" means the same.
+	ModeDirect Mode = "direct"
+	// ModePullRequest commits to a new branch ChangeBranch(ChangeID) and
+	// opens a pull request from it into main. Nothing is committed to
+	// main: a person merges the pull request, or nobody does.
+	ModePullRequest Mode = "pull-request"
+)
+
 // Change is one atomic commit.
 type Change struct {
 	Scope    Scope             // selects the robot and the allowed paths; required
@@ -74,6 +86,7 @@ type Change struct {
 	ChangeID string            // required; from NewChangeID
 	Via      Via               // required
 	Trailers map[string]string // extra trailers; keys match ^[A-Z][A-Za-z-]*$; default nil
+	Mode     Mode              // "" or ModeDirect: commit to Repo's branch; ModePullRequest: see Mode
 }
 
 // FileResult is the state of one file after Commit.
@@ -84,9 +97,10 @@ type FileResult struct {
 
 // Result is the outcome of Commit.
 type Result struct {
-	Commit    string // commit SHA; the current head when Committed is false
-	Committed bool   // false when every file already had the wanted content
-	Files     []FileResult
+	Commit         string // commit SHA; the current head when Committed is false
+	Committed      bool   // false when every file already had the wanted content
+	Files          []FileResult
+	PullRequestURL string // the pull request of a ModePullRequest change; "" otherwise
 }
 
 // Entry is one entry of a directory listing.
