@@ -734,30 +734,31 @@ substrate_allow() { # $1 SPIFFE id, $2 namespace: add one more kagent controller
 
 phase_t3() {
   log "T3: a second install for a second Organization ($ORG_B) on the same host cluster and the same Substrate"
-  local vals sa rc ra rb t0=$SECONDS
+  local vals sa rc ra rb err t0=$SECONDS
   k label ns "$ORG_B" ate.dev/api-access=true --overwrite
   db_for "$ORG_B"
   vals=$(helm get values kagent -n "$ORG_A" -o json | jq -c --arg ns "$ORG_B" '.database.postgres.clientCertificate.enabled = false | .global.watchNamespaces = [$ns]')
   echo "$vals" | jq 'del(.providers[]?.apiKey?)' >"$OUT/kagent-b-values.redacted.json"
   echo "$vals" >"$MAN/kagent-b-values.json"
-  substrate_allow "spiffe://cluster.local/ns/$ORG_B/sa/kagent-b-controller" "$ORG_B"; echo "substrate upgrade rc=$?"
-  helm install kagent-b "$KAGENT_CHART" --version "$KAGENT_VERSION" -n "$ORG_B" -f "$MAN/kagent-b-values.json" --wait --timeout 15m >"$OUT/kagent-b-install.log" 2>&1; rc=$?
+  substrate_allow "spiffe://cluster.local/ns/$ORG_B/sa/kagent-controller" "$ORG_B"; echo "substrate upgrade rc=$?"
+  helm install kagent "$KAGENT_CHART" --version "$KAGENT_VERSION" -n "$ORG_B" -f "$MAN/kagent-b-values.json" --wait --timeout 15m >"$OUT/kagent-b-install.log" 2>&1; rc=$?
   tail -n 5 "$OUT/kagent-b-install.log"
+  err=$(grep -m1 -iE 'error|exists|conflict' "$OUT/kagent-b-install.log" | cut -c1-300)
   sa=$(k -n "$ORG_B" get deploy "$(ctrl_deploy "$ORG_B")" -o jsonpath='{.spec.template.spec.serviceAccountName}')
   echo "install B controller ServiceAccount: $sa"
   k -n "$ORG_B" get svc -o json | jq -r '.items[] | select(any(.spec.ports[]; .port==8083)) | .metadata.name' | head -n 1 >"$OUT/ctrl-svc-$ORG_B"
   wait_for 600 bash -c "kubectl -n $ORG_B get deploy kagent-default -o jsonpath='{.status.readyReplicas}' | grep -q '^[1-9]'" || echo "worker B not ready"
-  if [ -n "$sa" ] && [ "$sa" != kagent-b-controller ]; then substrate_allow "spiffe://cluster.local/ns/$ORG_B/sa/$sa" "$ORG_B"; fi
+  if [ -n "$sa" ] && [ "$sa" != kagent-controller ]; then substrate_allow "spiffe://cluster.local/ns/$ORG_B/sa/$sa" "$ORG_B"; fi
   kagent_objects "$ORG_B" org-b kagent-default >"$MAN/kagent-$ORG_B.yaml"
   k apply -f "$MAN/kagent-$ORG_B.yaml"
   k -n "$ORG_B" wait --for=condition=Ready agent/probe --timeout=900s
   rb=$(a2a "$CALLER_NS" "$(url_of "$ORG_B" probe)" --token "$(cat "$OUT/keys/tok-b")" --text "SPIKE-T4 org-b" --timeout 900); echo "$rb" | cut -c1-600
   ra=$(a2a "$CALLER_NS" "$(url_of "$ORG_A" probe)" --token "$(cat "$OUT/keys/tok-a")" --text "SPIKE-T4 org-a-again" --timeout 600); echo "$ra" | cut -c1-600
-  k get pods -A -o wide | grep -E 'kagent-default|kagent-controller|kagent-b-controller' || true
+  k get pods -A -o wide | grep -E 'kagent-default|kagent-controller' || true
   rec T3 "$([ $rc = 0 ] && [ "$(jq -r .state <<<"$rb")" = TASK_STATE_COMPLETED ] && [ "$(jq -r .state <<<"$ra")" = TASK_STATE_COMPLETED ] && echo pass || echo fail)" \
-    "$(jq -cn --arg rc "$rc" --arg sb "$(jq -r .state <<<"$rb")" --arg sa "$(jq -r .state <<<"$ra")" --arg s "$((SECONDS - t0))" --arg u "$(url_of "$ORG_B" probe)" \
-      '{installBHelmExit:$rc, turnOrgB:$sb, turnOrgAAfterB:$sa, seconds:$s, a2aURLOrgB:$u}')" \
-    "install B: helm release kagent-b in $ORG_B, own PostgreSQL, scoped to $ORG_B; Substrate lists extended by one identity"
+    "$(jq -cn --arg rc "$rc" --arg sb "$(jq -r .state <<<"$rb")" --arg sa "$(jq -r .state <<<"$ra")" --arg s "$((SECONDS - t0))" --arg u "$(url_of "$ORG_B" probe)" --arg e "$err" \
+      '{installBHelmExit:$rc, installBError:$e, turnOrgB:$sb, turnOrgAAfterB:$sa, seconds:$s, a2aURLOrgB:$u}')" \
+    "install B: helm release kagent (the same release name as install A) in $ORG_B, own PostgreSQL, scoped to $ORG_B; Substrate lists extended by one identity"
 }
 
 # ------------------------------------------------------------------ T2
@@ -808,9 +809,19 @@ EOF
   fi
   stage=vcluster-up
   k -n "$ORG_V" get secret vc-vcluster -o jsonpath='{.data.config}' | base64 -d >"$OUT/vc.kubeconfig"
-  nohup kubectl -n "$ORG_V" port-forward svc/vcluster 8443:443 >/dev/null 2>&1 &
   VK="kubectl --kubeconfig $OUT/vc.kubeconfig"
+  # Run 3 lost its port-forward after a few minutes; the runner is the node, so the
+  # virtual API server is reached on its Service ClusterIP under the vcluster's TLS name.
+  local cip cname; cip=$(k -n "$ORG_V" get svc vcluster -o jsonpath='{.spec.clusterIP}')
+  cname=$($VK config view -o jsonpath='{.clusters[0].name}')
+  $VK config set-cluster "$cname" --server="https://$cip:443" --tls-server-name="vcluster.$ORG_V" >/dev/null
+  if ! wait_for 60 $VK get ns default; then
+    echo "ClusterIP route refused; falling back to a self-restarting port-forward"
+    nohup bash -c "while true; do kubectl -n $ORG_V port-forward --address 127.0.0.1 svc/vcluster 8443:443 >/dev/null 2>&1; sleep 1; done" >/dev/null 2>&1 &
+    $VK config set-cluster "$cname" --server="https://127.0.0.1:8443" --tls-server-name=localhost >/dev/null
+  fi
   wait_for 120 $VK get ns default || { rec T2 fail "{\"stage\":\"$stage\"}" "cannot reach the virtual API server"; return 1; }
+  echo "virtual API server reached at $($VK config view -o jsonpath='{.clusters[0].cluster.server}')"
   echo "virtual API certificates.k8s.io/v1beta1: $($VK get --raw /apis/certificates.k8s.io/v1beta1 2>&1 | jq -c '[.resources[].name]' 2>/dev/null)"
   for ns in "$vns" ate-system; do $VK create ns "$ns" --dry-run=client -o yaml | $VK apply -f -; done
   wait_for 120 $VK -n ate-system get svc api || echo "replicated Service ate-system/api not visible in the vcluster"
