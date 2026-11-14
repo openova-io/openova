@@ -1,0 +1,37 @@
+# bp-kured values. The kit slot installs this chart into kube-system.
+
+# Settings of the upstream kured chart. Each line names the kured flag it sets.
+kured:
+  # The DaemonSet, its lock annotation (weave.works/kured-node-lock) and its
+  # Pods are named kured, whatever the release is called.
+  fullnameOverride: kured
+  configuration:
+    rebootSentinel: /var/run/reboot-required  # --reboot-sentinel: the file unattended upgrades write
+    period: 15m                               # --period: a node-local file check, no call to any service
+    concurrency: 1                            # --concurrency: one node at a time per cluster
+    startTime: "00:30"                        # --start-time: the reboot span opens
+    endTime: "22:00"                          # --end-time: the reboot span closes; the hours left are the upgrade window
+    timeZone: UTC                             # --time-zone
+    rebootDays: [su, mo, tu, we, th, fr, sa]  # --reboot-days: every day
+    drainTimeout: 15m                         # --drain-timeout: a node that cannot drain is not rebooted
+    lockTtl: 1h                               # --lock-ttl: a crashed lock holder cannot block for ever
+    lockReleaseDelay: 5m                      # --lock-release-delay: the node settles before the next one
+    # --blocking-pod-selector: no reboot of a node while an upgrade Job Pod of
+    # the system-upgrade-controller runs on it. One selector; the comma means
+    # AND. The second key leaves out the controller's own Pod, which carries
+    # the first label too and would block its node for ever.
+    blockingPodSelector:
+      - upgrade.cattle.io/controller=system-upgrade-controller,upgrade.cattle.io/plan
+    annotateNodes: true                       # --annotate-nodes: the console can show "reboot pending"
+  # kured runs on every node, whatever its taints.
+  tolerations:
+    - operator: Exists
+
+# The DaemonSet node-patch-config writes the node's two unattended-upgrade
+# files under /etc/apt/apt.conf.d and rewrites them when their content differs.
+nodePatchConfig:
+  # The image of node-patch-config and of the function test: a shell with
+  # cmp, cp, mv, chmod and sleep, and kubectl. No default: the kit slot sets
+  # it with the registry prefix of the Sovereign. Left empty, the install
+  # fails: the DaemonSet has a container without an image.
+  image: ""

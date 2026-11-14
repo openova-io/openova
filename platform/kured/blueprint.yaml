@@ -1,0 +1,40 @@
+apiVersion: catalyst.openova.io/v1
+kind: Blueprint
+metadata:
+  name: bp-kured
+spec:
+  version: 0.1.0
+  card:
+    title: kured
+    summary: Coordinated node reboots, one node at a time inside the reboot span, and the node's unattended-upgrade configuration.
+    documentation: ./README.md
+  visibility: unlisted              # cluster plumbing, installed by a bootstrap-kit slot
+  owner:
+    team: platform
+    contact: platform@openova.io
+  placementSchema:
+    modes: [single-region, active-active]
+    default: active-active           # runs on every node of every region's cluster
+  manifests:
+    chart: ./chart
+  depends: []                        # a DaemonSet with its RBAC, and a DaemonSet with a ConfigMap; no CRDs
+  topology:
+    supported: [singleton]
+    defaults:
+      multi-region: singleton
+      single-region: singleton
+    perTopology:
+      singleton:
+        placement:
+          tier: ''
+          clusters: [mgmt-A, mgmt-B, dmz-A, dmz-B, rtz-A, rtz-B]
+          roles:
+            mgmt-A: singleton
+            mgmt-B: singleton
+            dmz-A: singleton
+            dmz-B: singleton
+            rtz-A: singleton
+            rtz-B: singleton
+  endpoints: []
+  multiInstance:
+    enabled: false

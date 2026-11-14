@@ -2557,6 +2557,56 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "hasUserUIEndpoint": true
   },
   {
+    "id": "bp-kured",
+    "slug": "kured",
+    "title": "kured",
+    "summary": "Coordinated node reboots, one node at a time inside the reboot span, and the node's unattended-upgrade configuration.",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "0.1.0",
+    "section": null,
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "producesInstances": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    },
+    "hasUserUIEndpoint": false
+  },
+  {
     "id": "bp-kyverno",
     "slug": "kyverno",
     "title": "Kyverno",
@@ -6059,6 +6109,7 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/keycloak/blueprint.yaml",
   "platform/knative/blueprint.yaml",
   "platform/kserve/blueprint.yaml",
+  "platform/kured/blueprint.yaml",
   "platform/kyverno-policies/blueprint.yaml",
   "platform/kyverno/blueprint.yaml",
   "platform/langfuse/blueprint.yaml",

@@ -1,0 +1,87 @@
+{{- /*
+node-patch-config: the single owner of the node's unattended-upgrade
+configuration, on every provider and every node role. One Pod per node writes
+the two files of the ConfigMap into the host directory /etc/apt/apt.conf.d,
+rewrites a file only when its content differs, and sleeps one hour. The only
+host mount is that directory, writable. The Pod runs as root, because root
+owns the directory, with no capability and no API token.
+*/ -}}
+{{- $labels := dict "app.kubernetes.io/name" "node-patch-config" "app.kubernetes.io/instance" .Release.Name -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: node-patch-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+data:
+  20auto-upgrades: |
+    APT::Periodic::Update-Package-Lists "1";
+    APT::Periodic::Unattended-Upgrade "1";
+    APT::Periodic::AutocleanInterval "7";
+  52unattended-upgrades-catalyst: |
+    Unattended-Upgrade::Allowed-Origins { "${distro_id}:${distro_codename}-security"; "${distro_id}ESMApps:${distro_codename}-apps-security"; "${distro_id}ESM:${distro_codename}-infra-security"; };
+    Unattended-Upgrade::Automatic-Reboot "false";
+    Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+    Unattended-Upgrade::Remove-Unused-Dependencies "true";
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-patch-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- toYaml $labels | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- toYaml $labels | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 5
+      nodeSelector:
+        kubernetes.io/os: linux
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: node-patch-config
+          image: {{ .Values.nodePatchConfig.image | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -u
+              trap 'exit 0' TERM INT
+              while true; do
+                for f in 20auto-upgrades 52unattended-upgrades-catalyst; do
+                  if ! cmp -s "/config/$f" "/host/$f"; then
+                    # The temporary name ends in .dpkg-tmp, which apt ignores.
+                    cp "/config/$f" "/host/$f.dpkg-tmp" && chmod 0644 "/host/$f.dpkg-tmp" \
+                      && mv "/host/$f.dpkg-tmp" "/host/$f" && echo "node-patch-config: wrote /etc/apt/apt.conf.d/$f"
+                  fi
+                done
+                sleep 3600 &
+                wait $!
+              done
+          resources:
+            requests: {cpu: 5m, memory: 16Mi}
+            limits: {cpu: 50m, memory: 32Mi}
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}
+          volumeMounts:
+            - {name: apt-conf-d, mountPath: /host}
+            - {name: config, mountPath: /config, readOnly: true}
+      volumes:
+        - name: apt-conf-d
+          hostPath: {path: /etc/apt/apt.conf.d, type: Directory}
+        - name: config
+          configMap: {name: node-patch-config}

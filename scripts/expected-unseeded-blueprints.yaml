@@ -105,6 +105,13 @@ unseeded:
       The neutral storage gate that holds bp-cnpg until the default
       StorageClass exists; not a catalog item.
 
+  - chart: bp-kured
+    source: platform/kured
+    reason: >-
+      Bootstrap-kit-owned — installs from slot 04b (04b-bp-kured.yaml, added
+      by work package INF-050). Coordinated node reboots and the node's
+      unattended-upgrade configuration; not a catalog item.
+
   # ── Group B — no bootstrap-kit slot AND no seed entry. These are NOT
   # "deliberately excluded" in the same sense as Group A: nothing installs them
   # today through either door. They are recorded here so the set is ENUMERATED

@@ -1,0 +1,113 @@
+{{- /*
+Function test of bp-kured (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
+It passes when the DaemonSet kured has as many ready Pods as nodes to run on
+(at least one), and when the node of this Pod has both files of
+node-patch-config with exactly the content of its ConfigMap.
+*/ -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: ["apps"]
+    resources: ["daemonsets"]
+    resourceNames: ["kured"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-function-test
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ .Release.Name }}-function-test
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 300
+  serviceAccountName: {{ .Release.Name }}-function-test
+  containers:
+    - name: function-test
+      image: {{ .Values.nodePatchConfig.image | quote }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests: {cpu: 10m, memory: 32Mi}
+        limits: {cpu: 100m, memory: 128Mi}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: {drop: [ALL]}
+        seccompProfile: {type: RuntimeDefault}
+      env:
+        - {name: HOME, value: /tmp}
+        - {name: TEST_NAMESPACE, value: {{ .Release.Namespace | quote }}}
+        - name: NODE_NAME
+          valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
+      volumeMounts:
+        - {name: tmp, mountPath: /tmp}
+        - {name: apt-conf-d, mountPath: /host, readOnly: true}
+        - {name: config, mountPath: /config, readOnly: true}
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          set -u
+          fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          if ! counts="$(kubectl -n "${TEST_NAMESPACE}" get daemonset kured -o jsonpath='{.status.desiredNumberScheduled} {.status.numberReady}' 2>/tmp/error)"; then
+            fail "the DaemonSet kured cannot be read: $(tr '\n' ' ' </tmp/error | cut -c1-200)"
+          fi
+          set -- ${counts}
+          want="${1:-0}"
+          ready="${2:-0}"
+          [ "${want}" -gt 0 ] || fail "the DaemonSet kured has no node to run on"
+          [ "${ready}" = "${want}" ] || fail "the DaemonSet kured has ${ready} of ${want} Pods ready"
+          for f in 20auto-upgrades 52unattended-upgrades-catalyst; do
+            [ -f "/host/${f}" ] || fail "node ${NODE_NAME} has no file /etc/apt/apt.conf.d/${f}"
+            cmp -s "/config/${f}" "/host/${f}" || fail "/etc/apt/apt.conf.d/${f} on node ${NODE_NAME} differs from the ConfigMap node-patch-config"
+          done
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} kured has ${ready} of ${want} Pods ready and node ${NODE_NAME} has both node-patch-config files"
+  volumes:
+    - {name: tmp, emptyDir: {}}
+    - name: apt-conf-d
+      hostPath: {path: /etc/apt/apt.conf.d, type: Directory}
+    - name: config
+      configMap: {name: node-patch-config}
