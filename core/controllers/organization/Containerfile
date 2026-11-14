@@ -17,7 +17,7 @@
 #   build  — golang:1.23-alpine
 #   final  — alpine:3.20 minimal runtime (CA certs + the binary)
 
-FROM docker.io/library/golang:1.23-alpine AS build
+FROM docker.io/library/golang:1.27-alpine AS build
 WORKDIR /workspace
 
 # Stage 1: cache module downloads — go.mod/go.sum at the shared root.
