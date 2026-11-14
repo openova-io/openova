@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T13:45:03Z` |
+| Last refreshed | `2026-11-14T14:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,15 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7423](https://github.com/openova-io/openova/issues/7423) | SOV-160 Registry projects, the Organization Git token and the two repositories a | Other |
-| [#7430](https://github.com/openova-io/openova/issues/7430) | The helm lint check fails for a chart whose upstream index uses relative address | Other |
-| [#7434](https://github.com/openova-io/openova/issues/7434) | CTL-040 Flux manifests to stable API versions | Other |
-| [#7435](https://github.com/openova-io/openova/issues/7435) | CTL-150 Intent lock in audit mode, with its report | Other |
-| [#7436](https://github.com/openova-io/openova/issues/7436) | FND-098 Remove two retired chart folders and one dead harness | Other |
-| [#7437](https://github.com/openova-io/openova/issues/7437) | SOV-035 Delete the ProvisioningState kind and its unwired store | Other |
-| [#7438](https://github.com/openova-io/openova/issues/7438) | SOV-320 Sign-in mail without the parent's credential | Other |
-| [#7446](https://github.com/openova-io/openova/issues/7446) | CLD-113 Mesh and topology read the profile | Other |
-| [#7449](https://github.com/openova-io/openova/issues/7449) | CLD-142 Neutral storage gate | Other |
 | [#7450](https://github.com/openova-io/openova/issues/7450) | SEC-040 Bootstrap secret hygiene on the node and reflector scope | Other |
 | [#7451](https://github.com/openova-io/openova/issues/7451) | SOV-131 Provider modules take the variables map of the upstream contract | Other |
 | [#7454](https://github.com/openova-io/openova/issues/7454) | FND-018 The release writer leaves main in step: no pin goes backwards, and the u | Other |
@@ -300,6 +291,15 @@ flowchart LR
 | [#7724](https://github.com/openova-io/openova/issues/7724) | FND-074 Pre-flight: the fires on a parent domain in the last seven days | Other |
 | [#7725](https://github.com/openova-io/openova/issues/7725) | SOV-144 The post-back failure codes leave the exit code that the seal contract r | Other |
 | [#7726](https://github.com/openova-io/openova/issues/7726) | SOV-151 Kit pull Secret names and the hand-over switch read the Sovereign's vari | Other |
+| [#7738](https://github.com/openova-io/openova/issues/7738) | AIP-229 Operations records: PostgreSQL store with migration 0001 and the ops-rec | Other |
+| [#7739](https://github.com/openova-io/openova/issues/7739) | BSS-040 Delete core/marketplace-api | Other |
+| [#7740](https://github.com/openova-io/openova/issues/7740) | CLD-030 Per-Organization databases use the Sovereign's storage class | Other |
+| [#7741](https://github.com/openova-io/openova/issues/7741) | CLD-089 Local pack: the console in the kit core, its address and an owner sessio | Other |
+| [#7742](https://github.com/openova-io/openova/issues/7742) | CTL-039 Read routes for the region registry and the Environment list | Other |
+| [#7743](https://github.com/openova-io/openova/issues/7743) | FND-059 The guards that run on every pull request share a few jobs | Other |
+| [#7744](https://github.com/openova-io/openova/issues/7744) | FND-072 Flight checklist in the lifecycle script: the sweep command and the fire | Other |
+| [#7745](https://github.com/openova-io/openova/issues/7745) | INF-120 Runner image and node-mode tasks | Other |
+| [#7746](https://github.com/openova-io/openova/issues/7746) | PRD-508 Account-information read operations and the ledger client | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-14T13:56 | [#7737](https://github.com/openova-io/openova/pull/7737) | #7087 | docs(ledger): plan update |
 | 2026-11-14T13:32 | [#7719](https://github.com/openova-io/openova/pull/7719) | #7087 | docs(ledger): plan update |
 | 2026-11-14T13:09 | [#7713](https://github.com/openova-io/openova/pull/7713) | #7087 | docs(ledger): plan update |
 | 2026-11-14T13:17 | [#7712](https://github.com/openova-io/openova/pull/7712) | #7677 | test(charts): function tests for the GitOps, registry and ce |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-14T10:38 | [#7653](https://github.com/openova-io/openova/pull/7653) | #7087 | docs(ledger): plan update |
 | 2026-11-14T10:39 | [#7652](https://github.com/openova-io/openova/pull/7652) | #7550 | chore(crossplane): delete the Hetzner-only Compositions, the |
 | 2026-11-14T10:39 | [#7651](https://github.com/openova-io/openova/pull/7651) | #7643 | ci: the gate workflow runs the suite against a Sovereign and |
-| 2026-11-14T10:40 | [#7650](https://github.com/openova-io/openova/pull/7650) | #7644 | ci: sign and attest every image and chart build through the  |
 
 ---
 
