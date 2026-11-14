@@ -63,7 +63,7 @@ controller:
     # smoke render pass; real installs MUST override (per Inviolable
     # Principle 4 — no floating tags in production).
     repository: ghcr.io/openova-io/openova/openclaw-controller
-    tag: "b46ef05" # OVERRIDE on install with SHA-pinned tag
+    tag: "55d940e" # OVERRIDE on install with SHA-pinned tag
     pullPolicy: IfNotPresent
   port: 8080
   # #4389/#4292: per-Org LimitRange maxLimitRequestRatio {cpu:1,memory:1}
@@ -231,7 +231,7 @@ tenant:
 perUserPod:
   image:
     repository: ghcr.io/openova-io/openova/openclaw-runtime
-    tag: "5ea1b38" # OVERRIDE on install with SHA-pinned tag
+    tag: "sha256-feaf7f681c40e6d079ac086d6390767b6ec609d50d7c6398a26509b93e7b9913.att" # OVERRIDE on install with SHA-pinned tag
     pullPolicy: IfNotPresent
   # #4389/#4292: Guaranteed QoS for the per-Org LimitRange.
   resources:
