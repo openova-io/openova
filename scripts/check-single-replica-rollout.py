@@ -94,7 +94,6 @@ KNOWN_TRAPPED = {
     "products/agenity/chart/templates/oidc-gate.yaml",
     "products/axon/chart/templates/deployment.yaml",
     "products/axon/chart/templates/valkey-deployment.yaml",
-    "products/catalyst/chart/templates/marketplace-api/deployment.yaml",
     "products/catalyst/chart/templates/org-services/admin.yaml",
     "products/catalyst/chart/templates/org-services/auth.yaml",
     "products/catalyst/chart/templates/org-services/billing.yaml",

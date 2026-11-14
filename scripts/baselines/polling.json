@@ -19,7 +19,6 @@
   ],
   "counts": {
     "go_sleep": {
-      "core/marketplace-api/handlers/provisioner.go": 1,
       "core/services/provisioning/handlers/handlers.go": 2,
       "products/catalyst/bootstrap/api/cmd/api/main.go": 1,
       "products/catalyst/bootstrap/api/internal/flowemit/client.go": 1,

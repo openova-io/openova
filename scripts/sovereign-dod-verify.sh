@@ -238,7 +238,6 @@ CATALYST_PODS=(
     catalyst-api catalyst-ui catalyst-catalog
     application-controller organization-controller
     environment-controller useraccess-controller
-    marketplace-api
 )
 for p in "${CATALYST_PODS[@]}"; do
     READY=$(cluster_kubectl "$KUBE_A" -n catalyst-system get pod -l app.kubernetes.io/name="$p" -o jsonpath='{.items[0].status.containerStatuses[?(@.name!="")].ready}' 2>/dev/null | awk '{print $1}')

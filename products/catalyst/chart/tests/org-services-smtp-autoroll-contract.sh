@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bp-catalyst-platform — org-services SMTP auto-roll + marketplace-api relay render contract (#4919).
+# bp-catalyst-platform — org-services SMTP auto-roll render contract (#4919).
 #
 # WHY THIS GATE EXISTS (#4919, live hw233 walk, funnel row 84 — Pillar-1):
 #
@@ -17,8 +17,8 @@
 # Fix: the catalyst.orgSmtpChecksum helper (_smtp-helpers.tpl) hashes the seed and
 # is stamped as a `checksum/smtp-config` pod annotation on auth + notification, so
 # Flux DETERMINISTICALLY rolls them onto the populated env the moment the seed
-# appears. Separately, marketplace-api's own SMTP env is repointed off the dead
-# in-cluster Stalwart host onto the same durable seed.
+# appears. Case 3 keeps the dead in-cluster Stalwart host out of every chart
+# value.
 #
 # This gate asserts both so a future revert (annotation dropped, or the stalwart
 # hardcode reintroduced) fails Blueprint Release publish BEFORE the OCI artifact
@@ -67,24 +67,7 @@ if ! grep -qE '^[[:space:]]*checksum/smtp-config:[[:space:]]*"[0-9a-f]{64}"' "$T
 fi
 echo "  PASS (notification carries checksum/smtp-config)"
 
-echo "[smtp-autoroll] Case 3: marketplace-api SMTP_HOST sources the durable ${SEED_SECRET} seed, not the dead in-cluster Stalwart host (#4919)"
-render "templates/marketplace-api/deployment.yaml" > "$TMP/mp.yaml"
-# SMTP_HOST must be a secretKeyRef on the seed Secret, immediately followed by key: smtp-host.
-if ! grep -Pzoq "name:\s*SMTP_HOST\s*\n\s*valueFrom:\s*\n\s*secretKeyRef:\s*\n\s*name:\s*${SEED_SECRET}\s*\n\s*key:\s*smtp-host" "$TMP/mp.yaml"; then
-  echo "FAIL: marketplace-api SMTP_HOST is not a secretKeyRef on ${SEED_SECRET}/smtp-host (#4919)" >&2
-  grep -nA4 'name: SMTP_HOST' "$TMP/mp.yaml" >&2 || true
-  exit 1
-fi
-# Scope to value lines — comments documenting the removed host are allowed (they
-# explain why this gate exists), matching Case 4 + the nats-url test philosophy.
-if grep -qE '(value|host|SMTP_HOST):.*'"${DEAD_SMTP}" "$TMP/mp.yaml"; then
-  echo "FAIL: marketplace-api Deployment still sets the dead in-cluster Stalwart SMTP host '${DEAD_SMTP}' as a value — no Stalwart runs on a fresh Sovereign, so the signup PIN black-holes (#4919)" >&2
-  grep -nE '(value|host|SMTP_HOST):.*'"${DEAD_SMTP}" "$TMP/mp.yaml" >&2 || true
-  exit 1
-fi
-echo "  PASS (marketplace-api SMTP_HOST → ${SEED_SECRET}/smtp-host; no stalwart hardcode)"
-
-echo "[smtp-autoroll] Case 4: no live chart template hardcodes the dead Stalwart SMTP host as a value (belt-and-braces)"
+echo "[smtp-autoroll] Case 3: no live chart template hardcodes the dead Stalwart SMTP host as a value (belt-and-braces)"
 # Comments documenting the history of the dead host are allowed (they explain why
 # this gate exists), so scope the scan to value lines (value:/host:/SMTP_HOST:).
 if grep -rnE '(value|host|SMTP_HOST):.*'"${DEAD_SMTP}" templates/ values.yaml >/dev/null 2>&1; then
@@ -94,4 +77,4 @@ if grep -rnE '(value|host|SMTP_HOST):.*'"${DEAD_SMTP}" templates/ values.yaml >/
 fi
 echo "  PASS (no live template value hardcodes ${DEAD_SMTP})"
 
-echo "[smtp-autoroll] ALL CASES PASS — SMTP consumers auto-roll on seed arrival; marketplace-api + org-services source the durable ${SEED_SECRET} relay."
+echo "[smtp-autoroll] ALL CASES PASS — SMTP consumers auto-roll on seed arrival; org-services source the durable ${SEED_SECRET} relay."
