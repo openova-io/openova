@@ -53,7 +53,7 @@ run "hetzner_render_is_valid" {
 
   assert {
     condition     = output.providers_path_correct == true
-    error_message = "#4521: `infrastructure-providers` must point its `path` at ./clusters/_template/infrastructure/providers (the Provider-only tree)."
+    error_message = "#4521, CLD-023: `infrastructure-providers` must point its `path` at ./clusters/_template/infrastructure/providers (the Provider-only tree), the same path on every cloud."
   }
 
   assert {
@@ -63,12 +63,12 @@ run "hetzner_render_is_valid" {
 
   assert {
     condition     = output.config_depends_on_providers == true
-    error_message = "#4521 regression: the committed `infrastructure-config` Flux Kustomization CRs (base + hetzner) must `dependsOn: [infrastructure-providers]` so the Provider CRDs register before the ProviderConfig is dry-run."
+    error_message = "#4521 regression: the committed `infrastructure-config` Flux Kustomization CR must `dependsOn: [infrastructure-providers]` so the Provider CRDs register before the ProviderConfig is dry-run."
   }
 
   assert {
     condition     = output.config_paths_correct == true
-    error_message = "#4521: the committed `infrastructure-config` CRs must point at the correct cloud config tree (base → ./clusters/_template/infrastructure ; hetzner → .../infrastructure/hetzner)."
+    error_message = "#4521: the committed `infrastructure-config` CR must point at the config tree ./clusters/_template/infrastructure."
   }
 
   # SEC-020 — the k3s server starts with the server token and hands workers a
@@ -205,7 +205,7 @@ run "huawei_render_is_valid" {
 
   assert {
     condition     = output.config_depends_on_providers == true
-    error_message = "#4521 regression (huawei branch): the committed `infrastructure-config` CRs must `dependsOn: [infrastructure-providers]`."
+    error_message = "#4521 regression (huawei branch): the committed `infrastructure-config` CR must `dependsOn: [infrastructure-providers]`."
   }
 
   # SEC-020 (huawei branch) — the server token and the separate agent token.

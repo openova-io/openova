@@ -1249,10 +1249,9 @@ write_files:
       # per region.
       # infrastructure-providers Kustomization — LAYER 1 of the two-layer
       # Crossplane bootstrap (#4521, Refs #4212 #4488, un-gates #4002/#4018).
-      # Installs ONLY the Provider PACKAGE CRs (provider-opentofu, + native
-      # provider-hcloud on Hetzner). Cloud-conditional `path`: Huawei →
-      # ./providers (base provider-opentofu only); Hetzner → ./providers/hetzner
-      # (base + native provider-hcloud).
+      # Installs ONLY the Provider PACKAGE CR provider-opentofu, from the one
+      # path ./providers on every cloud. CLD-023 deleted the Hetzner overlay
+      # and its native provider-hcloud.
       #
       # WHY THIS IS A SEPARATE KUSTOMIZATION (#4521): the Provider CR and the
       # `tf.upbound.io/v1beta1` ProviderConfig that CONSUMES the CRD the
@@ -1293,9 +1292,7 @@ write_files:
         # CRD registers, then applies — without gating on the ~50 leaf-app HRs
         # (a dependsOn on wait:true bootstrap-kit would needlessly delay it).
         retryInterval: 1m
-        # #4513: the endif must NOT carry a trailing tilde (a tilde-close strips
-        # the following newline, jamming the next mapping key onto this line).
-        path: ./clusters/_template/infrastructure/providers%{ if provider == "hetzner" }/hetzner%{ endif }
+        path: ./clusters/_template/infrastructure/providers
         prune: true
         sourceRef:
           kind: GitRepository
@@ -1323,7 +1320,7 @@ write_files:
       # Kustomization (ProviderConfig + the Observe-first CloudAdoption
       # placeholder) is NOT inlined here. It ships as a COMMITTED Flux
       # Kustomization CR in the providers tree
-      # (clusters/_template/infrastructure/providers/{,hetzner}/
+      # (clusters/_template/infrastructure/providers/
       # infrastructure-config-kustomization.yaml), applied by THIS
       # `infrastructure-providers` Kustomization above and `dependsOn`ing it.
       # That keeps the second Kustomization OFF the byte-capped cloud-init
