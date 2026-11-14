@@ -33,6 +33,9 @@ EOF
 
 probe() { # $1 = mode label
   local groups vmap pod kept err ok
+  # ServiceAccount admission needs default/default; it appears shortly after the API starts.
+  for _ in $(seq 1 40); do kubectl -n default get sa default >/dev/null 2>&1 && break; sleep 3; done
+  kubectl -n default get sa default >/dev/null 2>&1 || kubectl -n default create sa default >/dev/null 2>&1
   groups=$(kubectl get --raw /apis/certificates.k8s.io 2>/dev/null | jq -c '[.versions[].version]' 2>/dev/null || echo '[]')
   vmap='{}'
   for ver in $(jq -r '.[]' <<<"$groups"); do

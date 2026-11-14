@@ -204,7 +204,7 @@ kagent_objects() { # $1 namespace, $2 org id, $3 harness name, $4 "tools" to bin
   local tools=""
   [ "${4:-}" = tools ] && tools='  tools:
     - mcp:
-        server: {apiGroup: api.kagent.dev, kind: RemoteMCPServer, name: openova-mcp}
+        server: {kind: RemoteMCPServer, name: openova-mcp}
         requireApproval: false'
   cat <<EOF
 apiVersion: api.kagent.dev/v1alpha3
@@ -827,25 +827,36 @@ phase_t1policy() {
   python3 "$HERE/policy.py" enforce "$ROOT/platform/kyverno-policies/chart/values.yaml" "$MAN/policy-enforce.yaml" "$OUT/policy-keys.json"
   helm template bp-kyverno-policies "$ROOT/platform/kyverno-policies/chart" -n kyverno --set compliancePolicies.bootstrapMode=false >"$MAN/policies-canonical.yaml"
   python3 "$HERE/policy.py" canonical "$MAN/policies-canonical.yaml" >"$OUT/policy-canonical.json"
-  helm install bp-kyverno-policies "$ROOT/platform/kyverno-policies/chart" -n kyverno \
-    --set compliancePolicies.bootstrapMode=false -f "$MAN/policy-enforce.yaml" --wait --timeout 5m >"$OUT/policies-install.log" 2>&1 || tail -n 5 "$OUT/policies-install.log"
+  for d in $(k -n kyverno get deploy -o name); do k -n kyverno rollout status "$d" --timeout=300s; done
+  local want have i
+  want=$(python3 -c 'import sys,yaml; print(sum(1 for d in yaml.safe_load_all(open(sys.argv[1])) if isinstance(d,dict) and d.get("kind")=="ClusterPolicy"))' "$MAN/policies-canonical.yaml")
+  for i in 1 2 3 4 5 6; do # the policy-validation webhook answers only once Kyverno is fully up
+    helm upgrade --install bp-kyverno-policies "$ROOT/platform/kyverno-policies/chart" -n kyverno \
+      --set compliancePolicies.bootstrapMode=false -f "$MAN/policy-enforce.yaml" --wait --timeout 5m >"$OUT/policies-install.log" 2>&1
+    have=$(k get clusterpolicy --no-headers 2>/dev/null | wc -l)
+    echo "policy install attempt $i: $have of $want ClusterPolicies present"
+    [ "$have" -ge "$want" ] && break
+    sleep 20
+  done
   wait_for 300 bash -c "kubectl get clusterpolicy -o json | jq -e '[.items[] | (.status.conditions // [])[] | select(.type==\"Ready\" and .status!=\"True\")] | length == 0'"
   sleep 15
   k get clusterpolicy -o custom-columns=NAME:.metadata.name,ACTION:.spec.validationFailureAction --no-headers | tee "$OUT/clusterpolicies.txt"
+  mkdir -p "$OUT/deny"
   local all='[]' ns kind name d
   for ns in podcertificate-controller-system ate-system "$ORG_A"; do
     for kind in deploy ds sts; do
       for name in $(k -n "$ns" get "$kind" -o jsonpath='{.items[*].metadata.name}'); do
         k -n "$ns" get "$kind" "$name" -o json | python3 "$HERE/policy.py" copy pc >"$OUT/obj.json"
-        k create --dry-run=server -f "$OUT/obj.json" >"$OUT/deny.txt" 2>&1
-        d=$(python3 "$HERE/policy.py" denials "$OUT/deny.txt")
+        k create --dry-run=server -f "$OUT/obj.json" >"$OUT/deny/$ns-$kind-$name.txt" 2>&1
+        d=$(python3 "$HERE/policy.py" denials "$OUT/deny/$ns-$kind-$name.txt")
         all=$(jq -c --arg ns "$ns" --arg kind "$kind" --arg name "$name" --argjson d "$d" '. + [{namespace:$ns, kind:$kind, name:$name, refusedBy:($d | map(.policy) | unique)}]' <<<"$all")
       done
     done
   done
   echo "$all" | jq -c '.[]'
-  rec T1-POLICY info "$(jq -cn --argjson a "$all" --argjson c "$(js '{}' <"$OUT/policy-canonical.json")" \
-    '{workloads:$a, policiesRefusing:([$a[].refusedBy[]] | group_by(.) | map({policy:.[0], workloads:length, canonicalAction:($c[.[0]] // "unknown")}))}')" \
+  echo "--- one denial in full:"; head -n 40 "$OUT/deny/$ORG_A-deploy-kagent-default.txt" 2>/dev/null | cut -c1-240
+  rec T1-POLICY info "$(jq -cn --argjson a "$all" --argjson c "$(js '{}' <"$OUT/policy-canonical.json")" --arg have "$(k get clusterpolicy --no-headers | wc -l)" --arg want "$want" \
+    '{policiesLoaded:$have, policiesRendered:$want, workloads:$a, policiesRefusing:([$a[].refusedBy[]] | group_by(.) | map({policy:.[0], workloads:length, canonicalAction:($c[.[0]] // "unknown")}))}')" \
     "every policy forced to Enforce; server dry-run create of a renamed copy of each Deployment, DaemonSet, StatefulSet"
 }
 
