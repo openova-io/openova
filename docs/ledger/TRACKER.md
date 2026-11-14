@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T07:00:03Z` |
+| Last refreshed | `2026-11-14T07:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,9 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7193](https://github.com/openova-io/openova/issues/7193) | SOV-030 Wipe refuses a handed-over Sovereign without confirmation | Other |
-| [#7194](https://github.com/openova-io/openova/issues/7194) | SVC-060 Function-test convention and the data charts | Other |
-| [#7197](https://github.com/openova-io/openova/issues/7197) | FND-171 Remove the fabricated playback route and its preflight route | Other |
 | [#7209](https://github.com/openova-io/openova/issues/7209) | AIP-060 Decision record: the model plane | Other |
 | [#7210](https://github.com/openova-io/openova/issues/7210) | BSS-020 Truth in the status document and the engine's README | Other |
 | [#7211](https://github.com/openova-io/openova/issues/7211) | BSS-050 Ratchets of this area | Other |
@@ -300,6 +297,9 @@ flowchart LR
 | [#7516](https://github.com/openova-io/openova/issues/7516) | CTL-300 The running stream is the declared one | Other |
 | [#7517](https://github.com/openova-io/openova/issues/7517) | FND-057 The privacy guard fails closed and runs on every branch | Other |
 | [#7522](https://github.com/openova-io/openova/issues/7522) | SOV-190 The console reads the mode from the API | Other |
+| [#7527](https://github.com/openova-io/openova/issues/7527) | CTL-151 Intent-lock report and the check that the lock holds | Other |
+| [#7528](https://github.com/openova-io/openova/issues/7528) | FND-056 Pin the two moving actions; ratchets for actions and base images | Other |
+| [#7529](https://github.com/openova-io/openova/issues/7529) | MIG-060 Guard: no vendor disk library in the repository or in public images | Other |
 
 ---
 
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-14T07:12 | [#7526](https://github.com/openova-io/openova/pull/7526) | #7087 | docs(ledger): plan update |
+| 2026-11-14T07:04 | [#7521](https://github.com/openova-io/openova/pull/7521) | #7087 | docs(ledger): plan update |
+| 2026-11-14T07:10 | [#7519](https://github.com/openova-io/openova/pull/7519) | #7513 | feat(sovereign): seed-repo commits the root objects of a reg |
 | 2026-11-14T06:54 | [#7514](https://github.com/openova-io/openova/pull/7514) | #7087 | docs(ledger): plan update |
 | 2026-11-14T06:49 | [#7511](https://github.com/openova-io/openova/pull/7511) | #7087 | docs(ledger): plan update |
 | 2026-11-14T06:49 | [#7510](https://github.com/openova-io/openova/pull/7510) | #7508 | refactor(cloud-init): the sovereign-variables ConfigMap hold |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-13T16:09 | [#7470](https://github.com/openova-io/openova/pull/7470) | #7087 | docs(ledger): plan update |
 | 2026-11-13T16:03 | [#7469](https://github.com/openova-io/openova/pull/7469) | #7468 | ci: the pin audit and the umbrella republish gate judge a pu |
 | 2026-11-13T15:48 | [#7467](https://github.com/openova-io/openova/pull/7467) | #7087 | docs(ledger): plan update |
-| 2026-11-13T15:38 | [#7466](https://github.com/openova-io/openova/pull/7466) | #7461 | chore(bootstrap-kit): keep the four provider releases when F |
-| 2026-11-13T15:24 | [#7465](https://github.com/openova-io/openova/pull/7465) | #7087 | docs(ledger): plan update |
-| 2026-11-13T15:03 | [#7463](https://github.com/openova-io/openova/pull/7463) | #7462 | feat(contracts): publish contract C9, the mutating-route tab |
 
 ---
 
