@@ -5,6 +5,7 @@
   acceptance-gate.py verdict [--check <id>] [--json]
   acceptance-gate.py validate-record <file>
   acceptance-gate.py export
+  acceptance-gate.py merge-check <record> <result file> --check <id>
   acceptance-gate.py --self-test
 
 The gate manifest is docs/ledger/gates.yaml: one entry per check, each in
@@ -30,6 +31,20 @@ verdict          Applies the pass rule to the records in
 validate-record  Checks one version 2 record against the schema. Exit 0 valid,
                  1 not valid.
 export           Prints the manifest as JSON (the suite reads JSON).
+merge-check      Adds to a version 2 record the result of a check that is
+                 proven outside the suite (a script under scripts/). The
+                 result file holds {"id": <id>, "status": "PASS" or "FAIL",
+                 "steps": [<steps of the record's form, journey <id>>]}.
+                 The check is added to `checks` with its state of the
+                 manifest and its steps to `steps`. A result file that is
+                 missing or not of that form adds the check as FAIL with the
+                 reason; a missing input is never a pass. A check whose
+                 `needs` the record does not declare is added as SKIP. A
+                 required check that does not pass sets `result` to FAIL
+                 (pass rule 5). Refused (exit 1, the record is not changed)
+                 when the check is not in the manifest, is not-built, does
+                 not run where the record ran, or is in the record already.
+                 Exit 0 added, 1 refused, 2 cannot run.
 --self-test      Proves that each rule can fail. It needs the Python standard
                  library only; the YAML library is imported in parse_yaml()
                  and nowhere else.
@@ -750,6 +765,80 @@ def validate_record(rec, m):
     return out
 
 
+# ------------------------------------------------------------- the merge-check
+
+
+class Refused(Exception):
+    """merge-check cannot add the result to the record. One line; exit code 1."""
+
+
+def result_problem(result, cid):
+    """The first way a result file of the check cid differs from its form, or None."""
+    if not isinstance(result, dict):
+        return "the result is not a JSON object"
+    for k in result:
+        if k not in ("id", "status", "steps"):
+            return f"{k}: unknown field"
+    if result.get("id") != cid:
+        return f"id: must be {cid}"
+    if result.get("status") not in ("PASS", "FAIL"):
+        return "status: must be PASS or FAIL"
+    steps = result.get("steps")
+    if not isinstance(steps, list) or not steps:
+        return "steps: must be a list of at least one step"
+    for i, st in enumerate(steps):
+        out = []
+        check_value(st, STEP, f"steps[{i}]", out)
+        if out:
+            return out[0]
+        if st["journey"] != cid:
+            return f"steps[{i}].journey: must be {cid}"
+    if result["status"] == "PASS" and any(st["status"] != "PASS" for st in steps):
+        return "status: is PASS, but a step did not pass"
+    return None
+
+
+def merge_check(rec, result, problem, cid, m, now):
+    """Adds the result of check cid to record rec, in place, and returns the entry added to
+    rec["checks"]. result is the parsed result file, or None with problem saying why it could
+    not be read. now is the time of a step that merge-check writes itself."""
+    entry = checks_by_id(m).get(cid)
+    if entry is None:
+        raise Refused(f"{cid} is not a check of {MANIFEST}")
+    if entry["state"] not in ("expected-fail", "required"):
+        raise Refused(f"{cid} is {entry['state']} in {MANIFEST}; only an expected-fail or required check is recorded")
+    if not isinstance(rec, dict) or not isinstance(rec.get("checks"), list) or not isinstance(rec.get("steps"), list):
+        raise Refused("the record has no list `checks` and no list `steps`")
+    if rec.get("run_in") not in entry["runs_in"]:
+        raise Refused(f"the record ran in {rec.get('run_in')}, which {cid} does not list in runs_in")
+    if any(isinstance(e, dict) and e.get("id") == cid for e in rec["checks"]):
+        raise Refused(f"{cid} is in the record already")
+    added = {"id": cid, "state_at_run": entry["state"]}
+    missing = [n for n in entry["needs"] if n not in (rec.get("capabilities") or [])]
+    if missing:
+        added.update(status="SKIP", reason="the run does not declare " + ", ".join(missing))
+        steps = [{"journey": cid, "id": "-", "name": "check not run", "status": "SKIP", "started_at": now,
+                  "finished_at": now, "duration_ms": 0, "error": added["reason"]}]
+    else:
+        if problem is None:
+            problem = result_problem(result, cid)
+        if problem is not None:
+            added.update(status="FAIL", reason=problem)
+            steps = [{"journey": cid, "id": "-", "name": "the check wrote a valid result", "status": "FAIL",
+                      "started_at": now, "finished_at": now, "duration_ms": 0, "error": problem}]
+        else:
+            added["status"] = result["status"]
+            steps = result["steps"]
+            if added["status"] != "PASS":
+                errors = [st.get("error") for st in steps if st["status"] == "FAIL" and st.get("error")]
+                added["reason"] = errors[0] if errors else "the result says FAIL"
+    rec["checks"].append(added)
+    rec["steps"].extend(steps)
+    if added["state_at_run"] == "required" and added["status"] == "FAIL":
+        rec["result"] = "FAIL"        # pass rule 5
+    return added
+
+
 # ---------------------------------------------------------------- the self-test
 
 
@@ -1143,6 +1232,74 @@ def self_test():
     check("record: a check that is not in the manifest is refused", has(r, "FND-G99 is not a check"), r)
     r = validate_record(dict(valid, checks=[{"id": "FND-G05", "state_at_run": "required", "status": "FAIL"}]), mv)
     check("record: a status other than PASS without a reason is refused", has(r, "reason: required"), r)
+
+    # ---- merge-check
+    print("merge-check:")
+    probe7 = entry("FND-G07", "expected-fail", implementation="scripts/sso-zero-click-probe.mjs", runs_in=["cloud"])
+    mm = manifest(g5, probe7, entry("FND-G04", "required", implementation="scripts/a.sh", runs_in=["cloud"]),
+                  entry("FND-G06", "not-built", runs_in=["cloud"]),
+                  entry("FND-G09", "required", implementation="scripts/a.sh", runs_in=["local"]),
+                  entry("FND-G14", "expected-fail", implementation="scripts/a.sh", runs_in=["cloud"],
+                        needs=["upgrade-path"]))
+    t0 = "2026-11-02T10:00:00Z"
+    ok_step = {"journey": "FND-G07", "id": "console", "name": "console lands", "status": "PASS",
+               "started_at": t0, "finished_at": "2026-11-02T10:00:01.5Z", "duration_ms": 1500, "evidence": {"url": "u"}}
+    bad_step = dict(ok_step, id="gitea", status="FAIL", error="LOGIN-UI marker present")
+
+    def merged(result, cid="FND-G07", problem=None, rec=None):
+        r = json.loads(json.dumps(valid if rec is None else rec))
+        if "checks" in r:
+            r["checks"] = [e for e in r["checks"] if e["id"] == "FND-G05"]
+        try:
+            e = merge_check(r, result, problem, cid, mm, t0)
+        except Refused as x:
+            return r, None, str(x)
+        return r, e, ""
+
+    r, e, why = merged({"id": "FND-G07", "status": "PASS", "steps": [ok_step]})
+    check("CONTROL: a PASS result is added with its manifest state and its steps, and the record stays valid",
+          e == {"id": "FND-G07", "state_at_run": "expected-fail", "status": "PASS"} and r["steps"][-1] == ok_step
+          and validate_record(r, mm) == [], (e, why, validate_record(r, mm)))
+    r, e, why = merged({"id": "FND-G07", "status": "FAIL", "steps": [ok_step, bad_step]})
+    check("merge-check: a FAIL result is added as FAIL with the error of its first failed step",
+          e is not None and e["status"] == "FAIL" and e["reason"] == "LOGIN-UI marker present"
+          and validate_record(r, mm) == [], (e, why))
+    r, e, why = merged(None, problem="r.json: No such file or directory")
+    check("merge-check: a missing result file is a FAIL with the reason, not a pass",
+          e is not None and e["status"] == "FAIL" and e["reason"] == "r.json: No such file or directory"
+          and r["steps"][-1]["status"] == "FAIL" and validate_record(r, mm) == [], (e, why))
+    r, e, why = merged({"id": "FND-G09", "status": "PASS", "steps": [ok_step]})
+    check("merge-check: a result of another check is a FAIL",
+          e is not None and e["status"] == "FAIL" and e["reason"] == "id: must be FND-G07", (e, why))
+    r, e, why = merged({"id": "FND-G07", "status": "PASS", "steps": [dict(ok_step, duration_ms="x")]})
+    check("merge-check: a step not of the record's form is a FAIL",
+          e is not None and e["status"] == "FAIL" and "steps[0].duration_ms" in e["reason"], (e, why))
+    r, e, why = merged({"id": "FND-G07", "status": "PASS", "steps": [dict(ok_step, journey="J1")]})
+    check("merge-check: a step of another journey is a FAIL",
+          e is not None and e["status"] == "FAIL" and "journey: must be FND-G07" in e["reason"], (e, why))
+    r, e, why = merged({"id": "FND-G07", "status": "PASS", "steps": [ok_step, bad_step]})
+    check("merge-check: a PASS whose steps did not all pass is a FAIL",
+          e is not None and e["status"] == "FAIL" and "a step did not pass" in e["reason"], (e, why))
+    r, e, why = merged({"id": "FND-G07", "status": "PASS", "steps": []})
+    check("merge-check: a result without steps is a FAIL", e is not None and e["status"] == "FAIL", (e, why))
+    r, e, why = merged({"id": "FND-G04", "status": "FAIL", "steps": [dict(bad_step, journey="FND-G04")]},
+                       cid="FND-G04", rec=dict(valid, result="PASS"))
+    check("merge-check: a required check that fails sets the result to FAIL (pass rule 5)",
+          e is not None and r["result"] == "FAIL" and validate_record(r, mm) == [], (e, why, r.get("result")))
+    r, e, why = merged({"id": "FND-G07", "status": "FAIL", "steps": [bad_step]}, rec=dict(valid, result="PASS"))
+    check("CONTROL: an expected-fail check that fails leaves the result as it was", r["result"] == "PASS", (e, why))
+    r, e, why = merged(None, cid="FND-G14", problem="r.json: No such file or directory")
+    check("merge-check: a check whose needs the record does not declare is added as SKIP",
+          e is not None and e["status"] == "SKIP" and "upgrade-path" in e["reason"] and validate_record(r, mm) == [],
+          (e, why))
+    for label, cid_, rec_, needle in (
+            ("a check that is not in the manifest is refused", "FND-G99", None, "not a check of"),
+            ("a not-built check is refused", "FND-G06", None, "is not-built"),
+            ("a check that does not run where the record ran is refused", "FND-G09", None, "does not list in runs_in"),
+            ("a check that is in the record already is refused", "FND-G05", None, "in the record already"),
+            ("a record without checks and steps is refused", "FND-G07", {"run_in": "cloud"}, "no list")):
+        r, e, why = merged({"id": cid_, "status": "PASS", "steps": [dict(ok_step, journey=cid_)]}, cid=cid_, rec=rec_)
+        check("merge-check: " + label, e is None and needle in why, why)
     return failed
 
 
@@ -1215,6 +1372,37 @@ def cmd_validate_record(args):
     return 1 if lines else 0
 
 
+def cmd_merge_check(args):
+    try:
+        with open(args.record, encoding="utf-8") as fh:
+            rec = json.load(fh)
+    except OSError as e:
+        raise Stop(f"{args.record}: {e.strerror}")
+    except ValueError:
+        print(f"{args.record}: not JSON")
+        return 1
+    result, problem = None, None
+    try:
+        with open(args.result, encoding="utf-8") as fh:
+            result = json.load(fh)
+    except OSError as e:
+        problem = f"{args.result}: {e.strerror}"
+    except ValueError:
+        problem = f"{args.result}: not JSON"
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        added = merge_check(rec, result, problem, args.check, load_manifest(REPO), now)
+    except Refused as e:
+        print(f"{args.record}: {e}")
+        return 1
+    with open(args.record, "w", encoding="utf-8") as fh:
+        json.dump(rec, fh, indent=2)
+        fh.write("\n")
+    reason = f": {added['reason']}" if added.get("reason") else ""
+    print(f"{args.record}: {added['id']} {added['status']} added{reason}")
+    return 0
+
+
 def cmd_export(args):
     sys.stdout.write(export_json(load_manifest(REPO)))
     return 0
@@ -1240,6 +1428,11 @@ def main(argv):
     p.set_defaults(run=cmd_validate_record)
     p = sub.add_parser("export", help="print the manifest as JSON")
     p.set_defaults(run=cmd_export)
+    p = sub.add_parser("merge-check", help="add the result of a check proven outside the suite to a record")
+    p.add_argument("record")
+    p.add_argument("result", metavar="result-file")
+    p.add_argument("--check", required=True, metavar="<id>")
+    p.set_defaults(run=cmd_merge_check)
     args = ap.parse_args(argv[1:])
     try:
         return args.run(args)
