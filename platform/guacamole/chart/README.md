@@ -3,13 +3,13 @@
 Catalyst-authored Blueprint chart for Apache Guacamole — a clientless
 HTML5 remote-desktop gateway. Brokers SSH / RDP / VNC sessions AND
 kubectl-exec sessions through one browser-accessible surface, with
-Keycloak SSO and session recording to SeaweedFS.
+Keycloak SSO. Sessions are not recorded.
 
 **One Guacamole per Sovereign** (per ADR-0001 §11 — no Manara-style
 multi-cluster fan-out).
 
 See `../README.md` (the `platform/guacamole/README.md`) for the
-architecture diagram + use-case matrix.
+architecture diagram.
 
 ## SSO — `guacamole.sso.mode` (#5358)
 
