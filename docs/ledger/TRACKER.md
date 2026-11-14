@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T07:15:03Z` |
+| Last refreshed | `2026-11-14T07:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,9 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7209](https://github.com/openova-io/openova/issues/7209) | AIP-060 Decision record: the model plane | Other |
-| [#7210](https://github.com/openova-io/openova/issues/7210) | BSS-020 Truth in the status document and the engine's README | Other |
-| [#7211](https://github.com/openova-io/openova/issues/7211) | BSS-050 Ratchets of this area | Other |
 | [#7212](https://github.com/openova-io/openova/issues/7212) | CLD-071 Decision record 0024: the primary substrate moved on 2026-05-22; status  | Other |
 | [#7213](https://github.com/openova-io/openova/issues/7213) | CMP-005 Decision record: the compliance plane | Other |
 | [#7214](https://github.com/openova-io/openova/issues/7214) | CMP-012 Guard: legacy policy count may only fall; the upgrade acknowledgement va | Other |
@@ -300,6 +297,9 @@ flowchart LR
 | [#7527](https://github.com/openova-io/openova/issues/7527) | CTL-151 Intent-lock report and the check that the lock holds | Other |
 | [#7528](https://github.com/openova-io/openova/issues/7528) | FND-056 Pin the two moving actions; ratchets for actions and base images | Other |
 | [#7529](https://github.com/openova-io/openova/issues/7529) | MIG-060 Guard: no vendor disk library in the repository or in public images | Other |
+| [#7534](https://github.com/openova-io/openova/issues/7534) | FND-088 The event registry and the shared bus package no longer name the Sandbox | Other |
+| [#7535](https://github.com/openova-io/openova/issues/7535) | FND-089 The storefront offers no Sandbox agent picks and the order request carri | Other |
+| [#7536](https://github.com/openova-io/openova/issues/7536) | SEC-090 Guards | Other |
 
 ---
 
@@ -307,9 +307,14 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-14T07:29 | [#7533](https://github.com/openova-io/openova/pull/7533) | #7087 | docs(ledger): plan update |
 | 2026-11-14T07:12 | [#7526](https://github.com/openova-io/openova/pull/7526) | #7087 | docs(ledger): plan update |
+| 2026-11-14T07:18 | [#7525](https://github.com/openova-io/openova/pull/7525) | #7516 | refactor(nats): declare the stream CATALYST_ORG in the chart |
+| 2026-11-14T07:17 | [#7524](https://github.com/openova-io/openova/pull/7524) | #7515 | chore(ci): guard that the agent plane gains no provider host |
+| 2026-11-14T07:18 | [#7523](https://github.com/openova-io/openova/pull/7523) | #7506 | refactor(kyverno-policies): end the bootstrap window when th |
 | 2026-11-14T07:04 | [#7521](https://github.com/openova-io/openova/pull/7521) | #7087 | docs(ledger): plan update |
 | 2026-11-14T07:10 | [#7519](https://github.com/openova-io/openova/pull/7519) | #7513 | feat(sovereign): seed-repo commits the root objects of a reg |
+| 2026-11-14T07:19 | [#7518](https://github.com/openova-io/openova/pull/7518) | #7512 | fix(organization-controller): pin the per-Org vcluster chart |
 | 2026-11-14T06:54 | [#7514](https://github.com/openova-io/openova/pull/7514) | #7087 | docs(ledger): plan update |
 | 2026-11-14T06:49 | [#7511](https://github.com/openova-io/openova/pull/7511) | #7087 | docs(ledger): plan update |
 | 2026-11-14T06:49 | [#7510](https://github.com/openova-io/openova/pull/7510) | #7508 | refactor(cloud-init): the sovereign-variables ConfigMap hold |
@@ -332,11 +337,6 @@ flowchart LR
 | 2026-11-13T17:43 | [#7480](https://github.com/openova-io/openova/pull/7480) | #7478 | ci: one aggregate check, merge-group triggers, rulesets and  |
 | 2026-11-13T17:16 | [#7476](https://github.com/openova-io/openova/pull/7476) | #7087 | docs(ledger): plan update |
 | 2026-11-13T16:34 | [#7475](https://github.com/openova-io/openova/pull/7475) | #7473 | refactor(cloud-init): the boot template and the provider con |
-| 2026-11-13T16:22 | [#7474](https://github.com/openova-io/openova/pull/7474) | #7471 | feat(cloud-init): each peer region posts its own handover-pe |
-| 2026-11-13T16:13 | [#7472](https://github.com/openova-io/openova/pull/7472) | #7087 | docs(ledger): plan update |
-| 2026-11-13T16:09 | [#7470](https://github.com/openova-io/openova/pull/7470) | #7087 | docs(ledger): plan update |
-| 2026-11-13T16:03 | [#7469](https://github.com/openova-io/openova/pull/7469) | #7468 | ci: the pin audit and the umbrella republish gate judge a pu |
-| 2026-11-13T15:48 | [#7467](https://github.com/openova-io/openova/pull/7467) | #7087 | docs(ledger): plan update |
 
 ---
 
