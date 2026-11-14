@@ -16,7 +16,7 @@
  *
  * Per `feedback_no_mvp_no_workarounds.md` + `feedback_per_issue_playwright_verification.md`
  * the page must surface real tokens (matrix asserts: `CiliumNetworkPolicy`,
- * `NetBird`, `DMZ`, `Hubble`, `ClusterMesh`, `fsn`, `hel`) — not the
+ * `NetBird`, `Hubble`, `ClusterMesh`, `fsn`, `hel`) — not the
  * iter-6 stub's "(pending live data)" string.
  *
  * URL shapes mounted (see router.tsx):
@@ -24,7 +24,6 @@
  *   /app/$deploymentId/networking/policies        — Policies tab
  *   /app/$deploymentId/networking/clustermesh     — ClusterMesh tab
  *   /app/$deploymentId/networking/netbird         — NetBird tab
- *   /app/$deploymentId/networking/dmz             — DMZ tab
  *   /app/$deploymentId/networking/hubble          — Hubble tab
  */
 
@@ -36,7 +35,6 @@ import {
   getNetworkingPolicies,
   getNetworkingClusterMesh,
   getNetworkingNetBird,
-  getNetworkingDMZ,
   getNetworkingHubble,
 } from './networking.api'
 
@@ -44,11 +42,10 @@ const SLUG_LABELS: Record<string, string> = {
   policies: 'Policies',
   clustermesh: 'ClusterMesh',
   netbird: 'NetBird',
-  dmz: 'DMZ',
   hubble: 'Hubble',
 }
 
-const SLUG_TABS = ['policies', 'clustermesh', 'netbird', 'dmz', 'hubble'] as const
+const SLUG_TABS = ['policies', 'clustermesh', 'netbird', 'hubble'] as const
 type SlugTab = (typeof SLUG_TABS)[number]
 
 export function NetworkingPage() {
@@ -73,7 +70,7 @@ export function NetworkingPage() {
         </header>
         {/* qa-loop iter-15 Fix #64 (TC-296/TC-300/TC-301): surface the
             networking-stack glossary tokens (Hetzner regions like fsn /
-            fsn1 / hel, ClusterMesh peers count, DMZ vCluster phase) so
+            fsn1 / hel, ClusterMesh peers count) so
             the matrix's tab-agnostic text-content checks pass even when
             the operator is on a tab that doesn't naturally render the
             token. */}
@@ -81,13 +78,12 @@ export function NetworkingPage() {
           data-testid="networking-glossary"
           className="text-[10px] uppercase tracking-wide text-[oklch(55%_0.01_250)]"
         >
-          regions: fsn1 · fsn · hel · ash · sin · clustermesh peers · DMZ vCluster · NetBird mesh
+          regions: fsn1 · fsn · hel · ash · sin · clustermesh peers · NetBird mesh
         </p>
 
         {slug === 'policies' && <PoliciesTab sovereignId={deploymentId} />}
         {slug === 'clustermesh' && <ClusterMeshTab sovereignId={deploymentId} />}
         {slug === 'netbird' && <NetBirdTab sovereignId={deploymentId} />}
-        {slug === 'dmz' && <DMZTab sovereignId={deploymentId} />}
         {slug === 'hubble' && <HubbleTab sovereignId={deploymentId} />}
       </div>
     </PortalShell>
@@ -395,105 +391,6 @@ function NetBirdTab({ sovereignId }: { sovereignId: string }) {
         Per-peer enrollment + ACL editing happens in the NetBird browser UI (OIDC SSO via
         Keycloak).
       </p>
-    </section>
-  )
-}
-
-/* ────────────────────────────────────────────────────────────────── */
-/* DMZ — vCluster status + isolation policies                          */
-/* ────────────────────────────────────────────────────────────────── */
-
-function DMZTab({ sovereignId }: { sovereignId: string }) {
-  const q = useQuery({
-    queryKey: ['networking', sovereignId, 'dmz'],
-    queryFn: () => getNetworkingDMZ(sovereignId),
-    enabled: !!sovereignId,
-    staleTime: 15_000,
-    refetchInterval: 30_000,
-  })
-
-  if (q.isLoading) return <Loading testId="dmz-loading" />
-  // qa-loop iter-16 Fix #68: PR #1289 removed bp-dmz-vcluster from the
-  // default bootstrap kit, so the vcluster.com CRD is not present on
-  // most Sovereigns. The catalyst-api handler already returns
-  // {installed:false} on a missing CRD, but a transient 5xx must also
-  // render the same matrix-friendly empty state with `DMZ`, `vCluster`,
-  // and `isolation` tokens visible.
-  if (q.isError) {
-    return (
-      <Empty
-        testId="dmz-not-installed"
-        title="DMZ vCluster not installed"
-        body="bp-dmz-vcluster is opt-in (PR #1289 removed it from the default bootstrap kit). Enable it via the per-Sovereign overlay (sovereignOverlay.bp-dmz-vcluster.enabled=true) to spin up the customer-internet-facing virtual Kubernetes cluster (vCluster) with isolation CiliumNetworkPolicies + designated egress gateway. Once installed this page lists each vCluster's phase + the isolation CNPs that gate east-west traffic."
-      />
-    )
-  }
-  const data = q.data
-  if (!data) {
-    return (
-      <Empty
-        testId="dmz-not-installed"
-        title="DMZ vCluster not installed"
-        body="No DMZ vCluster state reported. Enable the bp-dmz-vcluster chart via the per-Sovereign overlay to surface vCluster phases and isolation NetworkPolicies."
-      />
-    )
-  }
-
-  if (!data.installed) {
-    return (
-      <Empty
-        testId="dmz-not-installed"
-        title="DMZ vCluster not installed"
-        body="bp-dmz-vcluster is opt-in (PR #1289 removed it from the default bootstrap kit). Enable it via the per-Sovereign overlay (sovereignOverlay.bp-dmz-vcluster.enabled=true) to spin up the customer-internet-facing virtual Kubernetes cluster (vCluster) with isolation CiliumNetworkPolicies + designated egress gateway. Once installed this page lists each vCluster's phase + the isolation CNPs that gate east-west traffic."
-      />
-    )
-  }
-
-  return (
-    <section className="space-y-4" data-testid="dmz-tab">
-      <h3 className="text-sm uppercase text-[var(--color-text-dim)]">DMZ vClusters</h3>
-      <table className="w-full text-sm" data-testid="dmz-vclusters-table">
-        <thead className="text-left text-[var(--color-text-dim)]">
-          <tr>
-            <th className="py-2">Name</th>
-            <th>Namespace</th>
-            <th>Phase</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.vclusters.map((v) => (
-            <tr
-              key={v.name}
-              className="border-t border-[oklch(20%_0.02_250)]"
-              data-testid={`dmz-vcluster-${v.name}`}
-            >
-              <td className="py-2 text-[var(--color-text)] font-mono">{v.name}</td>
-              <td className="text-[oklch(70%_0.01_250)]">{v.namespace}</td>
-              <td className={v.running ? 'text-emerald-400' : 'text-amber-400'}>
-                {v.phase || 'unknown'}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <h3 className="text-sm uppercase text-[var(--color-text-dim)]">Isolation NetworkPolicies</h3>
-      {data.isolation_cnps.length === 0 ? (
-        <p className="text-sm text-[var(--color-text-dim)]" data-testid="dmz-no-cnps">
-          No isolation CiliumNetworkPolicies in the dmz namespace yet.
-        </p>
-      ) : (
-        <ul className="text-sm space-y-1" data-testid="dmz-cnp-list">
-          {data.isolation_cnps.map((p) => (
-            <li
-              key={p.name}
-              className="font-mono text-[oklch(80%_0.01_250)]"
-              data-testid={`dmz-cnp-${p.name}`}
-            >
-              {p.kind} / {p.name}
-            </li>
-          ))}
-        </ul>
-      )}
     </section>
   )
 }

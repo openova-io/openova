@@ -90,8 +90,6 @@ export interface TopologyResponse {
 
 export type TopologyPattern = 'solo' | 'ha-pair' | 'multi-region' | 'air-gap'
 
-export type IsolationMode = 'dmz' | 'rtz' | 'mgmt'
-
 export interface VClusterSpec {
   id: string
   name: string
@@ -107,7 +105,6 @@ export interface VClusterSpec {
   namespace?: string
   /** dmz | rtz | mgmt | other — the wire's role channel. */
   role?: string
-  isolationMode: IsolationMode
   status: TopologyStatus
 }
 

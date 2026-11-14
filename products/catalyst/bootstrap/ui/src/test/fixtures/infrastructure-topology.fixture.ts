@@ -44,19 +44,19 @@ export const infrastructureTopologyFixture: HierarchicalInfrastructure = {
               {
                 id: 'vc-eu-central-dmz',
                 name: 'dmz',
-                isolationMode: 'dmz',
+                namespace: 'dmz',
                 status: 'healthy',
               },
               {
                 id: 'vc-eu-central-rtz',
                 name: 'rtz',
-                isolationMode: 'rtz',
+                namespace: 'rtz',
                 status: 'healthy',
               },
               {
                 id: 'vc-eu-central-mgmt',
                 name: 'mgmt',
-                isolationMode: 'mgmt',
+                namespace: 'mgmt',
                 status: 'healthy',
               },
             ],
@@ -180,7 +180,7 @@ export const infrastructureTopologyFixture: HierarchicalInfrastructure = {
               {
                 id: 'vc-hel-rtz',
                 name: 'rtz',
-                isolationMode: 'rtz',
+                namespace: 'rtz',
                 status: 'healthy',
               },
             ],

@@ -1,6 +1,6 @@
 // Package handler — networking.go: REST surface for the Sovereign
 // Console's Networking page (slug = policies | clustermesh | netbird |
-// dmz | hubble).
+// hubble).
 //
 // Per docs/INVIOLABLE-PRINCIPLES.md:
 //
@@ -17,12 +17,11 @@
 //	                       routing all derive from the URL, not
 //	                       compiled-in tables.
 //
-// REST surface (registered in cmd/api/main.go):
+// REST surface (registered in cmd/api/routes_sovereigns.go):
 //
 //	GET /api/v1/sovereigns/{id}/networking/policies
 //	GET /api/v1/sovereigns/{id}/networking/clustermesh
 //	GET /api/v1/sovereigns/{id}/networking/netbird
-//	GET /api/v1/sovereigns/{id}/networking/dmz
 //	GET /api/v1/sovereigns/{id}/networking/hubble
 //
 // Each endpoint returns a slug-specific JSON document. The UI's
@@ -318,72 +317,6 @@ func (h *Handler) HandleNetworkingNetBird(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// ── HandleNetworkingDMZ ──────────────────────────────────────────────
-//
-// GET /api/v1/sovereigns/{id}/networking/dmz
-//
-// Returns DMZ vCluster state. Reads vcluster.com/v1alpha1 vClusters in
-// the `dmz` namespace + the isolation CiliumNetworkPolicy. Matrix
-// asserts on TC-286/287/301: response must surface `dmz`, `vCluster`,
-// `isolation`.
-func (h *Handler) HandleNetworkingDMZ(w http.ResponseWriter, r *http.Request) {
-	clusterID := chi.URLParam(r, "id")
-	if clusterID == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error":  "missing-sovereign-id",
-			"detail": "URL must include /sovereigns/{id}/networking/dmz",
-		})
-		return
-	}
-	clusterID = h.resolveChrootClusterID(clusterID)
-
-	resp := dmzResponse{
-		VClusters:     []dmzVCluster{},
-		IsolationCNPs: []policyRow{},
-	}
-
-	if h.k8sCache == nil || !h.k8sCacheHasCluster(clusterID) {
-		writeJSON(w, http.StatusOK, resp)
-		return
-	}
-
-	vclusters, _, _ := h.k8sCache.List(clusterID, "vcluster", labels.Everything())
-	for _, v := range vclusters {
-		if v.GetNamespace() != "dmz" {
-			continue
-		}
-		phase, _, _ := unstructured.NestedString(v.Object, "status", "phase")
-		resp.VClusters = append(resp.VClusters, dmzVCluster{
-			Name:      v.GetName(),
-			Namespace: v.GetNamespace(),
-			Phase:     phase,
-			Running:   strings.EqualFold(phase, "Running"),
-		})
-		resp.Installed = true
-	}
-
-	cnps, _, _ := h.k8sCache.List(clusterID, "ciliumnetworkpolicy", labels.Everything())
-	for _, p := range cnps {
-		if p.GetNamespace() != "dmz" {
-			continue
-		}
-		resp.IsolationCNPs = append(resp.IsolationCNPs, policyRow{
-			Kind:      "CiliumNetworkPolicy",
-			Name:      p.GetName(),
-			Namespace: p.GetNamespace(),
-			CreatedAt: p.GetCreationTimestamp().Time.UTC(),
-			Labels:    p.GetLabels(),
-		})
-	}
-
-	resp.Total = len(resp.VClusters)
-	sort.Slice(resp.VClusters, func(i, j int) bool {
-		return resp.VClusters[i].Name < resp.VClusters[j].Name
-	})
-
-	writeJSON(w, http.StatusOK, resp)
-}
-
 // ── HandleNetworkingHubble ───────────────────────────────────────────
 //
 // GET /api/v1/sovereigns/{id}/networking/hubble
@@ -516,20 +449,6 @@ type netbirdPeer struct {
 	Hostname string `json:"hostname"`
 	IP       string `json:"ip"`
 	Online   bool   `json:"online"`
-}
-
-type dmzResponse struct {
-	Installed     bool          `json:"installed"`
-	VClusters     []dmzVCluster `json:"vclusters"`
-	IsolationCNPs []policyRow   `json:"isolation_cnps"`
-	Total         int           `json:"total"`
-}
-
-type dmzVCluster struct {
-	Name      string `json:"name"`
-	Namespace string `json:"namespace"`
-	Phase     string `json:"phase"`
-	Running   bool   `json:"running"`
 }
 
 type hubbleResponse struct {

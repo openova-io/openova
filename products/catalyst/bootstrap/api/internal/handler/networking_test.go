@@ -9,8 +9,6 @@
 //     with the multi-region peer names + a `connected` indicator
 //   - TC-300 / TC-281/282/283: /networking/netbird surfaces the 3
 //     deployments + an `installed` flag
-//   - TC-301 / TC-286: /networking/dmz surfaces vCluster + isolation
-//     CNPs + a `vCluster` token
 //   - /networking/hubble surfaces hubble-relay + hubble-ui state
 //
 // Per docs/INVIOLABLE-PRINCIPLES.md #2 (quality) and #3 (event-driven)
@@ -321,44 +319,6 @@ func TestHandleNetworkingNetBird_NotInstalled(t *testing.T) {
 	}
 	if resp.Installed {
 		t.Error("Installed should be false when no netbird namespace deployments")
-	}
-}
-
-// ── /networking/dmz ─────────────────────────────────────────────────
-
-func TestHandleNetworkingDMZ_HappyPath(t *testing.T) {
-	clusterID := "test-sovereign"
-	vc := mkUnstructured("vcluster.com/v1alpha1", "VCluster", "dmz", "dmz", nil, map[string]any{
-		"phase": "Running",
-	})
-	iso := mkUnstructured("cilium.io/v2", "CiliumNetworkPolicy", "dmz", "isolation", nil, nil)
-
-	h := newNetHandlerWithCache(t, clusterID, vc, iso)
-	code, body := netGet(t, h, h.HandleNetworkingDMZ, clusterID, "dmz")
-	if code != http.StatusOK {
-		t.Fatalf("status: %d body=%s", code, string(body))
-	}
-	bodyStr := string(body)
-	for _, want := range []string{"dmz", "vclusters", "Running", "isolation", "isolation_cnps"} {
-		if !contains(bodyStr, want) {
-			t.Errorf("missing token %q in body: %s", want, bodyStr)
-		}
-	}
-	var resp dmzResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if !resp.Installed {
-		t.Error("Installed should be true")
-	}
-	if len(resp.VClusters) != 1 {
-		t.Errorf("VClusters: got %d want 1", len(resp.VClusters))
-	}
-	if !resp.VClusters[0].Running {
-		t.Error("vcluster should be Running")
-	}
-	if len(resp.IsolationCNPs) != 1 {
-		t.Errorf("IsolationCNPs: got %d want 1", len(resp.IsolationCNPs))
 	}
 }
 

@@ -72,8 +72,8 @@ const TOPOLOGY = {
     regions: [
       { id: 'r-a', name: 'rgn-a', provider: 'huawei', providerRegion: 'me-east-215-a', clusters: [
         { id: 'c-a', name: 'cl-a', vclusters: [
-          { id: 'v1', name: 'acme-rtz', namespace: 'rtz', isolationMode: 'rtz', status: 'healthy' },
-          { id: 'v2', name: 'vcluster', namespace: 'acme', isolationMode: 'rtz', status: 'healthy' },
+          { id: 'v1', name: 'acme-rtz', namespace: 'rtz', status: 'healthy' },
+          { id: 'v2', name: 'vcluster', namespace: 'acme', status: 'healthy' },
         ] },
       ] },
       { id: 'r-b', name: 'rgn-b', provider: 'huawei', providerRegion: 'me-east-215-b', clusters: [] },

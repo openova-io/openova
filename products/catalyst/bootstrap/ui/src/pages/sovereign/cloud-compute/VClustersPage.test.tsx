@@ -84,4 +84,17 @@ describe('VClustersPage', () => {
     expect(body.textContent).toContain('omantel-primary')
     expect(body.textContent).toContain('dmz')
   })
+
+  it('says one virtual cluster per Organization and shows the Organization column', async () => {
+    renderPage(infrastructureTopologyFixture)
+    const header = await screen.findByTestId('cloud-vclusters-header')
+    expect(header.textContent).toContain('One virtual cluster per Organization.')
+    expect(header.textContent).not.toMatch(/DMZ|RTZ|MGMT/)
+    expect(screen.getByTestId('cloud-vclusters-th-organization').textContent).toContain('Organization')
+    expect(screen.queryByTestId('cloud-vclusters-th-isolation')).toBeNull()
+    fireEvent.click(screen.getByTestId('cloud-vclusters-row-vc-hel-rtz'))
+    const body = screen.getByTestId('cloud-vclusters-detail-body')
+    expect(body.textContent).toContain('Organization')
+    expect(body.textContent).not.toContain('Isolation')
+  })
 })

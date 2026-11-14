@@ -52,18 +52,16 @@ describe('networking.api URL builder', () => {
     )
   })
 
-  it('builds the same shape for clustermesh, netbird, dmz, hubble', async () => {
+  it('builds the same shape for clustermesh, netbird, hubble', async () => {
     const {
       getNetworkingClusterMesh,
       getNetworkingNetBird,
-      getNetworkingDMZ,
       getNetworkingHubble,
     } = await import('./networking.api')
     await getNetworkingClusterMesh('sov-x')
     await getNetworkingNetBird('sov-x')
-    await getNetworkingDMZ('sov-x')
     await getNetworkingHubble('sov-x')
-    expect(capturedURLs).toHaveLength(4)
+    expect(capturedURLs).toHaveLength(3)
     for (const u of capturedURLs) {
       expect(u).not.toMatch(/\/api\/api\//)
       expect(u).toMatch(/\/v1\/sovereigns\/sov-x\/networking\/[a-z]+$/)

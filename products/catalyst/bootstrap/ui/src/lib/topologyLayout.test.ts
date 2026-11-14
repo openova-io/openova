@@ -139,7 +139,7 @@ describe('topologyLayout — synthetic 4-depth graph', () => {
                 status: 'healthy',
                 nodeCount: 1,
                 vclusters: [
-                  { id: 'v', name: 'vc', isolationMode: 'rtz', status: 'healthy' },
+                  { id: 'v', name: 'vc', namespace: 'rtz', status: 'healthy' },
                 ],
                 loadBalancers: [],
                 nodePools: [],
