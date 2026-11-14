@@ -1206,12 +1206,13 @@ checks:
 - id: CTL-G12
   title: Flow stream answers from the API's own store
   owner: CTL
-  state: not-built
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: The flow stream of the gate deployment (GET /api/v1/flows/{deploymentId}/stream) answers with a snapshot frame built from the API's own jobs store, with no flow server behind it.
+  implementation: tests/acceptance/sovereign/internal/suite/check_ctl_flow_stream.go
   delivered_by: CTL-345
 - id: FND-G01
   title: Candidate identity

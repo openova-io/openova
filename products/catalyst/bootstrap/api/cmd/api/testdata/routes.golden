@@ -164,7 +164,6 @@ POST /api/v1/deployments/{id}/mint-handover-token handler.(*Handler).MintHandove
 POST /api/v1/deployments/{id}/phases/{phase}/retry handler.(*Handler).RetryPhase-fm 2
 POST /api/v1/deployments/{id}/republish-dns handler.(*Handler).HandleRepublishDNS-fm 2
 POST /api/v1/deployments/{id}/wipe handler.(*Handler).WipeDeployment-fm 2
-POST /api/v1/flows/{deploymentId}/events handler.(*Handler).HandleFlowEvents-fm 2
 POST /api/v1/handover/finalise/{id} handler.(*Handler).FinaliseHandover-fm 2
 POST /api/v1/handover/tofu-archive handler.(*Handler).ReceiveTofuArchive-fm 1
 POST /api/v1/internal/cutover/trigger handler.(*Handler).HandleCutoverInternalTrigger-fm 1
