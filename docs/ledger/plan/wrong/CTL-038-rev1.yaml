@@ -1,0 +1,17 @@
+schema: openova.io/plan-wrong/v1
+id: CTL-038
+ticket_rev: 1
+base_commit: 290570ebfa6606477a0e21f596cf7d9f0b39708a
+stage: preflight
+ref: P4
+command: |
+    grep -c -x -F '  "allow": [],' scripts/baselines/direct-cluster-writes.json
+expected: |
+    1
+actual: |
+    0
+    scripts/baselines/direct-cluster-writes.json lines 2-10 already hold one allow entry:
+    {"count": 5, "metric": "K", "owner": "INF", "path": "products/catalyst/bootstrap/api/internal/machines/inventory/reconciler.go", "reason": "the inventory controller is the only writer of Machine objects and of the status of a MachineSource; both are observations of the cluster, never intent, and never go to Git"}
+    so the line '  "allow": [],' that step 10 replaces is not in the file; the list opens with '  "allow": [' on line 2.
+    The precondition C1 and pre-flight P1, P2, P3, P5, P6, P7 and P8 printed their expected values.
+reported_at: 2026-11-14T11:27:28Z
