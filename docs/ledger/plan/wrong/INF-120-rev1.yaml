@@ -1,0 +1,53 @@
+schema: openova.io/plan-wrong/v1
+id: INF-120
+ticket_rev: 1
+base_commit: 58f3708a98fc0834a943a0d11108e3514f865ace
+stage: check
+ref: build machine-runner
+command: |
+    gh api repos/openova-io/openova/actions/jobs/132470943557/logs | grep -B 40 -m 1 '##\[error\]' | cut -c30-300
+    gh api repos/openova-io/openova/actions/jobs/132470943557/logs | grep -B 39 -m 1 '##\[error\]Process completed' | cut -c30-300
+expected: |
+    the check finishes green
+actual: |
+    unix          sysctl                       probe_sysctl
+    unix          uname                        probe_uname
+    unix          xinetd                       probe_xinetd
+    /usr/bin/oscap-chroot
+    ERROR: Unable to create local directories '/nonexistent/.ansible/tmp': [Errno 13] Permission denied: b'/nonexistent'
+
+    Traceback (most recent call last):
+      File "/usr/local/lib/python3.13/dist-packages/ansible/utils/path.py", line 84, in makedirs_safe
+        os.makedirs(b_rpath, mode, exist_ok=True)
+        ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+      File "<frozen os>", line 218, in makedirs
+      File "<frozen os>", line 218, in makedirs
+      File "<frozen os>", line 228, in makedirs
+    PermissionError: [Errno 13] Permission denied: b'/nonexistent'
+
+    The above exception was the direct cause of the following exception:
+
+    Traceback (most recent call last):
+      File "/usr/local/lib/python3.13/dist-packages/ansible/cli/__init__.py", line 93, in <module>
+        from ansible import constants as C
+      File "/usr/local/lib/python3.13/dist-packages/ansible/constants.py", line 186, in <module>
+        set_constant(setting, config.get_config_value(setting, variables=vars()))
+                              ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+      File "/usr/local/lib/python3.13/dist-packages/ansible/config/manager.py", line 559, in get_config_value
+        value, _drop = self.get_config_value_and_origin(config, cfile=cfile, plugin_type=plugin_type, plugin_name=plugin_name,
+                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                                                        keys=keys, variables=variables, direct=direct, templar=templar)
+                                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+      File "/usr/local/lib/python3.13/dist-packages/ansible/config/manager.py", line 697, in get_config_value_and_origin
+        value = ensure_type(value, defs[config].get('type'), origin=origin, origin_ftype=origin_ftype)
+      File "/usr/local/lib/python3.13/dist-packages/ansible/config/manager.py", line 111, in ensure_type
+        value = _ensure_type(value, value_type, origin)
+      File "/usr/local/lib/python3.13/dist-packages/ansible/config/manager.py", line 182, in _ensure_type
+        makedirs_safe(value, 0o700)
+        ~~~~~~~~~~~~~^^^^^^^^^^^^^^
+      File "/usr/local/lib/python3.13/dist-packages/ansible/utils/path.py", line 88, in makedirs_safe
+        raise AnsibleError(f"Unable to create local directories {rpath!r}.") from ex
+    ansible.errors.AnsibleError: Unable to create local directories '/nonexistent/.ansible/tmp': [Errno 13] Permission denied: b'/nonexistent'
+
+    ##[error]Process completed with exit code 5.
+reported_at: 2026-11-14T14:16:50Z
