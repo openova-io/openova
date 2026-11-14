@@ -228,4 +228,4 @@ PUT /api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name} handler.(*Handler).HandleK8sR
 PUT /api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/scale handler.(*Handler).HandleK8sResourceScale-fm 2
 PUT /api/v1/sovereigns/{id}/keycloak/groups/{groupId} handler.(*Handler).HandleKeycloakGroupsUpdate-fm 2
 chain 1: middleware.RequestID middleware.RealIP RequestLogger.(closure) middleware.Recoverer cors.(*Cors).Handler-fm
-chain 2: middleware.RequestID middleware.RealIP RequestLogger.(closure) middleware.Recoverer cors.(*Cors).Handler-fm RequireSession.(closure) handler.(*Handler).OrgScopeGuard-fm
+chain 2: middleware.RequestID middleware.RealIP RequestLogger.(closure) middleware.Recoverer cors.(*Cors).Handler-fm RequireSessionOrJob.(closure) handler.(*Handler).OrgScopeGuard-fm
