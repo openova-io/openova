@@ -9,6 +9,7 @@ import (
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handler"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobauth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/oidcprovider"
 )
 
@@ -83,7 +84,10 @@ func buildRouter(d routeDeps) chi.Router {
 	// the middleware is a transparent passthrough and all requests
 	// proceed without any auth check, preserving existing behaviour.
 	r.Group(func(rg chi.Router) {
-		rg.Use(auth.RequireSession(h.GetAuthConfig(), log))
+		// The conformance Job of a Sovereign has no session: jobauth admits
+		// its ServiceAccount token to the Application routes of Organization
+		// conformance and hands every other request to RequireSession.
+		rg.Use(jobauth.RequireSessionOrJob(jobauth.InCluster, auth.RequireSession(h.GetAuthConfig(), log), log))
 		// #4110 — Org-console scope guard. Transparent passthrough for
 		// Sovereign-admin/operator sessions (zero regression); for an
 		// Org-scoped customer session (PIN-authenticated on an Org pool-
