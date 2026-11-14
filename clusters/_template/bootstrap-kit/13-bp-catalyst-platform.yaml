@@ -27,7 +27,7 @@ spec:
   interval: 15m
   url: oci://ghcr.io/openova-io
   secretRef:
-    name: ghcr-pull
+    name: ${REGISTRY_PULL_SECRET:=ghcr-pull}
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -1880,7 +1880,9 @@ spec:
     # fireCutoverOnHandover=true) requests it. This is the North Star seam: a
     # browser-trusted Sovereign reaches cutoverComplete with ZERO manual steps.
     catalystApi:
-      fireCutoverOnHandover: ${FIRE_CUTOVER_ON_HANDOVER:-true}
+      # SOV-151: the hand-over switch is HANDOVER_AUTO of the variables; a Sovereign
+      # whose variables predate that key keeps reading the kit key FIRE_CUTOVER_ON_HANDOVER.
+      fireCutoverOnHandover: ${HANDOVER_AUTO:=${FIRE_CUTOVER_ON_HANDOVER:-true}}
       # #4971 — keep catalyst-api OFF the driverless control-plane node on every
       # fresh Sovereign. catalyst-api mounts two RWO Huawei-EVS PVCs whose CSI
       # node-plugin (evs.csi.huaweicloud.com) runs ONLY on workers; with

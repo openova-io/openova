@@ -45,7 +45,7 @@ spec:
   # bridge HR stuck SourceNotReady blocking the reconciler Pod. Every
   # other slot file already has this; 13b was the only one missing it.
   secretRef:
-    name: ghcr-pull
+    name: ${REGISTRY_PULL_SECRET:=ghcr-pull}
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
