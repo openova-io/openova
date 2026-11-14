@@ -130,6 +130,7 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | products/dmz-vcluster | bp-dmz-vcluster-tenant | bp-dmz-vcluster-tenant (chart/blueprint.yaml) | listed | - |
 | products/fabric | - | - | - | - |
 | products/fingate | - | - | - | - |
+| products/machine-runner | - | - | - | - |
 | products/openova-flow | - | - | - | - |
 | products/openova-mcp | bp-openova-mcp | bp-openova-mcp | unlisted | 13d |
 | products/ops-records | - | - | - | - |

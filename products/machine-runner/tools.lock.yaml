@@ -1,0 +1,62 @@
+schema: openova.io/machine-runner-tools/v1
+# The tools of the machine-runner image. A tool enters the image only through this file.
+# The fetch stage of products/machine-runner/Containerfile downloads every source and stops
+# when its SHA-256 is not the one written here. An upgrade changes version, source and
+# sha256 of an entry together. Every entry keeps the key order name, version, source,
+# sha256, licence, use: the Containerfile reads the file line by line.
+# use is separate-process (a program the runner starts) or data (files a program reads).
+tools:
+  - name: ansible-core
+    version: "2.21.6"
+    source: https://files.pythonhosted.org/packages/20/5a/9e6cc7686b40bec066211200b6c393a7a333dfcfa91aa67a07c031df87c8/ansible_core-2.21.6-py3-none-any.whl
+    sha256: c1fc3cbe821176ba4227b1cae8c748e1d28d42dde605e807d23c58f71b6d1a74
+    licence: GPL-3.0-or-later
+    use: separate-process
+  - name: ansible-runner
+    version: "2.4.3"
+    source: https://files.pythonhosted.org/packages/e3/89/fa7f81db6134caa455c9351373ee934b5fdeed212eb939d6c42d80d683d7/ansible_runner-2.4.3-py3-none-any.whl
+    sha256: cdac6daa151a50084ffda710e769db23fa975fc0507796191d7708831b286e37
+    licence: Apache-2.0
+    use: separate-process
+  - name: trivy
+    version: "0.76.1"
+    source: https://github.com/aquasecurity/trivy/releases/download/v0.76.1/trivy_0.76.1_Linux-64bit.tar.gz
+    sha256: c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
+    licence: Apache-2.0
+    use: separate-process
+  - name: libopenscap33
+    version: "1.4.2+dfsg-1"
+    source: https://snapshot.debian.org/archive/debian/20250408T205804Z/pool/main/o/openscap/libopenscap33_1.4.2+dfsg-1_amd64.deb
+    sha256: afd58062e7e6ebf229ce74c376208ef1a333bdc862e15fa33dc069c637146fa7
+    licence: LGPL-2.1-or-later
+    use: separate-process
+  - name: openscap-common
+    version: "1.4.2+dfsg-1"
+    source: https://snapshot.debian.org/archive/debian/20250408T205804Z/pool/main/o/openscap/openscap-common_1.4.2+dfsg-1_all.deb
+    sha256: 733c77a7316a51f3185f09c08f1c22d6504892637bea42806acbf552ec82f2e4
+    licence: LGPL-2.1-or-later
+    use: data
+  - name: openscap-scanner
+    version: "1.4.2+dfsg-1"
+    source: https://snapshot.debian.org/archive/debian/20250408T205804Z/pool/main/o/openscap/openscap-scanner_1.4.2+dfsg-1_amd64.deb
+    sha256: 2f73a3bb0ff60e64b05bf0ed014871b247f884c8b6131cc39d5f05e38028a6c6
+    licence: LGPL-2.1-or-later
+    use: separate-process
+  - name: python3-openscap
+    version: "1.4.2+dfsg-1"
+    source: https://snapshot.debian.org/archive/debian/20250408T205804Z/pool/main/o/openscap/python3-openscap_1.4.2+dfsg-1_amd64.deb
+    sha256: a97ebe5c65c903cdfdb7a805d06bc05d94627c70dbe3a45d0edcccfb9b29398e
+    licence: LGPL-2.1-or-later
+    use: separate-process
+  - name: openscap-utils
+    version: "1.4.2+dfsg-1"
+    source: https://snapshot.debian.org/archive/debian/20250408T205804Z/pool/main/o/openscap/openscap-utils_1.4.2+dfsg-1_all.deb
+    sha256: 38612978dbedae54e60b2359312d74063e2290f34137116469613ddd4c7f1332
+    licence: LGPL-2.1-or-later
+    use: separate-process
+  - name: scap-security-guide
+    version: "0.1.82"
+    source: https://github.com/ComplianceAsCode/content/releases/download/v0.1.82/scap-security-guide-0.1.82.zip
+    sha256: 765e84bdce7f9055f9b9c2dd0ee2b713d4255f8eec94eac6d35ea4973c28919c
+    licence: BSD-3-Clause
+    use: data

@@ -1,0 +1,122 @@
+name: Build machine-runner
+
+# machine-runner is the image of the runner Jobs of the machine plane
+# (products/machine-runner/Containerfile; the program is
+# products/catalyst/bootstrap/api/cmd/machine-runner). On a pull request this
+# workflow runs the runner's tests, builds the image without pushing it, and
+# starts the built image once: a broken Containerfile, or a tool whose SHA-256
+# is not the one in products/machine-runner/tools.lock.yaml, turns the pull
+# request red. On main it also pushes the image as
+# ghcr.io/openova-io/openova/machine-runner:<short SHA> and signs and attests it
+# through the shared action. CI writes the tag; no file in the repository pins
+# it yet.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'products/machine-runner/**'
+      - 'products/catalyst/bootstrap/api/cmd/machine-runner/**'
+      - 'products/catalyst/bootstrap/api/internal/machines/runner/**'
+      - 'products/catalyst/bootstrap/api/internal/machines/runresult/**'
+      - 'products/catalyst/bootstrap/api/go.mod'
+      - 'products/catalyst/bootstrap/api/go.sum'
+      - '.github/workflows/build-machine-runner.yaml'
+  pull_request:
+    paths:
+      - 'products/machine-runner/**'
+      - 'products/catalyst/bootstrap/api/cmd/machine-runner/**'
+      - 'products/catalyst/bootstrap/api/internal/machines/runner/**'
+      - 'products/catalyst/bootstrap/api/internal/machines/runresult/**'
+      - 'products/catalyst/bootstrap/api/go.mod'
+      - 'products/catalyst/bootstrap/api/go.sum'
+      - '.github/workflows/build-machine-runner.yaml'
+  workflow_dispatch:
+
+env:
+  IMAGE: ghcr.io/openova-io/openova/machine-runner
+
+jobs:
+  build:
+    name: build machine-runner
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      packages: write
+      # cosign keyless signing (Sigstore) needs the OIDC token.
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: products/catalyst/bootstrap/api/go.mod
+          cache: false
+
+      - name: Unit tests
+        working-directory: products/catalyst/bootstrap/api
+        run: go test -count=1 -race ./internal/machines/runner/... ./internal/machines/runresult/... ./cmd/machine-runner/
+
+      - name: Short SHA
+        id: vars
+        run: echo "sha_short=$(echo "$GITHUB_SHA" | head -c 7)" >> "$GITHUB_OUTPUT"
+
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      # On a pull request the image is loaded into the local Docker for the
+      # smoke test below; on main it is pushed.
+      - name: Build the image, and push it on main
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: products/machine-runner/Containerfile
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          load: ${{ github.event_name == 'pull_request' }}
+          tags: ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/openova-io/openova
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=machine-runner
+          # containerd 1.7 on k3s cannot pull an image index that carries an
+          # attestation manifest.
+          provenance: false
+          sbom: false
+
+      # Every tool starts, the data stream of Ubuntu 24.04 is in place, and the
+      # program without its arguments prints a Refused document and exits 1.
+      - name: Smoke-test the image
+        if: github.event_name == 'pull_request'
+        env:
+          REF: ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint /bin/sh "$REF" -c \
+            'trivy --version && oscap --version && command -v oscap-chroot && ansible --version && ansible-runner --version && ls /content/scap/*/ssg-ubuntu2404-ds.xml'
+          code=0
+          out="$(docker run --rm "$REF" --task=inventory)" || code=$?
+          printf '%s\n' "$out"
+          test "$code" = 1
+          printf '%s\n' "$out" | grep -q -F '"outcome":"Refused","message":"invalid-arguments: '
+
+      # Sign the image and attest its bill of materials through the shared
+      # action, before its tag is pinned.
+      - name: Sign and attest the image
+        if: github.event_name != 'pull_request'
+        uses: ./.github/actions/sign-and-attest
+        with:
+          ref: ${{ env.IMAGE }}
+          digest: ${{ steps.build.outputs.digest }}

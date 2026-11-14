@@ -1,0 +1,85 @@
+# machine-runner: the image of the runner Jobs of the machine plane (bp-machine-operations).
+#
+# Build context: the repository root.
+#   docker build -f products/machine-runner/Containerfile .
+#
+# Every tool comes from products/machine-runner/tools.lock.yaml. The fetch stage downloads
+# each source of the lock and stops when its SHA-256 is not the one the lock states. Base
+# images are named by digest. The program machine-runner is built from the API module
+# (products/catalyst/bootstrap/api, command cmd/machine-runner). The default user is not
+# root; a node-mode Job sets its own user.
+
+# ---------- Stage 1: the machine-runner program ----------
+FROM docker.io/library/golang:1.26.11-alpine3.24@sha256:ae52b5bc6ed045a9ed26ab03dc19327a802a9cc9aa8b27ed57f5c6b60579b0bb AS build
+# The API module names these two trees in replace directives of its go.mod.
+COPY core/controllers/ /core/controllers/
+COPY core/services/shared/ /core/services/shared/
+WORKDIR /app
+COPY products/catalyst/bootstrap/api/go.mod products/catalyst/bootstrap/api/go.sum ./
+RUN go mod download
+COPY products/catalyst/bootstrap/api/ ./
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/machine-runner ./cmd/machine-runner
+
+# ---------- Stage 2: download and check every tool of the lock ----------
+FROM docker.io/library/debian:trixie-20261104-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS fetch
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl unzip \
+    && rm -rf /var/lib/apt/lists/*
+COPY products/machine-runner/tools.lock.yaml /tools.lock.yaml
+# One line per entry of the lock: name, sha256, source. An entry whose use is not
+# separate-process or data stops the build. The number of lines must equal the number of
+# entries. Each source is saved as /tools/<name>/<last part of the source>.
+RUN set -eu; \
+    awk '$1 == "-" && $2 == "name:" { name = $3 } $1 == "source:" { source = $2 } $1 == "sha256:" { sha = $2 } $1 == "use:" { if ($2 != "separate-process" && $2 != "data") { print "tool " name ": use " $2 " is not separate-process or data" > "/dev/stderr"; exit 1 } print name, sha, source }' /tools.lock.yaml > /tools.list; \
+    test "$(wc -l < /tools.list)" -eq "$(grep -c '^  - name: ' /tools.lock.yaml)"; \
+    while read -r name sha source; do \
+      mkdir -p "/tools/$name"; \
+      curl -fsSL --retry 3 -o "/tools/$name/${source##*/}" "$source"; \
+      echo "$sha  /tools/$name/${source##*/}" | sha256sum -c -; \
+    done < /tools.list
+# The packages and wheels the runtime stage installs; Trivy; and the ComplianceAsCode data
+# streams of the Ubuntu and RHEL families, one folder per content release:
+# /content/scap/<release>/ssg-<product>-ds.xml.
+RUN set -eu; \
+    mkdir -p /out/pkg /out/bin /out/doc/trivy /out/doc/scap-security-guide; \
+    cp /tools/libopenscap33/*.deb /tools/openscap-common/*.deb /tools/openscap-scanner/*.deb \
+       /tools/python3-openscap/*.deb /tools/openscap-utils/*.deb \
+       /tools/ansible-core/*.whl /tools/ansible-runner/*.whl /out/pkg/; \
+    tar -xzf /tools/trivy/*.tar.gz -C /out/bin trivy; \
+    tar -xzf /tools/trivy/*.tar.gz -C /out/doc/trivy LICENSE; \
+    release="$(awk '$1 == "-" && $2 == "name:" { name = $3 } $1 == "version:" && name == "scap-security-guide" { gsub(/"/, "", $2); print $2 }' /tools.lock.yaml)"; \
+    mkdir -p "/out/scap/$release"; \
+    unzip -q -j -d "/out/scap/$release" /tools/scap-security-guide/*.zip \
+      '*/ssg-ubuntu*-ds.xml' '*/ssg-rhel[0-9]*-ds.xml' '*/ssg-almalinux*-ds.xml' '*/ssg-ol[0-9]*-ds.xml'; \
+    unzip -q -j -d /out/doc/scap-security-guide /tools/scap-security-guide/*.zip '*/LICENSE'; \
+    test -s "/out/scap/$release/ssg-ubuntu2404-ds.xml"
+
+# ---------- Stage 3: the runtime ----------
+FROM docker.io/library/debian:trixie-20261104-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2
+# The OpenSCAP packages of the lock, and from Debian the Python libraries that ansible-core
+# and ansible-runner need. pip installs the two wheels of the lock without dependencies,
+# checks that every dependency is met, and is removed again.
+COPY --from=fetch /out/pkg/ /tmp/pkg/
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates python3 python3-pip \
+       python3-jinja2 python3-yaml python3-cryptography python3-packaging python3-resolvelib \
+       python3-pexpect python3-daemon \
+       /tmp/pkg/*.deb \
+    && python3 -m pip install --no-deps --no-index --no-cache-dir --break-system-packages \
+       --root-user-action=ignore /tmp/pkg/*.whl \
+    && python3 -m pip check \
+    && apt-get purge -y python3-pip \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/* /tmp/pkg
+COPY --from=fetch /out/bin/trivy /usr/local/bin/trivy
+COPY --from=fetch /out/scap/ /content/scap/
+COPY --from=fetch /out/doc/ /usr/share/doc/
+COPY products/machine-runner/LICENSES.md /usr/share/doc/machine-runner/LICENSES.md
+COPY --from=build /out/machine-runner /usr/local/bin/machine-runner
+RUN trivy --version \
+    && oscap --version \
+    && command -v oscap-chroot \
+    && ansible --version \
+    && ansible-runner --version
+USER 65534:65534
+ENTRYPOINT ["/usr/local/bin/machine-runner"]
