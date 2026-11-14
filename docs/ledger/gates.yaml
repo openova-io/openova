@@ -677,12 +677,13 @@ checks:
 - id: CLD-G09
   title: A per-Organization database volume is Bound with the profile's storage class
   owner: CLD
-  state: not-built
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: A per-Organization database volume is Bound with the profile's storage class
+  implementation: tests/acceptance/sovereign/internal/suite/check_org_db_storage.go
   delivered_by: CLD-030
 - id: CLD-G11
   title: The local pack comes up with two clusters and a claim binds on its default storage class

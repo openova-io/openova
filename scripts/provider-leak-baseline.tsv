@@ -20,8 +20,6 @@ core/controllers/organization/cmd/main.go	1
 core/controllers/organization/internal/controller/environment_ensure.go	2
 core/controllers/organization/internal/controller/provisioning_postconditions.go	2
 core/controllers/organization/internal/controller/tenant_dns.go	1
-core/services/provisioning/gitops/gitops.go	9
-core/services/provisioning/main.go	1
 infra/providers/_shared/cloudinit-control-plane.tftpl	34
 platform/bp-dmz-vcluster/chart/Chart.yaml	1
 platform/bp-mgmt-vcluster/chart/Chart.yaml	1
