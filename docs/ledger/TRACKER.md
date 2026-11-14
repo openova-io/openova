@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T22:30:06Z` |
+| Last refreshed | `2026-11-14T22:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -312,6 +312,7 @@ flowchart LR
 | 2026-11-14T22:03 | [#7861](https://github.com/openova-io/openova/pull/7861) | #7087 | docs(ledger): plan update |
 | 2026-11-14T22:25 | [#7860](https://github.com/openova-io/openova/pull/7860) | #7839 | feat(flight): the flight sweep counts the DNS names a wiped  |
 | 2026-11-14T21:17 | [#7859](https://github.com/openova-io/openova/pull/7859) | #7087 | docs(ledger): plan update |
+| 2026-11-14T22:41 | [#7858](https://github.com/openova-io/openova/pull/7858) | #7774 | refactor(api): the flow endpoints answer only from the jobs  |
 | 2026-11-14T22:23 | [#7857](https://github.com/openova-io/openova/pull/7857) | #7738 | feat(ops-records): PostgreSQL store with migration 0001 and  |
 | 2026-11-14T22:23 | [#7856](https://github.com/openova-io/openova/pull/7856) | #7824 | feat(trivy): slot 30 points the scanner at the vulnerability |
 | 2026-11-14T20:54 | [#7851](https://github.com/openova-io/openova/pull/7851) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-14T20:13 | [#7818](https://github.com/openova-io/openova/pull/7818) | #7740 | fix(provisioning): per-Organization databases use the storag |
 | 2026-11-14T18:50 | [#7817](https://github.com/openova-io/openova/pull/7817) | #7716 | feat(kured): chart bp-kured for coordinated node reboots and |
 | 2026-11-14T17:18 | [#7812](https://github.com/openova-io/openova/pull/7812) | #7087 | docs(ledger): plan update |
-| 2026-11-14T16:55 | [#7810](https://github.com/openova-io/openova/pull/7810) | #7678 | test(charts): function tests for the network, names and edge |
 
 ---
 
