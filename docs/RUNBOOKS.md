@@ -2162,7 +2162,7 @@ stateDiagram-v2
 
 | Input | Required | Notes |
 |---|---|---|
-| Cloud provider | Huawei (kom4dc) / Hetzner / AWS / GCP / Azure / OCI | Huawei kom4dc is the canonical production path (§0). Hetzner is the alternate, most-tested wizard path. |
+| Cloud provider | One provider pack of [`docs/generated/providers.md`](generated/providers.md) | Huawei kom4dc is the canonical production path (§0). Hetzner is the alternate, most-tested wizard path. |
 | Cloud credentials | Provider API token | Used by OpenTofu (one-shot bootstrap) and Crossplane (ongoing). |
 | Sovereign name | e.g. `omantel`, `acmebank` | Slug, lowercase, 3–32 chars. |
 | Sovereign domain | e.g. `omantel.omani.works`, `acme.bank.com` | Three modes ([#169](https://github.com/openova-io/openova/issues/169)): **pool** (subdomain under a canonical pool zone — `omani.works` / `omani.homes` / `omani.rest` / `omani.trade` / `omantel.biz` — allocated by pool-domain-manager); **byo-manual** (customer pastes OpenOva NS records into their own registrar UI); **byo-api** (customer pastes a registrar API token, OpenOva flips NS via the registrar adapter). Supported registrars for byo-api: Cloudflare, Namecheap, GoDaddy, OVH, Dynadot ([#170](https://github.com/openova-io/openova/issues/170)). |

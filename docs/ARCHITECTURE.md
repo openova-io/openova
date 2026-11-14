@@ -1256,7 +1256,7 @@ sequenceDiagram
 
 ### §8.5 Cloud-provider options
 
-Huawei Cloud (current substrate) · Hetzner Cloud · AWS · GCP · Azure · Oracle Cloud. Crossplane providers exist for all. The OpenOva Sovereign currently runs on **Huawei Cloud** (kom4dc, regions `me-east-215-a` / `me-east-215-b`); Hetzner remains a supported (and historically most-tested) provider option. Region count: 1 (SME) / 2 (recommended for production) / 3+ (regulated tier; adds DR replica region).
+The clouds a Sovereign can be provisioned on are the provider packs under `infra/providers/`. The generated file [`docs/generated/providers.md`](generated/providers.md) lists every pack, with its lifecycle, its regions and its machine sizes, read from the pack files. The OpenOva Sovereign currently runs on **Huawei Cloud** (kom4dc, regions `me-east-215-a` / `me-east-215-b`). Region count: 1 (SME) / 2 (recommended for production) / 3+ (regulated tier; adds DR replica region).
 
 ### §8.6 Multi-Sovereign fleet view
 
