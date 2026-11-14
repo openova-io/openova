@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
-# flight-sweep.sh - list what a wiped deployment left in its cloud account. It
-# only reads. Usage: scripts/flight-sweep.sh <variables document> | --self-test
+# flight-sweep.sh - list what a wiped deployment left in its cloud account, and
+# the DNS names of it that the authoritative servers of its parent domain still
+# answer (kind dns_records). It only reads.
+# Usage: scripts/flight-sweep.sh <variables document> | --self-test
 # The document is the wiped deployment's tofu.auto.tfvars.json (a destroy keeps
 # it). The script builds products/catalyst/bootstrap/api/cmd/flight-sweep and
 # runs it on the document; the JSON report goes to standard output.
 # Exit codes: 0 nothing was left; 1 leftovers were found; 2 usage error, or the
 # document cannot be read or lacks a key; 3 not measured (the program does not
-# build, the provider has no lister, a listing failed, any other exit code).
+# build, the provider has no lister, a listing failed, a DNS name could not be
+# asked, any other exit code).
 set -uo pipefail
 
 api="$(cd "$(dirname "$0")/.." && pwd)/products/catalyst/bootstrap/api"
