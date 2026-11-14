@@ -107,37 +107,74 @@ else
 fi
 head -c 1073741824 /dev/urandom > "$work/source.img"
 srcsum="$(sha256sum < "$work/source.img" | cut -d' ' -f1)"
-copy_run() { # <label> [filters ...]
-  local label="$1"; shift
-  local sock="$work/$label.sock" log="$work/$label.log" srv c i rc t0 t1 before after same mibs
+
+srv=""
+start_server() { # <sock> <nbdkit arguments ...>; sets srv; fails when no socket appears
+  local sock="$1" i; shift
   rm -f "$sock"
-  "$nbdkit" -f -U "$sock" --filter=log "$@" "$plugin" libdir="$big" file=disk.vmdk \
-    logfile="$log" retries=5 retry-delay=2 > "$work/$label.server" 2>&1 &
+  "$nbdkit" -f -U "$sock" "$@" > "$sock.server" 2>&1 &
   srv=$!
-  for i in $(seq 1 100); do [ -S "$sock" ] && break; sleep 0.1; done
-  if [ ! -S "$sock" ]; then
-    r "copy_${label}" "server did not start: $(head -2 "$work/$label.server" | tr '\n' ' ' | cut -c1-200)"
-    kill "$srv" 2>/dev/null; return
-  fi
-  local uri="nbd+unix:///?socket=$sock"
-  r "copy_${label}_can_multi_conn" "$(nbdinfo "$uri" 2>&1 | grep -o 'can_multi_conn: [a-z]*' | head -1 | cut -d' ' -f2)"
-  nbdcopy "$work/source.img" "$uri"; rc=$?
-  r "copy_${label}_load_exit" "$rc"
-  for c in 1 2 4 8; do
-    rm -f "$work/target.img"
-    before="$(grep -c ' Connect ' "$log" || true)"
-    t0="$(date +%s.%N)"
-    nbdcopy --connections="$c" "$uri" "$work/target.img"; rc=$?
-    t1="$(date +%s.%N)"
-    sleep 0.2
-    after="$(grep -c ' Connect ' "$log" || true)"
-    same="no"; [ "$(sha256sum < "$work/target.img" | cut -d' ' -f1)" = "$srcsum" ] && same="yes"
-    mibs="$(awk -v s="$t0" -v e="$t1" 'BEGIN { printf "%.0f", 1024 / (e - s) }')"
-    r "copy_${label}_connections_${c}" "exit=$rc connections_opened=$((after - before)) mib_per_s=$mibs sha256_equal=$same"
-  done
-  kill "$srv" 2>/dev/null; wait "$srv" 2>/dev/null
+  for i in $(seq 1 100); do [ -S "$sock" ] && return 0; sleep 0.1; done
+  r "server_start_failed" "$(head -2 "$sock.server" | tr '\n' ' ' | cut -c1-200)"
+  kill "$srv" 2>/dev/null
+  return 1
 }
-copy_run retry --filter=retry
-copy_run retry_multiconn --filter=multi-conn --filter=retry
+stop_server() { kill "$srv" 2>/dev/null; wait "$srv" 2>/dev/null; }
+timed_copy() { # <key> <uri> <null|file> [nbdcopy options ...]
+  local key="$1" uri="$2" dest="$3" target="null:" t0 t1 rc same="n/a" mibs; shift 3
+  if [ "$dest" = file ]; then rm -f "$work/target.img"; target="$work/target.img"; fi
+  t0="$(date +%s.%N)"
+  nbdcopy "$@" "$uri" "$target"; rc=$?
+  t1="$(date +%s.%N)"
+  if [ "$dest" = file ]; then
+    same="no"; [ "$(sha256sum < "$work/target.img" | cut -d' ' -f1)" = "$srcsum" ] && same="yes"
+  fi
+  mibs="$(awk -v s="$t0" -v e="$t1" 'BEGIN { printf "%.0f", 1024 / (e - s) }')"
+  r "$key" "exit=$rc mib_per_s=$mibs sha256_equal=$same"
+}
+
+# 5a. Baseline without the VDDK plug-in: the file plug-in serves the same 1 GiB.
+if start_server "$work/base.sock" -r file "$work/source.img"; then
+  uri="nbd+unix:///?socket=$work/base.sock"
+  for c in 1 2 4; do timed_copy "copy_baseline_file_plugin_to_null_c$c" "$uri" null --connections="$c"; done
+  timed_copy copy_baseline_file_plugin_to_file_c4 "$uri" file --connections=4
+  stop_server
+fi
+
+# 5b. Through the VDDK plug-in and the 1 GiB stand-in, behind the retry filter, without and
+#     with the multi-conn filter. Loaded once with the random file, then read back.
+vddk_copy() { # <label> [filters ...]
+  local label="$1" uri c; shift
+  start_server "$work/$label.sock" "$@" "$plugin" libdir="$big" file=disk.vmdk retries=5 retry-delay=2 || return
+  uri="nbd+unix:///?socket=$work/$label.sock"
+  r "copy_${label}_can_multi_conn" "$(nbdinfo "$uri" 2>&1 | grep -o 'can_multi_conn: [a-z]*' | head -1 | cut -d' ' -f2)"
+  nbdcopy "$work/source.img" "$uri"; r "copy_${label}_load_exit" "$?"
+  for c in 1 2 4 8; do timed_copy "copy_${label}_to_null_c$c" "$uri" null --connections="$c"; done
+  timed_copy "copy_${label}_to_file_c1" "$uri" file --connections=1
+  timed_copy "copy_${label}_to_file_c4" "$uri" file --connections=4
+  stop_server
+}
+vddk_copy vddk_retry --filter=retry
+vddk_copy vddk_retry_multiconn --filter=multi-conn --filter=retry
+
+# 5c. Connections nbdcopy really opens: the log filter records one Connect line for each.
+count_conns() { # <label> [filters ...]
+  local label="$1" uri log="$work/$1.log" before after rc opt c; shift
+  start_server "$work/$label.sock" --filter=log "$@" "$plugin" libdir="$big" file=disk.vmdk logfile="$log" retries=5 retry-delay=2 || return
+  uri="nbd+unix:///?socket=$work/$label.sock"
+  for opt in 1 2 4 8 8t; do
+    c="${opt%t}"
+    before="$(grep -c ' Connect ' "$log" || true)"
+    if [ "$opt" = 8t ]; then nbdcopy --connections=8 --threads=8 "$uri" null:; rc=$?
+    else nbdcopy --connections="$c" "$uri" null:; rc=$?; fi
+    sleep 0.3
+    after="$(grep -c ' Connect ' "$log" || true)"
+    r "connections_${label}_requested_${opt/t/_threads_8}" "exit=$rc opened=$((after - before))"
+  done
+  stop_server
+}
+count_conns plain --filter=retry
+count_conns multiconn --filter=multi-conn --filter=retry
+r nproc "$(nproc)"
 rm -rf "$work"
 exit 0

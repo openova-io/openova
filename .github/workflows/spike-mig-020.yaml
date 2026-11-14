@@ -69,7 +69,10 @@ jobs:
           echo "upstream_vddk_tests_make_exit=$?" | tee -a "$RESULTS"
           for f in tests/test-vddk*.trs; do
             [ -f "$f" ] || continue
-            echo "upstream_$(basename "$f" .trs | tr - _)=$(grep -m1 ':test-result:' "$f" | cut -d' ' -f2)"
+            res="$(grep -m1 ':test-result:' "$f" | cut -d' ' -f2)"
+            why=""
+            [ "$res" = SKIP ] && why=" reason=\"$(grep -m1 -i -E 'skip|requires|not (found|supported|set)' "${f%.trs}.log" | cut -c1-140)\""
+            echo "upstream_$(basename "$f" .trs | tr - _)=${res}${why}"
           done | tee -a "$RESULTS"
           grep -E '^# (TOTAL|PASS|SKIP|XFAIL|FAIL|XPASS|ERROR):' tests/test-suite.log || tail -40 /tmp/vddk-tests.log
       - name: Drive the plug-in with the stand-in library

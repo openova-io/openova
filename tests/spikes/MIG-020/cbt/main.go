@@ -80,13 +80,11 @@ func vmState(ctx context.Context, vm *object.VirtualMachine, label string) []dis
 		result(label+".properties", "%s", describe(err))
 		return nil
 	}
-	enabled, supported := "unset", "unset"
+	enabled := "unset"
 	if m.Config != nil && m.Config.ChangeTrackingEnabled != nil {
 		enabled = fmt.Sprintf("%t", *m.Config.ChangeTrackingEnabled)
 	}
-	if m.Capability.ChangeTrackingSupported != nil {
-		supported = fmt.Sprintf("%t", *m.Capability.ChangeTrackingSupported)
-	}
+	supported := fmt.Sprintf("%t", m.Capability.ChangeTrackingSupported)
 	result(label+".change_tracking_enabled", "%s", enabled)
 	result(label+".change_tracking_supported", "%s", supported)
 	result(label+".power_state", "%s", m.Runtime.PowerState)
