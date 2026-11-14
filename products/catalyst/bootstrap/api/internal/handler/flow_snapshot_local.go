@@ -55,6 +55,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
 )
@@ -149,8 +151,8 @@ func jobFamilyForJob(j jobs.Job) *string {
 // flowSnapshotFromJobs builds a FlowMessage `snapshot` envelope from
 // the catalyst-api jobs.Store for the given deployment id. Returns
 // `nil, false` when the store is unconfigured OR when no Jobs are
-// known for this deployment (caller should fall through to the
-// upstream openova-flow-server proxy path).
+// known for this deployment (flowSnapshotOrEmpty then answers with an
+// empty snapshot).
 //
 // All Job.ID values are kept verbatim — the canvas drill-down resolves
 // /jobs/<jobId> by exact id match, and the legacy form
@@ -828,6 +830,54 @@ func jobDisplayLabel(j jobs.Job) string {
 	return j.JobName
 }
 
+// HandleFlowSnapshot answers GET /api/v1/flows/{deploymentId}/snapshot from
+// the jobs store alone. A deployment the store holds no row for gets an
+// empty snapshot. Without a jobs store the answer is 503.
+func (h *Handler) HandleFlowSnapshot(w http.ResponseWriter, r *http.Request) {
+	flowID := chi.URLParam(r, "deploymentId")
+	if strings.TrimSpace(flowID) == "" {
+		http.Error(w, "deploymentId required", http.StatusBadRequest)
+		return
+	}
+	if h.jobsStore() == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "jobs-store-unavailable"})
+		return
+	}
+	writeJSON(w, http.StatusOK, h.flowSnapshotOrEmpty(flowID))
+}
+
+// HandleFlowStream answers GET /api/v1/flows/{deploymentId}/stream from the
+// jobs store alone (flowStreamLocal): a snapshot frame on connect, empty
+// when the store holds no row for the deployment, and one after each change
+// of the store. Without a jobs store the answer is 503.
+func (h *Handler) HandleFlowStream(w http.ResponseWriter, r *http.Request) {
+	flowID := chi.URLParam(r, "deploymentId")
+	if strings.TrimSpace(flowID) == "" {
+		http.Error(w, "deploymentId required", http.StatusBadRequest)
+		return
+	}
+	if h.jobsStore() == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "jobs-store-unavailable"})
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+	h.flowStreamLocal(w, r, flusher, flowID)
+}
+
+// flowSnapshotOrEmpty is the snapshot of the deployment built from the jobs
+// store, or an empty snapshot (no flow, no node, no relationship) when the
+// store holds no row for it.
+func (h *Handler) flowSnapshotOrEmpty(deploymentID string) *flowSnapshotLocalMessage {
+	if msg, ok := h.flowSnapshotFromJobs(deploymentID); ok {
+		return msg
+	}
+	return &flowSnapshotLocalMessage{Type: "snapshot"}
+}
+
 // flowSnapshotWindow — the canvas gets at most one snapshot per window
 // however many store writes a seed makes.
 const flowSnapshotWindow = 250 * time.Millisecond
@@ -840,9 +890,8 @@ const flowSnapshotWindow = 250 * time.Millisecond
 func (h *Handler) flowStreamLocal(w http.ResponseWriter, r *http.Request, flusher http.Flusher, deploymentID string) {
 	// Canonical SSE response headers — must be set BEFORE the first
 	// write byte so the EventSource handshake completes cleanly.
-	// Mirrors openova_flow_proxy.go HandleFlowStream and
-	// deployments.go StreamLogs (the canonical SSE pattern in this
-	// codebase).
+	// Mirrors deployments.go StreamLogs (the canonical SSE pattern in
+	// this codebase).
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -882,11 +931,10 @@ func (h *Handler) flowStreamLocal(w http.ResponseWriter, r *http.Request, flushe
 	defer cancel()
 	changed := jobs.Coalesce(r.Context(), changes, flowSnapshotWindow)
 
-	// First frame — guaranteed snapshot on connect.
-	if msg, ok := h.flowSnapshotFromJobs(deploymentID); ok {
-		if !emit("snapshot", msg) {
-			return
-		}
+	// First frame — guaranteed snapshot on connect, empty while the store
+	// holds no row for the deployment.
+	if !emit("snapshot", h.flowSnapshotOrEmpty(deploymentID)) {
+		return
 	}
 
 	// Heartbeat to keep the SSE connection alive through any
@@ -905,14 +953,7 @@ func (h *Handler) flowStreamLocal(w http.ResponseWriter, r *http.Request, flushe
 			if !open {
 				return
 			}
-			msg, ok := h.flowSnapshotFromJobs(deploymentID)
-			if !ok {
-				// Lost the deployment (e.g. wiped) — close the
-				// stream so the FE EventSource reconnects and
-				// re-runs the snapshot resolver.
-				return
-			}
-			if !emit("snapshot", msg) {
+			if !emit("snapshot", h.flowSnapshotOrEmpty(deploymentID)) {
 				return
 			}
 		case <-heartbeat.C:

@@ -141,6 +141,10 @@ platform/bp-dmz-vcluster
 platform/bp-mgmt-vcluster
 platform/bp-rtz-vcluster
 products/dmz-vcluster
+products/catalyst/bootstrap/api/internal/flowemit
+products/catalyst/bootstrap/api/internal/handler/flow_emitter.go
+products/catalyst/bootstrap/api/internal/handler/openova_flow_proxy.go
+products/catalyst/bootstrap/api/internal/handler/openova_flow_proxy_test.go
 core/services/shared/events/dlq.go
 core/services/shared/events/dlq_test.go
 core/services/shared/events/topics.go
