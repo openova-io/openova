@@ -20,7 +20,7 @@
 # into a per-deployment workdir on every Launch.
 
 # ---------- Stage 1: build the Go binaries ----------
-FROM docker.io/library/golang:1.26-alpine AS build
+FROM docker.io/library/golang:1.27-alpine AS build
 # upx compresses the self-built Go binaries (catalyst-api + catalyst-dns) and,
 # in the tofu/runtime stages below, the bundled tofu/kubectl/helm CLIs. These
 # are all Go binaries, so upx --best --lzma roughly QUARTERS them on disk
