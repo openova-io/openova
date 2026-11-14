@@ -1,0 +1,164 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: machines.machines.openova.io
+  labels:
+    app.kubernetes.io/name: bp-machine-operations
+spec:
+  group: machines.openova.io
+  scope: Namespaced
+  names:
+    kind: Machine
+    listKind: MachineList
+    singular: machine
+    plural: machines
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Class
+          type: string
+          jsonPath: .spec.class
+        - name: Ownership
+          type: string
+          jsonPath: .status.ownership
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Address
+          type: string
+          jsonPath: .status.primaryAddress
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: |
+            Machine is one machine that a MachineSource saw: a Kubernetes Node, a
+            virtual machine, a host or an appliance. It is an observation, not desired
+            state. Only the inventory controller creates, changes and deletes it, and
+            it is never committed to Git. Fields that are not listed here are dropped.
+          required: [spec]
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              description: The identity of the machine. Every field is immutable.
+              required: [sourceRef, externalId, class]
+              properties:
+                sourceRef:
+                  type: object
+                  description: The MachineSource, in the namespace of this Machine, that lists the machine.
+                  required: [name]
+                  properties:
+                    name:
+                      type: string
+                      minLength: 1
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: spec.sourceRef is immutable
+                externalId:
+                  type: string
+                  minLength: 1
+                  description: The identifier of the machine at its source, stable for the life of the machine.
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: spec.externalId is immutable
+                class:
+                  type: string
+                  enum: [node, virtual-machine, host, appliance]
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: spec.class is immutable
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: [Active, Stale, Retired]
+                  description: Active while the source lists the machine; Stale once a complete enumeration did not list it; Retired after spec.stale.retireAfter of its source.
+                ownership:
+                  type: string
+                  enum: [declared, adopted, unmanaged]
+                ownerRef:
+                  type: object
+                  description: The object that owns the machine. Absent when the ownership is unmanaged.
+                  required: [apiVersion, kind, name]
+                  properties:
+                    apiVersion:
+                      type: string
+                    kind:
+                      type: string
+                      description: The kind of the owner, for example Node.
+                    namespace:
+                      type: string
+                    name:
+                      type: string
+                providerId:
+                  type: string
+                  description: The provider identifier of the machine, or empty when the source has none.
+                displayName:
+                  type: string
+                primaryAddress:
+                  type: string
+                  description: The address a run connects to. Empty means no run can target this machine.
+                addresses:
+                  type: array
+                  items:
+                    type: object
+                    required: [type, ip]
+                    properties:
+                      type:
+                        type: string
+                        enum: [Private, Public]
+                      ip:
+                        type: string
+                      mac:
+                        type: string
+                      network:
+                        type: string
+                fingerprint:
+                  type: object
+                  description: Identifiers that tell one machine from another. Empty when unknown.
+                  properties:
+                    firmwareUUID:
+                      type: string
+                    instanceUUID:
+                      type: string
+                    serial:
+                      type: string
+                    machineID:
+                      type: string
+                os:
+                  type: object
+                  properties:
+                    family:
+                      type: string
+                    version:
+                      type: string
+                    arch:
+                      type: string
+                    kernel:
+                      type: string
+                firstSeen:
+                  type: string
+                  format: date-time
+                lastSeen:
+                  type: string
+                  format: date-time
+                  description: The end of the last enumeration that listed the machine.
+                lastEnumerationId:
+                  type: string
+                staleSince:
+                  type: string
+                  format: date-time
+                  description: Set while the phase is Stale or Retired.

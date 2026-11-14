@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-14T09:38:25.129Z",
+  "generatedAt": "2026-11-14T09:47:49.429Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -2901,6 +2901,32 @@
             }
           }
         }
+      },
+      "hasUserUIEndpoint": false
+    },
+    {
+      "id": "bp-machine-operations",
+      "slug": "machine-operations",
+      "title": "Machine operations",
+      "summary": "The inventory of the machines a Sovereign runs on, as the kinds Machine and MachineSource.",
+      "icon": null,
+      "category": null,
+      "tagline": null,
+      "tags": [],
+      "visibility": "unlisted",
+      "version": "0.1.0",
+      "section": null,
+      "depends": [],
+      "shareable": false,
+      "contextSchema": null,
+      "producesInstances": null,
+      "topology": {
+        "supported": [
+          "singleton"
+        ],
+        "multiRegion": "singleton",
+        "singleRegion": "singleton",
+        "perTopology": {}
       },
       "hasUserUIEndpoint": false
     },

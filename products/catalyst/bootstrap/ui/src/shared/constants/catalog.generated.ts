@@ -3040,6 +3040,32 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "hasUserUIEndpoint": false
   },
   {
+    "id": "bp-machine-operations",
+    "slug": "machine-operations",
+    "title": "Machine operations",
+    "summary": "The inventory of the machines a Sovereign runs on, as the kinds Machine and MachineSource.",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "0.1.0",
+    "section": null,
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "producesInstances": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {}
+    },
+    "hasUserUIEndpoint": false
+  },
+  {
     "id": "bp-matrix",
     "slug": "matrix",
     "title": "Matrix (Synapse)",
@@ -6041,6 +6067,7 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/livekit/blueprint.yaml",
   "platform/llm-gateway/blueprint.yaml",
   "platform/loki/blueprint.yaml",
+  "platform/machine-operations/blueprint.yaml",
   "platform/matrix/blueprint.yaml",
   "platform/mgmt-vcluster/blueprint.yaml",
   "platform/milvus/blueprint.yaml",

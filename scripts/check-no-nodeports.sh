@@ -22,6 +22,9 @@
 #     NodePorts that only appear post-render). A chart that cannot be
 #     rendered offline (unvendored subchart deps, required values) is
 #     WARN-skipped — Phase 1 already covers its template sources.
+#     A chart that renders nothing at its defaults on purpose carries
+#     ci/nodeport-render-values.yaml: it is rendered a second time with those
+#     values and with its CRDs, and that render is scanned too.
 #
 # Usage:  scripts/check-no-nodeports.sh
 # Exit:   0 = clean, 1 = a NodePort reappeared, 2 = usage/setup error.
@@ -308,7 +311,46 @@ else
   HELM_TIMEOUT="${HELM_TIMEOUT:-30s}"
   DEP_TIMEOUT="${DEP_TIMEOUT:-120s}"
   VENDORED_ON_DEMAND=0
-  CHART_DIRS=(platform/*/chart products/*/charts/*)
+  # A chart that renders nothing at its defaults ON PURPOSE (a kit slot or an
+  # overlay switches it on) is not skipped. It carries RENDER_VALUES_FILE, the
+  # values that switch it on, and is rendered a second time with them and with
+  # its CRDs (--include-crds). Both renders are scanned, and an empty
+  # switched-on render fails the ratchet below like any chart that does not
+  # render.
+  RENDER_VALUES_FILE="ci/nodeport-render-values.yaml"
+  render_switched_on() {
+    timeout "${HELM_TIMEOUT}" helm template "$(basename "$1")" "$1" \
+      --include-crds -f "$1/${RENDER_VALUES_FILE}" 2>/dev/null || true
+  }
+  rendered_nodeports() {
+    grep -nE '(^|[[:space:]])type:[[:space:]]*NodePort|(^|[[:space:]])nodePort:[[:space:]]*[1-9][0-9]*' || true
+  }
+  # Self-test of the switched-on render, with the scan the sweep uses. The
+  # fixture renders nothing at its defaults; switched on, it renders a NodePort
+  # Service from a template and one from crds/. Both must be caught: a lost -f
+  # or a lost --include-crds drops one. Exit 2, as in Phase 0.
+  st="$(mktemp -d)"
+  mkdir -p "${st}/fixture/templates" "${st}/fixture/crds" "${st}/fixture/ci"
+  printf 'apiVersion: v2\nname: fixture\nversion: 0.1.0\n' > "${st}/fixture/Chart.yaml"
+  printf '{{- if .Values.enabled }}\napiVersion: v1\nkind: Service\nmetadata:\n  name: a\nspec:\n  type: {{ .Values.kind }}\n{{- end }}\n' > "${st}/fixture/templates/service.yaml"
+  printf 'apiVersion: v1\nkind: Service\nmetadata:\n  name: b\nspec:\n  type: %s\n' NodePort > "${st}/fixture/crds/service.yaml"
+  printf 'enabled: true\nkind: %s\n' NodePort > "${st}/fixture/${RENDER_VALUES_FILE}"
+  st_default="$(timeout "${HELM_TIMEOUT}" helm template fixture "${st}/fixture" 2>/dev/null || true)"
+  st_hits="$(printf '%s\n' "$(render_switched_on "${st}/fixture")" | rendered_nodeports | wc -l | tr -d ' ')"
+  rm -rf "${st}"
+  if [ -n "${st_default}" ] || [ "${st_hits}" != "2" ]; then
+    echo "GUARD BROKEN (#4765): the switched-on render self-test caught ${st_hits} of 2 NodePorts" >&2
+    echo "  (default render empty: $([ -z "${st_default}" ] && echo yes || echo no))." >&2
+    exit 2
+  fi
+  echo "  self-test OK: the switched-on render catches 2/2 NodePorts (template and crds/)"
+  # NODEPORT_CHARTS (chart folders, space-separated) limits this phase to
+  # those charts for a quick local run. CI never sets it: it sweeps them all.
+  if [ -n "${NODEPORT_CHARTS:-}" ]; then
+    read -r -a CHART_DIRS <<< "${NODEPORT_CHARTS}"
+  else
+    CHART_DIRS=(platform/*/chart products/*/charts/*)
+  fi
   for chart in "${CHART_DIRS[@]}"; do
     [ -f "${chart}/Chart.yaml" ] || continue
     # ADR-0015 D2: a `type: library` chart (platform/topology-lib) is not
@@ -389,6 +431,13 @@ else
       fi
     fi
 
+    if [ -f "${chart}/${RENDER_VALUES_FILE}" ]; then
+      switched_on="$(render_switched_on "${chart}")"
+      if [ -n "${switched_on}" ]; then
+        rendered="${rendered}"$'\n'"${switched_on}"
+      fi
+    fi
+
     if [ -z "${rendered}" ]; then
       SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
       if is_render_skip_allowed "${chart}"; then
@@ -427,9 +476,7 @@ else
     # `nodePort: 0` is the k8s "unspecified" sentinel (vcluster/upstream
     # ClusterIP Services render it) — inert; only a NONZERO nodePort or a
     # `type: NodePort` Service is a real violation.
-    hits="$(printf '%s\n' "${rendered}" \
-      | grep -nE '(^|[[:space:]])type:[[:space:]]*NodePort|(^|[[:space:]])nodePort:[[:space:]]*[1-9][0-9]*' \
-      || true)"
+    hits="$(printf '%s\n' "${rendered}" | rendered_nodeports)"
     if [ -n "${hits}" ]; then
       fail "chart ${chart} RENDERS a NodePort (#4765):"
       printf '%s\n' "${hits}" >&2
