@@ -11,6 +11,7 @@ metadata:
   # global Service (api.<fqdn> /api/v1/catalog) so region-b's edge stub
   # resolves to this region-a pod. Gated → single-region byte-unchanged.
   annotations:
+    # single-region backend
     service.cilium.io/global: "true"
     service.cilium.io/shared: "true"
   {{- end }}

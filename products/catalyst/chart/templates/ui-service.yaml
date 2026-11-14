@@ -9,6 +9,7 @@ metadata:
   # parse Helm brace directives. The annotation is an inert no-op without a clustermesh
   # (single-region / mothership) and only takes effect where a mesh exists.
   annotations:
+    # single-region backend
     service.cilium.io/global: "true"
     service.cilium.io/shared: "true"
 spec:
