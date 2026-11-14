@@ -1,0 +1,13 @@
+schema: openova.io/plan-wrong/v1
+id: CTL-061
+ticket_rev: 1
+base_commit: ff5064382eafc03ab651f01961e2a16c4033c1ee
+stage: preflight
+ref: P10
+command: |
+    python3 -c 'import yaml; pk = {p["id"]: p for p in yaml.safe_load(open("docs/ledger/plan.yaml"))["packages"]}; print([(i, i in pk and not pk[i]["dropped"]) for i in ("CTL-182", "CTL-213")])'
+expected: |
+    [('CTL-182', True), ('CTL-213', True)]
+actual: |
+    [('CTL-182', False), ('CTL-213', False)]
+reported_at: 2026-11-14T13:35:18Z
