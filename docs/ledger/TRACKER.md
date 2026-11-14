@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T20:45:03Z` |
+| Last refreshed | `2026-11-14T21:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,10 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7576](https://github.com/openova-io/openova/issues/7576) | fix(ci): the secret guard for the OpenBao unseal key fails on main since two tas | Other |
-| [#7634](https://github.com/openova-io/openova/issues/7634) | fix(ci): the dependency bot opened 60 pull requests at once and filled the CI qu | Other |
-| [#7641](https://github.com/openova-io/openova/issues/7641) | SVC-070 Function tests: identity and secrets charts | Other |
-| [#7643](https://github.com/openova-io/openova/issues/7643) | FND-035 The gate workflow | Other |
 | [#7644](https://github.com/openova-io/openova/issues/7644) | FND-062 Every image and chart build signs through the action | Other |
 | [#7645](https://github.com/openova-io/openova/issues/7645) | NET-135 The plane-isolation policies admit the cross-region file sync and the sn | Other |
 | [#7654](https://github.com/openova-io/openova/issues/7654) | ACC-040 Access guards with their baselines | Other |
@@ -300,6 +296,10 @@ flowchart LR
 | [#7840](https://github.com/openova-io/openova/issues/7840) | FND-130 The gate suite runs on the local provider pack on every pull request | Other |
 | [#7841](https://github.com/openova-io/openova/issues/7841) | NET-170 Organization fence: two host-side deny objects for the Organization's ow | Other |
 | [#7842](https://github.com/openova-io/openova/issues/7842) | SVC-100 Function tests: admission, infrastructure and control-plane charts | Other |
+| [#7852](https://github.com/openova-io/openova/issues/7852) | AIP-222 Signal intake, grouping, candidate scoring, rule results | Other |
+| [#7853](https://github.com/openova-io/openova/issues/7853) | AIP-224 Guard library agentguard and its adversarial corpus | Other |
+| [#7854](https://github.com/openova-io/openova/issues/7854) | SOV-181 The provisioning routes refuse a Sovereign that is not a mothership | Other |
+| [#7855](https://github.com/openova-io/openova/issues/7855) | SOV-183 The Organization controller and the provisioning service render sources  | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-14T20:54 | [#7851](https://github.com/openova-io/openova/pull/7851) | #7087 | docs(ledger): plan update |
 | 2026-11-14T20:35 | [#7848](https://github.com/openova-io/openova/pull/7848) | #7717 | feat(acceptance): the network registry in the Sovereign stat |
 | 2026-11-14T20:36 | [#7847](https://github.com/openova-io/openova/pull/7847) | #7806 | feat(providers): every provider pack carries the seal hook o |
 | 2026-11-14T20:35 | [#7846](https://github.com/openova-io/openova/pull/7846) | #7761 | feat(kit): install kured in kit slot 04b (INF-050) |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-14T17:29 | [#7787](https://github.com/openova-io/openova/pull/7787) | #7739 | chore: delete the unused marketplace API module, its chart t |
 | 2026-11-14T15:45 | [#7786](https://github.com/openova-io/openova/pull/7786) | #7722 | ci: the rulesets name the release-writer deploy key, and the |
 | 2026-11-14T15:37 | [#7784](https://github.com/openova-io/openova/pull/7784) | #7087 | docs(ledger): plan update |
-| 2026-11-14T15:42 | [#7783](https://github.com/openova-io/openova/pull/7783) | #7742 | fix(api): serve the region registry and the Environment list |
 
 ---
 
