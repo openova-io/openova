@@ -25,6 +25,9 @@
 // One answer is kept for CacheTTL, so an anonymous caller cannot turn every
 // request into reads of the cluster. A read that fails is logged and
 // counts as an absent object; such an answer is not kept.
+//
+// MothershipOnly wraps the provisioning routes with the same mode: in mode
+// sovereign they answer 403 not-in-mothership-mode.
 package sovself
 
 import (
@@ -180,6 +183,23 @@ func (rt *Route) Serve(w http.ResponseWriter, r *http.Request) {
 		CustodyHolder:     s.custody,
 		Release:           Release{Channel: s.channel, Version: s.version},
 		KubernetesVersion: s.kube,
+	})
+}
+
+// MothershipOnly wraps a provisioning route: creating, wiping, retrying,
+// deleting or releasing a deployment, minting its hand-over token,
+// republishing its DNS, setting name servers at a registrar and fetching
+// its kubeconfig. In mode mothership the request goes to next unchanged.
+// In any other mode the route answers 403 {"error":"not-in-mothership-mode"}
+// and next is not called. The mode is the one GET /api/v1/sovereign/self
+// answers, read and kept the same way.
+func (rt *Route) MothershipOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if rt.current().mode != ModeMothership {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "not-in-mothership-mode"})
+			return
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 

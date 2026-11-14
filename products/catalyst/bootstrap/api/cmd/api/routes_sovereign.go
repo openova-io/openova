@@ -1,10 +1,6 @@
 package main
 
-import (
-	"github.com/go-chi/chi/v5"
-
-	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/sovself"
-)
+import "github.com/go-chi/chi/v5"
 
 func registerPublicSovereign(r chi.Router, d routeDeps) {
 	h := d.h
@@ -23,7 +19,7 @@ func registerPublicSovereign(r chi.Router, d routeDeps) {
 	// silently falls back to URL params there. See sovereign_self.go.
 	// Package sovself adds the mode, phase, source, custody, release and
 	// Kubernetes version, read from the variables document at run time.
-	r.Get("/api/v1/sovereign/self", sovself.New(h.SovereignSelf, d.log).Serve)
+	r.Get("/api/v1/sovereign/self", d.self.Serve)
 
 	// D16 PR F (2026-05-17 t138 bug fix): mothership POSTs each
 	// secondary-region kubeconfig here at handover. Same auth model as

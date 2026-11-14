@@ -14,5 +14,5 @@ func registerSessionRegistrar(rg chi.Router, d routeDeps) {
 	// Registrar proxy — wizard's BYO Flow B (#169). /validate is OUTSIDE
 	// session group (pre-auth wizard surface). /set-ns is called from
 	// CreateDeployment when domainMode == byo-api (post-auth).
-	rg.Post("/api/v1/registrar/{registrar}/set-ns", h.SetNSRegistrar)
+	rg.With(d.self.MothershipOnly).Post("/api/v1/registrar/{registrar}/set-ns", h.SetNSRegistrar)
 }

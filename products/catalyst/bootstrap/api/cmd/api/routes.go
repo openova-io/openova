@@ -11,16 +11,20 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handler"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobauth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/oidcprovider"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/sovself"
 )
 
 // routeDeps holds every value of main() that a route registration reads,
-// in the order main() declares them.
+// in the order main() declares them, and self, which buildRouter makes.
 type routeDeps struct {
 	corsOrigin   string
 	log          *slog.Logger
 	h            *handler.Handler
 	pprofEnabled bool
 	oidcProv     *oidcprovider.Provider
+	// self serves GET /api/v1/sovereign/self and its MothershipOnly
+	// wraps the provisioning routes, so both read one kept mode.
+	self *sovself.Route
 }
 
 // buildRouter builds the router of catalyst-api: the middleware of every
@@ -32,6 +36,7 @@ type routeDeps struct {
 // TestRoutesGolden pins the table this function builds.
 func buildRouter(d routeDeps) chi.Router {
 	corsOrigin, log, h := d.corsOrigin, d.log, d.h
+	d.self = sovself.New(h.SovereignSelf, log)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
