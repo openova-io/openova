@@ -269,7 +269,10 @@ echo "CLIENTS curl=$(command -v curl) wget=$(command -v wget)"
 for t in allowed-model=http://model-gateway.spike.svc.cluster.local:8080/healthz allowed-mcp=http://openova-mcp.spike.svc.cluster.local:8080/healthz control-plane=http://kagent-controller.org-a.svc.cluster.local:8083/health denied-service=http://forbidden.spike.svc.cluster.local:8080/healthz denied-internet=https://example.com/ denied-ip=https://10.43.0.1:443/version; do
   n=${t%%=*}; u=${t#*=}
   if command -v curl >/dev/null 2>&1; then r=$(curl -sk -m 8 -o /dev/null -w 'code=%{http_code}' "$u" 2>&1; echo " rc=$?")
-  elif command -v wget >/dev/null 2>&1; then r=$(wget -q -T 8 -S -O /dev/null "$u" 2>&1 | grep -m1 HTTP/ | tr -d '\r'; echo " rc=$?")
+  elif command -v wget >/dev/null 2>&1; then o=$(wget -T 8 -S -O /dev/null "$u" 2>&1); rc=$?
+    h=$(printf '%s\n' "$o" | tr -d '\r' | grep -m1 -E 'HTTP/[0-9.]+ [0-9]{3}' | sed 's/^ *//')
+    e=$(printf '%s\n' "$o" | grep -m1 -iE 'wget:|bad address|refused|timed out|unreachable|error' | cut -c1-120)
+    r="${h:-no-http-status}; ${e:-no-error-text}; rc=$rc"
   else h=${u#*://}; h=${h%%/*}; host=${h%%:*}; port=${h##*:}; [ "$port" = "$host" ] && port=80
     r=$( (exec 3<>"/dev/tcp/$host/$port" && printf 'GET / HTTP/1.0\r\nHost: %s\r\n\r\n' "$host" >&3 && head -c 15 <&3) 2>&1 | head -n 1; echo " rc=$?"); fi
   echo "PROBE $n $u => $r"
@@ -488,22 +491,37 @@ phase_t6() {
   python3 - "$OUT/stub-t6.json" "$st" >"$OUT/t6-eval.json" <<'EOF'
 import json, re, sys
 log = json.load(open(sys.argv[1])); st = sys.argv[2]
-text = "\n".join(t for e in log if e.get("scenario") == "T6" for t in e.get("tool_results", []))
+parts = []
+for e in log:
+    if e.get("scenario") != "T6":
+        continue
+    for t in e.get("tool_results", []):
+        try:  # the runtime wraps tool output as {"output": "..."}
+            t = json.loads(t).get("output", t)
+        except Exception:
+            pass
+        parts.append(str(t).replace("\\n", "\n"))
+text = "\n".join(parts)
 probes = {}
-for m in re.finditer(r"PROBE (\S+) (\S+) => ([^\n|]*)", text):
+for m in re.finditer(r"PROBE (\S+) (\S+) => ([^\n]*)", text):
     probes[m.group(1)] = m.group(3).strip()
-facts = {k: (re.search(k + r" ([^\n|]*)", text) or [None, ""])[1][:200] for k in ("ID", "KERNEL", "DMESG", "CLIENTS")}
+facts = {k: (re.search(k + r" ([^\n]*)", text) or [None, ""])[1][:200] for k in ("ID", "KERNEL", "DMESG", "CLIENTS")}
+def status(v):  # HTTP status the target answered with, or None (curl code=NNN or wget HTTP/x NNN)
+    c = re.search(r"code=(\d{3})", v or "") or re.search(r"HTTP/[0-9.]+ (\d{3})", v or "")
+    return c.group(1) if c and c.group(1) != "000" else None
 def reached(v):
-    c = re.search(r"code=(\d{3})", v or "")
-    return bool(c and c.group(1) != "000")
-ok_allowed = all(reached(probes.get(n)) and "code=200" in probes.get(n, "") for n in ("allowed-model", "allowed-mcp"))
+    return status(v) is not None
+ok_allowed = all(status(probes.get(n)) == "200" for n in ("allowed-model", "allowed-mcp"))
 ok_denied = all(n in probes and not reached(probes[n]) for n in ("denied-service", "denied-internet", "denied-ip"))
 print(json.dumps({"taskState": st, "probes": probes, "sandbox": facts, "allowedReached": ok_allowed,
                   "deniedBlocked": ok_denied, "pass": st == "TASK_STATE_COMPLETED" and ok_allowed and ok_denied}))
 EOF
   cat "$OUT/t6-eval.json"
-  rec T6 "$(jq -r 'if .pass then "pass" else "fail" end' "$OUT/t6-eval.json")" "$(cat "$OUT/t6-eval.json")" \
-    "curl from the built-in bash tool inside the Actor; denied = no HTTP answer from the target"
+  echo "--- host processes of the gVisor worker (seen from the node)"
+  ps -eo pid,user,args | grep -iE 'runsc|gvisor|gofer|sentry|ateworker' | grep -v grep | cut -c1-220 | head -n 8 | tee "$OUT/t6-host-procs.txt"
+  rec T6 "$(jq -r 'if .pass then "pass" else "fail" end' "$OUT/t6-eval.json")" \
+    "$(jq -c --argjson p "$(jq -Rsc 'split("\n")|map(select(length>0))' <"$OUT/t6-host-procs.txt")" '. + {hostProcesses:$p}' "$OUT/t6-eval.json")" \
+    "HTTP client (curl or wget) from the built-in bash tool inside the Actor; denied = no HTTP status from the target"
 }
 
 # ------------------------------------------------------------------ T11
@@ -612,9 +630,13 @@ phase_t9() {
   k -n "$ORG_A" rollout restart "deploy/$dep"; k -n "$ORG_A" rollout status "deploy/$dep" --timeout=300s
   r=$(a2a "$CALLER_NS" "$(url_of "$ORG_A" probe)" --token "$(cat "$OUT/keys/tok-a")" --text "SPIKE-T4 no-secret" --timeout 600); echo "$r" | cut -c1-600
   st=$(jq -r '.state // ""' <<<"$r")
+  local render
+  render=$(helm template kagent "$KAGENT_CHART" --version "$KAGENT_VERSION" -n "$ORG_A" --set providers.default=ollama \
+    --set database.postgres.readWriteConnectionStringSecretRef.name= 2>&1 | grep -m1 -iE 'error|required' | cut -c1-240)
+  echo "upstream chart without the Secret reference: ${render:-renders}"
   rec T9 "$([ "$pwrw" = no ] && [ "$pwow" = no ] && [ "$st" = TASK_STATE_COMPLETED ] && echo pass || echo fail)" \
-    "$(jq -cn --argjson s "$secrets" --argjson p "$podcert" --arg a "$pwrw" --arg b "$pwow" --arg st "$st" \
-      '{secretsReadByChart:$s, podCertificateSigners:$p, readWriteURLHasPassword:$a, ownerURLHasPassword:$b, turnAfterSecretsDeleted:$st, route:"file"}')" \
+    "$(jq -cn --argjson s "$secrets" --argjson p "$podcert" --arg a "$pwrw" --arg b "$pwow" --arg st "$st" --arg ren "${render:-renders}" \
+      '{secretsReadByChart:$s, podCertificateSigners:$p, readWriteURLHasPassword:$a, ownerURLHasPassword:$b, turnAfterSecretsDeleted:$st, chartWithoutSecretRef:$ren, route:"file"}')" \
     "credential = projected Pod Certificate files; URLs moved to a ConfigMap, both Secrets deleted, controller restarted"
 }
 
@@ -740,8 +762,16 @@ phase_t3() {
 
 # ------------------------------------------------------------------ T2
 phase_t2() {
+  # Run 2 measured that open-source vcluster 0.33.4 refuses to sync the WorkerPool
+  # CRD to the host ("Generic Sync" is a vCluster Pro feature; the syncer exits).
+  # This attempt keeps the kagent controller, its database and the Agent inside the
+  # vcluster and renders the WorkerPool on the host, in the Organization's host
+  # namespace, as a platform renderer would. The virtual namespace carries the host
+  # namespace's name, so the pool reference kagent hands to Substrate resolves on the
+  # host; actors reach the controller through the Service vcluster syncs to the host.
   log "T2: kagent controller, database and one Agent inside an Organization vcluster (vcluster $VCLUSTER_VERSION)"
-  local VK stage=start hostsa rc t0=$SECONDS st=""
+  local VK stage=start hostsa rc t0=$SECONDS st="" vns="$ORG_V" hsvc shadow=no img url conds
+  hsvc="kagent-controller-x-$vns-x-vcluster"
   k create ns "$ORG_V" --dry-run=client -o yaml | k apply -f -
   k label ns "$ORG_V" ate.dev/api-access=true openova.io/organization=org-v --overwrite
   cat >"$MAN/vcluster-values.yaml" <<EOF
@@ -762,8 +792,6 @@ sync:
     ingresses: {enabled: false}
     networkPolicies: {enabled: true}
     serviceAccounts: {enabled: true}
-    customResources:
-      workerpools.ate.dev: {enabled: true}
   fromHost:
     ingressClasses: {enabled: true}
 networking:
@@ -772,49 +800,78 @@ networking:
       - {from: ate-system/api, to: ate-system/api}
       - {from: ate-system/atenet-router, to: ate-system/atenet-router}
       - {from: ate-system/idp, to: ate-system/idp}
-      - {from: $SPIKE_NS/model-gateway, to: $SPIKE_NS/model-gateway}
 EOF
   helm repo add loft https://charts.loft.sh >/dev/null; helm repo update >/dev/null
   if ! helm install vcluster loft/vcluster --version "$VCLUSTER_VERSION" -n "$ORG_V" -f "$MAN/vcluster-values.yaml" --wait --timeout 10m >"$OUT/vcluster-install.log" 2>&1; then
-    tail -n 20 "$OUT/vcluster-install.log"; k -n "$ORG_V" get pods; k -n "$ORG_V" logs sts/vcluster --tail=40 2>&1 | cut -c1-300
-    rec T2 fail "{\"stage\":\"vcluster-install\"}" "$(tail -n 3 "$OUT/vcluster-install.log" | tr '\n' ' ' | cut -c1-400)"; return 1
+    tail -n 20 "$OUT/vcluster-install.log"; k -n "$ORG_V" get pods; k -n "$ORG_V" logs sts/vcluster --tail=40 2>&1 | grep -iE 'error|pro feature' | cut -c1-400
+    rec T2 fail "{\"stage\":\"vcluster-install\"}" "$(k -n "$ORG_V" logs sts/vcluster --tail=60 2>&1 | grep -m1 -iE 'pro feature|error' | cut -c1-400)"; return 1
   fi
   stage=vcluster-up
   k -n "$ORG_V" get secret vc-vcluster -o jsonpath='{.data.config}' | base64 -d >"$OUT/vc.kubeconfig"
   nohup kubectl -n "$ORG_V" port-forward svc/vcluster 8443:443 >/dev/null 2>&1 &
   VK="kubectl --kubeconfig $OUT/vc.kubeconfig"
   wait_for 120 $VK get ns default || { rec T2 fail "{\"stage\":\"$stage\"}" "cannot reach the virtual API server"; return 1; }
-  $VK get --raw /apis/certificates.k8s.io/v1beta1 | jq -c '[.resources[].name]' || true
-  for ns in kagent ate-system "$SPIKE_NS"; do $VK create ns "$ns" --dry-run=client -o yaml | $VK apply -f -; done
+  echo "virtual API certificates.k8s.io/v1beta1: $($VK get --raw /apis/certificates.k8s.io/v1beta1 2>&1 | jq -c '[.resources[].name]' 2>/dev/null)"
+  for ns in "$vns" ate-system; do $VK create ns "$ns" --dry-run=client -o yaml | $VK apply -f -; done
   wait_for 120 $VK -n ate-system get svc api || echo "replicated Service ate-system/api not visible in the vcluster"
   $VK get svc -A 2>&1 | head -n 12
-  helm --kubeconfig "$OUT/vc.kubeconfig" install kagent-crds "oci://ghcr.io/kagent-dev/kagent/helm/kagent-crds" --version "$KAGENT_VERSION" -n kagent --wait --timeout 5m >"$OUT/vc-crds.log" 2>&1 || tail -n 5 "$OUT/vc-crds.log"
-  db_for kagent "$VK"
-  helm get values kagent -n "$ORG_A" -o json | jq -c '.database.postgres.clientCertificate.enabled = false | .global.watchNamespaces = ["kagent"]' >"$MAN/kagent-v-values.json"
-  helm --kubeconfig "$OUT/vc.kubeconfig" install kagent "$KAGENT_CHART" --version "$KAGENT_VERSION" -n kagent -f "$MAN/kagent-v-values.json" --timeout 10m >"$OUT/vc-kagent.log" 2>&1; rc=$?
-  tail -n 5 "$OUT/vc-kagent.log"; stage=helm-install-rc-$rc
-  wait_for 300 bash -c "kubectl -n $ORG_V get pods -o name | grep -q controller" || true
-  hostsa=$(k -n "$ORG_V" get pods -o json | jq -r '[.items[] | select(.metadata.name|test("controller")) | .spec.serviceAccountName][0] // ""')
+  log "T2 host side: ServiceAccount and WorkerPool for the Organization, in its host namespace"
+  img=$(k -n "$ORG_A" get workerpools.ate.dev kagent-default -o jsonpath='{.spec.workerImage}')
+  cat >"$MAN/t2-host-pool.yaml" <<EOF
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: kagent-default, namespace: $ORG_V}
+---
+apiVersion: ate.dev/v1
+kind: WorkerPool
+metadata:
+  name: kagent-default
+  namespace: $vns
+  labels: {kagent.dev/worker-pool-name: kagent-default, kagent.dev/worker-pool-namespace: $vns}
+spec:
+  replicas: 1
+  workerImage: "$img"
+  sandboxClasses: [{name: gvisor, configRef: {name: gvisor-default}}]
+  template: {serviceAccountName: kagent-default}
+EOF
+  k apply -f "$MAN/t2-host-pool.yaml"
+  if wait_for 420 bash -c "kubectl -n $ORG_V get deploy kagent-default -o jsonpath='{.status.readyReplicas}' | grep -q '^[1-9]'"; then stage=worker-ready-on-host; fi
+  helm --kubeconfig "$OUT/vc.kubeconfig" install kagent-crds "oci://ghcr.io/kagent-dev/kagent/helm/kagent-crds" --version "$KAGENT_VERSION" -n "$vns" --wait --timeout 5m >"$OUT/vc-crds.log" 2>&1 || tail -n 5 "$OUT/vc-crds.log"
+  db_for "$vns" "$VK"
+  url="http://$hsvc.$ORG_V.svc.cluster.local:8083"
+  helm get values kagent -n "$ORG_A" -o json | jq -c --arg ns "$vns" --arg url "$url" \
+    '.database.postgres.clientCertificate.enabled = false | .global.watchNamespaces = [$ns] | .substrateWorkerPool.create = false
+     | .config.runtimeDefaults.controlPlaneUrl = $url | .config.runtimeDefaults.gatewayUrl = $url' >"$MAN/kagent-v-values.json"
+  helm --kubeconfig "$OUT/vc.kubeconfig" install kagent "$KAGENT_CHART" --version "$KAGENT_VERSION" -n "$vns" -f "$MAN/kagent-v-values.json" --timeout 10m >"$OUT/vc-kagent.log" 2>&1; rc=$?
+  tail -n 3 "$OUT/vc-kagent.log"
+  wait_for 300 bash -c "kubectl -n $ORG_V get pods -o name | grep -q kagent-controller" || echo "no synced controller pod on the host"
+  hostsa=$(k -n "$ORG_V" get pods -o json | jq -r '[.items[] | select(.metadata.name|test("kagent-controller")) | .spec.serviceAccountName][0] // ""')
   echo "host ServiceAccount of the synced controller pod: $hostsa"
-  [ -n "$hostsa" ] && substrate_allow "spiffe://cluster.local/ns/$ORG_V/sa/$hostsa" "$ORG_V" && stage=substrate-allowed
-  if $VK -n kagent rollout status deploy/kagent-controller --timeout=420s; then stage=controller-ready; fi
+  [ -n "$hostsa" ] && substrate_allow "spiffe://cluster.local/ns/$ORG_V/sa/$hostsa" "$vns"
+  if $VK -n "$vns" rollout status deploy/kagent-controller --timeout=420s; then stage=controller-ready; fi
   k -n "$ORG_V" get pods -o wide
-  k -n "$ORG_V" get workerpools.ate.dev -o name 2>&1 | tee "$OUT/vc-host-workerpools.txt"
-  if wait_for 300 bash -c "kubectl -n $ORG_V get deploy -o json | jq -e '[.items[] | select(.metadata.ownerReferences[]?.kind==\"WorkerPool\") | select((.status.readyReplicas // 0) > 0)] | length > 0'"; then stage=worker-ready-on-host; fi
-  kagent_objects kagent org-v kagent-default | $VK apply -f - >/dev/null 2>&1
-  if $VK -n kagent wait --for=condition=Ready agent/probe --timeout=600s; then stage=agent-ready; fi
-  $VK -n kagent get agents.api.kagent.dev -o json | jq -c '.items[] | {name: .metadata.name, conditions: [(.status.conditions // [])[] | {type, status, reason, message: (.message // "" | .[0:300])}]}' || true
-  local hsvc; hsvc=$(k -n "$ORG_V" get svc -o json | jq -r '.items[] | select(any(.spec.ports[]; .port==8083)) | .metadata.name' | head -n 1)
-  if [ -n "$hsvc" ] && [ "$stage" = agent-ready ]; then
-    st=$(a2a "$CALLER_NS" "http://$hsvc.$ORG_V.svc.cluster.local:8083/agents/kagent/probe" --token "$(cat "$OUT/keys/tok-a")" --text "SPIKE-T4 vcluster" --timeout 600 | jq -r '.state // ""')
+  kagent_objects "$vns" org-v kagent-default | $VK apply -f -
+  if $VK -n "$vns" wait --for=condition=Ready agent/probe --timeout=300s; then stage=agent-ready; fi
+  conds=$($VK -n "$vns" get agents.api.kagent.dev -o json | jq -c '[.items[] | {name: .metadata.name, conditions: [(.status.conditions // [])[] | {type, status, reason, message: (.message // "" | .[0:300])}]}]' 2>/dev/null | js '[]')
+  echo "$conds"
+  if [ "$stage" != agent-ready ] && grep -qi workerpool <<<"$conds$($VK -n "$vns" get harnesses.api.kagent.dev -o json 2>/dev/null)"; then
+    log "T2: the controller looks the WorkerPool up in its own API; add a shadow WorkerPool inside the vcluster"
+    helm --kubeconfig "$OUT/vc.kubeconfig" install substrate-crds oci://ghcr.io/kagent-dev/substrate/helm/substrate-crds --version "$(jq -r '.[] | select(.name=="substrate") | .chart' <(helm list -n ate-system -o json) | sed 's/^substrate-//')" -n ate-system --wait --timeout 5m >"$OUT/vc-substrate-crds.log" 2>&1 || tail -n 3 "$OUT/vc-substrate-crds.log"
+    sed -n '/^kind: WorkerPool/,$p' "$MAN/t2-host-pool.yaml" | sed '1i apiVersion: ate.dev/v1' | $VK apply -f - && shadow=yes
+    if $VK -n "$vns" wait --for=condition=Ready agent/probe --timeout=300s; then stage=agent-ready; fi
+    conds=$($VK -n "$vns" get agents.api.kagent.dev -o json | jq -c '[.items[] | {name: .metadata.name, conditions: [(.status.conditions // [])[] | {type, status, reason, message: (.message // "" | .[0:300])}]}]' 2>/dev/null | js '[]')
+  fi
+  if [ "$stage" = agent-ready ]; then
+    st=$(a2a "$CALLER_NS" "$url/agents/$vns/probe" --token "$(cat "$OUT/keys/tok-a")" --text "SPIKE-T4 vcluster" --timeout 600 | jq -r '.state // ""')
     [ "$st" = TASK_STATE_COMPLETED ] && stage=turn-completed
   fi
-  $VK -n kagent logs deploy/kagent-controller --tail=60 >"$OUT/vc-controller.log" 2>&1
-  grep -iE 'error|fail|denied|substrate|workerpool' "$OUT/vc-controller.log" | tail -n 12 | cut -c1-300
+  $VK -n "$vns" logs deploy/kagent-controller --tail=80 >"$OUT/vc-controller.log" 2>&1
+  grep -iE 'error|fail|denied|workerpool|permission' "$OUT/vc-controller.log" | tail -n 12 | cut -c1-300
+  k -n "$ORG_V" get pods -o wide
   rec T2 "$([ "$stage" = turn-completed ] && echo pass || echo fail)" \
-    "$(jq -cn --arg s "$stage" --arg sa "$hostsa" --arg svc "$hsvc" --arg st "$st" --arg sec "$((SECONDS - t0))" --argjson wp "$(jq -Rsc 'split("\n")|map(select(length>0))' <"$OUT/vc-host-workerpools.txt")" \
-      '{stageReached:$s, hostServiceAccount:$sa, hostControllerService:$svc, hostWorkerPools:$wp, turnState:$st, seconds:$sec}')" \
-    "vcluster values: the Organization renderer's sync set plus ServiceAccount and WorkerPool sync, Substrate Services replicated, API server gates"
+    "$(jq -cn --arg s "$stage" --arg sa "$hostsa" --arg svc "$hsvc" --arg st "$st" --arg sec "$((SECONDS - t0))" --arg sh "$shadow" --arg rc "$rc" --arg u "$url/agents/$vns/probe" --argjson c "$conds" \
+      '{stageReached:$s, kagentHelmExit:$rc, hostServiceAccount:$sa, hostControllerService:$svc, shadowWorkerPoolInVcluster:$sh, agentConditions:$c, turnState:$st, a2aURL:$u, seconds:$sec}')" \
+    "vcluster OSS without CRD sync; WorkerPool rendered on the host in the Organization's host namespace; controlPlaneUrl = the host-side synced Service"
 }
 
 # ------------------------------------------------------------------ T1 policy measurement
@@ -871,6 +928,11 @@ phase_collect() {
   k -n ate-system logs ds/atelet --all-containers --tail=200 >"$OUT/log-atelet.txt" 2>&1
   k get agents.api.kagent.dev -A -o json | jq -c '.items[] | {ns: .metadata.namespace, name: .metadata.name, conditions: [(.status.conditions // [])[] | {type, status, reason}]}' 2>/dev/null | tee "$OUT/agents-final.txt"
   stublog >"$OUT/stub-final.json"
+  echo "--- Substrate authorization lists after all installs"
+  helm get values substrate -n ate-system -o json 2>/dev/null | jq -c '{bootstrapOwners: .ateApi.authorization.bootstrapOwners, ingressAllowedSPIFFEIDs: .atenetRouter.ingressAllowedSPIFFEIDs, namespacePolicies: .credentialProvider.namespacePolicies}' | tee "$OUT/substrate-authz.json"
+  echo "--- pod CPU and memory (metrics-server)"
+  k top pods -A --no-headers 2>&1 | grep -E 'ate-system|podcert|org-a|org-b|org-v|kube-system' | tee "$OUT/top-pods.txt" | head -n 40
+  k top nodes 2>&1 | tee -a "$OUT/top-pods.txt"
   df -h / >"$OUT/df-end.txt"; free -m >>"$OUT/df-end.txt"
   if [ -f "$OUT/nodeport-guard.log" ]; then echo "NODEPORT GUARD:"; cat "$OUT/nodeport-guard.log"; else echo "nodeport guard: no NodePort or LoadBalancer Service seen"; fi
   # throwaway key and test tokens are not uploaded; bearer values are dropped from the backend logs

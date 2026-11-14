@@ -73,6 +73,6 @@ sudo systemctl restart k3s; sleep 5
 if ready; then
   probe gated
 else
-  why=$(sudo journalctl -u k3s --no-pager -n 400 2>/dev/null | grep -iE 'feature gate|unrecognized|runtime-config|invalid|fatal' | tail -n 3 | cut -c1-300 | tr '\n' ' ')
+  why=$(sudo journalctl -u k3s --no-pager -n 600 2>/dev/null | grep -E 'level=(error|fatal)|Error:|unrecognized|E[0-9]{4} ' | grep -v WatchListClient | tail -n 4 | cut -c1-300 | tr '\n' ' ')
   rec "PROBE $V gated" info "$(jq -cn --arg k3s "$V" '{k3s:$k3s,mode:"gated",apiServerStarted:false,substrateApiSatisfied:"no"}')" "$why"
 fi
