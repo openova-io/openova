@@ -4,5 +4,4 @@ namespace: apps
 resources:
   - app-nextcloud.yaml
   - app-vaultwarden.yaml
-  - db-postgres.yaml
   - namespace.yaml
