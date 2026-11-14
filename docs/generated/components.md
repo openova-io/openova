@@ -60,7 +60,7 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | platform/keycloak | bp-keycloak | bp-keycloak | unlisted | 09 |
 | platform/knative | bp-knative | bp-knative | unlisted | - |
 | platform/kserve | bp-kserve | bp-kserve | unlisted | - |
-| platform/kured | bp-kured | bp-kured | unlisted | - |
+| platform/kured | bp-kured | bp-kured | unlisted | 04b |
 | platform/kyverno | bp-kyverno | kyverno | - | 27 |
 | platform/kyverno-policies | bp-kyverno-policies | kyverno-policies | - | 27a |
 | platform/langfuse | bp-langfuse | langfuse | - | - |

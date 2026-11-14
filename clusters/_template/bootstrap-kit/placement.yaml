@@ -78,6 +78,8 @@ spec:
        namespace: flux-system, justification: "HOST-MINIMUM §4 — the GitOps engine itself"}
     - {file: 04-crossplane.yaml, hr: bp-crossplane, vcluster: host, target: host,
        namespace: crossplane-system, justification: "HOST-MINIMUM §4 — day-2 infra plumbing (never a user surface)"}
+    - {file: 04b-bp-kured.yaml, hr: bp-kured, vcluster: host, target: host,
+       namespace: kube-system, justification: "HOST-MINIMUM §4 — node substrate: reboots the host's own nodes and writes their apt configuration through a host mount"}
     - {file: 05-sealed-secrets.yaml, hr: bp-sealed-secrets, vcluster: host, target: host,
        namespace: kube-system, justification: "HOST-MINIMUM §4 — secret decryption substrate"}
     - {file: 05a-reflector.yaml, hr: bp-reflector, vcluster: host, target: host,
