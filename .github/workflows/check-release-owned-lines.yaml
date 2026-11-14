@@ -9,9 +9,16 @@ name: check-release-owned-lines
 # The rules are in the head of scripts/check-release-owned-lines.py.
 #
 # The job `push` stays idle until the repository variable RELEASE_WRITER_LOGIN
-# exists. Package FND-017 sets it when it moves every bot writer to that login
-# and switches the merge queue on; from then on a push to main that came
-# neither from the queue nor from that login fails this job.
+# exists. It is set when the rulesets are applied and the merge queue is
+# switched on; its value is not compared. The one bypass actor of the ruleset
+# is the release-writer deploy key, and a push with a deploy key carries the
+# login of the person who added the key. So the job judges what a push that did
+# not come from the queue changes: only release-owned lines and new gate
+# records (rules P1 and P2 in the head of the script, FND-025). A push whose
+# head commit holds [skip ci] starts no run, and every release-writer commit
+# holds it; so each run also judges, commit by commit, every commit after the
+# head of the previous run (rule P3). The API read of that run needs
+# actions: read.
 
 on:
   pull_request:
@@ -43,15 +50,27 @@ jobs:
         run: python3 scripts/check-release-owned-lines.py pr --base "$BASE_SHA" --head "$HEAD_SHA"
 
   push:
-    name: a push to main comes from the merge queue or the release writer
+    name: a push to main outside the merge queue changes only release-owned lines
     if: github.event_name == 'push' && vars.RELEASE_WRITER_LOGIN != ''
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Who pushed
+      - name: Prove the guard can fail
+        run: python3 scripts/check-release-owned-lines.py --self-test
+
+      - name: What the push changed, and every push since the previous run
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           PUSH_ACTOR: ${{ github.actor }}
-          RELEASE_WRITER: ${{ vars.RELEASE_WRITER_LOGIN }}
-        run: python3 scripts/check-release-owned-lines.py push --actor "$PUSH_ACTOR" --writer "$RELEASE_WRITER"
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+        run: |
+          SINCE_SHA="$(python3 scripts/check-release-owned-lines.py previous-run --run-id "$GITHUB_RUN_ID")"
+          python3 scripts/check-release-owned-lines.py push --actor "$PUSH_ACTOR" --since "$SINCE_SHA" --before "$BEFORE_SHA" --after "$AFTER_SHA"

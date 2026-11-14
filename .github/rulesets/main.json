@@ -3,7 +3,7 @@
   "target": "branch",
   "enforcement": "active",
   "conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
-  "bypass_actors": [{"actor_type": "Team", "team": "release-writer", "bypass_mode": "always"}],
+  "bypass_actors": [{"actor_type": "DeployKey", "bypass_mode": "always"}],
   "rules": [
     {"type": "merge_queue", "parameters": {
       "merge_method": "SQUASH", "grouping_strategy": "ALLGREEN",
