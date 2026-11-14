@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-14T17:01:03.729Z",
+  "generatedAt": "2026-11-14T17:01:07.572Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -4690,7 +4690,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "section": "pts-3-1-networking-and-service-mesh",
       "depends": [],
       "shareable": false,
