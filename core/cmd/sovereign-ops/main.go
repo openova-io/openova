@@ -15,11 +15,14 @@ import (
 	"syscall"
 
 	"github.com/openova-io/openova/core/cmd/sovereign-ops/internal/ops"
+	"github.com/openova-io/openova/core/cmd/sovereign-ops/internal/seedrepo"
 )
 
 // subcommands is the dispatcher's table. A subcommand is one entry here and
 // one package under internal/.
-var subcommands = map[string]func(ctx context.Context, args []string, stderr io.Writer) ([]string, error){}
+var subcommands = map[string]func(ctx context.Context, args []string, stderr io.Writer) ([]string, error){
+	"seed-repo": seedrepo.Main,
+}
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
