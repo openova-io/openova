@@ -129,3 +129,6 @@ clusters/contabo-mkt/tenants/e2e-wp-test/apps/db-mysql.yaml
 clusters/contabo-mkt/tenants/test/apps/db-mysql.yaml
 clusters/contabo-mkt/tenants/test12-2/apps/db-postgres.yaml
 platform/bp-vcluster-helmrepo/chart/templates/vcluster-crd.yaml
+core/marketplace-api
+products/catalyst/chart/templates/marketplace-api
+.github/workflows/marketplace-api-build.yaml

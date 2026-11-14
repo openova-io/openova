@@ -12,7 +12,6 @@ on:
       - 'core/console/**'
       - 'core/admin/**'
       - 'core/marketplace/**'
-      - 'core/marketplace-api/**'
       - 'products/catalyst/bootstrap/**'
       - 'products/catalyst/chart/**'
       - 'infra/providers/**'

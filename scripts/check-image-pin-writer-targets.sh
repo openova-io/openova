@@ -101,7 +101,6 @@ WORKFLOW_DIR="${WORKFLOW_DIR:-.github/workflows}"
 DEFAULT_PINS=(
   "console|nested|console-build.yaml"
   "admin|nested|admin-build.yaml"
-  "marketplaceApi|nested|marketplace-api-build.yaml"
   "catalystApi|nested|catalyst-build.yaml"
   "catalystUi|nested|catalyst-build.yaml"
   "orgTag|flat|services-build.yaml"
