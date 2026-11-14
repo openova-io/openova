@@ -53,3 +53,7 @@ jobs:
         run: |
           python3 scripts/check-sandbox-word.py --self-test
           python3 scripts/check-sandbox-word.py --base HEAD^1
+      - name: Every job that pushes to main pushes with the release-writer key
+        run: |
+          python3 scripts/check-bot-writers.py --self-test
+          python3 scripts/check-bot-writers.py --base HEAD^1

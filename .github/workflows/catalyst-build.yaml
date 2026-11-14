@@ -944,6 +944,12 @@ jobs:
             products/catalyst/chart/templates/ui-deployment-kustomize.yaml
           commit-message: "deploy: update catalyst images to ${{ needs.build-ui.outputs.sha_short }} (+ #2851 controller sweep)"
 
+      # FND-017: after the deploy-bump step, which pushes with the workflow token until FND-024.
+      - name: "Release writer: push with the release-writer key"
+        uses: ./.github/actions/use-release-writer
+        with:
+          key: ${{ secrets.RELEASE_WRITER_KEY }}
+
       # ──────────────────────────────────────────────────────────────
       # ATOMIC CHART VERSION BUMP (Refs #5743)
       # ──────────────────────────────────────────────────────────────
