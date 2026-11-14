@@ -1,0 +1,62 @@
+# bp-kured — bootstrap-kit slot 04b (chart platform/kured, work package INF-050).
+# kured reboots a node that needs it, one node at a time, drained, and only
+# inside its reboot span. The DaemonSet node-patch-config of the same chart
+# makes every node install security updates and never reboot itself.
+#
+# The chart's defaults carry every kured setting (platform/kured/chart/values.yaml).
+# This slot sets only:
+#   - the reboot span, as three substitutions of the Sovereign's variables
+#     with the chart's defaults as fallback: 00:30 to 22:00 UTC. The upgrade
+#     Plans keep their window outside this span;
+#   - the image of node-patch-config and of the function test, behind the
+#     registry prefix the platform's charts use for alpine/k8s:1.31.4.
+#
+# dependsOn bp-cilium: kured talks to the API server and drains nodes; both
+# need the CNI. The chart comes through the HelmRepository bp-flux of slot 03
+# (the same OCI registry). The release lives in kube-system, which the
+# admission policies exclude: kured needs a privileged container and the
+# host process namespace to reboot a node.
+#
+# The local provider pack does not install this slot: a container node has
+# no boot of its own.
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-kured
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "04b"
+    catalyst.openova.io/ring: foundation
+spec:
+  interval: 15m
+  releaseName: kured
+  targetNamespace: kube-system
+  dependsOn:
+    - name: bp-cilium
+  chart:
+    spec:
+      chart: bp-kured
+      version: 0.1.0
+      sourceRef:
+        kind: HelmRepository
+        name: bp-flux
+        namespace: flux-system
+  values:
+    kured:
+      configuration:
+        startTime: "${KURED_START_TIME:=00:30}"
+        endTime: "${KURED_END_TIME:=22:00}"
+        timeZone: "${KURED_TIME_ZONE:=UTC}"
+    nodePatchConfig:
+      image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
+  install:
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: -1
+  upgrade:
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 3

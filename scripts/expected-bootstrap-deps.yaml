@@ -73,6 +73,12 @@ slots:
     name: bp-crossplane
     depends_on: [bp-flux]
     wave: present
+  - slot: "4b"
+    name: bp-kured
+    # Coordinated node reboots (chart bp-kured, INF-050). kured drains nodes
+    # and talks to the API server; both need the CNI.
+    depends_on: [bp-cilium]
+    wave: present
   - slot: 5
     name: bp-sealed-secrets
     depends_on: [bp-cert-manager]

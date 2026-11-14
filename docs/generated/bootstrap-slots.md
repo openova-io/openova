@@ -23,6 +23,7 @@ One row for each HelmRelease of each file that `clusters/_template/bootstrap-kit
 | 02a | 02a-bp-cert-manager-issuers.yaml | bp-cert-manager-issuers | cert-manager-issuers | cert-manager | bp-cert-manager-issuers | bp-cert-manager | - | same |
 | 03 | 03-flux.yaml | bp-flux | flux | flux-system | bp-flux | bp-cert-manager | - | same |
 | 04 | 04-crossplane.yaml | bp-crossplane | crossplane | crossplane-system | bp-crossplane | bp-flux | - | same |
+| 04b | 04b-bp-kured.yaml | bp-kured | kured | kube-system | bp-kured | bp-cilium | - | same |
 | 05 | 05-sealed-secrets.yaml | bp-sealed-secrets | sealed-secrets | kube-system | bp-sealed-secrets | bp-cert-manager | - | same |
 | 05a | 05a-reflector.yaml | bp-reflector | reflector | reflector | bp-reflector | bp-cert-manager | - | same |
 | 06 | 06-bp-dragonfly.yaml | bp-dragonfly | dragonfly | dragonfly | bp-dragonfly | bp-cilium | - | same |

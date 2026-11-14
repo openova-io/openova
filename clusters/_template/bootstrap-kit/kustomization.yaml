@@ -25,6 +25,10 @@ resources:
   - 02a-bp-cert-manager-issuers.yaml
   - 03-flux.yaml
   - 04-crossplane.yaml
+  # bp-kured (slot 04b, INF-050) — coordinated node reboots and the node's
+  # unattended-upgrade configuration. dependsOn bp-cilium. MUST be registered
+  # here or Flux never creates the HelmRelease.
+  - 04b-bp-kured.yaml
   - 05-sealed-secrets.yaml
   - 05a-reflector.yaml
   # bp-dragonfly (slot 06, #4639) — per-cluster P2P container-image
