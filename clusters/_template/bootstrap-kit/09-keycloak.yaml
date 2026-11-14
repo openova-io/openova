@@ -269,7 +269,7 @@ spec:
       #   organization-controller registers; a per-Org console's sign-out no
       #   longer 400s "Invalid redirect uri" at Keycloak (hw307). Pairs with the
       #   catalyst-api end-session URL fix (public issuer + catalyst-ui + /login).
-      version: 1.5.14
+      version: 1.5.15
       sourceRef:
         kind: HelmRepository
         name: bp-keycloak
