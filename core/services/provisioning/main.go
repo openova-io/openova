@@ -25,16 +25,10 @@ func main() {
 	// Configuration from environment.
 	mongoURI := getEnv("MONGODB_URI", "mongodb://ferretdb:27017")
 	mongoDBName := getEnv("MONGODB_DB", "provisioning")
-	// REDPANDA_BROKERS — legacy Kafka-protocol bus. Empty on Sovereigns
-	// (no Redpanda exists in cluster — NATS is the canonical bus per
-	// ADR-0001 §6); populated on Catalyst-Zero for backward-compat with
-	// any not-yet-migrated publishers.
-	redpandaBrokersRaw := getEnv("REDPANDA_BROKERS", "")
 	// NATS_URL — canonical JetStream bus per ADR-0001 §6. On Sovereigns
 	// this is wired to nats-jetstream.nats-system.svc.cluster.local:4222
-	// by the chart. Empty disables the NATS leg (Catalyst-Zero / dev
-	// loops). At least one of NATS_URL / REDPANDA_BROKERS MUST be set or
-	// the consumer refuses to start (silent no-op was the convergence-
+	// by the chart. NATS is the only event bus: without NATS_URL the
+	// service refuses to start (silent no-op was the convergence-
 	// blocking failure mode before PR #1627).
 	natsURL := getEnv("NATS_URL", "")
 	jwtSecret := []byte(getEnv("JWT_SECRET", ""))
@@ -103,16 +97,12 @@ func main() {
 	slog.Info("connected to FerretDB", "uri", mongoURI, "db", mongoDBName)
 
 	// Wire the broker publisher + subscriber up front so the goroutines
-	// below all use the same NATS/Kafka connections. ADR-0001 §6 makes
-	// NATS the canonical convergence bus on Sovereigns; Redpanda stays
-	// in place as a legacy bridge for Catalyst-Zero. At least one
-	// transport MUST be configured or both MultiPublisher and
-	// MultiSubscriber refuse to construct (silent no-op was the
-	// convergence-blocking bug this binary's wiring exists to prevent).
-	var (
-		natsConn  *events.NATSConn
-		kafkaProd *events.Producer
-	)
+	// below all use the same NATS connection. ADR-0001 §6 makes NATS
+	// the convergence bus, and it is the only transport: without it both
+	// MultiPublisher and MultiSubscriber refuse to construct (silent
+	// no-op was the convergence-blocking bug this binary's wiring exists
+	// to prevent).
+	var natsConn *events.NATSConn
 	if natsURL != "" {
 		nc, err := events.ConnectNATS(natsURL)
 		if err != nil {
@@ -122,18 +112,9 @@ func main() {
 		natsConn = nc
 		slog.Info("connected to NATS JetStream", "url", natsURL)
 	}
-	if redpandaBrokersRaw != "" {
-		kp, err := events.NewProducer(strings.Split(redpandaBrokersRaw, ","))
-		if err != nil {
-			slog.Error("failed to create RedPanda producer", "error", err)
-			os.Exit(1)
-		}
-		kafkaProd = kp
-		slog.Info("connected to RedPanda (legacy)", "brokers", redpandaBrokersRaw)
-	}
-	publisher, err := events.NewMultiPublisher(natsConn, kafkaProd)
+	publisher, err := events.NewMultiPublisher(natsConn, nil)
 	if err != nil {
-		slog.Error("event bus misconfigured — neither NATS_URL nor REDPANDA_BROKERS set", "error", err)
+		slog.Error("event bus misconfigured — NATS_URL is not set", "error", err)
 		os.Exit(1)
 	}
 	defer publisher.Close()
@@ -306,29 +287,13 @@ func main() {
 		"per_org_branch", perOrgBranch, "sovereign_fqdn_set", sovereignFQDN != "")
 
 	// Start event consumer in a background goroutine. The subscriber
-	// fans events in from BOTH transports (whichever the operator wired
-	// — NATS on Sovereigns, Redpanda on Catalyst-Zero, both during a
-	// migration window). Event types map to canonical NATS subjects
+	// reads from NATS. Event types map to canonical NATS subjects
 	// `catalyst.tenant.created`, `catalyst.tenant.deleted`,
 	// `catalyst.tenant.app_install_requested`,
 	// `catalyst.tenant.app_uninstall_requested`, and
 	// `catalyst.billing.order.placed` per ADR-0001 §6.
-	var kafkaConsumer *events.Consumer
-	if redpandaBrokersRaw != "" {
-		kc, err := events.NewConsumer(
-			strings.Split(redpandaBrokersRaw, ","),
-			"provisioning",
-			[]string{"org.order.events", "org.tenant.events"},
-		)
-		if err != nil {
-			slog.Error("failed to create kafka consumer", "error", err)
-			os.Exit(1)
-		}
-		kafkaConsumer = kc
-	}
 	subscriber, err := events.NewMultiSubscriber(events.MultiSubscriberConfig{
 		NATS:  natsConn,
-		Kafka: kafkaConsumer,
 		Group: "provisioning",
 		EventTypes: []string{
 			"tenant.created",
@@ -359,8 +324,6 @@ func main() {
 			"catalyst.tenant.app_uninstall_requested",
 			"catalyst.billing.order.placed",
 		},
-		"kafka_topics", []string{"org.order.events", "org.tenant.events"},
-		"kafka_enabled", kafkaConsumer != nil,
 		"nats_enabled", natsConn != nil,
 		"group", "provisioning",
 	)

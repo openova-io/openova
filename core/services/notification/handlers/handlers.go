@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/openova-io/openova/core/services/shared/events"
 	"github.com/openova-io/openova/core/services/shared/respond"
 
 	"github.com/openova-io/openova/core/services/notification/templates"
@@ -22,8 +21,7 @@ type MailSender interface {
 
 // Handler holds dependencies for notification HTTP handlers.
 type Handler struct {
-	Mailer   MailSender
-	Producer *events.Producer
+	Mailer MailSender
 	// Enricher looks up tenant + owner metadata for events that carry
 	// only tenant_id (e.g. day-2 provision.app_* events from
 	// provisioning). Optional — when nil or unconfigured, day-2 email

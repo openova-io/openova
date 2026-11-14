@@ -13,7 +13,6 @@ import (
 
 	"github.com/openova-io/openova/core/services/catalog/handlers"
 	"github.com/openova-io/openova/core/services/catalog/store"
-	"github.com/openova-io/openova/core/services/shared/events"
 	"github.com/openova-io/openova/core/services/shared/health"
 	"github.com/openova-io/openova/core/services/shared/middleware"
 )
@@ -22,7 +21,6 @@ func main() {
 	// Configuration from environment.
 	mongoURI := getEnv("MONGODB_URI", "mongodb://ferretdb:27017")
 	mongoDBName := getEnv("MONGODB_DB", "catalog")
-	redpandaBrokers := strings.Split(getEnv("REDPANDA_BROKERS", "localhost:9092"), ",")
 	jwtSecret := []byte(getEnv("JWT_SECRET", ""))
 	corsOrigin := getEnv("CORS_ORIGIN", "*")
 	port := getEnv("PORT", "8082")
@@ -47,20 +45,10 @@ func main() {
 	}()
 	slog.Info("connected to FerretDB", "uri", mongoURI, "db", mongoDBName)
 
-	// Create events producer.
-	producer, err := events.NewProducer(redpandaBrokers)
-	if err != nil {
-		slog.Error("failed to create events producer", "error", err)
-		os.Exit(1)
-	}
-	defer producer.Close()
-	slog.Info("connected to RedPanda")
-
 	// Initialize store and handler.
 	catalogStore := store.New(client, mongoDBName)
 	h := &handlers.Handler{
-		Store:    catalogStore,
-		Producer: producer,
+		Store: catalogStore,
 	}
 
 	// Seed default data if the database is empty.

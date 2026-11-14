@@ -6,15 +6,13 @@ import (
 	"strings"
 
 	"github.com/openova-io/openova/core/services/catalog/store"
-	"github.com/openova-io/openova/core/services/shared/events"
 	"github.com/openova-io/openova/core/services/shared/middleware"
 	"github.com/openova-io/openova/core/services/shared/respond"
 )
 
 // Handler holds dependencies for catalog HTTP handlers.
 type Handler struct {
-	Store    *store.Store
-	Producer *events.Producer
+	Store *store.Store
 }
 
 // requireAdmin checks that the request was made by a superadmin or a

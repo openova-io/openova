@@ -19,10 +19,6 @@ import (
 
 func main() {
 	databaseURL := getEnv("DATABASE_URL", "postgres://billing:billing@localhost:5432/billing?sslmode=disable")
-	// REDPANDA_BROKERS — legacy Kafka-protocol bus. Empty on Sovereigns
-	// (no Redpanda exists in cluster); populated on Catalyst-Zero for
-	// backward-compatibility with not-yet-migrated consumers.
-	redpandaBrokersRaw := getEnv("REDPANDA_BROKERS", "")
 	jwtSecret := []byte(getEnv("JWT_SECRET", ""))
 	corsOrigin := getEnv("CORS_ORIGIN", "*")
 	port := getEnv("PORT", "8085")
@@ -55,8 +51,8 @@ func main() {
 	//       events.MultiPublisher below).
 	// On Sovereigns this is wired to
 	// nats-jetstream.nats-system.svc.cluster.local:4222 by the chart.
-	// Empty disables the NATS leg and the service falls back to the
-	// legacy Redpanda-only Producer (Catalyst-Zero / dev loops).
+	// NATS is the only event bus: when this is empty the publisher
+	// refuses to construct and the service exits.
 	natsURL := getEnv("NATS_URL", "")
 
 	pg := db.MustConnect(databaseURL)
@@ -76,13 +72,8 @@ func main() {
 	// Wire the broker publisher up front so both the metering subscriber
 	// (below) and the Handler share a single NATS connection. ADR-0001 §6
 	// requires NATS for the canonical `catalyst.billing.order.placed`
-	// subject; Redpanda stays in place as a legacy bridge so any
-	// not-yet-migrated consumers (e.g. on contabo) keep receiving
-	// org.order.events. At least one transport MUST be wired.
-	var (
-		natsConn  *events.NATSConn
-		kafkaProd *events.Producer
-	)
+	// subject. NATS is the only transport.
+	var natsConn *events.NATSConn
 	if natsURL != "" {
 		nc, err := events.ConnectNATS(natsURL)
 		if err != nil {
@@ -116,18 +107,9 @@ func main() {
 			"stream", events.StreamCatalystOrg,
 			"subject", events.SubjectUsageRecorded)
 	}
-	if redpandaBrokersRaw != "" {
-		kp, err := events.NewProducer(strings.Split(redpandaBrokersRaw, ","))
-		if err != nil {
-			slog.Error("failed to create RedPanda producer", "error", err)
-			os.Exit(1)
-		}
-		kafkaProd = kp
-		slog.Info("connected to RedPanda (legacy)", "brokers", redpandaBrokersRaw)
-	}
-	producer, err := events.NewMultiPublisher(natsConn, kafkaProd)
+	producer, err := events.NewMultiPublisher(natsConn, nil)
 	if err != nil {
-		slog.Error("event bus misconfigured — neither NATS_URL nor REDPANDA_BROKERS set", "error", err)
+		slog.Error("event bus misconfigured — NATS_URL is not set", "error", err)
 		os.Exit(1)
 	}
 	defer producer.Close()
@@ -158,25 +140,10 @@ func main() {
 
 	// Tenant-events consumer drives the billing-side cascade on
 	// tenant.deleted (Stripe sub-cancel + invoice void + ledger marker).
-	// Listens on canonical NATS subject `catalyst.tenant.deleted` on
-	// Sovereigns AND legacy Kafka topic `org.tenant.events` on Catalyst-
-	// Zero. PR #1627 wired the consumer side after PR #1626 wired publish.
-	var billingKafkaConsumer *events.Consumer
-	if kafkaProd != nil {
-		kc, err := events.NewConsumer(
-			strings.Split(redpandaBrokersRaw, ","),
-			"billing-tenant-events",
-			[]string{"org.tenant.events"},
-		)
-		if err != nil {
-			slog.Error("failed to create tenant-events kafka consumer", "error", err)
-			os.Exit(1)
-		}
-		billingKafkaConsumer = kc
-	}
+	// Listens on the canonical NATS subject `catalyst.tenant.deleted`.
+	// PR #1627 wired the consumer side after PR #1626 wired publish.
 	billingTenantSub, err := events.NewMultiSubscriber(events.MultiSubscriberConfig{
 		NATS:       natsConn,
-		Kafka:      billingKafkaConsumer,
 		Group:      "billing-tenant-events",
 		EventTypes: []string{"tenant.deleted"},
 	})
@@ -193,8 +160,6 @@ func main() {
 	}()
 	slog.Info("billing tenant-events consumer started",
 		"nats_subject", "catalyst.tenant.deleted",
-		"kafka_topic", "org.tenant.events",
-		"kafka_enabled", billingKafkaConsumer != nil,
 		"nats_enabled", natsConn != nil,
 		"group", "billing-tenant-events")
 

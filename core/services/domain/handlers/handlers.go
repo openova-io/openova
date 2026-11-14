@@ -22,9 +22,7 @@ import (
 type Handler struct {
 	Store *store.Store
 	// Producer is the canonical event-bus surface. In production this is
-	// an events.MultiPublisher (NATS + optional Redpanda); a plain
-	// *events.Producer also satisfies the interface so legacy Catalyst-
-	// Zero wiring keeps working without a code change.
+	// an events.MultiPublisher wired to NATS only.
 	Producer    events.BrokerPublisher
 	CNAMETarget string // e.g., openova.io
 	// TenantURL is the internal base URL for the tenant service

@@ -25,14 +25,9 @@ func main() {
 	mongoDBName := getEnv("MONGODB_DB", "tenants")
 	// NATS_URL — canonical event bus per ADR-0001 §6. On Sovereigns this
 	// is wired to nats-jetstream.nats-system.svc.cluster.local:4222 by
-	// the chart. Empty disables the NATS leg and the service falls back
-	// to the legacy Redpanda-only Producer (Catalyst-Zero / dev loops).
+	// the chart. NATS is the only event bus: when this is empty the
+	// publisher refuses to construct and the service exits.
 	natsURL := getEnv("NATS_URL", "")
-	// REDPANDA_BROKERS — legacy Kafka-protocol bus retained for
-	// backward-compatibility with not-yet-migrated consumers. Empty
-	// disables the Redpanda leg entirely. On Sovereigns this is left
-	// empty (no Redpanda exists in cluster).
-	redpandaBrokersRaw := getEnv("REDPANDA_BROKERS", "")
 	jwtSecret := []byte(getEnv("JWT_SECRET", ""))
 	corsOrigin := getEnv("CORS_ORIGIN", "*")
 	catalogURL := getEnv("CATALOG_URL", "http://catalog.org-services.svc.cluster.local:8082")
@@ -67,15 +62,10 @@ func main() {
 	}()
 	slog.Info("connected to FerretDB", "uri", mongoURI, "db", mongoDBName)
 
-	// Wire the broker publisher. NATS is the canonical bus on Sovereigns
-	// (publish to `catalyst.tenant.<event>` per ADR-0001 §6); Redpanda
-	// is the legacy bus retained for backward-compatibility on
-	// Catalyst-Zero. At least one MUST be configured or NewMultiPublisher
-	// refuses to construct a silently-no-op publisher.
-	var (
-		natsConn  *events.NATSConn
-		kafkaProd *events.Producer
-	)
+	// Wire the broker publisher. NATS is the only bus (publish to
+	// `catalyst.tenant.<event>` per ADR-0001 §6). Without it
+	// NewMultiPublisher refuses to construct a silently-no-op publisher.
+	var natsConn *events.NATSConn
 	if natsURL != "" {
 		nc, err := events.ConnectNATS(natsURL)
 		if err != nil {
@@ -85,18 +75,9 @@ func main() {
 		natsConn = nc
 		slog.Info("connected to NATS JetStream", "url", natsURL)
 	}
-	if redpandaBrokersRaw != "" {
-		kp, err := events.NewProducer(strings.Split(redpandaBrokersRaw, ","))
-		if err != nil {
-			slog.Error("failed to create RedPanda producer", "error", err)
-			os.Exit(1)
-		}
-		kafkaProd = kp
-		slog.Info("connected to RedPanda (legacy)", "brokers", redpandaBrokersRaw)
-	}
-	producer, err := events.NewMultiPublisher(natsConn, kafkaProd)
+	producer, err := events.NewMultiPublisher(natsConn, nil)
 	if err != nil {
-		slog.Error("event bus misconfigured — neither NATS_URL nor REDPANDA_BROKERS set", "error", err)
+		slog.Error("event bus misconfigured — NATS_URL is not set", "error", err)
 		os.Exit(1)
 	}
 	defer producer.Close()
@@ -124,24 +105,9 @@ func main() {
 	// Provision-events consumer drives the tenant state machine when
 	// provisioning publishes provision.completed / .failed / .app_ready
 	// / .app_removed / .app_failed / .tenant_removed. Listens on the
-	// canonical NATS subjects `catalyst.provision.*` on Sovereigns AND
-	// the legacy Kafka topic `org.provision.events` on Catalyst-Zero.
-	var provKafkaConsumer *events.Consumer
-	if redpandaBrokersRaw != "" {
-		kc, err := events.NewConsumer(
-			strings.Split(redpandaBrokersRaw, ","),
-			"tenant-service",
-			[]string{"org.provision.events"},
-		)
-		if err != nil {
-			slog.Error("failed to create provision kafka consumer", "error", err)
-			os.Exit(1)
-		}
-		provKafkaConsumer = kc
-	}
+	// canonical NATS subjects `catalyst.provision.*`.
 	provSub, err := events.NewMultiSubscriber(events.MultiSubscriberConfig{
 		NATS:  natsConn,
-		Kafka: provKafkaConsumer,
 		Group: "tenant-service",
 		EventTypes: []string{
 			"provision.completed",
@@ -172,31 +138,15 @@ func main() {
 			"catalyst.provision.app_failed",
 			"catalyst.provision.tenant_removed",
 		},
-		"kafka_topic", "org.provision.events",
 		"nats_enabled", natsConn != nil,
-		"kafka_enabled", provKafkaConsumer != nil,
 		"group", "tenant-service")
 
 	// Members-cleanup consumer — purges member rows as soon as a tenant is
 	// soft-deleted so authz checks during the teardown window don't see
 	// stale membership. Separate consumer group so offsets don't contend
 	// with the provision-events subscriber above. See issue #96.
-	var membersKafkaConsumer *events.Consumer
-	if redpandaBrokersRaw != "" {
-		kc, err := events.NewConsumer(
-			strings.Split(redpandaBrokersRaw, ","),
-			"tenant-members-cleanup",
-			[]string{"org.tenant.events"},
-		)
-		if err != nil {
-			slog.Error("failed to create members-cleanup kafka consumer", "error", err)
-			os.Exit(1)
-		}
-		membersKafkaConsumer = kc
-	}
 	membersSub, err := events.NewMultiSubscriber(events.MultiSubscriberConfig{
 		NATS:       natsConn,
-		Kafka:      membersKafkaConsumer,
 		Group:      "tenant-members-cleanup",
 		EventTypes: []string{"tenant.deleted"},
 	})
@@ -213,9 +163,7 @@ func main() {
 	}()
 	slog.Info("tenant members-cleanup consumer started",
 		"nats_subject", "catalyst.tenant.deleted",
-		"kafka_topic", "org.tenant.events",
 		"nats_enabled", natsConn != nil,
-		"kafka_enabled", membersKafkaConsumer != nil,
 		"group", "tenant-members-cleanup")
 
 	// Build the main mux.

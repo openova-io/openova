@@ -79,9 +79,8 @@ func (h *Handler) StartConsumer(ctx context.Context, sub Subscriber) error {
 }
 
 // Subscriber is the minimal interface StartConsumer needs. It matches
-// both events.Consumer.Subscribe and events.DLQSubscriber.Subscribe so
-// production wires the DLQ-backed variant while unit tests can pass a
-// fake.
+// events.MultiSubscriber.Subscribe, which production wires, while unit
+// tests can pass a fake.
 type Subscriber interface {
 	Subscribe(ctx context.Context, handler func(*events.Event) error) error
 }

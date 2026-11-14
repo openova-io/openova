@@ -10,7 +10,6 @@ import (
 	"github.com/openova-io/openova/core/services/auth/handlers"
 	"github.com/openova-io/openova/core/services/auth/store"
 	"github.com/openova-io/openova/core/services/shared/db"
-	"github.com/openova-io/openova/core/services/shared/events"
 	"github.com/openova-io/openova/core/services/shared/health"
 	"github.com/openova-io/openova/core/services/shared/middleware"
 	"github.com/valkey-io/valkey-go"
@@ -25,7 +24,6 @@ func main() {
 	// in-namespace Valkey working unchanged.
 	valkeyUsername := getEnv("VALKEY_USERNAME", "")
 	valkeyPassword := getEnv("VALKEY_PASSWORD", "")
-	redpandaBrokers := strings.Split(getEnv("REDPANDA_BROKERS", "localhost:9092"), ",")
 	jwtSecret := []byte(getEnv("JWT_SECRET", ""))
 	jwtRefreshSecret := []byte(getEnv("JWT_REFRESH_SECRET", ""))
 	googleClientID := getEnv("GOOGLE_CLIENT_ID", "")
@@ -61,15 +59,6 @@ func main() {
 	defer valkeyClient.Close()
 	slog.Info("connected to Valkey")
 
-	// Create events producer.
-	producer, err := events.NewProducer(redpandaBrokers)
-	if err != nil {
-		slog.Error("failed to create events producer", "error", err)
-		os.Exit(1)
-	}
-	defer producer.Close()
-	slog.Info("connected to RedPanda")
-
 	// Initialize store and handler.
 	authStore := store.New(pgDB)
 
@@ -85,7 +74,6 @@ func main() {
 	h := &handlers.Handler{
 		Store:              authStore,
 		Valkey:             valkeyClient,
-		Producer:           producer,
 		JWTSecret:          jwtSecret,
 		JWTRefreshSecret:   jwtRefreshSecret,
 		GoogleClientID:     googleClientID,
