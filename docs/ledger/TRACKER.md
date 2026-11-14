@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T12:15:03Z` |
+| Last refreshed | `2026-11-14T12:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,12 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7351](https://github.com/openova-io/openova/issues/7351) | CTL-060 Decision record for the write path, the lock and the backbone | Other |
-| [#7352](https://github.com/openova-io/openova/issues/7352) | CTL-110 Commit library gitwrite | Other |
-| [#7353](https://github.com/openova-io/openova/issues/7353) | SEC-120 etcd dump check and node hygiene check, as check files | Other |
-| [#7354](https://github.com/openova-io/openova/issues/7354) | SVC-125 Blueprint proofs check: the function-test result in the gate record | Other |
-| [#7356](https://github.com/openova-io/openova/issues/7356) | SOV-130 Substrate window, part 1: modules and cloud-init take the variables docu | Other |
-| [#7376](https://github.com/openova-io/openova/issues/7376) | CTL-112 Region scopes of the commit library | Other |
 | [#7377](https://github.com/openova-io/openova/issues/7377) | CTL-160 Package intent: validate, serialise, commit, wait | Other |
 | [#7378](https://github.com/openova-io/openova/issues/7378) | CTL-240 Batch G: catalogue writers onto the library | Other |
 | [#7383](https://github.com/openova-io/openova/issues/7383) | CLD-021 Delete the 24 infrastructure mutation routes and the claim writer | Other |
@@ -300,6 +294,12 @@ flowchart LR
 | [#7678](https://github.com/openova-io/openova/issues/7678) | SVC-090 Function tests: network, names and edge charts | Other |
 | [#7689](https://github.com/openova-io/openova/issues/7689) | The admission rule for ExternalSecret keys refuses every request on a running cl | Other |
 | [#7692](https://github.com/openova-io/openova/issues/7692) | FND-039 The suite writes the provision block of a cloud record | Other |
+| [#7698](https://github.com/openova-io/openova/issues/7698) | AIP-221 Service skeleton, schema with migrations, outbox table, health | Other |
+| [#7699](https://github.com/openova-io/openova/issues/7699) | BSS-141 The cost-source credential is never a Kubernetes Secret | Other |
+| [#7700](https://github.com/openova-io/openova/issues/7700) | CTL-420 Watches in the organization and environment controllers | Other |
+| [#7701](https://github.com/openova-io/openova/issues/7701) | NET-071 Remove the zone virtual-cluster dialog, tab and stub kind | Other |
+| [#7702](https://github.com/openova-io/openova/issues/7702) | NET-221 Delete the four retired charts and their seed entries | Other |
+| [#7703](https://github.com/openova-io/openova/issues/7703) | SOV-338 A kept variables document is brought to the keys of the contract before  | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-14T12:27 | [#7697](https://github.com/openova-io/openova/pull/7697) | #7087 | docs(ledger): plan update |
+| 2026-11-14T12:21 | [#7694](https://github.com/openova-io/openova/pull/7694) | #7692 | fix(acceptance): the suite writes the whole provision block  |
 | 2026-11-14T11:56 | [#7691](https://github.com/openova-io/openova/pull/7691) | #7087 | docs(ledger): plan update |
 | 2026-11-14T12:01 | [#7687](https://github.com/openova-io/openova/pull/7687) | #7673 | feat(fingate): resource server router with the token check,  |
 | 2026-11-14T12:01 | [#7685](https://github.com/openova-io/openova/pull/7685) | #7668 | ci: the release writer moves every kit pin of a chart that s |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-14T08:51 | [#7562](https://github.com/openova-io/openova/pull/7562) | #7551 | feat(api): the jobs store publishes its writes, a jobs strea |
 | 2026-11-14T08:50 | [#7560](https://github.com/openova-io/openova/pull/7560) | #7554 | refactor(openbao): the config reconciler enables secrets mou |
 | 2026-11-14T08:50 | [#7559](https://github.com/openova-io/openova/pull/7559) | #7552 | ci: the jobs that push to main push with the release-writer  |
-| 2026-11-14T08:23 | [#7557](https://github.com/openova-io/openova/pull/7557) | #7087 | docs(ledger): plan update |
-| 2026-11-14T08:29 | [#7556](https://github.com/openova-io/openova/pull/7556) | #7528 | ci: pin the two moving Flux actions and ratchet unpinned act |
 
 ---
 
