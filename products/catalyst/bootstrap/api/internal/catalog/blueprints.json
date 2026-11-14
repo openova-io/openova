@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-14T17:00:54.449Z",
+  "generatedAt": "2026-11-14T17:01:03.729Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -4048,7 +4048,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "0.1.15",
+      "version": "0.1.16",
       "section": "pts-3-1-networking-and-service-mesh",
       "depends": [
         "bp-cilium"
