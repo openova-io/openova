@@ -42,7 +42,8 @@
 set -euo pipefail
 
 K3S_VERSION='v1.31.8+k3s1'
-K3S_IMAGE="${K3S_IMAGE:-docker.io/rancher/k3s:${K3S_VERSION/+/-}}"
+# The default image names the release by its tag and fixes its content by the digest of its multi-platform index.
+K3S_IMAGE="${K3S_IMAGE:-docker.io/rancher/k3s:v1.31.8-k3s1@sha256:21ebfbbfaf0e03d04f09b33c846ad52a0258b975167b67e7783cf06d88da4c4d}"
 RT="${CONTAINER_RUNTIME:-docker}"
 WAIT_SECONDS="${WAIT_SECONDS:-300}"
 CANARY_SECRET='k3s-flags-canary'
