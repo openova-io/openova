@@ -1207,6 +1207,33 @@ packages:
   ticket_rev: 2
   dropped: false
   delivers: The two ruleset files name the deploy key as the one bypass actor. The push guard accepts a push to main outside the queue only when it changes nothing but release-owned lines and gate records, and each run also judges every commit that was pushed without a run since the previous one. The drift check also fails when the repository has more or other write deploy keys than the recorded one, and the candidate cut pushes with the deploy key.
+- id: FND-026
+  title: Two tasks that share only record files may run together
+  area: FND
+  epic: null
+  type: fix
+  wave: W0
+  size: S
+  lane: RAILS
+  depends_on: [FND-022, FND-040]
+  after: [FND-023]
+  touches:
+  - scripts/plan.py
+  - docs/PROTOCOL.md
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'The rule that says which two tasks may run together (why_not of the plan tool, and so the commands parallel, ready, batch and claim-check) no longer counts a shared file when it is a record file: the check list docs/ledger/gates.yaml, unless both tasks flip or implement the same check; the list docs/ledger/deleted-paths.txt; and every path of the new optional top field record_files of the plan file, a list of whole paths that validate checks. Every other shared file keeps two tasks apart as before, and so do overlapping globs, locks, stability entries and resources. The paragraph on files with many writers in the protocol says the same.'
 - id: FND-031
   title: Gate manifest and verdict tool; the mode and the override go
   area: FND
@@ -2071,7 +2098,7 @@ packages:
   size: M
   lane: RAILS
   depends_on: [FND-013]
-  after: [FND-015, FND-017, FND-018, FND-019, FND-020, FND-024, FND-025, FND-031, FND-035, FND-036, FND-040, FND-051, FND-052, FND-053, FND-054, FND-055, FND-056, FND-057, FND-061, FND-062, FND-063, FND-073, FND-075, FND-092, FND-094, FND-096, FND-097, FND-102, FND-103, FND-107, FND-110, CLD-010, CLD-022, CLD-023, CLD-040, CLD-063, CLD-080, CLD-086, CLD-087, CLD-090, SOV-040, SOV-050, SOV-110, SOV-120, SOV-121, SOV-144, SOV-150, SOV-180, SEC-030, SEC-090, SEC-125, SEC-127, NET-013, NET-032, NET-090, NET-100, SVC-020, CTL-010, CTL-020, CTL-025, CTL-044, CTL-150, CTL-151, CTL-160, CMP-014, CMP-036, BSS-040, BSS-050, AIP-050, AIP-221, AIP-229, INF-010, INF-120, MIG-060, ACC-040, PRD-030, PRD-101, PRD-102, PRD-106, PRD-503]
+  after: [FND-015, FND-017, FND-018, FND-019, FND-020, FND-024, FND-025, FND-031, FND-035, FND-036, FND-040, FND-051, FND-052, FND-053, FND-054, FND-055, FND-056, FND-057, FND-061, FND-062, FND-063, FND-073, FND-075, FND-092, FND-094, FND-096, FND-097, FND-102, FND-103, FND-107, FND-110, CLD-010, CLD-022, CLD-023, CLD-040, CLD-063, CLD-080, CLD-086, CLD-087, CLD-090, SOV-040, SOV-050, SOV-110, SOV-120, SOV-121, SOV-144, SOV-150, SOV-180, SEC-030, SEC-090, SEC-125, SEC-127, NET-013, NET-032, NET-090, NET-100, SVC-020, CTL-010, CTL-020, CTL-025, CTL-044, CTL-150, CTL-151, CTL-160, CMP-014, CMP-036, BSS-040, BSS-050, AIP-050, AIP-221, AIP-229, INF-010, INF-120, MIG-060, ACC-040, PRD-030, PRD-101, PRD-102, PRD-106, PRD-503, PRD-513]
   touches:
   - .github/workflows/*.yaml
   - .github/workflows/*.yml
@@ -3980,7 +4007,7 @@ packages:
   size: S
   lane: RAILS
   depends_on: [FND-162, FND-163, FND-164, FND-165]
-  after: [FND-017, FND-023, FND-040, FND-101, FND-107, CLD-021, CLD-022, CLD-023, SEC-100, SEC-103, SEC-104, NET-042, NET-071, NET-221, CTL-030, CTL-331, CTL-345, CTL-346, CTL-355, BSS-040]
+  after: [FND-026, FND-017, FND-101, FND-107, CLD-021, CLD-022, CLD-023, SEC-100, SEC-103, SEC-104, NET-042, NET-071, NET-221, CTL-030, CTL-331, CTL-345, CTL-346, CTL-355, BSS-040]
   touches:
   - scripts/check-function-rows-cite-acceptance.py
   - scripts/check-uat-fix-sha-citations.py
@@ -4647,7 +4674,7 @@ packages:
   size: S
   lane: RAILS
   depends_on: []
-  after: [FND-022, FND-052, FND-056, CLD-090, SOV-120, SOV-121, SOV-131, CTL-331, BSS-040, AIP-221, AIP-229, INF-110, PRD-101, PRD-102, PRD-103, PRD-501]
+  after: [FND-022, FND-052, FND-056, CLD-090, SOV-120, SOV-121, SOV-131, CTL-331, AIP-221, AIP-229, INF-110, PRD-101, PRD-102, PRD-103, PRD-501, PRD-513]
   touches:
   - '**/go.mod'
   - '**/go.sum'
@@ -11154,7 +11181,7 @@ packages:
   - id: A4
     run: "d=\"$(mktemp -d)\" && cp products/catalyst/bootstrap/api/internal/catalog/blueprints.json products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts \"$d\"/ && (cd products/catalyst/bootstrap/ui && node scripts/build-catalog.mjs > /dev/null) && cmp -s \"$d/blueprints.json\" products/catalyst/bootstrap/api/internal/catalog/blueprints.json && cmp -s \"$d/catalog.generated.ts\" products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts && python3 -c 'import json, sys; k = json.load(open(sys.argv[1], encoding=\"utf-8\"))[\"bootstrapKit\"]; bad = [e for e in k if e[\"id\"] == \"bp-sealed-secrets\" or \"sealed\" in e[\"file\"]]; print(len(k), bad); sys.exit(1 if bad or not k else 0)' products/catalyst/bootstrap/api/internal/catalog/blueprints.json && for g in scripts/generators/*.py; do python3 \"$g\" --check > /dev/null || { echo \"FAIL: $g --check\"; exit 1; }; done && ! grep -q -F 05-sealed-secrets docs/generated/bootstrap-slots.md && ! grep -q -F bp-sealed-secrets docs/generated/bootstrap-slots.md"
   - id: A5
-    run: "test ! -e clusters/_template/bootstrap-kit/05-sealed-secrets.yaml && o=\"$(mktemp)\" && python3 scripts/check-service-model.py > /dev/null && bash scripts/check-upstream-literals.sh > \"$o\" && ! grep -q -F 'note: kit' \"$o\" && bash scripts/check-kit-render-equivalence.sh --print > /dev/null"
+    run: "test ! -e clusters/_template/bootstrap-kit/05-sealed-secrets.yaml && python3 scripts/check-service-model.py > /dev/null && bash scripts/check-upstream-literals.sh > /dev/null && python3 -c 'import re, subprocess, sys; base = subprocess.run([\"git\", \"merge-base\", \"HEAD\", \"origin/main\"], capture_output=True, text=True, check=True).stdout.strip(); pairs = ((\"scripts/service-model-baseline.yaml\", r\"^  G8\\.slots-without-ring: ([0-9]+)$\"), (\"scripts/upstream-literals-baseline.txt\", r\"^kit=([0-9]+)$\")); old = [int(re.search(p, subprocess.run([\"git\", \"show\", base + \":\" + f], capture_output=True, text=True, check=True).stdout, re.M).group(1)) for f, p in pairs]; new = [int(re.search(p, open(f, encoding=\"utf-8\").read(), re.M).group(1)) for f, p in pairs]; print(old, new); sys.exit(0 if new == [n - 1 for n in old] else 1)' && bash scripts/check-kit-render-equivalence.sh --print > /dev/null"
   - id: A6
     run: "test ! -e clusters/_template/bootstrap-kit/05-sealed-secrets.yaml && (cd tests/e2e/bootstrap-kit && go test -count=1 ./... > /dev/null)"
   rollback: revert
@@ -12856,7 +12883,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271, FND-063, SOV-230]
-  after: [FND-011, FND-018, FND-019, FND-020, FND-023, FND-024, FND-025, FND-040, FND-055, FND-057, FND-073, FND-074, FND-101, FND-103, FND-105, FND-107, FND-110, CLD-010, CLD-023, CLD-030, CLD-063, CLD-090, CLD-113, SOV-040, SOV-050, SOV-135, SOV-144, SOV-151, SOV-180, SOV-190, SOV-335, SEC-104, SEC-127, NET-011, NET-013, NET-030, NET-032, NET-033, NET-041, NET-050, NET-071, NET-090, NET-100, NET-133, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-110, INF-120, INF-130, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-501, PRD-503, PRD-508]
+  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-055, FND-057, FND-073, FND-074, FND-101, FND-103, FND-105, FND-107, FND-110, CLD-010, CLD-023, CLD-030, CLD-063, CLD-090, CLD-113, SOV-040, SOV-050, SOV-135, SOV-144, SOV-151, SOV-180, SOV-190, SOV-335, SEC-104, SEC-127, NET-011, NET-013, NET-030, NET-032, NET-033, NET-041, NET-050, NET-071, NET-090, NET-100, NET-133, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-110, INF-120, INF-130, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-501, PRD-503, PRD-508, PRD-513]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -32965,7 +32992,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [PRD-501]
-  after: [SVC-040]
+  after: []
   touches:
   - products/fingate/internal/store/postgres*.go
   - products/fingate/internal/store/migrations/**
@@ -32978,16 +33005,30 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "git ls-files -- products/fingate/cmd/fingate-api products/fingate/internal/store/migrations products/fingate/internal/store/postgres.go products/fingate/internal/store/postgres_test.go products/fingate/internal/definitions/informer.go products/fingate/internal/definitions/informer_test.go | wc -l"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "(cd products/fingate && go vet ./... && go test -count=1 ./... ./cmd/fingate-api ./internal/store ./internal/definitions)"
+  - id: A2
+    run: "printf '%s  %s\\n' 7d2a4d2ce51ad902cc62617fb3f971582e642c0e24294c5e353fb700d18d67d5 products/fingate/internal/store/migrations/0001_consent.sql aaf8a1c8135855afdee82c4ffe960d946e379794101508a1a5a99cc9e4c9c24f products/fingate/internal/store/postgres.go e6cde150506f07f129402cfd3c37b84a19accd92138006e1a2ff6e4417368726 products/fingate/internal/store/postgres_test.go 268f78f01b7d8c0e5068a4210e2ea1fb04263024e70e8a8bb61e49ac9483fc82 products/fingate/internal/definitions/informer.go 68d7c4235e0c0b0b4386acaf63a4a333087d57df9ecbf0f083fd4e5072d0f542 products/fingate/internal/definitions/informer_test.go fd1975db96c0eedd9be5ca739d46bbcf0748de0af7af78988b4d2b937d360591 products/fingate/cmd/fingate-api/main.go 2b24b208874d1d0a8b3b5b0f6dad3f832c63533159748fb79d3af4543e988759 products/fingate/cmd/fingate-api/main_test.go | sha256sum --check --quiet -"
+  - id: A3
+    run: "(cd products/fingate && go test -count=1 -v -run '^(TestRunServesTheRoutesWithMutualTLS|TestRunVerifiesTheLedgersCertificate|TestRunWaitsForTheDefinitions|TestRunRefusesABadStart|TestInformerLoadsAndFollowsTheConfigMap|TestInformerIgnoresOtherConfigMaps|TestInformerIsNotLoadedByAnInvalidFirstDocument)$' ./cmd/fingate-api ./internal/definitions) | grep -c -E '^--- PASS: (TestRunServesTheRoutesWithMutualTLS|TestRunVerifiesTheLedgersCertificate|TestRunWaitsForTheDefinitions|TestRunRefusesABadStart|TestInformerLoadsAndFollowsTheConfigMap|TestInformerIgnoresOtherConfigMaps|TestInformerIsNotLoadedByAnInvalidFirstDocument) ' | grep -x 7"
+  - id: A4
+    run: "(cd products/fingate && env -u FINGATE_TEST_DATABASE_URL go test -count=1 -v -run '^TestPostgres' ./internal/store) | grep -c -E '^--- SKIP: TestPostgres(PassesThePortTests|MigrationsCreateOnlyTheConsentTables|ExpiresOnceUnderConcurrentReads) ' | grep -x 3"
+  - id: A5
+    run: "grep -c -x -E '[[:space:]](github\\.com/jackc/pgx/v5 v5\\.12\\.0|k8s\\.io/api v0\\.37\\.2|k8s\\.io/apimachinery v0\\.37\\.2|k8s\\.io/client-go v0\\.37\\.2)' products/fingate/go.mod | grep -x 4 && (cd products/fingate && go mod tidy -diff)"
+  - id: A6
+    run: "t=\"$(mktemp -d)\"; trap 'rm -rf \"$t\"' EXIT; python3 -c \"import sys, yaml; j = yaml.safe_load(open('.github/workflows/fingate-ci.yaml'))['jobs']['postgres']; assert j['services']['postgres']['image'] == 'postgres:16-alpine'; assert j['env']['FINGATE_TEST_DATABASE_URL'] == 'postgres://fingate:fingate@localhost:5432/fingate_test?sslmode=disable'; open(sys.argv[1], 'w').write(j['steps'][2]['run'])\" \"$t/job.sh\"; code=0; out=\"$(env -u FINGATE_TEST_DATABASE_URL bash -e \"$t/job.sh\" 2>&1)\" || code=$?; test \"$code\" = 1; grep -q -x -F 'self-test: a clean module passes; a skipped test, a skipped subtest, a failed test and a missing named test fail' <<<\"$out\"; grep -q -x -F '::error::products/fingate: 3 tests were skipped; with a database every test must run' <<<\"$out\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 2
   dropped: false
-  delivers: The PostgreSQL consent store with migration 0001, the informer that loads the definitions, and the fingate-api program with mutual TLS
+  delivers: The open-banking product keeps its consents in PostgreSQL with migration 0001, loads the installation's definitions from a ConfigMap through an informer, and has the program fingate-api that serves the resource server over mutual TLS and reads core banking through the ledger adapter the definitions name, with a CI job that runs the store's tests against a real database and fails on a skipped test.
 - id: PRD-601
   title: Domestic payments with detached signatures and idempotency
   area: PRD
