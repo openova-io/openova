@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""check-products.py - the product guard: the AI-hub charts keep the rules G-P1, G-P2 and G-P3.
+"""check-products.py - the product guard: the AI-hub charts and the open-banking product keep the rules G-P1 to G-P4 and G-P7.
 
 Each rule is one function, one list of folders it scans, and one fixture. It counts, per file,
 the lines that break the rule:
@@ -16,11 +16,22 @@ the lines that break the rule:
         platform/librechat: a line that contains secretKeyRef. A credential is mounted as a
         file, never read from a Secret object into an environment variable. The count of
         each file may only fall; a new file starts at zero.
+  G-P4  hard zero. The router tests of the open-banking product: the file
+        products/fingate/internal/api/router_test.go declares the test
+        TestEveryRouteAuthenticated, which walks every route and fails on one without the
+        token check. A file without that declaration counts one.
+  G-P7  ratchet. The lines of products/fingate/internal/api/unimplemented.txt, the operations
+        the profile serves and the resource server does not implement yet: test C1 of the
+        product serves every other one, so this count only falls. Also every line of a
+        products/fingate/profiles/*/profile.yaml that names a vendored document whose
+        SHA-256 is not the one the line states, or that is missing, counts one; such a line
+        has no baseline entry. A profile.yaml that names no document is not judged (exit 2).
 
 The counts are compared with scripts/baselines/products.json:
 
   {"schema": "openova.io/guard-baseline/v1",
-   "counts": {"G-P1": {}, "G-P2": {}, "G-P3": {"<repository path>": <number>}},
+   "counts": {"G-P1": {}, "G-P2": {}, "G-P3": {"<repository path>": <number>}, "G-P4": {},
+              "G-P7": {"<repository path>": <number>}},
    "allow": []}
 
   counts  per rule, per file, the number of lines allowed. A file absent from the map is
@@ -56,6 +67,7 @@ Exit codes: 0 no count rose and the baseline is exact; 1 a rule is broken;
 It needs Python 3 and nothing else.
 """
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -205,7 +217,107 @@ G_P3 = Rule("G-P3", G_P3_FOLDERS, g_p3, False,
                        {"platform/other/chart/templates/deployment.yaml": "secretKeyRef:\n"})]})
 
 
-RULES = [G_P1, G_P2, G_P3]
+# ---- G-P4: the router of the open-banking product proves that every route is authenticated. Hard zero.
+
+G_P4_FOLDERS = ("products/fingate/internal/api",)
+G_P4_FILE = "router_test.go"
+G_P4_RE = re.compile(rb"^func TestEveryRouteAuthenticated\(t \*testing\.T\) \{$")
+
+
+def g_p4(root):
+    found = {}
+    for folder in G_P4_FOLDERS:
+        files_under(root, folder)                     # a missing or empty folder is not a pass
+        path = folder + "/" + G_P4_FILE
+        try:
+            with open(os.path.join(root, path), "rb") as f:
+                lines = f.read().split(b"\n")
+        except OSError:
+            lines = []
+        if not any(G_P4_RE.match(line) for line in lines):
+            found[path] = [0]
+    return found
+
+
+G_P4 = Rule("G-P4", G_P4_FOLDERS, g_p4, True,
+            "the file must declare func TestEveryRouteAuthenticated(t *testing.T), the test that walks every route",
+            {"base": {"products/fingate/internal/api/router_test.go":
+                      "package api\n\nfunc TestEveryRouteAuthenticated(t *testing.T) {\n}\n"},
+             "fail": [("the test is missing",
+                       {"products/fingate/internal/api/router_test.go": "package api\n"}),
+                      ("the test is renamed",
+                       {"products/fingate/internal/api/router_test.go": "package api\n\nfunc TestSomeRoutesAuthenticated(t *testing.T) {\n}\n"}),
+                      ("the test is only a comment",
+                       {"products/fingate/internal/api/router_test.go": "package api\n\n// func TestEveryRouteAuthenticated(t *testing.T) {\n"})],
+             "pass": [("another test file beside it",
+                       {"products/fingate/internal/api/other_test.go": "package api\n"})]})
+
+
+# ---- G-P7: the open-banking product serves no fewer operations, and its vendored documents are unchanged. Ratchet.
+
+G_P7_LIST = "products/fingate/internal/api/unimplemented.txt"
+G_P7_PROFILES = "products/fingate/profiles"
+G_P7_FOLDERS = ("products/fingate/internal/api", G_P7_PROFILES)
+G_P7_LINE = re.compile(rb"^[a-z][a-z-]* (GET|PUT|POST|DELETE|OPTIONS|HEAD|PATCH|TRACE) /\S*$")
+G_P7_DOC = re.compile(rb"^\s*-\s*\{.*\bfile:\s*([^\s,}]+)\s*,.*\bsha256:\s*([0-9a-f]{64})\b")
+
+
+def g_p7(root):
+    for folder in G_P7_FOLDERS:
+        files_under(root, folder)                     # a missing or empty folder is not a pass
+    try:
+        with open(os.path.join(root, G_P7_LIST), "rb") as f:
+            lines = f.read().split(b"\n")
+    except OSError as e:
+        raise Unreadable("%s cannot be read: %s" % (G_P7_LIST, e))
+    found = {}
+    hits = [n + 1 for n, line in enumerate(lines) if G_P7_LINE.match(line)]
+    if hits:
+        found[G_P7_LIST] = hits
+    for path in files_under(root, G_P7_PROFILES):
+        if os.path.basename(path) != "profile.yaml":
+            continue
+        with open(os.path.join(root, path), "rb") as f:
+            lines = f.read().split(b"\n")
+        named = 0
+        for n, line in enumerate(lines):
+            m = G_P7_DOC.match(line)
+            if not m:
+                continue
+            named += 1
+            doc = os.path.join(root, os.path.dirname(path), m.group(1).decode("utf-8", "replace"))
+            try:
+                with open(doc, "rb") as f:
+                    same = hashlib.sha256(f.read()).hexdigest() == m.group(2).decode()
+            except OSError:
+                same = False
+            if not same:
+                found.setdefault(path, []).append(n + 1)
+        if not named:
+            raise Unreadable("%s names no document" % path)
+    return found
+
+
+G_P7 = Rule("G-P7", G_P7_FOLDERS, g_p7, False,
+            "an operation the product serves stays served, and a vendored document keeps the SHA-256 its profile states",
+            {"base": {G_P7_LIST: "",
+                      G_P7_PROFILES + "/p/profile.yaml": "documents:\n  - {api: a, file: a.yaml, sha256: %s, operations: 1, served: 1}\n"
+                      % hashlib.sha256(b"openapi: 3.0.0\n").hexdigest(),
+                      G_P7_PROFILES + "/p/a.yaml": "openapi: 3.0.0\n"},
+             "fail": [("an operation the product served is listed as not implemented",
+                       {G_P7_LIST: "account-info GET /accounts\n"}),
+                      ("a profile states another SHA-256 for its document",
+                       {G_P7_PROFILES + "/p/profile.yaml": "documents:\n  - {api: a, file: a.yaml, sha256: %s, operations: 1, served: 1}\n" % ("0" * 64)}),
+                      ("a profile names a document that is missing",
+                       {G_P7_PROFILES + "/p/profile.yaml": "documents:\n  - {api: a, file: a.yaml, sha256: %s, operations: 1, served: 1}\n  - {api: b, file: b.yaml, sha256: %s, operations: 1, served: 1}\n"
+                        % (hashlib.sha256(b"openapi: 3.0.0\n").hexdigest(), "1" * 64)})],
+             "pass": [("a file beside the profile that it does not name",
+                       {G_P7_PROFILES + "/p/SOURCE.md": "Where the documents come from.\n"}),
+                      ("a line of the list that names no operation is not counted",
+                       {G_P7_LIST: "\n"})]})
+
+
+RULES = [G_P1, G_P2, G_P3, G_P4, G_P7]
 NAMES = [r.name for r in RULES]
 
 
@@ -356,6 +468,9 @@ def self_test():
         ("a baseline with counts of an unknown rule is not a pass", baseline(lambda d: d["counts"].__setitem__("G-P9", {})), False, 2, "counts for exactly"),
         ("a baseline with an unknown key is not a pass", baseline(lambda d: d.__setitem__("extra", 1)), False, 2, "need exactly the keys"),
         ("a missing baseline is not a pass", gone(BASELINE), False, 2, "cannot judge"),
+        ("a profile that names no document is not a pass",
+         files({G_P7_PROFILES + "/p/profile.yaml": "documents: []\n"}), False, 2, "names no document"),
+        ("a missing list of unimplemented operations is not a pass", gone(G_P7_LIST), False, 2, "cannot be read"),
         ("a missing scanned folder is not a pass", lambda root: shutil.rmtree(os.path.join(root, "platform/bge")), False, 2, "platform/bge/chart/templates is not a directory"),
         ("a scanned folder without a file is not a pass",
          lambda root: [os.remove(os.path.join(root, G_P1.folders[1], n)) for n in os.listdir(os.path.join(root, G_P1.folders[1]))],
@@ -390,7 +505,7 @@ def self_test():
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="The product guard: rules G-P1, G-P2 and G-P3.")
+    parser = argparse.ArgumentParser(description="The product guard: rules G-P1 to G-P4 and G-P7.")
     parser.add_argument("--root", default=os.path.dirname(os.path.dirname(os.path.abspath(__file__))), help="the checkout to measure")
     parser.add_argument("--write-baseline", action="store_true", help="write %s from the tree; never raises an entry" % BASELINE)
     parser.add_argument("--self-test", action="store_true", help="prove that every rule can fail")
