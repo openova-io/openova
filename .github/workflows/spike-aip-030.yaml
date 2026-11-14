@@ -1,0 +1,172 @@
+# Lab test AIP-030 (spike branch only, never merged): agent runtime proof.
+# Question: does kagent 1.x with its Agent Substrate (gVisor sandbox class)
+# run per Organization on k3s with the platform's Cilium, and inside an
+# Organization vcluster? What node changes and policy exceptions does it need?
+#
+# Job "probe": one k3s node per minor (the platform pin 1.31.8, the planned
+# 1.33 line, 1.34, 1.35, 1.36) and the API that Substrate v1.0 requires
+# (certificates.k8s.io/v1beta1 PodCertificateRequest + ClusterTrustBundle, the
+# podCertificate volume source), with and without the feature gates.
+# Job "runtime": k3s v1.35.10 with the gates, Cilium 1.19.3 with the platform
+# values, kagent 1.0.1 through its upstream installer, a scripted model backend
+# and openova-mcp built from this checkout; tests T1 to T11.
+#
+# No cloud account, no secret, no cluster outside the job, no NodePort (a guard
+# deletes and reports any NodePort or LoadBalancer Service).
+name: spike-aip-030
+
+on:
+  push:
+    branches: [spike/AIP-030]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spike-aip-030
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    name: version probe (k3s ${{ matrix.k3s }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        k3s: [v1.31.8+k3s1, v1.33.13+k3s1, v1.34.13+k3s1, v1.35.10+k3s1, v1.36.6+k3s1]
+    env:
+      K3S_VERSION: ${{ matrix.k3s }}
+      OUT: /tmp/aip030-probe
+    steps:
+      - uses: actions/checkout@v4
+      - name: probe the certificate API
+        run: bash tests/spikes/AIP-030/probe.sh
+      - name: results
+        if: always()
+        run: cat /tmp/aip030-probe/results.jsonl || true
+
+  runtime:
+    name: runtime proof (k3s v1.35.10, Cilium 1.19.3, kagent 1.0.1)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    env:
+      K3S_VERSION: v1.35.10+k3s1
+      CILIUM_VERSION: 1.19.3
+      KAGENT_VERSION: 1.0.1
+      VCLUSTER_VERSION: 0.33.4
+      KYVERNO_CHART: 3.8.0
+      HELM_VERSION: v3.19.0
+      KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      OUT: /tmp/aip030
+      SPIKE: tests/spikes/AIP-030/run.sh
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup (helm, kagent CLI)
+        run: bash "$SPIKE" setup
+
+      - id: cluster
+        name: cluster (k3s with Pod Certificate gates, Cilium platform values)
+        timeout-minutes: 20
+        run: bash "$SPIKE" cluster
+
+      - id: install
+        name: install (kagent install, upstream charts) + T1 node facts + Pod Security baseline
+        timeout-minutes: 50
+        run: bash "$SPIKE" install
+
+      - id: fixtures
+        name: fixtures (scripted backend, openova-mcp, callers, agents)
+        if: steps.install.outcome == 'success'
+        timeout-minutes: 30
+        run: bash "$SPIKE" fixtures
+
+      - name: T4 bearer reaches the model backend
+        if: steps.fixtures.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 35
+        run: bash "$SPIKE" t4
+
+      - name: T5 bearer reaches openova-mcp (tools/list, tools/call)
+        if: steps.fixtures.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 15
+        run: bash "$SPIKE" t5
+
+      - name: T6 sandbox egress
+        if: steps.fixtures.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 15
+        run: bash "$SPIKE" t6
+
+      - name: T11 runtime-issued identity (informative)
+        if: steps.fixtures.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 20
+        run: bash "$SPIKE" t11
+
+      - name: T8 structured output and ask-the-user switch (informative)
+        if: steps.fixtures.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 35
+        run: bash "$SPIKE" t8
+
+      - name: scope install A to its namespace
+        if: steps.fixtures.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 20
+        run: bash "$SPIKE" scope
+
+      - name: T7 cancel a running turn (informative)
+        if: steps.fixtures.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 15
+        run: bash "$SPIKE" t7
+
+      - name: T9 database credential without a Secret
+        if: steps.fixtures.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 20
+        run: bash "$SPIKE" t9
+
+      - name: T10 install API from another Organization
+        if: steps.fixtures.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 15
+        run: bash "$SPIKE" t10
+
+      - name: T3 second install for a second Organization
+        if: steps.fixtures.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 45
+        run: bash "$SPIKE" t3
+
+      - name: T2 install inside an Organization vcluster
+        if: steps.fixtures.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 45
+        run: bash "$SPIKE" t2
+
+      - name: T1 platform baseline policies
+        if: always() && steps.cluster.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 30
+        run: bash "$SPIKE" t1policy
+
+      - name: collect
+        if: always()
+        timeout-minutes: 10
+        run: bash "$SPIKE" collect
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: aip030-runtime
+          path: /tmp/aip030
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: summary
+        if: always()
+        run: bash "$SPIKE" summary
