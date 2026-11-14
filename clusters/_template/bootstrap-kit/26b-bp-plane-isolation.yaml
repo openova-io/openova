@@ -41,7 +41,7 @@ spec:
   # falls back to anonymous auth → 401 → the chart never pulls → the
   # bootstrap-kit Kustomization wedges on this HR. Mirrors slots 26/13/16b.
   secretRef:
-    name: ghcr-pull
+    name: ${REGISTRY_PULL_SECRET:=ghcr-pull}
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease

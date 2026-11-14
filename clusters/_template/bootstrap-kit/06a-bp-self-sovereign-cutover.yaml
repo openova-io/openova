@@ -45,7 +45,7 @@ spec:
   # rest of the kit.
   url: oci://ghcr.io/openova-io
   secretRef:
-    name: ghcr-pull
+    name: ${REGISTRY_PULL_SECRET:=ghcr-pull}
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -1285,7 +1285,9 @@ spec:
     # fire-on-handover. Default false → the cutover fires via the BSS CTA (or the
     # #4669 level-triggered reconciler once the operator flips the flag).
     trigger:
-      fireCutoverOnHandover: ${FIRE_CUTOVER_ON_HANDOVER:-false}
+      # SOV-151: the hand-over switch is HANDOVER_AUTO of the variables; a Sovereign
+      # whose variables predate that key keeps reading the kit key FIRE_CUTOVER_ON_HANDOVER.
+      fireCutoverOnHandover: ${HANDOVER_AUTO:=${FIRE_CUTOVER_ON_HANDOVER:-false}}
     # #6490 — mirror openova/openova into EACH secondary region's OWN in-cluster
     # Gitea and pivot that region's Flux GitRepository at its in-cluster gitea-http
     # svc, instead of the cross-region external door that truncates the ~472MB ref
