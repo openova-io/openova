@@ -225,7 +225,6 @@ fi
 # list cannot rot (same anti-rot reasoning as the Phase 0a pattern self-test).
 RENDER_SKIP_ALLOWLIST=(
   platform/anthropic-adapter/chart
-  platform/bp-dmz-vcluster/chart
   platform/catalyst-edge-routes/chart
   platform/cilium-policies/chart
   platform/cnpg-pair/chart

@@ -389,7 +389,7 @@ openova/
 ├── platform/               # Component Blueprint folders — one folder per upstream OSS project
 │   ├── cilium/  cnpg/  flux/  gitea/  keycloak/  openbao/  ...
 │   └── ...                 # ~105 folders (89 chart-bearing); the rest README-only
-├── products/               # Composite Blueprint folders OpenOva ships (13 dirs)
+├── products/               # Composite Blueprint folders OpenOva ships (12 dirs)
 │   ├── agenity/            # bp-agenity — per-Org Agenity workspace (Pillar 4; chart/ + Containerfile)
 │   ├── axon/               # SaaS LLM Gateway                (real code: chart/ src/ scripts/)
 │   ├── catalyst/           # bp-catalyst-platform umbrella + bp-* sub-charts + bootstrap/
@@ -397,7 +397,6 @@ openova/
 │   ├── catalyst-migrator/  # one-shot Catalyst schema-migration Job image
 │   ├── continuum/          # bp-continuum DR/BCP chart + cloudflare-worker
 │   ├── cortex/             # AI Hub                          (scaffold)
-│   ├── dmz-vcluster/       # DMZ vcluster chart
 │   ├── fabric/             # Data & Integration              (scaffold)
 │   ├── fingate/            # Open Banking                    (scaffold)
 │   ├── openova-flow/       # flow graph engine (server/ canvas/ core/ adapter-flux/)
