@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T12:45:03Z` |
+| Last refreshed | `2026-11-14T13:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -309,6 +309,7 @@ flowchart LR
 |---|---|---|---|
 | 2026-11-14T12:42 | [#7704](https://github.com/openova-io/openova/pull/7704) | #7087 | docs(ledger): plan update |
 | 2026-11-14T12:27 | [#7697](https://github.com/openova-io/openova/pull/7697) | #7087 | docs(ledger): plan update |
+| 2026-11-14T12:46 | [#7695](https://github.com/openova-io/openova/pull/7695) | #7641 | test(charts): function tests for the identity and secrets ch |
 | 2026-11-14T12:21 | [#7694](https://github.com/openova-io/openova/pull/7694) | #7692 | fix(acceptance): the suite writes the whole provision block  |
 | 2026-11-14T11:56 | [#7691](https://github.com/openova-io/openova/pull/7691) | #7087 | docs(ledger): plan update |
 | 2026-11-14T12:01 | [#7687](https://github.com/openova-io/openova/pull/7687) | #7673 | feat(fingate): resource server router with the token check,  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-14T09:17 | [#7578](https://github.com/openova-io/openova/pull/7578) | #7576 | fix(ci): the unseal-key guard's list holds the findings of m |
 | 2026-11-14T09:43 | [#7564](https://github.com/openova-io/openova/pull/7564) | #7553 | docs: point the canonical documents at the generated invento |
 | 2026-11-14T08:51 | [#7562](https://github.com/openova-io/openova/pull/7562) | #7551 | feat(api): the jobs store publishes its writes, a jobs strea |
-| 2026-11-14T08:50 | [#7560](https://github.com/openova-io/openova/pull/7560) | #7554 | refactor(openbao): the config reconciler enables secrets mou |
 
 ---
 
