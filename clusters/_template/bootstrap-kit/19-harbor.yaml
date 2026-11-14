@@ -235,7 +235,7 @@ spec:
       # single-zone Sovereigns; Org-pool Sovereigns name it https-<zone-dashed>).
       # It parents the wildcard listener by hostname like every other route.
       # hw305 live: harbor.<fqdn> 404 (Accepted=False NoMatchingParent) → fixed.
-      version: 1.2.52
+      version: 1.2.53
       sourceRef:
         kind: HelmRepository
         name: bp-harbor
