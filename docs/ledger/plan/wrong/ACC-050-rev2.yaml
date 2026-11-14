@@ -1,0 +1,20 @@
+schema: openova.io/plan-wrong/v1
+id: ACC-050
+ticket_rev: 2
+base_commit: f6eecfcf43841bca7607d223f6254bdd86722344
+stage: step
+ref: branch
+command: |
+    git switch -c wp/ACC-050 origin/main
+expected: |
+    a new branch wp/ACC-050 is created from origin/main
+actual: |
+    fatal: A branch named 'wp/ACC-050' already exists.
+    (repeated once: git fetch origin --prune && git switch -c wp/ACC-050 origin/main)
+    fatal: unable to access 'https://github.com/openova-io/openova.git/': Could not resolve host: github.com
+    exit code: 128
+    (git branch -vv --list 'wp/ACC-050')
+      wp/ACC-050 290570ebf [origin/wp/ACC-050: gone] docs(ledger): plan update (#7664)
+    (git merge-base --is-ancestor wp/ACC-050 origin/main)
+    ancestor exit: 0
+reported_at: 2026-11-14T13:19:41Z
