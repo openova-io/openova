@@ -23,6 +23,29 @@ spec:
   parentDomains:
     - name: omani.works
       role: primary
+# status.network is the network registry of the Sovereign, in the form that
+# scripts/check-network-registry.py accepts (one region, so no meshEndpoint).
+status:
+  network:
+    podSupernet: 10.42.0.0/15
+    mtu: 1420
+    regionSeparation: none
+    controlPlaneAccess:
+      adminCIDRs: []
+      provisionerCIDRs: []
+    regions:
+      - code: fsn1
+        cloudRegion: fsn1
+        az: none
+        clusterName: t38-fsn
+        clusterID: 1
+        nodeCIDR: 10.127.1.0/24
+        podCIDR: 10.42.0.0/16
+        serviceCIDR: 10.96.0.0/16
+        edgeAddress: 203.0.113.10
+        egressAddresses:
+          - 203.0.113.12
+          - 203.0.113.11
 ---
 # Sample 2 — active-hotstandby Sovereign on Huawei (the canonical production
 # shape per the H7 walk evidence). 2 regions on the wire satisfies the
