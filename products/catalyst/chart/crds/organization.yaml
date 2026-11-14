@@ -161,8 +161,10 @@ spec:
                     to this Organization's app-internal Customer row. The
                     chargeback OpenOva adapter (PROFILE=sovereign) watches
                     Organizations and upserts one cost_source per entry.
-                    The organization-controller itself does not reconcile
-                    this field.
+                    The project's read-only credential is entered in the
+                    chargeback application; the Organization never names
+                    one. The organization-controller itself does not
+                    reconcile this field.
                   items:
                     type: object
                     required: [kind, region, projectId]
@@ -182,26 +184,6 @@ spec:
                         description: |
                           Cloud project id whose usage is metered and
                           attributed to this Organization.
-                      credentialRef:
-                        type: object
-                        description: |
-                          Optional reference to a Secret in the
-                          Organization's host namespace (= spec.slug)
-                          holding the read-only IAM AK/SK (ADR-0014 D8).
-                          The named key holds either JSON
-                          {"accessKey":"...","secretKey":"..."} or the
-                          colon form ACCESSKEY:SECRETKEY. Plaintext NEVER
-                          on the CR. Absent means the credential is
-                          entered in the chargeback UI instead (ADR-0014
-                          D8a). Modeled as an OPTIONAL object with no
-                          required subfields (the #4471 clientSecretRef
-                          value-struct lesson); the adapter validates
-                          name+key at read time.
-                        properties:
-                          name:
-                            type: string
-                          key:
-                            type: string
                 commerce:
                   type: object
                   description: |

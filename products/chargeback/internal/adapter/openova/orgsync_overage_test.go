@@ -5,8 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	k8sfake "k8s.io/client-go/kubernetes/fake"
-
 	"github.com/openova-io/openova/products/chargeback/internal/metrics"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
@@ -51,7 +49,7 @@ func TestReadOrgCommerceOverage(t *testing.T) {
 func TestSyncOrganizationSetsTheOverageModeFromTheOrder(t *testing.T) {
 	repo := growRepo(t)
 	logs := captureLogs(t)
-	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: repo, Keys: testKeys(t), Metrics: metrics.New()}
+	s := &OrgSync{Repo: repo, Metrics: metrics.New()}
 	ctx := context.Background()
 	grow := func(extra map[string]any) func(map[string]any) {
 		return func(spec map[string]any) {
@@ -90,7 +88,7 @@ func TestSyncOrganizationSetsTheOverageModeFromTheOrder(t *testing.T) {
 func TestSyncOrganizationRefusedOverageIsLoggedNotFatal(t *testing.T) {
 	repo := growRepo(t)
 	logs := captureLogs(t)
-	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: repo, Keys: testKeys(t), Metrics: metrics.New()}
+	s := &OrgSync{Repo: repo, Metrics: metrics.New()}
 	// A ceiling above the package's: refused by the store's own rule.
 	org := orgUnstructured("acme", func(spec map[string]any) {
 		spec["planSlug"] = "m"

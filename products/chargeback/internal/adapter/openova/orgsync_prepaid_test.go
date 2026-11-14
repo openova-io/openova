@@ -4,8 +4,6 @@ import (
 	"context"
 	"testing"
 
-	k8sfake "k8s.io/client-go/kubernetes/fake"
-
 	"github.com/openova-io/openova/products/chargeback/internal/metrics"
 	"github.com/openova-io/openova/products/chargeback/internal/store"
 )
@@ -30,7 +28,7 @@ func TestReadOrgCommercePrepaidAmount(t *testing.T) {
 
 func TestSyncOrganizationRecordsThePrepaidAmountOnce(t *testing.T) {
 	repo := growRepo(t)
-	s := &OrgSync{Core: k8sfake.NewSimpleClientset(), Repo: repo, Keys: testKeys(t), Metrics: metrics.New()}
+	s := &OrgSync{Repo: repo, Metrics: metrics.New()}
 	ctx := context.Background()
 	org := func(amount string) func(map[string]any) {
 		return func(spec map[string]any) {

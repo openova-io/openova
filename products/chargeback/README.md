@@ -39,10 +39,10 @@ chargeback→chargeback, showback→showback), `plan_slug` from `spec.planSlug`
 `kind: internal` Organization gets none), status active. GitOps-declared
 `spec.costSources[]` (see the Organization CRD,
 `products/catalyst/chart/crds/organization.yaml`) become `cost_sources`
-rows; a `credentialRef` is resolved read-only from the named Secret in the
-Organization's host namespace (= slug) — value either JSON
-`{"accessKey","secretKey"}` or `ACCESSKEY:SECRETKEY` — sealed with
-`APP_ENCRYPTION_KEY`, linked, and verified through the Huawei verifier.
+rows. Each stays pending until its read-only credential is entered in the
+console or through `POST /api/v1/sources/{id}/credential`, which seals it
+with `APP_ENCRYPTION_KEY` and verifies it; the adapter never reads a
+Kubernetes Secret.
 Deleting an Organization SUSPENDS its customer; nothing is ever deleted —
 statements and the usage ledger are billing history.
 
@@ -130,10 +130,9 @@ the cluster:
 |---|---|---|
 | `organizations.orgs.openova.io` | get, list, watch | ClusterRole (the CRD is cluster-scoped) |
 | `namespaces`, `pods`, `persistentvolumeclaims` | get, list, watch | ClusterRole (Organization namespaces are discovered by label) |
-| `secrets` | get | ONLY the credential Secrets `costSources[].credentialRef` names, in Organization host namespaces — grant per-Organization Roles on the named Secrets (RBAC `resourceNames` works for `get`), never a cluster-wide secrets read |
 
 The bp-chargeback chart today ships a zero-RBAC ServiceAccount; the chart
-change adding this ClusterRole + the per-Organization Secret Roles (plus the
+change adding this ClusterRole (plus the
 `ADAPTER_ENABLED` / `BILLING_HOOK_*` env wiring and the image/appVersion
 roll) is the follow-up chart release — until it lands, the adapter decides
 itself off in-cluster because the API calls are forbidden, and logs why.
