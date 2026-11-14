@@ -1,0 +1,21 @@
+schema: openova.io/plan-wrong/v1
+id: FND-024
+ticket_rev: 1
+base_commit: a1f5fed4acbb8695eefbdad349ae47d098d893b0
+stage: check
+ref: B1
+command: |
+    python3 scripts/plan.py checks --pr 7681 | grep -c -E '^green +guard rejects the real #5743 incident, accepts a correct bump, converges under a real race \('
+expected: |
+    1
+actual: |
+    0
+    (printed twice; the finish step "checks" ran in between and ended with "exit code: 0")
+    The check ran on head commit 47eee79cad7b and passed, under a shorter name:
+    python3 scripts/plan.py checks --pr 7681 | grep -F 'guard rejects' prints
+    green      guard rejects the real (completed, success)
+    The job is https://github.com/openova-io/openova/actions/runs/43590077000/job/132432738499
+    .github/workflows/check-chart-version-forward.yaml line 70 reads
+        name: guard rejects the real #5743 incident, accepts a correct bump, converges under a real race
+    The unquoted " #5743" starts a YAML comment, so GitHub names the job "guard rejects the real" and the B1 pattern cannot match.
+reported_at: 2026-11-14T11:40:58Z
