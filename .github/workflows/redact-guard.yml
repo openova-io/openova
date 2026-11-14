@@ -1,10 +1,8 @@
 name: privacy-redact-guard
 on:
   pull_request:
-    branches: [main]
   merge_group:
   push:
-    branches: [main]
 jobs:
   scan:
     runs-on: ubuntu-latest
@@ -16,15 +14,22 @@ jobs:
           # forbidden strings out of the public workflow file itself.
           # Operator sets PARTNER_REDACT_REGEX = '<pattern1>|<pattern2>|...'
           # via Settings -> Secrets and variables -> Actions -> New secret.
-          # If unset, the guard skips with a warning so PRs aren't
-          # silently blocked.
+          # If unset, the guard fails: it never passes without its
+          # pattern. Runs started by the dependency bot read the
+          # Dependabot secret of the same name.
           PARTNER_REDACT_REGEX: ${{ secrets.PARTNER_REDACT_REGEX }}
         run: |
           if [ -z "$PARTNER_REDACT_REGEX" ]; then
-            echo "::warning::PARTNER_REDACT_REGEX secret not set — privacy guard skipped. Operator must configure this in repo Actions secrets."
-            exit 0
+            echo "::error::PARTNER_REDACT_REGEX is not set; the guard cannot run"
+            exit 1
           fi
-          if git grep -ni -E "$PARTNER_REDACT_REGEX" --untracked -- ':!.github/workflows/redact-guard.yml'; then
+          rc=0
+          git grep -ni --untracked -E "$PARTNER_REDACT_REGEX" -- ':!.github/workflows/redact-guard.yml' || rc=$?
+          if [ "$rc" -eq 0 ]; then
             echo "::error::Private partner name detected — remove before merge (privacy P0 policy)"
+            exit 1
+          fi
+          if [ "$rc" -ne 1 ]; then
+            echo "::error::git grep failed with exit code $rc; the guard cannot run"
             exit 1
           fi
