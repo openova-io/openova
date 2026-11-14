@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T12:00:03Z` |
+| Last refreshed | `2026-11-14T12:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -308,6 +308,11 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-11-14T11:56 | [#7691](https://github.com/openova-io/openova/pull/7691) | #7087 | docs(ledger): plan update |
+| 2026-11-14T12:01 | [#7687](https://github.com/openova-io/openova/pull/7687) | #7673 | feat(fingate): resource server router with the token check,  |
+| 2026-11-14T12:01 | [#7685](https://github.com/openova-io/openova/pull/7685) | #7668 | ci: the release writer moves every kit pin of a chart that s |
+| 2026-11-14T12:00 | [#7683](https://github.com/openova-io/openova/pull/7683) | #7675 | fix: delete the committed database passwords and add their r |
+| 2026-11-14T12:00 | [#7682](https://github.com/openova-io/openova/pull/7682) | #7671 | feat(machine-operations): the chart runs the inventory contr |
+| 2026-11-14T12:02 | [#7681](https://github.com/openova-io/openova/pull/7681) | #7669 | ci: the deploy-bump action pushes with the release-writer de |
 | 2026-11-14T11:59 | [#7680](https://github.com/openova-io/openova/pull/7680) | #7672 | docs(adr): record 0032, migration is a platform product, and |
 | 2026-11-14T11:24 | [#7664](https://github.com/openova-io/openova/pull/7664) | #7087 | docs(ledger): plan update |
 | 2026-11-14T11:17 | [#7663](https://github.com/openova-io/openova/pull/7663) | #7657 | feat(fingate): add a ledger adapter template and a guide to  |
@@ -332,11 +337,6 @@ flowchart LR
 | 2026-11-14T08:50 | [#7559](https://github.com/openova-io/openova/pull/7559) | #7552 | ci: the jobs that push to main push with the release-writer  |
 | 2026-11-14T08:23 | [#7557](https://github.com/openova-io/openova/pull/7557) | #7087 | docs(ledger): plan update |
 | 2026-11-14T08:29 | [#7556](https://github.com/openova-io/openova/pull/7556) | #7528 | ci: pin the two moving Flux actions and ratchet unpinned act |
-| 2026-11-14T08:19 | [#7555](https://github.com/openova-io/openova/pull/7555) | #7544 | fix(openbao): close the public route to the OpenBao system p |
-| 2026-11-14T08:11 | [#7548](https://github.com/openova-io/openova/pull/7548) | #7087 | docs(ledger): plan update |
-| 2026-11-14T08:13 | [#7547](https://github.com/openova-io/openova/pull/7547) | #7501 | docs(ledger): replace the 15-minute status board in TRACKER. |
-| 2026-11-14T08:14 | [#7546](https://github.com/openova-io/openova/pull/7546) | #7539 | feat: add the pull-request mode of the commit library gitwri |
-| 2026-11-14T08:14 | [#7545](https://github.com/openova-io/openova/pull/7545) | #7540 | fix(charts): record the single-region backend decision on th |
 
 ---
 
