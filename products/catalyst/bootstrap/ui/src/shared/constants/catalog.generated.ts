@@ -3582,7 +3582,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-cilium"
