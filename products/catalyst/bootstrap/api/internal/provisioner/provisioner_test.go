@@ -912,37 +912,84 @@ func TestModuleK3sVersionIsTheModuleDefault(t *testing.T) {
 	}
 }
 
-// SOV-131: a tfvars file written before the module input `variables` existed
-// gets it before a destroy; a file that has it is left as it is.
+// SOV-338: before a destroy, a kept tfvars file is brought to exactly the keys
+// of contract C5: a missing key gets the value of a new document, a key the
+// contract no longer has is dropped, held values stay, a complete document is
+// not rewritten, and a `variables` that is not an object is an error.
 func TestAddVariablesIfMissing(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "tofu.auto.tfvars.json")
-	old := `{"catalyst_api_url": "https://console.openova.io/sovereign", "fire_cutover_on_handover": "false"}`
-	if err := os.WriteFile(path, []byte(old), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	const apiURL = "https://console.openova.io/sovereign"
 	req := Request{SovereignFQDN: "t31.omani.works", FireCutoverOnHandover: boolPtr(false)}
-	if err := addVariablesIfMissing(path, req); err != nil {
-		t.Fatalf("addVariablesIfMissing: %v", err)
-	}
-	raw, err := os.ReadFile(filepath.Clean(path))
+	fresh, err := childVariables(req, apiURL)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var parsed struct {
-		Variables map[string]string `json:"variables"`
+	held := map[string]string{"HANDOVER_AUTO": "true", "HANDOVER_HOLD_SECONDS": "120"}
+	cases := []struct {
+		name, drop, add string
+		noDocument      bool
+	}{
+		{name: "no document", noDocument: true},
+		{name: "missing key", drop: "REGISTRY_PATH_NODE_ARTIFACTS"},
+		{name: "retired key", add: "REGISTRY_PATH_RETIRED"},
+		{name: "complete"},
 	}
-	if err := json.Unmarshal(raw, &parsed); err != nil {
-		t.Fatal(err)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			vars := map[string]any{"catalyst_api_url": apiURL}
+			want := map[string]string{}
+			for k, v := range fresh {
+				want[k] = v
+			}
+			if !tc.noDocument {
+				doc := map[string]string{}
+				for k, v := range fresh {
+					doc[k] = v
+				}
+				for k, v := range held {
+					doc[k], want[k] = v, v
+				}
+				delete(doc, tc.drop)
+				if tc.add != "" {
+					doc[tc.add] = "retired"
+				}
+				vars["variables"] = doc
+			}
+			old, _ := json.Marshal(vars)
+			path := filepath.Join(t.TempDir(), "tofu.auto.tfvars.json")
+			if err := os.WriteFile(path, old, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := addVariablesIfMissing(path, req); err != nil {
+				t.Fatalf("addVariablesIfMissing: %v", err)
+			}
+			raw, err := os.ReadFile(filepath.Clean(path))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.name == "complete" && string(raw) != string(old) {
+				t.Errorf("a file whose document has exactly the contract keys was rewritten")
+			}
+			var parsed struct {
+				Variables map[string]string `json:"variables"`
+			}
+			if err := json.Unmarshal(raw, &parsed); err != nil {
+				t.Fatal(err)
+			}
+			checkVariablesDocument(t, tc.name, parsed.Variables, req.SovereignFQDN)
+			for k, v := range want {
+				if parsed.Variables[k] != v {
+					t.Errorf("variables[%s] = %q, want %q", k, parsed.Variables[k], v)
+				}
+			}
+		})
 	}
-	checkVariablesDocument(t, "added", parsed.Variables, req.SovereignFQDN)
-	if parsed.Variables["HANDOVER_AUTO"] != "false" {
-		t.Errorf("variables[HANDOVER_AUTO] = %q, want \"false\"", parsed.Variables["HANDOVER_AUTO"])
-	}
-	if err := addVariablesIfMissing(path, Request{SovereignFQDN: "t31.omani.works"}); err != nil {
-		t.Fatal(err)
-	}
-	again, err := os.ReadFile(filepath.Clean(path))
-	if err != nil || string(again) != string(raw) {
-		t.Errorf("a file that has variables was changed (%v)", err)
-	}
+	t.Run("not an object", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "tofu.auto.tfvars.json")
+		if err := os.WriteFile(path, []byte(`{"variables": "x"}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := addVariablesIfMissing(path, req); err == nil {
+			t.Errorf("a variables value that is not an object was accepted")
+		}
+	})
 }
