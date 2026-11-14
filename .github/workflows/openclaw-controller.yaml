@@ -191,17 +191,33 @@ jobs:
           # ImagePullBackOff on the placeholder too). Resolve it to the
           # newest published runtime tag here so the whole bp-openclaw
           # release carries real, existing image tags (anti-pattern A12).
+          #
+          # The newest image tag is the first tag of 7 hex characters (the
+          # form openclaw-runtime.yaml pushes: the first 7 characters of the
+          # commit) among the package versions, newest first. Since FND-062
+          # each build also pushes a signature (sha256-<digest>.sig) and an
+          # attestation (sha256-<digest>.att) as newer versions of the same
+          # package, so the first tag of the newest version is not an image:
+          # chart 0.2.22 shipped sha256-feaf7f68...9913.att (Refs #7768).
           RUNTIME_IMAGE="ghcr.io/openova-io/openova/openclaw-runtime"
-          latest_runtime=$(gh api \
-            "/orgs/openova-io/packages/container/openova%2Fopenclaw-runtime/versions" \
-            --jq 'sort_by(.created_at) | reverse | .[0].metadata.container.tags[0]' 2>/dev/null || true)
-          if [ -n "${latest_runtime}" ] && [ "${latest_runtime}" != "null" ]; then
+          rc=0
+          latest_runtime=$(python3 scripts/latest-image-tag.py --package openova/openclaw-runtime) || rc=$?
+          if [ "${rc}" -eq 0 ]; then
             yq eval -i ".perUserPod.image.repository = \"${RUNTIME_IMAGE}\"" "${CHART_VALUES}"
             yq eval -i ".perUserPod.image.tag = \"${latest_runtime}\"" "${CHART_VALUES}"
             echo "perUserPod.image.tag -> ${latest_runtime}"
           else
-            echo "WARN: could not resolve latest openclaw-runtime tag; leaving perUserPod.image.tag unchanged"
+            echo "WARN: could not resolve latest openclaw-runtime tag (latest-image-tag exit ${rc}); leaving perUserPod.image.tag unchanged"
           fi
+          # Verify what the next steps commit: both tags are commit tags of 7
+          # hex characters, never latest, a signature or an attestation.
+          for key in controller perUserPod; do
+            written=$(yq eval ".${key}.image.tag" "${CHART_VALUES}")
+            if ! [[ "${written}" =~ ^[0-9a-f]{7}$ ]]; then
+              echo "::error::${CHART_VALUES} ${key}.image.tag is '${written}', not a commit tag of 7 hex characters; refusing to commit it (Refs #7768)"
+              exit 1
+            fi
+          done
           echo "values.yaml images after update:"
           yq eval '.controller.image, .perUserPod.image' "${CHART_VALUES}"
 
