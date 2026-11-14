@@ -613,7 +613,7 @@ packages:
   epic: FND-010
   type: delete
   wave: W0
-  size: S
+  size: XS
   lane: RAILS
   depends_on: [FND-011]
   after: []
@@ -623,24 +623,16 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition:
-    run: "sed -n 3p docs/ledger/TRACKER.md | grep -c 'refresh-dod-dashboard.sh'"
-    expect: "1"
-  acceptance:
-  - id: A1
-    run: "! grep -q '41 / 41' docs/ledger/TRACKER.md"
-  - id: A2
-    run: "test \"$(wc -l < docs/ledger/TRACKER.md)\" -le 6"
-  - id: A3
-    run: "printf '%s  %s\\n' 8ca5fee09af6f6e29ee449b42951c55ac22383168d34082ccb4f0079e79783b7 docs/ledger/TRACKER.md | sha256sum --check --quiet -"
+  precondition: null
+  acceptance: []
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 0
   dropped: false
-  delivers: docs/ledger/TRACKER.md no longer prints the false 41 / 41 total; it is a five-line pointer to the plan tool and the gate verdict, and no commit rewrites it every 15 minutes.
+  delivers: The 15-minute tracker commit stops and the file no longer prints a false total.
 - id: FND-013
   title: 'Merge queue: aggregate check, queue triggers, rulesets and code owners as files'
   area: FND
@@ -3814,7 +3806,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [FND-191, FND-192]
-  after: [FND-037, FND-011, CLD-021, CLD-022, CLD-142, SEC-100, NET-030, NET-042, SVC-060, CTL-030, CTL-041]
+  after: [FND-037, FND-011, CLD-021, CLD-022, CLD-142, SEC-100, NET-030, NET-042, NET-080, SVC-060, CTL-030, CTL-041]
   touches:
   - platform/syft-grype/**
   - clusters/_template/bootstrap-kit/33-syft-grype.yaml
@@ -4279,7 +4271,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [FND-032]
-  after: [FND-011, FND-033, FND-034, CLD-113, SOV-035, SEC-080, SEC-120, NET-010, NET-020, NET-060, SVC-060, SVC-125, CTL-040, CTL-041, CTL-150, CMP-010, BSS-030]
+  after: [FND-011, FND-033, FND-034, CLD-113, SOV-035, SEC-080, SEC-120, NET-010, NET-020, NET-060, NET-080, SVC-060, SVC-125, CTL-040, CTL-041, CTL-150, CMP-010, BSS-030]
   touches:
   - clusters/_template/bootstrap-kit/13-bp-catalyst-platform.yaml
   - products/catalyst/chart/values.yaml
@@ -5152,7 +5144,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CLD-103, SEC-190, SEC-211]
-  after: [FND-011, CLD-113, SOV-035, CTL-150]
+  after: [FND-011, CLD-113, SOV-035, NET-080, CTL-150]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/deployments.go
   - products/catalyst/chart/templates/api-deployment.yaml
@@ -5322,7 +5314,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [CLD-102, CLD-113]
-  after: [CLD-021]
+  after: [CLD-021, NET-080]
   touches:
   - products/catalyst/bootstrap/api/internal/provisioner/adoption.go
   - products/catalyst/bootstrap/api/internal/jobs/types.go
@@ -6650,7 +6642,7 @@ packages:
   size: XS
   lane: SUBSTRATE
   depends_on: []
-  after: [FND-011, FND-095, SOV-131, SEC-030, NET-100, CTL-041]
+  after: [FND-011, FND-095, SOV-131, SEC-030, NET-080, NET-100, CTL-041]
   touches:
   - clusters/_template/bootstrap-kit/06a-bp-self-sovereign-cutover.yaml
   - platform/self-sovereign-cutover/chart/values.yaml
@@ -7086,26 +7078,43 @@ packages:
   depends_on: [SOV-120, CTL-110, CTL-112, CTL-045, SOV-110]
   after: []
   touches:
-  - core/cmd/sovereign-ops/main.go
-  - core/cmd/sovereign-ops/internal/seedrepo/**
   - core/cmd/sovereign-ops/go.mod
   - core/cmd/sovereign-ops/go.sum
+  - core/cmd/sovereign-ops/main.go
+  - core/cmd/sovereign-ops/main_test.go
+  - core/cmd/sovereign-ops/internal/seedrepo/**
   - core/cmd/sovereign-ops/Containerfile
   - .github/workflows/build-sovereign-ops.yaml
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls core/cmd/sovereign-ops/internal | grep -c -x 'seedrepo'"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "out=\"$(cd core/cmd/sovereign-ops && go test -count=1 -v ./...)\"; for t in TestDispatch TestResultLine TestExitCodes TestSeedRepoWritesOnceThenNoop TestSeedRepoNeverOverwritesNewerCommit TestSeedRepoRefusals TestAPIServerGet TestRule5MatchesUpstream; do grep -q -F -- \"--- PASS: $t (\" <<<\"$out\" || { echo \"test $t did not pass\"; exit 1; }; done"
+  - id: A2
+    run: "cd core/cmd/sovereign-ops && go vet ./... && test -z \"$(gofmt -l .)\" && go list ./internal/seedrepo > /dev/null"
+  - id: A3
+    run: "python3 - <<'PY'\nimport os, shutil, subprocess, sys, tempfile\nlines = open(\"core/cmd/sovereign-ops/Containerfile\").read().split(\"\\n\")\nstart = next(i for i, l in enumerate(lines) if l.startswith(\"FROM \") and l.endswith(\" AS build\"))\nstage = []\nfor l in lines[start + 1:]:\n    if l.startswith(\"FROM \"):\n        break\n    stage.append(l)\nroot = tempfile.mkdtemp()\nwd = \"/\"\nfor l in stage:\n    w = l.split()\n    if w[:1] == [\"WORKDIR\"]:\n        wd = os.path.join(wd, w[1])\n    elif w[:1] == [\"COPY\"]:\n        dst = os.path.join(root + wd, w[-1]) if not w[-1].startswith(\"/\") else root + w[-1]\n        for src in w[1:-1]:\n            if os.path.isdir(src):\n                shutil.copytree(src, dst, dirs_exist_ok=True)\n            else:\n                os.makedirs(dst, exist_ok=True)\n                shutil.copy(src, dst)\nenv = dict(os.environ, CGO_ENABLED=\"0\")\nsubprocess.run([\"go\", \"build\", \"-o\", root + \"/out/sovereign-ops\", \".\"], cwd=root + wd, env=env, check=True)\nr = subprocess.run([root + \"/out/sovereign-ops\", \"seed-repo\"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)\nwant = '{\"command\":\"seed-repo\",\"result\":\"failed\",\"evidence\":[],\"error\":\"usage: seed-repo --region <id> --git-url <url> --git-token-file <file> [--repo <owner>/<name>]\"}\\n'\nshutil.rmtree(root)\nprint(r.returncode, r.stdout.decode().strip())\nsys.exit(0 if r.returncode == 1 and r.stdout.decode() == want else 1)\nPY"
+  - id: A4
+    run: "python3 -c 'import sys,yaml; w=yaml.safe_load(open(\".github/workflows/build-sovereign-ops.yaml\")); on=w[True]; steps=w[\"jobs\"][\"build\"][\"steps\"]; need={\"core/cmd/sovereign-ops/**\",\"core/controllers/go.mod\",\"core/controllers/go.sum\",\"core/controllers/pkg/gitea/**\",\"core/controllers/pkg/gitwrite/**\",\"core/controllers/pkg/upstream/**\"}; t=[s for s in steps if s.get(\"working-directory\")==\"core/cmd/sovereign-ops\" and \"go test -count=1\" in s.get(\"run\",\"\")]; b=[s for s in steps if \"/build-push-action@\" in str(s.get(\"uses\",\"\")) and \"if\" not in s and s[\"with\"][\"file\"]==\"core/cmd/sovereign-ops/Containerfile\" and \"github.event_name != \" in str(s[\"with\"][\"push\"])]; ok=[need <= set(on[\"push\"][\"paths\"]), need <= set(on[\"pull_request\"][\"paths\"]), len(t)==1, len(b)==1]; print(ok); sys.exit(0 if all(ok) else 1)'"
+  - id: A5
+    run: "printf '%s\\n' '048aeac0c85f0bfc45278e279e372c157953a63f9fc4672d178e3cc1b0534bdc  core/cmd/sovereign-ops/go.mod' '6cc9ed8c5f0a010d70b09716ee935caa2440002c6b4b6593fcda199ace3907ae  core/cmd/sovereign-ops/go.sum' '326690de396ad781141cd5937227e742e101a4fc870dcf5e971e9a1a09504243  core/cmd/sovereign-ops/main.go' '9a6857965510832cbd5dd1bde0267ea8aa6505e27c802300bf8ce5528937c72f  core/cmd/sovereign-ops/main_test.go' '6d370ff638c619f1d58a698a580cfe22ac717b8798a83f4ea4cb354c8d936f30  core/cmd/sovereign-ops/internal/seedrepo/seedrepo.go' '6e20171c2f5177af5d7da91635b52cbfb7d85009933c029c599ae6f22c607e05  core/cmd/sovereign-ops/internal/seedrepo/cluster.go' 'b03fc37d7cac9e6e9d643bfb321d4672d89df9da3efbb2190597db3b8300c644  core/cmd/sovereign-ops/internal/seedrepo/seedrepo_test.go' '5083213851a473e152b4fcf232432bc208a19c56f1513bb6bdd54f2e021c6f66  core/cmd/sovereign-ops/Containerfile' 'c8acfe0e9fdacc7e3273404612d148a2277ae9b7d223718ee0088b5946e7b710  .github/workflows/build-sovereign-ops.yaml' | sha256sum --check --quiet -"
+  - id: A6
+    run: "python3 scripts/check-modules-tested.py > /dev/null && bash scripts/check-go-test-count1.sh > /dev/null"
+  - id: A7
+    run: "for k in TOFU_VERSION TOFU_SHA256_AMD64 TOFU_SHA256_ARM64; do a=\"$(grep \"^ARG $k=\" products/catalyst/bootstrap/api/Containerfile)\"; b=\"$(grep \"^ARG $k=\" core/cmd/sovereign-ops/Containerfile)\"; test -n \"$a\" && test \"$a\" = \"$b\" || { echo \"$k differs: [$a] [$b]\"; exit 1; }; done"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: The command that seeds the repository of a Sovereign with its root objects
+  delivers: The command sovereign-ops has the subcommand seed-repo, which commits the variables ConfigMap and the root Flux Kustomizations of one region into the Sovereign repository in one commit, once, and never over a newer commit; the image of the command builds with it.
 - id: SOV-130
   title: 'Substrate window, part 1: modules and cloud-init take the variables document'
   area: SOV
@@ -7823,7 +7832,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [SOV-180, SOV-134]
-  after: [SEC-071, CTL-040]
+  after: [SEC-071, NET-080, CTL-040]
   touches:
   - core/controllers/organization/**
   - core/services/provisioning/**
@@ -7994,7 +8003,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [FND-144, SOV-120, SOV-160, SOV-212, SOV-225]
-  after: [FND-011, SEC-100, NET-042, CTL-040]
+  after: [FND-011, SEC-100, NET-042, NET-080, CTL-040]
   touches:
   - core/cmd/sovereign-ops/internal/closure/**
   - platform/self-sovereign-cutover/chart/templates/03-harbor-prewarm-job.yaml
@@ -8027,7 +8036,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-110, CTL-112, FND-144, SOV-150, SOV-170, SOV-180, SOV-225, SOV-230, SOV-510, SOV-131, SOV-151, SOV-134]
-  after: [FND-011, SEC-100, NET-042]
+  after: [FND-011, SEC-100, NET-042, NET-080]
   touches:
   - core/cmd/sovereign-ops/internal/flip/**
   - platform/self-sovereign-cutover/chart/templates/05-upstream-flip-job.yaml
@@ -8059,7 +8068,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [FND-032, SOV-060, SOV-240, SOV-131, SOV-132, SOV-134]
-  after: [SOV-161, FND-011, SEC-080, NET-010, NET-020, NET-060, BSS-030]
+  after: [SOV-161, FND-011, SEC-080, NET-010, NET-020, NET-060, NET-080, BSS-030]
   touches:
   - platform/self-sovereign-cutover/chart/templates/04-registry-pivot-daemonset.yaml
   - platform/self-sovereign-cutover/chart/values.yaml
@@ -8090,7 +8099,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [SOV-160, SOV-240]
-  after: [FND-011, SEC-100, NET-042]
+  after: [FND-011, SEC-100, NET-042, NET-080]
   touches:
   - platform/self-sovereign-cutover/chart/values.yaml
   - products/catalyst/bootstrap/api/internal/handler/cutover*.go
@@ -8120,7 +8129,7 @@ packages:
   size: XS
   lane: CONTROL
   depends_on: [CTL-150, SOV-260, SOV-540]
-  after: [FND-011, CLD-113]
+  after: [FND-011, CLD-113, NET-080]
   touches:
   - products/catalyst/chart/values.yaml
   - scripts/baselines/lock-stages.json
@@ -8147,7 +8156,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [FND-032, NET-153, SOV-250, SOV-310, SOV-320, SOV-330, SOV-322]
-  after: [FND-011, SEC-080, NET-010, NET-060, BSS-030]
+  after: [FND-011, SEC-080, NET-010, NET-060, NET-080, BSS-030]
   touches:
   - platform/self-sovereign-cutover/chart/templates/08-egress-block-test-job.yaml
   - platform/self-sovereign-cutover/chart/values.yaml
@@ -8278,7 +8287,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [SOV-320, SOV-321, SOV-150]
-  after: [FND-011, FND-093, CLD-113, CLD-142, SOV-035, CTL-030, CTL-041, CTL-150]
+  after: [FND-011, FND-093, CLD-113, CLD-142, SOV-035, NET-080, CTL-030, CTL-041, CTL-150]
   touches:
   - clusters/_template/bootstrap-kit/95-bp-stalwart-sovereign.yaml
   - clusters/_template/bootstrap-kit/kustomization.yaml
@@ -8341,7 +8350,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CTL-201, SOV-310]
-  after: [FND-011, FND-014, CLD-113, CLD-185, SOV-030, SOV-035, SOV-131, SOV-133, SOV-134, SOV-140, SOV-141, SEC-020, SEC-030, NET-020, CTL-150]
+  after: [FND-011, FND-014, CLD-113, CLD-185, SOV-030, SOV-035, SOV-131, SOV-133, SOV-134, SOV-140, SOV-141, SEC-020, SEC-030, NET-020, NET-080, CTL-150]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - products/catalyst/bootstrap/api/internal/provisioner/provisioner.go
@@ -8793,7 +8802,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [FND-142, SOV-520]
-  after: [FND-011, SEC-100, NET-042]
+  after: [FND-011, SEC-100, NET-042, NET-080]
   touches:
   - platform/self-sovereign-cutover/chart/templates/11-mirror-resync-cronjob.yaml
   - platform/self-sovereign-cutover/chart/templates/12-daytwo-harbor-pin-reconciler.yaml
@@ -9282,7 +9291,7 @@ packages:
   size: XS
   lane: CONTROL
   depends_on: [SOV-930]
-  after: [FND-011, SOV-050, NET-042]
+  after: [FND-011, SOV-050, NET-042, NET-080]
   touches:
   - products/catalyst/chart/templates/*-kustomize.yaml
   - products/catalyst/chart/templates/kustomization.yaml
@@ -9316,7 +9325,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [SOV-620]
-  after: [FND-011]
+  after: [FND-011, NET-080]
   touches:
   - core/controllers/sovereign/**
   - products/catalyst/chart/templates/controllers/
@@ -9634,7 +9643,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [FND-036, FND-080, SEC-040]
-  after: [FND-011, CLD-010, CLD-080, CLD-087, CLD-113, CLD-185, SOV-035, SOV-130, SOV-131, SOV-133, SOV-134, SOV-140, SOV-141, SEC-080, NET-010, NET-020, NET-060, NET-100, SVC-060, CTL-041, CTL-150, BSS-030]
+  after: [FND-011, CLD-010, CLD-080, CLD-087, CLD-113, CLD-185, SOV-035, SOV-130, SOV-131, SOV-133, SOV-134, SOV-140, SOV-141, SEC-080, NET-010, NET-020, NET-060, NET-080, NET-100, SVC-060, CTL-041, CTL-150, BSS-030]
   touches: []
   resources: []
   flips: [SEC-G06]
@@ -10712,7 +10721,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [SEC-200, SEC-211]
-  after: [FND-011, CLD-113, SOV-035, SVC-060, CTL-150]
+  after: [FND-011, CLD-113, SOV-035, NET-080, SVC-060, CTL-150]
   touches:
   - core/marketplace-api/internal/secretfile/
   - core/marketplace-api/main.go
@@ -10914,7 +10923,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [SEC-223]
-  after: [FND-011, FND-093, FND-095, FND-096, FND-099, FND-171, CLD-021, CLD-113, SOV-035, SVC-060, CTL-030, CTL-035, CTL-150]
+  after: [FND-011, FND-093, FND-095, FND-096, FND-099, FND-171, CLD-021, CLD-113, SOV-035, NET-080, SVC-060, CTL-030, CTL-035, CTL-150]
   touches:
   - products/catalyst/chart/**
   - products/catalyst/bootstrap/api/internal/secretfile/
@@ -11502,7 +11511,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271]
-  after: [FND-011, FND-013, FND-014, FND-015, FND-018, FND-020, FND-021, FND-022, FND-023, FND-031, FND-032, FND-033, FND-034, FND-040, FND-052, FND-053, FND-054, FND-055, FND-058, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-101, FND-102, FND-103, FND-105, FND-110, FND-171, CLD-010, CLD-021, CLD-022, CLD-040, CLD-063, CLD-075, CLD-080, CLD-086, CLD-087, CLD-113, CLD-142, SOV-030, SOV-035, SOV-040, SOV-050, SOV-110, SOV-120, SOV-133, SOV-141, SOV-150, SOV-180, SEC-020, SEC-030, SEC-125, NET-030, NET-033, NET-041, NET-050, NET-090, NET-100, SVC-020, SVC-060, SVC-125, CTL-010, CTL-020, CTL-025, CTL-030, CTL-035, CTL-044, CTL-045, CTL-150, CTL-160, CTL-201, CTL-240, CMP-012, CMP-014, CMP-036, CMP-073, BSS-050, INF-010, PRD-030, PRD-101, PRD-102, PRD-106]
+  after: [FND-011, FND-013, FND-014, FND-015, FND-018, FND-020, FND-021, FND-022, FND-023, FND-031, FND-032, FND-033, FND-034, FND-040, FND-052, FND-053, FND-054, FND-055, FND-058, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-101, FND-102, FND-103, FND-105, FND-110, FND-171, CLD-010, CLD-021, CLD-022, CLD-040, CLD-063, CLD-075, CLD-080, CLD-086, CLD-087, CLD-113, CLD-142, SOV-030, SOV-035, SOV-040, SOV-050, SOV-110, SOV-120, SOV-121, SOV-133, SOV-141, SOV-150, SOV-180, SEC-020, SEC-030, SEC-125, NET-030, NET-033, NET-041, NET-050, NET-090, NET-100, SVC-020, SVC-060, SVC-125, CTL-010, CTL-020, CTL-025, CTL-030, CTL-035, CTL-044, CTL-045, CTL-150, CTL-160, CTL-201, CTL-240, CMP-012, CMP-014, CMP-036, CMP-073, BSS-050, INF-010, PRD-030, PRD-101, PRD-102, PRD-106]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/26-image-signature.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -11957,7 +11966,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [FND-032, NET-010]
-  after: [FND-011, FND-014, CLD-113, SOV-030, SOV-035, SOV-131, SOV-133, SOV-140, SOV-141, SEC-020, SEC-030, NET-100, CTL-150]
+  after: [FND-011, FND-014, CLD-113, SOV-030, SOV-035, SOV-131, SOV-133, SOV-140, SOV-141, SEC-020, SEC-030, NET-080, NET-100, CTL-150]
   touches: []
   resources: []
   flips: []
@@ -12239,7 +12248,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: []
-  after: [NET-030, FND-011, FND-031, FND-054, FND-061, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, FND-173, CLD-021, CLD-022, CLD-040, CLD-142, SOV-035, SEC-100, NET-042, SVC-060, CTL-030, CTL-041]
+  after: [NET-030, FND-011, FND-031, FND-054, FND-061, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, FND-173, CLD-021, CLD-022, CLD-040, CLD-142, SOV-035, SEC-100, NET-042, NET-080, SVC-060, CTL-030, CTL-041]
   touches:
   - clusters/_template/bootstrap-kit/35-coraza.yaml
   - clusters/_template/bootstrap-kit/kustomization.yaml
@@ -12638,26 +12647,37 @@ packages:
   size: S
   lane: CONTROL
   depends_on: []
-  after: [FND-011, FND-095, CLD-113, SOV-035, CTL-150]
+  after: [FND-011]
   touches:
   - core/controllers/organization/cmd/main.go
   - products/catalyst/chart/templates/controllers/organization-controller-deployment.yaml
   - products/catalyst/chart/values.yaml
   - platform/self-sovereign-cutover/chart/values.yaml
+  - platform/self-sovereign-cutover/chart/templates/06-helmrepository-patches-job.yaml
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c -F 'envOr(\"CATALYST_VCLUSTER_CHART_VERSION\", \"0.33.*\")' core/controllers/organization/cmd/main.go"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -z \"$(git grep -n -F '0.33.*' -- core/controllers/organization/cmd/main.go products/catalyst/chart platform/self-sovereign-cutover/chart/values.yaml platform/self-sovereign-cutover/chart/templates)\""
+  - id: A2
+    run: "grep -c -x -E '[[:space:]]*chartVer := envOr\\(\"CATALYST_VCLUSTER_CHART_VERSION\", \"0\\.33\\.4\"\\)' core/controllers/organization/cmd/main.go"
+  - id: A3
+    run: "helm template t products/catalyst/chart --show-only templates/controllers/organization-controller-deployment.yaml > /tmp/NET-080-org.yaml && grep -A1 -F -- '- name: CATALYST_VCLUSTER_CHART_VERSION' /tmp/NET-080-org.yaml | grep -c -x -F '              value: \"0.33.4\"'"
+  - id: A4
+    run: "helm template ssc platform/self-sovereign-cutover/chart --set sovereign.fqdn=x.example > /tmp/NET-080-ssc.yaml && grep -A1 -F -- '- name: VCL_LOFT_VERSION' /tmp/NET-080-ssc.yaml | grep -c -x -F '            value: \"0.33.4\"'"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Exact vcluster chart version (highest 0.33.N from the chart index) in controller default, chart value and cutover mirror list
+  delivers: 'Every per-Org vCluster HelmRelease asks for vcluster chart 0.33.4 exactly: the organization controller''s default, the platform chart value the controller is started with, and the version the cutover mirrors into the Sovereign''s own registry are one pinned value.'
 - id: NET-081
   title: One producer of the Organization kubeconfig
   area: NET
@@ -12971,7 +12991,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [NET-010, NET-110, NET-120, NET-125, NET-134]
-  after: [FND-011, CLD-113, CLD-185, SOV-035, SOV-130, SOV-131, SOV-133, SOV-134, SOV-140, SOV-141, CTL-041, CTL-150]
+  after: [FND-011, CLD-113, CLD-185, SOV-035, SOV-130, SOV-131, SOV-133, SOV-134, SOV-140, SOV-141, NET-080, CTL-041, CTL-150]
   touches:
   - clusters/_template/sovereign-tls/cilium-mesh-values.yaml
   - clusters/_template/sovereign-tls/kustomization.yaml
@@ -13084,7 +13104,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [NET-132]
-  after: [FND-011, CLD-113, CLD-185, SOV-035, SOV-130, SOV-131, SOV-133, SOV-134, SOV-140, SOV-141, SVC-060, CTL-041, CTL-150]
+  after: [FND-011, CLD-113, CLD-185, SOV-035, SOV-130, SOV-131, SOV-133, SOV-134, SOV-140, SOV-141, NET-080, SVC-060, CTL-041, CTL-150]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/clustermesh.go
   - products/catalyst/bootstrap/api/internal/handler/clustermesh_test.go
@@ -13866,7 +13886,7 @@ packages:
   size: XS
   lane: CONTROL
   depends_on: [NET-223]
-  after: []
+  after: [NET-080]
   touches:
   - core/controllers/organization/internal/controller/environment_ensure.go
   - core/controllers/organization/cmd/main.go
@@ -13923,7 +13943,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [NET-227, SOV-240]
-  after: [FND-011, CLD-113, CLD-141, SEC-100, NET-010, NET-020, NET-100, SVC-060, CMP-036]
+  after: [FND-011, CLD-113, CLD-141, SEC-100, NET-010, NET-020, NET-080, NET-100, SVC-060, CMP-036]
   touches:
   - platform/self-sovereign-cutover/chart/templates/00-mgmt-isolation-carveout.yaml
   - platform/self-sovereign-cutover/chart/values.yaml
@@ -14553,7 +14573,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-011, SVC-020]
-  after: [FND-014, FND-054, FND-091, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-070, CLD-080, CLD-086, CLD-113, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-141, SOV-160, SOV-180, SOV-220, SOV-320, SEC-080, SEC-100, SEC-110, NET-030, NET-041, NET-050, NET-070, NET-072, NET-125, SVC-030, SVC-060, CTL-030, CTL-035, CTL-040, CTL-045, CTL-150, CTL-160, CTL-240, CMP-016, CMP-030, CMP-073, BSS-020, PRD-010, PRD-101, PRD-102, PRD-103, PRD-104, PRD-105, PRD-502]
+  after: [FND-014, FND-054, FND-091, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-070, CLD-080, CLD-086, CLD-113, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-141, SOV-160, SOV-180, SOV-220, SOV-320, SEC-080, SEC-100, SEC-110, NET-030, NET-041, NET-050, NET-070, NET-072, NET-080, NET-125, SVC-030, SVC-060, CTL-030, CTL-035, CTL-040, CTL-045, CTL-150, CTL-160, CTL-240, CMP-016, CMP-030, CMP-073, BSS-020, PRD-010, PRD-101, PRD-102, PRD-103, PRD-104, PRD-105, PRD-502]
   touches:
   - platform/*/blueprint.yaml
   - products/*/blueprint.yaml
@@ -15233,7 +15253,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [FND-091]
-  after: [FND-011, FND-054, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, FND-173, CLD-021, CLD-022, CLD-113, SOV-035, SEC-100, NET-042, CTL-030, CTL-150]
+  after: [FND-011, FND-054, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, FND-173, CLD-021, CLD-022, CLD-113, SOV-035, SEC-100, NET-042, NET-080, CTL-030, CTL-150]
   touches:
   - core/controllers/blueprint/**
   - ​.github/workflows/build-blueprint-controller.yaml
@@ -15291,7 +15311,7 @@ packages:
   size: XS
   lane: CONTROL
   depends_on: [CTL-150, CTL-240, SVC-160, SVC-190]
-  after: [FND-011, CLD-113, SOV-035]
+  after: [FND-011, CLD-113, SOV-035, NET-080]
   touches:
   - products/catalyst/chart/values.yaml
   - scripts/baselines/lock-stages.json
@@ -16620,7 +16640,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CTL-060, CTL-110, FND-120]
-  after: []
+  after: [NET-080]
   touches:
   - clusters/_template/sovereign-region/base/gitrepository.yaml
   - clusters/_template/sovereign-region/base/intent-kustomization.yaml
@@ -16678,7 +16698,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-162, SEC-190, SEC-192]
-  after: []
+  after: [NET-080]
   touches:
   - products/catalyst/bootstrap/api/internal/intent/tokens.go
   - products/catalyst/bootstrap/api/cmd/api/main.go
@@ -16708,7 +16728,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-035, CTL-050, CTL-120, FND-032, FND-120, SEC-095, SEC-200, SEC-211]
-  after: [FND-011, CLD-010, CLD-087, SOV-160, NET-010, NET-020, NET-060, CTL-045, BSS-030]
+  after: [FND-011, CLD-010, CLD-087, SOV-160, NET-010, NET-020, NET-060, NET-080, CTL-045, BSS-030]
   touches:
   - clusters/_template/sovereign-region/base/receiver.yaml
   - clusters/_template/sovereign-region/base/kustomization.yaml
@@ -17051,7 +17071,7 @@ packages:
   size: XS
   lane: CONTROL
   depends_on: [CTL-162, CTL-176, CTL-151]
-  after: [FND-011, CLD-010, CLD-113, NET-010, NET-020, NET-060, BSS-030]
+  after: [FND-011, CLD-010, CLD-113, NET-010, NET-020, NET-060, NET-080, BSS-030]
   touches:
   - products/catalyst/chart/values.yaml
   - scripts/baselines/lock-stages.json
@@ -17366,7 +17386,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-207, SOV-240]
-  after: [FND-011, CLD-113, NET-042]
+  after: [FND-011, CLD-113, NET-042, NET-080]
   touches:
   - products/catalyst/chart/templates/org-services/org-repo-gitrepository.yaml
   - org-repo-kustomization.yaml
@@ -17396,7 +17416,7 @@ packages:
   size: XS
   lane: CONTROL
   depends_on: [CTL-207]
-  after: [FND-011, CLD-113, CTL-150]
+  after: [FND-011, CLD-113, NET-080, CTL-150]
   touches:
   - products/catalyst/chart/values.yaml
   - scripts/baselines/lock-stages.json
@@ -17458,7 +17478,7 @@ packages:
   size: XS
   lane: CONTROL
   depends_on: [CTL-210]
-  after: [FND-011, CLD-113, CTL-150]
+  after: [FND-011, CLD-113, NET-080, CTL-150]
   touches:
   - products/catalyst/chart/values.yaml
   - scripts/baselines/lock-stages.json
@@ -17756,7 +17776,7 @@ packages:
   size: XS
   lane: CONTROL
   depends_on: [CTL-178, CTL-260, SOV-240]
-  after: [FND-011, CLD-113, SVC-060]
+  after: [FND-011, CLD-113, NET-080, SVC-060]
   touches:
   - products/catalyst/chart/values.yaml
   - products/catalyst/chart/templates/**
@@ -17850,7 +17870,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [BSS-010, CTL-300]
-  after: [FND-011, FND-054, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, FND-173, CLD-021, CLD-022, CLD-113, SOV-035, SEC-100, NET-042, CTL-030, CTL-150]
+  after: [FND-011, FND-054, FND-091, FND-092, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, FND-173, CLD-021, CLD-022, CLD-113, SOV-035, SEC-100, NET-042, NET-080, CTL-030, CTL-150]
   touches:
   - core/services/metering-sidecar/go.mod
   - core/services/shared/go.mod
@@ -18156,7 +18176,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-060, CTL-162, CTL-260, FND-120, NET-223]
-  after: [FND-011, CTL-020]
+  after: [FND-011, NET-080, CTL-020]
   touches:
   - core/controllers/application/cmd/main.go
   - core/controllers/application/internal/controller/application_controller.go
@@ -18215,7 +18235,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-020]
-  after: [FND-011, FND-096, FND-171]
+  after: [FND-011, FND-096, FND-171, NET-080]
   touches:
   - core/controllers/organization/internal/controller/organization_controller.go
   - core/controllers/environment/internal/controller/environment_controller.go
@@ -20593,7 +20613,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-045, FND-091]
-  after: [FND-011, FND-054, FND-061, FND-095, FND-096, FND-097, FND-098, FND-099, FND-173, CLD-040, CLD-113, SOV-035, SEC-100, NET-042, CTL-150, PRD-101, PRD-102]
+  after: [FND-011, FND-054, FND-061, FND-095, FND-096, FND-097, FND-098, FND-099, FND-173, CLD-040, CLD-113, SOV-035, SEC-100, NET-042, NET-080, CTL-150, PRD-101, PRD-102]
   touches:
   - core/marketplace-api/**
   - products/catalyst/chart/templates/marketplace-api/**
@@ -22448,7 +22468,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-025, CTL-035, CTL-045, FND-032, FND-151]
-  after: [FND-011, CLD-010, CLD-113, SOV-035, SOV-180, SEC-030, SEC-080, SEC-120, NET-010, NET-020, NET-060, BSS-030]
+  after: [FND-011, CLD-010, CLD-113, SOV-035, SOV-180, SEC-030, SEC-080, SEC-120, NET-010, NET-020, NET-060, NET-080, BSS-030]
   touches:
   - products/catalyst/bootstrap/api/internal/agenttoken/**
   - products/catalyst/bootstrap/api/internal/sacaller/**
@@ -22959,7 +22979,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [AIP-106, AIP-155, AIP-156, AIP-160, AIP-182]
-  after: [FND-011, CLD-113, SOV-141, SOV-180, NET-042]
+  after: [FND-011, CLD-113, SOV-141, SOV-180, NET-042, NET-080]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/sovereign_anthropic_*.go
   - products/catalyst/bootstrap/api/internal/handler/anthropic_credential_class.go
@@ -24177,7 +24197,7 @@ packages:
   size: XS
   lane: CONTROL
   depends_on: [CTL-150, INF-130]
-  after: [FND-011, CLD-113, SOV-035]
+  after: [FND-011, CLD-113, SOV-035, NET-080]
   touches:
   - products/catalyst/chart/templates/intent-lock/bindings.yaml
   - products/catalyst/chart/values.yaml
@@ -25261,7 +25281,7 @@ packages:
   size: XS
   lane: CONTROL
   depends_on: [INF-135, INF-490]
-  after: [FND-011]
+  after: [FND-011, NET-080]
   touches:
   - products/catalyst/chart/values.yaml
   - scripts/baselines/lock-stages.json
