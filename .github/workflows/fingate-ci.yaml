@@ -5,7 +5,10 @@ name: fingate — vet, test and generated code (PRD-106)
 #   go vet ./...            finds nothing;
 #   go test -count=1 ./...  passes, and at least one test function ran;
 #   go generate ./...       run in every Go module under products/fingate,
-#                           changes no file and adds no file.
+#                           changes no file and adds no file;
+#   go test with PostgreSQL every test passes against a real database, no test
+#                           or subtest is skipped, and the PostgreSQL store's
+#                           port tests ran (TestPostgresPassesThePortTests).
 #
 # The third rule keeps generated code honest: a generated file is never edited
 # by hand, and a change to a generator input commits the regenerated output in
@@ -85,6 +88,74 @@ jobs:
           done
           echo "self-test: a clean module passes; a vet finding, a failed test and a module without tests fail"
           check products/fingate
+
+  postgres:
+    name: go test with PostgreSQL — products/fingate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: fingate
+          POSTGRES_PASSWORD: fingate
+          POSTGRES_DB: fingate_test
+        options: >-
+          --health-cmd "pg_isready -U fingate"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+        ports:
+          - 5432:5432
+    env:
+      # The tests of the PostgreSQL store skip without this address; here a skip fails the job.
+      FINGATE_TEST_DATABASE_URL: postgres://fingate:fingate@localhost:5432/fingate_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: products/fingate/go.mod
+          cache-dependency-path: products/fingate/go.sum
+
+      - name: go test against PostgreSQL with no skipped test, after a self-test
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          # check <module folder> <test>: fails on a failed test, on a skipped test or subtest,
+          # and when the top-level test <test> did not pass.
+          check() {
+            out="$(mktemp -p "$tmp")"
+            rc=0
+            ( cd "$1" && go test -count=1 -v ./... ) > "$out" 2>&1 || rc=$?
+            cat "$out"
+            s="$(grep -c -E '^ *--- SKIP' "$out" || true)"
+            echo "::notice::$1 skipped ${s} tests"
+            if [ "$rc" -ne 0 ]; then echo "::error::$1: the tests failed, exit code ${rc}"; return 1; fi
+            if [ "$s" -ne 0 ]; then
+              grep -E '^ *--- SKIP' "$out" | sed 's/^ */::error::skipped: /'
+              echo "::error::$1: ${s} tests were skipped; with a database every test must run"
+              return 1
+            fi
+            if ! grep -q -E "^--- PASS: $2 " "$out"; then echo "::error::$1: the test $2 did not pass"; return 1; fi
+          }
+          go_line="$(grep -m1 '^go ' products/fingate/go.mod)"
+          # fixture <statement>: a throw-away module whose one test TestDB runs <statement>.
+          fixture() {
+            d="$(mktemp -d -p "$tmp")"
+            printf 'module example.invalid/selftest\n\n%s\n' "$go_line" > "$d/go.mod"
+            printf 'package selftest\n\nimport "testing"\n\nfunc TestDB(t *testing.T) {\n\t%s\n}\n' "$1" > "$d/db_test.go"
+            echo "$d"
+          }
+          log="$(mktemp -p "$tmp")"
+          check "$(fixture 't.Log("ran")')" TestDB > "$log" 2>&1 || { cat "$log"; echo "::error::self-test: a clean module failed"; exit 1; }
+          for d in "$(fixture 't.Skip("no database")')" "$(fixture 't.Run("sub", func(t *testing.T) { t.Skip("no database") })')" "$(fixture 't.Fatal("broken")')"; do
+            if check "$d" TestDB > "$log" 2>&1; then cat "$log"; echo "::error::self-test: ${d} passed and must fail"; exit 1; fi
+          done
+          if check "$(fixture 't.Log("ran")')" TestOther > "$log" 2>&1; then cat "$log"; echo "::error::self-test: a module without the named test passed"; exit 1; fi
+          echo "self-test: a clean module passes; a skipped test, a skipped subtest, a failed test and a missing named test fail"
+          check products/fingate TestPostgresPassesThePortTests
 
   generate:
     name: go generate changes nothing — products/fingate
