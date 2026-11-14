@@ -75,7 +75,6 @@ GET /api/v1/sovereigns/{id}/applications handler.(*Handler).HandleApplicationLis
 GET /api/v1/sovereigns/{id}/applications/{name} handler.(*Handler).HandleApplicationGet-fm 2
 GET /api/v1/sovereigns/{id}/applications/{name}/placement handler.(*Handler).HandleApplicationPlacement-fm 2
 GET /api/v1/sovereigns/{id}/applications/{name}/status handler.(*Handler).HandleApplicationStatus-fm 2
-GET /api/v1/sovereigns/{id}/applications/{name}/stream handler.(*Handler).HandleApplicationStream-fm 2
 GET /api/v1/sovereigns/{id}/audit/continuum handler.(*Handler).HandleContinuumAuditList-fm 2
 GET /api/v1/sovereigns/{id}/audit/continuum/stream handler.(*Handler).HandleContinuumAuditStream-fm 2
 GET /api/v1/sovereigns/{id}/audit/rbac handler.(*Handler).HandleRBACAuditList-fm 2
@@ -95,7 +94,6 @@ GET /api/v1/sovereigns/{id}/console-ui/sidebar-overrides handler.(*Handler).Hand
 GET /api/v1/sovereigns/{id}/continuum/{name} handler.(*Handler).HandleContinuumGetEnriched-fm 2
 GET /api/v1/sovereigns/{id}/continuum/{name}/replication-status handler.(*Handler).HandleContinuumReplicationStatus-fm 2
 GET /api/v1/sovereigns/{id}/continuum/{name}/settings handler.(*Handler).HandleContinuumSettingsGet-fm 2
-GET /api/v1/sovereigns/{id}/continuum/{name}/stream handler.(*Handler).HandleContinuumStream-fm 2
 GET /api/v1/sovereigns/{id}/continuum/{name}/switchover/history handler.(*Handler).HandleContinuumSwitchoverHistory-fm 2
 GET /api/v1/sovereigns/{id}/continuums/{name} handler.(*Handler).HandleContinuumGet-fm 2
 GET /api/v1/sovereigns/{id}/dr/quorum/status handler.(*Handler).HandleDRQuorumStatus-fm 2

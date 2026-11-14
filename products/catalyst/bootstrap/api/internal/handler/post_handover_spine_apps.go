@@ -429,8 +429,8 @@ func (h *Handler) enrollSpineApplications(
 }
 
 // applySpineApplicationCR server-side-applies ONE spine Application CR. It is
-// a package-level var (test-seam convention, mirroring censusHelmReleases /
-// timeNewTicker) so unit tests can substitute a Create/Update-based applier
+// a package-level var (test-seam convention, mirroring censusHelmReleases)
+// so unit tests can substitute a Create/Update-based applier
 // — the dynamic-fake client cannot decode an ApplyPatchType body (it tries to
 // map the unstructured JSON onto a typed struct). In production this is a
 // force:true server-side-apply, which CREATES-or-MERGES idempotently against

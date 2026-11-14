@@ -322,20 +322,6 @@ export async function listFleetContinuums(): Promise<ContinuumFleetResponse> {
   return res.json()
 }
 
-/**
- * continuumAuditStreamURL — SSE endpoint for live audit events. Mirrors
- * `applicationStreamURL` from catalog.api: when an access_token is
- * supplied it's stamped on the query string for the EventSource (which
- * cannot send Authorization headers) — same pattern slice U5-U8 uses
- * for /audit/rbac/stream.
- */
-export function continuumAuditStreamURL(sovereignId: string, accessToken?: string): string {
-  const params = new URLSearchParams()
-  if (accessToken) params.set('access_token', accessToken)
-  const qs = params.toString()
-  return `${auditBase(sovereignId)}/continuum/stream${qs ? '?' + qs : ''}`
-}
-
 /* ── Helpers ──────────────────────────────────────────────────────── */
 
 /**

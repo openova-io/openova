@@ -21,7 +21,6 @@
  *   POST /api/v1/sovereigns/{id}/applications              — install
  *   POST /api/v1/sovereigns/{id}/applications/preview      — preview
  *   GET  /api/v1/sovereigns/{id}/applications/{name}/status — status
- *   GET  /api/v1/sovereigns/{id}/applications/{name}/stream — SSE
  *
  * Per docs/INVIOLABLE-PRINCIPLES.md #4 every URL derives from
  * `API_BASE` so the contabo strip-sovereign / direct-Sovereign
@@ -585,17 +584,6 @@ export async function getApplicationPlacement(
   const res = await authedFetch(url, { headers: { Accept: 'application/json' } })
   if (!res.ok) return null
   return res.json()
-}
-
-export function applicationStreamURL(
-  sovereignId: string,
-  name: string,
-  accessToken?: string,
-): string {
-  const params = new URLSearchParams()
-  if (accessToken) params.set('access_token', accessToken)
-  const qs = params.toString()
-  return `${applicationsBase(sovereignId)}/${encodeURIComponent(name)}/stream${qs ? '?' + qs : ''}`
 }
 
 /* ── EPIC-2 Slice T+O+P (#1097) — update / delete / topology /

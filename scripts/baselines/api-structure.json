@@ -179,10 +179,10 @@
       "products/catalyst/bootstrap/api/internal/handler/wipe_evs_backstop.go": 1
     },
     "handler_lines": {
-      "products/catalyst/bootstrap/api/internal/handler": 97064
+      "products/catalyst/bootstrap/api/internal/handler": 96862
     },
     "handler_methods": {
-      "products/catalyst/bootstrap/api/internal/handler": 627
+      "products/catalyst/bootstrap/api/internal/handler": 626
     },
     "main_lines": {
       "products/catalyst/bootstrap/api/cmd/api/main.go": 926

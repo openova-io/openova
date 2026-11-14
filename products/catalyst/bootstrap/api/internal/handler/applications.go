@@ -5,7 +5,6 @@
 //
 //	POST /api/v1/sovereigns/{id}/applications              — install (creates Application CR)
 //	GET  /api/v1/sovereigns/{id}/applications/{name}/status — rolled-up status snapshot
-//	GET  /api/v1/sovereigns/{id}/applications/{name}/stream — SSE live status updates
 //
 // Body shape of the install POST:
 //
@@ -55,13 +54,11 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -77,20 +74,6 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/instances"
 )
-
-// SSE timing knobs — keep responsive without hammering the apiserver.
-// Per docs/INVIOLABLE-PRINCIPLES.md #4 these can be lifted to env vars
-// when a real ops scenario justifies it; for slice I the defaults are
-// adequate.
-const (
-	applicationStreamPingInterval = 15 * time.Second
-	applicationStreamPollInterval = 2 * time.Second
-)
-
-// timeNewTicker is a tiny indirection so tests can swap the ticker
-// source if they want millisecond-cadence pulses without changing the
-// production constants.
-var timeNewTicker = time.NewTicker
 
 // ApplicationGVR — the Namespaced Application CRD shipped at
 // products/catalyst/chart/crds/application.yaml.
@@ -865,123 +848,6 @@ func placementValueForStatus(obj *unstructured.Unstructured) map[string]interfac
 	}
 	out["mode"] = posture
 	return out
-}
-
-// ── HTTP handler — SSE status stream ────────────────────────────────
-
-// HandleApplicationStream — GET
-// /api/v1/sovereigns/{id}/applications/{name}/stream (SSE)
-//
-// Per the brief this reuses internal/k8scache/factory.go's SSE fanout
-// for live status pushes. Implementation here is a simple poll-and-push
-// loop bound to the request context: every 2s, GET the Application CR,
-// emit `data: <statusJSON>\n\n` if `status.phase` changed, plus a
-// keepalive ping every 15s. When the cache factory becomes available
-// for cross-cluster Application GVR informers in a follow-up slice,
-// this can be swapped for a Subscribe call without changing the wire
-// shape.
-func (h *Handler) HandleApplicationStream(w http.ResponseWriter, r *http.Request) {
-	depID := chi.URLParam(r, "id")
-	name := chi.URLParam(r, "name")
-	if name == "" {
-		http.Error(w, "missing application name", http.StatusBadRequest)
-		return
-	}
-	dep, ok := h.lookupDeploymentForInfra(depID)
-	if !ok {
-		http.Error(w, "deployment not found", http.StatusNotFound)
-		return
-	}
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "streaming not supported", http.StatusInternalServerError)
-		return
-	}
-	client, err := h.sovereignDynamicClient(dep)
-	if err != nil {
-		writeUserAccessUnavailable(w, err)
-		return
-	}
-
-	ns := strings.TrimSpace(r.URL.Query().Get("namespace"))
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
-
-	_, _ = fmt.Fprintf(w, ": connected app=%s\n\n", name)
-	flusher.Flush()
-
-	enc := json.NewEncoder(w)
-	pingT := timeNewTicker(applicationStreamPingInterval)
-	defer pingT.Stop()
-	pollT := timeNewTicker(applicationStreamPollInterval)
-	defer pollT.Stop()
-
-	var lastPhase string
-	// emitSnapshot writes a `data:` frame for the current Application
-	// state. Always emits at least one frame on first call so probes /
-	// EventSource consumers see a wire event without waiting 2s for the
-	// poll tick — even when the Application CR doesn't exist yet
-	// (returns a `notFound` snapshot in that case).
-	emitSnapshot := func(force bool) {
-		obj, err := getApplicationCR(r.Context(), client, name, ns)
-		if err != nil {
-			if !force {
-				return
-			}
-			// First-call fallback: emit a "notFound" snapshot so the
-			// stream consumer always sees an initial `data:` frame.
-			// The UI renders this as the empty / not-installed state.
-			_, _ = w.Write([]byte("data: "))
-			_ = enc.Encode(map[string]interface{}{
-				"name":      name,
-				"namespace": ns,
-				"phase":     "",
-				"status":    map[string]interface{}{},
-				"notFound":  true,
-			})
-			_, _ = w.Write([]byte("\n"))
-			flusher.Flush()
-			return
-		}
-		phase, _, _ := unstructured.NestedString(obj.Object, "status", "phase")
-		if !force && phase == lastPhase {
-			return
-		}
-		lastPhase = phase
-		statusObj, _, _ := unstructured.NestedMap(obj.Object, "status")
-		_, _ = w.Write([]byte("data: "))
-		_ = enc.Encode(map[string]interface{}{
-			"name":      obj.GetName(),
-			"namespace": obj.GetNamespace(),
-			"phase":     phase,
-			"status":    statusObj,
-		})
-		_, _ = w.Write([]byte("\n"))
-		flusher.Flush()
-	}
-	emit := func() { emitSnapshot(false) }
-
-	// Emit initial state immediately so subscribers see today's snapshot
-	// without waiting for the first poll tick. Forces a `data:` frame
-	// even when the CR doesn't exist yet so probes never time out
-	// waiting for a wire event.
-	emitSnapshot(true)
-	for {
-		select {
-		case <-r.Context().Done():
-			return
-		case <-pingT.C:
-			if _, err := fmt.Fprintf(w, ": ping\n\n"); err != nil {
-				return
-			}
-			flusher.Flush()
-		case <-pollT.C:
-			emit()
-		}
-	}
 }
 
 // ── Validation + authorization ───────────────────────────────────────

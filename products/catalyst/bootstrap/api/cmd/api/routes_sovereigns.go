@@ -229,7 +229,6 @@ func registerSessionSovereigns(rg chi.Router, d routeDeps) {
 	rg.Post("/api/v1/sovereigns/{id}/applications", h.HandleApplicationInstall)
 	rg.Post("/api/v1/sovereigns/{id}/applications/preview", h.HandleApplicationPreview)
 	rg.Get("/api/v1/sovereigns/{id}/applications/{name}/status", h.HandleApplicationStatus)
-	rg.Get("/api/v1/sovereigns/{id}/applications/{name}/stream", h.HandleApplicationStream)
 	// #3982 — REAL placement targets derived from the live runtime
 	// (where the component's Pods actually run, across BOTH region
 	// clusters in k8scache). Wires the #3969 placement MODEL to reality
@@ -290,10 +289,9 @@ func registerSessionSovereigns(rg chi.Router, d routeDeps) {
 	rg.Get("/api/v1/sovereigns/{id}/audit/continuum", h.HandleContinuumAuditList)
 	rg.Get("/api/v1/sovereigns/{id}/audit/continuum/stream", h.HandleContinuumAuditStream)
 
-	// Singular `/continuum/` read aliases: enriched GET, status SSE,
-	// fleet aggregate, per-Sovereign summary (continuum_extras.go).
+	// Singular `/continuum/` read aliases: enriched GET, fleet
+	// aggregate, per-Sovereign summary (continuum_extras.go).
 	rg.Get("/api/v1/sovereigns/{id}/continuum/{name}", h.HandleContinuumGetEnriched)
-	rg.Get("/api/v1/sovereigns/{id}/continuum/{name}/stream", h.HandleContinuumStream)
 
 	// qa-loop iter-1 prefetch Fix #110 (Continuum DR third batch):
 	// adds the rest of the DR contract the SovereignConsole renders +

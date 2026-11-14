@@ -2,14 +2,13 @@
 // Continuum DR endpoints that the qa-loop matrix expects beyond the
 // original U-DR-1 surface. These are NOT new features — they are the
 // rest of the contract documented in the test matrix: per-CR PUT for
-// RPO/RTO updates, switchover preview, status SSE, fleet roll-up, and
+// RPO/RTO updates, switchover preview, fleet roll-up, and
 // per-Sovereign DR summary.
 //
 // REST surface added on top of continuum.go's U-DR-1 routes:
 //
 //	GET    /api/v1/sovereigns/{id}/continuum/{name}              — singular alias of /continuums/{name}, returns enriched status
 //	PUT    /api/v1/sovereigns/{id}/continuum/{name}              — patch spec.rpoSeconds + spec.rtoSeconds (operator+)
-//	GET    /api/v1/sovereigns/{id}/continuum/{name}/stream       — SSE: status snapshot + walLagSeconds tick every 5s
 //	POST   /api/v1/sovereigns/{id}/continuum/{name}/switchover/preview — dry-run: estimatedDuration + currentLag + blockingChecks[]
 //	GET    /api/v1/fleet/continuum                               — fleet-wide list of Continuum CRs (items envelope)
 //	GET    /api/v1/fleet/sovereigns/{id}/dr-summary              — per-Sov DR rollup: continuumCount, healthyCount, lastSwitchoverAge
@@ -32,7 +31,6 @@
 package handler
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -174,76 +172,6 @@ func (h *Handler) HandleContinuumGetEnriched(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	writeJSON(w, http.StatusOK, enrichContinuumResponse(cr))
-}
-
-// HandleContinuumStream — GET /api/v1/sovereigns/{id}/continuum/{name}/stream
-// SSE: emits the enriched status every 5s. Each frame is a `data: {json}`
-// line carrying walLagSeconds + currentPrimary so the UI graph can tick.
-func (h *Handler) HandleContinuumStream(w http.ResponseWriter, r *http.Request) {
-	depID := chi.URLParam(r, "id")
-	name := chi.URLParam(r, "name")
-	if strings.TrimSpace(name) == "" {
-		writeBadRequest(w, "missing-name", "continuum name is required")
-		return
-	}
-	dep, ok := h.lookupDeploymentForInfra(depID)
-	if !ok {
-		writeNotFound(w, depID)
-		return
-	}
-	// #5728 — the client MUST be resolved before any SSE header is
-	// written, so an unreachable cluster answers 503 rather than
-	// streaming fabricated frames. The prior code discarded this error
-	// and emitted synthesized "phase:Healthy, walLagSeconds:2" frames
-	// forever, so the live-streaming DR panel read fiction.
-	client, clientErr := h.sovereignDynamicClient(dep)
-	if clientErr != nil || client == nil {
-		writeContinuumUnreachable(w, name, clientErr)
-		return
-	}
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "streaming not supported", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
-
-	ns := strings.TrimSpace(r.URL.Query().Get("namespace"))
-
-	// Initial frame: synchronous read so the client sees status
-	// immediately rather than waiting up to one tick.
-	//
-	// #5728 — a frame is emitted for EVERY tick, but a tick that could
-	// not read the CR emits the honest unavailable envelope (no phase,
-	// no lag, no region), never a synthesized healthy record. The
-	// stream stays open because the CR may appear later.
-	emitFrame := func() {
-		cr, getErr := getContinuumCR(r.Context(), client, name, ns)
-		if getErr != nil {
-			writeSSEFrame(w, continuumStreamUnavailableFrame(name, getErr))
-			flusher.Flush()
-			return
-		}
-		writeSSEFrame(w, enrichContinuumResponse(cr))
-		flusher.Flush()
-	}
-	emitFrame()
-
-	tick := time.NewTicker(5 * time.Second)
-	defer tick.Stop()
-
-	for {
-		select {
-		case <-r.Context().Done():
-			return
-		case <-tick.C:
-			emitFrame()
-		}
-	}
 }
 
 // HandleFleetContinuum — GET /api/v1/fleet/continuum
@@ -442,15 +370,6 @@ func continuumItemFromCR(sov string, cr *unstructured.Unstructured) continuumFle
 	return item
 }
 
-func writeSSEFrame(w http.ResponseWriter, payload interface{}) {
-	if _, err := w.Write([]byte("data: ")); err != nil {
-		return
-	}
-	enc := json.NewEncoder(w)
-	_ = enc.Encode(payload)
-	_, _ = w.Write([]byte("\n"))
-}
-
 // readNumericNested reads a numeric field that may be int64, float64, or
 // numeric-string. unstructured.NestedFloat64 errors on int values which
 // is the common case from a real CR.
@@ -596,28 +515,6 @@ func writeContinuumNotFound(w http.ResponseWriter, name string) {
 		Error:   "continuum-not-found",
 		Message: "no Continuum CR of that name exists on this Sovereign — no DR state to report",
 	})
-}
-
-// continuumStreamUnavailableFrame — the honest SSE frame for a tick
-// that could not read the Continuum CR. Same rule as the one-shot GET:
-// no phase, no lag, no region — an unreadable DR record is unknown,
-// never healthy.
-func continuumStreamUnavailableFrame(name string, err error) continuumUnavailableResponse {
-	detail := ""
-	code := "continuum-read-failed"
-	if err != nil {
-		detail = err.Error()
-		if apierrors.IsNotFound(err) {
-			code = "continuum-not-found"
-		}
-	}
-	return continuumUnavailableResponse{
-		Name:    name,
-		Found:   false,
-		Error:   code,
-		Detail:  detail,
-		Message: "DR state could not be read on this tick — UNKNOWN, not healthy",
-	}
 }
 
 // Compile-time assertions that we don't shadow names from continuum.go.
