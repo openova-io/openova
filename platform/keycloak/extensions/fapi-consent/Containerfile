@@ -1,0 +1,9 @@
+# The image that carries the fapi-consent provider archive, and nothing that runs.
+#
+# It is built by .github/workflows/build-keycloak-fapi.yaml from a context that holds only the
+# archive the workflow has just built and tested. The Keycloak chart copies the archive from
+# this image into Keycloak's providers folder with an init container, so the image keeps a shell
+# and cp and nothing else of its own. The archive is at /providers/fapi-consent.jar.
+FROM docker.io/library/alpine:3.20
+COPY fapi-consent.jar /providers/fapi-consent.jar
+USER 65534:65534

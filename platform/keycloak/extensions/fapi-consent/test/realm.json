@@ -1,0 +1,96 @@
+{
+  "realm": "fapi",
+  "enabled": true,
+  "sslRequired": "none",
+  "browserFlow": "fapi browser",
+  "components": {
+    "org.keycloak.keys.KeyProvider": [
+      {
+        "name": "rsa-ps256",
+        "providerId": "rsa-generated",
+        "subComponents": {},
+        "config": {"priority": ["200"], "algorithm": ["PS256"], "keySize": ["2048"]}
+      },
+      {
+        "name": "rsa-rs256",
+        "providerId": "rsa-generated",
+        "subComponents": {},
+        "config": {"priority": ["100"], "algorithm": ["RS256"], "keySize": ["2048"]}
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "tpp",
+      "name": "Sample <b>Lettings</b> App",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "@CLIENT_SECRET@",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["http://127.0.0.1:18099/cb"],
+      "protocolMappers": [
+        {
+          "name": "open-banking consent",
+          "protocol": "openid-connect",
+          "protocolMapper": "fapi-consent-claim",
+          "config": {"access.token.claim": "true", "id.token.claim": "true"}
+        }
+      ]
+    },
+    {
+      "clientId": "tpp-jwt",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-jwt",
+      "standardFlowEnabled": true,
+      "redirectUris": ["http://127.0.0.1:18099/cb"],
+      "attributes": {"use.jwks.url": "false"}
+    }
+  ],
+  "users": [
+    {
+      "username": "alice",
+      "enabled": true,
+      "email": "alice@example.invalid",
+      "emailVerified": true,
+      "firstName": "Alice",
+      "lastName": "Sample",
+      "credentials": [{"type": "password", "value": "@USER_PASSWORD@", "temporary": false}]
+    }
+  ],
+  "authenticationFlows": [
+    {
+      "alias": "fapi browser",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {"authenticatorFlow": true, "flowAlias": "fapi identify", "requirement": "REQUIRED", "priority": 10, "userSetupAllowed": false},
+        {"authenticator": "fapi-consent", "authenticatorFlow": false, "requirement": "REQUIRED", "priority": 20, "userSetupAllowed": false}
+      ]
+    },
+    {
+      "alias": "fapi identify",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {"authenticator": "auth-cookie", "authenticatorFlow": false, "requirement": "ALTERNATIVE", "priority": 10, "userSetupAllowed": false},
+        {"authenticatorFlow": true, "flowAlias": "fapi forms", "requirement": "ALTERNATIVE", "priority": 20, "userSetupAllowed": false}
+      ]
+    },
+    {
+      "alias": "fapi forms",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {"authenticator": "auth-username-password-form", "authenticatorFlow": false, "requirement": "REQUIRED", "priority": 10, "userSetupAllowed": false}
+      ]
+    }
+  ]
+}

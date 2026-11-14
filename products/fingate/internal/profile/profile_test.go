@@ -177,6 +177,7 @@ func TestLoadRejects(t *testing.T) {
 		{"bad client auth", "clientAuth: [tls_client_auth]", "clientAuth: [client_secret_basic]", "security.clientAuth"},
 		{"bad algorithm", "signingAlgorithms: [PS256]", "signingAlgorithms: [RS256]", "security.signingAlgorithms"},
 		{"bad carrier", "consentCarrier: intent-claim", "consentCarrier: other", "security.consentCarrier"},
+		{"second carrier", "consentCarrier: intent-claim", "consentCarrier: authorization-details", "security.consentCarrier"},
 		{"token lifetime", "accessTokenSeconds: 300", "accessTokenSeconds: 30", "security.accessTokenSeconds"},
 		{"missing family", "  vrp: {awaiting: AWAU, authorised: AUTH, rejected: RJCT}\n", "", "consentStatus has the families"},
 		{"unknown state", "revoked: CANC", "cancelled: CANC", "is not a consent state"},
