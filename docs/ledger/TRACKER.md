@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T21:15:03Z` |
+| Last refreshed | `2026-11-14T21:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-14T21:17 | [#7859](https://github.com/openova-io/openova/pull/7859) | #7087 | docs(ledger): plan update |
 | 2026-11-14T20:54 | [#7851](https://github.com/openova-io/openova/pull/7851) | #7087 | docs(ledger): plan update |
 | 2026-11-14T20:35 | [#7848](https://github.com/openova-io/openova/pull/7848) | #7717 | feat(acceptance): the network registry in the Sovereign stat |
 | 2026-11-14T20:36 | [#7847](https://github.com/openova-io/openova/pull/7847) | #7806 | feat(providers): every provider pack carries the seal hook o |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-14T16:25 | [#7789](https://github.com/openova-io/openova/pull/7789) | #7764 | fix(cutover): the zero-touch switch falls back to true in sl |
 | 2026-11-14T17:29 | [#7787](https://github.com/openova-io/openova/pull/7787) | #7739 | chore: delete the unused marketplace API module, its chart t |
 | 2026-11-14T15:45 | [#7786](https://github.com/openova-io/openova/pull/7786) | #7722 | ci: the rulesets name the release-writer deploy key, and the |
-| 2026-11-14T15:37 | [#7784](https://github.com/openova-io/openova/pull/7784) | #7087 | docs(ledger): plan update |
 
 ---
 
