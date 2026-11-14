@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-14T13:25:35.898Z",
+  "generatedAt": "2026-11-14T13:26:07.200Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -430,7 +430,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "section": "pts-3-3-security-and-policy",
       "depends": [
         "bp-cert-manager"
