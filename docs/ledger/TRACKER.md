@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T19:00:04Z` |
+| Last refreshed | `2026-11-14T19:15:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7550](https://github.com/openova-io/openova/issues/7550) | CLD-023 Delete the Hetzner-only Compositions, their definitions and orphan manif | Other |
 | [#7551](https://github.com/openova-io/openova/issues/7551) | CTL-340 Jobs store subscribe; flow stream event-driven; jobs stream route | Other |
 | [#7552](https://github.com/openova-io/openova/issues/7552) | FND-017 The workflows that push to main themselves push under the release-writer | Other |
 | [#7553](https://github.com/openova-io/openova/issues/7553) | FND-104 Truth patch of the canonical documents | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#7824](https://github.com/openova-io/openova/issues/7824) | SOV-337 The scanner reads the vulnerability database from the Sovereign's own re | Other |
 | [#7829](https://github.com/openova-io/openova/issues/7829) | The release bump never writes the funnel chart pin, so the pin drift test fails  | Other |
 | [#7831](https://github.com/openova-io/openova/issues/7831) | FND-070 Baseline: one fresh provision of main as it stands | Other |
+| [#7834](https://github.com/openova-io/openova/issues/7834) | a fresh two-region Sovereign: the hand-over chain never pivots the follower regi | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-14T19:07 | [#7832](https://github.com/openova-io/openova/pull/7832) | #7804 | fix(suite): a run without journeys leaves out the discovery  |
+| 2026-11-14T19:01 | [#7830](https://github.com/openova-io/openova/pull/7830) | #7087 | docs(ledger): plan update |
 | 2026-11-14T18:53 | [#7828](https://github.com/openova-io/openova/pull/7828) | #7760 | ci: sign every platform image and chart with the release key |
 | 2026-11-14T18:48 | [#7827](https://github.com/openova-io/openova/pull/7827) | #7763 | feat(fingate): PostgreSQL consent store, definitions informe |
 | 2026-11-14T18:26 | [#7826](https://github.com/openova-io/openova/pull/7826) | #7772 | fix(acceptance): check AIP-G01 skips Pods that have ended (A |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-14T14:52 | [#7759](https://github.com/openova-io/openova/pull/7759) | #7087 | docs(ledger): plan update |
 | 2026-11-14T15:02 | [#7757](https://github.com/openova-io/openova/pull/7757) | #7674 | feat(keycloak): add the open-banking consent extension and i |
 | 2026-11-14T15:01 | [#7756](https://github.com/openova-io/openova/pull/7756) | #7667 | feat(api): admit the service-account token of the conformanc |
-| 2026-11-14T15:01 | [#7753](https://github.com/openova-io/openova/pull/7753) | #7724 | feat(preflight): refuse a fifth fire on one parent domain in |
-| 2026-11-14T15:00 | [#7752](https://github.com/openova-io/openova/pull/7752) | #7723 | test(gate): the sign-in probe runs in the gate workflow as a |
 
 ---
 
