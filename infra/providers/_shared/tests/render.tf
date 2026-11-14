@@ -35,7 +35,9 @@ variable "golden_huawei" {
 locals {
   # SOV-133: the variables document (contract C5,
   # docs/contracts/c5-upstream-variables.schema.json) that the provider modules
-  # pass as the template input `variables`: exactly the 39 contract keys.
+  # pass as the template input `variables`. The fixture keeps the 39 keys the
+  # contract had before REGISTRY_PATH_VULN_DB: the template writes every key it
+  # is given, and a key added here changes the hashes in golden.auto.tfvars.json.
   fixture_variables = {
     SOVEREIGN_MODE                     = "sovereign"
     SOVEREIGN_CONSUME                  = "origin"
