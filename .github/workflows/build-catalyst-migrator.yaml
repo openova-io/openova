@@ -129,6 +129,8 @@ jobs:
         with:
           ref: ${{ env.IMAGE }}
           digest: ${{ steps.build.outputs.digest }}
+          release-key: ${{ secrets.RELEASE_COSIGN_KEY }}
+          release-key-password: ${{ secrets.RELEASE_COSIGN_PASSWORD }}
 
       - name: Summary
         if: github.event_name != 'pull_request'
