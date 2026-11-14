@@ -1,0 +1,13 @@
+schema: openova.io/plan-wrong/v1
+id: INF-120
+ticket_rev: 2
+base_commit: f59760ea1c8bc34b2c6036614afeaeec09e458e1
+stage: preflight
+ref: P3
+command: |
+    python3 -c 'import yaml; print(sorted(yaml.safe_load(open(".github/actions/sign-and-attest/action.yaml"))["inputs"]))'
+expected: |
+    ['digest', 'ref', 'release-key', 'release-key-password', 'sbom-source']
+actual: |
+    ['digest', 'ref', 'sbom-source']
+reported_at: 2026-11-14T16:30:13Z
