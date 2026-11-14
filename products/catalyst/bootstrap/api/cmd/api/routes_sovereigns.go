@@ -1,6 +1,10 @@
 package main
 
-import "github.com/go-chi/chi/v5"
+import (
+	"github.com/go-chi/chi/v5"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/topologyread"
+)
 
 func registerSessionSovereigns(rg chi.Router, d routeDeps) {
 	h := d.h
@@ -246,6 +250,11 @@ func registerSessionSovereigns(rg chi.Router, d routeDeps) {
 	// envelope listing of installed Applications across all Org
 	// namespaces on the Sovereign cluster.
 	rg.Get("/api/v1/sovereigns/{id}/applications", h.HandleApplicationList)
+	// ADR-0015 D3 and D4: the region registry and the Environment list,
+	// read from the registry and from the informer cache (topologyread).
+	tr := topologyread.New(h.K8sCache)
+	rg.Get("/api/v1/sovereigns/{id}/regions", tr.Regions)
+	rg.Get("/api/v1/sovereigns/{id}/environments", tr.Environments)
 
 	// EPIC-2 (#1097) slice T+O+P — Application page bundle.
 	// PUT/DELETE on the Application CR + topology / upgrade preview

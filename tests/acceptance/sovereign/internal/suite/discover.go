@@ -11,10 +11,9 @@ import (
 	"github.com/openova-io/openova/tests/acceptance/sovereign/internal/kube"
 )
 
-// TEMPORARY marks a discovery value read from cluster state because the
-// console has no list endpoint for it yet (ADR-0015 D3/D4 add them). Every
-// such fallback is named in the step evidence so a record shows exactly which
-// inputs were not taken from the API.
+// TEMPORARY marks a discovery value read from cluster state instead of from
+// the console API. Every such value is named in the step evidence so a record
+// shows exactly which inputs were not taken from the API.
 const TEMPORARY = "TEMPORARY-fallback"
 
 // discover resolves every reference the journeys use FROM EXISTING OBJECTS —
@@ -85,8 +84,6 @@ func (r *runner) discover(ctx context.Context) bool {
 					return fmt.Errorf("region %s is not in the Sovereign's region registry %v", k, ids)
 				}
 			}
-		case res.Status == 404:
-			ev["registry"] = "absent (GET /api/v1/sovereigns/{id}/regions 404 — ADR-0015 D3 pending)"
 		default:
 			return fmt.Errorf("GET regions registry: HTTP %d", res.Status)
 		}
@@ -336,8 +333,8 @@ func regionIDsFromRegistry(b []byte) []string {
 	return ids
 }
 
-// listEnvironments reads the Environments from the console API (ADR-0015 D4
-// target), falling back to the CRs in region A when that endpoint is absent.
+// listEnvironments reads the Environments from the console API (ADR-0015 D4).
+// Any answer other than 200 is an error: the suite never reads them elsewhere.
 func (r *runner) listEnvironments(ctx context.Context) ([]EnvInfo, string, error) {
 	res, err := r.api.Do(ctx, "GET", "/api/v1/sovereigns/"+url.PathEscape(r.dep)+"/environments", nil)
 	if err != nil {
@@ -367,19 +364,7 @@ func (r *runner) listEnvironments(ctx context.Context) ([]EnvInfo, string, error
 		}
 		return out, "GET /api/v1/sovereigns/{id}/environments", nil
 	}
-	if res.Status != 404 {
-		return nil, "", fmt.Errorf("GET environments: HTTP %d", res.Status)
-	}
-	items, err := r.A.GetList(ctx, "environments.catalyst.openova.io", "")
-	if err != nil {
-		return nil, "", err
-	}
-	var out []EnvInfo
-	for _, e := range items {
-		regs, _ := e.Get("spec", "regions").([]any)
-		out = append(out, EnvInfo{Name: e.Name(), Org: e.Str("spec", "organizationRef"), Placement: e.Str("spec", "placement"), Regions: len(regs)})
-	}
-	return out, TEMPORARY + ": kubectl get environments (region A) — console list endpoint 404 (ADR-0015 D4 pending)", nil
+	return nil, "", fmt.Errorf("GET environments: HTTP %d", res.Status)
 }
 
 // probeReadOnly checks, without writing anything, that every endpoint the

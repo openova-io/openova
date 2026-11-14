@@ -81,32 +81,30 @@ spec:
                   description: |
                     Lowercase URL-safe identifier — used as the vCluster
                     name on the host cluster, the Keycloak group path, and
-                    the Gitea Org name. Reserved values rejected: system,
-                    flux, crossplane, catalyst, gitea, kube-*, and any
-                    provider/region/bb/env_type code. Length 3-32.
+                    the Gitea Org name. Reserved values are rejected (the
+                    list under not.enum): platform names, provider codes,
+                    retired zone codes, environment types, and every
+                    namespace of the bootstrap kit. Length 3-32.
                   pattern: '^[a-z][a-z0-9-]{2,31}$'
                   not:
-                    enum:
-                      - system
-                      - flux
-                      - crossplane
-                      - catalyst
-                      - gitea
-                      - hetzner
-                      - huawei
-                      - oci
-                      - aws
-                      - gcp
-                      - azure
-                      - contabo
-                      - rtz
-                      - dmz
-                      - mgt
-                      - prod
-                      - stg
-                      - uat
-                      - dev
-                      - poc
+                    # Every namespace of clusters/_template/bootstrap-kit/placement.yaml
+                    # is in this list. reservedSlugs in
+                    # core/services/tenant/handlers/handlers.go holds the same words
+                    # without the provider words. scripts/check-reserved-slugs.py
+                    # keeps the three files in step.
+                    enum: [
+                      system, flux, crossplane, catalyst, gitea,
+                      hetzner, huawei, hcloud-csi, huawei-evs-csi, oci, aws, gcp, azure, contabo,
+                      rtz, dmz, mgt, mgmt, prod, stg, uat, dev, poc,
+                      monitoring, ingress, default, edge, platform, org-services,
+                      alloy, catalyst-system, cert-manager, chargeback, cluster-autoscaler,
+                      cnpg, cnpg-system, coraza, crossplane-system, dragonfly, external-dns,
+                      external-secrets-system, falco, flux-system, grafana, guacamole, harbor,
+                      keycloak, kube-system, kyverno, loki, mimir, nats-system, newapi,
+                      oidc-gate, openbao, opentelemetry, powerdns, powerdns-admin, reflector,
+                      reloader, seaweedfs, shared-data, sigstore-system, sso-bridge,
+                      syft-grype, tempo, trivy-system, valkey, velero, vllm, vpa
+                    ]
                 displayName:
                   type: string
                   description: Human-readable organization name (e.g. "ACME Corp").
