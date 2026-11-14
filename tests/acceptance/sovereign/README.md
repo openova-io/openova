@@ -47,11 +47,12 @@ last state it observed, so the error says what the system was doing.
 | Step | Assertion | How it is measured |
 |---|---|---|
 | D0.1 | The session is an owner session | `GET /api/v1/whoami` |
-| D0.2 | Each kubeconfig is the region it claims, and both are in the registry | bootstrap-kit `SOVEREIGN_REGION_KEY` per cluster; `GET /sovereigns/{id}/regions`; the console topology |
+| D0.2 | Each kubeconfig is the region it claims, and both are in the registry | `SOVEREIGN_REGION_KEY` of the bootstrap variables per cluster (the ConfigMap `flux-system/sovereign-variables`, else the substitutes of the Kustomization `flux-system/bootstrap-kit`); `GET /sovereigns/{id}/regions`; the console topology |
 | D0.3 | The Org is the Sovereign's own | `GET /api/v1/organizations` |
 | D0.4 | That Org has an Environment spanning both regions | `GET /sovereigns/{id}/environments` |
 | D0.5 | The Blueprint declares `active-hot-standby` | `GET /api/v1/catalog/{bp}` and its `/versions/{v}` |
 | D0.6 | Records which images are delivered (what this run certifies) | `catalyst-system` Deployments in both regions |
+| D0.11 | A run in the cloud measures the installation under test for the record's object `provision`. It runs last, after the checks | the bootstrap variables, the namespace `kube-system` and the nodes of each region; the ConfigMap `catalyst/self-sovereign-cutover-status` of region A |
 | **J1.0** | A create with an unknown Org, Environment or Region each returns **422**, and nothing is created | 3 POSTs, then no namespace and no Application in either cluster |
 | J1.1 | Create WordPress `accept-<ts>` with `active-hot-standby`, Primary A, Standby B → **201** | `POST /catalyst/v1/apps/instances`, the same body `NewInstanceDialog` sends |
 | J1.2 | Application `Ready=True` (Unknown is not accepted), and placement reads A=Primary, B=Standby | `GET …/applications/{name}`, `…/placement` |
@@ -202,11 +203,14 @@ the candidate, who produced the record (a workflow run, or `manual`), and one
 result per selected gate check (`checks`). Check FND-G01 adds `artifacts`:
 the chart version of every HelmRelease and the digest of every image of the
 platform namespaces, per region. A record gets them only when every region
-was read; without them it is never half of a pair. Of the object `provision`
-the suite writes only `previous_deployment_id` and `previous_wipe_orphans`,
-and only when it is given the two flags of a wipe. The other fields of that
-object have no writer yet, so `validate-record` accepts a record of a `local`
-run without those flags and refuses a record of a `cloud` run.
+was read; without them it is never half of a pair. A run in the cloud
+always writes the object `provision`, measured in step D0.11; the rules for
+each field are in `internal/suite/provision.go`. It is `fresh` only when the
+run names a candidate, the environment was created after that candidate was
+cut, and check FND-G02 passed at the start and at the end in every region, so
+an environment that was updated in place is never fresh. The two flags of a
+wipe add `previous_deployment_id` and `previous_wipe_orphans`. A run that is
+not in the cloud writes only these two, and only when it is given them.
 
 - **UAT.** A function-clause row, as listed in
   `docs/ledger/uat-function-rows.csv`, turns ✅ only if its evidence cites

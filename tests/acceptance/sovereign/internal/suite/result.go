@@ -106,12 +106,33 @@ type ChartProof struct {
 	FunctionTest string `json:"functionTest"`
 }
 
-// Provision is the part of the record about the installation under test. The
-// suite writes two fields of it, and only in a run that follows a wipe: the
-// deployment that was wiped and the number of its resources that the cloud
-// account still listed after the wipe (check FND-G13). The other fields of
-// the object in the schema have no writer yet.
+// Provision is the part of the record about the installation under test. A run
+// in the cloud always writes the Installation (provision.go); a run that
+// follows a wipe writes the PreviousWipe. A nil part is left out of the record.
 type Provision struct {
+	*Installation
+	*PreviousWipe
+}
+
+// Installation is what step D0.11 measured (provision.go).
+type Installation struct {
+	Provider  string            `json:"provider"`
+	CreatedAt time.Time         `json:"created_at"`
+	ReadyAt   time.Time         `json:"ready_at"`
+	Regions   []ProvisionRegion `json:"regions"`
+	Fresh     bool              `json:"fresh"`
+}
+
+// ProvisionRegion is one region of the installation.
+type ProvisionRegion struct {
+	ID             string `json:"id"`
+	NodesRequested int    `json:"nodes_requested"`
+	NodesReady     int    `json:"nodes_ready"`
+}
+
+// PreviousWipe is the wipe that this fire follows: the deployment that was
+// wiped and how many of its resources the cloud account still listed after it.
+type PreviousWipe struct {
 	PreviousDeploymentID string `json:"previous_deployment_id"`
 	PreviousWipeOrphans  int    `json:"previous_wipe_orphans"`
 }
