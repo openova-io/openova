@@ -11,7 +11,7 @@ spec:
   #   per-Org console returns to that console's /login instead of 400 "Invalid
   #   redirect uri" (hw307). Single-zone Sovereigns: same behaviour, the
   #   sovereign-admin host is the first redirectUri.
-  version: 1.5.15
+  version: 1.5.16
   card:
     title: keycloak
     summary: Keycloak — user identity. Topology decided by Sovereign CRD spec.keycloakTopology (per-organization for Organizations, shared-sovereign for corporate).
