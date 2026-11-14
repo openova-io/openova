@@ -523,6 +523,20 @@ write_files:
         serviceMonitor:
           enabled: false
 
+  # ── Variables document (contract C5) ──────────────────────────────────
+  # SOV-134: the template input `variables`, the variables document of
+  # contract C5 (docs/contracts/c5-upstream-variables.schema.json), one
+  # KEY=value line per key in key order. No key holds a secret. It travels
+  # packed (gz+b64), as the files above; cloud-init writes the plain text.
+  # The runcmd item that applies flux-bootstrap.yaml first creates ConfigMap
+  # flux-system/sovereign-variables from this file with `kubectl create`,
+  # which records no last-applied state, so the apply that follows adds the
+  # kit keys of flux-bootstrap.yaml and removes none of these keys.
+  - path: /var/lib/catalyst/variables.env
+    permissions: '0600'
+    encoding: gz+b64
+    content: ${base64gzip(join("", [for k, v in variables : "${k}=${v}\n"]))}
+
   # ── Flux bootstrap: GitRepository + bootstrap-kit Kustomization ───────
   # From here Flux owns the cluster. The postBuild.substitute map threads
   # every Sovereign-shape value into clusters/_template/bootstrap-kit/*.
@@ -1971,12 +1985,15 @@ runcmd:
   # retry once core CRDs register — platform plumbing, never on the boot path.
   # #5057: ONE shell so KUBECONFIG exports once + each kubectl drops the 38-B
   # --kubeconfig flag; the exit 92 fail-loud is unchanged. Reclaims #5042 bytes.
+  # SOV-134: ConfigMap flux-system/sovereign-variables is created from
+  # variables.env first, so the apply of flux-bootstrap.yaml merges the kit
+  # keys into it; a failure of either is the same exit 92.
   - |
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 %{ if crossplane_provider_yaml != "" ~}
     kubectl apply -f /var/lib/catalyst/crossplane-provider.yaml || true
 %{ endif ~}
-    kubectl apply -f /var/lib/catalyst/flux-bootstrap.yaml || { %{ if provider == "huawei" }sh /var/lib/catalyst/mark flux-bootstrap-FAILED||true%{ else }touch /var/lib/catalyst/flux-bootstrap-FAILED%{ endif }; exit 92; }
+    kubectl -n flux-system create cm sovereign-variables --from-env-file=/var/lib/catalyst/variables.env && kubectl apply -f /var/lib/catalyst/flux-bootstrap.yaml || { %{ if provider == "huawei" }sh /var/lib/catalyst/mark flux-bootstrap-FAILED||true%{ else }touch /var/lib/catalyst/flux-bootstrap-FAILED%{ endif }; exit 92; }
 %{ if crossplane_provider_yaml != "" ~}
     nohup bash -c "deadline=\$((SECONDS+1800)); while [ \$SECONDS -lt \$deadline ]; do kubectl apply -f /var/lib/catalyst/crossplane-provider.yaml >/dev/null 2>&1 && break; sleep 30; done" >/dev/null 2>&1 &
 %{ endif ~}

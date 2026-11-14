@@ -146,6 +146,26 @@ run "hetzner_render_is_valid" {
     condition     = strcontains(output.rendered_cloud_init, "\n            FIRE_CUTOVER_ON_HANDOVER: \"false\"\n")
     error_message = "SOV-133: the kit key FIRE_CUTOVER_ON_HANDOVER must take the value of HANDOVER_AUTO of the template input variables."
   }
+
+  # SOV-134 — the variables document (the template input `variables`)
+  # is written packed to /var/lib/catalyst/variables.env, one KEY=value line
+  # per key in key order, and ConfigMap flux-system/sovereign-variables is
+  # created from it right before flux-bootstrap.yaml is applied, so the
+  # ConfigMap holds the contract keys besides the kit keys.
+  assert {
+    condition     = output.variables_env_written == true
+    error_message = "SOV-134: the write_files entry /var/lib/catalyst/variables.env (mode 0600, encoding gz+b64) must hold every key of the template input variables as KEY=value lines in key order."
+  }
+
+  assert {
+    condition     = length(regexall("(?m)^[A-Z][A-Z0-9_]*=", output.variables_env)) == 39 && strcontains(output.variables_env, "\nHANDOVER_AUTO=false\n") && strcontains(output.variables_env, "\nLOCAL_REGISTRY_HOST=registry.render-test.example.test\n") && strcontains(output.variables_env, "\nSOVEREIGN_CONSUME=origin\n") && !strcontains(output.variables_env, "POWERDNS_API_KEY")
+    error_message = "SOV-134: variables.env must carry the 39 keys of the variables document, among them HANDOVER_AUTO, LOCAL_REGISTRY_HOST and SOVEREIGN_CONSUME, and never POWERDNS_API_KEY."
+  }
+
+  assert {
+    condition     = length(regexall("\n    kubectl -n flux-system create cm sovereign-variables --from-env-file=/var/lib/catalyst/variables\\.env && kubectl apply -f /var/lib/catalyst/flux-bootstrap\\.yaml \\|\\| \\{ ", output.rendered_cloud_init)) == 1 && length(regexall("kubectl apply -f /var/lib/catalyst/flux-bootstrap\\.yaml", output.rendered_cloud_init)) == 1
+    error_message = "SOV-134: ConfigMap sovereign-variables must be created from variables.env right before the one apply of flux-bootstrap.yaml, under the same exit 92."
+  }
 }
 
 run "huawei_render_is_valid" {
@@ -261,6 +281,26 @@ run "huawei_render_is_valid" {
   assert {
     condition     = strcontains(output.rendered_cloud_init, "\n            FIRE_CUTOVER_ON_HANDOVER: \"false\"\n")
     error_message = "SOV-133 (huawei branch): the kit key FIRE_CUTOVER_ON_HANDOVER must take the value of HANDOVER_AUTO of the template input variables."
+  }
+
+  # SOV-134 (huawei branch) — the variables document (the template input `variables`)
+  # is written packed to /var/lib/catalyst/variables.env, one KEY=value line
+  # per key in key order, and ConfigMap flux-system/sovereign-variables is
+  # created from it right before flux-bootstrap.yaml is applied, so the
+  # ConfigMap holds the contract keys besides the kit keys.
+  assert {
+    condition     = output.variables_env_written == true
+    error_message = "SOV-134 (huawei branch): the write_files entry /var/lib/catalyst/variables.env (mode 0600, encoding gz+b64) must hold every key of the template input variables as KEY=value lines in key order."
+  }
+
+  assert {
+    condition     = length(regexall("(?m)^[A-Z][A-Z0-9_]*=", output.variables_env)) == 39 && strcontains(output.variables_env, "\nHANDOVER_AUTO=false\n") && strcontains(output.variables_env, "\nLOCAL_REGISTRY_HOST=registry.render-test.example.test\n") && strcontains(output.variables_env, "\nSOVEREIGN_CONSUME=origin\n") && !strcontains(output.variables_env, "POWERDNS_API_KEY")
+    error_message = "SOV-134 (huawei branch): variables.env must carry the 39 keys of the variables document, among them HANDOVER_AUTO, LOCAL_REGISTRY_HOST and SOVEREIGN_CONSUME, and never POWERDNS_API_KEY."
+  }
+
+  assert {
+    condition     = length(regexall("\n    kubectl -n flux-system create cm sovereign-variables --from-env-file=/var/lib/catalyst/variables\\.env && kubectl apply -f /var/lib/catalyst/flux-bootstrap\\.yaml \\|\\| \\{ ", output.rendered_cloud_init)) == 1 && length(regexall("kubectl apply -f /var/lib/catalyst/flux-bootstrap\\.yaml", output.rendered_cloud_init)) == 1
+    error_message = "SOV-134 (huawei branch): ConfigMap sovereign-variables must be created from variables.env right before the one apply of flux-bootstrap.yaml, under the same exit 92."
   }
 }
 
