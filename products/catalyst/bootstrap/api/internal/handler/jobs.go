@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -437,7 +438,11 @@ func (h *Handler) chrootSeedJobsStoreIfEmpty(ctx context.Context, dep *Deploymen
 	// generic bridge call so the canvas shows the truth, not just the
 	// installs. Generic: no per-app branching — a new CronJob in any
 	// blueprint surfaces automatically.
-	h.chrootSeedReconcilerObservations(ctx, dep, bridge)
+	if dyn, err := h.sovereignDynamicClient(dep); err != nil {
+		h.log.Debug("chroot seed: reconciler dynamic client unavailable", "depId", dep.ID, "err", err)
+	} else {
+		seedReconcilerObservations(ctx, h.log, dyn, bridge, dep.ID, "chroot seed")
+	}
 
 	// Cutover EXECUTION projection (issue #3646). The helmwatch seed above
 	// only surfaces the DORMANT bp-self-sovereign-cutover chart install as
@@ -686,30 +691,17 @@ func (h *Handler) chrootSeedSecondaryRegions(ctx context.Context, dep *Deploymen
 	}
 }
 
-// chrootSeedReconcilerObservations — §5a generic ingestion (issue #3646).
-// Lists every observed non-install reconciler GVR from the chroot's own
-// cluster via the SAME dynamic client the HelmRelease seed uses, then
-// projects each into the jobs Store through the ONE generic bridge call
-// (Bridge.SeedReconcilerObservations). Best-effort: every failure path
-// logs at debug/warn and returns — a /jobs read never fails because the
-// reconciler projection couldn't run.
-//
-// This is the natural home for recurring/child/reconciler activity that
-// was previously invisible while the install row stayed green. It is
-// GENERIC — adding a new CronJob/Kustomization/Job/marked-Deployment in
-// any blueprint surfaces automatically, with zero per-app code.
-func (h *Handler) chrootSeedReconcilerObservations(ctx context.Context, dep *Deployment, bridge *jobs.Bridge) {
-	if h.jobs == nil || bridge == nil {
-		return
-	}
-	dyn, err := h.sovereignDynamicClient(dep)
-	if err != nil {
-		h.log.Debug("chroot seed: reconciler dynamic client unavailable", "depId", dep.ID, "err", err)
-		return
-	}
+// seedReconcilerObservations — §5a generic ingestion (issue #3646), the one
+// copy both seeds (chroot and mother) run. Lists every observed non-install
+// reconciler GVR of the deployment's own cluster through dyn and projects
+// each into the jobs Store through Bridge.SeedReconcilerObservations.
+// Best-effort: every failure is logged and returned from, so a /jobs read
+// never fails because the projection could not run. seed names the caller
+// in the log lines.
+func seedReconcilerObservations(ctx context.Context, log *slog.Logger, dyn dynamic.Interface, bridge *jobs.Bridge, depID, seed string) {
 	obs, err := helmwatch.ListReconcilerObservations(ctx, dyn)
 	if err != nil {
-		h.log.Warn("chroot seed: list reconciler observations failed", "depId", dep.ID, "err", err)
+		log.Warn(seed+": list reconciler observations failed", "depId", depID, "err", err)
 		return
 	}
 	if len(obs) == 0 {
@@ -717,11 +709,11 @@ func (h *Handler) chrootSeedReconcilerObservations(ctx context.Context, dep *Dep
 	}
 	jobsCount, execsSeeded, err := bridge.SeedReconcilerObservations(reconcilerObsToBridge(obs))
 	if err != nil {
-		h.log.Warn("chroot seed: reconciler bridge seed failed", "depId", dep.ID, "err", err)
+		log.Warn(seed+": reconciler bridge seed failed", "depId", depID, "err", err)
 		return
 	}
-	h.log.Info("chroot seed: reconciler activities projected",
-		"depId", dep.ID,
+	log.Info(seed+": reconciler activities projected",
+		"depId", depID,
 		"observations", len(obs),
 		"jobsWritten", jobsCount,
 		"executionsSeeded", execsSeeded,
@@ -790,28 +782,7 @@ func (h *Handler) motherSeedInClusterReconcilers(ctx context.Context, dep *Deplo
 	provider := firstProvider(dep.Request)
 	dep.mu.Unlock()
 	bridge.SetProvider(provider)
-
-	obs, err := helmwatch.ListReconcilerObservations(ctx, dyn)
-	if err != nil {
-		h.log.Warn("mother seed: list reconciler observations failed",
-			"depId", dep.ID, "err", err)
-		return
-	}
-	if len(obs) == 0 {
-		return
-	}
-	jobsCount, execsSeeded, err := bridge.SeedReconcilerObservations(reconcilerObsToBridge(obs))
-	if err != nil {
-		h.log.Warn("mother seed: reconciler bridge seed failed",
-			"depId", dep.ID, "err", err)
-		return
-	}
-	h.log.Info("mother seed: in-cluster reconciler activities projected",
-		"depId", dep.ID,
-		"observations", len(obs),
-		"jobsWritten", jobsCount,
-		"executionsSeeded", execsSeeded,
-	)
+	seedReconcilerObservations(ctx, h.log, dyn, bridge, dep.ID, "mother seed")
 }
 
 // reconcilerObsToBridge translates the helmwatch wire shape into the
@@ -829,6 +800,7 @@ func reconcilerObsToBridge(in []helmwatch.ReconcilerObservation) []jobs.Reconcil
 				StartedAt:  e.StartedAt,
 				FinishedAt: e.FinishedAt,
 				Message:    e.Message,
+				UID:        e.UID,
 			})
 		}
 		out = append(out, jobs.ReconcilerObservation{
@@ -841,6 +813,7 @@ func reconcilerObsToBridge(in []helmwatch.ReconcilerObservation) []jobs.Reconcil
 			Message:           o.Message,
 			ObservedAt:        o.ObservedAt,
 			OwnerInstallChart: o.OwnerInstallChart,
+			JobUID:            o.JobUID,
 			Executions:        execs,
 		})
 	}
@@ -1075,6 +1048,29 @@ func (h *Handler) ListJobs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"jobs": out,
 	})
+}
+
+// JobsReadAccess is the access check of the Jobs reads for a route served
+// outside this package (jobs.StreamHandler). It writes the error response
+// and returns false: 503 jobs-store-unavailable without a store, 404
+// deployment-not-found for an unknown deployment, and the 404 of
+// checkOwnership for the deployment of another owner.
+func (h *Handler) JobsReadAccess(w http.ResponseWriter, r *http.Request, depID string) (*jobs.Store, bool) {
+	if h.jobs == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "jobs-store-unavailable"})
+		return nil, false
+	}
+	dep := h.chrootEnsureDeployment(depID)
+	if dep == nil {
+		if val, ok := h.deployments.Load(depID); ok {
+			dep = val.(*Deployment)
+		}
+	}
+	if dep == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "deployment-not-found"})
+		return nil, false
+	}
+	return h.jobs, h.checkOwnership(w, r, dep)
 }
 
 // GetJob handles GET /api/v1/deployments/{depId}/jobs/{jobId}.

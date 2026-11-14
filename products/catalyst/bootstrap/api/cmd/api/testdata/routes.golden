@@ -29,6 +29,7 @@ GET /api/v1/deployments/{depId}/infrastructure/network handler.(*Handler).GetInf
 GET /api/v1/deployments/{depId}/infrastructure/storage handler.(*Handler).GetInfrastructureStorage-fm 2
 GET /api/v1/deployments/{depId}/infrastructure/topology handler.(*Handler).GetInfrastructureTopology-fm 2
 GET /api/v1/deployments/{depId}/jobs handler.(*Handler).ListJobs-fm 2
+GET /api/v1/deployments/{depId}/jobs/stream StreamHandler.(closure) 2
 GET /api/v1/deployments/{depId}/jobs/{jobId} handler.(*Handler).GetJob-fm 2
 GET /api/v1/deployments/{depId}/reconcilers handler.(*Handler).ListReconcilers-fm 2
 GET /api/v1/deployments/{depId}/reconcilers/{kind}/{ns}/{name}/logs handler.(*Handler).GetReconcilerLogs-fm 2
