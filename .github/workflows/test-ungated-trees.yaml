@@ -113,8 +113,9 @@ jobs:
           - products/fingate
           # The generator of the open-banking product (PRD-102).
           - products/fingate/tools
-          # The operations-records service (AIP-221).
-          - products/ops-records
+          # products/ops-records is deliberately NOT in this list either: it
+          # has its own `ops-records` job below with a PostgreSQL service
+          # container (AIP-229).
           # core/pool-domain-manager is deliberately NOT in this list — it
           # has its own `pool-domain-manager` job below with a Postgres
           # service container (#5741 follow-up).
@@ -263,6 +264,70 @@ jobs:
           if [ "${rc}" -ne 0 ]; then
             echo "::error::core/pool-domain-manager go test exited ${rc} — see the FAIL output above."
             exit "${rc}"
+          fi
+
+  ops-records:
+    name: go test — products/ops-records (+ PostgreSQL store)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ops
+          POSTGRES_PASSWORD: ops
+          POSTGRES_DB: ops_test
+        options: >-
+          --health-cmd "pg_isready -U ops"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+        ports:
+          - 5432:5432
+    env:
+      # The PostgreSQL tests of internal/store (TestPostgresContract and the
+      # migration tests) read this variable and skip without it. They create
+      # schema ops themselves, so the bare database above is enough.
+      OPS_RECORDS_TEST_DSN: postgres://ops:ops@localhost:5432/ops_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: products/ops-records/go.mod
+          cache-dependency-path: products/ops-records/go.sum
+
+      # The same discipline as the pool-domain-manager job above: no test may
+      # be skipped, because a skip here means the database did not reach the
+      # tests, and the PostgreSQL store would then go untested while the job
+      # stayed green. The contract test of the PostgreSQL store must also have
+      # run and passed by name.
+      - name: go test
+        working-directory: products/ops-records
+        run: |
+          set +e
+          go test -count=1 -v ./... 2>&1 | tee /tmp/out.txt
+          rc=${PIPESTATUS[0]}
+          set -e
+          n=$(grep -c '^--- PASS' /tmp/out.txt || true)
+          s=$(grep -c '^--- SKIP' /tmp/out.txt || true)
+          echo "::notice::products/ops-records ran ${n} test functions, skipped ${s}"
+          if [ "${n:-0}" -eq 0 ]; then
+            echo "::error::products/ops-records reported zero executed tests."
+            exit 1
+          fi
+          if [ "${s:-0}" -gt 0 ]; then
+            grep '^--- SKIP' /tmp/out.txt | sed 's/^/::error::skipped (should be 0 with OPS_RECORDS_TEST_DSN set): /'
+            echo "::error::products/ops-records skipped ${s} test function(s) although OPS_RECORDS_TEST_DSN is set: the PostgreSQL service or the DSN is broken."
+            exit 1
+          fi
+          if [ "${rc}" -ne 0 ]; then
+            echo "::error::products/ops-records go test exited ${rc}; see the FAIL output above."
+            exit "${rc}"
+          fi
+          if ! grep -q '^--- PASS: TestPostgresContract ' /tmp/out.txt; then
+            echo "::error::the contract test of the PostgreSQL store did not run and pass."
+            exit 1
           fi
 
   bootstrap-ui-vitest:
