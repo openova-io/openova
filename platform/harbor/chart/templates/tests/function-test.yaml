@@ -1,0 +1,105 @@
+{{- /*
+Function test of bp-harbor (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
+
+It asks the subchart's core Service <fullname>-core.<namespace>.svc.cluster.local
+two questions, without a credential:
+  1. GET /v2/ (the registry API) must answer HTTP 401 with a header
+     WWW-Authenticate that starts with "Bearer realm=": the registry is up
+     behind Harbor's token service and asks the client to log in.
+  2. GET /api/v2.0/health must answer HTTP 200, and every "status" in the
+     answer must be "healthy": core, database, jobservice, portal, redis,
+     registry, registryctl and the other components Harbor reports.
+It writes nothing.
+
+The port and the scheme follow harbor.internalTLS.enabled (443 and https, or
+80 and http), as the subchart's core Service does. <fullname> is computed the
+way the subchart computes it. The chart has no master gate, so the test always
+renders. The image is the kubectl image the kit already pulls (bp-cnpg's
+webhook gate), which carries curl; functionTest.image overrides it.
+*/ -}}
+{{- $sub := .Values.harbor | default dict }}
+{{- $name := $sub.nameOverride | default "harbor" }}
+{{- $fullname := "" }}
+{{- if $sub.fullnameOverride }}
+{{- $fullname = $sub.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- else if contains $name .Release.Name }}
+{{- $fullname = .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- $fullname = printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- end }}
+{{- $tls := (($sub.internalTLS | default dict).enabled) | default false }}
+{{- $base := printf "%s://%s-core.%s.svc.cluster.local:%s" (ternary "https" "http" $tls) $fullname .Release.Namespace (ternary "443" "80" $tls) }}
+{{- $ft := .Values.functionTest | default dict }}
+{{- $image := $ft.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 300
+  automountServiceAccountToken: false
+  containers:
+    - name: function-test
+      image: {{ $image | quote }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: HOME
+          value: /tmp
+        - name: CORE_URL
+          value: {{ $base | quote }}
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -u
+          fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          code=""
+          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            code="$(curl -sS -k --max-time 10 -D /tmp/headers -o /dev/null -w '%{http_code}' "${CORE_URL}/v2/" 2>/tmp/error)" && [ "${code}" = "401" ] && break
+            sleep 5
+          done
+          [ "${code}" = "401" ] || fail "GET ${CORE_URL}/v2/ answered '${code}', not 401: $(tr '\n' ' ' < /tmp/error | cut -c1-160)"
+          grep -i -q '^www-authenticate: *bearer realm=' /tmp/headers || fail "GET ${CORE_URL}/v2/ sent no Bearer challenge: $(tr '\r\n' '  ' < /tmp/headers | cut -c1-200)"
+          code=""
+          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            code="$(curl -sS -k --max-time 10 -o /tmp/health -w '%{http_code}' "${CORE_URL}/api/v2.0/health" 2>/tmp/error)" \
+              && [ "${code}" = "200" ] && ! grep -q -E '"status" *: *"(unhealthy|unknown)"' /tmp/health && break
+            sleep 5
+          done
+          [ "${code}" = "200" ] || fail "GET ${CORE_URL}/api/v2.0/health answered '${code}': $(tr '\n' ' ' < /tmp/error | cut -c1-160)"
+          grep -q -E '"status" *: *"healthy"' /tmp/health || fail "the health answer reports no healthy status: $(tr '\n' ' ' < /tmp/health | cut -c1-200)"
+          if grep -q -E '"status" *: *"(unhealthy|unknown)"' /tmp/health; then
+            fail "a component is not healthy: $(grep -o -E '"name" *: *"[^"]+" *, *"status" *: *"(unhealthy|unknown)"' /tmp/health | tr '\n' ' ' | cut -c1-200)"
+          fi
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} the registry asks for a Bearer token and every component reports healthy"
+  volumes:
+    - name: tmp
+      emptyDir: {}

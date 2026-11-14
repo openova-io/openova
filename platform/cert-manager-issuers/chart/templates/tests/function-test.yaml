@@ -1,0 +1,152 @@
+{{- /*
+Function test of bp-cert-manager-issuers (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
+
+cert-manager marks an ACME ClusterIssuer Ready only after it has registered
+the account with the ACME server. The test reads, through the Kubernetes API,
+the condition Ready of every ClusterIssuer this release renders:
+letsencrypt-dns01-prod when certManager.issuers.dns01.enabled is true, and
+letsencrypt-http01-prod when certManager.issuers.http01.enabled is true (the
+same choice as templates/clusterissuers.yaml). It passes when each one reports
+Ready=True within 180 seconds. It reads nothing else and writes nothing; the
+test Pod itself calls nothing outside the cluster.
+
+A ClusterIssuer has no namespace, so a ClusterRole and a ClusterRoleBinding of
+this file (verb get on clusterissuers of cert-manager.io) give the test Pod
+that right. Their names carry the namespace, so two releases never share them.
+
+It renders nothing when the chart renders no ClusterIssuer. The image is the
+kubectl image this chart already uses for its CRD gate (crdGate.image);
+functionTest.image overrides it.
+*/ -}}
+{{- $issuers := .Values.certManager.issuers | default dict }}
+{{- $dns01 := $issuers.dns01 | default (dict "enabled" false) }}
+{{- $http01 := $issuers.http01 | default (dict "enabled" true) }}
+{{- $names := list }}
+{{- if $dns01.enabled }}
+{{- $names = append $names "letsencrypt-dns01-prod" }}
+{{- end }}
+{{- if $http01.enabled }}
+{{- $names = append $names "letsencrypt-http01-prod" }}
+{{- end }}
+{{- if $names }}
+{{- $ft := .Values.functionTest | default dict }}
+{{- $gate := .Values.crdGate | default dict }}
+{{- $image := $ft.image | default ($gate.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4") }}
+{{- $clusterName := printf "%s-%s-function-test" .Release.Namespace .Release.Name | trunc 63 | trimSuffix "-" }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $clusterName }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: ["cert-manager.io"]
+    resources: ["clusterissuers"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $clusterName }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-function-test
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ $clusterName }}
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 300
+  serviceAccountName: {{ .Release.Name }}-function-test
+  containers:
+    - name: function-test
+      image: {{ $image | quote }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: HOME
+          value: /tmp
+        - name: ISSUERS
+          value: {{ join " " $names | quote }}
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -u
+          fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          deadline=$(( $(date +%s) + 180 ))
+          for issuer in ${ISSUERS}; do
+            while :; do
+              if ready="$(kubectl --request-timeout=15s get clusterissuer "${issuer}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/tmp/error)"; then
+                [ "${ready}" = "True" ] && break
+                reason="Ready is '${ready}': $(kubectl --request-timeout=15s get clusterissuer "${issuer}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}' 2>/dev/null | cut -c1-160)"
+              else
+                reason="$(tr '\n' ' ' < /tmp/error | cut -c1-160)"
+              fi
+              [ "$(date +%s)" -lt "${deadline}" ] || fail "the ClusterIssuer ${issuer} is not Ready within 180 seconds: ${reason}"
+              sleep 10
+            done
+          done
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} every ClusterIssuer of this release (${ISSUERS}) is Ready"
+  volumes:
+    - name: tmp
+      emptyDir: {}
+{{- end }}

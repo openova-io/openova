@@ -1,0 +1,150 @@
+{{- /*
+Function test of bp-flux (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
+
+It asks source-controller and kustomize-controller whether they are ready.
+For each of the two that the subchart creates (flux2.sourceController.create,
+flux2.kustomizeController.create), it lists the Running Pods with the label
+app=<controller> in this namespace through the Kubernetes API, and sends
+GET /readyz to the health port 9440 of each Pod. It passes when every
+controller has at least one Running Pod and every such Pod answers HTTP 200.
+It reads nothing else and writes nothing.
+
+A ServiceAccount, Role (get and list pods) and RoleBinding of this file give
+the Pod that right. It renders nothing when the subchart creates neither
+controller. The image is the kubectl image this chart already uses for its
+stuck-release recovery (catalyst.stuckHelmReleaseRecovery.image);
+functionTest.image overrides it.
+*/ -}}
+{{- $sub := .Values.flux2 | default dict }}
+{{- $controllers := list }}
+{{- if ne (toString (($sub.sourceController | default dict).create)) "false" }}
+{{- $controllers = append $controllers "source-controller" }}
+{{- end }}
+{{- if ne (toString (($sub.kustomizeController | default dict).create)) "false" }}
+{{- $controllers = append $controllers "kustomize-controller" }}
+{{- end }}
+{{- if $controllers }}
+{{- $ft := .Values.functionTest | default dict }}
+{{- $recovery := (.Values.catalyst | default dict).stuckHelmReleaseRecovery | default dict }}
+{{- $image := $ft.image | default ($recovery.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4") }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-function-test
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ .Release.Name }}-function-test
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 300
+  serviceAccountName: {{ .Release.Name }}-function-test
+  containers:
+    - name: function-test
+      image: {{ $image | quote }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: HOME
+          value: /tmp
+        - name: TEST_NAMESPACE
+          value: {{ .Release.Namespace | quote }}
+        - name: CONTROLLERS
+          value: {{ join " " $controllers | quote }}
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -u
+          fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          for controller in ${CONTROLLERS}; do
+            ips="$(kubectl --request-timeout=15s -n "${TEST_NAMESPACE}" get pods -l "app=${controller}" --field-selector=status.phase=Running -o jsonpath='{.items[*].status.podIP}' 2>/tmp/error)" \
+              || fail "the Pods of ${controller} cannot be listed: $(tr '\n' ' ' < /tmp/error | cut -c1-160)"
+            [ -n "${ips}" ] || fail "${controller} has no Running Pod in ${TEST_NAMESPACE}"
+            for ip in ${ips}; do
+              code=""
+              for attempt in 1 2 3 4 5 6; do
+                code="$(curl -sS --max-time 5 -o /dev/null -w '%{http_code}' "http://${ip}:9440/readyz" 2>/tmp/error)" && [ "${code}" = "200" ] && break
+                sleep 5
+              done
+              [ "${code}" = "200" ] || fail "${controller} at ${ip}:9440/readyz answered '${code}': $(tr '\n' ' ' < /tmp/error | cut -c1-160)"
+            done
+          done
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} ${CONTROLLERS} report ready on their health port 9440"
+  volumes:
+    - name: tmp
+      emptyDir: {}
+{{- end }}

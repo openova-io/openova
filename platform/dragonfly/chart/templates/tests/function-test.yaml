@@ -1,0 +1,140 @@
+{{- /*
+Function test of bp-dragonfly (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
+
+It sends GET /healthy to the REST port of the manager, through the subchart's
+Service <fullname>-<dragonfly.manager.name>.<namespace>.svc.cluster.local:<dragonfly.manager.restPort>.
+It passes when the answer is HTTP 200: the manager, which the scheduler, the
+seed peers and every node's dfdaemon register with, serves its REST API. It
+sends no credential and writes nothing.
+
+The namespace is not one of the platform's system namespaces, so the
+platform's cluster-wide policies let its Pods send only DNS. When the API
+cilium.io/v2 is served, a CiliumNetworkPolicy of this file lets the test Pod
+reach cluster DNS and the manager Pods on the REST port, so that the test
+measures the manager and not its own reachability. The policy names the
+manager Pods the way the subchart labels and places them: app=<fullname>,
+component=<dragonfly.manager.name>, in the namespace of the subchart
+(dragonfly.namespaceOverride, else the release namespace).
+
+It renders only when the subchart renders the manager (dragonfly.manager.enable
+is not false). <fullname> is computed the way the subchart computes it. The
+image is the kubectl image the kit already pulls (bp-cnpg's webhook gate),
+which carries curl; functionTest.image overrides it.
+*/ -}}
+{{- $sub := .Values.dragonfly | default dict }}
+{{- $mgr := $sub.manager | default dict }}
+{{- if ne (toString $mgr.enable) "false" }}
+{{- $name := $sub.nameOverride | default "dragonfly" }}
+{{- $fullname := "" }}
+{{- if $sub.fullnameOverride }}
+{{- $fullname = $sub.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- else if contains $name .Release.Name }}
+{{- $fullname = .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- $fullname = printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- end }}
+{{- $svcNamespace := $sub.namespaceOverride | default .Release.Namespace }}
+{{- $url := printf "http://%s-%s.%s.svc.cluster.local:%v/healthy" $fullname ($mgr.name | default "manager") $svcNamespace ($mgr.restPort | default 8080) }}
+{{- $ft := .Values.functionTest | default dict }}
+{{- $image := $ft.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" }}
+{{- if .Capabilities.APIVersions.Has "cilium.io/v2" }}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      catalyst.openova.io/function-test: "true"
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ $svcNamespace | quote }}
+            app: {{ $fullname | quote }}
+            component: {{ $mgr.name | default "manager" | quote }}
+      toPorts:
+        - ports:
+            - port: {{ $mgr.restPort | default 8080 | quote }}
+              protocol: TCP
+---
+{{- end }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 300
+  automountServiceAccountToken: false
+  containers:
+    - name: function-test
+      image: {{ $image | quote }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: HOME
+          value: /tmp
+        - name: HEALTH_URL
+          value: {{ $url | quote }}
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -u
+          fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          code=""
+          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            code="$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' "${HEALTH_URL}" 2>/tmp/error)" && [ "${code}" = "200" ] && break
+            sleep 5
+          done
+          [ "${code}" = "200" ] || fail "GET ${HEALTH_URL} answered '${code}': $(tr '\n' ' ' < /tmp/error | cut -c1-160)"
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} the manager answered GET ${HEALTH_URL} with 200"
+  volumes:
+    - name: tmp
+      emptyDir: {}
+{{- end }}
