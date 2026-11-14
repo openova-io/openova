@@ -33,13 +33,12 @@ func TestCanonicalSubject(t *testing.T) {
 	}
 }
 
-// TestNewMultiPublisherRequiresAtLeastOne pins the safety check —
-// silently constructing a no-op publisher is the exact failure mode
-// that blocked Sovereign convergence (events were dropped on the floor
-// when REDPANDA_BROKERS pointed at a non-existent broker and NATS_URL
+// TestNewMultiPublisherRequiresNATS pins the safety check — silently
+// constructing a no-op publisher is the exact failure mode that blocked
+// Sovereign convergence (events were dropped on the floor when NATS_URL
 // was unset).
-func TestNewMultiPublisherRequiresAtLeastOne(t *testing.T) {
-	if _, err := NewMultiPublisher(nil, nil); err == nil {
-		t.Fatal("NewMultiPublisher(nil, nil) should return an error")
+func TestNewMultiPublisherRequiresNATS(t *testing.T) {
+	if _, err := NewMultiPublisher(nil); err == nil {
+		t.Fatal("NewMultiPublisher(nil) should return an error")
 	}
 }

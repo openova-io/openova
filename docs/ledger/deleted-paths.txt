@@ -141,3 +141,6 @@ platform/bp-dmz-vcluster
 platform/bp-mgmt-vcluster
 platform/bp-rtz-vcluster
 products/dmz-vcluster
+core/services/shared/events/dlq.go
+core/services/shared/events/dlq_test.go
+core/services/shared/events/topics.go

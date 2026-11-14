@@ -1,42 +1,30 @@
 package events
 
-// Convergence fix 2026-05-18 — Sovereign consumer wiring (mirrors PR #1626).
+// Sovereign consumer wiring: the subscribe side of the event bus.
 //
-// PR #1626 fixed the PUBLISH side: tenant + billing now write
-// `tenant.created`, `tenant.deleted`, `tenant.app_install_requested`,
-// `tenant.app_uninstall_requested`, `order.placed` to BOTH NATS JetStream
-// (subject `catalyst.<event.Type>` per ADR-0001 §6) AND the legacy
-// Redpanda topic, via events.MultiPublisher.
-//
-// The CONSUME side was still Kafka-only — provisioning, notification,
-// domain, and billing's tenant-events cascade all called
-// events.NewConsumer(redpandaBrokers, …). On Sovereigns REDPANDA_BROKERS
-// is empty by design (no Redpanda exists; NATS is the canonical bus),
-// so those consumers either never started OR dialed `localhost:9092` in
-// a hot crash loop. Either way, every `tenant.created` envelope tenant
-// published to NATS landed in /dev/null on the subscriber side — no
-// Organization CR ever spawned, no vCluster, no convergence.
+// The Organization services publish `tenant.created`, `tenant.deleted`,
+// `tenant.app_install_requested`, `tenant.app_uninstall_requested`,
+// `order.placed` and their other events to NATS JetStream (subject
+// `catalyst.<event.Type>` per ADR-0001 §6) via events.MultiPublisher.
+// NATS is the only event bus, so every consumer of these services reads
+// from NATS JetStream too.
 //
 // This file mirrors bridge.go on the subscribe side. It defines:
 //
 //   - BrokerSubscriber: the single Subscribe surface every Organization service
-//     consumer is migrating to. Matches the existing
-//     events.Consumer.Subscribe + events.DLQSubscriber.Subscribe shape
-//     so call sites only need a type swap, not a handler rewrite.
+//     consumer uses.
 //   - MultiSubscriber: fans in from NATS JetStream durable consumers
-//     (one per canonical subject) AND, when configured, a legacy Kafka
-//     Consumer. The handler receives parsed *Event values from either
-//     transport; the caller does not need to know which leg delivered
-//     each envelope.
+//     (one per canonical subject). The handler receives parsed *Event
+//     values.
 //
 // Subject derivation mirrors bridge.go's CanonicalSubject — callers
-// supply the legacy Kafka topic + the set of event.Type values they
-// react to, and the subscriber maps those to canonical NATS subjects
-// (`catalyst.<event.Type>`) at construction time.
+// supply the set of event.Type values they react to, and the subscriber
+// maps those to canonical NATS subjects (`catalyst.<event.Type>`) at
+// construction time.
 //
 // At construction time NewMultiSubscriber refuses to return a subscriber
-// with both legs nil — that would silently drop every event and is the
-// exact failure mode that motivated this file in the first place.
+// with nothing to consume — that would silently drop every event and is
+// the exact failure mode that motivated this file in the first place.
 
 import (
 	"context"
@@ -56,39 +44,23 @@ import (
 
 // BrokerSubscriber is the unified subscribe surface every Organization service
 // consumer (provisioning, notification, domain, billing tenant-events)
-// uses. Implementations:
-//
-//   - MultiSubscriber (this file): fans in from NATS JetStream durable
-//     consumers + an optional legacy Kafka Consumer.
-//   - *Consumer (events.go): legacy Kafka-only path retained for
-//     Catalyst-Zero / unit tests / the contabo-only fallback.
-//   - *DLQSubscriber (dlq.go): legacy Kafka-only path with retry + DLQ.
+// uses. MultiSubscriber (this file) is the one implementation: it fans
+// in from NATS JetStream durable consumers.
 //
 // Subscribe blocks until ctx is cancelled OR the underlying broker
 // transport returns an unrecoverable error.
 type BrokerSubscriber interface {
-	// Subscribe registers handler against every NATS subject AND every
-	// Kafka topic the implementation was configured for. The handler is
-	// invoked once per envelope regardless of which leg delivered it.
-	// Returning a non-nil error from the handler signals "do not ack" —
-	// the underlying transport will redeliver (NATS) or skip the commit
-	// (Kafka) so the same envelope arrives again.
+	// Subscribe registers handler against every NATS subject the
+	// implementation was configured for. The handler is invoked once
+	// per envelope. Returning a non-nil error from the handler signals
+	// "do not ack" — NATS will redeliver, so the same envelope arrives
+	// again.
 	Subscribe(ctx context.Context, handler func(*Event) error) error
 	// Close releases the underlying transport handles.
 	Close()
 }
 
-// MultiSubscriber fans events in from NATS JetStream + a legacy Kafka
-// Consumer. Either side may be nil at construction time:
-//
-//   - nats == nil + kafka != nil: legacy Catalyst-Zero wiring (matches
-//     pre-#1626 behaviour on contabo where REDPANDA_BROKERS is set and
-//     NATS_URL is empty).
-//   - nats != nil + kafka == nil: canonical Sovereign wiring (NATS-only,
-//     REDPANDA_BROKERS intentionally empty).
-//   - nats != nil + kafka != nil: dual-mode during the migration window
-//     so consumers running against a hybrid environment receive
-//     envelopes regardless of which transport the publisher used.
+// MultiSubscriber fans events in from NATS JetStream.
 //
 // MultiSubscriber NEVER swallows configuration errors — if a caller
 // requests a subject but the NATS Stream does not exist, NewMultiSubscriber
@@ -96,14 +68,11 @@ type BrokerSubscriber interface {
 // start instead of "every tenant.created event is silently dropped".
 type MultiSubscriber struct {
 	nats   *NATSConn
-	kafka  *Consumer
 	group  string
 	stream string
 	// subjects holds the canonical NATS subjects the subscriber will
 	// register durable consumers on. Filled at construction time from
-	// the kafka topic list + event types passed by the caller, so the
-	// constructor surface mirrors what the existing call sites
-	// (events.NewConsumer(brokers, group, topics)) already know.
+	// the event types passed by the caller.
 	subjects []string
 
 	// maxDeliver bounds JetStream redelivery of a persistently-failing
@@ -124,28 +93,20 @@ type MultiSubscriber struct {
 
 // MultiSubscriberConfig captures the construction inputs of a
 // MultiSubscriber. Subjects are derived from EventTypes via
-// CanonicalSubject; Topics is the legacy Kafka topic list passed
-// through to events.NewConsumer when the Kafka leg is enabled.
+// CanonicalSubject.
 type MultiSubscriberConfig struct {
-	// NATS is the (optional) JetStream connection. Pass nil to disable
-	// the NATS leg.
+	// NATS is the JetStream connection. NewMultiSubscriber returns an
+	// error when it is nil.
 	NATS *NATSConn
-	// Kafka is the (optional) legacy Kafka Consumer. Pass nil to
-	// disable the Kafka leg. The Consumer's group + topics are already
-	// baked in via events.NewConsumer — MultiSubscriber does not
-	// re-create the Consumer.
-	Kafka *Consumer
 	// Group is the durable-consumer name suffix on the NATS side AND
-	// the operator-visible group tag in slog. Should match the Kafka
-	// consumer group when both legs are wired so observability stays
-	// symmetric.
+	// the operator-visible group tag in slog.
 	Group string
 	// EventTypes lists the bare event types the subscriber filters
 	// for on the NATS side (e.g. "tenant.created", "order.placed").
 	// Each is mapped to a canonical subject via CanonicalSubject and
 	// becomes its own JetStream durable consumer with a FilterSubject
-	// scoped to that subject. Empty disables the NATS leg even if
-	// NATS != nil — without subjects there is nothing to consume.
+	// scoped to that subject. NewMultiSubscriber returns an error when
+	// it is empty — without subjects there is nothing to consume.
 	EventTypes []string
 	// StreamName is the JetStream Stream the subjects live on. Defaults
 	// to StreamCatalystOrg when empty.
@@ -198,21 +159,18 @@ func (c *NATSConn) ensureOrgStream(ctx context.Context, name string, subjects []
 	return nil
 }
 
-// NewMultiSubscriber wires a subscriber against the supplied transports.
-// Returns an error if both legs are nil-or-empty (no NATS connection +
-// no event types AND no Kafka consumer); that combination would silently
-// drop every event and is the configuration bug this file exists to
-// catch.
+// NewMultiSubscriber wires a subscriber against the supplied NATS
+// connection. Returns an error if there is nothing to consume (no NATS
+// connection or no event types); that combination would silently drop
+// every event and is the configuration bug this file exists to catch.
 //
 // The Stream is bound at construction time; the per-subject durable
 // consumers are created on the first Subscribe call. Failures there bubble
 // up as an error from Subscribe so the caller (typically a service's
 // main.go goroutine) logs the actual misconfiguration.
 func NewMultiSubscriber(cfg MultiSubscriberConfig) (*MultiSubscriber, error) {
-	natsEnabled := cfg.NATS != nil && len(cfg.EventTypes) > 0
-	kafkaEnabled := cfg.Kafka != nil
-	if !natsEnabled && !kafkaEnabled {
-		return nil, errors.New("events: NewMultiSubscriber requires NATS (with EventTypes) or Kafka")
+	if cfg.NATS == nil || len(cfg.EventTypes) == 0 {
+		return nil, errors.New("events: NewMultiSubscriber requires NATS (with EventTypes)")
 	}
 	if cfg.StreamName == "" {
 		cfg.StreamName = StreamCatalystOrg
@@ -225,56 +183,39 @@ func NewMultiSubscriber(cfg MultiSubscriberConfig) (*MultiSubscriber, error) {
 	}
 
 	subs := make([]string, 0, len(cfg.EventTypes))
-	if natsEnabled {
-		for _, et := range cfg.EventTypes {
-			subj := CanonicalSubject(et)
-			if subj == "" {
-				continue
-			}
-			subs = append(subs, subj)
+	for _, et := range cfg.EventTypes {
+		subj := CanonicalSubject(et)
+		if subj == "" {
+			continue
 		}
-		if len(subs) == 0 {
-			natsEnabled = false
-		}
+		subs = append(subs, subj)
 	}
-	if !natsEnabled && !kafkaEnabled {
+	if len(subs) == 0 {
 		return nil, errors.New("events: NewMultiSubscriber refused — no transport actually subscribable")
 	}
 
 	m := &MultiSubscriber{
+		nats:       cfg.NATS,
 		group:      cfg.Group,
 		stream:     cfg.StreamName,
 		subjects:   subs,
 		maxDeliver: resolveMaxDeliver(),
 	}
-	if natsEnabled {
-		m.nats = cfg.NATS
-		// Bind to the declared Stream at construction time so a missing
-		// Stream or a misconfigured per-Sovereign overlay (wrong Stream
-		// name, no JetStream domain enabled) surfaces at pod start instead
-		// of the first envelope.
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := cfg.NATS.ensureOrgStream(ctx, cfg.StreamName, cfg.StreamSubjects); err != nil {
-			return nil, fmt.Errorf("events: ensure Organization stream: %w", err)
-		}
-	}
-	if kafkaEnabled {
-		m.kafka = cfg.Kafka
+	// Bind to the declared Stream at construction time so a missing
+	// Stream or a misconfigured per-Sovereign overlay (wrong Stream
+	// name, no JetStream domain enabled) surfaces at pod start instead
+	// of the first envelope.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := cfg.NATS.ensureOrgStream(ctx, cfg.StreamName, cfg.StreamSubjects); err != nil {
+		return nil, fmt.Errorf("events: ensure Organization stream: %w", err)
 	}
 	return m, nil
 }
 
 // Subscribe blocks until ctx is cancelled, dispatching every envelope
-// arriving on the configured NATS subjects + Kafka topics to handler.
-// On NATS-side errors during Stream/Consumer bootstrap, returns the
-// underlying error. On Kafka-side polling errors, returns the
-// underlying error from the legacy Consumer.
-//
-// When BOTH transports are configured the two legs run in parallel
-// (separate goroutines) and the first one returning an error wins —
-// the other is cancelled. This matches the migration-window contract:
-// if NATS goes away we still drain Kafka, and vice versa.
+// arriving on the configured NATS subjects to handler. On NATS-side
+// errors during Stream/Consumer bootstrap, returns the underlying error.
 func (m *MultiSubscriber) Subscribe(ctx context.Context, handler func(*Event) error) error {
 	if m == nil {
 		return errors.New("events: nil MultiSubscriber")
@@ -290,45 +231,16 @@ func (m *MultiSubscriber) Subscribe(ctx context.Context, handler func(*Event) er
 	}
 	m.mu.Unlock()
 
-	natsEnabled := m.nats != nil && len(m.subjects) > 0
-	kafkaEnabled := m.kafka != nil
-
-	if !natsEnabled && !kafkaEnabled {
+	if m.nats == nil || len(m.subjects) == 0 {
 		return errors.New("events: MultiSubscriber has no transport")
 	}
 
 	slog.Info("multi-subscriber starting",
 		"group", m.group,
 		"nats_subjects", m.subjects,
-		"kafka_enabled", kafkaEnabled,
 	)
 
-	// Single-leg fast path.
-	if natsEnabled && !kafkaEnabled {
-		return m.runNATS(ctx, handler)
-	}
-	if kafkaEnabled && !natsEnabled {
-		return m.kafka.Subscribe(ctx, handler)
-	}
-
-	// Dual-leg path: run both in parallel, fail on first non-nil error.
-	subCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	errCh := make(chan error, 2)
-	go func() {
-		errCh <- m.runNATS(subCtx, handler)
-	}()
-	go func() {
-		errCh <- m.kafka.Subscribe(subCtx, handler)
-	}()
-
-	// First error (including ctx cancellation) cancels the sibling.
-	first := <-errCh
-	cancel()
-	// Drain the second so the goroutine doesn't leak past return.
-	<-errCh
-	return first
+	return m.runNATS(ctx, handler)
 }
 
 // runNATS attaches a durable consumer to each configured subject and
@@ -472,8 +384,7 @@ func (m *MultiSubscriber) durableName(subject string) string {
 	return m.group + "-" + clean
 }
 
-// Close stops every JetStream consume context AND closes the underlying
-// Kafka Consumer. Idempotent.
+// Close stops every JetStream consume context. Idempotent.
 func (m *MultiSubscriber) Close() {
 	if m == nil {
 		return
@@ -488,9 +399,6 @@ func (m *MultiSubscriber) Close() {
 		cc.Stop()
 	}
 	m.consumeCtxs = nil
-	if m.kafka != nil {
-		m.kafka.Close()
-	}
 }
 
 // maxDeliverEnv overrides the bounded JetStream redelivery ceiling per

@@ -1,90 +1,61 @@
 package events
 
 // Per ADR-0001 §6, the OpenOva canonical event spine is NATS JetStream with
-// subject convention `catalyst.<domain>.<event>`. Historically the Organization
-// services (tenant, billing, notification, provisioning) emitted to
-// Redpanda topics under the legacy `org.<producer>.events` shape because
-// the bus was Redpanda on contabo. On Sovereigns there IS no Redpanda —
-// only NATS at nats-jetstream.nats-system.svc.cluster.local:4222 — so
-// every event the tenant + billing services published was silently lost,
-// blocking convergence (provisioning never received tenant.created /
-// order.placed, downstream subscribers never saw tenant.deleted).
+// subject convention `catalyst.<domain>.<event>`. NATS is the only event
+// bus of the Organization services (tenant, billing, notification,
+// provisioning, domain). On a Sovereign it runs at
+// nats-jetstream.nats-system.svc.cluster.local:4222.
 //
-// This file introduces a thin BrokerPublisher abstraction so the existing
-// HTTP handlers can keep calling a single Publish method:
+// This file holds the thin BrokerPublisher abstraction, so the HTTP
+// handlers call a single Publish method.
 //
-//   - On Sovereigns NATS_URL is set and Publish writes to JetStream
-//     subjects (catalyst.<event.Type>) per the canonical convention.
-//   - On legacy contabo the REDPANDA_BROKERS env is non-empty (and may
-//     point at a real Redpanda) — Publish ALSO writes to the legacy
-//     org.<producer>.events topic so any not-yet-migrated consumers
-//     keep receiving events.
-//   - Both can run together. NATS wins for new subscribers; Redpanda
-//     keeps legacy consumers alive during the migration window.
-//
-// Subject derivation: each call site already knows the legacy Kafka topic
-// it wants to write to AND the event.Type (e.g. "tenant.created"). The
-// canonical NATS subject is `catalyst.<event.Type>`. The bridge handles
-// both publishes inside one method so call sites don't grow conditional
-// branches everywhere.
+// Subject derivation: each call site knows the event.Type (e.g.
+// "tenant.created"). The canonical NATS subject is `catalyst.<event.Type>`.
+// Publish derives it, so call sites carry no subject names.
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 )
 
 // BrokerPublisher is the unified publish surface every Organization service uses
-// for outbound domain events. Implementations:
-//
-//   - MultiPublisher (this file): fans out to NATS + optional Redpanda.
-//   - Producer (events.go): legacy Kafka-only path retained for tests
-//     and the contabo-only fallback.
-//
-// The interface intentionally matches Producer.Publish so call sites can
-// migrate by changing the field type without touching every Publish call.
+// for outbound domain events. MultiPublisher (this file) is the one
+// implementation; the services' tests substitute fakes.
 type BrokerPublisher interface {
-	// Publish writes the event to BOTH the canonical NATS subject
-	// (derived from event.Type as catalyst.<event.Type>) AND, if the
-	// implementation was configured with Kafka brokers, the legacy
-	// kafkaTopic. Errors are best-effort — NATS failures bubble up so
-	// the caller can log/observe, Kafka failures are logged but do not
-	// fail the call (the legacy bus is non-authoritative on Sovereigns).
-	Publish(ctx context.Context, kafkaTopic string, event *Event) error
-	// Close releases the underlying connections.
+	// Publish writes the event to the canonical NATS subject, derived
+	// from event.Type as catalyst.<event.Type>. A NATS failure is
+	// returned so the caller can log/observe it.
+	//
+	// topic is not used. It was the topic name on a second bus that no
+	// longer exists; the argument stays so that the call sites and the
+	// test fakes keep one signature.
+	Publish(ctx context.Context, topic string, event *Event) error
+	// Close releases the underlying connection.
 	Close()
 }
 
-// MultiPublisher fans an event out to NATS (canonical) + Redpanda (legacy).
-// Either side may be nil:
+// MultiPublisher publishes an event to NATS JetStream.
 //
-//   - nats == nil: pure-Kafka publisher (matches legacy contabo behaviour
-//     when NATS_URL is empty).
-//   - kafka == nil: pure-NATS publisher (matches the canonical Sovereign
-//     wiring where REDPANDA_BROKERS is intentionally empty).
-//
-// At construction time NewMultiPublisher refuses to return a publisher
-// with both sides nil — that would silently drop every event and is the
-// exact failure mode that blocked convergence in the first place.
+// NewMultiPublisher refuses to return a publisher without a NATS
+// connection — that would silently drop every event and is the exact
+// failure mode that blocked convergence in the first place.
 type MultiPublisher struct {
-	nats   *NATSConn
-	kafka  *Producer
+	nats *NATSConn
 }
 
 // NewMultiPublisher constructs a publisher wired to the supplied NATS
-// connection and/or Kafka producer. Pass nil for either side to disable
-// that transport.
+// connection.
 //
-// Returns an error if BOTH transports are nil — a publisher with no
-// outputs is always a configuration bug (the events would be silently
-// dropped, which is what got us into this mess).
-func NewMultiPublisher(nc *NATSConn, kp *Producer) (*MultiPublisher, error) {
-	if nc == nil && kp == nil {
-		return nil, errors.New("events: NewMultiPublisher requires at least one of NATS or Kafka")
+// Returns an error if the connection is nil — a publisher with no
+// output is always a configuration bug (the events would be silently
+// dropped).
+func NewMultiPublisher(nc *NATSConn) (*MultiPublisher, error) {
+	if nc == nil {
+		return nil, errors.New("events: NewMultiPublisher requires a NATS connection")
 	}
-	return &MultiPublisher{nats: nc, kafka: kp}, nil
+	return &MultiPublisher{nats: nc}, nil
 }
 
 // CanonicalSubject returns the canonical NATS JetStream subject for an
@@ -121,11 +92,10 @@ func CanonicalSubject(eventType string) string {
 	return "catalyst." + eventType
 }
 
-// Publish writes the event to NATS (canonical) and Kafka (legacy) if
-// either transport is configured. NATS publish errors are returned;
-// Kafka publish errors are logged but swallowed so a stale legacy
-// broker cannot break a healthy Sovereign.
-func (m *MultiPublisher) Publish(ctx context.Context, kafkaTopic string, event *Event) error {
+// Publish writes the event to its canonical NATS subject and returns a
+// NATS publish error. The topic argument is not used (see
+// BrokerPublisher).
+func (m *MultiPublisher) Publish(ctx context.Context, _ string, event *Event) error {
 	if event == nil {
 		return errors.New("events: Publish nil event")
 	}
@@ -139,26 +109,12 @@ func (m *MultiPublisher) Publish(ctx context.Context, kafkaTopic string, event *
 			natsErr = fmt.Errorf("nats publish %s: %w", subject, natsErr)
 		}
 	}
-
-	if m.kafka != nil && kafkaTopic != "" {
-		if err := m.kafka.Publish(ctx, kafkaTopic, event); err != nil {
-			// Legacy bus failures should NEVER fail a Sovereign-side
-			// call — log + continue. Returning would block requests on
-			// a Redpanda outage that is irrelevant to Sovereign flows.
-			slog.Warn("events: legacy kafka publish failed",
-				"topic", kafkaTopic, "type", event.Type, "error", err)
-		}
-	}
-
 	return natsErr
 }
 
-// Close releases NATS + Kafka connections (whichever are non-nil).
+// Close releases the NATS connection.
 func (m *MultiPublisher) Close() {
 	if m.nats != nil {
 		m.nats.Close()
-	}
-	if m.kafka != nil {
-		m.kafka.Close()
 	}
 }
