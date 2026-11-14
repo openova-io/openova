@@ -43,7 +43,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w" \
     -o /environment-controller ./cmd
 
-FROM docker.io/library/alpine:3.20
+FROM docker.io/library/alpine:3.24
 
 # CA certs for HTTPS calls to Gitea (the in-cluster service is plain
 # HTTP, but cross-Sovereign instances may use HTTPS). tzdata so log
