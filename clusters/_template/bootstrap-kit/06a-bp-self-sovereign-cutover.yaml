@@ -1123,12 +1123,11 @@ spec:
         name: bp-self-sovereign-cutover
         namespace: flux-system
   install:
-    # #4632 (chart 0.1.91): raised 30m → 40m so the auto-trigger Job's
-    # activeDeadlineSeconds (2100s / 35m — /healthz wait + the new 425
-    # handover-retry window) stays comfortably below the HR
-    # install/upgrade timeout and the post-install hook unblocks before
-    # Helm gives up. disableWait keeps the chart itself dormant; this
-    # timeout governs the hook Job's completion window.
+    # 40m dates from the chart's auto-trigger hook Job (#4632), which Helm
+    # waited for. #7900 removed that hook (it held the first phase for 900 s
+    # on every fresh installation), so a chart from that change on has no
+    # hook and installs in seconds; the timeout stays for a Sovereign that
+    # still runs an older chart.
     disableWait: true
     timeout: 40m
     remediation:
@@ -1288,6 +1287,10 @@ spec:
     # hand-over by itself unless HANDOVER_AUTO is false. With false the cutover
     # fires via the BSS CTA (or the level-triggered reconciler once the flag is
     # flipped).
+    # #7900: a chart from that change on has no auto-trigger hook and reads no
+    # trigger.* value; the catalyst-api alone starts the cutover (hand-over seal
+    # and its reconciler, both behind the same switch through slot 13). This
+    # value stays for a Sovereign that still runs an older chart.
     trigger:
       # SOV-151: the hand-over switch is HANDOVER_AUTO of the variables; a Sovereign
       # whose variables predate that key keeps reading the kit key FIRE_CUTOVER_ON_HANDOVER.
@@ -1303,6 +1306,12 @@ spec:
     # inherits the fix zero-touch. See platform/self-sovereign-cutover/chart
     # values.yaml secondaryRegions.mirrorToSecondaryGitea.
     secondaryRegions:
+      # #7900: the follower legs follow the EXISTENCE of a follower region, known
+      # at installation time (non-empty on both regions of a two-region Sovereign,
+      # empty on a single-region one), not the database-pair flag below: the parent
+      # flips that flag after the cutover has started, so step 01 was stamped
+      # without its follower leg. The two flags stay as an explicit switch.
+      replicaRegion: '${SOVEREIGN_REPLICA_REGION:-}'
       mirrorToSecondaryGitea: ${SOVEREIGN_ENABLE_CNPG_PAIR:=false}
       # #6764: each secondary region runs its OWN local Harbor; populate it
       # in-region so step-06 can pivot region-B off ghcr. Same 2-region gate

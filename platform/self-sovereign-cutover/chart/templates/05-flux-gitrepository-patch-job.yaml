@@ -153,7 +153,7 @@ data:
             value: {{ .Values.status.configMapName | quote }}
           - name: CUTOVER_NAMESPACE
             value: {{ .Release.Namespace | quote }}
-          {{- if .Values.secondaryRegions.mirrorToSecondaryGitea }}
+          {{- if or .Values.secondaryRegions.mirrorToSecondaryGitea .Values.secondaryRegions.replicaRegion }}
           {{- /*
            #6490 — with the secondary mirror on, each secondary now holds a
            COMPLETE openova/openova in its OWN in-cluster Gitea (populated by
@@ -316,7 +316,7 @@ data:
             # comment because chart/tests/step05-secondary-chain.sh awk-slices
             # the secondary leg out of the RENDER from here to the closing
             # `[flux-gitrepository-patch] done`.
-            {{- if .Values.secondaryRegions.mirrorToSecondaryGitea }}
+            {{- if or .Values.secondaryRegions.mirrorToSecondaryGitea .Values.secondaryRegions.replicaRegion }}
             # #6490 — the secondary now serves the FULL repo from its OWN
             # in-cluster Gitea (step-01/step-11 populated it), so pivot it at that
             # in-cluster gitea-http Service, mirroring region-A, instead of the

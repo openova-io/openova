@@ -18,13 +18,20 @@ Per the parent-epic scope-correction comment, the cutover trigger is
 **post-handover**, not Phase-1.5:
 
 - The `sovereign-admin` clicks **"Achieve True Sovereignty"** in the operator console, OR
-- `catalyst-api` auto-fires after the first successful sovereign-admin login on
-  the new Sovereign (configurable via `.Values.trigger.auto`, default
-  `false`).
+- `catalyst-api` starts it by itself when the hand-over is sealed, and its
+  level-triggered reconciler starts it again for as long as the hand-over is
+  sealed and the cutover is not complete. Both are behind
+  `CATALYST_FIRE_CUTOVER_ON_HANDOVER` (kit slot 13, `HANDOVER_AUTO`), default
+  true.
+
+The chart itself starts nothing. From 0.1.x to #7900 it also shipped an
+auto-trigger hook Job; that hook waited for the hand-over inside the
+installation, so it held the first phase for its whole wait on every fresh
+installation, and it is gone.
 
 A handed-over Sovereign therefore starts soft-tethered (still pulling
-through `harbor.openova.io`) and becomes hard-independent only after the
-`sovereign-admin` chooses or after the auto-fire grace period.
+through `harbor.openova.io`) and becomes hard-independent when the cutover
+has run.
 
 ## Step inventory
 

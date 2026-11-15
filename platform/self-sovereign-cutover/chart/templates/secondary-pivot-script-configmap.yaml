@@ -21,7 +21,7 @@ forces the secondary's GitRepository to that revision BEFORE the live patch loop
 and the #5596 durable assert. No Kubernetes API calls (default SA, ns gitea).
 RENDER-GATED on secondaryRegions.mirrorToSecondaryGitea (single-region: none).
 */ -}}
-{{- if .Values.secondaryRegions.mirrorToSecondaryGitea }}
+{{- if or .Values.secondaryRegions.mirrorToSecondaryGitea .Values.secondaryRegions.replicaRegion }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
