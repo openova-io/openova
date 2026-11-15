@@ -162,3 +162,16 @@ spec:
                   type: string
                   format: date-time
                   description: Set while the phase is Stale or Retired.
+                sbom:
+                  type: object
+                  description: The newest complete bill of materials of the machine, written by the operations controller.
+                  required: [key, sha256, collectedAt]
+                  properties:
+                    key:
+                      type: string
+                      description: The object key of the file in the evidence bucket.
+                    sha256:
+                      type: string
+                    collectedAt:
+                      type: string
+                      format: date-time

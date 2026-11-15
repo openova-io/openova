@@ -1,0 +1,135 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: scanpolicies.machines.openova.io
+  labels:
+    app.kubernetes.io/name: bp-machine-operations
+spec:
+  group: machines.openova.io
+  scope: Namespaced
+  names:
+    kind: ScanPolicy
+    listKind: ScanPolicyList
+    singular: scanpolicy
+    plural: scanpolicies
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Schedule
+          type: string
+          jsonPath: .spec.schedule
+        - name: Next
+          type: string
+          jsonPath: .status.nextScheduleAt
+        - name: Last run
+          type: string
+          jsonPath: .status.lastRunName
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: |
+            ScanPolicy says which machines are scanned, with which profiles and when.
+            It is desired state. The operations controller creates one MachineRun of
+            kind scan for every time of the schedule. Fields that are not listed here
+            are dropped.
+          required: [spec]
+          properties:
+            apiVersion: {type: string}
+            kind: {type: string}
+            metadata: {type: object}
+            spec:
+              type: object
+              required: [machineSelector, profiles]
+              x-kubernetes-validations:
+                - rule: "!self.profiles.exists(p, p == 'hardening') || has(self.hardeningBaselineRef)"
+                  message: spec.hardeningBaselineRef is required when spec.profiles contains hardening
+              properties:
+                suspended:
+                  type: boolean
+                  default: false
+                  description: true means no run is created from the schedule, and a run of this policy is refused.
+                namespaces:
+                  type: array
+                  default: []
+                  maxItems: 100
+                  x-kubernetes-list-type: set
+                  description: The namespaces whose Machines the policy may select. Empty means the namespace of the policy. A list is honoured only on a policy in the namespace catalyst-infra.
+                  items: {type: string, maxLength: 63, pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'}
+                machineSelector:
+                  type: object
+                  description: A label selector over the labels of Machines.
+                  properties:
+                    matchLabels:
+                      type: object
+                      additionalProperties: {type: string}
+                    matchExpressions:
+                      type: array
+                      items:
+                        type: object
+                        required: [key, operator]
+                        properties:
+                          key: {type: string}
+                          operator: {type: string, enum: [In, NotIn, Exists, DoesNotExist]}
+                          values:
+                            type: array
+                            items: {type: string}
+                profiles:
+                  type: array
+                  minItems: 1
+                  x-kubernetes-list-type: set
+                  description: What a run collects. inventory is the bill of materials of the machine. hardening evaluates the profile of the hardening baseline.
+                  items: {type: string, enum: [inventory, hardening]}
+                hardeningBaselineRef:
+                  type: object
+                  description: The HardeningBaseline, in the namespace of this policy, that the profile hardening evaluates.
+                  required: [name]
+                  properties:
+                    name: {type: string, minLength: 1, maxLength: 253}
+                schedule:
+                  type: string
+                  default: ""
+                  maxLength: 100
+                  description: A five-field cron expression in UTC. Empty means no scheduled run.
+                jitter:
+                  type: string
+                  pattern: '^([0-9]+(h|m|s))+$'
+                  default: 1h
+                  description: Each target of a scheduled run starts at a stable offset inside this span after the scheduled time.
+                maxParallel:
+                  type: integer
+                  minimum: 1
+                  maximum: 50
+                  default: 5
+                  description: The largest number of targets of one run that are scanned at the same time.
+            status:
+              type: object
+              properties:
+                lastRunName:
+                  type: string
+                  description: The newest MachineRun the controller created from the schedule.
+                nextScheduleAt:
+                  type: string
+                  format: date-time
+                  description: The next time of the schedule. Absent when the policy is suspended, invalid or has no schedule.
+                conditions:
+                  type: array
+                  description: Ready says whether the policy is scheduled. Its reason is Scheduled, NoSchedule, Suspended or InvalidSpec.
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [type]
+                  items:
+                    type: object
+                    required: [type, status, lastTransitionTime, reason, message]
+                    properties:
+                      type: {type: string, enum: [Ready]}
+                      status: {type: string, enum: ["True", "False", Unknown]}
+                      observedGeneration: {type: integer, format: int64, minimum: 0}
+                      lastTransitionTime: {type: string, format: date-time}
+                      reason: {type: string}
+                      message: {type: string}

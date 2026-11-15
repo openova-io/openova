@@ -13,6 +13,20 @@
       "owner": "INF",
       "path": "products/catalyst/bootstrap/api/internal/machines/inventory/reconciler.go",
       "reason": "the inventory controller is the only writer of Machine objects and of the status of a MachineSource; both are observations of the cluster, never intent, and never go to Git"
+    },
+    {
+      "count": 6,
+      "metric": "K",
+      "owner": "INF",
+      "path": "products/catalyst/bootstrap/api/internal/machines/operations/runs.go",
+      "reason": "the operations controller writes what a run did: the status of a MachineRun and its deletion after the retention time, the runner Job of a target, the hardening PolicyReport and Machine.status.sbom; all are operation records and observations, never intent, and never go to Git"
+    },
+    {
+      "count": 2,
+      "metric": "K",
+      "owner": "INF",
+      "path": "products/catalyst/bootstrap/api/internal/machines/operations/scheduler.go",
+      "reason": "the scheduler creates the MachineRun of a scheduled time and writes the status of a ScanPolicy; a run is an operation record and the status an observation, never intent, and never go to Git"
     }
   ],
   "counts": {

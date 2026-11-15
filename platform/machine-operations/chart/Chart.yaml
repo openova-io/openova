@@ -2,10 +2,10 @@ apiVersion: v2
 name: bp-machine-operations
 version: 0.1.1
 description: |
-  Machine operations on the platform's own nodes. This version ships the two
-  custom resource definitions of the inventory, Machine and MachineSource of
-  the group machines.openova.io, and the inventory controller with the
-  built-in source nodes, switched on by the value enabled.
+  Machine operations on the platform's own nodes. This version ships the five
+  custom resource definitions of the group machines.openova.io (Machine,
+  MachineSource, ScanPolicy, HardeningBaseline, MachineRun) and the inventory
+  controller with the built-in source nodes, switched on by the value enabled.
 type: application
 keywords: [catalyst, blueprint, machines, inventory]
 maintainers:
