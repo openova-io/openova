@@ -17,6 +17,11 @@ name: foundation-gate
 #              keycloak/keycloak-0), mints its session with the Sovereign's own signer, runs
 #              scripts/sso-zero-click-probe.mjs as that user, deletes the user in a step that always
 #              runs, and adds the result to the record with acceptance-gate.py merge-check.
+#              A run whose discovery could not reach the Sovereign from the runner after its
+#              retries ends NOT MEASURED (suite exit code 4, tests/acceptance/sovereign/internal/
+#              suite/reach.go): the suite writes no record, the sign-in check is not run, nothing
+#              is committed, the job fails with the annotation "Gate run NOT MEASURED", and its
+#              output result is NOT-MEASURED. Such a run is not one of the two runs the gate needs.
 # Secrets of the environment gate: ACCEPTANCE_KUBECONFIG_A and ACCEPTANCE_KUBECONFIG_B (base64 of
 # the kubeconfigs of the regions that start as Primary and as Standby), ACCEPTANCE_CATALYST_SESSION
 # (optional owner session; when empty the run mints one from the Sovereign's own signer).
@@ -82,7 +87,7 @@ on:
         default: foundation-gate
     outputs:
       result:
-        description: The result of the record, PASS or FAIL; FAIL when no valid record was written
+        description: The result of the record, PASS or FAIL; NOT-MEASURED when the discovery could not reach the Sovereign (no record); FAIL when no valid record was written
         value: ${{ jobs.live.outputs.result }}
     secrets:
       ACCEPTANCE_KUBECONFIG_A:
@@ -183,7 +188,7 @@ jobs:
     permissions:
       contents: read
     outputs:
-      result: ${{ steps.record.outputs.result || 'FAIL' }}
+      result: ${{ steps.run.outputs.not_measured == 'true' && 'NOT-MEASURED' || steps.record.outputs.result || 'FAIL' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Check out the commit under test
@@ -293,13 +298,17 @@ jobs:
           set -e
           { echo '### Gate run'; echo; echo '```'; sed -n '/^ACCEPTANCE /,$p' "$RUNNER_TEMP/acceptance.log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           echo "suite exit code: $rc"
+          # Exit code 4: the discovery could not reach the Sovereign after its retries (NOT MEASURED).
+          if [ "$rc" = 4 ]; then echo "not_measured=true" >> "$GITHUB_OUTPUT"; fi
       - name: "Sign-in check FND-G07: Node for the probe"
+        if: steps.run.outputs.not_measured != 'true'
         continue-on-error: true # without Node the next step records no result, and FND-G07 is a FAIL
         uses: actions/setup-node@v7
         with:
           node-version: '22'
       - name: "Sign-in check FND-G07: a user of this run signs in through the identity provider"
         id: sso
+        if: steps.run.outputs.not_measured != 'true'
         env:
           KA: ${{ runner.temp }}/kube/a.yaml
           ENV_LABEL: ${{ inputs.env }}
@@ -407,6 +416,7 @@ jobs:
           done
           echo "Sign-in check FND-G07: the user $user is deleted." >> "$GITHUB_STEP_SUMMARY"
       - name: "Sign-in check FND-G07: add the result to the record"
+        if: steps.run.outputs.not_measured != 'true'
         run: |
           set +e
           set -uo pipefail
@@ -417,8 +427,22 @@ jobs:
             exit 0
           fi
           python3 scripts/acceptance-gate.py merge-check "candidate/$files" "$RUNNER_TEMP/sso/result.json" --check FND-G07
+      - name: "NOT MEASURED: the discovery could not reach the Sovereign"
+        if: steps.run.outputs.not_measured == 'true'
+        run: |
+          set -uo pipefail
+          # The suite wrote no record (reach.go), so nothing is committed and the pass rule of
+          # scripts/acceptance-gate.py has no record of this run to pair.
+          files="$(git -C candidate ls-files --others --exclude-standard -- docs/ledger/acceptance/)"
+          n="$(printf '%s' "$files" | grep -c .)"
+          if [ "$n" != 0 ]; then echo "::error::The suite said NOT MEASURED but wrote $n record(s). None is committed."; exit 1; fi
+          msg="The discovery could not reach the Sovereign from this runner after its retries. No record is written: this run is not one of the two runs the gate needs. Start another run."
+          { echo '### NOT MEASURED'; echo; echo "$msg"; } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error title=Gate run NOT MEASURED::$msg"
+          exit 4
       - name: Validate the record
         id: record
+        if: steps.run.outputs.not_measured != 'true'
         run: |
           set -uo pipefail
           files="$(git -C candidate ls-files --others --exclude-standard -- docs/ledger/acceptance/)"

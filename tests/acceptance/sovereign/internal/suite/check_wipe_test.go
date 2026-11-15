@@ -190,9 +190,11 @@ func TestParsePreviousWipe(t *testing.T) {
 }
 
 // TestWipeSampleRecord runs the suite with the two values of a wipe. The
-// console is a closed port of this machine, so the discovery fails at once
-// and no request leaves the machine. The record must carry the two values in
-// its object provision. When ACCEPT_SAMPLE_RECORD_DIR is set the record stays
+// console is one of this machine that refuses the session, so the discovery
+// fails at once on an answer and no request leaves the machine. (A closed port
+// is no answer: that run is NOT-MEASURED and has no record, reach_test.go.)
+// The record must carry the two values in its object provision. When
+// ACCEPT_SAMPLE_RECORD_DIR is set the record stays
 // there, so that `scripts/acceptance-gate.py validate-record` can prove that
 // the fields and the schema of that tool agree.
 func TestWipeSampleRecord(t *testing.T) {
@@ -200,7 +202,7 @@ func TestWipeSampleRecord(t *testing.T) {
 	if dir == "" {
 		dir = t.TempDir()
 	}
-	cfg := Config{Env: "wipe", Console: "http://127.0.0.1:9", Session: "x", KubeconfigA: "a", KubeconfigB: "b",
+	cfg := Config{Env: "wipe", Console: refusingConsole(t), Session: "x", KubeconfigA: "a", KubeconfigB: "b",
 		RunIn: string(RunInLocal), RepoRoot: ".", PreviousDeploymentID: "d1", PreviousWipeOrphans: "0",
 		Record: true, RecordDir: dir}
 	run, err := Execute(context.Background(), cfg, io.Discard)

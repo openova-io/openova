@@ -2,7 +2,6 @@ package suite
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -31,7 +30,9 @@ import (
 //     environment updated in place was created before the candidate existed.
 //
 // A value that cannot be read fails step D0.11, and with it the run; the object
-// is still whole (a time not read is 0001-01-01T00:00:00Z, a provider "").
+// is still whole (a time not read is 0001-01-01T00:00:00Z, a provider ""). When
+// every value that was not read failed because its region gave no answer after
+// the retries, the run is NOT-MEASURED and writes no record (reach.go).
 const provisionStepID = "D0.11"
 
 const kustomizationResource = "kustomizations.kustomize.toolkit.fluxcd.io"
@@ -46,16 +47,34 @@ func (r *runner) measureProvision(ctx context.Context, requested map[string]int)
 	}
 	r.run.Provision.Installation = inst
 	prior := append([]*Step(nil), r.run.Steps...)
-	r.step("D0", provisionStepID, "the installation under test: provider, creation, readiness, nodes, and whether it is fresh", func(ev Evidence) error {
-		return measureInstallation(ctx, []kube.Region{r.A, r.B}, requested, r.run.Candidate.ID, prior, inst, ev)
+	// Its reads are retried as reach.go says.
+	r.reaching(func() {
+		r.step("D0", provisionStepID, "the installation under test: provider, creation, readiness, nodes, and whether it is fresh", func(ev Evidence) error {
+			return measureInstallation(ctx, []kube.Region{r.A, r.B}, requested, r.run.Candidate.ID, prior, inst, ev)
+		})
 	})
 }
+
+// notRead is the error of step D0.11: every value that could not be read. It
+// keeps each cause, so that a step that could not reach a region is told
+// apart from one that read a wrong value (reach.go).
+type notRead []error
+
+func (n notRead) Error() string {
+	parts := make([]string, 0, len(n))
+	for _, e := range n {
+		parts = append(parts, e.Error())
+	}
+	return "not read: " + strings.Join(parts, "; ")
+}
+
+func (n notRead) Unwrap() []error { return n }
 
 // measureInstallation fills inst from the regions, the first region first, and
 // returns an error that names every value it could not read.
 func measureInstallation(ctx context.Context, regions []kube.Region, requested map[string]int, candidateID string,
 	prior []*Step, inst *Installation, ev Evidence) error {
-	problems, sources := []string{}, []string{}
+	problems, sources := notRead{}, []string{}
 	var born time.Time
 	bornRead := true
 	for i, reg := range regions {
@@ -63,25 +82,25 @@ func measureInstallation(ctx context.Context, regions []kube.Region, requested m
 		vars, source, err := sovereignVariables(ctx, reg)
 		switch {
 		case err != nil:
-			problems = append(problems, "provider: "+err.Error())
+			problems = append(problems, fmt.Errorf("provider: %w", err))
 		case vars["PROVIDER"] == "":
-			problems = append(problems, fmt.Sprintf("provider: the bootstrap variables of region %s (%s) have no PROVIDER", reg.ID, source))
+			problems = append(problems, fmt.Errorf("provider: the bootstrap variables of region %s (%s) have no PROVIDER", reg.ID, source))
 		case i == 0:
 			inst.Provider = vars["PROVIDER"]
 		case inst.Provider != "" && vars["PROVIDER"] != inst.Provider:
-			problems = append(problems, fmt.Sprintf("provider: region %s reports %s and region %s reports %s",
+			problems = append(problems, fmt.Errorf("provider: region %s reports %s and region %s reports %s",
 				reg.ID, vars["PROVIDER"], regions[0].ID, inst.Provider))
 		}
 		sources = append(sources, source)
 		t, err := kubeSystemCreated(ctx, reg)
 		if err != nil {
 			bornRead = false
-			problems = append(problems, "created_at: "+err.Error())
+			problems = append(problems, fmt.Errorf("created_at: %w", err))
 		} else if born.IsZero() || t.Before(born) {
 			born = t
 		}
 		if nodes, err := reg.GetList(ctx, "nodes", ""); err != nil {
-			problems = append(problems, "nodes_ready: "+err.Error())
+			problems = append(problems, fmt.Errorf("nodes_ready: %w", err))
 		} else {
 			for _, n := range nodes {
 				if status, _, _, _ := n.Condition("Ready"); status == "True" {
@@ -95,14 +114,14 @@ func measureInstallation(ctx context.Context, regions []kube.Region, requested m
 		inst.CreatedAt = born
 	}
 	if at, source, err := handoverEnded(ctx, regions[0]); err != nil {
-		problems = append(problems, "ready_at: "+err.Error())
+		problems = append(problems, fmt.Errorf("ready_at: %w", err))
 	} else {
 		inst.ReadyAt, ev["ready_source"] = at, source
 	}
 	inst.Fresh, ev["fresh_reason"] = freshness(candidateID, inst.CreatedAt, prior, regions)
 	ev["variables"] = sources
 	if len(problems) > 0 {
-		return errors.New("not read: " + strings.Join(problems, "; "))
+		return problems
 	}
 	return nil
 }

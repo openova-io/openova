@@ -199,8 +199,9 @@ func TestRegionIdentityReadsBothPlaces(t *testing.T) {
 }
 
 // TestExecuteMeasuresProvisionInTheCloud runs the suite with the fake as the
-// kubectl of the PATH. The console is a closed port of this machine, so the
-// discovery fails at once and no request leaves the machine.
+// kubectl of the PATH. The console is one of this machine that refuses the
+// session, so the discovery fails at once on an answer and no request leaves
+// the machine. (A closed port is no answer: that run is NOT-MEASURED, reach_test.go.)
 func TestExecuteMeasuresProvisionInTheCloud(t *testing.T) {
 	self, err := os.Executable()
 	if err != nil {
@@ -212,7 +213,7 @@ func TestExecuteMeasuresProvisionInTheCloud(t *testing.T) {
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv(fakeKubectlEnv, "provision-standing")
-	cfg := Config{Env: "standing", Console: "http://127.0.0.1:9", Session: "x", KubeconfigA: "a", KubeconfigB: "b",
+	cfg := Config{Env: "standing", Console: refusingConsole(t), Session: "x", KubeconfigA: "a", KubeconfigB: "b",
 		RunIn: string(RunInCloud), RepoRoot: ".", Record: true, RecordDir: t.TempDir()}
 	run, err := Execute(context.Background(), cfg, io.Discard)
 	if err != nil || run.Provision == nil || run.Provision.Installation == nil || run.Provision.PreviousWipe != nil ||

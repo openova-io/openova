@@ -27,7 +27,9 @@
 #   ACCEPT_JOURNEYS      default J1,J2,J3,J4,J5
 #   ACCEPT_*_TIMEOUT, ACCEPT_COMMIT_BUDGET, ACCEPT_KEEP_ON_FAIL=1 … see README.
 #
-# Exit: 0 PASS · 1 an assertion failed · 2 usage · 3 harness error.
+# Exit: 0 PASS · 1 an assertion failed · 2 usage · 3 harness error ·
+#       4 NOT MEASURED: the discovery could not reach the Sovereign after its
+#       retries; no record is written (tests/acceptance/sovereign/internal/suite/reach.go).
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -35,7 +37,7 @@ SUITE="$REPO/tests/acceptance/sovereign"
 
 ENV_LABEL="${1:-}"
 [ -n "$ENV_LABEL" ] && [ "${ENV_LABEL#-}" = "$ENV_LABEL" ] || {
-  sed -n '2,30p' "${BASH_SOURCE[0]}" >&2; exit 2; }
+  sed -n '2,32p' "${BASH_SOURCE[0]}" >&2; exit 2; }
 shift
 
 MODE=run

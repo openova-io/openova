@@ -15,6 +15,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/openova-io/openova/tests/acceptance/sovereign/internal/retry"
 )
 
 // Client talks to https://console.<fqdn>.
@@ -25,6 +27,10 @@ type Client struct {
 	// ReadOnly refuses every non-GET call. `discover` sets it so a dry run
 	// can never mutate the Sovereign, whatever a code path tries.
 	ReadOnly bool
+	// Retry, when set, retries a GET that got no answer, or an answer HTTP 429
+	// or 5xx (package retry). Only the discovery sets it. Any other method is
+	// sent once, with or without it.
+	Retry *retry.Policy
 }
 
 // New builds a client with a sane timeout.
@@ -60,11 +66,36 @@ func Snippet(b []byte) string {
 	return s
 }
 
-// Do issues one request. body may be nil or any JSON-marshalable value.
+// Do issues one request. body may be nil or any JSON-marshalable value. With a
+// Retry policy a GET is retried as the policy says; when the server answered,
+// its last answer is returned, whatever its status.
 func (c *Client) Do(ctx context.Context, method, path string, body any) (*Response, error) {
 	if c.ReadOnly && method != http.MethodGet {
 		return nil, fmt.Errorf("read-only mode: refusing %s %s", method, path)
 	}
+	if c.Retry == nil || method != http.MethodGet {
+		return c.once(ctx, method, path, body)
+	}
+	var last *Response
+	err := c.Retry.Do(ctx, func() (retry.Kind, error) {
+		res, err := c.once(ctx, method, path, body)
+		last = res
+		switch {
+		case err != nil:
+			return retry.Classify(err.Error()), err
+		case res.Status == http.StatusTooManyRequests || res.Status >= 500:
+			return retry.Answered, fmt.Errorf("%s %s: HTTP %d", method, path, res.Status)
+		}
+		return retry.Final, nil
+	})
+	if last != nil {
+		return last, nil
+	}
+	return nil, err
+}
+
+// once sends the request one time.
+func (c *Client) once(ctx context.Context, method, path string, body any) (*Response, error) {
 	var rd io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)

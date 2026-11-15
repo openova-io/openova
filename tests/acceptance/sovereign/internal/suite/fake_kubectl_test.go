@@ -66,6 +66,10 @@ func fakeKubectl(scenario string, args []string) int {
 			managed = true
 		}
 	}
+	// A fault of the path, and the answers of `exec` (reach_test.go).
+	if code, handled := fakeReach(scenario, kubeconfig, resource, namespace, args); handled {
+		return code
+	}
 	answers := fakeAnswers[scenario]
 	for _, question := range []string{
 		kubeconfig + " " + resource + " " + namespace, kubeconfig + " " + resource,
