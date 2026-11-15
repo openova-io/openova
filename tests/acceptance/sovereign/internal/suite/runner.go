@@ -32,6 +32,8 @@ type runner struct {
 	// noJourney is true for a run that requests no journey. Execute sets it
 	// before the discovery; journeyStep (discover.go) reads it.
 	noJourney bool
+	// reach holds the retry policies of the discovery (reach.go).
+	reach *reach
 
 	app app
 }
@@ -177,9 +179,12 @@ func Execute(ctx context.Context, cfg Config, out io.Writer) (*Run, error) {
 	r.run.Finalize(requested)
 	r.run.PrintTable(out)
 	if cfg.Record {
-		if cfg.ReadOnly {
+		switch {
+		case cfg.ReadOnly:
 			fmt.Fprintln(out, "note: --record ignored in discover mode (a discover run certifies nothing)")
-		} else {
+		case r.run.Result == NotMeasured:
+			_, _ = fmt.Fprintln(out, "not recorded: a NOT-MEASURED run writes no record (reach.go)")
+		default:
 			p, err := r.run.Write(cfg.RecordDir)
 			if err != nil {
 				return r.run, fmt.Errorf("record: %w", err)
@@ -245,6 +250,7 @@ func (r *runner) step(journey, id, name string, fn func(ev Evidence) error) bool
 	if err != nil {
 		s.Status, s.Error = Fail, err.Error()
 		fmt.Fprintf(r.out, "  %s %-6s FAIL %s\n", journey, id, err)
+		r.noteUnreached(journey, id, err)
 	} else {
 		s.Status = Pass
 		fmt.Fprintf(r.out, "  %s %-6s PASS %s\n", journey, id, trunc(evidenceLine(s.Evidence), 200))

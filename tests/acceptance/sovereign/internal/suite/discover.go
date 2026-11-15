@@ -44,8 +44,13 @@ func (r *runner) journeyStep(id, name string, fn func(ev Evidence) error) bool {
 // discover resolves every reference the journeys use FROM EXISTING OBJECTS —
 // the suite never fabricates an Org, Environment or Region id. A run that
 // requests no journey leaves out the three steps that only the journeys need
-// (journeyStep).
-func (r *runner) discover(ctx context.Context) bool {
+// (journeyStep). Its reads are retried as reach.go says.
+func (r *runner) discover(ctx context.Context) (ok bool) {
+	r.reaching(func() { ok = r.discoverSteps(ctx) })
+	return ok
+}
+
+func (r *runner) discoverSteps(ctx context.Context) bool {
 	ok := r.step("D0", "D0.1", "session authenticates as owner (GET /api/v1/whoami)", func(ev Evidence) error {
 		var who struct {
 			Tier          string `json:"tier"`
@@ -396,8 +401,13 @@ func (r *runner) listEnvironments(ctx context.Context) ([]EnvInfo, string, error
 
 // probeReadOnly checks, without writing anything, that every endpoint the
 // journeys call answers in the shape the suite parses. The create/PUT/DELETE
-// calls themselves are NOT made; their read-side twins are.
+// calls themselves are NOT made; their read-side twins are. Its reads are
+// retried as reach.go says.
 func (r *runner) probeReadOnly(ctx context.Context) {
+	r.reaching(func() { r.probeSteps(ctx) })
+}
+
+func (r *runner) probeSteps(ctx context.Context) {
 	r.step("D0", "D0.7", "Jobs API answers in the Job shape (GET /deployments/{id}/jobs)", func(ev Evidence) error {
 		var jobs struct {
 			Jobs []Job `json:"jobs"`

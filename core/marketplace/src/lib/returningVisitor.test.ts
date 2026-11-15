@@ -60,6 +60,51 @@ describe('resolveReturningVisitor — where a cookie-borne visitor lands', () =>
     expect(out).toMatchObject({ url: 'https://console.uatco.omani.homes/dashboard' });
   });
 
+  // #7922 — the stamp is browser memory. A Sovereign installed again under
+  // the same marketplace host leaves the previous installation's stamp
+  // behind, so a decision built on it must name the slug the server has to
+  // confirm before anyone navigates.
+  it('a destination built from the stamp asks for server confirmation (#7922)', () => {
+    for (const org of ['', 'oldorg']) {
+      const out = resolveReturningVisitor({
+        host: 'marketplace.hw307.omani.works',
+        skipConsoleRedirect: false,
+        hint: { org },
+        stampedConsoleHost: 'console.oldorg.omani.rest',
+      });
+      expect(out).toEqual({
+        redirect: true,
+        reason: 'session-hint',
+        url: 'https://console.oldorg.omani.rest/dashboard',
+        verifySlug: 'oldorg',
+      });
+    }
+  });
+
+  it('CONTROL: a destination derived from the session hint alone needs no confirmation', () => {
+    const out = resolveReturningVisitor({
+      host: SOV_MARKETPLACE,
+      skipConsoleRedirect: false,
+      hint: { org: 'uatco' },
+      stampedConsoleHost: 'console.otherorg.omani.homes',
+    });
+    expect(out.redirect && out.verifySlug).toBeFalsy();
+  });
+
+  it('ignores a stamp that is not console.<label>.<parent>', () => {
+    const out = resolveReturningVisitor({
+      host: SOV_MARKETPLACE,
+      skipConsoleRedirect: false,
+      hint: { org: '' },
+      stampedConsoleHost: 'console.oldorg',
+    });
+    expect(out).toEqual({
+      redirect: true,
+      reason: 'session-hint',
+      url: 'https://console.t92.omani.works/dashboard',
+    });
+  });
+
   it('ignores a stamp that names a DIFFERENT Org', () => {
     // A stale stamp from a previously-active Org must never misroute the
     // Org this session is actually scoped to.

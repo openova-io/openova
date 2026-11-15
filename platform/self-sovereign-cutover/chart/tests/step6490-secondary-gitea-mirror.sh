@@ -128,12 +128,22 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
     #      the secondaryRegions leg; scripts/check-secret-apply-server-side.sh
     #      verifies them. Removing the flags on BOTH trees keeps every other
     #      character of those lines compared.
+    #   8. #7922 changed step 03 in EVERY topology: the image walk reads every
+    #      region, the proxy is latched down only when its registry API does not
+    #      answer, and a run guard ends the step. None of that is the follower
+    #      leg. While origin/main does not hold it (its render lacks the
+    #      prewarm-run-guard anchor), the step-03 document is left out of BOTH
+    #      trees the way axis 5 does it; tests/step7922-prewarm-proxy-path.sh
+    #      verifies the change itself. The axis switches itself off once
+    #      origin/main holds the change.
     drop7900=0
     grep -q 'front-door-sample BEGIN' "${TMP}/main.yaml" || drop7900=1
+    drop7922=0
+    grep -q 'prewarm-run-guard BEGIN' "${TMP}/main.yaml" || drop7922=1
     norm() {
-      awk -v drop7900="${drop7900}" '
-        drop7900==1 && /^---$/ {next}
-        drop7900==1 && /^# Source: / {_d7 = ($0 ~ /\/templates\/(03-harbor-prewarm-job|08-egress-block-test-job|10-auto-trigger-job|11-crossplane-provider-pivot-job)\.yaml$/)}
+      awk -v drop7900="${drop7900}" -v drop7922="${drop7922}" '
+        (drop7900==1 || drop7922==1) && /^---$/ {next}
+        /^# Source: / {_d7 = (drop7900==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|08-egress-block-test-job|10-auto-trigger-job|11-crossplane-provider-pivot-job)\.yaml$/) || (drop7922==1 && $0 ~ /\/templates\/03-harbor-prewarm-job\.yaml$/)}
         _d7==1 {next}
         /if ! \$\{fresh_pull_fn\}; then$/ {print; _fp=1; next}
         _fp==1 {_fp=0; if ($0 ~ /kubectl delete ciliumclusterwidenetworkpolicy cutover-egress-block --ignore-not-found=true \|\| true$/) next}

@@ -33,11 +33,40 @@ ACCEPT_MINT=1 scripts/acceptance-sovereign.sh hw307 --record
 | `ACCEPT_INSECURE_APP_TLS=1`, `ACCEPT_DNS_SERVER`, `ACCEPT_WP_TABLE_PREFIX` | off, system resolver, `wp_` | |
 | `ACCEPT_MANIFEST`, `ACCEPT_RUN_IN`, `ACCEPT_CAPABILITIES`, `ACCEPT_CANDIDATE_ID`, `ACCEPT_REPO_ROOT`, `ACCEPT_NODES_REQUESTED` | empty, `cloud`, empty, empty, `.`, empty | The gate checks. See "Gate checks" below. |
 
-Exit codes: `0` PASS, `1` an assertion failed, `2` usage error or a gate manifest that cannot be used, `3` harness error.
+Exit codes: `0` PASS, `1` an assertion failed, `2` usage error or a gate manifest that cannot be used, `3` harness error, `4` NOT MEASURED (the discovery could not reach the Sovereign after its retries; see "When the Sovereign cannot be reached").
 
 In CI, use `.github/workflows/foundation-gate.yaml` (`workflow_dispatch` or
 `workflow_call`). It needs the `ACCEPTANCE_KUBECONFIG_A/B` secrets, and a
 runner that can reach the Sovereign apiservers.
+
+## When the Sovereign cannot be reached
+
+The discovery steps (D0, including D0.10 and D0.11) read the Sovereign over the
+console API and the Kubernetes API of each region. A read that got no answer
+(connection refused, reset or closed, a TLS handshake or read that timed out, a
+broken exec stream, an early EOF), or an answer that means "try again" (HTTP 429
+or 5xx, kubectl's `Error from server` with ServiceUnavailable, InternalError,
+Timeout or TooManyRequests, an etcd timeout), is made again: at most 5 attempts,
+with waits of 2, 4, 8 and 16 seconds, and none later than 2 minutes after the
+first (`internal/retry`). Every other answer, such as 403, 404 or a check's own
+verdict, is never retried. Once a target gave up, its later reads in the run get
+one attempt until one succeeds. The journeys and the checks never retry, because
+a call of theirs may write.
+
+A run is **NOT MEASURED** when a discovery step failed only because a region or
+the console gave no answer after the retries, and no discovery step failed on an
+answer. It prints `NOT MEASURED: …` and `RESULT NOT-MEASURED`, exits with code
+`4`, and writes no record even with `--record`: it is not a gate result, pass or
+fail, and never one of the two runs that the pass rule pairs, because the pass
+rule reads only the records in `docs/ledger/acceptance/` (and `validate-record`
+refuses a record whose result is not PASS or FAIL). A discovery step
+that failed on an answer is a measurement: that run is FAIL and is recorded
+(`internal/suite/reach.go`). The workflow ends such a run with the annotation
+"Gate run NOT MEASURED", commits nothing, and sets its output `result` to
+`NOT-MEASURED`. Gate run 3 on hw307 (15 Nov 2026) is the case: one broken exec
+stream (D0.10) and one TLS handshake timeout (D0.11) from the runner wrote a FAIL
+record without an artefact list, and that record kept the next run from forming
+a pair.
 
 ## What each step asserts
 
@@ -316,6 +345,7 @@ only these three, and only when it is given them.
 cmd/sovereign-acceptance   run | discover | mint-session
 internal/api               console HTTP client (cookie auth, read-only mode)
 internal/kube              kubectl wrapper: get, exec, SELECT-only psql
+internal/retry             which failed reads are retried, and the bound (the discovery only)
 internal/session           RS256 session mint (stdlib)
 internal/suite             discovery, journeys, record; match.go = pure decision helpers (unit-tested to FAIL);
                            registry.go = the gate checks: contract, registry, selection, results

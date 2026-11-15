@@ -97,7 +97,17 @@ const { title, step = 0 } = Astro.props;
           // this branch possible. Spec + parity guard:
           // src/lib/returningVisitor.ts + src/lib/layoutReturningVisitor.test.ts.
           var hinted = hintedConsoleTarget();
-          if (hinted) window.location.replace(hinted);
+          if (hinted && hinted.verifySlug) {
+            // #7922: the target is the console host this browser REMEMBERS
+            // (org-active-console-host). It can outlive its Organization — a
+            // Sovereign installed again under the same marketplace host
+            // leaves the previous installation's host behind — so the server
+            // confirms the Organization before the visitor is sent there.
+            // Spec: src/lib/storedOrg.ts.
+            confirmStoredOrg(hinted.verifySlug, hinted.url);
+          } else if (hinted) {
+            window.location.replace(hinted.url);
+          }
           return;
         }
         var CACHE_KEY = 'org-has-workspace-v1';
@@ -119,6 +129,10 @@ const { title, step = 0 } = Astro.props;
           .then(function (orgs) {
             if (!Array.isArray(orgs)) return;
             var live = orgs.filter(function (o) { return o && o.status !== 'deleted'; });
+            // #7922: the server answered with this visitor's Organizations.
+            // A remembered Organization that is not among them is gone: drop
+            // it before anything below (or a later page load) trusts it.
+            if (storedOrgGone(live)) forgetStoredOrg();
             try {
               sessionStorage.setItem(CACHE_KEY, JSON.stringify({ has: live.length > 0, ts: Date.now() }));
             } catch (e) {}
@@ -159,8 +173,8 @@ const { title, step = 0 } = Astro.props;
           .catch(function () {});
       } catch (e) {}
       // #5940 — read the NON-HttpOnly `catalyst_session_hint` cookie and
-      // return the console URL for its owner, or '' when there is no usable
-      // hint. Mirrors src/lib/sessionHint.ts + src/lib/returningVisitor.ts,
+      // return { url, verifySlug } for its owner's console, or null when
+      // there is no usable hint. Mirrors src/lib/sessionHint.ts + src/lib/returningVisitor.ts,
       // which are the tested spec; this copy exists only because an
       // `is:inline` script cannot import (it must run before the bundle so a
       // returning customer never sees the storefront flash).
@@ -174,14 +188,14 @@ const { title, step = 0 } = Astro.props;
       // There is deliberately NO mothership fallback. Row 91's forbidden
       // half — that a returning customer is never sent to the mothership
       // console — passes today and must keep passing, so an unrecognised
-      // host returns '' rather than a guess. (This comment is served
+      // host returns null rather than a guess. (This comment is served
       // VERBATIM in every franchised bundle, so it must not name the
       // mothership apex either; check-served-domain-hygiene.mjs enforces
       // that on the build output and caught an earlier draft of it.)
       function hintedConsoleTarget() {
         try {
           var tenant = window.__ORG_TENANT__;
-          if (tenant && tenant.skipConsoleRedirect) return '';
+          if (tenant && tenant.skipConsoleRedirect) return null;
           var raw = '';
           var parts = (document.cookie || '').split(';');
           for (var i = 0; i < parts.length; i++) {
@@ -191,29 +205,91 @@ const { title, step = 0 } = Astro.props;
             raw = decodeURIComponent(parts[i].slice(eq + 1).trim());
             break;
           }
-          if (!raw || raw.length > 128) return '';
-          if (raw.split('.').length >= 3) return ''; // JWT-shaped: refuse
+          if (!raw || raw.length > 128) return null;
+          if (raw.split('.').length >= 3) return null; // JWT-shaped: refuse
           var params = new URLSearchParams(raw);
-          if (params.get('v') !== '1') return '';
+          if (params.get('v') !== '1') return null;
           var org = (params.get('org') || '').trim().toLowerCase();
           if (!/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(org)) org = '';
 
+          // A target built from the REMEMBERED console host carries
+          // `verifySlug`: the caller asks the server first (#7922).
           var stamped = '';
           try { stamped = (localStorage.getItem('org-active-console-host') || '').trim().toLowerCase(); } catch (_) {}
-          if (stamped.indexOf('console.') === 0) {
-            if (!org || stamped.indexOf('console.' + org + '.') === 0) {
-              return 'https://' + stamped + '/dashboard';
-            }
+          var stampSlug = consoleHostSlug(stamped);
+          if (stampSlug && (!org || stampSlug === org)) {
+            return { url: 'https://' + stamped + '/dashboard', verifySlug: stampSlug };
           }
           var host = (window.location.hostname || '').toLowerCase();
           if (host.indexOf('marketplace.') === 0) {
             var sovFqdn = host.slice('marketplace.'.length);
             if (sovFqdn) {
-              return 'https://console.' + (org ? org + '.' : '') + sovFqdn + '/dashboard';
+              return { url: 'https://console.' + (org ? org + '.' : '') + sovFqdn + '/dashboard', verifySlug: '' };
             }
           }
-          return '';
-        } catch (e) { return ''; }
+          return null;
+        } catch (e) { return null; }
+      }
+      // #7922 — the Organization this browser REMEMBERS (org-active-org,
+      // org-active-org-slug, org-active-console-host) is trusted only after
+      // the server confirms it. Mirrors src/lib/storedOrg.ts, the tested
+      // spec; layoutReturningVisitor.test.ts runs this copy against it.
+      //   server knows it              -> today's behaviour
+      //   server says it is gone       -> keys dropped, stay on the storefront
+      //   no usable answer             -> keys kept, stay on the storefront
+      function readStoredKey(k) {
+        try { return (localStorage.getItem(k) || '').trim(); } catch (_) { return ''; }
+      }
+      function forgetStoredOrg() {
+        var keys = ['org-active-org', 'org-active-org-slug', 'org-active-console-host'];
+        for (var i = 0; i < keys.length; i++) {
+          try { localStorage.removeItem(keys[i]); } catch (_) {}
+        }
+      }
+      function consoleHostSlug(h) {
+        h = String(h || '').trim().toLowerCase();
+        if (h.indexOf('console.') !== 0) return '';
+        var rest = h.slice('console.'.length);
+        var dot = rest.indexOf('.');
+        if (dot <= 0 || dot === rest.length - 1) return '';
+        var label = rest.slice(0, dot);
+        return /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(label) ? label : '';
+      }
+      function lowerString(v) {
+        return typeof v === 'string' ? v.trim().toLowerCase() : '';
+      }
+      // True when an Organization is remembered and none of the server's
+      // live Organizations matches its id, slug or console host.
+      function storedOrgGone(live) {
+        var id = readStoredKey('org-active-org');
+        var slug = readStoredKey('org-active-org-slug').toLowerCase();
+        var host = readStoredKey('org-active-console-host').toLowerCase();
+        if (!id && !slug && !host) return false;
+        var hostSlug = consoleHostSlug(host);
+        for (var i = 0; i < live.length; i++) {
+          var o = live[i];
+          var oSlug = lowerString(o.slug);
+          if ((id && typeof o.id === 'string' && o.id === id) ||
+              (slug && oSlug === slug) ||
+              (hostSlug && oSlug === hostSlug) ||
+              (host && lowerString(o.console_host) === host)) return false;
+        }
+        return true;
+      }
+      // GET /api/tenant/check-slug/<slug> is public (the visitor on this
+      // branch has no storefront token; the gateway reads no session
+      // cookie). {"available":false} = an Organization has the slug.
+      function confirmStoredOrg(slug, url) {
+        fetch('/api/tenant/check-slug/' + encodeURIComponent(slug))
+          .then(function (r) {
+            if (!r || !r.ok) return null;
+            return r.json().then(null, function () { return null; });
+          })
+          .then(function (body) {
+            if (!body || typeof body.available !== 'boolean') return;
+            if (body.available) { forgetStoredOrg(); return; }
+            window.location.replace(url);
+          }, function () {});
       }
       function redirect(slug) {
         var token = localStorage.getItem('org-token') || '';

@@ -180,6 +180,8 @@ type Run struct {
 	Journeys     map[string]string `json:"journeys"`
 	Subject      Evidence          `json:"subject"` // what was tested: org/env/regions/app/blueprint/delivered images
 	Steps        []*Step           `json:"steps"`
+
+	unreached []string // the steps of D0 that failed only because the Sovereign could not be reached (reach.go)
 }
 
 // SchemaVersion of the record.
@@ -195,7 +197,9 @@ func NewRunID(now time.Time) string {
 // Finalize computes per-journey and overall results. A journey PASSes only if
 // it has at least one step and every step PASSed — a journey that was
 // skipped entirely is SKIP, and any SKIP of a REQUESTED journey makes the run
-// FAIL: "not measured" never reads as green.
+// FAIL: "not measured" never reads as green. A run whose discovery could not
+// reach the Sovereign is NOT-MEASURED instead of FAIL (reach.go), which reads
+// as green no more than FAIL does.
 func (r *Run) Finalize(requested []string) {
 	// The artifacts are observed by a check, which hands them over in the
 	// evidence of one step. They belong to the record, not to the step.
@@ -262,6 +266,10 @@ func (r *Run) Finalize(requested []string) {
 			r.Result = Fail
 		}
 	}
+	// A discovery that could not reach the Sovereign measured nothing (reach.go).
+	if r.Result == Fail && r.unmeasured() {
+		r.Result = NotMeasured
+	}
 	if r.Mode == "discover" {
 		// discover asserts only reachability of the contract; it never
 		// certifies function and its record is refused by the UAT gate.
@@ -294,6 +302,7 @@ func (r *Run) PrintTable(w io.Writer) {
 	for _, c := range r.Checks {
 		_, _ = fmt.Fprintf(w, "  %s %s (%s) %s\n", c.ID, c.Status, c.StateAtRun, c.Reason)
 	}
+	r.printNotMeasured(w)
 	fmt.Fprintf(w, "RESULT %s\n", r.Result)
 }
 
@@ -323,7 +332,11 @@ func trunc(s string, n int) string {
 }
 
 // Write stores the record at <dir>/<env>-<runid>.json and returns the path.
+// It refuses a run that is NOT-MEASURED: such a run has no record (reach.go).
 func (r *Run) Write(dir string) (string, error) {
+	if r.Result == NotMeasured {
+		return "", fmt.Errorf("run %s is %s: it writes no record", r.RunID, NotMeasured)
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}

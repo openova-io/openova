@@ -4,6 +4,10 @@
 //	sovereign-acceptance discover [flags]   read-only: resolve Org/Env/Regions + probe every endpoint the run uses
 //	sovereign-acceptance mint-session --key <pem|-> --issuer <url> [--email e]
 //
+// Exit codes of run and discover: 0 PASS, 1 FAIL, 2 usage or a gate manifest
+// that cannot be used, 3 harness error, 4 NOT-MEASURED (the discovery could not
+// reach the Sovereign after its retries; no record is written).
+//
 // See tests/acceptance/sovereign/README.md.
 package main
 
@@ -127,15 +131,24 @@ func run(mode string, args []string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	res, err := suite.Execute(ctx, cfg, os.Stdout)
-	if errors.Is(err, suite.ErrManifest) {
-		fmt.Fprintln(os.Stderr, "FATAL:", err)
-		return 2
-	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "FATAL:", err)
-		return 3
 	}
-	if res.Result != "PASS" {
+	return exitCode(res, err)
+}
+
+// exitCode is the exit code of a run: 0 PASS, 1 FAIL, 2 a gate manifest that
+// cannot be used, 3 a harness error, 4 NOT-MEASURED (the discovery could not
+// reach the Sovereign; the run wrote no record).
+func exitCode(res *suite.Run, err error) int {
+	switch {
+	case errors.Is(err, suite.ErrManifest):
+		return 2
+	case err != nil:
+		return 3
+	case res.Result == suite.NotMeasured:
+		return 4
+	case res.Result != suite.Pass:
 		return 1
 	}
 	return 0

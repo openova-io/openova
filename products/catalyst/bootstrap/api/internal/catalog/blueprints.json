@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-15T13:29:26.187Z",
+  "generatedAt": "2026-11-15T20:33:28.212Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -4495,7 +4495,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "0.1.215",
+      "version": "0.1.217",
       "section": "pts-2-3-per-sovereign-supporting-services",
       "depends": [
         "bp-gitea",

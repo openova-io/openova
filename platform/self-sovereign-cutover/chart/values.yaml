@@ -922,9 +922,12 @@ prewarm:
   # has proxy-sourced refs); on an unreachable proxy the step latches proxy-DOWN
   # and copy_one tries the DIRECT upstream FIRST for proxy-sourced refs (proxy
   # kept as the secondary), so the wave runs at full parallel speed with no
-  # timeout tax. The latch also trips adaptively the moment a proxy leg fails
-  # while its direct sibling succeeds (the "proxy bad, direct good" hw255
-  # signature), catching a proxy that dies mid-wave after the probe passed.
+  # timeout tax. The latch also trips adaptively when a proxy leg fails, its
+  # direct sibling succeeds AND the proxy's /v2/ then does not answer (the hw255
+  # signature), catching a proxy that dies mid-wave after the probe passed. A
+  # proxy that answers but cannot serve one image is NOT latched: that image
+  # alone goes direct (#7922 — hw307 15 Nov, one `manifest unknown` latched the
+  # proxy and sent 75 later images to the public registries).
   # Source selection ONLY — the DEST path (host-swap, path preserved) is
   # untouched, so step-04/07/08 resolve the identical LOCAL artifact and the
   # sovereignty guarantee (every image in local Harbor before the deny-egress
@@ -932,6 +935,38 @@ prewarm:
   # for an image to be .fail). The probe is NEVER fatal — a down proxy must not
   # fail the step, the direct path covers it. Default true; set enabled=false to
   # keep strict proxy-first ordering.
+  #
+  # #7922 note (step 03 proxy path + run guard; the template points here).
+  # Measured on hw307 (dep 9836870916c31984, 15 Nov 2026, step 03
+  # 17:38:27-18:19:52Z): 77 images went "via DIRECT upstream". The first,
+  # emberstack/kubernetes-reflector:7.1.288, failed on the proxy at 17:41:34Z
+  # with `manifest unknown` for one CHILD manifest of an index the proxy
+  # served; the direct copy worked, the old rule latched .proxy_down, and 75
+  # later proxy-sourced images (65 in Phase A, 10 in A3 through the carried
+  # latch) never tried the proxy while it kept answering; Docker Hub's
+  # anonymous per-IP limit then refused the litmus images (18:15Z). A second
+  # proxy leg (alpine/k8s:1.31.4, 17:50:33Z) failed on the DESTINATION
+  # (`writing blob: Patch "https://registry.<fqdn>/v2/…/blobs/uploads/…": use
+  # of closed network connection`), which the #7900 classifier missed. No
+  # Job-log line said the proxy was latched or why; the per-image error only
+  # reached the Job log in the tally, twenty minutes later.
+  # Now: (1) `writing blob` and any final error naming the local registry are
+  # destination failures (status 75: same source, no fallback, no latch);
+  # (2) after a proxy leg fails and its direct sibling works, the proxy's
+  # /v2/ is probed and only no answer latches it; an answering proxy stays in
+  # use and that image alone goes direct; both are logged with the image, the
+  # proxy error and the probe result; (3) Phase A walks the images of every
+  # region (cutover-secondary-kubeconfigs), fail-closed; (4) a run guard ends
+  # the step: every image a pod runs or a workload template declares, in
+  # every region, must be durably in the local registry, else FATAL by name.
+  # Coverage before the run guard: Phase A copied only THIS region's images
+  # and trusted skopeo's exit status; the A3-guard checks only a default-
+  # values render of the pinned charts and only warns for a catalogue-only
+  # chart's image even when a pod runs it; the #6764 follower leg covers
+  # ghcr.io/openova-io/* only; step 08 checks this region's Deployment/
+  # StatefulSet/DaemonSet templates, after this step. The follower Harbor
+  # shares this Harbor's database and bucket (#6764 2b), so one durable
+  # assertion through this region's Harbor core answers for both.
   proxyDownDirectFirst:
     enabled: true
     # Per-probe curl timeout (seconds) and probe attempt count. Worst case

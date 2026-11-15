@@ -34,6 +34,13 @@ metadata:
     catalyst.openova.io/component: gitea
 spec:
   instances: {{ .Values.postgres.cluster.instances | default 1 }}
+  {{- /* #7922: CNPG gives a Cluster the budget <name>-primary, minAvailable 1 on its primary.
+       With one instance that is the only Pod, no switchover is possible, and no drain of its
+       node can finish. One instance carries no budget; two or more keep CNPG's budgets and
+       its switchover ahead of a drain (CNPG 1.29, Kubernetes upgrade and maintenance). */}}
+  {{- if eq (int (.Values.postgres.cluster.instances | default 1)) 1 }}
+  enablePDB: false
+  {{- end }}
   imageName: {{ .Values.postgres.cluster.imageName | default "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql" }}:{{ .Values.postgres.cluster.pgVersion | default "16" }}
 
   {{- /*
