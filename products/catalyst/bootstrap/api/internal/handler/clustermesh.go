@@ -2717,26 +2717,6 @@ func (h *Handler) syncSSOOIDCMangledSecrets(ctx context.Context, dep *Deployment
 // drifted). A steady-state match returns changed=false so a caller can
 // gate a downstream side-effect (e.g. #4878's consumer rollout-restart)
 // STRICTLY on a real change and never thrash on the level-trigger re-run.
-//
-// #7922 — the copy is ALWAYS orphaned on the destination. The Update path
-// used to overwrite Data/Type/Labels/Annotations onto the EXISTING object
-// and keep its ownerReferences, so a destination Secret that a
-// region-local object had minted stayed owned by that object after it
-// held region-A's bytes. That is exactly the replica-region shared-pg
-// shape: before the cnpg-pair flip each secondary region runs a THROWAWAY
-// placeholder singleton Cluster named `<instance>` (bp-postgres
-// preFlipSecondary, #4460), and CNPG mints `<instance>-ca` /
-// `<instance>-replication` with a controller ownerReference to it — the
-// very names this sync writes. The flip's Helm upgrade then deletes the
-// placeholder and the garbage collector deletes the just-synced copies
-// with it (hw307 2026-11-15: synced 16:49:53, placeholder `shared-pg`
-// deleted 16:50:02.83, `missing specified client CA secret shared-pg-ca`
-// 16:50:03.22, healed only by the next steady-state pass at 17:01).
-// Clearing ownerReferences on every write, and treating an owned
-// destination as drift even when its bytes already match, makes the copy
-// independent of anything that lives in the destination cluster. An
-// orphan-only write leaves the bytes unchanged, so it reports
-// changed=false and never fires a #4878 restart.
 func (h *Handler) copySecretAcrossClusters(ctx context.Context, src *corev1.Secret, dst kubernetes.Interface, namespace string) (bool, error) {
 	if src == nil {
 		return false, fmt.Errorf("source Secret is nil")
@@ -2774,34 +2754,15 @@ func (h *Handler) copySecretAcrossClusters(ctx context.Context, src *corev1.Secr
 	// heal phase stays a cheap Get+compare and only writes when it is
 	// genuinely re-healing. An Update on every pass would churn
 	// resourceVersions for no reason and add needless apiserver load.
-	// #7922: a destination that still carries an ownerReference is NOT
-	// steady state — it is one owner-deletion away from being garbage
-	// collected — so it is written (orphaned) even when its bytes match.
-	contentMatches := secretContentMatches(existing, desired)
-	if contentMatches && len(existing.OwnerReferences) == 0 {
+	// Update in place, orphaned: an owned copy is written too (#7922, crossregion.ApplyCopy).
+	write, changed := crossregion.ApplyCopy(existing, desired, secretContentMatches(existing, desired))
+	if !write {
 		return false, nil
 	}
-	// Update in place — preserve the destination's resourceVersion so the
-	// Update is accepted, overwrite Data/Type/Labels/Annotations and drop
-	// any ownerReferences (#7922).
-	applyCopiedSecret(existing, desired)
 	if _, updErr := dst.CoreV1().Secrets(namespace).Update(callCtx, existing, metav1.UpdateOptions{}); updErr != nil {
 		return false, fmt.Errorf("Update Secret %s/%s on replica: %w", namespace, src.Name, updErr)
 	}
-	return !contentMatches, nil
-}
-
-// applyCopiedSecret overwrites the copied fields of desired onto the live
-// destination object and ORPHANS it (#7922): a cross-cluster copy is owned by
-// the catalyst-api sync that asserts it, never by an object in the
-// destination cluster, whose deletion would garbage-collect the copy.
-func applyCopiedSecret(existing, desired *corev1.Secret) {
-	existing.Data = desired.Data
-	existing.StringData = desired.StringData
-	existing.Type = desired.Type
-	existing.Labels = desired.Labels
-	existing.Annotations = desired.Annotations
-	existing.OwnerReferences = nil
+	return changed, nil
 }
 
 // secretContentMatches reports whether the destination Secret already
@@ -2850,17 +2811,15 @@ func (h *Handler) updateCopiedSecret(ctx context.Context, desired *corev1.Secret
 		return false, fmt.Errorf("Get Secret %s/%s on replica (race fallback): %w", namespace, desired.Name, err)
 	}
 	// #3583: the racing creator may have already written the desired bytes —
-	// skip the redundant Update if so. #7922: unless the racing creator left
-	// the object owned by something in the destination cluster.
-	contentMatches := secretContentMatches(existing, desired)
-	if contentMatches && len(existing.OwnerReferences) == 0 {
+	// skip the redundant Update if so, unless it left the copy owned (#7922).
+	write, changed := crossregion.ApplyCopy(existing, desired, secretContentMatches(existing, desired))
+	if !write {
 		return false, nil
 	}
-	applyCopiedSecret(existing, desired)
 	if _, updErr := dst.CoreV1().Secrets(namespace).Update(ctx, existing, metav1.UpdateOptions{}); updErr != nil {
 		return false, fmt.Errorf("Update Secret %s/%s on replica (race fallback): %w", namespace, desired.Name, updErr)
 	}
-	return !contentMatches, nil
+	return changed, nil
 }
 
 // copyAndVerifyConsumerHubSecret (#5317) writes src onto the replica's
