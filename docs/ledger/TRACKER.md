@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-15T01:45:03Z` |
+| Last refreshed | `2026-11-15T02:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,11 +307,14 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-15T01:54 | [#7880](https://github.com/openova-io/openova/pull/7880) | #7087 | docs(ledger): plan update |
 | 2026-11-15T00:01 | [#7879](https://github.com/openova-io/openova/pull/7879) | #7743 | ci: the guards that run on every pull request share three jo |
+| 2026-11-15T01:58 | [#7878](https://github.com/openova-io/openova/pull/7878) | #7776 | fix: move 53 Blueprint files to apiVersion catalyst.openova. |
 | 2026-11-14T23:48 | [#7877](https://github.com/openova-io/openova/pull/7877) | #7865 | feat(gate): check INF-G01 judges the upgrade windows and the |
 | 2026-11-14T23:35 | [#7876](https://github.com/openova-io/openova/pull/7876) | #7822 | feat(gate): check INF-G01 watches kured restart three nodes  |
 | 2026-11-14T23:37 | [#7875](https://github.com/openova-io/openova/pull/7875) | #7794 | refactor(api): the Applications view reads the informer cach |
 | 2026-11-14T23:26 | [#7874](https://github.com/openova-io/openova/pull/7874) | #7087 | docs(ledger): the check INF-G01 needs the capability node-re |
+| 2026-11-15T01:56 | [#7873](https://github.com/openova-io/openova/pull/7873) | #7837 | chore(services): tidy the service modules so none requires t |
 | 2026-11-14T23:07 | [#7872](https://github.com/openova-io/openova/pull/7872) | #7803 | fix(api): audit events are recorded on the JetStream stream  |
 | 2026-11-14T23:07 | [#7871](https://github.com/openova-io/openova/pull/7871) | #7854 | feat(catalyst-api): the provisioning routes answer 403 on a  |
 | 2026-11-14T23:01 | [#7869](https://github.com/openova-io/openova/pull/7869) | #7793 | refactor(events): the shared events package is NATS only (CT |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-14T20:11 | [#7843](https://github.com/openova-io/openova/pull/7843) | #7834 | fix(cutover): the follower region gets its catalog source, C |
 | 2026-11-14T19:45 | [#7836](https://github.com/openova-io/openova/pull/7836) | #7087 | docs(ledger): plan update |
 | 2026-11-14T19:38 | [#7835](https://github.com/openova-io/openova/pull/7835) | #7818 | fix(release): the release bump writes the funnel chart pin w |
-| 2026-11-14T19:34 | [#7833](https://github.com/openova-io/openova/pull/7833) | #7821 | refactor(api): delete the second showback meter and link the |
-| 2026-11-14T19:07 | [#7832](https://github.com/openova-io/openova/pull/7832) | #7804 | fix(suite): a run without journeys leaves out the discovery  |
-| 2026-11-14T19:01 | [#7830](https://github.com/openova-io/openova/pull/7830) | #7087 | docs(ledger): plan update |
 
 ---
 
