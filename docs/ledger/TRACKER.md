@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-14T23:45:03Z` |
+| Last refreshed | `2026-11-15T00:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-14T23:48 | [#7877](https://github.com/openova-io/openova/pull/7877) | #7865 | feat(gate): check INF-G01 judges the upgrade windows and the |
 | 2026-11-14T23:35 | [#7876](https://github.com/openova-io/openova/pull/7876) | #7822 | feat(gate): check INF-G01 watches kured restart three nodes  |
 | 2026-11-14T23:37 | [#7875](https://github.com/openova-io/openova/pull/7875) | #7794 | refactor(api): the Applications view reads the informer cach |
 | 2026-11-14T23:26 | [#7874](https://github.com/openova-io/openova/pull/7874) | #7087 | docs(ledger): the check INF-G01 needs the capability node-re |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-14T19:07 | [#7832](https://github.com/openova-io/openova/pull/7832) | #7804 | fix(suite): a run without journeys leaves out the discovery  |
 | 2026-11-14T19:01 | [#7830](https://github.com/openova-io/openova/pull/7830) | #7087 | docs(ledger): plan update |
 | 2026-11-14T18:53 | [#7828](https://github.com/openova-io/openova/pull/7828) | #7760 | ci: sign every platform image and chart with the release key |
-| 2026-11-14T18:48 | [#7827](https://github.com/openova-io/openova/pull/7827) | #7763 | feat(fingate): PostgreSQL consent store, definitions informe |
 
 ---
 
