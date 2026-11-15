@@ -3130,9 +3130,10 @@ crossplaneProviderPivot:
   # unverified pivot.
   verifyLocalArtifact:
     enabled: true
-  # #7900 — how long step 11 waits, after its live patch and its Git push,
-  # until no live Provider reads an upstream package and the Kustomization
-  # that owns each Provider has applied the pushed commit. Without this wait
+  # #7900 — how long step 11 watches (kubectl wait, no polling loop), after
+  # its live patch and its Git push, for the Kustomization that owns each
+  # Provider to apply the pushed commit; it then reads the live packages
+  # once more and fails if one is still an upstream package. Without this wait
   # the step reported success while the Kustomization still applied the
   # revision from before the push and put the old package back; step 08,
   # which starts at once, read that and two of its pods failed the pre-hold

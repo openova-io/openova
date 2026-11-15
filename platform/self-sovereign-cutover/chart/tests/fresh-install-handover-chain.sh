@@ -471,58 +471,69 @@ if ! grep -q 'wait_live_provider_pivot()' "${TMP}/wait.sh"; then
 else
   LOCAL="harbor.${FQDN}/proxy-xpkg/upbound/provider-opentofu@sha256:aa"
   UP="xpkg.upbound.io/upbound/provider-opentofu:v1.1.3"
-  # run_wait <budget seconds> <one line per poll: "<package> <revision the Kustomization applied>">
-  # The pivot commit is "new"; "newer" is a later commit that holds it; "old" does not.
+  # run_wait <state before the watch> <state after the watch>
+  # A state is "<live package> <revision the owning Kustomization applied>".
+  # The pivot commit is "new"; "newer" is a later commit that holds it; "old"
+  # does not. The kubectl stub's `wait` is the watch: it moves the state on and
+  # succeeds only when the Kustomization then reads exactly the pivot commit.
   run_wait() {
-    printf '%s\n' "$2" >"${TMP}/wait.polls"
+    printf '%s\n%s\n' "$1" "$2" >"${TMP}/wait.states"
     (
       set -eu
-      LIVE_SETTLE_SECONDS="$1"; upstream_prefix="xpkg.upbound.io"; MOTHERSHIP_PROXY_PREFIX="proxy.parent.test/proxy-xpkg"
+      LIVE_SETTLE_SECONDS=420; upstream_prefix="xpkg.upbound.io"; MOTHERSHIP_PROXY_PREFIX="proxy.parent.test/proxy-xpkg"
       matches="clusters/_template/infrastructure/providers/base/provider-opentofu.yaml"
       : >"${TMP}/wait.n"
-      cur() { local l; l=$(sed -n "$(wc -l <"${TMP}/wait.n")p" "${TMP}/wait.polls"); [ -n "${l}" ] || l=$(tail -1 "${TMP}/wait.polls"); printf '%s' "${l}"; }
+      cur() { sed -n "$(( $(wc -l <"${TMP}/wait.n") + 1 ))p" "${TMP}/wait.states"; }
       git() {
         case "$1 ${2-}" in
           "rev-parse HEAD") echo new ;;
-          "fetch "*) echo x >>"${TMP}/wait.n" ;;
           "merge-base --is-ancestor") [ "$3" = new ] && { [ "$4" = new ] || [ "$4" = newer ]; } ;;
         esac
       }
       kubectl() {
         local line; line=$(cur)
         case " $* " in
-          *" providers.pkg.crossplane.io "*) printf 'provider-opentofu|%s|%s|%s\n' "${line%% *}" "${WAIT_KNS-flux-system}" "${WAIT_KS-infrastructure-providers}" ;;
+          *" wait "*)
+            case " $* " in *" --for=jsonpath={.status.lastAppliedRevision}=main@sha1:new --timeout=420s "*) : ;; *) echo "unexpected wait: $*" >&2; return 9 ;; esac
+            echo x >>"${TMP}/wait.n"; line=$(cur); [ "${line##* }" = new ] ;;
+          *" providers.pkg.crossplane.io "*"io/namespace"*) printf '%s/%s\n' "${WAIT_KNS-flux-system}" "${WAIT_KS-infrastructure-providers}" ;;
+          *" providers.pkg.crossplane.io "*) printf 'provider-opentofu=%s\n' "${line%% *}" ;;
           *" kustomizations.kustomize.toolkit.fluxcd.io "*) printf 'main@sha1:%s' "${line##* }" ;;
         esac
       }
-      sleep() { :; }
       # shellcheck source=/dev/null
       . "${TMP}/wait.sh"
       rc=0; wait_live_provider_pivot >"${TMP}/wait.out" 2>&1 || rc=$?
       echo "${rc}:$(wc -l <"${TMP}/wait.n")"
     ) 2>&1 | tail -1
   }
-  r=$(run_wait 600 "${LOCAL} old
-${UP} old
-${LOCAL} new")
-  [ "${r}" = "0:3" ] && pass "the race of the run: patched live but the Kustomization is on the old revision (poll 1), package put back (poll 2), pivot applied (poll 3) — success only at poll 3" \
-    || fail "the race of the run: ended '${r}' (wanted success at poll 3): $(tail -1 "${TMP}/wait.out" 2>/dev/null | cut -c1-200)"
-  r=$(run_wait 600 "${LOCAL} newer")
-  [ "${r}" = "0:1" ] && pass "the Kustomization applied a later commit that holds the pivot: success at once" || fail "later commit applied: ended '${r}' (wanted 0:1)"
-  r=$(run_wait 0 "${UP} old")
-  if [ "${r}" = "1:1" ] && grep -q 'FATAL' "${TMP}/wait.out" && grep -q "provider-opentofu\[live-package=${UP}\]" "${TMP}/wait.out"; then
-    pass "never settles: the step fails at its deadline and names the Provider and the package it still reads"
+  r=$(run_wait "${UP} old" "${LOCAL} new")
+  [ "${r}" = "0:1" ] && pass "the race of the run: the Kustomization is on the old revision and has put the old package back; the step watches it, and succeeds once the pivot commit is applied" \
+    || fail "the race of the run: ended '${r}' (wanted success after one watch): $(tail -1 "${TMP}/wait.out" 2>/dev/null | cut -c1-200)"
+  r=$(run_wait "${LOCAL} old" "${LOCAL} new")
+  [ "${r}" = "0:1" ] && pass "patched live but the Kustomization is still on the old revision: not a success yet, the step watches (this is the moment step 11 used to report success)" \
+    || fail "patched live, Kustomization on the old revision: ended '${r}' (wanted success only after one watch)"
+  r=$(run_wait "${LOCAL} newer" "${LOCAL} newer")
+  [ "${r}" = "0:0" ] && pass "the Kustomization already applied a later commit that holds the pivot: success without a watch" || fail "later commit applied: ended '${r}' (wanted 0:0)"
+  r=$(run_wait "${LOCAL} old" "${LOCAL} newer")
+  [ "${r}" = "0:1" ] && pass "the watch ends without the exact commit but a later commit that holds the pivot was applied: success" || fail "later commit applied during the watch: ended '${r}' (wanted 0:1)"
+  r=$(run_wait "${UP} old" "${UP} old")
+  if [ "${r}" = "1:1" ] && grep -q 'FATAL' "${TMP}/wait.out" \
+     && grep -q 'kustomization=flux-system/infrastructure-providers\[applied=main@sha1:old\]' "${TMP}/wait.out" \
+     && grep -q "provider=provider-opentofu\[live-package=${UP}\]" "${TMP}/wait.out"; then
+    pass "never settles: the step fails after the watch and names the Kustomization, its revision, the Provider and the package it still reads"
   else
-    fail "never settles: ended '${r}' (wanted failure 1:1 with the Provider named): $(tail -1 "${TMP}/wait.out" 2>/dev/null | cut -c1-200)"
+    fail "never settles: ended '${r}' (wanted failure 1:1 with both named): $(tail -1 "${TMP}/wait.out" 2>/dev/null | cut -c1-220)"
   fi
-  r=$(run_wait 0 "${LOCAL} old")
-  if [ "${r}" = "1:1" ] && grep -q 'flux-system/infrastructure-providers-applied=main@sha1:old' "${TMP}/wait.out"; then
-    pass "live package pivoted but the owning Kustomization has not applied the pivot commit: not a success (it would put the old package back)"
+  r=$(run_wait "${UP} new" "${UP} new")
+  [ "${r}" = "1:0" ] && pass "pivot commit applied but a live package is still upstream: not a success" || fail "applied but package upstream: ended '${r}' (wanted 1:0)"
+  r=$(WAIT_KS="" WAIT_KNS="" run_wait "${LOCAL} old" "${LOCAL} old")
+  [ "${r}" = "0:0" ] && pass "a Provider no Kustomization owns: the live package alone decides, no watch" || fail "Provider without a Flux owner: ended '${r}' (wanted 0:0)"
+  if grep -Eq 'while (true|:)' "${TMP}/wait.sh"; then
+    fail "the wait is a polling loop; it must watch (kubectl wait)"
   else
-    fail "Kustomization on the old revision: ended '${r}' (wanted failure 1:1 naming the Kustomization)"
+    pass "the wait is a watch (kubectl wait), not a polling loop"
   fi
-  r=$(WAIT_KS="" WAIT_KNS="" run_wait 0 "${LOCAL} old")
-  [ "${r}" = "0:1" ] && pass "a Provider no Kustomization owns: the live package alone decides" || fail "Provider without a Flux owner: ended '${r}' (wanted 0:1)"
   # Nothing between the Git phase and the wait may leave the script early.
   awk '/sed edited \$\{edited\} files/ {f=1} f {print}' "${S11}" >"${TMP}/s11-tail.sh"
   if grep -Eq '^[[:space:]]*exit 0' "${TMP}/s11-tail.sh"; then

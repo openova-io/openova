@@ -795,40 +795,42 @@ data:
              Phase 1 patches the live object; the Kustomization that owns it
              still applies the revision from before the push above and puts
              the old package back, and step 08, which starts at once, read
-             that (two of its pods failed the pre-hold lint). So wait, bounded,
-             until no Provider reads an upstream package AND the Kustomization
-             that owns each Provider (read from its Flux labels) has applied a
-             revision that holds the commit of this clone. Exit 1 on the
-             deadline: the engine retries the step.
+             that (two of its pods failed the pre-hold lint). So, for the
+             Kustomization that owns each Provider (read from its Flux labels):
+             if it has not applied a revision that holds the commit of this
+             clone, WATCH it (kubectl wait, no polling loop) until it applies
+             that commit, at most LIVE_SETTLE_SECONDS. Then read the live
+             packages once more. Anything not settled: exit 1, named; the
+             engine retries the step.
             */}}
             # live-provider-pivot BEGIN
+            lp_applied() {
+              git fetch -q origin main >/dev/null 2>&1 || true
+              _lp_rev=$(kubectl -n "$1" get kustomizations.kustomize.toolkit.fluxcd.io "$2" -o 'jsonpath={.status.lastAppliedRevision}' 2>/dev/null || true)
+              git merge-base --is-ancestor "${_lp_sha}" "${_lp_rev##*:}" 2>/dev/null
+            }
             wait_live_provider_pivot() {
               _lp_sha=$(git rev-parse HEAD)
-              _lp_deadline=$(( $(date +%s) + LIVE_SETTLE_SECONDS ))
-              while : ; do
-                _lp_pending=""
-                git fetch -q origin main >/dev/null 2>&1 || true
-                for _lp_row in $(kubectl get providers.pkg.crossplane.io -o 'jsonpath={range .items[*]}{.metadata.name}{"|"}{.spec.package}{"|"}{.metadata.labels.kustomize\.toolkit\.fluxcd\.io/namespace}{"|"}{.metadata.labels.kustomize\.toolkit\.fluxcd\.io/name}{"\n"}{end}' 2>/dev/null || true); do
-                  _lp_n="${_lp_row%%|*}"; _lp_rest="${_lp_row#*|}"
-                  _lp_pkg="${_lp_rest%%|*}"; _lp_rest="${_lp_rest#*|}"
-                  _lp_kns="${_lp_rest%%|*}"; _lp_ks="${_lp_rest#*|}"
-                  case "${_lp_pkg}" in
-                    "${upstream_prefix}/"*|"${MOTHERSHIP_PROXY_PREFIX}/"*) _lp_pending="${_lp_pending} ${_lp_n}[live-package=${_lp_pkg}]"; continue ;;
-                  esac
-                  if [ -z "${_lp_ks}" ] || [ -z "${matches}" ]; then continue; fi
-                  _lp_rev=$(kubectl -n "${_lp_kns}" get kustomizations.kustomize.toolkit.fluxcd.io "${_lp_ks}" -o 'jsonpath={.status.lastAppliedRevision}' 2>/dev/null || true)
-                  git merge-base --is-ancestor "${_lp_sha}" "${_lp_rev##*:}" 2>/dev/null || _lp_pending="${_lp_pending} ${_lp_n}[${_lp_kns}/${_lp_ks}-applied=${_lp_rev:-nothing}]"
-                done
-                if [ -z "${_lp_pending}" ]; then
-                  echo "[crossplane-provider-pivot] every live Provider reads a pivoted package and its Kustomization has applied commit ${_lp_sha} (#7900)"
-                  return 0
-                fi
-                if [ "$(date +%s)" -ge "${_lp_deadline}" ]; then
-                  echo "[crossplane-provider-pivot] FATAL: after ${LIVE_SETTLE_SECONDS}s the live Provider pivot is not settled (commit ${_lp_sha}):${_lp_pending} — not reporting success: step 08 reads the live object (#7900)" >&2
-                  return 1
-                fi
-                sleep 5
+              _lp_pending=""
+              _lp_seen=""
+              for _lp_row in $(kubectl get providers.pkg.crossplane.io -o 'jsonpath={range .items[*]}{.metadata.labels.kustomize\.toolkit\.fluxcd\.io/namespace}{"/"}{.metadata.labels.kustomize\.toolkit\.fluxcd\.io/name}{"\n"}{end}' 2>/dev/null || true); do
+                case " ${_lp_seen} " in *" ${_lp_row} "*) continue ;; esac
+                _lp_seen="${_lp_seen} ${_lp_row}"
+                if [ "${_lp_row}" = "/" ] || [ -z "${matches}" ] || lp_applied "${_lp_row%%/*}" "${_lp_row#*/}"; then continue; fi
+                echo "[crossplane-provider-pivot] waiting up to ${LIVE_SETTLE_SECONDS}s for Kustomization ${_lp_row} (now on ${_lp_rev:-nothing}) to apply commit ${_lp_sha} (#7900)"
+                kubectl -n "${_lp_row%%/*}" wait "kustomizations.kustomize.toolkit.fluxcd.io/${_lp_row#*/}" --for=jsonpath='{.status.lastAppliedRevision}'="main@sha1:${_lp_sha}" --timeout="${LIVE_SETTLE_SECONDS}s" >/dev/null 2>&1 || true
+                lp_applied "${_lp_row%%/*}" "${_lp_row#*/}" || _lp_pending="${_lp_pending} kustomization=${_lp_row}[applied=${_lp_rev:-nothing}]"
               done
+              for _lp_row in $(kubectl get providers.pkg.crossplane.io -o 'jsonpath={range .items[*]}{.metadata.name}{"="}{.spec.package}{"\n"}{end}' 2>/dev/null || true); do
+                case "${_lp_row#*=}" in
+                  "${upstream_prefix}/"*|"${MOTHERSHIP_PROXY_PREFIX}/"*) _lp_pending="${_lp_pending} provider=${_lp_row%%=*}[live-package=${_lp_row#*=}]" ;;
+                esac
+              done
+              if [ -n "${_lp_pending}" ]; then
+                echo "[crossplane-provider-pivot] FATAL: the live Provider pivot is not settled (commit ${_lp_sha}):${_lp_pending} — not reporting success: step 08 reads the live object (#7900)" >&2
+                return 1
+              fi
+              echo "[crossplane-provider-pivot] every live Provider reads a pivoted package and its Kustomization has applied commit ${_lp_sha} (#7900)"
             }
             # live-provider-pivot END
             wait_live_provider_pivot

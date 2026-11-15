@@ -84,7 +84,6 @@
       "platform/self-sovereign-cutover/chart/templates/04-registry-pivot-daemonset.yaml": 1,
       "platform/self-sovereign-cutover/chart/templates/06-helmrepository-patches-job.yaml": 1,
       "platform/self-sovereign-cutover/chart/templates/07-catalyst-api-env-patch-job.yaml": 1,
-      "platform/self-sovereign-cutover/chart/templates/10-auto-trigger-job.yaml": 1,
       "platform/self-sovereign-cutover/chart/templates/12-daytwo-harbor-pin-reconciler.yaml": 1,
       "platform/self-sovereign-cutover/chart/templates/secondary-harbor-prewarm-script-configmap.yaml": 1,
       "platform/sso-bridge/chart/templates/configmap-reconciler.yaml": 1,
