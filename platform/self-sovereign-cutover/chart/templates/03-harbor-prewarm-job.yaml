@@ -1017,63 +1017,34 @@ data:
     fi
 
     {{- /*
-     Enumerate openova-io images cluster-wide.
-
-     #3944 root-cause-2 (Refs #3642): a RUNNING-Pod-only enumeration
-     is INCOMPLETE — it silently omits any openova-io workload that is
-     not scheduled at enumeration time. Two ways that happens after
-     #3642 moved the front-door apps (gitea/harbor/keycloak/openbao/
-     grafana/newapi/guacamole) INTO the vClusters: (a) on a vCluster
-     NOT running in pod-syncing mode the in-vCluster pods never
-     materialise in a host namespace, so a host-side `get pods -A`
-     can't see them at all; (b) even with pod-syncing, an openova-io
-     workload that is momentarily down / scaled-to-zero / not-yet-
-     rolled-out (a CronJob between fires, an HR mid-reconcile) has NO
-     running Pod, so its image is missed. Either way the missed image
-     never lands in local Harbor → post-cutover ImagePullBackOff the
-     moment step-06 strips the ghcr.io fallback, or the egress hold
-     passes over an un-mirrored image. The bytes are unavoidable; the
-     COMPLETENESS of the source list must NOT depend on which pods
-     happen to be Running.
-
-     Fix: UNION the running-Pod image set with the DECLARED workload-
-     template image set (Deployments, StatefulSets, DaemonSets +
-     CronJob/Job pod templates) across every namespace. Declared
-     templates are present regardless of replica count or schedule, so
-     the union is complete on any vCluster sync mode. The union can
-     only WIDEN the prewarm list (every entry is still skopeo-pushed
-     idempotently), never narrow it — a strict superset of the prior
-     behaviour.
-
-     #4975 (Refs #3379 #3695) — GENERALIZED to ALL images, not just
-     `ghcr.io/openova-io/*`. The `^ghcr.io/openova-io/` grep filter is
-     DROPPED: the enumeration now unions EVERY container/init/ephemeral
-     image across running Pods AND declared workload templates, so a
-     COMPLETE offline mirror of every non-node-cached upstream lands in
-     local Harbor before the deny-egress hold. copy_one below routes
-     each image to its local project via the shared resolver
-     (offlinemirror_local_paths): openova-io → host-drop openova-io/…
-     (unchanged) + proxy-ghcr/openova-io/…; docker.io/quay.io/registry.
-     k8s.io/gcr.io/public.ecr.aws → proxy-<host>/…; harbor.openova.io →
-     host-swap (path preserved); xpkg.upbound.io + rancher/k3s +
-     loft-sh/vcluster EXCLUDED (offlineMirror.excluded*). This is the
-     generalization of the former #3944 running-∪-declared union.
+     Enumerate every image to mirror: running pods (containers, init,
+     ephemeral) ∪ the declared Deployment/StatefulSet/DaemonSet/CronJob/Job
+     templates (#3944: a scaled-to-zero or between-fires workload has no pod),
+     every image, not only openova-io (#4975; copy_one routes each through the
+     shared resolver), in EVERY region (#7922: a follower's own pods). See
+     values.yaml #7922 note. A walk that cannot list is FATAL, never empty.
     */}}
-    echo "[harbor-prewarm] enumerating ALL images across cluster (running pods ∪ declared workload templates)"
-    running_images=$(kubectl get pods -A -o json | \
-      jq -r '.items[].spec | (.containers // [])[].image, (.initContainers // [])[].image, (.ephemeralContainers // [])[].image' 2>/dev/null || true)
-    declared_images=$(kubectl get deployments,statefulsets,daemonsets -A -o json 2>/dev/null | \
-      jq -r '.items[].spec.template.spec | (.containers // [])[].image, (.initContainers // [])[].image' 2>/dev/null || true)
-    cronjob_images=$(kubectl get cronjobs -A -o json 2>/dev/null | \
-      jq -r '.items[].spec.jobTemplate.spec.template.spec | (.containers // [])[].image, (.initContainers // [])[].image' 2>/dev/null || true)
-    job_images=$(kubectl get jobs -A -o json 2>/dev/null | \
-      jq -r '.items[].spec.template.spec | (.containers // [])[].image, (.initContainers // [])[].image' 2>/dev/null || true)
-    openova_images=$(printf '%s\n%s\n%s\n%s\n' \
-      "${running_images}" "${declared_images}" "${cronjob_images}" "${job_images}" | \
-      grep -E '^[^[:space:]]+$' | grep -v '^null$' | sort -u || true)
-    run_count=$(printf '%s\n' "${running_images}" | grep -c . || true)
+    # ── prewarm-list-images BEGIN (#7922 extraction anchor — tests/step7922-prewarm-proxy-path.sh sources this block verbatim) ──
+    prewarm_list_images() {
+      _li_rg="$2"
+      if [ -n "$1" ]; then set -- --kubeconfig "$1"; else set --; fi
+      _li_p=$(kubectl "$@" get pods -A -o json 2>/dev/null) || return 1
+      _li_w=$(kubectl "$@" get deployments,statefulsets,daemonsets,cronjobs,jobs -A -o json 2>/dev/null) || return 1
+      _li_a=$(printf '%s' "${_li_p}" | jq -r '.items[].spec | (.containers // [])[].image, (.initContainers // [])[].image, (.ephemeralContainers // [])[].image') || return 1
+      _li_b=$(printf '%s' "${_li_w}" | jq -r '.items[] | (.spec.jobTemplate.spec.template.spec // .spec.template.spec // {}) | (.containers // [])[].image, (.initContainers // [])[].image') || return 1
+      printf '%s\n%s\n' "${_li_a}" "${_li_b}" | grep -E '^[^[:space:]]+$' | grep -v '^null$' | sort -u | awk -v r="${_li_rg}" '{print $0 "\t" r}'
+    }
+    # ── prewarm-list-images END ──
+    echo "[harbor-prewarm] enumerating ALL images across cluster (running pods ∪ declared workload templates), every region (#7922)"
+    run_images_file=/tmp/.prewarm-run-images.tsv
+    prewarm_list_images "" primary >"${run_images_file}" || { echo "[harbor-prewarm] FATAL (#7922): could not list the images of this region"; exit 1; }
+    for _rk in /secondary-kubeconfigs/*.yaml; do
+      [ -e "${_rk}" ] || continue
+      prewarm_list_images "${_rk}" "$(basename "${_rk}" .yaml)" >>"${run_images_file}" || { echo "[harbor-prewarm] FATAL (#7922): could not list the images of follower region $(basename "${_rk}" .yaml) — the step can neither mirror nor check what that region runs"; exit 1; }
+    done
+    openova_images=$(cut -f1 "${run_images_file}" | sort -u)
     count=$(printf '%s\n' "${openova_images}" | grep -c . || true)
-    echo "[harbor-prewarm] running-Pod images=${run_count}; union with declared templates=${count} unique image(s) to mirror"
+    echo "[harbor-prewarm] ${count} unique image(s) to mirror; $(awk -F'\t' '$2=="primary" {p[$1]=1} {a[$1]=1} END {n=0; for (k in a) if (!(k in p)) n++; print n}' "${run_images_file}") of them run only in a follower region (#7922)"
 
     {{- /*
      Native push each via skopeo copy, run in PARALLEL with a
@@ -1292,91 +1263,18 @@ data:
     }
 
     {{- /*
-     #5095 — ONE bounded skopeo image copy SRC → LREF with optional
-     src creds; output appended to LOGFILE. Factored out of copy_one
-     so the proxy-source attempt and the #5095 direct-upstream
-     fallback attempt share ONE invocation. The function's exit
-     status is skopeo's REAL status (the #3379 hw138 always-0 trap
-     stays closed: callers branch on it inside an if/else, never a
-     pipeline). All prior flags are preserved:
-       • #3944 --command-timeout (GLOBAL flag before `copy`) bounds a
-         stalled-but-alive connection so it FAILS FAST and the outer
-         per-image retry loop can self-heal.
-       • #4529 --dest-tls-verify=${PREWARM_DEST_TLS_VERIFY} (default
-         false — in-cluster/LE-staging Harbor dest); --src-tls-verify
-         stays true (external public-CA sources).
-       • #4975 --multi-arch all: skopeo's default `--multi-arch
-         system` copies ONLY the running platform's sub-image out of
-         a manifest LIST while the copy is ADDRESSED by the list's
-         digest — Harbor computes the single-arch digest ≠ list
-         digest → `digest invalid` (live hw239: all 8 multi-arch
-         images FAILED). containerd pulls BY the list digest, so the
-         FULL list + all arch sub-manifests + blobs must land.
-         Single-arch refs are unaffected.
-       • #5468 the ONE documented exception to `--multi-arch all`, per
-         image, via prewarm_multiarch_flags below.
-    */}}
-
-    {{- /*
-     #5468 (Refs #5442 #4975) — emit the skopeo multi-arch flag set for
-     ONE source ref.
-
-     DEFAULT is `--multi-arch all` for every ref — the #4975 contract is
-     untouched, and narrowing it GLOBALLY is the wrong fix (it
-     reproduces hw239's `digest invalid` across every multi-arch image,
-     because those copies are addressed BY the manifest-list digest).
-
-     THE EXCEPTION. A ref matching PREWARM_SINGLE_PLATFORM_SUBSTRINGS is
-     copied as a SINGLE platform instead. This exists for upstream
-     manifest lists that are MALFORMED in a way Harbor cannot ingest, so
-     that no amount of retrying or egress can ever land them whole.
-
-     The proven instance is ghcr.io/berriai/litellm-database (live hw291
-     2026-07-28, step-03 A3 `ok=35 fail=1 durable_miss=1`). Its
-     `main-v1.57.2` OCI index lists EIGHT entries that are only FOUR
-     distinct children — every child appears TWICE, byte-identical in
-     mediaType, digest, size, platform and annotations:
-
-       c94ccc84 linux/amd64      x2
-       10c24c81 linux/arm64      x2
-       df4ae6f5 unknown/unknown  x2   (attestation for c94ccc84)
-       bc165dad unknown/unknown  x2   (attestation for 10c24c81)
-
-     skopeo copies all eight children fine (they are just the same four
-     blobs pushed twice) and then FATALs on the manifest-LIST upload
-     alone: Harbor accepts the PUT and its post-push artifact walk then
-     inserts one artifact_reference row per index entry — the duplicate
-     (parent,child) pairs violate the table's uniqueness, the enclosing
-     transaction rolls back, and the immediately-following read of the
-     index Harbor was just handed answers
-       `unknown: artifact …@sha256:a1ed0885… not found`
-     for a digest Harbor itself computed. Deterministic and permanent.
-
-     IT IS NOT THE ATTESTATIONS. The same repository's `main-latest` tag
-     carries the SAME two `unknown/unknown` buildx attestation children
-     and mirrors cleanly in the same wave — its index simply lists each
-     child ONCE. Duplication is the whole defect; attestations are a
-     red herring.
-
-     WHY SINGLE-PLATFORM IS SAFE *HERE* and not globally: the #4975
-     `digest invalid` trap fires only when the copy is addressed by the
-     list digest. Both refs this repository declares are addressed BY
-     TAG (`:main-v1.57.2` from the chart's appVersion, `:main-latest`
-     hardcoded in the upstream migration Job), so the destination tag
-     resolving to a single amd64 manifest is exactly what containerd
-     asks for on a linux/amd64 Sovereign node. The Phase A3-guard
-     asserts durable PRESENCE via harbor_durable_digest, never
-     source-digest equality, so a single-platform copy satisfies it.
-     The #4994 dest_already_current skip WILL miss for these refs (index
-     digest != child digest), so they re-copy on every step-03 re-run —
-     fail-OPEN, an extra transfer and never a false present.
-
-     Every env read is `:-`-defaulted because this script runs under
-     `set -eu` (L387): an unset var would abort the WHOLE step rather
-     than fall back, and the fallback here — no exception, os/arch
-     linux/amd64 — is exactly the safe direction. An empty
-     substrings list iterates zero times, i.e. `--multi-arch all` for
-     everything, which is the pre-#5468 behaviour.
+     #5095 — ONE bounded skopeo copy SRC → LREF (optional src creds, output
+     appended to the log), shared by the proxy leg and the direct fallback.
+     Its status is skopeo's REAL status (#3379 hw138: callers branch on it
+     in if/else, never a pipeline). Flags: #3944 --command-timeout (a stalled
+     connection fails fast for the outer retry), #4529 dest TLS off for the
+     in-cluster Harbor, #4975 --multi-arch all (containerd pulls BY the list
+     digest; a single-arch copy of a list is `digest invalid`, hw239).
+     #5468 — prewarm_multiarch_flags: the one per-image exception, a SINGLE
+     platform for refs matching PREWARM_SINGLE_PLATFORM_SUBSTRINGS (upstream
+     indexes Harbor cannot ingest, e.g. litellm-database's duplicated
+     children; tag-addressed, so safe). Full account at values.yaml
+     prewarm.singlePlatform. Env reads are `:-`-defaulted under `set -eu`.
     */}}
     prewarm_multiarch_flags() {
       _ma_ref="$1"
@@ -1391,29 +1289,15 @@ data:
       printf -- '--multi-arch all'
     }
 
-    {{- /*
-     #5525 leg 2 — slug a registry host into a latch-file-safe token
-     (same tr class as the per-image log slug above).
-    */}}
+    {{- /* #5525 leg 2 — slug a registry host into a latch-file-safe token. */}}
     rl_slug() { printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_'; }
 
     prewarm_skopeo_copy() {
       _pc_src="$1"; _pc_creds="$2"; _pc_lref="$3"; _pc_log="$4"
-      {{- /*
-       #5468 — multi-arch mode FIRST into the function's OWN positional
-       params (deliberately unquoted: the flag string must word-split).
-       Matching is on the SOURCE ref, which may be the mothership-proxy
-       form or the #5095 direct-upstream form — a repository-path
-       substring matches both, exactly as EXCLUDED_SUBSTRINGS does.
-      */}}
+      {{- /* #5468 multi-arch mode first (unquoted: the flag string word-splits), matched on the SOURCE ref. */}}
       set -- $(prewarm_multiarch_flags "${_pc_src}")
-      {{- /* Optional --src-creds (empty for anonymous upstreams). */}}
       if [ -n "${_pc_creds}" ]; then set -- "$@" --src-creds="${_pc_creds}"; fi
-      {{- /*
-       #5525 leg 2 — byte offset of the log BEFORE this leg runs, so
-       the rate-limit sniff below reads ONLY this leg's own output —
-       never a prior attempt's, never another source's.
-      */}}
+      {{- /* #5525 leg 2 — log offset BEFORE this leg, so the sniffs below read only this leg's output. */}}
       _pc_off=$(wc -c < "${_pc_log}" 2>/dev/null || echo 0)
       if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" copy \
         --insecure-policy \
@@ -1425,21 +1309,12 @@ data:
         "docker://${_pc_src}" "docker://${_pc_lref}" >>"${_pc_log}" 2>&1; then
         return 0
       else
-        {{- /*
-         Capture skopeo's REAL exit status INSIDE the else branch
-         (the #3379 hw138 always-0 trap).
-        */}}
         _pc_rc=$?
       fi
       {{- /*
-       #5525 leg 2 — `toomanyrequests` is a PER-IP quota window: every
-       further pull from this host inside the same window (same cluster
-       egress IP) is guaranteed waste that itself keeps the window
-       exhausted (hw291 2026-07-30: 3 outer x 5 inner manifest reads
-       per image per pod attempt SUSTAINED the exhaustion for ~60 min
-       across 4 pod attempts). Latch the SOURCE host so copy_one skips
-       it for the remainder of this job attempt wherever a fallback
-       source exists.
+       #5525 leg 2 — `toomanyrequests` is a PER-IP quota window (hw291: retries
+       kept it exhausted ~60 min): latch the SOURCE host so copy_one skips it
+       for this job attempt wherever a fallback source exists.
       */}}
       _pc_h="${_pc_src%%/*}"
       if tail -c +"$((_pc_off+1))" "${_pc_log}" 2>/dev/null | grep -qi 'toomanyrequests'; then
@@ -1449,24 +1324,27 @@ data:
         fi
       fi
       {{- /*
-       #7900 — a refused WRITE to the local registry is a failure of the
-       DESTINATION, not of this source (five pushes answered `initiating
-       layer upload ... unauthorized ... action: push` and the wave was sent
-       to the public registries). Its own status, 75, so copy_one retries the
-       same source. `happened during read` is a source error skopeo reports
-       from inside the upload.
+       #7900 #7922 — a failure of the DESTINATION (a refused or broken write to
+       the local registry: push denied, layer upload, `writing blob`/manifest,
+       or an error naming the local registry) returns 75: copy_one retries the
+       same source, no fallback, no latch. `happened during read` is a source
+       error reported from inside an upload. PREWARM_LEG_ERR keeps this leg's
+       final error for copy_one's Job-log line (values.yaml #7922 note).
       */}}
       if tail -c +"$((_pc_off+1))" "${_pc_log}" 2>/dev/null | grep -v 'happened during read' | grep -qE 'action: push|initiating layer upload|writing manifest'; then return 75; fi
+      _pc_fatal=$(tail -c +"$((_pc_off+1))" "${_pc_log}" 2>/dev/null | grep 'level=fatal' | tail -1)
+      PREWARM_LEG_ERR=$(printf '%s' "${_pc_fatal:-skopeo exit ${_pc_rc}, no fatal line}" | sed -e 's/^.*level=fatal msg=//' -e 's/^"//' -e 's/"$//' | cut -c1-300)
+      case "${_pc_fatal}" in *'happened during read'*) : ;; *'writing blob'*|*"//${_pc_lref%%/*}/"*) return 75 ;; esac
       return "${_pc_rc}"
     }
 
+    {{- /* #7922 — one anonymous GET of the parent's registry API; 200/401/403 = the proxy path is up. */}}
+    mothership_proxy_code() { curl -sk -o /dev/null -w '%{http_code}' -m "${PROXY_PROBE_TIMEOUT_SECONDS:-8}" "https://${MOTHERSHIP_HOST}/v2/" 2>/dev/null || true; }
+
     {{- /*
-     #4975 — copy ONE upstream image to ALL of its local Harbor
-     destination path(s) (usually one; TWO for a ghcr.io/openova-io/*
-     ref — the host-drop openova-io/… convention + proxy-ghcr/openova-io/…).
-     Destinations come from the shared resolver (offlinemirror_local_paths)
-     so step-03 push and step-08 completeness HEAD agree byte-for-byte.
-     The per-image record is .ok only if EVERY dest copy succeeded.
+     #4975 — copy ONE image to ALL its local paths (two for
+     ghcr.io/openova-io/*), from the shared resolver, so step 03 and step 08
+     agree byte for byte. .ok only if EVERY dest copy succeeded.
     */}}
     copy_one() {
       up=$(offlinemirror_normalize_ref "$1")
@@ -1483,25 +1361,13 @@ data:
       case "${srchost}" in *.*|*:*|localhost) : ;; *) srchost="docker.io" ;; esac
       sc=$(src_creds_for "${srchost}")
       {{- /*
-       #5095 (Refs #5093) — direct-source fallback derivation for a
-       MOTHERSHIP-PROXY-sourced ref. A `harbor.openova.io/proxy-<x>/
-       <path>` source is a hard PRE-cutover tether to mothership
-       reachability: a routine per-prefix transit flap (hw255
-       2026-07-15 05:20–05:55Z, #5093 — mothership healthy worldwide,
-       only the path black-holed) FAILs every such copy while direct
-       upstream copies stay fine. Derive the canonical upstream ref
-       MECHANICALLY from the proxy path via an INVERSE coverage-map
-       lookup — the FIRST HOST_PROJECT_MAP host whose project equals
-       the ref's proxy-<x> segment (proxy-dockerhub → docker.io,
-       proxy-quay → quay.io, proxy-k8s → registry.k8s.io, proxy-gcr →
-       gcr.io, proxy-ghcr → ghcr.io) — so NO second hand-list exists.
-       The fallback fires ONLY after the proxy-source copy fails
-       inside an attempt; the DEST path (host-swap, path preserved)
-       is untouched, so step-04/07/08 resolve the identical local
-       artifact. Upstream rate-limit exposure is bounded: ~10-20
-       images, and only while the proxy path is failing. src-creds
-       for the fallback host go through the SAME src_creds_for
-       selector (ghcr.io → PAT; anonymous elsewhere).
+       #5095 — a mothership-proxy ref (harbor.openova.io/proxy-<x>/<path>) gets
+       a DIRECT fallback derived from the proxy path by the INVERSE coverage-map
+       lookup (proxy-dockerhub → docker.io, …; no second hand-list), for a
+       transit flap toward the mothership (hw255). #5525 leg 1 — a Scarf
+       redirector (*.docker.scarf.sh: Docker Hub's anonymous quota applies
+       through it, hw291) gets the mothership proxy as its fallback by the
+       FORWARD lookup. Source selection only; the DEST path is untouched.
       */}}
       proxy_src=0
       fb_up=""
@@ -1527,26 +1393,6 @@ data:
             ;;
         esac
       elif [ -n "${MOTHERSHIP_HOST:-}" ]; then
-        {{- /*
-         #5525 leg 1 (Refs #5095 #5442) — Scarf download gateways
-         (*.docker.scarf.sh) are REDIRECTORS in front of Docker Hub,
-         not registries: they delegate auth to Docker Hub's own token
-         service and pass through Hub's verbatim rate-limit body, so
-         Hub's ANONYMOUS per-IP quota applies THROUGH them. Live hw291
-         2026-07-30 (dep 2c2d746b578c636b): 4 litmuschaos refs burned
-         4 pod attempts over ~60 min on `toomanyrequests` while the
-         SAME artifacts were anonymously servable from the mothership
-         proxy the whole time — the #5095 fallback never engaged
-         because it fires only for mothership-SOURCED refs. Derive the
-         INVERSE fallback here — mothership proxy as the SECONDARY
-         source — via the FORWARD coverage-map lookup (this host's own
-         project, e.g. litmuschaos.docker.scarf.sh -> proxy-dockerhub),
-         path preserved: ${MOTHERSHIP_HOST}/<project>/<path>. No
-         second hand-list; a scarf host absent from the map stays
-         fallback-less (it would be UNMAPPED in the pre-pass anyway).
-         Source selection ONLY: the DEST path is untouched, so
-         step-04/07/08 resolve the identical LOCAL artifact.
-        */}}
         case "${srchost}" in
           *.docker.scarf.sh)
             _fb_proj=""
@@ -1567,12 +1413,7 @@ data:
       last_rc=0
       for dpath in ${dests}; do
         lref="${HARBOR_HOST}/${dpath}"
-        {{- /*
-         #4994 — SKIP the (potentially multi-hundred-MB) copy when the
-         dest already serves byte-identical content. Streams a real-time
-         SKIP line to stdout so the operator sees instant forward progress
-         for pre-warmed / re-run images instead of a silent 68m (hw240).
-        */}}
+        {{- /* #4994 — SKIP when the dest durably serves the same manifest, with a real-time line (hw240). */}}
         if [ "${PREWARM_SKIP_IF_PRESENT:-true}" = "true" ] \
            && dest_already_current "${up}" "${lref}" "${sc}"; then
           echo "[harbor-prewarm] skip ${up} -> ${lref} (dest already current)"
@@ -1580,23 +1421,17 @@ data:
           continue
         fi
         {{- /*
-         OUTER per-dest retry loop: `--retry-times 5` self-heals a
-         transient blob fetch inside ONE copy; a Harbor-side reset that
-         closes the dest connection can still abort the whole copy
-         (hw146 large-image FATAL), so re-attempt the full copy up to
-         PREWARM_COPY_ATTEMPTS times — or, for a MOTHERSHIP-PROXY-
-         sourced ref, PREWARM_PROXY_COPY_ATTEMPTS with EXPONENTIAL
-         backoff (#5095: the fixed 3×5s budget exhausted inside the
-         hw255 35-min transit flap). The skopeo invocation itself
-         (with all the #3944/#4529/#4975 flags) lives in
-         prewarm_skopeo_copy above; the caller branches on its REAL
-         exit status (the #3379 hw138 always-0 trap stays closed).
-         FATAL-on-any-failure preserved: the image is .fail unless
-         every dest copy eventually succeeds from SOME source.
+         OUTER per-dest retry loop around prewarm_skopeo_copy (a dest reset can
+         abort a whole copy, hw146): PREWARM_COPY_ATTEMPTS, or for a
+         mothership-proxy ref PREWARM_PROXY_COPY_ATTEMPTS with exponential
+         backoff (#5095). The image is .fail unless every dest copy succeeds
+         from SOME source.
         */}}
         attempt=1
         rc=1
         src_used=""
+        _proxy_err=""
+        _direct_why=""
         if [ "${proxy_src}" -eq 1 ]; then
           max_attempts="${PREWARM_PROXY_COPY_ATTEMPTS}"
         else
@@ -1604,50 +1439,28 @@ data:
         fi
         while [ "${attempt}" -le "${max_attempts}" ]; do
           {{- /*
-           #5095 round 2 — proxy-DOWN DIRECT-FIRST short-circuit. When the
-           ref is mothership-proxy-sourced, HAS a mechanically-derived
-           direct upstream, AND the proxy is latched DOWN for this step
-           (the upfront probe found it unreachable, or a proxy leg earlier
-           this wave failed while its direct sibling succeeded), try the
-           DIRECT upstream FIRST and skip the dead proxy entirely on
-           success — so no image burns the 1200s --command-timeout probing
-           the dead proxy before the fast direct path is even tried (round
-           1 shipped the fallback but always AFTER the timed-out proxy
-           leg — the per-image "proxy timeout tax" that dragged the wave to
-           ~100 min for 140 images). Re-checked every attempt so a latch
-           flipped by another worker reorders THIS image's remaining
-           attempts too. The DEST ref is identical (host-swap, path
-           preserved), so step-04/07/08 resolve the same LOCAL artifact.
-           On a direct-first MISS we fall straight through to the round-1
-           proxy-first path below (the proxy might have just recovered).
-           #5525 — additionally gated on proxy_src: for a scarf-sourced
-           ref (leg 1 above) fb_up IS the mothership proxy, so a
-           .proxy_down latch must keep the ordering primary-first, not
-           route it to the dead proxy first.
+           #5095 round 2 — proxy latched DOWN (upfront probe, or the #7922 latch
+           below): try the DIRECT upstream FIRST, so no image pays the 1200s
+           timeout on a dead proxy; on a miss fall through to proxy-first.
+           Re-checked every attempt. #5525 — gated on proxy_src: a scarf ref's
+           fallback IS the proxy and keeps primary-first.
           */}}
           if [ "${proxy_src}" -eq 1 ] && [ -n "${fb_up}" ] && [ "${PROXY_DIRECT_FIRST_ENABLED:-true}" = "true" ] && [ -f "${cpdir}/.proxy_down" ]; then
             echo "[harbor-prewarm] proxy latched DOWN; direct-first ${fb_up} -> ${lref} attempt ${attempt}/${max_attempts} (#5095 round 2)" >>"${cpdir}/${slug}.log"
             if prewarm_skopeo_copy "${fb_up}" "${fb_creds}" "${lref}" "${cpdir}/${slug}.log"; then
               rc=0
               src_used="${fb_up}"
+              _direct_why="proxy latched DOWN earlier in this wave"
               break
             else
               rc=$?
             fi
           fi
-          {{- /*
-           #5525 leg 2 — the primary source host answered
-           `toomanyrequests` earlier in this job attempt and a fallback
-           source exists: skip the primary leg outright (every pull
-           from the same egress IP inside the same quota window is
-           guaranteed waste that re-arms the window) and go straight to
-           the fallback below. Without a fallback the primary keeps its
-           attempts — failing instantly with zero copies tried would
-           trade a slow failure for a certain one.
-          */}}
+          {{- /* #5525 leg 2 — a toomanyrequests-latched primary with a fallback is skipped, straight to the fallback. */}}
           if [ -n "${fb_up}" ] && [ -f "${cpdir}/.ratelimited.$(rl_slug "${srchost}")" ]; then
             echo "[harbor-prewarm] skip rate-limited primary ${up} (host latched toomanyrequests); straight to fallback ${fb_up} attempt ${attempt}/${max_attempts} (#5525)" >>"${cpdir}/${slug}.log"
             rc=1
+            _proxy_err="not tried: ${srchost} answered toomanyrequests earlier in this wave"
           else
             echo "[harbor-prewarm] copy ${up} -> ${lref} attempt ${attempt}/${max_attempts}" >>"${cpdir}/${slug}.log"
             if prewarm_skopeo_copy "${up}" "${sc}" "${lref}" "${cpdir}/${slug}.log"; then
@@ -1655,22 +1468,11 @@ data:
               src_used="${up}"
               break
             else
-              {{- /*
-               Capture skopeo's REAL exit status INSIDE the else branch
-               (the #3379 hw138 always-0 trap).
-              */}}
               rc=$?
+              _proxy_err="${PREWARM_LEG_ERR:-}"
             fi
           fi
-          {{- /*
-           #5095 — direct-source fallback: BEFORE counting this
-           attempt failed, retry the SAME image from its canonical
-           upstream (same dest ref, same attempt) when the failed
-           source was the mothership proxy. A per-prefix transit flap
-           toward the mothership leaves the direct upstream fully
-           reachable (proven hw255: ghcr.io copies all ok while every
-           harbor.openova.io copy FAILed exit=1).
-          */}}
+          {{- /* #5095 — the fallback runs inside the same attempt, before it counts as failed; never on a destination failure (75). */}}
           if [ "${rc}" -eq 75 ]; then
             echo "[harbor-prewarm] ${lref} refused the write (destination failure, not a source failure): no source fallback, no proxy latch; same source after the backoff (#7900)" >>"${cpdir}/${slug}.log"
           elif [ -n "${fb_up}" ]; then
@@ -1683,16 +1485,23 @@ data:
               rc=0
               src_used="${fb_up}"
               {{- /*
-               #5095 round 2 — the proxy leg failed but its direct sibling
-               SUCCEEDED: a precise "proxy bad, direct good" signal (the
-               hw255 signature). Latch the proxy DOWN so the rest of the
-               wave skips proxy-first via the short-circuit above and pays
-               no further timeout tax. Fires ONLY when the proxy was tried
-               (proxy_src=1), never on a broad outage where direct also
-               fails. Idempotent touch, safe under the parallel fan-out.
+               #5095 round 2 #7922 — the proxy leg failed, its direct sibling
+               worked: latch the proxy DOWN only if its /v2/ does not answer. A
+               proxy that answers but cannot serve this one image (hw307:
+               `manifest unknown` for one child manifest latched 75 images away
+               from it) stays in use. See values.yaml #7922 note.
               */}}
-              if [ "${proxy_src}" -eq 1 ] && [ "${PROXY_DIRECT_FIRST_ENABLED:-true}" = "true" ]; then
-                touch "${cpdir}/.proxy_down" 2>/dev/null || true
+              if [ "${proxy_src}" -eq 1 ]; then
+                _direct_why="the proxy could not serve this image: ${_proxy_err}"
+                if [ "${PROXY_DIRECT_FIRST_ENABLED:-true}" = "true" ] && [ ! -f "${cpdir}/.proxy_down" ]; then
+                  _pl_code=$(mothership_proxy_code)
+                  case "${_pl_code}" in
+                    200|401|403) _direct_why="${_direct_why}; ${MOTHERSHIP_HOST}/v2/ answers HTTP ${_pl_code}, so the proxy is NOT latched down" ;;
+                    *) touch "${cpdir}/.proxy_down" 2>/dev/null || true
+                      _direct_why="mothership proxy path failing: ${_proxy_err}; ${MOTHERSHIP_HOST}/v2/ answers HTTP ${_pl_code:-none}"
+                      echo "[harbor-prewarm] proxy LATCHED DOWN by ${up}: the proxy leg failed (${_proxy_err}), ${MOTHERSHIP_HOST}/v2/ answers HTTP ${_pl_code:-none} and the direct upstream ${fb_up} succeeded — every later proxy-sourced image of this wave goes direct-first (#5095 #7922)" ;;
+                  esac
+                fi
               fi
               break
             else
@@ -1703,16 +1512,7 @@ data:
           attempt=$((attempt+1))
           if [ "${attempt}" -le "${max_attempts}" ]; then
             if [ "${proxy_src}" -eq 1 ]; then
-              {{- /*
-               #5095 flap-tolerant pacing: exponential backoff
-               base*2^(n-2) before attempt n → 30,60,120,240,480s =
-               930s (≥15 min) of spacing across the default 6-attempt
-               budget, so a short transit flap toward the mothership
-               cannot exhaust it. Comfortably inside the 9600s step
-               deadline (#5298); a flap-failure is fast (reset/refused), not a
-               stall, so the #3944 --command-timeout stays the stall
-               bound.
-              */}}
+              {{- /* #5095 — base*2^(n-2) before attempt n: 30..480s, 930s over 6 attempts, inside the step deadline (#5298). */}}
               _bo="${PREWARM_PROXY_BACKOFF_BASE_SECONDS}"
               _bi=2
               while [ "${_bi}" -lt "${attempt}" ]; do _bo=$((_bo*2)); _bi=$((_bi+1)); done
@@ -1724,23 +1524,11 @@ data:
           fi
         done
         {{- /*
-         #5525 leg 3 — a source-side outage must not fail an image the
-         local registry ALREADY serves. The #4994 skip keys on a SOURCE
-         manifest read; when that source is rate-limited/unreachable
-         the skip cannot run, the copy is attempted, fails, and the
-         image counts failed even though the dest is current (hw291
-         attempt 1785396281: A3-guard PASS durable_miss=0 alongside
-         FATAL copy_fail=4 — a self-contradiction). So before counting
-         the failure: if the SOURCE manifest is unreadable (the host is
-         rate-limit-latched, or a fresh raw-manifest read yields
-         nothing — i.e. the skip genuinely could not have run), fall
-         back to a DEST-presence probe via harbor_durable_digest
-         (Harbor CORE's DB, never a pull-through). Durably present ⇒
-         WARN + keep the artifact: freshness against the source is
-         unverifiable this run, and durable presence is exactly what
-         the post-pivot pull contract needs. A READABLE source keeps
-         the strict fail semantics — the failure then is a real
-         transfer/dest defect, not a source blind spot.
+         #5525 leg 3 — every attempt failed AND the source manifest is
+         unreadable (rate-limit latch, or a fresh read yields nothing): if the
+         dest is durably present (harbor_durable_digest, never a pull-through)
+         keep it with a WARN, freshness unverified (hw291: A3 PASS next to
+         FATAL copy_fail=4). A readable source keeps the strict failure.
         */}}
         if [ "${rc}" -ne 0 ]; then
           _rs_raw=""
@@ -1760,14 +1548,11 @@ data:
             src_used=""
           fi
         fi
-        {{- /*
-         #5095 — log which source ultimately succeeded (stdout, real
-         time, next to the done/skip lines + the per-image log).
-        */}}
+        {{- /* #5095 #7922 — which source succeeded, and why not the proxy (Job log + per-image log). */}}
         if [ "${rc}" -eq 0 ] && [ -n "${src_used}" ] && [ "${src_used}" != "${up}" ]; then
           if [ "${proxy_src}" -eq 1 ]; then
-            echo "[harbor-prewarm] ${up} -> ${lref} succeeded via DIRECT upstream ${src_used} (mothership proxy path failing; #5095)"
-            echo "  succeeded via direct upstream ${src_used} (mothership proxy path failing)" >>"${cpdir}/${slug}.log"
+            echo "[harbor-prewarm] ${up} -> ${lref} succeeded via DIRECT upstream ${src_used} (${_direct_why:-mothership proxy path failing}; #5095 #7922)"
+            echo "  succeeded via direct upstream ${src_used} (${_direct_why:-mothership proxy path failing})" >>"${cpdir}/${slug}.log"
           else
             echo "[harbor-prewarm] ${up} -> ${lref} succeeded via mothership-proxy fallback ${src_used} (primary source failing/rate-limited; #5525)"
             echo "  succeeded via mothership-proxy fallback ${src_used} (primary source failing/rate-limited)" >>"${cpdir}/${slug}.log"
@@ -1777,11 +1562,7 @@ data:
       done
       if [ "${all_ok}" -eq 1 ]; then
         printf '%s' "${up}" >"${cpdir}/${slug}.ok"
-        {{- /*
-         #4994 — real-time per-image completion line to stdout (the worker
-         runs async; without this the detailed .log is only surfaced after
-         the whole `wait`, which is what made hw240 look hung for 68m).
-        */}}
+        {{- /* #4994 — real-time per-image completion line (the worker runs async; hw240 looked hung for 68m). */}}
         echo "[harbor-prewarm] done ${up} (ok)"
       else
         printf '%s exit=%s' "${up}" "${last_rc}" >"${cpdir}/${slug}.fail"
@@ -1790,20 +1571,11 @@ data:
     }
 
     {{- /*
-     #5095 round 2 — ONE-TIME mothership-proxy reachability probe.
-     A cheap anonymous `GET https://${MOTHERSHIP_HOST}/v2/` (Harbor's
-     registry API returns 401 for anonymous, 200/403 for public proxy
-     projects — ANY of those proves the path is alive). A transit hole
-     toward the mothership /24 yields curl exit!=0 / HTTP 000. On an
-     unreachable proxy the step latches `${cpdir}/.proxy_down`, which
-     flips copy_one to DIRECT-FIRST for proxy-sourced refs so no image
-     burns the 1200s --command-timeout on the dead proxy before the
-     fast direct upstream is tried (#5095 round 1 shipped that fallback
-     but always AFTER the timed-out proxy leg). The probe is bounded
-     (PROXY_PROBE_ATTEMPTS × PROXY_PROBE_TIMEOUT_SECONDS, default
-     3 × 8s = 24s worst case — negligible against a multi-image wave)
-     and NEVER fatal: a down proxy must not fail the step, the direct
-     path covers it. Re-probes each Job run (cpdir is wiped above).
+     #5095 round 2 — ONE-TIME probe of the mothership proxy's /v2/ (401 for
+     anonymous, 200/403 for public projects = alive; a transit hole = 000). An
+     unreachable proxy latches .proxy_down: copy_one goes DIRECT-FIRST, no
+     per-image timeout tax. Bounded (attempts × timeout, 24s by default), never
+     fatal, re-run each Job run.
     */}}
     probe_mothership_proxy() {
       [ "${PROXY_DIRECT_FIRST_ENABLED:-true}" = "true" ] || { echo "[harbor-prewarm] proxy-DOWN direct-first routing DISABLED (PROXY_DIRECT_FIRST_ENABLED=${PROXY_DIRECT_FIRST_ENABLED:-}); strict proxy-first ordering (#5095)"; return 0; }
@@ -1811,7 +1583,7 @@ data:
       _mp_code=""
       _mp_i=1
       while [ "${_mp_i}" -le "${PROXY_PROBE_ATTEMPTS}" ]; do
-        _mp_code=$(curl -sk -o /dev/null -w '%{http_code}' -m "${PROXY_PROBE_TIMEOUT_SECONDS}" "https://${MOTHERSHIP_HOST}/v2/" 2>/dev/null || true)
+        _mp_code=$(mothership_proxy_code)
         case "${_mp_code}" in
           200|401|403)
             rm -f "${cpdir}/.proxy_down" 2>/dev/null || true
@@ -2922,7 +2694,7 @@ data:
       img_missing_n=$(grep -c . "${img_guard_missing}" || true)
       img_catalog_n=$(grep -c . "${img_guard_catalog}" || true)
       if [ "${img_catalog_n}" -gt 0 ]; then
-        echo "[harbor-prewarm] Phase A3-guard WARN (#7900): ${img_catalog_n} image path(s) declared only by catalogue chart(s) that are installed NOWHERE are not in local Harbor. This does not stop the cutover. Such a Blueprint fails at image pull if it is installed before its images are mirrored; the Day-2 reconciler reports the same set every cycle:"
+        echo "[harbor-prewarm] Phase A3-guard WARN (#7900): ${img_catalog_n} image path(s) declared only by catalogue chart(s) that are installed NOWHERE are not in local Harbor. This does not stop the cutover unless a pod runs one of them (the run guard at the end of this step checks every image a pod runs, in every region; #7922). Such a Blueprint fails at image pull if it is installed before its images are mirrored; the Day-2 reconciler reports the same set every cycle:"
         sed 's/^/  CATALOGUE-ONLY-MISSING /' "${img_guard_catalog}"
       fi
       if [ "${img_missing_n}" -eq 0 ]; then
@@ -3528,6 +3300,81 @@ data:
       echo "[harbor-prewarm] #6764: no secondary-region kubeconfigs mounted — single-region Sovereign, secondary Harbor prewarm is a no-op"
     fi
     {{- end }}
+
+    {{- /*
+     ── Run guard (#7922): the last thing step 03 does ──
+     Every image a pod runs or a workload template declares, in EVERY region
+     (read again now, unioned with Phase A's walk), must be durably in the
+     local registry (harbor_durable_digest); a miss gets one copy, then FATAL
+     naming image, path and regions. Excluded images are named, never counted
+     present. So the #7900 catalogue-only warning stays a warning only for an
+     image nothing runs. What the other guards cover: values.yaml #7922 note.
+    */}}
+    # ── prewarm-run-guard BEGIN (#7922 extraction anchor — tests/step7922-prewarm-proxy-path.sh sources this block verbatim) ──
+    prewarm_run_guard() {
+      _rg_dir="$1"; _rg_seed="$2"
+      rm -rf "${_rg_dir}"; mkdir -p "${_rg_dir}/cp"
+      if ! prewarm_list_images "" primary >"${_rg_dir}/run.tsv"; then
+        echo "[harbor-prewarm] FATAL (#7922): the run guard could not list the images of this region — it cannot certify what it cannot read"
+        return 1
+      fi
+      for _rg_kc in /secondary-kubeconfigs/*.yaml; do
+        [ -e "${_rg_kc}" ] || continue
+        if ! prewarm_list_images "${_rg_kc}" "$(basename "${_rg_kc}" .yaml)" >>"${_rg_dir}/run.tsv"; then
+          echo "[harbor-prewarm] FATAL (#7922): the run guard could not list the images of follower region $(basename "${_rg_kc}" .yaml) — it cannot certify what it cannot read"
+          return 1
+        fi
+      done
+      if [ -n "${_rg_seed}" ] && [ -f "${_rg_seed}" ]; then cat "${_rg_seed}" >>"${_rg_dir}/run.tsv"; fi
+      awk -F'\t' '$1 != "" { if (!($1 in r)) { o[++n] = $1; r[$1] = $2 } else if (index("," r[$1] ",", "," $2 ",") == 0) { r[$1] = r[$1] "," $2 } } END { for (i = 1; i <= n; i++) print o[i] "\t" r[o[i]] }' "${_rg_dir}/run.tsv" | sort >"${_rg_dir}/refs.tsv"
+      : >"${_rg_dir}/missing.txt"
+      _rg_n=0; _rg_pn=0; _rg_excl=0; _rg_healed=0
+      {{- /* The Phase A / A3 latches carry over, as A3 carries Phase A's: a heal copy must not re-pay a dead proxy's timeout. */}}
+      for _rg_l in "${cpdir}"/.proxy_down "${cpdir}"/.ratelimited.* "${cat_cpdir:-/nonexistent}"/.proxy_down "${cat_cpdir:-/nonexistent}"/.ratelimited.*; do
+        if [ -e "${_rg_l}" ]; then cp "${_rg_l}" "${_rg_dir}/cp/" 2>/dev/null || true; fi
+      done
+      _rg_cpdir_saved="${cpdir}"
+      cpdir="${_rg_dir}/cp"
+      while IFS="$(printf '\t')" read -r _rg_ref _rg_regions; do
+        [ -z "${_rg_ref}" ] && continue
+        _rg_n=$((_rg_n+1))
+        _rg_lp=$(offlinemirror_local_paths "${_rg_ref}")
+        case "${_rg_lp}" in
+          "")
+            _rg_excl=$((_rg_excl+1))
+            echo "[harbor-prewarm] run guard: EXCLUDED ${_rg_ref} (runs in: ${_rg_regions}) — offlineMirror.excluded*, not served by the local registry by design"
+            continue ;;
+          __UNMAPPED__*)
+            printf '%s -> unmapped registry host %s (runs in: %s)\n' "${_rg_ref}" "$(printf '%s' "${_rg_lp}" | awk '{print $2}')" "${_rg_regions}" >>"${_rg_dir}/missing.txt"
+            continue ;;
+        esac
+        _rg_absent=""
+        for _rg_p in ${_rg_lp}; do
+          _rg_pn=$((_rg_pn+1))
+          [ -n "$(harbor_durable_digest "${_rg_p}")" ] || _rg_absent="${_rg_absent} ${_rg_p}"
+        done
+        [ -z "${_rg_absent}" ] && continue
+        echo "[harbor-prewarm] run guard: ${_rg_ref} (runs in: ${_rg_regions}) is not durably in the local registry (${_rg_absent# }) — copying it now"
+        copy_one "${_rg_ref}" </dev/null || true
+        for _rg_p in ${_rg_absent}; do
+          if [ -n "$(harbor_durable_digest "${_rg_p}")" ]; then
+            _rg_healed=$((_rg_healed+1))
+          else
+            printf '%s -> %s (runs in: %s)\n' "${_rg_ref}" "${_rg_p}" "${_rg_regions}" >>"${_rg_dir}/missing.txt"
+          fi
+        done
+      done <"${_rg_dir}/refs.tsv"
+      cpdir="${_rg_cpdir_saved}"
+      _rg_mn=$(grep -c . "${_rg_dir}/missing.txt" || true)
+      if [ "${_rg_mn}" -gt 0 ]; then
+        echo "[harbor-prewarm] FATAL (#7922): ${_rg_mn} image(s) that this Sovereign runs are not in its own registry. Under the deny-egress hold, and after it, each pod that needs one fails to pull on its next start:"
+        sed 's/^/  RUNNING-MISSING /' "${_rg_dir}/missing.txt"
+        return 1
+      fi
+      echo "[harbor-prewarm] run guard (#7922): PASS — ${_rg_n} image(s) that pods run or workload templates declare in every region; ${_rg_pn} local path(s) durably present (${_rg_healed} copied by the guard), ${_rg_excl} excluded by design"
+    }
+    # ── prewarm-run-guard END ──
+    prewarm_run_guard /tmp/prewarm-run-guard "${run_images_file}" || exit 1
   podSpec: |
     serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
     restartPolicy: Never
@@ -3769,8 +3616,10 @@ data:
            latches proxy-DOWN and copy_one tries the DIRECT upstream FIRST for
            proxy-sourced refs (proxy kept as the secondary), so the wave runs at
            full parallel speed with no per-image timeout tax. The latch also
-           trips adaptively the moment any in-flight proxy leg fails, catching a
-           proxy that dies mid-wave (after the probe passed). Source selection
+           trips adaptively when an in-flight proxy leg fails and the proxy's
+           /v2/ then does not answer, catching a proxy that dies mid-wave (after
+           the probe passed); a proxy that answers but cannot serve one image is
+           not latched (#7922). Source selection
            only — the DEST path (host-swap, path preserved) is untouched, so
            step-04/07/08 resolve the identical LOCAL artifact and the
            sovereignty guarantee (every image in local Harbor before deny-egress)
