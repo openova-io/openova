@@ -281,14 +281,21 @@ harbor:
       limits:
         memory: 512Mi
         cpu: 1
-    # `secretName` lets per-Sovereign overlay supply the Harbor admin
-    # secret (CSRF key, JWT signing key, admin password). Default empty
-    # — chart auto-generates on first install (rotated by overlay later).
-    secretName: ""
-    # Internal TLS — Catalyst's Cilium WireGuard handles cluster-internal
-    # traffic encryption; Harbor's internal TLS off by default.
-    tokenCert: ""
-    tokenKey: ""
+    # #7908: the Secret holding the key pair the core signs and verifies
+    # registry tokens with (keys tls.key, tls.crt). cert-manager issues it in
+    # the primary region (templates/token-key-certificate.yaml) and keeps the
+    # key on renewal; the parent copies it to every follower region, so every
+    # region accepts a token any region issued. Left empty, the upstream
+    # chart generates a new key on every render, different per region.
+    secretName: "harbor-token-key"
+    # The core reads the key once, from a subPath mount. bp-reloader (kit
+    # slot 28, annotations strategy) rolls the core when the Secret changes:
+    # a follower's copy that replaced other bytes, or a key issued again in
+    # the primary. Reloader reads this name from the pod template, because
+    # the upstream Deployment carries no annotations of its own. Must name
+    # the same Secret as secretName above.
+    podAnnotations:
+      secret.reloader.stakater.com/reload: "harbor-token-key"
 
   jobservice:
     image:
@@ -798,6 +805,13 @@ bootstrapOwned:
 # by the SOVEREIGN_HARBOR_REDIS_* substitutes catalyst-api stamps at the same
 # post-mesh gate that stamps SOVEREIGN_HARBOR_PG_HOST), so upstream renders no
 # local redis there and every dial crosses the mesh to the active region.
+# #7908: the certificate cert-manager issues for the registry token key
+# (templates/token-key-certificate.yaml; the Secret is harbor.core.secretName).
+# Harbor reads only the private key, and a renewal keeps it.
+tokenKey:
+  duration: 87600h
+  renewBefore: 720h
+
 crossRegion:
   # Render the ClusterMesh global Service + the cross-region CiliumNetworkPolicies.
   enabled: false

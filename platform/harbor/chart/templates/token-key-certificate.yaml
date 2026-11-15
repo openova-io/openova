@@ -1,0 +1,68 @@
+{{- /*
+The registry token key of the Sovereign (#7908).
+
+Harbor's core signs every registry token with /etc/core/private_key.pem and
+drops a presented token that this key does not verify: the request is then
+anonymous, and a push is refused (`unauthorized ... action: push`). The
+upstream chart makes a new key pair for its `<fullname>-core` Secret on EVERY
+render, with no lookup. So each region of a two-region Sovereign signed with
+its own key, while the registry's public name sends the requests of one push
+to both regions; and each upgrade of this chart rotated the key of its
+region, so tokens issued before the upgrade stopped verifying.
+
+The key pair now lives in the Secret named by `harbor.core.secretName`, which
+points the upstream core at it:
+
+  - In the primary region (and on a single-region Sovereign) cert-manager
+    issues it from the self-signed Issuer below. `rotationPolicy: Never`: a
+    renewal keeps the key, so the tokens in flight keep verifying.
+  - A follower region (`crossRegion.role: secondary`, stamped at installation
+    time from SOVEREIGN_REGION_ROLE) issues nothing. The parent's cross-region
+    orchestrator copies the primary's Secret into it
+    (products/catalyst/bootstrap/api/internal/crossregion, CopiedSecrets), in
+    the same early phase of each pass that delivers the follower's database
+    Secret, without which its core cannot start either. Its core therefore
+    never runs with a key of its own.
+  - The core reads the key once, when its pod starts. bp-reloader rolls it
+    when the Secret changes (`harbor.core.podAnnotations` in values.yaml).
+
+The chart writes no key and no Secret itself: cert-manager is the one writer
+in the primary, the orchestrator the one writer in a follower.
+*/ -}}
+{{- $name := dig "core" "secretName" "" (.Values.harbor | default dict) -}}
+{{- $role := dig "role" "primary" (.Values.crossRegion | default dict) -}}
+{{- $tk := .Values.tokenKey | default dict -}}
+{{- if and $name (ne $role "secondary") }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ $name }}-issuer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-harbor.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-harbor.labels" . | nindent 4 }}
+spec:
+  secretName: {{ $name }}
+  # Nothing validates a name against it: Harbor reads only the private key.
+  commonName: harbor-token-ca
+  duration: {{ $tk.duration | default "87600h" }}
+  renewBefore: {{ $tk.renewBefore | default "720h" }}
+  privateKey:
+    # The key type and encoding the upstream chart generates.
+    algorithm: RSA
+    size: 2048
+    encoding: PKCS1
+    rotationPolicy: Never
+  issuerRef:
+    name: {{ $name }}-issuer
+    kind: Issuer
+{{- end }}
