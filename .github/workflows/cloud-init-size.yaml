@@ -15,8 +15,15 @@ name: cloud-init-size
 # job name) — that can be marked a REQUIRED branch-protection check and will
 # NEVER collide with another job's name. It renders the REAL templates, applies
 # the SAME comment-strip the provider applies to user_data, and asserts the byte
-# size against the same caps — also adding byte coverage to huawei for the first
-# time.
+# size against the limit a real installation meets.
+#
+# #7893: the gate is the WORST-CASE render (scripts/cloudinit-size-check.py),
+# made from the provider module's own expressions with the longest values a
+# real installation can carry, for the primary and the secondary region. The
+# short reference values passed a render that the Huawei ECS API then refused
+# on a real two-region installation (32,931 bytes against 32,768). The limits:
+# huawei 32768 (the API); hetzner 32576 primary / 32256 secondary / 30720
+# worker (the module's preconditions, under the API's 32768).
 #
 # Per CLAUDE.md "every workflow MUST be event-driven, NEVER scheduled": this is
 # pull-request-on-touch + push-on-merge; ad-hoc reruns go through
@@ -32,6 +39,7 @@ on:
       - 'infra/providers/huawei/**'
       - 'products/catalyst/bootstrap/**'
       - 'scripts/cloudinit-size-check.sh'
+      - 'scripts/cloudinit-size-check.py'
       - '.github/workflows/cloud-init-size.yaml'
   pull_request:
     paths:
@@ -40,6 +48,7 @@ on:
       - 'infra/providers/huawei/**'
       - 'products/catalyst/bootstrap/**'
       - 'scripts/cloudinit-size-check.sh'
+      - 'scripts/cloudinit-size-check.py'
       - '.github/workflows/cloud-init-size.yaml'
   workflow_dispatch:
 
@@ -79,13 +88,12 @@ jobs:
         run: |
           set -eu
           chmod +x scripts/cloudinit-size-check.sh
-          # Renders the shared control-plane template + the per-provider worker
-          # template + the secondary-region control-plane, applies the SAME
-          # comment-strip the provider applies to user_data, and FAILS (exit 1 +
-          # ::error::) if any rendered surface exceeds its cap. Emits a
-          # ::warning:: when a surface is >= 30000 B (~93% of cap) so the cliff
-          # is visible BEFORE a PR trips it, and a ::notice:: with the exact
-          # byte count otherwise.
+          # Renders the worst-case control plane and worker of the primary and
+          # the secondary region, applies the SAME comment-strip the provider
+          # applies to user_data, and FAILS (exit 1 + ::error::) if any surface
+          # exceeds its limit. Emits a ::warning:: when a surface is within
+          # 1024 B of its limit so the cliff is visible BEFORE a PR trips it,
+          # and a ::notice:: with the exact byte count and margin otherwise.
           ./scripts/cloudinit-size-check.sh "${{ matrix.provider }}"
 
       - name: Self-test the gate (pad the template oversized, prove it FAILS, then restore)
@@ -95,7 +103,7 @@ jobs:
           TPL=infra/providers/_shared/cloudinit-control-plane.tftpl
           cp "$TPL" "${TPL}.orig"
           # Inject ~20 KB of OPERATIVE (non-comment) padding so the comment-strip
-          # cannot remove it — the rendered surface must blow past the 32256 cap.
+          # cannot remove it — the rendered surface must blow past its limit.
           # (python3 -c, NOT a heredoc, to avoid YAML/heredoc-indentation traps.)
           python3 -c 'import sys; p=sys.argv[1]; s=open(p).read(); i=s.find(chr(10)); pad=(chr(10)+"  CLOUDINIT_SIZE_SELFTEST_PADDING_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"+chr(10))*280; open(p,"w").write(s[:i+1]+pad+s[i+1:])' "$TPL"
           set +e
@@ -117,11 +125,11 @@ jobs:
           {
             echo "## cloud-init-size / ${{ matrix.provider }}"
             echo ''
-            echo "Rendered the ${{ matrix.provider }} cloud-init (control-plane +"
-            echo 'secondary-region control-plane + worker), applied the same'
-            echo 'comment-strip the provider applies to `user_data`, and asserted'
-            echo 'each rendered surface is within its byte cap (CP/secondary 32256,'
-            echo 'worker 30720 — Hetzner hard cap 32768). A surface over cap fails'
-            echo 'this required check; a surface >= 30000 B emits a low-headroom'
-            echo 'warning so the cliff is visible before a PR trips it.'
+            echo "Rendered the ${{ matrix.provider }} cloud-init with worst-case values"
+            echo '(control plane and worker of the primary and the secondary region),'
+            echo 'applied the same comment-strip the provider applies to `user_data`,'
+            echo 'and asserted each surface is within the limit a real installation'
+            echo 'meets (huawei 32768; hetzner 32576 primary, 32256 secondary, 30720'
+            echo 'worker). A surface over its limit fails this required check; a'
+            echo 'surface within 1024 B of it emits a low-margin warning.'
           } >> "$GITHUB_STEP_SUMMARY" 2>&1 || true

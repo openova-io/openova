@@ -4,11 +4,15 @@
 # The render test in infra/providers/_shared/tests renders the one shared
 # cloud-init template with two fixtures (hetzner and huawei), strips the comment
 # lines as the provider modules do, and gives the SHA-256 of each render as an
-# output (sha256_hetzner, sha256_huawei). Its run "golden" compares the two
-# outputs with the values stored in golden.auto.tfvars.json. So a change to the
-# rendered cloud-init fails that run until the stored values are updated.
+# output (sha256_hetzner, sha256_huawei). It also gives the SHA-256 of every
+# file cloud-init writes from each render, a packed (gz+b64) entry decoded
+# (#7893), and the whole golden file as the output golden_json. Its run "golden"
+# compares these outputs with the values stored in golden.auto.tfvars.json. So
+# a change to the rendered cloud-init fails that run until the stored values
+# are updated, and a change that only alters how the render carries a file
+# (packing it, say) keeps the file values.
 #
-# This script computes the two values and writes that file. Run it when a
+# This script computes the values and writes that file. Run it when a
 # change to the rendered cloud-init is intended, commit the file with the
 # change, and say in the commit message why the render changed.
 #
@@ -38,21 +42,26 @@ trap 'rm -rf "$WORK"' EXIT
 export TF_DATA_DIR="$WORK/data"
 export TF_IN_AUTOMATION=1
 
-# hashes <directory of the render test>: prints "<hetzner hash> <huawei hash>".
-# It applies the render module (it has no resource, so nothing is created) with
-# a local state file in the temporary directory, and reads the two outputs.
-hashes() {
-  local dir="$1" state="$WORK/golden.tfstate" a b
+# golden <directory of the render test>: writes the text of the golden file
+# to $WORK/golden.new, as the render module's output golden_json gives it: the
+# render hash of each fixture, then the SHA-256 of every file cloud-init writes
+# from it. It applies the render module (it has no resource, so nothing is
+# created) with a local state file in the temporary directory, and reads the
+# output.
+golden() {
+  local dir="$1" state="$WORK/golden.tfstate"
   rm -f "$state"
   "$TOFU_BIN" -chdir="$dir" init -input=false -no-color > "$WORK/init.log" 2>&1 || { cat "$WORK/init.log" >&2; return 1; }
   "$TOFU_BIN" -chdir="$dir" apply -auto-approve -input=false -no-color -state="$state" > "$WORK/apply.log" 2>&1 || { cat "$WORK/apply.log" >&2; return 1; }
-  a="$("$TOFU_BIN" -chdir="$dir" output -no-color -state="$state" -raw sha256_hetzner)" || return 1
-  b="$("$TOFU_BIN" -chdir="$dir" output -no-color -state="$state" -raw sha256_huawei)" || return 1
-  if ! printf '%s\n%s\n' "$a" "$b" | grep -c -E '^[0-9a-f]{64}$' | grep -q -x 2; then
-    echo "update-cloudinit-golden: the outputs are not two SHA-256 values: '$a' '$b'" >&2
+  "$TOFU_BIN" -chdir="$dir" output -no-color -state="$state" -raw golden_json > "$WORK/golden.new" || return 1
+  # Two render hashes (one per fixture) and a map of file hashes for each.
+  if [ "$(grep -c -E '^  "golden_[a-z]+": "[0-9a-f]{64}",?$' "$WORK/golden.new")" -ne 2 ] \
+    || [ "$(grep -c -E '^  "golden_files_[a-z]+": [{]$' "$WORK/golden.new")" -ne 2 ] \
+    || ! grep -q -E '^    "/[^"]+": "[0-9a-f]{64}",?$' "$WORK/golden.new"; then
+    echo "update-cloudinit-golden: the output golden_json is not two render hashes and two maps of file hashes:" >&2
+    cat "$WORK/golden.new" >&2
     return 1
   fi
-  printf '%s %s\n' "$a" "$b"
 }
 
 # write_golden <directory of the render test>: writes the golden file there.
@@ -60,19 +69,17 @@ hashes() {
 # example after a merge conflict) cannot stop the render. It is put back when
 # the render fails.
 write_golden() {
-  local dir="$1" out a b
+  local dir="$1"
   if [ -e "$dir/$GOLDEN_NAME" ]; then mv "$dir/$GOLDEN_NAME" "$WORK/golden.old"; fi
-  if ! out="$(hashes "$dir")"; then
+  if ! golden "$dir"; then
     if [ -e "$WORK/golden.old" ]; then mv "$WORK/golden.old" "$dir/$GOLDEN_NAME"; fi
     echo "update-cloudinit-golden: the render failed; $GOLDEN_NAME is unchanged" >&2
     return 1
   fi
   rm -f "$WORK/golden.old"
-  a="${out% *}"
-  b="${out#* }"
-  printf '{\n  "golden_hetzner": "%s",\n  "golden_huawei": "%s"\n}\n' "$a" "$b" > "$dir/$GOLDEN_NAME"
-  echo "golden_hetzner=$a"
-  echo "golden_huawei=$b"
+  cp "$WORK/golden.new" "$dir/$GOLDEN_NAME"
+  grep -E '^  "golden_[a-z]+": "' "$dir/$GOLDEN_NAME" | tr -d ' ",' | sed 's/:/=/'
+  echo "file hashes: $(grep -c -E '^    "/' "$dir/$GOLDEN_NAME")"
 }
 
 # run_test <directory>: runs the render test there; the output goes to $WORK/test.log.
@@ -132,6 +139,17 @@ self_test() {
   rm -f "$dir/$GOLDEN_NAME"
   expect fail 'run "golden"... fail' "a missing golden file fails the run"
 
+  # #7893: the file hashes. A changed line inside the packed Flux bootstrap
+  # document fails the hash of that file, and a wrong stored file hash fails
+  # the run even when the render hash is right.
+  fresh
+  sed -i 's|^        interval: 1m$|        interval: 2m|' "$tpl"
+  expect fail ':/var/lib/catalyst/flux-bootstrap.yaml' "a changed line of the packed Flux bootstrap document fails its file hash"
+
+  fresh
+  sed -i 's|^    "/var/lib/catalyst/sovereign.json": "[0-9a-f]*"|    "/var/lib/catalyst/sovereign.json": "0000000000000000000000000000000000000000000000000000000000000000"|' "$dir/$GOLDEN_NAME"
+  expect fail ':/var/lib/catalyst/sovereign.json' "a wrong stored file hash fails the run"
+
   # The writer: after the template changed, writing the golden file makes the run pass again.
   fresh
   printf 'golden_self_test: "an operative line"\n' >> "$tpl"
@@ -156,7 +174,7 @@ self_test() {
     echo "self-test FAILED"
     return 1
   fi
-  echo "self-test passed: 9 cases"
+  echo "self-test passed: 11 cases"
 }
 
 case "${1:-}" in

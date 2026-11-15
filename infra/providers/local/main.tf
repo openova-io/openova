@@ -9,8 +9,11 @@
 # workers boot cloudinit-worker.tftpl of this module.
 #
 # Two values of the shared render are set here after the render, each at a
-# text that must occur exactly once (the precondition on the control-plane
-# machine stops the plan otherwise):
+# text of its Flux bootstrap document that must occur exactly once (the
+# precondition on the control-plane machine stops the plan otherwise). The
+# render carries that document packed (gz+b64, #7893): the module decodes it,
+# sets the two values in the decoded text, which is the file the machine gets,
+# and packs it again:
 #   - the path of the Flux Kustomization bootstrap-kit becomes the reduced kit
 #     clusters/_template/providers/local/kit (scripts/generators/local-kit.py);
 #   - the substitutes of this pack (local.pack_substitutes) are written into
@@ -98,14 +101,19 @@ locals {
     POWERDNS_DNSDIST_HOSTPORT          = "true"
   } }
 
-  # The two texts of the shared render that this module changes.
-  kit_path_shared   = "\n        path: ./clusters/_template/bootstrap-kit\n"
-  kit_path_local    = "\n        path: ./clusters/_template/providers/local/kit\n"
-  substitute_anchor = "\n            WILDCARD_CERT_ISSUER: "
+  # The two texts of the Flux bootstrap document that this module changes,
+  # with the indentation of the decoded document (the file on the machine).
+  kit_path_shared   = "\n  path: ./clusters/_template/bootstrap-kit\n"
+  kit_path_local    = "\n  path: ./clusters/_template/providers/local/kit\n"
+  substitute_anchor = "\n      WILDCARD_CERT_ISSUER: "
 
   substitute_lines = { for code, subs in local.pack_substitutes : code => join("", [
-    for k in sort(keys(subs)) : "\n            ${k}: ${jsonencode(subs[k])}"
+    for k in sort(keys(subs)) : "\n      ${k}: ${jsonencode(subs[k])}"
   ]) }
+
+  # The packed write_files entry of the Flux bootstrap document in the shared
+  # render; its one group is the base64 text.
+  flux_bootstrap_entry_re = "\n  - path: /var/lib/catalyst/flux-bootstrap\\.yaml\n    permissions: '0644'\n    encoding: gz\\+b64\n    content: ([A-Za-z0-9+/=]+)\n"
 }
 
 resource "random_password" "k3s_server_token" {
@@ -208,19 +216,28 @@ locals {
     clustermesh_proxy_port        = var.clustermesh_proxy_port
   }) }
 
-  # The kit path and the pack substitutes, then the comment strip that the
-  # other modules apply.
+  # The Flux bootstrap document of each render, decoded ("" when the render
+  # has no such entry; the precondition then stops the plan).
+  flux_bootstrap_packed = { for code, raw in local.control_plane_render_raw : code => regexall(local.flux_bootstrap_entry_re, raw) }
+  flux_bootstrap_shared = { for code, m in local.flux_bootstrap_packed : code => length(m) == 1 ? base64gunzip(m[0][0]) : "" }
+
+  # The document this module boots: the kit path and the pack substitutes set.
+  control_plane_flux_bootstrap = { for code, doc in local.flux_bootstrap_shared : code => replace(
+    replace(doc, local.kit_path_shared, local.kit_path_local),
+    local.substitute_anchor, "${local.substitute_lines[code]}${local.substitute_anchor}",
+  ) }
+
+  # The render with that document packed in place of the shared one, then the
+  # comment strip that the other modules apply.
   control_plane_user_data = { for code, raw in local.control_plane_render_raw : code => replace(
-    replace(
-      replace(raw, local.kit_path_shared, local.kit_path_local),
-      local.substitute_anchor, "${local.substitute_lines[code]}${local.substitute_anchor}",
-    ),
+    length(local.flux_bootstrap_packed[code]) == 1 ? replace(raw, local.flux_bootstrap_packed[code][0][0], base64gzip(local.control_plane_flux_bootstrap[code])) : raw,
     "/(?m)^[ ]*#( |$).*\n/", "",
   ) }
 
-  # Each changed text occurs exactly once in each render.
-  render_texts_found = alltrue([for code, raw in local.control_plane_render_raw :
-    length(split(local.kit_path_shared, raw)) == 2 && length(split(local.substitute_anchor, raw)) == 2
+  # The packed entry occurs exactly once in each render, and each changed text
+  # exactly once in its decoded document.
+  render_texts_found = alltrue([for code, doc in local.flux_bootstrap_shared :
+    length(local.flux_bootstrap_packed[code]) == 1 && length(split(local.kit_path_shared, doc)) == 2 && length(split(local.substitute_anchor, doc)) == 2
   ])
 
   worker_user_data = { for name, m in local.workers : name => templatefile("${path.module}/cloudinit-worker.tftpl", {
@@ -337,7 +354,7 @@ resource "docker_container" "control_plane" {
 
     precondition {
       condition     = local.render_texts_found
-      error_message = "The shared template no longer holds exactly one line '        path: ./clusters/_template/bootstrap-kit' and exactly one line starting '            WILDCARD_CERT_ISSUER: '. The local module sets its kit path and its substitutes at these two texts."
+      error_message = "The shared template no longer holds exactly one packed (gz+b64) write_files entry /var/lib/catalyst/flux-bootstrap.yaml whose decoded document holds exactly one line '  path: ./clusters/_template/bootstrap-kit' and exactly one line starting '      WILDCARD_CERT_ISSUER: '. The local module sets its kit path and its substitutes at these two texts."
     }
   }
 }

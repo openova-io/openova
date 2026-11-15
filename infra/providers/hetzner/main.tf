@@ -1606,6 +1606,18 @@ locals {
       harbor_robot_token         = var.harbor_robot_token # #2842: seed harbor mirror auth on worker nodes
     }), "/(?m)^[ ]*#( |$).*\n/", "")
   }
+
+  # #7893 — the Flux bootstrap document of the primary and of each secondary
+  # control-plane render, decoded as cloud-init decodes it on the node. The
+  # render carries it packed (`encoding: gz+b64`), so its text is not in the
+  # render; tests/multi_region.tftest.hcl reads it here. Nothing else uses
+  # it, and null (never an error) when the entry is missing, so a plan cannot
+  # fail on it.
+  flux_bootstrap_entry_re      = "\n  - path: /var/lib/catalyst/flux-bootstrap\\.yaml\n    permissions: '0644'\n    encoding: gz\\+b64\n    content: ([A-Za-z0-9+/=]+)\n"
+  control_plane_flux_bootstrap = try(base64gunzip(regex(local.flux_bootstrap_entry_re, local.control_plane_cloud_init)[0]), null)
+  secondary_region_flux_bootstrap = {
+    for k, ud in local.secondary_region_cloud_init : k => try(base64gunzip(regex(local.flux_bootstrap_entry_re, ud)[0]), null)
+  }
 }
 
 # Per-secondary-region control-plane node — slice G1 lands single-CP per

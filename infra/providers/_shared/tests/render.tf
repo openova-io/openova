@@ -32,6 +32,22 @@ variable "golden_huawei" {
   default     = ""
 }
 
+# Golden files (#7893). The run "golden" also compares the SHA-256 of every
+# file cloud-init writes from each fixture (path => hash) with these maps,
+# written by scripts/update-cloudinit-golden.sh into the same file. The
+# default is empty, so the run fails when the values are missing.
+variable "golden_files_hetzner" {
+  description = "Expected SHA-256 of each file cloud-init writes from the hetzner fixture, by path."
+  type        = map(string)
+  default     = {}
+}
+
+variable "golden_files_huawei" {
+  description = "Expected SHA-256 of each file cloud-init writes from the huawei fixture, by path."
+  type        = map(string)
+  default     = {}
+}
+
 locals {
   # SOV-133: the variables document (contract C5,
   # docs/contracts/c5-upstream-variables.schema.json) that the provider modules
@@ -141,17 +157,17 @@ locals {
     clustermesh_proxy_port            = 12379
     # #5017 keystone — provider API CIDRs (inline-YAML array) for the step-08
     # deny-egress allow-list; every real templatefile() map supplies it.
-    provider_api_cidrs_yaml           = "[]"
-    k3s_extra_args                    = ""
-    registry_mirror_yaml              = "mirrors: {}"
-    catalyst_api_url                  = "https://console.example.test"
-    ghcr_pull_auth_b64                = "cmVuZGVyLXRlc3Q6cmVuZGVyLXRlc3Q="
-    harbor_robot_token                = "render-test-harbor-token"
-    kubeconfig_bearer_token           = "render-test-bearer"
-    pdm_basic_auth_user               = "render-test"
-    pdm_basic_auth_pass               = "render-test-pass"
-    powerdns_api_key                  = "render-test-pdns-key"
-    cloud_credentials_secret_yaml     = "apiVersion: v1\nkind: Secret\nmetadata:\n  name: cloud-credentials\n  namespace: flux-system\ndata: {}"
+    provider_api_cidrs_yaml       = "[]"
+    k3s_extra_args                = ""
+    registry_mirror_yaml          = "mirrors: {}"
+    catalyst_api_url              = "https://console.example.test"
+    ghcr_pull_auth_b64            = "cmVuZGVyLXRlc3Q6cmVuZGVyLXRlc3Q="
+    harbor_robot_token            = "render-test-harbor-token"
+    kubeconfig_bearer_token       = "render-test-bearer"
+    pdm_basic_auth_user           = "render-test"
+    pdm_basic_auth_pass           = "render-test-pass"
+    powerdns_api_key              = "render-test-pdns-key"
+    cloud_credentials_secret_yaml = "apiVersion: v1\nkind: Secret\nmetadata:\n  name: cloud-credentials\n  namespace: flux-system\ndata: {}"
     # Provider-injected runcmd/file blocks: empty on this render branch (the
     # conditional if-not-empty guards short-circuit them), which is enough to
     # exercise the infrastructure-config + namespace-create + flux-bootstrap
@@ -174,10 +190,50 @@ locals {
   # to a comment line of the template does not change these values.
   sha256_by_fixture = { for fixture, raw in local.rendered_raw_by_fixture : fixture => sha256(replace(raw, "/(?m)^[ ]*#( |$).*\n/", "")) }
 
+  # #7893: the files cloud-init writes, as it writes them. Each write_files
+  # entry of each fixture's render (comment lines stripped), keyed by path:
+  # a packed entry (`encoding: gz+b64`) is decoded with base64gunzip, the
+  # same decoding cloud-init applies, and a plain entry is the YAML string.
+  # An entry with any other encoding fails the render on purpose.
+  files_by_fixture = { for fixture, raw in local.rendered_raw_by_fixture : fixture => {
+    for f in yamldecode(replace(raw, "/(?m)^[ ]*#( |$).*\n/", "")).write_files :
+    f.path => (
+      try(f.encoding, "") == "gz+b64" ? base64gunzip(f.content) :
+      try(f.encoding, "") == "" ? f.content :
+      file("unsupported write_files encoding ${f.encoding} of ${f.path}")
+    )
+  } }
+
+  # The golden file hashes: the SHA-256 of each such file. They pin what a
+  # node finds on its disk, independent of how the render carries it, so a
+  # change of the carriage (for example packing a file) that keeps every file
+  # byte for byte keeps these values.
+  file_sha256_by_fixture = { for fixture, files in local.files_by_fixture : fixture => { for p, c in files : p => sha256(c) } }
+
+  # The whole of golden.auto.tfvars.json as scripts/update-cloudinit-golden.sh
+  # writes it: the render hash of each fixture, then its file hashes, one
+  # file per line.
+  golden_json = format("{\n%s\n}\n", join(",\n", concat(
+    [for fixture in sort(keys(local.sha256_by_fixture)) : format("  %q: %q", "golden_${fixture}", local.sha256_by_fixture[fixture])],
+    [for fixture in sort(keys(local.file_sha256_by_fixture)) : format("  %q: {\n%s\n  }", "golden_files_${fixture}", join(",\n", [
+      for p in sort(keys(local.file_sha256_by_fixture[fixture])) : format("    %q: %q", p, local.file_sha256_by_fixture[fixture][p])
+    ]))]
+  )))
+
+  files = local.files_by_fixture[var.provider_name]
+
+  # The Flux bootstrap document as the node has it. It travels packed, so
+  # every check of its content reads it here, not in the render.
+  flux_bootstrap_yaml = local.files["/var/lib/catalyst/flux-bootstrap.yaml"]
+
+  # The render and every file it writes, decoded: the subject of the checks
+  # that something appears nowhere a node reads.
+  boot_text = join("\n", concat([local.rendered_cloud_init], [for p in sort(keys(local.files)) : local.files[p]]))
+
   # The infrastructure-config Kustomization spec: `path:` and `prune:` MUST be
   # on separate lines (#4513 regression — an endif tilde collapsed them).
-  path_line_jammed  = length(regexall("infrastructure(/hetzner)?[ ]+prune:", local.rendered_cloud_init)) > 0
-  prune_on_own_line = length(regexall("(?m)^[ ]+prune: true$", local.rendered_cloud_init)) > 0
+  path_line_jammed  = length(regexall("infrastructure(/hetzner)?[ ]+prune:", local.flux_bootstrap_yaml)) > 0
+  prune_on_own_line = length(regexall("(?m)^[ ]+prune: true$", local.flux_bootstrap_yaml)) > 0
 
   # The namespace-create loop must NOT pass two NAMEs to a single
   # `create namespace` (#4513 — "exactly one NAME is required, got 2").
@@ -196,17 +252,17 @@ locals {
   # (`infrastructure-config`, the ProviderConfig + CloudAdoption claims) is a
   # COMMITTED Flux Kustomization CR in the providers/ tree (kept OFF the
   # byte-capped cloud-init), asserted separately below against the repo file.
-  has_providers_kustomization = length(regexall("(?m)^[ ]+name: infrastructure-providers$", local.rendered_cloud_init)) > 0
+  has_providers_kustomization = length(regexall("(?m)^[ ]+name: infrastructure-providers$", local.flux_bootstrap_yaml)) > 0
 
   # The inline Provider-install layer must point at the providers/ tree (NOT
   # the config tree) so it carries ONLY the Provider package CRs. The path is
   # the same on every cloud: CLD-023 deleted the Hetzner overlay.
-  providers_path_correct = length(regexall("(?m)^[ ]+path: ./clusters/_template/infrastructure/providers$", local.rendered_cloud_init)) > 0
+  providers_path_correct = length(regexall("(?m)^[ ]+path: ./clusters/_template/infrastructure/providers$", local.flux_bootstrap_yaml)) > 0
 
   # LAYER 2 must NOT be re-inlined into cloud-init (the #1981/#3884 byte-cap
   # regression class): no operative `name: infrastructure-config` Kustomization
-  # line in the rendered cloud-init.
-  config_not_inlined = length(regexall("(?m)^[ ]+name: infrastructure-config$", local.rendered_cloud_init)) == 0
+  # line in the rendered cloud-init, nor in any file it writes.
+  config_not_inlined = length(regexall("(?m)^[ ]+name: infrastructure-config$", local.boot_text)) == 0
 
   # The committed LAYER-2 Flux Kustomization CR (one, for every cloud) must
   # exist and `dependsOn: [infrastructure-providers]` — the ordering gate that
@@ -278,6 +334,26 @@ output "variables_env" {
 
 output "variables_env_written" {
   value = local.variables_env_written
+}
+
+output "flux_bootstrap_yaml" {
+  value = local.flux_bootstrap_yaml
+}
+
+output "boot_text" {
+  value = local.boot_text
+}
+
+output "files_sha256_hetzner" {
+  value = local.file_sha256_by_fixture["hetzner"]
+}
+
+output "files_sha256_huawei" {
+  value = local.file_sha256_by_fixture["huawei"]
+}
+
+output "golden_json" {
+  value = local.golden_json
 }
 
 output "sha256_hetzner" {
