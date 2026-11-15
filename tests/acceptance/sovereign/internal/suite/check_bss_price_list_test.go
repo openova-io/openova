@@ -48,9 +48,10 @@ func (f *priceListSovereign) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Access-Control-Allow-Origin", "https://marketplace.sov.test")
 		}
 		w.WriteHeader(status)
-		if status == http.StatusOK {
+		switch status {
+		case http.StatusOK:
 			_, _ = io.WriteString(w, f.doc)
-		} else if status == http.StatusBadGateway {
+		case http.StatusBadGateway:
 			_, _ = io.WriteString(w, "<html>502 Bad Gateway</html>")
 		}
 	case "marketplace.sov.test /api/catalog/plans":

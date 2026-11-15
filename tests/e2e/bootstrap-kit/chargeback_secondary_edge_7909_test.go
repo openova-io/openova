@@ -39,7 +39,7 @@ import (
 
 func cbLoadHR(t *testing.T, root, file, name string) map[string]any {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join(root, "clusters", "_template", "bootstrap-kit", file))
+	raw, err := os.ReadFile(filepath.Join(root, "clusters", "_template", "bootstrap-kit", file)) //nolint:gosec // a slot file of this repository, named by the test
 	if err != nil {
 		t.Fatalf("read %s: %v", file, err)
 	}
@@ -73,7 +73,7 @@ func cbDig(v any, path ...string) any {
 
 func cbRender(t *testing.T, helmBin, dir string, args ...string) []map[string]any {
 	t.Helper()
-	cmd := exec.Command(helmBin, append([]string{"template"}, args...)...)
+	cmd := exec.Command(helmBin, append([]string{"template"}, args...)...) //nolint:gosec // helm on PATH or HELM_BIN, arguments fixed by the test
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {

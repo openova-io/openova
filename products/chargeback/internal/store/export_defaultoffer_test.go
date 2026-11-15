@@ -9,6 +9,6 @@ func (s *Store) SetDefaultOfferStateForTest(ctx context.Context, state string) e
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	return setDefaultOffer(ctx, conn, state, "")
 }

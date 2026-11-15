@@ -93,7 +93,7 @@ func (s *Store) EnsureDefaultOffer(ctx context.Context, o offer.Offer, actor str
 	if err != nil {
 		return DefaultOfferResult{}, err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	if _, err := conn.ExecContext(ctx, `SELECT pg_advisory_lock($1)`, defaultOfferLock); err != nil {
 		return DefaultOfferResult{}, fmt.Errorf("default offer: take the lock: %w", err)
 	}
