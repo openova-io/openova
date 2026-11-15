@@ -25,9 +25,10 @@ func TestDispatch(t *testing.T) {
 		code int
 		line string
 	}{
-		{nil, 1, `{"command":"","result":"failed","evidence":[],"error":"usage: sovereign-ops <subcommand> [flags]; subcommands: [probe seed-repo]"}`},
-		{[]string{"no-such"}, 1, `{"command":"no-such","result":"failed","evidence":[],"error":"unknown subcommand \"no-such\"; subcommands: [probe seed-repo]"}`},
+		{nil, 1, `{"command":"","result":"failed","evidence":[],"error":"usage: sovereign-ops <subcommand> [flags]; subcommands: [probe seed-repo sovereign-object]"}`},
+		{[]string{"no-such"}, 1, `{"command":"no-such","result":"failed","evidence":[],"error":"unknown subcommand \"no-such\"; subcommands: [probe seed-repo sovereign-object]"}`},
 		{[]string{"seed-repo"}, 1, `{"command":"seed-repo","result":"failed","evidence":[],"error":"usage: seed-repo --region <id> --git-url <url> --git-token-file <file> [--repo <owner>/<name>]"}`},
+		{[]string{"sovereign-object", "x"}, 1, `{"command":"sovereign-object","result":"failed","evidence":[],"error":"usage: sovereign-object"}`},
 		{[]string{"probe", "x"}, 0, `{"command":"probe","result":"success","evidence":["ran x"],"error":""}`},
 		{[]string{"probe", "--retry"}, 75, `{"command":"probe","result":"failed","evidence":["tried"],"error":"probe\ntransient: no answer"}`},
 	} {

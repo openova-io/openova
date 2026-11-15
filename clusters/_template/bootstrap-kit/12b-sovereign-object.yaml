@@ -1,0 +1,51 @@
+# Slot 12b — the writer of the Sovereign object, in every region (SOV-175).
+#
+# The Flux Kustomization `sovereign-object` applies
+# clusters/_template/sovereign-object/ on every region's own cluster:
+#   - the Sovereign kind, from products/catalyst/chart/crds/sovereign.yaml, the
+#     file bp-catalyst-platform (slot 13) ships. Slot 13 is suspended in every
+#     region but the primary (SECONDARY_HR_SUSPEND), so without this slot a
+#     follower region has no Sovereign kind;
+#   - the service account of the writer and its rights;
+#   - the Job that runs `sovereign-ops sovereign-object`, which writes the one
+#     Sovereign object of the region (core/cmd/sovereign-ops/internal/
+#     sovereignobject).
+#
+# No suspend and no region condition: every region needs its own object.
+# wait: false, so a failing writer Job never holds bootstrap-kit; the Job's
+# own status and result line tell whether the object was written.
+#
+# Re-run. The Job is named sovereign-object-<NETWORK_REGISTRY_REVISION>, a key
+# of the ConfigMap flux-system/sovereign-network-registry that the parent
+# writes into every region at hand-over (products/catalyst/bootstrap/api/
+# internal/lifecycle/network_registry.go). The ConfigMap is optional here:
+# before hand-over the Job is sovereign-object-bootstrap and writes the spec
+# only. A new registry gives a new name, so Flux creates the new Job and
+# prunes the old one. force: true lets a new image tag replace the Job.
+#
+# The image tag below is written by .github/workflows/build-sovereign-ops.yaml
+# after every image built on main.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: sovereign-object
+  namespace: flux-system
+spec:
+  interval: 10m
+  retryInterval: 1m
+  timeout: 2m
+  path: ./clusters/_template/sovereign-object
+  prune: true
+  wait: false
+  force: true
+  sourceRef:
+    kind: GitRepository
+    name: openova
+  images:
+    - name: ghcr.io/openova-io/openova/sovereign-ops
+      newTag: 08a0bb3
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: sovereign-network-registry
+        optional: true

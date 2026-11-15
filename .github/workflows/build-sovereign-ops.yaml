@@ -5,7 +5,10 @@ name: Build sovereign-ops
 # module's tests and builds the image without pushing it, so a broken
 # Containerfile turns the pull request red. On main it also pushes the image
 # as ghcr.io/openova-io/openova/sovereign-ops:<short SHA> and signs it with
-# cosign (keyless). CI writes the tag; no file in the repository pins it yet.
+# cosign (keyless). Then it writes that tag into the one pin of the image,
+# the images entry of the Kustomization sovereign-object in
+# clusters/_template/bootstrap-kit/12b-sovereign-object.yaml (SOV-175), and
+# pushes the pin to main with the release-writer key.
 
 on:
   push:
@@ -98,3 +101,25 @@ jobs:
           digest: ${{ steps.build.outputs.digest }}
           release-key: ${{ secrets.RELEASE_COSIGN_KEY }}
           release-key-password: ${{ secrets.RELEASE_COSIGN_PASSWORD }}
+
+      # SOV-175: the writer of the Sovereign object runs this image in every
+      # region. The slot holds exactly one newTag line; a pin that is not found
+      # fails the job instead of pushing nothing.
+      - name: Pin the image in the slot of the Sovereign object writer
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          SHA_SHORT: ${{ steps.vars.outputs.sha_short }}
+        run: |
+          set -euo pipefail
+          f=clusters/_template/bootstrap-kit/12b-sovereign-object.yaml
+          test "$(grep -c '^      newTag: [0-9a-f]\{7,40\}$' "$f")" = 1
+          sed -i "s/^      newTag: [0-9a-f]\{7,40\}\$/      newTag: ${SHA_SHORT}/" "$f"
+          grep -x "      newTag: ${SHA_SHORT}" "$f"
+
+      - name: Push the pin
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: ./.github/actions/deploy-bump
+        with:
+          paths: clusters/_template/bootstrap-kit/12b-sovereign-object.yaml
+          commit-message: "deploy: pin sovereign-ops ${{ steps.vars.outputs.sha_short }} in the Sovereign object writer (Refs SOV-175)"
+          release-writer-key: ${{ secrets.RELEASE_WRITER_KEY }}

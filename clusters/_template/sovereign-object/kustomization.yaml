@@ -1,0 +1,22 @@
+# The writer of the Sovereign object, applied in every region by the Flux
+# Kustomization sovereign-object (bootstrap-kit slot 12b, SOV-175).
+#
+# The Sovereign kind is the file bp-catalyst-platform ships, not a copy. In the
+# primary region both apply it; the content is the same. The kind is never
+# pruned (deleting it would delete the object) and never substituted (its
+# patterns hold the character $).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../../products/catalyst/chart/crds/sovereign.yaml
+  - rbac.yaml
+  - job.yaml
+patches:
+  - patch: |-
+      apiVersion: apiextensions.k8s.io/v1
+      kind: CustomResourceDefinition
+      metadata:
+        name: sovereigns.catalyst.openova.io
+        annotations:
+          kustomize.toolkit.fluxcd.io/prune: disabled
+          kustomize.toolkit.fluxcd.io/substitute: disabled

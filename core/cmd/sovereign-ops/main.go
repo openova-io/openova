@@ -16,12 +16,14 @@ import (
 
 	"github.com/openova-io/openova/core/cmd/sovereign-ops/internal/ops"
 	"github.com/openova-io/openova/core/cmd/sovereign-ops/internal/seedrepo"
+	"github.com/openova-io/openova/core/cmd/sovereign-ops/internal/sovereignobject"
 )
 
 // subcommands is the dispatcher's table. A subcommand is one entry here and
 // one package under internal/.
 var subcommands = map[string]func(ctx context.Context, args []string, stderr io.Writer) ([]string, error){
-	"seed-repo": seedrepo.Main,
+	"seed-repo":        seedrepo.Main,
+	"sovereign-object": sovereignobject.Main,
 }
 
 func main() {

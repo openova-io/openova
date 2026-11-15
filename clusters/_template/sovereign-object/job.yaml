@@ -1,0 +1,55 @@
+# One run of `sovereign-ops sovereign-object` (SOV-175). The name carries the
+# revision of the network registry (NETWORK_REGISTRY_REVISION of the ConfigMap
+# flux-system/sovereign-network-registry), so the writer runs at bootstrap and
+# again whenever the parent writes a new registry. The image tag comes from
+# the images entry of the Kustomization sovereign-object (slot 12b).
+#
+# Exit code 1 is a failure that a retry does not change: the Job fails at
+# once. Any other failure (75, transient) is retried up to backoffLimit.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sovereign-object-${NETWORK_REGISTRY_REVISION:=bootstrap}
+  namespace: flux-system
+  labels:
+    app.kubernetes.io/name: sovereign-object
+    app.kubernetes.io/part-of: sovereign-ops
+spec:
+  backoffLimit: 6
+  podFailurePolicy:
+    rules:
+      - action: FailJob
+        onExitCodes:
+          containerName: sovereign-object
+          operator: In
+          values: [1]
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sovereign-object
+        app.kubernetes.io/part-of: sovereign-ops
+    spec:
+      serviceAccountName: sovereign-object
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: sovereign-object
+          image: ghcr.io/openova-io/openova/sovereign-ops
+          args: [sovereign-object]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          terminationMessagePolicy: FallbackToLogsOnError

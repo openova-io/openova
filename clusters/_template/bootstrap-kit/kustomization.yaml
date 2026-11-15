@@ -64,6 +64,7 @@ resources:
   # MUST be registered here or Flux never creates the HR (the #3191
   # forgotten-slot wedge class).
   - 12a-bp-sovereign-tls-vars.yaml
+  - 12b-sovereign-object.yaml
   - 13-bp-catalyst-platform.yaml
   # G91.1 #2652 — bp-sso-bridge framework. Reconciler that watches
   # every G91-opted-in HelmRelease (`spec.values.sso.enabled: true`)
