@@ -30,6 +30,7 @@
 // asserted directly in the tests, not left to inspection.
 
 import type { SessionHint } from './sessionHint';
+import { consoleHostSlug } from './storedOrg';
 
 /** Where the console lands a signed-in visitor. */
 const CONSOLE_LANDING_PATH = '/dashboard';
@@ -50,7 +51,20 @@ export type ReturningVisitorReason =
 
 export type ReturningVisitorDecision =
   | { redirect: false; reason: Exclude<ReturningVisitorReason, 'session-hint'> }
-  | { redirect: true; reason: 'session-hint'; url: string };
+  | {
+      redirect: true;
+      reason: 'session-hint';
+      url: string;
+      /**
+       * #7922 — set when `url` comes from the browser's STORED console host
+       * rather than from the session hint. The caller must not navigate until
+       * the server confirms an Organization with this slug still exists
+       * (`./storedOrg` decideStoredOrg): a Sovereign installed again under
+       * the same marketplace host leaves the previous installation's stamp
+       * behind, and following it lands on a console that no longer exists.
+       */
+      verifySlug?: string;
+    };
 
 export interface ReturningVisitorInput {
   /** `window.location.hostname`, e.g. `marketplace.t92.omani.works`. */
@@ -63,7 +77,9 @@ export interface ReturningVisitorInput {
    * `localStorage['org-active-console-host']` — the SERVER-authoritative
    * console host stamped at signup (#4176). It is the only source that
    * knows an Org's chosen POOL parent domain, which is frequently NOT the
-   * marketplace's own domain, so it wins over any derivation.
+   * marketplace's own domain, so it wins over any derivation — but it is
+   * browser memory and can outlive the Organization (#7922), so a decision
+   * built on it carries `verifySlug`.
    */
   stampedConsoleHost?: string;
 }
@@ -75,7 +91,9 @@ export interface ReturningVisitorInput {
  *   1. opt-out tenants never bounce, whatever the session says;
  *   2. no hint → no redirect (the pre-#5940 behaviour, unchanged);
  *   3. the stamped server-authoritative console host, when it names this
- *      Org (a stamp for a DIFFERENT Org must never misroute this one);
+ *      Org (a stamp for a DIFFERENT Org must never misroute this one) —
+ *      returned with `verifySlug`, because the stamp is browser memory and
+ *      the server must confirm the Organization still exists (#7922);
  *   4. `marketplace.<sov>` → `console.<slug>.<sov>`, or `console.<sov>`
  *      for a Sovereign-admin session that carries no slug;
  *   5. anything else → no redirect. Never a mothership fallback.
@@ -89,13 +107,19 @@ export function resolveReturningVisitor(
   const host = (input.host || '').toLowerCase().trim();
   const org = (input.hint.org || '').toLowerCase().trim();
   const stamped = (input.stampedConsoleHost || '').toLowerCase().trim();
+  const stampSlug = consoleHostSlug(stamped);
 
-  if (stamped.startsWith('console.')) {
+  if (stampSlug) {
     // Trust the stamp only when it names THIS Org, or when the session
     // carries no Org at all (a Sovereign-admin session has no slug to
-    // contradict it).
-    if (!org || stamped.startsWith(`console.${org}.`)) {
-      return { redirect: true, reason: 'session-hint', url: consoleURL(stamped) };
+    // contradict it) — and then only once the server confirms it (#7922).
+    if (!org || stampSlug === org) {
+      return {
+        redirect: true,
+        reason: 'session-hint',
+        url: consoleURL(stamped),
+        verifySlug: stampSlug,
+      };
     }
   }
 

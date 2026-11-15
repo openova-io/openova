@@ -178,6 +178,67 @@ describe('resolveRedeemDestination — which page the visitor lands on', () => {
     expect(out.url).toBeUndefined();
   });
 
+  // ── #7922: the stamp outlived its Organization ───────────────────────
+  // hw307 was installed again under the same marketplace host; the browser
+  // still remembered the previous installation's Organization console.
+  describe('a remembered console host is followed only after the server confirms it (#7922)', () => {
+    const STALE = {
+      skipConsoleRedirect: false,
+      token: '',
+      fetchOrgs: orgMesh({ token: '', consoleSessionCookie: true }),
+      hint: { org: '' },
+      host: 'marketplace.hw307.omani.works',
+      stampedConsoleHost: 'console.oldorg.omani.rest',
+    };
+
+    it('THE DEFECT: the server has no such Organization -> funnel, keys dropped', async () => {
+      const asked: string[] = [];
+      let forgotten = 0;
+      const out = await resolveRedeemDestination({
+        ...STALE,
+        checkStoredOrg: async (slug) => {
+          asked.push(slug);
+          return { endpoint: 'check-slug', status: 200, body: { available: true } };
+        },
+        forgetStoredOrg: () => { forgotten += 1; },
+      });
+      expect(asked).toEqual(['oldorg']);
+      expect(out).toEqual({ destination: 'funnel', reason: 'stored-org-gone' });
+      expect(forgotten).toBe(1);
+    });
+
+    it('CONTROL: the server knows it -> the stamped console, keys kept', async () => {
+      let forgotten = 0;
+      const out = await resolveRedeemDestination({
+        ...STALE,
+        checkStoredOrg: async () => ({ endpoint: 'check-slug', status: 200, body: { available: false } }),
+        forgetStoredOrg: () => { forgotten += 1; },
+      });
+      expect(out.destination).toBe('console');
+      expect(out.url).toBe('https://console.oldorg.omani.rest/dashboard');
+      expect(forgotten).toBe(0);
+    });
+
+    it('fails CLOSED when the server cannot be asked: funnel, keys kept', async () => {
+      let forgotten = 0;
+      for (const answer of [
+        { endpoint: 'check-slug' as const, status: 503, body: null },
+        { endpoint: 'check-slug' as const, status: 0, body: null },
+      ]) {
+        const out = await resolveRedeemDestination({
+          ...STALE,
+          checkStoredOrg: async () => answer,
+          forgetStoredOrg: () => { forgotten += 1; },
+        });
+        expect(out).toEqual({ destination: 'funnel', reason: 'stored-org-unverified' });
+      }
+      // No checker at all is the same as no answer: never follow the stamp.
+      const out = await resolveRedeemDestination({ ...STALE });
+      expect(out).toEqual({ destination: 'funnel', reason: 'stored-org-unverified' });
+      expect(forgotten).toBe(0);
+    });
+  });
+
   it('CONTROL: an opt-out Organization is not bounced even WITH a hint', async () => {
     const out = await resolveRedeemDestination({
       skipConsoleRedirect: true,
@@ -215,6 +276,14 @@ describe('redeem.astro actually consumes the hint (#5940)', () => {
 
   it('navigates to the resolved URL rather than re-deriving one', () => {
     expect(pageSrc).toMatch(/window\.location\.replace\(outcome\.url\)/);
+  });
+
+  it('wires the server check and the drop for a remembered console host (#7922)', () => {
+    // Without these two the resolver can never confirm a stamp, so a stamp
+    // is never followed — correct, but a silently disconnected check would
+    // also strand every returning customer whose Organization is live.
+    expect(pageSrc).toMatch(/checkStoredOrg:\s*\(slug: string\) => checkOrgSlug\(/);
+    expect(pageSrc).toMatch(/forgetStoredOrg:\s*\(\) => forgetStoredOrg\(localStorage\)/);
   });
 
   // CONTROL — proves these greps can report absence. If this ever passes as

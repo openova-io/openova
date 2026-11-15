@@ -157,6 +157,9 @@ import Layout from '../layouts/Layout.astro';
     // catalyst-api sets alongside it. No token, no claims — see
     // ../lib/sessionHint.ts.
     import { currentSessionHint } from '../lib/sessionHint';
+    // #7922: a console host the browser REMEMBERS is followed only after the
+    // server confirms its Organization still exists; a gone one is dropped.
+    import { checkOrgSlug, forgetStoredOrg } from '../lib/storedOrg';
     // #5634 (UAT row 92): the response-to-panel decision lives in a plain module
     // so it can be unit-tested; this page keeps only the DOM writes that need the
     // response body.
@@ -296,6 +299,8 @@ import Layout from '../layouts/Layout.astro';
         hint: currentSessionHint(),
         host: window.location.hostname,
         stampedConsoleHost: stampedConsoleHost,
+        checkStoredOrg: (slug: string) => checkOrgSlug(slug, (url: string) => fetch(url)),
+        forgetStoredOrg: () => forgetStoredOrg(localStorage),
       });
 
       if (outcome.destination === 'funnel') {
@@ -303,7 +308,10 @@ import Layout from '../layouts/Layout.astro';
         // with no live Organization, and a visitor whose probe the Organization
         // mesh could not authenticate AND who carried no session hint
         // (`reason === 'probe-unauthenticated'` — a genuinely anonymous
-        // visitor, now that #5940 gives a signed-in one a readable signal).
+        // visitor, now that #5940 gives a signed-in one a readable signal),
+        // and (#7922) a visitor whose remembered console host the server no
+        // longer knows (`stored-org-gone`, keys dropped) or could not confirm
+        // (`stored-org-unverified`, keys kept).
         // Funnelling rather than trapping is deliberate: nobody is ever stuck
         // on a dead shim.
         runFunnel();
