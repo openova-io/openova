@@ -1,0 +1,52 @@
+schema: openova.io/plan-wrong/v1
+id: SEC-103
+ticket_rev: 1
+base_commit: 44691746f06381a8668730716b73b083c93e69ca
+stage: check
+ref: regenerate and prove no diff
+command: |
+    gh api repos/openova-io/openova/actions/jobs/132668099155/logs | grep -B 40 -m 1 '##\[error\]' | cut -c30-300
+expected: |
+    the check finishes green
+actual: |
+    [build-catalog]   unlisted: 77
+    [build-catalog]   private:  0
+    ##[group]Run set -euo pipefail
+    set -euo pipefail
+    cp ../api/internal/catalog/blueprints.json /tmp/first.json
+    node scripts/build-catalog.mjs
+    if ! diff -q /tmp/first.json ../api/internal/catalog/blueprints.json >/dev/null; then
+      echo "::error::build-catalog.mjs is NOT deterministic — two consecutive runs on identical input produced different output."
+      diff -u /tmp/first.json ../api/internal/catalog/blueprints.json | head -40 || true
+      exit 1
+    fi
+    echo "deterministic: two consecutive runs are byte-identical"
+    shell: /usr/bin/bash -e {0}
+    ##[endgroup]
+    [build-catalog] wrote 98 blueprints to /home/runner/work/openova/openova/products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts
+    [build-catalog] wrote 98 blueprints to /home/runner/work/openova/openova/products/catalyst/bootstrap/api/internal/catalog/blueprints.json
+    [build-catalog]   listed:   21
+    [build-catalog]   unlisted: 77
+    [build-catalog]   private:  0
+    deterministic: two consecutive runs are byte-identical
+    ##[group]Run set -euo pipefail
+    set -euo pipefail
+    if ! git diff --quiet -- \
+        products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts \
+        products/catalyst/bootstrap/api/internal/catalog/blueprints.json; then
+      echo "::error::The committed generated catalog is stale (#5520). Run 'node scripts/build-catalog.mjs' in products/catalyst/bootstrap/ui and COMMIT the result — do not revert it."
+      echo ""
+      echo "Drift:"
+      git --no-pager diff --stat -- \
+        products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts \
+        products/catalyst/bootstrap/api/internal/catalog/blueprints.json
+      git --no-pager diff -- \
+        products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts \
+        products/catalyst/bootstrap/api/internal/catalog/blueprints.json | head -80
+      exit 1
+    fi
+    echo "generated catalog is in sync with build-catalog.mjs"
+    shell: /usr/bin/bash -e {0}
+    ##[endgroup]
+    ##[error]The committed generated catalog is stale (#5520). Run 'node scripts/build-catalog.mjs' in products/catalyst/bootstrap/ui and COMMIT the result — do not revert it.
+reported_at: 2026-11-15T02:18:36Z
