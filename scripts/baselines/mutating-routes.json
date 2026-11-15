@@ -1,3 +1,3 @@
 {"schema": "openova.io/guard-baseline/v1",
  "counts": {"open_cluster_writers": {"docs/contracts/C9-mutating-routes.yaml": 40}},
- "allow": []}
+ "allow": [{"metric": "open_cluster_writers", "path": "docs/contracts/C9-mutating-routes.yaml", "count": 1, "owner": "SOV", "reason": "PUT /api/v1/sovereign/release starts the release Job itself until SOV-520 makes it a commit that release-sync reads (#7922)"}]}
