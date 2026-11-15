@@ -4819,7 +4819,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.1.18"
+  version: "0.1.19"
   visibility: unlisted
   card:
     title: "PowerDNS-Admin"
@@ -4836,7 +4836,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-powerdns-admin
-    version: "0.1.18"
+    version: "0.1.19"
   topology:
     supported:
       - singleton

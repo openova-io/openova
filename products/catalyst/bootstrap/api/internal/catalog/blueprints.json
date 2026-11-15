@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-15T22:25:30.647Z",
+  "generatedAt": "2026-11-15T22:25:34.557Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -4185,7 +4185,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "0.1.18",
+      "version": "0.1.19",
       "section": "pts-2-3-per-sovereign-supporting-services",
       "depends": [
         "bp-powerdns",
