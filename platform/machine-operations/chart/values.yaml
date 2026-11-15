@@ -1,7 +1,7 @@
 # bp-machine-operations values.
 #
-# At these defaults the chart renders nothing: only the two definitions of
-# crds/ are installed. The kit slot that installs the Blueprint sets `enabled`
+# At these defaults the chart renders nothing: only the definitions of crds/
+# are installed. The kit slot that installs the Blueprint sets `enabled`
 # and `image`.
 
 # Switches the chart on: the inventory controller's Deployment, its service

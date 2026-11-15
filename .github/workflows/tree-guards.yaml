@@ -325,6 +325,12 @@ jobs:
       - name: 'secret-guards | G9 delivery lint'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: bash scripts/check-secret-delivery-lint.sh
+      - name: 'secret-guards | G10 and G11 self-test'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: bash scripts/check-secret-object-register.sh --self-test
+      - name: 'secret-guards | G10 the exception register and the chart sources, G11 the threat model'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: bash scripts/check-secret-object-register.sh
       - name: 'access-guards | Self-test of the guards'
         if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
         run: bash scripts/check-access-guards.sh --self-test
