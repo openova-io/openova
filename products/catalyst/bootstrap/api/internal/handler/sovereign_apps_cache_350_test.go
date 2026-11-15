@@ -38,6 +38,7 @@ var appsCacheKinds = map[string]schema.GroupVersionResource{
 	"helmrelease": helmReleaseGVR,
 	"httproute":   httpRouteGVR,
 	"application": applicationGVR,
+	"blueprint":   blueprintCRGVR(), // #7922 — catalog row versions
 }
 
 // appsCacheObjects is one cluster state whose answer does not depend on the
@@ -63,9 +64,10 @@ func appsCacheObjects() []runtime.Object {
 
 func appsCacheDyn(objs []runtime.Object) *dynamicfake.FakeDynamicClient {
 	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{
-		helmReleaseGVR: "HelmReleaseList",
-		httpRouteGVR:   "HTTPRouteList",
-		applicationGVR: "ApplicationList",
+		helmReleaseGVR:   "HelmReleaseList",
+		httpRouteGVR:     "HTTPRouteList",
+		applicationGVR:   "ApplicationList",
+		blueprintCRGVR(): "BlueprintList",
 	}, objs...)
 }
 
@@ -95,7 +97,7 @@ func appsCacheRig(t *testing.T, liveObjs, cacheObjs []runtime.Object, cachedKind
 	var synced []string
 	for _, kind := range cachedKinds {
 		name := strings.TrimPrefix(kind, "!")
-		if err := reg.Add(k8scache.Kind{Name: name, GVR: appsCacheKinds[name], Namespaced: true}); err != nil {
+		if err := reg.Add(k8scache.Kind{Name: name, GVR: appsCacheKinds[name], Namespaced: name != "blueprint"}); err != nil {
 			t.Fatalf("registry add %s: %v", name, err)
 		}
 		if name == kind {
@@ -157,14 +159,14 @@ func TestSovereignAppsCache_SyncedCacheMakesNoLiveListAndGivesTheSameAnswer(t *t
 
 	live, liveLists := appsCacheRig(t, objs, nil)
 	want := appsCacheGet(t, live)
-	appsCacheWantLists(t, liveLists, "applications", "helmreleases", "httproutes")
+	appsCacheWantLists(t, liveLists, "applications", "blueprints", "helmreleases", "httproutes")
 	for _, s := range []string{`"id":"ctl350-app"`, `"org":"acme"`, `"environment":"acme-prod"`, `"externalURL":"https://gitea.` + appsCacheFQDN + `"`} {
 		if !strings.Contains(want, s) {
 			t.Fatalf("the live answer lacks %s, so the comparison below would prove nothing: %s", s, want)
 		}
 	}
 
-	cached, cachedLists := appsCacheRig(t, nil, objs, "helmrelease", "httproute", "application")
+	cached, cachedLists := appsCacheRig(t, nil, objs, "helmrelease", "httproute", "application", "blueprint")
 	for round := 1; round <= 3; round++ {
 		if got := appsCacheGet(t, cached); got != want {
 			t.Fatalf("round %d: the answer from the cache differs from the live answer\ncache: %s\nlive:  %s", round, got, want)
@@ -179,7 +181,7 @@ func TestSovereignAppsCache_AKindWhoseInformerHasNotSyncedIsListedLiveOnce(t *te
 	live, _ := appsCacheRig(t, objs, nil)
 	want := appsCacheGet(t, live)
 
-	h, lists := appsCacheRig(t, objs, objs, "helmrelease", "httproute", "!application")
+	h, lists := appsCacheRig(t, objs, objs, "helmrelease", "httproute", "!application", "blueprint")
 	if got := appsCacheGet(t, h); got != want {
 		t.Fatalf("the answer differs from the live answer\ngot:  %s\nlive: %s", got, want)
 	}
@@ -189,9 +191,9 @@ func TestSovereignAppsCache_AKindWhoseInformerHasNotSyncedIsListedLiveOnce(t *te
 func TestSovereignAppsCache_TheMothershipNeverReadsTheCache(t *testing.T) {
 	t.Setenv("SOVEREIGN_FQDN", "")
 	other := []runtime.Object{makeApplication("other-sovereign-app", "org-other", "other-prod")}
-	h, lists := appsCacheRig(t, appsCacheObjects(), other, "helmrelease", "httproute", "application")
+	h, lists := appsCacheRig(t, appsCacheObjects(), other, "helmrelease", "httproute", "application", "blueprint")
 	got := appsCacheGet(t, h)
-	appsCacheWantLists(t, lists, "applications", "helmreleases", "httproutes")
+	appsCacheWantLists(t, lists, "applications", "blueprints", "helmreleases", "httproutes")
 	if strings.Contains(got, "other-sovereign-app") || !strings.Contains(got, `"id":"ctl350-app"`) {
 		t.Fatalf("the answer must come from the live client alone: %s", got)
 	}
@@ -204,7 +206,7 @@ func TestSovereignAppsCache_ObjectsComeInNamespaceSlashNameOrder(t *testing.T) {
 		makeApplication("one", "a", "e"),
 		makeApplication("two", "a-b", "e"),
 	}
-	h, lists := appsCacheRig(t, nil, objs, "helmrelease", "httproute", "application")
+	h, lists := appsCacheRig(t, nil, objs, "helmrelease", "httproute", "application", "blueprint")
 	for round := 1; round <= 5; round++ {
 		got := appsCacheGet(t, h)
 		two, one, three := strings.Index(got, `"id":"two"`), strings.Index(got, `"id":"one"`), strings.Index(got, `"id":"three"`)
