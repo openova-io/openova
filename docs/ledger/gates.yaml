@@ -2147,6 +2147,7 @@ checks:
   needs: []
   proof: running
   asserts: 'Secret census: unmatched Secret objects in platform namespaces are at or below the limit'
+  implemented_by: SEC-095
   delivered_by: SEC-096
 - id: SEC-G12
   title: The proof Application runs with no secretKeyRef and no Secret holding its credentials
