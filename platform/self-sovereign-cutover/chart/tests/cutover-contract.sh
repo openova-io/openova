@@ -2100,7 +2100,7 @@ if ! awk '/^kind: ClusterRole$/,/^---$/' "$TMP/render.yaml" | grep -A3 'resource
 fi
 echo "  PASS (Step-07 Phase 4 comprehensive pod-spec sweep: containers+initContainers, shared resolver, presence-gated, reversible annotation, default enabled; RBAC wired)"
 
-echo "[cutover-contract] Case 46: Step-01 gitea-mirror force-pushes the default branch FIRST, then tags, then remaining branches in bounded batches — never mirror mode, never prunes sovereign-local branches (#6754, Refs #5011 #6490 #3379 #4991)"
+echo "[cutover-contract] Case 46: Step-01 gitea-mirror force-pushes the default branch FIRST, then tags, and no other upstream branch — never mirror mode, never prunes sovereign-local branches (#6754 #7922, Refs #5011 #6490 #3379 #4991)"
 # hw242 live (dep f05b0718dac62fe9, 2026-07-12): step-01's mirror-mode force-push
 # made the local Gitea openova/openova EXACTLY match a fresh bare clone of GitHub,
 # DELETING the sovereign-LOCAL branches catalog-sovereign (catalyst-api catalog
@@ -2111,8 +2111,9 @@ echo "[cutover-contract] Case 46: Step-01 gitea-mirror force-pushes the default 
 # plus the ~511 MiB pack then DIED after the ref advertisement ("pkt-line 3 EOF"),
 # so the whole-repo-in-one-push had to be split. The durable contract now: push
 # the default branch FIRST (fatal; carries the bulk pack in one ref-command), then
-# tags (fatal), then the remaining branches in bounded best-effort batches — still
-# explicit refspecs (never --mirror, which prunes refs it did not create), so
+# tags (fatal), and nothing else (#7922 — the remaining-branch batches had no
+# consumer and cost 28 min on hw307) — still explicit refspecs (never --mirror,
+# which prunes refs it did not create), so
 # sovereign-local refs survive. Slice step-01's CM (same pattern as Case 45's
 # step-07 slice — from the CM name to the next step's order label).
 awk '/cutover-step-01-gitea-mirror/{c=1} c{print} c&&/cutover-order: "2"/{exit}' "$TMP/render.yaml" > "$TMP/step01_mirror.txt"
@@ -2134,11 +2135,14 @@ if ! grep -qF "'refs/tags/*:refs/tags/*'" "$TMP/step01_mirror.txt"; then
   echo "FAIL: Step-01 push missing the refs/tags/*:refs/tags/* refspec — upstream tags would not sync (#5011)" >&2
   exit 1
 fi
-# (4) #6754 — the REMAINING branches push in bounded batches: enumerate refs/heads
-# via for-each-ref and push per-ref refspecs. The old single 'refs/heads/*:
-# refs/heads/*' glob (all heads in one receive-pack) must be GONE.
-if ! grep -qF 'git for-each-ref --format=' "$TMP/step01_mirror.txt"; then
-  echo "FAIL: Step-01 does not enumerate remaining branches via for-each-ref for the bounded batched push (#6754)" >&2
+# (4) #7922 — NO other upstream branch is pushed: no consumer on a Sovereign reads
+# one, and on hw307 the 2,733 of them cost 28 of the step's 33 minutes (one
+# `gitea hook update` process + one Actions workflow scan per ref). The #6754
+# for-each-ref batches are gone, and the old single 'refs/heads/*:refs/heads/*'
+# glob (all heads in one receive-pack) must stay GONE.
+# step7922-gitea-mirror-refs.sh executes the rendered script against fixtures.
+if grep -qF -e 'git for-each-ref --format=' -e '${batch}' "$TMP/step01_mirror.txt"; then
+  echo "FAIL: Step-01 still enumerates and pushes the remaining upstream branches — no consumer reads them, and each costs a hook process + an Actions scan (#7922)" >&2
   exit 1
 fi
 if grep -qF "'refs/heads/*:refs/heads/*'" "$TMP/step01_mirror.txt"; then
@@ -2152,12 +2156,12 @@ if grep -qF -- '--mirror' "$TMP/step01_mirror.txt"; then
   echo "FAIL: Step-01 contains '--mirror' — mirror mode prunes sovereign-local branches (catalog-sovereign, org-tenants) (#5011)" >&2
   exit 1
 fi
-# (6) no branch-DELETE refspec may survive — the batched push only ever ADDS refs.
+# (6) no branch-DELETE refspec may survive — the push only ever ADDS/updates refs.
 if grep -qE 'git push[^|]*--delete|git push[^|]*--prune' "$TMP/step01_mirror.txt"; then
   echo "FAIL: Step-01 push deletes/prunes refs — the batched mirror must only update/create upstream refs, never remove sovereign-local ones (#6754, Refs #5011)" >&2
   exit 1
 fi
-echo "  PASS (Step-01 force-pushes the default branch first, then tags, then remaining branches via for-each-ref in bounded batches; the whole-repo 'refs/heads/*' glob and mirror mode are absent — sovereign-local branches survive and the ~2,436-branch push cannot die in one receive-pack)"
+echo "  PASS (Step-01 force-pushes the default branch first, then tags, and no other upstream branch; the whole-repo 'refs/heads/*' glob, the remaining-branch batches and mirror mode are absent — sovereign-local branches survive)"
 
 echo "[cutover-contract] Case 47: Step-08 deny-egress CCNP allows the IaaS provider API CIDRs — egressTest.allowProviderCIDRs threads into PROVIDER_API_CIDRS + the CCNP writer's toCIDR loop (#5017 keystone, Refs #4596 #3379)"
 # hw242 live (2026-07-12): the deny-egress hold omitted the Huawei kom4dc API

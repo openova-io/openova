@@ -2604,16 +2604,16 @@ data:
              written later (measured 2026-08-14).
             */}}
             {{- /*
-             This step is the last of the chain. Past its verdict it releases the
-             install hold of kured in every region (values rebootHold): the ConfigMap
-             is the values document that slot 04b reads, and bp-kured then drops its lock.
+             Last step of the chain: past its verdict it releases kured's install hold in every region
+             (values rebootHold) by writing the ConfigMap slot 04b reads; one line per region (#7922).
             */}}
             reboot_hold_release() {
               for rh_kc in "" /secondary-kubeconfigs/*.yaml; do
                 [ -z "${rh_kc}" ] || [ -e "${rh_kc}" ] || continue
                 kubectl ${rh_kc:+--kubeconfig "${rh_kc}"} -n {{ .Values.rebootHold.namespace }} create configmap {{ .Values.rebootHold.configMapName }} --from-literal={{ .Values.rebootHold.valuesKey }}={{ .Values.rebootHold.releaseValues | squote }} >/dev/null 2>&1 \
                   || kubectl ${rh_kc:+--kubeconfig "${rh_kc}"} -n {{ .Values.rebootHold.namespace }} get configmap {{ .Values.rebootHold.configMapName }} >/dev/null 2>&1 \
-                  || echo "[egress-block-test] WARNING: the reboot hold of region $(basename "${rh_kc:-primary}" .yaml) is NOT released: ConfigMap {{ .Values.rebootHold.namespace }}/{{ .Values.rebootHold.configMapName }} could not be written, so kured restarts no node there until it exists"
+                  || { echo "[egress-block-test] WARNING: the reboot hold of region $(basename "${rh_kc:-primary}" .yaml) is NOT released: ConfigMap {{ .Values.rebootHold.namespace }}/{{ .Values.rebootHold.configMapName }} could not be written, so kured restarts no node there until it exists"; continue; }
+                echo "[egress-block-test] reboot hold released in region $(basename "${rh_kc:-primary}" .yaml): ConfigMap {{ .Values.rebootHold.namespace }}/{{ .Values.rebootHold.configMapName }} present; bp-kured (interval 1m) applies it within a minute"
               done
             }
             if [ "${POLICY_APPLIED}" != "yes" ]; then

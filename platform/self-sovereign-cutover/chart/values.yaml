@@ -156,16 +156,10 @@ upstream:
 gitea:
   org: "openova"
   repo: "openova"
-  # #6754 — remaining-branch push batch size. The mirror pushes the default
-  # branch first (it carries the bulk pack in one ref-command), then tags, then
-  # the remaining upstream branches in bounded batches of this many refspecs. A
-  # single git-receive-pack of all ~2,436 upstream branch refs plus the ~511 MiB
-  # pack dies after the ref advertisement (the "pkt-line 3 EOF" class, #6490);
-  # splitting the branch refs into bounded batches keeps each receive-pack small
-  # (near-empty packs, since every object already shipped under the default
-  # branch) and durable against upstream branch re-accumulation. Applies to BOTH
-  # the primary (01-gitea-mirror-job) and the secondary-region mirror script.
-  pushBatchBranches: 200
+  # #7922 — the mirror (step-01 primary + the secondary-region script) pushes
+  # ONLY upstream.branch and the tags: no consumer on a Sovereign reads any other
+  # upstream branch. The #6754 `pushBatchBranches` knob for the remaining-branch
+  # batches is gone with them.
   # Shape of the admin secret created by bp-gitea's templates.
   # Keys: username, password, token (optional). Job uses BasicAuth
   # username:password against /api/v1 + git push.
@@ -3572,12 +3566,16 @@ secondaryRegions:
 # below. Slot 04b reads it as Helm values (`valuesFrom`, optional). Its one
 # value tells kured to take its lock in kured's own default annotation, which
 # bp-kured never writes, in place of the annotation that holds the install
-# hold; the next reconcile of bp-kured rolls kured with it. The value is a
-# plain string, so every Helm version merges it the same way (a null that
-# removes a key of a subchart is not kept by all of them).
+# hold; the next reconcile of bp-kured rolls kured with it. helm-controller
+# does not watch the ConfigMap, so slot 04b reconciles every minute (#7922: at
+# 15m the release landed 2m19s and 13m07s after the ConfigMap). The same value
+# turns the annotation that held the hold into the word "released", so the
+# DaemonSet no longer reads as held to a person or a watcher (kured reads it
+# no more). Each value is a plain string, so every Helm version merges it the
+# same way (a null that removes a key of a subchart is not kept by all of them).
 # The ConfigMap is created once and never changed; a re-run of the
-# step finds it and leaves it. A region where the write fails keeps its hold
-# and the step says so in its log.
+# step finds it and leaves it. The step prints one line per region: released,
+# or a WARNING naming the region whose write failed, which keeps its hold.
 #
 # tests/reboot-hold-release.sh runs the rendered release against a recording
 # kubectl, checks that slot 04b names this ConfigMap and key, and renders
@@ -3587,4 +3585,4 @@ rebootHold:
   configMapName: bp-kured-install-hold
   valuesKey: values.yaml
   # One line of JSON (which is YAML): it is passed to kubectl as one literal.
-  releaseValues: '{"kured":{"configuration":{"lockAnnotation":"weave.works/kured-node-lock"}}}'
+  releaseValues: '{"kured":{"configuration":{"lockAnnotation":"weave.works/kured-node-lock"},"dsAnnotations":{"catalyst.openova.io/kured-install-hold":"released"}}}'

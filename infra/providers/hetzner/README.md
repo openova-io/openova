@@ -360,7 +360,7 @@ Both `cloudinit-control-plane.tftpl` and `cloudinit-worker.tftpl` apply the same
 | Item | Variable (default) | What happens |
 |---|---|---|
 | sshd drop-in | always on | `/etc/ssh/sshd_config.d/99-catalyst-hardening.conf` sets `PasswordAuthentication no`, `KbdInteractiveAuthentication no`, `PermitRootLogin prohibit-password`, disables forwarding, tightens `MaxAuthTries=3` and `LoginGraceTime=30`. The `ssh-rsa`/`ssh-ed25519` key Hetzner injects via `ssh_keys[]` is the only path in. |
-| `unattended-upgrades` | `enable_unattended_upgrades=true` | Daily security-only upgrades on Ubuntu, restricted to the `*-security` pocket. Auto-reboot at 02:30 if a kernel upgrade requires it; the LB health check covers the ~60 s window. Removes unused kernels to keep `/boot` from filling. |
+| `unattended-upgrades` | `enable_unattended_upgrades=true` | Installs and enables the package. Its configuration (daily security-only upgrades, unused kernels removed, never a reboot) is written by bp-kured's `node-patch-config` on every node; a node that needs a reboot is restarted by kured, never by itself, and never a control-plane node (#7905, #7922). |
 | `fail2ban` (sshd jail) | `enable_fail2ban=true` | Defence-in-depth in case `ssh_allowed_cidrs` is later widened. `maxretry=5`, `findtime=10m`, `bantime=1h`, systemd backend. |
 
 The hardening explicitly does **not** include AppArmor profile authoring, kernel-module blacklisting, or a CIS Level-2 sweep. Those are a Phase-2 task delivered by a Kyverno policy + a privileged DaemonSet (`bp-cis-hardening`), not Phase-0 cloud-init.

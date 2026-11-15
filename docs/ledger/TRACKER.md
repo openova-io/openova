@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-15T19:00:03Z` |
+| Last refreshed | `2026-11-15T20:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7677](https://github.com/openova-io/openova/issues/7677) | SVC-080 Function tests: GitOps, registry and certificate charts | Other |
 | [#7678](https://github.com/openova-io/openova/issues/7678) | SVC-090 Function tests: network, names and edge charts | Other |
 | [#7689](https://github.com/openova-io/openova/issues/7689) | The admission rule for ExternalSecret keys refuses every request on a running cl | Other |
 | [#7692](https://github.com/openova-io/openova/issues/7692) | FND-039 The suite writes the provision block of a cloud record | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#7908](https://github.com/openova-io/openova/issues/7908) | a fresh two-region Sovereign: the two regions' Harbor sign registry tokens with  | Other |
 | [#7909](https://github.com/openova-io/openova/issues/7909) | a fresh Sovereign: the billing engine publishes no offer, the storefront silentl | Other |
 | [#7912](https://github.com/openova-io/openova/issues/7912) | a fresh two-region Sovereign: the second gate run's failures traced to source (O | Other |
+| [#7922](https://github.com/openova-io/openova/issues/7922) | flight 3: defects that healed alone | Other |
 
 ---
 

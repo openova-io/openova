@@ -42,13 +42,14 @@ restarted last and necessarily diverges from at least the other region's secret 
 region-B's admin BasicAuth then 401s against the shared DB and the in-region mint
 (which itself needs admin BasicAuth) cannot even run (hw305 dep b2b00ce4c833badf).
 
-Push (#6754 BUG 2). A single git-receive-pack of all ~2,436 upstream branch refs
-plus the ~511 MiB pack dies after the ref advertisement (the "pkt-line 3 EOF"
-class). The push is therefore batched: the default branch FIRST (fatal — it
-carries the bulk pack in one ref-command), then tags (fatal), then the remaining
-branches in bounded best-effort batches (near-empty packs, since every object
-already shipped under the default branch). Durable against upstream branch
-re-accumulation — no dependency on branch cleanup.
+Push (#6754 BUG 2, #7922). A single git-receive-pack of all ~2,436 upstream
+branch refs plus the ~511 MiB pack dies after the ref advertisement (the
+"pkt-line 3 EOF" class), so the default branch goes FIRST on its own
+ref-command (fatal — it carries the bulk pack), then tags (fatal). #7922: and
+that is all — no consumer on a Sovereign reads any other upstream branch, so
+the remaining-branch batches are gone, and Gitea Actions is switched off on the
+repository before the push (no Sovereign runs a runner). Same shape and reason
+as step-01; see the #7922 comment in 01-gitea-mirror-job.yaml.
 
 RENDER-GATED: emitted only when secondaryRegions.mirrorToSecondaryGitea is true,
 so a single-region Sovereign renders byte-identical (this whole object absent).
@@ -180,16 +181,25 @@ data:
     fi
     cd upstream.git
 
-    # #6754 BUG 2 — batched, default-branch-first force-push. A single
-    # git-receive-pack of all upstream branch refs plus the ~511 MiB pack dies
-    # after the ref advertisement (the pkt-line 3 EOF class). Ship the default
-    # branch FIRST (fatal — it carries the bulk pack in one ref-command), then
-    # tags (fatal), then the remaining branches in bounded best-effort batches
-    # (near-empty packs, objects already present). Never mirror mode (#5011) — we
-    # only push refs the upstream owns, so sovereign-local refs are untouched.
+    # #7922 — push ONLY the upstream refs a Sovereign reads: the default branch
+    # (fatal — it carries the bulk pack in one ref-command, #6754), then tags
+    # (fatal). Every consumer reads ${UPSTREAM_BRANCH} or a sovereign-local branch;
+    # the other ~2,700 upstream branches had none, and on a Gitea with its hooks
+    # installed each one cost a `gitea hook update` process plus an Actions
+    # workflow scan (step-01 took 33 min on hw307). Actions is switched off on the
+    # repository first (best-effort; no Sovereign runs a runner). Never mirror
+    # mode (#5011) — sovereign-local refs are untouched.
     default_branch="${UPSTREAM_BRANCH}"
-    batch_size="${PUSH_BATCH_BRANCHES}"
-    echo "[secondary-mirror] pushing upstream default branch (${default_branch}), tags, then remaining branches in bounded batches of ${batch_size}"
+    echo "[secondary-mirror] pushing upstream default branch (${default_branch}) and tags — the only upstream refs a Sovereign reads (#7922)"
+    actions_meta=$(curl -fsS --max-time 60 -X PATCH \
+        -H "Authorization: token ${GITEA_PAT}" -H "Content-Type: application/json" \
+        -d '{"has_actions":false}' \
+        "${api_url}/repos/${GITEA_ORG}/${GITEA_REPO}" 2>/dev/null || echo "{}")
+    if printf '%s' "${actions_meta}" | grep -q '"has_actions":false'; then
+      echo "[secondary-mirror] Gitea Actions off on ${GITEA_ORG}/${GITEA_REPO} (no runner on a Sovereign)"
+    else
+      echo "[secondary-mirror] WARN: could not switch Gitea Actions off on ${GITEA_ORG}/${GITEA_REPO} — the push still lands"
+    fi
     if ! push_err=$(git -c http.extraHeader="Authorization: Basic ${token_auth}" push --force "${push_url}" "refs/heads/${default_branch}:refs/heads/${default_branch}" 2>&1); then
       echo "[secondary-mirror] FATAL: git push of the default branch (${default_branch}) to the region-local Gitea failed" >&2
       printf '%s\n' "${push_err}" | sed -E "s,${GITEA_PAT}+,REDACTED,g" >&2
@@ -200,34 +210,7 @@ data:
       printf '%s\n' "${push_err}" | sed -E "s,${GITEA_PAT}+,REDACTED,g" >&2
       exit 1
     fi
-    batch=""
-    n=0
-    extra=0
-    skipped_batches=0
-    for ref in $(git for-each-ref --format='%(refname)' refs/heads/); do
-      if [ "${ref}" = "refs/heads/${default_branch}" ]; then continue; fi
-      batch="${batch} ${ref}:${ref}"
-      n=$((n + 1))
-      if [ "${n}" -ge "${batch_size}" ]; then
-        if git -c http.extraHeader="Authorization: Basic ${token_auth}" push --force "${push_url}" ${batch} >/dev/null 2>&1; then
-          extra=$((extra + n))
-        else
-          skipped_batches=$((skipped_batches + 1))
-          echo "[secondary-mirror] a ${n}-branch batch did not fully land (best-effort; default branch + tags already pushed)"
-        fi
-        batch=""
-        n=0
-      fi
-    done
-    if [ "${n}" -gt 0 ]; then
-      if git -c http.extraHeader="Authorization: Basic ${token_auth}" push --force "${push_url}" ${batch} >/dev/null 2>&1; then
-        extra=$((extra + n))
-      else
-        skipped_batches=$((skipped_batches + 1))
-        echo "[secondary-mirror] the final ${n}-branch batch did not fully land (best-effort; default branch + tags already pushed)"
-      fi
-    fi
-    echo "[secondary-mirror] pushed all upstream refs (default branch + tags fatal, ${extra} more branch(es) best-effort in ${batch_size}-ref batches, ${skipped_batches} batch(es) deferred; sovereign-local refs untouched)"
+    echo "[secondary-mirror] pushed all upstream refs a Sovereign reads (${default_branch} + tags; no other upstream branch is pushed, #7922; sovereign-local refs untouched)"
 
     # 5. ls-remote self-verify — the #6490 ordering gate. The region's Gitea must
     #    serve a COMPLETE ref advertisement (the class that truncated at pkt-line
@@ -313,8 +296,6 @@ data:
                   value: {{ .Values.gitea.org | quote }}
                 - name: GITEA_REPO
                   value: {{ .Values.gitea.repo | quote }}
-                - name: PUSH_BATCH_BRANCHES
-                  value: {{ .Values.gitea.pushBatchBranches | quote }}
                 {{- /*
                  #6754 — a PAT is accepted as the git-HTTP password under ANY
                  username; use the plain gitRepositorySecretRef.username (matches
