@@ -1,0 +1,112 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: machineruns.machines.openova.io
+  labels:
+    app.kubernetes.io/name: bp-machine-operations
+spec:
+  group: machines.openova.io
+  scope: Namespaced
+  names:
+    kind: MachineRun
+    listKind: MachineRunList
+    singular: machinerun
+    plural: machineruns
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Policy
+          type: string
+          jsonPath: .spec.policyRef.name
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: |
+            MachineRun is the record of one operation on the machines a policy selects.
+            It is not desired state and is never committed to Git. The operations
+            controller starts one runner Job per target, fills the status and deletes
+            the run when its retention time has passed. Fields that are not listed here
+            are dropped.
+          required: [spec]
+          properties:
+            apiVersion: {type: string}
+            kind: {type: string}
+            metadata: {type: object}
+            spec:
+              type: object
+              required: [kind, policyRef, requestedBy]
+              x-kubernetes-validations:
+                - rule: self == oldSelf
+                  message: spec is immutable
+              properties:
+                kind: {type: string, enum: [scan]}
+                policyRef:
+                  type: object
+                  description: The policy, in the namespace of this run, that allows the run.
+                  required: [kind, name]
+                  properties:
+                    kind: {type: string, enum: [ScanPolicy]}
+                    name: {type: string, minLength: 1, maxLength: 253}
+                targets:
+                  type: array
+                  default: []
+                  maxItems: 1000
+                  x-kubernetes-list-type: set
+                  description: Machines as <namespace>/<name>. Empty means every machine the policy selects.
+                  items: {type: string, maxLength: 317, pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?/[a-z0-9]([-.a-z0-9]*[a-z0-9])?$'}
+                requestedBy:
+                  type: string
+                  minLength: 1
+                  maxLength: 320
+                  description: An e-mail address, or controller for a run the operations controller created.
+                reason: {type: string, maxLength: 1024}
+            status:
+              type: object
+              properties:
+                phase: {type: string, enum: [Pending, Running, Succeeded, PartiallyFailed, Failed]}
+                startedAt: {type: string, format: date-time}
+                finishedAt: {type: string, format: date-time}
+                counts:
+                  type: object
+                  description: The number of finished targets per outcome.
+                  additionalProperties: {type: integer}
+                targets:
+                  type: array
+                  maxItems: 1000
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [machine]
+                  items:
+                    type: object
+                    required: [machine]
+                    properties:
+                      machine:
+                        type: string
+                        description: The Machine as <namespace>/<name>.
+                      outcome:
+                        type: string
+                        description: Absent until the target has finished.
+                        enum: [Succeeded, NoChange, Failed, Incomplete, Unreachable, AuthFailed, IdentityMismatch, NoAddress, Refused, WindowClosed, Timeout, Cancelled, Killed]
+                      message:
+                        type: string
+                        maxLength: 1024
+                        description: One line.
+                      jobName: {type: string}
+                      startedAt: {type: string, format: date-time}
+                      finishedAt: {type: string, format: date-time}
+                      evidence:
+                        type: array
+                        description: The object keys of the files the run stored in the evidence bucket.
+                        items: {type: string}
+                      reportName:
+                        type: string
+                        description: The PolicyReport, in the namespace of the Machine, that this target last wrote.

@@ -1,4 +1,4 @@
-apiVersion: catalyst.openova.io/v1alpha1
+apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-spire

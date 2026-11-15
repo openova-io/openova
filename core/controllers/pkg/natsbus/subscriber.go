@@ -8,7 +8,7 @@
 // (separate Go module from core/services/shared/events) — copying the
 // ~80 LOC of JetStream connect + durable-consumer attach is cheaper
 // than dragging the entire core/services/shared/events package
-// (BrokerPublisher / MultiSubscriber / Kafka transport) into a
+// (BrokerPublisher / MultiSubscriber) into a
 // controller binary that only needs to subscribe.
 //
 // What the controllers do with each envelope is up to the caller —
@@ -98,8 +98,8 @@ const (
 // Event is the JSON envelope on every catalyst.* subject. The shape
 // mirrors core/services/shared/events.Event exactly — fields are
 // duplicated here (rather than imported) to keep the controllers
-// module free of a dependency on core/services/shared, which pulls
-// in franz-go + Kafka transports the controllers never touch.
+// module free of a dependency on core/services/shared and its
+// service-side bus code, which the controllers never touch.
 type Event struct {
 	ID        string            `json:"id"`
 	Type      string            `json:"type"`
@@ -124,8 +124,7 @@ type Subscriber struct {
 //
 // Returns an error if the broker is unreachable; the caller (main.go)
 // is expected to either bail out (NATS is canonical on Sovereigns) or
-// log and continue (Catalyst-Zero / contabo, where REDPANDA_BROKERS
-// is the authoritative bus).
+// log and continue (the informer requeue is the canonical fallback).
 func Connect(url string) (*Subscriber, error) {
 	if url == "" {
 		url = nats.DefaultURL

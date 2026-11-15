@@ -1,0 +1,78 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: hardeningbaselines.machines.openova.io
+  labels:
+    app.kubernetes.io/name: bp-machine-operations
+spec:
+  group: machines.openova.io
+  scope: Namespaced
+  names:
+    kind: HardeningBaseline
+    listKind: HardeningBaselineList
+    singular: hardeningbaseline
+    plural: hardeningbaselines
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - name: Release
+          type: string
+          jsonPath: .spec.content.release
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: |
+            HardeningBaseline names the hardening content and, per operating-system
+            release, the profile of that content a machine is evaluated against. It is
+            desired state, read by the operations controller for a ScanPolicy whose
+            profiles contain hardening. Fields that are not listed here are dropped.
+          required: [spec]
+          properties:
+            apiVersion: {type: string}
+            kind: {type: string}
+            metadata: {type: object}
+            spec:
+              type: object
+              required: [content, profiles]
+              properties:
+                content:
+                  type: object
+                  required: [source, release]
+                  properties:
+                    source: {type: string, enum: [complianceascode]}
+                    release:
+                      type: string
+                      pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+                      description: The release of the content, such as 0.1.82. A release that the runner image does not hold gives the outcome Refused.
+                profiles:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [osFamily, osVersion]
+                  description: One entry per operating-system release. A machine whose family and version equal no entry is reported as skip with the reason no-profile-for-release.
+                  items:
+                    type: object
+                    required: [osFamily, osVersion, profileId]
+                    properties:
+                      osFamily: {type: string, pattern: '^[a-z][a-z0-9]{0,31}$'}
+                      osVersion:
+                        type: string
+                        pattern: '^[0-9]{1,4}(\.[0-9]{1,4}){0,2}$'
+                        description: Compared for equality with the version of the Machine. There is no nearest-version fallback.
+                      profileId: {type: string, maxLength: 253, pattern: '^xccdf_[A-Za-z0-9.-]+_profile_[A-Za-z0-9_.-]+$'}
+                tailoring:
+                  type: object
+                  properties:
+                    disabledRules:
+                      type: array
+                      default: []
+                      maxItems: 500
+                      x-kubernetes-list-type: set
+                      description: Rule identifiers of the content that are not evaluated.
+                      items: {type: string, maxLength: 253, pattern: '^xccdf_[A-Za-z0-9.-]+_rule_[A-Za-z0-9_.-]+$'}

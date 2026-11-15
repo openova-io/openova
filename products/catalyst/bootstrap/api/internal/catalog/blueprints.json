@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-14T22:48:16.260Z",
+  "generatedAt": "2026-11-15T02:44:31.326Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -1763,7 +1763,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.2.49",
+      "version": "0.2.50",
       "section": "pts-3-1-networking-and-service-mesh",
       "depends": [
         "bp-keycloak",
@@ -2915,7 +2915,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "section": null,
       "depends": [],
       "shareable": false,
@@ -3455,7 +3455,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "1.4.161",
+      "version": "1.4.162",
       "section": "pts-4-6-llm-serving",
       "depends": [
         "bp-cnpg",

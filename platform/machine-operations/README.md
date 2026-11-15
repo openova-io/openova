@@ -1,7 +1,7 @@
 # bp-machine-operations
 
 Machine operations on the machines a Sovereign runs on, starting with an
-inventory of the cluster's own Nodes.
+inventory of the cluster's own Nodes and with scheduled scans of them.
 
 ## Role in Catalyst
 
@@ -13,13 +13,16 @@ place of a Blueprint in the model.
 
 ## What this version ships
 
-The chart holds the two custom resource definitions, in `chart/crds/`, and the
+The chart holds five custom resource definitions, in `chart/crds/`, and the
 templates of the inventory controller:
 
 | Kind | Written by | Meaning |
 |---|---|---|
 | `MachineSource` | chart values or Git | One place machines are read from. Type `nodes` lists the Kubernetes Nodes of the cluster. |
-| `Machine` | the inventory controller only | One machine a source saw. An observation, never committed to Git. |
+| `Machine` | the inventory controller only | One machine a source saw. An observation, never committed to Git. The operations controller adds `status.sbom`. |
+| `ScanPolicy` | chart values or Git | Which machines are scanned, with which profiles (`inventory`, `hardening`) and on which cron schedule. |
+| `HardeningBaseline` | chart values or Git | The hardening content and, per operating-system release, the profile a machine is evaluated against. |
+| `MachineRun` | the operations controller only | The record of one scan: its targets, the outcome of each and the files it stored. Never committed to Git. |
 
 The inventory controller is the binary `machine-controller` of the
 catalyst-api module (`products/catalyst/bootstrap/api/cmd/machine-controller`),
@@ -51,6 +54,27 @@ chart also renders the built-in source `nodes` (type `nodes`) in namespace
   it is deleted.
 - Each Machine carries exactly five labels, written by the controller:
   `machines.openova.io/class`, `ownership`, `os-family`, `phase` and `source`.
+
+## How a scan runs
+
+The operations controller is the same binary with `--controllers=operations`
+(code: `products/catalyst/bootstrap/api/internal/machines/operations/`). This
+chart does not run it yet; its Deployment comes with a later version.
+
+- At each time of a ScanPolicy's `spec.schedule` (five-field cron, UTC) the
+  controller creates one MachineRun. It waits for that exact time; there is no
+  loop with a fixed period.
+- The targets are the selected Machines of class `node` that are `Active` and
+  not quarantined. A target of a scheduled run starts at its own stable offset
+  inside `spec.jitter`, at most `spec.maxParallel` at a time.
+- One Job of the image `machine-runner` (`products/machine-runner/`) scans a
+  target on its Node, one container per profile. The Job writes no object. A
+  Job without a parsable result document is `Failed` with `no-result`; a
+  document that does not say `completed` is `Incomplete`, and nothing is written.
+- `inventory` sets `Machine.status.sbom`. `hardening` writes the `PolicyReport`
+  `machine-<machine>-hardening`: one result per rule, the worst 200 first. A
+  release without a profile in the baseline is `skip`, never `pass`. A finished
+  MachineRun is deleted after `--runs-retention` (default `720h`).
 
 ## Configuration
 
