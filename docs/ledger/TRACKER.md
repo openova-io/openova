@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-15T22:30:05Z` |
+| Last refreshed | `2026-11-15T22:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -312,6 +312,7 @@ flowchart LR
 | 2026-11-15T22:10 | [#7933](https://github.com/openova-io/openova/pull/7933) | #7922 | fix(bp-guacamole): the mesh secondary retires the admin-enro |
 | 2026-11-15T22:10 | [#7932](https://github.com/openova-io/openova/pull/7932) | #7922 | fix(acceptance): discovery retries transport errors; an unre |
 | 2026-11-15T22:10 | [#7931](https://github.com/openova-io/openova/pull/7931) | #7922 | fix(marketplace): drop a remembered Organization the server  |
+| 2026-11-15T22:36 | [#7930](https://github.com/openova-io/openova/pull/7930) | #7922 | fix(cutover): after cutover a Sovereign runs the release it  |
 | 2026-11-15T22:10 | [#7929](https://github.com/openova-io/openova/pull/7929) | #7922 | fix(cutover): step 03 keeps the parent's proxy and ends only |
 | 2026-11-15T20:22 | [#7928](https://github.com/openova-io/openova/pull/7928) | #7922 | fix(cutover): step 01 pushes only the default branch and tag |
 | 2026-11-15T20:21 | [#7927](https://github.com/openova-io/openova/pull/7927) | #7922 | fix(catalyst-api): a catalog row reports the Sovereign's cat |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-15T10:35 | [#7904](https://github.com/openova-io/openova/pull/7904) | #7901 | fix(openbao): a fresh two-region installation initialises Op |
 | 2026-11-15T08:08 | [#7899](https://github.com/openova-io/openova/pull/7899) | #7087 | docs(ledger): plan update |
 | 2026-11-15T04:01 | [#7898](https://github.com/openova-io/openova/pull/7898) | #7893 | fix(provisioning): the control-plane user data fits the clou |
-| 2026-11-15T02:42 | [#7896](https://github.com/openova-io/openova/pull/7896) | #7805 | feat(machines): kinds ScanPolicy, HardeningBaseline and Mach |
 
 ---
 
