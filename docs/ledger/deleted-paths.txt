@@ -148,3 +148,6 @@ products/catalyst/bootstrap/api/internal/handler/openova_flow_proxy_test.go
 core/services/shared/events/dlq.go
 core/services/shared/events/dlq_test.go
 core/services/shared/events/topics.go
+platform/guacamole/chart/templates/keycloak-client-secret.yaml
+platform/guacamole/chart/templates/oidc-secret-bootstrap-job.yaml
+platform/netbird/chart/templates/sealed-secret-management.yaml

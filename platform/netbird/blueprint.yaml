@@ -43,8 +43,6 @@ spec:
       version: ^1
     - blueprint: bp-cilium
       version: ^1
-    - blueprint: bp-sealed-secrets
-      version: ^1
   topology:
     supported:
       - active-hot-standby

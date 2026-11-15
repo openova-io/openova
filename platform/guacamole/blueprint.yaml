@@ -57,8 +57,6 @@ spec:
       version: ^1
     - blueprint: bp-seaweedfs
       version: ^1
-    - blueprint: bp-sealed-secrets
-      version: ^1
     - blueprint: bp-k8s-ws-proxy
       version: ^0
 

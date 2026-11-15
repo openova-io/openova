@@ -1904,7 +1904,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bp-keycloak",
       "bp-cilium",
       "bp-seaweedfs",
-      "bp-sealed-secrets",
       "bp-k8s-ws-proxy"
     ],
     "shareable": false,
@@ -2252,9 +2251,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "version": "0.1.21",
     "section": "pts-3-3-security-and-policy",
-    "depends": [
-      "bp-sealed-secrets"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -3470,8 +3467,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-keycloak",
-      "bp-cilium",
-      "bp-sealed-secrets"
+      "bp-cilium"
     ],
     "shareable": false,
     "contextSchema": null,
