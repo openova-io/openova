@@ -74,6 +74,11 @@ rules:
   - apiGroups: [""]
     resources: ["namespaces"]
     verbs: ["create"]
+  # `pods/exec` is NEVER a rule of this ClusterRole: it would be command
+  # execution in every Pod of the Sovereign. The one exec catalyst-api makes
+  # (the agent status read of the mesh step) has a Role in the agents'
+  # namespace only: role-mesh-agent-status.yaml.
+  # tests/mesh-agent-status-rbac.sh fails if a ClusterRole names it.
 
   # ───────────────────────────────────────────────────────────────
   # READ verbs — get/list/watch on the resources the handler reads.

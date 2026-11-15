@@ -119,6 +119,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/meshagents"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/meshstatus"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
@@ -135,6 +136,9 @@ type (
 var clusterMeshObserve atomic.Bool
 
 func init() { clusterMeshObserve.Store(meshstatus.MustModeFromEnv() == meshstatus.ModeObserve) }
+
+// clusterMeshAgents reads the agents of every region that has its peer configuration. Tests replace it.
+var clusterMeshAgents = meshagents.Demote
 
 // regionSlot is a per-region intermediate the orchestrator carries
 // through the three steps (LB IP discovery, CA snapshot, peer write).
@@ -1328,13 +1332,8 @@ func (h *Handler) autoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 			st.Peers = append(st.Peers, peer)
 		}
 
-		// Surface empty peerEntries explicitly — silent applyClusterMeshSecret
-		// no-op (line 743) used to make every-peer-failed runs invisible.
-		// Caught on t124 (2026-05-16): regionKeyFromSpec off-by-one had
-		// every slot.err set, so peerEntries stayed empty for all 3
-		// regions and the only stdout line was the misleading
-		// `fullyMeshed=0`. Log per-peer reasons so the next regression
-		// is debuggable from logs alone.
+		// No peer entry was built: log every peer's reason, or the run shows only
+		// `fullyMeshed=0` (t124, 2026-05-16).
 		if len(peerEntries) == 0 {
 			reasons := make([]string, 0, len(st.Peers))
 			for _, p := range st.Peers {
@@ -1348,9 +1347,7 @@ func (h *Handler) autoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 			)
 		}
 
-		// Stable order for the Secret update (so an idempotent re-run
-		// produces byte-identical Secret data and no rollout-restart
-		// thrash).
+		// An idempotent re-run writes byte-identical Secret data, so no restart.
 		secretChanged, err := h.applyClusterMeshSecret(ctx, a.clientset, peerEntries)
 		if err != nil {
 			h.log.Warn("clustermesh: Secret apply failed",
@@ -1371,12 +1368,10 @@ func (h *Handler) autoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 			continue
 		}
 
-		// Patch cilium DaemonSet's pod spec with hostAliases mapping
-		// `<peer>.mesh.cilium.io` -> peer LB IP, so the agent's TLS
-		// client connects to a hostname the apiserver-server-cert
-		// covers via its `*.mesh.cilium.io` SAN. Without this the
-		// handshake fails on hostname verification — agents stay
-		// `0/N remote clusters ready` despite valid peer Secrets.
+		// hostAliases on the cilium DaemonSet map `<peer>.mesh.cilium.io` (a name
+		// the peer's server certificate covers) to the address the agents dial:
+		// meshstatus.DialAddress, the peer control plane's INTERNAL address where
+		// the peer answers the dial port on its nodes, else the peer LB IP.
 		peers := make([]hostAliasPeer, 0, len(slots)-1)
 		for j := range slots {
 			if i == j {
@@ -1384,7 +1379,7 @@ func (h *Handler) autoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 			}
 			b := &slots[j]
 			if b.err == nil && b.lbIP != "" && b.clusterName != "" {
-				peers = append(peers, hostAliasPeer{PeerName: b.clusterName, LBIP: b.lbIP})
+				peers = append(peers, hostAliasPeer{PeerName: b.clusterName, LBIP: meshstatus.DialAddress(ctx, b.clientset, b.lbIP)})
 			}
 		}
 		aliasesChanged, aliasErr := h.patchCiliumHostAliases(ctx, a.clientset, peers)
@@ -1396,16 +1391,10 @@ func (h *Handler) autoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 			)
 		}
 
-		// Trigger rollout-restart on cilium + cilium-operator +
-		// clustermesh-apiserver in this region so they pick up the
-		// new peer entries + hostAliases deterministically — but ONLY
-		// when something actually changed (#3241 layer 4). The
-		// level-triggered reconcile re-runs this every ~2 min; an
-		// unconditional restart per pass crash-cycled the mesh
-		// components (apiserver Deployment generation 35 on hw128) and
-		// the agents never got a stable window to finish the
-		// remote-config sync — the loop kept resetting the very state
-		// it was waiting on. Best-effort: errors are logged, not fatal.
+		// Restart cilium, cilium-operator and clustermesh-apiserver of this region so
+		// they read the new peer entries and hostAliases, but ONLY when something
+		// changed (#3241 layer 4): a restart on every pass of the level-triggered
+		// loop never left the agents time to connect. Errors are logged, not fatal.
 		if secretChanged || aliasesChanged {
 			h.rolloutRestartClusterMeshTargets(ctx, dep, a)
 		} else {
@@ -1431,8 +1420,19 @@ func (h *Handler) autoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 	}
 
 meshRead:
-	// Stable order for the caller — primary first, then secondaries by
-	// region key.
+	// A region is fully meshed when its agents report every peer ready, not when its
+	// peer configuration was written: the others lose ReadyAt here and the loop retries.
+	for _, why := range clusterMeshAgents(ctx, statuses, func(key string) (string, kubernetes.Interface) {
+		for _, s := range slots {
+			if s.key == key {
+				return s.kubeconfigPath, s.clientset
+			}
+		}
+		return "", nil
+	}, meshagents.NewExec) {
+		h.emitClusterMeshProgress(dep, "warn", why)
+	}
+	// Stable order for the caller: the primary first, then the others by region key.
 	sort.SliceStable(statuses, func(i, j int) bool {
 		if statuses[i].RegionKey == "" {
 			return true

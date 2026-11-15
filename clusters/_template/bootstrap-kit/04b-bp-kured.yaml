@@ -11,6 +11,14 @@
 #   - the image of node-patch-config and of the function test, behind the
 #     registry prefix the platform's charts use for alpine/k8s:1.31.4.
 #
+# The install hold. The chart creates kured's DaemonSet with kured's own
+# manual lock, so kured restarts no node while the kit installs and the
+# hand-over chain runs. valuesFrom below reads the ConfigMap
+# bp-kured-install-hold of this namespace when it exists; the last step of
+# the hand-over chain writes it in every region, and its value makes kured
+# lock where nothing is held. Until then the ConfigMap is absent and the
+# chart's default holds.
+#
 # dependsOn bp-cilium: kured talks to the API server and drains nodes; both
 # need the CNI. The chart comes through the HelmRepository bp-flux of slot 03
 # (the same OCI registry). The release lives in kube-system, which the
@@ -42,6 +50,11 @@ spec:
         kind: HelmRepository
         name: bp-flux
         namespace: flux-system
+  valuesFrom:
+    - kind: ConfigMap
+      name: bp-kured-install-hold
+      valuesKey: values.yaml
+      optional: true
   values:
     kured:
       configuration:

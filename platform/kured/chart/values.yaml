@@ -23,7 +23,39 @@ kured:
     blockingPodSelector:
       - upgrade.cattle.io/controller=system-upgrade-controller,upgrade.cattle.io/plan
     annotateNodes: true                       # --annotate-nodes: the console can show "reboot pending"
-  # kured runs on every node, whatever its taints.
+    # --lock-annotation: the annotation of its own DaemonSet in which kured
+    # takes its lock before it drains a node. See "The install hold" below.
+    lockAnnotation: catalyst.openova.io/kured-install-hold
+  # The install hold. kured is told to take its lock in the annotation below,
+  # and the chart creates the DaemonSet with that annotation already holding a
+  # lock: one that names something that is no node and has no time limit.
+  # That is kured's own manual hold. Every node logs "Lock already held" and
+  # no node is drained or restarted, and there is no moment without it.
+  # A Sovereign is installed and handed over with the hold in place: a restart
+  # of a node cuts the Helm installs in flight and the steps of the hand-over
+  # chain. The last step of the chain (bp-self-sovereign-cutover, step
+  # egress-block-test, after its verdict) releases it in every region by
+  # writing the ConfigMap flux-system/bp-kured-install-hold, which the kit
+  # slot reads as values. Its one value sets configuration.lockAnnotation to
+  # kured's own default, weave.works/kured-node-lock. kured then
+  # locks in that annotation, which this chart never writes, and the
+  # annotation below stays on the DaemonSet and is read by nothing.
+  dsAnnotations:
+    catalyst.openova.io/kured-install-hold: '{"nodeID":"catalyst-install-hold","TTL":0}'
+  # kured runs on every node that is not a control-plane node, whatever its
+  # taints. A region has one control-plane node, and its restart is an outage
+  # of the region's API server, so kured never restarts a control-plane node:
+  # that restart is a person's decision. node-patch-config below runs on
+  # control-plane nodes too, so they install their security updates all the
+  # same. A Sovereign with three or more control-plane nodes per region sets
+  # this key to null and kured takes them in turn like any other node.
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: DoesNotExist
   tolerations:
     - operator: Exists
 

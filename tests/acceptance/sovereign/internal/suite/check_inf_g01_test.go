@@ -27,6 +27,9 @@ type rebootWorld struct {
 	clock      time.Time
 	nodes      []string
 	args       []string          // of kured; nil: no DaemonSet
+	lock       string            // what the annotation rebootTestLock of the DaemonSet holds; "" is none
+	lockKey    string            // the annotation that holds lock; "" is rebootTestLock
+	noServers  bool              // the DaemonSet cannot run on control-plane nodes
 	restarts   map[string][3]int // by node
 	sick       map[string]string // node -> "cordoned" or "not ready" from the start, or "not ready after" its restart
 	noPlanKind bool              // the cluster does not serve the kind of the upgrade Plans
@@ -40,6 +43,9 @@ type rebootWorld struct {
 	deleted    []string // the regions whose namespace was deleted
 	pods       []string // the nodes that got a sentinel Pod
 }
+
+// rebootTestLock is the annotation in which the chart bp-kured writes the install hold.
+const rebootTestLock = "catalyst.openova.io/kured-install-hold"
 
 // rebootPlan is an upgrade Plan whose window is start, end and zone, on the given days.
 func rebootPlan(name, start, end, zone string, days ...string) obj {
@@ -77,7 +83,20 @@ func (w *rebootWorld) kubectl(r kube.Region, _ context.Context, stdin io.Reader,
 		if placed && (w.kuredBack < 0 || second < w.kuredBack) {
 			ready--
 		}
-		return []byte(kubeList(obj{"metadata": obj{"name": "kured"}, "spec": obj{"template": obj{"spec": obj{
+		meta, affinity := obj{"name": "kured"}, obj{}
+		if w.lock != "" {
+			key := rebootTestLock
+			if w.lockKey != "" {
+				key = w.lockKey
+			}
+			meta["annotations"] = obj{key: w.lock}
+		}
+		if w.noServers {
+			affinity = obj{"nodeAffinity": obj{"requiredDuringSchedulingIgnoredDuringExecution": obj{"nodeSelectorTerms": []obj{
+				{"matchExpressions": []obj{{"key": "node-role.kubernetes.io/control-plane", "operator": "DoesNotExist"}}}}}}}
+		}
+		return []byte(kubeList(obj{"metadata": meta, "spec": obj{"template": obj{"spec": obj{
+			"affinity":   affinity,
 			"containers": []obj{{"name": "kured", "args": w.args}},
 			"volumes":    []obj{{"name": "sentinel", "hostPath": obj{"path": "/var/run"}}}}}},
 			"status": obj{"desiredNumberScheduled": len(w.nodes), "numberReady": ready}})), nil
@@ -169,7 +188,22 @@ func TestRebootCheck(t *testing.T) {
 		"journey J1 did not pass":                                 {j1: Fail, fails: "journey J1: step J1.1 is FAIL"},
 		"kured is not installed":                                  {change: func(w *rebootWorld) { w.args = nil }, fails: "kured is not installed"},
 		"the period is not an argument":                           {change: without("--period=15m"), fails: "no usable value for: --period"},
-		"the drain timeout is not an argument":                    {change: without("--drain-timeout=15m"), fails: "no usable value for: --drain-timeout"},
+		"the install hold is in place": {change: func(w *rebootWorld) {
+			w.lock, w.args = `{"nodeID":"catalyst-install-hold","TTL":0}`, append(w.args, "--lock-annotation="+rebootTestLock)
+		}, fails: "carries the install hold (annotation " + rebootTestLock + ", held by catalyst-install-hold)"},
+		"the install hold is released: kured locks in its default annotation": {change: func(w *rebootWorld) {
+			w.lock = `{"nodeID":"catalyst-install-hold","TTL":0}`
+		}, regions: 2},
+		"the install hold in the default annotation": {change: func(w *rebootWorld) {
+			w.lock, w.args = `{"nodeID":"catalyst-install-hold"}`, append(w.args, "--lock-annotation=weave.works/kured-node-lock")
+			w.lockKey = "weave.works/kured-node-lock"
+		}, fails: "carries the install hold (annotation weave.works/kured-node-lock, held by catalyst-install-hold)"},
+		"a node holds the lock": {change: func(w *rebootWorld) {
+			w.lock, w.args = `{"nodeID":"w-9","created":"2026-11-20T05:00:00Z","TTL":3600000000000}`, append(w.args, "--lock-annotation="+rebootTestLock)
+		}, regions: 2},
+		"kured cannot run on control-plane nodes": {change: func(w *rebootWorld) { w.noServers = true },
+			fails: "cannot run on a node with the label node-role.kubernetes.io/control-plane"},
+		"the drain timeout is not an argument": {change: without("--drain-timeout=15m"), fails: "no usable value for: --drain-timeout"},
 		"the span and the sentinel are not arguments": {change: func(w *rebootWorld) { w.args = w.args[:3] },
 			fails: "no usable value for: --end-time, --reboot-sentinel with the hostPath of the volume sentinel, --start-time, --time-zone"},
 		"three control-plane nodes and no other": {change: func(w *rebootWorld) {

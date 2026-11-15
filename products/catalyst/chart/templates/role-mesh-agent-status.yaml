@@ -1,0 +1,52 @@
+{{- /*
+Role and RoleBinding for the agent status read of catalyst-api's mesh step
+(products/catalyst/bootstrap/api/internal/meshagents).
+
+A region counts as fully meshed only when every Cilium agent reports every
+peer ready. The agent gives that state through `cilium-dbg status` and nowhere
+in the Kubernetes API (its metrics endpoint is off, bootstrap-kit slot 01), so
+catalyst-api runs that one read-only command in the agent container of each
+Pod k8s-app=cilium. An exec is a POST on pods/exec, hence `create`.
+
+The right is given in the namespace of the agents and nowhere else. A rule in
+the ClusterRole catalyst-api-cutover-driver would be command execution in
+every Pod of the Sovereign, the secret store included. RBAC cannot narrow an
+exec to the Pods of one DaemonSet (their names are not known in advance), so
+the namespace is the narrowest scope there is.
+
+Helm only, like clusterrolebinding-cutover-driver.yaml: the subject's
+namespace is the release namespace. The Kustomize-mode installation is the
+parent, which reads the agents of a Sovereign with that Sovereign's own
+kubeconfig and needs no right in its own cluster.
+The pattern (a Role of this chart in another namespace) is the one of
+controllers/organization-controller-console-tls-secret-role.yaml.
+*/ -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: catalyst-api-mesh-agent-status
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: catalyst-api
+    app.kubernetes.io/component: mesh-agent-status-rbac
+rules:
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: catalyst-api-mesh-agent-status
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: catalyst-api
+    app.kubernetes.io/component: mesh-agent-status-rbac
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: catalyst-api-mesh-agent-status
+subjects:
+  - kind: ServiceAccount
+    name: catalyst-api-cutover-driver
+    namespace: {{ .Release.Namespace }}
