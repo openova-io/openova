@@ -199,6 +199,43 @@ repoints it exactly the way it repoints the database.
 A **single-region** Sovereign never reaches the ClusterMesh gate: no global
 Service, no policy, `redis.type: internal` — identical to the pre-#5406 render.
 
+### Multi-region: one registry token key per Sovereign (#7908)
+
+Harbor's core signs every registry token with one RSA key and drops a presented
+token that this key does not verify; the request is then anonymous, and a push
+is refused (`unauthorized ... action: push`). A push is many requests on several
+connections, and `registry.<sovereign-fqdn>` sends them to both regions, so both
+regions must hold the same key.
+
+The core reads the key pair from `harbor/harbor-token-key`
+(`harbor.core.secretName`). Left to itself, the upstream chart generates a new
+key into `harbor-core` on every render: a different key per region, and a new
+one at every upgrade.
+
+- In the primary region, and on a single-region Sovereign, cert-manager issues
+  `harbor-token-key` from a self-signed Issuer
+  (`templates/token-key-certificate.yaml`), with `rotationPolicy: Never`, so a
+  renewal keeps the key.
+- A follower region (`crossRegion.role: secondary`, from
+  `SOVEREIGN_REGION_ROLE`) issues nothing. The parent's cross-region
+  orchestrator copies the primary's Secret to it
+  (`products/catalyst/bootstrap/api/internal/crossregion`, `CopiedSecrets`) in
+  the same early phase that delivers the follower's database Secret, so its
+  core never starts with a key of its own.
+- The core reads the key once, when its pod starts (a subPath mount).
+  bp-reloader rolls `harbor-core` in either region when `harbor-token-key`
+  changes: its pod template carries
+  `secret.reloader.stakater.com/reload: harbor-token-key`
+  (`harbor.core.podAnnotations`).
+
+Check: both regions' `harbor-token-key` have the same `tls.crt` fingerprint.
+The first upgrade to this layout gives each region a new key once (as every
+upgrade did before): a pull or push that holds a token of the old key is
+refused, and its next attempt fetches a token of the new one. On a two-region
+Sovereign installed before this layout, the follower's core waits after that
+upgrade until the parent's next pass has copied the key (its steady-state
+heal runs every 5 minutes).
+
 ### Pull-mirror policy
 
 ```json

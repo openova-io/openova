@@ -281,14 +281,21 @@ harbor:
       limits:
         memory: 512Mi
         cpu: 1
-    # `secretName` lets per-Sovereign overlay supply the Harbor admin
-    # secret (CSRF key, JWT signing key, admin password). Default empty
-    # — chart auto-generates on first install (rotated by overlay later).
-    secretName: ""
-    # Internal TLS — Catalyst's Cilium WireGuard handles cluster-internal
-    # traffic encryption; Harbor's internal TLS off by default.
-    tokenCert: ""
-    tokenKey: ""
+    # #7908: the Secret holding the key pair the core signs and verifies
+    # registry tokens with (keys tls.key, tls.crt). cert-manager issues it in
+    # the primary region (templates/token-key-certificate.yaml) and keeps the
+    # key on renewal; the parent copies it to every follower region, so every
+    # region accepts a token any region issued. Left empty, the upstream
+    # chart generates a new key on every render, different per region.
+    secretName: "harbor-token-key"
+    # The core reads the key once, from a subPath mount. bp-reloader (kit
+    # slot 28, annotations strategy) rolls the core when the Secret changes:
+    # a follower's copy that replaced other bytes, or a key issued again in
+    # the primary. Reloader reads this name from the pod template, because
+    # the upstream Deployment carries no annotations of its own. Must name
+    # the same Secret as secretName above.
+    podAnnotations:
+      secret.reloader.stakater.com/reload: "harbor-token-key"
 
   jobservice:
     image:
@@ -775,6 +782,13 @@ bootstrapOwned:
     name: ""
     namespace: flux-system
 
+# #7908: the certificate cert-manager issues for the registry token key
+# (templates/token-key-certificate.yaml; the Secret is harbor.core.secretName).
+# Harbor reads only the private key, and a renewal keeps it.
+tokenKey:
+  duration: 87600h
+  renewBefore: 720h
+
 # ── Cross-region session/queue/cache store (#5406) ───────────────────────
 # Harbor's OIDC session lives in Redis db 0 (`_REDIS_URL_CORE`), its job
 # queue in db 1 and its registry blob-descriptor cache in db 2. On a
@@ -802,7 +816,9 @@ crossRegion:
   # Render the ClusterMesh global Service + the cross-region CiliumNetworkPolicies.
   enabled: false
   # This region's role in the pair: primary | secondary. Drives
-  # service.cilium.io/shared (the standby must never export a redis of its own).
+  # service.cilium.io/shared (the standby must never export a redis of its own)
+  # and, independently of `enabled`, whether this region issues the registry
+  # token key (#7908: a secondary receives the primary's copy).
   role: primary
   # Peer ClusterMesh cluster name(s) — stamped by catalyst-api as
   # SOVEREIGN_PEER_CLUSTERMESH_NAMES. EMPTY → no CiliumNetworkPolicy rendered.
