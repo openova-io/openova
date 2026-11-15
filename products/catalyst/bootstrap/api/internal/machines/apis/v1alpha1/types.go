@@ -1,5 +1,6 @@
-// Package v1alpha1 holds the Go form of the kinds Machine and MachineSource of the
-// group machines.openova.io. The kinds belong to the Blueprint
+// Package v1alpha1 holds the Go form of the kinds of the group machines.openova.io:
+// Machine and MachineSource in this file, ScanPolicy, HardeningBaseline and MachineRun
+// in scan_types.go. The kinds belong to the Blueprint
 // bp-machine-operations; their definitions are the files in
 // platform/machine-operations/chart/crds/. A field exists here only when it
 // exists in the definition, and the other way round.
@@ -117,6 +118,7 @@ type MachineStatus struct {
 	LastSeen          *metav1.Time `json:"lastSeen,omitempty"`
 	LastEnumerationID string       `json:"lastEnumerationId,omitempty"`
 	StaleSince        *metav1.Time `json:"staleSince,omitempty"`
+	Sbom              *SBOM        `json:"sbom,omitempty"`
 }
 
 // OwnerRef names the object that owns a declared or adopted Machine.
