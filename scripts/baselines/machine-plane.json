@@ -14,10 +14,7 @@
     "host-key-check-disabled": {},
     "machine-credential-field": {},
     "moving-image-tag": {},
-    "node-auto-reboot": {
-      "infra/providers/_shared/cloudinit-control-plane.tftpl": 1,
-      "infra/providers/hetzner/cloudinit-worker.tftpl": 1
-    },
+    "node-auto-reboot": {},
     "unpinned-runner-tool": {}
   },
   "schema": "openova.io/guard-baseline/v1"

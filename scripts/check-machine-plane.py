@@ -6,12 +6,13 @@ the constants and the metric functions below: node-auto-reboot (infra/), moving-
 (infra/providers/*/main.tf), forbidden-tool, unpinned-runner-tool and host-key-check-disabled
 (the machine runner and its code), free-text-target and machine-credential-field (schema
 properties of the machine kinds, the virtual-machine definitions and their values schema;
-{{ ... }} spans are removed from a YAML file before it is read).
+{{ ... }} spans are removed from a YAML file before it is read). node-auto-reboot is a hard zero
+since #7922: no node reboots itself; kured alone restarts nodes.
 
 The counts are compared with scripts/baselines/machine-plane.json (form
 openova.io/guard-baseline/v1: counts per metric per path, and allow entries with metric, path,
-count, reason and owner, subtracted first). A path absent from a metric is allowed zero. The
-last five metrics are hard zeros: no count and no allow entry. Exit 1 when a count is above or
+count, reason and owner, subtracted first). A path absent from a metric is allowed zero. Every
+metric but moving-image-tag is a hard zero: no count and no allow entry. Exit 1 when a count is above or
 below its entry, an allow entry is above its count or malformed, or a hard zero has an entry.
 A baseline only goes down: --write-baseline refuses to raise an entry or add a path, and keeps
 the allow list. Usage: check-machine-plane.py [--write-baseline | --self-test] [--root <dir>].
@@ -32,7 +33,7 @@ BASELINE = "scripts/baselines/machine-plane.json"
 SCHEMA = "openova.io/guard-baseline/v1"
 METRICS = ("node-auto-reboot", "moving-image-tag", "forbidden-tool", "unpinned-runner-tool",
            "host-key-check-disabled", "free-text-target", "machine-credential-field")
-HARD_ZERO = METRICS[2:]
+HARD_ZERO = tuple(m for m in METRICS if m != "moving-image-tag")
 WHY = {
     "node-auto-reboot": "a node must not reboot itself; node reboots are coordinated",
     "moving-image-tag": "a machine image is named by an exact identifier, not a moving tag",
@@ -358,8 +359,7 @@ def crd(props):
             "              properties:\n" + body)
 
 FIXTURE = {
-    CP: "write_files:\n  - content: |\n      Unattended-Upgrade::Automatic-Reboot \"true\";\n"
-        "      Unattended-Upgrade::Automatic-Reboot-Time \"02:30\";\n",
+    CP: "write_files:\n  - content: |\n      Unattended-Upgrade::Automatic-Reboot \"false\";\n",
     WORKER: "write_files:\n  - content: |\n      Unattended-Upgrade::Automatic-Reboot \"false\";\n",
     HETZNER: "resource \"hcloud_server\" \"cp\" {\n  image = \"ubuntu-24.04\"\n}\n"
              "resource \"hcloud_server\" \"w\" {\n  image = data.hcloud_image.w.id\n}\n",
@@ -432,6 +432,8 @@ def self_test():
         text += "".join("    %s: %s\n" % (k, v) for k, v in (("version", version), ("sha256", sha), ("licence", licence)) if v is not None)
         return edit(LOCK, "  - name: openscap\n", text + "  - name: openscap\n")
 
+    # The fixture file whose image is a moving tag (the one finding the fixture baseline counts).
+    [TAGGED] = [p for p, text in FIXTURE.items() if 'image = "ubuntu-24.04"' in text]
     new_tag = edit(HUAWEI, "  image_id = var.image_id\n", "  image_id = var.image_id\n  image = \"ubuntu-22.04\"\n")
 
     def in_playbook(text):
@@ -442,14 +444,15 @@ def self_test():
 
     # (what the case shows, the change to a tree whose baseline is exact, --write-baseline, exit code, text the output must hold)
     cases = [
-        ("an unchanged tree passes; the reboot line is counted", lambda root: None, False, 0, "node-auto-reboot=1"),
+        ("an unchanged tree passes; no node reboots itself", lambda root: None, False, 0, "node-auto-reboot=0"),
         ("the moving image tag is counted", lambda root: None, False, 0, "moving-image-tag=1"),
         ("a clean machine plane counts zero; unmap and nmapx are not the word nmap", lambda root: None, False, 0, "forbidden-tool=0"),
         ("an address property in another kind is not a free-text target", lambda root: None, False, 0, "free-text-target=0"),
-        ("a second automatic reboot fails", edit(WORKER, "\"false\"", "\"true\""), False, 1, "FAIL node-auto-reboot: %s has 1, the baseline allows 0 (at: line 3)" % WORKER),
+        ("an automatic reboot in the control-plane template fails", edit(CP, "\"false\"", "\"true\""), False, 1, "FAIL node-auto-reboot: %s has 1, the baseline allows 0 (at: line 3)" % CP),
+        ("an automatic reboot in a worker template fails", edit(WORKER, "\"false\"", "\"true\""), False, 1, "FAIL node-auto-reboot: %s has 1, the baseline allows 0 (at: line 3)" % WORKER),
         ("an automatic reboot in a new infra file fails", add("infra/k3s/extra.yaml", "Automatic-Reboot \"true\"\n"), False, 1, "FAIL node-auto-reboot: infra/k3s/extra.yaml has 1"),
-        ("a reboot line outside infra is not counted", edit("docs/notes.md", "\n", "\nAutomatic-Reboot \"true\"\n"), False, 0, "node-auto-reboot=1"),
-        ("a reboot line in a hidden folder is not counted", add("infra/providers/hetzner/.terraform/x.tftpl", "Automatic-Reboot \"true\"\n"), False, 0, "node-auto-reboot=1"),
+        ("a reboot line outside infra is not counted", edit("docs/notes.md", "\n", "\nAutomatic-Reboot \"true\"\n"), False, 0, "node-auto-reboot=0"),
+        ("a reboot line in a hidden folder is not counted", add("infra/providers/hetzner/.terraform/x.tftpl", "Automatic-Reboot \"true\"\n"), False, 0, "node-auto-reboot=0"),
         ("a moving image tag in another provider fails", new_tag, False, 1, "FAIL moving-image-tag: %s has 1, the baseline allows 0" % HUAWEI),
         ("an image named by an identifier is not counted", edit(HUAWEI, "  image_id = var.image_id\n", "  image = \"img-0a1b2c3d\"\n"), False, 0, "moving-image-tag=1"),
         ("a moving tag outside main.tf is not counted", add("infra/providers/hetzner/other.tf", "image = \"ubuntu-22.04\"\n"), False, 0, "moving-image-tag=1"),
@@ -493,8 +496,11 @@ def self_test():
         ("an allow entry above the count fails", set_allow(entry(path=HETZNER, count=2)), False, 1, "%s has 1, its allow entry says 2" % HETZNER),
         ("an allow entry for a hard-zero metric fails", set_allow(entry(metric="forbidden-tool", path=CHART)), False, 1, "forbidden-tool is a hard zero"),
         ("a count for a hard-zero metric fails", baseline(lambda doc: doc["counts"]["host-key-check-disabled"].__setitem__(PLAYBOOK, 1)), False, 1, "host-key-check-disabled is a hard zero"),
-        ("a reboot line that left without a lower baseline fails", edit(CP, "Automatic-Reboot \"true\"", "Automatic-Reboot \"false\""), False, 1, "FAIL node-auto-reboot: %s has 0, the baseline still says 1" % CP),
-        ("--write-baseline lowers the baseline after a finding left", edit(CP, "Automatic-Reboot \"true\"", "Automatic-Reboot \"false\""), True, 0, "node-auto-reboot=0"),
+        ("a count for node-auto-reboot fails: it is a hard zero", baseline(lambda doc: doc["counts"]["node-auto-reboot"].__setitem__(CP, 1)), False, 1, "node-auto-reboot is a hard zero"),
+        ("an allow entry for node-auto-reboot fails", both(edit(CP, "\"false\"", "\"true\""), set_allow(entry(metric="node-auto-reboot", path=CP))), False, 1, "node-auto-reboot is a hard zero: it takes no allow entry"),
+        ("--write-baseline refuses to take in an automatic reboot", edit(WORKER, "\"false\"", "\"true\""), True, 1, "the baseline was not written"),
+        ("a moving tag that left without a lower baseline fails", edit(TAGGED, "  image = \"ubuntu-24.04\"", "  image = var.image_id"), False, 1, "FAIL moving-image-tag: %s has 0, the baseline still says 1" % TAGGED),
+        ("--write-baseline lowers the baseline after a finding left", edit(TAGGED, "  image = \"ubuntu-24.04\"", "  image = var.image_id"), True, 0, "moving-image-tag=0"),
         ("--write-baseline refuses to raise an entry", edit(HETZNER, "  image = data", "  image = \"debian-12\"\n  image = data"), True, 1, "the baseline was not written"),
         ("--write-baseline refuses to add a file", new_tag, True, 1, "the baseline was not written"),
         ("--write-baseline keeps the allow list", both(new_tag, set_allow(entry())), True, 0, "moving-image-tag=2"),
