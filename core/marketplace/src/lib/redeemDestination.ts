@@ -70,6 +70,7 @@
 import { redeemOwnerGate } from './redeemOwnerGate';
 import type { SessionHint } from './sessionHint';
 import { resolveReturningVisitor } from './returningVisitor';
+import { decideStoredOrg, type OrgCheckAnswer } from './storedOrg';
 
 /** Where the redeem page sends the visitor. */
 export type RedeemDestination = 'funnel' | 'console';
@@ -102,7 +103,19 @@ export type RedeemReason =
    */
   | 'probe-unauthenticated'
   /** The probe reached the server but failed for some other reason. */
-  | 'probe-error';
+  | 'probe-error'
+  /**
+   * #7922: the hint pointed at the browser's STORED console host, and the
+   * server answered that no Organization has that slug any more (the
+   * Sovereign was installed again). The stored keys are dropped.
+   */
+  | 'stored-org-gone'
+  /**
+   * #7922: the hint pointed at the stored console host, but the server could
+   * not be asked. The stored keys stay; the visitor is not sent to an
+   * Organization nobody confirmed.
+   */
+  | 'stored-org-unverified';
 
 export interface RedeemOrgSummary {
   id?: string;
@@ -171,6 +184,15 @@ export interface RedeemDestinationDeps {
   host?: string;
   /** `localStorage['org-active-console-host']` (#4176), when stamped. */
   stampedConsoleHost?: string;
+  /**
+   * #7922 — asks the server whether an Organization with this slug exists
+   * (`GET /api/tenant/check-slug/<slug>`, `./storedOrg` checkOrgSlug).
+   * Absent → the stored console host can never be confirmed, so it is never
+   * followed.
+   */
+  checkStoredOrg?: (slug: string) => Promise<OrgCheckAnswer>;
+  /** #7922 — drops the stored Organization keys (`./storedOrg` forgetStoredOrg). */
+  forgetStoredOrg?: () => void;
 }
 
 /**
@@ -203,6 +225,25 @@ export async function resolveRedeemDestination(
     stampedConsoleHost: deps.stampedConsoleHost,
   });
   if (hinted.redirect) {
+    if (hinted.verifySlug) {
+      // #7922 — the destination is the browser's stored console host. Ask
+      // the server before following it; never follow it unconfirmed.
+      const answer: OrgCheckAnswer = deps.checkStoredOrg
+        ? await deps.checkStoredOrg(hinted.verifySlug)
+        : { endpoint: 'check-slug', status: 0, body: null };
+      const decision = decideStoredOrg({
+        stored: { consoleHost: deps.stampedConsoleHost },
+        answer,
+        target: hinted.url,
+      });
+      if (decision.clearStored) deps.forgetStoredOrg?.();
+      if (!decision.redirectTo) {
+        return {
+          destination: 'funnel',
+          reason: decision.verdict === 'gone' ? 'stored-org-gone' : 'stored-org-unverified',
+        };
+      }
+    }
     return {
       destination: 'console',
       reason: 'owner-session-hint',
