@@ -41,6 +41,13 @@
       "owner": "SOV",
       "path": "products/catalyst/bootstrap/api/internal/crossregion/inputs.go",
       "reason": "deletes a failed Job of a follower region so that its release creates it again with the Secret that has arrived since; the record of a run, never intent, and never in Git"
+    },
+    {
+      "count": 3,
+      "metric": "K",
+      "owner": "SOV",
+      "path": "products/catalyst/bootstrap/api/internal/lifecycle/release.go",
+      "reason": "a release request starts one run: the release Job, the scripts it runs and its status ConfigMap; an operation record of one delivery, until SOV-520 makes the request a Git commit that release-sync reads (#7922)"
     }
   ],
   "counts": {

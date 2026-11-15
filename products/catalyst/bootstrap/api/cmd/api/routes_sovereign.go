@@ -1,6 +1,10 @@
 package main
 
-import "github.com/go-chi/chi/v5"
+import (
+	"github.com/go-chi/chi/v5"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/lifecycle"
+)
 
 func registerPublicSovereign(r chi.Router, d routeDeps) {
 	h := d.h
@@ -105,6 +109,12 @@ func registerSessionSovereign(rg chi.Router, d routeDeps) {
 	rg.Post("/api/v1/sovereign/cutover/start", h.HandleCutoverStart)
 	rg.Get("/api/v1/sovereign/cutover/status", h.HandleCutoverStatus)
 	rg.Get("/api/v1/sovereign/cutover/events", h.HandleCutoverEvents)
+	// Release delivery after cutover (#7922): a sovereign-admin asks for a later
+	// release candidate; one Job merges it into every region's main, prewarms
+	// what it pins with step 03, then fast-forwards main. See internal/lifecycle.
+	release := lifecycle.NewReleaseRoute(d.log)
+	rg.Put("/api/v1/sovereign/release", release.Request)
+	rg.Get("/api/v1/sovereign/release", release.Status)
 
 	// Multi-domain Sovereign — admin "Add another parent domain" flow
 	// + live DNS propagation status panel (issue #829, parent #825).

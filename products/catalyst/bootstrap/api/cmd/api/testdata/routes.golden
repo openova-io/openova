@@ -68,6 +68,7 @@ GET /api/v1/sovereign/jobs handler.(*Handler).HandleSovereignJobs-fm 2
 GET /api/v1/sovereign/parent-domains handler.(*Handler).ListParentDomains-fm 2
 GET /api/v1/sovereign/parent-domains/{name}/propagation handler.(*Handler).GetPropagation-fm 2
 GET /api/v1/sovereign/rbac/matrix handler.(*Handler).HandleSovereignRBACMatrix-fm 2
+GET /api/v1/sovereign/release lifecycle.(*ReleaseRoute).Status-fm 2
 GET /api/v1/sovereign/self sovself.(*Route).Serve-fm 1
 GET /api/v1/sovereign/status handler.(*Handler).HandleSovereignStatus-fm 2
 GET /api/v1/sovereign/users handler.(*Handler).HandleSovereignUsers-fm 2
@@ -219,6 +220,7 @@ PUT /api/v1/deployments/{depId}/admin/user-access/{name} handler.(*Handler).Upda
 PUT /api/v1/deployments/{id}/cloudinit-log handler.(*Handler).PutCloudInitLog-fm 1
 PUT /api/v1/deployments/{id}/kubeconfig handler.(*Handler).PutKubeconfig-fm 1
 PUT /api/v1/org/commerce/{kind}/{id} handler.(*Handler).HandleOrgCommerceUpdate-fm 2
+PUT /api/v1/sovereign/release lifecycle.(*ReleaseRoute).Request-fm 2
 PUT /api/v1/sovereigns/{id}/applications/{name} handler.(*Handler).HandleApplicationUpdate-fm 2
 PUT /api/v1/sovereigns/{id}/console-ui/sidebar-overrides handler.(*Handler).HandleConsoleUISidebarOverridesPut-fm 2
 PUT /api/v1/sovereigns/{id}/environments/{env}/policy handler.(*Handler).HandleEnvironmentPolicyMode-fm 2
