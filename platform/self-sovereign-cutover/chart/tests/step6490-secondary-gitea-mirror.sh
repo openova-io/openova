@@ -104,13 +104,28 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
     #      `fi` on origin/main, the rewrite_kit_tree call here) to one marker on
     #      BOTH trees, and the mount/volume + deadline are canonicalised.
     #      step5596-secondary-durable-rewrite.sh verifies the factoring itself.
-    #   5. the #7901 server-side apply of every Secret the chain writes. The three
+    #   5. #7900 changed four templates in EVERY topology: steps 03, 08 and 11
+    #      (the write-failure class, the catalogue-only guard, the front-door
+    #      sample and mesh rule, the live Provider wait) and removed the
+    #      auto-trigger Job. None of that is the follower leg. While origin/main
+    #      does not hold that change yet (its render lacks the front-door-sample
+    #      anchor), the documents of those four templates are left out of BOTH
+    #      trees, with every `---` separator; the token gate above still reads
+    #      them in the OFF render, and tests/fresh-install-handover-chain.sh
+    #      verifies the change itself. Once origin/main holds the change this
+    #      axis switches itself off and the whole render is compared again.
+    #   6. the #7901 server-side apply of every Secret the chain writes. The three
     #      flags are on always-rendered lines (steps 00, 05, 06, 11) and are not
     #      the secondaryRegions leg; scripts/check-secret-apply-server-side.sh
     #      verifies them. Removing the flags on BOTH trees keeps every other
     #      character of those lines compared.
+    drop7900=0
+    grep -q 'front-door-sample BEGIN' "${TMP}/main.yaml" || drop7900=1
     norm() {
-      awk '
+      awk -v drop7900="${drop7900}" '
+        drop7900==1 && /^---$/ {next}
+        drop7900==1 && /^# Source: / {_d7 = ($0 ~ /\/templates\/(03-harbor-prewarm-job|08-egress-block-test-job|10-auto-trigger-job|11-crossplane-provider-pivot-job)\.yaml$/)}
+        _d7==1 {next}
         /^  kit-rewrite\.sh: \|$/ {_kk=1; next}
         _kk==1 && /# ---- end rewrite_kit_tree ----$/ {_kk=0; next}
         _kk==1 {next}

@@ -995,6 +995,14 @@ data:
     _pr_ok=0
     for _pr_i in $(seq 1 40); do
       _pr_code=$(curl -sk -o /dev/null -w '%{http_code}' -m 10 "https://${HARBOR_HOST}/v2/" 2>/dev/null)
+      {{- /*
+       #7900 — the public path answers 401 too, so the code alone passed before
+       CoreDNS served the pin, and the first pushes left through the public
+       door. That door pools every region's nodes and each region's registry
+       signs its own tokens, so those pushes were refused. Ready only when this
+       pod resolves the pinned address.
+      */}}
+      [ -z "${_cip:-}" ] || case " $(getent ahostsv4 "${HARBOR_HOST}" 2>/dev/null | awk '{print $1}' | tr '\n' ' ')" in *" ${_cip} "*) : ;; *) _pr_code="pin-not-served" ;; esac
       if [ "${_pr_code}" = "401" ] || [ "${_pr_code}" = "200" ]; then
         _pr_ok=1
         echo "[harbor-prewarm] public dest ready (HTTP ${_pr_code}, probe ${_pr_i})"
@@ -1440,6 +1448,15 @@ data:
           echo "[harbor-prewarm] ${_pc_h} answered toomanyrequests (per-IP rate limit) — latching this host OFF for the remainder of this job attempt wherever a fallback source exists; retrying inside the same quota window is guaranteed waste (#5525)"
         fi
       fi
+      {{- /*
+       #7900 — a refused WRITE to the local registry is a failure of the
+       DESTINATION, not of this source (five pushes answered `initiating
+       layer upload ... unauthorized ... action: push` and the wave was sent
+       to the public registries). Its own status, 75, so copy_one retries the
+       same source. `happened during read` is a source error skopeo reports
+       from inside the upload.
+      */}}
+      if tail -c +"$((_pc_off+1))" "${_pc_log}" 2>/dev/null | grep -v 'happened during read' | grep -qE 'action: push|initiating layer upload|writing manifest'; then return 75; fi
       return "${_pc_rc}"
     }
 
@@ -1654,7 +1671,9 @@ data:
            reachable (proven hw255: ghcr.io copies all ok while every
            harbor.openova.io copy FAILed exit=1).
           */}}
-          if [ -n "${fb_up}" ]; then
+          if [ "${rc}" -eq 75 ]; then
+            echo "[harbor-prewarm] ${lref} refused the write (destination failure, not a source failure): no source fallback, no proxy latch; same source after the backoff (#7900)" >>"${cpdir}/${slug}.log"
+          elif [ -n "${fb_up}" ]; then
             if [ "${proxy_src}" -eq 1 ]; then
               echo "[harbor-prewarm] proxy source failed (exit=${rc}); direct-source fallback ${fb_up} -> ${lref} attempt ${attempt}/${max_attempts} (#5095)" >>"${cpdir}/${slug}.log"
             else
@@ -2369,6 +2388,9 @@ data:
     {{- /* Everything enumerated SO FAR keeps the pre-#5443 FATAL semantics. */}}
     chart_hard=/tmp/.chart-hard.tsv
     cp "${chart_work}" "${chart_hard}"
+    {{- /* #7900 — the same set, kept apart: the charts something has INSTALLED (see the A3-guard). */}}
+    chart_installed=/tmp/.chart-installed.tsv
+    cp "${chart_work}" "${chart_installed}"
     catalog_set=/tmp/.catalog-set.tsv
     : > "${catalog_set}"
     catalog_hard=/tmp/.catalog-hard.tsv
@@ -2683,6 +2705,8 @@ data:
       echo "[harbor-prewarm] Phase A3-chart-images (#5442 Refs #5443): enumerating images FROM the $(grep -c . "${chart_hard}" || true) pinned chart version(s) — the post-pivot DECLARATION, not the pre-pivot runtime"
       cat_img_set=/tmp/.chart-images.txt
       : > "${cat_img_set}"
+      cat_img_installed=/tmp/.chart-images-installed.txt
+      : > "${cat_img_installed}"
       cat_pull_dir=/tmp/chart-image-renders
       rm -rf "${cat_pull_dir}"; mkdir -p "${cat_pull_dir}"
       CATALOG_SET_TMPDIR=/tmp
@@ -2751,6 +2775,7 @@ data:
         ci_n=$(printf '%s\n' "${ci_imgs}" | grep -c . || true)
         echo "[harbor-prewarm] Phase A3-chart-images: ${ci_c}:${ci_v} renders ${ci_n} image ref(s)"
         [ -n "${ci_imgs}" ] && printf '%s\n' "${ci_imgs}" >> "${cat_img_set}"
+        [ -n "${ci_imgs}" ] && grep -Fxq "$(printf '%s\t%s' "${ci_c}" "${ci_v}")" "${chart_installed}" && printf '%s\n' "${ci_imgs}" >> "${cat_img_installed}"
         rm -rf "${ci_dir}"
       done < "${chart_hard}"
       sort -u "${cat_img_set}" -o "${cat_img_set}"
@@ -2867,9 +2892,18 @@ data:
        chart-declared set, including refs the live wave was credited
        with, because a false-present there is precisely how the hw290
        control plane ended up unpullable.
+
+       #7900 — a miss stops the cutover only for an image that an INSTALLED
+       chart declares. An image declared only by catalogue charts that are
+       installed nowhere is listed as a warning: no workload needs it, and a
+       fresh installation stopped here on four images of such a chart that
+       Docker Hub rate-limited (each retry pod repeats the whole step and
+       meets the same images). An image both kinds declare counts as installed.
       */}}
       img_guard_missing=/tmp/.chart-image-missing.txt
       : > "${img_guard_missing}"
+      img_guard_catalog=/tmp/.chart-image-catalog-only-missing.txt
+      : > "${img_guard_catalog}"
       img_guard_n=0
       while IFS= read -r ci_ref; do
         [ -z "${ci_ref}" ] && continue
@@ -2880,13 +2914,19 @@ data:
         for ci_dpath in ${ci_paths}; do
           img_guard_n=$((img_guard_n+1))
           if [ -z "$(harbor_durable_digest "${ci_dpath}")" ]; then
-            printf '%s -> %s\n' "${ci_ref}" "${ci_dpath}" >> "${img_guard_missing}"
+            if grep -Fxq "${ci_ref}" "${cat_img_installed}"; then _ig_f="${img_guard_missing}"; else _ig_f="${img_guard_catalog}"; fi
+            printf '%s -> %s\n' "${ci_ref}" "${ci_dpath}" >> "${_ig_f}"
           fi
         done
       done < "${cat_img_set}"
       img_missing_n=$(grep -c . "${img_guard_missing}" || true)
+      img_catalog_n=$(grep -c . "${img_guard_catalog}" || true)
+      if [ "${img_catalog_n}" -gt 0 ]; then
+        echo "[harbor-prewarm] Phase A3-guard WARN (#7900): ${img_catalog_n} image path(s) declared only by catalogue chart(s) that are installed NOWHERE are not in local Harbor. This does not stop the cutover. Such a Blueprint fails at image pull if it is installed before its images are mirrored; the Day-2 reconciler reports the same set every cycle:"
+        sed 's/^/  CATALOGUE-ONLY-MISSING /' "${img_guard_catalog}"
+      fi
       if [ "${img_missing_n}" -eq 0 ]; then
-        echo "[harbor-prewarm] Phase A3-guard (#5442): PASS — all ${img_guard_n} local path(s) for the chart-declared image set are durably present in local Harbor"
+        echo "[harbor-prewarm] Phase A3-guard (#5442): PASS — of ${img_guard_n} local path(s) for the chart-declared image set, every path an installed chart declares is durably present in local Harbor (catalogue-only misses: ${img_catalog_n})"
       else
         echo "[harbor-prewarm] Phase A3-guard (#5442): ${img_missing_n}/${img_guard_n} chart-declared image path(s) NOT durably present in local Harbor:"
         sed 's/^/  MISSING /' "${img_guard_missing}"
@@ -2918,7 +2958,7 @@ data:
        degrades to a LOUD WARN naming the refs; FATAL keys on
        { durable_miss>0 || unmapped } ONLY.
       */}}
-      if [ "${cat_img_fail}" -gt 0 ] && [ "${img_missing_n}" -eq 0 ] && [ -z "${cat_img_unmapped}" ]; then
+      if [ "${cat_img_fail}" -gt 0 ] && [ "${img_missing_n}" -eq 0 ] && [ "${img_catalog_n}" -eq 0 ] && [ -z "${cat_img_unmapped}" ]; then
         echo "[harbor-prewarm] Phase A3-chart-images WARN (#5525): ${cat_img_fail} copy attempt(s) failed but EVERY chart-declared image path is durably present in local Harbor (A3-guard PASS, durable_miss=0) — the failures were freshness re-copies against unreachable/rate-limited sources; the pivoted registry serves the full set. Failed ref(s):"
         for f in "${cat_cpdir}"/*.fail; do
           [ -e "${f}" ] || continue
@@ -2927,7 +2967,7 @@ data:
       fi
       if [ "${PREWARM_CHART_IMAGES_FATAL}" = "true" ] \
          && { [ "${img_missing_n}" -gt 0 ] || [ -n "${cat_img_unmapped}" ]; }; then
-        echo "[harbor-prewarm] FATAL (#5442 #5525): the pinned charts declare image(s) the local registry cannot serve (durable_miss=${img_missing_n} unmapped=$(printf '%s\n' ${cat_img_unmapped} | grep -c . || true) copy_fail=${cat_img_fail}). Step-05 pivots flux onto these exact chart versions, so every workload whose image is missing goes ImagePullBackOff against a registry that correctly answers NotFound — and if catalyst-api is among them the Sovereign cannot self-heal, because catalyst-api is what drives the cutover (live hw290 2026-07-27). Fix the named refs (extend offlineMirror.hostProjects for an UNMAPPED host; re-trigger step-03 with egress open for a durable miss) or set prewarm.chartImages.fatal=false to proceed knowing the post-pivot world is not fully pullable."
+        echo "[harbor-prewarm] FATAL (#5442 #5525): the pinned charts declare image(s) the local registry cannot serve (durable_miss=${img_missing_n} catalogue_only_miss=${img_catalog_n} unmapped=$(printf '%s\n' ${cat_img_unmapped} | grep -c . || true) copy_fail=${cat_img_fail}). Step-05 pivots flux onto these exact chart versions, so every workload whose image is missing goes ImagePullBackOff against a registry that correctly answers NotFound — and if catalyst-api is among them the Sovereign cannot self-heal, because catalyst-api is what drives the cutover (live hw290 2026-07-27). Fix the named refs (extend offlineMirror.hostProjects for an UNMAPPED host; re-trigger step-03 with egress open for a durable miss) or set prewarm.chartImages.fatal=false to proceed knowing the post-pivot world is not fully pullable."
         exit 1
       fi
     else
@@ -3299,7 +3339,7 @@ data:
       exit 1
     fi
 
-    {{- if .Values.secondaryRegions.prewarmSecondaryHarbor }}
+    {{- if or .Values.secondaryRegions.prewarmSecondaryHarbor .Values.secondaryRegions.replicaRegion }}
     {{- /*
      ── #6764: prewarm EACH secondary region's OWN in-cluster Harbor ──
      The Phase A/A2 pushes above populated region-A's Harbor only. A 2-region
@@ -3463,7 +3503,7 @@ data:
         --from-file=charts.list="${sec_charts}" \
         --dry-run=client -o yaml | kubectl --kubeconfig "${skc}" -n "${SECONDARY_HARBOR_NAMESPACE}" apply -f -
       kubectl --kubeconfig "${skc}" -n "${SECONDARY_HARBOR_NAMESPACE}" delete job "${jobname}" --ignore-not-found=true >/dev/null 2>&1 || true
-      sed "s/__REGION__/${region}/g" /secondary-harbor-prewarm/secondary-harbor-prewarm-job.yaml >/tmp/sec-harbor-job.yaml
+      sed "s/__REGION__/${region}/g; s/__REGISTRY_PIN_IP__/${_sec_cip:-}/g" /secondary-harbor-prewarm/secondary-harbor-prewarm-job.yaml >/tmp/sec-harbor-job.yaml
       kubectl --kubeconfig "${skc}" apply -f /tmp/sec-harbor-job.yaml
 
       {{- /* (5) wait bounded, fail-loud with logs — verbatim shape of the #6490 step-01 secondary wait. */}}
@@ -3845,7 +3885,7 @@ data:
             value: {{ .Values.prewarm.catalogCharts.blueprintResource | quote }}
           - name: CATALOG_BLUEPRINT_RESOURCE_FALLBACK
             value: {{ .Values.prewarm.catalogCharts.blueprintResourceFallback | quote }}
-          {{- if .Values.secondaryRegions.prewarmSecondaryHarbor }}
+          {{- if or .Values.secondaryRegions.prewarmSecondaryHarbor .Values.secondaryRegions.replicaRegion }}
           {{- /*
            #6764 — inputs for the secondary-region Harbor prewarm leg. HARBOR_HOST,
            LOCAL_REGISTRY_PIN_ENABLED, GATEWAY_LB_SVC_* and UPSTREAM_PREFIX are
@@ -3886,7 +3926,7 @@ data:
             mountPath: /tmp
           - name: step-script
             mountPath: /step-script
-          {{- if .Values.secondaryRegions.prewarmSecondaryHarbor }}
+          {{- if or .Values.secondaryRegions.prewarmSecondaryHarbor .Values.secondaryRegions.replicaRegion }}
           {{- /*
            #6764 — optional secondary-region kubeconfigs (the cutover-secondary-
            kubeconfigs Secret catalyst-api materialises at run start; empty on a
@@ -3966,7 +4006,7 @@ data:
           items:
             - key: run.sh
               path: run.sh
-      {{- if .Values.secondaryRegions.prewarmSecondaryHarbor }}
+      {{- if or .Values.secondaryRegions.prewarmSecondaryHarbor .Values.secondaryRegions.replicaRegion }}
       - name: secondary-kubeconfigs
         secret:
           secretName: {{ .Values.secondaryRegions.kubeconfigSecretName }}

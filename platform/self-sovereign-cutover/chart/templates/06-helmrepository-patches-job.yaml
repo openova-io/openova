@@ -1506,7 +1506,7 @@ data:
             value: {{ .Values.helmRepositories.vclusterLoftPivot.localProject | quote }}
           - name: VCL_LOFT_PULL_ATTEMPTS
             value: {{ .Values.helmRepositories.vclusterLoftPivot.pullAttempts | quote }}
-          {{- if .Values.secondaryRegions.mirrorToSecondaryGitea }}
+          {{- if or .Values.secondaryRegions.mirrorToSecondaryGitea .Values.secondaryRegions.replicaRegion }}
           {{- /* #5596 — inputs for the in-region durable rewrite (durable_rewrite_secondary in args). */}}
           - name: SECONDARY_GITEA_NAMESPACE
             value: {{ .Values.secondaryRegions.secondaryGiteaNamespace | quote }}
@@ -1548,7 +1548,7 @@ data:
           - name: kit-rewrite-script
             mountPath: /kit-rewrite
             readOnly: true
-          {{- if .Values.secondaryRegions.mirrorToSecondaryGitea }}
+          {{- if or .Values.secondaryRegions.mirrorToSecondaryGitea .Values.secondaryRegions.replicaRegion }}
           - name: secondary-pivot
             mountPath: /secondary-pivot
             readOnly: true
@@ -2761,7 +2761,7 @@ data:
               return 1
             }
 
-            {{- if .Values.secondaryRegions.mirrorToSecondaryGitea }}
+            {{- if or .Values.secondaryRegions.mirrorToSecondaryGitea .Values.secondaryRegions.replicaRegion }}
             {{- /*
              #5596 — DURABLE rewrite IN the secondary. Since #6490 a secondary's
              Flux consumes its OWN in-cluster Gitea, which step-01 fills from
@@ -2903,7 +2903,7 @@ data:
                   fi
                 fi
 
-                {{- if .Values.secondaryRegions.mirrorToSecondaryGitea }}
+                {{- if or .Values.secondaryRegions.mirrorToSecondaryGitea .Values.secondaryRegions.replicaRegion }}
                 {{- /* #5596 — the durable source FIRST; a live patch over an unpivoted source is exactly the hw305 loop. */}}
                 if ! durable_rewrite_secondary "${pv_kc}" "${pv_region}"; then
                   kubectl -n "${CUTOVER_NAMESPACE}" patch configmap "${STATUS_CONFIGMAP}" --type=merge \
@@ -3636,7 +3636,7 @@ data:
           items:
             - key: kit-rewrite.sh
               path: kit-rewrite.sh
-      {{- if .Values.secondaryRegions.mirrorToSecondaryGitea }}
+      {{- if or .Values.secondaryRegions.mirrorToSecondaryGitea .Values.secondaryRegions.replicaRegion }}
       - name: secondary-pivot
         configMap:
           name: cutover-secondary-pivot-script

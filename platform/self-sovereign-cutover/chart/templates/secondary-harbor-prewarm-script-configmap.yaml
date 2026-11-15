@@ -40,7 +40,7 @@ trust is the cluster network, not a public CA (identical to Phase A).
 RENDER-GATED: emitted only when secondaryRegions.prewarmSecondaryHarbor is true,
 so a single-region Sovereign renders byte-identical (this whole object absent).
 */ -}}
-{{- if .Values.secondaryRegions.prewarmSecondaryHarbor }}
+{{- if or .Values.secondaryRegions.prewarmSecondaryHarbor .Values.secondaryRegions.replicaRegion }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -107,6 +107,8 @@ data:
     _pr_ok=0
     for _pr_i in $(seq 1 40); do
       _pr_code=$(curl -sk -o /dev/null -w '%{http_code}' -m 10 "https://${HARBOR_HOST}/v2/" 2>/dev/null)
+      {{- /* #7900 — ready only when this pod resolves the pinned address (see step 03's own probe). */}}
+      [ -z "${REGISTRY_PIN_IP:-}" ] || case " $(getent ahostsv4 "${HARBOR_HOST}" 2>/dev/null | awk '{print $1}' | tr '\n' ' ')" in *" ${REGISTRY_PIN_IP} "*) : ;; *) _pr_code="pin-not-served" ;; esac
       if [ "${_pr_code}" = "401" ] || [ "${_pr_code}" = "200" ]; then _pr_ok=1; echo "[secondary-harbor-prewarm] public dest ready (HTTP ${_pr_code}, probe ${_pr_i})"; break; fi
       echo "[secondary-harbor-prewarm] public dest not ready (HTTP ${_pr_code:-none}, probe ${_pr_i}/40) — CoreDNS pin/gateway still settling; retry in 15s"
       sleep 15
@@ -323,6 +325,8 @@ data:
                   value: {{ .Values.sovereign.harborPublicURL | quote }}
                 - name: HARBOR_INTERNAL_URL
                   value: {{ .Values.sovereign.harborInternalURL | quote }}
+                - name: REGISTRY_PIN_IP
+                  value: "__REGISTRY_PIN_IP__"
                 - name: UPSTREAM_PREFIX
                   value: {{ .Values.helmRepositories.upstreamPrefix | quote }}
                 - name: PREWARM_DEST_TLS_VERIFY

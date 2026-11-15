@@ -135,6 +135,10 @@ data:
             value: {{ .Values.secondaryRegions.extraEgressAllowCIDRs | default (list) | join " " | quote }}
           - name: SOVEREIGN_FQDN
             value: {{ .Values.sovereign.fqdn | quote }}
+          - name: FRONT_DOOR_HOSTS
+            value: {{ .Values.egressTest.frontDoor.hosts | default (list) | join " " | quote }}
+          - name: FRONT_DOOR_SAMPLES
+            value: {{ .Values.egressTest.frontDoor.samples | quote }}
           - name: STATUS_CONFIGMAP
             value: {{ .Values.status.configMapName | quote }}
           {{- /*
@@ -1438,6 +1442,40 @@ data:
               fi
             fi
 
+            {{- /*
+             #7900 — the FRONT DOOR is part of the proof. The public door pools
+             the nodes of every region, and during a two-region hold about half
+             of the console's requests answered 403 while this step reported
+             PASS: it looked only at HelmRelease and Kustomization readiness.
+             front_door_bad asks every host of FRONT_DOOR_HOSTS (labels under
+             the Sovereign's domain) FRONT_DOOR_SAMPLES times, one connection
+             per request so every pooled node gets its share, and prints each
+             answer that is not 2xx or 3xx. The door is judged in the window
+             only when it answered clean right here, before any hold.
+            */}}
+            # front-door-sample BEGIN
+            front_door_bad() {
+              for fd_h in ${FRONT_DOOR_HOSTS}; do
+                fd_i=0
+                while [ "${fd_i}" -lt "${FRONT_DOOR_SAMPLES}" ]; do
+                  fd_c=$(curl -sk -o /dev/null -w '%{http_code}' -m 10 "https://${fd_h}.${SOVEREIGN_FQDN}/" 2>/dev/null || true)
+                  case "${fd_c}" in 2??|3??) : ;; *) printf ' %s=%s' "${fd_h}" "${fd_c:-none}" ;; esac
+                  fd_i=$((fd_i+1))
+                done
+              done
+            }
+            # front-door-sample END
+            FRONT_DOOR_JUDGED=""
+            fd_base=$(front_door_bad)
+            if [ -z "${FRONT_DOOR_HOSTS}" ]; then
+              echo "[egress-block-test] #7900 front door: NOT JUDGED — egressTest.frontDoor.hosts is empty"
+            elif [ -n "${fd_base}" ]; then
+              echo "[egress-block-test] #7900 front door: NOT JUDGED in the window — it did not answer clean from this pod before the hold:${fd_base}"
+            else
+              FRONT_DOOR_JUDGED="yes"
+              echo "[egress-block-test] #7900 front door: clean before the hold (${FRONT_DOOR_HOSTS}; ${FRONT_DOOR_SAMPLES} request(s) each) — judged in the window"
+            fi
+
             POLICY_APPLIED=""
             if [ "${ENFORCE_CIDR_BLOCK}" = "true" ]; then
               echo "[egress-block-test] enforce mode ON — resolving upstream hosts to CIDRs"
@@ -1524,6 +1562,31 @@ data:
                   echo "        - host"
                   echo "        - remote-node"
                   echo "        - cluster"
+                  {{- /*
+                   #7900 — in-mesh traffic is not a tether. `cluster` and an
+                   empty endpoint selector mean the LOCAL cluster only
+                   (policy-default-local-cluster), and toCIDR never matches a
+                   ClusterMesh identity, so a region's Envoy was denied every
+                   backend in the other region (the 403s above). Select the
+                   endpoints of every cluster of the mesh. Both regions get
+                   it: the secondary manifest is a copy of this one.
+                  */}}
+                  echo "    - toEndpoints:"
+                  echo "        - matchExpressions:"
+                  echo "            - {key: io.cilium.k8s.policy.cluster, operator: Exists}"
+                  {{- /*
+                   #7900 — the Sovereign's OWN front door on 443, so the
+                   window can sample it from this pod. Its address is the
+                   Sovereign's own; no upstream is opened.
+                  */}}
+                  for fd_h in ${FRONT_DOOR_HOSTS}; do
+                    for fd_ip in $(getent ahostsv4 "${fd_h}.${SOVEREIGN_FQDN}" 2>/dev/null | awk '{print $1}' | sort -u); do
+                      case "${fd_ip}" in
+                        10.*|172.1[6-9].*|172.2[0-9].*|172.3[01].*|192.168.*|127.*|"") : ;;
+                        *) printf '    - toCIDR:\n        - %s/32\n      toPorts:\n        - ports:\n            - port: "443"\n              protocol: TCP\n' "${fd_ip}" ;;
+                      esac
+                    done
+                  done
                   {{- /*
                    Allow DNS explicitly (CoreDNS ClusterIP is inside 10.96/12,
                    but make the intent first-class and tolerate non-default
@@ -2321,17 +2384,8 @@ data:
               if [ "${DEFAULT_DENY_EGRESS}" = "true" ]; then
                 {
                   {{- /*
-                   Cross-cluster (intra-Sovereign) pod dials: a ClusterMesh
-                   remote endpoint carries a mesh identity that toCIDR NEVER
-                   matches (reference_k8s_netpol_ipblock_never_matches_
-                   clustermesh_remote_identity) — region-B's flux clones the
-                   local Gitea over the mesh alias, so allow mesh endpoints
-                   explicitly. Both clusters belong to THIS Sovereign; no
-                   public destination is opened.
-                  */}}
-                  echo "    - toEndpoints:"
-                  echo "        - {}"
-                  {{- /*
+                   (The mesh-wide toEndpoints allow is inherited from the
+                   region-A manifest since #7900.)
                    The Sovereign's OWN gateway door (registry.<fqdn> +
                    gitea.<fqdn>): region-B's helm-controller pulls pivoted
                    charts through it. Its EIP is the Sovereign's own
@@ -2505,6 +2559,15 @@ data:
                 fi
               done
 
+              {{- /* #7900 — a front door that was clean before the hold must stay clean in it. */}}
+              if [ -n "${FRONT_DOOR_JUDGED}" ]; then
+                fd_now=$(front_door_bad)
+                if [ -n "${fd_now}" ]; then
+                  echo "[egress-block-test] #7900 front door answered outside 2xx/3xx at $(($(date +%s) - start))s (regression; it was clean before the hold):${fd_now}"
+                  new_failures=$((new_failures+1))
+                fi
+              fi
+
               sleep "${poll_interval}"
             done
 
@@ -2536,7 +2599,7 @@ data:
                 -p "{\"data\":{\"step.egress-block-test.region.${sv_region}.result\":\"${sv_result}\",\"step.egress-block-test.region.${sv_region}.finishedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}" || true
             done
             if [ "${new_failures}" -gt 0 ]; then
-              echo "[egress-block-test] cluster developed NEW NotReady items during the window (any region) — sovereignty proof FAILED"
+              echo "[egress-block-test] cluster developed NEW NotReady items or front-door failures during the window (any region) — sovereignty proof FAILED"
               exit 1
             fi
             {{- /*

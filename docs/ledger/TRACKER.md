@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-15T08:30:04Z` |
+| Last refreshed | `2026-11-15T09:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,10 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7670](https://github.com/openova-io/openova/issues/7670) | FND-900 Topology soak fixes (standing package) | Other |
-| [#7671](https://github.com/openova-io/openova/issues/7671) | INF-112 Chart templates and image for the inventory controller | Other |
-| [#7672](https://github.com/openova-io/openova/issues/7672) | MIG-010 Decision record: migration is a platform product; correct the documents | Other |
-| [#7673](https://github.com/openova-io/openova/issues/7673) | PRD-501 Resource server base: store, definitions loader, router with the token c | Other |
 | [#7674](https://github.com/openova-io/openova/issues/7674) | PRD-503 Keycloak consent extension | Other |
 | [#7675](https://github.com/openova-io/openova/issues/7675) | SEC-073 Remove the committed database passwords and rotate them | Other |
 | [#7676](https://github.com/openova-io/openova/issues/7676) | SOV-335 The variables document carries the path of the vulnerability database | Other |
@@ -300,6 +296,10 @@ flowchart LR
 | [#7885](https://github.com/openova-io/openova/issues/7885) | FND-151 The suite as an image, with the self selection | Other |
 | [#7886](https://github.com/openova-io/openova/issues/7886) | SEC-095 Exception register, source guard and Secret census | Other |
 | [#7893](https://github.com/openova-io/openova/issues/7893) | a fresh two-region installation: the control-plane user data is 32,931 bytes, ov | Other |
+| [#7900](https://github.com/openova-io/openova/issues/7900) | a fresh two-region Sovereign: six defects of the hand-over chain (hook wait, pro | Other |
+| [#7901](https://github.com/openova-io/openova/issues/7901) | a fresh two-region Sovereign: bp-openbao's own network policies cut its server o | Other |
+| [#7902](https://github.com/openova-io/openova/issues/7902) | a fresh two-region Sovereign: the parent declares it ready before the follower r | Other |
+| [#7903](https://github.com/openova-io/openova/issues/7903) | a fresh two-region Sovereign: kured reboots nodes mid-install, bp-plane-isolatio | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-15T09:35 | [#7906](https://github.com/openova-io/openova/pull/7906) | #7900 | fix(cutover): a fresh two-region installation passes the han |
 | 2026-11-15T08:08 | [#7899](https://github.com/openova-io/openova/pull/7899) | #7087 | docs(ledger): plan update |
 | 2026-11-15T04:01 | [#7898](https://github.com/openova-io/openova/pull/7898) | #7893 | fix(provisioning): the control-plane user data fits the clou |
 | 2026-11-15T02:42 | [#7896](https://github.com/openova-io/openova/pull/7896) | #7805 | feat(machines): kinds ScanPolicy, HardeningBaseline and Mach |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-14T20:54 | [#7851](https://github.com/openova-io/openova/pull/7851) | #7087 | docs(ledger): plan update |
 | 2026-11-14T22:25 | [#7850](https://github.com/openova-io/openova/pull/7850) | #7773 | refactor(services): the seven Organization services stop bui |
 | 2026-11-14T22:22 | [#7849](https://github.com/openova-io/openova/pull/7849) | #7702 | chore: delete the four retired vcluster charts and their see |
-| 2026-11-14T20:35 | [#7848](https://github.com/openova-io/openova/pull/7848) | #7717 | feat(acceptance): the network registry in the Sovereign stat |
 
 ---
 
