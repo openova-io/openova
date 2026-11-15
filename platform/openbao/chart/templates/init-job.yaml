@@ -134,7 +134,7 @@ spec:
               # unseal-keys Secret, and subsequent pod restarts hit the
               # idempotent FATAL with no record of where the first run
               # exited. By teeing into /tmp/.script.trace and uploading on
-              # EXIT, every iteration leaves a recoverable record. Every step
+              # EXIT, every run leaves a recoverable record. Every step
               # prints its own line, so the record needs no tracing.
               TRACE_FILE=/tmp/.script.trace
               : > "$TRACE_FILE"
