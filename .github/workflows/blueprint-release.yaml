@@ -196,15 +196,32 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # RELEASE WRITER, the chart version (FND-011). A pull request never
+      - name: Helm registry login (for OCI dependencies)
+        run: |
+          # `helm dependency build` resolves `oci://ghcr.io/openova-io/bp-*`
+          # dependencies — needs an authenticated helm registry login,
+          # not just a docker login. It comes before the release writer,
+          # because a dispatched run pulls the published version there (FND-029).
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io \
+            --username "${{ github.actor }}" --password-stdin
+
+      # RELEASE WRITER, the chart version (FND-011, FND-029). A pull request never
       # changes a `version:` line (check-release-owned-lines.yaml). When a
       # push changes files of this chart and leaves its version as it was,
       # this step writes the next patch version BEFORE the chart is packaged;
       # the commit step pushes it with every other site in ONE commit.
-      # Not bumped: no push range (dispatch), a new chart, a version that
-      # moved in the push, a library chart. Four charts are versioned by their
-      # own build workflow, which runs on the same push and dispatches this one:
-      # their push run publishes nothing (defer=true).
+      # Not bumped on a push: a new chart, a version that moved in the push, a
+      # library chart. Four charts are versioned by their own build workflow,
+      # which runs on the same push and dispatches this one: their push run
+      # publishes nothing (defer=true).
+      # FND-029: a dispatched run has no push range. Nine image builds commit a
+      # new image tag into chart values and dispatch this workflow without a
+      # version bump, so the run packages the chart and compares its files with
+      # the version the registry holds (scripts/chart-package-diff.py; a package
+      # is not byte-reproducible, so files are compared, never the digest).
+      # The registry holds no such version: it is published as it stands.
+      # The same files: nothing is pushed to the registry (unchanged=true).
+      # Other files: the next patch version is written, as on a push.
       - name: "Release writer: bump the chart version"
         id: bump_chart
         env:
@@ -214,8 +231,8 @@ jobs:
         run: |
           set -euo pipefail
           chart_yaml="${CHART_PATH}/chart/Chart.yaml"
-          if [ -z "${PUSH_BEFORE}" ] || [ "${PUSH_BEFORE}" = "0000000000000000000000000000000000000000" ] || [ ! -f "${chart_yaml}" ]; then
-            echo "No push range or no chart: the version is published as it stands."
+          if [ ! -f "${chart_yaml}" ]; then
+            echo "No chart at ${chart_yaml}: nothing to publish."
             echo "bumped=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -224,34 +241,76 @@ jobs:
             echo "bumped=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          git cat-file -e "${PUSH_BEFORE}^{commit}" 2>/dev/null || git fetch --quiet --no-tags --depth=1 origin "${PUSH_BEFORE}"
-          if ! git cat-file -e "${PUSH_BEFORE}:${chart_yaml}" 2>/dev/null; then
-            echo "${chart_yaml} is new in this push: its first version is published as it stands."
-            echo "bumped=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [ -z "$(git diff --name-only "${PUSH_BEFORE}" "${PUSH_AFTER}" -- "${CHART_PATH}/chart")" ]; then
-            echo "No file of ${CHART_PATH}/chart changed in this push: the version is published as it stands."
-            echo "bumped=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          before_file="$(mktemp)"
-          git show "${PUSH_BEFORE}:${chart_yaml}" > "${before_file}"
-          old="$(awk '/^version:/{print $2; exit}' "${before_file}" | tr -d '"')"
           cur="$(awk '/^version:/{print $2; exit}' "${chart_yaml}" | tr -d '"')"
-          if [ "${old}" != "${cur}" ]; then
-            echo "The version of ${chart_yaml} moved in this push (${old} -> ${cur}): published as it stands."
-            echo "bumped=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          case "${CHART_PATH}" in
-            products/catalyst|platform/guacamole|platform/newapi|platform/k8s-ws-proxy)
-              echo "${CHART_PATH} is versioned by its own build workflow, which dispatches this workflow: nothing to publish from this push."
+          if [ -z "${PUSH_BEFORE}" ] || [ "${PUSH_BEFORE}" = "0000000000000000000000000000000000000000" ]; then
+            # FND-029: a dispatched run. Compare with the version the registry holds.
+            name="$(awk '/^name:/{print $2; exit}' "${chart_yaml}" | tr -d '"')"
+            published="$(mktemp -d)"
+            set +e
+            helm pull "oci://ghcr.io/openova-io/${name}" --version "${cur}" --destination "${published}" > "${published}.log" 2>&1
+            rc=$?
+            set -e
+            if [ "${rc}" -ne 0 ]; then
+              if grep -q 'not found' "${published}.log"; then
+                echo "The registry holds no ${name} ${cur}: the version is published as it stands."
+                echo "bumped=false" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              cat "${published}.log"
+              echo "::error title=Release writer::could not read ghcr.io/openova-io/${name}:${cur} from the registry; nothing was published."
+              exit 1
+            fi
+            packaged="$(mktemp -d)"
+            helm dependency build "${CHART_PATH}/chart"
+            helm package "${CHART_PATH}/chart" --destination "${packaged}"
+            set +e
+            python3 scripts/chart-package-diff.py "${published}/${name}-${cur}.tgz" "${packaged}/${name}-${cur}.tgz"
+            rc=$?
+            set -e
+            case "${rc}" in
+              0)
+                echo "The registry holds ${name} ${cur} with the same files: nothing is pushed to the registry."
+                echo "bumped=false" >> "$GITHUB_OUTPUT"
+                echo "unchanged=true" >> "$GITHUB_OUTPUT"
+                exit 0
+                ;;
+              1)
+                echo "The registry holds ${name} ${cur} with other files: the next patch version is published."
+                ;;
+              *)
+                echo "::error title=Release writer::could not compare ${name} ${cur} with the published version (exit ${rc})."
+                exit 1
+                ;;
+            esac
+          else
+            git cat-file -e "${PUSH_BEFORE}^{commit}" 2>/dev/null || git fetch --quiet --no-tags --depth=1 origin "${PUSH_BEFORE}"
+            if ! git cat-file -e "${PUSH_BEFORE}:${chart_yaml}" 2>/dev/null; then
+              echo "${chart_yaml} is new in this push: its first version is published as it stands."
               echo "bumped=false" >> "$GITHUB_OUTPUT"
-              echo "defer=true" >> "$GITHUB_OUTPUT"
               exit 0
-              ;;
-          esac
+            fi
+            if [ -z "$(git diff --name-only "${PUSH_BEFORE}" "${PUSH_AFTER}" -- "${CHART_PATH}/chart")" ]; then
+              echo "No file of ${CHART_PATH}/chart changed in this push: the version is published as it stands."
+              echo "bumped=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            before_file="$(mktemp)"
+            git show "${PUSH_BEFORE}:${chart_yaml}" > "${before_file}"
+            old="$(awk '/^version:/{print $2; exit}' "${before_file}" | tr -d '"')"
+            if [ "${old}" != "${cur}" ]; then
+              echo "The version of ${chart_yaml} moved in this push (${old} -> ${cur}): published as it stands."
+              echo "bumped=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            case "${CHART_PATH}" in
+              products/catalyst|platform/guacamole|platform/newapi|platform/k8s-ws-proxy)
+                echo "${CHART_PATH} is versioned by its own build workflow, which dispatches this workflow: nothing to publish from this push."
+                echo "bumped=false" >> "$GITHUB_OUTPUT"
+                echo "defer=true" >> "$GITHUB_OUTPUT"
+                exit 0
+                ;;
+            esac
+          fi
           git fetch --quiet origin main
           main_file="$(mktemp)"
           git show "origin/main:${chart_yaml}" > "${main_file}"
@@ -284,6 +343,7 @@ jobs:
         id: chart
         env:
           DEFER: ${{ steps.bump_chart.outputs.defer }}
+          UNCHANGED: ${{ steps.bump_chart.outputs.unchanged }}
         run: |
           set -e
           if [ "${DEFER}" = "true" ]; then
@@ -318,15 +378,15 @@ jobs:
           echo "name=$chart_name" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "skip=false" >> "$GITHUB_OUTPUT"
-
-      - name: Helm registry login (for OCI dependencies)
-        if: steps.chart.outputs.skip != 'true'
-        run: |
-          # `helm dependency build` resolves `oci://ghcr.io/openova-io/bp-*`
-          # dependencies — needs an authenticated helm registry login,
-          # not just a docker login.
-          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io \
-            --username "${{ github.actor }}" --password-stdin
+          # FND-029: the registry holds this version with the same files. Nothing
+          # is pushed or signed; the lockstep steps still run, so a site that an
+          # earlier run of this version left behind still moves.
+          if [ "${UNCHANGED}" = "true" ]; then
+            echo "The registry holds ${chart_name} ${version} with the same files: nothing is pushed to the registry."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
 
       # ──────────────────────────────────────────────────────────────
       # Helm dependency build — bundle the upstream subchart (#2935)
@@ -691,8 +751,58 @@ jobs:
           # 5 declared known-gaps, 0 failures.
           bash scripts/check-catalog-seed-lockstep.sh --check-ghcr
 
+      # FND-029: the floor under the release writer. A registry lets a tag be
+      # written again, and a Sovereign keeps the copy of a version it already
+      # holds while a new one pulls the new files, so one version would name two
+      # contents. A version that the registry holds with other files is refused
+      # here. The same files may be pushed again: a run repeated after a failure
+      # later in this job. CHARTS_DIR is where "Helm package" wrote the package;
+      # scripts/check-release-lockstep-writer.py sets it to its scratch.
+      - name: "Release writer: a published version is never published again with other files"
+        id: no_republish
+        if: steps.chart.outputs.skip != 'true' && steps.chart.outputs.publish != 'false'
+        env:
+          CHART_NAME: ${{ steps.chart.outputs.name }}
+          CHART_VERSION: ${{ steps.chart.outputs.version }}
+        run: |
+          set -euo pipefail
+          file="${CHARTS_DIR:-/tmp/charts}/${CHART_NAME}-${CHART_VERSION}.tgz"
+          ref="ghcr.io/openova-io/${CHART_NAME}:${CHART_VERSION}"
+          published="$(mktemp -d)"
+          set +e
+          helm pull "oci://ghcr.io/openova-io/${CHART_NAME}" --version "${CHART_VERSION}" --destination "${published}" > "${published}.log" 2>&1
+          rc=$?
+          set -e
+          if [ "${rc}" -ne 0 ]; then
+            if grep -q 'not found' "${published}.log"; then
+              echo "The registry holds no ${ref}: it is published now."
+              exit 0
+            fi
+            cat "${published}.log"
+            echo "::error title=Release writer::could not read ${ref} from the registry; nothing was pushed."
+            exit 1
+          fi
+          set +e
+          diff_out="$(python3 scripts/chart-package-diff.py "${published}/${CHART_NAME}-${CHART_VERSION}.tgz" "${file}")"
+          rc=$?
+          set -e
+          printf '%s\n' "${diff_out}"
+          case "${rc}" in
+            0)
+              echo "The registry holds ${ref} with the same files as ${file}: it is pushed again unchanged."
+              ;;
+            1)
+              echo "::error title=Release writer::${ref} is published with other files than ${file}: a published version is never published again (FND-029)."
+              exit 1
+              ;;
+            *)
+              echo "::error title=Release writer::could not compare ${ref} with ${file} (exit ${rc})."
+              exit 1
+              ;;
+          esac
+
       - name: Helm push to GHCR
-        if: steps.chart.outputs.skip != 'true'
+        if: steps.chart.outputs.skip != 'true' && steps.chart.outputs.publish != 'false'
         id: push
         run: |
           # pipefail: without it the awk tail eats `helm push`'s exit code
@@ -726,7 +836,7 @@ jobs:
       # helm-controller on every Sovereign) will see the upstream
       # subchart bytes.
       - name: "Verify upstream subcharts present in pulled OCI artifact (post-helm-push)"
-        if: steps.chart.outputs.skip != 'true'
+        if: steps.chart.outputs.skip != 'true' && steps.chart.outputs.publish != 'false'
         id: verify_pull
         run: |
           set -euo pipefail
@@ -777,7 +887,7 @@ jobs:
       # the bill of materials is written from the packaged .tgz, the file that
       # was pushed.
       - name: Sign and attest the chart
-        if: steps.chart.outputs.skip != 'true'
+        if: steps.chart.outputs.skip != 'true' && steps.chart.outputs.publish != 'false'
         uses: ./.github/actions/sign-and-attest
         with:
           ref: ghcr.io/openova-io/${{ steps.chart.outputs.name }}
@@ -1422,7 +1532,7 @@ jobs:
           echo "services-build dispatched @ main: the release commit of ${{ steps.chart.outputs.name }} moved DefaultHRAppChartVersions (FND-027)"
 
       - name: Summary
-        if: steps.chart.outputs.skip != 'true'
+        if: steps.chart.outputs.skip != 'true' && steps.chart.outputs.publish != 'false'
         run: |
           echo "✓ Blueprint published" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"

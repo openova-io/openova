@@ -132,6 +132,25 @@ Cases
             it would prove nothing. → RED before FND-027: there is no such
             step, and the openclaw build commits the seed.
 
+  dispatch-changed, dispatch-umbrella, dispatch-unchanged, republish-refused (FND-029)
+            A dispatched run has no push range. Nine image builds commit a new
+            image tag into chart values and dispatch the release without a
+            version bump. A stand-in for `helm` keeps a local registry: `helm
+            package` writes the chart's files in a random order with fresh
+            times (so two packages of one tree never have one digest), and
+            `helm pull` serves what the case published there or says
+            "not found". dispatch-changed (bp-continuum, values changed,
+            Chart.yaml not) and dispatch-umbrella (bp-catalyst-platform, the
+            same) publish the tree before the change first: the writer must
+            bump the patch version and move every site in ONE commit.
+            dispatch-unchanged publishes the tree as it is: the run must push
+            nothing, neither to the registry nor to main. republish-refused runs
+            the step before `helm push` on a version the registry holds with
+            other files: it must fail with one line that names both, and pass
+            on the same files and on a version the registry does not hold.
+            → RED before FND-029: a dispatched run publishes the chart as it
+            stands, and nothing refuses a version that the registry holds.
+
   noop      CONTROL, must be GREEN on both trees. Run the writer with NO chart
             bump at all. Nothing may drift and nothing may be pushed backwards.
             This is the vacuity check: it proves the harness can go green, so a
@@ -212,6 +231,71 @@ case "$1 $2" in
   *) echo "gh stand-in: unexpected call: $*" >&2; exit 1 ;;
 esac
 """
+
+# FND-029: the step before `helm push` that refuses a version the registry
+# holds with other files, and the stand-in for `helm` that every workflow step
+# of this guard runs with. It keeps a local registry ($HELM_STUB_REGISTRY, one
+# per case) and passes every other subcommand to the real helm.
+REPUBLISH_STEP_ID = "no_republish"
+PUSH_STEP_ID = "push"
+HELM_STUB = r"""#!/usr/bin/env python3
+import os, random, re, shutil, sys, tarfile, time
+args = sys.argv[1:]
+registry = os.environ.get("HELM_STUB_REGISTRY", "")
+
+
+def opt(name):
+    if name not in args or args.index(name) + 1 >= len(args):
+        sys.exit("helm stand-in: %s is missing in: %s" % (name, " ".join(args)))
+    return args[args.index(name) + 1]
+
+
+def meta(chart_dir):
+    txt = open(os.path.join(chart_dir, "Chart.yaml")).read()
+    name = re.search(r'^name:\s*"?([^"\s]+)', txt, re.M).group(1)
+    version = re.search(r'^version:\s*"?([^"\s]+)', txt, re.M).group(1)
+    return name, version
+
+
+if args[:1] == ["registry"]:
+    sys.exit(0)
+if args[:2] == ["dependency", "build"]:
+    print("helm stand-in: dependencies are not built")
+    sys.exit(0)
+if args[:1] == ["package"]:
+    chart_dir = args[1]
+    name, version = meta(chart_dir)
+    files = []
+    for root, dirs, names in os.walk(chart_dir):
+        files += [os.path.join(root, n) for n in names]
+    random.shuffle(files)
+    out = os.path.join(opt("--destination"), "%s-%s.tgz" % (name, version))
+    with tarfile.open(out, "w:gz") as archive:
+        for f in files:
+            info = archive.gettarinfo(f, arcname=os.path.join(name, os.path.relpath(f, chart_dir)))
+            info.mtime = time.time() + random.randint(1, 100000)
+            with open(f, "rb") as fh:
+                archive.addfile(info, fh)
+    print("Successfully packaged chart and saved it to: %s" % out)
+    sys.exit(0)
+if args[:1] == ["pull"]:
+    name = args[1].rsplit("/", 1)[-1]
+    version = opt("--version")
+    src = os.path.join(registry, "%s-%s.tgz" % (name, version))
+    if not registry or not os.path.isfile(src):
+        print("Error: ghcr.io/openova-io/%s:%s: not found" % (name, version), file=sys.stderr)
+        sys.exit(1)
+    shutil.copy(src, os.path.join(opt("--destination"), os.path.basename(src)))
+    print("Pulled: ghcr.io/openova-io/%s:%s" % (name, version))
+    sys.exit(0)
+here = os.path.dirname(os.path.abspath(__file__))
+rest = os.pathsep.join(p for p in os.environ.get("PATH", "").split(os.pathsep) if os.path.abspath(p or ".") != here)
+real = shutil.which("helm", path=rest)
+if not real:
+    sys.exit("helm stand-in: no real helm for: %s" % " ".join(args))
+os.execv(real, [real] + args)
+"""
+STUB = {"dir": None}
 
 # The commit step carries no `id:`, so it is located structurally — the one step
 # in the build job whose script pushes to main.
@@ -384,6 +468,8 @@ def run_step(step, work, ctx, wf_env, job_env, label):
     env.update({k: str(resolve(v, ctx)) for k, v in (wf_env or {}).items()})
     env.update({k: str(resolve(v, ctx)) for k, v in (job_env or {}).items()})
     env.update({k: str(resolve(v, ctx)) for k, v in (step.get("env") or {}).items()})
+    if STUB["dir"]:
+        env["PATH"] = STUB["dir"] + os.pathsep + env.get("PATH", "")
 
     fd, out_path = tempfile.mkstemp(prefix="gh-output-")
     os.close(fd)
@@ -423,9 +509,22 @@ def build_scratch(root):
     work = os.path.join(root, "work")
     remote = os.path.join(root, "remote.git")
     os.makedirs(work)
-    # Copy the TRACKED working tree (in CI that is exactly the checked-out ref;
-    # locally it also carries uncommitted edits, which is what we want to test).
-    sh("git ls-files -z | tar --null -T - -cf - | tar -xf - -C %s" % work, cwd=REPO_ROOT)
+    # FND-029: the registry of the helm stand-in starts empty for every case.
+    os.makedirs(os.path.join(root, "registry"))
+    os.environ["HELM_STUB_REGISTRY"] = os.path.join(root, "registry")
+    # Copy the working tree: the tracked files and the new files that are not
+    # ignored (in CI that is exactly the checked-out ref; locally it also carries
+    # uncommitted edits and a file a change adds before it is committed, which is
+    # what we want to test). The scratch base is left out when it is in the repo.
+    listed = sh("git ls-files -z --cached --others --exclude-standard", cwd=REPO_ROOT).stdout
+    skip = os.path.relpath(os.path.realpath(os.path.dirname(root)), os.path.realpath(REPO_ROOT))
+    names = [n for n in listed.split("\0") if n and (skip.startswith("..")
+             or not (n == skip or n.startswith(skip + "/")))]
+    r = subprocess.run("tar --null -T - -cf - | tar -xf - -C %s" % work, shell=True, cwd=REPO_ROOT,
+                       input="".join(n + "\0" for n in names), text=True,
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    if r.returncode != 0:
+        raise Failure("could not copy the working tree into %s:\n%s" % (work, (r.stdout or "").strip()))
     sh("git init -q -b main", cwd=work)
     sh('git config user.email "guard@openova.io" && git config user.name "lockstep-guard"', cwd=work)
     sh("git add -A && git commit -q -m baseline", cwd=work)
@@ -434,6 +533,33 @@ def build_scratch(root):
     sh("git push -q origin main", cwd=work)
     sh("git branch -q --set-upstream-to=origin/main main", cwd=work)
     return work, remote
+
+
+def write_helm_stub(base):
+    """FND-029: write the stand-in for `helm` once; run_step puts it first on PATH."""
+    stub_dir = os.path.join(base, "helm-stub")
+    os.makedirs(stub_dir, exist_ok=True)
+    stub = os.path.join(stub_dir, "helm")
+    with open(stub, "w") as fh:
+        fh.write(HELM_STUB)
+    os.chmod(stub, 0o755)
+    STUB["dir"] = stub_dir
+
+
+def stub_publish(tree, path, dest=None):
+    """Package `path` of `tree` with the stand-in into its registry (or `dest`)."""
+    dest = dest or os.environ["HELM_STUB_REGISTRY"]
+    sh([sys.executable, os.path.join(STUB["dir"], "helm"), "package",
+        os.path.join(tree, path, "chart"), "--destination", dest], cwd=tree)
+
+
+def change_values(tree, path, chart, push=True):
+    """A merged change to the chart's values that leaves every version line alone."""
+    with open(os.path.join(tree, path, "chart", "values.yaml"), "a") as fh:
+        fh.write("\n# a merged change, injected by the lockstep writer guard\n")
+    sh('git add -A && git commit -q -m "change: %s values (simulated merge)"' % chart, cwd=tree)
+    if push:
+        sh("git push -q origin main", cwd=tree)
 
 
 def clone_pushed(root, remote):
@@ -475,6 +601,18 @@ def read_blueprint_version(tree, path):
         return None
     m = _RE_BP_VERSION.search(open(f).read())
     return m.group(1) if m else None
+
+
+def catalog_card_source(tree, path):
+    """FND-029: the blueprint.yaml of `path` that the generated catalogue is built from, or None.
+
+    build-catalog.mjs reads platform/<name>/blueprint.yaml and
+    products/<name>/blueprint.yaml and nothing deeper; the card it writes carries
+    that file's spec.version. A chart that keeps its blueprint.yaml in its chart
+    folder (bp-continuum) or has none (the umbrella) has no card that follows its
+    version, so a release of it moves no line of the generated catalogue."""
+    f = os.path.join(tree, path, "blueprint.yaml")
+    return f if os.path.isfile(f) else None
 
 
 def kit_slots(tree, chart):
@@ -810,6 +948,34 @@ CASES = {
         expect=dict(blueprint="literal", seed="literal", kit="literal", funnel="literal"),
         why="POSITIVE (#7829, FND-018) — the run of an older bp-newapi follows the run of a "
             "newer one; the funnel pin keeps the newer version, with a note",
+    ),
+    "dispatch-changed": dict(
+        path="products/continuum", do_bump=False, change=True, dispatched=True,
+        expect=dict(blueprint="literal", seed="literal", kit="literal"),
+        why="POSITIVE (FND-029) — the continuum image build commits a new tag into the "
+            "chart's values and dispatches the release; the registry holds the version "
+            "with the files before the change, so the writer must bump the patch version "
+            "and move every site in ONE commit",
+    ),
+    "dispatch-umbrella": dict(
+        path="products/catalyst", do_bump=False, change=True, dispatched=True,
+        expect=dict(blueprint="absent", seed="templated", kit="literal"),
+        why="POSITIVE (FND-029) — the same for the umbrella chart, which six controller "
+            "builds dispatch after a values bump; its version and its kit pin must move "
+            "in ONE commit",
+    ),
+    "dispatch-unchanged": dict(
+        path="products/continuum", do_bump=False, dispatched=True, unchanged=True,
+        expect=dict(blueprint="literal", seed="literal", kit="literal"),
+        why="POSITIVE (FND-029) — a dispatched release of a chart whose files the registry "
+            "already holds under its version must push nothing: no helm push, no commit",
+    ),
+    "republish-refused": dict(
+        path="products/continuum", do_bump=False, kind="republish",
+        expect=dict(blueprint="literal", seed="literal", kit="literal"),
+        why="POSITIVE (FND-029) — the step before helm push refuses a version the registry "
+            "holds with other files, with one line naming both, and lets the same files "
+            "and a version the registry does not hold through",
     ),
     "noop": dict(
         path="platform/keycloak", do_bump=False,
@@ -1203,7 +1369,76 @@ def run_midrelease_case(name, case, keep, base):
             shutil.rmtree(root, ignore_errors=True)
 
 
+def run_republish_case(name, case, keep, base):
+    """FND-029: the step before `helm push` never lets a version be published again with other files."""
+    print("\n%s─── case %s ───%s  %s" % (GREEN, name, RESET, case["why"]))
+    chart, cur = precheck_in_scope(case, name)
+    path = case["path"]
+    root = tempfile.mkdtemp(prefix="lockstep-writer-%s-" % name, dir=base)
+    problems = []
+    try:
+        work, _ = build_scratch(root)
+        wf_env, job_env, steps = load_build_steps()
+        hits = [s for s in steps if s.get("id") == REPUBLISH_STEP_ID]
+        if not hits:
+            print("    - absent %-13s (not declared in this workflow)" % REPUBLISH_STEP_ID)
+            problems.append("the build job has no step %r: nothing refuses a version that the registry "
+                            "holds with other files, so this case proves nothing" % REPUBLISH_STEP_ID)
+        else:
+            charts_dir = os.path.join(root, "charts")
+            ref = "ghcr.io/openova-io/%s:%s" % (chart, cur)
+            package = os.path.join(charts_dir, "%s-%s.tgz" % (chart, cur))
+
+            def attempt(label, want_ok, published, changed):
+                shutil.rmtree(charts_dir, ignore_errors=True)
+                shutil.rmtree(os.environ["HELM_STUB_REGISTRY"], ignore_errors=True)
+                os.makedirs(charts_dir)
+                os.makedirs(os.environ["HELM_STUB_REGISTRY"])
+                sh("git reset -q --hard origin/main", cwd=work)
+                if published:
+                    stub_publish(work, path)
+                if changed:
+                    change_values(work, path, chart, push=False)
+                stub_publish(work, path, dest=charts_dir)
+                ctx = {"matrix": {"path": path}, "github": {}, "env": {"CHARTS_DIR": charts_dir},
+                       "steps": {"chart": {"name": chart, "version": cur, "skip": "false", "publish": "true"}}}
+                print("    %s:" % label)
+                try:
+                    run_step(hits[0], work, ctx, wf_env, job_env, REPUBLISH_STEP_ID)
+                    ok = True
+                except Failure:
+                    ok = False
+                out = ctx.get("log", [""])[-1]
+                if ok != want_ok:
+                    problems.append("%s: the step %s, it must %s" % (
+                        label, "passed" if ok else "failed", "pass" if want_ok else "fail"))
+                if not want_ok:
+                    lines = [ln for ln in out.splitlines() if ln.startswith("::error") and ref in ln and package in ln]
+                    if len(lines) != 1:
+                        problems.append("%s: no one error line names both %s and %s:\n%s" % (label, ref, package, out))
+
+            attempt("the registry holds %s with other files" % ref, False, published=True, changed=True)
+            attempt("the registry holds %s with the same files" % ref, True, published=True, changed=False)
+            attempt("the registry holds no %s" % ref, True, published=False, changed=False)
+        if problems:
+            print("%s  FAIL case %s — a version the registry holds can be published again with other "
+                  "files%s" % (RED, name, RESET))
+            for p in problems:
+                print("    ✗ " + p)
+            return False
+        print("%s  PASS case %s — a version the registry holds with other files is refused, with one "
+              "line naming both%s" % (GREEN, name, RESET))
+        return True
+    finally:
+        if keep:
+            print("    scratch kept at %s" % root)
+        else:
+            shutil.rmtree(root, ignore_errors=True)
+
+
 def run_case(name, case, keep, skip_slow, base):
+    if case.get("kind") == "republish":
+        return run_republish_case(name, case, keep, base)
     if case.get("kind") == "mid-release":
         return run_midrelease_case(name, case, keep, base)
     if case.get("kind") == "stale":
@@ -1271,17 +1506,25 @@ def run_case(name, case, keep, skip_slow, base):
         wf_env, job_env, steps = load_build_steps()
         by_id = {s.get("id"): s for s in steps if s.get("id")}
         github = {}
+        if case.get("dispatched"):
+            # FND-029: the registry holds the version with the files of the tree
+            # as it is now, before any change of this case.
+            stub_publish(work, case["path"])
+            print("    the registry holds %s %s with the files of the tree before the change" % (chart, cur))
         if case.get("change"):
             # Simulate a merged pull request: it changes a file of the chart and,
             # as check-release-owned-lines.py requires, no version line.
             before = sh("git rev-parse HEAD", cwd=work).stdout.strip()
-            with open(os.path.join(work, case["path"], "chart", "values.yaml"), "a") as fh:
-                fh.write("\n# a merged change, injected by the lockstep writer guard\n")
-            sh('git add -A && git commit -q -m "change: %s values (simulated merge)"' % chart, cwd=work)
-            sh("git push -q origin main", cwd=work)
+            change_values(work, case["path"], chart)
             after = sh("git rev-parse HEAD", cwd=work).stdout.strip()
-            github = {"event.before": before, "sha": after}
-            print("    merged change pushed: %s values.yaml, version left at %s" % (chart, cur))
+            if case.get("dispatched"):
+                # An image build commits with [skip ci] and dispatches the release:
+                # the run has no push range.
+                print("    image build commit pushed: %s values.yaml, version left at %s; the release is "
+                      "dispatched" % (chart, cur))
+            else:
+                github = {"event.before": before, "sha": after}
+                print("    merged change pushed: %s values.yaml, version left at %s" % (chart, cur))
         ctx = {"matrix": {"path": case["path"]}, "steps": {}, "github": github}
 
         print("    running the release writer's own steps:")
@@ -1317,7 +1560,23 @@ def run_case(name, case, keep, skip_slow, base):
         elif dispatched != want_dispatch:
             problems.append("%s was dispatched %d time(s); this case expects %d"
                             % (SERVICES_WORKFLOW, dispatched, want_dispatch))
-        if case.get("defer"):
+        if case.get("unchanged"):
+            # FND-029: nothing is pushed to the registry, and no file of the chart
+            # and no site moves. (A commit may still land when the tested tree
+            # carries drift of another chart, as main has between the two commits
+            # of a release: the writer's catalogue regeneration converges it.)
+            assert_sites(pushed, case["path"], chart, cur, case["expect"], problems, case.get("funnel_slug"))
+            moved = sh("git diff --name-only %s HEAD -- %s" % (baseline, case["path"]), cwd=pushed).stdout.split()
+            if moved:
+                problems.append("the writer changed files of %s for a version the registry already holds "
+                                "with the same files: %s" % (case["path"], " ".join(moved)))
+            push_steps = [s for s in steps if s.get("id") == PUSH_STEP_ID]
+            if len(push_steps) != 1:
+                problems.append("the build job has %d steps with the id %r, not one" % (len(push_steps), PUSH_STEP_ID))
+            elif eval_if(push_steps[0].get("if"), ctx):
+                problems.append("the step %r would run: the build would push %s %s to the registry again"
+                                % (PUSH_STEP_ID, chart, cur))
+        elif case.get("defer"):
             if sh("git rev-parse HEAD", cwd=pushed).stdout.strip() != github["sha"]:
                 problems.append("the writer pushed a commit for the umbrella; the deploy job owns its version")
             if read_chart(pushed, case["path"])[1] != cur:
@@ -1339,12 +1598,30 @@ def run_case(name, case, keep, skip_slow, base):
         if case.get("change") and not case.get("defer"):
             # ONE commit: the writer's commit carries Chart.yaml AND every other site.
             last = sh("git show --name-only --format= HEAD", cwd=pushed).stdout.split()
-            need = ["%s/chart/Chart.yaml" % case["path"], os.path.relpath(blueprint_path(pushed, case["path"]), pushed),
-                    SEED_REL, JSON_REL, TS_REL] + ["%s/%s" % (KIT_REL, f) for f, _ in kit_slots(pushed, chart)]
+            need = ["%s/chart/Chart.yaml" % case["path"]]
+            if case["expect"]["blueprint"] == "literal":
+                need.append(os.path.relpath(blueprint_path(pushed, case["path"]), pushed))
+            if case["expect"]["seed"] == "literal":
+                need.append(SEED_REL)
+            # FND-029: the generated catalogue moves with a release only for a
+            # chart whose blueprint.yaml build-catalog.mjs reads.
+            if catalog_card_source(pushed, case["path"]):
+                need += [JSON_REL, TS_REL]
+            else:
+                print("    the generated catalogue has no card that follows %s: its release moves no line there" % chart)
+            need += ["%s/%s" % (KIT_REL, f) for f, _ in kit_slots(pushed, chart)]
             for f in need:
                 if f not in last:
                     problems.append("the writer's last commit does not carry %s: the sites moved in more than one commit" % f)
-        elif not case.get("change"):
+            # Whatever the chart: a generated catalogue file that differs from the
+            # tree before the release was written by the writer's last commit.
+            for f in (JSON_REL, TS_REL):
+                if f in need or f in last:
+                    continue
+                if sh("git diff --name-only %s HEAD -- %s" % (baseline, f), cwd=pushed).stdout.strip():
+                    problems.append("%s changed in a commit before the writer's last one: the sites moved "
+                                    "in more than one commit" % f)
+        elif not case.get("change") and not case.get("unchanged"):
             assert_repo_gates(pushed, problems, skip_slow, baseline)
 
         head = sh("git log -1 --format=%s", cwd=pushed).stdout.strip()
@@ -1389,16 +1666,21 @@ def main(argv=None):
           % os.path.relpath(WORKFLOW, REPO_ROOT))
     try:
         base = scratch_base(args.scratch_dir)
+        write_helm_stub(base)
     except Failure as exc:
         print("%sFAIL — %s%s" % (RED, exc, RESET))
         return 1
     ok = True
-    for n in names:
-        try:
-            ok = run_case(n, CASES[n], args.keep, args.skip_slow, base) and ok
-        except Failure as exc:
-            print("%s  FAIL case %s — harness error%s\n    ✗ %s" % (RED, n, RESET, exc))
-            ok = False
+    try:
+        for n in names:
+            try:
+                ok = run_case(n, CASES[n], args.keep, args.skip_slow, base) and ok
+            except Failure as exc:
+                print("%s  FAIL case %s — harness error%s\n    ✗ %s" % (RED, n, RESET, exc))
+                ok = False
+    finally:
+        # FND-029: the stand-in for helm leaves no file in the scratch base.
+        shutil.rmtree(STUB["dir"], ignore_errors=True)
 
     print()
     if ok:
