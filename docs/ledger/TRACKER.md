@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-15T10:15:04Z` |
+| Last refreshed | `2026-11-15T10:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -308,6 +308,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-11-15T09:35 | [#7906](https://github.com/openova-io/openova/pull/7906) | #7900 | fix(cutover): a fresh two-region installation passes the han |
+| 2026-11-15T10:15 | [#7905](https://github.com/openova-io/openova/pull/7905) | #7903 | fix(kit): a fresh two-region installation holds kured back,  |
 | 2026-11-15T08:08 | [#7899](https://github.com/openova-io/openova/pull/7899) | #7087 | docs(ledger): plan update |
 | 2026-11-15T04:01 | [#7898](https://github.com/openova-io/openova/pull/7898) | #7893 | fix(provisioning): the control-plane user data fits the clou |
 | 2026-11-15T02:42 | [#7896](https://github.com/openova-io/openova/pull/7896) | #7805 | feat(machines): kinds ScanPolicy, HardeningBaseline and Mach |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-14T22:23 | [#7856](https://github.com/openova-io/openova/pull/7856) | #7824 | feat(trivy): slot 30 points the scanner at the vulnerability |
 | 2026-11-14T20:54 | [#7851](https://github.com/openova-io/openova/pull/7851) | #7087 | docs(ledger): plan update |
 | 2026-11-14T22:25 | [#7850](https://github.com/openova-io/openova/pull/7850) | #7773 | refactor(services): the seven Organization services stop bui |
-| 2026-11-14T22:22 | [#7849](https://github.com/openova-io/openova/pull/7849) | #7702 | chore: delete the four retired vcluster charts and their see |
 
 ---
 
