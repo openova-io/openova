@@ -30,6 +30,7 @@ on:
       - '.github/workflows/openclaw-controller.yaml'
       - '.github/workflows/check-release-lockstep-writer.yaml'
       - 'scripts/check-release-lockstep-writer.py'
+      - 'scripts/chart-package-diff.py'
       - 'scripts/sync-catalog-seed-pin.py'
       - 'scripts/sync-funnel-pin.py'
       - 'core/services/provisioning/gitops/helmrelease_apps.go'
@@ -45,6 +46,7 @@ on:
       - '.github/workflows/openclaw-controller.yaml'
       - '.github/workflows/check-release-lockstep-writer.yaml'
       - 'scripts/check-release-lockstep-writer.py'
+      - 'scripts/chart-package-diff.py'
       - 'scripts/sync-catalog-seed-pin.py'
       - 'scripts/sync-funnel-pin.py'
       - 'core/services/provisioning/gitops/helmrelease_apps.go'
@@ -80,6 +82,11 @@ jobs:
 
       - name: Run the release lockstep writer guard
         run: python3 scripts/check-release-lockstep-writer.py --scratch-dir "${RUNNER_TEMP}"
+
+      # FND-029: the release writer compares a packaged chart with the version the
+      # registry holds through this tool; its self-test shows that every rule can fail.
+      - name: Self-test the chart package compare
+        run: python3 scripts/chart-package-diff.py --self-test
 
       - name: Self-test the catalog-seed sync helper
         run: python3 scripts/sync-catalog-seed-pin.py --self-test
