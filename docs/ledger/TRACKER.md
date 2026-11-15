@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-15T20:15:03Z` |
+| Last refreshed | `2026-11-15T20:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,12 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-15T20:22 | [#7928](https://github.com/openova-io/openova/pull/7928) | #7922 | fix(cutover): step 01 pushes only the default branch and tag |
+| 2026-11-15T20:21 | [#7927](https://github.com/openova-io/openova/pull/7927) | #7922 | fix(catalyst-api): a catalog row reports the Sovereign's cat |
+| 2026-11-15T20:21 | [#7926](https://github.com/openova-io/openova/pull/7926) | #7922 | fix(catalyst-api): orphan cross-region Secret copies so a re |
+| 2026-11-15T20:21 | [#7925](https://github.com/openova-io/openova/pull/7925) | #7922 | fix(release): a failed GHCR listing is retried and reported  |
+| 2026-11-15T20:21 | [#7924](https://github.com/openova-io/openova/pull/7924) | #7922 | fix(cutover): kured's install hold lands within a minute of  |
+| 2026-11-15T20:21 | [#7923](https://github.com/openova-io/openova/pull/7923) | #7922 | fix(cloud-init): no node reboots itself; evict the unattende |
 | 2026-11-15T14:26 | [#7921](https://github.com/openova-io/openova/pull/7921) | #7905 | plan(gates): INF-G01 asserts one worker restart per region a |
 | 2026-11-15T14:23 | [#7920](https://github.com/openova-io/openova/pull/7920) | #7915 | fix(acceptance): SVC-G06 does not judge a release the region |
 | 2026-11-15T14:23 | [#7919](https://github.com/openova-io/openova/pull/7919) | #7905 | fix(acceptance): INF-G01 restarts one worker per region and  |
@@ -331,12 +337,6 @@ flowchart LR
 | 2026-11-15T02:51 | [#7887](https://github.com/openova-io/openova/pull/7887) | #7886 | ci: an exception register for Secret objects, its guard and  |
 | 2026-11-15T01:54 | [#7880](https://github.com/openova-io/openova/pull/7880) | #7087 | docs(ledger): plan update |
 | 2026-11-15T00:01 | [#7879](https://github.com/openova-io/openova/pull/7879) | #7743 | ci: the guards that run on every pull request share three jo |
-| 2026-11-15T01:58 | [#7878](https://github.com/openova-io/openova/pull/7878) | #7776 | fix: move 53 Blueprint files to apiVersion catalyst.openova. |
-| 2026-11-14T23:48 | [#7877](https://github.com/openova-io/openova/pull/7877) | #7865 | feat(gate): check INF-G01 judges the upgrade windows and the |
-| 2026-11-14T23:35 | [#7876](https://github.com/openova-io/openova/pull/7876) | #7822 | feat(gate): check INF-G01 watches kured restart three nodes  |
-| 2026-11-14T23:37 | [#7875](https://github.com/openova-io/openova/pull/7875) | #7794 | refactor(api): the Applications view reads the informer cach |
-| 2026-11-14T23:26 | [#7874](https://github.com/openova-io/openova/pull/7874) | #7087 | docs(ledger): the check INF-G01 needs the capability node-re |
-| 2026-11-15T01:56 | [#7873](https://github.com/openova-io/openova/pull/7873) | #7837 | chore(services): tidy the service modules so none requires t |
 
 ---
 
