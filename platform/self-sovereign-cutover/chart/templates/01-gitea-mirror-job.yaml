@@ -93,7 +93,7 @@ data:
             value: {{ .Values.gitRepositorySecretRef.patSourceSecretName | quote }}
           - name: PAT_SOURCE_KEY
             value: {{ .Values.gitRepositorySecretRef.patSourceKey | quote }}
-          {{- if .Values.secondaryRegions.mirrorToSecondaryGitea }}
+          {{- if or .Values.secondaryRegions.mirrorToSecondaryGitea .Values.secondaryRegions.replicaRegion }}
           {{- /*
            #6490 — inputs for the secondary-region mirror leg. The per-secondary
            mirror Job manifest is fully rendered in the cutover-secondary-mirror-
@@ -391,7 +391,7 @@ data:
               echo "[gitea-mirror] verified: mirror=false on ${GITEA_ORG}/${GITEA_REPO} (writable for cutover step-06)"
             fi
 
-            {{- if .Values.secondaryRegions.mirrorToSecondaryGitea }}
+            {{- if or .Values.secondaryRegions.mirrorToSecondaryGitea .Values.secondaryRegions.replicaRegion }}
             {{- /*
              ── #6490: mirror to EACH secondary region's OWN in-cluster Gitea ──
              The primary push above populated region-A only. A secondary's own
@@ -548,7 +548,7 @@ data:
           readOnlyRootFilesystem: false
           capabilities:
             drop: ["ALL"]
-        {{- if .Values.secondaryRegions.mirrorToSecondaryGitea }}
+        {{- if or .Values.secondaryRegions.mirrorToSecondaryGitea .Values.secondaryRegions.replicaRegion }}
         {{- /*
          #6490 — optional secondary-region kubeconfigs (the cutover-secondary-
          kubeconfigs Secret catalyst-api materialises at run start; empty on a
@@ -564,7 +564,7 @@ data:
             mountPath: /secondary-mirror
             readOnly: true
         {{- end }}
-    {{- if .Values.secondaryRegions.mirrorToSecondaryGitea }}
+    {{- if or .Values.secondaryRegions.mirrorToSecondaryGitea .Values.secondaryRegions.replicaRegion }}
     volumes:
       - name: secondary-kubeconfigs
         secret:
