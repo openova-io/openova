@@ -85,6 +85,34 @@ func init() {
 		proofsHR("flux-system", "bp-sealed-secrets", "bp-sealed-secrets", map[string]string{"t": "Failed"}))}
 	fakeAnswers["proofs-no-foundation"] = map[string]string{"a" + hr: base, "b" + hr: kubeList(proofsOtelOp, proofsShop)}
 	fakeAnswers["proofs-region-b-unreachable"] = map[string]string{"a" + hr: base}
+	// A follower region suspends the releases that live only in the primary
+	// (run of 15 November 2026: bp-catalyst-platform and six more in region b).
+	// A suspended release runs no test and is not judged; one that is not
+	// suspended still is.
+	suspended := func(o obj) obj {
+		return proofsWith(o, func(o obj) {
+			o["spec"].(obj)["suspend"] = true
+			o["spec"].(obj)["test"] = obj{"enable": false}
+		})
+	}
+	fakeAnswers["proofs-follower-suspended"] = map[string]string{"a" + hr: base, "b" + hr: with(suspended(proofsCilFail))}
+	fakeAnswers["proofs-follower-not-suspended"] = map[string]string{"a" + hr: base,
+		"b" + hr: with(proofsWith(proofsCilFail, func(o obj) { o["spec"].(obj)["test"] = obj{"enable": false} }))}
+}
+
+func TestProofsSuspendedReleaseIsNotJudged(t *testing.T) {
+	r := proofsRun(t, "proofs-follower-suspended")
+	if got := r.run.Checks[0]; got.Status != Pass {
+		t.Fatalf("a suspended release must not be judged: want PASS, got %+v", got)
+	}
+	ev := r.run.Steps[2].Evidence
+	if s, _ := ev["suspended"].([]string); len(s) != 1 || s[0] != "flux-system/bp-cilium" || ev["judged"] != 1 {
+		t.Errorf("the suspended release is recorded and not judged: %+v", ev)
+	}
+	got := proofsRun(t, "proofs-follower-not-suspended").run.Checks[0]
+	if got.Status != Fail || !strings.Contains(got.Reason, "flux-system/bp-cilium (bp-cilium) none: spec.test.enable is not true") {
+		t.Errorf("a release that is not suspended is still judged: want FAIL, got %+v", got)
+	}
 }
 
 // proofsRun runs check SVC-G06 against a scenario with the fixture candidate.
