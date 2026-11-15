@@ -75,7 +75,7 @@ for d in docs:
         envfile(c.get('env', []), out + '/step01.env')
     elif name == 'cutover-secondary-mirror-script':
         open(out + '/secmirror.sh', 'w').write(d['data']['secondary-mirror.sh'])
-        job = yaml.safe_load(d['data']['secondary-mirror-job.yaml'].replace('__REGION__', 'me-east-215-b-1'))
+        job = yaml.safe_load(d['data']['secondary-mirror-job.yaml'].replace('__REGION__', 'me-east-215-b-1').replace('__SOURCE_REF__', 'main'))
         c = job['spec']['template']['spec']['containers'][0]
         envfile(c.get('env', []), out + '/secmirror.env')
 PY
@@ -121,6 +121,8 @@ cat >"${TMP}/bin/kubectl" <<'STUB'
 case "$*" in
   *"get secret"*) printf 'testpat' | base64; exit 0 ;;
   *"get cronjob"*) exit 1 ;;
+  # the Flux source before the pivot follows upstream main (#7922 candidate rule)
+  *"get gitrepository"*) printf '%s main' "${UPSTREAM_REPO_URL}"; exit 0 ;;
 esac
 exit 0
 STUB

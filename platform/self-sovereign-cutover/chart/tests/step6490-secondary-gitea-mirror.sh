@@ -229,7 +229,7 @@ docs=[d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
 for d in docs:
     if d.get('kind')=='ConfigMap' and d['metadata']['name']=='cutover-secondary-mirror-script':
         open(sys.argv[2],'w').write(d['data']['secondary-mirror.sh'])
-        open(sys.argv[3],'w').write(d['data']['secondary-mirror-job.yaml'].replace('__REGION__','me-east-215-b-1'))
+        open(sys.argv[3],'w').write(d['data']['secondary-mirror-job.yaml'].replace('__REGION__','me-east-215-b-1').replace('__SOURCE_REF__','main'))
         break
 PY
 if [ ! -s "${TMP}/secmirror.sh" ]; then fail "cutover-secondary-mirror-script ConfigMap / secondary-mirror.sh key absent from ON render"; fi
@@ -305,7 +305,7 @@ fi
 # after the ref advertisement (pkt-line 3 EOF). #7922 — and NO other upstream
 # branch: no consumer reads one, and each cost a hook process + an Actions scan.
 # step7922-gitea-mirror-refs.sh EXECUTES the script against fixture repos.
-if grep -qF 'push --force "${push_url}" "refs/heads/${default_branch}:refs/heads/${default_branch}"' "${TMP}/secmirror.sh"; then
+if grep -qF 'push --force "${push_url}" "refs/heads/${SOURCE_REF}:refs/heads/${default_branch}"' "${TMP}/secmirror.sh"; then
   pass "secondary-mirror.sh force-pushes the default branch first on its own ref-command (#6754)"
 else
   fail "secondary-mirror.sh does not push the default branch first — the whole-repo push dies after the ref advertisement (#6754)"
@@ -361,7 +361,7 @@ PY
 # extracted step-01 script (Case 46 in cutover-contract.sh guards the same shape).
 # #7922 — and it pushes no other upstream branch (step7922-gitea-mirror-refs.sh
 # executes it).
-if grep -qF 'push --force "${local_url}" "refs/heads/${default_branch}:refs/heads/${default_branch}"' "${TMP}/step01.sh"; then
+if grep -qF 'push --force "${local_url}" "refs/heads/${src_ref}:refs/heads/${default_branch}"' "${TMP}/step01.sh"; then
   pass "step-01 primary push sends the default branch first on its own ref-command (#6754)"
 else
   fail "step-01 primary push does not push the default branch first (#6754)"

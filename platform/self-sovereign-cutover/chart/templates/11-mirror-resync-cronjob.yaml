@@ -334,7 +334,7 @@ spec:
                   EOF
                     kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" apply --server-side --force-conflicts --field-manager=self-sovereign-cutover -f /tmp/sec-gitea-pat.yaml
                     kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" delete job "${jobname}" --ignore-not-found=true >/dev/null 2>&1 || true
-                    sed "s/__REGION__/${region}/g" /secondary-mirror/secondary-mirror-job.yaml >/tmp/secjob.yaml
+                    sed -e "s/__REGION__/${region}/g" -e "s#__SOURCE_REF__#${UPSTREAM_BRANCH}#g" /secondary-mirror/secondary-mirror-job.yaml >/tmp/secjob.yaml
                     kubectl --kubeconfig "${skc}" apply -f /tmp/secjob.yaml
                     sec_deadline=$(( $(date +%s) + ${MIRROR_JOB_WAIT_SECONDS} ))
                     sec_done=""

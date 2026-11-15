@@ -310,37 +310,24 @@ data:
             fi
             cd upstream.git
             {{- /*
-             #7922 — push ONLY the upstream refs a Sovereign reads: the default
-             branch and the tags. Every consumer of this repository reads
-             `${UPSTREAM_BRANCH}` (step-05's Flux GitRepository pivot, the
-             clone+push of steps 06/07/10/11 and the secondary pivot, the day-two
-             reconciler's raw reads) or a SOVEREIGN-LOCAL branch that never comes
-             from upstream (org-tenants, catalog-sovereign). No consumer reads any
-             other upstream branch.
-
-             Measured on hw307 (dep 9836870916c31984, 15 Nov 2026): this step took
-             33 min, 28 of them in the loop that pushed the other 2,733 upstream
-             branches in 200-ref batches. Each batch took ~130 s and ~118 s of it
-             sat between Gitea's pre-receive and post-receive calls: git runs the
-             per-ref `update` hook, one `gitea hook update` process per ref
-             (~0.6 s each on the 1-CPU Gitea pod). Every new branch also queued
-             two notifications whose Gitea Actions handler parses that branch's
-             workflow files (139 on main); 2,800+ such scans were still running
-             1h40m after the step ended, holding the pod's CPU. The secondary
-             region pushed the same batches in ~77 s only because its repository
-             is a hook-less `reinit_missing_repos` copy on the shared database.
-
-             Actions is switched off on the repository first (best-effort): no
-             Sovereign runs a Gitea Actions runner, so the scan is pure cost on
-             this push and on every later push (steps 06/07/10/11, catalyst-api
-             writes). Default branch first (fatal — it carries the bulk pack in
-             one ref-command, the shape #6754 proved survivable), then tags
-             (fatal). Still explicit refspecs, never --mirror (#5011), so
-             sovereign-local refs are never pruned; branches an earlier run
-             pushed stay as they were. Credential redaction on stderr is unchanged.
+             #7922 — push ONLY what a Sovereign reads, Gitea Actions off first
+             (values.yaml upstream, the #7922 notes): the RELEASE this Sovereign
+             was installed from, as local ${UPSTREAM_BRANCH} (the branch step 05
+             points Flux at), and the tags. The release is the branch the live
+             Flux source follows before the pivot (the installation's gitopsBranch).
+             Once Flux follows the local Gitea (a re-run after step 05) the local
+             branch is kept: it holds the release plus this Sovereign's own commits.
+             Explicit refspecs, never --mirror (#5011); credentials redacted.
             */}}
             default_branch="${UPSTREAM_BRANCH}"
-            echo "[gitea-mirror] pushing upstream default branch (${default_branch}) and tags to ${redacted_url} — the only upstream refs a Sovereign reads (#7922)"
+            echo "[gitea-mirror] pushing upstream refs a Sovereign reads to ${redacted_url}: the release it was installed from as local ${default_branch}, and the tags (#7922)"
+            src=$(kubectl -n {{ .Values.gitopsRepository.namespace }} get gitrepository {{ .Values.gitopsRepository.name }} -o jsonpath='{.spec.url} {.spec.ref.branch}' 2>/dev/null) || src=""
+            src_url="${src%% *}"; src_ref="${src#"${src_url}"}"; src_ref="${src_ref# }"
+            case "${src_url}" in
+              "${GITEA_INTERNAL_URL}"*) src_ref=""; echo "[gitea-mirror] Flux already follows the local Gitea (${src_url}): local ${default_branch} is KEPT as it is — the release plus this Sovereign's own commits (#7922)" ;;
+              "") echo "[gitea-mirror] FATAL (#7922): cannot read GitRepository {{ .Values.gitopsRepository.namespace }}/{{ .Values.gitopsRepository.name }}, so the release this Sovereign was installed from is unknown; nothing is pushed" >&2; exit 1 ;;
+              *) [ -n "${src_ref}" ] || { echo "[gitea-mirror] FATAL (#7922): ${src_url} is followed with no spec.ref.branch; the release cannot be named" >&2; exit 1; }; echo "[gitea-mirror] the release: ${src_ref} of ${src_url}, pushed as local ${default_branch} (#7922)" ;;
+            esac
             actions_meta=$(curl -fsS -X PATCH \
               -H "Authorization: token ${GITEA_PAT}" \
               -H "Content-Type: application/json" \
@@ -351,8 +338,8 @@ data:
             else
               echo "[gitea-mirror] WARN: could not switch Gitea Actions off on ${GITEA_ORG}/${GITEA_REPO} — the push still lands; each pushed ref costs one more workflow scan"
             fi
-            push_err=$(git push --force "${local_url}" "refs/heads/${default_branch}:refs/heads/${default_branch}" 2>&1) || {
-              echo "[gitea-mirror] FATAL: git push of the default branch (${default_branch}) to local Gitea failed" >&2
+            [ -z "${src_ref}" ] || push_err=$(git push --force "${local_url}" "refs/heads/${src_ref}:refs/heads/${default_branch}" 2>&1) || {
+              echo "[gitea-mirror] FATAL: git push of the release ${src_ref} as ${default_branch} to local Gitea failed" >&2
               printf '%s\n' "${push_err}" | sed -E "s,${GITEA_PAT}+,REDACTED,g" >&2
               exit 1
             }
@@ -361,7 +348,7 @@ data:
               printf '%s\n' "${push_err}" | sed -E "s,${GITEA_PAT}+,REDACTED,g" >&2
               exit 1
             }
-            echo "[gitea-mirror] pushed all upstream refs a Sovereign reads (${default_branch} + tags; no other upstream branch is pushed, #7922; sovereign-local refs untouched)"
+            echo "[gitea-mirror] pushed all upstream refs a Sovereign reads (${default_branch} = ${src_ref:-kept} + tags; no other upstream branch is pushed, #7922; sovereign-local refs untouched)"
 
             {{- /*
              4. Verify by reading back the default branch SHA and
@@ -388,7 +375,7 @@ data:
              gitea-http is HEADLESS and unreachable cross-region, so we run the
              mirror IN each secondary: distribute the shared cutover-secondary-
              mirror-script ConfigMap into the region's gitea namespace, then stamp
-             the Helm-rendered mirror Job (only __REGION__ is sed-substituted). The
+             the Helm-rendered mirror Job (__REGION__, __SOURCE_REF__ sed-substituted). The
              Job clones upstream + force-pushes to the region-local Gitea using
              THAT region's OWN gitea-admin-secret + ls-remote self-verifies. It
              lands in the gitea namespace with the default SA because the cutover
@@ -409,7 +396,7 @@ data:
                Distribute the shared script ConfigMap into the secondary's gitea
                namespace, then (re)create the Job (delete a prior attempt first —
                a Job's pod template is immutable). The Job manifest is rendered in
-               the mounted ConfigMap; only __REGION__ is substituted here.
+               the mounted ConfigMap; __REGION__ and __SOURCE_REF__ are substituted.
               */}}
               kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" create configmap cutover-secondary-mirror-script \
                 --from-file=secondary-mirror.sh=/secondary-mirror/secondary-mirror.sh \
@@ -443,7 +430,7 @@ data:
               done >/tmp/sec-gitea-pat.yaml
               kubectl --kubeconfig "${skc}" apply --server-side --force-conflicts --field-manager=self-sovereign-cutover -f /tmp/sec-gitea-pat.yaml
               kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" delete job "${jobname}" --ignore-not-found=true >/dev/null 2>&1 || true
-              sed "s/__REGION__/${region}/g" /secondary-mirror/secondary-mirror-job.yaml >/tmp/secjob.yaml
+              sed -e "s/__REGION__/${region}/g" -e "s#__SOURCE_REF__#${src_ref:-}#g" /secondary-mirror/secondary-mirror-job.yaml >/tmp/secjob.yaml
               kubectl --kubeconfig "${skc}" apply -f /tmp/secjob.yaml
               echo "[gitea-mirror] #6490 secondary region ${region}: waiting up to ${MIRROR_JOB_WAIT_SECONDS}s for ${jobname}"
               sec_deadline=$(( $(date +%s) + ${MIRROR_JOB_WAIT_SECONDS} ))

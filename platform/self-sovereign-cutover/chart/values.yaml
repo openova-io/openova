@@ -127,6 +127,22 @@ mgmtIsolationCarveOut:
 # so a Sovereign that ships from a fork can rebase the seed.
 upstream:
   repoURL: "https://github.com/openova-io/openova"
+  # #7922 — the LOCAL branch of the mirrored repository: step 01 writes it,
+  # step 05 points Flux at it, steps 06/07/10/11 commit on it. Its CONTENT is the
+  # release this Sovereign was installed from, not upstream `main`: step 01 reads
+  # the branch the live Flux source follows before the pivot (the installation's
+  # gitopsBranch, e.g. a release candidate rc/<id>) and pushes that commit as this
+  # branch, in every region (the follower Job gets the same ref as SOURCE_REF).
+  # Measured on hw307 (15 Nov 2026): installed from rc/20261115T144352Z-67402a1,
+  # it ran upstream main of the step-01 moment after cutover.
+  # Once Flux follows the local Gitea (a re-run of step 01 after step 05) the
+  # branch is KEPT as it is: the release plus the Sovereign's own commits. An
+  # unreadable Flux source fails step 01; it never guesses a release.
+  # Moving the branch to a later release is a deliberate release action, never a
+  # side effect of the mirror. Before cutoverComplete the day-two reconciler's
+  # operator-requested CATALOG leg can refresh the mirror; after it that leg is
+  # refused (#5759) and no merge-preserving delivery exists yet. The opt-in,
+  # off-by-default mirrorResync CronJob below follows upstream by design.
   branch: "main"
   # Gitea pull-mirror poll interval. Format = Go duration string parsed
   # by Gitea (e.g. "10m0s", "1h0m0s"). Set to 10m by default — short

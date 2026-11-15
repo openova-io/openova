@@ -47,9 +47,8 @@ branch refs plus the ~511 MiB pack dies after the ref advertisement (the
 "pkt-line 3 EOF" class), so the default branch goes FIRST on its own
 ref-command (fatal — it carries the bulk pack), then tags (fatal). #7922: and
 that is all — no consumer on a Sovereign reads any other upstream branch, so
-the remaining-branch batches are gone, and Gitea Actions is switched off on the
-repository before the push (no Sovereign runs a runner). Same shape and reason
-as step-01; see the #7922 comment in 01-gitea-mirror-job.yaml.
+the remaining-branch batches are gone, and Gitea Actions is switched off first.
+The branch pushed is the release step 01 resolved (__SOURCE_REF__, #7922).
 
 RENDER-GATED: emitted only when secondaryRegions.mirrorToSecondaryGitea is true,
 so a single-region Sovereign renders byte-identical (this whole object absent).
@@ -181,16 +180,13 @@ data:
     fi
     cd upstream.git
 
-    # #7922 — push ONLY the upstream refs a Sovereign reads: the default branch
-    # (fatal — it carries the bulk pack in one ref-command, #6754), then tags
-    # (fatal). Every consumer reads ${UPSTREAM_BRANCH} or a sovereign-local branch;
-    # the other ~2,700 upstream branches had none, and on a Gitea with its hooks
-    # installed each one cost a `gitea hook update` process plus an Actions
-    # workflow scan (step-01 took 33 min on hw307). Actions is switched off on the
-    # repository first (best-effort; no Sovereign runs a runner). Never mirror
-    # mode (#5011) — sovereign-local refs are untouched.
+    # #7922 — push ONLY what a Sovereign reads, Actions off first: the release the
+    # primary's step 01 resolved (SOURCE_REF, the installation's gitopsBranch) as
+    # local ${UPSTREAM_BRANCH} (fatal; it carries the bulk pack, #6754), then tags.
+    # An empty SOURCE_REF (a re-run after the pivot) keeps the local branch with this
+    # region's own commits. Never mirror mode (#5011). values.yaml: the #7922 notes.
     default_branch="${UPSTREAM_BRANCH}"
-    echo "[secondary-mirror] pushing upstream default branch (${default_branch}) and tags — the only upstream refs a Sovereign reads (#7922)"
+    echo "[secondary-mirror] pushing the release ${SOURCE_REF:-<kept>} as local ${default_branch}, and the tags — the only upstream refs a Sovereign reads (#7922)"
     actions_meta=$(curl -fsS --max-time 60 -X PATCH \
         -H "Authorization: token ${GITEA_PAT}" -H "Content-Type: application/json" \
         -d '{"has_actions":false}' \
@@ -200,8 +196,8 @@ data:
     else
       echo "[secondary-mirror] WARN: could not switch Gitea Actions off on ${GITEA_ORG}/${GITEA_REPO} — the push still lands"
     fi
-    if ! push_err=$(git -c http.extraHeader="Authorization: Basic ${token_auth}" push --force "${push_url}" "refs/heads/${default_branch}:refs/heads/${default_branch}" 2>&1); then
-      echo "[secondary-mirror] FATAL: git push of the default branch (${default_branch}) to the region-local Gitea failed" >&2
+    if [ -n "${SOURCE_REF:-}" ] && ! push_err=$(git -c http.extraHeader="Authorization: Basic ${token_auth}" push --force "${push_url}" "refs/heads/${SOURCE_REF}:refs/heads/${default_branch}" 2>&1); then
+      echo "[secondary-mirror] FATAL: git push of the release ${SOURCE_REF} as ${default_branch} to the region-local Gitea failed" >&2
       printf '%s\n' "${push_err}" | sed -E "s,${GITEA_PAT}+,REDACTED,g" >&2
       exit 1
     fi
@@ -210,7 +206,7 @@ data:
       printf '%s\n' "${push_err}" | sed -E "s,${GITEA_PAT}+,REDACTED,g" >&2
       exit 1
     fi
-    echo "[secondary-mirror] pushed all upstream refs a Sovereign reads (${default_branch} + tags; no other upstream branch is pushed, #7922; sovereign-local refs untouched)"
+    echo "[secondary-mirror] pushed all upstream refs a Sovereign reads (${default_branch} = ${SOURCE_REF:-kept} + tags; no other upstream branch is pushed, #7922; sovereign-local refs untouched)"
 
     # 5. ls-remote self-verify — the #6490 ordering gate. The region's Gitea must
     #    serve a COMPLETE ref advertisement (the class that truncated at pkt-line
@@ -290,6 +286,8 @@ data:
                   value: {{ .Values.upstream.repoURL | quote }}
                 - name: UPSTREAM_BRANCH
                   value: {{ .Values.upstream.branch | quote }}
+                - name: SOURCE_REF
+                  value: "__SOURCE_REF__"
                 - name: GITEA_INTERNAL_URL
                   value: {{ .Values.sovereign.giteaInternalURL | quote }}
                 - name: GITEA_ORG
