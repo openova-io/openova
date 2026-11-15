@@ -1,0 +1,1039 @@
+{
+  "schema": "openova.io/acceptance-sovereign/v2",
+  "run_id": "20261115T193434Z-bf65",
+  "env": "hw307",
+  "console": "https://console.hw307.omani.works",
+  "deployment_id": "9836870916c31984",
+  "mode": "run",
+  "run_in": "cloud",
+  "capabilities": [
+    "multi-region",
+    "previous-wipe",
+    "node-reboot"
+  ],
+  "suite_git_sha": "67402a108e92d9e44c154ba4650867dec6c1af16",
+  "started_at": "2026-11-15T19:34:34.689922457Z",
+  "finished_at": "2026-11-15T19:35:50.130109043Z",
+  "result": "FAIL",
+  "candidate": {
+    "id": "20261115T144352Z-67402a1",
+    "commit": "67402a108e92d9e44c154ba4650867dec6c1af16"
+  },
+  "producer": {
+    "kind": "workflow",
+    "workflow": "foundation-gate.yaml",
+    "run_id": "43752453000",
+    "run_attempt": 1
+  },
+  "provision": {
+    "provider": "",
+    "created_at": "2026-11-15T16:03:19Z",
+    "ready_at": "2026-11-15T18:55:03Z",
+    "regions": [
+      {
+        "id": "hw-me-east-215-a-rtz-prod",
+        "nodes_requested": 6,
+        "nodes_ready": 6
+      },
+      {
+        "id": "hw-me-east-215-b-rtz-prod",
+        "nodes_requested": 6,
+        "nodes_ready": 6
+      }
+    ],
+    "fresh": false,
+    "previous_deployment_id": "b82699b905faa56a",
+    "previous_wipe_orphans": 0,
+    "preflight": {
+      "measured_at": "2026-11-15T15:41:06Z",
+      "kinds": [
+        {
+          "kind": "servers",
+          "used": 1,
+          "leftovers": 0
+        },
+        {
+          "kind": "volumes",
+          "used": 2,
+          "allowed": 400,
+          "leftovers": 0
+        },
+        {
+          "kind": "addresses",
+          "used": 1,
+          "leftovers": 0
+        },
+        {
+          "kind": "load_balancers",
+          "used": 0,
+          "leftovers": 0
+        },
+        {
+          "kind": "nat_gateways",
+          "used": 0,
+          "leftovers": 0
+        },
+        {
+          "kind": "networks",
+          "used": 1,
+          "allowed": 5,
+          "leftovers": 0
+        },
+        {
+          "kind": "security_groups",
+          "used": 3,
+          "leftovers": 0
+        },
+        {
+          "kind": "keypairs",
+          "used": 3,
+          "leftovers": 0
+        },
+        {
+          "kind": "peerings",
+          "used": 0,
+          "leftovers": 0
+        },
+        {
+          "kind": "buckets",
+          "used": 48,
+          "allowed": 100,
+          "leftovers": 0
+        },
+        {
+          "kind": "dns_records",
+          "leftovers": 0
+        }
+      ]
+    }
+  },
+  "checks": [
+    {
+      "id": "AIP-G01",
+      "state_at_run": "required",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "BSS-G02",
+      "state_at_run": "required",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "CLD-G06",
+      "state_at_run": "required",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "CLD-G09",
+      "state_at_run": "required",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "CMP-G01",
+      "state_at_run": "expected-fail",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "CMP-G02",
+      "state_at_run": "expected-fail",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "CTL-G04",
+      "state_at_run": "expected-fail",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "CTL-G07",
+      "state_at_run": "required",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "CTL-G12",
+      "state_at_run": "required",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "FND-G01",
+      "state_at_run": "expected-fail",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "FND-G02",
+      "state_at_run": "expected-fail",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "FND-G03",
+      "state_at_run": "expected-fail",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "FND-G04",
+      "state_at_run": "expected-fail",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "FND-G05",
+      "state_at_run": "expected-fail",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "FND-G06",
+      "state_at_run": "expected-fail",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "FND-G08",
+      "state_at_run": "expected-fail",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "FND-G09",
+      "state_at_run": "expected-fail",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "FND-G10",
+      "state_at_run": "expected-fail",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "FND-G11",
+      "state_at_run": "expected-fail",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "FND-G12",
+      "state_at_run": "expected-fail",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "FND-G13",
+      "state_at_run": "expected-fail",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "INF-G01",
+      "state_at_run": "required",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "NET-G01",
+      "state_at_run": "required",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "NET-G03",
+      "state_at_run": "required",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "NET-G04",
+      "state_at_run": "required",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "NET-G08",
+      "state_at_run": "required",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "SEC-G01",
+      "state_at_run": "required",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "SEC-G02",
+      "state_at_run": "expected-fail",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "SEC-G04",
+      "state_at_run": "required",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "SEC-G07",
+      "state_at_run": "required",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "SEC-G11",
+      "state_at_run": "expected-fail",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "SVC-G06",
+      "state_at_run": "expected-fail",
+      "status": "SKIP",
+      "reason": "discovery (D0) failed"
+    },
+    {
+      "id": "FND-G07",
+      "state_at_run": "expected-fail",
+      "status": "PASS"
+    }
+  ],
+  "journeys": {
+    "J1": "SKIP",
+    "J2": "SKIP",
+    "J3": "SKIP",
+    "J4": "SKIP",
+    "J5": "SKIP"
+  },
+  "subject": {
+    "blueprint": "bp-wordpress-tenant@0.6.5",
+    "delivered_images": {
+      "hw-me-east-215-a-rtz-prod": {
+        "catalyst-api": "registry.hw307.omani.works/openova-io/openova/catalyst-api:2c6f654",
+        "catalyst-application-controller": "registry.hw307.omani.works/openova-io/openova/application-controller:2faf1f8",
+        "catalyst-catalog": "registry.hw307.omani.works/openova-io/openova/catalyst-catalog:973094b",
+        "catalyst-environment-controller": "registry.hw307.omani.works/openova-io/openova/environment-controller:2faf1f8",
+        "catalyst-organization-controller": "registry.hw307.omani.works/openova-io/openova/organization-controller:e41c7da",
+        "catalyst-ui": "registry.hw307.omani.works/openova-io/openova/catalyst-ui:2c6f654",
+        "catalyst-useraccess-controller": "registry.hw307.omani.works/openova-io/openova/useraccess-controller:2faf1f8",
+        "continuum-controller": "registry.hw307.omani.works/openova-io/openova/continuum-controller:2faf1f8",
+        "openova-flow-server": "registry.hw307.omani.works/openova-io/openova/openova-flow-server:f5c4c54",
+        "openova-mcp-bp-openova-mcp": "ghcr.io/openova-io/openova-mcp:0.2.7"
+      },
+      "hw-me-east-215-b-rtz-prod": {
+        "continuum-controller": "registry.hw307.omani.works/openova-io/openova/continuum-controller:2faf1f8",
+        "openova-flow-server": "ghcr.io/openova-io/openova/openova-flow-server:f5c4c54"
+      }
+    },
+    "environment": "hw307-omani-works-cp",
+    "org": "hw307-omani-works",
+    "regions": {
+      "A": "hw-me-east-215-a-rtz-prod",
+      "B": "hw-me-east-215-b-rtz-prod"
+    }
+  },
+  "steps": [
+    {
+      "journey": "D0",
+      "id": "D0.1",
+      "name": "session authenticates as owner (GET /api/v1/whoami)",
+      "status": "PASS",
+      "started_at": "2026-11-15T19:34:34.69186826Z",
+      "finished_at": "2026-11-15T19:34:35.632309342Z",
+      "duration_ms": 940,
+      "evidence": {
+        "deploymentId": "9836870916c31984",
+        "mode": "sovereign",
+        "sovereignFQDN": "hw307.omani.works",
+        "tier": "owner"
+      }
+    },
+    {
+      "journey": "D0",
+      "id": "D0.2",
+      "name": "regions: each kubeconfig IS the region it claims; ids from the region registry",
+      "status": "PASS",
+      "started_at": "2026-11-15T19:34:35.632351831Z",
+      "finished_at": "2026-11-15T19:34:39.068568432Z",
+      "duration_ms": 3436,
+      "evidence": {
+        "console_topology_regions": [
+          "me-east-215-a",
+          "me-east-215-b"
+        ],
+        "identity_source": "TEMPORARY-fallback: SOVEREIGN_REGION_KEY of the bootstrap variables per kubeconfig",
+        "regionA": "hw-me-east-215-a-rtz-prod",
+        "regionB": "hw-me-east-215-b-rtz-prod",
+        "region_ips": {
+          "hw-me-east-215-a-rtz-prod": [
+            "5.37.79.43"
+          ],
+          "hw-me-east-215-b-rtz-prod": [
+            "5.37.79.23"
+          ]
+        },
+        "region_ips_source": "TEMPORARY-fallback: CILIUM_LB_IPAM_CIDRS of the bootstrap variables per region (override: ACCEPT_REGION_IPS)",
+        "registry": [
+          "hw-me-east-215-a-rtz-prod",
+          "hw-me-east-215-b-rtz-prod"
+        ],
+        "shared_ingress_ips": [
+          "5.37.79.59",
+          "5.37.79.3"
+        ]
+      }
+    },
+    {
+      "journey": "D0",
+      "id": "D0.3",
+      "name": "Organization = the Sovereign's own (GET /api/v1/organizations)",
+      "status": "PASS",
+      "started_at": "2026-11-15T19:34:39.068645515Z",
+      "finished_at": "2026-11-15T19:34:39.286450322Z",
+      "duration_ms": 217,
+      "evidence": {
+        "kind": "internal",
+        "namespace": "hw307-omani-works",
+        "org": "hw307-omani-works",
+        "state": "done"
+      }
+    },
+    {
+      "journey": "D0",
+      "id": "D0.4",
+      "name": "Environment of that Org spanning both regions",
+      "status": "PASS",
+      "started_at": "2026-11-15T19:34:39.286477493Z",
+      "finished_at": "2026-11-15T19:34:39.501607651Z",
+      "duration_ms": 215,
+      "evidence": {
+        "environment": "hw307-omani-works-cp",
+        "placement": "multi-region",
+        "regions": 2,
+        "source": "GET /api/v1/sovereigns/{id}/environments"
+      }
+    },
+    {
+      "journey": "D0",
+      "id": "D0.5",
+      "name": "Blueprint exists and declares active-hot-standby",
+      "status": "PASS",
+      "started_at": "2026-11-15T19:34:39.501639551Z",
+      "finished_at": "2026-11-15T19:34:40.72169208Z",
+      "duration_ms": 1220,
+      "evidence": {
+        "blueprint": "bp-wordpress-tenant",
+        "supported": [
+          "active-passive",
+          "active-hot-standby",
+          "singleton"
+        ],
+        "version": "0.6.5"
+      }
+    },
+    {
+      "journey": "D0",
+      "id": "D0.6",
+      "name": "delivered control-plane images (what this run certifies)",
+      "status": "PASS",
+      "started_at": "2026-11-15T19:34:40.721719521Z",
+      "finished_at": "2026-11-15T19:34:42.985886197Z",
+      "duration_ms": 2264,
+      "evidence": {
+        "images": {
+          "hw-me-east-215-a-rtz-prod": {
+            "catalyst-api": "registry.hw307.omani.works/openova-io/openova/catalyst-api:2c6f654",
+            "catalyst-application-controller": "registry.hw307.omani.works/openova-io/openova/application-controller:2faf1f8",
+            "catalyst-catalog": "registry.hw307.omani.works/openova-io/openova/catalyst-catalog:973094b",
+            "catalyst-environment-controller": "registry.hw307.omani.works/openova-io/openova/environment-controller:2faf1f8",
+            "catalyst-organization-controller": "registry.hw307.omani.works/openova-io/openova/organization-controller:e41c7da",
+            "catalyst-ui": "registry.hw307.omani.works/openova-io/openova/catalyst-ui:2c6f654",
+            "catalyst-useraccess-controller": "registry.hw307.omani.works/openova-io/openova/useraccess-controller:2faf1f8",
+            "continuum-controller": "registry.hw307.omani.works/openova-io/openova/continuum-controller:2faf1f8",
+            "openova-flow-server": "registry.hw307.omani.works/openova-io/openova/openova-flow-server:f5c4c54",
+            "openova-mcp-bp-openova-mcp": "ghcr.io/openova-io/openova-mcp:0.2.7"
+          },
+          "hw-me-east-215-b-rtz-prod": {
+            "continuum-controller": "registry.hw307.omani.works/openova-io/openova/continuum-controller:2faf1f8",
+            "openova-flow-server": "ghcr.io/openova-io/openova/openova-flow-server:f5c4c54"
+          }
+        }
+      }
+    },
+    {
+      "journey": "D0",
+      "id": "D0.10",
+      "name": "mesh: every Cilium agent holds the peer region's gateway (ingress) IPs as reserved:ingress",
+      "status": "FAIL",
+      "started_at": "2026-11-15T19:34:42.985934718Z",
+      "finished_at": "2026-11-15T19:35:12.42309594Z",
+      "duration_ms": 29437,
+      "error": "[hw-me-east-215-a-rtz-prod] cilium-crdb5: ipcache: [hw-me-east-215-a-rtz-prod] kubectl exec -n kube-system cilium-crdb5 -c cilium-agent -- <redacted>: exit status 1: E1115 19:35:12.419799    4495 v2.go:167] \"Unhandled Error\" err=\"read message: %!w(<nil>)\"\nE1115 19:35:12.419833    4495 v2.go:150] \"Unhandled Error\" err=\"read message: %!w(<nil>)\"\nerror: error reading from error stream: read message: %!w(<nil>)"
+    },
+    {
+      "journey": "J1",
+      "id": "-",
+      "name": "journey not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423108984Z",
+      "finished_at": "2026-11-15T19:35:12.423108984Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed \u2014 nothing to drive"
+    },
+    {
+      "journey": "J2",
+      "id": "-",
+      "name": "journey not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423113062Z",
+      "finished_at": "2026-11-15T19:35:12.423113062Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed \u2014 nothing to drive"
+    },
+    {
+      "journey": "J3",
+      "id": "-",
+      "name": "journey not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423115166Z",
+      "finished_at": "2026-11-15T19:35:12.423115166Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed \u2014 nothing to drive"
+    },
+    {
+      "journey": "J4",
+      "id": "-",
+      "name": "journey not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423116318Z",
+      "finished_at": "2026-11-15T19:35:12.423116318Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed \u2014 nothing to drive"
+    },
+    {
+      "journey": "J5",
+      "id": "-",
+      "name": "journey not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.42311747Z",
+      "finished_at": "2026-11-15T19:35:12.42311747Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed \u2014 nothing to drive"
+    },
+    {
+      "journey": "AIP-G01",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423128781Z",
+      "finished_at": "2026-11-15T19:35:12.423128781Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "BSS-G02",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423134652Z",
+      "finished_at": "2026-11-15T19:35:12.423134652Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "CLD-G06",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423138259Z",
+      "finished_at": "2026-11-15T19:35:12.423138259Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "CLD-G09",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423143248Z",
+      "finished_at": "2026-11-15T19:35:12.423143248Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "CMP-G01",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423146314Z",
+      "finished_at": "2026-11-15T19:35:12.423146314Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "CMP-G02",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423154459Z",
+      "finished_at": "2026-11-15T19:35:12.423154459Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "CTL-G04",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423161813Z",
+      "finished_at": "2026-11-15T19:35:12.423161813Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "CTL-G07",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.42316562Z",
+      "finished_at": "2026-11-15T19:35:12.42316562Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "CTL-G12",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423171171Z",
+      "finished_at": "2026-11-15T19:35:12.423171171Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "FND-G01",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423178424Z",
+      "finished_at": "2026-11-15T19:35:12.423178424Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "FND-G02",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423186078Z",
+      "finished_at": "2026-11-15T19:35:12.423186078Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "FND-G03",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423191719Z",
+      "finished_at": "2026-11-15T19:35:12.423191719Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "FND-G04",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423196868Z",
+      "finished_at": "2026-11-15T19:35:12.423196868Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "FND-G05",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423201798Z",
+      "finished_at": "2026-11-15T19:35:12.423201798Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "FND-G06",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423206877Z",
+      "finished_at": "2026-11-15T19:35:12.423206877Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "FND-G08",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423211916Z",
+      "finished_at": "2026-11-15T19:35:12.423211916Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "FND-G09",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423216655Z",
+      "finished_at": "2026-11-15T19:35:12.423216655Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "FND-G10",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423221635Z",
+      "finished_at": "2026-11-15T19:35:12.423221635Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "FND-G11",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423231042Z",
+      "finished_at": "2026-11-15T19:35:12.423231042Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "FND-G12",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423239949Z",
+      "finished_at": "2026-11-15T19:35:12.423239949Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "FND-G13",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423243926Z",
+      "finished_at": "2026-11-15T19:35:12.423243926Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "INF-G01",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423248364Z",
+      "finished_at": "2026-11-15T19:35:12.423248364Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "NET-G01",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423253514Z",
+      "finished_at": "2026-11-15T19:35:12.423253514Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "NET-G03",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423258534Z",
+      "finished_at": "2026-11-15T19:35:12.423258534Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "NET-G04",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423264535Z",
+      "finished_at": "2026-11-15T19:35:12.423264535Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "NET-G08",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423270396Z",
+      "finished_at": "2026-11-15T19:35:12.423270396Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "SEC-G01",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423277298Z",
+      "finished_at": "2026-11-15T19:35:12.423277298Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "SEC-G02",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423286395Z",
+      "finished_at": "2026-11-15T19:35:12.423286395Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "SEC-G04",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423292086Z",
+      "finished_at": "2026-11-15T19:35:12.423292086Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "SEC-G07",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423297486Z",
+      "finished_at": "2026-11-15T19:35:12.423297486Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "SEC-G11",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423303377Z",
+      "finished_at": "2026-11-15T19:35:12.423303377Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "SVC-G06",
+      "id": "-",
+      "name": "check not run",
+      "status": "SKIP",
+      "started_at": "2026-11-15T19:35:12.423309569Z",
+      "finished_at": "2026-11-15T19:35:12.423309569Z",
+      "duration_ms": 0,
+      "error": "discovery (D0) failed"
+    },
+    {
+      "journey": "D0",
+      "id": "D0.11",
+      "name": "the installation under test: provider, creation, readiness, nodes, and whether it is fresh",
+      "status": "FAIL",
+      "started_at": "2026-11-15T19:35:12.423314338Z",
+      "finished_at": "2026-11-15T19:35:50.130095598Z",
+      "duration_ms": 37706,
+      "evidence": {
+        "fresh_reason": "not fresh: check FND-G02 took no passing look at region hw-me-east-215-a-rtz-prod at the start of the run",
+        "ready_source": "catalyst/self-sovereign-cutover-status cutoverFinishedAt",
+        "variables": [
+          "",
+          "ConfigMap flux-system/sovereign-variables"
+        ]
+      },
+      "error": "not read: provider: [hw-me-east-215-a-rtz-prod] kubectl get configmaps -o json -n flux-system --field-selector metadata.name=sovereign-variables: exit status 1: Unable to connect to the server: net/http: TLS handshake timeout"
+    },
+    {
+      "journey": "FND-G07",
+      "id": "console",
+      "name": "console: the bare URL lands as the row asserts",
+      "status": "PASS",
+      "started_at": "2026-11-15T19:36:38.618Z",
+      "finished_at": "2026-11-15T19:36:47.547Z",
+      "duration_ms": 8929,
+      "evidence": {
+        "url": "https://console.hw307.omani.works/dashboard",
+        "finalURL": "https://console.hw307.omani.works/dashboard"
+      }
+    },
+    {
+      "journey": "FND-G07",
+      "id": "grafana",
+      "name": "grafana: the bare URL lands as the row asserts",
+      "status": "PASS",
+      "started_at": "2026-11-15T19:36:47.583Z",
+      "finished_at": "2026-11-15T19:37:04.826Z",
+      "duration_ms": 17243,
+      "evidence": {
+        "url": "https://grafana.hw307.omani.works/",
+        "finalURL": "https://grafana.hw307.omani.works/?orgId=1&from=now-6h&to=now&timezone=browser"
+      }
+    },
+    {
+      "journey": "FND-G07",
+      "id": "gitea",
+      "name": "gitea: the bare URL lands as the row asserts",
+      "status": "PASS",
+      "started_at": "2026-11-15T19:37:04.867Z",
+      "finished_at": "2026-11-15T19:37:17.171Z",
+      "duration_ms": 12304,
+      "evidence": {
+        "url": "https://gitea.hw307.omani.works/",
+        "finalURL": "https://gitea.hw307.omani.works/"
+      }
+    },
+    {
+      "journey": "FND-G07",
+      "id": "harbor",
+      "name": "harbor: the bare URL lands as the row asserts",
+      "status": "PASS",
+      "started_at": "2026-11-15T19:37:17.209Z",
+      "finished_at": "2026-11-15T19:37:31.537Z",
+      "duration_ms": 14328,
+      "evidence": {
+        "url": "https://registry.hw307.omani.works/",
+        "finalURL": "https://registry.hw307.omani.works/harbor/projects"
+      }
+    },
+    {
+      "journey": "FND-G07",
+      "id": "openbao",
+      "name": "openbao: the bare URL lands as the row asserts",
+      "status": "PASS",
+      "started_at": "2026-11-15T19:37:31.571Z",
+      "finished_at": "2026-11-15T19:37:44.844Z",
+      "duration_ms": 13273,
+      "evidence": {
+        "url": "https://bao.hw307.omani.works/ui/",
+        "finalURL": "https://bao.hw307.omani.works/ui/vault/secrets"
+      }
+    },
+    {
+      "journey": "FND-G07",
+      "id": "pdns-admin",
+      "name": "pdns-admin: the bare URL lands as the row asserts",
+      "status": "PASS",
+      "started_at": "2026-11-15T19:37:44.897Z",
+      "finished_at": "2026-11-15T19:38:03.963Z",
+      "duration_ms": 19066,
+      "evidence": {
+        "url": "https://pdns-admin.hw307.omani.works/",
+        "finalURL": "https://pdns-admin.hw307.omani.works/dashboard/"
+      }
+    },
+    {
+      "journey": "FND-G07",
+      "id": "guacamole",
+      "name": "guacamole: the bare URL lands as the row asserts",
+      "status": "PASS",
+      "started_at": "2026-11-15T19:38:03.998Z",
+      "finished_at": "2026-11-15T19:38:22.593Z",
+      "duration_ms": 18595,
+      "evidence": {
+        "url": "https://guacamole.hw307.omani.works/",
+        "finalURL": "https://guacamole.hw307.omani.works/guacamole/#/"
+      }
+    },
+    {
+      "journey": "FND-G07",
+      "id": "newapi",
+      "name": "newapi: the bare URL lands as the row asserts",
+      "status": "PASS",
+      "started_at": "2026-11-15T19:38:22.626Z",
+      "finished_at": "2026-11-15T19:38:33.695Z",
+      "duration_ms": 11069,
+      "evidence": {
+        "url": "https://newapi.hw307.omani.works/",
+        "finalURL": "https://newapi.hw307.omani.works/console/token"
+      }
+    },
+    {
+      "journey": "FND-G07",
+      "id": "openova-flow",
+      "name": "openova-flow: the bare URL lands as the row asserts",
+      "status": "PASS",
+      "started_at": "2026-11-15T19:38:33.731Z",
+      "finished_at": "2026-11-15T19:38:45.442Z",
+      "duration_ms": 11711,
+      "evidence": {
+        "url": "https://openova-flow.hw307.omani.works/",
+        "finalURL": "https://openova-flow.hw307.omani.works/"
+      }
+    },
+    {
+      "journey": "FND-G07",
+      "id": "openova-flow-anon-denied",
+      "name": "openova-flow-anon-denied: the bare URL lands as the row asserts",
+      "status": "PASS",
+      "started_at": "2026-11-15T19:38:45.473Z",
+      "finished_at": "2026-11-15T19:38:58.007Z",
+      "duration_ms": 12534,
+      "evidence": {
+        "url": "https://openova-flow.hw307.omani.works/",
+        "finalURL": "https://console.hw307.omani.works/login?next=https%3A%2F%2Fapi.hw307.omani.works%2Foidc%2Fauth%3Fscope%3Dopenid%2Bemail%2Bprofile%2Bgroups%26state%3DOlYdYfJQMhrLKkew4DqJhyY_bajCYpArkWyofJB96nk.imH7BnYllZU.FnHYb45gTHC98osdeenBZw.eyJydSI6Imh0dHBzOi8vb3Blbm92YS1mbG93Lmh3MzA3Lm9tYW5pLndvcmtzL29hdXRoMi9jYWxsYmFjayIsInJ0IjoiY29kZSIsInN0IjoiODdqOGxqelB4cUFJcXRCcEVDUExSSmJqQXZsdmNFdlExZXJlaC03U3cyczovIn0%26response_type%3Dcode%26client_id%3Dcatalyst-pin%26redirect_uri%3Dhttps%253A%252F%252Fauth.hw307.omani.works%252Frealms%252Fsovereign%252Fbroker%252Fcatalyst-pin%252Fendpoint%26nonce%3DxumjViJrbQFkm5j9NBAsFA"
+      }
+    },
+    {
+      "journey": "FND-G07",
+      "id": "hubble",
+      "name": "hubble: the bare URL lands as the row asserts",
+      "status": "PASS",
+      "started_at": "2026-11-15T19:38:58.042Z",
+      "finished_at": "2026-11-15T19:39:13.676Z",
+      "duration_ms": 15634,
+      "evidence": {
+        "url": "https://hubble.hw307.omani.works/",
+        "finalURL": "https://hubble.hw307.omani.works/"
+      }
+    },
+    {
+      "journey": "FND-G07",
+      "id": "keycloak-admin",
+      "name": "keycloak-admin: the bare URL lands as the row asserts",
+      "status": "PASS",
+      "started_at": "2026-11-15T19:39:13.714Z",
+      "finished_at": "2026-11-15T19:39:28.768Z",
+      "duration_ms": 15054,
+      "evidence": {
+        "url": "https://auth.hw307.omani.works/",
+        "finalURL": "https://auth.hw307.omani.works/admin/sovereign/console/"
+      }
+    },
+    {
+      "journey": "FND-G07",
+      "id": "marketplace",
+      "name": "marketplace: the bare URL lands as the row asserts",
+      "status": "PASS",
+      "started_at": "2026-11-15T19:39:28.803Z",
+      "finished_at": "2026-11-15T19:39:38.140Z",
+      "duration_ms": 9337,
+      "evidence": {
+        "url": "https://marketplace.hw307.omani.works/",
+        "finalURL": "https://marketplace.hw307.omani.works/"
+      }
+    }
+  ]
+}
