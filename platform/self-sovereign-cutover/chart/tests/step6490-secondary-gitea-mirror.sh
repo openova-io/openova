@@ -104,8 +104,19 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
     #      `fi` on origin/main, the rewrite_kit_tree call here) to one marker on
     #      BOTH trees, and the mount/volume + deadline are canonicalised.
     #      step5596-secondary-durable-rewrite.sh verifies the factoring itself.
+    #   5. the release of kured's install hold (#7903) in step-08. It runs on a
+    #      single-region Sovereign too (kured is held there as well), so it is
+    #      NOT part of the secondaryRegions leg: the function, its two calls and
+    #      the one delete of the hold that the EXIT trap already covered
+    #      (fresh-pull failure path) are dropped on BOTH trees.
+    #      reboot-hold-release.sh verifies the release itself.
     norm() {
       awk '
+        /if ! \$\{fresh_pull_fn\}; then$/ {print; _fp=1; next}
+        _fp==1 {_fp=0; if ($0 ~ /kubectl delete ciliumclusterwidenetworkpolicy cutover-egress-block --ignore-not-found=true \|\| true$/) next}
+        /^ *reboot_hold_release\(\) \{$/ {_rh=1; next}
+        _rh==1 {if ($0 ~ /^ *\}$/) _rh=0; next}
+        /^ *reboot_hold_release$/ {next}
         /^  kit-rewrite\.sh: \|$/ {_kk=1; next}
         _kk==1 && /# ---- end rewrite_kit_tree ----$/ {_kk=0; next}
         _kk==1 {next}

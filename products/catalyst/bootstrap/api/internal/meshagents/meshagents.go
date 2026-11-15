@@ -166,7 +166,7 @@ func NewExec(kubeconfigPath string, client kubernetes.Interface) (Exec, error) {
 	if client == nil {
 		return nil, fmt.Errorf("no client")
 	}
-	raw, err := os.ReadFile(kubeconfigPath)
+	raw, err := os.ReadFile(kubeconfigPath) // #nosec G304 -- the kubeconfig file of a region, a path from catalyst-api's own store
 	if err != nil {
 		return nil, fmt.Errorf("read kubeconfig: %w", err)
 	}

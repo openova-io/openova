@@ -17,8 +17,9 @@
 #       and is no error; a region where the write fails is named in a WARNING
 #       and the step still ends with status 0;
 #   (c) slot 04b reads exactly that ConfigMap and key, optional;
-#   (d) bp-kured rendered with the released values has no lock annotation, and
-#       rendered without them has the hold. Needs the dependency of
+#   (d) bp-kured rendered with the released values makes kured lock in an
+#       annotation that holds nothing, and rendered without them in the one
+#       that holds the install hold. Needs the dependency of
 #       platform/kured/chart; without network access this part says so and fails.
 #
 # Usage: bash tests/reboot-hold-release.sh [CHART_DIR]
@@ -164,20 +165,22 @@ inline = hr["spec"]["values"]
 inline["nodePatchConfig"]["image"] = "example/shell:1"
 yaml.safe_dump(inline, open(tmp + "/inline.yaml", "w"))
 PY
-lock_of() { # prints the lock annotation of the rendered DaemonSet kured, or "none"
+lock_of() { # prints "<the annotation kured locks in> <what the rendered DaemonSet kured holds there, or none>"
   python3 -c '
 import sys, yaml
 [ds] = [d for d in yaml.safe_load_all(sys.stdin) if d and d["kind"] == "DaemonSet" and d["metadata"]["name"] == "kured"]
-print((ds["metadata"].get("annotations") or {}).get("weave.works/kured-node-lock", "none"))'
+flags = [a.split("=", 1)[1] for a in ds["spec"]["template"]["spec"]["containers"][0]["args"] if a.startswith("--lock-annotation=")]
+key = flags[0] if len(flags) == 1 else "weave.works/kured-node-lock"
+print(key, (ds["metadata"].get("annotations") or {}).get(key) or "none")'
 }
 # Flux merges valuesFrom first and the inline values of the slot over it.
 held="$(helm template kured "${KURED}" -n kube-system -f "${TMP}/inline.yaml" 2>"${TMP}/k.err" | lock_of)"
 released="$(helm template kured "${KURED}" -n kube-system -f "${TMP}/release-values.yaml" -f "${TMP}/inline.yaml" 2>>"${TMP}/k.err" | lock_of)"
 case "${held}" in
-  *'"nodeID":"catalyst-install-hold"'*) pass "without the ConfigMap the DaemonSet kured is created with the hold: ${held}" ;;
+  *'"nodeID":"catalyst-install-hold"'*) pass "without the ConfigMap kured locks where the hold is: ${held}" ;;
   *) fail "without the ConfigMap the DaemonSet kured has no hold: '${held}' $(tail -n 1 "${TMP}/k.err" 2>/dev/null)" ;;
 esac
-if [ "${released}" = "none" ]; then pass "with the values the step writes, the DaemonSet kured has no lock annotation"; else fail "with the values the step writes, the lock is still there: '${released}'"; fi
+if [ "${released}" = "weave.works/kured-node-lock none" ]; then pass "with the values the step writes kured locks in ${released%% *}, where the DaemonSet holds nothing"; else fail "with the values the step writes kured is still held: '${released}'"; fi
 
 echo
 if [ "${FAILURES}" -eq 0 ]; then echo "reboot-hold-release: all checks passed"; exit 0; fi

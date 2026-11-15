@@ -3,8 +3,10 @@
 # cmp, no cluster. CI runs every chart/tests/*.sh as `bash <script> <chart dir>`.
 # 1: the default render works and leaves nodePatchConfig.image empty.
 #    The DaemonSet kured is created with the install hold (kured's own manual
-#    lock, no time limit) and can run on no control-plane node; node-patch-config
-#    runs on every node. With the lock key set to null the hold is gone.
+#    lock, no time limit, in the annotation kured is told to lock in) and can
+#    run on no control-plane node; node-patch-config runs on every node. With
+#    the values the hand-over chain writes, kured locks in its default
+#    annotation, which the chart does not write: the hold is gone.
 # 2: with an image set, the file bodies, node-patch-config and the kured
 #    arguments are as values.yaml states, and the function test meets the
 #    contract of docs/RUNBOOKS.md section 4.5 (scripts/check-function-test.py).
@@ -29,7 +31,7 @@ helm template bp-kured . --namespace kube-system --set nodePatchConfig.image=exa
 python3 "$CHECK" --self-test > "$TMP/self-test.txt" || fail "check-function-test.py --self-test failed"
 python3 "$CHECK" --chart bp-kured --release bp-kured < "$TMP/set.yaml" || fail "the function test breaks the contract"
 # What the hand-over chain writes to release the hold (bp-self-sovereign-cutover, values rebootHold).
-printf '%s\n' '{"kured":{"dsAnnotations":{"weave.works/kured-node-lock":null}}}' > "$TMP/release-values.yaml"
+printf '%s\n' '{"kured":{"configuration":{"lockAnnotation":"weave.works/kured-node-lock"}}}' > "$TMP/release-values.yaml"
 helm template bp-kured . --namespace kube-system --set nodePatchConfig.image=example/shell:1 -f "$TMP/release-values.yaml" > "$TMP/released.yaml" \
   || fail "the render with the hold released errored"
 python3 - "$TMP" <<'PY' || fail "cases 1 and 2"
@@ -78,23 +80,29 @@ kured = one(ds, "DaemonSet", "kured")["spec"]["template"]["spec"]
 want = ["--ds-name=kured", "--ds-namespace=kube-system", "--metrics-port=8080", "--lock-ttl=1h",
         "--lock-release-delay=5m",
         "--blocking-pod-selector=upgrade.cattle.io/controller=system-upgrade-controller,upgrade.cattle.io/plan",
-        "--end-time=22:00", "--period=15m", "--drain-timeout=15m"] + \
+        "--end-time=22:00", "--lock-annotation=catalyst.openova.io/kured-install-hold", "--period=15m", "--drain-timeout=15m"] + \
        ["--reboot-days=" + d for d in ("su", "mo", "tu", "we", "th", "fr", "sa")] + \
        ["--reboot-sentinel=/sentinel/reboot-required", "--reboot-command=/bin/systemctl reboot",
         "--start-time=00:30", "--time-zone=UTC", "--annotate-nodes=true", "--log-format=text", "--concurrency=1"]
 args = kured["containers"][0]["args"]
 assert args == want, "kured arguments:\n  got  %r\n  want %r" % (args, want)
 assert kured["tolerations"] == [{"operator": "Exists"}], "kured tolerations: %r" % kured["tolerations"]
-# The install hold: kured reads this annotation as a lock held by something that is
-# no node, and a lock with TTL 0 never expires (kured: ttl > 0 && age >= ttl).
-LOCK = "weave.works/kured-node-lock"
-assert "--lock-annotation" not in " ".join(args), "kured locks on another annotation than the hold is written to"
+# The install hold: the annotation kured is told to lock in holds a lock of something
+# that is no node, and a lock with TTL 0 never expires (kured: ttl > 0 && age >= ttl).
+def lock_of(name):
+    """The annotation kured locks in, and what the rendered DaemonSet holds there."""
+    d = one(docs(name), "DaemonSet", "kured")
+    flags = [a.split("=", 1)[1] for a in d["spec"]["template"]["spec"]["containers"][0]["args"] if a.startswith("--lock-annotation=")]
+    assert len(flags) <= 1, "%s render: --lock-annotation is given %d times" % (name, len(flags))
+    key = flags[0] if flags else "weave.works/kured-node-lock"
+    return key, (d["metadata"].get("annotations") or {}).get(key)
 for name in ("default", "set"):
-    held = (one(docs(name), "DaemonSet", "kured")["metadata"].get("annotations") or {}).get(LOCK)
-    assert held is not None, "%s render: the DaemonSet kured has no install hold, so it restarts nodes from its first minute" % name
+    key, held = lock_of(name)
+    assert held is not None, "%s render: the DaemonSet kured has no install hold in %s, so it restarts nodes from its first minute" % (name, key)
     assert json.loads(held) == {"nodeID": "catalyst-install-hold", "TTL": 0}, "%s render: the install hold is %r" % (name, held)
-released = one(docs("released"), "DaemonSet", "kured")["metadata"].get("annotations") or {}
-assert LOCK not in released, "with the lock key set to null the DaemonSet kured still has the hold: %r" % released
+key, held = lock_of("released")
+assert key == "weave.works/kured-node-lock", "with the values of the hand-over chain kured locks in %r, not in its default annotation" % key
+assert held is None, "with the values of the hand-over chain the DaemonSet kured still holds a lock in %s: %r" % (key, held)
 # No control-plane node: a region has one, and its restart is an outage of the region's API server.
 CP = [{"matchExpressions": [{"key": "node-role.kubernetes.io/control-plane", "operator": "DoesNotExist"}]}]
 for name in ("default", "set", "released"):

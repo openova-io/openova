@@ -23,8 +23,9 @@ import (
 //     kube-system/kured. A setting that is not an argument fails the step:
 //     the check assumes no default. The step also fails, before any node is
 //     touched, while the DaemonSet carries the install hold of the chart
-//     bp-kured (kured's lock, held by rebootHold): kured restarts no node
-//     until the hand-over chain has released it;
+//     bp-kured: the annotation kured locks in (--lock-annotation, else
+//     rebootLock) holds a lock of rebootHold. kured restarts no node until
+//     the hand-over chain has released it;
 //  2. reads every upgrade Plan (rebootPlans) of every namespace. Each must
 //     have spec.window with startTime and endTime (HH:MM) and timeZone, and
 //     the window must end at least rebootGap before the reboot span starts
@@ -62,11 +63,11 @@ import (
 // The check never restarts a node itself and never changes kured.
 const (
 	rebootID        = "INF-G01"
-	rebootNamespace = "kube-system" // of the DaemonSet of kured
-	rebootDaemonSet = "kured"       // also the name of its container
-	rebootVolume    = "sentinel"    // the volume of the DaemonSet with the folder of the sentinel file
-	rebootLock      = "weave.works/kured-node-lock"
-	rebootHold      = "catalyst-install-hold" // who holds the lock while the install hold of bp-kured is in place
+	rebootNamespace = "kube-system"                 // of the DaemonSet of kured
+	rebootDaemonSet = "kured"                       // also the name of its container
+	rebootVolume    = "sentinel"                    // the volume of the DaemonSet with the folder of the sentinel file
+	rebootLock      = "weave.works/kured-node-lock" // where kured locks when it has no --lock-annotation
+	rebootHold      = "catalyst-install-hold"       // who holds the lock while the install hold of bp-kured is in place
 	rebootPlans     = "plans.upgrade.cattle.io"
 	rebootNodes     = 3
 	rebootEvery     = 5 * time.Second
@@ -114,6 +115,7 @@ type rebootSettings struct {
 	zone                   *time.Location
 	span                   string // the reboot span as the arguments write it
 	workersOnly            bool   // the DaemonSet cannot run on control-plane nodes
+	held                   string // the annotation kured locks in, when it holds the install hold
 	dir, file              string // the folder of the node that holds the sentinel file, and its name
 }
 
@@ -199,12 +201,6 @@ func (c rebootCheck) settings(ctx context.Context, region kube.Region) (rebootSe
 			continue
 		}
 		found = true
-		var lock struct {
-			NodeID string `json:"nodeID"`
-		}
-		if _ = json.Unmarshal([]byte(ds.Str("metadata", "annotations", rebootLock)), &lock); lock.NodeID == rebootHold {
-			return k, fmt.Errorf("DaemonSet %s/%s carries the install hold (annotation %s, held by %s): kured restarts no node until the hand-over chain has released it in this region: no node was touched", rebootNamespace, rebootDaemonSet, rebootLock, rebootHold)
-		}
 		label, _, _ := strings.Cut(secControlPlane, "=")
 		for _, term := range ds.Objects("spec", "template", "spec", "affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms") {
 			for _, e := range term.Objects("matchExpressions") {
@@ -225,9 +221,21 @@ func (c rebootCheck) settings(ctx context.Context, region kube.Region) (rebootSe
 				k.dir = v.Str("hostPath", "path")
 			}
 		}
+		key, lock := rebootLock, struct {
+			NodeID string `json:"nodeID"`
+		}{}
+		if arg["--lock-annotation"] != "" {
+			key = arg["--lock-annotation"]
+		}
+		if _ = json.Unmarshal([]byte(ds.Str("metadata", "annotations", key)), &lock); lock.NodeID == rebootHold {
+			k.held = key
+		}
 	}
 	if !found {
 		return k, fmt.Errorf("region %s has no DaemonSet %s/%s: kured is not installed", region.ID, rebootNamespace, rebootDaemonSet)
+	}
+	if k.held != "" {
+		return k, fmt.Errorf("DaemonSet %s/%s carries the install hold (annotation %s, held by %s): kured restarts no node until the hand-over chain has released it in this region: no node was touched", rebootNamespace, rebootDaemonSet, k.held, rebootHold)
 	}
 	bad := []string{}
 	for flag, into := range map[string]*time.Duration{"--period": &k.period, "--lock-release-delay": &k.release, "--drain-timeout": &k.drain} {

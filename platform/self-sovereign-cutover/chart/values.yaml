@@ -3581,18 +3581,22 @@ secondaryRegions:
 # while this chain runs. The chain's last step, egress-block-test, releases
 # the hold once it has given its verdict: in the primary region and, through
 # the mounted kubeconfigs, in every other region, it creates the ConfigMap
-# below. Slot 04b reads it as Helm values (`valuesFrom`, optional), and the
-# values set the lock annotation to null, so the next reconcile of bp-kured
-# removes it. The ConfigMap is created once and never changed; a re-run of the
+# below. Slot 04b reads it as Helm values (`valuesFrom`, optional). Its one
+# value tells kured to take its lock in kured's own default annotation, which
+# bp-kured never writes, in place of the annotation that holds the install
+# hold; the next reconcile of bp-kured rolls kured with it. The value is a
+# plain string, so every Helm version merges it the same way (a null that
+# removes a key of a subchart is not kept by all of them).
+# The ConfigMap is created once and never changed; a re-run of the
 # step finds it and leaves it. A region where the write fails keeps its hold
 # and the step says so in its log.
 #
 # tests/reboot-hold-release.sh runs the rendered release against a recording
 # kubectl, checks that slot 04b names this ConfigMap and key, and renders
-# bp-kured with releaseValues to see the lock gone.
+# bp-kured with releaseValues to see kured lock where nothing is held.
 rebootHold:
   namespace: flux-system
   configMapName: bp-kured-install-hold
   valuesKey: values.yaml
   # One line of JSON (which is YAML): it is passed to kubectl as one literal.
-  releaseValues: '{"kured":{"dsAnnotations":{"weave.works/kured-node-lock":null}}}'
+  releaseValues: '{"kured":{"configuration":{"lockAnnotation":"weave.works/kured-node-lock"}}}'

@@ -23,20 +23,25 @@ kured:
     blockingPodSelector:
       - upgrade.cattle.io/controller=system-upgrade-controller,upgrade.cattle.io/plan
     annotateNodes: true                       # --annotate-nodes: the console can show "reboot pending"
-  # The install hold. kured takes its lock as this annotation of its own
-  # DaemonSet before it drains a node, and a lock that names something that is
-  # no node, with no time limit, is kured's own manual hold: every node logs
-  # "Lock already held" and no node is drained or restarted. The chart
-  # creates the DaemonSet with the hold, so there is no moment without it.
+    # --lock-annotation: the annotation of its own DaemonSet in which kured
+    # takes its lock before it drains a node. See "The install hold" below.
+    lockAnnotation: catalyst.openova.io/kured-install-hold
+  # The install hold. kured is told to take its lock in the annotation below,
+  # and the chart creates the DaemonSet with that annotation already holding a
+  # lock: one that names something that is no node and has no time limit.
+  # That is kured's own manual hold. Every node logs "Lock already held" and
+  # no node is drained or restarted, and there is no moment without it.
   # A Sovereign is installed and handed over with the hold in place: a restart
   # of a node cuts the Helm installs in flight and the steps of the hand-over
   # chain. The last step of the chain (bp-self-sovereign-cutover, step
   # egress-block-test, after its verdict) releases it in every region by
   # writing the ConfigMap flux-system/bp-kured-install-hold, which the kit
-  # slot reads as values and which sets this key to null. Helm then removes
-  # the annotation, once, and never writes it again.
+  # slot reads as values. Its one value sets configuration.lockAnnotation to
+  # kured's own default, weave.works/kured-node-lock. kured then
+  # locks in that annotation, which this chart never writes, and the
+  # annotation below stays on the DaemonSet and is read by nothing.
   dsAnnotations:
-    weave.works/kured-node-lock: '{"nodeID":"catalyst-install-hold","TTL":0}'
+    catalyst.openova.io/kured-install-hold: '{"nodeID":"catalyst-install-hold","TTL":0}'
   # kured runs on every node that is not a control-plane node, whatever its
   # taints. A region has one control-plane node, and its restart is an outage
   # of the region's API server, so kured never restarts a control-plane node:

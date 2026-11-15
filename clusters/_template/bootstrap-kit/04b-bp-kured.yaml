@@ -15,8 +15,9 @@
 # manual lock, so kured restarts no node while the kit installs and the
 # hand-over chain runs. valuesFrom below reads the ConfigMap
 # bp-kured-install-hold of this namespace when it exists; the last step of
-# the hand-over chain writes it in every region, and its values take the lock
-# away. Until then the ConfigMap is absent and the chart's default holds.
+# the hand-over chain writes it in every region, and its value makes kured
+# lock where nothing is held. Until then the ConfigMap is absent and the
+# chart's default holds.
 #
 # dependsOn bp-cilium: kured talks to the API server and drains nodes; both
 # need the CNI. The chart comes through the HelmRepository bp-flux of slot 03

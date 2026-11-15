@@ -17,7 +17,7 @@ and the upgrade Plans carry a `spec.window` outside it.
 
 - The upstream chart `kubereboot/kured` 6.1.0 (kured 1.23.0) under the key
   `kured:` of `values.yaml`. Its DaemonSet is named `kured` and holds the
-  reboot lock in the annotation `weave.works/kured-node-lock`. Defaults: one
+  reboot lock in an annotation of its own (see the install hold). Defaults: one
   node at a time, from 00:30 to 22:00 UTC on every day, a check every 15
   minutes, a 15-minute drain limit (a node that cannot drain is not
   rebooted), a lock time-to-live of 1 hour and a 5-minute pause before the
@@ -26,15 +26,17 @@ and the upgrade Plans carry a `spec.window` outside it.
   `upgrade.cattle.io/plan`, leaves out the controller's own Pod. The
   measurements are in
   [`docs/ledger/plan/spikes/INF-030.md`](../../docs/ledger/plan/spikes/INF-030.md).
-- The install hold. The chart creates the DaemonSet `kured` with kured's own
-  manual lock (`kured.dsAnnotations`, held by `catalyst-install-hold`, no time
-  limit), so kured restarts no node while the bootstrap kit installs and the
-  hand-over chain runs. The last step of the chain writes the ConfigMap
+- The install hold. kured takes its lock in the annotation
+  `catalyst.openova.io/kured-install-hold` (`kured.configuration.lockAnnotation`),
+  and the chart creates the DaemonSet `kured` with a lock already in it
+  (`kured.dsAnnotations`, held by `catalyst-install-hold`, no time limit). So
+  kured restarts no node while the bootstrap kit installs and the hand-over
+  chain runs. The last step of the chain writes the ConfigMap
   `flux-system/bp-kured-install-hold` in every region; the kit slot reads it
-  as values, the lock key becomes null and Helm removes the annotation. To
-  release a region by hand, create that ConfigMap with the key `values.yaml`
-  and the value
-  `{"kured":{"dsAnnotations":{"weave.works/kured-node-lock":null}}}`.
+  as values, and kured then locks in its default annotation
+  `weave.works/kured-node-lock`, where nothing is held. To release a region by
+  hand, create that ConfigMap with the key `values.yaml` and the value
+  `{"kured":{"configuration":{"lockAnnotation":"weave.works/kured-node-lock"}}}`.
 - kured does not run on control-plane nodes (`kured.affinity`). A region has
   one, and its restart takes the region's API server away, so that restart
   is a person's decision. A Sovereign with three or more control-plane nodes
