@@ -19,7 +19,7 @@ description: |
   admission time. Pairs with bp-harbor (registry) and the Catalyst
   build-pipeline that publishes signed bp-* OCI artifacts to GHCR.
 type: application
-version: 1.0.1
+version: 1.0.2
 appVersion: "0.13.1"
 keywords: [catalyst, blueprint, sigstore, cosign, supply-chain, admission, security]
 maintainers:
