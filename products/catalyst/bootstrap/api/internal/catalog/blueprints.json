@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-15T22:26:14.166Z",
+  "generatedAt": "2026-11-15T22:26:53.767Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -1763,7 +1763,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "listed",
-      "version": "0.2.50",
+      "version": "0.2.51",
       "section": "pts-3-1-networking-and-service-mesh",
       "depends": [
         "bp-keycloak",
