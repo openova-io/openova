@@ -71,8 +71,8 @@ run "hetzner_render_is_valid" {
     error_message = "#4521: the committed `infrastructure-config` CR must point at the config tree ./clusters/_template/infrastructure."
   }
 
-  # #7922: no node reboots itself. The control plane wrote unattended-upgrades
-  # Automatic-Reboot "true" at 02:30 node time and rebooted a region's only
+  # #7922: no node reboots itself. The control plane switched on the automatic
+  # reboot of unattended-upgrades at 02:30 node time and rebooted a region's only
   # control plane mid-cutover. kured's node-patch-config owns that configuration.
   assert {
     condition     = !strcontains(output.rendered_cloud_init, "Automatic-Reboot") && !strcontains(output.rendered_cloud_init, "/etc/apt/apt.conf.d/")
@@ -310,8 +310,8 @@ run "huawei_render_is_valid" {
     condition     = length(regexall("\n    kubectl -n flux-system create cm sovereign-variables --from-env-file=/var/lib/catalyst/variables\\.env && kubectl apply -f /var/lib/catalyst/flux-bootstrap\\.yaml \\|\\| \\{ ", output.rendered_cloud_init)) == 1 && length(regexall("kubectl apply -f /var/lib/catalyst/flux-bootstrap\\.yaml", output.rendered_cloud_init)) == 1
     error_message = "SOV-134 (huawei branch): ConfigMap sovereign-variables must be created from variables.env right before the one apply of flux-bootstrap.yaml, under the same exit 92."
   }
-  # #7922: no node reboots itself. The control plane wrote unattended-upgrades
-  # Automatic-Reboot "true" at 02:30 node time and rebooted a region's only
+  # #7922: no node reboots itself. The control plane switched on the automatic
+  # reboot of unattended-upgrades at 02:30 node time and rebooted a region's only
   # control plane mid-cutover. kured's node-patch-config owns that configuration.
   assert {
     condition     = !strcontains(output.rendered_cloud_init, "Automatic-Reboot") && !strcontains(output.rendered_cloud_init, "/etc/apt/apt.conf.d/")

@@ -432,6 +432,8 @@ def self_test():
         text += "".join("    %s: %s\n" % (k, v) for k, v in (("version", version), ("sha256", sha), ("licence", licence)) if v is not None)
         return edit(LOCK, "  - name: openscap\n", text + "  - name: openscap\n")
 
+    # The fixture file whose image is a moving tag (the one finding the fixture baseline counts).
+    [TAGGED] = [p for p, text in FIXTURE.items() if 'image = "ubuntu-24.04"' in text]
     new_tag = edit(HUAWEI, "  image_id = var.image_id\n", "  image_id = var.image_id\n  image = \"ubuntu-22.04\"\n")
 
     def in_playbook(text):
@@ -497,12 +499,12 @@ def self_test():
         ("a count for node-auto-reboot fails: it is a hard zero", baseline(lambda doc: doc["counts"]["node-auto-reboot"].__setitem__(CP, 1)), False, 1, "node-auto-reboot is a hard zero"),
         ("an allow entry for node-auto-reboot fails", both(edit(CP, "\"false\"", "\"true\""), set_allow(entry(metric="node-auto-reboot", path=CP))), False, 1, "node-auto-reboot is a hard zero: it takes no allow entry"),
         ("--write-baseline refuses to take in an automatic reboot", edit(WORKER, "\"false\"", "\"true\""), True, 1, "the baseline was not written"),
-        ("a moving tag that left without a lower baseline fails", edit(HETZNER, "  image = \"ubuntu-24.04\"", "  image = data.hcloud_image.cp.id"), False, 1, "FAIL moving-image-tag: %s has 0, the baseline still says 1" % HETZNER),
-        ("--write-baseline lowers the baseline after a finding left", edit(HETZNER, "  image = \"ubuntu-24.04\"", "  image = data.hcloud_image.cp.id"), True, 0, "moving-image-tag=0"),
+        ("a moving tag that left without a lower baseline fails", edit(TAGGED, "  image = \"ubuntu-24.04\"", "  image = var.image_id"), False, 1, "FAIL moving-image-tag: %s has 0, the baseline still says 1" % TAGGED),
+        ("--write-baseline lowers the baseline after a finding left", edit(TAGGED, "  image = \"ubuntu-24.04\"", "  image = var.image_id"), True, 0, "moving-image-tag=0"),
         ("--write-baseline refuses to raise an entry", edit(HETZNER, "  image = data", "  image = \"debian-12\"\n  image = data"), True, 1, "the baseline was not written"),
         ("--write-baseline refuses to add a file", new_tag, True, 1, "the baseline was not written"),
         ("--write-baseline keeps the allow list", both(new_tag, set_allow(entry())), True, 0, "moving-image-tag=2"),
-        ("a baseline entry of 0 is not a pass", baseline(lambda doc: doc["counts"]["moving-image-tag"].__setitem__(HETZNER, 0)), False, 2, "cannot judge"),
+        ("a baseline entry of 0 is not a pass", baseline(lambda doc: doc["counts"]["node-auto-reboot"].__setitem__(WORKER, 0)), False, 2, "cannot judge"),
         ("a baseline without one metric is not a pass", baseline(lambda doc: doc["counts"].pop("free-text-target")), False, 2, "cannot judge"),
         ("a baseline of another schema is not a pass", baseline(lambda doc: doc.__setitem__("schema", "other")), False, 2, "cannot judge"),
         ("a missing baseline is not a pass", lambda root: os.remove(os.path.join(root, BASELINE)), False, 2, "cannot judge"),
