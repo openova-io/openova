@@ -170,8 +170,8 @@ fi
 # ──────────────────────────────────────────────────────────────────────── D10
 echo "[fresh-install] D10: a refused push to the local registry is not a failure of the parent's proxy"
 S03="${TMP}/single/harbor-prewarm.sh"
-{ fn "${S03}" rl_slug; fn "${S03}" prewarm_multiarch_flags; fn "${S03}" prewarm_skopeo_copy; fn "${S03}" copy_one; } >"${TMP}/copy.sh"
-for f in rl_slug prewarm_multiarch_flags prewarm_skopeo_copy copy_one; do
+{ fn "${S03}" rl_slug; fn "${S03}" prewarm_multiarch_flags; fn "${S03}" prewarm_skopeo_copy; fn "${S03}" mothership_proxy_code; fn "${S03}" copy_one; } >"${TMP}/copy.sh"
+for f in rl_slug prewarm_multiarch_flags prewarm_skopeo_copy mothership_proxy_code copy_one; do
   grep -q "^${f}() {" "${TMP}/copy.sh" || { fail "could not slice ${f} out of the rendered step-03 script"; }
 done
 # run_copy <scenario>: runs the REAL copy_one for one image that comes from the
@@ -195,6 +195,9 @@ run_copy() {
     dest_already_current() { return 1; }
     harbor_durable_digest() { printf ''; }
     sleep() { :; }
+    # #7922: the proxy's registry API, which the latch now asks first.
+    # Default: no answer, i.e. the proxy path is down.
+    curl() { printf '%s' "${PROBE_CODE:-000}"; }
     skopeo() {
       local a src="" prev="" n
       case " $* " in *" inspect "*) return 1 ;; esac
@@ -246,9 +249,9 @@ grep -q 'refused the write (destination failure' "${TMP}/d10-dest/cp/"*.log 2>/d
   && pass "refused push: the per-image log names the destination as the failing side" \
   || fail "refused push: the per-image log does not name the destination as the failing side"
 for sc in source read; do
-  run_copy "${sc}"
+  PROBE_CODE=000 run_copy "${sc}"
   if [ "$(sed -n 2p "${TMP}/d10-${sc}/calls" 2>/dev/null)" = "docker.io/alpine/k8s:1.30.0" ] && [ -e "${TMP}/d10-${sc}/cp/.proxy_down" ]; then
-    pass "control (${sc} error of the proxy): the direct upstream is tried and the proxy is latched down, as before"
+    pass "control (${sc} error of the proxy, proxy registry API not answering): the direct upstream is tried and the proxy is latched down, as before (an answering proxy is #7922, tests/step7922-prewarm-proxy-path.sh)"
   else
     fail "control (${sc} error of the proxy): the direct-upstream fallback or the latch is lost (calls: $(tr '\n' ' ' <"${TMP}/d10-${sc}/calls" 2>/dev/null))"
   fi
