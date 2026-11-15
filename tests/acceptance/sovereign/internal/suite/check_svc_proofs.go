@@ -37,7 +37,14 @@ import (
 // of the foundation ring when the candidate declares it (by namespace and
 // name) in a slot file of clusters/_template/bootstrap-kit whose number is
 // one of foundationSlots. The charts of proofExempt have no function test
-// yet: their releases are recorded and not judged.
+// yet: their releases are recorded and not judged. Neither is a HelmRelease
+// with spec.suspend true, as in check FND-G04: Flux runs no test of a
+// suspended release, and the kit suspends by design the releases a region
+// does not run. A follower region suspends bp-catalyst-platform and the
+// other releases that live only in the primary region
+// (SECONDARY_HR_SUSPEND, infra/providers/_shared/cloudinit-control-plane.tftpl),
+// and a region suspends the releases of another cloud; both used to fail
+// here with "spec.test.enable is not true" although no test could ever run.
 //
 // The check hands the result of every HelmRelease whose result is not
 // pending to the record (ProofsKey). Finalize writes it, with the Blueprint
@@ -101,7 +108,7 @@ func (proofsCheck) Run(ctx context.Context, cc *CheckContext, rec StepRecorder) 
 				return err
 			}
 			proofs, counts := map[string]ChartProof{}, map[string]int{}
-			foundation, judged, notPass, exempt := 0, 0, []string{}, []string{}
+			foundation, judged, notPass, exempt, suspended := 0, 0, []string{}, []string{}, []string{}
 			for _, hr := range releases {
 				key := hr.Namespace() + "/" + hr.Name()
 				blueprint := proofsBlueprint(hr)
@@ -123,6 +130,10 @@ func (proofsCheck) Run(ctx context.Context, cc *CheckContext, rec StepRecorder) 
 					exempt = append(exempt, line)
 					continue
 				}
+				if suspend, _ := hr.Get("spec", "suspend").(bool); suspend {
+					suspended = append(suspended, key)
+					continue
+				}
 				judged++
 				if result != proofPass {
 					notPass = append(notPass, line)
@@ -130,6 +141,8 @@ func (proofsCheck) Run(ctx context.Context, cc *CheckContext, rec StepRecorder) 
 			}
 			sort.Strings(notPass)
 			sort.Strings(exempt)
+			sort.Strings(suspended)
+			ev["suspended"] = suspended
 			ev["releases"], ev["results"], ev["foundation"] = len(releases), counts, foundation
 			ev["judged"], ev["not_pass"], ev["exempt"] = judged, notPass, exempt
 			ev[ProofsKey] = proofs
