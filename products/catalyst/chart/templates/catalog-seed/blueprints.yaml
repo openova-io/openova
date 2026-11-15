@@ -1412,7 +1412,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.1"
+  version: "1.0.2"
   visibility: listed
   card:
     title: "LLM Gateway"
@@ -1434,7 +1434,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-llm-gateway
-    version: "1.0.1"
+    version: "1.0.2"
   # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): lockstep with
   # platform/llm-gateway/blueprint.yaml. active-active topology.
   topology:
