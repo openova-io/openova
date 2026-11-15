@@ -204,7 +204,7 @@ func TestIntegrationPublicCalculator(t *testing.T) {
 			planM = m
 		}
 	}
-	if planM == nil || planM["name"] != "M" || dec(t, planM["vcpu"]) != "4" || dec(t, planM["memory_gib"]) != "8" || dec(t, planM["monthly"]) != "9.000002" {
+	if planM == nil || planM["name"] != "M" || dec(t, planM["vcpu"]) != "4" || dec(t, planM["memory_gib"]) != "8" || dec(t, planM["monthly"]) != "4.489996" {
 		t.Fatalf("plan M = %+v", planM)
 	}
 	if payg := cat["payg"].([]any); len(payg) != 3 {
@@ -332,7 +332,7 @@ func TestIntegrationPublicCalculator(t *testing.T) {
 	if line["plan"] != "m" || line["sku"] != "plan.m" || dec(t, line["rated_quantity"]) != "2190.000000" {
 		t.Fatalf("plan line = %+v", line)
 	}
-	if dec(t, planEst["total"]) != "28.350006" || dec(t, planEst["monthly"]) != "9.450002" {
+	if dec(t, planEst["total"]) != "14.143488" || dec(t, planEst["monthly"]) != "4.714496" {
 		t.Fatalf("plan estimate = %s / %s", dec(t, planEst["total"]), dec(t, planEst["monthly"]))
 	}
 	paygEst := postExact(t, anonClient(t, h), "/api/v1/public/estimates", map[string]any{"lines": []map[string]any{{"sku": store.SKUVCPU, "quantity": "4", "hours_per_month": "730"}}}, 201)

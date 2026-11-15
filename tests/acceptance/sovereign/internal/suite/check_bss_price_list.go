@@ -8,26 +8,43 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// Check BSS-G02, One price list. Three anonymous requests, the storefront's:
-// the price book GET https://chargeback.<fqdn>/api/v1/public/packages, the
-// plan deck GET https://marketplace.<fqdn>/api/catalog/plans?product=generic,
-// and POST https://marketplace.<fqdn>/api/billing/quote for a cart that holds
-// only the cheapest plan without a product: no package_sku. The price book
-// answering 404, or 200 with no package, is the state "none"; 200 with
-// packages is "published"; any other answer fails. In "published" the quote
-// passes with 409 "package-required", or with 200 and an amount_baisa equal
-// to the price_month of package plan.<slug>. In "none" it passes with 200:
-// only then may the catalog answer. The name of the Sovereign is the value
-// sovereignFQDN that step D0.1 of the discovery recorded.
+// Check BSS-G02, One price list. The storefront's anonymous requests: the
+// price book GET https://chargeback.<fqdn>/api/v1/public/packages, the plan
+// list GET https://marketplace.<fqdn>/api/catalog/plans?product=generic, and
+// POST https://marketplace.<fqdn>/api/billing/quote for a cart that holds only
+// the cheapest plan without a product: no package_sku.
+//
+// The price book is asked priceListSamples times, each over a new connection
+// and with the storefront's Origin, because the engine's host is served by the
+// gateway of every region behind one address: a region whose gateway serves
+// the host without the engine behind it answers some of the samples, not all
+// (#7909: 6 of 12 answered 502 from the follower region). Every sample must
+// answer 200 with at least one package and the CORS header the storefront
+// needs. A 404 or an empty document (the state "none") fails: the engine ships
+// a default offer (products/chargeback DESIGN.md §22.12), so a Sovereign that
+// publishes nothing lost its offer, and its storefront has nothing to sell
+// (#7909: a fresh installation passed this check while that was so). Any
+// other answer fails.
+//
+// The quote then passes with 409 "package-required", or with 200 and an
+// amount_baisa equal to the price_month of package plan.<slug>. The name of
+// the Sovereign is the value sovereignFQDN that step D0.1 of the discovery
+// recorded.
 const priceListID = "BSS-G02"
 
 // priceListTimeout is the time limit of one request.
 const priceListTimeout = 30 * time.Second
+
+// priceListSamples is how often the price book is asked. With two regions
+// behind the address, all twelve land on the same region with a probability
+// of 2 × 2^-12, about one run in two thousand.
+const priceListSamples = 12
 
 type priceListCheck struct {
 	transport http.RoundTripper // nil: http.DefaultTransport
@@ -42,42 +59,109 @@ func (c priceListCheck) Run(ctx context.Context, cc *CheckContext, rec StepRecor
 	if fqdn == "" {
 		return errors.New("the run did not learn the name of the Sovereign: step D0.1 recorded no sovereignFQDN")
 	}
-	client := &http.Client{Transport: c.transport, Timeout: priceListTimeout}
-	rec.Step(priceListID+".1", "a quote without a package is refused, or priced from the published price book", func(ev Evidence) error {
+	transport := c.transport
+	if transport == nil {
+		// A new connection per request: a kept-alive connection would ask the
+		// same region every time.
+		t := http.DefaultTransport.(*http.Transport).Clone()
+		t.DisableKeepAlives = true
+		transport = t
+	}
+	client := &http.Client{Transport: transport, Timeout: priceListTimeout}
+	rec.Step(priceListID+".1", "the price book publishes packages on every connection, and a quote without a package is refused or priced from it", func(ev Evidence) error {
 		return priceListJudge(ctx, client, fqdn, ev)
 	})
 	return nil
 }
 
-// priceListJudge makes the three requests and judges the answer of the quote.
+// priceBookDoc is the part of the price book the check reads.
+type priceBookDoc struct {
+	Packages []struct {
+		SKU        string `json:"sku"`
+		PriceMonth string `json:"price_month"`
+	} `json:"packages"`
+}
+
+// priceListDocument asks the price book priceListSamples times and returns
+// the first document, or why the price book is not served on every
+// connection.
+func priceListDocument(ctx context.Context, client *http.Client, fqdn string, ev Evidence) (priceBookDoc, error) {
+	docURL := "https://chargeback." + fqdn + "/api/v1/public/packages"
+	origin := "https://marketplace." + fqdn
+	var first priceBookDoc
+	statuses := make([]int, 0, priceListSamples)
+	bad := map[string]int{}
+	none := 0
+	for i := 0; i < priceListSamples; i++ {
+		status, body, hdr, err := priceListGet(ctx, client, docURL, origin)
+		statuses = append(statuses, status)
+		if err != nil {
+			// A region that drops or times out the request: one bad sample.
+			if _, seen := ev["document_error"]; !seen {
+				ev["document_error"] = err.Error()
+			}
+			bad["a failed request"]++
+			continue
+		}
+		var doc priceBookDoc
+		switch {
+		case status == http.StatusNotFound:
+			none++
+			continue
+		case status != http.StatusOK:
+			bad[fmt.Sprintf("HTTP %d", status)]++
+			continue
+		case json.Unmarshal(body, &doc) != nil:
+			bad["a body that is not a JSON document"]++
+			continue
+		case len(doc.Packages) == 0:
+			none++
+			continue
+		}
+		if allow := hdr.Get("Access-Control-Allow-Origin"); allow != origin && allow != "*" {
+			bad["no Access-Control-Allow-Origin for "+origin]++
+			continue
+		}
+		if len(first.Packages) == 0 {
+			first = doc
+		}
+	}
+	ev["document_status"], ev["document_statuses"] = statuses[0], statuses
+	ev["packages"] = len(first.Packages)
+	ok := priceListSamples - none
+	for _, n := range bad {
+		ok -= n
+	}
+	switch {
+	case none == priceListSamples:
+		ev["state"] = "none"
+		return first, fmt.Errorf("GET %s publishes no package on any of %d connections (404 or an empty list): the engine ships a default offer, so this Sovereign lost its offer and its storefront has nothing to sell", docURL, priceListSamples)
+	case none > 0 || len(bad) > 0:
+		ev["state"] = "partial"
+		parts := []string{}
+		if none > 0 {
+			parts = append(parts, fmt.Sprintf("%d no package", none))
+		}
+		for _, k := range sortedKeys(bad) {
+			parts = append(parts, fmt.Sprintf("%d %s", bad[k], k))
+		}
+		return first, fmt.Errorf("GET %s over %d new connections: %d answered the packages, %s; every region that serves the host must have the engine behind it", docURL, priceListSamples, ok, strings.Join(parts, ", "))
+	}
+	ev["state"] = "published"
+	return first, nil
+}
+
+// priceListJudge reads the price book on every connection, then makes the two
+// storefront requests and judges the answer of the quote.
 func priceListJudge(ctx context.Context, client *http.Client, fqdn string, ev Evidence) error {
 	docURL := "https://chargeback." + fqdn + "/api/v1/public/packages"
-	status, body, err := priceListCall(ctx, client, http.MethodGet, docURL, nil)
+	doc, err := priceListDocument(ctx, client, fqdn, ev)
 	if err != nil {
 		return err
 	}
-	ev["document_status"] = status
-	var doc struct {
-		Packages []struct {
-			SKU        string `json:"sku"`
-			PriceMonth string `json:"price_month"`
-		} `json:"packages"`
-	}
-	switch {
-	case status == http.StatusNotFound:
-	case status != http.StatusOK:
-		return fmt.Errorf("GET %s: HTTP %d; want 200 or 404", docURL, status)
-	case json.Unmarshal(body, &doc) != nil:
-		return fmt.Errorf("GET %s: the body is not a JSON document", docURL)
-	}
-	state := "none"
-	if len(doc.Packages) > 0 {
-		state = "published"
-	}
-	ev["state"], ev["packages"] = state, len(doc.Packages)
 
 	plansURL := "https://marketplace." + fqdn + "/api/catalog/plans?product=generic"
-	status, body, err = priceListCall(ctx, client, http.MethodGet, plansURL, nil)
+	status, body, err := priceListCall(ctx, client, http.MethodGet, plansURL, nil)
 	if err != nil {
 		return err
 	}
@@ -131,10 +215,6 @@ func priceListJudge(ctx context.Context, client *http.Client, fqdn string, ev Ev
 	ev["quote_amount_baisa"], ev["quote_price_source"] = answer.AmountBaisa, answer.PriceSource
 
 	switch {
-	case state == "none" && status == http.StatusOK:
-		return nil
-	case state == "none":
-		return fmt.Errorf("the price book publishes nothing and the quote of plan %s answered HTTP %d; the catalog must answer 200", plan.ID, status)
 	case status == http.StatusConflict && answer.Error == "package-required":
 		return nil
 	case status == http.StatusOK && listed && answer.AmountBaisa == want:
@@ -146,6 +226,37 @@ func priceListJudge(ctx context.Context, client *http.Client, fqdn string, ev Ev
 	default:
 		return fmt.Errorf("the price book publishes packages and the quote of plan %s answered HTTP %d %q; want 409 package-required or 200 at the price of %s", plan.ID, status, answer.Error, sku)
 	}
+}
+
+// priceListGet makes one anonymous GET with the storefront's Origin, as the
+// browser does, and reads the answer and its headers.
+func priceListGet(ctx context.Context, client *http.Client, url, origin string) (int, []byte, http.Header, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return 0, nil, nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Origin", origin)
+	res, err := client.Do(req)
+	if err != nil {
+		return 0, nil, nil, fmt.Errorf("GET %s: %w", url, err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	b, err := io.ReadAll(io.LimitReader(res.Body, 4<<20))
+	if err != nil {
+		return 0, nil, nil, fmt.Errorf("GET %s: read body: %w", url, err)
+	}
+	return res.StatusCode, b, res.Header, nil
+}
+
+// sortedKeys is the keys of m in order, so a reason reads the same each run.
+func sortedKeys(m map[string]int) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // priceListCall makes one anonymous request and reads the answer.

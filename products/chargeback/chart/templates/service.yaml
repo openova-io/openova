@@ -2,6 +2,9 @@
 ClusterIP only — NodePorts are ABSOLUTELY FORBIDDEN (§854, founder
 2026-07-03); the external door is the Gateway-API HTTPRoute
 (templates/httproute.yaml), never a Service type flip.
+
+multiRegion.enabled publishes it to ClusterMesh: the follower region reaches
+these backends through its same-name stub (values.yaml multiRegion).
 */ -}}
 apiVersion: v1
 kind: Service
@@ -9,6 +12,12 @@ metadata:
   name: {{ include "chargeback.fullname" . }}
   labels:
     {{- include "chargeback.labels" . | nindent 4 }}
+  {{- if .Values.multiRegion.enabled }}
+  annotations:
+    # single-region backend
+    service.cilium.io/global: "true"
+    service.cilium.io/shared: "true"
+  {{- end }}
 spec:
   type: {{ .Values.service.type }}
   selector:

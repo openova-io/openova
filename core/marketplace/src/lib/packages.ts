@@ -41,8 +41,10 @@
 // resolves to one of three results and logs once when it is not `ok`:
 //   ok          — the document, as above;
 //   none        — nothing is published (no chargeback host, HTTP 404, or a
-//                 document with no package): every step behaves exactly as it
-//                 did before the document existed, the plan step shows the deck;
+//                 document with no package): the plan step says no packages
+//                 are offered and offers no way on (#7909: there is no
+//                 built-in deck); the other steps behave as before the
+//                 document existed;
 //   unavailable — the price list could not be read (the request failed or
 //                 timed out, another status that is not 2xx, or a body that is
 //                 not the contract): the plan step says so, shows no plan and
@@ -285,6 +287,10 @@ export const PACKAGE_STRINGS = {
   loadFailed: 'Could not load packages',
   /** The plan step when the price list could not be read (result `unavailable`). */
   pricesUnavailable: 'Prices are unavailable. Please try again shortly.',
+  /** The plan step when the engine publishes no package (result `none`, #7909). */
+  noPackages: 'No packages are offered yet. Please check back soon.',
+  /** The plan step's first paint, until the engine has answered. */
+  loadingPackages: 'Loading the packages…',
   // Step 3 — the read-only group above the optional extras.
   includedInPackage: 'Included in your package',
   includedHint: 'Part of your package at no extra cost — nothing to pick.',

@@ -67,6 +67,14 @@ config:
   # the included features on the published document and the console only;
   # add-on lines, allowances and caps are unaffected.
   packageIncludedLines: true
+  # DEFAULT_OFFER — at start, write the offer the engine ships with
+  # (internal/offer/default-offer.json: 4 packages, the floor, 19 features,
+  # 76 cells, settings, grow, branding) into a plans book that carries no
+  # offer, once, and never over anything a sovereign-admin entered (DESIGN.md
+  # §22.12). Without it a fresh Sovereign publishes no packages and its
+  # storefront has nothing to sell. false for a placement that sells no
+  # packages (operator-central defaults to false in the engine).
+  defaultOffer: true
   # PROFILE — sovereign | operator-central (spec §6; Phase 0 only affects
   # the /auth/me payload and the UI banner).
   profile: sovereign
@@ -163,6 +171,26 @@ cnpg:
 service:
   type: ClusterIP
   port: 8080
+
+# ── Two regions (DESIGN.md §22.12) ────────────────────────────────────────
+# The Sovereign placement is PRIMARY-ONLY (slot 13f is suspended on every
+# secondary control plane), while the gate in front of chargeback.<fqdn>
+# (slot 13c) runs in every region and the host is served from every region's
+# gateway. Without this a follower region's gate dials a Service that does not
+# exist there and answers 502 for about half of all requests (measured 6 of 12
+# on a fresh two-region Sovereign, 15 Nov 2026).
+#
+# enabled publishes this Service to ClusterMesh (service.cilium.io/global,
+# shared: this region's backends serve the peer's same-name stub, which
+# bp-catalyst-edge-routes renders in the follower region — slot 13e) and
+# admits the gate pods of peerClusters on the Service port, which a namespaced
+# policy cannot do by namespace alone (Cilium adds the local cluster to every
+# selector of it). Slot 13f sets both on a two-region Sovereign; off renders
+# byte-identically to a single-region install.
+multiRegion:
+  enabled: false
+  # ClusterMesh names of the peer regions whose gate may reach this Service.
+  peerClusters: []
 
 # ── HTTPRoute (Cilium Gateway — the ONLY external door) ──────────────────
 # ── Sovereign SSO (#6841) ─────────────────────────────────────────────────

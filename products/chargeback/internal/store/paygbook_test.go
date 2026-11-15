@@ -15,7 +15,7 @@ import (
 // (1 vCPU + 2 GiB) per month, are a volume ladder — every larger commitment
 // costs less per unit.
 func TestCommittedUnitLadder(t *testing.T) {
-	want := map[string]string{"s": "2.500", "m": "2.250", "l": "2.000", "xl": "1.875"}
+	want := map[string]string{"s": "2.490", "m": "2.245", "l": "1.998", "xl": "1.749"}
 	prev := (*big.Rat)(nil)
 	for _, slug := range []string{"s", "m", "l", "xl"} {
 		got := committedUnitRate(slug)
@@ -35,18 +35,19 @@ func TestCommittedUnitLadder(t *testing.T) {
 	}
 }
 
-// TestPAYGUnitRateSplit: pay per use is the entry commitment plus 10 %, and
-// the two compute rates add back up to exactly that unit price. If either
-// half is edited without the other this fails, which is the point.
+// TestPAYGUnitRateSplit: pay per use sits at least 10 % above the entry
+// commitment of the default offer, and the two compute rates add back up to
+// exactly that unit price. If either half is edited without the other this
+// fails, which is the point.
 func TestPAYGUnitRateSplit(t *testing.T) {
 	unit := paygUnitRate()
 	if unit.FloatString(3) != "2.750" {
-		t.Fatalf("pay-per-use unit rate = %s, want 2.750 (S 2.50 + 10 %%)", unit.FloatString(3))
+		t.Fatalf("pay-per-use unit rate = %s, want 2.750", unit.FloatString(3))
 	}
 	entry := committedUnitRate("s")
 	premium := new(big.Rat).Quo(unit, entry)
-	if premium.Cmp(big.NewRat(paygPremiumNum, paygPremiumDen)) != 0 {
-		t.Fatalf("premium over the entry commitment = %s, want %d/%d", premium.FloatString(4), paygPremiumNum, paygPremiumDen)
+	if premium.Cmp(big.NewRat(paygPremiumNum, paygPremiumDen)) < 0 {
+		t.Fatalf("premium over the entry commitment = %s, want at least %d/%d", premium.FloatString(4), paygPremiumNum, paygPremiumDen)
 	}
 	// 1 vCPU + 2 GiB priced from the item rates must equal the unit rate.
 	split := new(big.Rat).Add(paygVCPUMonthly(), new(big.Rat).Mul(paygMemMonthly(), big.NewRat(paygUnitGiB, 1)))

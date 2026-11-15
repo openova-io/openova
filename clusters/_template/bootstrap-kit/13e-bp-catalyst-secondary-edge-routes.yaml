@@ -126,3 +126,13 @@ spec:
         # default true) so the catalyst-catalog stub + api.<fqdn>/api/v1/catalog
         # route render on region-b whenever region-a serves the catalog.
         enabled: true
+      # #7909 — the BSS engine is primary-only (slot 13f), but region-b's
+      # oidc-gate (slot 13c) serves chargeback.<fqdn> and dials
+      # chargeback.chargeback:8080, which did not exist here: 502 for half of
+      # all requests to the engine's public host (6 of 12, fresh two-region
+      # install, 15 Nov 2026). This renders that name as a ClusterMesh stub of
+      # region-a's Service, which slot 13f publishes (multiRegion). No extra
+      # gate: this HR is SECONDARY_EDGE_SUSPEND everywhere except the
+      # secondary CP of a two-region prov.
+      chargeback:
+        enabled: true

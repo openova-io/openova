@@ -40,7 +40,7 @@ One row for each HelmRelease of each file that `clusters/_template/bootstrap-kit
 | 13c | 13c-bp-oidc-gate.yaml | bp-oidc-gate | oidc-gate | oidc-gate | bp-oidc-gate | bp-cilium, bp-keycloak, bp-external-secrets-stores | - | same |
 | 13d | 13d-bp-openova-mcp.yaml | bp-openova-mcp | openova-mcp | catalyst-system | bp-openova-mcp | bp-catalyst-platform, bp-keycloak | `suspend=${SECONDARY_HR_SUSPEND:=false}`, `values.multiRegion.enabled=${SOVEREIGN_ENABLE_HOT_STANDBY:-false}` | same |
 | 13e | 13e-bp-catalyst-secondary-edge-routes.yaml | bp-catalyst-secondary-edge | catalyst-secondary-edge | catalyst-system | bp-catalyst-edge-routes | bp-gateway-api | `suspend=${SECONDARY_EDGE_SUSPEND:=true}` | same |
-| 13f | 13f-bp-chargeback.yaml | bp-chargeback | chargeback | chargeback | bp-chargeback | bp-cnpg, bp-catalyst-platform | `suspend=${SECONDARY_HR_SUSPEND:=false}` | same |
+| 13f | 13f-bp-chargeback.yaml | bp-chargeback | chargeback | chargeback | bp-chargeback | bp-cnpg, bp-catalyst-platform | `suspend=${SECONDARY_HR_SUSPEND:=false}`, `values.multiRegion.enabled=${SOVEREIGN_ENABLE_HOT_STANDBY:-false}` | same |
 | 14 | 14-crossplane-claims.yaml | bp-crossplane-claims | crossplane-claims | crossplane-system | bp-crossplane-claims | bp-crossplane | - | same |
 | 15 | 15-external-secrets.yaml | bp-external-secrets | external-secrets | external-secrets-system | bp-external-secrets | bp-cert-manager | - | same |
 | 15a | 15a-external-secrets-stores.yaml | bp-external-secrets-stores | external-secrets-stores | external-secrets-system | bp-external-secrets-stores | bp-external-secrets, bp-openbao | - | same |

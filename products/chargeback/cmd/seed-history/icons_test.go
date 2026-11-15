@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"os"
 	"strings"
 	"testing"
 
@@ -23,7 +22,7 @@ func TestShowcaseIconsPassTheValidator(t *testing.T) {
 	if len(ids) != 32 {
 		t.Fatalf("%d vendored icons, want 32", len(ids))
 	}
-	licences, err := os.ReadFile("icons/LICENSES.md")
+	licences, err := showcaseIconFS.ReadFile("icons/LICENSES.md")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -2,10 +2,10 @@
 """Apply the showcase package icons and branding to an existing BSS.
 
 DESIGN.md §22.10. Uploads the vendored icons in
-cmd/seed-history/icons/ (content-addressed, so an icon already stored is
+internal/offer/icons/ (content-addressed, so an icon already stored is
 not sent again) and gives every feature, floor item and group its icon,
 every feature its tile colour, and every package its accent and badge,
-exactly as products/chargeback/cmd/seed-history/icons/manifest.json says —
+exactly as products/chargeback/internal/offer/icons/manifest.json says —
 the same file the seeder reads. Everything goes through the BSS API, as the
 sovereign-admin named by --email; each write happens only where the value
 differs, so a second run writes nothing.
@@ -34,7 +34,7 @@ import urllib.parse
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ICONS = os.path.join(HERE, "..", "cmd", "seed-history", "icons")
+ICONS = os.path.join(HERE, "..", "internal", "offer", "icons")
 SHAPE_KEYS = ("vcpu", "memory_gb", "vcpu_guaranteed", "memory_gb_guaranteed", "disk_gb")
 
 

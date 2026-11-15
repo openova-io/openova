@@ -123,7 +123,7 @@ export function BookSettingsFields({ value, onChange, errors }: { value: BookSet
       </Field>
       <div style={{ gridColumn: '1 / -1' }}>
         <Field label="Description" help="What this book prices and where its rates came from. The two platform books arrive with their derivation written here; edit it when you change a rate.">
-          <textarea rows={4} value={value.description} onChange={(e) => set({ description: e.target.value })} placeholder="e.g. Committed plans: 5 / 9 / 16 / 30 OMR per month, billed as one plan line per hour." />
+          <textarea rows={4} value={value.description} onChange={(e) => set({ description: e.target.value })} placeholder="e.g. Committed packages S, M, L and XL, billed as one plan line per hour." />
         </Field>
       </div>
     </div>

@@ -3,33 +3,34 @@
   // GET /api/v1/public/packages on the Sovereign's chargeback host, and the
   // document's shape picks the rendering:
   //   - nothing published (no chargeback host, 404, no package)
-  //                                        → the legacy PlanStep deck, unchanged;
+  //                                        → "No packages are offered yet", no
+  //     plan cards, and a disabled continue control (#7909);
   //   - the price list could not be read (request failed, another non-2xx
   //     status, a body that is not the contract)
   //                                        → "Prices are unavailable", no plan
-  //     cards, and a disabled continue control — never the deck;
+  //     cards, and a disabled continue control;
   //   - a v1 document (no `groups`)        → the flat table below: columns are
   //     the packages, rows its features, cells ✓ / a muted "add-on" with its
   //     price and the "Included from XL" hint / —;
   //   - a v2 document (`groups` present)   → the ladder (PackageLadder.svelte):
   //     four cards, one grouped comparison, the floor strip once.
-  // Choosing a package does exactly what the legacy deck did: it sets the cart
-  // plan (catalog plan id mapped from the sku, plus the sku for billing) and
-  // continues to Stack. Add-ons are picked on step 3, where they always were.
+  // Choosing a package sets the cart plan (catalog plan id mapped from the
+  // sku, plus the sku for billing) and continues to Stack. Add-ons are picked
+  // on step 3, where they always were.
   //
-  // The legacy deck is this step's FIRST render — server-rendered into the page
-  // and hydrated exactly as plans.astro mounted it before the table existed —
-  // and the table replaces it only once the document has arrived. That order
-  // is load-bearing, not cosmetic: the production build renders this component
-  // on the server with its initial state only (`$effect` never runs there), so
-  // a branch the initial state cannot reach is dead code to Rollup. With a
-  // spinner as the first render, PlanStep was tree-shaken out of the server
-  // bundle, its component-scoped stylesheet (which Vite keeps only while the
-  // component is rendered) never reached /_astro/plans.*.css, and the fallback
-  // on a Sovereign without the endpoint drew the deck completely unstyled. The
-  // Playwright spec asserts the deck's computed layout against the production
-  // build with the request failing, so that cannot come back unnoticed.
-  import PlanStep from './PlanStep.svelte';
+  // There is no second offer. Until #7909 a Sovereign whose engine published
+  // nothing kept a built-in plan deck (its rows fixed in a component of its
+  // own, its prices from the catalog) as this step, so a storefront sold from a list
+  // the engine did not hold and nothing on the page said so. The engine now
+  // ships its default offer; when it still publishes none, the page says so.
+  //
+  // The FIRST render is the loading notice, server-rendered: the production
+  // build renders this component on the server with its initial state only
+  // (`$effect` never runs there). Every state outside the document's own
+  // table and ladder is that same page block (pk-page, pk-title, pk-sub,
+  // float-nav), so the stylesheet the loading notice brings is the one the
+  // two notices need; the Playwright spec asserts their computed layout
+  // against the production build with the engine answering 404.
   import PackageLadder from './PackageLadder.svelte';
   import { getPlans, type Plan } from '../lib/api';
   import { readCart, setPackage } from '../lib/cart';
@@ -48,11 +49,11 @@
     type PublicPackages,
   } from '../lib/packages';
 
-  // 'deck' until the document is in hand; it stays 'deck' when nothing is
-  // published (loadPublicPackages has already warned once by then).
-  let status = $state<'deck' | 'table' | 'ladder'>('deck');
+  // 'loading' until the engine has answered (the server render); 'none' when
+  // it publishes nothing (loadPublicPackages has already warned once by then).
+  let status = $state<'loading' | 'none' | 'table' | 'ladder'>('loading');
   // True once the price list could not be read. False on the server render,
-  // so the deck stays the first paint (see the note above).
+  // so the loading notice is the first paint (see the note above).
   let unavailable = $state(false);
   let data = $state<PublicPackages | null>(null);
   let model = $state<PackageTableModel | null>(null);
@@ -68,8 +69,11 @@
         getPlans().catch(() => [] as Plan[]),
       ]);
       if (cancelled) return;
-      // Nothing published: the deck already on screen is the step.
-      if (result.state === 'none') return;
+      // Nothing published: say so; there is no plan to pick.
+      if (result.state === 'none') {
+        status = 'none';
+        return;
+      }
       // The price list could not be read: no plan, no way on.
       if (result.state === 'unavailable') {
         unavailable = true;
@@ -129,14 +133,29 @@
   <div class="float-nav">
     <button type="button" class="float-cta" data-testid="packages-unavailable-continue" disabled>{S.continueCta}</button>
   </div>
+{:else if status === 'none'}
+  <!-- The engine publishes no package: the message, no plan cards, and a
+       continue control that is disabled (#7909). -->
+  <div class="pk-page" data-testid="packages-none">
+    <h1 class="pk-title">{S.title}</h1>
+    <p class="pk-sub" role="status">{S.noPackages}</p>
+  </div>
+  <div class="float-nav">
+    <button type="button" class="float-cta" data-testid="packages-none-continue" disabled>{S.continueCta}</button>
+  </div>
 {:else if status === 'ladder' && ladder}
   <!-- v2 document: the ladder. Styled by src/styles/package-ladder.css, a
        page stylesheet plans.astro imports — see the note in the component. -->
   <PackageLadder model={ladder} {selectedSku} onchoose={choose} />
 {:else if status !== 'table' || !model}
-  <!-- The legacy deck: the server-rendered first paint, the whole step when
-       the document is unreachable, and replaced in place once it arrives. -->
-  <PlanStep />
+  <!-- The server-rendered first paint, until the engine has answered. -->
+  <div class="pk-page" data-testid="packages-loading">
+    <h1 class="pk-title">{S.title}</h1>
+    <p class="pk-sub" role="status">{S.loadingPackages}</p>
+  </div>
+  <div class="float-nav">
+    <button type="button" class="float-cta" data-testid="packages-loading-continue" disabled>{S.continueCta}</button>
+  </div>
 {:else}
   <div class="pk-page">
     <h1 class="pk-title">{S.title}</h1>

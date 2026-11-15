@@ -551,6 +551,11 @@ ALTER TABLE cost_sources ADD CONSTRAINT cost_sources_status_check CHECK (status 
 	// Appended at the very END: migrations are positional. Located by
 	// content as MigrationCommitment (commitment.go).
 	commitmentMigrationSQL,
+	// DESIGN.md §22.12 — the default offer: the one row that records that
+	// the engine has decided, once, whether to write the offer it ships
+	// with. Appended at the very END: migrations are positional. Located by
+	// content as MigrationDefaultOffer (defaultoffer.go).
+	defaultOfferMigrationSQL,
 }
 
 // MigrationBackfillIssuedInvoices is the schema_migrations version of the

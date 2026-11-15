@@ -24,12 +24,14 @@ func TestIntegrationEnsurePlanBookIdempotent(t *testing.T) {
 	if pb.Name != store.PlanBookName || pb.Currency != "OMR" || pb.AnnualDivisor != 8760 {
 		t.Fatalf("book = %+v", pb)
 	}
-	// annual = monthly × 12; unit = annual / 8760 = monthly / 730, 8 decimals.
+	// The default offer's prices (S 2.490 · M 4.490 · L 7.990 · XL 13.990 a
+	// month): annual = monthly × 12; unit = annual / 8760 = monthly / 730, 8
+	// decimals.
 	want := map[string][2]string{
-		"plan.s":  {"60.00000000", "0.00684932"},
-		"plan.m":  {"108.00000000", "0.01232877"},
-		"plan.l":  {"192.00000000", "0.02191781"},
-		"plan.xl": {"360.00000000", "0.04109589"},
+		"plan.s":  {"29.88000000", "0.00341096"},
+		"plan.m":  {"53.88000000", "0.00615068"},
+		"plan.l":  {"95.88000000", "0.01094521"},
+		"plan.xl": {"167.88000000", "0.01916438"},
 	}
 	if len(pb.Items) != len(want) {
 		t.Fatalf("items = %+v", pb.Items)
@@ -137,13 +139,13 @@ func TestIntegrationAllocationPlanRevenue(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A package is a flat monthly price (DESIGN.md §22.11): 168 plan-hours
-	// of September accrue 9 × 168 ÷ 720 = 2.1.
+	// of September accrue 4.49 × 168 ÷ 720 = 1.047667.
 	a := allocRow(res, orgA.ID, "organization")
 	if a == nil {
 		t.Fatalf("no row for acme: %+v", res.Rows)
 	}
-	if a.RatedRevenue != "2.100000" {
-		t.Fatalf("rated_revenue = %s, want 2.100000 (7 × 24 × 9/720)", a.RatedRevenue)
+	if a.RatedRevenue != "1.047667" {
+		t.Fatalf("rated_revenue = %s, want 1.047667 (7 × 24 × 4.49/720)", a.RatedRevenue)
 	}
 	// The pool is the Sovereign's cloud bill (7 × 24 × 0.5 = 84.0; the
 	// Sovereign's own Organization carries no plan line, so nothing else
@@ -152,11 +154,11 @@ func TestIntegrationAllocationPlanRevenue(t *testing.T) {
 	if res.Pool.Amount != "84.000000" || a.AllocatedCost != "84.000000" {
 		t.Fatalf("pool %s allocated %s, want 84.000000", res.Pool.Amount, a.AllocatedCost)
 	}
-	wantPct := -81.9 / 2.1 * 100
-	if a.Margin != "-81.900000" || a.MarginPct == nil || math.Abs(*a.MarginPct-wantPct) > 0.01 {
-		t.Fatalf("margin = %s (%v), want 2.1 − 84 = −81.9 (%.2f %%)", a.Margin, a.MarginPct, wantPct)
+	wantPct := -82.952333 / 1.047667 * 100
+	if a.Margin != "-82.952333" || a.MarginPct == nil || math.Abs(*a.MarginPct-wantPct) > 0.01 {
+		t.Fatalf("margin = %s (%v), want 1.047667 − 84 = −82.952333 (%.2f %%)", a.Margin, a.MarginPct, wantPct)
 	}
-	if res.Totals.Revenue != "2.100000" || res.Totals.Margin != "-81.900000" {
+	if res.Totals.Revenue != "1.047667" || res.Totals.Margin != "-82.952333" {
 		t.Fatalf("totals = %+v", res.Totals)
 	}
 	// The statement side files the same line under the plan kind.

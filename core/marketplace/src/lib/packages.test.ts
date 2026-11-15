@@ -17,9 +17,10 @@
 //      BSS add-on the new package no longer offers.
 //
 // Plus a markup contract in the redeemMarkupContract.test.ts shape: /plans
-// mounts PackageTable, PackageTable falls back to PlanStep and holds no
-// checkbox, says when prices are unavailable, AddonsStep consumes the
-// document — asserted against the files on disk rather than a reconstruction.
+// mounts PackageTable, PackageTable holds no built-in deck and no checkbox,
+// says when no package is offered and when prices are unavailable, AddonsStep
+// consumes the document — asserted against the files on disk rather than a
+// reconstruction.
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -521,26 +522,37 @@ describe('wizard markup contract', () => {
     expect(page).toMatch(/<PackageTable\s+client:load/);
   });
 
-  it('PackageTable falls back to PlanStep, reads the chargeback base from config, and picks nothing but the package', () => {
-    expect(table).toMatch(/import PlanStep from ['"]\.\/PlanStep\.svelte['"]/);
-    expect(table).toMatch(/<PlanStep\s*\/>/);
+  it('PackageTable has no built-in deck, reads the chargeback base from config, and picks nothing but the package', () => {
+    // #7909 — no second offer: the step shows what the engine publishes, or
+    // says it publishes nothing.
+    expect(table).not.toMatch(/PlanStep/);
+    expect(table).not.toMatch(/getPlans\(\)\s*\.then\(\s*\(?data/);
     expect(table).toMatch(/chargebackBaseURL\(\)/);
     // No add-on selection on step 1: no checkbox, no toggle.
     expect(table).not.toMatch(/type="checkbox"/);
     expect(table).not.toMatch(/toggleAddon|addonPicksFor|packageAddons/);
   });
 
-  it('PackageTable: on unavailable the message, no deck and a disabled continue; on none the deck', () => {
-    // `none` returns before anything changes, so the deck (the server render) stays.
-    expect(table).toMatch(/if \(result\.state === 'none'\) return;/);
+  it('PackageTable: on unavailable and on none the message, no plan and a disabled continue (#7909)', () => {
+    expect(table).toMatch(/if \(result\.state === 'none'\) \{\s*status = 'none';\s*return;/);
     expect(table).toMatch(/if \(result\.state === 'unavailable'\) \{\s*unavailable = true;\s*return;/);
     // The unavailable branch comes first and holds the text and a disabled
-    // control, and no PlanStep, table or ladder.
+    // control, and no table or ladder.
     const branch = table.match(/\{#if unavailable\}([\s\S]*?)\{:else if/);
     expect(branch).not.toBeNull();
     expect(branch![1]).toMatch(/\{S\.pricesUnavailable\}/);
     expect(branch![1]).toMatch(/<button[^>]*data-testid="packages-unavailable-continue"[^>]*\sdisabled[\s>]/);
     expect(branch![1]).not.toMatch(/PlanStep|PackageLadder|package-table|<a /);
+    // The none branch: the plain sentence and a disabled control, no plan.
+    const none = table.match(/\{:else if status === 'none'\}([\s\S]*?)\{:else if/);
+    expect(none).not.toBeNull();
+    expect(none![1]).toMatch(/\{S\.noPackages\}/);
+    expect(none![1]).toMatch(/<button[^>]*data-testid="packages-none-continue"[^>]*\sdisabled[\s>]/);
+    expect(none![1]).not.toMatch(/PlanStep|PackageLadder|package-table|<a /);
+    expect(PACKAGE_STRINGS.noPackages).toBe('No packages are offered yet. Please check back soon.');
+    // The server render is the loading notice: the initial state reaches no
+    // plan of any list.
+    expect(table).toMatch(/\$state<'loading' \| 'none' \| 'table' \| 'ladder'>\('loading'\)/);
   });
 
   it('the other steps read the result through documentOf: none and unavailable are "no document", as before', () => {

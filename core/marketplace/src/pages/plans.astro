@@ -9,10 +9,10 @@ import '../styles/package-ladder.css';
 ---
 <Layout title="Choose a Plan" step={1}>
   <!-- #6971 — the package comparison fed from the Sovereign's BSS at
-       GET /api/v1/public/packages. PackageTable renders the legacy PlanStep
-       deck first (server-rendered, as this page mounted it before) and swaps
-       in the table (v1 document) or the ladder (v2 document) once the
-       document arrives; when the endpoint is unreachable or empty the deck
-       simply stays. -->
+       GET /api/v1/public/packages. PackageTable renders a loading notice
+       first (server-rendered) and swaps in the table (v1 document) or the
+       ladder (v2 document) once the document arrives; when the engine
+       publishes nothing or cannot be read it says so, and offers no plan
+       (#7909: there is no built-in deck to fall back to). -->
   <PackageTable client:load />
 </Layout>

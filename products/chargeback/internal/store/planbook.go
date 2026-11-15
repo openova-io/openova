@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+
+	"github.com/openova-io/openova/products/chargeback/internal/offer"
 )
 
 // Plan revenue (DESIGN.md §2.8). What an Organization actually pays is its
@@ -33,26 +35,28 @@ const (
 	PlanFlexi = "flexi"
 )
 
-// catalogPlan is one catalog plan as the Sovereign sells it. The four
-// monthly prices are COPIED from core/services/catalog/handlers/seed.go
-// seedPlanRows (S 5 · M 9 · L 16 · XL 30 OMR/month; Flexi 0 = pay per use)
-// — the chargeback module keeps the D5 invariant of importing nothing from
-// Catalyst, so the numbers are restated here and the comment names their
-// source. The org-controller's planQuotaTable
-// (core/controllers/organization/internal/gitops/manifests.go) mirrors the
-// same rows: S = 2 vCPU / 4 GB, M = 4/8, L = 8/16, XL = 16/32.
+// catalogPlan is one catalog plan as the Sovereign sells it: its slug and
+// display name. Its PRICE is not here. The four sized plans are priced by the
+// engine's default offer (internal/offer/default-offer.json, DESIGN.md
+// §22.12), the one plan price list the engine has, and PlanBookItems reads
+// them from it. The catalog service seeds the same four figures
+// (core/services/catalog/handlers/seed.go seedPlanRows: 2490 / 4490 / 7990 /
+// 13990 baisa); the chargeback module keeps the D5 invariant of importing
+// nothing from Catalyst, so TestPlanBookItemsAreTheDefaultOffer holds the
+// file to those figures instead. The org-controller's planQuotaTable
+// (core/controllers/organization/internal/gitops/manifests.go) sizes the
+// same rows: S = 1 vCPU / 2 GB, M = 2/4, L = 4/8, XL = 8/16.
 type catalogPlan struct {
-	Slug       string
-	Name       string
-	MonthlyOMR int64
+	Slug string
+	Name string
 }
 
 var catalogPlans = []catalogPlan{
-	{Slug: "s", Name: "S", MonthlyOMR: 5},
-	{Slug: "m", Name: "M", MonthlyOMR: 9},
-	{Slug: "l", Name: "L", MonthlyOMR: 16},
-	{Slug: "xl", Name: "XL", MonthlyOMR: 30},
-	{Slug: PlanFlexi, Name: "Flexi", MonthlyOMR: 0},
+	{Slug: "s", Name: "S"},
+	{Slug: "m", Name: "M"},
+	{Slug: "l", Name: "L"},
+	{Slug: "xl", Name: "XL"},
+	{Slug: PlanFlexi, Name: "Flexi"},
 }
 
 // ValidPlanSlug reports whether slug names a catalog plan (s, m, l, xl,
@@ -92,41 +96,64 @@ func PlanBillable(slug string) bool {
 // PlanSKU is the usage SKU of a plan: plan.<slug>.
 func PlanSKU(slug string) string { return PlanSKUPrefix + slug }
 
-// planNote is appended to every plan item's description, so a rate read on
-// its own still says why the k8s.* meters next to it carry none.
-const planNote = "k8s.vcpu / k8s.mem_gb / k8s.pvc_gb are deliberately not priced in this book: under a plan they are the allocation basis, not the bill. A flexi Organization is billed off those meters instead, by the " + PAYGBookName + " book."
-
 // PlanBookDescription is the note written on the plans book itself, so an
 // operator reading the two platform books side by side sees at once which is
-// the committed card and which is the pay-per-use one. No apostrophes — the
-// backfill migration embeds it in SQL.
-const PlanBookDescription = "The committed catalog plans (S 5 / M 9 / L 16 / XL 30 OMR per month for 2 / 4 / 8 / 16 vCPU with 2 GiB per vCPU), billed as one flat plan.<slug> subscription line per Organization per hour: annual = monthly x 12, hourly = annual / 8760 = monthly / 730. " +
-	"The k8s.vcpu / k8s.mem_gb / k8s.pvc_gb meters are deliberately UNPRICED here - under a plan they are the allocation basis, and a bundle has no identifiable per-resource split (M = 2xS, L = 4xS, XL = 8xS), so any per-vCPU rate under this book would be invented. " +
+// the committed card and which is the pay-per-use one. It names no price:
+// the prices are the book's plan items. No apostrophes — the backfill
+// migration embeds it in SQL.
+const PlanBookDescription = "The committed catalog packages S, M, L and XL, each priced by its plan.<slug> item of this book and billed as one flat plan.<slug> subscription line per Organization per hour: annual = monthly x 12, hourly = annual / 8760 = monthly / 730. " +
+	"The k8s.vcpu / k8s.mem_gb meters are deliberately UNPRICED here - under a plan they are the allocation basis, and a bundle has no identifiable per-resource split, so any per-vCPU rate under this book would be invented; grow mode bills compute above a package at the rates of its package settings. " +
 	"An Organization on the uncapped flexi plan is billed the other way round, per use and with no plan line, by the " + PAYGBookName + " book."
 
-// PlanBookItems are the four priced plans of the "OpenOva plans" book:
-// annual_price = monthly × 12, unit_price = annual_price / 8760 rounded to
-// the 8 decimals price_items carry (= monthly / 730 per plan-hour, exactly
-// as the divisor implies). Flexi is pay per use and has no item.
+// PlanBookItems are the four priced plans of the "OpenOva plans" book, read
+// from the engine's default offer (internal/offer): the annual price as the
+// offer states it (monthly × 12), unit_price = annual_price / 8760 rounded to
+// the 8 decimals price_items carry (= monthly / 730 per plan-hour, exactly as
+// the divisor implies), and the offer's description. Flexi is pay per use
+// and has no item.
 func PlanBookItems() []PriceItem {
 	var out []PriceItem
-	for _, p := range catalogPlans {
-		if p.MonthlyOMR == 0 {
-			continue
+	for _, it := range offer.MustDefault().PlanItems() {
+		pi, err := offerPriceItem(it, PlanBookDivisor)
+		if err != nil {
+			panic("the default offer compiled into this binary prices " + it.SKU + " badly: " + err.Error())
 		}
-		annual := p.MonthlyOMR * 12
-		annualDec := Decimal(fmt.Sprintf("%d", annual))
-		unit := new(big.Rat).SetFrac64(annual, PlanBookDivisor).FloatString(8)
-		out = append(out, PriceItem{
-			SKU:         PlanSKU(p.Slug),
-			Unit:        PlanUnit,
-			UnitPrice:   Decimal(unit),
-			AnnualPrice: &annualDec,
-			Description: fmt.Sprintf("%s plan: %d OMR/month × 12 = %d OMR/year ÷ %d h = %d/730 = %s OMR per plan-hour. %s",
-				p.Name, p.MonthlyOMR, annual, PlanBookDivisor, p.MonthlyOMR, unit, planNote),
-		})
+		out = append(out, pi)
 	}
 	return out
+}
+
+// offerPriceItem is one item of the default offer as a book stores it: the
+// annual price as written, the unit price through the book's divisor.
+func offerPriceItem(it offer.PriceItem, divisor int) (PriceItem, error) {
+	annual, ok := new(big.Rat).SetString(strings.TrimSpace(it.AnnualPrice))
+	if !ok || annual.Sign() < 0 {
+		return PriceItem{}, fmt.Errorf("annual price %q is not a non-negative number", it.AnnualPrice)
+	}
+	a := Decimal(strings.TrimSpace(it.AnnualPrice))
+	return PriceItem{
+		SKU:         it.SKU,
+		Unit:        it.Unit,
+		UnitPrice:   Decimal(new(big.Rat).Quo(annual, big.NewRat(int64(divisor), 1)).FloatString(8)),
+		AnnualPrice: &a,
+		Description: it.Description,
+	}, nil
+}
+
+// PlanMonthly is the monthly price of a sized plan in the default offer
+// (annual / 12), nil for flexi or an unknown slug.
+func PlanMonthly(slug string) *big.Rat {
+	for _, it := range offer.MustDefault().PlanItems() {
+		if it.SKU != PlanSKU(NormalizePlanSlug(slug)) {
+			continue
+		}
+		annual, ok := new(big.Rat).SetString(strings.TrimSpace(it.AnnualPrice))
+		if !ok {
+			return nil
+		}
+		return annual.Quo(annual, big.NewRat(12, 1))
+	}
+	return nil
 }
 
 // EnsurePlanBook returns the "OpenOva plans" rate card — the PLATFORM-scope

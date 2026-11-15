@@ -97,14 +97,15 @@ var NationalCloudRates = []Rate{
 // (store.PlanBookName); the seeding command never re-prices it.
 const PlanBookName = "OpenOva plans"
 
-// PlanRates are the four priced catalog plans of the "OpenOva plans" book:
-// monthly S 5 · M 9 · L 16 · XL 30 OMR × 12. TestPlanRatesMatchStore pins
-// them to store.PlanBookItems so the two can never drift apart.
+// PlanRates are the four priced catalog plans of the "OpenOva plans" book,
+// the engine's default offer: monthly S 2.490 · M 4.490 · L 7.990 · XL
+// 13.990 OMR × 12. TestPlanRatesMatchStore pins them to store.PlanBookItems
+// so the two can never drift apart.
 var PlanRates = []Rate{
-	{SKU: "plan.s", Unit: "plan-hour", Annual: 60},
-	{SKU: "plan.m", Unit: "plan-hour", Annual: 108},
-	{SKU: "plan.l", Unit: "plan-hour", Annual: 192},
-	{SKU: "plan.xl", Unit: "plan-hour", Annual: 360},
+	{SKU: "plan.s", Unit: "plan-hour", Annual: 29.88},
+	{SKU: "plan.m", Unit: "plan-hour", Annual: 53.88},
+	{SKU: "plan.l", Unit: "plan-hour", Annual: 95.88},
+	{SKU: "plan.xl", Unit: "plan-hour", Annual: 167.88},
 }
 
 // PriceList maps a SKU to its unit price per hour.

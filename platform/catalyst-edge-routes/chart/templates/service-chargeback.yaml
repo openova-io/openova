@@ -1,0 +1,66 @@
+{{- /*
+Region-b chargeback (BSS engine) secondary-edge (#7909).
+
+bp-chargeback (slot 13f) is PRIMARY-ONLY: its HelmRelease is
+SECONDARY_HR_SUSPEND on a secondary CP, so region-b has no `chargeback`
+namespace and no engine. But bp-oidc-gate (slot 13c) runs in every region,
+and its chargeback gate owns chargeback.<fqdn> on every region's gateway; its
+upstream is chargeback.chargeback.svc.cluster.local:8080. On region-b that
+name did not resolve, so the gate answered its own 502 page, without CORS,
+for about half of every request to the engine's public host — the storefront
+then says the prices are unavailable (6 of 12 measured on a fresh two-region
+Sovereign, 15 Nov 2026).
+
+The same ClusterMesh stub idiom as service-mcp.yaml: a Service named and
+namespaced IDENTICALLY to region-a's (products/chargeback/chart service.yaml,
+global + shared when multiRegion is on — slot 13f), selecting the engine's
+pods, of which region-b has none, so every dial of region-b's gate crosses
+the mesh to region-a's engine. Region-a's ingress policy admits the peer
+gate (cilium-ingress-networkpolicy.yaml, multiRegion.peerClusters); region-b's
+gate egress already names the peer cluster (bp-oidc-gate crossRegion).
+
+The namespace is created here (keep policy, as org-services in
+marketplace.yaml): the suspended HR never creates it on region-b.
+
+Gating: services.chargeback.enabled, set by slot 13e. Default render is empty
+(smoke-render-mode:default-off).
+*/ -}}
+{{- $cb := ((.Values.services).chargeback) | default dict }}
+{{- if $cb.enabled }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $cb.namespace | default "chargeback" }}
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-edge-routes
+  annotations:
+    helm.sh/resource-policy: keep
+    catalyst.openova.io/created-by: bp-catalyst-edge-routes
+---
+apiVersion: v1
+kind: Service
+metadata:
+  # Same name+namespace as region-a's chargeback Service so ClusterMesh merges
+  # them (products/chargeback fullname for release "chargeback").
+  name: {{ $cb.service | default "chargeback" }}
+  namespace: {{ $cb.namespace | default "chargeback" }}
+  labels:
+    catalyst.openova.io/blueprint: bp-catalyst-edge-routes
+    catalyst.openova.io/component: chargeback
+  annotations:
+    # single-region backend
+    service.cilium.io/global: "true"
+    service.cilium.io/shared: "true"
+spec:
+  type: ClusterIP
+  selector:
+    # Zero local matches on region-b (no engine Pod here) → the mesh routes to
+    # region-a's endpoints. Mirrors products/chargeback selectorLabels.
+    app.kubernetes.io/name: chargeback
+    app.kubernetes.io/instance: {{ $cb.service | default "chargeback" }}
+  ports:
+    - name: http
+      port: {{ $cb.port | default 8080 }}
+      targetPort: {{ $cb.port | default 8080 }}
+      protocol: TCP
+{{- end }}
