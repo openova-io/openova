@@ -35,30 +35,36 @@ import (
 //     the step. The days of a window are not read, as the days of the span
 //     are not: both are judged as if they were open every day, which is the
 //     strictest reading;
-//  3. chooses rebootNodes nodes: the first control-plane node by name, then
-//     the first other nodes by name, nodes without the control-plane label
-//     first. Fewer nodes, no control-plane node, or a node that is
-//     unschedulable or not Ready already, fail the step. So does a
-//     DaemonSet that cannot run on control-plane nodes (the default of the
-//     chart bp-kured, which leaves the restart of a region's control-plane
-//     node to a person): the chosen control-plane node would never restart;
+//  3. chooses one worker node: the first node by name without the
+//     control-plane label that runs a workload Pod (a Running Pod that is not
+//     of a DaemonSet and not a static Pod). kured never restarts a
+//     control-plane node: the chart bp-kured keeps its DaemonSet off them
+//     (platform/kured/chart/values.yaml, affinity), and a DaemonSet that
+//     could run there fails the step. So do a node that is unschedulable or
+//     not Ready already, no control-plane node (that none restarts could not
+//     be observed), fewer than two worker nodes (the workloads need another
+//     node to move to), and no worker node with a workload Pod (a restart
+//     would move nothing off);
 //  4. waits when the reboot span is not open for the whole time limit: until
 //     the span opens the next time, at most rebootMaxWait. A longer wait
 //     fails the step;
 //  5. reads the HelmReleases of every namespace once and keeps those that are
 //     Ready. None fails the step;
-//  6. creates a namespace of its own and one Pod on each chosen node that
+//  6. creates a namespace of its own and one Pod on the chosen worker that
 //     creates the file kured looks for, and deletes the namespace;
-//  7. reads the nodes every rebootEvery until each chosen node has a new
-//     boot identifier, no node is unschedulable, every node is Ready, the
-//     DaemonSet of kured has every Pod ready, and every HelmRelease of step 5
-//     is Ready again. The time limit is one round of kured (period + lock
-//     release delay) per chosen node plus rebootSettle. The step fails at
-//     once when two nodes are unschedulable in one reading, when a node is
-//     unschedulable for longer than drain timeout + lock release delay, or
-//     when a chosen node shows a new boot identifier and was never read
-//     unschedulable. A reading that fails is no observation: the API of a
-//     region with one control-plane node is away while that node restarts.
+//  7. reads the nodes every rebootEvery until the chosen worker has a new
+//     boot identifier, no node is unschedulable, every node is Ready, none
+//     of the workload Pods that ran on the worker in step 3 is still on it
+//     (they moved off during the drain), the DaemonSet of kured has every
+//     Pod ready (its Pod on the worker among them: the node is back), and
+//     every HelmRelease of step 5 is Ready again (the workloads run). The
+//     time limit is one round of kured (period + lock release delay) plus
+//     rebootSettle. The step fails at once when a control-plane node shows a
+//     new boot identifier, when two nodes are unschedulable in one reading,
+//     when a node is unschedulable for longer than drain timeout + lock
+//     release delay, when the worker shows a new boot identifier and was
+//     never read unschedulable, or when a workload Pod of step 3 is still on
+//     the worker after its restart. A reading that fails is no observation.
 //
 // The check never restarts a node itself and never changes kured.
 const (
@@ -69,7 +75,8 @@ const (
 	rebootLock      = "weave.works/kured-node-lock" // where kured locks when it has no --lock-annotation
 	rebootHold      = "catalyst-install-hold"       // who holds the lock while the install hold of bp-kured is in place
 	rebootPlans     = "plans.upgrade.cattle.io"
-	rebootNodes     = 3
+	rebootNodes     = 1 // worker nodes restarted per region
+	rebootMirror    = "kubernetes.io/config.mirror"
 	rebootEvery     = 5 * time.Second
 	rebootSettle    = 15 * time.Minute
 	rebootMaxWait   = 150 * time.Minute
@@ -283,9 +290,10 @@ func (c rebootCheck) nodes(ctx context.Context, region kube.Region) (map[string]
 	return out, err
 }
 
-// rebootChoose returns the nodes that get a pending reboot, or why the region has none to give.
-func rebootChoose(nodes map[string]rebootNode) ([]string, error) {
-	var servers, others, busy []string
+// rebootChoose returns the worker node that gets a pending reboot, or why the
+// region has none to give. workloads holds the workload Pods of each node.
+func rebootChoose(nodes map[string]rebootNode, workloads map[string][]string) ([]string, error) {
+	var servers, workers, busy []string
 	for name, n := range nodes {
 		switch {
 		case n.cordoned || !n.ready:
@@ -293,19 +301,55 @@ func rebootChoose(nodes map[string]rebootNode) ([]string, error) {
 		case n.controlPlane:
 			servers = append(servers, name)
 		default:
-			others = append(others, name)
+			workers = append(workers, name)
 		}
 	}
-	sort.Strings(servers)
-	sort.Strings(others)
+	sort.Strings(workers)
 	sort.Strings(busy)
 	switch {
 	case len(busy) > 0:
 		return nil, fmt.Errorf("unschedulable or not Ready before the check started: %s", strings.Join(busy, ", "))
-	case len(nodes) < rebootNodes || len(servers) == 0:
-		return nil, fmt.Errorf("the region has %d nodes, %d of them with the label %s: the check needs %d nodes and one control-plane node", len(nodes), len(servers), secControlPlane, rebootNodes)
+	case len(servers) == 0:
+		return nil, fmt.Errorf("the region has %d nodes and none with the label %s: that no control-plane node restarts could not be observed", len(nodes), secControlPlane)
+	case len(workers) < 2:
+		return nil, fmt.Errorf("the region has %d worker nodes: the check needs 2, one to restart and one to take its workloads", len(workers))
 	}
-	return append([]string{servers[0]}, append(others, servers[1:]...)[:rebootNodes-1]...), nil
+	for _, name := range workers {
+		if len(workloads[name]) > 0 {
+			return []string{name}, nil
+		}
+	}
+	return nil, fmt.Errorf("none of the %d worker nodes runs a workload Pod (one not of a DaemonSet and not static): a restart would move nothing off", len(workers))
+}
+
+// workloads returns, by node, the workload Pods that the field selector
+// selects, each "<namespace>/<name> <uid>": every Pod that is not of a
+// DaemonSet, not a static Pod, not being deleted and in phase Pending or
+// Running. A drain moves exactly these off a node.
+func (c rebootCheck) workloads(ctx context.Context, region kube.Region, selector string) (map[string][]string, error) {
+	items, err := c.list(ctx, region, "pods", "-A", "--field-selector", selector)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string][]string{}
+	for _, p := range items {
+		phase := p.Str("status", "phase")
+		if p.Str("metadata", "annotations", rebootMirror) != "" || p.Str("metadata", "deletionTimestamp") != "" || (phase != "Running" && phase != "Pending") {
+			continue
+		}
+		daemon := false
+		for _, owner := range p.Objects("metadata", "ownerReferences") {
+			daemon = daemon || owner.Str("kind") == "DaemonSet"
+		}
+		if !daemon {
+			node := p.Str("spec", "nodeName")
+			out[node] = append(out[node], p.Namespace()+"/"+p.Name()+" "+p.Str("metadata", "uid"))
+		}
+	}
+	for node := range out {
+		sort.Strings(out[node])
+	}
+	return out, nil
 }
 
 // plans judges the upgrade Plans of every namespace. It puts into ev whether
@@ -344,6 +388,26 @@ func (c rebootCheck) releases(ctx context.Context, region kube.Region) (map[stri
 		out[hr.Namespace()+"/"+hr.Name()] = status == "True"
 	}
 	return out, err
+}
+
+// stayed returns those of the workload Pods moving (from workloads) that are
+// still on node.
+func (c rebootCheck) stayed(ctx context.Context, region kube.Region, node string, moving []string) ([]string, error) {
+	now, err := c.workloads(ctx, region, "spec.nodeName="+node)
+	if err != nil {
+		return nil, err
+	}
+	on := map[string]bool{}
+	for _, p := range now[node] {
+		on[p] = true
+	}
+	out := []string{}
+	for _, p := range moving {
+		if on[p] {
+			out = append(out, p)
+		}
+	}
+	return out, nil
 }
 
 // recovery reads the DaemonSet of kured and the HelmReleases. It returns what
@@ -405,7 +469,7 @@ func (c rebootCheck) region(ctx context.Context, region kube.Region, rec StepRec
 		return checkStep(rec, rebootID, *n, name+" in region "+region.ID, fn)
 	}
 	var k rebootSettings
-	var chosen, ready []string
+	var chosen, ready, moving []string
 	var before map[string]rebootNode
 	ns, created := "inf-reboot-"+strings.ToLower(NewRunID(c.now())), false
 	ok := step("kured is installed and its arguments give the settings", func(ev Evidence) (err error) {
@@ -414,15 +478,23 @@ func (c rebootCheck) region(ctx context.Context, region kube.Region, rec StepRec
 		return err
 	}) && step("every upgrade Plan has a window that ends at least "+strconv.Itoa(rebootGap)+" minutes before the reboot span starts", func(ev Evidence) error {
 		return c.plans(ctx, region, k, ev)
-	}) && step("three nodes are chosen, one of them a control-plane node, and every node is schedulable and Ready", func(ev Evidence) (err error) {
+	}) && step("kured cannot run on control-plane nodes, every node is schedulable and Ready, and one worker node that runs workloads is chosen", func(ev Evidence) (err error) {
+		if !k.workersOnly {
+			return fmt.Errorf("DaemonSet %s/%s can run on a node with the label %s, so kured could restart a region's control-plane node, which it must never do: no node was touched", rebootNamespace, rebootDaemonSet, secControlPlane)
+		}
 		if before, err = c.nodes(ctx, region); err != nil {
 			return err
 		}
-		if k.workersOnly {
-			return fmt.Errorf("DaemonSet %s/%s cannot run on a node with the label %s, so kured never restarts the control-plane node this step chooses: no node was touched", rebootNamespace, rebootDaemonSet, secControlPlane)
+		running, err := c.workloads(ctx, region, "status.phase=Running")
+		if err != nil {
+			return err
 		}
-		chosen, err = rebootChoose(before)
+		chosen, err = rebootChoose(before, running)
 		ev["nodes"], ev["chosen"] = len(before), chosen
+		if err == nil {
+			moving = running[chosen[0]]
+			ev["workloads_to_move"] = moving
+		}
 		return err
 	}) && step("the reboot span is open for the time limit", func(ev Evidence) error {
 		open, next := k.window(c.now())
@@ -451,7 +523,7 @@ func (c rebootCheck) region(ctx context.Context, region kube.Region, rec StepRec
 			return fmt.Errorf("none of %d HelmReleases is Ready, so their recovery cannot be judged: no node was touched", len(all))
 		}
 		return nil
-	}) && step("a pending reboot is put on the three nodes", func(ev Evidence) error {
+	}) && step("a pending reboot is put on the chosen worker node", func(ev Evidence) error {
 		ev["namespace"] = ns
 		if _, err := c.kubectl(region, ctx, nil, "create", "namespace", ns); err != nil {
 			return err
@@ -476,21 +548,28 @@ func (c rebootCheck) region(ctx context.Context, region kube.Region, rec StepRec
 		})
 		ok = ok && deleted
 	}
-	return ok && step("the three nodes restart one at a time, drained, and every node, kured and every HelmRelease that was Ready is ready again within "+k.limit().String(), func(ev Evidence) error {
-		return c.watch(ctx, region, k, chosen, before, ready, placed, ev)
+	return ok && step("the worker restarts drained, its workloads move off and it comes back, no control-plane node restarts, and every node, kured and every HelmRelease that was Ready is ready again within "+k.limit().String(), func(ev Evidence) error {
+		return c.watch(ctx, region, k, chosen, moving, before, ready, placed, ev)
 	})
 }
 
-// watch reads the nodes until the three chosen nodes have restarted, every
-// node is schedulable and Ready, kured has every Pod ready and every
-// HelmRelease of ready is Ready again, a rule is broken or the time limit ends.
-func (c rebootCheck) watch(ctx context.Context, region kube.Region, k rebootSettings, chosen []string, before map[string]rebootNode, ready []string, placed time.Time, ev Evidence) error {
+// watch reads the nodes until the chosen worker has restarted with its
+// workload Pods moved off, every node is schedulable and Ready, kured has
+// every Pod ready and every HelmRelease of ready is Ready again, a rule is
+// broken or the time limit ends.
+func (c rebootCheck) watch(ctx context.Context, region kube.Region, k rebootSettings, chosen, moving []string, before map[string]rebootNode, ready []string, placed time.Time, ev Evidence) error {
 	since, drained, oldIDs, newIDs := map[string]time.Time{}, map[string]bool{}, map[string]string{}, map[string]string{}
 	for _, name := range chosen {
 		oldIDs[name] = before[name].boot
 	}
+	servers := map[string]string{}
+	for name, node := range before {
+		if node.controlPlane {
+			servers[name] = node.boot
+		}
+	}
 	readings, failed, most, last := 0, 0, 0, "no reading of the nodes succeeded"
-	ev["boot_ids_before"], ev["boot_ids_after"] = oldIDs, newIDs
+	ev["boot_ids_before"], ev["boot_ids_after"], ev["control_plane_boot_ids"] = oldIDs, newIDs, servers
 	for {
 		nodes, err := c.nodes(ctx, region)
 		now := c.now()
@@ -501,6 +580,11 @@ func (c rebootCheck) watch(ctx context.Context, region kube.Region, k rebootSett
 		}
 		ev["readings"], ev["failed_readings"], ev["seconds"] = readings, failed, int(now.Sub(placed).Seconds())
 		if err == nil {
+			for name, boot := range servers {
+				if got := nodes[name].boot; got != "" && got != boot {
+					return fmt.Errorf("control-plane node %s restarted (boot identifier %s, before %s): kured must never restart a control-plane node", name, got, boot)
+				}
+			}
 			down, notReady := []string{}, 0
 			for name, node := range nodes {
 				if !node.ready {
@@ -537,7 +621,15 @@ func (c rebootCheck) watch(ctx context.Context, region kube.Region, k rebootSett
 			}
 			last = fmt.Sprintf("%d of %d nodes restarted, %d unschedulable, %d not Ready", len(newIDs), len(chosen), len(down), notReady)
 			if len(newIDs) == len(chosen) && len(down) == 0 && notReady == 0 {
-				waiting, err := c.recovery(ctx, region, ready, ev)
+				stayed, err := c.stayed(ctx, region, chosen[0], moving)
+				if err == nil && len(stayed) > 0 {
+					return fmt.Errorf("%d of the %d workload Pods that ran on %s are still on it after its restart, so its drain did not move them off: %s", len(stayed), len(moving), chosen[0], strings.Join(stayed, ", "))
+				}
+				var waiting string
+				if err == nil {
+					ev["workloads_moved_off"] = len(moving)
+					waiting, err = c.recovery(ctx, region, ready, ev)
+				}
 				switch {
 				case err != nil:
 					failed++
@@ -550,7 +642,7 @@ func (c rebootCheck) watch(ctx context.Context, region kube.Region, k rebootSett
 			}
 		}
 		if now.Sub(placed) >= k.limit() {
-			return fmt.Errorf("%s after the pending reboots were placed: %s", k.limit(), last)
+			return fmt.Errorf("%s after the pending reboot was placed: %s", k.limit(), last)
 		}
 		if err := c.wait(ctx, rebootEvery); err != nil {
 			return err
