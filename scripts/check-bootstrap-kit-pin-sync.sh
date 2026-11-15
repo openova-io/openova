@@ -52,12 +52,18 @@
 # assert the pin version appears in the published tags. Requires `gh`
 # authenticated with read:packages scope.
 #
-# Exit code 1 also covers a missing GHCR tag.
+# Exit code 1 also covers a missing GHCR tag. A version listing that fails is
+# retried (scripts/lib/ghcr-tags.sh); one that still fails is NOT MEASURED,
+# never "missing" (#7922: a single API error refused a release-candidate cut
+# as "1 missing artifact"). Exit 2 when no pin is missing but at least one
+# could not be measured; exit 1 wins when a pin is missing as well.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# shellcheck source=lib/ghcr-tags.sh
+. "${SCRIPT_DIR}/lib/ghcr-tags.sh"
 
 KIT_DIR="${REPO_ROOT}/clusters/_template/bootstrap-kit"
 
@@ -331,33 +337,35 @@ if [ -n "${CHECK_GHCR}" ]; then
   fi
   ghcr_missing=0
   ghcr_checked=0
+  ghcr_unmeasured=0
   # Cache per-chart tag lists so we only paginate once even if a chart
   # appears in multiple slots (defence-in-depth — the one-slot-per-chart
   # invariant is enforced above, but the cache costs nothing).
-  declare -A TAG_CACHE=()
+  # TAG_STATE: listed, absent (HTTP 404: the package does not exist) or
+  # unmeasured (the listing failed after its retries).
+  declare -A TAG_CACHE=() TAG_STATE=()
   for idx in "${!GHCR_NAMES[@]}"; do
     name="${GHCR_NAMES[$idx]}"
     pin_ver="${GHCR_VERSIONS[$idx]}"
     pin_path="${GHCR_PINS[$idx]}"
-    if [ -z "${TAG_CACHE[$name]+x}" ]; then
-      # `gh api --paginate` walks every page of the versions list.
-      # `2>/dev/null` suppresses progress noise; a real API error
-      # surfaces as an empty body and a non-zero exit which we treat
-      # as a fail (cannot prove existence ⇒ block).
-      if ! tags_json=$(gh api "/orgs/${GHCR_ORG}/packages/container/${name}/versions" --paginate 2>/dev/null); then
-        echo "::error title=GHCR API error::Failed to list versions for ghcr.io/${GHCR_ORG}/${name}. Check 'gh' auth has read:packages scope and the package exists." >&2
-        ghcr_missing=$((ghcr_missing + 1))
-        TAG_CACHE[$name]=""
-        continue
-      fi
-      # Extract human-readable tags only (exclude cosign .sig/.att
-      # synthetic tags shaped `sha256-…`). One tag per line.
-      tags=$(echo "$tags_json" | jq -r '.[].metadata.container.tags[]?' 2>/dev/null | grep -v '^sha256-' | sort -u || true)
-      TAG_CACHE[$name]="$tags"
+    if [ -z "${TAG_STATE[$name]+x}" ]; then
+      lrc=0
+      TAG_CACHE[$name]="$(ghcr_tags "${GHCR_ORG}" "${name}")" || lrc=$?
+      case "$lrc" in
+        0) TAG_STATE[$name]=listed ;;
+        3) TAG_STATE[$name]=absent ;;
+        *) TAG_STATE[$name]=unmeasured ;;
+      esac
+    fi
+    if [ "${TAG_STATE[$name]}" = unmeasured ]; then
+      echo "::warning title=GHCR not measured::The version listing of ghcr.io/${GHCR_ORG}/${name} failed after its retries; ${name}:${pin_ver} is NOT MEASURED (not counted as missing)." >&2
+      echo "  GHCR NOT MEASURED ${name}:${pin_ver} — the version listing failed after its retries (pin file: ${pin_path})"
+      ghcr_unmeasured=$((ghcr_unmeasured + 1))
+      continue
     fi
     tags="${TAG_CACHE[$name]}"
     ghcr_checked=$((ghcr_checked + 1))
-    if echo "$tags" | grep -qx "$pin_ver"; then
+    if printf '%s\n' "$tags" | grep -qx -- "$pin_ver"; then
       echo "  GHCR OK   ${name}:${pin_ver} (pin file: ${pin_path})"
     else
       echo "  GHCR MISS ${name}:${pin_ver} — tag NOT FOUND on ghcr.io/${GHCR_ORG}/${name} (pin file: ${pin_path})"
@@ -365,7 +373,7 @@ if [ -n "${CHECK_GHCR}" ]; then
     fi
   done
   echo
-  echo "GHCR-checked ${ghcr_checked} pin(s); ${ghcr_missing} missing artifact(s)."
+  echo "GHCR-checked ${ghcr_checked} pin(s); ${ghcr_missing} missing artifact(s); ${ghcr_unmeasured} not measured."
   if [ "${ghcr_missing}" -gt 0 ]; then
     echo
     echo "FAIL: ${ghcr_missing} bootstrap-kit pin(s) reference a chart version"
@@ -386,6 +394,13 @@ if [ -n "${CHECK_GHCR}" ]; then
     echo "    --field blueprint=<chart-folder> --field tree=<platform|products>"
     echo "Then re-run this audit to confirm the tag now exists."
     exit 1
+  fi
+  if [ "${ghcr_unmeasured}" -gt 0 ]; then
+    echo
+    echo "NOT MEASURED: ${ghcr_unmeasured} pin(s) could not be checked: their GHCR version listing"
+    echo "failed after its retries (rate limit, 5xx, network or auth). No pin was found missing."
+    echo "This is not a verdict on the pins; run the check again."
+    exit 2
   fi
 fi
 

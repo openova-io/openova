@@ -69,6 +69,9 @@ echo 1 > "$W/seed/coherence-exit"; commit "incoherent"
 run 1 "cut: the coherence script fails at the commit" cut
 if [ "$(rcount)" = 1 ]; then ok "cut: an incoherent commit creates no ref"; else bad "cut: a ref was created"; fi
 RC_COHERENCE_CMD=false run 1 "cut: RC_COHERENCE_CMD=false" cut
+RC_COHERENCE_CMD='exit 2' run 5 "cut: a coherence exit 2 (not measured) is exit 5, not 'not coherent'" cut
+if grep -q -F "could not all be measured" "$W/err" && ! grep -q -F "are not coherent" "$W/err"; then ok "cut: a coherence exit 2 is said as not measured"; else bad "cut: a coherence exit 2 is said as: $(tail -n 1 "$W/err")"; fi
+if [ "$(rcount)" = 1 ]; then ok "cut: a commit whose pins were not measured creates no ref"; else bad "cut: a ref was created for unmeasured pins"; fi
 RC_COHERENCE_CMD=true RC_CUT_TIME=29990101T000001Z run 0 "cut: RC_COHERENCE_CMD=true replaces the coherence script" cut
 echo 0 > "$W/seed/coherence-exit"; commit "coherent again"
 
