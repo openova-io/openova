@@ -30,7 +30,12 @@ const fakeKubectlEnv = "SUITE_FAKE_KUBECTL"
 // question is "<kubeconfig> <resource>" or "<kubeconfig> <resource> <namespace>".
 // The kubeconfig "*" answers for every region. Each test file adds its
 // scenarios in init(), so that the fake has them when it runs as kubectl.
+// The answer fakeNotServed makes the fake fail as kubectl does for a kind the
+// cluster does not serve.
 var fakeAnswers = map[string]map[string]string{}
+
+// fakeNotServed is the answer of a question about a kind the region does not serve.
+const fakeNotServed = "NOT-SERVED"
 
 func TestMain(m *testing.M) {
 	if scenario := os.Getenv(fakeKubectlEnv); scenario != "" && len(os.Args) > 1 && os.Args[1] == "--kubeconfig" {
@@ -69,6 +74,10 @@ func fakeKubectl(scenario string, args []string) int {
 		text, ok := answers[question]
 		if !ok {
 			continue
+		}
+		if text == fakeNotServed {
+			fmt.Fprintf(os.Stderr, "error: the server doesn't have a resource type %q\n", resource)
+			return 1
 		}
 		var list struct {
 			Items []map[string]any `json:"items"`
