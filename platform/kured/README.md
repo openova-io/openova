@@ -18,10 +18,11 @@ and the upgrade Plans carry a `spec.window` outside it.
 - The upstream chart `kubereboot/kured` 6.1.0 (kured 1.23.0) under the key
   `kured:` of `values.yaml`. Its DaemonSet is named `kured` and holds the
   reboot lock in an annotation of its own (see the install hold). Defaults: one
-  node at a time, from 00:30 to 22:00 UTC on every day, a check every 15
-  minutes, a 15-minute drain limit (a node that cannot drain is not
+  node at a time, from 00:30 to 22:00 UTC on every day, a check every 30
+  minutes, a 10-minute drain limit (a node that cannot drain is not
   rebooted), a lock time-to-live of 1 hour and a 5-minute pause before the
-  next node. kured does not reboot a node while an upgrade Job Pod of the
+  next node. The check period stays above the drain limit plus the pause
+  (`tests/render.sh` asserts it); see the operational notes. kured does not reboot a node while an upgrade Job Pod of the
   system-upgrade-controller runs on it; the selector's second key,
   `upgrade.cattle.io/plan`, leaves out the controller's own Pod. The
   measurements are in
@@ -56,10 +57,18 @@ and the upgrade Plans carry a `spec.window` outside it.
 - No data, no backup. Each cluster runs its own kured and its own lock.
 - A node that still has the install hold logs `Lock already held:
   catalyst-install-hold` every period and is otherwise idle.
-- A node whose Pods cannot all be evicted is not rebooted: kured gives up
-  after the drain limit and tries again in the next period, evicting the
-  other Pods of the node each time. A single-instance CloudNativePG primary
-  is such a Pod (its PodDisruptionBudget allows no eviction).
+- A node whose Pods cannot all be evicted is not rebooted. kured retries a
+  refused eviction at once, about five times a second: kured 1.23 has no
+  flag for the retry delay of the kubectl drain library it uses, so only
+  client-go's default rate limit paces it. It gives up after the drain limit
+  (10 minutes), keeps the node cordoned and the lock for the 5-minute pause,
+  uncordons the node and tries again at its next check. Checks queue while
+  an attempt runs, so the period must exceed drain limit plus pause, or the
+  next attempt starts in the same second and the node is never schedulable
+  again (measured on hw307, #7922: cordoned 20 minutes of every 20, 4,510
+  refused evictions per attempt). With 30 minutes the node is schedulable
+  and the lock free for 15 minutes of every 30. A Pod of a one-replica
+  workload whose PodDisruptionBudget allows no disruption is such a Pod.
 - `helm test <release>` passes when `kured` has as many ready Pods as nodes to
   run on and the test Pod's node has both files as the ConfigMap holds them.
 - `bash platform/kured/chart/tests/render.sh` checks the chart with no cluster.
