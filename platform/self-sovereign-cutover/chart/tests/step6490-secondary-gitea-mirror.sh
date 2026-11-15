@@ -114,6 +114,12 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
     #      them in the OFF render, and tests/fresh-install-handover-chain.sh
     #      verifies the change itself. Once origin/main holds the change this
     #      axis switches itself off and the whole render is compared again.
+    #   6. the release of kured's install hold (#7903) in step-08. It runs on a
+    #      single-region Sovereign too (kured is held there as well), so it is
+    #      NOT part of the secondaryRegions leg: the function, its two calls and
+    #      the one delete of the hold that the EXIT trap already covered
+    #      (fresh-pull failure path) are dropped on BOTH trees.
+    #      reboot-hold-release.sh verifies the release itself.
     drop7900=0
     grep -q 'front-door-sample BEGIN' "${TMP}/main.yaml" || drop7900=1
     norm() {
@@ -121,6 +127,11 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
         drop7900==1 && /^---$/ {next}
         drop7900==1 && /^# Source: / {_d7 = ($0 ~ /\/templates\/(03-harbor-prewarm-job|08-egress-block-test-job|10-auto-trigger-job|11-crossplane-provider-pivot-job)\.yaml$/)}
         _d7==1 {next}
+        /if ! \$\{fresh_pull_fn\}; then$/ {print; _fp=1; next}
+        _fp==1 {_fp=0; if ($0 ~ /kubectl delete ciliumclusterwidenetworkpolicy cutover-egress-block --ignore-not-found=true \|\| true$/) next}
+        /^ *reboot_hold_release\(\) \{$/ {_rh=1; next}
+        _rh==1 {if ($0 ~ /^ *\}$/) _rh=0; next}
+        /^ *reboot_hold_release$/ {next}
         /^  kit-rewrite\.sh: \|$/ {_kk=1; next}
         _kk==1 && /# ---- end rewrite_kit_tree ----$/ {_kk=0; next}
         _kk==1 {next}

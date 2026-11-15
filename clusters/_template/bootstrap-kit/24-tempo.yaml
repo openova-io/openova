@@ -46,6 +46,17 @@
 # the rollout, which the HelmRelease cannot influence.
 
 ---
+# bp-plane-isolation (slot 26b) writes its policies into this namespace and
+# its install fails while a listed namespace is missing. Declared here, Flux
+# creates it at the first apply of the kit, before any HelmRelease
+# (scripts/check-plane-isolation-namespaces.py).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tempo
+  labels:
+    catalyst.openova.io/sovereign: ${SOVEREIGN_FQDN}
+---
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:

@@ -343,6 +343,12 @@ jobs:
       - name: 'reserved-slugs | The kit namespaces are reserved in the kind and in the organizations service'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: python3 scripts/check-reserved-slugs.py
+      - name: 'plane-isolation-namespaces | Self-test of the guard (every rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: python3 scripts/check-plane-isolation-namespaces.py --self-test
+      - name: 'plane-isolation-namespaces | Every namespace bp-plane-isolation lists is declared in the kit'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: python3 scripts/check-plane-isolation-namespaces.py
       - name: 'secret-guards | a randAlphaNum added to a real chart template fails G2'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: |

@@ -33,6 +33,14 @@ import (
 // (NewReachabilityProbeFromKubeconfig) can share the same parse +
 // timeout-stamping path.
 func restConfigFromKubeconfig(kubeconfigYAML string) (*rest.Config, error) {
+	return RESTConfigFromKubeconfig(kubeconfigYAML)
+}
+
+// RESTConfigFromKubeconfig is the one place of catalyst-api that turns the
+// text of a kubeconfig into a REST configuration, for callers outside this
+// package that need the configuration itself (a stream needs it, a typed
+// client does not).
+func RESTConfigFromKubeconfig(kubeconfigYAML string) (*rest.Config, error) {
 	cfg, err := clientcmd.RESTConfigFromKubeConfig([]byte(kubeconfigYAML))
 	if err != nil {
 		return nil, fmt.Errorf("parse kubeconfig: %w", err)
