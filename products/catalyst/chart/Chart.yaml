@@ -2420,7 +2420,7 @@ name: bp-catalyst-platform
 #     (mail) blocked before alice could click Install. Fix: add both
 #     slugs to the deployable map.
 #
-#   - #942: configmap.yaml hardcoded REDPANDA_BROKERS to
+#   - #942: configmap.yaml hardcoded the Kafka broker address to
 #     `redpanda.talentmesh.svc.cluster.local:9092`. talentmesh ns does
 #     not exist on a Sovereign and the OpenOva architecture uses NATS
 #     JetStream as the only local bus per ADR-0001 (slot 09 ships
@@ -2429,7 +2429,7 @@ name: bp-catalyst-platform
 #     blocking gate 3 (tenant ready). Fix: data-driven via
 #     .Values.orgServices.eventBus.brokers with a topology-aware default
 #     — Sovereign ⇒ NATS JetStream Service, contabo ⇒ legacy Redpanda
-#     Service. The ConfigMap key name stays REDPANDA_BROKERS for
+#     Service. The ConfigMap key name stays unchanged for
 #     back-compat with existing Organization service Go env wiring.
 #
 #   - #943: bp-newapi chart silently skipped Deployment render on a

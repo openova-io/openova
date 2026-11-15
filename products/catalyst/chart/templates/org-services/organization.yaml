@@ -81,11 +81,6 @@ spec:
                   key: MONGODB_URI
             - name: MONGODB_DB
               value: "tenants"
-            - name: REDPANDA_BROKERS
-              valueFrom:
-                configMapKeyRef:
-                  name: org-services-config
-                  key: REDPANDA_BROKERS
             # NATS JetStream URL — canonical event bus per ADR-0001 §6.
             # On Sovereigns the ConfigMap default resolves to
             # nats://nats-jetstream.nats-system.svc.cluster.local:4222

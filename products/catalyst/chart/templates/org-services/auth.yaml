@@ -96,11 +96,6 @@ spec:
                   key: {{ .Values.orgServices.valkey.sourcePasswordKey | default "valkey-password" }}
                   optional: false
             {{- end }}
-            - name: REDPANDA_BROKERS
-              valueFrom:
-                configMapKeyRef:
-                  name: org-services-config
-                  key: REDPANDA_BROKERS
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
