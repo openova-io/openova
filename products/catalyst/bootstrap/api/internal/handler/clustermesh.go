@@ -2754,20 +2754,15 @@ func (h *Handler) copySecretAcrossClusters(ctx context.Context, src *corev1.Secr
 	// heal phase stays a cheap Get+compare and only writes when it is
 	// genuinely re-healing. An Update on every pass would churn
 	// resourceVersions for no reason and add needless apiserver load.
-	if secretContentMatches(existing, desired) {
+	// Update in place, orphaned: an owned copy is written too (#7922, crossregion.ApplyCopy).
+	write, changed := crossregion.ApplyCopy(existing, desired, secretContentMatches(existing, desired))
+	if !write {
 		return false, nil
 	}
-	// Update in place — preserve the destination's resourceVersion so the
-	// Update is accepted, overwrite Data/Type/Labels/Annotations.
-	existing.Data = desired.Data
-	existing.StringData = desired.StringData
-	existing.Type = desired.Type
-	existing.Labels = desired.Labels
-	existing.Annotations = desired.Annotations
 	if _, updErr := dst.CoreV1().Secrets(namespace).Update(callCtx, existing, metav1.UpdateOptions{}); updErr != nil {
 		return false, fmt.Errorf("Update Secret %s/%s on replica: %w", namespace, src.Name, updErr)
 	}
-	return true, nil
+	return changed, nil
 }
 
 // secretContentMatches reports whether the destination Secret already
@@ -2816,19 +2811,15 @@ func (h *Handler) updateCopiedSecret(ctx context.Context, desired *corev1.Secret
 		return false, fmt.Errorf("Get Secret %s/%s on replica (race fallback): %w", namespace, desired.Name, err)
 	}
 	// #3583: the racing creator may have already written the desired bytes —
-	// skip the redundant Update if so.
-	if secretContentMatches(existing, desired) {
+	// skip the redundant Update if so, unless it left the copy owned (#7922).
+	write, changed := crossregion.ApplyCopy(existing, desired, secretContentMatches(existing, desired))
+	if !write {
 		return false, nil
 	}
-	existing.Data = desired.Data
-	existing.StringData = desired.StringData
-	existing.Type = desired.Type
-	existing.Labels = desired.Labels
-	existing.Annotations = desired.Annotations
 	if _, updErr := dst.CoreV1().Secrets(namespace).Update(ctx, existing, metav1.UpdateOptions{}); updErr != nil {
 		return false, fmt.Errorf("Update Secret %s/%s on replica (race fallback): %w", namespace, desired.Name, updErr)
 	}
-	return true, nil
+	return changed, nil
 }
 
 // copyAndVerifyConsumerHubSecret (#5317) writes src onto the replica's
