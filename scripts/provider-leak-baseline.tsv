@@ -15,7 +15,6 @@ clusters/_template/bootstrap-kit/16-cnpg.yaml	2
 clusters/_template/bootstrap-kit/34-velero.yaml	1
 clusters/_template/bootstrap-kit/kustomization.yaml	4
 clusters/_template/bootstrap-kit/placement.yaml	8
-clusters/_template/infrastructure/base/adoption-claims.yaml	1
 core/controllers/organization/cmd/main.go	1
 core/controllers/organization/internal/controller/environment_ensure.go	2
 core/controllers/organization/internal/controller/provisioning_postconditions.go	2

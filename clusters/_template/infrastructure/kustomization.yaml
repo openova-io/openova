@@ -3,9 +3,9 @@ kind: Kustomization
 
 # clusters/_template/infrastructure — the Crossplane object-model CONFIG
 # entrypoint for every cloud (#4212 #4521, un-gates
-# #4002/#4018). It pulls in the cloud-agnostic ./base — provider-config-opentofu
-# + the Observe-first CloudAdoption placeholder — all of which work on every
-# cloud.
+# #4002/#4018). It pulls in the cloud-agnostic ./base — provider-config-opentofu,
+# which works on every cloud. The CloudAdoption claims are not in Git: the
+# post-handover applier writes them onto the primary region.
 #
 # TWO-LAYER crossplane bootstrap (#4521): the Provider PACKAGE CRs live in
 # ./providers (applied first by the `infrastructure-providers` Flux

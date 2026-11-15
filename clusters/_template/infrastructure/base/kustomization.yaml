@@ -14,11 +14,17 @@ kind: Kustomization
 #                                CRD registered by provider-opentofu); drives
 #                                every CloudAdoption's Workspace; cloud auth
 #                                flows via the Workspace env[].
-#   - adoption-claims.yaml     — the Observe-first CloudAdoption placeholder
-#                                (compose.openova.io); the provisioner's
-#                                post-handover applier
-#                                (handler/post_handover_adoption_apply.go)
-#                                server-side-applies the REAL resource ids.
+#
+# No CloudAdoption ships here. The provisioner's post-handover applier
+# (handler/post_handover_adoption_apply.go) server-side-applies one
+# Observe-first CloudAdoption per real cloud resource straight onto the
+# primary region. The placeholder claim that used to ship in this layer
+# (resourceId PENDING-GENERATION) could never compose: its Workspace name
+# `adopt-PENDING-GENERATION` is not a valid object name, so it stayed
+# Ready=False for ever, and this Kustomization re-created it after the
+# applier deleted it (live 2026-11-15, gate check CLD-G06). The guard
+# scripts/check-adoption-claims-compose.py keeps any claim of this tree
+# composable.
 #
 # WHY THE SPLIT (#4521): batching the Provider CR and its `tf.upbound.io/v1beta1`
 # ProviderConfig in ONE Flux Kustomization deadlocked — Flux's atomic
@@ -32,4 +38,3 @@ kind: Kustomization
 # every cloud.
 resources:
   - provider-config-opentofu.yaml
-  - adoption-claims.yaml
