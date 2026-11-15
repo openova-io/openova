@@ -332,7 +332,7 @@ spec:
                   stringData:
                     token: ${resync_pat}
                   EOF
-                    kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" apply -f /tmp/sec-gitea-pat.yaml
+                    kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" apply --server-side --force-conflicts --field-manager=self-sovereign-cutover -f /tmp/sec-gitea-pat.yaml
                     kubectl --kubeconfig "${skc}" -n "${SECONDARY_GITEA_NAMESPACE}" delete job "${jobname}" --ignore-not-found=true >/dev/null 2>&1 || true
                     sed "s/__REGION__/${region}/g" /secondary-mirror/secondary-mirror-job.yaml >/tmp/secjob.yaml
                     kubectl --kubeconfig "${skc}" apply -f /tmp/secjob.yaml

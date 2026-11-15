@@ -53,6 +53,7 @@ emits nothing.
 {{- $baoAddr := $au.baoAddress | default (printf "http://%s-openbao:8200" .Release.Name) -}}
 {{- $deadline := $au.activeDeadlineSeconds | default 600 -}}
 {{- $backoff := $au.backoffLimit | default 6 -}}
+{{- $initTimeout := $au.initClientTimeoutSeconds | default 300 | int -}}
 ---
 apiVersion: batch/v1
 kind: Job
@@ -118,16 +119,23 @@ spec:
           args:
             - |
               set -eu
-              set -x
-              # Persist the full script trace to a Secret (openbao-init-trace)
-              # so that the FIRST init attempt's logs survive container
+              # No shell tracing here, ever (#7901). This script holds the
+              # ServiceAccount token, the recovery seed, the root token and
+              # the unseal key in variables and on command lines; with
+              # tracing on, the pod log (shipped by the log collector) and
+              # the uploaded Secret below carried all four. The guard
+              # scripts/check-no-shell-trace.sh refuses it.
+              #
+              # Persist what the script prints to a Secret (openbao-init-trace)
+              # so that the FIRST init attempt's messages survive container
               # restarts and the operator can diagnose persist-step failures
               # after the fact. Captured otech38/39: server reaches
               # Initialized=true on the first run but never persists the
               # unseal-keys Secret, and subsequent pod restarts hit the
               # idempotent FATAL with no record of where the first run
               # exited. By teeing into /tmp/.script.trace and uploading on
-              # EXIT, every iteration leaves a recoverable trace.
+              # EXIT, every run leaves a recoverable record. Every step
+              # prints its own line, so the record needs no tracing.
               TRACE_FILE=/tmp/.script.trace
               : > "$TRACE_FILE"
               exec > >(tee -a "$TRACE_FILE") 2>&1
@@ -217,11 +225,33 @@ spec:
                   UNSEAL_GET_RC=0
                   UNSEAL_RESPONSE=$(wget -qO- --no-check-certificate \
                     --header="Authorization: Bearer $TOKEN" \
-                    "$APISERVER/api/v1/namespaces/$NAMESPACE/secrets/$UNSEAL_SECRET_NAME") || UNSEAL_GET_RC=$?
+                    "$APISERVER/api/v1/namespaces/$NAMESPACE/secrets/$UNSEAL_SECRET_NAME" 2>/tmp/.us-get-err) || UNSEAL_GET_RC=$?
                   if [ "$UNSEAL_GET_RC" -ne 0 ] || [ -z "$UNSEAL_RESPONSE" ]; then
-                    echo "[openbao-init] FATAL: cannot fetch $UNSEAL_SECRET_NAME — vault is sealed but the unseal-keys Secret is missing."
-                    echo "[openbao-init] This means a prior init completed but never persisted keys (chart <1.2.4)."
-                    echo "[openbao-init] Manual recovery: docs/RUNBOOK-PROVISIONING.md §openbao-auto-unseal — wipe data-openbao-0 PVC and let init run fresh."
+                    # #7901 — a failed read is not a missing key. This branch
+                    # once told the reader to delete the data volume whenever
+                    # the read failed, also when the API server merely did not
+                    # answer and the store was in use. Only HTTP 404 says the
+                    # Secret is absent, and even then this Job deletes nothing:
+                    # from outside a sealed store nothing proves it is empty.
+                    # The one proof that a store was never initialised is its
+                    # own answer `initialized: false`, and that store never
+                    # reaches this branch.
+                    if ! grep -q ' 404' /tmp/.us-get-err 2>/dev/null; then
+                      if ! wget -qO- --no-check-certificate --header="Authorization: Bearer $TOKEN" "$APISERVER/readyz" >/dev/null 2>&1; then
+                        echo "[openbao-init] FATAL: the store is sealed and the API server did not answer, so Secret $UNSEAL_SECRET_NAME could not be read (rc=$UNSEAL_GET_RC)."
+                      else
+                        echo "[openbao-init] FATAL: the store is sealed and the read of Secret $UNSEAL_SECRET_NAME failed although the API server answers (rc=$UNSEAL_GET_RC): $(cat /tmp/.us-get-err 2>/dev/null)"
+                      fi
+                      echo "[openbao-init] Nothing is known about the key from this, and this Job changed nothing. The next attempt reads the Secret again."
+                      exit 1
+                    fi
+                    MARKER_STATE=absent
+                    wget -qO- --no-check-certificate --header="Authorization: Bearer $TOKEN" \
+                      "$APISERVER/api/v1/namespaces/$NAMESPACE/secrets/openbao-init-marker" >/dev/null 2>&1 && MARKER_STATE=present
+                    echo "[openbao-init] FATAL: the store is initialised and sealed, and Secret $UNSEAL_SECRET_NAME does not exist (HTTP 404). This Job cannot unseal it."
+                    echo "[openbao-init] Either the answer of an earlier 'bao operator init' never arrived or was never stored (then nobody ever held the key and the store holds nothing), or the Secret was deleted from a store that was in use. From outside a sealed store the two look the same, so this Job changed nothing."
+                    echo "[openbao-init] Secret openbao-init-marker is $MARKER_STATE (it is written only after an init and unseal that completed in this namespace)."
+                    echo "[openbao-init] By hand, and only for a first installation that never completed (marker absent, no application ever read or wrote a secret here): delete the data volume claim of the server pod and the pod, and the next attempt initialises a fresh store. Never do this to a store that was in use: without its key its content is lost either way, but a copy of the key held elsewhere would still open it."
                     exit 1
                   fi
                   KEYS_B64_FIELD=$(echo "$UNSEAL_RESPONSE" | tr -d '\n' | sed -E 's/.*"unseal-keys-b64"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/')
@@ -305,12 +335,25 @@ spec:
                 # auto-unseal seal types added later, swap back to
                 # -recovery-* — but per the current chart values this
                 # NEVER worked.
-                echo "[openbao-init] running bao operator init (key-shares=1, key-threshold=1, shamir seal)"
-                bao operator init \
+                # #7901 — the unseal key exists ONLY in the answer of this one
+                # call. The client's default timeout is 60s; a client that
+                # gives up on a server that is still working leaves a store
+                # that is initialised and sealed with no key anywhere. So the
+                # client waits far longer than the server needs, and a failed
+                # call says at once which of the two states it left.
+                echo "[openbao-init] running bao operator init (key-shares=1, key-threshold=1, shamir seal, client timeout {{ $initTimeout }}s)"
+                if ! BAO_CLIENT_TIMEOUT={{ $initTimeout }}s bao operator init \
                   -key-shares=1 \
                   -key-threshold=1 \
                   -format=json \
-                  > /tmp/init-output.json
+                  > /tmp/init-output.json; then
+                  if bao status -format=json 2>/dev/null | grep -E '"initialized"' | grep -q true; then
+                    echo "[openbao-init] FATAL: bao operator init failed on the client side, and the store now reports initialized=true: it is initialised WITHOUT a stored key. The answer that carried the key is lost; the next attempt reports this state and changes nothing."
+                  else
+                    echo "[openbao-init] FATAL: bao operator init failed and the store still reports initialized=false; the next attempt runs it again."
+                  fi
+                  exit 1
+                fi
                 # Store init outputs INSIDE OpenBao itself via the recovery-key.
                 # The root token is captured into a temporary file used only
                 # within this Job's lifetime; we do NOT persist it as a K8s

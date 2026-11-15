@@ -93,12 +93,12 @@ rules:
       # can both write the keys on fresh init and re-read them on a
       # later retry when the vault is initialised but still sealed.
       - openbao-unseal-keys
-      # openbao-init-trace: every init script run uploads its full
-      # set -x trace to this Secret on EXIT, so the FIRST run's logs
+      # openbao-init-trace: every init script run uploads what it
+      # printed to this Secret on EXIT, so the FIRST run's messages
       # survive subsequent container restarts that quickly hit the
-      # idempotent FATAL. Recovery diagnostic only — contains no
-      # secret material itself, but treating it as a Secret keeps it
-      # under the same RBAC umbrella.
+      # idempotent FATAL. Recovery diagnostic only. The script runs
+      # without shell tracing (#7901), so it holds no secret material;
+      # treating it as a Secret keeps it under the same RBAC umbrella.
       - openbao-init-trace
       # openbao-root-token: transient Secret that init-job writes the
       # root_token into so auth-bootstrap (the next post-install hook)

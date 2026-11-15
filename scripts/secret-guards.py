@@ -160,6 +160,238 @@ def wide_reflection(lines):
     return found
 
 
+# --- G12: no shell tracing in what runs on a cluster or a node --------------
+#
+# A traced shell prints every command with its expanded arguments, so a script
+# that holds a token, a seed or a key in a variable writes it to the pod log.
+# The rule does not ask whether a file handles a secret: none of these files
+# has a reason to trace, and a script that handles none today may tomorrow.
+SHELL_TRACE = re.compile(
+    r"(?:^|[\s;&|(])set\s+-[A-Za-z]*x"            # set -x, set -eux
+    r"|(?:^|[\s;&|(])set\s+-o\s+xtrace"           # set -o xtrace
+    r"|\b(?:ba|da|a)?sh\s+(?:-[A-Za-z]+\s+)*-[A-Za-z]*x[A-Za-z]*\b"   # sh -x, bash -ex
+    r"|\bsh[\"']\s*,\s*[\"']-[A-Za-z]*x"          # command: ["/bin/sh", "-xc"]
+    r"|SHELLOPTS=[^\s]*xtrace")
+SHELL_TRACE_SHEBANG = re.compile(r"^#!.*sh\s+(?:-[A-Za-z]+\s+)*-[A-Za-z]*x")
+
+
+def shell_trace(lines):
+    found = []
+    for i, l in enumerate(lines):
+        if SHELL_TRACE_SHEBANG.search(l):
+            found.append(i + 1)
+        elif not is_comment(l) and SHELL_TRACE.search(l):
+            found.append(i + 1)
+    return found
+
+
+# --- G13: a Secret is applied server-side -----------------------------------
+#
+# Client-side `kubectl apply` stores the manifest it applied in the annotation
+# kubectl.kubernetes.io/last-applied-configuration. For a Secret that is every
+# value, readable by `kubectl describe` and by anything that lists metadata.
+# `kubectl apply --server-side` writes no such annotation.
+#
+# The rule reads each client-side apply and looks at what it applies:
+#   - what the same statement pipes into it (continuation lines and an open
+#     single quote are followed upward);
+#   - for `-f <file>`: the statement, loop or block that writes that file in
+#     the same source file, its here-document, or a `<name>: |` block of the
+#     same name;
+#   - for a variable piped in: the statement that assigns it.
+# A finding is an apply whose input is a Secret, or an apply whose input the
+# rule cannot find at all: a verdict needs evidence, so "not found" is not
+# "not a Secret". The second kind is repaired by applying server-side, by
+# writing the manifest where the rule can read it, or by a line in
+# APPLY_INPUT_ELSEWHERE that says what the file is.
+KUBECTL_APPLY = re.compile(r"(?<![A-Za-z0-9.-])[A-Za-z_]*kubectl(?:\s[^|;&]*?)?\s(apply)\b")
+APPLY_FILE = re.compile(r"(?:\s|^)(?:-f|--filename)(?:[=\s]\s*|(?=-))(\"[^\"]*\"|'[^']*'|[^\s|;&<>)]+)")
+# A Secret manifest: "kind: Secret" as a key of the manifest itself (at the
+# start of a line, after a \n of a printf format, or after { or , of a JSON or
+# jq object), never the list item "- kind: Secret" of a reference. A manifest
+# without data and stringData (a ServiceAccount token request) has no value to
+# leak and is not counted.
+KEY_START = r"(?:^|\\n|[{,(]|(?:printf|echo)\s+[\"'])\s*[\"']?"
+SECRET_MANIFEST = re.compile(KEY_START + r"kind[\"']?\s*:\s*[\"']?Secret\b", re.MULTILINE)
+SECRET_VALUES = re.compile(KEY_START + r"(?:data|stringData)[\"']?\s*:", re.MULTILINE)
+SECRET_PRODUCER = re.compile(r"\bcreate\s+secret\b|\bget\s+secrets?\b")
+ANY_KIND = re.compile(KEY_START + r"kind[\"']?\s*:\s*[\"']?[A-Z]\w+"
+                      r"|kubectl[^|]*\s(?:create|get)\s+\w+|\bhttps?://", re.MULTILINE)
+SECRET_NAME = re.compile(r"secret", re.IGNORECASE)
+SHELL_VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)[^}]*\}|\$([A-Za-z_][A-Za-z0-9_]*)")
+HEREDOC = re.compile(r"<<-?\s*[\"']?([A-Za-z_][A-Za-z0-9_]*)[\"']?")
+TEMPLATE_COMMENT_OPEN = re.compile(r"\{\{-?\s*/\*")
+# Inputs that are written in another file. "path": {"<-f argument>": "what it is"}.
+# An entry that no longer matches an apply in that file fails the guard.
+APPLY_INPUT_ELSEWHERE = {
+    "platform/self-sovereign-cutover/chart/templates/01-gitea-mirror-job.yaml": {
+        "/tmp/secjob.yaml": "the Job of secondary-mirror-script-configmap.yaml, through sed"},
+    "platform/self-sovereign-cutover/chart/templates/11-mirror-resync-cronjob.yaml": {
+        "/tmp/secjob.yaml": "the Job of secondary-mirror-script-configmap.yaml, through sed"},
+    "platform/self-sovereign-cutover/chart/templates/03-harbor-prewarm-job.yaml": {
+        "/tmp/sec-harbor-job.yaml": "the Job of secondary-harbor-prewarm-script-configmap.yaml, through sed"},
+    "platform/self-sovereign-cutover/chart/templates/06-helmrepository-patches-job.yaml": {
+        "/tmp/sec-pivot-job.yaml": "the Job of secondary-pivot-script-configmap.yaml, through sed"},
+    "infra/providers/_shared/cloudinit-control-plane.tftpl": {
+        "/var/lib/catalyst/crossplane-provider.yaml":
+            "the Provider and ProviderConfig a provider module injects; empty for every provider today"},
+}
+
+
+def _prose_lines(lines):
+    """Indexes of the lines inside a {{/* ... */}} template comment."""
+    inside, out = False, set()
+    for i, l in enumerate(lines):
+        if not inside and TEMPLATE_COMMENT_OPEN.search(l):
+            inside = "*/" not in l[TEMPLATE_COMMENT_OPEN.search(l).end():]
+            out.add(i)
+        elif inside:
+            out.add(i)
+            if "*/" in l:
+                inside = False
+    return out
+
+
+def _statement_start(lines, i, limit=60):
+    """The first line of the shell statement that line i ends: lines joined by a
+    trailing backslash or pipe, and lines inside a single quote that is still
+    open, belong to it."""
+    j, quotes = i, lines[i].count("'")
+    while j > 0 and i - j < limit:
+        prev = lines[j - 1].rstrip()
+        if prev.endswith("\\") or prev.endswith("|") or quotes % 2 == 1 or lines[j].lstrip().startswith("|"):
+            j -= 1
+            quotes += lines[j].count("'")
+        else:
+            break
+    return j
+
+
+def _statement_end(lines, i, limit=60):
+    j = i
+    while j + 1 < len(lines) and j - i < limit and lines[j].rstrip().endswith("\\"):
+        j += 1
+    return j
+
+
+def _heredoc_body(lines, i, limit=200):
+    m = HEREDOC.search(lines[i])
+    if not m:
+        return []
+    for j in range(i + 1, min(len(lines), i + limit)):
+        if lines[j].strip() == m.group(1):
+            return lines[i:j + 1]
+    return lines[i:i + limit]
+
+
+def _writers_of(lines, token, depth=0):
+    """The text that writes the file named by token, in this source file."""
+    out = []
+    bare = token.strip("\"'")
+    target = re.compile(r">\s*[\"']?" + re.escape(bare) + r"[\"']?(?:\s|$)")
+    copied = re.compile(r"\b(?:cp|mv)\s+(?:-\w+\s+)*[\"']?([^\s\"']+)[\"']?\s+[\"']?" + re.escape(bare) + r"[\"']?(?:\s|$)")
+    for i, l in enumerate(lines):
+        c = copied.search(l)
+        if c and depth < 3 and not is_comment(l):
+            out.extend(_writers_of(lines, c.group(1), depth + 1))
+        if is_comment(l) or not target.search(l):
+            continue
+        start = _statement_start(lines, i)
+        closer = re.match(r"(\s*)(done|\})\s*>", l)   # a loop or a block redirected as a whole
+        if closer:
+            opener = re.compile(re.escape(closer.group(1)) + r"(?:(?:for|while)\b.*\bdo\b.*|\{\s*)$")
+            for k in range(i - 1, max(-1, i - 600), -1):
+                if opener.match(lines[k]):
+                    start = k
+                    break
+        out.extend(lines[start:i + 1])
+        for k in range(start, i + 1):
+            out.extend(_heredoc_body(lines, k))
+    base = re.escape(os.path.basename(bare))
+    # A ConfigMap key of the same name, or a cloud-init write_files entry of that path.
+    key = re.compile(r"^(\s*)(?:" + base + r":\s*[|>]|-\s+path:\s*(?:\S*/)?" + base + r"\s*$)")
+    for i, l in enumerate(lines):
+        m = key.match(l)
+        if m:
+            for j in range(i + 1, len(lines)):
+                if lines[j].strip() and len(lines[j]) - len(lines[j].lstrip()) <= len(m.group(1)) \
+                        and not lines[j].startswith("%{"):
+                    break
+                out.append(lines[j])
+    return out
+
+
+def _assignment_of(lines, name):
+    out = []
+    start = re.compile(r"(?:^|[\s;])" + re.escape(name) + r"=")
+    for i, l in enumerate(lines):
+        if not is_comment(l) and start.search(l):
+            out.extend(lines[i:_statement_end(lines, i) + 1])
+    return out
+
+
+def client_side_secret_apply(lines, path=""):
+    found = []
+    prose = _prose_lines(lines)
+    elsewhere = dict(APPLY_INPUT_ELSEWHERE.get(path, {}))
+    used = set()
+    for i, l in enumerate(lines):
+        if i in prose or is_comment(l):
+            continue
+        m = KUBECTL_APPLY.search(l)
+        if not m:
+            continue
+        end = _statement_end(lines, i)
+        command = " ".join([l[m.start():]] + lines[i + 1:end + 1])
+        files = [f.strip("\"'") for f in APPLY_FILE.findall(command)]
+        if not files or "--server-side" in command or "--dry-run" in command or "--help" in command:
+            continue
+        start = _statement_start(lines, i)
+        # What produces the input: the statement up to this kubectl, never what follows it.
+        piped = "\n".join(lines[start:i] + [l[:m.start()]])
+        inputs = []       # one text per input
+        names = []        # the names of the files and of the variables piped in
+        for f in files:
+            if f in ("-", "/dev/stdin"):
+                text = piped + "\n" + "\n".join(_heredoc_body(lines, i)[1:])
+                for v in SHELL_VAR.finditer(piped):
+                    name = v.group(1) or v.group(2)
+                    names.append(name)
+                    text += "\n" + "\n".join(_assignment_of(lines, name))
+                inputs.append(text)
+            elif re.match(r"https?://", f):
+                inputs.append(f)
+            elif f in elsewhere:
+                used.add(f)
+            else:
+                names.append(f)
+                written = _writers_of(lines, f)
+                for v in SHELL_VAR.finditer(f):     # -f "${MANIFEST}": the variable may name the file
+                    for a in _assignment_of(lines, v.group(1) or v.group(2)):
+                        m2 = re.search(r"=\s*[\"']?([^\s\"';]+)", a)
+                        if m2:
+                            written.extend(_writers_of(lines, m2.group(1)))
+                inputs.append("\n".join(written))
+        is_secret = any(SECRET_NAME.search(n) for n in names) or any(
+            SECRET_PRODUCER.search(t) or (SECRET_MANIFEST.search(t) and SECRET_VALUES.search(t)) for t in inputs)
+        unread = any(not ANY_KIND.search(t) for t in inputs)
+        if is_secret or unread:
+            found.append(i + 1)
+    if set(elsewhere) - used:
+        found.append(1)     # a stale APPLY_INPUT_ELSEWHERE entry: the apply it excused is gone
+    return found
+
+
+client_side_secret_apply.wants_path = True
+
+
+def on_cluster_sources(files):
+    """What runs on a cluster or on a node: charts, kit, boot templates, control-plane code trees."""
+    return [p for p in under(files, ["platform", "products", "clusters", "infra", "core"])
+            if p.endswith((".yaml", ".yml", ".tpl", ".sh", ".tftpl", ".tf", ".json"))
+            and "/tests/" not in p and "/testdata/" not in p]
+
+
 def own_templates(files):
     return template_files(files, own_only=True)
 
@@ -219,6 +451,16 @@ GUARDS = {
         "rules": [(all_templates, in_files_of_kind(PROVIDER_CLASS_KIND, SECRET_OBJECTS_KEY)),
                   (all_templates, in_files_of_kind(EXTERNAL_KIND, MOUNTED_STORE_NAME))],
     },
+    "no-shell-trace": {
+        "title": "G12: no new shell tracing in what runs on a cluster or a node",
+        "allow_list": True,
+        "rules": [(on_cluster_sources, shell_trace)],
+    },
+    "secret-apply-server-side": {
+        "title": "G13: no client-side kubectl apply of a Secret, or of an input the rule cannot read",
+        "allow_list": False,
+        "rules": [(on_cluster_sources, client_side_secret_apply)],
+    },
 }
 
 
@@ -235,7 +477,7 @@ def scan(guard, root):
             lines = read_lines(root, p)
             if lines is None:
                 continue
-            hits = rule(lines)
+            hits = rule(lines, p) if getattr(rule, "wants_path", False) else rule(lines)
             if hits:
                 found.setdefault(p, set()).update(hits)
     return {p: sorted(v) for p, v in sorted(found.items())}
@@ -436,6 +678,75 @@ FIXTURES = {
                                                                     "platform/a/chart/charts/up/templates/es.yaml":
                                                                     "kind: ExternalSecret\nspec:\n  secretStoreRef:\n"
                                                                     "    name: openbao-mounted\n"})],
+    },
+    "no-shell-trace": {
+        "allowed": ("platform/a/chart/charts/up/templates/hook.yaml", 'command: ["sh", "-xec"]\n'),
+        "extra_site": "  set -x\n",
+        "controls": {
+            "platform/a/chart/templates/job.yaml": (
+                "  set -eu\n  # set -x would print the token\n  tar -xzf a.tgz\n  ssh -x host true\n"
+                "  unset -v x\n  sh -c 'x'\n  set -o pipefail\n"),
+            "platform/a/chart/tests/t.sh": "set -x\n",
+            "scripts/t.sh": "set -x\n",
+            "docs/x.md": "set -x\n",
+        },
+        "bad": [("set -x in a chart template", {"platform/b/chart/templates/j.yaml": "            set -x\n"}),
+                ("set -eux after another command", {"products/b/chart/templates/j.yaml": "  - cd /w; set -eux\n"}),
+                ("set -o xtrace in a boot template", {"infra/p/boot.tftpl": "    set -o xtrace\n"}),
+                ("bash -x", {"clusters/c/job.yaml": "      bash -x /run.sh\n"}),
+                ("a traced container command", {"core/x/deploy.yaml": 'command: ["/bin/sh", "-xc"]\n'}),
+                ("a traced interpreter line", {"platform/a/chart/files/run.sh": "#!/bin/sh -ex\necho hi\n"})],
+    },
+    "secret-apply-server-side": {
+        "allowed": None,
+        "controls": {
+            "platform/a/chart/templates/ok.yaml": (
+                "  kubectl create secret generic s --from-literal=a=b --dry-run=client -o yaml \\\n"
+                "    | kubectl apply --server-side --field-manager=w -f -\n"
+                "  kubectl create configmap c --from-literal=a=b --dry-run=client -o yaml | kubectl apply -f -\n"
+                "  kubectl create secret generic s2 --from-literal=a=b\n"
+                "  # kubectl apply -f /tmp/secret.yaml\n"
+                "  {{- /*\n   prose: kubectl apply -f /tmp/secret.yaml is what this once did\n  */}}\n"
+                "  kubectl apply --dry-run=server -f /tmp/secret.yaml\n"
+                "  kubectl apply -f https://example.invalid/install.yaml\n"
+                "  kubectl apply -f- <<E\n  kind: Secret\n  type: kubernetes.io/service-account-token\n"
+                "  metadata: {name: t}\n  E\n"
+                "  cat >/tmp/ks.yaml <<EOF\n  kind: Kustomization\n  spec:\n    substituteFrom:\n"
+                "      - kind: Secret\n        name: x\n  data: {}\n  EOF\n"
+                "  kubectl apply -f /tmp/ks.yaml\n"
+                "  {\n    echo 'kind: ConfigMap'\n    echo 'data: {}'\n  } >/tmp/cm.yaml\n"
+                "  cp /tmp/cm.yaml /tmp/cm2.yaml\n  kubectl apply -f /tmp/cm2.yaml\n"),
+            "docs/x.md": "kubectl apply -f secret.yaml\n",
+            "scripts/x.sh": "kubectl apply -f secret.yaml\n",
+        },
+        "bad": [("a Secret piped from kubectl create secret",
+                 {"platform/b/chart/templates/a.yaml":
+                  "  kubectl create secret generic s --from-literal=a=b \\\n    --dry-run=client -o yaml | kubectl apply -f -\n"}),
+                ("a Secret manifest written by a here-document",
+                 {"products/b/chart/templates/b.yaml":
+                  "  cat >/tmp/x.yaml <<EOF\n  apiVersion: v1\n  kind: Secret\n  stringData:\n    token: ${T}\n  EOF\n"
+                  "  kubectl --kubeconfig \"${k}\" apply -f /tmp/x.yaml\n"}),
+                ("a Secret copied with get, jq and apply",
+                 {"platform/b/chart/templates/c.yaml":
+                  "  kubectl -n a get secret s -o json \\\n    | jq '{apiVersion, kind,\n        data: .data}' \\\n"
+                  "    | kubectl -n b apply -f - >/dev/null\n"}),
+                ("a Secret manifest held in a variable",
+                 {"platform/b/chart/templates/d.yaml":
+                  "  m=\"$(printf 'apiVersion: v1\\nkind: Secret\\ndata:\\n  k: %s\\n' \"${v}\")\"\n"
+                  "  printf '%s' \"${m}\" | kubectl apply -f -\n"}),
+                ("a Secret manifest as one JSON line",
+                 {"infra/p/boot.tftpl":
+                  "    cat > /tmp/s.json <<EOF\n    {\"apiVersion\":\"v1\",\"kind\":\"Secret\",\"data\":{\"a\":\"$A\"}}\n    EOF\n"
+                  "    kubectl apply -f /tmp/s.json\n"}),
+                ("a cloud-init file that holds a Secret",
+                 {"infra/p/cp.tftpl":
+                  "  - path: /var/lib/x/pull.yaml\n    content: |\n      kind: Secret\n      data:\n        a: b\n"
+                  "  - path: /var/lib/x/other.yaml\n    content: |\n      kind: ConfigMap\n"
+                  "runcmd:\n  - |\n    cd /var/lib/x\n    kubectl apply -f other.yaml -f pull.yaml\n"}),
+                ("a file whose name says Secret", {"clusters/c/j.yaml": "  kubectl apply -f /etc/x/pull-secret.yaml\n"}),
+                ("an input the rule cannot read", {"core/x/j.yaml": "  kubectl apply -f /mnt/thing.yaml\n"}),
+                ("an APPLY_INPUT_ELSEWHERE entry whose apply is gone",
+                 {"platform/self-sovereign-cutover/chart/templates/01-gitea-mirror-job.yaml": "  echo nothing is applied here\n"})],
     },
 }
 

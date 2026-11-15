@@ -80,12 +80,17 @@ spec:
       protocol: TCP
 {{- end }}
 ---
-# The openbao namespace is default-deny (bp-plane-isolation
-# openbao-default-deny) and Cilium evaluates its namespace selectors
-# cluster-locally. Admit, from ANY ClusterMesh cluster, on 8200 only:
+# bp-plane-isolation closes the openbao namespace (openbao-default-deny) and
+# Cilium evaluates its namespace selectors cluster-locally. Admit, from ANY
+# ClusterMesh cluster, on 8200 only:
 #   - ESO (a peer's primary pushing shared material into this OpenBao);
 #   - a peer's OpenBao + openbao-config reconciler (OIDC discovery of
 #     THIS region's issuer).
+# enableDefaultDeny false (#7901): these two policies only ADD their allow.
+# Without the field, a policy with rules denies everything else in its
+# direction for the pods it selects. On a fresh installation
+# bp-plane-isolation lands late, so the two were the only policies on the
+# server and cut it off from DNS, the API server and its cluster port.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -95,6 +100,9 @@ metadata:
     catalyst.openova.io/blueprint: bp-openbao
     catalyst.openova.io/component: openbao-config
 spec:
+  enableDefaultDeny:
+    ingress: false
+    egress: false
   endpointSelector:
     matchLabels:
       app.kubernetes.io/name: openbao
@@ -131,6 +139,9 @@ metadata:
     catalyst.openova.io/blueprint: bp-openbao
     catalyst.openova.io/component: openbao-config
 spec:
+  enableDefaultDeny:
+    ingress: false
+    egress: false
   endpointSelector:
     matchExpressions:
       - key: app.kubernetes.io/name

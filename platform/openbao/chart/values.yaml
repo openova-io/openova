@@ -195,6 +195,12 @@ autoUnseal:
   # leave the Job pending indefinitely.
   activeDeadlineSeconds: 600
   backoffLimit: 6
+  # Client timeout (seconds) of the one `bao operator init` call (#7901). The
+  # unseal key exists only in the answer of that call, so the client must not
+  # give up on a server that is still working: a lost answer leaves a store
+  # that is initialised and sealed with no key. The client's own default is
+  # 60. Keep it below activeDeadlineSeconds.
+  initClientTimeoutSeconds: 300
   # ─── #5142/#5157 continuous unseal reconciler ─────────────────────────
   # The init Job above is a one-shot Helm post-install/upgrade hook: it
   # unseals at install/roll but never re-runs. After a region-kill

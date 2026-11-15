@@ -24,7 +24,11 @@
 #   P6  no Service of type NodePort and no nodePort field anywhere;
 #   P7  single region / self unset / self not in the registry ⇒ NOTHING of
 #       the above renders (and the desired state has no peer op);
-#   P8  three regions: two stubs, two jwt mounts.
+#   P8  three regions: two stubs, two jwt mounts;
+#   P9  both CNPs set enableDefaultDeny false in both directions, and the
+#       chart renders no Cilium policy that turns default-deny on: on a fresh
+#       installation they are the only policies on the server until
+#       bp-plane-isolation lands (#7901).
 #
 # Vacuity: P1's assertions run against the single-region render must fail.
 set -euo pipefail
@@ -136,6 +140,19 @@ if mode == "peers":
     if egr:
         ports = [p["port"] for r in egr["spec"]["egress"] for tp in r["toPorts"] for p in tp["ports"]]
         ok(ports == ["8200"], f"P5 egress ports {ports}")
+    # P9 (#7901): both policies only add an allow. A CiliumNetworkPolicy with
+    # rules and no enableDefaultDeny denies everything else in its direction
+    # for the pods it selects; these two must never be what closes the server.
+    additive = {"ingress": False, "egress": False}
+    for cnp in (ing, egr):
+        if cnp:
+            ok(cnp["spec"].get("enableDefaultDeny") == additive,
+               f"P9 {cnp['metadata']['name']} must set enableDefaultDeny ingress=false egress=false, "
+               f"got {cnp['spec'].get('enableDefaultDeny')}")
+    closing = [f"{d['kind']}/{d['metadata']['name']}" for d in docs
+               if d["kind"] in ("CiliumNetworkPolicy", "CiliumClusterwideNetworkPolicy")
+               and (d.get("spec") or {}).get("enableDefaultDeny") != additive]
+    ok(not closing, f"P9 the chart renders a Cilium policy that turns default-deny on: {closing}")
 elif mode == "none":
     names = [f"{d['kind']}/{d['metadata']['name']}" for d in docs
              if "peer" in d["metadata"]["name"] or d["metadata"]["name"].startswith("openbao-hw-")]

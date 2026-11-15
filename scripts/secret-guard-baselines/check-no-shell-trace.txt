@@ -1,0 +1,1 @@
+platform/seaweedfs/chart/charts/seaweedfs/templates/volume/volume-resize-hook.yaml:1

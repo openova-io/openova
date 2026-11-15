@@ -325,6 +325,18 @@ jobs:
       - name: 'secret-guards | G9 delivery lint'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: bash scripts/check-secret-delivery-lint.sh
+      - name: 'secret-guards | G12 self-test'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: bash scripts/check-no-shell-trace.sh --self-test
+      - name: 'secret-guards | G12 no new shell tracing in what runs on a cluster or a node'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: bash scripts/check-no-shell-trace.sh
+      - name: 'secret-guards | G13 self-test'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: bash scripts/check-secret-apply-server-side.sh --self-test
+      - name: 'secret-guards | G13 no client-side kubectl apply of a Secret'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: bash scripts/check-secret-apply-server-side.sh
       - name: 'secret-guards | G10 and G11 self-test'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: bash scripts/check-secret-object-register.sh --self-test

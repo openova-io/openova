@@ -120,6 +120,11 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
     #      the one delete of the hold that the EXIT trap already covered
     #      (fresh-pull failure path) are dropped on BOTH trees.
     #      reboot-hold-release.sh verifies the release itself.
+    #   7. the #7901 server-side apply of every Secret the chain writes. The three
+    #      flags are on always-rendered lines (steps 00, 05, 06, 11) and are not
+    #      the secondaryRegions leg; scripts/check-secret-apply-server-side.sh
+    #      verifies them. Removing the flags on BOTH trees keeps every other
+    #      character of those lines compared.
     drop7900=0
     grep -q 'front-door-sample BEGIN' "${TMP}/main.yaml" || drop7900=1
     norm() {
@@ -150,6 +155,7 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
       ' "$1" | sed -E \
         -e 's#bp-self-sovereign-cutover-[0-9]+\.[0-9]+\.[0-9]+#bp-self-sovereign-cutover-VERSION#g' \
         -e 's#^( *activeDeadlineSeconds: )(2400|3600)$#\1STEP06_DEADLINE#' \
+        -e 's# --server-side --force-conflicts --field-manager=self-sovereign-cutover##g' \
         -e '/- name: PUSH_BATCH_BRANCHES/{N;d}' \
         -e '/^ *default_branch="\$\{UPSTREAM_BRANCH\}"$/d' \
         -e '/^ *batch_size="\$\{PUSH_BATCH_BRANCHES\}"$/d' \
@@ -199,7 +205,9 @@ fi
 # secretRef, NOT the per-region gitea-admin-secret (whose password drifts across
 # the one shared cross-region gitea DB). This assertion FAILS on the old template
 # (which read gitea-admin-secret) and PASSES on the PAT-unified one.
-if grep -qF 'kubectl --kubeconfig "${skc}" apply -f /tmp/git-auth-secret.yaml' "${TMP}/step05.sh"; then
+# #7901 — applied server-side: a client-side apply keeps the PAT in the
+# Secret's last-applied annotation.
+if grep -qF 'kubectl --kubeconfig "${skc}" apply --server-side --force-conflicts --field-manager=self-sovereign-cutover -f /tmp/git-auth-secret.yaml' "${TMP}/step05.sh"; then
   pass "step-05 wires the SHARED catalyst-gitea-token PAT into the secondary Flux secretRef (#6754)"
 else
   fail "step-05 does not apply the PAT basic-auth Secret (/tmp/git-auth-secret.yaml) to the secondary (#6754)"

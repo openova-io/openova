@@ -169,7 +169,7 @@ spec:
               if kubectl -n "$DST_NS" get secret "$DST_NAME" >/dev/null 2>&1; then
                 kubectl -n "$DST_NS" patch secret "$DST_NAME" --type=merge --patch-file=/tmp/secret.json
               else
-                kubectl -n "$DST_NS" apply -f /tmp/secret.json
+                kubectl -n "$DST_NS" apply --server-side --force-conflicts --field-manager=qa-fixtures -f /tmp/secret.json
               fi
               echo "seeded $DST_NS/$DST_NAME from $SRC_NS/$SRC_NAME"
 ---

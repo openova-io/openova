@@ -240,7 +240,7 @@ data:
               username: ${GIT_AUTH_USERNAME}
               password: ${pat}
             EOF
-            kubectl apply -f /tmp/git-auth-secret.yaml
+            kubectl apply --server-side --force-conflicts --field-manager=self-sovereign-cutover -f /tmp/git-auth-secret.yaml
             echo "[flux-gitrepository-patch] basic-auth Secret applied"
 
             {{- /*
@@ -359,7 +359,7 @@ data:
                the single shared user row and 401s. Same credential the region-A
                leg + steps 10/11 use; one code path for both pivot targets.
               */}}
-              kubectl --kubeconfig "${skc}" apply -f /tmp/git-auth-secret.yaml
+              kubectl --kubeconfig "${skc}" apply --server-side --force-conflicts --field-manager=self-sovereign-cutover -f /tmp/git-auth-secret.yaml
 
               {{- /*
                2. Same patch shape as region-A (URL from the candidate

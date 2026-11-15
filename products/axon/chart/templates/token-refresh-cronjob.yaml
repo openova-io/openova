@@ -90,7 +90,7 @@ spec:
                   kubectl create secret generic {{ .Values.axon.claudeAuthSecret }} \
                     -n {{ .Release.Namespace }} \
                     --from-literal=.credentials.json="$NEW_CREDS" \
-                    --dry-run=client -o yaml | kubectl apply -f -
+                    --dry-run=client -o yaml | kubectl apply --server-side --force-conflicts --field-manager=axon-token-refresh -f -
 
                   echo "Token refreshed. New expiry: $(date -d @$((EXPIRES_AT / 1000)) -u '+%Y-%m-%d %H:%M:%S UTC')"
 
