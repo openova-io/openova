@@ -156,16 +156,10 @@ upstream:
 gitea:
   org: "openova"
   repo: "openova"
-  # #6754 — remaining-branch push batch size. The mirror pushes the default
-  # branch first (it carries the bulk pack in one ref-command), then tags, then
-  # the remaining upstream branches in bounded batches of this many refspecs. A
-  # single git-receive-pack of all ~2,436 upstream branch refs plus the ~511 MiB
-  # pack dies after the ref advertisement (the "pkt-line 3 EOF" class, #6490);
-  # splitting the branch refs into bounded batches keeps each receive-pack small
-  # (near-empty packs, since every object already shipped under the default
-  # branch) and durable against upstream branch re-accumulation. Applies to BOTH
-  # the primary (01-gitea-mirror-job) and the secondary-region mirror script.
-  pushBatchBranches: 200
+  # #7922 — the mirror (step-01 primary + the secondary-region script) pushes
+  # ONLY upstream.branch and the tags: no consumer on a Sovereign reads any other
+  # upstream branch. The #6754 `pushBatchBranches` knob for the remaining-branch
+  # batches is gone with them.
   # Shape of the admin secret created by bp-gitea's templates.
   # Keys: username, password, token (optional). Job uses BasicAuth
   # username:password against /api/v1 + git push.

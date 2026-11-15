@@ -60,14 +60,6 @@ data:
           - name: MIRROR_INTERVAL
             value: {{ .Values.upstream.mirrorInterval | quote }}
           {{- /*
-           #6754 BUG 2 — remaining-branch push batch size (default 200). The
-           default branch + tags push fatal; the rest of the upstream branches
-           push in bounded best-effort batches of this many refspecs so no single
-           git-receive-pack carries all ~2,436 refs at once.
-          */}}
-          - name: PUSH_BATCH_BRANCHES
-            value: {{ .Values.gitea.pushBatchBranches | quote }}
-          {{- /*
            #3584 — Gitea git-push username. A Gitea PAT is accepted as the
            HTTP git password under ANY existing username; we use the admin
            login (`gitea_admin`) for auditability. The git push embeds
@@ -267,7 +259,8 @@ data:
 
             {{- /*
              3. Bare-clone upstream and push to local Gitea via EXPLICIT
-                refspecs — refs/heads/* + refs/tags/* — NEVER mirror mode
+                refspecs — the default branch + refs/tags/* (#7922: no other
+                upstream branch has a consumer) — NEVER mirror mode
                 (#5011). Mirror mode makes the remote EXACTLY match the
                 clone, DELETING refs absent upstream; on hw242 (2026-07-12,
                 dep f05b0718dac62fe9) it pruned the sovereign-LOCAL branches
@@ -276,7 +269,7 @@ data:
                 exist ONLY in the local Gitea, never on GitHub — breaking
                 the flux GitRepositories openova-catalog-sovereign +
                 openova-org-tenants mid-cutover. The explicit refspecs
-                force-update/create every GitHub-derived branch + tag
+                force-update/create the default branch + every tag
                 (--force keeps re-runs idempotent even after an upstream
                 history rewrite) but never touch remote-only refs.
             */}}
@@ -317,23 +310,47 @@ data:
             fi
             cd upstream.git
             {{- /*
-             #6754 BUG 2 — batched, default-branch-first force-push. The upstream
-             monorepo has accumulated ~2,436 branches; a single git-receive-pack
-             of all of them plus the ~511 MiB pack dies AFTER the ref
-             advertisement ("pkt-line 3 EOF" class, #6490) — the server logs the
-             GET .../info/refs?service=git-receive-pack 200 with no subsequent
-             POST. Ship the default branch FIRST (fatal — it carries the bulk pack
-             in ONE ref-command, the shape a 1-ref push proved survivable), then
-             tags (fatal), then the remaining branches in bounded best-effort
-             batches (near-empty packs, since every object already shipped under
-             the default branch). Durable against branch re-accumulation — no
-             reliance on branch cleanup. Still explicit refspecs, never --mirror
-             (#5011), so sovereign-local refs (catalog-sovereign, org-tenants) are
-             never pruned. Credential redaction on stderr is unchanged.
+             #7922 — push ONLY the upstream refs a Sovereign reads: the default
+             branch and the tags. Every consumer of this repository reads
+             `${UPSTREAM_BRANCH}` (step-05's Flux GitRepository pivot, the
+             clone+push of steps 06/07/10/11 and the secondary pivot, the day-two
+             reconciler's raw reads) or a SOVEREIGN-LOCAL branch that never comes
+             from upstream (org-tenants, catalog-sovereign). No consumer reads any
+             other upstream branch.
+
+             Measured on hw307 (dep 9836870916c31984, 15 Nov 2026): this step took
+             33 min, 28 of them in the loop that pushed the other 2,733 upstream
+             branches in 200-ref batches. Each batch took ~130 s and ~118 s of it
+             sat between Gitea's pre-receive and post-receive calls: git runs the
+             per-ref `update` hook, one `gitea hook update` process per ref
+             (~0.6 s each on the 1-CPU Gitea pod). Every new branch also queued
+             two notifications whose Gitea Actions handler parses that branch's
+             workflow files (139 on main); 2,800+ such scans were still running
+             1h40m after the step ended, holding the pod's CPU. The secondary
+             region pushed the same batches in ~77 s only because its repository
+             is a hook-less `reinit_missing_repos` copy on the shared database.
+
+             Actions is switched off on the repository first (best-effort): no
+             Sovereign runs a Gitea Actions runner, so the scan is pure cost on
+             this push and on every later push (steps 06/07/10/11, catalyst-api
+             writes). Default branch first (fatal — it carries the bulk pack in
+             one ref-command, the shape #6754 proved survivable), then tags
+             (fatal). Still explicit refspecs, never --mirror (#5011), so
+             sovereign-local refs are never pruned; branches an earlier run
+             pushed stay as they were. Credential redaction on stderr is unchanged.
             */}}
             default_branch="${UPSTREAM_BRANCH}"
-            batch_size="${PUSH_BATCH_BRANCHES}"
-            echo "[gitea-mirror] pushing upstream default branch (${default_branch}), tags, then remaining branches in bounded batches of ${batch_size} to ${redacted_url}"
+            echo "[gitea-mirror] pushing upstream default branch (${default_branch}) and tags to ${redacted_url} — the only upstream refs a Sovereign reads (#7922)"
+            actions_meta=$(curl -fsS -X PATCH \
+              -H "Authorization: token ${GITEA_PAT}" \
+              -H "Content-Type: application/json" \
+              -d '{"has_actions":false}' \
+              "${api_url}/repos/${GITEA_ORG}/${GITEA_REPO}" 2>/dev/null || echo "{}")
+            if printf '%s' "${actions_meta}" | grep -q '"has_actions":false'; then
+              echo "[gitea-mirror] Gitea Actions off on ${GITEA_ORG}/${GITEA_REPO} (no runner on a Sovereign; a push no longer scans every workflow file)"
+            else
+              echo "[gitea-mirror] WARN: could not switch Gitea Actions off on ${GITEA_ORG}/${GITEA_REPO} — the push still lands; each pushed ref costs one more workflow scan"
+            fi
             push_err=$(git push --force "${local_url}" "refs/heads/${default_branch}:refs/heads/${default_branch}" 2>&1) || {
               echo "[gitea-mirror] FATAL: git push of the default branch (${default_branch}) to local Gitea failed" >&2
               printf '%s\n' "${push_err}" | sed -E "s,${GITEA_PAT}+,REDACTED,g" >&2
@@ -344,34 +361,7 @@ data:
               printf '%s\n' "${push_err}" | sed -E "s,${GITEA_PAT}+,REDACTED,g" >&2
               exit 1
             }
-            batch=""
-            n=0
-            extra=0
-            skipped_batches=0
-            for ref in $(git for-each-ref --format='%(refname)' refs/heads/); do
-              if [ "${ref}" = "refs/heads/${default_branch}" ]; then continue; fi
-              batch="${batch} ${ref}:${ref}"
-              n=$((n + 1))
-              if [ "${n}" -ge "${batch_size}" ]; then
-                if git push --force "${local_url}" ${batch} >/dev/null 2>&1; then
-                  extra=$((extra + n))
-                else
-                  skipped_batches=$((skipped_batches + 1))
-                  echo "[gitea-mirror] a ${n}-branch batch did not fully land (best-effort; default branch + tags already pushed)"
-                fi
-                batch=""
-                n=0
-              fi
-            done
-            if [ "${n}" -gt 0 ]; then
-              if git push --force "${local_url}" ${batch} >/dev/null 2>&1; then
-                extra=$((extra + n))
-              else
-                skipped_batches=$((skipped_batches + 1))
-                echo "[gitea-mirror] the final ${n}-branch batch did not fully land (best-effort; default branch + tags already pushed)"
-              fi
-            fi
-            echo "[gitea-mirror] pushed all upstream refs (default branch + tags fatal, ${extra} more branch(es) best-effort in ${batch_size}-ref batches, ${skipped_batches} batch(es) deferred; sovereign-local refs untouched)"
+            echo "[gitea-mirror] pushed all upstream refs a Sovereign reads (${default_branch} + tags; no other upstream branch is pushed, #7922; sovereign-local refs untouched)"
 
             {{- /*
              4. Verify by reading back the default branch SHA and

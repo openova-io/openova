@@ -93,7 +93,10 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
     #      the three new always-rendered lines it introduces (the PUSH_BATCH_BRANCHES
     #      env pair + the two script-local assignments) are stripped, so this check
     #      still catches any OTHER single-region drift while accommodating the
-    #      intended batched-push change, which Case 46 verifies.
+    #      intended batched-push change, which Case 46 verifies. #7922 reshaped
+    #      the same region again (default branch + tags only, Actions switched off
+    #      first) inside the same two echoes; step7922-gitea-mirror-refs.sh
+    #      executes it.
     #   4. the #5596 step-06 Phase-2 factoring. The bootstrap-kit rewrite
     #      (url sed + inject_trust_ref + Phase-2.5) moved from the inline args
     #      into the ALWAYS-rendered ConfigMap key kit-rewrite.sh, which region-A
@@ -297,20 +300,20 @@ if grep -qF 'basic_auth' "${TMP}/secmirror.sh"; then
 else
   pass "secondary-mirror.sh git-auths with the shared PAT, never the admin password (#6754)"
 fi
-# #6754 BUG 2 — batched, default-branch-first force-push: default branch FIRST on
-# its own ref-command, tags, then remaining branches enumerated via for-each-ref
-# in bounded batches. A single receive-pack of all ~2,436 branch refs dies after
-# the ref advertisement (pkt-line 3 EOF). These FAIL on the old single-push script.
+# #6754 BUG 2 — default-branch-first force-push: default branch FIRST on its own
+# ref-command, then tags. A single receive-pack of all ~2,436 branch refs dies
+# after the ref advertisement (pkt-line 3 EOF). #7922 — and NO other upstream
+# branch: no consumer reads one, and each cost a hook process + an Actions scan.
+# step7922-gitea-mirror-refs.sh EXECUTES the script against fixture repos.
 if grep -qF 'push --force "${push_url}" "refs/heads/${default_branch}:refs/heads/${default_branch}"' "${TMP}/secmirror.sh"; then
   pass "secondary-mirror.sh force-pushes the default branch first on its own ref-command (#6754)"
 else
   fail "secondary-mirror.sh does not push the default branch first — the whole-repo push dies after the ref advertisement (#6754)"
 fi
-if grep -qF 'git for-each-ref --format=' "${TMP}/secmirror.sh" \
-   && grep -qF 'push --force "${push_url}" ${batch}' "${TMP}/secmirror.sh"; then
-  pass "secondary-mirror.sh pushes the remaining branches in bounded for-each-ref batches (#6754)"
+if grep -qF -e 'git for-each-ref --format=' -e '${batch}' "${TMP}/secmirror.sh"; then
+  fail "secondary-mirror.sh still enumerates and pushes the remaining upstream branches — no consumer reads them (#7922)"
 else
-  fail "secondary-mirror.sh does not batch the remaining-branch push (#6754)"
+  pass "secondary-mirror.sh pushes no upstream branch beyond the default branch (#7922)"
 fi
 if grep -qF "'refs/heads/*:refs/heads/*'" "${TMP}/secmirror.sh"; then
   fail "secondary-mirror.sh still pushes every head in one 'refs/heads/*:refs/heads/*' receive-pack — the whole-repo push that dies (#6754)"
@@ -353,20 +356,20 @@ for d in docs:
         ps=yaml.safe_load(d['data']['podSpec'])
         open(sys.argv[2],'w').write(ps['containers'][0]['args'][0]); break
 PY
-# #6754 BUG 2 — the PRIMARY step-01 push is batched default-branch-first too (same
+# #6754 BUG 2 — the PRIMARY step-01 push is default-branch-first too (same
 # ~2,436-branch / pkt-line-3-EOF exposure as the secondary). Assert it here on the
-# extracted step-01 script (Case 46 in cutover-contract.sh guards the same shape);
-# these FAIL on the old single 'refs/heads/*' push and PASS on the batched one.
+# extracted step-01 script (Case 46 in cutover-contract.sh guards the same shape).
+# #7922 — and it pushes no other upstream branch (step7922-gitea-mirror-refs.sh
+# executes it).
 if grep -qF 'push --force "${local_url}" "refs/heads/${default_branch}:refs/heads/${default_branch}"' "${TMP}/step01.sh"; then
   pass "step-01 primary push sends the default branch first on its own ref-command (#6754)"
 else
   fail "step-01 primary push does not push the default branch first (#6754)"
 fi
-if grep -qF 'git for-each-ref --format=' "${TMP}/step01.sh" \
-   && grep -qF 'push --force "${local_url}" ${batch}' "${TMP}/step01.sh"; then
-  pass "step-01 primary push batches the remaining branches via for-each-ref (#6754)"
+if grep -qF -e 'git for-each-ref --format=' -e '${batch}' "${TMP}/step01.sh"; then
+  fail "step-01 primary push still enumerates and pushes the remaining upstream branches — no consumer reads them (#7922)"
 else
-  fail "step-01 primary push does not batch the remaining branches (#6754)"
+  pass "step-01 primary push pushes no upstream branch beyond the default branch (#7922)"
 fi
 if grep -qF "'refs/heads/*:refs/heads/*'" "${TMP}/step01.sh"; then
   fail "step-01 primary push still sends every head in one 'refs/heads/*:refs/heads/*' receive-pack — the whole-repo push that dies (#6754)"
