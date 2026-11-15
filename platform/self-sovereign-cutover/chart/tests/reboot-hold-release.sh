@@ -13,13 +13,17 @@
 #       exits with status 0 and nowhere before a failing exit;
 #   (b) EXECUTION of the rendered release against a recording kubectl: one
 #       create per region (the primary and each mounted kubeconfig), into the
-#       namespace, name and key of values.yaml; an existing ConfigMap is left
-#       and is no error; a region where the write fails is named in a WARNING
-#       and the step still ends with status 0;
-#   (c) slot 04b reads exactly that ConfigMap and key, optional;
+#       namespace, name and key of values.yaml; one "released" line per region
+#       (#7922: the step said nothing when it worked); an existing ConfigMap is
+#       left and is no error; a region where the write fails is named in a
+#       WARNING, gets no "released" line, and the step still ends with status 0;
+#   (c) slot 04b reads exactly that ConfigMap and key, optional, and reconciles
+#       every minute (#7922: helm-controller does not watch the ConfigMap, and at
+#       15m the release landed 2m19s and 13m07s after it on hw307);
 #   (d) bp-kured rendered with the released values makes kured lock in an
 #       annotation that holds nothing, and rendered without them in the one
-#       that holds the install hold. Needs the dependency of
+#       that holds the install hold; with them the annotation that held the
+#       hold reads "released" (#7922: the DaemonSet read as held after it). Needs the dependency of
 #       platform/kured/chart; without network access this part says so and fails.
 #
 # Usage: bash tests/reboot-hold-release.sh [CHART_DIR]
@@ -127,20 +131,33 @@ if [ "$(cat "${TMP}/record.txt")" = "${want}" ]; then pass "one create per regio
 $(cat "${TMP}/record.txt")
 want:
 ${want}"; fi
-[ ! -s "${TMP}/out.txt" ] && pass "nothing is printed when every region is written" || fail "output on the good path: $(cat "${TMP}/out.txt")"
+released() { grep -c "reboot hold released in region .*: ConfigMap ${NS}/${NAME} present" "${TMP}/out.txt"; }
+if [ "$(released)" = 3 ] && [ "$(wc -l <"${TMP}/out.txt")" = 3 ] \
+   && grep -q "released in region primary:" "${TMP}/out.txt" && grep -q "released in region me-east-c-1:" "${TMP}/out.txt"; then
+  pass "one 'released' line per region, nothing else, when every region is written"
+else fail "output on the good path: $(cat "${TMP}/out.txt")"; fi
 
-if run_release "primary me-east-b-1 me-east-c-1" "" && [ ! -s "${TMP}/out.txt" ] && [ "$(grep -c ' get configmap ' "${TMP}/record.txt")" = 3 ]; then
-  pass "a re-run finds the ConfigMap in every region: status 0, no warning"
+if run_release "primary me-east-b-1 me-east-c-1" "" && [ "$(released)" = 3 ] && ! grep -q WARNING "${TMP}/out.txt" \
+   && [ "$(grep -c ' get configmap ' "${TMP}/record.txt")" = 3 ]; then
+  pass "a re-run finds the ConfigMap in every region: status 0, no warning, each region said released"
 else fail "a re-run with the ConfigMap present: $(cat "${TMP}/out.txt")"; fi
 
 if run_release "me-east-b-1" "me-east-b-1"; then
-  if grep -q "WARNING: the reboot hold of region me-east-b-1 is NOT released" "${TMP}/out.txt" && [ "$(wc -l <"${TMP}/out.txt")" = 1 ] \
+  if grep -q "WARNING: the reboot hold of region me-east-b-1 is NOT released" "${TMP}/out.txt" && [ "$(grep -c WARNING "${TMP}/out.txt")" = 1 ] \
+     && [ "$(released)" = 2 ] && ! grep -q "released in region me-east-b-1:" "${TMP}/out.txt" \
      && grep -q '^me-east-c-1|.* create configmap ' "${TMP}/record.txt"; then
-    pass "a region that cannot be written is named in one WARNING, the next region is still written, status 0"
+    pass "a region that cannot be written is named in one WARNING and not said released, the next region is still written, status 0"
   else fail "a failed region: output: $(cat "${TMP}/out.txt")"; fi
 else fail "a failed region made the step fail after its verdict"; fi
 
 echo "[reboot-hold] (c) slot 04b reads the ConfigMap the step writes"
+python3 - "${SLOT}" <<'PY' && pass "slot 04b reconciles every minute, so the release lands within a minute of the ConfigMap" || fail "slot 04b reconciles less often than every minute: helm-controller does not watch the ConfigMap, so the hold outlives the chain by up to that interval"
+import re, sys, yaml
+[hr] = [d for d in yaml.safe_load_all(open(sys.argv[1])) if d and d.get("kind") == "HelmRelease"]
+m = re.fullmatch(r"(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?", str(hr["spec"].get("interval", "")))
+seconds = (int(m.group(1) or 0) * 3600 + int(m.group(2) or 0) * 60 + int(m.group(3) or 0)) if m and any(m.groups()) else 10 ** 9
+sys.exit(0 if seconds <= 60 else 1)
+PY
 python3 - "${SLOT}" "${NS}" "${NAME}" "${KEY}" <<'PY' && pass "slot 04b: valuesFrom ConfigMap ${NS}/${NAME}, key ${KEY}, optional" || fail "slot 04b does not read ${NS}/${NAME} key ${KEY} as optional values"
 import sys, yaml
 slot, ns, name, key = sys.argv[1:5]
@@ -165,6 +182,12 @@ inline = hr["spec"]["values"]
 inline["nodePatchConfig"]["image"] = "example/shell:1"
 yaml.safe_dump(inline, open(tmp + "/inline.yaml", "w"))
 PY
+hold_annotation_of() { # prints what the rendered DaemonSet kured carries in the annotation that held the install hold
+  python3 -c '
+import sys, yaml
+[ds] = [d for d in yaml.safe_load_all(sys.stdin) if d and d["kind"] == "DaemonSet" and d["metadata"]["name"] == "kured"]
+print((ds["metadata"].get("annotations") or {}).get("catalyst.openova.io/kured-install-hold") or "none")'
+}
 lock_of() { # prints "<the annotation kured locks in> <what the rendered DaemonSet kured holds there, or none>"
   python3 -c '
 import sys, yaml
@@ -181,6 +204,8 @@ case "${held}" in
   *) fail "without the ConfigMap the DaemonSet kured has no hold: '${held}' $(tail -n 1 "${TMP}/k.err" 2>/dev/null)" ;;
 esac
 if [ "${released}" = "weave.works/kured-node-lock none" ]; then pass "with the values the step writes kured locks in ${released%% *}, where the DaemonSet holds nothing"; else fail "with the values the step writes kured is still held: '${released}'"; fi
+annotation="$(helm template kured "${KURED}" -n kube-system -f "${TMP}/release-values.yaml" -f "${TMP}/inline.yaml" 2>>"${TMP}/k.err" | hold_annotation_of)"
+if [ "${annotation}" = "released" ]; then pass "with the values the step writes the annotation that held the hold reads 'released'"; else fail "with the values the step writes the DaemonSet still reads as held: catalyst.openova.io/kured-install-hold='${annotation}'"; fi
 
 echo
 if [ "${FAILURES}" -eq 0 ]; then echo "reboot-hold-release: all checks passed"; exit 0; fi

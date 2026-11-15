@@ -17,7 +17,9 @@
 # bp-kured-install-hold of this namespace when it exists; the last step of
 # the hand-over chain writes it in every region, and its value makes kured
 # lock where nothing is held. Until then the ConfigMap is absent and the
-# chart's default holds.
+# chart's default holds. helm-controller does not watch that ConfigMap, so
+# the release reconciles every minute: at 15m kured's release landed 2m19s
+# and 13m07s after the ConfigMap on hw307 (#7922).
 #
 # dependsOn bp-cilium: kured talks to the API server and drains nodes; both
 # need the CNI. The chart comes through the HelmRepository bp-flux of slot 03
@@ -37,7 +39,7 @@ metadata:
     catalyst.openova.io/slot: "04b"
     catalyst.openova.io/ring: foundation
 spec:
-  interval: 15m
+  interval: 1m
   releaseName: kured
   targetNamespace: kube-system
   dependsOn:
