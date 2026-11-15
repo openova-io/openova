@@ -2,6 +2,9 @@
 # bp-kured render and behaviour test; needs bash, helm, python3 with PyYAML and
 # cmp, no cluster. CI runs every chart/tests/*.sh as `bash <script> <chart dir>`.
 # 1: the default render works and leaves nodePatchConfig.image empty.
+#    The DaemonSet kured is created with the install hold (kured's own manual
+#    lock, no time limit) and can run on no control-plane node; node-patch-config
+#    runs on every node. With the lock key set to null the hold is gone.
 # 2: with an image set, the file bodies, node-patch-config and the kured
 #    arguments are as values.yaml states, and the function test meets the
 #    contract of docs/RUNBOOKS.md section 4.5 (scripts/check-function-test.py).
@@ -25,8 +28,12 @@ helm template bp-kured . --namespace kube-system --set nodePatchConfig.image=exa
   || fail "the render with an image errored"
 python3 "$CHECK" --self-test > "$TMP/self-test.txt" || fail "check-function-test.py --self-test failed"
 python3 "$CHECK" --chart bp-kured --release bp-kured < "$TMP/set.yaml" || fail "the function test breaks the contract"
+# What the hand-over chain writes to release the hold (bp-self-sovereign-cutover, values rebootHold).
+printf '%s\n' '{"kured":{"dsAnnotations":{"weave.works/kured-node-lock":null}}}' > "$TMP/release-values.yaml"
+helm template bp-kured . --namespace kube-system --set nodePatchConfig.image=example/shell:1 -f "$TMP/release-values.yaml" > "$TMP/released.yaml" \
+  || fail "the render with the hold released errored"
 python3 - "$TMP" <<'PY' || fail "cases 1 and 2"
-import sys, yaml
+import json, sys, yaml
 tmp = sys.argv[1]
 def docs(name):
     return [d for d in yaml.safe_load_all(open("%s/%s.yaml" % (tmp, name))) if d]
@@ -78,6 +85,23 @@ want = ["--ds-name=kured", "--ds-namespace=kube-system", "--metrics-port=8080", 
 args = kured["containers"][0]["args"]
 assert args == want, "kured arguments:\n  got  %r\n  want %r" % (args, want)
 assert kured["tolerations"] == [{"operator": "Exists"}], "kured tolerations: %r" % kured["tolerations"]
+# The install hold: kured reads this annotation as a lock held by something that is
+# no node, and a lock with TTL 0 never expires (kured: ttl > 0 && age >= ttl).
+LOCK = "weave.works/kured-node-lock"
+assert "--lock-annotation" not in " ".join(args), "kured locks on another annotation than the hold is written to"
+for name in ("default", "set"):
+    held = (one(docs(name), "DaemonSet", "kured")["metadata"].get("annotations") or {}).get(LOCK)
+    assert held is not None, "%s render: the DaemonSet kured has no install hold, so it restarts nodes from its first minute" % name
+    assert json.loads(held) == {"nodeID": "catalyst-install-hold", "TTL": 0}, "%s render: the install hold is %r" % (name, held)
+released = one(docs("released"), "DaemonSet", "kured")["metadata"].get("annotations") or {}
+assert LOCK not in released, "with the lock key set to null the DaemonSet kured still has the hold: %r" % released
+# No control-plane node: a region has one, and its restart is an outage of the region's API server.
+CP = [{"matchExpressions": [{"key": "node-role.kubernetes.io/control-plane", "operator": "DoesNotExist"}]}]
+for name in ("default", "set", "released"):
+    spec = one(docs(name), "DaemonSet", "kured")["spec"]["template"]["spec"]
+    terms = spec.get("affinity", {}).get("nodeAffinity", {}).get("requiredDuringSchedulingIgnoredDuringExecution", {}).get("nodeSelectorTerms")
+    assert terms == CP, "%s render: kured can run on a control-plane node and restart it: nodeSelectorTerms %r" % (name, terms)
+assert "affinity" not in npc and npc["nodeSelector"] == {"kubernetes.io/os": "linux"}, "node-patch-config does not run on every node: %r" % npc.get("affinity")
 open(tmp + "/test.sh", "w").write(one(ds, "Pod", "bp-kured-function-test")["spec"]["containers"][0]["args"][0])
 PY
 

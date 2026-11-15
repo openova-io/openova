@@ -74,6 +74,15 @@ rules:
   - apiGroups: [""]
     resources: ["namespaces"]
     verbs: ["create"]
+  # Agent status read of the mesh step (internal/meshagents): one exec of
+  # `cilium-dbg status` in the agent container of each Pod k8s-app=cilium.
+  # The agent gives its mesh state nowhere in the Kubernetes API, and a
+  # region is "fully meshed" only when its agents say so. An exec is a POST,
+  # hence `create`. Without this verb the Sovereign's own catalyst-api cannot
+  # read its region's agents and reports the region as not connected.
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
 
   # ───────────────────────────────────────────────────────────────
   # READ verbs — get/list/watch on the resources the handler reads.

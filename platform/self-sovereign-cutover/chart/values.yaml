@@ -3574,3 +3574,25 @@ secondaryRegions:
   prewarmJobWaitSeconds: 5700
   # Poll cadence (seconds) for the Harbor-prewarm-Job wait loop above.
   prewarmJobPollSeconds: 15
+
+# ─── The install hold of kured ─────────────────────────────────────────
+# bp-kured (bootstrap-kit slot 04b) creates kured's DaemonSet with kured's own
+# manual lock, so no node is drained or restarted while the kit installs and
+# while this chain runs. The chain's last step, egress-block-test, releases
+# the hold once it has given its verdict: in the primary region and, through
+# the mounted kubeconfigs, in every other region, it creates the ConfigMap
+# below. Slot 04b reads it as Helm values (`valuesFrom`, optional), and the
+# values set the lock annotation to null, so the next reconcile of bp-kured
+# removes it. The ConfigMap is created once and never changed; a re-run of the
+# step finds it and leaves it. A region where the write fails keeps its hold
+# and the step says so in its log.
+#
+# tests/reboot-hold-release.sh runs the rendered release against a recording
+# kubectl, checks that slot 04b names this ConfigMap and key, and renders
+# bp-kured with releaseValues to see the lock gone.
+rebootHold:
+  namespace: flux-system
+  configMapName: bp-kured-install-hold
+  valuesKey: values.yaml
+  # One line of JSON (which is YAML): it is passed to kubectl as one literal.
+  releaseValues: '{"kured":{"dsAnnotations":{"weave.works/kured-node-lock":null}}}'

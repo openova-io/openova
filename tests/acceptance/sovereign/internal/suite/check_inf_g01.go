@@ -21,7 +21,10 @@ import (
 // In a region it:
 //  1. reads the settings of kured from the arguments of DaemonSet
 //     kube-system/kured. A setting that is not an argument fails the step:
-//     the check assumes no default;
+//     the check assumes no default. The step also fails, before any node is
+//     touched, while the DaemonSet carries the install hold of the chart
+//     bp-kured (kured's lock, held by rebootHold): kured restarts no node
+//     until the hand-over chain has released it;
 //  2. reads every upgrade Plan (rebootPlans) of every namespace. Each must
 //     have spec.window with startTime and endTime (HH:MM) and timeZone, and
 //     the window must end at least rebootGap before the reboot span starts
@@ -34,7 +37,10 @@ import (
 //  3. chooses rebootNodes nodes: the first control-plane node by name, then
 //     the first other nodes by name, nodes without the control-plane label
 //     first. Fewer nodes, no control-plane node, or a node that is
-//     unschedulable or not Ready already, fail the step;
+//     unschedulable or not Ready already, fail the step. So does a
+//     DaemonSet that cannot run on control-plane nodes (the default of the
+//     chart bp-kured, which leaves the restart of a region's control-plane
+//     node to a person): the chosen control-plane node would never restart;
 //  4. waits when the reboot span is not open for the whole time limit: until
 //     the span opens the next time, at most rebootMaxWait. A longer wait
 //     fails the step;
@@ -59,6 +65,8 @@ const (
 	rebootNamespace = "kube-system" // of the DaemonSet of kured
 	rebootDaemonSet = "kured"       // also the name of its container
 	rebootVolume    = "sentinel"    // the volume of the DaemonSet with the folder of the sentinel file
+	rebootLock      = "weave.works/kured-node-lock"
+	rebootHold      = "catalyst-install-hold" // who holds the lock while the install hold of bp-kured is in place
 	rebootPlans     = "plans.upgrade.cattle.io"
 	rebootNodes     = 3
 	rebootEvery     = 5 * time.Second
@@ -105,6 +113,7 @@ type rebootSettings struct {
 	start, end             int // minutes of the day in zone
 	zone                   *time.Location
 	span                   string // the reboot span as the arguments write it
+	workersOnly            bool   // the DaemonSet cannot run on control-plane nodes
 	dir, file              string // the folder of the node that holds the sentinel file, and its name
 }
 
@@ -190,6 +199,18 @@ func (c rebootCheck) settings(ctx context.Context, region kube.Region) (rebootSe
 			continue
 		}
 		found = true
+		var lock struct {
+			NodeID string `json:"nodeID"`
+		}
+		if _ = json.Unmarshal([]byte(ds.Str("metadata", "annotations", rebootLock)), &lock); lock.NodeID == rebootHold {
+			return k, fmt.Errorf("DaemonSet %s/%s carries the install hold (annotation %s, held by %s): kured restarts no node until the hand-over chain has released it in this region: no node was touched", rebootNamespace, rebootDaemonSet, rebootLock, rebootHold)
+		}
+		label, _, _ := strings.Cut(secControlPlane, "=")
+		for _, term := range ds.Objects("spec", "template", "spec", "affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms") {
+			for _, e := range term.Objects("matchExpressions") {
+				k.workersOnly = k.workersOnly || (e.Str("key") == label && e.Str("operator") == "DoesNotExist")
+			}
+		}
 		for _, container := range ds.Objects("spec", "template", "spec", "containers") {
 			list, _ := container.Get("args").([]any)
 			for _, a := range list {
@@ -388,6 +409,9 @@ func (c rebootCheck) region(ctx context.Context, region kube.Region, rec StepRec
 	}) && step("three nodes are chosen, one of them a control-plane node, and every node is schedulable and Ready", func(ev Evidence) (err error) {
 		if before, err = c.nodes(ctx, region); err != nil {
 			return err
+		}
+		if k.workersOnly {
+			return fmt.Errorf("DaemonSet %s/%s cannot run on a node with the label %s, so kured never restarts the control-plane node this step chooses: no node was touched", rebootNamespace, rebootDaemonSet, secControlPlane)
 		}
 		chosen, err = rebootChoose(before)
 		ev["nodes"], ev["chosen"] = len(before), chosen

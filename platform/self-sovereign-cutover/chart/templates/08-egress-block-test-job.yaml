@@ -2197,11 +2197,7 @@ data:
                 fresh_pull_fn=run_fresh_pull_proof
               fi
               if ! ${fresh_pull_fn}; then
-                {{- /*
-                 Tear the deny policy down before failing so we never leave
-                 a cluster-wide egressDeny lingering on the Sovereign.
-                */}}
-                kubectl delete ciliumclusterwidenetworkpolicy cutover-egress-block --ignore-not-found=true || true
+                {{- /* POLICY_APPLIED=yes here, so the EXIT trap set at the apply removes the hold. */}}
                 echo "[egress-block-test] FRESH-PULL proof FAILED — sovereignty proof FAILED (cutoverComplete stays false)"
                 exit 1
               fi
@@ -2509,11 +2505,7 @@ data:
             done
 
             echo "[egress-block-test] window complete; new-regression-cycles=${new_failures}"
-            {{- /*
-             Remove the egress-block policy (if applied) BEFORE the verdict
-             so it's torn down on both pass and fail paths — never leave a
-             deny policy lingering on the sovereign cluster.
-            */}}
+            {{- /* Remove the hold BEFORE the verdict, on the pass and the fail path. */}}
             if [ -n "${POLICY_APPLIED}" ]; then
               kubectl delete ciliumclusterwidenetworkpolicy cutover-egress-block --ignore-not-found=true || true
               echo "[egress-block-test] egressDeny removed"
@@ -2541,34 +2533,42 @@ data:
             fi
             {{- /*
              ── #6309 PASS INVARIANT — no PASS without a hold that was APPLIED ─
-             Belt to the FATAL suspenders at the region-A apply above. Every
-             other exit from this script is a measured verdict; the survival
-             loop alone is not, because it measures the SAME thing whether or
-             not any egress was ever denied — already-running pods stay Ready
-             in a cluster with full internet access. So the survival result may
-             only be spoken of as a sovereignty PROOF when POLICY_APPLIED=yes.
-             This is deliberately placed at the verdict rather than only at the
-             apply: it covers EVERY route to an empty POLICY_APPLIED, including
-             ones written later (the zero-public-IPs subtractive fallback above,
-             a future branch that forgets to set the flag), not just the one
-             that was measured on 2026-08-14.
+             Belt to the FATAL at the region-A apply above. The survival loop
+             measures the SAME thing whether or not any egress was denied
+             (running pods stay Ready with full internet access), so its result
+             is a sovereignty PROOF only when POLICY_APPLIED=yes. Placed at the
+             verdict to cover EVERY route to an empty POLICY_APPLIED, also one
+             written later (measured 2026-08-14).
             */}}
+            {{- /*
+             This step is the last of the chain. Past its verdict it releases the
+             install hold of kured in every region (values rebootHold): the ConfigMap
+             is the values document that slot 04b reads, and bp-kured then drops its lock.
+            */}}
+            reboot_hold_release() {
+              for rh_kc in "" /secondary-kubeconfigs/*.yaml; do
+                [ -z "${rh_kc}" ] || [ -e "${rh_kc}" ] || continue
+                kubectl ${rh_kc:+--kubeconfig "${rh_kc}"} -n {{ .Values.rebootHold.namespace }} create configmap {{ .Values.rebootHold.configMapName }} --from-literal={{ .Values.rebootHold.valuesKey }}={{ .Values.rebootHold.releaseValues | squote }} >/dev/null 2>&1 \
+                  || kubectl ${rh_kc:+--kubeconfig "${rh_kc}"} -n {{ .Values.rebootHold.namespace }} get configmap {{ .Values.rebootHold.configMapName }} >/dev/null 2>&1 \
+                  || echo "[egress-block-test] WARNING: the reboot hold of region $(basename "${rh_kc:-primary}" .yaml) is NOT released: ConfigMap {{ .Values.rebootHold.namespace }}/{{ .Values.rebootHold.configMapName }} could not be written, so kured restarts no node there until it exists"
+              done
+            }
             if [ "${POLICY_APPLIED}" != "yes" ]; then
               if [ "${ENFORCE_CIDR_BLOCK}" = "true" ]; then
                 echo "[egress-block-test] FATAL: the ${DURATION_SECONDS}s window completed with NO deny-egress hold applied (POLICY_APPLIED empty) while egressTest.enforceCIDRBlock=true asked for one. Surviving a window that denied nothing proves nothing; refusing to report a sovereignty PASS (#6309). cutoverComplete stays false." >&2
                 exit 1
               fi
               {{- /*
-               enforceCIDRBlock=false is an explicit operator opt-out (chart
-               default and the slot-06a overlay both ship `true`, and
-               tests/cutover-contract.sh already fails a PR that unpins the
-               overlay). The opt-out survives — what does NOT survive is calling
-               its result a proof. The word PASSED is never printed here.
+               enforceCIDRBlock=false is an explicit opt-out (the chart and slot 06a
+               ship `true`; tests/cutover-contract.sh fails an unpinned overlay). Its
+               result is never called a proof: the word PASSED is not printed here.
               */}}
               echo "[egress-block-test] no new regressions during ${DURATION_SECONDS}s window (all $((secondary_kubeconfig_count + 1)) region(s)) — but egressTest.enforceCIDRBlock=false, so NO egress was ever denied: this is a survival poll, NOT the ADR-0002 sovereignty proof (#6309)"
+              reboot_hold_release
               exit 0
             fi
             echo "[egress-block-test] no new regressions during ${DURATION_SECONDS}s window (all $((secondary_kubeconfig_count + 1)) region(s)) — sovereignty proof PASSED"
+            reboot_hold_release
         resources:
           requests: { cpu: 50m, memory: 64Mi }
           limits:   { memory: 256Mi }
