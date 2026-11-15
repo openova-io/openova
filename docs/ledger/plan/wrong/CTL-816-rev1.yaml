@@ -1,0 +1,19 @@
+schema: openova.io/plan-wrong/v1
+id: CTL-816
+ticket_rev: 1
+base_commit: f3e6a342e3f17c6ca6ed4aa919f3e1510371f96c
+stage: scope
+ref: fence run
+command: |
+    python3 scripts/plan.py check-pr --base origin/main --head HEAD --body-file /tmp/CTL-816-body.md; echo "exit code: $?"
+expected: |
+    The last line must be `exit code: 0`.
+actual: |
+    rule 7: register rule 3: core/controllers/application/internal/controller/application_controller_serving.go is in entry application-controller, whose policy is closed; only FND-900 may change it
+    rule 7: register rule 3: core/controllers/application/internal/controller/application_controller_serving_d7_test.go is in entry application-controller, whose policy is closed; only FND-900 may change it
+    rule 7: register rule 3: core/controllers/continuum/cmd/main.go is in entry topology-continuum, whose policy is closed; only FND-900 may change it
+    rule 7: register rule 3: core/controllers/continuum/internal/observe/observe.go is in entry topology-continuum, whose policy is closed; only FND-900 may change it
+    rule 7: register rule 3: core/controllers/continuum/internal/observe/observe_test.go is in entry topology-continuum, whose policy is closed; only FND-900 may change it
+    rule 7: register rule 3: products/continuum/chart/templates/rbac.yaml is in entry topology-continuum, whose policy is closed; only FND-900 may change it
+    exit code: 1
+reported_at: 2026-11-15T02:03:20Z
