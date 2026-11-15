@@ -3537,12 +3537,17 @@ secondaryRegions:
 # below. Slot 04b reads it as Helm values (`valuesFrom`, optional). Its one
 # value tells kured to take its lock in kured's own default annotation, which
 # bp-kured never writes, in place of the annotation that holds the install
-# hold; the next reconcile of bp-kured rolls kured with it. The value is a
-# plain string, so every Helm version merges it the same way (a null that
-# removes a key of a subchart is not kept by all of them).
+# hold. helm-controller does not watch the ConfigMap, so the step then
+# requests a reconcile of the HelmRelease below, which rolls kured with it at
+# once instead of at the release's next interval (15m; #7922 measured 2m19s
+# and 13m07s). The same value turns the annotation that held the hold into
+# the word "released", so the DaemonSet no longer reads as held to a person
+# or a watcher (kured reads it no more). Each value is a plain string, so
+# every Helm version merges it the same way (a null that removes a key of a
+# subchart is not kept by all of them).
 # The ConfigMap is created once and never changed; a re-run of the
-# step finds it and leaves it. A region where the write fails keeps its hold
-# and the step says so in its log.
+# step finds it and leaves it. The step prints one line per region: released,
+# or a WARNING naming the region whose write or reconcile request failed.
 #
 # tests/reboot-hold-release.sh runs the rendered release against a recording
 # kubectl, checks that slot 04b names this ConfigMap and key, and renders
@@ -3551,5 +3556,7 @@ rebootHold:
   namespace: flux-system
   configMapName: bp-kured-install-hold
   valuesKey: values.yaml
+  # The HelmRelease of slot 04b (in the namespace above) that reads the ConfigMap.
+  helmReleaseName: bp-kured
   # One line of JSON (which is YAML): it is passed to kubectl as one literal.
-  releaseValues: '{"kured":{"configuration":{"lockAnnotation":"weave.works/kured-node-lock"}}}'
+  releaseValues: '{"kured":{"configuration":{"lockAnnotation":"weave.works/kured-node-lock"},"dsAnnotations":{"catalyst.openova.io/kured-install-hold":"released"}}}'

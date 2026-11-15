@@ -2607,13 +2607,24 @@ data:
              This step is the last of the chain. Past its verdict it releases the
              install hold of kured in every region (values rebootHold): the ConfigMap
              is the values document that slot 04b reads, and bp-kured then drops its lock.
+             helm-controller does not watch that ConfigMap, so the release waited for
+             bp-kured's next interval (15m; measured 2m19s and 13m07s on hw307, #7922):
+             the step requests the reconcile at once and says per region what it did.
             */}}
             reboot_hold_release() {
               for rh_kc in "" /secondary-kubeconfigs/*.yaml; do
                 [ -z "${rh_kc}" ] || [ -e "${rh_kc}" ] || continue
-                kubectl ${rh_kc:+--kubeconfig "${rh_kc}"} -n {{ .Values.rebootHold.namespace }} create configmap {{ .Values.rebootHold.configMapName }} --from-literal={{ .Values.rebootHold.valuesKey }}={{ .Values.rebootHold.releaseValues | squote }} >/dev/null 2>&1 \
-                  || kubectl ${rh_kc:+--kubeconfig "${rh_kc}"} -n {{ .Values.rebootHold.namespace }} get configmap {{ .Values.rebootHold.configMapName }} >/dev/null 2>&1 \
-                  || echo "[egress-block-test] WARNING: the reboot hold of region $(basename "${rh_kc:-primary}" .yaml) is NOT released: ConfigMap {{ .Values.rebootHold.namespace }}/{{ .Values.rebootHold.configMapName }} could not be written, so kured restarts no node there until it exists"
+                rh_region=$(basename "${rh_kc:-primary}" .yaml)
+                if kubectl ${rh_kc:+--kubeconfig "${rh_kc}"} -n {{ .Values.rebootHold.namespace }} create configmap {{ .Values.rebootHold.configMapName }} --from-literal={{ .Values.rebootHold.valuesKey }}={{ .Values.rebootHold.releaseValues | squote }} >/dev/null 2>&1 \
+                  || kubectl ${rh_kc:+--kubeconfig "${rh_kc}"} -n {{ .Values.rebootHold.namespace }} get configmap {{ .Values.rebootHold.configMapName }} >/dev/null 2>&1; then
+                  if kubectl ${rh_kc:+--kubeconfig "${rh_kc}"} -n {{ .Values.rebootHold.namespace }} annotate --overwrite helmrelease {{ .Values.rebootHold.helmReleaseName }} "reconcile.fluxcd.io/requestedAt=$(date +%s)" >/dev/null 2>&1; then
+                    echo "[egress-block-test] reboot hold released in region ${rh_region}: ConfigMap {{ .Values.rebootHold.namespace }}/{{ .Values.rebootHold.configMapName }} present, reconcile of HelmRelease {{ .Values.rebootHold.namespace }}/{{ .Values.rebootHold.helmReleaseName }} requested"
+                  else
+                    echo "[egress-block-test] WARNING: the reboot hold of region ${rh_region} is released in ConfigMap {{ .Values.rebootHold.namespace }}/{{ .Values.rebootHold.configMapName }}, but the reconcile of HelmRelease {{ .Values.rebootHold.namespace }}/{{ .Values.rebootHold.helmReleaseName }} could not be requested: kured keeps its hold until that release's next interval"
+                  fi
+                else
+                  echo "[egress-block-test] WARNING: the reboot hold of region ${rh_region} is NOT released: ConfigMap {{ .Values.rebootHold.namespace }}/{{ .Values.rebootHold.configMapName }} could not be written, so kured restarts no node there until it exists"
+                fi
               done
             }
             if [ "${POLICY_APPLIED}" != "yes" ]; then
