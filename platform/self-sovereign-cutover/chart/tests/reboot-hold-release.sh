@@ -13,18 +13,17 @@
 #       exits with status 0 and nowhere before a failing exit;
 #   (b) EXECUTION of the rendered release against a recording kubectl: one
 #       create per region (the primary and each mounted kubeconfig), into the
-#       namespace, name and key of values.yaml, each followed by a reconcile
-#       request of the HelmRelease that reads it (#7922: helm-controller does
-#       not watch the ConfigMap, so without it the release waited up to the
-#       15-minute interval); one "released" line per region; an existing
-#       ConfigMap is left and is no error; a region where the write or the
-#       reconcile request fails is named in a WARNING and the step still ends
-#       with status 0;
-#   (c) slot 04b reads exactly that ConfigMap and key, optional;
+#       namespace, name and key of values.yaml; one "released" line per region
+#       (#7922: the step said nothing when it worked); an existing ConfigMap is
+#       left and is no error; a region where the write fails is named in a
+#       WARNING, gets no "released" line, and the step still ends with status 0;
+#   (c) slot 04b reads exactly that ConfigMap and key, optional, and reconciles
+#       every minute (#7922: helm-controller does not watch the ConfigMap, and at
+#       15m the release landed 2m19s and 13m07s after it on hw307);
 #   (d) bp-kured rendered with the released values makes kured lock in an
 #       annotation that holds nothing, and rendered without them in the one
 #       that holds the install hold; with them the annotation that held the
-#       hold reads "released" (#7922: it read as held after the release). Needs the dependency of
+#       hold reads "released" (#7922: the DaemonSet read as held after it). Needs the dependency of
 #       platform/kured/chart; without network access this part says so and fails.
 #
 # Usage: bash tests/reboot-hold-release.sh [CHART_DIR]
@@ -73,10 +72,10 @@ m = re.search(r"^reboot_hold_release\(\) \{\n.*?^\}\n", script, re.S | re.M)
 assert m, "no function reboot_hold_release"
 open(tmp + "/release.sh", "w").write(m.group(0))
 values = yaml.safe_load(open(chart + "/values.yaml"))["rebootHold"]
-open(tmp + "/values.txt", "w").write("%s\n%s\n%s\n%s\n" % (values["namespace"], values["configMapName"], values["valuesKey"], values.get("helmReleaseName", "bp-kured")))
+open(tmp + "/values.txt", "w").write("%s\n%s\n%s\n" % (values["namespace"], values["configMapName"], values["valuesKey"]))
 open(tmp + "/release-values.yaml", "w").write(values["releaseValues"] + "\n")
 PY
-{ read -r NS; read -r NAME; read -r KEY; read -r HR; } <"${TMP}/values.txt"
+{ read -r NS; read -r NAME; read -r KEY; } <"${TMP}/values.txt"
 
 echo "[reboot-hold] (a) the release runs only where the chain ends well"
 read -r order last <"${TMP}/orders.txt"
@@ -104,7 +103,7 @@ PY
 echo "[reboot-hold] (b) the rendered release, run against a recording kubectl"
 mkdir -p "${TMP}/bin" "${TMP}/kc"
 : >"${TMP}/kc/me-east-b-1.yaml"; : >"${TMP}/kc/me-east-c-1.yaml"
-# The stub records every call. CREATE_FAILS / GET_FAILS / ANNOTATE_FAILS hold the regions where that verb fails.
+# The stub records every call. CREATE_FAILS / GET_FAILS hold the regions where that verb fails.
 cat >"${TMP}/bin/kubectl" <<'STUB'
 #!/bin/sh
 region=primary
@@ -113,57 +112,52 @@ printf '%s|%s\n' "${region}" "$*" >>"${RECORD}"
 case " $* " in
   *" create configmap "*) case " ${CREATE_FAILS:-} " in *" ${region} "*) echo "error: configmaps already exists or the API is away" >&2; exit 1;; esac;;
   *" get configmap "*) case " ${GET_FAILS:-} " in *" ${region} "*) echo "Error from server (NotFound)" >&2; exit 1;; esac;;
-  *" annotate "*) case " ${ANNOTATE_FAILS:-} " in *" ${region} "*) echo "Error from server (Forbidden)" >&2; exit 1;; esac;;
 esac
 exit 0
 STUB
 chmod +x "${TMP}/bin/kubectl"
 sed "s#/secondary-kubeconfigs/#${TMP}/kc/#g" "${TMP}/release.sh" >"${TMP}/release-local.sh"
 printf 'reboot_hold_release\n' >>"${TMP}/release-local.sh"
-run_release() { # $1 = regions whose create fails, $2 = regions whose get fails, $3 = regions whose annotate fails
+run_release() { # $1 = regions whose create fails, $2 = regions whose get fails
   : >"${TMP}/record.txt"
-  RECORD="${TMP}/record.txt" CREATE_FAILS="$1" GET_FAILS="$2" ANNOTATE_FAILS="${3:-}" PATH="${TMP}/bin:${PATH}" sh -eu "${TMP}/release-local.sh" >"${TMP}/out.txt" 2>&1
+  RECORD="${TMP}/record.txt" CREATE_FAILS="$1" GET_FAILS="$2" PATH="${TMP}/bin:${PATH}" sh -eu "${TMP}/release-local.sh" >"${TMP}/out.txt" 2>&1
 }
-# The reconcile request of one region, its time stamp replaced by T.
-calls() { sed -E 's#(reconcile\.fluxcd\.io/requestedAt=)[0-9]+#\1T#' "${TMP}/record.txt"; }
-released() { grep -c "reboot hold released in region .*: ConfigMap ${NS}/${NAME} present, reconcile of HelmRelease ${NS}/${HR} requested" "${TMP}/out.txt"; }
 
 if run_release "" ""; then pass "the release ends with status 0"; else fail "the release ended non-zero: $(cat "${TMP}/out.txt")"; fi
-want=""
-for r in primary me-east-b-1 me-east-c-1; do
-  want="${want}${r}|-n ${NS} create configmap ${NAME} --from-literal=${KEY}=$(cat "${TMP}/release-values.yaml")
-${r}|-n ${NS} annotate --overwrite helmrelease ${HR} reconcile.fluxcd.io/requestedAt=T
-"
-done
-want="${want%
-}"
-if [ "$(calls)" = "${want}" ]; then pass "per region (the primary and both mounted kubeconfigs): one create of ${NS}/${NAME} key ${KEY}, then a reconcile request of HelmRelease ${NS}/${HR}"; else fail "the calls differ. got:
-$(calls)
+want="primary|-n ${NS} create configmap ${NAME} --from-literal=${KEY}=$(cat "${TMP}/release-values.yaml")
+me-east-b-1|-n ${NS} create configmap ${NAME} --from-literal=${KEY}=$(cat "${TMP}/release-values.yaml")
+me-east-c-1|-n ${NS} create configmap ${NAME} --from-literal=${KEY}=$(cat "${TMP}/release-values.yaml")"
+if [ "$(cat "${TMP}/record.txt")" = "${want}" ]; then pass "one create per region: the primary and both mounted kubeconfigs, ${NS}/${NAME} key ${KEY}"; else fail "the calls differ. got:
+$(cat "${TMP}/record.txt")
 want:
 ${want}"; fi
-if [ "$(released)" = 3 ] && [ "$(wc -l <"${TMP}/out.txt")" = 3 ]; then pass "one 'released' line per region, nothing else, when every region is written"; else fail "output on the good path: $(cat "${TMP}/out.txt")"; fi
+released() { grep -c "reboot hold released in region .*: ConfigMap ${NS}/${NAME} present" "${TMP}/out.txt"; }
+if [ "$(released)" = 3 ] && [ "$(wc -l <"${TMP}/out.txt")" = 3 ] \
+   && grep -q "released in region primary:" "${TMP}/out.txt" && grep -q "released in region me-east-c-1:" "${TMP}/out.txt"; then
+  pass "one 'released' line per region, nothing else, when every region is written"
+else fail "output on the good path: $(cat "${TMP}/out.txt")"; fi
 
 if run_release "primary me-east-b-1 me-east-c-1" "" && [ "$(released)" = 3 ] && ! grep -q WARNING "${TMP}/out.txt" \
-   && [ "$(grep -c ' get configmap ' "${TMP}/record.txt")" = 3 ] && [ "$(grep -c ' annotate --overwrite helmrelease ' "${TMP}/record.txt")" = 3 ]; then
-  pass "a re-run finds the ConfigMap in every region, still requests each reconcile: status 0, no warning"
+   && [ "$(grep -c ' get configmap ' "${TMP}/record.txt")" = 3 ]; then
+  pass "a re-run finds the ConfigMap in every region: status 0, no warning, each region said released"
 else fail "a re-run with the ConfigMap present: $(cat "${TMP}/out.txt")"; fi
 
 if run_release "me-east-b-1" "me-east-b-1"; then
   if grep -q "WARNING: the reboot hold of region me-east-b-1 is NOT released" "${TMP}/out.txt" && [ "$(grep -c WARNING "${TMP}/out.txt")" = 1 ] \
-     && [ "$(released)" = 2 ] && ! grep -q '^me-east-b-1|.* annotate ' "${TMP}/record.txt" \
+     && [ "$(released)" = 2 ] && ! grep -q "released in region me-east-b-1:" "${TMP}/out.txt" \
      && grep -q '^me-east-c-1|.* create configmap ' "${TMP}/record.txt"; then
-    pass "a region that cannot be written is named in one WARNING and gets no reconcile request, the next region is still written, status 0"
+    pass "a region that cannot be written is named in one WARNING and not said released, the next region is still written, status 0"
   else fail "a failed region: output: $(cat "${TMP}/out.txt")"; fi
 else fail "a failed region made the step fail after its verdict"; fi
 
-if run_release "" "" "me-east-c-1"; then
-  if grep -q "WARNING: the reboot hold of region me-east-c-1 is released in ConfigMap ${NS}/${NAME}, but the reconcile of HelmRelease ${NS}/${HR} could not be requested" "${TMP}/out.txt" \
-     && [ "$(grep -c WARNING "${TMP}/out.txt")" = 1 ] && [ "$(released)" = 2 ]; then
-    pass "a region whose reconcile request fails is named in one WARNING, status 0"
-  else fail "a failed reconcile request: output: $(cat "${TMP}/out.txt")"; fi
-else fail "a failed reconcile request made the step fail after its verdict"; fi
-
 echo "[reboot-hold] (c) slot 04b reads the ConfigMap the step writes"
+python3 - "${SLOT}" <<'PY' && pass "slot 04b reconciles every minute, so the release lands within a minute of the ConfigMap" || fail "slot 04b reconciles less often than every minute: helm-controller does not watch the ConfigMap, so the hold outlives the chain by up to that interval"
+import re, sys, yaml
+[hr] = [d for d in yaml.safe_load_all(open(sys.argv[1])) if d and d.get("kind") == "HelmRelease"]
+m = re.fullmatch(r"(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?", str(hr["spec"].get("interval", "")))
+seconds = (int(m.group(1) or 0) * 3600 + int(m.group(2) or 0) * 60 + int(m.group(3) or 0)) if m and any(m.groups()) else 10 ** 9
+sys.exit(0 if seconds <= 60 else 1)
+PY
 python3 - "${SLOT}" "${NS}" "${NAME}" "${KEY}" <<'PY' && pass "slot 04b: valuesFrom ConfigMap ${NS}/${NAME}, key ${KEY}, optional" || fail "slot 04b does not read ${NS}/${NAME} key ${KEY} as optional values"
 import sys, yaml
 slot, ns, name, key = sys.argv[1:5]
