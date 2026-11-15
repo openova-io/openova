@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-15T01:00:03Z` |
+| Last refreshed | `2026-11-15T01:15:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,12 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7657](https://github.com/openova-io/openova/issues/7657) | PRD-800 Adapter template for a second bank | Other |
-| [#7658](https://github.com/openova-io/openova/issues/7658) | SEC-127 The k3s bootstrap-flags test pins its checkout action by commit hash and | Other |
-| [#7665](https://github.com/openova-io/openova/issues/7665) | ACC-050 Truth in the access documents | Other |
-| [#7666](https://github.com/openova-io/openova/issues/7666) | AIP-041 The quota model of an Organization follows the gateway Pod without the m | Other |
-| [#7667](https://github.com/openova-io/openova/issues/7667) | CTL-038 The API accepts a Job's service-account token, confined to one Organizat | Other |
-| [#7668](https://github.com/openova-io/openova/issues/7668) | FND-019 The release writer moves the pin of a chart that several kit slots insta | Other |
 | [#7669](https://github.com/openova-io/openova/issues/7669) | FND-024 The deploy-bump action and its 20 callers push under the release-writer  | Other |
 | [#7670](https://github.com/openova-io/openova/issues/7670) | FND-900 Topology soak fixes (standing package) | Other |
 | [#7671](https://github.com/openova-io/openova/issues/7671) | INF-112 Chart templates and image for the inventory controller | Other |
@@ -300,6 +294,12 @@ flowchart LR
 | [#7864](https://github.com/openova-io/openova/issues/7864) | FND-028 Four image builds and the catalog build are green on main again | Other |
 | [#7865](https://github.com/openova-io/openova/issues/7865) | INF-052 Check INF-G01: upgrade windows and recovery; set to required | Other |
 | [#7866](https://github.com/openova-io/openova/issues/7866) | INF-053 Capability flag node-reboot: a gate run restarts nodes only when it decl | Other |
+| [#7881](https://github.com/openova-io/openova/issues/7881) | AIP-111 Move the sidecar, take identity from the gateway, publish quantity | Other |
+| [#7882](https://github.com/openova-io/openova/issues/7882) | CTL-230 Batch F: resource browser | Other |
+| [#7883](https://github.com/openova-io/openova/issues/7883) | FND-029 A published chart version is never published again with other content | Other |
+| [#7884](https://github.com/openova-io/openova/issues/7884) | FND-064 Custody procedure of the release key, safe rotation, and the pre-live st | Other |
+| [#7885](https://github.com/openova-io/openova/issues/7885) | FND-151 The suite as an image, with the self selection | Other |
+| [#7886](https://github.com/openova-io/openova/issues/7886) | SEC-095 Exception register, source guard and Secret census | Other |
 
 ---
 
