@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-15T23:15:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-11-15T23:30:02Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7678](https://github.com/openova-io/openova/issues/7678) | SVC-090 Function tests: network, names and edge charts | Other |
-| [#7689](https://github.com/openova-io/openova/issues/7689) | The admission rule for ExternalSecret keys refuses every request on a running cl | Other |
 | [#7692](https://github.com/openova-io/openova/issues/7692) | FND-039 The suite writes the provision block of a cloud record | Other |
 | [#7698](https://github.com/openova-io/openova/issues/7698) | AIP-221 Service skeleton, schema with migrations, outbox table, health | Other |
 | [#7699](https://github.com/openova-io/openova/issues/7699) | BSS-141 The cost-source credential is never a Kubernetes Secret | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#7909](https://github.com/openova-io/openova/issues/7909) | a fresh Sovereign: the billing engine publishes no offer, the storefront silentl | Other |
 | [#7912](https://github.com/openova-io/openova/issues/7912) | a fresh two-region Sovereign: the second gate run's failures traced to source (O | Other |
 | [#7922](https://github.com/openova-io/openova/issues/7922) | flight 3: defects that healed alone | Other |
+| [#7936](https://github.com/openova-io/openova/issues/7936) | SOV-175 The Sovereign object gets its writer | Other |
+| [#7938](https://github.com/openova-io/openova/issues/7938) | Deliver a later release candidate to a Sovereign that has cut over | Other |
 
 ---
 
