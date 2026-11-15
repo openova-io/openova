@@ -76,6 +76,17 @@ var CopiedSecrets = []CopiedSecret{
 	// keeps an existing value (lookup), so the copy is stable. The failed
 	// Jobs are run again by rerunFailedReaders.
 	{Namespace: "harbor", Name: "harbor-admin"},
+	// #7908. The key pair Harbor's core signs registry tokens with, and
+	// verifies presented tokens with. The registry's public name sends the
+	// requests of one push to both regions, so a token signed by one region's
+	// key is dropped by the other (`token signature is invalid`), the request
+	// is anonymous and the push is refused. One key for the Sovereign: the
+	// primary's, which cert-manager issues there
+	// (platform/harbor/chart/templates/token-key-certificate.yaml). A follower
+	// issues none, and its core cannot start before this copy. The core reads
+	// the key once, from a subPath mount; when the copy changes, bp-reloader
+	// rolls it (its pod template names this Secret).
+	{Namespace: "harbor", Name: "harbor-token-key"},
 }
 
 // Follower is one follower region as the orchestrator reaches it.
