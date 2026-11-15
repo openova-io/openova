@@ -104,6 +104,14 @@ func isComponentInapplicable(provider, componentID string) bool {
 	return gated[componentID]
 }
 
+// ComponentApplicable reports whether a component can reach "installed" on
+// the given provider, by the same explicit list the region census uses. The
+// every-region gate asks it per release, so a release that is gated off for
+// the provider never holds a deployment back from ready.
+func ComponentApplicable(provider, componentID string) bool {
+	return !isComponentInapplicable(normalizeProvider(provider), componentID)
+}
+
 // filterApplicable returns a copy of states with provider-inapplicable
 // components dropped (#4086). The input map is never mutated. A nil/empty input
 // returns nil so countInstalled's nil-map path (0/0) is preserved. When the

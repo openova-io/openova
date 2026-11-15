@@ -143,6 +143,114 @@ describe('JobsPage — #3646 honest list (no phantom lifecycle rows)', () => {
   })
 })
 
+describe('JobsPage — no ready banner above rows or regions that are not ready (#7902)', () => {
+  const READY_STATE = {
+    id: DEP_ID,
+    status: 'ready',
+    sovereignFQDN: 't120.omani.works',
+    handoverURL: HANDOVER_URL,
+    handoverFiredAt: '2026-11-15T06:15:24Z',
+    phase1Outcome: 'ready',
+  }
+
+  function stubFetch(state: Record<string, unknown>, jobs: unknown[]) {
+    globalThis.fetch = ((input: RequestInfo | URL) => {
+      const url = String(input)
+      const body = /\/jobs(\?|$)/.test(url)
+        ? { jobs }
+        : { events: [], state, done: true }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(body),
+      } as unknown as Response)
+    }) as typeof fetch
+  }
+
+  function installRow(name: string, status: string) {
+    return {
+      id: `${DEP_ID}:${name}`,
+      jobName: name,
+      displayName: name,
+      type: 'install',
+      kind: 'install',
+      appId: name.replace(/^install-/, ''),
+      parentId: '',
+      dependsOn: [],
+      childIds: [],
+      status,
+      startedAt: '2026-11-15T05:00:00Z',
+      finishedAt: status === 'succeeded' ? '2026-11-15T05:10:00Z' : null,
+      durationMs: 0,
+    }
+  }
+
+  it('a region short of its releases: the notice names it, there is no countdown and no redirect', async () => {
+    stubFetch(
+      {
+        ...READY_STATE,
+        secondaryDegraded: true,
+        regions: [
+          { region: 'region-a', primary: true, hrReady: 67, hrTotal: 67, degraded: false },
+          { region: 'region-b', primary: false, hrReady: 55, hrTotal: 63, degraded: true },
+        ],
+      },
+      [],
+    )
+    const original = window.location
+    const assignSpy = vi.fn()
+    delete (window as { location?: Location }).location
+    ;(window as unknown as { location: Partial<Location> }).location = {
+      ...original,
+      assign: assignSpy as unknown as Location['assign'],
+    } as Location
+    try {
+      // The redirect is ENABLED: only the ready claim may stop it.
+      renderJobs({ disableHandoverAutoRedirect: false })
+      const notice = await screen.findByTestId('sov-jobs-handover-not-ready')
+      expect(notice.textContent).toContain('Not every region is installed yet')
+      expect(notice.textContent).toContain('Region region-b: 55 of 63 releases installed')
+      expect(notice.textContent).not.toContain('Sovereign is ready')
+      expect(screen.getByTestId('sov-jobs-handover-not-ready-cta').getAttribute('href')).toBe(HANDOVER_URL)
+      expect(screen.queryByTestId('sov-jobs-handover-redirect-banner')).toBeNull()
+      expect(screen.queryByTestId('sov-jobs-handover-redirect-countdown')).toBeNull()
+      await new Promise((resolve) => setTimeout(resolve, 4200))
+      expect(assignSpy).not.toHaveBeenCalled()
+    } finally {
+      ;(window as unknown as { location: Location }).location = original
+    }
+  }, 10000)
+
+  it('its own install rows still Running: no ready banner above them', async () => {
+    stubFetch(READY_STATE, [
+      installRow('install-cilium', 'succeeded'),
+      installRow('install-region-b:keycloak', 'running'),
+      installRow('install-region-b:harbor', 'failed'),
+    ])
+    renderJobs({ disableHandoverAutoRedirect: true, disableJobsBackfill: false })
+    const notice = await screen.findByTestId('sov-jobs-handover-not-ready')
+    expect(notice.textContent).toContain('Release installs: 1 still installing, 1 failed')
+    expect(screen.queryByTestId('sov-jobs-handover-redirect-banner')).toBeNull()
+  })
+
+  it('every install row succeeded and no region short: the ready banner shows', async () => {
+    stubFetch(
+      {
+        ...READY_STATE,
+        regions: [
+          { region: 'region-a', primary: true, hrReady: 67, hrTotal: 67, degraded: false },
+          { region: 'region-b', primary: false, hrReady: 63, hrTotal: 63, degraded: false },
+        ],
+      },
+      [installRow('install-cilium', 'succeeded'), installRow('install-region-b:keycloak', 'succeeded')],
+    )
+    renderJobs({ disableHandoverAutoRedirect: true, disableJobsBackfill: false })
+    const banner = await screen.findByTestId('sov-jobs-handover-redirect-banner')
+    expect(banner.textContent).toContain('Sovereign is ready')
+    expect(screen.queryByTestId('sov-jobs-handover-not-ready')).toBeNull()
+  })
+})
+
 describe('JobsPage — Gap D: handover redirect banner', () => {
   it('renders the 3-2-1 countdown banner with the canonical handoverURL when handover has fired', async () => {
     renderJobs({ disableHandoverAutoRedirect: true })

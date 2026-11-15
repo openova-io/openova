@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"maps"
 	"os"
 	"sort"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/tools/clientcmd"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/crossregion"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
 )
 
@@ -142,6 +144,16 @@ func (h *Handler) runConvergedLateRescue(dep *Deployment) {
 	if stillFailed := notRecoveredFailedComponents(dep, readyIDs); len(stillFailed) > 0 {
 		h.log.Info("converged-late: record stays failed — component(s) it recorded as failed are not observed Ready on the live cluster",
 			"id", dep.ID, "ready", ready, "total", total, "stillFailed", stillFailed)
+		return
+	}
+
+	// #7902: ready means every region; the census above is the primary's alone.
+	dep.mu.Lock()
+	recorded, provider := maps.Clone(dep.secondaryKubeconfigPaths), dep.Request.Provider
+	dep.mu.Unlock()
+	followers := crossregion.FollowerKubeconfigs(h.kubeconfigsDir, dep.ID, recorded)
+	if short := crossregion.Shortfall(context.Background(), followers, provider, h.clusterMeshDynamicClient, clusterMeshCallTimeout); len(short) > 0 {
+		h.log.Info("converged-late: record stays failed — the primary region converged, another region has not", "id", dep.ID, "regions", short)
 		return
 	}
 

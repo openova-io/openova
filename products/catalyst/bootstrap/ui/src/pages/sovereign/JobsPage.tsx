@@ -84,6 +84,7 @@ import { DETECTED_MODE } from '@/shared/lib/detectMode'
 import type { Job, JobKind } from '@/lib/jobs.types'
 import { jobKind } from '@/lib/jobs.types'
 import { HandoverRedirectBanner } from './HandoverRedirectBanner'
+import { readyClaim } from './readyClaim'
 import { HANDOVER_REDIRECT_BANNER_CSS } from './HandoverRedirectBanner.css'
 
 /* ── View mode (List ⇄ Graph toggle, P1b Refs #6703) ─────────────── */
@@ -192,6 +193,13 @@ export function JobsPage({
   const handoverURL = handoverReady?.handoverURL ?? ''
   const handoverActive =
     handoverReady !== null && handoverURL !== '' && !isSovereignMode
+  // #7902 defect 8 — the banner sits above this page's own rows. It may say
+  // "ready" only when the record's regions and the AUTHORITATIVE backend rows
+  // agree (never the reducer first-paint, whose rows are provisional).
+  const claim = useMemo(
+    () => readyClaim(snapshot, liveBackfillActive ? liveJobs : undefined),
+    [snapshot, liveBackfillActive, liveJobs],
+  )
 
   /* ── View + kind resolution (P1b — mirror /cloud UX) ───────────── */
   // Chroot-aware nav target: on the mothership monitor surface every link
@@ -301,6 +309,7 @@ export function JobsPage({
         active={handoverActive}
         sovereignFQDN={sovereignFQDN}
         disableAutoRedirect={disableHandoverAutoRedirect}
+        notReadyReasons={claim.reasons}
       />
 
       {liveBackfillActive ? (

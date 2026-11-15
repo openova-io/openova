@@ -203,6 +203,34 @@ describe('buildJobsTreemapData — progress buckets by STATE (#4731 amend)', () 
     expect(KIND_STAGES.lifecycle.order).toBeLessThan(KIND_STAGES.install.order)
   })
 
+  it('#7902 — a kind this console does not know gets a bucket instead of a crash', () => {
+    // The API is rolled separately from the console and can send a kind
+    // added after this build. On 15 November 2026 a console of 2 September
+    // received `application` rows and the provisioning dashboard threw
+    // "Cannot read properties of undefined (reading 'order')".
+    const jobs = [
+      ...fullInventoryJobs(),
+      J({
+        id: `${DEP}:future-row`,
+        jobName: 'future-row',
+        kind: 'kind-from-a-newer-api' as never,
+        status: 'running',
+      }),
+    ]
+    for (const layers of [PROVISIONING_DEFAULT_LAYERS, ['kind'] as const]) {
+      expect(() => buildJobsTreemapData(jobs, layers)).not.toThrow()
+    }
+    const byKind = buildJobsTreemapData(jobs, ['kind'])
+    const names = byKind.items.map((i) => i.name)
+    // Named by its own word, after every known kind; the known order holds.
+    expect(names).toEqual([
+      'OpenTofu', 'HelmRelease', 'Kustomization', 'Job (step)', 'CronJob', 'Deployment',
+      'kind-from-a-newer-api',
+    ])
+    const unknown = bucketByName(byKind.items, 'kind-from-a-newer-api')
+    expect(leafByJobId(unknown?.children ?? [], `${DEP}:future-row`)?.statusKind).toBe('in-progress')
+  })
+
   it('treemap tiles lead with the COMPONENT, not the "Install" verb (#leaf-name)', () => {
     // The narrow tiles truncate; every "Install <x>" collapsed to "Instal…"
     // and the HelmReleases were indistinguishable (founder 2026-08-30). The

@@ -85,6 +85,52 @@ export interface HandoverRedirectBannerProps {
    * button assertions work without faking timers / window.location.
    */
   disableAutoRedirect?: boolean
+  /**
+   * What on this page contradicts "ready" (see `readyClaim.ts`): a region
+   * short of its releases, install rows still running or failed. When
+   * non-empty the banner makes no ready claim and starts no redirect: it
+   * names the contradictions and keeps the link, because the hand-over has
+   * fired and the console is reachable. #7902 defects 6 and 8.
+   */
+  notReadyReasons?: readonly string[]
+}
+
+/**
+ * The banner of a deployment whose hand-over has fired while the page's own
+ * record or rows say it is not ready. No countdown, no redirect, no "ready".
+ */
+function HandoverNotReadyNotice(props: HandoverRedirectBannerProps) {
+  const { handoverURL, sovereignFQDN, notReadyReasons = [] } = props
+  if (handoverURL === '') return null
+  return (
+    <div
+      className="handover-redirect-banner"
+      data-testid="sov-jobs-handover-not-ready"
+      role="status"
+    >
+      <div className="handover-redirect-body">
+        <span className="handover-redirect-title">
+          Not every region is installed yet{sovereignFQDN ? ` — ${sovereignFQDN}` : ''}
+        </span>
+        <span
+          className="handover-redirect-sub"
+          data-testid="sov-jobs-handover-not-ready-reasons"
+        >
+          {notReadyReasons.join('. ')}. The Sovereign console is reachable; this
+          page stays here until the rest is installed.
+        </span>
+      </div>
+      <div className="handover-redirect-actions">
+        <a
+          className="handover-redirect-cta"
+          href={handoverURL}
+          data-testid="sov-jobs-handover-not-ready-cta"
+        >
+          Open your Sovereign console →
+        </a>
+      </div>
+    </div>
+  )
 }
 
 /**
@@ -199,5 +245,8 @@ function HandoverRedirectBannerInner(props: HandoverRedirectBannerProps) {
  */
 export function HandoverRedirectBanner(props: HandoverRedirectBannerProps) {
   if (!props.active) return null
+  if (props.notReadyReasons && props.notReadyReasons.length > 0) {
+    return <HandoverNotReadyNotice {...props} />
+  }
   return <HandoverRedirectBannerInner {...props} />
 }

@@ -96,6 +96,10 @@ export const KIND_STAGES: Record<JobKind, { order: number }> = {
   'topology-transition': { order: 10 },
 }
 
+/** Sort position of a kind this build has no {@link KIND_STAGES} row for:
+ *  after every known kind. */
+export const UNKNOWN_KIND_ORDER = Number.MAX_SAFE_INTEGER
+
 /**
  * Progress state — the Layer-1 `progress` bucket a leaf lands in. These
  * are the founder's five (+degraded) progress states, orthogonal to kind:
@@ -370,7 +374,19 @@ export function buildJobsTreemapData(
       }
       case 'kind': {
         const k = leaf.kind
-        return { id: `kind-${k}`, name: JOB_KIND_LABELS[k], order: KIND_STAGES[k].order }
+        // The kind comes from the API (`job.kind`), and the API can be newer
+        // than this console: the two are rolled separately. A kind this
+        // build has no row for must still get a bucket. Read without the
+        // guard, `KIND_STAGES[k].order` threw "Cannot read properties of
+        // undefined (reading 'order')" and took the whole provisioning
+        // dashboard down with it (#7902 defect 7: a console of 2 September
+        // against an API that sends `application`). The unknown kind is
+        // named by its own word and sorted after every known kind.
+        return {
+          id: `kind-${k}`,
+          name: JOB_KIND_LABELS[k] ?? String(k),
+          order: KIND_STAGES[k]?.order ?? UNKNOWN_KIND_ORDER,
+        }
       }
       case 'application':
         return leaf.appId

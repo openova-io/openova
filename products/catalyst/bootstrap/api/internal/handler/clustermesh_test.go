@@ -3536,111 +3536,12 @@ func getKeycloakAdminSecret(t *testing.T, cs kubernetes.Interface) (*corev1.Secr
 	return getKeycloakNamedSecret(t, cs, keycloakAdminSecretName)
 }
 
-// TestSyncKeycloakAdminSecret covers the #4158/#4915 best-effort cross-region
-// keycloak master-realm admin Secret sync: (1) region-A's authoritative
-// admin-password overwrites the replica's DIVERGENT local value (the live
-// region-B 401 root cause); (2) a missing source is skipped (keycloak still
-// installing); (3) single-region is a no-op; (4) region-A (slots[0]) is NEVER
-// written — the primary's working keycloak must not regress; (5) #4915 — BOTH
-// host-ns admin Secrets (keycloak-admin + catalyst-kc-master-admin-credentials)
-// are synced so config-cli AND sso-bridge authenticate against the shared DB.
-func TestSyncKeycloakAdminSecret(t *testing.T) {
-	h := &Handler{log: silentLogger()}
-	dep := &Deployment{ID: "dep-4158"}
-
-	t.Run("region-A-admin-password-overwrites-replica-divergent-copy", func(t *testing.T) {
-		primaryCS := kfake.NewSimpleClientset()
-		replicaCS := kfake.NewSimpleClientset()
-		// Region-A: the AUTHORITATIVE password whose hash lives in the
-		// cross-region-replicated keycloak catalog.
-		seedKeycloakAdminSecret(t, primaryCS, "1b58-region-A-pw")
-		// Region-B: its OWN divergent random password — the bitnami subchart
-		// generated a fresh one at install (the live 2e7e… defect) → 401.
-		seedKeycloakAdminSecret(t, replicaCS, "2e7e-region-B-pw")
-
-		slots := []regionSlot{
-			{key: "", clientset: primaryCS},
-			{key: "secondary", clientset: replicaCS},
-		}
-		h.syncKeycloakAdminSecret(context.Background(), dep, slots)
-
-		got, ok := getKeycloakAdminSecret(t, replicaCS)
-		if !ok {
-			t.Fatalf("replica keycloak admin Secret missing after sync")
-		}
-		if p := string(got.Data["admin-password"]); p != "1b58-region-A-pw" {
-			t.Errorf("replica admin-password = %q, want the authoritative region-A password (the replica's keycloak catalog has region-A's admin hash → only region-A's pw authenticates)", p)
-		}
-		// Region-A (the source) must be UNTOUCHED — the primary keycloak is
-		// working and must not regress.
-		src, _ := getKeycloakAdminSecret(t, primaryCS)
-		if p := string(src.Data["admin-password"]); p != "1b58-region-A-pw" {
-			t.Errorf("primary admin-password changed to %q — the source region must never be written", p)
-		}
-	})
-
-	t.Run("missing-source-is-skipped", func(t *testing.T) {
-		primaryCS := kfake.NewSimpleClientset() // no keycloak admin Secret yet
-		replicaCS := kfake.NewSimpleClientset()
-		slots := []regionSlot{
-			{key: "", clientset: primaryCS},
-			{key: "secondary", clientset: replicaCS},
-		}
-		// Must not panic / error — best-effort skip while keycloak still installs.
-		h.syncKeycloakAdminSecret(context.Background(), dep, slots)
-		if _, ok := getKeycloakAdminSecret(t, replicaCS); ok {
-			t.Errorf("replica unexpectedly gained an admin Secret from an empty primary")
-		}
-	})
-
-	t.Run("single-region-is-noop", func(t *testing.T) {
-		primaryCS := kfake.NewSimpleClientset()
-		seedKeycloakAdminSecret(t, primaryCS, "pw")
-		// len(slots) == 1 → no replica → must return immediately, no panic.
-		h.syncKeycloakAdminSecret(context.Background(), dep, []regionSlot{{key: "", clientset: primaryCS}})
-	})
-
-	// #4915: post-#4325 de-vcluster, keycloak runs on the HOST `keycloak` ns and
-	// bp-sso-bridge reads catalyst-kc-master-admin-credentials for per-Org realm
-	// creation. Both host-ns admin Secrets must adopt region-A's value (the shared
-	// keycloak DB, seeded by region-A, only accepts region-A's password), not just
-	// keycloak-admin. This is the concrete gap #4915 fixes.
-	t.Run("both-host-admin-secrets-synced-to-replica", func(t *testing.T) {
-		primaryCS := kfake.NewSimpleClientset()
-		replicaCS := kfake.NewSimpleClientset()
-		// region-A authoritative values (whose hash the shared DB holds).
-		seedKeycloakNamedSecret(t, primaryCS, keycloakAdminSecretName, "admin-password", "mMPW-region-A-pw")
-		seedKeycloakNamedSecret(t, primaryCS, "catalyst-kc-master-admin-credentials", "master-realm-admin-password", "mMPW-region-A-pw")
-		// region-B divergent locally-generated values → 401 until synced.
-		seedKeycloakNamedSecret(t, replicaCS, keycloakAdminSecretName, "admin-password", "aevF-region-B-pw")
-		seedKeycloakNamedSecret(t, replicaCS, "catalyst-kc-master-admin-credentials", "master-realm-admin-password", "aevF-region-B-pw")
-
-		slots := []regionSlot{
-			{key: "", clientset: primaryCS},
-			{key: "secondary", clientset: replicaCS},
-		}
-		h.syncKeycloakAdminSecret(context.Background(), dep, slots)
-
-		gotAdmin, ok := getKeycloakNamedSecret(t, replicaCS, keycloakAdminSecretName)
-		if !ok {
-			t.Fatalf("replica keycloak-admin Secret missing after sync")
-		}
-		if p := string(gotAdmin.Data["admin-password"]); p != "mMPW-region-A-pw" {
-			t.Errorf("replica keycloak-admin admin-password = %q, want region-A's authoritative value", p)
-		}
-		gotMaster, ok := getKeycloakNamedSecret(t, replicaCS, "catalyst-kc-master-admin-credentials")
-		if !ok {
-			t.Fatalf("replica catalyst-kc-master-admin-credentials Secret missing after sync (#4915 — sso-bridge would 401 on per-Org realm creation)")
-		}
-		if p := string(gotMaster.Data["master-realm-admin-password"]); p != "mMPW-region-A-pw" {
-			t.Errorf("replica catalyst-kc-master-admin-credentials master-realm-admin-password = %q, want region-A's authoritative value (#4915)", p)
-		}
-		// Region-A (the source) must be UNTOUCHED for both Secrets.
-		if src, _ := getKeycloakNamedSecret(t, primaryCS, keycloakAdminSecretName); string(src.Data["admin-password"]) != "mMPW-region-A-pw" {
-			t.Errorf("primary keycloak-admin was written — the source region must never be modified")
-		}
-	})
-}
+// The #4158/#4915 cases of the Keycloak admin copy (the primary's password
+// replaces the follower's own, a missing source is skipped, one region is a
+// no-op, both admin Secrets travel, the primary is never written) moved with
+// the copy to internal/crossregion (inputs_test.go, #7902). The copy through
+// the orchestrator itself is covered by
+// TestAutoEstablishClusterMesh_FollowerInputsCopiedBeforeMeshAndPair.
 
 func seedSSOOIDCMangledSecret(t *testing.T, cs kubernetes.Interface, name, clientSecret string) {
 	t.Helper()

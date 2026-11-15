@@ -118,6 +118,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/crossregion"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/meshagents"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/meshstatus"
@@ -827,7 +828,7 @@ const (
 )
 
 // keycloakAdminSecretNames — every host-namespace keycloak admin Secret synced
-// region-A → replica by syncKeycloakAdminSecret. `keycloak-admin` (#4344 stable
+// region-A → replica by crossregion.InputSync. `keycloak-admin` (#4344 stable
 // admin-password) is what config-cli + KC_BOOTSTRAP_ADMIN read; the derived
 // `catalyst-kc-master-admin-credentials` (#2914) is the master-realm token
 // credential bp-sso-bridge uses to create per-Org realms — both MUST equal
@@ -869,7 +870,7 @@ var keycloakAdminSecretNames = []string{
 // `mgmt`.
 //
 // catalyst-api is the only actor that spans both regions, so — exactly as
-// syncKeycloakAdminSecret does for the admin Secret — it copies region-A's
+// crossregion.InputSync does for the admin Secret — it copies region-A's
 // RESOLVED mangled host Secret primary → every replica directly into the HOST
 // `mgmt` namespace. The in-vc-mgmt app (single-namespace sync mode) mounts that
 // host object DIRECTLY by its mangled name (verified: the #4159
@@ -1146,6 +1147,18 @@ func (h *Handler) autoEstablishClusterMesh(ctx context.Context, dep *Deployment)
 	// deliberately stay inside enableCNPGPairAfterFullMesh — the replica
 	// Cluster CRs they feed exist only post-flip.
 	h.syncSharedPGConsumerHubSecrets(ctx, dep, slots)
+
+	// #7902: the other follower inputs travel in the same early phase, and what
+	// failed in a follower before they arrived gets a fresh attempt (crossregion.InputSync).
+	inputs := crossregion.InputSync{DeploymentID: dep.ID, Primary: slots[0].clientset, Copy: h.copySecretAcrossClusters,
+		Deliveries: &h.followerDeliveries, CallTimeout: clusterMeshCallTimeout, Log: h.log,
+		Emit: func(level, msg string) { h.emitClusterMeshProgress(dep, level, msg) }}
+	for i := 1; i < len(slots); i++ {
+		s := &slots[i]
+		inputs.Followers = append(inputs.Followers, crossregion.Follower{Key: s.key, Client: s.clientset,
+			Dynamic: func() (dynamic.Interface, error) { return h.clusterMeshDynamicClient(s.kubeconfigPath) }})
+	}
+	inputs.Run(ctx)
 
 	statuses := make([]ClusterMeshStatus, 0, len(slots))
 	if clusterMeshObserve.Load() {
@@ -1642,12 +1655,12 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 			return false
 		}
 
-		substitute, found, err := unstructured.NestedStringMap(ks.Object, "spec", "postBuild", "substitute")
-		if err != nil || !found {
-			h.log.Warn("clustermesh: refusing to flip SOVEREIGN_ENABLE_CNPG_PAIR — bootstrap-kit Kustomization has no readable spec.postBuild.substitute map",
-				"id", dep.ID, "region", regionLabel, "found", found, "err", err)
+		// #7902: the substitutes as Flux applies them (substituteFrom, then inline).
+		substitute, err := crossregion.KitSubstitutes(ctx, s.clientset, ks, clusterMeshCallTimeout)
+		if err != nil {
+			h.log.Warn("clustermesh: refusing to flip SOVEREIGN_ENABLE_CNPG_PAIR — bootstrap-kit substitutes unreadable", "id", dep.ID, "region", regionLabel, "err", err)
 			h.emitClusterMeshProgress(dep, "warn",
-				fmt.Sprintf("ClusterMesh: cnpg-pair enable refused — region %q bootstrap-kit Kustomization carries no postBuild.substitute map", regionLabel))
+				fmt.Sprintf("ClusterMesh: cnpg-pair enable refused — region %q bootstrap-kit substitutes unreadable (%v); re-run converges", regionLabel, err))
 			return false
 		}
 		primaryRegion := strings.TrimSpace(substitute[clusterMeshPrimaryRegionSubstituteKey])
@@ -1660,7 +1673,7 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 				"replicaRegion", replicaRegion,
 			)
 			h.emitClusterMeshProgress(dep, "warn",
-				fmt.Sprintf("ClusterMesh: cnpg-pair enable REFUSED — region %q SOVEREIGN_PRIMARY_REGION=%q / SOVEREIGN_REPLICA_REGION=%q must be non-empty and distinct in the bootstrap-kit substitute map",
+				fmt.Sprintf("ClusterMesh: cnpg-pair enable REFUSED — region %q SOVEREIGN_PRIMARY_REGION=%q / SOVEREIGN_REPLICA_REGION=%q must be non-empty and distinct in the bootstrap-kit substitutes (spec.postBuild.substituteFrom, then spec.postBuild.substitute)",
 					regionLabel, primaryRegion, replicaRegion))
 			return false
 		}
@@ -1828,19 +1841,8 @@ func (h *Handler) enableCNPGPairAfterFullMesh(ctx context.Context, dep *Deployme
 		// region-B harbor CreateContainerConfigError window on every fresh
 		// 2-region prov, hw274).
 		if sharedPGOn {
-			// #4158 (best-effort, never blocks): one layer above the #3629
-			// consumer-hub DB secrets — region-B's keycloak boots against the
-			// cross-region-replicated shared-pg catalog (so its admin password
-			// hash = region-A's), but its config-cli/kcadm read region-B's
-			// DIVERGENT local admin Secret → HTTP 401 → realm import never runs →
-			// the bp-keycloak HR post-upgrade hook times out → the whole
-			// mgmt-vCluster SSO tier stays Ready=False. Copy region-A's
-			// authoritative keycloak admin Secret primary → replica so the
-			// replica authenticates against its own (replicated) keycloak. NOT
-			// gated on `-mesh-rw` (no DB host on this Secret); a too-early pass
-			// (region-A keycloak not yet installed) is a harmless skip and the
-			// level-trigger re-run converges it. NEVER gates the flip.
-			h.syncKeycloakAdminSecret(ctx, dep, slots)
+			// The Keycloak admin copy (#4158/#4915) runs in the early phase of
+			// every pass since #7902 (crossregion.InputSync), not behind this stage.
 			// #4158 (best-effort, never blocks): the SSO layer above the #4159
 			// DB-secret + #4162 admin-secret fixes — region-B's per-app SSO
 			// `ExternalSecret`s (grafana/harbor/openbao/…) 403 against region-A's
@@ -2253,6 +2255,7 @@ func (h *Handler) syncSharedPGConsumerHubSecrets(ctx context.Context, dep *Deplo
 				// or heal) AND the read-back verified them present, so its
 				// pre-delivery stalled HRs get kicked below.
 				deliveredToReplica[i] = true
+				h.followerDeliveries.Note(dep.ID, replica.key, "", syncStartedAt) // #7902: crossregion.InputSync restarts by it
 			}
 			// #4878 (+ residual, live hw232): after we OVERWRITE the replica's
 			// divergent shared-data hub Secret with region-A's authoritative one,
@@ -2460,7 +2463,7 @@ func helmReleaseWedgedSince(hr *unstructured.Unstructured) (bool, time.Time) {
 // belt-and-suspenders idempotent no-op on fresh provs (the merge patch only
 // fires when a key is missing or still carries the region-local host).
 //
-// BEST-EFFORT — like syncSharedPGConsumerHubSecrets / syncKeycloakAdminSecret
+// BEST-EFFORT — like syncSharedPGConsumerHubSecrets / crossregion.InputSync
 // this NEVER blocks/refuses the cnpg-pair flip: a Get/Patch failure or a region
 // whose substitute map already carries `-mesh-rw` is logged/skipped, and the
 // #3241/#3583 level-trigger re-run converges it on a later pass. It returns
@@ -2526,10 +2529,10 @@ func (h *Handler) patchSecondaryCrossRegionHosts(ctx context.Context, dep *Deplo
 				"id", dep.ID, "region", regionLabel, "err", err)
 			continue
 		}
-		substitute, found, err := unstructured.NestedStringMap(ks.Object, "spec", "postBuild", "substitute")
-		if err != nil || !found {
-			h.log.Warn("clustermesh: secondary PG-host patch: bootstrap-kit Kustomization has no readable substitute map — skipping (best-effort)",
-				"id", dep.ID, "region", regionLabel, "found", found, "err", err)
+		substitute, err := crossregion.KitSubstitutes(ctx, s.clientset, ks, clusterMeshCallTimeout)
+		if err != nil {
+			h.log.Warn("clustermesh: secondary PG-host patch: bootstrap-kit substitutes unreadable — skipping (best-effort, re-run converges)",
+				"id", dep.ID, "region", regionLabel, "err", err)
 			continue
 		}
 		sub := map[string]any{}
@@ -2617,90 +2620,6 @@ func (h *Handler) patchSecondaryCrossRegionHosts(ctx context.Context, dep *Deplo
 	}
 }
 
-// syncKeycloakAdminSecret copies the primary region's keycloak master-realm admin
-// Secrets (keycloakAdminSecretNames, host namespace keycloakAdminSecretNamespace)
-// onto every replica region so the replica's keycloak-config-cli post-install hook
-// (and every kcadm / sso-bridge consumer) authenticates with the SAME
-// `admin-password` the shared keycloak DB — seeded by region-A — expects
-// (#4158/#4915 — one layer above the #4159 DB-secret fix). See
-// keycloakAdminSecretName for the full shared-DB divergence analysis + the live
-// region-B 401 evidence.
-//
-// BEST-EFFORT — like syncSharedPGConsumerHubSecrets this NEVER blocks/refuses the
-// cnpg-pair flip: the admin Secret is not part of the WAL-stream auth, so a
-// missing source (region-A's keycloak hasn't minted it yet) or a per-replica
-// copy failure is logged and SKIPPED, and the #3241/#3583 level-trigger re-run
-// converges it on a later pass. It returns nothing (the caller ignores the
-// outcome) precisely so it can never wedge convergence.
-//
-// NOT gated on the `-mesh-rw` host marker: the admin Secret carries only the
-// password (no DB host), and region-A's value is authoritative the moment
-// region-A's keycloak has minted it. Single-region (len(slots)<2) is a no-op.
-//
-// The destination is the HOST `keycloak` namespace where the de-vcluster (#4325)
-// keycloak StatefulSet + config-cli read the Secret DIRECTLY — no syncer hop. Once
-// the replica's `keycloak-admin` carries region-A's value, its config-cli retry
-// authenticates against the value already in the shared DB (no DB surgery / no
-// keycloak restart needed on a fresh prov). Region-A's own keycloak is untouched
-// (it is the SOURCE, never a destination — slots[0] is skipped), so this can never
-// regress the working primary. Each Secret in keycloakAdminSecretNames is synced
-// INDEPENDENTLY: a source not present yet is skipped without holding back the rest.
-func (h *Handler) syncKeycloakAdminSecret(ctx context.Context, dep *Deployment, slots []regionSlot) {
-	if len(slots) < 2 {
-		return // single-region — no replica to sync to
-	}
-	primary := &slots[0]
-	if primary.clientset == nil {
-		h.log.Warn("clustermesh: keycloak admin-secret sync: primary clientset nil — skipping (best-effort, re-run converges)",
-			"id", dep.ID)
-		return
-	}
-
-	synced := make([]string, 0, len(keycloakAdminSecretNames))
-	for _, name := range keycloakAdminSecretNames {
-		getCtx, cancel := context.WithTimeout(ctx, clusterMeshCallTimeout)
-		src, err := primary.clientset.CoreV1().Secrets(keycloakAdminSecretNamespace).Get(getCtx, name, metav1.GetOptions{})
-		cancel()
-		if err != nil {
-			// region-A has not minted THIS Secret yet — the host keycloak may still
-			// be installing, or catalyst-kc-master-admin-credentials has not
-			// back-filled its derived value. Skip this Secret quietly; the
-			// level-trigger re-run converges once it exists. Best-effort — never
-			// holds back the others.
-			h.log.Info("clustermesh: keycloak admin-secret sync: source Secret not present on primary — skipping (host keycloak may still be installing; best-effort, re-run converges)",
-				"id", dep.ID, "namespace", keycloakAdminSecretNamespace, "secret", name)
-			continue
-		}
-		changedAny := false
-		for i := 1; i < len(slots); i++ {
-			replica := &slots[i]
-			if replica.clientset == nil {
-				continue
-			}
-			changed, err := h.copySecretAcrossClusters(ctx, src, replica.clientset, keycloakAdminSecretNamespace)
-			if err != nil {
-				h.log.Warn("clustermesh: keycloak admin-secret sync: copy to replica failed — skipping this Secret/region (best-effort, re-run converges)",
-					"id", dep.ID, "region", replica.key, "namespace", keycloakAdminSecretNamespace, "secret", name, "err", err)
-				continue
-			}
-			if changed {
-				changedAny = true
-			}
-		}
-		if changedAny {
-			synced = append(synced, name)
-		}
-	}
-
-	if len(synced) > 0 {
-		h.log.Info("clustermesh: keycloak master-realm admin Secret(s) synced primary → replica region(s) (#4915/#4158 — kill the region-B config-cli 401 / realm-import HR wedge; both regions share ONE keycloak DB seeded by region-A)",
-			"id", dep.ID, "namespace", keycloakAdminSecretNamespace, "secrets", strings.Join(synced, ", "), "replicaRegions", len(slots)-1)
-		h.emitClusterMeshProgress(dep, "info",
-			fmt.Sprintf("ClusterMesh: synced keycloak admin Secret(s) (%s) primary → %d replica region(s) — the replica's config-cli + sso-bridge now authenticate against the shared keycloak DB region-A seeded (#4915)",
-				strings.Join(synced, ", "), len(slots)-1))
-	}
-}
-
 // syncSSOOIDCMangledSecrets copies the primary region's RESOLVED per-app SSO/OIDC
 // credential Secrets (ssoOIDCMangledHostSecrets, vCluster-syncer-mangled host
 // names, namespace `mgmt`) onto every replica region so the in-vc-mgmt apps
@@ -2711,7 +2630,7 @@ func (h *Handler) syncKeycloakAdminSecret(ctx context.Context, dep *Deployment, 
 // divergence analysis + the live region-B grafana CreateContainerConfigError
 // evidence (#4158, the SSO layer above #4159's DB-secret + #4162's admin-secret).
 //
-// BEST-EFFORT — like syncKeycloakAdminSecret / syncSharedPGConsumerHubSecrets this
+// BEST-EFFORT — like crossregion.InputSync / syncSharedPGConsumerHubSecrets this
 // NEVER blocks/refuses the cnpg-pair flip: the SSO Secrets are not part of the
 // WAL-stream auth, so a missing source (region-A's ESO hasn't resolved it yet,
 // or that consumer isn't wired on this Sovereign) or a per-replica copy failure
@@ -4043,7 +3962,7 @@ func (h *Handler) clusterMeshReconcileStatusGate(dep *Deployment) bool {
 // post-Phase-1 producer and its own entry gates own that ordering.
 func clusterMeshLoopMayContinue(status string) bool {
 	switch status {
-	case "ready", "failed", "partial-failure":
+	case "ready", "failed", "partial-failure", statusEveryRegionGate:
 		return true
 	default:
 		return false

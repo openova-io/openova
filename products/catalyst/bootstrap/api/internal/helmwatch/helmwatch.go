@@ -835,6 +835,11 @@ type Watcher struct {
 	// exhibited. Mutated under w.mu.
 	lastInformerEventAt time.Time
 
+	// healedStalls — HelmRelease name → the transition time of the
+	// never-deployed rollback stall this watcher last reset (#7902 defect
+	// 1). One reset per stall; see healNeverDeployedStalls. Guarded by mu.
+	healedStalls map[string]string
+
 	// staleInformerWarnEmitted — set true once the loud stale-informer
 	// warn event has been dispatched for the CURRENT quiet stretch
 	// (#5269), so a wedged stream warns once instead of every tick.
@@ -1403,6 +1408,12 @@ func (w *Watcher) runTickerRecensus(watchCtx context.Context, dyn dynamic.Interf
 
 	w.emitHeartbeat(w.buildHeartbeat(list, nil))
 
+	// #7902 defect 1 — a release stalled on a rollback that has no target
+	// (its first install was cut and never deployed) is never retried by
+	// Flux. Reset it here, on the same fresh List, before the census: the
+	// census then sees the release's own next state.
+	w.healNeverDeployedStalls(watchCtx, dyn, list)
+
 	for i := range list.Items {
 		u := &list.Items[i]
 		if !strings.HasPrefix(u.GetName(), "bp-") {
@@ -1436,6 +1447,7 @@ func (w *Watcher) buildHeartbeat(list *unstructured.UnstructuredList, listErr er
 			if suspended, ok, _ := unstructured.NestedBool(u.Object, "spec", "suspend"); ok && suspended {
 				state = StateInstalled
 			}
+			state = inFlightIfNeverDeployedStall(u, state)
 			fresh[ComponentIDFromHelmRelease(name)] = state
 		}
 	}
@@ -2122,6 +2134,7 @@ func (w *Watcher) processEvent(obj any, terminated chan struct{}, closeOnce *syn
 	if suspended, ok, _ := unstructured.NestedBool(u.Object, "spec", "suspend"); ok && suspended {
 		state = StateInstalled
 	}
+	state = inFlightIfNeverDeployedStall(u, state)
 
 	level := levelFromState(state)
 	message := messageFromConditions(conds, state)

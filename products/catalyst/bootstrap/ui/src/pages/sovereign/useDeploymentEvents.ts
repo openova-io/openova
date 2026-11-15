@@ -181,6 +181,12 @@ export interface DeploymentSnapshot {
    * watcher alone so a slow secondary never hangs the prov); it exists so
    * the console can badge a "ready" deployment as "secondary degraded".
    * Absent/false for single-region and fully-converged provs.
+   *
+   * Since #7902 the API makes a deployment `ready` only when every region
+   * that reported in is installed, so on a record of a current API this is
+   * true only for a declared region that never reported in. The ready
+   * banners read it and `regions` through `readyClaim.ts` all the same: a
+   * record of an older API can carry a hand-over next to a short region.
    */
   secondaryDegraded?: boolean
   result?: {

@@ -32,6 +32,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -47,6 +48,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/crossregion"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
@@ -407,7 +409,62 @@ func (h *Handler) runPhase1Watch(dep *Deployment) {
 	// operator-actionable diagnostic (e.g. "Flux on the new cluster
 	// isn't reconciling the bootstrap-kit Kustomization").
 	outcome := watcher.Outcome()
+	// #7902: ready means every region; a wait that ends short is a timeout.
+	if outcome == helmwatch.OutcomeReady && !h.everyRegionInstalled(dep) {
+		outcome = helmwatch.OutcomeTimeout
+	}
 	h.markPhase1Done(dep, finalStates, outcome)
+}
+
+// statusEveryRegionGate is what the cross-region loop reads as the status of
+// a deployment that is still `phase1-watching` while the #7902 gate waits.
+const statusEveryRegionGate = "phase1-every-region"
+
+// meshLoopStatus is the status the cross-region loop judges by.
+func (d *Deployment) meshLoopStatus() string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.regionGateActive && d.Status == "phase1-watching" {
+		return statusEveryRegionGate
+	}
+	return d.Status
+}
+
+// everyRegionInstalled runs the #7902 every-region gate (crossregion.Gate)
+// once the primary region's watch concluded ready. True: nothing to wait for
+// (one region, or no follower reported in), or every region is installed.
+func (h *Handler) everyRegionInstalled(dep *Deployment) bool {
+	dep.mu.Lock()
+	recorded, multi, provider := maps.Clone(dep.secondaryKubeconfigPaths), len(dep.Request.Regions) > 1, dep.Request.Provider
+	dep.regionGate = nil // the verdict of an earlier watch does not speak for this one
+	dep.mu.Unlock()
+	followers := crossregion.FollowerKubeconfigs(h.kubeconfigsDir, dep.ID, recorded)
+	if !multi || len(followers) == 0 {
+		return true
+	}
+	dep.mu.Lock()
+	dep.regionGateActive = true
+	dep.mu.Unlock()
+	h.setPhase1Substate(dep, crossregion.SubstateEveryRegion)
+	h.spawnPostHandoverHook(func() { h.runAutoEstablishClusterMesh(dep) }) // it used to start after `ready`
+	primaryPath, _ := h.resolvePrimaryKubeconfigPath(dep)
+	v := crossregion.Gate{
+		PrimaryLabel: primaryRegionKey(&dep.Request), PrimaryPath: primaryPath, Followers: followers, Provider: provider,
+		Budget: crossregion.Budget(h.phase1RegionGateBudget), Landed: dep.crossRegionLanded.Done(), CallTimeout: clusterMeshCallTimeout,
+		Watching:    func() bool { return dep.meshLoopStatus() == statusEveryRegionGate },
+		Dynamic:     h.clusterMeshDynamicClient,
+		WatchConfig: func(kubeconfig string) helmwatch.Config { return h.phase1WatchConfigForDeployment(dep, kubeconfig) },
+		Emit: func(level, msg string) {
+			h.emitWatchEvent(dep, provisioner.Event{Time: time.Now().UTC().Format(time.RFC3339), Phase: helmwatch.PhaseComponent, Level: level, Message: msg})
+		},
+		OnCensus: func(region string, snaps []helmwatch.ComponentSnapshot) {
+			_, _, _ = h.bridgeFor(dep).SeedJobsFromInformerList(snapshotsToSeedsForRegion(snaps, region))
+		},
+	}.Await(context.Background())
+	dep.mu.Lock()
+	dep.regionGate, dep.regionGateActive = v, false
+	dep.mu.Unlock()
+	return v.Converged
 }
 
 // phase1WatchConfigForDeployment — builds the helmwatch.Config the
@@ -1176,7 +1233,7 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		dep.Request.Provider, // #4086 — exclude provider-inapplicable HRs from the census
 		primaryRegionKey(&dep.Request),
 		finalStates,
-		snapshotSecondaryStatesLocked(dep),
+		dep.regionGate.OverlayStates(snapshotSecondaryStatesLocked(dep)), // #7902: the gate's own List of a follower wins
 	)
 
 	failed := 0
@@ -1247,6 +1304,9 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 		// component is genuinely terminal-installed.
 		dep.Status = "failed"
 		dep.Error = fmt.Sprintf("Phase 1 watch timed out before convergence: %d component(s) observed, none hard-failed, but not all reached installed within the watch budget. The Sovereign's Flux keeps retrying cluster-side; re-attach the watch (retry) to re-evaluate. The deployment is NOT ready until every component is installed.", len(finalStates))
+		if v := dep.regionGate; v != nil && !v.Converged { // #7902: the primary is installed, another region is not
+			dep.Error = fmt.Sprintf("The primary region is installed (%d component(s)), but the deployment is NOT ready: after %s not every region is installed — %s. Ready means every region. The regions keep converging; re-attach the watch (retry) to re-evaluate.", len(finalStates), v.Waited.Round(time.Second), v.Summary())
+		}
 	case outcome == helmwatch.OutcomeReady:
 		if consoleReachErr != nil {
 			// #5253 (family #4486/#4706, root-caused live on hw276) — Flux
@@ -1401,6 +1461,8 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 	// can probe the primary cluster's default StorageClass.
 	storageGateKubeconfig := dep.Result.KubeconfigPath
 	storageGateEligible := dep.Status == "ready"
+	// #7902: failed only because another region is short: the primary's CRDs exist, no quarantine below.
+	regionShort := outcome == helmwatch.OutcomeTimeout && dep.regionGate != nil && !dep.regionGate.Converged
 	dep.mu.Unlock()
 
 	// #3971 STORAGE DURABILITY GATE — sibling of the #3375 DR gate above,
@@ -1486,7 +1548,7 @@ func (h *Handler) markPhase1Done(dep *Deployment, finalStates map[string]string,
 	// NOTE: only the FAILED branch quarantines — a "ready"/handed-off
 	// Sovereign's CRDs DO exist (no flood) and its reflectors power the
 	// console live view, so those must stay running.
-	if finalStatus == "failed" && h.k8sCache != nil {
+	if finalStatus == "failed" && h.k8sCache != nil && !regionShort {
 		h.k8sCache.QuarantineDeployment(dep.ID)
 	}
 
@@ -2099,6 +2161,7 @@ func (h *Handler) runAutoEstablishClusterMesh(dep *Deployment) {
 				"attempt", attempt,
 				"regions", len(statuses),
 			)
+			dep.crossRegionLanded.Set() // #7902: the every-region gate waits for this
 			// #3583: do NOT exit on first convergence — transition into the
 			// steady-state heal phase so a collaterally-deleted replica-auth
 			// Secret is re-copied on the next pass (hw144). The success event
@@ -2123,9 +2186,7 @@ func (h *Handler) runAutoEstablishClusterMesh(dep *Deployment) {
 		// actually protecting: a Phase-1 component-census failure leaves both
 		// clusters standing and must keep meshing (see
 		// clusterMeshLoopMayContinue).
-		dep.mu.Lock()
-		status := dep.Status
-		dep.mu.Unlock()
+		status := dep.meshLoopStatus()
 		if !clusterMeshLoopMayContinue(status) {
 			h.log.Info("clustermesh: reconcile loop stopped — deployment left the meshable lifecycle statuses",
 				"id", dep.ID,
@@ -2219,9 +2280,7 @@ func (h *Handler) runClusterMeshSteadyStateHeal(dep *Deployment) {
 	)
 
 	for {
-		dep.mu.Lock()
-		status := dep.Status
-		dep.mu.Unlock()
+		status := dep.meshLoopStatus()
 		if !clusterMeshLoopMayContinue(status) {
 			h.log.Info("clustermesh: steady-state heal phase stopped — deployment left the meshable lifecycle statuses",
 				"id", dep.ID,
@@ -2241,9 +2300,7 @@ func (h *Handler) runClusterMeshSteadyStateHeal(dep *Deployment) {
 
 		// Re-check after the sleep: a wipe that landed during the interval
 		// must not get an establish attempt hurled at a tearing-down cluster.
-		dep.mu.Lock()
-		status = dep.Status
-		dep.mu.Unlock()
+		status = dep.meshLoopStatus()
 		if !clusterMeshLoopMayContinue(status) {
 			h.log.Info("clustermesh: steady-state heal phase stopped — deployment left the meshable lifecycle statuses",
 				"id", dep.ID,
