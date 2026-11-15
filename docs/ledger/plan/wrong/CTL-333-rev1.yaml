@@ -1,0 +1,51 @@
+schema: openova.io/plan-wrong/v1
+id: CTL-333
+ticket_rev: 1
+base_commit: 53fb64b6b9c54d45ea342b2e7016953d6e8b4a16
+stage: check
+ref: manifest-validation
+command: |
+    gh api repos/openova-io/openova/actions/jobs/132670065845/logs | grep -B 40 -m 1 '##\[error\]' | cut -c30-300
+expected: |
+    the check finishes green
+actual: |
+    === RUN   TestBootstrapKit_NoDeadPlaneVclusterReferences
+    --- PASS: TestBootstrapKit_NoDeadPlaneVclusterReferences (0.06s)
+    === RUN   TestBootstrapKit_DependencyOrderMatchesCanonical
+    --- PASS: TestBootstrapKit_DependencyOrderMatchesCanonical (0.00s)
+    === RUN   TestBootstrapKit_KindReconciliation
+        main_test.go:910: BOOTSTRAP_KIT_KIND_TEST not set — skipping kind cluster test (CI gates this on a real kubernetes-in-docker)
+    --- SKIP: TestBootstrapKit_KindReconciliation (0.00s)
+    === RUN   TestBootstrapKit_PlaneIsolationDialGraphIsCovered
+    --- PASS: TestBootstrapKit_PlaneIsolationDialGraphIsCovered (0.06s)
+    === RUN   TestCatalogSeed_DeliveryPinsNotBehindComponentCharts
+        main_test.go:1501: CATALOG-SEED DRIFT (#4415 / #4864):
+              chart "bp-guacamole" delivery pin is BEHIND its component chart:
+                catalog-seed source.version = "0.2.49"  (blueprints.yaml line 1685)
+                component chart/Chart.yaml   = "0.2.50"
+              → the catalog serves a STALE chart; a published fix never reaches Sovereigns.
+              Sync the seed pin: set source.version to "0.2.50" for chart "bp-guacamole" in
+              products/catalyst/chart/templates/catalog-seed/blueprints.yaml
+        main_test.go:1514: catalog-seed drift guard: compared 72 in-repo delivery pins against component chart versions; none behind
+    --- FAIL: TestCatalogSeed_DeliveryPinsNotBehindComponentCharts (0.03s)
+    === RUN   TestCatalogSeed_DisplayVersionNotBehindDeliveryPin
+        main_test.go:1654: CATALOG-SEED DISPLAY DRIFT (#4432 / R21):
+              Blueprint "bp-guacamole" card spec.version is BEHIND its component chart:
+                catalog-seed spec.version   = "0.2.49"  (blueprints.yaml line 1662)
+                component chart/Chart.yaml  = "0.2.50"
+              → the operator-console catalog CARD advertises a STALE version.
+              Sync the card: set spec.version to "0.2.50" for "bp-guacamole" in
+              products/catalyst/chart/templates/catalog-seed/blueprints.yaml
+        main_test.go:1692: catalog-seed display-version guard: 72 card versions checked against component charts, 77 card-vs-delivery pairs checked; all aligned
+    --- FAIL: TestCatalogSeed_DisplayVersionNotBehindDeliveryPin (0.03s)
+    === RUN   TestBootstrapKit_LbIpamSharingCrossNamespace
+        main_test.go:1770: sovereign-vip sharing contract: 3 files checked, every sharing-key has its cross-namespace grant, zero wildcard grants
+    --- PASS: TestBootstrapKit_LbIpamSharingCrossNamespace (0.00s)
+    === RUN   TestBootstrapKit_McpSecondaryEdgeArmedBothLegs
+        main_test.go:2012: #5394 mcp secondary-edge chain: slot 13d+13e arms present, both chart legs render armed (input-keyed, value-asserted) and stay empty un-armed, port contract 8080==8080
+    --- PASS: TestBootstrapKit_McpSecondaryEdgeArmedBothLegs (0.14s)
+    FAIL
+    exit status 1
+    FAIL	github.com/openova-io/openova/tests/e2e/bootstrap-kit	6.566s
+    ##[error]Process completed with exit code 1.
+reported_at: 2026-11-15T02:25:28Z
