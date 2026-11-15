@@ -605,13 +605,10 @@ func (h *Handler) sovereignAppsList(ctx context.Context, deps *sovereignDeps, ki
 //
 // Marketplace card grid for the Sovereign Console. Sources:
 //
-//   - Catalog: internal/catalog (embedded blueprints.json) — the
-//     SAME data the wizard's StepComponents renders.
-//   - Version: the Sovereign's Blueprint CR spec.version, falling back
-//     to the embedded value (#7922 — the image trails the kit).
-//   - Installed: HelmReleases on the local cluster, matched to
-//     blueprints by name (HR name "bp-<slug>" maps directly to
-//     catalog id "bp-<slug>").
+//   - Catalog: internal/catalog (embedded blueprints.json), the wizard's data;
+//     a row's version is its Blueprint CR's (#7922, catalog.WithCRVersions).
+//   - Installed: HelmReleases on the local cluster, matched by name
+//     (HR name "bp-<slug>" is catalog id "bp-<slug>").
 //
 // Each row carries a status field:
 //   - "installed"  — HR present & Ready=True
@@ -696,17 +693,11 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 		st := statusOf(hr)
 		return &st
 	}
-	// #7922 — Blueprint CR name → spec.version: the Sovereign's own catalog,
-	// which a catalog row's version comes from (catalogRowVersion). Empty
-	// when the List fails; every row then keeps the image's embedded value.
-	crVersions := map[string]string{}
 	deps, depsErr := h.sovereignDepsFor()
 	if depsErr == nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
-		if bps, err := h.sovereignAppsList(ctx, deps, "blueprint", blueprintCRGVR()); err == nil {
-			crVersions = blueprintCRVersions(bps)
-		}
+		catalog.WithCRVersions(listed)(h.sovereignAppsList(ctx, deps, "blueprint", blueprintCRGVR()))
 		if hrList, err := h.sovereignAppsList(ctx, deps, "helmrelease", helmReleaseGVR); err == nil {
 			hrItems = hrList
 			for i := range hrList {
@@ -1180,7 +1171,7 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 			Category:     deref(b.Category),
 			Tagline:      deref(b.Tagline),
 			Tags:         b.Tags,
-			Version:      catalogRowVersion(b, crVersions),
+			Version:      deref(b.Version),
 			Section:      deref(b.Section),
 			Depends:      b.Depends,
 			Status:       status,
