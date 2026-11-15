@@ -2126,7 +2126,7 @@ fi
 # (2) #6754 — the DEFAULT branch pushes FIRST, on its own ref-command (the bulk
 # pack in the survivable 1-ref shape). This is the assertion that FAILS on the old
 # whole-repo-in-one-push template and PASSES on the batched one.
-if ! grep -qF 'push --force "${local_url}" "refs/heads/${default_branch}:refs/heads/${default_branch}"' "$TMP/step01_mirror.txt"; then
+if ! grep -qF 'push --force "${local_url}" "refs/heads/${src_ref}:refs/heads/${default_branch}"' "$TMP/step01_mirror.txt"; then
   echo "FAIL: Step-01 does not force-push the default branch first on its own ref-command — the whole-repo-in-one-push dies after the ref advertisement on the ~2,436-branch monorepo (#6754)" >&2
   exit 1
 fi
