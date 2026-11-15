@@ -80,12 +80,31 @@ kured = one(ds, "DaemonSet", "kured")["spec"]["template"]["spec"]
 want = ["--ds-name=kured", "--ds-namespace=kube-system", "--metrics-port=8080", "--lock-ttl=1h",
         "--lock-release-delay=5m",
         "--blocking-pod-selector=upgrade.cattle.io/controller=system-upgrade-controller,upgrade.cattle.io/plan",
-        "--end-time=22:00", "--lock-annotation=catalyst.openova.io/kured-install-hold", "--period=15m", "--drain-timeout=15m"] + \
+        "--end-time=22:00", "--lock-annotation=catalyst.openova.io/kured-install-hold", "--period=30m", "--drain-timeout=10m"] + \
        ["--reboot-days=" + d for d in ("su", "mo", "tu", "we", "th", "fr", "sa")] + \
        ["--reboot-sentinel=/sentinel/reboot-required", "--reboot-command=/bin/systemctl reboot",
         "--start-time=00:30", "--time-zone=UTC", "--annotate-nodes=true", "--log-format=text", "--concurrency=1"]
 args = kured["containers"][0]["args"]
 assert args == want, "kured arguments:\n  got  %r\n  want %r" % (args, want)
+# A drain that cannot finish (#7922): kured's ticks queue while an attempt runs, so a period at
+# or below drain timeout + lock release delay starts the next attempt in the same second and the
+# node is never schedulable again. The period must exceed their sum, in every render.
+import re
+def minutes(flags, name):
+    hit = [a.split("=", 1)[1] for a in flags if a.startswith(name + "=")]
+    assert len(hit) == 1, "%s is given %d times" % (name, len(hit))
+    m = re.fullmatch(r"(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?", hit[0])
+    assert m and hit[0], "%s=%s is not a duration in h, m and s" % (name, hit[0])
+    h, mi, s = (int(g or 0) for g in m.groups())
+    return h * 60 + mi + s / 60.0
+for name in ("default", "set", "released"):
+    flags = one(docs(name), "DaemonSet", "kured")["spec"]["template"]["spec"]["containers"][0]["args"]
+    period, drain, release = (minutes(flags, f) for f in ("--period", "--drain-timeout", "--lock-release-delay"))
+    assert drain > 0, "%s render: --drain-timeout is 0, so a drain that cannot finish never ends" % name
+    assert period > drain + release, (
+        "%s render: --period (%gm) is not above --drain-timeout + --lock-release-delay (%gm + %gm): "
+        "a drain that cannot finish is retried in the same second and keeps the node cordoned for ever"
+        % (name, period, drain, release))
 assert kured["tolerations"] == [{"operator": "Exists"}], "kured tolerations: %r" % kured["tolerations"]
 # The install hold: the annotation kured is told to lock in holds a lock of something
 # that is no node, and a lock with TTL 0 never expires (kured: ttl > 0 && age >= ttl).
