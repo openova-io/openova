@@ -52,6 +52,7 @@ func newSovereignHandler(t *testing.T, coreObjs []runtime.Object, dynObjs []runt
 		httpRouteGVR:         "HTTPRouteList",
 		applicationGVR:       "ApplicationList",
 		fluxKustomizationGVR: "KustomizationList",
+		blueprintCRGVR():     "BlueprintList",
 		{Group: "cert-manager.io", Version: "v1", Resource: "certificates"}: "CertificateList",
 	}
 	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToList, dynObjs...)

@@ -605,11 +605,10 @@ func (h *Handler) sovereignAppsList(ctx context.Context, deps *sovereignDeps, ki
 //
 // Marketplace card grid for the Sovereign Console. Sources:
 //
-//   - Catalog: internal/catalog (embedded blueprints.json) — the
-//     SAME data the wizard's StepComponents renders.
-//   - Installed: HelmReleases on the local cluster, matched to
-//     blueprints by name (HR name "bp-<slug>" maps directly to
-//     catalog id "bp-<slug>").
+//   - Catalog: internal/catalog (embedded blueprints.json), the wizard's data;
+//     a row's version is its Blueprint CR's (#7922, catalog.WithCRVersions).
+//   - Installed: HelmReleases on the local cluster, matched by name
+//     (HR name "bp-<slug>" is catalog id "bp-<slug>").
 //
 // Each row carries a status field:
 //   - "installed"  — HR present & Ready=True
@@ -698,6 +697,7 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 	if depsErr == nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
+		catalog.WithCRVersions(listed)(h.sovereignAppsList(ctx, deps, "blueprint", blueprintCRGVR()))
 		if hrList, err := h.sovereignAppsList(ctx, deps, "helmrelease", helmReleaseGVR); err == nil {
 			hrItems = hrList
 			for i := range hrList {

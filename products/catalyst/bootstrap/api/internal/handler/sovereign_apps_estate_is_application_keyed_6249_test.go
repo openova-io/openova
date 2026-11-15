@@ -70,6 +70,7 @@ func newSovereignHandlerApplicationsUnreadable(t *testing.T, dynObjs []runtime.O
 		httpRouteGVR:         "HTTPRouteList",
 		applicationGVR:       "ApplicationList",
 		fluxKustomizationGVR: "KustomizationList",
+		blueprintCRGVR():     "BlueprintList",
 	}
 	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToList, dynObjs...)
 	dyn.PrependReactor("list", "applications", func(k8stesting.Action) (bool, runtime.Object, error) {
