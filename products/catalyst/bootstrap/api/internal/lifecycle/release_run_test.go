@@ -28,7 +28,7 @@ case " $* " in
     while [ $# -gt 0 ]; do [ "$1" = "-p" ] && printf '%s\n' "$2" >>"${STUB_DIR}/status"; shift; done ;;
   *" create configmap "*) echo "kind: ConfigMap" ;;
   *" delete job "*) rm -f "${STUB_DIR}/job-$5".* ;;
-  *" apply -f - "*)
+  *" apply --server-side "*)
     cat >"${STUB_DIR}/applied"
     grep -q '^kind: Job' "${STUB_DIR}/applied" || exit 0
     name=$(awk '/^metadata:/ {m=1; next} m && /^  name:/ {print $2; exit}' "${STUB_DIR}/applied")

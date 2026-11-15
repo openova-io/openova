@@ -83,11 +83,11 @@ run_follower() {
   kubectl --kubeconfig "${_kc}" -n "${SECONDARY_GITEA_NAMESPACE}" create configmap sovereign-release-scripts \
     --from-file=release-region.sh="${RELEASE_SCRIPTS}/release-region.sh" \
     --from-file=kit-rewrite.sh="${KIT_REWRITE}" --from-file=extract-pins.sh="${PIN_EXTRACTOR}" \
-    --dry-run=client -o yaml | kubectl --kubeconfig "${_kc}" apply -f - >/dev/null
+    --dry-run=client -o yaml | kubectl --kubeconfig "${_kc}" apply --server-side --force-conflicts --field-manager=sovereign-release -f - >/dev/null
   kubectl --kubeconfig "${_kc}" -n "${SECONDARY_GITEA_NAMESPACE}" delete job "${_job}" --ignore-not-found=true --wait=true >/dev/null
   sed -e "s|__JOB__|${_job}|g" -e "s|__REGION__|${_region}|g" -e "s|__PHASE__|${_ph}|g" \
     -e "s|__MAIN_SHA__|$(state_get "${_region}" main)|g" -e "s|__STAGED_SHA__|$(state_get "${_region}" staged)|g" \
-    "${RELEASE_SCRIPTS}/follower-job.yaml" | kubectl --kubeconfig "${_kc}" apply -f - >/dev/null
+    "${RELEASE_SCRIPTS}/follower-job.yaml" | kubectl --kubeconfig "${_kc}" apply --server-side --force-conflicts --field-manager=sovereign-release -f - >/dev/null
   say "follower ${_region}: ${_ph} runs as Job ${SECONDARY_GITEA_NAMESPACE}/${_job}"
   _deadline=$(( $(date +%s) + FOLLOWER_WAIT_SECONDS ))
   _end=""
