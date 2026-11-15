@@ -21,6 +21,8 @@ on:
       - "platform/sso-bridge/chart/**"
       - "platform/keycloak/chart/templates/configmap-sovereign-realm.yaml"
       - "scripts/check-no-dead-grant-theater.sh"
+      - "scripts/sso-zero-click-probe.mjs"
+      - "scripts/tests/test-sso-probe-hubble-row.py"
       - ".github/workflows/sso-probe.yaml"
 
 permissions:
@@ -37,4 +39,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: No dead admin-by-default grant theater
         run: bash scripts/check-no-dead-grant-theater.sh
+
+  probe-rows:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: The hubble row of the probe holds on the page hubble-ui shows (FND-G07)
+        run: python3 scripts/tests/test-sso-probe-hubble-row.py
 

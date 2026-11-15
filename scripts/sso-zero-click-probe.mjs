@@ -232,8 +232,16 @@ const ROWS = [
     loginMarkers: [{ kind: 'text', v: 'openova-flow-server' }],
   },
   {
+    // hubble-ui 0.13.3 at the bare URL shows its welcome screen, whose text
+    // is "Welcome!", "To begin select one of the namespaces:" and "Choose
+    // namespace": none of the words of the former marker (Hubble, Service Map,
+    // Namespace with a capital N), so the row failed for a signed-in user
+    // (gate run of 15 November 2026). The page's title is "Hubble UI" (its
+    // index.html; the app never changes document.title), served only behind
+    // the oauth2-proxy, so it is the landing proof. The fixture of
+    // scripts/tests/test-sso-probe-hubble-row.py holds that page.
     name: 'hubble', url: `${host('hubble')}/`, ctx: 'authed', settleMs: 12000,
-    positive: [{ kind: 'text-regex', v: 'Hubble|Service Map|Namespace' }],
+    positive: [{ kind: 'title-regex', v: '^Hubble UI$' }],
     loginMarkers: [
       { kind: 'text', v: 'Internal Server Error' },
       { kind: 'text', v: 'unauthorized_client' },
