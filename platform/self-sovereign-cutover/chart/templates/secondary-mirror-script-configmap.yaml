@@ -53,7 +53,7 @@ re-accumulation — no dependency on branch cleanup.
 RENDER-GATED: emitted only when secondaryRegions.mirrorToSecondaryGitea is true,
 so a single-region Sovereign renders byte-identical (this whole object absent).
 */ -}}
-{{- if .Values.secondaryRegions.mirrorToSecondaryGitea }}
+{{- if or .Values.secondaryRegions.mirrorToSecondaryGitea .Values.secondaryRegions.replicaRegion }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

@@ -1784,6 +1784,21 @@ registryPivot:
 # overrides duration via overlay if 10 min isn't enough.
 egressTest:
   durationSeconds: 600
+  # #7900 — the front door is part of the proof. Step 08 asks every host below
+  # (a label under sovereign.fqdn) `samples` times before the hold and again
+  # at every poll of the survival window, one connection per request. If the
+  # door answered clean (2xx/3xx) before the hold, any other answer inside
+  # the window fails the proof; if it did not, the step says the door was not
+  # judged. The hold opens the door's own public address on 443 for this.
+  # Why: the public door pools the nodes of every region, and during a
+  # two-region hold about half of the console's requests answered 403 (the
+  # follower's hold denied its Envoy the backends in the primary) while the
+  # step, which read only HelmRelease and Kustomization readiness, passed.
+  # An empty list switches the sample off.
+  frontDoor:
+    hosts:
+      - console
+    samples: 10
   # #2940 — real egress-block enforcement. OFF by default: a mis-resolved
   # upstream CIDR overlapping a live dependency would FAIL Step-08 → the
   # cutover engine aborts → half-pivoted unrecoverable prov. So this stays
@@ -2906,8 +2921,10 @@ stepTimeouts:
   # patch loop + one git clone/push to local Gitea. Bounded by the
   # Gitea push round-trip + the Provider revision reconcile triggered
   # by the patch (Crossplane is typically <30s to re-fetch from local
-  # Harbor); 600s is generous (typical run completes in <60s).
-  crossplaneProviderPivotSeconds: 600
+  # Harbor); typical run completes in <60s. 900s since #7900: the step also
+  # waits up to crossplaneProviderPivot.liveSettleSeconds (420) for the
+  # owning Kustomization to apply the pushed commit.
+  crossplaneProviderPivotSeconds: 900
 
 # Step 10 (vcluster-registry-pivot, TBD-V24 MISS-1, issue #2034) — pivot
 # the three bp-*-vcluster HelmReleases' image.repository from
@@ -3113,6 +3130,17 @@ crossplaneProviderPivot:
   # unverified pivot.
   verifyLocalArtifact:
     enabled: true
+  # #7900 — how long step 11 watches (kubectl wait, no polling loop), after
+  # its live patch and its Git push, for the Kustomization that owns each
+  # Provider to apply the pushed commit; it then reads the live packages
+  # once more and fails if one is still an upstream package. Without this wait
+  # the step reported success while the Kustomization still applied the
+  # revision from before the push and put the old package back; step 08,
+  # which starts at once, read that and two of its pods failed the pre-hold
+  # lint. A healthy Sovereign settles in seconds (the step asks Flux to fetch
+  # at once); the budget covers one Kustomization interval. Must stay below
+  # stepTimeouts.crossplaneProviderPivotSeconds.
+  liveSettleSeconds: 420
 
 # Step 09 (gitea-token-mint, TBD-C18) — bootstrap the Gitea API token
 # that the Organization provisioning service uses for tenant repo materialisation.
@@ -3154,108 +3182,18 @@ giteaTokenMint:
   destSecretName: "provisioning-github-token"
   destSecretKey: "GITHUB_TOKEN"
 
-# Trigger configuration — surface here so operators see it in
-# `helm get values`. When trigger.auto=true, the chart's Helm
-# post-install hook (templates/10-auto-trigger-job.yaml) POSTs
-# /api/v1/sovereign/cutover/start on catalyst-api after the chart's
-# ConfigMaps + RBAC land. catalyst-api handles idempotency via the
-# durable status ConfigMap, so the hook is safe to fire on every
-# install AND every upgrade.
-trigger:
-  # Default true (founder rule per #933): handover is not "done" until
-  # cutover has run; the operator must NOT have to click a CTA on
-  # console.<sov-fqdn>/console/dashboard. Set to false in per-Sovereign
-  # overlay if a sandboxed test Sovereign should stay tethered.
-  auto: true
-  # #4885 (Refs #3379 #4061): COUPLE the auto-trigger hook to the operator's
-  # fireCutoverOnHandover gate. Before this, the auto-trigger hook Job
-  # rendered whenever trigger.auto=true (default) and POSTed
-  # /api/v1/internal/cutover/trigger — a path gated ONLY by the handover-seal
-  # 425, NOT by the operator flag. So an operator who set
-  # fireCutoverOnHandover=false (honoured by the catalyst-api reconciler:
-  # `[CUTOVER-RECONCILE] dormant: fireCutoverOnHandover=false`, #4061
-  # operator-gated Sovereign) STILL got an auto-fired cutover — the two gates
-  # were uncoupled. The hook now renders only when trigger.auto AND
-  # fireCutoverOnHandover are BOTH true (see templates/10-auto-trigger-job.yaml
-  # `{{ if and .Values.trigger.auto .Values.trigger.fireCutoverOnHandover }}`).
-  #
-  # DEFAULT true (SOV-020) — zero touch, the same default as every other source
-  # of the switch: the catalyst-api (CATALYST_FIRE_CUTOVER_ON_HANDOVER counts as
-  # true unless it is "false"), the catalyst chart's
-  # catalystApi.fireCutoverOnHandover and slot 13's
-  # ${HANDOVER_AUTO:=${FIRE_CUTOVER_ON_HANDOVER:-true}}. The 06a slot overlay
-  # (clusters/_template/bootstrap-kit/06a-bp-self-sovereign-cutover.yaml) wires
-  # this value from the SAME postBuild substitution: HANDOVER_AUTO of the
-  # variables document, else the kit key FIRE_CUTOVER_ON_HANDOVER, else true.
-  # So both gates always agree. Set false to keep the
-  # cutover a deliberate action: it then fires via the BSS CTA (or the
-  # level-triggered reconciler once the flag is flipped).
-  # Overlay always wins.
-  fireCutoverOnHandover: true
-  # Optional pre-flight delay before the hook POSTs /start. 0 = fire
-  # immediately. Useful for soak Sovereigns where the operator wants a
-  # short window to inspect the freshly-handed-over dashboard before
-  # the cutover starts.
-  autoDelaySeconds: 0
-  # In-cluster URL the auto-trigger Job hits. Default points at the
-  # catalyst-api Service in `catalyst-system` (the post-handover
-  # Sovereign-side namespace per .Values.catalystAPI.namespace), which
-  # is reachable by the Job's catalyst-runner SA without any cross-
-  # namespace egress concerns. Override per-Sovereign if catalyst-api
-  # is exposed under a different Service name.
-  catalystAPIURL: "http://catalyst-api.catalyst-system.svc.cluster.local:8080"
-  # How long the auto-trigger Job will wait for catalyst-api to be
-  # reachable before giving up (and exiting 0 so the operator can fire
-  # manually). Must finish below the HelmRelease install/upgrade
-  # timeout (30m for bp-self-sovereign-cutover post-Fix-#152) AND the
-  # activeDeadline below so the Job exits cleanly even when catalyst-
-  # api never comes up — 25 minutes leaves a healthy 5m buffer below
-  # the 30m HR cap. Bumped from 720s (12m) on Fix #152 (chart 0.1.27)
-  # after prov #23 hit the 14m Job deadline before catalyst-api came
-  # up — cold-start budget needs ~2× headroom on slow Sovereigns.
-  autoWaitForAPISeconds: 600
-  # #4632 (chart 0.1.91): how long the trigger POST RETRIES on HTTP 425
-  # (handover-completion gate) before giving up (exit 0; operator can fire
-  # via CTA). On a FRESH prov this hook fires at slot-06a install time —
-  # BEFORE bp-catalyst-platform reaches Ready and the handover post-install
-  # hook seals secret/catalyst/tofu-phase0-archive — so the first POST 425s.
-  # The prior single-POST 425 handler did `exit 0` and the hook-succeeded
-  # delete-policy then removed the Job, so NOTHING ever re-POSTed and the
-  # cutover never auto-fired (verified live on dep 8fd457a8: handover sealed
-  # at 13:56:41 but the lone POST 425'd at 13:54:48, ~2 min too early →
-  # cutover stuck progressPercent=0). The Job now polls every 15s within
-  # this budget so the trigger re-fires the moment handover seals the
-  # archive — zero-touch, no CTA click (founder rule #933). #4723 (chart
-  # 0.1.102): 1500s -> 900s. The long wait only needs to cover the #4632
-  # race class (~2min between chart-install and seal on
-  # fireCutoverOnHandover provs). On a PERMANENT Sovereign the seal lands
-  # only after full phase-1 convergence (45min after hook start on hw220)
-  # — no in-Job wait can bridge that, and it does not need to: the #4669
-  # level-triggered reconciler self-heals sealed-but-uncut after this Job
-  # exits 0. Shrinking the wait restores real pod-start margin under the
-  # activeDeadline (see autoTimeoutSeconds below).
-  autoHandoverWaitSeconds: 900
-  # Overall cap on the auto-trigger Job runtime. activeDeadlineSeconds
-  # on the Job spec — anything longer means catalyst-api is sick and
-  # the operator should investigate. The Job exiting at this deadline
-  # is non-fatal for the chart install (the cutover engine already
-  # runs detached inside catalyst-api once /start returns 200).
-  # Must stay below the HelmRelease install/upgrade timeout (40m per the
-  # 06a slot overlay) so the Job ends and the hook unblocks before Helm
-  # gives up. History: 840s (Fix #152) -> 1740 -> 2100 (#4632). #4723
-  # (chart 0.1.102): the #4632 arithmetic was broken — worst-case script
-  # time was autoWaitForAPISeconds(1500) + autoHandoverWaitSeconds(1500)
-  # = 3000s INSIDE this 2100s deadline, and even the happy path (API up)
-  # left ~600s for pod scheduling + a COLD image pull (~10min on a fresh
-  # prov, no warm registry pre-cutover) → the pod was killed mid-retry
-  # before its own graceful exit-0 (live: hw220 attempt 1 DeadlineExceeded
-  # at exactly +2100s, a wasted 26-min Helm remediate/reinstall cycle).
-  # Now: 600 + 900 = 1500s worst-case script time under the unchanged
-  # 2100s deadline = a real 600s pod-start margin on EVERY path.
-  autoTimeoutSeconds: 2100
-  # TTL on the completed Job — kept for audit so operators can read
-  # the trigger Pod logs if something looks wrong.
-  autoJobTTLSeconds: 86400
+# #7900 — the chart no longer starts the cutover. It used to ship a
+# post-install/post-upgrade hook Job (templates/10-auto-trigger-job.yaml) that
+# POSTed /api/v1/internal/cutover/trigger. Helm waits for a hook even with
+# disableWait, the trigger answers 425 until the hand-over is sealed, and the
+# hand-over is sealed only after the installation is ready, which needs this
+# release Ready. So on a fresh installation the hook could never succeed: it
+# held the first phase for its whole wait (900 s) and then exited 0.
+# The catalyst-api starts the cutover by itself, at the hand-over seal
+# (handover.go) and from its level-triggered reconciler (#4635,
+# cutover_reconciler.go), both behind CATALYST_FIRE_CUTOVER_ON_HANDOVER
+# (slot 13, catalystApi.fireCutoverOnHandover). The former trigger.* values
+# are read by nothing; a slot that still sets them is harmless.
 
 # ── #5359 SECONDARY-REGION (region-B) pivot legs ──────────────────────
 #
@@ -3442,6 +3380,21 @@ secondaryRegions:
   # /secondary-kubeconfigs mount, so a single-region Sovereign that set the flag
   # still no-ops.
   mirrorToSecondaryGitea: false
+  # #7900 — the canonical label of the follower region, empty on a single-region
+  # Sovereign. Slot 06a wires it from SOVEREIGN_REPLICA_REGION, which cloud-init
+  # stamps at installation time. A non-empty value renders every follower leg
+  # (the mirrorToSecondaryGitea and prewarmSecondaryHarbor gates), whatever
+  # those two flags say.
+  # Why: the slot wired the two flags from SOVEREIGN_ENABLE_CNPG_PAIR, which the
+  # parent flips only when the mesh is up, after the installation is ready. The
+  # Sovereign starts the cutover seconds after the hand-over seal and stamps
+  # each step's Job from the chart render of that moment, so on a fresh
+  # two-region installation step 01 ran without its follower leg and the
+  # follower region's Gitea, region-git-sync and Continuum token were missing.
+  # The legs need a follower region, not the database pair: they act through
+  # the cutover-secondary-kubeconfigs Secret that the catalyst-api writes at
+  # run start, and do nothing when that Secret is empty.
+  replicaRegion: ""
   # Namespace, IN each secondary region, that runs bp-gitea and therefore holds
   # that region's OWN gitea-admin-secret. The per-secondary mirror Job is stamped
   # HERE (not the cutover release namespace) because the cutover chart is

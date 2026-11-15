@@ -299,89 +299,32 @@ else
   exit 1
 fi
 
-# #4885 Defect 1 (Refs #4061): the auto-trigger hook is now COUPLED to the
-# operator's fireCutoverOnHandover gate — it renders only when BOTH
-# trigger.auto AND trigger.fireCutoverOnHandover are true. Render a "fire"
-# variant with fireCutoverOnHandover=true so the auto-trigger-internals cases
-# (8/10/11/13/14) can assert against a render where the hook is PRESENT.
-helm template smoke-fire . --set trigger.fireCutoverOnHandover=true > "$TMP/render-fire.yaml"
-# SOV-020: the chart default of trigger.fireCutoverOnHandover is true, so the
-# default render ($TMP/render.yaml) carries the hook as well. Render an "off"
-# variant with fireCutoverOnHandover=false for the off switch of Case 8 (c).
-helm template smoke-off . --set trigger.fireCutoverOnHandover=false > "$TMP/render-off.yaml"
-
-echo "[cutover-contract] Case 8: auto-trigger Job renders by default and when fireCutoverOnHandover=true; ABSENT when it is false (SOV-020)"
-# BEFORE #4885 the founder-rule-#933 default was "auto-fire always" (gated on
-# trigger.auto alone). But /internal/cutover/trigger is gated only by the
-# handover-seal 425, NOT by the operator flag — so an operator who set
-# fireCutoverOnHandover=false (honoured by the catalyst-api reconciler, #4061
-# operator-gated Sovereign) STILL got an auto-fired cutover. #4061 already made
-# the cutover operator-gated-by-default; #4885 couples the hook to the SAME
-# flag. The hook now renders ONLY when trigger.auto AND
-# trigger.fireCutoverOnHandover are BOTH true. Since SOV-020 the default of
-# that flag is true everywhere (the catalyst-api, slot 13, this chart, and the
-# 06a overlay's ${HANDOVER_AUTO:=${FIRE_CUTOVER_ON_HANDOVER:-true}}), so a
-# Sovereign is zero touch by default and a false still suppresses the hook.
-#
-# (a) with fireCutoverOnHandover=true the hook MUST render + be hook-annotated.
-if ! grep -q 'cutover-auto-trigger' "$TMP/render-fire.yaml"; then
-  echo "FAIL: auto-trigger Job missing when fireCutoverOnHandover=true — handover-fire path broken (#4885)" >&2
-  exit 1
-fi
-if ! grep -q '"helm.sh/hook": "post-install,post-upgrade"' "$TMP/render-fire.yaml" ; then
-  echo "FAIL: auto-trigger Job missing post-install + post-upgrade hook annotations (#4885)" >&2
-  exit 1
-fi
-# (b) the chart default (fireCutoverOnHandover: true, SOV-020) MUST render the
-#     hook: zero touch needs no manual input.
-if ! grep -q 'cutover-auto-trigger' "$TMP/render.yaml"; then
-  echo "FAIL: auto-trigger Job missing by default — the chart default of trigger.fireCutoverOnHandover must be true (SOV-020)" >&2
-  exit 1
-fi
-# (c) the off switch: with fireCutoverOnHandover=false the hook MUST NOT
-#     render — else a `false` is silently overridden.
-if grep -q 'cutover-auto-trigger' "$TMP/render-off.yaml"; then
-  echo "FAIL: auto-trigger Job rendered with fireCutoverOnHandover=false — the false value is silently overridden (SOV-020)" >&2
-  exit 1
-fi
-echo "  PASS (auto-trigger renders by default and with true; suppressed with false)"
-
-echo "[cutover-contract] Case 9: auto-trigger absent when trigger.auto=false (even with fireCutoverOnHandover=true)"
-# Operator override path — trigger.auto=false MUST fully disable the auto-
-# trigger regardless of the fireCutoverOnHandover gate (the sandboxed-test-
-# Sovereign override). Set fireCutoverOnHandover=true to isolate the trigger.auto
-# gate (else the hook would be absent for the OTHER reason and prove nothing).
-helm template smoke-noauto . --set trigger.auto=false --set trigger.fireCutoverOnHandover=true > "$TMP/render-noauto.yaml"
-if grep -q 'cutover-auto-trigger' "$TMP/render-noauto.yaml"; then
-  echo "FAIL: auto-trigger Job rendered despite trigger.auto=false" >&2
-  exit 1
-fi
-echo "  PASS (auto-trigger gated on trigger.auto independently of fireCutoverOnHandover)"
-
-echo "[cutover-contract] Case 10: auto-trigger uses /internal/cutover/trigger (#935 Bug 2)"
-# Chart 0.1.16 POSTed /api/v1/sovereign/cutover/start which sat behind
-# RequireSession middleware and 401'd forever on otech113 2026-05-05.
-# 0.1.17 must route through /api/v1/internal/cutover/trigger (lives
-# OUTSIDE RequireSession, validates the bearer SA token via TokenReview).
-if ! grep -q '/api/v1/internal/cutover/trigger' "$TMP/render-fire.yaml"; then
-  echo "FAIL: auto-trigger Job does NOT POST /api/v1/internal/cutover/trigger" >&2
-  exit 1
-fi
-echo "  PASS (auto-trigger uses internal endpoint)"
-
-echo "[cutover-contract] Case 11: auto-trigger sends SA bearer token (#935 Bug 2)"
-# The Job must mount its projected ServiceAccount token AND send it as
-# Authorization: Bearer. Without this the /internal/cutover/trigger
-# endpoint will reject the request with 401 missing-bearer.
-if ! grep -q '/var/run/secrets/kubernetes.io/serviceaccount/token' "$TMP/render-fire.yaml"; then
-  echo "FAIL: auto-trigger Job does NOT read its projected SA token" >&2
-  exit 1
-fi
-if ! grep -q 'Authorization: Bearer' "$TMP/render-fire.yaml"; then
-  echo "FAIL: auto-trigger Job does NOT send Authorization: Bearer header" >&2
-  exit 1
-fi
-echo "  PASS (auto-trigger authenticates via SA token)"
+echo "[cutover-contract] Case 8: the chart ships NO Helm hook and starts the cutover from nowhere (#7900; replaces Cases 8-11, 13, 14 and 36)"
+# The chart used to ship a post-install/post-upgrade hook Job (auto-trigger)
+# that POSTed /api/v1/internal/cutover/trigger and retried on HTTP 425 until
+# the hand-over was sealed. Helm waits for a hook even with disableWait, the
+# hand-over is sealed only after the installation is ready, and ready needs
+# this release Ready: on a fresh installation the hook held the first phase for
+# its whole wait (900 s, 05:57 to 06:15 on the run of 15 November) and started
+# nothing. The catalyst-api starts the cutover itself, at the hand-over seal and
+# from its level-triggered reconciler. So, in every variant of the old switches:
+#   (a) no rendered object carries a helm.sh/hook annotation: nothing in this
+#       chart can make Helm wait;
+#   (b) nothing POSTs the internal trigger and no auto-trigger object is left.
+for c8_set in "" "--set trigger.fireCutoverOnHandover=true" "--set trigger.fireCutoverOnHandover=false" "--set trigger.auto=false" "--set secondaryRegions.replicaRegion=r-b"; do
+  # shellcheck disable=SC2086
+  helm template smoke-hook . ${c8_set} > "$TMP/render-hook.yaml"
+  if grep -Eq '^[[:space:]]*"?helm\.sh/hook[-a-z]*"?:' "$TMP/render-hook.yaml"; then
+    echo "FAIL: the render (${c8_set:-defaults}) carries a helm.sh/hook annotation — Helm waits for hooks even with disableWait, so a hook that waits for the hand-over holds the first phase (#7900)" >&2
+    grep -En '^[[:space:]]*"?helm\.sh/hook[-a-z]*"?:' "$TMP/render-hook.yaml" >&2
+    exit 1
+  fi
+  if grep -q -e 'cutover-auto-trigger' -e '/api/v1/internal/cutover/trigger' -e 'HANDOVER_WAIT_SECONDS' "$TMP/render-hook.yaml"; then
+    echo "FAIL: the render (${c8_set:-defaults}) still carries the auto-trigger (#7900)" >&2
+    exit 1
+  fi
+done
+echo "  PASS (no Helm hook and no auto-trigger in any variant)"
 
 echo "[cutover-contract] Case 12: harbor.adminSecretRef.name is harbor-admin (#935 Bug 1)"
 # Chart 0.1.16 referenced `harbor-core` for Step 02 (harbor-projects);
@@ -399,54 +342,6 @@ if grep -A3 'name: HARBOR_PASSWORD' "$TMP/render.yaml" | grep_q 'name: harbor-co
   exit 1
 fi
 echo "  PASS (Step 02 references harbor-admin)"
-
-echo "[cutover-contract] Case 13: readiness probe targets /healthz, NOT /sovereign/cutover/status (#957)"
-# Chart 0.1.17 polled /api/v1/sovereign/cutover/status to test
-# "is catalyst-api up yet?" That endpoint sits inside RequireSession
-# and returns 401 to every unauthenticated probe from the in-cluster
-# Job — the probe treated 401 as "not ready" → loop never broke →
-# /internal/cutover/trigger was never called → cutover never fired
-# (caught live on otech113 2026-05-05).
-#
-# 0.1.18 polls /healthz instead (unauthenticated, always 200 when
-# the process is up). This gate guards against future regressions
-# that re-introduce an auth-gated readiness probe.
-if ! grep -q 'healthz_url=' "$TMP/render-fire.yaml"; then
-  echo "FAIL: auto-trigger Job missing healthz_url= readiness probe target" >&2
-  exit 1
-fi
-if ! grep -q '/healthz' "$TMP/render-fire.yaml"; then
-  echo "FAIL: auto-trigger Job does NOT include the /healthz probe path" >&2
-  exit 1
-fi
-# The readiness loop must NOT poll /sovereign/cutover/status. The
-# auto-trigger code intentionally uses the unauthenticated /healthz
-# probe; any future re-introduction of a session-cookie-gated probe
-# would silently re-break the same way 0.1.17 did. We assert no
-# poll-loop variable is set to a /sovereign/cutover/* URL by checking
-# that no shell-line of the form `<id>=...sovereign/cutover/status...`
-# appears in the rendered Job. The string itself is allowed in
-# documentation comments — that's why we anchor on `=` (assignment),
-# not just substring presence.
-if grep -E '^\s*[a-zA-Z_][a-zA-Z0-9_]*=.*/api/v1/sovereign/cutover/status' "$TMP/render-fire.yaml" >/dev/null; then
-  echo "FAIL: auto-trigger Job polls /sovereign/cutover/status as a readiness probe (auth-gated, 401-loops)" >&2
-  exit 1
-fi
-echo "  PASS (readiness probe is /healthz)"
-
-echo "[cutover-contract] Case 14: no early cutoverComplete short-circuit on auth-gated /status (#957)"
-# 0.1.17 had a pre-flight 'if cutoverComplete=true exit 0' check that
-# parsed the response body of /sovereign/cutover/status. Even if a
-# future change moves that check elsewhere, it must NOT depend on a
-# response body fetched from an auth-gated endpoint. The /internal/
-# cutover/trigger endpoint is itself idempotent (returns 200 with the
-# existing snapshot when cutoverComplete=true; cutover_internal.go
-# line 279) so no separate pre-read is needed.
-if grep -E "grep.*cutoverComplete.*/tmp/status\.json" "$TMP/render-fire.yaml" >/dev/null; then
-  echo "FAIL: auto-trigger Job retains the 0.1.17 cutoverComplete pre-read off /tmp/status.json — that file no longer exists" >&2
-  exit 1
-fi
-echo "  PASS (no stale cutoverComplete pre-read)"
 
 echo "[cutover-contract] Case 15: Step-01 gitea-mirror has DNS-readiness probe (#968)"
 # 0.1.18 Step-01 fired wget against gitea-http.gitea.svc.cluster.local
@@ -1590,55 +1485,6 @@ if ! grep -Eq '^[[:space:]]+enabled:[[:space:]]*true' <<<"$HRT_BLOCK"; then
   exit 1
 fi
 echo "  PASS (step-06 builds a ca.crt trust Secret from the in-cluster Harbor wildcard cert + wires every pivoted HelmRepository's certSecretRef to it; helmRepositoryTrust.enabled defaults true)"
-
-echo "[cutover-contract] Case 36: auto-trigger RETRIES on HTTP 425 until the handover seals — never a single give-up exit (#4632, Refs #3379)"
-# THE #4632 425-NO-RETRY RACE. On a FRESH prov the auto-trigger hook Job fires
-# at slot-06a install time — BEFORE bp-catalyst-platform reaches Ready and the
-# handover post-install hook seals secret/catalyst/tofu-phase0-archive — so
-# catalyst-api correctly refuses with HTTP 425 ("handover not complete"). The
-# pre-#4632 handler did a single bare `exit 0` on 425 and GAVE UP; because the
-# hook is then deleted (hook-succeeded), nothing ever re-POSTed and the cutover
-# NEVER auto-fired (live proof dep 8fd457a8: seal at 13:56:41, lone POST 425'd
-# at 13:54:48 → progressPercent=0 forever). The fix (PR #4633) wraps the POST in
-# a bounded retry loop that keeps re-POSTing on 425 until the gate opens.
-#
-# This gate is the sibling of Case 13 (/healthz probe regression) and Case 14
-# (cutoverComplete pre-read regression): it locks in the retry behaviour so a
-# future edit cannot silently regress the 425 branch back to a single exit 0.
-#
-# (a) the POST must live inside a retry loop (`while :`), not a one-shot POST.
-if ! grep -Eq '^\s*while :' "$TMP/render-fire.yaml"; then
-  echo "FAIL: auto-trigger Job has no while-loop retry around the trigger POST — a single 425 would give up and the cutover never auto-fires (#4632)" >&2
-  exit 1
-fi
-# (b) the retry must be bounded by a handover-wait deadline wired from the
-#     HANDOVER_WAIT_SECONDS env (values.trigger.autoHandoverWaitSeconds).
-if ! grep -q 'HANDOVER_WAIT_SECONDS' "$TMP/render-fire.yaml"; then
-  echo "FAIL: auto-trigger Job never references HANDOVER_WAIT_SECONDS — the 425 retry has no bounded handover-wait deadline (#4632)" >&2
-  exit 1
-fi
-if ! grep -Eq 'hdeadline=' "$TMP/render-fire.yaml"; then
-  echo "FAIL: auto-trigger Job computes no hdeadline for the 425 retry loop (#4632)" >&2
-  exit 1
-fi
-# (c) the 425 branch must actually retry (sleep + re-loop), not just exit. The
-#     retry log line + the sleep together prove the branch loops back rather
-#     than giving up on the first 425.
-if ! grep -q 'Retrying in 15s until handover seals' "$TMP/render-fire.yaml"; then
-  echo "FAIL: auto-trigger Job's 425 branch has no retry log line — it appears to give up on the first 425 instead of waiting for the handover seal (#4632)" >&2
-  exit 1
-fi
-if ! grep -Eq '^\s*sleep 15' "$TMP/render-fire.yaml"; then
-  echo "FAIL: auto-trigger Job's 425 branch never sleeps+retries — a bare exit on 425 is the exact pre-#4632 give-up bug" >&2
-  exit 1
-fi
-# (d) the Job's activeDeadlineSeconds must cover /healthz wait + handover wait +
-#     buffer (default 2100s) so the retry loop is not killed before the seal.
-if ! grep -Eq 'activeDeadlineSeconds:\s*2100' "$TMP/render-fire.yaml"; then
-  echo "FAIL: auto-trigger Job activeDeadlineSeconds is not the #4632 default 2100 — the retry loop could be reaped before the handover seals" >&2
-  exit 1
-fi
-echo "  PASS (auto-trigger POST is wrapped in a bounded while-loop that retries on HTTP 425 until the handover seals — no single give-up exit; activeDeadlineSeconds=2100 covers the wait)"
 
 # ── Case 30 (#4975 Refs #3379 #3695): OFFLINE-MIRROR coverage-map wiring ──────
 # The systemic end of the step-08 whack-a-mole: ONE coverage map
@@ -4125,8 +3971,16 @@ if ! grep -q 'cp /work/egress-deny.yaml /work/egress-deny-secondary.yaml' "$S08"
   echo "FAIL: step-08 secondary manifest is not derived from the region-A manifest — the provider-API carve-outs (#4596/#5020-5025) would not be inherited (#5359)" >&2
   c71_fail=1
 fi
-if ! grep -q 'toEndpoints:' "$S08"; then
-  echo "FAIL: step-08 secondary manifest lacks the mesh-wide toEndpoints allow — cross-cluster dials carry a ClusterMesh identity toCIDR never matches (#5359)" >&2
+# #7900: the allow must select the endpoints of EVERY cluster of the mesh. An
+# empty selector (`- {}`) selects the local cluster only under
+# policy-default-local-cluster, which denied the follower's Envoy every backend
+# in the primary. It sits in the region-A manifest, which the secondary copies.
+if ! grep -A2 'toEndpoints:' "$S08" | grep_q 'key: io.cilium.k8s.policy.cluster, operator: Exists'; then
+  echo "FAIL: step-08 hold manifest lacks the mesh-wide toEndpoints allow (io.cilium.k8s.policy.cluster Exists) — cross-cluster dials carry a ClusterMesh identity that toCIDR and an empty selector never match (#5359 #7900)" >&2
+  c71_fail=1
+fi
+if grep -A1 'toEndpoints:' "$S08" | grep_q -e '- {}'; then
+  echo "FAIL: step-08 hold manifest allows toEndpoints [{}] — that is the LOCAL cluster only (#7900)" >&2
   c71_fail=1
 fi
 if ! grep -q 'secondary_policy_teardown' "$S08"; then
