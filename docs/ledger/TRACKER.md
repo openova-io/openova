@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-15T02:15:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-15T02:30:06Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-15T02:27 | [#7890](https://github.com/openova-io/openova/pull/7890) | #7745 | feat(machines): the runner image with pinned tools, and the  |
 | 2026-11-15T01:54 | [#7880](https://github.com/openova-io/openova/pull/7880) | #7087 | docs(ledger): plan update |
 | 2026-11-15T00:01 | [#7879](https://github.com/openova-io/openova/pull/7879) | #7743 | ci: the guards that run on every pull request share three jo |
 | 2026-11-15T01:58 | [#7878](https://github.com/openova-io/openova/pull/7878) | #7776 | fix: move 53 Blueprint files to apiVersion catalyst.openova. |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-14T19:54 | [#7844](https://github.com/openova-io/openova/pull/7844) | #7838 | fix(plan): two tasks that share only record files may run to |
 | 2026-11-14T20:11 | [#7843](https://github.com/openova-io/openova/pull/7843) | #7834 | fix(cutover): the follower region gets its catalog source, C |
 | 2026-11-14T19:45 | [#7836](https://github.com/openova-io/openova/pull/7836) | #7087 | docs(ledger): plan update |
-| 2026-11-14T19:38 | [#7835](https://github.com/openova-io/openova/pull/7835) | #7818 | fix(release): the release bump writes the funnel chart pin w |
 
 ---
 
