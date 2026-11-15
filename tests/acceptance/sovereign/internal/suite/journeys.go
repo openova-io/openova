@@ -251,6 +251,9 @@ func (r *runner) j1(ctx context.Context) bool {
 			}
 			return true, d, nil
 		})
+		if err == nil {
+			r.recordDBVolumes(ctx, ev)
+		}
 		return err
 	}) {
 		return false

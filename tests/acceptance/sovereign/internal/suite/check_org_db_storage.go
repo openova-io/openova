@@ -25,6 +25,14 @@ import (
 // replica side in the second. CNPG puts the label cnpg.io/cluster on every
 // PVC of its Clusters.
 //
+// The suite creates no such release: no journey orders an Organization's
+// database through the provisioning service. Journey J1 does create a
+// two-region database in the Organization's namespace, the CNPG Cluster of its
+// Application in each region, and journey J5 deletes it before the checks run.
+// So step J1.4 records the volumes of that database while it exists
+// (dbVolumesKey, journey_db_volumes.go) and this check judges them as well:
+// without them a run could never measure anything here.
+//
 // The storage class of a region is the value of the kit key
 // SOVEREIGN_CNPG_STORAGE_CLASS in the bootstrap variables of that region (the
 // ConfigMap flux-system/sovereign-variables, or spec.postBuild.substitute of
@@ -34,11 +42,14 @@ import (
 // Steps:
 //
 //   - CLD-G09.1: the per-Organization database releases of every region are
-//     listed. None in any region fails: nothing would be measured.
+//     listed, and the volumes that a passed step J1.4 recorded are read. No
+//     release in any region and no recorded volume fails: nothing would be
+//     measured.
 //   - CLD-G09.2 and on, one per region: the storage class of the region is
 //     read, then every PVC with the label cnpg.io/cluster in each namespace of
-//     those releases. Each must be in phase Bound with spec.storageClassName
-//     equal to the class. A missing or empty class fails.
+//     those releases, and the volumes J1.4 recorded in the region. Each must be
+//     in phase Bound with spec.storageClassName equal to the class. A missing
+//     or empty class fails.
 //   - the last step: at least one volume was judged in some region.
 //
 // The check only reads: `kubectl get`.
@@ -78,8 +89,9 @@ func (orgDBStorageCheck) Run(ctx context.Context, cc *CheckContext, rec StepReco
 	next := func() string { n++; return orgDBStorageID + "." + strconv.Itoa(n) }
 
 	namespaces := []string{}
+	runVolumes := runDBVolumes(cc.Prior)
 	listed := false
-	rec.Step(next(), "the per-Organization database releases are found", func(ev Evidence) error {
+	rec.Step(next(), "the per-Organization databases are found: the releases of the provisioning service and the database of journey J1", func(ev Evidence) error {
 		seen := map[string]bool{}
 		releases := []string{}
 		for _, region := range cc.Regions {
@@ -104,9 +116,9 @@ func (orgDBStorageCheck) Run(ctx context.Context, cc *CheckContext, rec StepReco
 		}
 		sort.Strings(releases)
 		sort.Strings(namespaces)
-		ev["releases"], ev["namespaces"] = releases, namespaces
-		if len(namespaces) == 0 {
-			return fmt.Errorf("no HelmRelease with the labels %s=%s and %s in any region: no per-Organization database exists, so nothing was measured",
+		ev["releases"], ev["namespaces"], ev["run_volumes"] = releases, namespaces, runVolumes
+		if len(namespaces) == 0 && len(runVolumes) == 0 {
+			return fmt.Errorf("no HelmRelease with the labels %s=%s and %s in any region, and no passed step J1.4 recorded a database volume: no per-Organization database exists, so nothing was measured",
 				orgDBComponentLabel, orgDBComponent, orgDBSideLabel)
 		}
 		listed = true
@@ -129,6 +141,22 @@ func (orgDBStorageCheck) Run(ctx context.Context, cc *CheckContext, rec StepReco
 				return fmt.Errorf("the bootstrap variables of region %s (%s) have no value for %s", region.ID, source, orgDBClassKey)
 			}
 			volumes, wrong := []string{}, []string{}
+			seen := map[string]bool{}
+			for _, line := range runVolumes[region.ID] {
+				fields := strings.SplitN(line, " ", 3)
+				phase, got := "", ""
+				if len(fields) > 1 {
+					phase = fields[1]
+				}
+				if len(fields) > 2 {
+					got = fields[2]
+				}
+				seen[fields[0]] = true
+				volumes = append(volumes, line)
+				if phase != "Bound" || got != class {
+					wrong = append(wrong, line)
+				}
+			}
 			for _, ns := range namespaces {
 				pvcs, err := region.GetList(ctx, orgDBVolumes, ns, "-l", orgDBClusterLabel)
 				if err != nil {
@@ -136,6 +164,9 @@ func (orgDBStorageCheck) Run(ctx context.Context, cc *CheckContext, rec StepReco
 				}
 				for _, pvc := range pvcs {
 					if _, ok := orgDBHasLabel(pvc, orgDBClusterLabel); !ok {
+						continue
+					}
+					if seen[ns+"/"+pvc.Name()] {
 						continue
 					}
 					phase, got := pvc.Str("status", "phase"), pvc.Str("spec", "storageClassName")
@@ -160,7 +191,7 @@ func (orgDBStorageCheck) Run(ctx context.Context, cc *CheckContext, rec StepReco
 	rec.Step(next(), "at least one per-Organization database volume was judged", func(ev Evidence) error {
 		ev["judged"] = judged
 		if judged == 0 {
-			return fmt.Errorf("the namespaces %s hold no PVC with the label %s in any region: nothing was measured",
+			return fmt.Errorf("the namespaces %s hold no PVC with the label %s in any region, and step J1.4 recorded none: nothing was measured",
 				strings.Join(namespaces, ", "), orgDBClusterLabel)
 		}
 		return nil

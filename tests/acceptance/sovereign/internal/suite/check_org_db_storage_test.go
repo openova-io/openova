@@ -113,7 +113,7 @@ func TestOrgDBStorageCheckFails(t *testing.T) {
 		"org-db-no-release":          "no per-Organization database exists, so nothing was measured",
 		"org-db-unreadable-releases": "cannot reach",
 		"org-db-no-variable":         "have no value for SOVEREIGN_CNPG_STORAGE_CLASS",
-		"org-db-no-volume":           "hold no PVC with the label cnpg.io/cluster in any region: nothing was measured",
+		"org-db-no-volume":           "hold no PVC with the label cnpg.io/cluster in any region, and step J1.4 recorded none: nothing was measured",
 	} {
 		r := runCheck(t, scenario, orgDBStorageCheck{}, &CheckContext{RunIn: RunInCloud})
 		got := failedSteps(r)
@@ -123,5 +123,67 @@ func TestOrgDBStorageCheckFails(t *testing.T) {
 		if res := r.run.Checks[0]; res.Status != Fail {
 			t.Errorf("%s: the check is %s, want FAIL", scenario, res.Status)
 		}
+	}
+}
+
+// j14 is a step J1.4 that recorded the given volumes per region id.
+func j14(status string, volumes any) *Step {
+	return &Step{Journey: "J1", ID: "J1.4", Status: status, Evidence: Evidence{dbVolumesKey: volumes}}
+}
+
+// The suite creates no release of the provisioning service; journey J1's
+// database is what a run can measure, from what J1.4 recorded (run of
+// 15 November 2026: no release, nothing measured, CLD-G09 FAIL).
+func TestOrgDBStorageCheckJudgesTheJourneyDatabase(t *testing.T) {
+	good := map[string][]string{
+		"region-a": {"acme/accept-db-1 Bound durable-ssd"},
+		"region-b": {"acme/accept-db-1 Bound durable-ssd"},
+	}
+	r := runCheck(t, "org-db-no-release", orgDBStorageCheck{}, &CheckContext{RunIn: RunInCloud}, j14(Pass, good))
+	if got := failedSteps(r); len(got) != 0 {
+		t.Fatalf("J1's database Bound with the class must pass, failed: %v", got)
+	}
+	if got := r.run.Steps[len(r.run.Steps)-1].Evidence["judged"]; got != 2 {
+		t.Errorf("judged %v volumes, want 2", got)
+	}
+
+	// The form of a record read back from JSON.
+	asJSON := map[string]any{"region-a": []any{"acme/accept-db-1 Bound durable-ssd"}}
+	r = runCheck(t, "org-db-no-release", orgDBStorageCheck{}, &CheckContext{RunIn: RunInCloud}, j14(Pass, asJSON))
+	if got := failedSteps(r); len(got) != 0 {
+		t.Fatalf("the JSON form must be read, failed: %v", got)
+	}
+
+	for name, tc := range map[string]struct {
+		step *Step
+		want string
+	}{
+		"wrong class":    {j14(Pass, map[string][]string{"region-b": {"acme/accept-db-1 Bound hdd-cold"}}), "acme/accept-db-1 Bound hdd-cold"},
+		"no class field": {j14(Pass, map[string][]string{"region-a": {"acme/accept-db-1 Bound "}}), "acme/accept-db-1 Bound "},
+		"not Bound":      {j14(Pass, map[string][]string{"region-a": {"acme/accept-db-1 Pending durable-ssd"}}), "acme/accept-db-1 Pending durable-ssd"},
+		"J1.4 failed":    {j14(Fail, good), "no per-Organization database exists, so nothing was measured"},
+		"J1.4 recorded no volume": {j14(Pass, map[string][]string{"region-a": {}}),
+			"no per-Organization database exists, so nothing was measured"},
+	} {
+		r := runCheck(t, "org-db-no-release", orgDBStorageCheck{}, &CheckContext{RunIn: RunInCloud}, tc.step)
+		got := []string{}
+		for _, s := range r.run.Steps {
+			if s.Journey == orgDBStorageID && s.Status == Fail {
+				got = append(got, s.Error)
+			}
+		}
+		if len(got) != 1 || !strings.Contains(got[0], tc.want) {
+			t.Errorf("%s: want exactly one failed step that says %q, got %q", name, tc.want, got)
+		}
+	}
+
+	// With both a release and J1's database, a volume seen in both is judged once.
+	r = runCheck(t, "org-db-good", orgDBStorageCheck{}, &CheckContext{RunIn: RunInCloud},
+		j14(Pass, map[string][]string{"region-a": {"acme/cnpg-pair-primary-1 Bound durable-ssd", "acme/accept-db-1 Bound durable-ssd"}}))
+	if got := failedSteps(r); len(got) != 0 {
+		t.Fatalf("failed: %v", got)
+	}
+	if got := r.run.Steps[len(r.run.Steps)-1].Evidence["judged"]; got != 4 {
+		t.Errorf("judged %v volumes, want 4 (3 of the releases and 1 more of J1)", got)
 	}
 }
