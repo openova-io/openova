@@ -8,6 +8,11 @@ name: check-release-owned-lines
 # it may not change a version value of one that exists before and after it.
 # The rules are in the head of scripts/check-release-owned-lines.py.
 #
+# The check of a pull request and of a merge group is a group of steps of the
+# job pull-request-guards in pull-request-guards.yaml (FND-059), named
+# "no release-owned value changes in a pull request | ...". This workflow keeps
+# the check of a push to main.
+#
 # The job `push` stays idle until the repository variable RELEASE_WRITER_LOGIN
 # exists. It is set when the rulesets are applied and the merge queue is
 # switched on; its value is not compared. The one bypass actor of the ruleset
@@ -21,8 +26,6 @@ name: check-release-owned-lines
 # actions: read.
 
 on:
-  pull_request:
-  merge_group:
   push:
     branches: [main]
 
@@ -30,25 +33,6 @@ permissions:
   contents: read
 
 jobs:
-  pr:
-    name: no release-owned value changes in a pull request
-    if: github.event_name != 'push'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Prove the guard can fail
-        run: python3 scripts/check-release-owned-lines.py --self-test
-
-      - name: No release-owned value changes
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: python3 scripts/check-release-owned-lines.py pr --base "$BASE_SHA" --head "$HEAD_SHA"
-
   push:
     name: a push to main outside the merge queue changes only release-owned lines
     if: github.event_name == 'push' && vars.RELEASE_WRITER_LOGIN != ''

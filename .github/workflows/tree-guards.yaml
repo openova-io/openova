@@ -1,0 +1,365 @@
+# tree-guards.yaml - the guards that read the tree run as steps of one job.
+#
+# Each guard was a workflow of its own; it is now a group of steps here. A step is named
+# "<old check name> | <old step name>", so a red step names its guard in the log and in the
+# list of steps. The script, its arguments and its environment are those of the old
+# workflow. Every guard step runs also when an earlier step failed (!cancelled()), so one red
+# guard hides no other and the job is red when any guard is red. The ci-gate check
+# (scripts/ci-gate.py) judges this job like any other check run, and the ruleset of main
+# requires it by its name, tree-guards. scripts/check-pr-jobs.py proves these rules.
+#
+# The job needs a checkout of two commits, Python 3.12 with PyYAML, bash and git, and
+# nothing else. A guard that needs another tool (Go, Node, Helm) or a secret, or that reads
+# the pull request itself, runs elsewhere: go-lint.yaml, console-lint.yaml,
+# check-lock-stages.yaml, redact-guard.yml, pull-request-guards.yaml.
+#
+# A step keeps the events of its old workflow: pull requests and merge groups for every
+# step, pushes to main where the old workflow had them, a start by hand only for the
+# conflict markers. No path filter, on purpose: a check that a path filter skips never
+# reports. A new guard of this kind is a new group of steps at the end of the job, before
+# the two steps that change the tree, never a new workflow.
+#
+# Two steps change the checkout and so stay last: the probe of the secret guards adds a
+# line to a chart template and restores it, and the known answer of the provider-leak
+# scanner checks out a fixed commit into the folder known-answer.
+name: tree-guards
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tree-guards:
+    name: tree-guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      # Two commits: several guards compare with the first parent of the commit under test.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - name: Install PyYAML
+        run: pip install --quiet pyyaml
+      - name: 'agent-plane-guards | Self-test of the guard (every rule can fail)'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: python3 scripts/check-agent-plane.py --self-test
+      - name: 'agent-plane-guards | The agent-plane rules hold and no stored number rose'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: python3 scripts/check-agent-plane.py --base HEAD^1
+      - name: 'bss-ratchets | Self-test of the guards'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: python3 scripts/check-bss-ratchets.py --self-test
+      - name: 'bss-ratchets | The ratchets of the billing area hold'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: python3 scripts/check-bss-ratchets.py
+      - name: 'api-structure | Self-test of the guard'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: python3 scripts/check-api-structure.py --self-test
+      - name: 'api-structure | The handler package and main() did not grow'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: python3 scripts/check-api-structure.py
+      - name: 'event-subjects | Self-test (each rule can fail)'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: python3 scripts/check-event-subjects.py --self-test
+      - name: 'event-subjects | Guard G4'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: python3 scripts/check-event-subjects.py
+      - name: 'lifecycle-ratchets | Self-test of the guard'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: bash scripts/check-lifecycle-ratchets.sh --self-test
+      - name: 'lifecycle-ratchets | No number of the hand-over machinery is above its baseline'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: bash scripts/check-lifecycle-ratchets.sh
+      - name: 'lifecycle-ratchets | One kubectl patch line added to a copy of the cutover chart fails the guard'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: |
+          t="$(mktemp -d)"
+          trap 'rm -rf "$t"' EXIT
+          ln -s "$PWD/products" "$PWD/scripts" "$t/"
+          mkdir -p "$t/platform/self-sovereign-cutover/chart"
+          cp -r platform/self-sovereign-cutover/chart/templates "$t/platform/self-sovereign-cutover/chart/templates"
+          printf '          kubectl -n x patch deploy y --type merge -p "{}"\n' >> "$t/platform/self-sovereign-cutover/chart/templates/namespace.yaml"
+          code=0
+          out="$(bash scripts/check-lifecycle-ratchets.sh --root "$t")" || code=$?
+          if [ "$code" != 1 ] || ! grep -q -F 'check-lifecycle-ratchets: FAIL chart_mutations: ' <<<"$out"; then
+            printf '%s\n' "$out"
+            echo "The guard did not fail on the added kubectl patch line (exit code $code)."
+            exit 1
+          fi
+          echo "The guard failed on the added kubectl patch line, as it must."
+      - name: 'check-machine-plane | Self-test of the guard'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: python3 scripts/check-machine-plane.py --self-test
+      - name: 'check-machine-plane | The machine plane gains no unsafe pattern'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: python3 scripts/check-machine-plane.py
+      - name: 'network-guards | Self-test of the guards (every rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: python3 scripts/check-network-guards.py self-test
+      - name: 'network-guards | No file offends more than its baseline line allows'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: python3 scripts/check-network-guards.py check
+      - name: 'no-conflict-markers | Detector vacuity self-test'
+        if: ${{ !cancelled() }}
+        run: bash scripts/check-no-conflict-markers.sh --self-test-only
+      - name: 'no-conflict-markers | Scan tracked files'
+        if: ${{ !cancelled() }}
+        run: bash scripts/check-no-conflict-markers.sh
+      - name: 'no-direct-cluster-write | Self-test of the guard'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: python3 scripts/check-no-direct-cluster-write.py --self-test
+      - name: 'no-direct-cluster-write | No new direct cluster write'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: python3 scripts/check-no-direct-cluster-write.py
+      - name: 'no-new-polling | Self-test of the guard'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: python3 scripts/check-no-new-polling.py --self-test
+      - name: 'no-new-polling | No new polling loop'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: python3 scripts/check-no-new-polling.py
+      - name: 'vendor-disk-library | Self-test (every rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: bash scripts/check-no-vendor-disk-library.sh --self-test
+      - name: 'vendor-disk-library | No tracked file is the vendor disk library'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: bash scripts/check-no-vendor-disk-library.sh --repo
+      - name: 'check-products | Self-test of the guard'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: python3 scripts/check-products.py --self-test
+      - name: 'check-products | The product rules hold'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: python3 scripts/check-products.py
+      - name: 'provider-leaks | self-test'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: python3 scripts/check-provider-leaks.py --self-test
+      - name: 'provider-leaks | check'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: python3 scripts/check-provider-leaks.py --check
+      - name: 'check-repo-hygiene | Self-test of the guard (every rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: python3 scripts/check-repo-hygiene.py --self-test
+      - name: 'check-repo-hygiene | Deleted paths stay deleted'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: python3 scripts/check-repo-hygiene.py paths
+      - name: 'check-repo-hygiene | No compiled program is tracked'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: python3 scripts/check-repo-hygiene.py binaries
+      - name: 'check-repo-hygiene | The session tree does not grow'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: python3 scripts/check-repo-hygiene.py sessions
+      - name: 'check-repo-hygiene | No Kyverno engine at 1.20 or later while a legacy policy is in a chart template'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: |
+          bash scripts/check-kyverno-legacy-policies.sh --self-test
+          bash scripts/check-kyverno-legacy-policies.sh
+      - name: 'check-repo-hygiene | Kit slot 27a reads the policy values document and passes the hand-over variable'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: |
+          python3 -m pip install --quiet pyyaml
+          python3 scripts/check-policy-wiring.py --self-test
+          python3 scripts/check-policy-wiring.py
+      - name: 'check-repo-hygiene | The word sandbox outside docs only becomes rarer'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: |
+          python3 scripts/check-sandbox-word.py --self-test
+          python3 scripts/check-sandbox-word.py --base HEAD^1
+      - name: 'check-repo-hygiene | Every job that pushes to main pushes with the release-writer key'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: |
+          python3 scripts/check-bot-writers.py --self-test
+          python3 scripts/check-bot-writers.py --base HEAD^1
+      - name: 'check-service-model | Self-test of the guard (every rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: python3 scripts/check-service-model.py --self-test
+      - name: 'check-service-model | The service-model counts equal the baseline'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: python3 scripts/check-service-model.py
+      - name: 'upstream-literals | Self-test of the guard'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: bash scripts/check-upstream-literals.sh --self-test
+      - name: 'upstream-literals | No scope holds more source addresses than its baseline'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: bash scripts/check-upstream-literals.sh
+      - name: 'upstream-literals | One address added to a copy of a kit file fails the guard'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: |
+          t="$(mktemp -d)"
+          trap 'rm -rf "$t"' EXIT
+          ln -s "$PWD/infra" "$PWD/platform" "$PWD/products" "$PWD/core" "$PWD/scripts" "$t/"
+          mkdir -p "$t/clusters"
+          cp -r clusters/_template "$t/clusters/_template"
+          printf 'url: oci://ghcr.io/openova-io\n' >> "$t/clusters/_template/kustomization.yaml"
+          code=0
+          out="$(bash scripts/check-upstream-literals.sh --root "$t")" || code=$?
+          if [ "$code" != 1 ] || ! grep -q -F 'check-upstream-literals: FAIL kit: ' <<<"$out"; then
+            printf '%s\n' "$out"
+            echo "The guard did not fail on the added address (exit code $code)."
+            exit 1
+          fi
+          echo "The guard failed on the added address, as it must."
+      - name: 'plan-validate | Self-test of the plan tool'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: python3 scripts/plan.py --self-test
+      - name: 'plan-validate | Validate the plan file'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: python3 scripts/plan.py validate --no-fetch
+      - name: 'generated-docs | Self-test of every generator'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: |
+          set -euo pipefail
+          count=0
+          for generator in scripts/generators/*.py; do
+            echo "::group::${generator} --self-test"
+            python3 "$generator" --self-test
+            echo "::endgroup::"
+            count=$((count + 1))
+          done
+          echo "self-test: ${count} generator(s) passed"
+      - name: 'generated-docs | Every generated file is current'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: |
+          set -euo pipefail
+          stale=0
+          count=0
+          for generator in scripts/generators/*.py; do
+            code=0
+            python3 "$generator" --check || code=$?
+            if [ "$code" -ne 0 ]; then
+              echo "::error::${generator} --check ended with exit code ${code}. Run: python3 ${generator}  and commit the file it writes."
+              stale=1
+            fi
+            count=$((count + 1))
+          done
+          echo "check: ${count} generator(s) run"
+          exit "$stale"
+      - name: 'doc-state | Self-test of the guard (every rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: python3 scripts/check-doc-state.py --self-test
+      - name: 'doc-state | Markers resolve, the counts do not rise, the baseline does not rise'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: python3 scripts/check-doc-state.py --base HEAD^1
+      - name: 'check-pins | Self-test of the guard (every rule can fail)'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: python3 scripts/check-pins.py --self-test
+      - name: 'check-pins | No more unpinned references than the baseline, none in a new file, no higher baseline'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: python3 scripts/check-pins.py --base HEAD^1
+      - name: 'check-builds-sign | Self-test of the guard (every rule can fail)'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: python3 scripts/check-builds-sign.py --self-test
+      - name: 'check-builds-sign | Every image and chart push is signed through the shared action'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: python3 scripts/check-builds-sign.py
+      - name: 'check-chart-image-tags | Self-test of the newest-image-tag helper'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: python3 scripts/latest-image-tag.py --self-test
+      - name: 'check-chart-image-tags | Self-test of the guard (every rule can fail)'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: python3 scripts/check-chart-image-tags.py --self-test
+      - name: 'check-chart-image-tags | No image tag names a signature or an attestation, the list does not grow'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: python3 scripts/check-chart-image-tags.py --base HEAD^1
+      - name: 'pr-jobs | Self-test of the job rules (every rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: python3 scripts/check-pr-jobs.py --self-test
+      - name: 'pr-jobs | Every shared job lets each guard run after a failure and names it'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: python3 scripts/check-pr-jobs.py folded
+      - name: 'pr-jobs | A pull request that changes one document starts at most 12 jobs'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: python3 scripts/check-pr-jobs.py count
+      - name: 'secret-guards | G1 self-test'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: bash scripts/check-no-secret-values-in-git.sh --self-test
+      - name: 'secret-guards | G1 no Secret manifest under clusters/'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: bash scripts/check-no-secret-values-in-git.sh
+      - name: 'secret-guards | G2 self-test'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: bash scripts/check-no-chart-random-secrets.sh --self-test
+      - name: 'secret-guards | G2 no new generated secret in a chart template'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: bash scripts/check-no-chart-random-secrets.sh
+      - name: 'secret-guards | G3 self-test'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: bash scripts/check-no-plain-secret-manifests.sh --self-test
+      - name: 'secret-guards | G3 no new Secret manifest in a chart template'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: bash scripts/check-no-plain-secret-manifests.sh
+      - name: 'secret-guards | G4 self-test'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: bash scripts/check-no-derived-credentials.sh --self-test
+      - name: 'secret-guards | G4 no new derived credential in a chart template'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: bash scripts/check-no-derived-credentials.sh
+      - name: 'secret-guards | G5 self-test'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: bash scripts/check-no-secret-writers.sh --self-test
+      - name: 'secret-guards | G5 no new Secret writer in Go code'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: bash scripts/check-no-secret-writers.sh
+      - name: 'secret-guards | G6 self-test'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: bash scripts/check-reflector-scope.sh --self-test
+      - name: 'secret-guards | G6 no new wide reflector scope or legacy store use'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: bash scripts/check-reflector-scope.sh
+      - name: 'secret-guards | G7 self-test'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: bash scripts/check-openbao-no-unseal-secret.sh --self-test
+      - name: 'secret-guards | G7 no new reference to the OpenBao unseal material'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: bash scripts/check-openbao-no-unseal-secret.sh
+      - name: 'secret-guards | G9 self-test'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: bash scripts/check-secret-delivery-lint.sh --self-test
+      - name: 'secret-guards | G9 delivery lint'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: bash scripts/check-secret-delivery-lint.sh
+      - name: 'access-guards | Self-test of the guards'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: bash scripts/check-access-guards.sh --self-test
+      - name: 'access-guards | The access guards'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: bash scripts/check-access-guards.sh
+      - name: 'reserved-slugs | Self-test of the guard (every rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: python3 scripts/check-reserved-slugs.py --self-test
+      - name: 'reserved-slugs | The kit namespaces are reserved in the kind and in the organizations service'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: python3 scripts/check-reserved-slugs.py
+      - name: 'secret-guards | a randAlphaNum added to a real chart template fails G2'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: |
+          f="$(git ls-files 'platform/*/chart/templates/*.yaml' | awk 'NR==1')"
+          test -n "$f"
+          printf '%s\n' 'probe: {{ randAlphaNum 8 }}' >> "$f"
+          if bash scripts/check-no-chart-random-secrets.sh > "$RUNNER_TEMP/g2-probe.txt"; then
+            echo "::error::G2 passed with a randAlphaNum added to $f"
+            exit 1
+          fi
+          grep -F "$f" "$RUNNER_TEMP/g2-probe.txt"
+          git checkout -- "$f"
+      - name: 'provider-leaks | known-answer: check out the fixed commit'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: 2c1f5b0c0c7a80453b2b687ce6ccba0be8b2e0f0
+          path: known-answer
+      - name: 'provider-leaks | known-answer: the scanner reproduces the totals of the fixed commit'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: |
+          python3 scripts/check-provider-leaks.py --report --repo known-answer > "$RUNNER_TEMP/report.txt"
+          want='shared_lines=2083 shared_files=338 legacy_lines=157 legacy_files=18 allow_lines=1225 allow_files=82 shared_comment_lines=3105'
+          got="$(head -n 1 "$RUNNER_TEMP/report.txt")"
+          echo "want: $want"; echo "got:  $got"
+          test "$got" = "$want"

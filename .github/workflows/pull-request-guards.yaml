@@ -1,0 +1,278 @@
+# pull-request-guards.yaml - the guards that read the pull request run as steps of one job.
+#
+# These guards read the body, the title or the labels of the pull request, or compare its
+# commits with its base, so they need the event of the pull request and the full history.
+# Each was a workflow of its own; it is now a group of steps here. A step is named
+# "<old check name> | <old step name>", so a red step names its guard in the log and in the
+# list of steps. The script, its arguments and its environment are those of the old
+# workflow. Every guard step runs also when an earlier step failed (!cancelled()), so one red
+# guard hides no other and the job is red when any guard is red. The ci-gate check
+# (scripts/ci-gate.py) judges this job like any other check run. scripts/check-pr-jobs.py
+# proves these rules.
+#
+# The job starts on every event that started one of the old workflows: a pull request that is
+# opened, edited, reopened, pushed to, labelled or unlabelled, and every merge group. An edit
+# of the body or a change of the labels starts it again, so a guard that reads them judges
+# what the pull request says now. The persona-name guard reads only the tree; it is here
+# because its old workflow ran again when the body was edited, and this job has everything it
+# needs. No path filter, on purpose: a check that a path filter skips never reports.
+#
+# Guards that read only the tree run in tree-guards.yaml.
+name: pull-request-guards
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, labeled, unlabeled]
+  merge_group:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  pull-request-guards:
+    name: pull-request-guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # Full history: the commit ranges and the base of the manifest are read with git.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - name: 'Reject banned words in PR body | Inspect PR body for banned words'
+        if: ${{ !cancelled() }}
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -u
+          echo "PR #${PR_NUMBER}"
+          echo "Title: ${PR_TITLE}"
+          echo ""
+
+          PATTERN='\bMVP\b|\biterat(ion|ions|ive|ively)\b|\bout[ -_]of[ -_]scope\b|\bblocker[s]?\b'
+
+          VIOLATIONS=""
+          if printf '%s' "${PR_TITLE:-}" | grep -iqP "${PATTERN}"; then
+            VIOLATIONS="${VIOLATIONS}- PR TITLE matches banned-word pattern"$'\n'
+          fi
+          if printf '%s' "${PR_BODY:-}" | grep -iqP "${PATTERN}"; then
+            VIOLATIONS="${VIOLATIONS}- PR BODY matches banned-word pattern"$'\n'
+          fi
+
+          if [ -n "$VIOLATIONS" ]; then
+            echo "::error::PR violates docs/PRINCIPLES.md 'Banned words' rule."
+            echo ""
+            echo "Violations:"
+            printf '%s' "$VIOLATIONS"
+            echo ""
+            echo "Banned words (set 2026-06-01 — additive only, never removed):"
+            echo "  MVP            → ship the ultimate product (no 'minimum viable')"
+            echo "  Iteration      → 'chain' or 'series' for genuine multi-PR ships"
+            echo "  out of scope   → ship it OR ship a follow-up PR"
+            echo "  Blocker        → 'next action: do X' framing instead"
+            echo ""
+            echo "Edit the PR title/body to remove the banned words. The 'edited'"
+            echo "trigger re-runs this check automatically."
+            exit 1
+          fi
+
+          echo "OK — PR title/body does not use banned words."
+      - name: 'Reject banned words in commit messages on this PR | Scan commit messages'
+        if: ${{ !cancelled() }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -u
+          # The check-no-banned-words.sh script supports --commit-messages
+          # mode with an explicit range. Use the PR's base..head range so
+          # we only scan commits authored on this branch (not the whole
+          # history).
+          chmod +x scripts/check-no-banned-words.sh
+          ./scripts/check-no-banned-words.sh --commit-messages "${BASE_SHA}..${HEAD_SHA}"
+      - name: 'Reject Closes/Fixes/Resolves in PR body (unless ci-gate-exception) | Inspect PR body for auto-close keywords'
+        if: ${{ !cancelled() }}
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -u
+
+          echo "PR #${PR_NUMBER}"
+          echo "Labels: ${PR_LABELS}"
+          echo "----- PR body begin -----"
+          printf '%s\n' "${PR_BODY:-(empty)}"
+          echo "----- PR body end -----"
+
+          # Detect GitHub auto-close keywords with a whitespace/start
+          # boundary, followed by whitespace and a #NNN reference.
+          # Mirrors GH's documented closing-keyword grammar.
+          PATTERN='(^|[[:space:]])(Closes|Closed|Close|Fixes|Fixed|Fix|Resolves|Resolved|Resolve)[[:space:]]+#[0-9]+'
+
+          if printf '%s' "${PR_BODY:-}" | grep -iqE "${PATTERN}"; then
+            echo ""
+            echo "Detected auto-close keyword (Closes/Fixes/Resolves) referencing an issue."
+            echo ""
+            if printf '%s' "${PR_LABELS}" | tr ',' '\n' | grep -qx "ci-gate-exception"; then
+              echo "Label 'ci-gate-exception' is present — guard ALLOWS this PR."
+              echo "Reminder: this exception is reserved for pure CI-gate / docs-only"
+              echo "PRs with no operator-visible surface. Anything user-facing must"
+              echo "use 'Refs #N' and stay open until the walk-with-screenshot lands."
+              exit 0
+            fi
+
+            echo "::error::PR body uses an auto-close keyword (Closes/Fixes/Resolves) but lacks the 'ci-gate-exception' label."
+            echo ""
+            echo "Per CLAUDE.md §3 rule 1 (and the OpenOva anti-theater discipline):"
+            echo "  * Default keyword in PR bodies is 'Refs #N', NOT 'Closes #N'."
+            echo "  * GitHub auto-close on merge bypasses operator-walk DoD."
+            echo "  * Issues close only after the walk-with-screenshot lands on the issue."
+            echo ""
+            echo "How to fix:"
+            echo "  1. EITHER edit the PR body — replace 'Closes #N' / 'Fixes #N' /"
+            echo "     'Resolves #N' with 'Refs #N'. The 'edited' trigger will re-run"
+            echo "     this check automatically."
+            echo "  2. OR (only if this PR has NO operator-visible surface — e.g. a"
+            echo "     pure CI-gate fix, docs-only edit, lockstep version bump) add"
+            echo "     the 'ci-gate-exception' label. The 'labeled' trigger will"
+            echo "     re-run this check and flip it green."
+            echo ""
+            echo "If unsure which path applies, default to (1) — Refs is always safe."
+            exit 1
+          fi
+
+          echo "OK — PR body does not use Closes/Fixes/Resolves keywords."
+      - name: 'Reject Closes/Fixes/Resolves in commit messages on this PR | Inspect commit messages for auto-close keywords'
+        if: ${{ !cancelled() }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -u
+
+          echo "PR #${PR_NUMBER}"
+          echo "Range: ${BASE_SHA}..${HEAD_SHA}"
+
+          # Same grammar as the PR-body job above — keep the two in step.
+          PATTERN='(^|[[:space:]])(Closes|Closed|Close|Fixes|Fixed|Fix|Resolves|Resolved|Resolve)[[:space:]]+#[0-9]+'
+
+          # %B = full message (subject + body). A conventional-commit subject
+          # like `fix(scope): ...` cannot match: the pattern requires
+          # whitespace before the keyword and `#NNN` after it.
+          HITS=$(git log --format='%H%n%B%n--' "${BASE_SHA}..${HEAD_SHA}" \
+                 | grep -inE "${PATTERN}" || true)
+
+          if [ -n "${HITS}" ]; then
+            echo ""
+            echo "Detected auto-close keyword in a commit message on this branch:"
+            printf '%s\n' "${HITS}"
+            echo ""
+            if printf '%s' "${PR_LABELS}" | tr ',' '\n' | grep -qx "ci-gate-exception"; then
+              echo "Label 'ci-gate-exception' is present — guard ALLOWS this PR."
+              exit 0
+            fi
+
+            echo "::error::A commit message uses an auto-close keyword (Closes/Fixes/Resolves) but the PR lacks the 'ci-gate-exception' label."
+            echo ""
+            echo "On squash merge GitHub parses the COMMIT text, not just the PR"
+            echo "body — so this closes the issue on merge even when the PR body"
+            echo "correctly says 'Refs #N'. Auto-close bypasses the operator-walk"
+            echo "DoD: issues close only after the walk-with-screenshot lands."
+            echo ""
+            echo "How to fix:"
+            echo "  1. Reword the commit(s): 'fixed #N' -> 'Refs #N', or when"
+            echo "     referring to earlier work, name it without the keyword —"
+            echo "     'PR #5662 addressed #5661' rather than 'fixed #5661'."
+            echo "     git commit --amend, or git rebase -i for older commits."
+            echo "  2. OR add 'ci-gate-exception' if this PR genuinely has no"
+            echo "     operator-visible surface."
+            exit 1
+          fi
+
+          echo "OK — no commit message on this branch uses Closes/Fixes/Resolves."
+      - name: 'RT-11 cutover merge-hold (blocked until cutover-hold-cleared) | Enforce RT-11 hold marker'
+        if: ${{ !cancelled() }}
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -u
+          echo "PR #${PR_NUMBER}"
+          echo "Labels: ${PR_LABELS}"
+
+          # RT-11 hold marker: the EXACT opt-in sentinel token (case-insensitive
+          # on ACTIVE, exact on the key). Descriptive prose about RT-11 does NOT
+          # match — only a deliberate 'RT-11-HOLD: ACTIVE' declaration.
+          MARKER='RT-11-HOLD:[[:space:]]*ACTIVE'
+
+          if ! printf '%s' "${PR_BODY:-}" | grep -iqE "${MARKER}"; then
+            echo "OK — no RT-11 cutover hold declared in this PR body; guard is a no-op."
+            exit 0
+          fi
+
+          echo "RT-11 cutover merge-hold marker present in PR body."
+          if printf '%s' "${PR_LABELS}" | tr ',' '\n' | grep -qx "cutover-hold-cleared"; then
+            echo "Label 'cutover-hold-cleared' present — an operator has cleared the hold; guard ALLOWS merge."
+            exit 0
+          fi
+
+          echo "::error::RT-11 cutover merge-hold is active on this PR and the 'cutover-hold-cleared' label is absent."
+          echo ""
+          echo "Per docs/PROTOCOL.md §4 RT-11: a PR that publishes a chart/image the"
+          echo "Sovereign consumes must NOT merge while a cutover is between step-03"
+          echo "(harbor-prewarm) and step-08 (deny-egress) — the publish outruns the"
+          echo "step-03 mirror and fail-closes steps 06/07/08 (hw250 live, 2026-07-14)."
+          echo ""
+          echo "How to clear:"
+          echo "  1. Wait until the in-flight cutover reaches cutoverComplete (or its"
+          echo "     failure is dispositioned and no cutover is between step-03/08)."
+          echo "  2. An operator adds the 'cutover-hold-cleared' label. The 'labeled'"
+          echo "     trigger re-runs this check and flips it green."
+          echo ""
+          echo "If no cutover is actually in flight, remove the RT-11 hold marker from"
+          echo "the PR body (the 'edited' trigger re-runs this check)."
+          exit 1
+      - name: 'gate-manifest | Self-test (each rule can fail)'
+        if: ${{ !cancelled() }}
+        run: python3 scripts/acceptance-gate.py --self-test
+      - name: 'gate-manifest | Install PyYAML'
+        if: ${{ !cancelled() }}
+        run: python3 -m pip install --quiet pyyaml
+      - name: 'gate-manifest | Validate the manifest against the base of the pull request'
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          # The checkout is the merge of the pull request into its base branch.
+          # Its first parent is the base.
+          printf '%s\n' "${PR_BODY:-}" > "$RUNNER_TEMP/pr-body.txt"
+          python3 scripts/acceptance-gate.py validate --base "HEAD^1" --body-file "$RUNNER_TEMP/pr-body.txt"
+      - name: 'gate-manifest | Validate the manifest of the merged tree'
+        if: ${{ !cancelled() && github.event_name == 'merge_group' }}
+        run: python3 scripts/acceptance-gate.py validate --base HEAD --body-file /dev/null
+      - name: 'no release-owned value changes in a pull request | Prove the guard can fail'
+        if: ${{ !cancelled() }}
+        run: python3 scripts/check-release-owned-lines.py --self-test
+      - name: 'no release-owned value changes in a pull request | No release-owned value changes'
+        if: ${{ !cancelled() }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python3 scripts/check-release-owned-lines.py pr --base "$BASE_SHA" --head "$HEAD_SHA"
+      - name: 'Naming guard proves both directions | Self-test (a new sme route fails; a Tier "sme" value passes)'
+        if: ${{ !cancelled() }}
+        run: |
+          chmod +x scripts/check-no-persona-machinery.sh
+          ./scripts/check-no-persona-machinery.sh --self-test
+      - name: 'Reject persona-named machinery in the working tree | Scan working tree for persona-named machinery'
+        if: ${{ !cancelled() }}
+        run: |
+          chmod +x scripts/check-no-persona-machinery.sh
+          ./scripts/check-no-persona-machinery.sh
