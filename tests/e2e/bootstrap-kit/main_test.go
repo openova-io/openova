@@ -178,8 +178,8 @@ func TestBootstrapKit_BlueprintCardsHaveRequiredFields(t *testing.T) {
 			if bp.Kind != "Blueprint" {
 				t.Errorf("kind = %q, want Blueprint", bp.Kind)
 			}
-			if bp.APIVersion != "catalyst.openova.io/v1alpha1" {
-				t.Errorf("apiVersion = %q, want catalyst.openova.io/v1alpha1", bp.APIVersion)
+			if bp.APIVersion != "catalyst.openova.io/v1" {
+				t.Errorf("apiVersion = %q, want catalyst.openova.io/v1", bp.APIVersion)
 			}
 			wantName := "bp-" + name
 			if bp.Metadata.Name != wantName {
