@@ -82,6 +82,13 @@ spec:
       catalyst.openova.io/application: {{ .Release.Name | quote }}
   {{- end }}
   instances: {{ .Values.cnpgPair.primary.instances }}
+  {{- /* #7922: CNPG gives a Cluster the budget <name>-primary, minAvailable 1 on its primary.
+       With one instance that is the only Pod, no switchover is possible, and no drain of its
+       node can finish. One instance carries no budget; two or more keep CNPG's budgets and
+       its switchover ahead of a drain (CNPG 1.29, Kubernetes upgrade and maintenance). */}}
+  {{- if eq (int (.Values.cnpgPair.primary.instances | default 1)) 1 }}
+  enablePDB: false
+  {{- end }}
   primaryUpdateMethod: switchover
   imageName: {{ include "cnpg-pair.imageRef" . | quote }}
 

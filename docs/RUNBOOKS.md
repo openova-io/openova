@@ -1178,6 +1178,7 @@ Before declaring "done" on any chart that touches a long-lived resource:
 2. If the resource type appears in §4.2, ALSO run against a namespace where a PRIOR shape exists. Must succeed; if it fails, add the Flux force annotation AND the integration test.
 3. Verify `kustomization.yaml` references all template files.
 4. If the resource carries client traffic, document the recreate blast radius in the chart's leading comment.
+5. A worker restart must always be able to finish (#7922). A PodDisruptionBudget must allow at least one disruption at the size its workload renders: a one-replica Deployment or StatefulSet carries no budget (or `maxUnavailable: 1`), and a one-instance CNPG `Cluster` sets `enablePDB: false` (CNPG's own budget sits on its only Pod; with two or more instances CNPG switches the primary over before a drain). `scripts/check-budgets-allow-drain.py` renders every chart, with its defaults and with each kit release's values, and fails otherwise.
 
 ### 4.4 Service-name-mismatch in env-var defaults
 

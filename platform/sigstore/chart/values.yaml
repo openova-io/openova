@@ -26,6 +26,16 @@ policy-controller:
   webhook:
     name: webhook
     replicaCount: 1
+    # One replica, no disruption budget (#7922). The upstream chart's budget
+    # (minAvailable 1) on the one webhook Pod refuses its eviction for ever:
+    # on hw307 kured's drain of its worker never finished (4,510 refused
+    # evictions in each 15-minute attempt, the node cordoned without end).
+    # The single replica is the sizing of this chart: with failurePolicy
+    # Ignore (below) a moment without the webhook blocks no admission, so a
+    # budget protects nothing. An overlay that raises replicaCount to 2 or
+    # more, for failurePolicy Fail, turns the budget back on with it.
+    podDisruptionBudget:
+      enabled: false
     # Pin upstream image — DO NOT use floating tags per
     # docs/INVIOLABLE-PRINCIPLES.md.
     #

@@ -74,6 +74,13 @@ metadata:
     helm.sh/resource-policy: keep
 spec:
   instances: {{ .Values.cnpg.cluster.instances | default 1 }}
+  {{- /* #7922: CNPG gives a Cluster the budget <name>-primary, minAvailable 1 on its primary.
+       With one instance that is the only Pod, no switchover is possible, and no drain of its
+       node can finish. One instance carries no budget; two or more keep CNPG's budgets and
+       its switchover ahead of a drain (CNPG 1.29, Kubernetes upgrade and maintenance). */}}
+  {{- if eq (int (.Values.cnpg.cluster.instances | default 1)) 1 }}
+  enablePDB: false
+  {{- end }}
   imageName: {{ .Values.cnpg.cluster.imageName | default "harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16" | quote }}
   {{- /* G93.3 (Refs #2668) — see bp-gitea cnpg-cluster.yaml for full
   rationale. When instances>=2, default CNPG affinity.topologyKey to
