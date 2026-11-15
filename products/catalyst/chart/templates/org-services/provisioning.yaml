@@ -71,7 +71,7 @@ rules:
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get", "list", "watch"]
-  # Organizations (orgs.openova.io): the tenant.created Kafka consumer
+  # Organizations (orgs.openova.io): the tenant.created consumer
   # creates one Organization CR per voucher checkout (D29 step 5). Without
   # this rule the consumer 403s in a 5s NAK-retry loop forever and the
   # rest of the customer journey (steps 6/7/8) is blocked. Issue #1900,
@@ -312,11 +312,6 @@ spec:
                   key: MONGODB_URI
             - name: MONGODB_DB
               value: "provisioning"
-            - name: REDPANDA_BROKERS
-              valueFrom:
-                configMapKeyRef:
-                  name: org-services-config
-                  key: REDPANDA_BROKERS
             # NATS JetStream URL — canonical event bus per ADR-0001 §6.
             # PR #1627 wired provisioning's tenant + order subscriber
             # to NATS subjects `catalyst.tenant.created`,
@@ -330,12 +325,6 @@ spec:
                 configMapKeyRef:
                   name: org-services-config
                   key: NATS_URL
-            - name: EVENT_BUS_PROTOCOL
-              valueFrom:
-                configMapKeyRef:
-                  name: org-services-config
-                  key: EVENT_BUS_PROTOCOL
-                  optional: true
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:

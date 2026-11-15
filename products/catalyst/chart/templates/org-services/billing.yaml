@@ -48,11 +48,6 @@ spec:
                   key: POSTGRES_PORT
             - name: DATABASE_URL
               value: "postgres://$(PG_USER):$(PG_PASSWORD)@$(POSTGRES_HOST):$(POSTGRES_PORT)/org_billing?sslmode=disable"
-            - name: REDPANDA_BROKERS
-              valueFrom:
-                configMapKeyRef:
-                  name: org-services-config
-                  key: REDPANDA_BROKERS
             # NATS JetStream URL — canonical event bus per ADR-0001 §6.
             # Used for BOTH (a) the existing catalyst.usage.recorded
             # metering subscriber (#798) and (b) the new canonical

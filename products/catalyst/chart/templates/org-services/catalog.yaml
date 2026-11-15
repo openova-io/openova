@@ -33,11 +33,6 @@ spec:
                   key: MONGODB_URI
             - name: MONGODB_DB
               value: "catalog"
-            - name: REDPANDA_BROKERS
-              valueFrom:
-                configMapKeyRef:
-                  name: org-services-config
-                  key: REDPANDA_BROKERS
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
