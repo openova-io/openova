@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-15T14:15:04Z` |
+| Last refreshed | `2026-11-15T14:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,15 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-15T14:26 | [#7921](https://github.com/openova-io/openova/pull/7921) | #7905 | plan(gates): INF-G01 asserts one worker restart per region a |
+| 2026-11-15T14:23 | [#7920](https://github.com/openova-io/openova/pull/7920) | #7915 | fix(acceptance): SVC-G06 does not judge a release the region |
+| 2026-11-15T14:23 | [#7919](https://github.com/openova-io/openova/pull/7919) | #7905 | fix(acceptance): INF-G01 restarts one worker per region and  |
+| 2026-11-15T14:17 | [#7918](https://github.com/openova-io/openova/pull/7918) | #7912 | fix(sso-probe): the hubble row looks for what hubble-ui show |
+| 2026-11-15T14:17 | [#7917](https://github.com/openova-io/openova/pull/7917) | #7912 | fix(acceptance): FND-G06 asks the API host at its health pat |
+| 2026-11-15T14:17 | [#7916](https://github.com/openova-io/openova/pull/7916) | #7912 | fix(acceptance): CLD-G09 judges the per-Organization databas |
+| 2026-11-15T14:17 | [#7915](https://github.com/openova-io/openova/pull/7915) | #4521 | fix(acceptance): CLD-G06 judges the adoption claims where th |
+| 2026-11-15T14:17 | [#7914](https://github.com/openova-io/openova/pull/7914) | #7912 | fix(infrastructure): the template ships no CloudAdoption tha |
+| 2026-11-15T14:17 | [#7913](https://github.com/openova-io/openova/pull/7913) | #7912 | fix(organization): the Sovereign's own Organization gets its |
 | 2026-11-15T13:27 | [#7911](https://github.com/openova-io/openova/pull/7911) | #7909 | fix(bss): the default offer ships with the engine and is ser |
 | 2026-11-15T11:51 | [#7910](https://github.com/openova-io/openova/pull/7910) | #7906 | fix(harbor): every region of a two-region Sovereign verifies |
 | 2026-11-15T10:35 | [#7907](https://github.com/openova-io/openova/pull/7907) | #7902 | fix(provisioning): ready means every region, and the followe |
@@ -328,15 +337,6 @@ flowchart LR
 | 2026-11-14T23:37 | [#7875](https://github.com/openova-io/openova/pull/7875) | #7794 | refactor(api): the Applications view reads the informer cach |
 | 2026-11-14T23:26 | [#7874](https://github.com/openova-io/openova/pull/7874) | #7087 | docs(ledger): the check INF-G01 needs the capability node-re |
 | 2026-11-15T01:56 | [#7873](https://github.com/openova-io/openova/pull/7873) | #7837 | chore(services): tidy the service modules so none requires t |
-| 2026-11-14T23:07 | [#7872](https://github.com/openova-io/openova/pull/7872) | #7803 | fix(api): audit events are recorded on the JetStream stream  |
-| 2026-11-14T23:07 | [#7871](https://github.com/openova-io/openova/pull/7871) | #7854 | feat(catalyst-api): the provisioning routes answer 403 on a  |
-| 2026-11-14T23:01 | [#7869](https://github.com/openova-io/openova/pull/7869) | #7793 | refactor(events): the shared events package is NATS only (CT |
-| 2026-11-14T22:27 | [#7868](https://github.com/openova-io/openova/pull/7868) | #7863 | fix(release): a moved funnel pin dispatches the provisioning |
-| 2026-11-14T22:26 | [#7867](https://github.com/openova-io/openova/pull/7867) | #7866 | test(gate): add the capability flag node-reboot to the close |
-| 2026-11-14T22:03 | [#7861](https://github.com/openova-io/openova/pull/7861) | #7087 | docs(ledger): plan update |
-| 2026-11-14T22:25 | [#7860](https://github.com/openova-io/openova/pull/7860) | #7839 | feat(flight): the flight sweep counts the DNS names a wiped  |
-| 2026-11-14T21:17 | [#7859](https://github.com/openova-io/openova/pull/7859) | #7087 | docs(ledger): plan update |
-| 2026-11-14T22:41 | [#7858](https://github.com/openova-io/openova/pull/7858) | #7774 | refactor(api): the flow endpoints answer only from the jobs  |
 
 ---
 
