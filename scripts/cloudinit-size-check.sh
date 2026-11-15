@@ -12,46 +12,71 @@
 # the PR merged — silently freezing "Build & Deploy Catalyst" (G36 tofu test)
 # on every subsequent main commit for hours.
 #
-# This script renders the REAL templates the providers render (the ONE shared
+# WHY IT MEASURES A WORST CASE (#7893): until 14 Nov 2026 this script rendered
+# the shared template with short reference values (t99.omani.works, 28-character
+# tokens, a 47-character stand-in for the handover key, one region) and measured
+# about 30,850 bytes for the Huawei control plane. A real two-region Huawei
+# installation from the same commit rendered about 32,931 bytes, and the Huawei
+# ECS API refused both control-plane servers: `the size of userdata [43908] is
+# over quota limits [43692]` (43,692 is the base64 form of 32,769 bytes). The
+# script passed because a real installation's values are about 2,080 bytes
+# longer than the reference ones.
+#
+# So the gate is now the WORST-CASE render (scripts/cloudinit-size-check.py):
+# for each provider the control plane of the primary and of the secondary
+# region and the worker of both, rendered from the provider module's own
+# expressions in infra/providers/<p>/main.tf with the longest values a real
+# installation can carry: the longest FQDN the naming rules allow, two
+# regions, every optional input set, tokens and keys of their real lengths.
+# What each length stands for is written beside it: the lengths every provider
+# shares in scripts/cloudinit-size-check.py, the rest and the limits in
+# infra/providers/<p>/user_data_worst_case.py. The same worst-case variables
+# are written into the module test (infra/providers/<p>/tests/
+# multi_region.tftest.hcl, between its marker lines; refresh them with
+# `scripts/cloudinit-size-check.py --write-fixtures`), and this script fails
+# when the two differ. The values
+# pass through the module's own variables.tf validation. Each surface is held
+# to the limit a real installation meets, the cloud API's limit or the module's
+# precondition when that is smaller:
+#   huawei   control plane 32768, worker 32768 (the ECS API: 32 KiB of raw
+#            user data, measured as above; the module has no precondition)
+#   hetzner  primary control plane 32576, secondary control plane 32256,
+#            worker 30720 (the preconditions in infra/providers/hetzner/main.tf,
+#            all under the API's hard cap of 32768, issue #966)
+# The reference render with the short values is still printed, for
+# comparison, and is not gated.
+#
+# Every surface is rendered from the REAL templates (the ONE shared
 # cloud-agnostic control-plane template + each provider's worker template),
-# applies the SAME comment-strip the provider applies before handing user_data
-# to the cloud API, and asserts the byte size against the same guardrails — with
-# a UNIQUE per-surface name so the corresponding GitHub check
-# (`cloud-init-size / hetzner`, `cloud-init-size / huawei`) can be marked a
-# required status check and will never collide with another job's name.
+# with the SAME comment-strip the provider applies before handing user_data to
+# the cloud API, and with a UNIQUE per-surface name so the corresponding GitHub
+# check (`cloud-init-size / hetzner`, `cloud-init-size / huawei`) can be marked
+# a required status check and will never collide with another job's name.
 #
 # It also emits GitHub-Actions workflow annotations:
-#   ::error::    when a rendered surface EXCEEDS its cap (gate FAILS).
-#   ::warning::  when a surface is >= ${HEADROOM_WARN_BYTES} (~93% of cap) — the
-#                cliff is visible BEFORE a PR trips it.
-#   ::notice::   the exact byte count + % of cap for every surface otherwise.
+#   ::error::    when a worst-case surface EXCEEDS its limit (gate FAILS).
+#   ::warning::  when a worst-case surface is within ${WARN_MARGIN_BYTES} bytes of
+#                its limit — the cliff is visible BEFORE a PR trips it.
+#   ::notice::   the exact byte count, limit and margin of every surface otherwise.
 #
 # It does NOT provision anything, touch the network, or modify any template.
-# It only renders (via `templatefile()` — no providers/network needed) + measures.
+# It only renders (via `templatefile()` and `tofu apply` of a configuration with
+# no provider and no resource) + measures.
 #
 # USAGE:
 #   scripts/cloudinit-size-check.sh hetzner
 #   scripts/cloudinit-size-check.sh huawei
 #   scripts/cloudinit-size-check.sh both      # check both, aggregate exit status
 #
-# EXIT: 0 = every rendered surface for the target provider(s) is within cap.
-#       1 = at least one surface EXCEEDS its cap (or a render failed).
+# EXIT: 0 = every worst-case surface for the target provider(s) is within its limit.
+#       1 = at least one surface EXCEEDS its limit (or a render failed).
 #       2 = bad invocation / missing tool.
 #
 # REQUIREMENTS: tofu (templatefile rendering — no providers needed), python3.
 set -u
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Caps (must mirror the `precondition` guardrails in
-# infra/providers/hetzner/main.tf — keep in lockstep). Hetzner hard cap is
-# 32768; the CP guardrail keeps a 512 B safety buffer (32256), worker keeps more
-# (30720). Huawei has no documented user_data cap, but we hold it to the SAME
-# guardrails so a future move to a capped provider never surprises us, and so
-# huawei gets byte coverage for the FIRST time (#3724).
-# ─────────────────────────────────────────────────────────────────────────────
-CAP_CP_BYTES="${CAP_CP_BYTES:-32256}"
-CAP_WORKER_BYTES="${CAP_WORKER_BYTES:-30720}"
-HEADROOM_WARN_BYTES="${HEADROOM_WARN_BYTES:-30000}"
+# A worst-case surface within this many bytes of its limit gets a warning.
+WARN_MARGIN_BYTES="${WARN_MARGIN_BYTES:-1024}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -435,11 +460,12 @@ render() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# check_surface <label> <tftpl> <fixture_fn> <cap_bytes>  -> 0 ok / 1 over
-#   Renders, applies the provider comment-strip, measures, annotates.
+# reference_surface <label> <tftpl> <fixture_fn>  -> 0 rendered / 1 render failed
+#   Renders the short reference values, applies the provider comment-strip and
+#   prints the size. Not gated: a real installation's values are longer (#7893).
 # ─────────────────────────────────────────────────────────────────────────────
-check_surface() {
-  label="$1"; tftpl="$2"; fixture_fn="$3"; cap="$4"
+reference_surface() {
+  label="$1"; tftpl="$2"; fixture_fn="$3"
   raw="$(mktemp "${TMPDIR:-/tmp}/cloudinit-size-raw.XXXXXX")"
   if ! render "${tftpl}" "${fixture_fn}" "${raw}"; then
     err "${label}: RENDER FAILED"
@@ -449,24 +475,35 @@ check_surface() {
   # Apply the byte-identical comment-strip the provider applies to user_data.
   size="$("${PY_BIN}" -c "${COMMENT_STRIP_PY}" < "${raw}" | wc -c | tr -d ' ')"
   rm -f "${raw}"
-  pct="$(awk -v s="${size}" -v c="${cap}" 'BEGIN{printf "%.1f", (s*100.0)/c}')"
-  if [ "${size}" -gt "${cap}" ]; then
-    err "${label}: ${size} bytes EXCEEDS cap ${cap} (${pct}% of cap)"
-    gha "::error title=cloud-init-size ${label} OVER CAP::${label} rendered ${size} bytes, exceeds the ${cap}-byte guardrail (${pct}% of cap). Cull comments / move bloat out of the template. See issue #966 / #3724."
+  say "  INFO ${label}: ${size} bytes (short reference values; not gated)"
+  return 0
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# judge <provider> <label> <bytes> <limit>  -> 0 within / 1 over
+#   One worst-case surface against the limit a real installation meets.
+# ─────────────────────────────────────────────────────────────────────────────
+judge() {
+  provider="$1"; label="$2"; size="$3"; limit="$4"
+  margin=$((limit - size))
+  pct="$(awk -v s="${size}" -v c="${limit}" 'BEGIN{printf "%.1f", (s*100.0)/c}')"
+  if [ "${size}" -gt "${limit}" ]; then
+    err "${provider} ${label}: ${size} bytes EXCEEDS the limit ${limit} by $((-margin)) B (${pct}% of the limit)"
+    gha "::error title=cloud-init-size ${provider} ${label} OVER LIMIT::${provider} ${label} rendered ${size} bytes, $((-margin)) B over the ${limit}-byte limit a real installation meets (${pct}%). Pack or move bytes out of the template. See #7893."
     return 1
   fi
-  if [ "${size}" -ge "${HEADROOM_WARN_BYTES}" ]; then
-    warn "${label}: ${size} bytes — only $((cap - size)) B headroom under cap ${cap} (${pct}% of cap)"
-    gha "::warning title=cloud-init-size ${label} LOW HEADROOM::${label} rendered ${size} bytes — only $((cap - size)) B under the ${cap}-byte cap (${pct}%). The cliff is near; thin the template before it trips a PR. See #3724."
+  if [ "${margin}" -lt "${WARN_MARGIN_BYTES}" ]; then
+    warn "${provider} ${label}: ${size} bytes, limit ${limit}, margin only ${margin} B (${pct}% of the limit)"
+    gha "::warning title=cloud-init-size ${provider} ${label} LOW MARGIN::${provider} ${label} rendered ${size} bytes, only ${margin} B under the ${limit}-byte limit (${pct}%). The cliff is near. See #7893."
   else
-    ok "${label}: ${size} bytes within cap ${cap} ($((cap - size)) B headroom, ${pct}% of cap)"
-    gha "::notice title=cloud-init-size ${label}::${label} rendered ${size} bytes / ${cap} cap (${pct}%, $((cap - size)) B headroom)"
+    ok "${provider} ${label}: ${size} bytes, limit ${limit}, margin ${margin} B (${pct}% of the limit)"
+    gha "::notice title=cloud-init-size ${provider} ${label}::${size} bytes / ${limit} limit (${pct}%, margin ${margin} B)"
   fi
   return 0
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# check_provider <provider> -> 0 if every surface within cap
+# check_provider <provider> -> 0 if every worst-case surface is within its limit
 # ─────────────────────────────────────────────────────────────────────────────
 check_provider() {
   provider="$1"
@@ -476,20 +513,38 @@ check_provider() {
   rc=0
   case "${provider}" in
     hetzner)
-      check_surface "hetzner control-plane" "${shared_cp}" fixture_cp_hetzner "${CAP_CP_BYTES}" || rc=1
-      # Secondary-region control-plane uses the SAME shared template + fixture
-      # shape (region role differs but byte-footprint is equivalent); covering
-      # it asserts the per-region render stays within cap too (#3724).
-      check_surface "hetzner secondary-region control-plane" "${shared_cp}" fixture_cp_hetzner "${CAP_CP_BYTES}" || rc=1
-      check_surface "hetzner worker" "${worker_tftpl}" fixture_worker_hetzner "${CAP_WORKER_BYTES}" || rc=1
+      reference_surface "hetzner control-plane, reference" "${shared_cp}" fixture_cp_hetzner || rc=1
+      reference_surface "hetzner worker, reference" "${worker_tftpl}" fixture_worker_hetzner || rc=1
       ;;
     huawei)
-      check_surface "huawei control-plane" "${shared_cp}" fixture_cp_huawei "${CAP_CP_BYTES}" || rc=1
-      check_surface "huawei secondary-region control-plane" "${shared_cp}" fixture_cp_huawei "${CAP_CP_BYTES}" || rc=1
-      check_surface "huawei worker" "${worker_tftpl}" fixture_worker_huawei "${CAP_WORKER_BYTES}" || rc=1
+      reference_surface "huawei control-plane, reference" "${shared_cp}" fixture_cp_huawei || rc=1
+      reference_surface "huawei worker, reference" "${worker_tftpl}" fixture_worker_huawei || rc=1
       ;;
     *) err "unknown provider: ${provider} (want hetzner|huawei)"; return 2 ;;
   esac
+  # The gate: the worst-case surfaces, rendered from the module's own
+  # expressions (scripts/cloudinit-size-check.py). Each line is
+  # "<label><TAB><bytes><TAB><limit>". DUMP_DIR, when set, keeps the renders.
+  out="$(mktemp "${TMPDIR:-/tmp}/cloudinit-size-worst.XXXXXX")"
+  if ! TOFU_BIN="${TOFU_BIN}" "${PY_BIN}" "${SCRIPT_DIR}/cloudinit-size-check.py" "${provider}" ${DUMP_DIR:+--dump "${DUMP_DIR}"} > "${out}"; then
+    err "${provider}: the worst-case render FAILED (see above)"
+    gha "::error title=cloud-init-size ${provider}::the worst-case render failed — see job log"
+    rm -f "${out}"; return 1
+  fi
+  surfaces=0
+  tab="$(printf '\t')"
+  while IFS="${tab}" read -r label size limit; do
+    [ -n "${label}" ] || continue
+    surfaces=$((surfaces + 1))
+    judge "${provider}" "${label}" "${size}" "${limit}" || rc=1
+  done < "${out}"
+  rm -f "${out}"
+  # Four surfaces per provider: the control plane and the worker of the
+  # primary and of the secondary region. Fewer means something was not measured.
+  if [ "${surfaces}" -ne 4 ]; then
+    err "${provider}: the worst-case render gave ${surfaces} surfaces, not 4"
+    rc=1
+  fi
   return "${rc}"
 }
 
@@ -515,8 +570,8 @@ esac
 
 say ""
 if [ "${rc_total}" -eq 0 ]; then
-  info "${C_GRN}RESULT: every rendered cloud-init surface is within cap${C_RST}"
+  info "${C_GRN}RESULT: every worst-case cloud-init surface is within its limit${C_RST}"
 else
-  info "${C_RED}RESULT: at least one cloud-init surface EXCEEDS its cap (see above)${C_RST}"
+  info "${C_RED}RESULT: at least one worst-case cloud-init surface EXCEEDS its limit, or a render failed (see above)${C_RST}"
 fi
 exit "${rc_total}"

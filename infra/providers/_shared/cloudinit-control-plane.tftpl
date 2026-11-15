@@ -453,9 +453,13 @@ write_files:
   # before the helm install — because some clouds (Huawei HCS) assign the
   # private IP via non-deterministic DHCP, so a tofu-baked guess is wrong.
   # node_ip_cmd discovers it identically on every cloud (hard-dependency-free).
+  # #7893: packed (gz+b64) as flux-bootstrap.yaml below is, with the same
+  # expression and the same rules for the body; the runcmd sed that sets
+  # NODE_IP_PLACEHOLDER runs on the file cloud-init has written.
   - path: /var/lib/catalyst/cilium-values.yaml
     permissions: '0644'
-    content: |
+    encoding: gz+b64
+    content: ${base64gzip(format("%s\n", chomp(replace(replace(<<CILIUMVALUES
       cluster:
         name: "${cluster_mesh_name}"
         id: ${cluster_mesh_id}
@@ -522,6 +526,8 @@ write_files:
         enabled: false
         serviceMonitor:
           enabled: false
+CILIUMVALUES
+    , "/(?m)^[ ]*#( |$).*\n/", ""), "/(?m)^      /", ""))))}
 
   # ── Variables document (contract C5) ──────────────────────────────────
   # SOV-134: the template input `variables`, the variables document of
@@ -544,9 +550,26 @@ write_files:
   # Gateway NodePort vs LB, registry-mirror endpoint, PDNS host) are gated
   # by `provider` below — these are bootstrap-kit envsubst keys, NOT new
   # bootstrap logic, so they stay declarative + lockstep across clouds.
+  #
+  # #7893: this document travels packed (`encoding: gz+b64`), as the files
+  # above do since CLD-185. It was about 7,160 of the 30,850 bytes of the
+  # reference control-plane render, and a real two-region Huawei
+  # installation rendered 32,931 bytes, over the 32,768 bytes of raw
+  # user data the Huawei ECS API accepts. Packed it is about 2,300 bytes.
+  # The body below is the same text as before, indented six spaces as the
+  # YAML literal block was. Before packing, the expression drops its comment
+  # lines with the regex the modules apply to the plain render, removes the
+  # six-space indent the YAML parser removed, and ends it with one newline
+  # (YAML clip chomping). cloud-init writes the decoded text, so the file on
+  # the node is byte for byte the file the plain block gave; the golden
+  # file hashes in infra/providers/_shared/tests prove it. Keep every body
+  # line indented at least six spaces (a directive line at column 0 is
+  # fine: it renders no text), and keep the marker line FLUXBOOTSTRAP
+  # alone at column 0.
   - path: /var/lib/catalyst/flux-bootstrap.yaml
     permissions: '0644'
-    content: |
+    encoding: gz+b64
+    content: ${base64gzip(format("%s\n", chomp(replace(replace(<<FLUXBOOTSTRAP
       apiVersion: source.toolkit.fluxcd.io/v1
       kind: GitRepository
       metadata:
@@ -1331,6 +1354,8 @@ write_files:
       # `pending-generation` (it is a no-op overwritten by the post-handover
       # generator), so it renders identically on every Sovereign.
 %{ endif ~}
+FLUXBOOTSTRAP
+    , "/(?m)^[ ]*#( |$).*\n/", ""), "/(?m)^      /", ""))))}
 
 runcmd:
   - swapoff -a

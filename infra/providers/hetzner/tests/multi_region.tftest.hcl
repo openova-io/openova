@@ -676,28 +676,28 @@ run "per_region_cloud_init_carries_secondarys_own_region" {
 
   # ── Secondary nbg1-1 cloud-init must carry nbg1's own values, NOT hel1's ──
   assert {
-    condition     = strcontains(local.secondary_region_cloud_init["nbg1-1"], "SOVEREIGN_REGION_KEY: nbg1-1")
+    condition     = strcontains(local.secondary_region_flux_bootstrap["nbg1-1"], "SOVEREIGN_REGION_KEY: nbg1-1")
     error_message = "Secondary nbg1-1 cloud-init must render SOVEREIGN_REGION_KEY=nbg1-1 (the each.key from local.secondary_regions); got primary's value instead."
   }
 
   assert {
-    condition     = strcontains(local.secondary_region_cloud_init["nbg1-1"], "HCLOUD_LB_LOCATION: \"nbg1\"")
+    condition     = strcontains(local.secondary_region_flux_bootstrap["nbg1-1"], "HCLOUD_LB_LOCATION: \"nbg1\"")
     error_message = "Secondary nbg1-1 cloud-init must render HCLOUD_LB_LOCATION=\"nbg1\" (r.cloudRegion); got primary's hel1 instead — breaks hcloud-ccm clustermesh-apiserver LB allocation (D10/D12)."
   }
 
   assert {
-    condition     = !strcontains(local.secondary_region_cloud_init["nbg1-1"], "HCLOUD_LB_LOCATION: \"hel1\"")
+    condition     = !strcontains(local.secondary_region_flux_bootstrap["nbg1-1"], "HCLOUD_LB_LOCATION: \"hel1\"")
     error_message = "Secondary nbg1-1 cloud-init must NOT carry primary's HCLOUD_LB_LOCATION=\"hel1\"."
   }
 
   # ── Secondary sin-2 cloud-init must carry sin's own values, NOT hel1's ────
   assert {
-    condition     = strcontains(local.secondary_region_cloud_init["sin-2"], "SOVEREIGN_REGION_KEY: sin-2")
+    condition     = strcontains(local.secondary_region_flux_bootstrap["sin-2"], "SOVEREIGN_REGION_KEY: sin-2")
     error_message = "Secondary sin-2 cloud-init must render SOVEREIGN_REGION_KEY=sin-2 (each.key)."
   }
 
   assert {
-    condition     = strcontains(local.secondary_region_cloud_init["sin-2"], "HCLOUD_LB_LOCATION: \"sin\"")
+    condition     = strcontains(local.secondary_region_flux_bootstrap["sin-2"], "HCLOUD_LB_LOCATION: \"sin\"")
     error_message = "Secondary sin-2 cloud-init must render HCLOUD_LB_LOCATION=\"sin\" (r.cloudRegion)."
   }
 
@@ -727,23 +727,23 @@ run "per_region_cloud_init_carries_secondarys_own_region" {
   # ── cloud-init substitute MUST override it with the actual primary's
   # ── canonical label so qa-fixtures pin to the right region.
   assert {
-    condition     = strcontains(local.control_plane_cloud_init, "QA_PRIMARY_REGION: \"hz-hel-rtz-prod\"")
+    condition     = strcontains(local.control_plane_flux_bootstrap, "QA_PRIMARY_REGION: \"hz-hel-rtz-prod\"")
     error_message = "Primary cloud-init bootstrap-kit substitute must thread QA_PRIMARY_REGION=hz-hel-rtz-prod (var.region=hel1 → hz-hel-rtz-prod) so the chart's qaFixtures.primaryRegion isn't left at the hardcoded `hz-fsn-rtz-prod` default."
   }
 
   assert {
-    condition     = strcontains(local.secondary_region_cloud_init["nbg1-1"], "QA_PRIMARY_REGION: \"hz-hel-rtz-prod\"")
+    condition     = strcontains(local.secondary_region_flux_bootstrap["nbg1-1"], "QA_PRIMARY_REGION: \"hz-hel-rtz-prod\"")
     error_message = "Secondary nbg1-1 cloud-init bootstrap-kit substitute must thread QA_PRIMARY_REGION=hz-hel-rtz-prod (the SOVEREIGN's primary, NOT this secondary's own region) — qaFixtures.primaryRegion is Sovereign-wide singular."
   }
 
   # ── Primary's cloud-init still carries the primary's region.
   assert {
-    condition     = strcontains(local.control_plane_cloud_init, "SOVEREIGN_REGION_KEY: hel1")
+    condition     = strcontains(local.control_plane_flux_bootstrap, "SOVEREIGN_REGION_KEY: hel1")
     error_message = "Primary cloud-init must render SOVEREIGN_REGION_KEY=hel1 (var.region) — fix must not regress the primary path."
   }
 
   assert {
-    condition     = strcontains(local.control_plane_cloud_init, "HCLOUD_LB_LOCATION: \"hel1\"")
+    condition     = strcontains(local.control_plane_flux_bootstrap, "HCLOUD_LB_LOCATION: \"hel1\"")
     error_message = "Primary cloud-init must render HCLOUD_LB_LOCATION=\"hel1\" (var.region)."
   }
 
@@ -775,12 +775,12 @@ run "default_storage_class_falls_back_to_hcloud_volumes" {
   }
 
   assert {
-    condition     = strcontains(local.control_plane_cloud_init, "SOVEREIGN_CNPG_STORAGE_CLASS: \"hcloud-volumes\"")
+    condition     = strcontains(local.control_plane_flux_bootstrap, "SOVEREIGN_CNPG_STORAGE_CLASS: \"hcloud-volumes\"")
     error_message = "Primary cloud-init must render SOVEREIGN_CNPG_STORAGE_CLASS=\"hcloud-volumes\" when default_storage_class is unset (the per-provider Hetzner CSI default). #4057"
   }
 
   assert {
-    condition     = !strcontains(local.control_plane_cloud_init, "SOVEREIGN_CNPG_STORAGE_CLASS: \"local-path\"")
+    condition     = !strcontains(local.control_plane_flux_bootstrap, "SOVEREIGN_CNPG_STORAGE_CLASS: \"local-path\"")
     error_message = "Primary cloud-init must NEVER render SOVEREIGN_CNPG_STORAGE_CLASS=\"local-path\" — local-path is FORBIDDEN (#3971/#892)."
   }
 }
@@ -794,12 +794,12 @@ run "default_storage_class_operator_override_renders" {
   }
 
   assert {
-    condition     = strcontains(local.control_plane_cloud_init, "SOVEREIGN_CNPG_STORAGE_CLASS: \"hcloud-volumes-xfs\"")
+    condition     = strcontains(local.control_plane_flux_bootstrap, "SOVEREIGN_CNPG_STORAGE_CLASS: \"hcloud-volumes-xfs\"")
     error_message = "Primary cloud-init must render the operator-chosen default_storage_class verbatim into SOVEREIGN_CNPG_STORAGE_CLASS. #4057 — founder point #1 (storage class is a user input)."
   }
 
   assert {
-    condition     = !strcontains(local.control_plane_cloud_init, "SOVEREIGN_CNPG_STORAGE_CLASS: \"hcloud-volumes\"")
+    condition     = !strcontains(local.control_plane_flux_bootstrap, "SOVEREIGN_CNPG_STORAGE_CLASS: \"hcloud-volumes\"")
     error_message = "When the operator overrides default_storage_class, the cloud-init must carry ONLY the chosen class, not the default literal."
   }
 }
@@ -838,7 +838,7 @@ run "variables_handover_auto_reaches_cloud_init" {
   command = plan
 
   assert {
-    condition     = strcontains(local.control_plane_cloud_init, "FIRE_CUTOVER_ON_HANDOVER: \"false\"")
+    condition     = strcontains(local.control_plane_flux_bootstrap, "FIRE_CUTOVER_ON_HANDOVER: \"false\"")
     error_message = "SOV-131: variables[\"HANDOVER_AUTO\"] must reach the substitute FIRE_CUTOVER_ON_HANDOVER of the control-plane cloud-init."
   }
 }
@@ -853,30 +853,165 @@ run "variables_refuses_a_document_without_the_contract_keys" {
   expect_failures = [var.variables]
 }
 
-# ── CLD-185: a render of real size fits the size guards.
-# The runs above leave deployment_id empty, so their renders carry no
-# kubeconfig post-back and are smaller than the render of a real Sovereign.
-# This run turns the post-back on for a primary and one secondary region.
-# The plan fails by itself when a render is over its guard (32576 bytes for
-# the primary, 32256 for a secondary region), and the asserts state the same
-# bound. CLD-185 kept 1200 bytes free under each guard; SOV-134 uses them for
-# the packed variables document (30633 and 31814 bytes here). The fixed
-# Secrets and the provider-injected files travel packed (gz+b64); the last
-# assert shows that the packed cloud-credentials file is the provider's
-# Secret body without its comment lines, as the plain file was.
+# ── CLD-185, #7893: the worst-case render fits the size guards.
+# The runs above use short values and leave deployment_id empty, so their
+# renders are smaller than the render of a real Sovereign. This run renders
+# the module with the worst-case variables that
+# scripts/cloudinit-size-check.py measures (it writes them below with
+# --write-fixtures and says what each length stands for): the longest FQDN the bucket-name rule allows, two
+# regions, every optional input set, tokens and keys of their real lengths.
+# The k3s tokens and the load-balancer addresses below have their real
+# lengths too (64 characters; 15, the longest IPv4 form). The plan fails by
+# itself when a render is over its guard (32576 bytes for the primary, 32256
+# for a secondary region), and the asserts state the same bound. On main
+# before #7893 this render was about 34100 and 35300 bytes; with the Flux
+# bootstrap document and the Cilium values packed it fits. The fixed Secrets
+# and the provider-injected files travel packed (gz+b64); the last assert
+# shows that the packed cloud-credentials file is the provider's Secret body
+# without its comment lines, as the plain file was.
 run "post_back_render_fits_the_size_guards_with_room" {
   command = plan
 
+  # BEGIN worst-case variables, written by scripts/cloudinit-size-check.py --write-fixtures
   variables {
-    deployment_id           = "0123456789abcdef"
-    sovereign_deployment_id = "0123456789abcdef"
-    kubeconfig_bearer_token = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-    regions = [
-      { provider = "hetzner", cloudRegion = "hel1", controlPlaneSize = "cpx32", workerSize = "cpx32", workerCount = 1 },
-      { provider = "hetzner", cloudRegion = "nbg1", controlPlaneSize = "cpx32", workerSize = "cpx32", workerCount = 1 },
+    bcp_topology               = "active-hotstandby"
+    catalyst_api_url           = "https://console.vhwtxhpiag5nlbjhyfkfz36kcox31rsv6.omantel.biz/sovereign"
+    cluster_mesh_id            = 1
+    cluster_mesh_name          = "ae1r3b3eqk10j5wbg8ulhppktid7yj0g9-mesh"
+    console_isolation_enabled  = "true"
+    control_plane_size         = "ccx63"
+    deployment_id              = "63ccf96f83c59e51"
+    enable_hot_standby         = "true"
+    enable_shared_pg           = "true"
+    ghcr_pull_token            = "ghcr_filler_JKoBErUo62nLAJK5Keh4Biwuz53hoMGaBPB6HXU3W5gocWjikuaW8mPH1UVL6h8hS4DEzcnPVUnhHo0cS"
+    handover_jwt_public_key    = "{\"alg\":\"RS256\",\"e\":\"AQAB\",\"kty\":\"RSA\",\"n\":\"jFfiWIe242hUG0FlefX2yClTWSyh-4cTacQBjPJuGLoXnxhR4t0_0WZeah0ImeJsw9HMrloVq7ooT76jrcXebjmIEScBf0v7CN4Kj4bkkNUJRpLMDY56nzOPqALld61c8K3IDDdoAUR4tNoYEABKlWT8XD3oQMINzGg-x7kUsudqkheDYqziWbwd9EsWw2evx8l900IvGvXCfDEOAPe-YQBM5ENUdbbJyqKVl9BrQFVBOPO5c7fAI4uCeVNVzvIrl4IQ7i50i1kA5DS5YvCFSaPlXHxwDrZsn9TLuChC90XeLo_jcyfr_08yxGV5nUMcim2uYB8wNRzSA-xUeCZG8x\",\"use\":\"sig\"}"
+    harbor_robot_token         = "KCVhNCbzrrWzD3iyA5c4cVWoqF25f5j6"
+    hcloud_project_id          = "12345678"
+    hcloud_token               = "VrHjdQ6Br6jtsy9QYD96qbwsu7wmCVEdQsgY5UBLaGtdBFGDd5p9kHgzUDzBc4lM"
+    kubeconfig_bearer_token    = "a5936414e8f1193d572074048696a49118ca3947da6121e8aec6beae72acd741"
+    marketplace_enabled        = "true"
+    object_storage_access_key  = "OcvPSam7irx2ENJJlW0xDRQriqh1pSCtk7nvd0MBE8FPej5NhuZ7Gpq3lYP1M6iU"
+    object_storage_bucket_name = "catalyst-ae1r3b3eqk10j5wbg8ulhppktid7yj0g9-omani-works-63ccf96f"
+    object_storage_region      = "fsn1"
+    object_storage_secret_key  = "FRAYmfEVvKNA84Muk8cnJImAExyiVaqOarh17QXKcPiz2TQTLkJyBBQF3SW2vT6mh7NB44EuCZ9iOFkT9Lful9V1t6HqWEY9pDh6BZAlBlKVMrbV08Lxuj6ZdfIzlD1i"
+    org_email                  = "bkzitohxvpztjrswdqdfeabizcvnzixuevmihzkweoxgwumfqanrpcrfsbqvadii@puzeqhhzsnzqdxw9e76xanom0auqgruadge9gj3m5swml9pin0ctkj4pyxzwwoj.vskqogyim6cpkz3kygtk4sb9d5n73ierktp1yh3fixs06u61qzo5ga6nyoa47nl.jpvqlp3kcdxlicem3icpgrdvhkq3gbvq0afmz4y7czjaksfvbhgjxvj89o.om"
+    org_name                   = "Omani National Sovereign Cloud Services & Data Platforms Company (Closed Joint Stock) & Partners LLC"
+    parent_domains_yaml        = "[{\"name\":\"ae1r3b3eqk10j5wbg8ulhppktid7yj0g9.omani.works\",\"role\":\"primary\"},{\"name\":\"omani.homes\",\"role\":\"org-pool\"},{\"name\":\"omani.rest\",\"role\":\"org-pool\"},{\"name\":\"omani.trade\",\"role\":\"org-pool\"}]"
+    pdm_basic_auth_pass        = "fOxOud9JoeoSGJjfNZbUSGrONfhEzatlUijrH0u89WedgLRW8pfiDsNrOUvDba2U"
+    pdm_basic_auth_user        = "ZMsusu7pFBC5ulGjXvckKA4VmcIdqn6A"
+    powerdns_api_key           = "qG5I3mpjZOOQFPsRBhyYUUFybJWNzvTY"
+    provider_api_cidrs = [
+      "149.104.149.0/24",
+      "141.131.193.0/24",
+      "117.133.108.0/24",
+      "171.108.110.0/24",
     ]
-    region                = "hel1"
-    object_storage_region = "hel1"
+    qa_fixtures_enabled = "true"
+    region              = "fsn1"
+    regions = [
+      {
+        "cloudRegion"      = "fsn1"
+        "controlPlaneSize" = "ccx63"
+        "provider"         = "hetzner"
+        "workerCount"      = 50
+        "workerSize"       = "ccx63"
+      },
+      {
+        "cloudRegion"      = "nbg1"
+        "controlPlaneSize" = "ccx63"
+        "provider"         = "hetzner"
+        "workerCount"      = 50
+        "workerSize"       = "ccx63"
+      },
+    ]
+    sovereign_deployment_id = "63ccf96f83c59e51"
+    sovereign_fqdn          = "ae1r3b3eqk10j5wbg8ulhppktid7yj0g9.omani.works"
+    sovereign_subdomain     = "ae1r3b3eqk10j5wbg8ulhppktid7yj0g9"
+    ssh_public_key          = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIfxPSrXwdxgFhS9hMbVHdAee21BJZFReoM9QleQIH1OM sovereign-admin"
+    variables = {
+      "CLOUD_CREDENTIAL_MODE"              = "supplied"
+      "CLOUD_CREDENTIAL_ROTATION_NONCE"    = ""
+      "CLOUD_CREDENTIAL_ROTATION_SCHEDULE" = "0 2 1 * *"
+      "DNS_MODE"                           = "upstream-managed"
+      "DNS_UPSTREAM_API_URL"               = ""
+      "GITOPS_REPO_URL"                    = "http://gitea-http.gitea.svc.cluster.local:3000/openova/provider-pack"
+      "HANDOVER_AUTO"                      = "true"
+      "HANDOVER_HOLD_SECONDS"              = "600"
+      "K3S_UPGRADE_CONCURRENCY"            = "1"
+      "K3S_VERSION"                        = "v1.31.8+k3s1"
+      "LOCAL_REGISTRY_HOST"                = "registry.ae1r3b3eqk10j5wbg8ulhppktid7yj0g9.omani.works"
+      "MAIL_FROM"                          = ""
+      "MAIL_MODE"                          = "local"
+      "MAIL_RELAY_HOST"                    = ""
+      "MAIL_RELAY_PORT"                    = "587"
+      "MAIL_RELAY_SECRET"                  = ""
+      "ORIGIN_PARENT_API_URL"              = "https://console.vhwtxhpiag5nlbjhyfkfz36kcox31rsv6.omantel.biz/sovereign"
+      "ORIGIN_PARENT_FQDN"                 = "vhwtxhpiag5nlbjhyfkfz36kcox31rsv6.omantel.biz"
+      "ORIGIN_PROXY_ENDPOINTS_JSON"        = "{}"
+      "ORIGIN_REGISTRY_CA_B64"             = ""
+      "ORIGIN_REGISTRY_HOST"               = "registry.vhwtxhpiag5nlbjhyfkfz36kcox31rsv6.omantel.biz"
+      "ORIGIN_REGISTRY_SCHEME"             = "https"
+      "REGISTRY_HOST"                      = "registry.vhwtxhpiag5nlbjhyfkfz36kcox31rsv6.omantel.biz"
+      "REGISTRY_PATH_CHARTS"               = "openova-io"
+      "REGISTRY_PATH_NODE_ARTIFACTS"       = "node-artifacts"
+      "REGISTRY_PATH_PROVIDER_PACKS"       = "openova-io/provider-packs"
+      "REGISTRY_PATH_RELEASE"              = "openova-io/release"
+      "REGISTRY_PATH_TOFU_PROVIDERS"       = "tofu-providers"
+      "REGISTRY_PATH_VULN_DB"              = "proxy-vulndb/proxy-vulndb/aquasecurity/trivy-db"
+      "REGISTRY_PATH_XPKG"                 = "proxy-xpkg"
+      "REGISTRY_PROXY_PROJECTS_JSON"       = "{\"docker.io\":\"proxy-dockerhub\",\"gcr.io\":\"proxy-gcr\",\"ghcr.io\":\"proxy-ghcr\",\"public.ecr.aws\":\"proxy-ecr\",\"quay.io\":\"proxy-quay\",\"registry-1.docker.io\":\"proxy-dockerhub\",\"registry.k8s.io\":\"proxy-k8s\",\"xpkg.upbound.io\":\"proxy-xpkg\"}"
+      "REGISTRY_PULL_SECRET"               = "ghcr-pull"
+      "REGISTRY_SCHEME"                    = "https"
+      "RELEASE_AUTO"                       = "false"
+      "RELEASE_CHANNEL"                    = "candidate"
+      "RELEASE_PUBLIC_KEY_B64"             = "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KNVdqS2Z0dVR5eGRwUnZ3Z2xPVFc2N0VhTTF1ZGZXbE9kUHg4ZTk2WXREeFR5NnpRT2w2RVgwWXlGUmQydFJIZgpPTFQ2dDVwWm1CSDFDaXJGMmtldklJNUJMU2YwaG9nRm03aU0wNEFqQUhERXdmU2FCcHR0Q2gwaFl6WDA9PQotLS0tLUVORCBQVUJMSUMgS0VZLS0tLS0K"
+      "RELEASE_SYNC_SCHEDULE"              = "0 3 * * *"
+      "RELEASE_VERSION"                    = ""
+      "SOVEREIGN_CONSUME"                  = "origin"
+      "SOVEREIGN_MODE"                     = "sovereign"
+    }
+    wildcard_cert_use_staging = "true"
+    worker_count              = 50
+    worker_size               = "ccx63"
+  }
+  # END worst-case variables
+
+  override_resource {
+    target = random_password.k3s_server_token
+    values = {
+      result = "FiLLeRk3sServer0FiLLeRk3sServer0FiLLeRk3sServer0FiLLeRk3sServer0"
+    }
+  }
+
+  override_resource {
+    target = random_password.k3s_agent_token
+    values = {
+      result = "FiLLeRk3sAgent00FiLLeRk3sAgent00FiLLeRk3sAgent00FiLLeRk3sAgent00"
+    }
+  }
+
+  override_resource {
+    target = hcloud_load_balancer.main
+    values = {
+      id   = "1"
+      ipv4 = "198.151.113.210"
+    }
+  }
+
+  override_resource {
+    target = hcloud_load_balancer.console
+    values = {
+      id   = "1"
+      ipv4 = "198.151.113.211"
+    }
+  }
+
+  override_resource {
+    target = hcloud_load_balancer.secondary
+    values = {
+      id   = "1"
+      ipv4 = "198.151.113.212"
+    }
   }
 
   assert {
@@ -891,12 +1026,12 @@ run "post_back_render_fits_the_size_guards_with_room" {
 
   assert {
     condition     = length(local.control_plane_cloud_init) <= 32576
-    error_message = "CLD-185: the primary render is ${nonsensitive(length(local.control_plane_cloud_init))} bytes; it must stay at most 32576, its guard."
+    error_message = "CLD-185, #7893: the worst-case primary render is ${nonsensitive(length(local.control_plane_cloud_init))} bytes; it must stay at most 32576, its guard."
   }
 
   assert {
     condition     = length(local.secondary_region_cloud_init["nbg1-1"]) <= 32256
-    error_message = "CLD-185: the secondary render is ${nonsensitive(length(local.secondary_region_cloud_init["nbg1-1"]))} bytes; it must stay at most 32256, its guard."
+    error_message = "CLD-185, #7893: the worst-case secondary render is ${nonsensitive(length(local.secondary_region_cloud_init["nbg1-1"]))} bytes; it must stay at most 32256, its guard."
   }
 
   assert {

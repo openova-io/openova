@@ -101,22 +101,22 @@ run "hetzner_render_is_valid" {
   # substitute map, and the DNS-01 API key is only in the Secret
   # flux-system/sovereign-tls-secrets.
   assert {
-    condition     = strcontains(output.rendered_cloud_init, "      kind: ConfigMap\n      metadata:\n        name: sovereign-variables\n        namespace: flux-system\n      data:\n")
+    condition     = strcontains(output.flux_bootstrap_yaml, "\nkind: ConfigMap\nmetadata:\n  name: sovereign-variables\n  namespace: flux-system\ndata:\n")
     error_message = "SOV-130: the ConfigMap flux-system/sovereign-variables is missing from flux-bootstrap.yaml."
   }
 
   assert {
-    condition     = length(regexall("(?m)^              name: sovereign-variables$", output.rendered_cloud_init)) == 4
+    condition     = length(regexall("(?m)^        name: sovereign-variables$", output.flux_bootstrap_yaml)) == 4
     error_message = "SOV-130: every inline Flux Kustomization (4 in this fixture) must list ConfigMap sovereign-variables under postBuild.substituteFrom."
   }
 
   assert {
-    condition     = !strcontains(output.rendered_cloud_init, "          substitute:\n")
+    condition     = length(regexall("(?m)^[ ]*substitute:", output.flux_bootstrap_yaml)) == 0
     error_message = "SOV-130: an inline Flux Kustomization still carries a postBuild.substitute map; its values belong in ConfigMap sovereign-variables."
   }
 
   assert {
-    condition     = length(regexall("POWERDNS_API_KEY:", output.rendered_cloud_init)) == 1 && strcontains(output.rendered_cloud_init, "        name: sovereign-tls-secrets\n        namespace: flux-system\n      type: Opaque\n      stringData:\n        POWERDNS_API_KEY: \"${base64encode("render-test-pdns-key")}\"\n")
+    condition     = !strcontains(output.flux_bootstrap_yaml, "POWERDNS_API_KEY") && length(regexall("POWERDNS_API_KEY:", output.rendered_cloud_init)) == 1 && strcontains(output.rendered_cloud_init, "        name: sovereign-tls-secrets\n        namespace: flux-system\n      type: Opaque\n      stringData:\n        POWERDNS_API_KEY: \"${base64encode("render-test-pdns-key")}\"\n")
     error_message = "SOV-130: POWERDNS_API_KEY must appear once, as the one key of the Secret flux-system/sovereign-tls-secrets, never in the ConfigMap sovereign-variables."
   }
 
@@ -143,7 +143,7 @@ run "hetzner_render_is_valid" {
   # `variables`; the kit key FIRE_CUTOVER_ON_HANDOVER takes the value of its
   # key HANDOVER_AUTO ("false" in render.tf).
   assert {
-    condition     = strcontains(output.rendered_cloud_init, "\n            FIRE_CUTOVER_ON_HANDOVER: \"false\"\n")
+    condition     = strcontains(output.flux_bootstrap_yaml, "\n      FIRE_CUTOVER_ON_HANDOVER: \"false\"\n")
     error_message = "SOV-133: the kit key FIRE_CUTOVER_ON_HANDOVER must take the value of HANDOVER_AUTO of the template input variables."
   }
 
@@ -237,22 +237,22 @@ run "huawei_render_is_valid" {
   # substitute map, and the DNS-01 API key is only in the Secret
   # flux-system/sovereign-tls-secrets.
   assert {
-    condition     = strcontains(output.rendered_cloud_init, "      kind: ConfigMap\n      metadata:\n        name: sovereign-variables\n        namespace: flux-system\n      data:\n")
+    condition     = strcontains(output.flux_bootstrap_yaml, "\nkind: ConfigMap\nmetadata:\n  name: sovereign-variables\n  namespace: flux-system\ndata:\n")
     error_message = "SOV-130 (huawei branch): the ConfigMap flux-system/sovereign-variables is missing from flux-bootstrap.yaml."
   }
 
   assert {
-    condition     = length(regexall("(?m)^              name: sovereign-variables$", output.rendered_cloud_init)) == 5
+    condition     = length(regexall("(?m)^        name: sovereign-variables$", output.flux_bootstrap_yaml)) == 5
     error_message = "SOV-130 (huawei branch): every inline Flux Kustomization (5 in this fixture) must list ConfigMap sovereign-variables under postBuild.substituteFrom."
   }
 
   assert {
-    condition     = !strcontains(output.rendered_cloud_init, "          substitute:\n")
+    condition     = length(regexall("(?m)^[ ]*substitute:", output.flux_bootstrap_yaml)) == 0
     error_message = "SOV-130 (huawei branch): an inline Flux Kustomization still carries a postBuild.substitute map; its values belong in ConfigMap sovereign-variables."
   }
 
   assert {
-    condition     = length(regexall("POWERDNS_API_KEY:", output.rendered_cloud_init)) == 1 && strcontains(output.rendered_cloud_init, "        name: sovereign-tls-secrets\n        namespace: flux-system\n      type: Opaque\n      stringData:\n        POWERDNS_API_KEY: \"${base64encode("render-test-pdns-key")}\"\n")
+    condition     = !strcontains(output.flux_bootstrap_yaml, "POWERDNS_API_KEY") && length(regexall("POWERDNS_API_KEY:", output.rendered_cloud_init)) == 1 && strcontains(output.rendered_cloud_init, "        name: sovereign-tls-secrets\n        namespace: flux-system\n      type: Opaque\n      stringData:\n        POWERDNS_API_KEY: \"${base64encode("render-test-pdns-key")}\"\n")
     error_message = "SOV-130 (huawei branch): POWERDNS_API_KEY must appear once, as the one key of the Secret flux-system/sovereign-tls-secrets, never in the ConfigMap sovereign-variables."
   }
 
@@ -279,7 +279,7 @@ run "huawei_render_is_valid" {
   # `variables`; the kit key FIRE_CUTOVER_ON_HANDOVER takes the value of its
   # key HANDOVER_AUTO ("false" in render.tf).
   assert {
-    condition     = strcontains(output.rendered_cloud_init, "\n            FIRE_CUTOVER_ON_HANDOVER: \"false\"\n")
+    condition     = strcontains(output.flux_bootstrap_yaml, "\n      FIRE_CUTOVER_ON_HANDOVER: \"false\"\n")
     error_message = "SOV-133 (huawei branch): the kit key FIRE_CUTOVER_ON_HANDOVER must take the value of HANDOVER_AUTO of the template input variables."
   }
 
@@ -322,5 +322,20 @@ run "golden" {
   assert {
     condition     = output.sha256_huawei == var.golden_huawei
     error_message = "Golden render: the huawei fixture renders to SHA-256 ${output.sha256_huawei}, but golden.auto.tfvars.json holds \"${var.golden_huawei}\". If the change to the rendered cloud-init is intended, run scripts/update-cloudinit-golden.sh, commit the golden file, and say in the commit message why the render changed."
+  }
+
+  # #7893 — golden files. Every file cloud-init writes from each fixture,
+  # a packed (gz+b64) entry decoded as cloud-init decodes it, must have the
+  # SHA-256 stored in golden.auto.tfvars.json. A change that only alters how
+  # the render carries a file (packing it) leaves these values as they are;
+  # a change to what a node finds on its disk fails here.
+  assert {
+    condition     = jsonencode(output.files_sha256_hetzner) == jsonencode(var.golden_files_hetzner)
+    error_message = "Golden files: a file cloud-init writes from the hetzner fixture differs from golden.auto.tfvars.json: ${join(", ", [for p in sort(setunion([for p, h in output.files_sha256_hetzner : p if lookup(var.golden_files_hetzner, p, "") != h], [for p, h in var.golden_files_hetzner : p if lookup(output.files_sha256_hetzner, p, "") != h])) : "hetzner:${p}"])}. If the change is intended, run scripts/update-cloudinit-golden.sh and say in the commit message which file changed and why."
+  }
+
+  assert {
+    condition     = jsonencode(output.files_sha256_huawei) == jsonencode(var.golden_files_huawei)
+    error_message = "Golden files: a file cloud-init writes from the huawei fixture differs from golden.auto.tfvars.json: ${join(", ", [for p in sort(setunion([for p, h in output.files_sha256_huawei : p if lookup(var.golden_files_huawei, p, "") != h], [for p, h in var.golden_files_huawei : p if lookup(output.files_sha256_huawei, p, "") != h])) : "huawei:${p}"])}. If the change is intended, run scripts/update-cloudinit-golden.sh and say in the commit message which file changed and why."
   }
 }

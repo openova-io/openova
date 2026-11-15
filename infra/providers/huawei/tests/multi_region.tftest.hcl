@@ -332,7 +332,7 @@ run "regions_json_populated_3110" {
   # SOVEREIGN_REGIONS_JSON key is present and NON-empty (`[]` is the bug).
   assert {
     condition = strcontains(
-      local.cp_cloud_init_by_region["me-east-215-a"],
+      local.cp_flux_bootstrap_by_region["me-east-215-a"],
       "SOVEREIGN_REGIONS_JSON:"
     )
     error_message = "Primary-CP cloud-init must emit the SOVEREIGN_REGIONS_JSON substitute key (#3110)."
@@ -340,7 +340,7 @@ run "regions_json_populated_3110" {
   # The empty-array regression must NOT appear (single-quoted JSON-flow).
   assert {
     condition = !strcontains(
-      local.cp_cloud_init_by_region["me-east-215-a"],
+      local.cp_flux_bootstrap_by_region["me-east-215-a"],
       "SOVEREIGN_REGIONS_JSON: '[]'"
     )
     error_message = "SOVEREIGN_REGIONS_JSON must be populated, not the empty-array `[]` regression (#3110/#3106)."
@@ -350,14 +350,14 @@ run "regions_json_populated_3110" {
   # substitutes — NOT the bare HCS `code`.
   assert {
     condition = strcontains(
-      local.cp_cloud_init_by_region["me-east-215-a"],
+      local.cp_flux_bootstrap_by_region["me-east-215-a"],
       "hw-me-east-215-a-rtz-prod"
     )
     error_message = "regionsJson must carry the primary region's canonical label hw-me-east-215-a-rtz-prod (#3110)."
   }
   assert {
     condition = strcontains(
-      local.cp_cloud_init_by_region["me-east-215-a"],
+      local.cp_flux_bootstrap_by_region["me-east-215-a"],
       "hw-me-east-215-b-rtz-prod"
     )
     error_message = "regionsJson must carry the replica region's canonical label hw-me-east-215-b-rtz-prod (#3110)."
@@ -367,7 +367,7 @@ run "regions_json_populated_3110" {
   # catalyst-api's RegionSpec json.Unmarshal can read it.
   assert {
     condition = strcontains(
-      local.cp_cloud_init_by_region["me-east-215-a"],
+      local.cp_flux_bootstrap_by_region["me-east-215-a"],
       "\"cloudRegion\""
     )
     error_message = "regionsJson must use the Go RegionSpec field name cloudRegion (re-keyed from HCS `code`) so catalyst-api can unmarshal it (#3110)."
@@ -376,7 +376,7 @@ run "regions_json_populated_3110" {
   # RegionSpec[] (not just region names) reaches the chroot.
   assert {
     condition = strcontains(
-      local.cp_cloud_init_by_region["me-east-215-a"],
+      local.cp_flux_bootstrap_by_region["me-east-215-a"],
       "\"workerCount\":3"
     )
     error_message = "regionsJson must carry per-region SKU detail (replica workerCount=3) — full RegionSpec[], not just region names (#3110)."
@@ -385,7 +385,7 @@ run "regions_json_populated_3110" {
   # labels for the Dashboard SovereignCard + ClusterMesh chips.
   assert {
     condition = strcontains(
-      local.cp_cloud_init_by_region["me-east-215-a"],
+      local.cp_flux_bootstrap_by_region["me-east-215-a"],
       "SOVEREIGN_CONFIGURED_REGIONS_YAML:"
     )
     error_message = "Primary-CP cloud-init must emit SOVEREIGN_CONFIGURED_REGIONS_YAML (#3110)."
@@ -412,14 +412,14 @@ run "regions_json_single_region_3110" {
 
   assert {
     condition = !strcontains(
-      local.cp_cloud_init_by_region["me-east-215-a"],
+      local.cp_flux_bootstrap_by_region["me-east-215-a"],
       "SOVEREIGN_REGIONS_JSON: '[]'"
     )
     error_message = "Single-region HCS prov must still emit a populated regionsJson, not `[]` (#3110)."
   }
   assert {
     condition = strcontains(
-      local.cp_cloud_init_by_region["me-east-215-a"],
+      local.cp_flux_bootstrap_by_region["me-east-215-a"],
       "hw-me-east-215-a-rtz-prod"
     )
     error_message = "Single-region regionsJson must carry the region's canonical label (#3110)."
@@ -485,7 +485,7 @@ run "default_storage_class_falls_back_to_evs_ssd" {
 
   assert {
     condition = strcontains(
-      local.cp_cloud_init_by_region["me-east-215-a"],
+      local.cp_flux_bootstrap_by_region["me-east-215-a"],
       "SOVEREIGN_CNPG_STORAGE_CLASS: \"evs-ssd\""
     )
     error_message = "Primary-CP cloud-init must render SOVEREIGN_CNPG_STORAGE_CLASS=\"evs-ssd\" when default_storage_class is unset (the per-provider Huawei EVS CSI default). #4057"
@@ -493,7 +493,7 @@ run "default_storage_class_falls_back_to_evs_ssd" {
 
   assert {
     condition = !strcontains(
-      local.cp_cloud_init_by_region["me-east-215-a"],
+      local.cp_flux_bootstrap_by_region["me-east-215-a"],
       "SOVEREIGN_CNPG_STORAGE_CLASS: \"local-path\""
     )
     error_message = "Primary-CP cloud-init must NEVER render SOVEREIGN_CNPG_STORAGE_CLASS=\"local-path\" — local-path is FORBIDDEN (#3971/#892)."
@@ -518,7 +518,7 @@ run "default_storage_class_operator_override_renders_huawei" {
 
   assert {
     condition = strcontains(
-      local.cp_cloud_init_by_region["me-east-215-a"],
+      local.cp_flux_bootstrap_by_region["me-east-215-a"],
       "SOVEREIGN_CNPG_STORAGE_CLASS: \"evs-sas\""
     )
     error_message = "Primary-CP cloud-init must render the operator-chosen default_storage_class verbatim into SOVEREIGN_CNPG_STORAGE_CLASS. #4057"
@@ -937,6 +937,148 @@ run "network_registry_seven_regions_refused" {
   expect_failures = [var.regions]
 }
 
+# ── #7893: the worst-case render fits the limit of the ECS API.
+# A fresh two-region installation from main of 14 Nov 2026 failed in apply:
+# the API refused both control-plane servers, `the size of userdata [43908]
+# is over quota limits [43692]` (43692 is the base64 form of 32769 bytes, so
+# the limit is 32768 bytes of raw user data). This run renders the module
+# with the worst-case variables that scripts/cloudinit-size-check.py
+# measures (it writes them below with --write-fixtures and says what each
+# length stands for), and k3s tokens of their real length (64 characters).
+# The Elastic IP addresses are the mock's (shorter than the 15 characters of
+# the longest IPv4 form); scripts/cloudinit-size-check.py measures with the
+# longest. On main before #7893 this render was about 35300 bytes in both
+# regions; with the Flux bootstrap document and the Cilium values packed it
+# fits.
+run "worst_case_user_data_fits_the_api_limit" {
+  command = plan
+
+  # BEGIN worst-case variables, written by scripts/cloudinit-size-check.py --write-fixtures
+  variables {
+    bcp_topology              = "active-hotstandby"
+    catalyst_api_url          = "https://console.vhwtxhpiag5nlbjhyfkfz36kcox31rsv6.omantel.biz/sovereign"
+    console_isolation_enabled = "true"
+    deployment_id             = "63ccf96f83c59e51"
+    enable_hot_standby        = "true"
+    enable_shared_pg          = "true"
+    ghcr_pull_token           = "ghcr_filler_JKoBErUo62nLAJK5Keh4Biwuz53hoMGaBPB6HXU3W5gocWjikuaW8mPH1UVL6h8hS4DEzcnPVUnhHo0cS"
+    handover_jwt_public_key   = "{\"alg\":\"RS256\",\"e\":\"AQAB\",\"kty\":\"RSA\",\"n\":\"jFfiWIe242hUG0FlefX2yClTWSyh-4cTacQBjPJuGLoXnxhR4t0_0WZeah0ImeJsw9HMrloVq7ooT76jrcXebjmIEScBf0v7CN4Kj4bkkNUJRpLMDY56nzOPqALld61c8K3IDDdoAUR4tNoYEABKlWT8XD3oQMINzGg-x7kUsudqkheDYqziWbwd9EsWw2evx8l900IvGvXCfDEOAPe-YQBM5ENUdbbJyqKVl9BrQFVBOPO5c7fAI4uCeVNVzvIrl4IQ7i50i1kA5DS5YvCFSaPlXHxwDrZsn9TLuChC90XeLo_jcyfr_08yxGV5nUMcim2uYB8wNRzSA-xUeCZG8x\",\"use\":\"sig\"}"
+    harbor_robot_token        = "KCVhNCbzrrWzD3iyA5c4cVWoqF25f5j6"
+    huawei_access_key         = "HWAKFILLER7ELYYULOHV"
+    huawei_project_id         = "f431d7d76e2616d0a27980d49a63fa4b"
+    huawei_secret_key         = "DF1FpgLSkvsSzqgHycPF6vzOazJrYxss2rEw2eeQ"
+    kubeconfig_bearer_token   = "a5936414e8f1193d572074048696a49118ca3947da6121e8aec6beae72acd741"
+    marketplace_enabled       = "true"
+    obs_bucket_name           = "catalyst-ae1r3b3eqk10j5wbg8ul-omani-works-63ccf96f"
+    org_email                 = "bkzitohxvpztjrswdqdfeabizcvnzixuevmihzkweoxgwumfqanrpcrfsbqvadii@puzeqhhzsnzqdxw9e76xanom0auqgruadge9gj3m5swml9pin0ctkj4pyxzwwoj.vskqogyim6cpkz3kygtk4sb9d5n73ierktp1yh3fixs06u61qzo5ga6nyoa47nl.jpvqlp3kcdxlicem3icpgrdvhkq3gbvq0afmz4y7czjaksfvbhgjxvj89o.om"
+    org_name                  = "Omani National Sovereign Cloud Services & Data Platforms Company (Closed Joint Stock) & Partners LLC"
+    parent_domains_yaml       = "[{name: \"ae1r3b3eqk10j5wbg8ul.omani.works\", role: \"primary\"}, {name: \"omani.homes\", role: \"org-pool\"}, {name: \"omani.rest\", role: \"org-pool\"}, {name: \"omani.trade\", role: \"org-pool\"}]"
+    pdm_basic_auth_pass       = "fOxOud9JoeoSGJjfNZbUSGrONfhEzatlUijrH0u89WedgLRW8pfiDsNrOUvDba2U"
+    pdm_basic_auth_user       = "ZMsusu7pFBC5ulGjXvckKA4VmcIdqn6A"
+    pdns_api_host             = "https://pdns.vhwtxhpiag5nlbjhyfkfz36kcox31rsv6.omantel.biz"
+    powerdns_api_key          = "qG5I3mpjZOOQFPsRBhyYUUFybJWNzvTY"
+    provider_api_cidrs = [
+      "149.104.149.0/24",
+      "141.131.193.0/24",
+      "117.133.108.0/24",
+      "171.108.110.0/24",
+    ]
+    qa_fixtures_enabled = "true"
+    regions = [
+      {
+        "code"               = "me-east-215-a"
+        "control_plane_size" = "s7n.large.4"
+        "role"               = "primary"
+        "worker_count"       = 50
+        "worker_size"        = "m7n.xlarge.8"
+      },
+      {
+        "code"               = "me-east-215-b"
+        "control_plane_size" = "s7n.large.4"
+        "role"               = "secondary"
+        "worker_count"       = 50
+        "worker_size"        = "m7n.xlarge.8"
+      },
+    ]
+    retry_attempt  = 9
+    sovereign_fqdn = "ae1r3b3eqk10j5wbg8ul.omani.works"
+    ssh_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIfxPSrXwdxgFhS9hMbVHdAee21BJZFReoM9QleQIH1OM sovereign-admin"
+    variables = {
+      "CLOUD_CREDENTIAL_MODE"              = "supplied"
+      "CLOUD_CREDENTIAL_ROTATION_NONCE"    = ""
+      "CLOUD_CREDENTIAL_ROTATION_SCHEDULE" = "0 2 1 * *"
+      "DNS_MODE"                           = "upstream-managed"
+      "DNS_UPSTREAM_API_URL"               = ""
+      "GITOPS_REPO_URL"                    = "http://gitea-http.gitea.svc.cluster.local:3000/openova/provider-pack"
+      "HANDOVER_AUTO"                      = "true"
+      "HANDOVER_HOLD_SECONDS"              = "600"
+      "K3S_UPGRADE_CONCURRENCY"            = "1"
+      "K3S_VERSION"                        = "v1.31.8+k3s1"
+      "LOCAL_REGISTRY_HOST"                = "registry.ae1r3b3eqk10j5wbg8ul.omani.works"
+      "MAIL_FROM"                          = ""
+      "MAIL_MODE"                          = "local"
+      "MAIL_RELAY_HOST"                    = ""
+      "MAIL_RELAY_PORT"                    = "587"
+      "MAIL_RELAY_SECRET"                  = ""
+      "ORIGIN_PARENT_API_URL"              = "https://console.vhwtxhpiag5nlbjhyfkfz36kcox31rsv6.omantel.biz/sovereign"
+      "ORIGIN_PARENT_FQDN"                 = "vhwtxhpiag5nlbjhyfkfz36kcox31rsv6.omantel.biz"
+      "ORIGIN_PROXY_ENDPOINTS_JSON"        = "{}"
+      "ORIGIN_REGISTRY_CA_B64"             = ""
+      "ORIGIN_REGISTRY_HOST"               = "registry.vhwtxhpiag5nlbjhyfkfz36kcox31rsv6.omantel.biz"
+      "ORIGIN_REGISTRY_SCHEME"             = "https"
+      "REGISTRY_HOST"                      = "registry.vhwtxhpiag5nlbjhyfkfz36kcox31rsv6.omantel.biz"
+      "REGISTRY_PATH_CHARTS"               = "openova-io"
+      "REGISTRY_PATH_NODE_ARTIFACTS"       = "node-artifacts"
+      "REGISTRY_PATH_PROVIDER_PACKS"       = "openova-io/provider-packs"
+      "REGISTRY_PATH_RELEASE"              = "openova-io/release"
+      "REGISTRY_PATH_TOFU_PROVIDERS"       = "tofu-providers"
+      "REGISTRY_PATH_VULN_DB"              = "proxy-vulndb/proxy-vulndb/aquasecurity/trivy-db"
+      "REGISTRY_PATH_XPKG"                 = "proxy-xpkg"
+      "REGISTRY_PROXY_PROJECTS_JSON"       = "{\"docker.io\":\"proxy-dockerhub\",\"gcr.io\":\"proxy-gcr\",\"ghcr.io\":\"proxy-ghcr\",\"public.ecr.aws\":\"proxy-ecr\",\"quay.io\":\"proxy-quay\",\"registry-1.docker.io\":\"proxy-dockerhub\",\"registry.k8s.io\":\"proxy-k8s\",\"xpkg.upbound.io\":\"proxy-xpkg\"}"
+      "REGISTRY_PULL_SECRET"               = "ghcr-pull"
+      "REGISTRY_SCHEME"                    = "https"
+      "RELEASE_AUTO"                       = "false"
+      "RELEASE_CHANNEL"                    = "candidate"
+      "RELEASE_PUBLIC_KEY_B64"             = "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KNVdqS2Z0dVR5eGRwUnZ3Z2xPVFc2N0VhTTF1ZGZXbE9kUHg4ZTk2WXREeFR5NnpRT2w2RVgwWXlGUmQydFJIZgpPTFQ2dDVwWm1CSDFDaXJGMmtldklJNUJMU2YwaG9nRm03aU0wNEFqQUhERXdmU2FCcHR0Q2gwaFl6WDA9PQotLS0tLUVORCBQVUJMSUMgS0VZLS0tLS0K"
+      "RELEASE_SYNC_SCHEDULE"              = "0 3 * * *"
+      "RELEASE_VERSION"                    = ""
+      "SOVEREIGN_CONSUME"                  = "origin"
+      "SOVEREIGN_MODE"                     = "sovereign"
+    }
+    wildcard_cert_use_staging = "true"
+  }
+  # END worst-case variables
+
+  override_resource {
+    target = random_password.k3s_server_token
+    values = {
+      result = "FiLLeRk3sServer0FiLLeRk3sServer0FiLLeRk3sServer0FiLLeRk3sServer0"
+    }
+  }
+
+  override_resource {
+    target = random_password.k3s_agent_token
+    values = {
+      result = "FiLLeRk3sAgent00FiLLeRk3sAgent00FiLLeRk3sAgent00FiLLeRk3sAgent00"
+    }
+  }
+
+  assert {
+    condition     = alltrue([for code, ud in local.cp_cloud_init_by_region : length(ud) <= 32768]) && length(local.cp_cloud_init_by_region) == 2
+    error_message = "#7893: the worst-case control-plane renders are ${join(", ", [for code, ud in local.cp_cloud_init_by_region : "${code} ${nonsensitive(length(ud))} bytes"])}; each must stay at most 32768, the limit of the ECS API."
+  }
+
+  assert {
+    condition     = alltrue([for code, ud in local.worker_cloud_init_by_region : length(ud) <= 32768]) && length(local.worker_cloud_init_by_region) == 2
+    error_message = "#7893: the worst-case worker renders are ${join(", ", [for code, ud in local.worker_cloud_init_by_region : "${code} ${nonsensitive(length(ud))} bytes"])}; each must stay at most 32768, the limit of the ECS API."
+  }
+
+  assert {
+    condition     = strcontains(local.cp_flux_bootstrap_by_region["me-east-215-a"], "SOVEREIGN_FQDN: ${var.sovereign_fqdn}\n") && strcontains(local.cp_flux_bootstrap_by_region["me-east-215-b"], "SOVEREIGN_REGION_ROLE: \"secondary\"\n")
+    error_message = "#7893: the packed Flux bootstrap document of each region must decode to that region's document."
+  }
+}
+
 # ── SOV-131: HANDOVER_AUTO reaches FIRE_CUTOVER_ON_HANDOVER; a document
 # without exactly the keys of contract C5 is refused at plan time.
 run "variables_handover_auto_reaches_cloud_init" {
@@ -955,7 +1097,7 @@ run "variables_handover_auto_reaches_cloud_init" {
   }
 
   assert {
-    condition     = strcontains(local.cp_cloud_init_by_region["me-east-215-a"], "FIRE_CUTOVER_ON_HANDOVER: \"false\"")
+    condition     = strcontains(local.cp_flux_bootstrap_by_region["me-east-215-a"], "FIRE_CUTOVER_ON_HANDOVER: \"false\"")
     error_message = "SOV-131: variables[\"HANDOVER_AUTO\"] must reach the substitute FIRE_CUTOVER_ON_HANDOVER of the control-plane cloud-init."
   }
 }

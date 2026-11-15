@@ -1454,6 +1454,17 @@ locals {
       PUT
     }), "/(?m)^[ ]*#( |$).*\n/", "")
   }
+
+  # #7893 — the Flux bootstrap document of each region's control-plane
+  # render, decoded as cloud-init decodes it on the node. The render carries
+  # it packed (`encoding: gz+b64`), so its text is not in the render;
+  # tests/multi_region.tftest.hcl reads it here. Nothing else uses it, and
+  # null (never an error) when the entry is missing, so a plan cannot fail on it.
+  cp_flux_bootstrap_by_region = {
+    for code, ud in local.cp_cloud_init_by_region : code => try(base64gunzip(regex(
+      "\n  - path: /var/lib/catalyst/flux-bootstrap\\.yaml\n    permissions: '0644'\n    encoding: gz\\+b64\n    content: ([A-Za-z0-9+/=]+)\n", ud
+    )[0]), null)
+  }
 }
 
 # ── Control-plane ECS instances ───────────────────────────────────────────

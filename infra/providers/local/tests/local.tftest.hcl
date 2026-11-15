@@ -83,37 +83,42 @@ run "control_plane_user_data_holds_the_kit_and_the_substitutes" {
   }
 
   assert {
-    condition     = alltrue([for k, m in docker_container.control_plane : length(regexall("(?m)^ +path: \\./clusters/_template/providers/local/kit$", nonsensitive(one([for u in m.upload : u.content if u.file == "/var/lib/cloud/seed/nocloud/user-data"])))) == 1])
+    condition     = alltrue([for k, m in docker_container.control_plane : base64gunzip(regex(local.flux_bootstrap_entry_re, nonsensitive(one([for u in m.upload : u.content if u.file == "/var/lib/cloud/seed/nocloud/user-data"])))[0]) == nonsensitive(local.control_plane_flux_bootstrap[local.control_planes[k].region])])
+    error_message = "#7893: the packed Flux bootstrap document in each control-plane user-data must decode to the document of its region with the kit path and the pack substitutes set."
+  }
+
+  assert {
+    condition     = alltrue([for k, m in docker_container.control_plane : length(regexall("(?m)^ +path: \\./clusters/_template/providers/local/kit$", base64gunzip(regex(local.flux_bootstrap_entry_re, nonsensitive(one([for u in m.upload : u.content if u.file == "/var/lib/cloud/seed/nocloud/user-data"])))[0]))) == 1])
     error_message = "the Flux Kustomization bootstrap-kit must point at the reduced kit."
   }
 
   assert {
-    condition     = alltrue([for k, m in docker_container.control_plane : length(regexall("(?m)^ +path: \\./clusters/_template/bootstrap-kit$", nonsensitive(one([for u in m.upload : u.content if u.file == "/var/lib/cloud/seed/nocloud/user-data"])))) == 0])
+    condition     = alltrue([for k, m in docker_container.control_plane : length(regexall("(?m)^ +path: \\./clusters/_template/bootstrap-kit$", base64gunzip(regex(local.flux_bootstrap_entry_re, nonsensitive(one([for u in m.upload : u.content if u.file == "/var/lib/cloud/seed/nocloud/user-data"])))[0]))) == 0])
     error_message = "no Flux Kustomization may point at the whole kit."
   }
 
   assert {
-    condition     = alltrue([for k, m in docker_container.control_plane : strcontains(nonsensitive(one([for u in m.upload : u.content if u.file == "/var/lib/cloud/seed/nocloud/user-data"])), "\n            SOVEREIGN_CNPG_STORAGE_CLASS: \"local-path\"\n")])
+    condition     = alltrue([for k, m in docker_container.control_plane : strcontains(base64gunzip(regex(local.flux_bootstrap_entry_re, nonsensitive(one([for u in m.upload : u.content if u.file == "/var/lib/cloud/seed/nocloud/user-data"])))[0]), "\n      SOVEREIGN_CNPG_STORAGE_CLASS: \"local-path\"\n")])
     error_message = "the ConfigMap sovereign-variables must name the default storage class (the storage gate waits for it)."
   }
 
   assert {
-    condition     = alltrue([for k, m in docker_container.control_plane : strcontains(nonsensitive(one([for u in m.upload : u.content if u.file == "/var/lib/cloud/seed/nocloud/user-data"])), "\n            POWERDNS_DNSDIST_HOSTPORT: \"true\"\n")])
+    condition     = alltrue([for k, m in docker_container.control_plane : strcontains(base64gunzip(regex(local.flux_bootstrap_entry_re, nonsensitive(one([for u in m.upload : u.content if u.file == "/var/lib/cloud/seed/nocloud/user-data"])))[0]), "\n      POWERDNS_DNSDIST_HOSTPORT: \"true\"\n")])
     error_message = "the DNS server must bind port 53 on the machine's own address."
   }
 
   assert {
-    condition     = strcontains(nonsensitive(one([for u in docker_container.control_plane["region-a-cp1"].upload : u.content if u.file == "/var/lib/cloud/seed/nocloud/user-data"])), "\n            CILIUM_LB_IPAM_CIDRS: \"198.51.100.10/32\"\n") && strcontains(nonsensitive(one([for u in docker_container.control_plane["region-b-cp1"].upload : u.content if u.file == "/var/lib/cloud/seed/nocloud/user-data"])), "\n            CILIUM_LB_IPAM_CIDRS: \"198.51.100.11/32\"\n")
+    condition     = strcontains(base64gunzip(regex(local.flux_bootstrap_entry_re, nonsensitive(one([for u in docker_container.control_plane["region-a-cp1"].upload : u.content if u.file == "/var/lib/cloud/seed/nocloud/user-data"])))[0]), "\n      CILIUM_LB_IPAM_CIDRS: \"198.51.100.10/32\"\n") && strcontains(base64gunzip(regex(local.flux_bootstrap_entry_re, nonsensitive(one([for u in docker_container.control_plane["region-b-cp1"].upload : u.content if u.file == "/var/lib/cloud/seed/nocloud/user-data"])))[0]), "\n      CILIUM_LB_IPAM_CIDRS: \"198.51.100.11/32\"\n")
     error_message = "the load-balancer pool of each region must be one address of external_cidr, never the machine's own address."
   }
 
   assert {
-    condition     = strcontains(nonsensitive(one([for u in docker_container.control_plane["region-a-cp1"].upload : u.content if u.file == "/var/lib/cloud/seed/nocloud/user-data"])), "\n            SECONDARY_HR_SUSPEND: \"false\"\n") && strcontains(nonsensitive(one([for u in docker_container.control_plane["region-b-cp1"].upload : u.content if u.file == "/var/lib/cloud/seed/nocloud/user-data"])), "\n            SECONDARY_HR_SUSPEND: \"true\"\n")
+    condition     = strcontains(base64gunzip(regex(local.flux_bootstrap_entry_re, nonsensitive(one([for u in docker_container.control_plane["region-a-cp1"].upload : u.content if u.file == "/var/lib/cloud/seed/nocloud/user-data"])))[0]), "\n      SECONDARY_HR_SUSPEND: \"false\"\n") && strcontains(base64gunzip(regex(local.flux_bootstrap_entry_re, nonsensitive(one([for u in docker_container.control_plane["region-b-cp1"].upload : u.content if u.file == "/var/lib/cloud/seed/nocloud/user-data"])))[0]), "\n      SECONDARY_HR_SUSPEND: \"true\"\n")
     error_message = "the primary-only releases must run in the primary region and be suspended in the secondary."
   }
 
   assert {
-    condition     = alltrue([for k, m in docker_container.control_plane : strcontains(nonsensitive(one([for u in m.upload : u.content if u.file == "/var/lib/cloud/seed/nocloud/user-data"])), "\n            PROVIDER: local\n")])
+    condition     = alltrue([for k, m in docker_container.control_plane : strcontains(base64gunzip(regex(local.flux_bootstrap_entry_re, nonsensitive(one([for u in m.upload : u.content if u.file == "/var/lib/cloud/seed/nocloud/user-data"])))[0]), "\n      PROVIDER: local\n")])
     error_message = "the kit key PROVIDER must be local."
   }
 }
