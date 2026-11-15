@@ -1980,20 +1980,25 @@ runcmd:
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
     for ns in catalyst-system openbao; do kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -; done
     cd /var/lib/catalyst
-    kubectl apply -f ghcr-pull-secret.yaml -f harbor-robot-token-secret.yaml -f pdm-basicauth-secret.yaml -f handover-jwt-public-secret.yaml -f object-storage-secret.yaml -f cloud-credentials-secret.yaml -f sovereign-tls-secrets.yaml
+    kubectl apply --server-side -f ghcr-pull-secret.yaml -f harbor-robot-token-secret.yaml -f pdm-basicauth-secret.yaml -f handover-jwt-public-secret.yaml -f object-storage-secret.yaml -f cloud-credentials-secret.yaml -f sovereign-tls-secrets.yaml
 
   # openbao-recovery-seed: one-shot 32-byte seed the bp-openbao init Job
   # consumes + deletes on first success. Never in tfstate; node-local only.
+  # #7901: this Secret and the ones above are applied with --server-side. A
+  # client-side apply stores the whole manifest, so every value, in the
+  # annotation kubectl.kubernetes.io/last-applied-configuration of the Secret.
+  # The two flags cost 28 bytes of user data; the seed variable is named SD
+  # (it was OPENBAO_SEED), which gives 30 back.
   - |
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-    OPENBAO_SEED=$(head -c 32 /dev/urandom | base64 | tr -d '\n')
+    SD=$(head -c 32 /dev/urandom | base64 | tr -d '\n')
     kubectl -n openbao create secret generic openbao-recovery-seed \
-      --from-literal=recovery-seed="$OPENBAO_SEED" \
+      --from-literal=recovery-seed="$SD" \
       --dry-run=client -o yaml \
       | kubectl annotate --local -f - \
         openbao.openova.io/single-use=true -o yaml \
-      | kubectl apply -f -
-    unset OPENBAO_SEED
+      | kubectl apply --server-side -f -
+    unset SD
     # object-storage-secret + cloud-credentials-secret are applied above in the
     # single folded `kubectl apply -f … -f …` (no namespace dependency on the
     # openbao seed), so they are intentionally not re-applied here.

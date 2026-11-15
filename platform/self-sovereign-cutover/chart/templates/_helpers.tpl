@@ -256,7 +256,7 @@ step this init is attached to). Emit at the pod's initContainers list level via
                 }
               },
               data: (.data // {})}' \
-        | kubectl -n "${DEST_NAMESPACE}" apply -f - >/dev/null
+        | kubectl -n "${DEST_NAMESPACE}" apply --server-side --force-conflicts --field-manager=self-sovereign-cutover -f - >/dev/null
 
       # Fail loud: the step must not proceed on a keyless secret.
       if ! kubectl -n "${DEST_NAMESPACE}" get secret "${DEST_SECRET_NAME}" \

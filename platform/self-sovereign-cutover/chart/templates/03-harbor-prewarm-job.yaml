@@ -3374,7 +3374,7 @@ data:
       if ! kubectl --kubeconfig "${skc}" -n "${SECONDARY_GHCR_SOURCE_NAMESPACE}" get secret "${SECONDARY_GHCR_SOURCE_SECRET}" -o json 2>/dev/null \
         | jq --arg n "${SECONDARY_GHCR_DEST_SECRET}" --arg ns "${SECONDARY_HARBOR_NAMESPACE}" \
             'del(.metadata.resourceVersion,.metadata.uid,.metadata.creationTimestamp,.metadata.ownerReferences,.metadata.annotations,.metadata.labels,.metadata.managedFields,.status) | .metadata.name=$n | .metadata.namespace=$ns' \
-        | kubectl --kubeconfig "${skc}" -n "${SECONDARY_HARBOR_NAMESPACE}" apply -f - >/dev/null 2>&1; then
+        | kubectl --kubeconfig "${skc}" -n "${SECONDARY_HARBOR_NAMESPACE}" apply --server-side --force-conflicts --field-manager=self-sovereign-cutover -f - >/dev/null 2>&1; then
         echo "[harbor-prewarm] FATAL: #6764 secondary region ${region}: could not copy ${SECONDARY_GHCR_SOURCE_NAMESPACE}/${SECONDARY_GHCR_SOURCE_SECRET} into ${SECONDARY_HARBOR_NAMESPACE}/${SECONDARY_GHCR_DEST_SECRET} — the region-local push cannot authenticate to ghcr.io." >&2
         exit 1
       fi

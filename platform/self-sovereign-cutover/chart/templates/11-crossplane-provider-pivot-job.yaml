@@ -311,7 +311,7 @@ data:
               */}}
               secret_manifest="$(printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: %s\n  namespace: %s\n  labels:\n    app.kubernetes.io/managed-by: self-sovereign-cutover\n    bp.openova.io/cutover-step: crossplane-provider-pivot\ntype: kubernetes.io/dockerconfigjson\ndata:\n  .dockerconfigjson: %s\n' \
                 "${PULL_SECRET_NAME}" "${CROSSPLANE_NAMESPACE}" "${dockercfg_b64}")"
-              if ! printf '%s' "${secret_manifest}" | kubectl apply -f - >/dev/null; then
+              if ! printf '%s' "${secret_manifest}" | kubectl apply --server-side --force-conflicts --field-manager=self-sovereign-cutover -f - >/dev/null; then
                 echo "[crossplane-provider-pivot] FATAL: failed to apply pull Secret ${CROSSPLANE_NAMESPACE}/${PULL_SECRET_NAME}" >&2
                 exit 1
               fi

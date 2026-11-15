@@ -385,7 +385,7 @@ spec:
                     catalyst.openova.io/blueprint=bp-catalyst-platform \
                     catalyst.openova.io/component=provisioning-github-token \
                     app.kubernetes.io/part-of=org \
-                | kubectl apply -f -
+                | kubectl apply --server-side --force-conflicts --field-manager=provisioning-github-token-sync -f -
               rm -f /tmp/token
               echo "[provisioning-github-token-sync] applied ${DEST_NAMESPACE}/${DEST_SECRET}.${DEST_KEY}"
               # #4447 (defense in depth, mirroring #4452's verify-back): READ

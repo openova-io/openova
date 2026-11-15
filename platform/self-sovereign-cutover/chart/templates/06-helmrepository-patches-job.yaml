@@ -799,7 +799,7 @@ data:
         echo "[helmrepository-patches] FATAL: Phase-2c [${_lp_region}]: no ${GHCR_PULL_SECRET_NAME} bytes were captured from the primary — the pivoted loft HR would 401 (#5650)" >&2
         return 1
       fi
-      if jq --arg ns "${VCL_LOFT_NAMESPACE}" '{apiVersion,kind,type,data,metadata:{name:.metadata.name,namespace:$ns}}' "${LOFT_GHCR_SECRET_JSON}" | _lp_kubectl apply -f - >/dev/null 2>&1; then
+      if jq --arg ns "${VCL_LOFT_NAMESPACE}" '{apiVersion,kind,type,data,metadata:{name:.metadata.name,namespace:$ns}}' "${LOFT_GHCR_SECRET_JSON}" | _lp_kubectl apply --server-side --force-conflicts --field-manager=self-sovereign-cutover -f - >/dev/null 2>&1; then
         echo "[helmrepository-patches] Phase-2c [${_lp_region}]: replicated ${GHCR_PULL_SECRET_NAME} -> ${VCL_LOFT_NAMESPACE} (carries the registry.${SOVEREIGN_FQDN} auth Phase-0 added)"
       else
         echo "[helmrepository-patches] FATAL: Phase-2c [${_lp_region}]: could not replicate ${GHCR_PULL_SECRET_NAME} into ${VCL_LOFT_NAMESPACE} — the pivoted loft HR would 401 (#5650)" >&2
@@ -808,7 +808,7 @@ data:
       {{- /* 2. Harbor CA trust (optional — absent on a public-CA Harbor). */}}
       _lp_certref=""
       if [ -n "${LOFT_TRUST_SECRET}" ] && [ -n "${LOFT_CA_B64}" ]; then
-        if printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: %s\n  namespace: %s\n  labels:\n    app.kubernetes.io/managed-by: self-sovereign-cutover\n    bp.openova.io/cutover-step: helmrepository-patches\ntype: Opaque\ndata:\n  ca.crt: %s\n' "${LOFT_TRUST_SECRET}" "${VCL_LOFT_NAMESPACE}" "${LOFT_CA_B64}" | _lp_kubectl apply -f - >/dev/null 2>&1; then
+        if printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: %s\n  namespace: %s\n  labels:\n    app.kubernetes.io/managed-by: self-sovereign-cutover\n    bp.openova.io/cutover-step: helmrepository-patches\ntype: Opaque\ndata:\n  ca.crt: %s\n' "${LOFT_TRUST_SECRET}" "${VCL_LOFT_NAMESPACE}" "${LOFT_CA_B64}" | _lp_kubectl apply --server-side --force-conflicts --field-manager=self-sovereign-cutover -f - >/dev/null 2>&1; then
           _lp_certref="${LOFT_TRUST_SECRET}"
           echo "[helmrepository-patches] Phase-2c [${_lp_region}]: replicated Harbor CA trust ${LOFT_TRUST_SECRET} -> ${VCL_LOFT_NAMESPACE}"
         else
@@ -1926,7 +1926,7 @@ data:
                   */}}
                   trust_manifest=$(printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: %s\n  namespace: %s\n  labels:\n    app.kubernetes.io/managed-by: self-sovereign-cutover\n    bp.openova.io/cutover-step: helmrepository-patches\ntype: Opaque\ndata:\n  ca.crt: %s\n' \
                     "${HELMREPO_TRUST_DEST_SECRET}" "${HELMREPO_NAMESPACE}" "${ca_b64}")
-                  if printf '%s' "${trust_manifest}" | kubectl apply -f - >/dev/null 2>&1; then
+                  if printf '%s' "${trust_manifest}" | kubectl apply --server-side --force-conflicts --field-manager=self-sovereign-cutover -f - >/dev/null 2>&1; then
                     trust_secret="${HELMREPO_TRUST_DEST_SECRET}"
                     echo "[helmrepository-patches] Phase-0.5 OK: ${HELMREPO_NAMESPACE}/${HELMREPO_TRUST_DEST_SECRET} carries the in-cluster Harbor CA — pivoted HelmRepositories will reference it via certSecretRef"
                   else
@@ -2587,7 +2587,7 @@ data:
                       labels:{"app.kubernetes.io/managed-by":"self-sovereign-cutover"},
                       annotations:({"catalyst.openova.io/mirrored-from":("region-a/"+$ns+"/"+$name)} + $ann)},
                     data:{($key):$val}}' >/tmp/sec-ghcr-pull.yaml
-                if kubectl --kubeconfig "${sy_kc}" apply -f /tmp/sec-ghcr-pull.yaml >/dev/null; then
+                if kubectl --kubeconfig "${sy_kc}" apply --server-side --force-conflicts --field-manager=self-sovereign-cutover -f /tmp/sec-ghcr-pull.yaml >/dev/null; then
                   echo "[helmrepository-patches] #5359 secondary ${sy_region}: ghcr-pull auth synced from region-A"
                 else
                   echo "[helmrepository-patches] FATAL: #5359 secondary ${sy_region}: ghcr-pull sync failed — its pivoted HelmRepositories could not authenticate to ${harbor_host}" >&2
@@ -2802,7 +2802,7 @@ data:
             stringData:
               token: ${dr_pat}
             EOF
-              if ! kubectl --kubeconfig "${dr_kc}" -n "${SECONDARY_GITEA_NAMESPACE}" apply -f /tmp/sec-gitea-pat.yaml >/dev/null; then
+              if ! kubectl --kubeconfig "${dr_kc}" -n "${SECONDARY_GITEA_NAMESPACE}" apply --server-side --force-conflicts --field-manager=self-sovereign-cutover -f /tmp/sec-gitea-pat.yaml >/dev/null; then
                 echo "[helmrepository-patches] FATAL: #5596 secondary ${dr_region}: could not copy the shared PAT into ${SECONDARY_GITEA_NAMESPACE}/${SECONDARY_GITEA_PAT_SECRET}" >&2
                 rm -f /tmp/sec-gitea-pat.yaml
                 return 1
@@ -2896,7 +2896,7 @@ data:
                 if [ -n "${trust_secret}" ]; then
                   if kubectl -n "${HELMREPO_NAMESPACE}" get secret "${trust_secret}" -o json 2>/dev/null \
                     | jq '{apiVersion, kind, type, metadata: {name: .metadata.name, namespace: .metadata.namespace, labels: {"app.kubernetes.io/managed-by": "self-sovereign-cutover"}}, data: (.data // {})}' \
-                    | kubectl --kubeconfig "${pv_kc}" apply -f - >/dev/null; then
+                    | kubectl --kubeconfig "${pv_kc}" apply --server-side --force-conflicts --field-manager=self-sovereign-cutover -f - >/dev/null; then
                     echo "[helmrepository-patches] #5359 secondary ${pv_region}: trust Secret ${trust_secret} synced"
                   else
                     echo "[helmrepository-patches] #5359 WARN secondary ${pv_region}: trust Secret sync failed — pivoting WITHOUT certSecretRef durability there"
