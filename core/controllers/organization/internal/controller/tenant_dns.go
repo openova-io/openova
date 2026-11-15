@@ -521,7 +521,7 @@ func (r *Reconciler) poolZoneFor(ctx context.Context, baseURL, apiKey string, zo
 			return "", fmt.Errorf("powerdns GET zone %q: %w", zone, err)
 		}
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		switch resp.StatusCode {
 		case http.StatusOK:
 			return zone, nil
