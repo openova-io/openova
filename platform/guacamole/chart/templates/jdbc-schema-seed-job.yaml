@@ -79,7 +79,39 @@ manifest is strictly worse than waiting for the database.
 {{- if hasKey $db "enabled" }}{{- $dbEnabled = $db.enabled -}}{{- end -}}
 {{- /* #5358: seeds + enrols against the local CNPG store, which only the
    crossRegion `primary` region renders. */ -}}
-{{- if and (include "bp-guacamole.renderWorkloads" .) $dbEnabled }}
+{{- $run := and (include "bp-guacamole.renderWorkloads" .) $dbEnabled -}}
+{{- /* #7922 — RETIRE on the mesh secondary what an earlier revision left.
+
+   The seed ConfigMap and the admin-enroll CronJob below are Helm HOOKS, and
+   Helm never deletes a hook object when a later revision stops rendering it:
+   hook objects are in no release manifest, so the upgrade's prune cannot see
+   them. On a two-region Sovereign the secondary region ALWAYS passes through
+   such a revision. Its first install renders with crossRegion.enabled=false,
+   because slot 52 takes `enabled` from SOVEREIGN_ENABLE_CNPG_PAIR and the
+   parent flips that only after the full mesh, never at bootstrap
+   (clustermesh.go enableCNPGPairAfterFullMesh). So revision 1 is a full
+   install — webapp, guacd, the guacamole-pg Cluster and these hooks — and
+   revision 2, the secondary render, prunes the Cluster (taking its
+   guacamole-pg-app Secret with it) but leaves the CronJob behind. Measured on
+   hw307 region b (16 Nov 2026): release revision 1 crossRegion
+   {enabled:false, role:secondary} carried the three hooks; revision 2
+   {enabled:true} carried none; the CronJob created by revision 1 still fired
+   every minute, and every Pod stayed Pending on `secret "guacamole-pg-app"
+   not found` (acceptance check FND-G01.6: a container with no image digest).
+
+   The CronJob belongs only where its database is: it writes the guacamole
+   JDBC store, and its connection producer stamps its OWN node's address on
+   the `sovereign-node` row, so a second copy in another region would rewrite
+   that row every minute. Delivering the Secret to the secondary would make
+   that worse, not better. So on the secondary the same two hooks render as
+   retirements: `before-hook-creation` deletes whatever an earlier revision
+   left under these names, and `hook-succeeded` deletes the retirement itself
+   once the hook phase ends. The CronJob is the full object with
+   `suspend: true`, so it passes the same admission policies as the real one
+   and never starts a Job in the moment it exists. Net result after every
+   install or upgrade of a secondary: neither object exists. */ -}}
+{{- $retire := and .Values.guacamole.enabled (include "bp-guacamole.isMeshSecondary" .) -}}
+{{- if or $run $retire }}
 {{- $name := $cl.name | default "guacamole-pg" -}}
 {{- $appSecret := $db.appSecretName | default (printf "%s-app" $name) -}}
 {{- $adminGroup := $db.adminGroup | default "sovereign-admins" -}}
@@ -219,6 +251,23 @@ manifest is strictly worse than waiting for the database.
 {{- end -}}
 {{- end -}}
 {{- end -}}
+{{- if not $run }}
+{{- /* #7922: retirement of the seed scripts ConfigMap (see the note above
+   `$retire`). Same kind, name and hook event as the real one, no data. */}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $jobName }}-scripts
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-guacamole.labels" . | nindent 4 }}
+    catalyst.openova.io/component: admin-enroll-retire
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+{{- else }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -593,12 +642,18 @@ spec:
             optional: true
         {{- end }}
         {{- end }}
+{{- end }}
 ---
 {{- /* #3374 (2026-06-14): per-minute admin-enroll CronJob. Binds every
    SSO-auto-created JDBC USER into <adminGroup> membership so the owner's FIRST
    bare-URL SSO login lands as admin within ~1 min (the runtime OIDC-group
    name-match did not reach the owner live on hw133 — #3475). Reuses the
-   one-shot seed Job's scripts ConfigMap (promote.sh → enroll_admins). */ -}}
+   one-shot seed Job's scripts ConfigMap (promote.sh → enroll_admins).
+   #7922: on the mesh secondary this same object is the retirement (suspended,
+   deleted again when the hook phase succeeds) — see the note above `$retire`.
+   This comment keeps the newline after it (no right-hand trim marker): the
+   trim glued the separator into `---apiVersion:`, which Helm's splitter
+   accepts and `helm lint` rejects ("invalid Yaml document separator"). */}}
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -614,8 +669,11 @@ metadata:
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "12"
-    "helm.sh/hook-delete-policy": before-hook-creation
+    "helm.sh/hook-delete-policy": {{ if $run }}before-hook-creation{{ else }}before-hook-creation,hook-succeeded{{ end }}
 spec:
+  {{- if not $run }}
+  suspend: true
+  {{- end }}
   schedule: {{ $promoteSchedule | quote }}
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 1
