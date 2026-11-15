@@ -23,7 +23,7 @@ Nothing of the deployed work counts as tested until the acceptance gate has pass
 - **The last name has moved off the old mothership node: likely 2 Dec 18:00 UTC** (earliest 21 Nov 18:00, could slip to 20 Dec); the old node is switched off seven quiet days later, likely 9 Dec. Depends on the mothership as an installable mode, with the move of the child records (never done before); the mail move (port 25 on a new address, reverse DNS, sender reputation); and Blueprints for our own applications, two of which have no chart yet.
 - The two mothership dates are those of its plan of 15 Nov 07:30 UTC.
 
-**Today in five lines** (the 24 hours to 13:18 UTC on 15 Nov):
+**Today in five lines** (the 24 hours to 13:19 UTC on 15 Nov):
 
 1. **Fires: 2**, 2 could not finish by itself. Fire 1 failed after 3 minutes: the control-plane start-up data was over the cloud's limit (43,912 bytes against 43,692), and the failure was seen only 3.5 hours later. Fire 2 could not finish by itself: OpenBao was shut in by its own network policies, and a release cut by a node reboot during its first install wedged for good.
 2. **Installation:** A gate run on hw307 ended FAIL: 10 of 24 checks passed; it names no candidate, so it counts for nothing. The stuck installation was driven by hand, one change at a time, to the end of the hand-over chain in both regions, with 13 hand changes and 17 defects found. The installation read ready after the first five hand changes, with region b still degraded, and the hand-over fired. The hand-over chain ended with all 11 steps done in both regions, the 10-minute sovereignty hold included.
@@ -35,7 +35,7 @@ Nothing of the deployed work counts as tested until the acceptance gate has pass
 
 ## On the environment: what is deployed and what is not
 
-Measured from git and the gate records on main at 13:18 UTC. Merged means the task's done marker is on main. Deployed means its merge commit is in the commit the environment runs: `rc/20261115T042424Z-4a0671c` since 15 Nov 04:53 UTC. Validated means it passed in two gate runs on that installation.
+Measured from git and the gate records on main at 13:19 UTC. Merged means the task's done marker is on main. Deployed means its merge commit is in the commit the environment runs: `rc/20261115T042424Z-4a0671c` since 15 Nov 04:53 UTC. Validated means it passed in two gate runs on that installation.
 
 | State of the merged tasks | Tasks |
 |---|---|
@@ -164,7 +164,7 @@ Deployed counts merged tasks whose merge commit is an ancestor of the commit the
 | [SVC-090](plan/tickets/SVC-090.md) | Function tests: network, names and edge charts | deployed in `rc/20261115T042424Z-4a0671c`, not yet validated |
 | [SVC-125](plan/tickets/SVC-125.md) | Blueprint proofs check: the function-test result in the gate record | deployed in `rc/20261115T042424Z-4a0671c`, not yet validated |
 
-<details><summary>Deployed, proven by a fresh installation (35): in the fresh installation running now, none validated</summary>
+<details><summary>Of these, proven only by a fresh installation: 35 tasks, none validated</summary>
 
 | Task | What it does | State |
 |---|---|---|
@@ -206,7 +206,7 @@ Deployed counts merged tasks whose merge commit is an ancestor of the commit the
 
 </details>
 
-<details><summary>Deployed, needs no environment (142)</summary>
+<details><summary>Of these, proven in CI with no environment (checks, guards, tests, records, lab results): 142 tasks</summary>
 
 ACC-020, ACC-030, [ACC-040](plan/tickets/ACC-040.md), [ACC-050](plan/tickets/ACC-050.md), [ACC-060](plan/tickets/ACC-060.md), AIP-010, AIP-020, [AIP-050](plan/tickets/AIP-050.md), [AIP-060](plan/tickets/AIP-060.md), [BSS-010](plan/tickets/BSS-010.md), [BSS-020](plan/tickets/BSS-020.md), [BSS-050](plan/tickets/BSS-050.md), [BSS-141](plan/tickets/BSS-141.md), BSS-S2, [CLD-010](plan/tickets/CLD-010.md), CLD-050, CLD-055, [CLD-063](plan/tickets/CLD-063.md), [CLD-070](plan/tickets/CLD-070.md), [CLD-071](plan/tickets/CLD-071.md), [CLD-075](plan/tickets/CLD-075.md), [CLD-076](plan/tickets/CLD-076.md), [CLD-087](plan/tickets/CLD-087.md), [CMP-005](plan/tickets/CMP-005.md), [CMP-012](plan/tickets/CMP-012.md), [CMP-014](plan/tickets/CMP-014.md), CMP-S1, CMP-S2, CMP-S3, CMP-S4, CMP-S5, CMP-S6, [CTL-010](plan/tickets/CTL-010.md), [CTL-020](plan/tickets/CTL-020.md), [CTL-025](plan/tickets/CTL-025.md), [CTL-044](plan/tickets/CTL-044.md), [CTL-045](plan/tickets/CTL-045.md), CTL-050, CTL-055, [CTL-060](plan/tickets/CTL-060.md), [CTL-061](plan/tickets/CTL-061.md), [CTL-201](plan/tickets/CTL-201.md), FND-001, FND-002, [FND-011](plan/tickets/FND-011.md), [FND-012](plan/tickets/FND-012.md), [FND-013](plan/tickets/FND-013.md), [FND-015](plan/tickets/FND-015.md), [FND-017](plan/tickets/FND-017.md), [FND-018](plan/tickets/FND-018.md), [FND-019](plan/tickets/FND-019.md), [FND-020](plan/tickets/FND-020.md), [FND-021](plan/tickets/FND-021.md), [FND-022](plan/tickets/FND-022.md), [FND-023](plan/tickets/FND-023.md), [FND-024](plan/tickets/FND-024.md), [FND-025](plan/tickets/FND-025.md), [FND-026](plan/tickets/FND-026.md), [FND-027](plan/tickets/FND-027.md), [FND-029](plan/tickets/FND-029.md), [FND-031](plan/tickets/FND-031.md), [FND-040](plan/tickets/FND-040.md), [FND-051](plan/tickets/FND-051.md), [FND-052](plan/tickets/FND-052.md), [FND-053](plan/tickets/FND-053.md), [FND-054](plan/tickets/FND-054.md), [FND-055](plan/tickets/FND-055.md), [FND-056](plan/tickets/FND-056.md), [FND-057](plan/tickets/FND-057.md), [FND-058](plan/tickets/FND-058.md), [FND-059](plan/tickets/FND-059.md), [FND-061](plan/tickets/FND-061.md), [FND-062](plan/tickets/FND-062.md), [FND-063](plan/tickets/FND-063.md), [FND-071](plan/tickets/FND-071.md), [FND-072](plan/tickets/FND-072.md), [FND-074](plan/tickets/FND-074.md), [FND-088](plan/tickets/FND-088.md), [FND-091](plan/tickets/FND-091.md), [FND-092](plan/tickets/FND-092.md), [FND-096](plan/tickets/FND-096.md), [FND-098](plan/tickets/FND-098.md), [FND-099](plan/tickets/FND-099.md), [FND-101](plan/tickets/FND-101.md), [FND-102](plan/tickets/FND-102.md), [FND-103](plan/tickets/FND-103.md), [FND-104](plan/tickets/FND-104.md), [FND-105](plan/tickets/FND-105.md), [FND-106](plan/tickets/FND-106.md), [FND-107](plan/tickets/FND-107.md), [FND-110](plan/tickets/FND-110.md), [FND-173](plan/tickets/FND-173.md), [FND-181](plan/tickets/FND-181.md), [INF-010](plan/tickets/INF-010.md), INF-030, [INF-070](plan/tickets/INF-070.md), [MIG-010](plan/tickets/MIG-010.md), MIG-050, [MIG-060](plan/tickets/MIG-060.md), [NET-033](plan/tickets/NET-033.md), [NET-050](plan/tickets/NET-050.md), [NET-052](plan/tickets/NET-052.md), [NET-055](plan/tickets/NET-055.md), [NET-090](plan/tickets/NET-090.md), [NET-102](plan/tickets/NET-102.md), [NET-221](plan/tickets/NET-221.md), NET-290, NET-300, [NET-321](plan/tickets/NET-321.md), [PRD-010](plan/tickets/PRD-010.md), [PRD-020](plan/tickets/PRD-020.md), [PRD-030](plan/tickets/PRD-030.md), PRD-040, PRD-060, PRD-070, PRD-080, [PRD-106](plan/tickets/PRD-106.md), [SEC-005](plan/tickets/SEC-005.md), [SEC-006](plan/tickets/SEC-006.md), [SEC-090](plan/tickets/SEC-090.md), [SEC-095](plan/tickets/SEC-095.md), [SEC-110](plan/tickets/SEC-110.md), [SEC-125](plan/tickets/SEC-125.md), [SEC-127](plan/tickets/SEC-127.md), SEC-130, SEC-135, SEC-140, SEC-271, SEC-280, [SOV-040](plan/tickets/SOV-040.md), [SOV-050](plan/tickets/SOV-050.md), SOV-060, SOV-070, SOV-080, SOV-090, [SVC-010](plan/tickets/SVC-010.md), [SVC-020](plan/tickets/SVC-020.md), [SVC-040](plan/tickets/SVC-040.md), SVC-120, SVC-210, SVC-315, SVC-340.
 
@@ -265,7 +265,7 @@ hw307 runs candidate `rc/20261115T042424Z-4a0671c` (commit 4a0671c) since 15 Nov
 
 ## Right now
 
-Measured from GitHub at 13:18 UTC on 15 November 2026. This block is rebuilt automatically every 30 minutes.
+Measured from GitHub at 13:19 UTC on 15 November 2026. This block is rebuilt automatically every 30 minutes.
 
 | | |
 |---|---|
@@ -297,7 +297,7 @@ A story point is fixed per task by its size in the plan: XS 1, S 2, M 5, L 8, an
 | **Work left** | **2,075 points**. Not yet merged, of 2,823 points in the plan; 748 merged. |
 | **Tasks not yet merged** | **669**. Of 955 tasks in the plan; 286 merged. |
 | **Scope growth** | **+14% in 3 days**. +336 points since the start, from 2,487 to 2,823; 113 tasks added, +285 points; 1 dropped, -2 points; 37 open tasks re-sized, +53 points; 13 rises of 10 points or more are marked on the chart. |
-| **Not yet validated on the environment** | **2,823 points**. 955 tasks, deployed meaning in the commit the environment runs (candidate rc/20261115T042424Z-4a0671c), measured at 15 Nov 13:18 UTC; not merged: 669 tasks, 2,075 points; merged, not deployed: 0 tasks, 0 points; deployed, not validated: 286 tasks, 748 points; validated: 0 tasks. |
+| **Not yet validated on the environment** | **2,823 points**. 955 tasks, deployed meaning in the commit the environment runs (candidate rc/20261115T042424Z-4a0671c), measured at 15 Nov 13:19 UTC; not merged: 669 tasks, 2,075 points; merged, not deployed: 0 tasks, 0 points; deployed, not validated: 286 tasks, 748 points; validated: 0 tasks. |
 | **Projected end** | **23 Nov**. At the velocity of the last 71 hours, if the scope stops growing; planned end: 19 Nov 05:02 UTC. |
 | **Velocity, last 3 days** | **252 points a day**. 748 points (286 tasks) merged in the last 71 hours (the plan started less than 3 days ago). |
 | **Velocity needed** | **568 points a day**. To merge the rest by the plan's end, in 3.7 days. |
@@ -309,7 +309,7 @@ A story point is fixed per task by its size in the plan: XS 1, S 2, M 5, L 8, an
 | 12 Nov, from 14:02 | 2,531 | 2,422 | 2,331 | 51 | 109 | 7 | +44 |
 | 13 Nov | 2,650 | 2,179 | 1,956 | 130 | 362 | 36 | +119 |
 | 14 Nov | 2,795 | 2,084 | 1,580 | 97 | 240 | 53 | +145 |
-| 15 Nov, to 13:18 | 2,823 | 2,075 | 1,372 | 8 | 37 | 17 | +28 |
+| 15 Nov, to 13:19 | 2,823 | 2,075 | 1,372 | 8 | 37 | 17 | +28 |
 
 <details><summary>Rises of the scope by 10 points or more: 13 (the dots on the grey line)</summary>
 
@@ -348,7 +348,7 @@ How it is measured. Scope is the published plan on main as it stood at each of i
 
 ### On the environment: deployed and validated
 
-Read from git and the gate records on main at 13:18 UTC. A task counts as deployed when its merge commit is in the commit the environment runs (`rc/20261115T042424Z-4a0671c` since 15 Nov 04:53 UTC), and as validated when it passed in two gate runs there. The reader of the clusters below last ran at 13:18 UTC on 15 November.
+Read from git and the gate records on main at 13:19 UTC. A task counts as deployed when its merge commit is in the commit the environment runs (`rc/20261115T042424Z-4a0671c` since 15 Nov 04:53 UTC), and as validated when it passed in two gate runs there. The reader of the clusters below last ran at 13:19 UTC on 15 November.
 
 | | Tasks |
 |---|---|
@@ -403,9 +403,9 @@ A merged task has passed its checks in CI. It counts as **validated** only when 
 |---|---|---|
 | The plan's own checks (238) by state | 202 not-built, 20 expected-fail, 16 required | A check is the plan's definition of done for a capability. "required" means it must pass on a fresh install; none has been run on one yet. |
 | Acceptance commands of merged tasks, run again on main (2026-11-13 19:00 UTC, commit b44ef5300) | **842 of 891** still pass. 49 do not: 45 replaced on purpose by a later task, 4 broken by a later merge, 0 not yet explained. 30 more compare a change with its base and can only run on the pull request. | A command that passed on its pull request and fails on today's main was either replaced by plan or broken by a later merge. Each failure is explained by name. |
-| Workflow runs on main that ended red, per day | 12 Nov: 3 red of 982 (0.3%); 13 Nov: 8 red of 2508 (0.3%); 14 Nov: 64 red of 2564 (2.5%); 15 Nov: 2 red of 622 (0.3%) | Whether main is a base one can build on. A red run on main is a defect that reached main or a check that is not reliable. |
+| Workflow runs on main that ended red, per day | 12 Nov: 3 red of 982 (0.3%); 13 Nov: 8 red of 2508 (0.3%); 14 Nov: 64 red of 2564 (2.5%); 15 Nov: 2 red of 624 (0.3%) | Whether main is a base one can build on. A red run on main is a defect that reached main or a check that is not reliable. |
 | Times an executor stopped and reported a ticket or main as wrong | 51 reports on 44 tasks, against 286 merged | A stop is the system refusing to guess. Many stops for one cause point at a defect of main or of the tickets. |
-| Lines changed on main since the plan started | Product code and configuration: +145,430 −71,263; Tests: +49,276 −21,784; Checks and tooling: +36,176 −2,811; Plan, tickets and documents: +326,649 −5,150; Other: +41 −2,516 | How much of the change is the product itself. Tickets and the plan are large by nature. Generated files count too (one generated client is about 70,000 lines), and so do the release bot's version lines. |
+| Lines changed on main since the plan started | Product code and configuration: +145,430 −71,263; Tests: +49,276 −21,784; Checks and tooling: +36,176 −2,811; Plan, tickets and documents: +326,650 −5,150; Other: +41 −2,516 | How much of the change is the product itself. Tickets and the plan are large by nature. Generated files count too (one generated client is about 70,000 lines), and so do the release bot's version lines. |
 | Fresh install from main: did it start, how long, how many releases ready | **2 fires from candidates of main**: fire 1 at 14 Nov 22:19 UTC, fire 1 failed at 22:22; fire 2 at 15 Nov 04:53 UTC, fire 2 stuck at 05:42. None finished by itself; the events are at the top of this page. | The only proof that the merged first-boot changes work together. |
 | Acceptance suite and walk on that install | **not run twice on the running installation yet** | That a person can do the thing: the five pillars. |
 
