@@ -448,7 +448,7 @@ func attemptPredates(hr *unstructured.Unstructured, at time.Time) bool {
 		}
 		typ, _ := c["type"].(string)
 		status, _ := c["status"].(string)
-		if !((typ == "Ready" && status == "False") || (typ == "Stalled" && status == "True")) {
+		if (typ != "Ready" || status != "False") && (typ != "Stalled" || status != "True") {
 			continue
 		}
 		if lt, _ := c["lastTransitionTime"].(string); lt != "" {

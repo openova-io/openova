@@ -46,7 +46,7 @@ import (
 func KitSubstitutes(ctx context.Context, cs kubernetes.Interface, ks *unstructured.Unstructured, callTimeout time.Duration) (map[string]string, error) {
 	out := map[string]string{}
 	if ks == nil {
-		return out, fmt.Errorf("Kustomization is nil")
+		return out, fmt.Errorf("the Kustomization is nil")
 	}
 	namespace := ks.GetNamespace()
 

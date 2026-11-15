@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -199,8 +198,7 @@ func TestPatchSecondaryCrossRegionHosts_ReadsVariablesConfigMap(t *testing.T) {
 // template stops naming the ConfigMap the reader follows, or stops setting a
 // key the orchestrator decides from.
 func TestBootTemplateAndOrchestratorAgreeOnSubstituteLocation(t *testing.T) {
-	path := filepath.Join("..", "..", "..", "..", "..", "..", "infra", "providers", "_shared", "cloudinit-control-plane.tftpl")
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile("../../../../../../infra/providers/_shared/cloudinit-control-plane.tftpl")
 	if err != nil {
 		t.Skipf("boot template not in this build context (%v)", err)
 	}

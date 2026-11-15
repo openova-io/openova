@@ -2255,6 +2255,7 @@ func (h *Handler) syncSharedPGConsumerHubSecrets(ctx context.Context, dep *Deplo
 				// or heal) AND the read-back verified them present, so its
 				// pre-delivery stalled HRs get kicked below.
 				deliveredToReplica[i] = true
+				h.followerDeliveries.Note(dep.ID, replica.key, "", syncStartedAt) // #7902: crossregion.InputSync restarts by it
 			}
 			// #4878 (+ residual, live hw232): after we OVERWRITE the replica's
 			// divergent shared-data hub Secret with region-A's authoritative one,
@@ -2307,7 +2308,6 @@ func (h *Handler) syncSharedPGConsumerHubSecrets(ctx context.Context, dep *Deplo
 		if !deliveredToReplica[i] {
 			continue
 		}
-		h.followerDeliveries.Note(dep.ID, slots[i].key, "", syncStartedAt) // #7902: crossregion.InputSync restarts by it
 		h.forceReconcileStalledReplicaHelmReleases(ctx, dep, &slots[i], syncStartedAt)
 	}
 }
