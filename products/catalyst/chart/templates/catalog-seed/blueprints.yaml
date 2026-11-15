@@ -1147,7 +1147,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.1.0"
+  version: "1.1.1"
   visibility: listed
   card:
     title: "Temporal"
@@ -1169,7 +1169,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-temporal
-    version: "1.1.0"
+    version: "1.1.1"
   # G117.1+G117.4+G117.5 #2744-followup (2026-06-03): catalog-seed
   # lockstep with platform/temporal/blueprint.yaml. Same gap class as
   # bp-grafana (PR #2883+#2893) + bp-keycloak (PR #2900). Helm-escape
