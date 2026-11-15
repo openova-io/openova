@@ -1968,7 +1968,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.55",
+    "version": "1.2.56",
     "section": "pts-3-5-storage-and-data",
     "depends": [
       "bp-cnpg",
