@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-15T03:15:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-15T03:30:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -309,6 +309,8 @@ flowchart LR
 |---|---|---|---|
 | 2026-11-15T02:42 | [#7896](https://github.com/openova-io/openova/pull/7896) | #7805 | feat(machines): kinds ScanPolicy, HardeningBaseline and Mach |
 | 2026-11-15T02:27 | [#7890](https://github.com/openova-io/openova/pull/7890) | #7745 | feat(machines): the runner image with pinned tools, and the  |
+| 2026-11-15T03:26 | [#7889](https://github.com/openova-io/openova/pull/7889) | #7883 | fix(release): a dispatched release bumps a changed chart, an |
+| 2026-11-15T03:27 | [#7888](https://github.com/openova-io/openova/pull/7888) | #7814 | chore(chart): remove the Kafka broker setting from the org-s |
 | 2026-11-15T02:51 | [#7887](https://github.com/openova-io/openova/pull/7887) | #7886 | ci: an exception register for Secret objects, its guard and  |
 | 2026-11-15T01:54 | [#7880](https://github.com/openova-io/openova/pull/7880) | #7087 | docs(ledger): plan update |
 | 2026-11-15T00:01 | [#7879](https://github.com/openova-io/openova/pull/7879) | #7743 | ci: the guards that run on every pull request share three jo |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-14T20:35 | [#7848](https://github.com/openova-io/openova/pull/7848) | #7717 | feat(acceptance): the network registry in the Sovereign stat |
 | 2026-11-14T20:36 | [#7847](https://github.com/openova-io/openova/pull/7847) | #7806 | feat(providers): every provider pack carries the seal hook o |
 | 2026-11-14T20:35 | [#7846](https://github.com/openova-io/openova/pull/7846) | #7761 | feat(kit): install kured in kit slot 04b (INF-050) |
-| 2026-11-14T20:15 | [#7845](https://github.com/openova-io/openova/pull/7845) | #7792 | fix(crossplane): raise Crossplane core to 1.19.3 and require |
-| 2026-11-14T19:54 | [#7844](https://github.com/openova-io/openova/pull/7844) | #7838 | fix(plan): two tasks that share only record files may run to |
 
 ---
 
