@@ -15,7 +15,12 @@ import (
 // Check FND-G06, Front doors: each public host of the Sovereign answers an
 // anonymous GET of its root, four times, over a certificate that a client
 // trusts with the public roots of the machine it runs on. A redirect is not
-// followed: the answer of the host itself is judged.
+// followed: the answer of the host itself is judged. A host that serves only
+// an API has no page at its root; it is asked at the path it serves for
+// anyone, named in its entry (`api`: catalyst-api has no handler at `/`, so
+// its root answers 404 on every Sovereign, while `/healthz` answers 200; the
+// layer L5 of scripts/sovereign-dod-verify.sh accepts that 404 for this
+// reason).
 //
 //   - An open host passes with 200, 301, 302, 303, 307 or 308.
 //   - A closed host, one that must refuse anonymous access, passes with 401
@@ -37,14 +42,17 @@ const frontDoorTimeout = 45 * time.Second
 // frontDoor is one public host of the Sovereign, <Name>.<sovereign FQDN>.
 type frontDoor struct {
 	Name   string
-	Closed bool // it must refuse anonymous access: 401 or 403
+	Closed bool   // it must refuse anonymous access: 401 or 403
+	Path   string // the path asked; "" is the root "/"
 }
 
 // frontDoors are the public hosts that the check asks: the hosts of layer
 // L5 of scripts/sovereign-dod-verify.sh. Each of them serves a page or a
-// redirect at its root, so none is closed.
+// redirect at its root, except `api`, which is asked at the health path of
+// catalyst-api (products/catalyst/bootstrap/api/cmd/api/routes_probes.go).
+// None is closed.
 var frontDoors = []frontDoor{
-	{Name: "console"}, {Name: "api"}, {Name: "auth"}, {Name: "gitea"},
+	{Name: "console"}, {Name: "api", Path: "/healthz"}, {Name: "auth"}, {Name: "gitea"},
 	{Name: "harbor"}, {Name: "bao"}, {Name: "marketplace"}, {Name: "pdns"},
 }
 
@@ -80,7 +88,7 @@ func (c frontDoorsCheck) Run(ctx context.Context, cc *CheckContext, rec StepReco
 		},
 	}
 	for i, door := range doors {
-		url := "https://" + door.Name + "." + fqdn + "/"
+		url := "https://" + door.Name + "." + fqdn + nonEmpty(door.Path, "/")
 		want, codes := "200 or a redirect", openCodes
 		if door.Closed {
 			want, codes = "401 or 403 (closed to anonymous access)", closedCodes

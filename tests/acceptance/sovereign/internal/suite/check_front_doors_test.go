@@ -150,6 +150,12 @@ func TestFrontDoorsCheck(t *testing.T) {
 			t.Errorf("%s: the redirect of auth was followed %d times", name, n)
 		}
 	}
+	// A door with a path is asked there, not at its root.
+	fp := newFrontDoorServer(t, map[string][]int{"api/healthz": {200}})
+	r0 := runCheck(t, "none", frontDoorsCheck{doors: []frontDoor{{Name: "api", Path: "/healthz"}}, transport: fp.transport(true)}, &CheckContext{}, discovered()...)
+	if got := r0.run.Checks[0]; got.Status != Pass || fp.asked["api/healthz"] != frontDoorSamples || fp.asked["api/"] != 0 {
+		t.Errorf("the api door must be asked at /healthz only: %+v, asked %v", got, fp.asked)
+	}
 	// The step of a host holds every sample with its code and the issuer.
 	f := newFrontDoorServer(t, with("auth", 302, 404))
 	r := runCheck(t, "none", frontDoorsCheck{doors: doors, transport: f.transport(true)}, &CheckContext{}, discovered()...)
@@ -183,6 +189,17 @@ func TestFrontDoorsList(t *testing.T) {
 	}
 	if got := strings.Join(names, " "); got != "console api auth gitea harbor bao marketplace pdns" {
 		t.Errorf("the hosts are %s", got)
+	}
+	// Only the API host is asked at another path than its root: catalyst-api
+	// serves nothing at "/" (404 on every Sovereign, run of 15 November 2026).
+	for _, d := range frontDoors {
+		want := ""
+		if d.Name == "api" {
+			want = "/healthz"
+		}
+		if d.Path != want {
+			t.Errorf("host %s is asked at %q, want %q", d.Name, d.Path, want)
+		}
 	}
 	if c, ok := registry[frontDoorsID].(frontDoorsCheck); !ok || c.doors != nil || c.transport != nil {
 		t.Errorf("the registered check must ask frontDoors over the default transport: %+v", registry[frontDoorsID])
