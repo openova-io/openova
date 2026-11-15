@@ -782,6 +782,13 @@ bootstrapOwned:
     name: ""
     namespace: flux-system
 
+# #7908: the certificate cert-manager issues for the registry token key
+# (templates/token-key-certificate.yaml; the Secret is harbor.core.secretName).
+# Harbor reads only the private key, and a renewal keeps it.
+tokenKey:
+  duration: 87600h
+  renewBefore: 720h
+
 # ── Cross-region session/queue/cache store (#5406) ───────────────────────
 # Harbor's OIDC session lives in Redis db 0 (`_REDIS_URL_CORE`), its job
 # queue in db 1 and its registry blob-descriptor cache in db 2. On a
@@ -805,18 +812,13 @@ bootstrapOwned:
 # by the SOVEREIGN_HARBOR_REDIS_* substitutes catalyst-api stamps at the same
 # post-mesh gate that stamps SOVEREIGN_HARBOR_PG_HOST), so upstream renders no
 # local redis there and every dial crosses the mesh to the active region.
-# #7908: the certificate cert-manager issues for the registry token key
-# (templates/token-key-certificate.yaml; the Secret is harbor.core.secretName).
-# Harbor reads only the private key, and a renewal keeps it.
-tokenKey:
-  duration: 87600h
-  renewBefore: 720h
-
 crossRegion:
   # Render the ClusterMesh global Service + the cross-region CiliumNetworkPolicies.
   enabled: false
   # This region's role in the pair: primary | secondary. Drives
-  # service.cilium.io/shared (the standby must never export a redis of its own).
+  # service.cilium.io/shared (the standby must never export a redis of its own)
+  # and, independently of `enabled`, whether this region issues the registry
+  # token key (#7908: a secondary receives the primary's copy).
   role: primary
   # Peer ClusterMesh cluster name(s) — stamped by catalyst-api as
   # SOVEREIGN_PEER_CLUSTERMESH_NAMES. EMPTY → no CiliumNetworkPolicy rendered.
