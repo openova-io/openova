@@ -16,10 +16,13 @@
 #     Exit 3: the ref rc/<id> exists.
 #     Exit 4: the tool could not run (argument, commit not on origin/main, unreadable
 #             input, failed fetch or push).
+#     Exit 5: the pins could not all be measured: the coherence script exited 2 (CANNOT
+#             READ, e.g. a registry lookup that failed after its retries). Nothing was found
+#             incoherent; no ref is created; cut again (#7922).
 #   verify <id>
 #     Exit 0: the ref exists, its commit ends <id> and is an ancestor of origin/main, and
 #     scripts/check-train-coherent.sh exits 0 there; the commit is the only line on stdout.
-#     Exit 1: anything else.
+#     Exit 1: anything else (a coherence exit 2 is said as "could not be measured").
 #   prune [--dry-run]
 #     Deletes the candidate refs that no gate record names, keeping the newest ten. A gate
 #     record is a file docs/ledger/acceptance/*.json on origin/main; it names a candidate by
@@ -137,6 +140,10 @@ cmd_cut() {
 
   rc=0; coherence "$sha" || rc=$?
   [ "$COHERENCE_RAN" -eq 1 ] || die "the coherence command could not run at $sha"
+  if [ "$rc" -eq 2 ]; then
+    say "refused: the pins at $sha could not all be measured (coherence exit 2, CANNOT READ): not a missing or incoherent pin; nothing was cut; cut again"
+    exit 5
+  fi
   if [ "$rc" -ne 0 ]; then say "refused: the pins at $sha are not coherent (exit $rc)"; exit 1; fi
 
   new="$(kernel "$sha")" || die "cannot read the kernel versions at $sha"
@@ -181,6 +188,7 @@ cmd_verify() {
   git merge-base --is-ancestor "$sha" refs/remotes/origin/main \
     || { say "rc/$id points at $sha, which is not on origin/main"; exit 1; }
   rc=0; coherence "$sha" || rc=$?
+  [ "$rc" -ne 2 ] || { say "the pins at $sha could not all be measured (coherence exit 2, CANNOT READ); verify again"; exit 1; }
   [ "$rc" -eq 0 ] || { say "the pins at $sha are not coherent (exit $rc)"; exit 1; }
   say "rc/$id verified"
   echo "$sha"

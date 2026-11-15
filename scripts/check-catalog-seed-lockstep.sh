@@ -22,7 +22,9 @@
 #   0 — every chart-seed entry with a platform/ source matches
 #   1 — at least one drift detected (output names which Blueprint +
 #       which field)
-#   2 — missing required tool (yq) or input files
+#   2 — missing required tool (yq) or input files; with --check-ghcr also:
+#       no pin defect found, but at least one GHCR version listing failed
+#       after its retries, so those pins are NOT MEASURED (#7922)
 #
 # Usage:
 #   ./scripts/check-catalog-seed-lockstep.sh [--check-ghcr] [--ghcr-org <org>]
@@ -57,10 +59,14 @@
 # authenticated with the read:packages scope.
 #
 # Exit code 1 also covers a missing GHCR tag / a stale or dead register entry.
+# A version listing that fails is retried (scripts/lib/ghcr-tags.sh); one that
+# still fails is NOT MEASURED, never "missing" (#7922).
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=lib/ghcr-tags.sh
+. "${REPO_ROOT}/scripts/lib/ghcr-tags.sh"
 CHART_SEED="${REPO_ROOT}/products/catalyst/chart/templates/catalog-seed/blueprints.yaml"
 PLATFORM_DIR="${REPO_ROOT}/platform"
 UNPUBLISHED_REGISTER="${REPO_ROOT}/scripts/expected-unpublished-catalog-seed-pins.yaml"
@@ -333,6 +339,7 @@ if [ -n "${CHECK_GHCR}" ]; then
   ghcr_checked=0
   ghcr_waived=0
   ghcr_ok=0
+  ghcr_unmeasured=0
   seen_charts=""
   TAGCACHE="$TMP/tagcache"
   mkdir -p "$TAGCACHE"
@@ -344,17 +351,25 @@ if [ -n "${CHECK_GHCR}" ]; then
     seen_charts="${seen_charts}${src_chart}
 "
 
-    # Fetch + cache the published tag list for this package. A non-zero exit
-    # from `gh api` means the package itself does not exist (HTTP 404) — an
-    # empty tag list, which is exactly the condition we are gating on.
+    # Fetch + cache the published tag list for this package. HTTP 404 means the
+    # package itself does not exist — an empty tag list, which is exactly the
+    # condition we are gating on. Any other failure, after the retries of
+    # ghcr_tags, means the pin is NOT MEASURED: it is neither published nor
+    # missing, and it is counted apart (#7922).
     cache_file="${TAGCACHE}/${src_chart}"
-    if [ ! -f "$cache_file" ]; then
-      if ! gh api "/orgs/${GHCR_ORG}/packages/container/${src_chart}/versions" --paginate \
-           --jq '.[].metadata.container.tags[]?' > "$cache_file" 2>/dev/null; then
-        : > "$cache_file"
-      fi
-      grep -v '^sha256-' "$cache_file" | sort -u > "${cache_file}.tags" || true
-      mv "${cache_file}.tags" "$cache_file"
+    if [ ! -f "$cache_file" ] && [ ! -f "${cache_file}.unmeasured" ]; then
+      lrc=0
+      ghcr_tags "${GHCR_ORG}" "${src_chart}" > "$cache_file" || lrc=$?
+      case "$lrc" in
+        0) ;;
+        3) : > "$cache_file" ;;
+        *) rm -f "$cache_file"; : > "${cache_file}.unmeasured" ;;
+      esac
+    fi
+    if [ -f "${cache_file}.unmeasured" ]; then
+      echo "  GHCR NOT MEASURED ${bp_name}: ${src_chart}:${src_ver} — the version listing failed after its retries"
+      ghcr_unmeasured=$((ghcr_unmeasured + 1))
+      continue
     fi
 
     published=0
@@ -414,7 +429,7 @@ if [ -n "${CHECK_GHCR}" ]; then
 
   # ── Vacuity guard: if the parser stops finding pins, the loop above would
   # pass on nothing. A negative assertion that runs zero times is not a gate.
-  if [ "$ghcr_checked" -eq 0 ]; then
+  if [ "$ghcr_checked" -eq 0 ] && [ "$ghcr_unmeasured" -eq 0 ]; then
     echo
     echo "FAIL: zero catalog-seed delivery pins were GHCR-checked — the rendered-seed parser is broken."
     echo "The seed carries dozens of source blocks; checking none of them means this gate proves nothing."
@@ -429,7 +444,7 @@ if [ -n "${CHECK_GHCR}" ]; then
   # 1 (pin defect) so the diagnosis is not inverted.
   if [ "$ghcr_ok" -eq 0 ]; then
     echo
-    echo "ERROR: ${ghcr_checked} pin(s) were checked and NOT ONE resolved on ghcr.io/${GHCR_ORG}."
+    echo "ERROR: ${ghcr_checked} pin(s) were checked (${ghcr_unmeasured} not measured) and NOT ONE resolved on ghcr.io/${GHCR_ORG}."
     echo "That is an API/auth failure, not ${ghcr_checked} simultaneous pin defects."
     echo "Check that 'gh' is authenticated with the read:packages scope"
     echo "(in CI: grant 'packages: read' and pass GH_TOKEN to the step)."
@@ -437,7 +452,7 @@ if [ -n "${CHECK_GHCR}" ]; then
   fi
 
   echo
-  echo "GHCR-checked ${ghcr_checked} seed pin(s) (${ghcr_ok} resolved); ${ghcr_waived} declared known-gap(s); ${ghcr_fail} failure(s)."
+  echo "GHCR-checked ${ghcr_checked} seed pin(s) (${ghcr_ok} resolved); ${ghcr_waived} declared known-gap(s); ${ghcr_fail} failure(s); ${ghcr_unmeasured} not measured."
   if [ "$ghcr_fail" -gt 0 ]; then
     echo
     echo "FAIL: ${ghcr_fail} catalog-seed pin(s) reference a chart version that does NOT"
@@ -459,6 +474,13 @@ if [ -n "${CHECK_GHCR}" ]; then
     echo "Deleting the seed entry to make this gate pass is NOT a fix — it hides the"
     echo "defect while leaving the catalog exactly as broken."
     exit 1
+  fi
+  if [ "$ghcr_unmeasured" -gt 0 ]; then
+    echo
+    echo "NOT MEASURED: ${ghcr_unmeasured} catalog-seed pin(s) could not be checked: their GHCR"
+    echo "version listing failed after its retries. No pin defect was found among the rest."
+    echo "This is not a verdict on those pins; run the check again."
+    exit 2
   fi
   echo "PASS: every catalog-seed delivery pin resolves to a published GHCR tag."
 fi

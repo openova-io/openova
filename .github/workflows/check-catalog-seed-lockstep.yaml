@@ -38,6 +38,9 @@ on:
       - 'scripts/expected-unseeded-blueprints.yaml'
       - 'scripts/lib/parse-catalog-seed-pins.awk'
       - 'scripts/sync-catalog-seed-pin.py'
+      - 'scripts/lib/ghcr-tags.sh'
+      - 'scripts/check-bootstrap-kit-pin-sync.sh'
+      - 'scripts/test-ghcr-not-measured.sh'
       - '.github/workflows/check-catalog-seed-lockstep.yaml'
   pull_request:
     paths:
@@ -52,6 +55,9 @@ on:
       - 'scripts/expected-unseeded-blueprints.yaml'
       - 'scripts/lib/parse-catalog-seed-pins.awk'
       - 'scripts/sync-catalog-seed-pin.py'
+      - 'scripts/lib/ghcr-tags.sh'
+      - 'scripts/check-bootstrap-kit-pin-sync.sh'
+      - 'scripts/test-ghcr-not-measured.sh'
       - '.github/workflows/check-catalog-seed-lockstep.yaml'
   workflow_dispatch:
   # #5559 — publish-lag safety net, same cadence rationale as the #4409 cron on
@@ -82,6 +88,12 @@ jobs:
           helm version --short || curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
       - name: Run catalog-seed lockstep check
         run: bash scripts/check-catalog-seed-lockstep.sh
+      # #7922 — a GHCR version listing that fails is retried, and one that keeps
+      # failing is NOT MEASURED (exit 2), never a missing pin (exit 1): a single
+      # API error refused a release-candidate cut as "1 missing artifact". The
+      # test runs both GHCR guards against a fake gh; no network.
+      - name: GHCR listing errors are not missing pins (#7922)
+        run: bash scripts/test-ghcr-not-measured.sh
 
   ghcr-pin-existence:
     # #5559 (UAT row R21) — every catalog-seed `source.chart`:`source.version`
