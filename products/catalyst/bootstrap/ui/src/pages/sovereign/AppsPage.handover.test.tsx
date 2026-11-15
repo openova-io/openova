@@ -192,3 +192,69 @@ describe('AppsPage — handover-ready (#764, #768)', () => {
     })
   })
 })
+
+describe('AppsPage — a fired hand-over is not "ready" while a region is short (#7902)', () => {
+  // The record of 15 November 2026: status ready, the hand-over fired, and
+  // the follower region still installing or failed.
+  beforeEach(() => {
+    globalThis.fetch = (() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            events: [],
+            state: {
+              id: 'dep-two-regions',
+              status: 'ready',
+              sovereignFQDN: 'otech.example.com',
+              handoverURL: HANDOVER_URL,
+              handoverFiredAt: '2026-11-15T06:15:24Z',
+              phase1Outcome: 'ready',
+              secondaryDegraded: true,
+              regions: [
+                { region: 'region-a', primary: true, hrReady: 67, hrTotal: 67, degraded: false },
+                { region: 'region-b', primary: false, hrReady: 55, hrTotal: 63, degraded: true },
+              ],
+            },
+            done: true,
+          }),
+      } as unknown as Response)) as typeof fetch
+  })
+
+  it('names the region instead of saying ready, keeps the link, and does not redirect', async () => {
+    const original = window.location
+    const hrefSpy = vi.fn()
+    delete (window as { location?: Location }).location
+    ;(window as unknown as { location: Partial<Location> }).location = {
+      ...original,
+      get href() {
+        return original.href
+      },
+      set href(v: string) {
+        hrefSpy(v)
+      },
+    } as Location
+    const titleBefore = document.title
+
+    try {
+      renderProvisionWithReadyHandover('dep-two-regions')
+
+      const notice = await screen.findByTestId('sov-handover-not-ready-banner')
+      expect(notice.textContent).toContain('Not every region is installed yet')
+      expect(notice.textContent).toContain('Region region-b: 55 of 63 releases installed')
+      expect(notice.textContent).not.toContain('Sovereign is ready')
+      expect(screen.getByTestId('sov-handover-not-ready-cta').getAttribute('href')).toBe(HANDOVER_URL)
+
+      // No ready banner, no ready toast action, no title flip.
+      expect(screen.queryByTestId('sov-handover-ready-banner')).toBeNull()
+      expect(screen.queryByTestId('sov-handover-open-now')).toBeNull()
+      expect(document.title).toBe(titleBefore)
+
+      // The 5-second redirect of the ready path must not be armed.
+      await new Promise((resolve) => setTimeout(resolve, 5600))
+      expect(hrefSpy).not.toHaveBeenCalled()
+    } finally {
+      ;(window as unknown as { location: Location }).location = original
+    }
+  }, 10000)
+})

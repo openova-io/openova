@@ -44,6 +44,7 @@ import { authedFetch } from '@/shared/lib/authedFetch'
 import { useWizardStore } from '@/entities/deployment/store'
 import { useConsoleScope } from '@/shared/lib/useConsoleScope'
 import { PortalShell } from './PortalShell'
+import { readyClaim } from './readyClaim'
 import { resolveApplications, resolveServerApplication, type ApplicationDescriptor } from './applicationCatalog'
 import { findComponent } from '@/pages/wizard/steps/componentGroups'
 import { BLUEPRINT_BY_ID } from '@/shared/constants/catalog.generated'
@@ -494,8 +495,16 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
   //   3. A document-title flip to "✓ Sovereign ready — <fqdn>" so
   //      a backgrounded tab surfaces the completion in the OS task
   //      switcher.
-  const isHandoverReady = handoverReady !== null && handoverReady.handoverURL !== ''
+  const handoverFired = handoverReady !== null && handoverReady.handoverURL !== ''
   const handoverURL = handoverReady?.handoverURL ?? ''
+  // #7902 defect 6 — the hand-over having fired is not enough to say
+  // "ready": the record's own per-region census must agree (readyClaim.ts).
+  // Everything below that CLAIMS ready or redirects (the toast, the timer,
+  // the document title, the green banner) follows `isHandoverReady`; a
+  // fired hand-over next to a region that is short gets a plain notice with
+  // the link and no claim.
+  const claim = useMemo(() => readyClaim(snapshot), [snapshot])
+  const isHandoverReady = handoverFired && claim.holds
   useEffect(() => {
     const id = `handover-ready:${deploymentId}`
     // Suppress handover toast on chroot — operator is already on the
@@ -534,7 +543,7 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
         },
       ],
     })
-  }, [isHandoverReady, handoverURL, sovereignFQDN, deploymentId, notify, dismiss])
+  }, [isHandoverReady, isSovereignMode, handoverURL, sovereignFQDN, deploymentId, notify, dismiss])
 
   // Auto-redirect timer — 5 seconds from the moment handoverReady
   // arrives. Mother-only: on the chroot the operator is already at
@@ -763,6 +772,27 @@ export function AppsPage({ disableStream = false }: AppsPageProps = {}) {
             className="handover-ready-cta"
             href={handoverURL}
             data-testid="sov-handover-ready-cta"
+          >
+            Open your Sovereign console →
+          </a>
+        </div>
+      ) : null}
+
+      {handoverFired && !claim.holds && !isSovereignMode ? (
+        <div className="handover-ready-banner" data-testid="sov-handover-not-ready-banner" role="status">
+          <div className="handover-ready-body">
+            <span className="handover-ready-title">
+              Not every region is installed yet{sovereignFQDN ? ` — ${sovereignFQDN}` : ''}
+            </span>
+            <span className="handover-ready-sub" data-testid="sov-handover-not-ready-reasons">
+              {claim.reasons.join('. ')}. The Sovereign console is reachable; this page
+              stays here until the rest is installed.
+            </span>
+          </div>
+          <a
+            className="handover-ready-cta"
+            href={handoverURL}
+            data-testid="sov-handover-not-ready-cta"
           >
             Open your Sovereign console →
           </a>

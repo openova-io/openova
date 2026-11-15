@@ -16,6 +16,7 @@ import (
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/audit"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/crossregion"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
@@ -65,6 +66,8 @@ type Handler struct {
 	// on return so a later legitimate re-trigger (next catalyst-api roll) still
 	// runs. map[string]struct{}.
 	clusterMeshLoopActive sync.Map
+	// followerDeliveries — when a pass last changed a follower region's inputs (#7902, crossregion.InputSync).
+	followerDeliveries crossregion.Deliveries
 
 	// secondaryKubeconfigDeliveryActive guards against double-starting the
 	// #6015 secondary-kubeconfig delivery loop for the same deployment.
@@ -308,6 +311,8 @@ type Handler struct {
 	// client so the probe path is exercised in milliseconds.
 	fluxCRDProbeBudget       time.Duration
 	fluxCRDProbePollInterval time.Duration
+	// phase1RegionGateBudget — test override of crossregion.BudgetEnv (#7902).
+	phase1RegionGateBudget time.Duration
 
 	// phase1StorageGate — test-only override for the #3971 default-
 	// StorageClass durability gate run at the end of markPhase1Done.

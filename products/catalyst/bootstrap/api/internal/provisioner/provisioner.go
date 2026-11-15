@@ -1483,6 +1483,11 @@ type Result struct {
 	// region prov the primary entry is emitted even before any secondary
 	// kubeconfig lands. Primary first, secondaries in sorted region-key
 	// order. See internal/provisioner/region_health.go for the gate.
+	//
+	// Since #7902 Status="ready" is NOT driven by the primary region alone
+	// any more: the every-region gate (internal/crossregion/gate.go) holds
+	// the deployment in phase1-watching until every region that reported in
+	// is installed. This census stays the per-region read of it.
 	Regions []RegionHealth `json:"regions,omitempty"`
 
 	// SecondaryDegraded — surface-only roll-up of Regions: true when ANY
@@ -1495,6 +1500,13 @@ type Result struct {
 	// "ready" deployment as "secondary degraded" and so catalyst-api logs
 	// the condition at Phase-1 termination. Always false for a single-
 	// region prov.
+	//
+	// #7902: this flag is still not what decides ready (it is a ratio
+	// against the primary and tolerates a few releases). What decides is
+	// the every-region gate, which wants every release of every region
+	// that reported in installed. On a record that gate made ready this
+	// flag is false; it is true on a record whose declared region never
+	// reported in (standby-region-absent) and on records of older builds.
 	SecondaryDegraded bool `json:"secondaryDegraded,omitempty"`
 
 	// SecondaryFluxCRDAbsentRegions — the region keys of SECONDARY control

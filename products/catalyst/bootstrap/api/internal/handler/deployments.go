@@ -35,6 +35,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/crossregion"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/pdm"
@@ -194,6 +195,12 @@ type Deployment struct {
 	// snapshot. Cleared on wipe.
 	secondaryKubeconfigPaths map[string]string
 	secondaryWatchers        map[string]*helmwatch.Watcher
+
+	// #7902 every-region gate (crossregion.Gate), in memory; mu guards the first two:
+	// the gate is waiting; its last verdict; the cross-region loop converged once.
+	regionGateActive  bool
+	regionGate        *crossregion.Verdict
+	crossRegionLanded crossregion.Signal
 
 	// wipeInFlight — #5193. True only while THIS catalyst-api process's
 	// goroutine owns an active tofu-destroy purge for this deployment.

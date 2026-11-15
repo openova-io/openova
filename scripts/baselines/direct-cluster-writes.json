@@ -27,6 +27,20 @@
       "owner": "INF",
       "path": "products/catalyst/bootstrap/api/internal/machines/operations/scheduler.go",
       "reason": "the scheduler creates the MachineRun of a scheduled time and writes the status of a ScanPolicy; a run is an operation record and the status an observation, never intent, and never go to Git"
+    },
+    {
+      "count": 1,
+      "metric": "K",
+      "owner": "SOV",
+      "path": "products/catalyst/bootstrap/api/internal/helmwatch/retry.go",
+      "reason": "a retry request on a HelmRelease asks helm-controller to act once on the state it already has; it is a request, never intent, and no Git commit can carry it"
+    },
+    {
+      "count": 1,
+      "metric": "K",
+      "owner": "SOV",
+      "path": "products/catalyst/bootstrap/api/internal/crossregion/inputs.go",
+      "reason": "deletes a failed Job of a follower region so that its release creates it again with the Secret that has arrived since; the record of a run, never intent, and never in Git"
     }
   ],
   "counts": {
