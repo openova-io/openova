@@ -2141,12 +2141,13 @@ checks:
 - id: SEC-G11
   title: 'Secret census: unmatched Secret objects in platform namespaces are at or below the limit'
   owner: SEC
-  state: not-built
+  state: expected-fail
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: 'Secret census: unmatched Secret objects in platform namespaces are at or below the limit'
+  implementation: tests/acceptance/sovereign/internal/suite/check_sec_census.go
   implemented_by: SEC-095
   delivered_by: SEC-096
 - id: SEC-G12
