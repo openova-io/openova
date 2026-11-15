@@ -17,27 +17,30 @@ import (
 
 // rebootWorld is the fake cluster of check INF-G01. Both regions hold the
 // same nodes. kured restarts a node by the timetable `restarts`: the seconds,
-// counted from the moment the sentinel Pods of the region were created, at
+// counted from the moment the sentinel Pod of the region was created, at
 // which the node is cordoned, shows a new boot identifier and is uncordoned;
 // -1 is never. While the first node, the control-plane node, is cordoned and
-// has not booted, the API does not answer. The clock moves only when the
+// has not booted, the API does not answer. The workload Pods of a node move
+// off it once it is cordoned, unless stuck. The clock moves only when the
 // check waits.
 type rebootWorld struct {
 	t          *testing.T
 	clock      time.Time
 	nodes      []string
-	args       []string          // of kured; nil: no DaemonSet
-	lock       string            // what the annotation rebootTestLock of the DaemonSet holds; "" is none
-	lockKey    string            // the annotation that holds lock; "" is rebootTestLock
-	noServers  bool              // the DaemonSet cannot run on control-plane nodes
-	restarts   map[string][3]int // by node
-	sick       map[string]string // node -> "cordoned" or "not ready" from the start, or "not ready after" its restart
-	noPlanKind bool              // the cluster does not serve the kind of the upgrade Plans
-	plans      []obj             // the upgrade Plans
-	kuredBack  int               // the second from which kured has every Pod ready again after the Pods were placed; -1 never
-	releases   map[string]string // HelmRelease -> "ready" always, "never" Ready, "lost" from the first restart on, "back" Ready again at 3300 s
-	noReleases [2]int            // the seconds from and to which the HelmReleases cannot be read; -1 is never
-	waitErr    error             // of kubectl wait for the sentinel Pods
+	args       []string            // of kured; nil: no DaemonSet
+	lock       string              // what the annotation rebootTestLock of the DaemonSet holds; "" is none
+	lockKey    string              // the annotation that holds lock; "" is rebootTestLock
+	servers    bool                // the DaemonSet can run on control-plane nodes
+	workloads  map[string][]string // node -> the names of its workload Pods ("<namespace>/<name>"); every node also runs a Pod of a DaemonSet
+	stuck      bool                // the workload Pods never move off their node
+	restarts   map[string][3]int   // by node
+	sick       map[string]string   // node -> "cordoned" or "not ready" from the start, or "not ready after" its restart
+	noPlanKind bool                // the cluster does not serve the kind of the upgrade Plans
+	plans      []obj               // the upgrade Plans
+	kuredBack  int                 // the second from which kured has every Pod ready again after the Pods were placed; -1 never
+	releases   map[string]string   // HelmRelease -> "ready" always, "never" Ready, "lost" from the first restart on, "back" Ready again at 3300 s
+	noReleases [2]int              // the seconds from and to which the HelmReleases cannot be read; -1 is never
+	waitErr    error               // of kubectl wait for the sentinel Pods
 	placed     map[string]time.Time
 	created    []string // the regions that got a namespace
 	deleted    []string // the regions whose namespace was deleted
@@ -56,12 +59,13 @@ func rebootPlan(name, start, end, zone string, days ...string) obj {
 var rebootAllDays = []string{"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}
 
 func newRebootWorld() *rebootWorld {
-	return &rebootWorld{clock: time.Date(2026, 11, 20, 6, 0, 0, 0, time.UTC), nodes: []string{"cp-1", "cp-2", "w-1", "w-2"},
+	return &rebootWorld{clock: time.Date(2026, 11, 20, 6, 0, 0, 0, time.UTC), nodes: []string{"cp-1", "w-1", "w-2", "w-3"},
 		args: []string{"--period=15m", "--lock-release-delay=5m", "--drain-timeout=15m", "--reboot-days=su", "--reboot-days=mo",
 			"--start-time=00:30", "--end-time=22:00", "--time-zone=UTC", "--reboot-sentinel=/sentinel/reboot-required", "--concurrency=1"},
-		restarts:  map[string][3]int{"cp-1": {600, 640, 700}, "w-1": {1800, 1840, 1900}, "w-2": {3000, 3040, 3100}, "cp-2": {-1, -1, -1}},
+		restarts:  map[string][3]int{"cp-1": {-1, -1, -1}, "w-1": {600, 640, 700}, "w-2": {-1, -1, -1}, "w-3": {-1, -1, -1}},
+		workloads: map[string][]string{"cp-1": {"kube-system/etcd-cp-1"}, "w-1": {"shop/web-1", "shop/db-0"}, "w-2": {"shop/web-2"}},
 		plans:     []obj{rebootPlan("k3s-server", "22:00", "00:00", "UTC", rebootAllDays...), rebootPlan("k3s-agent", "22:00", "00:00", "UTC", rebootAllDays...)},
-		kuredBack: 3150, releases: map[string]string{"flux-system/bp-cilium": "ready", "catalyst-system/bp-catalyst-platform": "back", "kube-system/bp-kured": "ready"},
+		kuredBack: 750, releases: map[string]string{"flux-system/bp-cilium": "ready", "catalyst-system/bp-catalyst-platform": "back", "kube-system/bp-kured": "ready"},
 		noReleases: [2]int{-1, -1}, sick: map[string]string{}, placed: map[string]time.Time{}}
 }
 
@@ -79,7 +83,16 @@ func (w *rebootWorld) kubectl(r kube.Region, _ context.Context, stdin io.Reader,
 		if w.args == nil {
 			return []byte(kubeList(obj{"metadata": obj{"name": "node-patch-config"}})), nil
 		}
-		ready := len(w.nodes)
+		desired := len(w.nodes)
+		if !w.servers {
+			desired = 0
+			for _, name := range w.nodes {
+				if !strings.HasPrefix(name, "cp-") {
+					desired++
+				}
+			}
+		}
+		ready := desired
 		if placed && (w.kuredBack < 0 || second < w.kuredBack) {
 			ready--
 		}
@@ -91,7 +104,7 @@ func (w *rebootWorld) kubectl(r kube.Region, _ context.Context, stdin io.Reader,
 			}
 			meta["annotations"] = obj{key: w.lock}
 		}
-		if w.noServers {
+		if !w.servers {
 			affinity = obj{"nodeAffinity": obj{"requiredDuringSchedulingIgnoredDuringExecution": obj{"nodeSelectorTerms": []obj{
 				{"matchExpressions": []obj{{"key": "node-role.kubernetes.io/control-plane", "operator": "DoesNotExist"}}}}}}}
 		}
@@ -99,7 +112,7 @@ func (w *rebootWorld) kubectl(r kube.Region, _ context.Context, stdin io.Reader,
 			"affinity":   affinity,
 			"containers": []obj{{"name": "kured", "args": w.args}},
 			"volumes":    []obj{{"name": "sentinel", "hostPath": obj{"path": "/var/run"}}}}}},
-			"status": obj{"desiredNumberScheduled": len(w.nodes), "numberReady": ready}})), nil
+			"status": obj{"desiredNumberScheduled": desired, "numberReady": ready}})), nil
 	case strings.HasSuffix(joined, " plans.upgrade.cattle.io -A"):
 		if w.noPlanKind {
 			return nil, errors.New(`[` + r.ID + `] kubectl get plans.upgrade.cattle.io: exit status 1: error: the server doesn't have a resource type "plans"`)
@@ -112,9 +125,32 @@ func (w *rebootWorld) kubectl(r kube.Region, _ context.Context, stdin io.Reader,
 		list := []obj{}
 		for name, state := range w.releases {
 			ns, n, _ := strings.Cut(name, "/")
-			ready := state == "ready" || (state == "lost" && !in(600, -1)) || (state == "back" && !in(600, 3300))
+			ready := state == "ready" || (state == "lost" && !in(600, -1)) || (state == "back" && !in(600, 1500))
 			list = append(list, obj{"metadata": obj{"namespace": ns, "name": n},
 				"status": obj{"conditions": kubeConditions("Ready", map[bool]string{true: "True", false: "False"}[ready])}})
+		}
+		return []byte(kubeList(list...)), nil
+	case strings.Contains(joined, " pods -A --field-selector "):
+		_, selector, _ := strings.Cut(joined, " --field-selector ")
+		list := []obj{}
+		for _, node := range w.nodes {
+			if selector != "status.phase=Running" && selector != "spec.nodeName="+node {
+				continue
+			}
+			list = append(list, obj{"metadata": obj{"namespace": "kube-system", "name": "cilium-" + node, "uid": "uid-cilium-" + node,
+				"ownerReferences": []obj{{"kind": "DaemonSet", "name": "cilium"}}}, "spec": obj{"nodeName": node}, "status": obj{"phase": "Running"}})
+			moved := !w.stuck && in(w.restarts[node][0], -1)
+			for _, name := range w.workloads[node] {
+				ns, n, _ := strings.Cut(name, "/")
+				meta := obj{"namespace": ns, "name": n, "uid": "uid-" + n, "ownerReferences": []obj{{"kind": "ReplicaSet", "name": n}}}
+				if strings.HasPrefix(n, "etcd-") {
+					meta = obj{"namespace": ns, "name": n, "uid": "uid-" + n, "annotations": obj{rebootMirror: "x"}}
+				}
+				if moved {
+					continue // evicted: its replacement runs on another node, under another uid
+				}
+				list = append(list, obj{"metadata": meta, "spec": obj{"nodeName": node}, "status": obj{"phase": "Running"}})
+			}
 		}
 		return []byte(kubeList(list...)), nil
 	case strings.HasSuffix(joined, " nodes"):
@@ -180,14 +216,14 @@ func TestRebootCheck(t *testing.T) {
 		change  func(w *rebootWorld)
 		j1      string // the status of journey J1; "" is PASS
 		fails   string // a part of the reason; "" when the check passes
-		regions int    // the regions that got sentinel Pods
+		regions int    // the regions that got a sentinel Pod
 		waited  string // how long the first region waited for the reboot span; "" is 0s
-		chosen  string // the nodes that got a sentinel Pod; "" is cp-1 w-1 w-2
+		chosen  string // the node that got the sentinel Pod; "" is w-1
 	}{
-		"three nodes restart one after the other in both regions": {regions: 2},
-		"journey J1 did not pass":                                 {j1: Fail, fails: "journey J1: step J1.1 is FAIL"},
-		"kured is not installed":                                  {change: func(w *rebootWorld) { w.args = nil }, fails: "kured is not installed"},
-		"the period is not an argument":                           {change: without("--period=15m"), fails: "no usable value for: --period"},
+		"one worker restarts in each region, its workloads move off and it comes back": {regions: 2},
+		"journey J1 did not pass":       {j1: Fail, fails: "journey J1: step J1.1 is FAIL"},
+		"kured is not installed":        {change: func(w *rebootWorld) { w.args = nil }, fails: "kured is not installed"},
+		"the period is not an argument": {change: without("--period=15m"), fails: "no usable value for: --period"},
 		"the install hold is in place": {change: func(w *rebootWorld) {
 			w.lock, w.args = `{"nodeID":"catalyst-install-hold","TTL":0}`, append(w.args, "--lock-annotation="+rebootTestLock)
 		}, fails: "carries the install hold (annotation " + rebootTestLock + ", held by catalyst-install-hold)"},
@@ -201,30 +237,39 @@ func TestRebootCheck(t *testing.T) {
 		"a node holds the lock": {change: func(w *rebootWorld) {
 			w.lock, w.args = `{"nodeID":"w-9","created":"2026-11-20T05:00:00Z","TTL":3600000000000}`, append(w.args, "--lock-annotation="+rebootTestLock)
 		}, regions: 2},
-		"kured cannot run on control-plane nodes": {change: func(w *rebootWorld) { w.noServers = true },
-			fails: "cannot run on a node with the label node-role.kubernetes.io/control-plane"},
+		"kured can run on control-plane nodes": {change: func(w *rebootWorld) { w.servers = true },
+			fails: "can run on a node with the label node-role.kubernetes.io/control-plane=true, so kured could restart a region's control-plane node"},
 		"the drain timeout is not an argument": {change: without("--drain-timeout=15m"), fails: "no usable value for: --drain-timeout"},
 		"the span and the sentinel are not arguments": {change: func(w *rebootWorld) { w.args = w.args[:3] },
 			fails: "no usable value for: --end-time, --reboot-sentinel with the hostPath of the volume sentinel, --start-time, --time-zone"},
-		"three control-plane nodes and no other": {change: func(w *rebootWorld) {
-			w.nodes, w.restarts["cp-2"], w.restarts["cp-3"] = []string{"cp-1", "cp-2", "cp-3"}, w.restarts["w-1"], w.restarts["w-2"]
-		}, regions: 2, chosen: "cp-1 cp-2 cp-3"},
-		"the region has two nodes":          {change: func(w *rebootWorld) { w.nodes = w.nodes[:2] }, fails: "the region has 2 nodes, 2 of them"},
-		"the region has no control-plane":   {change: func(w *rebootWorld) { w.nodes = []string{"w-1", "w-2", "w-3"} }, fails: "the region has 3 nodes, 0 of them"},
-		"a node is cordoned before":         {change: func(w *rebootWorld) { w.sick["cp-2"] = "cordoned" }, fails: "before the check started: cp-2"},
-		"a node is not Ready before":        {change: func(w *rebootWorld) { w.sick["cp-2"] = "not ready" }, fails: "before the check started: cp-2"},
-		"the span closes before the limit":  {change: func(w *rebootWorld) { w.clock = w.clock.Add(15 * time.Hour) }, fails: "open for 1h0m0s, the time limit is 1h15m0s, and the span opens again in 3h30m0s"},
+		"the first worker runs no workload: the next one is chosen": {change: func(w *rebootWorld) {
+			w.workloads["w-1"], w.restarts["w-1"], w.restarts["w-2"] = nil, [3]int{-1, -1, -1}, [3]int{600, 640, 700}
+		}, regions: 2, chosen: "w-2"},
+		"no worker runs a workload": {change: func(w *rebootWorld) { w.workloads = map[string][]string{"cp-1": {"kube-system/etcd-cp-1"}} },
+			fails: "none of the 3 worker nodes runs a workload Pod"},
+		"the region has one worker":         {change: func(w *rebootWorld) { w.nodes = w.nodes[:2] }, fails: "the region has 1 worker nodes: the check needs 2"},
+		"the region has no control-plane":   {change: func(w *rebootWorld) { w.nodes = []string{"w-1", "w-2", "w-3"} }, fails: "the region has 3 nodes and none with the label"},
+		"a node is cordoned before":         {change: func(w *rebootWorld) { w.sick["w-2"] = "cordoned" }, fails: "before the check started: w-2"},
+		"a node is not Ready before":        {change: func(w *rebootWorld) { w.sick["cp-1"] = "not ready" }, fails: "before the check started: cp-1"},
+		"the span closes before the limit":  {change: func(w *rebootWorld) { w.clock = w.clock.Add(15*time.Hour + 30*time.Minute) }, fails: "open for 30m0s, the time limit is 35m0s, and the span opens again in 3h0m0s"},
 		"the span is closed and opens soon": {change: func(w *rebootWorld) { w.clock = w.clock.Add(16 * time.Hour) }, regions: 2, waited: "2h30m0s"},
-		"the sentinel Pods do not finish":   {change: func(w *rebootWorld) { w.waitErr = errors.New("timed out waiting for the condition") }, fails: "timed out waiting", regions: 1},
-		"two nodes are unschedulable":       {change: func(w *rebootWorld) { w.restarts["w-1"] = [3]int{650, 690, 750} }, fails: "2 nodes are unschedulable at once: cp-1, w-1", regions: 1},
-		"a drain does not finish": {change: func(w *rebootWorld) { w.restarts["w-1"], w.restarts["w-2"] = [3]int{1800, -1, -1}, [3]int{-1, -1, -1} },
-			fails: "node w-1 has been unschedulable for 20m5s", regions: 1},
-		"a node restarts without a drain":    {change: func(w *rebootWorld) { w.restarts["w-1"] = [3]int{-1, 1840, -1} }, fails: "node w-1 has a new boot identifier and was never read unschedulable", regions: 1},
-		"the third node does not restart":    {change: func(w *rebootWorld) { w.restarts["w-2"] = [3]int{-1, -1, -1} }, fails: "1h15m0s after the pending reboots were placed: 2 of 3 nodes restarted, 0 unschedulable", regions: 1},
-		"a node stays cordoned at the limit": {change: func(w *rebootWorld) { w.restarts["w-2"] = [3]int{4000, 4040, -1} }, fails: "3 of 3 nodes restarted, 1 unschedulable", regions: 1},
-		"a node is not Ready at the limit":   {change: func(w *rebootWorld) { w.sick["w-2"] = "not ready after" }, fails: "3 of 3 nodes restarted, 0 unschedulable, 1 not Ready", regions: 1},
+		"the sentinel Pod does not finish":  {change: func(w *rebootWorld) { w.waitErr = errors.New("timed out waiting for the condition") }, fails: "timed out waiting", regions: 1},
+		"a control-plane node restarts": {change: func(w *rebootWorld) { w.restarts["cp-1"] = [3]int{900, 940, 1000} },
+			fails: "control-plane node cp-1 restarted (boot identifier boot-2, before boot-1): kured must never restart a control-plane node", regions: 1},
+		"two nodes are unschedulable": {change: func(w *rebootWorld) { w.restarts["w-2"] = [3]int{650, 690, 750} }, fails: "2 nodes are unschedulable at once: w-1, w-2", regions: 1},
+		"a drain does not finish":     {change: func(w *rebootWorld) { w.restarts["w-1"] = [3]int{600, -1, -1} }, fails: "node w-1 has been unschedulable for 20m5s", regions: 1},
+		"the worker restarts without a drain": {change: func(w *rebootWorld) { w.restarts["w-1"] = [3]int{-1, 640, -1} },
+			fails: "node w-1 has a new boot identifier and was never read unschedulable", regions: 1},
+		"the workloads do not move off": {change: func(w *rebootWorld) { w.stuck = true },
+			fails: "2 of the 2 workload Pods that ran on w-1 are still on it after its restart, so its drain did not move them off: shop/db-0 uid-db-0, shop/web-1 uid-web-1", regions: 1},
+		"the worker does not restart": {change: func(w *rebootWorld) { w.restarts["w-1"] = [3]int{-1, -1, -1} },
+			fails: "35m0s after the pending reboot was placed: 0 of 1 nodes restarted, 0 unschedulable", regions: 1},
+		"the worker stays cordoned at the limit": {change: func(w *rebootWorld) { w.restarts["w-1"] = [3]int{1500, 1540, -1} },
+			fails: "1 of 1 nodes restarted, 1 unschedulable", regions: 1},
+		"the worker is not Ready at the limit": {change: func(w *rebootWorld) { w.sick["w-1"] = "not ready after" },
+			fails: "1 of 1 nodes restarted, 0 unschedulable, 1 not Ready", regions: 1},
 		"a longer period gives a longer limit": {change: func(w *rebootWorld) {
-			w.args[0], w.restarts["w-2"] = "--period=30m", [3]int{6000, 6040, 6100}
+			w.args[0], w.restarts["w-1"] = "--period=30m", [3]int{2400, 2440, 2500}
 		}, regions: 2},
 		"the cluster does not serve the Plan kind": {change: func(w *rebootWorld) { w.noPlanKind = true }, regions: 2},
 		"the cluster has no Plan":                  {change: func(w *rebootWorld) { w.plans = nil }, regions: 2},
@@ -244,9 +289,9 @@ func TestRebootCheck(t *testing.T) {
 		"a Plan window has no time zone": {change: plan(rebootPlan("k3s-agent", "22:00", "00:00", "", rebootAllDays...)),
 			fails: "Plan system-upgrade/k3s-agent has no time zone that the check knows"},
 		"kured is not fully ready at the limit": {change: func(w *rebootWorld) { w.kuredBack = -1 },
-			fails: "3 of 3 nodes restarted, 0 unschedulable, 0 not Ready; DaemonSet kube-system/kured has 3 of 4 Pods ready", regions: 1},
-		"a failed read of the recovery is no observation": {change: func(w *rebootWorld) { w.kuredBack, w.noReleases = -1, [2]int{3100, 3400} },
-			fails: "DaemonSet kube-system/kured has 3 of 4 Pods ready", regions: 1},
+			fails: "1 of 1 nodes restarted, 0 unschedulable, 0 not Ready; DaemonSet kube-system/kured has 2 of 3 Pods ready", regions: 1},
+		"a failed read of the recovery is no observation": {change: func(w *rebootWorld) { w.kuredBack, w.noReleases = -1, [2]int{700, 1000} },
+			fails: "DaemonSet kube-system/kured has 2 of 3 Pods ready", regions: 1},
 		"a HelmRelease does not become Ready again": {change: release("lost"),
 			fails: "1 of 3 HelmReleases that were Ready before are not Ready: flux-system/bp-cilium", regions: 1},
 		"a HelmRelease that was not Ready before is not judged": {change: release("never"), regions: 2},
@@ -269,7 +314,7 @@ func TestRebootCheck(t *testing.T) {
 			if len(w.created) != tc.regions || !reflect.DeepEqual(w.created, w.deleted) {
 				t.Errorf("namespaces created in %v and deleted in %v, Pods on %v: want %d regions, each cleaned", w.created, w.deleted, w.pods, tc.regions)
 			}
-			if want := strings.TrimSpace(strings.Repeat(nonEmpty(tc.chosen, "cp-1 w-1 w-2")+" ", len(w.placed))); strings.Join(w.pods, " ") != want {
+			if want := strings.TrimSpace(strings.Repeat(nonEmpty(tc.chosen, "w-1")+" ", len(w.placed))); strings.Join(w.pods, " ") != want {
 				t.Errorf("the sentinel Pods are on %v, want %s", w.pods, want)
 			}
 			if at, placed := w.placed["region-a"]; placed {
@@ -278,8 +323,10 @@ func TestRebootCheck(t *testing.T) {
 					t.Errorf("the first region waited %s for the reboot span, want %q", at.Sub(start), tc.waited)
 				}
 			}
-			if last := steps[len(steps)-1]; tc.fails == "" && (last.Evidence["most_unschedulable"] != 1 || last.Evidence["failed_readings"] != 8 ||
-				len(last.Evidence["boot_ids_after"].(map[string]string)) != 3 || last.Evidence["kured_ready"] != strconv.Itoa(len(w.nodes))+"/"+strconv.Itoa(len(w.nodes))) {
+			workers := strconv.Itoa(len(w.nodes) - 1)
+			if last := steps[len(steps)-1]; tc.fails == "" && (last.Evidence["most_unschedulable"] != 1 || last.Evidence["failed_readings"] != 0 ||
+				len(last.Evidence["boot_ids_after"].(map[string]string)) != 1 || last.Evidence["kured_ready"] != workers+"/"+workers ||
+				last.Evidence["workloads_moved_off"] == nil || len(last.Evidence["control_plane_boot_ids"].(map[string]string)) != 1) {
 				t.Errorf("the evidence of the last step is %v", last.Evidence)
 			}
 		})
