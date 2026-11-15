@@ -108,7 +108,7 @@ type poolDNSRecord struct {
 // no error on an existing rrset — the #4236 idempotency requirement).
 func (r *Reconciler) reconcileTenantDNS(ctx context.Context, org *orgapi.Organization) (bool, error) {
 	tp := org.Spec.TenantPublic
-	parentDomain, zone := tenantDNSParent(org)
+	parentDomain, zones := tenantDNSParent(org)
 	if parentDomain == "" {
 		// Feature disabled — Org has no pool-parent public hostname. The
 		// Sovereign-wide `*.<sovFQDN>` apex wildcard covers single-domain Orgs.
@@ -191,6 +191,10 @@ func (r *Reconciler) reconcileTenantDNS(ctx context.Context, org *orgapi.Organiz
 		})
 	}
 
+	zone, err := r.poolZoneFor(ctx, baseURL, apiKey, zones)
+	if err != nil {
+		return false, fmt.Errorf("find the zone of %q for %q: %w", parentDomain, subdomain, err)
+	}
 	if err := r.patchPoolZone(ctx, baseURL, apiKey, zone, rrsets); err != nil {
 		return false, fmt.Errorf("patch pool zone %q for %q: %w", parentDomain, subdomain, err)
 	}
@@ -214,7 +218,7 @@ func (r *Reconciler) reconcileTenantDNS(ctx context.Context, org *orgapi.Organiz
 // no-op on PowerDNS.
 func (r *Reconciler) teardownTenantDNS(ctx context.Context, org *orgapi.Organization) (bool, error) {
 	tp := org.Spec.TenantPublic
-	parentDomain, zone := tenantDNSParent(org)
+	parentDomain, zones := tenantDNSParent(org)
 	if parentDomain == "" {
 		return false, nil
 	}
@@ -250,6 +254,10 @@ func (r *Reconciler) teardownTenantDNS(ctx context.Context, org *orgapi.Organiza
 			TTL:        poolDNSTTL,
 			ChangeType: "DELETE",
 		})
+	}
+	zone, err := r.poolZoneFor(ctx, baseURL, apiKey, zones)
+	if err != nil {
+		return false, fmt.Errorf("find the zone of %q for %q: %w", parentDomain, subdomain, err)
 	}
 	if err := r.patchPoolZone(ctx, baseURL, apiKey, zone, rrsets); err != nil {
 		return false, fmt.Errorf("delete pool zone rrsets %q for %q: %w", parentDomain, subdomain, err)
@@ -448,25 +456,80 @@ func poolZoneCanonical(zone string) string {
 }
 
 // tenantDNSParent returns the parent domain an Organization's per-Org hosts
-// live under and the PowerDNS zone that holds them. A customer Organization
-// uses its pool parent (zone == parent). An INTERNAL Organization (the
-// Sovereign's own) has no pool parent: its hosts live under the Sovereign
-// FQDN (<slug>.<sovereign-fqdn>, the host catalyst-api advertises and the
-// per-Org listener serves), and the records go into the zone that holds the
-// Sovereign's own records — the Sovereign FQDN's parent (live hw307
-// 2026-11-11, Refs #7067: there is no `*.<sovereign-fqdn>` apex wildcard, so
-// every app of the Sovereign's own Organization had no DNS).
-func tenantDNSParent(org *orgapi.Organization) (parent, zone string) {
+// live under and the PowerDNS zones that may hold them, most specific first.
+// A customer Organization uses its pool parent (one zone, the parent). An
+// INTERNAL Organization (the Sovereign's own) has no pool parent: its hosts
+// live under the Sovereign FQDN (<slug>.<sovereign-fqdn>, the host
+// catalyst-api advertises and the per-Org listener serves), and the records go
+// into the zone that holds the Sovereign's own records. Which zone that is
+// depends on how the Sovereign's name was given:
+//
+//   - a name allocated from a pool (sovereignDomainMode pool) is a zone of its
+//     own: the pool-domain-manager creates `<sovereign-fqdn>` as a child zone
+//     with an NS delegation in the parent and a `*.<sovereign-fqdn>` wildcard
+//     to the main gateway. A record written into the parent below that
+//     delegation is never served; the child's wildcard answers instead, with
+//     the main gateway, which has no listener for the Organization's names
+//     (live hw307 2026-11-15: the records sat in `omani.works`, the child zone
+//     `hw307.omani.works` answered, J1.6 saw the Sovereign's certificate);
+//   - any other name has no zone of its own, and its records live in the
+//     Sovereign FQDN's parent (live hw307 2026-11-11, Refs #7067: no
+//     `*.<sovereign-fqdn>` wildcard there, so every app of the Sovereign's own
+//     Organization had no DNS until the records were written).
+//
+// So the zones are the Sovereign FQDN first and its parent second; poolZoneFor
+// picks the first one the server holds.
+func tenantDNSParent(org *orgapi.Organization) (parent string, zones []string) {
 	parent = strings.TrimSpace(org.Spec.TenantPublic.ParentDomain)
 	if parent != "" {
-		return parent, parent
+		return parent, []string{parent}
 	}
 	if !strings.EqualFold(strings.TrimSpace(org.Spec.Kind), "internal") {
-		return "", ""
+		return "", nil
 	}
 	sov := strings.ToLower(strings.TrimSpace(org.Spec.SovereignRef))
 	if strings.Count(sov, ".") < 2 {
-		return "", ""
+		return "", nil
 	}
-	return sov, sov[strings.Index(sov, ".")+1:]
+	return sov, []string{sov, sov[strings.Index(sov, ".")+1:]}
+}
+
+// poolZoneFor returns the first of zones that the PowerDNS server holds. Each
+// zone but the last is asked with a GET of the zone (rrsets left out): 200
+// means held, 404 means not held. The last zone is returned without a request,
+// so a single-zone Organization costs no request and the parent keeps the
+// behaviour it had. Any other answer is an error, so the caller requeues
+// instead of writing into a zone the records would not be served from.
+func (r *Reconciler) poolZoneFor(ctx context.Context, baseURL, apiKey string, zones []string) (string, error) {
+	client := r.PoolPowerDNSHTTPClient
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Second}
+	}
+	for i, zone := range zones {
+		if i == len(zones)-1 {
+			return zone, nil
+		}
+		url := fmt.Sprintf("%s/api/v1/servers/localhost/zones/%s?rrsets=false",
+			strings.TrimRight(baseURL, "/"), poolZoneCanonical(zone))
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return "", err
+		}
+		req.Header.Set("X-API-Key", apiKey)
+		resp, err := client.Do(req)
+		if err != nil {
+			return "", fmt.Errorf("powerdns GET zone %q: %w", zone, err)
+		}
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+		_ = resp.Body.Close()
+		switch resp.StatusCode {
+		case http.StatusOK:
+			return zone, nil
+		case http.StatusNotFound:
+			continue
+		default:
+			return "", fmt.Errorf("powerdns GET zone %q: HTTP %d", zone, resp.StatusCode)
+		}
+	}
+	return "", fmt.Errorf("no zone to write into")
 }
