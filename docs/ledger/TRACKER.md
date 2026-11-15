@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-15T22:00:03Z` |
+| Last refreshed | `2026-11-15T22:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,12 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-15T22:10 | [#7935](https://github.com/openova-io/openova/pull/7935) | #7922 | fix(kured): a drain that cannot finish gives the node and th |
+| 2026-11-15T22:10 | [#7934](https://github.com/openova-io/openova/pull/7934) | #7922 | fix(charts): a one-instance workload carries no budget that  |
+| 2026-11-15T22:10 | [#7933](https://github.com/openova-io/openova/pull/7933) | #7922 | fix(bp-guacamole): the mesh secondary retires the admin-enro |
+| 2026-11-15T22:10 | [#7932](https://github.com/openova-io/openova/pull/7932) | #7922 | fix(acceptance): discovery retries transport errors; an unre |
+| 2026-11-15T22:10 | [#7931](https://github.com/openova-io/openova/pull/7931) | #7922 | fix(marketplace): drop a remembered Organization the server  |
+| 2026-11-15T22:10 | [#7929](https://github.com/openova-io/openova/pull/7929) | #7922 | fix(cutover): step 03 keeps the parent's proxy and ends only |
 | 2026-11-15T20:22 | [#7928](https://github.com/openova-io/openova/pull/7928) | #7922 | fix(cutover): step 01 pushes only the default branch and tag |
 | 2026-11-15T20:21 | [#7927](https://github.com/openova-io/openova/pull/7927) | #7922 | fix(catalyst-api): a catalog row reports the Sovereign's cat |
 | 2026-11-15T20:21 | [#7926](https://github.com/openova-io/openova/pull/7926) | #7922 | fix(catalyst-api): orphan cross-region Secret copies so a re |
@@ -331,12 +337,6 @@ flowchart LR
 | 2026-11-15T08:08 | [#7899](https://github.com/openova-io/openova/pull/7899) | #7087 | docs(ledger): plan update |
 | 2026-11-15T04:01 | [#7898](https://github.com/openova-io/openova/pull/7898) | #7893 | fix(provisioning): the control-plane user data fits the clou |
 | 2026-11-15T02:42 | [#7896](https://github.com/openova-io/openova/pull/7896) | #7805 | feat(machines): kinds ScanPolicy, HardeningBaseline and Mach |
-| 2026-11-15T02:27 | [#7890](https://github.com/openova-io/openova/pull/7890) | #7745 | feat(machines): the runner image with pinned tools, and the  |
-| 2026-11-15T03:26 | [#7889](https://github.com/openova-io/openova/pull/7889) | #7883 | fix(release): a dispatched release bumps a changed chart, an |
-| 2026-11-15T03:27 | [#7888](https://github.com/openova-io/openova/pull/7888) | #7814 | chore(chart): remove the Kafka broker setting from the org-s |
-| 2026-11-15T02:51 | [#7887](https://github.com/openova-io/openova/pull/7887) | #7886 | ci: an exception register for Secret objects, its guard and  |
-| 2026-11-15T01:54 | [#7880](https://github.com/openova-io/openova/pull/7880) | #7087 | docs(ledger): plan update |
-| 2026-11-15T00:01 | [#7879](https://github.com/openova-io/openova/pull/7879) | #7743 | ci: the guards that run on every pull request share three jo |
 
 ---
 
