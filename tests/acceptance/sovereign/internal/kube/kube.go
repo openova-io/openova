@@ -23,6 +23,11 @@
 // namespace of their own in every region and one probe Pod per control-plane
 // node in it, SEC-G01 also one Secret; they run a script that only reads in
 // each Pod with `exec`, and delete that namespace.
+//
+// A Region with a Retry policy retries a call that got no answer or an answer
+// that means "try again" (package retry). Only the discovery sets it, for the
+// reads it makes; a journey and a check never retry, because a call of theirs
+// may write. A call with standard input is never retried.
 package kube
 
 import (
@@ -33,13 +38,16 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+
+	"github.com/openova-io/openova/tests/acceptance/sovereign/internal/retry"
 )
 
 // Region is one cluster of the Sovereign.
 type Region struct {
 	ID         string // cluster region id, e.g. hw-me-east-215-a-rtz-prod
 	Kubeconfig string
-	Kubectl    string // binary, default "kubectl"
+	Kubectl    string        // binary, default "kubectl"
+	Retry      *retry.Policy // nil: every call is made once
 }
 
 func (r Region) bin() string {
@@ -49,16 +57,33 @@ func (r Region) bin() string {
 	return "kubectl"
 }
 
-// Run executes kubectl with args (stdin optional) and returns stdout.
+// Run executes kubectl with args (stdin optional) and returns stdout. With a
+// Retry policy and no stdin, a failed call is retried as the policy says.
 func (r Region) Run(ctx context.Context, stdin io.Reader, args ...string) ([]byte, error) {
+	if r.Retry == nil || stdin != nil {
+		out, _, err := r.once(ctx, stdin, args)
+		return out, err
+	}
+	var out []byte
+	err := r.Retry.Do(ctx, func() (retry.Kind, error) {
+		var stderr string
+		var err error
+		out, stderr, err = r.once(ctx, nil, args)
+		return retry.Classify(stderr), err
+	})
+	return out, err
+}
+
+// once runs kubectl one time and returns stdout and stderr.
+func (r Region) once(ctx context.Context, stdin io.Reader, args []string) ([]byte, string, error) {
 	full := append([]string{"--kubeconfig", r.Kubeconfig}, args...)
 	cmd := exec.CommandContext(ctx, r.bin(), full...)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr, cmd.Stdin = &out, &errb, stdin
 	if err := cmd.Run(); err != nil {
-		return out.Bytes(), fmt.Errorf("[%s] kubectl %s: %v: %s", r.ID, redactArgs(args), err, strings.TrimSpace(errb.String()))
+		return out.Bytes(), errb.String(), fmt.Errorf("[%s] kubectl %s: %v: %s", r.ID, redactArgs(args), err, strings.TrimSpace(errb.String()))
 	}
-	return out.Bytes(), nil
+	return out.Bytes(), errb.String(), nil
 }
 
 // redactArgs keeps the verb + resource in error text and drops anything after
