@@ -555,6 +555,9 @@ func (g Gate) watchRegion(ctx context.Context, r gateRegion, budget time.Duratio
 	}
 	cfg := g.WatchConfig(string(raw))
 	cfg.WatchTimeout = budget
+	// A watch for the decision only: no log tail, no heartbeat line, no
+	// substate of its own (the deployment's substate is the gate's).
+	cfg.CoreFactory = nil
 	cfg.OnHeartbeat = nil
 	cfg.OnSubstate = nil
 	if r.key != "" {
