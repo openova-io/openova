@@ -37,6 +37,32 @@ spec:
         - ports:
             - port: {{ .Values.service.port | quote }}
               protocol: TCP
+    {{- $peers := .Values.multiRegion.peerClusters | default list }}
+    {{- if and .Values.multiRegion.enabled (gt (len $peers) 0) }}
+    # The same gate in a peer region, which serves chargeback.<fqdn> too and
+    # reaches this Service over ClusterMesh (values.yaml multiRegion). The
+    # rule above can only match a local pod: Cilium adds the local cluster to
+    # every selector of a namespaced policy, so the peer cluster and the
+    # gate's namespace are named here. Still only the gate: #6841 holds.
+    - fromEndpoints:
+        - matchExpressions:
+            - key: io.cilium.k8s.policy.cluster
+              operator: In
+              values:
+                {{- range $peers }}
+                - {{ . | quote }}
+                {{- end }}
+            - key: k8s:io.kubernetes.pod.namespace
+              operator: In
+              values:
+                - {{ .Values.forwardAuth.fromNamespace | quote }}
+          matchLabels:
+            {{- toYaml .Values.forwardAuth.fromEndpointSelector | nindent 12 }}
+      toPorts:
+        - ports:
+            - port: {{ .Values.service.port | quote }}
+              protocol: TCP
+    {{- end }}
     {{- else }}
     - fromEntities:
         {{- if .Values.networkPolicy.ingress.allowGatewayEntity }}

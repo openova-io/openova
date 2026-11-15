@@ -29,6 +29,7 @@ import (
 	"github.com/openova-io/openova/products/chargeback/internal/mail"
 	"github.com/openova-io/openova/products/chargeback/internal/metrics"
 	"github.com/openova-io/openova/products/chargeback/internal/notify"
+	"github.com/openova-io/openova/products/chargeback/internal/offer"
 	"github.com/openova-io/openova/products/chargeback/internal/platform"
 	"github.com/openova-io/openova/products/chargeback/internal/report"
 	"github.com/openova-io/openova/products/chargeback/internal/rollup"
@@ -84,6 +85,28 @@ func main() {
 	// measures what the cache is worth.
 	st.SetCostRollupEnabled(cfg.CostRollupEnabled)
 	st.SetPackageIncludedLines(cfg.PackageIncludedLines)
+	// DESIGN.md §22.12 — the default offer. Before the API serves and before
+	// the adapter creates the plans book: a plans book with no offer gets the
+	// one this binary ships with, once; a database that ever had one, or
+	// that already decided, is left exactly as it is. A failure stops the
+	// process like a failed migration: the next start finishes the writes.
+	if cfg.DefaultOffer {
+		o, err := offer.Default()
+		if err != nil {
+			slog.Error("default offer", "error", err)
+			os.Exit(1)
+		}
+		offerCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		res, err := st.EnsureDefaultOffer(offerCtx, o, "system:default-offer")
+		cancel()
+		if err != nil {
+			slog.Error("default offer", "error", err)
+			os.Exit(1)
+		}
+		slog.Info("default offer", "state", res.State, "wrote", res.Wrote, "detail", res.Detail)
+	} else {
+		slog.Info("default offer off: DEFAULT_OFFER=false (or PROFILE=operator-central); the plans book stays as a sovereign-admin leaves it")
+	}
 
 	reg := metrics.Default
 	client := huawei.NewClient(cfg.HuaweiEndpointTemplate, cfg.HuaweiInsecureTLS, huawei.DefaultTimeout, reg)

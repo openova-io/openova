@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"crypto/sha256"
-	"embed"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -11,10 +10,13 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+
+	"github.com/openova-io/openova/products/chargeback/internal/offer"
 )
 
 // The showcase ladder's ICONS AND BRANDING (DESIGN.md §22.10). The SVGs are
-// vendored in icons/ with their sources in icons/LICENSES.md, and
+// vendored in internal/offer/icons/ — the icons the engine's default offer
+// names (DESIGN.md §22.12) — with their sources in icons/LICENSES.md, and
 // icons/manifest.json maps each feature, floor item, group and package to
 // its icon and colours — the same file scripts/apply-package-icons.py reads,
 // so the seeder and the script cannot disagree. Everything goes through the
@@ -22,9 +24,7 @@ import (
 // a second upload of the same bytes writes nothing), a feature's icon rides
 // on its create or PATCH, a package's on its settings, a group's on PUT
 // /feature-groups/{key} — each written only when it differs.
-
-//go:embed icons/*.svg icons/manifest.json
-var showcaseIconFS embed.FS
+var showcaseIconFS = offer.Files
 
 // iconManifest is icons/manifest.json.
 type iconManifest struct {

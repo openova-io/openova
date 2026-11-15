@@ -271,9 +271,12 @@ customer's** rated cloud cost for the window — its cloud sources are the pool
 currency: allocated cloud cost, rated revenue, margin, margin %. Chart of the split.
 
 **Plan revenue.** What an Organization actually pays is its catalog plan
-(S 5 · M 9 · L 16 · XL 30 OMR/month, Flexi 0 = pay per use — the prices seeded
-by `core/services/catalog/handlers/seed.go` `seedPlanRows`, restated in
-`internal/store/planbook.go` because the engine imports nothing from Catalyst).
+(S 2.490 · M 4.490 · L 7.990 · XL 13.990 OMR/month, Flexi 0 = pay per use —
+the engine's default offer, `internal/offer/default-offer.json` (§22.12), which
+`internal/store/planbook.go` reads; the catalog service seeds the same four in
+`core/services/catalog/handlers/seed.go` `seedPlanRows`, and
+`TestPlanBookItemsAreTheDefaultOffer` holds the two equal, because the engine
+imports nothing from Catalyst).
 The plans are bundles whose per-resource split is not identifiable (M = 2×S,
 L = 4×S, XL = 8×S), so no per-vCPU rate is invented: the platform collector
 meters the plan itself as one `plan.<slug>` record per hour slice (unit
@@ -353,7 +356,12 @@ use commits to **nothing** (the Organization can scale to zero and stop paying
 that hour), so it must not undercut the cheapest thing an Organization can
 commit to, or nobody would ever take a plan. It is therefore the ENTRY
 commitment plus 10 %: **2.50 × 1.1 = 2.75 OMR per unit-month**, which sits
-above every rung of the ladder. That splits across what a unit is made of:
+above every rung of the ladder. (That was the ladder of 2026-09-10. The
+engine's default offer, §22.12, prices the packages at 2.490 / 4.490 / 7.990 /
+13.990 for 1 / 2 / 4 / 8 units, 2.490 / 2.245 / 1.998 / 1.749 per unit-month;
+the 2.75 rate is kept, and `TestPAYGUnitRateSplit` holds it at least 10 %
+above the entry rung of that offer and above every rung.) That splits across
+what a unit is made of:
 
 | SKU | OMR/month | Annual (× 12) | Unit price (÷ 8760) | Why |
 |---|---|---|---|---|
@@ -5903,8 +5911,8 @@ or "to be decided"):
 - the **four plan prices converged to the workbook's Target** — 2.490 /
   4.490 / 7.990 / 13.990 a month, annual = × 12. This is the one re-pricing
   the command does: the product creates the plans book at the catalog's
-  constants (S 5 · M 9 · L 16 · XL 30, `store.PlanBookItems`, copied from
-  the Catalyst catalog seed), the approved ladder is priced at the sheet,
+  constants (S 5 · M 9 · L 16 · XL 30 before #7909; since then the default
+  offer's own 2.490 / 4.490 / 7.990 / 13.990, §22.12), the approved ladder is priced at the sheet,
   and the derived add-ons hold only against those gaps. Written only where
   a price differs, logged when it is, and **not restored by `--purge`** —
   the plans are the product's. Aligning the catalog's own seed is a
@@ -5940,7 +5948,7 @@ or "to be decided"):
   holds on the audit log and on `updated_at` of the cells and the settings;
   a converged earlier baseline is `TestLadderConvergesTheEarlierBaseline`;
 - the **icons and branding** (§22.10) from
-  `cmd/seed-history/icons/manifest.json`: the 32 vendored SVGs uploaded
+  `internal/offer/icons/manifest.json`: the 32 vendored SVGs uploaded
   where BSS does not hold them (content-addressed, so a second run uploads
   nothing), every one of the 27 features and floor items given its icon and
   a tile colour per group (in the feature's create or PATCH), the seven
@@ -6148,7 +6156,8 @@ accent and badge on its settings, written whole (left out = none). Colours
 are stored upper-case. A clone of the book carries the package branding
 with the rest of its settings.
 
-**Seed data**: the SVGs under `cmd/seed-history/icons/` — brand logos from
+**Seed data**: the SVGs under `internal/offer/icons/` (moved from
+`cmd/seed-history/icons/` by #7909: the default offer names them, §22.12) — brand logos from
 Simple Icons (CC0: `gitea`, `kubernetes`; Let's Encrypt and Keycloak are NOT
 vendored, their Simple Icons entries are CC-BY-NC-4.0 and a custom trademark
 licence) and generic icons from Lucide (ISC, some MIT via Feather), each
@@ -6585,3 +6594,90 @@ under a 3.000 spend limit 11.980000, and capped 8.980000, to the digit);
 `ui/src/panels/SourcesPanel.overage.dom.test.tsx`,
 `ui/src/components/PackagesPanel.cell.dom.test.tsx`,
 `ui/src/lib/packages.grow.test.ts`.
+
+### 22.12 The default offer — what a fresh Sovereign publishes (#7909)
+
+**Why.** Until #7909 the offer was data only. The package ladder, its prices,
+the matrix, the settings, grow mode and the icons existed as rows a script or a
+person had typed into one installation's database, and nothing in the chart, a
+Job or the start-up path wrote them. A wipe took them away: on a fresh
+two-region Sovereign (15 Nov 2026) the engine held 0 price books, 0 features
+and 0 cells, `GET /api/v1/public/packages` answered `404 "no packages are
+published yet"`, and the storefront fell back to an old built-in plan deck. The
+plans book itself appears only with the first customer Organization (§2.8), and
+then at the engine's built-in prices, which were S 5 · M 9 · L 16 · XL 30 while
+the published ladder is 2.490 · 4.490 · 7.990 · 13.990.
+
+**What ships.** `internal/offer/default-offer.json`, embedded in the binary
+with the icons it names (`internal/offer/icons/`, moved from
+`cmd/seed-history/icons/`):
+
+- `document` — the offer exactly as `GET /api/v1/public/packages` published it
+  on 20 October 2026, without its date: 4 packages, the 8 floor items, the 7
+  groups, 19 features with a cell on every package (76), the package settings
+  (shape, guaranteed floors, recommended, badge, accent), grow mode (ceilings
+  and overage rates) and every icon, named by file. Prices and texts are those
+  of the day; nothing in it names a customer, a person or an installation
+  (`TestDefaultOfferNamesNoInstallationOrPerson`).
+- `price_items` — the plans book's 12 items of the same day, annual prices
+  exact: the four plans, the six add-ons (backup 18, waf 42, ai_seo 24,
+  ai_builder 24, domain 6, dedicated_ip 250 a year) and the two meters
+  (`eip.bandwidth_mbps` 15.038, `k8s.pvc_gb` 0.423 a year). The document's
+  monthly figures round from these; it cannot carry them itself (250 a year is
+  20.833 a month, which × 12 is not 250).
+
+**One plan price list.** `store.PlanBookItems` — what `EnsurePlanBook` creates
+the plans book with when the Organization sync gets there first — reads the
+four plan items from the file. The old constants are gone. The catalog
+service's `seedPlanRows` seeds the same four in baisa, and
+`TestPlanBookItemsAreTheDefaultOffer` reads that source and holds the two
+equal. The pay-per-use rates (§2.9a) keep their values; their test now holds
+them at least 10 % above the entry rung of the offer.
+
+**Written once.** `store.EnsureDefaultOffer`, called by `cmd/chargeback` after
+the migrations and before the API or the adapter start, when `DEFAULT_OFFER`
+is on (the default for the sovereign profile; chart value
+`config.defaultOffer`, default `true`):
+
+1. Under a session advisory lock (two replicas: the second waits and reads the
+   first one's decision), read the one row of `default_offer`.
+2. `applied` or `skipped`: nothing. That decision is final — no restart and no
+   upgrade writes the offer again, whatever the book holds by then and
+   whatever a newer release's file says.
+3. No row: if the database carries an offer — any feature, or any cell or
+   package setting on the plans book — record `skipped` with the reason and
+   write nothing. A plans book with only its plan items carries none.
+4. Otherwise record `started`, then write through the store's own rules: the
+   plans book (created when absent), the price items it does not price yet (a
+   price already there stays; a plan priced differently is logged), the icons,
+   each group's icon, the features in document order, every cell as the
+   console would enter it (a teaser is a not-offered cell; a level cell with a
+   next level for sale is optional; grow-only stays grow-only), then each
+   package's settings. Record `applied` and one audit entry
+   (`default_offer.applied`, actor `system:default-offer`).
+5. A start that dies after `started` leaves it; the next start finishes the
+   same writes, each an upsert of the engine's own rows. A failure stops the
+   process like a failed migration.
+
+**Tests.** `internal/offer/offer_test.go` (the file parses with its counts;
+`Parse` refuses a package that is not a priced plan, an icon that is not a
+file, an add-on nobody prices, an unknown field; no name of a person or an
+installation). `internal/store/planbook_offer_test.go` (the plan items are
+the offer's and the catalog's). `internal/store/defaultoffer_integration_test.go`
+(a fresh database gets the whole offer; a restart writes nothing; a
+sovereign-admin's edits — a price, a cell, a name, a tagline, a removed
+feature — survive a restart AND an upgrade whose file differs; a configured
+book is skipped, finally; a book with only its plans is filled and keeps its
+price; a start that died is finished; two replicas write it once).
+`internal/api/defaultoffer_integration_test.go` (404 before, then the public
+document equals the file's, field for field, icons by content address).
+`internal/config` (on by default for sovereign, off for operator-central).
+`chart/tests/render-contract.sh` (`DEFAULT_OFFER` rendered `"true"`, and
+`"false"` when turned off).
+
+**Two regions.** The engine is primary-only (slot 13f), while the gate in front
+of `chargeback.<fqdn>` runs in every region. `multiRegion` (slot 13f, from the
+same variables as slot 13d) publishes the Service to ClusterMesh and admits
+the peer region's gate; slot 13e's `services.chargeback` renders the same-name
+stub in the follower region. `tests/e2e/bootstrap-kit`
+`TestBootstrapKit_ChargebackServedFromEveryRegion` renders both legs both ways.

@@ -14,10 +14,11 @@
 //                     catalog twins hidden, ticking writes the BSS SKU
 //   /review         — the add-on line shows as any add-on; a plan change prunes
 //   /checkout       — the add-on line, the total, and both POST bodies
-//   fallback        — 404 / no host (nothing published): every step exactly
-//                     as today; 503 / a failed request (prices unavailable):
-//                     /plans says so with no plan cards and no way on, the
-//                     later steps exactly as today
+//   fallback        — 404 / an empty document / no host (nothing published):
+//                     /plans says no packages are offered, with no plan
+//                     cards and no way on (#7909: no built-in deck); 503 / a
+//                     failed request (prices unavailable): /plans says so,
+//                     likewise; the later steps exactly as today
 //
 // READ-ONLY against clusters: no kubectl, no chart bumps, no Pod ops.
 
@@ -263,29 +264,34 @@ test.describe('step 1: package comparison table (/plans, #6971)', () => {
     expect(cart.addons).toEqual([])
   })
 
-  test('falls back to the legacy plan deck, unchanged, and logs once when nothing is published (404)', async ({ page }) => {
-    const warnings: string[] = []
-    page.on('console', (m) => {
-      if (m.type() === 'warning' && m.text().includes('[packages]')) warnings.push(m.text())
-    })
-    await pointAtChargeback(page)
-    // What the engine answers until its plans book exists.
-    await mockPackages(page, 404, { error: 'no packages are published yet' })
-    await page.goto('/plans')
+  // #7909 — there is no built-in deck any more. When the engine publishes
+  // nothing the step says so, plainly, and offers no plan: a storefront must
+  // never sell from a list the engine does not hold.
+  for (const [label, answer, logged] of [
+    ['answers 404 (no plans book yet)', (page: Page) => mockPackages(page, 404, { error: 'no packages are published yet' }), /answered 404/],
+    ['publishes a document with no package', (page: Page) => mockPackages(page, 200, { currency: 'OMR', price_book: 'OpenOva plans', packages: [], features: [] }), /published no packages/],
+  ] as const) {
+    test(`says no packages are offered, with no plan cards and the continue control disabled, and logs once, when the engine ${label}`, async ({ page }) => {
+      const warnings: string[] = []
+      page.on('console', (m) => {
+        if (m.type() === 'warning' && m.text().includes('[packages]')) warnings.push(m.text())
+      })
+      await pointAtChargeback(page)
+      await answer(page)
+      await page.goto('/plans')
 
-    await expect(page.locator('.pcard')).toHaveCount(4, { timeout: 10_000 })
-    await expect(page.getByRole('heading', { name: /Pick a plan/i })).toBeVisible()
-    // The deck's gutter rows are the workbook's (NC-OO-Pricing.xlsx, 2026-06-28):
-    // the shape, the per-package bandwidth and the included features. The
-    // invented rows ("Backup retention", "Response SLA", "Support") are gone.
-    await expect(page.locator('.pd-g-row', { hasText: 'Bandwidth' })).toBeVisible()
-    await expect(page.locator('.pd-g-row', { hasText: '24/7 support' })).toBeVisible()
-    await expect(page.locator('.pd-g-row', { hasText: 'Backup retention' })).toHaveCount(0)
-    await expect(page.locator('.pd-g-row', { hasText: 'Response SLA' })).toHaveCount(0)
-    await expect(page.getByTestId('package-table')).toHaveCount(0)
-    expect(warnings, 'one warning, not zero and not one per retry').toHaveLength(1)
-    expect(warnings[0]).toMatch(/answered 404/)
-  })
+      const notice = page.getByTestId('packages-none')
+      await expect(notice).toBeVisible({ timeout: 10_000 })
+      await expect(notice).toContainText('No packages are offered yet. Please check back soon.')
+      await expect(page.locator('.pcard')).toHaveCount(0)
+      await expect(page.getByTestId('package-table')).toHaveCount(0)
+      await expect(page.getByTestId('package-ladder')).toHaveCount(0)
+      await expect(page.getByTestId('packages-none-continue')).toBeDisabled()
+      await expect(page.getByRole('link', { name: /Continue to Stack/ })).toHaveCount(0)
+      expect(warnings, 'one warning, not zero and not one per retry').toHaveLength(1)
+      expect(warnings[0]).toMatch(logged)
+    })
+  }
 
   for (const [label, answer] of [
     ['answers 503', (page: Page) => mockPackages(page, 503, { error: 'down' })],
@@ -305,64 +311,42 @@ test.describe('step 1: package comparison table (/plans, #6971)', () => {
     })
   }
 
-  test('with no chargeback host at all (dev localhost) the legacy deck renders', async ({ page }) => {
+  test('with no chargeback host at all (dev localhost) it says no packages are offered', async ({ page }) => {
     // No init script: localhost has no marketplace. prefix and no override.
     await page.goto('/plans')
-    await expect(page.locator('.pcard')).toHaveCount(4, { timeout: 10_000 })
+    await expect(page.getByTestId('packages-none')).toBeVisible({ timeout: 10_000 })
+    await expect(page.locator('.pcard')).toHaveCount(0)
     await expect(page.getByTestId('package-table')).toHaveCount(0)
   })
 
-  // Regression for the live hw307 shape after PR #6972: the endpoint did not
-  // exist and the deck rendered — as
-  // a bare vertical list, because PlanStep's stylesheet was missing from the
-  // PRODUCTION bundle (the component had been tree-shaken out of the server
-  // render, and Vite keeps a component's scoped CSS only while the component
-  // is rendered). The previous fallback test counted cards and passed. This
-  // one asserts the deck's COMPUTED layout, so the pixels are what is tested,
-  // and it must run against `astro build` + `astro preview`, never the dev
-  // server, which injects every stylesheet regardless.
-  test('fallback deck keeps its stylesheet in the production build — laid out as a row of cards, not a bare list', async ({ page }, testInfo) => {
+  // The founder rule after PR #6972 (the fallback deck once rendered as a bare
+  // list because its stylesheet was missing from the PRODUCTION bundle): a
+  // fallback is proven by its COMPUTED layout against `astro build` + `astro
+  // preview`, never by text or by the dev server, which injects every
+  // stylesheet regardless. #7909 — the fallback is now the plain notice.
+  test('the no-packages notice keeps its stylesheet in the production build — centred heading, fixed continue bar, no deck', async ({ page }, testInfo) => {
     await pointAtChargeback(page)
-    // Nothing published: the engine answers 404 until its plans book exists,
-    // and the deck is the step. (A request that fails at the network layer is
-    // "prices unavailable", which shows no deck: see the test above.)
     await mockPackages(page, 404, { error: 'no packages are published yet' })
     const response = await page.goto('/plans')
 
-    // The deck is the server-rendered first paint, not a client-side swap-in:
-    // its heading is already in the HTML the server sent.
-    expect(await response!.text()).toContain('Pick a plan')
+    // The server sends the loading notice, never a plan list of its own.
+    const html = await response!.text()
+    expect(html).toContain('Pick a package')
+    expect(html).toContain('data-testid="packages-loading"')
+    expect(html).not.toContain('Pick a plan')
 
-    const cards = page.locator('.pcard')
-    await expect(cards).toHaveCount(4, { timeout: 10_000 })
-    await expect(page.getByTestId('package-table')).toHaveCount(0)
-
-    // Browser defaults would be display:block, transparent, square, static.
-    await expect(page.locator('.pd')).toHaveCSS('display', 'grid')
-    await expect(page.locator('.pd-cards')).toHaveCSS('display', 'grid')
-    const first = cards.first()
-    await expect(first).toHaveCSS('display', 'flex')
-    await expect(first).toHaveCSS('flex-direction', 'column')
-    await expect(first).toHaveCSS('border-top-left-radius', '12px')
-    await expect(first).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
-    await expect(page.locator('.pcard-cta.primary')).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    const notice = page.getByTestId('packages-none')
+    await expect(notice).toBeVisible({ timeout: 10_000 })
+    // Browser defaults would be a left-aligned, normal-weight heading and a
+    // static bar in the flow.
+    await expect(notice.locator('.pk-title')).toHaveCSS('text-align', 'center')
+    await expect(notice.locator('.pk-title')).toHaveCSS('font-weight', '700')
+    await expect(notice.locator('.pk-sub')).toHaveCSS('text-align', 'center')
+    await expect(notice).not.toHaveCSS('max-width', 'none')
     await expect(page.locator('.float-nav')).toHaveCSS('position', 'fixed')
+    await expect(page.locator('.pcard')).toHaveCount(0)
 
-    // The four cards sit side by side on one row: equal tops, increasing lefts.
-    const boxes = await cards.evaluateAll((els) =>
-      els.map((el) => {
-        const r = el.getBoundingClientRect()
-        return { top: Math.round(r.top), left: Math.round(r.left), width: Math.round(r.width) }
-      }),
-    )
-    const bottomAligned = await cards.evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().bottom)))
-    expect(new Set(bottomAligned).size, `cards share one baseline: ${JSON.stringify(bottomAligned)}`).toBe(1)
-    for (let i = 1; i < boxes.length; i++) {
-      expect(boxes[i].left, `card ${i} is to the right of card ${i - 1}: ${JSON.stringify(boxes)}`).toBeGreaterThan(boxes[i - 1].left + boxes[i - 1].width - 1)
-    }
-    expect(Math.min(...boxes.map((b) => b.width))).toBeGreaterThan(150)
-
-    await page.screenshot({ path: testInfo.outputPath('plans-fallback-deck.png'), fullPage: false })
+    await page.screenshot({ path: testInfo.outputPath('plans-no-packages.png'), fullPage: false })
   })
 
   test('the table path is styled too: the comparison table lays out as a table with the recommended hat', async ({ page }, testInfo) => {

@@ -61,3 +61,13 @@ services:
     # Mirrors bp-catalyst-platform's services.catalog.enabled so the edge
     # renders the catalog proxy exactly when region-a serves it.
     enabled: false
+  # #7909 — the BSS engine (bp-chargeback, slot 13f, primary-only). Region-b's
+  # oidc-gate serves chargeback.<fqdn> and dials chargeback.chargeback:8080;
+  # this renders that name on region-b as a ClusterMesh stub of region-a's
+  # Service (service-chargeback.yaml). The slot fills it on multi-region
+  # provs. Empty/false → no-op.
+  chargeback:
+    enabled: false
+    namespace: chargeback
+    service: chargeback
+    port: 8080

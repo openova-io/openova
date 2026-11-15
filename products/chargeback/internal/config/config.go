@@ -51,6 +51,13 @@ type Config struct {
 	// turns them off here. Add-on lines, allowances and caps are unaffected.
 	PackageIncludedLines bool
 
+	// DefaultOffer (DEFAULT_OFFER; default on for the sovereign profile, off
+	// for operator-central) writes the offer the engine ships with into a
+	// plans book that carries none, once, at start (DESIGN.md §22.12). Off,
+	// a fresh database publishes nothing until a sovereign-admin enters an
+	// offer.
+	DefaultOffer bool
+
 	// OpenOva adapter (ADR-0014 D2 case 1; #6723 lane D). AdapterEnabled
 	// is the raw ADAPTER_ENABLED override: "" = auto (on when the profile
 	// is sovereign AND in-cluster Kubernetes configuration is available),
@@ -250,6 +257,7 @@ func FromEnv() (Config, error) {
 	if c.Profile != "sovereign" && c.Profile != "operator-central" {
 		return c, fmt.Errorf("PROFILE must be sovereign or operator-central, got %q", c.Profile)
 	}
+	c.DefaultOffer = boolEnv("DEFAULT_OFFER", c.Profile == "sovereign")
 	if strings.Count(c.HuaweiEndpointTemplate, "%s") != 2 {
 		return c, fmt.Errorf("HUAWEI_ENDPOINT_TEMPLATE must contain two %%s placeholders (service, region)")
 	}

@@ -225,7 +225,7 @@ func TestIntegrationPackagesMatrixAddonsAndBilling(t *testing.T) {
 		t.Fatalf("floor = %v", fl)
 	}
 	pk := pubDoc["packages"].([]any)
-	if len(pk) != 4 || pk[0].(map[string]any)["sku"] != "plan.s" || pk[3].(map[string]any)["sku"] != "plan.xl" || dec(t, pk[0].(map[string]any)["price_month"]) != `"5.000"` {
+	if len(pk) != 4 || pk[0].(map[string]any)["sku"] != "plan.s" || pk[3].(map[string]any)["sku"] != "plan.xl" || dec(t, pk[0].(map[string]any)["price_month"]) != `"2.490"` {
 		t.Fatalf("packages = %v", pk)
 	}
 	pS, pM := pk[0].(map[string]any), pk[1].(map[string]any)
@@ -238,16 +238,17 @@ func TestIntegrationPackagesMatrixAddonsAndBilling(t *testing.T) {
 	if sh := pS["shape"].(map[string]any); sh["vcpu_guaranteed"] != nil || dec(t, sh["vcpu"]) != "2" || pS["recommended"] != false {
 		t.Fatalf("S shape (no settings) = %v", sh)
 	}
-	// The step-up rule at the catalog's prices: S → M gap 4.000, DR's next
-	// level (8.000) is purchasable on S but M is still at level 0 — nothing
-	// bundled, the rule holds trivially; L → XL gap 14.000, backup (1.500)
+	// The step-up rule at the catalog's prices (the default offer's: S 2.490
+	// · M 4.490 · L 7.990 · XL 13.990): S → M gap 2.000, DR's next level
+	// (8.000) is purchasable on S but M is still at level 0 — nothing
+	// bundled, the rule holds trivially; L → XL gap 6.000, backup (1.500)
 	// bundled, the rule does not hold.
 	su := pS["step_up"].(map[string]any)
-	if su["next_sku"] != "plan.m" || dec(t, su["gap_month"]) != `"4.000"` || len(su["bundled_addon_keys"].([]any)) != 0 || su["rule_holds"] != true {
+	if su["next_sku"] != "plan.m" || dec(t, su["gap_month"]) != `"2.000"` || len(su["bundled_addon_keys"].([]any)) != 0 || su["rule_holds"] != true {
 		t.Fatalf("S step-up = %v", su)
 	}
 	su = pk[2].(map[string]any)["step_up"].(map[string]any)
-	if su["next_sku"] != "plan.xl" || dec(t, su["gap_month"]) != `"14.000"` || dec(t, su["bundled_addons_sum_month"]) != `"1.500"` || su["rule_holds"] != false {
+	if su["next_sku"] != "plan.xl" || dec(t, su["gap_month"]) != `"6.000"` || dec(t, su["bundled_addons_sum_month"]) != `"1.500"` || su["rule_holds"] != false {
 		t.Fatalf("L step-up = %v", su)
 	}
 	fs := pubDoc["features"].([]any)
@@ -367,15 +368,15 @@ func TestIntegrationPackagesMatrixAddonsAndBilling(t *testing.T) {
 	}
 	// The package is a FLAT monthly price, prepaid (DESIGN.md §22.11): July
 	// was not paid in advance (the Source's first month), so it is billed
-	// whole at 9.000 — not 744 h × 0.01232877 = 9.172605 — and August in
-	// advance at 9.000.
+	// whole at 4.490 — not 744 h × 0.00615068 = 4.576106 — and August in
+	// advance at 4.490.
 	if len(planLines) != 2 {
 		t.Fatalf("plan lines = %v, want July and August in advance", planLines)
 	}
 	for i, want := range []string{"M package — July 2026 (not billed in advance)", "M package — August 2026, billed in advance"} {
 		l := planLines[i]
-		if dec(t, l["amount"]) != "9.000000" || dec(t, l["quantity"]) != "1.000000" || l["unit"] != "month" || l["description"] != want {
-			t.Fatalf("plan line %d = %v, want %q at 9.000000", i, l, want)
+		if dec(t, l["amount"]) != "4.490000" || dec(t, l["quantity"]) != "1.000000" || l["unit"] != "month" || l["description"] != want {
+			t.Fatalf("plan line %d = %v, want %q at 4.490000", i, l, want)
 		}
 	}
 	// The add-on: 744 plan-hours at 0.00205479 = 1.528764, named.
@@ -432,9 +433,9 @@ func TestIntegrationPackagesMatrixAddonsAndBilling(t *testing.T) {
 	if ns := res["not_sold_per_use"]; ns == nil || len(ns.([]any)) != 1 || ns.([]any)[0] != "k8s.vcpu" {
 		t.Fatalf("not sold per use = %v, want k8s.vcpu", ns)
 	}
-	// 9.000 (July) + 9.000 (August, in advance) + 1.528764 + 0 + 0 + 0 =
-	// 19.528764 — capped: the package and its add-on, nothing beyond.
-	if dec(t, stmt["subtotal"]) != "19.528764" {
+	// 4.490 (July) + 4.490 (August, in advance) + 1.528764 + 0 + 0 + 0 =
+	// 10.508764 — capped: the package and its add-on, nothing beyond.
+	if dec(t, stmt["subtotal"]) != "10.508764" {
 		t.Fatalf("subtotal = %s", dec(t, stmt["subtotal"]))
 	}
 
@@ -573,8 +574,8 @@ func TestIntegrationPublicEstimatePricesAddonsByTheMonth(t *testing.T) {
 		t.Fatalf("add-on line = %v", addon)
 	}
 	// The month: the plan over 3 months + the add-on over 3 months, taxed.
-	// (9.000002 + 1.499997) × 1.05 = 11.024999
-	if dec(t, est["monthly"]) != "11.024999" {
+	// (4.489996 + 1.499997) × 1.05 = 6.289493
+	if dec(t, est["monthly"]) != "6.289493" {
 		t.Fatalf("monthly = %s", dec(t, est["monthly"]))
 	}
 	if rec, out := anon.json("POST", "/api/v1/public/estimates?preview=1", map[string]any{"lines": []map[string]any{{"sku": "addon.backup", "quantity": "1", "hours_per_month": "100"}}}); rec.Code != 400 || !strings.Contains(out["error"].(string), "an add-on is a whole month") {

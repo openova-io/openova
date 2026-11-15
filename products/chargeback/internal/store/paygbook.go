@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+
+	"github.com/openova-io/openova/products/chargeback/internal/offer"
 )
 
 // Pay per use — the "Organization PAYG" rate card (founder direction
@@ -32,57 +34,64 @@ const (
 	// m/730, so both platform books convert money the same way and a divisor
 	// the operator changes recomputes both alike.
 	PAYGBookDivisor = 8760
-	// paygUnitGiB is the memory every sized plan bundles per vCPU (S 2 vCPU
-	// / 4 GiB, M 4/8, L 8/16, XL 16/32 — planQuotaTable). It is what makes
+	// paygUnitGiB is the memory every sized plan bundles per vCPU (S 1 vCPU
+	// / 2 GiB, M 2/4, L 4/8, XL 8/16 — planQuotaTable). It is what makes
 	// the ladder below one number per plan instead of two.
 	paygUnitGiB = 2
-	// The pay-per-use premium over the entry commitment, as an exact
+	// The least pay-per-use premium over the entry commitment, as an exact
 	// fraction: 10 %.
 	paygPremiumNum = 11
 	paygPremiumDen = 10
 )
 
-// paygShapeVCPU is the vCPU ceiling planQuotaTable enforces for each sized
-// plan. Flexi has no row here: it has no ceiling, which is the whole reason
-// this book exists.
+// paygShapeVCPU is the vCPU headline PlanShape falls back to for a package
+// that has no package settings. It predates the default offer, whose
+// settings (and the org-controller's planQuotaTable) size S at 1 vCPU; with
+// the default offer written every package has settings, so the fallback is
+// read only where a sovereign-admin removed them. Flexi has no row here: it
+// has no ceiling, which is the whole reason this book exists.
 var paygShapeVCPU = map[string]int64{"s": 2, "m": 4, "l": 8, "xl": 16}
 
 // committedUnitRate is what a sized plan charges per UNIT per month, where a
-// unit is 1 vCPU + paygUnitGiB GiB — the shape every plan is built from. It
-// turns the founder's four prices into one comparable ladder:
+// unit is 1 vCPU + paygUnitGiB GiB — the shape every plan is built from. Both
+// numbers come from the engine's default offer (the plan item's annual price
+// ÷ 12 and the package's vCPU headline), so the ladder below is the one the
+// storefront sells:
 //
-//	S   5 OMR / 2 units  = 2.5      M  9 OMR / 4 units  = 2.25
-//	L  16 OMR / 8 units  = 2.0      XL 30 OMR / 16 units = 1.875
+//	S   2.490 OMR / 1 unit  = 2.490    M  4.490 OMR / 2 units = 2.245
+//	L   7.990 OMR / 4 units = 1.998    XL 13.990 OMR / 8 units = 1.749
 //
 // which is a volume discount: the more an Organization commits to, the less
 // each unit costs. Returns nil for a plan with no fixed shape (flexi).
 func committedUnitRate(slug string) *big.Rat {
-	vcpu, ok := paygShapeVCPU[slug]
+	monthly := PlanMonthly(slug)
+	if monthly == nil {
+		return nil
+	}
+	p, ok := offer.MustDefault().PackageOf(PlanSKU(slug))
 	if !ok {
 		return nil
 	}
-	for _, p := range catalogPlans {
-		if p.Slug == slug {
-			return new(big.Rat).SetFrac64(p.MonthlyOMR, vcpu)
-		}
+	vcpu, ok := new(big.Rat).SetString(string(p.Shape.VCPU))
+	if !ok || vcpu.Sign() <= 0 {
+		return nil
 	}
-	return nil
+	return monthly.Quo(monthly, vcpu)
 }
 
 // paygUnitRate is the pay-per-use price of one unit (1 vCPU + 2 GiB) per
-// month: the ENTRY commitment's rate plus a premium.
+// month: 2.75 OMR.
 //
 // Pay per use commits to nothing — the Organization can scale to zero and
 // stop paying that hour — so it must not undercut the cheapest thing an
 // Organization can commit to, or every customer would take flexi and the
-// ladder above would price nothing. S is the entry commitment at 2.5 per
-// unit-month; the premium is 10 %, giving 2.75, which sits above every rung
-// of the committed ladder (2.5 / 2.25 / 2.0 / 1.875) while staying close
-// enough to the entry rung that flexi is a real product and not a penalty.
-func paygUnitRate() *big.Rat {
-	base := committedUnitRate("s")
-	return base.Mul(base, big.NewRat(paygPremiumNum, paygPremiumDen))
-}
+// ladder above would price nothing. The rate was set on 2026-09-10 as the
+// entry commitment of that day (2.50 per unit-month) plus a 10 % premium; the
+// entry rung of the default offer is 2.490, so it still sits at least 10 %
+// above the entry commitment and above every rung of the ladder
+// (TestPAYGUnitRateSplit holds both), while staying close enough to the entry
+// rung that flexi is a real product and not a penalty.
+func paygUnitRate() *big.Rat { return big.NewRat(11, 4) }
 
 // The three monthly rates this book charges, exact. The first two split
 // paygUnitRate across the two things a unit is made of:
@@ -119,7 +128,7 @@ type paygRate struct {
 func paygRates() []paygRate {
 	return []paygRate{
 		{SKU: SKUVCPU, Unit: UnitVCPU, Per: "vCPU", Monthly: paygVCPUMonthly,
-			Why: "the compute share of the 2.75 OMR pay-per-use unit (1 vCPU + 2 GiB), which is the S plan rate of 2.50 per unit-month plus a 10 percent no-commitment premium"},
+			Why: "the compute share of the 2.75 OMR pay-per-use unit (1 vCPU + 2 GiB), which sits at least 10 percent above the entry package rate per unit-month as a no-commitment premium"},
 		{SKU: SKUMem, Unit: UnitMem, Per: "GiB", Monthly: paygMemMonthly,
 			Why: "the memory share of the same 2.75 OMR unit: 2.00 for the vCPU leaves 0.75 for the 2 GiB a unit carries, so 0.375 per GiB"},
 		{SKU: SKUPVC, Unit: UnitPVC, Per: "GB", Monthly: paygPVCMonthly,
@@ -133,10 +142,10 @@ func paygRates() []paygRate {
 // one-time normalisation migration embeds it in SQL.
 const PAYGBookDescription = "Pay per use for flexi Organizations (founder direction 2026-09-10). " +
 	"Flexi is the one catalog plan with no quota ceiling, so it has no bundle to sell and no plan.<slug> line; it is billed off the k8s.* meters instead, and this book is what prices them. " +
-	"Derivation: the sized plans are S 5 / M 9 / L 16 / XL 30 OMR per month for 2 / 4 / 8 / 16 vCPU with 2 GiB per vCPU, which is 2.50 / 2.25 / 2.00 / 1.875 OMR per unit-month for a unit of 1 vCPU + 2 GiB - a volume ladder. " +
-	"Pay per use commits to nothing and so must sit above the entry commitment: 2.50 + 10 percent = 2.75 OMR per unit-month, split as 2.00 per vCPU and 0.375 per GiB. " +
+	"Derivation: each sized package (the plan items of the OpenOva plans book) costs less per unit of 1 vCPU + 2 GiB the larger it is - a volume ladder. " +
+	"Pay per use commits to nothing and so sits at least 10 percent above the entry package per unit: 2.75 OMR per unit-month, split as 2.00 per vCPU and 0.375 per GiB. " +
 	"Storage sits outside the ladder because no plan bundles any: 0.219 per GB-month, about 31 percent above the " + PAYGStorageFloorPerGBHour + " OMR per GB-hour the cloud charges for the SSD underneath. " +
-	"A flexi Organization on 4 vCPU + 8 GiB around the clock therefore pays about 11 OMR a month against 9 for the committed M plan, and near zero while it is idle. " +
+	"A flexi Organization on 2 vCPU + 4 GiB around the clock therefore pays 5.50 OMR a month, more than the committed package of that size, and near zero while it is idle. " +
 	"Every rate is annual = monthly x 12 and hourly = annual / 8760 = monthly / 730. Edit the items to change any of it."
 
 // PAYGBookItems are the three priced platform meters of the pay-per-use

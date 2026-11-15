@@ -589,15 +589,15 @@ describe('ladder markup contract', () => {
     expect(css).toMatch(/\.ld-card\s*\{[^}]*display:\s*flex/);
   });
 
-  it('PackageTable mounts the ladder for a v2 document and still falls back to the deck first', () => {
+  it('PackageTable mounts the ladder for a v2 document; the server render is the loading notice', () => {
     expect(table).toMatch(/import PackageLadder from ['"]\.\/PackageLadder\.svelte['"]/);
     expect(table).toMatch(/isLadderDocument\(/);
     expect(table).toMatch(/<PackageLadder\s/);
-    expect(table).toMatch(/<PlanStep\s*\/>/);
-    // The deck is the server render: no branch may precede it with a truthy
-    // initial state, and the ladder branch is keyed on a state the server
-    // never holds.
-    expect(table).toMatch(/\$state<'deck' \| 'table' \| 'ladder'>\('deck'\)/);
+    // #7909 — no built-in deck. The loading notice is the server render, and
+    // the ladder branch is keyed on a state the server never holds.
+    expect(table).not.toMatch(/<PlanStep\s*\/>/);
+    expect(table).toMatch(/data-testid="packages-loading"/);
+    expect(table).toMatch(/\$state<'loading' \| 'none' \| 'table' \| 'ladder'>\('loading'\)/);
   });
 
   it('the ladder picks nothing: no checkbox, no add-on toggle; every row comes from the document', () => {

@@ -30,3 +30,32 @@ func TestPlatformAPIBearerFileEnvAndDeprecatedAlias(t *testing.T) {
 		})
 	}
 }
+
+// DEFAULT_OFFER (DESIGN.md §22.12) is on by default for the sovereign profile
+// — a fresh Sovereign must publish the offer the engine ships with — and off
+// for operator-central, which sells no packages. An explicit value wins.
+func TestDefaultOfferOnByDefaultForTheSovereignProfile(t *testing.T) {
+	cases := []struct {
+		profile, env string
+		want         bool
+	}{
+		{"", "", true},
+		{"sovereign", "", true},
+		{"operator-central", "", false},
+		{"sovereign", "false", false},
+		{"operator-central", "true", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.profile+"/"+tc.env, func(t *testing.T) {
+			t.Setenv("PROFILE", tc.profile)
+			t.Setenv("DEFAULT_OFFER", tc.env)
+			c, err := FromEnv()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.DefaultOffer != tc.want {
+				t.Fatalf("PROFILE=%q DEFAULT_OFFER=%q: DefaultOffer = %v, want %v", tc.profile, tc.env, c.DefaultOffer, tc.want)
+			}
+		})
+	}
+}

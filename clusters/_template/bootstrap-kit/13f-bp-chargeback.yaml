@@ -122,6 +122,17 @@ spec:
     global:
       imageRegistry: ''
     sovereignFqdn: ${SOVEREIGN_FQDN}
+    # #7909 — this HR is primary-only, but the gate of slot 13c serves
+    # chargeback.<fqdn> in EVERY region: on a two-region Sovereign the
+    # follower's gate dialled a Service that does not exist there and
+    # answered 502 for half of all requests (6 of 12, fresh install, 15 Nov
+    # 2026). The region-a half of the fix: publish this Service to
+    # ClusterMesh and admit the peer region's gate. The region-b half is the
+    # same-name stub slot 13e renders (services.chargeback). Same source vars
+    # as slot 13d (mcp) and 13c, so a single-region install renders as before.
+    multiRegion:
+      enabled: ${SOVEREIGN_ENABLE_HOT_STANDBY:-false}
+      peerClusters: ${SOVEREIGN_PEER_CLUSTERMESH_NAMES:=[]}
     # #6841 — the Sovereign SSO owns sign-in. bp-oidc-gate (slot 13c) holds
     # chargeback.<fqdn> and authenticates the browser against the Keycloak
     # sovereign realm silently (kc_idp_hint=catalyst-pin), then passes the

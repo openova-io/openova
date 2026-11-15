@@ -84,6 +84,10 @@ has "$def" 'name: chargeback-app-key' "defaults: app-key Secret name not referen
 has "$def" 'name: wait-for-database-url' "defaults: DSN gate initContainer missing"
 has "$def" 'value: "https://%s.%s.kom4dc.nationalcloud.om"' "defaults: HUAWEI_ENDPOINT_TEMPLATE default missing"
 has "$def" 'value: "sovereign"' "defaults: PROFILE default missing"
+# #7909 — a fresh Sovereign publishes the offer the engine ships: DEFAULT_OFFER
+# is on by default (DESIGN.md §22.12), and a placement can turn it off.
+grep -A1 -- 'name: DEFAULT_OFFER' <<<"$def" | grep -q 'value: "true"' || fail "defaults: DEFAULT_OFFER is not on — a fresh Sovereign would publish no packages (#7909)"
+grep -A1 -- 'name: DEFAULT_OFFER' <<<"$(render --set config.defaultOffer=false)" | grep -q 'value: "false"' || fail "config.defaultOffer=false does not turn DEFAULT_OFFER off"
 # requests == limits (Guaranteed QoS — the per-Org LimitRange requires 1:1, #4362)
 req_cpu="$(grep -A2 'requests:' <<<"$def" | grep -m1 'cpu:' | awk '{print $2}')"
 lim_cpu="$(grep -A2 'limits:' <<<"$def" | grep -m1 'cpu:' | awk '{print $2}')"

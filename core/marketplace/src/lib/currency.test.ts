@@ -1,14 +1,12 @@
 // currency.test.ts — the storefront's money formatter on the National Cloud
 // package prices (#6971, NC-OO-Pricing.xlsx 2026-06-28).
 //
-// The legacy plan deck (PlanStep.svelte, shown when there is no BSS document)
-// renders a plan as "OMR <formatOMRAmount(monthly_price)> / mo", and
-// monthly_price is baisa taken from the catalog's price_baisa. The packages
-// cost 2.490 / 4.490 / 7.990 / 13.990 OMR — three decimals that a formatter
-// rounding to whole OMR, or a reader multiplying price_omr by 1000 in floating
-// point, would mangle.
+// A plan's monthly_price is baisa taken from the catalog's price_baisa (the
+// cart and the review read it). The packages cost 2.490 / 4.490 / 7.990 /
+// 13.990 OMR — three decimals that a formatter rounding to whole OMR, or a
+// reader multiplying price_omr by 1000 in floating point, would mangle.
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -59,26 +57,16 @@ describe('getPlans reads the plan price from price_baisa', () => {
   });
 });
 
-// And the legacy deck's own fallback rows (catalog unreachable) carry the
-// ladder in baisa, with the workbook's shapes.
-describe('PlanStep fallback rows carry the National Cloud ladder', () => {
-  const deck = readFileSync(join(__dirname, '..', 'components', 'PlanStep.svelte'), 'utf8');
-
-  it('prices and shapes', () => {
-    for (const row of [
-      /slug: 's'.*cpu: '1 vCPU', memory: '2 GB', storage: '25 GB' \}, monthly_price: 2490/,
-      /slug: 'm'.*cpu: '2 vCPU', memory: '4 GB', storage: '50 GB' \}, monthly_price: 4490/,
-      /slug: 'l'.*cpu: '4 vCPU', memory: '8 GB', storage: '100 GB' \}, monthly_price: 7990/,
-      /slug: 'xl'.*cpu: '8 vCPU', memory: '16 GB', storage: '250 GB' \}, monthly_price: 13990/,
-    ]) {
-      expect(deck).toMatch(row);
+// #7909 — the built-in plan deck (PlanStep.svelte) and its hard-coded fallback
+// ladder are gone: the storefront offers only what the engine publishes, so no
+// component may carry a plan list of its own.
+describe('no component carries a built-in plan list', () => {
+  it('PlanStep and its fallback ladder are gone', () => {
+    expect(existsSync(join(__dirname, '..', 'components', 'PlanStep.svelte'))).toBe(false);
+    for (const file of readdirSync(join(__dirname, '..', 'components'))) {
+      const src = readFileSync(join(__dirname, '..', 'components', file), 'utf8');
+      expect(src, file).not.toMatch(/monthly_price:\s*(2490|4490|7990|13990)/);
+      expect(src, file).not.toMatch(/capsByName|capRows/);
     }
-    // The old ladder is gone from the deck.
-    expect(deck).not.toMatch(/monthly_price: (5000|9000|16000|30000)/);
-    expect(deck).not.toMatch(/'16 vCPU'|'32 GB'/);
-  });
-
-  it('lists no invented SLA, support tier or user count', () => {
-    expect(deck).not.toMatch(/responseSla|Response SLA|Dedicated account manager|Priority support|up to \d+ users/);
   });
 });
