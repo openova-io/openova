@@ -5423,7 +5423,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.2.5"
+  version: "0.2.6"
   visibility: unlisted
   card:
     title: "OpenOva Flow Server"
@@ -5440,7 +5440,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-openova-flow-server
-    version: "0.2.5"
+    version: "0.2.6"
   topology:
     supported:
       - singleton
