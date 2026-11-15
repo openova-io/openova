@@ -35,6 +35,7 @@ One row for each HelmRelease of each file that `clusters/_template/bootstrap-kit
 | 11a | 11a-bp-powerdns-admin.yaml | bp-powerdns-admin | powerdns-admin | powerdns-admin | bp-powerdns-admin | bp-powerdns, bp-cnpg, bp-postgres-shared-b, bp-keycloak, bp-sso-bridge, bp-external-secrets-stores, bp-reflector, bp-gateway-api | - | same |
 | 12 | 12-external-dns.yaml | bp-external-dns | external-dns | external-dns | bp-external-dns | bp-cert-manager, bp-powerdns, bp-reflector | - | same |
 | 12a | 12a-bp-sovereign-tls-vars.yaml | bp-sovereign-tls-vars | sovereign-tls-vars | flux-system | bp-sovereign-tls-vars | - | - | same |
+| 12b | 12b-sovereign-object.yaml | (none) | - | - | - | - | - | - |
 | 13 | 13-bp-catalyst-platform.yaml | bp-catalyst-platform | catalyst-platform | catalyst-system | bp-catalyst-platform | bp-gitea, bp-gateway-api, bp-keycloak, bp-cnpg, bp-crossplane-claims, bp-postgres-shared-c | `suspend=${SECONDARY_HR_SUSPEND:=false}`, `values.multiRegion.enabled=${SOVEREIGN_ENABLE_HOT_STANDBY:-false}`, `values.qaFixtures.enabled=${QA_FIXTURES_ENABLED:-false}` | same |
 | 13b | 13b-bp-sso-bridge.yaml | bp-sso-bridge | sso-bridge | sso-bridge | bp-sso-bridge | bp-keycloak, bp-openbao | - | same |
 | 13c | 13c-bp-oidc-gate.yaml | bp-oidc-gate | oidc-gate | oidc-gate | bp-oidc-gate | bp-cilium, bp-keycloak, bp-external-secrets-stores | - | same |

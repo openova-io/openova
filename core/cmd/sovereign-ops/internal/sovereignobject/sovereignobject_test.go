@@ -123,7 +123,7 @@ func TestSovereignObjectAbsentFields(t *testing.T) {
 	f := newCluster(t, true)
 	d := data(f)
 	delete(d, "SOVEREIGN_DEPLOYMENT_ID")
-	d["PROVIDER"] = "nimbus"
+	delete(d, "PROVIDER")
 	delete(d, "SOVEREIGN_BCP_TOPOLOGY")
 	d["SOVEREIGN_REGIONS_JSON"] = `[{"provider":"huawei"}]`
 	d["PARENT_DOMAINS_YAML"] = `[{name: "example.invalid", role: "sme-pool"}]`
@@ -137,7 +137,7 @@ func TestSovereignObjectAbsentFields(t *testing.T) {
 	}
 	want := []string{"applied Sovereign sovereign-self spec: fqdn",
 		"absent from spec: deploymentId (the key SOVEREIGN_DEPLOYMENT_ID is absent or empty)",
-		`absent from spec: provider (PROVIDER "nimbus" is not a provider of the kind)`,
+		"absent from spec: provider (the key PROVIDER is absent or empty)",
 		"absent from spec: bcpTopology (the key SOVEREIGN_BCP_TOPOLOGY is absent or empty)",
 		"absent from spec: regions (entry 0 of SOVEREIGN_REGIONS_JSON has no cloudRegion)",
 		"absent from spec: parentDomains (entry 0 of PARENT_DOMAINS_YAML has no name or a role other than primary and org-pool)"}

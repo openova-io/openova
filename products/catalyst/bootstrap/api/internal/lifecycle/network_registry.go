@@ -5,8 +5,10 @@
 // over, the step that applies the adoption claims from that state (handler file
 // post_handover_adoption_apply.go) calls DeliverNetworkRegistry, which writes
 // the output into the ConfigMap flux-system/sovereign-network-registry of each
-// region whose kubeconfig the parent holds: <dir>/<deploymentID>.yaml for the
-// primary and <dir>/<deploymentID>-<regionKey>.yaml for every other region.
+// region of the deployment that the parent's cluster cache (k8scache) holds:
+// the cluster <deploymentID> (the primary) and every <deploymentID>-<regionKey>.
+// The cache's dynamic client is the parent's one channel to a child cluster,
+// so this file builds no client of its own.
 // The writer of the Sovereign object, `sovereign-ops sovereign-object`, runs
 // in every region and copies the document into status.network. Nothing of it
 // passes through the user data of a node.
@@ -19,18 +21,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
-	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/tools/clientcmd"
 )
 
 // The ConfigMap that carries the registry, and its two keys. Both key names
@@ -94,73 +93,70 @@ func NetworkRegistryConfigMap(registry string) *unstructured.Unstructured {
 	}}
 }
 
-// NetworkRegistryKubeconfigs returns the kubeconfig file of every region of
-// the deployment in dir: <deploymentID>.yaml first, then each
-// <deploymentID>-<regionKey>.yaml by name. Other files of dir are not read.
-func NetworkRegistryKubeconfigs(dir, deploymentID string) []string {
-	entries, err := os.ReadDir(dir)
-	if err != nil || deploymentID == "" {
+// Clusters is the part of the parent's cluster cache (k8scache.Factory) that
+// the delivery uses: the registered cluster ids and the dynamic client of one.
+type Clusters interface {
+	Clusters() []string
+	DynamicClientFor(clusterID string) (dynamic.Interface, error)
+}
+
+// NetworkRegistryClusters returns the clusters of the deployment among ids:
+// <deploymentID> first, then each <deploymentID>-<regionKey> by name.
+func NetworkRegistryClusters(ids []string, deploymentID string) []string {
+	if deploymentID == "" {
 		return nil
 	}
 	var primary, others []string
-	for _, e := range entries {
-		n := e.Name()
+	for _, id := range ids {
 		switch {
-		case e.IsDir() || !strings.HasSuffix(n, ".yaml"):
-		case n == deploymentID+".yaml":
-			primary = append(primary, filepath.Join(dir, n))
-		case strings.HasPrefix(n, deploymentID+"-") && len(n) > len(deploymentID)+len("-.yaml"):
-			others = append(others, filepath.Join(dir, n))
+		case id == deploymentID:
+			primary = append(primary, id)
+		case strings.HasPrefix(id, deploymentID+"-") && len(id) > len(deploymentID)+1:
+			others = append(others, id)
 		}
 	}
 	sort.Strings(others)
 	return append(primary, others...)
 }
 
-// ApplyFunc writes cm into the cluster of one kubeconfig.
-type ApplyFunc func(ctx context.Context, kubeconfig []byte, cm *unstructured.Unstructured) error
+// ApplyFunc writes cm with the dynamic client of one cluster.
+type ApplyFunc func(ctx context.Context, dyn dynamic.Interface, cm *unstructured.Unstructured) error
 
 // DeliverNetworkRegistry reads the registry from state and writes its
-// ConfigMap with every kubeconfig NetworkRegistryKubeconfigs finds. It
-// returns one line per region, "<file>: <result>", for the log. A region that
-// fails does not stop the others.
-func DeliverNetworkRegistry(ctx context.Context, state []byte, dir, deploymentID string, apply ApplyFunc) []string {
+// ConfigMap into every cluster of the deployment that clusters holds. It
+// returns one line per cluster, "<cluster id>: <result>", for the log. A
+// cluster that fails does not stop the others.
+func DeliverNetworkRegistry(ctx context.Context, state []byte, deploymentID string, clusters Clusters, apply ApplyFunc) []string {
 	registry, err := NetworkRegistryFromState(state)
 	if err != nil {
 		return []string{"not delivered: " + err.Error()}
 	}
-	files := NetworkRegistryKubeconfigs(dir, deploymentID)
-	if len(files) == 0 {
-		return []string{"not delivered: no kubeconfig of deployment " + deploymentID + " in " + dir}
+	if clusters == nil || (reflect.ValueOf(clusters).Kind() == reflect.Ptr && reflect.ValueOf(clusters).IsNil()) {
+		return []string{"not delivered: the parent has no cluster cache"}
+	}
+	ids := NetworkRegistryClusters(clusters.Clusters(), deploymentID)
+	if len(ids) == 0 {
+		return []string{"not delivered: the cluster cache holds no cluster of deployment " + deploymentID}
 	}
 	cm := NetworkRegistryConfigMap(registry)
 	rev := cm.Object["data"].(map[string]any)[NetworkRegistryRevisionKey]
-	out := make([]string, 0, len(files))
-	for _, f := range files {
-		raw, err := os.ReadFile(filepath.Clean(f))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		dyn, err := clusters.DynamicClientFor(id)
 		if err == nil {
-			err = apply(ctx, raw, cm.DeepCopy())
+			err = apply(ctx, dyn, cm.DeepCopy())
 		}
 		if err != nil {
-			out = append(out, fmt.Sprintf("%s: %v", filepath.Base(f), err))
+			out = append(out, fmt.Sprintf("%s: %v", id, err))
 			continue
 		}
-		out = append(out, fmt.Sprintf("%s: revision %s", filepath.Base(f), rev))
+		out = append(out, fmt.Sprintf("%s: revision %s", id, rev))
 	}
 	return out
 }
 
-// ApplyConfigMap server-side-applies cm with the cluster of kubeconfig.
-func ApplyConfigMap(ctx context.Context, kubeconfig []byte, cm *unstructured.Unstructured) error {
-	cfg, err := clientcmd.RESTConfigFromKubeConfig(kubeconfig)
-	if err != nil {
-		return err
-	}
-	cfg.Timeout = 30 * time.Second
-	dyn, err := dynamic.NewForConfig(cfg)
-	if err != nil {
-		return err
-	}
+// ApplyConfigMap server-side-applies cm with dyn.
+func ApplyConfigMap(ctx context.Context, dyn dynamic.Interface, cm *unstructured.Unstructured) error {
 	body, err := cm.MarshalJSON()
 	if err != nil {
 		return err

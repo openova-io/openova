@@ -12,6 +12,8 @@
 #     sovereignobject).
 #
 # No suspend and no region condition: every region needs its own object.
+# Ring foundation, like slots 04b and 15b: it is part of every region's
+# bootstrap and is never switched off.
 # wait: false, so a failing writer Job never holds bootstrap-kit; the Job's
 # own status and result line tell whether the object was written.
 #
@@ -30,6 +32,9 @@ kind: Kustomization
 metadata:
   name: sovereign-object
   namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "12b"
+    catalyst.openova.io/ring: foundation
 spec:
   interval: 10m
   retryInterval: 1m

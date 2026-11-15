@@ -10,16 +10,20 @@
 //	spec field      key                       written when
 //	fqdn            SOVEREIGN_FQDN            always; the run fails without it
 //	deploymentId    SOVEREIGN_DEPLOYMENT_ID   the value is 16 hexadecimal digits
-//	provider        PROVIDER                  the value is a provider of the kind
+//	provider        PROVIDER                  the value is not empty
 //	bcpTopology     SOVEREIGN_BCP_TOPOLOGY    the value is a topology of the kind
 //	regions         SOVEREIGN_REGIONS_JSON    the value is a JSON list whose every
 //	                                          entry has a cloudRegion; code is the
 //	                                          cloudRegion, provider the entry's own
+//	                                          when it is not empty
 //	parentDomains   PARENT_DOMAINS_YAML       every entry has a name and the role
 //	                                          primary or org-pool
 //
 // A field whose key is absent or whose value does not qualify is left out of
 // the object, and the evidence names it with the reason. No value is made up.
+// The list of providers belongs to the kind, not to this command: a provider
+// the kind does not accept fails the write, and the run names the API
+// server's message.
 //
 // status.network is the output network_registry of the provider module,
 // copied unchanged from the key NETWORK_REGISTRY_JSON of the ConfigMap
@@ -62,7 +66,6 @@ const (
 
 // The values the kind accepts, from products/catalyst/chart/crds/sovereign.yaml.
 var (
-	providers  = []string{"hetzner", "huawei", "aws", "gcp", "azure", "oci", "contabo"}
 	topologies = []string{"single-region", "active-hotstandby", "active-active"}
 	roles      = []string{"primary", "org-pool"}
 	hex16      = regexp.MustCompile(`^[0-9a-f]{16}$`)
@@ -159,10 +162,10 @@ func Spec(data map[string]string) (map[string]interface{}, []string) {
 	} else {
 		miss("deploymentId", "SOVEREIGN_DEPLOYMENT_ID", fmt.Sprintf("SOVEREIGN_DEPLOYMENT_ID %q is not 16 hexadecimal digits", v))
 	}
-	if v := data["PROVIDER"]; contains(providers, v) {
+	if v := data["PROVIDER"]; v != "" {
 		spec["provider"] = v
 	} else {
-		miss("provider", "PROVIDER", fmt.Sprintf("PROVIDER %q is not a provider of the kind", v))
+		miss("provider", "PROVIDER", "")
 	}
 	if v := data["SOVEREIGN_BCP_TOPOLOGY"]; contains(topologies, v) {
 		spec["bcpTopology"] = v
@@ -216,7 +219,7 @@ func specRegions(doc string) ([]interface{}, string) {
 			return nil, fmt.Sprintf("entry %d of SOVEREIGN_REGIONS_JSON has no cloudRegion", i)
 		}
 		entry := map[string]interface{}{"code": code}
-		if p, _ := r["provider"].(string); contains(providers, p) {
+		if p, _ := r["provider"].(string); p != "" {
 			entry["provider"] = p
 		}
 		out = append(out, entry)

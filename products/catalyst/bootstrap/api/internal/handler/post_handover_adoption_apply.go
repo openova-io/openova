@@ -107,7 +107,7 @@ func (h *Handler) runPostHandoverAdoptionApply(dep *Deployment) {
 		return
 	}
 	// SOV-175: the network registry reaches every region (internal/lifecycle/network_registry.go).
-	h.log.Info("network-registry", "id", dep.ID, "regions", lifecycle.DeliverNetworkRegistry(context.Background(), stateRaw, h.kubeconfigsDir, dep.ID, lifecycle.ApplyConfigMap))
+	h.log.Info("network-registry", "id", dep.ID, "regions", lifecycle.DeliverNetworkRegistry(context.Background(), stateRaw, dep.ID, h.k8sCache, lifecycle.ApplyConfigMap))
 
 	// 2. Regenerate the real-id CloudAdoption CRs (same pure generator the
 	//    provisioner already calls; re-running is deterministic).

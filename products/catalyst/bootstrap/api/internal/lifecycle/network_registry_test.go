@@ -3,6 +3,9 @@ package lifecycle
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -10,6 +13,8 @@ import (
 	"testing"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/rest"
 )
 
 // registry is the module output of a two-region Sovereign, as the state holds
@@ -70,43 +75,84 @@ func TestNetworkRegistryConfigMap(t *testing.T) {
 	}
 }
 
-// TestDeliverNetworkRegistry: every region's kubeconfig of the deployment
-// gets the ConfigMap, the primary first; files of other deployments and
-// sidecars are not read; a failing region does not stop the next one.
-func TestDeliverNetworkRegistry(t *testing.T) {
-	dir := t.TempDir()
-	for _, n := range []string{"0123456789abcdef.yaml", "0123456789abcdef-region-b-1.yaml", "0123456789abcdef-region-c-2.yaml",
-		"0123456789abcdef-region-b-1.peer", "0123456789abcdef-region-b-1.nodeip", "fedcba9876543210.yaml", "0123456789abcdef-.yaml"} {
-		if err := os.WriteFile(filepath.Join(dir, n), []byte("kubeconfig of "+n), 0o600); err != nil {
-			t.Fatal(err)
-		}
+// fakeClusters is a cluster cache with the given cluster ids; a nil client
+// stands for each, and an id in broken has no client.
+type fakeClusters struct {
+	ids    []string
+	broken map[string]bool
+}
+
+func (f *fakeClusters) Clusters() []string { return f.ids }
+
+func (f *fakeClusters) DynamicClientFor(id string) (dynamic.Interface, error) {
+	if f.broken[id] {
+		return nil, errors.New("not registered")
 	}
+	return nil, nil
+}
+
+// TestDeliverNetworkRegistry: every cluster of the deployment gets the
+// ConfigMap, the primary first; clusters of other deployments are left
+// alone; a failing cluster does not stop the next one.
+func TestDeliverNetworkRegistry(t *testing.T) {
 	doc := registry(t)
-	var seen []string
-	apply := func(_ context.Context, kc []byte, cm *unstructured.Unstructured) error {
-		seen = append(seen, string(kc))
-		if cm.GetName() != "sovereign-network-registry" || cm.Object["data"].(map[string]any)["NETWORK_REGISTRY_JSON"] != doc {
+	clusters := &fakeClusters{ids: []string{"0123456789abcdef-region-c-2", "fedcba9876543210", "0123456789abcdef-region-b-1",
+		"0123456789abcdef", "0123456789abcdef-", "0123456789abcdef-region-d-3"}, broken: map[string]bool{"0123456789abcdef-region-d-3": true}}
+	calls := 0
+	apply := func(_ context.Context, _ dynamic.Interface, cm *unstructured.Unstructured) error {
+		calls++
+		if cm.GetNamespace() != "flux-system" || cm.Object["data"].(map[string]any)["NETWORK_REGISTRY_JSON"] != doc {
 			t.Errorf("ConfigMap %v", cm.Object)
 		}
-		if strings.Contains(string(kc), "region-c") {
+		if calls == 2 {
 			return errors.New("connection refused")
 		}
 		return nil
 	}
 	rev := NetworkRegistryConfigMap(doc).Object["data"].(map[string]any)["NETWORK_REGISTRY_REVISION"].(string)
-	got := DeliverNetworkRegistry(context.Background(), state(t, `"network_registry":{"value":`+quoted(doc)+`,"type":"string"}`), dir, "0123456789abcdef", apply)
-	want := []string{"0123456789abcdef.yaml: revision " + rev, "0123456789abcdef-region-b-1.yaml: revision " + rev,
-		"0123456789abcdef-region-c-2.yaml: connection refused"}
-	if !reflect.DeepEqual(got, want) || !reflect.DeepEqual(seen, []string{"kubeconfig of 0123456789abcdef.yaml",
-		"kubeconfig of 0123456789abcdef-region-b-1.yaml", "kubeconfig of 0123456789abcdef-region-c-2.yaml"}) {
-		t.Fatalf("lines %q, read %q", got, seen)
+	got := DeliverNetworkRegistry(context.Background(), state(t, `"network_registry":{"value":`+quoted(doc)+`,"type":"string"}`), "0123456789abcdef", clusters, apply)
+	want := []string{"0123456789abcdef: revision " + rev, "0123456789abcdef-region-b-1: connection refused",
+		"0123456789abcdef-region-c-2: revision " + rev, "0123456789abcdef-region-d-3: not registered"}
+	if !reflect.DeepEqual(got, want) || calls != 3 {
+		t.Fatalf("lines %q, %d applies", got, calls)
 	}
-	if got := DeliverNetworkRegistry(context.Background(), state(t, ""), dir, "0123456789abcdef", apply); len(got) != 1 ||
+	if got := DeliverNetworkRegistry(context.Background(), state(t, ""), "0123456789abcdef", clusters, apply); len(got) != 1 ||
 		got[0] != "not delivered: "+ErrNoNetworkRegistry.Error() {
 		t.Fatalf("no output: %q", got)
 	}
-	if got := DeliverNetworkRegistry(context.Background(), state(t, `"network_registry":{"value":`+quoted(doc)+`}`), dir, "1111111111111111", apply); len(got) != 1 ||
-		!strings.HasPrefix(got[0], "not delivered: no kubeconfig of deployment 1111111111111111") {
-		t.Fatalf("no kubeconfig: %q", got)
+	if got := DeliverNetworkRegistry(context.Background(), state(t, `"network_registry":{"value":`+quoted(doc)+`}`), "1111111111111111", clusters, apply); len(got) != 1 ||
+		!strings.HasPrefix(got[0], "not delivered: the cluster cache holds no cluster of deployment 1111111111111111") {
+		t.Fatalf("no cluster: %q", got)
+	}
+	var none *fakeClusters
+	if got := DeliverNetworkRegistry(context.Background(), state(t, `"network_registry":{"value":`+quoted(doc)+`}`), "0123456789abcdef", none, apply); len(got) != 1 ||
+		got[0] != "not delivered: the parent has no cluster cache" {
+		t.Fatalf("no cache: %q", got)
+	}
+}
+
+// TestApplyConfigMap: the write is a server-side apply of the ConfigMap in
+// its namespace, under the field manager of the delivery, taking over fields.
+func TestApplyConfigMap(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		got = r.Method + " " + r.URL.Path + "?" + r.URL.RawQuery + " " + r.Header.Get("Content-Type") + " " + string(body)
+		rw.Header().Set("Content-Type", "application/json")
+		_, _ = rw.Write([]byte(`{"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":"sovereign-network-registry","namespace":"flux-system"}}`))
+	}))
+	defer srv.Close()
+	dyn, err := dynamic.NewForConfig(&rest.Config{Host: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyConfigMap(context.Background(), dyn, NetworkRegistryConfigMap(`{"mtu":1420}`)); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"PATCH /api/v1/namespaces/flux-system/configmaps/sovereign-network-registry?",
+		"fieldManager=catalyst-api%2Fnetwork-registry", "force=true", " application/apply-patch+yaml ", `"NETWORK_REGISTRY_REVISION":"335793e55eff"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("request %q lacks %q", got, want)
+		}
 	}
 }
