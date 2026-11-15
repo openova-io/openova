@@ -41,7 +41,10 @@ chmod +x "${CURRENT}" 2>/dev/null || true
 
 # ── RED fixture: the REAL pre-#5759 blob, from git ─────────────────────────
 cd "${REPO_ROOT}"
-PRE_FIX_REF="${PRE_FIX_REF:-origin/main}"
+# The commit before #5764 (f33a40980) holds the real pre-#5759 blob. origin/main
+# carries the refusal since that merge, so it can no longer stand for "before"
+# (#7938: every later change to the script went red on the VACUITY check).
+PRE_FIX_REF="${PRE_FIX_REF:-f33a40980c94f41074e0620b3de15b66f3172557^}"
 if ! git cat-file -e "${PRE_FIX_REF}:scripts/sovereign-daytwo-bootstrap.sh" 2>/dev/null; then
   git fetch origin main --quiet 2>/dev/null || true
 fi

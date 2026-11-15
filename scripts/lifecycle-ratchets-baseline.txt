@@ -1,4 +1,4 @@
-chart_lines=20855
+chart_lines=20845
 chart_mutations=200
 chart_git_push=36
 sequencer_lines=6346

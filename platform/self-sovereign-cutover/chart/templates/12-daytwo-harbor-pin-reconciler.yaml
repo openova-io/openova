@@ -1081,37 +1081,22 @@ spec:
                 esac
 
                 {{- /*
-                 #5759 — REFUSE-BY-DEFAULT. Measured live on hw292 (dep
-                 1c56518035a83e03, cutoverComplete=true) 2026-08-06: this exact
-                 push reverted 62 of 69 region-a HelmRepositories from the
-                 local Harbor back to oci://ghcr.io/openova-io, with the
-                 ghcr-pull credential already stripped by step-06 (severance
-                 working as designed) — 44/72 HelmReleases went not-Ready and
-                 the Sovereign could not self-heal in-cluster (the only
-                 in-cluster remedy would be restoring the stripped upstream
-                 credential, i.e. re-tethering — exactly what cutover exists
-                 to prevent). Root cause, read off the push two lines below:
-                 `git push --force` against a bare clone of UPSTREAM, using
-                 the same explicit-refspec shape template 01 (gitea-mirror)
-                 uses, is a raw ref overwrite, not a merge.
-                 Step-06's durable "cutover: pivot N HelmRepository URLs to
-                 local Harbor" commit lives ONLY on this Sovereign's local
-                 `${UPSTREAM_BRANCH}` and is never reachable from a fresh
-                 upstream clone, so the force-push does not mask that commit,
-                 it DISCARDS it. There is today no merge-preserving
-                 alternative shipped, so this leg cannot guarantee the
-                 re-render preserves the cutover pivot — the exact guarantee
-                 #5759 requires before it may run. Refuse rather than revert
-                 silently. Gated on the LITERAL string 'false' (not merely
-                 "not true"): an unreadable/empty status ConfigMap is treated
-                 as cutover-complete for this check, fail-closed, the same
-                 posture step-08's per-region lint takes on an unmeasurable
-                 region (#5359) — "could not confirm this is safe" is never
-                 "safe".
+                 #5759 — REFUSE-BY-DEFAULT. The push below is `git push --force`
+                 of a bare upstream clone (step-01's refspec shape): a ref
+                 overwrite, not a merge. After cutover the local
+                 ${UPSTREAM_BRANCH} holds this Sovereign's own commits (step-06's
+                 HelmRepository pivot among them); the overwrite discards them
+                 and re-tethers every chart to ghcr.io with no credential left
+                 (hw292, dep 1c56518035a83e03, 2026-08-06: 62 of 69
+                 HelmRepositories reverted, 44 of 72 HelmReleases not Ready). A
+                 later release reaches a cut-over Sovereign by merge instead:
+                 PUT /api/v1/sovereign/release (#7938). Gated on the LITERAL
+                 'false': an unreadable status counts as cut over (fail-closed,
+                 as step-08's per-region lint, #5359).
                 */}}
                 if [ "${CUTOVER_COMPLETE:-}" != "false" ]; then
                   CATALOG_STATUS="blocked-post-cutover"
-                  echo "[daytwo] catalog leg: REFUSING (#5759) — cutoverComplete='${CUTOVER_COMPLETE:-unreadable}' (expected the literal 'false' to proceed). Force-pushing ${UPSTREAM_REPO_URL} onto this Sovereign's local Gitea mirror would overwrite ${UPSTREAM_BRANCH} wholesale and silently discard step-06's durable HelmRepository-pivot commit, re-tethering every chart Flux re-renders to ghcr.io with no credential left to reach it (step-06 already stripped ghcr-pull auth by design). The mirror is UNCHANGED and the Sovereign keeps running on its current pins. No override exists for this refusal — a real fix needs a merge-preserving mirror mechanism, not a flag."
+                  echo "[daytwo] catalog leg: REFUSING (#5759) — cutoverComplete='${CUTOVER_COMPLETE:-unreadable}' (expected the literal 'false' to proceed). Force-pushing ${UPSTREAM_REPO_URL} onto this Sovereign's local Gitea mirror would overwrite ${UPSTREAM_BRANCH} wholesale and silently discard step-06's durable HelmRepository-pivot commit, re-tethering every chart Flux re-renders to ghcr.io with no credential left to reach it (step-06 already stripped ghcr-pull auth by design). The mirror is UNCHANGED and the Sovereign keeps running on its current pins. No override exists for this refusal: a later release reaches a cut-over Sovereign by merge, through PUT /api/v1/sovereign/release (#7938)."
                   daytwo_audit "CATALOG\tblocked\t${_cat_id}\t${_cat_by}\t${UPSTREAM_REPO_URL}\tcutoverComplete=${CUTOVER_COMPLETE:-unreadable}"
                   REQ_FAILED=$((REQ_FAILED+1))
                   return 1
