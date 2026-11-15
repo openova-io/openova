@@ -361,6 +361,12 @@ jobs:
       - name: 'plane-isolation-namespaces | Every namespace bp-plane-isolation lists is declared in the kit'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: python3 scripts/check-plane-isolation-namespaces.py
+      - name: 'adoption-claims-compose | Self-test of the guard (every rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: python3 scripts/check-adoption-claims-compose.py --self-test
+      - name: 'adoption-claims-compose | Every CloudAdoption the template applies can compose its Workspace'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: python3 scripts/check-adoption-claims-compose.py
       - name: 'secret-guards | a randAlphaNum added to a real chart template fails G2'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: |
