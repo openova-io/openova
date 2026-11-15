@@ -1,0 +1,29 @@
+schema: openova.io/plan-wrong/v1
+id: FND-029
+ticket_rev: 1
+base_commit: 67fb11e80e43606e8832843dfaead9a8484f5a34
+stage: check
+ref: run the release writer and assert all five sites converge
+command: |
+    gh api repos/openova-io/openova/actions/jobs/132672002641/logs | grep -B 40 -m 1 '##\[error\]' | cut -c30-300
+    gh api repos/openova-io/openova/actions/jobs/132672002641/logs | grep -E '^.{29}(  FAIL|    ✗)' | cut -c30-200
+expected: |
+    the check finishes green
+actual: |
+      FAIL case bump — the release writer did not converge every lockstep site
+        ✗ bootstrap-kit Go lockstep guards RED on the pushed main:
+      FAIL case funnel — the release writer did not converge every lockstep site
+        ✗ bootstrap-kit Go lockstep guards RED on the pushed main:
+      FAIL case funnel-openclaw — the release writer did not converge every lockstep site
+        ✗ bootstrap-kit Go lockstep guards RED on the pushed main:
+      FAIL case funnel-retry — the release writer did not converge every lockstep site
+        ✗ bootstrap-kit Go lockstep guards RED on the pushed main:
+      FAIL case funnel-seed-ahead — the release writer did not converge every lockstep site
+        ✗ bootstrap-kit Go lockstep guards RED on the pushed main:
+      FAIL case noop — the release writer did not converge every lockstep site
+        ✗ bootstrap-kit Go lockstep guards RED on the pushed main:
+      FAIL case retry — the release writer did not converge every lockstep site
+        ✗ bootstrap-kit Go lockstep guards RED on the pushed main:
+      FAIL case umbrella — the release writer did not converge every lockstep site
+        ✗ bootstrap-kit Go lockstep guards RED on the pushed main:
+reported_at: 2026-11-15T02:50:27Z
