@@ -12,7 +12,16 @@ import (
 )
 
 // Check CLD-G06, Crossplane upgrade leaves Workspaces and packages intact. It
-// asserts what one run can see, in every region:
+// asserts what one run can see.
+//
+// The adoption seam is the primary region's alone: the provisioner applies one
+// CloudAdoption per cloud resource of every region onto the primary region,
+// from the one OpenTofu state, and only the primary's control-plane user data
+// creates the Flux Kustomizations that install provider-opentofu and its
+// configuration (infra/providers/_shared/cloudinit-control-plane.tftpl, the
+// block `if sovereign_region_role == "primary"`). A follower region therefore
+// holds no claim and serves no Workspace kind. So, in the primary region (the
+// first of the run):
 //   - the region has at least one CloudAdoption claim;
 //   - every CloudAdoption claim is Synced=True and Ready=True;
 //   - every claim composes exactly one Workspace: one Workspace carries the
@@ -20,6 +29,10 @@ import (
 //     spec.resourceRef.name. A claim without spec.resourceRef.name composes
 //     none;
 //   - that Workspace is Synced=True and Ready=True.
+//
+// In every other region: no CloudAdoption claim exists (a region that does not
+// serve the kind holds none). A claim there would observe a second time what
+// the primary observes.
 //
 // The package reference (spec.package) of every Crossplane provider and
 // function is recorded as evidence and not judged: the hand-over rewrites the
@@ -48,7 +61,32 @@ func (crossplaneCheck) ID() string { return crossplaneID }
 func (crossplaneCheck) Run(ctx context.Context, cc *CheckContext, rec StepRecorder) error {
 	for i, region := range cc.Regions {
 		id := crossplaneID + "." + strconv.Itoa(i+1)
-		rec.Step(id, "every CloudAdoption claim is Synced and Ready and composes exactly one Synced and Ready Workspace in region "+region.ID, func(ev Evidence) error {
+		if i > 0 {
+			rec.Step(id, "follower region "+region.ID+" holds no CloudAdoption claim: the adoption seam is the primary region's", func(ev Evidence) error {
+				crossplanePackages(ctx, region, ev)
+				claims, err := region.GetList(ctx, crossplaneClaimResource, "")
+				if err != nil && strings.Contains(err.Error(), notServed) {
+					ev["claims"], ev["claims_served"] = 0, false
+					return nil
+				}
+				if err != nil {
+					return err
+				}
+				names := make([]string, 0, len(claims))
+				for _, claim := range claims {
+					names = append(names, claim.Namespace()+"/"+claim.Name())
+				}
+				sort.Strings(names)
+				ev["claims"], ev["claim_names"] = len(claims), names
+				if len(claims) > 0 {
+					return fmt.Errorf("follower region %s holds %d CloudAdoption claims (%s): the adoption seam is the primary region's alone",
+						region.ID, len(claims), strings.Join(names, ", "))
+				}
+				return nil
+			})
+			continue
+		}
+		rec.Step(id, "every CloudAdoption claim is Synced and Ready and composes exactly one Synced and Ready Workspace in the primary region "+region.ID, func(ev Evidence) error {
 			crossplanePackages(ctx, region, ev)
 			claims, err := region.GetList(ctx, crossplaneClaimResource, "")
 			if err != nil {
