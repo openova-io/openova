@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-15T08:45:04Z` |
+| Last refreshed | `2026-11-15T09:00:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7673](https://github.com/openova-io/openova/issues/7673) | PRD-501 Resource server base: store, definitions loader, router with the token c | Other |
 | [#7674](https://github.com/openova-io/openova/issues/7674) | PRD-503 Keycloak consent extension | Other |
 | [#7675](https://github.com/openova-io/openova/issues/7675) | SEC-073 Remove the committed database passwords and rotate them | Other |
 | [#7676](https://github.com/openova-io/openova/issues/7676) | SOV-335 The variables document carries the path of the vulnerability database | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#7900](https://github.com/openova-io/openova/issues/7900) | a fresh two-region Sovereign: six defects of the hand-over chain (hook wait, pro | Other |
 | [#7901](https://github.com/openova-io/openova/issues/7901) | a fresh two-region Sovereign: bp-openbao's own network policies cut its server o | Other |
 | [#7902](https://github.com/openova-io/openova/issues/7902) | a fresh two-region Sovereign: the parent declares it ready before the follower r | Other |
+| [#7903](https://github.com/openova-io/openova/issues/7903) | a fresh two-region Sovereign: kured reboots nodes mid-install, bp-plane-isolatio | Other |
 
 ---
 
