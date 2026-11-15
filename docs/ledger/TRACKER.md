@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-15T04:00:02Z` |
+| Last refreshed | `2026-11-15T04:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-15T04:01 | [#7898](https://github.com/openova-io/openova/pull/7898) | #7893 | fix(provisioning): the control-plane user data fits the clou |
 | 2026-11-15T02:42 | [#7896](https://github.com/openova-io/openova/pull/7896) | #7805 | feat(machines): kinds ScanPolicy, HardeningBaseline and Mach |
 | 2026-11-15T02:27 | [#7890](https://github.com/openova-io/openova/pull/7890) | #7745 | feat(machines): the runner image with pinned tools, and the  |
 | 2026-11-15T03:26 | [#7889](https://github.com/openova-io/openova/pull/7889) | #7883 | fix(release): a dispatched release bumps a changed chart, an |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-14T22:22 | [#7849](https://github.com/openova-io/openova/pull/7849) | #7702 | chore: delete the four retired vcluster charts and their see |
 | 2026-11-14T20:35 | [#7848](https://github.com/openova-io/openova/pull/7848) | #7717 | feat(acceptance): the network registry in the Sovereign stat |
 | 2026-11-14T20:36 | [#7847](https://github.com/openova-io/openova/pull/7847) | #7806 | feat(providers): every provider pack carries the seal hook o |
-| 2026-11-14T20:35 | [#7846](https://github.com/openova-io/openova/pull/7846) | #7761 | feat(kit): install kured in kit slot 04b (INF-050) |
 
 ---
 
