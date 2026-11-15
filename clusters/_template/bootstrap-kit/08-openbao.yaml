@@ -317,10 +317,21 @@ spec:
     # (`openbao:`). Putting `server.ha.replicas` / `server.affinity` at
     # the top level here is SILENTLY IGNORED — the upstream subchart
     # never sees them and renders 3-replica + pod-anti-affinity.
+    #
+    # #7922 — one replica carries no disruption budget. At one replica the
+    # upstream chart renders the budget `openbao` with maxUnavailable 0
+    # (its openbao.pdb.maxUnavailable helper), which refuses every eviction
+    # of the one Pod, so no drain of its worker can ever finish (hw307: the
+    # Pod sat on a worker no kured restart could take, in both regions).
+    # Evicted, the Pod comes back on its PVC and the unseal reconciler
+    # unseals it. A Sovereign that runs 3 replicas sets disruptionBudget
+    # back to enabled; the chart default (3 replicas) keeps it.
     openbao:
       server:
         ha:
           replicas: 1
+          disruptionBudget:
+            enabled: false
         affinity: ""
     # ADR-0015 (Refs #7067) — peer-region trust: every region keeps its own
     # OpenBao; a multi-region Application's primary writes its shared material

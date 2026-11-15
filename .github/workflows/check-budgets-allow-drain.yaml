@@ -1,0 +1,62 @@
+# check-budgets-allow-drain.yaml — a worker restart must always be able to finish (#7922).
+#
+# kured drains a worker before it restarts it, and the eviction API refuses an eviction
+# that would break a PodDisruptionBudget. A budget that allows no disruption at the size
+# its workload renders (one replica with minAvailable 1 or maxUnavailable 0, or a
+# one-instance CNPG Cluster, whose operator-made budget sits on its only Pod) refuses it
+# for ever. On hw307 (15-16 Nov 2026) that kept one worker per region cordoned without end
+# while kured retried the eviction five times a second.
+#
+# scripts/check-budgets-allow-drain.py renders every chart with its defaults and with the
+# values of each kit release that installs it, and fails on such a budget. The self-test
+# runs first: it proves each rule can fail, its controls pass, and the render path (kit
+# values, the CNPG API version) reaches what it judges.
+name: check-budgets-allow-drain
+
+on:
+  pull_request:
+    paths:
+      - "platform/*/chart/**"
+      - "products/*/chart/**"
+      - "products/*/*/chart/**"
+      - "clusters/_template/bootstrap-kit/**"
+      - "tests/fixtures/variables/today.env"
+      - "scripts/check-budgets-allow-drain.py"
+      - ".github/workflows/check-budgets-allow-drain.yaml"
+  push:
+    branches: [main]
+    paths:
+      - "platform/*/chart/**"
+      - "products/*/chart/**"
+      - "products/*/*/chart/**"
+      - "clusters/_template/bootstrap-kit/**"
+      - "tests/fixtures/variables/today.env"
+      - "scripts/check-budgets-allow-drain.py"
+      - ".github/workflows/check-budgets-allow-drain.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: Budgets let a drain finish (rendered charts and kit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PyYAML
+        run: pip install --quiet pyyaml
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          # >= 3.16.2: helm 3.16.0 cannot fetch a dependency on a clean checkout
+          # (see check-no-nodeports.yaml).
+          version: v3.16.3
+      - name: Self-test the budget guard
+        run: python3 scripts/check-budgets-allow-drain.py --self-test
+      - name: No budget blocks a drain (#7922)
+        run: python3 scripts/check-budgets-allow-drain.py
