@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-15T10:30:05Z` |
+| Last refreshed | `2026-11-15T10:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,8 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-15T10:35 | [#7907](https://github.com/openova-io/openova/pull/7907) | #7902 | fix(provisioning): ready means every region, and the followe |
 | 2026-11-15T09:35 | [#7906](https://github.com/openova-io/openova/pull/7906) | #7900 | fix(cutover): a fresh two-region installation passes the han |
 | 2026-11-15T10:15 | [#7905](https://github.com/openova-io/openova/pull/7905) | #7903 | fix(kit): a fresh two-region installation holds kured back,  |
+| 2026-11-15T10:35 | [#7904](https://github.com/openova-io/openova/pull/7904) | #7901 | fix(openbao): a fresh two-region installation initialises Op |
 | 2026-11-15T08:08 | [#7899](https://github.com/openova-io/openova/pull/7899) | #7087 | docs(ledger): plan update |
 | 2026-11-15T04:01 | [#7898](https://github.com/openova-io/openova/pull/7898) | #7893 | fix(provisioning): the control-plane user data fits the clou |
 | 2026-11-15T02:42 | [#7896](https://github.com/openova-io/openova/pull/7896) | #7805 | feat(machines): kinds ScanPolicy, HardeningBaseline and Mach |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-14T22:41 | [#7858](https://github.com/openova-io/openova/pull/7858) | #7774 | refactor(api): the flow endpoints answer only from the jobs  |
 | 2026-11-14T22:23 | [#7857](https://github.com/openova-io/openova/pull/7857) | #7738 | feat(ops-records): PostgreSQL store with migration 0001 and  |
 | 2026-11-14T22:23 | [#7856](https://github.com/openova-io/openova/pull/7856) | #7824 | feat(trivy): slot 30 points the scanner at the vulnerability |
-| 2026-11-14T20:54 | [#7851](https://github.com/openova-io/openova/pull/7851) | #7087 | docs(ledger): plan update |
-| 2026-11-14T22:25 | [#7850](https://github.com/openova-io/openova/pull/7850) | #7773 | refactor(services): the seven Organization services stop bui |
 
 ---
 
