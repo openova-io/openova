@@ -680,7 +680,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "bss"
     ],
     "visibility": "listed",
-    "version": "0.1.67",
+    "version": "0.1.68",
     "section": "pts-4-8-identity-and-metering",
     "depends": [],
     "shareable": false,
@@ -993,7 +993,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.2.32",
+    "version": "0.2.33",
     "section": "pts-9-disaster-recovery",
     "depends": [
       "bp-cnpg",
@@ -1768,7 +1768,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.53",
+    "version": "1.2.54",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-postgres"
@@ -1898,7 +1898,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.2.50",
+    "version": "0.2.51",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-keycloak",
@@ -2517,7 +2517,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "section": null,
     "depends": [],
     "shareable": false,
@@ -2918,7 +2918,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "section": "pts-4-6-llm-serving",
     "depends": [
       "bp-cnpg",
@@ -3590,7 +3590,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "1.4.162",
+    "version": "1.4.163",
     "section": "pts-4-6-llm-serving",
     "depends": [
       "bp-cnpg",
@@ -4191,7 +4191,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.2.34",
+    "version": "0.2.35",
     "section": "pts-4-1-data-services",
     "depends": [
       "bp-cnpg",
@@ -4268,7 +4268,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.26",
+    "version": "1.2.27",
     "section": "pts-3-2-gitops-and-iac",
     "depends": [
       "bp-cert-manager"
@@ -4320,7 +4320,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.18",
+    "version": "0.1.19",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-powerdns",
@@ -4630,7 +4630,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.217",
+    "version": "0.1.218",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-gitea",
@@ -4678,7 +4678,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "section": "pts-3-3-security-and-policy",
     "depends": [],
     "shareable": false,
@@ -5338,7 +5338,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "section": "pts-4-3-workflow-and-processing",
     "depends": [
       "bp-cnpg",
@@ -5807,7 +5807,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.6.5",
+    "version": "0.6.6",
     "section": "pts-7-org-tenant",
     "depends": [
       "bp-cnpg",

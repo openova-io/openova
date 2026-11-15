@@ -7,15 +7,42 @@ kured:
   fullnameOverride: kured
   configuration:
     rebootSentinel: /var/run/reboot-required  # --reboot-sentinel: the file unattended upgrades write
-    period: 15m                               # --period: a node-local file check, no call to any service
+    period: 30m                               # --period: a node-local file check, no call to any service; see "A drain that cannot finish"
     concurrency: 1                            # --concurrency: one node at a time per cluster
     startTime: "00:30"                        # --start-time: the reboot span opens
     endTime: "22:00"                          # --end-time: the reboot span closes; the hours left are the upgrade window
     timeZone: UTC                             # --time-zone
     rebootDays: [su, mo, tu, we, th, fr, sa]  # --reboot-days: every day
-    drainTimeout: 15m                         # --drain-timeout: a node that cannot drain is not rebooted
+    drainTimeout: 10m                         # --drain-timeout: a node that cannot drain is not rebooted; see "A drain that cannot finish"
     lockTtl: 1h                               # --lock-ttl: a crashed lock holder cannot block for ever
     lockReleaseDelay: 5m                      # --lock-release-delay: the node settles before the next one
+    # A drain that cannot finish (#7922). kured 1.23 drains with the kubectl
+    # drain library and leaves its EvictErrorRetryDelay at 0, and no flag of
+    # kured sets it (cmd/kured/main.go, drain()); kubectl's own CLI sets 5s.
+    # The eviction API answers a refusal by a disruption budget with 429, so
+    # kured retries the eviction at once, paced only by client-go's default
+    # 5 requests a second: measured on hw307, one refusal every 0.200 s,
+    # 4,510 in each 15-minute drain. kured cannot slow that rate, so these
+    # three settings bound what a drain that cannot finish costs:
+    #   --drain-timeout ends the attempt: at most 10 minutes of refusals. A
+    #   drain that can finish takes far less: 32 s for 23 Pods on hw307. The
+    #   drain evicts all Pods at once and waits for the slowest; a CNPG
+    #   instance's smart shutdown waits at most 180 s (its default) before
+    #   it stops fast.
+    #   --lock-release-delay keeps the node cordoned and the lock held for
+    #   5 more minutes after a failed attempt (kured releases the lock, with
+    #   that delay, before it uncordons).
+    #   --period decides when kured tries again. Ticks queue while an attempt
+    #   runs, so with a period at or below drain timeout + lock release delay
+    #   the next attempt starts in the same second and the node is never
+    #   schedulable again (hw307: cordoned 20 minutes of every 20, the lock
+    #   never free for another node). The period must exceed their sum
+    #   (tests/render.sh asserts it): 30m leaves the node schedulable and the
+    #   lock free for 15 minutes of every 30, at most 10 minutes of refusals.
+    # The settings are read by the acceptance check INF-G01 from the
+    # DaemonSet, so its limits follow: a node unschedulable for longer than
+    # drain timeout + lock release delay (15 minutes) fails it, and it waits
+    # period + lock release delay + 15 minutes (50 minutes) for a restart.
     # --blocking-pod-selector: no reboot of a node while an upgrade Job Pod of
     # the system-upgrade-controller runs on it. One selector; the comma means
     # AND. The second key leaves out the controller's own Pod, which carries
