@@ -50,10 +50,9 @@
 #
 # THE PATH FORWARD. A safe re-mirror needs to PRESERVE the local-only pivot
 # commit while still advancing to new upstream content — a merge, not an
-# overwrite. That mechanism does not exist yet (tracked in #5759). Until it
-# ships, a Sovereign that cut over before bp-self-sovereign-cutover 0.1.170
-# (and therefore has no Day-2 catalog leg) stays on its cutover-time chart
-# pins; that is not silent breakage, it is the deliberate Principle-14 freeze.
+# overwrite. That path is PUT /api/v1/sovereign/release (#7938): a
+# sovereign-admin names a release candidate; the Sovereign merges it into its
+# own main in every region, prewarms what it pins, then fast-forwards main.
 #
 # Usage (unchanged, for any runbook/cron already invoking it):
 #   scripts/sovereign-daytwo-bootstrap.sh --kubeconfig <path> [--namespace catalyst] [--apply]
@@ -128,8 +127,8 @@ unrecoverable in-cluster (the only in-cluster remedy would be restoring the
 stripped credential, i.e. re-tethering — exactly what cutover exists to
 prevent).
 
-There is no override flag for this refusal and none is coming until a
-merge-preserving mirror mechanism ships (tracked in #5759). The Sovereign is
-UNCHANGED; nothing else ran.
+There is no override flag for this refusal. A later release reaches a
+cut-over Sovereign by merge, through PUT /api/v1/sovereign/release (#7938).
+The Sovereign is UNCHANGED; nothing else ran.
 EOF
 exit 1

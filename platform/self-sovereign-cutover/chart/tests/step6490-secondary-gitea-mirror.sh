@@ -136,6 +136,11 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
     #      trees the way axis 5 does it; tests/step7922-prewarm-proxy-path.sh
     #      verifies the change itself. The axis switches itself off once
     #      origin/main holds the change.
+    #   9. #7938 changed the tail of the day-two CATALOG leg's refusal line (it
+    #      now names the release route), rendered in every topology and not the
+    #      follower leg; daytwo-catalog-leg.sh executes the refusal. The tail
+    #      after "No override exists for this refusal" is canonicalised on BOTH
+    #      trees.
     drop7900=0
     grep -q 'front-door-sample BEGIN' "${TMP}/main.yaml" || drop7900=1
     drop7922=0
@@ -169,6 +174,7 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
         -e 's#bp-self-sovereign-cutover-[0-9]+\.[0-9]+\.[0-9]+#bp-self-sovereign-cutover-VERSION#g' \
         -e 's#^( *activeDeadlineSeconds: )(2400|3600)$#\1STEP06_DEADLINE#' \
         -e 's# --server-side --force-conflicts --field-manager=self-sovereign-cutover##g' \
+        -e 's#(No override exists for this refusal).*"$#\1 CATALOG_REFUSAL_TAIL"#' \
         -e '/- name: PUSH_BATCH_BRANCHES/{N;d}' \
         -e '/^ *default_branch="\$\{UPSTREAM_BRANCH\}"$/d' \
         -e '/^ *batch_size="\$\{PUSH_BATCH_BRANCHES\}"$/d' \

@@ -139,9 +139,11 @@ upstream:
   # branch is KEPT as it is: the release plus the Sovereign's own commits. An
   # unreadable Flux source fails step 01; it never guesses a release.
   # Moving the branch to a later release is a deliberate release action, never a
-  # side effect of the mirror. Before cutoverComplete the day-two reconciler's
-  # operator-requested CATALOG leg can refresh the mirror; after it that leg is
-  # refused (#5759) and no merge-preserving delivery exists yet. The opt-in,
+  # side effect of the mirror. After cutoverComplete a later release candidate
+  # arrives by PUT /api/v1/sovereign/release (#7938): it merges the candidate into
+  # this branch in every region, keeping the Sovereign's own commits, prewarms what
+  # it pins with step 03 and then fast-forwards the branch. The day-two CATALOG
+  # leg force-pushes and stays refused after cutover (#5759). The opt-in,
   # off-by-default mirrorResync CronJob below follows upstream by design.
   branch: "main"
   # Gitea pull-mirror poll interval. Format = Go duration string parsed
@@ -2574,9 +2576,10 @@ daytwoReconciler:
     # it. This leg shares the exact mechanism (same refspec, same target
     # branch, same local Gitea repo) whenever an operator's request names
     # CATALOG post-cutover, or in mode=warm every cycle — so it is refused the
-    # same way, unconditionally, until a merge-preserving mirror mechanism
-    # ships. Setting this false silences the leg entirely (no refusal message
-    # either); leaving it true keeps the loud, audited refusal visible.
+    # same way, unconditionally. The merge-preserving path for a later release
+    # is PUT /api/v1/sovereign/release (#7938). Setting this false silences the
+    # leg entirely (no refusal message either); leaving it true keeps the loud,
+    # audited refusal visible.
     enabled: true
   # #5759 — CONTINUOUS post-advance property assertion, run every cycle once
   # this Sovereign is cutoverComplete=true: zero HelmRepository / GitRepository
