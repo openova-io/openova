@@ -244,6 +244,7 @@ func (f *fixture) laterRelease(w string) {
 	sed(f.t, w+"/"+kitDir+"/10-bp-foo.yaml", "version: 1.0.0", "version: 1.1.0")
 	f.write(w, kitDir+"/20-bp-bar.yaml", slot("bp-bar", "2.0.0", upstreamPrefix))
 	sed(f.t, w+"/platform/foo/chart/values.yaml", `tag: "1.0.0"`, `tag: "1.1.0"`)
+	sed(f.t, w+"/platform/foo/chart/values.yaml", "image:\n", "image:\n  # the repository: and tag: of a comment are no image line\n")
 }
 
 func (f *fixture) remote(ref string) string {
@@ -353,6 +354,9 @@ func TestReleaseStagesMergesAndPromotes(t *testing.T) {
 				if !strings.Contains(out, want) {
 					t.Fatalf("the report lacks %q:\n%s", want, out)
 				}
+			}
+			if strings.Contains(out, "image platform/foo/chart/values.yaml: #") {
+				t.Fatalf("the report names a comment line as an image:\n%s", out)
 			}
 
 			out, code = f.region(sh, "PHASE=check", "CANDIDATE="+id, "MAIN_SHA="+f.main, "STAGED_SHA="+staged)

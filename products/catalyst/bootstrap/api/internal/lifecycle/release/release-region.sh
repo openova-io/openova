@@ -174,7 +174,7 @@ stage() {
         for (c in o) if (!(c in n)) print "chart " c " removed " o[c]
       }' "${work}/pins.before" "${work}/pins.staged" | sort | head -n "${REPORT_MAX}" | while IFS= read -r l; do report "${l}"; done
     git diff --unified=0 --no-color "${before}" "${staged}" -- '*values.yaml' \
-      | awk '/^\+\+\+ / {f = substr($2, 3); next} /^\+[^+]/ && /(image|repository|tag):/ {l = $0; sub(/^\+[ \t]*/, "", l); print "image " f ": " l}' \
+      | awk '/^\+\+\+ / {f = substr($2, 3); next} /^\+[ \t]*(image|repository|tag):/ {l = $0; sub(/^\+[ \t]*/, "", l); print "image " f ": " l}' \
       | head -n "${REPORT_MAX}" | while IFS= read -r l; do report "${l}"; done
   fi
 
