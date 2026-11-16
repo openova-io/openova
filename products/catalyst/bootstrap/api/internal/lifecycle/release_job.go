@@ -236,6 +236,9 @@ func (in *releaseInputs) runContainer(name, phase, ns string, req releaseRequest
 		plain("PIN_EXTRACTOR", "/pin-extractor/extract-pins.sh"),
 		plain("SECONDARY_KUBECONFIGS", "/secondary-kubeconfigs"),
 		plain("SECONDARY_GITEA_NAMESPACE", in.followerNS),
+		// false: the stage reads whether each follower's registry shares the
+		// primary's storage (release-run.sh follower_storage).
+		plain("FOLLOWER_PREWARM_COVERED", boolString(in.followerPrewarm)),
 	} {
 		c.Env = setEnv(c.Env, v)
 	}

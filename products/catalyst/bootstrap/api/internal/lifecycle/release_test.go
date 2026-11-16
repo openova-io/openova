@@ -424,6 +424,15 @@ func TestReleaseFollowerJobIsTheCutoverFollowerPivotJob(t *testing.T) {
 		if got := strings.HasPrefix(st.Data["followerPrewarm"], "covered"); got != marker || st.Data["regions"] != "2" {
 			t.Fatalf("marker %v: followerPrewarm %q, regions %s", marker, st.Data["followerPrewarm"], st.Data["regions"])
 		}
+		// Without the marker the route cannot know: a follower whose registry
+		// shares the primary's storage is covered all the same; the stage says.
+		if !marker && !strings.HasPrefix(st.Data["followerPrewarm"], "unknown") {
+			t.Fatalf("without the marker the route claims %q before the stage read any registry's storage", st.Data["followerPrewarm"])
+		}
+		job := onlyJob(t, cs)
+		if v := env(job.Spec.Template.Spec.InitContainers[0], "FOLLOWER_PREWARM_COVERED"); v == nil || v.Value != boolString(marker) {
+			t.Fatalf("marker %v: the stage is told FOLLOWER_PREWARM_COVERED=%v", marker, v)
+		}
 	}
 }
 

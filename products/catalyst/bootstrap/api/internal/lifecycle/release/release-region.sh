@@ -156,13 +156,16 @@ stage() {
       refuse "the merged tree still names ${UPSTREAM_PREFIX} after this region's pivot; nothing was pushed"
     fi
     git add -A -- ${pivot_paths} ${IMAGE_REGISTRY_SLOT_FILES}
-    if ! git diff --cached --quiet; then
-      git commit --quiet -m "release: this Sovereign's pivot, applied to ${rc_ref} (${edited} edit(s))"
+    # The count is of files the pivot commit changes: rewrite_kit_tree raises
+    # ${edited} for every trust re-injection, also one that changes nothing.
+    changed=$(git diff --cached --name-only | grep -c . || true)
+    if [ "${changed}" -gt 0 ]; then
+      git commit --quiet -m "release: this Sovereign's pivot, applied to ${rc_ref} (${changed} file(s))"
     fi
     staged=$(git rev-parse HEAD)
     git merge-base --is-ancestor "${before}" "${staged}" || fail "the staged commit does not contain ${branch}"
     git merge-base --is-ancestor "${cand}" "${staged}" || fail "the staged commit does not contain ${rc_ref}"
-    report "pivot ${edited} edit(s), registry ${local_prefix}${trust_secret:+, certSecretRef ${trust_secret}}"
+    report "pivot ${changed} file(s) changed, registry ${local_prefix}${trust_secret:+, certSecretRef ${trust_secret}}"
 
     mkdir -p "${work}/before"
     git archive "${before}" "${kit}" | tar -xf - -C "${work}/before"

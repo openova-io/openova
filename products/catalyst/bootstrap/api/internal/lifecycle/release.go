@@ -223,7 +223,7 @@ func (rt *ReleaseRoute) Request(w http.ResponseWriter, r *http.Request) {
 	if in.followers > 0 {
 		followerPrewarm = "covered: step 03 mirrors the release's pins into every follower registry"
 		if !in.followerPrewarm {
-			followerPrewarm = "not covered: the installed step 03 mirrors a follower's running set only, so a follower's registry may lack what the release pins until the release has installed a cutover chart that mirrors them; request the same candidate again then"
+			followerPrewarm = "unknown until the stage compares each follower registry's storage with the primary's: the installed step 03 mirrors a follower's running set only, so a follower's registry that stores elsewhere may lack what the release pins until the release has installed a cutover chart that mirrors them"
 		}
 	}
 	status := &corev1.ConfigMap{
