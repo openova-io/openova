@@ -11,7 +11,7 @@ annotations:
 #   prefix for registry.<sov-fqdn> so openova-flow-server pulls from the local
 #   Harbor under the 600s deny-egress hold instead of 401'ing → step-08 fresh-
 #   pull proof PASSes. No-op when global.imageRegistry is unset (pre-cutover).
-version: 0.2.6
+version: 0.2.7
 appVersion: "0.2.0"
 description: |
   Catalyst Blueprint chart for the openova-flow-server — the
