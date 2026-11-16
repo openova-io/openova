@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-16T16:15:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-11-16T16:30:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-16T16:19 | [#8015](https://github.com/openova-io/openova/pull/8015) | #7807 | fix(provisioner): the variables document of a new Sovereign  |
+| 2026-11-16T16:19 | [#8014](https://github.com/openova-io/openova/pull/8014) | #7885 | feat(suite): the acceptance suite runs in self inside a clus |
 | 2026-11-16T15:56 | [#8013](https://github.com/openova-io/openova/pull/8013) | #7087 | docs(ledger): plan update |
 | 2026-11-16T15:12 | [#8010](https://github.com/openova-io/openova/pull/8010) | #7971 | fix(providers): the Huawei profile states its user-data limi |
 | 2026-11-16T14:56 | [#8009](https://github.com/openova-io/openova/pull/8009) | #7973 | refactor(api): the resource browser refuses Git-owned object |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-16T05:24 | [#7951](https://github.com/openova-io/openova/pull/7951) | #7831 | test(gate): the baseline of the first fresh installation of  |
 | 2026-11-16T05:16 | [#7949](https://github.com/openova-io/openova/pull/7949) | #7881 | refactor(model-meter): move the metering sidecar, take ident |
 | 2026-11-16T05:16 | [#7948](https://github.com/openova-io/openova/pull/7948) | #7882 | feat(api): package clusterwrite decides and records the dire |
-| 2026-11-16T04:22 | [#7947](https://github.com/openova-io/openova/pull/7947) | #7942 | fix(release): the state counts the pivot's changed files and |
-| 2026-11-16T04:07 | [#7946](https://github.com/openova-io/openova/pull/7946) | #7929 | fix(cutover): step 03 warms what the Sovereign's own values  |
 
 ---
 
