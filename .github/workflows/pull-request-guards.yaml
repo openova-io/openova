@@ -276,3 +276,21 @@ jobs:
         run: |
           chmod +x scripts/check-no-persona-machinery.sh
           ./scripts/check-no-persona-machinery.sh
+      - name: 'release-key | Self-test of the guard (every rule can fail)'
+        if: ${{ !cancelled() }}
+        run: python3 scripts/check-release-key.py --self-test
+      - name: 'release-key | keys/release-cosign.pub is a P-256 public key and docs/SECURITY.md records its SHA-256'
+        if: ${{ !cancelled() }}
+        run: python3 scripts/check-release-key.py tree
+      # Judged on the events of the pull request: its body is the mark of a rotation. A merge
+      # group holds the changes of other pull requests too, each judged on its own events.
+      - name: 'release-key | A change of keys/release-cosign.pub is marked as a rotation'
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "${PR_BODY:-}" > "$RUNNER_TEMP/release-key-body.txt"
+          python3 scripts/check-release-key.py pr --base "$BASE_SHA" --head "$HEAD_SHA" --body-file "$RUNNER_TEMP/release-key-body.txt"
