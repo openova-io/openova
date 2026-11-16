@@ -143,6 +143,9 @@ func main() {
 	idxCancel()
 	slog.Info("provisioning job + provision indexes ensured")
 	generator := gitops.NewManifestGenerator(gitBasePath)
+	// SOV-183: the bp-* HelmRepositories take their chart source and pull
+	// Secret from the variables document. Read it now and keep it current.
+	gitops.StartVariablesWatch(context.Background())
 	// #3760 (Refs #3376 #3754) MIRROR-EVERYTHING: the Sovereign-local Harbor
 	// host the per-tenant vCluster images pull through. Without proxying, the
 	// harbor-proxy-pull Kyverno ClusterPolicy DENIES the vCluster StatefulSet
