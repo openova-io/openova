@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-16T01:45:03Z` |
+| Last refreshed | `2026-11-16T02:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-16T01:45 | [#7941](https://github.com/openova-io/openova/pull/7941) | #7936 | feat(sovereign): the Sovereign object gets its writer in eve |
 | 2026-11-15T23:50 | [#7940](https://github.com/openova-io/openova/pull/7940) | #7939 | feat(api): a sovereign-admin delivers a later release candid |
 | 2026-11-15T23:50 | [#7939](https://github.com/openova-io/openova/pull/7939) | #7938 | fix(cutover): step 03 gives every follower region what the r |
 | 2026-11-16T00:15 | [#7937](https://github.com/openova-io/openova/pull/7937) | #7936 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-15T11:51 | [#7910](https://github.com/openova-io/openova/pull/7910) | #7906 | fix(harbor): every region of a two-region Sovereign verifies |
 | 2026-11-15T10:35 | [#7907](https://github.com/openova-io/openova/pull/7907) | #7902 | fix(provisioning): ready means every region, and the followe |
 | 2026-11-15T09:35 | [#7906](https://github.com/openova-io/openova/pull/7906) | #7900 | fix(cutover): a fresh two-region installation passes the han |
-| 2026-11-15T10:15 | [#7905](https://github.com/openova-io/openova/pull/7905) | #7903 | fix(kit): a fresh two-region installation holds kured back,  |
 
 ---
 
