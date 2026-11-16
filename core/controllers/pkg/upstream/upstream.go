@@ -553,7 +553,9 @@ type mirror struct {
 // with the single endpoint https://<LocalRegistryHost>; while Consume is
 // origin, OriginRegistryHost with the local endpoint first and the origin
 // endpoint second; and "*" with the single endpoint
-// https://<LocalRegistryHost> and no rewrite.
+// https://<LocalRegistryHost> and no rewrite. When OriginRegistryHost is
+// itself a name of ProxyProjects, the entry of that name stands and no
+// second entry is written for it (SOV-135).
 func (v Variables) RegistriesYAML(dragonflyProxy string, hostedRewrites []byte) ([]byte, error) {
 	if v.LocalRegistryHost == "" {
 		return nil, fmt.Errorf("upstream: LOCAL_REGISTRY_HOST is empty")
@@ -603,7 +605,7 @@ func (v Variables) RegistriesYAML(dragonflyProxy string, hostedRewrites []byte) 
 		name string
 		m    mirror
 	}{{v.LocalRegistryHost, mirror{Endpoint: []string{local}}}}
-	if origin {
+	if _, proxied := v.ProxyProjects[v.OriginRegistryHost]; origin && !proxied {
 		extra = append(extra, struct {
 			name string
 			m    mirror
