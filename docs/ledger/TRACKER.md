@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-16T14:15:03Z` |
+| Last refreshed | `2026-11-16T14:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,16 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-16T14:24 | [#8005](https://github.com/openova-io/openova/pull/8005) | #7964 | fix(model-meter): meter streamed answers from their final us |
+| 2026-11-16T14:26 | [#8004](https://github.com/openova-io/openova/pull/8004) | #7972 | feat(console): console pages become a third source of menu c |
+| 2026-11-16T14:23 | [#8003](https://github.com/openova-io/openova/pull/8003) | #7992 | docs(ledger): result of the lab test SOV-750 (SOV-750) |
+| 2026-11-16T14:23 | [#8001](https://github.com/openova-io/openova/pull/8001) | #7987 | docs(runbooks): how and when to rotate the etcd encryption k |
+| 2026-11-16T14:25 | [#8000](https://github.com/openova-io/openova/pull/8000) | #7983 | fix(network): Gateway listeners admit routes only from the k |
+| 2026-11-16T14:24 | [#7999](https://github.com/openova-io/openova/pull/7999) | #7855 | feat(provisioning): emitted chart sources and pull secret co |
+| 2026-11-16T14:22 | [#7998](https://github.com/openova-io/openova/pull/7998) | #7976 | test(gate): set the FND checks that passed the baseline to r |
+| 2026-11-16T14:21 | [#7996](https://github.com/openova-io/openova/pull/7996) | #7988 | docs: list the cutover steps in label order and record the b |
+| 2026-11-16T14:22 | [#7997](https://github.com/openova-io/openova/pull/7997) | #7966 | fix(crossplane): raise Crossplane core to 1.20.14 (CLD-062) |
+| 2026-11-16T14:21 | [#7995](https://github.com/openova-io/openova/pull/7995) | #7985 | ci: set the Secret census limit to the first measured count  |
 | 2026-11-16T10:50 | [#7963](https://github.com/openova-io/openova/pull/7963) | #7087 | docs(ledger): plan update |
 | 2026-11-16T09:58 | [#7960](https://github.com/openova-io/openova/pull/7960) | #7946 | fix(release): a delivery runs the candidate's own mechanism; |
 | 2026-11-16T09:58 | [#7959](https://github.com/openova-io/openova/pull/7959) | #7938 | fix(release): a dry run refuses a pullSecret instead of reco |
@@ -327,16 +337,6 @@ flowchart LR
 | 2026-11-16T04:07 | [#7942](https://github.com/openova-io/openova/pull/7942) | #6764 | fix(release): each follower region gets the pull credential  |
 | 2026-11-16T01:45 | [#7941](https://github.com/openova-io/openova/pull/7941) | #7936 | feat(sovereign): the Sovereign object gets its writer in eve |
 | 2026-11-15T23:50 | [#7940](https://github.com/openova-io/openova/pull/7940) | #7939 | feat(api): a sovereign-admin delivers a later release candid |
-| 2026-11-15T23:50 | [#7939](https://github.com/openova-io/openova/pull/7939) | #7938 | fix(cutover): step 03 gives every follower region what the r |
-| 2026-11-16T00:15 | [#7937](https://github.com/openova-io/openova/pull/7937) | #7936 | docs(ledger): plan update |
-| 2026-11-15T22:10 | [#7935](https://github.com/openova-io/openova/pull/7935) | #7922 | fix(kured): a drain that cannot finish gives the node and th |
-| 2026-11-15T22:10 | [#7934](https://github.com/openova-io/openova/pull/7934) | #7922 | fix(charts): a one-instance workload carries no budget that  |
-| 2026-11-15T22:10 | [#7933](https://github.com/openova-io/openova/pull/7933) | #7922 | fix(bp-guacamole): the mesh secondary retires the admin-enro |
-| 2026-11-15T22:10 | [#7932](https://github.com/openova-io/openova/pull/7932) | #7922 | fix(acceptance): discovery retries transport errors; an unre |
-| 2026-11-15T22:10 | [#7931](https://github.com/openova-io/openova/pull/7931) | #7922 | fix(marketplace): drop a remembered Organization the server  |
-| 2026-11-15T22:36 | [#7930](https://github.com/openova-io/openova/pull/7930) | #7922 | fix(cutover): after cutover a Sovereign runs the release it  |
-| 2026-11-15T22:10 | [#7929](https://github.com/openova-io/openova/pull/7929) | #7922 | fix(cutover): step 03 keeps the parent's proxy and ends only |
-| 2026-11-15T20:22 | [#7928](https://github.com/openova-io/openova/pull/7928) | #7922 | fix(cutover): step 01 pushes only the default branch and tag |
 
 ---
 
