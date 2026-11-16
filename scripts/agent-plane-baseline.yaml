@@ -53,10 +53,8 @@ rules:
     - products/axon/src/providers/token-refresh.ts
     - products/catalyst/bootstrap/api/internal/handler/sovereign_anthropic_refresh.go
   G4:
-    max: 6
+    max: 2
     allow:
-    - core/services/metering-sidecar/main.go
-    - core/services/metering-sidecar/proxy/proxy.go
     - platform/newapi/chart/values.yaml
   G5:
     max: 5

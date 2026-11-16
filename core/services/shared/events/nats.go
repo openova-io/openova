@@ -159,9 +159,9 @@ func ConnectNATS(url string) (*NATSConn, error) {
 //
 // This is the public wrapper around the package-private ensureOrgStream
 // helper used by NewMultiSubscriber. org-billing calls it at startup and
-// exits while the Stream is absent, so it starts only once the metering
-// sidecar (which deliberately does NOT call any Ensure* — see
-// services/metering-sidecar/main.go) can publish.
+// exits while the Stream is absent, so it starts only once the model
+// meter (core/services/model-meter, which deliberately does NOT call any
+// Ensure*) can publish.
 func (c *NATSConn) EnsureCatalystOrgStream(ctx context.Context) error {
 	return c.ensureOrgStream(ctx, StreamCatalystOrg, []string{"catalyst.>"})
 }
@@ -226,6 +226,24 @@ func (c *NATSConn) PublishEvent(ctx context.Context, subject string, event *Even
 		opts = append(opts, jetstream.WithMsgID(event.ID))
 	}
 	if _, err := c.js.Publish(ctx, subject, body, opts...); err != nil {
+		return fmt.Errorf("events: publish %s: %w", subject, err)
+	}
+	return nil
+}
+
+// PublishRaw publishes body unchanged on subject, with msgID as the JetStream
+// message identifier (Nats-Msg-Id), and returns after the broker has acked it.
+// The broker keeps one copy of a message that is published twice with the same
+// identifier inside its de-dup window. Used by the model meter
+// (core/services/model-meter) for the CloudEvents envelope of the usage event.
+func (c *NATSConn) PublishRaw(ctx context.Context, subject, msgID string, body []byte) error {
+	if c == nil || c.js == nil {
+		return errors.New("events: nats publisher not initialised")
+	}
+	if subject == "" || msgID == "" {
+		return errors.New("events: PublishRaw requires a subject and a message identifier")
+	}
+	if _, err := c.js.Publish(ctx, subject, body, jetstream.WithMsgID(msgID)); err != nil {
 		return fmt.Errorf("events: publish %s: %w", subject, err)
 	}
 	return nil

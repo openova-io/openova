@@ -1,0 +1,15 @@
+FROM golang:1.26.11-alpine3.24@sha256:ae52b5bc6ed045a9ed26ab03dc19327a802a9cc9aa8b27ed57f5c6b60579b0bb AS build
+WORKDIR /src
+COPY shared/ shared/
+COPY model-meter/go.mod model-meter/go.sum model-meter/
+WORKDIR /src/model-meter
+RUN go mod download
+COPY model-meter/ .
+RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /model-meter .
+
+FROM scratch
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=build /model-meter /model-meter
+EXPOSE 8080
+USER 65534
+ENTRYPOINT ["/model-meter"]

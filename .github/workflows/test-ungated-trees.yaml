@@ -54,7 +54,7 @@ on:
       - 'core/services/catalog/**'
       - 'core/services/domain/**'
       - 'core/services/gateway/**'
-      - 'core/services/metering-sidecar/**'
+      - 'core/services/model-meter/**'
       - 'core/services/notification/**'
       - 'core/services/shared/**'
       - 'core/services/tenant/**'
@@ -75,7 +75,7 @@ on:
       - 'core/services/catalog/**'
       - 'core/services/domain/**'
       - 'core/services/gateway/**'
-      - 'core/services/metering-sidecar/**'
+      - 'core/services/model-meter/**'
       - 'core/services/notification/**'
       - 'core/services/shared/**'
       - 'core/services/tenant/**'
@@ -123,7 +123,7 @@ jobs:
           - core/services/catalog
           - core/services/domain
           - core/services/gateway
-          - core/services/metering-sidecar
+          - core/services/model-meter
           - core/services/notification
           - core/services/shared
           - core/services/tenant
