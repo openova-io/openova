@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-16T05:30:06Z` |
+| Last refreshed | `2026-11-16T05:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-16T05:39 | [#7953](https://github.com/openova-io/openova/pull/7953) | #7666 | fix(org-quota): drop the metering-sidecar term from the plat |
 | 2026-11-16T05:24 | [#7951](https://github.com/openova-io/openova/pull/7951) | #7831 | test(gate): the baseline of the first fresh installation of  |
 | 2026-11-16T05:16 | [#7949](https://github.com/openova-io/openova/pull/7949) | #7881 | refactor(model-meter): move the metering sidecar, take ident |
 | 2026-11-16T05:16 | [#7948](https://github.com/openova-io/openova/pull/7948) | #7882 | feat(api): package clusterwrite decides and records the dire |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-15T14:26 | [#7921](https://github.com/openova-io/openova/pull/7921) | #7905 | plan(gates): INF-G01 asserts one worker restart per region a |
 | 2026-11-15T14:23 | [#7920](https://github.com/openova-io/openova/pull/7920) | #7915 | fix(acceptance): SVC-G06 does not judge a release the region |
 | 2026-11-15T14:23 | [#7919](https://github.com/openova-io/openova/pull/7919) | #7905 | fix(acceptance): INF-G01 restarts one worker per region and  |
-| 2026-11-15T14:17 | [#7918](https://github.com/openova-io/openova/pull/7918) | #7912 | fix(sso-probe): the hubble row looks for what hubble-ui show |
 
 ---
 
