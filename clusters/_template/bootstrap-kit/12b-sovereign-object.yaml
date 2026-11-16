@@ -48,7 +48,7 @@ spec:
     name: openova
   images:
     - name: ghcr.io/openova-io/openova/sovereign-ops
-      newTag: 08a0bb3
+      newTag: 907fc2a
   postBuild:
     substituteFrom:
       - kind: ConfigMap
