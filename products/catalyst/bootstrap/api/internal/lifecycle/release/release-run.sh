@@ -1,5 +1,5 @@
 #!/bin/sh
-# release-run.sh <stage|promote> - the release Job's own containers (#7922).
+# release-run.sh <stage|prewarm|promote> - the release Job's own containers (#7922).
 #
 # The release Job of PUT /api/v1/sovereign/release runs in the primary region,
 # in the namespace of the cutover chart, as its runner service account:
@@ -10,19 +10,35 @@
 #            there; the same way cutover step 01 reaches it). All regions are
 #            staged before anything moves; a conflict or a refusal in any region
 #            fails this container, so the prewarm and the promote never run.
-#   prewarm  (second container) cutover step 03 itself, reading the pins from
-#            release/<candidate>. Not this script.
+#            A delivery then copies the pull credential into every follower
+#            (credential_deliver below).
+#   prewarm  (second container) "prewarm <command...>": cutover step 03 itself,
+#            the command of its own container, reading the pins from
+#            release/<candidate>. When it ends, whatever its outcome, the pull
+#            credential is removed from every region; when it fails, the state
+#            says failed, with the step and the line that names the cause.
 #   promote  (last container) release-region.sh check in every region, then
 #            promote in every region, the followers first. A branch that moved
 #            after staging stops the run before any region is pushed.
 #
 # Every region's result and report go to the ConfigMap RELEASE_STATUS_CM; the
 # recorded commits go to STATE, the Pod's shared emptyDir.
+#
+# The pull credential (#7938). PULL_SECRET is the request's pullSecret, a
+# Secret of RELEASE_NAMESPACE in this region, and the only source of it. Step
+# 03's follower leg reads it through each follower's kubeconfig, as
+# RELEASE_NAMESPACE/PULL_SECRET of THAT region (SECONDARY_GHCR_SOURCE_*), and
+# copies it on into SECONDARY_HARBOR_NAMESPACE/SECONDARY_GHCR_DEST_SECRET there.
+# So the stage of a delivery copies it into every follower, and the end of the
+# prewarm, or a failed stage, deletes it in every region: the copies in each
+# follower and the source here. No region keeps an upstream credential after a
+# delivery (cutover step 06 strips the parent's); the next delivery names one again.
 set -eu
 : "${RELEASE_NAMESPACE:?}" "${RELEASE_STATUS_CM:?}" "${CANDIDATE:?}"
 : "${DRY_RUN:=false}" "${STATE:=/release-state}" "${SECONDARY_KUBECONFIGS:=/secondary-kubeconfigs}"
 : "${FOLLOWER_WAIT_SECONDS:=3600}" "${FOLLOWER_POLL_SECONDS:=10}" "${RELEASE_SCRIPTS:=/release}"
-: "${SECONDARY_GITEA_NAMESPACE:=gitea}"
+: "${SECONDARY_GITEA_NAMESPACE:=gitea}" "${PULL_SECRET:=}"
+: "${SECONDARY_HARBOR_NAMESPACE:=}" "${SECONDARY_GHCR_DEST_SECRET:=}"
 mkdir -p "${STATE}"
 
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -52,6 +68,70 @@ record() {
 
 followers() {
   for _kc in "${SECONDARY_KUBECONFIGS}"/*.yaml; do [ -e "${_kc}" ] && echo "${_kc}"; done
+}
+
+# credential_deliver: copy PULL_SECRET into RELEASE_NAMESPACE of every follower,
+# where step 03's follower leg reads it. Only type and data travel; the copy
+# carries the release's labels. On a failure _cred_why names it.
+_cred_why=""
+credential_deliver() {
+  [ -n "${PULL_SECRET}" ] || return 0
+  if ! kubectl -n "${RELEASE_NAMESPACE}" get secret "${PULL_SECRET}" -o name >/dev/null 2>&1; then
+    _cred_why="the request's pull Secret ${RELEASE_NAMESPACE}/${PULL_SECRET} is absent in the primary region"
+    return 1
+  fi
+  for _kc in $(followers); do
+    _r=$(basename "${_kc}" .yaml)
+    if ! kubectl -n "${RELEASE_NAMESPACE}" get secret "${PULL_SECRET}" -o json 2>/dev/null \
+        | jq -c --arg c "${CANDIDATE}" '{apiVersion: "v1", kind: "Secret", type: .type, data: .data,
+            metadata: {name: .metadata.name, namespace: .metadata.namespace,
+              labels: {"app.kubernetes.io/component": "sovereign-release", "catalyst.openova.io/release-candidate": $c}}}' \
+        | kubectl --kubeconfig "${_kc}" apply --server-side --force-conflicts --field-manager=sovereign-release -f - >/dev/null 2>&1; then
+      _cred_why="could not copy the pull credential into ${RELEASE_NAMESPACE}/${PULL_SECRET} of follower ${_r}"
+      return 1
+    fi
+    say "follower ${_r}: the pull credential is in ${RELEASE_NAMESPACE}/${PULL_SECRET} until the prewarm ends"
+  done
+}
+
+# _cred_del <kubeconfig or ""> <region> <namespace> <name>: delete one Secret.
+_cred_del() {
+  [ -n "$3" ] && [ -n "$4" ] || return 0
+  _cdrc=0
+  if [ -n "$1" ]; then
+    kubectl --kubeconfig "$1" -n "$3" delete secret "$4" --ignore-not-found=true >/dev/null 2>&1 || _cdrc=1
+  else
+    kubectl -n "$3" delete secret "$4" --ignore-not-found=true >/dev/null 2>&1 || _cdrc=1
+  fi
+  if [ "${_cdrc}" -eq 0 ]; then _cred_gone="${_cred_gone} $2/$3/$4"; else _cred_left="${_cred_left} $2/$3/$4"; fi
+}
+
+# credential_remove: delete the pull credential in every region (each
+# follower's two copies, then the source here) and record the result as the
+# status key "credential". Idempotent: what is absent counts as removed.
+credential_remove() {
+  [ -n "${PULL_SECRET}" ] || return 0
+  _cred_gone=""; _cred_left=""
+  for _kc in $(followers); do
+    _r=$(basename "${_kc}" .yaml)
+    _cred_del "${_kc}" "${_r}" "${RELEASE_NAMESPACE}" "${PULL_SECRET}"
+    _cred_del "${_kc}" "${_r}" "${SECONDARY_HARBOR_NAMESPACE}" "${SECONDARY_GHCR_DEST_SECRET}"
+  done
+  _cred_del "" primary "${RELEASE_NAMESPACE}" "${PULL_SECRET}"
+  if [ -n "${_cred_left}" ]; then
+    say "WARN: the pull credential could not be deleted in:${_cred_left}; delete it there by hand"
+    status_put --arg credential "left in:${_cred_left}; delete it there by hand" --arg updatedAt "$(now)"
+    return 1
+  fi
+  say "the pull credential is deleted in every region:${_cred_gone}"
+  status_put --arg credential "deleted in every region:${_cred_gone}" --arg updatedAt "$(now)"
+}
+
+# first_cause <log>: the last line of a step's log that names why it stopped.
+first_cause() {
+  _c=$(grep -E 'FATAL|FAILED|REFUSED' "$1" 2>/dev/null | tail -n 1 | sed -e 's/^\[[^]]*\] *//' | cut -c1-600 || true)
+  [ -n "${_c}" ] || _c=$(grep -v '^[[:space:]]*$' "$1" 2>/dev/null | tail -n 1 | cut -c1-600 || true)
+  printf '%s' "${_c}"
 }
 
 primary_pat=""
@@ -128,8 +208,9 @@ case "${1:-}" in
     for kc in $(followers); do run_follower "${kc}" stage || _rc=1; done
     if [ "${_rc}" -ne 0 ]; then
       _v=$(verdict stage); _v="${_v:-failed}"
-      status_put --arg phase "${_v}" --arg message "stage ${_v} in a region: nothing moved in any region; see <region>.stage.report" --arg updatedAt "$(now)"
+      status_put --arg phase "${_v}" --arg failedStep stage --arg message "stage ${_v} in a region: nothing moved in any region; see <region>.stage.report" --arg updatedAt "$(now)"
       say "stage ${_v}: nothing moved in any region"
+      [ "${DRY_RUN}" = "true" ] || credential_remove || true
       exit 1
     fi
     if [ "${DRY_RUN}" = "true" ]; then
@@ -137,10 +218,36 @@ case "${1:-}" in
       say "dry run complete: nothing was pushed"
       exit 0
     fi
+    if ! credential_deliver; then
+      status_put --arg phase failed --arg failedStep stage --arg message "stage failed: ${_cred_why}; nothing moved in any region" --arg updatedAt "$(now)"
+      say "FAILED: ${_cred_why}; nothing moved in any region"
+      credential_remove || true
+      exit 1
+    fi
     status_put --arg phase staged --arg message "release/${CANDIDATE} is staged in every region; the prewarm copies what it pins" --arg updatedAt "$(now)"
+    ;;
+  prewarm)
+    # prewarm <command...>: step 03's own command. Its output goes to this
+    # container's log as it runs and to STATE/prewarm.log, for the cause.
+    shift
+    [ "$#" -gt 0 ] || { say "usage: release-run.sh prewarm <command of cutover step 03...>"; exit 2; }
+    rm -f "${STATE}/prewarm.rc"
+    { _prc=0; "$@" || _prc=$?; echo "${_prc}" >"${STATE}/prewarm.rc"; } 2>&1 | tee "${STATE}/prewarm.log"
+    _prc=$(cat "${STATE}/prewarm.rc" 2>/dev/null || echo 1)
+    credential_remove || true
+    if [ "${_prc}" -ne 0 ]; then
+      _cause=$(first_cause "${STATE}/prewarm.log")
+      status_put --arg phase failed --arg failedStep prewarm \
+        --arg message "prewarm failed (cutover step 03 exited ${_prc}): ${_cause:-its log names no cause}; nothing moved in any region" --arg updatedAt "$(now)"
+      say "prewarm failed (exit ${_prc}): nothing moved in any region"
+      exit "${_prc}"
+    fi
     ;;
   promote)
     status_put --arg phase promoting --arg updatedAt "$(now)"
+    # A deletion the prewarm could not finish is tried again; nothing is left
+    # to delete on the usual path.
+    credential_remove || true
     _rc=0
     run_primary check || _rc=1
     for kc in $(followers); do run_follower "${kc}" check || _rc=1; done
@@ -159,5 +266,5 @@ case "${1:-}" in
     status_put --arg phase delivered --arg message "every region follows rc/${CANDIDATE} merged with its own commits" --arg deliveredAt "$(now)" --arg updatedAt "$(now)"
     say "delivered rc/${CANDIDATE}"
     ;;
-  *) say "usage: release-run.sh stage|promote"; exit 2 ;;
+  *) say "usage: release-run.sh stage|prewarm <command...>|promote"; exit 2 ;;
 esac

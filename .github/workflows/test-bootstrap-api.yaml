@@ -27,10 +27,12 @@ name: Test — Bootstrap API (Go)
 # schema of the variables document (SOV-180):
 #   docs/contracts/c5-upstream-variables.schema.json
 # The release tests of internal/lifecycle run the kit rewrite and the pin
-# extractor of the cutover chart, and check the route against the API's
-# ClusterRole (#7922):
+# extractor of the cutover chart, the lines of step 03 that read the pull
+# credential in a follower region (#7938), and check the route against the
+# API's ClusterRole (#7922):
 #   platform/self-sovereign-cutover/chart/templates/06-helmrepository-patches-job.yaml
 #   platform/self-sovereign-cutover/chart/templates/03b-bootstrap-kit-pins.yaml
+#   platform/self-sovereign-cutover/chart/templates/03-harbor-prewarm-job.yaml
 #   products/catalyst/chart/templates/clusterrole-cutover-driver.yaml
 on:
   push:
@@ -47,6 +49,7 @@ on:
       - 'docs/contracts/c5-upstream-variables.schema.json'
       - 'platform/self-sovereign-cutover/chart/templates/06-helmrepository-patches-job.yaml'
       - 'platform/self-sovereign-cutover/chart/templates/03b-bootstrap-kit-pins.yaml'
+      - 'platform/self-sovereign-cutover/chart/templates/03-harbor-prewarm-job.yaml'
       - 'products/catalyst/chart/templates/clusterrole-cutover-driver.yaml'
       - '.github/workflows/test-bootstrap-api.yaml'
     branches: [main]
@@ -64,6 +67,7 @@ on:
       - 'docs/contracts/c5-upstream-variables.schema.json'
       - 'platform/self-sovereign-cutover/chart/templates/06-helmrepository-patches-job.yaml'
       - 'platform/self-sovereign-cutover/chart/templates/03b-bootstrap-kit-pins.yaml'
+      - 'platform/self-sovereign-cutover/chart/templates/03-harbor-prewarm-job.yaml'
       - 'products/catalyst/chart/templates/clusterrole-cutover-driver.yaml'
       - '.github/workflows/test-bootstrap-api.yaml'
   workflow_dispatch:
