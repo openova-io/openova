@@ -2374,12 +2374,13 @@ checks:
 - id: SOV-G17
   title: The Sovereign object is written
   owner: SOV
-  state: not-built
+  state: required
   runs_in: [local, cloud]
   destructive: false
   needs: []
   proof: running
   asserts: The Sovereign object is written
+  implementation: tests/acceptance/sovereign/internal/suite/check_sovereign_object.go
   delivered_by: SOV-175
 - id: SOV-G18
   title: Ring switch by commit

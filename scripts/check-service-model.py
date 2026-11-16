@@ -75,7 +75,7 @@ METRICS = [
     ("G5.label-section", "fall", BP, "Blueprint files with the label catalyst.openova.io/section"),
     ("G6.function-test-charts", "rise", (), "folders whose chart/templates/tests/function-test.yaml is a test Pod"),
     ("G7.seed-exclusions", "fall", (), "entries of the list exclusions in " + EXCLUSIONS),
-    ("G8.slots-without-ring", "fall", (KIT,), "slot files whose HelmRelease has no label catalyst.openova.io/ring of RINGS"),
+    ("G8.slots-without-ring", "fall", (KIT,), "slot files whose release (a HelmRelease, or a Flux Kustomization) has no label catalyst.openova.io/ring of RINGS"),
     ("G8.ring-edges-outside", "fall", (KIT,), "dependsOn edges from a ring to a ring not foundation, provider or its own"),
     ("G9.wizard-ids-without-chart", "fall", (GROUPS_TS,), "GROUPS ids that have no chart"),
     ("G9.raw-image-apps", "cap", (APPS_GO, SEED_GO), "KnownApps keys that DeployableAppSlugs sells and that have no chart"),
@@ -226,7 +226,9 @@ def measure_kit(root, c):
     for name in sorted(os.listdir(os.path.join(root, KIT))):
         if not (name[:1].isdigit() and name.endswith(".yaml")):
             continue
-        releases = [d for d in load(root, KIT + "/" + name) if isinstance(d, dict) and d.get("kind") == "HelmRelease"]
+        # A slot's release is its HelmRelease, or the Flux Kustomization of a slot that applies a folder of the kit (12b).
+        releases = [d for d in load(root, KIT + "/" + name) if isinstance(d, dict) and (d.get("kind") == "HelmRelease" or (
+            d.get("kind") == "Kustomization" and str(d.get("apiVersion", "")).startswith("kustomize.toolkit.fluxcd.io/")))]
         rings = [sub(sub(hr, "metadata"), "labels").get("catalyst.openova.io/ring") for hr in releases]
         unlabelled += not releases or any(r not in RINGS for r in rings)
         for hr, ring in zip(releases, rings):
@@ -376,11 +378,12 @@ def fixture(root):
     put(root, KIT + "/kustomization.yaml", "resources: []\n")
 
 
-def slot(name, ring, deps):
+def slot(name, ring, deps, kind="HelmRelease"):
     labels = "  labels:\n    catalyst.openova.io/ring: %s\n" % ring if ring else ""
     dep = "".join("    - name: %s\n" % d for d in deps)
-    return ("apiVersion: helm.toolkit.fluxcd.io/v2\nkind: HelmRelease\nmetadata:\n  name: %s\n%s"
-            "spec:\n  dependsOn:\n%s" % (name, labels, dep or "    []\n"))
+    api = "helm.toolkit.fluxcd.io/v2" if kind == "HelmRelease" else "kustomize.toolkit.fluxcd.io/v1"
+    return ("apiVersion: %s\nkind: %s\nmetadata:\n  name: %s\n%s"
+            "spec:\n  dependsOn:\n%s" % (api, kind, name, labels, dep or "    []\n"))
 
 
 FUNCTION_TEST = "apiVersion: v1\nkind: Pod\nmetadata:\n  annotations:\n    helm.sh/hook: test\n"
@@ -425,6 +428,10 @@ RULE_CASES = [
      lambda r: put(r, EXCLUSIONS, "exclusions:\n  - blueprint: bp-beta\n    reason: x\n")),
     ("G8 one more slot without a ring", "G8.slots-without-ring",
      lambda r: put(r, KIT + "/03-third.yaml", slot("third", "operations-x", []))),
+    ("G8 one more Kustomization slot without a ring", "G8.slots-without-ring",
+     lambda r: put(r, KIT + "/03-third.yaml", slot("third", None, [], kind="Kustomization"))),
+    ("G8 a ConfigMap is no release of a slot", "G8.slots-without-ring",
+     lambda r: put(r, KIT + "/03-third.yaml", "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: third\n  labels:\n    catalyst.openova.io/ring: foundation\n")),
     ("G8 a dependsOn edge from one ring to another", "G8.ring-edges-outside",
      lambda r: (put(r, KIT + "/02-second.yaml", slot("second", "ai", ["first"])),
                 put(r, KIT + "/03-third.yaml", slot("third", "operations", ["second"])))),
@@ -480,6 +487,8 @@ def self_test():
     case("--write-baseline refuses a rise of a fall count", lambda r: edit(r, B, "name: bp-beta", "name: beta"), 1,
          "refused: G1.name-without-bp-prefix would move from 1 to 2", mode="write")
     case("a Blueprint file that is not YAML judges nothing", lambda r: put(r, B, "a: [\n"), 2, "cannot be read")
+    case("a Kustomization slot with a ring adds no slot without a ring", lambda r: put(
+        r, KIT + "/03-third.yaml", slot("third", "foundation", [], kind="Kustomization")), 0)
 
     for good, name, detail in results:
         print("%s %s (%s)" % ("ok" if good else "FAIL", name, detail))

@@ -1,0 +1,58 @@
+# The writer of the Sovereign object (SOV-175) reads two ConfigMaps of
+# flux-system and writes the one cluster-wide Sovereign object and its status.
+# Nothing else.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sovereign-object
+  namespace: flux-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: sovereign-object
+rules:
+  - apiGroups: [catalyst.openova.io]
+    resources: [sovereigns]
+    verbs: [get, list, create, patch]
+  - apiGroups: [catalyst.openova.io]
+    resources: [sovereigns/status]
+    verbs: [get, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: sovereign-object
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: sovereign-object
+subjects:
+  - kind: ServiceAccount
+    name: sovereign-object
+    namespace: flux-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: sovereign-object
+  namespace: flux-system
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [sovereign-variables, sovereign-network-registry]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: sovereign-object
+  namespace: flux-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: sovereign-object
+subjects:
+  - kind: ServiceAccount
+    name: sovereign-object
+    namespace: flux-system

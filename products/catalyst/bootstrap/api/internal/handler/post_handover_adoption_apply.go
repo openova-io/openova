@@ -32,13 +32,10 @@
 // infrastructure-providers Flux Kustomization (LAYER 1 of the two-layer
 // crossplane bootstrap, #4521) — both may still be installing when Phase-1
 // first goes Ready, so the apply retries until the CRD registers (bounded).
-// Re-running on an already-adopted Sovereign is a
-// no-op server-side-apply merge. Failures log + emit an SSE warn but never
-// fail the handover (adoption is a day-2 observability surface, not on the
-// bootstrap critical path).
-//
-// Run on a background goroutine from runPhase1Watch's OutcomeReady terminal
-// block (phase1_watch.go), alongside runPostHandoverPolicyEnforceFlip.
+// Re-running on an already-adopted Sovereign is a no-op server-side-apply
+// merge. Failures log + emit an SSE warn but never fail the handover.
+// From the same state it delivers the network registry to every region (SOV-175).
+// Runs in the background from runPhase1Watch's OutcomeReady block (phase1_watch.go).
 package handler
 
 import (
@@ -58,6 +55,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/tools/clientcmd"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/lifecycle"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
 
@@ -108,6 +106,8 @@ func (h *Handler) runPostHandoverAdoptionApply(dep *Deployment) {
 			"id", dep.ID, "path", statePath, "err", err)
 		return
 	}
+	// SOV-175: the network registry reaches every region (internal/lifecycle/network_registry.go).
+	h.log.Info("network-registry", "id", dep.ID, "regions", lifecycle.DeliverNetworkRegistry(context.Background(), stateRaw, dep.ID, h.k8sCache, lifecycle.ApplyConfigMap))
 
 	// 2. Regenerate the real-id CloudAdoption CRs (same pure generator the
 	//    provisioner already calls; re-running is deterministic).
