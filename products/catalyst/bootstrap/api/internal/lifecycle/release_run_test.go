@@ -13,9 +13,11 @@ import (
 )
 
 // kubectlStub stands for kubectl in release-run.sh (a shell function named
-// kubectl runs it). It answers the token read, the read of each region's
-// registry configuration (STUB_DIR/registry-<region>.yml, where the region is
-// the basename of --kubeconfig, "primary" without one),
+// kubectl runs it, and STUB_DIR/bin/kubectl for the processes it starts). It
+// answers the token read and the read of each region's registry configuration
+// (STUB_DIR/registry-<region>.yml), keeps the Secrets of each region under
+// STUB_DIR/secrets/<region>/<ns>/ (the region is the basename of --kubeconfig;
+// "primary" without one),
 // records every status patch, and runs a follower Job it is asked to apply:
 // release-region.sh with the plain environment of the applied manifest (its
 // /release paths mapped to STUB_RELEASE) and GITEA_PAT, the way the follower
@@ -27,13 +29,24 @@ region=primary
 [ "$1" = "--kubeconfig" ] && { region=$(basename "$2" .yaml); shift 2; }
 case " $* " in
   *" get configmap harbor-registry "*) cat "${STUB_DIR}/registry-${region}.yml" 2>/dev/null || exit 1 ;;
-  *" get secret "*) printf '%s' "${STUB_PAT}" | base64 ;;
+  *" get secret "*jsonpath*) printf '%s' "${STUB_PAT}" | base64 ;;
+  *" get secret "*)
+    f="${STUB_DIR}/secrets/${region}/$2/$5.json"
+    [ -f "${f}" ] || { echo "Error from server (NotFound): secrets \"$5\" not found" >&2; exit 1; }
+    case " $* " in *" -o name "*) echo "secret/$5" ;; *) cat "${f}" ;; esac ;;
+  *" delete secret "*) rm -f "${STUB_DIR}/secrets/${region}/$2/$5.json" ;;
   *" patch configmap "*)
     while [ $# -gt 0 ]; do [ "$1" = "-p" ] && printf '%s\n' "$2" >>"${STUB_DIR}/status"; shift; done ;;
   *" create configmap "*) echo "kind: ConfigMap" ;;
   *" delete job "*) rm -f "${STUB_DIR}/job-$5".* ;;
   *" apply --server-side "*)
     cat >"${STUB_DIR}/applied"
+    if jq -e '.kind == "Secret"' "${STUB_DIR}/applied" >/dev/null 2>&1; then
+      to=$(jq -r '.metadata.namespace + "/" + .metadata.name' "${STUB_DIR}/applied")
+      mkdir -p "${STUB_DIR}/secrets/${region}/${to%/*}"
+      cp "${STUB_DIR}/applied" "${STUB_DIR}/secrets/${region}/${to}.json"
+      exit 0
+    fi
     grep -q '^kind: Job' "${STUB_DIR}/applied" || exit 0
     name=$(awk '/^metadata:/ {m=1; next} m && /^  name:/ {print $2; exit}' "${STUB_DIR}/applied")
     cp "${STUB_DIR}/applied" "${STUB_DIR}/job-${name}.yaml"
@@ -108,21 +121,28 @@ type runFixture struct {
 	stub, kubeconfigs, state string
 	followerMain             string
 	followerURL              string
-	env                      []string // added to the environment of every run
+	args, env                []string // added to every run's arguments and environment
 }
 
 func (r *runFixture) run(phase string, req releaseRequest) (string, int) {
 	r.t.Helper()
-	cmd := command("sh", "-c", `kubectl() { sh "${STUB_DIR}/kubectl" "$@"; }; set -- "$0"; . "${RELEASE_SCRIPTS}/release-run.sh"`, phase)
+	return r.runArgs(append([]string{phase}, r.args...), req, r.env...)
+}
+
+// runArgs runs release-run.sh with args, the environment of the release Job's
+// containers, and extra variables (NAME=value) on top.
+func (r *runFixture) runArgs(args []string, req releaseRequest, extra ...string) (string, int) {
+	r.t.Helper()
+	cmd := command("sh", append([]string{"-c", `kubectl() { sh "${STUB_DIR}/kubectl" "$@"; }; set -- "$0" "$@"; . "${RELEASE_SCRIPTS}/release-run.sh"`}, args...)...)
 	cmd.Dir = r.dir
-	cmd.Env = append(os.Environ(), "HOME="+r.home, "GIT_CONFIG_NOSYSTEM=1", "STUB_DIR="+r.stub, "STUB_PAT=not-a-real-token", "STUB_RELEASE="+r.scripts,
+	cmd.Env = append(os.Environ(), "PATH="+r.stub+"/bin:"+os.Getenv("PATH"), "HOME="+r.home, "GIT_CONFIG_NOSYSTEM=1", "STUB_DIR="+r.stub, "STUB_PAT=not-a-real-token", "STUB_RELEASE="+r.scripts,
 		"RELEASE_NAMESPACE=catalyst", "RELEASE_STATUS_CM=sovereign-release", "CANDIDATE="+req.Candidate, "DRY_RUN="+boolString(req.DryRun),
 		"STATE="+r.state, "SECONDARY_KUBECONFIGS="+r.kubeconfigs, "RELEASE_SCRIPTS="+r.scripts, "FOLLOWER_POLL_SECONDS=1", "FOLLOWER_WAIT_SECONDS=60",
 		"KIT_REWRITE="+r.scripts+"/kit-rewrite.sh", "PIN_EXTRACTOR="+r.scripts+"/extract-pins.sh",
 		"PAT_SOURCE_NAMESPACE=catalyst-system", "PAT_SOURCE_SECRET_NAME=catalyst-gitea-token", "PAT_SOURCE_KEY=token",
 		"UPSTREAM_REPO_URL=file://"+r.upstream, "UPSTREAM_BRANCH=main", "UPSTREAM_PREFIX="+upstreamPrefix,
 		"GITEA_INTERNAL_URL="+r.gitea, "GITEA_ORG=openova", "GITEA_REPO=openova", "GITEA_USERNAME=gitea_admin")
-	cmd.Env = append(cmd.Env, r.env...)
+	cmd.Env = append(cmd.Env, extra...)
 	out, err := cmd.CombinedOutput()
 	code := 0
 	if ee, ok := err.(*exec.ExitError); ok {
@@ -267,6 +287,10 @@ func newRunFixtureFrom(t *testing.T, f *fixture, req releaseRequest, conflict bo
 		}
 	}
 	f.write(r.stub, "kubectl", kubectlStub)
+	f.write(r.stub, "bin/kubectl", "#!/bin/sh\nexec sh \"${STUB_DIR}/kubectl\" \"$@\"\n")
+	if err := os.Chmod(r.stub+"/bin/kubectl", 0o700); err != nil { //nolint:gosec // a fake program must be executable
+		t.Fatal(err)
+	}
 	f.write(r.kubeconfigs, "region-b.yaml", "apiVersion: v1\nkind: Config\n")
 	in := &releaseInputs{mirror: corev1.Container{Env: []corev1.EnvVar{plain("UPSTREAM_REPO_URL", "file://"+f.upstream)}}, follower: followerPivotJob(r.followerURL), followerNS: "gitea"}
 	m, err := in.followerJobManifest(req)

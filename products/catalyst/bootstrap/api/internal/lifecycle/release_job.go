@@ -242,6 +242,7 @@ func (in *releaseInputs) runContainer(name, phase, ns string, req releaseRequest
 	} {
 		c.Env = setEnv(c.Env, v)
 	}
+	c.Env = setEnvs(c.Env, in.credentialEnv(req)...)
 	c.VolumeMounts = []corev1.VolumeMount{
 		{Name: "release-scripts", MountPath: "/release", ReadOnly: true},
 		{Name: "release-kit-rewrite", MountPath: "/kit-rewrite", ReadOnly: true},
@@ -252,11 +253,44 @@ func (in *releaseInputs) runContainer(name, phase, ns string, req releaseRequest
 	return c
 }
 
+// credentialEnv tells release-run.sh which Secrets hold the pull credential
+// during a delivery: PULL_SECRET, the request's, which the stage copies into
+// every follower, and the copy step 03 makes of it in each follower's harbor
+// namespace. release-run.sh deletes all of them when the prewarm ends, or when
+// the stage fails. A dry run names none, so it deletes none.
+func (in *releaseInputs) credentialEnv(req releaseRequest) []corev1.EnvVar {
+	if req.DryRun || req.PullSecret == "" {
+		return nil
+	}
+	out := []corev1.EnvVar{plain("PULL_SECRET", req.PullSecret)}
+	for _, n := range []string{"SECONDARY_HARBOR_NAMESPACE", "SECONDARY_GHCR_DEST_SECRET"} {
+		if v, ok := envValue(in.prewarm.Containers[0].Env, n); ok && v != "" {
+			out = append(out, plain(n, v))
+		}
+	}
+	return out
+}
+
+// setEnvs is setEnv for several variables.
+func setEnvs(env []corev1.EnvVar, vs ...corev1.EnvVar) []corev1.EnvVar {
+	for _, v := range vs {
+		env = setEnv(env, v)
+	}
+	return env
+}
+
 // prewarmContainer is cutover step 03 itself, reading the pins of the staged
 // branch release/<candidate> and the upstream credential the request names.
 // Post-cutover the Sovereign holds no upstream registry credential: step 06
 // strips it, so the sovereign-admin names one for this run.
-func (in *releaseInputs) prewarmContainer(ns string, req releaseRequest) corev1.Container {
+//
+// Step 03's follower leg reads that credential in each FOLLOWER region, as
+// SECONDARY_GHCR_SOURCE_NAMESPACE/SECRET through the follower's kubeconfig
+// (03-harbor-prewarm-job.yaml, step (2) of the #6764 leg); the stage copies it
+// there. Step 03's own command runs under "release-run.sh prewarm", which
+// deletes the credential in every region when step 03 ends and, when it
+// fails, writes the failure and its cause into the release state.
+func (in *releaseInputs) prewarmContainer(ns string, req releaseRequest) (corev1.Container, error) {
 	c := *in.prewarm.Containers[0].DeepCopy()
 	c.Name = "prewarm"
 	c.Env = setEnv(c.Env, plain("UPSTREAM_BRANCH", "release/"+req.Candidate))
@@ -267,7 +301,33 @@ func (in *releaseInputs) prewarmContainer(ns string, req releaseRequest) corev1.
 		c.Env = setEnv(c.Env, plain("SECONDARY_GHCR_SOURCE_NAMESPACE", ns))
 		c.Env = setEnv(c.Env, plain("SECONDARY_GHCR_SOURCE_SECRET", req.PullSecret))
 	}
-	return c
+	if len(c.Command) == 0 {
+		return c, &dependencyError{fmt.Sprintf("step 03 (%s) names no command, so the release cannot run it", prewarmStepConfigMap)}
+	}
+	c.Args = append(append([]string{}, c.Command...), c.Args...)
+	c.Command = []string{"/bin/sh", "/release/release-run.sh", "prewarm"}
+	c.Env = setEnvs(c.Env,
+		plain("CANDIDATE", req.Candidate),
+		plain("DRY_RUN", boolString(req.DryRun)),
+		plain("RELEASE_NAMESPACE", ns),
+		plain("RELEASE_STATUS_CM", ReleaseStatusConfigMap),
+		plain("RELEASE_SCRIPTS", "/release"),
+		plain("STATE", "/release-state"),
+		plain("SECONDARY_KUBECONFIGS", "/release-secondary-kubeconfigs"))
+	c.Env = setEnvs(c.Env, in.credentialEnv(req)...)
+	for _, m := range []corev1.VolumeMount{
+		{Name: "release-scripts", MountPath: "/release", ReadOnly: true},
+		{Name: "release-state", MountPath: "/release-state"},
+		{Name: "release-secondary-kubeconfigs", MountPath: "/release-secondary-kubeconfigs", ReadOnly: true},
+	} {
+		for _, have := range c.VolumeMounts {
+			if have.MountPath == m.MountPath {
+				return c, &dependencyError{fmt.Sprintf("step 03 (%s) already mounts %s", prewarmStepConfigMap, m.MountPath)}
+			}
+		}
+		c.VolumeMounts = append(c.VolumeMounts, m)
+	}
+	return c, nil
 }
 
 // followerJobManifest is the follower pivot Job of the installed cutover chart,
@@ -385,7 +445,11 @@ func composeRelease(in *releaseInputs, req releaseRequest, ns, name string, labe
 		if in.prewarm.ActiveDeadlineSeconds != nil {
 			deadline += *in.prewarm.ActiveDeadlineSeconds
 		}
-		pod.InitContainers = []corev1.Container{in.runContainer("stage", "stage", ns, req), in.prewarmContainer(ns, req)}
+		pw, err := in.prewarmContainer(ns, req)
+		if err != nil {
+			return nil, nil, err
+		}
+		pod.InitContainers = []corev1.Container{in.runContainer("stage", "stage", ns, req), pw}
 		pod.Containers = []corev1.Container{in.runContainer("promote", "promote", ns, req)}
 	}
 	backoff, ttl := int32(0), int32(releaseTTLSeconds)

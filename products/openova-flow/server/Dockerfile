@@ -4,7 +4,15 @@
 # Actions and pulled through harbor.openova.io / per-Sovereign Harbor.
 # This Dockerfile is the CI build recipe — never `docker build`d locally
 # for shipment.
-FROM golang:1.22-alpine AS build
+#
+# The builder Go comes from go.mod (#7922). The golang images set
+# GOTOOLCHAIN=local, so a builder older than go.mod's `go` line stops at
+# `go mod download`. CI passes GO_VERSION, the <major>.<minor> that
+# `bash scripts/check-go-builder-version.sh --builder-version go.mod` prints,
+# and checks the result before it builds. The default `1` is the newest Go 1
+# release, so a plain `docker build` is never older than go.mod either.
+ARG GO_VERSION=1
+FROM golang:${GO_VERSION}-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download

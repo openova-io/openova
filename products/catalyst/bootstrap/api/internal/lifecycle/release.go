@@ -37,7 +37,11 @@ import (
 //     nothing. A dry run stops here and pushes nothing.
 //  2. prewarm: cutover step 03 itself, reading the pins of release/<id>, copies
 //     every chart and image they declare into the Sovereign's registry and stops
-//     by name on any it cannot copy.
+//     by name on any it cannot copy. Its upstream credential is the request's
+//     pullSecret, which the stage copies into every follower region (step 03's
+//     follower leg reads it there); when the prewarm ends, or the stage fails,
+//     the Job deletes it in every region, and a failed prewarm is recorded as
+//     phase failed with the step and its cause.
 //  3. promote: if no region's main moved since stage, push release/<id> as main
 //     in every region, a fast-forward the server checks. Never a force push.
 //
@@ -122,7 +126,11 @@ func (rt *ReleaseRoute) cutoverStatus() string {
 // Request handles PUT /api/v1/sovereign/release with the body
 // {"candidate": "<id>", "dryRun": false, "pullSecret": "<name>"}. pullSecret is a
 // Secret of type kubernetes.io/dockerconfigjson in the cutover namespace with an
-// entry for ghcr.io; a delivery needs it, a dry run does not.
+// entry for ghcr.io; a delivery needs it, a dry run does not. A delivery uses it
+// for its run only: the Job copies it into every follower region for the
+// prewarm and deletes it in every region, the named Secret included, when the
+// prewarm ends or the stage fails. So it must be a Secret made for the delivery,
+// not one another controller manages.
 func (rt *ReleaseRoute) Request(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if !SovereignAdmin(claims) {
@@ -301,7 +309,7 @@ func jobState(j *batchv1.Job) string {
 // upstream credential, or "" when it can.
 func checkPullSecret(ctx context.Context, cs kubernetes.Interface, ns, name string) string {
 	if name == "" {
-		return "a delivery copies charts and images from ghcr.io, and after cutover the Sovereign holds no credential for it (cutover step 06 strips it): name a Secret of type kubernetes.io/dockerconfigjson in namespace " + ns + " with an entry for ghcr.io as pullSecret"
+		return "a delivery copies charts and images from ghcr.io, and after cutover the Sovereign holds no credential for it (cutover step 06 strips it): name a Secret of type kubernetes.io/dockerconfigjson in namespace " + ns + " with an entry for ghcr.io as pullSecret; the delivery copies it to every follower region and deletes it in every region when its prewarm ends"
 	}
 	sec, err := cs.CoreV1().Secrets(ns).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
@@ -318,6 +326,35 @@ func checkPullSecret(ctx context.Context, cs kubernetes.Interface, ns, name stri
 	if cfg.Auths["ghcr.io"].Auth == "" {
 		return fmt.Sprintf("Secret %s/%s has no auth entry for ghcr.io", ns, name)
 	}
+	if owner := managedBy(sec.ObjectMeta); owner != "" {
+		return fmt.Sprintf("Secret %s/%s is managed by %s, and a delivery deletes its pull Secret when the prewarm ends: name a Secret made for this delivery", ns, name, owner)
+	}
+	return ""
+}
+
+// managedBy names what manages an object, or "": an owner, Helm, Flux, the
+// reflector, or a managed-by label. The release deletes its pull Secret, so it
+// refuses one another controller would recreate or that something else reads.
+func managedBy(m metav1.ObjectMeta) string {
+	if len(m.OwnerReferences) > 0 {
+		return fmt.Sprintf("its owner %s/%s", m.OwnerReferences[0].Kind, m.OwnerReferences[0].Name)
+	}
+	if v := m.Labels["app.kubernetes.io/managed-by"]; v != "" {
+		return "app.kubernetes.io/managed-by=" + v
+	}
+	if v := m.Annotations["meta.helm.sh/release-name"]; v != "" {
+		return "the Helm release " + v
+	}
+	for k := range m.Labels {
+		if strings.HasPrefix(k, "kustomize.toolkit.fluxcd.io/") || strings.HasPrefix(k, "helm.toolkit.fluxcd.io/") {
+			return "Flux (" + k + ")"
+		}
+	}
+	for k := range m.Annotations {
+		if strings.HasPrefix(k, "reflector.v1.k8s.emberstack.com/") {
+			return "the reflector (" + k + ")"
+		}
+	}
 	return ""
 }
 
@@ -325,6 +362,9 @@ func checkPullSecret(ctx context.Context, cs kubernetes.Interface, ns, name stri
 // of the Job and of the step it runs now.
 func releaseView(data map[string]string, job *batchv1.Job, pods []corev1.Pod) map[string]any {
 	v := map[string]any{"status": data, "phase": data["phase"], "job": data["job"], "jobState": jobState(job)}
+	if s := data["failedStep"]; s != "" {
+		v["failedStep"] = s
+	}
 	if job == nil {
 		return v
 	}

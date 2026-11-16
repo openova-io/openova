@@ -211,6 +211,11 @@ func TestReleaseRequestRefusals(t *testing.T) {
 		Status: batchv1.JobStatus{Conditions: []batchv1.JobCondition{{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}}}}
 	noBranch := installed(false, false)
 	noBranch[2] = cm(prewarmStepConfigMap, map[string]string{"podSpec": strings.Replace(prewarmPodSpec, "{name: UPSTREAM_BRANCH, value: main}", "{name: SOMETHING, value: main}", 1)})
+	managed := func(name string, mutate func(*corev1.Secret)) *corev1.Secret {
+		s := pullSecret(name, "ghcr.io")
+		mutate(s)
+		return s
+	}
 	followersOnly := append(installed(false, false),
 		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: secondaryKubeconfigs, Namespace: testNS}, Data: map[string][]byte{"region-b.yaml": []byte("x")}})
 	for _, c := range []struct {
@@ -237,6 +242,19 @@ func TestReleaseRequestRefusals(t *testing.T) {
 		{"a delivery without a pull secret", `{"candidate":"` + testCandidate + `"}`, installed(false, false), nil, 422, "no credential"},
 		{"a pull secret without ghcr.io", `{"candidate":"` + testCandidate + `","pullSecret":"other"}`, append(installed(false, false), pullSecret("other", "docker.io")), nil, 422, "no auth entry for ghcr.io"},
 		{"an absent pull secret", `{"candidate":"` + testCandidate + `","pullSecret":"absent"}`, installed(false, false), nil, 422, "absent"},
+		// The delivery deletes its pull Secret: one another controller manages is refused.
+		{"a reflected pull secret", `{"candidate":"` + testCandidate + `","pullSecret":"ghcr-pull"}`, append(installed(false, false), managed("ghcr-pull", func(s *corev1.Secret) {
+			s.Annotations = map[string]string{"reflector.v1.k8s.emberstack.com/reflects": "flux-system/ghcr-pull"}
+		})), nil, 422, "managed by the reflector"},
+		{"a Helm-managed pull secret", `{"candidate":"` + testCandidate + `","pullSecret":"chart-pull"}`, append(installed(false, false), managed("chart-pull", func(s *corev1.Secret) {
+			s.Annotations = map[string]string{"meta.helm.sh/release-name": "bp-harbor"}
+		})), nil, 422, "managed by the Helm release bp-harbor"},
+		{"an owned pull secret", `{"candidate":"` + testCandidate + `","pullSecret":"owned-pull"}`, append(installed(false, false), managed("owned-pull", func(s *corev1.Secret) {
+			s.OwnerReferences = []metav1.OwnerReference{{APIVersion: "v1", Kind: "ServiceAccount", Name: "x", UID: "u"}}
+		})), nil, 422, "managed by its owner ServiceAccount/x"},
+		{"a Flux-applied pull secret", `{"candidate":"` + testCandidate + `","pullSecret":"flux-pull"}`, append(installed(false, false), managed("flux-pull", func(s *corev1.Secret) {
+			s.Labels = map[string]string{"kustomize.toolkit.fluxcd.io/name": "bootstrap-kit"}
+		})), nil, 422, "managed by Flux"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			cs := fake.NewSimpleClientset(c.objs...)
@@ -271,6 +289,9 @@ func TestReleaseDryRunIsTheStageAlone(t *testing.T) {
 	c := pod.Containers[0]
 	if c.Image != cutoverImage || pod.ServiceAccountName != runnerSA || strings.Join(c.Command, " ") != "/bin/sh /release/release-run.sh stage" {
 		t.Fatalf("stage: image %s, SA %s, command %v", c.Image, pod.ServiceAccountName, c.Command)
+	}
+	if env(c, "PULL_SECRET") != nil {
+		t.Fatalf("a dry run names a pull credential to deliver and delete: %v", env(c, "PULL_SECRET"))
 	}
 	if env(c, "DRY_RUN").Value != "true" || env(c, "CANDIDATE").Value != testCandidate || env(c, "GITEA_ORG").Value != "openova" || env(c, "UPSTREAM_PREFIX").Value != "oci://ghcr.io/openova-io" {
 		t.Fatalf("stage env: %v", c.Env)
@@ -312,8 +333,22 @@ func TestReleaseDeliveryRunsStagePrewarmPromote(t *testing.T) {
 		t.Fatal(err)
 	}
 	pw, orig := pod.InitContainers[1], step03.Containers[0]
-	if pw.Image != orig.Image || strings.Join(pw.Command, " ") != strings.Join(orig.Command, " ") || len(pw.VolumeMounts) != len(orig.VolumeMounts) {
-		t.Fatalf("the prewarm is not step 03's own container: %v", pw)
+	if pw.Image != orig.Image || strings.Join(pw.Command, " ") != "/bin/sh /release/release-run.sh prewarm" ||
+		strings.Join(pw.Args, " ") != strings.Join(append(append([]string{}, orig.Command...), orig.Args...), " ") {
+		t.Fatalf("the prewarm is not step 03's own command run by release-run.sh prewarm: %v %v", pw.Command, pw.Args)
+	}
+	mounts := map[string]string{}
+	for _, m := range pw.VolumeMounts {
+		mounts[m.Name] = m.MountPath
+	}
+	for _, m := range orig.VolumeMounts {
+		if mounts[m.Name] != m.MountPath {
+			t.Fatalf("the prewarm lost step 03's mount %s at %s: %v", m.Name, m.MountPath, pw.VolumeMounts)
+		}
+	}
+	if mounts["release-scripts"] != "/release" || mounts["release-state"] != "/release-state" || mounts["release-secondary-kubeconfigs"] != "/release-secondary-kubeconfigs" ||
+		len(pw.VolumeMounts) != len(orig.VolumeMounts)+3 {
+		t.Fatalf("the prewarm mounts: %v", pw.VolumeMounts)
 	}
 	if v := env(pw, "UPSTREAM_BRANCH"); v.Value != "release/"+testCandidate {
 		t.Fatalf("the prewarm reads the pins of %q, want release/%s", v.Value, testCandidate)
@@ -324,8 +359,28 @@ func TestReleaseDeliveryRunsStagePrewarmPromote(t *testing.T) {
 	if env(pw, "SECONDARY_GHCR_SOURCE_SECRET").Value != "release-pull" || env(pw, "SECONDARY_GHCR_SOURCE_NAMESPACE").Value != testNS || env(pw, "UPSTREAM_PREFIX").Value != "oci://ghcr.io/openova-io" {
 		t.Fatalf("the follower leg of the prewarm: %v", pw.Env)
 	}
-	if len(pw.Env) != len(orig.Env) {
-		t.Fatalf("the prewarm env gained or lost a variable: %d, step 03 has %d", len(pw.Env), len(orig.Env))
+	// Step 03 keeps every variable; release-run.sh prewarm adds its own.
+	added := map[string]string{"CANDIDATE": testCandidate, "DRY_RUN": "false", "RELEASE_NAMESPACE": testNS, "RELEASE_STATUS_CM": ReleaseStatusConfigMap,
+		"RELEASE_SCRIPTS": "/release", "STATE": "/release-state", "SECONDARY_KUBECONFIGS": "/release-secondary-kubeconfigs", "PULL_SECRET": "release-pull"}
+	for _, e := range orig.Env {
+		if env(pw, e.Name) == nil {
+			t.Fatalf("the prewarm lost step 03's variable %s", e.Name)
+		}
+	}
+	for _, e := range pw.Env {
+		if want, ok := added[e.Name]; ok && e.Value != want {
+			t.Fatalf("the prewarm sets %s=%q, want %q", e.Name, e.Value, want)
+		} else if !ok && env(orig, e.Name) == nil {
+			t.Fatalf("the prewarm gained a variable step 03 does not have: %s", e.Name)
+		}
+	}
+	if len(pw.Env) != len(orig.Env)+len(added) {
+		t.Fatalf("the prewarm env has %d variables; step 03 has %d and the release adds %d", len(pw.Env), len(orig.Env), len(added))
+	}
+	for _, c := range []corev1.Container{pod.InitContainers[0], pod.Containers[0]} {
+		if v := env(c, "PULL_SECRET"); v == nil || v.Value != "release-pull" {
+			t.Fatalf("%s does not name the pull credential it delivers and deletes: %v", c.Name, v)
+		}
 	}
 	vols := map[string]bool{}
 	for _, v := range pod.Volumes {
