@@ -793,6 +793,39 @@ The `domains` value is the comma-separated allowlist of pool domains this accoun
 
 If you accidentally expose a credential — printed to a terminal that will be transcribed, committed it to a branch, posted it to an issue — **rotate immediately** following the per-credential procedure above. Do not try to "quietly fix it" by editing history; assume the leaked value is captured.
 
+### 11.5 Custody of the release signing key
+
+The release signing key is the cosign key pair of the shared signing action `.github/actions/sign-and-attest/action.yaml`. Its private half is the repository secret `RELEASE_COSIGN_KEY`. Its password is the repository secret `RELEASE_COSIGN_PASSWORD`. Its public half is `keys/release-cosign.pub`. On `main` the action signs every platform image and chart with the private half, without a transparency-log upload, and at once verifies that signature against `keys/release-cosign.pub` of the commit its run checked out. A run whose secret and public file are not one pair fails. So the public file and the two secrets change only together, by the rotation of [`RUNBOOKS.md`](RUNBOOKS.md) §2.16.
+
+**The key in use.**
+
+Release key in use: sha256:de196763afbceced0cef83815e102f5c09c1dc7e292937f1b139a9c6ac92002d
+
+This is the SHA-256 of `keys/release-cosign.pub`. The steps named `release-key | ...` of the job `pull-request-guards` (`.github/workflows/pull-request-guards.yaml`) run `scripts/check-release-key.py`, which fails a pull request when the two differ. The key in use since 14 November 2026 is a pre-live key. It was made on a shared build machine, not by the procedure below, and it has no recovery copy: its private half exists only as the repository secret. If that secret is lost or exposed, the key is replaced by a rotation with a pair made by the procedure below. Before any Sovereign that holds third-party data verifies release signatures, the custodian runs this procedure once and the key it makes replaces the pre-live key.
+
+**The custodian.** The release-key custodian is a role: an owner of the GitHub organization `openova-io`. Only the custodian makes a release key pair, keeps its recovery copies and sets the two secrets. No other person, no automated job and no agent sees the private half or its password.
+
+**Making the pair.** The custodian does every step on a computer of his own that only he uses. Never on a shared machine: not on a build host, a CI runner or a server.
+
+1. Download cosign v2.4.1, the release that the signing action pins (`cosign-release: v2.4.1`), from the release page of `github.com/sigstore/cosign`: the binary for his computer and the file `cosign_checksums.txt` of the same release. Compare the SHA-256 of the binary with its line in `cosign_checksums.txt`. If they differ, stop.
+2. Work in a folder in memory that only he can read. On Linux: `umask 077; d="$(mktemp -d /dev/shm/release-key.XXXXXX)"; cd "$d"`.
+3. Run `cosign generate-key-pair`. He types the password himself when it asks: at least 32 random characters. The password is never put on a command line or into a file. The command writes `cosign.key`, the private half encrypted with the password, and `cosign.pub`, the public half.
+4. Run `sha256sum cosign.pub`. Its output is the SHA-256 of the new public half.
+5. Write the two recovery copies and run the restore drill on each (both below).
+6. Remove the folder: `shred -u cosign.key; cd /; rm -r "$d"`.
+7. Hand over only `cosign.pub` and its SHA-256. The public half is not secret. The private half and the password never leave the custodian.
+
+The custodian sets the two secrets later, at step 3 of the rotation, from one recovery copy.
+
+**The recovery copies.** There are two copies, kept in two places that are not in the same building. Each place is locked, and only the custodian reaches it. Each copy is one offline medium and one sealed envelope:
+
+- The medium is a USB drive used for nothing else. It holds `cosign.key` (the encrypted private half), `cosign.pub` and a text file with the SHA-256 of `cosign.pub` and the date the pair was made.
+- The envelope holds the password, written by hand on paper. It is never stored as a file.
+
+**The restore drill.** The drill proves that a copy restores the key. It runs on both copies right after they are written, then once a year on one copy, the two in turn, and on any copy that is moved or replaced. On his own computer, with the drive mounted read-only, he runs `cosign public-key --key <drive>/cosign.key | cmp - <public half>` and types the password from the envelope. The public half is `cosign.pub` of the folder in memory before the rotation, and `keys/release-cosign.pub` of a checkout of `main` after it. The command prints nothing when the copy restores the key. Nothing is written to a disk: the decrypted key exists only in the memory of that one command.
+
+**Lost or exposed.** A copy that fails the drill, a lost drive or envelope, or any sign that the private half or the password was seen by someone else: the custodian makes a new pair by the steps above, and the key is rotated by [`RUNBOOKS.md`](RUNBOOKS.md) §2.16. A rotation needs no part of the old key. A public key that was replaced is never trusted again: `scripts/check-release-key.py` refuses a pull request that brings back a public key that `keys/release-cosign.pub` held before.
+
 ---
 
 *See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the broader platform context.*
