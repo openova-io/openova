@@ -1,0 +1,52 @@
+schema: openova.io/plan-wrong/v1
+id: INF-135
+ticket_rev: 1
+base_commit: ef8078f4ffde9b5214885c89c5509219d506bcee
+stage: check
+ref: tree-guards
+command: |
+    gh api repos/openova-io/openova/actions/jobs/133397493519/logs | grep -B 40 -m 1 '##\[error\]' | cut -c30-300
+expected: |
+    the check finishes green
+actual: |
+    ##[endgroup]
+    self-test: 7 generator(s) passed
+    ##[group]Run set -euo pipefail
+    set -euo pipefail
+    stale=0
+    count=0
+    for generator in scripts/generators/*.py; do
+      code=0
+      python3 "$generator" --check || code=$?
+      if [ "$code" -ne 0 ]; then
+        echo "::error::${generator} --check ended with exit code ${code}. Run: python3 ${generator}  and commit the file it writes."
+        stale=1
+      fi
+      count=$((count + 1))
+    done
+    echo "check: ${count} generator(s) run"
+    exit "$stale"
+    shell: /usr/bin/bash -e {0}
+    env:
+      pythonLocation: /opt/hostedtoolcache/Python/3.12.16/x64
+      PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.16/x64/lib/pkgconfig
+      Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.16/x64
+      Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.16/x64
+      Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.16/x64
+      LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.16/x64/lib
+    ##[endgroup]
+    current: docs/generated/components.md
+    current: docs/generated/security-controls.md
+    --- on disk
+    +++ generated
+    @@ -26 +26 @@
+    -| HardeningBaseline | machines.openova.io | v1alpha1 | Namespaced | hardeningbaselines | platform/machine-operations/chart/crds/hardeningbaselines.yaml | no |
+    +| HardeningBaseline | machines.openova.io | v1alpha1 | Namespaced | hardeningbaselines | platform/machine-operations/chart/crds/hardeningbaselines.yaml | yes |
+    @@ -29,2 +29,2 @@
+    -| MachineSource | machines.openova.io | v1alpha1 | Namespaced | machinesources | platform/machine-operations/chart/crds/machinesources.yaml | no |
+    -| ScanPolicy | machines.openova.io | v1alpha1 | Namespaced | scanpolicies | platform/machine-operations/chart/crds/scanpolicies.yaml | no |
+    +| MachineSource | machines.openova.io | v1alpha1 | Namespaced | machinesources | platform/machine-operations/chart/crds/machinesources.yaml | yes |
+    +| ScanPolicy | machines.openova.io | v1alpha1 | Namespaced | scanpolicies | platform/machine-operations/chart/crds/scanpolicies.yaml | yes |
+    stale: docs/generated/custom-resources.md. Run: python3 scripts/generators/custom-resources.py  and commit that file.
+    ##[error]scripts/generators/custom-resources.py --check ended with exit code 1. Run: python3 scripts/generators/custom-resources.py  and commit the file it writes.
+reported_at: 2026-11-16T15:25:17Z
