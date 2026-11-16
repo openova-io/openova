@@ -9872,7 +9872,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: 'In a follower region the in-region pivot Job of hand-over step 06 also writes global.imageRegistry for bp-k8s-ws-proxy, bp-guacamole and bp-newapi: their entries of imageRegistryPivot.additionalHRs are marked followerRegions: true like bp-continuum, and the follower test asserts each marked slot and turns red when one mark is removed.'
 - id: SOV-250
@@ -28538,7 +28538,7 @@ packages:
   epic: INF-100
   type: guard
   wave: W1a
-  size: XS
+  size: S
   lane: CONTROL
   depends_on: [CTL-150, INF-130]
   after: [FND-011]
@@ -28548,6 +28548,7 @@ packages:
   - scripts/baselines/lock-stages.json
   - .github/workflows/intent-lock-apiserver.yaml
   - products/catalyst/bootstrap/api/internal/clusterwrite/clusterwrite.go
+  - docs/generated/custom-resources.md
   resources: []
   flips: []
   implements: []
@@ -28564,14 +28565,16 @@ packages:
     run: "python3 -c 'import json, sys; sys.exit(0 if json.load(open(\"scripts/baselines/lock-stages.json\"))[\"stages\"].get(\"machine-ops\") == \"audit\" else \"machine-ops is not audit in scripts/baselines/lock-stages.json\")' && python3 scripts/check-lock-stages.py"
   - id: A4
     run: "(cd products/catalyst/bootstrap/api && test \"$(grep -c -F '{Group: \"machines.openova.io\", Resource: ' internal/clusterwrite/clusterwrite.go)\" = 7 && test -z \"$(gofmt -l internal/clusterwrite)\" && go vet ./internal/clusterwrite/ && go test -count=1 ./internal/clusterwrite/)"
+  - id: A5
+    run: "python3 scripts/generators/custom-resources.py --check && test \"$(grep -c -E '^[|] (MachineSource|ScanPolicy|HardeningBaseline) [|] machines[.]openova[.]io [|].*[|] yes [|]$' docs/generated/custom-resources.md)\" = 3"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
-  delivers: The intent lock of the platform chart has a ninth stage, machine-ops, in audit, over the seven kinds of machines.openova.io that are born in Git; guard G6, the chart test and the list of locked kinds of catalyst-api know it.
+  delivers: The intent lock of the platform chart has a ninth stage, machine-ops, in audit, over the seven kinds of machines.openova.io that are born in Git; guard G6, the chart test, the list of locked kinds of catalyst-api and the generated inventory of custom resources know it.
 - id: INF-140
   title: Vulnerability matching and daily re-matching
   area: INF
@@ -30368,7 +30371,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [MIG-101, SVC-170]
-  after: [SVC-040, FND-102, SVC-041, FND-011, SEC-104, SEC-105, NET-040, NET-221, CTL-346, CTL-347, AIP-221, INF-050, INF-110, INF-120, INF-130, ACC-050]
+  after: [SVC-040, FND-102, SVC-041, FND-011, SEC-104, SEC-105, NET-040, NET-221, CTL-346, CTL-347, AIP-221, INF-050, INF-110, INF-120, INF-130, INF-135, ACC-050]
   touches:
   - products/vm-migration/chart/Chart.yaml
   - products/vm-migration/chart/values.yaml
@@ -31365,7 +31368,7 @@ packages:
   size: M
   lane: CONTRACTS
   depends_on: [MIG-126, MIG-151, MIG-156]
-  after: [FND-011, CTL-231, CTL-345, BSS-040, AIP-120, INF-110, INF-130]
+  after: [FND-011, CTL-231, CTL-345, BSS-040, AIP-120, INF-110, INF-130, INF-135]
   touches:
   - products/vm-migration/api/v1alpha1/migrationwave_types.go
   - products/vm-migration/api/v1alpha1/migration_types.go
