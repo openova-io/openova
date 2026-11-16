@@ -149,3 +149,9 @@ core/services/shared/events/dlq.go
 core/services/shared/events/dlq_test.go
 core/services/shared/events/topics.go
 core/services/metering-sidecar
+core/controllers/blueprint
+.github/workflows/build-blueprint-controller.yaml
+products/catalyst/chart/templates/controllers/blueprint-controller-clusterrole.yaml
+products/catalyst/chart/templates/controllers/blueprint-controller-clusterrolebinding.yaml
+products/catalyst/chart/templates/controllers/blueprint-controller-deployment.yaml
+products/catalyst/chart/templates/controllers/blueprint-controller-serviceaccount.yaml

@@ -35,7 +35,6 @@ WORKFLOWS_DIR=".github/workflows"
 # get appended here at the same time as their workflow file lands.
 CONTROLLERS=(
   "build-application-controller.yaml"
-  "build-blueprint-controller.yaml"
   "build-continuum-controller.yaml"
   "build-environment-controller.yaml"
   "build-organization-controller.yaml"
