@@ -61,49 +61,6 @@ func followerCredentialBlock(t *testing.T) string {
 	return text
 }
 
-// step03Credential stands for the step 03 container of the cutover chart with
-// its follower leg on (prewarmSecondaryHarbor): its command is the fake step
-// 03 at fake, its credential variables the chart's defaults.
-func step03Credential(fake string) *releaseInputs {
-	return &releaseInputs{prewarm: corev1.PodSpec{Containers: []corev1.Container{{
-		Name: "harbor-prewarm", Image: cutoverImage, Command: []string{"/bin/sh", fake},
-		Env: []corev1.EnvVar{
-			plain("UPSTREAM_BRANCH", "main"), plain("UPSTREAM_PREFIX", upstreamPrefix),
-			{Name: "GHCR_DOCKERCONFIG", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
-				LocalObjectReference: corev1.LocalObjectReference{Name: "ghcr-pull"}, Key: corev1.DockerConfigJsonKey}}},
-			plain("GHCR_DOCKERCONFIG_NAMESPACE", "flux-system"),
-			plain("SECONDARY_HARBOR_NAMESPACE", harborNS),
-			plain("SECONDARY_GHCR_SOURCE_NAMESPACE", "flux-system"), plain("SECONDARY_GHCR_SOURCE_SECRET", "ghcr-pull"),
-			plain("SECONDARY_GHCR_DEST_SECRET", followerGHCR),
-		},
-	}}}}
-}
-
-// plainEnv is the NAME=value list of a container's plain variables, with the
-// Pod's paths mapped to the fixture's.
-func (r *runFixture) plainEnv(c corev1.Container, names ...string) []string {
-	paths := map[string]string{"/release": r.scripts, "/release-state": r.state, "/release-secondary-kubeconfigs": r.kubeconfigs, "/secondary-kubeconfigs": r.kubeconfigs}
-	var out []string
-	for _, e := range c.Env {
-		if e.ValueFrom != nil {
-			continue
-		}
-		keep := len(names) == 0
-		for _, n := range names {
-			keep = keep || n == e.Name
-		}
-		if !keep {
-			continue
-		}
-		v := e.Value
-		if p, ok := paths[v]; ok {
-			v = p
-		}
-		out = append(out, e.Name+"="+v)
-	}
-	return out
-}
-
 func (r *runFixture) secretPath(region, ns, name string) string {
 	return filepath.Join(r.stub, "secrets", region, ns, name+".json")
 }
@@ -141,42 +98,34 @@ func (r *runFixture) secretData(region, ns, name string) map[string]string {
 }
 
 // credentialFixture is a two-region Sovereign whose sovereign-admin made the
-// request's pull Secret in the primary region, and whose follower still holds
-// the copy step 03 made of an older credential in its harbor namespace.
-func credentialFixture(t *testing.T, conflict, prewarmFails bool) (*runFixture, releaseRequest, corev1.Container) {
+// request's pull Secret in the primary region. The candidate's cutover chart
+// carries a step 03 made of step 03's own lines that read the credential in the
+// follower and copy it into the follower's harbor namespace; the delivery runs
+// that step 03 (#7938). Unless the stage is to fail, the follower still holds
+// the copy an older step 03 made in its harbor namespace.
+func credentialFixture(t *testing.T, conflict, prewarmFails bool) (*runFixture, releaseRequest) {
 	f := newFixture(t)
-	id, _ := f.candidate(1, f.laterRelease)
-	req := releaseRequest{Candidate: id, PullSecret: releasePull}
-	r := newRunFixtureFrom(t, f, req, conflict)
 	fail := ""
 	if prewarmFails {
 		fail = `echo "[harbor-prewarm] FATAL: #6764 secondary region ${region} Harbor-prewarm Job cutover-harbor-prewarm-secondary-${region} did not succeed within 5400s" >&2
 exit 1
 `
 	}
-	// The fake step 03: for each follower, step 03's own lines, then a result.
-	fake := "set -eu\nfor skc in " + r.kubeconfigs + "/*.yaml; do\n  region=$(basename \"${skc}\" .yaml)\n" + followerCredentialBlock(t) +
-		"  echo \"[harbor-prewarm] #6764 secondary region ${region}: the credential is in ${SECONDARY_HARBOR_NAMESPACE}/${SECONDARY_GHCR_DEST_SECRET}\"\n" + fail + "done\n"
-	f.write(f.dir, "step03.sh", fake)
-	in := step03Credential(f.dir + "/step03.sh")
-	in.mirror = corev1.Container{Env: []corev1.EnvVar{plain("UPSTREAM_REPO_URL", "file://"+f.upstream)}}
-	pw, err := in.prewarmContainer(testNS, req)
-	if err != nil {
-		t.Fatal(err)
+	fake := "set -eu\nfor skc in \"${SKC_DIR}\"/*.yaml; do\n  [ -e \"${skc}\" ] || continue\n  region=$(basename \"${skc}\" .yaml)\n" + followerCredentialBlock(t) +
+		"  echo \"[harbor-prewarm] #6764 secondary region ${region}: the credential is in ${SECONDARY_HARBOR_NAMESPACE}/${SECONDARY_GHCR_DEST_SECRET}\"\n" + fail +
+		"done\ntouch \"${STUB_DIR}/step03-ran-" + candidateCutover + "\"\n"
+	id, _ := f.candidate(1, f.candidateCutoverRelease(fake))
+	req := releaseRequest{Candidate: id, PullSecret: releasePull}
+	r := newRunFixtureFrom(t, f, req, conflict)
+	// The bootstrap's containers name the credential as the route composes them.
+	for _, e := range credentialEnv(req) {
+		r.env = append(r.env, e.Name+"="+e.Value)
 	}
-	// The stage and promote containers carry the same credential variables.
-	r.env = r.plainEnv(in.runContainer("stage", "stage", testNS, req), "PULL_SECRET", "SECONDARY_HARBOR_NAMESPACE", "SECONDARY_GHCR_DEST_SECRET")
 	r.putSecret("primary", testNS, releasePull, "openova-bot")
-	r.putSecret("region-b", harborNS, followerGHCR, "an-older-credential")
-	return r, req, pw
-}
-
-func (r *runFixture) prewarm(pw corev1.Container, req releaseRequest) (string, int) {
-	r.t.Helper()
-	if strings.Join(pw.Command, " ") != "/bin/sh /release/release-run.sh prewarm" {
-		r.t.Fatalf("the prewarm container does not run step 03 under release-run.sh prewarm: %v", pw.Command)
+	if !conflict {
+		r.putSecret("region-b", harborNS, followerGHCR, "an-older-credential")
 	}
-	return r.runArgs(append([]string{"prewarm"}, pw.Args...), req, r.plainEnv(pw)...)
+	return r, req
 }
 
 // noCredentialLeft fails when any region still holds the pull credential.
@@ -193,7 +142,7 @@ func (r *runFixture) noCredentialLeft(when string) {
 }
 
 func TestReleaseDeliveryGivesEachFollowerThePullCredentialAndLeavesNone(t *testing.T) {
-	r, req, pw := credentialFixture(t, false, false)
+	r, req := credentialFixture(t, false, false)
 	source := r.secretData("primary", testNS, releasePull)
 
 	out, code := r.run("stage", req)
@@ -205,34 +154,29 @@ func TestReleaseDeliveryGivesEachFollowerThePullCredentialAndLeavesNone(t *testi
 		t.Fatalf("after the stage, follower region-b holds no copy of the request's pull Secret in %s, where step 03's follower leg reads it; the stage said:\n%s", testNS, out)
 	}
 
-	out, code = r.prewarm(pw, req)
+	out, code = r.run("deliver", req)
+	logs := r.jobLog(req)
 	if code != 0 {
-		t.Fatalf("prewarm: exit %d: step 03's follower leg could not read the credential in the follower\n%s", code, out)
+		t.Fatalf("deliver: exit %d: the candidate's step 03 could not read the credential in the follower\n%s\n%s", code, out, logs)
 	}
-	if !strings.Contains(out, "the credential is in harbor/"+followerGHCR) {
-		t.Fatalf("the prewarm's log is not step 03's:\n%s", out)
+	if !strings.Contains(logs, "the credential is in harbor/"+followerGHCR) {
+		t.Fatalf("the delivery's prewarm log is not the candidate's step 03:\n%s", logs)
 	}
-	if st := r.status(); st["phase"] != "staged" || st["failedStep"] != "" {
-		t.Fatalf("a prewarm that succeeded changed the state: phase %q failedStep %q", st["phase"], st["failedStep"])
+	if st := r.status(); st["phase"] != "delivered" || st["failedStep"] != "" {
+		t.Fatalf("the delivery: phase %q failedStep %q\n%s", st["phase"], st["failedStep"], logs)
 	}
-	r.noCredentialLeft("after the prewarm")
-
-	out, code = r.run("promote", req)
-	if st := r.status(); code != 0 || st["phase"] != "delivered" {
-		t.Fatalf("promote: exit %d, phase %q\n%s", code, st["phase"], out)
-	}
-	r.noCredentialLeft("after the promote")
+	r.noCredentialLeft("after the delivery")
 }
 
 func TestReleasePrewarmFailureIsTheStateWithItsCauseAndLeavesNoCredential(t *testing.T) {
-	r, req, pw := credentialFixture(t, false, true)
+	r, req := credentialFixture(t, false, true)
 	if out, code := r.run("stage", req); code != 0 {
 		t.Fatalf("stage: exit %d\n%s", code, out)
 	}
-	out, code := r.prewarm(pw, req)
+	out, code := r.run("deliver", req)
 	st := r.status()
 	if code == 0 || st["phase"] != "failed" || st["failedStep"] != "prewarm" {
-		t.Fatalf("a failed prewarm: exit %d, phase %q, failedStep %q; want a failure, phase failed, failedStep prewarm\n%s", code, st["phase"], st["failedStep"], out)
+		t.Fatalf("a failed prewarm: exit %d, phase %q, failedStep %q; want a failure, phase failed, failedStep prewarm\n%s\n%s", code, st["phase"], st["failedStep"], out, r.jobLog(req))
 	}
 	if !strings.Contains(st["message"], "Harbor-prewarm Job cutover-harbor-prewarm-secondary-region-b did not succeed") {
 		t.Fatalf("the state does not name the cause step 03 printed: %q", st["message"])
@@ -244,7 +188,7 @@ func TestReleasePrewarmFailureIsTheStateWithItsCauseAndLeavesNoCredential(t *tes
 }
 
 func TestReleaseStageFailureLeavesNoCredential(t *testing.T) {
-	r, req, _ := credentialFixture(t, true, false)
+	r, req := credentialFixture(t, true, false)
 	out, code := r.run("stage", req)
 	st := r.status()
 	if code == 0 || st["phase"] != "conflict" || st["failedStep"] != "stage" {
@@ -258,10 +202,8 @@ func TestReleaseDryRunTouchesNoCredential(t *testing.T) {
 	id, _ := f.candidate(1, f.laterRelease)
 	req := releaseRequest{Candidate: id, DryRun: true, PullSecret: releasePull}
 	r := newRunFixtureFrom(t, f, req, false)
-	in := step03Credential("/bin/true")
-	r.env = r.plainEnv(in.runContainer("stage", "stage", testNS, req), "PULL_SECRET", "SECONDARY_HARBOR_NAMESPACE", "SECONDARY_GHCR_DEST_SECRET")
-	if len(r.env) != 0 {
-		t.Fatalf("a dry run names the credential: %v", r.env)
+	if env := credentialEnv(req); len(env) != 0 {
+		t.Fatalf("a dry run names the credential: %v", env)
 	}
 	r.putSecret("primary", testNS, releasePull, "openova-bot")
 	if out, code := r.run("stage", req); code != 0 {

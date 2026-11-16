@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -79,6 +80,17 @@ volumes:
     emptyDir: {}
 `
 
+const pivotPodSpec = `containers:
+  - name: helmrepository-patches
+    image: harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4
+    env:
+      - {name: UPSTREAM_PREFIX, value: "oci://ghcr.io/openova-io"}
+`
+
+// brokenStep03 is an installed step 03 a delivery must not depend on: its
+// script fails and its podSpec does not parse.
+const brokenStep03 = "containers: [ {name: harbor-prewarm, command: [\"/bin/sh\", \"-c\", \"exit 1\"]"
+
 func cm(name string, data map[string]string) *corev1.ConfigMap {
 	return &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testNS}, Data: data}
 }
@@ -97,13 +109,14 @@ func pullSecret(name string, hosts ...string) *corev1.Secret {
 func installed(followers, marker bool) []runtime.Object {
 	run := "echo prewarm\n"
 	if marker {
-		run += `echo "[harbor-prewarm] #7922 secondary region ${region}: ` + followerPrewarmMarker + ` ${UPSTREAM_BRANCH}"` + "\n"
+		run += `echo "[harbor-prewarm] #7922 secondary region ${region}: also mirrors the pins of ${UPSTREAM_BRANCH}"` + "\n"
 	}
 	objs := []runtime.Object{
 		cm("self-sovereign-cutover-status", map[string]string{"cutoverComplete": "true"}),
 		cm(mirrorStepConfigMap, map[string]string{"stepName": "gitea-mirror", "podSpec": mirrorPodSpec}),
-		cm(prewarmStepConfigMap, map[string]string{"stepName": "harbor-prewarm", "podSpec": prewarmPodSpec, "run.sh": run}),
-		cm(pivotStepConfigMap, map[string]string{"kit-rewrite.sh": "rewrite_kit_tree() { :; }\n"}),
+		// The installed step 03: the route never reads it (#7938).
+		cm("cutover-step-03-harbor-prewarm", map[string]string{"stepName": "harbor-prewarm", "podSpec": prewarmPodSpec, "run.sh": run}),
+		cm(pivotStepConfigMap, map[string]string{"kit-rewrite.sh": "rewrite_kit_tree() { :; }\n", "podSpec": pivotPodSpec}),
 		cm(pinsConfigMap, map[string]string{"extract-pins.sh": "bootstrapkit_pins() { :; }\n"}),
 		pullSecret("release-pull", "ghcr.io"),
 	}
@@ -209,8 +222,8 @@ func TestReleaseRequestRefusals(t *testing.T) {
 	done := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "sovereign-release-0", Namespace: testNS,
 		Labels: map[string]string{"app.kubernetes.io/component": releaseComponent}},
 		Status: batchv1.JobStatus{Conditions: []batchv1.JobCondition{{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}}}}
-	noBranch := installed(false, false)
-	noBranch[2] = cm(prewarmStepConfigMap, map[string]string{"podSpec": strings.Replace(prewarmPodSpec, "{name: UPSTREAM_BRANCH, value: main}", "{name: SOMETHING, value: main}", 1)})
+	noPrefix := installed(false, false)
+	noPrefix[3] = cm(pivotStepConfigMap, map[string]string{"kit-rewrite.sh": "rewrite_kit_tree() { :; }\n", "podSpec": strings.Replace(pivotPodSpec, "UPSTREAM_PREFIX", "SOMETHING", 1)})
 	managed := func(name string, mutate func(*corev1.Secret)) *corev1.Secret {
 		s := pullSecret(name, "ghcr.io")
 		mutate(s)
@@ -234,10 +247,9 @@ func TestReleaseRequestRefusals(t *testing.T) {
 		{"cutover not complete", `{"candidate":"` + testCandidate + `","dryRun":true}`, append(without("self-sovereign-cutover-status"), cm("self-sovereign-cutover-status", map[string]string{"cutoverComplete": "false"})), nil, 409, "not-cut-over"},
 		{"a release is running", `{"candidate":"` + testCandidate + `","dryRun":true}`, append(installed(false, false), running), nil, 409, "sovereign-release-1"},
 		{"no step 01", `{"candidate":"` + testCandidate + `","dryRun":true}`, without(mirrorStepConfigMap), nil, 424, mirrorStepConfigMap},
-		{"no step 03", `{"candidate":"` + testCandidate + `","dryRun":true}`, without(prewarmStepConfigMap), nil, 424, prewarmStepConfigMap},
 		{"no kit rewrite", `{"candidate":"` + testCandidate + `","dryRun":true}`, without(pivotStepConfigMap), nil, 424, pivotStepConfigMap},
 		{"no pin extractor", `{"candidate":"` + testCandidate + `","dryRun":true}`, without(pinsConfigMap), nil, 424, pinsConfigMap},
-		{"a step 03 that reads no branch", `{"candidate":"` + testCandidate + `","dryRun":true}`, noBranch, nil, 424, "UPSTREAM_BRANCH"},
+		{"a step 06 that names no upstream prefix", `{"candidate":"` + testCandidate + `","dryRun":true}`, noPrefix, nil, 424, "UPSTREAM_PREFIX"},
 		{"followers without the follower pivot", `{"candidate":"` + testCandidate + `","dryRun":true}`, followersOnly, nil, 424, followerPivotConfigMap},
 		{"a delivery without a pull secret", `{"candidate":"` + testCandidate + `"}`, installed(false, false), nil, 422, "no credential"},
 		{"a pull secret without ghcr.io", `{"candidate":"` + testCandidate + `","pullSecret":"other"}`, append(installed(false, false), pullSecret("other", "docker.io")), nil, 422, "no auth entry for ghcr.io"},
@@ -313,86 +325,97 @@ func TestReleaseDryRunIsTheStageAlone(t *testing.T) {
 	}
 }
 
-func TestReleaseDeliveryRunsStagePrewarmPromote(t *testing.T) {
-	cs := fake.NewSimpleClientset(installed(false, false)...)
-	w := put(t, route(cs, nil), admin, `{"candidate":"`+testCandidate+`","pullSecret":"release-pull"}`)
-	if w.Code != http.StatusAccepted {
-		t.Fatalf("code %d: %s", w.Code, w.Body)
+// A delivery is the bootstrap of the candidate's own mechanism (#7938): the
+// stage, then deliver, which runs the candidate's release-run.sh. Nothing of
+// the installed step 03 is read or run, so a broken one cannot stop it: the
+// second delivery to hw307 failed in the installed step 03, whose repair was in
+// the candidate it was delivering.
+func TestReleaseDeliveryIsTheBootstrapOfTheCandidatesMechanism(t *testing.T) {
+	for name, step03 := range map[string]runtime.Object{
+		"installed step 03 works":  nil,
+		"installed step 03 broken": cm("cutover-step-03-harbor-prewarm", map[string]string{"podSpec": brokenStep03, "run.sh": "exit 1\n"}),
+		"installed step 03 absent": nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			objs := installed(false, false)
+			switch name {
+			case "installed step 03 broken":
+				objs[2] = step03
+			case "installed step 03 absent":
+				objs = append(objs[:2], objs[3:]...)
+			}
+			cs := fake.NewSimpleClientset(objs...)
+			w := put(t, route(cs, nil), admin, `{"candidate":"`+testCandidate+`","pullSecret":"release-pull"}`)
+			if w.Code != http.StatusAccepted {
+				t.Fatalf("code %d: %s", w.Code, w.Body)
+			}
+			job := onlyJob(t, cs)
+			pod := job.Spec.Template.Spec
+			if len(pod.InitContainers) != 1 || pod.InitContainers[0].Name != "stage" || len(pod.Containers) != 1 || pod.Containers[0].Name != "deliver" {
+				t.Fatalf("want init [stage] and [deliver]; have %v and %v", pod.InitContainers, pod.Containers)
+			}
+			if *job.Spec.BackoffLimit != 0 || *job.Spec.ActiveDeadlineSeconds != releaseGitSeconds+releaseDeliverySeconds || pod.RestartPolicy != corev1.RestartPolicyNever {
+				t.Fatalf("backoff %d, deadline %d, restart %s", *job.Spec.BackoffLimit, *job.Spec.ActiveDeadlineSeconds, pod.RestartPolicy)
+			}
+			for i, c := range []corev1.Container{pod.InitContainers[0], pod.Containers[0]} {
+				want := []string{"/bin/sh /release/release-run.sh stage", "/bin/sh /release/release-run.sh deliver"}[i]
+				if strings.Join(c.Command, " ") != want || c.Image != cutoverImage {
+					t.Fatalf("%s runs %v in %s, want %q in step 01's image", c.Name, c.Command, c.Image, want)
+				}
+				for k, v := range map[string]string{"PULL_SECRET": "release-pull", "CUTOVER_HELMRELEASE": defaultCutoverHelmRelease,
+					"RELEASE_JOB": job.Name, "UPSTREAM_PREFIX": "oci://ghcr.io/openova-io", "DRY_RUN": "false", "CANDIDATE": testCandidate} {
+					if e := env(c, k); e == nil || e.Value != v {
+						t.Fatalf("%s sets %s=%v, want %q", c.Name, k, e, v)
+					}
+				}
+				for _, m := range c.VolumeMounts {
+					if m.MountPath == "/step-script" {
+						t.Fatalf("%s mounts the installed step 03", c.Name)
+					}
+				}
+			}
+			var vols []string
+			for _, v := range pod.Volumes {
+				vols = append(vols, v.Name)
+				if v.ConfigMap != nil && v.ConfigMap.Name == "cutover-step-03-harbor-prewarm" {
+					t.Fatal("the bootstrap mounts the installed step 03")
+				}
+			}
+			if strings.Join(vols, " ") != "release-scripts release-kit-rewrite release-pins release-state release-secondary-kubeconfigs" {
+				t.Fatalf("the bootstrap's volumes: %v", vols)
+			}
+			if pod.ServiceAccountName != runnerSA {
+				t.Fatalf("the bootstrap runs as %q, want step 01's %q", pod.ServiceAccountName, runnerSA)
+			}
+			for _, a := range cs.Actions() {
+				if g, ok := a.(k8stesting.GetAction); ok && g.GetName() == "cutover-step-03-harbor-prewarm" {
+					t.Fatal("the route read the installed step 03")
+				}
+			}
+			st, _ := cs.CoreV1().ConfigMaps(testNS).Get(context.Background(), ReleaseStatusConfigMap, metav1.GetOptions{})
+			if !strings.Contains(st.Data["mechanism"], "rc/"+testCandidate+" pins") {
+				t.Fatalf("the state does not say which mechanism will run: %q", st.Data["mechanism"])
+			}
+		})
 	}
-	job := onlyJob(t, cs)
-	pod := job.Spec.Template.Spec
-	if len(pod.InitContainers) != 2 || pod.InitContainers[0].Name != "stage" || pod.InitContainers[1].Name != "prewarm" ||
-		len(pod.Containers) != 1 || pod.Containers[0].Name != "promote" {
-		t.Fatalf("want init [stage prewarm] and [promote]; have %d init, %d containers", len(pod.InitContainers), len(pod.Containers))
-	}
-	if *job.Spec.BackoffLimit != 0 || *job.Spec.ActiveDeadlineSeconds != 9600+releaseGitSeconds || pod.RestartPolicy != corev1.RestartPolicyNever {
-		t.Fatalf("backoff %d, deadline %d, restart %s", *job.Spec.BackoffLimit, *job.Spec.ActiveDeadlineSeconds, pod.RestartPolicy)
-	}
-	var step03 corev1.PodSpec
-	if err := yaml.Unmarshal([]byte(prewarmPodSpec), &step03); err != nil {
-		t.Fatal(err)
-	}
-	pw, orig := pod.InitContainers[1], step03.Containers[0]
-	if pw.Image != orig.Image || strings.Join(pw.Command, " ") != "/bin/sh /release/release-run.sh prewarm" ||
-		strings.Join(pw.Args, " ") != strings.Join(append(append([]string{}, orig.Command...), orig.Args...), " ") {
-		t.Fatalf("the prewarm is not step 03's own command run by release-run.sh prewarm: %v %v", pw.Command, pw.Args)
-	}
-	mounts := map[string]string{}
-	for _, m := range pw.VolumeMounts {
-		mounts[m.Name] = m.MountPath
-	}
-	for _, m := range orig.VolumeMounts {
-		if mounts[m.Name] != m.MountPath {
-			t.Fatalf("the prewarm lost step 03's mount %s at %s: %v", m.Name, m.MountPath, pw.VolumeMounts)
+}
+
+// The bootstrap's release scripts are the cutover chart's own (#7938): the
+// chart carries the mechanism a delivery of it runs, the API the copy that
+// bootstraps it. They must not drift.
+func TestReleaseScriptsAreTheCutoverChartsOwn(t *testing.T) {
+	for _, n := range []string{"release-run.sh", "release-region.sh"} {
+		api, err := releaseScripts.ReadFile("release/" + n)
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
-	if mounts["release-scripts"] != "/release" || mounts["release-state"] != "/release-state" || mounts["release-secondary-kubeconfigs"] != "/release-secondary-kubeconfigs" ||
-		len(pw.VolumeMounts) != len(orig.VolumeMounts)+3 {
-		t.Fatalf("the prewarm mounts: %v", pw.VolumeMounts)
-	}
-	if v := env(pw, "UPSTREAM_BRANCH"); v.Value != "release/"+testCandidate {
-		t.Fatalf("the prewarm reads the pins of %q, want release/%s", v.Value, testCandidate)
-	}
-	if v := env(pw, "GHCR_DOCKERCONFIG"); v.ValueFrom == nil || v.ValueFrom.SecretKeyRef.Name != "release-pull" || v.ValueFrom.SecretKeyRef.Key != corev1.DockerConfigJsonKey {
-		t.Fatalf("the prewarm credential: %+v", v)
-	}
-	if env(pw, "SECONDARY_GHCR_SOURCE_SECRET").Value != "release-pull" || env(pw, "SECONDARY_GHCR_SOURCE_NAMESPACE").Value != testNS || env(pw, "UPSTREAM_PREFIX").Value != "oci://ghcr.io/openova-io" {
-		t.Fatalf("the follower leg of the prewarm: %v", pw.Env)
-	}
-	// Step 03 keeps every variable; release-run.sh prewarm adds its own.
-	added := map[string]string{"CANDIDATE": testCandidate, "DRY_RUN": "false", "RELEASE_NAMESPACE": testNS, "RELEASE_STATUS_CM": ReleaseStatusConfigMap,
-		"RELEASE_SCRIPTS": "/release", "STATE": "/release-state", "SECONDARY_KUBECONFIGS": "/release-secondary-kubeconfigs", "PULL_SECRET": "release-pull"}
-	for _, e := range orig.Env {
-		if env(pw, e.Name) == nil {
-			t.Fatalf("the prewarm lost step 03's variable %s", e.Name)
+		chart, err := os.ReadFile(filepath.Clean(filepath.Join(repoRoot(t), "platform/self-sovereign-cutover/chart/files/release", n)))
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
-	for _, e := range pw.Env {
-		if want, ok := added[e.Name]; ok && e.Value != want {
-			t.Fatalf("the prewarm sets %s=%q, want %q", e.Name, e.Value, want)
-		} else if !ok && env(orig, e.Name) == nil {
-			t.Fatalf("the prewarm gained a variable step 03 does not have: %s", e.Name)
+		if !bytes.Equal(api, chart) {
+			t.Fatalf("%s differs between products/catalyst/bootstrap/api/internal/lifecycle/release/ and platform/self-sovereign-cutover/chart/files/release/: copy one onto the other", n)
 		}
-	}
-	if len(pw.Env) != len(orig.Env)+len(added) {
-		t.Fatalf("the prewarm env has %d variables; step 03 has %d and the release adds %d", len(pw.Env), len(orig.Env), len(added))
-	}
-	for _, c := range []corev1.Container{pod.InitContainers[0], pod.Containers[0]} {
-		if v := env(c, "PULL_SECRET"); v == nil || v.Value != "release-pull" {
-			t.Fatalf("%s does not name the pull credential it delivers and deletes: %v", c.Name, v)
-		}
-	}
-	vols := map[string]bool{}
-	for _, v := range pod.Volumes {
-		vols[v.Name] = true
-	}
-	for _, v := range append(step03.Volumes, corev1.Volume{Name: "release-scripts"}, corev1.Volume{Name: "release-kit-rewrite"}, corev1.Volume{Name: "release-pins"}, corev1.Volume{Name: "release-state"}) {
-		if !vols[v.Name] {
-			t.Fatalf("the Pod lacks volume %s", v.Name)
-		}
-	}
-	if env(pod.InitContainers[0], "DRY_RUN").Value != "false" || strings.Join(pod.Containers[0].Command, " ") != "/bin/sh /release/release-run.sh promote" {
-		t.Fatalf("stage/promote: %v %v", pod.InitContainers[0].Env, pod.Containers[0].Command)
 	}
 }
 
@@ -420,18 +443,11 @@ func TestReleaseFollowerJobIsTheCutoverFollowerPivotJob(t *testing.T) {
 		if v := j.Spec.Template.Spec.Volumes; len(v) != 1 || v[0].ConfigMap == nil || v[0].ConfigMap.Name != releaseScriptsConfigMap {
 			t.Fatalf("follower volumes: %v", v)
 		}
+		// The step 03 that runs is the candidate's: whatever the installed one
+		// says, the route cannot know; the stage says, from the candidate's.
 		st, _ := cs.CoreV1().ConfigMaps(testNS).Get(context.Background(), ReleaseStatusConfigMap, metav1.GetOptions{})
-		if got := strings.HasPrefix(st.Data["followerPrewarm"], "covered"); got != marker || st.Data["regions"] != "2" {
+		if !strings.HasPrefix(st.Data["followerPrewarm"], "unknown until the stage renders the candidate's step 03") || st.Data["regions"] != "2" {
 			t.Fatalf("marker %v: followerPrewarm %q, regions %s", marker, st.Data["followerPrewarm"], st.Data["regions"])
-		}
-		// Without the marker the route cannot know: a follower whose registry
-		// shares the primary's storage is covered all the same; the stage says.
-		if !marker && !strings.HasPrefix(st.Data["followerPrewarm"], "unknown") {
-			t.Fatalf("without the marker the route claims %q before the stage read any registry's storage", st.Data["followerPrewarm"])
-		}
-		job := onlyJob(t, cs)
-		if v := env(job.Spec.Template.Spec.InitContainers[0], "FOLLOWER_PREWARM_COVERED"); v == nil || v.Value != boolString(marker) {
-			t.Fatalf("marker %v: the stage is told FOLLOWER_PREWARM_COVERED=%v", marker, v)
 		}
 	}
 }
@@ -464,6 +480,20 @@ func TestReleaseStatus(t *testing.T) {
 	pod.Status.InitContainerStatuses[1].State = corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 1}}
 	if v := get(fake.NewSimpleClientset(st, job, pod)); v["failedStep"] != "prewarm" || v["phase"] != "failed" {
 		t.Fatalf("failed: %v", v)
+	}
+
+	// #7938: the prewarm and the promote run in the delivery Job the
+	// candidate's mechanism starts; its step is the one named.
+	st2 := cm(ReleaseStatusConfigMap, map[string]string{"phase": "staged", "job": "sovereign-release-9", "deliveryJob": "sovereign-release-9-delivery",
+		"mechanism": "bp-self-sovereign-cutover 0.1.900 (chart tree abc), the candidate's"})
+	boot := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "sovereign-release-9", Namespace: testNS}}
+	bootPod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "b", Namespace: testNS, Labels: map[string]string{"job-name": "sovereign-release-9"}},
+		Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{{Name: "deliver", State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}}}}}
+	delPod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "d", Namespace: testNS, Labels: map[string]string{"job-name": "sovereign-release-9-delivery"}},
+		Status: corev1.PodStatus{InitContainerStatuses: []corev1.ContainerStatus{{Name: "prewarm", State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}}}}}
+	v := get(fake.NewSimpleClientset(st2, boot, bootPod, delPod))
+	if v["step"] != "prewarm" || !strings.Contains(fmt.Sprint(v["status"]), "0.1.900") {
+		t.Fatalf("during the delivery Job: %v", v)
 	}
 }
 

@@ -129,6 +129,54 @@ untouched). When an operator opts into a managed-update posture:
   `helm push`es it into local Harbor, then re-checks. Fail-soft: a warm miss is
   logged and left in the manifest; the loop never crash-loops.
 
+## Release mechanism (#7938)
+
+A release delivery (`PUT /api/v1/sovereign/release` on a cut-over Sovereign)
+runs the mechanism of the release it delivers, not the one installed. The
+installed catalyst-api only bootstraps it; the rest runs from the candidate's own
+copy of this chart.
+
+**Bootstrap** (the installed API's `release-run.sh`, `stage` then `deliver`;
+kept small and stable):
+
+1. Stage every region (fetch `rc/<id>`, merge it into each region's `main`, apply
+   the region's pivot, push `release/<id>`; a dry run pushes nothing).
+2. Export this chart's folder (`platform/self-sovereign-cutover/chart`) and its
+   kit slot (`clusters/_template/bootstrap-kit/06a-bp-self-sovereign-cutover.yaml`)
+   from the staged commit of the primary region.
+3. Verify it is the chart the candidate pins: the folder is the candidate's
+   (no commit of the Sovereign changes it), and `Chart.yaml` name and version
+   equal the slot's `spec.chart.spec.chart` and `version`.
+4. Render it with `helm template`, with the `spec.values` of the installed
+   HelmRelease `flux-system/bp-self-sovereign-cutover`, its release name and
+   target namespace.
+5. Run the chart's own `files/release/release-run.sh compose`, and record its outcome.
+
+The state ConfigMap `sovereign-release` names what ran (`mechanism`, and
+`deliveryJob`).
+
+**What a chart version must carry for the bootstrap** (contract `1`):
+
+- `files/release/contract` holds `1`, and `files/release/release-run.sh` and
+  `release-region.sh` are this version's release scripts (byte-identical to
+  `products/catalyst/bootstrap/api/internal/lifecycle/release/`, tested);
+  `release-run.sh` has the phases `compose`, `prewarm` and `promote`. They are
+  read from the chart folder; nothing renders or installs them.
+- The render holds ConfigMaps `cutover-step-01-gitea-mirror` and `cutover-step-03-harbor-prewarm`
+  with a `podSpec`, `cutover-step-06-helmrepository-patches` with
+  `kit-rewrite.sh`, `cutover-bootstrap-kit-pins` with `extract-pins.sh`, and, on a
+  Sovereign with follower regions, `cutover-secondary-pivot-script` with
+  `secondary-pivot-job.yaml`.
+
+`compose` builds the delivery Job from those: an init container `prewarm` (step
+03's container, its command run by `release-run.sh prewarm`) and a container
+`promote` (step 01's image and settings). Every ConfigMap it mounts is the
+render's, applied under `<name>-release`, so no installed object changes and the
+installed step 03 never runs. A candidate whose chart carries no contract-1
+mechanism is refused by name; the bootstrap never falls back to the installed
+mechanism. `files/release/` is left out of the package (`.helmignore`): Helm never
+renders it, and the release reads it from the staged tree.
+
 ## RBAC discipline
 
 The runner ServiceAccount + ClusterRole + ClusterRoleBinding live at

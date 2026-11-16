@@ -29,6 +29,8 @@ region=primary
 [ "$1" = "--kubeconfig" ] && { region=$(basename "$2" .yaml); shift 2; }
 case " $* " in
   *" get configmap harbor-registry "*) cat "${STUB_DIR}/registry-${region}.yml" 2>/dev/null || exit 1 ;;
+  *" get helmreleases.helm.toolkit.fluxcd.io "*) cat "${STUB_DIR}/cutover-hr.json" 2>/dev/null || exit 1 ;;
+  *" get configmap sovereign-release "*) grep -o '"phase":"[^"]*"' "${STUB_DIR}/status" | tail -n 1 | sed 's/.*:"//; s/"$//' ;;
   *" get secret "*jsonpath*) printf '%s' "${STUB_PAT}" | base64 ;;
   *" get secret "*)
     f="${STUB_DIR}/secrets/${region}/$2/$5.json"
@@ -45,6 +47,16 @@ case " $* " in
       to=$(jq -r '.metadata.namespace + "/" + .metadata.name' "${STUB_DIR}/applied")
       mkdir -p "${STUB_DIR}/secrets/${region}/${to%/*}"
       cp "${STUB_DIR}/applied" "${STUB_DIR}/secrets/${region}/${to}.json"
+      exit 0
+    fi
+    if jq -e '.kind == "ConfigMap"' "${STUB_DIR}/applied" >/dev/null 2>&1; then
+      mkdir -p "${STUB_DIR}/cm"; cp "${STUB_DIR}/applied" "${STUB_DIR}/cm/$(jq -r .metadata.name "${STUB_DIR}/applied").json"
+      exit 0
+    fi
+    if jq -e '.kind == "Job"' "${STUB_DIR}/applied" >/dev/null 2>&1; then
+      name=$(jq -r .metadata.name "${STUB_DIR}/applied")
+      cp "${STUB_DIR}/applied" "${STUB_DIR}/job-${name}.json"
+      sh "${STUB_DIR}/kubelet" "${STUB_DIR}/job-${name}.json"
       exit 0
     fi
     grep -q '^kind: Job' "${STUB_DIR}/applied" || exit 0
@@ -67,6 +79,59 @@ case " $* " in
   *" logs "*) n="${4#job/}"; cat "${STUB_DIR}/job-${n}.log" ;;
   *) echo "kubectl stub: unexpected call: $*" >&2; exit 9 ;;
 esac
+`
+
+// kubeletStub runs a Job the release applies as JSON in the primary region (the
+// delivery Job of the candidate's mechanism) the way a kubelet would: its
+// ConfigMap volumes from what was applied (STUB_DIR/cm), the follower
+// kubeconfigs Secret from STUB_KUBECONFIGS, emptyDirs as directories; then each
+// init container and container in order, with only its own environment (a
+// secretKeyRef read from the stub's Secrets of its namespace) and every
+// mountPath in its command, arguments and values mapped to its volume's
+// directory. The first container that fails ends the Pod; job-<name>.rc and
+// job-<name>.log are what get job and logs answer.
+const kubeletStub = `#!/bin/sh
+set -u
+j="$1"; name=$(jq -r .metadata.name "$j"); ns=$(jq -r .metadata.namespace "$j")
+root="${STUB_DIR}/pod-${name}"; mkdir -p "$root/vol"
+log="${STUB_DIR}/job-${name}.log"; : >"$log"
+end() { echo "$1" >"${STUB_DIR}/job-${name}.rc"; exit 0; }
+jq -c '.spec.template.spec.volumes[]' "$j" >"$root/vols"
+while IFS= read -r v; do
+  vn=$(printf '%s' "$v" | jq -r .name); d="$root/vol/$vn"; mkdir -p "$d"
+  cm=$(printf '%s' "$v" | jq -r '.configMap.name // empty')
+  sec=$(printf '%s' "$v" | jq -r '.secret.secretName // empty')
+  if [ -n "$cm" ]; then
+    f="${STUB_DIR}/cm/${cm}.json"
+    [ -f "$f" ] || { echo "kubelet: ConfigMap ${cm} of volume ${vn} does not exist" >>"$log"; end 1; }
+    if [ "$(printf '%s' "$v" | jq '.configMap.items // [] | length')" -gt 0 ]; then
+      printf '%s' "$v" | jq -r '.configMap.items[] | .key + " " + .path' >"$root/items"
+    else
+      jq -r '.data | keys[] | . + " " + .' "$f" >"$root/items"
+    fi
+    while read -r k p; do jq -r --arg k "$k" '.data[$k]' "$f" >"$d/$p"; done <"$root/items"
+  elif [ "$sec" = cutover-secondary-kubeconfigs ]; then
+    for kc in "${STUB_KUBECONFIGS}"/*.yaml; do [ -e "$kc" ] && cp "$kc" "$d/"; done
+  fi
+done <"$root/vols"
+jq -c '(.spec.template.spec.initContainers // [])[], .spec.template.spec.containers[]' "$j" >"$root/ctrs"
+while IFS= read -r c; do
+  m=$(printf '%s' "$c" | jq -c --arg r "$root/vol" '[(.volumeMounts // [])[] | {key: .mountPath, value: ($r + "/" + .name)}] | from_entries')
+  remap='def remap: . as $s | reduce ($m | to_entries[]) as $e ($s; if (. == $e.key or startswith($e.key + "/")) then $e.value + .[($e.key | length):] else . end);'
+  { echo "secretval() { jq -r --arg k "\$2" '.data[\$k]' "${STUB_DIR}/secrets/primary/${ns}/\$1.json" | base64 -d; }"
+    printf '%s' "$c" | jq -r --argjson m "$m" "$remap"' (.env // [])[] |
+      if .value != null then "export \(.name)=\(.value | remap | @sh)"
+      elif .valueFrom.secretKeyRef then "export \(.name)=\"$(secretval \(.valueFrom.secretKeyRef.name | @sh) \(.valueFrom.secretKeyRef.key | @sh))\""
+      else empty end'; } >"$root/env.sh"
+  printf '%s' "$c" | jq -r --argjson m "$m" "$remap"' ((.command // []) + (.args // []))[] | remap' >"$root/argv"
+  echo "kubelet: container $(printf '%s' "$c" | jq -r .name)" >>"$log"
+  rc=0
+  env -i PATH="$PATH" GIT_CONFIG_NOSYSTEM=1 STUB_DIR="$STUB_DIR" STUB_PAT="$STUB_PAT" STUB_RELEASE="$STUB_RELEASE" STUB_KUBECONFIGS="$STUB_KUBECONFIGS" \
+    FOLLOWER_POLL_SECONDS=1 FOLLOWER_WAIT_SECONDS=60 sh -c '_kr="$1"; . "$_kr/env.sh"; set --; while IFS= read -r a; do set -- "$@" "$a"; done <"$_kr/argv"; "$@"' kubelet "$root" \
+    >>"$log" 2>&1 </dev/null || rc=$?
+  [ "$rc" -eq 0 ] || end "$rc"
+done <"$root/ctrs"
+end 0
 `
 
 // follower is a second region: its own Gitea, whose main is the installed
@@ -135,7 +200,7 @@ func (r *runFixture) runArgs(args []string, req releaseRequest, extra ...string)
 	r.t.Helper()
 	cmd := command("sh", append([]string{"-c", `kubectl() { sh "${STUB_DIR}/kubectl" "$@"; }; set -- "$0" "$@"; . "${RELEASE_SCRIPTS}/release-run.sh"`}, args...)...)
 	cmd.Dir = r.dir
-	cmd.Env = append(os.Environ(), "PATH="+r.stub+"/bin:"+os.Getenv("PATH"), "HOME="+r.home, "GIT_CONFIG_NOSYSTEM=1", "STUB_DIR="+r.stub, "STUB_PAT=not-a-real-token", "STUB_RELEASE="+r.scripts,
+	cmd.Env = append(os.Environ(), "PATH="+r.stub+"/bin:"+os.Getenv("PATH"), "HOME="+r.home, "GIT_CONFIG_NOSYSTEM=1", "STUB_DIR="+r.stub, "STUB_PAT=not-a-real-token", "STUB_RELEASE="+r.scripts, "STUB_KUBECONFIGS="+r.kubeconfigs,
 		"RELEASE_NAMESPACE=catalyst", "RELEASE_STATUS_CM=sovereign-release", "CANDIDATE="+req.Candidate, "DRY_RUN="+boolString(req.DryRun),
 		"STATE="+r.state, "SECONDARY_KUBECONFIGS="+r.kubeconfigs, "RELEASE_SCRIPTS="+r.scripts, "FOLLOWER_POLL_SECONDS=1", "FOLLOWER_WAIT_SECONDS=60",
 		"KIT_REWRITE="+r.scripts+"/kit-rewrite.sh", "PIN_EXTRACTOR="+r.scripts+"/extract-pins.sh",
@@ -287,11 +352,13 @@ func newRunFixtureFrom(t *testing.T, f *fixture, req releaseRequest, conflict bo
 		}
 	}
 	f.write(r.stub, "kubectl", kubectlStub)
+	f.write(r.stub, "kubelet", kubeletStub)
 	f.write(r.stub, "bin/kubectl", "#!/bin/sh\nexec sh \"${STUB_DIR}/kubectl\" \"$@\"\n")
 	if err := os.Chmod(r.stub+"/bin/kubectl", 0o700); err != nil { //nolint:gosec // a fake program must be executable
 		t.Fatal(err)
 	}
 	f.write(r.kubeconfigs, "region-b.yaml", "apiVersion: v1\nkind: Config\n")
+	f.write(r.stub, "cutover-hr.json", r.cutoverHelmReleaseJSON())
 	in := &releaseInputs{mirror: corev1.Container{Env: []corev1.EnvVar{plain("UPSTREAM_REPO_URL", "file://"+f.upstream)}}, follower: followerPivotJob(r.followerURL), followerNS: "gitea"}
 	m, err := in.followerJobManifest(req)
 	if err != nil {
@@ -325,28 +392,28 @@ func TestReleaseStageTellsWhetherAFollowerRegistrySharesThePrimaryStorage(t *tes
 		{"two buckets", registryConfig("sovereign-registry"), registryConfig("region-b-registry"), false, "not covered: the registry of region-b does not store in the primary's (s3 bucket=sovereign-registry"},
 		{"local disks", registryConfig(""), registryConfig(""), false, "not covered: the registry of region-b does not store in the primary's (filesystem"},
 		{"unreadable", registryConfig("sovereign-registry"), "", false, "unknown: the registry storage of the primary or of region-b cannot be read (harbor/harbor-registry)"},
-		{"step 03 covers the follower", registryConfig("sovereign-registry"), registryConfig("region-b-registry"), true, ""},
+		// The step 03 that runs is the candidate's (#7938): when it mirrors the
+		// release's pins into every follower registry, storage does not matter.
+		{"the candidate's step 03 covers the follower", registryConfig("sovereign-registry"), registryConfig("region-b-registry"), true,
+			"covered: the candidate's step 03 mirrors the release's pins into every follower registry"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			f := newFixture(t)
-			id, _ := f.candidate(1, f.laterRelease)
+			step03 := step03Marker(candidateCutover)
+			if c.covered {
+				step03 += "echo \"[harbor-prewarm] #7938 secondary region ${region:-}: also mirrors the pins of ${UPSTREAM_BRANCH}\"\n"
+			}
+			id, _ := f.candidate(1, f.candidateCutoverRelease(step03))
 			req := releaseRequest{Candidate: id, DryRun: true}
 			r := newRunFixtureFrom(t, f, req, false)
 			f.write(r.stub, "registry-primary.yml", c.primary)
 			if c.follower != "" {
 				f.write(r.stub, "registry-region-b.yml", c.follower)
 			}
-			r.env = []string{"FOLLOWER_PREWARM_COVERED=" + boolString(c.covered)}
 			out, code := r.run("stage", req)
 			st := r.status()
 			if code != 0 || st["phase"] != "dry-run" {
 				t.Fatalf("stage: exit %d, phase %q\n%s", code, st["phase"], out)
-			}
-			if c.want == "" {
-				if v, ok := st["followerPrewarm"]; ok {
-					t.Fatalf("the stage rewrote the route's verdict although step 03 covers the follower: %q", v)
-				}
-				return
 			}
 			if !strings.HasPrefix(st["followerPrewarm"], c.want) {
 				t.Fatalf("followerPrewarm %q, want it to begin %q\n%s", st["followerPrewarm"], c.want, out)
