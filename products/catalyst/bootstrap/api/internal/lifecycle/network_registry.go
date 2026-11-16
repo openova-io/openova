@@ -19,7 +19,7 @@
 // the same server-side apply, only when it is absent or carries another
 // document. The parent runs it for every ready deployment when it starts, and
 // for one deployment on POST /api/v1/deployments/{id}/network-registry
-// (handler file network_registry.go).
+// (network_registry_route.go).
 //
 // The identity of every write is the one of the region's kubeconfig on the
 // parent: ServiceAccount kube-system/parent-bootstrap of that region, bound to

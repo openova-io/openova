@@ -353,7 +353,7 @@ func main() {
 			)
 		} else {
 			sar := k8scache.NewSARCache()
-			h.SetK8sCache(k8sFactory, sar, env("CATALYST_K8SCACHE_USER_HEADER", "X-Forwarded-User"))
+			setK8sCache(log, h, k8sFactory, sar, env("CATALYST_K8SCACHE_USER_HEADER", "X-Forwarded-User"))
 			log.Info("k8scache: data plane started",
 				"sovereigns", len(k8sFactory.Clusters()),
 			)

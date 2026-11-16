@@ -111,8 +111,8 @@ func registerSessionDeployments(rg chi.Router, d routeDeps) {
 	// parent reads flux-system/sovereign-network-registry in every region and
 	// writes it from the OpenTofu state only where it is absent or differs —
 	// the registry step of the hand-over, without the rest of the hand-over.
-	// Owner-checked (404 otherwise). See handler/network_registry.go.
-	rg.With(d.self.MothershipOnly).Post("/api/v1/deployments/{id}/network-registry", h.HandleNetworkRegistry)
+	// Owner-checked (404 otherwise). See internal/lifecycle/network_registry_route.go.
+	rg.With(d.self.MothershipOnly).Post("/api/v1/deployments/{id}/network-registry", newNetworkRegistry(d.log, h).Serve)
 	// Handover JWT — issue #605 (minting) + issue #606 (consumption).
 	// MintHandoverToken: Catalyst-Zero operator finalises a deployment;
 	// wizard StepSuccess POSTs here to get a one-time RS256 JWT, then
