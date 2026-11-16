@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-15T23:45:04Z` |
+| Last refreshed | `2026-11-16T00:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-15T23:50 | [#7940](https://github.com/openova-io/openova/pull/7940) | #7939 | feat(api): a sovereign-admin delivers a later release candid |
+| 2026-11-15T23:50 | [#7939](https://github.com/openova-io/openova/pull/7939) | #7938 | fix(cutover): step 03 gives every follower region what the r |
 | 2026-11-15T22:10 | [#7935](https://github.com/openova-io/openova/pull/7935) | #7922 | fix(kured): a drain that cannot finish gives the node and th |
 | 2026-11-15T22:10 | [#7934](https://github.com/openova-io/openova/pull/7934) | #7922 | fix(charts): a one-instance workload carries no budget that  |
 | 2026-11-15T22:10 | [#7933](https://github.com/openova-io/openova/pull/7933) | #7922 | fix(bp-guacamole): the mesh secondary retires the admin-enro |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-15T09:35 | [#7906](https://github.com/openova-io/openova/pull/7906) | #7900 | fix(cutover): a fresh two-region installation passes the han |
 | 2026-11-15T10:15 | [#7905](https://github.com/openova-io/openova/pull/7905) | #7903 | fix(kit): a fresh two-region installation holds kured back,  |
 | 2026-11-15T10:35 | [#7904](https://github.com/openova-io/openova/pull/7904) | #7901 | fix(openbao): a fresh two-region installation initialises Op |
-| 2026-11-15T08:08 | [#7899](https://github.com/openova-io/openova/pull/7899) | #7087 | docs(ledger): plan update |
-| 2026-11-15T04:01 | [#7898](https://github.com/openova-io/openova/pull/7898) | #7893 | fix(provisioning): the control-plane user data fits the clou |
 
 ---
 
