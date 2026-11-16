@@ -126,7 +126,9 @@ func (rt *ReleaseRoute) cutoverStatus() string {
 // Request handles PUT /api/v1/sovereign/release with the body
 // {"candidate": "<id>", "dryRun": false, "pullSecret": "<name>"}. pullSecret is a
 // Secret of type kubernetes.io/dockerconfigjson in the cutover namespace with an
-// entry for ghcr.io; a delivery needs it, a dry run does not. A delivery uses it
+// entry for ghcr.io; a delivery needs it, and a dry run refuses it: a dry run
+// copies, uses and deletes no credential, so a Secret named for one would stay
+// on the Sovereign unnoticed (#7938). A delivery uses it
 // for its run only: the Job copies it into every follower region for the
 // prewarm and deletes it in every region, the named Secret included, when the
 // prewarm ends or the stage fails. So it must be a Secret made for the delivery,
@@ -150,6 +152,11 @@ func (rt *ReleaseRoute) Request(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.PullSecret != "" && !objectName.MatchString(req.PullSecret) {
 		refuse(w, http.StatusBadRequest, "bad-pull-secret", "pullSecret is the name of a Secret")
+		return
+	}
+	if req.DryRun && req.PullSecret != "" {
+		refuse(w, http.StatusBadRequest, "dry-run-pull-secret",
+			"a dry run copies, uses and deletes no pull credential: leave pullSecret out of a dry run, and delete the Secret "+req.PullSecret+" if it was made for it; name it in the delivery, which deletes it when its prewarm ends")
 		return
 	}
 	if p := strings.TrimSpace(rt.getenv(envReleaseSignature)); p != "" && p != signatureUnverified {

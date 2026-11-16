@@ -228,6 +228,9 @@ func TestReleaseRequestRefusals(t *testing.T) {
 		{"an unknown field", `{"candidate":"` + testCandidate + `","force":true}`, installed(false, false), nil, 400, "bad-body"},
 		{"not a candidate id", `{"candidate":"main"}`, installed(false, false), nil, 400, "bad-candidate"},
 		{"a pull secret that is not a name", `{"candidate":"` + testCandidate + `","pullSecret":"A B"}`, installed(false, false), nil, 400, "bad-pull-secret"},
+		// #7938: a dry run never copies, uses or deletes a credential, so one
+		// named for it would stay on the Sovereign, recorded as if it mattered.
+		{"a pull secret named in a dry run", `{"candidate":"` + testCandidate + `","dryRun":true,"pullSecret":"release-pull"}`, installed(false, false), nil, 400, "dry-run-pull-secret"},
 		{"a signature is required", `{"candidate":"` + testCandidate + `","dryRun":true}`, installed(false, false), map[string]string{envReleaseSignature: "required"}, 412, "cut unsigned"},
 		{"an unknown signature policy fails closed", `{"candidate":"` + testCandidate + `","dryRun":true}`, installed(false, false), map[string]string{envReleaseSignature: "cosign"}, 412, "signature-required"},
 		{"no cutover status", `{"candidate":"` + testCandidate + `","dryRun":true}`, without("self-sovereign-cutover-status"), nil, 409, "not-cut-over"},
