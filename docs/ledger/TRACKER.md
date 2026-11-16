@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-16T14:45:04Z` |
+| Last refreshed | `2026-11-16T15:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-16T14:56 | [#8009](https://github.com/openova-io/openova/pull/8009) | #7973 | refactor(api): the resource browser refuses Git-owned object |
+| 2026-11-16T14:55 | [#8007](https://github.com/openova-io/openova/pull/8007) | #7990 | refactor(cloud-init): first boot stops writing two node file |
+| 2026-11-16T14:56 | [#8006](https://github.com/openova-io/openova/pull/8006) | #7989 | chore(secrets): the Secret register lists kube-system/parent |
 | 2026-11-16T14:24 | [#8005](https://github.com/openova-io/openova/pull/8005) | #7964 | fix(model-meter): meter streamed answers from their final us |
 | 2026-11-16T14:26 | [#8004](https://github.com/openova-io/openova/pull/8004) | #7972 | feat(console): console pages become a third source of menu c |
 | 2026-11-16T14:23 | [#8003](https://github.com/openova-io/openova/pull/8003) | #7992 | docs(ledger): result of the lab test SOV-750 (SOV-750) |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-16T04:07 | [#7945](https://github.com/openova-io/openova/pull/7945) | #7934 | fix(release): a candidate is not cut while a chart's source  |
 | 2026-11-16T04:07 | [#7944](https://github.com/openova-io/openova/pull/7944) | #7936 | fix(sovereign): the Sovereign object Job gets its name in ev |
 | 2026-11-16T04:07 | [#7943](https://github.com/openova-io/openova/pull/7943) | #7922 | fix(flow-server): the image builds with the Go its go.mod re |
-| 2026-11-16T04:07 | [#7942](https://github.com/openova-io/openova/pull/7942) | #6764 | fix(release): each follower region gets the pull credential  |
-| 2026-11-16T01:45 | [#7941](https://github.com/openova-io/openova/pull/7941) | #7936 | feat(sovereign): the Sovereign object gets its writer in eve |
-| 2026-11-15T23:50 | [#7940](https://github.com/openova-io/openova/pull/7940) | #7939 | feat(api): a sovereign-admin delivers a later release candid |
 
 ---
 
