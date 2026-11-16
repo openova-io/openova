@@ -718,11 +718,10 @@ runtime:
   sovereignAPIPublicURL: "https://console.openova.io/sovereign"
 
 # ─── Group C controllers (slice CC3 of EPIC-0 #1095) ────────────────────────
-# The 5 K8s-native reconcilers consolidated by CC1 (#1135) + CC2 (#1136):
+# The K8s-native reconcilers consolidated by CC1 (#1135) + CC2 (#1136):
 #
 #   organization  — Organization.orgs.openova.io       → KC realm + Gitea Org + per-Org UserAccess
 #   environment   — Environment.catalyst.openova.io    → per-vCluster Flux GitRepository in Gitea
-#   blueprint     — Blueprint.catalyst.openova.io      → mirror canonical Blueprint into per-Org Gitea repo
 #   application   — Application.apps.openova.io        → per-region Kustomization+HelmRelease into Gitea
 #   useraccess    — UserAccess.access.openova.io       → RoleBinding + ClusterRoleBinding objects
 #
@@ -972,41 +971,6 @@ controllers:
       email: "environment-controller@openova.io"
     envRepoSuffix: "-environment"
     requeueAfterSeconds: 300
-    env: {}
-    nodeSelector: {}
-    tolerations: []
-    affinity: {}
-  blueprint:
-    # NOTE: blueprint-controller image is not yet published to GHCR — the
-    # build-blueprint-controller workflow scaffolding lands in this same PR
-    # (qa-loop iter-1). Stays `enabled: false` until the first push-on-main
-    # build of core/controllers/blueprint completes. Per Inviolable
-    # Principle #4a: never reference an image that wasn't built by CI from
-    # a committed git SHA.
-    enabled: false
-    image:
-      repository: "ghcr.io/openova-io/openova/blueprint-controller"
-      # 100a213 = H9-walk follow-up (#2745, 2026-06-03) — bumped from
-      # 8d01e2f to the latest blueprint-controller main-HEAD push
-      # (2026-06-02). enabled remains false until the bp-controller
-      # surfaces are wired end-to-end; the pin matches the latest
-      # successful push-on-main build per Inviolable Principle #4a.
-      # 34ff594 (2026-06-21, #4053) — freshness sweep on the console-gateway-
-      # isolation PR: 01db043 had drifted 437 commits behind latest GHCR.
-      tag: "2faf1f8"
-      pullPolicy: IfNotPresent
-    replicas: 1
-    leaderElection:
-      enabled: true
-    resources:
-      requests:
-        cpu: 50m
-        memory: 64Mi
-      limits:
-        memory: 256Mi
-    giteaURL: ""
-    logLevel: "info"
-    resyncPeriod: "5m"
     env: {}
     nodeSelector: {}
     tolerations: []

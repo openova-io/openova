@@ -797,8 +797,8 @@ jobs:
 
       # #2851 (2026-06-03) — controller-image freshness sweep.
       #
-      # Background: each of the 5 Group C controllers (application /
-      # blueprint / environment / organization / useraccess) has its
+      # Background: each of the Group C controllers (application /
+      # environment / organization / useraccess) has its
       # OWN build workflow that auto-bumps its OWN values.yaml tag on
       # push-to-main. In theory the chart converges. In practice the
       # H9 walk on 2026-06-03 caught 4 of 5 controllers pinned to
@@ -815,7 +815,7 @@ jobs:
       # at `2ae493f` — a SHA BEFORE PR #2854's env rename).
       #
       # Defense: every catalyst-build deploy step now ALSO sweeps the
-      # 5 controller pins by resolving the LATEST pushed SHA tag from
+      # 4 controller pins by resolving the LATEST pushed SHA tag from
       # GHCR for each controller package and stamping it into
       # values.yaml. This is belt-and-braces — controllers also retain
       # their own auto-bump, but the catalyst-build sweep guarantees
@@ -845,7 +845,6 @@ jobs:
           # uniformity.sh.
           declare -A CTRL_PKG=(
             [application]=application-controller
-            [blueprint]=blueprint-controller
             [environment]=environment-controller
             [organization]=organization-controller
             [useraccess]=useraccess-controller
@@ -907,7 +906,7 @@ jobs:
             echo "BUMPED: controllers.${key}.image.tag ${cur} -> ${tag}"
             bumped=$((bumped + 1))
           done
-          echo "#2851 sweep: bumped ${bumped}/5 controller pin(s) to latest GHCR."
+          echo "#2851 sweep: bumped ${bumped}/4 controller pin(s) to latest GHCR."
 
       # values.yaml + the literal-image Kustomize-sibling templates
       # (api-deployment-kustomize, ui-deployment-kustomize) are bumped

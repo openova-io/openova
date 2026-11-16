@@ -690,9 +690,9 @@ spec:
             # at blueprints.go:184 + blueprints.go:493 (matrix TC-081, TC-082,
             # TC-083, TC-085 FAIL).
             #
-            # Mirrors the wiring already used by blueprint-controller,
-            # application-controller, environment-controller, organization-
-            # controller (see controllers/blueprint-controller-deployment.yaml
+            # Mirrors the wiring already used by application-controller,
+            # environment-controller and organization-controller (see
+            # controllers/application-controller-deployment.yaml
             # for the canonical pattern). The catalyst-gitea-token Secret
             # is materialised by the bp-gitea chart's post-install Job and
             # mirrored into catalyst-system by emberstack/reflector.
