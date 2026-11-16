@@ -303,7 +303,10 @@ fi
 echo "[fresh-install] D14: an image only a catalogue chart declares does not stop the chain"
 awk '/^  cat_render_fail=0$/ {f=1} f {print} f && /^  done < "\$\{chart_hard\}"$/ {exit}' "${S03}" >"${TMP}/enum.sh"
 awk '/^  img_guard_missing=\/tmp\/\.chart-image-missing\.txt$/ {f=1} f && /^else$/ {exit} f {print}' "${S03}" >"${TMP}/guard.sh"
-grep -q 'chart_declared_images' "${TMP}/enum.sh" || fail "could not slice the chart-image enumeration out of the rendered step-03 script"
+# #7938: the enumeration renders through prewarm_chart_images (default values and
+# each HelmRelease's), from the prewarm-sovereign-values block; no HelmRelease here.
+awk 'index($0, "prewarm-sovereign-values BEGIN") {f=1; next} index($0, "prewarm-sovereign-values END") {exit} f {print}' "${S03}" >"${TMP}/values.sh"
+grep -q 'prewarm_chart_images' "${TMP}/enum.sh" || fail "could not slice the chart-image enumeration out of the rendered step-03 script"
 grep -q 'Phase A3-guard' "${TMP}/guard.sh" || fail "could not slice the A3 guard out of the rendered step-03 script"
 # run_guard <missing image>: bp-app 1.0.0 is installed, bp-litmus 2.0.0 is a
 # catalogue entry installed nowhere. Both declare docker.io/shared/x:1.
@@ -314,6 +317,9 @@ run_guard() {
   sed "s#/tmp/#${dir}/tmp/#g" "${TMP}/guard.sh" >"${dir}/guard.sh"
   (
     set -eu
+    kubectl() { printf '{"items": []}'; }
+    # shellcheck source=/dev/null
+    . "${TMP}/values.sh"
     MISSING="$2"
     chart_installed="${dir}/tmp/.chart-installed.tsv"
     chart_hard="${dir}/tmp/.chart-hard.tsv"

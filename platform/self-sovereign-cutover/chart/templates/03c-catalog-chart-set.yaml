@@ -190,9 +190,10 @@ data:
     }
 
     {{- /*
-     chart_declared_images CHART_TGZ
+     chart_declared_images CHART_TGZ [HELM ARGS...]
 
-       Renders the packaged chart at DEFAULT values and emits every image
+       Renders the packaged chart at DEFAULT values (or with the helm arguments
+       that follow: a HelmRelease's values files, #7938) and emits every image
        reference the render pins, one per line, sorted + deduped. This is the
        ONLY enumeration available for a chart nobody has installed (#5442:
        prewarm's live-cluster Pod walk cannot see it), and it is faithful
@@ -210,7 +211,7 @@ data:
                says so loudly; the caller owns the policy.
     */}}
     chart_declared_images() {
-      _ci_tgz="$1"
+      _ci_tgz="$1"; shift
       [ -f "${_ci_tgz}" ] || { echo "[catalog-set] WARN: chart archive ${_ci_tgz} not found — no images enumerated" >&2; return 0; }
       command -v helm >/dev/null 2>&1 || { echo "[catalog-set] WARN: helm missing from PATH — cannot render ${_ci_tgz} for image enumeration" >&2; return 0; }
       _ci_dir="${CATALOG_SET_TMPDIR:-/tmp}"
@@ -220,7 +221,7 @@ data:
        Explicit status capture (never a pipeline) so a render failure is seen
        rather than masked by the exit status of a downstream filter.
       */}}
-      if helm template catalog-prewarm "${_ci_tgz}" --namespace catalog-prewarm >"${_ci_out}" 2>"${_ci_err}"; then
+      if helm template catalog-prewarm "${_ci_tgz}" --namespace catalog-prewarm "$@" >"${_ci_out}" 2>"${_ci_err}"; then
         :
       else
         echo "[catalog-set] WARN: helm template failed for ${_ci_tgz} — no images enumerated from this chart:" >&2
