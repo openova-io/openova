@@ -2840,6 +2840,7 @@ intentLock:
     blueprints: audit
     topology: audit
     flux: audit
+    machine-ops: audit
   resources:
     applications:
       - apiGroup: apps.openova.io
@@ -2869,3 +2870,8 @@ intentLock:
         resources: [kustomizations]
       - apiGroup: helm.toolkit.fluxcd.io
         resources: [helmreleases]
+    # The kinds of machines.openova.io that are born in Git. Machine and
+    # MachineRun are written by the machine controller and are not locked.
+    machine-ops:
+      - apiGroup: machines.openova.io
+        resources: [machinesources, maintenancewindows, patchpolicies, scanpolicies, hardeningbaselines, testscopes, machineimages]

@@ -56,6 +56,13 @@ var lockedKinds = map[schema.GroupResource]bool{
 	{Group: "source.toolkit.fluxcd.io", Resource: "ocirepositories"}:   true,
 	{Group: "kustomize.toolkit.fluxcd.io", Resource: "kustomizations"}: true,
 	{Group: "helm.toolkit.fluxcd.io", Resource: "helmreleases"}:        true,
+	{Group: "machines.openova.io", Resource: "machinesources"}:         true,
+	{Group: "machines.openova.io", Resource: "maintenancewindows"}:     true,
+	{Group: "machines.openova.io", Resource: "patchpolicies"}:          true,
+	{Group: "machines.openova.io", Resource: "scanpolicies"}:           true,
+	{Group: "machines.openova.io", Resource: "hardeningbaselines"}:     true,
+	{Group: "machines.openova.io", Resource: "testscopes"}:             true,
+	{Group: "machines.openova.io", Resource: "machineimages"}:          true,
 }
 
 // Owner names the owner in Git of an object of the resource gvr. live is

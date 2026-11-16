@@ -4,7 +4,7 @@
 # Render cases (helm and python3 with PyYAML, no cluster):
 #   1. Defaults: one ValidatingAdmissionPolicy catalyst-intent-lock with
 #      failurePolicy Fail; one binding catalyst-intent-lock-<stage> for each
-#      of the eight stages; every binding ["Audit", "Warn"], none Deny; every
+#      of the nine stages; every binding ["Audit", "Warn"], none Deny; every
 #      binding rule is a rule of the policy; the audit annotation's false
 #      branch is '' and not null.
 #   2. intentLock.stages.applications=deny: exactly one binding carries Deny,
@@ -16,7 +16,7 @@
 # throwaway API server, reached with the command in $KUBECTL (default
 # kubectl; .github/workflows/intent-lock-apiserver.yaml sets it to a kubectl
 # inside a k3s container). Files go to it on standard input.
-#   4. The API server accepts the policy and the eight bindings.
+#   4. The API server accepts the policy and the nine bindings.
 #   5. At audit, a cluster-admin create of an Application is admitted with
 #      the lock's warning, and the metric
 #      apiserver_validating_admission_policy_check_total counts it with
@@ -32,7 +32,7 @@ MODE="${2:-}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 cd "$CHART_DIR"
-STAGES="access applications blueprints environments flux organizations policy topology"
+STAGES="access applications blueprints environments flux machine-ops organizations policy topology"
 render() { helm template lock . --show-only templates/intent-lock/policy.yaml --show-only templates/intent-lock/bindings.yaml "$@"; }
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
@@ -79,7 +79,7 @@ render > "$TMP/default.yaml"
 out="$(judge "$TMP/default.yaml" "")"
 [ -z "$out" ] || fail "$out"
 [ "$(grep -c 'Deny' "$TMP/default.yaml" || true)" = 0 ] || fail "the default render holds Deny"
-echo "  PASS (one policy, eight bindings, none Deny)"
+echo "  PASS (one policy, nine bindings, none Deny)"
 
 echo "[intent-lock] case 2: intentLock.stages.applications=deny"
 render --set intentLock.stages.applications=deny > "$TMP/deny.yaml"
@@ -116,7 +116,7 @@ k apply --server-side -f - < crds/application.yaml
 k wait --for=condition=Established crd/applications.apps.openova.io --timeout=60s
 k create namespace lock-test
 k apply -f - < "$TMP/default.yaml"
-[ "$(k get validatingadmissionpolicybindings -l app.kubernetes.io/name=catalyst-intent-lock -o name | wc -l)" = 8 ] || fail "want eight bindings on the API server"
+[ "$(k get validatingadmissionpolicybindings -l app.kubernetes.io/name=catalyst-intent-lock -o name | wc -l)" = 9 ] || fail "want nine bindings on the API server"
 echo "  PASS"
 
 echo "[intent-lock] case 5: audit admits with a warning, and the audit series counts it"
