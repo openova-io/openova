@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-16T05:15:03Z` |
+| Last refreshed | `2026-11-16T05:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-16T05:24 | [#7951](https://github.com/openova-io/openova/pull/7951) | #7831 | test(gate): the baseline of the first fresh installation of  |
+| 2026-11-16T05:16 | [#7949](https://github.com/openova-io/openova/pull/7949) | #7881 | refactor(model-meter): move the metering sidecar, take ident |
+| 2026-11-16T05:16 | [#7948](https://github.com/openova-io/openova/pull/7948) | #7882 | feat(api): package clusterwrite decides and records the dire |
 | 2026-11-16T04:22 | [#7947](https://github.com/openova-io/openova/pull/7947) | #7942 | fix(release): the state counts the pivot's changed files and |
 | 2026-11-16T04:07 | [#7946](https://github.com/openova-io/openova/pull/7946) | #7929 | fix(cutover): step 03 warms what the Sovereign's own values  |
 | 2026-11-16T04:07 | [#7945](https://github.com/openova-io/openova/pull/7945) | #7934 | fix(release): a candidate is not cut while a chart's source  |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-15T14:23 | [#7920](https://github.com/openova-io/openova/pull/7920) | #7915 | fix(acceptance): SVC-G06 does not judge a release the region |
 | 2026-11-15T14:23 | [#7919](https://github.com/openova-io/openova/pull/7919) | #7905 | fix(acceptance): INF-G01 restarts one worker per region and  |
 | 2026-11-15T14:17 | [#7918](https://github.com/openova-io/openova/pull/7918) | #7912 | fix(sso-probe): the hubble row looks for what hubble-ui show |
-| 2026-11-15T14:17 | [#7917](https://github.com/openova-io/openova/pull/7917) | #7912 | fix(acceptance): FND-G06 asks the API host at its health pat |
-| 2026-11-15T14:17 | [#7916](https://github.com/openova-io/openova/pull/7916) | #7912 | fix(acceptance): CLD-G09 judges the per-Organization databas |
-| 2026-11-15T14:17 | [#7915](https://github.com/openova-io/openova/pull/7915) | #4521 | fix(acceptance): CLD-G06 judges the adoption claims where th |
 
 ---
 
