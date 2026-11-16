@@ -1,0 +1,37 @@
+# The list of network guard G4 (scripts/check-network-guards.py): route admission by owner.
+#
+# namespaces: the namespaces whose HTTPRoutes the fixed listeners of the shared Gateway
+# kube-system/cilium-gateway and of the console Gateway kube-system/cilium-gateway-console
+# admit. They are the kit namespaces that own a route: the targetNamespace of each
+# bootstrap-kit slot whose chart renders an HTTPRoute, and the namespace of each template
+# below. An Organization's routes attach to the Organization's own listeners, never to these.
+# The list has two copies, which G4 keeps equal to it: the allowedRoutes selector of every
+# listener in clusters/_template/bootstrap-kit/01-cilium.yaml, and routeNamespaces in
+# platform/sovereign-tls-vars/chart/values.yaml. G4 fails on a listed namespace that owns no
+# route, so the list is no wider than the kit.
+#
+# templates: route templates of a kit chart whose namespace is neither the release namespace
+# nor a fixed name. Each entry names the namespace the template renders into (a listed one),
+# or "organization" for a template that renders into an Organization namespace, which the
+# fixed listeners do not admit.
+namespaces:
+  - catalyst-system
+  - chargeback
+  - gitea
+  - grafana
+  - guacamole
+  - harbor
+  - keycloak
+  - kube-system
+  - newapi
+  - oidc-gate
+  - openbao
+  - powerdns
+  - powerdns-admin
+templates:
+  - path: platform/cilium/chart/templates/hubble-ui-httproute.yaml
+    namespace: kube-system
+    reason: the route lives beside the Hubble UI Service, whose namespace values.yaml sets to kube-system
+  - path: products/catalyst/chart/templates/org-services/organization-public-routes.yaml
+    namespace: organization
+    reason: renders one route per tenantRoutes entry into that Organization's namespace; the list is empty in values.yaml and the kit

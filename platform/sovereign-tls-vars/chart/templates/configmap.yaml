@@ -69,6 +69,15 @@ parses it as the materialised listener list.
 {{- $fqdn := .Values.global.sovereignFQDN }}
 {{- $fqdnDashed := replace "." "-" $fqdn }}
 {{- $secretName := printf "sovereign-wildcard-tls-%s" $fqdnDashed }}
+{{- /* Route admission by owner (NET-190): every listener of both Gateways
+       admits HTTPRoutes only from the namespaces of .Values.routeNamespaces,
+       the kit namespaces that own a route. scripts/network-guards-allowlist.yaml
+       holds the same list; network guard G4 fails when the two differ. */}}
+{{- $routeNamespaces := default (list) .Values.routeNamespaces }}
+{{- if not $routeNamespaces }}
+{{-   fail "routeNamespaces is empty: the Gateway listeners would admit no HTTPRoute" }}
+{{- end }}
+{{- $admit := dict "namespaces" (dict "from" "Selector" "selector" (dict "matchExpressions" (list (dict "key" "kubernetes.io/metadata.name" "operator" "In" "values" $routeNamespaces)))) }}
 {{- $zones := default (list) .Values.parentZones }}
 {{- /* Single-zone fallback so legacy Sovereigns that ship parentZones
        empty still produce a valid listener pair. Mirrors the same
@@ -110,14 +119,14 @@ parses it as the materialised listener list.
           "mode" "Terminate"
           "certificateRefs" (list (dict "kind" "Secret" "name" $zoneSecret))
         )
-        "allowedRoutes" (dict "namespaces" (dict "from" "All"))
+        "allowedRoutes" $admit
       }}
 {{-   $httpListener := dict
         "name" $httpName
         "port" 80
         "protocol" "HTTP"
         "hostname" (printf "*.%s" $z.name)
-        "allowedRoutes" (dict "namespaces" (dict "from" "All"))
+        "allowedRoutes" $admit
       }}
 {{-   $listeners = append $listeners $httpsListener }}
 {{-   $listeners = append $listeners $httpListener }}
@@ -142,14 +151,14 @@ parses it as the materialised listener list.
           "mode" "Terminate"
           "certificateRefs" (list (dict "kind" "Secret" "name" $secretName))
         )
-        "allowedRoutes" (dict "namespaces" (dict "from" "All"))
+        "allowedRoutes" $admit
       ) }}
 {{-   $listeners = append $listeners (dict
         "name" (printf "http-%s" $fqdnDashed)
         "port" 80
         "protocol" "HTTP"
         "hostname" (printf "*.%s" $fqdn)
-        "allowedRoutes" (dict "namespaces" (dict "from" "All"))
+        "allowedRoutes" $admit
       ) }}
 {{- end }}
 {{- /* ─────────────────────────────────────────────────────────────────────
@@ -236,14 +245,14 @@ parses it as the materialised listener list.
           "mode" "Terminate"
           "certificateRefs" (list (dict "kind" "Secret" "name" $secretName))
         )
-        "allowedRoutes" (dict "namespaces" (dict "from" "All"))
+        "allowedRoutes" $admit
       ) }}
 {{-   $consoleListeners = append $consoleListeners (dict
         "name" (printf "%s-http" $hp)
         "port" $consoleHttpPort
         "protocol" "HTTP"
         "hostname" $consoleHost
-        "allowedRoutes" (dict "namespaces" (dict "from" "All"))
+        "allowedRoutes" $admit
       ) }}
 {{- end }}
 ---

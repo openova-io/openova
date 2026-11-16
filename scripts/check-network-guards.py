@@ -17,7 +17,18 @@ package><TAB><reason>; lines that start with # are comments. No wildcards in eit
   G2 policy        no kind NetworkPolicy, CiliumNetworkPolicy or CiliumClusterwideNetworkPolicy in
                    platform products clusters core infra, outside the policy chart, the Organization
                    templates and the named exceptions.
-  G4 route admission  no listener that admits routes from all namespaces (from All).
+  G4 route admission  no listener that admits routes from all namespaces (from All). Besides the
+                   counted offences, three rules that have no baseline and fail at once read the
+                   list scripts/network-guards-allowlist.yaml: (a) every listener of a Gateway in
+                   clusters/_template/bootstrap-kit/01-cilium.yaml, and routeNamespaces of
+                   platform/sovereign-tls-vars/chart/values.yaml, admit exactly the listed
+                   namespaces (from Selector, key kubernetes.io/metadata.name, operator In);
+                   (b) every HTTPRoute of a chart that a bootstrap-kit slot installs, and every
+                   HTTPRoute document under clusters/, lives in a listed namespace (a route
+                   without a namespace, or with the release namespace, lives in the slot's
+                   targetNamespace); a route template whose namespace is another expression is
+                   named in the list's templates; (c) the list holds no namespace that owns no
+                   such route, and no templates entry that no longer matches.
   G5 network chart no provider name (the tier-1 rule of scripts/check-provider-leaks.py) in the values or
                    templates of platform/cilium/chart.
   G6 global Service  a file with the annotation service.cilium.io/global "true" also holds
@@ -26,9 +37,20 @@ package><TAB><reason>; lines that start with # are comments. No wildcards in eit
                    one, and no kubeConfig that points at a zone virtual cluster (vc-mgmt, vc-rtz, vc-dmz).
 """
 import argparse, importlib.util, os, re, shutil, subprocess, sys, tempfile
+import yaml
 
 BASELINE = "scripts/network-guards-baseline.tsv"
 EXCEPTIONS = "scripts/network-guards-exceptions.tsv"
+ALLOWLIST = "scripts/network-guards-allowlist.yaml"
+KIT = "clusters/_template/bootstrap-kit/"
+SLOT_COPY = "clusters/_template/bootstrap-kit/01-cilium.yaml"
+VALUES_COPY = "platform/sovereign-tls-vars/chart/values.yaml"
+NAME_KEY = "kubernetes.io/metadata.name"
+ORGANIZATION = "organization"
+ROUTE_KIND = re.compile(r"""^kind:\s*["']?HTTPRoute["']?\s*$""")
+RELEASE_NS = re.compile(r"^\{\{-?\s*(\$root|\$)?\.Release\.Namespace(\s*\|\s*quote)?\s*-?\}\}$")
+LITERAL_NS = re.compile(r"""^["']?([a-z0-9]([-a-z0-9]*[a-z0-9])?)["']?$""")
+CHART_FILE = re.compile(r"^(platform|products)/(.+/)?chart/Chart\.yaml$")
 GUARDS = ("G1", "G2", "G4", "G5", "G6", "G7")
 MANIFEST = (".yaml", ".yml", ".tpl", ".json", ".go")
 COMMENT = ("#", "//")
@@ -199,6 +221,164 @@ def read_exceptions(repo):
         exc[parts[0]] = parts[1]
     return exc
 
+def read_allowlist(repo):
+    """The list of G4: {"namespaces": [...], "templates": {path: (namespace, reason)}}."""
+    full = os.path.join(repo, ALLOWLIST)
+    if not os.path.isfile(full):
+        print(f"{ALLOWLIST}: missing")
+        sys.exit(1)
+    try:
+        data = yaml.safe_load(open(full, encoding="utf-8"))
+    except yaml.YAMLError as err:
+        malformed(ALLOWLIST, 0, str(err).splitlines()[0], "not YAML")
+    if not isinstance(data, dict) or set(data) != {"namespaces", "templates"}:
+        malformed(ALLOWLIST, 0, sorted(data) if isinstance(data, dict) else data,
+                  "the keys must be exactly namespaces and templates")
+    names = data["namespaces"]
+    if (not isinstance(names, list) or not names or not all(isinstance(n, str) and LITERAL_NS.match(n)
+                                                           and n == n.strip("\"'") for n in names)):
+        malformed(ALLOWLIST, 0, names, "namespaces must be a non-empty list of namespace names")
+    if names != sorted(set(names)):
+        malformed(ALLOWLIST, 0, names, "namespaces must be sorted and have no duplicate")
+    templates = {}
+    for entry in data["templates"] or []:
+        if (not isinstance(entry, dict) or set(entry) != {"path", "namespace", "reason"}
+                or not all(isinstance(entry[k], str) and entry[k].strip() for k in entry)):
+            malformed(ALLOWLIST, 0, entry, "a templates entry is <path, namespace, reason>, none empty")
+        if WILDCARD.search(entry["path"]):
+            malformed(ALLOWLIST, 0, entry["path"], "a wildcard is not allowed")
+        if entry["namespace"] != ORGANIZATION and entry["namespace"] not in names:
+            malformed(ALLOWLIST, 0, entry["namespace"], f"a templates namespace is listed or is {ORGANIZATION}")
+        if entry["path"] in templates:
+            malformed(ALLOWLIST, 0, entry["path"], "a second templates entry for the same path")
+        templates[entry["path"]] = (entry["namespace"], entry["reason"])
+    return {"namespaces": names, "templates": templates}
+
+def route_namespaces(lines):
+    """(line number, namespace text or None) of each top-level HTTPRoute document of a file."""
+    out = []
+    for i, line in enumerate(lines):
+        if not ROUTE_KIND.match(line):
+            continue
+        start = next((j + 1 for j in range(i - 1, -1, -1) if lines[j].startswith("---")), 0)
+        end = next((j for j in range(i + 1, len(lines)) if lines[j].startswith("---")), len(lines))
+        value, meta = None, False
+        for l in lines[start:end]:
+            if re.match(r"^metadata:\s*$", l):
+                meta = True
+            elif meta and l.strip() and not l.startswith(" ") and not l.lstrip().startswith("{{"):
+                meta = False
+            elif meta and re.match(r"^  namespace:", l):
+                value = l.split(":", 1)[1].strip()
+                break
+        out.append((i + 1, value))
+    return out
+
+def kit_routes(repo, files):
+    """Each route a kit slot installs: (path, line, namespace or None, where). None: not resolved."""
+    charts, routes, problems = {}, [], []
+    for p in files:
+        if CHART_FILE.match(p):
+            try:
+                name = (yaml.safe_load(open(os.path.join(repo, p), encoding="utf-8")) or {}).get("name")
+            except (OSError, yaml.YAMLError):
+                name = None
+            if name:
+                charts.setdefault(name, p[:-len("Chart.yaml")])
+    for p in files:
+        if not (p.startswith(KIT) and p.endswith((".yaml", ".yml"))):
+            continue
+        try:
+            docs = list(yaml.safe_load_all(open(os.path.join(repo, p), encoding="utf-8")))
+        except (OSError, yaml.YAMLError) as err:
+            problems.append(f"{p}: cannot be read as YAML ({str(err).splitlines()[0]})")
+            continue
+        for d in docs:
+            if not (isinstance(d, dict) and d.get("kind") == "HelmRelease"):
+                continue
+            spec = d.get("spec") or {}
+            chart = (((spec.get("chart") or {}).get("spec") or {}).get("chart"))
+            ns = spec.get("targetNamespace") or (d.get("metadata") or {}).get("namespace")
+            where = f"slot {p.rsplit('/', 1)[-1]}, targetNamespace {ns}"
+            if chart not in charts:
+                problems.append(f"{p}: HelmRelease of chart {chart} that is not in the repository; "
+                                "its routes cannot be judged")
+                continue
+            for t in files:
+                if t.startswith(charts[chart] + "templates/") and "/templates/tests/" not in t:
+                    for n, value in route_namespaces(lines_of(repo, t)):
+                        if value is None or RELEASE_NS.match(value):
+                            routes.append((t, n, ns, where))
+                        elif LITERAL_NS.match(value):
+                            routes.append((t, n, LITERAL_NS.match(value).group(1), where))
+                        else:
+                            routes.append((t, n, None, where))
+    for p in files:
+        if p.startswith("clusters/") and p.endswith((".yaml", ".yml")):
+            for n, value in route_namespaces(lines_of(repo, p)):
+                literal = LITERAL_NS.match(value) if value else None
+                routes.append((p, n, literal.group(1) if literal else None, "applied by Flux from clusters/"))
+    return routes, problems
+
+def listener_copies(repo, names):
+    """Problems of the two copies of the list: the kit Gateway listeners and the chart values."""
+    want = {"namespaces": {"from": "Selector", "selector": {"matchExpressions": [
+        {"key": NAME_KEY, "operator": "In", "values": names}]}}}
+    problems, listeners = [], 0
+    try:
+        docs = list(yaml.safe_load_all(open(os.path.join(repo, SLOT_COPY), encoding="utf-8")))
+    except (OSError, yaml.YAMLError) as err:
+        docs = []
+        problems.append(f"{SLOT_COPY}: cannot be read as YAML ({str(err).splitlines()[0]})")
+    for d in docs:
+        if isinstance(d, dict) and d.get("kind") == "Gateway":
+            for l in (d.get("spec") or {}).get("listeners") or []:
+                listeners += 1
+                if l.get("allowedRoutes") != want:
+                    problems.append(f"{SLOT_COPY}: listener {l.get('name')} of Gateway "
+                                    f"{(d.get('metadata') or {}).get('name')} does not admit exactly "
+                                    f"the namespaces of {ALLOWLIST}")
+    if not listeners and not problems:
+        problems.append(f"{SLOT_COPY}: no Gateway listener found")
+    try:
+        values = yaml.safe_load(open(os.path.join(repo, VALUES_COPY), encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        values = {}
+    if values.get("routeNamespaces") != names:
+        problems.append(f"{VALUES_COPY}: routeNamespaces is not the list namespaces of {ALLOWLIST}")
+    return problems
+
+def route_admission(repo, files):
+    """The three rules of G4 that read the list. Prints each failure; returns True when one failed."""
+    allow = read_allowlist(repo)
+    names, templates = allow["namespaces"], allow["templates"]
+    problems = listener_copies(repo, names)
+    routes, more = kit_routes(repo, files)
+    problems += more
+    used, matched = set(), set()
+    for path, n, ns, where in routes:
+        if ns is None:
+            if path not in templates:
+                problems.append(f"{path}:{n}: the HTTPRoute namespace is neither the release namespace "
+                                f"nor a name ({where}); name the template in {ALLOWLIST}")
+                continue
+            matched.add(path)
+            ns = templates[path][0]
+            if ns == ORGANIZATION:
+                continue
+        used.add(ns)
+        if ns not in names:
+            problems.append(f"{path}:{n}: HTTPRoute in namespace {ns} ({where}), "
+                            f"which {ALLOWLIST} does not list")
+    for path in sorted(set(templates) - matched):
+        problems.append(f"{ALLOWLIST}: templates entry {path} matches no route template; remove it")
+    for ns in names:
+        if ns not in used:
+            problems.append(f"{ALLOWLIST}: namespace {ns} owns no route of the kit; remove it")
+    for p in problems:
+        print(f"FAIL G4 {p}")
+    return bool(problems)
+
 def counts(result, exc):
     return {(g, p): len(v) for g, hits in result.items() for p, v in hits.items()
             if not (g == "G2" and p in exc)}
@@ -231,6 +411,8 @@ def run_check(repo, guards, names=None):
             if p not in result["G2"]:
                 failed = True
                 print(f"FAIL G2 exception {p} ({exc[p]}): no offence left; remove its exception line")
+    if "G4" in guards and route_admission(repo, tracked(repo)):
+        failed = True
     print(f"network guards {' '.join(guards)}: {'FAILED' if failed else 'ok'}")
     return 1 if failed else 0
 
@@ -292,6 +474,32 @@ def self_test():
     try:
         subprocess.run(["git", "init", "-q", tmp], check=True)
         os.makedirs(os.path.join(tmp, "scripts"))
+        # The kit of the route-admission rules of G4: one slot with a chart and a Gateway, the
+        # chart's values copy and the list. Every later check of the whole tree reads them.
+        kit_hr = ("apiVersion: helm.toolkit.fluxcd.io/v2\nkind: HelmRelease\nmetadata:\n  name: bp-rt\n"
+                  "  namespace: flux-system\nspec:\n  targetNamespace: {ns}\n  chart:\n    spec:\n"
+                  "      chart: bp-rt\n---\n")
+        kit_gw = ("apiVersion: gateway.networking.k8s.io/v1\nkind: Gateway\nmetadata:\n  name: gw\n"
+                  "  namespace: kube-system\nspec:\n  listeners:\n    - name: https\n      allowedRoutes:\n"
+                  "        namespaces:\n          from: Selector\n          selector:\n"
+                  "            matchExpressions:\n              - key: kubernetes.io/metadata.name\n"
+                  "                operator: In\n                values:\n{vals}")
+        def vals(names, pad):
+            return "".join(f"{pad}- {x}\n" for x in names)
+        slot = kit_hr.format(ns="rt") + kit_gw.format(vals=vals(["lit", "rt"], " " * 18))
+        put(SLOT_COPY, slot)
+        put("platform/rt/chart/Chart.yaml", "name: bp-rt\n")
+        route = ("{{- if true }}\napiVersion: gateway.networking.k8s.io/v1\nkind: HTTPRoute\nmetadata:\n"
+                 "  name: a\n  namespace: {{ .Release.Namespace }}\nspec:\n  hostnames: [a]\n---\n"
+                 "kind: HTTPRoute\nmetadata:\n  name: b\n  labels:\n    x: y\n  namespace: \"lit\"\n{{- end }}\n")
+        put("platform/rt/chart/templates/route.yaml", route)
+        put("platform/rt/chart/templates/org.yaml", "kind: HTTPRoute\nmetadata:\n  namespace: {{ $ns | quote }}\n")
+        put("platform/rt/chart/templates/tests/t.yaml", "kind: HTTPRoute\nmetadata:\n  namespace: other\n")
+        values = "routeNamespaces:\n" + vals(["lit", "rt"], "  ")
+        put(VALUES_COPY, values)
+        allow = ("namespaces:\n" + vals(["lit", "rt"], "  ") + "templates:\n"
+                 "  - path: platform/rt/chart/templates/org.yaml\n    namespace: organization\n    reason: x\n")
+        put(ALLOWLIST, allow)
         put("infra/providers/acme/main.tf", "".join(
             f'resource "r" "{name}" {{\n  direction        = "{d}"\n  protocol         = "{pr}"\n'
             f'  port_range_min   = {po}\n  port_range_max   = {po}\n  remote_ip_prefix = "{src}"\n}}\n'
@@ -392,6 +600,57 @@ def self_test():
         put(BASELINE, "G2 platform/x/chart/templates/np.yaml 1\n")
         case("a malformed baseline line exits 2", chk, 2, "not <guard>")
         case("report prints one line per guard", f"m.run_report({tmp!r}, n)", 0, "G7 offences=4 files=4")
+        drop(BASELINE)
+        case("baseline writes the file again", base, 0)
+        g4 = f"m.run_check({tmp!r}, ('G4',), n)"
+        case("G4: the kit, its two copies and the list pass", g4, 0)
+        put(SLOT_COPY, kit_hr.format(ns="other") + kit_gw.format(vals=vals(["lit", "rt"], " " * 18)))
+        case("G4: a kit route in a namespace the list lacks turns the check red", g4, 1,
+             "HTTPRoute in namespace other (slot 01-cilium.yaml, targetNamespace other)")
+        put(SLOT_COPY, slot)
+        put("platform/rt/chart/templates/route.yaml", route.replace('"lit"', '"lit2"'))
+        case("G4: a fixed route namespace the list lacks turns the check red", g4, 1,
+             "route.yaml:10: HTTPRoute in namespace lit2")
+        put("platform/rt/chart/templates/route.yaml", route)
+        put("clusters/k/route.yaml", "kind: HTTPRoute\nmetadata:\n  namespace: other\n")
+        case("G4: a route under clusters/ in a namespace the list lacks turns the check red", g4, 1,
+             "clusters/k/route.yaml:1: HTTPRoute in namespace other")
+        drop("clusters/k/route.yaml")
+        put(SLOT_COPY, kit_hr.format(ns="rt") + kit_gw.format(vals=vals(["rt"], " " * 18)))
+        case("G4: a kit listener that admits other namespaces turns the check red", g4, 1,
+             "listener https of Gateway gw does not admit exactly")
+        put(SLOT_COPY, kit_hr.format(ns="rt") + kit_gw.format(vals=vals(["lit", "rt"], " " * 18)).replace(
+            "          from: Selector\n", "          from: Same\n"))
+        case("G4: a kit listener that admits by another rule turns the check red", g4, 1,
+             "listener https of Gateway gw does not admit exactly")
+        put(SLOT_COPY, kit_hr.format(ns="rt"))
+        case("G4: a kit slot file without a Gateway listener turns the check red", g4, 1,
+             "no Gateway listener found")
+        put(SLOT_COPY, slot)
+        put(VALUES_COPY, "routeNamespaces:\n" + vals(["rt"], "  "))
+        case("G4: a chart values copy that differs turns the check red", g4, 1, "routeNamespaces is not the list")
+        put(VALUES_COPY, values)
+        put(ALLOWLIST, allow.replace("  - rt\n", "  - rt\n  - zz\n"))
+        case("G4: a listed namespace that owns no route turns the check red", g4, 1, "namespace zz owns no route")
+        put(ALLOWLIST, allow.split("templates:")[0] + "templates: []\n")
+        case("G4: a route template with an unresolved namespace and no entry turns the check red", g4, 1,
+             "org.yaml:1: the HTTPRoute namespace is neither the release namespace nor a name")
+        put(ALLOWLIST, allow + "  - path: platform/rt/chart/templates/route.yaml\n    namespace: rt\n    reason: x\n")
+        case("G4: a templates entry that matches no route template turns the check red", g4, 1,
+             "templates entry platform/rt/chart/templates/route.yaml matches no route template")
+        put(ALLOWLIST, allow.replace("  - lit\n  - rt\n", "  - rt\n  - lit\n", 1))
+        case("G4: an unsorted list is malformed", g4, 2, "sorted")
+        put(ALLOWLIST, allow.replace("namespace: organization", "namespace: elsewhere"))
+        case("G4: a templates entry whose namespace is not listed is malformed", g4, 2, "is listed or is organization")
+        put(ALLOWLIST, allow)
+        put("clusters/_template/bootstrap-kit/02-ext.yaml", kit_hr.format(ns="rt").replace("chart: bp-rt", "chart: bp-ext"))
+        case("G4: a kit slot of a chart outside the repository turns the check red", g4, 1,
+             "HelmRelease of chart bp-ext that is not in the repository")
+        drop("clusters/_template/bootstrap-kit/02-ext.yaml")
+        drop(ALLOWLIST)
+        case("G4: a missing list exits 1", g4, 1, "network-guards-allowlist.yaml: missing")
+        put(ALLOWLIST, allow)
+        case("G4: the restored kit passes again", g4, 0)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("self-test: every case passed" if not failures else f"self-test: {len(failures)} cases failed")
