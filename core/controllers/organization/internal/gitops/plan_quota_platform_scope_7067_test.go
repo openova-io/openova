@@ -460,14 +460,14 @@ func TestPlatformStack_SurgeMatchesController(t *testing.T) {
 
 // ─── 4. FIGURES ──────────────────────────────────────────────────────────────
 
-// wantPlatformQuota: vcluster-0 500m/1Gi + stack (3840m/6064Mi, 4550m/7Gi) +
+// wantPlatformQuota: vcluster-0 500m/1Gi + stack (3815m/6000Mi, 4050m/6912Mi) +
 // transient headroom = largest hook (keycloak-config-cli 250m/256Mi) + one
-// surge replica per resource (requests: newapi pod 535m, openclaw 512Mi;
-// limits: newapi pod 1200m/1408Mi) = 785m/768Mi requests, 1450m/1664Mi limits.
+// surge replica per resource (requests: newapi pod 510m, openclaw 512Mi;
+// limits: newapi pod 700m/1152Mi) = 760m/768Mi requests, 950m/1408Mi limits.
 // Identical on every plan for the reason TestPlatformStackOverhead_PinnedFigures
 // gives.
 var wantPlatformQuota = map[string]string{
-	"requests.cpu": "5125m", "requests.memory": "7856Mi", "limits.cpu": "6500m", "limits.memory": "9856Mi",
+	"requests.cpu": "5075m", "requests.memory": "7792Mi", "limits.cpu": "5500m", "limits.memory": "9344Mi",
 }
 
 func TestPlatformQuota_PinnedFigures(t *testing.T) {
@@ -477,8 +477,8 @@ func TestPlatformQuota_PinnedFigures(t *testing.T) {
 		got  resource.Quantity
 		want string
 	}{
-		"requests.cpu": {th.RequestsCPU, "785m"}, "requests.memory": {th.RequestsMemory, "768Mi"},
-		"limits.cpu": {th.LimitsCPU, "1450m"}, "limits.memory": {th.LimitsMemory, "1664Mi"},
+		"requests.cpu": {th.RequestsCPU, "760m"}, "requests.memory": {th.RequestsMemory, "768Mi"},
+		"limits.cpu": {th.LimitsCPU, "950m"}, "limits.memory": {th.LimitsMemory, "1408Mi"},
 	} {
 		if w.got.Cmp(mustQ(t, res, w.want)) != 0 {
 			t.Errorf("transient headroom %s = %s, pinned %s", res, w.got.String(), w.want)
@@ -500,9 +500,9 @@ func TestPlatformQuota_PinnedFigures(t *testing.T) {
 		}
 	}
 	// The live hw307 platform pods (requests) fit with the headroom free for
-	// the hook that was refused: 3805m running + newapi 535m + 250m hook.
-	if c := mustQ(t, "", wantPlatformQuota["requests.cpu"]); c.Cmp(mustQ(t, "", "4590m")) < 0 {
-		t.Errorf("platform-quota requests.cpu %s cannot hold the hw307 stack + newapi + the keycloak hook (4590m)", c.String())
+	// the hook that was refused: 3805m running + newapi 510m + 250m hook.
+	if c := mustQ(t, "", wantPlatformQuota["requests.cpu"]); c.Cmp(mustQ(t, "", "4565m")) < 0 {
+		t.Errorf("platform-quota requests.cpu %s cannot hold the hw307 stack + newapi + the keycloak hook (4565m)", c.String())
 	}
 }
 
@@ -627,8 +627,8 @@ func TestPlatformScope_PlanQuotaAlwaysScopedPlusCredit(t *testing.T) {
 func TestPlatformScope_CreditUnknownNeverShrinks(t *testing.T) {
 	t.Parallel()
 	static := staticPlatformCredit(planQuota("m"))
-	// plan + coredns + vcluster-0 + stack = 354m+500m+3840m / 1430Mi+1Gi+6064Mi …
-	bound := map[string]string{"requests.cpu": "4694m", "requests.memory": "8518Mi", "limits.cpu": "8050m", "limits.memory": "12458Mi"}
+	// plan + coredns + vcluster-0 + stack = 354m+500m+3815m / 1430Mi+1Gi+6000Mi …
+	bound := map[string]string{"requests.cpu": "4669m", "requests.memory": "8454Mi", "limits.cpu": "7550m", "limits.memory": "12202Mi"}
 	if static.Pods != len(platformStack)+1 {
 		t.Errorf("static credit covers %d pods, want the stack + vcluster-0", static.Pods)
 	}
@@ -651,7 +651,7 @@ func TestPlatformScope_CreditUnknownNeverShrinks(t *testing.T) {
 	// Mixed: each resource takes its own maximum.
 	mixed := map[string]string{"requests.cpu": "9000m", "requests.memory": "1Mi", "limits.cpu": "1", "limits.memory": "99Gi"}
 	got := renderCredit(t, Inputs{CreditUnknown: true, LivePlanQuotaHard: mixed}).Spec.Hard
-	want := map[string]string{"requests.cpu": "9", "requests.memory": "8518Mi", "limits.cpu": "8050m", "limits.memory": "99Gi"}
+	want := map[string]string{"requests.cpu": "9", "requests.memory": "8454Mi", "limits.cpu": "7550m", "limits.memory": "99Gi"}
 	if !equalHard(got, want) {
 		t.Errorf("unknown credit, mixed live: %v, want per-resource max %v", got, want)
 	}

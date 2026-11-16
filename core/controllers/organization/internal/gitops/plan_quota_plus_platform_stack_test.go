@@ -52,10 +52,10 @@ import (
 // 2 fails first and names it; this fails second and names the doc lines that
 // must move with it.
 var wantPlatformStackOverhead = map[string]map[string]string{
-	"s":  {"requests.cpu": "3840m", "requests.memory": "6064Mi", "limits.cpu": "4550m", "limits.memory": "7168Mi"},
-	"m":  {"requests.cpu": "3840m", "requests.memory": "6064Mi", "limits.cpu": "4550m", "limits.memory": "7168Mi"},
-	"l":  {"requests.cpu": "3840m", "requests.memory": "6064Mi", "limits.cpu": "4550m", "limits.memory": "7168Mi"},
-	"xl": {"requests.cpu": "3840m", "requests.memory": "6064Mi", "limits.cpu": "4550m", "limits.memory": "7168Mi"},
+	"s":  {"requests.cpu": "3815m", "requests.memory": "6000Mi", "limits.cpu": "4050m", "limits.memory": "6912Mi"},
+	"m":  {"requests.cpu": "3815m", "requests.memory": "6000Mi", "limits.cpu": "4050m", "limits.memory": "6912Mi"},
+	"l":  {"requests.cpu": "3815m", "requests.memory": "6000Mi", "limits.cpu": "4050m", "limits.memory": "6912Mi"},
+	"xl": {"requests.cpu": "3815m", "requests.memory": "6000Mi", "limits.cpu": "4050m", "limits.memory": "6912Mi"},
 }
 
 // The pod names platformStack uses, so the tests below address rows by name
@@ -456,8 +456,8 @@ func TestPlatformStack_PinnedToSources(t *testing.T) {
 	// sidecars and the init are chart defaults / inline.
 	na := helmReleaseValues(t, goRawString(t, bss, "const orgTenantBPNewAPI = "))
 	naPod := workload(t, byName, wlNewAPI)
-	if len(naPod.Containers) != 3 || len(naPod.Inits) != 1 {
-		t.Fatalf("%s: modelled as %d containers / %d inits, want newapi + sandbox-bridge + metering-sidecar and the wait-for-sql-dsn init", wlNewAPI, len(naPod.Containers), len(naPod.Inits))
+	if len(naPod.Containers) != 2 || len(naPod.Inits) != 1 {
+		t.Fatalf("%s: modelled as %d containers / %d inits, want newapi + sandbox-bridge and the wait-for-sql-dsn init (the metering-sidecar is off since AIP-040)", wlNewAPI, len(naPod.Containers), len(naPod.Inits))
 	}
 	sameShape(t, wlNewAPI+" newapi (BSS door)", naPod.Containers[0], shapeAt(t, na, "newapi", "resources"))
 	if v := scalarAt(t, na, "valkey", "enabled"); v != "false" {
@@ -474,12 +474,12 @@ func TestPlatformStack_PinnedToSources(t *testing.T) {
 		t.Errorf("sandboxBridge.enabled = %q — platformStack models the sandbox-bridge sidecar as rendered", v)
 	}
 	sameShape(t, wlNewAPI+" sandbox-bridge", naPod.Containers[1], shapeAt(t, nv, "sandboxBridge", "resources"))
-	// The metering sidecar is off since AIP-040. platformStack still carries
-	// its term, a reserve that AIP-041 drops after every Pod has rolled.
+	// The metering sidecar is off since AIP-040, and platformStack carries no
+	// term for it (AIP-041). A sidecar that renders again is a container the
+	// quota does not hold.
 	if v := scalarAt(t, nv, "meteringSidecar", "enabled"); v != "false" {
-		t.Errorf("meteringSidecar.enabled = %q — the metering sidecar is off since AIP-040; platformStack keeps its term as a reserve until AIP-041", v)
+		t.Errorf("meteringSidecar.enabled = %q — platformStack models no metering-sidecar (off since AIP-040)", v)
 	}
-	sameShape(t, wlNewAPI+" metering-sidecar", naPod.Containers[2], shapeAt(t, nv, "meteringSidecar", "resources"))
 	dep := readRepo(t, "platform", "newapi", "chart", "templates", "deployment.yaml")
 	sameShape(t, wlNewAPI+" wait-for-sql-dsn", naPod.Inits[0], inlineShape(t, dep, "wait-for-sql-dsn"))
 	namesEqual(t, wlNewAPI, podSpecContainerNames(t, dep, "bp-newapi deployment.yaml"),

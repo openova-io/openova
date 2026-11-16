@@ -278,7 +278,7 @@ func TestReconcile_7067_ClasslessCredit_RBACMissingNeverShrinks(t *testing.T) {
 		t.Fatalf("plan-quota is not scoped when the credit is unknown: %+v", plan.Spec.ScopeSelector)
 	}
 	live := liveTransitionalPlanQuota().Spec.Hard
-	static := map[string]string{"requests.cpu": "4694m", "requests.memory": "8518Mi", "limits.cpu": "8050m", "limits.memory": "12458Mi"}
+	static := map[string]string{"requests.cpu": "4669m", "requests.memory": "8454Mi", "limits.cpu": "7550m", "limits.memory": "12202Mi"}
 	for k, s := range static {
 		got := resource.MustParse(plan.Spec.Hard[k])
 		l := live[corev1.ResourceName(k)]
