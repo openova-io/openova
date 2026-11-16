@@ -13,7 +13,9 @@ import (
 )
 
 // kubectlStub stands for kubectl in release-run.sh (a shell function named
-// kubectl runs it). It answers the token read,
+// kubectl runs it). It answers the token read, the read of each region's
+// registry configuration (STUB_DIR/registry-<region>.yml, where the region is
+// the basename of --kubeconfig, "primary" without one),
 // records every status patch, and runs a follower Job it is asked to apply:
 // release-region.sh with the plain environment of the applied manifest (its
 // /release paths mapped to STUB_RELEASE) and GITEA_PAT, the way the follower
@@ -21,8 +23,10 @@ import (
 // answer.
 const kubectlStub = `#!/bin/sh
 echo "kubectl $*" >>"${STUB_DIR}/calls"
-[ "$1" = "--kubeconfig" ] && shift 2
+region=primary
+[ "$1" = "--kubeconfig" ] && { region=$(basename "$2" .yaml); shift 2; }
 case " $* " in
+  *" get configmap harbor-registry "*) cat "${STUB_DIR}/registry-${region}.yml" 2>/dev/null || exit 1 ;;
   *" get secret "*) printf '%s' "${STUB_PAT}" | base64 ;;
   *" patch configmap "*)
     while [ $# -gt 0 ]; do [ "$1" = "-p" ] && printf '%s\n' "$2" >>"${STUB_DIR}/status"; shift; done ;;
@@ -104,6 +108,7 @@ type runFixture struct {
 	stub, kubeconfigs, state string
 	followerMain             string
 	followerURL              string
+	env                      []string // added to the environment of every run
 }
 
 func (r *runFixture) run(phase string, req releaseRequest) (string, int) {
@@ -117,6 +122,7 @@ func (r *runFixture) run(phase string, req releaseRequest) (string, int) {
 		"PAT_SOURCE_NAMESPACE=catalyst-system", "PAT_SOURCE_SECRET_NAME=catalyst-gitea-token", "PAT_SOURCE_KEY=token",
 		"UPSTREAM_REPO_URL=file://"+r.upstream, "UPSTREAM_BRANCH=main", "UPSTREAM_PREFIX="+upstreamPrefix,
 		"GITEA_INTERNAL_URL="+r.gitea, "GITEA_ORG=openova", "GITEA_REPO=openova", "GITEA_USERNAME=gitea_admin")
+	cmd.Env = append(cmd.Env, r.env...)
 	out, err := cmd.CombinedOutput()
 	code := 0
 	if ee, ok := err.(*exec.ExitError); ok {
@@ -269,4 +275,58 @@ func newRunFixtureFrom(t *testing.T, f *fixture, req releaseRequest, conflict bo
 	}
 	f.write(f.scripts, "follower-job.yaml", m)
 	return r
+}
+
+// registryConfig is the config.yml of a region's Harbor registry, storing in
+// the bucket named (or on a local disk when bucket is "").
+func registryConfig(bucket string) string {
+	if bucket == "" {
+		return "version: 0.1\nstorage:\n  filesystem:\n    rootdirectory: /storage\n  cache:\n    layerinfo: redis\nhttp:\n  addr: :5000\n"
+	}
+	return "version: 0.1\nlog:\n  level: info\nstorage:\n  s3:\n    region: me-east-1\n    bucket: " + bucket +
+		"\n    regionendpoint: https://obs.example.test\n    secure: true\n  cache:\n    layerinfo: redis\n  maintenance:\n    uploadpurging:\n      enabled: true\nhttp:\n  addr: :5000\n"
+}
+
+// A follower whose registry stores in the primary's bucket serves what the
+// primary's prewarm copies, even when the installed step 03 mirrors a
+// follower's running set only: the state must not report it as a gap (the
+// first delivery to hw307 did, though both regions' Harbor store in one bucket).
+func TestReleaseStageTellsWhetherAFollowerRegistrySharesThePrimaryStorage(t *testing.T) {
+	for _, c := range []struct {
+		name, primary, follower string
+		covered                 bool
+		want                    string
+	}{
+		{"one bucket", registryConfig("sovereign-registry"), registryConfig("sovereign-registry"), false, "covered by shared storage: every follower's registry stores in the primary's (s3 bucket=sovereign-registry endpoint=https://obs.example.test root=)"},
+		{"two buckets", registryConfig("sovereign-registry"), registryConfig("region-b-registry"), false, "not covered: the registry of region-b does not store in the primary's (s3 bucket=sovereign-registry"},
+		{"local disks", registryConfig(""), registryConfig(""), false, "not covered: the registry of region-b does not store in the primary's (filesystem"},
+		{"unreadable", registryConfig("sovereign-registry"), "", false, "unknown: the registry storage of the primary or of region-b cannot be read (harbor/harbor-registry)"},
+		{"step 03 covers the follower", registryConfig("sovereign-registry"), registryConfig("region-b-registry"), true, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFixture(t)
+			id, _ := f.candidate(1, f.laterRelease)
+			req := releaseRequest{Candidate: id, DryRun: true}
+			r := newRunFixtureFrom(t, f, req, false)
+			f.write(r.stub, "registry-primary.yml", c.primary)
+			if c.follower != "" {
+				f.write(r.stub, "registry-region-b.yml", c.follower)
+			}
+			r.env = []string{"FOLLOWER_PREWARM_COVERED=" + boolString(c.covered)}
+			out, code := r.run("stage", req)
+			st := r.status()
+			if code != 0 || st["phase"] != "dry-run" {
+				t.Fatalf("stage: exit %d, phase %q\n%s", code, st["phase"], out)
+			}
+			if c.want == "" {
+				if v, ok := st["followerPrewarm"]; ok {
+					t.Fatalf("the stage rewrote the route's verdict although step 03 covers the follower: %q", v)
+				}
+				return
+			}
+			if !strings.HasPrefix(st["followerPrewarm"], c.want) {
+				t.Fatalf("followerPrewarm %q, want it to begin %q\n%s", st["followerPrewarm"], c.want, out)
+			}
+		})
+	}
 }

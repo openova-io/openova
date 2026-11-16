@@ -23,6 +23,7 @@ set -eu
 : "${DRY_RUN:=false}" "${STATE:=/release-state}" "${SECONDARY_KUBECONFIGS:=/secondary-kubeconfigs}"
 : "${FOLLOWER_WAIT_SECONDS:=3600}" "${FOLLOWER_POLL_SECONDS:=10}" "${RELEASE_SCRIPTS:=/release}"
 : "${SECONDARY_GITEA_NAMESPACE:=gitea}"
+: "${HARBOR_NAMESPACE:=harbor}" "${HARBOR_REGISTRY_CONFIGMAP:=harbor-registry}"
 mkdir -p "${STATE}"
 
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -52,6 +53,47 @@ record() {
 
 followers() {
   for _kc in "${SECONDARY_KUBECONFIGS}"/*.yaml; do [ -e "${_kc}" ] && echo "${_kc}"; done
+}
+
+# registry_storage [<kubeconfig>]: where a region's registry stores, from the
+# storage: section of HARBOR_NAMESPACE/HARBOR_REGISTRY_CONFIGMAP (config.yml):
+# "<driver> bucket=<b> endpoint=<e> root=<r>"; empty when it cannot be read.
+registry_storage() {
+  if [ -n "${1:-}" ]; then set -- --kubeconfig "$1"; fi
+  kubectl "$@" -n "${HARBOR_NAMESPACE}" get configmap "${HARBOR_REGISTRY_CONFIGMAP}" -o 'jsonpath={.data.config\.yml}' 2>/dev/null \
+    | awk '/^storage:/ {s = 1; next} s && /^[^ ]/ {s = 0}
+        s && /^  (s3|gcs|azure|swift|oss|filesystem|inmemory):/ {d = $1; sub(/:$/, "", d); in_d = 1; next}
+        s && /^  [^ ]/ {in_d = 0}
+        in_d && /^    (bucket|container|regionendpoint|accountname|rootdirectory):/ {k = $1; sub(/:$/, "", k); v[k] = $2}
+        END {if (d != "") printf "%s bucket=%s%s endpoint=%s%s root=%s\n", d, v["bucket"], v["container"], v["regionendpoint"], v["accountname"], v["rootdirectory"]}' || true
+}
+
+# follower_storage: when the installed step 03 does not mirror the release's
+# pins into a follower's registry (FOLLOWER_PREWARM_COVERED=false), whether each
+# follower's registry stores in the primary's object storage all the same; then
+# it serves what the primary's prewarm copies. The verdict replaces the state's
+# followerPrewarm, which the route wrote as unknown.
+follower_storage() {
+  [ "${FOLLOWER_PREWARM_COVERED:-true}" = "true" ] && return 0
+  [ -n "$(followers)" ] || return 0
+  _ps=$(registry_storage); _own=""; _unk=""
+  for _kc in $(followers); do
+    _r=$(basename "${_kc}" .yaml); _fs=$(registry_storage "${_kc}")
+    case "${_ps} ${_fs}" in
+      " "*|*" ") _unk="${_unk} ${_r}" ;;
+      filesystem*|inmemory*|*" filesystem"*|*" inmemory"*) _own="${_own} ${_r}" ;;
+      *) [ "${_fs}" = "${_ps}" ] || _own="${_own} ${_r}" ;;
+    esac
+  done
+  if [ -n "${_own}" ]; then
+    _fp="not covered: the registry of${_own} does not store in the primary's (${_ps:-unknown}), and the installed step 03 mirrors a follower's running set only; request the same candidate again once the release has installed a cutover chart that mirrors the release's pins"
+  elif [ -n "${_unk}" ]; then
+    _fp="unknown: the registry storage of the primary or of${_unk} cannot be read (${HARBOR_NAMESPACE}/${HARBOR_REGISTRY_CONFIGMAP}), and the installed step 03 mirrors a follower's running set only"
+  else
+    _fp="covered by shared storage: every follower's registry stores in the primary's (${_ps}), so it serves what the primary's prewarm copies"
+  fi
+  say "followerPrewarm: ${_fp}"
+  status_put --arg followerPrewarm "${_fp}" --arg updatedAt "$(now)"
 }
 
 primary_pat=""
@@ -123,6 +165,7 @@ verdict() {
 case "${1:-}" in
   stage)
     status_put --arg phase staging --arg updatedAt "$(now)"
+    follower_storage
     _rc=0
     run_primary stage || _rc=1
     for kc in $(followers); do run_follower "${kc}" stage || _rc=1; done

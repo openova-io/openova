@@ -510,3 +510,43 @@ func TestReleaseNeverForcesTheBranchFluxFollows(t *testing.T) {
 		}
 	}
 }
+
+// The pivot report counts the files the pivot commit changes. rewrite_kit_tree
+// raises its edit counter for every trust re-injection, also one that changes
+// nothing: the first delivery to hw307 reported 66 and 67 "edits" for a pivot
+// of a few new files.
+func TestReleasePivotReportCountsTheFilesItChanges(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		change func(f *fixture) func(w string)
+		want   []string
+	}{
+		{"a candidate that only moves a pin", func(f *fixture) func(w string) {
+			return func(w string) { sed(f.t, w+"/"+kitDir+"/10-bp-foo.yaml", "version: 1.0.0", "version: 1.1.0") }
+		}, nil},
+		{"a candidate that adds a slot", func(f *fixture) func(w string) { return f.laterRelease }, []string{kitDir + "/20-bp-bar.yaml"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFixture(t)
+			id, _ := f.candidate(1, c.change(f))
+			out, code := f.region(shells()[0], "PHASE=stage", "CANDIDATE="+id)
+			r := resultOf(out)
+			if code != 0 || (r["phase"] != "staged" && r["phase"] != "up-to-date") {
+				t.Fatalf("stage: exit %d, result %v\n%s", code, r, out)
+			}
+			want := fmt.Sprintf("release-report region=primary pivot %d file(s) changed, registry %s", len(c.want), localPrefix)
+			if !strings.Contains(out, want) {
+				t.Fatalf("the report lacks %q:\n%s", want, out)
+			}
+			// The count is the pivot commit's: the files it changes, nothing else.
+			top := f.git(f.dir, "--git-dir="+f.repo, "log", "-1", "--format=%s", r["staged"])
+			var files []string
+			if strings.HasPrefix(top, "release: this Sovereign's pivot") {
+				files = strings.Fields(f.git(f.dir, "--git-dir="+f.repo, "diff", "--name-only", r["staged"]+"^", r["staged"]))
+			}
+			if strings.Join(files, " ") != strings.Join(c.want, " ") {
+				t.Fatalf("the pivot commit (%q) changes %v, want %v", top, files, c.want)
+			}
+		})
+	}
+}
