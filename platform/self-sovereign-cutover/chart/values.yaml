@@ -745,6 +745,10 @@ prewarm:
   # mirror. Set false ONLY as an emergency override on an env whose local
   # Gitea mirror is manually confirmed unusable (the live-union mirror set +
   # the step-06 union-warm top-up then remain the only nets).
+  # #7938 — the same read also names every image the kit's own manifests and
+  # its Flux Kustomizations run (each Kustomization's path read from that
+  # branch, its `images:` applied); they join the run guard and the follower
+  # legs. false turns that off too.
   bootstrapKitPins:
     enabled: true
   # #5443 (Refs #3627 #5237 #5442) — mirror the MARKETPLACE's chart set, not
