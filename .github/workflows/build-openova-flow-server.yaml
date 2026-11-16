@@ -13,8 +13,19 @@ name: Build openova-flow-server
 #
 # Per `feedback_inviolable_principles.md` / global CLAUDE.md "every
 # workflow MUST be event-driven, NEVER scheduled". Triggers on
-# push-to-main (paths filter), pull_request (test only, no push), and
-# workflow_dispatch for manual re-runs without a code change.
+# push-to-main (paths filter), pull_request, and workflow_dispatch for manual
+# re-runs without a code change.
+#
+# On a pull request the job vets and tests the module and builds the image
+# WITHOUT pushing it, so a broken Dockerfile turns the pull request red. The
+# image build ran on main only until #7922, and it failed there from 2 Aug 2026
+# at `go mod download` (go.mod required go 1.25.0, the Dockerfile built FROM
+# golang:1.22-alpine) while every pull request stayed green.
+#
+# The Go comes from go.mod in both places: setup-go reads go-version-file, and
+# the image is built with GO_VERSION read from the same go.mod by
+# scripts/check-go-builder-version.sh, which also fails the job by name when
+# the builder the Dockerfile would use is older than go.mod requires.
 
 on:
   push:
@@ -28,6 +39,7 @@ on:
       - 'products/openova-flow/server/**'
       - 'platform/openova-flow-server/chart/**'
       - '.github/workflows/build-openova-flow-server.yaml'
+      - 'scripts/check-go-builder-version.sh'
   workflow_dispatch:
 
 env:
@@ -68,9 +80,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
-          # server has no external deps (stdlib only) so no go.sum is
-          # present in the tree — skip cache-dependency-path entirely.
+          # The Go that vets and tests the module is the one its go.mod names.
+          go-version-file: products/openova-flow/server/go.mod
           cache: false
 
       - name: go vet
@@ -81,8 +92,31 @@ jobs:
         working-directory: products/openova-flow/server
         run: go test -count=1 -race ./...
 
-      # On pull_request runs we stop here — image push requires
-      # `packages: write` which only main-branch authors hold.
+      # The check below proves on fixtures that it can fail (main's old shape,
+      # a literal golang:1.22 under go 1.25.0, is one of them) before its
+      # verdict on the real Dockerfile is trusted.
+      - name: Self-test the builder-Go check
+        run: bash scripts/check-go-builder-version.sh --self-test
+
+      - name: Read the builder Go from go.mod
+        id: go
+        run: |
+          set -euo pipefail
+          v="$(bash scripts/check-go-builder-version.sh --builder-version products/openova-flow/server/go.mod)"
+          echo "builder=${v}" >> "$GITHUB_OUTPUT"
+          echo "the image builds FROM golang:${v}-alpine"
+
+      - name: The Dockerfile builds with at least the Go that go.mod requires
+        env:
+          GO_VERSION: ${{ steps.go.outputs.builder }}
+        run: >-
+          bash scripts/check-go-builder-version.sh
+          --go-mod products/openova-flow/server/go.mod
+          --dockerfile products/openova-flow/server/Dockerfile
+          --build-arg "GO_VERSION=${GO_VERSION}"
+
+      # Login, signing, the values.yaml bump and the chart re-publish stay
+      # main-only: a pull request builds the image and pushes nothing.
       - name: Login to GHCR
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
@@ -92,12 +126,10 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
-        if: github.event_name != 'pull_request'
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and push image
+      - name: Build the image, and push it on main
         id: build
-        if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v6
         with:
           # Build context is the server module dir — its Dockerfile's
@@ -105,7 +137,9 @@ jobs:
           # that dir, not the repo root.
           context: products/openova-flow/server
           file: products/openova-flow/server/Dockerfile
-          push: true
+          build-args: |
+            GO_VERSION=${{ steps.go.outputs.builder }}
+          push: ${{ github.event_name != 'pull_request' }}
           tags: |
             ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
             ${{ env.IMAGE }}:latest
