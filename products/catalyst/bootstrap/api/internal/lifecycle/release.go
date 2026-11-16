@@ -35,7 +35,10 @@ import (
 //     region's pivot to what the candidate added, push the result as
 //     release/<id>. A merge conflict in any region names the files and moves
 //     nothing. A dry run stops here and pushes nothing.
-//  2. prewarm: cutover step 03 itself, reading the pins of release/<id>, copies
+//     Then the cutover chart of the staged commit, verified to be the one the
+//     candidate pins, is rendered: the rest of the delivery runs the
+//     candidate's mechanism, never the installed one (release_job.go).
+//  2. prewarm: the candidate's cutover step 03, reading the pins of release/<id>, copies
 //     every chart and image they declare into the Sovereign's registry and stops
 //     by name on any it cannot copy. Its upstream credential is the request's
 //     pullSecret, which the stage copies into every follower region (step 03's
@@ -116,6 +119,15 @@ func (rt *ReleaseRoute) namespace() string {
 	return defaultCutoverNS
 }
 
+// cutoverHelmRelease is <namespace>/<name> of the installed cutover chart's
+// HelmRelease, whose values the candidate's mechanism is rendered with.
+func (rt *ReleaseRoute) cutoverHelmRelease() string {
+	if v := strings.TrimSpace(rt.getenv(envCutoverHelmRelease)); v != "" {
+		return v
+	}
+	return defaultCutoverHelmRelease
+}
+
 func (rt *ReleaseRoute) cutoverStatus() string {
 	if v := strings.TrimSpace(rt.getenv(envCutoverStatusCM)); v != "" {
 		return v
@@ -184,6 +196,9 @@ func (rt *ReleaseRoute) Request(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in, err := readReleaseInputs(ctx, cs, ns)
+	if in != nil {
+		in.cutoverRelease = rt.cutoverHelmRelease()
+	}
 	var dep *dependencyError
 	if errors.As(err, &dep) {
 		refuse(w, http.StatusFailedDependency, "cutover-chart-incomplete", dep.Error())
@@ -221,10 +236,7 @@ func (rt *ReleaseRoute) Request(w http.ResponseWriter, r *http.Request) {
 	}
 	followerPrewarm := "no follower region"
 	if in.followers > 0 {
-		followerPrewarm = "covered: step 03 mirrors the release's pins into every follower registry"
-		if !in.followerPrewarm {
-			followerPrewarm = "unknown until the stage compares each follower registry's storage with the primary's: the installed step 03 mirrors a follower's running set only, so a follower's registry that stores elsewhere may lack what the release pins until the release has installed a cutover chart that mirrors them"
-		}
+		followerPrewarm = "unknown until the stage renders the candidate's step 03, which is the one that runs"
 	}
 	status := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: ReleaseStatusConfigMap, Namespace: ns, Labels: map[string]string{"app.kubernetes.io/component": releaseComponent}},
@@ -239,6 +251,7 @@ func (rt *ReleaseRoute) Request(w http.ResponseWriter, r *http.Request) {
 			"updatedAt":       now.Format(time.RFC3339),
 			"regions":         strconv.Itoa(1 + in.followers),
 			"followerPrewarm": followerPrewarm,
+			"mechanism":       "unknown until the stage renders it: the cutover chart rc/" + req.Candidate + " pins, from its own tree; the installed one only bootstraps the delivery",
 			"signature":       signatureUnverified + ": candidate refs are cut unsigned (scripts/release-candidate.sh); " + envReleaseSignature + "=required refuses every request until the cut signs",
 		},
 	}
@@ -422,6 +435,13 @@ func (rt *ReleaseRoute) Status(w http.ResponseWriter, r *http.Request) {
 		} else if !apierrors.IsNotFound(err) {
 			refuse(w, http.StatusBadGateway, "job-read-failed", err.Error())
 			return
+		}
+	}
+	// The delivery Job the candidate's mechanism runs: its step follows the
+	// bootstrap's, so prewarm and promote are named while they run.
+	if name := st.Data["deliveryJob"]; name != "" && job != nil {
+		if pl, err := cs.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: "job-name=" + name}); err == nil {
+			pods = append(pods, pl.Items...)
 		}
 	}
 	writeJSON(w, http.StatusOK, releaseView(st.Data, job, pods))

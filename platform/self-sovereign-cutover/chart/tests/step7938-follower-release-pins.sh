@@ -87,12 +87,14 @@ else
   fail "the block failed without an image set: $(cat "${d}/out")"
 fi
 
-echo "[step7938] (d) catalyst-api reads the same marker"
-api="${REPO_ROOT}/products/catalyst/bootstrap/api/internal/lifecycle/release_job.go"
-if [ -f "${api}" ]; then
-  if grep -q 'followerPrewarmMarker = "also mirrors the pins of"' "${api}"; then pass "the release route looks for this marker"; else fail "${api} looks for another marker than this leg prints"; fi
+echo "[step7938] (d) the release mechanism reads the same marker"
+# #7938: the release scripts of this chart (files/release/), not the route,
+# decide from the step 03 that runs whether a follower is covered.
+mech="${CHART_DIR}/files/release/release-run.sh"
+if [ -f "${mech}" ]; then
+  if grep -q 'FOLLOWER_PREWARM_MARKER:-also mirrors the pins of' "${mech}"; then pass "the release mechanism looks for this marker"; else fail "${mech} looks for another marker than this leg prints"; fi
 else
-  echo "  NOT MEASURED — ${api} is not in this tree"
+  fail "${mech} is not in this chart: a delivery of it has no release mechanism (#7938)"
 fi
 
 echo
