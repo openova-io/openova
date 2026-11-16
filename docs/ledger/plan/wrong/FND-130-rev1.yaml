@@ -1,0 +1,13 @@
+schema: openova.io/plan-wrong/v1
+id: FND-130
+ticket_rev: 1
+base_commit: c718ae5e41c29443214734fbfd9a4120af46338c
+stage: preflight
+ref: P2
+command: |
+    grep -c -F '{"context": "vendor-disk-library"}' .github/rulesets/main.json
+expected: |
+    1
+actual: |
+    0
+reported_at: 2026-11-16T13:43:41Z
