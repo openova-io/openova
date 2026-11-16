@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-16T10:45:02Z` |
+| Last refreshed | `2026-11-16T11:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,36 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7692](https://github.com/openova-io/openova/issues/7692) | FND-039 The suite writes the provision block of a cloud record | Other |
-| [#7698](https://github.com/openova-io/openova/issues/7698) | AIP-221 Service skeleton, schema with migrations, outbox table, health | Other |
-| [#7699](https://github.com/openova-io/openova/issues/7699) | BSS-141 The cost-source credential is never a Kubernetes Secret | Other |
-| [#7700](https://github.com/openova-io/openova/issues/7700) | CTL-420 Watches in the organization and environment controllers | Other |
-| [#7701](https://github.com/openova-io/openova/issues/7701) | NET-071 Remove the zone virtual-cluster dialog, tab and stub kind | Other |
-| [#7702](https://github.com/openova-io/openova/issues/7702) | NET-221 Delete the four retired charts and their seed entries | Other |
-| [#7703](https://github.com/openova-io/openova/issues/7703) | SOV-338 A kept variables document is brought to the keys of the contract before  | Other |
-| [#7705](https://github.com/openova-io/openova/issues/7705) | FND-041 The suite selects only the checks that are Go files of the suite | Other |
-| [#7714](https://github.com/openova-io/openova/issues/7714) | CLD-067 Gate check CLD-G06 as a suite file | Other |
-| [#7715](https://github.com/openova-io/openova/issues/7715) | FND-071 Leftover lister: a read-only listing of what a wiped deployment left in  | Other |
-| [#7716](https://github.com/openova-io/openova/issues/7716) | INF-040 Chart bp-kured with the node patch configuration | Other |
-| [#7717](https://github.com/openova-io/openova/issues/7717) | NET-102 Registry in the Sovereign status, checked against the live cluster | Other |
-| [#7720](https://github.com/openova-io/openova/issues/7720) | CLD-076 Documents link to the generated provider tables | Other |
-| [#7721](https://github.com/openova-io/openova/issues/7721) | CTL-061 A decision record names the one writer of Environment objects and the pa | Other |
-| [#7722](https://github.com/openova-io/openova/issues/7722) | FND-025 The rulesets name the release-writer key; a push outside the queue is ju | Other |
-| [#7723](https://github.com/openova-io/openova/issues/7723) | FND-036 Sign-in as a gate check | Other |
-| [#7724](https://github.com/openova-io/openova/issues/7724) | FND-074 Pre-flight: the fires on a parent domain in the last seven days | Other |
-| [#7725](https://github.com/openova-io/openova/issues/7725) | SOV-144 The post-back failure codes leave the exit code that the seal contract r | Other |
-| [#7726](https://github.com/openova-io/openova/issues/7726) | SOV-151 Kit pull Secret names and the hand-over switch read the Sovereign's vari | Other |
-| [#7738](https://github.com/openova-io/openova/issues/7738) | AIP-229 Operations records: PostgreSQL store with migration 0001 and the ops-rec | Other |
-| [#7739](https://github.com/openova-io/openova/issues/7739) | BSS-040 Delete core/marketplace-api | Other |
-| [#7740](https://github.com/openova-io/openova/issues/7740) | CLD-030 Per-Organization databases use the Sovereign's storage class | Other |
-| [#7741](https://github.com/openova-io/openova/issues/7741) | CLD-089 Local pack: the console in the kit core, its address and an owner sessio | Other |
-| [#7742](https://github.com/openova-io/openova/issues/7742) | CTL-039 Read routes for the region registry and the Environment list | Other |
-| [#7743](https://github.com/openova-io/openova/issues/7743) | FND-059 The guards that run on every pull request share a few jobs | Other |
-| [#7744](https://github.com/openova-io/openova/issues/7744) | FND-072 Flight checklist in the lifecycle script: the sweep command and the fire | Other |
-| [#7745](https://github.com/openova-io/openova/issues/7745) | INF-120 Runner image and node-mode tasks | Other |
-| [#7746](https://github.com/openova-io/openova/issues/7746) | PRD-508 Account-information read operations and the ledger client | Other |
-| [#7760](https://github.com/openova-io/openova/issues/7760) | FND-063 Release key pair: platform images carry a key signature | Other |
-| [#7761](https://github.com/openova-io/openova/issues/7761) | INF-050 Install kured | Other |
 | [#7762](https://github.com/openova-io/openova/issues/7762) | NET-032 Reserve platform namespace names as Organization slugs | Other |
 | [#7763](https://github.com/openova-io/openova/issues/7763) | PRD-513 Resource server: PostgreSQL consent store with migration 0001, the defin | Other |
 | [#7764](https://github.com/openova-io/openova/issues/7764) | SOV-020 One default for the zero-touch switch | Other |
@@ -300,6 +270,36 @@ flowchart LR
 | [#7922](https://github.com/openova-io/openova/issues/7922) | flight 3: defects that healed alone | Other |
 | [#7936](https://github.com/openova-io/openova/issues/7936) | SOV-175 The Sovereign object gets its writer | Other |
 | [#7938](https://github.com/openova-io/openova/issues/7938) | Deliver a later release candidate to a Sovereign that has cut over | Other |
+| [#7964](https://github.com/openova-io/openova/issues/7964) | AIP-112 Streamed responses are metered | Other |
+| [#7965](https://github.com/openova-io/openova/issues/7965) | AIP-120 Agent tokens and the signer key set route | Other |
+| [#7966](https://github.com/openova-io/openova/issues/7966) | CLD-062 Crossplane 1.19 to 1.20 | Other |
+| [#7967](https://github.com/openova-io/openova/issues/7967) | CLD-092 Seal hook conformance and the profile's seal section | Other |
+| [#7968](https://github.com/openova-io/openova/issues/7968) | CLD-093 Contract rule: adding a region plans only additions | Other |
+| [#7969](https://github.com/openova-io/openova/issues/7969) | CLD-101 Golden files for the variables the engine writes | Other |
+| [#7970](https://github.com/openova-io/openova/issues/7970) | CLD-131 Provider substitutes move from the template into the modules (pure move) | Other |
+| [#7971](https://github.com/openova-io/openova/issues/7971) | CLD-134 The reference cloud's profile declares its user-data limit; the guard ch | Other |
+| [#7972](https://github.com/openova-io/openova/issues/7972) | CTL-223 Settings, Menu accepts console pages as menu candidates | Other |
+| [#7973](https://github.com/openova-io/openova/issues/7973) | CTL-231 Resource browser: Git-owned objects refused, break-glass for the rest | Other |
+| [#7974](https://github.com/openova-io/openova/issues/7974) | CTL-347 The flow server and adapter sources, charts and builds are deleted | Other |
+| [#7975](https://github.com/openova-io/openova/issues/7975) | CTL-348 The flow host leaves the sign-in gate and the DNS name list | Other |
+| [#7976](https://github.com/openova-io/openova/issues/7976) | FND-080 Set the manifest from the baseline | Other |
+| [#7977](https://github.com/openova-io/openova/issues/7977) | FND-153 The suite image and its signed build | Other |
+| [#7978](https://github.com/openova-io/openova/issues/7978) | FND-154 Check FND-G01 in its self form | Other |
+| [#7979](https://github.com/openova-io/openova/issues/7979) | INF-060 Remove the reboot settings from cloud-init | Other |
+| [#7980](https://github.com/openova-io/openova/issues/7980) | INF-135 Lock stage machine-ops in audit | Other |
+| [#7981](https://github.com/openova-io/openova/issues/7981) | NET-012 Second provider firewall to the same rule | Other |
+| [#7982](https://github.com/openova-io/openova/issues/7982) | NET-040 Remove the unwired firewall and the unused SPIRE chart | Other |
+| [#7983](https://github.com/openova-io/openova/issues/7983) | NET-190 Route admission by owner | Other |
+| [#7984](https://github.com/openova-io/openova/issues/7984) | NET-210 Availability zone per region and a separation output | Other |
+| [#7985](https://github.com/openova-io/openova/issues/7985) | SEC-096 Census limit set from the first measured census; SEC-G11 required | Other |
+| [#7986](https://github.com/openova-io/openova/issues/7986) | SEC-105 Delete Sealed Secrets | Other |
+| [#7987](https://github.com/openova-io/openova/issues/7987) | SEC-126 The runbook states how and when to rotate the etcd encryption key of a r | Other |
+| [#7988](https://github.com/openova-io/openova/issues/7988) | SOV-010 Record the cutover result of the baseline provision and correct the life | Other |
+| [#7989](https://github.com/openova-io/openova/issues/7989) | SOV-143 The Secret register lists parent-bootstrap-token, with SOV-435 as the pa | Other |
+| [#7990](https://github.com/openova-io/openova/issues/7990) | SOV-145 Two node files that nothing reads leave first boot | Other |
+| [#7991](https://github.com/openova-io/openova/issues/7991) | SOV-241 Follower regions pivot the image registry of the other kit workloads tha | Other |
+| [#7992](https://github.com/openova-io/openova/issues/7992) | SOV-750 Spike: an auto-scaling group worker pool on the reference cloud | Other |
+| [#7993](https://github.com/openova-io/openova/issues/7993) | SVC-190 Delete the Blueprint controller | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-16T10:50 | [#7963](https://github.com/openova-io/openova/pull/7963) | #7087 | docs(ledger): plan update |
 | 2026-11-16T09:58 | [#7960](https://github.com/openova-io/openova/pull/7960) | #7946 | fix(release): a delivery runs the candidate's own mechanism; |
 | 2026-11-16T09:58 | [#7959](https://github.com/openova-io/openova/pull/7959) | #7938 | fix(release): a dry run refuses a pullSecret instead of reco |
 | 2026-11-16T09:58 | [#7958](https://github.com/openova-io/openova/pull/7958) | #7940 | fix(api): the parent delivers the network registry to a Sove |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-15T22:36 | [#7930](https://github.com/openova-io/openova/pull/7930) | #7922 | fix(cutover): after cutover a Sovereign runs the release it  |
 | 2026-11-15T22:10 | [#7929](https://github.com/openova-io/openova/pull/7929) | #7922 | fix(cutover): step 03 keeps the parent's proxy and ends only |
 | 2026-11-15T20:22 | [#7928](https://github.com/openova-io/openova/pull/7928) | #7922 | fix(cutover): step 01 pushes only the default branch and tag |
-| 2026-11-15T20:21 | [#7927](https://github.com/openova-io/openova/pull/7927) | #7922 | fix(catalyst-api): a catalog row reports the Sovereign's cat |
 
 ---
 
