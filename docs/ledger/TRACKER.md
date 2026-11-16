@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-16T09:45:04Z` |
+| Last refreshed | `2026-11-16T10:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,8 +307,14 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-16T09:58 | [#7960](https://github.com/openova-io/openova/pull/7960) | #7946 | fix(release): a delivery runs the candidate's own mechanism; |
+| 2026-11-16T09:58 | [#7959](https://github.com/openova-io/openova/pull/7959) | #7938 | fix(release): a dry run refuses a pullSecret instead of reco |
+| 2026-11-16T09:58 | [#7958](https://github.com/openova-io/openova/pull/7958) | #7940 | fix(api): the parent delivers the network registry to a Sove |
 | 2026-11-16T05:55 | [#7957](https://github.com/openova-io/openova/pull/7957) | #7884 | docs: custody procedure and safe rotation of the release key |
+| 2026-11-16T09:57 | [#7956](https://github.com/openova-io/openova/pull/7956) | #7741 | ci: the local pack runs the console, mints an owner session  |
+| 2026-11-16T09:58 | [#7955](https://github.com/openova-io/openova/pull/7955) | #7841 | feat(org-controller): render the Organization fence, two hos |
 | 2026-11-16T05:39 | [#7953](https://github.com/openova-io/openova/pull/7953) | #7666 | fix(org-quota): drop the metering-sidecar term from the plat |
+| 2026-11-16T09:59 | [#7952](https://github.com/openova-io/openova/pull/7952) | #7938 | fix(cutover): step 03 names a failed read as a read, and nev |
 | 2026-11-16T05:24 | [#7951](https://github.com/openova-io/openova/pull/7951) | #7831 | test(gate): the baseline of the first fresh installation of  |
 | 2026-11-16T05:16 | [#7949](https://github.com/openova-io/openova/pull/7949) | #7881 | refactor(model-meter): move the metering sidecar, take ident |
 | 2026-11-16T05:16 | [#7948](https://github.com/openova-io/openova/pull/7948) | #7882 | feat(api): package clusterwrite decides and records the dire |
@@ -331,12 +337,6 @@ flowchart LR
 | 2026-11-15T22:10 | [#7929](https://github.com/openova-io/openova/pull/7929) | #7922 | fix(cutover): step 03 keeps the parent's proxy and ends only |
 | 2026-11-15T20:22 | [#7928](https://github.com/openova-io/openova/pull/7928) | #7922 | fix(cutover): step 01 pushes only the default branch and tag |
 | 2026-11-15T20:21 | [#7927](https://github.com/openova-io/openova/pull/7927) | #7922 | fix(catalyst-api): a catalog row reports the Sovereign's cat |
-| 2026-11-15T20:21 | [#7926](https://github.com/openova-io/openova/pull/7926) | #7922 | fix(catalyst-api): orphan cross-region Secret copies so a re |
-| 2026-11-15T20:21 | [#7925](https://github.com/openova-io/openova/pull/7925) | #7922 | fix(release): a failed GHCR listing is retried and reported  |
-| 2026-11-15T20:21 | [#7924](https://github.com/openova-io/openova/pull/7924) | #7922 | fix(cutover): kured's install hold lands within a minute of  |
-| 2026-11-15T20:21 | [#7923](https://github.com/openova-io/openova/pull/7923) | #7922 | fix(cloud-init): no node reboots itself; evict the unattende |
-| 2026-11-15T14:26 | [#7921](https://github.com/openova-io/openova/pull/7921) | #7905 | plan(gates): INF-G01 asserts one worker restart per region a |
-| 2026-11-15T14:23 | [#7920](https://github.com/openova-io/openova/pull/7920) | #7915 | fix(acceptance): SVC-G06 does not judge a release the region |
 
 ---
 
