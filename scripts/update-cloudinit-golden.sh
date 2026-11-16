@@ -147,8 +147,8 @@ self_test() {
   expect fail ':/var/lib/catalyst/flux-bootstrap.yaml' "a changed line of the packed Flux bootstrap document fails its file hash"
 
   fresh
-  sed -i 's|^    "/var/lib/catalyst/sovereign.json": "[0-9a-f]*"|    "/var/lib/catalyst/sovereign.json": "0000000000000000000000000000000000000000000000000000000000000000"|' "$dir/$GOLDEN_NAME"
-  expect fail ':/var/lib/catalyst/sovereign.json' "a wrong stored file hash fails the run"
+  sed -i 's|^    "/etc/rancher/k3s/registries.yaml": "[0-9a-f]*"|    "/etc/rancher/k3s/registries.yaml": "0000000000000000000000000000000000000000000000000000000000000000"|' "$dir/$GOLDEN_NAME"
+  expect fail ':/etc/rancher/k3s/registries.yaml' "a wrong stored file hash fails the run"
 
   # The writer: after the template changed, writing the golden file makes the run pass again.
   fresh

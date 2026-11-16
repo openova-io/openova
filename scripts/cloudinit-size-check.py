@@ -99,8 +99,7 @@ PARENT_FQDN = label("parent", 45 - len(".omantel.biz")) + ".omantel.biz"
 # deployment_id: 16 hex characters (handler/deployments.go newID: 8 random bytes).
 DEPLOYMENT_ID = filler("deployment-id", 16, HEX)
 # org_name: no rule bounds it (neither variables.tf nor provisioner.go); 100
-# characters stand for a long legal name. Its `&` signs are escaped to six
-# characters each by jsonencode in sovereign.json.
+# characters stand for a long legal name.
 ORG_NAME = ("Omani National Sovereign Cloud Services & Data Platforms Company "
             "(Closed Joint Stock) & Partners LLC")[:100].ljust(100, "x")
 # org_email: 254 characters, the longest address RFC 5321 allows (local part
