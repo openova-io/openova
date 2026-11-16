@@ -3,7 +3,9 @@
 #
 # It builds a throwaway origin repository with the nine kernel components and a stand-in
 # scripts/check-train-coherent.sh, clones it, and runs the tool in the clone. It contacts no
-# network and no registry. Exit 0: every case passed. Exit 1: a case failed (named).
+# network and no registry. The last section proves the refusal of a chart whose files changed
+# after its version was set (exit 6, scripts/check-chart-content-after-version.py, #7922).
+# Exit 0: every case passed. Exit 1: a case failed (named).
 set -euo pipefail
 
 TOOL="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/release-candidate.sh"
@@ -31,9 +33,10 @@ head_of() { git -C "$W/seed" rev-parse "$1"; }
 # commit <message>: commit everything in the seed and push it to main.
 commit() { git -C "$W/seed" add -A && git -C "$W/seed" commit -q -m "$1" && git -C "$W/seed" push -q origin main; }
 dep() { # dep <component> <version>: the chart of <component> with one dependency at <version>
+  # The chart version moves with the dependency, as the release writer moves it on main.
   mkdir -p "$W/seed/platform/$1/chart"
-  printf 'apiVersion: v2\nname: bp-%s\nversion: 1.0.0\ndependencies:\n  - name: %s\n    # a comment\n    version: "%s"\n    repository: "https://example.invalid"\n' \
-    "$1" "$1" "$2" > "$W/seed/platform/$1/chart/Chart.yaml"
+  printf 'apiVersion: v2\nname: bp-%s\nversion: %s\ndependencies:\n  - name: %s\n    # a comment\n    version: "%s"\n    repository: "https://example.invalid"\n' \
+    "$1" "$2" "$1" "$2" > "$W/seed/platform/$1/chart/Chart.yaml"
 }
 k3s() { # k3s <version>: both providers default to <version>
   local p
@@ -140,6 +143,86 @@ echo '{not json' > "$W/seed/docs/ledger/acceptance/r2.json"; commit "a broken re
 git -C "$W/seed" push -q origin "$C1:refs/heads/rc/19980101T000000Z-${C1:0:7}"
 run 4 "prune: a gate record cannot be read" prune
 if git -C "$W/work" ls-remote origin 'refs/heads/rc/*' | grep -c -F "19980101T000000Z" >/dev/null; then ok "prune: nothing is deleted when a record cannot be read"; else bad "prune: deleted a ref"; fi
+
+# content after version (#7922): the version a pin names must hold every file of its chart.
+# The bp-harbor 1.2.55 shape: the release of the next version lost its push, so main kept the
+# old version line under a later template change. Each cut below is a dry run with the
+# coherence stand-in replaced, so only scripts/check-chart-content-after-version.py decides.
+APP="$W/seed/platform/app/chart"
+LIB="$W/seed/platform/lib/chart"
+ALLOWF="$W/seed/scripts/chart-content-after-version.allow"
+app() { # app <version> <appVersion>: platform/app/chart, with a file:// dependency on platform/lib/chart
+  mkdir -p "$APP/templates"
+  printf 'apiVersion: v2\nname: bp-app\nversion: %s\nappVersion: "%s"\ndependencies:\n  - name: bp-lib\n    version: "0.1.0"\n    repository: "file://../../lib/chart"\n' \
+    "$1" "$2" > "$APP/Chart.yaml"
+}
+dry() { RC_COHERENCE_CMD=true run "$1" "$2" cut --dry-run; } # dry <expected exit> <name>
+says() { # says <name> <text>: the stderr of the last run holds <text>
+  if grep -c -F -- "$2" "$W/err" >/dev/null; then ok "$1"; else bad "$1: stderr lacks: $2"; sed 's/^/     | /' "$W/err"; fi
+}
+lacks() { # lacks <name> <text>: the stderr of the last run does not hold <text>
+  if grep -c -F -- "$2" "$W/err" >/dev/null; then bad "$1: stderr holds: $2"; sed 's/^/     | /' "$W/err"; else ok "$1"; fi
+}
+mkdir -p "$LIB/templates"
+printf 'apiVersion: v2\nname: bp-lib\ntype: library\nversion: 0.1.0\n' > "$LIB/Chart.yaml"
+echo '{{- define "lib.x" }}one{{ end }}' > "$LIB/templates/_x.tpl"
+app 0.1.0 1.0; echo 'kind: ConfigMap # one' > "$APP/templates/cm.yaml"; commit "app: a new chart and a library"
+N="$(rcount)"
+dry 0 "content: a new chart, its files and its version in one commit"
+echo 'kind: ConfigMap # two' > "$APP/templates/cm.yaml"; commit "app: a template change after the version"
+T1="$(head_of HEAD)"
+dry 6 "content: a template change after the version is refused"
+says "content: names the chart and its version" "FAIL platform/app/chart: version 0.1.0"
+says "content: names the later commit" "after: ${T1:0:9} "
+says "content: says the published version lacks it" "the published 0.1.0 lacks them"
+if [ "$(rcount)" = "$N" ]; then ok "content: a refused cut creates no ref"; else bad "content: a ref was created"; fi
+git -C "$W/seed" push -q origin "$T1:refs/heads/rc/20000105T000000Z-${T1:0:7}"
+run 1 "verify: a chart's files changed after its version" verify "20000105T000000Z-${T1:0:7}"
+says "verify: names the chart" "FAIL platform/app/chart: version 0.1.0"
+app 0.1.1 1.0; commit "app: 0.1.1, as the release writer writes it"
+dry 0 "content: a later version bump covers the change"
+app 0.1.1 1.1; commit "app: appVersion only"
+T2="$(head_of HEAD)"
+dry 6 "content: a change to the other lines of Chart.yaml is refused"
+says "content: names the Chart.yaml commit" "after: ${T2:0:9} "
+app 0.1.2 1.1; commit "app: 0.1.2"
+dry 0 "content: the version bump after it covers it"
+echo '{{- define "lib.x" }}two{{ end }}' > "$LIB/templates/_x.tpl"; commit "lib: a change to the library"
+T3="$(head_of HEAD)"
+dry 6 "content: a change to a file:// dependency after the consumer's version is refused"
+says "content: names the consumer and the dependency folder" "changed platform/app/chart platform/lib/chart"
+says "content: names the dependency commit" "after: ${T3:0:9} "
+lacks "content: a library chart itself is not refused (never published)" "FAIL platform/lib/chart"
+
+# An allow entry, read from the commit that is cut, covers its chart only at its version and
+# up to its commit; any other entry covers nothing.
+printf '# a comment\nplatform/app/chart 0.1.2 %s 0.1.2 was published from this commit\n' "$T3" > "$ALLOWF"; commit "allow: app 0.1.2 up to the library change"
+dry 0 "allow: an entry covers its chart at its version up to its commit"
+says "allow: the covered chart is named" "allowed platform/app/chart: version 0.1.2"
+printf 'platform/app/chart 0.1.1 %s another version\n' "$T3" > "$ALLOWF"; commit "allow: another version"
+dry 6 "allow: an entry for another version covers nothing"
+says "allow: says the versions differ" "names version 0.1.1, the chart is at 0.1.2"
+printf 'platform/app/chart 0.1.2 %s not on main\n' "$SIDE" > "$ALLOWF"; commit "allow: a commit that is not on main"
+dry 6 "allow: an entry whose commit is not an ancestor covers nothing"
+says "allow: says the commit is not an ancestor" "names ${SIDE:0:9}, which is not"
+printf 'platform/cilium/chart 1.0.1 %s another chart\n' "$T3" > "$ALLOWF"; commit "allow: another chart"
+dry 6 "allow: an entry for another chart does not cover this one"
+says "allow: the needless entry is named" "platform/cilium/chart needs no entry"
+printf 'platform/app/chart 0.1.2 %s 0.1.2 was published from this commit\n' "$T3" > "$ALLOWF"; commit "allow: app again"
+echo 'kind: ConfigMap # three' > "$APP/templates/cm.yaml"; commit "app: a change after the entry's commit"
+T4="$(head_of HEAD)"
+dry 6 "allow: a change after the entry's commit is refused"
+says "allow: names the change after the entry" "after: ${T4:0:9} "
+lacks "allow: the commits the entry covers are not listed" "after: ${T3:0:9} "
+printf 'platform/app/chart 0.1.2\n' > "$ALLOWF"; commit "allow: a malformed entry"
+dry 4 "allow: a malformed entry stops the cut, it is never read as no entry"
+says "allow: names the malformed line" "chart-content-after-version.allow line 1"
+
+# A shallow history hides the commit that set a version: the check cannot judge, never passes.
+git clone -q --depth 1 "file://$W/origin.git" "$W/shallow" 2>/dev/null
+rc=0; (cd "$W/shallow" && RC_COHERENCE_CMD=true bash "$TOOL" cut --dry-run) > "$W/out" 2> "$W/err" || rc=$?
+if [ "$rc" -eq 4 ]; then ok "content: a shallow history stops the cut (exit 4)"; else bad "content: a shallow history: exit $rc, expected 4"; sed 's/^/     | /' "$W/err"; fi
+says "content: says the history is shallow" "the history is shallow"
 
 echo "passed $PASSED, failed $FAILED"
 [ "$FAILED" -eq 0 ]

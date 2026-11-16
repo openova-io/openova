@@ -8,20 +8,28 @@
 #
 #   cut [--commit <sha>] [--dry-run]
 #     Default commit: origin/main. Runs scripts/check-train-coherent.sh in a checkout of the
-#     commit. Compares the upstream version of each kernel component with the newest earlier
-#     candidate. Creates and pushes rc/<id>. With --dry-run it pushes nothing.
+#     commit, then scripts/check-chart-content-after-version.py (the copy beside this tool)
+#     on the history of the commit. Compares the upstream version of each kernel component
+#     with the newest earlier candidate. Creates and pushes rc/<id>. With --dry-run it pushes
+#     nothing.
 #     Exit 0: created (or, with --dry-run, would be created); <id> is the only line on stdout.
 #     Exit 1: the pins are not coherent (the coherence output names the pin).
 #     Exit 2: more than one kernel component moved (named on stderr).
 #     Exit 3: the ref rc/<id> exists.
 #     Exit 4: the tool could not run (argument, commit not on origin/main, unreadable
-#             input, failed fetch or push).
+#             input, a shallow history, failed fetch or push).
 #     Exit 5: the pins could not all be measured: the coherence script exited 2 (CANNOT
 #             READ, e.g. a registry lookup that failed after its retries). Nothing was found
 #             incoherent; no ref is created; cut again (#7922).
+#     Exit 6: a chart's files changed after its version was last set, so the published
+#             version its pin names lacks them (the bp-harbor 1.2.55 shape, #7922). Each
+#             chart is named on stderr with its version and the later commits. A release
+#             still running: cut again after it lands. An exemption is an entry of
+#             scripts/chart-content-after-version.allow at the commit.
 #   verify <id>
 #     Exit 0: the ref exists, its commit ends <id> and is an ancestor of origin/main, and
-#     scripts/check-train-coherent.sh exits 0 there; the commit is the only line on stdout.
+#     scripts/check-train-coherent.sh and scripts/check-chart-content-after-version.py exit 0
+#     there; the commit is the only line on stdout.
 #     Exit 1: anything else (a coherence exit 2 is said as "could not be measured").
 #   prune [--dry-run]
 #     Deletes the candidate refs that no gate record names, keeping the newest ten. A gate
@@ -35,6 +43,7 @@
 #
 # Two variables exist only for scripts/test-release-candidate.sh. No workflow sets them.
 #   RC_COHERENCE_CMD  replaces the coherence command; it runs with bash -c in the checkout.
+#                     It does not replace scripts/check-chart-content-after-version.py.
 #   RC_CUT_TIME       fixes the time part of <id> (yyyymmddThhmmssZ).
 set -euo pipefail
 
@@ -45,6 +54,7 @@ KEEP=10
 say() { echo "release-candidate: $*" >&2; }
 die() { say "$*"; exit 4; }
 
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || die "not inside a Git checkout"
 cd "$ROOT"
 
@@ -88,6 +98,15 @@ coherence() {
   fi
   cleanup
   TMP=""
+  return "$rc"
+}
+
+# content_after_version <sha>: scripts/check-chart-content-after-version.py, beside this tool,
+# on the history of <sha> in this clone. Exit 0: every chart's files are in the version it
+# carries; 1: a chart is named (its output goes to stderr); 2: it could not judge.
+content_after_version() {
+  local rc=0
+  python3 "$HERE/check-chart-content-after-version.py" "$1" >&2 || rc=$?
   return "$rc"
 }
 
@@ -145,6 +164,12 @@ cmd_cut() {
     exit 5
   fi
   if [ "$rc" -ne 0 ]; then say "refused: the pins at $sha are not coherent (exit $rc)"; exit 1; fi
+  rc=0; content_after_version "$sha" || rc=$?
+  if [ "$rc" -eq 1 ]; then
+    say "refused: a chart's files at $sha changed after its version was set, so the published version lacks them (named above)"
+    exit 6
+  fi
+  [ "$rc" -eq 0 ] || die "the chart history at $sha could not be judged (exit $rc)"
 
   new="$(kernel "$sha")" || die "cannot read the kernel versions at $sha"
   if printf '%s\n' "$new" | grep -E ' -$' >&2; then die "the kernel version above cannot be read at $sha"; fi
@@ -190,6 +215,9 @@ cmd_verify() {
   rc=0; coherence "$sha" || rc=$?
   [ "$rc" -ne 2 ] || { say "the pins at $sha could not all be measured (coherence exit 2, CANNOT READ); verify again"; exit 1; }
   [ "$rc" -eq 0 ] || { say "the pins at $sha are not coherent (exit $rc)"; exit 1; }
+  rc=0; content_after_version "$sha" || rc=$?
+  [ "$rc" -ne 1 ] || { say "a chart's files at $sha changed after its version was set, so the published version lacks them (named above)"; exit 1; }
+  [ "$rc" -eq 0 ] || { say "the chart history at $sha could not be judged (exit $rc)"; exit 1; }
   say "rc/$id verified"
   echo "$sha"
 }
@@ -235,6 +263,6 @@ case "${1:-}" in
   cut) shift; cmd_cut "$@" ;;
   verify) shift; cmd_verify "$@" ;;
   prune) shift; cmd_prune "$@" ;;
-  -h|--help) sed -n '2,35p' "$0" ;;
+  -h|--help) sed -n '2,43p' "$0" ;;
   *) say "usage: release-candidate.sh cut [--commit <sha>] [--dry-run] | verify <id> | prune [--dry-run]"; exit 4 ;;
 esac
