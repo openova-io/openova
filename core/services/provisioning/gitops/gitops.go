@@ -1317,9 +1317,7 @@ spec:
   interval: 15m
   # url is cutover-aware (#5527, cutover_aware_5527.go): public catalog
   # pre-cutover, Sovereign-local Harbor once the step-07 fact is stamped.
-  url: %s
-  secretRef:
-    name: ghcr-pull
+%s
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -1387,7 +1385,7 @@ spec:
 `,
 		side, side, side, opt.replicaRegion, // header comment
 		hrName, hrNamespace, // HelmRepository name/ns
-		catalogOCIBase(), // cutover-aware OCI base (#5527)
+		catalogSourceLines(), // chart source and pull Secret (SOV-183)
 		hrName, hrNamespace, side, releaseName, ns, kubeConfigBlock, // HR metadata + spec head
 		hrName, hrNamespace, // sourceRef name/ns
 		side,                                                          // cnpgPair.side
