@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-16T04:15:04Z` |
+| Last refreshed | `2026-11-16T04:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-16T04:22 | [#7947](https://github.com/openova-io/openova/pull/7947) | #7942 | fix(release): the state counts the pivot's changed files and |
 | 2026-11-16T04:07 | [#7946](https://github.com/openova-io/openova/pull/7946) | #7929 | fix(cutover): step 03 warms what the Sovereign's own values  |
 | 2026-11-16T04:07 | [#7945](https://github.com/openova-io/openova/pull/7945) | #7934 | fix(release): a candidate is not cut while a chart's source  |
 | 2026-11-16T04:07 | [#7944](https://github.com/openova-io/openova/pull/7944) | #7936 | fix(sovereign): the Sovereign object Job gets its name in ev |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-15T14:17 | [#7917](https://github.com/openova-io/openova/pull/7917) | #7912 | fix(acceptance): FND-G06 asks the API host at its health pat |
 | 2026-11-15T14:17 | [#7916](https://github.com/openova-io/openova/pull/7916) | #7912 | fix(acceptance): CLD-G09 judges the per-Organization databas |
 | 2026-11-15T14:17 | [#7915](https://github.com/openova-io/openova/pull/7915) | #4521 | fix(acceptance): CLD-G06 judges the adoption claims where th |
-| 2026-11-15T14:17 | [#7914](https://github.com/openova-io/openova/pull/7914) | #7912 | fix(infrastructure): the template ships no CloudAdoption tha |
 
 ---
 
