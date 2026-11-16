@@ -6,6 +6,8 @@
 // `create`, `apply`, `wait`, `delete` and `rollout status` in gate checks CMP-G01,
 // SEC-G01, SEC-G02, SEC-G07, CTL-G04, CTL-G07 and INF-G01 only. It never patches — every other mutation of the
 // Sovereign goes through the console API the way a sovereign-admin would.
+// A run in self (suite/report.go) also applies one object, the conformance
+// report, with `apply`.
 // SEC-G07 (suite/check_sec_scope.go) stores nothing: its `create` and `apply`
 // are server-side dry runs, its `create token` returns a token of 10 minutes
 // that is not stored, and its one `exec` in an OpenBao server pod logs in,
@@ -76,7 +78,12 @@ func (r Region) Run(ctx context.Context, stdin io.Reader, args ...string) ([]byt
 
 // once runs kubectl one time and returns stdout and stderr.
 func (r Region) once(ctx context.Context, stdin io.Reader, args []string) ([]byte, string, error) {
-	full := append([]string{"--kubeconfig", r.Kubeconfig}, args...)
+	// An empty Kubeconfig omits the argument: kubectl then uses the
+	// ServiceAccount of the pod it runs in (a run in self).
+	full := args
+	if r.Kubeconfig != "" {
+		full = append([]string{"--kubeconfig", r.Kubeconfig}, args...)
+	}
 	cmd := exec.CommandContext(ctx, r.bin(), full...)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr, cmd.Stdin = &out, &errb, stdin
