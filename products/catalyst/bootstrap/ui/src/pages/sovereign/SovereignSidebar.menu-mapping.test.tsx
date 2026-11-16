@@ -9,6 +9,7 @@
  *     item, inside `sov-console-nav-children-<parent>`;
  *   - an https:// route renders as a plain anchor (it leaves the SPA);
  *   - enabled=false entries are not rendered at all;
+ *   - a console page candidate (source page) renders once it is switched on;
  *   - the former static `sandbox` row is gone;
  *   - SIDEBAR_PARENT_OPTIONS (the Settings → Menu dropdown) equals the
  *     server's sidebarParentIDs list, in lockstep with console_ui.go.
@@ -70,6 +71,23 @@ const ENTRIES: SidebarEntry[] = [
     route: '/app/hidden',
     order: 50,
     source: 'application',
+    enabled: false,
+  },
+  {
+    id: 'page:test-view',
+    label: 'Databases',
+    route: '/cloud?class=test',
+    order: 30,
+    source: 'page',
+    enabled: true,
+    overridden: true,
+  },
+  {
+    id: 'page:test-off',
+    label: 'Not switched on',
+    route: '/cloud?class=off',
+    order: 31,
+    source: 'page',
     enabled: false,
   },
   {
@@ -151,6 +169,15 @@ describe('SovereignSidebar — #6723 mapped menu', () => {
     // The sub-menu sits directly after its parent link in DOM order.
     const cloudLink = screen.getByTestId('sov-console-nav-cloud')
     expect(cloudLink.nextElementSibling).toBe(cloudChildren)
+  })
+
+  it('renders a console page candidate once it is switched on, and not before', async () => {
+    renderSidebar()
+    const page = await screen.findByTestId('sov-console-nav-bp-page:test-view')
+    expect(page.textContent).toContain('Databases')
+    expect(page.getAttribute('data-nav-source')).toBe('page')
+    expect(page.getAttribute('href')).toContain('/cloud')
+    expect(screen.queryByTestId('sov-console-nav-bp-page:test-off')).toBeNull()
   })
 
   it('degrades an unknown parent to a top-level entry rather than dropping it', async () => {

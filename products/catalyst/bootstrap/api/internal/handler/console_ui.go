@@ -17,6 +17,9 @@
 //     projects one entry (source=application) that defaults to DISABLED, so
 //     the sovereign-admin can hang any running app — Grafana, Harbor, an
 //     Org's Agenity — off the left rail without a Blueprint author's help.
+//     Console PAGE candidates — every console page in the list of
+//     internal/consolemenu projects one entry (source=page, id page:<name>)
+//     that defaults to DISABLED.
 //  3. Per-Sovereign OVERRIDES — the sovereign-admin's mapping, persisted as
 //     ConfigMap catalyst-system/console-ui-sidebar (key overrides.json) on the
 //     Sovereign's own cluster. An override can enable/disable an entry,
@@ -30,7 +33,7 @@
 //	      The MERGED view (defaults + candidates ⊕ overrides). Every entry
 //	      carries enabled/source/parent; the console hides enabled=false.
 //	      Readable by every session; an Org-scoped session is confined to
-//	      source=blueprint (the Application candidates are Sovereign-level).
+//	      source=blueprint (Application and page candidates are Sovereign-level).
 //	GET /api/v1/sovereigns/{id}/console-ui/sidebar-overrides
 //	    → { entries: [Override…], parents, allowedHosts, namespace, name }
 //	      The RAW stored overrides (empty list when none). sovereign-admin.
@@ -39,7 +42,8 @@
 //	    → { entries, appliedAt, namespace, name }                sovereign-admin.
 //
 // Override validation (validateSidebarOverrides — table-tested, no cluster):
-// id = Blueprint name or app:<application-name>; label ≤ 40 characters;
+// id = Blueprint name, app:<application-name> or page:<name> of a listed
+// console page; label ≤ 40 characters;
 // route starts with "/" or is https:// on one of the Sovereign's own parent
 // domains; order 0..100; parent ∈ sidebarParentIDs (Settings and the
 // Sovereignty anchor are NOT parents — two founder rulings keep Settings a
@@ -73,42 +77,17 @@ import (
 	"k8s.io/client-go/dynamic"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/consolemenu"
 )
 
-// SidebarEntry is the wire shape of one MERGED sidebar entry.
-//
-// The first five fields are the Wave 5.69b contract the console already
-// consumes ({id,label,route,order,icon}); the rest are the #6723 mapping
-// layer. Default* echo the un-overridden values so the Settings → Menu table
-// can show provenance and offer a per-row reset without a second request.
-type SidebarEntry struct {
-	ID    string `json:"id"`
-	Label string `json:"label"`
-	Route string `json:"route"`
-	Order int    `json:"order"`
-	Icon  string `json:"icon,omitempty"`
-
-	// Source — "blueprint" (spec.consoleUI on a Blueprint CR) or
-	// "application" (an installed Application CR with a user-UI endpoint).
-	Source string `json:"source"`
-	// Enabled — false entries are candidates the console does not render.
-	Enabled bool `json:"enabled"`
-	// Parent — a FLAT_NAV id (see sidebarParentIDs) when the entry renders as
-	// a sub-item under that hardcoded nav item; empty = top-level.
-	Parent string `json:"parent,omitempty"`
-	// Overridden — true when a stored override touched this entry.
-	Overridden bool `json:"overridden"`
-
-	DefaultLabel   string `json:"defaultLabel"`
-	DefaultRoute   string `json:"defaultRoute"`
-	DefaultOrder   int    `json:"defaultOrder"`
-	DefaultEnabled bool   `json:"defaultEnabled"`
-}
+// SidebarEntry is the wire shape of one MERGED sidebar entry. The type lives
+// in internal/consolemenu, beside the list of console pages.
+type SidebarEntry = consolemenu.Entry
 
 // SidebarSource values.
 const (
-	sidebarSourceBlueprint   = "blueprint"
-	sidebarSourceApplication = "application"
+	sidebarSourceBlueprint   = consolemenu.SourceBlueprint
+	sidebarSourceApplication = consolemenu.SourceApplication
 )
 
 // SidebarOverride is one stored mapping decision. Empty Label/Route and a
@@ -162,17 +141,18 @@ const (
 	sidebarOverridesConfigMap = "console-ui-sidebar"
 	sidebarOverridesDataKey   = "overrides.json"
 
-	sidebarLabelMaxRunes = 40
+	sidebarLabelMaxRunes = consolemenu.LabelMaxRunes
 	sidebarRouteMaxLen   = 512
-	sidebarOrderMin      = 0
-	sidebarOrderMax      = 100
+	sidebarOrderMin      = consolemenu.OrderMin
+	sidebarOrderMax      = consolemenu.OrderMax
 	sidebarMaxEntries    = 200
 	sidebarIDPrefixApp   = "app:"
 )
 
 // sidebarIDRe — Blueprint CR names and Application CR names are both
-// RFC-1123 subdomains; the app: prefix marks the application form.
-var sidebarIDRe = regexp.MustCompile(`^(app:)?[a-z0-9]([a-z0-9.-]{0,126}[a-z0-9])?$`)
+// RFC-1123 subdomains; the app: prefix marks the application form and the
+// page: prefix a console page of internal/consolemenu.
+var sidebarIDRe = regexp.MustCompile(`^(app:|page:)?[a-z0-9]([a-z0-9.-]{0,126}[a-z0-9])?$`)
 
 // ── GET sidebar-entries (merged view) ────────────────────────────────────
 
@@ -208,7 +188,7 @@ func (h *Handler) HandleConsoleUISidebarEntries(w http.ResponseWriter, r *http.R
 		applications = nil
 	}
 
-	defaults := collectSidebarDefaults(blueprints, applications)
+	defaults := collectSidebarDefaults(blueprints, applications, consolemenu.Pages())
 
 	overrides := SidebarOverrides{}
 	if dyn, dErr := h.k8sCache.DynamicClientFor(clusterID); dErr != nil {
@@ -224,9 +204,9 @@ func (h *Handler) HandleConsoleUISidebarEntries(w http.ResponseWriter, r *http.R
 	// + #6723): a Blueprint-sourced entry is not Organization-specific and an
 	// Org-scoped console renders it exactly as the former static Agenity row;
 	// an Application candidate names Applications from every Organization and
-	// is a Sovereign-level mapping, so it is stripped here — server-side — for
-	// an Org-scoped request (the OrgScopeGuard admits this GET on the strength
-	// of this confinement).
+	// is a Sovereign-level mapping, and so is a console page candidate, so both
+	// are stripped here — server-side — for an Org-scoped request (the
+	// OrgScopeGuard admits this GET on the strength of this confinement).
 	if _, orgScoped := h.orgScopeForRequest(r); orgScoped {
 		entries = blueprintSourcedOnly(entries)
 	}
@@ -250,10 +230,11 @@ func blueprintSourcedOnly(entries []SidebarEntry) []SidebarEntry {
 
 // collectSidebarDefaults projects the un-overridden entry set: one per
 // Blueprint CR carrying spec.consoleUI, one per installed Application whose
-// Blueprint exposes a user UI. Deterministic order (Blueprints then
-// Applications, each by name) so a stable id set feeds the merge.
-func collectSidebarDefaults(blueprints, applications []*unstructured.Unstructured) []SidebarEntry {
-	out := make([]SidebarEntry, 0, len(blueprints)+len(applications))
+// Blueprint exposes a user UI, one per console page of pages (off).
+// Deterministic order (Blueprints then Applications, each by name, then the
+// pages as given) so a stable id set feeds the merge.
+func collectSidebarDefaults(blueprints, applications []*unstructured.Unstructured, pages []consolemenu.Page) []SidebarEntry {
+	out := make([]SidebarEntry, 0, len(blueprints)+len(applications)+len(pages))
 	bpByName := make(map[string]*unstructured.Unstructured, len(blueprints))
 
 	sortedBPs := append([]*unstructured.Unstructured(nil), blueprints...)
@@ -293,7 +274,7 @@ func collectSidebarDefaults(blueprints, applications []*unstructured.Unstructure
 		seen[entry.ID] = struct{}{}
 		out = append(out, entry)
 	}
-	return out
+	return append(out, consolemenu.PageEntries(pages)...)
 }
 
 func nameOf(u *unstructured.Unstructured) string {
@@ -479,8 +460,9 @@ func mergeSidebarEntries(defaults []SidebarEntry, ov SidebarOverrides) []Sidebar
 // mapping (empty slice = valid). allowedHosts is the Sovereign's own host
 // set (its FQDN + parent-domain pool): an https:// route must land on one
 // of them or a subdomain of one — the console never links a sovereign-
-// admin's Users off to an arbitrary third-party host.
-func validateSidebarOverrides(ov SidebarOverrides, allowedHosts []string) []string {
+// admin's Users off to an arbitrary third-party host. A page:<name> id must
+// name a page of pages.
+func validateSidebarOverrides(ov SidebarOverrides, allowedHosts []string, pages []consolemenu.Page) []string {
 	var problems []string
 	if len(ov.Entries) > sidebarMaxEntries {
 		problems = append(problems, fmt.Sprintf("entries: at most %d overrides are accepted (got %d)", sidebarMaxEntries, len(ov.Entries)))
@@ -494,7 +476,9 @@ func validateSidebarOverrides(ov SidebarOverrides, allowedHosts []string) []stri
 		case id == "":
 			problems = append(problems, prefix+".id: required")
 		case !sidebarIDRe.MatchString(id):
-			problems = append(problems, prefix+".id: must be a Blueprint name (e.g. bp-agenity) or app:<application-name>")
+			problems = append(problems, prefix+".id: must be a Blueprint name (e.g. bp-agenity), app:<application-name> or page:<page-name>")
+		case strings.HasPrefix(id, consolemenu.PageIDPrefix) && !consolemenu.HasPage(pages, id):
+			problems = append(problems, prefix+".id: "+id+" is not a console page of this Sovereign")
 		default:
 			if _, dup := seen[id]; dup {
 				problems = append(problems, prefix+".id: duplicate id "+id)
@@ -811,7 +795,7 @@ func (h *Handler) HandleConsoleUISidebarOverridesPut(w http.ResponseWriter, r *h
 		body.Entries[i].Route = strings.TrimSpace(body.Entries[i].Route)
 		body.Entries[i].Parent = strings.TrimSpace(body.Entries[i].Parent)
 	}
-	if problems := validateSidebarOverrides(body, h.sidebarAllowedHosts()); len(problems) > 0 {
+	if problems := validateSidebarOverrides(body, h.sidebarAllowedHosts(), consolemenu.Pages()); len(problems) > 0 {
 		writeJSON(w, http.StatusBadRequest, map[string]interface{}{
 			"error":    "invalid-sidebar-overrides",
 			"code":     "400",

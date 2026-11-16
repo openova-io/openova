@@ -12,6 +12,8 @@
  *   - client-side validation mirrors the server (label ≤ 40, route shape,
  *     order 0–100) and a server 400 lists its problems;
  *   - Reset restores a row to its Blueprint / Application default;
+ *   - a console page (source page) is a candidate like the others: off by
+ *     default, switched on and saved as an override;
  *   - an Org-scoped console gets the fixed-menu note instead of the table.
  */
 
@@ -90,6 +92,18 @@ function entries(): SidebarEntry[] {
       defaultOrder: 50,
       defaultEnabled: false,
     },
+    {
+      id: 'page:test-view',
+      label: 'Test view',
+      route: '/cloud?class=test',
+      order: 30,
+      source: 'page',
+      enabled: false,
+      defaultLabel: 'Test view',
+      defaultRoute: '/cloud?class=test',
+      defaultOrder: 30,
+      defaultEnabled: false,
+    },
   ]
 }
 
@@ -132,7 +146,7 @@ describe('MenuSection — table', () => {
   it('lists every merged entry with source, toggle, label, route, parent and order controls', async () => {
     renderSection()
     expect(await screen.findByTestId('settings-menu-table')).toBeTruthy()
-    for (const id of ['bp-agenity', 'app:grafana']) {
+    for (const id of ['bp-agenity', 'app:grafana', 'page:test-view']) {
       const row = screen.getByTestId(`settings-menu-row-${id}`)
       expect(within(row).getByTestId(`settings-menu-enabled-${id}`)).toBeTruthy()
       expect(within(row).getByTestId(`settings-menu-label-${id}`)).toBeTruthy()
@@ -143,6 +157,8 @@ describe('MenuSection — table', () => {
     }
     expect(screen.getByTestId('settings-menu-source-bp-agenity').textContent).toBe('blueprint')
     expect(screen.getByTestId('settings-menu-source-app:grafana').textContent).toBe('application')
+    expect(screen.getByTestId('settings-menu-source-page:test-view').textContent).toBe('page')
+    expect(screen.getByTestId('settings-menu-row-page:test-view').getAttribute('data-enabled')).toBe('false')
     expect(screen.getByTestId('settings-menu-row-bp-agenity').getAttribute('data-enabled')).toBe('true')
     expect(screen.getByTestId('settings-menu-row-app:grafana').getAttribute('data-enabled')).toBe('false')
     // Parent dropdown = Top level + every mappable FLAT_NAV item.
@@ -185,6 +201,19 @@ describe('MenuSection — table', () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['console-ui-sidebar-entries'] })
     // The merged view is re-read after save.
     await waitFor(() => expect(getSidebarMenu).toHaveBeenCalledTimes(2))
+  })
+
+  it('switches on a console page, nests it under Resources and saves it as an override', async () => {
+    renderSection()
+    await screen.findByTestId('settings-menu-table')
+    fireEvent.click(screen.getByTestId('settings-menu-enabled-page:test-view'))
+    fireEvent.change(screen.getByTestId('settings-menu-parent-page:test-view'), { target: { value: 'cloud' } })
+    fireEvent.change(screen.getByTestId('settings-menu-label-page:test-view'), { target: { value: 'Databases' } })
+    fireEvent.click(screen.getByTestId('settings-menu-save'))
+    await waitFor(() => expect(putSidebarOverrides).toHaveBeenCalledTimes(1))
+    expect(putSidebarOverrides.mock.calls[0][1]).toEqual([
+      { id: 'page:test-view', enabled: true, label: 'Databases', parent: 'cloud' },
+    ])
   })
 
   it('disabling a Blueprint entry stores an enabled=false override and nothing else', async () => {

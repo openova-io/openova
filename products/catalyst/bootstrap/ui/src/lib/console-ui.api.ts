@@ -5,8 +5,9 @@
  *   GET /api/v1/sovereigns/{id}/console-ui/sidebar-entries
  *       the MERGED menu: Blueprint spec.consoleUI defaults + installed
  *       Applications with a user-UI endpoint (candidates, default disabled)
- *       ⊕ the per-Sovereign overrides. SovereignSidebar renders enabled
- *       entries; Settings → Menu edits them.
+ *       + console pages of the API's list (source page, id page:<name>,
+ *       default disabled) ⊕ the per-Sovereign overrides. SovereignSidebar
+ *       renders enabled entries; Settings → Menu edits them.
  *   GET/PUT /api/v1/sovereigns/{id}/console-ui/sidebar-overrides
  *       the raw sovereign-admin mapping, persisted as ConfigMap
  *       catalyst-system/console-ui-sidebar on the Sovereign's cluster.
@@ -20,7 +21,7 @@
 import { API_BASE } from '@/shared/config/urls'
 import { authedFetch } from '@/shared/lib/authedFetch'
 
-export type SidebarEntrySource = 'blueprint' | 'application'
+export type SidebarEntrySource = 'blueprint' | 'application' | 'page'
 
 /**
  * SidebarEntry — one merged menu entry. Mirrors the Go SidebarEntry struct
@@ -104,7 +105,7 @@ function normaliseEntry(raw: Partial<SidebarEntry> & { id: string }): SidebarEnt
     route,
     order,
     icon: raw.icon,
-    source: raw.source === 'application' ? 'application' : 'blueprint',
+    source: raw.source === 'application' || raw.source === 'page' ? raw.source : 'blueprint',
     enabled: raw.enabled !== false,
     parent: typeof raw.parent === 'string' && raw.parent !== '' ? raw.parent : undefined,
     overridden: raw.overridden === true,

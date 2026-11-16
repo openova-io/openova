@@ -15,7 +15,8 @@
  *
  * What the table shows: every candidate entry from the merged
  * /console-ui/sidebar-entries view — Blueprint spec.consoleUI defaults
- * (Agenity) and installed Applications with a user-UI endpoint (default
+ * (Agenity), installed Applications with a user-UI endpoint (default
+ * disabled) and console pages of the API's list (source page, default
  * disabled). Per row the sovereign-admin can toggle it on/off, rename it,
  * re-route it (a console path or an https:// URL on one of this
  * Sovereign's parent domains), give it an order (0–100) and nest it under
@@ -254,10 +255,10 @@ export function MenuSection() {
           <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
             <div className="min-w-0 flex-1">
               <p className="text-sm text-[var(--color-text)]">
-                Every Blueprint entry and every installed Application with a user interface is a
-                candidate. Enable the ones that belong on the left menu, rename or re-route them,
-                choose an order (0 first, 100 last) and nest them under a top-level item to form a
-                sub-menu. Changes apply to this Sovereign only.
+                Every Blueprint entry, every installed Application with a user interface and every
+                listed console page (source page) is a candidate. Enable the ones that belong on the
+                left menu, rename or re-route them, choose an order (0 first, 100 last) and nest
+                them under a top-level item to form a sub-menu. Changes apply to this Sovereign only.
               </p>
               {allowedHosts.length > 0 ? (
                 <p className="mt-1 text-xs text-[var(--color-text-dim)]" data-testid="settings-menu-allowed-hosts">
@@ -359,7 +360,9 @@ export function MenuSection() {
                               className={`rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
                                 r.source === 'application'
                                   ? 'border-sky-500/40 bg-sky-500/10 text-sky-300'
-                                  : 'border-violet-500/40 bg-violet-500/10 text-violet-300'
+                                  : r.source === 'page'
+                                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                                    : 'border-violet-500/40 bg-violet-500/10 text-violet-300'
                               }`}
                               data-testid={`settings-menu-source-${r.id}`}
                             >
@@ -417,7 +420,7 @@ export function MenuSection() {
                               type="button"
                               disabled={disabled || !overridden}
                               onClick={() => setRows((prev) => prev.map((x) => (x.id === r.id ? resetRow(x) : x)))}
-                              title="Reset this entry to its Blueprint / Application default"
+                              title="Reset this entry to its default"
                               aria-label={`Reset ${r.id} to default`}
                               className="inline-flex items-center gap-1 rounded-md border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-dim)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-40"
                               data-testid={`settings-menu-reset-${r.id}`}
