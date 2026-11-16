@@ -1242,7 +1242,7 @@ checks:
 - id: FND-G03
   title: Nodes
   owner: FND
-  state: expected-fail
+  state: required
   runs_in: [local, cloud]
   destructive: false
   needs: []
@@ -1266,7 +1266,7 @@ checks:
 - id: FND-G05
   title: No NodePort
   owner: FND
-  state: expected-fail
+  state: required
   runs_in: [local, cloud]
   destructive: false
   needs: []
@@ -1278,7 +1278,7 @@ checks:
 - id: FND-G06
   title: Front doors
   owner: FND
-  state: expected-fail
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
@@ -1290,7 +1290,7 @@ checks:
 - id: FND-G07
   title: Sign-in
   owner: FND
-  state: expected-fail
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
@@ -1302,7 +1302,7 @@ checks:
 - id: FND-G08
   title: Mesh
   owner: FND
-  state: expected-fail
+  state: required
   runs_in: [local, cloud]
   destructive: false
   needs: [multi-region]
@@ -1314,7 +1314,7 @@ checks:
 - id: FND-G09
   title: Transit encryption
   owner: FND
-  state: expected-fail
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: [multi-region]
@@ -1326,7 +1326,7 @@ checks:
 - id: FND-G10
   title: Install and data
   owner: FND
-  state: expected-fail
+  state: required
   runs_in: [local, cloud]
   destructive: false
   needs: [multi-region]
@@ -1338,7 +1338,7 @@ checks:
 - id: FND-G11
   title: Planned move
   owner: FND
-  state: expected-fail
+  state: required
   runs_in: [local, cloud]
   destructive: false
   needs: [multi-region]
@@ -1350,7 +1350,7 @@ checks:
 - id: FND-G12
   title: Clean delete
   owner: FND
-  state: expected-fail
+  state: required
   runs_in: [local, cloud]
   destructive: false
   needs: [multi-region]
