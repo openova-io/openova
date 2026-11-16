@@ -20,9 +20,9 @@ import (
 //
 //	sandbox-bridge     200m   platform/newapi/chart/values.yaml sandboxBridge
 //	newapi             500m   pinned by the per-Org overlay
-//	metering-sidecar   500m   platform/newapi/chart/values.yaml meteringSidecar
+//	metering-sidecar     0m   meteringSidecar.enabled: false since AIP-040 (it was 500m)
 //	                  ─────
-//	POD limits.cpu    1200m
+//	POD limits.cpu     700m
 //
 // sandbox-bridge is the term that is easy to miss by reading, and the reason is
 // structural rather than careless: templates/deployment.yaml renders it as a
@@ -44,7 +44,7 @@ import (
 //
 // so the DSN gate only matters if its own branch overtakes the container sum.
 // Today it does not (100m + the 200m bridge declared before it = 300m against
-// 1200m), and a chart change that inverted that would go red here.
+// 700m), and a chart change that inverted that would go red here.
 //
 // MEASURED LIVE, hw296 dep e689e3b34a75fdec, Deployment walkthree/bp-newapi
 // ReplicaFailure=True FailedCreate:
@@ -53,8 +53,10 @@ import (
 //	requested: limits.cpu=1200m, used: limits.cpu=3300m, limited: limits.cpu=4
 //
 // `requested: limits.cpu=1200m` is the admission controller's OWN arithmetic
-// over the same Pod, and it matches the sum above term for term. That is what
-// identifies 500m as the WRONG QUANTITY rather than merely a conservative one.
+// over the same Pod, and it matched the sum term for term while the Pod held
+// the 500m metering-sidecar. That is what identified 500m as the WRONG QUANTITY
+// rather than merely a conservative one. AIP-040 switched that sidecar off, so
+// the pinned Pod total is the reading less that container: 1200m - 500m = 700m.
 //
 // WHAT IS DERIVED AND WHAT IS PINNED, deliberately split:
 //
@@ -64,13 +66,13 @@ import (
 //     restated these numbers as literals would drift the moment a chart moved
 //     and would go on reporting a total that no longer exists — which is the
 //     defect being closed, one level up.
-//   - The TOTALS (1200m, and the 1950m-of-2000m bundle) are pinned against the
+//   - The TOTALS (700m, and the 1450m bundle) are pinned against the
 //     cluster's own admission arithmetic quoted above. That is an INDEPENDENT
 //     measurement, not a restatement of the source, so guard-vs-cluster
 //     disagreement surfaces instead of being defined away.
 //
 // This file changes no quota, request or limit value. It only counts them
-// correctly. Whether 1200m is the right size for an Org boundary is a
+// correctly. Whether 700m is the right size for an Org boundary is a
 // plan-capacity decision and belongs to #5393, which is founder-gated.
 //
 // Refs #6324 #5393 #3988
@@ -348,15 +350,16 @@ func platformStackLimitsCPUFromController(t *testing.T, podName string) (millis,
 // 6324 guards so the two cannot drift apart.
 //
 // THE FINDING. The per-Organization bundle rendered beside the customer's
-// first app — the bp-newapi Pod (1200m), the openclaw controller (250m) and
-// newapi's CNPG (500m) — is 1950m of limits. The smallest package is 1 vCPU
+// first app — the bp-newapi Pod (700m), the openclaw controller (250m) and
+// newapi's CNPG (500m) — is 1450m of limits. The smallest package is 1 vCPU
 // (planQuotaTable["s"].CPULimit; NC-OO-Pricing.xlsx 2026-06-28). The bundle
-// therefore does NOT fit the plan the customer bought — nor did it leave more
-// than 50m of the old 2 vCPU row. It is admitted ONLY because the
+// therefore does NOT fit the plan the customer bought (while the metering
+// sidecar ran, 1950m left 50m of the old 2 vCPU row). It is admitted ONLY
+// because the
 // org-controller sizes the ResourceQuota as plan + vCluster control plane +
 // per-Organization platform stack (#6902 follow-ups), and the stack term is
 // these very pods, carried as the Sovereign's overhead on top of the plan: the
-// S quota renders limits.cpu 7050m = 1000m plan + 1500m control plane + 4550m
+// S quota renders limits.cpu 6550m = 1000m plan + 1500m control plane + 4050m
 // stack, and the customer's catalog applications have the 1000m. Under the
 // plan alone the Pod is refused at admission — the hw296 failure verbatim.
 //
@@ -378,11 +381,8 @@ func assertOrgBundleCarriedAboveThePlan(t *testing.T, pod podCPU, openclaw, cnpg
 			"guard states the opposite — the bundle rides on the quota's platform-stack term, not the "+
 			"plan. Re-make the statement (and the pins below) before changing it:\n%s", bundle, headline, pod)
 	}
-	const wantBundle, wantHeadline, wantGuaranteed = 1950, 1000, 167
-	// AIP-040 switched the metering sidecar off, so the bundle renders less
-	// than 1950m while platformStack still carries the Pod with it. Until
-	// AIP-041 drops that term, the bundle may be at most 1950m.
-	if bundle > wantBundle || headline != wantHeadline || guaranteed != wantGuaranteed {
+	const wantBundle, wantHeadline, wantGuaranteed = 1450, 1000, 167
+	if bundle != wantBundle || headline != wantHeadline || guaranteed != wantGuaranteed {
 		t.Fatalf("the Org bundle totals %dm against a %dm headline / %dm guaranteed plan; this guard was "+
 			"written against %dm / %dm / %dm, measured from the same files. A term moved — name it and "+
 			"re-derive:\n  bp-newapi POD  %dm\n  openclaw ctrl  %dm\n  newapi CNPG    %dm\n%s",
@@ -398,9 +398,7 @@ func assertOrgBundleCarriedAboveThePlan(t *testing.T, pod podCPU, openclaw, cnpg
 		{"bp-openclaw-<hash>", openclaw},
 	} {
 		carried, containers := platformStackLimitsCPUFromController(t, tc.name)
-		// Until AIP-041 platformStack may carry more than this door renders
-		// (the metering-sidecar term, off since AIP-040), never less.
-		if carried < tc.door {
+		if carried != tc.door {
 			t.Fatalf("%s: this door renders %dm of limits.cpu but the org-controller's platformStack "+
 				"carries %dm as quota overhead — the %dm difference is charged to the customer's %dm "+
 				"plan instead (the #6324 refusal, one layer up). Move the two in lockstep.\n%s",
@@ -423,10 +421,11 @@ func funnelOverlay(t *testing.T) string {
 }
 
 // liveAdmissionPodCPUMillis is the quantity the hw296 admission controller
-// itself reported for this Pod (`requested: limits.cpu=1200m`). It is pinned
-// rather than derived ON PURPOSE: it is the independent observation this
-// guard's derived arithmetic is checked against.
-const liveAdmissionPodCPUMillis = 1200
+// itself reported for this Pod (`requested: limits.cpu=1200m`), less the 500m
+// metering-sidecar that AIP-040 switched off. It is pinned rather than derived
+// ON PURPOSE: it is the independent observation this guard's derived
+// arithmetic is checked against.
+const liveAdmissionPodCPUMillis = 1200 - 500
 
 // TestNewAPIPodCPU_6324_PodIsTheModelledUnit is the RED test for #6324: the
 // per-Org bp-newapi Pod costs the sum of its quota-counted containers, not the
@@ -459,13 +458,12 @@ func TestNewAPIPodCPU_6324_PodIsTheModelledUnit(t *testing.T) {
 			pod.total, container, pod)
 	}
 
-	// Guard-vs-cluster. The hw296 refusal read `requested: limits.cpu=1200m`.
-	// AIP-040 switched the metering sidecar off, so the Pod renders less than
-	// the 1200m measured with it. Until AIP-041 takes a new reading, the Pod
-	// may be at most that figure.
-	if pod.total > liveAdmissionPodCPUMillis {
-		t.Fatalf("Pod total = %dm, but the live hw296 admission refusal for walkthree/bp-newapi "+
-			"read `requested: limits.cpu=%dm`. The guard and the cluster now disagree about what "+
+	// Guard-vs-cluster. The hw296 refusal read `requested: limits.cpu=1200m`
+	// for the Pod with the 500m metering-sidecar, which AIP-040 switched off.
+	if pod.total != liveAdmissionPodCPUMillis {
+		t.Fatalf("Pod total = %dm, but the live hw296 admission refusal for walkthree/bp-newapi, "+
+			"less the metering-sidecar switched off by AIP-040, is %dm. The guard and the "+
+			"cluster now disagree about what "+
 			"this Pod costs — reconcile them (and re-check #5393's plan sizing) before changing "+
 			"this number:\n%s", pod.total, liveAdmissionPodCPUMillis, pod)
 	}
@@ -567,11 +565,12 @@ func TestNewAPIPodCPU_6324_OrgBundleIsCarriedAboveThePlanByTheQuota(t *testing.T
 // TestNewAPIPodCPU_6324_VacuityCheck_TheOldModelWouldHavePassed is the proof
 // that this whole file is load-bearing. It reconstructs the PRE-FIX
 // single-container arithmetic from the same derived terms and shows it
-// understates the bundle by the sidecar cost (700m): against the old 2 vCPU
-// row it reported 750m of headroom where the truth was 50m — the old guard was
-// green over a Pod the cluster was refusing. Against the #6971 1 vCPU headline
-// both models are short (−250m and −950m), and the 700m gap between them is
-// the same sidecar cost. If a future edit collapses the Pod model back to one
+// understates the bundle by the sidecar cost: 700m while the metering sidecar
+// ran, when against the old 2 vCPU row it reported 750m of headroom where the
+// truth was 50m — the old guard was green over a Pod the cluster was refusing.
+// Since AIP-040 the cost is the sandbox-bridge's 200m: against the #6971 1 vCPU
+// headline both models are short (−250m and −450m), and the 200m gap between
+// them is that cost. If a future edit collapses the Pod model back to one
 // container, the two numbers converge and this test fails.
 func TestNewAPIPodCPU_6324_VacuityCheck_TheOldModelWouldHavePassed(t *testing.T) {
 	pod := newapiPodCPUMillis(t, funnelOverlay(t))
@@ -597,10 +596,8 @@ func TestNewAPIPodCPU_6324_VacuityCheck_TheOldModelWouldHavePassed(t *testing.T)
 		t.Fatalf("the understatement (%dm) is not the sidecar cost (%dm) — the arithmetic lost a term:\n%s",
 			gap, pod.total-container, pod)
 	}
-	const wantOld, wantNew = -250, -950
-	// Until AIP-041 the Pod model may leave more headroom than -950m (the
-	// metering sidecar is off since AIP-040), never less.
-	if oldHeadroom != wantOld || newHeadroom < wantNew {
+	const wantOld, wantNew = -250, -450
+	if oldHeadroom != wantOld || newHeadroom != wantNew {
 		t.Fatalf("the understatement changed: against the smallest plan headline the single-container "+
 			"model now reports %dm of headroom and the Pod model %dm (this file was written against "+
 			"%dm vs %dm). Re-derive and restate the defect before adjusting these:\n%s",

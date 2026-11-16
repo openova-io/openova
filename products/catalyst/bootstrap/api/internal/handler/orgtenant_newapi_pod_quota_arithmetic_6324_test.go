@@ -22,9 +22,9 @@ import (
 //	sandbox-bridge     200m   chart default, native sidecar (initContainers +
 //	                          restartPolicy: Always, #3374) — counts on k8s 1.29+
 //	newapi             500m   pinned by this overlay
-//	metering-sidecar   500m   chart default
+//	metering-sidecar     0m   meteringSidecar.enabled: false since AIP-040 (it was 500m)
 //	                  ─────
-//	POD limits.cpu    1200m
+//	POD limits.cpu     700m
 //
 // Measured live on hw296 (dep e689e3b34a75fdec), Deployment walkthree/bp-newapi
 // ReplicaFailure=True FailedCreate:
@@ -32,12 +32,15 @@ import (
 //	pods "bp-newapi-6867df99bd-..." is forbidden: exceeded quota: plan-quota,
 //	requested: limits.cpu=1200m, used: limits.cpu=3300m, limited: limits.cpu=4
 //
+// That Pod still held the 500m metering-sidecar. AIP-040 switched it off, so
+// the pinned Pod total is the reading less that container: 1200m - 500m = 700m.
+//
 // WHY THIS IS DUPLICATED RATHER THAN SHARED. The two producers live in two
 // separate Go modules (core/services/provisioning and
 // products/catalyst/bootstrap/api) with no shared package between them, so the
 // arithmetic is written twice. The duplication is made safe by pinning BOTH
-// copies to the same derived totals — 1200m for the Pod, 1950m of the 2000m
-// smallest-plan cap for the Org bundle — so a change that moves one door's
+// copies to the same derived totals — 700m for the Pod, 1450m for the Org
+// bundle — so a change that moves one door's
 // number without the other turns exactly one of them red and names it. A fix
 // applied to one producer and not the other is the shape that let UAT row 15
 // render three of seven Org chips for a month behind a green label-only test.
@@ -438,15 +441,16 @@ func platformStackLimitsCPUFromControllerBSS(t *testing.T, podName string) (mill
 // door's row-232 and 6324 guards (the funnel door carries the same statement in
 // core/services/provisioning/gitops assertOrgBundleCarriedAboveThePlan).
 //
-// THE FINDING. The per-Organization bundle — the bp-newapi Pod (1200m), the
-// openclaw controller (250m) and newapi's CNPG (500m) — is 1950m of limits.
+// THE FINDING. The per-Organization bundle — the bp-newapi Pod (700m), the
+// openclaw controller (250m) and newapi's CNPG (500m) — is 1450m of limits.
 // The smallest package is 1 vCPU (planQuotaTable["s"].CPULimit). The bundle
-// therefore does NOT fit the plan the customer bought (it left 50m of the old
-// 2 vCPU row). It is admitted ONLY because the org-controller sizes the
+// therefore does NOT fit the plan the customer bought (while the metering
+// sidecar ran, 1950m left 50m of the old 2 vCPU row). It is admitted ONLY
+// because the org-controller sizes the
 // ResourceQuota as plan + vCluster control plane + per-Organization platform
 // stack (#6902 follow-ups) and the stack term is these very pods, carried as
 // the Sovereign's overhead on top of the plan: the S quota renders limits.cpu
-// 7050m = 1000m plan + 1500m control plane + 4550m stack, and the customer's
+// 6550m = 1000m plan + 1500m control plane + 4050m stack, and the customer's
 // catalog applications have the 1000m. Under the plan alone the Pod is
 // refused at admission — the hw296 failure verbatim.
 //
@@ -466,11 +470,8 @@ func assertOrgBundleCarriedAboveThePlanBSS(t *testing.T, pod podCPUBSS, openclaw
 			"guard states the opposite — the bundle rides on the quota's platform-stack term, not the "+
 			"plan. Re-make the statement (and the pins below) before changing it:\n%s", bundle, headline, pod)
 	}
-	const wantBundle, wantHeadline, wantGuaranteed = 1950, 1000, 167
-	// AIP-040 switched the metering sidecar off, so the bundle renders less
-	// than 1950m while platformStack still carries the Pod with it. Until
-	// AIP-041 drops that term, the bundle may be at most 1950m.
-	if bundle > wantBundle || headline != wantHeadline || guaranteed != wantGuaranteed {
+	const wantBundle, wantHeadline, wantGuaranteed = 1450, 1000, 167
+	if bundle != wantBundle || headline != wantHeadline || guaranteed != wantGuaranteed {
 		t.Fatalf("the Org bundle totals %dm against a %dm headline / %dm guaranteed plan; this guard was "+
 			"written against %dm / %dm / %dm, measured from the same files. A term moved — name it and "+
 			"re-derive:\n  bp-newapi POD  %dm\n  openclaw ctrl  %dm\n  newapi CNPG    %dm\n%s",
@@ -486,9 +487,7 @@ func assertOrgBundleCarriedAboveThePlanBSS(t *testing.T, pod podCPUBSS, openclaw
 		{"bp-openclaw-<hash>", openclaw},
 	} {
 		carried, containers := platformStackLimitsCPUFromControllerBSS(t, tc.name)
-		// Until AIP-041 platformStack may carry more than this door renders
-		// (the metering-sidecar term, off since AIP-040), never less.
-		if carried < tc.door {
+		if carried != tc.door {
 			t.Fatalf("%s: this door renders %dm of limits.cpu but the org-controller's platformStack "+
 				"carries %dm as quota overhead — the %dm difference is charged to the customer's %dm "+
 				"plan instead (the #6324 refusal, one layer up). Move the two in lockstep.\n%s",
@@ -504,10 +503,11 @@ func assertOrgBundleCarriedAboveThePlanBSS(t *testing.T, pod podCPUBSS, openclaw
 // ─── The assertions ──────────────────────────────────────────────────────
 
 // liveAdmissionPodCPUMillisBSS is the quantity the hw296 admission controller
-// itself reported (`requested: limits.cpu=1200m`). Pinned rather than derived
+// itself reported (`requested: limits.cpu=1200m`), less the 500m
+// metering-sidecar that AIP-040 switched off. Pinned rather than derived
 // ON PURPOSE: it is the independent observation the derived arithmetic is
 // checked against, and it is what keeps the two doors from drifting apart.
-const liveAdmissionPodCPUMillisBSS = 1200
+const liveAdmissionPodCPUMillisBSS = 1200 - 500
 
 func TestOrgTenantBPNewAPI_6324_PodIsTheModelledUnit(t *testing.T) {
 	pod := newapiPodCPUMillisBSS(t)
@@ -535,12 +535,12 @@ func TestOrgTenantBPNewAPI_6324_PodIsTheModelledUnit(t *testing.T) {
 			pod.total, container, pod)
 	}
 
-	// AIP-040 switched the metering sidecar off, so the Pod renders less than
-	// the 1200m measured with it. Until AIP-041 takes a new reading, the Pod
-	// may be at most that figure.
-	if pod.total > liveAdmissionPodCPUMillisBSS {
-		t.Fatalf("Pod total = %dm, but the live hw296 admission refusal for walkthree/bp-newapi "+
-			"read `requested: limits.cpu=%dm`. The BSS door and the cluster now disagree about "+
+	// The hw296 refusal read `requested: limits.cpu=1200m` for the Pod with
+	// the 500m metering-sidecar, which AIP-040 switched off.
+	if pod.total != liveAdmissionPodCPUMillisBSS {
+		t.Fatalf("Pod total = %dm, but the live hw296 admission refusal for walkthree/bp-newapi, "+
+			"less the metering-sidecar switched off by AIP-040, is %dm. The BSS door and the "+
+			"cluster now disagree about "+
 			"what this Pod costs — reconcile them, and check the funnel door "+
 			"(core/services/provisioning/gitops) has moved in lockstep:\n%s",
 			pod.total, liveAdmissionPodCPUMillisBSS, pod)
@@ -569,10 +569,11 @@ func TestOrgTenantBPNewAPI_6324_OrgBundleIsCarriedAboveThePlanByTheQuota(t *test
 // TestOrgTenantBPNewAPI_6324_VacuityCheck_TheOldModelWouldHavePassed proves the
 // file is load-bearing: it reconstructs the PRE-FIX single-container arithmetic
 // from the same derived terms and shows it understates the bundle by the
-// sidecar cost (700m) — against the old 2 vCPU row it reported 750m of headroom
-// where the truth was 50m, so the old guard was green over a Pod the cluster
-// was refusing. Against the #6971 1 vCPU headline both models are short (−250m
-// and −950m) and the 700m gap is the same sidecar cost. Collapse the Pod model
+// sidecar cost — 700m while the metering sidecar ran, when against the old
+// 2 vCPU row it reported 750m of headroom where the truth was 50m, so the old
+// guard was green over a Pod the cluster was refusing. Since AIP-040 the cost
+// is the sandbox-bridge's 200m: against the #6971 1 vCPU headline both models
+// are short (−250m and −450m) and the 200m gap is that cost. Collapse the Pod model
 // back to one container and the numbers converge.
 func TestOrgTenantBPNewAPI_6324_VacuityCheck_TheOldModelWouldHavePassed(t *testing.T) {
 	pod := newapiPodCPUMillisBSS(t)
@@ -598,10 +599,8 @@ func TestOrgTenantBPNewAPI_6324_VacuityCheck_TheOldModelWouldHavePassed(t *testi
 		t.Fatalf("the understatement (%dm) is not the sidecar cost (%dm) — the arithmetic lost a term:\n%s",
 			gap, pod.total-container, pod)
 	}
-	const wantOld, wantNew = -250, -950
-	// Until AIP-041 the Pod model may leave more headroom than -950m (the
-	// metering sidecar is off since AIP-040), never less.
-	if oldHeadroom != wantOld || newHeadroom < wantNew {
+	const wantOld, wantNew = -250, -450
+	if oldHeadroom != wantOld || newHeadroom != wantNew {
 		t.Fatalf("the understatement changed: against the smallest plan headline the single-container "+
 			"model now reports %dm of headroom and the Pod model %dm (this file was written against "+
 			"%dm vs %dm). Re-derive and restate the defect before adjusting these:\n%s",

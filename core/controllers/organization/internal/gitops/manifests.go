@@ -730,13 +730,13 @@ var platformStack = []platformStackWorkload{
 	{
 		Name: "bp-newapi-<hash>", Release: "bp-newapi",
 		Source: "newapi: organization_gitops.go orgTenantBPNewAPI and helmrelease_apps.go generateNewAPIHR spec.values.newapi.resources; " +
-			"sandbox-bridge (native sidecar) / metering-sidecar: platform/newapi/chart/values.yaml sandboxBridge.resources / meteringSidecar.resources; " +
+			"sandbox-bridge (native sidecar): platform/newapi/chart/values.yaml sandboxBridge.resources; " +
+			"no metering-sidecar: meteringSidecar.enabled is false since AIP-040; " +
 			"wait-for-sql-dsn: platform/newapi/chart/templates/deployment.yaml (inline)",
 		Surge: true,
 		Containers: []containerShape{
 			{RequestsCPU: "500m", RequestsMemory: "256Mi", LimitsCPU: "500m", LimitsMemory: "1Gi"}, // newapi
 			{RequestsCPU: "10m", RequestsMemory: "32Mi", LimitsCPU: "200m", LimitsMemory: "128Mi"}, // sandbox-bridge (native sidecar, #3374)
-			{RequestsCPU: "25m", RequestsMemory: "64Mi", LimitsCPU: "500m", LimitsMemory: "256Mi"}, // metering-sidecar
 		},
 		// The plain init runs with the sandbox-bridge sidecar already held, so
 		// its true branch is init + bridge; both are far below the container
@@ -1325,8 +1325,8 @@ spec:
   that namespace holds pods this plan does not size: the vcluster syncer
   reflects the vcluster's own bundled system pods into it (coredns: 20m
   requests / 1000m limits, ratio 50:1 cpu, 2.66:1 mem) and the per-Organization
-  platform stack runs here too (the newapi sandbox-bridge and metering
-  sidecars at 20:1, its wait-for-sql-dsn init at 10:1, agenity's creds-resync
+  platform stack runs here too (the newapi sandbox-bridge sidecar at
+  20:1, its wait-for-sql-dsn init at 10:1, agenity's creds-resync
   at 10:1, newapi memory at 4:1 — platformStack). A LimitRange ratio applies to
   EVERY container admitted into the namespace, so any ratio tighter than 50:1
   forbids those pods at admission → coredns Pending → the vcluster runs
