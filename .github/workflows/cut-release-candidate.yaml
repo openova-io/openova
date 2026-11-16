@@ -1,8 +1,10 @@
 # cut-release-candidate.yaml - cut the release candidate rc/<id> from one commit of main.
 #
 # The rules are in scripts/release-candidate.sh. A pull request that changes the tool, its
-# test or this file runs the test only. A run started by hand runs the test, then
-# "release-candidate.sh cut", and writes the candidate into the job summary.
+# test, the chart-content check it calls (scripts/check-chart-content-after-version.py and its
+# allow list) or this file runs the test only. A run started by hand runs the test, then
+# "release-candidate.sh cut", and writes the candidate into the job summary. The cut needs the
+# whole history of main (fetch-depth: 0): the chart-content check reads it.
 #
 # The cut pushes rc/<id> with the release-writer deploy key (the secret RELEASE_WRITER_KEY,
 # through .github/actions/use-release-writer), never with the workflow token: the ruleset
@@ -27,6 +29,8 @@ on:
     paths:
       - 'scripts/release-candidate.sh'
       - 'scripts/test-release-candidate.sh'
+      - 'scripts/check-chart-content-after-version.py'
+      - 'scripts/chart-content-after-version.allow'
       - '.github/workflows/cut-release-candidate.yaml'
 
 permissions:

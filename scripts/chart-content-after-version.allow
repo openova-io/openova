@@ -1,0 +1,50 @@
+# chart-content-after-version.allow - charts whose files changed after their version was set,
+# where the published version is proven to hold the change, or the change is proven not to
+# alter what any Sovereign runs. Read by scripts/check-chart-content-after-version.py from the
+# commit it judges (#7922).
+#
+# One entry per line: <chart folder> <version> <through commit, 40 hex> <reason>
+# An entry covers its chart only while the chart is at <version> and no commit after <through>
+# changed the chart's files. The next change to the chart ends it: the release writer then
+# publishes a new version, and the check names the entry as one to delete.
+#
+# Before FND-029 (#7889, 15 November 2026) a release run published a chart's version again
+# with other files. Each chart below was last changed by a commit whose own release run
+# packaged and pushed that same version from that commit, so the published version holds
+# every change the check lists. Evidence: the run of Blueprint Release named in the entry, its
+# job "build (<chart folder minus /chart>)" and its step "Helm push to GHCR". Since FND-029 a
+# version is never published again with other files.
+
+# Run 43665853442 (workflow_dispatch from build-continuum-controller.yaml) checked out this
+# commit and pushed bp-continuum:0.2.1, digest sha256:5804b6dee774be809b5e8eb3d9438d4756fb9a693444f73d4ef723e0ec33670b,
+# at 2026-11-15T02:24:35Z. No later run built products/continuum.
+products/continuum/chart 0.2.1 dd54d5e8eeaebb9fedebcf20c8d5fbd5b25e2b68 published 0.2.1 was packaged from this commit (run 43665853442); the 13 later commits are image-tag bumps, all in it
+
+# Run 43629598740 (workflow_dispatch from build-openova-flow-adapter-flux.yaml) checked out this
+# commit and pushed bp-openova-flow-emitter:0.1.2, digest sha256:a7b63b8244e7125512dce3d3f90fc37310fce3b7ac6353767d2747020269b1fe,
+# at 2026-11-14T19:06:41Z. No later run built platform/openova-flow-emitter.
+platform/openova-flow-emitter/chart 0.1.2 6a8f0eaa9db8df3381465f747ed0cd71ffae33e8 published 0.1.2 was packaged from this commit (run 43629598740); the 4 later commits are image-tag bumps, all in it
+
+# Run 26867731418 (push of #2955) built each of these three charts at this commit; its step
+# "Helm push to GHCR" succeeded for each. The change is a Chart.yaml annotation for the smoke render.
+platform/hcloud-ccm/chart 1.0.0 c11521ba7fd8352428d03b04badc848eb80121e1 published 1.0.0 was pushed from this commit (run 26867731418)
+platform/livekit/chart 1.0.0 c11521ba7fd8352428d03b04badc848eb80121e1 published 1.0.0 was pushed from this commit (run 26867731418)
+platform/velero/chart 1.2.2 c11521ba7fd8352428d03b04badc848eb80121e1 published 1.2.2 was pushed from this commit (run 26867731418)
+
+# Run 25147033851 (push of #220) built the chart at this commit and succeeded; in that release
+# workflow a chart that builds is always pushed. The change adds the library subchart the
+# hollow-chart gate demands before it publishes anything.
+platform/syft-grype/chart 1.0.0 1689ffcd1a8891e780fc07d676da03fb36624a75 published 1.0.0 was pushed from this commit (run 25147033851)
+
+# Run 25615938912 (push of #1261) built the chart at this commit and succeeded, as above.
+platform/qa-app/chart 0.1.0 ba4a632298d010be9ca800dfb767daa238ec89a0 published 0.1.0 was pushed from this commit (run 25615938912)
+
+# These three were never published again: their builds at #2955 and #3339 failed before
+# "Helm push to GHCR". The only change after their version is the Chart.yaml annotation
+# catalyst.openova.io/smoke-render-mode (with its comment). Only CI reads it
+# (scripts/check-chart-annotations.sh, the smoke render of blueprint-release.yaml); no template
+# of these charts reads .Chart.Annotations, so the rendered manifests are the same with it or
+# without it. No bootstrap-kit slot pins them and the catalog seed has no entry of them.
+platform/anthropic-adapter/chart 1.0.0 0dd05808fc0fde7328251cfb2060a8588ef753c9 the later change is a CI-only Chart.yaml annotation; renders the same
+platform/knative/chart 1.0.0 0dd05808fc0fde7328251cfb2060a8588ef753c9 the later change is a CI-only Chart.yaml annotation; renders the same
+platform/librechat/chart 1.1.0 0dd05808fc0fde7328251cfb2060a8588ef753c9 the later change is a CI-only Chart.yaml annotation; renders the same
