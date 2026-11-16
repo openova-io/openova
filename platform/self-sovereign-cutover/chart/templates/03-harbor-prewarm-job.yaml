@@ -1117,22 +1117,17 @@ data:
      already serves the SAME manifest DURABLY (pushed into Harbor's own
      store), never on a transient pull-through.
 
-     WHY the #4994 shape was WRONG: it proved dest presence with
-     `skopeo inspect --raw` on the DESTINATION registry endpoint — a
-     REGISTRY-PROTOCOL read that returns whatever registry.<fqdn> serves
-     for the ref AT THAT MOMENT. During prewarm (step-03) egress is still
-     up and the dest ref resolves through a pull-through-reachable path
-     (a Harbor proxy-cache leg / an upstream still auth'd), so that
-     inspect PULLS THE MANIFEST THROUGH from upstream and returns
-     byte-identical bytes for an image that was NEVER durably pushed →
-     src==dst → false "current" → the real `skopeo copy` is SKIPPED and
-     the image logs (ok). The pull-through persists only the manifest, no
-     blobs; after step-08's deny-egress hold the image 404s and step-08's
-     completeness gate FAILS → cutoverComplete is never reached. Live
-     hw244: proxy-ghcr/open-telemetry/opentelemetry-operator:0.101.0
-     (durable Harbor artifact API returned NOT_FOUND while the dest
-     inspect pull-throughs). Same class killed hw243 (velero/cnpg; #5026
-     fixed only the host-pivot leg).
+     WHY the #4994 shape was WRONG: `skopeo inspect --raw` on the DEST is a
+     registry-protocol read of whatever registry.<fqdn> serves AT THAT
+     MOMENT. During step-03 egress is still up, so it PULLS THE MANIFEST
+     THROUGH (a Harbor proxy-cache leg / an upstream still auth'd) and
+     returns byte-identical bytes for an image NEVER durably pushed →
+     false "current" → the copy is SKIPPED. Only the manifest persists, no
+     blobs: after step-08's deny-egress hold the image 404s and step-08's
+     completeness gate FAILS (cutoverComplete never reached). Live hw244:
+     proxy-ghcr/open-telemetry/opentelemetry-operator:0.101.0 (artifact API
+     NOT_FOUND while the dest inspect pulled through). Same class killed
+     hw243 (velero/cnpg; #5026 fixed only the host-pivot leg).
 
      FIX: probe the DEST via the Harbor ARTIFACT API
      (GET /api/v2.0/projects/<proj>/repositories/<repo>/artifacts/<ref>) —
@@ -1255,7 +1250,9 @@ data:
     rl_slug() { printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_'; }
 
     prewarm_skopeo_copy() {
-      _pc_src="$1"; _pc_creds="$2"; _pc_lref="$3"; _pc_log="$4"
+      _pc_src="$1"; _pc_creds="$2"; _pc_lref="$3"; _pc_log="$4"; PREWARM_LEG_ERR=""
+      {{- /* #7938 — a copy whose source is its destination (after normalization) is never attempted: it can only read the registry it writes. */}}
+      if [ "$(offlinemirror_normalize_ref "${_pc_src}")" = "$(offlinemirror_normalize_ref "${_pc_lref}")" ]; then PREWARM_LEG_ERR="not attempted: the source ${_pc_src} is its own destination (#7938)"; echo "[harbor-prewarm] ${PREWARM_LEG_ERR}" >>"${_pc_log}"; return 1; fi
       {{- /* #5468 multi-arch mode first (unquoted: the flag string word-splits), matched on the SOURCE ref. */}}
       set -- $(prewarm_multiarch_flags "${_pc_src}")
       if [ -n "${_pc_creds}" ]; then set -- "$@" --src-creds="${_pc_creds}"; fi
@@ -1286,17 +1283,20 @@ data:
         fi
       fi
       {{- /*
-       #7900 #7922 — a failure of the DESTINATION (a refused or broken write to
-       the local registry: push denied, layer upload, `writing blob`/manifest,
-       or an error naming the local registry) returns 75: copy_one retries the
-       same source, no fallback, no latch. `happened during read` is a source
-       error reported from inside an upload. PREWARM_LEG_ERR keeps this leg's
-       final error for copy_one's Job-log line (values.yaml #7922 note).
+       #7900 #7922 #7938 — 75 = the DESTINATION failed (copy_one retries the same
+       source: no fallback, no latch), told ONLY by skopeo's write-phase errors
+       (push denied, layer upload, `writing blob`/manifest, blob reuse at or init
+       of the destination), never by the local host in the text: in
+       `initializing source docker://registry.<fqdn>/…` it is the SOURCE.
+       `happened during read` is a source error inside an upload. PREWARM_LEG_ERR
+       names the side, the ref and the identity (values.yaml #7922 note).
       */}}
-      if tail -c +"$((_pc_off+1))" "${_pc_log}" 2>/dev/null | grep -v 'happened during read' | grep -qE 'action: push|initiating layer upload|writing manifest'; then return 75; fi
       _pc_fatal=$(tail -c +"$((_pc_off+1))" "${_pc_log}" 2>/dev/null | grep 'level=fatal' | tail -1)
-      PREWARM_LEG_ERR=$(printf '%s' "${_pc_fatal:-skopeo exit ${_pc_rc}, no fatal line}" | sed -e 's/^.*level=fatal msg=//' -e 's/^"//' -e 's/"$//' | cut -c1-300)
-      case "${_pc_fatal}" in *'happened during read'*) : ;; *'writing blob'*|*"//${_pc_lref%%/*}/"*) return 75 ;; esac
+      _pc_err=$(printf '%s' "${_pc_fatal:-skopeo exit ${_pc_rc}, no fatal line}" | sed -e 's/^.*level=fatal msg=//' -e 's/^"//' -e 's/"$//' | cut -c1-300)
+      _pc_dst=""; if tail -c +"$((_pc_off+1))" "${_pc_log}" 2>/dev/null | grep -v 'happened during read' | grep -qE 'action: push|initiating layer upload|writing manifest'; then _pc_dst=1; fi
+      case "${_pc_fatal}" in *'happened during read'*) : ;; *'writing blob'*|*'reuse blob'*|*'initializing destination'*) _pc_dst=1 ;; esac
+      if [ -n "${_pc_dst}" ]; then PREWARM_LEG_ERR="write to ${_pc_lref} as ${HARBOR_USERNAME} failed: ${_pc_err}"; return 75; fi
+      _pc_who="${_pc_creds%%:*}"; PREWARM_LEG_ERR="read of ${_pc_src} as ${_pc_who:-anonymous} failed: ${_pc_err}"
       return "${_pc_rc}"
     }
 
@@ -1318,13 +1318,13 @@ data:
         printf '%s (excluded)' "${up}" >"${cpdir}/${slug}.ok"
         return 0
       fi
-      {{- /* #7938: a ref on the local registry (a pivoted workload; a chart rendered with this Sovereign's values) maps to itself; when it is absent it is copied from the upstream it maps back to (03a offlinemirror_upstream_ref), never from the registry to itself. */}}
+      {{- /* #7938: a ref on the local registry (a pivoted workload; a chart rendered with this Sovereign's values) maps to itself. Present: not copied. Absent: its upstream (03a offlinemirror_upstream_ref) is resolved BEFORE any copy; with none it fails by name and skopeo is never called. */}}
       case "${up}" in "${LOCAL_REGISTRY_HOST:-__none__}"/*)
         _cu_miss=""; for _cu_p in ${dests}; do [ -n "$(harbor_durable_digest "${_cu_p}")" ] || _cu_miss=1; done
         if [ -z "${_cu_miss}" ]; then printf '%s (in the local registry)' "${up}" >"${cpdir}/${slug}.ok"; return 0; fi
         _cu=$(offlinemirror_upstream_ref "${up}" 2>/dev/null || true)
         case "${_cu}" in
-          ""|"${LOCAL_REGISTRY_HOST}"/*) echo "[harbor-prewarm] ${up} points at the local registry, is not in it, and maps back to no upstream (#7938)" >>"${cpdir}/${slug}.log" ;;
+          ""|"${LOCAL_REGISTRY_HOST}"/*) printf '%s points at the local registry, is not in it, and maps back to no upstream: not copied (#7938)' "${up}" >"${cpdir}/${slug}.fail"; echo "[harbor-prewarm] FAIL $(cat "${cpdir}/${slug}.fail")"; return 0 ;;
           *) echo "[harbor-prewarm] ${up} points at the local registry and is not in it: copying it from its upstream ${_cu} (#7938)" >>"${cpdir}/${slug}.log"; up="${_cu}" ;;
         esac ;;
       esac
@@ -1446,7 +1446,7 @@ data:
           fi
           {{- /* #5095 — the fallback runs inside the same attempt, before it counts as failed; never on a destination failure (75). */}}
           if [ "${rc}" -eq 75 ]; then
-            echo "[harbor-prewarm] ${lref} refused the write (destination failure, not a source failure): no source fallback, no proxy latch; same source after the backoff (#7900)" >>"${cpdir}/${slug}.log"
+            echo "[harbor-prewarm] ${lref} refused the write (destination failure, not a source failure): ${PREWARM_LEG_ERR:-}; no source fallback, no proxy latch; same source after the backoff (#7900)" >>"${cpdir}/${slug}.log"
           elif [ -n "${fb_up}" ]; then
             if [ "${proxy_src}" -eq 1 ]; then
               echo "[harbor-prewarm] proxy source failed (exit=${rc}); direct-source fallback ${fb_up} -> ${lref} attempt ${attempt}/${max_attempts} (#5095)" >>"${cpdir}/${slug}.log"
@@ -1480,7 +1480,7 @@ data:
               rc=$?
             fi
           fi
-          echo "[harbor-prewarm] copy ${up} -> ${lref} attempt ${attempt} failed (exit=${rc}); retrying after backoff" >>"${cpdir}/${slug}.log"
+          echo "[harbor-prewarm] copy ${up} -> ${lref} attempt ${attempt} failed (exit=${rc}: ${PREWARM_LEG_ERR:-}); retrying after backoff" >>"${cpdir}/${slug}.log"
           attempt=$((attempt+1))
           if [ "${attempt}" -le "${max_attempts}" ]; then
             if [ "${proxy_src}" -eq 1 ]; then
