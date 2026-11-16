@@ -979,6 +979,11 @@ func (h *Handler) SetK8sCache(f *k8scache.Factory, sar *k8scache.SARCache, userH
 			}
 			return true
 		})
+		// #7938 — the network registry of every ready record, read first and
+		// written only where it is absent or differs (network_registry.go).
+		// Here, not in restoreFromStore: this is the first moment the parent
+		// holds both the restored records and the cluster cache.
+		go h.reconcileNetworkRegistries(context.Background(), f)
 	}
 }
 

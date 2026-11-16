@@ -12,6 +12,19 @@
 // The writer of the Sovereign object, `sovereign-ops sovereign-object`, runs
 // in every region and copies the document into status.network. Nothing of it
 // passes through the user data of a node.
+//
+// A Sovereign handed over before that hand-over step wrote the registry has
+// no ConfigMap (#7938). ReconcileNetworkRegistry repairs that without the
+// hand-over: in every region it reads the ConfigMap first and writes it, with
+// the same server-side apply, only when it is absent or carries another
+// document. The parent runs it for every ready deployment when it starts, and
+// for one deployment on POST /api/v1/deployments/{id}/network-registry
+// (handler file network_registry.go).
+//
+// The identity of every write is the one of the region's kubeconfig on the
+// parent: ServiceAccount kube-system/parent-bootstrap of that region, bound to
+// cluster-admin (infra/providers/_shared/cloudinit-control-plane.tftpl). No
+// role of the parent's own chart is involved.
 package lifecycle
 
 import (
@@ -24,7 +37,9 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -46,6 +61,18 @@ const (
 
 // ErrNoNetworkRegistry: the state was written by a module without the output.
 var ErrNoNetworkRegistry = errors.New("the OpenTofu state holds no output network_registry")
+
+// ErrNoClusterCache: the parent runs without its cluster cache.
+var ErrNoClusterCache = errors.New("the parent has no cluster cache")
+
+// ErrNoRegionCluster: the cluster cache holds no cluster of the deployment.
+var ErrNoRegionCluster = errors.New("the cluster cache holds no cluster of deployment")
+
+// networkRegistryRegionTimeout bounds the read and the write in one region, so
+// a region that does not answer does not hold up the next one.
+const networkRegistryRegionTimeout = 30 * time.Second
+
+var configMapsGVR = schema.GroupVersionResource{Version: "v1", Resource: "configmaps"}
 
 // NetworkRegistryFromState returns the value of the output network_registry of
 // an OpenTofu state file: the registry as JSON text, exactly as the module
@@ -131,12 +158,9 @@ func DeliverNetworkRegistry(ctx context.Context, state []byte, deploymentID stri
 	if err != nil {
 		return []string{"not delivered: " + err.Error()}
 	}
-	if clusters == nil || (reflect.ValueOf(clusters).Kind() == reflect.Ptr && reflect.ValueOf(clusters).IsNil()) {
-		return []string{"not delivered: the parent has no cluster cache"}
-	}
-	ids := NetworkRegistryClusters(clusters.Clusters(), deploymentID)
-	if len(ids) == 0 {
-		return []string{"not delivered: the cluster cache holds no cluster of deployment " + deploymentID}
+	ids, err := deploymentClusters(clusters, deploymentID)
+	if err != nil {
+		return []string{"not delivered: " + err.Error()}
 	}
 	cm := NetworkRegistryConfigMap(registry)
 	rev := cm.Object["data"].(map[string]any)[NetworkRegistryRevisionKey]
@@ -155,6 +179,95 @@ func DeliverNetworkRegistry(ctx context.Context, state []byte, deploymentID stri
 	return out
 }
 
+// deploymentClusters returns the clusters of the deployment that clusters
+// holds, or ErrNoClusterCache or ErrNoRegionCluster.
+func deploymentClusters(clusters Clusters, deploymentID string) ([]string, error) {
+	if clusters == nil || (reflect.ValueOf(clusters).Kind() == reflect.Ptr && reflect.ValueOf(clusters).IsNil()) {
+		return nil, ErrNoClusterCache
+	}
+	ids := NetworkRegistryClusters(clusters.Clusters(), deploymentID)
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("%w %s", ErrNoRegionCluster, deploymentID)
+	}
+	return ids, nil
+}
+
+// RegionResult is what the reconcile did in one cluster of a deployment.
+// Written is true when the ConfigMap was absent or carried another document
+// and was written; Error says why the cluster was not judged.
+type RegionResult struct {
+	Cluster string `json:"cluster"`
+	Written bool   `json:"written"`
+	Error   string `json:"error,omitempty"`
+}
+
+// ReconcileNetworkRegistry reads the registry from state and, in every cluster
+// of the deployment that clusters holds (the primary first), makes the
+// ConfigMap carry it with EnsureNetworkRegistryConfigMap: a read, then a write
+// only when the ConfigMap is absent or differs. It returns the revision and
+// one result per cluster; a cluster that fails does not stop the others. The
+// error is set when nothing could be judged: the state holds no registry
+// (ErrNoNetworkRegistry or a read error), ErrNoClusterCache or
+// ErrNoRegionCluster.
+func ReconcileNetworkRegistry(ctx context.Context, state []byte, deploymentID string, clusters Clusters) (string, []RegionResult, error) {
+	registry, err := NetworkRegistryFromState(state)
+	if err != nil {
+		return "", nil, err
+	}
+	ids, err := deploymentClusters(clusters, deploymentID)
+	if err != nil {
+		return "", nil, err
+	}
+	cm := NetworkRegistryConfigMap(registry)
+	rev, _ := cm.Object["data"].(map[string]any)[NetworkRegistryRevisionKey].(string)
+	out := make([]RegionResult, 0, len(ids))
+	for _, id := range ids {
+		res := RegionResult{Cluster: id}
+		dyn, err := clusters.DynamicClientFor(id)
+		if err == nil {
+			regionCtx, cancel := context.WithTimeout(ctx, networkRegistryRegionTimeout)
+			res.Written, err = EnsureNetworkRegistryConfigMap(regionCtx, dyn, cm.DeepCopy())
+			cancel()
+		}
+		if err != nil {
+			res.Error = err.Error()
+		}
+		out = append(out, res)
+	}
+	return rev, out, nil
+}
+
+// EnsureNetworkRegistryConfigMap reads the ConfigMap of cm with dyn and writes
+// cm with ApplyConfigMap only when the ConfigMap is absent or its revision or
+// document differs from cm's. It reports whether it wrote. Its calls are a get
+// and, at most, one patch, of that one ConfigMap.
+func EnsureNetworkRegistryConfigMap(ctx context.Context, dyn dynamic.Interface, cm *unstructured.Unstructured) (bool, error) {
+	live, err := dyn.Resource(configMapsGVR).Namespace(cm.GetNamespace()).Get(ctx, cm.GetName(), metav1.GetOptions{})
+	switch {
+	case apierrors.IsNotFound(err):
+	case err != nil:
+		return false, err
+	case sameRegistry(live, cm):
+		return false, nil
+	}
+	if err := ApplyConfigMap(ctx, dyn, cm); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// sameRegistry reports whether live carries the revision and the document of want.
+func sameRegistry(live, want *unstructured.Unstructured) bool {
+	for _, key := range []string{NetworkRegistryRevisionKey, NetworkRegistryKey} {
+		have, found, err := unstructured.NestedString(live.Object, "data", key)
+		wanted, _, _ := unstructured.NestedString(want.Object, "data", key)
+		if err != nil || !found || have != wanted {
+			return false
+		}
+	}
+	return true
+}
+
 // ApplyConfigMap server-side-applies cm with dyn.
 func ApplyConfigMap(ctx context.Context, dyn dynamic.Interface, cm *unstructured.Unstructured) error {
 	body, err := cm.MarshalJSON()
@@ -162,7 +275,7 @@ func ApplyConfigMap(ctx context.Context, dyn dynamic.Interface, cm *unstructured
 		return err
 	}
 	force := true
-	_, err = dyn.Resource(schema.GroupVersionResource{Version: "v1", Resource: "configmaps"}).Namespace(cm.GetNamespace()).
+	_, err = dyn.Resource(configMapsGVR).Namespace(cm.GetNamespace()).
 		Patch(ctx, cm.GetName(), types.ApplyPatchType, body, metav1.PatchOptions{FieldManager: networkRegistryManager, Force: &force})
 	return err
 }

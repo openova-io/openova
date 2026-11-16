@@ -160,6 +160,7 @@ POST /api/v1/deployments/{depId}/jobs/{jobId}/retry handler.(*Handler).RetryJob-
 POST /api/v1/deployments/{depId}/reconcilers/{kind}/{ns}/{name}/{action} handler.(*Handler).ReconcilerAction-fm 2
 POST /api/v1/deployments/{depId}/refresh-watch handler.(*Handler).RefreshWatch-fm 2
 POST /api/v1/deployments/{id}/mint-handover-token handler.(*Handler).MintHandoverToken-fm 3
+POST /api/v1/deployments/{id}/network-registry handler.(*Handler).HandleNetworkRegistry-fm 3
 POST /api/v1/deployments/{id}/phases/{phase}/retry handler.(*Handler).RetryPhase-fm 3
 POST /api/v1/deployments/{id}/republish-dns handler.(*Handler).HandleRepublishDNS-fm 3
 POST /api/v1/deployments/{id}/wipe handler.(*Handler).WipeDeployment-fm 3
