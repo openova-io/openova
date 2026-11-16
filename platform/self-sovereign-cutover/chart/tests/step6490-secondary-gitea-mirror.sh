@@ -141,14 +141,25 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
     #      follower leg; daytwo-catalog-leg.sh executes the refusal. The tail
     #      after "No override exists for this refusal" is canonicalised on BOTH
     #      trees.
+    #  10. #7938 changed step 03 and the chart-set library (03c) in EVERY
+    #      topology: Phase A3 renders each pinned chart with the values of every
+    #      HelmRelease that installs it, copy_one copies a local-registry ref
+    #      from its upstream, and the run guard also checks what the pinned
+    #      charts declare. None of that is the follower leg. While origin/main
+    #      lacks the prewarm-sovereign-values anchor, the step-03 and 03c
+    #      documents are left out of BOTH trees, as axes 5 and 8 do;
+    #      tests/step7938-prewarm-sovereign-values.sh verifies the change itself.
+    #      The axis switches itself off once origin/main holds the change.
     drop7900=0
     grep -q 'front-door-sample BEGIN' "${TMP}/main.yaml" || drop7900=1
     drop7922=0
     grep -q 'prewarm-run-guard BEGIN' "${TMP}/main.yaml" || drop7922=1
+    drop7938=0
+    grep -q 'prewarm-sovereign-values BEGIN' "${TMP}/main.yaml" || drop7938=1
     norm() {
-      awk -v drop7900="${drop7900}" -v drop7922="${drop7922}" '
-        (drop7900==1 || drop7922==1) && /^---$/ {next}
-        /^# Source: / {_d7 = (drop7900==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|08-egress-block-test-job|10-auto-trigger-job|11-crossplane-provider-pivot-job)\.yaml$/) || (drop7922==1 && $0 ~ /\/templates\/03-harbor-prewarm-job\.yaml$/)}
+      awk -v drop7900="${drop7900}" -v drop7922="${drop7922}" -v drop7938="${drop7938}" '
+        (drop7900==1 || drop7922==1 || drop7938==1) && /^---$/ {next}
+        /^# Source: / {_d7 = (drop7900==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|08-egress-block-test-job|10-auto-trigger-job|11-crossplane-provider-pivot-job)\.yaml$/) || (drop7922==1 && $0 ~ /\/templates\/03-harbor-prewarm-job\.yaml$/) || (drop7938==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|03c-catalog-chart-set)\.yaml$/)}
         _d7==1 {next}
         /if ! \$\{fresh_pull_fn\}; then$/ {print; _fp=1; next}
         _fp==1 {_fp=0; if ($0 ~ /kubectl delete ciliumclusterwidenetworkpolicy cutover-egress-block --ignore-not-found=true \|\| true$/) next}

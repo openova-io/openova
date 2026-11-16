@@ -1047,57 +1047,19 @@ data:
     echo "[harbor-prewarm] ${count} unique image(s) to mirror; $(awk -F'\t' '$2=="primary" {p[$1]=1} {a[$1]=1} END {n=0; for (k in a) if (!(k in p)) n++; print n}' "${run_images_file}") of them run only in a follower region (#7922)"
 
     {{- /*
-     Native push each via skopeo copy, run in PARALLEL with a
-     bounded fan-out.
-
-     #3379 step-03 DeadlineExceeded (hw139, 2026-06-15): these ~29
-     multi-layer openova-io copies ran STRICTLY SERIAL over kom4dc's
-     throttled ghcr→Harbor egress and blew the step deadline with
-     only 6/29 pushed → local Harbor openova-io project incomplete →
-     post-cutover ImagePullBackOff → Step-08 deny-egress proof never
-     ran. The bytes themselves are unavoidable (the source images are
-     PRIVATE on ghcr, so Harbor's anonymous proxy-cache 404s them —
-     #3534 — this authenticated skopeo push is the only working
-     route), but the WALL-CLOCK is collapsible: copies are
-     independent, so we run PREWARM_PARALLELISM of them at once. Each
-     worker writes its own result sentinel (`.ok`/`.fail`) + captured
-     log under ${cpdir}; the parent `wait`s for all, then prints each
-     log prefix-indented and tallies from the sentinels. POSIX sh has
-     no `wait -n`, so we cap concurrency by counting live background
-     PIDs and pausing the launch loop until one drains.
-
-     skopeo gains `--retry-times 5` so a single transient ghcr/Harbor
-     5xx or reset inside a copy self-heals (resumable layer fetch)
-     instead of failing the whole image — independent of the binary-
-     download retry above.
-
-     #3608-followup (hw146 step-03 FATAL, 2026-06-16): even with
-     `--retry-times`, the two LARGE guacamole images
-     (guacamole-server:1.5.5 + guacd:1.5.5, ~50MB blobs) still FATAL'd
-     the whole step on TRANSIENT mid-blob connection resets over a
-     freshly-bootstrapped network — skopeo logged
-     `Reading blob ... failed (unexpected EOF), reconnecting ...` then
-     `writing blob ... use of closed network connection`, and 2/29
-     copies failed -> push_fail>0 -> `FATAL: 2 openova-io image(s)
-     failed to push` -> cutover never reached step-04+. `--retry-times`
-     retries the individual blob fetch INSIDE one `skopeo copy`, but a
-     Harbor-side reset that closes the dest connection can still abort
-     the copy as a whole. So copy_one ALSO wraps the `skopeo copy` in an
-     OUTER per-image retry loop (PREWARM_COPY_ATTEMPTS, default 3): if a
-     full copy fails after exhausting `--retry-times`, the whole copy is
-     re-attempted up to N times with a short backoff sleep before the
-     image is counted as `push_fail`. The FATAL-on-failure contract is
-     PRESERVED (Pillar 5 requires ALL openova-io images local for the
-     deny-egress hold) — the step only FATALs once BOTH retry layers are
-     exhausted for an image. Each outer attempt is logged.
-
-     Two earlier #3379 keystone catches (hw138, 2026-06-14) stay in
-     force: (1) `--insecure-policy` so skopeo doesn't fatal on the
-     missing /etc/containers/policy.json that alpine/k8s + the lework
-     static binary omit; (2) branch on skopeo's REAL exit status
-     (captured per-worker) rather than a piped `sed` whose status is
-     always 0 under this `set -eu` (no pipefail) shell — the bug that
-     made every fatal copy miscount as success.
+     Native push each via skopeo copy, PREWARM_PARALLELISM at once (#3379,
+     hw139: serial copies over a throttled egress blew the step deadline with
+     6/29 pushed; the ghcr sources are private, so this authenticated push is
+     the only route, but the wall-clock collapses). Each worker writes its own
+     `.ok`/`.fail` sentinel and log under ${cpdir}; the parent waits for all
+     and tallies the sentinels (POSIX sh has no `wait -n`: the launch loop
+     counts live PIDs). skopeo `--retry-times` heals a transient reset inside
+     one copy; copy_one adds an OUTER per-image retry (PREWARM_COPY_ATTEMPTS)
+     because a Harbor-side reset can abort a whole copy (#3608, hw146: two
+     ~50MB guacamole images). The step FATALs only when both retry layers are
+     exhausted (every image must be local for the deny-egress hold).
+     `--insecure-policy` (no /etc/containers/policy.json in the image) and the
+     branch on skopeo's REAL exit status, never a piped sed's, stay (#3379).
     */}}
     : "${PREWARM_PARALLELISM:=6}"
     : "${PREWARM_COPY_ATTEMPTS:=3}"
@@ -1356,6 +1318,16 @@ data:
         printf '%s (excluded)' "${up}" >"${cpdir}/${slug}.ok"
         return 0
       fi
+      {{- /* #7938: a ref on the local registry (a pivoted workload; a chart rendered with this Sovereign's values) maps to itself; when it is absent it is copied from the upstream it maps back to (03a offlinemirror_upstream_ref), never from the registry to itself. */}}
+      case "${up}" in "${LOCAL_REGISTRY_HOST:-__none__}"/*)
+        _cu_miss=""; for _cu_p in ${dests}; do [ -n "$(harbor_durable_digest "${_cu_p}")" ] || _cu_miss=1; done
+        if [ -z "${_cu_miss}" ]; then printf '%s (in the local registry)' "${up}" >"${cpdir}/${slug}.ok"; return 0; fi
+        _cu=$(offlinemirror_upstream_ref "${up}" 2>/dev/null || true)
+        case "${_cu}" in
+          ""|"${LOCAL_REGISTRY_HOST}"/*) echo "[harbor-prewarm] ${up} points at the local registry, is not in it, and maps back to no upstream (#7938)" >>"${cpdir}/${slug}.log" ;;
+          *) echo "[harbor-prewarm] ${up} points at the local registry and is not in it: copying it from its upstream ${_cu} (#7938)" >>"${cpdir}/${slug}.log"; up="${_cu}" ;;
+        esac ;;
+      esac
       {{- /* SOURCE host → src-creds selection (bare official image = docker.io). */}}
       srchost="${up%%/*}"
       case "${srchost}" in *.*|*:*|localhost) : ;; *) srchost="docker.io" ;; esac
@@ -2425,52 +2397,69 @@ data:
     fi
 
     {{- /*
-     ── Phase A3-chart-images (#5442, Refs #5443 #5237 #5437): warm the
-     images the PINNED CHART VERSIONS reference — not only the images
-     the cluster happens to be running.
-
-     #5442: harbor-prewarm sources its two inputs from two places that
-     agree ONLY while the cluster has already converged to what the
-     mirror declares — chart versions from the mirror's pins (Phase A2
-     / A2-pins), image tags from the LIVE CLUSTER (running Pods ∪
-     declared templates). A completely FRESH mirror pinning a chart
-     whose images the cluster has not yet rolled to reproduces the
-     outage with NO staleness involved, so it survives the #5441
-     stale-snapshot fix: step-05 pivots Flux onto charts pinning images
-     the prewarm never warmed, and the local registry correctly answers
-     NotFound. Live hw290 2026-07-27 — catalyst-api, catalyst-ui and
-     catalyst-organization-controller all ImagePullBackOff on local
-     tags that did not exist, and the Sovereign could not self-heal
-     because catalyst-api is what DRIVES the cutover; recovery meant
-     hand-pinning all three back to ghcr, i.e. re-tethering.
-
-     #5443's layer-down leg is the same defect seen from the other end:
-     a mirrored catalog chart whose images are absent fails at pod-pull
-     instead of chart-pull. Phase A's live-cluster walk by construction
-     cannot know the images of a chart NOBODY HAS INSTALLED, which is
-     every catalog entry the marketplace offers but no Org has bought.
-
-     ONE mechanism closes both: the input for the contractual set
-     becomes the CHART. Every chart in `chart_hard` — the live-HR
-     deployed∪desired union, the frozen bootstrap-kit pins, and the
-     contractual catalog entries — is pulled back OUT of the local
-     Harbor it was just mirrored into (skopeo `dir:` transport: no
-     `helm registry login` dance, no extra upstream egress, and it
-     proves the chart mirror in passing), rendered at DEFAULT values,
-     and every image the render pins is mirrored through the SAME
-     offline-mirror resolver + copy_one the live wave used, so step-08's
-     completeness HEAD looks at identical local paths.
-     blueprint-release.yaml gates every published bp-* chart on a
-     default-values `helm template` of the packaged tgz (plus a <5-line
-     empty-render block), so the render is faithful, not heuristic.
-
-     UNION, NOT REPLACEMENT. The live-cluster walk stays exactly as it
-     was and this set is added to it. Replacing it would be strictly
-     WORSE: a default-values render cannot see an image behind a
-     conditional a per-Sovereign overlay turns on, which the runtime
-     walk does see. A union can only widen coverage, never narrow it —
-     so this cannot regress any cutover that works today.
+     ── Phase A3-chart-images (#5442 #5443 #7938): warm the images the PINNED
+     CHART VERSIONS declare, not only what the cluster runs. The live walk
+     (Phase A) cannot see a chart's images before the cluster rolls to it
+     (hw290 2026-07-27: catalyst-api, catalyst-ui and the organization
+     controller ImagePullBackOff on local tags never warmed, and catalyst-api
+     drives the cutover), nor those of a catalogue chart nobody installed. So
+     every chart in `chart_hard` (live-HR deployed∪desired, the kit pins, the
+     contractual catalogue) is pulled back out of local Harbor (skopeo `dir:`),
+     rendered, and every image the render pins goes through the same resolver
+     and copy_one as the live wave, so step-08 checks identical local paths.
+     #7938: rendered at its default values AND with the values of each
+     HelmRelease that installs it, in every region (valuesFrom in order, then
+     spec.values, as Flux merges them; a Secret's targetPath value is rendered
+     as "set", never its bytes; a suspended release runs nothing). Only those
+     values turn on images such as the umbrella's org-services
+     (ingress.marketplace.enabled, default false): on hw307, 16 Nov 2026, nine
+     Deployments went ImagePullBackOff after a release that warmed defaults
+     only. A union with the live walk: it can only widen coverage.
     */}}
+    # ── prewarm-sovereign-values BEGIN (#7938 extraction anchor — tests/step7938-prewarm-sovereign-values.sh runs this block verbatim) ──
+    # prewarm_hr_values <dir>: one folder per HelmRelease of every region: chart, ns, where, v<n>.yaml in merge order.
+    prewarm_hr_values() {
+      _hv_o="$1"; rm -rf "${_hv_o}"; mkdir -p "${_hv_o}"; _hv_i=0
+      for _hv_kc in primary /secondary-kubeconfigs/*.yaml; do
+        if [ "${_hv_kc}" = primary ]; then set --; else [ -e "${_hv_kc}" ] || continue; set -- --kubeconfig "${_hv_kc}"; fi
+        kubectl "$@" get helmreleases.helm.toolkit.fluxcd.io -A -o json >"${_hv_o}/hr.json" 2>/dev/null || return 1
+        jq -c '.items[] | select(.spec.chart.spec.chart != null and .spec.suspend != true)' "${_hv_o}/hr.json" >"${_hv_o}/hr.jsonl" || return 1
+        while IFS= read -r _hv_l; do
+          _hv_i=$((_hv_i+1)); _hv_d="${_hv_o}/${_hv_i}"; mkdir -p "${_hv_d}"
+          printf '%s' "${_hv_l}" | jq -r .spec.chart.spec.chart >"${_hv_d}/chart"
+          printf '%s' "${_hv_l}" | jq -r .metadata.namespace >"${_hv_d}/ns"
+          printf '%s %s/%s\n' "$(basename "${_hv_kc}" .yaml)" "$(cat "${_hv_d}/ns")" "$(printf '%s' "${_hv_l}" | jq -r .metadata.name)" >"${_hv_d}/where"
+          printf '%s' "${_hv_l}" | jq -r '(.spec.valuesFrom // []) | to_entries[] | [.key + 100, .value.kind, .value.name, (.value.valuesKey // "values.yaml"), (.value.targetPath // "-")] | @tsv' \
+            | while IFS="$(printf '\t')" read -r _hv_k _hv_kind _hv_n _hv_key _hv_tp; do
+                _hv_v=$(kubectl "$@" -n "$(cat "${_hv_d}/ns")" get "${_hv_kind}" "${_hv_n}" -o json 2>/dev/null \
+                  | jq -r --arg k "${_hv_key}" 'if .kind == "Secret" then (.data[$k] // empty | @base64d) else (.data[$k] // empty) end' 2>/dev/null || true)
+                [ -n "${_hv_v}" ] || continue
+                [ "${_hv_tp}" = "-" ] && { printf '%s\n' "${_hv_v}" >"${_hv_d}/v${_hv_k}.yaml"; continue; }
+                [ "${_hv_kind}" = Secret ] && _hv_v=set
+                jq -n --arg p "${_hv_tp}" --arg v "${_hv_v}" 'setpath($p | split("."); (try ($v | fromjson) catch $v))' >"${_hv_d}/v${_hv_k}.yaml"
+              done
+          printf '%s' "${_hv_l}" | jq '.spec.values // {}' >"${_hv_d}/v999.yaml"
+        done <"${_hv_o}/hr.jsonl"
+      done
+    }
+    # prewarm_chart_images <tgz> <chart> <values dir>: the images of the default render and of the render with
+    # each HelmRelease's values; a ref that points at the local registry is named by the upstream it maps to.
+    prewarm_chart_images() {
+      _pci_t="$1"; _pci_c="$2"; _pci_o="$3"
+      { chart_declared_images "${_pci_t}"
+        for _pci_f in $(grep -lx "${_pci_c}" "${_pci_o}"/*/chart 2>/dev/null); do
+          _pci_d="${_pci_f%/chart}"; set --
+          for _pci_v in "${_pci_d}"/v*.yaml; do [ -e "${_pci_v}" ] && set -- "$@" -f "${_pci_v}"; done
+          echo "[harbor-prewarm] Phase A3-chart-images: ${_pci_c} also rendered with the values of HelmRelease $(cat "${_pci_d}/where") (#7938)" >&2
+          chart_declared_images "${_pci_t}" --namespace "$(cat "${_pci_d}/ns")" "$@"
+        done; } | while IFS= read -r _pci_r; do
+          case "${_pci_r}" in "${LOCAL_REGISTRY_HOST:-__none__}"/*) offlinemirror_upstream_ref "${_pci_r}" || printf '%s\n' "${_pci_r}" ;; *) printf '%s\n' "${_pci_r}" ;; esac
+        done | sort -u
+    }
+    # prewarm_release_seed <images> <run list>: the images the pinned charts declare for installed releases join
+    # the run guard's list, so the step ends only when what the release WILL run is local too (#7922, #7938).
+    prewarm_release_seed() { [ -s "$1" ] || return 0; awk -v r="pinned by ${UPSTREAM_BRANCH:-main}" 'NF {print $0 "\t" r}' "$1" >>"$2"; }
+    # ── prewarm-sovereign-values END ──
     : "${PREWARM_CHART_IMAGES:=true}"
     : "${PREWARM_CHART_IMAGES_FATAL:=true}"
     if [ "${PREWARM_CHART_IMAGES}" = "true" ] && [ -s "${chart_hard}" ]; then
@@ -2506,6 +2495,7 @@ data:
       cat_wave_file=/tmp/.prewarm-image-wave.txt
       printf '%s\n' ${mirror_work} > "${cat_wave_file}"
       cat_render_fail=0
+      prewarm_hr_values /tmp/prewarm-hr-values || { echo "[harbor-prewarm] FATAL (#7938): could not read the HelmReleases of every region, so the images their own values turn on cannot be named"; exit 1; }
       while IFS="$(printf '\t')" read -r ci_c ci_v; do
         [ -z "${ci_c}" ] && continue
         ci_slug=$(printf '%s_%s' "${ci_c}" "${ci_v}" | tr -c 'A-Za-z0-9._-' '_')
@@ -2542,7 +2532,7 @@ data:
           cat_render_fail=$((cat_render_fail+1))
           continue
         fi
-        ci_imgs=$(chart_declared_images "${ci_tgz}" 2>/tmp/.chart-images.err || true)
+        ci_imgs=$(prewarm_chart_images "${ci_tgz}" "${ci_c}" /tmp/prewarm-hr-values 2>/tmp/.chart-images.err || true)
         sed 's/^/    /' /tmp/.chart-images.err 2>/dev/null || true
         ci_n=$(printf '%s\n' "${ci_imgs}" | grep -c . || true)
         echo "[harbor-prewarm] Phase A3-chart-images: ${ci_c}:${ci_v} renders ${ci_n} image ref(s)"
@@ -3372,13 +3362,14 @@ data:
       cpdir="${_rg_cpdir_saved}"
       _rg_mn=$(grep -c . "${_rg_dir}/missing.txt" || true)
       if [ "${_rg_mn}" -gt 0 ]; then
-        echo "[harbor-prewarm] FATAL (#7922): ${_rg_mn} image(s) that this Sovereign runs are not in its own registry. Under the deny-egress hold, and after it, each pod that needs one fails to pull on its next start:"
+        echo "[harbor-prewarm] FATAL (#7922): ${_rg_mn} image(s) that this Sovereign runs, or that the charts it is given pin for an installed release, are not in its own registry. Under the deny-egress hold, and after it, each pod that needs one fails to pull on its next start:"
         sed 's/^/  RUNNING-MISSING /' "${_rg_dir}/missing.txt"
         return 1
       fi
-      echo "[harbor-prewarm] run guard (#7922): PASS — ${_rg_n} image(s) that pods run or workload templates declare in every region; ${_rg_pn} local path(s) durably present (${_rg_healed} copied by the guard), ${_rg_excl} excluded by design"
+      echo "[harbor-prewarm] run guard (#7922): PASS — ${_rg_n} image(s) that pods run, workload templates declare in every region or the pinned charts declare for installed releases; ${_rg_pn} local path(s) durably present (${_rg_healed} copied by the guard), ${_rg_excl} excluded by design"
     }
     # ── prewarm-run-guard END ──
+    prewarm_release_seed "${cat_img_installed:-}" "${run_images_file}"
     prewarm_run_guard /tmp/prewarm-run-guard "${run_images_file}" || exit 1
   podSpec: |
     serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
