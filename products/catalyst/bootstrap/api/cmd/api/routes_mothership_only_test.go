@@ -19,6 +19,7 @@ var mothershipOnly = []string{
 	"GET /api/v1/deployments/{id}/kubeconfig",
 	"POST /api/v1/deployments",
 	"POST /api/v1/deployments/{id}/mint-handover-token",
+	"POST /api/v1/deployments/{id}/network-registry",
 	"POST /api/v1/deployments/{id}/phases/{phase}/retry",
 	"POST /api/v1/deployments/{id}/republish-dns",
 	"POST /api/v1/deployments/{id}/wipe",

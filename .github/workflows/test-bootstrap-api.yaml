@@ -38,6 +38,11 @@ name: Test — Bootstrap API (Go)
 # helm and read with yq:
 #   platform/self-sovereign-cutover/chart/files/release/**
 #   products/catalyst/chart/templates/clusterrole-cutover-driver.yaml
+# The network-registry tests of internal/lifecycle read the two-region registry
+# fixture of the registry guard, and replay the registry's calls against the
+# role that the first-boot template binds to parent-bootstrap (#7938; the
+# template is under infra/providers/_shared/**):
+#   scripts/tests/check-network-registry/valid-two-regions.json
 on:
   push:
     paths:
@@ -56,6 +61,7 @@ on:
       - 'platform/self-sovereign-cutover/chart/templates/03-harbor-prewarm-job.yaml'
       - 'platform/self-sovereign-cutover/chart/files/release/**'
       - 'products/catalyst/chart/templates/clusterrole-cutover-driver.yaml'
+      - 'scripts/tests/check-network-registry/valid-two-regions.json'
       - '.github/workflows/test-bootstrap-api.yaml'
     branches: [main]
   pull_request:
@@ -75,6 +81,7 @@ on:
       - 'platform/self-sovereign-cutover/chart/templates/03-harbor-prewarm-job.yaml'
       - 'platform/self-sovereign-cutover/chart/files/release/**'
       - 'products/catalyst/chart/templates/clusterrole-cutover-driver.yaml'
+      - 'scripts/tests/check-network-registry/valid-two-regions.json'
       - '.github/workflows/test-bootstrap-api.yaml'
   workflow_dispatch:
 
