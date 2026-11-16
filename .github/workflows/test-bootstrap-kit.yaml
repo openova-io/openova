@@ -26,6 +26,10 @@ on:
       - 'scripts/expected-cloudinit-kustomization-deps.yaml'
       - 'scripts/render-slot-placement.py'
       - 'scripts/tests/render_slot_placement_hostbridge_test.py'
+      - 'scripts/tests/test-kit-flux-substitution.py'
+      - 'scripts/tests/test-sovereign-object-kit.py'
+      - 'tests/fixtures/variables/today.env'
+      - 'products/catalyst/bootstrap/api/internal/lifecycle/network_registry.go'
       - 'scripts/audit-placement-conformance.py'
       - '.github/workflows/test-bootstrap-kit.yaml'
     branches: [main]
@@ -48,6 +52,10 @@ on:
       - 'scripts/expected-cloudinit-kustomization-deps.yaml'
       - 'scripts/render-slot-placement.py'
       - 'scripts/tests/render_slot_placement_hostbridge_test.py'
+      - 'scripts/tests/test-kit-flux-substitution.py'
+      - 'scripts/tests/test-sovereign-object-kit.py'
+      - 'tests/fixtures/variables/today.env'
+      - 'products/catalyst/bootstrap/api/internal/lifecycle/network_registry.go'
       - 'scripts/audit-placement-conformance.py'
       - '.github/workflows/test-bootstrap-kit.yaml'
   workflow_dispatch:
@@ -150,6 +158,21 @@ jobs:
         # generic mechanism that re-homes route/secret/CNPG apps into a
         # vCluster while keeping their host-reaching CRs host-rendered.
         run: python3 scripts/tests/render_slot_placement_hostbridge_test.py
+
+      - name: Flux post-build substitution leaves no placeholder in the kit (#7936)
+        # Flux substitutes a Kustomization's build only when its set of
+        # variables is not empty (fluxcd/pkg kustomize/kustomize_varsub.go,
+        # `if len(vars) > 0`). Slot 12b substituted only from an optional
+        # ConfigMap that does not exist before hand-over, so on hw307 the Job
+        # kept the name sovereign-object-${NETWORK_REGISTRY_REVISION:=bootstrap}
+        # and the API server refused it in both regions. The first test renders
+        # the kit and every Flux Kustomization it defines with that rule (both
+        # regions, each optional source absent and present) after proving each
+        # rule can fail; the second pins the writer kit of slot 12b (SOV-175).
+        run: |
+          pip install pyyaml --quiet 2>/dev/null || true
+          python3 scripts/tests/test-kit-flux-substitution.py
+          python3 scripts/tests/test-sovereign-object-kit.py
 
       - name: Placement conformance audit — rendered (#3373 DoD-4)
         # actual==declared at render level + §4 host-minimum

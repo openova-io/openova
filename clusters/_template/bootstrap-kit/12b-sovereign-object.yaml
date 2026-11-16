@@ -25,6 +25,16 @@
 # only. A new registry gives a new name, so Flux creates the new Job and
 # prunes the old one. force: true lets a new image tag replace the Job.
 #
+# The one inline variable SOVEREIGN_OBJECT_SLOT is read by nothing. It is here
+# because Flux substitutes only when the set of variables is not empty
+# (fluxcd/pkg kustomize/kustomize_varsub.go, SubstituteVariables:
+# `if len(vars) > 0`). Before hand-over the ConfigMap does not exist, so
+# without it the set is empty, ${NETWORK_REGISTRY_REVISION:=bootstrap} is not
+# replaced, and the API server refuses the Job name (hw307, 16 Nov 2026,
+# #7936). An inline variable overrides every substituteFrom source, so the
+# revision itself must never be set here: it would pin the Job name.
+# Guarded by scripts/tests/test-kit-flux-substitution.py.
+#
 # The image tag below is written by .github/workflows/build-sovereign-ops.yaml
 # after every image built on main.
 apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -50,6 +60,8 @@ spec:
     - name: ghcr.io/openova-io/openova/sovereign-ops
       newTag: 907fc2a
   postBuild:
+    substitute:
+      SOVEREIGN_OBJECT_SLOT: "12b"
     substituteFrom:
       - kind: ConfigMap
         name: sovereign-network-registry

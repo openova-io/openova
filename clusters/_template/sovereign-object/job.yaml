@@ -1,8 +1,11 @@
 # One run of `sovereign-ops sovereign-object` (SOV-175). The name carries the
 # revision of the network registry (NETWORK_REGISTRY_REVISION of the ConfigMap
 # flux-system/sovereign-network-registry), so the writer runs at bootstrap and
-# again whenever the parent writes a new registry. The image tag comes from
-# the images entry of the Kustomization sovereign-object (slot 12b).
+# again whenever the parent writes a new registry. Before the registry exists
+# the default gives sovereign-object-bootstrap; the default applies only
+# because slot 12b sets one inline variable (Flux substitutes nothing when no
+# variable is set). The image tag comes from the images entry of the
+# Kustomization sovereign-object (slot 12b).
 #
 # Exit code 1 is a failure that a retry does not change: the Job fails at
 # once. Any other failure (75, transient) is retried up to backoffLimit.

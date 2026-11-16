@@ -9,7 +9,8 @@ parent wrote the network registry. It fails unless:
       primary: the gap this slot closes.
   K2  in both regions the kit holds exactly one Flux Kustomization flux-system/sovereign-object; it is not suspended,
       applies ./clusters/_template/sovereign-object from the GitRepository openova with prune, force and without
-      wait, substitutes from the ConfigMap sovereign-network-registry, optional, and pins the image
+      wait, substitutes from the ConfigMap sovereign-network-registry, optional, sets at least one inline variable
+      and none of the registry's keys inline (an inline variable overrides the ConfigMap), and pins the image
       ghcr.io/openova-io/openova/sovereign-ops to a commit id.
   K3  the folder renders the Sovereign kind as the file products/catalyst/chart/crds/sovereign.yaml with exactly the
       two annotations prune disabled and substitute disabled, a service account, its rights and one Job; nothing else.
@@ -19,10 +20,14 @@ parent wrote the network registry. It fails unless:
       Never and a failure policy that ends the Job on exit code 1; it is named sovereign-object-bootstrap before the
       registry exists and sovereign-object-<revision> after.
 
-The substitution is Flux's post-build step: ${NAME}, ${NAME:=default}, ${NAME:-default}, ${NAME=default},
-${NAME-default}; an unset name gives the empty text; a document with the annotation
-kustomize.toolkit.fluxcd.io/substitute: disabled is taken as it is. The folder's kustomization.yaml may hold only
-resources (files) and patches (strategic merge, one object, no target); anything else fails the test.
+The substitution is Flux's post-build step (kustomize-controller v1.4.0, fluxcd/pkg kustomize/kustomize_varsub.go):
+the variables of the folder are the ConfigMap's keys when it exists, then the inline variables over them; with no
+variable at all nothing is substituted, so a default never applies (hw307, 16 Nov 2026, #7936). ${NAME} is the
+value or the empty text; ${NAME:=default}, ${NAME:-default}, ${NAME=default}, ${NAME-default} are the value when it
+is not empty, else the default; a document with the annotation kustomize.toolkit.fluxcd.io/substitute: disabled is
+taken as it is. scripts/tests/test-kit-flux-substitution.py holds the full rule and applies it to the whole kit.
+The folder's kustomization.yaml may hold only resources (files) and patches (strategic merge, one object, no
+target); anything else fails the test.
 
     python3 scripts/tests/test-sovereign-object-kit.py      exit 0 pass, 1 fail
 Needs Python 3 and PyYAML.
@@ -41,6 +46,8 @@ CRD = "products/catalyst/chart/crds/sovereign.yaml"
 IMAGE = "ghcr.io/openova-io/openova/sovereign-ops"
 DISABLED = "kustomize.toolkit.fluxcd.io/substitute"
 VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?:(:?[=-])((?:[^{}]|\{[^{}]*\})*))?\}")
+# What the parent writes into the ConfigMap sovereign-network-registry (lifecycle/network_registry.go).
+REGISTRY = {"NETWORK_REGISTRY_REVISION": "3f2a9c1b0d4e", "NETWORK_REGISTRY_JSON": "{}"}
 fails = []
 
 
@@ -56,10 +63,8 @@ def subst(text, values):
         def one(m):
             name, op, default = m.group(1), m.group(2), m.group(3)
             v = values.get(name)
-            if op in (":=", ":-"):
+            if op:
                 return v if v else default
-            if op in ("=", "-"):
-                return v if v is not None else default
             return v or ""
         new = VAR.sub(one, text)
         if new == text:
@@ -72,7 +77,7 @@ def render(docs, values):
     out = []
     for d in docs:
         ann = ((d.get("metadata") or {}).get("annotations") or {})
-        if ann.get(DISABLED) == "disabled":
+        if ann.get(DISABLED) == "disabled" or not values:
             out.append(d)
         else:
             out.append(yaml.safe_load(subst(yaml.safe_dump(d, sort_keys=True), values)))
@@ -133,6 +138,7 @@ def kit_docs(values):
 def main():
     primary = env("tests/fixtures/variables/today.env")
     follower = dict(primary, SOVEREIGN_REGION_ROLE="secondary", SECONDARY_HR_SUSPEND="true", SOVEREIGN_REGION_ID="secondary")
+    inline = {}
     for region, values in (("primary", primary), ("follower", follower)):
         docs = kit_docs(values)
         slot13 = [d for d in docs.get("13-bp-catalyst-platform.yaml", []) if d.get("kind") == "HelmRelease"]
@@ -152,6 +158,11 @@ def main():
         check(s.get("prune") is True and s.get("force") is True and s.get("wait") is False, "K2 %s: prune, force, no wait" % region)
         check(((s.get("postBuild") or {}).get("substituteFrom") or []) == [{"kind": "ConfigMap", "name": "sovereign-network-registry", "optional": True}],
               "K2 %s: it substitutes from the optional ConfigMap sovereign-network-registry only" % region)
+        own = (s.get("postBuild") or {}).get("substitute") or {}
+        check(bool(own) and all(isinstance(v, str) for v in own.values()) and not set(own) & set(REGISTRY),
+              "K2 %s: it sets an inline variable, so Flux substitutes before the registry exists, and none of the "
+              "registry's keys %s (found %s)" % (region, sorted(REGISTRY), sorted(own)))
+        inline[region] = own
         imgs = s.get("images") or []
         check(len(imgs) == 1 and imgs[0].get("name") == IMAGE and re.fullmatch(r"[0-9a-f]{7,40}", str(imgs[0].get("newTag"))) is not None
               and set(imgs[0]) == {"name", "newTag"}, "K2 %s: it pins %s to a commit id" % (region, IMAGE))
@@ -161,8 +172,10 @@ def main():
         crd = yaml.safe_load(f)
     want = copy.deepcopy(crd)
     want["metadata"]["annotations"] = {"kustomize.toolkit.fluxcd.io/prune": "disabled", DISABLED: "disabled"}
-    for case, values, job in (("before the registry", {}, "sovereign-object-bootstrap"),
-                              ("after the registry", {"NETWORK_REGISTRY_REVISION": "3f2a9c1b0d4e", "NETWORK_REGISTRY_JSON": "{}"}, "sovereign-object-3f2a9c1b0d4e")):
+    check(inline.get("primary") == inline.get("follower"), "K2 the inline variables are the same in both regions")
+    own = inline.get("primary") or {}
+    for case, values, job in (("before the registry", dict(own), "sovereign-object-bootstrap"),
+                              ("after the registry", dict(REGISTRY, **own), "sovereign-object-3f2a9c1b0d4e")):
         docs = render(folder, values)
         kinds = sorted("%s/%s" % (d["kind"], d["metadata"]["name"]) for d in docs)
         check(kinds == sorted(["CustomResourceDefinition/sovereigns.catalyst.openova.io", "ServiceAccount/sovereign-object",
