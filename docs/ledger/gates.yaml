@@ -2141,7 +2141,7 @@ checks:
 - id: SEC-G11
   title: 'Secret census: unmatched Secret objects in platform namespaces are at or below the limit'
   owner: SEC
-  state: expected-fail
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
