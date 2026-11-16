@@ -70,7 +70,7 @@ One row for each pack, in the order of the folder names.
 | profile.yaml | spec.objectStorage.checksumAlgorithm | - |
 | profile.yaml | spec.network.loadBalancer.mode | `external-hostport` |
 | profile.yaml | spec.seal.kind | not set |
-| profile.yaml | spec.bootstrap.userDataLimitBytes | `0` |
+| profile.yaml | spec.bootstrap.userDataLimitBytes | `32768` |
 | profile.yaml | spec.capabilities.multiRegion | `true` |
 | profile.yaml | spec.capabilities.multiCloudRegion | `false` |
 | profile.yaml | spec.day2.contracts | - |
