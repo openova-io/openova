@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-15T22:26:53.767Z",
+  "generatedAt": "2026-11-15T23:58:19.232Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -1833,7 +1833,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "1.2.55",
+      "version": "1.2.56",
       "section": "pts-3-5-storage-and-data",
       "depends": [
         "bp-cnpg",
@@ -4495,7 +4495,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "0.1.218",
+      "version": "0.1.220",
       "section": "pts-2-3-per-sovereign-supporting-services",
       "depends": [
         "bp-gitea",

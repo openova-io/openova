@@ -98,6 +98,7 @@ routes:
   - {component: catalyst-api, method: POST, path: "/api/v1/sovereign/parent-domains", today: X, writeClass: external, operation: "", disposition: keep, batch: "-", package: SOV, done: false}
   - {component: catalyst-api, method: DELETE, path: "/api/v1/sovereign/parent-domains/{name}", today: X, writeClass: external, operation: "", disposition: keep, batch: "-", package: SOV, done: false}
   - {component: catalyst-api, method: POST, path: "/api/v1/sovereign/rbac/assign", today: C, writeClass: git, operation: "", disposition: migrate, batch: C, package: CTL-210, done: false}
+  - {component: catalyst-api, method: PUT, path: "/api/v1/sovereign/release", today: K, writeClass: git, operation: "", disposition: migrate, batch: "-", package: SOV-520, done: false}
   - {component: catalyst-api, method: POST, path: "/api/v1/sovereign/secondary-kubeconfig", today: K, writeClass: external, operation: "", disposition: keep, batch: "-", package: SOV, done: false}
   - {component: catalyst-api, method: POST, path: "/api/v1/sovereigns/{id}/applications", today: C, writeClass: git, operation: "", disposition: migrate, batch: A, package: CTL-162, done: false}
   - {component: catalyst-api, method: POST, path: "/api/v1/sovereigns/{id}/applications/preview", today: N, writeClass: none, operation: "", disposition: keep, batch: "-", package: "-", done: true}

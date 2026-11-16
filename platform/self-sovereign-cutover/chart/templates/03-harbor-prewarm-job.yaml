@@ -3259,7 +3259,12 @@ data:
         case "${_cv}" in *[\<\>~^\|\ ]*|*'*'*) continue ;; esac
         printf '%s\t%s\n' "${_cc}" "${_cv}" >> "${sec_charts}"
       done < "${sec_tuples}"
-      sort -u "${sec_charts}" -o "${sec_charts}"
+      # ── follower-release-pins BEGIN (#7938 extraction anchor — tests/step7938-follower-release-pins.sh runs this block verbatim): this region's live set is the release it RUNS; the release it is GIVEN is what this step pinned from ${UPSTREAM_BRANCH} (chart_installed) and the images those charts declare (Phase A3) ──
+      if [ -s "${chart_installed:-}" ]; then cat "${chart_installed}" >> "${sec_charts}"; fi
+      if [ -s "${cat_img_installed:-}" ]; then grep -E '^ghcr\.io/openova-io/' "${cat_img_installed}" >> "${sec_img}" || true; fi
+      sort -u "${sec_charts}" -o "${sec_charts}"; sort -u "${sec_img}" -o "${sec_img}"
+      echo "[harbor-prewarm] #7938 secondary region ${region}: also mirrors the pins of ${UPSTREAM_BRANCH} and the images their charts declare, so this region's registry holds what the release pins"
+      # ── follower-release-pins END ──
       _sec_imgn=$(grep -c . "${sec_img}" || true)
       _sec_chartn=$(grep -c . "${sec_charts}" || true)
       echo "[harbor-prewarm] #6764 secondary region ${region}: enumerated ${_sec_imgn} openova-io image(s) + ${_sec_chartn} chart(s)"
