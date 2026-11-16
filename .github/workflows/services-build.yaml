@@ -20,12 +20,12 @@ jobs:
       id-token: write
     strategy:
       matrix:
-        # `metering-sidecar` (#798) builds on the same Containerfile
-        # convention as the Organization services but its image is consumed by
-        # the bp-newapi chart (chart/values.yaml `meteringSidecar.image`),
-        # NOT by products/catalyst/chart/templates/org-services. The
-        # deploy job below skips it for that reason.
-        service: [auth, catalog, gateway, tenant, domain, billing, provisioning, notification, metering-sidecar]
+        # `model-meter` (AIP-111) builds on the same Containerfile
+        # convention as the Organization services, but no template under
+        # products/catalyst/chart/templates/org-services runs its image: the
+        # model gateway chart (AIP-140) will. The deploy job below skips it
+        # for that reason.
+        service: [auth, catalog, gateway, tenant, domain, billing, provisioning, notification, model-meter]
     steps:
       - name: Checkout
         uses: actions/checkout@v4

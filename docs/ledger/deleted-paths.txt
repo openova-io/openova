@@ -148,3 +148,4 @@ products/catalyst/bootstrap/api/internal/handler/openova_flow_proxy_test.go
 core/services/shared/events/dlq.go
 core/services/shared/events/dlq_test.go
 core/services/shared/events/topics.go
+core/services/metering-sidecar
