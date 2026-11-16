@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-16T15:15:06Z` |
+| Last refreshed | `2026-11-16T15:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -309,6 +309,7 @@ flowchart LR
 |---|---|---|---|
 | 2026-11-16T15:12 | [#8010](https://github.com/openova-io/openova/pull/8010) | #7971 | fix(providers): the Huawei profile states its user-data limi |
 | 2026-11-16T14:56 | [#8009](https://github.com/openova-io/openova/pull/8009) | #7973 | refactor(api): the resource browser refuses Git-owned object |
+| 2026-11-16T15:18 | [#8008](https://github.com/openova-io/openova/pull/8008) | #7993 | chore: delete the dormant Blueprint controller, its build an |
 | 2026-11-16T14:55 | [#8007](https://github.com/openova-io/openova/pull/8007) | #7990 | refactor(cloud-init): first boot stops writing two node file |
 | 2026-11-16T14:56 | [#8006](https://github.com/openova-io/openova/pull/8006) | #7989 | chore(secrets): the Secret register lists kube-system/parent |
 | 2026-11-16T14:24 | [#8005](https://github.com/openova-io/openova/pull/8005) | #7964 | fix(model-meter): meter streamed answers from their final us |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-16T04:22 | [#7947](https://github.com/openova-io/openova/pull/7947) | #7942 | fix(release): the state counts the pivot's changed files and |
 | 2026-11-16T04:07 | [#7946](https://github.com/openova-io/openova/pull/7946) | #7929 | fix(cutover): step 03 warms what the Sovereign's own values  |
 | 2026-11-16T04:07 | [#7945](https://github.com/openova-io/openova/pull/7945) | #7934 | fix(release): a candidate is not cut while a chart's source  |
-| 2026-11-16T04:07 | [#7944](https://github.com/openova-io/openova/pull/7944) | #7936 | fix(sovereign): the Sovereign object Job gets its name in ev |
 
 ---
 
