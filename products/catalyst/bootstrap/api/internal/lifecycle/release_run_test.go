@@ -285,7 +285,7 @@ func newRunFixtureFrom(t *testing.T, f *fixture, req releaseRequest, conflict bo
 	}
 	f.write(r.stub, "kubectl", kubectlStub)
 	f.write(r.stub, "bin/kubectl", "#!/bin/sh\nexec sh \"${STUB_DIR}/kubectl\" \"$@\"\n")
-	if err := os.Chmod(r.stub+"/bin/kubectl", 0o700); err != nil {
+	if err := os.Chmod(r.stub+"/bin/kubectl", 0o700); err != nil { //nolint:gosec // a fake program must be executable
 		t.Fatal(err)
 	}
 	f.write(r.kubeconfigs, "region-b.yaml", "apiVersion: v1\nkind: Config\n")
