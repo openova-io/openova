@@ -68,6 +68,7 @@ spec:
             - "--leader-elect={{ .Values.controllers.organization.leaderElection.enabled }}"
             - "--metrics-bind-address=:8080"
             - "--health-probe-bind-address=:8081"
+            - "--org-fence-allow-namespaces=kube-system,keycloak"
           env:
             - name: LEADER_ELECT_NS
               valueFrom:

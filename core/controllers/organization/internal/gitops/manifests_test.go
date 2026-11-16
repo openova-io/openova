@@ -450,7 +450,7 @@ func TestRender_NetworkPolicyBaselineInAppsTree(t *testing.T) {
 // companion renders into the HOST-applied host-apps/ tree (#4475 §1) — NOT the
 // syncer-reflected apps/ tree, because a CiliumNetworkPolicy cannot apply into a
 // CRD-less vcluster apiserver — and that it admits the reserved entities a plain
-// K8s NetworkPolicy cannot express: `ingress`/`host`/`remote-node` (so the Org's
+// K8s NetworkPolicy cannot express: `ingress`/`remote-node` (so the Org's
 // Application behind its Cilium-Gateway HTTPRoute is reachable, not 503) and
 // `kube-apiserver` egress (so an in-vcluster Org pod can reach the cluster API).
 func TestRender_CiliumNetworkPolicyReservedEntities(t *testing.T) {
@@ -481,7 +481,6 @@ func TestRender_CiliumNetworkPolicyReservedEntities(t *testing.T) {
 			"endpointSelector: {}",
 			"fromEntities:",
 			"- ingress",
-			"- host",
 			"- remote-node",
 			"toEntities:",
 			"- kube-apiserver",
