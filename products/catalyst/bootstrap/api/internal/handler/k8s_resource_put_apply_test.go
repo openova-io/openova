@@ -10,8 +10,11 @@
 //
 //   - PUT /k8s/{kind}/{ns}/{name} accepts the {object: ...} body shape,
 //     preserves the existing resourceVersion when the caller omits one,
-//     surfaces 409 on stale RV (TC-247), and routes flux-managed
-//     targets to a Gitea PR returning 202 + giteaPRUrl (TC-208).
+//     and surfaces 409 on stale RV (TC-247).
+//
+//   - Scale, update, apply, delete and the multi-document apply refuse an
+//     object that Git owns with 409 managed-by-git, and write any other
+//     object only by break-glass, audited before and after (clusterwrite).
 //
 //   - POST /k8s/apply (multi-resource) returns `created: true` +
 //     `kind: ConfigMap` for a fresh insert (TC-271 must_contain shape).
@@ -27,6 +30,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -34,6 +38,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/audit"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 )
 
 // ── parseResourceParams plural canonicalisation ─────────────────────
@@ -45,7 +52,7 @@ func TestParseResourceParams_ResolvesPluralKindToCanonicalSingular(t *testing.T)
 
 	// Hit the SCALE endpoint with the plural form. Pre-fix, the
 	// handler rejected with `kind-not-scalable` (TC-215 root cause).
-	body, _ := json.Marshal(map[string]int{"replicas": 4})
+	body, _ := json.Marshal(map[string]any{"replicas": 4, "reason": testBreakGlassReason})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sovereigns/alpha/k8s/deployments/default/wp/scale", bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -101,7 +108,7 @@ func TestHandleK8sResourcePut_ObjectModalityHappyPath(t *testing.T) {
 		},
 		"spec": map[string]any{"containers": []any{}},
 	}
-	reqBody, _ := json.Marshal(map[string]any{"object": objBody})
+	reqBody, _ := json.Marshal(map[string]any{"object": objBody, "reason": testBreakGlassReason})
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/sovereigns/alpha/k8s/pod/default/wp-1", bytes.NewBuffer(reqBody))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -128,7 +135,7 @@ func TestHandleK8sResourcePut_PluralKindResolves(t *testing.T) {
 		"metadata":   map[string]any{"namespace": "default", "name": "qa-wp-config"},
 		"data":       map[string]any{"k1": "v2"},
 	}
-	reqBody, _ := json.Marshal(map[string]any{"object": objBody})
+	reqBody, _ := json.Marshal(map[string]any{"object": objBody, "reason": testBreakGlassReason})
 	// Plural form — TC-206 / TC-244 use `/k8s/configmaps/...`.
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/sovereigns/alpha/k8s/configmaps/default/qa-wp-config", bytes.NewBuffer(reqBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -142,32 +149,155 @@ func TestHandleK8sResourcePut_PluralKindResolves(t *testing.T) {
 	}
 }
 
-func TestHandleK8sResourcePut_FluxManagedRoutesToGiteaPR(t *testing.T) {
-	cm := newConfigMapObj("default", "qa-wp-config", map[string]string{"k1": "v1"})
-	cm.SetLabels(map[string]string{"app.kubernetes.io/managed-by": "flux"})
-	rig := newResourceRig(t, cm)
-	defer rig.stop()
+// ── Git-owned objects and break-glass (package clusterwrite) ────────
 
-	objBody := map[string]any{
-		"apiVersion": "v1",
-		"kind":       "ConfigMap",
-		"metadata":   map[string]any{"namespace": "default", "name": "qa-wp-config"},
-		"data":       map[string]any{"k1": "v2"},
+// testBreakGlassReason is a break-glass reason of ten characters or more.
+const testBreakGlassReason = "restore the shop by hand"
+
+// resourceAuditRecorder is the audit Publisher of the break-glass tests.
+type resourceAuditRecorder struct{ events []audit.Event }
+
+func (p *resourceAuditRecorder) Publish(_ context.Context, ev audit.Event) error {
+	p.events = append(p.events, ev)
+	return nil
+}
+
+// resourceWrites returns one request for each of the six write entry
+// points of the resource browser, each aimed at the Deployment default/wp
+// and sent by a caller of the given tier with the given reason.
+func resourceWrites(tier, reason string) []*http.Request {
+	doc := "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: wp\n  namespace: default\n"
+	obj := map[string]any{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": map[string]any{"namespace": "default", "name": "wp"}}
+	scale, _ := json.Marshal(map[string]any{"replicas": 3, "reason": reason})
+	put, _ := json.Marshal(map[string]any{"object": obj, "reason": reason})
+	apply, _ := json.Marshal(map[string]any{"yaml": doc, "reason": reason})
+	base := "/api/v1/sovereigns/alpha/k8s/deployments/default/wp"
+	reqs := []*http.Request{
+		httptest.NewRequest(http.MethodPost, base+"/scale", bytes.NewReader(scale)),
+		httptest.NewRequest(http.MethodPut, base+"/scale", bytes.NewReader(scale)),
+		httptest.NewRequest(http.MethodPut, base, bytes.NewReader(put)),
+		httptest.NewRequest(http.MethodPost, base+"/apply", bytes.NewReader(apply)),
+		httptest.NewRequest(http.MethodDelete, base+"?reason="+url.QueryEscape(reason), nil),
+		httptest.NewRequest(http.MethodPost, "/api/v1/sovereigns/alpha/k8s/apply", bytes.NewReader(apply)),
 	}
-	reqBody, _ := json.Marshal(map[string]any{"object": objBody})
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/sovereigns/alpha/k8s/configmaps/default/qa-wp-config", bytes.NewBuffer(reqBody))
+	for i, req := range reqs {
+		req.Header.Set("Content-Type", "application/json")
+		reqs[i] = req.WithContext(context.WithValue(req.Context(), auth.ClaimsKey, &auth.Claims{Tier: tier, Email: tier + "@example.test"}))
+	}
+	return reqs
+}
+
+// unchangedReplicas fails the test unless the Deployment default/wp still
+// exists with two replicas: nothing was written to it.
+func unchangedReplicas(t *testing.T, rig *k8sResourceTestRig, what string) {
+	t.Helper()
+	got, err := rig.dyn.Resource(schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}).
+		Namespace("default").Get(context.Background(), "wp", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("%s: the Deployment is gone: %v", what, err)
+	}
+	if replicas, _, _ := unstructured.NestedInt64(got.Object, "spec", "replicas"); replicas != 2 {
+		t.Fatalf("%s: the Deployment was written: replicas %d", what, replicas)
+	}
+}
+
+// Each of the six entry points refuses an object that Git owns with 409
+// managed-by-git and the owner, even for the owner tier with a reason, and
+// writes and records nothing. A dry-run of the same object still passes.
+func TestResourceWrites_RefuseAGitOwnedObject(t *testing.T) {
+	for i, req := range resourceWrites("owner", testBreakGlassReason) {
+		dep := newDeploymentObj("default", "wp", 2)
+		dep.SetLabels(map[string]string{"kustomize.toolkit.fluxcd.io/name": "shop", "kustomize.toolkit.fluxcd.io/namespace": "flux-system"})
+		rig := newResourceRig(t, dep)
+		pub := &resourceAuditRecorder{}
+		rig.h.SetAuditBus(audit.NewBus(audit.BusConfig{Publisher: pub}))
+		rec := httptest.NewRecorder()
+		rig.routerWithIter7Routes().ServeHTTP(rec, req)
+		what := req.Method + " " + req.URL.Path
+		if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"error":"managed-by-git"`) ||
+			!strings.Contains(rec.Body.String(), `"owner":"Kustomization flux-system/shop"`) {
+			t.Fatalf("%s: got %d %s, want 409 managed-by-git", what, rec.Code, rec.Body.String())
+		}
+		unchangedReplicas(t, rig, what)
+		if len(pub.events) != 0 {
+			t.Fatalf("%s: a refused write recorded %d audit events", what, len(pub.events))
+		}
+		if i == 0 {
+			body, _ := json.Marshal(map[string]string{"yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: wp\n  namespace: default\n"})
+			dry := httptest.NewRequest(http.MethodPost, "/api/v1/sovereigns/alpha/k8s/deployments/default/wp/dry-run", bytes.NewReader(body))
+			dry.Header.Set("Content-Type", "application/json")
+			rec = httptest.NewRecorder()
+			rig.routerWithIter7Routes().ServeHTTP(rec, dry)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("a dry-run of a Git-owned object: got %d %s, want 200", rec.Code, rec.Body.String())
+			}
+		}
+		rig.stop()
+	}
+}
+
+// Each of the six entry points writes an object that Git does not own only
+// for the owner tier with a reason, and only when the audit stream took the
+// intent event; it records the result event after the write.
+func TestResourceWrites_BreakGlass(t *testing.T) {
+	for _, c := range []struct {
+		tier, reason string
+		durable      bool // the audit bus has a Publisher, so the stream takes the events
+		code         int
+		error        string
+	}{
+		{"admin", testBreakGlassReason, true, http.StatusForbidden, "break-glass-owner-only"},
+		{"owner", "too short", true, http.StatusBadRequest, "break-glass-reason-required"},
+		{"owner", testBreakGlassReason, false, http.StatusServiceUnavailable, "audit-unavailable"},
+		{"owner", testBreakGlassReason, true, http.StatusOK, ""},
+	} {
+		for _, req := range resourceWrites(c.tier, c.reason) {
+			rig := newResourceRig(t, newDeploymentObj("default", "wp", 2))
+			pub, config := &resourceAuditRecorder{}, audit.BusConfig{}
+			if c.durable {
+				config.Publisher = pub
+			}
+			rig.h.SetAuditBus(audit.NewBus(config))
+			rec := httptest.NewRecorder()
+			rig.routerWithIter7Routes().ServeHTTP(rec, req)
+			what := c.tier + " " + req.Method + " " + req.URL.Path
+			if rec.Code != c.code || !strings.Contains(rec.Body.String(), `"error":"`+c.error+`"`) != (c.error == "") {
+				t.Fatalf("%s: got %d %s, want %d %s", what, rec.Code, rec.Body.String(), c.code, c.error)
+			}
+			if c.error != "" {
+				unchangedReplicas(t, rig, what)
+			}
+			if c.error == "" {
+				if len(pub.events) != 2 || pub.events[0].AuditType != "break-glass" || pub.events[0].Phase != audit.PhaseIntent ||
+					pub.events[0].Actor != "owner@example.test" || !strings.Contains(pub.events[0].Detail, testBreakGlassReason) ||
+					pub.events[1].Phase != audit.PhaseResult || pub.events[1].Result != "ok" {
+					t.Fatalf("%s: audit events %+v, want an intent and an ok result of type break-glass", what, pub.events)
+				}
+			}
+			rig.stop()
+		}
+	}
+}
+
+// The multi-document apply reads every document first: when Git owns one
+// (here a Blueprint, a kind of the intent lock, that does not exist yet),
+// it answers 409 and applies none, not even the ConfigMap before it.
+func TestHandleK8sMultiApply_GitOwnedDocumentAppliesNone(t *testing.T) {
+	rig := newResourceRig(t)
+	defer rig.stop()
+	doc := "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: qa-fresh-cm\n  namespace: default\n---\n" +
+		"apiVersion: catalyst.openova.io/v1\nkind: Blueprint\nmetadata:\n  name: bp-new\n"
+	body, _ := json.Marshal(map[string]string{"yaml": doc, "reason": testBreakGlassReason})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sovereigns/alpha/k8s/apply", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	rig.routerWithIter7Routes().ServeHTTP(rec, req)
-	if rec.Code != http.StatusAccepted {
-		t.Fatalf("status: got %d want 202; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"owner":"the intent lock (blueprints.catalyst.openova.io)"`) {
+		t.Fatalf("got %d %s, want 409 managed-by-git", rec.Code, rec.Body.String())
 	}
-	// Matrix TC-208 must_contain=["giteaPRUrl","gitea","pulls"]
-	bodyStr := rec.Body.String()
-	for _, want := range []string{"giteaPRUrl", "gitea", "pulls"} {
-		if !strings.Contains(bodyStr, want) {
-			t.Fatalf("response missing %q: %s", want, bodyStr)
-		}
+	if _, err := rig.dyn.Resource(schema.GroupVersionResource{Version: "v1", Resource: "configmaps"}).
+		Namespace("default").Get(context.Background(), "qa-fresh-cm", metav1.GetOptions{}); err == nil {
+		t.Fatalf("the ConfigMap was created although the request was refused")
 	}
 }
 
@@ -185,7 +315,7 @@ metadata:
 data:
   hello: world
 `
-	reqBody, _ := json.Marshal(map[string]string{"yaml": yamlDoc})
+	reqBody, _ := json.Marshal(map[string]string{"yaml": yamlDoc, "reason": testBreakGlassReason})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sovereigns/alpha/k8s/apply", bytes.NewBuffer(reqBody))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -209,7 +339,7 @@ func TestHandleK8sResourceDelete_ResponseCarriesDeletedTrue(t *testing.T) {
 	rig := newResourceRig(t, pod)
 	defer rig.stop()
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/sovereigns/alpha/k8s/pod/default/wp-1", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/sovereigns/alpha/k8s/pod/default/wp-1?reason="+url.QueryEscape(testBreakGlassReason), nil)
 	rec := httptest.NewRecorder()
 	rig.routerWithIter7Routes().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
