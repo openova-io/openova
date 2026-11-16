@@ -210,16 +210,17 @@ first_cause() {
 # A failure leaves the reason in _mech_why.
 _mech_why=""
 mechanism_render() {
-  _src="${STATE}/mechanism-src"; _ch="${STATE}/mechanism-src/${CUTOVER_CHART_PATH}"
+  _mexp="${STATE}/mechanism-src"
+  _ch="${_mexp}/${CUTOVER_CHART_PATH}"
   for _t in helm yq jq; do command -v "${_t}" >/dev/null 2>&1 || { _mech_why="${_t} is not in the release image"; return 1; }; done
   [ -f "${_ch}/Chart.yaml" ] || { _mech_why="the staged commit has no ${CUTOVER_CHART_PATH}/Chart.yaml"; return 1; }
   [ "$(cat "${_ch}/files/release/contract" 2>/dev/null)" = 1 ] \
     || { _mech_why="${CUTOVER_CHART_PATH} of rc/${CANDIDATE} carries no release mechanism of contract 1 (files/release/contract): it predates #7938; deliver a later candidate"; return 1; }
-  [ "$(cat "${_src}/.candidate" 2>/dev/null)" = same ] \
+  [ "$(cat "${_mexp}/.candidate" 2>/dev/null)" = same ] \
     || { _mech_why="${CUTOVER_CHART_PATH} of the staged commit differs from the candidate's: a commit of this Sovereign changes the release mechanism"; return 1; }
   _cn=$(yq -r '.name' "${_ch}/Chart.yaml"); _cv=$(yq -r '.version' "${_ch}/Chart.yaml")
-  _pn=$(yq -r 'select(.kind == "HelmRelease") | .spec.chart.spec.chart' "${_src}/${CUTOVER_SLOT}" 2>/dev/null | head -n 1)
-  _pv=$(yq -r 'select(.kind == "HelmRelease") | .spec.chart.spec.version' "${_src}/${CUTOVER_SLOT}" 2>/dev/null | head -n 1)
+  _pn=$(yq -r 'select(.kind == "HelmRelease") | .spec.chart.spec.chart' "${_mexp}/${CUTOVER_SLOT}" 2>/dev/null | head -n 1)
+  _pv=$(yq -r 'select(.kind == "HelmRelease") | .spec.chart.spec.version' "${_mexp}/${CUTOVER_SLOT}" 2>/dev/null | head -n 1)
   if [ "${_cn}" != "${_pn}" ] || [ "${_cv}" != "${_pv}" ]; then
     _mech_why="the staged ${CUTOVER_CHART_PATH} is ${_cn} ${_cv}, but ${CUTOVER_SLOT} pins ${_pn:-nothing} ${_pv}"; return 1
   fi
@@ -247,7 +248,7 @@ mechanism_render() {
     cp "${_ch}/files/release/${_k}" "${MECH}/${_k}" 2>/dev/null || true
     [ -s "${MECH}/${_k}" ] || { _mech_why="${_cn} ${_cv} carries no files/release/${_k}"; return 1; }
   done
-  printf '%s %s (chart tree %s)' "${_cn}" "${_cv}" "$(cut -c1-12 "${_src}/.tree")" >"${MECH}/version"
+  printf '%s %s (chart tree %s)' "${_cn}" "${_cv}" "$(cut -c1-12 "${_mexp}/.tree")" >"${MECH}/version"
 }
 
 # mech_podspec <ConfigMap>: the podSpec of a rendered step ConfigMap, as JSON.
