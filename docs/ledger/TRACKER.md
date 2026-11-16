@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-16T04:00:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-16T04:15:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-16T04:07 | [#7946](https://github.com/openova-io/openova/pull/7946) | #7929 | fix(cutover): step 03 warms what the Sovereign's own values  |
+| 2026-11-16T04:07 | [#7945](https://github.com/openova-io/openova/pull/7945) | #7934 | fix(release): a candidate is not cut while a chart's source  |
+| 2026-11-16T04:07 | [#7944](https://github.com/openova-io/openova/pull/7944) | #7936 | fix(sovereign): the Sovereign object Job gets its name in ev |
+| 2026-11-16T04:07 | [#7943](https://github.com/openova-io/openova/pull/7943) | #7922 | fix(flow-server): the image builds with the Go its go.mod re |
+| 2026-11-16T04:07 | [#7942](https://github.com/openova-io/openova/pull/7942) | #6764 | fix(release): each follower region gets the pull credential  |
 | 2026-11-16T01:45 | [#7941](https://github.com/openova-io/openova/pull/7941) | #7936 | feat(sovereign): the Sovereign object gets its writer in eve |
 | 2026-11-15T23:50 | [#7940](https://github.com/openova-io/openova/pull/7940) | #7939 | feat(api): a sovereign-admin delivers a later release candid |
 | 2026-11-15T23:50 | [#7939](https://github.com/openova-io/openova/pull/7939) | #7938 | fix(cutover): step 03 gives every follower region what the r |
@@ -332,11 +337,6 @@ flowchart LR
 | 2026-11-15T14:17 | [#7916](https://github.com/openova-io/openova/pull/7916) | #7912 | fix(acceptance): CLD-G09 judges the per-Organization databas |
 | 2026-11-15T14:17 | [#7915](https://github.com/openova-io/openova/pull/7915) | #4521 | fix(acceptance): CLD-G06 judges the adoption claims where th |
 | 2026-11-15T14:17 | [#7914](https://github.com/openova-io/openova/pull/7914) | #7912 | fix(infrastructure): the template ships no CloudAdoption tha |
-| 2026-11-15T14:17 | [#7913](https://github.com/openova-io/openova/pull/7913) | #7912 | fix(organization): the Sovereign's own Organization gets its |
-| 2026-11-15T13:27 | [#7911](https://github.com/openova-io/openova/pull/7911) | #7909 | fix(bss): the default offer ships with the engine and is ser |
-| 2026-11-15T11:51 | [#7910](https://github.com/openova-io/openova/pull/7910) | #7906 | fix(harbor): every region of a two-region Sovereign verifies |
-| 2026-11-15T10:35 | [#7907](https://github.com/openova-io/openova/pull/7907) | #7902 | fix(provisioning): ready means every region, and the followe |
-| 2026-11-15T09:35 | [#7906](https://github.com/openova-io/openova/pull/7906) | #7900 | fix(cutover): a fresh two-region installation passes the han |
 
 ---
 
