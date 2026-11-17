@@ -1,12 +1,13 @@
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
-  name: mimir
+  name: bp-mimir
   labels:
     catalyst.openova.io/section: pts-3-observability
     catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 1.0.13
+  visibility: unlisted
   card:
     title: Mimir
     family: insights

@@ -2,8 +2,8 @@
 # A count moves only in the direction its rule allows; see METRICS in that script.
 schema: openova.io/service-model-baseline/v1
 counts:
-  G1.name-without-bp-prefix: 24
-  G2.visibility-missing: 30
+  G1.name-without-bp-prefix: 0
+  G2.visibility-missing: 0
   G2.api-version-not-v1: 1
   G3.wizard-groups-entries: 57
   G3.hand-seed-blueprints: 78

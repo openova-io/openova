@@ -19,6 +19,7 @@ spec:
   # before Helm tries to apply the policy CRs (same CRD-ordering shape
   # that bp-kyverno-policies addresses for Kyverno; see Issue #2019).
   version: 1.0.0
+  visibility: unlisted
   card:
     title: Cilium Policy Library
     family: networking

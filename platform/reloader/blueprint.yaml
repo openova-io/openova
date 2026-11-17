@@ -1,11 +1,12 @@
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
-  name: reloader
+  name: bp-reloader
   labels:
     catalyst.openova.io/section: pts-3-3-security-and-policy
 spec:
   version: 1.0.1
+  visibility: unlisted
   card:
     title: Reloader
     family: guardian

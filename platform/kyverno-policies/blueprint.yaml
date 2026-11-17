@@ -1,11 +1,12 @@
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
-  name: kyverno-policies
+  name: bp-kyverno-policies
   labels:
     catalyst.openova.io/section: pts-3-3-security-and-policy
 spec:
   version: 1.0.55
+  visibility: unlisted
   card:
     title: Kyverno Policy Library
     family: guardian

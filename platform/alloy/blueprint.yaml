@@ -1,12 +1,13 @@
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
-  name: alloy
+  name: bp-alloy
   labels:
     catalyst.openova.io/section: pts-3-observability
     catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 1.0.3
+  visibility: unlisted
   card:
     title: Alloy
     family: insights
