@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-17T10:15:03Z` |
+| Last refreshed | `2026-11-17T10:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-17T10:29 | [#8031](https://github.com/openova-io/openova/pull/8031) | #7785 | chore: remove the SealedSecret templates from the guacamole  |
 | 2026-11-17T09:18 | [#8030](https://github.com/openova-io/openova/pull/8030) | #7087 | docs(ledger): plan update |
 | 2026-11-17T09:12 | [#8029](https://github.com/openova-io/openova/pull/8029) | #7991 | fix(cutover): follower regions pivot the image registry of w |
 | 2026-11-17T09:12 | [#8028](https://github.com/openova-io/openova/pull/8028) | #7975 | chore(kit): the flow host leaves the sign-in gate, the DNS n |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-16T14:22 | [#7998](https://github.com/openova-io/openova/pull/7998) | #7976 | test(gate): set the FND checks that passed the baseline to r |
 | 2026-11-16T14:21 | [#7996](https://github.com/openova-io/openova/pull/7996) | #7988 | docs: list the cutover steps in label order and record the b |
 | 2026-11-16T14:22 | [#7997](https://github.com/openova-io/openova/pull/7997) | #7966 | fix(crossplane): raise Crossplane core to 1.20.14 (CLD-062) |
-| 2026-11-16T14:21 | [#7995](https://github.com/openova-io/openova/pull/7995) | #7985 | ci: set the Secret census limit to the first measured count  |
 
 ---
 
