@@ -1298,7 +1298,6 @@ packages:
   after: []
   touches:
   - platform/huawei-evs-csi/driver-src/Dockerfile
-  - products/openova-flow/server/Dockerfile
   - core/cmd/projector/Containerfile
   - core/cmd/cert-manager-dynadot-webhook/Containerfile
   - .github/workflows/catalyst-catalog-build.yaml
@@ -1318,7 +1317,7 @@ packages:
   - id: A2
     run: "python3 scripts/check-go-base-image.py"
   - id: A3
-    run: "python3 scripts/check-pins.py && test \"$(grep -c -x -F 'FROM golang:1.25.14-bookworm@sha256:3b4a11519ad929d1e1d261a12cff056f0c85b735253d7d861346b9c6f8b36437 AS build' platform/huawei-evs-csi/driver-src/Dockerfile)\" = 1 && test \"$(grep -c -x -F 'FROM golang:1.25.14-alpine3.24@sha256:1ae0735f00daffa3aaf1363a5184c0d2dc55c78e3db4ec70241cdac97bf84b59 AS build' products/openova-flow/server/Dockerfile)\" = 1 && test \"$(grep -c -F '/library/golang:1.25.14-alpine3.24@sha256:1ae0735f00daffa3aaf1363a5184c0d2dc55c78e3db4ec70241cdac97bf84b59 AS build' core/cmd/projector/Containerfile)\" = 1 && test \"$(grep -c -F '/library/golang:1.25.14-alpine3.24@sha256:1ae0735f00daffa3aaf1363a5184c0d2dc55c78e3db4ec70241cdac97bf84b59 AS build' core/cmd/cert-manager-dynadot-webhook/Containerfile)\" = 1"
+    run: "python3 scripts/check-pins.py && test \"$(grep -c -x -F 'FROM golang:1.25.14-bookworm@sha256:3b4a11519ad929d1e1d261a12cff056f0c85b735253d7d861346b9c6f8b36437 AS build' platform/huawei-evs-csi/driver-src/Dockerfile)\" = 1 && test \"$(grep -c -F '/library/golang:1.25.14-alpine3.24@sha256:1ae0735f00daffa3aaf1363a5184c0d2dc55c78e3db4ec70241cdac97bf84b59 AS build' core/cmd/projector/Containerfile)\" = 1 && test \"$(grep -c -F '/library/golang:1.25.14-alpine3.24@sha256:1ae0735f00daffa3aaf1363a5184c0d2dc55c78e3db4ec70241cdac97bf84b59 AS build' core/cmd/cert-manager-dynadot-webhook/Containerfile)\" = 1"
   - id: A4
     run: "python3 -c 'import yaml; f = \".github/workflows/catalyst-catalog-build.yaml\"; w = yaml.safe_load(open(f)); j = w[\"jobs\"]; assert sorted(j) == [\"build\", \"test\"], sorted(j); b = j[\"build\"]; assert b[\"permissions\"] == {\"contents\": \"write\", \"packages\": \"write\", \"id-token\": \"write\", \"actions\": \"write\"}, b[\"permissions\"]; s = {x.get(\"name\"): x for x in b[\"steps\"]}; d = s[\"Commit and push values.yaml bump\"]; assert d[\"uses\"] == \"./.github/actions/deploy-bump\" and d[\"if\"] == \"github.ref == \\x27refs/heads/main\\x27\" and d[\"with\"][\"paths\"] == \"products/catalyst/chart/values.yaml\" and d[\"with\"][\"release-writer-key\"] == \"${{ secrets.RELEASE_WRITER_KEY }}\"; r = s[\"Dispatch blueprint-release for chart re-publish\"]; assert \"steps.deploy_commit.outputs.pushed == \\x27true\\x27\" in r[\"if\"] and \"-f blueprint=catalyst\" in r[\"run\"] and \"-f tree=products\" in r[\"run\"]; assert \"repository-dispatch\" not in open(f).read()'"
   - id: A5
@@ -1332,7 +1331,7 @@ packages:
   repeatable: false
   ticket_rev: 1
   dropped: false
-  delivers: The four container files whose golang base image is older than the Go release their module asks for build again on golang 1.25.14 pinned by digest (the EVS CSI driver, the flow server, the projector and the cert-manager-dynadot-webhook); a new guard, run in the shared job tree-guards on every pull request and merge group, fails when the golang base of a container file is older than the go line of the module it builds; and the catalog build moves services.catalog.image.tag through the deploy-bump action instead of a repository dispatch that is refused and that no workflow receives.
+  delivers: The three container files whose golang base image is older than the Go release their module asks for build again on golang 1.25.14 pinned by digest (the EVS CSI driver, the projector and the cert-manager-dynadot-webhook); a new guard, run in the shared job tree-guards on every pull request and merge group, fails when the golang base of a container file is older than the go line of the module it builds; and the catalog build moves services.catalog.image.tag through the deploy-bump action instead of a repository dispatch that is refused and that no workflow receives.
 - id: FND-029
   title: A published chart version is never published again with other content
   area: FND
@@ -8596,7 +8595,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [SOV-130, SOV-060, CLD-086, CLD-087, SOV-131, SOV-134, SOV-135]
-  after: [CLD-023, CLD-090, CLD-131, SOV-040, SOV-144, SOV-145, SOV-190, SOV-335, SEC-104, SEC-105, SEC-150, NET-010, NET-011, NET-012, NET-020, NET-040, NET-100, NET-210, NET-221, CTL-347, INF-060]
+  after: [CLD-023, CLD-090, CLD-131, SOV-040, SOV-144, SOV-145, SOV-190, SOV-335, SEC-104, SEC-105, SEC-150, NET-010, NET-011, NET-012, NET-020, NET-040, NET-100, NET-210, NET-221, CTL-346, CTL-347, INF-060]
   touches:
   - infra/providers/hetzner/main.tf
   - infra/providers/huawei/main.tf
@@ -21467,6 +21466,7 @@ packages:
   - clusters/_template/bootstrap-kit/placement.yaml
   - scripts/expected-bootstrap-deps.yaml
   - scripts/service-model-baseline.yaml
+  - scripts/upstream-literals-baseline.txt
   - products/catalyst/bootstrap/api/internal/catalog/blueprints.json
   - products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts
   - docs/generated/bootstrap-slots.md
@@ -21490,15 +21490,15 @@ packages:
   - id: A4
     run: "python3 -c 'import sys, yaml; v = yaml.safe_load(open(\"platform/self-sovereign-cutover/chart/values.yaml\", encoding=\"utf-8\")); n = v[\"helmRepositories\"][\"names\"]; a = [h[\"name\"] for h in v[\"imageRegistryPivot\"][\"additionalHRs\"]]; sys.exit(0 if not [x for x in n + a if \"openova-flow\" in x] and \"bp-k8s-ws-proxy\" in a and \"bp-continuum\" in a and \"bp-oidc-gate\" in n and \"bp-opentelemetry-operator\" in n else 1)' && t=\"$(mktemp -d)\" && helm template ssc platform/self-sovereign-cutover/chart --set sovereign.fqdn=sov.example.test > \"$t/render.yaml\" && test \"$(grep -c -x -E ' +bp-openova-flow-(emitter|server)' \"$t/render.yaml\")\" = 0 && test \"$(grep -c -x -E ' +bp-oidc-gate' \"$t/render.yaml\")\" -ge 1"
   - id: A5
-    run: "python3 scripts/check-service-model.py > /dev/null; for p in clusters/_template/bootstrap-kit/56-bp-openova-flow-server.yaml clusters/_template/bootstrap-kit/57-bp-openova-flow-emitter.yaml; do test ! -e \"$p\"; grep -q -x -F \"$p\" docs/ledger/deleted-paths.txt; done; python3 scripts/check-repo-hygiene.py paths > /dev/null"
+    run: "python3 scripts/check-service-model.py > /dev/null; for p in clusters/_template/bootstrap-kit/56-bp-openova-flow-server.yaml clusters/_template/bootstrap-kit/57-bp-openova-flow-emitter.yaml; do test ! -e \"$p\"; grep -q -x -F \"$p\" docs/ledger/deleted-paths.txt; done; python3 scripts/check-repo-hygiene.py paths > /dev/null; n=\"$(bash scripts/check-upstream-literals.sh | sed -n 's/^kit=//p')\"; test -n \"$n\"; test \"$n\" = \"$(sed -n 's/^kit=//p' scripts/upstream-literals-baseline.txt)\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
-  delivers: 'The bootstrap kit no longer installs the flow server and the flow emitter: the two slot files are deleted; the kit list, the placement table and the dependency list lose them; the cutover values lose the two release names and the pivot entry of slot 57; the generated slot list, component list and catalogue are regenerated; the service-model baseline counts two slots fewer without a ring label; and the two paths join the deletion list.'
+  delivers: 'The bootstrap kit no longer installs the flow server and the flow emitter: the two slot files are deleted; the kit list, the placement table and the dependency list lose them; the cutover values lose the two release names and the pivot entry of slot 57; the generated slot list, component list and catalogue are regenerated; the service-model baseline counts two slots fewer without a ring label; the baseline of source addresses in the kit is two lower; and the two paths join the deletion list.'
 - id: CTL-347
   title: The flow server and adapter sources, charts and builds are deleted
   area: CTL
