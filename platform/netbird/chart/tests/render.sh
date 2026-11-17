@@ -5,12 +5,12 @@
 #
 #   #1 (waterfall)   — when fully enabled the chart renders the FULL
 #                      target shape (management + signal + coturn +
-#                      Services + HTTPRoute + PVC + 2 SealedSecrets +
+#                      Services + HTTPRoute + PVC +
 #                      NetworkPolicy + Keycloak realm-config ConfigMap).
 #
-#   #4a (SHA-pinned) — when enabled with empty .image.tag, render fails
-#                      fast with the exact `bp-netbird: ... image tag
-#                      is empty` message from _helpers.tpl.
+#   #4a (pinned tags) — when enabled with no tag override, the chart
+#                      renders each of the three images with the tag
+#                      that values.yaml sets.
 #
 #   CC3 default-OFF  — when default-OFF, render produces ZERO
 #                      Kubernetes resources. The default-OFF gate is
@@ -57,22 +57,28 @@ fi
 echo "PASS: default-OFF renders 0 resources"
 
 # ─────────────────────────────────────────────────────────────────────
-# 2. Fail-fast on empty image tag.
+# 2. Default image tags: with no tag override each of the three
+#    images renders with the repository and tag of values.yaml.
 # ─────────────────────────────────────────────────────────────────────
-if helm template bp-netbird . \
+render_tags="$TMP/tags.yaml"
+if ! helm template bp-netbird . \
     --set netbird.enabled=true \
     --set netbird.management.domain=netbird.test \
     --set netbird.oidc.issuer=https://kc.test/realms/c \
-    >/dev/null 2>"$TMP/empty-tag.err"; then
-  echo "FAIL: empty image.tag did not abort render"
+    > "$render_tags" 2>"$TMP/tags.err"; then
+  echo "FAIL: render with the default image tags failed:"
+  cat "$TMP/tags.err"
   exit 1
 fi
-if ! grep -q 'image tag is empty' "$TMP/empty-tag.err"; then
-  echo "FAIL: empty-tag error didn't mention 'image tag is empty':"
-  cat "$TMP/empty-tag.err"
-  exit 1
-fi
-echo "PASS: empty image.tag fails fast"
+for c in management signal coturn; do
+  want="$(python3 -c 'import sys, yaml; i = yaml.safe_load(open("values.yaml", encoding="utf-8"))["netbird"][sys.argv[1]]["image"]; t = str(i.get("tag") or ""); sys.exit("no default tag for " + sys.argv[1]) if not t else print("%s:%s" % (i["repository"], t))' "$c")"
+  if ! grep -q -F "image: \"$want\"" "$render_tags"; then
+    echo "FAIL: the $c image does not render as $want"
+    grep -F 'image:' "$render_tags"
+    exit 1
+  fi
+done
+echo "PASS: the default image tags render (management, signal, coturn)"
 
 # ─────────────────────────────────────────────────────────────────────
 # 3. Full-ON: the canonical resource bundle.
@@ -93,7 +99,6 @@ required_kinds=(
   Service
   HTTPRoute
   PersistentVolumeClaim
-  SealedSecret
   NetworkPolicy
   ConfigMap
 )
@@ -120,14 +125,6 @@ if [[ "$svc_count" -lt "3" ]]; then
   exit 1
 fi
 echo "PASS: full-ON renders >=3 Services"
-
-# Two SealedSecrets (oidc + coturn auth).
-ss_count="$(grep -cE '^kind: SealedSecret$' "$render_on" || true)"
-if [[ "$ss_count" -lt "2" ]]; then
-  echo "FAIL: full-ON rendered $ss_count SealedSecrets, want >=2"
-  exit 1
-fi
-echo "PASS: full-ON renders 2 SealedSecrets (oidc + coturn auth)"
 
 # Realm-config ConfigMap must reference the OIDC client name + redirect.
 if ! grep -q '"clientId": "netbird"' "$render_on"; then

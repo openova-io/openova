@@ -288,20 +288,10 @@ guacamole:
     # which never matched the canonical sovereign-realm import.
     issuer: ""
     clientId: guacamole
-    # G117.5 W3.D1 #2744 (2026-06-02): default ON. The new
-    # templates/secret-sso-oidc-credentials.yaml emits a Helm
-    # `lookup`-or-generate Secret named `.clientSecretRef.name` with
-    # `helm.sh/resource-policy: keep`. The legacy SealedSecret +
-    # pre-install bootstrap Job pair is preserved at
-    # chartManagedSecret=false for operators on the GitOps-managed
-    # cred-lifecycle path. Per memory
-    # feedback_chart_credential_persistence_defense.md.
-    chartManagedSecret: true
     # Client secret name + key — read by the Deployment via
-    # secretKeyRef. The same name is materialised by EITHER the
-    # chart-managed Secret (default chartManagedSecret=true) OR the
-    # SealedSecret placeholder (chartManagedSecret=false). They are
-    # mutually exclusive so the Secret name never collides.
+    # secretKeyRef. templates/secret-sso-oidc-credentials.yaml
+    # materialises this Secret with Helm `lookup`-or-generate and
+    # `helm.sh/resource-policy: keep`.
     clientSecretRef:
       name: guacamole-oidc
       key: client-secret

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-17T09:16:43.176Z",
+  "generatedAt": "2026-11-17T09:20:26.898Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -1715,7 +1715,6 @@
         "bp-keycloak",
         "bp-cilium",
         "bp-seaweedfs",
-        "bp-sealed-secrets",
         "bp-k8s-ws-proxy"
       ],
       "shareable": false,
@@ -2063,9 +2062,7 @@
       "visibility": "unlisted",
       "version": "0.1.21",
       "section": "pts-3-3-security-and-policy",
-      "depends": [
-        "bp-sealed-secrets"
-      ],
+      "depends": [],
       "shareable": false,
       "contextSchema": null,
       "producesInstances": null,
@@ -3281,8 +3278,7 @@
       "section": "pts-3-1-networking-and-service-mesh",
       "depends": [
         "bp-keycloak",
-        "bp-cilium",
-        "bp-sealed-secrets"
+        "bp-cilium"
       ],
       "shareable": false,
       "contextSchema": null,
