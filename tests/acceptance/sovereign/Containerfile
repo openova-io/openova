@@ -1,0 +1,54 @@
+# The image of the acceptance suite tests/acceptance/sovereign for a run in self: a Job inside a
+# Sovereign runs `sovereign-acceptance run --run-in self`, which reads the cluster through kubectl
+# with the ServiceAccount of its pod.
+#
+# It is built by .github/workflows/build-conformance.yaml. The build context is not the
+# repository: the workflow fills a folder of its own, from one commit, with these files:
+#   sovereign-acceptance             the suite program, built with CGO_ENABLED=0 from
+#                                    tests/acceptance/sovereign/cmd/sovereign-acceptance
+#   scripts/check-live-nodeports.sh  copied from the repository; check FND-G05 runs it from the
+#                                    folder that --repo-root names
+#   gates.json                       the gate manifest, docs/ledger/gates.yaml, as the JSON that
+#                                    `python3 scripts/acceptance-gate.py export` prints
+# The build argument SUITE_GIT_SHA is that commit, 40 hexadecimal characters. The suite writes it
+# into its record as suite_git_sha. The build stops when it is missing or malformed.
+#
+# In the image:
+#   /usr/local/bin/sovereign-acceptance          the entry point
+#   /opt/conformance                             the working folder, and the value of --repo-root
+#   /opt/conformance/gates.json                  the value of --manifest
+#   /opt/conformance/scripts/check-live-nodeports.sh
+#   /usr/local/bin/kubectl                       v1.31.8, the Kubernetes minor of the kit
+#   bash and python3                             the NodePort script needs both
+# The default user is 65534 (nobody), not root.
+#
+# Both stages use the base of alpine 3.20.10, the last release of 3.20, pinned by its digest.
+# bash, python3 and curl come from the Alpine archive of that release. kubectl is the release
+# binary of dl.k8s.io; the fetch stage stops when its SHA-256 is not the published one,
+# https://dl.k8s.io/release/v1.31.8/bin/linux/amd64/kubectl.sha256.
+
+# ---------- Stage 1: kubectl, checked against its published SHA-256 ----------
+FROM docker.io/library/alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc AS fetch
+RUN apk add --no-cache curl \
+    && curl -fsSL --retry 3 -o /kubectl https://dl.k8s.io/release/v1.31.8/bin/linux/amd64/kubectl \
+    && echo "be0aa44a50a9aada4e9402e361ffb0d5bb1fd4f6950751399fcaf3b8b936a746  /kubectl" | sha256sum -c - \
+    && chmod 0755 /kubectl
+
+# ---------- Stage 2: the runtime ----------
+FROM docker.io/library/alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+ARG SUITE_GIT_SHA
+RUN printf '%s\n' "${SUITE_GIT_SHA}" | grep -Eqx '[0-9a-f]{40}' \
+    || { echo "the build argument SUITE_GIT_SHA must be a commit of 40 hexadecimal characters; it is '${SUITE_GIT_SHA}'" >&2; exit 1; }
+RUN apk add --no-cache bash python3
+COPY --from=fetch /kubectl /usr/local/bin/kubectl
+COPY sovereign-acceptance /usr/local/bin/sovereign-acceptance
+COPY scripts/check-live-nodeports.sh /opt/conformance/scripts/check-live-nodeports.sh
+COPY gates.json /opt/conformance/gates.json
+RUN chmod 0755 /usr/local/bin/sovereign-acceptance /opt/conformance/scripts/check-live-nodeports.sh \
+    && chmod 0644 /opt/conformance/gates.json \
+    && kubectl version --client \
+    && bash /opt/conformance/scripts/check-live-nodeports.sh --self-test
+ENV SUITE_GIT_SHA=${SUITE_GIT_SHA}
+WORKDIR /opt/conformance
+USER 65534:65534
+ENTRYPOINT ["/usr/local/bin/sovereign-acceptance"]
