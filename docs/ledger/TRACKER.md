@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-17T07:30:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-17T07:45:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-17T07:36 | [#8026](https://github.com/openova-io/openova/pull/8026) | #7820 | chore(kit): kit slots 56 and 57, the flow server and the flo |
+| 2026-11-17T07:35 | [#8025](https://github.com/openova-io/openova/pull/8025) | #7864 | fix(ci): raise three golang bases, guard each base against i |
 | 2026-11-17T07:05 | [#8024](https://github.com/openova-io/openova/pull/8024) | #7087 | docs(ledger): plan update |
 | 2026-11-17T06:13 | [#8023](https://github.com/openova-io/openova/pull/8023) | #7799 | fix: give every Blueprint a bp- name and a visibility, and a |
 | 2026-11-17T05:22 | [#8019](https://github.com/openova-io/openova/pull/8019) | #7965 | feat(api): agent tokens, the signer key set route and gate c |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-16T09:58 | [#7960](https://github.com/openova-io/openova/pull/7960) | #7946 | fix(release): a delivery runs the candidate's own mechanism; |
 | 2026-11-16T09:58 | [#7959](https://github.com/openova-io/openova/pull/7959) | #7938 | fix(release): a dry run refuses a pullSecret instead of reco |
 | 2026-11-16T09:58 | [#7958](https://github.com/openova-io/openova/pull/7958) | #7940 | fix(api): the parent delivers the network registry to a Sove |
-| 2026-11-16T05:55 | [#7957](https://github.com/openova-io/openova/pull/7957) | #7884 | docs: custody procedure and safe rotation of the release key |
-| 2026-11-16T09:57 | [#7956](https://github.com/openova-io/openova/pull/7956) | #7741 | ci: the local pack runs the console, mints an owner session  |
 
 ---
 
