@@ -20,23 +20,24 @@ helm template network-policies . --namespace catalyst-system > "$TMP/default.yam
 python3 "$CHECK" --chart bp-network-policies --release network-policies < "$TMP/default.yaml"
 helm template network-policies . --namespace catalyst-system --show-only "$TEST" > "$TMP/default-test.yaml"
 grep -q -E '^  namespace: default$' "$TMP/default-test.yaml" || fail "the test Pod does not run in the namespace default"
-if helm template network-policies . --show-only templates/allow-system-namespaces.yaml | grep -q -x -F '          - "default"'; then
-  fail "the namespace default is a system namespace, so the test would prove nothing"
-fi
-grep -q -F 'name: 30-allow-egress-dns' "$TMP/default.yaml" || fail "the chart renders no DNS egress rule"
+grep -q -F 'name: baseline-deny-metadata' "$TMP/default.yaml" || fail "the chart renders no deny of the instance metadata address"
+grep -q -F 'value: "http://169.254.169.254/"' "$TMP/default-test.yaml" || fail "the test does not dial the instance metadata address"
 grep -q -F '28|7) ;;' "$TMP/default-test.yaml" || fail "the test does not demand that the connection is not made"
+if grep -q -F 'metadata-access' "$TMP/default-test.yaml"; then
+  fail "the test Pod names the exception label, so the test would prove nothing"
+fi
 grep -q -F 'automountServiceAccountToken: false' "$TMP/default-test.yaml" || fail "the test Pod mounts a token it does not need"
 
-echo "[function-test] Case 2: a test namespace that is a system namespace renders no test"
-helm template network-policies . --namespace catalyst-system --set functionTest.namespace=kube-system > "$TMP/system.yaml"
-python3 "$CHECK" --chart bp-network-policies --release network-policies --absent < "$TMP/system.yaml"
+echo "[function-test] Case 2: legacyBaseline.enabled=true still runs the test"
+helm template network-policies . --namespace catalyst-system --set legacyBaseline.enabled=true > "$TMP/legacy.yaml"
+python3 "$CHECK" --chart bp-network-policies --release network-policies < "$TMP/legacy.yaml"
 
-echo "[function-test] Case 3: allowEgressDNS=false renders no test"
-helm template network-policies . --namespace catalyst-system --set allowEgressDNS=false > "$TMP/nodns.yaml"
-python3 "$CHECK" --chart bp-network-policies --release network-policies --absent < "$TMP/nodns.yaml"
-
-echo "[function-test] Case 4: enabled=false renders no test"
+echo "[function-test] Case 3: enabled=false renders no test"
 helm template network-policies . --namespace catalyst-system --set enabled=false > "$TMP/off.yaml"
 python3 "$CHECK" --chart bp-network-policies --release network-policies --absent < "$TMP/off.yaml"
+
+echo "[function-test] Case 4: enabled=false with legacyBaseline.enabled=true renders no test"
+helm template network-policies . --namespace catalyst-system --set enabled=false --set legacyBaseline.enabled=true > "$TMP/off-legacy.yaml"
+python3 "$CHECK" --chart bp-network-policies --release network-policies --absent < "$TMP/off-legacy.yaml"
 
 echo "function-test-render: all cases passed"

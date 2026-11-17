@@ -5,8 +5,10 @@ operator from etcd, cert-manager from external ACME, etc. — every
 Sovereign would be unreachable within minutes.
 
 Per docs/EPICS-1-6-unified-design.md §3.9 row 8.
+LEGACY, off by default: renders only when .Values.enabled and
+.Values.legacyBaseline.enabled are both true.
 */}}
-{{- if and .Values.enabled .Values.allowSystemNamespaces -}}
+{{- if and .Values.enabled .Values.legacyBaseline.enabled .Values.allowSystemNamespaces -}}
 apiVersion: cilium.io/v2
 kind: CiliumClusterwideNetworkPolicy
 metadata:

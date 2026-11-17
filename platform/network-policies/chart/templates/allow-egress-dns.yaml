@@ -3,8 +3,10 @@ Allow egress to CoreDNS from every namespace. Without this, default-deny
 breaks every Pod's first DNS lookup → catastrophic.
 
 Per docs/EPICS-1-6-unified-design.md §3.9 row 8.
+LEGACY, off by default: renders only when .Values.enabled and
+.Values.legacyBaseline.enabled are both true.
 */}}
-{{- if and .Values.enabled .Values.allowEgressDNS -}}
+{{- if and .Values.enabled .Values.legacyBaseline.enabled .Values.allowEgressDNS -}}
 apiVersion: cilium.io/v2
 kind: CiliumClusterwideNetworkPolicy
 metadata:

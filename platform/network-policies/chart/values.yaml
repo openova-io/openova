@@ -1,10 +1,22 @@
-# Master gate. G101 (Refs #2650, 2026-06-01) flipped to TRUE by default
-# — zero-trust posture is mandatory per ADR-0001 §2 + DoD §A5. Every
-# fresh Sovereign installs default-deny on Pod CREATE; per-Blueprint
-# CiliumNetworkPolicy allow rules cover declared ingress/egress.
-# Operators MAY override `enabled: false` per Sovereign overlay for
-# debug-mode, but the default is zero-trust.
+# Master gate. true (the default) renders the baseline of this chart.
+# false renders nothing at all.
+#
+# The baseline is ONE object, `baseline-deny-metadata`: no pod reaches the
+# instance metadata address 169.254.169.254. It puts no pod under default
+# deny, so every other flow of a pod stays as it was. A workload that must
+# read the address sets this label in its own pod template:
+#   network.openova.io/metadata-access: "true"
 enabled: true
+
+# The legacy baseline: the objects `00-default-deny`,
+# `10-allow-system-namespaces` and `30-allow-egress-dns`. Off by default.
+# Together they put every pod of the cluster under default deny for
+# egress, and that cut the console entry path when it was tried.
+# They render only when this value AND `enabled` are both true. Every
+# value below this block (`allowSystemNamespaces`, `allowEgressDNS`,
+# `dnsNamespace`, `dnsServiceName`) is read by the legacy templates only.
+legacyBaseline:
+  enabled: false
 
 # G101 (Refs #2650, 2026-06-01) — EXPANDED. Catalyst control-plane
 # namespaces that need full ingress/egress so the platform itself stays
