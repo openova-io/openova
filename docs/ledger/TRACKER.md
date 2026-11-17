@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-17T14:15:04Z` |
+| Last refreshed | `2026-11-17T14:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-17T14:19 | [#8052](https://github.com/openova-io/openova/pull/8052) | #7087 | docs(ledger): plan update |
+| 2026-11-17T14:27 | [#8050](https://github.com/openova-io/openova/pull/8050) | #8036 | fix(crossplane): run the adoption Composition in Pipeline mo |
+| 2026-11-17T14:27 | [#8049](https://github.com/openova-io/openova/pull/8049) | #7775 | ci: a workflow gates the standing environment twice once it  |
 | 2026-11-17T14:02 | [#8046](https://github.com/openova-io/openova/pull/8046) | #7087 | docs(ledger): plan update |
 | 2026-11-17T13:49 | [#8044](https://github.com/openova-io/openova/pull/8044) | #7816 | feat(fingate): internal authorisation API package with the t |
 | 2026-11-17T13:48 | [#8043](https://github.com/openova-io/openova/pull/8043) | #7852 | feat(ops-records): alert signal intake and the rule path tha |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-16T15:12 | [#8010](https://github.com/openova-io/openova/pull/8010) | #7971 | fix(providers): the Huawei profile states its user-data limi |
 | 2026-11-16T14:56 | [#8009](https://github.com/openova-io/openova/pull/8009) | #7973 | refactor(api): the resource browser refuses Git-owned object |
 | 2026-11-16T15:18 | [#8008](https://github.com/openova-io/openova/pull/8008) | #7993 | chore: delete the dormant Blueprint controller, its build an |
-| 2026-11-16T14:55 | [#8007](https://github.com/openova-io/openova/pull/8007) | #7990 | refactor(cloud-init): first boot stops writing two node file |
-| 2026-11-16T14:56 | [#8006](https://github.com/openova-io/openova/pull/8006) | #7989 | chore(secrets): the Secret register lists kube-system/parent |
-| 2026-11-16T14:24 | [#8005](https://github.com/openova-io/openova/pull/8005) | #7964 | fix(model-meter): meter streamed answers from their final us |
 
 ---
 
