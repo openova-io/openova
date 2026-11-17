@@ -1,34 +1,15 @@
 {{- /*
-Step 03 — harbor-prewarm.
+Step 03 — harbor-prewarm. Image phase: pre.
 
-Phase A (G66 #2615, 2026-05-31): NATIVE PUSH openova-io application
-images into local Harbor via skopeo, using the original ghcr.io PAT
-from flux-system/ghcr-pull (intact at step 03 time, BEFORE step 04
-pivot and step 06 strip). Eliminates Harbor proxy-cache dependency
-on ghcr.io authentication — Harbor's github-ghcr adapter cannot
-auth ghcr.io reliably even with a valid PAT (45min validation
-hw73 9d4a5b629fcc38bb 2026-05-30: tried github-ghcr + docker-registry
-types, multiple usernames, manual PUT with verified-good PAT — all
-401 from upstream because ghcr.io requires the 2-step
-`/token?scope=...` flow that Harbor's adapter doesn't execute).
-
-The post-cutover Sovereign carries IMMUTABLE pushed images for every
-openova-io component — sovereignty target-state per docs/DOD.md
-Pillar 5. The deny-egress hold against ghcr.io now passes
-genuinely (no pull dependency on upstream).
-
-Phase B (existing): HEAD against local Harbor proxy-cache for
-non-openova-io upstream images (cilium, cert-manager, kyverno,
-loki, postgres, redis, etc.) — proxy-cache works fine for these
-because they're public anonymous-pull registries (quay.io,
-docker hub, registry.k8s.io).
-
-Source list (Phase A): dynamic enumeration via kubectl walking
-every Pod's container images cluster-wide; deduplicates by
-`ghcr.io/openova-io/*` prefix. Phase B list comes from
-.Values.prewarm.images verbatim (legacy contract — proxy-* paths).
-
-Image phase: pre.
+Phase A (G66 #2615): skopeo NATIVE-PUSHES the images into local Harbor with
+the ghcr.io PAT of flux-system/ghcr-pull (intact before the step-04 pivot and
+the step-06 strip). Harbor's github-ghcr adapter cannot run ghcr.io's 2-step
+`/token?scope=` flow (401 with a valid PAT, hw73 9d4a5b629fcc38bb), so a
+proxy-cache is no route for them. The Sovereign then holds IMMUTABLE pushed
+images and the deny-egress hold passes genuinely (docs/DOD.md Pillar 5).
+Sources: the live walk of every region, the pinned charts (A2, A3), the kit's
+manifests and Flux Kustomizations (#7938). Phase B HEADs the public proxy-*
+paths of .Values.prewarm.images (legacy contract).
 */ -}}
 apiVersion: v1
 kind: ConfigMap
@@ -70,27 +51,14 @@ data:
     : "${HARBOR_USERNAME:=admin}"
 
     {{- /*
-     #6356 — RE-SEED THE STATUS ConfigMap IF IT IS EMPTY.
-
-     09-cutover-status-configmap.yaml renders a POPULATED object (totalSteps
-     + the 11 step slugs) and carries `helm.sh/resource-policy: keep`. Keep is
-     correct — mid-cutover progress must survive a chart upgrade — but it also
-     means Helm will NEVER update an object that already exists. So if that
-     ConfigMap is ever empty there is NO reconcile path back: no chart upgrade
-     can re-seed it, totalSteps stays absent, the /jobs cutover group can never
-     render 11 steps, and cutoverComplete is unprovable on that Sovereign
-     forever.
-
-     Measured live on hw298 2026-08-15: the ConfigMap existed (created
-     15:20:00Z, managed-by Helm, keep annotation present) with ZERO data keys
-     and 0 Jobs cluster-wide — the annotation protecting an empty artifact,
-     the one state it was added to prevent. Root cause of UAT rows G11/166.
-
-     The Job is the right repair point precisely BECAUSE Helm is forbidden:
-     this step always runs, already holds STATUS_CONFIGMAP_NAME/NAMESPACE, and
-     already merge-patches this object. A merge patch only ADDS absent keys, so
-     a ConfigMap already carrying mid-cutover progress is left untouched — this
-     can fill a gap, never overwrite a verdict.
+     #6356 — RE-SEED THE STATUS ConfigMap IF IT IS EMPTY. 09-cutover-status-
+     configmap.yaml carries `helm.sh/resource-policy: keep` (mid-cutover progress
+     must survive an upgrade), so Helm never updates an existing object: an empty
+     one has no reconcile path back, /jobs never renders 11 steps and
+     cutoverComplete is unprovable (hw298 2026-08-15, ZERO data keys; UAT rows
+     G11/166). This step always runs and holds STATUS_CONFIGMAP_NAME/NAMESPACE;
+     its merge patch only ADDS absent keys: it fills a gap, never overwrites a
+     verdict.
     */}}
     if [ -n "${STATUS_CONFIGMAP_NAME:-}" ] && [ -n "${STATUS_CONFIGMAP_NAMESPACE:-}" ]; then
       _seed_total="$(kubectl get configmap "${STATUS_CONFIGMAP_NAME}" -n "${STATUS_CONFIGMAP_NAMESPACE}" -o jsonpath='{.data.totalSteps}' 2>/dev/null || true)"
@@ -126,18 +94,10 @@ data:
     {{- /* ─── Phase A: skopeo native push of openova-io images ────── */}}
     echo "[harbor-prewarm] Phase A: install skopeo + jq + enumerate openova-io images"
     {{- /*
-     G69 #2618 (2026-05-31): alpine/k8s:1.31.4 base image's apk
-     repos DO NOT carry community/skopeo → `apk add skopeo`
-     silently no-ops → `command -v skopeo` returns FATAL →
-     cutover chain breaks at Step 03 → Steps 04-08 NEVER RUN →
-     Pillar 5 sovereignty NEVER ACHIEVED. Verified live hw78
-     (de7f6aa8d5ef12b5) post-mandate audit 2026-05-31 04:40Z.
-
-     Fix: download skopeo static binary from GitHub releases
-     via curl. Falls back to apk if available (image may be
-     rebased onto a distro with skopeo in repos later). jq is
-     typically present in alpine/k8s but we verify + install
-     via apk if not.
+     G69 #2618 (hw78 de7f6aa8d5ef12b5): the apk repos of alpine/k8s:1.31.4 do
+     not carry skopeo, so `apk add skopeo` silently no-ops and the chain stops
+     at step 03. Fix: the static skopeo binary from GitHub releases via curl,
+     apk as the fallback. jq is verified and apk-installed if absent.
     */}}
     apk add --no-cache jq >/dev/null 2>&1 || true
     if ! command -v jq >/dev/null 2>&1; then
@@ -1976,29 +1936,88 @@ data:
     done
 
     {{- /*
-     ── Phase A2-pins (#5237 round 2, Refs #5007): union the FROZEN
-     bootstrap-kit pins from the LOCAL GITEA MIRROR into the chart-
-     mirror set. The live deployed∪desired union above tracks the
-     CLUSTER — which a mid-cutover catalog merge can roll AWAY from
-     the pins flux settles back to post-step-05 (the GitRepository
-     still tracks GitHub until then, so a pin-bump commit landing
-     between step-01's mirror and step-05's pivot rolls the live HR
-     to a version the FROZEN mirror never pins; prewarm mirrors the
-     transient tag, the frozen pin is never warmed, and the first
-     post-strip (re)pull 404s under the deny-egress hold — the hw274
-     class, dep d51a69f885872a81). The bootstrap-kit slot files in
-     the local Gitea mirror ARE the post-cutover pin ground truth,
-     immune to anything published upstream after step-01 mirrored:
-     enumerate them (shared extractor 03b — the SAME parser step-06's
-     Phase 3a-pin gate and the #5265 Day-2 reconciler use) and union
-     the result in. Strict superset — every entry is still copied
-     idempotently (#4994 skip-if-present makes an already-mirrored
-     pin a cheap API GET), and the Phase A2 chart_fail>0 FATAL below
-     stays the fail-loud guard for a pinned tag that cannot be
-     pulled. FAIL-LOUD on enumeration failure: an unreadable PAT /
-     unreachable mirror / zero-pin parse exits 1 HERE (egress open,
-     recoverable) rather than silently narrowing the mirror.
+     ── Phase A2-pins (#5237 round 2, Refs #5007): union the FROZEN bootstrap-kit
+     pins of the LOCAL GITEA MIRROR into the chart set. The live union tracks the
+     CLUSTER, which a mid-cutover merge can roll AWAY from the pins Flux settles on
+     after step 05 (hw274, dep d51a69f885872a81: the frozen pin was never warmed and
+     404ed under the hold). The slot files of the mirror are the post-cutover pin
+     truth; the shared extractor 03b (step 06 and the #5265 Day-2 reconciler use
+     it too) reads them. A strict superset; the Phase A2 chart_fail>0 FATAL below
+     still guards a pin that cannot be pulled. FAIL-LOUD: an unreadable PAT,
+     unreachable mirror or zero-pin parse exits 1 HERE, never a narrower mirror.
+
+     #7938 — the images the kit's own manifests and its Flux Kustomizations run.
+     Slot 12b's `images:` retags the Job under its path, and nothing else names
+     that ref: the live walk has no Job before promote, Phase A3 renders
+     HelmReleases only. hw307, 16 Nov 2026: that Job sat in ImagePullBackOff in
+     both regions after cutover. Read from the same tree as the pins, they join
+     the run guard and the follower legs. Applied: a folder's kustomization.yaml
+     resources (files, folders) or, without one, every YAML below it (Flux's
+     generator), then spec.images as kustomize applies them. Named, never applied:
+     other kustomize fields, spec.patches/components, remote resources. A ref
+     with ${VAR} (postBuild) or no tag is skipped by name.
     */}}
+    # ── prewarm-kit-images BEGIN (#7938 extraction anchor — tests/step7938-prewarm-kit-images.sh runs this block verbatim) ──
+    prewarm_kit_get() { mkdir -p "$(dirname "$2")" && curl -fsS --retry 3 --retry-delay 5 -H "Authorization: token ${bk_pat}" -o "$2" "${bk_api}/raw/$1?ref=${UPSTREAM_BRANCH}" 2>/dev/null; }
+    prewarm_kit_ls() { curl -fsS --retry 3 --retry-delay 5 -H "Authorization: token ${bk_pat}" "${bk_api}/contents/$1?ref=${UPSTREAM_BRANCH}" 2>/dev/null | jq -er 'if type == "array" then .[] | .type + " " + .name else error("not a folder") end'; }
+    # prewarm_kit_refs <manifest>...: "<image>\t<file>" for every container of a Pod-bearing document.
+    prewarm_kit_refs() {
+      awk -v q="'" 'FNR == 1 || /^---/ {k = ""} /^kind:/ {k = $2} /^[[:space:]]*#/ {next}
+        k ~ /^(Pod|Deployment|StatefulSet|DaemonSet|ReplicaSet|Job|CronJob)$/ && match($0, /(^|[[:space:],{])image:[[:space:]]*[^[:space:],]+/) {
+          v = substr($0, RSTART, RLENGTH); sub(/^.*image:[[:space:]]*/, "", v); gsub(/"/, "", v); gsub(q, "", v); if (v !~ /[$][{]/) sub(/[}]+$/, "", v); print v "\t" FILENAME}' "$@"
+    }
+    # prewarm_kit_retag <name|newName|newTag|digest;...>: a Flux Kustomization's images: on the first field of stdin, in
+    # order, as kustomize applies them: an entry matches the name without tag or digest; newName replaces the name;
+    # newTag and digest, either one given, replace both.
+    prewarm_kit_retag() {
+      awk -F '\t' -v OFS='\t' -v spec="$1" 'BEGIN {n = split(spec, e, ";")} {r = $1; for (i = 1; i <= n; i++) {split(e[i], f, "|")
+        s = index(r, "/"); o = (s > 1) ? s - 1 : 0; t = substr(r, o + 1); a = index(t, "@"); c = index(t, ":"); if (a && c > a) c = 0
+        nm = substr(r, 1, o + (c ? c : (a ? a : length(t) + 1)) - 1); tg = c ? substr(r, o + c + 1, (a ? a - c - 1 : length(t))) : ""; dg = a ? substr(r, o + a + 1) : ""
+        if (nm != f[1]) continue; if (f[2] != "") nm = f[2]; if (f[3] != "" || f[4] != "") {tg = f[3]; dg = f[4]}
+        r = nm; if (tg != "") r = r ":" tg; if (dg != "") r = r "@" dg} $1 = r; print}'
+    }
+    # prewarm_kit_images <kit dir> <work dir>: one ref per line; reasons on stderr; 1 when the tree cannot be read.
+    prewarm_kit_images() {
+      _ki_w="$2"; rm -rf "${_ki_w}"; mkdir -p "${_ki_w}/t"; (cd "$1" && prewarm_kit_refs [0-9]*.yaml) >"${_ki_w}/refs"
+      awk -v q="'" 'function val(v) {v = $0; sub(/^[^:]*:[[:space:]]*/, "", v); sub(/[[:space:]]+#.*$/, "", v); gsub(/"/, "", v); gsub(q, "", v); return v}
+        function out(i, s) {if (fk) {s = ""; for (i = 1; i <= e; i++) s = s ";" en[i] "|" nn[i] "|" nt[i] "|" dg[i]; print n "\t" p "\t" substr(s, 2)} fk = e = ii = 0; n = p = sec = ""}
+        FNR == 1 || /^---/ {out(); api = ""} /^[[:space:]]*(#|$)/ {next} /^apiVersion:/ {api = val()}
+        /^kind:/ {fk = (val() == "Kustomization" && api ~ /^kustomize\.toolkit\.fluxcd\.io\//)} !fk {next}
+        /^[^ ]/ {sec = $1; next} sec == "metadata:" && /^  name:/ {n = val()} sec != "spec:" {next}
+        /^  [^ -]/ {ii = ($0 ~ /^  images:/)} /^  (patches|components):/ {x = $1; sub(/:$/, "", x); print "n " n ": its spec." x}
+        /^  path:/ {p = val()} ii && /^ *- / {e++; en[e] = nn[e] = nt[e] = dg[e] = ""; sub(/- /, "  ")}
+        ii && /^ +name:/ {en[e] = val()} ii && /^ +newName:/ {nn[e] = val()} ii && /^ +newTag:/ {nt[e] = val()} ii && /^ +digest:/ {dg[e] = val()}
+        END {out()}' "$1"/[0-9]*.yaml >"${_ki_w}/ks.tsv"
+      while IFS="$(printf '\t')" read -r _ki_n _ki_p _ki_e; do
+        case "${_ki_n}" in "n "*) echo "[harbor-prewarm] kit-images: Flux Kustomization ${_ki_n#n } is not applied (only its path's resources and spec.images are)" >&2; continue ;; esac
+        case "${_ki_p}" in ''|*'$'*) echo "[harbor-prewarm] kit-images: SKIP Flux Kustomization ${_ki_n}: its path '${_ki_p}' is empty or substituted" >&2; continue ;; esac
+        _ki_p="${_ki_p#./}"; printf 'd %s\n' "${_ki_p%/}" >"${_ki_w}/q"; : >"${_ki_w}/files"; _ki_i=0
+        while _ki_i=$((_ki_i + 1)); _ki_l=$(sed -n "${_ki_i}p" "${_ki_w}/q"); [ -n "${_ki_l}" ]; do
+          _ki_x="${_ki_l#? }"
+          case "${_ki_l}" in
+            n*) echo "[harbor-prewarm] kit-images: ${_ki_n}: ${_ki_x} is not applied (only resources and spec.images are)" >&2 ;;
+            f*) prewarm_kit_get "${_ki_x}" "${_ki_w}/t/${_ki_x}" || { echo "[harbor-prewarm] kit-images: ${_ki_n}: could not read ${_ki_x}" >&2; return 1; }
+              printf '%s\n' "${_ki_x}" >>"${_ki_w}/files" ;;
+            *) prewarm_kit_ls "${_ki_x}" >"${_ki_w}/ls" || { echo "[harbor-prewarm] kit-images: ${_ki_n}: could not list ${_ki_x}" >&2; return 1; }
+              _ki_k=$(awk '$1 == "file" && $2 ~ /^(kustomization\.ya?ml|Kustomization)$/ {print $2; exit}' "${_ki_w}/ls")
+              if [ -z "${_ki_k}" ]; then awk -v d="${_ki_x}" '$1 == "dir" {print "d " d "/" $2} $1 == "file" && $2 ~ /\.ya?ml$/ {print "f " d "/" $2}' "${_ki_w}/ls" >"${_ki_w}/new"
+              elif prewarm_kit_get "${_ki_x}/${_ki_k}" "${_ki_w}/k.yaml"; then
+                awk -v d="${_ki_x}" -v q="'" '/^[^ #-]/ {r = ($0 ~ /^(resources|bases):/); if ($0 ~ /^(images|patches|patchesStrategicMerge|patchesJson6902|replacements|components|transformers|generators|helmCharts):/) print "n the " substr($1, 1, length($1) - 1) " of " d}
+                  r && /^ *- / {v = $0; sub(/^ *- */, "", v); sub(/[[:space:]]+#.*$/, "", v); gsub(/"/, "", v); gsub(q, "", v); if (v ~ /:\/\/|^git(hub\.com\/|@)|[?]ref=/) {print "n the remote resource " v; next}
+                    m = split(d "/" v, s, "/"); k = 0; for (i = 1; i <= m; i++) if (s[i] == "..") k -= (k > 0); else if (s[i] != "" && s[i] != ".") o[++k] = s[i]
+                    p = o[1]; for (i = 2; i <= k; i++) p = p "/" o[i]; t = (v ~ /\.(ya?ml|json)$/) ? "f " : "d "; print t p}' "${_ki_w}/k.yaml" >"${_ki_w}/new"
+              else echo "[harbor-prewarm] kit-images: ${_ki_n}: could not read ${_ki_x}/${_ki_k}" >&2; return 1; fi
+              grep -vxF -f "${_ki_w}/q" "${_ki_w}/new" >>"${_ki_w}/q" || true ;;
+          esac
+        done
+        if [ -s "${_ki_w}/files" ]; then (cd "${_ki_w}/t" && prewarm_kit_refs $(cat ../files)) | prewarm_kit_retag "${_ki_e}" | awk -F '\t' -v OFS='\t' -v n="${_ki_n}" '{$2 = "Flux Kustomization " n ", " $2; print}' >>"${_ki_w}/refs"; fi
+      done <"${_ki_w}/ks.tsv"
+      sort -u "${_ki_w}/refs" | while IFS="$(printf '\t')" read -r _ki_r _ki_s; do
+        case "${_ki_r}" in *'$'*) echo "[harbor-prewarm] kit-images: SKIP ${_ki_r} (${_ki_s}): a postBuild substitution is never guessed" >&2; continue ;; esac
+        case "${_ki_r##*/}" in *[:@]*) echo "[harbor-prewarm] kit-images: ${_ki_r} (${_ki_s})" >&2; printf '%s\n' "${_ki_r}" ;; *) echo "[harbor-prewarm] kit-images: SKIP ${_ki_r} (${_ki_s}): untagged, and an implicit :latest is no mirror target" >&2 ;; esac
+      done
+    }
+    # ── prewarm-kit-images END ──
     : "${PREWARM_BOOTSTRAP_KIT_PINS:=true}"
     if [ "${PREWARM_BOOTSTRAP_KIT_PINS}" = "true" ]; then
       echo "[harbor-prewarm] Phase A2-pins (#5237): enumerating bootstrap-kit chart pins from the local Gitea mirror (the frozen commit flux consumes post-step-05)"
@@ -2081,50 +2100,28 @@ data:
         printf '%s\t%s\n' "${bk_c}" "${bk_v}" >> "${chart_work}"
       done < "${bk_pins}"
       echo "[harbor-prewarm] Phase A2-pins: ${bk_count} frozen bootstrap-kit pin(s) unioned into the mirror set (${bk_pin_only} pin-only, i.e. not covered by the live union)"
+      kit_img=/tmp/.kit-images.txt
+      prewarm_kit_images "${bk_dir}" /tmp/kit-images >"${kit_img}" || { echo "[harbor-prewarm] FATAL (#7938): could not read the tree a kit Flux Kustomization applies (named above) from the local Gitea mirror (${GITEA_ORG}/${GITEA_REPO}@${UPSTREAM_BRANCH}), so the images it runs cannot be named. Emergency override: prewarm.bootstrapKitPins.enabled=false."; exit 1; }
+      echo "[harbor-prewarm] Phase A2-pins: $(grep -c . "${kit_img}" || true) image(s) that the kit's manifests and Flux Kustomizations run join the run guard and the follower legs (#7938)"
     else
       echo "[harbor-prewarm] Phase A2-pins DISABLED (prewarm.bootstrapKitPins.enabled=false) — mirroring the live deployed∪desired union only; the frozen flux pin set is NOT guaranteed locally (#5237)"
     fi
 
     {{- /*
      ── Phase A2-catalog (#5443, Refs #3627 #5237 #5442): union the
-     MARKETPLACE's chart set into the mirror.
-
-     Both enumerations above derive from what is INSTALLED — live
-     HelmReleases (Phase A2) and the frozen bootstrap-kit pins (Phase
-     A2-pins). The marketplace offers what the CATALOG lists, and those
-     sets differ by definition: the catalog set is strictly larger.
-     Step-06 nonetheless pivots `openova-catalog` — the HelmRepository
-     every per-Org Application HelmRelease resolves through — onto local
-     Harbor, so after cutover a Sovereign advertises Blueprints whose
-     charts were never mirrored. Measured on hw290 2026-07-27: 14 of 29
-     `visibility: listed` entries resolved, 15 returned 404, and the
-     Harbor `openova-io` project is HOSTED (registry_id: None), so there
-     is no proxy-cache fallback — the 404 is final and a customer buying
-     any of those 15 gets an unpullable HelmRelease on a Sovereign that
-     is by then deliberately cut off from the mothership.
-
-     SOURCE OF TRUTH = the LIVE Blueprint CRs, not the chart-shipped
-     catalog-seed. The seed only SEEDS them; `/api/v1/catalog` serves the
-     CRs (catalog_client_cluster_fallback.go listFromCluster), the
-     console's catalog IaC editor mutates the CRs, and an operator can
-     curate entries the seed never had. Reading the seed would mirror a
-     set the marketplace does not necessarily offer, in both directions.
-
-     HARD vs SOFT. `spec.manifests.chart` : `spec.version` is the exact
-     coordinate the install path requests (blueprintChart() ->
-     Application.spec.blueprintRef.version -> HR chart.spec.version), so
-     for a `visibility: listed` entry — the customer-visible contract —
-     it is HARD: a failed copy is FATAL and the Phase A2-guard below
-     re-asserts it against Harbor's durable artifact API. Every other row
-     is SOFT (mirrored best-effort, failure WARNs): `spec.source.version`
-     is read by NO controller and is a known drift surface (the console
-     editor can bump spec.version without it, or vice versa — #5444), and
-     unlisted/private entries are not installable from the marketplace
-     grid, so a stale pin on one must not hold the whole cutover hostage.
-     Mirroring them anyway is nearly free — a chart OCI artifact is a
-     manifest plus one small tgz layer, unlike the image wave that
-     dominates prewarm's runtime — and it covers the depends[]/companion
-     closure of the listed set without a graph walk.
+     MARKETPLACE's chart set into the mirror. The sets above are what is
+     INSTALLED; the catalog is strictly larger, yet step 06 pivots
+     `openova-catalog` (every per-Org Application resolves through it) onto
+     local Harbor, whose `openova-io` project is HOSTED: no proxy fallback, a
+     404 is final (hw290 2026-07-27: 15 of 29 listed entries 404ed).
+     SOURCE OF TRUTH = the LIVE Blueprint CRs, not the catalog-seed: the CRs are
+     what `/api/v1/catalog` serves and the console editor mutates.
+     HARD vs SOFT. `spec.manifests.chart`:`spec.version` is the coordinate the
+     install path requests, so for a `visibility: listed` entry a failed copy is
+     FATAL and the Phase A2-guard re-asserts it against Harbor's artifact API.
+     Every other row is SOFT (best-effort, WARN): `spec.source.version` is read
+     by no controller (#5444) and unlisted entries are not installable; a chart
+     artifact is small, and mirroring them covers the depends[] closure.
     */}}
     : "${PREWARM_CATALOG_CHARTS:=true}"
     : "${PREWARM_CATALOG_HARD_VISIBILITY:=listed}"
@@ -3251,9 +3248,9 @@ data:
       done < "${sec_tuples}"
       # ── follower-release-pins BEGIN (#7938 extraction anchor — tests/step7938-follower-release-pins.sh runs this block verbatim): this region's live set is the release it RUNS; the release it is GIVEN is what this step pinned from ${UPSTREAM_BRANCH} (chart_installed) and the images those charts declare (Phase A3) ──
       if [ -s "${chart_installed:-}" ]; then cat "${chart_installed}" >> "${sec_charts}"; fi
-      if [ -s "${cat_img_installed:-}" ]; then grep -E '^ghcr\.io/openova-io/' "${cat_img_installed}" >> "${sec_img}" || true; fi
+      cat "${cat_img_installed:-/dev/null}" "${kit_img:-/dev/null}" 2>/dev/null | grep -E '^ghcr\.io/openova-io/' >> "${sec_img}" || true
       sort -u "${sec_charts}" -o "${sec_charts}"; sort -u "${sec_img}" -o "${sec_img}"
-      echo "[harbor-prewarm] #7938 secondary region ${region}: also mirrors the pins of ${UPSTREAM_BRANCH} and the images their charts declare, so this region's registry holds what the release pins"
+      echo "[harbor-prewarm] #7938 secondary region ${region}: also mirrors the pins of ${UPSTREAM_BRANCH} and the images their charts and the kit's Flux Kustomizations declare, so this region's registry holds what the release pins"
       # ── follower-release-pins END ──
       _sec_imgn=$(grep -c . "${sec_img}" || true)
       _sec_chartn=$(grep -c . "${sec_charts}" || true)
@@ -3362,14 +3359,14 @@ data:
       cpdir="${_rg_cpdir_saved}"
       _rg_mn=$(grep -c . "${_rg_dir}/missing.txt" || true)
       if [ "${_rg_mn}" -gt 0 ]; then
-        echo "[harbor-prewarm] FATAL (#7922): ${_rg_mn} image(s) that this Sovereign runs, or that the charts it is given pin for an installed release, are not in its own registry. Under the deny-egress hold, and after it, each pod that needs one fails to pull on its next start:"
+        echo "[harbor-prewarm] FATAL (#7922): ${_rg_mn} image(s) that this Sovereign runs, or that the release it is given pins (its charts for an installed release, its kit manifests and Flux Kustomizations), are not in its own registry. Under the deny-egress hold, and after it, each pod that needs one fails to pull on its next start:"
         sed 's/^/  RUNNING-MISSING /' "${_rg_dir}/missing.txt"
         return 1
       fi
-      echo "[harbor-prewarm] run guard (#7922): PASS — ${_rg_n} image(s) that pods run, workload templates declare in every region or the pinned charts declare for installed releases; ${_rg_pn} local path(s) durably present (${_rg_healed} copied by the guard), ${_rg_excl} excluded by design"
+      echo "[harbor-prewarm] run guard (#7922): PASS — ${_rg_n} image(s) that pods run, workload templates declare in every region or the release pins (charts of installed releases, kit manifests and Flux Kustomizations); ${_rg_pn} local path(s) durably present (${_rg_healed} copied by the guard), ${_rg_excl} excluded by design"
     }
     # ── prewarm-run-guard END ──
-    prewarm_release_seed "${cat_img_installed:-}" "${run_images_file}"
+    for _rs_f in "${cat_img_installed:-}" "${kit_img:-}"; do prewarm_release_seed "${_rs_f}" "${run_images_file}"; done
     prewarm_run_guard /tmp/prewarm-run-guard "${run_images_file}" || exit 1
   podSpec: |
     serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
