@@ -1,0 +1,19 @@
+schema: openova.io/plan-wrong/v1
+id: ACC-010
+ticket_rev: 1
+base_commit: 6e3ee58bdb2c91166604273cfc9a9a7cc267fd4a
+stage: scope
+ref: fence run
+command: |
+    python3 scripts/plan.py check-pr --base origin/main --head HEAD --body-file /tmp/ACC-010-body.md; echo "exit code: $?"
+expected: |
+    exit code: 0
+actual: |
+    rule 4: check FND-G01, flipped by FND-080, is not green
+    rule 4: check FND-G02, flipped by FND-080, is not green
+    rule 4: check FND-G03, flipped by FND-080, is not green
+    rule 4: check FND-G04, flipped by FND-080, is not green
+    rule 4: check FND-G10, flipped by FND-080, is not green
+    rule 4: check FND-G11, flipped by FND-080, is not green
+    exit code: 1
+reported_at: 2026-11-17T13:27:33Z
