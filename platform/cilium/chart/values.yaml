@@ -104,17 +104,7 @@ cilium:
   ipam:
     mode: kubernetes
 
-  # WireGuard mTLS for transparent encryption between every pod (per
-  # platform/cilium/README.md "mTLS via WireGuard"). This is the
-  # CANONICAL east-west mTLS layer for OpenOva Sovereign clusters —
-  # 100% mesh enforcement at the kernel transport level. SPIFFE-based
-  # workload identity is intentionally NOT enabled here; bp-spire was
-  # dropped from the bootstrap-kit (founder direction 2026-05-03)
-  # because (a) Cilium WireGuard already gives every connection
-  # transparent encryption + node-level identity, and (b) ESO→OpenBao
-  # auth uses K8s ServiceAccount auth method (TokenReview), not
-  # JWT-SVID. Federation across Sovereigns or per-workload-fingerprint
-  # attestation can re-introduce SPIRE later as an opt-in blueprint.
+  # WireGuard encrypts traffic between nodes. It does not authenticate workloads.
   encryption:
     enabled: true
     type: wireguard
@@ -149,7 +139,7 @@ cilium:
   # Correct pod MTU = 1500 (eth0) − 50 (VXLAN) − 80 (WireGuard) = 1370.
   # A 1370-byte pod payload + 50 VXLAN = 1420 = exactly the cilium_wg0 MTU.
   # WireGuard node-encryption is ALWAYS-ON for every Catalyst Sovereign
-  # (the canonical east-west mTLS layer — see the encryption block above),
+  # (the canonical east-west WireGuard encryption layer — see the encryption block above),
   # so 1370 is a safe static default that never regresses a non-WG path.
   #
   # The upstream cilium chart's top-level `MTU` key renders cilium-config

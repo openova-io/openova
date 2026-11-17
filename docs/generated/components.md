@@ -30,7 +30,6 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | platform/cluster-autoscaler-hcloud | bp-cluster-autoscaler-hcloud | bp-cluster-autoscaler-hcloud | unlisted | 50 |
 | platform/cnpg | bp-cnpg | bp-cnpg | unlisted | 16 |
 | platform/cnpg-pair | bp-cnpg-pair | bp-cnpg-pair | listed | 16b |
-| platform/coraza | bp-coraza | bp-coraza | unlisted | 35 |
 | platform/crossplane | bp-crossplane | bp-crossplane | unlisted | 04 |
 | platform/crossplane-claims | bp-crossplane-claims | bp-crossplane-claims | unlisted | 14 |
 | platform/debezium | - | bp-debezium | unlisted | - |
@@ -99,7 +98,6 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | platform/self-sovereign-cutover | bp-self-sovereign-cutover | bp-self-sovereign-cutover | unlisted | 06a |
 | platform/sigstore | bp-sigstore | bp-sigstore | unlisted | 32 |
 | platform/sovereign-tls-vars | bp-sovereign-tls-vars | bp-sovereign-tls-vars | unlisted | 12a |
-| platform/spire | bp-spire | bp-spire | unlisted | - |
 | platform/sso-bridge | bp-sso-bridge | bp-sso-bridge | unlisted | 13b |
 | platform/stalwart | - | - | - | - |
 | platform/stalwart-sovereign | bp-stalwart-sovereign | bp-stalwart-sovereign | listed | - |

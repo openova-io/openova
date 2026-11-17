@@ -33,7 +33,7 @@ serviceCIDR: 10.96.0.0/12
 #   * the gateway-ingress CiliumNetworkPolicy fromEntities:[ingress,host,
 #     remote-node] when `gatewayIngress: true` (every component fronted by a
 #     public HTTPRoute needs it; pure-backend components like loki/mimir/tempo/
-#     valkey/seaweedfs/vllm/nats/coraza do NOT face the gateway), and
+#     valkey/seaweedfs/vllm/nats do NOT face the gateway), and
 #   * the kube-apiserver-webhook-ingress CiliumNetworkPolicy fromEntities:
 #     [kube-apiserver,host,remote-node] on the declared TCP port(s) when
 #     `apiserverWebhookPorts: [<port>...]` is set — for a component that runs an
@@ -237,8 +237,3 @@ components:
                                    # CNP admits the ingress entity); no in-cluster peer dials it.
                                    # It egresses to keycloak (backchannel OIDC) + its upstream app
                                    # — both covered by the open egress rule (Refs #4325).
-  # ── dmz-tier platform component ────────────────────────────────────────
-  - namespace: coraza              # WAF (sits on the public ingress path)
-    gatewayIngress: true           # the gateway proxies through coraza (ext_authz)
-    allowIngressFrom:
-      - kube-system                # the cilium-gateway control plane

@@ -19,8 +19,8 @@
 //  1. clusters/_template/ exists and renders to valid Flux Kustomization
 //     manifests after SOVEREIGN_FQDN_PLACEHOLDER substitution
 //  2. The dependency graph encoded by `dependsOn` matches the canonical
-//     11-phase order: cilium → cert-manager → flux → crossplane →
-//     sealed-secrets → spire → nats-jetstream → openbao → keycloak →
+//     10-phase order: cilium → cert-manager → flux → crossplane →
+//     sealed-secrets → nats-jetstream → openbao → keycloak →
 //     gitea → bp-catalyst-platform
 //  3. Each referenced platform/<x>/blueprint.yaml + chart/Chart.yaml
 //     actually exists at the path the Kustomization claims
@@ -76,7 +76,7 @@ func repoRoot(t *testing.T) string {
 // canonicalOrder is the bootstrap-kit dependency order from
 // docs/SOVEREIGN-PROVISIONING.md §3 step 2:
 //
-//	cilium → cert-manager → flux → crossplane → sealed-secrets → spire →
+//	cilium → cert-manager → flux → crossplane → sealed-secrets →
 //	nats-jetstream → openbao → keycloak → gitea → bp-catalyst-platform
 //
 // "flux" is the third entry because Flux on the new cluster reconciles
@@ -90,7 +90,6 @@ var canonicalOrder = []string{
 	"bp-flux",
 	"bp-crossplane",
 	"bp-sealed-secrets",
-	"bp-spire",
 	"bp-nats-jetstream",
 	"bp-openbao",
 	"bp-keycloak",
@@ -107,7 +106,7 @@ func TestBootstrapKit_AllElevenBlueprintsExist(t *testing.T) {
 
 	required := []string{
 		"cilium", "cert-manager", "flux", "crossplane", "sealed-secrets",
-		"spire", "nats-jetstream", "openbao", "keycloak", "gitea",
+		"nats-jetstream", "openbao", "keycloak", "gitea",
 	}
 	for _, name := range required {
 		bpPath := filepath.Join(root, "platform", name, "blueprint.yaml")
@@ -148,7 +147,7 @@ func TestBootstrapKit_BlueprintCardsHaveRequiredFields(t *testing.T) {
 	root := repoRoot(t)
 	required := []string{
 		"cilium", "cert-manager", "flux", "crossplane", "sealed-secrets",
-		"spire", "nats-jetstream", "openbao", "keycloak", "gitea",
+		"nats-jetstream", "openbao", "keycloak", "gitea",
 	}
 	for _, name := range required {
 		t.Run(name, func(t *testing.T) {
@@ -456,6 +455,7 @@ func TestBootstrapKit_PlatformPlanesAreHostNative(t *testing.T) {
 	// (3) + (4): the retired slots must be gone; bp-plane-isolation (5) must be present.
 	retired := map[string]string{
 		"00-vcluster-host-namespaces.yaml": "slot 00 (vcluster-host-namespaces) must be RETIRED post-#4291 — platform components own first-class host namespaces directly",
+		"35-coraza.yaml":                   "slot 35 (bp-coraza) must be RETIRED — the firewall was never in the request path and its chart is deleted",
 		"54-bp-dmz-vcluster.yaml":          "slot 54 (bp-dmz-vcluster) must be RETIRED post-#4291 — the dmz plane is no longer a vCluster",
 		"58-bp-mgmt-vcluster.yaml":         "slot 58 (bp-mgmt-vcluster) must be RETIRED post-#4291 — the mgmt plane is no longer a vCluster",
 		"59-bp-rtz-vcluster.yaml":          "slot 59 (bp-rtz-vcluster) must be RETIRED post-#4291 — the rtz plane is no longer a vCluster",
@@ -1238,7 +1238,7 @@ func TestBootstrapKit_PlaneIsolationDialGraphIsCovered(t *testing.T) {
 	// Gateway-fronted components MUST also carry the ingress-entity CNP — without
 	// it the cilium-gateway/envoy traffic (reserved `ingress` entity, no
 	// namespaceSelector can match) is silently dropped → curl 000/503.
-	wantGatewayCNP := []string{"keycloak", "gitea", "harbor", "grafana", "openbao", "guacamole", "newapi", "coraza", "oidc-gate"}
+	wantGatewayCNP := []string{"keycloak", "gitea", "harbor", "grafana", "openbao", "guacamole", "newapi", "oidc-gate"}
 	for _, ns := range wantGatewayCNP {
 		if !gatewayCNP[ns] {
 			t.Errorf("bp-plane-isolation: gateway-fronted component %q is MISSING its allow-gateway-ingress CiliumNetworkPolicy — public route traffic (reserved `ingress` entity) will be dropped → 000/503. Set gatewayIngress: true on the %q entry", ns, ns)

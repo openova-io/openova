@@ -157,3 +157,7 @@ products/catalyst/chart/templates/controllers/blueprint-controller-deployment.ya
 products/catalyst/chart/templates/controllers/blueprint-controller-serviceaccount.yaml
 clusters/_template/bootstrap-kit/56-bp-openova-flow-server.yaml
 clusters/_template/bootstrap-kit/57-bp-openova-flow-emitter.yaml
+platform/coraza
+platform/spire
+clusters/_template/bootstrap-kit/35-coraza.yaml
+products/catalyst/bootstrap/ui/public/component-logos/coraza.png

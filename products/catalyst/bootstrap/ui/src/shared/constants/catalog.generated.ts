@@ -1038,60 +1038,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "hasUserUIEndpoint": false
   },
   {
-    "id": "bp-coraza",
-    "slug": "coraza",
-    "title": "Coraza WAF (SPOA)",
-    "summary": "",
-    "icon": null,
-    "category": null,
-    "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
-    "version": "1.0.1",
-    "section": "pts-3-3-security-and-policy",
-    "depends": [],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "singleton"
-      ],
-      "multiRegion": "singleton",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "singleton": {
-          "replication": {
-            "backend": "flux-git",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
-          "switchover": null,
-          "placement": {
-            "tier": "",
-            "clusters": [
-              "mgmt-A",
-              "mgmt-B",
-              "dmz-A",
-              "dmz-B",
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "mgmt-A": "singleton",
-              "mgmt-B": "singleton",
-              "dmz-A": "singleton",
-              "dmz-B": "singleton",
-              "rtz-A": "singleton",
-              "rtz-B": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": false
-  },
-  {
     "id": "bp-crossplane",
     "slug": "crossplane",
     "title": "crossplane",
@@ -4859,70 +4805,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "hasUserUIEndpoint": false
   },
   {
-    "id": "bp-spire",
-    "slug": "spire",
-    "title": "spire",
-    "summary": "SPIFFE/SPIRE workload identity. 5-min rotating SVIDs. Server on mgt cluster + agent per host cluster.",
-    "icon": null,
-    "category": null,
-    "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
-    "version": "1.1.7",
-    "section": "pts-2-3-per-sovereign-supporting-services",
-    "depends": [],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "active-hot-standby",
-        "singleton"
-      ],
-      "multiRegion": "active-hot-standby",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "active-hot-standby": {
-          "replication": {
-            "backend": "cnpg-pair",
-            "mode": "sync",
-            "lagSloSeconds": 0
-          },
-          "switchover": {
-            "mechanism": "bp-continuum",
-            "rtoSeconds": 30,
-            "rpoSeconds": 0
-          },
-          "placement": {
-            "tier": "mgmt",
-            "clusters": [
-              "mgmt-A",
-              "mgmt-B"
-            ],
-            "roles": {
-              "mgmt-A": "active",
-              "mgmt-B": "passive"
-            }
-          }
-        },
-        "singleton": {
-          "replication": null,
-          "switchover": null,
-          "placement": {
-            "tier": "mgmt",
-            "clusters": [
-              "mgmt-A"
-            ],
-            "roles": {
-              "mgmt-A": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": false
-  },
-  {
     "id": "bp-sso-bridge",
     "slug": "sso-bridge",
     "title": "sso-bridge",
@@ -6026,7 +5908,6 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/cluster-autoscaler-hcloud/blueprint.yaml",
   "platform/cnpg-pair/blueprint.yaml",
   "platform/cnpg/blueprint.yaml",
-  "platform/coraza/blueprint.yaml",
   "platform/crossplane-claims/blueprint.yaml",
   "platform/crossplane/blueprint.yaml",
   "platform/debezium/blueprint.yaml",
@@ -6092,7 +5973,6 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/self-sovereign-cutover/blueprint.yaml",
   "platform/sigstore/blueprint.yaml",
   "platform/sovereign-tls-vars/blueprint.yaml",
-  "platform/spire/blueprint.yaml",
   "platform/sso-bridge/blueprint.yaml",
   "platform/stalwart-sovereign/blueprint.yaml",
   "platform/stalwart-tenant/blueprint.yaml",
@@ -6370,13 +6250,6 @@ export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = [
     "label": "velero",
     "file": "34-velero.yaml",
     "order": 34
-  },
-  {
-    "id": "bp-coraza",
-    "slug": "coraza",
-    "label": "coraza",
-    "file": "35-coraza.yaml",
-    "order": 35
   },
   {
     "id": "bp-vllm",

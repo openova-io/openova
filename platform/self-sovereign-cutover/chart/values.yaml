@@ -1072,7 +1072,6 @@ helmRepositories:
     - "bp-sigstore"
     - "bp-syft-grype"
     - "bp-velero"
-    - "bp-coraza"
     - "bp-cert-manager-powerdns-webhook"
     - "bp-cluster-autoscaler-hcloud"
     # #4573 F4 (Refs #3379): the ~22 openova-io HelmRepositories the
