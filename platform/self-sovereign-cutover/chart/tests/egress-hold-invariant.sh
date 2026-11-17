@@ -121,9 +121,12 @@ echo \"POLICY_APPLIED=[\${POLICY_APPLIED}]\"" ) 2>&1
 }
 
 # ── run_verdict <block-file> <POLICY_APPLIED> <ENFORCE_CIDR_BLOCK> ───────────
+#    The verdict deletes step 03's pull-credential copy and releases kured's hold
+#    (#7938, #7903): the stub answers those calls, never a real cluster.
 run_verdict() {
   local block="$1" applied="$2" enforce="$3"
-  ( sh -c "${SHELL_OPTS}
+  ( export PATH="${TMP}:${PATH}"
+    sh -c "${SHELL_OPTS}
 new_failures=0
 POLICY_APPLIED='${applied}'
 ENFORCE_CIDR_BLOCK='${enforce}'
