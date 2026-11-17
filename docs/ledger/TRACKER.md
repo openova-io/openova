@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-17T08:30:05Z` |
+| Last refreshed | `2026-11-17T08:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-17T08:37 | [#8027](https://github.com/openova-io/openova/pull/8027) | #7982 | chore: remove the unwired firewall and the unused SPIRE char |
 | 2026-11-17T07:36 | [#8026](https://github.com/openova-io/openova/pull/8026) | #7820 | chore(kit): kit slots 56 and 57, the flow server and the flo |
 | 2026-11-17T07:35 | [#8025](https://github.com/openova-io/openova/pull/8025) | #7864 | fix(ci): raise three golang bases, guard each base against i |
 | 2026-11-17T07:05 | [#8024](https://github.com/openova-io/openova/pull/8024) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-16T10:50 | [#7963](https://github.com/openova-io/openova/pull/7963) | #7087 | docs(ledger): plan update |
 | 2026-11-16T09:58 | [#7960](https://github.com/openova-io/openova/pull/7960) | #7946 | fix(release): a delivery runs the candidate's own mechanism; |
 | 2026-11-16T09:58 | [#7959](https://github.com/openova-io/openova/pull/7959) | #7938 | fix(release): a dry run refuses a pullSecret instead of reco |
-| 2026-11-16T09:58 | [#7958](https://github.com/openova-io/openova/pull/7958) | #7940 | fix(api): the parent delivers the network registry to a Sove |
 
 ---
 
