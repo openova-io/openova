@@ -18,6 +18,11 @@
 #       only) mints it, and step-01 copied the shared PAT into the follower's
 #       gitea namespace only. The running pod reads the copy when H2's
 #       imageRegistry edit rolls it in step-06 (after step-01).
+#   H4  (SOV-241) the other kit slots that run unsuspended in a follower region
+#       with an empty `global.imageRegistry`: 51 bp-k8s-ws-proxy, 52
+#       bp-guacamole and 80 bp-newapi. Their entries are marked followerRegions,
+#       so the same in-region Job writes their seam. FOLLOWER_SLOTS lists every
+#       slot the Job must write; each has an assertion and a mutant.
 #
 # Evidence, each part able to fail:
 #   (a) render gating — every new byte is absent from the single-region render
@@ -31,7 +36,8 @@
 #       with the env of the rendered in-region Job, against a bare git origin
 #       holding the REAL clusters/_template trees; the verdict is read from the
 #       origin's main. Idempotent re-run. Two mutants (each new input emptied)
-#       must turn H1 and H2 red.
+#       must turn H1 and H2 red, and one mutant per slot of FOLLOWER_SLOTS (its
+#       followerRegions mark removed in the render) must turn that slot red.
 #   (d) EXECUTION of step-01's real rendered secondary leg with a recording
 #       kubectl stub: the Secret lands in the follower's catalyst-system in the
 #       same apply as the existing gitea-namespace copy; the value set empty
@@ -51,6 +57,8 @@ LOCAL="oci://${REG}/openova-io"
 TRUST="cutover-harbor-ca"
 REGION="me-east-215-b-1"
 PAT="deadbeefcafe"
+# Every kit slot whose seam the in-region Job must write in a follower region (H2, H4).
+FOLLOWER_SLOTS="clusters/_template/bootstrap-kit/62-bp-continuum.yaml clusters/_template/bootstrap-kit/51-bp-k8s-ws-proxy.yaml clusters/_template/bootstrap-kit/52-bp-guacamole.yaml clusters/_template/bootstrap-kit/80-newapi.yaml"
 TMP="$(mktemp -d)"
 trap 'rm -rf "${TMP}"' EXIT
 FAILURES=0
@@ -93,6 +101,15 @@ open(tmp + "/step01.sh", "w").write(c["args"][0])
 json.dump({e["name"]: e["value"] for e in c["env"] if "value" in e}, open(tmp + "/step01-env.json", "w"))
 PY
 envval() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get(sys.argv[2], ""))' "$1" "$2"; }
+slots_of() { # $1 = a two-region render; prints IMAGE_REGISTRY_SLOT_FILES of its in-region pivot Job
+  python3 - "$1" <<'PY'
+import sys, yaml
+docs = [d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+cm = [d for d in docs if d.get("kind") == "ConfigMap" and d["metadata"]["name"] == "cutover-secondary-pivot-script"][0]
+job = yaml.safe_load(cm["data"]["secondary-pivot-job.yaml"])
+print(" ".join(e["value"] for e in job["spec"]["template"]["spec"]["containers"][0]["env"] if e["name"] == "IMAGE_REGISTRY_SLOT_FILES"))
+PY
+}
 DIRS="$(envval "${TMP}/pivot-env.json" FOLLOWER_SOURCE_DIRS)"
 SLOTS="$(envval "${TMP}/pivot-env.json" IMAGE_REGISTRY_SLOT_FILES)"
 TOK="$(envval "${TMP}/step01-env.json" FOLLOWER_GIT_TOKEN_SECRET)"
@@ -100,10 +117,10 @@ TOK_NS="${TOK%%/*}"
 TOK_NAME="${TOK#*/}"
 
 echo "[follower] (b) the values are tied to the tree they act on"
-python3 - "${REPO_ROOT}" "${DIRS}" "${SLOTS}" "${TOK_NS}" "${TOK_NAME}" "${UP}" <<'PY' || FAILURES=$((FAILURES + 1))
+python3 - "${REPO_ROOT}" "${DIRS}" "${SLOTS}" "${TOK_NS}" "${TOK_NAME}" "${UP}" "${FOLLOWER_SLOTS}" <<'PY' || FAILURES=$((FAILURES + 1))
 import glob, os, re, sys, yaml
-root, dirs, slots, tok_ns, tok_name, up = sys.argv[1:7]
-dirs, slots = dirs.split(), slots.split()
+root, dirs, slots, tok_ns, tok_name, up, want = sys.argv[1:8]
+dirs, slots, want = dirs.split(), slots.split(), want.split()
 bad = 0
 def say(ok, msg):
     global bad
@@ -124,13 +141,16 @@ for d in dirs:
 say("clusters/_template/sovereign-region/multi-region-follower/catalog-helmrepository.yaml" in ups,
     f"the follower catalog source is among the files the rewrite has to move off {up} ({ups})")
 slot62 = "clusters/_template/bootstrap-kit/62-bp-continuum.yaml"
-say(slot62 in slots, f"slot 62 is in IMAGE_REGISTRY_SLOT_FILES {slots}")
+for s in want:
+    say(s in slots, f"{s} is in IMAGE_REGISTRY_SLOT_FILES {slots}")
 for s in slots:
     t = open(os.path.join(root, s)).read()
     say(len(re.findall(r"(?m)^      imageRegistry:", t)) == 1, f"{s} carries exactly one 6-space imageRegistry seam")
     hrs = [d for d in yaml.safe_load_all(t) if d and d.get("kind") == "HelmRelease"]
     susp = str(hrs[0]["spec"].get("suspend", "")) if hrs else "<no HelmRelease>"
     say(bool(hrs) and "SECONDARY_HR_SUSPEND" not in susp and susp.lower() != "true", f"{s} is not suspended in a follower region (spec.suspend={susp!r})")
+    role = ((hrs[0]["metadata"].get("labels") or {}).get("catalyst.openova.io/region-role", "every-region")) if hrs else "<no HelmRelease>"
+    say(role == "every-region", f"{s} runs in every region (region-role={role!r}; no label means every region)")
 s62 = [d for d in yaml.safe_load_all(open(os.path.join(root, slot62))) if d and d.get("kind") == "HelmRelease"][0]
 cv = yaml.safe_load(open(os.path.join(root, "products/continuum/chart/values.yaml")))
 say(s62["spec"]["targetNamespace"] == tok_ns, f"the token goes where slot 62 runs Continuum ({tok_ns!r})")
@@ -191,16 +211,17 @@ print(f"openova-catalog url={s.get('url')} certSecretRef={s.get('certSecretRef')
 sys.exit(0 if ok else 1)
 PY
 }
-h2_state() {
-  python3 - "${TMP}/out/clusters/_template/bootstrap-kit/62-bp-continuum.yaml" "${REG}" <<'PY'
+slot_state() { # $1 = a slot file; 0 only when the origin's main has its global.imageRegistry at the local registry
+  python3 - "${TMP}/out/$1" "${REG}" <<'PY'
 import sys, yaml
 path, reg = sys.argv[1:3]
 hr = [x for x in yaml.safe_load_all(open(path)) if x and x.get("kind") == "HelmRelease"][0]
 v = hr["spec"]["values"]["global"]["imageRegistry"]
-print(f"bp-continuum global.imageRegistry={v!r}")
+print(f"{hr['metadata']['name']} global.imageRegistry={v!r}")
 sys.exit(0 if v == reg else 1)
 PY
 }
+h2_state() { slot_state clusters/_template/bootstrap-kit/62-bp-continuum.yaml; }
 
 seed_origin
 before=$(origin_main)
@@ -211,17 +232,17 @@ after=$(origin_main)
 origin_tree
 if out=$(h1_state); then pass "H1: ${out} — the state of the hand change, reached by the chain"; else fail "H1: ${out} — the follower catalog source is not pivoted"; fi
 if out=$(h2_state); then pass "H2: ${out} — the state of the hand change, reached by the chain"; else fail "H2: ${out} — slot 62 keeps the chart default registry in the follower"; fi
+for s in ${FOLLOWER_SLOTS}; do
+  if out=$(slot_state "${s}"); then pass "${s}: ${out} — written in the follower by the chain"; else fail "${s}: ${out} — the follower keeps the chart default registry for this slot"; fi
+done
 left=$(cat "${TMP}/out/clusters/_template/bootstrap-kit/"*.yaml "${TMP}/out/clusters/_template/sovereign-region/multi-region-follower/"*.yaml | grep -cE "^[[:space:]]*url:[[:space:]]*${UP}[[:space:]]*$" || true)
 [ "${left}" = "0" ] && pass "no kit or follower file declares ${UP} any more" || fail "${left} line(s) still declare ${UP}"
-# Scope: the slots that are not marked followerRegions keep their seam empty in the follower.
-others=$(python3 - "${CHART_DIR}/values.yaml" <<'PY'
-import sys, yaml
-v = yaml.safe_load(open(sys.argv[1]))["imageRegistryPivot"]
-print(" ".join(e["slotFile"] for e in v["additionalHRs"] if not e.get("followerRegions")))
-PY
-)
-for s in ${others}; do
-  if grep -qxF "      imageRegistry: ''" "${TMP}/out/${s}"; then pass "${s} (not marked followerRegions) is left as it was"; else fail "${s} was edited although it is not marked followerRegions"; fi
+# Scope: every kit slot the Job was not given keeps its 6-space imageRegistry seam as the repository has it.
+for f in "${REPO_ROOT}"/clusters/_template/bootstrap-kit/*.yaml; do
+  s="clusters/_template/bootstrap-kit/$(basename "${f}")"
+  case " ${SLOTS} " in *" ${s} "*) continue ;; esac
+  grep -q '^      imageRegistry:' "${f}" || continue
+  if [ "$(grep '^      imageRegistry:' "${f}")" = "$(grep '^      imageRegistry:' "${TMP}/out/${s}")" ]; then pass "${s} (not given to the Job) keeps its seam"; else fail "${s} was edited although the Job was not given it"; fi
 done
 grep -q "^\[secondary-pivot\] main-sha=${after}$" "${TMP}/run.log" && pass "the Job log reports main-sha=<origin main>" || fail "main-sha line missing or wrong"
 
@@ -241,6 +262,26 @@ seed_origin
 rc=$(run_pivot "${DIRS}" "")
 origin_tree
 if out=$(h2_state); then fail "m2: IMAGE_REGISTRY_SLOT_FILES empty and H2 still green (${out}) — the H2 check is vacuous"; else pass "m2: without IMAGE_REGISTRY_SLOT_FILES slot 62 stays on the default (${out}); H2 detects it"; fi
+# One mutant per slot of FOLLOWER_SLOTS: the chart rendered with that entry's followerRegions mark removed.
+for s in ${FOLLOWER_SLOTS}; do
+  if ! python3 - "${CHART_DIR}/values.yaml" "${s}" >"${TMP}/mut-values.yaml" <<'PY'
+import sys, yaml
+hrs = yaml.safe_load(open(sys.argv[1]))["imageRegistryPivot"]["additionalHRs"]
+hit = [e for e in hrs if e.get("slotFile") == sys.argv[2]]
+for e in hit:
+    e.pop("followerRegions", None)
+yaml.safe_dump({"imageRegistryPivot": {"additionalHRs": hrs}}, sys.stdout)
+sys.exit(0 if hit else 1)
+PY
+  then fail "m(${s}): no imageRegistryPivot.additionalHRs entry names this slot"; continue; fi
+  render "--set secondaryRegions.mirrorToSecondaryGitea=true -f ${TMP}/mut-values.yaml" "${TMP}/mut.yaml"
+  mslots="$(slots_of "${TMP}/mut.yaml")"
+  seed_origin
+  rc=$(run_pivot "${DIRS}" "${mslots}")
+  [ "${rc}" = "0" ] || fail "m(${s}): secondary-pivot.sh exit ${rc} with the mark removed"
+  origin_tree
+  if out=$(slot_state "${s}"); then fail "m(${s}): mark removed and the slot is still written (${out}) — its check is vacuous"; else pass "m(${s}): without its mark the slot stays on the default (${out}); its check detects it"; fi
+done
 
 echo "[follower] (d) EXECUTE step-01's secondary leg: the token reaches the follower (H3)"
 # The leg (its start echo .. the no-op echo), closed, with the mount and /tmp paths moved under ${TMP}.
@@ -311,7 +352,7 @@ fi
 
 echo
 if [ "${FAILURES}" -eq 0 ]; then
-  echo "[follower] all assertions passed — a follower region's catalog source, slot-62 image registry and Continuum Git token reach the state the hand changes produced, from the chain alone."
+  echo "[follower] all assertions passed — a follower region's catalog source, the image registry of every slot of FOLLOWER_SLOTS and Continuum's Git token reach the state the hand changes produced, from the chain alone."
   exit 0
 fi
 echo "[follower] ${FAILURES} assertion(s) FAILED"
