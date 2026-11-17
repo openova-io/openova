@@ -1,0 +1,38 @@
+schema: openova.io/plan-wrong/v1
+id: CLD-090
+ticket_rev: 1
+base_commit: afd634df3dc0c482d1faa2c108b54b0787502d41
+stage: step
+ref: step 3
+command: |
+    python3 /tmp/CLD-090-edit.py; echo "exit code: $?"
+expected: |
+    edited .github/workflows/catalyst-build.yaml: 4 places
+    edited .github/workflows/cloud-init-size.yaml: 14 places
+    edited .github/workflows/infra-hetzner-tofu.yaml: 4 places
+    edited .github/workflows/infra-huawei-tofu.yaml: 3 places
+    edited infra/providers/PROVIDER-INTERFACE.md: 4 places
+    edited infra/providers/hetzner/main.tf: 29 places
+    edited infra/providers/hetzner/outputs.tf: 9 places
+    edited infra/providers/hetzner/variables.tf: 9 places
+    edited infra/providers/hetzner/tests/multi_region.tftest.hcl: 34 places
+    edited infra/providers/huawei/README.md: 2 places
+    edited infra/providers/huawei/main.tf: 14 places
+    edited infra/providers/huawei/outputs.tf: 3 places
+    edited infra/providers/huawei/variables.tf: 12 places
+    edited infra/providers/huawei/versions.tf: 6 places
+    edited infra/providers/huawei/tests/multi_region.tftest.hcl: 29 places
+    edited products/catalyst/bootstrap/api/internal/provisioner/provisioner.go: 18 places
+    edited products/catalyst/bootstrap/api/internal/provisioner/provisioner_test.go: 4 places
+    edited scripts/check-provider-contract.sh: 8 places
+    exit code: 0
+actual: |
+    not changed: edit 4: .github/workflows/catalyst-build.yaml holds the text 0 times, not once: MSG="Build & Deploy Catalyst FAILED before pushing the catalyst-api im
+    not changed: edit 6: .github/workflows/cloud-init-size.yaml holds the text 0 times, not once: # size against the same caps — also adding byte coverage to huawei for
+    not changed: edit 13: .github/workflows/cloud-init-size.yaml holds the text 0 times, not once: # Renders the shared control-plane template + the per-provider worker
+    not changed: edit 18: .github/workflows/cloud-init-size.yaml holds the text 0 times, not once: echo "Rendered the ${{ matrix.provider }} cloud-init (control-plane +"
+    not changed: edit 109: infra/providers/hetzner/tests/multi_region.tftest.hcl holds the text 0 times, not once: # The runs above leave deployment_id empty, so their renders carry no
+    not changed: edit 110: infra/providers/hetzner/tests/multi_region.tftest.hcl holds the text 0 times, not once: { provider = "hetzner", cloudRegion = "hel1", controlPlaneSize = "cpx3
+    nothing was written
+    exit code: 1
+reported_at: 2026-11-17T14:37:34Z
