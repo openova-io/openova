@@ -5,4 +5,11 @@ name: seaweedfs
 # +openova.1 (bp-seaweedfs 1.3.1, ADR-0015 D6b #7067): vendored edit to
 # templates/s3/s3-secret.yaml (s3.secretAnnotations). Build metadata only —
 # upstream 4.22.0 bytes otherwise; marks that the rendered surface changed.
+# bp-seaweedfs after 1.3.3: vendored edits to templates/filer/filer-statefulset.yaml
+# (the filer announces its stable Pod name, not ${POD_IP}),
+# templates/s3/s3-deployment.yaml (checksum/filer-advertise) and
+# templates/shared/_helpers.tpl (seaweedfs.filerAdvertiseAddress). The version
+# stays +openova.1 on purpose: it is in every Pod's helm.sh/chart label, so a
+# change would also restart the masters and volume servers; only the filer and
+# the S3 gateways need to restart.
 version: 4.22.0+openova.1

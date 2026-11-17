@@ -180,7 +180,7 @@ spec:
               {{- if .Values.filer.encryptVolumeData }}
               -encryptVolumeData \
               {{- end }}
-              -ip=${POD_IP} \
+              -ip={{ include "seaweedfs.filerAdvertiseAddress" . }} \
               -ip.bind={{ .Values.filer.ipBind }} \
               {{- if .Values.filer.filerGroup}}
               -filerGroup={{ .Values.filer.filerGroup}} \
