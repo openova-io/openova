@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-17T13:15:02Z` |
+| Last refreshed | `2026-11-17T13:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,9 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7762](https://github.com/openova-io/openova/issues/7762) | NET-032 Reserve platform namespace names as Organization slugs | Other |
-| [#7763](https://github.com/openova-io/openova/issues/7763) | PRD-513 Resource server: PostgreSQL consent store with migration 0001, the defin | Other |
-| [#7764](https://github.com/openova-io/openova/issues/7764) | SOV-020 One default for the zero-touch switch | Other |
 | [#7765](https://github.com/openova-io/openova/issues/7765) | SOV-142 New nodes fetch k3s, Flux and Gateway API install files from the registr | Other |
 | [#7766](https://github.com/openova-io/openova/issues/7766) | SOV-161 The pull robot of the local registry joins the pull secret at install | Other |
 | [#7767](https://github.com/openova-io/openova/issues/7767) | SOV-336 The registry install creates the proxy project of the vulnerability data | Other |
@@ -300,6 +297,9 @@ flowchart LR
 | [#7991](https://github.com/openova-io/openova/issues/7991) | SOV-241 Follower regions pivot the image registry of the other kit workloads tha | Other |
 | [#7992](https://github.com/openova-io/openova/issues/7992) | SOV-750 Spike: an auto-scaling group worker pool on the reference cloud | Other |
 | [#7993](https://github.com/openova-io/openova/issues/7993) | SVC-190 Delete the Blueprint controller | Other |
+| [#8035](https://github.com/openova-io/openova/issues/8035) | ACC-010 Close the default-install exposure of the access gateway | Other |
+| [#8036](https://github.com/openova-io/openova/issues/8036) | CLD-064 Convert the adoption Composition to pipeline mode | Other |
+| [#8037](https://github.com/openova-io/openova/issues/8037) | MIG-030 Spike: a written volume boots on the reference cloud, through a unit Wor | Other |
 
 ---
 
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-17T13:30 | [#8038](https://github.com/openova-io/openova/pull/8038) | #8037 | docs(ledger): result of the lab test MIG-030 (MIG-030) |
+| 2026-11-17T13:21 | [#8034](https://github.com/openova-io/openova/pull/8034) | #7087 | docs(ledger): plan update |
+| 2026-11-17T13:20 | [#8033](https://github.com/openova-io/openova/pull/8033) | #7823 | chore(kit): remove bootstrap-kit slot 05, the Sealed Secrets |
 | 2026-11-17T10:29 | [#8031](https://github.com/openova-io/openova/pull/8031) | #7785 | chore: remove the SealedSecret templates from the guacamole  |
 | 2026-11-17T09:18 | [#8030](https://github.com/openova-io/openova/pull/8030) | #7087 | docs(ledger): plan update |
 | 2026-11-17T09:12 | [#8029](https://github.com/openova-io/openova/pull/8029) | #7991 | fix(cutover): follower regions pivot the image registry of w |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-16T14:23 | [#8001](https://github.com/openova-io/openova/pull/8001) | #7987 | docs(runbooks): how and when to rotate the etcd encryption k |
 | 2026-11-16T14:25 | [#8000](https://github.com/openova-io/openova/pull/8000) | #7983 | fix(network): Gateway listeners admit routes only from the k |
 | 2026-11-16T14:24 | [#7999](https://github.com/openova-io/openova/pull/7999) | #7855 | feat(provisioning): emitted chart sources and pull secret co |
-| 2026-11-16T14:22 | [#7998](https://github.com/openova-io/openova/pull/7998) | #7976 | test(gate): set the FND checks that passed the baseline to r |
-| 2026-11-16T14:21 | [#7996](https://github.com/openova-io/openova/pull/7996) | #7988 | docs: list the cutover steps in label order and record the b |
-| 2026-11-16T14:22 | [#7997](https://github.com/openova-io/openova/pull/7997) | #7966 | fix(crossplane): raise Crossplane core to 1.20.14 (CLD-062) |
 
 ---
 
