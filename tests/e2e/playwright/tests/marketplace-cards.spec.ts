@@ -67,7 +67,6 @@ const KNOWN_BP_IDS = [
   'bp-nats-jetstream',
   'bp-openbao',
   'bp-sealed-secrets',
-  'bp-spire',
 ] as const
 
 /**

@@ -1,7 +1,7 @@
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
-  name: hcloud-ccm
+  name: bp-hcloud-ccm
   labels:
     catalyst.openova.io/section: pts-3-1-cloud-integration
   annotations:

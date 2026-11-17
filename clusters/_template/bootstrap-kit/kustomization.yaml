@@ -265,7 +265,6 @@ resources:
   # "false". Pair invariant: at most ONE of slot 34 / slot 34a runs
   # per Sovereign — every Sovereign keeps an active backup engine.
   - 34a-bp-velero-hcs.yaml
-  - 35-coraza.yaml
   # bp-vllm (slot 39) — in-cluster vLLM inference server (Qwen2.5-Coder-
   # 1.5B-Instruct on CPU by default). Paired with bp-newapi (slot 80)
   # `defaultChannels.vllm` to give every fresh Sovereign a zero-cost,
@@ -295,10 +294,6 @@ resources:
   # via NETBIRD_ENABLED=true / DMZ_VCLUSTER_ENABLED=true on the
   # bootstrap-kit Kustomization substitute.
   #
-  # #4291 Workstream C — slot 54 (bp-dmz-vcluster) RETIRED. The dmz plane is
-  # no longer a vCluster: bp-coraza runs natively in host ns `coraza`
-  # (placement.yaml vcluster: host) with a per-component default-deny + CNP
-  # (slot 26b). A vCluster is the per-Organization boundary ONLY (EPIC #4293).
   # qa-loop iter-12 Fix #54 Workstream 1 — bp-hcloud-ccm (slot 55).
   # Hetzner Cloud Controller Manager. The CCM owns node providerID
   # flips (k3s://… → hcloud://<server-id>) AND materialisation of
@@ -338,16 +333,6 @@ resources:
   # which is Ready-with-no-class on Huawei). MUST be registered here or Flux
   # never creates the HR (the #3191 forgotten-slot wedge class).
   - 55b-bp-huawei-evs-csi.yaml
-  # OpenovaFlow observability cohort — slots 56/57. Three-agent split
-  # (Agent #1: TS @openova/flow-core + @openova/flow-canvas, Agent #2:
-  # Go server + flux adapter, Agent #3: bootstrap-kit + catalyst-api
-  # proxy integration). Slot 56 (server) installs on PRIMARY clusters
-  # only; per-Sovereign overlay disables on secondaries. Slot 57
-  # (emitter) is a DaemonSet — runs on every cluster (mother + every
-  # Sovereign + every secondary region) so each region's Flux events
-  # land in the same per-deployment flow.
-  - 56-bp-openova-flow-server.yaml
-  - 57-bp-openova-flow-emitter.yaml
   # #4291 Workstream C — slots 58 (bp-mgmt-vcluster) + 59 (bp-rtz-vcluster)
   # RETIRED. The mgmt + rtz planes are no longer vClusters: every component
   # (keycloak/gitea/harbor/grafana/openbao/guacamole/newapi/nats-system/loki/

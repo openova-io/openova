@@ -37,9 +37,7 @@ spec:
     from: ["0.x"]
   manifests:
     chart: ./chart
-  depends:
-    - blueprint: bp-sealed-secrets
-      version: ^1
+  depends: []
 
   # ── G117.1: Topology declaration ────────────────────────────────────────
   # Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md:

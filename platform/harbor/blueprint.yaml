@@ -1,7 +1,7 @@
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
-  name: harbor
+  name: bp-harbor
   labels:
     catalyst.openova.io/section: pts-3-5-storage-and-data
     catalyst.openova.io/tier: catalyst-cp

@@ -15,3 +15,9 @@
 #
 # scripts/check-helm-release-payload-size.py is the gate that measures this.
 tests/
+
+# files/release/ is the release mechanism of this chart version (#7938): the
+# release Job reads it from the chart's folder in the staged tree of a delivery
+# (README.md, "Release mechanism"). Helm never renders it, so it stays out of
+# the package and of every release Secret (it would cost ~33 KB of payload).
+files/release/

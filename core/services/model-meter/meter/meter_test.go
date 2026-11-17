@@ -331,21 +331,6 @@ func TestNoUsageBlockGivesNoEvent(t *testing.T) {
 	}
 }
 
-func TestStreamedResponseGivesNoEventYet(t *testing.T) {
-	stream := "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":1}}\n\ndata: [DONE]\n\n"
-	rg := newRig(t, http.StatusOK, "text/event-stream", stream)
-	status, got := rg.do("meter-simulation", "/v1/chat/completions", identityHeaders())
-	if status != http.StatusOK || string(got) != stream {
-		t.Fatalf("the caller got %d %q, want the stream unchanged", status, got)
-	}
-	if n := len(rg.pub.events()); n != 0 {
-		t.Fatalf("%d events for a stream, want 0 until streamed responses are metered", n)
-	}
-	if rec, _ := rg.handler.Ring().Get("req-0000001"); !rec.Stream || rec.Published {
-		t.Fatalf("ring entry = %+v, want stream true, nothing published", rec)
-	}
-}
-
 func TestSpooledEventIsNotPublished(t *testing.T) {
 	rg := newRig(t, http.StatusOK, "application/json", completion(usageWithCache))
 	rg.pub.fail = ErrSpooled

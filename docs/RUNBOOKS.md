@@ -823,6 +823,23 @@ Fill one line of the table below when it is done. Never write a password here.
 | `tenant-test` | not yet | | |
 | `tenant-test12-2` | not yet | | |
 
+### 2.15a Rotating the etcd encryption key
+
+Every k3s server of a Sovereign keeps the Kubernetes Secrets in etcd as `secretbox` ciphertext: it starts with `--secrets-encryption --secrets-encryption-provider=secretbox` (`infra/providers/_shared/cloudinit-control-plane.tftpl`). The key rests in `/var/lib/rancher/k3s/server/cred/encryption-config.json` on each server node, and in etcd under the k3s server token ([`SECURITY.md`](SECURITY.md) §3). A rotation makes a new key, makes it the active key and encrypts every Secret again with it.
+
+**When.** Once a year, and at once after any suspected compromise of a node. Each region of a Sovereign is a k3s cluster of its own with a key of its own, so rotate the key in every region.
+
+**How, in one region.** The servers of the region are its nodes with the label `catalyst.openova.io/role=control-plane`. Run `kubectl` with a kubeconfig of that region. Run every `k3s` and `systemctl` command as root in a shell on the server node that the step names.
+
+1. List the servers: `kubectl get nodes -l catalyst.openova.io/role=control-plane`. Choose one of them. It is the first server in the steps below.
+2. On the first server, run `k3s secrets-encrypt status`. It must print `Encryption Status: Enabled`. If it prints anything else, do not go on: this procedure is only for a cluster whose encryption is on.
+3. On the first server, run `k3s secrets-encrypt rotate-keys`.
+4. On the first server, run `k3s secrets-encrypt status` again until it prints `Current Rotation Stage: reencrypt_finished`. Restart no server before it does.
+5. Restart the servers one at a time. On a server, run `systemctl restart k3s`. Wait until `kubectl get nodes -l catalyst.openova.io/role=control-plane` shows that node `Ready`. Only then restart the next server. A region with one server restarts that one server.
+6. On each server, run `k3s secrets-encrypt status`. It must print `Encryption Status: Enabled`.
+
+The rotation changes the etcd key only. It does not change the k3s server token, under which etcd keeps its copy of the key.
+
 ### 2.16 Rotating the release signing key
 
 A rotation replaces the release key pair of [`SECURITY.md`](SECURITY.md) §11.5 with a new pair that the release-key custodian has made by the procedure of that section. These change together:

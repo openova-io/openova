@@ -3,3 +3,13 @@
 # skipped. scripts/generators/local-kit.py reads this file: a release named
 # here, and its slot file, are not in clusters/_template/providers/local/kit,
 # and no release that stays may depend on it.
+#
+# Left out so that the console and every release it depends on fit the requested CPU of
+# the pack's machines (4000m each; lab test CLD-055, docs/ledger/plan/spikes/CLD-055.md).
+# No release that the console needs depends on these. A later package that needs one of
+# them takes it out of this list and shows that the kit still fits.
+bp-external-secrets
+bp-harbor
+bp-openbao
+bp-powerdns
+bp-seaweedfs

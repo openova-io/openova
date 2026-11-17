@@ -107,6 +107,12 @@ func registerSessionDeployments(rg chi.Router, d routeDeps) {
 	// the persisted Deployment record — no external API calls.  The
 	// PowerDNS PATCH is REPLACE-idempotent; re-running is always safe.
 	rg.With(d.self.MothershipOnly).Post("/api/v1/deployments/{id}/republish-dns", h.HandleRepublishDNS)
+	// Network-registry re-delivery (#7938). For one ready deployment, the
+	// parent reads flux-system/sovereign-network-registry in every region and
+	// writes it from the OpenTofu state only where it is absent or differs —
+	// the registry step of the hand-over, without the rest of the hand-over.
+	// Owner-checked (404 otherwise). See internal/lifecycle/network_registry_route.go.
+	rg.With(d.self.MothershipOnly).Post("/api/v1/deployments/{id}/network-registry", newNetworkRegistry(d.log, h).Serve)
 	// Handover JWT — issue #605 (minting) + issue #606 (consumption).
 	// MintHandoverToken: Catalyst-Zero operator finalises a deployment;
 	// wizard StepSuccess POSTs here to get a one-time RS256 JWT, then

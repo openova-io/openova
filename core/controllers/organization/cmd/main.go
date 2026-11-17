@@ -28,6 +28,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"github.com/openova-io/openova/core/controllers/organization/internal/controller"
+	"github.com/openova-io/openova/core/controllers/organization/internal/gitops"
 	"github.com/openova-io/openova/core/controllers/organization/internal/iacbootstrap"
 	orgapi "github.com/openova-io/openova/core/controllers/organization/internal/orgapi"
 	"github.com/openova-io/openova/core/controllers/pkg/gitea"
@@ -44,14 +45,19 @@ func init() {
 
 func main() {
 	var (
-		metricsAddr          string
-		probeAddr            string
-		enableLeaderElection bool
+		metricsAddr             string
+		probeAddr               string
+		enableLeaderElection    bool
+		orgFenceAllowNamespaces string
 	)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", true,
 		"Enable leader election for controller manager. Defaults to true so HA replicas don't double-write.")
+	// NET-170 — the namespaces outside its own that a pod synced out of an
+	// Organization's vCluster may reach; the org-fence egress deny exempts them.
+	flag.StringVar(&orgFenceAllowNamespaces, "org-fence-allow-namespaces", gitops.DefaultOrgFenceAllowNamespaces,
+		"Comma-separated namespaces outside its own that a pod synced out of an Organization vCluster may reach.")
 
 	opts := zap.Options{Development: false}
 	opts.BindFlags(flag.CommandLine)
@@ -59,6 +65,12 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 	log := ctrl.Log.WithName("organization-controller")
+
+	fenceNamespaces, fenceErr := gitops.ParseOrgFenceAllowNamespaces(orgFenceAllowNamespaces)
+	if fenceErr != nil {
+		log.Error(fenceErr, "invalid --org-fence-allow-namespaces")
+		os.Exit(1)
+	}
 
 	// Required env.
 	kcAddr := mustEnv("CATALYST_KC_ADDR", log)
@@ -297,6 +309,7 @@ func main() {
 		VClusterHelmRepoName:              helmRepoName,
 		VClusterHelmRepoNamespace:         helmRepoNs,
 		VClusterImageRegistry:             vclusterImageRegistry,
+		OrgFenceAllowNamespaces:           fenceNamespaces,
 		Branch:                            branch,
 		GiteaInClusterURL:                 giteaInClusterURL,
 		FluxNamespace:                     fluxNamespace,

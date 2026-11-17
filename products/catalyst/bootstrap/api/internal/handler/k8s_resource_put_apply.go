@@ -7,12 +7,7 @@
 //
 //	PUT  /api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}        — direct
 //	     resource Update with optimistic concurrency. Returns 409 on
-//	     stale resourceVersion. When the existing object is Flux-managed
-//	     (label `app.kubernetes.io/managed-by: flux` OR ownerRef from
-//	     helm.toolkit.fluxcd.io / kustomize.toolkit.fluxcd.io), the
-//	     handler does NOT mutate the apiserver — instead it opens a
-//	     Gitea PR against the cluster-config repo and returns 202 with
-//	     `giteaPRUrl` so the operator's edit lands the GitOps way.
+//	     stale resourceVersion.
 //
 //	POST /api/v1/sovereigns/{id}/k8s/apply                     — multi-
 //	     resource server-side apply. Body: {"yaml":"<one-or-more docs>"}.
@@ -20,6 +15,11 @@
 //	     dynamic client. Returns one entry per document with `created`
 //	     vs `updated` so TC-271 (`must_contain=["created","ConfigMap"]`)
 //	     passes on a fresh insert.
+//
+// Both go through package clusterwrite: an object that Git owns is refused
+// with 409 managed-by-git (the multi-document apply writes no document then),
+// and any other write needs break-glass: the owner tier and the body field
+// reason. It is audited before and after.
 //
 // PUT alias for /scale is registered alongside the existing POST in
 // cmd/api/main.go so kubectl-style PUT (TC-215, TC-243) and the
@@ -33,9 +33,7 @@ package handler
 import (
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -44,24 +42,9 @@ import (
 	"k8s.io/client-go/dynamic"
 	"sigs.k8s.io/yaml"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/clusterwrite"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
 )
-
-// ── Constants ───────────────────────────────────────────────────────
-
-// fluxManagedByLabel is the well-known label Flux stamps on every
-// resource it owns. Mirrors `evaluators.FluxEvaluator.ManagedByLabel`
-// (the score-aggregator helper); kept as a literal here to avoid
-// dragging the evaluators package into the handler boundary.
-const (
-	fluxManagedByLabel = "app.kubernetes.io/managed-by"
-	fluxManagedByValue = "flux"
-)
-
-// fluxOwnerSuffix is the substring every Flux-owned ownerReference's
-// APIVersion contains (`helm.toolkit.fluxcd.io/v2`,
-// `kustomize.toolkit.fluxcd.io/v1`).
-const fluxOwnerSuffix = "fluxcd.io"
 
 // ── Wire shapes ─────────────────────────────────────────────────────
 
@@ -73,9 +56,8 @@ const fluxOwnerSuffix = "fluxcd.io"
 type k8sPutRequest struct {
 	YAML   string         `json:"yaml,omitempty"`
 	Object map[string]any `json:"object,omitempty"`
-	// CommitMessage is the message used on the Gitea PR when the
-	// target is Flux-managed. Optional; defaults to a stable string.
-	CommitMessage string `json:"commitMessage,omitempty"`
+	// Reason is the reason of the break-glass write (clusterwrite).
+	Reason string `json:"reason,omitempty"`
 }
 
 // k8sMultiApplyRequest is the body of POST /k8s/apply. Single field
@@ -84,25 +66,29 @@ type k8sPutRequest struct {
 // with no client-side change beyond the URL.
 type k8sMultiApplyRequest struct {
 	YAML string `json:"yaml"`
-	// CommitMessage forwarded to the Gitea PR when any of the docs
-	// land on a Flux-managed namespace; same semantics as
-	// k8sPutRequest.CommitMessage.
-	CommitMessage string `json:"commitMessage,omitempty"`
+	// Reason is the reason of the break-glass write (clusterwrite).
+	Reason string `json:"reason,omitempty"`
 }
 
 // k8sMultiApplyResultEntry is one output row in POST /k8s/apply's
 // response array. `created` is true when the doc was a fresh insert,
-// false when it was an update; `flux` is true when the entry was
-// routed to a Gitea PR instead of a direct apiserver write.
+// false when it was an update.
 type k8sMultiApplyResultEntry struct {
 	Kind            string `json:"kind"`
 	Namespace       string `json:"namespace,omitempty"`
 	Name            string `json:"name"`
 	Created         bool   `json:"created"`
 	ResourceVersion string `json:"resourceVersion,omitempty"`
-	Flux            bool   `json:"flux,omitempty"`
-	GiteaPRUrl      string `json:"giteaPRUrl,omitempty"`
 	Error           string `json:"error,omitempty"`
+}
+
+// k8sMultiApplyDoc is one document of POST /k8s/apply, read and looked
+// up before anything is written. entry.Error is set when it cannot be
+// applied.
+type k8sMultiApplyDoc struct {
+	parsed, existing *unstructured.Unstructured
+	kind             k8scache.Kind
+	entry            k8sMultiApplyResultEntry
 }
 
 // ── HTTP handler — PUT /k8s/{kind}/{ns}/{name} ──────────────────────
@@ -113,13 +99,8 @@ type k8sMultiApplyResultEntry struct {
 //
 // Direct resource Update. Body is `{yaml: "..."}` OR `{object: {...}}`.
 // On stale resourceVersion the apiserver returns Conflict and the
-// handler surfaces 409 (TC-247).
-//
-// Flux-managed gating: when the existing object carries the well-known
-// flux label or any Flux ownerRef, the handler routes the change to a
-// Gitea PR (returns 202 + giteaPRUrl, TC-208) instead of mutating the
-// apiserver in-place. Operators editing flux-owned ConfigMaps see the
-// PR URL and click through to merge.
+// handler surfaces 409 (TC-247). An object that Git owns is refused with
+// 409 managed-by-git; any other needs break-glass (clusterwrite.Allow).
 func (h *Handler) HandleK8sResourcePut(w http.ResponseWriter, r *http.Request) {
 	if h.k8sCache == nil {
 		http.Error(w, "k8scache disabled", http.StatusServiceUnavailable)
@@ -206,28 +187,14 @@ func (h *Handler) HandleK8sResourcePut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if isFluxManaged(existing) {
-		prUrl, prErr := h.openFluxManagedPR(r, kind, ns, name, parsed, body.CommitMessage)
-		if prErr != nil {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-				"error":  "gitea-pr-failed",
-				"detail": prErr.Error(),
-			})
-			return
-		}
-		writeJSON(w, http.StatusAccepted, map[string]any{
-			"flux":       true,
-			"giteaPRUrl": prUrl,
-			"name":       name,
-			"namespace":  ns,
-			"kind":       kind.GVR.Resource,
-			"message":    "resource is flux-managed; opened gitea pull-request instead of direct apply",
-		})
+	finish, allowed := clusterwrite.Allow(w, r, h.auditBus, kind.GVR, existing, clusterwrite.Write{
+		Cluster: clusterID, Verb: "update", Resource: kind.GVR.Resource, Namespace: ns, Name: name, Reason: body.Reason})
+	if !allowed {
 		return
 	}
 
-	// Non-flux path: stamp the existing resourceVersion when caller
-	// omitted one (idempotent client) and Update.
+	// Stamp the existing resourceVersion when caller omitted one
+	// (idempotent client) and Update.
 	if parsed.GetResourceVersion() == "" {
 		parsed.SetResourceVersion(existing.GetResourceVersion())
 	}
@@ -238,6 +205,7 @@ func (h *Handler) HandleK8sResourcePut(w http.ResponseWriter, r *http.Request) {
 	} else {
 		updated, updErr = dyn.Resource(kind.GVR).Update(r.Context(), parsed, metav1.UpdateOptions{})
 	}
+	finish(r.Context(), updErr)
 	if updErr != nil {
 		writeK8sUpdateError(w, updErr)
 		return
@@ -254,7 +222,10 @@ func (h *Handler) HandleK8sResourcePut(w http.ResponseWriter, r *http.Request) {
 //	/api/v1/sovereigns/{id}/k8s/apply
 //
 // Multi-document yaml apply. Splits the body on `---` boundaries and
-// applies each doc independently via the dynamic client. Returns 200
+// reads every doc first: when Git owns one of them the answer is 409
+// managed-by-git and no doc is written. Otherwise one break-glass write
+// (clusterwrite.BreakGlass) covers the request, and each doc is applied
+// independently via the dynamic client. Returns 200
 // with a results array — one entry per doc — even when individual
 // docs fail (so the caller sees which ones landed). Overall HTTP code
 // is 200 only when EVERY entry's Error is empty; otherwise 207 (Multi-
@@ -298,20 +269,41 @@ func (h *Handler) HandleK8sMultiApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	docs := splitYAMLDocs(body.YAML)
-	results := make([]k8sMultiApplyResultEntry, 0, len(docs))
-	allOK := true
-
-	for _, doc := range docs {
-		if strings.TrimSpace(doc) == "" {
+	var docs []k8sMultiApplyDoc
+	var names []string
+	for _, text := range splitYAMLDocs(body.YAML) {
+		if strings.TrimSpace(text) == "" {
 			continue
 		}
-		entry := h.applyOneDoc(r, dyn, doc, body.CommitMessage)
+		doc := h.readMultiApplyDoc(r, dyn, text)
+		if owner, owned := clusterwrite.Owner(doc.kind.GVR, doc.existing); doc.entry.Error == "" && owned {
+			clusterwrite.Refuse(w, owner, fmt.Sprintf("the desired state of %s %s is owned by Git (%s); change it in Git; no document was applied",
+				doc.kind.GVR.Resource, strings.Trim(doc.entry.Namespace+"/"+doc.entry.Name, "/"), owner))
+			return
+		}
+		docs = append(docs, doc)
+		names = append(names, doc.entry.Kind+" "+strings.Trim(doc.entry.Namespace+"/"+doc.entry.Name, "/"))
+	}
+	finish, allowed := clusterwrite.BreakGlass(w, r, h.auditBus, clusterwrite.Write{
+		Cluster: clusterID, Verb: "apply", Resource: "documents", Name: strings.Join(names, ", "), Reason: body.Reason})
+	if !allowed {
+		return
+	}
+	results := make([]k8sMultiApplyResultEntry, 0, len(docs))
+	failed := 0
+	for _, doc := range docs {
+		entry := applyMultiApplyDoc(r, dyn, doc)
 		if entry.Error != "" {
-			allOK = false
+			failed++
 		}
 		results = append(results, entry)
 	}
+	var applyErr error
+	if failed > 0 {
+		applyErr = fmt.Errorf("%d of %d documents failed", failed, len(results))
+	}
+	finish(r.Context(), applyErr)
+	allOK := failed == 0
 
 	resp := map[string]any{
 		"created": countCreated(results),
@@ -373,23 +365,6 @@ func parseK8sPutBody(body k8sPutRequest, ns, name string) (*unstructured.Unstruc
 }
 
 // ── Helpers — flux + apply primitives ───────────────────────────────
-
-// isFluxManaged returns true when obj carries the well-known flux
-// managed-by label OR any ownerReference from a Flux toolkit kind.
-func isFluxManaged(obj *unstructured.Unstructured) bool {
-	if obj == nil {
-		return false
-	}
-	if v, ok := obj.GetLabels()[fluxManagedByLabel]; ok && strings.EqualFold(v, fluxManagedByValue) {
-		return true
-	}
-	for _, ref := range obj.GetOwnerReferences() {
-		if strings.Contains(ref.APIVersion, fluxOwnerSuffix) {
-			return true
-		}
-	}
-	return false
-}
 
 // splitYAMLDocs splits a multi-document yaml string on the canonical
 // `---` separator (line-anchored). Empty fragments are filtered by the
@@ -459,20 +434,20 @@ func countCreated(results []k8sMultiApplyResultEntry) int {
 	return n
 }
 
-// applyOneDoc Create-or-Update applies a single yaml doc against the
-// dynamic client. Returns a result entry; never panics — every error
-// path lands in entry.Error so the multi-apply caller can render a
+// readMultiApplyDoc reads a single yaml doc and looks up its kind and the
+// live object (nil when it does not exist yet). It writes nothing; every
+// error lands in entry.Error so the multi-apply caller can render a
 // per-doc status grid.
-func (h *Handler) applyOneDoc(r *http.Request, dyn dynamic.Interface, doc, commitMsg string) k8sMultiApplyResultEntry {
+func (h *Handler) readMultiApplyDoc(r *http.Request, dyn dynamic.Interface, text string) k8sMultiApplyDoc {
 	parsed := &unstructured.Unstructured{}
-	if err := yaml.Unmarshal([]byte(doc), &parsed.Object); err != nil {
-		return k8sMultiApplyResultEntry{Error: "invalid-yaml: " + err.Error()}
+	if err := yaml.Unmarshal([]byte(text), &parsed.Object); err != nil {
+		return k8sMultiApplyDoc{entry: k8sMultiApplyResultEntry{Error: "invalid-yaml: " + err.Error()}}
 	}
 	if parsed.GetKind() == "" {
-		return k8sMultiApplyResultEntry{Error: "missing-kind"}
+		return k8sMultiApplyDoc{entry: k8sMultiApplyResultEntry{Error: "missing-kind"}}
 	}
 	if parsed.GetName() == "" {
-		return k8sMultiApplyResultEntry{Error: "missing-metadata-name"}
+		return k8sMultiApplyDoc{entry: k8sMultiApplyResultEntry{Error: "missing-metadata-name"}}
 	}
 
 	// Look up the kind via the registry. The doc's `kind` field is
@@ -481,12 +456,12 @@ func (h *Handler) applyOneDoc(r *http.Request, dyn dynamic.Interface, doc, commi
 	// ("configmaps"). Registry.Get handles the case-insensitive lookup.
 	kind, ok := h.k8sCache.Registry().Get(parsed.GetKind())
 	if !ok {
-		return k8sMultiApplyResultEntry{
+		return k8sMultiApplyDoc{entry: k8sMultiApplyResultEntry{
 			Kind:      parsed.GetKind(),
 			Namespace: parsed.GetNamespace(),
 			Name:      parsed.GetName(),
 			Error:     "unknown-kind",
-		}
+		}}
 	}
 
 	ns := parsed.GetNamespace()
@@ -497,8 +472,7 @@ func (h *Handler) applyOneDoc(r *http.Request, dyn dynamic.Interface, doc, commi
 		Name:      name,
 	}
 
-	// Look up existing for flux-managed gating + Created-vs-Updated
-	// branching.
+	// Look up existing for the Git owner + Created-vs-Updated branching.
 	var existing *unstructured.Unstructured
 	var getErr error
 	if kind.Namespaced {
@@ -508,20 +482,19 @@ func (h *Handler) applyOneDoc(r *http.Request, dyn dynamic.Interface, doc, commi
 	}
 	if getErr != nil && !apierrors.IsNotFound(getErr) {
 		entry.Error = "get-failed: " + getErr.Error()
+		return k8sMultiApplyDoc{kind: kind, entry: entry}
+	}
+	return k8sMultiApplyDoc{parsed: parsed, existing: existing, kind: kind, entry: entry}
+}
+
+// applyMultiApplyDoc Create-or-Update applies one doc that
+// readMultiApplyDoc read. Returns a result entry; never panics.
+func applyMultiApplyDoc(r *http.Request, dyn dynamic.Interface, doc k8sMultiApplyDoc) k8sMultiApplyResultEntry {
+	parsed, existing, kind, entry := doc.parsed, doc.existing, doc.kind, doc.entry
+	if entry.Error != "" {
 		return entry
 	}
-
-	if existing != nil && isFluxManaged(existing) {
-		prUrl, prErr := h.openFluxManagedPR(r, kind, ns, name, parsed, commitMsg)
-		if prErr != nil {
-			entry.Error = "gitea-pr-failed: " + prErr.Error()
-			return entry
-		}
-		entry.Flux = true
-		entry.GiteaPRUrl = prUrl
-		return entry
-	}
-
+	ns := entry.Namespace
 	if existing == nil {
 		// Create path.
 		var created *unstructured.Unstructured
@@ -593,80 +566,4 @@ func writeK8sUpdateError(w http.ResponseWriter, err error) {
 			"detail": err.Error(),
 		})
 	}
-}
-
-// ── Flux-managed PR routing ─────────────────────────────────────────
-
-// openFluxManagedPR opens a Gitea pull-request that proposes the YAML
-// of `desired` against the per-Sovereign cluster-config repo. Returns
-// the PR URL on success.
-//
-// The PR layout mirrors the cutover step-01 convention:
-//
-//	repo:    <CATALYST_GITEA_SOVEREIGN_ORG>/cluster-config
-//	base:    main
-//	head:    catalyst-edit/<kind>/<ns>/<name>/<short-sha>
-//	path:    sovereign-resources/<kind>/<ns>/<name>.yaml
-//
-// When CATALYST_GITEA_URL / TOKEN aren't wired (CI without Gitea, dev
-// shells), the function returns a synthetic URL so the matrix's
-// must_contain=["giteaPRUrl","gitea","pulls"] still flips PASS — the
-// real Gitea backend in production yields a real URL.
-func (h *Handler) openFluxManagedPR(r *http.Request, kind k8scache.Kind, ns, name string, desired *unstructured.Unstructured, commitMsg string) (string, error) {
-	yamlBytes, err := yaml.Marshal(desired.Object)
-	if err != nil {
-		return "", fmt.Errorf("marshal-desired-yaml: %w", err)
-	}
-	pathSeg := fmt.Sprintf("sovereign-resources/%s/%s/%s.yaml", kind.GVR.Resource, ns, name)
-	stamp := time.Now().UTC().UnixNano() / 1000
-	branch := fmt.Sprintf("catalyst-edit/%s/%s/%s/%d",
-		kind.GVR.Resource, ns, name, stamp)
-	if commitMsg == "" {
-		commitMsg = fmt.Sprintf("catalyst: edit %s/%s/%s via Sovereign Console", kind.GVR.Resource, ns, name)
-	}
-	org := strings.TrimSpace(os.Getenv("CATALYST_GITEA_SOVEREIGN_ORG"))
-	if org == "" {
-		org = "sovereign"
-	}
-	repo := strings.TrimSpace(os.Getenv("CATALYST_GITEA_CLUSTER_CONFIG_REPO"))
-	if repo == "" {
-		repo = "cluster-config"
-	}
-
-	gitClient := h.giteaClient
-	if gitClient == nil {
-		// Synthetic URL — used by CI / dev shells where Gitea is
-		// unwired. The URL still satisfies the contract (path
-		// includes `/pulls/`) so the matrix asserts pass; the
-		// backend's actual error surfaces upstream when an operator
-		// clicks through and 404s.
-		base := strings.TrimRight(strings.TrimSpace(os.Getenv("CATALYST_GITEA_URL")), "/")
-		if base == "" {
-			base = "https://gitea.cluster.local"
-		}
-		return fmt.Sprintf("%s/%s/%s/pulls/synthetic-%d", base, org, repo, stamp), nil
-	}
-	ctx := r.Context()
-	if err := gitClient.EnsureBranch(ctx, org, repo, branch); err != nil {
-		return "", fmt.Errorf("ensure-branch: %w", err)
-	}
-	if _, _, err := gitClient.PutFile(ctx, org, repo, branch, pathSeg, yamlBytes, commitMsg); err != nil {
-		return "", fmt.Errorf("put-file: %w", err)
-	}
-	prTitle := fmt.Sprintf("Edit %s/%s/%s via Sovereign Console", kind.GVR.Resource, ns, name)
-	prBody := fmt.Sprintf("Auto-opened by catalyst-api. The target resource is Flux-managed; merging this PR is the only way to land the change.\n\nPath: `%s`", pathSeg)
-	pr, err := gitClient.CreatePullRequest(ctx, org, repo, branch, "main", prTitle, prBody)
-	if err != nil {
-		return "", fmt.Errorf("create-pr: %w", err)
-	}
-	if pr.URL != "" {
-		return pr.URL, nil
-	}
-	// Fallback URL pattern — Gitea's PR HTML URL when HTMLURL field
-	// isn't surfaced by the client wrapper.
-	base := strings.TrimRight(strings.TrimSpace(os.Getenv("CATALYST_GITEA_URL")), "/")
-	if base == "" {
-		base = "https://gitea.cluster.local"
-	}
-	return fmt.Sprintf("%s/%s/%s/pulls/%d", base, org, repo, pr.Number), nil
 }

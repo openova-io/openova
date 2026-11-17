@@ -283,7 +283,10 @@ list in [`docs/DOD.md`](docs/DOD.md) §Pillar 5 and
 Phase 1 and runs an **11-step chain** post-handover that pivots all 8 tethers
 (ADR-0002 originally specified eight sequential Jobs; the shipped chart —
 `platform/self-sovereign-cutover/chart` — runs the 11 steps below, tracked
-per-step in the `self-sovereign-cutover-status` ConfigMap):
+per-step in the `self-sovereign-cutover-status` ConfigMap). The steps run one
+after another in ascending order of the label `bp.openova.io/cutover-order` on
+each step ConfigMap, which is the order of this list; the number in a chart
+file name is not the order:
 
 1. `gitea-mirror` — mirror the public catalog into the local Gitea
 2. `harbor-projects` — create the local Harbor projects
@@ -292,15 +295,16 @@ per-step in the `self-sovereign-cutover-status` ConfigMap):
 5. `flux-gitrepository-patch` — Flux `GitRepository.url` → local Gitea
 6. `helmrepository-patches` — OCI `HelmRepository` URLs → local Harbor
 7. `catalyst-api-env-patch` — catalyst-api env fallbacks → local endpoints
-8. `egress-block-test` — the **10-minute deny-egress NetworkPolicy hold** against
-   `github.com`, `ghcr.io`, and `harbor.openova.io` (the sovereignty proof)
-9. `gitea-token-mint` — mint the local Gitea token for the host GitOps loop
-10. `vcluster-registry-pivot` — pivot vcluster control-plane images to the local registry
-11. `crossplane-provider-pivot` — pivot Crossplane provider packages off `xpkg.upbound.io`
+8. `gitea-token-mint` — mint the local Gitea token for the host GitOps loop
+9. `vcluster-registry-pivot` — pivot vcluster control-plane images to the local registry
+10. `crossplane-provider-pivot` — pivot Crossplane provider packages off `xpkg.upbound.io`
+11. `egress-block-test` — the **10-minute deny-egress NetworkPolicy hold** against
+    `github.com`, `ghcr.io`, and `harbor.openova.io` (the sovereignty proof; chart
+    file `08-egress-block-test-job.yaml`)
 
 `cutoverComplete=true` is set only if all 11 steps succeed AND the cluster
-reconciles green during the step-08 deny-egress hold. No cutover claim
-without the egress-block proof.
+reconciles green during the deny-egress hold of step 11, `egress-block-test`,
+the last step. No cutover claim without the egress-block proof.
 
 ### Customer-sync — Gitea mirroring
 

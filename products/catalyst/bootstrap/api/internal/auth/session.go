@@ -114,6 +114,15 @@ type Claims struct {
 	// "env-type=dev"). Populated by the Keycloak group-attribute
 	// mapper that flattens UserAccess CR scopes into the access token.
 	Scopes []string `json:"openova_scopes,omitempty"`
+
+	// Typ, Agent and Audience are the claims typ, agent and aud of an
+	// agent token (docs/contracts/model-contract.md section 2): typ is
+	// "agent", agent the agent name, aud the audiences. RFC 7519 allows
+	// aud as one string or a list; UnmarshalJSON accepts both, and any
+	// other shape leaves Audience empty. A session has no typ "agent".
+	Typ      string   `json:"typ,omitempty"`
+	Agent    string   `json:"agent,omitempty"`
+	Audience []string `json:"-"`
 }
 
 // UnmarshalJSON accepts both the legacy `org` claim (tokens minted
@@ -127,8 +136,9 @@ func (c *Claims) UnmarshalJSON(data []byte) error {
 	type alias Claims
 	var raw struct {
 		*alias
-		OrgIDClaim string `json:"org_id"`
-		OrgClaim   string `json:"org"`
+		OrgIDClaim string          `json:"org_id"`
+		OrgClaim   string          `json:"org"`
+		AudClaim   json.RawMessage `json:"aud"`
 	}
 	raw.alias = (*alias)(c)
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -139,6 +149,22 @@ func (c *Claims) UnmarshalJSON(data []byte) error {
 		c.Org = raw.OrgIDClaim
 	case raw.OrgClaim != "":
 		c.Org = raw.OrgClaim
+	}
+	c.Audience = audienceOf(raw.AudClaim)
+	return nil
+}
+
+// audienceOf reads the claim aud: one string or a list of strings. Any
+// other shape gives no audience, and the token is not refused for it here:
+// the session check does not read aud.
+func audienceOf(raw json.RawMessage) []string {
+	var one string
+	if json.Unmarshal(raw, &one) == nil && one != "" {
+		return []string{one}
+	}
+	var many []string
+	if json.Unmarshal(raw, &many) == nil && len(many) > 0 {
+		return many
 	}
 	return nil
 }
@@ -199,6 +225,11 @@ type Config struct {
 	// JWTs (Keycloak 24.7+ removed legacy token-exchange so we can't get
 	// a Keycloak-signed user token without a real user session).
 	LocalPublicKey *rsa.PublicKey
+	// LocalKeyID is the key identifier of the same signer
+	// (handoverjwt.Signer.KeyID). A token whose header names it is
+	// verified with LocalPublicKey, with no key-set fetch. Agent tokens
+	// name it; sessions name no key.
+	LocalKeyID string
 }
 
 // tokenURL returns the Keycloak token endpoint for the configured realm.
@@ -289,7 +320,7 @@ func (c *Config) ValidateToken(ctx context.Context, rawToken string) (*Claims, e
 	// a successful 6-digit code entry. Always try local first for low
 	// latency and to avoid an unnecessary JWKS fetch on the hot path.
 	var pubKey *rsa.PublicKey
-	if c.LocalPublicKey != nil && header.Kid == "" {
+	if c.LocalPublicKey != nil && (header.Kid == "" || header.Kid == c.LocalKeyID) {
 		pubKey = c.LocalPublicKey
 	} else {
 		// Fall back to Keycloak JWKS (Sovereign-side / legacy KC tokens).

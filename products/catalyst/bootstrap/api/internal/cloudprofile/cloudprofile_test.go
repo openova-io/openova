@@ -178,7 +178,7 @@ func TestLoadBothPacks(t *testing.T) {
 	w := profiles["huawei"].Spec
 	if w.Lifecycle != "unproven" || !w.RequiresInstallation || len(w.Regions) != 0 || w.Compute.Image != "" ||
 		len(w.Compute.Flavors) != 0 || w.Network.LoadBalancer.Mode != "external-hostport" ||
-		w.Bootstrap.UserDataLimitBytes != 0 || !w.Capabilities.MultiRegion || w.Capabilities.MultiCloudRegion ||
+		w.Bootstrap.UserDataLimitBytes != 32768 || !w.Capabilities.MultiRegion || w.Capabilities.MultiCloudRegion ||
 		w.Storage.DefaultClass != "evs-ssd" || w.Compute.MinWorkers() != 3 || w.Credentials.Source != "either" {
 		t.Errorf("huawei profile: %+v", w)
 	}

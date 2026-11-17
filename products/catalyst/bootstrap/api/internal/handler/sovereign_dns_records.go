@@ -23,9 +23,7 @@
 //   party.
 //
 // What this writes:
-//   For every CanonicalSovereignSubdomain (console / auth / gitea /
-//   harbor / bao / grafana / hubble / pdns / pdns-admin / openova-flow /
-//   marketplace / api / registry / guacamole / newapi / sandbox / mcp) an A record
+//   For every CanonicalSovereignSubdomain an A record
 //     <sub>.<sovereign-fqdn>. → <primary-lb-ipv4>
 //   in the parent zone. PATCH REPLACE — idempotent re-runs are safe.
 
@@ -35,6 +33,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/powerdns"
@@ -47,7 +46,7 @@ import (
 //   - clusters/_template/sovereign-tls/cilium-gateway-cert.yaml (SAN list)
 //   - platform/catalyst-platform/chart/templates/*.yaml
 //   - platform/bp-keycloak / bp-gitea / bp-harbor / bp-openbao / bp-grafana /
-//     bp-pdns / bp-openova-flow-server / bp-guacamole / bp-newapi (HTTPRoute hostnames)
+//     bp-pdns / bp-guacamole / bp-newapi (HTTPRoute hostnames)
 //   - products/openova-mcp/chart/templates/httproute.yaml (bp-openova-mcp,
 //     sovereign-mode host mcp.<sov-fqdn> — #5206)
 //
@@ -63,7 +62,6 @@ var CanonicalSovereignSubdomains = []string{
 	"grafana",
 	"hubble",
 	"pdns",
-	"openova-flow",
 	"marketplace",
 	"api",
 	"guacamole",
@@ -116,6 +114,9 @@ var CanonicalSovereignSubdomains = []string{
 	// it. EPIC #6723, ADR-0014 D5.
 	"chargeback",
 }
+
+// RetiredSovereignSubdomains are no longer written, but the wipe still deletes them (CTL-348).
+var RetiredSovereignSubdomains = []string{"openova-flow"}
 
 // ConsoleGatewaySubdomains — the subset of CanonicalSovereignSubdomains whose
 // HTTPRoutes parent the DEDICATED console gateway (`cilium-gateway-console`,
@@ -361,8 +362,8 @@ func (h *Handler) upsertSovereignParentZoneRecordsFromResult(ctx context.Context
 }
 
 // sovereignParentZoneRecordNames returns the fully-qualified, dot-terminated
-// rrset names a Sovereign owns in its parent zone: one per
-// CanonicalSovereignSubdomain (`<sub>.<fqdn>.`) plus the bare apex (`<fqdn>.`).
+// rrset names a Sovereign may own in its parent zone: one per Canonical- or
+// RetiredSovereignSubdomain (`<sub>.<fqdn>.`) plus the bare apex (`<fqdn>.`).
 //
 // This is the single source of truth for the record-SELECTION contract shared
 // by the write side (upsertSovereignParentZoneRecords) and the wipe teardown
@@ -378,8 +379,8 @@ func sovereignParentZoneRecordNames(sovereignFQDN string) []string {
 	if fqdn == "" {
 		return nil
 	}
-	names := make([]string, 0, len(CanonicalSovereignSubdomains)+1)
-	for _, sub := range CanonicalSovereignSubdomains {
+	names := make([]string, 0, len(CanonicalSovereignSubdomains)+len(RetiredSovereignSubdomains)+1)
+	for _, sub := range slices.Concat(CanonicalSovereignSubdomains, RetiredSovereignSubdomains) {
 		names = append(names, sub+"."+fqdn+".")
 	}
 	names = append(names, fqdn+".") // apex
@@ -387,9 +388,8 @@ func sovereignParentZoneRecordNames(sovereignFQDN string) []string {
 }
 
 // deleteSovereignParentZoneRecords is the wipe-side twin of
-// upsertSovereignParentZoneRecords (#4732 item 7). It DELETEs the same
-// rrset names the upsert wrote — every CanonicalSovereignSubdomain plus
-// the bare apex — from the given parent zone, so a wiped Sovereign's
+// upsertSovereignParentZoneRecords (#4732 item 7). It DELETEs every rrset name of
+// sovereignParentZoneRecordNames from the given parent zone, so a wiped Sovereign's
 // records do not linger and route third parties' traffic (or a later
 // same-name re-prov) at a released EIP. Verified live: a wiped env's
 // `console.<fqdn>` still resolved a full day after the wipe.

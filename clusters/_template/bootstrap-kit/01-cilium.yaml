@@ -168,7 +168,7 @@ spec:
       # region-local watchdog running the UNBOUNDED CRD retry the operator lacks,
       # which restarts the local operator when the controller is provably not
       # reconciling. Refs #6255 #5511.
-      version: 1.4.21
+      version: 1.4.22
       sourceRef:
         kind: HelmRepository
         name: bp-cilium
@@ -659,12 +659,16 @@ spec:
 # at https://pdns.openova.io). The resulting Secret
 # `sovereign-wildcard-tls` is referenced by the Gateway listener.
 #
-# Cross-namespace HTTPRoute attachment: allowedRoutes.namespaces.from=All
-# permits every blueprint namespace (catalyst-system, gitea, keycloak,
-# harbor, grafana-system, openbao, powerdns-system) to bind without a
-# ReferenceGrant. This matches the Catalyst single-tenant Sovereign
-# model — cross-tenant isolation is enforced by per-tenant vClusters
-# (bp-vcluster), not by Gateway-level RBAC.
+# Cross-namespace HTTPRoute attachment (route admission by owner, NET-190):
+# every listener admits HTTPRoutes only from the kit namespaces that own a
+# route (allowedRoutes.namespaces.from=Selector on the namespace name). An
+# Organization's routes attach to its own listeners on the console Gateway,
+# never to these. The namespace list is the one of
+# scripts/network-guards-allowlist.yaml; network guard G4 fails when a
+# listener here, or routeNamespaces of the bp-sovereign-tls-vars chart
+# (which renders the listeners that the sovereign-tls Kustomization
+# applies to this same Gateway), differs from it, and when a kit route
+# lives in a namespace that the list does not hold.
 #
 # Per ADR-0001 §9.4 and docs/INVIOLABLE-PRINCIPLES.md #4: this resource
 # only renders when ${SOVEREIGN_FQDN} is set by Flux envsubst at the
@@ -750,14 +754,50 @@ spec:
             name: sovereign-wildcard-tls-${SOVEREIGN_FQDN_DASHED}
       allowedRoutes:
         namespaces:
-          from: All
+          from: Selector
+          selector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values:
+                  - catalyst-system
+                  - chargeback
+                  - gitea
+                  - grafana
+                  - guacamole
+                  - harbor
+                  - keycloak
+                  - kube-system
+                  - newapi
+                  - oidc-gate
+                  - openbao
+                  - powerdns
+                  - powerdns-admin
     - name: http
       port: ${SOVEREIGN_GATEWAY_HTTP_PORT:=80}
       protocol: HTTP
       hostname: "*.${SOVEREIGN_FQDN}"
       allowedRoutes:
         namespaces:
-          from: All
+          from: Selector
+          selector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values:
+                  - catalyst-system
+                  - chargeback
+                  - gitea
+                  - grafana
+                  - guacamole
+                  - harbor
+                  - keycloak
+                  - kube-system
+                  - newapi
+                  - oidc-gate
+                  - openbao
+                  - powerdns
+                  - powerdns-admin
     - name: apex-https
       port: ${SOVEREIGN_GATEWAY_HTTPS_PORT:=443}
       protocol: HTTPS
@@ -778,4 +818,22 @@ spec:
             name: sovereign-wildcard-tls-${SOVEREIGN_FQDN_DASHED}
       allowedRoutes:
         namespaces:
-          from: All
+          from: Selector
+          selector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values:
+                  - catalyst-system
+                  - chargeback
+                  - gitea
+                  - grafana
+                  - guacamole
+                  - harbor
+                  - keycloak
+                  - kube-system
+                  - newapi
+                  - oidc-gate
+                  - openbao
+                  - powerdns
+                  - powerdns-admin

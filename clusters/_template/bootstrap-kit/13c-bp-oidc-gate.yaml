@@ -6,17 +6,9 @@
 # -> Keycloak sovereign realm, silent via catalyst-pin -> signed in).
 # One chart, N instances — never N bespoke per-app proxies (#3374 §5).
 #
-# First gated instance: openova-flow.<sovereign-fqdn>. The flow-server
-# route previously served its HTTP+SSE API with NO auth at all
-# (measured live on hw130 2026-06-13 — anonymous JSON descriptor).
-# Slot-56 intent is preserved: cross-cluster emitters POST FlowMessage
-# envelopes over public HTTPS, so the emitter WRITE paths are
-# skip-auth-route'd (the pre-existing machine-write surface, unchanged)
-# and token-bearing callers pass via --skip-jwt-bearer-tokens; the
-# browser-facing READ surface (snapshots, SSE streams, log-lines GETs)
-# now requires the operator's Keycloak session. The flow-server's own
-# HTTPRoute is disabled in slot 56 (two HTTPRoutes on one hostname is
-# undefined routing) — this gate owns the hostname.
+# The first gated instance, openova-flow.<sovereign-fqdn> in front of the
+# flow server of slot 56, left with that slot (CTL-346, CTL-348): the
+# console's flow view is answered by catalyst-api from its own jobs store.
 #
 # dependsOn:
 #   - bp-cilium                  — Pod network + the cilium-gateway the
@@ -150,23 +142,6 @@ spec:
     crossRegion:
       peerClusters: ${SOVEREIGN_PEER_CLUSTERMESH_NAMES:=[]}
     instances:
-      # openova-flow (#3374 §3 row 9). Upstream is the slot-56 Service
-      # in catalyst-system; the gate proxies it at the public hostname.
-      - name: openova-flow
-        enabled: true
-        clientId: openova-flow
-        upstream: http://openova-flow-server.catalyst-system.svc.cluster.local:80
-        # Token-bearing machine callers (future emitter JWTs) pass.
-        skipJwtBearerTokens: true
-        skipAuthRoutes:
-          # Emitter WRITE paths — the slot-56 cross-cluster machine
-          # surface (pre-existing, unchanged by the gate; flagged in
-          # #3374 as the emitter-token follow-up).
-          - "POST=^/v1/flows/[^/]+/events$"
-          - "POST=^/v1/flows/[^/]+/log-lines$"
-          # Health endpoints stay probe-able.
-          - "GET=^/(healthz|readyz)$"
-
       # powerdns-admin (#3374 §3-d row 6, Layer A). MOVED to the generic
       # gate from its bespoke root-redirect. The bespoke approach is
       # structurally fragile (§3-a: the pda OIDC callback shares the

@@ -11,7 +11,8 @@
  * an Org-scoped console exactly as the static row did (scope follows the
  * entry's source, not the session): `sov-console-nav-bp-bp-agenity` is
  * present in orgScoped mode while an Application candidate
- * (`sov-console-nav-bp-app:*`, a Sovereign-level mapping) is absent.
+ * (`sov-console-nav-bp-app:*`, a Sovereign-level mapping) and a console page
+ * candidate (`sov-console-nav-bp-page:*`) are absent.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
@@ -50,6 +51,14 @@ vi.mock('@/lib/console-ui.api', () => ({
       route: '/app/grafana',
       order: 5,
       source: 'application',
+      enabled: true,
+    },
+    {
+      id: 'page:test-view',
+      label: 'Databases',
+      route: '/cloud?class=test',
+      order: 30,
+      source: 'page',
       enabled: true,
     },
   ],
@@ -104,6 +113,8 @@ describe('SovereignSidebar — #4110 Org-console scope', () => {
     // …while an Application candidate is a Sovereign-level mapping and is
     // NOT rendered on an Org-scoped console.
     expect(screen.queryByTestId('sov-console-nav-bp-app:grafana')).toBeNull()
+    // A console page candidate names a view of the whole Sovereign: hidden too.
+    expect(screen.queryByTestId('sov-console-nav-bp-page:test-view')).toBeNull()
     expect(screen.getByTestId('sov-console-nav-settings')).toBeTruthy()
     // Sovereign-admin nav HIDDEN.
     expect(screen.queryByTestId('sov-console-nav-dashboard')).toBeNull()
@@ -124,6 +135,7 @@ describe('SovereignSidebar — #4110 Org-console scope', () => {
     // Application candidates.
     expect(await screen.findByTestId('sov-console-nav-bp-bp-agenity')).toBeTruthy()
     expect(screen.getByTestId('sov-console-nav-bp-app:grafana')).toBeTruthy()
+    expect(screen.getByTestId('sov-console-nav-bp-page:test-view')).toBeTruthy()
     expect(screen.getByTestId('sov-console-nav-cloud')).toBeTruthy()
     expect(screen.getByTestId('sov-console-nav-jobs')).toBeTruthy()
     expect(screen.getByTestId('sov-console-nav-organizations')).toBeTruthy()

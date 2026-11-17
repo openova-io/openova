@@ -1,11 +1,12 @@
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
-  name: trivy
+  name: bp-trivy
   labels:
     catalyst.openova.io/section: pts-3-3-security-and-policy
 spec:
   version: 1.0.7
+  visibility: unlisted
   card:
     title: Trivy
     family: guardian

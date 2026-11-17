@@ -1,3 +1,4 @@
 {"schema": "openova.io/guard-baseline/v1",
- "counts": {"open_cluster_writers": {"docs/contracts/C9-mutating-routes.yaml": 40}},
- "allow": [{"metric": "open_cluster_writers", "path": "docs/contracts/C9-mutating-routes.yaml", "count": 1, "owner": "SOV", "reason": "PUT /api/v1/sovereign/release starts the release Job itself until SOV-520 makes it a commit that release-sync reads (#7922)"}]}
+ "counts": {"open_cluster_writers": {"docs/contracts/C9-mutating-routes.yaml": 34}},
+ "allow": [{"metric": "open_cluster_writers", "path": "docs/contracts/C9-mutating-routes.yaml", "count": 1, "owner": "SOV", "reason": "PUT /api/v1/sovereign/release starts the release Job itself until SOV-520 makes it a commit that release-sync reads (#7922)"},
+           {"metric": "open_cluster_writers", "path": "docs/contracts/C9-mutating-routes.yaml", "count": 1, "owner": "SOV", "reason": "POST /api/v1/deployments/{id}/network-registry writes, from the parent, the registry ConfigMap that the hand-over writes into each region of a Sovereign; the parent holds the OpenTofu state it comes from and no Git of the Sovereign (#7938)"}]}

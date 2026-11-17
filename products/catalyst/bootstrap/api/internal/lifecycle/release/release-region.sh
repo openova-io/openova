@@ -30,12 +30,14 @@
 # Environment: PHASE CANDIDATE REGION DRY_RUN MAIN_SHA STAGED_SHA UPSTREAM_REPO_URL
 # UPSTREAM_BRANCH UPSTREAM_PREFIX GITEA_INTERNAL_URL GITEA_ORG GITEA_REPO
 # GITEA_USERNAME GITEA_PAT KIT_REWRITE PIN_EXTRACTOR FOLLOWER_SOURCE_DIRS
-# IMAGE_REGISTRY_SLOT_FILES REPORT_MAX WORK.
+# IMAGE_REGISTRY_SLOT_FILES REPORT_MAX WORK MECHANISM_OUT CUTOVER_CHART_PATH CUTOVER_SLOT.
 set -eu
 export HOME="${HOME:-/tmp}"
 : "${REGION:=primary}" "${DRY_RUN:=false}" "${REPORT_MAX:=40}"
 : "${FOLLOWER_SOURCE_DIRS:=}" "${IMAGE_REGISTRY_SLOT_FILES:=}" "${PIN_EXTRACTOR:=}"
 : "${MAIN_SHA:=}" "${STAGED_SHA:=}"
+: "${CUTOVER_CHART_PATH:=platform/self-sovereign-cutover/chart}"
+: "${CUTOVER_SLOT:=clusters/_template/bootstrap-kit/06a-bp-self-sovereign-cutover.yaml}"
 export GIT_AUTHOR_NAME=sovereign-release GIT_COMMITTER_NAME=sovereign-release
 export GIT_AUTHOR_EMAIL=release@sovereign.invalid GIT_COMMITTER_EMAIL=release@sovereign.invalid
 export GIT_TERMINAL_PROMPT=0
@@ -179,6 +181,18 @@ stage() {
     git diff --unified=0 --no-color "${before}" "${staged}" -- '*values.yaml' \
       | awk '/^\+\+\+ / {f = substr($2, 3); next} /^\+[ \t]*(image|repository|tag):/ {l = $0; sub(/^\+[ \t]*/, "", l); print "image " f ": " l}' \
       | head -n "${REPORT_MAX}" | while IFS= read -r l; do report "${l}"; done
+  fi
+
+  # The release mechanism (#7938): the primary's stage exports the cutover chart
+  # and its kit slot from the staged commit, for release-run.sh to verify and
+  # render. ".candidate" says whether a commit of this Sovereign changed the
+  # chart folder: the mechanism must be the candidate's own.
+  if [ -n "${MECHANISM_OUT:-}" ]; then
+    rm -rf "${MECHANISM_OUT}"; mkdir -p "${MECHANISM_OUT}"
+    { git archive -o "${work}/mech.tar" "${staged}" -- "${CUTOVER_CHART_PATH}" "${CUTOVER_SLOT}" && tar -xf "${work}/mech.tar" -C "${MECHANISM_OUT}"; } 2>"${work}/mech.err" \
+      || fail "cannot export ${CUTOVER_CHART_PATH} and ${CUTOVER_SLOT} of the staged commit: $(tail -n 1 "${work}/mech.err")"
+    if git diff --quiet "${cand}" "${staged}" -- "${CUTOVER_CHART_PATH}"; then echo same; else echo changed; fi >"${MECHANISM_OUT}/.candidate"
+    git rev-parse "${staged}:${CUTOVER_CHART_PATH}" >"${MECHANISM_OUT}/.tree"
   fi
 
   if [ "${DRY_RUN}" = "true" ]; then

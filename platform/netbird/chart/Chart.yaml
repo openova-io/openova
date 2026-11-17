@@ -9,7 +9,7 @@ name: bp-netbird
 # serves the toHost-mirrored HTTPRoute — resolves the backendRefs.
 # Empty defaults = chart-computed names; default render byte-identical
 # (diff-verified).
-version: 0.1.2
+version: 0.1.3
 appVersion: "0.34.0"
 description: |
   Catalyst-authored Blueprint chart for NetBird — a WireGuard-based

@@ -188,6 +188,12 @@ type Reconciler struct {
 	// for the harbor-proxy-pull admission rationale (#3760).
 	VClusterImageRegistry string
 
+	// OrgFenceAllowNamespaces are the namespaces outside its own that a pod
+	// synced out of an Organization's vCluster may reach (flag
+	// --org-fence-allow-namespaces, see gitops.Inputs). Empty = the default
+	// gitops.DefaultOrgFenceAllowNamespaces.
+	OrgFenceAllowNamespaces []string
+
 	// Branch is the Gitea branch the controller writes manifests to.
 	// Defaults to "main".
 	Branch string
@@ -749,6 +755,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		VClusterHelmRepoName:      r.VClusterHelmRepoName,
 		VClusterHelmRepoNamespace: r.VClusterHelmRepoNamespace,
 		VClusterImageRegistry:     r.VClusterImageRegistry,
+		OrgFenceAllowNamespaces:   r.OrgFenceAllowNamespaces,
 	})
 	if err != nil {
 		return r.fail(ctx, &org, "ManifestRenderFailed", err.Error())

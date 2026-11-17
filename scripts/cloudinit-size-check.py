@@ -27,7 +27,10 @@ what its length stands for and where that length comes from. Every token and
 key is a deterministic filler of the right length and alphabet (filler()),
 never a real secret.
 
-Usage: cloudinit-size-check.py <provider> [--dump DIR] | --write-fixtures
+Usage: cloudinit-size-check.py <provider> [--dump DIR] | --write-fixtures | --check-profiles | --self-test
+--check-profiles compares each pack's profile.yaml limit with its worst-case
+file (check_profiles below; a render runs it first for its provider), and
+--self-test proves that each rule of it can fail. Both need python3 only.
 Needs: tofu (TOFU_BIN), python3. No provider, no network, no cloud account.
 """
 import base64
@@ -99,8 +102,7 @@ PARENT_FQDN = label("parent", 45 - len(".omantel.biz")) + ".omantel.biz"
 # deployment_id: 16 hex characters (handler/deployments.go newID: 8 random bytes).
 DEPLOYMENT_ID = filler("deployment-id", 16, HEX)
 # org_name: no rule bounds it (neither variables.tf nor provisioner.go); 100
-# characters stand for a long legal name. Its `&` signs are escaped to six
-# characters each by jsonencode in sovereign.json.
+# characters stand for a long legal name.
 ORG_NAME = ("Omani National Sovereign Cloud Services & Data Platforms Company "
             "(Closed Joint Stock) & Partners LLC")[:100].ljust(100, "x")
 # org_email: 254 characters, the longest address RFC 5321 allows (local part
@@ -212,6 +214,114 @@ def provider_module(provider):
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+# ── The limit of the cloud profile against the limits of the worst-case file ──
+# profile.yaml states the user-data limit of the cloud in
+# spec.bootstrap.userDataLimitBytes (0: no limit); user_data_worst_case.py
+# states the limit of each surface. check_profiles() names every pack where
+# they disagree: (1) a pack with a worst-case file states 0; (2) a surface is
+# held above the profile's limit (a module may hold one lower by a precondition
+# of its own); (3) the file's constant LIMIT, when it has one, is not the
+# profile's number; (4) a pack without a worst-case file states a limit that
+# nothing measures. The profile is read without a YAML library, because the
+# workflow cloud-init-size installs no package; a comment line is not read.
+PROFILE_LIMIT = re.compile(r"(?m)^[^#\n]*\buserDataLimitBytes:[ ]*([0-9]+)\b")
+
+
+class _AnyText:
+    """Stands in for the rendered user data when only the limits are read."""
+    def __getitem__(self, key):
+        return self
+
+
+def check_profiles(base, only=None):
+    errors, packs = [], 0
+    for name in sorted(os.listdir(base)):
+        pdir = os.path.join(base, name)
+        if name.startswith(("_", ".")) or not os.path.isdir(pdir) or only not in (None, name):
+            continue
+        packs += 1
+        path = os.path.join(pdir, "profile.yaml")
+        found = PROFILE_LIMIT.findall(open(path).read()) if os.path.isfile(path) else None
+        if found is None or len(found) != 1:
+            errors.append(f"{name}: no profile.yaml" if found is None else
+                          f"{name}: profile.yaml states userDataLimitBytes {len(found)} times, not once")
+            continue
+        limit = int(found[0])
+        wc = os.path.join(pdir, "user_data_worst_case.py")
+        if not os.path.isfile(wc):
+            if limit != 0:
+                errors.append(f"{name}: profile.yaml states {limit} and no user_data_worst_case.py measures it (rule 4)")
+            continue
+        if limit == 0:
+            errors.append(f"{name}: user_data_worst_case.py has limits and profile.yaml states 0 (rule 1)")
+            continue
+        spec = importlib.util.spec_from_file_location("user_data_limits_" + name.replace("-", "_"), wc)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        for row in mod.worst_case(sys.modules[__name__])[4](_AnyText()):
+            if row[2] > limit:
+                errors.append(f"{name}: {row[0]} is held to {row[2]}, above the {limit} of profile.yaml (rule 2)")
+        if getattr(mod, "LIMIT", limit) != limit:
+            errors.append(f"{name}: user_data_worst_case.py names LIMIT = {mod.LIMIT}, profile.yaml {limit} (rule 3)")
+    if packs == 0:
+        errors.append("no pack found")
+    return errors
+
+
+def profile_errors(only=None):
+    errors = check_profiles(os.path.join(REPO, "infra", "providers"), only)
+    for e in errors:
+        sys.stderr.write("cloudinit-size-check: " + e + "\n")
+    return 1 if errors else 0
+
+
+def self_test():
+    """Each rule of check_profiles() fails on a tree that breaks it; the tree that keeps them passes."""
+    def pack(limit_line, limits=None, cloud=None):
+        prof = "kind: CloudProfile\nspec:\n  # userDataLimitBytes: 99 in a comment\n" + limit_line
+        if limits is None:
+            return prof, None
+        rows = ", ".join(f'("surface {i}", out["s"][{i}], {n})' for i, n in enumerate(limits))
+        return prof, (f"LIMIT = {cloud}\n" if cloud else "") + (
+            f"def worst_case(c):\n    return {{}}, {{}}, {{}}, [], lambda out: [{rows}]\n")
+    good = {"alpha": pack("  bootstrap: {userDataLimitBytes: 32768}\n", [32768, 32768], 32768),
+            "beta": pack("  bootstrap:\n    userDataLimitBytes: 32768\n", [32576, 32256, 30720]),
+            "gamma": pack("  bootstrap: {userDataLimitBytes: 0}\n")}
+    cases = [
+        ("the packs as written agree", {}, None),
+        ("rule 1 fails", {"alpha": pack("  bootstrap: {userDataLimitBytes: 0}\n", [32768], 32768)},
+         "alpha: user_data_worst_case.py has limits and profile.yaml states 0 (rule 1)"),
+        ("rule 2 fails", {"beta": pack("  bootstrap: {userDataLimitBytes: 32000}\n", [32576, 32256])},
+         "beta: surface 0 is held to 32576, above the 32000 of profile.yaml (rule 2)"),
+        ("rule 3 fails", {"alpha": pack("  bootstrap: {userDataLimitBytes: 40000}\n", [32768], 32768)},
+         "alpha: user_data_worst_case.py names LIMIT = 32768, profile.yaml 40000 (rule 3)"),
+        ("rule 4 fails", {"gamma": pack("  bootstrap: {userDataLimitBytes: 32768}\n")},
+         "gamma: profile.yaml states 32768 and no user_data_worst_case.py measures it (rule 4)"),
+        ("a limit stated twice fails", {"gamma": pack("  a: {userDataLimitBytes: 0}\n  b: {userDataLimitBytes: 0}\n")}, "2 times"),
+        ("a limit only in a comment fails", {"gamma": pack("  # userDataLimitBytes: 0\n")}, "0 times"),
+        ("a pack without profile.yaml fails", {"beta": (None, good["beta"][1])}, "beta: no profile.yaml"),
+        ("a tree without a pack fails", None, "no pack found"),
+    ]
+    failed = 0
+    for title, change, want in cases:
+        root = tempfile.mkdtemp(prefix="cloudinit-size-profiles.")
+        try:
+            for name, (prof, wc) in ({} if change is None else dict(good, **change)).items():
+                os.makedirs(os.path.join(root, name))
+                for file, text in (("profile.yaml", prof), ("user_data_worst_case.py", wc)):
+                    if text is not None:
+                        with open(os.path.join(root, name, file), "w") as f:
+                            f.write(text)
+            errors = check_profiles(root)
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+        ok = errors == [] if want is None else any(want in e for e in errors)
+        print(("ok   " if ok else "FAIL ") + title + ("" if ok else f": {errors}"))
+        failed += 0 if ok else 1
+    print(f"self-test: {len(cases) - failed} of {len(cases)} cases passed")
+    return 1 if failed else 0
 
 
 # ── A small HCL scanner: where an expression ends, and which parts of it are code ──
@@ -478,6 +588,10 @@ def test_file_with_block(provider):
 
 def main():
     args = sys.argv[1:]
+    if args == ["--self-test"]:
+        return self_test()
+    if args == ["--check-profiles"]:
+        return profile_errors()
     if args == ["--write-fixtures"]:
         for provider in providers():
             path, _, want = test_file_with_block(provider)
@@ -491,8 +605,10 @@ def main():
         dump = args[k + 1]
         del args[k:k + 2]
     if len(args) != 1 or args[0] not in providers():
-        sys.stderr.write(f"usage: cloudinit-size-check.py <{'|'.join(providers())}> [--dump DIR] | --write-fixtures\n")
+        sys.stderr.write(f"usage: cloudinit-size-check.py <{'|'.join(providers())}> [--dump DIR] | --write-fixtures | --check-profiles | --self-test\n")
         return 2
+    if profile_errors(args[0]):
+        return 1
     path, have, want = test_file_with_block(args[0])
     if have != want:
         sys.stderr.write(f"cloudinit-size-check: the worst-case variables in {os.path.relpath(path, REPO)} are not the "

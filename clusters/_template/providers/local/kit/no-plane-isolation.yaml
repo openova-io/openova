@@ -1,0 +1,40 @@
+# Two policies that the local provider pack needs because it does not run the release
+# bp-plane-isolation (slot 26b of the shared kit). That release writes a base policy into
+# 18 namespaces, most of them namespaces of releases that the reduced kit leaves out, so it
+# cannot be installed on the pack. On a Sovereign its base policy gives every pod of the
+# namespaces keycloak and gitea its allowed traffic, and two files add a narrow rule on top:
+#   - platform/keycloak/chart/templates/catalyst-backchannel-egress-cnp.yaml selects every
+#     pod of the namespace keycloak and allows egress to the console's API only;
+#   - clusters/_template/sovereign-region/multi-region/gitea-sync-ingress.yaml selects the
+#     Gitea pods and allows ingress from two workloads only.
+# A pod that a rule selects for a direction may send or receive in that direction only what
+# some rule allows. Without the base policy each narrow rule is the only one, and the rest
+# is denied: the realm import job of Keycloak reaches neither the DNS service nor Keycloak,
+# and no pod of the console's namespace reaches Gitea. The two policies below stand in for
+# the base policy: they allow every destination from the namespace keycloak and every source
+# into the namespace gitea. A policy only adds to what is allowed, so they deny nothing.
+# Both namespaces are created by slot files of the reduced kit (09-keycloak.yaml and
+# 10-gitea.yaml). scripts/generators/local-kit.py lists this file in kustomization.yaml.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: local-pack-allow-egress
+  namespace: keycloak
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: local-pack-allow-ingress
+  namespace: gitea
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - {}

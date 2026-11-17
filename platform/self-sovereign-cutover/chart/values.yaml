@@ -1076,7 +1076,6 @@ helmRepositories:
     - "bp-sigstore"
     - "bp-syft-grype"
     - "bp-velero"
-    - "bp-coraza"
     - "bp-cert-manager-powerdns-webhook"
     - "bp-cluster-autoscaler-hcloud"
     # #4573 F4 (Refs #3379): the ~22 openova-io HelmRepositories the
@@ -1100,8 +1099,6 @@ helmRepositories:
     - "bp-network-policies"
     - "bp-newapi"
     - "bp-oidc-gate"
-    - "bp-openova-flow-emitter"
-    - "bp-openova-flow-server"
     - "bp-opentelemetry-operator"
     - "bp-plane-isolation"
     - "bp-postgres"
@@ -1565,6 +1562,11 @@ imageRegistryPivot:
     # the cutover. Set on an entry only when its HelmRelease runs unsuspended in
     # a follower region and that region's own Harbor (step-03 secondary prewarm)
     # holds its image; excludeHelmReleases below wins here too.
+    # SOV-241 marks bp-guacamole, bp-newapi and bp-k8s-ws-proxy the same way.
+    # Their slots carry no suspend and no region-role label, so they run in
+    # every region, and step-03's follower leg mirrors every ghcr.io/openova-io
+    # image of the follower's own pods and workloads to
+    # registry.<fqdn>/openova-io, the path their image helpers pivot to.
     - name: bp-continuum
       namespace: flux-system
       slotFile: clusters/_template/bootstrap-kit/62-bp-continuum.yaml
@@ -1585,9 +1587,11 @@ imageRegistryPivot:
     - name: bp-guacamole
       namespace: flux-system
       slotFile: clusters/_template/bootstrap-kit/52-bp-guacamole.yaml
+      followerRegions: true
     - name: bp-newapi
       namespace: flux-system
       slotFile: clusters/_template/bootstrap-kit/80-newapi.yaml
+      followerRegions: true
     # #4961 (Refs #4885): the two remaining un-pivoted bootstrap-kit DaemonSets.
     # Both carried a literal ghcr.io image (their image helpers ignored
     # global.imageRegistry), so under the step-08 generalized fresh-pull
@@ -1597,12 +1601,10 @@ imageRegistryPivot:
     # segment when global.imageRegistry is set (verbatim ghcr.io when empty), so
     # their HRs pivot cleanly. Each slotFile carries the 6-space
     # `global.imageRegistry: ''` seam so the durable Gitea edit sticks.
-    - name: bp-openova-flow-emitter
-      namespace: flux-system
-      slotFile: clusters/_template/bootstrap-kit/57-bp-openova-flow-emitter.yaml
     - name: bp-k8s-ws-proxy
       namespace: flux-system
       slotFile: clusters/_template/bootstrap-kit/51-bp-k8s-ws-proxy.yaml
+      followerRegions: true
 
   # #5215 — storage/CSI-driver HelmReleases that step-07 MUST NEVER pivot, even
   # if an overlay (or a future edit) re-adds one to additionalHRs above. Deny

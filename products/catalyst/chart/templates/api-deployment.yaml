@@ -336,7 +336,7 @@ spec:
             # field so dashboards can correlate api-version <-> chart-
             # version on a single probe.
             - name: CATALYST_BUILD_SHA
-              value: "e547327"
+              value: "eec4ff2"
             - name: CATALYST_CHART_VERSION
               value: "1.4.95"
             # #2940 (2026-06-03): was hardcoded "https://console.openova.io".
@@ -960,9 +960,9 @@ spec:
             # at blueprints.go:184 + blueprints.go:493 (matrix TC-081, TC-082,
             # TC-083, TC-085 FAIL).
             #
-            # Mirrors the wiring already used by blueprint-controller,
-            # application-controller, environment-controller, organization-
-            # controller (see controllers/blueprint-controller-deployment.yaml
+            # Mirrors the wiring already used by application-controller,
+            # environment-controller and organization-controller (see
+            # controllers/application-controller-deployment.yaml
             # for the canonical pattern). The catalyst-gitea-token Secret
             # is materialised by the bp-gitea chart's post-install Job and
             # mirrored into catalyst-system by emberstack/reflector.
@@ -1138,6 +1138,12 @@ spec:
             # (new first, legacy as fallback) — see internal/handler/auth_handover.go.
             - name: CATALYST_HANDOVER_JWT_PUBLIC_PATH
               value: /etc/catalyst/handover-jwt-public/public.jwk
+            # CATALYST_AGENT_TOKEN_CALLERS — the workloads that may ask
+            # POST /api/v1/internal/agent-tokens for an agent token, a JSON
+            # list (docs/contracts/model-contract.md section 2.2). From the
+            # value agentTokens.callers.
+            - name: CATALYST_AGENT_TOKEN_CALLERS
+              value: {{ .Values.agentTokens.callers | quote }}
             # CATALYST_OPENBAO_ADDR (#3374) — in-cluster OpenBao address for
             # the bare-URL SSO shim (HandleOpenBaoSSOInit). The shim calls
             # ONLY the unauthenticated /v1/auth/oidc/oidc/auth_url login-flow

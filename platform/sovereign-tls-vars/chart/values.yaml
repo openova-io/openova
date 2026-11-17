@@ -16,6 +16,26 @@ global:
 # from global.sovereignFQDN.
 parentZones: []
 
+# routeNamespaces (NET-190) — route admission by owner. Every listener of the
+# shared Gateway and of the console Gateway admits HTTPRoutes only from these
+# namespaces: the kit namespaces that own a route. An Organization's routes
+# attach to its own listeners instead. Keep it equal to the list namespaces of
+# scripts/network-guards-allowlist.yaml: network guard G4 fails when they differ.
+routeNamespaces:
+  - catalyst-system
+  - chargeback
+  - gitea
+  - grafana
+  - guacamole
+  - harbor
+  - keycloak
+  - kube-system
+  - newapi
+  - oidc-gate
+  - openbao
+  - powerdns
+  - powerdns-admin
+
 # Console Gateway listener ports (#4706). Standard :443/:80 on Hetzner
 # (hostNetwork off); Huawei cloud-init overrides to 8443/8080 so the two
 # Gateways don't collide under hostNetwork.

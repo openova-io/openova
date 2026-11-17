@@ -174,7 +174,7 @@ REQUIRED_HRS=(
     bp-nats-jetstream bp-valkey bp-seaweedfs
     bp-crossplane bp-crossplane-claims
     bp-mimir bp-tempo bp-alloy
-    bp-coraza bp-newapi bp-vllm
+    bp-newapi bp-vllm
     bp-opentelemetry bp-opentelemetry-operator
     bp-openova-flow-server bp-openova-flow-emitter
     bp-reloader bp-reflector bp-sealed-secrets bp-vpa

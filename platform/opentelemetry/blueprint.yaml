@@ -1,11 +1,12 @@
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
-  name: opentelemetry
+  name: bp-opentelemetry
   labels:
     catalyst.openova.io/section: pts-3-observability
 spec:
   version: 1.2.2
+  visibility: unlisted
   card:
     title: OpenTelemetry Collector
     family: insights

@@ -3375,17 +3375,42 @@ func legacyOwnVariables(apiURL string) (string, upstream.Variables, error) {
 			"gcr.io":               "proxy-gcr",
 			"registry.k8s.io":      "proxy-k8s",
 			"ghcr.io":              "proxy-ghcr",
-			"xpkg.upbound.io":      "proxy-xpkg",
-			"public.ecr.aws":       "proxy-ecr",
+			// SOV-135: the two names below have an empty path, so a registry
+			// serves them at its root. The kit names the images of the
+			// platform under the first. No registry of the parent serves a
+			// proxy project for the second (legacyOriginByName).
+			"harbor.openova.io": "",
+			"xpkg.upbound.io":   "",
 		},
 		ReleaseChannel: "stable",
 	}
 	return parentFQDN, own, nil
 }
 
+// legacyOriginRegistry is the address of the registry of the parent that
+// legacyOwnVariables describes. A new Sovereign has it as the origin address
+// of every proxy name, unless OriginRegistryByProvider or legacyOriginByName
+// names another. Work package SOV-940 deletes it.
+const legacyOriginRegistry = "https://harbor.openova.io"
+
+// legacyOriginByName holds the proxy names that no registry of the parent
+// serves. Each has its own public registry as its origin address, whatever
+// the provider. Work package SOV-940 deletes it.
+var legacyOriginByName = map[string]string{
+	"xpkg.upbound.io": "https://xpkg.upbound.io",
+}
+
+// OriginRegistryByProvider holds, per provider name, the address at which a
+// new Sovereign of that provider reaches the registry of the parent, where
+// that is not legacyOriginRegistry. A provider adapter adds its address from
+// init(). Work package SOV-940 deletes it.
+var OriginRegistryByProvider = map[string]string{}
+
 // childVariables returns the variables document (contract C5) of a new
 // Sovereign: what the parent serves to a child (upstream.Served), with the
-// keys of this child filled in. It fails when the document breaks the contract.
+// keys of this child filled in. Every proxy name gets its origin address in
+// ORIGIN_PROXY_ENDPOINTS_JSON (SOV-135). It fails when the document breaks
+// the contract.
 func childVariables(req Request, apiURL string) (map[string]string, error) {
 	parentFQDN, own, err := legacyOwnVariables(apiURL)
 	if err != nil {
@@ -3398,6 +3423,16 @@ func childVariables(req Request, apiURL string) (map[string]string, error) {
 	v.K3sVersion = moduleK3sVersion
 	v.MailMode = "local"
 	v.CloudCredentialMode = "supplied"
+	originRegistry := legacyOriginRegistry
+	if address := OriginRegistryByProvider[strings.ToLower(strings.TrimSpace(req.Provider))]; address != "" {
+		originRegistry = address
+	}
+	for name := range v.ProxyProjects {
+		v.OriginProxyEndpoints[name] = originRegistry
+		if address, ok := legacyOriginByName[name]; ok {
+			v.OriginProxyEndpoints[name] = address
+		}
+	}
 	doc := v.ToMap()
 	if _, err := upstream.FromMap(doc); err != nil {
 		return nil, fmt.Errorf("variables document: %w", err)

@@ -46,6 +46,10 @@ func registerPublicAuth(r chi.Router, d routeDeps) {
 	// POST is the canonical SPA path because some proxies strip
 	// body+credentials from DELETE on cross-origin XHR.
 	r.Post("/api/v1/auth/session", h.HandleAuthSessionLogout)
+	// The key set of the signer of this pod (docs/contracts/model-contract.md
+	// section 2.3). Public material only, so it asks for no session. Agent
+	// tokens name its key in their header.
+	r.Get("/api/v1/auth/signers.jwks", d.tokens.HandleJWKS)
 
 	// Sovereign-side handover receiver (issue #606). The operator's
 	// browser arrives at GET /auth/handover?token=<jwt> from the
