@@ -832,6 +832,27 @@ variable "ssh_allowed_cidrs" {
   }
 }
 
+# NET-012 — the sources of port 6443: IPv4 networks in canonical CIDR form, never /0.
+variable "admin_cidrs" {
+  type        = list(string)
+  description = "IPv4 ranges the sovereign-admin reaches the Kubernetes API (port 6443) from. Written by catalyst-api from the request field adminCIDRs or CATALYST_DEFAULT_ADMIN_CIDRS."
+  default     = []
+  validation {
+    condition     = alltrue([for c in var.admin_cidrs : can(cidrnetmask(c)) && !endswith(c, "/0") && try(cidrsubnet(c, 0, 0) == c, false)])
+    error_message = "admin_cidrs entries must be IPv4 networks in canonical CIDR form (such as 198.51.100.0/28), never 0.0.0.0/0."
+  }
+}
+
+variable "provisioner_cidrs" {
+  type        = list(string)
+  description = "IPv4 ranges the provisioner (the parent's catalyst-api) reaches the Kubernetes API (port 6443) from: its egress addresses. Written by catalyst-api from CATALYST_EGRESS_CIDRS."
+  default     = []
+  validation {
+    condition     = alltrue([for c in var.provisioner_cidrs : can(cidrnetmask(c)) && !endswith(c, "/0") && try(cidrsubnet(c, 0, 0) == c, false)])
+    error_message = "provisioner_cidrs entries must be IPv4 networks in canonical CIDR form (such as 192.0.2.10/32), never 0.0.0.0/0."
+  }
+}
+
 variable "enable_unattended_upgrades" {
   type        = bool
   description = "Install + enable unattended-upgrades for security patches on Ubuntu. Default true; disable only for short-lived test sovereigns."
