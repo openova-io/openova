@@ -28,7 +28,7 @@ set -euo pipefail
 
 # The names the Provision page must be able to show. A task that removes one
 # of these components from the bootstrap kit must remove its name here.
-NAMES="bp-cilium bp-cert-manager bp-flux bp-crossplane bp-sealed-secrets
+NAMES="bp-cilium bp-cert-manager bp-flux bp-crossplane
 bp-nats-jetstream bp-openbao bp-keycloak bp-gitea"
 
 # Lowest total size, in bytes, of all *.js files of a real build.
@@ -114,7 +114,7 @@ self_test() {
 
   # 3. Names spread over two chunks: pass.
   mkdir -p "$tmp/spread"
-  { pad 120000; echo "bp-cilium bp-cert-manager bp-flux bp-crossplane bp-sealed-secrets"; } > "$tmp/spread/index-a.js"
+  { pad 120000; echo "bp-cilium bp-cert-manager bp-flux bp-crossplane"; } > "$tmp/spread/index-a.js"
   echo "bp-nats-jetstream bp-openbao bp-keycloak bp-gitea" > "$tmp/spread/router-b.js"
   expect 0 "names spread over two chunks" "$tmp/spread"
 

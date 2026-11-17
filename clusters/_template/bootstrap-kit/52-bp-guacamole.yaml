@@ -21,7 +21,6 @@
 #   - bp-keycloak              — OIDC issuer + realm-config Job that
 #                                consumes the chart's realm-patch
 #                                ConfigMap.
-#   - bp-sealed-secrets        — OIDC client-secret SealedSecret.
 #   - bp-seaweedfs             — RWX-capable PVC for session recordings.
 #   - bp-k8s-ws-proxy          — exec tunnelling onto the local-node
 #                                kube-apiserver via the DaemonSet.
@@ -80,8 +79,6 @@ spec:
       namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     # G92.2 #2661 (2026-06-01): bp-keycloak HR moved to host ns `mgmt`.
     - name: bp-keycloak
-      namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
-    - name: bp-sealed-secrets
       namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
     - name: bp-seaweedfs
       namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
