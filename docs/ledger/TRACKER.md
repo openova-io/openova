@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-17T14:00:03Z` |
+| Last refreshed | `2026-11-17T14:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7765](https://github.com/openova-io/openova/issues/7765) | SOV-142 New nodes fetch k3s, Flux and Gateway API install files from the registr | Other |
 | [#7766](https://github.com/openova-io/openova/issues/7766) | SOV-161 The pull robot of the local registry joins the pull secret at install | Other |
 | [#7767](https://github.com/openova-io/openova/issues/7767) | SOV-336 The registry install creates the proxy project of the vulnerability data | Other |
 | [#7768](https://github.com/openova-io/openova/issues/7768) | the release job writes an attestation name as the runtime image tag of the openc | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8035](https://github.com/openova-io/openova/issues/8035) | ACC-010 Close the default-install exposure of the access gateway | Other |
 | [#8036](https://github.com/openova-io/openova/issues/8036) | CLD-064 Convert the adoption Composition to pipeline mode | Other |
 | [#8037](https://github.com/openova-io/openova/issues/8037) | MIG-030 Spike: a written volume boots on the reference cloud, through a unit Wor | Other |
+| [#8047](https://github.com/openova-io/openova/issues/8047) | CMP-020 The API tells the truth: live mode, no fixture data, no invented list | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-17T14:02 | [#8046](https://github.com/openova-io/openova/pull/8046) | #7087 | docs(ledger): plan update |
 | 2026-11-17T13:49 | [#8044](https://github.com/openova-io/openova/pull/8044) | #7816 | feat(fingate): internal authorisation API package with the t |
 | 2026-11-17T13:48 | [#8043](https://github.com/openova-io/openova/pull/8043) | #7852 | feat(ops-records): alert signal intake and the rule path tha |
 | 2026-11-17T13:50 | [#8042](https://github.com/openova-io/openova/pull/8042) | #7842 | test(charts): function tests for the policy, reloader, cross |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-16T14:55 | [#8007](https://github.com/openova-io/openova/pull/8007) | #7990 | refactor(cloud-init): first boot stops writing two node file |
 | 2026-11-16T14:56 | [#8006](https://github.com/openova-io/openova/pull/8006) | #7989 | chore(secrets): the Secret register lists kube-system/parent |
 | 2026-11-16T14:24 | [#8005](https://github.com/openova-io/openova/pull/8005) | #7964 | fix(model-meter): meter streamed answers from their final us |
-| 2026-11-16T14:26 | [#8004](https://github.com/openova-io/openova/pull/8004) | #7972 | feat(console): console pages become a third source of menu c |
 
 ---
 
