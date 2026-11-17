@@ -4842,7 +4842,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [FND-191, FND-192]
-  after: [FND-037, FND-011, SOV-020, SOV-151, SOV-175, SOV-241, SEC-103, SEC-104, SEC-105, NET-030, NET-040, NET-042, NET-080, NET-221, SVC-040, SVC-041, CTL-041, CTL-346, CTL-347, INF-040, INF-050, INF-110, ACC-050]
+  after: [FND-037, FND-011, SOV-020, SOV-151, SOV-175, SOV-241, SEC-103, SEC-104, SEC-105, NET-030, NET-040, NET-042, NET-080, NET-095, NET-221, SVC-040, SVC-041, CTL-041, CTL-346, CTL-347, INF-040, INF-050, INF-110, ACC-050]
   touches:
   - platform/syft-grype/**
   - clusters/_template/bootstrap-kit/33-syft-grype.yaml
@@ -6243,7 +6243,7 @@ packages:
   wave: W3
   size: S
   lane: SUBSTRATE
-  depends_on: [CLD-087, CLD-090]
+  depends_on: [CLD-087]
   after: [FND-130]
   touches:
   - scripts/check-plan-additive.py
@@ -15302,7 +15302,7 @@ packages:
   dropped: false
   delivers: Every pull request runs six network guards (open ports, hand-written policy, route admission, provider names in the network chart, global Services without a decision, retired kit slots); each offending file has a baseline line that may only fall, and guard G2 reads a separate list of named exceptions with owner and reason.
 - id: NET-095
-  title: Security fix. Its text is published with its ticket.
+  title: 'Policy chart: only the deny of the instance metadata address by default'
   area: NET
   epic: null
   type: fix
@@ -15310,22 +15310,40 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: []
-  after: [SVC-090, FND-011, NET-030, NET-040, SVC-040, SVC-041]
-  touches: []
+  after: [SVC-090, FND-011]
+  touches:
+  - platform/network-policies/chart/templates/baseline-deny-metadata.yaml
+  - platform/network-policies/chart/templates/default-deny.yaml
+  - platform/network-policies/chart/templates/allow-system-namespaces.yaml
+  - platform/network-policies/chart/templates/allow-egress-dns.yaml
+  - platform/network-policies/chart/templates/tests/function-test.yaml
+  - platform/network-policies/chart/values.yaml
+  - platform/network-policies/chart/tests/render.sh
+  - platform/network-policies/chart/tests/function-test-render.sh
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls platform/network-policies/chart/templates | paste -sd, -"
+    expect: "allow-egress-dns.yaml,allow-system-namespaces.yaml,default-deny.yaml,tests"
+  acceptance:
+  - id: A1
+    run: "bash platform/network-policies/chart/tests/render.sh platform/network-policies/chart"
+  - id: A2
+    run: "helm template t platform/network-policies/chart --skip-tests | python3 -c \"import sys, yaml; docs = [d for d in yaml.safe_load_all(sys.stdin) if d]; assert len(docs) == 1, len(docs); d = docs[0]; assert d['apiVersion'] == 'cilium.io/v2' and d['kind'] == 'CiliumClusterwideNetworkPolicy' and d['metadata'] == {'name': 'baseline-deny-metadata'}, d; assert d['spec'] == {'endpointSelector': {'matchExpressions': [{'key': 'network.openova.io/metadata-access', 'operator': 'NotIn', 'values': ['true']}]}, 'enableDefaultDeny': {'ingress': False, 'egress': False}, 'egressDeny': [{'toCIDR': ['169.254.169.254/32']}]}, d['spec']\""
+  - id: A3
+    run: "c=platform/network-policies/chart; test \"$(helm template t $c --set legacyBaseline.enabled=true | grep -c '^kind: CiliumClusterwideNetworkPolicy$')\" = 4 && test \"$(helm template t $c --set enabled=false --set legacyBaseline.enabled=true | grep -c '^kind:')\" = 0 && test \"$(helm template t $c --set enabled=false | grep -c '^kind:')\" = 0 && test \"$(grep -c '^    enabled: false$' clusters/_template/bootstrap-kit/26-network-policies.yaml)\" = 1"
+  - id: A4
+    run: "bash platform/network-policies/chart/tests/function-test-render.sh platform/network-policies/chart && test \"$(helm template t platform/network-policies/chart --show-only templates/tests/function-test.yaml | grep -c -F 'value: \"http://169.254.169.254/\"')\" = 1"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 2
   dropped: false
-  delivers: Security fix. Its text is published with its ticket.
+  delivers: The chart bp-network-policies renders by default one policy object, a cluster-wide egress deny to the instance metadata address 169.254.169.254, beside a helm test Pod that proves the deny, and its three legacy default-deny objects render only when the value legacyBaseline.enabled is true.
 - id: NET-096
   title: Security fix. Its text is published with its ticket.
   area: NET
