@@ -1,0 +1,49 @@
+schema: openova.io/plan-wrong/v1
+id: CTL-347
+ticket_rev: 1
+base_commit: dde64417732abc70704c56228ee53872f4c40c2a
+stage: check
+ref: no self-test-capable guard is orphaned
+command: |
+    gh api repos/openova-io/openova/actions/jobs/134116168557/logs | grep -B 40 -m 1 '##\[error\]' | cut -c30-300
+expected: |
+    the check finishes green
+actual: |
+    OK — self-test passed (wired / comment-only / paths-only distinguished; cluster-only CONTROL exempt; gate provably fails).
+    OK: --self-test only; no cluster was contacted.
+    ##[group]Run cp scripts/check-guards-are-wired.sh /tmp/mutant.sh
+    [36;1mcp scripts/check-guards-are-wired.sh /tmp/mutant.sh[0m
+    [36;1mpython3 - <<'PY'[0m
+    [36;1mp = "/tmp/mutant.sh"[0m
+    [36;1ms = open(p).read()[0m
+    [36;1mold = "INVOKE_RE='(^|[[:space:]|;&(])((bash|sh|source)[[:space:]]+|\\./)[A-Za-z0-9_./-]*check-[A-Za-z0-9_.-]+\\.sh'"[0m
+    [36;1mnew = "INVOKE_RE='check-[A-Za-z0-9_.-]+\\.sh'"[0m
+    [36;1massert old in s, "mutation anchor not found — update this step"[0m
+    [36;1mopen(p, "w").write(s.replace(old, new, 1))[0m
+    [36;1mPY[0m
+    [36;1mif bash /tmp/mutant.sh --self-test >/tmp/mutant.out 2>&1; then[0m
+    [36;1m  echo "VACUITY FAIL: the self-test passed against a matcher that counts"[0m
+    [36;1m  echo "a bare 'paths:' entry as an invocation. That is the exact theater"[0m
+    [36;1m  echo "this guard exists to prevent."[0m
+    [36;1m  cat /tmp/mutant.out[0m
+    [36;1m  exit 1[0m
+    [36;1mfi[0m
+    [36;1mecho "OK: the mutated matcher is caught. Failing assertion:"[0m
+    [36;1mgrep -m1 'FAIL:' /tmp/mutant.out || cat /tmp/mutant.out[0m
+    shell: /usr/bin/bash -e {0}
+    ##[endgroup]
+    OK: the mutated matcher is caught. Failing assertion:
+      FAIL: paths:-filter-only mention is NOT wired (want 1, got 0)
+    ##[group]Run bash scripts/check-guards-are-wired.sh
+    [36;1mbash scripts/check-guards-are-wired.sh[0m
+    shell: /usr/bin/bash -e {0}
+    ##[endgroup]
+    ORPHANED GUARD: scripts/check-go-builder-version.sh advertises --self-test but no workflow INVOKES it
+    
+    FAIL: 1 of 53 self-test-capable guard(s) are never run by CI.
+    A guard nothing runs is a guard that cannot fire. Add a workflow step:
+        - run: bash scripts/<guard>.sh --self-test
+    (a 'paths:' trigger entry does NOT count — it selects WHEN a workflow
+     runs, never WHAT it executes.)
+    ##[error]Process completed with exit code 1.
+reported_at: 2026-11-17T15:01:10Z
