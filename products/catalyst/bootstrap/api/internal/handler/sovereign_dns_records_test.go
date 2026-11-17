@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 
@@ -37,23 +38,22 @@ func TestCanonicalSovereignSubdomainsCoversBrowserFacingApps(t *testing.T) {
 	// exposes through its Cilium Gateway. Sourced from the bootstrap-kit slot
 	// overlays' HTTPRoute hostnames (host: <prefix>.${SOVEREIGN_FQDN}).
 	want := []string{
-		"console",      // bp-catalyst-platform (catalyst-ui)
-		"api",          // bp-catalyst-platform (catalyst-api)
-		"marketplace",  // bp-catalyst-platform (marketplace)
-		"guacamole",    // bp-guacamole
-		"auth",         // bp-keycloak
-		"gitea",        // bp-gitea
-		"registry",     // bp-harbor
-		"bao",          // bp-openbao
-		"grafana",      // bp-grafana
-		"hubble",       // cilium hubble-ui
-		"pdns",         // bp-powerdns (REST API host)
-		"pdns-admin",   // bp-powerdns-admin (UI host) — #3225
-		"openova-flow", // bp-openova-flow-server
-		"newapi",       // bp-newapi (LLM gateway) — #3263 row 6
-		"sandbox",      // bp-sandbox per-Sandbox pty-server
-		"mcp",          // bp-openova-mcp sovereign-mode instance — #5206
-		"chargeback",   // bp-chargeback Sovereign BSS placement — #6723 ADR-0014
+		"console",     // bp-catalyst-platform (catalyst-ui)
+		"api",         // bp-catalyst-platform (catalyst-api)
+		"marketplace", // bp-catalyst-platform (marketplace)
+		"guacamole",   // bp-guacamole
+		"auth",        // bp-keycloak
+		"gitea",       // bp-gitea
+		"registry",    // bp-harbor
+		"bao",         // bp-openbao
+		"grafana",     // bp-grafana
+		"hubble",      // cilium hubble-ui
+		"pdns",        // bp-powerdns (REST API host)
+		"pdns-admin",  // bp-powerdns-admin (UI host) — #3225
+		"newapi",      // bp-newapi (LLM gateway) — #3263 row 6
+		"sandbox",     // bp-sandbox per-Sandbox pty-server
+		"mcp",         // bp-openova-mcp sovereign-mode instance — #5206
+		"chargeback",  // bp-chargeback Sovereign BSS placement — #6723 ADR-0014
 	}
 
 	for _, sub := range want {
@@ -184,13 +184,13 @@ func (s *stubZoneClient) PatchRRSets(_ context.Context, zone string, rrsets []po
 }
 
 // TestSovereignParentZoneRecordNames locks the record-SELECTION contract that
-// both the write side and the wipe teardown share: every canonical subdomain
+// the wipe teardown deletes: every canonical and every retired subdomain
 // plus the apex, each dot-terminated, and NO record at all for a blank FQDN
 // (so a wipe with a missing FQDN can never emit a bare-dot "." apex rrset).
 func TestSovereignParentZoneRecordNames(t *testing.T) {
 	names := sovereignParentZoneRecordNames("hw220.omani.works")
-	if want := len(CanonicalSovereignSubdomains) + 1; len(names) != want {
-		t.Fatalf("name count = %d, want %d (canonical subdomains + apex)", len(names), want)
+	if want := len(CanonicalSovereignSubdomains) + len(RetiredSovereignSubdomains) + 1; len(names) != want {
+		t.Fatalf("name count = %d, want %d (canonical + retired subdomains + apex)", len(names), want)
 	}
 	set := map[string]bool{}
 	for _, n := range names {
@@ -203,6 +203,7 @@ func TestSovereignParentZoneRecordNames(t *testing.T) {
 		"console.hw220.omani.works.",
 		"api.hw220.omani.works.",
 		"marketplace.hw220.omani.works.",
+		"openova-flow.hw220.omani.works.",
 		"hw220.omani.works.", // apex
 	} {
 		if !set[must] {
@@ -297,9 +298,9 @@ func TestDeleteSovereignParentZoneRecords(t *testing.T) {
 		t.Fatalf("zones patched = %v, want [omani.works] (derived from FQDN tail)", stub.zones)
 	}
 	got := stub.rrsets[0]
-	// Every canonical subdomain + the apex, all changetype=DELETE.
-	if want := len(CanonicalSovereignSubdomains) + 1; len(got) != want {
-		t.Fatalf("rrset count = %d, want %d (canonical set + apex)", len(got), want)
+	// Every canonical and retired subdomain + the apex, all changetype=DELETE.
+	if want := len(CanonicalSovereignSubdomains) + len(RetiredSovereignSubdomains) + 1; len(got) != want {
+		t.Fatalf("rrset count = %d, want %d (canonical + retired set + apex)", len(got), want)
 	}
 	names := map[string]bool{}
 	for _, rr := range got {
@@ -308,7 +309,7 @@ func TestDeleteSovereignParentZoneRecords(t *testing.T) {
 		}
 		names[rr.Name] = true
 	}
-	for _, must := range []string{"console.hw217.omani.works.", "api.hw217.omani.works.", "hw217.omani.works."} {
+	for _, must := range []string{"console.hw217.omani.works.", "api.hw217.omani.works.", "openova-flow.hw217.omani.works.", "hw217.omani.works."} {
 		if !names[must] {
 			t.Errorf("missing DELETE rrset for %s", must)
 		}
@@ -321,5 +322,23 @@ func TestDeleteSovereignParentZoneRecords_NilClientNoop(t *testing.T) {
 	h := &Handler{log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	if err := h.deleteSovereignParentZoneRecords(context.Background(), "hw217.omani.works", ""); err != nil {
 		t.Fatalf("expected nil error with no client, got %v", err)
+	}
+}
+
+// TestRetiredSovereignSubdomainsAreNotWritten locks CTL-348: the upsert writes
+// no retired name (openova-flow left with the flow server); the wipe deletes it.
+func TestRetiredSovereignSubdomainsAreNotWritten(t *testing.T) {
+	stub := &stubZoneClient{}
+	h := &Handler{log: slog.New(slog.NewTextHandler(io.Discard, nil)), powerdnsZoneClient: stub}
+	if err := h.upsertSovereignParentZoneRecords(context.Background(), "hw220.omani.works", "omani.works", "212.72.24.31"); err != nil || len(stub.rrsets) != 1 {
+		t.Fatalf("upsert: err = %v, patches = %d; want nil and 1", err, len(stub.rrsets))
+	}
+	if !slices.Contains(RetiredSovereignSubdomains, "openova-flow") {
+		t.Fatalf("RetiredSovereignSubdomains = %v; want it to hold openova-flow", RetiredSovereignSubdomains)
+	}
+	for _, sub := range RetiredSovereignSubdomains {
+		if slices.Contains(CanonicalSovereignSubdomains, sub) || slices.ContainsFunc(stub.rrsets[0], func(rr powerdns.RRSet) bool { return rr.Name == sub+".hw220.omani.works." }) {
+			t.Errorf("retired %q is still written into the parent zone", sub)
+		}
 	}
 }

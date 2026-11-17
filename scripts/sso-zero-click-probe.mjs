@@ -16,8 +16,8 @@
 // state (bao localStorage token, app cookies) starts EMPTY, so a green
 // row proves the zero-click chain, not a stale session.
 //
-// Anonymous rows (marketplace; the openova-flow "no anonymous data"
-// assertion) run in a SECOND, never-authenticated context.
+// Anonymous rows (marketplace) run in a SECOND, never-authenticated
+// context.
 //
 // Usage:
 //   node scripts/sso-zero-click-probe.mjs \
@@ -215,21 +215,6 @@ const ROWS = [
       { kind: 'text', v: 'Log in' },
       { kind: 'url-includes', v: '/login' },
     ],
-  },
-  {
-    // Authed read: the gate must pass the operator through to the
-    // flow-server (JSON descriptor / API surface).
-    name: 'openova-flow', url: `${host('openova-flow')}/`, ctx: 'authed', settleMs: 10000,
-    positive: [{ kind: 'text', v: 'openova-flow-server' }],
-    loginMarkers: [{ kind: 'text', v: 'Internal Server Error' }],
-  },
-  {
-    // Security half of row 9/10 (#3374 §3): an ANONYMOUS browser must
-    // NOT receive flow data — it must be bounced into the KC chain.
-    // RED today: the route serves the JSON descriptor with no auth.
-    name: 'openova-flow-anon-denied', url: `${host('openova-flow')}/`, ctx: 'anon', settleMs: 8000,
-    positive: [{ kind: 'url-regex', v: '(auth\\.|/realms/|/oauth2/|/protocol/openid-connect/)' }],
-    loginMarkers: [{ kind: 'text', v: 'openova-flow-server' }],
   },
   {
     // hubble-ui 0.13.3 at the bare URL shows its welcome screen, whose text
