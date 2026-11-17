@@ -743,27 +743,6 @@ slots:
     depends_on: [bp-reflector]
     wave: present
 
-  # ---- Slots 56/57 — OpenovaFlow observability cohort.
-  # Stateless HTTP+SSE event router (slot 56, primary cluster only) +
-  # region-aware Flux adapter DaemonSet (slot 57, every cluster).
-  # The adapter watches helm.toolkit.fluxcd.io/HelmRelease CRs and
-  # POSTs FlowMessage envelopes to the configured openova-flow-server.
-  # Three-agent build: Agent #1 (TS @openova/flow-core +
-  # @openova/flow-canvas), Agent #2 (this Go server + flux adapter),
-  # Agent #3 (catalyst-api proxy + bootstrap-kit integration).
-  - slot: 56
-    name: bp-openova-flow-server
-    # Added bp-cnpg 2026-05-14 alongside the in-memory → CNPG-backed
-    # store rewrite (see 56-bp-openova-flow-server.yaml comment) —
-    # the chart's cnpg-cluster.yaml requires postgresql.cnpg.io/v1
-    # CRD before InstallSucceeded.
-    depends_on: [bp-cilium, bp-cert-manager, bp-cnpg]
-    wave: present
-  - slot: 57
-    name: bp-openova-flow-emitter
-    depends_on: [bp-flux]
-    wave: present
-
   # ---- Slot 60 — bp-vcluster-helmrepo (convergence blocker #2 —
   # per-Organization vCluster source install on Sovereign).
   # Pre-stages the upstream loft-sh vcluster Helm chart source on the

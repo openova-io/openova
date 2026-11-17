@@ -418,10 +418,6 @@ spec:
     # host-side so the session DB is undisturbed.
     - {file: 52-bp-guacamole.yaml, hr: bp-guacamole, vcluster: host, target: host, namespace: guacamole,
        justification: "#4291 DE-VCLUSTER §C — remote-desktop gateway is a platform plane, not a tenant boundary; dedicated host ns `guacamole` (was catalyst-system in vc-mgmt) renders its own route/CNPG + per-component default-deny CNP (Refs #4293)"}
-    - {file: 56-bp-openova-flow-server.yaml, hr: bp-openova-flow-server, vcluster: host, target: host, namespace: catalyst-system,
-       justification: "#4291 DE-VCLUSTER §C — the §4 mgmt-vCluster target is retired (no platform-plane vClusters); host is now the canonical placement (Refs #4293)"}
-    - {file: 57-bp-openova-flow-emitter.yaml, hr: bp-openova-flow-emitter, vcluster: host, target: host, namespace: catalyst-system,
-       justification: "#4291 DE-VCLUSTER §C — the §4 mgmt-vCluster target is retired (no platform-plane vClusters); host is now the canonical placement (Refs #4293)"}
     # ── #4291 DE-VCLUSTER (Refs #4293 #3642 #3373) — newapi → native host ns ──
     # Inverse of the #3831 CNPG-owner host-bridge render-split: newapi runs
     # natively in host ns `newapi`, so the split COLLAPSES. The chart renders

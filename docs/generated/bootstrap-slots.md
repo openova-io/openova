@@ -83,8 +83,6 @@ One row for each HelmRelease of each file that `clusters/_template/bootstrap-kit
 | 55 | 55-bp-hcloud-ccm.yaml | bp-hcloud-ccm | hcloud-ccm | kube-system | bp-hcloud-ccm | - | `suspend=${HCLOUD_HR_SUSPEND:=false}` | same |
 | 55a | 55a-bp-hcloud-csi.yaml | bp-hcloud-csi | hcloud-csi | hcloud-csi | bp-hcloud-csi | - | `values.enabled=${HCLOUD_CSI_ENABLED:=true}` | same |
 | 55b | 55b-bp-huawei-evs-csi.yaml | bp-huawei-evs-csi | huawei-evs-csi | huawei-evs-csi | bp-huawei-evs-csi | bp-reflector | `values.enabled=${EVS_CSI_ENABLED:=true}` | same |
-| 56 | 56-bp-openova-flow-server.yaml | bp-openova-flow-server | openova-flow-server | catalyst-system | bp-openova-flow-server | bp-cilium, bp-cert-manager, bp-cnpg | - | same |
-| 57 | 57-bp-openova-flow-emitter.yaml | bp-openova-flow-emitter | openova-flow-emitter | catalyst-system | bp-openova-flow-emitter | bp-flux | - | same |
 | 60 | 60-bp-vcluster-helmrepo.yaml | bp-vcluster-helmrepo | vcluster-helmrepo | flux-system | bp-vcluster-helmrepo | bp-flux | - | same |
 | 62 | 62-bp-continuum.yaml | bp-continuum | continuum | catalyst-system | bp-continuum | - | `values.continuum.enabled=${CONTINUUM_ENABLED:-false}` | same |
 | 80 | 80-newapi.yaml | bp-newapi | newapi | newapi | bp-newapi | bp-openbao, bp-keycloak, bp-cnpg | `values.crossRegion.enabled=${SOVEREIGN_ENABLE_CNPG_PAIR:=false}` | same |

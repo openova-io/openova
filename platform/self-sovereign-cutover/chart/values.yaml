@@ -1096,8 +1096,6 @@ helmRepositories:
     - "bp-network-policies"
     - "bp-newapi"
     - "bp-oidc-gate"
-    - "bp-openova-flow-emitter"
-    - "bp-openova-flow-server"
     - "bp-opentelemetry-operator"
     - "bp-plane-isolation"
     - "bp-postgres"
@@ -1593,9 +1591,6 @@ imageRegistryPivot:
     # segment when global.imageRegistry is set (verbatim ghcr.io when empty), so
     # their HRs pivot cleanly. Each slotFile carries the 6-space
     # `global.imageRegistry: ''` seam so the durable Gitea edit sticks.
-    - name: bp-openova-flow-emitter
-      namespace: flux-system
-      slotFile: clusters/_template/bootstrap-kit/57-bp-openova-flow-emitter.yaml
     - name: bp-k8s-ws-proxy
       namespace: flux-system
       slotFile: clusters/_template/bootstrap-kit/51-bp-k8s-ws-proxy.yaml
