@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-17T14:30:06Z` |
+| Last refreshed | `2026-11-17T14:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,7 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-17T14:33 | [#8055](https://github.com/openova-io/openova/pull/8055) | #7568 | fix(huawei): open the API port only to declared sources and  |
+| 2026-11-17T14:33 | [#8054](https://github.com/openova-io/openova/pull/8054) | #7797 | fix(network-policies): deny the instance metadata address by |
 | 2026-11-17T14:19 | [#8052](https://github.com/openova-io/openova/pull/8052) | #7087 | docs(ledger): plan update |
+| 2026-11-17T14:32 | [#8051](https://github.com/openova-io/openova/pull/8051) | #7535 | chore: remove the Sandbox agent picker from the storefront a |
 | 2026-11-17T14:27 | [#8050](https://github.com/openova-io/openova/pull/8050) | #8036 | fix(crossplane): run the adoption Composition in Pipeline mo |
 | 2026-11-17T14:27 | [#8049](https://github.com/openova-io/openova/pull/8049) | #7775 | ci: a workflow gates the standing environment twice once it  |
 | 2026-11-17T14:02 | [#8046](https://github.com/openova-io/openova/pull/8046) | #7087 | docs(ledger): plan update |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-16T16:19 | [#8015](https://github.com/openova-io/openova/pull/8015) | #7807 | fix(provisioner): the variables document of a new Sovereign  |
 | 2026-11-16T16:19 | [#8014](https://github.com/openova-io/openova/pull/8014) | #7885 | feat(suite): the acceptance suite runs in self inside a clus |
 | 2026-11-16T15:56 | [#8013](https://github.com/openova-io/openova/pull/8013) | #7087 | docs(ledger): plan update |
-| 2026-11-16T15:12 | [#8010](https://github.com/openova-io/openova/pull/8010) | #7971 | fix(providers): the Huawei profile states its user-data limi |
-| 2026-11-16T14:56 | [#8009](https://github.com/openova-io/openova/pull/8009) | #7973 | refactor(api): the resource browser refuses Git-owned object |
-| 2026-11-16T15:18 | [#8008](https://github.com/openova-io/openova/pull/8008) | #7993 | chore: delete the dormant Blueprint controller, its build an |
 
 ---
 
