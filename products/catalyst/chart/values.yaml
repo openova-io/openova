@@ -1267,6 +1267,19 @@ services:
 # `keycloak`, bp-gitea → `gitea`), the collision is gone and the
 # overrides are unnecessary.
 
+# ─── Agent tokens ─────────────────────────────────────────────────────────
+# The workloads that may ask catalyst-api for an agent token
+# (POST /api/v1/internal/agent-tokens, docs/contracts/model-contract.md
+# section 2.2), as a JSON list in one string. Each entry has exactly the
+# keys caller (the TokenReview user name of the workload), organizations
+# (["*"] or a list of slugs), maxTier (viewer or developer) and agents
+# (["*"] or a list of agent names). The default is the one entry the gate
+# checks need on a fresh Sovereign; a workload may ask for a token only
+# after a values commit adds its entry. A value that does not parse makes
+# the route answer 503 agent-tokens-misconfigured.
+agentTokens:
+  callers: '[{"caller": "system:serviceaccount:catalyst-system:catalyst-conformance", "organizations": ["conformance"], "maxTier": "viewer", "agents": ["conformance-probe"]}]'
+
 # ─── catalyst-api runtime config ──────────────────────────────────────────
 # Knobs the api-deployment.yaml template threads as env vars. Empty values
 # fall back to in-code defaults (see the deployment template). Per

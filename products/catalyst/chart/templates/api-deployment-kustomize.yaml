@@ -873,6 +873,13 @@ spec:
             # both (new first, legacy as fallback).
             - name: CATALYST_HANDOVER_JWT_PUBLIC_PATH
               value: /etc/catalyst/handover-jwt-public/public.jwk
+            # CATALYST_AGENT_TOKEN_CALLERS — the workloads that may ask
+            # POST /api/v1/internal/agent-tokens for an agent token, a JSON
+            # list (docs/contracts/model-contract.md section 2.2). A literal:
+            # this file is applied as raw Kustomize, so it repeats the
+            # default of agentTokens.callers in values.yaml.
+            - name: CATALYST_AGENT_TOKEN_CALLERS
+              value: '[{"caller": "system:serviceaccount:catalyst-system:catalyst-conformance", "organizations": ["conformance"], "maxTier": "viewer", "agents": ["conformance-probe"]}]'
             # SOVEREIGN_FQDN — Sovereign's public FQDN. The /auth/handover
             # validator (auth_handover.go) reads this to compute the expected
             # JWT audience claim ("https://console." + SOVEREIGN_FQDN). When

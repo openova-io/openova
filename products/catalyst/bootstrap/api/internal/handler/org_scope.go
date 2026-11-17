@@ -152,11 +152,15 @@ func orgSlugFromHost(host string) string {
 // round-trip (the generic auth.Claims has no bool-marker field, but Tier
 // is a first-class claim already validated end-to-end). An Org-scoped
 // session ALWAYS carries tier=org-admin AND a non-empty Org.
+//
+// An agent token (claim typ "agent", internal/agenttoken) is confined the
+// same way, to the Organization of its org_id claim, whatever its tier.
 func claimsAreOrgScoped(claims *auth.Claims) bool {
 	if claims == nil {
 		return false
 	}
-	return strings.EqualFold(strings.TrimSpace(claims.Tier), orgScopedTier)
+	return strings.EqualFold(strings.TrimSpace(claims.Tier), orgScopedTier) ||
+		strings.EqualFold(strings.TrimSpace(claims.Typ), "agent")
 }
 
 // orgScopeForRequest returns the Organization slug a request is confined

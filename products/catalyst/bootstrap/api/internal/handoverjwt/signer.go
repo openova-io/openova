@@ -50,6 +50,7 @@ package handoverjwt
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
@@ -329,6 +330,49 @@ func (s *Signer) SignCustomClaims(claims jwt.Claims) (string, error) {
 	signed, err := token.SignedString(s.privateKey)
 	if err != nil {
 		return "", fmt.Errorf("handoverjwt: sign custom claims: %w", err)
+	}
+	return signed, nil
+}
+
+// KeyID returns the key identifier of the signer: the RFC 7638 thumbprint
+// of its public key: the SHA-256 of the JSON object {"e":<e>,"kty":"RSA",
+// "n":<n>} with the members in that order and no white space, where <e>
+// and <n> are the base64url strings of the key, as base64url without
+// padding.
+// Agent tokens name it in their header as kid; sessions name no key.
+func (s *Signer) KeyID() string {
+	pub := &s.privateKey.PublicKey
+	n := base64.RawURLEncoding.EncodeToString(pub.N.Bytes())
+	e := base64.RawURLEncoding.EncodeToString(big.NewInt(int64(pub.E)).Bytes())
+	sum := sha256.Sum256([]byte(`{"e":"` + e + `","kty":"RSA","n":"` + n + `"}`))
+	return base64.RawURLEncoding.EncodeToString(sum[:])
+}
+
+// PublicJWKWithKeyID returns the object of PublicJWK with the member kid
+// set to KeyID: the one key of the key set route
+// GET /api/v1/auth/signers.jwks. PublicJWK does not change.
+func (s *Signer) PublicJWKWithKeyID() ([]byte, error) {
+	pub := &s.privateKey.PublicKey
+	jwk := map[string]interface{}{
+		"kty": "RSA",
+		"use": "sig",
+		"alg": "RS256",
+		"kid": s.KeyID(),
+		"n":   base64.RawURLEncoding.EncodeToString(pub.N.Bytes()),
+		"e":   base64.RawURLEncoding.EncodeToString(big.NewInt(int64(pub.E)).Bytes()),
+	}
+	return json.Marshal(jwk)
+}
+
+// SignCustomClaimsWithKeyID signs claims as SignCustomClaims does and sets
+// the header member kid to KeyID. Agent tokens are signed this way;
+// SignCustomClaims, which sessions use, does not change.
+func (s *Signer) SignCustomClaimsWithKeyID(claims jwt.Claims) (string, error) {
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	token.Header["kid"] = s.KeyID()
+	signed, err := token.SignedString(s.privateKey)
+	if err != nil {
+		return "", fmt.Errorf("handoverjwt: sign custom claims with key id: %w", err)
 	}
 	return signed, nil
 }

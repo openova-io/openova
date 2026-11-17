@@ -67,4 +67,9 @@ func registerPublicInternal(r chi.Router, d routeDeps) {
 	// instant) and clearing it.
 	r.Post("/api/v1/internal/organizations/{id}/overage-stop", h.HandleInternalOverageStopOrganization)
 	r.Post("/api/v1/internal/organizations/{id}/overage-resume", h.HandleInternalOverageResumeOrganization)
+	// Agent tokens (docs/contracts/model-contract.md section 2.2). A
+	// workload named in CATALYST_AGENT_TOKEN_CALLERS presents its projected
+	// ServiceAccount token, judged by a TokenReview like the routes above,
+	// and gets a short-lived token for one agent of one Organization.
+	r.Post("/api/v1/internal/agent-tokens", d.tokens.HandleIssue)
 }

@@ -329,12 +329,13 @@ checks:
 - id: AIP-G07
   title: Agent tokens
   owner: AIP
-  state: not-built
+  state: required
   runs_in: [local, cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Agent tokens
+  implementation: tests/acceptance/sovereign/internal/suite/check_aip_g07.go
   delivered_by: AIP-120
 - id: AIP-G08
   title: An agent calls a platform tool

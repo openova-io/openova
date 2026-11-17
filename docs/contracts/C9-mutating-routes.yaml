@@ -69,6 +69,7 @@ routes:
   - {component: catalyst-api, method: POST, path: "/api/v1/deployments/{id}/wipe", today: X, writeClass: external, operation: "", disposition: keep, batch: "-", package: SOV, done: false}
   - {component: catalyst-api, method: POST, path: "/api/v1/handover/finalise/{id}", today: D, writeClass: database, operation: "", disposition: keep, batch: "-", package: SOV, done: false}
   - {component: catalyst-api, method: POST, path: "/api/v1/handover/tofu-archive", today: D, writeClass: database, operation: "", disposition: keep, batch: "-", package: SOV, done: false}
+  - {component: catalyst-api, method: POST, path: "/api/v1/internal/agent-tokens", today: N, writeClass: none, operation: "", disposition: keep, batch: "-", package: "-", done: true}
   - {component: catalyst-api, method: POST, path: "/api/v1/internal/cutover/trigger", today: K, writeClass: external, operation: "", disposition: keep, batch: "-", package: SOV, done: false}
   - {component: catalyst-api, method: POST, path: "/api/v1/internal/deployments/import", today: D, writeClass: database, operation: "", disposition: keep, batch: "-", package: SOV, done: false}
   - {component: catalyst-api, method: POST, path: "/api/v1/internal/jobs/import", today: D, writeClass: database, operation: "", disposition: keep, batch: "-", package: SOV, done: false}

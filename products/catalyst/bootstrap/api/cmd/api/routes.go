@@ -7,6 +7,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/agenttoken"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handler"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobauth"
@@ -25,6 +26,9 @@ type routeDeps struct {
 	// self serves GET /api/v1/sovereign/self and its MothershipOnly
 	// wraps the provisioning routes, so both read one kept mode.
 	self *sovself.Route
+	// tokens serves the agent-token issue route and the signer key set
+	// route (internal/agenttoken). buildRouter makes it.
+	tokens *agenttoken.Tokens
 }
 
 // buildRouter builds the router of catalyst-api: the middleware of every
@@ -37,6 +41,7 @@ type routeDeps struct {
 func buildRouter(d routeDeps) chi.Router {
 	corsOrigin, log, h := d.corsOrigin, d.log, d.h
 	d.self = sovself.New(h.SovereignSelf, log)
+	d.tokens = agenttoken.New(h.GetHandoverSigner(), jobauth.InCluster, h.AuditBus(), log)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -103,6 +108,10 @@ func buildRouter(d routeDeps) chi.Router {
 		// cross-org directory, or sovereign settings. Must run AFTER
 		// RequireSession (which populates auth.ClaimsFromContext).
 		rg.Use(h.OrgScopeGuard)
+		// An agent token may read and may change nothing outside
+		// agenttoken.MutationsAllowed. Must run AFTER OrgScopeGuard, which
+		// confines the token to its own Organization.
+		rg.Use(agenttoken.Restrict)
 
 		registerSessionWhoami(rg, d)
 		registerSessionSovereigns(rg, d)
