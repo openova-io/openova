@@ -3940,7 +3940,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.3.6"
+  version: "1.3.7"
   visibility: unlisted
   card:
     title: "Crossplane Claims"
@@ -3957,7 +3957,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-crossplane-claims
-    version: "1.3.6"
+    version: "1.3.7"
   topology:
     supported:
       - singleton
