@@ -140,7 +140,13 @@ copy of this chart.
 kept small and stable):
 
 1. Stage every region (fetch `rc/<id>`, merge it into each region's `main`, apply
-   the region's pivot, push `release/<id>`; a dry run pushes nothing).
+   the region's pivot, push `release/<id>`; a dry run pushes nothing). The
+   candidate decides which files exist and what they hold: a conflicted file
+   whose region side is exactly the region's registry rewrite of the merge base
+   (step 06's `rewrite_kit_tree`, with or without step 07's `imageRegistry`
+   seam) is deleted when the candidate deletes it, else taken from the candidate
+   with the rewrite applied again. Any other conflict stops the stage, names the
+   file and moves nothing (`tests/step7938-stage-takes-candidate-deletions.sh`).
 2. Export this chart's folder (`platform/self-sovereign-cutover/chart`) and its
    kit slot (`clusters/_template/bootstrap-kit/06a-bp-self-sovereign-cutover.yaml`)
    from the staged commit of the primary region.
