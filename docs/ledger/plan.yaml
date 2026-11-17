@@ -3900,25 +3900,35 @@ packages:
   size: S
   lane: GATE
   depends_on: [CLD-086, CLD-087, FND-034, FND-017, FND-041, CLD-089, FND-131]
-  after: [FND-025, FND-059, MIG-060]
+  after: []
   touches:
   - .github/workflows/conformance-local.yaml
   - .github/rulesets/main.json
-  - scripts/acceptance-sovereign.sh
+  - scripts/check-pr-jobs.py
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e .github/workflows/conformance-local.yaml; echo $?"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "grep -c 'run-in local' .github/workflows/conformance-local.yaml | grep -qv '^0$' && test \"$(sha256sum < .github/workflows/conformance-local.yaml)\" = \"cf52b5b1b05597d81c97ec2bb2ced8fab4daf531eef422710d01762bc0c8a7c1  -\" && python3 scripts/check-pins.py --base origin/main"
+  - id: A2
+    run: "grep -c '\"conformance-local\"' .github/rulesets/main.json | grep -qx 1 && python3 -c 'import json; r = json.load(open(\".github/rulesets/main.json\")); c = [x[\"context\"] for rule in r[\"rules\"] if rule[\"type\"] == \"required_status_checks\" for x in rule[\"parameters\"][\"required_status_checks\"]]; assert c.count(\"conformance-local\") == 1, c' && python3 scripts/check-ruleset-drift.py --self-test"
+  - id: A3
+    run: "! grep -q 'CONFORMANCE_LOCAL_MODE\\|continue-on-error' .github/workflows/conformance-local.yaml && grep -q -x '  merge_group:' .github/workflows/conformance-local.yaml && ! grep -q '^    paths:' .github/workflows/conformance-local.yaml"
+  - id: A4
+    run: "python3 scripts/check-pr-jobs.py count > /tmp/FND-130-count.txt && tail -n 1 /tmp/FND-130-count.txt | grep -q -E '; the limit is 13$' && grep -q -x -F 'pr-jobs: 1 .github/workflows/conformance-local.yaml' /tmp/FND-130-count.txt && python3 scripts/check-pr-jobs.py --self-test > /dev/null"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 2
   dropped: false
-  delivers: The gate suite runs on the hermetic local pack on every pull request, and every required check that lists local binds every merge.
+  delivers: The workflow conformance-local runs on every pull request and every merge group with no path filter; after the local pack is up, its discovery passes and a claim binds, it runs the acceptance suite through scripts/acceptance-sovereign.sh with --run-in local, no journey, the capability multi-region and the nodes that the pack asked for, checks the record with scripts/acceptance-gate.py validate-record, uploads it as an artifact and fails unless its result is PASS; the ruleset of main requires the check conformance-local; the job limit of scripts/check-pr-jobs.py rises from 12 to 13, with the reason written where the limit is defined.
 - id: FND-131
   title: 'A run without journeys asserts only what the pack holds: discovery of the journey objects is left out, and the scope check is a cloud check'
   area: FND
@@ -4024,7 +4034,7 @@ packages:
   size: M
   lane: RAILS
   depends_on: [FND-141, FND-017]
-  after: [FND-062, FND-027, FND-029, FND-018, FND-019, FND-024, FND-025]
+  after: [FND-062, FND-027, FND-029, FND-018, FND-019, FND-024, FND-025, FND-130]
   touches:
   - .github/actions/deploy-bump/action.yaml
   - .github/workflows/chart-auto-bump.yaml
@@ -6135,6 +6145,7 @@ packages:
   - infra/providers/hetzner/tests/contract.auto.tfvars.json
   - infra/providers/hetzner/tests/contract.tftest.hcl
   - infra/providers/hetzner/tests/multi_region.tftest.hcl
+  - infra/providers/hetzner/user_data_worst_case.py
   - infra/providers/huawei/README.md
   - infra/providers/huawei/main.tf
   - infra/providers/huawei/outputs.tf
@@ -6143,6 +6154,7 @@ packages:
   - infra/providers/huawei/tests/contract.auto.tfvars.json
   - infra/providers/huawei/tests/contract.tftest.hcl
   - infra/providers/huawei/tests/multi_region.tftest.hcl
+  - infra/providers/huawei/user_data_worst_case.py
   - products/catalyst/bootstrap/api/go.mod
   - products/catalyst/bootstrap/api/go.sum
   - products/catalyst/bootstrap/api/internal/providers/conformance/conformance_test.go
@@ -6165,7 +6177,7 @@ packages:
   - id: A3
     run: "(cd products/catalyst/bootstrap/api && go vet ./internal/provisioner/ ./internal/providers/... && go test -count=1 ./internal/provisioner/ ./internal/cloudprofile/ ./internal/providers/... && go test -count=1 -run 'TestWriteTfvars_Regions|TestAddCloudRegionIfMissing|TestPartialRegionDetection_ComparesByRegionCode' -v ./internal/provisioner/ > /tmp/CLD-090-a3.txt) && test \"$(grep -c -E '^--- PASS: (TestWriteTfvars_Regions_ContractShape_Hetzner|TestWriteTfvars_Regions_ContractShape_Huawei|TestWriteTfvars_Regions_Huawei_KeepsTheFieldsOfTheOldShape|TestWriteTfvars_RegionsOfARequestWithoutRegions|TestAddCloudRegionIfMissing|TestPartialRegionDetection_ComparesByRegionCode) ' /tmp/CLD-090-a3.txt)\" = 6 && test \"$(grep -c -E 'coalesceRegions|hwRegions' products/catalyst/bootstrap/api/internal/provisioner/provisioner.go)\" = 0"
   - id: A4
-    run: "test \"$(cat infra/providers/huawei/*.tf | grep -c -E 'var\\.huawei_region|^variable \"huawei_region\"')\" = 0 && test \"$(cat infra/providers/hetzner/*.tf | grep -c -E '[a-z]\\.(provider|cloudRegion|controlPlaneSize|workerSize|workerCount)\\b')\" = 0 && grep -q '^output \"contract_version\" {$' infra/providers/hetzner/outputs.tf && grep -q '^output \"contract_version\" {$' infra/providers/huawei/outputs.tf && test \"$(grep -c 'ignore_changes = \\[user_data\\]' infra/providers/hetzner/main.tf)\" = 4 && test \"$(grep -c 'ignore_changes = \\[tags, metadata, name, user_data\\]' infra/providers/huawei/main.tf)\" = 2 && for m in hetzner huawei; do { test -f infra/providers/$m/tests/contract.auto.tfvars.json && sed '1,/^# --- contract body ---$/d' infra/providers/$m/tests/contract.tftest.hcl | cmp -s - infra/providers/_contract/contract.tftest.body.hcl; } || exit 1; done"
+    run: "test \"$(cat infra/providers/huawei/*.tf | grep -c -E 'var\\.huawei_region|^variable \"huawei_region\"')\" = 0 && test \"$(cat infra/providers/hetzner/*.tf | grep -c -E '[a-z]\\.(provider|cloudRegion|controlPlaneSize|workerSize|workerCount)\\b')\" = 0 && grep -q '^output \"contract_version\" {$' infra/providers/hetzner/outputs.tf && grep -q '^output \"contract_version\" {$' infra/providers/huawei/outputs.tf && test \"$(grep -c 'ignore_changes = \\[user_data\\]' infra/providers/hetzner/main.tf)\" = 4 && test \"$(grep -c 'ignore_changes = \\[tags, metadata, name, user_data\\]' infra/providers/huawei/main.tf)\" = 2 && for m in hetzner huawei; do { test -f infra/providers/$m/tests/contract.auto.tfvars.json && sed '1,/^# --- contract body ---$/d' infra/providers/$m/tests/contract.tftest.hcl | cmp -s - infra/providers/_contract/contract.tftest.body.hcl; } || exit 1; done && test \"$(grep -c -E '\"(provider|cloudRegion|controlPlaneSize|workerSize|workerCount)\"' infra/providers/hetzner/user_data_worst_case.py)\" = 0 && test \"$(grep -c -F '\"cloud_region\": \"me-east-215\"' infra/providers/huawei/user_data_worst_case.py)\" = 2"
   - id: A5
     run: "python3 -c \"import sys, yaml; [yaml.safe_load(open(f)) for f in sys.argv[1:]]\" .github/workflows/catalyst-build.yaml .github/workflows/cloud-init-size.yaml .github/workflows/infra-hetzner-tofu.yaml .github/workflows/infra-huawei-tofu.yaml && test \"$(grep -c 'for provider in hetzner huawei' .github/workflows/catalyst-build.yaml)\" = 0 && grep -q -F 'for d in openova-src/infra/providers/*/; do' .github/workflows/catalyst-build.yaml && test \"$(grep -c 'matrix' .github/workflows/cloud-init-size.yaml)\" = 0 && test \"$(grep -c -F 'for d in infra/providers/*/; do' .github/workflows/cloud-init-size.yaml)\" = 2 && grep -q '^    name: packs$' .github/workflows/cloud-init-size.yaml && grep -q '^          tofu_version: 1.11.6$' .github/workflows/cloud-init-size.yaml && grep -q '^          tofu_version: 1.11.6$' .github/workflows/infra-hetzner-tofu.yaml && grep -q '^          tofu_version: 1.11.6$' .github/workflows/infra-huawei-tofu.yaml && test \"$(grep -c -F \"      - 'infra/providers/_contract/**'\" .github/workflows/infra-hetzner-tofu.yaml)\" = 2 && test \"$(grep -c -F \"      - 'infra/providers/_contract/**'\" .github/workflows/infra-huawei-tofu.yaml)\" = 2"
   - id: A6
@@ -6179,7 +6191,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: The Hetzner, Huawei and local modules meet module contract version 1, the engine writes the regions input in the one contract shape for every provider, and TestProviderPacks with a contract test in every module enforces it on every pull request.
 - id: CLD-092
@@ -16496,7 +16508,7 @@ packages:
   - id: A4
     run: "python3 -c \"import yaml; v = yaml.safe_load(open('products/catalyst/chart/crds/sovereign.yaml'))['spec']['versions']; s = v[0]['schema']['openAPIV3Schema']['properties']['status']['properties']['regionSeparation']; assert len(v) == 1 and s['type'] == 'string' and s['enum'] == ['none', 'zone', 'site'], s\" && python3 scripts/tests/test-sovereign-object-kit.py > /dev/null && cd products/catalyst/bootstrap/api && go test -count=1 -run '^(TestSchemasMatchSources|TestValidateSamples)$' ./internal/intent/"
   - id: A5
-    run: "out=\"$(python3 scripts/acceptance-gate.py --self-test)\" && test \"$(grep -c -x -E '  PASS  (CONTROL: a record that states its region separation is valid|CONTROL: a disaster-recovery claim on regions in two zones is valid|record: a disaster-recovery claim on one failure domain is refused|record: a disaster-recovery claim without a stated separation is refused|record: a separation other than none, zone and site is refused)' <<<\"$out\")\" = 5 && python3 scripts/acceptance-gate.py validate --base origin/main --body-file <(echo 'Work-Package: NET-212') && python3 -c \"import yaml; c = {x['id']: x for x in yaml.safe_load(open('docs/ledger/gates.yaml'))['checks']}['NET-G12']; assert c['state'] == 'required' and c.get('implementation') == 'tests/acceptance/sovereign/internal/suite/check_region_separation.go' and c['needs'] == [], c\""
+    run: "out=\"$(python3 scripts/acceptance-gate.py --self-test)\" && test \"$(grep -c -x -E '  PASS  (CONTROL: a record that states its region separation is valid|CONTROL: a disaster-recovery claim on regions in two zones is valid|record: a disaster-recovery claim on one failure domain is refused|record: a disaster-recovery claim without a stated separation is refused|record: a separation other than none, zone and site is refused)' <<<\"$out\")\" = 5 && old=\"$(mktemp -d)\" && git show origin/main:scripts/acceptance-gate.py > \"$old/acceptance-gate.py\" && python3 \"$old/acceptance-gate.py\" --self-test | grep '^  PASS  ' | sort > \"$old/before\" && test -s \"$old/before\" && test -z \"$(grep '^  PASS  ' <<<\"$out\" | sort | comm -23 \"$old/before\" -)\" && python3 scripts/acceptance-gate.py validate --base origin/main --body-file <(echo 'Work-Package: NET-212') && python3 -c \"import yaml; c = {x['id']: x for x in yaml.safe_load(open('docs/ledger/gates.yaml'))['checks']}['NET-G12']; assert c['state'] == 'required' and c.get('implementation') == 'tests/acceptance/sovereign/internal/suite/check_region_separation.go' and c['needs'] == [], c\""
   rollback: revert
   adr: null
   due: null
