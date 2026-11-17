@@ -42,6 +42,8 @@ spec:
       {{- with .Values.s3.podAnnotations }}
       {{- toYaml . | nindent 8 }}
       {{- end }}
+        {{- /* OpenOva vendored edit (bp-seaweedfs 1.3.4): a gateway keeps every filer address it ever learned, so a change of the filer's announced form must restart the gateways (in-place upgrade from a chart that announced ${POD_IP}). */}}
+        checksum/filer-advertise: {{ include "seaweedfs.filerAdvertiseAddress" . | sha256sum }}
     spec:
       restartPolicy: {{ default .Values.global.seaweedfs.restartPolicy .Values.s3.restartPolicy }}
       {{- if .Values.s3.affinity }}

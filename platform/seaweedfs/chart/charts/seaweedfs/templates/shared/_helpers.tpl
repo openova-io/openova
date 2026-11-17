@@ -301,6 +301,19 @@ If allInOne is enabled, point to the all-in-one service; otherwise, point to the
 {{- end -}}
 
 {{/*
+OpenOva vendored edit (bp-seaweedfs 1.3.4): the address a filer announces
+to the master (`weed filer -ip`). Upstream 4.22 announces ${POD_IP}; the S3
+gateway (4.22 FilerClient) adds every filer the master names to its list and
+never drops one, so a filer Pod that moves leaves a dead IP the gateway dials
+on lookups, waiting ~20 s per upload for the TCP timeout. The Pod's own name
+under the StatefulSet's headless Service (publishNotReadyAddresses: true)
+survives a reschedule, as the master and volume names already do.
+*/}}
+{{- define "seaweedfs.filerAdvertiseAddress" -}}
+${POD_NAME}.{{ include "seaweedfs.componentName" (list . "filer") }}.{{ .Release.Namespace }}
+{{- end -}}
+
+{{/*
 Generate comma-separated list of master server addresses.
 Usage: {{ include "seaweedfs.masterServers" . }}
 Output example: my-release-master-0.my-release-master.namespace:9333,my-release-master-1...
