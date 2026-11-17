@@ -240,7 +240,7 @@ func main() {
 		// session JWTs (KC 24.7+ removed legacy token-exchange).
 		if signer := h.GetHandoverSigner(); signer != nil {
 			if pub, err := signer.PublicRSAKey(); err == nil {
-				authCfg.LocalPublicKey = pub
+				authCfg.LocalPublicKey, authCfg.LocalKeyID = pub, signer.KeyID()
 				log.Info("auth: local public key wired into session validator")
 			}
 		}
