@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-17T09:15:02Z` |
+| Last refreshed | `2026-11-17T10:00:02Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-17T09:18 | [#8030](https://github.com/openova-io/openova/pull/8030) | #7087 | docs(ledger): plan update |
 | 2026-11-17T09:12 | [#8029](https://github.com/openova-io/openova/pull/8029) | #7991 | fix(cutover): follower regions pivot the image registry of w |
 | 2026-11-17T09:12 | [#8028](https://github.com/openova-io/openova/pull/8028) | #7975 | chore(kit): the flow host leaves the sign-in gate, the DNS n |
 | 2026-11-17T08:37 | [#8027](https://github.com/openova-io/openova/pull/8027) | #7982 | chore: remove the unwired firewall and the unused SPIRE char |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-16T14:21 | [#7996](https://github.com/openova-io/openova/pull/7996) | #7988 | docs: list the cutover steps in label order and record the b |
 | 2026-11-16T14:22 | [#7997](https://github.com/openova-io/openova/pull/7997) | #7966 | fix(crossplane): raise Crossplane core to 1.20.14 (CLD-062) |
 | 2026-11-16T14:21 | [#7995](https://github.com/openova-io/openova/pull/7995) | #7985 | ci: set the Secret census limit to the first measured count  |
-| 2026-11-16T10:50 | [#7963](https://github.com/openova-io/openova/pull/7963) | #7087 | docs(ledger): plan update |
 
 ---
 
