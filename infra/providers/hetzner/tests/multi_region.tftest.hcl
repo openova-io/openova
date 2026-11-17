@@ -255,16 +255,38 @@ run "legacy_no_regions_payload" {
     error_message = "Primary subnet must be 10.0.1.0/24 — uniform layout across regions."
   }
 
-  # Firewall must include the Cilium WG inter-region rule (UDP 51871).
-  # DoD A2 (docs/SOVEREIGN-MULTI-REGION-DOD.md) — without this, the
-  # WireGuard mesh between regions cannot form and gate D11 fails.
+  # NET-012 — only TCP 80, 443, 53, UDP 53 and ICMP are open to any source; no
+  # rule opens 6443 without the two lists, and none opens 2379 or 51871.
   assert {
-    condition = length([
-      for r in hcloud_firewall.main.rule :
-      r if r.protocol == "udp" && r.port == "51871"
-    ]) == 1
-    error_message = "hcloud_firewall.main must declare exactly 1 inbound rule for UDP 51871 (Cilium WireGuard inter-region encryption per DoD A2)."
+    condition = alltrue([for r in hcloud_firewall.main.rule : contains(["tcp 80", "tcp 443", "tcp 53", "udp 53", "icmp "], "${r.protocol} ${r.port == null ? "" : r.port}")
+    if contains(r.source_ips, "0.0.0.0/0") || contains(r.source_ips, "::/0")]) && length([for r in hcloud_firewall.main.rule : r if contains(["6443", "2379", "51871"], r.port == null ? "" : r.port)]) == 0
+    error_message = "NET-012: only TCP 80, 443, 53, UDP 53 and ICMP may be open to any source; no rule for 6443 without the lists, none for 2379 or 51871."
   }
+}
+
+run "api_port_limited" {
+  command = plan
+  variables {
+    admin_cidrs       = ["198.51.100.0/28"]
+    provisioner_cidrs = ["192.0.2.10/32", "198.51.100.0/28"]
+  }
+  assert {
+    condition     = jsonencode([for r in hcloud_firewall.main.rule : [r.protocol, sort(r.source_ips)] if r.port == "6443"]) == jsonencode([["tcp", ["192.0.2.10/32", "198.51.100.0/28"]]])
+    error_message = "NET-012: exactly one rule must open TCP 6443, with the sources 192.0.2.10/32 and 198.51.100.0/28 only."
+  }
+  assert {
+    condition     = jsondecode(output.network_registry).controlPlaneAccess == { adminCIDRs = ["198.51.100.0/28"], provisionerCIDRs = ["192.0.2.10/32", "198.51.100.0/28"] }
+    error_message = "NET-012: the network registry must carry admin_cidrs and provisioner_cidrs as controlPlaneAccess."
+  }
+}
+
+run "api_port_lists_refuse_any_source" {
+  command = plan
+  variables {
+    admin_cidrs       = ["0.0.0.0/0"]
+    provisioner_cidrs = ["192.0.2.10/24"]
+  }
+  expect_failures = [var.admin_cidrs, var.provisioner_cidrs]
 }
 
 # ── Scenario 2: single-entry regions[] ────────────────────────────────────

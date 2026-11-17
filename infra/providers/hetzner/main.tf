@@ -173,7 +173,7 @@ resource "hcloud_network_subnet" "region" {
   ip_range = "10.0.1.0/24"
 }
 
-# ── Firewall: 80/443 + 6443 + ICMP + DMZ-WG 51871 open; 22 only when ssh_allowed_cidrs set ─
+# ── Firewall: 80/443 + 53 + ICMP open; 6443 and 22 only from declared ranges ─
 
 resource "hcloud_firewall" "main" {
   name = "catalyst-${replace(var.sovereign_fqdn, ".", "-")}-fw"
@@ -190,11 +190,16 @@ resource "hcloud_firewall" "main" {
     port       = "443"
     source_ips = ["0.0.0.0/0", "::/0"]
   }
-  rule {
-    direction  = "in"
-    protocol   = "tcp"
-    port       = "6443"
-    source_ips = ["0.0.0.0/0", "::/0"]
+  # NET-012 — 6443 only from var.admin_cidrs and var.provisioner_cidrs; no rule
+  # when both are empty. Workers join at the private address of the control plane.
+  dynamic "rule" {
+    for_each = length(concat(var.admin_cidrs, var.provisioner_cidrs)) > 0 ? [1] : []
+    content {
+      direction  = "in"
+      protocol   = "tcp"
+      port       = "6443"
+      source_ips = distinct(concat(var.admin_cidrs, var.provisioner_cidrs))
+    }
   }
   rule {
     direction  = "in"
@@ -235,63 +240,8 @@ resource "hcloud_firewall" "main" {
   # allocateLoadBalancerNodePorts:false, so node:30053 can never exist on a
   # fresh prov. Public DNS rides the standard :53 rules above.
 
-  # Cilium clustermesh-apiserver dial :2379 (#4765 — replaces the forbidden
-  # :32379 NodePort rule; mirrors infra/providers/huawei
-  # `ingress_clustermesh_2379`). Cross-region ClusterMesh peers dial the
-  # clustermesh-apiserver Service VIP on :2379 directly — the nodePort
-  # fallback in catalyst-api's clustermesh connect was DELETED in #4766
-  # (hard-fail), and the slot-01 bootstrap-kit postRenderer suppresses
-  # nodePort allocation on the Service unconditionally, so :32379 can never
-  # be bound on any fresh prov.
-  #
-  # 1. Hetzner LB → backend health checks probe the standard :2379 the
-  #    Service serves; without this rule the probe is dropped → LB marks
-  #    target unhealthy → external clustermesh clients see "unexpected eof
-  #    while reading" at TLS handshake → cilium-dbg status reports
-  #    `0/N remote clusters ready`.
-  # 2. Cross-region peer agents connect to the remote clustermesh-apiserver
-  #    via the LB. Hetzner LB use-private-ip is not viable because the
-  #    per-region LB has no private-network attachment by default and our
-  #    network topology pins one private /24 per region; the LB->backend hop
-  #    must transit the public path. The cross-region case is by design
-  #    public per DoD A2 (inter-region link = WireGuard over public IPs
-  #    ALWAYS).
-  #
-  # Security: clustermesh-apiserver requires mTLS — peer agents present
-  # a client cert signed by the peer cluster's cilium-ca. Anonymous
-  # connections are immediately rejected at TLS handshake. The
-  # firewall is therefore not the security boundary here; mTLS is.
-  # (History: the D11 chain — PR #1525 regionKeyFromSpec, #1528 clusterName
-  # derivation, #1530 peer cert with peer's CA, #1536 hostAlias pattern —
-  # was proven on t129 with the pre-#4765 :32379 shape.)
-  rule {
-    direction   = "in"
-    protocol    = "tcp"
-    port        = "2379"
-    source_ips  = ["0.0.0.0/0", "::/0"]
-    description = "Cilium clustermesh-apiserver VIP dial :2379 (mTLS-protected; #4765 — replaces the forbidden NodePort)"
-  }
-
-  # Cilium WireGuard inter-region node encryption (DMZ-WG). Per DoD A2
-  # (docs/SOVEREIGN-MULTI-REGION-DOD.md), inter-region traffic flows
-  # EXCLUSIVELY over Cilium WireGuard on the DMZ vCluster's public IPs,
-  # NEVER over Hetzner's internal network. Cilium's default WG port is
-  # UDP 51871 (config: `encryption.wireguard.userspaceFallback=false`
-  # + `encryption.type=wireguard` in bp-cilium). Without this rule, the
-  # WG mesh between regions cannot form on a fresh provision and DoD
-  # gate D11 (inter-region pod-to-pod packet test) fails immediately.
-  # Open to the world because each region's CP/worker public IP rotates
-  # at provision time and the catalyst-api does not know the public IP
-  # of sister-region peers ahead of time — Cilium's node-discovery
-  # auth + WG static-key crypto is the actual security boundary, not
-  # the firewall source filter.
-  rule {
-    direction   = "in"
-    protocol    = "udp"
-    port        = "51871"
-    source_ips  = ["0.0.0.0/0", "::/0"]
-    description = "Cilium WireGuard inter-region node encryption (DMZ-WG)"
-  }
+  # NET-012 — no rule for the mesh ports 2379 and 51871: profile.yaml gives this
+  # pack multiRegion: false, and a Sovereign of one region has no peer.
 
   # SSH (22) is intentionally NOT open to the world. When ssh_allowed_cidrs is
   # set, we add a narrow rule for those operators only; otherwise the rule is
@@ -1845,8 +1795,8 @@ resource "hcloud_load_balancer_service" "secondary_dns" {
 #   - meshEndpoint: absent; this module publishes no mesh endpoint;
 #   - edgeAddress: the region's load balancer;
 #   - egressAddresses: the public IPv4 of every node of the region;
-#   - controlPlaneAccess: the module has no sovereign-admin or provisioner
-#     source list, so both lists are empty;
+#   - controlPlaneAccess: adminCIDRs is var.admin_cidrs and
+#     provisionerCIDRs is var.provisioner_cidrs, the sources of port 6443;
 #   - mtu: 1420, the default of the substitution CILIUM_MTU in
 #     clusters/_template/bootstrap-kit/01-cilium.yaml, which no module sets.
 # regionSeparation: "site" when every region has a different location,
@@ -1891,8 +1841,8 @@ locals {
     mtu              = 1420
     regionSeparation = local.network_registry_separation
     controlPlaneAccess = {
-      adminCIDRs       = []
-      provisionerCIDRs = []
+      adminCIDRs       = var.admin_cidrs
+      provisionerCIDRs = var.provisioner_cidrs
     }
     regions = [
       for k in local.all_region_keys : {

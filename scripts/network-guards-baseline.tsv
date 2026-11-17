@@ -1,4 +1,3 @@
-G1	infra/providers/hetzner/main.tf	3
 G2	clusters/_template/sovereign-region/multi-region-follower/git-sync-egress.yaml	1
 G2	clusters/_template/sovereign-region/multi-region/gitea-sync-ingress.yaml	1
 G2	platform/anthropic-adapter/chart/templates/networkpolicy.yaml	1

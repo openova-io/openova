@@ -12,7 +12,7 @@ This module is the implementation of [`docs/RUNBOOKS.md`](../../../docs/RUNBOOKS
 |---|---|
 | `hcloud_network.region[*]` | **One private 10.0.0.0/16 PER REGION.** Each region gets its own isolated Network — never shared across regions. See [Network](#network) below. |
 | `hcloud_network_subnet.region[*]` | One 10.0.1.0/24 subnet inside each region's Network. Uniform layout: CP at .2, workers at .10+, LB anchor at .254. |
-| `hcloud_firewall.main` | Inbound rules for 80/443 (HTTPS), 6443 (k3s API), 53 (DNS), ICMP, **UDP 51871 (Cilium WireGuard inter-region encryption)**, and an opt-in SSH rule keyed to operator CIDRs. |
+| `hcloud_firewall.main` | Inbound rules for 80/443 (HTTPS), 53 (DNS) and ICMP, 6443 (k3s API) from `admin_cidrs` and `provisioner_cidrs` only, and an opt-in SSH rule from `ssh_allowed_cidrs`. |
 | `hcloud_ssh_key.main` | The operator's existing SSH key (from their Hetzner project) — never auto-generated. |
 | `hcloud_server.control_plane[*]` (primary) | 1 node by default (`ha_enabled=false`); 3 nodes when HA is on. Cloud-init installs k3s + Flux + the bootstrap kit pointer. Attaches to `hcloud_network.region["primary"]`. |
 | `hcloud_server.worker[*]` (primary) | `worker_count` nodes (default **2** — issue #733 multi-node Sovereign). Set to 0 explicitly for solo dev/POC. |
@@ -286,9 +286,8 @@ The Phase-0 firewall is intentionally minimal. All long-term policy is enforced 
 |---|---|---|---|
 | 80 | TCP | `0.0.0.0/0`, `::/0` | HTTP — for ACME HTTP-01 challenges and the cert-manager bootstrap. Cilium Gateway terminates. |
 | 443 | TCP | `0.0.0.0/0`, `::/0` | HTTPS — the only port end-users reach. All Catalyst surfaces (`console`, `gitea`, `harbor`, `admin`, `api`) are served behind 443 via Cilium Gateway and SNI routing. |
-| 6443 | TCP | `0.0.0.0/0`, `::/0` | k3s API server. Open to allow the wizard to fetch the kubeconfig and confirm the cluster is healthy. Crossplane Composition tightens this to operator-owned CIDRs in Phase 2. |
+| 6443 | TCP | `var.admin_cidrs` and `var.provisioner_cidrs` (default: empty) | k3s API server. Only the sovereign-admin ranges and the provisioner's egress ranges, which catalyst-api writes. The rule is omitted when both lists are empty. Never `0.0.0.0/0`. |
 | 53 | TCP+UDP | `0.0.0.0/0`, `::/0` | Sovereign's PowerDNS authoritative server — open for LE DNS-01 challenges and subdomain NS delegation. |
-| 51871 | UDP | `0.0.0.0/0`, `::/0` | **Cilium WireGuard inter-region encryption (DMZ-WG)**. Per DoD A2, inter-region pod-to-pod traffic flows exclusively over WireGuard on public IPs — never over the provider's internal network. Source is `0.0.0.0/0` because each region's CP/worker public IP rotates at provision time; Cilium's static-key crypto + node-discovery auth is the real security boundary, not the firewall source filter. |
 | ICMP | ICMP | `0.0.0.0/0`, `::/0` | Diagnostics (Path MTU Discovery, traceroute). Open by default; closing it is a foot-gun that breaks PMTU. |
 | 22 | TCP | `var.ssh_allowed_cidrs` (default: empty) | SSH break-glass. **Off by default** — the rule is omitted entirely when the list is empty. Operators add their own CIDRs at provisioning time or via a Crossplane Composition later. |
 
