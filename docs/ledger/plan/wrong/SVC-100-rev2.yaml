@@ -1,0 +1,50 @@
+schema: openova.io/plan-wrong/v1
+id: SVC-100
+ticket_rev: 2
+base_commit: c9c2281e137ed5cdd5c2be5e03d93b9a8a47887b
+stage: check
+ref: B1
+command: |
+    python3 scripts/plan.py checks --pr 8042
+expected: |
+    B1: 7 of 7 green
+actual: |
+    green chart/tests/*.sh — platform/kyverno-policies
+    green chart/tests/*.sh — platform/reloader
+    green chart/tests/*.sh — platform/crossplane
+    green chart/tests/*.sh — platform/crossplane-claims
+    green chart/tests/*.sh — platform/bp-vcluster-helmrepo
+    missing check-service-model
+    green policy-chart-tests
+    B1: 6 of 7 green
+    green      Reject dead/mismatched upbound.io GVKs (completed, success)
+    green      Every DR pair declares a promotion mechanism (completed, success)
+    green      Multi-region charts render only their self half (completed, success)
+    green      helm lint changed charts (completed, success)
+    green      console-lint (completed, success)
+    green      Reject NodePorts (sources + rendered charts) (completed, success)
+    green      G117 topology JSON schema (completed, success)
+    green      which charts changed (completed, success)
+    green      security-scan (completed, success)
+    green      Region-local volumes declared and replicated (completed, success)
+    green      go-lint (completed, success)
+    green      policy-chart-tests (completed, success)
+    green      ci-gate (completed, success)
+    green      Reject mimic pseudo-region in adoption endpoint hosts (completed, success)
+    green      guard (completed, success)
+    green      Reject local-path StorageClass (sources + rendered charts) (completed, success)
+    green      lock-stages (completed, success)
+    green      Vacuity check (detector must go red on the bad fixture) (completed, success)
+    green      Reject non-mirror-served Phase-1 image hosts (completed, success)
+    green      Reject banned entity-nouns in object names (completed, success)
+    green      dependency-graph-audit (completed, success)
+    green      pin-sync-audit (completed, success)
+    green      scan (completed, success)
+    green      pull-request-guards (completed, success)
+    green      tree-guards (completed, success)
+    green      Budgets let a drain finish (rendered charts and kit) (completed, success)
+    green      guard (completed, success)
+    green      Every constrained workload keeps cluster DNS (completed, success)
+    green      scan (completed, success)
+    checks on 95fd196f280a: every check finished green
+reported_at: 2026-11-17T13:45:04Z
