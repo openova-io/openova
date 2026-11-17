@@ -35,7 +35,25 @@ spec:
 
   writeConnectionSecretsToNamespace: crossplane-system
 
-  resources:
+  # Pipeline mode (CLD-064). The one step runs the Function
+  # function-patch-and-transform, which clusters/_template/infrastructure/
+  # providers/base/function-patch-and-transform.yaml installs. Its input
+  # `resources` is the list that Resources mode used: the named template
+  # bp-crossplane-claims.cloudadoption-resources below, written where the
+  # list always stood. Each patch without a type and the string transform
+  # name the type that Resources mode assumed (FromCompositeFieldPath,
+  # Format), as the conversion to Pipeline mode writes them.
+  mode: Pipeline
+  pipeline:
+    - step: patch-and-transform
+      functionRef:
+        name: function-patch-and-transform
+      input:
+        apiVersion: pt.fn.crossplane.io/v1beta1
+        kind: Resources
+        resources:
+{{- include "bp-crossplane-claims.cloudadoption-resources" . | replace "\n" "\n      " }}
+{{- define "bp-crossplane-claims.cloudadoption-resources" }}
     - name: adoption-workspace
       base:
         apiVersion: opentofu.upbound.io/v1beta1
@@ -300,36 +318,45 @@ spec:
         # ── identity / external-name binding ─────────────────────────
         - fromFieldPath: spec.parameters.resourceId
           toFieldPath: metadata.annotations[crossplane.io/external-name]
+          type: FromCompositeFieldPath
         - fromFieldPath: spec.parameters.name
           toFieldPath: metadata.name
+          type: FromCompositeFieldPath
           policy:
             fromFieldPath: Optional
         # default the Workspace name to <cloud>-<kind>-<shortid> when the
         # claim did not set one (the generator always sets one).
         - fromFieldPath: spec.parameters.resourceId
           toFieldPath: metadata.name
+          type: FromCompositeFieldPath
           policy:
             fromFieldPath: Required
           transforms:
             - type: string
               string:
+                type: Format
                 fmt: "adopt-%s"
 
         # ── var wiring ───────────────────────────────────────────────
         - fromFieldPath: spec.parameters.cloud
           toFieldPath: spec.forProvider.vars[0].value
+          type: FromCompositeFieldPath
         - fromFieldPath: spec.parameters.resourceKind
           toFieldPath: spec.forProvider.vars[1].value
+          type: FromCompositeFieldPath
         - fromFieldPath: spec.parameters.resourceId
           toFieldPath: spec.forProvider.vars[2].value
+          type: FromCompositeFieldPath
         - fromFieldPath: spec.parameters.region
           toFieldPath: spec.forProvider.vars[3].value
+          type: FromCompositeFieldPath
           policy:
             fromFieldPath: Optional
 
         # ── provider config ──────────────────────────────────────────
         - fromFieldPath: spec.providerConfigRef.name
           toFieldPath: spec.providerConfigRef.name
+          type: FromCompositeFieldPath
           policy:
             fromFieldPath: Optional
 
@@ -362,3 +389,4 @@ spec:
           toFieldPath: status.adopted
           policy:
             fromFieldPath: Optional
+{{- end }}
