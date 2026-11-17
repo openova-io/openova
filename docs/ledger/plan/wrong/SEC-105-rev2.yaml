@@ -1,0 +1,52 @@
+schema: openova.io/plan-wrong/v1
+id: SEC-105
+ticket_rev: 2
+base_commit: 3c93589ae4038d8cd0d561cee544cdc98f2b88a5
+stage: check
+ref: lockstep
+command: |
+    gh api repos/openova-io/openova/actions/jobs/134142300813/logs | grep -B 40 -m 1 '##\[error\]' | cut -c30-300
+expected: |
+    the check finishes green
+actual: |
+    [36;1m# yq v4 (mikefarah/yq) — the lockstep script uses v4 syntax.[0m
+    [36;1msudo wget -q https://github.com/mikefarah/yq/releases/download/v4.45.1/yq_linux_amd64 -O /usr/local/bin/yq[0m
+    [36;1msudo chmod +x /usr/local/bin/yq[0m
+    [36;1myq --version[0m
+    [36;1m# helm is pre-installed on ubuntu-latest runners, but be defensive.[0m
+    [36;1mhelm version --short || curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash[0m
+    shell: /usr/bin/bash -e {0}
+    ##[endgroup]
+    yq (https://github.com/mikefarah/yq/) version v4.45.1
+    v4.3.1+gc0d08d0
+    ##[group]Run bash scripts/check-catalog-seed-lockstep.sh
+    [36;1mbash scripts/check-catalog-seed-lockstep.sh[0m
+    shell: /usr/bin/bash -e {0}
+    ##[endgroup]
+
+    ── Summary ──
+    checked: 68   skipped (no platform/ source): 9   fail: 0
+    PASS: every chart-seed Blueprint with a platform/ source declares matching topology + endpoints + sso fields.
+    ##[group]Run bash scripts/test-ghcr-not-measured.sh
+    [36;1mbash scripts/test-ghcr-not-measured.sh[0m
+    shell: /usr/bin/bash -e {0}
+    ##[endgroup]
+         (1 pin-sync, every listing good: exit 1, 0 listing(s) of no package)
+    FAIL 1 pin-sync with every listing good: exit 1; "Auto-bump bootstrap-kit pin" step ran on the previous chart-
+    bumping merge commit. The auto-bump hook (TBD-A6) was designed
+    to make this manual step unnecessary.
+         (2 pin-sync, one flaky listing: exit 1, 0 listing(s) of bp-self-sovereign-cutover)
+    FAIL 2 one flaky listing: exit 1, 0 listing(s);   OK   bp-self-sovereign-cutover: chart=0.1.227 pin=0.1.227 (clusters/_template/bootstrap-kit/06a-bp-self-sovereign-cutover.yaml)
+         (3 pin-sync, one listing down: exit 1, 0 listing(s) of bp-self-sovereign-cutover)
+    FAIL 3 one listing down: exit 1, 0 listing(s);   OK   bp-self-sovereign-cutover: chart=0.1.227 pin=0.1.227 (clusters/_template/bootstrap-kit/06a-bp-self-sovereign-cutover.yaml)
+         (4 pin-sync, one package 404: exit 1, 0 listing(s) of bp-self-sovereign-cutover)
+    FAIL 4 one package 404: exit 1, 0 listing(s);   OK   bp-self-sovereign-cutover: chart=0.1.227 pin=0.1.227 (clusters/_template/bootstrap-kit/06a-bp-self-sovereign-cutover.yaml)
+         (5 catalog-seed, one listing down: exit 2, 4 listing(s) of bp-keycloak)
+    ok   5 catalog-seed: a listing that keeps failing is NOT MEASURED, exit 2, no GHCR MISS
+    ok   6 ghcr_tags: flaky -> listed after 3 tries
+    ok   6 ghcr_tags: down -> not measured (2) after 4 tries, last error said
+    ok   6 ghcr_tags: 404 -> does not exist (3), no retry
+
+    test-ghcr-not-measured: 4 case(s) FAILED
+    ##[error]Process completed with exit code 1.
+reported_at: 2026-11-17T15:27:50Z
