@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-17T06:00:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-17T06:15:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-17T06:13 | [#8023](https://github.com/openova-io/openova/pull/8023) | #7799 | fix: give every Blueprint a bp- name and a visibility, and a |
 | 2026-11-17T05:22 | [#8019](https://github.com/openova-io/openova/pull/8019) | #7965 | feat(api): agent tokens, the signer key set route and gate c |
 | 2026-11-17T05:21 | [#8018](https://github.com/openova-io/openova/pull/8018) | #7978 | feat(suite): check FND-G01 has a self form that needs no che |
 | 2026-11-17T05:21 | [#8017](https://github.com/openova-io/openova/pull/8017) | #7980 | feat(chart): add stage machine-ops of the intent lock in aud |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-16T05:55 | [#7957](https://github.com/openova-io/openova/pull/7957) | #7884 | docs: custody procedure and safe rotation of the release key |
 | 2026-11-16T09:57 | [#7956](https://github.com/openova-io/openova/pull/7956) | #7741 | ci: the local pack runs the console, mints an owner session  |
 | 2026-11-16T09:58 | [#7955](https://github.com/openova-io/openova/pull/7955) | #7841 | feat(org-controller): render the Organization fence, two hos |
-| 2026-11-16T05:39 | [#7953](https://github.com/openova-io/openova/pull/7953) | #7666 | fix(org-quota): drop the metering-sidecar term from the plat |
 
 ---
 
