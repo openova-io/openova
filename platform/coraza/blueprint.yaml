@@ -1,11 +1,12 @@
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
-  name: coraza
+  name: bp-coraza
   labels:
     catalyst.openova.io/section: pts-3-3-security-and-policy
 spec:
   version: 1.0.1  # lockstep with chart/Chart.yaml (#4347 probes-present + harbor-proxy image for host-ns Kyverno Enforce)
+  visibility: unlisted
   card:
     title: Coraza WAF (SPOA)
     family: guardian

@@ -1,7 +1,7 @@
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
-  name: cluster-autoscaler-hcloud
+  name: bp-cluster-autoscaler-hcloud
   labels:
     catalyst.openova.io/section: pts-3-2-scaling-and-resilience
   annotations:

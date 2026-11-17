@@ -1,7 +1,7 @@
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
-  name: kyverno
+  name: bp-kyverno
   labels:
     catalyst.openova.io/section: pts-3-3-security-and-policy
 spec:
@@ -14,6 +14,7 @@ spec:
   # 1.3.8 (#3735): MIRROR-EVERYTHING — 4 controller registries + kyvernopre init image
   # re-pointed from ghcr.io / reg.kyverno.io to harbor.openova.io/proxy-ghcr/kyverno/*.
   version: 1.3.9
+  visibility: unlisted
   card:
     title: Kyverno
     family: guardian

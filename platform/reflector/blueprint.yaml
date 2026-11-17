@@ -15,6 +15,7 @@ spec:
   # already replicated by whatever Blueprint owns it, e.g.
   # flux-system/ghcr-pull Secret created by bp-flux).
   version: 1.0.2
+  visibility: unlisted
   card:
     title: Reflector
     family: guardian

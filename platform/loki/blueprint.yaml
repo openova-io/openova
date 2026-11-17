@@ -1,12 +1,13 @@
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
-  name: loki
+  name: bp-loki
   labels:
     catalyst.openova.io/section: pts-3-observability
     catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 1.0.3  # lockstep with chart/Chart.yaml (#4623a disable loki-sc-rules sidecar — no rules ship + CrashLoop hazard from /proc/1/cmdline probe)
+  visibility: unlisted
   card:
     title: Loki
     family: insights
