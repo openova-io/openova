@@ -817,33 +817,19 @@ data:
     }
 
     {{- /*
-     #5036 (reverts #4688): the skopeo PUSH destination + the Harbor
-     artifact-API existence check dial the IN-CLUSTER Harbor Service
-     (harbor-core.harbor.svc, always CoreDNS-resolvable pre-pivot), NOT the
-     external registry.<fqdn> (which NXDOMAINs pre-pivot on a Sovereign whose
-     split-horizon PowerDNS lacks the record — hw246 dep c38c437f). The pushed
-     blobs land in the SAME Harbor project/repo (Harbor stores by project/repo,
-     host-independent), so post-cutover pulls via registry.<fqdn> — step-04
-     containerd + step-08 completeness HEAD, which target LOCAL_REGISTRY_HOST,
-     unchanged — resolve the identical artifacts. HARBOR_HOST is step-03-local
-     (the resolver returns host-LESS paths; the prefix is stripped in
-     dest_already_current), so this does not touch step-04/08.
-
-     #5051 (round 2 — supersedes the 0.1.127 :80 attempt): the skopeo
-     PUSH DEST must be the PUBLIC host. Harbor builds its bearer-token
-     realm as https://<request-host>/service/token — request host
-     echoed, scheme HARD-https (probed empirically on hw250 across
-     harbor-core:80, nginx harbor:80, and the public URL) — and NO
-     in-cluster harbor Service terminates TLS (all http/80; TLS ends
-     at the gateway). An in-cluster dest therefore can NEVER complete
-     the token flow: hw250 went 0/136 twice (bare host → :443
-     black-hole; :80 host → https-on-plaintext). Only the public host
-     yields a realm that is actually reachable (gateway + cert). The
-     #5037 motivation (hw246 pre-pivot NXDOMAIN flake) is handled by
-     the bounded readiness probe below, NOT by a dest pivot. Harbor
-     REST API dials (projects, artifact idempotency probe, Phase B
-     /v2 HEAD — basic auth, no token dance) STAY on
-     HARBOR_INTERNAL_URL, which step-02 proved works in-cluster.
+     #5036 (reverts #4688): the Harbor artifact-API existence check dials the IN-CLUSTER Harbor
+     Service (harbor-core.harbor.svc, always resolvable pre-pivot), NOT registry.<fqdn> (NXDOMAIN
+     pre-pivot where the split-horizon zone lacks the record — hw246 dep c38c437f). Harbor stores by
+     project/repo, host-independent, so post-cutover pulls via registry.<fqdn> (step-04 containerd,
+     step-08 completeness HEAD on LOCAL_REGISTRY_HOST) resolve the identical artifacts. HARBOR_HOST is
+     step-03-local (the resolver returns host-LESS paths), so this does not touch steps 04/08.
+     #5051 (round 2 — supersedes the 0.1.127 :80 attempt): the skopeo PUSH DEST must be the PUBLIC
+     host. Harbor's bearer realm is https://<request-host>/service/token (host echoed, scheme HARD-
+     https, probed on hw250) and NO in-cluster harbor Service terminates TLS (TLS ends at the gateway),
+     so an in-cluster dest can NEVER complete the token flow (hw250 0/136 twice). The #5037 pre-pivot
+     NXDOMAIN flake is handled by the bounded readiness probe below, NOT by a dest pivot. Harbor REST
+     dials (projects, artifact idempotency probe, Phase B /v2 HEAD — basic auth, no token dance) STAY
+     on HARBOR_INTERNAL_URL, which step 02 proved works in-cluster.
     */}}
     HARBOR_HOST=$(printf '%s' "${HARBOR_PUBLIC_URL}" | sed -e 's,^https\?://,,' -e 's,/$,,')
 
@@ -981,10 +967,31 @@ data:
      ephemeral) ∪ the declared Deployment/StatefulSet/DaemonSet/CronJob/Job
      templates (#3944: a scaled-to-zero or between-fires workload has no pod),
      every image, not only openova-io (#4975; copy_one routes each through the
-     shared resolver), in EVERY region (#7922: a follower's own pods). See
-     values.yaml #7922 note. A walk that cannot list is FATAL, never empty.
+     shared resolver), in EVERY region (#7922: a follower's own pods), plus
+     each node's sandbox (pause) image. See values.yaml #7922 note. A walk
+     that cannot list is FATAL, never empty.
     */}}
     # ── prewarm-list-images BEGIN (#7922 extraction anchor — tests/step7922-prewarm-proxy-path.sh sources this block verbatim) ──
+    # The sandbox image is in no Pod spec: containerd starts every Pod with the image its node is configured with
+    # (k3s --pause-image, else the default of the node's k3s release). The kubelet reports it on each Pod's sandbox
+    # (cadvisor series with container="" and a pod), so it is read from the nodes, never written here a second time.
+    prewarm_node_sandbox_images() {
+      _ns_j=$(kubectl "$@" get nodes -o json 2>/dev/null) || return 1
+      _ns_n=$(printf '%s' "${_ns_j}" | jq -r '.items[].metadata.name') || return 1
+      [ -n "${_ns_n}" ] || return 0
+      {{- /* A release delivery runs the candidate's step 03 under the INSTALLED grants (#7960): a chart older than this read lacks nodes/proxy. Name it; the next run after this chart is installed reads the nodes. */}}
+      if ! kubectl "$@" auth can-i get nodes --subresource=proxy >/dev/null 2>&1; then
+        echo "[harbor-prewarm] WARNING: this ServiceAccount may not get nodes/proxy (an installed ClusterRole older than this step), so the nodes' sandbox image is not read in this run" >&2; return 0
+      fi
+      _ns_out=""; _ns_miss=""
+      for _ns_x in ${_ns_n}; do
+        _ns_m=$(kubectl "$@" get --raw "/api/v1/nodes/${_ns_x}/proxy/metrics/cadvisor" 2>/dev/null) || { _ns_miss="${_ns_miss} ${_ns_x}"; continue; }
+        _ns_out=$(printf '%s\n%s' "${_ns_out}" "$(printf '%s\n' "${_ns_m}" | awk 'match($0, /[{,]container=""[,}]/) && match($0, /[{,]pod="[^"]+"/) && match($0, /[{,]image="[^"]+"/) {print substr($0, RSTART + 8, RLENGTH - 9)}' | sort -u)")
+      done
+      [ -z "${_ns_miss}" ] || echo "[harbor-prewarm] sandbox image: no kubelet answer from${_ns_miss}; the other nodes of the region are read" >&2
+      if [ -n "${_ns_n}" ] && [ -z "$(printf '%s' "${_ns_out}" | tr -d '[:space:]')" ]; then echo "[harbor-prewarm] FATAL: no node of the region reported the sandbox image its Pods start with" >&2; return 1; fi
+      printf '%s' "${_ns_out}"
+    }
     prewarm_list_images() {
       _li_rg="$2"
       if [ -n "$1" ]; then set -- --kubeconfig "$1"; else set --; fi
@@ -992,7 +999,8 @@ data:
       _li_w=$(kubectl "$@" get deployments,statefulsets,daemonsets,cronjobs,jobs -A -o json 2>/dev/null) || return 1
       _li_a=$(printf '%s' "${_li_p}" | jq -r '.items[].spec | (.containers // [])[].image, (.initContainers // [])[].image, (.ephemeralContainers // [])[].image') || return 1
       _li_b=$(printf '%s' "${_li_w}" | jq -r '.items[] | (.spec.jobTemplate.spec.template.spec // .spec.template.spec // {}) | (.containers // [])[].image, (.initContainers // [])[].image') || return 1
-      printf '%s\n%s\n' "${_li_a}" "${_li_b}" | grep -E '^[^[:space:]]+$' | grep -v '^null$' | sort -u | awk -v r="${_li_rg}" '{print $0 "\t" r}'
+      _li_s=$(prewarm_node_sandbox_images "$@") || return 1
+      printf '%s\n%s\n%s\n' "${_li_a}" "${_li_b}" "${_li_s}" | grep -E '^[^[:space:]]+$' | grep -v '^null$' | sort -u | awk -v r="${_li_rg}" '{print $0 "\t" r}'
     }
     # ── prewarm-list-images END ──
     echo "[harbor-prewarm] enumerating ALL images across cluster (running pods ∪ declared workload templates), every region (#7922)"
@@ -1072,48 +1080,26 @@ data:
     }
 
     {{- /*
-     #5030 (Refs #3379 #4994 #4975) — DURABLE dest-presence idempotency
-     probe. Returns 0 (SKIP the copy) ONLY when the local Harbor DEST
-     already serves the SAME manifest DURABLY (pushed into Harbor's own
-     store), never on a transient pull-through.
-
-     WHY the #4994 shape was WRONG: `skopeo inspect --raw` on the DEST is a
-     registry-protocol read of whatever registry.<fqdn> serves AT THAT
-     MOMENT. During step-03 egress is still up, so it PULLS THE MANIFEST
-     THROUGH (a Harbor proxy-cache leg / an upstream still auth'd) and
-     returns byte-identical bytes for an image NEVER durably pushed →
-     false "current" → the copy is SKIPPED. Only the manifest persists, no
-     blobs: after step-08's deny-egress hold the image 404s and step-08's
-     completeness gate FAILS (cutoverComplete never reached). Live hw244:
-     proxy-ghcr/open-telemetry/opentelemetry-operator:0.101.0 (artifact API
-     NOT_FOUND while the dest inspect pulled through). Same class killed
-     hw243 (velero/cnpg; #5026 fixed only the host-pivot leg).
-
-     FIX: probe the DEST via the Harbor ARTIFACT API
-     (GET /api/v2.0/projects/<proj>/repositories/<repo>/artifacts/<ref>) —
-     served by Harbor CORE against its DATABASE, so it reflects ONLY
-     durably-stored artifacts and CANNOT pull through at ANY cutover phase.
-     This is the SAME durable-presence assertion step-08's completeness
-     gate makes, so a step-03 skip can NEVER diverge from the gate that
-     then judges it. The SOURCE digest still comes from `skopeo inspect
-     --raw` on the SOURCE (source pull-through is irrelevant — that IS the
-     manifest we mirror FROM; its sha256 IS the manifest/-list digest, no
-     blob pulled, correct for single-arch AND multi-arch). Skip ONLY on a
-     real durable digest MATCH. Fail-CLOSED on ANY ambiguity: empty source
-     sha (upstream unreachable), 404/absent/partial dest, curl/API error,
-     or empty/mismatched dest digest all return non-zero → the caller does
-     the real copy. So the fail-closed completeness contract is UNTOUCHED;
-     this only elides a genuinely-redundant re-transfer.
-     #5443 — the DURABLE-presence half of #5030, extracted so the
-     Phase A2-guard asserts local-Harbor presence through the EXACT
-     probe the idempotency skip trusts (and the one step-08's
-     completeness gate makes). Harbor CORE answers this from its
-     DATABASE, so it reflects only durably-stored artifacts and can
-     never pull through — the whole point of #5030. Emits the artifact
-     digest on stdout (empty when absent); exit status is curl/jq's,
-     never load-bearing on its own.
-       $1 = local dest ref: the resolver PATH project/repo[:tag|@digest]
-            or a HARBOR_HOST-prefixed lref.
+     #5030 (Refs #3379 #4994 #4975) — DURABLE dest-presence idempotency probe. Returns 0 (SKIP the
+     copy) ONLY when the local Harbor DEST already serves the SAME manifest DURABLY (pushed into
+     Harbor's own store), never on a transient pull-through.
+     WHY the #4994 shape was WRONG: `skopeo inspect --raw` on the DEST reads whatever registry.<fqdn>
+     serves AT THAT MOMENT. During step 03 egress is still up, so it PULLS THE MANIFEST THROUGH (a
+     proxy-cache leg) for an image NEVER durably pushed → false "current" → copy SKIPPED, only the
+     manifest persists, and after step 08's deny-egress hold the image 404s (live hw244
+     opentelemetry-operator:0.101.0; hw243 velero/cnpg, #5026 fixed only the host-pivot leg).
+     FIX: probe the DEST via the Harbor ARTIFACT API (GET /api/v2.0/projects/<proj>/repositories/
+     <repo>/artifacts/<ref>), served by Harbor CORE from its DATABASE: only durably-stored artifacts,
+     never a pull-through, at ANY cutover phase. It is the SAME assertion step 08's completeness gate
+     makes, so a step-03 skip can NEVER diverge from the gate that judges it. The SOURCE digest still
+     comes from `skopeo inspect --raw` on the SOURCE (its sha256 IS the manifest/-list digest, right
+     for single- and multi-arch). Skip ONLY on a real durable digest MATCH; fail CLOSED on ANY
+     ambiguity (empty source sha, 404/absent/partial dest, curl/API error, empty/mismatched dest
+     digest) → the caller does the real copy. The completeness contract is UNTOUCHED.
+     #5443 — this is the DURABLE-presence half of #5030, extracted so the Phase A2-guard asserts
+     presence through the EXACT probe the skip trusts. Emits the artifact digest on stdout (empty when
+     absent); its exit status (curl/jq's) is never load-bearing on its own.
+       $1 = local dest ref: the resolver PATH project/repo[:tag|@digest] or a HARBOR_HOST-prefixed lref.
     */}}
     harbor_durable_digest() {
       _hd_pp="${1#${HARBOR_HOST}/}"
