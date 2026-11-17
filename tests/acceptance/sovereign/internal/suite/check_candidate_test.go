@@ -1,9 +1,12 @@
 package suite
 
 import (
+	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -310,5 +313,78 @@ func TestCandidatePinsOfThisRepository(t *testing.T) {
 		if !strings.HasPrefix(key, "flux-system/") || pin.Chart == "" || pin.Version == "" || strings.ContainsAny(pin.Version, " \"'#") {
 			t.Errorf("pin %s is not complete: %+v", key, pin)
 		}
+	}
+}
+
+// selfScenario is the cluster of a run in self: one region, its HelmReleases
+// and the pods of one container each, whose digests are given.
+func selfScenario(releases string, digests ...string) map[string]string {
+	pods := []obj{}
+	for i, d := range digests {
+		pods = append(pods, fakeContainer("kube-system", "cilium-"+strconv.Itoa(i+1), "registry.example/cilium:1.19", d))
+	}
+	return map[string]string{"a " + hrResource: releases, "a namespaces": kubeList(), "a pods": kubeList(pods...)}
+}
+
+// specVersion is a fixture HelmRelease whose spec names a chart version.
+func specVersion(hr obj, version string) obj {
+	hr["spec"].(obj)["chart"].(obj)["spec"].(obj)["version"] = version
+	return hr
+}
+
+func init() {
+	cilium := func(history ...string) string {
+		return kubeList(specVersion(fakeDeployed("flux-system", "bp-cilium", "bp-cilium", false, history...), "1.4.20"))
+	}
+	fakeAnswers["candidate-self-as-applied"] = selfScenario(kubeList(
+		specVersion(fakeDeployed("flux-system", "bp-cilium", "bp-cilium", false, "deployed", "1.4.20", "superseded", "1.4.19"), "1.4.20"),
+		specVersion(fakeDeployed("flux-system", "bp-postgres-shared", "bp-postgres", true, "deployed", "0.2.30"), "0.2.33"), // suspended: listed, not compared
+		fakeDeployed("acme", "shop", "bp-shop", false, "deployed", "3.0.0")),                                                // the spec names no version: listed, not compared
+		digestOne)
+	fakeAnswers["candidate-self-older-version"] = selfScenario(cilium("failed", "1.4.20", "deployed", "1.4.19"), digestOne)
+	fakeAnswers["candidate-self-nothing-deployed"] = selfScenario(cilium(), digestOne)
+	fakeAnswers["candidate-self-no-digest"] = selfScenario(cilium("deployed", "1.4.20"), "")
+	fakeAnswers["candidate-self-two-digests"] = selfScenario(cilium("deployed", "1.4.20"), digestOne, digestTwo)
+}
+
+// TestCandidateSelf is the form of the check in a run in self: one region, no
+// candidate and no checkout. Each case fails on a check that reads the
+// candidate and its checkout in that run.
+func TestCandidateSelf(t *testing.T) {
+	two := "1 image references have more than one digest: registry.example/cilium:1.19 has " + digestOne + " and " + digestTwo
+	behind := "1 of 1 HelmReleases do not run the chart version their spec names: flux-system/bp-cilium runs "
+	for _, c := range []struct {
+		name, scenario string
+		want           []string // the errors of the failed steps
+	}{
+		{"what runs is what each spec names", "candidate-self-as-applied", []string{}},
+		{"a release runs another version than its spec names", "candidate-self-older-version", []string{behind + "1.4.19 and its spec names 1.4.20"}},
+		{"a release has nothing deployed", "candidate-self-nothing-deployed", []string{behind + "no deployed version and its spec names 1.4.20"}},
+		{"a container without a digest", "candidate-self-no-digest", []string{"1 containers have no image digest: kube-system/cilium-1/main"}},
+		{"one reference, two digests", "candidate-self-two-digests", []string{two, two}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv(fakeKubectlEnv, c.scenario)
+			r := &runner{out: io.Discard, run: &Run{Mode: "run"}}
+			m := &Manifest{Checks: []ManifestCheck{entry(candidateID, StateExpectedFail)}}
+			r.runChecks(context.Background(), m, []Check{candidateCheck{}}, &CheckContext{RunIn: RunInSelf, Regions: fakeRegions(t)[:1]}, true)
+			r.run.Finalize(nil)
+			if got := failedSteps(r); len(r.run.Steps) != 3 || strings.Join(got, "\n") != strings.Join(c.want, "\n") {
+				t.Fatalf("want 3 steps that fail with %q, got %d steps that fail with %q", c.want, len(r.run.Steps), got)
+			}
+			if len(c.want) > 0 {
+				return
+			}
+			if s := r.run.Steps[0]; s.Name != "every HelmRelease runs the chart version its spec names in region region-a" || s.Evidence["compared"] != 1 {
+				t.Errorf("only the release that is not suspended and whose spec names a version is compared: %s %+v", s.Name, s.Evidence)
+			}
+			pinned := []string{}
+			for _, a := range r.run.Artifacts.Charts {
+				pinned = append(pinned, a.Release+"="+a.Version+"/"+a.Pinned)
+			}
+			if got := strings.Join(pinned, " "); got != "shop=3.0.0/ bp-cilium=1.4.20/1.4.20 bp-postgres-shared=0.2.30/0.2.33" || len(r.run.Artifacts.Images) != 2 {
+				t.Errorf("the artifacts must hold each release with the version of its spec as the pin: %s, %+v", got, r.run.Artifacts.Images)
+			}
+		})
 	}
 }

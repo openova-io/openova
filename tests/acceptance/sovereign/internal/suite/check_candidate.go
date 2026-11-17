@@ -28,6 +28,12 @@ import (
 // HelmRelease per region and one per image reference and digest per region.
 // It hands them to the record only when every region was read; a record
 // without artifacts is never half of a valid pair.
+//
+// A run in self has no checkout and no candidate. There the first two rules
+// are not recorded, and every HelmRelease must run the chart version that its
+// own spec.chart.spec.version names; that version is the pin of its artifact.
+// A HelmRelease whose spec names no version is listed and not compared, and so
+// is one with spec.suspend true. The digest rule is the same.
 const candidateID = "FND-G01"
 
 // pinsDir is where the candidate pins the chart versions, under RepoRoot.
@@ -46,8 +52,15 @@ type chartPin struct{ Chart, Version string }
 func (candidateCheck) Run(ctx context.Context, cc *CheckContext, rec StepRecorder) error {
 	n := 0
 	next := func() string { n++; return candidateID + "." + strconv.Itoa(n) }
+	self := cc.RunIn == RunInSelf
+	// candidateStep records a rule of the candidate; a run in self has none.
+	candidateStep := func(name string, fn func(Evidence) error) {
+		if !self {
+			rec.Step(next(), name, fn)
+		}
+	}
 
-	rec.Step(next(), "the suite was built from the candidate commit", func(ev Evidence) error {
+	candidateStep("the suite was built from the candidate commit", func(ev Evidence) error {
 		built := gitSHA()
 		ev["suite_git_sha"], ev["candidate_commit"] = built, cc.Candidate.Commit
 		switch {
@@ -60,7 +73,7 @@ func (candidateCheck) Run(ctx context.Context, cc *CheckContext, rec StepRecorde
 	})
 
 	var pins map[string]chartPin
-	rec.Step(next(), "the candidate pins a chart version for each HelmRelease of "+pinsDir, func(ev Evidence) error {
+	candidateStep("the candidate pins a chart version for each HelmRelease of "+pinsDir, func(ev Evidence) error {
 		var err error
 		if pins, err = readPins(cc.RepoRoot); err != nil {
 			return err
@@ -73,11 +86,16 @@ func (candidateCheck) Run(ctx context.Context, cc *CheckContext, rec StepRecorde
 		return nil
 	})
 
+	stepName, wanted, pinName := "runs its pinned chart version", "their pinned version", "the pin is"
+	if self {
+		stepName, wanted, pinName = "runs the chart version its spec names", "the chart version their spec names", "its spec names"
+	}
+
 	art := &Artifacts{Charts: []ChartArtifact{}, Images: []ImageArtifact{}}
 	complete := len(cc.Regions) > 0
 	for _, region := range cc.Regions {
-		rec.Step(next(), "every HelmRelease runs its pinned chart version in region "+region.ID, func(ev Evidence) error {
-			if pins == nil {
+		rec.Step(next(), "every HelmRelease "+stepName+" in region "+region.ID, func(ev Evidence) error {
+			if pins == nil && !self {
 				complete = false
 				return errors.New("the pins were not read")
 			}
@@ -90,15 +108,19 @@ func (candidateCheck) Run(ctx context.Context, cc *CheckContext, rec StepRecorde
 			for _, hr := range releases {
 				key := hr.Namespace() + "/" + hr.Name()
 				found[key] = true
+				pinned := pins[key].Version
+				if self {
+					pinned = hr.Str("spec", "chart", "spec", "version")
+				}
 				c := ChartArtifact{Region: region.ID, Namespace: hr.Namespace(), Release: hr.Name(),
-					Chart: hr.Str("spec", "chart", "spec", "chart"), Version: deployedChartVersion(hr), Pinned: pins[key].Version}
+					Chart: hr.Str("spec", "chart", "spec", "chart"), Version: deployedChartVersion(hr), Pinned: pinned}
 				art.Charts = append(art.Charts, c)
 				if suspend, _ := hr.Get("spec", "suspend").(bool); suspend || c.Pinned == "" {
 					continue
 				}
 				compared++
 				if c.Version != c.Pinned {
-					differences = append(differences, key+" runs "+nonEmpty(c.Version, "no deployed version")+" and the pin is "+c.Pinned)
+					differences = append(differences, key+" runs "+nonEmpty(c.Version, "no deployed version")+" and "+pinName+" "+c.Pinned)
 				}
 			}
 			absent := []string{}
@@ -115,7 +137,7 @@ func (candidateCheck) Run(ctx context.Context, cc *CheckContext, rec StepRecorde
 				return errors.New("no HelmRelease was found: nothing was measured")
 			}
 			if len(differences) > 0 {
-				return fmt.Errorf("%d of %d HelmReleases do not run their pinned version: %s", len(differences), compared, strings.Join(differences, "; "))
+				return fmt.Errorf("%d of %d HelmReleases do not run %s: %s", len(differences), compared, wanted, strings.Join(differences, "; "))
 			}
 			return nil
 		})
