@@ -60,7 +60,7 @@ type: application
 #   that every upload dialled for ~20 s (hw307 journey J2). The S3 Pod template
 #   carries checksum/filer-advertise, so an in-place upgrade restarts the
 #   gateways once and they forget the old IPs. tests/peer-address-set.sh.
-version: 1.3.3
+version: 1.3.4
 appVersion: "4.22"
 keywords: [catalyst, blueprint, seaweedfs, s3, object-storage, storage]
 maintainers:
