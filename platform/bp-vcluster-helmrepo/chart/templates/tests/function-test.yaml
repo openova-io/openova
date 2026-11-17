@@ -1,0 +1,143 @@
+{{- /*
+Function test of bp-vcluster-helmrepo (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
+
+Flux's source-controller marks a HelmRepository Ready only after it has
+fetched the repository's index and stored it as an artifact. The test reads,
+through the Kubernetes API, the condition Ready of the HelmRepository this
+release renders (vclusterHelmRepo.name, default loft, in
+vclusterHelmRepo.namespace, default vcluster-system, the same values as
+templates/helmrepository.yaml). It passes when it reports Ready=True within
+180 seconds. It reads nothing else and writes nothing; the test Pod itself
+calls nothing outside the cluster.
+
+The HelmRepository lives in another namespace than the test Pod, so a Role
+and a RoleBinding of this file in that namespace (verb get on helmrepositories
+of source.toolkit.fluxcd.io) give the test Pod's ServiceAccount that right.
+
+The chart always renders its HelmRepository, so the test always renders. The
+image is the kubectl image the kit already pulls for bp-cnpg;
+functionTest.image overrides it.
+*/ -}}
+{{- $ft := .Values.functionTest | default dict }}
+{{- $image := $ft.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" }}
+{{- $repoName := .Values.vclusterHelmRepo.name }}
+{{- $repoNamespace := .Values.vclusterHelmRepo.namespace }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ $repoNamespace | quote }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: ["source.toolkit.fluxcd.io"]
+    resources: ["helmrepositories"]
+    resourceNames: [{{ $repoName | quote }}]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ $repoNamespace | quote }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-function-test
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ .Release.Name }}-function-test
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 300
+  serviceAccountName: {{ .Release.Name }}-function-test
+  containers:
+    - name: function-test
+      image: {{ $image | quote }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: HOME
+          value: /tmp
+        - name: REPO_NAME
+          value: {{ $repoName | quote }}
+        - name: REPO_NAMESPACE
+          value: {{ $repoNamespace | quote }}
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -u
+          fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          deadline=$(( $(date +%s) + 180 ))
+          while :; do
+            if ready="$(kubectl --request-timeout=15s -n "${REPO_NAMESPACE}" get helmrepository.source.toolkit.fluxcd.io "${REPO_NAME}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/tmp/error)"; then
+              [ "${ready}" = "True" ] && break
+              reason="Ready is '${ready}': $(kubectl --request-timeout=15s -n "${REPO_NAMESPACE}" get helmrepository.source.toolkit.fluxcd.io "${REPO_NAME}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}' 2>/dev/null | cut -c1-160)"
+            else
+              reason="$(tr '\n' ' ' < /tmp/error | cut -c1-160)"
+            fi
+            [ "$(date +%s)" -lt "${deadline}" ] || fail "the HelmRepository ${REPO_NAMESPACE}/${REPO_NAME} is not Ready within 180 seconds: ${reason}"
+            sleep 10
+          done
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} the HelmRepository ${REPO_NAMESPACE}/${REPO_NAME} has fetched its index and is Ready"
+  volumes:
+    - name: tmp
+      emptyDir: {}
