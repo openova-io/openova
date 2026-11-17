@@ -93,7 +93,7 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | platform/qa-app | bp-qa-app | bp-qa-app | listed | - |
 | platform/reflector | bp-reflector | bp-reflector | unlisted | 05a |
 | platform/reloader | bp-reloader | bp-reloader | unlisted | 28 |
-| platform/sealed-secrets | bp-sealed-secrets | bp-sealed-secrets | unlisted | 05 |
+| platform/sealed-secrets | bp-sealed-secrets | bp-sealed-secrets | unlisted | - |
 | platform/seaweedfs | bp-seaweedfs | bp-seaweedfs | unlisted | 18 |
 | platform/self-sovereign-cutover | bp-self-sovereign-cutover | bp-self-sovereign-cutover | unlisted | 06a |
 | platform/sigstore | bp-sigstore | bp-sigstore | unlisted | 32 |

@@ -6038,13 +6038,6 @@ export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = [
     "order": 4
   },
   {
-    "id": "bp-sealed-secrets",
-    "slug": "sealed-secrets",
-    "label": "sealed-secrets",
-    "file": "05-sealed-secrets.yaml",
-    "order": 5
-  },
-  {
     "id": "bp-dragonfly",
     "slug": "dragonfly",
     "label": "dragonfly",

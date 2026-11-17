@@ -16,9 +16,6 @@
 # dependsOn:
 #   - bp-cilium — DaemonSet pods need a working CNI before they bind
 #     the host-network listen port.
-#   - bp-sealed-secrets — the chart references a SealedSecret carrying
-#     the HMAC shared key the proxy validates inbound requests against
-#     (operator pre-seals via kubeseal before this slot reconciles).
 #
 # qa-loop iter-7 Fix #39 (closes the gap surfaced by Fix #36):
 # bp-k8s-ws-proxy was previously chart-only, no CI workflow + no
@@ -57,7 +54,6 @@ spec:
   targetNamespace: catalyst-system
   dependsOn:
     - name: bp-cilium
-    - name: bp-sealed-secrets
     # #5991 — the chart now renders cert-manager Certificates for its mTLS
     # listener. The render is ALSO gated on the cert-manager.io/v1 CRD
     # being registered, so a missing edge would not fail the apply — it

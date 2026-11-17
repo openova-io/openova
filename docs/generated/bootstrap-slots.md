@@ -24,7 +24,6 @@ One row for each HelmRelease of each file that `clusters/_template/bootstrap-kit
 | 03 | 03-flux.yaml | bp-flux | flux | flux-system | bp-flux | bp-cert-manager | - | same |
 | 04 | 04-crossplane.yaml | bp-crossplane | crossplane | crossplane-system | bp-crossplane | bp-flux | - | same |
 | 04b | 04b-bp-kured.yaml | bp-kured | kured | kube-system | bp-kured | bp-cilium | - | same |
-| 05 | 05-sealed-secrets.yaml | bp-sealed-secrets | sealed-secrets | kube-system | bp-sealed-secrets | bp-cert-manager | - | same |
 | 05a | 05a-reflector.yaml | bp-reflector | reflector | reflector | bp-reflector | bp-cert-manager | - | same |
 | 06 | 06-bp-dragonfly.yaml | bp-dragonfly | dragonfly | dragonfly | bp-dragonfly | bp-cilium | - | same |
 | 07 | 07-nats-jetstream.yaml | bp-nats-jetstream | nats-jetstream | nats-system | bp-nats-jetstream | - | - | same |
@@ -77,8 +76,8 @@ One row for each HelmRelease of each file that `clusters/_template/bootstrap-kit
 | 39 | 39-bp-vllm.yaml | bp-vllm | vllm | vllm | bp-vllm | - | `values.vllm.enabled=${SOVEREIGN_VLLM_ENABLED:-false}` | same |
 | 49 | 49-bp-cert-manager-powerdns-webhook.yaml | bp-cert-manager-powerdns-webhook | cert-manager-powerdns-webhook | cert-manager | bp-cert-manager-powerdns-webhook | bp-cert-manager | - | same |
 | 50 | 50-cluster-autoscaler.yaml | bp-cluster-autoscaler-hcloud | cluster-autoscaler | cluster-autoscaler | bp-cluster-autoscaler-hcloud | - | `suspend=${HCLOUD_HR_SUSPEND:=false}` | same |
-| 51 | 51-bp-k8s-ws-proxy.yaml | bp-k8s-ws-proxy | k8s-ws-proxy | catalyst-system | bp-k8s-ws-proxy | bp-cilium, bp-sealed-secrets, bp-cert-manager, bp-reflector | - | same |
-| 52 | 52-bp-guacamole.yaml | bp-guacamole | guacamole | guacamole | bp-guacamole | bp-cilium, bp-cert-manager, bp-keycloak, bp-sealed-secrets, bp-seaweedfs, bp-k8s-ws-proxy, bp-cnpg | `values.crossRegion.enabled=${SOVEREIGN_ENABLE_CNPG_PAIR:=false}` | same |
+| 51 | 51-bp-k8s-ws-proxy.yaml | bp-k8s-ws-proxy | k8s-ws-proxy | catalyst-system | bp-k8s-ws-proxy | bp-cilium, bp-cert-manager, bp-reflector | - | same |
+| 52 | 52-bp-guacamole.yaml | bp-guacamole | guacamole | guacamole | bp-guacamole | bp-cilium, bp-cert-manager, bp-keycloak, bp-seaweedfs, bp-k8s-ws-proxy, bp-cnpg | `values.crossRegion.enabled=${SOVEREIGN_ENABLE_CNPG_PAIR:=false}` | same |
 | 55 | 55-bp-hcloud-ccm.yaml | bp-hcloud-ccm | hcloud-ccm | kube-system | bp-hcloud-ccm | - | `suspend=${HCLOUD_HR_SUSPEND:=false}` | same |
 | 55a | 55a-bp-hcloud-csi.yaml | bp-hcloud-csi | hcloud-csi | hcloud-csi | bp-hcloud-csi | - | `values.enabled=${HCLOUD_CSI_ENABLED:=true}` | same |
 | 55b | 55b-bp-huawei-evs-csi.yaml | bp-huawei-evs-csi | huawei-evs-csi | huawei-evs-csi | bp-huawei-evs-csi | bp-reflector | `values.enabled=${EVS_CSI_ENABLED:=true}` | same |
@@ -108,4 +107,4 @@ Entries of `scripts/expected-bootstrap-deps.yaml` whose HelmRelease is in no slo
 | 46 | bp-livekit | bp-stunner, bp-cert-manager | W2.K4 |
 | 47 | bp-matrix | bp-cnpg, bp-keycloak, bp-cert-manager | W2.K4 |
 | 48 | bp-librechat | bp-llm-gateway, bp-vllm, bp-bge, bp-keycloak | W2.K4 |
-| 53 | bp-netbird | bp-cilium, bp-cert-manager, bp-keycloak, bp-sealed-secrets, bp-nats-jetstream | present |
+| 53 | bp-netbird | bp-cilium, bp-cert-manager, bp-keycloak, bp-nats-jetstream | present |
