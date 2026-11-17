@@ -6,19 +6,19 @@ counts:
   G2.visibility-missing: 0
   G2.api-version-not-v1: 1
   G3.wizard-groups-entries: 57
-  G3.hand-seed-blueprints: 78
+  G3.hand-seed-blueprints: 77
   G3.storefront-seed-rows: 31
   G3.provisioning-map-keys: 15
   G4.bp-literal-lines-api: 43
   G4.bp-literal-lines-controllers: 23
   G5.card-category: 37
-  G5.card-family: 36
+  G5.card-family: 35
   G5.label-category: 26
   G5.label-tier: 19
-  G5.label-section: 96
+  G5.label-section: 94
   G6.function-test-charts: 27
   G7.seed-exclusions: 0
-  G8.slots-without-ring: 66
+  G8.slots-without-ring: 65
   G8.ring-edges-outside: 0
   G9.wizard-ids-without-chart: 13
   G9.raw-image-apps: 12

@@ -74,7 +74,6 @@ One row for each HelmRelease of each file that `clusters/_template/bootstrap-kit
 | 33 | 33-syft-grype.yaml | bp-syft-grype | syft-grype | syft-grype | bp-syft-grype | bp-cert-manager | - | same |
 | 34 | 34-velero.yaml | bp-velero | velero | velero | bp-velero | - | `suspend=${HCLOUD_HR_SUSPEND:=false}` | same |
 | 34a | 34a-bp-velero-hcs.yaml | bp-velero-hcs | velero | velero | bp-velero-hcs | - | `suspend=${HUAWEI_HR_SUSPEND:=true}` | same |
-| 35 | 35-coraza.yaml | bp-coraza | coraza | coraza | bp-coraza | bp-cilium, bp-cert-manager | - | same |
 | 39 | 39-bp-vllm.yaml | bp-vllm | vllm | vllm | bp-vllm | - | `values.vllm.enabled=${SOVEREIGN_VLLM_ENABLED:-false}` | same |
 | 49 | 49-bp-cert-manager-powerdns-webhook.yaml | bp-cert-manager-powerdns-webhook | cert-manager-powerdns-webhook | cert-manager | bp-cert-manager-powerdns-webhook | bp-cert-manager | - | same |
 | 50 | 50-cluster-autoscaler.yaml | bp-cluster-autoscaler-hcloud | cluster-autoscaler | cluster-autoscaler | bp-cluster-autoscaler-hcloud | - | `suspend=${HCLOUD_HR_SUSPEND:=false}` | same |

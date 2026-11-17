@@ -6,7 +6,6 @@
   "cert-manager-powerdns-webhook": ["cert-manager", "powerdns"],
   "cilium": [],
   "cnpg": ["flux"],
-  "coraza": ["cilium", "cert-manager"],
   "crossplane": ["flux"],
   "crossplane-claims": ["crossplane"],
   "external-dns": ["cert-manager", "powerdns", "reflector"],

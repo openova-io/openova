@@ -3884,52 +3884,6 @@ spec:
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
-  name: bp-coraza
-  labels:
-    catalyst.openova.io/managed-by: catalog-seed
-    catalyst.openova.io/origin: openova-public
-    catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/category: security
-    catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
-    app.kubernetes.io/managed-by: {{ $managedBy }}
-    app.kubernetes.io/instance: {{ $instance }}
-spec:
-  version: "1.0.1"
-  visibility: unlisted
-  card:
-    title: "Coraza WAF (SPOA)"
-    category: security
-    summary: "OWASP Coraza Web Application Firewall as an SPOA sidecar — ModSecurity-compatible rules (CRS) enforced at the Sovereign edge gateway."
-    icon: coraza.svg
-  placementSchema:
-    modes: [single-region]
-    default: single-region
-  manifests:
-    chart: bp-coraza
-  source:
-    kind: HelmRepository
-    type: oci
-    url: oci://ghcr.io/openova-io
-    chart: bp-coraza
-    version: "1.0.1"
-  topology:
-    supported:
-      - singleton
-    defaults:
-      multi-region: singleton
-      single-region: singleton
-    perTopology:
-      singleton:
-        placement:
-          tier: dmz
-          clusters: [dmz-A]
-          roles:
-            dmz-A: singleton
-  endpoints: []
----
-apiVersion: catalyst.openova.io/v1
-kind: Blueprint
-metadata:
   name: bp-crossplane
   labels:
     catalyst.openova.io/managed-by: catalog-seed

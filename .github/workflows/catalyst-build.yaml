@@ -221,7 +221,6 @@ jobs:
               component-logos/ntfy.svg \
               component-logos/ferretdb.png \
               component-logos/openmeter.png \
-              component-logos/coraza.png \
               component-logos/external-dns.png \
               component-logos/netbird.png \
               component-logos/strongswan.png \

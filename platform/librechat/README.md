@@ -10,7 +10,7 @@ Open-source chat UI with multi-model support and file uploads. **Application Blu
 
 `platform/librechat/chart/` is a Catalyst-authored scratch chart (no upstream Helm chart is published by LibreChat). It hand-wires the official `ghcr.io/danny-avila/librechat` container as a Deployment + Service + Ingress (with cert-manager TLS) + ConfigMap + ServiceAccount + NetworkPolicy + ServiceMonitor (gated by Capabilities, default off) + HPA (default off).
 
-The chart's `Chart.yaml` declares a stub `sigstore/common` library subchart **only** to satisfy the platform-wide hollow-chart CI gate (issue #181) — `common` is a tiny library chart (helper templates, zero runtime resources) and contributes nothing to the rendered manifests. Same shape as `platform/coraza/`.
+The chart's `Chart.yaml` declares a stub `sigstore/common` library subchart **only** to satisfy the platform-wide hollow-chart CI gate (issue #181) — `common` is a tiny library chart (helper templates, zero runtime resources) and contributes nothing to the rendered manifests.
 
 | File | Purpose |
 |---|---|
