@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-17T09:00:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-11-17T09:15:02Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-17T09:12 | [#8029](https://github.com/openova-io/openova/pull/8029) | #7991 | fix(cutover): follower regions pivot the image registry of w |
+| 2026-11-17T09:12 | [#8028](https://github.com/openova-io/openova/pull/8028) | #7975 | chore(kit): the flow host leaves the sign-in gate, the DNS n |
 | 2026-11-17T08:37 | [#8027](https://github.com/openova-io/openova/pull/8027) | #7982 | chore: remove the unwired firewall and the unused SPIRE char |
 | 2026-11-17T07:36 | [#8026](https://github.com/openova-io/openova/pull/8026) | #7820 | chore(kit): kit slots 56 and 57, the flow server and the flo |
 | 2026-11-17T07:35 | [#8025](https://github.com/openova-io/openova/pull/8025) | #7864 | fix(ci): raise three golang bases, guard each base against i |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-16T14:22 | [#7997](https://github.com/openova-io/openova/pull/7997) | #7966 | fix(crossplane): raise Crossplane core to 1.20.14 (CLD-062) |
 | 2026-11-16T14:21 | [#7995](https://github.com/openova-io/openova/pull/7995) | #7985 | ci: set the Secret census limit to the first measured count  |
 | 2026-11-16T10:50 | [#7963](https://github.com/openova-io/openova/pull/7963) | #7087 | docs(ledger): plan update |
-| 2026-11-16T09:58 | [#7960](https://github.com/openova-io/openova/pull/7960) | #7946 | fix(release): a delivery runs the candidate's own mechanism; |
-| 2026-11-16T09:58 | [#7959](https://github.com/openova-io/openova/pull/7959) | #7938 | fix(release): a dry run refuses a pullSecret instead of reco |
 
 ---
 
