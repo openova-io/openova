@@ -203,7 +203,7 @@ describe('the render models carry the document branding — and nothing without 
 function cart(over: Partial<CartState>): CartState {
   return {
     plan: 'l', planName: 'L', apps: ['1'], addons: [], orgName: '', subdomain: '', email: '',
-    tld: 'omani.homes', agents: [], appConfigs: {}, packageSku: 'plan.l', ...over,
+    tld: 'omani.homes', appConfigs: {}, packageSku: 'plan.l', ...over,
   } as CartState;
 }
 

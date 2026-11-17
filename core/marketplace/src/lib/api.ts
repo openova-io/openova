@@ -183,8 +183,8 @@ async function tryRefresh(): Promise<void> {
 
 // Catalog
 // Scope to generic compute tiers (S/M/L/XL/Flexi). Product-scoped plans
-// (e.g. Sandbox Free/Pro/Ent, ProductSlug="sandbox") have their own flow
-// and must NOT duplicate into this Org-provisioning picker (#3156).
+// (a product's own tiers, ProductSlug set to that product) have their own
+// flow and must NOT duplicate into this Org-provisioning picker (#3156).
 export const getPlans = async (): Promise<Plan[]> => {
   const raw = await request<any[]>('/catalog/plans?product=generic');
   return raw
@@ -545,11 +545,6 @@ const appLogos: Record<string, string> = {
   nocodb: 'https://github.com/nocodb.png?size=64',
   'jitsi-meet': 'https://github.com/jitsi.png?size=64',
   immich: 'https://github.com/immich-app.png?size=64',
-  // Wave 4 — Sandbox marketplace catalog entry. Logo is the OpenOva
-  // org avatar to match how WordPress/Ghost/Nextcloud cards lean on
-  // upstream-org GitHub avatars; Sandbox is our own product so the
-  // OpenOva mark is the canonical brand.
-  sandbox: 'https://github.com/openova-io.png?size=64',
 };
 
 export interface Industry {
@@ -610,12 +605,6 @@ export interface CreateTenantRequest {
   // host that breaks EVERY org-create. Optional so single-domain Sovereigns
   // (marketplace ON the pool domain) keep working via the host-splice path.
   parent_domain?: string;
-  // Wave 4 Sandbox — forwarded only when `apps` contains 'sandbox'.
-  // The tenant-service uses this to publish a `tenant.sandbox_requested`
-  // event the sandbox-controller consumes to mint a Sandbox CR with
-  // matching spec.agentCatalogue. Optional so legacy clients keep
-  // working unchanged.
-  agents?: string[];
   // TBD-V18-D follow-up to PR #2038 — per-instance configSchema
   // values, keyed by app slug. Optional so legacy clients (older cart
   // shape, machine-to-machine callers) keep working unchanged. Wire
@@ -625,7 +614,7 @@ export interface CreateTenantRequest {
   // `tenant_created_wire_test.go`.
   app_configs?: Record<string, Record<string, number | string | boolean>>;
   // #4956 — when true, the tenant-service persists the Org shell but does NOT
-  // fire the provisioning triggers (Organization CR, cart-install, sandbox).
+  // fire the provisioning triggers (Organization CR, cart-install).
   // The Org stays `pending_payment` until billing settlement launches it, so a
   // checkout that 400s (bad/unseeded voucher, declined card) can never leave a
   // provisioned Org with no purchased apps behind. The funnel checkout sets
