@@ -1,0 +1,28 @@
+schema: openova.io/plan-wrong/v1
+id: SEC-105
+ticket_rev: 1
+base_commit: 6e3ee58bdb2c91166604273cfc9a9a7cc267fd4a
+stage: step
+ref: step 3
+command: |
+    python3 /tmp/SEC-105-edit.py; echo "exit code: $?"
+expected: |
+    SEC-105-edit: deleted platform/sealed-secrets/README.md
+    SEC-105-edit: deleted platform/sealed-secrets/blueprint.yaml
+    SEC-105-edit: deleted platform/sealed-secrets/chart/Chart.yaml
+    SEC-105-edit: deleted platform/sealed-secrets/chart/tests/observability-toggle.sh
+    SEC-105-edit: deleted platform/sealed-secrets/chart/values.yaml
+    SEC-105-edit: wrote .github/workflows/check-freshprov-image-registry.yaml
+    SEC-105-edit: wrote docs/ledger/deleted-paths.txt
+    SEC-105-edit: wrote products/catalyst/chart/templates/catalog-seed/blueprints.yaml
+    SEC-105-edit: wrote scripts/check-no-nodeports.sh
+    SEC-105-edit: wrote scripts/service-model-baseline.yaml
+    SEC-105-edit: wrote scripts/upstream-literals-baseline.txt
+    SEC-105-edit: wrote tests/e2e/bootstrap-kit/main_test.go
+    SEC-105-edit: wrote tests/e2e/playwright/tests/marketplace-cards.spec.ts
+    exit code: 0
+actual: |
+    SEC-105-edit: nothing changed: tests/e2e/bootstrap-kit/main_test.go: the text '//     sealed-secrets → spire → nats-jetstream → openbao → keycloak →' occurs 0 times, not 1
+    SEC-105-edit: nothing changed: tests/e2e/bootstrap-kit/main_test.go: the text '//\tcilium → cert-manager → flux → crossplane → sealed-secrets → spire →' occurs 0 times, not 1
+    exit code: 1
+reported_at: 2026-11-17T13:24:07Z
