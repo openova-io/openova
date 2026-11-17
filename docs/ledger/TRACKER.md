@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-17T15:45:04Z` |
+| Last refreshed | `2026-11-17T16:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-17T15:48 | [#8070](https://github.com/openova-io/openova/pull/8070) | #7087 | docs(ledger): plan update |
 | 2026-11-17T15:44 | [#8069](https://github.com/openova-io/openova/pull/8069) | #7087 | docs(ledger): plan update |
 | 2026-11-17T15:27 | [#8065](https://github.com/openova-io/openova/pull/8065) | #7087 | docs(ledger): plan update |
 | 2026-11-17T15:13 | [#8062](https://github.com/openova-io/openova/pull/8062) | #7922 | fix(cutover): step 03 copies the sandbox image nodes are con |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-17T07:36 | [#8026](https://github.com/openova-io/openova/pull/8026) | #7820 | chore(kit): kit slots 56 and 57, the flow server and the flo |
 | 2026-11-17T07:35 | [#8025](https://github.com/openova-io/openova/pull/8025) | #7864 | fix(ci): raise three golang bases, guard each base against i |
 | 2026-11-17T07:05 | [#8024](https://github.com/openova-io/openova/pull/8024) | #7087 | docs(ledger): plan update |
-| 2026-11-17T06:13 | [#8023](https://github.com/openova-io/openova/pull/8023) | #7799 | fix: give every Blueprint a bp- name and a visibility, and a |
 
 ---
 
