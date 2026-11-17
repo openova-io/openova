@@ -12,10 +12,10 @@
 # go.mod's `replace` directive resolves at build time.
 #
 # Two stages:
-#   build  — golang:1.23-alpine, vendored stdlib + module cache
+#   build  — golang:1.25.14-alpine3.24 by digest, vendored stdlib + module cache
 #   final  — alpine:3.20 minimal runtime (CA certs + the binary)
 
-FROM docker.io/library/golang:1.23-alpine AS build
+FROM docker.io/library/golang:1.25.14-alpine3.24@sha256:1ae0735f00daffa3aaf1363a5184c0d2dc55c78e3db4ec70241cdac97bf84b59 AS build
 WORKDIR /workspace
 
 # ── Stage 1: cache module downloads ──────────────────────────────────────

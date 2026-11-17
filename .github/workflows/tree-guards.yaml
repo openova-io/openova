@@ -367,6 +367,12 @@ jobs:
       - name: 'adoption-claims-compose | Every CloudAdoption the template applies can compose its Workspace'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: python3 scripts/check-adoption-claims-compose.py
+      - name: 'go-base-image | Self-test of the guard (every rule can fail)'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: python3 scripts/check-go-base-image.py --self-test
+      - name: 'go-base-image | The golang base of each container file is not older than the go line of its module'
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        run: python3 scripts/check-go-base-image.py
       - name: 'secret-guards | a randAlphaNum added to a real chart template fails G2'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: |
