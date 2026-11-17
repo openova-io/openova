@@ -33,7 +33,9 @@ import (
 //  1. stage, in every region: fetch rc/<id> from the upstream repository, merge
 //     it into that region's main (every commit of the Sovereign stays), apply the
 //     region's pivot to what the candidate added, push the result as
-//     release/<id>. A merge conflict in any region names the files and moves
+//     release/<id>. A conflicted file whose region side is only the region's
+//     registry rewrite is taken from the candidate (deleted when it deletes it);
+//     any other merge conflict in any region names the files and moves
 //     nothing. A dry run stops here and pushes nothing.
 //     Then the cutover chart of the staged commit, verified to be the one the
 //     candidate pins, is rendered: the rest of the delivery runs the

@@ -4,6 +4,13 @@ name: foundation-gate
 # Sovereign and commits the record to docs/ledger/acceptance/ on main, PASS or FAIL.
 #   unit       suite unit tests and gate tool self-tests, no cluster; also before every live run.
 #   candidate  with candidate_id only: scripts/release-candidate.sh verify; live needs it green.
+#   addresses  on the gate runner, environment gate: reads the control-plane addresses of every
+#              region with kubectl (scripts/gate-outside-dial.py addresses).
+#   outside    on a runner hosted by GitHub, whose address is in no list of the Sovereign's
+#              firewall: scripts/gate-outside-dial.py dial opens a TCP connection to port 6443 of
+#              each of those addresses. The job live gives the outcome to the suite as
+#              ACCEPT_API_PORT_OUTSIDE, and gate check NET-G02 judges it. When this job did not
+#              run, the value is empty and NET-G02 fails.
 #   live       environment gate, runner label from the input runner (default foundation-gate).
 #              Checks out this workflow's commit (the tools; the record is committed from here) and,
 #              in candidate/, the commit under test: the candidate's, or else the one the run was
@@ -106,6 +113,7 @@ on:
       - 'scripts/acceptance_record.py'
       - 'scripts/intent-lock-report.py'
       - 'scripts/gate-run-outcome.py'
+      - 'scripts/gate-outside-dial.py'
       - '.github/workflows/foundation-gate.yaml'
   merge_group:
 
@@ -131,6 +139,8 @@ jobs:
         run: python3 scripts/acceptance-gate.py --self-test
       - name: gate run outcome self-test
         run: python3 scripts/gate-run-outcome.py --self-test
+      - name: outside dial self-test
+        run: python3 scripts/gate-outside-dial.py --self-test
 
   candidate:
     name: verify the candidate
@@ -172,9 +182,73 @@ jobs:
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
           echo "Candidate rc/$CANDIDATE_ID verified at commit $commit" >> "$GITHUB_STEP_SUMMARY"
 
+  addresses:
+    name: control-plane addresses of ${{ inputs.env }}
+    needs: [unit, candidate]
+    if: >-
+      ${{ !cancelled() && github.event_name != 'pull_request' && github.event_name != 'merge_group' &&
+      needs.unit.result == 'success' &&
+      (needs.candidate.result == 'success' || (inputs.candidate_id == '' && needs.candidate.result == 'skipped')) }}
+    runs-on: ${{ inputs.runner }}
+    environment: gate
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      list: ${{ steps.read.outputs.list }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4.0.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.11'
+      - name: Read the control-plane addresses of every region (kubeconfigs never echoed)
+        id: read
+        env:
+          KA: ${{ secrets.ACCEPTANCE_KUBECONFIG_A }}
+          KB: ${{ secrets.ACCEPTANCE_KUBECONFIG_B }}
+        run: |
+          set -euo pipefail
+          if [ -z "$KA" ] || [ -z "$KB" ]; then echo "::error::ACCEPTANCE_KUBECONFIG_A/B secrets are not set"; exit 2; fi
+          umask 077; d="$RUNNER_TEMP/kube-addresses"; mkdir -p "$d"
+          trap 'rm -f "$d/a.yaml" "$d/b.yaml"' EXIT
+          printf '%s' "$KA" | base64 -d > "$d/a.yaml"
+          printf '%s' "$KB" | base64 -d > "$d/b.yaml"
+          for r in a b; do
+            kubectl --kubeconfig "$d/$r.yaml" get nodes -o json > "$d/$r.json"
+          done
+          list="$(python3 scripts/gate-outside-dial.py addresses "$d/a.json" "$d/b.json")"
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+          echo "Control-plane addresses: $list" >> "$GITHUB_STEP_SUMMARY"
+
+  outside:
+    name: dial the API port from outside
+    needs: [addresses]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      outcome: ${{ steps.dial.outputs.outcome }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Dial port 6443 of every control-plane address
+        id: dial
+        env:
+          ADDRESSES: ${{ needs.addresses.outputs.list }}
+        run: |
+          set -euo pipefail
+          outcome="$(python3 scripts/gate-outside-dial.py dial "$ADDRESSES")"
+          echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
+          { echo '### Port 6443 from a runner hosted by GitHub'; echo; echo '```'; echo "$outcome" | tr ',' '\n'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
   live:
     name: live gate run on ${{ inputs.env }}
-    needs: [unit, candidate]
+    needs: [unit, candidate, outside]
     if: >-
       ${{ !cancelled() && github.event_name != 'pull_request' && github.event_name != 'merge_group' &&
       needs.unit.result == 'success' &&
@@ -282,6 +356,7 @@ jobs:
           ACCEPT_PREVIOUS_WIPE_ORPHANS: ${{ inputs.previous_wipe_orphans }}
           ACCEPT_PREFLIGHT: ${{ inputs.preflight }}
           ACCEPT_NODES_REQUESTED: ${{ inputs.nodes_requested }}
+          ACCEPT_API_PORT_OUTSIDE: ${{ needs.outside.outputs.outcome }}
           MORE_CAPABILITIES: ${{ inputs.capabilities }}
           ENV_LABEL: ${{ inputs.env }}
         run: |

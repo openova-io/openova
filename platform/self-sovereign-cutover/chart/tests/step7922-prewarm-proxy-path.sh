@@ -181,6 +181,8 @@ stub_kubectl() {
     case "$*" in
       "get pods -A -o json") cat "${FIX}/${r}-pods.json" ;;
       "get deployments,statefulsets,daemonsets,cronjobs,jobs -A -o json") cat "${FIX}/${r}-wl.json" ;;
+      # No nodes here: the sandbox image each node reports is tests/step03-node-sandbox-image.sh's case.
+      "get nodes -o json") echo '{"items":[]}' ;;
       *) echo "unexpected kubectl $*" >&2; return 9 ;;
     esac
   }

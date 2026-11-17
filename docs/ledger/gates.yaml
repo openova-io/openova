@@ -330,7 +330,7 @@ checks:
   title: Agent tokens
   owner: AIP
   state: required
-  runs_in: [local, cloud]
+  runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
@@ -1158,7 +1158,7 @@ checks:
   title: Audit survives a restart
   owner: CTL
   state: required
-  runs_in: [local, cloud]
+  runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
@@ -1328,7 +1328,7 @@ checks:
   title: Install and data
   owner: FND
   state: required
-  runs_in: [local, cloud]
+  runs_in: [cloud]
   destructive: false
   needs: [multi-region]
   proof: running
@@ -1340,7 +1340,7 @@ checks:
   title: Planned move
   owner: FND
   state: required
-  runs_in: [local, cloud]
+  runs_in: [cloud]
   destructive: false
   needs: [multi-region]
   proof: running
@@ -1352,7 +1352,7 @@ checks:
   title: Clean delete
   owner: FND
   state: required
-  runs_in: [local, cloud]
+  runs_in: [cloud]
   destructive: false
   needs: [multi-region]
   proof: running
@@ -1748,12 +1748,13 @@ checks:
 - id: NET-G02
   title: Security check NET-G02
   owner: NET
-  state: not-built
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Published with the ticket of the piece that delivers it.
+  implementation: tests/acceptance/sovereign/internal/suite/check_api_port.go
   delivered_by: NET-013
 - id: NET-G03
   title: kube-proxy absent
@@ -2376,7 +2377,7 @@ checks:
   title: The Sovereign object is written
   owner: SOV
   state: required
-  runs_in: [local, cloud]
+  runs_in: [cloud]
   destructive: false
   needs: []
   proof: running

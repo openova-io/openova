@@ -143,8 +143,11 @@ rules:
     resources: ["ciliumnetworkpolicies"]
     verbs: ["get", "list", "watch"]
   - apiGroups: [""]
-    resources: ["nodes"]   # registry-pivot DaemonSet reports node status into the status ConfigMap; step 07 (#4996) reads node EVS zone labels to spot a broken-CSI node
+    resources: ["nodes"]   # registry-pivot DaemonSet reports node status into the status ConfigMap; step 07 (#4996) reads node EVS zone labels to spot a broken-CSI node; step 03 lists the nodes whose sandbox image it reads
     verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes/proxy"]   # step 03 reads GET /api/v1/nodes/<node>/proxy/metrics/cadvisor: the kubelet reports the sandbox (pause) image each Pod starts with, which no Pod spec names. Read-only (get). WITHOUT it the walk only names the missing grant and that image is never copied, so nodes cannot start Pods once they pull from the local registry; tests/rbac-coverage.sh skips `get --raw`, so tests/step03-node-sandbox-image.sh asserts this grant.
+    verbs: ["get"]
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]   # step 07 (#4996) maps catalyst-api's PVCs -> PV names to scope the EVS detach-gate to catalyst-api's OWN volumes; step 08 (#5091) rule-c reads each roll candidate's PVC accessModes + storageClassName to skip RWO-EVS stateful singletons
     verbs: ["get", "list"]

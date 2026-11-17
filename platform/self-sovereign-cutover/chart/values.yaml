@@ -973,6 +973,12 @@ prewarm:
   # StatefulSet/DaemonSet templates, after this step. The follower Harbor
   # shares this Harbor's database and bucket (#6764 2b), so one durable
   # assertion through this region's Harbor core answers for both.
+  # The walk also reads each node's sandbox (pause) image (hw307 17 Nov: worker
+  # w26b2e6 could start no Pod, its pause image absent from the local registry):
+  # it is in no Pod spec, so the kubelet's report of what each Pod sandbox runs
+  # (GET nodes/<n>/proxy/metrics/cadvisor, series with container="" and a pod)
+  # is the source. Phase A copies it and the run guard certifies it like any
+  # image a pod runs. tests/step03-node-sandbox-image.sh.
   proxyDownDirectFirst:
     enabled: true
     # Per-probe curl timeout (seconds) and probe attempt count. Worst case

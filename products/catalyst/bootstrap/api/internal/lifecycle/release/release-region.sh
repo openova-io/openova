@@ -13,8 +13,15 @@
 #            region's pivot again to what the candidate added (rewrite_kit_tree
 #            of cutover step 06, KIT_REWRITE; for a follower region also the
 #            folders and image-registry seams of the follower pivot), then push
-#            the result as release/CANDIDATE. A merge conflict moves nothing and
-#            names each file. DRY_RUN=true reports and pushes nothing.
+#            the result as release/CANDIDATE. The candidate decides which files
+#            exist and what they hold; this region's own change to a file it
+#            pivots is its registry rewrite, which the stage applies again. So
+#            a conflicted file whose region side is exactly the rewrite of the
+#            merge base (step 06's rewrite_kit_tree, with or without the
+#            imageRegistry seam of step 07) is taken from the candidate:
+#            deleted when the candidate deletes it, else the candidate's content
+#            with the rewrite applied again. Any other conflict moves nothing
+#            and names each file. DRY_RUN=true reports and pushes nothing.
 #   check    release/CANDIDATE is still STAGED_SHA and UPSTREAM_BRANCH is still
 #            MAIN_SHA, the commit the staged one was merged onto: a promote is a
 #            fast-forward.
@@ -77,6 +84,89 @@ pins() {
   fi
 }
 
+kit="clusters/_template/bootstrap-kit"
+
+# region_pivot: this region's pivot, read from the branch it runs (${before}):
+# cutover step 06 wrote one local chart prefix (and, with a private CA, one
+# certSecretRef) into the kit. Sets local_prefix, trust_secret and reg (the
+# registry host the imageRegistry seams name), or pivot_why when the branch
+# does not tell them.
+region_pivot() {
+  pivot_why="" local_prefix="" trust_secret="" reg=""
+  prefixes=$(git grep -h -E '^[[:space:]]*url:[[:space:]]*oci://[^[:space:]]+[[:space:]]*$' "${before}" -- "${kit}" \
+    | sed -E 's/^[[:space:]]*url:[[:space:]]*//; s/[[:space:]]*$//' | grep -vxF "${UPSTREAM_PREFIX}" | grep -E '/openova-io$' | sort -u || true)
+  n_prefix=$(printf '%s\n' "${prefixes}" | grep -c . || true)
+  if [ "${n_prefix}" -ne 1 ]; then
+    pivot_why="cannot tell this region's chart registry: ${n_prefix} local chart prefixes in ${kit} of ${branch} ($(printf '%s\n' "${prefixes}" | tr '\n' ' '))"
+    return 0
+  fi
+  local_prefix="${prefixes}"
+  lp_re=$(printf '%s' "${local_prefix}" | sed 's/[].[*^$\\]/\\&/g')
+  trusts=$(git grep -h -A2 -E "^[[:space:]]*url:[[:space:]]*${lp_re}[[:space:]]*\$" "${before}" -- "${kit}" \
+    | awk '/^[[:space:]]*certSecretRef:[[:space:]]*$/ {c=1; next} c && /^[[:space:]]*name:/ {print $2} {c=0}' | sort -u || true)
+  if [ "$(printf '%s\n' "${trusts}" | grep -c . || true)" -gt 1 ]; then
+    pivot_why="more than one certSecretRef beside ${local_prefix} in ${kit} of ${branch}: $(printf '%s\n' "${trusts}" | tr '\n' ' ')"
+    return 0
+  fi
+  trust_secret="${trusts}"
+  reg="${local_prefix#oci://}"; reg="${reg%%/*}"
+}
+
+# seam FILE: the imageRegistry seam of cutover step 07 and of the follower
+# pivot (a values.global.imageRegistry line at 6 spaces), set to ${reg}.
+seam() {
+  sed -i -E "s|^([[:space:]]{6}imageRegistry:[[:space:]]*)['\"]?[^'\"]*['\"]?[[:space:]]*\$|\1'${reg}'|" "$1"
+}
+
+# explained FILE: in the merge that stopped, this region's side of FILE is
+# exactly its registry rewrite of the merge base: cutover step 06's
+# rewrite_kit_tree (KIT_REWRITE, the same bytes the stage applies below), and
+# for a file step 07 pivoted also the imageRegistry seam. Sets how to "kit" or
+# "seam". Not explained: a file outside the folders the stage pivots, a file
+# this Sovereign deleted or added, any other edit, or a region whose pivot the
+# branch does not tell.
+explained() {
+  how=""
+  [ -z "${pivot_why}" ] && [ -r "${KIT_REWRITE:-}" ] || return 1
+  case "$1" in *.yaml) ;; *) return 1 ;; esac
+  _in=""
+  for _d in "${kit}" ${FOLLOWER_SOURCE_DIRS}; do [ "${1%/*}" != "${_d%/}" ] || _in=1; done
+  [ -n "${_in}" ] || return 1
+  _base=$(git rev-parse -q --verify ":1:$1") || return 1
+  _ours=$(git rev-parse -q --verify ":2:$1") || return 1
+  _x="${work}/explain"
+  rm -rf "${_x}"; mkdir -p "${_x}"
+  git cat-file blob "${_base}" >"${_x}/${1##*/}"
+  ( . "${KIT_REWRITE}"; edited=0; rewrite_kit_tree "${_x}" ) >>"${work}/explain.log" 2>&1 || return 1
+  if [ "$(git hash-object --no-filters "${_x}/${1##*/}")" = "${_ours}" ]; then how=kit; return 0; fi
+  seam "${_x}/${1##*/}"
+  if [ "$(git hash-object --no-filters "${_x}/${1##*/}")" = "${_ours}" ]; then how=seam; return 0; fi
+  return 1
+}
+
+# take_candidate FILE...: resolve every explained conflict from the candidate
+# (its deletion wins over this region's rewrite; its content is taken and the
+# rewrite applied again after the merge, the seam through seam_files). Sets
+# unexplained to the files it leaves and resolved to the report of the others.
+take_candidate() {
+  unexplained="" resolved=""
+  for _c in "$@"; do
+    if ! explained "${_c}"; then
+      unexplained="${unexplained} ${_c}"
+    elif git rev-parse -q --verify ":3:${_c}" >/dev/null; then
+      git checkout --quiet --theirs -- "${_c}"
+      git add -- "${_c}"
+      [ "${how}" = kit ] || seam_files="${seam_files} ${_c}"
+      resolved="${resolved}${_c}: the content of ${rc_ref}, this region's registry rewrite (${how}) applied again
+"
+    else
+      git rm --quiet -- "${_c}"
+      resolved="${resolved}${_c}: deleted by ${rc_ref}; this region changed it only by its registry rewrite (${how})
+"
+    fi
+  done
+}
+
 stage() {
   say "stage ${rc_ref} onto ${branch} of ${local_url} (dry run: ${DRY_RUN})"
   up_rc=0
@@ -113,41 +203,40 @@ stage() {
     git log --format='%h %s' "${base}..${cand}" | head -n "${REPORT_MAX}" | while IFS= read -r l; do report "commit ${l}"; done
 
     git checkout --quiet -B "${staging}" "${before}"
-    if ! git merge --no-ff --no-edit -m "release: deliver ${rc_ref} (${cand}) onto ${branch}" "${cand}" >"${work}/merge.log" 2>&1; then
+    region_pivot
+    seam_files=""
+    merge_msg="release: deliver ${rc_ref} (${cand}) onto ${branch}"
+    if ! git merge --no-ff --no-edit -m "${merge_msg}" "${cand}" >"${work}/merge.log" 2>&1; then
       conflicts=$(git diff --name-only --diff-filter=U)
       [ -n "${conflicts}" ] || fail "git merge failed without a conflict: $(tail -n 1 "${work}/merge.log")"
-      git merge --abort
-      for f in ${conflicts}; do report "conflict ${f}"; done
-      say "CONFLICT: ${rc_ref} and this Sovereign's commits on ${branch} change the same lines; nothing was pushed, ${branch} is still ${before}"
-      result "phase=conflict main=${before} candidate=${cand}"
-      exit 3
+      take_candidate ${conflicts}
+      if [ -n "${unexplained}" ]; then
+        git merge --abort
+        for f in ${unexplained}; do report "conflict ${f}"; done
+        say "CONFLICT: ${rc_ref} and this Sovereign's commits on ${branch} change the same files, beyond this region's registry rewrite${pivot_why:+ (${pivot_why})}; nothing was pushed, ${branch} is still ${before}"
+        result "phase=conflict main=${before} candidate=${cand}"
+        exit 3
+      fi
+      [ -z "$(git diff --name-only --diff-filter=U)" ] || fail "files are still unmerged after the candidate was taken: $(git diff --name-only --diff-filter=U | tr '\n' ' ')"
+      printf '%s' "${resolved}" | while IFS= read -r l; do report "resolved ${l}"; done
+      git commit --quiet -m "${merge_msg}" -m "Taken from the candidate (this region's side was only its registry rewrite):
+$(printf '%s' "${resolved}" | sed 's/^/- /')"
     fi
 
-    # This region's pivot, read from the branch it runs: cutover step 06 wrote one
-    # local chart prefix (and, with a private CA, one certSecretRef) into the kit.
-    kit="clusters/_template/bootstrap-kit"
+    # This region's pivot (region_pivot, read from the branch it runs) applied
+    # again to the merged tree.
     [ -d "${kit}" ] || refuse "${kit} is not in the merged tree"
-    prefixes=$(git grep -h -E '^[[:space:]]*url:[[:space:]]*oci://[^[:space:]]+[[:space:]]*$' "${before}" -- "${kit}" \
-      | sed -E 's/^[[:space:]]*url:[[:space:]]*//; s/[[:space:]]*$//' | grep -vxF "${UPSTREAM_PREFIX}" | grep -E '/openova-io$' | sort -u || true)
-    n_prefix=$(printf '%s\n' "${prefixes}" | grep -c . || true)
-    [ "${n_prefix}" -eq 1 ] || refuse "cannot tell this region's chart registry: ${n_prefix} local chart prefixes in ${kit} of ${branch} ($(printf '%s\n' "${prefixes}" | tr '\n' ' '))"
-    local_prefix="${prefixes}"
-    lp_re=$(printf '%s' "${local_prefix}" | sed 's/[].[*^$\\]/\\&/g')
-    trusts=$(git grep -h -A2 -E "^[[:space:]]*url:[[:space:]]*${lp_re}[[:space:]]*\$" "${before}" -- "${kit}" \
-      | awk '/^[[:space:]]*certSecretRef:[[:space:]]*$/ {c=1; next} c && /^[[:space:]]*name:/ {print $2} {c=0}' | sort -u || true)
-    [ "$(printf '%s\n' "${trusts}" | grep -c . || true)" -le 1 ] || refuse "more than one certSecretRef beside ${local_prefix} in ${kit} of ${branch}: $(printf '%s\n' "${trusts}" | tr '\n' ' ')"
+    [ -z "${pivot_why}" ] || refuse "${pivot_why}"
     [ -r "${KIT_REWRITE:-}" ] || fail "the kit rewrite of cutover step 06 is not readable at '${KIT_REWRITE:-}'"
     edited=0
-    trust_secret="${trusts}"
     . "${KIT_REWRITE}"
     rewrite_kit_tree "${kit}" >"${work}/rewrite.log"
     pivot_paths="${kit}"
     for d in ${FOLLOWER_SOURCE_DIRS}; do
       [ ! -d "${d}" ] || { rewrite_kit_tree "${d}" >>"${work}/rewrite.log"; pivot_paths="${pivot_paths} ${d}"; }
     done
-    reg="${local_prefix#oci://}"; reg="${reg%%/*}"
-    for s in ${IMAGE_REGISTRY_SLOT_FILES}; do
-      [ ! -f "${s}" ] || sed -i -E "s|^([[:space:]]{6}imageRegistry:[[:space:]]*)['\"]?[^'\"]*['\"]?[[:space:]]*\$|\1'${reg}'|" "${s}"
+    for s in ${IMAGE_REGISTRY_SLOT_FILES} ${seam_files}; do
+      [ ! -f "${s}" ] || seam "${s}"
     done
     # Fail closed: a url line still naming the upstream prefix (quoted, or with
     # trailing text the rewrite does not match) would re-tether this region.
