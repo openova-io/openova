@@ -358,10 +358,6 @@
           // console.<slug>.omantel.biz on the production Sovereign — an
           // unreachable host that broke every org-create (the #4176 P0).
           parent_domain: cart.tld || '',
-          // Forward Sandbox agent picks (Wave 4). The tenant-service
-          // only acts on this when `apps` contains 'sandbox'; for all
-          // other carts it's persisted and ignored.
-          agents: cart.agents || [],
           // TBD-V18-D (follow-up to PR #2038) — thread the
           // customer-chosen configSchema values into the install POST
           // body, keyed by app slug. Tenant-service persists this on
@@ -371,7 +367,7 @@
           // gitops-commit-to-tenant-repo, per TBD-V26 #2040) can read
           // the values when materialising the HelmRelease values.
           // Empty record when no app in the cart exposes a
-          // configSchema (Ghost / Nextcloud / Sandbox today).
+          // configSchema (Ghost / Nextcloud today).
           app_configs: cart.appConfigs || {},
           // #4956 — DEFER the Org launch until billing settles. The tenant
           // service persists the Org shell (so billing can reference its id)

@@ -32,9 +32,10 @@ type Tenant struct {
 	OwnerEmail string   `bson:"owner_email,omitempty" json:"owner_email,omitempty"`
 	PlanID     string   `bson:"plan_id" json:"plan_id"`
 	Apps       []string `bson:"apps" json:"apps"`
-	// Agents carries the coding-agent picks from the marketplace AppDetail
-	// surface. They were the catalogue of the withdrawn Sandbox product
-	// (decision record 0023); nothing reads them any more. Tolerated empty.
+	// Agents holds the coding-agent picks that older storefronts sent with a
+	// cart. They were the catalogue of the withdrawn Sandbox product
+	// (decision record 0023). No code sets or acts on them any more; the
+	// field stays so that a stored record keeps its shape.
 	Agents []string `bson:"agents,omitempty" json:"agents,omitempty"`
 	// AppStates tracks per-app lifecycle (keyed by app ID). Values:
 	// "installing" | "uninstalling" | "failed". Absent means the app is in

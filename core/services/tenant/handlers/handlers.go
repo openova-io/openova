@@ -259,11 +259,6 @@ type createOrgRequest struct {
 	// empty (legacy / single-domain Sovereigns fall back to the
 	// Sovereign FQDN in deriveConsoleHost).
 	ParentDomain string `json:"parent_domain"`
-	// Agents — coding-agent picks the marketplace still sends with a
-	// cart. They were the catalogue of the withdrawn Sandbox product
-	// (decision record 0023); nothing acts on them any more. They are
-	// still persisted, so a stored record keeps its shape. Tolerated empty.
-	Agents []string `json:"agents"`
 	// TBD-V18-D follow-up to PR #2038 — per-app configSchema
 	// values, keyed by app SLUG. Each inner map is `ConfigField.Key`
 	// → field-typed primitive (int / string / bool). Persisted on
@@ -380,7 +375,6 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 		OwnerEmail:   ownerEmail,
 		PlanID:       body.PlanID,
 		Apps:         body.Apps,
-		Agents:       body.Agents,
 		AddOns:       body.AddOns,
 		AppConfigs:   body.AppConfigs,
 		Subdomain:    body.Slug,
