@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-16T14:44:59.428Z",
+  "generatedAt": "2026-11-17T05:25:54.634Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -6043,20 +6043,6 @@
       "label": "hcloud-ccm",
       "file": "55-bp-hcloud-ccm.yaml",
       "order": 55
-    },
-    {
-      "id": "bp-openova-flow-server",
-      "slug": "openova-flow-server",
-      "label": "openova-flow-server",
-      "file": "56-bp-openova-flow-server.yaml",
-      "order": 56
-    },
-    {
-      "id": "bp-openova-flow-emitter",
-      "slug": "openova-flow-emitter",
-      "label": "openova-flow-emitter",
-      "file": "57-bp-openova-flow-emitter.yaml",
-      "order": 57
     },
     {
       "id": "bp-vcluster-helmrepo",

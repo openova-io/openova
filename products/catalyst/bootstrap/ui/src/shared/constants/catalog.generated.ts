@@ -6329,20 +6329,6 @@ export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = [
     "order": 55
   },
   {
-    "id": "bp-openova-flow-server",
-    "slug": "openova-flow-server",
-    "label": "openova-flow-server",
-    "file": "56-bp-openova-flow-server.yaml",
-    "order": 56
-  },
-  {
-    "id": "bp-openova-flow-emitter",
-    "slug": "openova-flow-emitter",
-    "label": "openova-flow-emitter",
-    "file": "57-bp-openova-flow-emitter.yaml",
-    "order": 57
-  },
-  {
     "id": "bp-vcluster-helmrepo",
     "slug": "vcluster-helmrepo",
     "label": "vcluster-helmrepo",

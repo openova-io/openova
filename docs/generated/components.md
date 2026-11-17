@@ -81,8 +81,8 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | platform/openbao | bp-openbao | bp-openbao | unlisted | 08 |
 | platform/openclaw | bp-openclaw | bp-openclaw | listed | - |
 | platform/openmeter | bp-openmeter | bp-openmeter | listed | - |
-| platform/openova-flow-emitter | bp-openova-flow-emitter | - | - | 57 |
-| platform/openova-flow-server | bp-openova-flow-server | - | - | 56 |
+| platform/openova-flow-emitter | bp-openova-flow-emitter | - | - | - |
+| platform/openova-flow-server | bp-openova-flow-server | - | - | - |
 | platform/opensearch | - | bp-opensearch | - | - |
 | platform/opentelemetry | bp-opentelemetry | opentelemetry | - | 20 |
 | platform/opentelemetry-operator | bp-opentelemetry-operator | bp-opentelemetry-operator | unlisted | 19c |
