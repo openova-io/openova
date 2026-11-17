@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-17T13:45:03Z` |
+| Last refreshed | `2026-11-17T14:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-17T13:49 | [#8044](https://github.com/openova-io/openova/pull/8044) | #7816 | feat(fingate): internal authorisation API package with the t |
+| 2026-11-17T13:48 | [#8043](https://github.com/openova-io/openova/pull/8043) | #7852 | feat(ops-records): alert signal intake and the rule path tha |
+| 2026-11-17T13:50 | [#8042](https://github.com/openova-io/openova/pull/8042) | #7842 | test(charts): function tests for the policy, reloader, cross |
+| 2026-11-17T13:48 | [#8041](https://github.com/openova-io/openova/pull/8041) | #7853 | feat(ops-records): guard library agentguard with its adversa |
 | 2026-11-17T13:30 | [#8038](https://github.com/openova-io/openova/pull/8038) | #8037 | docs(ledger): result of the lab test MIG-030 (MIG-030) |
 | 2026-11-17T13:21 | [#8034](https://github.com/openova-io/openova/pull/8034) | #7087 | docs(ledger): plan update |
 | 2026-11-17T13:20 | [#8033](https://github.com/openova-io/openova/pull/8033) | #7823 | chore(kit): remove bootstrap-kit slot 05, the Sealed Secrets |
@@ -333,10 +337,6 @@ flowchart LR
 | 2026-11-16T14:56 | [#8006](https://github.com/openova-io/openova/pull/8006) | #7989 | chore(secrets): the Secret register lists kube-system/parent |
 | 2026-11-16T14:24 | [#8005](https://github.com/openova-io/openova/pull/8005) | #7964 | fix(model-meter): meter streamed answers from their final us |
 | 2026-11-16T14:26 | [#8004](https://github.com/openova-io/openova/pull/8004) | #7972 | feat(console): console pages become a third source of menu c |
-| 2026-11-16T14:23 | [#8003](https://github.com/openova-io/openova/pull/8003) | #7992 | docs(ledger): result of the lab test SOV-750 (SOV-750) |
-| 2026-11-16T14:23 | [#8001](https://github.com/openova-io/openova/pull/8001) | #7987 | docs(runbooks): how and when to rotate the etcd encryption k |
-| 2026-11-16T14:25 | [#8000](https://github.com/openova-io/openova/pull/8000) | #7983 | fix(network): Gateway listeners admit routes only from the k |
-| 2026-11-16T14:24 | [#7999](https://github.com/openova-io/openova/pull/7999) | #7855 | feat(provisioning): emitted chart sources and pull secret co |
 
 ---
 
