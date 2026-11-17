@@ -1,0 +1,23 @@
+schema: openova.io/plan-wrong/v1
+id: SVC-041
+ticket_rev: 1
+base_commit: 63ccd572130366bdd2da20475e8771f28466da64
+stage: step
+ref: Branch
+command: |
+    git switch -c wp/SVC-041 origin/main
+expected: |
+    Run `git switch -c wp/SVC-041 origin/main`: the branch wp/SVC-041 is created from origin/main and checked out.
+actual: |
+    First run:
+    fatal: A branch named 'wp/SVC-041' already exists.
+    Second run (rule 19), `git switch -c wp/SVC-041 origin/main; echo "exit code: $?"`:
+    fatal: A branch named 'wp/SVC-041' already exists.
+    exit code: 128
+    The local branch belongs to another worktree of this repository; `git worktree list | grep -F '[wp/SVC-041]'` printed:
+    /home/openova/repos/openova/.claude/worktrees/wf_c116fe92-686-1        9d71d588b [wp/SVC-041]
+    `git reflog show --date=iso wp/SVC-041` printed:
+    9d71d588b wp/SVC-041@{2026-11-17 13:33:52 +0800}: branch: Created from origin/main
+    The remote holds no claim: `git ls-remote --exit-code --heads origin wp/SVC-041 > /dev/null; echo "exit code: $?"` printed `exit code: 2` at 05:35:42Z, 05:36:18Z and 05:36:52Z.
+    No file of the package was changed and nothing was pushed to wp/SVC-041.
+reported_at: 2026-11-17T05:36:52Z
