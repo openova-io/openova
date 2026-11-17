@@ -1,0 +1,48 @@
+# Crossplane Function function-patch-and-transform (CLD-064).
+#
+# The Composition opentofu-cloud-adoption.compose.openova.io
+# (platform/crossplane-claims/chart/templates/compositions/cloudadoption.yaml)
+# runs in Pipeline mode. Its one step calls this Function, which applies the
+# Composition's resources, patches and transforms as Resources mode did.
+# Without it no CloudAdoption composes.
+#
+# Installed by the `infrastructure-providers` Flux Kustomization, beside
+# provider-opentofu (./provider-opentofu.yaml). The package is read from the
+# upstream registry, as the provider package is. The workflow
+# .github/workflows/mirror-crossplane-packages.yaml keeps a copy of the same
+# tag and digest in harbor.openova.io/crossplane.
+apiVersion: pkg.crossplane.io/v1
+kind: Function
+metadata:
+  name: function-patch-and-transform
+  labels:
+    catalyst.openova.io/component: crossplane
+    catalyst.openova.io/adoption-seam: "true"
+spec:
+  package: xpkg.upbound.io/crossplane-contrib/function-patch-and-transform:v0.11.2
+  runtimeConfigRef:
+    name: function-patch-and-transform
+---
+# DeploymentRuntimeConfig: the Function's pod declares CPU and memory
+# requests. The Kyverno policy resource-requests (Enforce) refuses a pod
+# without them, as it refused the pod of provider-opentofu. The values are
+# those of provider-opentofu's runtime config.
+apiVersion: pkg.crossplane.io/v1beta1
+kind: DeploymentRuntimeConfig
+metadata:
+  name: function-patch-and-transform
+spec:
+  deploymentTemplate:
+    spec:
+      selector: {}
+      template:
+        spec:
+          containers:
+            - name: package-runtime
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 256Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi

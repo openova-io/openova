@@ -65,7 +65,7 @@ echo "== Phase 1: render chart + extract the cloudadoption inline module =="
 helm template adoption-region-check "${CHART}" > "${WORK}/rendered.yaml"
 
 yq ea "select(.kind == \"Composition\" and .metadata.name == \"${COMPOSITION}\") \
-  | .spec.resources[] | select(.name == \"adoption-workspace\") \
+  | .spec.pipeline[].input.resources[] | select(.name == \"adoption-workspace\") \
   | .base.spec.forProvider.module" "${WORK}/rendered.yaml" > "${WORK}/module.tf"
 
 if [ ! -s "${WORK}/module.tf" ] || [ "$(head -c4 "${WORK}/module.tf")" = "null" ]; then
