@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-17T05:15:04Z` |
+| Last refreshed | `2026-11-17T05:30:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-17T05:22 | [#8019](https://github.com/openova-io/openova/pull/8019) | #7965 | feat(api): agent tokens, the signer key set route and gate c |
+| 2026-11-17T05:21 | [#8018](https://github.com/openova-io/openova/pull/8018) | #7978 | feat(suite): check FND-G01 has a self form that needs no che |
+| 2026-11-17T05:21 | [#8017](https://github.com/openova-io/openova/pull/8017) | #7980 | feat(chart): add stage machine-ops of the intent lock in aud |
+| 2026-11-17T05:20 | [#8016](https://github.com/openova-io/openova/pull/8016) | #7977 | ci: build, start and sign the image of the acceptance suite  |
 | 2026-11-16T16:19 | [#8015](https://github.com/openova-io/openova/pull/8015) | #7807 | fix(provisioner): the variables document of a new Sovereign  |
 | 2026-11-16T16:19 | [#8014](https://github.com/openova-io/openova/pull/8014) | #7885 | feat(suite): the acceptance suite runs in self inside a clus |
 | 2026-11-16T15:56 | [#8013](https://github.com/openova-io/openova/pull/8013) | #7087 | docs(ledger): plan update |
@@ -333,10 +337,6 @@ flowchart LR
 | 2026-11-16T09:57 | [#7956](https://github.com/openova-io/openova/pull/7956) | #7741 | ci: the local pack runs the console, mints an owner session  |
 | 2026-11-16T09:58 | [#7955](https://github.com/openova-io/openova/pull/7955) | #7841 | feat(org-controller): render the Organization fence, two hos |
 | 2026-11-16T05:39 | [#7953](https://github.com/openova-io/openova/pull/7953) | #7666 | fix(org-quota): drop the metering-sidecar term from the plat |
-| 2026-11-16T09:59 | [#7952](https://github.com/openova-io/openova/pull/7952) | #7938 | fix(cutover): step 03 names a failed read as a read, and nev |
-| 2026-11-16T05:24 | [#7951](https://github.com/openova-io/openova/pull/7951) | #7831 | test(gate): the baseline of the first fresh installation of  |
-| 2026-11-16T05:16 | [#7949](https://github.com/openova-io/openova/pull/7949) | #7881 | refactor(model-meter): move the metering sidecar, take ident |
-| 2026-11-16T05:16 | [#7948](https://github.com/openova-io/openova/pull/7948) | #7882 | feat(api): package clusterwrite decides and records the dire |
 
 ---
 
