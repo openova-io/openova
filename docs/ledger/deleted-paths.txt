@@ -155,3 +155,5 @@ products/catalyst/chart/templates/controllers/blueprint-controller-clusterrole.y
 products/catalyst/chart/templates/controllers/blueprint-controller-clusterrolebinding.yaml
 products/catalyst/chart/templates/controllers/blueprint-controller-deployment.yaml
 products/catalyst/chart/templates/controllers/blueprint-controller-serviceaccount.yaml
+clusters/_template/bootstrap-kit/56-bp-openova-flow-server.yaml
+clusters/_template/bootstrap-kit/57-bp-openova-flow-emitter.yaml

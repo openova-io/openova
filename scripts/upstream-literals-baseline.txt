@@ -1,5 +1,5 @@
 infra=46
-kit=70
+kit=68
 charts=152
 api=20
 controllers=9

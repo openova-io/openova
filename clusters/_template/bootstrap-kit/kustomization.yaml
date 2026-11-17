@@ -338,16 +338,6 @@ resources:
   # which is Ready-with-no-class on Huawei). MUST be registered here or Flux
   # never creates the HR (the #3191 forgotten-slot wedge class).
   - 55b-bp-huawei-evs-csi.yaml
-  # OpenovaFlow observability cohort — slots 56/57. Three-agent split
-  # (Agent #1: TS @openova/flow-core + @openova/flow-canvas, Agent #2:
-  # Go server + flux adapter, Agent #3: bootstrap-kit + catalyst-api
-  # proxy integration). Slot 56 (server) installs on PRIMARY clusters
-  # only; per-Sovereign overlay disables on secondaries. Slot 57
-  # (emitter) is a DaemonSet — runs on every cluster (mother + every
-  # Sovereign + every secondary region) so each region's Flux events
-  # land in the same per-deployment flow.
-  - 56-bp-openova-flow-server.yaml
-  - 57-bp-openova-flow-emitter.yaml
   # #4291 Workstream C — slots 58 (bp-mgmt-vcluster) + 59 (bp-rtz-vcluster)
   # RETIRED. The mgmt + rtz planes are no longer vClusters: every component
   # (keycloak/gitea/harbor/grafana/openbao/guacamole/newapi/nats-system/loki/
