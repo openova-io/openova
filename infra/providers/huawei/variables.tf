@@ -241,6 +241,30 @@ variable "ssh_allowed_cidrs" {
   default     = []
 }
 
+# NET-011 — the sources of the Kubernetes API port 6443 besides the
+# Sovereign's own addresses. Each entry is an IPv4 network in canonical CIDR
+# form; a prefix of length 0 (0.0.0.0/0, ::/0), an IPv6 range, a bare address
+# and a range with host bits set are refused. Empty = nobody from that list.
+variable "admin_cidrs" {
+  type        = list(string)
+  description = "IPv4 ranges the sovereign-admin reaches the Kubernetes API (port 6443) from. Written by catalyst-api from the request field adminCIDRs or CATALYST_DEFAULT_ADMIN_CIDRS."
+  default     = []
+  validation {
+    condition     = alltrue([for c in var.admin_cidrs : can(cidrnetmask(c)) && !endswith(c, "/0") && try(cidrsubnet(c, 0, 0) == c, false)])
+    error_message = "admin_cidrs entries must be IPv4 networks in canonical CIDR form (such as 198.51.100.0/28), never 0.0.0.0/0."
+  }
+}
+
+variable "provisioner_cidrs" {
+  type        = list(string)
+  description = "IPv4 ranges the provisioner (the parent's catalyst-api) reaches the Kubernetes API (port 6443) from: its egress addresses. Written by catalyst-api from CATALYST_EGRESS_CIDRS."
+  default     = []
+  validation {
+    condition     = alltrue([for c in var.provisioner_cidrs : can(cidrnetmask(c)) && !endswith(c, "/0") && try(cidrsubnet(c, 0, 0) == c, false)])
+    error_message = "provisioner_cidrs entries must be IPv4 networks in canonical CIDR form (such as 192.0.2.10/32), never 0.0.0.0/0."
+  }
+}
+
 # ── Cloud-init handover postback + identity (mirrors Hetzner module) ──────
 
 variable "org_name" {

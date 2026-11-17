@@ -1525,8 +1525,8 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := req.Validate(); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+	if status, err := provisioner.AdmitRequest(&req); err != nil {
+		writeJSON(w, status, map[string]string{"error": err.Error()})
 		return
 	}
 

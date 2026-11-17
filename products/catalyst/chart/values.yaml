@@ -1280,6 +1280,26 @@ services:
 agentTokens:
   callers: '[{"caller": "system:serviceaccount:catalyst-system:catalyst-conformance", "organizations": ["conformance"], "maxTier": "viewer", "agents": ["conformance-probe"]}]'
 
+# ─── provisioner: who reaches a new Sovereign's API port (NET-011) ────────
+# A new Sovereign opens its Kubernetes API port 6443 to its own addresses
+# and to two lists that catalyst-api passes to OpenTofu:
+#   egressCIDRs           the source ranges of this catalyst-api's own
+#                         outbound traffic (its egress or NAT addresses).
+#                         They become the OpenTofu variable provisioner_cidrs.
+#                         Empty: every create request is refused with
+#                         HTTP 422, because the provisioner could not reach
+#                         the new cluster.
+#   defaultAdminCIDRs     the ranges the sovereign-admin works from, used
+#                         when a create request carries no adminCIDRs.
+#                         They become the OpenTofu variable admin_cidrs.
+#                         May be empty.
+# Each entry is an IPv4 network in CIDR form, such as 192.0.2.10/32; never
+# 0.0.0.0/0. The template joins each list with commas into the env vars
+# CATALYST_EGRESS_CIDRS and CATALYST_DEFAULT_ADMIN_CIDRS.
+provisioner:
+  egressCIDRs: []
+  defaultAdminCIDRs: []
+
 # ─── catalyst-api runtime config ──────────────────────────────────────────
 # Knobs the api-deployment.yaml template threads as env vars. Empty values
 # fall back to in-code defaults (see the deployment template). Per

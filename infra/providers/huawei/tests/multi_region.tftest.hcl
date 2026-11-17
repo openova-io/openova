@@ -1121,6 +1121,175 @@ run "variables_refuses_a_document_without_the_contract_keys" {
   expect_failures = [var.variables]
 }
 
+# NET-011 — the Kubernetes API port 6443 admits only var.admin_cidrs,
+# var.provisioner_cidrs, every region's node subnet and pod range and the
+# Sovereign's own public addresses. No rule is 0.0.0.0/0. The network
+# registry carries the two lists as controlPlaneAccess.
+run "api_port_limited" {
+  command = plan
+
+  variables {
+    admin_cidrs       = ["198.51.100.0/28"]
+    provisioner_cidrs = ["192.0.2.10/32"]
+    regions = [
+      {
+        code               = "me-east-215-a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      },
+      {
+        code               = "me-east-215-b"
+        role               = "secondary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  # 2 target regions x (4 public addresses + 1 sovereign-admin range + 1
+  # provisioner range + 4 node/pod ranges).
+  assert {
+    condition     = length(huaweicloud_networking_secgroup_rule.ingress_6443) == 20
+    error_message = "Port 6443 must have one rule per target region and per source: 2 x (4 public addresses + 1 sovereign-admin range + 1 provisioner range + 4 node/pod ranges) = 20."
+  }
+  assert {
+    condition     = alltrue([for r in huaweicloud_networking_secgroup_rule.ingress_6443 : r.remote_ip_prefix != "0.0.0.0/0" && r.remote_ip_prefix != "::/0"])
+    error_message = "No rule for port 6443 may have the source 0.0.0.0/0 or ::/0."
+  }
+  assert {
+    condition     = alltrue([for r in huaweicloud_networking_secgroup_rule.ingress_6443 : r.port_range_min == 6443 && r.port_range_max == 6443 && r.protocol == "tcp"])
+    error_message = "Every rule of ingress_6443 must be TCP 6443."
+  }
+  assert {
+    condition = alltrue([for k in ["198.51.100.0/28", "192.0.2.10/32", "cp|me-east-215-a", "cp|me-east-215-b", "nat|me-east-215-a", "nat|me-east-215-b"] :
+    contains(keys(huaweicloud_networking_secgroup_rule.ingress_6443), "me-east-215-a|${k}") && contains(keys(huaweicloud_networking_secgroup_rule.ingress_6443), "me-east-215-b|${k}")])
+    error_message = "Each region's port 6443 must admit the sovereign-admin range, the provisioner range and every region's control-plane and NAT address."
+  }
+  assert {
+    condition     = alltrue([for c in local.mesh_ingress_cidrs : contains(keys(huaweicloud_networking_secgroup_rule.ingress_6443), "me-east-215-a|${c}")])
+    error_message = "Port 6443 must admit every region's node subnet and pod range."
+  }
+  assert {
+    condition     = alltrue([for r in huaweicloud_networking_secgroup_rule.ingress_6443 : contains(concat(local.api_access_cidrs, values(local.sovereign_public_sources)), r.remote_ip_prefix)])
+    error_message = "Every rule of port 6443 must take its source from the declared lists or the Sovereign's own addresses."
+  }
+  assert {
+    condition     = jsondecode(output.network_registry).controlPlaneAccess.adminCIDRs == ["198.51.100.0/28"] && jsondecode(output.network_registry).controlPlaneAccess.provisionerCIDRs == ["192.0.2.10/32"]
+    error_message = "The network registry must carry admin_cidrs as controlPlaneAccess.adminCIDRs and provisioner_cidrs as controlPlaneAccess.provisionerCIDRs."
+  }
+}
+
+# NET-011 — a range named in two lists, or equal to a node range, gets one
+# rule; one region without lists keeps only its own 2 addresses and 2 ranges.
+run "api_port_limited_single_region" {
+  command = plan
+
+  variables {
+    regions = [
+      {
+        code               = "me-east-215-a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  assert {
+    condition     = length(huaweicloud_networking_secgroup_rule.ingress_6443) == 4
+    error_message = "Single region without lists: port 6443 must have 4 rules (2 public addresses + 2 node/pod ranges)."
+  }
+  assert {
+    condition     = alltrue([for r in huaweicloud_networking_secgroup_rule.ingress_6443 : r.remote_ip_prefix != "0.0.0.0/0"])
+    error_message = "Single region: no rule for port 6443 may have the source 0.0.0.0/0."
+  }
+}
+
+run "api_port_limited_duplicate_range_one_rule" {
+  command = plan
+
+  variables {
+    admin_cidrs       = ["192.0.2.10/32"]
+    provisioner_cidrs = ["192.0.2.10/32"]
+    regions = [
+      {
+        code               = "me-east-215-a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  assert {
+    condition     = length(huaweicloud_networking_secgroup_rule.ingress_6443) == 5
+    error_message = "A range in both lists must get one rule: 2 public addresses + 1 range + 2 node/pod ranges = 5."
+  }
+}
+
+# NET-011 — the two lists refuse any source and malformed ranges at plan time.
+run "admin_cidrs_refuses_any_source" {
+  command = plan
+
+  variables {
+    admin_cidrs = ["0.0.0.0/0"]
+    regions = [
+      {
+        code               = "me-east-215-a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  expect_failures = [var.admin_cidrs]
+}
+
+run "provisioner_cidrs_refuses_a_range_with_host_bits" {
+  command = plan
+
+  variables {
+    provisioner_cidrs = ["192.0.2.10/24"]
+    regions = [
+      {
+        code               = "me-east-215-a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  expect_failures = [var.provisioner_cidrs]
+}
+
+run "provisioner_cidrs_refuses_ipv6_any_source" {
+  command = plan
+
+  variables {
+    provisioner_cidrs = ["::/0"]
+    regions = [
+      {
+        code               = "me-east-215-a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  expect_failures = [var.provisioner_cidrs]
+}
+
 # ── SEC-150: the module calls the seal hook with its own region keys ──────
 # Contract C8 (docs/contracts/c8-seal-provider.md): one seal key per region,
 # for the same region keys as the k3s tokens. The hook itself is tested in
