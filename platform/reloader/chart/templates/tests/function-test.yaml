@@ -1,0 +1,187 @@
+{{- /*
+Function test of bp-reloader (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
+
+It proves that Reloader rolls a workload when a ConfigMap it uses changes. In
+the release namespace the test creates a scratch ConfigMap and a scratch
+Deployment, both named <release>-function-test-probe. The Deployment has the
+annotation configmap.reloader.stakater.com/reload naming the ConfigMap, no
+replica (so no Pod runs), and one annotation on its Pod template, which
+Reloader needs to write into. Then the test changes the ConfigMap's data and
+waits up to 60 seconds for Reloader to write the annotation
+reloader.stakater.com/last-reloaded-from, naming the ConfigMap, into the Pod
+template of the Deployment (the chart sets reloadStrategy annotations; a change
+of the Pod template is what rolls a Deployment). It passes when it does. It
+deletes both objects at the end; both also carry an owner reference to the
+test Pod, so Kubernetes deletes them with the Pod if the test is cut short.
+
+The scratch Deployment keeps the admission policies of bp-kyverno-policies
+that enforce: it carries the hook annotation that the flux-managed policy
+admits, the label policy.cilium.io/enforced, probes, resource requests and a
+pinned image from the kit's Harbor proxy.
+
+A ServiceAccount, Role and RoleBinding of this file give the test Pod the
+rights it needs in its own namespace: get, create, patch and delete on
+configmaps, and get, create and delete on deployments. No Secret is read or
+written.
+
+Reloader has no switch that turns the chart off, so the test always renders.
+The image is the kubectl image the kit already pulls for bp-cnpg;
+functionTest.image overrides it.
+*/ -}}
+{{- $ft := .Values.functionTest | default dict }}
+{{- $image := $ft.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "create", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-function-test
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ .Release.Name }}-function-test
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 300
+  serviceAccountName: {{ .Release.Name }}-function-test
+  containers:
+    - name: function-test
+      image: {{ $image | quote }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: HOME
+          value: /tmp
+        - name: TEST_NAMESPACE
+          value: {{ .Release.Namespace | quote }}
+        - name: PROBE
+          value: {{ printf "%s-function-test-probe" .Release.Name | trunc 63 | trimSuffix "-" | quote }}
+        - name: PROBE_IMAGE
+          value: {{ $image | quote }}
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_UID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.uid
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -u
+          k() { kubectl --request-timeout=15s -n "${TEST_NAMESPACE}" "$@"; }
+          oneline() { tr '\n' ' ' < "$1" | cut -c1-200; }
+          cleanup() {
+            k delete deployment "${PROBE}" --ignore-not-found --wait=false > /dev/null 2>&1
+            k delete configmap "${PROBE}" --ignore-not-found --wait=false > /dev/null 2>&1
+          }
+          fail() { cleanup; echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          owner='"ownerReferences":[{"apiVersion":"v1","kind":"Pod","name":"'"${POD_NAME}"'","uid":"'"${POD_UID}"'"}]'
+          meta='"name":"'"${PROBE}"'","namespace":"'"${TEST_NAMESPACE}"'","labels":{"app.kubernetes.io/name":"{{ .Chart.Name }}","app.kubernetes.io/instance":"{{ .Release.Name }}","app.kubernetes.io/component":"function-test-probe"}'
+          cleanup
+          gone=no
+          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+            if ! k get deployment "${PROBE}" -o name > /dev/null 2>&1 && ! k get configmap "${PROBE}" -o name > /dev/null 2>&1; then
+              gone=yes
+              break
+            fi
+            sleep 2
+          done
+          [ "${gone}" = yes ] || fail "a scratch object of an earlier run is still there after 30 seconds"
+          printf '%s' '{"apiVersion":"v1","kind":"ConfigMap","metadata":{'"${meta}"','"${owner}"'},"data":{"probe":"before"}}' \
+            | k create -f - > /dev/null 2>/tmp/error || fail "the scratch ConfigMap was not created: $(oneline /tmp/error)"
+          probe='{"exec":{"command":["true"]},"periodSeconds":30}'
+          printf '%s' '{"apiVersion":"apps/v1","kind":"Deployment","metadata":{'"${meta}"','"${owner}"',"annotations":{"helm.sh/hook":"test","configmap.reloader.stakater.com/reload":"'"${PROBE}"'"}},"spec":{"replicas":0,"selector":{"matchLabels":{"app.kubernetes.io/instance":"'"${PROBE}"'"}},"template":{"metadata":{"labels":{"app.kubernetes.io/instance":"'"${PROBE}"'","policy.cilium.io/enforced":"true"},"annotations":{"catalyst.openova.io/function-test-probe":"true"}},"spec":{"automountServiceAccountToken":false,"containers":[{"name":"probe","image":"'"${PROBE_IMAGE}"'","command":["sleep","3600"],"resources":{"requests":{"cpu":"10m","memory":"16Mi"},"limits":{"cpu":"50m","memory":"32Mi"}},"livenessProbe":'"${probe}"',"readinessProbe":'"${probe}"',"securityContext":{"runAsNonRoot":true,"runAsUser":1001,"allowPrivilegeEscalation":false,"readOnlyRootFilesystem":true,"capabilities":{"drop":["ALL"]}},"envFrom":[{"configMapRef":{"name":"'"${PROBE}"'"}}]}]}}}}' \
+            | k create -f - > /dev/null 2>/tmp/error || fail "the scratch Deployment was not created: $(oneline /tmp/error)"
+          sleep 5
+          k patch configmap "${PROBE}" --type merge -p '{"data":{"probe":"after"}}' > /dev/null 2>/tmp/error || fail "the scratch ConfigMap was not changed: $(oneline /tmp/error)"
+          deadline=$(( $(date +%s) + 60 ))
+          while :; do
+            reloaded="$(k get deployment "${PROBE}" -o jsonpath='{.spec.template.metadata.annotations.reloader\.stakater\.com/last-reloaded-from}' 2>/tmp/error)" || reloaded=""
+            case "${reloaded}" in
+              *"\"${PROBE}\""*) break ;;
+            esac
+            [ "$(date +%s)" -lt "${deadline}" ] || fail "Reloader did not roll the scratch Deployment within 60 seconds of the ConfigMap change (last-reloaded-from: '$(printf '%s' "${reloaded}" | cut -c1-120)')"
+            sleep 2
+          done
+          cleanup
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} a change of the scratch ConfigMap rolled the scratch Deployment within 60 seconds"
+  volumes:
+    - name: tmp
+      emptyDir: {}

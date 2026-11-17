@@ -58,7 +58,9 @@ if [ ! -d charts ] || [ -z "$(ls -A charts 2>/dev/null)" ]; then
 fi
 
 echo "[composition-validate] Case 1: chart renders cleanly"
-helm template smoke-cp . > "$TMP/render.yaml" 2> "$TMP/render.err" || {
+# --skip-tests: the function test (templates/tests/function-test.yaml) renders
+# its own ClusterRole; the counts below judge the objects the chart installs.
+helm template smoke-cp . --skip-tests > "$TMP/render.yaml" 2> "$TMP/render.err" || {
   echo "FAIL: helm template failed:" >&2
   cat "$TMP/render.err" >&2
   exit 1

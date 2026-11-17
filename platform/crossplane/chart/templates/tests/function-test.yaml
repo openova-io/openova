@@ -1,0 +1,187 @@
+{{- /*
+Function test of bp-crossplane (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
+
+It proves that the Crossplane core serves its package API and runs. Crossplane
+installs the definitions of its package types itself when the core starts, so
+a list of Providers succeeds only after the core has run. The test passes when,
+within 180 seconds, both hold:
+  1. a list call of providers.pkg.crossplane.io succeeds;
+  2. the core Deployment of this release (crossplane.nameOverride, else
+     crossplane, the name the subchart gives it) reports at least one
+     available replica.
+It reads nothing else and writes nothing.
+
+A Provider has no namespace, so a ClusterRole and a ClusterRoleBinding of this
+file (verb list on providers of pkg.crossplane.io) give the test Pod that
+right; their names carry the namespace, so two releases never share them. A
+Role and RoleBinding give it get on deployments in its own namespace.
+
+The chart has no switch that turns Crossplane off, so the test always renders.
+The image is the kubectl image the kit already pulls for bp-cnpg;
+functionTest.image overrides it.
+*/ -}}
+{{- $ft := .Values.functionTest | default dict }}
+{{- $image := $ft.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" }}
+{{- $xp := .Values.crossplane | default dict }}
+{{- $core := $xp.nameOverride | default "crossplane" | trunc 63 | trimSuffix "-" }}
+{{- $clusterName := printf "%s-%s-function-test" .Release.Namespace .Release.Name | trunc 63 | trimSuffix "-" }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $clusterName }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: ["pkg.crossplane.io"]
+    resources: ["providers"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $clusterName }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-function-test
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ $clusterName }}
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-function-test
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ .Release.Name }}-function-test
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 300
+  serviceAccountName: {{ .Release.Name }}-function-test
+  containers:
+    - name: function-test
+      image: {{ $image | quote }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: HOME
+          value: /tmp
+        - name: TEST_NAMESPACE
+          value: {{ .Release.Namespace | quote }}
+        - name: CORE_DEPLOYMENT
+          value: {{ $core | quote }}
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -u
+          fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          deadline=$(( $(date +%s) + 180 ))
+          while :; do
+            if kubectl --request-timeout=15s get providers.pkg.crossplane.io -o name > /tmp/providers 2>/tmp/error; then
+              listed=yes
+              reason=""
+            else
+              listed=no
+              reason="the list of Providers failed: $(tr '\n' ' ' < /tmp/error | cut -c1-160)"
+            fi
+            available="$(kubectl --request-timeout=15s -n "${TEST_NAMESPACE}" get deployment "${CORE_DEPLOYMENT}" -o jsonpath='{.status.availableReplicas}' 2>/tmp/error)" || available=""
+            if [ "${listed}" = yes ] && [ "${available:-0}" -ge 1 ] 2>/dev/null; then
+              break
+            fi
+            [ -n "${reason}" ] || reason="the Deployment ${CORE_DEPLOYMENT} has '${available:-0}' available replicas $(tr '\n' ' ' < /tmp/error | cut -c1-120)"
+            [ "$(date +%s)" -lt "${deadline}" ] || fail "within 180 seconds: ${reason}"
+            sleep 10
+          done
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} the Provider list answered ($(grep -c . /tmp/providers) Providers) and ${CORE_DEPLOYMENT} has ${available} available replicas"
+  volumes:
+    - name: tmp
+      emptyDir: {}

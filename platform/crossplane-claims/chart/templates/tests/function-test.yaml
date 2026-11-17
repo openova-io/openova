@@ -1,0 +1,156 @@
+{{- /*
+Function test of bp-crossplane-claims (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
+
+Crossplane marks a CompositeResourceDefinition Established only after it has
+created and the API server serves the definition of the composite type it
+declares. The test reads, through the Kubernetes API, the condition
+Established of every CompositeResourceDefinition this release renders. It
+passes when each one reports Established=True within 180 seconds. It reads
+nothing else and writes nothing.
+
+The names are taken from the templates themselves: each file under
+templates/xrds is rendered with this release's values, and the name of every
+CompositeResourceDefinition it renders is kept. tests/function-test-render.sh
+fails when a file is added there and not to the list below.
+
+A CompositeResourceDefinition has no namespace, so a ClusterRole and a
+ClusterRoleBinding of this file (verb get on compositeresourcedefinitions of
+apiextensions.crossplane.io) give the test Pod that right. Their names carry
+the namespace, so two releases never share them.
+
+It renders nothing when the chart renders no CompositeResourceDefinition. The
+image is the kubectl image the kit already pulls for bp-cnpg;
+functionTest.image overrides it.
+*/ -}}
+{{- $files := list
+  "xrds/cloudadoption.yaml" }}
+{{- $names := list }}
+{{- range $file := $files }}
+{{- range $doc := splitList "\n---" (include (printf "%s/%s" $.Template.BasePath $file) $) }}
+{{- $obj := fromYaml $doc }}
+{{- if and $obj (eq ($obj.kind | default "") "CompositeResourceDefinition") }}
+{{- $names = append $names $obj.metadata.name }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if $names }}
+{{- $ft := .Values.functionTest | default dict }}
+{{- $image := $ft.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" }}
+{{- $clusterName := printf "%s-%s-function-test" .Release.Namespace .Release.Name | trunc 63 | trimSuffix "-" }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $clusterName }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: ["apiextensions.crossplane.io"]
+    resources: ["compositeresourcedefinitions"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $clusterName }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-function-test
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ $clusterName }}
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 300
+  serviceAccountName: {{ .Release.Name }}-function-test
+  containers:
+    - name: function-test
+      image: {{ $image | quote }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: HOME
+          value: /tmp
+        - name: XRDS
+          value: {{ join " " $names | quote }}
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -u
+          fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          deadline=$(( $(date +%s) + 180 ))
+          for xrd in ${XRDS}; do
+            while :; do
+              if established="$(kubectl --request-timeout=15s get compositeresourcedefinition "${xrd}" -o jsonpath='{.status.conditions[?(@.type=="Established")].status}' 2>/tmp/error)"; then
+                [ "${established}" = "True" ] && break
+                reason="Established is '${established}': $(kubectl --request-timeout=15s get compositeresourcedefinition "${xrd}" -o jsonpath='{.status.conditions[?(@.type=="Established")].message}' 2>/dev/null | cut -c1-160)"
+              else
+                reason="$(tr '\n' ' ' < /tmp/error | cut -c1-160)"
+              fi
+              [ "$(date +%s)" -lt "${deadline}" ] || fail "the CompositeResourceDefinition ${xrd} is not Established within 180 seconds: ${reason}"
+              sleep 10
+            done
+          done
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} every CompositeResourceDefinition of this release (${XRDS}) is Established"
+  volumes:
+    - name: tmp
+      emptyDir: {}
+{{- end }}

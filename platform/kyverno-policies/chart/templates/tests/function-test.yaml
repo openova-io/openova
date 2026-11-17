@@ -1,0 +1,183 @@
+{{- /*
+Function test of bp-kyverno-policies (docs/RUNBOOKS.md section 4.5). `helm test` runs it.
+
+Kyverno marks a ClusterPolicy Ready only after its admission controller has
+loaded the policy and registered its rules with the webhooks. The test reads,
+through the Kubernetes API, the condition Ready of every ClusterPolicy this
+release renders. It passes when each one reports Ready=True within 180
+seconds. It reads nothing else and writes nothing.
+
+The names are taken from the policy templates themselves: each file of the
+list below is rendered with this release's values, and the name of every
+ClusterPolicy it renders is kept. So a policy that its own switch turns off is
+not asked for, and the list of names always equals what the release installs.
+The list holds every file under templates/baseline and templates/mutate;
+tests/function-test-render.sh fails when a file is added there and not here.
+
+A ClusterPolicy has no namespace, so a ClusterRole and a ClusterRoleBinding of
+this file (verb get on clusterpolicies of kyverno.io) give the test Pod that
+right. Their names carry the namespace, so two releases never share them.
+
+It renders nothing when the chart renders no ClusterPolicy. The image is the
+kubectl image the kit already pulls for bp-cnpg and bp-kyverno;
+functionTest.image overrides it.
+*/ -}}
+{{- $files := list
+  "baseline/01-multi-replica.yaml"
+  "baseline/02-pdb.yaml"
+  "baseline/03-topology-spread.yaml"
+  "baseline/04-probes.yaml"
+  "baseline/05-resource-requests.yaml"
+  "baseline/06-resource-limits.yaml"
+  "baseline/07-pvc-expansion.yaml"
+  "baseline/08-hpa-effective.yaml"
+  "baseline/09-cilium-l7-mtls.yaml"
+  "baseline/10-flux-managed.yaml"
+  "baseline/11-harbor-proxy.yaml"
+  "baseline/12-image-tag-pinned.yaml"
+  "baseline/13-prometheus-scrape.yaml"
+  "baseline/14-networkpolicy-present.yaml"
+  "baseline/15-otel-injected.yaml"
+  "baseline/16-hubble-flows-seen.yaml"
+  "baseline/17-runasnonroot-readonlyrootfs.yaml"
+  "baseline/18-cosign-verified.yaml"
+  "baseline/19-secret-not-in-env.yaml"
+  "baseline/20-backup-configured.yaml"
+  "baseline/21-app-label-mutate.yaml"
+  "baseline/22-substrate-on-host.yaml"
+  "baseline/23-forbid-local-path.yaml"
+  "baseline/24-forbid-nodeport-service.yaml"
+  "mutate/00-stamp-cilium-enforced-label.yaml"
+  "mutate/01-inject-gitea-source-secretref.yaml" }}
+{{- $names := list }}
+{{- range $file := $files }}
+{{- range $doc := splitList "\n---" (include (printf "%s/%s" $.Template.BasePath $file) $) }}
+{{- $obj := fromYaml $doc }}
+{{- if and $obj (eq ($obj.kind | default "") "ClusterPolicy") }}
+{{- $names = append $names $obj.metadata.name }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if $names }}
+{{- $ft := .Values.functionTest | default dict }}
+{{- $image := $ft.image | default "harbor.openova.io/proxy-dockerhub/alpine/k8s:1.31.4" }}
+{{- $clusterName := printf "%s-%s-function-test" .Release.Namespace .Release.Name | trunc 63 | trimSuffix "-" }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $clusterName }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: ["kyverno.io"]
+    resources: ["clusterpolicies"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $clusterName }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-function-test
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ $clusterName }}
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-function-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    catalyst.openova.io/function-test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 300
+  serviceAccountName: {{ .Release.Name }}-function-test
+  containers:
+    - name: function-test
+      image: {{ $image | quote }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: "10m"
+          memory: "32Mi"
+        limits:
+          cpu: "100m"
+          memory: "128Mi"
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+        seccompProfile:
+          type: RuntimeDefault
+      env:
+        - name: HOME
+          value: /tmp
+        - name: POLICIES
+          value: {{ join " " $names | quote }}
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -u
+          fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
+          deadline=$(( $(date +%s) + 180 ))
+          count=0
+          for policy in ${POLICIES}; do
+            while :; do
+              if ready="$(kubectl --request-timeout=15s get clusterpolicy "${policy}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/tmp/error)"; then
+                [ "${ready}" = "True" ] && break
+                reason="Ready is '${ready}': $(kubectl --request-timeout=15s get clusterpolicy "${policy}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}' 2>/dev/null | cut -c1-160)"
+              else
+                reason="$(tr '\n' ' ' < /tmp/error | cut -c1-160)"
+              fi
+              [ "$(date +%s)" -lt "${deadline}" ] || fail "the ClusterPolicy ${policy} is not Ready within 180 seconds: ${reason}"
+              sleep 10
+            done
+            count=$(( count + 1 ))
+          done
+          echo "FUNCTION-TEST pass {{ .Chart.Name }} all ${count} ClusterPolicies of this release are Ready"
+  volumes:
+    - name: tmp
+      emptyDir: {}
+{{- end }}
