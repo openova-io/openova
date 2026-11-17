@@ -4545,7 +4545,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.0.55"
+  version: "1.0.56"
   visibility: unlisted
   card:
     title: "Kyverno Policy Library"
@@ -4562,7 +4562,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-kyverno-policies
-    version: "1.0.55"
+    version: "1.0.56"
   topology:
     supported:
       - singleton
