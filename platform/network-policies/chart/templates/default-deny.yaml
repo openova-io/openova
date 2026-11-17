@@ -9,8 +9,10 @@ This is THE primitive that makes the cluster zero-trust by default.
 Per docs/EPICS-1-6-unified-design.md §3.9 row 8 + §8 (EPIC-5 Networking)
 + ADR-0001 §2 (zero-trust). Installing this without the allow-templates
 is a misconfiguration that breaks the platform — both must ride together.
+LEGACY, off by default: renders only when .Values.enabled and
+.Values.legacyBaseline.enabled are both true.
 */}}
-{{- if .Values.enabled -}}
+{{- if and .Values.enabled .Values.legacyBaseline.enabled -}}
 apiVersion: cilium.io/v2
 kind: CiliumClusterwideNetworkPolicy
 metadata:

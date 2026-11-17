@@ -1,0 +1,40 @@
+{{/*
+baseline-deny-metadata: no pod reaches the instance metadata address of
+its node.
+
+One cluster-wide object that denies egress to 169.254.169.254 and does
+nothing else. `enableDefaultDeny` is false in both directions, so a pod
+this object selects is NOT put under default deny: every other flow of
+the pod stays as it was. In Cilium a deny rule wins over every allow
+rule, so no other policy can open the address again.
+
+The one way out is the pod label network.openova.io/metadata-access
+with the value "true", set in the pod template of a workload that must
+read the address. A pod without the label is selected (NotIn matches an
+absent label).
+
+Pods on the host network are not subject to pod policy and are not
+selected by any policy of this chart.
+
+Renders whenever .Values.enabled is true. It does not depend on
+.Values.legacyBaseline.
+*/}}
+{{- if .Values.enabled }}
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: baseline-deny-metadata
+spec:
+  endpointSelector:
+    matchExpressions:
+      - key: network.openova.io/metadata-access
+        operator: NotIn
+        values:
+          - "true"
+  enableDefaultDeny:
+    ingress: false
+    egress: false
+  egressDeny:
+    - toCIDR:
+        - 169.254.169.254/32
+{{- end }}
