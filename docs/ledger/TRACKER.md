@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-17T15:00:06Z` |
+| Last refreshed | `2026-11-17T15:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-17T15:13 | [#8062](https://github.com/openova-io/openova/pull/8062) | #7922 | fix(cutover): step 03 copies the sandbox image nodes are con |
+| 2026-11-17T15:12 | [#8061](https://github.com/openova-io/openova/pull/8061) | #11563 | fix(storage): the filer announces its stable Pod name, so S3 |
+| 2026-11-17T15:14 | [#8060](https://github.com/openova-io/openova/pull/8060) | #7815 | test(gate): dial the API port from a hosted runner and add g |
+| 2026-11-17T15:08 | [#8059](https://github.com/openova-io/openova/pull/8059) | #7938 | fix(release): the stage takes the candidate's deletions over |
+| 2026-11-17T15:02 | [#8056](https://github.com/openova-io/openova/pull/8056) | #7981 | fix(hetzner): open the API port only to declared ranges and  |
 | 2026-11-17T14:33 | [#8055](https://github.com/openova-io/openova/pull/8055) | #7568 | fix(huawei): open the API port only to declared sources and  |
 | 2026-11-17T14:33 | [#8054](https://github.com/openova-io/openova/pull/8054) | #7797 | fix(network-policies): deny the instance metadata address by |
 | 2026-11-17T14:19 | [#8052](https://github.com/openova-io/openova/pull/8052) | #7087 | docs(ledger): plan update |
@@ -332,11 +337,6 @@ flowchart LR
 | 2026-11-17T06:13 | [#8023](https://github.com/openova-io/openova/pull/8023) | #7799 | fix: give every Blueprint a bp- name and a visibility, and a |
 | 2026-11-17T05:22 | [#8019](https://github.com/openova-io/openova/pull/8019) | #7965 | feat(api): agent tokens, the signer key set route and gate c |
 | 2026-11-17T05:21 | [#8018](https://github.com/openova-io/openova/pull/8018) | #7978 | feat(suite): check FND-G01 has a self form that needs no che |
-| 2026-11-17T05:21 | [#8017](https://github.com/openova-io/openova/pull/8017) | #7980 | feat(chart): add stage machine-ops of the intent lock in aud |
-| 2026-11-17T05:20 | [#8016](https://github.com/openova-io/openova/pull/8016) | #7977 | ci: build, start and sign the image of the acceptance suite  |
-| 2026-11-16T16:19 | [#8015](https://github.com/openova-io/openova/pull/8015) | #7807 | fix(provisioner): the variables document of a new Sovereign  |
-| 2026-11-16T16:19 | [#8014](https://github.com/openova-io/openova/pull/8014) | #7885 | feat(suite): the acceptance suite runs in self inside a clus |
-| 2026-11-16T15:56 | [#8013](https://github.com/openova-io/openova/pull/8013) | #7087 | docs(ledger): plan update |
 
 ---
 
