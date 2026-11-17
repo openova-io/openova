@@ -1143,7 +1143,7 @@ services:
       # SHA. Auto-bump didn't fire because the catalyst-catalog-image-
       # built repository_dispatch hop isn't wired into catalyst-build.yaml's
       # sweep step (same #2851 class of bug — followup tracked).
-      tag: "973094b"
+      tag: "b62be17"
       pullPolicy: IfNotPresent
     replicas: 1
     # Gitea endpoint — empty defaults to in-cluster Service URL.
