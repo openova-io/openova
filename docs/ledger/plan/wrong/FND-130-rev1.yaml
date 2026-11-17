@@ -1,0 +1,52 @@
+schema: openova.io/plan-wrong/v1
+id: FND-130
+ticket_rev: 1
+base_commit: 588ad5ff9b668a31e9fc0f7edf2db482825f0397
+stage: check
+ref: tree-guards
+command: |
+    gh api repos/openova-io/openova/actions/jobs/134094701877/logs | grep -B 40 -m 1 '##\[error\]' | cut -c30-300
+expected: |
+    the check finishes green
+actual: |
+    pr-jobs: ok go-lint on pull_request: provider-contract self-test | bash scripts/check-provider-contract.sh --self-test fails: the job is red, names it, and 6 other steps ran
+    pr-jobs: ok go-lint on pull_request: provider-contract check | bash scripts/check-provider-contract.sh fails: the job is red, names it, and 6 other steps ran
+    pr-jobs: ok go-lint on pull_request: variables-documents | set up Go fails: the job is red, names it, and 6 other steps ran
+    pr-jobs: ok go-lint on pull_request: variables-documents | Tests of the package upstream fails: the job is red, names it, and 6 other steps ran
+    pr-jobs: ok go-lint on pull_request: variables-documents | Self-test (each rule can fail) fails: the job is red, names it, and 6 other steps ran
+    pr-jobs: ok go-lint on pull_request: variables-documents | Guard G8 fails: the job is red, names it, and 6 other steps ran
+    pr-jobs: ok go-lint on merge_group: provider-contract | set up Go fails: the job is red, names it, and 6 other steps ran
+    pr-jobs: ok go-lint on merge_group: provider-contract self-test | bash scripts/check-provider-contract.sh --self-test fails: the job is red, names it, and 6 other steps ran
+    pr-jobs: ok go-lint on merge_group: provider-contract check | bash scripts/check-provider-contract.sh fails: the job is red, names it, and 6 other steps ran
+    pr-jobs: ok go-lint on merge_group: variables-documents | set up Go fails: the job is red, names it, and 6 other steps ran
+    pr-jobs: ok go-lint on merge_group: variables-documents | Tests of the package upstream fails: the job is red, names it, and 6 other steps ran
+    pr-jobs: ok go-lint on merge_group: variables-documents | Self-test (each rule can fail) fails: the job is red, names it, and 6 other steps ran
+    pr-jobs: ok go-lint on merge_group: variables-documents | Guard G8 fails: the job is red, names it, and 6 other steps ran
+    pr-jobs: ok go-lint on push: provider-contract | set up Go fails: the job is red, names it, and 2 other steps ran
+    pr-jobs: ok go-lint on push: provider-contract self-test | bash scripts/check-provider-contract.sh --self-test fails: the job is red, names it, and 2 other steps ran
+    pr-jobs: ok go-lint on push: provider-contract check | bash scripts/check-provider-contract.sh fails: the job is red, names it, and 2 other steps ran
+    pr-jobs: folded: ok, 3 shared jobs
+    ##[group]Run python3 scripts/check-pr-jobs.py count
+    [36;1mpython3 scripts/check-pr-jobs.py count[0m
+    shell: /usr/bin/bash -e {0}
+    env:
+      pythonLocation: /opt/hostedtoolcache/Python/3.12.16/x64
+      PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.16/x64/lib/pkgconfig
+      Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.16/x64
+      Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.16/x64
+      Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.16/x64
+      LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.16/x64/lib
+    ##[endgroup]
+    pr-jobs: 1 .github/workflows/check-lock-stages.yaml
+    pr-jobs: 1 .github/workflows/ci-gate.yaml
+    pr-jobs: 1 .github/workflows/conformance-local.yaml
+    pr-jobs: 1 .github/workflows/console-lint.yaml
+    pr-jobs: 1 .github/workflows/go-lint.yaml
+    pr-jobs: 1 .github/workflows/pull-request-guards.yaml
+    pr-jobs: 1 .github/workflows/redact-guard.yml
+    pr-jobs: 1 .github/workflows/security-scan.yaml
+    pr-jobs: 1 .github/workflows/tree-guards.yaml
+    pr-jobs: 4 .github/workflows/work-package.yaml
+    pr-jobs: a pull request that changes docs/STATUS.md starts 13 jobs; the limit is 12
+    ##[error]Process completed with exit code 1.
+reported_at: 2026-11-17T14:08:39Z
