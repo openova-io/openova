@@ -168,6 +168,15 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
     #      out of BOTH trees, as axes 5, 8 and 10 do;
     #      tests/step7938-cutover-removes-pull-credentials.sh executes the
     #      removal. The axis switches itself off once origin/main holds it.
+    #  13. #7938 (kit images) changed step 03 in EVERY topology: Phase A2-pins
+    #      also reads what the kit's Flux Kustomizations apply, with their
+    #      `images:` applied, and the images the kit's manifests and those
+    #      Kustomizations run join the run guard (and the follower leg's list).
+    #      None of that is the follower leg. While origin/main lacks the
+    #      prewarm-kit-images anchor, the step-03 document is left out of BOTH
+    #      trees, as axes 5, 8 and 10 do; tests/step7938-prewarm-kit-images.sh
+    #      executes the change. The axis switches itself off once origin/main
+    #      holds the change.
     drop7900=0
     grep -q 'front-door-sample BEGIN' "${TMP}/main.yaml" || drop7900=1
     drop7922=0
@@ -178,10 +187,12 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
     grep -qF 'is its own destination (#7938)' "${TMP}/main.yaml" || drop7938b=1
     drop7938c=0
     grep -q 'pull_credential_remove() {' "${TMP}/main.yaml" || drop7938c=1
+    drop7938k=0
+    grep -q 'prewarm-kit-images BEGIN' "${TMP}/main.yaml" || drop7938k=1
     norm() {
-      awk -v drop7900="${drop7900}" -v drop7922="${drop7922}" -v drop7938="${drop7938}" -v drop7938b="${drop7938b}" -v drop7938c="${drop7938c}" '
-        (drop7900==1 || drop7922==1 || drop7938==1 || drop7938b==1 || drop7938c==1) && /^---$/ {next}
-        /^# Source: / {_d7 = (drop7900==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|08-egress-block-test-job|10-auto-trigger-job|11-crossplane-provider-pivot-job)\.yaml$/) || (drop7922==1 && $0 ~ /\/templates\/03-harbor-prewarm-job\.yaml$/) || (drop7938==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|03c-catalog-chart-set)\.yaml$/) || (drop7938b==1 && $0 ~ /\/templates\/03-harbor-prewarm-job\.yaml$/) || (drop7938c==1 && $0 ~ /\/templates\/08-egress-block-test-job\.yaml$/)}
+      awk -v drop7900="${drop7900}" -v drop7922="${drop7922}" -v drop7938="${drop7938}" -v drop7938b="${drop7938b}" -v drop7938c="${drop7938c}" -v drop7938k="${drop7938k}" '
+        (drop7900==1 || drop7922==1 || drop7938==1 || drop7938b==1 || drop7938c==1 || drop7938k==1) && /^---$/ {next}
+        /^# Source: / {_d7 = (drop7900==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|08-egress-block-test-job|10-auto-trigger-job|11-crossplane-provider-pivot-job)\.yaml$/) || (drop7922==1 && $0 ~ /\/templates\/03-harbor-prewarm-job\.yaml$/) || (drop7938==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|03c-catalog-chart-set)\.yaml$/) || (drop7938b==1 && $0 ~ /\/templates\/03-harbor-prewarm-job\.yaml$/) || (drop7938c==1 && $0 ~ /\/templates\/08-egress-block-test-job\.yaml$/) || (drop7938k==1 && $0 ~ /\/templates\/03-harbor-prewarm-job\.yaml$/)}
         _d7==1 {next}
         /if ! \$\{fresh_pull_fn\}; then$/ {print; _fp=1; next}
         _fp==1 {_fp=0; if ($0 ~ /kubectl delete ciliumclusterwidenetworkpolicy cutover-egress-block --ignore-not-found=true \|\| true$/) next}
