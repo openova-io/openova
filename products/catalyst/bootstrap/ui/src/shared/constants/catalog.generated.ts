@@ -3837,96 +3837,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "hasUserUIEndpoint": true
   },
   {
-    "id": "bp-openova-flow-emitter",
-    "slug": "openova-flow-emitter",
-    "title": "OpenOva Flow emitter",
-    "summary": "",
-    "icon": null,
-    "category": null,
-    "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
-    "version": "0.1.2",
-    "section": null,
-    "depends": [],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "singleton"
-      ],
-      "multiRegion": "singleton",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "singleton": {
-          "replication": null,
-          "switchover": null,
-          "placement": {
-            "tier": "",
-            "clusters": [
-              "mgmt-A",
-              "mgmt-B",
-              "dmz-A",
-              "dmz-B",
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "mgmt-A": "singleton",
-              "mgmt-B": "singleton",
-              "dmz-A": "singleton",
-              "dmz-B": "singleton",
-              "rtz-A": "singleton",
-              "rtz-B": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": false
-  },
-  {
-    "id": "bp-openova-flow-server",
-    "slug": "openova-flow-server",
-    "title": "OpenOva Flow server",
-    "summary": "",
-    "icon": null,
-    "category": null,
-    "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
-    "version": "0.2.7",
-    "section": null,
-    "depends": [],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "singleton"
-      ],
-      "multiRegion": "singleton",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "singleton": {
-          "replication": null,
-          "switchover": null,
-          "placement": {
-            "tier": "mgmt",
-            "clusters": [
-              "mgmt-A"
-            ],
-            "roles": {
-              "mgmt-A": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": false
-  },
-  {
     "id": "bp-openova-mcp",
     "slug": "openova-mcp",
     "title": "OpenOva MCP",
@@ -5951,8 +5861,6 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/openbao/blueprint.yaml",
   "platform/openclaw/blueprint.yaml",
   "platform/openmeter/blueprint.yaml",
-  "platform/openova-flow-emitter/blueprint.yaml",
-  "platform/openova-flow-server/blueprint.yaml",
   "platform/openova-mcp/blueprint.yaml",
   "platform/opensearch/blueprint.yaml",
   "platform/opentelemetry-operator/blueprint.yaml",

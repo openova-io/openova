@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-17T14:29:47.440Z",
+  "generatedAt": "2026-11-17T14:37:16.136Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -3700,96 +3700,6 @@
         }
       },
       "hasUserUIEndpoint": true
-    },
-    {
-      "id": "bp-openova-flow-emitter",
-      "slug": "openova-flow-emitter",
-      "title": "OpenOva Flow emitter",
-      "summary": "",
-      "icon": null,
-      "category": null,
-      "tagline": null,
-      "tags": [],
-      "visibility": "unlisted",
-      "version": "0.1.2",
-      "section": null,
-      "depends": [],
-      "shareable": false,
-      "contextSchema": null,
-      "producesInstances": null,
-      "topology": {
-        "supported": [
-          "singleton"
-        ],
-        "multiRegion": "singleton",
-        "singleRegion": "singleton",
-        "perTopology": {
-          "singleton": {
-            "replication": null,
-            "switchover": null,
-            "placement": {
-              "tier": "",
-              "clusters": [
-                "mgmt-A",
-                "mgmt-B",
-                "dmz-A",
-                "dmz-B",
-                "rtz-A",
-                "rtz-B"
-              ],
-              "roles": {
-                "mgmt-A": "singleton",
-                "mgmt-B": "singleton",
-                "dmz-A": "singleton",
-                "dmz-B": "singleton",
-                "rtz-A": "singleton",
-                "rtz-B": "singleton"
-              }
-            }
-          }
-        }
-      },
-      "hasUserUIEndpoint": false
-    },
-    {
-      "id": "bp-openova-flow-server",
-      "slug": "openova-flow-server",
-      "title": "OpenOva Flow server",
-      "summary": "",
-      "icon": null,
-      "category": null,
-      "tagline": null,
-      "tags": [],
-      "visibility": "unlisted",
-      "version": "0.2.7",
-      "section": null,
-      "depends": [],
-      "shareable": false,
-      "contextSchema": null,
-      "producesInstances": null,
-      "topology": {
-        "supported": [
-          "singleton"
-        ],
-        "multiRegion": "singleton",
-        "singleRegion": "singleton",
-        "perTopology": {
-          "singleton": {
-            "replication": null,
-            "switchover": null,
-            "placement": {
-              "tier": "mgmt",
-              "clusters": [
-                "mgmt-A"
-              ],
-              "roles": {
-                "mgmt-A": "singleton"
-              }
-            }
-          }
-        }
-      },
-      "hasUserUIEndpoint": false
     },
     {
       "id": "bp-openova-mcp",

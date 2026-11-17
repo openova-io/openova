@@ -165,3 +165,9 @@ platform/guacamole/chart/templates/keycloak-client-secret.yaml
 platform/guacamole/chart/templates/oidc-secret-bootstrap-job.yaml
 platform/netbird/chart/templates/sealed-secret-management.yaml
 clusters/_template/bootstrap-kit/05-sealed-secrets.yaml
+products/openova-flow/server
+products/openova-flow/adapter-flux
+platform/openova-flow-server
+platform/openova-flow-emitter
+.github/workflows/build-openova-flow-server.yaml
+.github/workflows/build-openova-flow-adapter-flux.yaml
