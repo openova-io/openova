@@ -92,7 +92,6 @@ jobs:
             helm repo add "$name" "$url" >/dev/null 2>&1 && echo "added $name"
           done <<'EOF'
           aquasec https://aquasecurity.github.io/helm-charts/
-          sealed-secrets https://bitnami-labs.github.io/sealed-secrets
           bitnami https://charts.bitnami.com/bitnami
           crossplane-stable https://charts.crossplane.io/stable
           external-secrets https://charts.external-secrets.io
