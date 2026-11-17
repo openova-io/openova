@@ -564,9 +564,9 @@ images:
     # new chart emits only the new name, so handoverSigner never
     # initialises and /api/v1/auth/pin/issue returns 503 "handover
     # signer unavailable". ff778a36 reads both names with fallback.
-    tag: "69b7d53"
+    tag: "eec4ff2"
   catalystUi:
-    tag: "69b7d53"
+    tag: "eec4ff2"
   # 2026-08-11 (#5451): marketplaceApi / console / admin were ALL frozen at
   # "3c2f7e4" (2026-04-28) for three and a half months. Their build workflows
   # sed-ed the `image:` line of their chart template; 83ec889f0 (PR #580,
@@ -626,7 +626,7 @@ images:
   # (verified live on g8mail). 903eed4 is the image built from main AFTER
   # #4390 merged — it carries #4387 (per-Org <slug>/catalyst-tenant commit) for
   # the HR-app path too. Pin it so the cart HR apps land in the per-Org repo.
-  orgTag: "feb1732"
+  orgTag: "2873e65"
   # Marketplace storefront image tag (the `marketplace` frontend, distinct from
   # the `marketplaceApi` backend). Bumped by .github/workflows/marketplace-build.yaml
   # on every push to core/marketplace/**. Kept as a flat, uniquely-named field
@@ -718,11 +718,10 @@ runtime:
   sovereignAPIPublicURL: "https://console.openova.io/sovereign"
 
 # ─── Group C controllers (slice CC3 of EPIC-0 #1095) ────────────────────────
-# The 5 K8s-native reconcilers consolidated by CC1 (#1135) + CC2 (#1136):
+# The K8s-native reconcilers consolidated by CC1 (#1135) + CC2 (#1136):
 #
 #   organization  — Organization.orgs.openova.io       → KC realm + Gitea Org + per-Org UserAccess
 #   environment   — Environment.catalyst.openova.io    → per-vCluster Flux GitRepository in Gitea
-#   blueprint     — Blueprint.catalyst.openova.io      → mirror canonical Blueprint into per-Org Gitea repo
 #   application   — Application.apps.openova.io        → per-region Kustomization+HelmRelease into Gitea
 #   useraccess    — UserAccess.access.openova.io       → RoleBinding + ClusterRoleBinding objects
 #
@@ -800,7 +799,7 @@ controllers:
       # re-apply, NOT the sweep). 89993b2 is a direct DESCENDANT of b23af68 so it
       # CONTAINS the #4393 Guaranteed-QoS LimitRange fix AS WELL AS #4455 + #4462.
       # Durable fix to the deploy-bump whole-file clobber tracked in #4464.
-      tag: "e41c7da"
+      tag: "0b1157d"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -941,7 +940,7 @@ controllers:
       # 0c717f6 (2026-07-02, #4685) — freshness sweep: 8c532a7 had drifted 311
       # commits behind latest GHCR (0c717f6), surfaced the moment #4685 un-masked
       # the blanket false-red. Image published + main-reachable (verified).
-      tag: "2faf1f8"
+      tag: "0b1157d"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -976,41 +975,6 @@ controllers:
     nodeSelector: {}
     tolerations: []
     affinity: {}
-  blueprint:
-    # NOTE: blueprint-controller image is not yet published to GHCR — the
-    # build-blueprint-controller workflow scaffolding lands in this same PR
-    # (qa-loop iter-1). Stays `enabled: false` until the first push-on-main
-    # build of core/controllers/blueprint completes. Per Inviolable
-    # Principle #4a: never reference an image that wasn't built by CI from
-    # a committed git SHA.
-    enabled: false
-    image:
-      repository: "ghcr.io/openova-io/openova/blueprint-controller"
-      # 100a213 = H9-walk follow-up (#2745, 2026-06-03) — bumped from
-      # 8d01e2f to the latest blueprint-controller main-HEAD push
-      # (2026-06-02). enabled remains false until the bp-controller
-      # surfaces are wired end-to-end; the pin matches the latest
-      # successful push-on-main build per Inviolable Principle #4a.
-      # 34ff594 (2026-06-21, #4053) — freshness sweep on the console-gateway-
-      # isolation PR: 01db043 had drifted 437 commits behind latest GHCR.
-      tag: "2faf1f8"
-      pullPolicy: IfNotPresent
-    replicas: 1
-    leaderElection:
-      enabled: true
-    resources:
-      requests:
-        cpu: 50m
-        memory: 64Mi
-      limits:
-        memory: 256Mi
-    giteaURL: ""
-    logLevel: "info"
-    resyncPeriod: "5m"
-    env: {}
-    nodeSelector: {}
-    tolerations: []
-    affinity: {}
   application:
     # Flipped ON per qa-loop iter-1 — see organization controller above.
     enabled: true
@@ -1031,7 +995,7 @@ controllers:
       # 6d7aacd (2026-06-24, #4236) — freshness sweep on the funnel pool-DNS PR:
       # 34ff594 had drifted 183 commits behind latest GHCR (no code change here,
       # just clearing the staleness gate so the chart ships the current binary).
-      tag: "2faf1f8"
+      tag: "0b1157d"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -1100,7 +1064,7 @@ controllers:
       # #2851 closed the drift gap (auto-bump + sweep + freshness guard).
       # 34ff594 (2026-06-21, #4053) — freshness sweep on the console-gateway-
       # isolation PR: 01db043 had drifted 437 commits behind latest GHCR.
-      tag: "2faf1f8"
+      tag: "0b1157d"
       pullPolicy: IfNotPresent
     replicas: 1
     leaderElection:
@@ -1179,7 +1143,7 @@ services:
       # SHA. Auto-bump didn't fire because the catalyst-catalog-image-
       # built repository_dispatch hop isn't wired into catalyst-build.yaml's
       # sweep step (same #2851 class of bug — followup tracked).
-      tag: "973094b"
+      tag: "b62be17"
       pullPolicy: IfNotPresent
     replicas: 1
     # Gitea endpoint — empty defaults to in-cluster Service URL.
@@ -1235,7 +1199,7 @@ services:
     image:
       repository: "ghcr.io/openova-io/openova/projector"
       # Empty `tag` fail-fasts at render time per Inviolable Principle #4a.
-      tag: "9f6017b"
+      tag: "b62be17"
       pullPolicy: IfNotPresent
     replicas: 1
     # Sovereign cluster id used as the prefix in every projected
@@ -1302,6 +1266,19 @@ services:
 # Flux HelmReleases under separate namespaces (bp-keycloak →
 # `keycloak`, bp-gitea → `gitea`), the collision is gone and the
 # overrides are unnecessary.
+
+# ─── Agent tokens ─────────────────────────────────────────────────────────
+# The workloads that may ask catalyst-api for an agent token
+# (POST /api/v1/internal/agent-tokens, docs/contracts/model-contract.md
+# section 2.2), as a JSON list in one string. Each entry has exactly the
+# keys caller (the TokenReview user name of the workload), organizations
+# (["*"] or a list of slugs), maxTier (viewer or developer) and agents
+# (["*"] or a list of agent names). The default is the one entry the gate
+# checks need on a fresh Sovereign; a workload may ask for a token only
+# after a values commit adds its entry. A value that does not parse makes
+# the route answer 503 agent-tokens-misconfigured.
+agentTokens:
+  callers: '[{"caller": "system:serviceaccount:catalyst-system:catalyst-conformance", "organizations": ["conformance"], "maxTier": "viewer", "agents": ["conformance-probe"]}]'
 
 # ─── catalyst-api runtime config ──────────────────────────────────────────
 # Knobs the api-deployment.yaml template threads as env vars. Empty values
@@ -2876,6 +2853,7 @@ intentLock:
     blueprints: audit
     topology: audit
     flux: audit
+    machine-ops: audit
   resources:
     applications:
       - apiGroup: apps.openova.io
@@ -2905,3 +2883,8 @@ intentLock:
         resources: [kustomizations]
       - apiGroup: helm.toolkit.fluxcd.io
         resources: [helmreleases]
+    # The kinds of machines.openova.io that are born in Git. Machine and
+    # MachineRun are written by the machine controller and are not locked.
+    machine-ops:
+      - apiGroup: machines.openova.io
+        resources: [machinesources, maintenancewindows, patchpolicies, scanpolicies, hardeningbaselines, testscopes, machineimages]

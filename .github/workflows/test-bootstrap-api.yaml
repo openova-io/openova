@@ -33,7 +33,16 @@ name: Test — Bootstrap API (Go)
 #   platform/self-sovereign-cutover/chart/templates/06-helmrepository-patches-job.yaml
 #   platform/self-sovereign-cutover/chart/templates/03b-bootstrap-kit-pins.yaml
 #   platform/self-sovereign-cutover/chart/templates/03-harbor-prewarm-job.yaml
+# and, since a delivery runs the candidate's own mechanism (#7938), the release
+# scripts and contract the cutover chart carries, which the tests render with
+# helm and read with yq:
+#   platform/self-sovereign-cutover/chart/files/release/**
 #   products/catalyst/chart/templates/clusterrole-cutover-driver.yaml
+# The network-registry tests of internal/lifecycle read the two-region registry
+# fixture of the registry guard, and replay the registry's calls against the
+# role that the first-boot template binds to parent-bootstrap (#7938; the
+# template is under infra/providers/_shared/**):
+#   scripts/tests/check-network-registry/valid-two-regions.json
 on:
   push:
     paths:
@@ -50,7 +59,9 @@ on:
       - 'platform/self-sovereign-cutover/chart/templates/06-helmrepository-patches-job.yaml'
       - 'platform/self-sovereign-cutover/chart/templates/03b-bootstrap-kit-pins.yaml'
       - 'platform/self-sovereign-cutover/chart/templates/03-harbor-prewarm-job.yaml'
+      - 'platform/self-sovereign-cutover/chart/files/release/**'
       - 'products/catalyst/chart/templates/clusterrole-cutover-driver.yaml'
+      - 'scripts/tests/check-network-registry/valid-two-regions.json'
       - '.github/workflows/test-bootstrap-api.yaml'
     branches: [main]
   pull_request:
@@ -68,7 +79,9 @@ on:
       - 'platform/self-sovereign-cutover/chart/templates/06-helmrepository-patches-job.yaml'
       - 'platform/self-sovereign-cutover/chart/templates/03b-bootstrap-kit-pins.yaml'
       - 'platform/self-sovereign-cutover/chart/templates/03-harbor-prewarm-job.yaml'
+      - 'platform/self-sovereign-cutover/chart/files/release/**'
       - 'products/catalyst/chart/templates/clusterrole-cutover-driver.yaml'
+      - 'scripts/tests/check-network-registry/valid-two-regions.json'
       - '.github/workflows/test-bootstrap-api.yaml'
   workflow_dispatch:
 
@@ -90,6 +103,20 @@ jobs:
 
       - name: Download modules
         run: go mod download
+
+      # The release tests render a cutover chart with helm and read the render
+      # with yq, as the release Job does (#7938).
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.18.4
+
+      - name: Tools the release tests run
+        run: |
+          set -euo pipefail
+          helm version --short
+          yq --version
+          jq --version
 
       - name: Vet
         run: go vet ./...

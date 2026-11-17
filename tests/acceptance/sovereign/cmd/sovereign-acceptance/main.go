@@ -19,6 +19,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"time"
 
@@ -108,7 +109,7 @@ func run(mode string, args []string) int {
 	fs.BoolVar(&cfg.InsecureAppTLS, "insecure-app-tls", envBool("ACCEPT_INSECURE_APP_TLS"), "skip TLS verification for the app FQDN (staging certificates)")
 	fs.StringVar(&cfg.WPTablePrefix, "wp-table-prefix", env("ACCEPT_WP_TABLE_PREFIX", "wp_"), "WordPress table prefix")
 	fs.StringVar(&cfg.DNSServer, "dns-server", env("ACCEPT_DNS_SERVER", ""), "resolver for the DNS assertion, host[:port] (default: system)")
-	fs.StringVar(&cfg.RunIn, "run-in", env("ACCEPT_RUN_IN", "cloud"), "where the suite runs: local or cloud; it selects the gate checks by their runs_in list")
+	fs.StringVar(&cfg.RunIn, "run-in", env("ACCEPT_RUN_IN", "cloud"), "where the suite runs: local, cloud or self (a Job inside a Sovereign); it selects the gate checks by their runs_in list")
 	fs.StringVar(&cfg.Manifest, "manifest", env("ACCEPT_MANIFEST", ""), "gate manifest as JSON (scripts/acceptance-gate.py export); empty: no gate check runs")
 	fs.StringVar(&cfg.CandidateID, "candidate-id", env("ACCEPT_CANDIDATE_ID", ""), "candidate this run certifies (empty: the record certifies nothing)")
 	fs.StringVar(&cfg.RepoRoot, "repo-root", env("ACCEPT_REPO_ROOT", "."), "checkout of the commit under test; its HEAD is the record's candidate.commit")
@@ -117,14 +118,19 @@ func run(mode string, args []string) int {
 	fs.StringVar(&cfg.PreviousDeploymentID, "previous-deployment-id", env("ACCEPT_PREVIOUS_DEPLOYMENT_ID", ""), "the deployment whose wipe this fire follows; give it with --previous-wipe-orphans (check FND-G13)")
 	fs.StringVar(&cfg.PreviousWipeOrphans, "previous-wipe-orphans", env("ACCEPT_PREVIOUS_WIPE_ORPHANS", ""), "resources of that deployment that a listing of the cloud account still found after the wipe (check FND-G13 passes on 0)")
 	fs.StringVar(&cfg.Preflight, "preflight", env("ACCEPT_PREFLIGHT", ""), "what the flight checklist counted before the fire: '<UTC time>;<kind>=<used>/<allowed>/<left>,...', a number or - (check FND-G13)")
+	fs.StringVar(&cfg.SuiteImageDigest, "suite-image-digest", env("ACCEPT_SUITE_IMAGE_DIGEST", ""), "run in self: the digest of the image that the Job runs, sha256:<64 hex>; the record carries it")
+	fs.IntVar(&cfg.WaitForReleaseMinutes, "wait-for-release", envInt("ACCEPT_WAIT_FOR_RELEASE", 30), "run in self: minutes to wait until every HelmRelease runs the chart version its spec names")
+	fs.StringVar(&cfg.ReportName, "report-name", env("ACCEPT_REPORT_NAME", "conformance"), "run in self: the name of the ClusterPolicyReport that the run writes")
 	fs.BoolVar(&cfg.Record, "record", false, "write docs/ledger/acceptance/<env>-<runid>.json")
 	fs.StringVar(&cfg.RecordDir, "record-dir", env("ACCEPT_RECORD_DIR", "docs/ledger/acceptance"), "where --record writes")
 	fs.BoolVar(&cfg.KeepOnFail, "keep-on-fail", envBool("ACCEPT_KEEP_ON_FAIL"), "skip J5 cleanup when an earlier journey failed (leave the app for debugging)")
 	_ = fs.Parse(args)
 	cfg.Session = os.Getenv("CATALYST_SESSION")
 	cfg.ReadOnly = mode == "discover"
-	if cfg.RunIn != string(suite.RunInLocal) && cfg.RunIn != string(suite.RunInCloud) {
-		fmt.Fprintln(os.Stderr, "--run-in must be local or cloud")
+	switch suite.RunIn(cfg.RunIn) {
+	case suite.RunInLocal, suite.RunInCloud, suite.RunInSelf:
+	default:
+		fmt.Fprintln(os.Stderr, "--run-in must be local, cloud or self")
 		return 2
 	}
 
@@ -148,6 +154,10 @@ func exitCode(res *suite.Run, err error) int {
 		return 3
 	case res.Result == suite.NotMeasured:
 		return 4
+	case res.RunIn == string(suite.RunInSelf):
+		// A run in self fails only when it cannot run. A failed check is in its
+		// report, and the Job that ran it ends without an error.
+		return 0
 	case res.Result != suite.Pass:
 		return 1
 	}
@@ -158,6 +168,15 @@ func envDur(k string, def time.Duration) time.Duration {
 	if v := os.Getenv(k); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			return d
+		}
+	}
+	return def
+}
+
+func envInt(k string, def int) int {
+	if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
 		}
 	}
 	return def

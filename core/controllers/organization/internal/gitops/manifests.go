@@ -23,6 +23,7 @@ import (
 	"text/template"
 
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/validation"
 
 	orgapi "github.com/openova-io/openova/core/controllers/organization/internal/orgapi"
 )
@@ -149,6 +150,12 @@ type Inputs struct {
 	// catalyst-organization-controller / catalyst-system.
 	ControllerServiceAccount string
 	ControllerNamespace      string
+
+	// OrgFenceAllowNamespaces are the namespaces outside its own that a pod
+	// synced out of the Organization's vCluster may reach: the controller flag
+	// --org-fence-allow-namespaces, parsed by ParseOrgFenceAllowNamespaces.
+	// Empty = DefaultOrgFenceAllowNamespaces.
+	OrgFenceAllowNamespaces []string
 }
 
 // RetiredPlanFlexi is the pay-per-use plan the commercial model retired
@@ -730,13 +737,13 @@ var platformStack = []platformStackWorkload{
 	{
 		Name: "bp-newapi-<hash>", Release: "bp-newapi",
 		Source: "newapi: organization_gitops.go orgTenantBPNewAPI and helmrelease_apps.go generateNewAPIHR spec.values.newapi.resources; " +
-			"sandbox-bridge (native sidecar) / metering-sidecar: platform/newapi/chart/values.yaml sandboxBridge.resources / meteringSidecar.resources; " +
+			"sandbox-bridge (native sidecar): platform/newapi/chart/values.yaml sandboxBridge.resources; " +
+			"no metering-sidecar: meteringSidecar.enabled is false since AIP-040; " +
 			"wait-for-sql-dsn: platform/newapi/chart/templates/deployment.yaml (inline)",
 		Surge: true,
 		Containers: []containerShape{
 			{RequestsCPU: "500m", RequestsMemory: "256Mi", LimitsCPU: "500m", LimitsMemory: "1Gi"}, // newapi
 			{RequestsCPU: "10m", RequestsMemory: "32Mi", LimitsCPU: "200m", LimitsMemory: "128Mi"}, // sandbox-bridge (native sidecar, #3374)
-			{RequestsCPU: "25m", RequestsMemory: "64Mi", LimitsCPU: "500m", LimitsMemory: "256Mi"}, // metering-sidecar
 		},
 		// The plain init runs with the sandbox-bridge sidecar already held, so
 		// its true branch is init + bridge; both are far below the container
@@ -1325,8 +1332,8 @@ spec:
   that namespace holds pods this plan does not size: the vcluster syncer
   reflects the vcluster's own bundled system pods into it (coredns: 20m
   requests / 1000m limits, ratio 50:1 cpu, 2.66:1 mem) and the per-Organization
-  platform stack runs here too (the newapi sandbox-bridge and metering
-  sidecars at 20:1, its wait-for-sql-dsn init at 10:1, agenity's creds-resync
+  platform stack runs here too (the newapi sandbox-bridge sidecar at
+  20:1, its wait-for-sql-dsn init at 10:1, agenity's creds-resync
   at 10:1, newapi memory at 4:1 — platformStack). A LimitRange ratio applies to
   EVERY container admitted into the namespace, so any ratio tighter than 50:1
   forbids those pods at admission → coredns Pending → the vcluster runs
@@ -1402,13 +1409,16 @@ spec:
 // Sovereign (every cluster runs the Cilium Gateway API) two reserved entities
 // MUST be admitted or the default-deny silently breaks the Org's real workloads:
 //
-//   - `ingress` (+ `host`, `remote-node`): the Cilium Gateway / Envoy proxies
+//   - `ingress` (+ `remote-node`): the Cilium Gateway / Envoy proxies
 //     external traffic to the backend pod under the reserved `ingress` security
 //     identity (Envoy runs in the host netns; the backend may sit on a peer
 //     node). NO K8s NetworkPolicy selector matches it, so the customer's
 //     purchased Application behind its HTTPRoute returns "upstream connect error
 //     … connection timeout" / 503 (the #2940/#3374 app-plane wedge, fixed live
-//     on hw165). fromEntities is the canonical expression.
+//     on hw165). fromEntities is the canonical expression. The gateway of the
+//     peer region reaches the pod as `remote-node`
+//     (platform/newapi/chart/templates/crossregion-netpol.yaml), so that entity
+//     stays. `host` is not admitted (NET-170).
 //   - `kube-apiserver`: an in-vcluster Org app pod (and any in-cluster client)
 //     reaches the cluster API as the special `kube-apiserver` entity, which no
 //     podSelector/namespaceSelector/ipBlock (not even 0.0.0.0/0) covers (the
@@ -1459,7 +1469,6 @@ spec:
     # HTTPRoute is reachable — without this the gateway→pod hop is dropped → 503.
     - fromEntities:
         - ingress
-        - host
         - remote-node
     # SAME-ORG (same-namespace) intra-Org allow. WITHOUT this the vcluster's own
     # synced coredns (host ns pod) is denied reaching the vcluster apiserver pod
@@ -1558,6 +1567,143 @@ const networkPolicyDoc = "networkpolicy.yaml"
 // The host-apps tree is ALWAYS applied host-side to the `<slug>` ns where Cilium
 // enforces and the syncer reflects the Org's vcluster pods.
 const ciliumNetworkPolicyDoc = "ciliumnetworkpolicy.yaml"
+
+// ORGANIZATION FENCE (NET-170)
+// ----------------------------
+// Two host-side deny objects per Organization, next to the host-side policy
+// above, in the host-apps tree. An Organization cannot change host-side
+// objects, and in Cilium a deny rule wins over every allow rule, so a policy
+// synced out of the vCluster cannot widen the fence.
+//
+// Both select only the pods the vCluster syncer wrote (label
+// vcluster.loft.sh/managed-by, the label platform_scope.go uses for the same
+// set) that are not session pods (label access.openova.io/session). The
+// platform stack of the namespace (bp-keycloak, bp-newapi, bp-openclaw,
+// bp-agenity, oidc-gate) and vcluster-0 itself are not selected: they keep
+// the policies of their charts.
+//
+//   - org-fence denies ingress from every namespace but the Organization's own
+//     and flux-system, egress to every namespace but the Organization's own and
+//     OrgFenceAllowNamespaces, and egress to the entities host and remote-node.
+//   - org-fence-api denies egress to the entity kube-apiserver.
+//
+// Each deny selector carries three terms. The namespace label Exists term
+// names the namespace key, so Cilium does not narrow the selector to this
+// policy's own namespace; the cluster label Exists term names the cluster
+// key, so Cilium does not narrow it to the local cluster and the deny reaches
+// the pods of the peer region; and with both a reserved identity, which has
+// neither label, is never denied (precedent
+// platform/postgres/chart/templates/dr-failback.yaml). The gateway reaches a
+// pod as the entity ingress, which the fence does not deny. The fence denies
+// no internet egress.
+
+// DefaultOrgFenceAllowNamespaces is the default of the controller flag
+// --org-fence-allow-namespaces: the cluster resolver (kube-system) and the
+// identity service that is synced into the vCluster (keycloak).
+const DefaultOrgFenceAllowNamespaces = "kube-system,keycloak"
+
+// ParseOrgFenceAllowNamespaces reads the value of the flag
+// --org-fence-allow-namespaces: namespace names separated by commas. Spaces
+// around a name are dropped and an empty entry is skipped. Every name must be
+// a namespace name (an RFC 1123 label), and at least one must be given.
+func ParseOrgFenceAllowNamespaces(value string) ([]string, error) {
+	var out []string
+	for _, part := range strings.Split(value, ",") {
+		name := strings.TrimSpace(part)
+		if name == "" {
+			continue
+		}
+		if errs := validation.IsDNS1123Label(name); len(errs) > 0 {
+			return nil, fmt.Errorf("org-fence-allow-namespaces: %q is not a namespace name: %s", name, strings.Join(errs, "; "))
+		}
+		out = append(out, name)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("org-fence-allow-namespaces: %q names no namespace", value)
+	}
+	return out, nil
+}
+
+// orgFenceDoc and orgFenceAPIDoc are the host-apps-tree filenames of the two
+// fence objects.
+const (
+	orgFenceDoc    = "org-fence.yaml"
+	orgFenceAPIDoc = "org-fence-api.yaml"
+)
+
+const orgFenceTemplate = `apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: org-fence
+  namespace: {{ .AppNamespace }}
+  labels:
+    openova.io/organization: {{ .Slug }}
+    openova.io/managed-by: catalyst
+    catalyst.openova.io/component: org-fence
+spec:
+  endpointSelector:
+    matchExpressions:
+      - key: vcluster.loft.sh/managed-by
+        operator: Exists
+      - key: access.openova.io/session
+        operator: DoesNotExist
+  enableDefaultDeny:
+    ingress: false
+    egress: false
+  ingressDeny:
+    - fromEndpoints:
+        - matchExpressions:
+            - key: k8s:io.kubernetes.pod.namespace
+              operator: Exists
+            - key: io.cilium.k8s.policy.cluster
+              operator: Exists
+            - key: k8s:io.kubernetes.pod.namespace
+              operator: NotIn
+              values:
+                - {{ .Slug | quote }}
+                - "flux-system"
+  egressDeny:
+    - toEndpoints:
+        - matchExpressions:
+            - key: k8s:io.kubernetes.pod.namespace
+              operator: Exists
+            - key: io.cilium.k8s.policy.cluster
+              operator: Exists
+            - key: k8s:io.kubernetes.pod.namespace
+              operator: NotIn
+              values:
+                - {{ .Slug | quote }}
+{{- range .OrgFenceAllowNamespaces }}
+                - {{ . | quote }}
+{{- end }}
+    - toEntities:
+        - host
+        - remote-node
+`
+
+const orgFenceAPITemplate = `apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: org-fence-api
+  namespace: {{ .AppNamespace }}
+  labels:
+    openova.io/organization: {{ .Slug }}
+    openova.io/managed-by: catalyst
+    catalyst.openova.io/component: org-fence
+spec:
+  endpointSelector:
+    matchExpressions:
+      - key: vcluster.loft.sh/managed-by
+        operator: Exists
+      - key: access.openova.io/session
+        operator: DoesNotExist
+  enableDefaultDeny:
+    ingress: false
+    egress: false
+  egressDeny:
+    - toEntities:
+        - kube-apiserver
+`
 
 const kustomizationTemplate = `apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
@@ -1858,6 +2004,8 @@ func ceilDiv(n, d int64, unit string) string {
 //     pods can't reach the cluster API) — reserved entities no K8s NetworkPolicy
 //     can match. It lives in a SEPARATE host-applied tree (#4475 §1): a
 //     CiliumNetworkPolicy cannot be applied into the CRD-less vcluster apiserver.
+//   - host-apps/org-fence.yaml + host-apps/org-fence-api.yaml are the
+//     Organization fence (NET-170, see orgFenceTemplate), in the same tree.
 func Render(in Inputs) (map[string][]byte, error) {
 	if in.VClusterHelmRepoName == "" {
 		in.VClusterHelmRepoName = "loft"
@@ -1883,6 +2031,9 @@ func Render(in Inputs) (map[string][]byte, error) {
 	}
 	if in.ControllerNamespace == "" {
 		in.ControllerNamespace = DefaultControllerNamespace
+	}
+	if len(in.OrgFenceAllowNamespaces) == 0 {
+		in.OrgFenceAllowNamespaces = strings.Split(DefaultOrgFenceAllowNamespaces, ",")
 	}
 
 	// Flexi retired (2026-10-10): render it as S in grow mode. A grow
@@ -2031,6 +2182,9 @@ func Render(in Inputs) (map[string][]byte, error) {
 	// bounce vcluster-0 in `<slug>` BEFORE the funnel's mirror step 403s and
 	// aborts the whole provision.
 	files["vcluster/host-apps/"+provisioningRBACDoc] = provisioningRBACTemplate
+	// NET-170 — the Organization fence (see orgFenceTemplate).
+	files["vcluster/host-apps/"+orgFenceDoc] = orgFenceTemplate
+	files["vcluster/host-apps/"+orgFenceAPIDoc] = orgFenceAPITemplate
 	// #4991 — the kubeConfig-targeted apps Kustomization applies INTO the Org
 	// vcluster with targetNamespace=<slug>; create that namespace INSIDE the
 	// vcluster (nothing else does → `namespaces "<slug>" not found`).
@@ -2050,7 +2204,7 @@ func Render(in Inputs) (map[string][]byte, error) {
 	// Explicit host-apps/kustomization.yaml so the per-Org host-apps Flux
 	// Kustomization's `kustomize build ./vcluster/host-apps` enumerates the CNP
 	// + provisioning RBAC deterministically.
-	view.HostAppsResources = sortedResources([]string{ciliumNetworkPolicyDoc, provisioningRBACDoc})
+	view.HostAppsResources = sortedResources([]string{ciliumNetworkPolicyDoc, provisioningRBACDoc, orgFenceDoc, orgFenceAPIDoc})
 	files["vcluster/host-apps/kustomization.yaml"] = hostAppsKustomizationTemplate
 	// ADR-0015 D1 (Refs #7067) — the controller-owned baseline copies the
 	// non-home regions reconcile instead of the funnel-shared trees, and the

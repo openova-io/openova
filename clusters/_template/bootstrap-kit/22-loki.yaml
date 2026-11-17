@@ -24,7 +24,7 @@
 # inner `loki` namespace inside the vCluster (storageNamespace pinned
 # per the hw92 lesson — unpinned it defaults to the HR's own ns `mgmt`,
 # which createNamespace never creates inside the vCluster →
-# `namespaces "mgmt" not found` install failure; bp-coraza hit this).
+# `namespaces "mgmt" not found` install failure).
 #
 # Host-side consumers re-point to the syncer-mangled Service name
 # `loki-x-loki-x-mgmt-vcluster.mgmt.svc.cluster.local:3100` (vCluster
@@ -90,7 +90,7 @@ spec:
   # targetNamespace = inner namespace INSIDE the mgmt vCluster. Kept at
   # `loki` so in-vCluster consumers keep the canonical loki.loki.svc name.
   targetNamespace: loki
-  # hw92 lesson (bp-coraza): pin storageNamespace = targetNamespace,
+  # hw92 lesson: pin storageNamespace = targetNamespace,
   # else helm-controller defaults it to the HR's own namespace (`mgmt`)
   # and fails `namespaces "mgmt" not found` storing the release inside
   # the vCluster (createNamespace only creates the target `loki`).

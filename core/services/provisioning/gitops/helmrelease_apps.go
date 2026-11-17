@@ -241,14 +241,10 @@ func (opt helmReleaseAppOpts) kubeConfigBlock() string {
 // sourceRef without the org-controller seeding it (the BSS door seeds these in
 // orgTenantSharedHelmRepositories; the funnel path has no such shared block).
 //
-// The URL is cutover-aware (#5527, see cutover_aware_5527.go): pre-cutover it
-// declares the canonical public catalog (oci://ghcr.io/openova-io); once the
-// step-07 registry-pivot fact is stamped on this Deployment it declares the
-// Sovereign-local Harbor — the SAME value step-06 patches the live objects
-// to, so the generated source and the pivoted objects agree and Flux has
-// nothing to drift-correct back to ghcr (the hw291 step-08 OFFENDER wedge).
-// secretRef stays ghcr-pull in both phases (the cutover rewrites that
-// Secret's contents, not its name).
+// The url and the secretRef come from the Sovereign's variables document
+// (SOV-183, see catalogSourceLines in sovereign_variables.go). Without
+// REGISTRY_HOST in it the url is cutover-aware as before (#5527, see
+// cutover_aware_5527.go).
 func helmRepoBlock(name string) string {
 	return fmt.Sprintf(`apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
@@ -257,9 +253,7 @@ metadata:
 spec:
   type: oci
   interval: 15m
-  url: %s
-  secretRef:
-    name: ghcr-pull`, name, catalogOCIBase())
+%s`, name, catalogSourceLines())
 }
 
 // generateOpenClawHR mirrors orgTenantBPOpenClaw (#4272) for the generic

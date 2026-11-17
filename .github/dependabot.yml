@@ -92,7 +92,6 @@ updates:
       - "/core/cmd/sovereign-ops"
       - "/core/console"
       - "/core/controllers/application"
-      - "/core/controllers/blueprint"
       - "/core/controllers/continuum"
       - "/core/controllers/environment"
       - "/core/controllers/organization"

@@ -23,13 +23,12 @@ allowSystemNamespaces:
   - cilium-gateway
   - cluster-autoscaler
   - cnpg-system
-  - coraza
   - crossplane-system
   # #4291 Workstream C — `dmz`/`mgmt`/`rtz` REMOVED: the platform planes are
   # no longer vCluster syncer namespaces. Each former-plane component now runs
   # in its OWN host namespace (gitea/harbor/keycloak/grafana/openbao/guacamole/
-  # newapi/nats-system/loki/mimir/tempo · valkey/seaweedfs/vllm ·
-  # coraza), all listed individually below + tightened per-component by slot
+  # newapi/nats-system/loki/mimir/tempo · valkey/seaweedfs/vllm), all listed
+  # individually below + tightened per-component by slot
   # 26b bp-plane-isolation.
   - external-dns
   - external-secrets-system

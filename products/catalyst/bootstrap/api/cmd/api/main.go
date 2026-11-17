@@ -240,7 +240,7 @@ func main() {
 		// session JWTs (KC 24.7+ removed legacy token-exchange).
 		if signer := h.GetHandoverSigner(); signer != nil {
 			if pub, err := signer.PublicRSAKey(); err == nil {
-				authCfg.LocalPublicKey = pub
+				authCfg.LocalPublicKey, authCfg.LocalKeyID = pub, signer.KeyID()
 				log.Info("auth: local public key wired into session validator")
 			}
 		}
@@ -353,7 +353,7 @@ func main() {
 			)
 		} else {
 			sar := k8scache.NewSARCache()
-			h.SetK8sCache(k8sFactory, sar, env("CATALYST_K8SCACHE_USER_HEADER", "X-Forwarded-User"))
+			setK8sCache(log, h, k8sFactory, sar, env("CATALYST_K8SCACHE_USER_HEADER", "X-Forwarded-User"))
 			log.Info("k8scache: data plane started",
 				"sovereigns", len(k8sFactory.Clusters()),
 			)

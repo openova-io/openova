@@ -15,6 +15,7 @@ DELETE /api/v1/sovereigns/{id}/schedules/{ns}/{name} handler.(*Handler).HandleSc
 GET /api/v1/actions/executions/{execId}/logs handler.(*Handler).GetExecutionLogs-fm 2
 GET /api/v1/auth/callback main.(func literal) 1
 GET /api/v1/auth/magic main.(func literal) 1
+GET /api/v1/auth/signers.jwks agenttoken.(*Tokens).HandleJWKS-fm 1
 GET /api/v1/catalog handler.(*Handler).HandleCatalogList-fm 2
 GET /api/v1/catalog/{name} handler.(*Handler).HandleCatalogGet-fm 2
 GET /api/v1/catalog/{name}/iac handler.(*Handler).HandleGetCatalogBlueprintIaC-fm 2
@@ -160,11 +161,13 @@ POST /api/v1/deployments/{depId}/jobs/{jobId}/retry handler.(*Handler).RetryJob-
 POST /api/v1/deployments/{depId}/reconcilers/{kind}/{ns}/{name}/{action} handler.(*Handler).ReconcilerAction-fm 2
 POST /api/v1/deployments/{depId}/refresh-watch handler.(*Handler).RefreshWatch-fm 2
 POST /api/v1/deployments/{id}/mint-handover-token handler.(*Handler).MintHandoverToken-fm 3
+POST /api/v1/deployments/{id}/network-registry lifecycle.(*NetworkRegistry).Serve-fm 3
 POST /api/v1/deployments/{id}/phases/{phase}/retry handler.(*Handler).RetryPhase-fm 3
 POST /api/v1/deployments/{id}/republish-dns handler.(*Handler).HandleRepublishDNS-fm 3
 POST /api/v1/deployments/{id}/wipe handler.(*Handler).WipeDeployment-fm 3
 POST /api/v1/handover/finalise/{id} handler.(*Handler).FinaliseHandover-fm 2
 POST /api/v1/handover/tofu-archive handler.(*Handler).ReceiveTofuArchive-fm 1
+POST /api/v1/internal/agent-tokens agenttoken.(*Tokens).HandleIssue-fm 1
 POST /api/v1/internal/cutover/trigger handler.(*Handler).HandleCutoverInternalTrigger-fm 1
 POST /api/v1/internal/deployments/import handler.(*Handler).HandleDeploymentImport-fm 1
 POST /api/v1/internal/jobs/import handler.(*Handler).HandleJobsImport-fm 1
@@ -228,5 +231,5 @@ PUT /api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name} handler.(*Handler).HandleK8sR
 PUT /api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}/scale handler.(*Handler).HandleK8sResourceScale-fm 2
 PUT /api/v1/sovereigns/{id}/keycloak/groups/{groupId} handler.(*Handler).HandleKeycloakGroupsUpdate-fm 2
 chain 1: middleware.RequestID middleware.RealIP RequestLogger.(closure) middleware.Recoverer cors.(*Cors).Handler-fm
-chain 2: middleware.RequestID middleware.RealIP RequestLogger.(closure) middleware.Recoverer cors.(*Cors).Handler-fm RequireSessionOrJob.(closure) handler.(*Handler).OrgScopeGuard-fm
-chain 3: middleware.RequestID middleware.RealIP RequestLogger.(closure) middleware.Recoverer cors.(*Cors).Handler-fm RequireSessionOrJob.(closure) handler.(*Handler).OrgScopeGuard-fm sovself.(*Route).MothershipOnly-fm
+chain 2: middleware.RequestID middleware.RealIP RequestLogger.(closure) middleware.Recoverer cors.(*Cors).Handler-fm RequireSessionOrJob.(closure) handler.(*Handler).OrgScopeGuard-fm agenttoken.Restrict
+chain 3: middleware.RequestID middleware.RealIP RequestLogger.(closure) middleware.Recoverer cors.(*Cors).Handler-fm RequireSessionOrJob.(closure) handler.(*Handler).OrgScopeGuard-fm agenttoken.Restrict sovself.(*Route).MothershipOnly-fm

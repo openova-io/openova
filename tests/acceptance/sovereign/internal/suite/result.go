@@ -40,10 +40,19 @@ type Step struct {
 
 // Producer says who wrote the record. Only a workflow record counts for a verdict.
 type Producer struct {
-	Kind       string `json:"kind"` // workflow | manual
+	Kind       string `json:"kind"` // workflow | job | manual
 	Workflow   string `json:"workflow,omitempty"`
 	RunID      string `json:"run_id,omitempty"`
 	RunAttempt int    `json:"run_attempt,omitempty"`
+	// Job is the Job that ran the suite inside a Sovereign (kind job).
+	Job *ProducerJob `json:"job,omitempty"`
+}
+
+// ProducerJob names the Job of a run in self.
+type ProducerJob struct {
+	Namespace string `json:"namespace"`
+	Name      string `json:"name"`
+	UID       string `json:"uid"`
 }
 
 // CheckResult is the result of one selected gate check.
@@ -166,7 +175,7 @@ type Run struct {
 	Console      string            `json:"console"`
 	DeploymentID string            `json:"deployment_id"`
 	Mode         string            `json:"mode"`   // run | discover
-	RunIn        string            `json:"run_in"` // local | cloud
+	RunIn        string            `json:"run_in"` // local | cloud | self
 	Capabilities []string          `json:"capabilities"`
 	SuiteGitSHA  string            `json:"suite_git_sha,omitempty"`
 	StartedAt    time.Time         `json:"started_at"`
@@ -180,6 +189,9 @@ type Run struct {
 	Journeys     map[string]string `json:"journeys"`
 	Subject      Evidence          `json:"subject"` // what was tested: org/env/regions/app/blueprint/delivered images
 	Steps        []*Step           `json:"steps"`
+
+	// SuiteImageDigest is the digest of the image that ran a run in self.
+	SuiteImageDigest string `json:"suite_image_digest,omitempty"`
 
 	unreached []string // the steps of D0 that failed only because the Sovereign could not be reached (reach.go)
 }

@@ -127,6 +127,7 @@ TITLE_MAX = 100
 CHECK_ID = re.compile(r"^[A-Z]{3}-G[0-9]{2}$")
 PACKAGE_ID = re.compile(r"^[A-Z]{3}-([0-9]{3}|S[0-9])$")
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
+IMAGE_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 RUN_ID = re.compile(r"^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{4}$")
 CANDIDATE_ID = re.compile(r"^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{7}$")
 TIME = re.compile(r"^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)(\.\d+)?Z$")
@@ -156,15 +157,21 @@ RECORD = {
     "console": (True, "str"),
     "deployment_id": (False, "str"),
     "mode": (True, ("enum", ("run", "discover"))),
-    "run_in": (True, ("enum", ("local", "cloud"))),
+    "run_in": (True, ("enum", ("local", "cloud", "self"))),
     "capabilities": (True, ("list", ("enum", CAPABILITIES))),
     "suite_git_sha": (True, "hex40"),
+    # A run in self: the digest of the image of the suite that the Job ran. The suite writes it from
+    # --suite-image-digest; the conformance chart reads it from the record.
+    "suite_image_digest": (False, "str"),
     "started_at": (True, "time"),
     "finished_at": (True, "time"),
     "result": (True, ("enum", ("PASS", "FAIL"))),
-    "candidate": (True, {"id": (True, "str"), "commit": (True, "hex40")}),
-    "producer": (True, {"kind": (True, ("enum", ("workflow", "manual"))), "workflow": (False, "str"),
-                        "run_id": (False, "str"), "run_attempt": (False, "int")}),
+    # candidate.commit is 40 hexadecimal characters, and empty in a run in self, which has no checkout.
+    "candidate": (True, {"id": (True, "str"), "commit": (True, "str")}),
+    # A run in self is produced by a Job inside the Sovereign: kind job names it.
+    "producer": (True, {"kind": (True, ("enum", ("workflow", "job", "manual"))), "workflow": (False, "str"),
+                        "run_id": (False, "str"), "run_attempt": (False, "int"),
+                        "job": (False, {"namespace": (True, "str"), "name": (True, "str"), "uid": (True, "str")})}),
     "provision": (False, {"provider": (True, "str"), "created_at": (True, "time"), "ready_at": (True, "time"),
                           "regions": (True, ("list", {"id": (True, "str"), "nodes_requested": (True, "int"),
                                                       "nodes_ready": (True, "int")})),
@@ -759,6 +766,16 @@ def validate_record(rec, m):
                 if k.get(n, 0) < 0:
                     out.append(f"provision.preflight.kinds[{i}].{n}: must not be negative")
     cand = rec["candidate"]
+    if rec["run_in"] == "self":
+        if cand["id"] or cand["commit"]:
+            out.append("candidate: id and commit must be empty when run_in is self")
+        if not IMAGE_DIGEST.match(rec.get("suite_image_digest", "")):
+            out.append("suite_image_digest: required when run_in is self, as sha256:<64 hexadecimal characters>")
+    else:
+        if not HEX40.match(cand["commit"]):
+            out.append("candidate.commit: must be 40 hexadecimal characters")
+        if "suite_image_digest" in rec:
+            out.append("suite_image_digest: only a record of a run in self has one")
     if cand["id"] and (not CANDIDATE_ID.match(cand["id"]) or not cand["id"].endswith("-" + cand["commit"][:7])):
         out.append("candidate.id: must be empty or <UTC yyyymmddThhmmssZ>-<first 7 characters of candidate.commit>")
     producer = rec["producer"]
@@ -768,6 +785,14 @@ def validate_record(rec, m):
                 out.append(f"producer.{k}: required when kind is workflow")
         if "run_attempt" not in producer:
             out.append("producer.run_attempt: required when kind is workflow")
+    if producer["kind"] == "job":
+        if rec["run_in"] != "self":
+            out.append("producer.kind: job is the producer of a run in self only")
+        job = producer.get("job")
+        if not job or not all(job.values()):
+            out.append("producer.job: namespace, name and uid are required when kind is job")
+    elif "job" in producer:
+        out.append("producer.job: only a producer of kind job has one")
     needs = {c["id"]: c["needs"] for c in m["checks"]}
     seen = set()
     for i, e in enumerate(rec["checks"]):
@@ -1276,6 +1301,27 @@ def self_test():
     check("record: a candidate id that does not end in its commit is refused", has(r, "candidate.id"), r)
     r = validate_record(dict(valid, producer={"kind": "workflow"}), mv)
     check("record: a workflow producer without its run is refused", has(r, "producer.run_id"), r)
+    selfrec = dict(valid, run_in="self", candidate={"id": "", "commit": ""}, suite_image_digest="sha256:" + "0a" * 32,
+                   producer={"kind": "job", "job": {"namespace": "catalyst-conformance", "name": "conformance-1", "uid": "u"}})
+    selfrec = {k: x for k, x in selfrec.items() if k not in ("deployment_id", "provision", "artifacts")}
+    r = validate_record(selfrec, mv)
+    check("CONTROL: a record of a run in self, produced by a Job, is valid", r == [], r)
+    r = validate_record({k: x for k, x in selfrec.items() if k != "suite_image_digest"}, mv)
+    check("record: a run in self without the digest of its image is refused", has(r, "suite_image_digest: required"), r)
+    r = validate_record(dict(selfrec, suite_image_digest="latest"), mv)
+    check("record: a run in self whose image is named by a tag is refused", has(r, "suite_image_digest: required"), r)
+    r = validate_record(dict(selfrec, candidate={"id": "", "commit": commit}), mv)
+    check("record: a run in self that names a candidate commit is refused", has(r, "candidate: id and commit must be empty"), r)
+    r = validate_record(dict(valid, suite_image_digest="sha256:" + "0a" * 32), mv)
+    check("record: a run that is not in self with an image digest is refused", has(r, "suite_image_digest: only"), r)
+    r = validate_record(dict(valid, candidate={"id": "", "commit": ""}), mv)
+    check("record: a run that is not in self without a candidate commit is refused", has(r, "candidate.commit: must be 40"), r)
+    r = validate_record(dict(selfrec, producer={"kind": "job"}), mv)
+    check("record: a Job producer without the Job is refused", has(r, "producer.job: namespace, name and uid"), r)
+    r = validate_record(dict(valid, producer=selfrec["producer"]), mv)
+    check("record: a Job producer of a run that is not in self is refused", has(r, "producer.kind: job"), r)
+    r = validate_record(dict(valid, producer=dict(valid["producer"], job=selfrec["producer"]["job"])), mv)
+    check("record: a Job on a producer that is not of kind job is refused", has(r, "producer.job: only"), r)
     r = validate_record(dict(valid, checks=valid["checks"] + [{"id": "FND-G99", "state_at_run": "required", "status": "FAIL", "reason": "r"}]), mv)
     check("record: a check that is not in the manifest is refused", has(r, "FND-G99 is not a check"), r)
     r = validate_record(dict(valid, checks=[{"id": "FND-G05", "state_at_run": "required", "status": "FAIL"}]), mv)

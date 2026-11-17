@@ -30,6 +30,8 @@ spec:
   objectStorage: {checksumAlgorithm: ""}
   network:
     loadBalancer: {mode: external-hostport}
-  bootstrap: {userDataLimitBytes: 0}
+  # The cloud refuses user data over 32 KiB (32,768 bytes). LIMIT in
+  # user_data_worst_case.py is the same number (scripts/cloudinit-size-check.py).
+  bootstrap: {userDataLimitBytes: 32768}
   capabilities: {multiRegion: true, multiCloudRegion: false}
   day2: {contracts: []}

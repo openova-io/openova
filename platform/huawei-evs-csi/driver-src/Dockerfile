@@ -11,12 +11,11 @@
 #                 device into the Pod.
 # So the runtime base ships e2fsprogs + xfsprogs + util-linux + the CA bundle.
 #
-# Multi-stage, fully static binary (CGO disabled), pinned upstream base digests
-# resolved at build time by CI.
+# Multi-stage, fully static binary (CGO disabled). The Go base is pinned by digest,
+# and its Go is not older than the go line of go.mod (scripts/check-go-base-image.py).
 
 # ---- build stage ----
-ARG GO_VERSION=1.22
-FROM golang:${GO_VERSION}-bookworm AS build
+FROM golang:1.25.14-bookworm@sha256:3b4a11519ad929d1e1d261a12cff056f0c85b735253d7d861346b9c6f8b36437 AS build
 
 WORKDIR /src
 

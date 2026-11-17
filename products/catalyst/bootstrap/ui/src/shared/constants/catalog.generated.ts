@@ -720,7 +720,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.4.21",
+    "version": "1.4.22",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [],
     "shareable": false,
@@ -1038,60 +1038,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "hasUserUIEndpoint": false
   },
   {
-    "id": "bp-coraza",
-    "slug": "coraza",
-    "title": "Coraza WAF (SPOA)",
-    "summary": "",
-    "icon": null,
-    "category": null,
-    "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
-    "version": "1.0.1",
-    "section": "pts-3-3-security-and-policy",
-    "depends": [],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "singleton"
-      ],
-      "multiRegion": "singleton",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "singleton": {
-          "replication": {
-            "backend": "flux-git",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
-          "switchover": null,
-          "placement": {
-            "tier": "",
-            "clusters": [
-              "mgmt-A",
-              "mgmt-B",
-              "dmz-A",
-              "dmz-B",
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "mgmt-A": "singleton",
-              "mgmt-B": "singleton",
-              "dmz-A": "singleton",
-              "dmz-B": "singleton",
-              "rtz-A": "singleton",
-              "rtz-B": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": false
-  },
-  {
     "id": "bp-crossplane",
     "slug": "crossplane",
     "title": "crossplane",
@@ -1101,7 +1047,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.8",
+    "version": "1.1.9",
     "section": "pts-3-2-gitops-and-iac",
     "depends": [],
     "shareable": false,
@@ -1898,13 +1844,12 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.2.51",
+    "version": "0.2.52",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-keycloak",
       "bp-cilium",
       "bp-seaweedfs",
-      "bp-sealed-secrets",
       "bp-k8s-ws-proxy"
     ],
     "shareable": false,
@@ -2252,9 +2197,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "version": "0.1.21",
     "section": "pts-3-3-security-and-policy",
-    "depends": [
-      "bp-sealed-secrets"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -3466,12 +3409,11 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "listed",
-    "version": "0.1.2",
+    "version": "0.1.3",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-keycloak",
-      "bp-cilium",
-      "bp-sealed-secrets"
+      "bp-cilium"
     ],
     "shareable": false,
     "contextSchema": null,
@@ -3534,7 +3476,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.7",
+    "version": "1.0.8",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-cilium"
@@ -3895,6 +3837,96 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "hasUserUIEndpoint": true
   },
   {
+    "id": "bp-openova-flow-emitter",
+    "slug": "openova-flow-emitter",
+    "title": "OpenOva Flow emitter",
+    "summary": "",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "0.1.2",
+    "section": null,
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "producesInstances": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    },
+    "hasUserUIEndpoint": false
+  },
+  {
+    "id": "bp-openova-flow-server",
+    "slug": "openova-flow-server",
+    "title": "OpenOva Flow server",
+    "summary": "",
+    "icon": null,
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "0.2.7",
+    "section": null,
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "producesInstances": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A"
+            ],
+            "roles": {
+              "mgmt-A": "singleton"
+            }
+          }
+        }
+      }
+    },
+    "hasUserUIEndpoint": false
+  },
+  {
     "id": "bp-openova-mcp",
     "slug": "openova-mcp",
     "title": "OpenOva MCP",
@@ -4135,7 +4167,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.16",
+    "version": "0.1.17",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-cilium"
@@ -4630,7 +4662,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.221",
+    "version": "0.1.225",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-gitea",
@@ -4728,7 +4760,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.2",
+    "version": "0.1.3",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [],
     "shareable": false,
@@ -4761,70 +4793,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
               "dmz-B": "singleton",
               "rtz-A": "singleton",
               "rtz-B": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": false
-  },
-  {
-    "id": "bp-spire",
-    "slug": "spire",
-    "title": "spire",
-    "summary": "SPIFFE/SPIRE workload identity. 5-min rotating SVIDs. Server on mgt cluster + agent per host cluster.",
-    "icon": null,
-    "category": null,
-    "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
-    "version": "1.1.7",
-    "section": "pts-2-3-per-sovereign-supporting-services",
-    "depends": [],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "active-hot-standby",
-        "singleton"
-      ],
-      "multiRegion": "active-hot-standby",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "active-hot-standby": {
-          "replication": {
-            "backend": "cnpg-pair",
-            "mode": "sync",
-            "lagSloSeconds": 0
-          },
-          "switchover": {
-            "mechanism": "bp-continuum",
-            "rtoSeconds": 30,
-            "rpoSeconds": 0
-          },
-          "placement": {
-            "tier": "mgmt",
-            "clusters": [
-              "mgmt-A",
-              "mgmt-B"
-            ],
-            "roles": {
-              "mgmt-A": "active",
-              "mgmt-B": "passive"
-            }
-          }
-        },
-        "singleton": {
-          "replication": null,
-          "switchover": null,
-          "placement": {
-            "tier": "mgmt",
-            "clusters": [
-              "mgmt-A"
-            ],
-            "roles": {
-              "mgmt-A": "singleton"
             }
           }
         }
@@ -5936,7 +5904,6 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/cluster-autoscaler-hcloud/blueprint.yaml",
   "platform/cnpg-pair/blueprint.yaml",
   "platform/cnpg/blueprint.yaml",
-  "platform/coraza/blueprint.yaml",
   "platform/crossplane-claims/blueprint.yaml",
   "platform/crossplane/blueprint.yaml",
   "platform/debezium/blueprint.yaml",
@@ -5984,6 +5951,8 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/openbao/blueprint.yaml",
   "platform/openclaw/blueprint.yaml",
   "platform/openmeter/blueprint.yaml",
+  "platform/openova-flow-emitter/blueprint.yaml",
+  "platform/openova-flow-server/blueprint.yaml",
   "platform/openova-mcp/blueprint.yaml",
   "platform/opensearch/blueprint.yaml",
   "platform/opentelemetry-operator/blueprint.yaml",
@@ -6000,7 +5969,6 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/self-sovereign-cutover/blueprint.yaml",
   "platform/sigstore/blueprint.yaml",
   "platform/sovereign-tls-vars/blueprint.yaml",
-  "platform/spire/blueprint.yaml",
   "platform/sso-bridge/blueprint.yaml",
   "platform/stalwart-sovereign/blueprint.yaml",
   "platform/stalwart-tenant/blueprint.yaml",
@@ -6280,13 +6248,6 @@ export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = [
     "order": 34
   },
   {
-    "id": "bp-coraza",
-    "slug": "coraza",
-    "label": "coraza",
-    "file": "35-coraza.yaml",
-    "order": 35
-  },
-  {
     "id": "bp-vllm",
     "slug": "vllm",
     "label": "vllm",
@@ -6327,20 +6288,6 @@ export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = [
     "label": "hcloud-ccm",
     "file": "55-bp-hcloud-ccm.yaml",
     "order": 55
-  },
-  {
-    "id": "bp-openova-flow-server",
-    "slug": "openova-flow-server",
-    "label": "openova-flow-server",
-    "file": "56-bp-openova-flow-server.yaml",
-    "order": 56
-  },
-  {
-    "id": "bp-openova-flow-emitter",
-    "slug": "openova-flow-emitter",
-    "label": "openova-flow-emitter",
-    "file": "57-bp-openova-flow-emitter.yaml",
-    "order": 57
   },
   {
     "id": "bp-vcluster-helmrepo",

@@ -823,6 +823,57 @@ Fill one line of the table below when it is done. Never write a password here.
 | `tenant-test` | not yet | | |
 | `tenant-test12-2` | not yet | | |
 
+### 2.15a Rotating the etcd encryption key
+
+Every k3s server of a Sovereign keeps the Kubernetes Secrets in etcd as `secretbox` ciphertext: it starts with `--secrets-encryption --secrets-encryption-provider=secretbox` (`infra/providers/_shared/cloudinit-control-plane.tftpl`). The key rests in `/var/lib/rancher/k3s/server/cred/encryption-config.json` on each server node, and in etcd under the k3s server token ([`SECURITY.md`](SECURITY.md) §3). A rotation makes a new key, makes it the active key and encrypts every Secret again with it.
+
+**When.** Once a year, and at once after any suspected compromise of a node. Each region of a Sovereign is a k3s cluster of its own with a key of its own, so rotate the key in every region.
+
+**How, in one region.** The servers of the region are its nodes with the label `catalyst.openova.io/role=control-plane`. Run `kubectl` with a kubeconfig of that region. Run every `k3s` and `systemctl` command as root in a shell on the server node that the step names.
+
+1. List the servers: `kubectl get nodes -l catalyst.openova.io/role=control-plane`. Choose one of them. It is the first server in the steps below.
+2. On the first server, run `k3s secrets-encrypt status`. It must print `Encryption Status: Enabled`. If it prints anything else, do not go on: this procedure is only for a cluster whose encryption is on.
+3. On the first server, run `k3s secrets-encrypt rotate-keys`.
+4. On the first server, run `k3s secrets-encrypt status` again until it prints `Current Rotation Stage: reencrypt_finished`. Restart no server before it does.
+5. Restart the servers one at a time. On a server, run `systemctl restart k3s`. Wait until `kubectl get nodes -l catalyst.openova.io/role=control-plane` shows that node `Ready`. Only then restart the next server. A region with one server restarts that one server.
+6. On each server, run `k3s secrets-encrypt status`. It must print `Encryption Status: Enabled`.
+
+The rotation changes the etcd key only. It does not change the k3s server token, under which etcd keeps its copy of the key.
+
+### 2.16 Rotating the release signing key
+
+A rotation replaces the release key pair of [`SECURITY.md`](SECURITY.md) §11.5 with a new pair that the release-key custodian has made by the procedure of that section. These change together:
+
+- `keys/release-cosign.pub`, the public half;
+- `platform/kyverno-policies/chart/files/release-cosign.pub`, the copy of the image-signature policy, once that file exists: a guard keeps it byte-equal to `keys/release-cosign.pub`;
+- the line `Release key in use:` of [`SECURITY.md`](SECURITY.md) §11.5, which holds the SHA-256 of the public half;
+- the repository secrets `RELEASE_COSIGN_KEY` and `RELEASE_COSIGN_PASSWORD`.
+
+**Why the order matters.** On `main` the signing action reads the public half from the commit its run checked out, and the private half from the secrets as they are when its job starts. It signs and verifies at once, so a run is green only when both halves belong to one pair. A run that starts while the secrets hold one pair and its commit holds the other fails. No workflow that signs starts on a push that changes only `keys/` or `docs/`. The copy of the policy is under `platform/*/chart/**`, which starts `.github/workflows/blueprint-release.yaml`, a workflow that signs. So the secrets change first, while no signing run is queued or running, and the merge follows at once: a run that the merge starts reads the new secrets and the new public half.
+
+A rotation is not a work package. Its branch is `release-key-rotation/<YYYY-MM-DD>`, and its body has no line `Work-Package:`. The steps named `release-key | ...` of the job `pull-request-guards` judge it instead.
+
+1. Open the rotation pull request. It changes `keys/release-cosign.pub` to the new `cosign.pub`, the copy of the policy (once it exists) to the same bytes, and the SHA-256 of the line `Release key in use:` in [`SECURITY.md`](SECURITY.md) §11.5. When the new pair was made by the custody procedure, it also replaces the paragraph after that line: the date, and that the key has two recovery copies. Its body has this line, with the SHA-256 of the new public half:
+   ```
+   Release-Key-Rotation: sha256:<64 hex>
+   ```
+   `scripts/check-release-key.py` fails the pull request when the line is missing or names another key, when the record in `SECURITY.md` differs, or when the new key is one that `keys/release-cosign.pub` held before. Wait until every check of the pull request is green.
+2. Hold `main`. From now until step 5, add no other pull request to the merge queue (`.github/rulesets/main.json`) and start no workflow by hand. Wait until the merge queue of `main` is empty (`https://github.com/openova-io/openova/queue/main`) and no run of a workflow that signs is queued or running. From a checkout of `main`, the commands below print each workflow that signs and has such a run. Run them again until the last one prints nothing.
+   ```sh
+   for s in queued in_progress waiting requested pending; do gh api --paginate "repos/openova-io/openova/actions/runs?status=$s&per_page=100" --jq '.workflow_runs[].path'; done | sed 's/@.*//' | sort -u > /tmp/release-key-active.txt
+   grep -l 'uses: ./.github/actions/sign-and-attest' .github/workflows/* | sort > /tmp/release-key-signing.txt
+   comm -12 /tmp/release-key-active.txt /tmp/release-key-signing.txt
+   ```
+3. The custodian sets the two secrets, on his own computer, from one recovery copy ([`SECURITY.md`](SECURITY.md) §11.5), with the drive mounted read-only. First he proves that the copy holds the new key: from a checkout of the rotation branch, `cosign public-key --key <drive>/cosign.key | cmp - keys/release-cosign.pub` prints nothing. Then he runs the two commands below. The second asks for the value: he types the password from the envelope.
+   ```sh
+   gh secret set RELEASE_COSIGN_KEY --repo openova-io/openova < <drive>/cosign.key
+   gh secret set RELEASE_COSIGN_PASSWORD --repo openova-io/openova
+   ```
+4. Merge the rotation pull request through the merge queue. Once the copy of the policy exists, its merge commit starts `blueprint-release.yaml`: wait until that run is green.
+5. Release the hold.
+
+From step 3 on, never set the old secrets again. If the rotation pull request fails in the merge queue, the hold stays until a corrected rotation pull request has merged. A run of a commit older than the rotation fails at its verify step, because that commit holds the old public half. Do not run it again.
+
 ---
 
 ## §3 — Blueprint authoring

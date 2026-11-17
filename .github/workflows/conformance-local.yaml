@@ -4,16 +4,21 @@
 # privileged container on the runner's own Docker and boots it with the shared template; Flux
 # then installs the reduced kit clusters/_template/providers/local/kit from the commit of the
 # pull request. scripts/local-pack.sh does the work:
-#   up     two regions; exit 0 only when the kit core is Ready in both and the runner reaches
-#          both API servers with the kubeconfigs it writes;
-#   claim  a claim of 1 GiB binds on the default storage class of each region (gate check
-#          CLD-G11);
-#   down   removes every machine, volume and network, also when an earlier step failed.
+#   up         two regions; exit 0 only when the kit core is Ready in both, the console
+#              runs in the primary region and answers on the address of the env file, an
+#              owner session is minted, and the runner reaches both API servers with the
+#              kubeconfigs it writes;
+#   discovery  the suite tests/acceptance/sovereign passes its discovery steps D0.1 and D0.2
+#              on the pack;
+#   claim      a claim of 1 GiB binds on the default storage class of each region (gate
+#              check CLD-G11);
+#   down       removes every machine, volume and network, also when an earlier step failed.
 # On a failure the evidence of every machine is uploaded as the artifact local-pack-evidence.
 # Nothing publishes a port and nothing uses a node port.
 #
 # It runs on pull requests that change what the run reads from the commit: the boot template,
-# the module contract, the local module, the cluster templates, the script and this file.
+# the module contract, the local module, the cluster templates, the suite (it builds the
+# session minter and runs the discovery), the script and this file.
 # Charts and images come from ghcr.io at the versions the kit pins; the job token pulls them.
 name: conformance-local
 
@@ -24,6 +29,7 @@ on:
       - 'infra/providers/_contract/**'
       - 'infra/providers/local/**'
       - 'clusters/_template/**'
+      - 'tests/acceptance/sovereign/**'
       - 'scripts/local-pack.sh'
       - '.github/workflows/conformance-local.yaml'
   workflow_dispatch:
@@ -61,6 +67,12 @@ jobs:
         with:
           version: v1.31.4
 
+      - name: Install Go (the suite's session minter and discovery)
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: tests/acceptance/sovereign/go.mod
+          cache: false
+
       - name: Self-test of the script
         run: bash scripts/local-pack.sh --self-test
 
@@ -71,6 +83,9 @@ jobs:
           BRANCH: ${{ github.head_ref || github.ref_name }}
           COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         run: bash scripts/local-pack.sh up --regions 2 --branch "$BRANCH" --commit "$COMMIT"
+
+      - name: Discovery steps D0.1 and D0.2 of the suite
+        run: bash scripts/local-pack.sh discovery
 
       - name: Claim of 1 GiB on the default storage class (CLD-G11)
         run: bash scripts/local-pack.sh claim

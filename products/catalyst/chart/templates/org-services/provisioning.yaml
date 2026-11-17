@@ -114,6 +114,12 @@ rules:
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # SOV-183: the service reads and watches the variables document, the one
+  # ConfigMap its emitted chart sources and pull Secret come from.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["sovereign-variables"]
+    verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

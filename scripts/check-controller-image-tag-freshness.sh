@@ -5,7 +5,7 @@
 # fails if any chart image pin in products/catalyst/chart/values.yaml is more
 # than $MAX_LAG_COMMITS behind the latest pushed image on GHCR (default: 50
 # commits). Two groups are covered:
-#   * the 5 Group C controller pins (controllers.<name>.image.tag) — #2851;
+#   * the 4 Group C controller pins (controllers.<name>.image.tag) — #2851;
 #   * the 7 application image pins (images.*) — #5451, added after console,
 #     admin and marketplace-api sat frozen at a 2026-04-28 tag for 3.5 months
 #     with their build workflows reporting success on every run.
@@ -23,8 +23,7 @@
 #
 # Defense (this script)
 # ---------------------
-# For each of `application | blueprint | environment | organization |
-# useraccess`:
+# For each of `application | environment | organization | useraccess`:
 #   1. Read the current `controllers.<name>.image.tag` from
 #      products/catalyst/chart/values.yaml.
 #   2. Query GHCR for the latest pushed 7-hex SHA tag of
@@ -72,7 +71,6 @@ LATEST_IMAGE_TAG="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/latest-image-tag
 # repository pushed by build-<rhs>.yaml.
 declare -A CTRL_PKG=(
   [application]=application-controller
-  [blueprint]=blueprint-controller
   [environment]=environment-controller
   [organization]=organization-controller
   [useraccess]=useraccess-controller

@@ -32,7 +32,8 @@
  * former static `sandbox` FLAT_NAV row and the /sandbox* pages are gone. Scope
  * follows the entry's SOURCE: Blueprint-sourced entries render for every
  * session (an Org-scoped console keeps Agenity exactly as before); only
- * Application candidates are Sovereign-level and hidden from Org sessions.
+ * Application candidates and console page candidates (source page) are
+ * Sovereign-level and hidden from Org sessions.
  *
  * Related: GitHub issue #607, #6723
  */
@@ -194,9 +195,10 @@ export function SovereignSidebar({ sovereignFQDN }: SovereignSidebarProps) {
   // on an Org-scoped console exactly as the static Agenity row did; an
   // Application candidate (app:<name>) is a Sovereign-level mapping — the
   // merged view names Applications from every Organization — and stays
-  // suppressed for an Org session. catalyst-api applies the same rule
-  // server-side (HandleConsoleUISidebarEntries confines an Org-scoped
-  // session to source=blueprint), so this filter is belt-and-braces.
+  // suppressed for an Org session, and so is a console page candidate
+  // (page:<name>, a view of the whole Sovereign). catalyst-api applies the
+  // same rule server-side (HandleConsoleUISidebarEntries confines an
+  // Org-scoped session to source=blueprint), so this filter is belt-and-braces.
   const visibleEntries: SidebarEntry[] = dynamicEntries.filter(
     (entry) => entry.enabled !== false && (!orgScoped || entry.source === 'blueprint'),
   )

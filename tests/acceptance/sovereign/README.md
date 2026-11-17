@@ -197,7 +197,7 @@ holds the identifier of the check as a string literal. The contract is in
 | Flag (variable) | Default | Meaning |
 |---|---|---|
 | `--manifest` (`ACCEPT_MANIFEST`) | empty | The manifest as JSON: the output of `python3 scripts/acceptance-gate.py export`. Empty: no check runs. |
-| `--run-in` (`ACCEPT_RUN_IN`) | `cloud` | `local` or `cloud`. A check is selected when its entry lists this value in `runs_in`. |
+| `--run-in` (`ACCEPT_RUN_IN`) | `cloud` | `local`, `cloud` or `self`. A check is selected when its entry lists this value in `runs_in`. `self` is a Job inside a Sovereign; see "A run in self" below. |
 | `--capabilities` (`ACCEPT_CAPABILITIES`) | empty | Comma list of the capability flags this run declares, for example `multi-region`. |
 | `--candidate-id` (`ACCEPT_CANDIDATE_ID`) | empty | The candidate this run certifies. Empty: the record certifies nothing. |
 | `--repo-root` (`ACCEPT_REPO_ROOT`) | `.` | The checkout of the commit under test. Its `HEAD` is written as `candidate.commit`. |
@@ -205,6 +205,9 @@ holds the identifier of the check as a string literal. The contract is in
 | `--previous-deployment-id` (`ACCEPT_PREVIOUS_DEPLOYMENT_ID`) | empty | The deployment whose wipe this fire follows. Check FND-G13 reads it, and the record carries it as `provision.previous_deployment_id`. Give it together with `--previous-wipe-orphans`, or neither: one without the other stops the run with exit code `3`. |
 | `--previous-wipe-orphans` (`ACCEPT_PREVIOUS_WIPE_ORPHANS`) | empty | How many resources of that deployment a listing of the cloud account still found after the wipe, a whole number of 0 or more. Check FND-G13 passes on `0`. The record carries it as `provision.previous_wipe_orphans`. Another value stops the run with exit code `3`. |
 | `--preflight` (`ACCEPT_PREFLIGHT`) | empty | What the flight checklist counted in the cloud account before this deployment was fired. See "The pre-flight numbers" below. Check FND-G13 reads it, and the record carries it as `provision.preflight`. Empty: FND-G13 fails. A value in another form stops the run with exit code `3`. |
+| `--suite-image-digest` (`ACCEPT_SUITE_IMAGE_DIGEST`) | empty | A run in self: the digest of the image that the Job runs, `sha256:` and 64 hexadecimal characters. The record carries it as `suite_image_digest`. Another value stops a run in self with exit code `3`. |
+| `--wait-for-release` (`ACCEPT_WAIT_FOR_RELEASE`) | `30` | A run in self: how many minutes step D0.12 waits until every HelmRelease runs the chart version its own spec names. `0` reads them once. |
+| `--report-name` (`ACCEPT_REPORT_NAME`) | `conformance` | A run in self: the name of the ClusterPolicyReport that the run writes. |
 
 **The pre-flight numbers.** The value of `--preflight` is one line:
 
@@ -243,6 +246,17 @@ check is run; each is recorded **SKIP**. A `required` check that does not
 PASS fails the run, except a SKIP for `needs` that were not declared. An
 `expected-fail` check never fails the run. `discover` runs no check.
 
+**A run in self.** `run --run-in self` is a Job inside a Sovereign. It needs
+`--manifest`, `--suite-image-digest` and `--region-a`, skips the discovery and
+the journeys, and reads the cluster of its pod with the pod's ServiceAccount.
+Step D0.12 waits until every HelmRelease that is not suspended runs the chart
+version its spec names. The run selects the checks that list `self` and are
+not destructive, and writes one ClusterPolicyReport (`internal/suite/report.go`)
+with one result per check: `pass`, `fail` (required), `warn` (expected-fail),
+`skip`. The record's producer is `job` when `ACCEPT_JOB_NAMESPACE`,
+`ACCEPT_JOB_NAME` and `ACCEPT_JOB_UID` name the Job. The binary exits `0` when
+the report was written, also when a check failed.
+
 The checks of the suite. Checks FND-G01 to FND-G05 and FND-G09 read every
 region; a region that cannot be read fails the check. Checks FND-G08 and
 FND-G10 to FND-G12 read no cluster: they report steps that the run recorded
@@ -254,7 +268,7 @@ platform namespace is a namespace without the label `openova.io/organization`.
 
 | Check | File | It fails when |
 |---|---|---|
-| FND-G01 Candidate identity | `check_candidate.go` | The suite was not built from the candidate commit. A HelmRelease that is not suspended runs another chart version than `clusters/_template/bootstrap-kit/*.yaml` pins for it in the checkout of `--repo-root`. A container of a platform namespace has no image digest. One image reference has two digests. |
+| FND-G01 Candidate identity | `check_candidate.go` | The suite was not built from the candidate commit. A HelmRelease that is not suspended runs another chart version than `clusters/_template/bootstrap-kit/*.yaml` pins for it in the checkout of `--repo-root`. A container of a platform namespace has no image digest. One image reference has two digests. In its `self` form, in a run in self, there is no checkout and no candidate: the commit of the suite and the pins are not judged, and a HelmRelease that is not suspended runs another chart version than its own `spec.chart.spec.version` names; a HelmRelease whose spec names no version is not compared. The digest rules are the same. |
 | FND-G02 Zero touch | `check_zero_touch.go` | A HelmRelease, or a Deployment or DaemonSet of `catalyst-system`, `cnpg-system` or `kube-system`, has a field manager named `kubectl` or `kubectl-…`. A Deployment, DaemonSet or StatefulSet of those namespaces or of `flux-system` has the annotation `kubectl.kubernetes.io/restartedAt` on its pod template. The clusters are looked at twice: before the journeys (steps `FND-G02.start.*`) and when the checks run. |
 | FND-G03 Nodes | `check_nodes.go` | The Ready nodes of a region differ from `--nodes-requested`, in either direction, or the run did not say the number. |
 | FND-G04 Releases and pods | `check_releases.go` | A HelmRelease that is not suspended is not `Ready=True`, or is stalled. A container of a platform namespace is in `CrashLoopBackOff`, or has more than 3 restarts. |

@@ -187,6 +187,7 @@ func newFixture(t *testing.T) *fixture {
 	f.write(w, kitDir+"/10-bp-foo.yaml", slot("bp-foo", "1.0.0", upstreamPrefix))
 	f.write(w, kitDir+"/13-bp-catalyst-platform.yaml", slot("bp-catalyst-platform", "1.4.0", upstreamPrefix)+platformSlot)
 	f.write(w, "platform/foo/chart/values.yaml", "image:\n  repository: ghcr.io/openova-io/foo\n  tag: \"1.0.0\"\n")
+	f.writeCutoverChart(w, installedCutover, step03Marker(installedCutover))
 	f.git(w, "add", "-A")
 	f.git(w, "commit", "-q", "-m", "installed release")
 	f.installed = f.git(w, "rev-parse", "HEAD")

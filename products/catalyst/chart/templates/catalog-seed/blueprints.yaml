@@ -1659,7 +1659,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.2.51"
+  version: "0.2.52"
   visibility: listed
   card:
     title: "Apache Guacamole"
@@ -1687,7 +1687,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-guacamole
-    version: "0.2.51"
+    version: "0.2.52"
   topology:
     supported:
     - active-hot-standby
@@ -3790,7 +3790,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.4.21"
+  version: "1.4.22"
   visibility: unlisted
   card:
     title: "Cilium"
@@ -3807,7 +3807,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-cilium
-    version: "1.4.21"
+    version: "1.4.22"
   topology:
     supported:
       - singleton
@@ -3884,52 +3884,6 @@ spec:
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
-  name: bp-coraza
-  labels:
-    catalyst.openova.io/managed-by: catalog-seed
-    catalyst.openova.io/origin: openova-public
-    catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/category: security
-    catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
-    app.kubernetes.io/managed-by: {{ $managedBy }}
-    app.kubernetes.io/instance: {{ $instance }}
-spec:
-  version: "1.0.1"
-  visibility: unlisted
-  card:
-    title: "Coraza WAF (SPOA)"
-    category: security
-    summary: "OWASP Coraza Web Application Firewall as an SPOA sidecar — ModSecurity-compatible rules (CRS) enforced at the Sovereign edge gateway."
-    icon: coraza.svg
-  placementSchema:
-    modes: [single-region]
-    default: single-region
-  manifests:
-    chart: bp-coraza
-  source:
-    kind: HelmRepository
-    type: oci
-    url: oci://ghcr.io/openova-io
-    chart: bp-coraza
-    version: "1.0.1"
-  topology:
-    supported:
-      - singleton
-    defaults:
-      multi-region: singleton
-      single-region: singleton
-    perTopology:
-      singleton:
-        placement:
-          tier: dmz
-          clusters: [dmz-A]
-          roles:
-            dmz-A: singleton
-  endpoints: []
----
-apiVersion: catalyst.openova.io/v1
-kind: Blueprint
-metadata:
   name: bp-crossplane
   labels:
     catalyst.openova.io/managed-by: catalog-seed
@@ -3940,7 +3894,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "1.1.8"
+  version: "1.1.9"
   visibility: unlisted
   card:
     title: "Crossplane"
@@ -3957,7 +3911,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-crossplane
-    version: "1.1.8"
+    version: "1.1.9"
   topology:
     supported:
       - singleton
@@ -5042,7 +4996,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.1.221"
+  version: "0.1.225"
   visibility: unlisted
   card:
     title: "Self-Sovereignty Cutover"
@@ -5059,7 +5013,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-self-sovereign-cutover
-    version: "0.1.221"
+    version: "0.1.225"
   topology:
     supported:
       - singleton
@@ -5348,7 +5302,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: "0.2.1"
+  version: "0.2.2"
   visibility: unlisted
   card:
     title: "Continuum"
@@ -5369,7 +5323,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-continuum
-    version: "0.2.1"
+    version: "0.2.2"
   topology:
     supported:
       - active-hot-standby

@@ -83,12 +83,12 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      # contents: write - the deploy step below pushes the tag bump to main.
+      contents: write
       packages: write
       id-token: write
-    outputs:
-      sha_short: ${{ steps.vars.outputs.sha_short }}
-      digest: ${{ steps.build.outputs.digest }}
+      # actions: write - `gh workflow run` dispatches the chart re-publish.
+      actions: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -136,27 +136,51 @@ jobs:
           release-key: ${{ secrets.RELEASE_COSIGN_KEY }}
           release-key-password: ${{ secrets.RELEASE_COSIGN_PASSWORD }}
 
-  notify:
-    needs: build
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Trigger downstream chart-bump
-        # Same repository_dispatch pattern as the other Group C controllers'
-        # workflows (see useraccess-controller-build.yaml for the canonical
-        # template). The downstream chart-bump workflow stamps the SHA
-        # into products/catalyst/chart/values.yaml services.catalog.image.tag
-        # and opens the bump PR for review.
-        uses: peter-evans/repository-dispatch@v4
+      # Bump services.catalog.image.tag so the next chart release carries this
+      # image, as useraccess-controller-build.yaml does for its controller. A
+      # job "notify" stood here before: it sent a repository dispatch that the
+      # job token was refused, and no workflow received that event (FND-028).
+      - name: Bump services.catalog.image.tag in values.yaml
+        if: github.ref == 'refs/heads/main'
+        env:
+          SHA_SHORT: ${{ steps.vars.outputs.sha_short }}
+        run: |
+          VALUES="products/catalyst/chart/values.yaml"
+          # awk: the first `      tag:` (image.tag) of `  catalog:` under the
+          # top-level `services:`; no other tag moves.
+          awk -v sha="${SHA_SHORT}" '
+            /^[^ #]/ { in_svc = ($0 ~ /^services:/); in_cat = 0 }
+            in_svc && /^  [a-zA-Z]/ { in_cat = ($0 ~ /^  catalog:/) }
+            in_cat && /^      tag:/ { sub(/"[^"]*"/, "\"" sha "\""); in_cat = 0 }
+            { print }
+          ' "${VALUES}" > "${VALUES}.tmp" && mv "${VALUES}.tmp" "${VALUES}"
+          # Read the value back: a bump that matched nothing fails here.
+          got="$(awk '
+            /^[^ #]/ { in_svc = ($0 ~ /^services:/); in_cat = 0 }
+            in_svc && /^  [a-zA-Z]/ { in_cat = ($0 ~ /^  catalog:/) }
+            in_cat && /^      tag:/ { gsub(/"/, "", $2); print $2; exit }
+          ' "${VALUES}")"
+          echo "services.catalog.image.tag after the bump: ${got}"
+          test "${got}" = "${SHA_SHORT}"
+
+      - name: Commit and push values.yaml bump
+        id: deploy_commit
+        if: github.ref == 'refs/heads/main'
+        uses: ./.github/actions/deploy-bump
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          repository: ${{ github.repository }}
-          event-type: catalyst-catalog-image-built
-          client-payload: |
-            {
-              "sha_short": "${{ needs.build.outputs.sha_short }}",
-              "digest": "${{ needs.build.outputs.digest }}",
-              "git_sha": "${{ github.sha }}"
-            }
+          paths: products/catalyst/chart/values.yaml
+          commit-message: "deploy: bump catalyst-catalog image to ${{ steps.vars.outputs.sha_short }}"
+          release-writer-key: ${{ secrets.RELEASE_WRITER_KEY }}
+
+      # A push made with the release-writer key starts no workflow ([skip ci]),
+      # so the chart re-publish is dispatched here.
+      - name: Dispatch blueprint-release for chart re-publish
+        if: github.ref == 'refs/heads/main' && steps.deploy_commit.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run blueprint-release.yaml \
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref main \
+            -f blueprint=catalyst \
+            -f tree=products

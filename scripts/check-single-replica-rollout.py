@@ -86,7 +86,6 @@ EXCLUDE_SUBSTRINGS = ("/tests/fixtures/", "/node_modules/", "/.claude/")
 # the parent commit and pass on this one.
 KNOWN_TRAPPED = {
     "core/controllers/application/deploy/deployment.yaml",
-    "core/controllers/blueprint/deploy/deployment.yaml",
     "core/controllers/organization/config/manager/deployment.yaml",
     "core/controllers/useraccess/deploy/deployment.yaml",
     "platform/cnpg-pair/chart/templates/failover-readiness.yaml",

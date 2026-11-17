@@ -49,21 +49,6 @@ packages:
 %{ endif ~}
 
 write_files:
-  - path: /var/lib/catalyst/sovereign.json
-    permissions: '0644'
-    content: |
-      {
-        "sovereignFQDN": "${sovereign_fqdn}",
-        "provider": "${provider}",
-        "orgName": ${jsonencode(org_name)},
-        "orgEmail": ${jsonencode(org_email)},
-        "region": "${region}",
-        "k3sVersion": "${k3s_version}",
-        "gitopsRepoUrl": "${gitops_repo_url}",
-        "gitopsBranch": "${gitops_branch}",
-        "deploymentId": "${deployment_id}"
-      }
-
   # Kernel inotify limits — Flux + bao init churn watches; bump so future
   # blueprints never hit "too many open files".
   - path: /etc/sysctl.d/99-catalyst-inotify.conf
@@ -371,12 +356,7 @@ write_files:
     content: ${base64gzip(format("%s\n", chomp(replace(crossplane_provider_yaml, "/(?m)^[ ]*#( |$).*\n/", ""))))}
 %{ endif ~}
 
-  # ── Handover-JWT public key (raw JWK + K8s Secret) ────────────────────
-  - path: /var/lib/catalyst/handover-jwt-public.jwk
-    permissions: '0600'
-    content: |
-      ${handover_jwt_public_key}
-
+  # ── Handover-JWT public key: the Secret catalyst-api mounts ───────────
   - path: /var/lib/catalyst/handover-jwt-public-secret.yaml
     permissions: '0600'
     content: |
@@ -682,7 +662,7 @@ CILIUMVALUES
             # Settings page controlPlaneIP) stay blank.
             SOVEREIGN_CONTROL_PLANE_IP: ${load_balancer_ipv4}
             # SOVEREIGN_OWNER_EMAIL (founder NS-3 #3263) — the deployment
-            # owner's email (same org_email as sovereign.json's orgEmail).
+            # owner's email (the same org_email as ORG_EMAIL below).
             # bp-keycloak slot 09 threads it into sovereignRealm.ownerEmail;
             # the sovereign-realm import seeds that user into
             # /sovereign-admins at bootstrap so the owner is admin-by-default

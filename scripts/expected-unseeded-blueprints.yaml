@@ -165,12 +165,6 @@ unseeded:
       (qaTestEnabled). Deliberately kept out of the production catalog seed so
       a customer-reachable Sovereign never carries a test fixture card.
 
-  - chart: bp-spire
-    source: platform/spire
-    reason: >-
-      No kit slot and no seed entry — not installable from either door today.
-      Enumerated here, not silenced; needs an owner call on seed-or-retire.
-
   - chart: bp-stalwart-sovereign
     source: platform/stalwart-sovereign
     reason: >-

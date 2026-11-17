@@ -98,7 +98,7 @@ spec:
 
   # ── G117.3: Endpoints ──────────────────────────────────────────────────
   # Per audit: `vault.<sov>` or internal-only. Default to private (mTLS,
-  # no Coraza WAF); operator may publish via per-Sovereign overlay.
+  # no firewall); operator may publish via per-Sovereign overlay.
   endpoints:
     - name: api
       # OpenBao is served at bao.<sov>: clusters/_template/bootstrap-kit/

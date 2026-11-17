@@ -16,6 +16,11 @@
 // caller's session doesn't qualify, but the server is the authoritative
 // gate (per INVIOLABLE-PRINCIPLES.md #5).
 //
+// Scale, apply and delete then go through package clusterwrite: an object
+// that Git owns is refused with 409 managed-by-git, and any other object is
+// written only by break-glass (owner tier and a reason: the body field
+// reason, for DELETE the query parameter reason), audited before and after.
+//
 // All resource resolution flows through the per-cluster dynamic client
 // owned by k8scache.Factory (DynamicClientFor). No second per-cluster
 // pool, no fresh REST configs — same lifecycle as the informers per
@@ -23,6 +28,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -38,17 +44,20 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/clusterwrite"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
 )
 
 // ── Wire shapes ─────────────────────────────────────────────────────
 
 type k8sScaleRequest struct {
-	Replicas int `json:"replicas"`
+	Replicas int    `json:"replicas"`
+	Reason   string `json:"reason,omitempty"`
 }
 
 type k8sApplyRequest struct {
-	YAML string `json:"yaml"`
+	YAML   string `json:"yaml"`
+	Reason string `json:"reason,omitempty"`
 }
 
 // ── HTTP handler — scale (POST .../scale) ───────────────────────────
@@ -108,10 +117,21 @@ func (h *Handler) HandleK8sResourceScale(w http.ResponseWriter, r *http.Request)
 		})
 		return
 	}
+	live, getErr := dyn.Resource(kind.GVR).Namespace(ns).Get(r.Context(), name, metav1.GetOptions{})
+	if getErr != nil {
+		writeResourceMutationError(w, getErr, "scale")
+		return
+	}
+	finish, allowed := clusterwrite.Allow(w, r, h.auditBus, kind.GVR, live, clusterwrite.Write{
+		Cluster: clusterID, Verb: "scale", Resource: kind.GVR.Resource, Namespace: ns, Name: name, Reason: body.Reason})
+	if !allowed {
+		return
+	}
 	patch := map[string]any{"spec": map[string]any{"replicas": body.Replicas}}
 	patchBytes, _ := json.Marshal(patch)
 	updated, patchErr := dyn.Resource(kind.GVR).Namespace(ns).Patch(
 		r.Context(), name, types.MergePatchType, patchBytes, metav1.PatchOptions{})
+	finish(r.Context(), patchErr)
 	if patchErr != nil {
 		writeResourceMutationError(w, patchErr, "scale")
 		return
@@ -199,9 +219,9 @@ func (h *Handler) HandleK8sResourceRestart(w http.ResponseWriter, r *http.Reques
 //
 //	/api/v1/sovereigns/{id}/k8s/{kind}/{ns}/{name}
 //
-// Deletes the resource. Same tier-admin auth gate as scale/restart.
-// Confirmation modal lives in the UI (R6); the server treats DELETE as
-// the commit step.
+// Deletes the resource. Same tier-admin auth gate as scale/restart, then
+// clusterwrite.Allow with the query parameter reason. Confirmation modal
+// lives in the UI (R6); the server treats DELETE as the commit step.
 func (h *Handler) HandleK8sResourceDelete(w http.ResponseWriter, r *http.Request) {
 	if h.k8sCache == nil {
 		http.Error(w, "k8scache disabled", http.StatusServiceUnavailable)
@@ -223,12 +243,28 @@ func (h *Handler) HandleK8sResourceDelete(w http.ResponseWriter, r *http.Request
 		})
 		return
 	}
+	var live *unstructured.Unstructured
 	var delErr error
+	if kind.Namespaced {
+		live, delErr = dyn.Resource(kind.GVR).Namespace(ns).Get(r.Context(), name, metav1.GetOptions{})
+	} else {
+		live, delErr = dyn.Resource(kind.GVR).Get(r.Context(), name, metav1.GetOptions{})
+	}
+	if delErr != nil {
+		writeResourceMutationError(w, delErr, "delete")
+		return
+	}
+	finish, allowed := clusterwrite.Allow(w, r, h.auditBus, kind.GVR, live, clusterwrite.Write{
+		Cluster: clusterID, Verb: "delete", Resource: kind.GVR.Resource, Namespace: ns, Name: name, Reason: r.URL.Query().Get("reason")})
+	if !allowed {
+		return
+	}
 	if kind.Namespaced {
 		delErr = dyn.Resource(kind.GVR).Namespace(ns).Delete(r.Context(), name, metav1.DeleteOptions{})
 	} else {
 		delErr = dyn.Resource(kind.GVR).Delete(r.Context(), name, metav1.DeleteOptions{})
 	}
+	finish(r.Context(), delErr)
 	if delErr != nil {
 		writeResourceMutationError(w, delErr, "delete")
 		return
@@ -344,8 +380,10 @@ func (h *Handler) handleApplyOrDryRun(w http.ResponseWriter, r *http.Request, dr
 	// object and stamps its resourceVersion when the caller omits one; the
 	// dry-run/apply path never did. Mirror that: when parsed omits an RV,
 	// fetch the live object and stamp it so both the dry-run validation and
-	// a same-RV apply carry a valid concurrency token.
-	if parsed.GetResourceVersion() == "" {
+	// a same-RV apply carry a valid concurrency token. A real apply always
+	// fetches it: clusterwrite reads its Git owner first.
+	finish := clusterwrite.Finish(func(context.Context, error) {})
+	if parsed.GetResourceVersion() == "" || !dryRun {
 		var existing *unstructured.Unstructured
 		var getErr error
 		if kind.Namespaced {
@@ -383,7 +421,16 @@ func (h *Handler) handleApplyOrDryRun(w http.ResponseWriter, r *http.Request, dr
 			})
 			return
 		}
-		parsed.SetResourceVersion(existing.GetResourceVersion())
+		if !dryRun {
+			var allowed bool
+			if finish, allowed = clusterwrite.Allow(w, r, h.auditBus, kind.GVR, existing, clusterwrite.Write{
+				Cluster: clusterID, Verb: "apply", Resource: kind.GVR.Resource, Namespace: ns, Name: name, Reason: body.Reason}); !allowed {
+				return
+			}
+		}
+		if parsed.GetResourceVersion() == "" {
+			parsed.SetResourceVersion(existing.GetResourceVersion())
+		}
 	}
 
 	var updated *unstructured.Unstructured
@@ -393,6 +440,7 @@ func (h *Handler) handleApplyOrDryRun(w http.ResponseWriter, r *http.Request, dr
 	} else {
 		updated, updErr = dyn.Resource(kind.GVR).Update(r.Context(), parsed, opts)
 	}
+	finish(r.Context(), updErr)
 	if updErr != nil {
 		// Validation errors and conflicts surface via apierrors; surface
 		// 400 for invalid + 403 for forbidden + 409 for conflict + 404 for

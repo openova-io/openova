@@ -38,6 +38,12 @@ type Config struct {
 	// The record carries them as provision.preflight; check FND-G13 reads them.
 	Preflight string
 
+	// A run in self (runner.go, executeSelf): the digest of the image that the
+	// Job runs, the name of the report it writes, and how long it waits until
+	// every HelmRelease runs the chart version its spec names.
+	SuiteImageDigest, ReportName string
+	WaitForReleaseMinutes        int
+
 	Record     bool
 	RecordDir  string
 	KeepOnFail bool

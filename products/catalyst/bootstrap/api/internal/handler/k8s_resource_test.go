@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -273,7 +274,7 @@ func TestHandleK8sResourceScale_HappyPath(t *testing.T) {
 	dep := newDeploymentObj("default", "wp", 2)
 	rig := newResourceRig(t, dep)
 	defer rig.stop()
-	body, _ := json.Marshal(map[string]int{"replicas": 5})
+	body, _ := json.Marshal(map[string]any{"replicas": 5, "reason": testBreakGlassReason})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sovereigns/alpha/k8s/deployment/default/wp/scale", bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -337,14 +338,14 @@ func TestHandleK8sResourceScale_RBACGate_Forbidden(t *testing.T) {
 	}
 }
 
-func TestHandleK8sResourceScale_RBACGate_AdminAllowed(t *testing.T) {
+func TestHandleK8sResourceScale_RBACGate_OwnerAllowed(t *testing.T) {
 	dep := newDeploymentObj("default", "wp", 2)
 	rig := newResourceRig(t, dep)
 	defer rig.stop()
-	body, _ := json.Marshal(map[string]int{"replicas": 4})
+	body, _ := json.Marshal(map[string]any{"replicas": 4, "reason": testBreakGlassReason})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sovereigns/alpha/k8s/deployment/default/wp/scale", bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
-	claims := &auth.Claims{Tier: "admin"}
+	claims := &auth.Claims{Tier: "owner"}
 	req = req.WithContext(context.WithValue(req.Context(), auth.ClaimsKey, claims))
 	rec := httptest.NewRecorder()
 	rig.router().ServeHTTP(rec, req)
@@ -380,7 +381,7 @@ func TestHandleK8sResourceDelete_HappyPath(t *testing.T) {
 	pod := newPodObj("default", "wp-1")
 	rig := newResourceRig(t, pod)
 	defer rig.stop()
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/sovereigns/alpha/k8s/pod/default/wp-1", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/sovereigns/alpha/k8s/pod/default/wp-1?reason="+url.QueryEscape(testBreakGlassReason), nil)
 	rec := httptest.NewRecorder()
 	rig.router().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {

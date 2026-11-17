@@ -1,11 +1,12 @@
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
-  name: langfuse
+  name: bp-langfuse
   labels:
     catalyst.openova.io/section: pts-3-observability
 spec:
   version: 1.1.0
+  visibility: unlisted
   card:
     title: Langfuse
     family: insights

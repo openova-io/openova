@@ -13,6 +13,7 @@ spec:
   # so the catalog UI, application-controller, and SSO fan-out can plan
   # against it ahead of the chart being authored.
   version: 0.0.0
+  visibility: unlisted
   card:
     title: Neo4J
     summary: |

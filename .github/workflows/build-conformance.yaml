@@ -1,0 +1,169 @@
+name: Build conformance
+
+# Builds the image of the acceptance suite tests/acceptance/sovereign for a run in self, in which
+# a Job inside a Sovereign runs the suite with the ServiceAccount of its pod. The image is
+# ghcr.io/openova-io/openova/conformance:<short commit>, built from
+# tests/acceptance/sovereign/Containerfile.
+#
+# The build context is a folder that this job fills from the commit it checked out: the suite
+# program, built here with CGO_ENABLED=0; scripts/check-live-nodeports.sh, which check FND-G05
+# runs; and gates.json, the gate manifest docs/ledger/gates.yaml as the JSON that
+# scripts/acceptance-gate.py export prints. The Containerfile adds bash, python3 and kubectl
+# v1.31.8, checked against its published SHA-256, and sets SUITE_GIT_SHA to the commit.
+#
+# Every run builds the image and starts it: the image must hold the files this job built, every
+# tool must start, and the program must refuse a run in self that names no image digest. Only a
+# run on main pushes the image and signs it through .github/actions/sign-and-attest, with the
+# release key; the digest is written to the summary of the run.
+#
+# Every action is pinned by its commit; the comment names the release that commit is.
+
+on:
+  pull_request:
+    paths:
+      - 'tests/acceptance/sovereign/**'
+      - 'scripts/check-live-nodeports.sh'
+      - 'scripts/acceptance-gate.py'
+      - 'docs/ledger/gates.yaml'
+      - '.github/workflows/build-conformance.yaml'
+  push:
+    branches: [main]
+    paths:
+      - 'tests/acceptance/sovereign/**'
+      - 'scripts/check-live-nodeports.sh'
+      - 'scripts/acceptance-gate.py'
+      - 'docs/ledger/gates.yaml'
+      - '.github/workflows/build-conformance.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/openova-io/openova/conformance
+
+jobs:
+  build-conformance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      # The step that signs the image needs a GitHub OIDC token.
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: '1.23'
+          cache: false
+
+      - name: Fill the build context
+        id: vars
+        run: |
+          set -euo pipefail
+          python3 -c 'import yaml' 2>/dev/null || python3 -m pip install --quiet pyyaml
+          ctx="$RUNNER_TEMP/conformance"
+          mkdir -p "$ctx/scripts"
+          (cd tests/acceptance/sovereign && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o "$ctx/sovereign-acceptance" ./cmd/sovereign-acceptance)
+          cp scripts/check-live-nodeports.sh "$ctx/scripts/check-live-nodeports.sh"
+          python3 scripts/acceptance-gate.py export > "$ctx/gates.json"
+          python3 -c 'import json, sys; json.load(open(sys.argv[1], encoding="utf-8"))' "$ctx/gates.json"
+          (cd "$ctx" && sha256sum gates.json scripts/check-live-nodeports.sh sovereign-acceptance)
+          echo "sha_short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Build image (load)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: ${{ runner.temp }}/conformance
+          file: tests/acceptance/sovereign/Containerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          build-args: |
+            SUITE_GIT_SHA=${{ github.sha }}
+          tags: ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=conformance
+          # containerd 1.7 on k3s cannot pull an image index that carries an attestation manifest.
+          provenance: false
+          sbom: false
+
+      # The image runs as 65534 in /opt/conformance with no network. It holds the three files of the
+      # build context unchanged and the commit in SUITE_GIT_SHA; bash, python3 and kubectl v1.31.8
+      # start; the self-test of the NodePort script passes; and the program refuses a run in self
+      # without an image digest with exit code 3, before it reads a cluster.
+      - name: Start the image
+        env:
+          REF: ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --entrypoint /bin/bash "$REF" -c \
+            'set -euo pipefail; test "$(id -u):$(id -g)" = 65534:65534; test "$PWD" = /opt/conformance; bash --version | head -n 1; python3 --version; kubectl version --client | grep -x -F "Client Version: v1.31.8"; bash scripts/check-live-nodeports.sh --self-test'
+          want="$(cd "$RUNNER_TEMP/conformance" && sha256sum gates.json scripts/check-live-nodeports.sh sovereign-acceptance)"
+          got="$(docker run --rm --network none --entrypoint /bin/sh "$REF" -c \
+            'sha256sum gates.json scripts/check-live-nodeports.sh && cd /usr/local/bin && sha256sum sovereign-acceptance')"
+          if [ "$want" != "$got" ]; then
+            echo "::error::the image does not hold the files of the build context"
+            printf 'built:\n%s\nin the image:\n%s\n' "$want" "$got"
+            exit 1
+          fi
+          sha="$(docker run --rm --network none --entrypoint /bin/sh "$REF" -c 'printf "%s" "$SUITE_GIT_SHA"')"
+          if [ "$sha" != "$GITHUB_SHA" ]; then
+            echo "::error::SUITE_GIT_SHA in the image is '${sha}', the commit is ${GITHUB_SHA}"
+            exit 1
+          fi
+          code=0
+          out="$(docker run --rm --network none "$REF" run --env smoke --run-in self 2>&1)" || code=$?
+          printf '%s\n' "$out"
+          test "$code" = 3
+          printf '%s\n' "$out" | grep -q -F -- '--suite-image-digest must be sha256'
+          echo "the image holds the files of the build context, SUITE_GIT_SHA=${sha}, and every tool starts"
+
+      - name: Login to GHCR
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push image
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        id: push
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: ${{ runner.temp }}/conformance
+          file: tests/acceptance/sovereign/Containerfile
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            SUITE_GIT_SHA=${{ github.sha }}
+          tags: ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=conformance
+          provenance: false
+          sbom: false
+
+      - name: Sign and attest the image
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: ./.github/actions/sign-and-attest
+        with:
+          ref: ${{ env.IMAGE }}
+          digest: ${{ steps.push.outputs.digest }}
+          release-key: ${{ secrets.RELEASE_COSIGN_KEY }}
+          release-key-password: ${{ secrets.RELEASE_COSIGN_PASSWORD }}
+
+      - name: Write the digest to the summary
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: echo "Signed ${IMAGE}@${DIGEST} (tag ${{ steps.vars.outputs.sha_short }}, SUITE_GIT_SHA ${GITHUB_SHA})" >> "$GITHUB_STEP_SUMMARY"

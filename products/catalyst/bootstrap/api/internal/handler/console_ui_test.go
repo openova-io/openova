@@ -28,6 +28,7 @@ import (
 	kfake "k8s.io/client-go/kubernetes/fake"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/consolemenu"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
 )
 
@@ -74,6 +75,8 @@ var (
 	}
 	uiEndpoints  = []interface{}{map[string]interface{}{"name": "console", "launchDefault": true, "ssoEnabled": true}}
 	apiEndpoints = []interface{}{map[string]interface{}{"name": "api", "protocol": "https"}}
+	// testPages stands in for the list of console pages, which starts empty.
+	testPages = []consolemenu.Page{{Name: "test-view", Label: "Test view", Route: "/cloud?class=test", Order: 30, Icon: "M4 6h16"}}
 )
 
 // ── validation ───────────────────────────────────────────────────────────
@@ -117,10 +120,17 @@ func TestConsoleUI_ValidateSidebarOverrides(t *testing.T) {
 		{name: "parent settings is refused (no sub-nav children)", ov: SidebarOverrides{Entries: []SidebarOverride{{ID: "bp-a", Parent: "settings"}}}, hosts: hosts, wantHint: ".parent: \"settings\" is not a mappable menu item"},
 		{name: "parent sovereignty is refused (anchor, not a page)", ov: SidebarOverrides{Entries: []SidebarOverride{{ID: "bp-a", Parent: "sovereignty"}}}, hosts: hosts, wantHint: ".parent: \"sovereignty\" is not a mappable"},
 		{name: "parent unknown", ov: SidebarOverrides{Entries: []SidebarOverride{{ID: "bp-a", Parent: "nope"}}}, hosts: hosts, wantHint: ".parent: \"nope\" is not a mappable"},
+
+		{name: "page id of a listed page with label, order and parent", ov: SidebarOverrides{Entries: []SidebarOverride{
+			{ID: "page:test-view", Enabled: true, Label: "Databases", Order: intPtr(20), Parent: "cloud"},
+		}}, hosts: hosts, wantOK: true},
+		{name: "page id that no listed page carries", ov: SidebarOverrides{Entries: []SidebarOverride{{ID: "page:no-such-view", Enabled: true}}}, hosts: hosts, wantHint: ".id: page:no-such-view is not a console page of this Sovereign"},
+		{name: "page id without a name", ov: SidebarOverrides{Entries: []SidebarOverride{{ID: "page:"}}}, hosts: hosts, wantHint: "or page:<page-name>"},
+		{name: "unknown prefix", ov: SidebarOverrides{Entries: []SidebarOverride{{ID: "view:test-view"}}}, hosts: hosts, wantHint: "or page:<page-name>"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			problems := validateSidebarOverrides(c.ov, c.hosts)
+			problems := validateSidebarOverrides(c.ov, c.hosts, testPages)
 			if c.wantOK {
 				if len(problems) != 0 {
 					t.Fatalf("expected valid, got problems: %v", problems)
@@ -145,7 +155,7 @@ func TestConsoleUI_ValidateSidebarOverrides_CapsEntryCount(t *testing.T) {
 	for i := range ov.Entries {
 		ov.Entries[i].ID = "bp-x"
 	}
-	problems := validateSidebarOverrides(ov, nil)
+	problems := validateSidebarOverrides(ov, nil, testPages)
 	if len(problems) != 1 || !bytes.Contains([]byte(problems[0]), []byte("at most 200 overrides")) {
 		t.Fatalf("expected the single cap problem, got %v", problems)
 	}
@@ -270,12 +280,12 @@ func TestConsoleUI_CollectSidebarDefaults_DedupesAndOrders(t *testing.T) {
 		applicationCR("grafana", "org-a", "bp-grafana"), // same name, other Org — collapses
 		applicationCR("agenity", "org-a", "bp-agenity"),
 	}
-	got := collectSidebarDefaults(bps, apps)
+	got := collectSidebarDefaults(bps, apps, testPages)
 	ids := make([]string, 0, len(got))
 	for _, e := range got {
 		ids = append(ids, e.ID)
 	}
-	want := []string{"bp-agenity", "bp-zeta", "app:agenity", "app:grafana"}
+	want := []string{"bp-agenity", "bp-zeta", "app:agenity", "app:grafana", "page:test-view"}
 	if len(ids) != len(want) {
 		t.Fatalf("ids=%v want %v", ids, want)
 	}
@@ -295,6 +305,7 @@ func TestConsoleUI_MergeSidebarEntries(t *testing.T) {
 				blueprintCR("bp-shy", map[string]interface{}{"sidebarEntry": false, "sidebarLabel": "Shy", "sidebarOrder": int64(60)}, nil),
 			},
 			[]*unstructured.Unstructured{applicationCR("grafana", "monitoring", "bp-grafana")},
+			nil,
 		)
 	}
 	find := func(entries []SidebarEntry, id string) SidebarEntry {
@@ -370,6 +381,50 @@ func TestConsoleUI_MergeSidebarEntries(t *testing.T) {
 			t.Fatalf("settings can never be a parent, got %q", p)
 		}
 	})
+}
+
+// A console page is a candidate of source page: off by default, switched
+// on, renamed, ordered and nested by an override like any other candidate,
+// and never returned to an Organization session.
+func TestConsoleUI_PageCandidates(t *testing.T) {
+	defaults := collectSidebarDefaults(
+		[]*unstructured.Unstructured{blueprintCR("bp-agenity", agenityConsoleUI, uiEndpoints)},
+		nil,
+		testPages,
+	)
+	page := func(entries []SidebarEntry) *SidebarEntry {
+		for i := range entries {
+			if entries[i].ID == "page:test-view" {
+				return &entries[i]
+			}
+		}
+		return nil
+	}
+
+	off := page(mergeSidebarEntries(defaults, SidebarOverrides{}))
+	if off == nil || off.Source != "page" || off.Enabled || off.DefaultEnabled || off.Overridden ||
+		off.Label != "Test view" || off.Route != "/cloud?class=test" || off.Order != 30 || off.Icon != "M4 6h16" {
+		t.Fatalf("a page candidate must be listed, off by default, with the values of the list: %+v", off)
+	}
+
+	ov := SidebarOverrides{Entries: []SidebarOverride{{ID: "page:test-view", Enabled: true, Label: "Databases", Order: intPtr(20), Parent: "cloud"}}}
+	if problems := validateSidebarOverrides(ov, nil, testPages); len(problems) != 0 {
+		t.Fatalf("an override of a listed page must be valid: %v", problems)
+	}
+	merged := mergeSidebarEntries(defaults, ov)
+	on := page(merged)
+	if on == nil || !on.Enabled || !on.Overridden || on.Label != "Databases" || on.Order != 20 || on.Parent != "cloud" ||
+		on.DefaultLabel != "Test view" || on.DefaultOrder != 30 || on.DefaultEnabled {
+		t.Fatalf("the override must switch the page on, rename, order and nest it: %+v", on)
+	}
+
+	org := blueprintSourcedOnly(merged)
+	if page(org) != nil {
+		t.Fatalf("an Organization session must not get a page candidate: %+v", org)
+	}
+	if len(org) != 1 || org[0].ID != "bp-agenity" {
+		t.Fatalf("an Organization session keeps the Blueprint entry: %+v", org)
+	}
 }
 
 func TestConsoleUI_DecodeSidebarOverrides(t *testing.T) {
@@ -544,6 +599,15 @@ func TestConsoleUISidebar_RoundTrip_MergedViewReflectsPut(t *testing.T) {
 	}
 	if _, err := dyn.Resource(cmGVR).Namespace(sidebarOverridesNamespace).Get(context.Background(), sidebarOverridesConfigMap, metav1.GetOptions{}); err == nil {
 		t.Fatalf("a refused PUT must not create the ConfigMap")
+	}
+
+	// 3b. A page id that the list of console pages does not carry is refused.
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPut, "/api/v1/sovereigns/alpha/console-ui/sidebar-overrides", bytes.NewBufferString(`{"entries":[{"id":"page:no-such-view","enabled":true}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !bytes.Contains(rec.Body.Bytes(), []byte("is not a console page of this Sovereign")) {
+		t.Fatalf("a PUT with an unknown page id: want 400 naming it, got %d %s", rec.Code, rec.Body.String())
 	}
 
 	// 4. Valid PUT creates the ConfigMap; the merged view reflects it.

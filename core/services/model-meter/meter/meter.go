@@ -13,13 +13,16 @@
 //     key of BACKENDS gets 421.
 //  2. A request without one of the identity headers gets 400 missing_identity and is not
 //     forwarded. No usage event is published for it.
-//  3. The response is written through as it arrives. Usage is read from an unstreamed JSON
-//     body of at most MaxBodyBytes. A streamed response (text/event-stream) is passed through
-//     and publishes no event.
-//  4. At most one usage event is published per forwarded request: exactly one when the back
+//  3. A body of POST /v1/chat/completions above MaxRequestBytes gets 413. A request for a
+//     stream is forwarded with stream_options.include_usage set to true.
+//  4. The response is written through as it arrives; a stream is flushed after every write.
+//     Usage is read from an unstreamed JSON body of at most MaxBodyBytes, or from the last
+//     stream chunk with a usage object. That chunk reaches the caller only if it asked.
+//  5. At most one usage event is published per forwarded request: exactly one when the back
 //     end answered with a 2xx status and a usage block was read, none otherwise. It is
-//     published after the response has been written.
-//  5. Every request, whatever its outcome, produces one JSON log line and one entry in the
+//     published after the response has been written. A stream that ends, on either side,
+//     before "data: [DONE]" has the status aborted and publishes no event.
+//  6. Every request, whatever its outcome, produces one JSON log line and one entry in the
 //     ring of the last RingSize requests.
 package meter
 
@@ -177,6 +180,8 @@ type exchange struct {
 	stream     bool
 	failed     bool
 	usage      Usage
+	dropUsage  bool       // the caller did not ask for the usage chunk of a stream
+	sse        *sseParser // the parser of a streamed answer
 }
 
 type exchangeKey struct{}
@@ -225,6 +230,7 @@ func NewHandler(c Config) (*Handler, error) {
 			},
 			ModifyResponse: h.observe,
 			ErrorHandler:   h.backendFailed,
+			FlushInterval:  -1, // flush after every write
 		}}
 	}
 	return h, nil
@@ -254,25 +260,71 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case idErr != nil:
 		rec.HTTPStatus = writeError(w, http.StatusBadRequest, "missing_identity", "an identity header is absent or empty")
 	default:
-		h.forward(w, r, rt, id, &rec, start)
+		ex := &exchange{}
+		if status, code, message := prepare(r, ex); status != 0 {
+			rec.HTTPStatus = writeError(w, status, code, message)
+			break
+		}
+		h.forward(w, r, rt, id, &rec, ex, start)
 		return
 	}
 	h.logLine(rec, Usage{}, start, time.Time{})
 	h.ring.Add(rec)
 }
 
-// forward sends the request to the back end, then publishes the usage event when one is due.
-func (h *Handler) forward(w http.ResponseWriter, r *http.Request, rt route, id Identity, rec *Record, start time.Time) {
-	ex := &exchange{}
-	rt.proxy.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), exchangeKey{}, ex)))
-	rec.HTTPStatus = ex.httpStatus
-	rec.Stream = ex.stream
-	if ex.failed || ex.httpStatus < 200 || ex.httpStatus > 299 {
+// prepare reads the body of POST /v1/chat/completions and sets include_usage for a stream. It
+// returns the status, code and message of a refusal, or 0.
+func prepare(r *http.Request, ex *exchange) (int, string, string) {
+	if r.Method != http.MethodPost || r.URL.Path != "/v1/chat/completions" || r.Body == nil {
+		return 0, "", ""
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, MaxRequestBytes+1))
+	switch {
+	case r.ContentLength > MaxRequestBytes || len(body) > MaxRequestBytes:
+		return http.StatusRequestEntityTooLarge, "request_too_large", "the request body is larger than 16 MiB"
+	case err != nil:
+		return http.StatusBadRequest, "invalid_request", "the request body could not be read"
+	}
+	body, ex.dropUsage = withStreamUsage(body)
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	r.ContentLength = int64(len(body))
+	return 0, "", ""
+}
+
+// settle records the outcome of a forwarded request in rec.
+func settle(rec *Record, ex *exchange, aborted bool) {
+	rec.HTTPStatus, rec.Stream = ex.httpStatus, ex.stream
+	if ex.sse != nil {
+		ex.usage = ex.sse.usage
+		aborted = aborted || !ex.sse.done
+	}
+	switch {
+	case ex.failed || ex.httpStatus < 200 || ex.httpStatus > 299:
 		rec.Status = StatusError
-	} else {
+	case aborted:
+		rec.Status = StatusAborted
+	default:
 		rec.Status = StatusOK
 	}
-	if rec.Status == StatusOK && !ex.stream && ex.usage.Complete {
+}
+
+// forward sends the request to the back end, then publishes the usage event when one is due.
+func (h *Handler) forward(w http.ResponseWriter, r *http.Request, rt route, id Identity, rec *Record, ex *exchange, start time.Time) {
+	defer func() {
+		// Under an http.Server the proxy panics with http.ErrAbortHandler when the copy of the
+		// answer breaks off on either side. The request is recorded as aborted first.
+		if p := recover(); p != nil {
+			if err, ok := p.(error); ok && errors.Is(err, http.ErrAbortHandler) {
+				settle(rec, ex, true)
+				h.logLine(*rec, ex.usage, start, ex.firstByte)
+				h.ring.Add(*rec)
+			}
+			panic(p)
+		}
+	}()
+	rt.proxy.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), exchangeKey{}, ex)))
+	settle(rec, ex, false)
+	if rec.Status == StatusOK && ex.usage.Complete {
 		// The response is written; send it on before the publish.
 		_ = http.NewResponseController(w).Flush()
 		h.publish(r.Context(), id, ex.usage, rec)
@@ -324,7 +376,8 @@ func (h *Handler) logLine(rec Record, u Usage, start, firstByte time.Time) {
 }
 
 // observe is the ModifyResponse hook: it records the status and reads the usage block of an
-// unstreamed 2xx body, then gives the proxy the same bytes to write to the caller.
+// unstreamed 2xx body, then gives the proxy the same bytes to write to the caller. A streamed
+// 2xx body goes through the stream parser as the proxy copies it.
 func (h *Handler) observe(resp *http.Response) error {
 	ex, _ := resp.Request.Context().Value(exchangeKey{}).(*exchange)
 	if ex == nil {
@@ -336,7 +389,11 @@ func (h *Handler) observe(resp *http.Response) error {
 		return nil
 	}
 	if strings.HasPrefix(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream") {
-		ex.stream = true // metered from AIP-112; passed through untouched until then
+		ex.stream = true
+		ex.sse = &sseParser{drop: ex.dropUsage}
+		resp.Body = &meteredBody{rc: resp.Body, p: ex.sse, buf: make([]byte, 32<<10)}
+		resp.ContentLength = -1 // a held-back usage chunk changes the length
+		resp.Header.Del("Content-Length")
 		return nil
 	}
 	orig := resp.Body

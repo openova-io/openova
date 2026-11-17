@@ -52,7 +52,7 @@ func cpuToMillis(v string) (int, error) {
 // ask for anything. Every later pod is refused at admission, and a User sees
 // only an opaque Helm `context deadline exceeded`.
 //
-// Since #6971 the bundle (1950m) is larger than the S headline (1000m) even
+// Since #6971 the bundle (1450m) is larger than the S headline (1000m) even
 // with the overlay's pin, and is admitted only because the org-controller
 // carries it as platform-stack overhead ON TOP of the plan — see
 // assertOrgBundleCarriedAboveThePlan for the statement and the lockstep that

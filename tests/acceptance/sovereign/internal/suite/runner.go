@@ -63,6 +63,9 @@ func Execute(ctx context.Context, cfg Config, out io.Writer) (*Run, error) {
 	if cfg.Console == "" {
 		cfg.Console = "https://console." + cfg.Env + ".omani.works"
 	}
+	if RunIn(cfg.RunIn) == RunInSelf {
+		return executeSelf(ctx, cfg, out)
+	}
 	if cfg.Session == "" {
 		return nil, errors.New("CATALYST_SESSION is not set (see README: scripts/acceptance-sovereign.sh mints one when ACCEPT_MINT=1)")
 	}
@@ -195,6 +198,65 @@ func Execute(ctx context.Context, cfg Config, out io.Writer) (*Run, error) {
 	return r.run, nil
 }
 
+// executeSelf is a run in self: a Job inside a Sovereign, with no console
+// session and no kubeconfig. It skips the discovery and the journeys, waits for
+// the releases (step D0.12), runs the checks that list self and writes the
+// report of report.go. An error means that the run could not run.
+func executeSelf(ctx context.Context, cfg Config, out io.Writer) (*Run, error) {
+	switch {
+	case cfg.ReadOnly:
+		return nil, errors.New("discover does not run in self")
+	case !suiteImageDigest.MatchString(cfg.SuiteImageDigest):
+		return nil, errors.New("--suite-image-digest must be sha256:<64 hexadecimal characters> in a run in self")
+	case cfg.RegionA == "":
+		return nil, errors.New("--region-a must name the region of a run in self")
+	case cfg.Manifest == "":
+		return nil, errors.New("--manifest is required in a run in self")
+	case cfg.ReportName == "":
+		return nil, errors.New("--report-name must not be empty in a run in self")
+	case cfg.WaitForReleaseMinutes < 0:
+		return nil, errors.New("--wait-for-release must be 0 or more minutes")
+	}
+	manifest, err := LoadManifest(cfg.Manifest)
+	if err != nil {
+		return nil, err
+	}
+	checks, err := SelectChecks(manifest, RunInSelf)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	region := kube.Region{ID: cfg.RegionA}
+	r := &runner{cfg: cfg, out: out, A: region,
+		run: &Run{Schema: SchemaVersion, RunID: NewRunID(now), Env: cfg.Env, Console: cfg.Console, Mode: "run",
+			StartedAt: now, Subject: Evidence{}, SuiteGitSHA: gitSHA(), SuiteImageDigest: cfg.SuiteImageDigest,
+			RunIn: cfg.RunIn, Capabilities: splitList(cfg.Capabilities), Checks: []CheckResult{},
+			Producer: selfProducer(os.Getenv)}}
+	_, _ = fmt.Fprintf(out, "acceptance run in self env=%s run=%s region=%s\n", cfg.Env, r.run.RunID, region.ID)
+	r.waitForReleases(ctx, region, time.Duration(cfg.WaitForReleaseMinutes)*time.Minute)
+	cc := &CheckContext{RunIn: RunInSelf, Regions: []kube.Region{region}, Candidate: r.run.Candidate,
+		RepoRoot: cfg.RepoRoot, Caps: map[string]bool{}}
+	for _, c := range r.run.Capabilities {
+		cc.Caps[c] = true
+	}
+	r.runChecks(ctx, manifest, checks, cc, true)
+	r.run.FinishedAt = time.Now().UTC()
+	r.run.Finalize(nil)
+	r.run.PrintTable(out)
+	if cfg.Record {
+		p, err := r.run.Write(cfg.RecordDir)
+		if err != nil {
+			return r.run, fmt.Errorf("record: %w", err)
+		}
+		_, _ = fmt.Fprintf(out, "recorded %s\n", p)
+	}
+	if err := applyReport(ctx, region, BuildReport(cfg.ReportName, r.run)); err != nil {
+		return r.run, fmt.Errorf("report: %w", err)
+	}
+	_, _ = fmt.Fprintf(out, "report ClusterPolicyReport/%s applied\n", cfg.ReportName)
+	return r.run, nil
+}
+
 func (r *runner) journeys(ctx context.Context, want map[string]bool) {
 	if want["J1"] && !r.j1(ctx) {
 		for _, j := range []string{"J2", "J3", "J4"} {
@@ -294,9 +356,13 @@ func poll(ctx context.Context, timeout, interval time.Duration, f func() (bool, 
 	}
 }
 
+// gitSHA is the commit that the suite was built from. A build that has no
+// checkout when it runs (the image of the suite) names it in SUITE_GIT_SHA.
 func gitSHA() string {
-	if s := os.Getenv("GITHUB_SHA"); s != "" {
-		return s
+	for _, k := range []string{"SUITE_GIT_SHA", "GITHUB_SHA"} {
+		if s := os.Getenv(k); s != "" {
+			return s
+		}
 	}
 	out, err := exec.Command("git", "rev-parse", "HEAD").Output()
 	if err != nil {

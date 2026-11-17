@@ -6,6 +6,7 @@
     "blueprints": "audit",
     "environments": "audit",
     "flux": "audit",
+    "machine-ops": "audit",
     "organizations": "audit",
     "policy": "audit",
     "topology": "audit"
