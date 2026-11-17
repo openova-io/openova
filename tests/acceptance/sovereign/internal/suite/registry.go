@@ -102,6 +102,11 @@ type DeploymentInfo struct {
 	// in the cloud account before this deployment was fired. It is nil when
 	// the run did not say; check FND-G13 then fails.
 	Preflight *Preflight
+	// APIPortOutside is the value of --api-port-outside: for each control-plane
+	// address, what a dial of port 6443 gave from a machine that is in no list
+	// of the firewall. It is nil when the run did not say; check NET-G02 then
+	// fails.
+	APIPortOutside map[string]string
 }
 
 // CheckContext is what a check may read. A check must not modify it.

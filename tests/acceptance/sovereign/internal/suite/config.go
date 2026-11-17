@@ -43,6 +43,10 @@ type Config struct {
 	// every HelmRelease runs the chart version its spec names.
 	SuiteImageDigest, ReportName string
 	WaitForReleaseMinutes        int
+	// APIPortOutside is what a dial of port 6443 of every control-plane address
+	// gave from a machine that is in no list of the firewall:
+	// "<address>=<outcome>,..." (see parseAPIPortOutside). Check NET-G02 reads it.
+	APIPortOutside string
 
 	Record     bool
 	RecordDir  string
