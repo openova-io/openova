@@ -4171,7 +4171,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.16",
+    "version": "0.1.17",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-cilium"
