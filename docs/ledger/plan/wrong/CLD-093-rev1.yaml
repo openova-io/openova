@@ -1,0 +1,16 @@
+schema: openova.io/plan-wrong/v1
+id: CLD-093
+ticket_rev: 1
+base_commit: 189ce9f4e3805cd5941598139a937b759837b5e5
+stage: scope
+ref: fence run
+command: |
+    python3 scripts/plan.py check-pr --base origin/main --head HEAD --body-file /tmp/CLD-093-body.md; echo "exit code: $?"
+expected: |
+    exit code: 0
+actual: |
+    rule 4: CLD-090 is not merged
+    rule 4: FND-130 is not merged
+    rule 4: check CLD-G03, flipped by CLD-090, is not green
+    exit code: 1
+reported_at: 2026-11-17T11:54:38Z
