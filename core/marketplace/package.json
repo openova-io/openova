@@ -21,6 +21,6 @@
     "tailwindcss": "^4.0.0",
     "@tailwindcss/vite": "^4.0.0",
     "jsdom": "^28.0.0",
-    "vitest": "^4.1.5"
+    "vitest": "^4.1.12"
   }
 }
