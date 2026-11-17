@@ -590,6 +590,13 @@ type Request struct {
 	//     the operator gets a 400 instead of a wrong-by-default prov.
 	BcpTopology string `json:"bcpTopology,omitempty"`
 
+	// AdminCIDRs — the IPv4 ranges the sovereign-admin reaches the new
+	// Sovereign's Kubernetes API from (NET-011). Optional: when absent, the
+	// entries of CATALYST_DEFAULT_ADMIN_CIDRS are used. writeTfvars writes
+	// them to the OpenTofu variable admin_cidrs. A range of prefix length
+	// 0, such as 0.0.0.0/0, is refused with HTTP 422 (control_plane_sources.go).
+	AdminCIDRs []string `json:"adminCIDRs,omitempty"`
+
 	// MarketplaceEnabled — when true, bp-catalyst-platform 1.3.0+ renders the
 	// marketplace + tenant-wildcard HTTPRoutes (issue #710). Threaded into
 	// tofu via var.marketplace_enabled, then into the cloud-init Flux
@@ -2037,6 +2044,11 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
+	// NET-011: refuse to start when the new cluster's API port would be
+	// closed to this provisioner (control_plane_sources.go).
+	if err := CheckControlPlaneSources(req); err != nil {
+		return nil, err
+	}
 
 	emit := func(phase, level, msg string) {
 		select {
@@ -3012,6 +3024,12 @@ func writeTfvars(deployDir string, req Request) error {
 		// formed.
 		"cluster_mesh_name": deriveClusterMeshName(req),
 		"cluster_mesh_id":   deriveClusterMeshID(req),
+
+		// NET-011: who may reach the new Sovereign's API port 6443 besides
+		// its own addresses (control_plane_sources.go). Both are lists and
+		// never null; an empty list opens the port to nobody else.
+		"admin_cidrs":       AdminCIDRs(req),
+		"provisioner_cidrs": EgressCIDRs(),
 
 		// Hetzner — token gets baked into the state file unless the operator
 		// configures a remote backend with encryption-at-rest. Per Catalyst

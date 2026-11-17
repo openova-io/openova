@@ -578,6 +578,29 @@ spec:
                   name: huawei-operator-creds
                   key: region
                   optional: true
+            # CATALYST_EGRESS_CIDRS / CATALYST_DEFAULT_ADMIN_CIDRS (NET-011)
+            # — the sources, besides a new Sovereign's own addresses, that
+            # reach its Kubernetes API port 6443: this API's egress ranges and
+            # the sovereign-admin ranges used when a request carries no
+            # adminCIDRs, each a comma-separated list of IPv4 CIDRs. Raw
+            # Kustomize renders no Helm values, so both come from the keys
+            # egress-cidrs and default-admin-cidrs of ConfigMap
+            # catalyst-provisioner in this namespace, which the deployment's
+            # own overlay supplies. optional: true keeps the Pod starting
+            # without it; an empty CATALYST_EGRESS_CIDRS then refuses every
+            # create with HTTP 422.
+            - name: CATALYST_EGRESS_CIDRS
+              valueFrom:
+                configMapKeyRef:
+                  name: catalyst-provisioner
+                  key: egress-cidrs
+                  optional: true
+            - name: CATALYST_DEFAULT_ADMIN_CIDRS
+              valueFrom:
+                configMapKeyRef:
+                  name: catalyst-provisioner
+                  key: default-admin-cidrs
+                  optional: true
             # CATALYST_POWERDNS_API_KEY — contabo PowerDNS API key (PR
             # #681 followup). The value is interpolated into the new
             # Sovereign's `cert-manager/powerdns-api-credentials` Secret

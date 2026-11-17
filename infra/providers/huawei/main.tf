@@ -10,7 +10,9 @@
 #   - 1 subnet per VPC, anchored in `me-east-215a` (the only AZ in
 #     region me-east-215; fake-regions overlay via VPC isolation).
 #   - 1 security group per VPC. Ingress: TCP 443/80/8443/8080 (Gateway)
-#     + TCP 6443 (k3s apiserver) + ICMP from any source; the ClusterMesh
+#     + ICMP from any source; TCP 6443 (k3s apiserver) only from
+#     var.admin_cidrs, var.provisioner_cidrs and the Sovereign's own
+#     addresses and node/pod ranges; the ClusterMesh
 #     dial port (TCP 12379) only from the Sovereign's own public addresses
 #     and node/pod ranges; Cilium WireGuard (UDP 51871) and health
 #     (TCP 4240) only from the node/pod ranges. No rule for 2379, 51820,
@@ -227,6 +229,12 @@ locals {
     { for c in local.region_keys : "nat|${c}" => "${huaweicloud_vpc_eip.nat[c].address}/32" },
   )
 
+  # NET-011 — the ranges besides sovereign_public_sources that reach the
+  # Kubernetes API port 6443: the sovereign-admin ranges, the provisioner's
+  # egress ranges and every region's node subnet and pod range. A range named
+  # in more than one list gets one rule. All are known at plan time.
+  api_access_cidrs = distinct(concat(var.admin_cidrs, var.provisioner_cidrs, local.mesh_ingress_cidrs))
+
   # Effective per-region SKU — operator-supplied wins; module defaults
   # back-fill empty entries (s7n.large.4 / m7n.xlarge.8).
   effective_cp_flavor = {
@@ -423,8 +431,9 @@ resource "huaweicloud_vpc_subnet" "region" {
 # Default-deny ingress with explicit allow rules for:
 #   - TCP 443  — Cilium Gateway (HTTPS) from 0/0
 #   - TCP 80   — Cilium Gateway (HTTP, ACME HTTP-01 + .well-known) from 0/0
-#   - TCP 6443 — k3s apiserver from 0/0 (fail-closed by k8s RBAC,
-#                not by firewall — same shape Hetzner module ships)
+#   - TCP 6443 — k3s apiserver, only from var.admin_cidrs,
+#                var.provisioner_cidrs, the Sovereign's own public addresses
+#                and every region's node subnet and pod range (NET-011)
 #   - TCP 12379 — Cilium clustermesh-proxy host-socket dial (#4784) — a
 #                hostNetwork socket BELOW the NodePort range that
 #                TCP-passthroughs to the clustermesh-apiserver etcd, dodging
@@ -504,16 +513,30 @@ resource "huaweicloud_networking_secgroup_rule" "ingress_80" {
   description       = "Cilium Gateway HTTP (ACME + .well-known)"
 }
 
+# NET-011 — the Kubernetes API port. Sources: the Sovereign's own public
+# addresses (local.sovereign_public_sources) and local.api_access_cidrs
+# (var.admin_cidrs, var.provisioner_cidrs, every region's node subnet and
+# pod range) — never 0.0.0.0/0. One rule per target region and per source;
+# static keys.
 resource "huaweicloud_networking_secgroup_rule" "ingress_6443" {
-  for_each          = { for r in var.regions : r.code => r }
-  security_group_id = huaweicloud_networking_secgroup.region[each.key].id
+  for_each = merge(
+    {
+      for pair in setproduct(local.region_keys, keys(local.sovereign_public_sources)) :
+      "${pair[0]}|${pair[1]}" => { region = pair[0], cidr = local.sovereign_public_sources[pair[1]] }
+    },
+    {
+      for pair in setproduct(local.region_keys, local.api_access_cidrs) :
+      "${pair[0]}|${pair[1]}" => { region = pair[0], cidr = pair[1] }
+    },
+  )
+  security_group_id = huaweicloud_networking_secgroup.region[each.value.region].id
   direction         = "ingress"
   ethertype         = "IPv4"
   protocol          = "tcp"
   port_range_min    = 6443
   port_range_max    = 6443
-  remote_ip_prefix  = "0.0.0.0/0"
-  description       = "k3s apiserver (fail-closed via k8s RBAC, mTLS-protected)"
+  remote_ip_prefix  = each.value.cidr
+  description       = "k3s apiserver — src ${each.key}"
 }
 
 # #4784 — clustermesh-proxy host-socket dial port. On no-CCM Huawei the shared
@@ -2010,8 +2033,9 @@ resource "huaweicloud_elb_monitor" "console_http" {
 #     control-plane EIP and the mesh dial port;
 #   - edgeAddress: the gateway ELB EIP, one for every region;
 #   - egressAddresses: the region's NAT EIP (workers) and control-plane EIP;
-#   - controlPlaneAccess: the module has no sovereign-admin or provisioner
-#     source list yet, so both lists are empty;
+#   - controlPlaneAccess: adminCIDRs is var.admin_cidrs and
+#     provisionerCIDRs is var.provisioner_cidrs, the two lists that besides
+#     the Sovereign's own addresses reach port 6443 (NET-011);
 #   - mtu: the pod MTU of Cilium: 1420, the default of the substitution
 #     CILIUM_MTU in clusters/_template/bootstrap-kit/01-cilium.yaml, which no
 #     module sets.
@@ -2032,8 +2056,8 @@ locals {
     mtu              = local.network_registry_mtu
     regionSeparation = local.network_registry_separation
     controlPlaneAccess = {
-      adminCIDRs       = []
-      provisionerCIDRs = []
+      adminCIDRs       = var.admin_cidrs
+      provisionerCIDRs = var.provisioner_cidrs
     }
     regions = [
       for c in local.region_keys : merge(

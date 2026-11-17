@@ -44,6 +44,7 @@ import (
 // PowerDNS/PDM). The body now carries deployment intent only; creds
 // live in the `huawei-operator-creds` Kubernetes Secret on mothership.
 func TestCreateDeployment_Huawei_DispatchesToHuaweiAdapter(t *testing.T) {
+	t.Setenv("CATALYST_EGRESS_CIDRS", "192.0.2.10/32")
 	t.Setenv("DYNADOT_MANAGED_DOMAINS", "omani.works")
 	t.Setenv("CATALYST_HARBOR_ROBOT_TOKEN", "harbor_TEST_PLACEHOLDER")
 	t.Setenv("CATALYST_HUAWEI_ACCESS_KEY", "TESTAK1234567890")
@@ -145,6 +146,7 @@ func TestCreateDeployment_Huawei_DispatchesToHuaweiAdapter(t *testing.T) {
 // control-plane >= m7n.xlarge.8 (4vCPU/32GB), workers >= m7n.2xlarge.8
 // (8vCPU/64GB).
 func TestCreateDeployment_Huawei_EnforcesResourceFloor(t *testing.T) {
+	t.Setenv("CATALYST_EGRESS_CIDRS", "192.0.2.10/32")
 	t.Setenv("DYNADOT_MANAGED_DOMAINS", "omani.works")
 	t.Setenv("CATALYST_HARBOR_ROBOT_TOKEN", "harbor_TEST_PLACEHOLDER")
 	t.Setenv("CATALYST_HUAWEI_ACCESS_KEY", "TESTAK1234567890")

@@ -27,6 +27,7 @@ import (
 // (RejectsMismatchedOrgEmail / AcceptsMatchingOrgEmail at L200/L251
 // already do).
 func TestCreateDeployment_ManagedPoolReservesViaPDM(t *testing.T) {
+	t.Setenv("CATALYST_EGRESS_CIDRS", "192.0.2.10/32")
 	t.Setenv("DYNADOT_MANAGED_DOMAINS", "omani.works")
 	// Pool-mode deployments require a GHCR pull token (Phase 1 pulls
 	// private bp-* OCI artifacts from ghcr.io/openova-io). The chart
@@ -76,6 +77,7 @@ func TestCreateDeployment_ManagedPoolReservesViaPDM(t *testing.T) {
 }
 
 func TestCreateDeployment_PDMConflictBlocksDeployment(t *testing.T) {
+	t.Setenv("CATALYST_EGRESS_CIDRS", "192.0.2.10/32")
 	t.Setenv("DYNADOT_MANAGED_DOMAINS", "omani.works")
 	t.Setenv("CATALYST_GHCR_PULL_TOKEN", "ghp_TEST_PLACEHOLDER_NOT_REAL")
 	t.Setenv("CATALYST_HARBOR_ROBOT_TOKEN", "harbor_TEST_PLACEHOLDER")
@@ -115,6 +117,7 @@ func TestCreateDeployment_PDMConflictBlocksDeployment(t *testing.T) {
 }
 
 func TestCreateDeployment_BYODoesNotReserve(t *testing.T) {
+	t.Setenv("CATALYST_EGRESS_CIDRS", "192.0.2.10/32")
 	t.Setenv("DYNADOT_MANAGED_DOMAINS", "omani.works")
 	t.Setenv("CATALYST_HARBOR_ROBOT_TOKEN", "harbor_TEST_PLACEHOLDER")
 	pdm.ResetManagedDomains()
@@ -163,6 +166,7 @@ func TestCreateDeployment_BYODoesNotReserve(t *testing.T) {
 // the deployment ID's first 8 chars (proves Fix #111 collision-
 // avoidance is in effect).
 func TestCreateDeployment_DerivesObjectStorageBucketFromFQDN(t *testing.T) {
+	t.Setenv("CATALYST_EGRESS_CIDRS", "192.0.2.10/32")
 	t.Setenv("DYNADOT_MANAGED_DOMAINS", "omani.works")
 	t.Setenv("CATALYST_HARBOR_ROBOT_TOKEN", "harbor_TEST_PLACEHOLDER")
 	pdm.ResetManagedDomains()
@@ -228,6 +232,7 @@ func TestCreateDeployment_DerivesObjectStorageBucketFromFQDN(t *testing.T) {
 // Test asserts both the canonical "field omitted" case (defaults true)
 // AND the "wizard explicitly disables" case (false survives the decode).
 func TestCreateDeployment_MarketplaceEnabledDefaultsTrue(t *testing.T) {
+	t.Setenv("CATALYST_EGRESS_CIDRS", "192.0.2.10/32")
 	t.Setenv("DYNADOT_MANAGED_DOMAINS", "omani.works")
 	t.Setenv("CATALYST_GHCR_PULL_TOKEN", "ghp_TEST_PLACEHOLDER_NOT_REAL")
 	t.Setenv("CATALYST_HARBOR_ROBOT_TOKEN", "harbor_TEST_PLACEHOLDER")
@@ -303,6 +308,7 @@ func TestCreateDeployment_MarketplaceEnabledDefaultsTrue(t *testing.T) {
 // "explicit false → byte-identical dedicated-cluster path survives the
 // decode" case.
 func TestCreateDeployment_EnableSharedPostgresDefaultsTrue(t *testing.T) {
+	t.Setenv("CATALYST_EGRESS_CIDRS", "192.0.2.10/32")
 	t.Setenv("DYNADOT_MANAGED_DOMAINS", "omani.works")
 	t.Setenv("CATALYST_GHCR_PULL_TOKEN", "ghp_TEST_PLACEHOLDER_NOT_REAL")
 	t.Setenv("CATALYST_HARBOR_ROBOT_TOKEN", "harbor_TEST_PLACEHOLDER")
@@ -424,6 +430,7 @@ func TestCreateDeployment_RejectsMismatchedOrgEmail(t *testing.T) {
 // session whoami response which Keycloak emits canonical lowercase, but
 // older test fixtures use mixed-case so the comparison must be EqualFold.
 func TestCreateDeployment_AcceptsMatchingOrgEmail(t *testing.T) {
+	t.Setenv("CATALYST_EGRESS_CIDRS", "192.0.2.10/32")
 	t.Setenv("DYNADOT_MANAGED_DOMAINS", "omani.works")
 	t.Setenv("CATALYST_GHCR_PULL_TOKEN", "ghp_TEST_PLACEHOLDER_NOT_REAL")
 	t.Setenv("CATALYST_HARBOR_ROBOT_TOKEN", "harbor_TEST_PLACEHOLDER")

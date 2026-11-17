@@ -72,6 +72,7 @@ func makeStoreHandler(t *testing.T) (*Handler, string) {
 // directory before the response writer returns 201, so a Pod kill in
 // the goroutine-spawn gap still leaves the deployment reachable.
 func TestPersistence_CreateDeploymentWritesRowImmediately(t *testing.T) {
+	t.Setenv("CATALYST_EGRESS_CIDRS", "192.0.2.10/32")
 	t.Setenv("DYNADOT_MANAGED_DOMAINS", "")
 	// issue #557 — every Sovereign image pull MUST go through harbor.openova.io;
 	// provisioner.Validate rejects the deployment without the env-stamped token.
@@ -313,6 +314,7 @@ func TestPersistence_InFlightStatusBecomesFailedOnRestart(t *testing.T) {
 // HetznerToken + Dynadot creds must produce a JSON file with the
 // redaction marker, no plaintext secret anywhere.
 func TestPersistence_OnDiskJSONIsRedacted(t *testing.T) {
+	t.Setenv("CATALYST_EGRESS_CIDRS", "192.0.2.10/32")
 	t.Setenv("DYNADOT_MANAGED_DOMAINS", "omani.works")
 	// Pool-mode requires CATALYST_GHCR_PULL_TOKEN; the test placeholder
 	// must NOT appear on disk (the redaction invariant covers it via
@@ -465,6 +467,7 @@ func TestPersistence_StoreAbsentNoOpForExistingTests(t *testing.T) {
 // path is exercised end-to-end through the same HTTP routes the
 // browser hits.
 func TestPersistence_DockerStyleRoundTrip(t *testing.T) {
+	t.Setenv("CATALYST_EGRESS_CIDRS", "192.0.2.10/32")
 	t.Setenv("DYNADOT_MANAGED_DOMAINS", "")
 	t.Setenv("CATALYST_HARBOR_ROBOT_TOKEN", "harbor_TEST_PLACEHOLDER")
 	pdm.ResetManagedDomains()

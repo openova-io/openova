@@ -105,6 +105,7 @@ func validRequest(idx int) map[string]any {
 // from #148. The body is the test for every "no cross-contamination"
 // invariant the ticket calls out.
 func TestLoad_TenConcurrentDeploymentsAreIsolated(t *testing.T) {
+	t.Setenv("CATALYST_EGRESS_CIDRS", "192.0.2.10/32")
 	// issue #557 — provisioner.Validate now rejects every deployment
 	// without the env-stamped Harbor robot token (Inviolable Principle
 	// #11). The handler reads CATALYST_HARBOR_ROBOT_TOKEN at request
