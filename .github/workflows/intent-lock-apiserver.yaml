@@ -5,7 +5,7 @@
 # the Kubernetes API server refuses and a render passes. So this workflow
 # starts one k3s v1.31.8+k3s1 server as a container, the release the
 # Sovereigns run, and runs the chart test of the lock in its --apiserver
-# mode: the policy and the eight bindings are accepted; audit admits a create
+# mode: the policy and the nine bindings are accepted; audit admits a create
 # with a warning and counts it in the audit series; deny refuses a create and
 # lets a label change pass. The test reaches the API server with the kubectl
 # inside the container. No port is published and no Service is created.
