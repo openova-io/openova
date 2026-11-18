@@ -20,7 +20,7 @@
 //     manifests after SOVEREIGN_FQDN_PLACEHOLDER substitution
 //  2. The dependency graph encoded by `dependsOn` matches the canonical
 //     10-phase order: cilium → cert-manager → flux → crossplane →
-//     sealed-secrets → nats-jetstream → openbao → keycloak →
+//     nats-jetstream → openbao → keycloak →
 //     gitea → bp-catalyst-platform
 //  3. Each referenced platform/<x>/blueprint.yaml + chart/Chart.yaml
 //     actually exists at the path the Kustomization claims
@@ -76,7 +76,7 @@ func repoRoot(t *testing.T) string {
 // canonicalOrder is the bootstrap-kit dependency order from
 // docs/SOVEREIGN-PROVISIONING.md §3 step 2:
 //
-//	cilium → cert-manager → flux → crossplane → sealed-secrets →
+//	cilium → cert-manager → flux → crossplane →
 //	nats-jetstream → openbao → keycloak → gitea → bp-catalyst-platform
 //
 // "flux" is the third entry because Flux on the new cluster reconciles
@@ -89,7 +89,6 @@ var canonicalOrder = []string{
 	"bp-cert-manager",
 	"bp-flux",
 	"bp-crossplane",
-	"bp-sealed-secrets",
 	"bp-nats-jetstream",
 	"bp-openbao",
 	"bp-keycloak",
@@ -105,7 +104,7 @@ func TestBootstrapKit_AllElevenBlueprintsExist(t *testing.T) {
 	root := repoRoot(t)
 
 	required := []string{
-		"cilium", "cert-manager", "flux", "crossplane", "sealed-secrets",
+		"cilium", "cert-manager", "flux", "crossplane",
 		"nats-jetstream", "openbao", "keycloak", "gitea",
 	}
 	for _, name := range required {
@@ -146,7 +145,7 @@ func TestBootstrapKit_AllElevenBlueprintsExist(t *testing.T) {
 func TestBootstrapKit_BlueprintCardsHaveRequiredFields(t *testing.T) {
 	root := repoRoot(t)
 	required := []string{
-		"cilium", "cert-manager", "flux", "crossplane", "sealed-secrets",
+		"cilium", "cert-manager", "flux", "crossplane",
 		"nats-jetstream", "openbao", "keycloak", "gitea",
 	}
 	for _, name := range required {

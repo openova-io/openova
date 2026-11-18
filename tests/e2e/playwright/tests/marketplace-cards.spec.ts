@@ -66,7 +66,6 @@ const KNOWN_BP_IDS = [
   'bp-keycloak',
   'bp-nats-jetstream',
   'bp-openbao',
-  'bp-sealed-secrets',
 ] as const
 
 /**

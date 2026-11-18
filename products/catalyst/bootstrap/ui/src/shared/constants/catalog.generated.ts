@@ -4547,56 +4547,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "hasUserUIEndpoint": false
   },
   {
-    "id": "bp-sealed-secrets",
-    "slug": "sealed-secrets",
-    "title": "sealed-secrets",
-    "summary": "Sealed Secrets — used during Phase 0 bootstrap to transport bootstrap-only secrets, then archived after OpenBao + ESO replace it.",
-    "icon": null,
-    "category": null,
-    "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
-    "version": "1.1.3",
-    "section": "pts-3-3-security-and-policy",
-    "depends": [],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "singleton"
-      ],
-      "multiRegion": "singleton",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "singleton": {
-          "replication": null,
-          "switchover": null,
-          "placement": {
-            "tier": "",
-            "clusters": [
-              "mgmt-A",
-              "mgmt-B",
-              "dmz-A",
-              "dmz-B",
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "mgmt-A": "singleton",
-              "mgmt-B": "singleton",
-              "dmz-A": "singleton",
-              "dmz-B": "singleton",
-              "rtz-A": "singleton",
-              "rtz-B": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": false
-  },
-  {
     "id": "bp-seaweedfs",
     "slug": "seaweedfs",
     "title": "SeaweedFS",
@@ -5964,7 +5914,6 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/qa-app/blueprint.yaml",
   "platform/reflector/blueprint.yaml",
   "platform/reloader/blueprint.yaml",
-  "platform/sealed-secrets/blueprint.yaml",
   "platform/seaweedfs/blueprint.yaml",
   "platform/self-sovereign-cutover/blueprint.yaml",
   "platform/sigstore/blueprint.yaml",
