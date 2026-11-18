@@ -1,0 +1,122 @@
+# test-mesh-hermetic.yaml - the hermetic two-cluster mesh test, on the local provider pack.
+#
+# scripts/local-pack.sh brings the local provider pack up on the runner with two regions, as in
+# conformance-local.yaml. tests/hermetic/mesh/mesh-test.sh then lays the mesh layer over the
+# Cilium of both regions (clustermesh.config, KVStoreMesh, the certificates of the mesh API server
+# from the cert-manager ClusterIssuer sovereign-mesh-ca) and runs three cases:
+#   A  one self-signed authority, the same key pair in both clusters, tls.authMode migration;
+#   B  one root, an intermediate per cluster, tls.authMode migration;
+#   C  the shape of B when B passed, else of A, with tls.authMode cluster.
+# Each case checks the mesh in both clusters, a global Service answered across both ways, a
+# 5-minute pause of the second cluster during which the first still serves its local backends,
+# and the reconnect after the pause with zero pod restarts. The job summary states PASS or FAIL
+# for each case. The job fails when case A fails; B and C are reported and do not fail it. The
+# case files and the summary are uploaded as the artifact mesh-hermetic; on a failure the
+# evidence of every machine is uploaded as local-pack-evidence. Nothing publishes a port and
+# nothing uses a node port.
+#
+# Triggers: a pull request or a push to main that changes the Cilium Blueprint, the test, the
+# pack script or this workflow; workflow_dispatch runs it on any branch.
+name: test-mesh-hermetic
+
+on:
+  pull_request:
+    paths:
+      - 'platform/cilium/**'
+      - 'tests/hermetic/mesh/**'
+      - 'scripts/local-pack.sh'
+      - '.github/workflows/test-mesh-hermetic.yaml'
+  push:
+    branches: [main]
+    paths:
+      - 'platform/cilium/**'
+      - 'tests/hermetic/mesh/**'
+      - 'scripts/local-pack.sh'
+      - '.github/workflows/test-mesh-hermetic.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: test-mesh-hermetic-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mesh-hermetic:
+    name: mesh-hermetic
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Free disk (toolchains this job does not use)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Install OpenTofu
+        uses: opentofu/setup-opentofu@9d84900f3238fab8cd84ce47d658d25dd008be2f # v1.0.8
+        with:
+          tofu_version: 1.11.6
+          tofu_wrapper: false
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4.0.1
+        with:
+          version: v1.31.4
+
+      - name: Install Go (the pack mints its session with the suite's program)
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: tests/acceptance/sovereign/go.mod
+          cache: false
+
+      - name: Install PyYAML (the pack's manifest export)
+        run: python3 -m pip install --quiet pyyaml
+
+      - name: Self-test of the pack script
+        run: bash scripts/local-pack.sh --self-test
+
+      - name: Self-test of the mesh test
+        run: bash tests/hermetic/mesh/mesh-test.sh --self-test
+
+      - name: Up (two regions)
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+          COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bash scripts/local-pack.sh up --regions 2 --branch "$BRANCH" --commit "$COMMIT"
+
+      - name: Mesh cases A, B and C
+        id: mesh
+        run: bash tests/hermetic/mesh/mesh-test.sh run
+
+      - name: Upload the case results
+        if: always() && steps.mesh.outcome != 'skipped'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: mesh-hermetic
+          path: |
+            ${{ runner.temp }}/local-pack/mesh-hermetic/*.txt
+            ${{ runner.temp }}/local-pack/mesh-hermetic/summary.md
+          if-no-files-found: warn
+
+      - name: Collect evidence
+        if: failure()
+        run: bash scripts/local-pack.sh collect
+
+      - name: Upload evidence
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: local-pack-evidence
+          path: ${{ runner.temp }}/local-pack/evidence
+          if-no-files-found: warn
+
+      - name: Down
+        if: always()
+        run: bash scripts/local-pack.sh down
