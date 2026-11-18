@@ -1,0 +1,56 @@
+{
+  "id": "4c3a9e1f0b2d7a65",
+  "status": "ready",
+  "request": {
+    "orgName": "Legacy Org",
+    "orgEmail": "owner@example.com",
+    "sovereignFQDN": "legacy.example.com",
+    "sovereignDomainMode": "pool",
+    "sovereignPoolDomain": "example.com",
+    "sovereignSubdomain": "legacy",
+    "provider": "hetzner",
+    "hetznerToken": "<redacted>",
+    "hetznerProjectID": "legacy-project",
+    "region": "fsn1",
+    "controlPlaneSize": "cpx31",
+    "workerSize": "cpx41",
+    "workerCount": 3,
+    "haEnabled": true,
+    "regions": [
+      {
+        "provider": "hetzner",
+        "cloudRegion": "fsn1",
+        "controlPlaneSize": "cpx31",
+        "workerSize": "cpx41",
+        "workerCount": 3
+      },
+      {
+        "provider": "hetzner",
+        "cloudRegion": "hel1",
+        "controlPlaneSize": "cpx31",
+        "workerSize": "cpx41",
+        "workerCount": 2
+      }
+    ],
+    "sshPublicKey": "ssh-ed25519 AAAAlegacytestkey owner@example.com",
+    "dynadotKey": "<redacted>",
+    "dynadotSecret": "<redacted>",
+    "objectStorageRegion": "fsn1",
+    "objectStorageBucket": "legacy-example-com",
+    "objectStorageAccessKey": "<redacted>",
+    "objectStorageSecretKey": "<redacted>",
+    "marketplaceEnabled": true
+  },
+  "startedAt": "2026-05-04T11:02:03Z",
+  "finishedAt": "2026-05-04T11:41:09Z",
+  "events": [
+    {
+      "time": "2026-05-04T11:02:03Z",
+      "phase": "tofu-init",
+      "level": "info",
+      "message": "tofu init"
+    }
+  ],
+  "kubeconfigBearerHash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "ownerEmail": "owner@example.com"
+}
