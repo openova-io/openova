@@ -42,8 +42,7 @@ import (
 // implementation.
 //
 // Every method is context-aware so callers can enforce timeouts +
-// cancellation (e.g. a 30-minute cap on Provision, 5-minute cap on
-// Wipe's per-resource sweep).
+// cancellation (e.g. a 5-minute cap on Wipe's per-resource sweep).
 //
 // All methods MUST be safe to call concurrently against DIFFERENT
 // deployments. Concurrency on the SAME deployment is the caller's
@@ -55,17 +54,6 @@ type CloudProvider interface {
 	// in core/controllers/environment/api/v1/types.go ("hetzner",
 	// "huawei", "aws", "gcp", "azure", "oci", "contabo").
 	Name() string
-
-	// Provision creates the cloud infrastructure for one deployment
-	// per the supplied spec. It runs `tofu apply` against this
-	// provider's canonical module (infra/providers/<name>/), emits
-	// progress events on the supplied channel, and returns the live
-	// result (control-plane IP, LB IP, kubeconfig path) on success.
-	//
-	// MUST be idempotent: re-running Provision on a deployment whose
-	// tofu workdir already holds state returns the existing outputs
-	// without re-creating cloud resources.
-	Provision(ctx context.Context, spec ProvisionSpec, events chan<- ProvisionEvent) (*ProvisionResult, error)
 
 	// Wipe destroys every cloud resource bound to the deployment.
 	// Idempotent — re-calling on an already-wiped deployment returns
@@ -100,7 +88,7 @@ type CloudProvider interface {
 	ValidateCreds(ctx context.Context, creds ProviderCreds) error
 }
 
-// ProvisionSpec is the cloud-agnostic input to CloudProvider.Provision.
+// ProvisionSpec is the cloud-agnostic description of one provisioning request.
 // Per-cloud specifics (Hetzner project ID, Huawei AK/SK, etc.) live in
 // the Creds map so the interface itself stays neutral.
 type ProvisionSpec struct {
@@ -206,7 +194,7 @@ func (c ProviderCreds) Get(key string) string {
 	return c.Raw[key]
 }
 
-// ProvisionEvent — a single progress emit on the Provision channel.
+// ProvisionEvent — one progress event of a provisioning run.
 // Shape mirrors provisioner.Event so callers can convert without
 // re-formatting.
 type ProvisionEvent struct {
@@ -214,26 +202,6 @@ type ProvisionEvent struct {
 	Phase   string `json:"phase"`
 	Level   string `json:"level"` // info | warn | error
 	Message string `json:"message"`
-}
-
-// ProvisionResult — what CloudProvider.Provision returns on success.
-// The cloud-agnostic subset of provisioner.Result; provider-specific
-// extras (Hetzner project ID echo, etc.) stay in the persisted
-// deployment record, not on this struct.
-type ProvisionResult struct {
-	SovereignFQDN  string
-	ControlPlaneIP string
-	LoadBalancerIP string
-	// ConsoleLoadBalancerIP — #4053. Public IP of the dedicated console LB
-	// (tofu output console_load_balancer_ip). console./api.<fqdn> point here
-	// (the isolated cilium-gateway-console); the wildcard *.<fqdn> keeps
-	// pointing at LoadBalancerIP (the shared cilium-gateway). Empty when the
-	// provider/tofu module pre-dates #4053 — DNS then falls back to
-	// LoadBalancerIP for the console records (legacy single-LB behaviour).
-	ConsoleLoadBalancerIP string
-	ConsoleURL            string
-	GitOpsRepoURL         string
-	KubeconfigPath        string
 }
 
 // WipeSpec — input to CloudProvider.Wipe. Carries everything the
