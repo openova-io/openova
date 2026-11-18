@@ -6961,7 +6961,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: The shared control-plane boot template replaces its remaining tests of the provider name by the inputs node_ipv4_only, fail_mark_cmd, render_region_kustomization and gateway_host_network, every module also passes provider_overlay_path, the failure-mark helper is written by the Huawei module, and the size check reads the user-data limit of each pack from its profile.
 - id: CLD-133
