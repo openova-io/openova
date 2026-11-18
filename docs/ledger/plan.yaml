@@ -131,7 +131,7 @@ epics:
 - id: CLD-085
   title: 'Epic: the local provider pack'
   wave: W1d
-  packages: [CLD-055, CLD-086, CLD-087, CLD-089, CLD-088]
+  packages: [CLD-055, CLD-086, CLD-087, CLD-089, CLD-091, CLD-088]
 - id: CLD-100
   title: 'Epic: the engine drives the port'
   wave: W1d
@@ -3900,7 +3900,7 @@ packages:
   size: S
   lane: GATE
   depends_on: [CLD-086, CLD-087, FND-034, FND-017, FND-041, CLD-089, FND-131]
-  after: []
+  after: [CLD-091]
   touches:
   - .github/workflows/conformance-local.yaml
   - .github/rulesets/main.json
@@ -6194,6 +6194,32 @@ packages:
   ticket_rev: 2
   dropped: false
   delivers: The Hetzner, Huawei and local modules meet module contract version 1, the engine writes the regions input in the one contract shape for every provider, and TestProviderPacks with a contract test in every module enforces it on every pull request.
+- id: CLD-091
+  title: The local pack connects the meshes of its two regions
+  area: CLD
+  epic: CLD-085
+  type: fix
+  wave: W1a
+  size: S
+  lane: SUBSTRATE
+  depends_on: [CLD-089]
+  after: []
+  touches:
+  - scripts/local-pack.sh
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'With two regions, scripts/local-pack.sh up does what the parent console does after phase 1 (runAutoEstablishClusterMesh): it writes the peer entries into kube-system/cilium-clustermesh of each region, sets the host aliases of the peers on the cilium DaemonSet, restarts it, and waits until every agent reports every peer ready.'
 - id: CLD-092
   title: Seal hook conformance and the profile's seal section
   area: CLD
@@ -20208,7 +20234,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-122, CTL-130, CTL-160, FND-032, FND-130]
-  after: [CLD-113, SOV-180, NET-071, SVC-040, CTL-020, CTL-038, CTL-045, CTL-150, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CTL-420, CMP-012, CMP-020, BSS-040, BSS-050, BSS-141, AIP-111, AIP-120, INF-010, INF-040, INF-110, INF-130, INF-135, ACC-010, ACC-040, ACC-050, PRD-030, PRD-501, PRD-508]
+  after: [CLD-113, SOV-180, NET-071, SVC-040, CTL-020, CTL-038, CTL-045, CTL-150, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-347, CTL-350, CTL-355, CTL-420, CMP-012, CMP-020, BSS-040, BSS-050, BSS-141, AIP-111, AIP-120, AIP-150, INF-010, INF-040, INF-110, INF-130, INF-135, ACC-010, ACC-040, ACC-050, PRD-030, PRD-501, PRD-508]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/handler.go
   - products/catalyst/bootstrap/api/internal/handler/applications.go
@@ -26976,7 +27002,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [AIP-120]
-  after: [FND-011, SVC-040]
+  after: [FND-011]
   touches:
   - products/openova-mcp/README.md
   - products/openova-mcp/chart/Chart.yaml
@@ -26993,16 +27019,26 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c 'fallbackBearer' products/openova-mcp/cmd/openova-mcp/http.go"
+    expect: "4"
+  acceptance:
+  - id: A1
+    run: "printf '%s\\n' 'f8691a50ab8f40e237f582001135bb4c8a5dcf2307b4fb82b54730676625f9e2  products/openova-mcp/internal/identity/identity_agent_test.go' '483b1fbf0b8d40acef1ffd09fea237ce6ce1480ff456d8c57da0aad8580cd4e4  products/openova-mcp/internal/tools/agent_token_test.go' | sha256sum --check --quiet && cd products/openova-mcp && test -z \"$(gofmt -l cmd internal)\" && go vet ./... && go test -count=1 ./... && test \"$(go test -count=1 -v -run '^(TestKeyIDIsTheRFC7638Thumbprint|TestAgentTokenAccepted|TestAgentTierIsTheTierClaimCappedAtDeveloper|TestAgentTokenRefusals|TestAgentIssuerPinBindsAgentTokensOnly|TestAgentTokenRefusedWithoutRS256|TestIsAgentToken|TestAgentTokenSeesTheReadToolsOnly|TestAgentTokenCannotCallCreateApplication|TestAgentTokenWhoami|TestAgentTokenRefusedBySovereignModeInstance|TestResolveBearer_AgentTokenNeverTakesWhoamiFallback|TestBearerFromRequest_HeaderOnly)$' ./internal/identity/ ./internal/tools/ ./cmd/openova-mcp/ | grep -c '^--- PASS: Test')\" = 13"
+  - id: A2
+    run: "d=products/openova-mcp/cmd/openova-mcp && ! grep -q -F 'processFallback' $d/http.go && ! grep -q -F 't.fallbackBearer' $d/http.go && grep -q -F 'func serveHTTP(addr string, reg *tools.Registry, resolver *identity.Resolver) error {' $d/http.go && grep -q -F 'if err := serveHTTP(listen, reg, resolver); err != nil {' $d/main.go && grep -q -F 'if identity.IsAgentToken(bearer) {' $d/main.go && grep -q -F 'WithAgentIssuer(os.Getenv(\"OPENOVA_MCP_AGENT_ISSUER\")).' $d/main.go && grep -q -F '\"agent\":           id.Agent,' products/openova-mcp/internal/tools/catalogue.go"
+  - id: A3
+    run: "c=products/openova-mcp/chart && ! grep -q -E 'OPENOVA_MCP_BEARER|bearerSecret' $c/templates/deployment.yaml $c/values.yaml && env_is() { python3 -c 'import sys, yaml; d = yaml.safe_load(sys.stdin); env = [e for x in d[\"spec\"][\"template\"][\"spec\"][\"containers\"] for e in x.get(\"env\", [])]; got = [e.get(\"value\") for e in env if e[\"name\"] == \"OPENOVA_MCP_AGENT_ISSUER\"]; sys.exit(0 if got == sys.argv[1:] and not [e for e in env if e[\"name\"] == \"OPENOVA_MCP_BEARER\"] else 1)' \"$@\"; } && helm template t $c --set sovereignFqdn=hw307.omani.works --set auth.bearerSecret.name=x --show-only templates/deployment.yaml | env_is https://console.hw307.omani.works && helm template t $c --set auth.bearerSecret.name=x --show-only templates/deployment.yaml | env_is && bash $c/tests/render-modes.sh > /dev/null"
+  - id: A4
+    run: "test \"$(grep -c -x -F 'appVersion: \"0.2.8\"' products/openova-mcp/chart/Chart.yaml)\" = 1 && bash scripts/check-appversion-bumped-with-source.sh origin/main HEAD > /dev/null && python3 scripts/check-agent-plane.py > /dev/null"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: The tool server accepts typ agent (any letter case) only when the token was verified RS256 by a key of the set whose RFC 7638 thumbprint is the header kid, aud contains platform-tools, iss equals OPENOVA_MCP_AGENT_ISSUER when that is set, and exp, org_id, an agent name and a tier on the ladder are present; the tier is the tier claim, capped at developer; the hs256 resolver refuses agent tokens; Identity.Agent, read by whoami; an agent token never takes the /whoami fallback. The HTTP fallback bearer, the env OPENOVA_MCP_BEARER and the value auth.bearerSecret are removed (stdio keeps its environment bearer until AIP-156); the chart sets OPENOVA_MCP_AGENT_ISSUER to https://console.<sovereignFqdn> when sovereignFqdn is set; appVersion 0.2.7 to 0.2.8.
+  delivers: The tool server accepts a token of typ agent (any letter case) only when it was verified RS256 by a key of the set whose RFC 7638 thumbprint is the header kid, aud contains platform-tools, iss equals OPENOVA_MCP_AGENT_ISSUER when that is set, and exp, org_id, an agent name and a tier on the ladder are present; the tier is the tier claim capped at developer, the hs256 and insecure resolvers refuse agent tokens, an agent token never takes the /whoami fallback and whoami echoes the agent; the HTTP transport reads the Authorization header alone, the chart has no OPENOVA_MCP_BEARER and no auth.bearerSecret, it sets OPENOVA_MCP_AGENT_ISSUER to https://console.<sovereignFqdn> when sovereignFqdn is set, and appVersion moves from 0.2.7 to 0.2.8 (stdio keeps its environment bearer until AIP-156).
 - id: AIP-151
   title: Tool answers are fitted and made inert
   area: AIP
@@ -28872,7 +28908,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [INF-112, INF-130]
-  after: [FND-011, SVC-041]
+  after: [FND-011]
   touches:
   - platform/machine-operations/chart/values.yaml
   - platform/machine-operations/chart/templates/deployment-operations.yaml
@@ -28885,16 +28921,26 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls platform/machine-operations/chart/templates | grep -c operations"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "printf '%s\\n' '848b37a74cf26adc0fae94ba048b0b7e6d429a3596b6421d31e64a8856fc0e46  platform/machine-operations/chart/values.yaml' '658ef5c0932c56d77dfe402de982718b0a1f2c77f2fa6c6d219b664ff1d54132  platform/machine-operations/chart/ci/nodeport-render-values.yaml' 'a17bda54cb9d58dc7d316863633b64eca3fbed9c0b774f30ec993639062e476d  platform/machine-operations/chart/templates/deployment-operations.yaml' '965acd9c5f40dfcb282c7f9dacfc31523e79b9bbb289152d82d3b7b302ad1acd  platform/machine-operations/chart/templates/rbac-operations.yaml' '8e07ed3af26161f786e0e0ba2f7a0fe94ee87083a70d5c410fe6137814fd8f69  platform/machine-operations/chart/templates/defaults.yaml' 'a8698da4fdb3e90a3c63d331650ce2040e98d0bce5d3507fbaed1cdfef6848c5  platform/machine-operations/chart/tests/render.sh' 'bfc4be311124c4cff9d08afe26a7f273914043381c0375b74b011743bec07a3a  platform/machine-operations/README.md' | sha256sum --check --quiet -"
+  - id: A2
+    run: "t=platform/machine-operations/chart/tests/render.sh; out=\"$(bash \"$t\")\"; self=\"$(bash \"$t\" --self-test)\"; test \"$(grep -c -x -F 'render contract: 16 objects switched on; R1 to R14 hold' <<< \"$out\")\" = 1 && test \"$(grep -c -x -F 'self-test passed: 30 cases' <<< \"$self\")\" = 1 && test \"$(grep -c '^FAIL' <<< \"$self\")\" = 0"
+  - id: A3
+    run: "c=platform/machine-operations/chart; v=\"$c/ci/nodeport-render-values.yaml\"; helm lint \"$c\" > /dev/null && helm lint \"$c\" -f \"$v\" > /dev/null && test \"$(helm template x \"$c\" | grep -c .)\" = 0 && test \"$(helm template x \"$c\" -f \"$v\" | grep -c -x 'kind: Deployment')\" = 2 && test \"$(helm template x \"$c\" -f \"$v\" | grep -c -x -F '              secretProviderClass: evidence-store')\" = 1 && test \"$(helm template x \"$c\" --include-crds -f \"$v\" | grep -c -x 'kind: CustomResourceDefinition')\" = 5"
+  - id: A4
+    run: "f=platform/machine-operations/README.md; test \"$(grep -c -F 'does not run it yet' \"$f\")\" = 0 && test \"$(grep -c -F 'Deployment `machine-controller-operations`' \"$f\")\" -ge 1 && for v in runner.image evidence.endpoint evidence.region evidence.bucket runs.retention defaults.nodeScan.enabled; do test \"$(grep -c -F \"| \\`$v\\` |\" \"$f\")\" = 1 || exit 1; done"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'The operations Deployment, which mounts the CSI volume evidence-store, and its RBAC in one Role; the default node ScanPolicy (profiles inventory and hardening) and HardeningBaseline; runner.image, evidence.endpoint and evidence.region fail the render while empty; the ci values of the render guard and the README follow. No gate check changes: INF-160 proves it.'
+  delivers: The chart bp-machine-operations, switched on, also runs the operations controller with its access rules in one ClusterRole and one Role, mounts the evidence binding into it, gives the runner Jobs a service account without a token or a role, renders the default ScanPolicy and HardeningBaseline nodes, and refuses to render while the runner image or the evidence endpoint or region is empty.
 - id: INF-133
   title: 'Check INF-G02: node host scans, as a suite file'
   area: INF
@@ -30015,7 +30061,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [INF-490, INF-515]
-  after: [FND-011, NET-133]
+  after: [FND-011, NET-133, AIP-150]
   touches:
   - products/openova-mcp/**
   - products/catalyst/bootstrap/ui/src/pages/sovereign/machine-operations/TestScopes*.tsx
