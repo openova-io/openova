@@ -1,21 +1,15 @@
 # Catalyst-Zero wizard UI — built with Vite, served by nginx as static SPA.
 #
 # Build context MUST be the OpenOva repo root (not products/catalyst/bootstrap/ui/)
-# because the Vite prebuild script (scripts/build-catalog.mjs) walks
-# platform/<name>/blueprint.yaml + products/<name>/blueprint.yaml + the
-# clusters/_template/bootstrap-kit/ folder to populate the wizard's
-# StepComponents catalog AND the provision page's bootstrap-kit DAG.
+# because the npm workspaces root (package.json, package-lock.json) and the
+# @openova/flow-* workspace siblings live outside this folder.
 #
-# An earlier revision shipped with context = ui/ which silently produced an
-# empty BOOTSTRAP_KIT[] inside the bundle — the Provision page rendered only
-# the two supernodes (Hetzner-infra + Flux-bootstrap) instead of the 11
-# bootstrap Blueprints. The build-catalog.mjs script now fails loudly if
-# any of those dirs is missing, so a misconfigured context cannot silently
-# regress the bundle again.
-#
-# Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode), the source-of-truth
-# directories are read at build time, never embedded as constants in app
-# source.
+# The build runs no catalogue generator. The wizard's StepComponents catalog
+# and the provision page's bootstrap-kit DAG come from the committed
+# src/shared/constants/catalog.generated.ts, which `python3
+# scripts/generate-catalog.py` writes from every blueprint.yaml and kit slot;
+# the pull request that changes one of those commits it, and
+# .github/workflows/check-catalog-generated-drift.yaml fails when it is stale.
 
 FROM docker.io/library/node:22-alpine AS build
 WORKDIR /repo
@@ -34,10 +28,7 @@ COPY products/openova-flow/core/package.json     /repo/products/openova-flow/cor
 COPY products/openova-flow/canvas/package.json   /repo/products/openova-flow/canvas/
 RUN npm ci --workspaces --include-workspace-root
 
-# Source-of-truth directories the prebuild script reads.
-COPY platform/                          /repo/platform/
 COPY products/                          /repo/products/
-COPY clusters/_template/bootstrap-kit/  /repo/clusters/_template/bootstrap-kit/
 
 # UI source proper. The COPY products/ above already populated all
 # workspace dirs but we re-COPY the leaf subtree explicitly so changes
@@ -47,7 +38,6 @@ COPY products/openova-flow/             /repo/products/openova-flow/
 
 WORKDIR /repo/products/catalyst/bootstrap/ui
 ARG VITE_APP_MODE=selfhosted
-ENV OPENOVA_REPO_ROOT=/repo
 RUN npm run build
 
 FROM docker.io/library/nginx:1-alpine

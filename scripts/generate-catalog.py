@@ -1,0 +1,564 @@
+#!/usr/bin/env python3
+"""Generate the Blueprint catalogue from every platform/<name>/blueprint.yaml and products/<name>/blueprint.yaml.
+
+Outputs (both committed; the pull request that changes an input commits them):
+  1. products/catalyst/bootstrap/api/internal/catalog/blueprints.json   (embedded by the catalyst-api)
+  2. products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts   (the console)
+
+Modes:
+  python3 scripts/generate-catalog.py                 write both outputs in place
+  python3 scripts/generate-catalog.py --check         write nothing; exit 1 when a committed output differs
+  python3 scripts/generate-catalog.py --dry-run DIR   write both outputs under DIR at their repository paths
+  python3 scripts/generate-catalog.py --self-test     prove every failure rule can fail
+
+Exit codes: 0 done or in sync; 1 --check found a stale output; 2 an input is wrong (one line per error, naming
+the file): a blueprint.yaml that is not YAML or not a Blueprint (kind Blueprint, metadata.name bp-<folder> or
+<folder>); two Blueprints with one name; a depends entry that names no Blueprint; a missing input folder
+(platform/, products/ or the kit folder), which would otherwise write an empty catalogue or kit.
+
+generatedAt marks when the catalogue content last changed: it keeps the committed stamp while the content is
+unchanged, else it is the current time (SOURCE_DATE_EPOCH, when set, gives the time instead).
+"""
+import argparse
+import datetime
+import difflib
+import json
+import os
+import re
+import shutil
+import sys
+import tempfile
+
+import yaml
+
+OUT_JSON = "products/catalyst/bootstrap/api/internal/catalog/blueprints.json"
+OUT_TS = "products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts"
+KIT = "clusters/_template/bootstrap-kit"
+SOURCES = ("platform", "products")
+COMMAND = "python3 scripts/generate-catalog.py"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+class Loader(yaml.SafeLoader):
+    """YAML without the timestamp type: a date in a blueprint.yaml stays the string it is written as."""
+
+
+Loader.yaml_implicit_resolvers = {k: [(t, r) for t, r in v if t != "tag:yaml.org,2002:timestamp"]
+                                  for k, v in yaml.SafeLoader.yaml_implicit_resolvers.items()}
+
+
+def is_num(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def js_str(v):
+    """String(v) of JavaScript for the scalar types YAML gives."""
+    if v is None:
+        return "null"
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, float) and v.is_integer():
+        return str(int(v))
+    return str(v)
+
+
+def js_json(v):
+    """JSON.stringify(v, null, 2): integral floats print without a fraction."""
+    def norm(x):
+        if isinstance(x, float) and x.is_integer() and abs(x) < 1e21:
+            return int(x)
+        if isinstance(x, dict):
+            return {str(k): norm(y) for k, y in x.items()}
+        if isinstance(x, list):
+            return [norm(y) for y in x]
+        return x
+    return json.dumps(norm(v), indent=2, ensure_ascii=False)
+
+
+def mapping(v):
+    return v if isinstance(v, dict) else None
+
+
+def strings(v):
+    return [x for x in v if isinstance(x, str)] if isinstance(v, list) else []
+
+
+def inline_list(v):
+    if isinstance(v, list):
+        return [x for x in v if x is not None and x != ""]
+    if v is None or v == "":
+        return []
+    return [v]
+
+
+def topology(raw):
+    raw = mapping(raw)
+    if raw is None:
+        return None
+    defaults = mapping(raw.get("defaults")) or {}
+    per = {}
+    for variant, v in (mapping(raw.get("perTopology")) or {}).items():
+        v = mapping(v)
+        if v is None:
+            continue
+        repl, sw, pl = mapping(v.get("replication")), mapping(v.get("switchover")), mapping(v.get("placement"))
+        per[js_str(variant)] = {
+            "replication": None if repl is None else {
+                "backend": repl.get("backend") if isinstance(repl.get("backend"), str) else None,
+                "mode": repl.get("mode") if isinstance(repl.get("mode"), str) else None,
+                "lagSloSeconds": repl.get("lagSloSeconds") if is_num(repl.get("lagSloSeconds")) else None,
+            },
+            "switchover": None if sw is None else {
+                "mechanism": sw.get("mechanism") if isinstance(sw.get("mechanism"), str) else None,
+                "rtoSeconds": sw.get("rtoSeconds") if is_num(sw.get("rtoSeconds")) else None,
+                "rpoSeconds": sw.get("rpoSeconds") if is_num(sw.get("rpoSeconds")) else None,
+            },
+            "placement": None if pl is None else {
+                "tier": pl.get("tier") if isinstance(pl.get("tier"), str) else None,
+                "clusters": [js_str(c) for c in inline_list(pl.get("clusters"))],
+                "roles": {js_str(k): js_str(r) for k, r in (mapping(pl.get("roles")) or {}).items()},
+            },
+        }
+    supported = [js_str(s) for s in inline_list(raw.get("supported"))]
+    if not supported and not per:
+        return None
+    mr, sr = defaults.get("multi-region"), defaults.get("single-region")
+    return {"supported": supported, "multiRegion": mr if isinstance(mr, str) else None,
+            "singleRegion": sr if isinstance(sr, str) else None, "perTopology": per}
+
+
+def has_user_ui(endpoints):
+    """The backend's blueprintHasUserUIEndpoint: ssoEnabled, launchDefault or the name ui."""
+    for ep in endpoints if isinstance(endpoints, list) else []:
+        if isinstance(ep, dict) and (ep.get("ssoEnabled") is True or ep.get("launchDefault") is True
+                                     or (isinstance(ep.get("name"), str) and ep["name"].lower() == "ui")):
+            return True
+    return False
+
+
+def entry(rel, doc, errors):
+    """One catalogue entry, or None with the reason added to errors."""
+    if not isinstance(doc, dict) or doc.get("kind") != "Blueprint":
+        errors.append("%s: not a Blueprint object (kind must be Blueprint)" % rel)
+        return None
+    meta, spec = mapping(doc.get("metadata")) or {}, mapping(doc.get("spec")) or {}
+    card, raw = mapping(spec.get("card")) or {}, meta.get("name")
+    folder = re.sub(r"^bp-", "", os.path.basename(os.path.dirname(rel)))
+    if isinstance(raw, str) and raw.startswith("bp-"):
+        name = raw
+    elif isinstance(raw, str) and raw.strip() and re.sub(r"^bp-", "", raw) == folder:
+        name = "bp-" + folder
+    else:
+        errors.append("%s: metadata.name must be bp-<name> or the folder name, got %r" % (rel, raw))
+        return None
+    slug = name[3:]
+    ctx = mapping(spec.get("contextSchema"))
+    prod = mapping(spec.get("producesInstances"))
+    labels = mapping(meta.get("labels")) or {}
+    deps = spec.get("depends")
+    return {
+        "id": name,
+        "slug": slug,
+        "title": card.get("title") if card.get("title") is not None else slug,
+        "summary": card.get("summary") if card.get("summary") is not None else "",
+        "icon": card.get("icon"),
+        "category": card.get("category"),
+        "tagline": card.get("tagline"),
+        "tags": card.get("tags") if isinstance(card.get("tags"), list) else [],
+        "visibility": spec.get("visibility") if spec.get("visibility") is not None else "unlisted",
+        "version": spec.get("version"),
+        "section": labels.get("catalyst.openova.io/section"),
+        "depends": [d for d in ((x if isinstance(x, str) else (mapping(x) or {}).get("blueprint"))
+                                for x in (deps if isinstance(deps, list) else [])) if d],
+        "shareable": spec.get("shareable") is True,
+        "contextSchema": None if ctx is None else {
+            "kind": ctx.get("kind") if isinstance(ctx.get("kind"), str) else "",
+            "valuesKey": ctx.get("valuesKey") if isinstance(ctx.get("valuesKey"), str) else "",
+            "needs": strings(ctx.get("needs")),
+            "produces": strings(ctx.get("produces")),
+        },
+        "producesInstances": {"kind": prod["kind"], "instanceBlueprint": prod["instanceBlueprint"]} if (
+            prod and isinstance(prod.get("kind"), str) and prod["kind"].strip()
+            and isinstance(prod.get("instanceBlueprint"), str) and prod["instanceBlueprint"].strip()) else None,
+        "topology": topology(spec.get("topology")),
+        "hasUserUIEndpoint": spec["hasUserUIEndpoint"] if isinstance(spec.get("hasUserUIEndpoint"), bool)
+        else has_user_ui(spec.get("endpoints")),
+    }
+
+
+def blueprints(root, errors):
+    out, where = [], {}
+    for top in SOURCES:
+        base = os.path.join(root, top)
+        for d in sorted(os.listdir(base)):
+            rel = "%s/%s/blueprint.yaml" % (top, d)
+            if not os.path.isfile(os.path.join(root, rel)):
+                continue
+            try:
+                with open(os.path.join(root, rel), encoding="utf-8") as f:
+                    doc = yaml.load(f, Loader=Loader)
+            except yaml.YAMLError as e:
+                errors.append("%s: not YAML: %s" % (rel, str(e).replace("\n", " ")))
+                continue
+            e = entry(rel, doc, errors)
+            if e is None:
+                continue
+            if e["id"] in where:
+                errors.append("%s: Blueprint %s is also declared by %s" % (rel, e["id"], where[e["id"]]))
+                continue
+            where[e["id"]] = rel
+            out.append(e)
+    for e in out:
+        for d in e["depends"]:
+            if d not in where:
+                errors.append("%s: depends names %s, which no blueprint.yaml declares" % (where[e["id"]], d))
+    return sorted(out, key=lambda e: e["id"])
+
+
+def kit(root):
+    """The kit slots NN-<name>.yaml in install order; the id comes from the file name."""
+    base, out = os.path.join(root, KIT), []
+    for name in sorted(os.listdir(base)):
+        m = re.match(r"^(\d+)-(.+)\.yaml$", name)
+        if not m or name == "kustomization.yaml":
+            continue
+        slug = re.sub(r"^bp-", "", m.group(2))
+        out.append({"id": "bp-" + slug, "slug": slug, "label": slug, "file": name, "order": int(m.group(1))})
+    return sorted(out, key=lambda k: k["order"])
+
+
+def now(env):
+    epoch = env.get("SOURCE_DATE_EPOCH")
+    t = datetime.datetime.fromtimestamp(int(epoch), datetime.timezone.utc) if epoch else datetime.datetime.now(datetime.timezone.utc)
+    return t.strftime("%Y-%m-%dT%H:%M:%S.") + "%03dZ" % (t.microsecond // 1000)
+
+
+def render(root, env=None):
+    """(errors, {path: text}). The stamp of the committed JSON is kept while the content is unchanged."""
+    errors = ["%s/: input folder is missing; run from a checkout that has it" % d
+              for d in SOURCES + (KIT,) if not os.path.isdir(os.path.join(root, d))]
+    if errors:
+        return errors, {}
+    entries = blueprints(root, errors)
+    if errors:
+        return errors, {}
+    payload = {"blueprints": entries, "bootstrapKit": kit(root)}
+    stamp = None
+    try:
+        with open(os.path.join(root, OUT_JSON), encoding="utf-8") as f:
+            prev = json.load(f)
+        if prev.get("generatedAt") and js_json({k: v for k, v in prev.items() if k != "generatedAt"}) == js_json(payload):
+            stamp = prev["generatedAt"]
+    except (OSError, ValueError, AttributeError):
+        pass
+    body = dict(generatedAt=stamp or now(os.environ if env is None else env), **payload)
+    files = sorted({"platform/%s/blueprint.yaml" % e["slug"] for e in entries})
+    parts = {"ENTRIES": js_json(entries), "FILES": js_json(files), "KIT": js_json(payload["bootstrapKit"])}
+    ts = re.sub(r"@(ENTRIES|FILES|KIT)@", lambda m: parts[m.group(1)], TS)
+    return [], {OUT_JSON: js_json(body) + "\n", OUT_TS: ts}
+
+
+def write(base, outputs):
+    for rel, text in outputs.items():
+        p = os.path.join(base, rel)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(text)
+
+
+def main(argv=None, env=None):
+    ap = argparse.ArgumentParser(description="Generate the embedded and console Blueprint catalogue.")
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument("--check", action="store_true", help="exit 1 when a committed output differs; write nothing")
+    mode.add_argument("--dry-run", metavar="DIR", help="write the outputs under DIR instead of in place")
+    mode.add_argument("--self-test", action="store_true", help="prove every rule can fail")
+    ap.add_argument("--root", default=ROOT, help=argparse.SUPPRESS)
+    a = ap.parse_args(argv)
+    if a.self_test:
+        return self_test()
+    errors, outputs = render(a.root, env)
+    if errors:
+        for e in errors:
+            print("generate-catalog: " + e, file=sys.stderr)
+        return 2
+    if a.check:
+        stale = 0
+        for rel, text in outputs.items():
+            try:
+                with open(os.path.join(a.root, rel), encoding="utf-8") as f:
+                    old = f.read()
+            except OSError:
+                old = ""
+            if old != text:
+                stale = 1
+                print("generate-catalog: %s is stale; run %s and commit the result" % (rel, COMMAND), file=sys.stderr)
+                sys.stderr.writelines(list(difflib.unified_diff(old.splitlines(True), text.splitlines(True), rel, rel + " (generated)"))[:60])
+        if not stale:
+            print("generate-catalog: %s and %s are in sync" % (OUT_JSON, OUT_TS))
+        return stale
+    write(a.dry_run or a.root, outputs)
+    print("generate-catalog: wrote %d Blueprints and %d kit slots to %s" % (
+        len(json.loads(outputs[OUT_JSON])["blueprints"]), len(json.loads(outputs[OUT_JSON])["bootstrapKit"]), a.dry_run or "the repository"))
+    return 0
+
+
+def self_test():
+    """One failing case per rule, in a scratch tree; each must give its exit code."""
+    good = "kind: Blueprint\nmetadata:\n  name: bp-%s\nspec:\n  version: 1.0.0\n  card:\n    summary: |\n      Two\n      lines\n"
+    cases = [
+        ("a clean tree generates", {}, [], 0),
+        ("a file that is not YAML exits 2", {"platform/b/blueprint.yaml": "kind: [\n"}, [], 2),
+        ("a file that is not a Blueprint exits 2", {"platform/b/blueprint.yaml": "kind: Chart\nmetadata:\n  name: bp-b\n"}, [], 2),
+        ("a name that is neither bp-<name> nor the folder exits 2", {"platform/b/blueprint.yaml": good.replace("bp-%s", "other")}, [], 2),
+        ("two Blueprints with one name exit 2", {"products/a/blueprint.yaml": good % "a"}, [], 2),
+        ("a depends entry that names no Blueprint exits 2", {"platform/b/blueprint.yaml": good % "b" + "  depends:\n  - blueprint: bp-none\n"}, [], 2),
+        ("--check after a hand edit exits 1", {}, ["edit"], 1),
+        ("--check on a fresh generation exits 0", {}, ["check"], 0),
+        ("two runs give the same bytes", {}, ["twice"], 0),
+        ("a missing kit folder exits 2", {}, ["nokit"], 2),
+    ]
+    failed = 0
+    for title, extra, how, want in cases:
+        d = tempfile.mkdtemp()
+        try:
+            files = {"platform/a/blueprint.yaml": good % "a", "platform/b/blueprint.yaml": good % "b",
+                     "products/c/blueprint.yaml": good % "c", KIT + "/01-a.yaml": "kind: HelmRelease\n"}
+            files.update(extra)
+            for rel, text in files.items():
+                os.makedirs(os.path.dirname(os.path.join(d, rel)), exist_ok=True)
+                with open(os.path.join(d, rel), "w") as f:
+                    f.write(text)
+            env = {"SOURCE_DATE_EPOCH": "0"}
+            if "nokit" in how:
+                shutil.rmtree(os.path.join(d, KIT))
+            got = _quiet(["--root", d], env)
+            if how and got == 0:
+                if "edit" in how:
+                    with open(os.path.join(d, OUT_TS), "a") as f:
+                        f.write("// hand edit\n")
+                if "twice" in how:
+                    first = _read(d)
+                    _quiet(["--root", d], {})
+                    got = 0 if _read(d) == first and json.loads(first[OUT_JSON])["blueprints"][0]["summary"] == "Two\nlines\n" else 1
+                else:
+                    got = _quiet(["--root", d, "--check"], env)
+        finally:
+            shutil.rmtree(d)
+        ok = got == want
+        failed += not ok
+        print("%s %s (exit %s)" % ("ok  " if ok else "FAIL", title, got))
+    print("self-test: %d of %d cases fail" % (failed, len(cases)) if failed else "self-test: all %d cases pass" % len(cases))
+    return 1 if failed else 0
+
+
+def _quiet(argv, env):
+    out, err = sys.stdout, sys.stderr
+    sys.stdout = sys.stderr = open(os.devnull, "w")
+    try:
+        return main(argv, env)
+    finally:
+        sys.stdout.close()
+        sys.stdout, sys.stderr = out, err
+
+
+def _read(d):
+    out = {}
+    for rel in (OUT_JSON, OUT_TS):
+        with open(os.path.join(d, rel)) as f:
+            out[rel] = f.read()
+    return out
+
+
+TS = """// AUTO-GENERATED — do not edit by hand.
+//
+// Generated by python3 scripts/generate-catalog.py from every
+// platform/<name>/blueprint.yaml + products/<name>/blueprint.yaml in the
+// monorepo. Re-run it from the repository root after adding or modifying a
+// blueprint.yaml or a bootstrap-kit slot, and commit the result.
+//
+// Per docs/INVIOLABLE-PRINCIPLES.md #4 ("never hardcode") this is the ONLY
+// place the Catalyst component catalog lives. Both StepComponents (wizard
+// app selection) and StepProvisioning (progress timeline) read from here.
+//
+// Source-of-truth files: see PLATFORM_BLUEPRINT_FILES in this file.
+
+export type BlueprintVisibility = 'listed' | 'unlisted' | 'private'
+
+export interface BlueprintCardEntry {
+  /** Full Blueprint id, e.g. "bp-cilium". */
+  id: string
+  /** Slug = id without the "bp-" prefix. */
+  slug: string
+  /** Display title (card.title). Falls back to slug. */
+  title: string
+  /** One-paragraph summary (card.summary). */
+  summary: string
+  /** Optional icon path (card.icon). Relative to the Blueprint folder. */
+  icon: string | null
+  /** Optional marketplace category (card.category). */
+  category: string | null
+  /** Optional one-line tagline (card.tagline). */
+  tagline: string | null
+  /** Tags (card.tags). */
+  tags: string[]
+  /** listed = appears in marketplace, unlisted = mandatory infra, private = org-only. */
+  visibility: BlueprintVisibility
+  /** Blueprint semver. */
+  version: string | null
+  /** PTS section label (catalyst.openova.io/section), e.g. "pts-3-3-security-and-policy". */
+  section: string | null
+  /** Other Blueprint ids this Blueprint depends on. */
+  depends: string[]
+  /** #3370 — instances support multi-application reuse (Contexts). */
+  shareable: boolean
+  /** #3370 — the Context declaration (null when not shareable). */
+  contextSchema: BlueprintContextSchema | null
+  /**
+   * #3648 — the DECLARED operator→instance edge. Set on an OPERATOR
+   * Blueprint (e.g. bp-cnpg) that produces shareable instances of another
+   * (instance) Blueprint; the platform reads kind + instanceBlueprint
+   * instead of inferring the pairing from a "postgres" literal. null
+   * unless this is an instance-producing operator.
+   */
+  producesInstances: BlueprintProducesInstances | null
+  /**
+   * #3375 — declared topology + DR contract, lifted verbatim from the
+   * Blueprint's `spec.topology` (the same source docs/topology-matrix.md
+   * promotes). Read back by the AppDetail Topology tab for every app so
+   * the operator sees the app's real declared class + DR mechanism +
+   * per-cluster placement — not a blank editor. null when the Blueprint
+   * ships no topology block.
+   */
+  topology: BlueprintTopology | null
+  /**
+   * #3656 (founder #6) — whether this Blueprint declares a user-facing UI
+   * endpoint (ssoEnabled / launchDefault / name="ui" in spec.endpoints[]),
+   * mirroring the BE's blueprintHasUserUIEndpoint. The AppCard reads this
+   * to show a confident disabled "Open…" placeholder for a front-door app
+   * while its live externalURL resolves (no late pop-in), and to suppress
+   * any placeholder for a headless app (no transient chip).
+   */
+  hasUserUIEndpoint: boolean
+}
+
+/**
+ * #3648 — the operator→instance declaration. `kind` is the engine-class
+ * id a consumer names in `backingServices[].type` (e.g. "postgres");
+ * `instanceBlueprint` is the instance Blueprint id this operator
+ * provisions (e.g. "bp-postgres") — the dependsOn HR prefix.
+ */
+export interface BlueprintProducesInstances {
+  kind: string
+  instanceBlueprint: string
+}
+
+/**
+ * #3370 — what a Context is for a shareable Blueprint. The kind label
+ * (db | topic | bucket | keyspace) prefixes every Context in the
+ * console; valuesKey names the array in the instance's IaC values where
+ * Context entries live; needs/produces describe the provisioning form
+ * inputs and the consumer-visible outputs.
+ */
+export interface BlueprintContextSchema {
+  kind: string
+  valuesKey: string
+  needs: string[]
+  produces: string[]
+}
+
+/**
+ * #3375 — the per-Blueprint topology declaration the console reads back.
+ *
+ *   supported       — declared topology variants (e.g. [active-hot-standby, singleton])
+ *   multiRegion     — defaults.multi-region (the class a 2-region Sovereign picks)
+ *   singleRegion    — defaults.single-region (the class a 1-region Sovereign picks)
+ *   perTopology     — DR contract per variant (replication + switchover + placement roles)
+ */
+export interface BlueprintTopology {
+  supported: string[]
+  multiRegion: string | null
+  singleRegion: string | null
+  perTopology: Record<string, BlueprintTopologyVariant>
+}
+
+export interface BlueprintTopologyVariant {
+  replication: {
+    backend: string | null
+    mode: string | null
+    lagSloSeconds: number | null
+  } | null
+  switchover: {
+    mechanism: string | null
+    rtoSeconds: number | null
+    rpoSeconds: number | null
+  } | null
+  placement: {
+    tier: string | null
+    clusters: string[]
+    roles: Record<string, string>
+  } | null
+}
+
+/**
+ * Every Blueprint discovered at build time. Order is stable (sorted by id).
+ *
+ * StepComponents filters this with `visibility === 'listed'` to render the
+ * marketplace card grid; StepProvisioning uses the same source to label
+ * bootstrap-kit phases when the SSE backend emits Flux Kustomization events.
+ */
+export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = @ENTRIES@ as const
+
+/** Subset of ALL_BLUEPRINTS whose visibility is 'listed' — what shows in the wizard's StepComponents card grid. */
+export const LISTED_BLUEPRINTS: readonly BlueprintCardEntry[] = ALL_BLUEPRINTS.filter(b => b.visibility === 'listed')
+
+/** Distinct categories present on listed blueprints (for category chip filter). */
+export const LISTED_CATEGORIES: readonly string[] = Array.from(
+  new Set(LISTED_BLUEPRINTS.map(b => b.category).filter((c): c is string => !!c))
+).sort()
+
+/** Lookup: id → entry. */
+export const BLUEPRINT_BY_ID: Readonly<Record<string, BlueprintCardEntry>> = Object.fromEntries(
+  ALL_BLUEPRINTS.map(b => [b.id, b])
+)
+
+/**
+ * #3375 — Lookup: blueprint id → declared topology (null when the
+ * Blueprint ships no topology block). The AppDetail Topology tab resolves
+ * an app's matrix-declared class + DR mechanism + per-cluster roles from
+ * here, keyed on either the `bp-<name>` id or the bare slug.
+ */
+export const TOPOLOGY_BY_ID: Readonly<Record<string, BlueprintTopology>> = Object.fromEntries(
+  ALL_BLUEPRINTS.filter(b => b.topology != null).flatMap(b => {
+    const t = b.topology as BlueprintTopology
+    return [[b.id, t], [b.slug, t]]
+  })
+)
+
+/** Source files this catalog was built from (for diagnostics / CI logs). */
+export const PLATFORM_BLUEPRINT_FILES: readonly string[] = @FILES@ as const
+
+/**
+ * Bootstrap-kit Blueprints reconciled by Flux on every freshly-provisioned
+ * Sovereign cluster, in numerical install order (the NN- prefix on each
+ * file under clusters/_template/bootstrap-kit/). The provision page reads
+ * this to render the always-installed bubbles in dependency / install
+ * order alongside the user's selected components.
+ */
+export interface BootstrapKitEntry {
+  /** Full Blueprint id, e.g. "bp-cilium". */
+  id: string
+  /** Slug = id without the "bp-" prefix. */
+  slug: string
+  /** Display label = slug. */
+  label: string
+  /** Source filename under clusters/_template/bootstrap-kit/. */
+  file: string
+  /** Numerical prefix on the filename — defines install order. */
+  order: number
+}
+
+export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = @KIT@ as const
+"""
+
+if __name__ == "__main__":
+    sys.exit(main())
