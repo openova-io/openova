@@ -1510,3 +1510,159 @@ run "seal_hook_is_called_with_the_region_keys" {
     error_message = "SEC-150: the hook's volume_device of this pack must be /dev/vdb."
   }
 }
+
+# NET-210: output region_separation. Two regions of one cloud region in two
+# zones: every subnet and node is planned in its region's zone, both load
+# balancers stand in the primary region's zone, and the separation is zone.
+# huawei_az is a zone that no region names, so a resource that still reads
+# var.huawei_az fails the run.
+run "region_separation_two_zones" {
+  command = plan
+
+  variables {
+    huawei_az = "region-9z"
+    regions = [
+      {
+        code               = "region-a"
+        cloud_region       = "region-9"
+        availability_zone  = "region-9a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      },
+      {
+        code               = "region-b"
+        cloud_region       = "region-9"
+        availability_zone  = "region-9b"
+        role               = "secondary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  assert {
+    condition     = huaweicloud_vpc_subnet.region["region-a"].availability_zone == "region-9a" && huaweicloud_vpc_subnet.region["region-b"].availability_zone == "region-9b"
+    error_message = "NET-210: each region's subnet must be in that region's zone."
+  }
+  assert {
+    condition     = sort([for i in huaweicloud_compute_instance.control_plane : "${i.availability_zone}/${strcontains(i.name, "-region-a-cp") ? "region-a" : "region-b"}"]) == tolist(["region-9a/region-a", "region-9b/region-b"])
+    error_message = "NET-210: each region's control-plane node must be in that region's zone."
+  }
+  assert {
+    condition     = sort([for k, i in huaweicloud_compute_instance.worker : "${i.availability_zone}/${strcontains(i.name, "-region-a-w") ? "region-a" : "region-b"}"]) == tolist(["region-9a/region-a", "region-9a/region-a", "region-9b/region-b", "region-9b/region-b"])
+    error_message = "NET-210: each region's workers must be in that region's zone."
+  }
+  assert {
+    condition     = toset(huaweicloud_elb_loadbalancer.primary.availability_zone) == toset(["region-9a"]) && toset(huaweicloud_elb_loadbalancer.console[0].availability_zone) == toset(["region-9a"])
+    error_message = "NET-210: both load balancers stand in the primary region and must be in its zone."
+  }
+  assert {
+    condition     = output.region_separation == "zone"
+    error_message = "NET-210: two regions of one cloud region in two zones must give region_separation zone."
+  }
+  assert {
+    condition     = output.region_separation == jsondecode(output.network_registry).regionSeparation
+    error_message = "NET-210: region_separation must equal regionSeparation of network_registry."
+  }
+}
+
+# NET-210: the default two-region request sets no zone. Every subnet, node and
+# load balancer stays in var.huawei_az, as before this package, and the
+# separation is none.
+run "region_separation_default_none" {
+  command = plan
+
+  variables {
+    regions = [
+      {
+        code               = "me-east-215-a"
+        cloud_region       = "me-east-215"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      },
+      {
+        code               = "me-east-215-b"
+        cloud_region       = "me-east-215"
+        role               = "secondary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  assert {
+    condition     = distinct(concat([for s in huaweicloud_vpc_subnet.region : s.availability_zone], [for i in huaweicloud_compute_instance.control_plane : i.availability_zone], [for i in huaweicloud_compute_instance.worker : i.availability_zone])) == tolist([var.huawei_az])
+    error_message = "NET-210: with no zone set, every subnet and node must be in var.huawei_az."
+  }
+  assert {
+    condition     = toset(huaweicloud_elb_loadbalancer.primary.availability_zone) == toset([var.huawei_az]) && toset(huaweicloud_elb_loadbalancer.console[0].availability_zone) == toset([var.huawei_az])
+    error_message = "NET-210: with no zone set, both load balancers must be in var.huawei_az."
+  }
+  assert {
+    condition     = output.region_separation == "none" && jsondecode(output.network_registry).regionSeparation == "none"
+    error_message = "NET-210: two regions in one zone must give region_separation none."
+  }
+}
+
+# NET-210: two regions that name the same zone share one failure domain.
+run "region_separation_same_zone_none" {
+  command = plan
+
+  variables {
+    regions = [
+      {
+        code               = "region-a"
+        cloud_region       = "region-9"
+        availability_zone  = "region-9a"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 1
+      },
+      {
+        code               = "region-b"
+        cloud_region       = "region-9"
+        availability_zone  = "region-9a"
+        role               = "secondary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 1
+      }
+    ]
+  }
+
+  assert {
+    condition     = output.region_separation == "none"
+    error_message = "NET-210: two regions in the same zone must give region_separation none."
+  }
+}
+
+# NET-210: one region has nothing to be separated from.
+run "region_separation_one_region_none" {
+  command = plan
+
+  variables {
+    regions = [
+      {
+        code               = "region-a"
+        cloud_region       = "region-9"
+        availability_zone  = "region-9b"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 1
+      }
+    ]
+  }
+
+  assert {
+    condition     = output.region_separation == "none"
+    error_message = "NET-210: one region must give region_separation none."
+  }
+}

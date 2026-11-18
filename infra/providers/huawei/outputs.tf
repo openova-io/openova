@@ -151,3 +151,13 @@ output "seal_kind" {
   description = "Kind of the seal hook of this pack (contract C8): where the OpenBao seal key rests."
   value       = module.seal.kind
 }
+
+# NET-210 — the region separation of this Sovereign, from the same local as
+# regionSeparation in output network_registry: site when every region has its
+# own cloud region; zone when the cloud regions repeat but every region has
+# its own pair of cloud region and zone; none otherwise and for one region.
+# This module refuses two cloud regions, so it gives zone or none.
+output "region_separation" {
+  description = "Region separation of the Sovereign: none, zone or site. The same value as regionSeparation in network_registry."
+  value       = local.network_registry_separation
+}
