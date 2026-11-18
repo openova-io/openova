@@ -4334,7 +4334,7 @@ packages:
   size: XS
   lane: CHARTS
   depends_on: []
-  after: [FND-011, SVC-040]
+  after: [FND-011]
   touches:
   - products/catalyst/chart/templates/conformance-account.yaml
   - products/catalyst/chart/tests/conformance-account-rbac.sh
@@ -4342,16 +4342,22 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e products/catalyst/chart/templates/conformance-account.yaml || test -e products/catalyst/chart/tests/conformance-account-rbac.sh; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "bash products/catalyst/chart/tests/conformance-account-rbac.sh"
+  - id: A2
+    run: "helm template t products/catalyst/chart --namespace catalyst-system | python3 -c 'import sys, yaml; k = sorted((d[\"kind\"], d[\"metadata\"].get(\"namespace\", \"\")) for d in yaml.safe_load_all(sys.stdin) if d and d[\"metadata\"][\"name\"] == \"catalyst-conformance\"); print(k); sys.exit(k != [(\"ClusterRole\", \"\"), (\"ClusterRoleBinding\", \"\"), (\"ServiceAccount\", \"catalyst-system\")])'"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: bp-catalyst-platform, which slot 13 of the kit installs on every Sovereign into catalyst-system, renders the ServiceAccount catalyst-system/catalyst-conformance, a ClusterRole catalyst-conformance with exactly the six rules that FND-155 gives the account on the local pack (the reads of the self selection's checks, get on the definition clusterpolicies.kyverno.io and on the policy forbid-nodeport-service, and the write of its ClusterPolicyReport), and the ClusterRoleBinding between them. The rules are cluster-wide (nodes, namespaces, a definition, a cluster policy, a cluster report), so they are a ClusterRole, not a Role. The account is the caller that the chart's default CATALYST_AGENT_TOKEN_CALLERS entry names, so gate check AIP-G07 can run on every Sovereign; the conformance chart of FND-152 runs its Job under this account and does not create it. No new slot, no Job, no rule beyond those six.
+  delivers: bp-catalyst-platform, which slot 13 of the kit installs on every Sovereign into catalyst-system, renders the ServiceAccount catalyst-system/catalyst-conformance, a ClusterRole catalyst-conformance with exactly the six rules of the suite's self selection, and the one ClusterRoleBinding between them, and a chart test fails on any other rule or binding of the account.
 - id: FND-161
   title: Row map and browser harness
   area: FND
@@ -11801,7 +11807,7 @@ packages:
   size: XS
   lane: CONTROL
   depends_on: [SOV-930]
-  after: [FND-011, CLD-030, CLD-105, CLD-114, CLD-115, SOV-050, SOV-183, SOV-335, SOV-338, SEC-105, NET-040, NET-080, NET-133, NET-170, NET-221, SVC-040, SVC-041, SVC-159, SVC-190, CTL-333, CTL-347, CMP-020, BSS-040, AIP-120]
+  after: [FND-011, FND-156, CLD-030, CLD-105, CLD-114, CLD-115, SOV-050, SOV-183, SOV-335, SOV-338, SEC-105, NET-040, NET-080, NET-133, NET-170, NET-221, SVC-040, SVC-041, SVC-159, SVC-190, CTL-333, CTL-347, CMP-020, BSS-040, AIP-120]
   touches:
   - products/catalyst/chart/templates/*-kustomize.yaml
   - products/catalyst/chart/templates/kustomization.yaml
@@ -13868,7 +13874,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [SEC-223]
-  after: [FND-011, FND-095, FND-096, FND-099, CLD-030, CLD-113, CLD-114, SOV-035, SOV-143, SOV-183, SEC-095, SEC-096, SEC-105, NET-011, NET-032, NET-040, NET-080, NET-102, NET-133, NET-170, NET-212, NET-221, SVC-040, SVC-159, SVC-190, CTL-150, CTL-320, CTL-333, CTL-347, CMP-020, BSS-040, BSS-141, AIP-120, INF-135]
+  after: [FND-011, FND-095, FND-096, FND-099, FND-156, CLD-030, CLD-113, CLD-114, SOV-035, SOV-143, SOV-183, SEC-095, SEC-096, SEC-105, NET-011, NET-032, NET-040, NET-080, NET-102, NET-133, NET-170, NET-212, NET-221, SVC-040, SVC-159, SVC-190, CTL-150, CTL-320, CTL-333, CTL-347, CMP-020, BSS-040, BSS-141, AIP-120, INF-135]
   touches:
   - products/catalyst/chart/**
   - products/catalyst/bootstrap/api/internal/secretfile/
@@ -22161,7 +22167,7 @@ packages:
   size: XS
   lane: CONTROL
   depends_on: [CTL-178, CTL-260, SOV-240]
-  after: [FND-011, CLD-030, CLD-113, CLD-114, SOV-183, SEC-105, NET-040, NET-080, NET-133, NET-170, NET-221, SVC-040, SVC-159, SVC-190, CTL-333, CTL-347, CMP-020, BSS-040, AIP-120, INF-135]
+  after: [FND-011, FND-156, CLD-030, CLD-113, CLD-114, SOV-183, SEC-105, NET-040, NET-080, NET-133, NET-170, NET-221, SVC-040, SVC-159, SVC-190, CTL-333, CTL-347, CMP-020, BSS-040, AIP-120, INF-135]
   touches:
   - products/catalyst/chart/values.yaml
   - products/catalyst/chart/templates/**
