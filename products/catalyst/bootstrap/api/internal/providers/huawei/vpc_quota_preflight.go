@@ -1,16 +1,16 @@
-package provisioner
+package huawei
 
 // The HCS VPC-quota pre-flight decision (#6225, UAT row 228).
 //
 // WHY THIS IS A SEPARATE, PURE FUNCTION
 // ─────────────────────────────────────
-// The decision used to live inline inside Provision — a ~1000-line
-// function that needs a live HCS project, a tofu workdir and a running
+// The decision used to live inline inside the engine's Provision — a
+// ~1000-line function that needs a live HCS project, a tofu workdir and a running
 // mothership to reach. That is why the defect below shipped and survived:
 // there was no seam at which "does the pre-flight refuse?" could be asked
 // without provisioning a Sovereign. `quotaReading` + vpcPreflightRefuses
-// are that seam; Provision now only gathers the readings and reports the
-// verdict.
+// are that seam; Preflight (capabilities.go) only gathers the readings and
+// reports the verdict.
 //
 // THE CONTRACT (stated at the call site since #4431, honoured here)
 // ─────────────────────────────────────────────────────────────────
@@ -78,8 +78,7 @@ func (q quotaReading) fits(needed int) bool { return q.used+needed <= q.limit }
 //   - needed: VPCs this prov will create (one per region).
 //   - first: the pre-reclaim quota observation.
 //   - reclaimAttempted: whether the in-band orphan-VPC reclaim actually
-//     ran. False when the project already fit, or when no VPCReclaimHook
-//     is registered (e.g. a non-huawei build or CI).
+//     ran. False when the project already fit.
 //   - after: the post-reclaim observation. Read ONLY when
 //     reclaimAttempted is true, and the caller assigns it in the same
 //     branch that sets that flag.

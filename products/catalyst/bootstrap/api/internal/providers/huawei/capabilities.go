@@ -1,8 +1,7 @@
 // capabilities.go — the optional capabilities of this adapter that the
-// provisioning engine calls through providers.As: PostApplier after
-// `tofu apply`, ApplyErrorClassifier on a failed `tofu apply`. They replace
-// the engine's former post-apply hook and its inline list of this cloud's
-// apply failures.
+// provisioning engine calls through providers.As: Preflighter before
+// `tofu init`, PostApplier after `tofu apply`, ApplyErrorClassifier on a
+// failed `tofu apply`. They replace the engine's former hook variables.
 
 package huawei
 
@@ -15,13 +14,71 @@ import (
 )
 
 var (
+	_ providers.Preflighter          = (*Provider)(nil)
 	_ providers.PostApplier          = (*Provider)(nil)
 	_ providers.ApplyErrorClassifier = (*Provider)(nil)
 )
 
-// rotateNATEIPs is the cloud call of PostApply. A package variable only so a
-// test can stand in for the cloud API; production never reassigns it.
-var rotateNATEIPs = RotateBlocklistedNATEIPs
+// The cloud calls of the capabilities. Package variables only so a test can
+// stand in for the cloud API; production never reassigns them.
+var (
+	vpcQuota      = (*Provider).VPCQuota
+	sweepVPCs     = (*Provider).SweepOrphanVPCs
+	rotateNATEIPs = RotateBlocklistedNATEIPs
+)
+
+// Preflight implements providers.Preflighter: the HCS VPC-quota pre-flight
+// (G68 #2617, #4431, #6225). The project has a hard cap on VPCs (Kom4DC
+// me-east-215 default 5; the raise endpoint is not tenant-facing), and a prov
+// needs one VPC per region. Over the cap, the cause is almost always
+// catalyst-* VPCs leaked by a prior wipe whose teardown lagged, so the
+// orphans are reclaimed in-band (destructive: this prov needs the room; the
+// prefixes of in.ProtectedIDs are never touched, #4614) and the quota is read
+// again. The check is best-effort: a quota-API failure lets the prov proceed,
+// and `tofu apply` decides. vpcPreflightRefuses holds the verdict.
+func (p *Provider) Preflight(ctx context.Context, in providers.PreflightInput) error {
+	progress := in.Progress
+	if progress == nil {
+		progress = func(string) {}
+	}
+	creds := in.Spec.Creds
+	ak, sk, projectID := creds.Get("access_key"), creds.Get("secret_key"), creds.Get("project_id")
+	region := strings.TrimSpace(creds.Get("region"))
+	if region == "" {
+		region = defaultRegion
+	}
+	needed := len(in.Spec.Regions)
+	var first, after quotaReading
+	first.used, first.limit, first.err = vpcQuota(p, ctx, ak, sk, projectID, region)
+	if !first.known() {
+		progress(fmt.Sprintf("HCS VPC quota check skipped (transient API error): %v", first.err))
+		return nil
+	}
+	progress(fmt.Sprintf("HCS VPC quota: used %d / %d, requesting %d", first.used, first.limit, needed))
+	reclaimAttempted := !first.fits(needed)
+	if reclaimAttempted {
+		progress(fmt.Sprintf("HCS VPC quota over budget (%d/%d, need %d) — reclaiming orphaned catalyst VPCs before failing", first.used, first.limit, needed))
+		reclaimed, err := sweepVPCs(p, ctx, ak, sk, projectID, region, in.ProtectedIDs, true, func(msg string) { progress("vpc-reclaim: " + msg) })
+		if err != nil {
+			progress(fmt.Sprintf("HCS orphan-VPC reclaim error (continuing to re-check quota): %v", err))
+		} else {
+			progress(fmt.Sprintf("HCS orphan-VPC reclaim freed %d VPC(s); re-reading quota", reclaimed))
+		}
+		// #6225: a failed re-read lets the prov proceed, as a failed first
+		// read does; the project is not known to be insufficient.
+		after.used, after.limit, after.err = vpcQuota(p, ctx, ak, sk, projectID, region)
+		if after.known() {
+			progress(fmt.Sprintf("HCS VPC quota after reclaim: used %d / %d, requesting %d", after.used, after.limit, needed))
+		} else {
+			progress(fmt.Sprintf("HCS VPC quota re-read after reclaim failed (%v) — reclaimed %d VPC(s); proceeding to tofu apply, which is the canonical authority on project capacity", after.err, reclaimed))
+		}
+	}
+	if vpcPreflightRefuses(needed, first, reclaimAttempted, after) {
+		eff := effectiveReading(first, reclaimAttempted, after)
+		return fmt.Errorf("HCS VPC quota exhausted: project at %d/%d after orphan reclaim, this prov requests %d more — a concurrent Sovereign genuinely occupies the project; wipe one before retrying", eff.used, eff.limit, needed)
+	}
+	return nil
+}
 
 // PostApply implements providers.PostApplier: Wave 5.93 (#2445) rotates any
 // NAT EIP that the free pool assigned from the blocklist, before cloud-init
