@@ -7171,7 +7171,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-080, CLD-132, CLD-141, CLD-142, FND-032]
-  after: [FND-033, FND-034, FND-075, FND-154, CLD-023, CLD-030, CLD-067, CLD-092, CLD-113, CLD-185, SOV-020, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-146, SOV-151, SOV-161, SOV-175, SOV-336, SOV-337, SEC-010, SEC-030, SEC-080, SEC-095, SEC-100, SEC-104, SEC-120, NET-013, NET-020, NET-040, NET-060, NET-100, NET-102, NET-110, NET-150, NET-190, NET-212, SVC-040, SVC-060, SVC-125, CTL-040, CTL-041, CTL-151, CTL-320, CTL-345, CTL-346, CTL-348, CMP-010, CMP-036, BSS-030, AIP-040, AIP-042, AIP-120, INF-050, INF-051, INF-052, INF-060, ACC-010]
+  after: [FND-033, FND-034, FND-075, FND-154, CLD-023, CLD-030, CLD-067, CLD-092, CLD-113, CLD-185, SOV-020, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-146, SOV-151, SOV-161, SOV-175, SOV-336, SOV-337, SEC-010, SEC-030, SEC-080, SEC-095, SEC-100, SEC-104, SEC-120, NET-013, NET-020, NET-040, NET-060, NET-096, NET-100, NET-102, NET-110, NET-150, NET-190, NET-212, SVC-040, SVC-060, SVC-125, CTL-040, CTL-041, CTL-151, CTL-320, CTL-345, CTL-346, CTL-348, CMP-010, CMP-036, BSS-030, AIP-040, AIP-042, AIP-120, INF-050, INF-051, INF-052, INF-060, ACC-010]
   touches:
   - clusters/_template/bootstrap-kit/**
   - infra/providers/_shared/cloudinit-control-plane.tftpl
@@ -9024,6 +9024,7 @@ packages:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - infra/providers/_shared/tests/cloudinit_render.tftest.hcl
   - infra/providers/_shared/tests/golden.auto.tfvars.json
+  - scripts/secret-guards.py
   resources: []
   flips: []
   implements: []
@@ -9039,17 +9040,17 @@ packages:
   - id: A3
     run: "python3 -c 'import hashlib, sys; L = [x for x in open(\"infra/providers/_shared/tests/cloudinit_render.tftest.hcl\").read().split(\"\\n\") if \"SOV-142\" in x or \"oci_fetch\" in x or \"NODE_ARTIFACT_FALLBACK\" in x]; r = [len(L), hashlib.sha256(\"\\n\".join(L).encode()).hexdigest()]; print(r); sys.exit(r != [14, \"dcaaafde8016241c06475f93145b84761c2bc6648572e2a7917a2e91b511d594\"])'"
   - id: A4
-    run: "python3 -c 'import json; d = json.load(open(\"infra/providers/_shared/tests/golden.auto.tfvars.json\")); h, w, p = d[\"golden_files_hetzner\"], d[\"golden_files_huawei\"], \"/var/lib/catalyst/oci_fetch\"; r = [d[\"golden_hetzner\"], d[\"golden_huawei\"], h.get(p), w.get(p), len(h), len(w)]; print(r); assert r == [\"424621951d8bc8f67efef5532919e06993f0e2a3d9a99e6c9de55513124f9105\", \"33a6eeb60376ab5ffc20b3800253c6394a2d0bdaec48c3f2e7f446f615aff40a\", \"edbe98eeb3d54922bc764b93299c830f6d963474f80abfa8df9730191bc995dd\", \"edbe98eeb3d54922bc764b93299c830f6d963474f80abfa8df9730191bc995dd\", 15, 17]'"
+    run: "python3 -c 'import json; d = json.load(open(\"infra/providers/_shared/tests/golden.auto.tfvars.json\")); h, w, p = d[\"golden_files_hetzner\"], d[\"golden_files_huawei\"], \"/var/lib/catalyst/oci_fetch\"; r = [d[\"golden_hetzner\"], d[\"golden_huawei\"], h.get(p), w.get(p), len(h), len(w)]; print(r); assert r == [\"71bd442e3c5ea8cb4cab4e617ee1d7d214a7fdce34411d8af34ec88f241c4f7b\", \"9c3e63f91dbc44424610af53aa3946d100ab729582be86e7be1e04e923a391a1\", \"edbe98eeb3d54922bc764b93299c830f6d963474f80abfa8df9730191bc995dd\", \"edbe98eeb3d54922bc764b93299c830f6d963474f80abfa8df9730191bc995dd\", 15, 17]'"
   - id: A5
-    run: "test \"$(grep -c -F 'sh /var/lib/catalyst/oci_fetch ' infra/providers/_shared/cloudinit-control-plane.tftpl)\" = 3 && python3 scripts/check-cloudinit-exit-codes.py > /dev/null && bash scripts/check-upstream-literals.sh > /dev/null && bash platform/flux/chart/tests/version-pin-replay.sh > /dev/null && bash scripts/check-tofu-flux-envsubst.sh > /dev/null && python3 scripts/check-provider-leaks.py --check > /dev/null"
+    run: "test \"$(grep -c -F 'sh /var/lib/catalyst/oci_fetch ' infra/providers/_shared/cloudinit-control-plane.tftpl)\" = 3 && python3 scripts/check-cloudinit-exit-codes.py > /dev/null && bash scripts/check-upstream-literals.sh > /dev/null && bash platform/flux/chart/tests/version-pin-replay.sh > /dev/null && bash scripts/check-tofu-flux-envsubst.sh > /dev/null && python3 scripts/check-provider-leaks.py --check > /dev/null && bash scripts/check-secret-apply-server-side.sh > /dev/null"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 2
+  ticket_rev: 3
   dropped: false
-  delivers: The shared control-plane template writes the helper /var/lib/catalyst/oci_fetch, which fetches the k3s installer, the Gateway API install manifest and the Flux install manifest from the node-artifacts path of the origin registry (token, manifest, first layer, SHA-256 check) and falls back to the upstream address of each only while NODE_ARTIFACT_FALLBACK is true, its default; every worst-case control-plane surface grows by 1,255 bytes and stays under its limit, and no entry is packed to make room.
+  delivers: The shared control-plane template writes the helper /var/lib/catalyst/oci_fetch, which fetches the k3s installer, the Gateway API install manifest and the Flux install manifest from the node-artifacts path of the origin registry (token, manifest, first layer, SHA-256 check) and falls back to the upstream address of each only while NODE_ARTIFACT_FALLBACK is true, its default; every worst-case control-plane surface grows by 1,255 bytes and stays under its limit, no entry is packed to make room, and the guard against client-side applies of a Secret records what the two fetched manifests are.
 - id: SOV-143
   title: The Secret register lists parent-bootstrap-token, with SOV-435 as the package that removes it
   area: SOV
@@ -9212,7 +9213,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: []
-  after: [SOV-154, CLD-023, CLD-030, CLD-040, CLD-064, CLD-086, CLD-089, CLD-113, CLD-131, CLD-132, CLD-134, CLD-141, CLD-142, CLD-185, SOV-020, SOV-130, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-151, SOV-160, SOV-161, SOV-175, SOV-335, SOV-336, SOV-337, SEC-020, SEC-030, SEC-100, SEC-104, NET-020, NET-031, NET-040, NET-110, NET-190, SVC-060, CTL-041, CTL-346, CTL-348, CMP-036, INF-050, INF-060, ACC-010]
+  after: [SOV-154, CLD-023, CLD-030, CLD-040, CLD-064, CLD-086, CLD-089, CLD-113, CLD-131, CLD-132, CLD-134, CLD-141, CLD-142, CLD-185, SOV-020, SOV-130, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-151, SOV-160, SOV-161, SOV-175, SOV-335, SOV-336, SOV-337, SEC-020, SEC-030, SEC-100, SEC-104, NET-020, NET-031, NET-040, NET-096, NET-110, NET-190, SVC-060, CTL-041, CTL-346, CTL-348, CMP-036, INF-050, INF-060, ACC-010]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - infra/providers/_shared/tests/cloudinit_render.tftest.hcl
@@ -10018,7 +10019,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-110, CTL-112, FND-144, SOV-150, SOV-170, SOV-180, SOV-225, SOV-230, SOV-510, SOV-131, SOV-151, SOV-134]
-  after: [SOV-241, FND-011, CLD-023, CLD-030, CLD-064, CLD-113, CLD-141, SOV-020, SOV-040, SOV-135, SOV-161, SOV-175, SOV-190, SOV-336, SOV-337, SEC-100, SEC-104, SEC-105, NET-040, NET-080, NET-110, NET-190, NET-221, SVC-040, SVC-041, CTL-346, CTL-347, CTL-348, CMP-036, INF-050, ACC-010]
+  after: [SOV-241, FND-011, CLD-023, CLD-030, CLD-064, CLD-113, CLD-141, SOV-020, SOV-040, SOV-135, SOV-161, SOV-175, SOV-190, SOV-336, SOV-337, SEC-100, SEC-104, SEC-105, NET-040, NET-080, NET-096, NET-110, NET-190, NET-221, SVC-040, SVC-041, CTL-346, CTL-347, CTL-348, CMP-036, INF-050, ACC-010]
   touches:
   - core/cmd/sovereign-ops/internal/flip/**
   - platform/self-sovereign-cutover/chart/templates/05-upstream-flip-job.yaml
@@ -14055,7 +14056,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271, FND-063, SOV-230]
-  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-073, FND-074, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-090, CLD-092, CLD-093, CLD-108, CLD-113, CLD-131, CLD-132, CLD-134, SOV-040, SOV-050, SOV-135, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-335, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, NET-011, NET-012, NET-013, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-133, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-190, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-020, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-111, AIP-113, AIP-120, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-110, INF-120, INF-130, INF-135, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-501, PRD-503, PRD-508, PRD-513]
+  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-073, FND-074, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-090, CLD-092, CLD-093, CLD-108, CLD-113, CLD-131, CLD-132, CLD-134, SOV-040, SOV-050, SOV-135, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-335, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, NET-011, NET-012, NET-013, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-133, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-190, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-020, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-111, AIP-113, AIP-120, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-110, INF-120, INF-130, INF-135, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-501, PRD-503, PRD-508, PRD-513]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -15538,7 +15539,7 @@ packages:
   dropped: false
   delivers: The chart bp-network-policies renders by default one policy object, a cluster-wide egress deny to the instance metadata address 169.254.169.254, beside a helm test Pod that proves the deny, and its three legacy default-deny objects render only when the value legacyBaseline.enabled is true.
 - id: NET-096
-  title: Security fix. Its text is published with its ticket.
+  title: Turn the metadata deny on in the kit
   area: NET
   epic: null
   type: fix
@@ -15546,22 +15547,32 @@ packages:
   size: XS
   lane: SUBSTRATE
   depends_on: [NET-095, NET-098]
-  after: [FND-096, FND-098, FND-102, CLD-142, SOV-151, SOV-175, SEC-100, SEC-103, SEC-104, SEC-105, NET-040, NET-221, SVC-040, SVC-041, CTL-041, CTL-346, CTL-347, INF-040, INF-050, INF-110, ACC-050]
-  touches: []
+  after: []
+  touches:
+  - clusters/_template/bootstrap-kit/26-network-policies.yaml
+  - docs/generated/bootstrap-slots.md
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "k=clusters/_template/bootstrap-kit; n=platform/network-policies/chart; h=platform/hcloud-csi/chart; echo \"$(test \"$(awk '/^      version:/{print $2; exit}' $k/26-network-policies.yaml)\" = \"$(awk '/^version:/{print $2; exit}' $n/Chart.yaml)\" && echo same) $(git ls-tree --name-only \"$(git log -1 --format=%H -G '^version:' -- $n/Chart.yaml)\" -- $n/templates/baseline-deny-metadata.yaml | wc -l) $(test \"$(awk '/^      version:/{print $2; exit}' $k/55a-bp-hcloud-csi.yaml)\" = \"$(awk '/^version:/{print $2; exit}' $h/Chart.yaml)\" && echo same) $(git show \"$(git log -1 --format=%H -G '^version:' -- $h/Chart.yaml):$h/values.yaml\" | grep -c -x -F '      network.openova.io/metadata-access: \"true\"') $(grep -c -x -F '    enabled: false' $k/26-network-policies.yaml)\""
+    expect: "same 1 same 1 1"
+  acceptance:
+  - id: A1
+    run: "k=clusters/_template/bootstrap-kit; n=platform/network-policies/chart; h=platform/hcloud-csi/chart; test \"$(awk '/^      version:/{print $2; exit}' $k/26-network-policies.yaml)\" = \"$(awk '/^version:/{print $2; exit}' $n/Chart.yaml)\" && git cat-file -e \"$(git log -1 --format=%H -G '^version:' -- $n/Chart.yaml):$n/templates/baseline-deny-metadata.yaml\" && test \"$(awk '/^      version:/{print $2; exit}' $k/55a-bp-hcloud-csi.yaml)\" = \"$(awk '/^version:/{print $2; exit}' $h/Chart.yaml)\" && test \"$(git show \"$(git log -1 --format=%H -G '^version:' -- $h/Chart.yaml):$h/values.yaml\" | grep -c -x -F '      network.openova.io/metadata-access: \"true\"')\" = 1 && v=\"$(mktemp)\" && python3 -c \"import sys, yaml; d = [x for x in yaml.safe_load_all(open(sys.argv[1])) if x and x['kind'] == 'HelmRelease']; assert len(d) == 1, len(d); s = d[0]['spec']; assert s['chart']['spec']['chart'] == 'bp-network-policies', s['chart']; assert s['values'] == {'enabled': True}, s['values']; assert 'valuesFrom' not in s, s['valuesFrom']; yaml.safe_dump(s['values'], open(sys.argv[2], 'w'))\" $k/26-network-policies.yaml \"$v\" && helm template network-policies $n --namespace catalyst-system -f \"$v\" --skip-tests | python3 -c \"import sys, yaml; docs = [x for x in yaml.safe_load_all(sys.stdin) if x]; assert len(docs) == 1, [(x['kind'], x['metadata']['name']) for x in docs]; d = docs[0]; assert (d['apiVersion'], d['kind'], d['metadata']['name']) == ('cilium.io/v2', 'CiliumClusterwideNetworkPolicy', 'baseline-deny-metadata'), d['metadata']; s = d['spec']; assert sorted(s) == ['egressDeny', 'enableDefaultDeny', 'endpointSelector'], sorted(s); assert s['egressDeny'] == [{'toCIDR': ['169.254.169.254/32']}], s; assert s['enableDefaultDeny'] == {'ingress': False, 'egress': False}, s; assert s['endpointSelector'] == {'matchExpressions': [{'key': 'network.openova.io/metadata-access', 'operator': 'NotIn', 'values': ['true']}]}, s\""
+  - id: A2
+    run: "python3 scripts/generators/slots.py --check && python3 -c \"rows = [l.rstrip('\\n').split(' | ') for l in open('docs/generated/bootstrap-slots.md') if l.startswith('| 26 | ')]; assert len(rows) == 1 and rows[0][1] == '26-network-policies.yaml' and rows[0][7] == chr(96) + 'values.enabled=true' + chr(96), rows\""
+  - id: A3
+    run: "python3 scripts/render-slot-placement.py check > /dev/null && (cd products/catalyst/bootstrap/ui && node scripts/build-catalog.mjs > /dev/null) && git diff --quiet -- products/catalyst/bootstrap/api/internal/catalog/blueprints.json products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Security fix. Its text is published with its ticket.
+  delivers: Kit slot 26 installs bp-network-policies with the value enabled true, so the objects Helm installs from it are exactly one cluster-wide egress deny to the instance metadata address 169.254.169.254 and none of the three legacy default-deny objects; the slot pins a chart release that holds that deny, and kit slot 55a pins a bp-hcloud-csi release whose node plugin carries the exception label.
 - id: NET-097
   title: Security fix. Its text is published with its ticket.
   area: NET
@@ -17070,7 +17081,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [NET-227, SOV-240]
-  after: [FND-011, CLD-030, CLD-090, CLD-113, CLD-131, CLD-132, CLD-141, SOV-020, SOV-161, SOV-175, SOV-336, SOV-337, SEC-100, SEC-104, SEC-150, NET-010, NET-011, NET-012, NET-020, NET-040, NET-080, NET-100, NET-110, NET-190, CTL-346, CTL-348, CMP-036, INF-050, ACC-010]
+  after: [FND-011, CLD-030, CLD-090, CLD-113, CLD-131, CLD-132, CLD-141, SOV-020, SOV-161, SOV-175, SOV-336, SOV-337, SEC-100, SEC-104, SEC-150, NET-010, NET-011, NET-012, NET-020, NET-040, NET-080, NET-096, NET-100, NET-110, NET-190, CTL-346, CTL-348, CMP-036, INF-050, ACC-010]
   touches:
   - platform/self-sovereign-cutover/chart/templates/00-mgmt-isolation-carveout.yaml
   - platform/self-sovereign-cutover/chart/values.yaml
@@ -17383,7 +17394,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [NET-323]
-  after: [CLD-023, CLD-030, CLD-064, CLD-086, CLD-089, CLD-113, CLD-141, CLD-142, SOV-020, SOV-130, SOV-146, SOV-151, SOV-160, SOV-161, SOV-175, SOV-336, SOV-337, SEC-100, SEC-104, NET-040, NET-110, NET-190, SVC-060, CTL-041, CTL-346, CTL-348, CMP-036, INF-050, ACC-010]
+  after: [CLD-023, CLD-030, CLD-064, CLD-086, CLD-089, CLD-113, CLD-141, CLD-142, SOV-020, SOV-130, SOV-146, SOV-151, SOV-160, SOV-161, SOV-175, SOV-336, SOV-337, SEC-100, SEC-104, NET-040, NET-096, NET-110, NET-190, SVC-060, CTL-041, CTL-346, CTL-348, CMP-036, INF-050, ACC-010]
   touches:
   - clusters/_template/
   resources: []
@@ -17463,7 +17474,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [NET-324]
-  after: [CLD-030, CLD-113, CLD-141, CLD-142, SOV-020, SOV-151, SOV-160, SOV-161, SOV-175, SOV-336, SOV-337, SEC-100, SEC-104, NET-040, NET-110, NET-190, SVC-060, CTL-041, CTL-346, CTL-348, CMP-036, INF-050, ACC-010]
+  after: [CLD-030, CLD-113, CLD-141, CLD-142, SOV-020, SOV-151, SOV-160, SOV-161, SOV-175, SOV-336, SOV-337, SEC-100, SEC-104, NET-040, NET-096, NET-110, NET-190, SVC-060, CTL-041, CTL-346, CTL-348, CMP-036, INF-050, ACC-010]
   touches:
   - clusters/_template/bootstrap-kit/
   resources: []
