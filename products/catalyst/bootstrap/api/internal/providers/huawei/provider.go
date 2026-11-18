@@ -68,38 +68,10 @@ func New() *Provider { return &Provider{} }
 // init registers the adapter so providers.Get("huawei") returns a
 // usable instance. Per registry.go RegisterProvider contract, this
 // MUST be called from an init() — never from runtime code. The engine
-// reaches the adapter's post-apply and apply-error steps through
-// providers.As (capabilities.go); the VPC pre-flight still uses the two
-// hooks set here.
+// reaches the adapter's pre-flight, post-apply and apply-error steps
+// through providers.As (capabilities.go).
 func init() {
 	providers.RegisterProvider(Name, New())
-	provisioner.VPCQuotaHook = VPCQuotaPreflight
-	provisioner.VPCReclaimHook = VPCReclaimPreflight
-}
-
-// VPCQuotaPreflight is the function registered as
-// provisioner.VPCQuotaHook by init(). It is the same shape as
-// (*Provider).VPCQuota but as a free function so the provisioner
-// package can call it without importing huawei (preventing the
-// provisioner ↔ huawei import cycle — huawei already imports
-// provisioner for the Wipe delegate).
-func VPCQuotaPreflight(ctx context.Context, accessKey, secretKey, projectID, region string) (used, limit int, err error) {
-	return New().VPCQuota(ctx, accessKey, secretKey, projectID, region)
-}
-
-// VPCReclaimPreflight is the function registered as
-// provisioner.VPCReclaimHook by init() (#4431). Same free-function
-// shape as VPCQuotaPreflight so the provisioner can reclaim leaked VPC
-// quota in-band without importing huawei. Delegates to SweepOrphanVPCs.
-//
-// This is the in-band, provision-time quota-reclaim path (NOT the
-// background janitor), so it passes destructive=true: a fresh prov that
-// hit the VPC cap genuinely needs the leaked orphans gone to make room.
-// The #4466 log-only gate is the background janitor's default; it does not
-// apply to this explicit on-demand reclaim. Protect-by-default
-// (activeDepIDPrefixes) still hard-protects every in-flight dep's VPC.
-func VPCReclaimPreflight(ctx context.Context, accessKey, secretKey, projectID, region string, activeDepIDPrefixes map[string]struct{}, progress func(msg string)) (int, error) {
-	return New().SweepOrphanVPCs(ctx, accessKey, secretKey, projectID, region, activeDepIDPrefixes, true, progress)
 }
 
 // Name returns the canonical provider name.

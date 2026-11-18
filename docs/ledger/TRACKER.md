@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T22:30:08Z` |
+| Last refreshed | `2026-11-18T23:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,12 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7841](https://github.com/openova-io/openova/issues/7841) | NET-170 Organization fence: two host-side deny objects for the Organization's ow | Other |
-| [#7842](https://github.com/openova-io/openova/issues/7842) | SVC-100 Function tests: admission, infrastructure and control-plane charts | Other |
-| [#7852](https://github.com/openova-io/openova/issues/7852) | AIP-222 Signal intake, grouping, candidate scoring, rule results | Other |
-| [#7853](https://github.com/openova-io/openova/issues/7853) | AIP-224 Guard library agentguard and its adversarial corpus | Other |
-| [#7854](https://github.com/openova-io/openova/issues/7854) | SOV-181 The provisioning routes refuse a Sovereign that is not a mothership | Other |
-| [#7855](https://github.com/openova-io/openova/issues/7855) | SOV-183 The Organization controller and the provisioning service render sources  | Other |
 | [#7862](https://github.com/openova-io/openova/issues/7862) | CTL-816 A peer region's serving verdict reaches the Application, and the API see | Other |
 | [#7863](https://github.com/openova-io/openova/issues/7863) | FND-027 A moved funnel pin rebuilds the provisioning image; the openclaw build w | Other |
 | [#7864](https://github.com/openova-io/openova/issues/7864) | FND-028 Four image builds and the catalog build are green on main again | Other |
@@ -300,6 +294,12 @@ flowchart LR
 | [#8209](https://github.com/openova-io/openova/issues/8209) | AIP-104 Limits, queue, time-outs, admin listener | Other |
 | [#8213](https://github.com/openova-io/openova/issues/8213) | AIP-105 One owner of the credential | Other |
 | [#8217](https://github.com/openova-io/openova/issues/8217) | CLD-105 Post-apply and apply-error hooks become capability interfaces | Other |
+| [#8223](https://github.com/openova-io/openova/issues/8223) | NET-120 Hermetic two-cluster mesh test | Other |
+| [#8225](https://github.com/openova-io/openova/issues/8225) | CLD-115 The VPC pre-flight becomes the Huawei adapter's Preflighter | Other |
+| [#8226](https://github.com/openova-io/openova/issues/8226) | SVC-159 The Blueprint files say what the seed says | Other |
+| [#8230](https://github.com/openova-io/openova/issues/8230) | NET-153 Allow-list of the hand-over proof's deny-egress object | Other |
+| [#8232](https://github.com/openova-io/openova/issues/8232) | FND-156 The conformance account exists on every Sovereign | Other |
+| [#8235](https://github.com/openova-io/openova/issues/8235) | FND-207 A check stays green on the newest valid pair until a newer record says o | Other |
 
 ---
 
@@ -307,7 +307,17 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-18T23:24 | [#8234](https://github.com/openova-io/openova/pull/8234) | #7087 | docs(ledger): plan update |
+| 2026-11-18T23:18 | [#8231](https://github.com/openova-io/openova/pull/8231) | #7087 | docs(ledger): plan update |
+| 2026-11-18T23:05 | [#8229](https://github.com/openova-io/openova/pull/8229) | #7087 | docs(ledger): plan update |
+| 2026-11-18T23:28 | [#8228](https://github.com/openova-io/openova/pull/8228) | #8225 | refactor(provisioner): the VPC pre-flight becomes the Prefli |
+| 2026-11-18T22:56 | [#8224](https://github.com/openova-io/openova/pull/8224) | #7087 | docs(ledger): plan update |
+| 2026-11-18T22:51 | [#8222](https://github.com/openova-io/openova/pull/8222) | #7087 | docs(ledger): plan update |
+| 2026-11-18T22:39 | [#8220](https://github.com/openova-io/openova/pull/8220) | #7087 | docs(ledger): plan update |
+| 2026-11-18T22:46 | [#8219](https://github.com/openova-io/openova/pull/8219) | #8067 | feat(network): the Sovereign states its region separation an |
+| 2026-11-18T22:37 | [#8218](https://github.com/openova-io/openova/pull/8218) | #8217 | refactor(provisioner): the post-apply step and the apply-err |
 | 2026-11-18T22:08 | [#8216](https://github.com/openova-io/openova/pull/8216) | #7087 | docs(ledger): plan update |
+| 2026-11-18T22:59 | [#8215](https://github.com/openova-io/openova/pull/8215) | #8213 | fix(axon): one owner of the credential, one refresh timer, c |
 | 2026-11-18T21:57 | [#8214](https://github.com/openova-io/openova/pull/8214) | #7087 | docs(ledger): plan update |
 | 2026-11-18T21:34 | [#8211](https://github.com/openova-io/openova/pull/8211) | #7087 | docs(ledger): plan update |
 | 2026-11-18T21:20 | [#8210](https://github.com/openova-io/openova/pull/8210) | #8209 | fix(axon): bound active and parked runs, queue with 429, ste |
@@ -327,16 +337,6 @@ flowchart LR
 | 2026-11-18T19:13 | [#8193](https://github.com/openova-io/openova/pull/8193) | #8192 | refactor(provisioner): the engine writes neutral variables,  |
 | 2026-11-18T17:56 | [#8191](https://github.com/openova-io/openova/pull/8191) | #7087 | docs(ledger): plan update |
 | 2026-11-18T18:17 | [#8190](https://github.com/openova-io/openova/pull/8190) | #8186 | fix(plan): generated lines do not count toward a story size  |
-| 2026-11-18T17:47 | [#8188](https://github.com/openova-io/openova/pull/8188) | #7087 | docs(ledger): plan update |
-| 2026-11-18T17:29 | [#8187](https://github.com/openova-io/openova/pull/8187) | #7087 | docs(ledger): plan update |
-| 2026-11-18T17:07 | [#8185](https://github.com/openova-io/openova/pull/8185) | #7087 | docs(ledger): plan update |
-| 2026-11-18T17:01 | [#8184](https://github.com/openova-io/openova/pull/8184) | #7087 | docs(ledger): plan update |
-| 2026-11-18T17:30 | [#8183](https://github.com/openova-io/openova/pull/8183) | #8182 | fix(axon): pass tool calls through and keep one upstream run |
-| 2026-11-18T16:51 | [#8181](https://github.com/openova-io/openova/pull/8181) | #7087 | docs(ledger): plan update |
-| 2026-11-18T16:12 | [#8180](https://github.com/openova-io/openova/pull/8180) | #7087 | docs(ledger): plan update |
-| 2026-11-18T17:43 | [#8179](https://github.com/openova-io/openova/pull/8179) | #8169 | ci: run the self selection of the gate suite as a Job on the |
-| 2026-11-18T15:35 | [#8178](https://github.com/openova-io/openova/pull/8178) | #7087 | docs(ledger): plan update |
-| 2026-11-18T15:50 | [#8177](https://github.com/openova-io/openova/pull/8177) | #8141 | fix(guards): a generated file is judged at its source |
 
 ---
 

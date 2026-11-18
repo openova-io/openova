@@ -5,7 +5,7 @@ import { KitUpstream } from "./upstream.js";
 import { Turns, type TurnManager } from "./turns.js";
 import { modelsRoute } from "./routes/models.js";
 import { chatCompletionsRoute } from "./routes/chat-completions.js";
-import { refreshIfExpired, startPeriodicRefresh, stopPeriodicRefresh } from "./providers/token-refresh.js";
+import { Credential, guarded, type CredentialReport } from "./credential.js";
 
 /** The longest a SIGTERM may take before the process exits anyway. */
 export const SHUTDOWN_GRACE_MS = 10000;
@@ -13,7 +13,11 @@ export const SHUTDOWN_GRACE_MS = 10000;
 /** model (AXON_PORT): /v1/* only, for meter pods. admin (AXON_ADMIN_PORT): /healthz, /health, /stats. */
 export interface Servers { model: FastifyInstance; admin: FastifyInstance; listen(host: string): Promise<void> }
 
-export async function servers(config: Config, turns: TurnManager, logger = false): Promise<Servers> {
+/** What /stats reads of the credential owner; without one the state is absent. */
+export interface CredentialView { state(): CredentialReport }
+const NO_OWNER: CredentialView = { state: () => ({ state: "absent" }) };
+
+export async function servers(config: Config, turns: TurnManager, logger = false, credential = NO_OWNER): Promise<Servers> {
   const model = Fastify({ logger });
   const admin = Fastify({ logger });
   let up = false;
@@ -28,8 +32,7 @@ export async function servers(config: Config, turns: TurnManager, logger = false
 
   // No authentication: the network policy admits catalyst-api pods to this port and nothing else.
   admin.get("/stats", async () => ({
-    // The credential owner reports its state here (package AIP-105).
-    credential: { state: "absent" },
+    credential: credential.state(),
     turns: { ...turns.stats(), maxActive: config.maxActive, maxParked: config.maxParked },
     counters: turns.counters(),
   }));
@@ -75,20 +78,20 @@ export async function stop(
 
 async function main(): Promise<void> {
   const config = loadConfig();
-  const turns = new Turns({ ...config, upstream: new KitUpstream() });
-  const s = await servers(config, turns, true);
+  // The one refresher of the credential; each run gets the access token alone.
+  const credential = new Credential({ ...config.credential, log: (line) => console.log(`[credential] ${line}`) });
+  credential.load();
+  const turns = new Turns({ ...config, upstream: new KitUpstream(), accessToken: () => credential.accessToken() });
+  const s = await servers(config, guarded(turns, credential), true, credential);
   const log = s.model.log;
   log.info(`Models: ${Object.keys(config.modelMap).join(", ")}`);
-
-  // Refresh the OAuth token; each conversation starts its own kit run
-  if (!(await refreshIfExpired())) log.warn("Token refresh failed — requests may fail to authenticate");
-  startPeriodicRefresh();
+  void credential.start();
 
   let stopping = false;
   const shutdown = () => {
     if (stopping) return;
     stopping = true;
-    stopPeriodicRefresh();
+    credential.stop();
     void stop(s, turns, (code) => process.exit(code));
   };
   process.on("SIGTERM", shutdown);

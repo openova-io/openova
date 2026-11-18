@@ -1,5 +1,8 @@
 // The upstream model behind Axon: one run of the agent kit per conversation.
 // This is the only file that imports the kit. Tests replace Upstream with a fake.
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { createSdkMcpServer, query } from "@anthropic-ai/claude-agent-sdk";
 import type { McpSdkServerConfigWithInstance, Options, Query, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
@@ -47,7 +50,7 @@ export interface UpstreamOptions {
   prompt: string;
   tools: UpstreamTool[];
   effort?: "low" | "medium" | "high";
-  /** The access token for the child. Empty: the child reads the credential file of the process. */
+  /** The access token for the child, its only credential. The refresh token never reaches a child. */
   accessToken: string;
 }
 
@@ -223,6 +226,17 @@ function toolServer(tools: UpstreamTool[], results: ToolResults): McpSdkServerCo
   return server;
 }
 
+/** A child's environment: the access token alone, and an empty HOME where it finds no credential file to refresh. */
+export function childEnv(parent: NodeJS.ProcessEnv, accessToken: string, home: string): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = { ...parent, HOME: home, CLAUDE_CODE_OAUTH_TOKEN: accessToken };
+  delete env.CLAUDECODE;
+  return env;
+}
+
+/** One empty HOME for every child of this process, made at the first run. */
+let childHome: string | undefined;
+const emptyHome = () => (childHome ??= mkdtempSync(join(tmpdir(), "axon-child-")));
+
 class KitRun implements UpstreamRun {
   private events: UpstreamEvent[] = [];
   private readers: ((e: UpstreamEvent) => void)[] = [];
@@ -234,9 +248,7 @@ class KitRun implements UpstreamRun {
   private q: Query;
 
   constructor(o: UpstreamOptions) {
-    const env: Record<string, string | undefined> = { ...process.env };
-    delete env.CLAUDECODE;
-    if (o.accessToken) env.CLAUDE_CODE_OAUTH_TOKEN = o.accessToken;
+    const env = childEnv(process.env, o.accessToken, emptyHome());
     const withTools = o.tools.length > 0;
     const options: Options = {
       model: o.model,

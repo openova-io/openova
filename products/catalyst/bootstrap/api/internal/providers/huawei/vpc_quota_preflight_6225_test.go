@@ -1,4 +1,4 @@
-package provisioner
+package huawei
 
 import (
 	"errors"
@@ -28,7 +28,7 @@ var errQuotaAPI = errors.New("VPC quota GET: status 503")
 //	quota re-read taken straight afterwards flakes.
 //
 // The reclaim worked. The project is NOT known to be insufficient — it
-// is un-measured. The documented contract (provisioner.go:2042-2046, "we
+// is un-measured. The documented contract (Preflight, capabilities.go, "we
 // never block on quota uncertainty") says proceed and let tofu apply
 // arbitrate, which is exactly what a flaky FIRST read already did.
 //
@@ -65,7 +65,7 @@ func TestVPCPreflight_FirstAndReReadUncertaintyAgree(t *testing.T) {
 			"failed FIRST read refuses=%v, failed POST-RECLAIM re-read refuses=%v", unknownFirst, unknownAfter)
 	}
 	if unknownFirst {
-		t.Fatal("neither uncertain reading may block the prov (provisioner.go:2042-2046)")
+		t.Fatal("neither uncertain reading may block the prov (Preflight, capabilities.go)")
 	}
 }
 
@@ -102,7 +102,7 @@ func TestVPCPreflight_StillRefusesGenuineConflict(t *testing.T) {
 }
 
 // TestVPCPreflight_RefusesWhenNoReclaimPathExists keeps the pre-#4431
-// baseline. With no VPCReclaimHook registered there is nothing that
+// baseline. With no reclaim attempted there is nothing that
 // could free room, so a known-over project must refuse immediately.
 // Pairs with the control above so "reclaimAttempted" cannot be turned
 // into a blanket escape hatch.

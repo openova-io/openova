@@ -286,6 +286,19 @@ spec:
                 observedGeneration:
                   type: integer
                   format: int64
+                regionSeparation:
+                  type: string
+                  description: |
+                    The region separation of the Sovereign, computed by the
+                    writer of this object from the regions of status.network:
+                    `site` when every region has another cloudRegion, `zone`
+                    when cloud regions repeat but every pair of cloudRegion
+                    and az differs, `none` otherwise and for one region. The
+                    condition RegionSeparation states it: True with the
+                    reason SeparateZones or SeparateSites, or False with the
+                    reason SameFailureDomain for none. Absent while
+                    status.network is absent.
+                  enum: [none, zone, site]
                 network:
                   type: object
                   description: |

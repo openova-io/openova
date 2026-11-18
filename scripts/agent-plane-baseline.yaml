@@ -16,7 +16,7 @@ rules:
     - products/agenity/chart/Chart.yaml
     - products/agenity/chart/templates/cilium-egress-networkpolicy.yaml
     - products/agenity/chart/values.yaml
-    - products/axon/src/providers/token-refresh.ts
+    - products/axon/src/credential.ts
     - products/catalyst/bootstrap/api/internal/handler/sovereign_anthropic_refresh.go
     - scripts/check-products.py
   G2:
@@ -28,7 +28,7 @@ rules:
     - products/agenity/chart/tests/credential-resync-6317.sh
     - products/agenity/chart/tests/credential-verdict.sh
     - products/agenity/chart/values.yaml
-    - products/axon/src/providers/token-refresh.ts
+    - products/axon/src/credential.ts
     - products/catalyst/bootstrap/api/internal/handler/anthropic_credential_class.go
     - products/catalyst/bootstrap/api/internal/handler/anthropic_credential_class_6250_test.go
     - products/catalyst/bootstrap/api/internal/handler/sovereign_anthropic_refresh.go
@@ -47,7 +47,7 @@ rules:
   G3:
     max: 2
     allow:
-    - products/axon/src/providers/token-refresh.ts
+    - products/axon/src/credential.ts
     - products/catalyst/bootstrap/api/internal/handler/sovereign_anthropic_refresh.go
   G4:
     max: 2

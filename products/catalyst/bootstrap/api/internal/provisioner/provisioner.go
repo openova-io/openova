@@ -55,40 +55,6 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers"
 )
 
-// G68 #2617 — pluggable hook for pre-Phase-0 HCS VPC quota check.
-// Decoupled to avoid the provisioner ↔ huawei import cycle: the huawei
-// package registers itself at init() time via
-// VPCQuotaHook = huawei.VPCQuotaPreflight, which calls
-// (*huawei.Provider).VPCQuota under the hood. The hook returns
-// (used, limit, err). On err != nil the caller logs + skips the check
-// (transient API failure must not block legitimate provs); on
-// used+needed > limit the caller fails fast with a clear error before
-// any tofu init runs.
-type vpcQuotaFunc func(ctx context.Context, accessKey, secretKey, projectID, region string) (used, limit int, err error)
-
-// VPCQuotaHook is the registration point. nil by default — only the
-// huawei adapter's init() sets it. provisioner.Provision calls it
-// before tofu init for provider == "huawei".
-var VPCQuotaHook vpcQuotaFunc
-
-// #4431 — pluggable hook for reclaiming orphaned VPC quota in-band on a
-// fresh prov. When the VPC pre-flight finds the project at/over its (un-
-// raisable) HCS quota, the cause is almost always catalyst-* VPCs leaked
-// by a prior wipe whose teardown lagged — NOT genuine concurrent demand
-// (a 2-region prov needs only 2 VPCs and the project cap is 5). Rather
-// than hard-fail the operator with "wipe an existing Sovereign" (the
-// exact back-and-forth #4431 removes), the pre-flight calls this hook to
-// reclaim the operator's own reclaimable orphan VPCs, then re-reads the
-// quota. activeDepIDPrefixes protects in-flight provs; this prov's own
-// (not-yet-created) deployment ID is included so the hook never touches
-// a sibling live prov. Returns the count reclaimed. Same decoupling
-// rationale as VPCQuotaHook — the huawei adapter registers it at init().
-type vpcReclaimFunc func(ctx context.Context, accessKey, secretKey, projectID, region string, activeDepIDPrefixes map[string]struct{}, progress func(msg string)) (int, error)
-
-// VPCReclaimHook is the registration point. nil by default — only the
-// huawei adapter's init() sets it (→ SweepOrphanVPCs).
-var VPCReclaimHook vpcReclaimFunc
-
 // ActiveDepPrefixesHook returns the do-not-touch allowlist of 8-char
 // deployment-ID prefixes for EVERY live (non-`wiped`) deployment. nil by
 // default — the handler registers it (→ Handler.buildActivePrefixes, the
@@ -2254,85 +2220,19 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 		return nil, fmt.Errorf("write tfvars: %w", err)
 	}
 
-	// G68 #2617 + #4431: HCS VPC quota pre-flight. The HCS project has a
-	// hard cap on VPCs per project (Kom4DC me-east-215 default 5; the
-	// raise endpoint is NOT tenant-facing — GET-only, PUT/POST return
-	// APIGW.0101). A multi-region prov requests one VPC per region; if the
-	// project is at-or-near the cap, `tofu apply` fails mid-run after
-	// Phase 0 has already allocated CP + EIPs + SGs (~3 min sunk cost).
-	// Pre-flight the live quota here so the wizard surfaces the condition
-	// immediately rather than 3 min into apply.
-	//
-	// #4431 — DO NOT hard-fail the operator with "wipe an existing
-	// Sovereign" on the first over-quota read. The cause is almost always
-	// catalyst-* VPCs leaked by a prior wipe whose teardown lagged (NAT /
-	// peering / residual-port 409s), NOT genuine concurrent demand: a
-	// 2-region prov needs 2 VPCs and the cap is 5. Since the external
-	// quota cannot be raised from code, the fix is to RECLAIM the leaked
-	// orphans in-band, then re-read. Only if the project is STILL over
-	// after reclaim is the request genuinely blocked.
-	//
-	// The check is BEST-EFFORT: any quota-API failure (transient 5xx,
-	// missing `vpc` resource type in response) falls through to tofu
-	// apply, which is the canonical authority. We never block on quota
-	// uncertainty — only on quota *known to be insufficient after a
-	// reclaim attempt*.
-	//
-	// #6225 (UAT row 228) — that last sentence is now enforced by
-	// vpcPreflightRefuses instead of being restated inline. It previously
-	// held for the FIRST read only: the post-reclaim re-read was an
-	// assign-on-success with no else, so a flaky re-read left the STALE
-	// pre-reclaim numbers in place and the refusal fired on them, killing
-	// a re-prov whose orphaned catalyst-* VPCs had just been reclaimed
-	// successfully. Same uncertainty as a flaky first read, opposite
-	// verdict. The decision now lives in vpc_quota_preflight.go where it
-	// is unit-testable without an HCS project.
-	if req.Provider == "huawei" && len(req.Regions) > 0 && VPCQuotaHook != nil {
-		needed := len(req.Regions)
-		region := strings.TrimSpace(req.Credential("region"))
-		if region == "" {
-			region = "me-east-215"
+	// The adapter's checks before `tofu init` (providers.Preflighter): a limit
+	// of the cloud that cannot be raised from code is refused here, before any
+	// resource exists, instead of minutes into `tofu apply`. ProtectedIDs holds
+	// every live deployment (#4614, reclaimProtectSet), so an in-band reclaim
+	// never touches a live Sovereign.
+	if pf, ok, _ := providers.As[providers.Preflighter](req.Provider); ok {
+		in := providers.PreflightInput{
+			Spec:         capabilitySpec(req),
+			ProtectedIDs: reclaimProtectSet(req.DeploymentID),
+			Progress:     func(msg string) { emit("tofu-init", "info", msg) },
 		}
-		var first, after quotaReading
-		reclaimAttempted := false
-		first.used, first.limit, first.err = VPCQuotaHook(ctx, req.Credential("access_key"), req.Credential("secret_key"), req.Credential("project_id"), region)
-		if !first.known() {
-			emit("tofu-init", "warn", fmt.Sprintf("HCS VPC quota check skipped (transient API error): %v", first.err))
-		} else {
-			emit("tofu-init", "info", fmt.Sprintf("HCS VPC quota: used %d / %d, requesting %d", first.used, first.limit, needed))
-			if !first.fits(needed) && VPCReclaimHook != nil {
-				// #4614: protect EVERY live deployment, not just THIS
-				// prov's own prefix. SweepOrphanVPCs reaps any catalyst-*
-				// VPC whose 8-char prefix is NOT in `protect`; seeding it
-				// with only this prov's prefix made the reclaim treat a
-				// live production Sovereign sharing the project as an
-				// orphan and DELETE its VPC (the 2026-06-28 incident).
-				reclaimAttempted = true
-				protect := reclaimProtectSet(req.DeploymentID)
-				emit("tofu-init", "info", fmt.Sprintf("HCS VPC quota over budget (%d/%d, need %d) — reclaiming orphaned catalyst VPCs before failing", first.used, first.limit, needed))
-				reclaimed, rerr := VPCReclaimHook(ctx, req.Credential("access_key"), req.Credential("secret_key"), req.Credential("project_id"), region, protect, func(msg string) {
-					emit("tofu-init", "info", "vpc-reclaim: "+msg)
-				})
-				if rerr != nil {
-					emit("tofu-init", "warn", fmt.Sprintf("HCS orphan-VPC reclaim error (continuing to re-check quota): %v", rerr))
-				} else {
-					emit("tofu-init", "info", fmt.Sprintf("HCS orphan-VPC reclaim freed %d VPC(s); re-reading quota", reclaimed))
-				}
-				// Re-read the quota after the reclaim. #6225: a FAILED
-				// re-read genuinely falls through now — the project is not
-				// known to be insufficient, so the prov proceeds and tofu
-				// apply arbitrates, exactly as a failed first read does.
-				after.used, after.limit, after.err = VPCQuotaHook(ctx, req.Credential("access_key"), req.Credential("secret_key"), req.Credential("project_id"), region)
-				if after.known() {
-					emit("tofu-init", "info", fmt.Sprintf("HCS VPC quota after reclaim: used %d / %d, requesting %d", after.used, after.limit, needed))
-				} else {
-					emit("tofu-init", "warn", fmt.Sprintf("HCS VPC quota re-read after reclaim failed (%v) — reclaimed %d VPC(s); proceeding to tofu apply, which is the canonical authority on project capacity", after.err, reclaimed))
-				}
-			}
-			if vpcPreflightRefuses(needed, first, reclaimAttempted, after) {
-				eff := effectiveReading(first, reclaimAttempted, after)
-				return nil, fmt.Errorf("HCS VPC quota exhausted: project at %d/%d after orphan reclaim, this prov requests %d more — a concurrent Sovereign genuinely occupies the project; wipe one before retrying", eff.used, eff.limit, needed)
-			}
+		if err := pf.Preflight(ctx, in); err != nil {
+			return nil, err
 		}
 	}
 
