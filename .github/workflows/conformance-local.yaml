@@ -1,9 +1,10 @@
-# conformance-local.yaml - the local provider pack, brought up on the runner with two regions.
+# conformance-local.yaml - the local provider pack, brought up on the runner with two regions,
+# and the gate suite run on it.
 #
 # The local pack (infra/providers/local) starts each region's control-plane machine as a
 # privileged container on the runner's own Docker and boots it with the shared template; Flux
-# then installs the reduced kit clusters/_template/providers/local/kit from the commit of the
-# pull request. scripts/local-pack.sh does the work:
+# then installs the reduced kit clusters/_template/providers/local/kit from the commit under
+# test. scripts/local-pack.sh does the work:
 #   up         two regions; exit 0 only when the kit core is Ready in both, the console
 #              runs in the primary region and answers on the address of the env file, an
 #              owner session is minted, and the runner reaches both API servers with the
@@ -13,25 +14,28 @@
 #   claim      a claim of 1 GiB binds on the default storage class of each region (gate
 #              check CLD-G11);
 #   down       removes every machine, volume and network, also when an earlier step failed.
+# Then discovery runs once more: it starts the port forward of the console again when that
+# has stopped, and the suite reaches the console through it. Then the gate suite runs on the
+# pack through scripts/acceptance-sovereign.sh: --run-in local selects every check of
+# docs/ledger/gates.yaml that is expected-fail or required, lists local in runs_in and is a Go
+# file of the suite; --journeys '' requests no journey, so the discovery leaves out the steps
+# that only the journeys need; --nodes-requested names the nodes that up asked for in each
+# region, and check FND-G03 compares them with the Ready nodes. The record is checked with
+# scripts/acceptance-gate.py validate-record and uploaded as the artifact
+# conformance-local-record; it is never committed. The job fails when the record's result is
+# not PASS: a discovery step or a required check that does not pass.
 # On a failure the evidence of every machine is uploaded as the artifact local-pack-evidence.
 # Nothing publishes a port and nothing uses a node port.
 #
-# It runs on pull requests that change what the run reads from the commit: the boot template,
-# the module contract, the local module, the cluster templates, the suite (it builds the
-# session minter and runs the discovery), the script and this file.
+# No path filter, on purpose: the ruleset of main (.github/rulesets/main.json) requires the
+# job by its name, conformance-local, so it must run and pass on every pull request and every
+# merge group; a check that did not run is not green.
 # Charts and images come from ghcr.io at the versions the kit pins; the job token pulls them.
 name: conformance-local
 
 on:
   pull_request:
-    paths:
-      - 'infra/providers/_shared/**'
-      - 'infra/providers/_contract/**'
-      - 'infra/providers/local/**'
-      - 'clusters/_template/**'
-      - 'tests/acceptance/sovereign/**'
-      - 'scripts/local-pack.sh'
-      - '.github/workflows/conformance-local.yaml'
+  merge_group:
   workflow_dispatch:
 
 permissions:
@@ -73,6 +77,9 @@ jobs:
           go-version-file: tests/acceptance/sovereign/go.mod
           cache: false
 
+      - name: Install PyYAML (the manifest export)
+        run: python3 -m pip install --quiet pyyaml
+
       - name: Self-test of the script
         run: bash scripts/local-pack.sh --self-test
 
@@ -89,6 +96,60 @@ jobs:
 
       - name: Claim of 1 GiB on the default storage class (CLD-G11)
         run: bash scripts/local-pack.sh claim
+
+      - name: Console address before the suite (discovery again starts a stopped port forward)
+        run: bash scripts/local-pack.sh discovery
+
+      - name: Gate suite on the pack (run in local, no journey)
+        id: suite
+        run: |
+          set +e
+          set -uo pipefail
+          # The step writes the suite's table into the summary before it fails, so errexit is off.
+          d="$RUNNER_TEMP/local-pack"
+          # The env file of up: CONSOLE_URL, DEPLOYMENT_ID, REGION_A, REGION_B, SESSION_TOKEN_FILE.
+          # shellcheck disable=SC1091
+          . "$d/env"
+          export ACCEPT_CONSOLE="$CONSOLE_URL" ACCEPT_DEPLOYMENT_ID="$DEPLOYMENT_ID"
+          export ACCEPT_KUBECONFIG_A="$d/$REGION_A.kubeconfig" ACCEPT_KUBECONFIG_B="$d/$REGION_B.kubeconfig"
+          # The session is read from its file and never printed.
+          CATALYST_SESSION="$(cat "$SESSION_TOKEN_FILE")"
+          export CATALYST_SESSION
+          # The nodes that up asked for: one control-plane machine in each region and one worker
+          # in the primary region, which is region A. The id of a region in its cluster is
+          # local-<region code>-rtz-prod (infra/providers/local/main.tf).
+          nodes="local-$REGION_A-rtz-prod=2,local-$REGION_B-rtz-prod=1"
+          python3 scripts/acceptance-gate.py export > "$RUNNER_TEMP/gates.json" || exit 1
+          mkdir -p "$RUNNER_TEMP/acceptance"
+          bash scripts/acceptance-sovereign.sh local-pack --record --record-dir "$RUNNER_TEMP/acceptance" \
+            --run-in local --manifest "$RUNNER_TEMP/gates.json" --repo-root . \
+            --capabilities multi-region --nodes-requested "$nodes" --journeys '' | tee "$RUNNER_TEMP/acceptance.log"
+          rc=${PIPESTATUS[0]}
+          { echo '### Gate suite on the local pack'; echo; echo '```'; sed -n '/^ACCEPTANCE /,$p' "$RUNNER_TEMP/acceptance.log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          echo "suite exit code: $rc"
+          exit "$rc"
+
+      - name: Validate the record; its result must be PASS
+        if: always() && steps.suite.outcome != 'skipped'
+        run: |
+          set -euo pipefail
+          n="$(find "$RUNNER_TEMP/acceptance" -maxdepth 1 -name '*.json' | wc -l)"
+          if [ "$n" != 1 ]; then echo "::error::The suite wrote $n records, not 1."; exit 1; fi
+          rec="$(find "$RUNNER_TEMP/acceptance" -maxdepth 1 -name '*.json')"
+          python3 scripts/acceptance-gate.py validate-record "$rec"
+          result="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("result", "FAIL"))' "$rec")"
+          echo "record $(basename "$rec"): result $result"
+          if [ "$result" != PASS ]; then echo "::error::The record's result is $result, not PASS."; exit 1; fi
+
+      - name: Upload the record
+        if: always() && steps.suite.outcome != 'skipped'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: conformance-local-record
+          path: |
+            ${{ runner.temp }}/acceptance/*.json
+            ${{ runner.temp }}/acceptance.log
+          if-no-files-found: warn
 
       - name: Collect evidence
         if: failure()
