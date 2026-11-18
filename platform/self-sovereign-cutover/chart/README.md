@@ -178,7 +178,15 @@ The state ConfigMap `sovereign-release` names what ran (`mechanism`, and
 03's container, its command run by `release-run.sh prewarm`) and a container
 `promote` (step 01's image and settings). Every ConfigMap it mounts is the
 render's, applied under `<name>-release`, so no installed object changes and the
-installed step 03 never runs. A candidate whose chart carries no contract-1
+installed step 03 never runs. The Job itself is created, not applied: its name is
+new for every request, and the runner may create Jobs but not patch them (a
+server-side apply is a PATCH). Every kubectl call of `release-run.sh`, on every
+path of a delivery, is checked against this chart's rendered RBAC by
+`TestReleaseScriptCallsAreGrantedToTheirAccount` in
+`products/catalyst/bootstrap/api/internal/lifecycle/release_rbac_test.go`. The
+candidate's scripts run under the RBAC the Sovereign has installed, so a call
+that needs a new grant can only be used by the delivery after the one that
+installs it. A candidate whose chart carries no contract-1
 mechanism is refused by name; the bootstrap never falls back to the installed
 mechanism. `files/release/` is left out of the package (`.helmignore`): Helm never
 renders it, and the release reads it from the staged tree.

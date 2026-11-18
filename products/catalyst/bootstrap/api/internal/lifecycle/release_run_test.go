@@ -22,9 +22,19 @@ import (
 // release-region.sh with the plain environment of the applied manifest (its
 // /release paths mapped to STUB_RELEASE) and GITEA_PAT, the way the follower
 // region's kubelet would. Its logs and its outcome are then what get and logs
-// answer.
+// answer. Every call is also kept in STUB_DIR/calls.rec as its arguments and
+// the kind and namespace of the object it read on stdin (release_rbac_test.go
+// checks each against the RBAC of the account that makes it).
 const kubectlStub = `#!/bin/sh
 echo "kubectl $*" >>"${STUB_DIR}/calls"
+obj=""
+case " $* " in
+  *" -f - "*)
+    cat >"${STUB_DIR}/applied"
+    obj=$(jq -r '.kind + " " + (.metadata.namespace // "")' "${STUB_DIR}/applied" 2>/dev/null) \
+      || obj=$(awk '/^kind:/ {k = $2} /^  namespace:/ && n == "" {n = $2} END {print k " " n}' "${STUB_DIR}/applied") ;;
+esac
+{ printf '%s\037' "$@"; printf '\035%s\036' "${obj}"; } >>"${STUB_DIR}/calls.rec"
 region=primary
 [ "$1" = "--kubeconfig" ] && { region=$(basename "$2" .yaml); shift 2; }
 case " $* " in
@@ -39,10 +49,11 @@ case " $* " in
   *" delete secret "*) rm -f "${STUB_DIR}/secrets/${region}/$2/$5.json" ;;
   *" patch configmap "*)
     while [ $# -gt 0 ]; do [ "$1" = "-p" ] && printf '%s\n' "$2" >>"${STUB_DIR}/status"; shift; done ;;
-  *" create configmap "*) echo "kind: ConfigMap" ;;
+  *" create configmap "*)
+    n=""; p=""; for a in "$@"; do [ "$p" = "-n" ] && n="$a"; p="$a"; done
+    printf 'kind: ConfigMap\nmetadata:\n  namespace: %s\n' "$n" ;;
   *" delete job "*) rm -f "${STUB_DIR}/job-$5".* ;;
-  *" apply --server-side "*)
-    cat >"${STUB_DIR}/applied"
+  *" apply --server-side "*|*" create -f - "*)
     if jq -e '.kind == "Secret"' "${STUB_DIR}/applied" >/dev/null 2>&1; then
       to=$(jq -r '.metadata.namespace + "/" + .metadata.name' "${STUB_DIR}/applied")
       mkdir -p "${STUB_DIR}/secrets/${region}/${to%/*}"
