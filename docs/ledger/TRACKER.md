@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T15:00:04Z` |
+| Last refreshed | `2026-11-18T15:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7823](https://github.com/openova-io/openova/issues/7823) | SEC-104 Unwire bootstrap-kit slot 05 | Other |
 | [#7824](https://github.com/openova-io/openova/issues/7824) | SOV-337 The scanner reads the vulnerability database from the Sovereign's own re | Other |
 | [#7829](https://github.com/openova-io/openova/issues/7829) | The release bump never writes the funnel chart pin, so the pin drift test fails  | Other |
 | [#7831](https://github.com/openova-io/openova/issues/7831) | FND-070 Baseline: one fresh provision of main as it stands | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8168](https://github.com/openova-io/openova/issues/8168) | AIP-108 Shrink Axon | Other |
 | [#8169](https://github.com/openova-io/openova/issues/8169) | FND-155 The self selection run by a Job on the local provider pack | Other |
 | [#8172](https://github.com/openova-io/openova/issues/8172) | SOV-148 Lab test: first-boot steps from a fetched, checksum-pinned bundle | Other |
+| [#8175](https://github.com/openova-io/openova/issues/8175) | CLD-112 Credential check from the profile; one registry | Other |
 
 ---
 
@@ -307,8 +307,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-18T15:10 | [#8171](https://github.com/openova-io/openova/pull/8171) | #7087 | docs(ledger): plan update |
+| 2026-11-18T15:12 | [#8170](https://github.com/openova-io/openova/pull/8170) | #8168 | chore(axon): remove the vLLM provider, Valkey and the conver |
 | 2026-11-18T14:42 | [#8167](https://github.com/openova-io/openova/pull/8167) | #7087 | docs(ledger): plan update |
 | 2026-11-18T14:13 | [#8166](https://github.com/openova-io/openova/pull/8166) | #7087 | docs(ledger): plan update |
+| 2026-11-18T15:03 | [#8165](https://github.com/openova-io/openova/pull/8165) | #8147 | fix(ci): a pull request that changes only plan files does no |
 | 2026-11-18T13:42 | [#8164](https://github.com/openova-io/openova/pull/8164) | #7087 | docs(ledger): plan update |
 | 2026-11-18T13:36 | [#8163](https://github.com/openova-io/openova/pull/8163) | #7938 | fix(release): the delivery builds valid objects, and its dry |
 | 2026-11-18T13:13 | [#8162](https://github.com/openova-io/openova/pull/8162) | #7087 | docs(ledger): plan update |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-18T11:48 | [#8128](https://github.com/openova-io/openova/pull/8128) | #8102 | fix(gate): the local pack carries the NodePort ban at Enforc |
 | 2026-11-18T10:30 | [#8127](https://github.com/openova-io/openova/pull/8127) | #8118 | fix(kit): kit slot 26 switches the deny of the instance meta |
 | 2026-11-18T10:03 | [#8126](https://github.com/openova-io/openova/pull/8126) | #7087 | docs(ledger): plan update |
-| 2026-11-18T10:02 | [#8123](https://github.com/openova-io/openova/pull/8123) | #7938 | fix(release): the delivery's calls are all granted, and a ch |
-| 2026-11-18T09:51 | [#8121](https://github.com/openova-io/openova/pull/8121) | #7087 | docs(ledger): plan update |
-| 2026-11-18T09:44 | [#8120](https://github.com/openova-io/openova/pull/8120) | #7087 | docs(ledger): plan update |
 
 ---
 
