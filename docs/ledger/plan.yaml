@@ -191,7 +191,7 @@ epics:
 - id: SOV-400
   title: 'EPIC: Ownership pivot and parent release'
   wave: W1b
-  packages: [SOV-405, SOV-410, SOV-420, SOV-440, SOV-430, SOV-435, SOV-436, SOV-437, SOV-450]
+  packages: [SOV-405, SOV-410, SOV-420, SOV-430, SOV-440, SOV-435, SOV-436, SOV-437, SOV-450]
 - id: SOV-500
   title: 'EPIC: Release channel and in-place upgrade'
   wave: W1b
@@ -203,7 +203,7 @@ epics:
 - id: SOV-700
   title: 'EPIC: Day-2 with the parent switched off'
   wave: W1b
-  packages: [SOV-750, SOV-760, SOV-765, SOV-720, SOV-740, SOV-725, SOV-726, SOV-710, SOV-730]
+  packages: [SOV-750, SOV-760, SOV-765, SOV-720, SOV-740, SOV-725, SOV-710, SOV-726, SOV-730]
 - id: SOV-800
   title: 'EPIC: Mothership mode and the child walk'
   wave: W1b
@@ -9005,7 +9005,7 @@ packages:
   area: SOV
   epic: SOV-100
   type: refactor
-  wave: W1a
+  wave: W0
   size: S
   lane: SUBSTRATE
   depends_on: [SOV-140, SOV-130, SOV-160, SOV-131, SOV-134]
@@ -9480,7 +9480,7 @@ packages:
   area: SOV
   epic: SOV-100
   type: refactor
-  wave: W1a
+  wave: W0
   size: S
   lane: SUBSTRATE
   depends_on: [CTL-044, SOV-150]
@@ -11764,7 +11764,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [SEC-030]
-  after: [CLD-023, CLD-131, CLD-132, CLD-185, SOV-130, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-146, NET-020, NET-110, INF-060]
+  after: [CLD-023, CLD-131, CLD-132, CLD-185, SOV-130, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-146, NET-020, NET-110]
   touches: []
   resources: []
   flips: [SEC-G02]
@@ -28654,7 +28654,7 @@ packages:
   size: XS
   lane: SUBSTRATE
   depends_on: [INF-052]
-  after: []
+  after: [SOV-142, SEC-040]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - infra/providers/hetzner/cloudinit-worker.tftpl
