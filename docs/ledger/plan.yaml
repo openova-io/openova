@@ -6521,7 +6521,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CLD-104]
-  after: [FND-071, SVC-040]
+  after: [FND-071, CLD-114, SVC-040]
   touches:
   - products/catalyst/bootstrap/api/internal/providers/huawei/**
   resources: []
@@ -6685,7 +6685,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CLD-105]
-  after: [FND-071, SVC-040]
+  after: [FND-071, CLD-114, SVC-040]
   touches:
   - products/catalyst/bootstrap/api/internal/providers/huawei/**
   resources: []
@@ -6797,25 +6797,53 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [CLD-113, CLD-109]
-  after: [CLD-021, NET-080, NET-170, SVC-040, CTL-340, CTL-420, BSS-141, AIP-040, AIP-041]
+  after: []
   touches:
   - products/catalyst/bootstrap/api/internal/provisioner/adoption.go
+  - products/catalyst/bootstrap/api/internal/provisioner/adoption_kinds_test.go
+  - products/catalyst/bootstrap/api/internal/providers/huawei/provider.go
+  - products/catalyst/bootstrap/api/internal/providers/hetzner/provider.go
   - products/catalyst/bootstrap/api/internal/jobs/types.go
-  - core/controllers/organization/**
+  - products/catalyst/bootstrap/api/internal/jobs/provisioner_display_test.go
+  - products/catalyst/bootstrap/api/internal/intent/crds/schemas.json
+  - core/controllers/organization/cmd/main.go
+  - core/controllers/organization/internal/controller/environment_ensure.go
+  - core/controllers/organization/internal/controller/environment_ensure_test.go
+  - core/controllers/organization/internal/controller/organization_controller.go
+  - products/catalyst/chart/templates/controllers/organization-controller-deployment.yaml
+  - products/catalyst/chart/crds/environment.yaml
+  - products/catalyst/chart/crds/sovereign.yaml
+  - products/catalyst/chart/crds/tests/sovereign-sample-invalid.yaml
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c 'tfTypeToAdoptionKind' products/catalyst/bootstrap/api/internal/provisioner/adoption.go"
+    expect: "3"
+  acceptance:
+  - id: A1
+    run: "cd products/catalyst/bootstrap/api && test -z \"$(gofmt -l internal/provisioner/adoption.go internal/provisioner/adoption_kinds_test.go internal/providers/huawei/provider.go internal/providers/hetzner/provider.go)\" && go test -count=1 -v -run 'TestGenerateAdoptionClaims' ./internal/provisioner/ | grep -cE -- '--- PASS: TestGenerateAdoptionClaims_(EmptyCloudIsError|UnregisteredCloudIsError|KindsComeFromTheAdapter|AdapterWithoutMapperAdoptsNothing) ' | grep -qx 4"
+  - id: A2
+    run: "cd products/catalyst/bootstrap/api && grep -q 'var _ providers.AdoptionMapper = (\\*Provider)(nil)' internal/providers/huawei/provider.go && grep -q 'var _ providers.AdoptionMapper = (\\*Provider)(nil)' internal/providers/hetzner/provider.go && go vet ./internal/providers/... ./internal/provisioner/ && go test -count=1 -run 'TestDecodeCloudAdoptionDocs' ./internal/handler/"
+  - id: A3
+    run: "python3 scripts/check-provider-leaks.py --check && test \"$(grep -cE 'hcloud_|huaweicloud_|\"huawei\"|\"hetzner\"' products/catalyst/bootstrap/api/internal/provisioner/adoption.go)\" = 0"
+  - id: A4
+    run: "cd products/catalyst/bootstrap/api && test \"$(grep -cE '\"(hetzner|huawei)\"|Provision Hetzner' internal/jobs/types.go)\" = 0 && go test -count=1 -v -run 'TestProvisionerDisplay|TestSeedProvisionerJobsProviderLabel' ./internal/jobs/ | grep -cE -- '--- PASS: TestProvisionerDisplay/(empty_assumes_no_provider|a_pack_with_no_list_entry) ' | grep -qx 2"
+  - id: A5
+    run: "cd core/controllers && test \"$(grep -c 'CATALYST_ENV_REGION_PROVIDER' organization/cmd/main.go)\" = 0 && grep -q 'os.Getenv(\"CLOUD_PROVIDER\")' organization/cmd/main.go && test \"$(grep -cE '\"(hetzner|huawei)\"' organization/internal/controller/environment_ensure.go)\" = 0 && go vet ./organization/... && go test -count=1 -v ./organization/... | grep -c -- '--- PASS: TestEnsureEnvironment_ProviderFromCloudProvider ' | grep -qx 1"
+  - id: A6
+    run: "helm template t products/catalyst/chart --show-only templates/controllers/organization-controller-deployment.yaml --set global.cloud.provider=local | grep -A1 -- '- name: CLOUD_PROVIDER' | grep -c 'value: \"local\"' | grep -qx 1"
+  - id: A7
+    run: "python3 -c \"import re, yaml; P='^[a-z][a-z0-9-]{1,30}\\$'; e=yaml.safe_load(open('products/catalyst/chart/crds/environment.yaml')); s=yaml.safe_load(open('products/catalyst/chart/crds/sovereign.yaml')); ep=e['spec']['versions'][0]['schema']['openAPIV3Schema']['properties']['spec']['properties']['regions']['items']['properties']['provider']; sp=s['spec']['versions'][0]['schema']['openAPIV3Schema']['properties']['spec']['properties']['provider']; bad=[d['spec']['provider'] for d in yaml.safe_load_all(open('products/catalyst/chart/crds/tests/sovereign-sample-invalid.yaml')) if d and d['metadata']['name']=='bad-provider']; assert ep.get('pattern')==P and 'enum' not in ep, ep; assert sp.get('pattern')==P and 'enum' not in sp, sp; assert bad and not re.match(P, bad[0]), bad\" && cd products/catalyst/bootstrap/api && go test -count=1 -run '^TestSchemasMatchSources$' ./internal/intent/"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: AdoptionMapper; providers.Names() replaces lists; Organization controller reads CLOUD_PROVIDER; provider enums become patterns
+  delivers: The adoption generator takes the resource types it adopts from each adapter through providers.AdoptionMapper and never defaults the provider, the Phase-0 job label keeps no provider list, the Organization controller takes the Environment provider from CLOUD_PROVIDER with no default, and the Environment and Sovereign kinds accept any provider pack name by pattern instead of a fixed list.
 - id: CLD-121
   title: Providers routes
   area: CLD
@@ -7443,7 +7471,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-104, CLD-121, CLD-144, CLD-161]
-  after: [CLD-075, FND-011, FND-071, CLD-023, CLD-092, CLD-185, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-335, SEC-030, NET-020, NET-100, NET-110, NET-210, SVC-040, SVC-041, INF-060]
+  after: [CLD-075, FND-011, FND-071, CLD-023, CLD-092, CLD-114, CLD-185, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-335, SEC-030, NET-020, NET-100, NET-110, NET-210, SVC-040, SVC-041, INF-060]
   touches:
   - infra/providers/huawei/**
   - products/catalyst/bootstrap/api/internal/providers/huawei/**
@@ -7781,7 +7809,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CLD-111, CLD-146]
-  after: [SVC-040]
+  after: [CLD-114, SVC-040]
   touches:
   - products/catalyst/bootstrap/api/internal/providers/hetzner/**
   resources: []
@@ -7931,7 +7959,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-182]
-  after: [CLD-075, CLD-092, SOV-146, SOV-335, NET-012, NET-020, NET-100, NET-110, NET-210, SVC-040, INF-060]
+  after: [CLD-075, CLD-092, CLD-114, SOV-146, SOV-335, NET-012, NET-020, NET-100, NET-110, NET-210, SVC-040, INF-060]
   touches:
   - infra/providers/hetzner/**
   - products/catalyst/bootstrap/api/internal/providers/hetzner/**
@@ -10888,7 +10916,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [SOV-435]
-  after: [FND-011, SOV-175, SVC-040, SVC-041, CTL-345]
+  after: [FND-011, CLD-114, SOV-175, SVC-040, SVC-041, CTL-345]
   touches:
   - platform/crossplane-claims/chart/templates/compositions/cloudadoption.yaml
   - platform/crossplane-claims/chart/templates/xrds/cloudadoption.yaml
@@ -11502,7 +11530,7 @@ packages:
   size: XS
   lane: CONTROL
   depends_on: [SOV-930]
-  after: [FND-011, CLD-030, SOV-050, SOV-183, SOV-335, SOV-338, SEC-105, NET-040, NET-080, NET-133, NET-170, NET-221, SVC-040, SVC-041, SVC-190, CTL-333, CTL-347, CMP-020, BSS-040, AIP-120]
+  after: [FND-011, CLD-030, CLD-114, SOV-050, SOV-183, SOV-335, SOV-338, SEC-105, NET-040, NET-080, NET-133, NET-170, NET-221, SVC-040, SVC-041, SVC-190, CTL-333, CTL-347, CMP-020, BSS-040, AIP-120]
   touches:
   - products/catalyst/chart/templates/*-kustomize.yaml
   - products/catalyst/chart/templates/kustomization.yaml
@@ -11536,7 +11564,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [SOV-620]
-  after: [FND-011, NET-080, NET-170, SVC-040, SVC-190]
+  after: [FND-011, CLD-114, NET-080, NET-170, SVC-040, SVC-190]
   touches:
   - core/controllers/sovereign/**
   - products/catalyst/chart/templates/controllers/
@@ -11565,7 +11593,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [SOV-940, SOV-950]
-  after: [CLD-094, SOV-338, SVC-040, INF-112]
+  after: [CLD-094, CLD-114, SOV-338, SVC-040, INF-112]
   touches:
   - core/controllers/sovereign/internal/controller/provision.go
   - products/catalyst/bootstrap/api/internal/provisioner/**
@@ -13541,7 +13569,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [SEC-223]
-  after: [FND-011, FND-095, FND-096, FND-099, CLD-030, CLD-113, SOV-035, SOV-143, SOV-183, SEC-095, SEC-096, SEC-105, NET-011, NET-032, NET-040, NET-080, NET-102, NET-133, NET-170, NET-212, NET-221, SVC-040, SVC-190, CTL-150, CTL-320, CTL-333, CTL-347, CMP-020, BSS-040, BSS-141, AIP-120, INF-135]
+  after: [FND-011, FND-095, FND-096, FND-099, CLD-030, CLD-113, CLD-114, SOV-035, SOV-143, SOV-183, SEC-095, SEC-096, SEC-105, NET-011, NET-032, NET-040, NET-080, NET-102, NET-133, NET-170, NET-212, NET-221, SVC-040, SVC-190, CTL-150, CTL-320, CTL-333, CTL-347, CMP-020, BSS-040, BSS-141, AIP-120, INF-135]
   touches:
   - products/catalyst/chart/**
   - products/catalyst/bootstrap/api/internal/secretfile/
@@ -17110,7 +17138,7 @@ packages:
   size: XS
   lane: CONTROL
   depends_on: [NET-223]
-  after: [NET-080, NET-170]
+  after: [CLD-114, NET-080, NET-170]
   touches:
   - core/controllers/organization/internal/controller/environment_ensure.go
   - core/controllers/organization/cmd/main.go
@@ -17137,7 +17165,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [NET-222, NET-223, NET-224, NET-226]
-  after: [FND-011, NET-032, NET-102, BSS-141]
+  after: [FND-011, CLD-114, NET-032, NET-102, BSS-141]
   touches:
   - products/catalyst/chart/crds/blueprint.yaml
   - products/catalyst/chart/crds/application.yaml
@@ -17586,7 +17614,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [NET-322, NET-327]
-  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-108, CLD-109, CLD-113, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-141, SOV-175, SOV-180, SOV-181, SOV-338, SEC-103, SEC-104, SEC-105, SEC-150, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-212, NET-221, SVC-030, SVC-040, SVC-041, SVC-060, SVC-150, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CMP-016, CMP-020, CMP-030, BSS-141, AIP-040, AIP-041, AIP-120, INF-040, INF-110, INF-112, INF-120, INF-130, INF-135, INF-140, ACC-050]
+  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-108, CLD-109, CLD-113, CLD-114, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-141, SOV-175, SOV-180, SOV-181, SOV-338, SEC-103, SEC-104, SEC-105, SEC-150, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-212, NET-221, SVC-030, SVC-040, SVC-041, SVC-060, SVC-150, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CMP-016, CMP-020, CMP-030, BSS-141, AIP-040, AIP-041, AIP-120, INF-040, INF-110, INF-112, INF-120, INF-130, INF-135, INF-140, ACC-050]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/
   - products/catalyst/bootstrap/api/
@@ -19131,7 +19159,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-044, CTL-110, CTL-120, SVC-290]
-  after: [FND-011, NET-102, NET-212, CTL-223]
+  after: [FND-011, CLD-114, NET-102, NET-212, CTL-223]
   touches:
   - products/catalyst/bootstrap/api/internal/k8scache/kinds.go
   - products/catalyst/bootstrap/api/internal/handler/catalog_policy.go
@@ -20196,7 +20224,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CTL-060, CTL-110, FND-120]
-  after: [NET-080, NET-170]
+  after: [CLD-114, NET-080, NET-170]
   touches:
   - clusters/_template/sovereign-region/base/gitrepository.yaml
   - clusters/_template/sovereign-region/base/intent-kustomization.yaml
@@ -20254,7 +20282,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-162, SEC-190, SEC-192]
-  after: [NET-080, NET-170, SVC-040, CTL-320, AIP-120]
+  after: [CLD-114, NET-080, NET-170, SVC-040, CTL-320, AIP-120]
   touches:
   - products/catalyst/bootstrap/api/internal/intent/tokens.go
   - products/catalyst/bootstrap/api/cmd/api/main.go
@@ -20284,7 +20312,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-035, CTL-050, CTL-120, FND-032, FND-120, SEC-095, SEC-200, SEC-211]
-  after: [FND-011, SOV-143, SEC-096, NET-071, NET-080, NET-170, SVC-040, SVC-041, CTL-039, CTL-045, CTL-231, CTL-345, CTL-350, BSS-040, AIP-120]
+  after: [FND-011, CLD-114, SOV-143, SEC-096, NET-071, NET-080, NET-170, SVC-040, SVC-041, CTL-039, CTL-045, CTL-231, CTL-345, CTL-350, BSS-040, AIP-120]
   touches:
   - clusters/_template/sovereign-region/base/receiver.yaml
   - clusters/_template/sovereign-region/base/kustomization.yaml
@@ -20839,7 +20867,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-180, CTL-201]
-  after: [NET-170, SVC-040, CTL-420, AIP-041]
+  after: [CLD-114, NET-170, SVC-040, CTL-420, AIP-041]
   touches:
   - core/controllers/organization/internal/controller/**
   - products/catalyst/bootstrap/api/internal/handler/organization_dns.go
@@ -20867,7 +20895,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-202]
-  after: [NET-170, SVC-040, CTL-420, AIP-041]
+  after: [CLD-114, NET-170, SVC-040, CTL-420, AIP-041]
   touches:
   - core/controllers/organization/internal/controller/**
   - products/catalyst/bootstrap/api/internal/handler/organization_keycloak.go
@@ -20895,7 +20923,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-203, SEC-095]
-  after: [NET-170, SVC-040, CTL-420, AIP-041]
+  after: [CLD-114, NET-170, SVC-040, CTL-420, AIP-041]
   touches:
   - core/controllers/organization/internal/controller/**
   - core/controllers/organization/internal/gitops/manifests.go
@@ -21579,7 +21607,7 @@ packages:
   size: XS
   lane: CONTROL
   depends_on: [CTL-178, CTL-260, SOV-240]
-  after: [FND-011, CLD-030, CLD-113, SOV-183, SEC-105, NET-011, NET-040, NET-080, NET-133, NET-170, NET-221, SVC-040, SVC-190, CTL-333, CTL-347, CMP-020, BSS-040, AIP-120, INF-135]
+  after: [FND-011, CLD-030, CLD-113, CLD-114, SOV-183, SEC-105, NET-011, NET-040, NET-080, NET-133, NET-170, NET-221, SVC-040, SVC-190, CTL-333, CTL-347, CMP-020, BSS-040, AIP-120, INF-135]
   touches:
   - products/catalyst/chart/values.yaml
   - products/catalyst/chart/templates/**
@@ -22411,7 +22439,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-060, CTL-162, CTL-260, FND-120, NET-223]
-  after: [FND-011, NET-071, NET-080, NET-170, SVC-190, CTL-020, CTL-340, CTL-345, CTL-347, CTL-350, CTL-420, BSS-040, AIP-111]
+  after: [FND-011, CLD-114, NET-071, NET-080, NET-170, SVC-190, CTL-020, CTL-340, CTL-345, CTL-347, CTL-350, CTL-420, BSS-040, AIP-111]
   touches:
   - core/controllers/application/cmd/main.go
   - core/controllers/application/internal/controller/application_controller.go
@@ -25205,7 +25233,7 @@ packages:
   size: M
   lane: CONTRACTS
   depends_on: [BSS-107]
-  after: [FND-011, NET-032, NET-170, SVC-040, CTL-420, BSS-141, AIP-041]
+  after: [FND-011, CLD-114, NET-032, NET-170, SVC-040, CTL-420, BSS-141, AIP-041]
   touches:
   - core/controllers/organization/internal/gitops/manifests.go
   - core/controllers/organization/internal/controller/organization_controller.go
@@ -30624,7 +30652,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [INF-430, INF-710]
-  after: [FND-011, INF-140]
+  after: [FND-011, CLD-114, INF-140]
   touches:
   - products/catalyst/bootstrap/api/internal/providers/hostsecurity.go
   - products/catalyst/bootstrap/api/internal/providers/huawei/**
