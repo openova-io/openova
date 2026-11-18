@@ -34,14 +34,16 @@
 // only uses the region fields to derive Gitea host-cluster paths. So the
 // single region we emit needs a provider/region/buildingBlock triple that
 // (a) satisfies the CRD schema (region must match `^[a-z]{3}[a-z0-9]?$`,
-// provider/buildingBlock are enums) and (b) names the real host cluster
-// via the explicit `hostCluster` override. Those come from
+// provider must match `^[a-z][a-z0-9-]{1,30}$`, buildingBlock is an enum)
+// and (b) names the real host cluster via the explicit `hostCluster`
+// override. Those come from `r.HostCluster` when it is already a
+// `{provider}-{region}-{bb}-{envType}` name, and otherwise from the
 // `EnvRegionProvider/EnvRegionCode/EnvRegionBuildingBlock` config (env,
-// per Inviolable Principle #4) with safe canonical defaults, and from
-// `r.HostCluster` when it is already a `{provider}-{region}-{bb}-{envType}`
-// name (Hetzner) — falling back to the configured triple when
-// `CATALYST_HOST_CLUSTER` is the Sovereign FQDN (Huawei, e.g.
-// `omantel.biz`).
+// per Inviolable Principle #4) — `CATALYST_HOST_CLUSTER` is the Sovereign
+// FQDN on a provisioned Sovereign (e.g. `omantel.biz`). The provider is
+// the CLOUD_PROVIDER of the Sovereign and has no default: when it is
+// empty the region carries no provider, and the CRD refuses the object
+// rather than recording a provider nobody chose.
 
 package controller
 
@@ -83,14 +85,12 @@ var envRegionCodePattern = regexp.MustCompile(`^[a-z]{3}[a-z0-9]?$`)
 // (Hetzner). On Huawei `CATALYST_HOST_CLUSTER` is the Sovereign FQDN
 // (e.g. `omantel.biz`) which does NOT match — we then fall back to the
 // configured triple. region is checked against envRegionCodePattern, bb
-// against the CRD enum, provider against the CRD enum.
+// against the CRD enum, provider against the CRD pattern.
 var hostClusterPattern = regexp.MustCompile(`^([a-z][a-z0-9]*)-([a-z]{3}[a-z0-9]?)-([a-z]{3})-([a-z]{2,5})$`)
 
-// envProviderAllowed mirrors the Environment CRD provider enum.
-var envProviderAllowed = map[string]bool{
-	"hetzner": true, "huawei": true, "oci": true, "aws": true,
-	"gcp": true, "azure": true, "contabo": true,
-}
+// envProviderPattern mirrors the Environment CRD provider pattern: a
+// provider pack name (infra/providers/<name>). No list of providers.
+var envProviderPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)
 
 // envBuildingBlockAllowed mirrors the Environment CRD buildingBlock enum.
 var envBuildingBlockAllowed = map[string]bool{"rtz": true, "dmz": true, "mgt": true}
@@ -105,24 +105,26 @@ var envEnvTypeAllowed = map[string]bool{"prod": true, "stg": true, "uat": true, 
 //     `{provider}-{region}-{bb}-{envType}` name with valid enum/region
 //     segments (Hetzner / the qa-fixture format) — the most precise source.
 //  2. fall back to the controller-configured triple
-//     (EnvRegionProvider/EnvRegionCode/EnvRegionBuildingBlock), itself
-//     defaulted to the canonical huawei/mee/rtz when unset.
+//     (EnvRegionProvider/EnvRegionCode/EnvRegionBuildingBlock); region
+//     and building block default to mee/rtz when unset, the provider has
+//     no default.
 //
-// The returned triple is always CRD-valid: region matches
-// envRegionCodePattern and provider/buildingBlock are in their enums.
+// region matches envRegionCodePattern and buildingBlock is in its enum.
+// provider matches envProviderPattern, or is empty when the configured
+// provider is empty or does not match it.
 func (r *Reconciler) envRegionDefaults() (provider, region, bb string) {
 	// (1) Try the host-cluster name.
 	if m := hostClusterPattern.FindStringSubmatch(r.HostCluster); m != nil {
 		p, reg, block := m[1], m[2], m[3]
-		if envProviderAllowed[p] && envRegionCodePattern.MatchString(reg) && envBuildingBlockAllowed[block] {
+		if envProviderPattern.MatchString(p) && envRegionCodePattern.MatchString(reg) && envBuildingBlockAllowed[block] {
 			return p, reg, block
 		}
 	}
 
-	// (2) Configured triple with canonical defaults.
+	// (2) Configured triple. The provider is never defaulted.
 	provider = strings.ToLower(strings.TrimSpace(r.EnvRegionProvider))
-	if !envProviderAllowed[provider] {
-		provider = "huawei"
+	if !envProviderPattern.MatchString(provider) {
+		provider = ""
 	}
 	region = strings.ToLower(strings.TrimSpace(r.EnvRegionCode))
 	if !envRegionCodePattern.MatchString(region) {
@@ -178,13 +180,16 @@ func (r *Reconciler) ensureEnvironment(ctx context.Context, org *orgapi.Organiza
 	provider, region, bb := r.envRegionDefaults()
 
 	// hostCluster override: when r.HostCluster is set use it verbatim so
-	// the environment-controller binds the REAL host cluster (Huawei FQDN
-	// or the canonical 4-segment name) rather than re-deriving
-	// `{provider}-{region}-{bb}-{envType}` from the cosmetic triple.
+	// the environment-controller binds the REAL host cluster (Sovereign
+	// FQDN or the canonical 4-segment name) rather than re-deriving
+	// `{provider}-{region}-{bb}-{envType}` from the cosmetic triple. An
+	// unknown provider is left out, never guessed.
 	regionObj := map[string]any{
-		"provider":      provider,
 		"region":        region,
 		"buildingBlock": bb,
+	}
+	if provider != "" {
+		regionObj["provider"] = provider
 	}
 	if hc := strings.TrimSpace(r.HostCluster); hc != "" {
 		regionObj["hostCluster"] = hc

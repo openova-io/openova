@@ -154,16 +154,17 @@ type Reconciler struct {
 	// EnvRegionProvider / EnvRegionCode / EnvRegionBuildingBlock seed the
 	// single region of the Environment CR the controller auto-ensures for
 	// the Org (issue #4077, environment_ensure.go). They only need to be
-	// CRD-valid (provider/buildingBlock enums; region `^[a-z]{3}[a-z0-9]?$`)
+	// CRD-valid (provider pattern, buildingBlock enum; region `^[a-z]{3}[a-z0-9]?$`)
 	// — the Application install pivots through the Blueprint topology +
 	// VClusterPlacements, not these region strings, and the real host
 	// cluster is named via the explicit `hostCluster` override (=
 	// HostCluster). When HostCluster is already a canonical
 	// `{provider}-{region}-{bb}-{envType}` name (Hetzner) those segments
-	// win; on Huawei (where CATALYST_HOST_CLUSTER is the Sovereign FQDN)
-	// these configured values are used. Per Inviolable Principle #4 they
-	// are read from env (CATALYST_ENV_REGION_PROVIDER / _CODE /
-	// _BUILDING_BLOCK); empty falls back to the canonical huawei/mee/rtz.
+	// win; where CATALYST_HOST_CLUSTER is the Sovereign FQDN these
+	// configured values are used. Per Inviolable Principle #4 they are read
+	// from env: EnvRegionProvider from CLOUD_PROVIDER, with no default (an
+	// empty provider is left out of the Environment); the other two from
+	// CATALYST_ENV_REGION_CODE / _BUILDING_BLOCK, empty falls back to mee/rtz.
 	EnvRegionProvider      string
 	EnvRegionCode          string
 	EnvRegionBuildingBlock string

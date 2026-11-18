@@ -60,6 +60,21 @@ func init() {
 // Name returns the canonical provider name.
 func (p *Provider) Name() string { return Name }
 
+var _ providers.AdoptionMapper = (*Provider)(nil)
+
+// AdoptionKinds implements providers.AdoptionMapper: the OpenTofu resource
+// types of infra/providers/hetzner that a Sovereign adopts day-2, each with
+// its neutral CloudAdoption resourceKind.
+func (p *Provider) AdoptionKinds() map[string]string {
+	return map[string]string{
+		"hcloud_load_balancer": "loadbalancer",
+		"hcloud_server":        "server",
+		"hcloud_network":       "network",
+		"hcloud_firewall":      "firewall",
+		"hcloud_primary_ip":    "eip",
+	}
+}
+
 // Normalize fills provider defaults into spec and validates it against
 // profile. It accepts every spec for now; the engine does not call it yet.
 func (p *Provider) Normalize(spec *providers.ProvisionSpec, profile *cloudprofile.Profile) error {

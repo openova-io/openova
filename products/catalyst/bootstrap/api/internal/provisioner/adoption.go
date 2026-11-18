@@ -28,6 +28,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers"
 )
 
 // adoptableResource is one cloud resource we emit a CloudAdoption for.
@@ -52,42 +54,41 @@ type tfState struct {
 	Resources []tfStateResource `json:"resources"`
 }
 
-// tfTypeToAdoptionKind maps a Terraform/OpenTofu resource type to the
-// CloudAdoption resourceKind enum. Only the resource families a Sovereign
-// adopts day-2 are listed; everything else in state (data sources, NAT
-// rules, route tables, OBS buckets …) is intentionally skipped — those are
-// either not cloud-owned day-2 surfaces or are managed by their own path.
-var tfTypeToAdoptionKind = map[string]string{
-	// Huawei (HCS)
-	"huaweicloud_elb_loadbalancer": "loadbalancer",
-	"huaweicloud_compute_instance": "server",
-	"huaweicloud_vpc":              "network",
-	"huaweicloud_vpc_subnet":       "subnet",
-	"huaweicloud_vpc_eip":          "eip",
-	// Hetzner
-	"hcloud_load_balancer": "loadbalancer",
-	"hcloud_server":        "server",
-	"hcloud_network":       "network",
-	"hcloud_firewall":      "firewall",
-	"hcloud_primary_ip":    "eip",
+// adoptionKinds returns the map from OpenTofu resource type to CloudAdoption
+// resourceKind that the adapter of cloud declares (providers.AdoptionMapper).
+// The adapter lists only the resource families a Sovereign adopts day-2;
+// every other resource in state is skipped. An adapter without the
+// capability adopts nothing. An empty or unregistered provider is an error:
+// the provider is never defaulted.
+func adoptionKinds(cloud string) (map[string]string, error) {
+	m, ok, err := providers.As[providers.AdoptionMapper](cloud)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, nil
+	}
+	return m.AdoptionKinds(), nil
 }
 
 // adoptionResourceAddress pulls the public address out of an instance's
-// attributes, trying the per-cloud/per-kind field names in priority order.
+// attributes, trying the attribute names the adapters' resource types use,
+// in this order: ipv4_address (a server), ipv4 (a load balancer),
+// public_ip (a compute instance), address (an elastic address), then
+// publicip[0].ip_address (an elastic address that nests it).
 func adoptionResourceAddress(attrs map[string]any) string {
-	if s, ok := attrs["ipv4_address"].(string); ok && s != "" { // hcloud_server
+	if s, ok := attrs["ipv4_address"].(string); ok && s != "" {
 		return s
 	}
-	if s, ok := attrs["ipv4"].(string); ok && s != "" { // hcloud_load_balancer
+	if s, ok := attrs["ipv4"].(string); ok && s != "" {
 		return s
 	}
-	if s, ok := attrs["public_ip"].(string); ok && s != "" { // huawei ECS
+	if s, ok := attrs["public_ip"].(string); ok && s != "" {
 		return s
 	}
-	if s, ok := attrs["address"].(string); ok && s != "" { // huawei EIP
+	if s, ok := attrs["address"].(string); ok && s != "" {
 		return s
 	}
-	// huaweicloud_vpc_eip nests the address under publicip[0].ip_address
 	if pub, ok := attrs["publicip"].([]any); ok && len(pub) > 0 {
 		if m, ok := pub[0].(map[string]any); ok {
 			if s, ok := m["ip_address"].(string); ok {
@@ -138,11 +139,11 @@ func k8sName(parts ...string) string {
 }
 
 // collectAdoptableResources walks the parsed tfstate and returns the
-// resources we emit CloudAdoptions for, deterministically ordered.
-func collectAdoptableResources(st *tfState) []adoptableResource {
+// resources whose type kinds maps, deterministically ordered.
+func collectAdoptableResources(st *tfState, kinds map[string]string) []adoptableResource {
 	var res []adoptableResource
 	for _, r := range st.Resources {
-		kind, ok := tfTypeToAdoptionKind[r.Type]
+		kind, ok := kinds[r.Type]
 		if !ok {
 			continue
 		}
@@ -181,23 +182,25 @@ func collectAdoptableResources(st *tfState) []adoptableResource {
 //
 //   - tfstateJSON: the raw bytes of the deploy workdir's terraform.tfstate
 //   - sovereignFQDN: stamped as the catalyst.openova.io/sovereign label
-//   - cloud: "huawei" | "hetzner" — selects the CloudAdoption spec.cloud
+//   - cloud: the registered provider name; its adapter's AdoptionKinds
+//     selects the resources, and it is written as spec.parameters.cloud
 //   - region: cloud region/location code (may be "")
 //
 // Every emitted CloudAdoption is Observe-first (manage:false) so applying
 // the file can NEVER re-provision or delete the live infra. Returns an
-// error only on unparseable state; an empty/no-adoptable-resources state
-// yields a valid header-only document (not an error) so the GitOps path
-// stays green.
+// error on unparseable state and on an empty or unregistered cloud; an
+// empty/no-adoptable-resources state yields a valid header-only document
+// (not an error) so the GitOps path stays green.
 func GenerateAdoptionClaims(tfstateJSON []byte, sovereignFQDN, cloud, region string) ([]byte, error) {
 	var st tfState
 	if err := json.Unmarshal(tfstateJSON, &st); err != nil {
 		return nil, fmt.Errorf("parse terraform.tfstate: %w", err)
 	}
-	if cloud == "" {
-		cloud = "huawei"
+	kinds, err := adoptionKinds(cloud)
+	if err != nil {
+		return nil, fmt.Errorf("adoption kinds: %w", err)
 	}
-	resources := collectAdoptableResources(&st)
+	resources := collectAdoptableResources(&st, kinds)
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "# adoption-claims.yaml — GENERATED by internal/provisioner/adoption.go\n")
@@ -270,11 +273,7 @@ func (p *Provisioner) writeAdoptionClaims(deployDir string, req Request, emit fu
 	if region == "" && len(req.Regions) > 0 {
 		region = strings.TrimSpace(req.Regions[0].CloudRegion)
 	}
-	cloud := strings.TrimSpace(req.Provider)
-	if cloud == "" {
-		cloud = "huawei"
-	}
-	yaml, err := GenerateAdoptionClaims(raw, req.SovereignFQDN, cloud, region)
+	yaml, err := GenerateAdoptionClaims(raw, req.SovereignFQDN, strings.TrimSpace(req.Provider), region)
 	if err != nil {
 		return err
 	}

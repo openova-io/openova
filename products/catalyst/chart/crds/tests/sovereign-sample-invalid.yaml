@@ -31,7 +31,7 @@ spec:
   fqdn: bad.example.com
   bcpTopology: split-brain
 ---
-# Invalid 4 — provider enum violation.
+# Invalid 4 — provider pattern violation (upper case and a dot).
 apiVersion: catalyst.openova.io/v1alpha1
 kind: Sovereign
 metadata:
@@ -39,7 +39,7 @@ metadata:
 spec:
   fqdn: bad.example.com
   bcpTopology: single-region
-  provider: digitalocean
+  provider: Digital.Ocean
 ---
 # Invalid 5 — parentDomains[].role enum violation.
 apiVersion: catalyst.openova.io/v1alpha1

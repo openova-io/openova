@@ -91,12 +91,15 @@ func main() {
 
 	hostCluster := mustEnv("CATALYST_HOST_CLUSTER", log)
 	// Issue #4077 — seed values for the single region of the Environment CR
-	// the controller auto-ensures per Org. CRD-valid defaults
-	// (huawei/mee/rtz); the real host cluster is bound via the explicit
-	// hostCluster override (= CATALYST_HOST_CLUSTER), and a canonical
-	// `{provider}-{region}-{bb}-{envType}` host-cluster name (Hetzner)
-	// overrides these at runtime. Per Inviolable Principle #4, env-driven.
-	envRegionProvider := envOr("CATALYST_ENV_REGION_PROVIDER", "huawei")
+	// the controller auto-ensures per Org. The provider is CLOUD_PROVIDER,
+	// the provider pack of the Sovereign this controller runs on (the chart
+	// sets it from global.cloud.provider); it has no default. Region code
+	// and building block keep CRD-valid defaults (mee/rtz); the real host
+	// cluster is bound via the explicit hostCluster override (=
+	// CATALYST_HOST_CLUSTER), and a canonical
+	// `{provider}-{region}-{bb}-{envType}` host-cluster name overrides these
+	// at runtime. Per Inviolable Principle #4, env-driven.
+	envRegionProvider := strings.TrimSpace(os.Getenv("CLOUD_PROVIDER"))
 	envRegionCode := envOr("CATALYST_ENV_REGION_CODE", "mee")
 	envRegionBuildingBlock := envOr("CATALYST_ENV_REGION_BUILDING_BLOCK", "rtz")
 	chartVer := envOr("CATALYST_VCLUSTER_CHART_VERSION", "0.33.4")

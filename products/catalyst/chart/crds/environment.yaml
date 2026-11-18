@@ -100,7 +100,10 @@ spec:
                     properties:
                       provider:
                         type: string
-                        enum: [hetzner, huawei, oci, aws, gcp, azure, contabo]
+                        pattern: '^[a-z][a-z0-9-]{1,30}$'
+                        description: |
+                          Provider pack name (infra/providers/<name>), the
+                          provider of the Sovereign this region runs on.
                       region:
                         type: string
                         pattern: '^[a-z]{3}[a-z0-9]?$'

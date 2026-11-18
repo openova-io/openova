@@ -11,16 +11,14 @@ func TestProvisionerDisplay(t *testing.T) {
 		provider string
 		want     string
 	}{
-		{"empty falls back to hetzner default", "", "Provision Hetzner"},
-		{"whitespace falls back to default", "   ", "Provision Hetzner"},
+		{"empty assumes no provider", "", "Provision infrastructure"},
+		{"whitespace assumes no provider", "   ", "Provision infrastructure"},
 		{"hetzner", "hetzner", "Provision Hetzner"},
 		{"huawei", "huawei", "Provision Huawei"},
 		{"huawei mixed case", "Huawei", "Provision Huawei"},
 		{"huawei trimmed", "  huawei  ", "Provision Huawei"},
-		{"aws upper label", "aws", "Provision AWS"},
-		{"gcp", "gcp", "Provision GCP"},
-		{"azure", "azure", "Provision Azure"},
-		{"unmapped provider title-cases", "scaleway", "Provision Scaleway"},
+		{"a pack with no list entry", "local", "Provision Local"},
+		{"any provider title-cases", "scaleway", "Provision Scaleway"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -34,7 +32,7 @@ func TestProvisionerDisplay(t *testing.T) {
 // TestSeedProvisionerJobsProviderLabel asserts the end-to-end path: a
 // bridge stamped with a provider seeds the lifecycle parent group with the
 // provider-specific display name, and an un-stamped bridge keeps the
-// Hetzner default (back-compat for legacy deployment records).
+// provider-agnostic default (no provider is assumed).
 func TestSeedProvisionerJobsProviderLabel(t *testing.T) {
 	t.Run("huawei provider labels the group Provision Huawei", func(t *testing.T) {
 		st, br, depID := newBridgeFixture(t)
@@ -49,7 +47,7 @@ func TestSeedProvisionerJobsProviderLabel(t *testing.T) {
 		}
 	})
 
-	t.Run("unset provider keeps the Hetzner default", func(t *testing.T) {
+	t.Run("unset provider keeps the provider-agnostic default", func(t *testing.T) {
 		st, br, depID := newBridgeFixture(t)
 		if err := br.SeedProvisionerJobs(); err != nil {
 			t.Fatalf("SeedProvisionerJobs: %v", err)
