@@ -2922,16 +2922,22 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e docs/ledger/plan/spikes/FND-079.md; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "test -s docs/ledger/plan/spikes/FND-079.md && grep -q '^## Evidence' docs/ledger/plan/spikes/FND-079.md"
+  - id: A2
+    run: "sha256sum docs/ledger/plan/spikes/FND-079.md | cut -d' ' -f1 | grep -qx abe34b7dfa27e69deb74613d1dde84218bd7cd4ea46e90a2fc284d7ea9b27554"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'On the parent that provisioned the standing environment (the mothership today), a namespace for gate Jobs (proposal acceptance-gate) at Pod security restricted, and a ServiceAccount whose rights are exactly what the gate needs and nothing else: in that namespace create, get, list, watch and delete on Jobs and Pods, get on pods/log, and create and delete on Secrets (the run''s kubeconfigs, mounted by its Job and deleted with it; no get, list or watch on Secrets); in namespace catalyst the read and exec rights that CLD-G12 already documents in the header of .github/workflows/foundation-gate.yaml (get on deployments.apps, get and list on pods, create on pods/exec); nothing cluster-wide. FND-G07 needs no right on the parent: it reaches region a''s API server with the region''s kubeconfig. A NetworkPolicy lets a Pod of the namespace reach only the Sovereigns'' API and console addresses (the sign-in pages of FND-G07 among them), the cluster''s DNS, and what it needs to fetch its image. The ServiceAccount''s kubeconfig is the secret ACCEPTANCE_PARENT_KUBECONFIG of the environment gate, whose deployment branches are limited to the default branch. A Pod of the namespace leaves through the parent''s outbound address, the list that NET-011 and NET-012 write into each Sovereign''s API port rule. No self-hosted runner and no organisation setting.'
+  delivers: The repository holds the record of the gate's scoped access to the parent, with the objects created, the rights granted and refused, the network rule, the credential's lifetime and rotation, the environment's branch policy and how to remove it all.
 - id: FND-080
   title: Set the manifest from the baseline
   area: FND
@@ -12979,7 +12985,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, SOV-148, SOV-750, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-130.md
@@ -13012,7 +13018,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, SOV-148, SOV-750, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-135.md
@@ -13045,7 +13051,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, SOV-148, SOV-750, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-140.md
@@ -14435,7 +14441,7 @@ packages:
   size: S
   lane: SPIKE
   depends_on: [FND-061]
-  after: [FND-070, SOV-148, SOV-750, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-271.md
@@ -14590,7 +14596,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, SOV-148, SOV-750, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-280.md
@@ -14745,7 +14751,7 @@ packages:
   size: S
   lane: SPIKE
   depends_on: [SEC-211]
-  after: [FND-070, SOV-148, SOV-750, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-335.md
