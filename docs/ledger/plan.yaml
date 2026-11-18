@@ -13839,7 +13839,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-200, SEC-212]
-  after: [FND-011, SOV-143, SEC-073, SEC-090, SEC-095, SEC-096, SVC-040, SVC-041, BSS-040]
+  after: [FND-011, SOV-143, SEC-073, SEC-090, SEC-095, SEC-096, NET-098, SVC-040, SVC-041, BSS-040]
   touches:
   - platform/mimir/chart/**
   - platform/velero/chart/**
@@ -14045,7 +14045,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271, FND-063, SOV-230]
-  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-073, FND-074, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-090, CLD-092, CLD-093, CLD-113, CLD-131, CLD-132, CLD-134, SOV-040, SOV-050, SOV-135, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-335, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, NET-011, NET-012, NET-013, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-100, NET-110, NET-133, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-190, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-020, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-111, AIP-113, AIP-120, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-110, INF-120, INF-130, INF-135, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-501, PRD-503, PRD-508, PRD-513]
+  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-073, FND-074, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-090, CLD-092, CLD-093, CLD-113, CLD-131, CLD-132, CLD-134, SOV-040, SOV-050, SOV-135, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-335, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, NET-011, NET-012, NET-013, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-133, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-190, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-020, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-111, AIP-113, AIP-120, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-110, INF-120, INF-130, INF-135, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-501, PRD-503, PRD-508, PRD-513]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -15578,7 +15578,7 @@ packages:
   dropped: false
   delivers: Security fix. Its text is published with its ticket.
 - id: NET-098
-  title: Security fix. Its text is published with its ticket.
+  title: The Hetzner storage node plugin is allowed to read instance metadata
   area: NET
   epic: null
   type: fix
@@ -15586,22 +15586,35 @@ packages:
   size: XS
   lane: CHARTS
   depends_on: []
-  after: [FND-011, SOV-143, SEC-095, SEC-096, SVC-040, SVC-041]
-  touches: []
+  after: [FND-011]
+  touches:
+  - scripts/secret-object-register.py
+  - platform/hcloud-csi/chart/metadata-access.yaml
+  - platform/hcloud-csi/chart/values.yaml
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "echo \"$(git ls-files platform/hcloud-csi/chart/metadata-access.yaml | wc -l) $(grep -c metadata-access platform/hcloud-csi/chart/values.yaml)\""
+    expect: "0 0"
+  acceptance:
+  - id: A1
+    run: "d=\"$(mktemp -d)\" && cp -R platform/hcloud-csi/chart \"$d/chart\" && (cd \"$d/chart\" && HELM_CONFIG_HOME=\"$d/config\" HELM_CACHE_HOME=\"$d/cache\" HELM_DATA_HOME=\"$d/data\" helm dependency update > /dev/null) && test \"$(ls \"$d/chart/charts\")\" = hcloud-csi-2.13.0.tgz && helm template hcloud-csi \"$d/chart\" --namespace hcloud-csi --set enabled=true | python3 -c \"import sys, yaml; docs = [x for x in yaml.safe_load_all(sys.stdin) if x]; w = {(x['kind'], x['metadata']['name']): x for x in docs if x['kind'] in ('DaemonSet', 'Deployment', 'StatefulSet')}; assert sorted(w) == [('DaemonSet', 'hcloud-csi-node'), ('Deployment', 'hcloud-csi-controller')], sorted(w); n = w[('DaemonSet', 'hcloud-csi-node')]['spec']; assert n['template']['metadata']['labels'].get('network.openova.io/metadata-access') == 'true', n['template']['metadata']['labels']; assert not n['template']['spec'].get('hostNetwork'), 'the node plugin is on the host network'; assert 'network.openova.io/metadata-access' not in n['selector']['matchLabels'], n['selector']; carriers = [k for k, x in w.items() if 'network.openova.io/metadata-access' in (x['spec']['template']['metadata'].get('labels') or {})]; assert carriers == [('DaemonSet', 'hcloud-csi-node')], carriers\""
+  - id: A2
+    run: "python3 -c \"import yaml; r = yaml.safe_load(open('platform/hcloud-csi/chart/metadata-access.yaml')); assert list(r) == ['metadataAccess'] and len(r['metadataAccess']) == 1, r; e = r['metadataAccess'][0]; assert e['chart'] == 'platform/hcloud-csi/chart' and e['workload'] == 'hcloud-csi-node' and e['removal'] == 'none' and e['reviewBy'] == '2027-11-01' and 'instance metadata address' in e['reason'], e; g = yaml.safe_load(open('scripts/secret-guard-baselines/secret-object-register.yaml'))['metadataAccess']; assert not [x for x in g if x.get('chart') == e['chart']], g\""
+  - id: A3
+    run: "python3 -c \"import datetime, importlib.util; s = importlib.util.spec_from_file_location('g', 'scripts/secret-object-register.py'); m = importlib.util.module_from_spec(s); s.loader.exec_module(m); r = 'platform/hcloud-csi/chart/metadata-access.yaml'; t = m.tracked_files; m.tracked_files = lambda root: sorted(set(t(root)) | {r}); out = []; assert m.check('.', datetime.date.today(), out.append) == 0, [x for x in out if x.startswith('FAIL')]; files = [p for p in m.tracked_files('.') if p != r]; e = m.rule_metadata_access('.', files, m.load_register('.')); assert len(e) == 1 and e[0].startswith('FAIL G10 rule e: platform/hcloud-csi/chart/values.yaml:'), e; print(e[0])\""
+  - id: A4
+    run: "out=\"$(bash scripts/check-secret-object-register.sh --self-test)\" && for c in \"the metadata-access label with a record in the chart's own folder passes\" \"fails: a record whose chart is another folder\" \"fails: a record entry without a field\" \"fails: a record that is not YAML\" \"fails: an exception in the register and in the chart's record\"; do printf '%s\\n' \"$out\" | grep -q -x -F \"  ok   $c\" || exit 1; done"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Security fix. Its text is published with its ticket.
+  delivers: The node plugin of bp-hcloud-csi carries the pod label network.openova.io/metadata-access with the value "true", so the cluster-wide deny of the instance metadata address does not stop it, and the exception is recorded in the file metadata-access.yaml of the chart's own folder, which rule e of guard G10 accepts as well as an entry of the register.
 - id: NET-100
   title: Network registry output and validator
   area: NET
