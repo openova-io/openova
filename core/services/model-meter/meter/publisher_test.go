@@ -29,14 +29,14 @@ type busMsg struct {
 	body           []byte
 }
 
-func (b *fakeBus) PublishRaw(_ context.Context, subject, msgID string, body []byte) error {
+func (b *fakeBus) PublishRawSeq(_ context.Context, subject, msgID string, body []byte) (uint64, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.down {
-		return errors.New("bus down")
+		return 0, errors.New("bus down")
 	}
 	b.msgs = append(b.msgs, busMsg{subject, msgID, append([]byte(nil), body...)})
-	return nil
+	return uint64(len(b.msgs)), nil
 }
 
 func testEvent(id string) UsageEvent {
@@ -70,8 +70,8 @@ func TestPublish_AcknowledgedIsNotSpooled(t *testing.T) {
 	dir := t.TempDir()
 	bus := &fakeBus{}
 	p := &SpoolPublisher{Bus: bus, Source: testSource, PublishTimeout: time.Second, SpoolDir: dir}
-	if err := p.Publish(context.Background(), testEvent("01JCF0R1K2M3N4P5Q6R7S8T9V1")); err != nil {
-		t.Fatalf("Publish: %v", err)
+	if seq, err := p.Publish(context.Background(), testEvent("01JCF0R1K2M3N4P5Q6R7S8T9V1")); err != nil || seq != 1 {
+		t.Fatalf("Publish = %d, %v, want the sequence 1", seq, err)
 	}
 	if len(bus.msgs) != 1 || bus.msgs[0].subject != Subject || bus.msgs[0].msgID != "01JCF0R1K2M3N4P5Q6R7S8T9V1" {
 		t.Fatalf("bus messages = %+v, want one on %s with the event id", bus.msgs, Subject)
@@ -88,7 +88,7 @@ func TestPublish_NoBusWritesTheEnvelopeToDisk(t *testing.T) {
 	dir := t.TempDir()
 	p := &SpoolPublisher{Bus: nil, Source: testSource, PublishTimeout: time.Second, SpoolDir: dir}
 	ev := testEvent("01JCF0R1K2M3N4P5Q6R7S8T9V2")
-	if err := p.Publish(context.Background(), ev); !errors.Is(err, ErrSpooled) {
+	if _, err := p.Publish(context.Background(), ev); !errors.Is(err, ErrSpooled) {
 		t.Fatalf("Publish = %v, want ErrSpooled", err)
 	}
 	body, err := os.ReadFile(filepath.Clean(filepath.Join(dir, "01JCF0R1K2M3N4P5Q6R7S8T9V2.json")))
@@ -109,7 +109,7 @@ func TestPublish_FailureSpoolsAndALaterDrainPublishesTheSameID(t *testing.T) {
 	bus := &fakeBus{down: true}
 	p := &SpoolPublisher{Bus: bus, Source: testSource, PublishTimeout: time.Second, SpoolDir: dir}
 	ev := testEvent("01JCF0R1K2M3N4P5Q6R7S8T9V3")
-	if err := p.Publish(context.Background(), ev); !errors.Is(err, ErrSpooled) {
+	if _, err := p.Publish(context.Background(), ev); !errors.Is(err, ErrSpooled) {
 		t.Fatalf("Publish = %v, want ErrSpooled", err)
 	}
 	// Still down: the drain leaves the file.
@@ -138,7 +138,7 @@ func TestPublish_AtomicRename(t *testing.T) {
 	dir := t.TempDir()
 	p := &SpoolPublisher{Source: testSource, PublishTimeout: time.Second, SpoolDir: dir}
 	for _, id := range []string{"01JCF0R1K2M3N4P5Q6R7S8T9A0", "01JCF0R1K2M3N4P5Q6R7S8T9A1", "01JCF0R1K2M3N4P5Q6R7S8T9A2"} {
-		if err := p.Publish(context.Background(), testEvent(id)); !errors.Is(err, ErrSpooled) {
+		if _, err := p.Publish(context.Background(), testEvent(id)); !errors.Is(err, ErrSpooled) {
 			t.Fatalf("publish %s: %v", id, err)
 		}
 	}
@@ -158,7 +158,7 @@ func TestPublish_AtomicRename(t *testing.T) {
 
 func TestPublish_SpoolWriteFailureIsCountedAsDropped(t *testing.T) {
 	p := &SpoolPublisher{Source: testSource, PublishTimeout: time.Second, SpoolDir: filepath.Join(t.TempDir(), "missing")}
-	err := p.Publish(context.Background(), testEvent("01JCF0R1K2M3N4P5Q6R7S8T9V4"))
+	_, err := p.Publish(context.Background(), testEvent("01JCF0R1K2M3N4P5Q6R7S8T9V4"))
 	if err == nil || errors.Is(err, ErrSpooled) {
 		t.Fatalf("Publish = %v, want a spool error", err)
 	}
@@ -170,7 +170,7 @@ func TestPublish_SpoolWriteFailureIsCountedAsDropped(t *testing.T) {
 func TestDrainSpoolOnce_NilBusIsNoop(t *testing.T) {
 	dir := t.TempDir()
 	p := &SpoolPublisher{Source: testSource, PublishTimeout: time.Second, SpoolDir: dir}
-	_ = p.Publish(context.Background(), testEvent("01JCF0R1K2M3N4P5Q6R7S8T9V5"))
+	_, _ = p.Publish(context.Background(), testEvent("01JCF0R1K2M3N4P5Q6R7S8T9V5"))
 	p.DrainSpoolOnce(context.Background())
 	if _, err := os.Stat(filepath.Join(dir, "01JCF0R1K2M3N4P5Q6R7S8T9V5.json")); err != nil {
 		t.Errorf("file disappeared: %v", err)
@@ -196,7 +196,7 @@ func TestDrainSpoolOnce_RemovesAFileThatIsNotAnEnvelope(t *testing.T) {
 func TestSpooledEnvelopeCarriesNoPrice(t *testing.T) {
 	dir := t.TempDir()
 	p := &SpoolPublisher{Source: testSource, PublishTimeout: time.Second, SpoolDir: dir}
-	_ = p.Publish(context.Background(), testEvent("01JCF0R1K2M3N4P5Q6R7S8T9V6"))
+	_, _ = p.Publish(context.Background(), testEvent("01JCF0R1K2M3N4P5Q6R7S8T9V6"))
 	body, err := os.ReadFile(filepath.Clean(filepath.Join(dir, "01JCF0R1K2M3N4P5Q6R7S8T9V6.json")))
 	if err != nil {
 		t.Fatal(err)

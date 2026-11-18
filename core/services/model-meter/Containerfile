@@ -5,11 +5,12 @@ COPY model-meter/go.mod model-meter/go.sum model-meter/
 WORKDIR /src/model-meter
 RUN go mod download
 COPY model-meter/ .
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /model-meter .
+ARG VERSION=dev
+RUN CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=${VERSION}" -o /model-meter .
 
 FROM scratch
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=build /model-meter /model-meter
-EXPOSE 8080
+EXPOSE 8080 9090
 USER 65534
 ENTRYPOINT ["/model-meter"]
