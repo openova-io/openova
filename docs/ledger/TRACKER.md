@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T14:30:04Z` |
+| Last refreshed | `2026-11-18T14:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7822](https://github.com/openova-io/openova/issues/7822) | INF-051 Check INF-G01: coordinated reboot, as a suite file | Other |
 | [#7823](https://github.com/openova-io/openova/issues/7823) | SEC-104 Unwire bootstrap-kit slot 05 | Other |
 | [#7824](https://github.com/openova-io/openova/issues/7824) | SOV-337 The scanner reads the vulnerability database from the Sovereign's own re | Other |
 | [#7829](https://github.com/openova-io/openova/issues/7829) | The release bump never writes the funnel chart pin, so the pin drift test fails  | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8157](https://github.com/openova-io/openova/issues/8157) | CLD-114 Adoption map, name lists and schema enums | Other |
 | [#8168](https://github.com/openova-io/openova/issues/8168) | AIP-108 Shrink Axon | Other |
 | [#8169](https://github.com/openova-io/openova/issues/8169) | FND-155 The self selection run by a Job on the local provider pack | Other |
+| [#8172](https://github.com/openova-io/openova/issues/8172) | SOV-148 Lab test: first-boot steps from a fetched, checksum-pinned bundle | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-18T14:42 | [#8167](https://github.com/openova-io/openova/pull/8167) | #7087 | docs(ledger): plan update |
 | 2026-11-18T14:13 | [#8166](https://github.com/openova-io/openova/pull/8166) | #7087 | docs(ledger): plan update |
 | 2026-11-18T13:42 | [#8164](https://github.com/openova-io/openova/pull/8164) | #7087 | docs(ledger): plan update |
 | 2026-11-18T13:36 | [#8163](https://github.com/openova-io/openova/pull/8163) | #7938 | fix(release): the delivery builds valid objects, and its dry |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-18T09:51 | [#8121](https://github.com/openova-io/openova/pull/8121) | #7087 | docs(ledger): plan update |
 | 2026-11-18T09:44 | [#8120](https://github.com/openova-io/openova/pull/8120) | #7087 | docs(ledger): plan update |
 | 2026-11-18T09:33 | [#8117](https://github.com/openova-io/openova/pull/8117) | #7087 | docs(ledger): plan update |
-| 2026-11-18T09:33 | [#8115](https://github.com/openova-io/openova/pull/8115) | #8111 | refactor(model-meter): add the stub subcommand, the scripted |
 
 ---
 
