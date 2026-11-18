@@ -356,15 +356,21 @@ only these three, and only when it is given them.
     `gate-manifest` runs it on every pull request.
   - `verdict [--check <id>] [--json]` applies the pass rule to the records in
     `docs/ledger/acceptance/` and prints one line per check. A check that
-    runs in the cloud is green when the two newest counting records are of
-    one candidate, agree on chart versions and image digests, the newer one
-    is no older than the manifest's `max_age_days`, and the check passed in
-    each of them in which it applied. For a `running` check the two records
-    may be of one Sovereign that was updated in place. For a `fresh` check
-    only records of fresh installations count, and the two must be of
-    different deployments. A version 1 record never counts. A check that is
-    not green is printed with the pass rule that failed. With `--check` the
-    exit code is 0 only if that check is green.
+    runs in the cloud is judged on the newest valid pair: the newest two
+    counting records that are of one candidate, ran one after the other and
+    agree on chart versions and image digests. It is green when the pair's
+    newer record is no older than the manifest's `max_age_days`, the check
+    passed in each record of the pair in which it applied, and no counting
+    record newer than the pair failed it where it applied. The first record
+    of a newly delivered candidate therefore does not take the verdict away
+    while it waits for its second run: where the check passes in it, it
+    changes nothing until its candidate has a pair; where the check fails in
+    it, the check is not green and that record is named. For a `running`
+    check the records may be of one Sovereign that was updated in place. For
+    a `fresh` check only records of fresh installations count, and the two
+    of the pair must be of different deployments. A version 1 record never
+    counts. A check that is not green is printed with the pass rule that
+    failed. With `--check` the exit code is 0 only if that check is green.
   - `validate-record <file>` checks a version 2 record against the schema.
   - `export` prints the manifest as JSON.
   - `--self-test` proves that each rule can fail.
