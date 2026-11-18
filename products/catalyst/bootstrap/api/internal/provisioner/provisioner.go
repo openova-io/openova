@@ -376,6 +376,19 @@ type RegionSpec struct {
 	WorkerSize       string `json:"workerSize"`
 	WorkerCount      int    `json:"workerCount"`
 
+	// Code, Zone and Role — the region fields of module contract version 1
+	// (infra/providers/_contract/contract.json, CLD-090). Code is the region
+	// code: every module keys its per-region resources and its output
+	// control_plane_ips_per_region by it. Empty means the value of
+	// CloudRegion. Zone is the availability zone, written to the module as
+	// availability_zone; empty means the module's own choice. Role is kept
+	// when a request or a stored record carries it and is never read:
+	// writeTfvars takes the role from the position (index 0 is "primary",
+	// every other entry is "secondary").
+	Code string `json:"code,omitempty"`
+	Zone string `json:"zone,omitempty"`
+	Role string `json:"role,omitempty"`
+
 	// StorageClass — optional per-region StorageClass carried on the wire
 	// for forward-compatibility (#4057). Today the effective class is a
 	// single per-Sovereign value: Validate() folds Regions[0].StorageClass
@@ -1607,7 +1620,8 @@ func (e *PartialRegionMaterialisationError) Error() string {
 }
 
 // detectPartialRegionMaterialisation compares the operator's declared
-// regions (req.Regions[].CloudRegion) against the per-region readback
+// regions (the region code of each req.Regions[] entry, regionCode) against
+// the per-region readback
 // from tofu (out.ControlPlaneIPsPerRegion keys) and returns the
 // materialised + missing sets.
 //
@@ -1619,16 +1633,17 @@ func (e *PartialRegionMaterialisationError) Error() string {
 // Request.Regions[] MUST have a corresponding entry in
 // control_plane_ips_per_region with a non-empty EIP. Anything less is
 // a partial-failure that breaks the topology promise.
-// normalisePerRegionKeys collapses the two on-the-wire shapes of
-// `control_plane_ips_per_region` into the cloudRegion-keyed shape that
-// detectPartialRegionMaterialisation expects:
+// normalisePerRegionKeys collapses the on-the-wire shapes of
+// `control_plane_ips_per_region` into the shape keyed by region code
+// (regionCode) that detectPartialRegionMaterialisation expects:
 //
-//   - Huawei: keys are already cloudRegion (e.g. "me-east-215-a"); passed
-//     through unchanged.
-//   - Hetzner: keys are `<cloudRegion>-<index>` for secondaries (e.g.
-//     "fsn1-1", "hel1-2") + literal "primary" for the primary CP.
-//     "primary" is mapped to declaredRegions[0].CloudRegion; each
-//     suffixed key is mapped to the leading cloudRegion segment.
+//   - Contract version 1 (CLD-090): every module keys the output by region
+//     code (e.g. "me-east-215-a", "fsn1"); passed through unchanged.
+//   - A Hetzner working directory applied before contract version 1: keys
+//     are `<cloudRegion>-<index>` for secondaries (e.g. "fsn1-1",
+//     "hel1-2") + literal "primary" for the primary CP. "primary" is
+//     mapped to the code of declaredRegions[0]; each suffixed key is
+//     mapped to the leading segment when that is a declared code.
 //
 // Duplicate cloudRegions (legal Hetzner same-region-stacking case —
 // fsn1-mgmt + fsn1-dataplane) collapse with first-non-empty-wins so a
@@ -1643,7 +1658,7 @@ func normalisePerRegionKeys(declaredRegions []RegionSpec, perRegion map[string]s
 	out := make(map[string]string, len(perRegion))
 	primaryCode := ""
 	if len(declaredRegions) > 0 {
-		primaryCode = strings.TrimSpace(declaredRegions[0].CloudRegion)
+		primaryCode = strings.TrimSpace(regionCode(declaredRegions[0]))
 	}
 	// #5381: the suffix-strip below MUST be declared-set-aware. Huawei
 	// cloud-region codes END IN DIGITS ("me-east-215",
@@ -1655,7 +1670,7 @@ func normalisePerRegionKeys(declaredRegions []RegionSpec, perRegion map[string]s
 	// be a Hetzner "<cloudRegion>-<index>" form.
 	declaredSet := make(map[string]struct{}, len(declaredRegions))
 	for _, r := range declaredRegions {
-		if code := strings.TrimSpace(r.CloudRegion); code != "" {
+		if code := strings.TrimSpace(regionCode(r)); code != "" {
 			declaredSet[code] = struct{}{}
 		}
 	}
@@ -1699,7 +1714,7 @@ func detectPartialRegionMaterialisation(declaredRegions []RegionSpec, perRegion 
 	materialised = make([]string, 0, len(perRegion))
 	declared := make(map[string]struct{}, len(declaredRegions))
 	for _, r := range declaredRegions {
-		code := strings.TrimSpace(r.CloudRegion)
+		code := strings.TrimSpace(regionCode(r))
 		if code == "" {
 			continue
 		}
@@ -2410,7 +2425,7 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 	materialised, missing := detectPartialRegionMaterialisation(req.Regions, normalisedPerRegion)
 	declared := make([]string, 0, len(req.Regions))
 	for _, r := range req.Regions {
-		if code := strings.TrimSpace(r.CloudRegion); code != "" {
+		if code := strings.TrimSpace(regionCode(r)); code != "" {
 			declared = append(declared, code)
 		}
 	}
@@ -2525,6 +2540,12 @@ func (p *Provisioner) Destroy(ctx context.Context, req Request, events chan<- Ev
 		// `tofu destroy` needs that input with exactly the contract keys.
 		if err := addVariablesIfMissing(tfvarsPath, req); err != nil {
 			return fmt.Errorf("add variables to tfvars: %w", err)
+		}
+		// CLD-090: a kept file written before module contract version 1
+		// has `regions` entries without cloud_region, and the module no
+		// longer accepts them.
+		if err := addCloudRegionIfMissing(tfvarsPath, req); err != nil {
+			return fmt.Errorf("add cloud_region to tfvars: %w", err)
 		}
 	} else if err := writeTfvars(deployDir, req); err != nil {
 		return fmt.Errorf("write tfvars: %w", err)
@@ -2874,6 +2895,8 @@ func writeTfvars(deployDir string, req Request) error {
 	if err != nil {
 		return err
 	}
+	// `regions` in the shape of module contract version 1 (CLD-090).
+	regions := contractRegions(req)
 	vars := map[string]any{
 		// Identity
 		"sovereign_fqdn":      req.SovereignFQDN,
@@ -3056,21 +3079,12 @@ func writeTfvars(deployDir string, req Request) error {
 		"worker_count": req.WorkerCount,
 		"ha_enabled":   req.HAEnabled,
 
-		// Per-region payload — emitted as a list of objects so the
-		// OpenTofu module can iterate (variable "regions" in
-		// infra/hetzner/variables.tf accepts this shape and is currently
-		// unused by main.tf; the for_each that consumes it lives behind
-		// the multi-region activation work). Structural-correct today;
-		// no-op at apply time for solo deployments where len(regions)<=1.
-		//
-		// IMPORTANT: emit empty slice [] (not nil) when the request has
-		// no per-region overrides. Go's nil slice marshals as JSON null
-		// — and OpenTofu's validation block (`for r in var.regions`)
-		// chokes on null with "Error: Iteration over null value" at
-		// `tofu plan`. Live failure on otech86 (DID 103c52d08510006f,
-		// 2026-05-04 11:12:43Z). The variables.tf default = [] is what
-		// the validator expects; emit that shape explicitly.
-		"regions": coalesceRegions(req.Regions),
+		// Per-region payload — `regions` in the shape of module contract
+		// version 1, the same for every provider (contractRegions,
+		// CLD-090). Index 0 is the primary region. The list is never
+		// null and never empty: a request without Regions gives one
+		// entry built from the singular fields above.
+		"regions": regions,
 
 		// SSH key — module creates an hcloud_ssh_key from this and attaches
 		// to all servers. We never generate keys here; sovereign-admin
@@ -3274,17 +3288,21 @@ func writeTfvars(deployDir string, req Request) error {
 		vars["huawei_access_key"] = req.HuaweiAccessKey
 		vars["huawei_secret_key"] = req.HuaweiSecretKey
 		vars["huawei_project_id"] = req.HuaweiProjectID
-		region := strings.TrimSpace(req.HuaweiRegion)
-		if region == "" {
-			region = "me-east-215"
+		region := sovereignCloudRegion(req)
+		vars[cloudRegionVariable] = region
+		// This cloud names its region once for the whole Sovereign, and a
+		// request's cloudRegion is the region code there. Every entry of
+		// `regions` gets the one cloud region. availability_zone stays
+		// empty: the module falls back to its own zone variable.
+		for _, entry := range regions {
+			entry["cloud_region"] = region
+			entry["availability_zone"] = ""
 		}
-		vars["huawei_region"] = region
 
 		// The Huawei OpenTofu module at infra/providers/huawei/variables.tf
 		// declares a different variable schema for the OBS bucket name
-		// (`obs_bucket_name`), parent-domains (`parent_domains_yaml`
-		// literal YAML inline-array), and the per-region payload (snake_case
-		// + `code` instead of `cloudRegion`) than the Hetzner module. Mirror
+		// (`obs_bucket_name`) and parent-domains (`parent_domains_yaml`
+		// literal YAML inline-array) than the Hetzner module. Mirror
 		// the canonical Hetzner-shaped values into the Huawei-shaped keys
 		// so the same tfvars file satisfies both module schemas. The
 		// Hetzner-shaped keys remain in the tfvars file as harmless
@@ -3305,43 +3323,6 @@ func writeTfvars(deployDir string, req Request) error {
 			sb.WriteString("]")
 			vars["parent_domains_yaml"] = sb.String()
 		}
-
-		// Per-region payload — Huawei module's `variable "regions"`
-		// (infra/providers/huawei/variables.tf:32) expects each element
-		// to carry attributes (code, role, control_plane_size, worker_size,
-		// worker_count) in snake_case + `code` as the region tag.
-		// RegionSpec on the wire side uses (provider, cloudRegion,
-		// controlPlaneSize, workerSize, workerCount, role). Project the
-		// wire shape to the Huawei tofu shape so the same Request feeds
-		// both modules.
-		// Role derived from index per the canonical multi-region contract:
-		// index 0 = primary, index > 0 = secondary. RegionSpec itself does
-		// NOT carry a Role field — the wire JSON's `role` key is silently
-		// dropped during decode (see struct at line 159). The Hetzner module
-		// uses the same index-based convention via its main.tf for_each;
-		// here we just materialise the role string for the Huawei module's
-		// validator (variables.tf:32 contains(["primary","secondary"], r.role)).
-		hwRegions := make([]map[string]any, 0, len(req.Regions))
-		for i, r := range req.Regions {
-			role := "secondary"
-			if i == 0 {
-				role = "primary"
-			}
-			hwRegions = append(hwRegions, map[string]any{
-				"code":               r.CloudRegion,
-				"role":               role,
-				"control_plane_size": r.ControlPlaneSize,
-				"worker_size":        r.WorkerSize,
-				"worker_count":       r.WorkerCount,
-			})
-		}
-		// Overwrite the Hetzner-shaped `regions` (the writeTfvars block
-		// above sets it to coalesceRegions(req.Regions) — wire shape).
-		// Under provider=huawei the Huawei tofu module is authoritative
-		// so the Huawei shape wins. The Hetzner adapter is not in play
-		// when provider=huawei, so no downstream consumer reads the
-		// Hetzner-shaped regions on this path.
-		vars["regions"] = hwRegions
 	}
 
 	// Wave 5.139 — initial value for the retry-loop salt; the catalyst-
@@ -3921,23 +3902,129 @@ func defaultRegistrarKindFromEnv() string {
 	return defaultRegistrarKind
 }
 
-// coalesceRegions normalises a nil RegionSpec slice to an empty slice so
-// JSON marshalling emits `[]` instead of `null`. The OpenTofu module's
-// `variable "regions"` validator runs `for r in var.regions` which fails
-// on null with "Error: Iteration over null value" but accepts an empty
-// list (the variables.tf default). Live failure on otech86 (DID
-// 103c52d08510006f, 2026-05-04 11:12:43Z) when the autopilot zero-touch
-// cycle launched without any per-region overrides.
-func coalesceRegions(rs []RegionSpec) []RegionSpec {
-	if rs == nil {
-		return []RegionSpec{}
+// regionCode is the region code of rs in module contract version 1: Code, or
+// the value of CloudRegion when Code is empty.
+func regionCode(rs RegionSpec) string {
+	if strings.TrimSpace(rs.Code) != "" {
+		return rs.Code
 	}
-	return rs
+	return rs.CloudRegion
 }
 
-// coalesceParentDomains is the parent-domain analogue of coalesceRegions.
-// Mirrors the same nil → empty slice contract so future OpenTofu
-// modules iterating `var.parent_domains` get `[]` (validator-friendly)
+// cloudRegionVariable is the adapter variable that carried the cloud region
+// of a Huawei Sovereign before module contract version 1. The module reads
+// regions[].cloud_region now. The engine keeps writing the variable until
+// CLD-103, because the wipe and the janitor read it from the stored
+// variables file.
+const cloudRegionVariable = "huawei_region"
+
+// sovereignCloudRegion is the cloud region of a request whose cloud names its
+// region once for the whole Sovereign (Huawei): the request's value, or the
+// value the engine has always written when the request names none.
+// writeTfvars writes it as cloudRegionVariable and as cloud_region of every
+// entry of `regions`.
+func sovereignCloudRegion(req Request) string {
+	if region := strings.TrimSpace(req.HuaweiRegion); region != "" {
+		return region
+	}
+	return "me-east-215"
+}
+
+// contractRegions returns the module input `regions` in the shape of module
+// contract version 1 (infra/providers/_contract/contract.json), the one shape
+// every provider module declares (CLD-090). Each entry has:
+//
+//   - code: regionCode of the entry;
+//   - cloud_region: the cloud's own region identifier, CloudRegion;
+//   - availability_zone: Zone;
+//   - role: "primary" for index 0 and "secondary" for every other entry. A
+//     role in the request is not read;
+//   - control_plane_size, worker_size and worker_count as the request has them.
+//
+// A request without Regions (the legacy singular fields) gives one entry built
+// from Region, ControlPlaneSize, WorkerSize and WorkerCount. The result is
+// never nil and never empty: the contract refuses an empty list, and a nil
+// slice would be written as JSON null.
+//
+// A cloud that names its region once for the whole Sovereign overwrites
+// cloud_region and availability_zone in writeTfvars (sovereignCloudRegion).
+func contractRegions(req Request) []map[string]any {
+	regions := req.Regions
+	if len(regions) == 0 {
+		regions = []RegionSpec{{
+			CloudRegion:      req.Region,
+			ControlPlaneSize: req.ControlPlaneSize,
+			WorkerSize:       req.WorkerSize,
+			WorkerCount:      req.WorkerCount,
+		}}
+	}
+	out := make([]map[string]any, 0, len(regions))
+	for i, r := range regions {
+		role := "secondary"
+		if i == 0 {
+			role = "primary"
+		}
+		out = append(out, map[string]any{
+			"code":               regionCode(r),
+			"cloud_region":       r.CloudRegion,
+			"availability_zone":  r.Zone,
+			"role":               role,
+			"control_plane_size": r.ControlPlaneSize,
+			"worker_size":        r.WorkerSize,
+			"worker_count":       r.WorkerCount,
+		})
+	}
+	return out
+}
+
+// addCloudRegionIfMissing brings the module input `regions` of a kept
+// tofu.auto.tfvars.json to the shape of module contract version 1 (CLD-090).
+// A file written before that contract has entries without cloud_region, and
+// the Huawei module no longer accepts them. Such an entry gets the file's own
+// cloudRegionVariable, or sovereignCloudRegion(req) when the file has none.
+// Nothing else changes. A file whose entries all have cloud_region is not written.
+func addCloudRegionIfMissing(path string, req Request) error {
+	raw, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		return err
+	}
+	var vars map[string]any
+	if err := json.Unmarshal(raw, &vars); err != nil {
+		return fmt.Errorf("decode tfvars: %w", err)
+	}
+	regions, isList := vars["regions"].([]any)
+	if !isList {
+		return nil
+	}
+	cloudRegion, _ := vars[cloudRegionVariable].(string)
+	if strings.TrimSpace(cloudRegion) == "" {
+		cloudRegion = sovereignCloudRegion(req)
+	}
+	changed := false
+	for _, entry := range regions {
+		region, isObject := entry.(map[string]any)
+		if !isObject {
+			continue
+		}
+		if have, _ := region["cloud_region"].(string); strings.TrimSpace(have) != "" {
+			continue
+		}
+		region["cloud_region"] = cloudRegion
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+	out, err := json.MarshalIndent(vars, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, out, 0o600)
+}
+
+// coalesceParentDomains normalises a nil ParentDomain slice to an empty
+// slice, so that JSON marshalling emits `[]` and not `null`: an OpenTofu
+// module iterating `var.parent_domains` gets `[]` (validator-friendly)
 // instead of `null` (validator-fatal). Issue #826.
 func coalesceParentDomains(pds []ParentDomain) []ParentDomain {
 	if pds == nil {

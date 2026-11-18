@@ -3,6 +3,11 @@
 # canonical contract in infra/providers/PROVIDER-INTERFACE.md §2 so the
 # Go-side provisioner.readOutputs() is provider-agnostic.
 
+output "contract_version" {
+  description = "Version of the module contract this module meets (infra/providers/_contract/contract.json)."
+  value       = "1"
+}
+
 output "control_plane_ip" {
   description = "Public EIP of the primary-region's primary CP node. On Huawei the EIP IS the entry point (no cloud LB in Tier-B). Wave 5.7: keyed by region code."
   value       = length(var.regions) > 0 ? huaweicloud_vpc_eip.cp[var.regions[0].code].address : ""
@@ -56,12 +61,12 @@ output "kubeconfig_path" {
 
 output "obs_endpoint" {
   description = "S3-protocol OBS endpoint URL the Sovereign's Harbor + Velero point at."
-  value       = "https://obs.${var.huawei_region}.kom4dc.nationalcloud.om"
+  value       = "https://obs.${local.cloud_region}.kom4dc.nationalcloud.om"
 }
 
 output "obs_region" {
   description = "Huawei region the OBS bucket lives in."
-  value       = var.huawei_region
+  value       = local.cloud_region
 }
 
 output "obs_bucket" {

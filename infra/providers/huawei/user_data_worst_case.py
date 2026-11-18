@@ -25,8 +25,8 @@ LIMIT = 32768
 def worst_case(c):
     fqdn = c.fqdn(FQDN_LENGTH)
     regions = [
-        {"code": "me-east-215-a", "role": "primary", "control_plane_size": "s7n.large.4", "worker_size": "m7n.xlarge.8", "worker_count": 50},
-        {"code": "me-east-215-b", "role": "secondary", "control_plane_size": "s7n.large.4", "worker_size": "m7n.xlarge.8", "worker_count": 50},
+        {"code": "me-east-215-a", "cloud_region": "me-east-215", "role": "primary", "control_plane_size": "s7n.large.4", "worker_size": "m7n.xlarge.8", "worker_count": 50},
+        {"code": "me-east-215-b", "cloud_region": "me-east-215", "role": "secondary", "control_plane_size": "s7n.large.4", "worker_size": "m7n.xlarge.8", "worker_count": 50},
     ]
     variables = {
         "deployment_id": c.DEPLOYMENT_ID,
@@ -48,6 +48,10 @@ def worst_case(c):
         "ghcr_pull_token": c.GHCR_TOKEN,
         "kubeconfig_bearer_token": c.filler("bearer", c.TOKENS["bearer"], c.HEX),
         "catalyst_api_url": c.CATALYST_API_URL,
+        # Required since CLD-090 (contract version 1): the durable class the
+        # module defaulted to, and the GitOps repository of the variables document.
+        "default_storage_class": "evs-ssd",
+        "gitops_repo_url": c.variables_doc(fqdn, c.PARENT_FQDN, c.CATALYST_API_URL)["GITOPS_REPO_URL"],
         "harbor_robot_token": c.filler("harbor", c.TOKENS["harbor"], c.ALNUM),
         "powerdns_api_key": c.filler("powerdns", c.TOKENS["powerdns"], c.ALNUM),
         "pdm_basic_auth_user": c.filler("pdm-user", c.TOKENS["pdm_user"], c.ALNUM),

@@ -28,7 +28,8 @@ HCS-internal network peering.
 
 ## Endpoints (HCS on-prem)
 
-The module defaults `huawei_region = "me-east-215"`. Per-service
+The cloud region is `regions[].cloud_region`, the same in every entry
+(catalyst-api writes `me-east-215` when the request names none). Per-service
 endpoints derive deterministically as
 `https://<service>.me-east-215.kom4dc.nationalcloud.om` and are pinned
 via `endpoints {}` in `versions.tf`. The on-prem HCS CA is NOT in the
@@ -57,7 +58,7 @@ NOTHING is hardcoded into module defaults.
 | `huawei_access_key` | wizard | IAM AK |
 | `huawei_secret_key` | wizard | IAM SK |
 | `huawei_project_id` | wizard | region-scoped project ID |
-| `huawei_region` | wizard (default `me-east-215`) | HCS region code |
+| `regions[].cloud_region` | wizard (catalyst-api default `me-east-215`) | HCS region code |
 
 ## Object storage
 

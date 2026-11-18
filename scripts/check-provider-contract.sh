@@ -4,9 +4,11 @@
 #   bash scripts/check-provider-contract.sh              run the check
 #   bash scripts/check-provider-contract.sh --self-test  prove each rule can fail
 #
-# The rules are Go tests of the package
-# products/catalyst/bootstrap/api/internal/cloudprofile. They read
-# infra/providers, or the directory in CLOUDPROFILE_PROVIDERS_DIR.
+# The rules are Go tests of two packages below
+# products/catalyst/bootstrap/api/internal: cloudprofile (rules 1 to 4) and
+# providers/conformance (TestProviderPacks, rules 5 to 10). They read
+# infra/providers, or the directory in CLOUDPROFILE_PROVIDERS_DIR and
+# CONFORMANCE_PROVIDERS_DIR.
 #   1  Every infra/providers/<pack>/profile.yaml is valid against
 #      infra/providers/_contract/cloudprofile.schema.json and is named <pack>.
 #   2  Every infra/providers/<pack>/pack.yaml is valid against
@@ -14,7 +16,19 @@
 #   3  No profile.yaml or pack.yaml holds a value of an installation.
 #   4  infra/providers/_contract/contract.json has its form, and each fixture
 #      sets every required contract variable and nothing else.
-# Work package CLD-090 adds TestProviderPacks and the tofu test of every module.
+#   5  Every module declares every contract variable with the contract's type
+#      and sensitive flag; a required one has no default, an optional one has
+#      one, and the contract's default where the contract sets one.
+#   6  Every module declares every contract output.
+#   7  pack.yaml names exactly the OpenTofu providers the module declares.
+#   8  Boot data never replaces a node: a resource that sets user_data lists
+#      it in lifecycle.ignore_changes.
+#   9  No resource carries a port of the node port range 30000 to 32767.
+#  10  tests/contract.tftest.hcl of every module ends, after its marker line,
+#      with infra/providers/_contract/contract.tftest.body.hcl byte for byte.
+# The other half of gate check CLD-G03, `tofu test` in every module, needs
+# OpenTofu and runs in the workflows catalyst-build, infra-hetzner-tofu,
+# infra-huawei-tofu and infra-local-tofu.
 #
 # Exit codes: 0 pass, 1 a rule failed (or, with --self-test, a rule could not
 # fail), 2 usage error. No cluster, no credential, no network beyond the Go
@@ -23,15 +37,15 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 API="$ROOT/products/catalyst/bootstrap/api"
-PKG="./internal/cloudprofile/..."
+PKGS=(./internal/cloudprofile/... ./internal/providers/conformance/...)
 
 run_check() {
-  (cd "$API" && go test -count=1 "$PKG")
+  (cd "$API" && go test -count=1 "${PKGS[@]}")
 }
 
-# run_on <dir>: the file rules (1 to 4) against a copy of infra/providers.
+# run_on <dir>: the file rules (1 to 10) against a copy of infra/providers.
 run_on() {
-  (cd "$API" && CLOUDPROFILE_PROVIDERS_DIR="$1" go test -count=1 -run '^(TestPackFiles|TestContractFile)$' "$PKG") >/dev/null 2>&1
+  (cd "$API" && CLOUDPROFILE_PROVIDERS_DIR="$1" CONFORMANCE_PROVIDERS_DIR="$1" go test -count=1 -run '^(TestPackFiles|TestContractFile|TestProviderPacks)$' "${PKGS[@]}") >/dev/null 2>&1
 }
 
 self_test() {
@@ -46,8 +60,9 @@ self_test() {
     for d in "$ROOT"/infra/providers/*/; do
       n="$(basename "$d")"
       case "$n" in _*) continue ;; esac
-      mkdir -p "$tmp/p/$n"
-      cp "$d/profile.yaml" "$d/pack.yaml" "$tmp/p/$n/"
+      mkdir -p "$tmp/p/$n/tests"
+      cp "$d/profile.yaml" "$d/pack.yaml" "$d"/*.tf "$tmp/p/$n/"
+      cp "$d/tests/contract.tftest.hcl" "$tmp/p/$n/tests/"
     done
   }
   expect() { # expect <pass|fail> <name>
@@ -79,6 +94,38 @@ self_test() {
   copy
   sed -i '/"deployment_id"/d' "$tmp/p/_contract/fixtures/single-region.tfvars.json"
   expect fail "rule 4: a fixture without a required variable fails"
+
+  copy
+  sed -i 's/^variable "org_email" {$/variable "org_email_renamed" {/' "$tmp/p/$first/variables.tf"
+  expect fail "rule 5: a module without a contract variable fails"
+
+  copy
+  sed -i 's/^    worker_count       = number$/    worker_count       = string/' "$tmp/p/$first/variables.tf"
+  expect fail "rule 5: a contract variable of another type fails"
+
+  copy
+  sed -i 's/^variable "org_name" {$/&\n  default = "x"/' "$tmp/p/$first/variables.tf"
+  expect fail "rule 5: a required contract variable with a default fails"
+
+  copy
+  sed -i 's/^output "contract_version" {$/output "contract_version_renamed" {/' "$tmp/p/$first/outputs.tf"
+  expect fail "rule 6: a module without a contract output fails"
+
+  copy
+  sed -i '/hashicorp\/random$/d' "$tmp/p/$first/pack.yaml"
+  expect fail "rule 7: a pack that does not name a provider of its module fails"
+
+  copy
+  sed -i -E 's/^(    ignore_changes = \[.*)user_data(.*\])$/\1name\2/' "$tmp"/p/[!_]*/main.tf
+  expect fail "rule 8: boot data outside lifecycle.ignore_changes fails"
+
+  copy
+  printf 'resource "example_firewall" "selftest" {\n  rule {\n    port = "30053"\n  }\n}\n' >> "$tmp/p/$first/main.tf"
+  expect fail "rule 9: a port of the node port range fails"
+
+  copy
+  printf '# one more line\n' >> "$tmp/p/$first/tests/contract.tftest.hcl"
+  expect fail "rule 10: a contract test that differs from the shared body fails"
 
   [ "$failed" = 0 ] || { echo "provider-contract self-test: FAILED"; return 1; }
   echo "provider-contract self-test: ok"

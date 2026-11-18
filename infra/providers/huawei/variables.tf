@@ -6,8 +6,8 @@
 # inputs (sovereign_fqdn, deployment_id, regions, parent_domains_yaml,
 # gitops_repo_url, gitops_branch, handover_jwt_public_key, ghcr_pull_token).
 # Provider-specific knobs (huawei_access_key / huawei_secret_key /
-# huawei_project_id / huawei_region / image_id / control-plane + worker
-# flavors) follow.
+# huawei_project_id / image_id / control-plane + worker flavors) follow.
+# The cloud region is regions[].cloud_region (contract version 1).
 #
 # Per docs/PRINCIPLES.md #4 nothing is hardcoded — every value is a
 # variable here; the catalyst-api provisioner writes tofu.auto.tfvars.json
@@ -42,16 +42,18 @@ variable "pdns_api_host" {
 variable "regions" {
   type = list(object({
     code               = string
+    cloud_region       = string
+    availability_zone  = optional(string, "")
     role               = string
     control_plane_size = string
     worker_size        = string
     worker_count       = number
   }))
   description = <<-EOT
-    Per-region sizing + role assignment per PROVIDER-INTERFACE.md §1.
-    Length ≥ 1. Index 0 = primary (runs Catalyst control plane + first
-    CNPG cluster); indexes 1..N = secondaries (carry vClusters + CNPG
-    ReplicaCluster mirrors).
+    Per-region sizing + role assignment, in the type of contract version 1
+    (infra/providers/_contract/contract.json). Length ≥ 1. Index 0 =
+    primary (runs Catalyst control plane + first CNPG cluster); indexes
+    1..N = secondaries (carry vClusters + CNPG ReplicaCluster mirrors).
 
     `code` is the operator-supplied fake-region tag (e.g. `me-east-215-a`,
     `me-east-215-b`). HCS exposes one physical region (me-east-215) so
@@ -59,13 +61,18 @@ variable "regions" {
     region — the Sovereign multi-region DR contract is still satisfied
     because inter-region traffic flows over DMZ-WG on public EIPs.
 
+    `cloud_region` is the cloud's own region identifier, the same in
+    every entry: it is the region of the provider and of every service
+    endpoint. `availability_zone` is the region's zone; empty means the
+    value of var.huawei_az.
+
     `control_plane_size` defaults at the Go provisioner layer to
     `s7n.large.4` (2 vCPU / 8 GB) and `worker_size` to `m7n.xlarge.8`
     (4 vCPU / 32 GB) per the operator-confirmed Tier-B sizing.
   EOT
   validation {
-    condition     = length(var.regions) >= 1
-    error_message = "Tier-B Huawei Sovereign requires at least 1 region (primary)."
+    condition     = length(var.regions) >= 1 && var.regions[0].role == "primary"
+    error_message = "regions must have at least one entry and regions[0].role must be \"primary\"."
   }
   # NET-100: the pod supernet 10.40.0.0/13 holds the pod CIDRs of at most
   # six regions (10.42.0.0/16 to 10.47.0.0/16).
@@ -74,11 +81,18 @@ variable "regions" {
     error_message = "At most six regions: the pod supernet 10.40.0.0/13 holds the pod CIDRs 10.42.0.0/16 to 10.47.0.0/16."
   }
   validation {
-    condition = alltrue([
-      for r in var.regions :
-      contains(["primary", "secondary"], r.role)
-    ])
-    error_message = "Each regions[].role must be 'primary' or 'secondary'."
+    condition     = alltrue([for r in var.regions : contains(["primary", "secondary"], r.role)])
+    error_message = "regions[].role must be primary or secondary."
+  }
+  validation {
+    condition     = length(distinct([for r in var.regions : r.code])) == length(var.regions)
+    error_message = "regions[].code must be unique."
+  }
+  # The profile says multiCloudRegion: false: one provider configuration, one
+  # set of service endpoints.
+  validation {
+    condition     = length(distinct([for r in var.regions : r.cloud_region])) == 1
+    error_message = "Every regions[].cloud_region must be the same: this cloud cannot span cloud regions."
   }
 }
 
@@ -90,8 +104,7 @@ variable "parent_domains_yaml" {
 
 variable "gitops_repo_url" {
   type        = string
-  description = "Git URL Flux on the new cluster watches for clusters/<sovereign-fqdn>/."
-  default     = "https://github.com/openova-io/openova"
+  description = "Git URL Flux on the new cluster watches for clusters/<sovereign-fqdn>/. Required: contract version 1 gives it no default; catalyst-api always writes it."
 }
 
 variable "gitops_branch" {
@@ -126,15 +139,9 @@ variable "huawei_project_id" {
   description = "Huawei project ID (region-scoped). Operator-supplied at wizard StepCredentials; NOT a module default."
 }
 
-variable "huawei_region" {
-  type        = string
-  description = "Huawei region code. Defaults to the operator-confirmed HCS region `me-east-215`."
-  default     = "me-east-215"
-}
-
 variable "huawei_az" {
   type        = string
-  description = "Availability zone within the region. HCS region me-east-215 exposes only `me-east-215a` (single-AZ); fake-regions overlay via VPC isolation."
+  description = "Availability zone of a region whose regions[].availability_zone is empty. HCS region me-east-215 exposes only `me-east-215a` (single-AZ); fake-regions overlay via VPC isolation."
   default     = "me-east-215a"
 }
 
@@ -307,8 +314,7 @@ variable "kubeconfig_bearer_token" {
 
 variable "catalyst_api_url" {
   type        = string
-  description = "Public origin the new Sovereign's cloud-init PUTs its kubeconfig back to."
-  default     = "https://console.openova.io/sovereign"
+  description = "Public origin the new Sovereign's cloud-init PUTs its kubeconfig back to. Required: contract version 1 gives it no default; catalyst-api always writes it."
 }
 
 # ── OS hardening (mirrors Hetzner module) ────────────────────────────────
@@ -536,12 +542,12 @@ variable "enable_shared_pg" {
 # all name the chosen class. The k3s ephemeral local-path provisioner is
 # FORBIDDEN (--disable=local-storage + the K23 Kyverno ENFORCE deny,
 # #3971/#892); the validation below rejects it so an operator can never select
-# non-durable node-local storage. Default 'evs-ssd' keeps a fresh Huawei prov
-# byte-identical to today.
+# non-durable node-local storage. Required by contract version 1 (no
+# default): catalyst-api always writes it, and on Huawei it writes 'evs-ssd'
+# when the sovereign-admin chose none.
 variable "default_storage_class" {
   type        = string
-  description = "Default StorageClass name for the Sovereign's stateful workloads (#4057). Chosen by the operator in the wizard; catalyst-api defaults it to the per-provider durable cloud CSI class (Huawei: evs-ssd) when empty. local-path is FORBIDDEN."
-  default     = "evs-ssd"
+  description = "Default StorageClass name for the Sovereign's stateful workloads (#4057). Chosen by the sovereign-admin in the wizard; catalyst-api defaults it to the per-provider durable cloud CSI class (Huawei: evs-ssd) when empty. local-path is FORBIDDEN. Required: contract version 1 gives it no default."
   validation {
     condition     = var.default_storage_class != "" && var.default_storage_class != "local-path"
     error_message = "default_storage_class must be a non-empty durable cloud CSI class; the ephemeral k3s 'local-path' is FORBIDDEN (#3971/#892)."

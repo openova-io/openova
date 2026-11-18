@@ -1,6 +1,11 @@
 # Outputs the catalyst-api provisioner reads after `tofu apply` completes
 # and surfaces back to the wizard's success screen.
 
+output "contract_version" {
+  description = "Version of the module contract this module meets (infra/providers/_contract/contract.json)."
+  value       = "1"
+}
+
 output "control_plane_ip" {
   description = "Public IPv4 of the first control-plane node"
   value       = hcloud_server.control_plane[0].ipv4_address
@@ -70,7 +75,7 @@ output "object_storage_bucket" {
 #
 # Surfaced back to the catalyst-api after `tofu apply` completes for
 # Sovereigns whose request body carried len(regions) ≥ 2. The maps are
-# keyed by the same `{cloudRegion}-{index}` key used internally
+# keyed by the same `{cloud_region}-{index}` key used internally
 # (local.secondary_regions); the catalyst-api joins this with the
 # original Request.Regions slice to project per-region IPs back into
 # its deployment record. Empty when no secondary regions were
@@ -82,7 +87,7 @@ output "object_storage_bucket" {
 # provisioner-side breakage on the singular path.
 
 output "control_plane_ips_by_region" {
-  description = "Public IPv4 of each secondary region's first control-plane node, keyed by '{cloudRegion}-{index}'. Empty for single-region Sovereigns. The primary region's CP IP is still in `control_plane_ip`."
+  description = "Public IPv4 of each secondary region's first control-plane node, keyed by '{cloud_region}-{index}'. Empty for single-region Sovereigns. The primary region's CP IP is still in `control_plane_ip`."
   value = {
     for k, _ in local.secondary_regions :
     k => hcloud_server.secondary_control_plane[k].ipv4_address
@@ -90,7 +95,7 @@ output "control_plane_ips_by_region" {
 }
 
 output "load_balancer_ips_by_region" {
-  description = "Public IPv4 of each secondary region's load balancer, keyed by '{cloudRegion}-{index}'. PowerDNS lua-records aggregate these into the Sovereign FQDN's A-record set per docs/MULTI-REGION-DNS.md. Empty for single-region Sovereigns. The primary region's LB IP is still in `load_balancer_ip`."
+  description = "Public IPv4 of each secondary region's load balancer, keyed by '{cloud_region}-{index}'. PowerDNS lua-records aggregate these into the Sovereign FQDN's A-record set per docs/MULTI-REGION-DNS.md. Empty for single-region Sovereigns. The primary region's LB IP is still in `load_balancer_ip`."
   value = {
     for k, _ in local.secondary_regions :
     k => hcloud_load_balancer.secondary[k].ipv4
@@ -102,37 +107,27 @@ output "secondary_region_keys" {
   value       = keys(local.secondary_regions)
 }
 
-# G117 #2840-followup (2026-06-03): unified per-region CP-IP map that
-# INCLUDES the primary region, matching the Huawei provider's
-# `control_plane_ips_per_region` shape. The catalyst-api provisioner's
-# partial-region-materialisation defense (provisioner.go:1648) reads
-# this exact key name to detect silently-degraded multi-region provs;
-# without this output the Hetzner path skipped the check entirely
-# (`len(out.ControlPlaneIPsPerRegion) > 0` evaluated false) and a
-# multi-region Hetzner Sovereign that lost a region to a quota /
-# capacity cascade would have passed the post-apply gate with the
-# same silent single-region degradation that hit hw86 on HCS.
+# The per-region control-plane address map of contract version 1
+# (infra/providers/_contract/contract.json): one key per entry of
+# var.regions, the region code. The catalyst-api provisioner's
+# partial-region-materialisation defense (#2840) compares these keys with
+# the declared region codes, so a multi-region Sovereign that lost a region
+# to a quota or capacity cascade does not pass the post-apply gate.
 #
-# Keyed by the SAME stable `<cloudRegion>-<index>` key the existing
-# `control_plane_ips_by_region` output uses for secondaries, with the
-# primary stamped under literal key `"primary"`. This matches
-# `local.secondary_regions` keying convention and TOLERATES the legal
-# same-region-duplicates case asserted by tests/multi_region.tftest.hcl
-# (`same_region_duplicates_produce_distinct_keys`). The catalyst-api's
-# partial-region detector will be taught to reconcile against the
-# declared regions[].cloudRegion via the index suffix; until that
-# enhancement lands, `len(out.ControlPlaneIPsPerRegion) > 0` is enough
-# for the catalyst-api gate to fire (the existing logic compares
-# declared count vs materialised map size, not key-by-key matching).
+# CLD-090: the keys were "primary" and "<cloudRegion>-<index>" before; they
+# are the region codes now, as in every other module. Two regions in one
+# Hetzner location need two different codes (the contract refuses a
+# duplicate code). The other per-region outputs of this file keep the
+# module's internal keys.
 output "control_plane_ips_per_region" {
-  description = "Per-region primary control-plane public IPv4 keyed by '<cloudRegion>-<index>' for secondaries and literal 'primary' for the primary CP. Distinct keys even when two regions share a cloudRegion (legal: fsn1-mgmt + fsn1-dataplane). Used by catalyst-api partial-region detection. Refs #2840."
+  description = "Per-region primary control-plane public IPv4, keyed by region code (var.regions[].code): contract version 1. Used by catalyst-api partial-region detection. Refs #2840."
   value = merge(
     {
-      "primary" = hcloud_server.control_plane[0].ipv4_address
+      (local.region_code["primary"]) = hcloud_server.control_plane[0].ipv4_address
     },
     {
       for k, v in local.secondary_regions :
-      k => hcloud_server.secondary_control_plane[k].ipv4_address
+      local.region_code[k] => hcloud_server.secondary_control_plane[k].ipv4_address
     }
   )
 }
