@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T20:45:05Z` |
+| Last refreshed | `2026-11-18T21:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7838](https://github.com/openova-io/openova/issues/7838) | FND-026 Two tasks that share only record files may run together | Other |
 | [#7839](https://github.com/openova-io/openova/issues/7839) | FND-077 The flight sweep counts the DNS records a wiped deployment left | Other |
 | [#7840](https://github.com/openova-io/openova/issues/7840) | FND-130 The gate suite runs on the local provider pack on every pull request | Other |
 | [#7841](https://github.com/openova-io/openova/issues/7841) | NET-170 Organization fence: two host-side deny objects for the Organization's ow | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8192](https://github.com/openova-io/openova/issues/8192) | CLD-104 The engine writes neutral variables; adapters write their own | Other |
 | [#8201](https://github.com/openova-io/openova/issues/8201) | AIP-103 Real streaming and real usage | Other |
 | [#8204](https://github.com/openova-io/openova/issues/8204) | NET-172 Gate check NET-G07: Organization isolation, journey ISO in both regions | Other |
+| [#8209](https://github.com/openova-io/openova/issues/8209) | AIP-104 Limits, queue, time-outs, admin listener | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-18T20:52 | [#8208](https://github.com/openova-io/openova/pull/8208) | #7087 | docs(ledger): plan update |
 | 2026-11-18T20:42 | [#8206](https://github.com/openova-io/openova/pull/8206) | #7087 | docs(ledger): plan update |
 | 2026-11-18T20:34 | [#8205](https://github.com/openova-io/openova/pull/8205) | #8204 | test(gate): check NET-G07 proves the Organization fence with |
 | 2026-11-18T19:57 | [#8203](https://github.com/openova-io/openova/pull/8203) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-18T15:17 | [#8173](https://github.com/openova-io/openova/pull/8173) | #8172 | docs(ledger): result of the lab test SOV-148, first-boot ste |
 | 2026-11-18T15:10 | [#8171](https://github.com/openova-io/openova/pull/8171) | #7087 | docs(ledger): plan update |
 | 2026-11-18T15:12 | [#8170](https://github.com/openova-io/openova/pull/8170) | #8168 | chore(axon): remove the vLLM provider, Valkey and the conver |
-| 2026-11-18T14:42 | [#8167](https://github.com/openova-io/openova/pull/8167) | #7087 | docs(ledger): plan update |
 
 ---
 
