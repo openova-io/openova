@@ -310,6 +310,7 @@ resource "docker_volume" "kubelet" {
 
 resource "docker_container" "control_plane" {
   for_each = local.control_planes
+  depends_on = [docker_container.lab_origin]
 
   name        = "${local.name_prefix}-${each.key}"
   hostname    = each.value.hostname
@@ -350,7 +351,7 @@ resource "docker_container" "control_plane" {
 
   upload {
     file    = "/var/lib/cloud/seed/nocloud/user-data"
-    content = local.control_plane_user_data[each.value.region]
+    content = local.lab_user_data[each.value.region]
   }
 
   upload {
