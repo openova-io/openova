@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T10:00:04Z` |
+| Last refreshed | `2026-11-18T10:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-18T10:03 | [#8126](https://github.com/openova-io/openova/pull/8126) | #7087 | docs(ledger): plan update |
+| 2026-11-18T10:02 | [#8123](https://github.com/openova-io/openova/pull/8123) | #7938 | fix(release): the delivery's calls are all granted, and a ch |
 | 2026-11-18T09:51 | [#8121](https://github.com/openova-io/openova/pull/8121) | #7087 | docs(ledger): plan update |
 | 2026-11-18T09:44 | [#8120](https://github.com/openova-io/openova/pull/8120) | #7087 | docs(ledger): plan update |
 | 2026-11-18T09:33 | [#8117](https://github.com/openova-io/openova/pull/8117) | #7087 | docs(ledger): plan update |
@@ -314,6 +316,7 @@ flowchart LR
 | 2026-11-18T09:33 | [#8114](https://github.com/openova-io/openova/pull/8114) | #8106 | refactor(providers): generate the provider registry from the |
 | 2026-11-18T09:43 | [#8113](https://github.com/openova-io/openova/pull/8113) | #8107 | fix(local): leave the kured slot out of the local reduced ki |
 | 2026-11-18T09:21 | [#8110](https://github.com/openova-io/openova/pull/8110) | #7087 | docs(ledger): plan update |
+| 2026-11-18T10:13 | [#8109](https://github.com/openova-io/openova/pull/8109) | #8086 | refactor(providers): the shared boot template tests no provi |
 | 2026-11-18T09:14 | [#8105](https://github.com/openova-io/openova/pull/8105) | #7087 | docs(ledger): plan update |
 | 2026-11-18T09:15 | [#8104](https://github.com/openova-io/openova/pull/8104) | #7984 | feat(providers): the region separation of a Sovereign as a m |
 | 2026-11-18T09:06 | [#8103](https://github.com/openova-io/openova/pull/8103) | #7087 | docs(ledger): plan update |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-18T07:16 | [#8078](https://github.com/openova-io/openova/pull/8078) | #7087 | docs(ledger): plan update |
 | 2026-11-18T07:26 | [#8076](https://github.com/openova-io/openova/pull/8076) | #7974 | chore: delete the flow server and the flow adapter with thei |
 | 2026-11-18T06:50 | [#8075](https://github.com/openova-io/openova/pull/8075) | #7087 | docs(ledger): plan update |
-| 2026-11-18T07:17 | [#8074](https://github.com/openova-io/openova/pull/8074) | #7813 | refactor(providers): the three modules meet contract version |
-| 2026-11-18T07:16 | [#8073](https://github.com/openova-io/openova/pull/8073) | #8066 | refactor(console): resource views show Managed by Git and se |
-| 2026-11-18T06:22 | [#8071](https://github.com/openova-io/openova/pull/8071) | #7087 | docs(ledger): plan update |
 
 ---
 
