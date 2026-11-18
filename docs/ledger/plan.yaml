@@ -5179,7 +5179,7 @@ packages:
   size: S
   lane: RAILS
   depends_on: []
-  after: [FND-022, FND-052, FND-056, CLD-090, SOV-120, SOV-121, SOV-131, SVC-150, CTL-331, CTL-332, AIP-101, AIP-108, AIP-111, AIP-113, AIP-114, AIP-221, AIP-229, INF-110, PRD-101, PRD-102, PRD-103, PRD-501, PRD-513]
+  after: [FND-022, FND-052, FND-056, CLD-090, SOV-120, SOV-121, SOV-131, SVC-150, CTL-331, CTL-332, AIP-101, AIP-104, AIP-108, AIP-111, AIP-113, AIP-114, AIP-221, AIP-229, INF-110, PRD-101, PRD-102, PRD-103, PRD-501, PRD-513]
   touches:
   - '**/go.mod'
   - '**/go.sum'
@@ -27169,26 +27169,32 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [AIP-103]
-  after: [SVC-040]
+  after: []
   touches:
   - products/axon/src/turns.ts
   - products/axon/src/config.ts
   - products/axon/src/index.ts
   - products/axon/test/**
+  - products/axon/package.json
+  - products/axon/chart/Chart.yaml
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e products/axon/src/turns.ts && grep -c 'AXON_ADMIN_PORT' products/axon/src/config.ts"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "cd products/axon && npm ci && npm run build && npm test && node --import tsx --test test/limits.test.ts"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Bounded active and parked runs, queue with 429, step time-out, admin port 3001 with /stats
+  delivers: Axon runs at most four model steps at once and keeps at most eight conversations waiting for tool results; sixteen more requests wait up to 30 seconds and the rest get 429 with Retry-After 5; a step longer than its time-out gets 504; health and statistics move to an admin listener on port 3001; SIGTERM closes every run and exits within 10 seconds.
 - id: AIP-105
   title: One owner of the credential
   area: AIP
