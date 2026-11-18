@@ -84,7 +84,7 @@ A module whose cloud cannot span cloud regions adds its own validation that all 
 
 ### 2. Outputs
 
-Every module emits these six. An output is in the contract only when shared code reads it.
+Every module emits these seven. An output is in the contract only when shared code reads it.
 
 | Name | Type | Meaning | Reader |
 |---|---|---|---|
@@ -94,6 +94,7 @@ Every module emits these six. An output is in the contract only when shared code
 | `console_load_balancer_ip` | string | Address of the console front door, `""` when the console has no front door of its own | The provisioning engine |
 | `control_plane_ips_per_region` | map(string) | Region code to control-plane address | The provisioning engine |
 | `network_registry` | string (JSON) | The network registry of the Sovereign, section 2.1 | `scripts/check-network-registry.py` and the module tests |
+| `seal_kind` | string | The kind of the pack's seal hook (contract C8): `module.seal.kind`, `static-node-file` or `cloud-key-service` | The conformance test. It equals `spec.seal.kind` of the pack's profile |
 
 A further output, `day2_facts`, joins the contract in work package CLD-173, which adds its reader.
 
@@ -104,7 +105,6 @@ These names are reserved. Each joins the contract in the work package that adds 
 | `edge_pool` | variable | object({size = string, count = number}) | NET-181 |
 | `region_separation` | output | string | NET-210 |
 | `edge_addresses` | output | map(string) | NET-184 |
-| `seal_kind` | output | string | CLD-092 |
 
 Not in the contract: `sovereign_fqdn`, `console_url`, `gitops_repo_url`, `gitops_repo_url_out`, `kubeconfig_path`, `s3_buckets`, `region_primary`, `region_secondaries`, `worker_ips_per_region` and the object-storage outputs. Shared code reads none of them. A module may keep them as extras.
 
@@ -181,6 +181,7 @@ Every module renders the control-plane boot data with the one shared template, `
 1. A Go test, `TestProviderPacks` (`products/catalyst/bootstrap/api/internal/providers/conformance`), lists the directories under `infra/providers/` whose name does not start with `_`. For each it compares the declared variables and outputs with `contract.json`, compares the OpenTofu providers of the module with `pack.yaml`, and asserts the first two rules of section 5. `scripts/check-provider-contract.sh` runs it; its `--self-test` proves that each rule can fail. Three of its checks are written and skipped until the work package named in their skip line makes them true for every pack: the adapter (CLD-102), the template inputs (CLD-132) and the overlay (CLD-144).
 2. Each module has `tests/contract.tftest.hcl`. Its body is the same in every module (`infra/providers/_contract/contract.tftest.body.hcl`). It plans the module for one region and for two regions and asserts `contract_version` and the keys of `control_plane_ips_per_region`. A module's own required variables, such as its credentials, come from `tests/contract.auto.tfvars.json`.
 3. CI finds the modules by directory. No workflow holds a list of provider names.
+4. `TestProviderPacks` checks the seal hook of contract C8 (`docs/contracts/c8-seal-provider.md`) in every pack (added by CLD-092). The directory `seal/` declares exactly the inputs and the outputs of the contract, with their types, defaults and sensitive flags. Its output `kind` is a literal `static-node-file` or `cloud-key-service` and equals `spec.seal.kind` of the pack's profile, which the profile schema requires. The module calls the hook once as `module "seal"` with `source = "./seal"`, emits `seal_kind` as `module.seal.kind`, and declares `random_password.k3s_server_token` and `random_password.k3s_agent_token`, each with `for_each`, `length = 64` and `special = false`.
 
 ### 7. What the two modules do today
 

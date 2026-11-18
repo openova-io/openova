@@ -52,6 +52,7 @@ spec:
   objectStorage: {checksumAlgorithm: CRC32}
   network:
     loadBalancer: {mode: controller}
+  seal: {kind: static-node-file}
   bootstrap: {userDataLimitBytes: 32768}
   capabilities: {multiRegion: false, multiCloudRegion: true}
   day2: {contracts: []}

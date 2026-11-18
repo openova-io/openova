@@ -43,7 +43,7 @@ One row for each pack, in the order of the folder names.
 | profile.yaml | spec.storage.driver | `csi.hetzner.cloud` |
 | profile.yaml | spec.objectStorage.checksumAlgorithm | `CRC32` |
 | profile.yaml | spec.network.loadBalancer.mode | `controller` |
-| profile.yaml | spec.seal.kind | not set |
+| profile.yaml | spec.seal.kind | `static-node-file` |
 | profile.yaml | spec.bootstrap.userDataLimitBytes | `32768` |
 | profile.yaml | spec.capabilities.multiRegion | `false` |
 | profile.yaml | spec.capabilities.multiCloudRegion | `true` |
@@ -69,7 +69,7 @@ One row for each pack, in the order of the folder names.
 | profile.yaml | spec.storage.driver | `evs.csi.huaweicloud.com` |
 | profile.yaml | spec.objectStorage.checksumAlgorithm | - |
 | profile.yaml | spec.network.loadBalancer.mode | `external-hostport` |
-| profile.yaml | spec.seal.kind | not set |
+| profile.yaml | spec.seal.kind | `static-node-file` |
 | profile.yaml | spec.bootstrap.userDataLimitBytes | `32768` |
 | profile.yaml | spec.capabilities.multiRegion | `true` |
 | profile.yaml | spec.capabilities.multiCloudRegion | `false` |
@@ -95,7 +95,7 @@ One row for each pack, in the order of the folder names.
 | profile.yaml | spec.storage.driver | `rancher.io/local-path` |
 | profile.yaml | spec.objectStorage.checksumAlgorithm | - |
 | profile.yaml | spec.network.loadBalancer.mode | `external-hostport` |
-| profile.yaml | spec.seal.kind | not set |
+| profile.yaml | spec.seal.kind | `static-node-file` |
 | profile.yaml | spec.bootstrap.userDataLimitBytes | `0` |
 | profile.yaml | spec.capabilities.multiRegion | `true` |
 | profile.yaml | spec.capabilities.multiCloudRegion | `false` |

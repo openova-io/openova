@@ -21,7 +21,7 @@
     "spec": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["displayName", "lifecycle", "contractVersion", "credentials", "regions", "compute", "storage", "objectStorage", "network", "bootstrap", "capabilities", "day2"],
+      "required": ["displayName", "lifecycle", "contractVersion", "credentials", "regions", "compute", "storage", "objectStorage", "network", "seal", "bootstrap", "capabilities", "day2"],
       "properties": {
         "extends": {"$ref": "#/$defs/name", "description": "Installation document only: the pack it extends. Reader: cloudprofile.Merge (CLD-080)."},
         "displayName": {"type": "string", "minLength": 1, "description": "Reader: providers route (CLD-121)."},
@@ -173,9 +173,9 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["kind"],
-          "description": "Required from CLD-092 on. Area SEC owns the meaning (contract C8).",
+          "description": "Required. Area SEC owns the meaning (contract C8, docs/contracts/c8-seal-provider.md).",
           "properties": {
-            "kind": {"enum": ["static-node-file", "cloud-key-service"], "description": "Reader: TestProviderPacks (CLD-092)."}
+            "kind": {"enum": ["static-node-file", "cloud-key-service"], "description": "Equals the output kind of the seal hook seal/ of the pack. Reader: TestProviderPacks (CLD-092)."}
           }
         },
         "registry": {
