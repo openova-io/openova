@@ -22,7 +22,18 @@
 #            cloud-init-complete; waits until every HelmRelease of the kit core is Ready (CORE
 #            below in every region, and the console release CONSOLE_RELEASE in the primary
 #            region) and the Deployment catalyst-system/catalyst-api of the primary region is
-#            available. It then writes, under LOCAL_PACK_DIR:
+#            available. With two regions it then connects their mesh the way the parent does
+#            after phase 1 (AutoEstablishClusterMesh in
+#            products/catalyst/bootstrap/api/internal/handler/clustermesh.go), which never runs
+#            here because the pack has no parent: in each region the Secret
+#            kube-system/cilium-clustermesh gets one entry per peer (the peer's endpoint, the CA
+#            of its Secret cilium-ca and the client certificate of its Secret
+#            clustermesh-apiserver-remote-cert), the DaemonSet cilium gets a host alias
+#            <peer cluster name>.mesh.cilium.io for the peer's mesh endpoint, and cilium,
+#            cilium-operator and clustermesh-apiserver restart. Cluster names, endpoint
+#            addresses and the dial port come from the module output network_registry. It waits
+#            until every Cilium agent of every region reports every peer cluster ready, within
+#            10 minutes. It then writes, under LOCAL_PACK_DIR:
 #              <region code>.kubeconfig   one per region, the API server at the machine address
 #              session                    the raw catalyst_session cookie value of an owner,
 #                                         minted with the console's own signer (mode 600)
@@ -38,16 +49,21 @@
 #            limit ends the wait, it first prints the state of every region: every HelmRelease
 #            and Flux Kustomization with its Ready status, reason and message, every pod
 #            that does not run with the reason, and the last log lines of such pods.
-# discovery  Runs the discovery of the suite tests/acceptance/sovereign against the pack, with
-#            the env file, and passes when its steps D0.1 (the session is an owner of this
-#            deployment) and D0.2 (each kubeconfig is the region it claims; the console lists
-#            both regions) pass, within 10 minutes. Later discovery steps are not judged here.
+# discovery  Runs the suite tests/acceptance/sovereign against the pack, with the env file, as a
+#            run that requests no journey and no gate check (run --run-in local --journeys ''),
+#            so that its discovery leaves out the steps that only the journeys need. It passes
+#            when the discovery steps D0.1 (the session is an owner of this deployment), D0.2
+#            (each kubeconfig is the region it claims; the console lists both regions) and
+#            D0.10 (every Cilium agent of each region holds the gateway addresses of the other
+#            region's nodes as reserved:ingress, which needs the mesh that up connects) pass,
+#            within 10 minutes. The other discovery steps are not judged here.
 # claim      In each region, creates a claim of 1 GiB that names no storage class and a pod
 #            that mounts it, and passes when the claim is Bound within 5 minutes on the
 #            cluster's default storage class. Removes both after.
 # collect    Writes evidence of every machine under LOCAL_PACK_DIR/evidence (cloud-init status
 #            and log, k3s journal, nodes, pods, jobs, HelmReleases, Flux objects, the state
-#            report of the region, warning events, the console's pods and log). It never fails.
+#            report of the region, warning events, the console's pods and log, and what each
+#            Cilium agent reports of its peer clusters). It never fails.
 #            The kubeconfigs, the session and the module inputs are not copied there.
 # down       Stops the port forward, then tofu destroy of what up started. Exit 0 when nothing
 #            was started.
@@ -79,6 +95,10 @@ MARKER_LIMIT=900
 CORE_LIMIT=2400
 DISCOVERY_LIMIT=600
 CLAIM_LIMIT=300
+MESH_LIMIT=600
+# What a Cilium agent says of its peer clusters: "<cluster name>=<true|false>;" per peer. The
+# same read as Command of products/catalyst/bootstrap/api/internal/meshagents/meshagents.go.
+MESH_STATUS='jsonpath={range .cluster-mesh.clusters[*]}{.name}={.ready};{end}'
 # Body of /etc/rancher/k3s/registries.yaml on every machine. docker.io goes through the
 # public mirror.gcr.io. The kit's charts pin images to harbor.openova.io/proxy-*; those go to
 # the upstream registries, and to harbor.openova.io itself only when every endpoint fails
@@ -269,13 +289,13 @@ console_issuer() {
 }
 
 # discovery_judge: reads the output of the suite's discovery on stdin; exit 0 when the steps
-# D0.1 and D0.2 are printed as PASS. Prints the verdict of each.
+# D0.1, D0.2 and D0.10 are printed as PASS. Prints the verdict of each.
 discovery_judge() {
   python3 -c '
 import re, sys
 text = sys.stdin.read()
 bad = 0
-for step in ("D0.1", "D0.2"):
+for step in ("D0.1", "D0.2", "D0.10"):
     if re.search(r"^  D0 %s +PASS " % re.escape(step), text, re.M):
         print("%s PASS" % step)
     elif re.search(r"^  D0 %s +FAIL " % re.escape(step), text, re.M):
@@ -309,6 +329,98 @@ write_env() {
   shift 4
   printf 'CONSOLE_URL=%s\nDEPLOYMENT_ID=%s\nREGION_A=%s\nREGION_B=%s\nSESSION_TOKEN_FILE=%s\n' \
     "$url" "$dep" "${1:-}" "${2:-}" "$session" > "$f"
+}
+
+# mesh_add <region code>: stdin is the mesh document {"regions": [...]}, stdout the same with
+# this region added: its cluster name, mesh endpoint address and dial port from the module
+# output network_registry (environment MESH_REGISTRY), and the base64 values of its CA
+# certificate and of its client certificate and key (MESH_CA, MESH_CRT, MESH_KEY). The key
+# material comes in the environment, never as an argument. Exit 1 when the registry does not
+# hold the region with a cluster name and a mesh endpoint, or a value is empty.
+mesh_add() {
+  python3 -c '
+import json, os, sys
+code = sys.argv[1]
+doc = json.load(sys.stdin)
+reg = [r for r in json.loads(os.environ["MESH_REGISTRY"])["regions"] if r.get("code") == code]
+if len(reg) != 1:
+    sys.exit("mesh: the network registry has %d region(s) %s" % (len(reg), code))
+r, ep = reg[0], reg[0].get("meshEndpoint") or {}
+vals = {"code": code, "name": r.get("clusterName", ""), "ip": (ep.get("ips") or [""])[0], "port": ep.get("port") or 0,
+        "ca": os.environ.get("MESH_CA", ""), "crt": os.environ.get("MESH_CRT", ""), "key": os.environ.get("MESH_KEY", "")}
+empty = [k for k, v in vals.items() if not v]
+if empty:
+    sys.exit("mesh: region %s has no %s" % (code, ", ".join(empty)))
+doc["regions"].append(vals)
+print(json.dumps(doc))' "$1"
+}
+
+# mesh_secret <region code>: stdin is the mesh document; stdout the Secret
+# kube-system/cilium-clustermesh of that region, with the four entries per peer that the
+# parent writes (handler/clustermesh.go, step 3): <peer> is the endpoint configuration, byte
+# for byte what buildPeerConfigBlob writes, and <peer>-ca.crt, <peer>.crt and <peer>.key are the
+# peer's CA and the client certificate and key of its clustermesh-apiserver-remote-cert. Exit 1
+# when the region is not in the document or has no peer.
+mesh_secret() {
+  python3 -c '
+import base64, json, sys
+code = sys.argv[1]
+regions = json.load(sys.stdin)["regions"]
+if code not in [r["code"] for r in regions] or len(regions) < 2:
+    sys.exit("mesh: region %s has no peer in the mesh document" % code)
+data = {}
+for p in regions:
+    if p["code"] == code:
+        continue
+    n = p["name"]
+    blob = ("endpoints:\n- https://%s.mesh.cilium.io:%d\n"
+            "trusted-ca-file: /var/lib/cilium/clustermesh/%s-ca.crt\n"
+            "cert-file:       /var/lib/cilium/clustermesh/%s.crt\n"
+            "key-file:        /var/lib/cilium/clustermesh/%s.key\n") % (n, int(p["port"]), n, n, n)
+    data[n] = base64.b64encode(blob.encode()).decode()
+    data[n + "-ca.crt"], data[n + ".crt"], data[n + ".key"] = p["ca"], p["crt"], p["key"]
+print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
+                  "metadata": {"name": "cilium-clustermesh", "namespace": "kube-system",
+                               "labels": {"app.kubernetes.io/name": "cilium-clustermesh", "app.kubernetes.io/managed-by": "local-pack"}},
+                  "data": data}, sort_keys=True))' "$1"
+}
+
+# mesh_aliases <region code>: stdin is the mesh document; stdout the strategic merge patch of
+# the DaemonSet kube-system/cilium of that region: one host alias per peer,
+# <peer>.mesh.cilium.io at the peer's mesh endpoint address (patchCiliumHostAliases of the
+# parent). The server certificate of every clustermesh-apiserver covers *.mesh.cilium.io.
+mesh_aliases() {
+  python3 -c '
+import json, sys
+code = sys.argv[1]
+regions = json.load(sys.stdin)["regions"]
+peers = [{"ip": p["ip"], "hostnames": [p["name"] + ".mesh.cilium.io"]} for p in regions if p["code"] != code]
+if code not in [r["code"] for r in regions] or not peers:
+    sys.exit("mesh: region %s has no peer in the mesh document" % code)
+print(json.dumps({"spec": {"template": {"spec": {"hostAliases": peers}}}}))' "$1"
+}
+
+# mesh_peers <region code>: stdin is the mesh document; stdout the cluster names of the
+# region's peers, separated by spaces.
+mesh_peers() {
+  python3 -c 'import json,sys; print(" ".join(p["name"] for p in json.load(sys.stdin)["regions"] if p["code"] != sys.argv[1]))' "$1"
+}
+
+# mesh_judge <peer cluster name>...: stdin has one line per Cilium agent of a region,
+# "<pod> <what MESH_STATUS printed>". Prints one line per agent that does not report every
+# named peer ready; exit 0 when there is at least one agent and every agent reports every
+# named peer ready.
+mesh_judge() {
+  python3 -c '
+import sys
+peers, lines, bad = sys.argv[1:], [l.split(None, 1) for l in sys.stdin.read().splitlines() if l.strip()], 0
+for f in lines:
+    pod, seen = f[0], dict(x.split("=", 1) for x in (f[1] if len(f) > 1 else "").split(";") if "=" in x)
+    missing = [p for p in peers if seen.get(p) != "true"]
+    if missing:
+        bad += 1
+        print("%s: not ready %s (reports %s)" % (pod, ",".join(missing), ";".join("%s=%s" % kv for kv in sorted(seen.items())) or "no peer"))
+sys.exit(0 if lines and peers and not bad else 1)' "$@"
 }
 
 # --- commands -------------------------------------------------------------------------------
@@ -384,6 +496,65 @@ forward_stop() {
   pid=$(cat "$DIR/console-forward.pid" 2> /dev/null || true)
   if [ -n "$pid" ] && kill -0 "$pid" 2> /dev/null; then kill "$pid" 2> /dev/null || true; fi
   rm -f "$DIR/console-forward.pid"
+}
+
+# mesh_status <machine>: one line per Cilium agent of the machine's region, "<pod> <what
+# MESH_STATUS printed>". It never fails.
+mesh_status() {
+  local m=$1 pod
+  for pod in $(kin "$m" -n kube-system get pods -l k8s-app=cilium -o name 2> /dev/null); do
+    echo "${pod#pod/} $(kin "$m" -n kube-system exec "${pod#pod/}" -c cilium-agent -- cilium-dbg status -o "$MESH_STATUS" < /dev/null 2> /dev/null || true)"
+  done
+}
+
+# mesh_connect <module inputs> <region code>...: connects the mesh of the regions as the parent
+# does (see up above) and waits until every agent reports every peer ready. The CA, the client
+# certificates and their keys pass through shell variables and pipes only, never a file.
+mesh_connect() {
+  local vars=$1 code m t doc ca crt key peers
+  shift
+  local reg
+  reg=$(tofu_run output -state="$DIR/terraform.tfstate" -raw network_registry)
+  doc='{"regions": []}'
+  t=$(date +%s)
+  for code in "$@"; do
+    m=$(machine "$vars" "$code")
+    until ca=$(kin "$m" -n kube-system get secret cilium-ca -o 'jsonpath={.data.ca\.crt}' 2> /dev/null) && [ -n "$ca" ] \
+      && crt=$(kin "$m" -n kube-system get secret clustermesh-apiserver-remote-cert -o 'jsonpath={.data.tls\.crt}' 2> /dev/null) && [ -n "$crt" ] \
+      && key=$(kin "$m" -n kube-system get secret clustermesh-apiserver-remote-cert -o 'jsonpath={.data.tls\.key}' 2> /dev/null) && [ -n "$key" ]; do
+      [ $(( $(date +%s) - t )) -lt "$MESH_LIMIT" ] \
+        || die "$code: the Secrets kube-system/cilium-ca and clustermesh-apiserver-remote-cert did not appear within ${MESH_LIMIT}s"
+      sleep 10
+    done
+    doc=$(MESH_REGISTRY="$reg" MESH_CA="$ca" MESH_CRT="$crt" MESH_KEY="$key" mesh_add "$code" <<< "$doc") || die "$code: no mesh entry"
+  done
+  for code in "$@"; do
+    m=$(machine "$vars" "$code")
+    mesh_secret "$code" <<< "$doc" | kin "$m" apply --server-side --field-manager=local-pack -f - > /dev/null \
+      || die "$code: the Secret kube-system/cilium-clustermesh was not written"
+    mesh_aliases "$code" <<< "$doc" | kin "$m" -n kube-system patch daemonset cilium --type strategic --patch-file /dev/stdin > /dev/null \
+      || die "$code: the host aliases of the DaemonSet kube-system/cilium were not written"
+    kin "$m" -n kube-system rollout restart daemonset/cilium deployment/cilium-operator deployment/clustermesh-apiserver > /dev/null \
+      || die "$code: cilium, cilium-operator and clustermesh-apiserver did not restart"
+    log "$code: mesh peers $(mesh_peers "$code" <<< "$doc") written, cilium restarted"
+  done
+  local all
+  while :; do
+    all=yes
+    for code in "$@"; do
+      m=$(machine "$vars" "$code")
+      peers=$(mesh_peers "$code" <<< "$doc")
+      # shellcheck disable=SC2086
+      if ! mesh_status "$m" | mesh_judge $peers > "$DIR/mesh-$code.txt"; then all=no; fi
+    done
+    [ "$all" = yes ] && break
+    if [ $(( $(date +%s) - t )) -ge "$MESH_LIMIT" ]; then
+      for code in "$@"; do log "$code: $(tr '\n' ';' < "$DIR/mesh-$code.txt")"; done
+      die "the mesh was not ready in every region within ${MESH_LIMIT}s"
+    fi
+    sleep 15
+  done
+  log "mesh: every agent reports every peer cluster ready after $(( $(date +%s) - t ))s"
 }
 
 cmd_up() {
@@ -488,6 +659,7 @@ cmd_up() {
     sleep 15
   done
   log "kit core Ready in every region after $(( $(date +%s) - t0 ))s"
+  if [ "${#codes[@]}" -ge 2 ]; then mesh_connect "$vars" "${codes[@]}"; fi
 
   pm=$(machine "$vars" "$pcode")
   local avail=""
@@ -553,19 +725,20 @@ cmd_discovery() {
   t=$(date +%s)
   while :; do
     forward_start "$DIR/$a.kubeconfig"
-    CATALYST_SESSION="$(cat "$SESSION_TOKEN_FILE")" "$BIN" discover --env local-pack --console "$CONSOLE_URL" \
+    CATALYST_SESSION="$(cat "$SESSION_TOKEN_FILE")" "$BIN" run --env local-pack --run-in local --journeys '' \
+      --manifest '' --console "$CONSOLE_URL" \
       --deployment "$DEPLOYMENT_ID" --kubeconfig-a "$DIR/$a.kubeconfig" --kubeconfig-b "$DIR/$b.kubeconfig" \
       > "$DIR/discovery.txt" 2>&1 || true
     if discovery_judge < "$DIR/discovery.txt" > "$DIR/discovery-verdict.txt"; then break; fi
     if [ $(( $(date +%s) - t )) -ge "$DISCOVERY_LIMIT" ]; then
       cat "$DIR/discovery.txt" "$DIR/discovery-verdict.txt"
-      die "the suite's discovery steps D0.1 and D0.2 did not pass within ${DISCOVERY_LIMIT}s"
+      die "the suite's discovery steps D0.1, D0.2 and D0.10 did not pass within ${DISCOVERY_LIMIT}s"
     fi
     log "discovery: $(tr '\n' ';' < "$DIR/discovery-verdict.txt") trying again"
     sleep 30
   done
   cat "$DIR/discovery.txt"
-  log "discovery: D0.1 and D0.2 of the suite pass on the pack"
+  log "discovery: D0.1, D0.2 and D0.10 of the suite pass on the pack"
 }
 
 cmd_claim() {
@@ -641,8 +814,9 @@ cmd_collect() {
     kin "$m" describe nodes > "$d/nodes-describe.txt" 2>&1 || true
     kin "$m" -n catalyst-system get pods -o wide > "$d/console-pods.txt" 2>&1 || true
     kin "$m" -n catalyst-system logs deployment/catalyst-api --tail=400 > "$d/catalyst-api.log" 2>&1 || true
+    mesh_status "$m" > "$d/mesh.txt" 2>&1 || true
   done
-  for f in "$DIR"/tofu-*.log "$DIR"/minter-build.log "$DIR"/mint.log "$DIR"/console-forward.log "$DIR"/discovery.txt "$DIR"/discovery-verdict.txt; do
+  for f in "$DIR"/tofu-*.log "$DIR"/minter-build.log "$DIR"/mint.log "$DIR"/console-forward.log "$DIR"/discovery.txt "$DIR"/discovery-verdict.txt "$DIR"/mesh-*.txt; do
     if [ -f "$f" ]; then cp "$f" "$DIR/evidence/" 2> /dev/null || true; fi
   done
   log "collect: evidence under $DIR/evidence"
@@ -788,12 +962,32 @@ print(json.dumps({"items": [
   expect 0 "issuer: the console's variable when it is set" test "$(console_issuer https://console.other.test sov.example.test)" = "https://console.other.test"
   expect 0 "issuer: else the console of the Sovereign" test "$(console_issuer "" sov.example.test)" = "https://console.sov.example.test"
 
-  local d01='  D0 D0.1   PASS tier=owner' d02='  D0 D0.2   PASS regionA=local-region-a-rtz-prod'
-  expect 0 "discovery: D0.1 and D0.2 pass" discovery_judge <<< "$(printf '%s\n%s\n  D0 D0.3   FAIL no org\n' "$d01" "$d02")"
-  expect 1 "discovery: D0.2 fails" discovery_judge <<< "$(printf '%s\n  D0 D0.2   FAIL one region\n' "$d01")"
+  local d01='  D0 D0.1   PASS tier=owner' d02='  D0 D0.2   PASS regionA=local-region-a-rtz-prod' d010='  D0 D0.10  PASS checked=3'
+  expect 0 "discovery: D0.1, D0.2 and D0.10 pass" discovery_judge <<< "$(printf '%s\n%s\n  D0 D0.3   not requested: the run requests no journey\n%s\n' "$d01" "$d02" "$d010")"
+  expect 1 "discovery: D0.2 fails" discovery_judge <<< "$(printf '%s\n  D0 D0.2   FAIL one region\n%s\n' "$d01" "$d010")"
   expect 1 "discovery: D0.1 fails and D0.2 does not run" discovery_judge <<< '  D0 D0.1   FAIL session tier="viewer"'
-  expect 1 "discovery: D0.10 is not D0.1" discovery_judge <<< "$(printf '  D0 D0.10  PASS mesh\n%s\n' "$d02")"
+  expect 1 "discovery: D0.10 is not D0.1" discovery_judge <<< "$(printf '%s\n%s\n' "$d010" "$d02")"
+  expect 1 "discovery: D0.10 fails" discovery_judge <<< "$(printf '%s\n%s\n  D0 D0.10  FAIL 3 agent(s) lack peer gateway identities\n' "$d01" "$d02")"
+  expect 1 "discovery: D0.10 does not run" discovery_judge <<< "$(printf '%s\n%s\n' "$d01" "$d02")"
   expect 1 "discovery: no output" discovery_judge < /dev/null
+  # The command discovery runs the suite as a run that requests no journey and no gate check:
+  # a stand-in for the suite prints the three steps as PASS only when it is called that way.
+  mkdir -p "$t/disc/bin" "$t/fake"
+  printf '#!/bin/sh\nexit 0\n' > "$t/fake/kubectl"
+  cat > "$t/disc/bin/sovereign-acceptance" <<'SH'
+#!/usr/bin/env bash
+[ "$1" = run ] && [ -n "${CATALYST_SESSION:-}" ] || exit 3
+shift
+declare -A f=()
+while [ $# -gt 1 ]; do f[$1]=$2; shift 2; done
+[ $# = 0 ] && [ "${f[--run-in]-x}" = local ] && [ "${f[--journeys]-x}" = "" ] && [ "${f[--manifest]-x}" = "" ] || exit 3
+printf '  D0 D0.1   PASS tier=owner\n  D0 D0.2   PASS r\n  D0 D0.10  PASS checked=3\n'
+SH
+  chmod +x "$t/fake/kubectl" "$t/disc/bin/sovereign-acceptance"
+  echo token > "$t/disc/session"
+  write_env "$t/disc/env" http://127.0.0.1:18080 0123456789abcdef "$t/disc/session" region-a region-b
+  # A stand-in that refuses the call makes discovery try again for 10 minutes; 30 seconds end it.
+  expect 0 "discovery: the suite runs with no journey and no gate check" env LOCAL_PACK_DIR="$t/disc" PATH="$t/fake:$PATH" timeout 30 bash "${BASH_SOURCE[0]}" discovery
 
   cj() { python3 -c '
 import json, sys
@@ -812,6 +1006,45 @@ print(json.dumps({"items": items}))' "$@"; }
 
   write_env "$t/env" http://127.0.0.1:18080 0123456789abcdef /p/session region-a region-b
   expect 0 "env: the five keys" test "$(cat "$t/env")" = "$(printf 'CONSOLE_URL=http://127.0.0.1:18080\nDEPLOYMENT_ID=0123456789abcdef\nREGION_A=region-a\nREGION_B=region-b\nSESSION_TOKEN_FILE=/p/session')"
+
+  # The network registry in the shape of infra/providers/local/main.tf (local.network_registry).
+  local reg1 reg2 md
+  reg2='{"regions": [{"code": "region-a", "clusterName": "sov-region-a", "meshEndpoint": {"ips": ["172.30.1.10"], "port": 12379}},
+                     {"code": "region-b", "clusterName": "sov-region-b", "meshEndpoint": {"ips": ["172.30.2.10"], "port": 12379}}]}'
+  reg1='{"regions": [{"code": "region-a", "clusterName": "sov-region-a"}]}'
+  md=$(MESH_REGISTRY="$reg2" MESH_CA=Q0EtYQ== MESH_CRT=Q1JULWE= MESH_KEY=S0VZLWE= mesh_add region-a <<< '{"regions": []}')
+  md=$(MESH_REGISTRY="$reg2" MESH_CA=Q0EtYg== MESH_CRT=Q1JULWI= MESH_KEY=S0VZLWI= mesh_add region-b <<< "$md")
+  expect 0 "mesh: each region takes its name, endpoint and port from the registry" test "$md" = "$(printf '%s' '{"regions": [' \
+    '{"code": "region-a", "name": "sov-region-a", "ip": "172.30.1.10", "port": 12379, "ca": "Q0EtYQ==", "crt": "Q1JULWE=", "key": "S0VZLWE="}, ' \
+    '{"code": "region-b", "name": "sov-region-b", "ip": "172.30.2.10", "port": 12379, "ca": "Q0EtYg==", "crt": "Q1JULWI=", "key": "S0VZLWI="}]}')"
+  expect 1 "mesh: a region the registry does not hold is refused" env MESH_REGISTRY="$reg2" MESH_CA=a MESH_CRT=b MESH_KEY=c bash -c "$(declare -f mesh_add); mesh_add region-c <<< '{\"regions\": []}'"
+  expect 1 "mesh: a region without a mesh endpoint is refused" env MESH_REGISTRY="$reg1" MESH_CA=a MESH_CRT=b MESH_KEY=c bash -c "$(declare -f mesh_add); mesh_add region-a <<< '{\"regions\": []}'"
+  expect 1 "mesh: an empty key is refused" env MESH_REGISTRY="$reg2" MESH_CA=a MESH_CRT=b MESH_KEY= bash -c "$(declare -f mesh_add); mesh_add region-a <<< '{\"regions\": []}'"
+  expect 0 "mesh: region A holds the endpoint, the CA and the client certificate of B, and nothing of A" python3 -c '
+import base64, json, sys
+s = json.loads(sys.argv[1])
+assert (s["kind"], s["metadata"]["namespace"], s["metadata"]["name"], s["type"]) == ("Secret", "kube-system", "cilium-clustermesh", "Opaque"), s
+d = s["data"]
+assert sorted(d) == ["sov-region-b", "sov-region-b-ca.crt", "sov-region-b.crt", "sov-region-b.key"], sorted(d)
+assert (d["sov-region-b-ca.crt"], d["sov-region-b.crt"], d["sov-region-b.key"]) == ("Q0EtYg==", "Q1JULWI=", "S0VZLWI="), d
+assert base64.b64decode(d["sov-region-b"]).decode() == ("endpoints:\n- https://sov-region-b.mesh.cilium.io:12379\n"
+    "trusted-ca-file: /var/lib/cilium/clustermesh/sov-region-b-ca.crt\ncert-file:       /var/lib/cilium/clustermesh/sov-region-b.crt\n"
+    "key-file:        /var/lib/cilium/clustermesh/sov-region-b.key\n"), base64.b64decode(d["sov-region-b"])' "$(mesh_secret region-a <<< "$md")"
+  expect 0 "mesh: region B holds the CA and the client certificate of A" python3 -c '
+import json, sys
+d = json.loads(sys.argv[1])["data"]
+assert sorted(d) == ["sov-region-a", "sov-region-a-ca.crt", "sov-region-a.crt", "sov-region-a.key"] and d["sov-region-a.key"] == "S0VZLWE=", d' "$(mesh_secret region-b <<< "$md")"
+  expect 1 "mesh: a region without a peer has no Secret" bash -c "$(declare -f mesh_secret); mesh_secret region-a <<< '$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); d["regions"]=d["regions"][:1]; print(json.dumps(d))' "$md")'"
+  expect 1 "mesh: a region not in the document has no Secret" bash -c "$(declare -f mesh_secret); mesh_secret region-c <<< '$md'"
+  expect 0 "mesh: the host alias of region A names B at B's endpoint" test "$(mesh_aliases region-a <<< "$md")" = '{"spec": {"template": {"spec": {"hostAliases": [{"ip": "172.30.2.10", "hostnames": ["sov-region-b.mesh.cilium.io"]}]}}}}'
+  expect 1 "mesh: a region not in the document has no host alias" bash -c "$(declare -f mesh_aliases); mesh_aliases region-c <<< '$md'"
+  expect 0 "mesh: the peers of region B" test "$(mesh_peers region-b <<< "$md")" = "sov-region-a"
+  expect 0 "mesh: every agent reports every peer ready" mesh_judge sov-region-b <<< "$(printf 'cilium-1 sov-region-b=true;\ncilium-2 sov-region-b=true;\n')"
+  expect 1 "mesh: one agent reports the peer not ready" mesh_judge sov-region-b <<< "$(printf 'cilium-1 sov-region-b=true;\ncilium-2 sov-region-b=false;\n')"
+  expect 1 "mesh: an agent that knows no peer" mesh_judge sov-region-b <<< "$(printf 'cilium-1 sov-region-b=true;\ncilium-2\n')"
+  expect 1 "mesh: an agent that knows another peer only" mesh_judge sov-region-b <<< 'cilium-1 sov-region-c=true;'
+  expect 1 "mesh: no agent" mesh_judge sov-region-b < /dev/null
+  expect 1 "mesh: no peer named" mesh_judge <<< 'cilium-1 sov-region-b=true;'
 
   expect 2 "usage: --regions 3 is refused" bash "${BASH_SOURCE[0]}" up --regions 3 --branch b --commit "$(printf 'a%.0s' $(seq 40))"
   expect 2 "usage: a short commit is refused" bash "${BASH_SOURCE[0]}" up --regions 2 --branch b --commit abc
