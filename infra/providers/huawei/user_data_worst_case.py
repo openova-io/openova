@@ -1,7 +1,9 @@
 """The worst-case inputs of this module's user data, for scripts/cloudinit-size-check.py (#7893).
 
-The program calls worst_case(c) with its own module as c (the fillers and the
-lengths shared by every provider are there) and renders this module's
+The program calls worst_case(c, limit) with its own module as c (the fillers
+and the lengths shared by every provider are there) and the user-data limit
+of this pack's profile.yaml as limit (spec.bootstrap.userDataLimitBytes, the
+one place of the cloud's limit), and renders this module's
 user-data locals with what it returns: the module variables, the resource
 attributes the locals read (`res`), stand-ins for locals derived from
 resources, the locals to render and the surfaces to measure with their limits.
@@ -17,12 +19,12 @@ FQDN_LENGTH = 32
 
 # The limit. The ECS API refused 43,908 base64 characters against a quota of
 # 43,692, the base64 form of 32,769 bytes (fresh two-region installation of
-# 14 Nov 2026, #7893): the limit is 32 KiB of raw user data. The module has no
-# precondition of its own, so the API is the limit for every surface.
-LIMIT = 32768
+# 14 Nov 2026, #7893): the limit is 32 KiB of raw user data. It stands in
+# profile.yaml and arrives here as `limit`. The module has no precondition of
+# its own, so the API is the limit for every surface.
 
 
-def worst_case(c):
+def worst_case(c, limit):
     fqdn = c.fqdn(FQDN_LENGTH)
     regions = [
         {"code": "me-east-215-a", "cloud_region": "me-east-215", "role": "primary", "control_plane_size": "s7n.large.4", "worker_size": "m7n.xlarge.8", "worker_count": 50},
@@ -88,9 +90,9 @@ def worst_case(c):
 
     def surfaces(out):
         return [
-            ("control-plane, primary region (worst case)", out["cp_cloud_init_by_region"][codes[0]], LIMIT),
-            ("control-plane, secondary region (worst case)", out["cp_cloud_init_by_region"][codes[1]], LIMIT),
-            ("worker, primary region (worst case)", out["worker_cloud_init_by_region"][codes[0]], LIMIT),
-            ("worker, secondary region (worst case)", out["worker_cloud_init_by_region"][codes[1]], LIMIT),
+            ("control-plane, primary region (worst case)", out["cp_cloud_init_by_region"][codes[0]], limit),
+            ("control-plane, secondary region (worst case)", out["cp_cloud_init_by_region"][codes[1]], limit),
+            ("worker, primary region (worst case)", out["worker_cloud_init_by_region"][codes[0]], limit),
+            ("worker, secondary region (worst case)", out["worker_cloud_init_by_region"][codes[1]], limit),
         ]
     return variables, res, standins, roots, surfaces

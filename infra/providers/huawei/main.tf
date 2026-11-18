@@ -1097,6 +1097,18 @@ locals {
   # :30443. (The #4687/#4689 sharing-key option-B that co-located the gateway
   # VIP on this CP-node EIP is removed — that EIP is a 1:1 NAT, unreachable.)
   # Plain POSIX (`nohup sh -c`, not bash; dash -n clean — no $(( )) here).
+  #
+  # #5042(b) / CLD-132 — the second item writes the failure-mark helper
+  # /var/lib/catalyst/mark (mode 0700, root only: it carries the bearer
+  # token). The shared template calls it through fail_mark_cmd at every
+  # fail-loud exit and once at the end: it touches the named marker and
+  # echoes it into the log; when the push is configured it then waits a
+  # second for the log to flush and pushes /var/log/cloud-init-output.log to
+  # the parent (curl -4: the VPC is IPv4-only). These control planes have no
+  # console-output API and no reachable sshd, so a leg that dies after the
+  # uploader above stopped is otherwise forensic-blind (hw247). The push carries ?node=$(hostname), so
+  # a multi-region Sovereign keeps every control plane's log (#6339). The
+  # callers append ||true, so a failed push never masks the leg's exit code.
   provider_prelude_huawei = <<-EOT
     - |
       if [ -n "${var.deployment_id}" ] && [ -n "${var.kubeconfig_bearer_token}" ] && [ -n "${var.catalyst_api_url}" ]; then
@@ -1120,6 +1132,9 @@ locals {
           done
         ' >/dev/null 2>&1 &
       fi
+    - |
+      install -m 700 /dev/null /var/lib/catalyst/mark
+      printf '%s\n' 'touch "/var/lib/catalyst/$1"' 'echo "CLOUDINIT-SENTINEL: $1"'%{if var.deployment_id != "" && var.kubeconfig_bearer_token != "" && var.catalyst_api_url != ""} 'sleep 1' 'curl -4 -sk -X PUT -H "Authorization: Bearer ${var.kubeconfig_bearer_token}" -H "Content-Type: text/plain" --data-binary @/var/log/cloud-init-output.log --max-time 20 "${var.catalyst_api_url}/api/v1/deployments/${var.deployment_id}/cloudinit-log?node=$(hostname)" >/dev/null 2>&1'%{endif} >/var/lib/catalyst/mark
   EOT
 
   # HCS-specific k3s flags. NO OIDC (HCS Sovereigns don't wire kubectl-SSO at
@@ -1259,8 +1274,6 @@ locals {
       region_canonical_label         = "hw-${r.code}-rtz-prod"
       primary_region_canonical_label = "hw-${var.regions[0].code}-rtz-prod"
       replica_region_canonical_label = length(var.regions) > 1 ? "hw-${var.regions[1].code}-rtz-prod" : ""
-      # #2940: per-Sovereign PDNS endpoint override (bootstrap-kit substitute).
-      pdns_api_host = var.pdns_api_host
       # #5017 keystone — kom4dc provider API /24 for the step-08 deny-egress
       # allow-list (egressTest.allowProviderCIDRs via PROVIDER_API_CIDRS_YAML).
       provider_api_cidrs_yaml = jsonencode(var.provider_api_cidrs)
@@ -1348,15 +1361,24 @@ locals {
       k3s_extra_args = "--node-label=topology.kubernetes.io/region=${r.code} --node-label=topology.kubernetes.io/zone=${r.code} --node-label=catalyst.openova.io/provider=huawei --kube-apiserver-arg=default-watch-cache-size=200 --kube-apiserver-arg=watch-cache-sizes=secrets#500,configmaps#500 --etcd-snapshot-retention=5"
       # node external IP — HCS metadata doesn't populate it, so use this
       # region's tofu-known CP EIP (printf, NOT curl). Hard dependency (plan §5).
-      node_external_ip_cmd   = "printf '%s' '${huaweicloud_vpc_eip.cp[r.code].publicip.0.ip_address}'"
-      node_external_ip_value = huaweicloud_vpc_eip.cp[r.code].publicip.0.ip_address
-      # #4784 — clustermesh-proxy host-socket dial port (non-2379; dodges the
-      # CP-node k3s-etcd :2379 collision). Drives CILIUM_CLUSTERMESH_PROXY_PORT
-      # + CLUSTERMESH_APISERVER_DIAL_PORT; matches the ingress_clustermesh_proxy
-      # SG rule + the bp-cilium clustermeshProxy.hostPort value.
-      clustermesh_proxy_port = var.clustermesh_proxy_port
+      node_external_ip_cmd = "printf '%s' '${huaweicloud_vpc_eip.cp[r.code].publicip.0.ip_address}'"
+
+      # CLD-132 — the provider tests of the shared template, as inputs. The
+      # VPC is IPv4-only (IPv6 off, IPv4 pins, image pre-pull), the failure
+      # mark is the helper the prelude writes, the region Kustomization is
+      # rendered, and the gateway binds the host ports: gateway_host_network
+      # equals spec.network.loadBalancer.mode == "external-hostport" of
+      # profile.yaml.
+      node_ipv4_only              = true
+      fail_mark_cmd               = "sh /var/lib/catalyst/mark "
+      render_region_kustomization = true
+      gateway_host_network        = true
+      provider_overlay_path       = "./clusters/_template/providers/huawei"
 
       # CLD-131 — the Flux substitutes of this pack, from its own file.
+      # clustermesh_proxy_port (#4784) drives CILIUM_CLUSTERMESH_PROXY_PORT and
+      # CLUSTERMESH_APISERVER_DIAL_PORT; pdns_api_host is the per-Sovereign
+      # PDNS endpoint override (#2940).
       provider_substitutes_yaml = templatefile("${path.module}/provider-substitutes.yaml.tftpl", {
         region                 = r.code
         default_storage_class  = var.default_storage_class

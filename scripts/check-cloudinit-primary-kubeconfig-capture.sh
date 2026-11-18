@@ -72,7 +72,6 @@ TOFU_BIN="${TOFU_BIN:-tofu}"
 PY_BIN="${PY_BIN:-python3}"
 
 HUAWEI_TF="infra/providers/huawei/main.tf"
-SHARED_TPL="infra/providers/_shared/cloudinit-control-plane.tftpl"
 LOG_HANDLER="products/catalyst/bootstrap/api/internal/handler/cloudinit_log.go"
 
 C_RED=$'\033[31m'; C_GRN=$'\033[32m'; C_RST=$'\033[0m'
@@ -243,10 +242,10 @@ run_checks() {
   # Without this the fail-loud line above lands in a file the other region
   # overwrites 30 seconds later, and the guard would be pinning a message
   # nobody can ever read.
-  file_has "huawei prelude uploader is per-node (?node=)" \
+  file_has "provider prelude uploader is per-node (?node=)" \
     "${root}/${HUAWEI_TF}" 'cloudinit-log?node=$(hostname)'
-  file_has "shared-template fail-loud 'mark' pusher is per-node (?node=)" \
-    "${root}/${SHARED_TPL}" 'cloudinit-log?node=$(hostname)'
+  file_has "fail-loud 'mark' pusher (the fail_mark_cmd helper of the provider prelude) is per-node (?node=)" \
+    "${root}/${HUAWEI_TF}" "cloudinit-log?node=\$(hostname)\" >/dev/null 2>&1'"
   file_has "catalyst-api keeps a per-node capture alongside the shared one" \
     "${root}/${LOG_HANDLER}" 'id+"-cloudinit-"+node+".log"'
 
@@ -344,17 +343,14 @@ PY
   # the other region overwrites, i.e. the hw297/hw298 blindness returns.
   tmp="$(mktemp -d)"
   cp -r "${ROOT}/infra" "${ROOT}/products" "${ROOT}/scripts" "${tmp}/" 2>/dev/null
-  "${PY_BIN}" - "${tmp}/${HUAWEI_TF}" "${tmp}/${SHARED_TPL}" <<'PY'
+  "${PY_BIN}" - "${tmp}/${HUAWEI_TF}" <<'PY'
 import sys
-changed = 0
-for p in sys.argv[1:]:
-    s = open(p).read()
-    s2 = s.replace("cloudinit-log?node=$(hostname)", "cloudinit-log")
-    if s2 != s:
-        changed += 1
-    open(p, "w").write(s2)
-if changed != 2:
-    sys.exit("self-test mutation 3 changed %d of 2 files — a per-node uploader moved" % changed)
+p = sys.argv[1]
+s = open(p).read()
+# The prelude uploader and the fail-loud helper of the prelude (CLD-132).
+if s.count("cloudinit-log?node=$(hostname)") != 2:
+    sys.exit("self-test mutation 3 found %d per-node pushers, not 2 — a per-node uploader moved" % s.count("cloudinit-log?node=$(hostname)"))
+open(p, "w").write(s.replace("cloudinit-log?node=$(hostname)", "cloudinit-log"))
 PY
   [ $? -eq 0 ] || { fail "self-test: could not apply the single-key-log mutation"; st_fail=1; }
   FAILURES=0
