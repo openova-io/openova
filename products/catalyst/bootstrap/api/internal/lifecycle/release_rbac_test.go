@@ -27,9 +27,13 @@ import (
 // kubectl makes for it, and checks each request against the RBAC the cutover
 // chart renders for the account that makes it. A call shape the model below
 // does not know fails the test, and so does a kubectl call site of
-// release-run.sh that no replayed path reached: no call goes unchecked. The
-// route's own calls (the catalyst-api account) are checked by
-// TestReleaseRouteVerbsAreGranted.
+// release-run.sh that no replayed path reached: no call goes unchecked. That
+// includes the server-side dry runs of verify and compose: a dry run is
+// authorized as the call it stands for (create for a create; patch and create
+// for a server-side apply), so the RBAC that lets it pass lets the delivery
+// pass. The route's own calls (the catalyst-api account) are checked by
+// TestReleaseRouteVerbsAreGranted. That the objects themselves are valid is
+// checked by release_objects_test.go.
 
 // apiRequest is one request kubectl sends to the API server.
 type apiRequest struct {
@@ -239,6 +243,9 @@ func (c kubectlCall) requests() ([]apiRequest, error) {
 		if len(rest) > 0 && rest[0] == "can-i" {
 			return []apiRequest{{verb: "create", group: "authorization.k8s.io", resource: "selfsubjectaccessreviews", anyUser: true}}, nil
 		}
+		if len(rest) > 0 && rest[0] == "whoami" {
+			return []apiRequest{{verb: "create", group: "authentication.k8s.io", resource: "selfsubjectreviews", anyUser: true}}, nil
+		}
 	}
 	return nil, fmt.Errorf("the model knows no kubectl %s: add it to requests", sub)
 }
@@ -268,6 +275,8 @@ func callKeys(args []string) ([]string, error) {
 	}
 	res := ""
 	switch {
+	case pos[0] == "auth" && len(pos) > 1:
+		res = pos[1]
 	case fl["-f"] != "":
 		res = "stdin"
 	case fl["--raw"] != "":
@@ -497,8 +506,10 @@ func replayEveryReleasePath(t *testing.T) []kubectlCall {
 		}
 	}
 	// A delivery to two regions with the pull credential: stage, then deliver
-	// (compose, the delivery Job's prewarm and promote).
+	// (compose with its server-side dry run of every object, the delivery
+	// Job's prewarm and promote). The delivery Job's Pods are read at once.
 	r, req := credentialFixture(t, false, false)
+	r.env = append(r.env, "DELIVERY_STALL_SECONDS=0")
 	run(r, "stage", req, true)
 	run(r, "deliver", req, true)
 	calls = append(calls, recordedCalls(t, r.stub)...)
@@ -587,28 +598,68 @@ func TestReleaseScriptCallsAreGrantedToTheirAccount(t *testing.T) {
 	sort.Strings(lines)
 	t.Logf("%d calls from %d call sites of release-run.sh, %d distinct requests:\n%s", len(calls), len(sites), len(lines), strings.Join(lines, "\n"))
 
-	// Mutation control: without the rule that lets the runner delete Secrets,
-	// the replay must be refused (the credential is deleted in every region).
-	secretsDelete := func(r rbacv1.PolicyRule) bool {
-		return len(r.Resources) == 1 && r.Resources[0] == "secrets" && len(r.Verbs) == 1 && r.Verbs[0] == "delete"
-	}
-	var less []rbacv1.PolicyRule
-	for _, r := range rules {
-		if !secretsDelete(r) {
-			less = append(less, r)
-		}
-	}
-	refused := 0
+	// The server-side dry runs (verify, and compose before it creates
+	// anything) were checked above like every call: a dry run of a create
+	// needs create, of a server-side apply patch and create, the same verbs
+	// as the call it stands for. The replay must have sent them, as both
+	// accounts, or the dry run's own calls go unchecked.
+	dry := map[string]bool{}
 	for _, c := range calls {
+		if _, fl := kubectlArgs(c.args); fl["--dry-run"] != "server" {
+			continue
+		}
+		who := "runner"
+		if c.peer() {
+			who = "peer"
+		}
 		reqs, _ := c.requests()
 		for _, q := range reqs {
-			if !c.peer() && !allowed(less, q) {
-				refused++
-			}
+			dry[who+" "+q.verb+" "+q.resource] = true
 		}
 	}
-	if len(less) == len(rules) || refused == 0 {
-		t.Fatalf("mutation control: with the secrets delete rule removed (%d of %d rules left) no replayed call is refused: the check cannot fail", len(less), len(rules))
+	for _, want := range []string{"runner create jobs", "runner patch configmaps", "runner create configmaps", "peer create jobs", "peer patch configmaps", "peer patch secrets"} {
+		if !dry[want] {
+			t.Errorf("no replayed path sent a server-side dry run that needs %q: the dry run's calls are unchecked", want)
+		}
+	}
+
+	// Mutation controls: without the rule that lets the runner delete Secrets
+	// (the credential is deleted in every region), or patch ConfigMaps (the
+	// dry run and the delivery apply the ConfigMaps the Job mounts), the
+	// replay must be refused.
+	for _, mc := range []struct {
+		name string
+		rule func(rbacv1.PolicyRule) bool
+		dry  bool
+	}{
+		{"secrets delete", func(r rbacv1.PolicyRule) bool {
+			return len(r.Resources) == 1 && r.Resources[0] == "secrets" && len(r.Verbs) == 1 && r.Verbs[0] == "delete"
+		}, false},
+		{"configmaps update, patch", func(r rbacv1.PolicyRule) bool {
+			return len(r.Resources) == 1 && r.Resources[0] == "configmaps" && strings.Join(r.Verbs, ",") == "update,patch"
+		}, true},
+	} {
+		var less []rbacv1.PolicyRule
+		for _, r := range rules {
+			if !mc.rule(r) {
+				less = append(less, r)
+			}
+		}
+		refused := 0
+		for _, c := range calls {
+			if _, fl := kubectlArgs(c.args); mc.dry && fl["--dry-run"] != "server" {
+				continue
+			}
+			reqs, _ := c.requests()
+			for _, q := range reqs {
+				if !c.peer() && !allowed(less, q) {
+					refused++
+				}
+			}
+		}
+		if len(less) == len(rules) || refused == 0 {
+			t.Fatalf("mutation control: with the %s rule removed (%d of %d rules left) no replayed call (dry runs only: %v) is refused: the check cannot fail", mc.name, len(less), len(rules), mc.dry)
+		}
 	}
 }
 
