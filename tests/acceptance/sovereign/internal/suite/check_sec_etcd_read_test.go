@@ -42,7 +42,7 @@ func etcdFileVersions(t *testing.T, root string, versions ...[]byte) {
 	go func() {
 		defer close(done)
 		for i := 0; ; i++ {
-			w, err := os.OpenFile(pipe(i), os.O_WRONLY, 0) // waits until a reader opens the file
+			w, err := os.OpenFile(filepath.Clean(pipe(i)), os.O_WRONLY, 0) // waits until a reader opens the file
 			if err != nil {
 				t.Error(err)
 				return
@@ -63,7 +63,7 @@ func etcdFileVersions(t *testing.T, root string, versions ...[]byte) {
 	t.Cleanup(func() {
 		close(stop)
 		// A reader that does not wait releases the writer that waits for one.
-		if r, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0); err == nil {
+		if r, err := os.OpenFile(filepath.Clean(path), os.O_RDONLY|syscall.O_NONBLOCK, 0); err == nil {
 			<-done
 			_ = r.Close()
 		}
@@ -90,7 +90,7 @@ func TestSecEtcdReadsTheFileOnce(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			host := func(t *testing.T, root string, args []string) {
 				etcdHost("secretbox")(t, root, args)
-				one, err := os.ReadFile(filepath.Join(root, filepath.FromSlash("var/lib/rancher/k3s/server/db/etcd/member/snap/db")))
+				one, err := os.ReadFile(filepath.Clean(filepath.Join(root, filepath.FromSlash("var/lib/rancher/k3s/server/db/etcd/member/snap/db"))))
 				if err != nil {
 					t.Fatal(err)
 				}
