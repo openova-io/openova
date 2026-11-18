@@ -4034,7 +4034,7 @@ packages:
   size: M
   lane: RAILS
   depends_on: [FND-141, FND-017]
-  after: [FND-062, FND-027, FND-029, FND-018, FND-019, FND-024, FND-025, FND-130]
+  after: [FND-062, FND-027, FND-029, FND-018, FND-019, FND-024, FND-025, FND-130, SVC-150]
   touches:
   - .github/actions/deploy-bump/action.yaml
   - .github/workflows/chart-auto-bump.yaml
@@ -4135,7 +4135,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [FND-151, SOV-510, CMP-150, CTL-038, FND-153]
-  after: [FND-011, FND-154, SOV-175, SEC-010, SEC-103, SEC-104, SEC-105, NET-013, NET-040, NET-150, NET-221, SVC-040, SVC-041, CTL-151, CTL-320, CTL-346, CTL-347, INF-040, INF-050, INF-051, INF-052, INF-110, ACC-050]
+  after: [FND-011, FND-154, SOV-175, SEC-010, SEC-103, SEC-104, SEC-105, NET-013, NET-040, NET-150, NET-221, SVC-040, SVC-041, SVC-150, CTL-151, CTL-320, CTL-346, CTL-347, INF-040, INF-050, INF-051, INF-052, INF-110, ACC-050]
   touches:
   - platform/conformance/**
   - clusters/_template/bootstrap-kit/99-bp-conformance.yaml
@@ -4265,7 +4265,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [FND-036, FND-120]
-  after: [FND-035, NET-013, SVC-040]
+  after: [FND-035, CLD-094, NET-013, SVC-040]
   touches:
   - docs/ledger/uat-row-map.csv
   - products/catalyst/bootstrap/ui/e2e/gate/**
@@ -4845,7 +4845,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [FND-191, FND-192]
-  after: [FND-037, FND-011, SOV-020, SOV-151, SOV-175, SOV-241, SEC-103, SEC-104, SEC-105, NET-030, NET-040, NET-042, NET-080, NET-095, NET-150, NET-221, SVC-040, SVC-041, CTL-041, CTL-346, CTL-347, INF-040, INF-050, INF-110, ACC-050]
+  after: [FND-037, FND-011, SOV-020, SOV-151, SOV-175, SOV-241, SEC-103, SEC-104, SEC-105, NET-030, NET-040, NET-042, NET-080, NET-095, NET-150, NET-221, SVC-040, SVC-041, SVC-150, CTL-041, CTL-346, CTL-347, INF-040, INF-050, INF-110, ACC-050]
   touches:
   - platform/syft-grype/**
   - clusters/_template/bootstrap-kit/33-syft-grype.yaml
@@ -4953,7 +4953,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [FND-202]
-  after: [FND-011, CLD-142, SOV-151, SOV-175, SEC-103, SEC-104, SEC-105, NET-040, NET-221, SVC-040, SVC-041, CTL-041, CTL-346, CTL-347, INF-040, INF-050, INF-110, ACC-050]
+  after: [FND-011, CLD-142, SOV-151, SOV-175, SEC-103, SEC-104, SEC-105, NET-040, NET-221, SVC-040, SVC-041, SVC-150, CTL-041, CTL-346, CTL-347, INF-040, INF-050, INF-110, ACC-050]
   touches:
   - platform/opentelemetry/**
   - platform/alloy/**
@@ -5079,7 +5079,7 @@ packages:
   size: S
   lane: RAILS
   depends_on: []
-  after: [FND-022, FND-052, FND-056, CLD-090, SOV-120, SOV-121, SOV-131, CTL-331, CTL-332, AIP-101, AIP-111, AIP-113, AIP-114, AIP-221, AIP-229, INF-110, PRD-101, PRD-102, PRD-103, PRD-501, PRD-513]
+  after: [FND-022, FND-052, FND-056, CLD-090, SOV-120, SOV-121, SOV-131, SVC-150, CTL-331, CTL-332, AIP-101, AIP-111, AIP-113, AIP-114, AIP-221, AIP-229, INF-110, PRD-101, PRD-102, PRD-103, PRD-501, PRD-513]
   touches:
   - '**/go.mod'
   - '**/go.sum'
@@ -6312,26 +6312,39 @@ packages:
   size: M
   lane: GATE
   depends_on: [CLD-090]
-  after: [FND-035, FND-036, FND-075, NET-013, SVC-040]
+  after: []
   touches:
   - scripts/check-zero-change-plan.sh
   - .github/workflows/foundation-gate.yaml
   - products/catalyst/bootstrap/api/cmd/tfvars-regenerate/**
+  - products/catalyst/bootstrap/api/internal/provisioner/regenerate.go
   - docs/ledger/gates.yaml
   resources: []
   flips: [CLD-G12]
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "python3 -c 'import yaml; print({c[\"id\"]: c for c in yaml.safe_load(open(\"docs/ledger/gates.yaml\"))[\"checks\"]}[\"CLD-G12\"][\"state\"])'"
+    expect: "not-built"
+  acceptance:
+  - id: A1
+    run: "test \"$(sha256sum < scripts/check-zero-change-plan.sh)\" = \"b66b8ceb50b7fcecb1f96b4db7b7a035507d44ce0b9b88f36d5bae50aa637410  -\" && bash scripts/check-zero-change-plan.sh --self-test > /dev/null"
+  - id: A2
+    run: "test \"$(sha256sum < products/catalyst/bootstrap/api/cmd/tfvars-regenerate/main.go)\" = \"de5b7bcb53e7242bd2b284090cdd6a7d092f30df561d724c90decab4c7c29f51  -\" && test \"$(sha256sum < products/catalyst/bootstrap/api/cmd/tfvars-regenerate/main_test.go)\" = \"c2f85d22a9ac9439000f1f1c81f0354969108c3adcbd45e9bfa251e2ea200cc7  -\" && test \"$(sha256sum < products/catalyst/bootstrap/api/internal/provisioner/regenerate.go)\" = \"768faa03639aaabf59e71e137f9934cba57668137d11d80623e61b4b383babb2  -\" && cd products/catalyst/bootstrap/api && go vet ./cmd/tfvars-regenerate/ && go test -count=1 ./cmd/tfvars-regenerate/"
+  - id: A3
+    run: "python3 -c 'import sys, yaml; c = {x[\"id\"]: x for x in yaml.safe_load(open(\"docs/ledger/gates.yaml\"))[\"checks\"]}[\"CLD-G12\"]; sys.exit(0 if (c[\"state\"], c.get(\"implementation\"), c[\"needs\"], c[\"runs_in\"], c[\"delivered_by\"]) == (\"required\", \"scripts/check-zero-change-plan.sh\", [], [\"cloud\"], \"CLD-094\") else 1)' && python3 scripts/acceptance-gate.py validate --base \"$(git merge-base origin/main HEAD)\" --body-file <(printf 'Work-Package: CLD-094\\n') > /dev/null"
+  - id: A4
+    run: "f=.github/workflows/foundation-gate.yaml; test \"$(grep -c -x -F '        run: bash scripts/check-zero-change-plan.sh --self-test' \"$f\")\" = 1 && test \"$(grep -c -x -F '      ACCEPTANCE_PARENT_KUBECONFIG:' \"$f\")\" = 1 && test \"$(grep -c -x -F '          python3 scripts/acceptance-gate.py merge-check \"candidate/$files\" \"$d/result.json\" --check CLD-G12' \"$f\")\" = 1 && python3 -c 'import sys, yaml; s = [x.get(\"name\", \"\") for x in yaml.safe_load(open(sys.argv[1]))[\"jobs\"][\"live\"][\"steps\"]]; i = s.index(\"Zero-change plan CLD-G12: the plan of the deployment shows no change\"); sys.exit(0 if s.index(\"Sign-in check FND-G07: add the result to the record\") < i < s.index(\"Validate the record\") else 1)' \"$f\""
+  - id: A5
+    run: "d=\"$(mktemp -d)\"; git show 60e193ceb8b71f750471f0080bbe57f6be25f8f7:docs/ledger/acceptance/hw307-20261118T090455Z-50c3.json > \"$d/rec.json\"; printf 'CLD-G12 begin copy 2026-11-18T10:00:00Z\\nCLD-G12 end copy 0 2026-11-18T10:00:01Z\\nCLD-G12 begin regenerate 2026-11-18T10:00:01Z\\nCLD-G12 line regenerate changed regions\\nCLD-G12 end regenerate 0 2026-11-18T10:00:02Z\\nCLD-G12 begin init 2026-11-18T10:00:02Z\\nCLD-G12 end init 0 2026-11-18T10:00:05Z\\nCLD-G12 begin plan 2026-11-18T10:00:05Z\\nCLD-G12 line plan   # huaweicloud_vpc_eip.nat[\"b\"] will be created\\nCLD-G12 line plan Plan: 1 to add, 0 to change, 0 to destroy.\\nCLD-G12 end plan 2 2026-11-18T10:00:20Z\\n' > \"$d/t\"; bash scripts/check-zero-change-plan.sh judge \"$d/t\" \"$d/r.json\" > /dev/null; python3 scripts/acceptance-gate.py merge-check \"$d/rec.json\" \"$d/r.json\" --check CLD-G12 > /dev/null && python3 -c 'import json, sys; r = json.load(open(sys.argv[1])); c = [x for x in r[\"checks\"] if x[\"id\"] == \"CLD-G12\"]; sys.exit(0 if len(c) == 1 and (c[0][\"status\"], c[0][\"state_at_run\"], r[\"result\"]) == (\"FAIL\", \"required\", \"FAIL\") and \"Plan: 1 to add, 0 to change, 0 to destroy.\" in c[0][\"reason\"] else 1)' \"$d/rec.json\" && python3 scripts/acceptance-gate.py validate-record \"$d/rec.json\" > /dev/null"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: A standing check that the infrastructure plan of a provisioned deployment shows no change, with the command that regenerates the variables file from a deployment record and the job of the gate workflow that runs it
+  delivers: Gate check CLD-G12 is required and implemented by scripts/check-zero-change-plan.sh, which inside the parent's engine Pod copies a deployment's working directory, stages the module of the commit under test, writes the variables file again from the deployment record with the new command tfvars-regenerate and passes only when tofu plan -detailed-exitcode exits 0; the live job of the gate workflow runs it and merges its result into the gate record.
 - id: CLD-101
   title: Golden files for the variables the engine writes
   area: CLD
@@ -11515,7 +11528,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [SOV-940, SOV-950]
-  after: [SOV-338, SVC-040, INF-112]
+  after: [CLD-094, SOV-338, SVC-040, INF-112]
   touches:
   - core/controllers/sovereign/internal/controller/provision.go
   - products/catalyst/bootstrap/api/internal/provisioner/**
@@ -14079,7 +14092,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271, FND-063, SOV-230]
-  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-073, FND-074, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-090, CLD-092, CLD-093, CLD-108, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-135, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-335, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, NET-011, NET-012, NET-013, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-133, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-190, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-020, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-101, AIP-111, AIP-113, AIP-120, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-110, INF-120, INF-130, INF-135, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-501, PRD-503, PRD-508, PRD-513]
+  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-073, FND-074, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-090, CLD-092, CLD-093, CLD-094, CLD-108, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-135, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-335, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, NET-011, NET-012, NET-013, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-133, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-150, SVC-190, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-020, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-101, AIP-111, AIP-113, AIP-120, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-110, INF-120, INF-130, INF-135, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-501, PRD-503, PRD-508, PRD-513]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -17523,7 +17536,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [NET-322, NET-327]
-  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-101, CLD-102, CLD-108, CLD-109, CLD-113, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-141, SOV-175, SOV-180, SOV-181, SOV-338, SEC-103, SEC-104, SEC-105, SEC-150, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-212, NET-221, SVC-030, SVC-040, SVC-041, SVC-060, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CMP-016, CMP-020, CMP-030, BSS-141, AIP-040, AIP-041, AIP-120, INF-040, INF-110, INF-112, INF-120, INF-130, INF-135, ACC-050]
+  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-108, CLD-109, CLD-113, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-141, SOV-175, SOV-180, SOV-181, SOV-338, SEC-103, SEC-104, SEC-105, SEC-150, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-212, NET-221, SVC-030, SVC-040, SVC-041, SVC-060, SVC-150, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CMP-016, CMP-020, CMP-030, BSS-141, AIP-040, AIP-041, AIP-120, INF-040, INF-110, INF-112, INF-120, INF-130, INF-135, ACC-050]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/
   - products/catalyst/bootstrap/api/
@@ -18383,35 +18396,49 @@ packages:
   size: M
   lane: RAILS
   depends_on: [FND-011, FND-091, SVC-040, SVC-041]
-  after: [INF-040, FND-029, FND-018, FND-019, FND-020, FND-096, FND-098, CLD-142, SEC-103, SEC-104, SEC-105, NET-040, NET-221, SVC-060, CTL-346, CTL-347, INF-110, ACC-050]
+  after: [INF-040, FND-029]
   touches:
   - scripts/generate-catalog.py
   - scripts/tests/test_generate_catalog.py
+  - products/catalyst/bootstrap/ui/scripts/build-catalog.mjs
   - products/catalyst/bootstrap/ui/package.json
   - products/catalyst/bootstrap/ui/Containerfile
   - products/catalyst/bootstrap/ui/vite.config.ts
-  - ​.github/workflows/check-catalog-generated-drift.yaml
-  - ​.github/workflows/blueprint-release.yaml
-  - ​.github/workflows/check-release-lockstep-writer.yaml
+  - .github/workflows/check-catalog-generated-drift.yaml
+  - .github/workflows/blueprint-release.yaml
+  - .github/workflows/check-release-lockstep-writer.yaml
   - scripts/check-release-lockstep-writer.py
   - scripts/check-train-coherent.sh
   - products/catalyst/bootstrap/api/internal/catalog/blueprints.json
   - products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts
+  - docs/PROTOCOL.md
   - docs/ledger/deleted-paths.txt
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "git ls-files -- products/catalyst/bootstrap/ui/scripts/build-catalog.mjs scripts/generate-catalog.py"
+    expect: "products/catalyst/bootstrap/ui/scripts/build-catalog.mjs"
+  acceptance:
+  - id: A1
+    run: "python3 scripts/tests/test_generate_catalog.py"
+  - id: A2
+    run: "python3 scripts/generate-catalog.py --self-test"
+  - id: A3
+    run: "python3 scripts/generate-catalog.py --check"
+  - id: A4
+    run: "python3 -c 'import glob, json, sys, yaml; c = {b[\"id\"]: b for b in json.load(open(\"products/catalyst/bootstrap/api/internal/catalog/blueprints.json\", encoding=\"utf-8\"))[\"blueprints\"]}; bad = [i for i, b in sorted(c.items()) if b[\"summary\"] in (\"|\", \">\")]; tags = {\"bp-\" + p.split(\"/\")[1].removeprefix(\"bp-\"): (yaml.safe_load(open(p, encoding=\"utf-8\"))[\"spec\"].get(\"card\") or {}).get(\"tags\") for p in glob.glob(\"platform/*/blueprint.yaml\") + glob.glob(\"products/*/blueprint.yaml\")}; bad += [i for i, t in sorted(tags.items()) if isinstance(t, list) and i in c and c[i][\"tags\"] != t]; print(\"\\n\".join(bad)); sys.exit(1 if bad else 0)'"
+  - id: A5
+    run: "test -z \"$(git ls-files -- products/catalyst/bootstrap/ui/scripts/build-catalog.mjs)\" && ! git grep -q -F 'build-catalog.mjs' -- .github scripts products/catalyst/bootstrap/ui ':!scripts/sync-catalog-seed-pin.py'"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'Python generator for outputs 1 and 2: no flag writes in place, --check, --dry-run for tests. The pull request commits the regenerated outputs. The drift workflow runs --check on pull requests, merge groups and main. Node generator deleted; summary defect fixed.'
+  delivers: The new scripts/generate-catalog.py writes the embedded catalogue blueprints.json and the console catalogue catalog.generated.ts from every Blueprint file and kit slot (no flag writes in place, --check, --dry-run, --self-test); the pull request commits the regenerated outputs, in which no summary is the bare block-scalar sign and flow-list tags are read; the drift workflow runs --check on pull requests, merge groups and main; the release writer, its guard and the train check call the new generator; the Node generator and its build hooks are deleted.
 - id: SVC-160
   title: 'One generator, part 2: the seed becomes generated'
   area: SVC
@@ -27114,7 +27141,7 @@ packages:
   size: XS
   lane: GATE
   depends_on: [AIP-130, AIP-140, AIP-160, FND-035]
-  after: [FND-036, FND-075, NET-013]
+  after: [FND-036, FND-075, CLD-094, NET-013]
   touches:
   - .github/workflows/foundation-gate.yaml
   resources: []
@@ -31539,7 +31566,7 @@ packages:
   size: S
   lane: GATE
   depends_on: [MIG-131, MIG-132, MIG-114, MIG-127, FND-141]
-  after: [INF-310, FND-035, NET-013]
+  after: [INF-310, FND-035, CLD-094, NET-013]
   touches:
   - tests/acceptance/sovereign/internal/suite/check_migration_warm_linux.go
   - tests/acceptance/sovereign/internal/suite/check_migration_warm_linux_test.go
