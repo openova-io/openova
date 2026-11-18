@@ -174,6 +174,23 @@ run "hetzner_render_is_valid" {
     condition     = length(regexall("\n    kubectl -n flux-system create cm sovereign-variables --from-env-file=/var/lib/catalyst/variables\\.env && kubectl apply -f /var/lib/catalyst/flux-bootstrap\\.yaml \\|\\| \\{ ", output.rendered_cloud_init)) == 1 && length(regexall("kubectl apply -f /var/lib/catalyst/flux-bootstrap\\.yaml", output.rendered_cloud_init)) == 1
     error_message = "SOV-134: ConfigMap sovereign-variables must be created from variables.env right before the one apply of flux-bootstrap.yaml, under the same exit 92."
   }
+
+  # SOV-142 — node artifacts come from the origin registry. The packed
+  # helper /var/lib/catalyst/oci_fetch is written before runcmd and sets
+  # NODE_ARTIFACT_FALLBACK=true once (SOV-510 changes it to false). The k3s
+  # installer (tag: k3s_version with + as -), the Gateway API manifest and
+  # the Flux install manifest are each fetched through it, with the upstream
+  # address of each as its fallback, and none of the three is downloaded
+  # directly any more.
+  assert {
+    condition     = length(regexall("(?s)\n  - path: /var/lib/catalyst/oci_fetch\n    permissions: '0700'\n    encoding: gz\\+b64\n    content: [A-Za-z0-9+/]+=*\n.*\nruncmd:\n", output.rendered_cloud_init)) == 1 && strcontains(output.boot_text, "\n#!/bin/sh\nNODE_ARTIFACT_FALLBACK=true\n") && length(regexall("NODE_ARTIFACT_FALLBACK=", output.boot_text)) == 1
+    error_message = "SOV-142: the write_files entry /var/lib/catalyst/oci_fetch (mode 0700, encoding gz+b64) must be written once, before runcmd, and must set NODE_ARTIFACT_FALLBACK=true, once."
+  }
+
+  assert {
+    condition     = length(regexall("\n      sh /var/lib/catalyst/oci_fetch k3s-install v1\\.31\\.4-k3s1 /var/lib/catalyst/k3s-install\\.sh https://[^ ]+ \\\\\n", output.rendered_cloud_init)) == 1 && length(regexall("; do sh /var/lib/catalyst/oci_fetch gateway-api-experimental-install v1\\.1\\.0 /var/lib/catalyst/gwapi\\.yaml https://[^ ]+/v1\\.1\\.0/experimental-install\\.yaml && kubectl apply -f /var/lib/catalyst/gwapi\\.yaml && break;", output.rendered_cloud_init)) == 1 && length(regexall("\n     sh /var/lib/catalyst/oci_fetch flux-install v2\\.4\\.0 /var/lib/catalyst/flux\\.yaml https://[^ ]+/v2\\.4\\.0/install\\.yaml && kubectl apply -f /var/lib/catalyst/flux\\.yaml \\|\\| true\n", output.rendered_cloud_init)) == 1 && length(regexall("sh /var/lib/catalyst/oci_fetch ", output.rendered_cloud_init)) == 3 && !strcontains(output.rendered_cloud_init, "curl -fsSL --max-time 60 https://") && !strcontains(output.rendered_cloud_init, "kubectl apply -f https://") && !strcontains(output.rendered_cloud_init, "/install.yaml | kubectl apply")
+    error_message = "SOV-142: the k3s installer, the Gateway API manifest and the Flux install manifest must each be fetched with oci_fetch, once, with the upstream address as the fallback, and none of them directly."
+  }
 }
 
 run "huawei_render_is_valid" {
@@ -310,6 +327,24 @@ run "huawei_render_is_valid" {
     condition     = length(regexall("\n    kubectl -n flux-system create cm sovereign-variables --from-env-file=/var/lib/catalyst/variables\\.env && kubectl apply -f /var/lib/catalyst/flux-bootstrap\\.yaml \\|\\| \\{ ", output.rendered_cloud_init)) == 1 && length(regexall("kubectl apply -f /var/lib/catalyst/flux-bootstrap\\.yaml", output.rendered_cloud_init)) == 1
     error_message = "SOV-134 (huawei branch): ConfigMap sovereign-variables must be created from variables.env right before the one apply of flux-bootstrap.yaml, under the same exit 92."
   }
+
+  # SOV-142 (huawei branch) — node artifacts come from the origin registry. The packed
+  # helper /var/lib/catalyst/oci_fetch is written before runcmd and sets
+  # NODE_ARTIFACT_FALLBACK=true once (SOV-510 changes it to false). The k3s
+  # installer (tag: k3s_version with + as -), the Gateway API manifest and
+  # the Flux install manifest are each fetched through it, with the upstream
+  # address of each as its fallback, and none of the three is downloaded
+  # directly any more.
+  assert {
+    condition     = length(regexall("(?s)\n  - path: /var/lib/catalyst/oci_fetch\n    permissions: '0700'\n    encoding: gz\\+b64\n    content: [A-Za-z0-9+/]+=*\n.*\nruncmd:\n", output.rendered_cloud_init)) == 1 && strcontains(output.boot_text, "\n#!/bin/sh\nNODE_ARTIFACT_FALLBACK=true\n") && length(regexall("NODE_ARTIFACT_FALLBACK=", output.boot_text)) == 1
+    error_message = "SOV-142 (huawei branch): the write_files entry /var/lib/catalyst/oci_fetch (mode 0700, encoding gz+b64) must be written once, before runcmd, and must set NODE_ARTIFACT_FALLBACK=true, once."
+  }
+
+  assert {
+    condition     = length(regexall("\n      sh /var/lib/catalyst/oci_fetch k3s-install v1\\.31\\.4-k3s1 /var/lib/catalyst/k3s-install\\.sh https://[^ ]+ \\\\\n", output.rendered_cloud_init)) == 1 && length(regexall("; do sh /var/lib/catalyst/oci_fetch gateway-api-experimental-install v1\\.1\\.0 /var/lib/catalyst/gwapi\\.yaml https://[^ ]+/v1\\.1\\.0/experimental-install\\.yaml && kubectl apply -f /var/lib/catalyst/gwapi\\.yaml && break;", output.rendered_cloud_init)) == 1 && length(regexall("\n     sh /var/lib/catalyst/oci_fetch flux-install v2\\.4\\.0 /var/lib/catalyst/flux\\.yaml https://[^ ]+/v2\\.4\\.0/install\\.yaml && kubectl apply -f /var/lib/catalyst/flux\\.yaml \\|\\| true\n", output.rendered_cloud_init)) == 1 && length(regexall("sh /var/lib/catalyst/oci_fetch ", output.rendered_cloud_init)) == 3 && !strcontains(output.rendered_cloud_init, "curl -fsSL --max-time 60 https://") && !strcontains(output.rendered_cloud_init, "kubectl apply -f https://") && !strcontains(output.rendered_cloud_init, "/install.yaml | kubectl apply")
+    error_message = "SOV-142 (huawei branch): the k3s installer, the Gateway API manifest and the Flux install manifest must each be fetched with oci_fetch, once, with the upstream address as the fallback, and none of them directly."
+  }
+
   # #7922: no node reboots itself. The control plane switched on the automatic
   # reboot of unattended-upgrades at 02:30 node time and rebooted a region's only
   # control plane mid-cutover. kured's node-patch-config owns that configuration.

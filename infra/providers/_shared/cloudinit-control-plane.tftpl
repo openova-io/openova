@@ -473,6 +473,56 @@ CILIUMVALUES
     encoding: gz+b64
     content: ${base64gzip(join("", [for k, v in variables : "${k}=${v}\n"]))}
 
+  # ── Node artifacts from the origin registry ───────────────────────────
+  # SOV-142: oci_fetch <repository> <tag> <output> <upstream address>
+  # fetches one node artifact from the origin registry of the variables
+  # document above: repository <REGISTRY_PATH_NODE_ARTIFACTS>/<repository>
+  # on <ORIGIN_REGISTRY_SCHEME>://<ORIGIN_REGISTRY_HOST>. It asks for the
+  # manifest (on 401 it takes a pull token from the realm the registry
+  # names), reads the digest of the first layer, downloads that layer and
+  # writes <output> only when the layer's SHA-256 equals that digest. When
+  # the origin does not serve the manifest (no host, no answer, a refused
+  # token, or any status but 200) and NODE_ARTIFACT_FALLBACK is true, it
+  # downloads <output> from <upstream address>, the address the node used
+  # before, and logs that it did; SOV-510 changes that default to false. A
+  # layer that fails to download or to match is a failure, never a
+  # fallback. The script exits non-zero on failure by the status of its
+  # last command. Three artifacts, called in runcmd below, all before Flux
+  # exists: k3s-install (tag: k3s_version with + as -), and
+  # gateway-api-experimental-install and flux-install (tag: the upstream
+  # release). Packed like its neighbours, so the script holds no comment;
+  # SOV-153 writes it plain with the other packed entries.
+  - path: /var/lib/catalyst/oci_fetch
+    permissions: '0700'
+    encoding: gz+b64
+    content: ${base64gzip(<<-EOT
+      #!/bin/sh
+      NODE_ARTIFACT_FALLBACK=true
+      v() { sed -n "s/^$1=//p" /var/lib/catalyst/variables.env; }
+      h=$(v ORIGIN_REGISTRY_HOST) r=$(v REGISTRY_PATH_NODE_ARTIFACTS)/$1 o=$3.oci s= t=
+      u=$(v ORIGIN_REGISTRY_SCHEME)://$h/v2/$r
+      trap 'rm -f $o $o.h' 0
+      c="curl -sS --connect-timeout 10 -m 300"
+      m="Accept: application/vnd.oci.image.manifest.v1+json"
+      if [ -n "$h" ]; then
+        s=$($c -o $o -D $o.h -w '%%{http_code}' -H "$m" $u/manifests/$2)
+        if [ "$s" = 401 ]; then
+          t=$($c -f "$(tr -d '\r' < $o.h | sed -n 's/.*realm="\([^"]*\)",service="\([^"]*\)".*/\1?service=\2/p')&scope=repository:$r:pull" | jq -r .token)
+          s=$($c -o $o -w '%%{http_code}' -H "$m" -H "Authorization: Bearer $t" $u/manifests/$2)
+        fi
+      fi
+      if [ "$s" = 200 ]; then
+        d=$(jq -r '.layers[0].digest' $o)
+        $c -fL -o $o $${t:+-H "Authorization: Bearer $t"} $u/blobs/$d && [ "sha256:$(sha256sum $o | cut -d' ' -f1)" = "$d" ] && mv $o $3 && exit
+        echo "oci_fetch: $1:$2: bad layer $d" >&2
+        false
+      else
+        echo "oci_fetch: $1:$2 not at the origin ($s), fallback $NODE_ARTIFACT_FALLBACK: $4" >&2
+        [ "$NODE_ARTIFACT_FALLBACK" = true ] && curl -fsSL --max-time 60 $4 -o $3
+      fi
+      EOT
+    )}
+
   # ── Flux bootstrap: GitRepository + bootstrap-kit Kustomization ───────
   # From here Flux owns the cluster. The postBuild.substitute map threads
   # every Sovereign-shape value into clusters/_template/bootstrap-kit/*.
@@ -1308,7 +1358,7 @@ runcmd:
     # linear backoff for the #3232/#3829 class; exhaustion fail-loud (sentinel +
     # exit 88, huawei log-push). Re-run is idempotent.
     for i in 1 2 3 4 5; do
-      curl -fsSL --max-time 60 https://get.k3s.io -o /var/lib/catalyst/k3s-install.sh \
+      sh /var/lib/catalyst/oci_fetch k3s-install ${replace(k3s_version, "+", "-")} /var/lib/catalyst/k3s-install.sh https://get.k3s.io \
         && INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_server_token} \
            INSTALL_K3S_EXEC="server --cluster-init --secrets-encryption --secrets-encryption-provider=secretbox --flannel-backend=none --disable-network-policy --disable-kube-proxy --disable=traefik --disable=servicelb --disable=local-storage --cluster-cidr=${cluster_cidr} --service-cidr=${service_cidr} --node-ip=$${NODE_IP} --node-external-ip=$${NODE_EXTERNAL_IP} --advertise-address=$${NODE_IP} --kubelet-arg=max-pods=220 --kubelet-arg=image-gc-high-threshold=70 --kubelet-arg=image-gc-low-threshold=60 --kubelet-arg=minimum-image-ttl-duration=2h --tls-san=${sovereign_fqdn} --tls-san=$${NODE_IP} --tls-san=$${NODE_EXTERNAL_IP} --node-label catalyst.openova.io/role=control-plane --node-label openova.io/region=${region_canonical_label} --agent-token=${k3s_agent_token} ${k3s_extra_args} --write-kubeconfig-mode=0644" \
            sh /var/lib/catalyst/k3s-install.sh \
@@ -1421,7 +1471,7 @@ runcmd:
   # ONE shell so KUBECONFIG is exported once — keeps the byte-tight Hetzner render.
   - |
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-    for i in 1 2 3 4 5; do kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/experimental-install.yaml && break; [ "$i" = 5 ] && { ${fail_mark_cmd}gwapi-apply-FAILED||true; exit 95; }; sleep 15; done
+    for i in 1 2 3 4 5; do sh /var/lib/catalyst/oci_fetch gateway-api-experimental-install v1.1.0 /var/lib/catalyst/gwapi.yaml https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/experimental-install.yaml && kubectl apply -f /var/lib/catalyst/gwapi.yaml && break; [ "$i" = 5 ] && { ${fail_mark_cmd}gwapi-apply-FAILED||true; exit 95; }; sleep 15; done
     kubectl wait --for=condition=Established crd/tlsroutes.gateway.networking.k8s.io --timeout=60s
 
   # ── Cilium CNI: helm upgrade --install + retry/fail-fast (#4503) ───────
@@ -1696,7 +1746,7 @@ runcmd:
     n=0
     until kubectl get crd helmreleases.helm.toolkit.fluxcd.io >/dev/null 2>&1; do
      n=$((n+1)); [ "$n" -gt 10 ] && { ${fail_mark_cmd}flux-install-FAILED||true; exit 93; }
-     curl -fsSL --max-time 60 https://github.com/fluxcd/flux2/releases/download/v2.4.0/install.yaml | kubectl apply -f - || true
+     sh /var/lib/catalyst/oci_fetch flux-install v2.4.0 /var/lib/catalyst/flux.yaml https://github.com/fluxcd/flux2/releases/download/v2.4.0/install.yaml && kubectl apply -f /var/lib/catalyst/flux.yaml || true
      sleep $((n*10))
     done
     kubectl -n flux-system delete networkpolicy allow-egress allow-scraping allow-webhooks --ignore-not-found || true
