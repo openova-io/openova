@@ -1,18 +1,21 @@
 /**
  * resource.api.test.ts — pure-function tests for the URL composers +
- * tab-validation helpers.
+ * tab-validation helpers, the owner in Git and the break-glass writes.
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 import {
+  ManagedByGitError,
+  applyYAML,
+  deleteResource,
+  gitOwner,
   isValidResourceDetailTab,
   normaliseKindForRegistry,
   nsSegment,
   parseTabFromPath,
   resourceDetailHref,
-  isFluxManaged,
-  isManuallyManaged,
+  scaleResource,
   logsWebSocketURL,
   execWebSocketURL,
 } from './resource.api'
@@ -86,22 +89,57 @@ describe('resource.api — tab parser', () => {
   })
 })
 
-describe('resource.api — managed-by detection', () => {
-  it('isFluxManaged true for label = flux', () => {
-    expect(isFluxManaged({ metadata: { labels: { 'app.kubernetes.io/managed-by': 'flux' } } } as unknown as Parameters<typeof isFluxManaged>[0])).toBe(true)
-    expect(isFluxManaged({ metadata: { annotations: { 'catalyst.openova.io/managed-by': 'flux' } } } as unknown as Parameters<typeof isFluxManaged>[0])).toBe(true)
+describe('resource.api — owner in Git', () => {
+  const meta = (metadata: Record<string, unknown>) => ({ metadata }) as unknown as Parameters<typeof gitOwner>[0]
+  const helm = { 'helm.toolkit.fluxcd.io/name': 'wp' }
+  const rs = { apiVersion: 'apps/v1', kind: 'ReplicaSet', name: 'wp-1' }
+
+  it('gitOwner names the owner by the rules of the API, first match wins', () => {
+    const kustomize = { 'kustomize.toolkit.fluxcd.io/name': 'apps', 'kustomize.toolkit.fluxcd.io/namespace': 'flux-system' }
+    expect(gitOwner(meta({ labels: { ...kustomize, ...helm } }))).toBe('Kustomization flux-system/apps')
+    expect(gitOwner(meta({ labels: { ...helm, 'helm.toolkit.fluxcd.io/namespace': 'shop' } }))).toBe('HelmRelease shop/wp')
+    expect(gitOwner(meta({ labels: helm }))).toBe('HelmRelease wp')
+    const release = { apiVersion: 'helm.toolkit.fluxcd.io/v2', kind: 'HelmRelease', name: 'wp' }
+    expect(gitOwner(meta({ namespace: 'shop', ownerReferences: [rs, release] }))).toBe('HelmRelease shop/wp')
+    expect(gitOwner(meta({ labels: { 'app.kubernetes.io/managed-by': 'Flux' } }))).toBe('Flux')
   })
 
-  it('isFluxManaged false otherwise', () => {
-    expect(isFluxManaged(null)).toBe(false)
-    expect(isFluxManaged({} as unknown as Parameters<typeof isFluxManaged>[0])).toBe(false)
-    expect(isFluxManaged({ metadata: { labels: { foo: 'bar' } } } as unknown as Parameters<typeof isFluxManaged>[0])).toBe(false)
+  it('gitOwner is null when the detail payload names no owner in Git', () => {
+    expect(gitOwner(null)).toBeNull()
+    const labels = { 'app.kubernetes.io/managed-by': 'Helm', 'managed-by': 'flux' }
+    const annotations = { 'catalyst.openova.io/managed-by': 'flux' }
+    expect(gitOwner(meta({ labels, annotations, ownerReferences: [rs] }))).toBeNull()
+  })
+})
+
+describe('resource.api — break-glass writes', () => {
+  const answer = (status: number, body: unknown) => new Response(JSON.stringify(body), { status })
+  beforeEach(() => {
+    global.fetch = vi.fn().mockImplementation(() => Promise.resolve(answer(200, {})))
   })
 
-  it('isManuallyManaged is the negation when no flux marker', () => {
-    expect(isManuallyManaged({ metadata: {} } as unknown as Parameters<typeof isFluxManaged>[0])).toBe(true)
-    expect(isManuallyManaged({ metadata: { annotations: { 'catalyst.openova.io/managed-by': 'manual' } } } as unknown as Parameters<typeof isFluxManaged>[0])).toBe(true)
-    expect(isManuallyManaged({ metadata: { labels: { 'app.kubernetes.io/managed-by': 'flux' } } } as unknown as Parameters<typeof isFluxManaged>[0])).toBe(false)
+  it('scale and apply send the body field reason; delete sends the query parameter reason', async () => {
+    await scaleResource('dep', 'deployment', 'shop', 'wp', 2, 'load test of the shop')
+    await applyYAML('dep', 'configmap', 'shop', 'banner', 'kind: ConfigMap\n', 'fix the shop banner')
+    await deleteResource('dep', 'pod', 'shop', 'wp-1', 'stuck pod, see the incident')
+    const calls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls as [string, RequestInit][]
+    expect(calls[0][0]).toContain('/v1/sovereigns/dep/k8s/deployment/shop/wp/scale')
+    expect(JSON.parse(calls[0][1].body as string)).toEqual({ replicas: 2, reason: 'load test of the shop' })
+    expect(calls[1][0]).toContain('/v1/sovereigns/dep/k8s/configmap/shop/banner/apply')
+    expect(JSON.parse(calls[1][1].body as string)).toEqual({ yaml: 'kind: ConfigMap\n', reason: 'fix the shop banner' })
+    expect(calls[2][0]).toContain('/v1/sovereigns/dep/k8s/pod/shop/wp-1?reason=stuck%20pod%2C%20see%20the%20incident')
+    expect(calls[2][1].method).toBe('DELETE')
+  })
+
+  it('the answer 409 managed-by-git throws ManagedByGitError with the owner; any other refusal stays a plain error', async () => {
+    global.fetch = vi.fn().mockResolvedValue(answer(409, { error: 'managed-by-git', code: '409', owner: 'Kustomization flux-system/apps' }))
+    const err = await deleteResource('dep', 'pod', 'shop', 'wp-1', 'stuck pod, see the incident').catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(ManagedByGitError)
+    expect((err as ManagedByGitError).owner).toBe('Kustomization flux-system/apps')
+    global.fetch = vi.fn().mockResolvedValue(answer(400, { error: 'break-glass-reason-required', code: '400' }))
+    const other = await scaleResource('dep', 'deployment', 'shop', 'wp', 2, 'short').catch((e: unknown) => e)
+    expect(other).not.toBeInstanceOf(ManagedByGitError)
+    expect((other as Error).message).toContain('HTTP 400')
   })
 })
 

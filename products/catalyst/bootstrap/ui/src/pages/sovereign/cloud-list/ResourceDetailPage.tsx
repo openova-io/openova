@@ -70,6 +70,7 @@ import {
   RESOURCE_DETAIL_TABS,
   getResource,
   getResourceTree,
+  gitOwner,
   normaliseKindForRegistry,
   resourceDetailHref,
   type ResourceDetailTab,
@@ -496,6 +497,7 @@ function OverviewTab({
           name={name}
           currentReplicas={replicas}
           disabled={!isTierAdmin}
+          gitOwner={gitOwner(obj)}
         />
       </div>
     </div>

@@ -7,8 +7,8 @@
  * URL: /app/$deploymentId/resources/apply
  *
  * Per docs/INVIOLABLE-PRINCIPLES.md:
- *   #1 (waterfall)     — multi-doc YAML support + per-doc result rows
- *                         + Flux-managed PR-link fallback land at first cut.
+ *   #1 (waterfall)     — multi-doc YAML support + per-doc result rows;
+ *                         Managed by Git on a 409, else break-glass with a reason.
  *   #2 (quality)       — no "(pending live editor)" placeholder.
  *   #3 (event-driven)  — TanStack Mutation; UI re-renders on settle.
  *   #4 (never hardcode)— endpoint URL derives from API_BASE via
@@ -26,6 +26,7 @@ import { useMutation } from '@tanstack/react-query'
 import { PortalShell } from '../PortalShell'
 import { useResolvedDeploymentId } from '@/shared/lib/useResolvedDeploymentId'
 import { multiApplyYAML, type K8sMultiApplyResponse } from './resources.api'
+import { ManagedByGitError } from '@/pages/sovereign/cloud-list/resource.api'
 
 const PLACEHOLDER_YAML = `apiVersion: v1
 kind: ConfigMap
@@ -45,14 +46,10 @@ export function ResourcesApplyPage() {
   const deploymentId = params.deploymentId ?? resolvedId ?? ''
 
   const [yaml, setYaml] = useState('')
-  const [commitMessage, setCommitMessage] = useState('')
+  const [reason, setReason] = useState('')
 
   const mutation = useMutation<K8sMultiApplyResponse, Error, void>({
-    mutationFn: () =>
-      multiApplyYAML(deploymentId, {
-        yaml,
-        commitMessage: commitMessage || undefined,
-      }),
+    mutationFn: () => multiApplyYAML(deploymentId, { yaml, reason }),
   })
 
   const result = mutation.data
@@ -64,8 +61,9 @@ export function ResourcesApplyPage() {
           <h2 className="text-xl font-semibold text-[var(--color-text)]">Apply YAML</h2>
           <p className="text-sm text-[oklch(55%_0.01_250)]">
             Apply one or more Kubernetes manifests to <code>{deploymentId}</code>.
-            Multi-document YAML (separated by <code>---</code>) is supported. Flux-managed
-            namespaces route the change to a Gitea pull request instead of a direct apply.
+            Multi-document YAML (separated by <code>---</code>) is supported. When Git owns
+            one of the objects, nothing is applied: change it in Git. Any other object is
+            written by break-glass, with a reason that is recorded in the audit log.
           </p>
         </div>
 
@@ -80,13 +78,13 @@ export function ResourcesApplyPage() {
 
         <div className="flex flex-wrap items-center gap-3">
           <label className="text-xs text-[var(--color-text-dim,#94a3b8)]">
-            Commit message (Flux PRs)
+            Reason
             <input
               className="ml-2 w-80 rounded border border-[var(--color-border,#1f2937)] bg-[var(--color-bg-2,#0f172a)] px-2 py-1 text-sm text-[var(--color-text,#e2e8f0)]"
-              value={commitMessage}
-              onChange={(e) => setCommitMessage(e.target.value)}
-              placeholder="Operator: apply ConfigMap example-config"
-              data-testid="apply-commit-message"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="At least 10 characters, recorded in the audit log"
+              data-testid="apply-reason"
             />
           </label>
           <button
@@ -103,7 +101,16 @@ export function ResourcesApplyPage() {
           )}
         </div>
 
-        {mutation.isError && (
+        {mutation.error instanceof ManagedByGitError && (
+          <div
+            className="rounded border border-amber-700/40 bg-amber-900/20 p-3 text-sm text-amber-200"
+            data-testid="apply-managed-by-git"
+            role="alert"
+          >
+            Managed by Git: <code>{mutation.error.owner}</code>. Nothing was applied; change it in Git.
+          </div>
+        )}
+        {mutation.isError && !(mutation.error instanceof ManagedByGitError) && (
           <div
             className="rounded border border-red-700/40 bg-red-900/20 p-3 text-sm text-red-200"
             data-testid="apply-error"
@@ -140,25 +147,13 @@ export function ResourcesApplyPage() {
                       'ml-3 inline-block rounded px-2 py-0.5 text-[10px] font-semibold uppercase ' +
                       (r.error
                         ? 'bg-red-900/40 text-red-200'
-                        : r.flux
-                          ? 'bg-amber-900/40 text-amber-200'
-                          : r.created
-                            ? 'bg-emerald-900/40 text-emerald-200'
-                            : 'bg-blue-900/40 text-blue-200')
+                        : r.created
+                          ? 'bg-emerald-900/40 text-emerald-200'
+                          : 'bg-blue-900/40 text-blue-200')
                     }
                   >
-                    {r.error ? 'error' : r.flux ? 'pull request' : r.created ? 'created' : 'updated'}
+                    {r.error ? 'error' : r.created ? 'created' : 'updated'}
                   </span>
-                  {r.giteaPRUrl && (
-                    <a
-                      href={r.giteaPRUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="ml-3 text-xs underline text-[var(--color-brand-300,#a5b4fc)]"
-                    >
-                      open PR
-                    </a>
-                  )}
                   {r.error && (
                     <div className="mt-1 text-xs text-red-200">{r.error}</div>
                   )}
