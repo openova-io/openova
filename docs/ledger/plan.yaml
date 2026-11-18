@@ -14448,7 +14448,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271, FND-063, SOV-230]
-  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-074, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, FND-155, FND-206, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-135, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-335, SEC-040, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-133, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-150, SVC-190, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-020, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-101, AIP-102, AIP-105, AIP-108, AIP-111, AIP-113, AIP-120, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-501, PRD-503, PRD-508, PRD-513]
+  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-074, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, FND-155, FND-206, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-135, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-335, SEC-040, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-133, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-150, SVC-190, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-020, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-101, AIP-102, AIP-105, AIP-108, AIP-111, AIP-113, AIP-120, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-501, PRD-503, PRD-508, PRD-513]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -16221,22 +16221,30 @@ packages:
   depends_on: [CLD-087, NET-110]
   after: []
   touches:
-  - tests/hermetic/mesh/**
+  - tests/hermetic/mesh/mesh-test.sh
   - .github/workflows/test-mesh-hermetic.yaml
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "echo \"$(git ls-files tests/hermetic/mesh .github/workflows/test-mesh-hermetic.yaml | wc -l) $(grep -c -x -F \"#   bash scripts/local-pack.sh up --regions <1|2> --branch <name> --commit <sha>\" scripts/local-pack.sh) $(grep -c -x -F \"output \\\"network_registry\\\" {\" infra/providers/local/outputs.tf)\""
+    expect: "0 1 1"
+  acceptance:
+  - id: A1
+    run: "test \"$(sha256sum < tests/hermetic/mesh/mesh-test.sh)\" = \"d3e80f14ac808804b895e549d82d13d7b4471326393df5f9e857f531c920f667  -\" && bash tests/hermetic/mesh/mesh-test.sh --self-test > /dev/null"
+  - id: A2
+    run: "test \"$(sha256sum < .github/workflows/test-mesh-hermetic.yaml)\" = \"ad86c564055bc516bdbd8a364a22ed55d735d582c8578c87f22ea45b6ae1895f  -\" && python3 scripts/check-pins.py --base origin/main > /dev/null"
+  - id: A3
+    run: "test -f tests/hermetic/mesh/mesh-test.sh && ! grep -r -n -E 'type: *NodePort|\"type\": *\"NodePort\"|nodePort|clustermesh connect' tests/hermetic/mesh .github/workflows/test-mesh-hermetic.yaml && python3 scripts/check-provider-leaks.py --check > /dev/null && python3 scripts/check-repo-hygiene.py paths > /dev/null"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'Mesh test on the shared harness with three cases: shared authority, per-cluster intermediates under one root, authMode cluster; partition and resume'
+  delivers: 'The workflow test-mesh-hermetic brings the local provider pack up with two regions, lays the mesh layer over the Cilium of both (clustermesh.config with the peer from the network registry, KVStoreMesh, and the certificates of the mesh API server from the cert-manager ClusterIssuer sovereign-mesh-ca), and runs three cases with tests/hermetic/mesh/mesh-test.sh: one shared self-signed authority, one root with an intermediate per cluster, and the passing shape with tls.authMode cluster; each case checks the mesh, a global Service across both ways, a 5-minute pause of one cluster during which the other serves its local backends, and the reconnect with zero pod restarts, and the job summary states PASS or FAIL per case.'
 - id: NET-125
   title: Mesh status read, and a mode switch, in the API
   area: NET
