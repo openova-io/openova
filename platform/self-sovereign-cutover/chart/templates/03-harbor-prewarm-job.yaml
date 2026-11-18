@@ -1047,20 +1047,12 @@ data:
     echo "[harbor-prewarm] pushing ${count} image(s) with parallelism=${PREWARM_PARALLELISM}"
 
     {{- /*
-     #4955 (Refs #3379): normalize a `name:tag@sha256:...` reference to
-     digest-only (`name@sha256:...`) before handing it to skopeo.
-     `skopeo copy docker://name:tag@digest` FATALs with "Docker
-     references with both a tag and digest are currently not supported",
-     which fail-closed the WHOLE step on the first openova-io image ever
-     pinned by BOTH a tag and a digest (`wordpress-tenant-pg` from
-     bp-wordpress-tenant — live hw235 a3818d29c833ab1e, push_ok=31
-     push_fail=1 → cutover never reached step-04+). The digest is
-     authoritative + immutable and is exactly what containerd pulls by
-     for an `image:tag@digest` pod ref, so dropping the tag preserves the
-     post-pivot pull (the manifest lands in Harbor addressable by digest).
-     Tag-only and digest-only refs pass through unchanged. Only the FINAL
-     path segment's tag is stripped, so a `host:port/...` registry ref is
-     left intact.
+     #4955 (Refs #3379): `name:tag@sha256:...` becomes `name@sha256:...` before
+     skopeo, which refuses a reference with both ("not supported") and so once
+     failed the whole step on one image (hw235, wordpress-tenant-pg). The digest
+     is what containerd pulls by for such a pod ref, so the post-pivot pull is
+     kept. Tag-only and digest-only refs pass unchanged; only the LAST path
+     segment's tag is stripped, so a `host:port/...` ref is left intact.
     */}}
     normalize_ref() {
       _nr="$1"
@@ -1541,25 +1533,15 @@ data:
       esac
     done
     {{- /*
-     #6294 — de-duplicate the worklist by DESTINATION before the fan-out.
-     The same artifact is routinely enumerated from TWO sources — the
-     mothership-proxy form (harbor.openova.io/proxy-dockerhub/X, what the
-     bootstrap-kit pins) and the direct-upstream form (docker.io/X, what a
-     chart's values pin) — and both resolve to the byte-identical local
-     path registry.<fqdn>/proxy-dockerhub/X. Two concurrent copy_one
-     workers then race on one destination: whichever lands second pushes
-     content the first has already written, and for a proxy-<x> project
-     Harbor answers `unauthorized ... action: push`, which fails the whole
-     step FATAL for an image that was already mirrored (hw296 2026-08-14,
-     curlimages/curl:8.10.1 — a ~55-minute Phase A burned + one of three
-     backoffLimit retries). The #4994 "dest already current" skip cannot
-     help on the first pass: it runs BEFORE either copy has landed.
-
-     Keep ONE work item per destination set. When both forms are present
-     the mothership-proxy form is kept, because copy_one gives it BOTH
-     legs (proxy first, #5095 direct-upstream fallback) whereas the direct
-     form has no proxy fallback outside the scarf.sh case. The dropped
-     form is named on stdout so the operator can see the collapse.
+     #6294 — de-duplicate the worklist by DESTINATION before the fan-out. One
+     artifact is often enumerated twice, as the mothership-proxy form
+     (harbor.openova.io/proxy-dockerhub/X, the kit's pins) and the direct form
+     (docker.io/X, a chart's values), both resolving to one local path; two
+     concurrent copy_one workers then raced on it and the second push failed the
+     step (hw296, curlimages/curl:8.10.1, ~55 min burned; the #4994 skip runs too
+     early to help). ONE item per destination set is kept: the proxy form, which
+     copy_one gives both legs (proxy, then the #5095 direct fallback); the
+     dropped form is named on stdout.
     */}}
     # ── prewarm-dedupe-by-dest BEGIN (#6294 extraction anchor — tests/step6294-dedupe-by-destination.sh sources this block verbatim with a stubbed resolver) ──
     prewarm_dedupe_by_dest() {
@@ -3068,27 +3050,16 @@ data:
     {{- if or .Values.secondaryRegions.prewarmSecondaryHarbor .Values.secondaryRegions.replicaRegion }}
     {{- /*
      ── #6764: prewarm EACH secondary region's OWN in-cluster Harbor ──
-     The Phase A/A2 pushes above populated region-A's Harbor only. A 2-region
-     Sovereign runs bp-harbor in BOTH regions, so region-B has its OWN empty
-     local Harbor; step-06 then FATALs (#5359 STILL-UPSTREAM bp-vpa) when it
-     pivots region-B's HelmRepositories at a registry that never stocked the
-     openova-io charts. Direct mirror of the #6490 gitea secondary leg, one
-     layer up: for each secondary region we (1) install a region-local
-     coredns-custom pin (registry.<fqdn> -> THAT region's gateway ClusterIP) so
-     the in-region push targets its OWN Harbor, (2) copy that region's OWN
-     ghcr-pull dockerconfig into the harbor ns so the in-region Job can
-     secretKeyRef it locally (cross-namespace secretKeyRef is forbidden), (3)
-     enumerate that region's OWN openova-io images + charts, (4) distribute the
-     shared cutover-secondary-harbor-prewarm-script + the enumerated lists into a
-     region-local ConfigMap, and (5) stamp the Helm-rendered prewarm Job (only
-     __REGION__ sed-substituted) that skopeo-pushes them into THAT region's local
-     Harbor + self-verifies via its /v2 API. The Job lands in the harbor
-     namespace with the default SA because the cutover chart is
-     SECONDARY_HR_SUSPEND'd on a secondary (no runner SA there) and the Job makes
-     no Kubernetes API calls — all API-scoped prep runs HERE through the region
-     admin kubeconfig, exactly as steps 05/06 already reach region-B.
-     /secondary-kubeconfigs is the optional cutover-secondary-kubeconfigs mount;
-     empty (single-region) makes this whole block a runtime no-op.
+     Each region runs bp-harbor; step 06 pivots a follower's HelmRepositories at
+     its own, so it must hold the openova-io charts (#5359). Per follower, through
+     its admin kubeconfig (/secondary-kubeconfigs, optional: empty on a single
+     region, a no-op): (1) a coredns-custom pin of registry.<fqdn> to THAT
+     region's gateway ClusterIP; (2) its ghcr-pull dockerconfig copied into the
+     harbor ns (a secretKeyRef cannot cross namespaces); (3) its openova-io images
+     and charts enumerated; (4) the shared script and the lists as a region-local
+     ConfigMap; (5) the rendered Job (only __REGION__ substituted), default SA in
+     the harbor ns since the follower runs no cutover release, which copies them
+     and self-verifies through /v2. As the #6490 gitea leg does one layer down.
     */}}
     echo "[harbor-prewarm] #6764 secondary-region Harbor prewarm leg (prewarmSecondaryHarbor=true)"
     sec_any="false"
@@ -3335,6 +3306,15 @@ data:
     # ── prewarm-run-guard END ──
     for _rs_f in "${cat_img_installed:-}" "${kit_img:-}"; do prewarm_release_seed "${_rs_f}" "${run_images_file}"; done
     prewarm_run_guard /tmp/prewarm-run-guard "${run_images_file}" || exit 1
+    {{- if and .Values.registryPivot.enabled (or .Values.secondaryRegions.prewarmSecondaryHarbor .Values.secondaryRegions.replicaRegion) }}
+    {{- /*
+     #7938 — cutover step 04 in every follower region, once the guard above has certified
+     the registry: 04's cutover-follower-registry-pivot (files/follower-registry-pivot.sh).
+     A release delivery runs this step 03 as its prewarm, so an installed Sovereign gets
+     its followers pivoted by the delivery that carries this line; the step fails with it.
+    */}}
+    sh /follower-registry-pivot/follower-registry-pivot.sh || exit 1
+    {{- end }}
   podSpec: |
     serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
     restartPolicy: Never
@@ -3750,6 +3730,10 @@ data:
           - name: secondary-harbor-prewarm
             mountPath: /secondary-harbor-prewarm
             readOnly: true
+          {{- if .Values.registryPivot.enabled }}
+          - {name: follower-registry-pivot, mountPath: /follower-registry-pivot, readOnly: true}
+          - {name: registry-pivot-script, mountPath: /registry-pivot-script, readOnly: true}
+          {{- end }}
           {{- end }}
         command: ["/bin/sh", "/step-script/run.sh"]
         resources:
@@ -3824,4 +3808,8 @@ data:
         configMap:
           name: cutover-secondary-harbor-prewarm-script
           defaultMode: 0755
+      {{- if .Values.registryPivot.enabled }}
+      - {name: follower-registry-pivot, configMap: {name: cutover-follower-registry-pivot}}
+      - {name: registry-pivot-script, configMap: {name: registry-pivot-script}}
+      {{- end }}
       {{- end }}

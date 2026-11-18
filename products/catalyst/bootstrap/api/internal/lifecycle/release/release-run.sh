@@ -410,7 +410,8 @@ follower_job() {
 # (submit). plan_delivery is what compose creates in the primary region, as the
 # account of the bootstrap Job; plan_later what the later steps create in each
 # follower: the stage's copy of the pull credential, what the candidate's step
-# 03 creates there (its #6764 leg), and promote's scripts and Jobs.
+# 03 creates there (its #6764 leg, and cutover step 04 there, #7938), and
+# promote's scripts and Jobs.
 
 _obj() { mkdir -p "${MECH}/objects"; printf '%s/objects/%s.json' "${MECH}" "$1"; }
 plan_add() { printf '%s\t%s\t%s\t%s\n' "$2" "$3" "$4" "$5" >>"$1"; }
@@ -486,6 +487,22 @@ plan_later() {
       _f=$(_obj "${_r}-prewarm-job")
       k8s_json "${MECH}/objects/${_r}-prewarm-job.yaml" | head -n 1 >"${_f}" || { _mech_why="step 03's secondary-harbor-prewarm-job.yaml: ${_k8s_why}"; return 1; }
       plan_add "${_pl}" "${_kc}" ssa-recreate "${_f}" "Job $(jq -r '.metadata.namespace + "/" + .metadata.name' "${_f}") in ${_r} (step 03)"
+    fi
+    # The candidate's step 03 ends with cutover step 04 in this follower
+    # (files/follower-registry-pivot.sh): the primary's pivot.sh, then the
+    # objects of the render's cutover-follower-registry-pivot (#7938).
+    if [ -s "${MECH}/cm/cutover-follower-registry-pivot.json" ]; then
+      _f=$(_obj "${_r}-pivot-script")
+      jq --arg ns "${RELEASE_NAMESPACE}" '{apiVersion: "v1", kind: "ConfigMap", metadata: {name: "registry-pivot-script", namespace: $ns}, data: {"pivot.sh": .data["pivot.sh"]}}' \
+        "${MECH}/cm/registry-pivot-script.json" >"${_f}" 2>/dev/null || { _mech_why="the render has no registry-pivot-script for step 04 in ${_r}"; return 1; }
+      plan_add "${_pl}" "${_kc}" ssa "${_f}" "ConfigMap ${RELEASE_NAMESPACE}/registry-pivot-script in ${_r} (step 04, run by step 03)"
+      jq -r '.data["objects.yaml"] // ""' "${MECH}/cm/cutover-follower-registry-pivot.json" >"${MECH}/objects/${_r}-pivot.yaml"
+      k8s_json "${MECH}/objects/${_r}-pivot.yaml" >"${MECH}/objects/${_r}-pivot.jsonl" || { _mech_why="step 04's objects.yaml: ${_k8s_why}"; return 1; }
+      _i=0
+      while IFS= read -r _l; do
+        _i=$((_i + 1)); _f=$(_obj "${_r}-pivot-${_i}"); printf '%s\n' "${_l}" >"${_f}"
+        plan_add "${_pl}" "${_kc}" ssa "${_f}" "$(jq -r '.kind + " " + (.metadata.namespace // "" | if . == "" then "" else . + "/" end) + .metadata.name' "${_f}") in ${_r} (step 04, run by step 03)"
+      done <"${MECH}/objects/${_r}-pivot.jsonl"
     fi
     _f=$(_obj "${_r}-scripts")
     follower_scripts_cm "${MECH}/release-region.sh" "${MECH}/kit-rewrite.sh" "${MECH}/extract-pins.sh" >"${_f}"

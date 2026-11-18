@@ -557,6 +557,118 @@ func TestReleaseDeliveryObjectsOfTheCutoverChartAreValidAndAreItsRender(t *testi
 	}
 }
 
+// renderedDaemonSet is the DaemonSet <name> of the render of this checkout's
+// cutover chart with the values of the dry run.
+func renderedDaemonSet(t *testing.T, name string) map[string]any {
+	t.Helper()
+	vals, _ := json.Marshal(realChartValues)
+	vf := filepath.Join(t.TempDir(), "values.json")
+	if err := os.WriteFile(vf, vals, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command("helm", "template", "self-sovereign-cutover", filepath.Join(repoRoot(t), cutoverChartPath), //nolint:gosec // the chart of this repository
+		"--namespace", testNS, "-f", vf).Output()
+	if err != nil {
+		t.Fatalf("helm template %s: %v", cutoverChartPath, err)
+	}
+	for _, part := range regexp.MustCompile(`(?m)^---\s*$`).Split(string(out), -1) {
+		j, err := yaml.YAMLToJSON([]byte(part))
+		if err != nil {
+			t.Fatalf("the render does not parse: %v", err)
+		}
+		var o map[string]any
+		if err := utiljson.Unmarshal(j, &o); err != nil || o == nil {
+			continue
+		}
+		if o["kind"] == "DaemonSet" {
+			if md, _ := o["metadata"].(map[string]any); md != nil && md["name"] == name {
+				return o
+			}
+		}
+	}
+	t.Fatalf("the render has no DaemonSet %s", name)
+	return nil
+}
+
+// Cutover step 04 (the registry-pivot DaemonSet) runs where the chart is
+// installed, the primary region; on hw307 region b's nodes therefore kept their
+// first-boot mirror and could not pull an image only the Sovereign's registry
+// held (#7938, gate runs 16 and 17). A delivery reaches a follower through the
+// candidate's step 03, its prewarm, which ends by applying step 04 there. So
+// what verify sends to the follower must hold that DaemonSet: the primary's pod
+// but for its account and status ConfigMap, the account, a binding of its role
+// in every namespace the pod's script calls, the status ConfigMap that asks
+// for v2, and the primary's pivot.sh. The primary's own DaemonSet stays in the
+// render.
+func TestReleaseDeliveryPivotsTheRegistryOfEveryRegion(t *testing.T) {
+	r, _ := realChartDryRun(t)
+	sent := r.sentObjects()
+	for _, k := range []string{"primary.ConfigMap.cutover-follower-registry-pivot-release", "primary.ConfigMap.registry-pivot-script-release",
+		"region-b.ConfigMap.registry-pivot-script", "region-b.ConfigMap.cutover-registry-pivot-follower-status", "region-b.ServiceAccount.registry-pivot",
+		"region-b.ClusterRole.self-sovereign-cutover-registry-pivot", "region-b.DaemonSet.registry-pivot"} {
+		if _, ok := sent[k]; !ok {
+			t.Errorf("verify did not send %s", k)
+		}
+	}
+	follower, ok := sent["region-b.DaemonSet.registry-pivot"]
+	if !ok {
+		t.FailNow()
+	}
+	primary := renderedDaemonSet(t, "registry-pivot")
+	pod := func(o map[string]any) map[string]any {
+		b, _ := json.Marshal(o)
+		var c map[string]any
+		_ = json.Unmarshal(b, &c)
+		ps := c["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)
+		return ps
+	}
+	fp, pp := pod(follower), pod(primary)
+	envOf := func(ps map[string]any) map[string]string {
+		m := map[string]string{}
+		for _, e := range ps["containers"].([]any)[0].(map[string]any)["env"].([]any) {
+			em := e.(map[string]any)
+			if v, ok := em["value"].(string); ok {
+				m[em["name"].(string)] = v
+			}
+		}
+		return m
+	}
+	fe, pe := envOf(fp), envOf(pp)
+	sa, _ := fp["serviceAccountName"].(string)
+	if fe["STATUS_CONFIGMAP_NAME"] == pe["STATUS_CONFIGMAP_NAME"] {
+		t.Errorf("the follower DaemonSet acks into the primary's status ConfigMap name %q", pe["STATUS_CONFIGMAP_NAME"])
+	}
+	for _, ps := range []map[string]any{fp, pp} {
+		delete(ps, "serviceAccountName")
+		for _, e := range ps["containers"].([]any)[0].(map[string]any)["env"].([]any) {
+			if em := e.(map[string]any); em["name"] == "STATUS_CONFIGMAP_NAME" {
+				em["value"] = "X"
+			}
+		}
+	}
+	if !equality.Semantic.DeepEqual(fp, pp) {
+		t.Errorf("the follower's registry-pivot pod is not the primary's (but for its account and status ConfigMap):\nfollower %s\nprimary  %s", js(fp), js(pp))
+	}
+	if _, ok := sent["region-b.ServiceAccount."+sa]; !ok {
+		t.Errorf("the follower DaemonSet runs as %q, which verify did not send", sa)
+	}
+	for _, key := range []string{"STATUS_CONFIGMAP_NAMESPACE", "GATEWAY_LB_SVC_NAMESPACE", "HARBOR_CA_SRC_NAMESPACE", "DF_NAMESPACE"} {
+		ns := fe[key]
+		rb, ok := sent["region-b.RoleBinding.self-sovereign-cutover-registry-pivot-"+ns]
+		if ns == "" || !ok || rb["metadata"].(map[string]any)["namespace"] != ns {
+			t.Errorf("no RoleBinding of the follower's account in namespace %q (%s), which its script calls", ns, key)
+		}
+	}
+	st := sent["region-b.ConfigMap."+fe["STATUS_CONFIGMAP_NAME"]]
+	if d, _ := st["data"].(map[string]any); d["registriesYamlActive"] != "v2" {
+		t.Errorf("the follower's status ConfigMap does not ask for v2: %s", js(st))
+	}
+	script := renderedChart(t)["registry-pivot-script"].Data["pivot.sh"]
+	if d, _ := sent["region-b.ConfigMap.registry-pivot-script"]["data"].(map[string]any); script == "" || d["pivot.sh"] != script {
+		t.Errorf("the follower's pivot.sh is not the primary's")
+	}
+}
+
 // DryRunPullSecretForTest is release-run.sh's DRY_RUN_PULL_SECRET: a dry run
 // names no pull Secret, and the objects that name one name this.
 const DryRunPullSecretForTest = "release-pull-dry-run"
