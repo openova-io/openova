@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T18:45:04Z` |
+| Last refreshed | `2026-11-18T19:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-18T18:54 | [#8195](https://github.com/openova-io/openova/pull/8195) | #7938 | fix(cutover): step 04 pivots the registry of every node in e |
+| 2026-11-18T18:54 | [#8194](https://github.com/openova-io/openova/pull/8194) | #7938 | fix(cutover): step 03 never moves a tag of the local registr |
 | 2026-11-18T17:56 | [#8191](https://github.com/openova-io/openova/pull/8191) | #7087 | docs(ledger): plan update |
 | 2026-11-18T18:17 | [#8190](https://github.com/openova-io/openova/pull/8190) | #8186 | fix(plan): generated lines do not count toward a story size  |
 | 2026-11-18T17:47 | [#8188](https://github.com/openova-io/openova/pull/8188) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-18T12:10 | [#8159](https://github.com/openova-io/openova/pull/8159) | #8157 | refactor(api): adoption kinds come from the adapters, and pr |
 | 2026-11-18T14:50 | [#8158](https://github.com/openova-io/openova/pull/8158) | #8155 | refactor(provisioner): credentials map, validation through t |
 | 2026-11-18T11:56 | [#8156](https://github.com/openova-io/openova/pull/8156) | #7087 | docs(ledger): plan update |
-| 2026-11-18T11:43 | [#8154](https://github.com/openova-io/openova/pull/8154) | #7087 | docs(ledger): plan update |
-| 2026-11-18T16:23 | [#8153](https://github.com/openova-io/openova/pull/8153) | #8141 | refactor: one Python generator writes the embedded and conso |
 
 ---
 
