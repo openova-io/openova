@@ -108,10 +108,12 @@ jobs:
           # re-cuts the tag. Stored in GITHUB_ENV for the step summary.
           UPSTREAM_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "${src}")
           echo "Upstream digest: ${UPSTREAM_DIGEST}"
-          docker tag "${src}" "${dst}"
           docker tag "${src}" "${NEWAPI_IMAGE}:latest"
-          docker push "${dst}"
           docker push "${NEWAPI_IMAGE}:latest"
+          # The version tag only through the shared check: a mirrored version
+          # that exists is never moved (Refs #7938).
+          digest="$(docker buildx imagetools inspect "${NEWAPI_IMAGE}:latest" --format '{{json .Manifest}}' | python3 -c 'import json, sys; print(json.load(sys.stdin)["digest"])')"
+          bash scripts/ci/push-version-tag.sh "${dst}" "${NEWAPI_IMAGE}@${digest}"
           echo "NEWAPI_UPSTREAM_DIGEST=${UPSTREAM_DIGEST}" >> "$GITHUB_ENV"
 
       - name: Install yq

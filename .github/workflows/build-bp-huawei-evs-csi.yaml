@@ -101,8 +101,9 @@ jobs:
           context: platform/huawei-evs-csi/driver-src
           file: platform/huawei-evs-csi/driver-src/Dockerfile
           push: true
-          tags: |
-            ${{ env.IMAGE }}:${{ env.DRIVER_TAG }}
+          # Pushed by digest, with no tag. DRIVER_TAG is published after the
+          # signing step, through the shared check that never moves it.
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
           labels: |
             org.opencontainers.image.source=https://github.com/openova-io/openova
             org.opencontainers.image.revision=${{ github.sha }}
@@ -122,3 +123,13 @@ jobs:
           digest: ${{ steps.build.outputs.digest }}
           release-key: ${{ secrets.RELEASE_COSIGN_KEY }}
           release-key-password: ${{ secrets.RELEASE_COSIGN_PASSWORD }}
+
+      # A version tag is published once and never moved (Refs #7938). The shared
+      # check tags the signed digest as DRIVER_TAG when that tag does not exist;
+      # when it exists it pushes nothing and the job stays green, with a notice
+      # naming the digest that stays. A driver-src change without a DRIVER_TAG
+      # bump is refused before merge by
+      # scripts/check-appversion-bumped-with-source.sh.
+      - name: Publish the driver tag (an existing one is never moved)
+        if: github.event_name != 'pull_request'
+        run: bash scripts/ci/push-version-tag.sh "${{ env.IMAGE }}:${{ env.DRIVER_TAG }}" "${{ env.IMAGE }}@${{ steps.build.outputs.digest }}"

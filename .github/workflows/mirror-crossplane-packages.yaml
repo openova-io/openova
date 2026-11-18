@@ -30,9 +30,11 @@ name: mirror-crossplane-packages
 #     It copies nothing and uses no secret.
 #   - On a push to main that changes this file, and by hand, it reads the
 #     same way and then copies each package: first every image its index
-#     lists, by digest, then the index itself with its original bytes, so
-#     the copy has the same digest. It reads the copy back by digest and
-#     prints:
+#     lists, by digest, then the index itself with its original bytes, by
+#     digest, so the copy has the same digest. The tag is then written by
+#     scripts/ci/push-version-tag.sh, which never moves a tag that exists:
+#     a tag that exists is left alone, with a notice naming the digest that
+#     stays (Refs #7938). It reads the copy back by digest and prints:
 #       MIRRORED <copy>@<digest>
 #     The job fails when a source, a copy or a read-back fails.
 #
@@ -71,6 +73,10 @@ jobs:
         upbound/provider-opentofu v1.1.11 sha256:b4690e8ffe0a963b1d7df64f18f409217600b2a3bda25d1e01e4bafde976e675
         crossplane-contrib/function-patch-and-transform v0.11.2 sha256:4a36131ebf3b4203f9e79ad1810f198c5feb52a2a796cbf0e91f34efe741e27b
     steps:
+      # The copy step runs the shared script that writes a version tag once.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: github.event_name != 'pull_request'
+
       - name: Install skopeo
         run: |
           set -euo pipefail
@@ -117,6 +123,8 @@ jobs:
             exit 1
           fi
           printf '%s' "${MIRROR_PASSWORD}" | skopeo login --username "${MIRROR_USERNAME}" --password-stdin "${MIRROR_HOST}"
+          # The shared script reads and writes the tag with docker buildx imagetools.
+          printf '%s' "${MIRROR_PASSWORD}" | docker login --username "${MIRROR_USERNAME}" --password-stdin "${MIRROR_HOST}"
 
           # skopeo copies one image by digest byte for byte, but it may write
           # an index again in another form, which changes the index digest.
@@ -182,14 +190,16 @@ jobs:
                   exit 1
                 fi
               done
-              if ! python3 "${helper}" put "${MIRROR_HOST}" "${MIRROR_PROJECT}/${repo}" "${tag}" "${index}"; then
-                echo "::error::writing the index ${digest} to ${dst}:${tag} failed"
+              if ! python3 "${helper}" put "${MIRROR_HOST}" "${MIRROR_PROJECT}/${repo}" "${digest}" "${index}"; then
+                echo "::error::writing the index ${digest} to ${dst}@${digest} failed"
                 exit 1
               fi
-            elif ! skopeo copy --retry-times 3 "docker://${src}@${digest}" "docker://${dst}:${tag}"; then
-              echo "::error::the copy of ${src}@${digest} to ${dst}:${tag} failed. The project ${MIRROR_PROJECT} must exist on ${MIRROR_HOST}, and ${MIRROR_USERNAME} must be allowed to push to it."
+            elif ! skopeo copy --retry-times 3 "docker://${src}@${digest}" "docker://${dst}@${digest}"; then
+              echo "::error::the copy of ${src}@${digest} to ${dst}@${digest} failed. The project ${MIRROR_PROJECT} must exist on ${MIRROR_HOST}, and ${MIRROR_USERNAME} must be allowed to push to it."
               exit 1
             fi
+            # The tag: written when it does not exist, left alone when it does.
+            bash scripts/ci/push-version-tag.sh "${dst}:${tag}" "${dst}@${digest}"
             if ! skopeo inspect --raw --retry-times 3 "docker://${dst}@${digest}" > "${manifest}"; then
               echo "::error::${dst}@${digest} cannot be read after the copy"
               exit 1

@@ -379,6 +379,15 @@ jobs:
       - name: 'conformance-local-scope | Self-test of the decision (plan data only skips the pack; any other path, gates.yaml or an empty list runs it)'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: bash scripts/check-plan-only-change.sh --self-test
+      - name: 'version-tags | Self-test of the shared check (each outcome, against a stand-in registry)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: bash scripts/ci/push-version-tag.sh --self-test
+      - name: 'version-tags | Self-test of the guard (every rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: python3 scripts/check-version-tags-immutable.py --self-test
+      - name: 'version-tags | No workflow pushes a version tag except through the shared check'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: python3 scripts/check-version-tags-immutable.py
       - name: 'secret-guards | a randAlphaNum added to a real chart template fails G2'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: |
