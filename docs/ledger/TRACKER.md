@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T17:45:04Z` |
+| Last refreshed | `2026-11-18T18:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7831](https://github.com/openova-io/openova/issues/7831) | FND-070 Baseline: one fresh provision of main as it stands | Other |
 | [#7834](https://github.com/openova-io/openova/issues/7834) | a fresh two-region Sovereign: the hand-over chain never pivots the follower regi | Other |
 | [#7837](https://github.com/openova-io/openova/issues/7837) | CTL-332 The service modules no longer require the Kafka client | Other |
 | [#7838](https://github.com/openova-io/openova/issues/7838) | FND-026 Two tasks that share only record files may run together | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8175](https://github.com/openova-io/openova/issues/8175) | CLD-112 Credential check from the profile; one registry | Other |
 | [#8182](https://github.com/openova-io/openova/issues/8182) | AIP-102 Tool calls passed through; no shared sessions | Other |
 | [#8189](https://github.com/openova-io/openova/issues/8189) | FND-206 The size budget of a story leaves out the lines a registered generator w | Other |
+| [#8192](https://github.com/openova-io/openova/issues/8192) | CLD-104 The engine writes neutral variables; adapters write their own | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-18T17:56 | [#8191](https://github.com/openova-io/openova/pull/8191) | #7087 | docs(ledger): plan update |
+| 2026-11-18T17:47 | [#8188](https://github.com/openova-io/openova/pull/8188) | #7087 | docs(ledger): plan update |
 | 2026-11-18T17:29 | [#8187](https://github.com/openova-io/openova/pull/8187) | #7087 | docs(ledger): plan update |
 | 2026-11-18T17:07 | [#8185](https://github.com/openova-io/openova/pull/8185) | #7087 | docs(ledger): plan update |
 | 2026-11-18T17:01 | [#8184](https://github.com/openova-io/openova/pull/8184) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-18T11:43 | [#8154](https://github.com/openova-io/openova/pull/8154) | #7087 | docs(ledger): plan update |
 | 2026-11-18T16:23 | [#8153](https://github.com/openova-io/openova/pull/8153) | #8141 | refactor: one Python generator writes the embedded and conso |
 | 2026-11-18T16:15 | [#8152](https://github.com/openova-io/openova/pull/8152) | #8148 | feat(machine-operations): match the bills of materials of ma |
-| 2026-11-18T11:38 | [#8150](https://github.com/openova-io/openova/pull/8150) | #8149 | test(gate): check NET-G10 dials the instance metadata addres |
-| 2026-11-18T11:16 | [#8147](https://github.com/openova-io/openova/pull/8147) | #7087 | docs(ledger): plan update |
 
 ---
 
