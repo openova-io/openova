@@ -76,18 +76,26 @@ Pass rule (verdict):
      from that commit. It counts for every `running` check, whether its
      provision was fresh or not. It counts for a `fresh` check only if its
      provision was fresh.
-  2  The pair is formed for each kind of proof. For a `running` check it is
-     the two newest counting records; both may be of one deployment. For a
-     `fresh` check it is the two newest counting records of fresh
-     installations, and their deployments must differ. In both kinds the
-     pair is valid if both name the same candidate, the older one finished
-     before the newer one started, and their artefact lists agree. A record
-     without an artefact list makes the pair not valid.
+  2  The pair is formed for each kind of proof, from its pool: for a
+     `running` check every counting record, for a `fresh` check the counting
+     records of fresh installations. Two records of the pool are a valid pair
+     if both name the same candidate, the older one finished before the
+     newer one started, and their artefact lists agree; for a `fresh` check
+     their deployments must also differ (for a `running` check both may be
+     of one deployment). A record without an artefact list is never half of
+     a valid pair. The pair is the valid pair whose newer record is the
+     newest, with the newest older record that makes it valid; a newer
+     record that forms no valid pair yet (the first record of a newly
+     delivered candidate) does not take the pair away. When no two records
+     of the pool form a valid pair, the reason is that of the two newest.
   3  A check that runs in the cloud is green if its state is not not-built,
      the pair of its kind is valid, the newer record is at most
      `max_age_days` old, the check applied (its `needs` were declared) in at
-     least one record of the pair, and it has status PASS in every record of
-     the pair in which it applied.
+     least one record of the pair, it has status PASS in every record of
+     the pair in which it applied, and no record of the pool that is newer
+     than the pair has a status other than PASS for it where it applied. A
+     newer record in which the check passes changes nothing until its own
+     candidate has a pair; a newer record that fails it is named.
   4  A check that does not run in the cloud is green when its state is
      required.
   5  A record may say `result: PASS` only if every required check in it has
@@ -589,32 +597,57 @@ def artefacts(rec):
     return cm, im
 
 
-def find_pair(counting, proof, total):
-    """Pass rule 2 for one kind of proof. counting is what counting_records returned; total is the number of
-    records that were read. Returns ((older, newer), None) or (None, reason)."""
-    pool = [x for x in counting if is_fresh(x[1])] if proof == "fresh" else counting
-    if len(pool) < 2:
-        return None, f"no pair: {len(pool)} of {total} records count for a {proof} check"
-    older, newer = pool[-2], pool[-1]
+def proof_pool(counting, proof):
+    """Pass rule 2: the counting records that can prove a check of this kind of proof, the oldest first."""
+    return [x for x in counting if is_fresh(x[1])] if proof == "fresh" else counting
+
+
+def pair_problem(older, newer, proof):
+    """Pass rule 2: None if older and newer, two (name, record) of the pool, are a valid pair, else the reason."""
     names = f"{older[0]} and {newer[0]}"
     if older[1]["candidate"]["id"] != newer[1]["candidate"]["id"]:
-        return None, f"no valid pair: {names} name different candidates"
+        return f"no valid pair: {names} name different candidates"
     if proof == "fresh":
         first, second = older[1].get("deployment_id"), newer[1].get("deployment_id")
         if not first or not second or first == second:
-            return None, f"no valid pair: {names} do not have two different deployment_id values"
+            return f"no valid pair: {names} do not have two different deployment_id values"
     if not parse_time(older[1]["finished_at"]) < parse_time(newer[1]["started_at"]):
-        return None, f"no valid pair: {older[0]} did not finish before {newer[0]} started"
+        return f"no valid pair: {older[0]} did not finish before {newer[0]} started"
     a, b = artefacts(older[1]), artefacts(newer[1])
     if a is None or b is None:
-        return None, f"no valid pair: {older[0] if a is None else newer[0]} has no artefact list"
+        return f"no valid pair: {older[0] if a is None else newer[0]} has no artefact list"
     if a[0] != b[0]:
         differ = sorted(k for k in set(a[0]) | set(b[0]) if a[0].get(k) != b[0].get(k))
-        return None, f"no valid pair: chart versions differ for release {differ[0]}"
+        return f"no valid pair: chart versions differ for release {differ[0]}"
     for ref in sorted(set(a[1]) & set(b[1])):
         if a[1][ref] != b[1][ref]:
-            return None, f"no valid pair: image digests differ for {ref}"
-    return (older, newer), None
+            return f"no valid pair: image digests differ for {ref}"
+    return None
+
+
+def find_pair(counting, proof, total):
+    """Pass rule 2 for one kind of proof. counting is what counting_records returned; total is the number of
+    records that were read. Returns ((older, newer), None) or (None, reason).
+
+    The pair is the valid pair whose newer record is the newest, with the newest older record that makes it
+    valid. A newer record that forms no valid pair (the first record of a newly delivered candidate) is passed
+    over here; pass rule 3 reads it (newer_than). When no two records form a valid pair, the reason is that of
+    the two newest."""
+    pool = proof_pool(counting, proof)
+    if len(pool) < 2:
+        return None, f"no pair: {len(pool)} of {total} records count for a {proof} check"
+    for j in range(len(pool) - 1, 0, -1):
+        for i in range(j - 1, -1, -1):
+            if pair_problem(pool[i], pool[j], proof) is None:
+                return (pool[i], pool[j]), None
+    return None, pair_problem(pool[-2], pool[-1], proof)
+
+
+def newer_than(counting, proof, pair):
+    """Pass rule 3: the records of the pool of this kind of proof that come after the pair's newer record."""
+    pool = proof_pool(counting, proof)
+    at = next(n for n, x in enumerate(pool) if x is pair[1])
+    return pool[at + 1:]
 
 
 def status_in(rec, cid):
@@ -642,26 +675,32 @@ def verdict(m, records, facts, now, notes=None):
         elif pair is None:
             green, reason = False, "pass rule 2: " + why
         else:
-            green, reason = cloud_verdict(c, pair, max_age, now)
+            green, reason = cloud_verdict(c, pair, newer_than(counting, c["proof"], pair), max_age, now)
             if not green:
                 reason = "pass rule 3: " + reason
         rows.append({"id": c["id"], "state": c["state"], "proof": c["proof"], "green": green, "reason": reason})
     return rows
 
 
-def cloud_verdict(c, pair, max_age, now):
-    """Pass rule 3 for one check and a valid pair."""
+def applies(c, rec):
+    """True if the record declared every `needs` value of the check."""
+    declared = rec.get("capabilities") if isinstance(rec.get("capabilities"), list) else []
+    return set(c["needs"]) <= set(declared)
+
+
+def cloud_verdict(c, pair, later, max_age, now):
+    """Pass rule 3 for one check, a valid pair and the records of the pool that are newer than the pair."""
     age = (now - parse_time(pair[1][1]["finished_at"])) / 86400.0
     if age > max_age:
         return False, f"the newer record {pair[1][0]} is {int(age)} days old; the limit is {max_age}"
-    seen = []
-    for name, rec in pair:
-        declared = rec.get("capabilities") if isinstance(rec.get("capabilities"), list) else []
-        if set(c["needs"]) <= set(declared):
-            seen.append((name, status_in(rec, c["id"])))
+    seen = [(name, status_in(rec, c["id"])) for name, rec in pair if applies(c, rec)]
     if not seen:
         return False, f"it applied in no record of the pair (needs {', '.join(c['needs'])})"
     failed = [f"{status or 'no result'} in {name}" for name, status in seen if status != "PASS"]
+    for name, rec in later:
+        status = status_in(rec, c["id"])
+        if applies(c, rec) and status != "PASS":
+            failed.append(f"{status or 'no result'} in {name}, a record newer than the pair")
     if failed:
         return False, "; ".join(failed)
     text = f"PASS in {len(seen)} of 2 records of the pair, candidate {pair[1][1]['candidate']['id']}"
@@ -1122,8 +1161,8 @@ def self_test():
     r1, r2 = record(1), record(2)
     printed = []
 
-    def rows(records, at=now):
-        out = verdict(mv, [(f"r{i}.json", rec) for i, rec in enumerate(records, 1)], facts, at)
+    def rows(records, at=now, f=facts):
+        out = verdict(mv, [(f"r{i}.json", rec) for i, rec in enumerate(records, 1)], f, at)
         printed.extend(out)
         return {x["id"]: x for x in out}
 
@@ -1202,6 +1241,39 @@ def self_test():
     check("rule 2: a record without an artefact list makes the pair not valid", p is None and "no artefact list" in why, why)
     p, why = pair([("r1.json", r1), ("r2.json", dict(r2, artifacts={"charts": [], "images": []}))])
     check("rule 2: an empty artefact list is no artefact list", p is None and "no artefact list" in why, why)
+
+    # The newest valid pair decides; a newer record of a candidate without a pair counts only where it fails the check.
+    def of(rec, ch):
+        return dict(rec, candidate={"id": "20261102T000000Z-" + ch * 7, "commit": ch * 40}, suite_git_sha=ch * 40)
+    facts3 = FakeFacts({commit, "b" * 40, "c" * 40},
+                       {cid: commit, of(r2, "b")["candidate"]["id"]: "b" * 40, of(r2, "c")["candidate"]["id"]: "c" * 40})
+    b3, b4 = of(record(3), "b"), of(record(4), "b")
+    v = rows([r1, r2, b3], f=facts3)
+    check("rule 2: an older valid pair stays the pair beside one newer record of another candidate in which the check passes",
+          v["FND-G03"]["green"] and cid in v["FND-G03"]["reason"], v["FND-G03"])
+    v = rows([r1, r2, with_check(b3, "FND-G03", "FAIL")], f=facts3)
+    check("rule 3: a record newer than the pair in which the check fails gives not green and is named",
+          not v["FND-G03"]["green"] and v["FND-G03"]["reason"] == "pass rule 3: FAIL in r3.json, a record newer than the pair",
+          v["FND-G03"])
+    v = rows([r1, of(record(2), "b"), of(record(3), "c")], f=facts3)
+    check("rule 2: records of three candidates have no pair",
+          not v["FND-G03"]["green"] and v["FND-G03"]["reason"] == "pass rule 2: no valid pair: r2.json and r3.json name different candidates",
+          v["FND-G03"])
+    v = rows([r1, r2, of(record(9), "b")], at=parse_time("2026-11-18T00:00:00Z"), f=facts3)
+    check("rule 3: an older pair whose newer record is more than 14 days old is not green beside a recent record",
+          not v["FND-G03"]["green"] and "the newer record r2.json is 15 days old" in v["FND-G03"]["reason"], v["FND-G03"])
+    v = rows([r1, with_check(r2, "FND-G03", "FAIL"), b3, b4], f=facts3)
+    check("rule 2: of two valid pairs the newer one decides",
+          v["FND-G03"]["green"] and b4["candidate"]["id"] in v["FND-G03"]["reason"], v["FND-G03"])
+    p, why = pair([("r1.json", r1), ("r2.json", r2), ("r3.json", record(3))], f=facts3)
+    check("rule 2: the pair is the newest record with the newest older record that makes it valid",
+          p is not None and [p[0][0], p[1][0]] == ["r2.json", "r3.json"], (p and [p[0][0], p[1][0]], why))
+    v = rows([r1, r2, with_check(in_place(b3, "deployment-3"), "FND-G08", "FAIL")], f=facts3)
+    check("rule 3: a newer record of an installation that was not fresh does not fail a fresh check",
+          v["FND-G08"]["green"], v["FND-G08"])
+    v = rows([r1, up, b3], f=facts3)
+    check("rule 3: a newer record in which the check did not apply changes nothing",
+          v["FND-G14"]["green"], v["FND-G14"])
     for label, change in (
             ("a version 1 record does not count", {"schema": "openova.io/acceptance-sovereign/v1"}),
             ("a record of a local run does not count", {"run_in": "local"}),
