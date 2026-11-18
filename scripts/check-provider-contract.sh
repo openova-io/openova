@@ -6,7 +6,7 @@
 #
 # The rules are Go tests of two packages below
 # products/catalyst/bootstrap/api/internal: cloudprofile (rules 1 to 4) and
-# providers/conformance (TestProviderPacks, rules 5 to 13). They read
+# providers/conformance (TestProviderPacks, rules 5 to 15). They read
 # infra/providers, or the directory in CLOUDPROFILE_PROVIDERS_DIR and
 # CONFORMANCE_PROVIDERS_DIR.
 #   1  Every infra/providers/<pack>/profile.yaml is valid against
@@ -34,6 +34,11 @@
 #      module.seal.kind.
 #  13  The module calls the hook once as module "seal" with source ./seal and
 #      declares random_password.k3s_server_token and k3s_agent_token.
+#  14  Every call of the shared control-plane template passes every template
+#      input of the contract, and the same arguments as every other module.
+#  15  The template input gateway_host_network is a literal in every call,
+#      true exactly when the profile's spec.network.loadBalancer.mode is
+#      external-hostport.
 # The other half of gate check CLD-G03, `tofu test` in every module, needs
 # OpenTofu and runs in the workflows catalyst-build, infra-hetzner-tofu,
 # infra-huawei-tofu and infra-local-tofu.
@@ -51,7 +56,7 @@ run_check() {
   (cd "$API" && go test -count=1 "${PKGS[@]}")
 }
 
-# run_on <dir>: the file rules (1 to 13) against a copy of infra/providers.
+# run_on <dir>: the file rules (1 to 15) against a copy of infra/providers.
 run_on() {
   (cd "$API" && CLOUDPROFILE_PROVIDERS_DIR="$1" CONFORMANCE_PROVIDERS_DIR="$1" go test -count=1 -run '^(TestPackFiles|TestContractFile|TestProviderPacks)$' "${PKGS[@]}") >/dev/null 2>&1
 }
@@ -175,6 +180,14 @@ self_test() {
   copy
   sed -i 's/^resource "random_password" "k3s_agent_token" {$/resource "random_password" "k3s_agent_token_renamed" {/' "$tmp/p/$first/main.tf"
   expect fail "rule 13: a module without the agent token fails"
+
+  copy
+  sed -i '/^ *fail_mark_cmd  *= /d' "$tmp/p/$first/main.tf"
+  expect fail "rule 14: a call of the template without a contract input fails"
+
+  copy
+  sed -i 's/^\( *gateway_host_network  *= \)false$/\1true/' "$tmp/p/$first/main.tf"
+  expect fail "rule 15: a gateway_host_network that differs from the profile fails"
 
   [ "$failed" = 0 ] || { echo "provider-contract self-test: FAILED"; return 1; }
   echo "provider-contract self-test: ok"

@@ -14,9 +14,9 @@
 # kubeconfig PUT, CNI, gateway-api CRDs, Flux bootstrap, bootstrap secrets) is
 # byte-for-byte identical on Hetzner / Huawei / AWS / Azure / GCP / Alibaba.
 #
-# The ONLY per-provider differences are injected as string vars / `provider`-
-# gated blocks (enumerated in docs/sessions/2026-06-09/cloud-agnostic-bootstrap-
-# plan.md §5 — the "hard dependency" exceptions):
+# The ONLY per-provider differences are injected inputs, the template inputs of
+# module contract version 1 (infra/providers/_contract/contract.json). The
+# template tests no provider name except in the sovereign-tls path line.
 #   - node_external_ip_cmd       public-IP discovery (metadata curl vs tofu EIP)
 #   - provider_id_cmd            .spec.providerID patch (hcloud vs huawei vs "")
 #   - registry_mirror_yaml       /etc/rancher/k3s/registries.yaml body
@@ -25,6 +25,13 @@
 #   - cloud_credentials_secret_yaml  flux-system/cloud-credentials Secret body
 #   - crossplane_provider_yaml   Crossplane Provider+ProviderConfig (or "")
 #   - kubeconfig_put_block       PUT-back runcmd (metadata-IP vs hostname-gated)
+#   - provider_substitutes_yaml  extra Flux substitute keys of the pack
+#   - node_ipv4_only             IPv6 off and the IPv4 pins of an IPv4-only VPC
+#   - fail_mark_cmd              prefix that records a failure marker; the
+#                                template appends the marker name
+#   - render_region_kustomization  the per-region Kustomization is rendered
+#   - gateway_host_network       the Cilium gateway binds node:443/:80
+#   - provider_overlay_path      the pack's overlay folder in Git
 #
 # CRITICAL STRUCTURAL INVARIANT (#3129 fix): the kubeconfig PUT-back runs
 # RIGHT AFTER the k3s apiserver is healthy and BEFORE gateway-api/cilium/flux
@@ -57,7 +64,7 @@ write_files:
       fs.inotify.max_user_instances = 8192
       fs.inotify.max_user_watches = 1048576
       fs.inotify.max_queued_events = 16384
-%{ if provider == "huawei" ~}
+%{ if node_ipv4_only ~}
 
   # ── Disable IPv6 (#3840 — the DETERMINISTIC fix for the ghcr image-pull
   # "Try again" wedge that #3837's per-host /etc/hosts pin could not close).
@@ -368,44 +375,6 @@ write_files:
       type: Opaque
       data:
         public.jwk: ${base64encode(handover_jwt_public_key)}
-%{ if provider == "huawei" ~}
-
-  # ── #5042(b): fail-loud sentinel + cloud-init-log push helper — CALLED on
-  # every post-PUT fail-loud runcmd exit (91/92/93/94/95) + once on success
-  # after the cloud-init-complete marker. Touches the named sentinel, echoes
-  # it into the log, then PUSHES /var/log/cloud-init-output.log to the
-  # mothership. kom4dc CPs have NO console-output API and no reachable sshd,
-  # so a runcmd leg that died AFTER the huawei prelude's ~50-min background-
-  # uploader window (main.tf provider_prelude_huawei, #3132/#5068) was
-  # forensic-blind — hw247: flux CRDs absent, GET cloudinit-log 404.
-  # The sentinel arg is echoed BEFORE the upload so the pushed log NAMES the
-  # dead leg; sleep 1 lets the runcmd tee flush that line into
-  # cloud-init-output.log before the upload reads the file. -4: the IPv4-only
-  # kom4dc VPC would otherwise dial the AAAA and the push dies silently
-  # (#5068). 0700 root-only — the body embeds the bearer token. Callers append
-  # `||true` so a helper failure can never mask the leg's own fail-loud exit
-  # code (no `|| true` inside — the caller guards). #6339: the push carries
-  # `?node=$(hostname)` so a multi-region Sovereign keeps EVERY CP's log
-  # instead of one node's — the shared `<id>-cloudinit.log` key was
-  # last-writer-wins across regions and destroyed the primary's forensics.
-  # WHOLLY HUAWEI-GATED — a
-  # hard cloud dependency, same class as the prelude uploader: Hetzner keeps
-  # sshd + a console API for forensics AND its three_region CP render sits
-  # ~200 B under the 32512 guardrail — these bytes would tip it (the 32768
-  # hard cap bricks the prov, so cut, never raise). The fail sites below keep
-  # their plain `touch` sentinel on Hetzner. The pre-PUT exits (86/87, minute
-  # ~2) intentionally do NOT call mark: they always land inside the huawei
-  # background-uploader window, which starts BEFORE k3s and pushes every 30s.
-  - path: /var/lib/catalyst/mark
-    permissions: '0700'
-    content: |
-      touch "/var/lib/catalyst/$1"
-      echo "CLOUDINIT-SENTINEL: $1"
-%{ if deployment_id != "" && kubeconfig_bearer_token != "" && catalyst_api_url != "" ~}
-      sleep 1
-      curl -4 -sk -X PUT -H "Authorization: Bearer ${kubeconfig_bearer_token}" -H "Content-Type: text/plain" --data-binary @/var/log/cloud-init-output.log --max-time 20 "${catalyst_api_url}/api/v1/deployments/${deployment_id}/cloudinit-log?node=$(hostname)" >/dev/null 2>&1
-%{ endif ~}
-%{ endif ~}
 
   # ── Cilium Helm values (one structured file; same on every cloud) ─────
   # kubeProxyReplacement + gateway-api + envoy + wireguard node-encryption.
@@ -451,7 +420,7 @@ write_files:
           # render time (cilium-gateway-race #503). "auto" skips creation
           # when the gateway.networking.k8s.io CRDs are not yet present.
           create: "true"
-%{ if provider == "huawei" ~}
+%{ if gateway_host_network ~}
         # #4706 no-CCM Huawei: envoy binds node:443/:80; ELB targets them.
         # Lockstep w/ CILIUM_GATEWAY_HOSTNETWORK_ENABLED (parity test).
         hostNetwork:
@@ -866,7 +835,7 @@ CILIUMVALUES
             ${indent(12, chomp(provider_substitutes_yaml))}
 %{ endif ~}
             WILDCARD_CERT_ISSUER: "${wildcard_cert_issuer}"
-%{ if provider != "hetzner" ~}
+%{ if render_region_kustomization ~}
             SOVEREIGN_REGION_ID: "${region_canonical_label}"
             SOVEREIGN_WRITER_REGION_ID: "${primary_region_canonical_label}"
 %{ endif ~}
@@ -1010,7 +979,7 @@ CILIUMVALUES
             # block uses (evs-ssd on Huawei, hcloud-volumes on Hetzner); the
             # tofu var validation rejects "" and "local-path". SOV-130: the
             # value is SOVEREIGN_CNPG_STORAGE_CLASS of sovereign-variables.
-%{ if provider != "hetzner" ~}
+%{ if render_region_kustomization ~}
       ---
       # ADR-0015 D1: region path from this region's own Gitea (every region).
       # NOT rendered on Hetzner: its control-plane user-data sits at the
@@ -1141,7 +1110,7 @@ runcmd:
   - sed -i '/swap/d' /etc/fstab
   - update-alternatives --set iptables /usr/sbin/iptables-legacy || true
   - update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy || true
-%{ if provider == "huawei" ~}
+%{ if node_ipv4_only ~}
   # #3840 — disable IPv6 NOW (before the r4() DNS pin, k3s install + every image
   # pull below) so containerd's Go resolver never receives/dials an unreachable
   # AAAA on this IPv4-only VPC (the `lookup ghcr.io: Try again` 0-HR wedge that
@@ -1224,7 +1193,7 @@ runcmd:
   # byte-tight Hetzner render (only ~49 B headroom under the 32256 cap) stays
   # byte-identical — Hetzner is dual-stack and needs neither.
   - |
-%{ if provider == "huawei" ~}
+%{ if node_ipv4_only ~}
     mkdir -p /var/lib/catalyst
     : >/var/lib/catalyst/github-ipv4-hosts
 %{ endif ~}
@@ -1236,7 +1205,7 @@ runcmd:
      done
      python3 -c 'import socket,sys;print(socket.getaddrinfo(sys.argv[1],443,2)[0][4][0])' "$1" 2>/dev/null
     }
-    for h in github.com raw.githubusercontent.com codeload.github.com objects.githubusercontent.com helm.cilium.io get.helm.sh%{ if provider == "huawei" } api.github.com registry.${sovereign_fqdn}%{ endif ~}; do
+    for h in github.com raw.githubusercontent.com codeload.github.com objects.githubusercontent.com helm.cilium.io get.helm.sh%{ if node_ipv4_only } api.github.com registry.${sovereign_fqdn}%{ endif ~}; do
      # #4692: retry the resolve. r4() runs once per host, but on a first-boot
      # VPC where external DNS egress (1.1.1.1 / 8.8.8.8) or the local resolver
      # is not yet ready, that single attempt leaves the host UNPINNED and the
@@ -1252,7 +1221,7 @@ runcmd:
       [ "$attempt" = 5 ] || sleep 3
      done
      [ -n "$a" ] && echo "$a $h" >>/etc/hosts || true
-%{ if provider == "huawei" ~}
+%{ if node_ipv4_only ~}
      [ -n "$a" ] && echo "$a $h" >>/var/lib/catalyst/github-ipv4-hosts
 %{ endif ~}
     done
@@ -1344,7 +1313,7 @@ runcmd:
            INSTALL_K3S_EXEC="server --cluster-init --secrets-encryption --secrets-encryption-provider=secretbox --flannel-backend=none --disable-network-policy --disable-kube-proxy --disable=traefik --disable=servicelb --disable=local-storage --cluster-cidr=${cluster_cidr} --service-cidr=${service_cidr} --node-ip=$${NODE_IP} --node-external-ip=$${NODE_EXTERNAL_IP} --advertise-address=$${NODE_IP} --kubelet-arg=max-pods=220 --kubelet-arg=image-gc-high-threshold=70 --kubelet-arg=image-gc-low-threshold=60 --kubelet-arg=minimum-image-ttl-duration=2h --tls-san=${sovereign_fqdn} --tls-san=$${NODE_IP} --tls-san=$${NODE_EXTERNAL_IP} --node-label catalyst.openova.io/role=control-plane --node-label openova.io/region=${region_canonical_label} --agent-token=${k3s_agent_token} ${k3s_extra_args} --write-kubeconfig-mode=0644" \
            sh /var/lib/catalyst/k3s-install.sh \
         && break
-      [ "$i" = 5 ] && { echo "[k3s] FATAL: install failed after 5 attempts" >&2; %{ if provider == "huawei" }sh /var/lib/catalyst/mark k3s-install-FAILED||true%{ else }touch /var/lib/catalyst/k3s-install-FAILED%{ endif }; exit 88; }
+      [ "$i" = 5 ] && { echo "[k3s] FATAL: install failed after 5 attempts" >&2; ${fail_mark_cmd}k3s-install-FAILED||true; exit 88; }
       sleep $((i*10))
     done
 
@@ -1356,7 +1325,7 @@ runcmd:
   - |
     n=0
     until kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get --raw /healthz >/dev/null 2>&1; do
-      n=$((n+1)); [ "$n" -ge 120 ] && { echo "[healthz] FATAL: apiserver never healthy after 120 tries (10m)" >&2; %{ if provider == "huawei" }sh /var/lib/catalyst/mark apiserver-healthz-FAILED||true%{ else }touch /var/lib/catalyst/apiserver-healthz-FAILED%{ endif }; exit 89; }
+      n=$((n+1)); [ "$n" -ge 120 ] && { echo "[healthz] FATAL: apiserver never healthy after 120 tries (10m)" >&2; ${fail_mark_cmd}apiserver-healthz-FAILED||true; exit 89; }
       sleep 5
     done
 
@@ -1452,7 +1421,7 @@ runcmd:
   # ONE shell so KUBECONFIG is exported once — keeps the byte-tight Hetzner render.
   - |
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-    for i in 1 2 3 4 5; do kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/experimental-install.yaml && break; [ "$i" = 5 ] && { %{ if provider == "huawei" }sh /var/lib/catalyst/mark gwapi-apply-FAILED||true%{ else }touch /var/lib/catalyst/gwapi-apply-FAILED%{ endif }; exit 95; }; sleep 15; done
+    for i in 1 2 3 4 5; do kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/experimental-install.yaml && break; [ "$i" = 5 ] && { ${fail_mark_cmd}gwapi-apply-FAILED||true; exit 95; }; sleep 15; done
     kubectl wait --for=condition=Established crd/tlsroutes.gateway.networking.k8s.io --timeout=60s
 
   # ── Cilium CNI: helm upgrade --install + retry/fail-fast (#4503) ───────
@@ -1478,9 +1447,8 @@ runcmd:
     rt helm repo add cilium https://helm.cilium.io/
     rt helm repo update
     rt helm upgrade --install cilium cilium/cilium --version 1.19.3 -n kube-system -f /var/lib/catalyst/cilium-values.yaml
-    rt kubectl -n kube-system rollout status ds/cilium --timeout=240s || { %{ if provider == "huawei" }sh /var/lib/catalyst/mark cilium-bootstrap-FAILED||true;%{ else }echo no-cni >/var/lib/catalyst/cilium-bootstrap-FAILED;%{ endif }exit 91;}
-%{ if provider == "huawei" ~}
-  # #4503 root cause (Huawei-gated note; the byte budget is Hetzner-only): on
+    rt kubectl -n kube-system rollout status ds/cilium --timeout=240s || { ${fail_mark_cmd}cilium-bootstrap-FAILED||true;exit 91;}
+  # #4503 root cause: on
   # the IPv4-only kom4dc path a single transient failure of get-helm-3 /
   # helm.cilium.io / the chart pull used to be SILENT (cloud-init runcmd is
   # non-fatal) → 0 Cilium objects → nodes NotReady ("cni plugin not
@@ -1489,8 +1457,7 @@ runcmd:
   # "0 HelmReleases" (the WRONG layer; recurrence of #1934, hit on
   # d692b5ed547596cf 2026-06-26). The retry+fail-fast block above makes "no
   # CNI" its own loud fault instead of a masqueraded Flux/ghcr-blob wedge.
-%{ endif ~}
-%{ if provider == "huawei" ~}
+%{ if node_ipv4_only ~}
   # ── In-cluster github→IPv4 for the Flux source-controller (#3714) ──────
   # The DEEPER half of the #3232/#3714 fix, restored after the #3721 revert
   # (which kept only the node /etc/hosts pin). The source-controller pod pulls
@@ -1568,7 +1535,7 @@ runcmd:
     kubectl --kubeconfig="$KC" -n kube-system rollout restart deploy/coredns >/dev/null 2>&1 || true
 %{ endif ~}
 
-%{ if provider == "huawei" ~}
+%{ if node_ipv4_only ~}
   # ── #809: BACKGROUND pre-pull the Flux v2.4.0 controller images BEFORE the
   # `flux install` below (~line 1019). On Huawei they pull DIRECT from
   # ghcr.io/fluxcd over the THROTTLED Huawei→ghcr egress — kustomize-controller
@@ -1728,12 +1695,12 @@ runcmd:
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
     n=0
     until kubectl get crd helmreleases.helm.toolkit.fluxcd.io >/dev/null 2>&1; do
-     n=$((n+1)); [ "$n" -gt 10 ] && { %{ if provider == "huawei" }sh /var/lib/catalyst/mark flux-install-FAILED||true%{ else }touch /var/lib/catalyst/flux-install-FAILED%{ endif }; exit 93; }
+     n=$((n+1)); [ "$n" -gt 10 ] && { ${fail_mark_cmd}flux-install-FAILED||true; exit 93; }
      curl -fsSL --max-time 60 https://github.com/fluxcd/flux2/releases/download/v2.4.0/install.yaml | kubectl apply -f - || true
      sleep $((n*10))
     done
     kubectl -n flux-system delete networkpolicy allow-egress allow-scraping allow-webhooks --ignore-not-found || true
-    for j in 1 2; do kubectl -n flux-system wait --for=condition=Available --timeout=300s deployment --all && break; [ "$j" = 2 ] && { %{ if provider == "huawei" }sh /var/lib/catalyst/mark flux-wait-FAILED||true%{ else }touch /var/lib/catalyst/flux-wait-FAILED%{ endif }; exit 94; }; done
+    for j in 1 2; do kubectl -n flux-system wait --for=condition=Available --timeout=300s deployment --all && break; [ "$j" = 2 ] && { ${fail_mark_cmd}flux-wait-FAILED||true; exit 94; }; done
 
   # Apply the bootstrap secrets BEFORE Flux reconciles bootstrap-kit (each
   # is an idempotent `kubectl apply`; re-running cloud-init rewrites bytes).
@@ -1799,7 +1766,7 @@ runcmd:
 %{ if crossplane_provider_yaml != "" ~}
     kubectl apply -f /var/lib/catalyst/crossplane-provider.yaml || true
 %{ endif ~}
-    kubectl -n flux-system create cm sovereign-variables --from-env-file=/var/lib/catalyst/variables.env && kubectl apply -f /var/lib/catalyst/flux-bootstrap.yaml || { %{ if provider == "huawei" }sh /var/lib/catalyst/mark flux-bootstrap-FAILED||true%{ else }touch /var/lib/catalyst/flux-bootstrap-FAILED%{ endif }; exit 92; }
+    kubectl -n flux-system create cm sovereign-variables --from-env-file=/var/lib/catalyst/variables.env && kubectl apply -f /var/lib/catalyst/flux-bootstrap.yaml || { ${fail_mark_cmd}flux-bootstrap-FAILED||true; exit 92; }
 %{ if crossplane_provider_yaml != "" ~}
     nohup bash -c "deadline=\$((SECONDS+1800)); while [ \$SECONDS -lt \$deadline ]; do kubectl apply -f /var/lib/catalyst/crossplane-provider.yaml >/dev/null 2>&1 && break; sleep 30; done" >/dev/null 2>&1 &
 %{ endif ~}
@@ -1807,13 +1774,11 @@ runcmd:
   # Marker for the catalyst-api provisioner to detect cloud-init is done.
   - mkdir -p /var/lib/catalyst
   - touch /var/lib/catalyst/cloud-init-complete
-%{ if provider == "huawei" ~}
-  # #5042(b): deterministic FINAL log push on the success path too — the huawei
-  # background uploader (main.tf provider_prelude_huawei) caps at ~50 min and
-  # can expire before a slow 2-region bootstrap finishes, leaving a truncated
-  # log with no completion line. The mark re-touch of cloud-init-complete is an
-  # idempotent no-op. Huawei-gated with the whole mark helper (see its header).
-  - sh /var/lib/catalyst/mark cloud-init-complete||true
-%{ endif ~}
+  # #5042(b): the final mark on the success path. Where fail_mark_cmd is a
+  # helper that pushes the log (the huawei provider_prelude writes it), this is
+  # the deterministic FINAL log push: the background uploader caps at ~50 min
+  # and can expire before a slow 2-region bootstrap finishes. Re-touching
+  # cloud-init-complete is an idempotent no-op.
+  - ${fail_mark_cmd}cloud-init-complete||true
 
 final_message: "Catalyst CP bootstrap done; Flux reconciling ${sovereign_fqdn}"

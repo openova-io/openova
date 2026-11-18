@@ -150,11 +150,8 @@ locals {
     object_storage_bucket_name        = "render-test-bucket"
     object_storage_endpoint           = "https://s3.example.test"
     object_storage_region             = "us-east-1"
-    pdns_api_host                     = "powerdns.example.test"
     node_ip_cmd                       = "echo 10.0.1.2"
     node_external_ip_cmd              = "echo 203.0.113.10"
-    node_external_ip_value            = "203.0.113.10"
-    clustermesh_proxy_port            = 12379
     # #5017 keystone — provider API CIDRs (inline-YAML array) for the step-08
     # deny-egress allow-list; every real templatefile() map supplies it.
     provider_api_cidrs_yaml       = "[]"
@@ -176,6 +173,14 @@ locals {
     kubeconfig_put_block     = ""
     provider_id_cmd          = ""
     crossplane_provider_yaml = ""
+
+    # CLD-132 — the provider tests of the template, as inputs, with the values
+    # the fixture's pack passes (its module passes the same literals).
+    node_ipv4_only              = fixture == "huawei"
+    fail_mark_cmd               = fixture == "huawei" ? "sh /var/lib/catalyst/mark " : "touch /var/lib/catalyst/"
+    render_region_kustomization = fixture == "huawei"
+    gateway_host_network        = fixture == "huawei"
+    provider_overlay_path       = "./clusters/_template/providers/${fixture}"
 
     # CLD-131 — the substitutes of the fixture's pack, rendered from that
     # pack's own file with this fixture's values, as the module does.

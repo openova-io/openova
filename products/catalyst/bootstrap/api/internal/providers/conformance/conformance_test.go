@@ -752,6 +752,43 @@ func templateArguments(m *module) ([]map[string]bool, error) {
 	return calls, failure
 }
 
+// templateBool returns, for every call that renders the shared control-plane
+// template, the value of the argument name when it is a literal true or
+// false, and nil when it is not.
+func templateBool(m *module, name string) []*bool {
+	var values []*bool
+	for _, body := range m.bodies {
+		_ = hclsyntax.VisitAll(body, func(node hclsyntax.Node) hcl.Diagnostics {
+			call, isCall := node.(*hclsyntax.FunctionCallExpr)
+			if !isCall || call.Name != "templatefile" || len(call.Args) != 2 {
+				return nil
+			}
+			if !strings.Contains(string(call.Args[0].Range().SliceBytes(mustRead(call.Args[0].Range().Filename))), sharedTemplate) {
+				return nil
+			}
+			object, isObject := call.Args[1].(*hclsyntax.ObjectConsExpr)
+			if !isObject {
+				return nil
+			}
+			var value *bool
+			for _, item := range object.Items {
+				key, diags := item.KeyExpr.Value(nil)
+				if diags.HasErrors() || key.Type() != cty.String || key.AsString() != name {
+					continue
+				}
+				val, diags := item.ValueExpr.Value(nil)
+				if !diags.HasErrors() && val.Type() == cty.Bool && val.IsKnown() && !val.IsNull() {
+					b := val.True()
+					value = &b
+				}
+			}
+			values = append(values, value)
+			return nil
+		})
+	}
+	return values
+}
+
 // mustRead reads a file that was parsed a moment ago.
 func mustRead(file string) []byte {
 	data, err := os.ReadFile(filepath.Clean(file))
@@ -845,8 +882,9 @@ func TestProviderPacks(t *testing.T) {
 				report(t, problems)
 			})
 
-			// The three sub-tests below wait for the package that makes
-			// them true for every pack. That package removes the Skip line.
+			// The sub-tests adapter and overlay wait for the package that
+			// makes them true for every pack. That package removes the
+			// Skip line.
 			t.Run("adapter", func(t *testing.T) {
 				t.Skip("until CLD-102")
 				if _, err := os.Stat(filepath.Join(repoRoot(), filepath.FromSlash(pack.Spec.Adapter))); err != nil {
@@ -857,7 +895,6 @@ func TestProviderPacks(t *testing.T) {
 				}
 			})
 			t.Run("template inputs", func(t *testing.T) {
-				t.Skip("until CLD-132")
 				calls, err := templateArguments(m)
 				if err != nil {
 					t.Fatal(err)
@@ -887,6 +924,20 @@ func TestProviderPacks(t *testing.T) {
 						if !got[arg] {
 							t.Errorf("call %d of the shared template does not pass %q, which %s passes", i+1, arg, names[0])
 						}
+					}
+				}
+				// gateway_host_network is a literal in every call, and it
+				// is true exactly when the profile's front door reaches
+				// the nodes on their host ports. No module reads
+				// profile.yaml: the provisioner stages only *.tf and
+				// *.tftpl files of a module.
+				want := profile.Spec.Network.LoadBalancer.Mode == "external-hostport"
+				for i, got := range templateBool(m, "gateway_host_network") {
+					switch {
+					case got == nil:
+						t.Errorf("call %d of the shared template does not pass gateway_host_network as a literal true or false", i+1)
+					case *got != want:
+						t.Errorf("call %d of the shared template passes gateway_host_network = %t; profile.yaml spec.network.loadBalancer.mode is %q", i+1, *got, profile.Spec.Network.LoadBalancer.Mode)
 					}
 				}
 			})
