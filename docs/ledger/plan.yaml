@@ -18612,17 +18612,39 @@ packages:
   size: M
   lane: RAILS
   depends_on: [FND-031, FND-032, FND-091, SVC-150]
-  after: [FND-011, FND-025, SEC-105, NET-040, NET-221, SVC-060, CTL-347]
+  after: [FND-011, FND-017, FND-018, FND-019, FND-020, FND-025, FND-059, FND-062, FND-063, FND-096, FND-098, CLD-010, CLD-022, CLD-023, CLD-030, CLD-064, CLD-113, CLD-142, SOV-035, SOV-040, SOV-135, SOV-190, SEC-103, SEC-104, SEC-105, NET-040, NET-041, NET-221, SVC-060, SVC-070, SVC-080, SVC-090, SVC-100, SVC-130, CTL-346, CTL-347, INF-110, ACC-050]
   touches:
   - scripts/generate-catalog.py
+  - scripts/tests/test_generate_catalog.py
   - platform/_catalog/seed-exclusions.yaml
+  - platform/_catalog/chart-locations.yaml
+  - platform/alloy/blueprint.yaml
+  - platform/cnpg/blueprint.yaml
+  - platform/grafana/blueprint.yaml
+  - platform/keycloak/blueprint.yaml
+  - platform/langfuse/blueprint.yaml
+  - platform/litmus/blueprint.yaml
+  - platform/loki/blueprint.yaml
+  - platform/mimir/blueprint.yaml
+  - platform/opentelemetry/blueprint.yaml
+  - platform/tempo/blueprint.yaml
+  - platform/velero/blueprint.yaml
+  - platform/velero-hcs/blueprint.yaml
   - products/catalyst/chart/templates/catalog-seed/_README.txt
-  - ​.github/workflows/blueprint-release.yaml
-  - ​.github/workflows/check-catalog-seed-lockstep.yaml
-  - scripts/check-catalog-seed-lockstep.sh
-  - tests/acceptance/sovereign/internal/suite/check_svc_catalogue.go
-  - scripts/check-release-owned-lines.py
   - products/catalyst/chart/templates/catalog-seed/blueprints.yaml
+  - products/catalyst/bootstrap/api/internal/catalog/blueprints.json
+  - products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts
+  - .github/workflows/blueprint-release.yaml
+  - .github/workflows/check-catalog-generated-drift.yaml
+  - .github/workflows/check-catalog-seed-lockstep.yaml
+  - scripts/check-catalog-seed-lockstep.sh
+  - scripts/expected-unpublished-catalog-seed-pins.yaml
+  - scripts/check-release-lockstep-writer.py
+  - scripts/check-release-owned-lines.py
+  - scripts/provider-leak-baseline.tsv
+  - scripts/upstream-literals-baseline.txt
+  - scripts/service-model-baseline.yaml
+  - tests/acceptance/sovereign/internal/suite/check_svc_catalogue.go
   - docs/ledger/gates.yaml
   - docs/ledger/deleted-paths.txt
   resources: []
@@ -18638,7 +18660,45 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: The seed is generated at the same path and committed by the pull request; five ghost objects gone; two hand registers and the sync script deleted; the release writer runs the generator after it has written versions; the release-owned list is changed for site 3. Implements SVC-G01 and sets it to expected-fail.
+  delivers: 'Output 3 of scripts/generate-catalog.py: the seed is generated at the same path, names its generator in its first lines and is committed by the pull request. Five ghost objects are gone. The listed set of the seed is unchanged: the 12 Blueprints that only the hand seed listed say visibility listed in their own files. The generator derives each source block from the Blueprint''s name and version. bp-catalyst-platform is seeded from products/catalyst/chart through one entry of a mapping file. The release writer runs the generator after it has written versions, in place of its two sync calls, and the lockstep-writer guard replays that. The release-owned list is changed for site 3. Implements SVC-G01 and sets it to expected-fail.'
+- id: SVC-161
+  title: The seed sync script is deleted with its three importers and four order calls
+  area: SVC
+  epic: null
+  type: delete
+  wave: W0
+  size: S
+  lane: RAILS
+  depends_on: [SVC-160]
+  after: [FND-017, FND-018, FND-019, FND-020, FND-056, FND-059, FND-062, FND-063, FND-096, FND-098, CLD-010, CLD-022, CLD-023, CLD-030, CLD-113, CLD-142, SOV-035, NET-040, NET-221, CTL-347, INF-110]
+  touches:
+  - scripts/sync-catalog-seed-pin.py
+  - scripts/check-catalog-seed-source-coverage.py
+  - scripts/expected-unseeded-blueprints.yaml
+  - scripts/check-umbrella-republish-gate.py
+  - scripts/sync-funnel-pin.py
+  - scripts/lib/version_order.py
+  - scripts/check-release-lockstep-writer.py
+  - .github/workflows/blueprint-release.yaml
+  - .github/workflows/check-catalog-seed-lockstep.yaml
+  - .github/workflows/check-release-lockstep-writer.yaml
+  - .github/workflows/test-bootstrap-kit.yaml
+  - scripts/provider-leak-baseline.tsv
+  - docs/ledger/deleted-paths.txt
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: scripts/sync-catalog-seed-pin.py is deleted. Its --order mode, the release writer's one version comparison (FND-018), moves with its self-test cases to one file of its own, which the four order calls of blueprint-release.yaml, sync-funnel-pin.py (version_order and note_kept) and the lockstep-writer guard call. check-umbrella-republish-gate.py reads the generated seed without the deleted parser. check-catalog-seed-source-coverage.py and its register expected-unseeded-blueprints.yaml are deleted, with the job that runs them; the path filters and the self-test step that name the deleted files go; the register's line leaves the provider-leak baseline.
 - id: SVC-162
   title: 'Shelf deletion: README-only folders and scaffold Blueprint files'
   area: SVC
@@ -18739,6 +18799,7 @@ packages:
   - products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts
   - products/catalyst/chart/templates/catalog-seed/blueprints.yaml
   - docs/ledger/deleted-paths.txt
+  - platform/_catalog/chart-locations.yaml
   resources: []
   flips: []
   implements: []
@@ -26746,14 +26807,17 @@ packages:
   wave: W0
   size: XS
   lane: CHARTS
-  depends_on: [AIP-010, SVC-160]
-  after: [FND-011, FND-096, FND-098, CLD-142, NET-040, AIP-050, AIP-101, AIP-102, AIP-108, AIP-111, INF-110]
+  depends_on: [AIP-010, SVC-161]
+  after: [FND-011, FND-096, FND-098, CLD-142, SEC-103, SEC-104, SEC-105, NET-040, NET-221, SVC-060, CTL-346, CTL-347, AIP-050, AIP-101, AIP-102, AIP-108, AIP-111, INF-110, ACC-050]
   touches:
   - platform/llm-gateway/**
   - platform/anthropic-adapter/**
-  - scripts/expected-unseeded-blueprints.yaml
   - docs/ledger/deleted-paths.txt
   - scripts/agent-plane-baseline.yaml
+  - platform/_catalog/seed-exclusions.yaml
+  - products/catalyst/chart/templates/catalog-seed/blueprints.yaml
+  - products/catalyst/bootstrap/api/internal/catalog/blueprints.json
+  - products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts
   resources: []
   flips: []
   implements: []
