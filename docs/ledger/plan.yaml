@@ -27128,25 +27128,30 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [AIP-102]
-  after: [SVC-040]
+  after: []
   touches:
-  - products/axon/src/routes/chat-completions.ts
   - products/axon/src/turns.ts
+  - products/axon/src/routes/chat-completions.ts
   - products/axon/test/**
+  - products/axon/chart/Chart.yaml
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e products/axon/src/turns.ts && grep -c 'StepSink' products/axon/src/routes/chat-completions.ts"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "cd products/axon && npm ci && npm run build && npm test && node --import tsx --test test/stream.test.ts"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: One-to-one stream mapping with tool-call argument deltas and a real usage chunk
+  delivers: Axon streams one chunk per upstream event as it arrives, with tool-call argument deltas, then the finish chunk and the real usage chunk; a stream that fails ends with an error event instead of a finish, and a caller that disconnects closes its run.
 - id: AIP-104
   title: Limits, queue, time-outs, admin listener
   area: AIP
