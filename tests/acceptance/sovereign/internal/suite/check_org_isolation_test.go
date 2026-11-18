@@ -234,6 +234,7 @@ func mustJSON(t *testing.T, v any) string {
 type isoConsole struct {
 	t          *testing.T
 	refuse     string // the slug prefix whose create is refused with HTTP 409
+	noNS       string // the slug prefix whose create answers no tenant_namespace
 	state      string // what GET of an Organization answers; "" is done
 	requests   []map[string]any
 	created    []string
@@ -263,7 +264,11 @@ func (c *isoConsole) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		c.created = append(c.created, slug)
-		reply(202, map[string]string{"org_tenant_id": "id-" + slug, "subdomain": slug, "state": "pending", "tenant_namespace": slug})
+		ns := slug
+		if c.noNS != "" && strings.HasPrefix(slug, c.noNS) {
+			ns = ""
+		}
+		reply(202, map[string]string{"org_tenant_id": "id-" + slug, "subdomain": slug, "state": "pending", "tenant_namespace": ns})
 	case r.Method == "GET" && strings.HasPrefix(path, "/api/v1/organizations/id-"):
 		reply(200, map[string]string{"state": nonEmpty(c.state, "done"), "last_error": "vcluster: boom"})
 	case r.Method == "DELETE" && strings.HasPrefix(path, "/api/v1/organizations/id-"):
@@ -405,6 +410,7 @@ func TestOrgIsolationCheck_Faults(t *testing.T) {
 		steps int // 0: not compared
 	}{
 		{"the create of A is refused", func(_ *isoFake, c *isoConsole) { c.refuse = "iso-a-" }, "HTTP 409 (want 202)", 4},
+		{"the create of A names no namespace", func(_ *isoFake, c *isoConsole) { c.noNS = "iso-a-" }, "the answer names no tenant_namespace", 5},
 		{"an Organization fails", func(_ *isoFake, c *isoConsole) { c.state = "failed" }, "is failed: vcluster: boom", 6},
 		{"an Organization is never done", func(_ *isoFake, c *isoConsole) { c.state = "vcluster_created" }, "timed out after", 6},
 		{"a mirror is missing in region b", func(f *isoFake, _ *isoConsole) { f.missing = "flux-system/tenant-iso-a-" }, "no kubeconfig in flux-system/tenant-iso-a-", 0},

@@ -262,13 +262,15 @@ func (j *isoJourney) createOrgs(ctx context.Context) bool {
 					return err
 				}
 			}
-			o.id, o.namespace = v.ID, nonEmpty(v.Namespace, o.slug)
+			o.id, o.namespace = v.ID, v.Namespace
 			ev["id"], ev["namespace"], ev["state"] = v.ID, o.namespace, v.State
 			switch {
 			case res.Status != 202:
 				return fmt.Errorf("HTTP %d (want 202): %s", res.Status, trunc(string(res.Body), 300))
 			case v.ID == "":
 				return errors.New("the answer names no org_tenant_id")
+			case v.Namespace == "":
+				return errors.New("the answer names no tenant_namespace")
 			}
 			return nil
 		}) && ok
@@ -866,6 +868,9 @@ func (j *isoJourney) cleanup(ctx context.Context) {
 			ev["id"], ev["http"] = o.id, res.Status
 			if res.Status < 200 || res.Status > 299 {
 				return fmt.Errorf("HTTP %d: %s", res.Status, trunc(string(res.Body), 300))
+			}
+			if o.namespace == "" {
+				return errors.New("deleted, but the create answered no tenant_namespace, so no host namespace can be awaited")
 			}
 			return nil
 		}) {
