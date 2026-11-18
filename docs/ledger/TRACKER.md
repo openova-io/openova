@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T17:00:04Z` |
+| Last refreshed | `2026-11-18T17:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-18T17:07 | [#8185](https://github.com/openova-io/openova/pull/8185) | #7087 | docs(ledger): plan update |
+| 2026-11-18T17:01 | [#8184](https://github.com/openova-io/openova/pull/8184) | #7087 | docs(ledger): plan update |
 | 2026-11-18T16:51 | [#8181](https://github.com/openova-io/openova/pull/8181) | #7087 | docs(ledger): plan update |
 | 2026-11-18T16:12 | [#8180](https://github.com/openova-io/openova/pull/8180) | #7087 | docs(ledger): plan update |
 | 2026-11-18T15:35 | [#8178](https://github.com/openova-io/openova/pull/8178) | #7087 | docs(ledger): plan update |
@@ -332,11 +334,9 @@ flowchart LR
 | 2026-11-18T16:15 | [#8152](https://github.com/openova-io/openova/pull/8152) | #8148 | feat(machine-operations): match the bills of materials of ma |
 | 2026-11-18T11:38 | [#8150](https://github.com/openova-io/openova/pull/8150) | #8149 | test(gate): check NET-G10 dials the instance metadata addres |
 | 2026-11-18T11:16 | [#8147](https://github.com/openova-io/openova/pull/8147) | #7087 | docs(ledger): plan update |
+| 2026-11-18T17:10 | [#8146](https://github.com/openova-io/openova/pull/8146) | #8140 | feat(gate): check CLD-G12, the plan of a provisioned deploym |
 | 2026-11-18T11:10 | [#8144](https://github.com/openova-io/openova/pull/8144) | #7087 | docs(ledger): plan update |
 | 2026-11-18T11:28 | [#8143](https://github.com/openova-io/openova/pull/8143) | #8138 | test(bootstrap-kit): run the function tests of the foundatio |
-| 2026-11-18T11:18 | [#8142](https://github.com/openova-io/openova/pull/8142) | #7765 | refactor(cloud-init): new control planes fetch the k3s insta |
-| 2026-11-18T11:00 | [#8139](https://github.com/openova-io/openova/pull/8139) | #7087 | docs(ledger): plan update |
-| 2026-11-18T10:55 | [#8137](https://github.com/openova-io/openova/pull/8137) | #7087 | docs(ledger): plan update |
 
 ---
 
