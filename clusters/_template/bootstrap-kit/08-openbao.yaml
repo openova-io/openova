@@ -59,6 +59,9 @@ metadata:
   labels:
     catalyst.openova.io/slot: "08"
 spec:
+  test:
+    enable: true
+    ignoreFailures: true
   interval: 15m
   releaseName: openbao
   targetNamespace: openbao

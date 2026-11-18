@@ -43,6 +43,9 @@ metadata:
     catalyst.openova.io/component: catalyst-platform
     catalyst.openova.io/region-role: primary
 spec:
+  test:
+    enable: true
+    ignoreFailures: true
   # G2 (Refs #2574, 2026-05-29): bp-catalyst-platform is mothership-only.
   # On a secondary CP this HR must NOT install — the Sovereign control
   # plane (catalyst-api / catalyst-ui / controllers / catalyst-catalog /

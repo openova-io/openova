@@ -55,6 +55,9 @@ metadata:
   labels:
     catalyst.openova.io/slot: "13b"
 spec:
+  test:
+    enable: true
+    ignoreFailures: true
   interval: 15m
   releaseName: sso-bridge
   targetNamespace: sso-bridge

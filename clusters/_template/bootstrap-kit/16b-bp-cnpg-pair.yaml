@@ -144,6 +144,9 @@ metadata:
     openova.io/category: customer-facing-capability
     openova.io/epic: "6"
 spec:
+  test:
+    enable: true
+    ignoreFailures: true
   # BOTH-clusters HR (chart 0.2.0 split-side) — every region's control
   # plane applies this HR; `cnpgPair.side` (below) makes each cluster
   # render exactly its own half of the pair. The former

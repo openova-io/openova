@@ -65,6 +65,9 @@ metadata:
     catalyst.openova.io/slot: "60"
     catalyst.openova.io/tenant-spawn: vcluster
 spec:
+  test:
+    enable: true
+    ignoreFailures: true
   interval: 15m
   releaseName: vcluster-helmrepo
   # The release marker Secret lives next to every other bootstrap-kit

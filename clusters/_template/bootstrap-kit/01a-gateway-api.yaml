@@ -70,6 +70,9 @@ metadata:
   labels:
     catalyst.openova.io/slot: "01a"
 spec:
+  test:
+    enable: true
+    ignoreFailures: true
   interval: 15m
   releaseName: gateway-api
   # CRDs are cluster-scoped; targetNamespace is just where the Helm

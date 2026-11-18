@@ -51,6 +51,9 @@ metadata:
   labels:
     catalyst.openova.io/slot: "26b"
 spec:
+  test:
+    enable: true
+    ignoreFailures: true
   interval: 15m
   releaseName: plane-isolation
   targetNamespace: catalyst-system

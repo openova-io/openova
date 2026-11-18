@@ -91,6 +91,9 @@ metadata:
     openova.io/category: customer-facing-capability
     openova.io/epic: "6"
 spec:
+  test:
+    enable: true
+    ignoreFailures: true
   # ADR-0015 D8 (Refs #7067): Continuum runs in EVERY region. Each region's
   # Continuum observes its own region natively and, while it holds a group's
   # Git lease, commits the next phase of a topology transition. It is no

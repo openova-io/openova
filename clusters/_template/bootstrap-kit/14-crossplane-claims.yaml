@@ -31,6 +31,9 @@ metadata:
   labels:
     catalyst.openova.io/slot: "14"
 spec:
+  test:
+    enable: true
+    ignoreFailures: true
   interval: 15m
   releaseName: crossplane-claims
   targetNamespace: crossplane-system

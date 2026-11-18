@@ -100,6 +100,9 @@ metadata:
   labels:
     catalyst.openova.io/slot: "19"
 spec:
+  test:
+    enable: true
+    ignoreFailures: true
   # G50 (Refs #2602, 2026-05-30): interval 15m → 1m so install remediation
   # retries fire within ~5min total (5 × 1m) instead of 45min (3 × 15m).
   # Catches the cnpg-webhook caBundle race (~30-60s clear time) where the
