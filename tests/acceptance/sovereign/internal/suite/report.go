@@ -46,14 +46,21 @@ func selfProducer(getenv func(string) string) Producer {
 	return Producer{Kind: "job", Job: &job}
 }
 
+// exactChartVersion is a chart version that names one release: major, minor
+// and patch, with an optional pre-release and build. A range such as `*`,
+// which the HelmRelease API writes when the spec names no version (a chart
+// from a GitRepository), `>=1.0.0` or `1.x` names no single version.
+var exactChartVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$`)
+
 // releasesBehind compares the deployed chart version of each HelmRelease with
-// the version its spec names; a suspended one, or one whose spec names none, is
-// not compared. It returns the number compared and, sorted, those behind.
+// the version its spec names; a suspended one, or one whose spec names no
+// single version (none, or a range), is not compared. It returns the number
+// compared and, sorted, those behind.
 func releasesBehind(releases []kube.Object) (int, []string) {
 	compared, behind := 0, []string{}
 	for _, hr := range releases {
 		want := hr.Str("spec", "chart", "spec", "version")
-		if suspend, _ := hr.Get("spec", "suspend").(bool); suspend || want == "" {
+		if suspend, _ := hr.Get("spec", "suspend").(bool); suspend || !exactChartVersion.MatchString(want) {
 			continue
 		}
 		compared++

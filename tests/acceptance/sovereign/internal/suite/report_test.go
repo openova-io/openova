@@ -57,12 +57,15 @@ func TestReleasesBehind(t *testing.T) {
 	suspended := pinnedRelease("flux-system", "bp-velero", "1.0.0", "0.9.0")
 	suspended["spec"].(obj)["suspend"] = true
 	unpinned := pinnedRelease("flux-system", "bp-oci", "", "2.0.0")
+	// A range names no single version: `*` is what the API writes for a chart from a GitRepository.
+	anyVersion := pinnedRelease("flux-system", "local-path", "*", "0.0.30")
+	atLeast := pinnedRelease("flux-system", "bp-range", ">=1.0.0", "0.9.0")
 	var list struct{ Items []kube.Object }
 	if err := json.Unmarshal([]byte(kubeList(
 		pinnedRelease("flux-system", "bp-cilium", "1.4.20", "1.4.20"),
 		pinnedRelease("flux-system", "bp-harbor", "1.2.0", "1.1.0"),
 		pinnedRelease("gitea", "bp-gitea", "3.0.0", ""),
-		suspended, unpinned)), &list); err != nil {
+		suspended, unpinned, anyVersion, atLeast)), &list); err != nil {
 		t.Fatal(err)
 	}
 	compared, behind := releasesBehind(list.Items)
@@ -78,6 +81,9 @@ func TestWaitForReleases(t *testing.T) {
 	}{
 		{"every release runs its version", kubeList(pinnedRelease("flux-system", "bp-cilium", "1.4.20", "1.4.20")), Pass},
 		{"a release runs another version", kubeList(pinnedRelease("flux-system", "bp-cilium", "1.4.20", "1.4.19")), Fail},
+		{"a release whose spec names the range *", kubeList(pinnedRelease("flux-system", "bp-cilium", "1.4.20", "1.4.20"),
+			pinnedRelease("flux-system", "local-path", "*", "0.0.30")), Pass},
+		{"a pre-release runs another version", kubeList(pinnedRelease("flux-system", "bp-cilium", "1.4.20-rc.1", "1.4.19")), Fail},
 		{"no release is found", kubeList(), Fail},
 		{"the releases cannot be read", "", Fail},
 	} {

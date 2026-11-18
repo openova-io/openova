@@ -24,6 +24,25 @@
 # scripts/acceptance-gate.py validate-record and uploaded as the artifact
 # conformance-local-record; it is never committed. The job fails when the record's result is
 # not PASS: a discovery step or a required check that does not pass.
+# Then the run in self (FND-155): a Job in the primary region runs the suite image with
+# --run-in self, as the conformance Job of a Sovereign does, once the run in local has passed.
+# A pull request has no pushed image, so the job builds it from the commit under test, with the
+# build context of build-conformance.yaml and tests/acceptance/sovereign/Containerfile, and the
+# step of the run loads it into every machine of the primary region and reads its digest there.
+# The Job names the image by that digest and never pulls it. It runs under the ServiceAccount
+# catalyst-system/catalyst-conformance, whose ClusterRole holds get, list and watch on
+# helmreleases, pods, services and nodes, get and list on namespaces, get on the
+# CustomResourceDefinition clusterpolicies.kyverno.io and the ClusterPolicy
+# forbid-nodeport-service (what scripts/check-live-nodeports.sh of check FND-G05 reads besides
+# the Services), and get, create, update and patch on clusterpolicyreports: no pods/exec and no
+# Secrets. After the Job the step asks the API server with kubectl auth can-i: the account has
+# the two Kyverno reads, the namespace read and the report write, and no other
+# CustomResourceDefinition or ClusterPolicy, no Secret and no pods/exec. The suite writes the
+# ClusterPolicyReport conformance and prints its record into the log of the Job. The step
+# passes when the Job completed; the record is valid, ran in self and names this Job as its
+# producer, the digest its pod ran and the commit under test; the report carries the record's
+# run id and one result per check of the record; and the record's result is PASS. The report,
+# the record, the Job, its pod and its log are uploaded as the artifact conformance-self.
 # On a failure the evidence of every machine is uploaded as the artifact local-pack-evidence.
 # Nothing publishes a port and nothing uses a node port.
 #
@@ -56,6 +75,9 @@ jobs:
     name: conformance-local
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      # The suite image of the run in self. It is built here and never pushed.
+      SELF_IMAGE: ghcr.io/openova-io/openova/conformance:local
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -250,6 +272,230 @@ jobs:
           path: |
             ${{ runner.temp }}/acceptance/*.json
             ${{ runner.temp }}/acceptance.log
+          if-no-files-found: warn
+
+      # The run in self (see the top of this file) runs only after the run in local passed. Its
+      # image is built as build-conformance.yaml builds it, from the commit this job checked out:
+      # the suite program, the NodePort script and the gate manifest.
+      - name: Suite image for the run in self
+        if: steps.suite.outcome == 'success'
+        run: |
+          set -euo pipefail
+          ctx="$RUNNER_TEMP/conformance"
+          mkdir -p "$ctx/scripts"
+          (cd tests/acceptance/sovereign && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o "$ctx/sovereign-acceptance" ./cmd/sovereign-acceptance)
+          cp scripts/check-live-nodeports.sh "$ctx/scripts/check-live-nodeports.sh"
+          python3 scripts/acceptance-gate.py export > "$ctx/gates.json"
+          docker build --provenance=false --sbom=false --file tests/acceptance/sovereign/Containerfile \
+            --build-arg SUITE_GIT_SHA="$(git rev-parse HEAD)" --tag "$SELF_IMAGE" "$ctx"
+
+      # Each failure of this step is marked "run in self:" in the log.
+      - name: Run in self (a Job in the primary region runs the suite image)
+        id: self
+        if: steps.suite.outcome == 'success'
+        run: |
+          set -euo pipefail
+          d="$RUNNER_TEMP/local-pack"
+          # The env file of up: CONSOLE_URL, DEPLOYMENT_ID, REGION_A, REGION_B, SESSION_TOKEN_FILE.
+          # shellcheck disable=SC1091
+          . "$d/env"
+          out="$RUNNER_TEMP/conformance-self"
+          mkdir -p "$out"
+          fail() { echo "::error::run in self: $*"; exit 1; }
+          k() { kubectl --kubeconfig "$d/$REGION_A.kubeconfig" --request-timeout=30s "$@"; }
+          region="local-$REGION_A-rtz-prod"
+          repo="${SELF_IMAGE%:*}"
+          k get crd clusterpolicyreports.wgpolicyk8s.io > /dev/null || fail "the kind ClusterPolicyReport is not installed in $region"
+          # The image goes into every machine of the region; each must hold it under one digest.
+          # The reference by digest is made with ctr images tag: the import's own --digests makes
+          # none for a named image in the containerd of k3s v1.31.8.
+          digest=""
+          for node in $(k get nodes -o jsonpath='{.items[*].metadata.name}'); do
+            m="$(docker ps --format '{{.Names}}' | grep -x -- ".*-$node" || true)"
+            if [ -z "$m" ] || [ "$(printf '%s\n' "$m" | wc -l)" != 1 ]; then fail "node $node is not one machine of the pack: '$m'"; fi
+            docker save "$SELF_IMAGE" | docker exec -i "$m" /usr/local/bin/k3s ctr -n k8s.io images import --all-platforms --base-name "$repo" - \
+              || fail "$m did not import the image"
+            got="$(docker exec "$m" /usr/local/bin/k3s ctr -n k8s.io images ls "name==$SELF_IMAGE" | awk -v ref="$SELF_IMAGE" '$1 == ref {print $3}')"
+            [[ "$got" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "$m holds no digest for $SELF_IMAGE: '$got'"
+            if [ -n "$digest" ] && [ "$digest" != "$got" ]; then fail "$m holds $SELF_IMAGE as $got, another machine as $digest"; fi
+            docker exec "$m" /usr/local/bin/k3s ctr -n k8s.io images tag --force "$SELF_IMAGE" "$repo@$got" > /dev/null \
+              || fail "$m could not tag $SELF_IMAGE as $repo@$got"
+            refs="$(docker exec "$m" /usr/local/bin/k3s ctr -n k8s.io images ls -q | grep -F -- "$repo" || true)"
+            [ "$(printf '%s\n' "$refs" | grep -c -x -F -- "$repo@$got")" = 1 ] || fail "$m has no reference $repo@$got, only: '${refs//$'\n'/ }'"
+            digest="$got"
+            echo "$node ($m): $repo@$digest"
+          done
+          [ -n "$digest" ] || fail "no node was found in $region"
+          # The ServiceAccount, its rules and the Job. The suite exits 0 when it ran, whatever its
+          # checks gave; the Job fails only when the suite could not run. The record goes into the
+          # log of the Job, between the lines "--- record <file>" and "--- end of record".
+          SELF_REPO="$repo" SELF_DIGEST="$digest" SELF_REGION="$region" python3 - > "$out/manifest.json" <<'PY'
+          import json, os, shlex
+          repo, digest, region = os.environ["SELF_REPO"], os.environ["SELF_DIGEST"], os.environ["SELF_REGION"]
+          ns, name = "catalyst-system", "catalyst-conformance"
+          labels = {"app.kubernetes.io/name": name}
+          run = ("sovereign-acceptance run --run-in self --env local-pack --region-a %s --suite-image-digest %s"
+                 " --report-name conformance --manifest /opt/conformance/gates.json --repo-root /opt/conformance"
+                 " --wait-for-release 10 --record --record-dir /tmp/record" % (shlex.quote(region), shlex.quote(digest)))
+          script = (run + '; rc=$?; for f in /tmp/record/*.json; do [ -f "$f" ] || continue; '
+                    'echo "--- record $f"; cat "$f"; echo "--- end of record"; done; exit $rc')
+          def field(name, path):
+              return {"name": name, "valueFrom": {"fieldRef": {"fieldPath": path}}}
+          rules = [
+              {"apiGroups": ["helm.toolkit.fluxcd.io"], "resources": ["helmreleases"], "verbs": ["get", "list", "watch"]},
+              {"apiGroups": [""], "resources": ["pods", "services", "nodes"], "verbs": ["get", "list", "watch"]},
+              {"apiGroups": [""], "resources": ["namespaces"], "verbs": ["get", "list"]},
+              {"apiGroups": ["apiextensions.k8s.io"], "resources": ["customresourcedefinitions"],
+               "resourceNames": ["clusterpolicies.kyverno.io"], "verbs": ["get"]},
+              {"apiGroups": ["kyverno.io"], "resources": ["clusterpolicies"], "resourceNames": ["forbid-nodeport-service"], "verbs": ["get"]},
+              {"apiGroups": ["wgpolicyk8s.io"], "resources": ["clusterpolicyreports"], "verbs": ["get", "create", "update", "patch"]},
+          ]
+          container = {
+              "name": "conformance", "image": repo + "@" + digest, "imagePullPolicy": "Never",
+              "command": ["/bin/sh", "-c", script],
+              "env": [{"name": "HOME", "value": "/tmp"},
+                      field("ACCEPT_JOB_NAMESPACE", "metadata.namespace"),
+                      field("ACCEPT_JOB_NAME", "metadata.labels['batch.kubernetes.io/job-name']"),
+                      field("ACCEPT_JOB_UID", "metadata.labels['batch.kubernetes.io/controller-uid']")],
+              "resources": {"requests": {"cpu": "50m", "memory": "64Mi"}, "limits": {"memory": "512Mi"}},
+              "securityContext": {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True,
+                                  "capabilities": {"drop": ["ALL"]}},
+              "volumeMounts": [{"name": "tmp", "mountPath": "/tmp"}],
+          }
+          pod = {"serviceAccountName": name, "restartPolicy": "Never", "containers": [container],
+                 "securityContext": {"runAsNonRoot": True, "runAsUser": 65534, "runAsGroup": 65534,
+                                     "seccompProfile": {"type": "RuntimeDefault"}},
+                 "volumes": [{"name": "tmp", "emptyDir": {}}]}
+          items = [
+              {"apiVersion": "v1", "kind": "ServiceAccount", "metadata": {"name": name, "namespace": ns, "labels": labels}},
+              {"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "ClusterRole",
+               "metadata": {"name": name, "labels": labels}, "rules": rules},
+              {"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "ClusterRoleBinding",
+               "metadata": {"name": name, "labels": labels},
+               "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": name},
+               "subjects": [{"kind": "ServiceAccount", "name": name, "namespace": ns}]},
+              {"apiVersion": "batch/v1", "kind": "Job", "metadata": {"name": name, "namespace": ns, "labels": labels},
+               "spec": {"backoffLimit": 0, "activeDeadlineSeconds": 1200,
+                        "template": {"metadata": {"labels": labels}, "spec": pod}}},
+          ]
+          print(json.dumps({"apiVersion": "v1", "kind": "List", "items": items}, indent=2))
+          PY
+          k apply -f "$out/manifest.json"
+          sel="batch.kubernetes.io/job-name=catalyst-conformance"
+          t0=$(date +%s)
+          while :; do
+            ok="$(k -n catalyst-system get job catalyst-conformance -o jsonpath='{.status.succeeded}' || true)"
+            bad="$(k -n catalyst-system get job catalyst-conformance -o jsonpath='{.status.failed}' || true)"
+            why="$(k -n catalyst-system get pod -l "$sel" -o jsonpath='{.items[*].status.containerStatuses[*].state.waiting.reason}' || true)"
+            pods="$(k -n catalyst-system get pod -l "$sel" -o name || true)"
+            if [ "${ok:-0}" -ge 1 ] || [ "${bad:-0}" -ge 1 ]; then break; fi
+            case " $why " in *" ErrImageNeverPull "* | *" InvalidImageName "* | *" CreateContainerConfigError "* | *" CreateContainerError "*) break ;; esac
+            if [ -z "$pods" ] && [ $(( $(date +%s) - t0 )) -ge 180 ]; then break; fi
+            if [ $(( $(date +%s) - t0 )) -ge 1500 ]; then break; fi
+            sleep 10
+          done
+          echo "the Job ended its wait after $(( $(date +%s) - t0 ))s: succeeded=${ok:-0} failed=${bad:-0} waiting=${why:-none}"
+          k -n catalyst-system get job catalyst-conformance -o json > "$out/job.json" || true
+          k -n catalyst-system get pod -l "$sel" -o json > "$out/pods.json" || true
+          k -n catalyst-system describe pod -l "$sel" > "$out/pods-describe.txt" 2>&1 || true
+          k -n catalyst-system logs "job/catalyst-conformance" > "$out/job.log" 2>&1 || true
+          k get clusterpolicyreport conformance -o json > "$out/clusterpolicyreport.json" || true
+          cat "$out/job.log"
+          { echo '### Run in self on the local pack'; echo; echo '```'; awk '/^ACCEPTANCE /{p=1} /^--- record /{p=0} p' "$out/job.log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          # The API server answers for the account: the reads of its checks and its own report,
+          # and nothing more (no other object of the two kinds of Kyverno, no Secrets, no pods/exec).
+          sa="system:serviceaccount:catalyst-system:catalyst-conformance"
+          can() {
+            want="$1"; shift
+            got="$(k auth can-i "$@" --as "$sa" 2>/dev/null || true)"
+            [ "${got%% *}" = "$want" ] || fail "can-i $* for $sa: '$got', not $want"
+            echo "can-i $*: $want" | tee -a "$out/can-i.txt"
+          }
+          can yes get customresourcedefinitions.apiextensions.k8s.io/clusterpolicies.kyverno.io
+          can yes get clusterpolicies.kyverno.io/forbid-nodeport-service
+          can yes list namespaces
+          can yes patch clusterpolicyreports.wgpolicyk8s.io
+          can no get customresourcedefinitions.apiextensions.k8s.io/clusterpolicyreports.wgpolicyk8s.io
+          can no list clusterpolicies.kyverno.io
+          can no get secrets --all-namespaces
+          can no create pods --subresource=exec --all-namespaces
+          python3 - "$out" "$digest" "$(git rev-parse HEAD)" <<'PY'
+          import json, os, subprocess, sys
+          out, digest, head = sys.argv[1:4]
+          fails = []
+          def load(name):
+              try:
+                  with open(os.path.join(out, name), encoding="utf-8") as f:
+                      return json.load(f)
+              except (OSError, ValueError) as e:
+                  fails.append("%s: %s" % (name, e))
+                  return {}
+          job, pods, report = load("job.json"), load("pods.json"), load("clusterpolicyreport.json")
+          if job.get("status", {}).get("succeeded") != 1:
+              fails.append("the Job did not complete: status %s" % json.dumps(job.get("status", {})))
+          body, count, inside = [], 0, False
+          with open(os.path.join(out, "job.log"), encoding="utf-8", errors="replace") as f:
+              for line in f.read().splitlines():
+                  if line.startswith("--- record "):
+                      inside, count = True, count + 1
+                  elif line == "--- end of record":
+                      inside = False
+                  elif inside:
+                      body.append(line)
+          rec = {}
+          if count != 1:
+              fails.append("the log of the Job holds %d records, not 1" % count)
+          else:
+              try:
+                  rec = json.loads("\n".join(body))
+              except ValueError as e:
+                  fails.append("the record in the log is not JSON: %s" % e)
+          if rec:
+              os.makedirs(os.path.join(out, "record"), exist_ok=True)
+              path = os.path.join(out, "record", "%s-%s.json" % (rec.get("env"), rec.get("run_id")))
+              with open(path, "w", encoding="utf-8") as f:
+                  json.dump(rec, f, indent=2)
+              v = subprocess.run([sys.executable, "scripts/acceptance-gate.py", "validate-record", path])
+              if v.returncode != 0:
+                  fails.append("validate-record exits %d on %s" % (v.returncode, os.path.basename(path)))
+              meta = job.get("metadata", {})
+              want = {"kind": "job", "job": {"namespace": meta.get("namespace"), "name": meta.get("name"), "uid": meta.get("uid")}}
+              if rec.get("producer") != want:
+                  fails.append("the producer is %s, not %s" % (json.dumps(rec.get("producer")), json.dumps(want)))
+              if rec.get("run_in") != "self":
+                  fails.append("run_in is %s, not self" % rec.get("run_in"))
+              if rec.get("suite_image_digest") != digest:
+                  fails.append("suite_image_digest is %s, not %s" % (rec.get("suite_image_digest"), digest))
+              if rec.get("suite_git_sha") != head:
+                  fails.append("suite_git_sha is %s, not the commit %s" % (rec.get("suite_git_sha"), head))
+              ran = [c.get("imageID", "") for p in pods.get("items", []) for c in p.get("status", {}).get("containerStatuses", [])]
+              if not ran or any(not i.endswith("@" + digest) for i in ran):
+                  fails.append("the pod ran %s, not the digest %s" % (ran, digest))
+              labels = report.get("metadata", {}).get("labels", {})
+              if labels.get("catalyst.openova.io/run-id") != rec.get("run_id"):
+                  fails.append("the report has the run id %s, the record %s" % (labels.get("catalyst.openova.io/run-id"), rec.get("run_id")))
+              if labels.get("app.kubernetes.io/managed-by") != "catalyst-conformance":
+                  fails.append("the report is not managed by catalyst-conformance: %s" % labels)
+              results = sorted(r.get("policy", "") for r in report.get("results", []))
+              checks = sorted(c.get("id", "") for c in rec.get("checks", []))
+              if results != checks:
+                  fails.append("the report has results for %s, the record checks %s" % (results, checks))
+              if rec.get("result") != "PASS":
+                  fails.append("the record's result is %s, not PASS" % rec.get("result"))
+              print("record %s: run in self by Job %s/%s (uid %s), image %s, %d checks (%s), result %s"
+                    % (os.path.basename(path), meta.get("namespace"), meta.get("name"), meta.get("uid"), digest,
+                       len(checks), ", ".join(checks) or "none", rec.get("result")))
+          for f in fails:
+              print("::error::run in self: " + f)
+          sys.exit(1 if fails else 0)
+          PY
+
+      - name: Upload the evidence of the run in self
+        if: always() && steps.self.outcome != 'skipped'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: conformance-self
+          path: ${{ runner.temp }}/conformance-self
           if-no-files-found: warn
 
       - name: Collect evidence
