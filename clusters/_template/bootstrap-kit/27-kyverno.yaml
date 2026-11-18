@@ -53,6 +53,9 @@ metadata:
   labels:
     catalyst.openova.io/slot: "27"
 spec:
+  test:
+    enable: true
+    ignoreFailures: true
   interval: 15m
   releaseName: kyverno
   targetNamespace: kyverno

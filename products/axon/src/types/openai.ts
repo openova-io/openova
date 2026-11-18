@@ -80,9 +80,6 @@ export interface ChatCompletionRequest {
   store?: boolean;
   metadata?: Record<string, string>;
 
-  // Axon extensions
-  conversation_id?: string;
-
   // V1 routing — presence of any of these sends the request through query() instead of session pool
   thinking?: { type: "adaptive" } | { type: "enabled"; budget_tokens?: number } | { type: "disabled" };
   effort?: "low" | "medium" | "high" | "max";
@@ -117,8 +114,6 @@ export interface ChatCompletionResponse {
   system_fingerprint: string | null;
   choices: ChatCompletionChoice[];
   usage: ChatCompletionUsage;
-  // Axon extension
-  conversation_id?: string;
 }
 
 // ── Streaming ───────────────────────────────────────────────────────
@@ -144,8 +139,6 @@ export interface ChatCompletionChunk {
   system_fingerprint: string | null;
   choices: ChatCompletionChunkChoice[];
   usage?: ChatCompletionUsage | null;
-  // Axon extension
-  conversation_id?: string;
 }
 
 // ── Models ──────────────────────────────────────────────────────────

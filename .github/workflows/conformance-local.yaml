@@ -1,9 +1,10 @@
-# conformance-local.yaml - the local provider pack, brought up on the runner with two regions.
+# conformance-local.yaml - the local provider pack, brought up on the runner with two regions,
+# and the gate suite run on it.
 #
 # The local pack (infra/providers/local) starts each region's control-plane machine as a
 # privileged container on the runner's own Docker and boots it with the shared template; Flux
-# then installs the reduced kit clusters/_template/providers/local/kit from the commit of the
-# pull request. scripts/local-pack.sh does the work:
+# then installs the reduced kit clusters/_template/providers/local/kit from the commit under
+# test. scripts/local-pack.sh does the work:
 #   up         two regions; exit 0 only when the kit core is Ready in both, the console
 #              runs in the primary region and answers on the address of the env file, an
 #              owner session is minted, and the runner reaches both API servers with the
@@ -13,25 +14,33 @@
 #   claim      a claim of 1 GiB binds on the default storage class of each region (gate
 #              check CLD-G11);
 #   down       removes every machine, volume and network, also when an earlier step failed.
+# Then discovery runs once more: it starts the port forward of the console again when that
+# has stopped, and the suite reaches the console through it. Then the gate suite runs on the
+# pack through scripts/acceptance-sovereign.sh: --run-in local selects every check of
+# docs/ledger/gates.yaml that is expected-fail or required, lists local in runs_in and is a Go
+# file of the suite; --journeys '' requests no journey, so the discovery leaves out the steps
+# that only the journeys need; --nodes-requested names the nodes that up asked for in each
+# region, and check FND-G03 compares them with the Ready nodes. The record is checked with
+# scripts/acceptance-gate.py validate-record and uploaded as the artifact
+# conformance-local-record; it is never committed. The job fails when the record's result is
+# not PASS: a discovery step or a required check that does not pass.
 # On a failure the evidence of every machine is uploaded as the artifact local-pack-evidence.
 # Nothing publishes a port and nothing uses a node port.
 #
-# It runs on pull requests that change what the run reads from the commit: the boot template,
-# the module contract, the local module, the cluster templates, the suite (it builds the
-# session minter and runs the discovery), the script and this file.
+# No path filter, on purpose: the ruleset of main (.github/rulesets/main.json) requires the
+# job by its name, conformance-local, so it must run and pass on every pull request and every
+# merge group; a check that did not run is not green.
+# One exception, decided inside the job: when every path a pull request or merge group changes
+# is docs/ledger/plan.yaml or a file under docs/ledger/plan/ (plan data: tickets, done markers,
+# spike records), the step "Decide whether the pack runs" says so in one line and every later
+# step is skipped, so the job ends green under the same name in about a minute. Any other path,
+# an empty list, or a list that cannot be made runs the job in full.
 # Charts and images come from ghcr.io at the versions the kit pins; the job token pulls them.
 name: conformance-local
 
 on:
   pull_request:
-    paths:
-      - 'infra/providers/_shared/**'
-      - 'infra/providers/_contract/**'
-      - 'infra/providers/local/**'
-      - 'clusters/_template/**'
-      - 'tests/acceptance/sovereign/**'
-      - 'scripts/local-pack.sh'
-      - '.github/workflows/conformance-local.yaml'
+  merge_group:
   workflow_dispatch:
 
 permissions:
@@ -51,32 +60,127 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # The changed paths are listed the way policy-chart-tests.yaml lists them: the base commit
+      # is fetched and its tree compared with HEAD, here with --no-renames so that a file moved
+      # into docs/ledger/plan/ also lists the path it left. scripts/check-plan-only-change.sh
+      # decides (its self-test runs in tree-guards.yaml); any exit code but 0 runs the job in
+      # full. Every later step holds steps.decide.outputs.run == 'true' in its if.
+      - name: Decide whether the pack runs
+        id: decide
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" != pull_request ] && [ "$EVENT_NAME" != merge_group ]; then
+            echo "Event $EVENT_NAME: the job runs in full."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "$BASE_SHA" ] || ! git fetch --no-tags --depth=1 origin "$BASE_SHA" || ! changed="$(git diff --no-renames --name-only "$BASE_SHA" HEAD)"; then
+            echo "The changed paths could not be listed: the job runs in full."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif reason="$(printf '%s\n' "$changed" | bash scripts/check-plan-only-change.sh)"; then
+            echo "::notice title=conformance-local::Pack and suite skipped, $reason."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "${reason:-full run: the decision script failed}: the job runs in full."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Free disk (toolchains this job does not use)
+        if: steps.decide.outputs.run == 'true'
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
           df -h /
 
       - name: Install OpenTofu
+        if: steps.decide.outputs.run == 'true'
         uses: opentofu/setup-opentofu@v1
         with:
           tofu_version: 1.11.6
           tofu_wrapper: false
 
       - name: Install kubectl
+        if: steps.decide.outputs.run == 'true'
         uses: azure/setup-kubectl@v4
         with:
           version: v1.31.4
 
       - name: Install Go (the suite's session minter and discovery)
+        if: steps.decide.outputs.run == 'true'
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: tests/acceptance/sovereign/go.mod
           cache: false
 
+      - name: Install PyYAML (the manifest export)
+        if: steps.decide.outputs.run == 'true'
+        run: python3 -m pip install --quiet pyyaml
+
       - name: Self-test of the script
+        if: steps.decide.outputs.run == 'true'
         run: bash scripts/local-pack.sh --self-test
 
+      # Adding a region plans only additions (module contract version 1). OpenTofu applies the
+      # local module with the one region of the contract fixture single-region.tfvars.json, then
+      # plans the fixture two-region.tfvars.json, which holds the same inputs and one more region,
+      # against that state. scripts/check-plan-additive.py fails the job when that plan does
+      # anything but create resources and leave the others unchanged. These machines use a state
+      # of their own under $RUNNER_TEMP/plan-additive and are destroyed before the pack comes up,
+      # also after a failure. Each failure of these steps is marked "additive plan:" in the log.
+      # Nothing publishes a port and nothing uses a node port.
+      - name: Self-test of the additive-plan check
+        if: steps.decide.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          python3 scripts/check-plan-additive.py --self-test || { echo "::error::additive plan: the self-test of the check failed"; exit 1; }
+
+      - name: Additive plan, apply one region
+        if: steps.decide.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          d="$RUNNER_TEMP/plan-additive"
+          mkdir -p "$d"
+          export TF_DATA_DIR="$d/tofu-data"
+          tofu -chdir=infra/providers/local init -input=false -no-color || { echo "::error::additive plan: tofu init failed"; exit 1; }
+          tofu -chdir=infra/providers/local apply -input=false -auto-approve -no-color \
+            -var-file="$GITHUB_WORKSPACE/infra/providers/_contract/fixtures/single-region.tfvars.json" \
+            -state="$d/terraform.tfstate" || { echo "::error::additive plan: tofu apply of one region failed"; exit 1; }
+
+      - name: Additive plan, plan two regions against that state
+        if: steps.decide.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          d="$RUNNER_TEMP/plan-additive"
+          export TF_DATA_DIR="$d/tofu-data"
+          tofu -chdir=infra/providers/local plan -input=false -no-color \
+            -var-file="$GITHUB_WORKSPACE/infra/providers/_contract/fixtures/two-region.tfvars.json" \
+            -state="$d/terraform.tfstate" -out="$d/two-regions.tfplan" || { echo "::error::additive plan: tofu plan of two regions failed"; exit 1; }
+          tofu -chdir=infra/providers/local show -json "$d/two-regions.tfplan" > "$d/two-regions.json" || { echo "::error::additive plan: tofu show of the plan failed"; exit 1; }
+
+      - name: Additive plan, the plan of two regions only adds
+        if: steps.decide.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          python3 scripts/check-plan-additive.py "$RUNNER_TEMP/plan-additive/two-regions.json" || { echo "::error::additive plan: the plan of two regions does more than add (see the lines NOT ADDITIVE above)"; exit 1; }
+
+      - name: Additive plan, destroy
+        if: always() && steps.decide.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          d="$RUNNER_TEMP/plan-additive"
+          if [ ! -f "$d/terraform.tfstate" ]; then
+            echo "nothing was applied"
+            exit 0
+          fi
+          export TF_DATA_DIR="$d/tofu-data"
+          tofu -chdir=infra/providers/local destroy -input=false -auto-approve -no-color \
+            -var-file="$GITHUB_WORKSPACE/infra/providers/_contract/fixtures/single-region.tfvars.json" \
+            -state="$d/terraform.tfstate" || { echo "::error::additive plan: tofu destroy failed"; exit 1; }
+
       - name: Up (two regions)
+        if: steps.decide.outputs.run == 'true'
         env:
           GHCR_USER: ${{ github.actor }}
           GHCR_TOKEN: ${{ github.token }}
@@ -85,17 +189,75 @@ jobs:
         run: bash scripts/local-pack.sh up --regions 2 --branch "$BRANCH" --commit "$COMMIT"
 
       - name: Discovery steps D0.1 and D0.2 of the suite
+        if: steps.decide.outputs.run == 'true'
         run: bash scripts/local-pack.sh discovery
 
       - name: Claim of 1 GiB on the default storage class (CLD-G11)
+        if: steps.decide.outputs.run == 'true'
         run: bash scripts/local-pack.sh claim
 
+      - name: Console address before the suite (discovery again starts a stopped port forward)
+        if: steps.decide.outputs.run == 'true'
+        run: bash scripts/local-pack.sh discovery
+
+      - name: Gate suite on the pack (run in local, no journey)
+        id: suite
+        if: steps.decide.outputs.run == 'true'
+        run: |
+          set +e
+          set -uo pipefail
+          # The step writes the suite's table into the summary before it fails, so errexit is off.
+          d="$RUNNER_TEMP/local-pack"
+          # The env file of up: CONSOLE_URL, DEPLOYMENT_ID, REGION_A, REGION_B, SESSION_TOKEN_FILE.
+          # shellcheck disable=SC1091
+          . "$d/env"
+          export ACCEPT_CONSOLE="$CONSOLE_URL" ACCEPT_DEPLOYMENT_ID="$DEPLOYMENT_ID"
+          export ACCEPT_KUBECONFIG_A="$d/$REGION_A.kubeconfig" ACCEPT_KUBECONFIG_B="$d/$REGION_B.kubeconfig"
+          # The session is read from its file and never printed.
+          CATALYST_SESSION="$(cat "$SESSION_TOKEN_FILE")"
+          export CATALYST_SESSION
+          # The nodes that up asked for: one control-plane machine in each region and one worker
+          # in the primary region, which is region A. The id of a region in its cluster is
+          # local-<region code>-rtz-prod (infra/providers/local/main.tf).
+          nodes="local-$REGION_A-rtz-prod=2,local-$REGION_B-rtz-prod=1"
+          python3 scripts/acceptance-gate.py export > "$RUNNER_TEMP/gates.json" || exit 1
+          mkdir -p "$RUNNER_TEMP/acceptance"
+          bash scripts/acceptance-sovereign.sh local-pack --record --record-dir "$RUNNER_TEMP/acceptance" \
+            --run-in local --manifest "$RUNNER_TEMP/gates.json" --repo-root . \
+            --capabilities multi-region --nodes-requested "$nodes" --journeys '' | tee "$RUNNER_TEMP/acceptance.log"
+          rc=${PIPESTATUS[0]}
+          { echo '### Gate suite on the local pack'; echo; echo '```'; sed -n '/^ACCEPTANCE /,$p' "$RUNNER_TEMP/acceptance.log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          echo "suite exit code: $rc"
+          exit "$rc"
+
+      - name: Validate the record; its result must be PASS
+        if: always() && steps.decide.outputs.run == 'true' && steps.suite.outcome != 'skipped'
+        run: |
+          set -euo pipefail
+          n="$(find "$RUNNER_TEMP/acceptance" -maxdepth 1 -name '*.json' | wc -l)"
+          if [ "$n" != 1 ]; then echo "::error::The suite wrote $n records, not 1."; exit 1; fi
+          rec="$(find "$RUNNER_TEMP/acceptance" -maxdepth 1 -name '*.json')"
+          python3 scripts/acceptance-gate.py validate-record "$rec"
+          result="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("result", "FAIL"))' "$rec")"
+          echo "record $(basename "$rec"): result $result"
+          if [ "$result" != PASS ]; then echo "::error::The record's result is $result, not PASS."; exit 1; fi
+
+      - name: Upload the record
+        if: always() && steps.decide.outputs.run == 'true' && steps.suite.outcome != 'skipped'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: conformance-local-record
+          path: |
+            ${{ runner.temp }}/acceptance/*.json
+            ${{ runner.temp }}/acceptance.log
+          if-no-files-found: warn
+
       - name: Collect evidence
-        if: failure()
+        if: failure() && steps.decide.outputs.run == 'true'
         run: bash scripts/local-pack.sh collect
 
       - name: Upload evidence
-        if: failure()
+        if: failure() && steps.decide.outputs.run == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: local-pack-evidence
@@ -103,5 +265,5 @@ jobs:
           if-no-files-found: warn
 
       - name: Down
-        if: always()
+        if: always() && steps.decide.outputs.run == 'true'
         run: bash scripts/local-pack.sh down

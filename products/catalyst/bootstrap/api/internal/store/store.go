@@ -36,6 +36,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -162,6 +163,15 @@ type RedactedRequest struct {
 	// the validator's top-level switch keys off req.Provider.
 	Provider string `json:"provider,omitempty"`
 
+	// Installation — the installation document the request named (CLD-103),
+	// non-secret, persisted verbatim.
+	Installation string `json:"installation,omitempty"`
+
+	// Credentials — the request's credential map (CLD-103) with every key
+	// kept and every non-empty value replaced by the redaction marker, so a
+	// reader sees which credentials were attached and never their values.
+	Credentials map[string]string `json:"credentials,omitempty"`
+
 	HetznerToken     string `json:"hetznerToken,omitempty"`
 	HetznerProjectID string `json:"hetznerProjectID,omitempty"`
 
@@ -259,6 +269,17 @@ func Redact(req provisioner.Request) RedactedRequest {
 	}
 	// Credentials: present-and-non-empty → redactedMarker; empty → empty.
 	// This is the test-load-bearing branch for TestRedact_OmitsAllSecrets.
+	// The credentials map keeps its keys; every value is redacted.
+	out.Installation = req.Installation
+	if len(req.Credentials) > 0 {
+		out.Credentials = make(map[string]string, len(req.Credentials))
+		for k, v := range req.Credentials {
+			if strings.TrimSpace(v) != "" {
+				v = redactedMarker
+			}
+			out.Credentials[k] = v
+		}
+	}
 	if strings.TrimSpace(req.HetznerToken) != "" {
 		out.HetznerToken = redactedMarker
 	}
@@ -301,6 +322,8 @@ func (r RedactedRequest) ToProvisionerRequest() provisioner.Request {
 		// entry on the next call — the migration is transparent.
 		ParentDomains:    r.ParentDomains,
 		Provider:         r.Provider, // Wave 5.131 — restore provider routing
+		Installation:     r.Installation,
+		Credentials:      maps.Clone(r.Credentials), // keys with <redacted> or "" values
 		HetznerToken:     r.HetznerToken, // <redacted> or ""
 		HetznerProjectID: r.HetznerProjectID,
 		Region:           r.Region,

@@ -87,6 +87,7 @@ func validRequest(idx int) map[string]any {
 		"sovereignFQDN":          fmt.Sprintf("loadtest-%d.openova.io", idx),
 		"sovereignDomainMode":    "byo",
 		"sovereignSubdomain":     fmt.Sprintf("loadtest-%d", idx),
+		"provider":               "hetzner",
 		"hetznerToken":           "TEST-TOKEN-NOT-REAL", // fails at tofu apply, that's fine
 		"hetznerProjectID":       "test-project",
 		"region":                 "fsn1",
@@ -374,6 +375,7 @@ func TestLoad_DeploymentValidationContractKeepsLoadTestFromHangingForever(t *tes
 		OrgEmail:               body["orgEmail"].(string),
 		SovereignFQDN:          body["sovereignFQDN"].(string),
 		SovereignDomainMode:    body["sovereignDomainMode"].(string),
+		Provider:               body["provider"].(string),
 		HetznerToken:           body["hetznerToken"].(string),
 		HetznerProjectID:       body["hetznerProjectID"].(string),
 		Region:                 body["region"].(string),

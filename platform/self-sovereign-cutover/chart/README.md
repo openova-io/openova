@@ -156,7 +156,9 @@ kept small and stable):
 4. Render it with `helm template`, with the `spec.values` of the installed
    HelmRelease `flux-system/bp-self-sovereign-cutover`, its release name and
    target namespace.
-5. Run the chart's own `files/release/release-run.sh compose`, and record its outcome.
+5. A dry run: run the chart's own `files/release/release-run.sh verify`, record
+   its verdict (`serverDryRun`) and stop. A delivery: run the chart's own
+   `release-run.sh compose`, and record its outcome.
 
 The state ConfigMap `sovereign-release` names what ran (`mechanism`, and
 `deliveryJob`).
@@ -166,8 +168,10 @@ The state ConfigMap `sovereign-release` names what ran (`mechanism`, and
 - `files/release/contract` holds `1`, and `files/release/release-run.sh` and
   `release-region.sh` are this version's release scripts (byte-identical to
   `products/catalyst/bootstrap/api/internal/lifecycle/release/`, tested);
-  `release-run.sh` has the phases `compose`, `prewarm` and `promote`. They are
-  read from the chart folder; nothing renders or installs them.
+  `release-run.sh` has the phases `verify`, `compose`, `prewarm` and `promote`
+  (a chart without `verify` is delivered, and its dry run says its objects were
+  not sent to the API server). They are read from the chart folder; nothing
+  renders or installs them.
 - The render holds ConfigMaps `cutover-step-01-gitea-mirror` and `cutover-step-03-harbor-prewarm`
   with a `podSpec`, `cutover-step-06-helmrepository-patches` with
   `kit-rewrite.sh`, `cutover-bootstrap-kit-pins` with `extract-pins.sh`, and, on a
@@ -180,7 +184,37 @@ The state ConfigMap `sovereign-release` names what ran (`mechanism`, and
 render's, applied under `<name>-release`, so no installed object changes and the
 installed step 03 never runs. The Job itself is created, not applied: its name is
 new for every request, and the runner may create Jobs but not patch them (a
-server-side apply is a PATCH). Every kubectl call of `release-run.sh`, on every
+server-side apply is a PATCH).
+
+Every YAML the release turns into an object (the render, each step's `podSpec`,
+the follower Job manifests) is read by `k8s_json`: Helm's `fromYaml`, which is
+`sigs.k8s.io/yaml`, the reader that installs the chart. It reads YAML 1.1 as
+Kubernetes does (`0755` is octal 493, `yes` is true); yq reads YAML 1.2, where
+`0755` is the decimal 755, and the sixth delivery to a Sovereign was refused for
+it (`volumes[8].configMap.defaultMode: Invalid value: 755`). What the release
+writes is JSON. So a template may write a mode as `0755`: the delivery reads it
+as Kubernetes does.
+
+`verify` (the dry run) and `compose` (before it creates anything) compose every
+object the delivery creates, in every region: in the primary, the ConfigMaps the
+Job mounts, its scripts, its record and the Job; in each follower, the stage's
+copy of the pull credential, what step 03's #6764 leg creates there (its copy of
+the credential, its ConfigMap and its Job) and promote's scripts ConfigMap and
+check and promote Jobs. Each is sent as a server-side dry run
+(`--dry-run=server`) by the account that will create it: this Pod's in the
+primary region (the bootstrap's, which the deliver container creates the
+delivery's objects with) and the peer kubeconfig in each follower; a Job the
+step deletes by name before it recreates it is dry-run as a create under a
+generated name, and what step 03 sends by a client-side apply is dry-run as a
+server-side apply of the same object. Every refusal is named in `serverDryRun` and in
+the message, not the first; a delivery creates nothing unless all are accepted.
+`TestReleaseDeliveryObjectsOfTheCutoverChartAreValidAndAreItsRender` builds
+these objects from this chart with this code, validates each offline (the
+Kubernetes schema client-go carries, a strict decode, and the pod rules the API
+server refused) and checks the delivery Job's pod against step 03's as
+Kubernetes reads the render; it fails on the reader of the sixth delivery.
+
+Every kubectl call of `release-run.sh`, on every
 path of a delivery, is checked against this chart's rendered RBAC by
 `TestReleaseScriptCallsAreGrantedToTheirAccount` in
 `products/catalyst/bootstrap/api/internal/lifecycle/release_rbac_test.go`. The

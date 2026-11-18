@@ -78,6 +78,9 @@ metadata:
   labels:
     catalyst.openova.io/slot: "18"
 spec:
+  test:
+    enable: true
+    ignoreFailures: true
   interval: 15m
   releaseName: seaweedfs
   targetNamespace: seaweedfs

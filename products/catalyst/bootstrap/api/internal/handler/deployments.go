@@ -1349,18 +1349,19 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 		req.HarborRobotToken = tok
 	}
 
-	// Stamp Huawei IAM credentials from env vars when the deployment
-	// targets the Huawei provider. SAME pattern as GHCRPullToken /
-	// HarborRobotToken above — operator AK/SK lives in a Kubernetes
-	// Secret (`huawei-operator-creds` in the catalyst ns) projected
-	// into the catalyst-api Pod as CATALYST_HUAWEI_ACCESS_KEY /
-	// _SECRET_KEY / _PROJECT_ID / _REGION env vars. The wizard
-	// payload NEVER carries these — Request.Huawei* fields are
-	// `json:"-"` precisely so credential-exfiltration via wire body
-	// is structurally impossible. Validate() (called below) still
-	// requires them populated when provider=huawei; empty env =
-	// fail-fast 400 with a clear pointer to the missing K8s Secret,
-	// not a 5-minute tofu apply that crashes mid-flight.
+	// Resolve the provider once, before any server-side stamp: the top-level
+	// field, else the one every regions[] entry names (the wizard's shape).
+	req.Provider = provisioner.ResolveProvider(&req)
+	// The operator's Huawei IAM access key, secret key, project id and
+	// region are server-only: the Request fields are `json:"-"`, a
+	// credentials map that names one of their keys is refused here, and the
+	// env vars below (Secret `huawei-operator-creds`) fill them. So no body
+	// can set them or choose the region, and with it the endpoints, the
+	// operator's keys are used against. Empty env = Validate() refuses.
+	if fe := provisioner.RefuseServerOnlyCredentials(&req); fe != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid-field", "field": fe.Field, "message": fe.Message})
+		return
+	}
 	if req.Provider == "huawei" {
 		if v := os.Getenv("CATALYST_HUAWEI_ACCESS_KEY"); v != "" {
 			req.HuaweiAccessKey = v
@@ -1374,87 +1375,10 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 		if v := os.Getenv("CATALYST_HUAWEI_REGION"); v != "" {
 			req.HuaweiRegion = v
 		}
-		// Wave 5.121 (#2467): historical minWorkers=8 for s7n.large.4
-		// (2vCPU/8GB) Huawei stack — needed because the smaller worker
-		// flavor couldn't fit bp-catalyst-platform's Pod requests with
-		// fewer nodes.
-		//
-		// Wave 5.146 (2026-05-27): CP flavor flipped to m7n.large.8
-		// (2vCPU/16GB), worker flavor m7n.xlarge.8 (4vCPU/32GB).
-		// SUPERSEDED by #4055 (2026-06-21) — the "fits with headroom"
-		// claim did NOT hold once the console + both vClusters + cnpg-pair
-		// landed together; 2vCPU CP / 4vCPU workers wedged on CPU. See the
-		// resource-floor block below for the corrected sizing.
-		//
-		// Refs #2536 (2026-05-28, founder direction): symmetric
-		// MGMT+RTZ+DMZ vClusters (Refs #2537) on 2 regions × 3 workers
-		// = 6 ECS workers Sovereign-wide. That's the HCS Tier-B cost-fit
-		// target and what the wizard's default sends. Honour
-		// `workerCount=3` end-to-end (do not silently clamp up to 8).
-		minWorkers := 3
-		if req.WorkerCount < minWorkers {
-			req.WorkerCount = minWorkers
-		}
-		// Per-region override too — Regions[i].WorkerCount is what
-		// the tofu module actually iterates.
-		for i := range req.Regions {
-			if req.Regions[i].Provider == "huawei" && req.Regions[i].WorkerCount < minWorkers {
-				req.Regions[i].WorkerCount = minWorkers
-			}
-		}
-		// Wave 5.146 → #4055 (founder direction 2026-06-21): ENFORCE an
-		// adequate resource FLOOR — stop shipping under-provisioned
-		// Sovereigns. The full Catalyst platform (console + cnpg-pair +
-		// mgmt/dmz vClusters + keycloak/harbor/gitea/openbao/guacamole/
-		// newapi + trivy/falco/crossplane) does NOT fit on 2vCPU nodes.
-		// hw182 came up with m7n.large.8 (2vCPU/16GB) for BOTH the CP and
-		// all 5 workers and wedged: "0/6 nodes available: Insufficient
-		// cpu" → bp-catalyst-platform's post-install hook timed out →
-		// install/uninstall oscillation → the console never scheduled.
-		//
-		// The OLD guard only rewrote the deprecated s7n.large.4 + empty,
-		// so a 2vCPU m7n.large.8 (the CP flavor wrongly sent as the
-		// worker flavor) slipped straight through un-bumped. The floor:
-		//   control-plane >= m7n.xlarge.8  (4 vCPU / 32 GB)
-		//   workers       >= m7n.2xlarge.8 (8 vCPU / 64 GB)
-		// Every known-undersized Huawei flavor is now rewritten UP to the
-		// floor; a larger explicit flavor is honoured untouched. The m7n
-		// family is unconstrained in the SKU matrix (sku_availability.go),
-		// so these pass IsSkuAvailableInRegion in every kom4dc region.
-		const (
-			hwCPFloor     = "m7n.xlarge.8"  // 4 vCPU / 32 GB
-			hwWorkerFloor = "m7n.2xlarge.8" // 8 vCPU / 64 GB
-		)
-		// undersizedCP/undersizedWorker = flavors strictly below the floor
-		// for that role (plus "" = unset). m7n.large.8 (2vCPU) is too
-		// small for BOTH roles; m7n.xlarge.8 (4vCPU) meets the CP floor
-		// but is still below the worker floor.
-		undersizedCP := map[string]bool{"": true, "s7n.large.4": true, "m7n.large.8": true}
-		undersizedWorker := map[string]bool{"": true, "s7n.large.4": true, "m7n.large.8": true, "m7n.xlarge.8": true}
-		if undersizedCP[req.ControlPlaneSize] {
-			req.ControlPlaneSize = hwCPFloor
-		}
-		if undersizedWorker[req.WorkerSize] {
-			req.WorkerSize = hwWorkerFloor
-		}
-		for i := range req.Regions {
-			if req.Regions[i].Provider != "huawei" {
-				continue
-			}
-			if undersizedCP[req.Regions[i].ControlPlaneSize] {
-				req.Regions[i].ControlPlaneSize = hwCPFloor
-			}
-			if undersizedWorker[req.Regions[i].WorkerSize] {
-				req.Regions[i].WorkerSize = hwWorkerFloor
-			}
-		}
-		// Issue #2528: Huawei OBS (Object Storage Service) on HCS Kom4DC
-		// uses the same IAM AK/SK as the compute API. Auto-derive the OBS
-		// credentials from the already-stamped Huawei creds so callers
-		// (wizard, automation, direct API) don't need to repeat them.
-		// Only fills empty fields — an explicit objectStorageAccessKey in
-		// the POST body wins (for non-Kom4DC deployments that have
-		// separate OBS keys).
+		// The worker minimum and the flavor floors are the adapter's
+		// Normalize, read from the cloud profile (CLD-103). Object Storage
+		// uses the same IAM AK/SK as compute (#2528): fill only the fields
+		// the body left empty (separate Object Storage keys in a body win).
 		if req.ObjectStorageAccessKey == "" {
 			req.ObjectStorageAccessKey = req.HuaweiAccessKey
 		}
@@ -1526,6 +1450,11 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if status, err := provisioner.AdmitRequest(&req); err != nil {
+		var fe *providers.FieldError
+		if errors.As(err, &fe) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid-field", "field": fe.Field, "message": fe.Message})
+			return
+		}
 		writeJSON(w, status, map[string]string{"error": err.Error()})
 		return
 	}

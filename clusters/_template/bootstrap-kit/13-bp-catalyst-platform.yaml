@@ -43,6 +43,9 @@ metadata:
     catalyst.openova.io/component: catalyst-platform
     catalyst.openova.io/region-role: primary
 spec:
+  test:
+    enable: true
+    ignoreFailures: true
   # G2 (Refs #2574, 2026-05-29): bp-catalyst-platform is mothership-only.
   # On a secondary CP this HR must NOT install — the Sovereign control
   # plane (catalyst-api / catalyst-ui / controllers / catalyst-catalog /
@@ -1535,7 +1538,7 @@ spec:
       #   bp-wordpress-tenant 0.6.0 + regionLocalVolumes, bp-seaweedfs 1.3.1,
       #   bp-openbao 1.2.71, bp-self-sovereign-cutover 0.1.207, bp-reflector).
       #   Pin bumped to match.
-      version: 1.4.2122
+      version: 1.4.2128
       sourceRef:
         kind: HelmRepository
         name: bp-catalyst-platform

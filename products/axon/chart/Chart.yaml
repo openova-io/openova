@@ -4,13 +4,12 @@ description: OpenAI-compatible API gateway backed by Claude Agent SDK
 type: application
 # 0.1.2 (#6755): repin the token-refresh CronJob image bitnami/kubectl:1.30 ->
 # alpine/k8s:1.31.4 (Bitnami purged docker.io/bitnami/kubectl versioned tags).
-version: 0.1.4
-appVersion: "0.1.2"
+version: 0.1.5
+appVersion: "0.1.3"
 
 # Opt out of the hollow-chart guard (Blueprint-Release workflow / issue #181):
 # this chart legitimately ships only Catalyst-authored resources
-# (Deployment + Service + Ingress + Valkey sidecar + token-refresh
-# CronJob). It is a product chart with NO upstream Helm subchart to
+# (Deployment + Service). It is a product chart with NO upstream Helm subchart to
 # bundle. Same shape as bp-kyverno-policies (PR #2023) and bp-continuum
 # (PR #2081).
 annotations:

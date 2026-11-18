@@ -1,0 +1,45 @@
+# The policy values of the local provider pack: the document compliance-policy-values that
+# the release bp-kyverno-policies (slot 27a) reads through spec.valuesFrom, in every region.
+# scripts/generators/local-kit.py lists this file in kustomization.yaml.
+#
+# Gate check FND-G05 runs scripts/check-live-nodeports.sh in every region, and that script
+# fails unless the ClusterPolicy forbid-nodeport-service exists with the action Enforce: a
+# region where a NodePort Service would be admitted fails, even with no NodePort today. The
+# chart renders every policy as Audit while its bootstrap window is open (bootstrapMode true
+# and SOVEREIGN_CONSUME not local); on a Sovereign the hand-over closes the window. The pack
+# has no hand-over, so this document closes the window itself and then holds every other
+# policy whose chart default is Enforce at Audit, as on a Sovereign before its hand-over.
+# The NodePort ban is the one policy that enforces here.
+#
+# forbid-local-path-storage is left out: the pack's only storage class is local-path
+# (local-path.yaml), and that policy denies every claim, class and volume of it.
+#
+# A policy that a later chart version adds with the default Enforce enforces on the pack
+# too, until it is listed here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: compliance-policy-values
+  namespace: flux-system
+data:
+  values.yaml: |
+    compliancePolicies:
+      bootstrapMode: false
+      forbidNodePortService:
+        action: Enforce
+      forbidLocalPath:
+        enabled: false
+      probesPresent:
+        action: Audit
+      resourceRequests:
+        action: Audit
+      ciliumL7Mtls:
+        action: Audit
+      fluxManaged:
+        action: Audit
+      harborProxyPull:
+        action: Audit
+      imageTagPinned:
+        action: Audit
+      substrateOnHost:
+        action: Audit

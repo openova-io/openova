@@ -53,6 +53,7 @@ func validBase() Request {
 		OrgName:                "ACME",
 		OrgEmail:               "ops@acme.io",
 		SovereignFQDN:          "acme.openova.io",
+		Provider: "hetzner",
 		HetznerToken:           "TEST-TOKEN-NOT-REAL",
 		HetznerProjectID:       "test-project",
 		SSHPublicKey:           "ssh-ed25519 AAAA test-not-a-real-key",
@@ -331,19 +332,8 @@ func TestValidate_ObjectStorage_RejectsEmptyRegion(t *testing.T) {
 	r.ControlPlaneSize = "cx42"
 	r.ObjectStorageRegion = ""
 	err := r.Validate()
-	if err == nil || !strings.Contains(err.Error(), "object storage region") {
+	if err == nil || !strings.Contains(err.Error(), "object_storage_region") {
 		t.Fatalf("expected object storage region required, got %v", err)
-	}
-}
-
-func TestValidate_ObjectStorage_RejectsInvalidRegion(t *testing.T) {
-	r := validBase()
-	r.Region = "fsn1"
-	r.ControlPlaneSize = "cx42"
-	r.ObjectStorageRegion = "us-east-1" // not a Hetzner OS region
-	err := r.Validate()
-	if err == nil || !strings.Contains(err.Error(), "fsn1") {
-		t.Fatalf("expected fsn1/nbg1/hel1 enumerated error, got %v", err)
 	}
 }
 
@@ -443,6 +433,7 @@ func TestWriteTfvars_OmitsEmptySingularSizes(t *testing.T) {
 		SovereignFQDN:    "otech85.omani.works",
 		OrgName:          "Acme",
 		OrgEmail:         "ops@acme.io",
+		Provider: "hetzner",
 		HetznerToken:     "tok",
 		HetznerProjectID: "p1",
 		Region:           "fsn1",
@@ -492,6 +483,7 @@ func TestWriteTfvars_RegionsOfARequestWithoutRegions(t *testing.T) {
 		SovereignFQDN:    "otech86.omani.works",
 		OrgName:          "Acme",
 		OrgEmail:         "ops@acme.io",
+		Provider: "hetzner",
 		HetznerToken:     "tok",
 		HetznerProjectID: "p1",
 		Region:           "fsn1",
@@ -541,6 +533,7 @@ func TestWriteTfvars_EmitsSingularSizesWhenSet(t *testing.T) {
 		SovereignFQDN:    "otech85.omani.works",
 		OrgName:          "Acme",
 		OrgEmail:         "ops@acme.io",
+		Provider: "hetzner",
 		HetznerToken:     "tok",
 		HetznerProjectID: "p1",
 		Region:           "fsn1",
@@ -589,6 +582,7 @@ func TestWriteTfvars_QAFixtures_DefaultDisabled(t *testing.T) {
 		SovereignFQDN:    "acme-customer.openova.io",
 		OrgName:          "Acme",
 		OrgEmail:         "ops@acme.io",
+		Provider: "hetzner",
 		HetznerToken:     "tok",
 		HetznerProjectID: "p1",
 		Region:           "fsn1",
@@ -661,6 +655,7 @@ func TestWriteTfvars_QAFixtures_EnabledDerivesNamespaceAndOrg(t *testing.T) {
 				SovereignFQDN:    tc.fqdn,
 				OrgName:          "QA",
 				OrgEmail:         "qa@openova.io",
+				Provider: "hetzner",
 				HetznerToken:     "tok",
 				HetznerProjectID: "p1",
 				Region:           "fsn1",
@@ -733,6 +728,7 @@ func TestWriteTfvars_FireCutoverOnHandover_DecoupledFromQA(t *testing.T) {
 		SovereignFQDN:         "prod-sovereign.omani.works",
 		OrgName:               "Prod",
 		OrgEmail:              "ops@omani.works",
+		Provider: "hetzner",
 		HetznerToken:          "tok",
 		HetznerProjectID:      "p1",
 		Region:                "fsn1",
@@ -780,6 +776,7 @@ func TestWriteTfvars_QAFixtures_OperatorOverrideWins(t *testing.T) {
 		SovereignFQDN:       "omantel.biz",
 		OrgName:             "QA",
 		OrgEmail:            "qa@openova.io",
+		Provider: "hetzner",
 		HetznerToken:        "tok",
 		HetznerProjectID:    "p1",
 		Region:              "fsn1",
@@ -819,7 +816,7 @@ func TestWriteTfvars_FireCutoverOnHandover_DefaultsTrue(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 			req := Request{SovereignFQDN: "z.omani.works", OrgName: "Z", OrgEmail: "ops@omani.works",
-				HetznerToken: "tok", HetznerProjectID: "p1", Region: "fsn1", WorkerCount: 2,
+				Provider: "hetzner", HetznerToken: "tok", HetznerProjectID: "p1", Region: "fsn1", WorkerCount: 2,
 				FireCutoverOnHandover: tc.v}
 			if err := writeTfvars(dir, req); err != nil {
 				t.Fatalf("writeTfvars: %v", err)
@@ -876,7 +873,7 @@ func checkVariablesDocument(t *testing.T, name string, doc map[string]string, ow
 func TestWriteTfvars_VariablesDocument(t *testing.T) {
 	dir := t.TempDir()
 	req := Request{SovereignFQDN: "t31.omani.works", OrgName: "T", OrgEmail: "ops@omani.works",
-		HetznerToken: "tok", HetznerProjectID: "p1", Region: "fsn1", WorkerCount: 2}
+		Provider: "hetzner", HetznerToken: "tok", HetznerProjectID: "p1", Region: "fsn1", WorkerCount: 2}
 	if err := writeTfvars(dir, req); err != nil {
 		t.Fatalf("writeTfvars: %v", err)
 	}

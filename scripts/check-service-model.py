@@ -8,6 +8,14 @@ The counts are compared with scripts/service-model-baseline.yaml:
   schema: openova.io/service-model-baseline/v1
   counts:
     <metric>: <number>          (one line for each metric of METRICS, in that order)
+  lists:
+    G6.foundation-without-function-test:
+    - <chart name>              (sorted, each name once)
+
+Rule G6 also keeps that named list: the charts of the HelmReleases in the kit slot files of the
+foundation ring (the slot numbers of FOUNDATION) whose chart folder ships no function test. The
+list must equal the tree. It may only lose names: a chart that gains a test or leaves the ring
+leaves the list in the same change, and no name may join it (--write-baseline refuses that too).
 
 Directions:
   fall  may only go down. Above its entry: exit 1. Below its entry: exit 1 too, until the
@@ -55,6 +63,10 @@ RINGS = ("foundation", "provider", "observability", "security-scanning", "access
 BP_LITERAL = re.compile(r'"bp-[a-z0-9-]+"')
 HOOK_TEST = re.compile(r"""^\s*["']?helm\.sh/hook["']?\s*:\s*["']?test\b""", re.M)
 POD = re.compile(r"^kind:\s*Pod\s*$", re.M)
+# The slot numbers of the foundation ring (the part of a slot file name before its first "-").
+FOUNDATION = ("01 01a 02 02a 03 04 05 05a 06 06a 07 08 09 10 11 12 12a 13 13b 13c 13e 14 15 15a "
+              "16 16a 16b 16c 16d 17 18 19 26 26b 27 27a 28 49 60 62").split()
+UNTESTED = "G6.foundation-without-function-test"
 
 BP = ("platform", "products")
 # (metric, direction, the sources it reads, what it counts)
@@ -207,8 +219,7 @@ def measure_charts(root, c):
     c["G6.function-test-charts"] = 0
     for top in BP:
         for name in sorted(os.listdir(os.path.join(root, top))) if os.path.isdir(os.path.join(root, top)) else []:
-            text = read(root, os.path.join(top, name, "chart/templates/tests/function-test.yaml"))
-            c["G6.function-test-charts"] += bool(text and POD.search(text) and HOOK_TEST.search(text))
+            c["G6.function-test-charts"] += function_test(root, os.path.join(top, name))
     docs = load(root, EXCLUSIONS)
     if docs is None:
         c["G7.seed-exclusions"] = 0
@@ -239,6 +250,45 @@ def measure_kit(root, c):
     c["G8.ring-edges-outside"] = sum(ring_of.get(t) not in (None, "foundation", "provider", r) for r, t in edges)
 
 
+def function_test(root, folder):
+    text = read(root, os.path.join(folder, "chart/templates/tests/function-test.yaml"))
+    return bool(text and POD.search(text) and HOOK_TEST.search(text))
+
+
+def measure_untested(root):
+    """The sorted chart names of the foundation slots' HelmReleases whose chart folder ships no
+    function test; None when the kit is missing."""
+    if not os.path.isdir(os.path.join(root, KIT)):
+        return None
+    tested = set()
+    for top in BP:
+        for name in sorted(os.listdir(os.path.join(root, top))) if os.path.isdir(os.path.join(root, top)) else []:
+            if function_test(root, os.path.join(top, name)):
+                chart = (load(root, os.path.join(top, name, "chart/Chart.yaml")) or [None])[0]
+                tested.add(chart.get("name") if isinstance(chart, dict) else None)
+    untested = set()
+    for name in sorted(os.listdir(os.path.join(root, KIT))):
+        if not (name.endswith(".yaml") and name.split("-", 1)[0] in FOUNDATION):
+            continue
+        for d in load(root, KIT + "/" + name):
+            if isinstance(d, dict) and d.get("kind") == "HelmRelease":
+                spec = sub(d, "spec")
+                chart = sub(sub(spec, "chart"), "spec").get("chart") or sub(spec, "chartRef").get("name")
+                chart = str(chart) if chart else "release " + str(sub(d, "metadata").get("name"))
+                if chart not in tested:
+                    untested.add(chart)
+    return sorted(untested)
+
+
+def resolve_list(measured, listed):
+    """A missing kit gives the empty list only while the list in the baseline is empty."""
+    if measured is None:
+        if listed:
+            raise Unreadable("%s: a source it reads is missing: %s" % (UNTESTED, KIT))
+        return []
+    return measured
+
+
 def measure(root):
     """metric -> number, or None when a source it reads is missing."""
     c = {name: None for name in NAMES}
@@ -257,7 +307,15 @@ def read_baseline(root):
         raise Unreadable("%s: need schema %s and counts for exactly the %d metrics" % (BASELINE, SCHEMA, len(NAMES)))
     if not all(type(v) is int and v >= 0 for v in counts.values()):
         raise Unreadable("%s: every count must be a whole number of at least 0" % BASELINE)
-    return counts
+    lists = doc.get("lists")
+    listed = lists.get(UNTESTED) if isinstance(lists, dict) and sorted(lists) == [UNTESTED] else None
+    if not (isinstance(listed, list) and all(isinstance(x, str) for x in listed) and listed == sorted(set(listed))):
+        raise Unreadable("%s: need lists with exactly %s, a sorted list of names, each once" % (BASELINE, UNTESTED))
+    return counts, listed
+
+
+def list_line(names):
+    return "%s=%s" % (UNTESTED, ",".join(names))
 
 
 def resolve(measured, base):
@@ -275,8 +333,9 @@ def resolve(measured, base):
 
 def judge(root, out):
     """Exit code of a judging run; writes its lines to out."""
-    base = read_baseline(root)
+    base, listed = read_baseline(root)
     counts = resolve(measure(root), base)
+    names = resolve_list(measure_untested(root), listed)
     failed = False
     for metric in NAMES:
         n, b, d = counts[metric], base[metric], DIRECTION[metric]
@@ -293,30 +352,45 @@ def judge(root, out):
             failed = True
             out.append("%s: FAIL %s %s from %d to %d; it may only %s"
                        % (ME, metric, "rose" if n > b else "fell", b, n, "rise" if d == "rise" else "fall"))
+    out.append(list_line(names))
+    for name in sorted(set(names) - set(listed)):
+        failed = True
+        out.append("%s: FAIL %s gained %s: a foundation chart without a function test; the list may only lose names"
+                   % (ME, UNTESTED, name))
+    for name in sorted(set(listed) - set(names)):
+        failed = True
+        out.append("%s: FAIL %s still names %s, which has a function test or is no foundation chart now: "
+                   "remove it from the list in the same change" % (ME, UNTESTED, name))
     return 1 if failed else 0
 
 
 def write_baseline(root, out):
     try:
-        old = read_baseline(root)
+        old, listed = read_baseline(root)
     except Unreadable:
         if read(root, BASELINE) is not None:
             raise
-        old = None
+        old, listed = None, None
     counts = resolve(measure(root), old)
+    names = resolve_list(measure_untested(root), listed)
     if old is not None:
         wrong = [m for m in NAMES if (counts[m] < old[m] if DIRECTION[m] == "rise" else counts[m] > old[m])]
-        if wrong:
-            for m in wrong:
-                out.append("%s: refused: %s would move from %d to %d against its direction" % (ME, m, old[m], counts[m]))
+        for m in wrong:
+            out.append("%s: refused: %s would move from %d to %d against its direction" % (ME, m, old[m], counts[m]))
+        joined = sorted(set(names) - set(listed))
+        if joined:
+            out.append("%s: refused: %s would gain %s; it may only lose names" % (ME, UNTESTED, ", ".join(joined)))
+        if wrong or joined:
             return 1
     lines = ["# Written by: python3 scripts/check-service-model.py --write-baseline",
              "# A count moves only in the direction its rule allows; see METRICS in that script.",
              "schema: " + SCHEMA, "counts:"]
     lines += ["  %s: %d" % (m, counts[m]) for m in NAMES]
+    lines += ["lists:", "  %s:%s" % (UNTESTED, "" if names else " []")] + ["  - %s" % n for n in names]
     put(root, BASELINE, "\n".join(lines) + "\n")
     out.append("%s: wrote %s" % (ME, BASELINE))
     out.extend("%s=%d" % (m, counts[m]) for m in NAMES)
+    out.append(list_line(names))
     return 0
 
 
@@ -324,10 +398,12 @@ def run(root, mode):
     out = []
     try:
         if mode == "print":
-            counts = measure(root)
-            if None in counts.values():
-                counts = resolve(counts, read_baseline(root))
+            counts, names = measure(root), measure_untested(root)
+            if None in counts.values() or names is None:
+                base, listed = read_baseline(root)
+                counts, names = resolve(counts, base), resolve_list(names, listed)
             out.extend("%s=%d" % (m, counts[m]) for m in NAMES)
+            out.append(list_line(names))
             code = 0
         elif mode == "write":
             code = write_baseline(root, out)
@@ -350,7 +426,8 @@ def put(root, rel, text):
 
 def fixture(root):
     """A small tree with every source. Every count is 1, except G3.wizard-groups-entries 2,
-    G3.storefront-seed-rows 4, G3.provisioning-map-keys 2, and G6, G7 and G8 edges 0."""
+    G3.storefront-seed-rows 4, G3.provisioning-map-keys 2, and G6, G7 and G8 edges 0. The list of
+    rule G6 names bp-first and bp-second, the charts of the two foundation slots 01 and 02."""
     put(root, "platform/alpha/blueprint.yaml",
         "apiVersion: catalyst.openova.io/v1alpha1\nkind: Blueprint\nmetadata:\n  name: alpha\n  labels:\n"
         "    catalyst.openova.io/category: x\n    catalyst.openova.io/tier: x\n    catalyst.openova.io/section: x\n"
@@ -383,7 +460,7 @@ def slot(name, ring, deps, kind="HelmRelease"):
     dep = "".join("    - name: %s\n" % d for d in deps)
     api = "helm.toolkit.fluxcd.io/v2" if kind == "HelmRelease" else "kustomize.toolkit.fluxcd.io/v1"
     return ("apiVersion: %s\nkind: %s\nmetadata:\n  name: %s\n%s"
-            "spec:\n  dependsOn:\n%s" % (api, kind, name, labels, dep or "    []\n"))
+            "spec:\n  chart:\n    spec:\n      chart: bp-%s\n  dependsOn:\n%s" % (api, kind, name, labels, name, dep or "    []\n"))
 
 
 FUNCTION_TEST = "apiVersion: v1\nkind: Pod\nmetadata:\n  annotations:\n    helm.sh/hook: test\n"
@@ -401,6 +478,12 @@ def edit(root, rel, old, new):
 
 
 B, FT = "platform/beta/blueprint.yaml", "platform/beta/chart/templates/tests/function-test.yaml"
+
+
+def first_gains_a_test(root):
+    put(root, "platform/first/chart/Chart.yaml", "apiVersion: v2\nname: bp-first\nversion: 1.0.0\n")
+    put(root, "platform/first/chart/templates/tests/function-test.yaml", FUNCTION_TEST)
+    edit(root, BASELINE, "G6.function-test-charts: 0", "G6.function-test-charts: 1")
 # (case, the metric that must name the failure, the change to the fixture)
 RULE_CASES = [
     ("G1 a Blueprint name without bp-", "G1.name-without-bp-prefix", lambda r: edit(r, B, "name: bp-beta", "name: beta")),
@@ -489,6 +572,20 @@ def self_test():
     case("a Blueprint file that is not YAML judges nothing", lambda r: put(r, B, "a: [\n"), 2, "cannot be read")
     case("a Kustomization slot with a ring adds no slot without a ring", lambda r: put(
         r, KIT + "/03-third.yaml", slot("third", "foundation", [], kind="Kustomization")), 0)
+    third = slot("third", "foundation", [])
+    case("G6 list: a foundation chart without a function test may not join the list",
+         lambda r: put(r, KIT + "/03-third.yaml", third), 1, "FAIL %s gained bp-third" % UNTESTED)
+    case("G6 list: a listed chart that gains a function test must leave the list", first_gains_a_test, 1,
+         "FAIL %s still names bp-first" % UNTESTED)
+    case("G6 list: a listed chart whose slot leaves the foundation numbers must leave the list", lambda r: os.rename(
+        os.path.join(r, KIT, "02-second.yaml"), os.path.join(r, KIT, "20-second.yaml")), 1, "FAIL %s still names bp-second" % UNTESTED)
+    case("G6 list: slot 19c is not slot 19", lambda r: put(r, KIT + "/19c-other.yaml", slot("other", "observability", [])), 0)
+    case("G6 list: --write-baseline refuses a name that joins", lambda r: put(r, KIT + "/03-third.yaml", third), 1,
+         "refused: %s would gain bp-third" % UNTESTED, mode="write")
+    case("G6 list: --write-baseline removes a name that left", lambda r: (first_gains_a_test(r), run(r, "write")), 0,
+         "%s=bp-second" % UNTESTED)
+    case("G6 list: a baseline without the list judges nothing", lambda r: edit(
+        r, BASELINE, "lists:\n  %s:\n  - bp-first\n  - bp-second\n" % UNTESTED, ""), 2, "need lists with exactly")
 
     for good, name, detail in results:
         print("%s %s (%s)" % ("ok" if good else "FAIL", name, detail))

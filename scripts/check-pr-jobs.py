@@ -26,7 +26,10 @@ count   The jobs that a pull request to main starts when it changes only the pat
             lists, plus one for each include entry. A matrix that is an expression cannot be
             counted, and the command ends with exit code 2.
         N4  A job that calls a workflow of this repository counts the jobs of that workflow.
-        The command fails when the count is above the limit (default 12).
+        The command fails when the count is above the limit (default 13). The limit was 12
+        (FND-059). It is 13 since FND-130: the job conformance-local, the gate suite on the
+        local provider pack, runs on every pull request, because the ruleset of main requires
+        it by its name.
 folded  For each shared job of SHARED:
         J1  its workflow starts on every pull request (no path filter) and on merge groups;
         J2  once a step runs after a failure (its if holds !cancelled() or always()), every
@@ -493,7 +496,7 @@ def main(argv):
     root = os.getcwd()
     try:
         if argv[:1] == ["count"]:
-            rest, limit = argv[1:], 12
+            rest, limit = argv[1:], 13  # 12 until FND-130; the reason is in the docstring of count
             if rest[:1] == ["--limit"] and len(rest) >= 2 and rest[1].isdigit():
                 rest, limit = rest[2:], int(rest[1])
             paths = rest or ["docs/STATUS.md"]

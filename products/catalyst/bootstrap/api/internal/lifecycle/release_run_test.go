@@ -24,7 +24,11 @@ import (
 // region's kubelet would. Its logs and its outcome are then what get and logs
 // answer. Every call is also kept in STUB_DIR/calls.rec as its arguments and
 // the kind and namespace of the object it read on stdin (release_rbac_test.go
-// checks each against the RBAC of the account that makes it).
+// checks each against the RBAC of the account that makes it). A server-side
+// dry run stores nothing: the object is kept as STUB_DIR/dry/<region>.<kind>.
+// <name>.json for the test, and refused, as the API server would, when that
+// name matches a line (an ERE) of STUB_DIR/refuse. STUB_DIR/pods.json, when
+// present, is what a read of a Job's Pods answers.
 const kubectlStub = `#!/bin/sh
 echo "kubectl $*" >>"${STUB_DIR}/calls"
 obj=""
@@ -37,6 +41,19 @@ esac
 { printf '%s\037' "$@"; printf '\035%s\036' "${obj}"; } >>"${STUB_DIR}/calls.rec"
 region=primary
 [ "$1" = "--kubeconfig" ] && { region=$(basename "$2" .yaml); shift 2; }
+case " $* " in
+  *" --dry-run=server "*)
+    n="${region}.$(jq -r '.kind + "." + (.metadata.name // .metadata.generateName)' "${STUB_DIR}/applied")"
+    mkdir -p "${STUB_DIR}/dry"; cp "${STUB_DIR}/applied" "${STUB_DIR}/dry/${n}.json"
+    if [ -s "${STUB_DIR}/refuse" ] && printf '%s\n' "${n}" | grep -qEf "${STUB_DIR}/refuse"; then
+      echo "Error from server (Invalid): ${n} is invalid: refused by the test" >&2; exit 1
+    fi
+    exit 0 ;;
+  *" auth whoami "*)
+    if [ "${region}" = primary ]; then echo "system:serviceaccount:catalyst:bp-self-sovereign-cutover-runner"; else echo "system:serviceaccount:kube-system:handover-peer"; fi
+    exit 0 ;;
+  *" get pods "*) cat "${STUB_DIR}/pods.json" 2>/dev/null || echo '{"items": []}'; exit 0 ;;
+esac
 case " $* " in
   *" get configmap harbor-registry "*) cat "${STUB_DIR}/registry-${region}.yml" 2>/dev/null || exit 1 ;;
   *" get helmreleases.helm.toolkit.fluxcd.io "*) cat "${STUB_DIR}/cutover-hr.json" 2>/dev/null || exit 1 ;;
@@ -61,21 +78,28 @@ case " $* " in
       exit 0
     fi
     if jq -e '.kind == "ConfigMap"' "${STUB_DIR}/applied" >/dev/null 2>&1; then
-      mkdir -p "${STUB_DIR}/cm"; cp "${STUB_DIR}/applied" "${STUB_DIR}/cm/$(jq -r .metadata.name "${STUB_DIR}/applied").json"
+      d="${STUB_DIR}/cm"; [ "${region}" = primary ] || d="${STUB_DIR}/cm-${region}"
+      mkdir -p "${d}"; cp "${STUB_DIR}/applied" "${d}/$(jq -r .metadata.name "${STUB_DIR}/applied").json"
       exit 0
     fi
-    if jq -e '.kind == "Job"' "${STUB_DIR}/applied" >/dev/null 2>&1; then
+    if [ "${region}" = primary ] && jq -e '.kind == "Job"' "${STUB_DIR}/applied" >/dev/null 2>&1; then
       name=$(jq -r .metadata.name "${STUB_DIR}/applied")
       cp "${STUB_DIR}/applied" "${STUB_DIR}/job-${name}.json"
       sh "${STUB_DIR}/kubelet" "${STUB_DIR}/job-${name}.json"
       exit 0
     fi
-    grep -q '^kind: Job' "${STUB_DIR}/applied" || exit 0
-    name=$(awk '/^metadata:/ {m=1; next} m && /^  name:/ {print $2; exit}' "${STUB_DIR}/applied")
+    # A follower Job: YAML (the route's manifest) or JSON (the candidate's).
+    if jq -e '.kind == "Job"' "${STUB_DIR}/applied" >/dev/null 2>&1; then
+      cp "${STUB_DIR}/applied" "${STUB_DIR}/follower-job.json"
+    else
+      grep -q '^kind: Job' "${STUB_DIR}/applied" || exit 0
+      yq -o=json '.' "${STUB_DIR}/applied" >"${STUB_DIR}/follower-job.json"
+    fi
+    name=$(jq -r .metadata.name "${STUB_DIR}/follower-job.json")
     cp "${STUB_DIR}/applied" "${STUB_DIR}/job-${name}.yaml"
     env_file="${STUB_DIR}/job-${name}.env"
-    awk '/^ *- name: / {n=$3; next} n != "" && /^ *value:/ {v=$0; sub(/^ *value: */, "", v); gsub(/^["'"'"']|["'"'"']$/, "", v); print n "=" v; n=""; next} {n=""}' \
-      "${STUB_DIR}/applied" | sed "s#=/release/#=${STUB_RELEASE}/#" >"${env_file}"
+    jq -r --arg r "${STUB_RELEASE}" '.spec.template.spec.containers[0].env[] | select(.value != null)
+      | "\(.name)=\(.value | if startswith("/release/") then $r + "/" + .[9:] else . end | @sh)"' "${STUB_DIR}/follower-job.json" >"${env_file}"
     rc=0
     ( set -a; . "${env_file}"; GITEA_PAT="${STUB_PAT}"; WORK=$(mktemp -d); export GITEA_PAT WORK; sh "${STUB_RELEASE}/release-region.sh" ) \
       >"${STUB_DIR}/job-${name}.log" 2>&1 || rc=$?
@@ -206,10 +230,11 @@ func (r *runFixture) run(phase string, req releaseRequest) (string, int) {
 }
 
 // runArgs runs release-run.sh with args, the environment of the release Job's
-// containers, and extra variables (NAME=value) on top.
+// containers, and extra variables (NAME=value) on top; RELEASE_RUN_SH=<path>
+// among them runs that copy of the script instead.
 func (r *runFixture) runArgs(args []string, req releaseRequest, extra ...string) (string, int) {
 	r.t.Helper()
-	cmd := command("sh", append([]string{"-c", `kubectl() { sh "${STUB_DIR}/kubectl" "$@"; }; set -- "$0" "$@"; . "${RELEASE_SCRIPTS}/release-run.sh"`}, args...)...)
+	cmd := command("sh", append([]string{"-c", `kubectl() { sh "${STUB_DIR}/kubectl" "$@"; }; set -- "$0" "$@"; . "${RELEASE_RUN_SH:-${RELEASE_SCRIPTS}/release-run.sh}"`}, args...)...)
 	cmd.Dir = r.dir
 	cmd.Env = append(os.Environ(), "PATH="+r.stub+"/bin:"+os.Getenv("PATH"), "HOME="+r.home, "GIT_CONFIG_NOSYSTEM=1", "STUB_DIR="+r.stub, "STUB_PAT=not-a-real-token", "STUB_RELEASE="+r.scripts, "STUB_KUBECONFIGS="+r.kubeconfigs,
 		"RELEASE_NAMESPACE=catalyst", "RELEASE_STATUS_CM=sovereign-release", "CANDIDATE="+req.Candidate, "DRY_RUN="+boolString(req.DryRun),

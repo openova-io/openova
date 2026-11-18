@@ -32,6 +32,7 @@ func postControlPlaneSourcesRequest(t *testing.T, egress string, admin []string)
 		"sovereignDomainMode":    "byo",
 		"sovereignPoolDomain":    "acme.io",
 		"sovereignSubdomain":     "k8s",
+		"provider":               "hetzner",
 		"hetznerToken":           "tok",
 		"hetznerProjectID":       "proj",
 		"region":                 "fsn1",

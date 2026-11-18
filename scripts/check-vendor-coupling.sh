@@ -112,14 +112,12 @@ fi
 # Mode gate
 # ---------------------------------------------------------------------------
 
-# The vendor-agnostic rename (#425) lands the canonical seam at
-# internal/objectstorage/<provider>/. Once that directory exists, every
-# remaining vendor-coupled reference is either drift or net-new — both
-# must hard-fail. Until then, we can only warn (the drift IS the WIP).
-HARD_FAIL=0
-if [[ -d "${REPO_ROOT}/products/catalyst/bootstrap/api/internal/objectstorage" ]]; then
-  HARD_FAIL=1
-fi
+# The vendor-agnostic rename (#425) has landed: the Object Storage seam was
+# internal/objectstorage/ and is now the ObjectStorageValidator capability of
+# internal/providers (CLD-112). Every remaining vendor-coupled reference is
+# either drift or net-new, and both hard-fail, whether or not that folder
+# exists.
+HARD_FAIL=1
 if [[ "${FORCE_HARD_FAIL}" -eq 1 ]]; then
   HARD_FAIL=1
 fi
@@ -202,7 +200,7 @@ _ok() {
 cd "${REPO_ROOT}"
 
 if [[ "${HARD_FAIL}" -eq 1 ]]; then
-  _banner "vendor-coupling check (HARD-FAIL mode — internal/objectstorage/ present)"
+  _banner "vendor-coupling check (HARD-FAIL mode)"
 else
   _banner "vendor-coupling check (WARN-ONLY mode — pre-#425, internal/objectstorage/ absent)"
 fi

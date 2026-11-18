@@ -1,6 +1,5 @@
 import type { FastifyInstance } from "fastify";
 import type { ModelListResponse } from "../types/openai.js";
-import type { VllmProvider } from "../providers/vllm.js";
 
 const CLAUDE_MODELS: ModelListResponse = {
   object: "list",
@@ -26,11 +25,6 @@ const CLAUDE_MODELS: ModelListResponse = {
   ],
 };
 
-export async function modelsRoute(app: FastifyInstance, vllm?: VllmProvider): Promise<void> {
-  app.get("/v1/models", async () => {
-    if (vllm) {
-      return vllm.models();
-    }
-    return CLAUDE_MODELS;
-  });
+export async function modelsRoute(app: FastifyInstance): Promise<void> {
+  app.get("/v1/models", async () => CLAUDE_MODELS);
 }

@@ -3,125 +3,114 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 
-	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/objectstorage"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 
-	// Side-effect import: registers the Hetzner Object Storage Provider
-	// in the objectstorage registry at process init. Adding a new cloud
-	// (AWS / GCP / Azure / OCI) means adding a sibling import here.
-	_ "github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/objectstorage/hetzner"
-
-	// Side-effect import: registers every cloud-provider adapter
-	// (hetzner + huawei stub) into the providers registry at init().
-	// Without this, providers.Get("hetzner") below returns "unknown
-	// provider" in this package's tests (the cmd/api main imports
-	// providers/all directly, but tests run without main).
+	// Side-effect import: registers every cloud-provider adapter into the
+	// providers registry at init(); tests run without the cmd/api main.
 	_ "github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers/all"
 )
 
+// validateRequest is the body of POST /api/v1/credentials/validate.
 type validateRequest struct {
-	Token    string `json:"token"`
-	Provider string `json:"provider"`
+	Provider     string            `json:"provider"`
+	Installation string            `json:"installation"`
+	Credentials  map[string]string `json:"credentials"`
 }
 
 type validateResponse struct {
 	Valid   bool   `json:"valid"`
+	Field   string `json:"field,omitempty"`
 	Message string `json:"message"`
 }
 
+// ValidateCredentials handles POST /api/v1/credentials/validate. The body is
+// {"provider","installation","credentials":{<key>:<value>}}; a legacy body
+// carries a credential in a field that the adapter names
+// (providers.LegacyAliaser). Each value is checked against the credential
+// fields of the effective cloud profile, and so is every required field
+// unless a legacy field supplied a value; then the adapter's ValidateCreds
+// calls the cloud. Answers: 400 with the field, 404 for an unknown provider,
+// 200 with valid false for rejected credentials, 503 when the cloud cannot be
+// reached. No credential value is logged.
 func (h *Handler) ValidateCredentials(w http.ResponseWriter, r *http.Request) {
 	var req validateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	var fields map[string]json.RawMessage
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil || json.Unmarshal(body, &req) != nil || json.Unmarshal(body, &fields) != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-
-	token := strings.TrimSpace(req.Token)
-	if len(token) < 64 {
-		writeJSON(w, http.StatusBadRequest, validateResponse{
-			Valid:   false,
-			Message: "token too short — Hetzner API tokens are at least 64 characters",
-		})
+	name := strings.ToLower(strings.TrimSpace(req.Provider))
+	if name == "" {
+		writeJSON(w, http.StatusBadRequest, validateResponse{Field: "provider", Message: "required"})
 		return
 	}
-
-	// Dispatch via the providers.CloudProvider seam (Wave 2 / Issue
-	// #1841). Today the endpoint only validates Hetzner tokens because
-	// the wizard's StepCredentials Hetzner block POSTs here; future
-	// wizard payloads will carry the provider name on the request
-	// body and switch the dispatch accordingly. The req.Provider field
-	// is already declared above as the wizard's planned-future hook.
-	providerName := strings.TrimSpace(req.Provider)
-	if providerName == "" {
-		providerName = "hetzner"
-	}
-	cp, err := providers.Get(providerName)
+	cp, err := providers.Get(name)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, validateResponse{
-			Valid:   false,
-			Message: "unknown cloud provider: " + providerName,
-		})
+		writeJSON(w, http.StatusNotFound, validateResponse{Message: "unknown cloud provider: " + name})
 		return
 	}
-	verr := cp.ValidateCreds(r.Context(), providers.ProviderCreds{
-		Raw: map[string]string{"hcloud_token": token},
-	})
-	if verr != nil {
-		// ValidateCreds returns a non-nil error for BOTH (a)
-		// network/upstream-unreachable AND (b) creds-rejected. The
-		// wizard previously rendered different cards for each (503
-		// vs 200+valid:false). Preserve that split by string-matching
-		// on the underlying message — the hetzner adapter wraps the
-		// transport error in "validate token:" and the rejected case
-		// in "was rejected by Hetzner Cloud API".
-		msg := verr.Error()
-		if strings.Contains(msg, "rejected") {
-			writeJSON(w, http.StatusOK, validateResponse{
-				Valid:   false,
-				Message: "token rejected — ensure it has Read & Write permissions",
-			})
+	profile, err := provisioner.EffectiveProfile(name, req.Installation)
+	if err != nil {
+		field := "provider"
+		if strings.TrimSpace(req.Installation) != "" {
+			field = "installation"
+		}
+		writeJSON(w, http.StatusBadRequest, validateResponse{Field: field, Message: err.Error()})
+		return
+	}
+	creds, legacy := credentialsOf(cp, req.Credentials, fields)
+	if err := providers.CheckCredentialValues(creds, profile, !legacy); err != nil {
+		var fe *providers.FieldError
+		if errors.As(err, &fe) {
+			writeJSON(w, http.StatusBadRequest, validateResponse{Field: fe.Field, Message: fe.Message})
 			return
 		}
-		h.log.Error("provider creds validation error", "provider", providerName, "err", verr)
-		writeJSON(w, http.StatusServiceUnavailable, validateResponse{
-			Valid:   false,
-			Message: "could not reach " + strings.Title(providerName) + " API — check network connectivity",
-		})
+		h.log.Error("cloud profile credential fields", "provider", name, "err", err)
+		writeJSON(w, http.StatusInternalServerError, validateResponse{Message: "the cloud profile cannot be read"})
 		return
 	}
-	writeJSON(w, http.StatusOK, validateResponse{
-		Valid:   true,
-		Message: "read/write access confirmed",
-	})
+	if verr := cp.ValidateCreds(r.Context(), creds); verr != nil {
+		// The adapters word a refused credential "rejected" and wrap a
+		// transport error otherwise; the wizard shows a card for each.
+		if strings.Contains(verr.Error(), "rejected") {
+			writeJSON(w, http.StatusOK, validateResponse{Message: "credentials rejected — ensure they have Read & Write permissions"})
+			return
+		}
+		h.log.Error("provider creds validation error", "provider", name, "err", verr)
+		writeJSON(w, http.StatusServiceUnavailable, validateResponse{Message: "could not reach the " + profile.Spec.DisplayName + " API — check network connectivity"})
+		return
+	}
+	writeJSON(w, http.StatusOK, validateResponse{Valid: true, Message: "read/write access confirmed"})
 }
 
-// validateObjectStorageRequest carries the operator-supplied Object
-// Storage credentials submitted by the wizard's StepCredentials Object
-// Storage section (issue #371, vendor-agnostic since #425). The wizard
-// POSTs to /api/v1/credentials/object-storage/validate before allowing
-// the operator to advance, so a typo'd or insufficiently-permissioned
-// credential pair surfaces at the wizard step rather than 5 minutes
-// into `tofu apply`.
-//
-// The `Provider` field selects the cloud-specific Object Storage impl
-// from the vendor-agnostic objectstorage.Provider registry. Today only
-// "hetzner" is registered; AWS / GCP / Azure / OCI follow as separate
-// tickets, each adding a sibling impl + side-effect import (see top
-// of this file). Empty defaults to "hetzner" for back-compat with the
-// existing wizard payload.
-//
-// Region semantics are vendor-specific (Hetzner: fsn1/nbg1/hel1; AWS:
-// us-east-1/eu-west-1/...). The handler delegates region validation
-// to the Provider's Endpoint lookup — if the region is unknown to the
-// chosen Provider, Endpoint returns the empty string and the request
-// surfaces as a 400 with the actionable error message.
-//
-// Per docs/INVIOLABLE-PRINCIPLES.md #10 the credentials are NEVER
-// logged from this handler — only the validation outcome and (on
-// error) the failure category are emitted to the structured log.
+// credentialsOf returns the credentials of a validation body: its map, and
+// each legacy field the adapter names that the map lacks. legacy reports
+// whether a legacy field supplied a value.
+func credentialsOf(cp providers.CloudProvider, m map[string]string, fields map[string]json.RawMessage) (creds providers.ProviderCreds, legacy bool) {
+	raw := make(map[string]string, len(m))
+	for k, v := range m {
+		raw[k] = strings.TrimSpace(v)
+	}
+	if a, ok := cp.(providers.LegacyAliaser); ok {
+		for field, key := range a.LegacyCredentialAliases() {
+			var v string
+			if json.Unmarshal(fields[field], &v) != nil || strings.TrimSpace(v) == "" || raw[key] != "" {
+				continue
+			}
+			raw[key], legacy = strings.TrimSpace(v), true
+		}
+	}
+	return providers.ProviderCreds{Raw: raw}, legacy
+}
+
+// validateObjectStorageRequest carries the Object Storage keys of the
+// wizard's StepCredentials Object Storage section (issue #371).
 type validateObjectStorageRequest struct {
 	Provider  string `json:"provider"`
 	Region    string `json:"region"`
@@ -129,20 +118,32 @@ type validateObjectStorageRequest struct {
 	SecretKey string `json:"secretKey"`
 }
 
+// objectStorageValidator returns the adapter of provider when it validates
+// Object Storage keys (providers.ObjectStorageValidator). An empty provider
+// means the one adapter that has the capability (the wizard's body names
+// none); it is refused when not exactly one has it.
+func objectStorageValidator(provider string) (providers.ObjectStorageValidator, bool) {
+	if name := strings.TrimSpace(provider); name != "" {
+		v, ok, err := providers.As[providers.ObjectStorageValidator](name)
+		return v, ok && err == nil
+	}
+	var found []providers.ObjectStorageValidator
+	for _, name := range providers.Names() {
+		if v, ok, err := providers.As[providers.ObjectStorageValidator](name); ok && err == nil {
+			found = append(found, v)
+		}
+	}
+	if len(found) != 1 {
+		return nil, false
+	}
+	return found[0], true
+}
+
 // ValidateObjectStorageCredentials handles
-// POST /api/v1/credentials/object-storage/validate. Same wire shape as
-// ValidateCredentials (200 + valid:true on success; 200 + valid:false
-// on rejected; 503 + valid:false on upstream unreachable; 400 +
-// valid:false on missing/malformed input) so the wizard's error-card
-// machinery can render the response without a per-endpoint switch.
-//
-// Issue #371 (Hetzner Object Storage validation) + #425 (vendor-
-// agnostic abstraction): the handler resolves the Provider impl from
-// the request's `provider` field via objectstorage.Resolve, then
-// delegates to its Validate method. NOTHING in this handler is
-// vendor-specific — adding AWS / GCP / Azure / OCI requires only a
-// sibling impl package + a side-effect import at the top of this
-// file.
+// POST /api/v1/credentials/object-storage/validate with the answers of
+// ValidateCredentials: 200 valid true; 200 valid false when the keys are
+// rejected; 503 when the endpoint cannot be reached; 400 for missing or
+// malformed input. The keys are never logged.
 func (h *Handler) ValidateObjectStorageCredentials(w http.ResponseWriter, r *http.Request) {
 	var req validateObjectStorageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -153,28 +154,11 @@ func (h *Handler) ValidateObjectStorageCredentials(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// Default to hetzner for back-compat with the existing wizard
-	// payload (which omitted `provider`). When a future wizard build
-	// starts emitting `provider: "aws"` etc., this default never
-	// fires.
-	providerName := strings.TrimSpace(req.Provider)
-	if providerName == "" {
-		providerName = "hetzner"
-	}
-
-	provider, err := objectstorage.Resolve(providerName)
-	if err != nil {
-		if errors.Is(err, objectstorage.ErrUnsupportedProvider) {
-			writeJSON(w, http.StatusBadRequest, validateResponse{
-				Valid:   false,
-				Message: "unsupported object storage provider — only hetzner is registered today",
-			})
-			return
-		}
-		h.log.Error("object-storage provider resolve error", "provider", providerName, "err", err)
-		writeJSON(w, http.StatusInternalServerError, validateResponse{
-			Valid:   false,
-			Message: "internal error resolving object storage provider",
+	provider, ok := objectStorageValidator(req.Provider)
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, validateResponse{
+			Field:   "provider",
+			Message: "unsupported object storage provider: " + strings.TrimSpace(req.Provider),
 		})
 		return
 	}
@@ -186,24 +170,21 @@ func (h *Handler) ValidateObjectStorageCredentials(w http.ResponseWriter, r *htt
 	if region == "" {
 		writeJSON(w, http.StatusBadRequest, validateResponse{
 			Valid:   false,
-			Message: "object storage region is required (e.g. fsn1 for Hetzner)",
+			Message: "object storage region is required",
 		})
 		return
 	}
-	// Region whitelist is vendor-specific — delegate to the Provider
-	// via Endpoint, which returns "" for unknown regions. Hetzner
-	// today: fsn1 / nbg1 / hel1 (European-only Object Storage).
-	if provider.Endpoint(region) == "" {
+	// The adapter's endpoint lookup is its region list: "" is an unknown
+	// region.
+	if provider.ObjectStorageEndpoint(region) == "" {
 		writeJSON(w, http.StatusBadRequest, validateResponse{
 			Valid:   false,
 			Message: "region not supported by the chosen object storage provider",
 		})
 		return
 	}
-	// Hetzner S3 access keys are typically 20 chars, secret keys 40 —
-	// but rotations may emit different lengths; reject only obviously-
-	// wrong bounds. The Provider returns the actionable specific error
-	// when the keys are well-formed but rejected at ListBuckets time.
+	// Refuse only obviously wrong lengths; the adapter answers a well-formed
+	// pair that the endpoint rejects.
 	if len(access) < 16 {
 		writeJSON(w, http.StatusBadRequest, validateResponse{
 			Valid:   false,
@@ -219,12 +200,9 @@ func (h *Handler) ValidateObjectStorageCredentials(w http.ResponseWriter, r *htt
 		return
 	}
 
-	valid, err := provider.Validate(r.Context(), region, access, secret)
+	valid, err := provider.ValidateObjectStorage(r.Context(), region, access, secret)
 	if err != nil {
-		// Network / DNS / 5xx — wizard renders the "unreachable" hint
-		// card. We log only the error class, NEVER the credential
-		// values.
-		h.log.Error("object-storage validation error", "provider", providerName, "region", region, "err", err)
+		h.log.Error("object-storage validation error", "provider", req.Provider, "region", region, "err", err)
 		writeJSON(w, http.StatusServiceUnavailable, validateResponse{
 			Valid:   false,
 			Message: "could not reach object storage endpoint — check provider status page or retry",
@@ -238,10 +216,6 @@ func (h *Handler) ValidateObjectStorageCredentials(w http.ResponseWriter, r *htt
 		})
 		return
 	}
-	// 401/403 from upstream — credentials authenticated but were
-	// rejected (or the keys are wrong). The wizard's "rejected" hint
-	// card surfaces the remediation: re-issue credentials in the
-	// provider's console.
 	writeJSON(w, http.StatusOK, validateResponse{
 		Valid:   false,
 		Message: "credentials rejected — issue a fresh access/secret pair in the provider's console",

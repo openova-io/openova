@@ -24,3 +24,11 @@ counts:
   G9.raw-image-apps: 12
   G9.coming-soon-rows: 13
   G9.system-rows-external-chart: 3
+lists:
+  G6.foundation-without-function-test:
+  - bp-catalyst-platform
+  - bp-cnpg-pair
+  - bp-continuum
+  - bp-kyverno
+  - bp-reflector
+  - bp-self-sovereign-cutover

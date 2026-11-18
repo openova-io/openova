@@ -6,34 +6,9 @@ image:
 
 axon:
   port: 3000
-  provider: claude  # "claude" or "vllm"
   defaultModel: claude-sonnet-4-6
-  poolSize: 2
-  conversationTtl: 604800
   existingSecret: axon-secrets
   claudeAuthSecret: axon-claude-auth
-  tokenRefresh:
-    enabled: false
-    schedule: "0 */4 * * *"  # Every 4 hours
-  vllm:
-    baseUrl: ""
-    defaultModel: qwen3-coder
-    existingSecret: axon-vllm-secret
-
-valkey:
-  enabled: true
-  image: valkey/valkey:8-alpine
-  storage: 1Gi
-
-ingress:
-  enabled: true
-  className: traefik
-  host: api.openova.io
-  path: /axon
-  tls:
-    enabled: true
-    clusterIssuer: letsencrypt-prod
-    secretName: api-openova-io-tls
 
 resources:
   axon:
@@ -43,10 +18,3 @@ resources:
     limits:
       cpu: 2000m
       memory: 2Gi
-  valkey:
-    requests:
-      cpu: 10m
-      memory: 32Mi
-    limits:
-      cpu: 500m
-      memory: 256Mi
