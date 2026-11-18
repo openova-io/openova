@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T16:00:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-18T16:15:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-18T16:12 | [#8180](https://github.com/openova-io/openova/pull/8180) | #7087 | docs(ledger): plan update |
 | 2026-11-18T15:35 | [#8178](https://github.com/openova-io/openova/pull/8178) | #7087 | docs(ledger): plan update |
 | 2026-11-18T15:50 | [#8177](https://github.com/openova-io/openova/pull/8177) | #8141 | fix(guards): a generated file is judged at its source |
 | 2026-11-18T15:48 | [#8176](https://github.com/openova-io/openova/pull/8176) | #8175 | refactor(credentials): credential fields checked against the |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-18T10:57 | [#8136](https://github.com/openova-io/openova/pull/8136) | #8135 | feat(guards): pack tokens in the leak scanner and the additi |
 | 2026-11-18T10:47 | [#8134](https://github.com/openova-io/openova/pull/8134) | #7087 | docs(ledger): plan update |
 | 2026-11-18T11:00 | [#8133](https://github.com/openova-io/openova/pull/8133) | #8132 | fix(axon): build against the pinned agent kit and run its te |
-| 2026-11-18T10:41 | [#8131](https://github.com/openova-io/openova/pull/8131) | #7087 | docs(ledger): plan update |
 
 ---
 
