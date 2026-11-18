@@ -43,6 +43,11 @@ func TestOperationsNeedsItsSettings(t *testing.T) {
 	if err := checkSettings(good); err != nil {
 		t.Fatalf("checkSettings refused complete settings: %v", err)
 	}
+	withDB := good
+	withDB.VulnerabilityDB = "harbor.example:8443/proxy/aquasecurity/trivy-db:2"
+	if err := checkSettings(withDB); err != nil {
+		t.Fatalf("checkSettings refused a database repository: %v", err)
+	}
 	for name, bad := range map[string]func(s operations.Settings) operations.Settings{
 		"no job namespace": func(s operations.Settings) operations.Settings { s.JobNamespace = ""; return s },
 		"no runner image":  func(s operations.Settings) operations.Settings { s.RunnerImage = ""; return s },
@@ -51,9 +56,25 @@ func TestOperationsNeedsItsSettings(t *testing.T) {
 		"no region":        func(s operations.Settings) operations.Settings { s.EvidenceRegion = ""; return s },
 		"no bucket":        func(s operations.Settings) operations.Settings { s.EvidenceBucket = ""; return s },
 		"no retention":     func(s operations.Settings) operations.Settings { s.Retention = 0; return s },
+		"a database repository that is a URL": func(s operations.Settings) operations.Settings {
+			s.VulnerabilityDB = "https://registry.example/trivy-db"
+			return s
+		},
 	} {
 		if checkSettings(bad(good)) == nil {
 			t.Errorf("checkSettings accepted settings with %s", name)
+		}
+	}
+}
+
+func TestRematchScheduleIsChecked(t *testing.T) {
+	now := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	if _, err := parseRematch(operations.DefaultRematchSchedule, now); err != nil {
+		t.Fatalf("the default rematch schedule was refused: %v", err)
+	}
+	for _, bad := range []string{"", "30 3 * *", "61 3 * * *", "0 0 31 2 *"} {
+		if _, err := parseRematch(bad, now); err == nil || !strings.HasPrefix(err.Error(), "--rematch-schedule: ") {
+			t.Errorf("parseRematch(%q) = %v, want an error naming --rematch-schedule", bad, err)
 		}
 	}
 }

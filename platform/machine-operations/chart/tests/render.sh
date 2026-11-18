@@ -4,12 +4,13 @@
 #   bash render.sh [CHART_DIR]   check the chart (default: the chart above this folder)
 #   bash render.sh --self-test   prove that each rule below can fail
 #
-# The chart is rendered nine times, into release namespace machine-ops: at its
+# The chart is rendered ten times, into release namespace machine-ops: at its
 # defaults; with enabled=true and no image; with enabled=true, an image, a
 # runner image and an evidence endpoint and region ("switched on"); switched
 # on with sources.nodes.enabled=false; switched on with
-# defaults.nodeScan.enabled=false; and switched on with each of runner.image,
-# evidence.endpoint and evidence.region set empty, one at a time.
+# defaults.nodeScan.enabled=false; switched on with each of runner.image,
+# evidence.endpoint and evidence.region set empty, one at a time; and switched
+# on with vulnerabilityDb.repository set.
 #
 # Rules:
 #   R1  At the defaults the chart renders nothing.
@@ -47,6 +48,10 @@
 #   R14 The ScanPolicy and the HardeningBaseline catalyst-infra/nodes have the
 #       specs SCAN_POLICY and BASELINE below, and with
 #       defaults.nodeScan.enabled=false neither is rendered.
+#   R15 Switched on with vulnerabilityDb.repository set, the command of the
+#       operations controller is OPS_COMMAND with that repository passed last
+#       as --vulnerability-db-repository; switched on without it, the flag is
+#       absent (R9).
 #
 # Tools: bash, helm, python3 with PyYAML. Exit 0 = pass, 1 = a rule failed.
 set -euo pipefail
@@ -84,6 +89,8 @@ for v in runner.image evidence.endpoint evidence.region; do
 done
 helm template mo "$chart" --namespace "$ns" "${on[@]}" \
   --set defaults.nodeScan.enabled=false > "$tmp/nodefaults.yaml"
+helm template mo "$chart" --namespace "$ns" "${on[@]}" \
+  --set vulnerabilityDb.repository=registry.example/trivy-db:2 > "$tmp/db.yaml"
 
 python3 - "$mode" "$tmp" "$noimage_rc" "$ns" "$image" "$runner" <<'PY'
 import copy, os, sys
@@ -134,9 +141,11 @@ OPS_ROLE_RULES = {("batch", "jobs", v, "") for v in ("create", "get", "list", "w
 }
 OPS_COMMAND = ["/usr/local/bin/machine-controller", "--controllers=operations", "--job-namespace=" + NS,
                "--runner-image=" + RUNNER, "--evidence-endpoint=https://objects.example",
-               "--evidence-region=example-1", "--evidence-bucket=machine-evidence", "--runs-retention=720h"]
+               "--evidence-region=example-1", "--evidence-bucket=machine-evidence", "--runs-retention=720h",
+               "--rematch-schedule=30 3 * * *"]
+DB_FLAG = "--vulnerability-db-repository=registry.example/trivy-db:2"
 SCAN_POLICY = {"machineSelector": {"matchLabels": {"machines.openova.io/class": "node"}},
-               "profiles": ["inventory", "hardening"], "hardeningBaselineRef": {"name": "nodes"},
+               "profiles": ["inventory", "hardening", "vulnerability"], "hardeningBaselineRef": {"name": "nodes"},
                "schedule": "0 2 * * *", "jitter": "2h"}
 EVIDENCE_CSI = {"driver": "secrets-store.csi.k8s.io", "readOnly": True,
                 "volumeAttributes": {"secretProviderClass": "evidence-store"}}
@@ -186,7 +195,8 @@ def load():
             "on": docs_of(os.path.join(tmp, "on.yaml")),
             "nosource": docs_of(os.path.join(tmp, "nosource.yaml")),
             "missing": missing,
-            "nodefaults": docs_of(os.path.join(tmp, "nodefaults.yaml"))}
+            "nodefaults": docs_of(os.path.join(tmp, "nodefaults.yaml")),
+            "db": docs_of(os.path.join(tmp, "db.yaml"))}
 
 
 def key(d):
@@ -353,6 +363,11 @@ def check(r):
             fails.append(f"R14: the spec of {kind} nodes is {d.get('spec')}")
         if any(x.get("kind") == kind for x in r["nodefaults"]):
             fails.append(f"R14: defaults.nodeScan.enabled=false still renders a {kind}")
+    # R15
+    dep = find(r["db"], ("Deployment", NS, OPS))
+    cs = ((((dep or {}).get("spec") or {}).get("template") or {}).get("spec") or {}).get("containers") or [{}]
+    if cs[0].get("command") != OPS_COMMAND + [DB_FLAG]:
+        fails.append(f"R15: with vulnerabilityDb.repository set the command is {cs[0].get('command')}, want OPS_COMMAND and {DB_FLAG}")
     return fails
 
 
@@ -416,7 +431,9 @@ def self_test(r):
         ("R13", "a render without the runner image succeeds", changed(missing=dict(r["missing"], **{"runner.image": (0, "")}))),
         ("R13", "a render without the evidence endpoint succeeds", changed(missing=dict(r["missing"], **{"evidence.endpoint": (0, "")}))),
         ("R13", "the failed render without the region names another value", changed(missing=dict(r["missing"], **{"evidence.region": (1, r["missing"]["evidence.endpoint"][1])}))),
-        ("R14", "the policy scans for vulnerabilities", edit(("ScanPolicy", "catalyst-infra", "nodes"), lambda d: d["spec"]["profiles"].append("vulnerability"))),
+        ("R14", "the policy does not scan for vulnerabilities", edit(("ScanPolicy", "catalyst-infra", "nodes"), lambda d: d["spec"]["profiles"].remove("vulnerability"))),
+        ("R9", "the rematch schedule is not passed", edit(("Deployment", NS, OPS), lambda d: container(d)["command"].remove("--rematch-schedule=30 3 * * *"))),
+        ("R15", "the database repository is not passed", changed(db=copy.deepcopy(r["on"]))),
         ("R14", "the switched-off defaults still render", changed(nodefaults=copy.deepcopy(r["on"]))),
     ]
     bad = 0
@@ -441,5 +458,5 @@ for f in fails:
     print("FAIL " + f)
 if fails:
     sys.exit(1)
-print(f"render contract: {len(r['on'])} objects switched on; R1 to R14 hold")
+print(f"render contract: {len(r['on'])} objects switched on; R1 to R15 hold")
 PY

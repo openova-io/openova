@@ -56,7 +56,7 @@ func TestParseArgsRefusesWhatIsNotWellFormed(t *testing.T) {
 		args []string
 		want string
 	}{
-		"an unknown task":                 {replace(TaskInventory, "--task", "match"), "--task must be one of"},
+		"an unknown task":                 {replace(TaskInventory, "--task", "enrol"), "--task must be one of"},
 		"an unknown mode":                 {replace(TaskInventory, "--mode", "agent"), "--mode must be one of"},
 		"a machine without a namespace":   {replace(TaskInventory, "--machine", "ledger-db-1"), "--machine must be"},
 		"a run in capitals":               {replace(TaskInventory, "--run", "ops/Scan"), "--run must be"},

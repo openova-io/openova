@@ -25,7 +25,7 @@ This file says what the tree defines. It does not say what a cluster has install
 | PDM | dr.openova.io | v1 | Cluster | pdms | products/catalyst/chart/crds/pdm.yaml | yes |
 | HardeningBaseline | machines.openova.io | v1alpha1 | Namespaced | hardeningbaselines | platform/machine-operations/chart/crds/hardeningbaselines.yaml | yes |
 | Machine | machines.openova.io | v1alpha1 | Namespaced | machines | platform/machine-operations/chart/crds/machines.yaml | yes |
-| MachineRun | machines.openova.io | v1alpha1 | Namespaced | machineruns | platform/machine-operations/chart/crds/machineruns.yaml | no |
+| MachineRun | machines.openova.io | v1alpha1 | Namespaced | machineruns | platform/machine-operations/chart/crds/machineruns.yaml | yes |
 | MachineSource | machines.openova.io | v1alpha1 | Namespaced | machinesources | platform/machine-operations/chart/crds/machinesources.yaml | yes |
 | ScanPolicy | machines.openova.io | v1alpha1 | Namespaced | scanpolicies | platform/machine-operations/chart/crds/scanpolicies.yaml | yes |
 | Instrumentation | opentelemetry.io | v1alpha1 | Namespaced | instrumentations | platform/opentelemetry-operator/chart/crds/instrumentation-crd.yaml | no |

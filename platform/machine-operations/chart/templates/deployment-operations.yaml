@@ -49,6 +49,10 @@ spec:
             - {{ printf "--evidence-region=%s" (required "bp-machine-operations: .Values.evidence.region is empty. Set it to the region of the evidence endpoint." .Values.evidence.region) | quote }}
             - {{ printf "--evidence-bucket=%s" .Values.evidence.bucket | quote }}
             - {{ printf "--runs-retention=%s" .Values.runs.retention | quote }}
+            - {{ printf "--rematch-schedule=%s" .Values.rematch.schedule | quote }}
+            {{- with .Values.vulnerabilityDb.repository }}
+            - {{ printf "--vulnerability-db-repository=%s" . | quote }}
+            {{- end }}
           ports:
             - name: health
               containerPort: 8081

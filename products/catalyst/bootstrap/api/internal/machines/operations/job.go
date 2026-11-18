@@ -22,6 +22,7 @@ type Settings struct {
 	EvidenceRegion   string        // its region
 	EvidenceBucket   string        // the bucket
 	Retention        time.Duration // how long a finished run is kept
+	VulnerabilityDB  string        // the OCI repository of the vulnerability database; empty: Trivy's own
 }
 
 // The fixed parts of a node-mode runner Job.

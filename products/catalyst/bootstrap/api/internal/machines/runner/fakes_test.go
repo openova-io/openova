@@ -15,7 +15,7 @@ import (
 	"testing"
 )
 
-// fakeS3 is an S3 endpoint over TLS that keeps every object it is given.
+// fakeS3 is an S3 endpoint over TLS that keeps every object it is given and returns it.
 type fakeS3 struct {
 	srv     *httptest.Server
 	mu      sync.Mutex
@@ -38,6 +38,19 @@ func (f *fakeS3) serve(w http.ResponseWriter, r *http.Request) {
 	if f.status != 0 {
 		w.WriteHeader(f.status)
 		_, _ = io.WriteString(w, `<?xml version="1.0" encoding="UTF-8"?><Error><Code>AccessDenied</Code><Message>denied</Message></Error>`)
+		return
+	}
+	if r.Method == http.MethodGet {
+		body, ok := f.objects[r.URL.Path]
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(w, `<?xml version="1.0" encoding="UTF-8"?><Error><Code>NoSuchKey</Code><Message>no such key</Message></Error>`)
+			return
+		}
+		w.Header().Set("ETag", `"0"`)
+		w.Header().Set("Last-Modified", "Tue, 01 Dec 2026 02:00:00 GMT")
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+		_, _ = w.Write(body)
 		return
 	}
 	if r.Method != http.MethodPut {

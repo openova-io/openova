@@ -41,6 +41,22 @@ runs:
   # How long a finished MachineRun is kept before the controller deletes it.
   retention: 720h
 
+vulnerabilityDb:
+  # The OCI repository of the vulnerability database that the match Jobs
+  # fetch, such as registry.example/trivy-db:2. Set it to the repository the
+  # scanner bp-trivy uses, so that the Sovereign has one database source.
+  # Empty: Trivy's own public repositories, as bp-trivy uses while its slot
+  # names none; a Sovereign whose egress is closed then cannot fetch the
+  # database, every match fails with database-unavailable and the reports
+  # turn to warn after 7 days.
+  repository: ""
+
+rematch:
+  # When the operations controller creates the daily rematch runs: five-field
+  # cron, UTC. A rematch run matches the newest stored bill of materials of
+  # every machine against the database again and touches no machine.
+  schedule: "30 3 * * *"
+
 defaults:
   nodeScan:
     # Renders the ScanPolicy nodes and the HardeningBaseline nodes in

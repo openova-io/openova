@@ -67,6 +67,24 @@ func readBinding(dir string) (binding, error) {
 // <prefix><file name>, over HTTPS with certificate validation, and returns the evidence
 // entries in the order of files.
 func store(ctx context.Context, cfg Config, env Env, files []file) ([]runresult.Evidence, error) {
+	client, err := bucket(cfg, env)
+	if err != nil {
+		return nil, err
+	}
+	var out []runresult.Evidence
+	for _, f := range files {
+		e, err := put(ctx, client, cfg, filepath.Join(env.WorkDir, f.name), f)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", f.name, err)
+		}
+		out = append(out, e)
+	}
+	return out, nil
+}
+
+// bucket is the client of the evidence bucket: HTTPS with certificate validation and the
+// key pair of the binding.
+func bucket(cfg Config, env Env) (*minio.Client, error) {
 	b, err := readBinding(env.BindingDir)
 	if err != nil {
 		return nil, err
@@ -84,24 +102,12 @@ func store(ctx context.Context, cfg Config, env Env, files []file) ([]runresult.
 	if err != nil {
 		return nil, err
 	}
-	client, err := minio.New(endpoint.Host, &minio.Options{
+	return minio.New(endpoint.Host, &minio.Options{
 		Creds:     credentials.NewStaticV4(b.accessKeyID, b.secretAccessKey, ""),
 		Secure:    true,
 		Region:    cfg.Evidence.Region,
 		Transport: transport,
 	})
-	if err != nil {
-		return nil, err
-	}
-	var out []runresult.Evidence
-	for _, f := range files {
-		e, err := put(ctx, client, cfg, filepath.Join(env.WorkDir, f.name), f)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", f.name, err)
-		}
-		out = append(out, e)
-	}
-	return out, nil
 }
 
 // put stores one file and returns its evidence entry.

@@ -14,7 +14,6 @@ import (
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -48,7 +47,10 @@ const (
 // RunReconciler brings one MachineRun to its end. It starts one runner Job per target,
 // at most spec.maxParallel of the policy at a time, reads the result document of every
 // finished Job, writes the hardening report and Machine.status.sbom, and deletes the run
-// when it has been finished for Settings.Retention. The Job itself writes no object.
+// when it has been finished for Settings.Retention. When the policy has the profile
+// vulnerability, the run ends with one match Job over the bills of materials of its
+// targets, and the vulnerability reports follow from it. A rematch run starts no Job on a
+// machine: it has the match Job only. The Jobs themselves write no object.
 type RunReconciler struct {
 	Client   client.Client
 	Reader   client.Reader // reads Jobs and their Pods from the API server, not from a cache
@@ -182,6 +184,8 @@ func (r *RunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		case t.Outcome != "":
 		case t.JobName == "" && outside != "":
 			t.Outcome, t.Message, t.FinishedAt = string(runresult.Refused), MessageOutsidePolicy, &stamp
+		case run.Spec.Kind == v1alpha1.RunKindRematch:
+			// A rematch target starts no Job: it ends with the match.
 		case t.JobName == "":
 			waiting = append(waiting, t)
 		default:
@@ -212,7 +216,19 @@ func (r *RunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			running++
 		}
 	}
-	open, begun := 0, false
+	nodeWork := false
+	for _, t := range run.Status.Targets {
+		nodeWork = nodeWork || (t.Outcome == "" && run.Spec.Kind != v1alpha1.RunKindRematch)
+	}
+	matching := false
+	if !final(run.Status.Phase) && outside == "" && !nodeWork && NeedsMatch(policy) {
+		done, err := r.match(ctx, run, stamp)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		matching = !done
+	}
+	open, begun := 0, run.Status.Match != nil
 	for _, t := range run.Status.Targets {
 		if t.Outcome == "" {
 			open++
@@ -221,7 +237,7 @@ func (r *RunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	}
 	switch {
 	case final(run.Status.Phase):
-	case open == 0:
+	case open == 0 && !matching:
 		run.Status.Phase, run.Status.Counts = Summary(run.Status.Targets)
 		run.Status.FinishedAt = &stamp
 	case !begun:
@@ -255,9 +271,10 @@ func (r *RunReconciler) now() time.Time {
 }
 
 // policyOf reads the ScanPolicy of a run. outside is not empty when the run is outside
-// its policy: its kind does not fit, or the policy is absent, invalid or suspended.
+// its policy: its kind does not fit, the policy is absent, invalid or suspended, or the
+// run is a rematch run and the policy has no profile vulnerability.
 func (r *RunReconciler) policyOf(ctx context.Context, run *v1alpha1.MachineRun) (p *v1alpha1.ScanPolicy, plan PolicyPlan, outside string, err error) {
-	if run.Spec.Kind != v1alpha1.RunKindScan || run.Spec.PolicyRef.Kind != v1alpha1.ScanPolicyKind.Kind {
+	if (run.Spec.Kind != v1alpha1.RunKindScan && run.Spec.Kind != v1alpha1.RunKindRematch) || run.Spec.PolicyRef.Kind != v1alpha1.ScanPolicyKind.Kind {
 		return nil, plan, "the kind of the run does not fit the kind of its policy", nil
 	}
 	u := newObject(v1alpha1.ScanPolicyKind)
@@ -275,6 +292,9 @@ func (r *RunReconciler) policyOf(ctx context.Context, run *v1alpha1.MachineRun) 
 	}
 	if p.Spec.Suspended {
 		return p, plan, "the policy is suspended", nil
+	}
+	if run.Spec.Kind == v1alpha1.RunKindRematch && !NeedsMatch(p) {
+		return p, plan, "a rematch run needs a policy with the profile vulnerability", nil
 	}
 	return p, plan, "", nil
 }
@@ -361,7 +381,7 @@ func (r *RunReconciler) start(ctx context.Context, run *v1alpha1.MachineRun, pol
 	}
 	var tasks []Task
 	for _, profile := range []string{v1alpha1.ProfileInventory, v1alpha1.ProfileHardening} {
-		if !slices.Contains(policy.Spec.Profiles, profile) {
+		if !slices.Contains(policy.Spec.Profiles, profile) && (profile != v1alpha1.ProfileInventory || !NeedsMatch(policy)) {
 			continue
 		}
 		if profile == v1alpha1.ProfileInventory {
@@ -436,26 +456,13 @@ func (r *RunReconciler) collect(ctx context.Context, run *v1alpha1.MachineRun, t
 		}
 		return false, err
 	}
-	ended, deadline := false, false
-	for _, c := range job.Status.Conditions {
-		if (c.Type == batchv1.JobComplete || c.Type == batchv1.JobFailed) && c.Status == corev1.ConditionTrue {
-			ended, deadline = true, c.Type == batchv1.JobFailed && c.Reason == batchv1.JobReasonDeadlineExceeded
-		}
-	}
+	ended, deadline := jobEnded(job)
 	if !ended {
 		return false, nil
 	}
-	pods := &corev1.PodList{}
-	if err := r.Reader.List(ctx, pods, client.InNamespace(job.Namespace), client.MatchingLabels{LabelJobName: job.Name}); err != nil {
+	terminated, err := r.terminated(ctx, job)
+	if err != nil {
 		return false, err
-	}
-	terminated := map[string]*corev1.ContainerStateTerminated{}
-	for i := range pods.Items {
-		for _, cs := range pods.Items[i].Status.ContainerStatuses {
-			if cs.State.Terminated != nil {
-				terminated[cs.Name] = cs.State.Terminated
-			}
-		}
 	}
 	m, _, err := r.machine(ctx, t.Machine)
 	if err != nil {

@@ -12,16 +12,20 @@ var (
 	MachineRunKind        = GroupVersion.WithKind("MachineRun")
 )
 
-// Profiles of a ScanPolicy.
+// Profiles of a ScanPolicy. ProfileVulnerability matches the bill of materials of a
+// machine against the vulnerability database; it implies ProfileInventory.
 const (
-	ProfileInventory = "inventory"
-	ProfileHardening = "hardening"
+	ProfileInventory     = "inventory"
+	ProfileHardening     = "hardening"
+	ProfileVulnerability = "vulnerability"
 )
 
-// RunKindScan is the one kind of MachineRun of this version. RequestedByController is
-// spec.requestedBy of a run the operations controller created.
+// The kinds of a MachineRun. A scan run starts one Job per machine; a rematch run starts
+// none and matches the newest stored bill of materials of each machine again.
+// RequestedByController is spec.requestedBy of a run the operations controller created.
 const (
 	RunKindScan           = "scan"
+	RunKindRematch        = "rematch"
 	RequestedByController = "controller"
 )
 
@@ -147,6 +151,19 @@ type MachineRunStatus struct {
 	FinishedAt *metav1.Time     `json:"finishedAt,omitempty"`
 	Counts     map[string]int32 `json:"counts,omitempty"`
 	Targets    []RunTarget      `json:"targets,omitempty"`
+	Match      *RunMatch        `json:"match,omitempty"`
+}
+
+// RunMatch is the one match Job of a run: it matches the bills of materials of the run's
+// machines against the vulnerability database. Outcome is empty until the Job has ended.
+// DatabaseVersion is the update time of the database the Job used (RFC 3339).
+type RunMatch struct {
+	JobName         string       `json:"jobName"`
+	Outcome         string       `json:"outcome,omitempty"`
+	Message         string       `json:"message,omitempty"`
+	DatabaseVersion string       `json:"databaseVersion,omitempty"`
+	StartedAt       *metav1.Time `json:"startedAt,omitempty"`
+	FinishedAt      *metav1.Time `json:"finishedAt,omitempty"`
 }
 
 // RunTarget is one machine of a run. Machine is <namespace>/<name>. Outcome is empty

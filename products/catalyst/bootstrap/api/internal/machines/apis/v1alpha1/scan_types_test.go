@@ -40,7 +40,8 @@ func TestScanPolicyAndMachineRunRoundTrip(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "nodes-01", Namespace: "catalyst-infra", Annotations: map[string]string{AnnotationScheduledFor: "2026-12-01T02:00:00Z"}},
 		Spec:       MachineRunSpec{Kind: RunKindScan, PolicyRef: PolicyRef{Kind: "ScanPolicy", Name: "nodes"}, Targets: []string{"catalyst-infra/cp-1"}, RequestedBy: RequestedByController, Reason: "schedule 0 2 * * *"},
 		Status: MachineRunStatus{Phase: RunPartiallyFailed, StartedAt: &at, FinishedAt: &at, Counts: map[string]int32{"Succeeded": 1, "Failed": 1},
-			Targets: []RunTarget{{Machine: "catalyst-infra/cp-1", Outcome: "Succeeded", JobName: "mr-0", StartedAt: &at, FinishedAt: &at, Evidence: []string{"k"}, ReportName: "machine-cp-1-hardening"}}},
+			Targets: []RunTarget{{Machine: "catalyst-infra/cp-1", Outcome: "Succeeded", JobName: "mr-0", StartedAt: &at, FinishedAt: &at, Evidence: []string{"k"}, ReportName: "machine-cp-1-hardening"}},
+			Match:   &RunMatch{JobName: "mr-1", Outcome: "Failed", Message: "database-unavailable", DatabaseVersion: "2026-11-30T06:00:00Z", StartedAt: &at, FinishedAt: &at}},
 	}
 	ru, err := MachineRunToUnstructured(run)
 	if err != nil {

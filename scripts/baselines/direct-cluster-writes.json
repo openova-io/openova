@@ -36,6 +36,20 @@
       "reason": "the scheduler creates the MachineRun of a scheduled time and writes the status of a ScanPolicy; a run is an operation record and the status an observation, never intent, and never go to Git"
     },
     {
+      "count": 2,
+      "metric": "K",
+      "owner": "INF",
+      "path": "products/catalyst/bootstrap/api/internal/machines/operations/match.go",
+      "reason": "the operations controller creates the match Job of a run and turns the database-age result of a kept vulnerability PolicyReport to warn; the Job is an operation record and the report an observation, never intent, and never go to Git"
+    },
+    {
+      "count": 1,
+      "metric": "K",
+      "owner": "INF",
+      "path": "products/catalyst/bootstrap/api/internal/machines/operations/rematch.go",
+      "reason": "the rematch timer creates the MachineRun of kind rematch of a daily time; a run is an operation record, never intent, and never goes to Git"
+    },
+    {
       "count": 1,
       "metric": "K",
       "owner": "SOV",
