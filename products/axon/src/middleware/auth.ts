@@ -8,12 +8,7 @@ export function createAuthHook(config: Config) {
   ): Promise<void> {
     // Health endpoints bypass auth (kubelet probes have no bearer token).
     // /healthz = liveness (process-only), /health = readiness (dependency).
-    if (
-      request.url === "/health" ||
-      request.url === "/healthz" ||
-      request.url === "/stats"
-    )
-      return;
+    if (request.url === "/health" || request.url === "/healthz") return;
 
     const authHeader = request.headers.authorization;
     if (!authHeader) {
