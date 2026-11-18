@@ -75,6 +75,14 @@ hcloud-csi:
     resources:
       requests: { cpu: 50m, memory: 64Mi }
       limits: { memory: 256Mi }
+  # The node plugin reads its server ID and availability zone from the
+  # instance metadata address at start and exits when it cannot. Its pods
+  # carry the exception label of the metadata deny of bp-network-policies
+  # (object baseline-deny-metadata). The record metadata-access.yaml of this
+  # chart holds the exception; guard G10 refuses the label without it.
+  node:
+    podLabels:
+      network.openova.io/metadata-access: "true"
   # Disable the upstream chart's StorageClass install — Catalyst overlay
   # templates (chart/templates/storageclass.yaml) render them with our
   # naming + annotations. The upstream schema expects this key as an

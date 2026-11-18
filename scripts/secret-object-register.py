@@ -21,8 +21,13 @@ G10, the register and the chart sources:
      count that falls passes and prints the line to change or delete. Never
      raise or add a line.
   e  A chart whose templates or values.yaml carry the label
-     network.openova.io/metadata-access: "true" is the chart of an entry of
-     metadataAccess.
+     network.openova.io/metadata-access: "true" has its exception in one
+     place, not two: an entry of metadataAccess in the register, or the
+     record metadata-access.yaml in the chart's own folder. The record holds
+     exactly the field metadataAccess, a list of at least one entry of the
+     register's form whose chart is that folder. A chart on a provider path
+     keeps its record there: the provider-leak guard refuses the provider's
+     name in the register.
 G11, the threat model: the lines of docs/SECURITY.md between the line
   <!-- sec-threat-model:begin --> and the line <!-- sec-threat-model:end -->
   equal scripts/secret-guard-baselines/threat-model.md. A change of the table
@@ -92,6 +97,7 @@ SCHEMA = "openova.io/secret-object-register/v1"
 ENTRY_KEYS = ["id", "namespace", "name", "class", "consumer", "reason", "removal", "reviewBy"]
 ACCESS_KEYS = ["chart", "workload", "reason", "removal", "reviewBy"]
 TOP_KEYS = ["schema", "allowedUnmatched", "entries", "metadataAccess"]
+ACCESS_RECORD = "metadata-access.yaml"
 SKIP_TYPES = ("kubernetes.io/service-account-token", "helm.sh/release.v1", "bootstrap.kubernetes.io/token")
 
 PACKAGE = re.compile(r"^[A-Z]{3}-[0-9]{3}$")
@@ -250,22 +256,29 @@ def rule_schema(reg, files):
         access = []
     for i, a in enumerate(access, 1):
         where = "metadataAccess entry %d" % i
-        if not isinstance(a, dict):
-            bad("%s is not a mapping" % where)
-            continue
-        if sorted(a) != sorted(ACCESS_KEYS):
-            bad("%s has the fields %s; it must have exactly %s" % (where, ", ".join(map(str, a)), ", ".join(ACCESS_KEYS)))
-        for k in ("chart", "workload", "reason", "removal"):
-            if k in a:
-                text_field(where, k, a[k], bad)
-        if isinstance(a.get("chart"), str) and a["chart"] and a["chart"] not in charts:
+        out += access_problems(where, a)
+        if isinstance(a, dict) and isinstance(a.get("chart"), str) and a["chart"] and a["chart"] not in charts:
             bad("%s: chart %r is not an own chart (a folder with a Chart.yaml under platform/ or products/)" % (where, a["chart"]))
-        r = a.get("removal")
-        if isinstance(r, str) and r and r != "none" and not PACKAGE.match(r):
-            bad("%s: removal must be \"none\" or a package identifier" % where)
-        if "reviewBy" in a and as_date(a.get("reviewBy")) is None:
-            bad("%s: reviewBy must be a date YYYY-MM-DD" % where)
     return ["FAIL G10 rule a: " + x for x in out]
+
+
+def access_problems(where, a):
+    """The form of one metadataAccess entry, of the register or of a chart's record."""
+    out = []
+    bad = out.append
+    if not isinstance(a, dict):
+        return ["%s is not a mapping" % where]
+    if sorted(a) != sorted(ACCESS_KEYS):
+        bad("%s has the fields %s; it must have exactly %s" % (where, ", ".join(map(str, a)), ", ".join(ACCESS_KEYS)))
+    for k in ("chart", "workload", "reason", "removal"):
+        if k in a:
+            text_field(where, k, a[k], bad)
+    r = a.get("removal")
+    if isinstance(r, str) and r and r != "none" and not PACKAGE.match(r):
+        bad("%s: removal must be \"none\" or a package identifier" % where)
+    if "reviewBy" in a and as_date(a.get("reviewBy")) is None:
+        bad("%s: reviewBy must be a date YYYY-MM-DD" % where)
+    return out
 
 
 def rule_classes(reg, today):
@@ -382,20 +395,46 @@ def rule_counts(root, files, say):
     return out
 
 
+def chart_record(root, files, chart):
+    """(entries, problems) of the record in the chart's own folder; entries is None when it has none, [] when it is invalid."""
+    path = "%s/%s" % (chart, ACCESS_RECORD)
+    if path not in files:
+        return None, []
+    import yaml
+    try:
+        data = yaml.safe_load(read_text(root, path) or "")
+    except yaml.YAMLError:
+        return [], ["%s is not YAML" % path]
+    if not isinstance(data, dict) or list(data) != ["metadataAccess"] or not isinstance(data["metadataAccess"], list) \
+            or not data["metadataAccess"]:
+        return [], ["%s must hold exactly the field metadataAccess, a list of at least one entry" % path]
+    out = []
+    for i, a in enumerate(data["metadataAccess"], 1):
+        where = "%s entry %d" % (path, i)
+        out += access_problems(where, a)
+        if isinstance(a, dict) and a.get("chart") != chart:
+            out.append("%s: chart must be %s, the folder of the record" % (where, chart))
+    return ([] if out else data["metadataAccess"]), out
+
+
 def rule_metadata_access(root, files, reg):
-    """Rule e: a chart with the metadata-access label has an entry in metadataAccess."""
+    """Rule e: a chart with the metadata-access label has its exception in the register or in its own record, not in both."""
     listed = {a.get("chart") for a in (reg.get("metadataAccess") or []) if isinstance(a, dict)}
     out = []
     for chart in own_charts(files):
+        record, problems = chart_record(root, files, chart)
+        out += ["FAIL G10 rule e: " + x for x in problems]
+        if record is not None and chart in listed:
+            out.append("FAIL G10 rule e: %s has an entry in metadataAccess and the record %s/%s; keep one" % (chart, chart, ACCESS_RECORD))
         templates, values = chart_files(files, chart)
         for p in templates + values:
             text = read_text(root, p)
             if text is None:
                 continue
             for n, line in enumerate(text.split("\n"), 1):
-                if not is_comment(line) and METADATA_LABEL.search(line) and chart not in listed:
-                    out.append("FAIL G10 rule e: %s:%d carries the label network.openova.io/metadata-access, "
-                               "and metadataAccess has no entry for %s" % (p, n, chart))
+                if not is_comment(line) and METADATA_LABEL.search(line) and chart not in listed and not record:
+                    out.append("FAIL G10 rule e: %s:%d carries the label network.openova.io/metadata-access, and neither "
+                               "metadataAccess nor the record %s/%s has an entry for %s" % (p, n, chart, ACCESS_RECORD, chart))
     return out
 
 
@@ -673,6 +712,19 @@ def self_test():
     expect("the metadata-access label with an entry for its chart passes", code == 0, "\n".join(out))
     code, out = run_case(with_changes({"platform/a/chart/templates/p.yaml": "    network.openova.io/metadata-access: \"false\"\n"}))
     expect("the label with the value false needs no entry", code == 0, "\n".join(out))
+    record, rec = "platform/a/chart/" + ACCESS_RECORD, "# the exception of chart a\nmetadataAccess:" + access
+    code, out = run_case(with_changes(dict(label, **{record: rec})))
+    expect("the metadata-access label with a record in the chart's own folder passes", code == 0, "\n".join(out))
+    for what, text in (("a record whose chart is another folder", rec.replace("platform/a/chart", "platform/b/chart")),
+                       ("a record entry without a field", rec.replace("    workload: w\n", "")),
+                       ("a record entry with an unknown field", rec + "    owner: x\n"),
+                       ("a record entry whose removal is not a package", rec.replace("removal: none", "removal: later")),
+                       ("a record with an empty list", "metadataAccess: []\n"),
+                       ("a record with a second field", rec + "note: x\n"),
+                       ("a record that is not YAML", "metadataAccess: [\n")):
+        fails_with(what, dict(label, **{record: text}), "rule e")
+    fails_with("an exception in the register and in the chart's record",
+               dict(label, **{record: rec, REGISTER: register_text([e0, k0], access=access)}), "rule e")
     # G11
     fails_with("a threat table that differs from the copy", {THREAT_COPY: TABLE.replace("| x |", "| z |")}, "G11")
     fails_with("a threat table without its markers", {SECURITY: "# Security\n\n" + TABLE}, "G11")
