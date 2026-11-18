@@ -870,7 +870,7 @@ spec:
                   echo "[daytwo] image warm: copying ${_wi_up} -> ${_wi_lref} (attempt ${_wi_attempt}/${_wi_attempts})"
                   if [ -n "${_wi_sc}" ]; then set -- --src-creds="${_wi_sc}"; else set --; fi
                   if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT:-1200s}" copy \
-                    --insecure-policy --multi-arch all --retry-times 5 "$@" \
+                    --insecure-policy --multi-arch all --retry-times 5 --preserve-digests "$@" \
                     --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
                     --dest-tls-verify="${PREWARM_DEST_TLS_VERIFY:-false}" \
                     --src-tls-verify=true \
@@ -883,7 +883,7 @@ spec:
                     echo "[daytwo] image warm: primary source failed; secondary-source fallback ${_wi_fb_up} -> ${_wi_lref} (#5095/#5525)"
                     if [ -n "${_wi_fb_sc}" ]; then set -- --src-creds="${_wi_fb_sc}"; else set --; fi
                     if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT:-1200s}" copy \
-                      --insecure-policy --multi-arch all --retry-times 5 "$@" \
+                      --insecure-policy --multi-arch all --retry-times 5 --preserve-digests "$@" \
                       --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
                       --dest-tls-verify="${PREWARM_DEST_TLS_VERIFY:-false}" \
                       --src-tls-verify=true \

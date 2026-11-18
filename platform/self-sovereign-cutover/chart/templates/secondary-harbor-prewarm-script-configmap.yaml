@@ -172,12 +172,31 @@ data:
     */}}
     cpdir=/tmp/sec-copies
     rm -rf "${cpdir}"; mkdir -p "${cpdir}"
+    {{- /*
+     #7938 — step 03's rule: this Harbor shares the primary's database and storage, so a copy here
+     re-tags what every region pulls. A tag the registry durably holds (artifact API) is skipped
+     at the source's digest and KEPT, with a WARNING, at another: a tag never moves. 1 = copy, which
+     is --multi-arch all as step 03's (skopeo's default wrote one platform's child over an index).
+    */}}
+    raw_digest() { [ ! -s "$1" ] || printf 'sha256:%s' "$(sha256sum <"$1" | awk '{print $1}')"; }
+    kept_tag() {
+      case "$2" in *@*) return 1 ;; esac
+      _kp="${2#docker://"${HARBOR_HOST}"/}"; _kt="${_kp##*:}"; _kp="${_kp%:*}"
+      _kd=$(curl -sk -m 30 -u "${HARBOR_USERNAME}:${HARBOR_PASSWORD}" "${HARBOR_INTERNAL_URL}/api/v2.0/projects/${_kp%%/*}/repositories/$(printf '%s' "${_kp#*/}" | sed 's#/#%2F#g')/artifacts/${_kt}" 2>/dev/null | jq -r '.digest // empty' 2>/dev/null || true)
+      [ -n "${_kd}" ] || return 1
+      skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" inspect --raw --creds="${ghcr_user}:${ghcr_pat}" "$1" >"${cpdir}/$3.src" 2>/dev/null || : >"${cpdir}/$3.src"
+      _ks=$(raw_digest "${cpdir}/$3.src")
+      if [ "${_ks}" = "${_kd}" ]; then echo "current"; return 0; fi
+      [ -z "${_ks}" ] || echo "[secondary-harbor-prewarm] WARNING: tag moved upstream: ${1#docker://} is now ${_ks}; this registry keeps ${_kp}:${_kt} at ${_kd} and never moves a tag to another digest; publish the new content under a new tag (#7938)" >&2
+      echo "kept at ${_kd}, the source reads ${_ks:-nothing}"
+    }
     copy_one() {
       _s="$1"; _d="$2"; _slug="$3"; _a=0
+      if _k=$(kept_tag "${_s}" "${_d}" "${_slug}"); then printf '%s -> %s (%s)' "${_s}" "${_d}" "${_k}" >"${cpdir}/${_slug}.ok"; return 0; fi
       while : ; do
         _a=$((_a+1))
         if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" copy \
-          --insecure-policy \
+          --insecure-policy --preserve-digests --multi-arch all \
           --retry-times 3 \
           --src-creds="${ghcr_user}:${ghcr_pat}" \
           --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
