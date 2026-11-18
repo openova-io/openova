@@ -1,0 +1,62 @@
+# bootstrap-kit-crs Kustomization (#3804 / Refs #3642) — the host-bridge
+# CRD-dependent CRs tier. #3642 re-homed 7 host apps into the mgmt
+# vCluster and extracted their host-side HTTPRoute / ExternalSecret /
+# CNPG `Cluster` CRs OUT of the (now in-vCluster) Helm charts into RAW
+# kustomize resources. Raw resources cannot carry the chart's
+# `.Capabilities.APIVersions.Has` gate, so when they lived inside the
+# bootstrap-kit kustomization they failed bootstrap-kit's atomic
+# server-side dry-run with `no matches for kind "Cluster"/"HTTPRoute"/
+# "ExternalSecret"` — because the gateway-api / external-secrets / cnpg
+# CRDs are installed by HelmReleases that have NOT reconciled yet on a
+# fresh prov's FIRST pass. That aborted the WHOLE bootstrap-kit
+# reconcile → 0 HRs ever applied → the operators never installed → the
+# CRDs never appeared → permanent 0-HelmRelease deadlock (diagnosed live
+# on hw161; pre-#3642 there were zero raw CRs in bootstrap-kit).
+#
+# Fix: this SEPARATE Flux Kustomization carries those CRs and reconciles
+# in PARALLEL with bootstrap-kit (NO dependsOn), RETRYING (retryInterval)
+# until the operator CRDs (cnpg / external-secrets / gateway-api) that
+# bootstrap-kit installs are registered, then applies the CRs.
+# It must NOT `dependsOn: [bootstrap-kit]`: several of these CRs are APP
+# DATABASES (per-app CNPG `Cluster`s — keycloak-pg / guacamole-pg / …) that
+# the apps INSIDE bootstrap-kit need Ready to come up, and bootstrap-kit
+# (wait:true) cannot go Ready until those apps ARE Ready. A dependsOn would
+# deadlock CIRCULARLY: app waits for its DB CR → DB CR (this Kustomization)
+# waits for bootstrap-kit Ready → bootstrap-kit waits for the app. Caught
+# live on hw162: keycloak-0 stuck Init:0/2 with no DB, convergence frozen
+# at 49/64 HRs. Reconciling independently + retrying breaks the circle yet
+# still applies the CRs only AFTER their CRDs exist. wait:false — per-CR
+# health (CNPG cluster ready, ESO sync) reconciles async + must NOT gate
+# this Kustomization. Provider-agnostic; OUTSIDE the hetzner-only block.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: bootstrap-kit-crs
+  namespace: flux-system
+spec:
+  interval: 5m
+  # retryInterval short: with NO dependsOn (see header), the CRs fail the
+  # dry-run until the operators register their CRDs, so retry FAST to apply
+  # promptly after — not at the 5m interval. timeout defaults to interval.
+  retryInterval: 1m
+  path: ./clusters/_template/bootstrap-kit-crs
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: openova
+  wait: false
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: sovereign-variables
+      # #4206 — the host-shared CNPG Cluster CRs reconciled by THIS
+      # Kustomization (gitea-pg / harbor-pg / guacamole-pg, slots
+      # 10/19/52) name their storageClass via this var so their PVCs are
+      # RACE-IMMUNE. Omitting the field (the prior #4107 shape) lets the
+      # admission-default plugin freeze "" the instant a PVC is created
+      # before the default SC lands (the fresh-prov ordering race) — and
+      # that "" is PERMANENT (opts out of dynamic provisioning) → Pending
+      # forever. The same per-provider durable class the bootstrap-kit
+      # block uses (evs-ssd on Huawei, hcloud-volumes on Hetzner); the
+      # tofu var validation rejects "" and "local-path". SOV-130: the
+      # value is SOVEREIGN_CNPG_STORAGE_CLASS of sovereign-variables.
