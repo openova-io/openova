@@ -1578,12 +1578,13 @@ checks:
 - id: INF-G11
   title: Host vulnerability reports
   owner: INF
-  state: not-built
+  state: expected-fail
   runs_in: [local, cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Host vulnerability reports
+  implementation: tests/acceptance/sovereign/internal/suite/check_inf_g11.go
   implemented_by: INF-140
   delivered_by: INF-145
 - id: INF-G12

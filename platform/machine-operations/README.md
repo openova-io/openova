@@ -96,6 +96,23 @@ the Deployment `machine-controller-operations`.
   release without a profile in the baseline is `skip`, never `pass`. A finished
   MachineRun is deleted after `--runs-retention`, which the chart sets from
   `runs.retention` (default `720h`).
+- `vulnerability` (it implies `inventory`) ends the run with one match Job over
+  every bill of materials the run stored. The Job runs as a user without
+  rights, on no particular node and with no host mount: it fetches the
+  database from `vulnerabilityDb.repository` once, runs `trivy sbom` on each
+  bill of materials and stores one findings file per machine under
+  `_match/<run>/`. The controller writes the `PolicyReport`
+  `machine-<machine>-vulnerability`: first the rule `database-age` (`pass`
+  while the database is at most 7 days old, `warn` after that), then one `fail`
+  per advisory and package, worst severity first, then one `pass` per advisory
+  fixed since the last report; every result names `databaseVersion`, the
+  update time of the database. A Job that cannot fetch the database ends
+  `Failed` with `database-unavailable`, its run ends `Failed`, and the
+  previous report stays.
+- At each time of `rematch.schedule` (default `30 3 * * *`, UTC) the controller
+  creates one MachineRun of kind `rematch` per ScanPolicy with the profile
+  `vulnerability`. It matches the newest stored bill of materials of every
+  selected machine again and touches no machine.
 
 ## Configuration
 
@@ -109,6 +126,8 @@ the Deployment `machine-controller-operations`.
 | `evidence.region` | `""` | The region of the evidence endpoint. Required when `enabled` is true: the render fails while it is empty. |
 | `evidence.bucket` | `machine-evidence` | The bucket that holds every file a run stores. |
 | `runs.retention` | `720h` | How long a finished MachineRun is kept before the controller deletes it. |
+| `vulnerabilityDb.repository` | `""` | The OCI repository of the vulnerability database that the match Jobs fetch; set it to the one `bp-trivy` uses. Empty: Trivy's own public repositories. |
+| `rematch.schedule` | `30 3 * * *` | When the daily rematch runs are created: five-field cron, UTC. |
 | `defaults.nodeScan.enabled` | `true` | Renders the default scan of the nodes: the ScanPolicy and the HardeningBaseline `nodes` in `catalyst-infra`. |
 
 `chart/tests/render.sh` checks what the chart renders. Run it with

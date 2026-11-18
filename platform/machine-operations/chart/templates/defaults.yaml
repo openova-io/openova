@@ -1,7 +1,8 @@
 {{- if and .Values.enabled .Values.defaults.nodeScan.enabled }}
 # The default scan of the nodes: every Machine of class node in catalyst-infra
-# gets a bill of materials and a hardening report each night, between 02:00
-# and 04:00 UTC.
+# gets a bill of materials, a hardening report and a vulnerability report each
+# night, between 02:00 and 04:00 UTC; the vulnerability report is matched
+# again at rematch.schedule.
 apiVersion: machines.openova.io/v1alpha1
 kind: HardeningBaseline
 metadata:
@@ -32,7 +33,7 @@ spec:
   machineSelector:
     matchLabels:
       machines.openova.io/class: node
-  profiles: [inventory, hardening]
+  profiles: [inventory, hardening, vulnerability]
   hardeningBaselineRef:
     name: nodes
   schedule: "0 2 * * *"

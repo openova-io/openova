@@ -6,7 +6,10 @@
 // run to its end with one machine-runner Job per target; it needs the flags
 // --job-namespace, --runner-image, --evidence-endpoint, --evidence-region and
 // --evidence-bucket, and reads the evidence bucket with the object-storage binding
-// mounted at /var/run/secrets/evidence-store. Leader election uses the Lease
+// mounted at /var/run/secrets/evidence-store. At each time of --rematch-schedule it
+// creates one rematch run per ScanPolicy with the profile vulnerability; the match Jobs
+// fetch the vulnerability database from --vulnerability-db-repository, or from Trivy's
+// own repositories when that flag is empty. Leader election uses the Lease
 // machine-controller-<names> in the namespace of the pod, so that one replica works at a
 // time. Health is served on :8081 (/healthz and /readyz); metrics are off.
 package main
@@ -32,6 +35,7 @@ import (
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/machines/inventory"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/machines/operations"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/machines/runner"
 )
 
 // known lists the controllers this binary can run.
@@ -76,7 +80,23 @@ func checkSettings(s operations.Settings) error {
 	if s.Retention <= 0 {
 		return fmt.Errorf("--runs-retention must be above zero")
 	}
+	if s.VulnerabilityDB != "" && !runner.ValidRepository(s.VulnerabilityDB) {
+		return fmt.Errorf("--vulnerability-db-repository %q is not an OCI repository such as registry.example/trivy-db:2", s.VulnerabilityDB)
+	}
 	return nil
+}
+
+// parseRematch reads --rematch-schedule: a five-field cron expression in UTC that has a
+// time in the next five years.
+func parseRematch(text string, now time.Time) (operations.Schedule, error) {
+	sched, err := operations.ParseSchedule(text)
+	if err == nil && sched.Next(now).IsZero() {
+		err = fmt.Errorf("schedule %q has no time in the next five years", text)
+	}
+	if err != nil {
+		return operations.Schedule{}, fmt.Errorf("--rematch-schedule: %w", err)
+	}
+	return sched, nil
 }
 
 func run(args []string) error {
@@ -89,6 +109,8 @@ func run(args []string) error {
 	flags.StringVar(&s.EvidenceRegion, "evidence-region", "", "operations: the region of the evidence endpoint")
 	flags.StringVar(&s.EvidenceBucket, "evidence-bucket", "", "operations: the evidence bucket")
 	flags.DurationVar(&s.Retention, "runs-retention", 720*time.Hour, "operations: how long a finished MachineRun is kept")
+	flags.StringVar(&s.VulnerabilityDB, "vulnerability-db-repository", "", "operations: the OCI repository of the vulnerability database; empty: Trivy's own repositories")
+	rematchText := flags.String("rematch-schedule", operations.DefaultRematchSchedule, "operations: when the daily rematch runs are created, five-field cron in UTC")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -100,8 +122,12 @@ func run(args []string) error {
 	for _, name := range names {
 		withOperations = withOperations || name == "operations"
 	}
+	var rematch operations.Schedule
 	if withOperations {
 		if err := checkSettings(s); err != nil {
+			return err
+		}
+		if rematch, err = parseRematch(*rematchText, time.Now()); err != nil {
 			return err
 		}
 	}
@@ -148,6 +174,9 @@ func run(args []string) error {
 			runs := &operations.RunReconciler{Client: mgr.GetClient(), Reader: mgr.GetAPIReader(), Store: store, Settings: s}
 			if err := runs.SetupWithManager(mgr); err != nil {
 				return fmt.Errorf("set up the machine run controller: %w", err)
+			}
+			if err := mgr.Add(&operations.Rematcher{Client: mgr.GetClient(), Schedule: rematch, Text: *rematchText}); err != nil {
+				return fmt.Errorf("set up the rematch timer: %w", err)
 			}
 		}
 	}

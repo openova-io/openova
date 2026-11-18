@@ -2,9 +2,11 @@
 // machine plane on one target, stores the task's files in the evidence bucket and writes
 // the result document of package runresult.
 //
-// This version has node mode only, with two tasks. Task inventory writes the software
-// inventory of the node as CycloneDX with Trivy, offline. Task hardening evaluates an
-// XCCDF profile of the ComplianceAsCode content with oscap-chroot. Every task writes a
+// This version has node mode only, with two tasks, and the task match, which has no
+// target. Task inventory writes the software inventory of the node as CycloneDX with
+// Trivy, offline. Task hardening evaluates an XCCDF profile of the ComplianceAsCode
+// content with oscap-chroot. Task match fetches the vulnerability database once and
+// matches stored bills of materials against it with Trivy. Every task writes a
 // completion marker as its last step; the document says completed only when the marker
 // exists, and a run whose collector did not finish stores nothing.
 package runner
@@ -92,6 +94,8 @@ func refused(message string) taskResult {
 func Run(ctx context.Context, cfg Config, env Env) runresult.Document {
 	var t taskResult
 	switch {
+	case cfg.Task == TaskMatch:
+		t = match(ctx, cfg, env)
 	case cfg.Mode != ModeNode:
 		t = refused(messageNotSupported + "mode " + cfg.Mode)
 	case cfg.Task == TaskInventory:
@@ -178,10 +182,15 @@ func markerExists(env Env, task string) bool {
 // ended gives Cancelled; any other exit gives Failed with the end of the program's
 // error output.
 func collect(ctx context.Context, extraEnv []string, ok []int, program string, args ...string) *taskResult {
+	return collectTo(ctx, io.Discard, extraEnv, ok, program, args...)
+}
+
+// collectTo is collect with the program's standard output written to stdout.
+func collectTo(ctx context.Context, stdout io.Writer, extraEnv []string, ok []int, program string, args ...string) *taskResult {
 	cmd := exec.CommandContext(ctx, program, args...) //nolint:gosec // the program is a fixed path of Env; every argument was checked by ParseArgs
 	cmd.Env = append(os.Environ(), extraEnv...)
 	var stderr tail
-	cmd.Stdout = io.Discard
+	cmd.Stdout = stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	name := filepath.Base(program)

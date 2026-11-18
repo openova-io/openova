@@ -84,8 +84,8 @@ spec:
                   type: array
                   minItems: 1
                   x-kubernetes-list-type: set
-                  description: What a run collects. inventory is the bill of materials of the machine. hardening evaluates the profile of the hardening baseline.
-                  items: {type: string, enum: [inventory, hardening]}
+                  description: What a run collects. inventory is the bill of materials of the machine. hardening evaluates the profile of the hardening baseline. vulnerability matches the bill of materials against the vulnerability database after every scan and once a day; it implies inventory.
+                  items: {type: string, enum: [inventory, hardening, vulnerability]}
                 hardeningBaselineRef:
                   type: object
                   description: The HardeningBaseline, in the namespace of this policy, that the profile hardening evaluates.

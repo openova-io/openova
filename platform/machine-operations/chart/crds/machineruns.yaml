@@ -49,7 +49,10 @@ spec:
                 - rule: self == oldSelf
                   message: spec is immutable
               properties:
-                kind: {type: string, enum: [scan]}
+                kind:
+                  type: string
+                  enum: [scan, rematch]
+                  description: scan starts one runner Job per machine. rematch starts none and matches the newest stored bill of materials of each machine again.
                 policyRef:
                   type: object
                   description: The policy, in the namespace of this run, that allows the run.
@@ -110,3 +113,22 @@ spec:
                       reportName:
                         type: string
                         description: The PolicyReport, in the namespace of the Machine, that this target last wrote.
+                match:
+                  type: object
+                  description: The one match Job of the run, when its policy has the profile vulnerability. The run is final only after it has ended.
+                  required: [jobName]
+                  properties:
+                    jobName: {type: string}
+                    outcome:
+                      type: string
+                      description: Absent until the Job has ended.
+                      enum: [Succeeded, NoChange, Failed, Incomplete, Unreachable, AuthFailed, IdentityMismatch, NoAddress, Refused, WindowClosed, Timeout, Cancelled, Killed]
+                    message:
+                      type: string
+                      maxLength: 1024
+                      description: One line. It starts with database-unavailable when the database could not be fetched.
+                    databaseVersion:
+                      type: string
+                      description: The update time of the vulnerability database the Job used.
+                    startedAt: {type: string, format: date-time}
+                    finishedAt: {type: string, format: date-time}
