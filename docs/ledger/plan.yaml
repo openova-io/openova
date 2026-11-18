@@ -83,7 +83,7 @@ epics:
 - id: FND-030
   title: Gate manifest, record and checks
   wave: W0
-  packages: [FND-031, FND-032, FND-033, FND-034, FND-035, FND-036, FND-037]
+  packages: [FND-031, FND-032, FND-033, FND-034, FND-035, FND-036, FND-037, FND-207]
 - id: FND-050
   title: Test rails
   wave: W0
@@ -107,7 +107,7 @@ epics:
 - id: FND-150
   title: Self-conformance in the Sovereign
   wave: W1b
-  packages: [FND-151, FND-153, FND-154, FND-155, FND-152]
+  packages: [FND-156, FND-151, FND-153, FND-154, FND-155, FND-152]
 - id: FND-160
   title: Console regression as code
   wave: W2
@@ -2877,12 +2877,12 @@ packages:
   dropped: false
   delivers: 'The sweep report gains the kind dns_records: the names of the wiped deployment that the authoritative servers of its parent domain still answer, found by DNS queries to those servers; a name that no server can be asked about makes the sweep not measured (exit 3), and a name that still answers makes it exit 1.'
 - id: FND-078
-  title: The gate's cluster jobs run on the gate runner, and only the gate's workflows may name it
+  title: The gate's cluster jobs run as a Job on the parent
   area: FND
   epic: null
   type: fix
   wave: W0
-  size: S
+  size: M
   lane: GATE
   depends_on: [FND-073, FND-079]
   after: [NET-013, FND-028, FND-036, FND-059, FND-075, CLD-094, CLD-211, SEC-095]
@@ -2890,7 +2890,8 @@ packages:
   - .github/workflows/foundation-gate.yaml
   - .github/workflows/foundation-gate-standing.yaml
   - .github/workflows/tree-guards.yaml
-  - scripts/check-gate-runner.py
+  - scripts/gate-parent-job.sh
+  - scripts/check-gate-parent-access.py
   resources: [env]
   flips: []
   implements: []
@@ -2904,9 +2905,9 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: 'The jobs of the gate that read a cluster, addresses and live of foundation-gate.yaml and regions of foundation-gate-standing.yaml, run on the gate runner: runs-on: foundation-gate is written as a literal, and the input runner leaves both workflows and the calls of gate-1 and gate-2, so no run can send them to a machine hosted by GitHub, whose address is in no list of a Sovereign''s API port since NET-011 and NET-012. The jobs that read no cluster stay on machines hosted by GitHub; the job outside, whose dial NET-G02 judges, must stay there. The new guard scripts/check-gate-runner.py runs as two steps of the shared job tree-guards (its self-test, then the check of the tree) and fails when: (G1) a runs-on anywhere is an expression, a list or a mapping; (G2) a workflow other than foundation-gate.yaml and foundation-gate-standing.yaml names the label foundation-gate, or any workflow names a label that is not one of GitHub''s hosted labels (ubuntu-*, windows-*, macos-*) and not foundation-gate; (G3) one of the two has a trigger other than workflow_dispatch, workflow_call, pull_request, merge_group and schedule (pull_request_target and workflow_run would run it with the ref of main); (G4) a workflow other than the two calls one of them, or a call passes an input runner; (G5) a job on the gate runner lacks environment: gate, has permissions other than contents: read alone, has a container or services, or has an if that is not false on pull_request and on merge_group, read as rule N2 of scripts/check-pr-jobs.py reads an if; (G6) the job outside of foundation-gate.yaml does not run on a hosted label or has an environment. The list of the two workflows is one constant whose comment names its twin, the selected workflows of the runner group foundation-gate (FND-079).'
+  delivers: 'The cluster work of the gate runs as a short-lived Job on the parent, created through the access of FND-079; a Sovereign''s API port is reachable from there because the parent''s outbound address is in the list NET-011 and NET-012 write. The workflows themselves run on machines hosted by GitHub, with no self-hosted runner and no organisation setting. An input execution (hosted or parent) of foundation-gate.yaml and foundation-gate-standing.yaml selects where the cluster work runs; left empty it means parent when the secret ACCEPTANCE_PARENT_KUBECONFIG of the environment gate is set and hosted otherwise, so the default is hosted until FND-079 is recorded. In parent execution everything that dials a Sovereign''s API port runs in the Job: the addresses read, the wait for the hand-over chain, the creation time, the suite, every step of the sign-in check FND-G07 with its browser probe (so no session or token minted from the Sovereign''s signer leaves the Job), and the regions work of foundation-gate-standing.yaml. scripts/gate-parent-job.sh takes the suite image of the commit under test by digest (it builds it with tests/acceptance/sovereign/Containerfile as build-conformance.yaml does and pushes it, or takes the digest of an image of that commit that already exists), writes the region kubeconfigs into a Secret of the run, creates the Job with the run''s inputs, streams its log, fetches the record the suite wrote and the result of FND-G07, and deletes the Job and the Secret whatever happened; the workflow then merges the results and commits the record as it does today. CLD-G12 keeps running on the hosted machine with the same access, as it does today. The job outside stays on a hosted machine, because NET-G02 judges a dial from an address that is in no list. The input runner leaves both workflows and the calls of gate-1 and gate-2, and every job runs on ubuntu-latest. The new guard scripts/check-gate-parent-access.py runs as two steps of the shared job tree-guards and fails when: (P1) a workflow not on its list, which holds foundation-gate.yaml and foundation-gate-standing.yaml, names the secret ACCEPTANCE_PARENT_KUBECONFIG, runs scripts/gate-parent-job.sh, has a job with environment gate, or calls a workflow of the list; (P2) a workflow of the list has a trigger other than workflow_dispatch, workflow_call, pull_request, merge_group and schedule (pull_request_target and workflow_run would run the file of main with its secrets for a change of another ref); (P3) a job that names the secret or runs the Job script has no environment gate, has a permission other than contents read and packages write, or has an if that is not false on pull_request and on merge_group, read as rule N2 of scripts/check-pr-jobs.py reads an if; (P4) the job outside of foundation-gate.yaml has an environment or names a secret. The list is one constant; FND-141 adds release-train.yaml to it.'
 - id: FND-079
-  title: The gate runner is registered in the mothership, in a runner group that only the gate's workflows on main may use
+  title: The gate has a scoped access to the parent
   area: FND
   epic: null
   type: fix
@@ -2930,7 +2931,7 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: 'On the mothership''s cluster, a runner scale set of actions-runner-controller named foundation-gate, the label the gate workflows already name, in its own namespace: minRunners 0, maxRunners 2, no container mode, runner pods that mount no ServiceAccount token, no host path and no container socket, the runner image pinned by digest; each runner is registered just in time for one job and deleted after it. Its pods leave through the mothership''s outbound address, the list that NET-011 and NET-012 write into each Sovereign''s API port rule. The controller''s GitHub App has only the organisation permission for self-hosted runners and is installed on openova-io/openova alone; its key stays in the controller''s namespace. In the organisation, the runner group foundation-gate serves openova-io/openova alone, allows public repositories (without it a public repository cannot use the group at all) and is restricted to the selected workflows openova-io/openova/.github/workflows/foundation-gate.yaml@refs/heads/main and openova-io/openova/.github/workflows/foundation-gate-standing.yaml@refs/heads/main. A run of a pull request, of a merge group, of any other branch or candidate ref, or of any other workflow file gets no runner of the group.'
+  delivers: 'On the parent that provisioned the standing environment (the mothership today), a namespace for gate Jobs (proposal acceptance-gate) at Pod security restricted, and a ServiceAccount whose rights are exactly what the gate needs and nothing else: in that namespace create, get, list, watch and delete on Jobs and Pods, get on pods/log, and create and delete on Secrets (the run''s kubeconfigs, mounted by its Job and deleted with it; no get, list or watch on Secrets); in namespace catalyst the read and exec rights that CLD-G12 already documents in the header of .github/workflows/foundation-gate.yaml (get on deployments.apps, get and list on pods, create on pods/exec); nothing cluster-wide. FND-G07 needs no right on the parent: it reaches region a''s API server with the region''s kubeconfig. A NetworkPolicy lets a Pod of the namespace reach only the Sovereigns'' API and console addresses (the sign-in pages of FND-G07 among them), the cluster''s DNS, and what it needs to fetch its image. The ServiceAccount''s kubeconfig is the secret ACCEPTANCE_PARENT_KUBECONFIG of the environment gate, whose deployment branches are limited to the default branch. A Pod of the namespace leaves through the parent''s outbound address, the list that NET-011 and NET-012 write into each Sovereign''s API port rule. No self-hosted runner and no organisation setting.'
 - id: FND-080
   title: Set the manifest from the baseline
   area: FND
@@ -4035,7 +4036,7 @@ packages:
   - .github/workflows/release-train.yaml
   - scripts/sovereign-lifecycle.sh
   - docs/RUNBOOKS.md
-  - scripts/check-gate-runner.py
+  - scripts/check-gate-parent-access.py
   resources: [env]
   flips: []
   implements: []
@@ -4190,7 +4191,7 @@ packages:
   wave: W1b
   size: S
   lane: SUBSTRATE
-  depends_on: [FND-151, SOV-510, CMP-150, CTL-038, FND-153]
+  depends_on: [FND-151, SOV-510, CMP-150, CTL-038, FND-153, FND-156]
   after: [FND-011, FND-154, FND-155, SOV-175, SEC-010, SEC-103, SEC-104, SEC-105, NET-040, NET-097, NET-150, NET-221, SVC-040, SVC-041, SVC-150, CTL-151, CTL-320, CTL-346, CTL-347, INF-040, INF-050, INF-051, INF-052, INF-110, INF-133, ACC-050]
   touches:
   - platform/conformance/**
@@ -4218,7 +4219,7 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: Every Sovereign runs the conformance suite on itself after install and after each release, and a gate check reads the report.
+  delivers: Every Sovereign runs the conformance suite on itself after install and after each release, and a gate check reads the report. The Job runs as the ServiceAccount catalyst-system/catalyst-conformance with its ClusterRole and binding, which FND-156 delivers in bp-catalyst-platform; this chart does not create an account, a ClusterRole or a binding of that name.
 - id: FND-153
   title: The suite image and its signed build
   area: FND
@@ -4324,6 +4325,33 @@ packages:
   ticket_rev: 4
   dropped: false
   delivers: On the local provider pack, the workflow conformance-local.yaml runs the suite image of FND-153, built from the commit under test, as a Job with --run-in self under a ServiceAccount with the rules of the conformance chart, and keeps the ClusterPolicyReport and the record of the run as evidence.
+- id: FND-156
+  title: The conformance account exists on every Sovereign
+  area: FND
+  epic: FND-150
+  type: new
+  wave: W1a
+  size: XS
+  lane: CHARTS
+  depends_on: []
+  after: [FND-011, SVC-040]
+  touches:
+  - products/catalyst/chart/templates/conformance-account.yaml
+  - products/catalyst/chart/tests/conformance-account-rbac.sh
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: bp-catalyst-platform, which slot 13 of the kit installs on every Sovereign into catalyst-system, renders the ServiceAccount catalyst-system/catalyst-conformance, a ClusterRole catalyst-conformance with exactly the six rules that FND-155 gives the account on the local pack (the reads of the self selection's checks, get on the definition clusterpolicies.kyverno.io and on the policy forbid-nodeport-service, and the write of its ClusterPolicyReport), and the ClusterRoleBinding between them. The rules are cluster-wide (nodes, namespaces, a definition, a cluster policy, a cluster report), so they are a ClusterRole, not a Role. The account is the caller that the chart's default CATALYST_AGENT_TOKEN_CALLERS entry names, so gate check AIP-G07 can run on every Sovereign; the conformance chart of FND-152 runs its Job under this account and does not create it. No new slot, no Job, no rule beyond those six.
 - id: FND-161
   title: Row map and browser harness
   area: FND
@@ -5136,6 +5164,33 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: The size budget of a story leaves out the lines a registered generator writes.
+- id: FND-207
+  title: A check stays green on the newest valid pair until a newer record says otherwise
+  area: FND
+  epic: FND-030
+  type: fix
+  wave: W0
+  size: S
+  lane: GATE
+  depends_on: []
+  after: [FND-031, FND-032, FND-033, FND-034, FND-035, FND-036, FND-039, FND-075, FND-077, FND-131, FND-151, FND-154, SEC-010, SEC-080, SEC-095, SEC-120, NET-013, NET-097, NET-150, NET-212, SVC-125, CTL-151, CTL-320, CMP-010, INF-051, INF-052, INF-053, INF-133]
+  touches:
+  - scripts/acceptance-gate.py
+  - tests/acceptance/sovereign/README.md
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'scripts/acceptance-gate.py judges a check that runs in the cloud on the newest valid pair, not on the two newest records. For each kind of proof, the pair is the newest two counting records that form a valid pair by the rules that already decide validity (one candidate; the older finished before the newer started; the artefact lists agree; for a fresh check, two different deployments): the valid pair whose newer record is the newest, with the newest older record that makes it valid. A check is green when, as before, its state is not not-built, the pair''s newer record is at most max_age_days old, and the check applied in a record of the pair and passed in each record of the pair in which it applied; and, new, no counting record of the same kind of proof that is newer than the pair, in which the check applied, has a status other than PASS. A newer record of another candidate in which the check passes changes nothing until that candidate''s own pair exists. A check that is not green still names the pass rule that failed, and a newer record that fails it is named. Rule 4 of check-pr in scripts/plan.py reads this verdict, so a story that depends on a gate check is no longer refused between the first and the second gate run of a newly delivered candidate.'
 - id: FND-900
   title: Topology soak fixes (standing package)
   area: FND
@@ -6661,29 +6716,37 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CLD-104]
-  after: [FND-014, CLD-114, SOV-030, SOV-338, SVC-040]
+  after: []
   touches:
   - products/catalyst/bootstrap/api/internal/providers/capabilities.go
   - products/catalyst/bootstrap/api/internal/providers/huawei/capabilities.go
   - products/catalyst/bootstrap/api/internal/providers/huawei/capabilities_test.go
   - products/catalyst/bootstrap/api/internal/providers/huawei/preflight_eip.go
   - products/catalyst/bootstrap/api/internal/providers/huawei/provider.go
-  - products/catalyst/bootstrap/api/internal/provisioner/provisioner.go
   - products/catalyst/bootstrap/api/internal/provisioner/apply_retry_test.go
+  - products/catalyst/bootstrap/api/internal/provisioner/provisioner.go
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c -F 'var NATEIPPreflightHook natEIPPreflightFunc' products/catalyst/bootstrap/api/internal/provisioner/provisioner.go"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "f=products/catalyst/bootstrap/api/internal/provisioner/provisioner.go && test \"$(grep -cE 'NATEIPPreflightHook|natEIPPreflightFunc|extractFailedAddrs|lastFailedAddrs|errLabel' \"$f\")\" = 0 && test \"$(grep -cE 'providers\\.As\\[providers\\.(PostApplier|ApplyErrorClassifier)\\]' \"$f\")\" = 2 && python3 -c 'import importlib.util as u, sys; s = u.spec_from_file_location(\"leaks\", \"scripts/check-provider-leaks.py\"); m = u.module_from_spec(s); s.loader.exec_module(m); n = m.count_lines(open(sys.argv[1]).read())[0]; print(\"lines naming a cloud:\", n); sys.exit(0 if n <= 21 else 1)' \"$f\" && cd products/catalyst/bootstrap/api && go build ./... && go vet ./internal/provisioner/... ./internal/providers/..."
+  - id: A2
+    run: "cd products/catalyst/bootstrap/api && go test -count=1 ./internal/provisioner/... ./internal/providers/... && test \"$(go test -count=1 -v -run '^(TestCapabilities_ReachedThroughTheRegistry|TestPostApply_RotationFailureDoesNotFailTheProv|TestClassifyApplyError_Matrix|TestClassifyApplyError_TheAdapterDecides|TestApplyFailures_StopsOnTheThirdConsecutiveRepeat|TestCapabilitySpec_LeavesOutTheRedactionMarker)$' ./internal/provisioner/ ./internal/providers/huawei/ | grep -c '^--- PASS')\" = 6"
+  - id: A3
+    run: "python3 scripts/check-provider-leaks.py --check && python3 scripts/check-api-structure.py && bash scripts/check-provider-contract.sh && test \"$(grep -cE '^\\s+(Addresses\\s+\\[\\]string|StopOnRepeat\\s+bool)$' products/catalyst/bootstrap/api/internal/providers/capabilities.go)\" = 2 && test \"$(grep -c 'NATEIPPreflightHook' products/catalyst/bootstrap/api/internal/providers/huawei/provider.go)\" = 0"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'The Huawei adapter implements providers.PostApplier (the NAT EIP rotation of Wave 5.93; a failed rotation is reported and does not fail the prov) and providers.ApplyErrorClassifier (Common.0021 and CollectInfoTask-fail, a conflict in the request on a create, VPC.2030 and the read-after-create inconsistency, with the compute addresses the failure names); ApplyErrorClass gains Addresses and StopOnRepeat. The engine calls both through providers.As: classifyApplyError and applyFailures replace its inline list of HCS failures and its per-address counter (the same address failing three times in a row on Common.0021 still stops the retries), a PostApply error fails the prov and ReapplyNeeded runs tofu apply once more, and capabilitySpec hands an adapter the request''s spec without a redacted credential. NATEIPPreflightHook and extractFailedAddrs are deleted. The VPC hooks and the Preflighter are CLD-115.'
+  delivers: The Huawei adapter implements providers.PostApplier (the NAT EIP rotation, whose failure is reported and does not fail the prov) and providers.ApplyErrorClassifier (the retryable failures of its cloud with the compute addresses they name), ApplyErrorClass gains Addresses and StopOnRepeat, and the engine reaches both through providers.As, so NATEIPPreflightHook, extractFailedAddrs and the engine's inline list of one cloud's apply failures are deleted.
 - id: CLD-106
   title: Operator credentials from mounted files
   area: CLD
@@ -6722,7 +6785,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CLD-088, FND-032, SOV-070, CLD-109]
-  after: [FND-033, FND-034, FND-075, FND-154, CLD-030, CLD-067, SOV-175, SEC-010, SEC-080, SEC-095, SEC-120, NET-013, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, SVC-040, SVC-125, CTL-040, CTL-151, CTL-320, CTL-345, CMP-010, BSS-030, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-112, INF-133, INF-140, ACC-010]
+  after: [FND-033, FND-034, FND-075, FND-154, CLD-030, CLD-067, CLD-105, SOV-175, SEC-010, SEC-080, SEC-095, SEC-120, NET-013, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, SVC-040, SVC-125, CTL-040, CTL-151, CTL-320, CTL-345, CMP-010, BSS-030, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-112, INF-133, INF-140, ACC-010]
   touches:
   - products/catalyst/bootstrap/api/internal/providers/capabilities.go
   - products/catalyst/bootstrap/api/cmd/provider-identity/**
@@ -7670,7 +7733,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-104, CLD-121, CLD-144, CLD-161, CLD-166]
-  after: [CLD-075, FND-011, FND-071, CLD-023, CLD-092, CLD-114, CLD-185, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-335, SEC-030, NET-020, NET-100, NET-110, NET-210, SVC-040, SVC-041, INF-060]
+  after: [CLD-075, FND-011, FND-071, CLD-023, CLD-092, CLD-105, CLD-114, CLD-185, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-335, SEC-030, NET-020, NET-100, NET-110, NET-210, SVC-040, SVC-041, INF-060]
   touches:
   - infra/providers/huawei/**
   - products/catalyst/bootstrap/api/internal/providers/huawei/**
@@ -7954,7 +8017,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-086, CLD-104, CLD-173, NET-011]
-  after: [FND-014, CLD-092, SOV-030, SOV-338, SVC-040]
+  after: [FND-014, CLD-092, CLD-105, SOV-030, SOV-338, SVC-040]
   touches:
   - infra/providers/_contract/pack.schema.json
   - products/catalyst/bootstrap/api/internal/provisioner/provisioner.go
@@ -10507,7 +10570,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-086, CLD-090, SOV-090, SOV-150]
-  after: [FND-014, CLD-023, CLD-103, CLD-104, CLD-131, CLD-132, CLD-185, SOV-030, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-143, SOV-144, SOV-145, SOV-146, SOV-151, SOV-338, SEC-030, SEC-095, SEC-096, NET-020, NET-110, SVC-040, SVC-130, CTL-041, INF-060]
+  after: [FND-014, CLD-023, CLD-103, CLD-104, CLD-105, CLD-131, CLD-132, CLD-185, SOV-030, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-143, SOV-144, SOV-145, SOV-146, SOV-151, SOV-338, SEC-030, SEC-095, SEC-096, NET-020, NET-110, SVC-040, SVC-130, CTL-041, INF-060]
   touches:
   - clusters/_template/sovereign-tls/powerdns-api-credentials.yaml
   - clusters/_template/bootstrap-kit/49-bp-cert-manager-powerdns-webhook.yaml
@@ -10672,7 +10735,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CTL-201, SOV-310]
-  after: [FND-011, FND-014, CLD-023, CLD-030, CLD-103, CLD-104, CLD-113, CLD-131, CLD-132, CLD-185, SOV-030, SOV-035, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-146, SOV-338, SEC-030, NET-020, NET-080, NET-110, SVC-040, SVC-190, CTL-150, CTL-333, BSS-040, AIP-120, INF-060, INF-135]
+  after: [FND-011, FND-014, CLD-023, CLD-030, CLD-103, CLD-104, CLD-105, CLD-113, CLD-131, CLD-132, CLD-185, SOV-030, SOV-035, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-146, SOV-338, SEC-030, NET-020, NET-080, NET-110, SVC-040, SVC-190, CTL-150, CTL-333, BSS-040, AIP-120, INF-060, INF-135]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - products/catalyst/bootstrap/api/internal/provisioner/provisioner.go
@@ -10879,7 +10942,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CLD-107, SOV-070]
-  after: [FND-014, SOV-030, SOV-338, SVC-040]
+  after: [FND-014, CLD-105, SOV-030, SOV-338, SVC-040]
   touches:
   - products/catalyst/bootstrap/api/internal/provisioner/provisioner.go
   - products/catalyst/bootstrap/api/internal/handler/deployments.go
@@ -11022,7 +11085,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [SOV-140, SOV-435]
-  after: [SOV-181, SOV-335, SOV-338, NET-012, NET-041, NET-070, NET-071, SVC-040, CTL-038, CTL-039, CTL-160, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, AIP-120]
+  after: [CLD-105, SOV-181, SOV-335, SOV-338, NET-012, NET-041, NET-070, NET-071, SVC-040, CTL-038, CTL-039, CTL-160, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, AIP-120]
   touches:
   - infra/providers/huawei/main.tf
   - infra/providers/huawei/variables.tf
@@ -11150,7 +11213,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CTL-620, FND-120, FND-144, SOV-170, SOV-225, SOV-142, SOV-151]
-  after: [SOV-154, CLD-023, CLD-090, CLD-103, CLD-104, CLD-131, CLD-132, SOV-135, SOV-144, SOV-175, SOV-338, SEC-150, NET-020, NET-110, NET-212, SVC-040, INF-060]
+  after: [SOV-154, CLD-023, CLD-090, CLD-103, CLD-104, CLD-105, CLD-131, CLD-132, SOV-135, SOV-144, SOV-175, SOV-338, SEC-150, NET-020, NET-110, NET-212, SVC-040, INF-060]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - products/catalyst/bootstrap/api/internal/provisioner/provisioner.go
@@ -11529,7 +11592,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CTL-035, CTL-110, SOV-170, SOV-180]
-  after: [CLD-090, CLD-103, CLD-104, SOV-135, SOV-181, SOV-338, SEC-150, NET-011, NET-071, SVC-040, CTL-038, CTL-039, CTL-160, CTL-231, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, BSS-040, AIP-120]
+  after: [CLD-090, CLD-103, CLD-104, CLD-105, SOV-135, SOV-181, SOV-338, SEC-150, NET-011, NET-071, SVC-040, CTL-038, CTL-039, CTL-160, CTL-231, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, BSS-040, AIP-120]
   touches:
   - products/catalyst/bootstrap/api/internal/lifecycle/kitkeys.go
   - products/catalyst/bootstrap/api/internal/lifecycle/kitkeys_test.go
@@ -11560,7 +11623,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CTL-035, CTL-110, FND-032, FND-120, SOV-130, SOV-170, SVC-220]
-  after: [CLD-023, CLD-090, CLD-103, CLD-104, CLD-131, CLD-132, SOV-135, SOV-142, SOV-144, SOV-175, SOV-180, SOV-181, SOV-335, SOV-338, SEC-150, NET-011, NET-020, NET-071, NET-110, NET-212, CTL-038, CTL-039, CTL-160, CTL-231, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, BSS-040, AIP-120, INF-060]
+  after: [CLD-023, CLD-090, CLD-103, CLD-104, CLD-105, CLD-131, CLD-132, SOV-135, SOV-142, SOV-144, SOV-175, SOV-180, SOV-181, SOV-335, SOV-338, SEC-150, NET-011, NET-020, NET-071, NET-110, NET-212, CTL-038, CTL-039, CTL-160, CTL-231, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, BSS-040, AIP-120, INF-060]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - infra/providers/_shared/tests/cloudinit_render.tftest.hcl
@@ -11595,7 +11658,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CLD-104, CLD-106, CLD-172, SEC-080, SEC-196, SOV-180, SOV-190, SOV-310, SOV-330, SOV-405, SOV-430, SOV-510]
-  after: [FND-011, CLD-113, SOV-338, NET-041, NET-070, SVC-040, SVC-190, CTL-347, CMP-020, AIP-120]
+  after: [FND-011, CLD-105, CLD-113, SOV-338, NET-041, NET-070, SVC-040, SVC-190, CTL-347, CMP-020, AIP-120]
   touches:
   - products/catalyst/chart/templates/api-deployment.yaml
   - products/catalyst/bootstrap/api/internal/provisioner/provisioner.go
@@ -11730,7 +11793,7 @@ packages:
   size: XS
   lane: CONTROL
   depends_on: [SOV-930]
-  after: [FND-011, CLD-030, CLD-114, SOV-050, SOV-183, SOV-335, SOV-338, SEC-105, NET-040, NET-080, NET-133, NET-170, NET-221, SVC-040, SVC-041, SVC-190, CTL-333, CTL-347, CMP-020, BSS-040, AIP-120]
+  after: [FND-011, CLD-030, CLD-105, CLD-114, SOV-050, SOV-183, SOV-335, SOV-338, SEC-105, NET-040, NET-080, NET-133, NET-170, NET-221, SVC-040, SVC-041, SVC-190, CTL-333, CTL-347, CMP-020, BSS-040, AIP-120]
   touches:
   - products/catalyst/chart/templates/*-kustomize.yaml
   - products/catalyst/chart/templates/kustomization.yaml
@@ -11793,7 +11856,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [SOV-940, SOV-950]
-  after: [CLD-094, CLD-114, SOV-338, SVC-040, INF-112]
+  after: [CLD-094, CLD-105, CLD-114, SOV-338, SVC-040, INF-112]
   touches:
   - core/controllers/sovereign/internal/controller/provision.go
   - products/catalyst/bootstrap/api/internal/provisioner/**
@@ -17822,7 +17885,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [NET-322, NET-327]
-  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-108, CLD-109, CLD-112, CLD-113, CLD-114, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-141, SOV-175, SOV-180, SOV-181, SOV-338, SEC-103, SEC-104, SEC-105, SEC-150, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-212, NET-221, SVC-030, SVC-040, SVC-041, SVC-060, SVC-150, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CMP-016, CMP-020, CMP-030, BSS-141, AIP-040, AIP-041, AIP-120, INF-040, INF-110, INF-112, INF-120, INF-130, INF-135, INF-140, ACC-050]
+  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-105, CLD-108, CLD-109, CLD-112, CLD-113, CLD-114, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-141, SOV-175, SOV-180, SOV-181, SOV-338, SEC-103, SEC-104, SEC-105, SEC-150, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-212, NET-221, SVC-030, SVC-040, SVC-041, SVC-060, SVC-150, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CMP-016, CMP-020, CMP-030, BSS-141, AIP-040, AIP-041, AIP-120, INF-040, INF-110, INF-112, INF-120, INF-130, INF-135, INF-140, ACC-050]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/
   - products/catalyst/bootstrap/api/
@@ -31140,7 +31203,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [INF-430, INF-710]
-  after: [FND-011, CLD-114, INF-140]
+  after: [FND-011, CLD-105, CLD-114, INF-140]
   touches:
   - products/catalyst/bootstrap/api/internal/providers/hostsecurity.go
   - products/catalyst/bootstrap/api/internal/providers/huawei/**

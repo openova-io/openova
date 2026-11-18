@@ -185,4 +185,7 @@ products/axon/scripts
 products/catalyst/bootstrap/ui/scripts/build-catalog.mjs
 products/axon/src/providers/claude.ts
 products/axon/src/middleware/auth.ts
+platform/cilium/chart/values-clustermesh.yaml
+platform/cilium/chart/templates/clustermesh-config.yaml
+platform/cilium/chart/tests/clustermesh-overlay.sh
 products/axon/src/providers/token-refresh.ts

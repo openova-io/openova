@@ -171,7 +171,7 @@ spec:
       # region-local watchdog running the UNBOUNDED CRD retry the operator lacks,
       # which restarts the local operator when the controller is provably not
       # reconciling. Refs #6255 #5511.
-      version: 1.4.22
+      version: 1.4.23
       sourceRef:
         kind: HelmRepository
         name: bp-cilium
@@ -215,19 +215,12 @@ spec:
                 allocateLoadBalancerNodePorts: false
   values:
     cilium:
-      # Multi-region (operator mandate 2026-05-12) — each region's k3s
-      # is an INDEPENDENT cluster per NAMING-CONVENTION §1.3, so each
-      # region's cilium MUST talk to its OWN local CP, not the primary's
-      # 10.0.1.2. Flux postBuild.substitute in
-      # cloudinit-control-plane.tftpl renders CILIUM_K8S_SERVICE_HOST to
-      # the local CP's private IP per region (10.0.1.2 for primary,
-      # 10.0.<10+idx>.2 for secondaries — see main.tf:267
-      # secondary_region_cp_ips). Without this, secondary regions'
-      # cilium-operator crash-loops with x509 unknown authority (the
-      # primary's CA doesn't sign the secondary cluster's API cert).
-      # The :=10.0.1.2 fallback preserves single-region (primary-only)
-      # provisions where the substitute var would be empty/absent.
-      k8sServiceHost: ${CILIUM_K8S_SERVICE_HOST:=10.0.1.2}
+      # Each region's k3s is a cluster of its own, so each region's Cilium
+      # talks to its own control-plane node. First boot writes that node's
+      # private address as CILIUM_K8S_SERVICE_HOST into ConfigMap
+      # sovereign-variables, in every region (infra/providers/_shared/
+      # cloudinit-control-plane.tftpl). There is no default address.
+      k8sServiceHost: ${CILIUM_K8S_SERVICE_HOST}
       # 1.4.11 (#4656, 2026-07-05): NATIVE routing (drop VXLAN) — the datapath
       # MTU is now WG-only. The old VXLAN-tunnel + WireGuard stack was
       # UNFIXABLE by any MTU (cilium derived cilium_wg0 = MTU−80, so a pod
@@ -240,10 +233,14 @@ spec:
       # 1420`) already carries this; pinned here too so the load-bearing value
       # is visible at the slot. Jumbo-frame / non-1500-eth0 Sovereigns override
       # via ${CILIUM_MTU:=1420} in their per-Sovereign overlay (eth0−80).
-      # routingMode: native + ipv4NativeRoutingCIDR (10.42.0.0/15, spanning
-      # both per-region k3s pod CIDRs) + autoDirectNodeRoutes live in the chart
-      # values.yaml; the slot inherits them (no override needed here).
       MTU: ${CILIUM_MTU:=1420}
+      # The range of pod addresses that Cilium routes natively, without
+      # masquerading: the pod supernet of the Sovereign, which the provider
+      # module computes and first boot writes as CILIUM_NATIVE_ROUTING_CIDR.
+      # It holds the pod range of every region. There is no default: the
+      # chart names no range. routingMode native and autoDirectNodeRoutes
+      # come from the chart values.
+      ipv4NativeRoutingCIDR: ${CILIUM_NATIVE_ROUTING_CIDR}
       # Phase-8a bug #15 (otech8 deployment 1bfc46347564467b 2026-05-01):
       # cilium-agent waits forever for the operator to register
       # ciliumenvoyconfigs + ciliumclusterwideenvoyconfigs CRDs.
@@ -299,14 +296,14 @@ spec:
           enabled: false
       hubble:
         metrics:
-          # `null` (NOT [] and NOT a populated list) suppresses the
-          # upstream chart's metrics ServiceMonitor render. Hubble flow
-          # collection still works for Hubble Relay/UI without a
-          # ServiceMonitor — that pulls the kube-prometheus-stack CRDs
-          # which do not exist on a fresh Sovereign at bp-cilium install
-          # time. Operators flip metrics on once
-          # bp-kube-prometheus-stack is reconciled (issue #182).
-          enabled: null
+          # The flow metrics Hubble serves on the agent's metrics port.
+          # serviceMonitor stays off: its kind ships with the monitoring
+          # stack, which installs after this slot.
+          enabled:
+            - dns
+            - drop
+            - flow
+            - policy
           serviceMonitor:
             enabled: false
         # qa-loop iter-16 Fix #70: default Hubble UI ON for every

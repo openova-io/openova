@@ -103,6 +103,7 @@ locals {
     provider                          = fixture
     cp_private_ip                     = "10.0.1.2"
     cluster_cidr                      = "10.42.0.0/16"
+    pod_supernet                      = "10.42.0.0/15"
     service_cidr                      = "10.43.0.0/16"
     sovereign_fqdn                    = "render-test.example.test"
     sovereign_fqdn_slug               = "render-test-example-test"

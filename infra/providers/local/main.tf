@@ -147,6 +147,7 @@ locals {
     k3s_agent_token       = random_password.k3s_agent_token[r.code].result
     cp_private_ip         = local.control_plane_ip[r.code]
     cluster_cidr          = local.region_pod_cidr[r.code]
+    pod_supernet          = local.pod_supernet
     service_cidr          = local.region_service_cidr[r.code]
 
     region_canonical_label         = local.region_label[r.code]

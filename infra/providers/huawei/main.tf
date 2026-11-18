@@ -1269,6 +1269,7 @@ locals {
       # 10.42.0.0/16 + 10.96.0.0/16 for every region → ClusterMesh
       # PodCIDR collision → cp1 datapath mis-route → region-kill blocked).
       cluster_cidr = local.region_cluster_cidr[r.code]
+      pod_supernet = local.pod_supernet
       service_cidr = local.region_service_cidr[r.code]
       # Canonical region labels (G84 #2631: `hw` prefix, NOT `hu`).
       region_canonical_label         = "hw-${r.code}-rtz-prod"

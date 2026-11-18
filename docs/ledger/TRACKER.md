@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T21:45:03Z` |
+| Last refreshed | `2026-11-18T22:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7839](https://github.com/openova-io/openova/issues/7839) | FND-077 The flight sweep counts the DNS records a wiped deployment left | Other |
-| [#7840](https://github.com/openova-io/openova/issues/7840) | FND-130 The gate suite runs on the local provider pack on every pull request | Other |
 | [#7841](https://github.com/openova-io/openova/issues/7841) | NET-170 Organization fence: two host-side deny objects for the Organization's ow | Other |
 | [#7842](https://github.com/openova-io/openova/issues/7842) | SVC-100 Function tests: admission, infrastructure and control-plane charts | Other |
 | [#7852](https://github.com/openova-io/openova/issues/7852) | AIP-222 Signal intake, grouping, candidate scoring, rule results | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#8201](https://github.com/openova-io/openova/issues/8201) | AIP-103 Real streaming and real usage | Other |
 | [#8204](https://github.com/openova-io/openova/issues/8204) | NET-172 Gate check NET-G07: Organization isolation, journey ISO in both regions | Other |
 | [#8209](https://github.com/openova-io/openova/issues/8209) | AIP-104 Limits, queue, time-outs, admin listener | Other |
+| [#8213](https://github.com/openova-io/openova/issues/8213) | AIP-105 One owner of the credential | Other |
+| [#8217](https://github.com/openova-io/openova/issues/8217) | CLD-105 Post-apply and apply-error hooks become capability interfaces | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-18T22:08 | [#8216](https://github.com/openova-io/openova/pull/8216) | #7087 | docs(ledger): plan update |
+| 2026-11-18T21:57 | [#8214](https://github.com/openova-io/openova/pull/8214) | #7087 | docs(ledger): plan update |
 | 2026-11-18T21:34 | [#8211](https://github.com/openova-io/openova/pull/8211) | #7087 | docs(ledger): plan update |
 | 2026-11-18T21:20 | [#8210](https://github.com/openova-io/openova/pull/8210) | #8209 | fix(axon): bound active and parked runs, queue with 429, ste |
 | 2026-11-18T20:52 | [#8208](https://github.com/openova-io/openova/pull/8208) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-18T15:35 | [#8178](https://github.com/openova-io/openova/pull/8178) | #7087 | docs(ledger): plan update |
 | 2026-11-18T15:50 | [#8177](https://github.com/openova-io/openova/pull/8177) | #8141 | fix(guards): a generated file is judged at its source |
 | 2026-11-18T15:48 | [#8176](https://github.com/openova-io/openova/pull/8176) | #8175 | refactor(credentials): credential fields checked against the |
-| 2026-11-18T15:20 | [#8174](https://github.com/openova-io/openova/pull/8174) | #7087 | docs(ledger): plan update |
-| 2026-11-18T15:17 | [#8173](https://github.com/openova-io/openova/pull/8173) | #8172 | docs(ledger): result of the lab test SOV-148, first-boot ste |
 
 ---
 
