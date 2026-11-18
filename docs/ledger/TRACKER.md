@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-17T15:15:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-11-18T06:15:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7766](https://github.com/openova-io/openova/issues/7766) | SOV-161 The pull robot of the local registry joins the pull secret at install | Other |
-| [#7767](https://github.com/openova-io/openova/issues/7767) | SOV-336 The registry install creates the proxy project of the vulnerability data | Other |
 | [#7768](https://github.com/openova-io/openova/issues/7768) | the release job writes an attestation name as the runtime image tag of the openc | Other |
 | [#7772](https://github.com/openova-io/openova/issues/7772) | AIP-042 Check AIP-G01 judges running containers only | Other |
 | [#7773](https://github.com/openova-io/openova/issues/7773) | CTL-330 The services stop building the Kafka client | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#8036](https://github.com/openova-io/openova/issues/8036) | CLD-064 Convert the adoption Composition to pipeline mode | Other |
 | [#8037](https://github.com/openova-io/openova/issues/8037) | MIG-030 Spike: a written volume boots on the reference cloud, through a unit Wor | Other |
 | [#8047](https://github.com/openova-io/openova/issues/8047) | CMP-020 The API tells the truth: live mode, no fixture data, no invented list | Other |
+| [#8066](https://github.com/openova-io/openova/issues/8066) | CTL-233 Console: Git-owned objects show Managed by Git | Other |
+| [#8067](https://github.com/openova-io/openova/issues/8067) | NET-212 Show the separation; refuse the claim when it is none | Other |
 
 ---
 
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-17T15:48 | [#8070](https://github.com/openova-io/openova/pull/8070) | #7087 | docs(ledger): plan update |
+| 2026-11-17T15:44 | [#8069](https://github.com/openova-io/openova/pull/8069) | #7087 | docs(ledger): plan update |
+| 2026-11-17T15:27 | [#8065](https://github.com/openova-io/openova/pull/8065) | #7087 | docs(ledger): plan update |
 | 2026-11-17T15:13 | [#8062](https://github.com/openova-io/openova/pull/8062) | #7922 | fix(cutover): step 03 copies the sandbox image nodes are con |
 | 2026-11-17T15:12 | [#8061](https://github.com/openova-io/openova/pull/8061) | #11563 | fix(storage): the filer announces its stable Pod name, so S3 |
 | 2026-11-17T15:14 | [#8060](https://github.com/openova-io/openova/pull/8060) | #7815 | test(gate): dial the API port from a hosted runner and add g |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-17T07:36 | [#8026](https://github.com/openova-io/openova/pull/8026) | #7820 | chore(kit): kit slots 56 and 57, the flow server and the flo |
 | 2026-11-17T07:35 | [#8025](https://github.com/openova-io/openova/pull/8025) | #7864 | fix(ci): raise three golang bases, guard each base against i |
 | 2026-11-17T07:05 | [#8024](https://github.com/openova-io/openova/pull/8024) | #7087 | docs(ledger): plan update |
-| 2026-11-17T06:13 | [#8023](https://github.com/openova-io/openova/pull/8023) | #7799 | fix: give every Blueprint a bp- name and a visibility, and a |
-| 2026-11-17T05:22 | [#8019](https://github.com/openova-io/openova/pull/8019) | #7965 | feat(api): agent tokens, the signer key set route and gate c |
-| 2026-11-17T05:21 | [#8018](https://github.com/openova-io/openova/pull/8018) | #7978 | feat(suite): check FND-G01 has a self form that needs no che |
 
 ---
 
