@@ -184,6 +184,16 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
     #      documents are left out of BOTH trees, as axes 5, 8 and 10 do;
     #      tests/step03-node-sandbox-image.sh executes the change and asserts the
     #      grant. The axis switches itself off once origin/main holds the change.
+    #  15. #7938 (a tag never moves) changed step 03's copy worker and the
+    #      day-two image warm in EVERY topology: a tag the local registry holds
+    #      at another digest is kept and named, and every copy passes
+    #      --preserve-digests. Neither is the follower leg. While origin/main
+    #      lacks the 'tag moved upstream' line, the step-03 and day-two documents
+    #      are left out of BOTH trees, as axes 5, 8 and 10 do;
+    #      tests/step7938-prewarm-tag-never-moves.sh executes the change. The
+    #      axis switches itself off once origin/main holds the change.
+    drop7938t=0
+    grep -qF 'tag moved upstream' "${TMP}/main.yaml" || drop7938t=1
     drop7900=0
     grep -q 'front-door-sample BEGIN' "${TMP}/main.yaml" || drop7900=1
     drop7922=0
@@ -199,9 +209,9 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
     drop03s=0
     grep -q 'prewarm_node_sandbox_images() {' "${TMP}/main.yaml" || drop03s=1
     norm() {
-      awk -v drop7900="${drop7900}" -v drop7922="${drop7922}" -v drop7938="${drop7938}" -v drop7938b="${drop7938b}" -v drop7938c="${drop7938c}" -v drop7938k="${drop7938k}" -v drop03s="${drop03s}" '
-        (drop7900==1 || drop7922==1 || drop7938==1 || drop7938b==1 || drop7938c==1 || drop7938k==1 || drop03s==1) && /^---$/ {next}
-        /^# Source: / {_d7 = (drop7900==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|08-egress-block-test-job|10-auto-trigger-job|11-crossplane-provider-pivot-job)\.yaml$/) || (drop7922==1 && $0 ~ /\/templates\/03-harbor-prewarm-job\.yaml$/) || (drop7938==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|03c-catalog-chart-set)\.yaml$/) || (drop7938b==1 && $0 ~ /\/templates\/03-harbor-prewarm-job\.yaml$/) || (drop7938c==1 && $0 ~ /\/templates\/08-egress-block-test-job\.yaml$/) || (drop7938k==1 && $0 ~ /\/templates\/03-harbor-prewarm-job\.yaml$/) || (drop03s==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|rbac)\.yaml$/)}
+      awk -v drop7900="${drop7900}" -v drop7922="${drop7922}" -v drop7938="${drop7938}" -v drop7938b="${drop7938b}" -v drop7938c="${drop7938c}" -v drop7938k="${drop7938k}" -v drop03s="${drop03s}" -v drop7938t="${drop7938t}" '
+        (drop7900==1 || drop7922==1 || drop7938==1 || drop7938b==1 || drop7938c==1 || drop7938k==1 || drop03s==1 || drop7938t==1) && /^---$/ {next}
+        /^# Source: / {_d7 = (drop7900==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|08-egress-block-test-job|10-auto-trigger-job|11-crossplane-provider-pivot-job)\.yaml$/) || (drop7922==1 && $0 ~ /\/templates\/03-harbor-prewarm-job\.yaml$/) || (drop7938==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|03c-catalog-chart-set)\.yaml$/) || (drop7938b==1 && $0 ~ /\/templates\/03-harbor-prewarm-job\.yaml$/) || (drop7938c==1 && $0 ~ /\/templates\/08-egress-block-test-job\.yaml$/) || (drop7938k==1 && $0 ~ /\/templates\/03-harbor-prewarm-job\.yaml$/) || (drop03s==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|rbac)\.yaml$/) || (drop7938t==1 && $0 ~ /\/templates\/(03-harbor-prewarm-job|12-daytwo-harbor-pin-reconciler)\.yaml$/)}
         _d7==1 {next}
         /if ! \$\{fresh_pull_fn\}; then$/ {print; _fp=1; next}
         _fp==1 {_fp=0; if ($0 ~ /kubectl delete ciliumclusterwidenetworkpolicy cutover-egress-block --ignore-not-found=true \|\| true$/) next}

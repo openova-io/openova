@@ -1080,26 +1080,13 @@ data:
     }
 
     {{- /*
-     #5030 (Refs #3379 #4994 #4975) — DURABLE dest-presence idempotency probe. Returns 0 (SKIP the
-     copy) ONLY when the local Harbor DEST already serves the SAME manifest DURABLY (pushed into
-     Harbor's own store), never on a transient pull-through.
-     WHY the #4994 shape was WRONG: `skopeo inspect --raw` on the DEST reads whatever registry.<fqdn>
-     serves AT THAT MOMENT. During step 03 egress is still up, so it PULLS THE MANIFEST THROUGH (a
-     proxy-cache leg) for an image NEVER durably pushed → false "current" → copy SKIPPED, only the
-     manifest persists, and after step 08's deny-egress hold the image 404s (live hw244
-     opentelemetry-operator:0.101.0; hw243 velero/cnpg, #5026 fixed only the host-pivot leg).
-     FIX: probe the DEST via the Harbor ARTIFACT API (GET /api/v2.0/projects/<proj>/repositories/
-     <repo>/artifacts/<ref>), served by Harbor CORE from its DATABASE: only durably-stored artifacts,
-     never a pull-through, at ANY cutover phase. It is the SAME assertion step 08's completeness gate
-     makes, so a step-03 skip can NEVER diverge from the gate that judges it. The SOURCE digest still
-     comes from `skopeo inspect --raw` on the SOURCE (its sha256 IS the manifest/-list digest, right
-     for single- and multi-arch). Skip ONLY on a real durable digest MATCH; fail CLOSED on ANY
-     ambiguity (empty source sha, 404/absent/partial dest, curl/API error, empty/mismatched dest
-     digest) → the caller does the real copy. The completeness contract is UNTOUCHED.
-     #5443 — this is the DURABLE-presence half of #5030, extracted so the Phase A2-guard asserts
-     presence through the EXACT probe the skip trusts. Emits the artifact digest on stdout (empty when
-     absent); its exit status (curl/jq's) is never load-bearing on its own.
-       $1 = local dest ref: the resolver PATH project/repo[:tag|@digest] or a HARBOR_HOST-prefixed lref.
+     #5030 #5443 — the digest the local Harbor DURABLY holds for $1 (the resolver PATH
+     project/repo[:tag|@digest] or a HARBOR_HOST-prefixed lref), empty when absent. It asks the
+     ARTIFACT API (Harbor CORE, from its database), never `skopeo inspect` on the dest, which pulls a
+     manifest through a proxy-cache leg while egress is up and once false-skipped copies that 404ed
+     under step 08's hold (hw243, hw244). It is the probe step 08's completeness gate and the Phase
+     A2-guard use, so a skip can never diverge from the gate that judges it. Its exit status is never
+     load-bearing on its own.
     */}}
     harbor_durable_digest() {
       _hd_pp="${1#${HARBOR_HOST}/}"
@@ -1137,32 +1124,42 @@ data:
 
     dest_already_current() {
       {{- /*
-       $1 upstream ref  $2 local dest ref (either the resolver PATH
-          project/repo[:tag|@digest] OR a HARBOR_HOST-prefixed lref)
-          $3 src creds (may be empty)
+       $1 upstream ref  $2 local dest ref (resolver PATH or HARBOR_HOST-prefixed lref)  $3 src creds.
+       0: the dest durably holds the source digest. 1: the dest is absent: copy. 2 (#7938): the
+       dest durably holds the tag at ANOTHER digest, or the source is unreadable: the tag is KEPT.
+       A tag of the local registry never moves to another digest (a pod moved to another node
+       would pull other bytes than its siblings run); an upstream that re-pushed the tag is a
+       WARNING, and new content reaches the Sovereign under a new tag. The source digest is the
+       sha256 of the raw manifest bytes, read into a file (a failed read hashed in a pipe is the
+       empty-input sha256, and $(...) drops a trailing newline); for a single-platform ref
+       (#5468) it is the digest of that platform's child, the manifest the copy writes.
+       Measured on hw307 (18 Nov 2026): build-chargeback.yaml pushes ghcr.io/openova-io/
+       chargeback:<appVersion> on every push to main under products/chargeback, so 0.1.67 named
+       d326a9d9 (15 Nov 13:27), 51c16e5d (15 Nov 22:16) and 509d6807 (16 Nov 05:42). A delivery's
+       step 03 found an older digest locally, read 509d6807 upstream, copied it: the push_time of
+       proxy-ghcr/openova-io/chargeback:0.1.67 is 14:05:06, inside that step, and the copy kept
+       the source digest exactly (no re-encoding, no platform change). A replica rescheduled by
+       a node drain then pulled 509d6807 while the other ran 51c16e5d, so gate runs 16 and 17
+       saw two digests for one tag and could not pair. The follower's leg (secondary-harbor-
+       prewarm) re-copied the same tag into the same shared repository with no check at all.
       */}}
-      _dc_up="$1"; _dc_dref="$2"; _dc_sc="$3"
-      {{- /* SOURCE manifest digest (sha256 of the raw manifest/-list bytes). */}}
-      if [ -n "${_dc_sc}" ]; then
-        _dc_s=$(skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" inspect --raw \
-          --creds="${_dc_sc}" --tls-verify=true "docker://${_dc_up}" 2>/dev/null \
-          | sha256sum 2>/dev/null | awk '{print $1}')
-      else
-        _dc_s=$(skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" inspect --raw \
-          --tls-verify=true "docker://${_dc_up}" 2>/dev/null \
-          | sha256sum 2>/dev/null | awk '{print $1}')
-      fi
-      [ -z "${_dc_s}" ] && return 1
-      _dc_s="sha256:${_dc_s}"
-      {{- /*
-       Durable DEST digest from Harbor CORE (never pull-through) via the
-       in-cluster Service (#5036) — #5443 factored the probe into
-       harbor_durable_digest above so the Phase A2-guard cannot fork it.
-       Fail-closed: an absent/404/partial dest yields an empty digest and
-       falls through to a full re-copy — never a false "already current".
-      */}}
+      _dc_up="$1"; _dc_dref="$2"; _dc_sc="$3"; _dc_s=""; _dc_f="${cpdir:-/tmp}/.src.$(rl_slug "${_dc_dref}")"
       _dc_d=$(harbor_durable_digest "${_dc_dref}")
-      [ -n "${_dc_d}" ] && [ "${_dc_s}" = "${_dc_d}" ]
+      set -- --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" inspect --raw --tls-verify=true
+      [ -z "${_dc_sc}" ] || set -- "$@" --creds="${_dc_sc}"
+      skopeo "$@" "docker://${_dc_up}" >"${_dc_f}" 2>/dev/null || : >"${_dc_f}"
+      if [ -s "${_dc_f}" ]; then
+        _dc_s="sha256:$(sha256sum <"${_dc_f}" | awk '{print $1}')"
+        case "$(prewarm_multiarch_flags "${_dc_up}")" in *system*)
+          _dc_c=$(jq -r --arg o "${PREWARM_SINGLE_PLATFORM_OS:-linux}" --arg a "${PREWARM_SINGLE_PLATFORM_ARCH:-amd64}" '[.manifests[]? | select(.platform.os == $o and .platform.architecture == $a) | .digest][0] // empty' <"${_dc_f}" 2>/dev/null || true)
+          [ -z "${_dc_c}" ] || _dc_s="${_dc_c}" ;;
+        esac
+      fi
+      rm -f "${_dc_f}"
+      [ -n "${_dc_d}" ] || return 1
+      [ "${_dc_s}" != "${_dc_d}" ] || return 0
+      [ -z "${_dc_s}" ] || echo "[harbor-prewarm] WARNING: tag moved upstream: ${_dc_up} is now ${_dc_s}; the local registry keeps ${_dc_dref#"${HARBOR_HOST}"/} at ${_dc_d} and never moves a tag to another digest; publish the new content under a new tag (#7938)"
+      return 2
     }
 
     {{- /*
@@ -1172,7 +1169,8 @@ data:
      in if/else, never a pipeline). Flags: #3944 --command-timeout (a stalled
      connection fails fast for the outer retry), #4529 dest TLS off for the
      in-cluster Harbor, #4975 --multi-arch all (containerd pulls BY the list
-     digest; a single-arch copy of a list is `digest invalid`, hw239).
+     digest; a single-arch copy of a list is `digest invalid`, hw239), #7938
+     --preserve-digests (skopeo writes the source's digest or fails, never a re-encoding).
      #5468 — prewarm_multiarch_flags: the one per-image exception, a SINGLE
      platform for refs matching PREWARM_SINGLE_PLATFORM_SUBSTRINGS (upstream
      indexes Harbor cannot ingest, e.g. litellm-database's duplicated
@@ -1205,7 +1203,7 @@ data:
       {{- /* #5525 leg 2 — log offset BEFORE this leg, so the sniffs below read only this leg's output. */}}
       _pc_off=$(wc -c < "${_pc_log}" 2>/dev/null || echo 0)
       if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" copy \
-        --insecure-policy \
+        --insecure-policy --preserve-digests \
         --retry-times 5 \
         "$@" \
         --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
@@ -1331,13 +1329,14 @@ data:
       last_rc=0
       for dpath in ${dests}; do
         lref="${HARBOR_HOST}/${dpath}"
-        {{- /* #4994 — SKIP when the dest durably serves the same manifest, with a real-time line (hw240). */}}
-        if [ "${PREWARM_SKIP_IF_PRESENT:-true}" = "true" ] \
-           && dest_already_current "${up}" "${lref}" "${sc}"; then
+        {{- /* #4994 — SKIP when the dest durably serves the same manifest (hw240); #7938 — a tag the dest holds at another digest is KEPT, whatever the toggle says. */}}
+        _dc_rc=0; dest_already_current "${up}" "${lref}" "${sc}" || _dc_rc=$?
+        if [ "${_dc_rc}" -eq 0 ] && [ "${PREWARM_SKIP_IF_PRESENT:-true}" = "true" ]; then
           echo "[harbor-prewarm] skip ${up} -> ${lref} (dest already current)"
           echo "  SKIP ${up} -> ${lref} (dest already serves identical manifest; copy skipped)" >>"${cpdir}/${slug}.log"
           continue
         fi
+        if [ "${_dc_rc}" -eq 2 ]; then echo "  KEPT ${lref} at ${_dc_d}: the source reads ${_dc_s:-nothing}; a tag never moves (#7938)" >>"${cpdir}/${slug}.log"; continue; fi
         {{- /*
          OUTER per-dest retry loop around prewarm_skopeo_copy (a dest reset can
          abort a whole copy, hw146): PREWARM_COPY_ATTEMPTS, or for a
@@ -2200,32 +2199,14 @@ data:
       cdst="docker://${HARBOR_HOST}/openova-io/${cchart}:${cver}"
       cslug=$(printf '%s_%s' "${cchart}" "${cver}" | tr -c 'A-Za-z0-9._-' '_')
       {{- /*
-       #3944: bound the chart-OCI copy too (skopeo GLOBAL flag before
-       the `copy` subcommand) so a stalled connection fails fast.
-       #4529: same dest-TLS treatment as Phase A — the chart OCI dest
-       is the in-cluster Harbor (PREWARM_DEST_TLS_VERIFY, default
-       false); src stays verified (external ghcr.io).
-
-       #4581 (Refs #3379): wrap the chart copy in an OUTER attempt loop
-       with backoff. skopeo's `--retry-times` only re-tries SOURCE-pull
-       errors; a TRANSIENT in-cluster-Harbor DEST 504 on blob-upload
-       initiation (Harbor capacity/OBS flap) is NOT retried by it and
-       FATAL-ed the whole step on ONE chart. Live evidence: prov
-       00720a7a, `bp-alloy:1.0.2` → "initiating layer upload ... 504
-       Gateway Timeout" with chart_ok=61/62, so step-06 aborted the
-       cutover over a single transient blip. The outer loop (same shape
-       as the Phase-B PREWARM_COPY_ATTEMPTS image path) turns a
-       transient dest 504 into a bounded retry instead of a cutover-
-       killing FATAL.
-       #4994 idempotency (#5030 durable): skip when local Harbor already
-       serves this exact chart artifact (re-run / already-mirrored). The
-       chart OCI is a single manifest; dest_already_current compares the
-       SOURCE raw-manifest sha against the DEST's Harbor artifact-API digest
-       (durable, never pull-through) — the HARBOR_HOST prefix is stripped
-       inside the function, so the openova-io/<chart>:<ver> path resolves.
+       #3944 bounded (--command-timeout); #4529 dest TLS as Phase A (PREWARM_DEST_TLS_VERIFY), src
+       verified. #4581: an OUTER attempt loop, since skopeo's --retry-times retries only SOURCE
+       errors and one transient dest 504 on blob-upload once FATAL-ed the step at 61/62 charts.
+       #4994 #5030 #7938: dest_already_current as Phase A (the chart OCI is one manifest): skipped
+       when current, KEPT when the dest holds the tag at another digest; --preserve-digests.
       */}}
-      if [ "${PREWARM_SKIP_IF_PRESENT:-true}" = "true" ] \
-         && dest_already_current "${up_chart_prefix}/${cchart}:${cver}" "${HARBOR_HOST}/openova-io/${cchart}:${cver}" "${ghcr_user}:${ghcr_pat}"; then
+      _dc_rc=0; dest_already_current "${up_chart_prefix}/${cchart}:${cver}" "${HARBOR_HOST}/openova-io/${cchart}:${cver}" "${ghcr_user}:${ghcr_pat}" || _dc_rc=$?
+      if [ "${_dc_rc}" -eq 2 ] || { [ "${_dc_rc}" -eq 0 ] && [ "${PREWARM_SKIP_IF_PRESENT:-true}" = "true" ]; }; then
         echo "[harbor-prewarm] skip chart ${cchart}:${cver} (dest already current)"
         printf '%s:%s (present)' "${cchart}" "${cver}" >"${chart_cpdir}/${cslug}.ok"
         return 0
@@ -2235,7 +2216,7 @@ data:
       while : ; do
         cattempt=$((cattempt+1))
         if skopeo --command-timeout "${PREWARM_SKOPEO_TIMEOUT}" copy \
-          --insecure-policy \
+          --insecure-policy --preserve-digests \
           --retry-times 3 \
           --src-creds="${ghcr_user}:${ghcr_pat}" \
           --dest-creds="${HARBOR_USERNAME}:${HARBOR_PASSWORD}" \
