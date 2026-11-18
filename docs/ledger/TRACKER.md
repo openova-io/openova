@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T23:30:06Z` |
+| Last refreshed | `2026-11-18T23:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7862](https://github.com/openova-io/openova/issues/7862) | CTL-816 A peer region's serving verdict reaches the Application, and the API see | Other |
 | [#7863](https://github.com/openova-io/openova/issues/7863) | FND-027 A moved funnel pin rebuilds the provisioning image; the openclaw build w | Other |
 | [#7864](https://github.com/openova-io/openova/issues/7864) | FND-028 Four image builds and the catalog build are green on main again | Other |
 | [#7865](https://github.com/openova-io/openova/issues/7865) | INF-052 Check INF-G01: upgrade windows and recovery; set to required | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8230](https://github.com/openova-io/openova/issues/8230) | NET-153 Allow-list of the hand-over proof's deny-egress object | Other |
 | [#8232](https://github.com/openova-io/openova/issues/8232) | FND-156 The conformance account exists on every Sovereign | Other |
 | [#8235](https://github.com/openova-io/openova/issues/8235) | FND-207 A check stays green on the newest valid pair until a newer record says o | Other |
+| [#8238](https://github.com/openova-io/openova/issues/8238) | FND-079 The gate has a scoped access to the parent | Other |
 
 ---
 
@@ -307,7 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-18T23:42 | [#8237](https://github.com/openova-io/openova/pull/8237) | #7087 | docs(ledger): plan update |
 | 2026-11-18T23:24 | [#8234](https://github.com/openova-io/openova/pull/8234) | #7087 | docs(ledger): plan update |
+| 2026-11-18T23:42 | [#8233](https://github.com/openova-io/openova/pull/8233) | #8232 | feat(chart): bp-catalyst-platform creates the conformance ac |
 | 2026-11-18T23:18 | [#8231](https://github.com/openova-io/openova/pull/8231) | #7087 | docs(ledger): plan update |
 | 2026-11-18T23:05 | [#8229](https://github.com/openova-io/openova/pull/8229) | #7087 | docs(ledger): plan update |
 | 2026-11-18T23:28 | [#8228](https://github.com/openova-io/openova/pull/8228) | #8225 | refactor(provisioner): the VPC pre-flight becomes the Prefli |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-18T18:54 | [#8195](https://github.com/openova-io/openova/pull/8195) | #7938 | fix(cutover): step 04 pivots the registry of every node in e |
 | 2026-11-18T18:54 | [#8194](https://github.com/openova-io/openova/pull/8194) | #7938 | fix(cutover): step 03 never moves a tag of the local registr |
 | 2026-11-18T19:13 | [#8193](https://github.com/openova-io/openova/pull/8193) | #8192 | refactor(provisioner): the engine writes neutral variables,  |
-| 2026-11-18T17:56 | [#8191](https://github.com/openova-io/openova/pull/8191) | #7087 | docs(ledger): plan update |
-| 2026-11-18T18:17 | [#8190](https://github.com/openova-io/openova/pull/8190) | #8186 | fix(plan): generated lines do not count toward a story size  |
 
 ---
 
