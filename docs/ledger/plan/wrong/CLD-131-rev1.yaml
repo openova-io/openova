@@ -1,0 +1,33 @@
+schema: openova.io/plan-wrong/v1
+id: CLD-131
+ticket_rev: 1
+base_commit: 7d808b53868e66355aa9326a8b7b51ad74647f82
+stage: check
+ref: go-lint
+command: |
+    gh api repos/openova-io/openova/actions/jobs/134663041994/logs | grep -B 12 -m 1 'G304' | cut -c30-300; gh api repos/openova-io/openova/actions/jobs/134663041994/logs | grep -A 8 -m 1 'G304' | cut -c30-300
+expected: |
+    the check finishes green
+actual: |
+    Pull request #8089, head 251df6b0adeb, check go-lint (run 44263731348, job 134663041994) finished red.
+    The log command of the ticket (grep -B 40 -m 1 '##[error]') stops at the self-test fixture of the
+    job (svc/new.go errcheck, expected there); the failing step is the lint of the module:
+    ##[group]golangci-lint products/catalyst/bootstrap/api
+    ##[error]products/catalyst/bootstrap/api/internal/provisioner/cilium_values_parity_test.go:98:14: G304: Potential file inclusion via variable (gosec)
+    	raw, err := os.ReadFile(p)
+    	            ^
+    1 issues:
+    * gosec: 1
+    ##[error]go-lint: products/catalyst/bootstrap/api has a new finding, or golangci-lint could not run
+    ##[error]Process completed with exit code 1.
+    Line 98 is `raw, err := os.ReadFile(p)` in the helper readHuaweiSubstitutes, which the script of
+    step 7 (edit 12) adds. The lint reports only findings newer than the merge base, so the older
+    readers of the same shape in that file (readBootstrapKitOverlay) are not reported. The file is
+    written by the script of step 7, which the ticket allows to run only once, so it was not edited.
+    Field 4 says golangci-lint found nothing in the changed test file; the CI lint (v2.9.0, gosec on)
+    finds this one. Every other finished check of #8089 was green, among them golden,
+    validate + fmt + test (both), local module validate fmt test, dash -n cloud-init render
+    (hetzner + huawei), scope, precondition and acceptance; ci-gate was red with go-lint;
+    conformance-local, integration (kind + gitea), test and Reject non-mirror-served Phase-1 image
+    hosts had not finished.
+reported_at: 2026-11-18T08:10:56Z
