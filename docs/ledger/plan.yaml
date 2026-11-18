@@ -6930,7 +6930,7 @@ packages:
   epic: CLD-130
   type: refactor
   wave: W1b
-  size: S
+  size: M
   lane: SUBSTRATE
   depends_on: [CLD-131]
   after: [CLD-134]
@@ -6949,6 +6949,7 @@ packages:
   - scripts/cloudinit-size-check.sh
   - scripts/check-provider-contract.sh
   - scripts/check-cloudinit-primary-kubeconfig-capture.sh
+  - scripts/check-root-kustomization-parity.py
   - products/catalyst/bootstrap/api/internal/providers/conformance/conformance_test.go
   resources: []
   flips: []
@@ -6966,12 +6967,14 @@ packages:
     run: "out=\"$(bash scripts/check-provider-contract.sh --self-test)\"; printf '%s\\n' \"$out\" | grep -x -F 'ok   rule 14: a call of the template without a contract input fails'; printf '%s\\n' \"$out\" | grep -x -F 'ok   rule 15: a gateway_host_network that differs from the profile fails'"
   - id: A4
     run: "out=\"$(python3 scripts/cloudinit-size-check.py --self-test)\"; printf '%s\\n' \"$out\" | grep -x -F 'ok   rule 3 fails: a worst-case file names the cloud limit'; printf '%s\\n' \"$out\" | grep -x -F \"ok   the profile's limit reaches the worst case\"; python3 scripts/cloudinit-size-check.py --check-profiles; if grep -n -E '^LIMIT *=' infra/providers/huawei/user_data_worst_case.py; then exit 1; fi"
+  - id: A5
+    run: "python3 scripts/check-root-kustomization-parity.py && out=\"$(python3 scripts/check-root-kustomization-parity.py --self-test)\" && printf '%s\\n' \"$out\" | grep -x -F 'ok   self-test R1 a module literal that disagrees with the root folder: exit 1, expected 1' && printf '%s\\n' \"$out\" | grep -x -F 'ok   self-test cannot judge a module that passes an input as true and as false: exit 2, expected 2'"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 2
+  ticket_rev: 3
   dropped: false
   delivers: The shared control-plane boot template replaces its remaining tests of the provider name by the inputs node_ipv4_only, fail_mark_cmd, render_region_kustomization and gateway_host_network, every module also passes provider_overlay_path, the failure-mark helper is written by the Huawei module, and the size check reads the user-data limit of each pack from its profile.
 - id: CLD-133
