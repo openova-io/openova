@@ -31,11 +31,15 @@ type fakePublisher struct {
 	fail error
 }
 
-func (f *fakePublisher) Publish(_ context.Context, ev UsageEvent) error {
+// Publish keeps ev and returns the number of events kept as the sequence, or 0 and fail.
+func (f *fakePublisher) Publish(_ context.Context, ev UsageEvent) (uint64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.evs = append(f.evs, ev)
-	return f.fail
+	if f.fail != nil {
+		return 0, f.fail
+	}
+	return uint64(len(f.evs)), nil
 }
 
 func (f *fakePublisher) events() []UsageEvent {
@@ -253,7 +257,7 @@ func TestBackendErrorGivesNoEventAndAnErrorEntry(t *testing.T) {
 		t.Fatalf("%d events, want 0", n)
 	}
 	rec, ok := rg.handler.Ring().Get("req-0000001")
-	if !ok || rec.Status != StatusError || rec.HTTPStatus != 500 || rec.Published || rec.Event != nil {
+	if !ok || rec.Status != StatusError || rec.HTTPStatus != 500 || rec.Published || rec.Sequence != 0 || rec.Event != nil {
 		t.Fatalf("ring entry = %+v (found %v), want status error, httpStatus 500, nothing published", rec, ok)
 	}
 }
@@ -314,7 +318,7 @@ func TestUnstreamedResponseGivesTheMeasures(t *testing.T) {
 				t.Fatalf("event = %+v, want organization acme, alias agent-default and a ULID", evs[0])
 			}
 			rec, ok := rg.handler.Ring().Get("req-0000001")
-			if !ok || rec.Status != StatusOK || !rec.Published || rec.Event == nil {
+			if !ok || rec.Status != StatusOK || !rec.Published || rec.Sequence != 1 || rec.Event == nil {
 				t.Fatalf("ring entry = %+v, want status ok, published, with the event", rec)
 			}
 		})
@@ -335,7 +339,7 @@ func TestSpooledEventIsNotPublished(t *testing.T) {
 	rg := newRig(t, http.StatusOK, "application/json", completion(usageWithCache))
 	rg.pub.fail = ErrSpooled
 	rg.do("meter-simulation", "/v1/chat/completions", identityHeaders())
-	if rec, _ := rg.handler.Ring().Get("req-0000001"); rec.Published || rec.Event == nil {
+	if rec, _ := rg.handler.Ring().Get("req-0000001"); rec.Published || rec.Sequence != 0 || rec.Event == nil {
 		t.Fatalf("ring entry = %+v, want published false with the event", rec)
 	}
 }

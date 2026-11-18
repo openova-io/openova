@@ -22,8 +22,9 @@
 //     end answered with a 2xx status and a usage block was read, none otherwise. It is
 //     published after the response has been written. A stream that ends, on either side,
 //     before "data: [DONE]" has the status aborted and publishes no event.
-//  6. Every request, whatever its outcome, produces one JSON log line and one entry in the
-//     ring of the last RingSize requests.
+//  6. Every request, whatever its outcome, produces one JSON log line, one entry in the ring
+//     of the last RingSize requests and one count in the metrics of the admin listener
+//     (admin.go). None of them holds the text of the request or of the answer.
 package meter
 
 import (
@@ -101,6 +102,7 @@ type Record struct {
 	Status        string          `json:"status"`
 	HTTPStatus    int             `json:"httpStatus"`
 	Published     bool            `json:"published"`
+	Sequence      uint64          `json:"sequence"` // JetStream sequence of the publish, or 0
 	Event         json.RawMessage `json:"event"`
 }
 
@@ -164,13 +166,14 @@ type route struct {
 
 // Handler is the proxy. Build it with NewHandler.
 type Handler struct {
-	routes map[string]route
-	pub    Publisher
-	source string
-	log    *slog.Logger
-	ring   *Ring
-	now    func() time.Time
-	newID  func() (string, error)
+	routes  map[string]route
+	pub     Publisher
+	source  string
+	log     *slog.Logger
+	ring    *Ring
+	metrics *Metrics
+	now     func() time.Time
+	newID   func() (string, error)
 }
 
 // exchange is what the proxy hooks learn about one forwarded request.
@@ -197,7 +200,7 @@ func NewHandler(c Config) (*Handler, error) {
 	if c.Source == "" {
 		return nil, errors.New("meter: no event source")
 	}
-	h := &Handler{routes: map[string]route{}, pub: c.Publisher, source: c.Source, log: c.Logger, ring: c.Ring, now: c.Now, newID: c.NewID}
+	h := &Handler{routes: map[string]route{}, pub: c.Publisher, source: c.Source, log: c.Logger, ring: c.Ring, metrics: NewMetrics(), now: c.Now, newID: c.NewID}
 	if h.log == nil {
 		h.log = slog.Default()
 	}
@@ -268,8 +271,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.forward(w, r, rt, id, &rec, ex, start)
 		return
 	}
-	h.logLine(rec, Usage{}, start, time.Time{})
-	h.ring.Add(rec)
+	h.finish(rec, Usage{}, start, time.Time{})
 }
 
 // prepare reads the body of POST /v1/chat/completions and sets include_usage for a stream. It
@@ -316,8 +318,7 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, rt route, id I
 		if p := recover(); p != nil {
 			if err, ok := p.(error); ok && errors.Is(err, http.ErrAbortHandler) {
 				settle(rec, ex, true)
-				h.logLine(*rec, ex.usage, start, ex.firstByte)
-				h.ring.Add(*rec)
+				h.finish(*rec, ex.usage, start, ex.firstByte)
 			}
 			panic(p)
 		}
@@ -329,8 +330,7 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, rt route, id I
 		_ = http.NewResponseController(w).Flush()
 		h.publish(r.Context(), id, ex.usage, rec)
 	}
-	h.logLine(*rec, ex.usage, start, ex.firstByte)
-	h.ring.Add(*rec)
+	h.finish(*rec, ex.usage, start, ex.firstByte)
 }
 
 func (h *Handler) publish(ctx context.Context, id Identity, u Usage, rec *Record) {
@@ -344,11 +344,12 @@ func (h *Handler) publish(ctx context.Context, id Identity, u Usage, rec *Record
 		rec.Event = body
 	}
 	// The caller may close the connection once it has the response; the publish goes on.
-	err = h.pub.Publish(context.WithoutCancel(ctx), ev)
-	rec.Published = err == nil
+	seq, err := h.pub.Publish(context.WithoutCancel(ctx), ev)
+	rec.Published, rec.Sequence = err == nil, seq
 }
 
-func (h *Handler) logLine(rec Record, u Usage, start, firstByte time.Time) {
+// finish writes the log line of the request, adds its ring entry and counts it.
+func (h *Handler) finish(rec Record, u Usage, start, firstByte time.Time) {
 	end := h.now()
 	firstByteMs := int64(0)
 	if !firstByte.IsZero() {
@@ -373,6 +374,8 @@ func (h *Handler) logLine(rec Record, u Usage, start, firstByte time.Time) {
 		"firstByteMs", firstByteMs,
 		"durationMs", end.Sub(start).Milliseconds(),
 	)
+	h.ring.Add(rec)
+	h.metrics.observe(rec, u)
 }
 
 // observe is the ModifyResponse hook: it records the status and reads the usage block of an

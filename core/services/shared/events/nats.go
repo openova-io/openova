@@ -237,16 +237,25 @@ func (c *NATSConn) PublishEvent(ctx context.Context, subject string, event *Even
 // identifier inside its de-dup window. Used by the model meter
 // (core/services/model-meter) for the CloudEvents envelope of the usage event.
 func (c *NATSConn) PublishRaw(ctx context.Context, subject, msgID string, body []byte) error {
+	_, err := c.PublishRawSeq(ctx, subject, msgID, body)
+	return err
+}
+
+// PublishRawSeq is PublishRaw that also returns the stream sequence of the
+// acknowledgement. For a message the broker already holds under the same
+// identifier, it is the sequence of the copy the broker kept.
+func (c *NATSConn) PublishRawSeq(ctx context.Context, subject, msgID string, body []byte) (uint64, error) {
 	if c == nil || c.js == nil {
-		return errors.New("events: nats publisher not initialised")
+		return 0, errors.New("events: nats publisher not initialised")
 	}
 	if subject == "" || msgID == "" {
-		return errors.New("events: PublishRaw requires a subject and a message identifier")
+		return 0, errors.New("events: PublishRaw requires a subject and a message identifier")
 	}
-	if _, err := c.js.Publish(ctx, subject, body, jetstream.WithMsgID(msgID)); err != nil {
-		return fmt.Errorf("events: publish %s: %w", subject, err)
+	ack, err := c.js.Publish(ctx, subject, body, jetstream.WithMsgID(msgID))
+	if err != nil {
+		return 0, fmt.Errorf("events: publish %s: %w", subject, err)
 	}
-	return nil
+	return ack.Sequence, nil
 }
 
 // Close shuts down the underlying NATS connection.
