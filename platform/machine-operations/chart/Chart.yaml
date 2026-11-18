@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bp-machine-operations
-version: 0.1.3
+version: 0.1.4
 description: |
   Machine operations on the platform's own nodes. This version ships the five
   custom resource definitions of the group machines.openova.io (Machine,
