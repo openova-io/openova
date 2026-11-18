@@ -142,10 +142,16 @@ func (p *Provider) LegacyCredentialAliases() map[string]string {
 	}
 }
 
-// TfVars returns the provider-specific OpenTofu variables for spec. It
-// returns none for now; the engine does not call it yet.
+// TfVars returns the variables of this cloud for spec (class 3 of module
+// contract version 1): the API token and the project of the credentials map.
+// The token gets baked into the state file unless the operator configures a
+// remote backend with encryption at rest; the catalyst-api PVC is encrypted,
+// and an air-gapped installation must configure a remote backend.
 func (p *Provider) TfVars(spec providers.ProvisionSpec, profile *cloudprofile.Profile) (map[string]any, error) {
-	return map[string]any{}, nil
+	return map[string]any{
+		"hcloud_token":      spec.Creds.Get("hcloud_token"),
+		"hcloud_project_id": spec.Creds.Get("hcloud_project_id"),
+	}, nil
 }
 
 // Wipe runs the canonical purge sequence — tofu destroy + Hetzner
@@ -178,11 +184,13 @@ func (p *Provider) Wipe(ctx context.Context, spec providers.WipeSpec, progress f
 	// provisioner.Destroy's writeTfvars renders a valid tfvars file
 	// for the destroy run.
 	destroyReq := provisioner.Request{
-		Provider:         Name,
-		DeploymentID:     spec.DeploymentID,
-		SovereignFQDN:    spec.SovereignFQDN,
-		HetznerToken:     token,
-		HetznerProjectID: spec.Creds.Get("hcloud_project_id"),
+		Provider:      Name,
+		DeploymentID:  spec.DeploymentID,
+		SovereignFQDN: spec.SovereignFQDN,
+		Credentials: map[string]string{
+			"hcloud_token":      token,
+			"hcloud_project_id": spec.Creds.Get("hcloud_project_id"),
+		},
 	}
 	provEvents := make(chan provisioner.Event, 32)
 	done := make(chan struct{})

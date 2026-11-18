@@ -101,17 +101,17 @@ func TestCreateDeployment_Huawei_DispatchesToHuaweiAdapter(t *testing.T) {
 	if dep.Request.Provider != "huawei" {
 		t.Errorf("Request.Provider = %q, want %q", dep.Request.Provider, "huawei")
 	}
-	if dep.Request.HuaweiAccessKey != "TESTAK1234567890" {
-		t.Errorf("Request.HuaweiAccessKey = %q, env-var stamp failed", dep.Request.HuaweiAccessKey)
+	if dep.Request.Credentials["access_key"] != "TESTAK1234567890" {
+		t.Errorf("Request.HuaweiAccessKey = %q, env-var stamp failed", dep.Request.Credentials["access_key"])
 	}
-	if dep.Request.HuaweiSecretKey == "" {
+	if dep.Request.Credentials["secret_key"] == "" {
 		t.Errorf("Request.HuaweiSecretKey empty after env-var stamp")
 	}
-	if dep.Request.HuaweiProjectID == "" {
+	if dep.Request.Credentials["project_id"] == "" {
 		t.Errorf("Request.HuaweiProjectID empty after env-var stamp")
 	}
-	if dep.Request.HuaweiRegion != "me-east-215" {
-		t.Errorf("Request.HuaweiRegion = %q, want me-east-215", dep.Request.HuaweiRegion)
+	if dep.Request.Credentials["region"] != "me-east-215" {
+		t.Errorf("Request.HuaweiRegion = %q, want me-east-215", dep.Request.Credentials["region"])
 	}
 
 	// Bucket derivation — Huawei adapter implements
@@ -129,9 +129,9 @@ func TestCreateDeployment_Huawei_DispatchesToHuaweiAdapter(t *testing.T) {
 
 	// Sanity — Hetzner-specific credentials must NOT be required when
 	// provider=huawei. The dep.Request must carry them empty.
-	if dep.Request.HetznerToken != "" {
+	if dep.Request.Credentials["hcloud_token"] != "" {
 		t.Errorf("Huawei deployment carries non-empty HetznerToken: %q",
-			dep.Request.HetznerToken)
+			dep.Request.Credentials["hcloud_token"])
 	}
 }
 

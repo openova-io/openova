@@ -54,8 +54,7 @@ func validBase() Request {
 		OrgEmail:               "ops@acme.io",
 		SovereignFQDN:          "acme.openova.io",
 		Provider: "hetzner",
-		HetznerToken:           "TEST-TOKEN-NOT-REAL",
-		HetznerProjectID:       "test-project",
+		Credentials: map[string]string{"hcloud_token": "TEST-TOKEN-NOT-REAL", "hcloud_project_id": "test-project"},
 		SSHPublicKey:           "ssh-ed25519 AAAA test-not-a-real-key",
 		// HarborRobotToken — issue #557 tightened Validate() to require
 		// this on every Request (Inviolable Principle #11: every Sovereign
@@ -434,8 +433,7 @@ func TestWriteTfvars_OmitsEmptySingularSizes(t *testing.T) {
 		OrgName:          "Acme",
 		OrgEmail:         "ops@acme.io",
 		Provider: "hetzner",
-		HetznerToken:     "tok",
-		HetznerProjectID: "p1",
+		Credentials: map[string]string{"hcloud_token": "tok", "hcloud_project_id": "p1"},
 		Region:           "fsn1",
 		WorkerCount:      2,
 		// ControlPlaneSize / WorkerSize intentionally empty.
@@ -484,8 +482,7 @@ func TestWriteTfvars_RegionsOfARequestWithoutRegions(t *testing.T) {
 		OrgName:          "Acme",
 		OrgEmail:         "ops@acme.io",
 		Provider: "hetzner",
-		HetznerToken:     "tok",
-		HetznerProjectID: "p1",
+		Credentials: map[string]string{"hcloud_token": "tok", "hcloud_project_id": "p1"},
 		Region:           "fsn1",
 		WorkerCount:      2,
 		// Regions intentionally nil — the legacy singular path.
@@ -534,8 +531,7 @@ func TestWriteTfvars_EmitsSingularSizesWhenSet(t *testing.T) {
 		OrgName:          "Acme",
 		OrgEmail:         "ops@acme.io",
 		Provider: "hetzner",
-		HetznerToken:     "tok",
-		HetznerProjectID: "p1",
+		Credentials: map[string]string{"hcloud_token": "tok", "hcloud_project_id": "p1"},
 		Region:           "fsn1",
 		ControlPlaneSize: "cpx52",
 		WorkerSize:       "cpx41",
@@ -583,8 +579,7 @@ func TestWriteTfvars_QAFixtures_DefaultDisabled(t *testing.T) {
 		OrgName:          "Acme",
 		OrgEmail:         "ops@acme.io",
 		Provider: "hetzner",
-		HetznerToken:     "tok",
-		HetznerProjectID: "p1",
+		Credentials: map[string]string{"hcloud_token": "tok", "hcloud_project_id": "p1"},
 		Region:           "fsn1",
 		WorkerCount:      2,
 		// QATestEnabled intentionally false (customer Sovereign).
@@ -656,8 +651,7 @@ func TestWriteTfvars_QAFixtures_EnabledDerivesNamespaceAndOrg(t *testing.T) {
 				OrgName:          "QA",
 				OrgEmail:         "qa@openova.io",
 				Provider: "hetzner",
-				HetznerToken:     "tok",
-				HetznerProjectID: "p1",
+				Credentials: map[string]string{"hcloud_token": "tok", "hcloud_project_id": "p1"},
 				Region:           "fsn1",
 				WorkerCount:      2,
 				QATestEnabled:    true,
@@ -729,8 +723,7 @@ func TestWriteTfvars_FireCutoverOnHandover_DecoupledFromQA(t *testing.T) {
 		OrgName:               "Prod",
 		OrgEmail:              "ops@omani.works",
 		Provider: "hetzner",
-		HetznerToken:          "tok",
-		HetznerProjectID:      "p1",
+		Credentials: map[string]string{"hcloud_token": "tok", "hcloud_project_id": "p1"},
 		Region:                "fsn1",
 		WorkerCount:           2,
 		QATestEnabled:         false, // PROD-cert Sovereign — NO qaFixtures, NO staging certs.
@@ -777,8 +770,7 @@ func TestWriteTfvars_QAFixtures_OperatorOverrideWins(t *testing.T) {
 		OrgName:             "QA",
 		OrgEmail:            "qa@openova.io",
 		Provider: "hetzner",
-		HetznerToken:        "tok",
-		HetznerProjectID:    "p1",
+		Credentials: map[string]string{"hcloud_token": "tok", "hcloud_project_id": "p1"},
 		Region:              "fsn1",
 		WorkerCount:         2,
 		QATestEnabled:       true,
@@ -816,7 +808,7 @@ func TestWriteTfvars_FireCutoverOnHandover_DefaultsTrue(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 			req := Request{SovereignFQDN: "z.omani.works", OrgName: "Z", OrgEmail: "ops@omani.works",
-				Provider: "hetzner", HetznerToken: "tok", HetznerProjectID: "p1", Region: "fsn1", WorkerCount: 2,
+				Provider: "hetzner", Credentials: map[string]string{"hcloud_token": "tok", "hcloud_project_id": "p1"}, Region: "fsn1", WorkerCount: 2,
 				FireCutoverOnHandover: tc.v}
 			if err := writeTfvars(dir, req); err != nil {
 				t.Fatalf("writeTfvars: %v", err)
@@ -873,7 +865,7 @@ func checkVariablesDocument(t *testing.T, name string, doc map[string]string, ow
 func TestWriteTfvars_VariablesDocument(t *testing.T) {
 	dir := t.TempDir()
 	req := Request{SovereignFQDN: "t31.omani.works", OrgName: "T", OrgEmail: "ops@omani.works",
-		Provider: "hetzner", HetznerToken: "tok", HetznerProjectID: "p1", Region: "fsn1", WorkerCount: 2}
+		Provider: "hetzner", Credentials: map[string]string{"hcloud_token": "tok", "hcloud_project_id": "p1"}, Region: "fsn1", WorkerCount: 2}
 	if err := writeTfvars(dir, req); err != nil {
 		t.Fatalf("writeTfvars: %v", err)
 	}

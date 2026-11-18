@@ -38,12 +38,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/openova-io/openova/core/controllers/pkg/upstream"
@@ -483,52 +487,13 @@ type Request struct {
 	// Credentials — the credential map of the provider, keyed by the
 	// credential fields of its cloud profile (spec.credentials.fields[].key).
 	// UnmarshalJSON also fills it from the legacy JSON fields an adapter
-	// names (providers.LegacyAliaser), and syncLegacyCredentials keeps it
-	// equal to the provider-named fields below until CLD-104 deletes them.
-	// The stored record keeps the keys and redacts every value.
+	// names (providers.LegacyAliaser), and syncLegacyCredentials keeps its
+	// Object Storage keys equal to the Object Storage fields. It is the only
+	// place a request carries a cloud credential (CLD-104). The operator's
+	// own keys (ServerOnlyCredentialKeys) are stamped server-side, never
+	// taken from a body. The stored record keeps the keys and redacts every
+	// value.
 	Credentials map[string]string `json:"credentials,omitempty"`
-
-	HetznerToken     string `json:"hetznerToken"`
-	HetznerProjectID string `json:"hetznerProjectID"`
-
-	// Huawei Cloud (HCS) credentials — operator-issued IAM access key
-	// (AK) + secret key (SK) + project_id. Required when
-	// Provider == "huawei".
-	//
-	// Surface boundary: these arrive from the wizard's
-	// StepCredentials Huawei pane (Wave 5 will surface a UI for
-	// this) and flow through to writeTfvars() where they emit as
-	// `huawei_access_key` / `huawei_secret_key` / `huawei_project_id`
-	// / `huawei_region` keys in tofu.auto.tfvars.json — the OpenTofu
-	// module at infra/providers/huawei/variables.tf declares the
-	// matching per-key variables. The plaintext NEVER lands on disk
-	// outside the catalyst-api Pod's encrypted PVC (the per-deployment
-	// workdir, mode 0600). Destroy() removes the workdir on successful
-	// tofu destroy; the persisted deployment record redacts the
-	// secrets via internal/store.Redact.
-	//
-	// HuaweiRegion is optional — empty defaults to the canonical HCS
-	// region "me-east-215" inside the Huawei provider adapter (see
-	// providers/huawei/provider.go defaultRegion). Operators targeting
-	// public Huawei Cloud override via env-var.
-	//
-	// SECURITY: `json:"-"` — these credentials are SERVER-SIDE stamped
-	// from env vars at /api/v1/deployments POST time, NEVER accepted
-	// from the wizard payload. Mirrors the canonical pattern used for
-	// every other operator credential (DynadotAPIKey, GHCRPullToken,
-	// HarborRobotToken, PowerDNSAPIKey, PDMBasicAuth*) — operator AK/SK
-	// lives in a Kubernetes Secret on mothership (`huawei-operator-creds`),
-	// projected into the catalyst-api Pod as env vars
-	// CATALYST_HUAWEI_ACCESS_KEY / CATALYST_HUAWEI_SECRET_KEY /
-	// CATALYST_HUAWEI_PROJECT_ID / CATALYST_HUAWEI_REGION. The wire
-	// format cannot inject these — putting them in the request body is
-	// a credential-exfiltration antipattern that the v1 wire schema
-	// (PR #2143, Wave 4) inherited from the early Hetzner shape and
-	// this fix removes.
-	HuaweiAccessKey string `json:"-"`
-	HuaweiSecretKey string `json:"-"`
-	HuaweiProjectID string `json:"-"`
-	HuaweiRegion    string `json:"-"`
 
 	// Legacy singular fields. When Regions is non-empty Validate()
 	// derives these from Regions[0] so writeTfvars()'s single-region
@@ -1202,13 +1167,13 @@ func (r *Request) Validate() error {
 	// upstream gate — by the time the deployment payload arrives here,
 	// the keys SHOULD already have been validated against ListBuckets.
 	if strings.TrimSpace(r.ObjectStorageRegion) == "" {
-		return errors.New("object storage region is required (Hetzner Object Storage region: fsn1 | nbg1 | hel1)")
+		return errors.New("object storage region is required (a region of the cloud's Object Storage, as its cloud profile lists it)")
 	}
 	if strings.TrimSpace(r.ObjectStorageAccessKey) == "" {
-		return errors.New("object storage access key is required (issued in Hetzner Console → Object Storage → Manage Credentials)")
+		return errors.New("object storage access key is required (issued by the cloud's Object Storage)")
 	}
 	if strings.TrimSpace(r.ObjectStorageSecretKey) == "" {
-		return errors.New("object storage secret key is required (paired with the access key; Hetzner shows the secret half exactly once at issue time)")
+		return errors.New("object storage secret key is required (paired with the access key)")
 	}
 	if strings.TrimSpace(r.ObjectStorageBucket) == "" {
 		return errors.New("object storage bucket name is required (catalyst-api derives this deterministically from the Sovereign FQDN; an empty value here is a wizard or handler bug)")
@@ -1253,8 +1218,9 @@ func ResolveProvider(r *Request) string {
 // normalize resolves the adapter of r.Provider and runs its Normalize on the
 // spec of r, with the effective cloud profile (CLD-103). r.Provider becomes the
 // canonical lower-case name. The sizes and worker counts that Normalize sets
-// are copied back into r; region codes and cloud regions are not, because the
-// engine still writes the module's regions from r (until CLD-104).
+// are copied back into r. Region codes, cloud regions and zones are not:
+// writeTfvars takes them from the adapter's Normalize of its own (moduleSpec),
+// and the rest of the engine keeps the request's.
 func (r *Request) normalize() error {
 	name := ResolveProvider(r)
 	if name == "" {
@@ -1336,55 +1302,108 @@ func (r *Request) providerSpec() providers.ProvisionSpec {
 	return spec
 }
 
-// legacyCredentialFields are the Request fields that carried a credential
-// before the credentials map, by credential key. CLD-104 deletes the
-// provider-named ones; the Object Storage fields stay as the source of
-// ProvisionSpec.ObjectStorage. serverOnly marks a field tagged `json:"-"`:
-// only the operator's server-side configuration sets it.
+// legacyCredentialFields are the Object Storage fields of Request, by the
+// credential key the credentials map holds each under. They stay as the
+// source of ProvisionSpec.ObjectStorage and of the Object Storage variables.
 func (r *Request) legacyCredentialFields() []struct {
-	key        string
-	field      *string
-	serverOnly bool
+	key   string
+	field *string
 } {
 	return []struct {
-		key        string
-		field      *string
-		serverOnly bool
+		key   string
+		field *string
 	}{
-		{"hcloud_token", &r.HetznerToken, false},
-		{"hcloud_project_id", &r.HetznerProjectID, false},
-		{"access_key", &r.HuaweiAccessKey, true},
-		{"secret_key", &r.HuaweiSecretKey, true},
-		{"project_id", &r.HuaweiProjectID, true},
-		{"region", &r.HuaweiRegion, true},
-		{"object_storage_access_key", &r.ObjectStorageAccessKey, false},
-		{"object_storage_secret_key", &r.ObjectStorageSecretKey, false},
-		{"object_storage_region", &r.ObjectStorageRegion, false},
+		{"object_storage_access_key", &r.ObjectStorageAccessKey},
+		{"object_storage_secret_key", &r.ObjectStorageSecretKey},
+		{"object_storage_region", &r.ObjectStorageRegion},
 	}
 }
 
+// ServerOnlyCredentialKeys are the credential keys of the operator's own cloud
+// account (Provisioner.OperatorCredentials): only the server's configuration
+// sets them, never a request body.
+var ServerOnlyCredentialKeys = []string{"access_key", "secret_key", "project_id", "region"}
+
 // RefuseServerOnlyCredentials returns a *providers.FieldError on
-// "credentials.<key>" when the credentials map of r names the key of a
-// server-only field (legacyCredentialFields). The create handler calls it on
-// the decoded body before it stamps anything: syncLegacyCredentials fills an
-// empty field from the map, so a body that named such a key would choose the
-// keys, or the region and with it the endpoints, that the operator's
-// credentials are used against.
+// "credentials.<key>" when the credentials map of r names a server-only key
+// (ServerOnlyCredentialKeys). The create handler calls it on the decoded body
+// before it stamps anything, so a body never chooses the keys, or the region
+// and with it the endpoints, that the operator's credentials are used against.
 func RefuseServerOnlyCredentials(r *Request) *providers.FieldError {
-	for _, l := range r.legacyCredentialFields() {
-		if _, named := r.Credentials[l.key]; named && l.serverOnly {
-			return &providers.FieldError{Field: "credentials." + l.key, Message: "server-only: set from the operator's configuration, never from a request"}
+	for _, key := range ServerOnlyCredentialKeys {
+		if _, named := r.Credentials[key]; named {
+			return &providers.FieldError{Field: "credentials." + key, Message: "server-only: set from the operator's configuration, never from a request"}
 		}
 	}
 	return nil
 }
 
-// syncLegacyCredentials makes the credentials map and the legacy credential
+// RedactedMarker is the value a stored deployment record holds in place of
+// every secret credential (internal/store). A rehydrated request carries it
+// in Credentials; Credential reads it as empty.
+const RedactedMarker = "<redacted>"
+
+// StoredCredentialKeys returns the credential keys of provider whose value a
+// stored deployment record keeps as it is (internal/store): the fields that
+// the cloud profile of its pack marks secret: false, except the server-only
+// keys, which the server's configuration sets on every request. It returns
+// nil, so that the record redacts every value, when the profile cannot be
+// read. A pack is read once per ProvidersDir; the caller must not change the
+// map.
+func StoredCredentialKeys(provider string) map[string]bool {
+	name := strings.ToLower(strings.TrimSpace(provider))
+	cacheKey := ProvidersDir + "\x00" + name
+	if keys, ok := storedCredentialKeys.Load(cacheKey); ok {
+		return keys.(map[string]bool)
+	}
+	profiles, err := cloudprofile.Load(ProvidersDir)
+	if err != nil || profiles[name] == nil {
+		return nil
+	}
+	keys := map[string]bool{}
+	for _, f := range profiles[name].Spec.Credentials.Fields {
+		if !f.Secret && !slices.Contains(ServerOnlyCredentialKeys, f.Key) {
+			keys[f.Key] = true
+		}
+	}
+	storedCredentialKeys.Store(cacheKey, keys)
+	return keys
+}
+
+// storedCredentialKeys caches StoredCredentialKeys by ProvidersDir and
+// provider: the store redacts on every persisted event.
+var storedCredentialKeys sync.Map
+
+// Credential returns the credential key of r: "" when the key is absent or
+// holds RedactedMarker, so a value read back from a stored record is never
+// used as a credential.
+func (r Request) Credential(key string) string {
+	if v := r.Credentials[key]; v != RedactedMarker {
+		return v
+	}
+	return ""
+}
+
+// WithCredential returns a copy of r whose credentials map is a copy of r's
+// with key set to value, so r is not changed.
+func (r Request) WithCredential(key, value string) Request {
+	r.Credentials = maps.Clone(r.Credentials)
+	r.SetCredential(key, value)
+	return r
+}
+
+// SetCredential sets the credential key of r to value, creating the map.
+func (r *Request) SetCredential(key, value string) {
+	if r.Credentials == nil {
+		r.Credentials = map[string]string{}
+	}
+	r.Credentials[key] = value
+}
+
+// syncLegacyCredentials makes the credentials map and the Object Storage
 // fields agree: a non-empty field is written into the map under its key, and
-// an empty field is filled from the map. A field set server-side (the
-// operator credentials the create handler stamps) therefore wins, and a
-// request body that names the key of a server-only field is refused before
-// this runs (RefuseServerOnlyCredentials).
+// an empty field is filled from the map. A field set server-side (the Object
+// Storage keys the create handler derives) therefore wins.
 func syncLegacyCredentials(r *Request) {
 	for _, l := range r.legacyCredentialFields() {
 		if v := *l.field; strings.TrimSpace(v) != "" {
@@ -1398,7 +1417,8 @@ func syncLegacyCredentials(r *Request) {
 	}
 }
 
-// UnmarshalJSON decodes a request and then, for its provider, copies every
+// UnmarshalJSON decodes a request and then, for its provider (ResolveProvider:
+// the top-level field, else the one its regions name), copies every
 // legacy JSON field that the adapter names (providers.LegacyAliaser) into
 // Credentials, unless the map already holds that key. An unknown or empty
 // provider is left to Validate.
@@ -1407,7 +1427,7 @@ func (r *Request) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, (*plain)(r)); err != nil {
 		return err
 	}
-	aliaser, ok, err := providers.As[providers.LegacyAliaser](r.Provider)
+	aliaser, ok, err := providers.As[providers.LegacyAliaser](ResolveProvider(r))
 	if err != nil || !ok {
 		return nil
 	}
@@ -2024,21 +2044,14 @@ type Provisioner struct {
 	PDMBasicAuthUser string
 	PDMBasicAuthPass string
 
-	// HuaweiAccessKey / HuaweiSecretKey / HuaweiProjectID / HuaweiRegion —
-	// operator AK/SK for the Huawei (HCS kom4dc) provider, mounted from
-	// the `huawei-operator-creds` Secret as CATALYST_HUAWEI_ACCESS_KEY /
-	// _SECRET_KEY / _PROJECT_ID / _REGION. The handler stamps these onto
-	// each Request from the same envs before Validate() (deployments.go);
-	// these struct-held copies are the defense-in-depth backstop so
-	// Provision() can re-stamp them onto any Request that arrives with
-	// the `json:"-"` Huawei fields empty (#3716) — the same pattern as
-	// GHCRPullToken / HarborRobotToken above. Without this, the NAT-EIP
-	// pre-flight (which needs the AK/SK to rotate poisoned EIPs) silently
-	// no-ops whenever the per-Request creds aren't populated.
-	HuaweiAccessKey string
-	HuaweiSecretKey string
-	HuaweiProjectID string
-	HuaweiRegion    string
+	// OperatorCredentials — per provider name, the credentials of the
+	// operator's own cloud account by credential key, read once at New()
+	// (operatorCredentialsFromEnv). The handler stamps the same values onto
+	// each Request before Validate() (deployments.go); Provision() fills every
+	// key a Request leaves empty from here (#3716), the same pattern as
+	// GHCRPullToken / HarborRobotToken above, so the pre-flight hooks always
+	// have signing credentials.
+	OperatorCredentials map[string]map[string]string
 
 	// TofuPluginCacheDir is the OpenTofu provider plugin cache directory
 	// (#3126). Set as TF_PLUGIN_CACHE_DIR on every `tofu` exec so the
@@ -2101,15 +2114,31 @@ func New() *Provisioner {
 		PowerDNSAPIKey:     os.Getenv("CATALYST_POWERDNS_API_KEY"),
 		PDMBasicAuthUser:   os.Getenv("CATALYST_PDM_BASIC_AUTH_USER"),
 		PDMBasicAuthPass:   os.Getenv("CATALYST_PDM_BASIC_AUTH_PASS"),
-		// #3716 — Huawei operator AK/SK backstop (see field docs). Read
-		// once at startup from the huawei-operator-creds-projected envs so
-		// the NAT-EIP pre-flight always has signing creds even if a Request
-		// arrives with the json:"-" Huawei fields empty.
-		HuaweiAccessKey: os.Getenv("CATALYST_HUAWEI_ACCESS_KEY"),
-		HuaweiSecretKey: os.Getenv("CATALYST_HUAWEI_SECRET_KEY"),
-		HuaweiProjectID: os.Getenv("CATALYST_HUAWEI_PROJECT_ID"),
-		HuaweiRegion:    os.Getenv("CATALYST_HUAWEI_REGION"),
+		// #3716 — the operator credentials backstop (see field docs).
+		OperatorCredentials: operatorCredentialsFromEnv(),
 	}
+}
+
+// operatorCredentialsFromEnv reads the operator's own cloud credentials, by
+// provider name and credential key, from the environment of the Pod (the
+// Secret huawei-operator-creds projects them; CLD-106 moves them to mounted
+// files). An empty variable sets nothing.
+func operatorCredentialsFromEnv() map[string]map[string]string {
+	out := map[string]map[string]string{}
+	for _, v := range []struct{ provider, key, env string }{
+		{"huawei", "access_key", "CATALYST_HUAWEI_ACCESS_KEY"},
+		{"huawei", "secret_key", "CATALYST_HUAWEI_SECRET_KEY"},
+		{"huawei", "project_id", "CATALYST_HUAWEI_PROJECT_ID"},
+		{"huawei", "region", "CATALYST_HUAWEI_REGION"},
+	} {
+		if value := os.Getenv(v.env); value != "" {
+			if out[v.provider] == nil {
+				out[v.provider] = map[string]string{}
+			}
+			out[v.provider][v.key] = value
+		}
+	}
+	return out
 }
 
 // resolveModulePath returns the OpenTofu module directory for the
@@ -2180,27 +2209,16 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 	if req.PDMBasicAuthPass == "" {
 		req.PDMBasicAuthPass = p.PDMBasicAuthPass
 	}
-	// #3716 — backstop the Huawei AK/SK from the Provisioner (loaded once
-	// from CATALYST_HUAWEI_* at New()) onto the Request, mirroring the
-	// GHCR/Harbor pattern above. The handler already stamps these from the
-	// same envs before Validate(); this guarantees the NAT-EIP pre-flight
-	// (which signs HCS API calls with these creds to rotate poisoned EIPs)
-	// still receives them on any code path that reaches Provision() with
-	// the json:"-" Huawei fields empty. Empty here = the pre-flight simply
-	// fails closed with a clear "access_key is required" instead of
-	// silently no-op'ing while a poisoned EIP blocks egress to harbor.
-	if req.Provider == "huawei" {
-		if strings.TrimSpace(req.HuaweiAccessKey) == "" {
-			req.HuaweiAccessKey = p.HuaweiAccessKey
-		}
-		if strings.TrimSpace(req.HuaweiSecretKey) == "" {
-			req.HuaweiSecretKey = p.HuaweiSecretKey
-		}
-		if strings.TrimSpace(req.HuaweiProjectID) == "" {
-			req.HuaweiProjectID = p.HuaweiProjectID
-		}
-		if strings.TrimSpace(req.HuaweiRegion) == "" {
-			req.HuaweiRegion = p.HuaweiRegion
+	// #3716 — backstop the operator credentials of the request's provider
+	// (loaded once at New()) onto the Request, mirroring the GHCR/Harbor
+	// pattern above: every key the request leaves empty is filled, so the
+	// pre-flight hooks still receive signing credentials on any code path
+	// that reaches Provision() without the handler's stamp. The map is
+	// copied first, so the caller's request is not changed.
+	req.Credentials = maps.Clone(req.Credentials)
+	for key, value := range p.OperatorCredentials[strings.ToLower(strings.TrimSpace(req.Provider))] {
+		if strings.TrimSpace(req.Credential(key)) == "" {
+			req.SetCredential(key, value)
 		}
 	}
 
@@ -2283,13 +2301,13 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 	// is unit-testable without an HCS project.
 	if req.Provider == "huawei" && len(req.Regions) > 0 && VPCQuotaHook != nil {
 		needed := len(req.Regions)
-		region := strings.TrimSpace(req.HuaweiRegion)
+		region := strings.TrimSpace(req.Credential("region"))
 		if region == "" {
 			region = "me-east-215"
 		}
 		var first, after quotaReading
 		reclaimAttempted := false
-		first.used, first.limit, first.err = VPCQuotaHook(ctx, req.HuaweiAccessKey, req.HuaweiSecretKey, req.HuaweiProjectID, region)
+		first.used, first.limit, first.err = VPCQuotaHook(ctx, req.Credential("access_key"), req.Credential("secret_key"), req.Credential("project_id"), region)
 		if !first.known() {
 			emit("tofu-init", "warn", fmt.Sprintf("HCS VPC quota check skipped (transient API error): %v", first.err))
 		} else {
@@ -2304,7 +2322,7 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 				reclaimAttempted = true
 				protect := reclaimProtectSet(req.DeploymentID)
 				emit("tofu-init", "info", fmt.Sprintf("HCS VPC quota over budget (%d/%d, need %d) — reclaiming orphaned catalyst VPCs before failing", first.used, first.limit, needed))
-				reclaimed, rerr := VPCReclaimHook(ctx, req.HuaweiAccessKey, req.HuaweiSecretKey, req.HuaweiProjectID, region, protect, func(msg string) {
+				reclaimed, rerr := VPCReclaimHook(ctx, req.Credential("access_key"), req.Credential("secret_key"), req.Credential("project_id"), region, protect, func(msg string) {
 					emit("tofu-init", "info", "vpc-reclaim: "+msg)
 				})
 				if rerr != nil {
@@ -2316,7 +2334,7 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 				// re-read genuinely falls through now — the project is not
 				// known to be insufficient, so the prov proceeds and tofu
 				// apply arbitrates, exactly as a failed first read does.
-				after.used, after.limit, after.err = VPCQuotaHook(ctx, req.HuaweiAccessKey, req.HuaweiSecretKey, req.HuaweiProjectID, region)
+				after.used, after.limit, after.err = VPCQuotaHook(ctx, req.Credential("access_key"), req.Credential("secret_key"), req.Credential("project_id"), region)
 				if after.known() {
 					emit("tofu-init", "info", fmt.Sprintf("HCS VPC quota after reclaim: used %d / %d, requesting %d", after.used, after.limit, needed))
 				} else {
@@ -2335,12 +2353,12 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 		return nil, fmt.Errorf("tofu init: %w", err)
 	}
 
-	emit("tofu-plan", "info", "Planning Hetzner resources (network, firewall, server, LB, DNS)")
+	emit("tofu-plan", "info", "Planning cloud resources (network, firewall, servers, load balancers, DNS)")
 	if err := p.runTofu(ctx, deployDir, []string{"plan", "-input=false", "-no-color", "-out=tfplan"}, emit); err != nil {
 		return nil, fmt.Errorf("tofu plan: %w", err)
 	}
 
-	emit("tofu-apply", "info", "Applying — this provisions real Hetzner resources, please wait")
+	emit("tofu-apply", "info", "Applying — this provisions real cloud resources, please wait")
 	// Wave 5.129 (hw30 fix-forward 2026-05-27): cap tofu parallelism at 2.
 	// Default 10 fanned out 8+ worker ECS creates simultaneously, which
 	// overloaded the HCS scheduler's CollectInfoTask and returned
@@ -2507,7 +2525,7 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 	// blocklisted .48/.14 EIPs the moment they got assigned.
 	if req.Provider == "huawei" && NATEIPPreflightHook != nil {
 		rotated, err := NATEIPPreflightHook(ctx, req.Provider, req.DeploymentID, req.SovereignFQDN,
-			req.HuaweiAccessKey, req.HuaweiSecretKey, req.HuaweiProjectID, req.HuaweiRegion,
+			req.Credential("access_key"), req.Credential("secret_key"), req.Credential("project_id"), req.Credential("region"),
 			func(msg string) { emit("nat-eip-preflight", "info", msg) })
 		if err != nil {
 			emit("nat-eip-preflight", "warn", "EIP pre-flight check failed (non-fatal — cloudinit may stall on harbor.openova.io if a blocklisted EIP is in play): "+err.Error())
@@ -2704,7 +2722,7 @@ func (p *Provisioner) Destroy(ctx context.Context, req Request, events chan<- Ev
 		return fmt.Errorf("tofu init: %w", err)
 	}
 
-	emit("tofu-destroy", "info", "Destroying Hetzner resources for "+req.SovereignFQDN+" (network, firewall, ssh-key, server, lb)")
+	emit("tofu-destroy", "info", "Destroying cloud resources for "+req.SovereignFQDN+" (network, firewall, ssh-key, servers, load balancers)")
 	if err := p.runTofu(ctx, deployDir, []string{"destroy", "-input=false", "-no-color", "-auto-approve"}, emit); err != nil {
 		// Don't remove the workdir — operator may want to inspect.
 		return fmt.Errorf("tofu destroy: %w", err)
@@ -3047,8 +3065,13 @@ func writeTfvars(deployDir string, req Request) error {
 	if err != nil {
 		return err
 	}
-	// `regions` in the shape of module contract version 1 (CLD-090).
-	regions := contractRegions(req)
+	// `regions` in the shape of module contract version 1 (CLD-090), each
+	// region placed by the adapter (moduleSpec).
+	adapter, profile, spec, err := moduleSpec(req)
+	if err != nil {
+		return err
+	}
+	regions := contractRegions(req, spec)
 	vars := map[string]any{
 		// Identity
 		"sovereign_fqdn":      req.SovereignFQDN,
@@ -3205,13 +3228,7 @@ func writeTfvars(deployDir string, req Request) error {
 		"admin_cidrs":       AdminCIDRs(req),
 		"provisioner_cidrs": EgressCIDRs(),
 
-		// Hetzner — token gets baked into the state file unless the operator
-		// configures a remote backend with encryption-at-rest. Per Catalyst
-		// the production catalyst-api container's PVC is encrypted; for
-		// air-gap installs the operator MUST configure remote backend.
-		"hcloud_token":      req.HetznerToken,
-		"hcloud_project_id": req.HetznerProjectID,
-		"region":            req.Region,
+		"region": req.Region,
 
 		// Topology — singular fields drive today's solo apply path. The
 		// per-region payload (regions, below) is structurally available
@@ -3419,63 +3436,6 @@ func writeTfvars(deployDir string, req Request) error {
 	// known names; an empty string is impossible here.
 	vars["provider"] = req.Provider
 
-	// Huawei Cloud (HCS) credentials — Wave 4 (refs #2140). Emitted
-	// only when provider=huawei so a Hetzner provision never carries
-	// Huawei creds in its tfvars file. The OpenTofu module at
-	// infra/providers/huawei/variables.tf declares matching variables
-	// (huawei_access_key / huawei_secret_key / huawei_project_id /
-	// huawei_region); the module reads them via `var.huawei_*` in
-	// main.tf's huaweicloud provider block.
-	//
-	// huawei_region falls back to the canonical HCS default
-	// ("me-east-215") when the operator omits it — same fallback the
-	// Huawei provider adapter applies in providers/huawei/provider.go
-	// regionFromCreds(). Centralising the default at the tfvars
-	// boundary keeps the OpenTofu module's variables.tf default
-	// authoritative and avoids any "empty string wins over default"
-	// surprise (a real production failure mode — see the
-	// control_plane_size guard above for the analogous Hetzner case).
-	if req.Provider == "huawei" {
-		vars["huawei_access_key"] = req.HuaweiAccessKey
-		vars["huawei_secret_key"] = req.HuaweiSecretKey
-		vars["huawei_project_id"] = req.HuaweiProjectID
-		region := sovereignCloudRegion(req)
-		vars[cloudRegionVariable] = region
-		// This cloud names its region once for the whole Sovereign, and a
-		// request's cloudRegion is the region code there. Every entry of
-		// `regions` gets the one cloud region. availability_zone stays
-		// empty: the module falls back to its own zone variable.
-		for _, entry := range regions {
-			entry["cloud_region"] = region
-			entry["availability_zone"] = ""
-		}
-
-		// The Huawei OpenTofu module at infra/providers/huawei/variables.tf
-		// declares a different variable schema for the OBS bucket name
-		// (`obs_bucket_name`) and parent-domains (`parent_domains_yaml`
-		// literal YAML inline-array) than the Hetzner module. Mirror
-		// the canonical Hetzner-shaped values into the Huawei-shaped keys
-		// so the same tfvars file satisfies both module schemas. The
-		// Hetzner-shaped keys remain in the tfvars file as harmless
-		// undeclared-variable warnings (OpenTofu treats unknown tfvars as
-		// warn, not error — confirmed live on dc19ea76 + a10853cc prov
-		// traces, 2026-05-22).
-		vars["obs_bucket_name"] = req.ObjectStorageBucket
-
-		if len(req.ParentDomains) > 0 {
-			var sb strings.Builder
-			sb.WriteString("[")
-			for i, pd := range req.ParentDomains {
-				if i > 0 {
-					sb.WriteString(", ")
-				}
-				fmt.Fprintf(&sb, "{name: %q, role: %q}", pd.Name, pd.Role)
-			}
-			sb.WriteString("]")
-			vars["parent_domains_yaml"] = sb.String()
-		}
-	}
-
 	// Wave 5.139 — initial value for the retry-loop salt; the catalyst-
 	// api Provision retry loop (provisioner.go:1220) bumps this between
 	// attempts via bumpRetryAttempt(). Tofu uses it as one input to the
@@ -3484,6 +3444,16 @@ func writeTfvars(deployDir string, req Request) error {
 	// fresh cell, dodging the bad-cell affinity that returned
 	// Common.0021 on the prior attempt.
 	vars["retry_attempt"] = 0
+
+	// The adapter's own variables (class 3 of module contract version 1):
+	// the engine writes no variable that belongs to one cloud.
+	own, err := adapter.TfVars(spec, profile)
+	if err != nil {
+		return fmt.Errorf("%s variables: %w", req.Provider, err)
+	}
+	if err := mergeAdapterVariables(vars, own); err != nil {
+		return err
+	}
 
 	raw, err := json.MarshalIndent(vars, "", "  ")
 	if err != nil {
@@ -4063,31 +4033,20 @@ func regionCode(rs RegionSpec) string {
 }
 
 // cloudRegionVariable is the adapter variable that carried the cloud region
-// of a Huawei Sovereign before module contract version 1. The module reads
-// regions[].cloud_region now. The engine keeps writing the variable until
-// CLD-103, because the wipe and the janitor read it from the stored
-// variables file.
+// of a Sovereign whose cloud names its region once, before module contract
+// version 1. The module reads regions[].cloud_region now; that adapter still
+// returns the variable from TfVars, because the wipe and the janitor read it
+// from the stored variables file. The engine only reads it from a kept file
+// (addCloudRegionIfMissing).
 const cloudRegionVariable = "huawei_region"
-
-// sovereignCloudRegion is the cloud region of a request whose cloud names its
-// region once for the whole Sovereign (Huawei): the request's value, or the
-// value the engine has always written when the request names none.
-// writeTfvars writes it as cloudRegionVariable and as cloud_region of every
-// entry of `regions`.
-func sovereignCloudRegion(req Request) string {
-	if region := strings.TrimSpace(req.HuaweiRegion); region != "" {
-		return region
-	}
-	return "me-east-215"
-}
 
 // contractRegions returns the module input `regions` in the shape of module
 // contract version 1 (infra/providers/_contract/contract.json), the one shape
 // every provider module declares (CLD-090). Each entry has:
 //
-//   - code: regionCode of the entry;
-//   - cloud_region: the cloud's own region identifier, CloudRegion;
-//   - availability_zone: Zone;
+//   - code: the entry's code in spec (regionCode of the entry by default);
+//   - cloud_region: the cloud's own region identifier in spec;
+//   - availability_zone: the entry's zone in spec;
 //   - role: "primary" for index 0 and "secondary" for every other entry. A
 //     role in the request is not read;
 //   - control_plane_size, worker_size and worker_count as the request has them.
@@ -4097,9 +4056,11 @@ func sovereignCloudRegion(req Request) string {
 // never nil and never empty: the contract refuses an empty list, and a nil
 // slice would be written as JSON null.
 //
-// A cloud that names its region once for the whole Sovereign overwrites
-// cloud_region and availability_zone in writeTfvars (sovereignCloudRegion).
-func contractRegions(req Request) []map[string]any {
+// The place of each entry (code, cloud_region, availability_zone) is the one
+// the adapter's Normalize gave spec (moduleSpec): a cloud that names its
+// region once for the whole Sovereign sets it there. The sizes and the count
+// are the request's, which Validate set from the same Normalize.
+func contractRegions(req Request, spec providers.ProvisionSpec) []map[string]any {
 	regions := req.Regions
 	if len(regions) == 0 {
 		regions = []RegionSpec{{
@@ -4115,10 +4076,14 @@ func contractRegions(req Request) []map[string]any {
 		if i == 0 {
 			role = "primary"
 		}
+		place := providers.RegionSpec{Code: regionCode(r), CloudRegion: r.CloudRegion, Zone: r.Zone}
+		if i < len(spec.Regions) {
+			place = spec.Regions[i]
+		}
 		out = append(out, map[string]any{
-			"code":               regionCode(r),
-			"cloud_region":       r.CloudRegion,
-			"availability_zone":  r.Zone,
+			"code":               place.Code,
+			"cloud_region":       place.CloudRegion,
+			"availability_zone":  place.Zone,
 			"role":               role,
 			"control_plane_size": r.ControlPlaneSize,
 			"worker_size":        r.WorkerSize,
@@ -4128,11 +4093,87 @@ func contractRegions(req Request) []map[string]any {
 	return out
 }
 
+// moduleSpec returns the adapter of req's provider, its effective cloud
+// profile and the adapter's view of req after the adapter's Normalize: the
+// place of each region (code, cloud region, zone) that writeTfvars hands the
+// module is the adapter's. writeTfvars writes the variables of the request it
+// is given and is not a validator: Provision runs Validate before it, and
+// Destroy writes the variables of a wipe request that nothing validates. So a
+// refusal of Normalize is not returned here; the spec is used as Normalize
+// left it.
+func moduleSpec(req Request) (providers.CloudProvider, *cloudprofile.Profile, providers.ProvisionSpec, error) {
+	name := strings.ToLower(strings.TrimSpace(req.Provider))
+	adapter, err := providers.Get(name)
+	if err != nil {
+		return nil, nil, providers.ProvisionSpec{}, err
+	}
+	profile, err := EffectiveProfile(name, req.Installation)
+	if err != nil {
+		return nil, nil, providers.ProvisionSpec{}, err
+	}
+	req.Credentials = maps.Clone(req.Credentials)
+	syncLegacyCredentials(&req)
+	spec := req.providerSpec()
+	_ = adapter.Normalize(&spec, profile) // the refusal is Validate's, see above
+	return adapter, profile, spec, nil
+}
+
+// contractVariableNames returns the names an adapter's TfVars must not use:
+// the common variables and the engine extras of module contract version 1
+// (_contract/contract.json below ProvidersDir).
+func contractVariableNames() (map[string]bool, error) {
+	raw, err := os.ReadFile(filepath.Clean(filepath.Join(ProvidersDir, "_contract", "contract.json")))
+	if err != nil {
+		return nil, fmt.Errorf("module contract: %w", err)
+	}
+	var contract struct {
+		Variables []struct {
+			Name string `json:"name"`
+		} `json:"variables"`
+		EngineExtras []string `json:"engine_extras"`
+	}
+	if err := json.Unmarshal(raw, &contract); err != nil {
+		return nil, fmt.Errorf("module contract: %w", err)
+	}
+	names := map[string]bool{}
+	for _, v := range contract.Variables {
+		names[v.Name] = true
+	}
+	for _, name := range contract.EngineExtras {
+		names[name] = true
+	}
+	return names, nil
+}
+
+// mergeAdapterVariables adds the variables of the adapter (class 3 of module
+// contract version 1) to vars. A key that the engine wrote, or that names a
+// common variable or an engine extra of the contract, is refused with
+// providers.ErrTfVarCollision.
+func mergeAdapterVariables(vars, own map[string]any) error {
+	reserved, err := contractVariableNames()
+	if err != nil {
+		return err
+	}
+	keys := make([]string, 0, len(own))
+	for key := range own {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if _, written := vars[key]; written || reserved[key] {
+			return fmt.Errorf("%w: %s", providers.ErrTfVarCollision, key)
+		}
+		vars[key] = own[key]
+	}
+	return nil
+}
+
 // addCloudRegionIfMissing brings the module input `regions` of a kept
 // tofu.auto.tfvars.json to the shape of module contract version 1 (CLD-090).
 // A file written before that contract has entries without cloud_region, and
 // the Huawei module no longer accepts them. Such an entry gets the file's own
-// cloudRegionVariable, or sovereignCloudRegion(req) when the file has none.
+// cloudRegionVariable, or the cloud region the adapter gives the request's
+// primary region (moduleSpec) when the file has none.
 // Nothing else changes. A file whose entries all have cloud_region is not written.
 func addCloudRegionIfMissing(path string, req Request) error {
 	raw, err := os.ReadFile(filepath.Clean(path))
@@ -4149,7 +4190,9 @@ func addCloudRegionIfMissing(path string, req Request) error {
 	}
 	cloudRegion, _ := vars[cloudRegionVariable].(string)
 	if strings.TrimSpace(cloudRegion) == "" {
-		cloudRegion = sovereignCloudRegion(req)
+		if _, _, spec, err := moduleSpec(req); err == nil && len(spec.Regions) > 0 {
+			cloudRegion = spec.Regions[0].CloudRegion
+		}
 	}
 	changed := false
 	for _, entry := range regions {

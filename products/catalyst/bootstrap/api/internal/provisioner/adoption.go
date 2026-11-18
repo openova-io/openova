@@ -269,7 +269,7 @@ func (p *Provisioner) writeAdoptionClaims(deployDir string, req Request, emit fu
 	if err != nil {
 		return fmt.Errorf("read %s: %w", statePath, err)
 	}
-	region := strings.TrimSpace(req.HuaweiRegion)
+	region := strings.TrimSpace(req.Credential("region"))
 	if region == "" && len(req.Regions) > 0 {
 		region = strings.TrimSpace(req.Regions[0].CloudRegion)
 	}

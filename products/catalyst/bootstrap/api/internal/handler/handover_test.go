@@ -247,7 +247,7 @@ func TestFinaliseHandover_FullFlow(t *testing.T) {
 	if got.Error != "" {
 		t.Errorf("Error not zeroed on slim record: %q", got.Error)
 	}
-	if got.Request.HetznerToken != "" || got.Request.DynadotAPIKey != "" {
+	if got.Request.Credentials["hcloud_token"] != "" || got.Request.DynadotAPIKey != "" {
 		t.Errorf("credential fields leaked into slim record: %+v", got.Request)
 	}
 	if got.Status != "adopted" {
@@ -823,8 +823,8 @@ func TestFinaliseHandover_PreservesRedirectContract(t *testing.T) {
 	if rec2.Result != nil {
 		t.Errorf("on-disk Result not zeroed: %+v", rec2.Result)
 	}
-	if rec2.Request.HetznerToken != "" {
-		t.Errorf("on-disk credentials leaked: %q", rec2.Request.HetznerToken)
+	if rec2.Request.Credentials["hcloud_token"] != "" {
+		t.Errorf("on-disk credentials leaked: %q", rec2.Request.Credentials["hcloud_token"])
 	}
 }
 
@@ -850,7 +850,7 @@ func TestSlimForHandover(t *testing.T) {
 					OrgName:       "Acme",
 					OrgEmail:      "ops@acme.io",
 					SovereignFQDN: "k8s.acme.io",
-					HetznerToken:  "secret-do-not-leak",
+					Credentials:   map[string]string{"hcloud_token": "secret-do-not-leak"},
 					DynadotAPIKey: "secret-too",
 				},
 				Result: &provisioner.Result{
@@ -919,8 +919,8 @@ func TestSlimForHandover(t *testing.T) {
 			if out.Error != "" {
 				t.Errorf("Error not zeroed: %q", out.Error)
 			}
-			if out.Request.HetznerToken != "" {
-				t.Errorf("HetznerToken leaked: %q", out.Request.HetznerToken)
+			if out.Request.Credentials["hcloud_token"] != "" {
+				t.Errorf("HetznerToken leaked: %q", out.Request.Credentials["hcloud_token"])
 			}
 			if out.Request.DynadotAPIKey != "" {
 				t.Errorf("DynadotAPIKey leaked: %q", out.Request.DynadotAPIKey)
@@ -964,7 +964,7 @@ func TestSlimForHandover_StoreRecordRoundTrip(t *testing.T) {
 			OrgName:       "Tenant",
 			OrgEmail:      "ops@tenant.io",
 			SovereignFQDN: "tenant.omani.works",
-			HetznerToken:  "secret-must-not-survive",
+			Credentials:   map[string]string{"hcloud_token": "secret-must-not-survive"},
 		},
 	}
 	slim := original.SlimForHandover(finished)
@@ -985,11 +985,11 @@ func TestSlimForHandover_StoreRecordRoundTrip(t *testing.T) {
 		t.Errorf("SovereignFQDN did not round-trip: %q", decoded.Request.SovereignFQDN)
 	}
 	// Credentials must be redacted on disk (existing Redact contract).
-	if decoded.Request.HetznerToken != "" {
+	if decoded.Request.Credentials["hcloud_token"] != "" {
 		// Slim record sets HetznerToken to "" before redaction; redaction
 		// only marks present fields. So an empty token must round-trip
 		// as empty (not <redacted>).
-		t.Errorf("HetznerToken not zero on slim record after round-trip: %q", decoded.Request.HetznerToken)
+		t.Errorf("HetznerToken not zero on slim record after round-trip: %q", decoded.Request.Credentials["hcloud_token"])
 	}
 }
 

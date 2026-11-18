@@ -37,7 +37,7 @@ func TestRedact_RoundTripsParentDomains(t *testing.T) {
 	req := provisioner.Request{
 		OrgName:       "Omantel",
 		SovereignFQDN: "omantel.omani.works",
-		HetznerToken:  "leaked-if-broken",
+		Credentials:   map[string]string{"hcloud_token": "leaked-if-broken"},
 		ParentDomains: []provisioner.ParentDomain{
 			{Name: "omani.works", Role: provisioner.ParentDomainRolePrimary, RegistrarKind: "dynadot", AddedAt: addedAt},
 			{Name: "omani.trade", Role: provisioner.ParentDomainRoleOrgPool, RegistrarKind: "dynadot", RegistrarCredsRef: "dynadot-omani-trade", AddedAt: addedAt.Add(time.Hour)},
@@ -84,7 +84,7 @@ func TestRedact_EmptyParentDomainsStaysEmpty(t *testing.T) {
 	req := provisioner.Request{
 		OrgName:       "Acme",
 		SovereignFQDN: "acme.openova.io",
-		HetznerToken:  "tok",
+		Credentials:   map[string]string{"hcloud_token": "tok"},
 		// ParentDomains intentionally nil.
 	}
 	out := Redact(req)
@@ -114,7 +114,7 @@ func TestSaveLoad_RoundTripsParentDomains(t *testing.T) {
 		Request: Redact(provisioner.Request{
 			OrgName:       "Omantel",
 			SovereignFQDN: "omantel.omani.works",
-			HetznerToken:  "tok",
+			Credentials:   map[string]string{"hcloud_token": "tok"},
 			ParentDomains: []provisioner.ParentDomain{
 				{Name: "omani.works", Role: provisioner.ParentDomainRolePrimary, RegistrarKind: "dynadot", AddedAt: addedAt},
 				{Name: "omani.trade", Role: provisioner.ParentDomainRoleOrgPool, RegistrarKind: "dynadot", AddedAt: addedAt.Add(time.Hour)},
@@ -220,8 +220,8 @@ func TestLegacyRecord_NoParentDomainsKey_LoadsCleanly(t *testing.T) {
 	// The record predates the stored provider; Validate never defaults one
 	// (CLD-103), so the harness names it like the other placeholders.
 	preq.Provider = "hetzner"
-	preq.HetznerToken = "harness-token"
-	preq.HetznerProjectID = "harness-project"
+	preq.SetCredential("hcloud_token", "harness-token")
+	preq.SetCredential("hcloud_project_id", "harness-project")
 	preq.HarborRobotToken = "harness-harbor"
 	preq.GHCRPullToken = "harness-ghcr"
 	preq.ObjectStorageRegion = "fsn1"

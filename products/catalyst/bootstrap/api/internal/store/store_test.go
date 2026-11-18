@@ -36,8 +36,7 @@ func TestRedact_OmitsAllSecrets(t *testing.T) {
 		SovereignDomainMode: "pool",
 		SovereignPoolDomain: "omani.works",
 		SovereignSubdomain:  "omantel",
-		HetznerToken:        "real-hcloud-token-DO-NOT-LEAK",
-		HetznerProjectID:    "real-project-id",
+		Credentials:         map[string]string{"hcloud_token": "real-hcloud-token-DO-NOT-LEAK", "hcloud_project_id": "real-project-id"},
 		Region:              "fsn1",
 		ControlPlaneSize:    "cx32",
 		WorkerSize:          "cx32",
@@ -54,8 +53,8 @@ func TestRedact_OmitsAllSecrets(t *testing.T) {
 	// original plaintext. We assert on the marker AND on the absence
 	// of the original substring — a regression that swapped the marker
 	// for "***" or some other token would still be caught.
-	if out.HetznerToken != redactedMarker {
-		t.Errorf("HetznerToken = %q, want %q", out.HetznerToken, redactedMarker)
+	if out.Credentials["hcloud_token"] != redactedMarker {
+		t.Errorf("HetznerToken = %q, want %q", out.Credentials["hcloud_token"], redactedMarker)
 	}
 	if out.DynadotAPIKey != redactedMarker {
 		t.Errorf("DynadotAPIKey = %q, want %q", out.DynadotAPIKey, redactedMarker)
@@ -103,7 +102,7 @@ func TestRedact_EmptyCredentialsStayEmpty(t *testing.T) {
 	req := provisioner.Request{
 		OrgName:             "Acme",
 		SovereignDomainMode: "byo",
-		HetznerToken:        "t",
+		Credentials:         map[string]string{"hcloud_token": "t"},
 		// DynadotAPIKey + DynadotAPISecret intentionally empty.
 	}
 	out := Redact(req)
@@ -113,8 +112,8 @@ func TestRedact_EmptyCredentialsStayEmpty(t *testing.T) {
 	if out.DynadotAPISecret != "" {
 		t.Errorf("empty DynadotAPISecret was rewritten to %q", out.DynadotAPISecret)
 	}
-	if out.HetznerToken != redactedMarker {
-		t.Errorf("non-empty HetznerToken should be redacted, got %q", out.HetznerToken)
+	if out.Credentials["hcloud_token"] != redactedMarker {
+		t.Errorf("non-empty HetznerToken should be redacted, got %q", out.Credentials["hcloud_token"])
 	}
 }
 
@@ -135,7 +134,7 @@ func TestSaveAndLoadAll_RoundTripsRecord(t *testing.T) {
 			OrgName:          "Omantel",
 			SovereignFQDN:    "omantel.omani.works",
 			Region:           "fsn1",
-			HetznerToken:     "leaked-if-broken",
+			Credentials:      map[string]string{"hcloud_token": "leaked-if-broken"},
 			DynadotAPIKey:    "leaked-if-broken",
 			DynadotAPISecret: "leaked-if-broken",
 		}),
@@ -206,8 +205,8 @@ func TestSaveAndLoadAll_RoundTripsRecord(t *testing.T) {
 	if g.Events[1].Message != "hcloud_server.cp[0] created" {
 		t.Errorf("event message round-trip failed: %q", g.Events[1].Message)
 	}
-	if g.Request.HetznerToken != redactedMarker {
-		t.Errorf("HetznerToken on disk should be %q, got %q", redactedMarker, g.Request.HetznerToken)
+	if g.Request.Credentials["hcloud_token"] != redactedMarker {
+		t.Errorf("HetznerToken on disk should be %q, got %q", redactedMarker, g.Request.Credentials["hcloud_token"])
 	}
 }
 
@@ -341,5 +340,77 @@ func TestPath_RejectsTraversal(t *testing.T) {
 		if _, err := s.path(id); err == nil {
 			t.Errorf("path(%q) returned no error — traversal possible", id)
 		}
+	}
+}
+
+// TestRedact_KeepsTheNonSecretCredentials: a credential that the cloud
+// profile marks not secret keeps its value through Save and Load, so the
+// infrastructure view and the wipe still read it after a Pod restart; a
+// secret value and a server-only key are redacted.
+func TestRedact_KeepsTheNonSecretCredentials(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New(dir)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	const id = "0123456789abcdef"
+	rec := Record{ID: id, Status: "ready", Request: Redact(provisioner.Request{
+		Provider:    "hetzner",
+		Credentials: map[string]string{"hcloud_token": "HCLOUD-TOKEN-DO-NOT-LEAK", "hcloud_project_id": "project-7"},
+	})}
+	if err := s.Save(rec); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Clean(filepath.Join(dir, id+".json")))
+	if err != nil {
+		t.Fatalf("read the record: %v", err)
+	}
+	if strings.Contains(string(raw), "HCLOUD-TOKEN-DO-NOT-LEAK") {
+		t.Errorf("the record holds the token: %s", raw)
+	}
+	got, err := s.Load(id)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	req := got.Request.ToProvisionerRequest()
+	if v := req.Credential("hcloud_project_id"); v != "project-7" {
+		t.Errorf("project after reload = %q, want %q", v, "project-7")
+	}
+	if v := req.Credentials["hcloud_token"]; v != redactedMarker {
+		t.Errorf("token after reload = %q, want the marker", v)
+	}
+
+	hw := Redact(provisioner.Request{
+		Provider:    "huawei",
+		Credentials: map[string]string{"access_key": "AK", "secret_key": "SK", "project_id": "PID", "region": "R"},
+	})
+	for key, v := range hw.Credentials {
+		if v != redactedMarker {
+			t.Errorf("server-only or secret key %q stored as %q, want the marker", key, v)
+		}
+	}
+}
+
+// TestLoad_LegacyRecordKeepsItsProject: a record written before the
+// credentials map held the project in plain text in a legacy field; a reload
+// gives it back through the map and the next Save keeps it.
+func TestLoad_LegacyRecordKeepsItsProject(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "provisioner", "testdata", "legacy-record.json"))
+	if err != nil {
+		t.Fatalf("read the legacy record: %v", err)
+	}
+	var rec Record
+	if err := json.Unmarshal(raw, &rec); err != nil {
+		t.Fatalf("decode the legacy record: %v", err)
+	}
+	req := rec.Request.ToProvisionerRequest()
+	if v := req.Credential("hcloud_project_id"); v != "legacy-project" {
+		t.Errorf("project of the legacy record = %q, want %q", v, "legacy-project")
+	}
+	if v := req.Credential("hcloud_token"); v != "" {
+		t.Errorf("token of the legacy record = %q, want empty", v)
+	}
+	if v := Redact(req).Credentials["hcloud_project_id"]; v != "legacy-project" {
+		t.Errorf("project after the next Save = %q, want %q", v, "legacy-project")
 	}
 }

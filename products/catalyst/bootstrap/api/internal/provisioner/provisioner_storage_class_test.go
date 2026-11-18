@@ -34,12 +34,12 @@ func huaweiTfvarsRequest(t *testing.T) Request {
 	r := baseValidateRequest(t)
 	r.Provider = "huawei"
 	// Hetzner creds are not required once Provider=huawei; the Huawei triplet is.
-	r.HetznerToken = ""
-	r.HetznerProjectID = ""
-	r.HuaweiAccessKey = "AKIA-huawei-fake"
-	r.HuaweiSecretKey = "SK-huawei-fake"
-	r.HuaweiProjectID = "f27698137bdc4b00ad509cf27f1e5547"
-	r.HuaweiRegion = "me-east-215"
+	r.SetCredential("hcloud_token", "")
+	r.SetCredential("hcloud_project_id", "")
+	r.SetCredential("access_key", "AKIA-huawei-fake")
+	r.SetCredential("secret_key", "SK-huawei-fake")
+	r.SetCredential("project_id", "f27698137bdc4b00ad509cf27f1e5547")
+	r.SetCredential("region", "me-east-215")
 	r.Region = "me-east-215-a"
 	r.ControlPlaneSize = "s7n.large.4"
 	return *r

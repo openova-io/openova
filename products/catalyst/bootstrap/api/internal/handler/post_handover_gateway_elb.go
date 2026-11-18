@@ -107,7 +107,7 @@ func (h *Handler) runPostHandoverGatewayELB(dep *Deployment) {
 		return
 	}
 
-	region := strings.TrimSpace(dep.Request.HuaweiRegion)
+	region := strings.TrimSpace(dep.Request.Credential("region"))
 	if region == "" && len(dep.Request.Regions) > 0 {
 		region = strings.TrimSpace(dep.Request.Regions[0].CloudRegion)
 	}
@@ -137,7 +137,7 @@ func (h *Handler) runPostHandoverGatewayELB(dep *Deployment) {
 			}
 			changed, rerr := hp.ReconcileGatewayELBMembers(
 				context.Background(),
-				dep.Request.HuaweiAccessKey, dep.Request.HuaweiSecretKey, dep.Request.HuaweiProjectID,
+				dep.Request.Credential("access_key"), dep.Request.Credential("secret_key"), dep.Request.Credential("project_id"),
 				region, fqdn, nodeIPs, peerIPs, gatewayHostPortHTTPS, gatewayHostPortHTTP, sweepStale,
 				func(msg string) { h.log.Info("gateway-elb: " + msg) },
 			)
@@ -171,7 +171,7 @@ func (h *Handler) runPostHandoverGatewayELB(dep *Deployment) {
 			// it is logged, not returned.
 			if cChanged, cErr := hp.ReconcileConsoleELBMembers(
 				context.Background(),
-				dep.Request.HuaweiAccessKey, dep.Request.HuaweiSecretKey, dep.Request.HuaweiProjectID,
+				dep.Request.Credential("access_key"), dep.Request.Credential("secret_key"), dep.Request.Credential("project_id"),
 				region, fqdn, nodeIPs, peerIPs, consoleHostPortHTTPS, consoleHostPortHTTP, sweepStale,
 				func(msg string) { h.log.Info("console-elb: " + msg) },
 			); cErr != nil {

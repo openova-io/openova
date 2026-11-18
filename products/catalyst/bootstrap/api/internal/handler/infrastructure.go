@@ -324,7 +324,7 @@ func (h *Handler) loaderInputFor(dep *Deployment) infrastructure.LoaderInput {
 		WorkerSize:       dep.Request.WorkerSize,
 		CPSize:           dep.Request.ControlPlaneSize,
 		Result:           dep.Result,
-		HetznerProjectID: dep.Request.HetznerProjectID,
+		HetznerProjectID: dep.Request.Credential("hcloud_project_id"),
 		DynamicClient:    h.tryDynamicClientLocked(dep),
 	}
 	// G14 (Refs #2551): wire k8sCache so the chroot post-cutover

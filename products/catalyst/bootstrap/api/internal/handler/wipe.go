@@ -389,8 +389,8 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 		// #5193 — operator-creds env fallback. Only fires when body +
 		// tfvars + in-memory dep.Request are still empty for the
 		// authenticating pair; body/tfvars-supplied values always win.
-		if firstNonEmpty(body.HuaweiAccessKey, dep.Request.HuaweiAccessKey) == "" ||
-			firstNonEmpty(body.HuaweiSecretKey, dep.Request.HuaweiSecretKey) == "" {
+		if firstNonEmpty(body.HuaweiAccessKey, dep.Request.Credential("access_key")) == "" ||
+			firstNonEmpty(body.HuaweiSecretKey, dep.Request.Credential("secret_key")) == "" {
 			if hw, ok := huaweiOperatorCredsFromEnv(); ok {
 				if strings.TrimSpace(body.HuaweiAccessKey) == "" {
 					body.HuaweiAccessKey = hw.AccessKey
@@ -406,8 +406,8 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		if firstNonEmpty(body.HuaweiAccessKey, body.HetznerToken, dep.Request.HuaweiAccessKey) == "" ||
-			firstNonEmpty(body.HuaweiSecretKey, body.ObjectStorageSecretKey, dep.Request.HuaweiSecretKey) == "" {
+		if firstNonEmpty(body.HuaweiAccessKey, body.HetznerToken, dep.Request.Credential("access_key")) == "" ||
+			firstNonEmpty(body.HuaweiSecretKey, body.ObjectStorageSecretKey, dep.Request.Credential("secret_key")) == "" {
 			http.Error(w, "huawei credentials are required (huaweiAccessKey + huaweiSecretKey in body, or already on PVC tfvars, or CATALYST_HUAWEI_ACCESS_KEY/_SECRET_KEY env on catalyst-api)", http.StatusBadRequest)
 			return
 		}
@@ -670,8 +670,7 @@ func (h *Handler) runWipePurge(dep *Deployment, id string, body wipeRequest, pre
 	// (which itself survives a Pod restart only when the wizard didn't
 	// re-prompt before submit). The provider-specific Creds map below
 	// resolves both layers so adapter.Wipe() gets a clean union.
-	wipeReq := dep.Request
-	wipeReq.HetznerToken = body.HetznerToken
+	wipeReq := dep.Request.WithCredential("hcloud_token", body.HetznerToken)
 
 	prov := provisioner.New()
 	// #5193 — rooted in context.Background(), NOT the (now long-since-
@@ -1275,10 +1274,10 @@ func buildWipeCredsRaw(providerName string, body wipeRequest, depReq provisioner
 		// one-environment-at-a-time preflight for the next fire. catalyst-api's
 		// OWN env still holds the operator creds, so a re-wipe can authenticate.
 		// Precedence: body > depReq > operator env.
-		out["access_key"] = firstNonEmpty(body.HuaweiAccessKey, body.HetznerToken, depReq.HuaweiAccessKey, os.Getenv("CATALYST_HUAWEI_ACCESS_KEY"))
-		out["secret_key"] = firstNonEmpty(body.HuaweiSecretKey, body.ObjectStorageSecretKey, depReq.HuaweiSecretKey, os.Getenv("CATALYST_HUAWEI_SECRET_KEY"))
-		out["project_id"] = firstNonEmpty(body.HuaweiProjectID, body.ObjectStorageAccessKey, depReq.HuaweiProjectID, os.Getenv("CATALYST_HUAWEI_PROJECT_ID"))
-		out["region"] = firstNonEmpty(body.HuaweiRegion, body.ObjectStorageRegion, depReq.HuaweiRegion, os.Getenv("CATALYST_HUAWEI_REGION"))
+		out["access_key"] = firstNonEmpty(body.HuaweiAccessKey, body.HetznerToken, depReq.Credential("access_key"), os.Getenv("CATALYST_HUAWEI_ACCESS_KEY"))
+		out["secret_key"] = firstNonEmpty(body.HuaweiSecretKey, body.ObjectStorageSecretKey, depReq.Credential("secret_key"), os.Getenv("CATALYST_HUAWEI_SECRET_KEY"))
+		out["project_id"] = firstNonEmpty(body.HuaweiProjectID, body.ObjectStorageAccessKey, depReq.Credential("project_id"), os.Getenv("CATALYST_HUAWEI_PROJECT_ID"))
+		out["region"] = firstNonEmpty(body.HuaweiRegion, body.ObjectStorageRegion, depReq.Credential("region"), os.Getenv("CATALYST_HUAWEI_REGION"))
 		// Region defaults to me-east-215 ONLY when AK/SK/PID all resolved
 		// (mirrors janitor.go:818). The truly-empty case stays region="" so the
 		// EVS/orphan backstop reads "no creds" instead of scanning me-east-215
@@ -1290,7 +1289,7 @@ func buildWipeCredsRaw(providerName string, body wipeRequest, depReq provisioner
 		// hetzner (canonical) — same wire shape pre-Wave-3.
 		token := strings.TrimSpace(body.HetznerToken)
 		out["hcloud_token"] = token
-		out["hcloud_project_id"] = strings.TrimSpace(depReq.HetznerProjectID)
+		out["hcloud_project_id"] = strings.TrimSpace(depReq.Credential("hcloud_project_id"))
 		// Object-storage creds: body-supplied wins, in-memory dep.Request fallback.
 		access := strings.TrimSpace(body.ObjectStorageAccessKey)
 		if access == "" {

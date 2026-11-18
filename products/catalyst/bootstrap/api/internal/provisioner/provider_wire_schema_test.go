@@ -38,19 +38,17 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers"
 )
 
-// huaweiValidBase mirrors validBase() but populates the Huawei credential
-// triplet AND sets Provider="huawei" so the surrounding HetznerToken-
-// required check is satisfied via the switch's huawei branch.
+// huaweiValidBase mirrors validBase() with Provider="huawei" and the three
+// credential keys of the Huawei profile in the credentials map instead of
+// the Hetzner ones.
 func huaweiValidBase() Request {
 	r := validBase()
 	r.Provider = "huawei"
-	r.HetznerToken = ""     // not relevant for huawei; switch must allow empty
-	r.HetznerProjectID = "" // ditto
-	r.HuaweiAccessKey = "TESTAK1234567890"
-	r.HuaweiSecretKey = "TESTSKABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
-	r.HuaweiProjectID = "0a1b2c3d4e5f6789abcd"
-	// HuaweiRegion intentionally empty so the writeTfvars() default-fallback
-	// path is exercised by TestWriteTfvars_Huawei_DefaultsRegion.
+	r.Credentials = map[string]string{
+		"access_key": "TESTAK1234567890",
+		"secret_key": "TESTSKABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
+		"project_id": "0a1b2c3d4e5f6789abcd",
+	}
 	r.Region = "me-east-215"
 	r.ControlPlaneSize = "s7n.large.4"
 	return r
@@ -80,39 +78,53 @@ func TestRequestValidate_Provider_EmptyIsAFieldError(t *testing.T) {
 	r = validBase()
 	r.Region = "fsn1"
 	r.ControlPlaneSize = "cx42"
-	r.HetznerToken = ""
+	r.SetCredential("hcloud_token", "")
 	err = r.Validate()
 	if !errors.As(err, &fe) || fe.Field != "credentials.hcloud_token" {
 		t.Fatalf("missing hcloud_token: got %v, want a field error on credentials.hcloud_token", err)
 	}
 }
 
-// TestValidate_CredentialsMapAndLegacyFieldsAgree — syncLegacyCredentials
-// fills an empty legacy field from the credentials map and writes a set one
-// into the map, so the field set server-side wins.
-func TestValidate_CredentialsMapAndLegacyFieldsAgree(t *testing.T) {
+// TestValidate_CredentialsMapAndObjectStorageFieldsAgree — the credentials
+// map is the only place of a cloud credential (CLD-104); syncLegacyCredentials
+// keeps its Object Storage keys and the Object Storage fields equal: a set
+// field is written into the map, an empty field is filled from the map.
+func TestValidate_CredentialsMapAndObjectStorageFieldsAgree(t *testing.T) {
 	r := validBase()
 	r.Region = "fsn1"
 	r.ControlPlaneSize = "cx42"
-	r.HetznerToken = ""
-	r.Credentials = map[string]string{"hcloud_token": "from-the-map"}
+	r.ObjectStorageSecretKey = ""
+	r.Credentials = map[string]string{"hcloud_token": "from-the-map", "object_storage_secret_key": "secret-from-the-map"}
 	if err := r.Validate(); err != nil {
 		t.Fatalf("a token in the credentials map should satisfy the profile: %v", err)
 	}
-	if r.HetznerToken != "from-the-map" {
-		t.Errorf("HetznerToken = %q, want it filled from the map", r.HetznerToken)
+	if r.Credentials["hcloud_token"] != "from-the-map" {
+		t.Errorf("credentials[hcloud_token] = %q, want the value of the map", r.Credentials["hcloud_token"])
 	}
 	if r.Credentials["object_storage_region"] != "fsn1" {
 		t.Errorf("credentials[object_storage_region] = %q, want the request's Object Storage region", r.Credentials["object_storage_region"])
 	}
-
-	h := huaweiValidBase()
-	h.Credentials = map[string]string{"access_key": "from-the-body"}
-	if err := h.Validate(); err != nil {
-		t.Fatalf("huawei request should validate: %v", err)
+	if r.ObjectStorageSecretKey != "secret-from-the-map" {
+		t.Errorf("ObjectStorageSecretKey = %q, want it filled from the map", r.ObjectStorageSecretKey)
 	}
-	if h.Credentials["access_key"] != "TESTAK1234567890" || h.HuaweiAccessKey != "TESTAK1234567890" {
-		t.Errorf("the server-side access key must win: field %q, map %q", h.HuaweiAccessKey, h.Credentials["access_key"])
+}
+
+// TestRequest_CredentialAccessors — Credential reads a key, and reads the
+// redaction marker of a stored record as empty; WithCredential changes a copy
+// of the map, never the request it is called on.
+func TestRequest_CredentialAccessors(t *testing.T) {
+	r := Request{Credentials: map[string]string{"access_key": "ak", "secret_key": RedactedMarker}}
+	if r.Credential("access_key") != "ak" || r.Credential("secret_key") != "" || r.Credential("absent") != "" {
+		t.Errorf("Credential: access_key %q, secret_key %q, absent %q", r.Credential("access_key"), r.Credential("secret_key"), r.Credential("absent"))
+	}
+	c := r.WithCredential("access_key", "other")
+	if r.Credentials["access_key"] != "ak" || c.Credentials["access_key"] != "other" {
+		t.Errorf("WithCredential changed the original: original %q, copy %q", r.Credentials["access_key"], c.Credentials["access_key"])
+	}
+	var empty Request
+	empty.SetCredential("region", "r-1")
+	if empty.Credentials["region"] != "r-1" {
+		t.Errorf("SetCredential on a nil map: %v", empty.Credentials)
 	}
 }
 
@@ -151,21 +163,21 @@ func TestRequestValidate_Provider_HuaweiRequiresAllThreeFields(t *testing.T) {
 		{
 			name: "missing-access-key",
 			patch: func(r *Request) {
-				r.HuaweiAccessKey = ""
+				r.SetCredential("access_key", "")
 			},
 			wantField: "credentials.access_key",
 		},
 		{
 			name: "missing-secret-key",
 			patch: func(r *Request) {
-				r.HuaweiSecretKey = ""
+				r.SetCredential("secret_key", "")
 			},
 			wantField: "credentials.secret_key",
 		},
 		{
 			name: "missing-project-id",
 			patch: func(r *Request) {
-				r.HuaweiProjectID = ""
+				r.SetCredential("project_id", "")
 			},
 			wantField: "credentials.project_id",
 		},
@@ -246,43 +258,31 @@ func TestRequestValidate_Provider_UnknownRejected(t *testing.T) {
 	}
 }
 
-// TestRequest_HuaweiCreds_NeverOnWire — after PR #2144 (Wave 4.5) the
+// TestRequest_HuaweiCreds_NeverFromTheWire — after PR #2144 (Wave 4.5) the
 // Huawei IAM credentials are server-side-only: stamped from K8s Secret
-// `huawei-operator-creds` via env vars at CreateDeployment, NEVER
-// accepted from the wizard POST body. The four Huawei* fields therefore
-// carry json:"-" tags (matching DynadotAPIKey / GHCRPullToken /
-// HarborRobotToken / PowerDNSAPIKey / PDMBasicAuth* — every other
-// operator credential in the codebase). This test pins the new
-// contract: even when populated, the fields MUST NOT appear in the
-// marshaled JSON.
+// `huawei-operator-creds` at CreateDeployment, NEVER accepted from the wizard
+// POST body. Since CLD-104 the request carries them in its credentials map,
+// so the contract is pinned on the way in: the old JSON names decode into
+// nothing (the Huawei adapter names no legacy alias), and a body whose
+// credentials map names one of the server-only keys is refused.
 //
 // History: the original v1 of this test (PR #2143, Wave 4) asserted
 // the opposite — that huaweiSecretKey IS in the wire. That was the
 // credential-exfiltration antipattern caught + fixed in #2144.
-func TestRequest_HuaweiCreds_NeverOnWire(t *testing.T) {
-	const akSentinel = "TESTAK_WIRE_FORMAT_PROBE_NOT_REAL"
-	const skSentinel = "TESTSK_WIRE_FORMAT_PROBE_NOT_REAL"
-	const pidSentinel = "TESTPID_WIRE_FORMAT_PROBE_NOT_REAL"
-	const regionSentinel = "TESTREGION_WIRE_FORMAT_PROBE_NOT_REAL"
-	r := Request{
-		HuaweiAccessKey: akSentinel,
-		HuaweiSecretKey: skSentinel,
-		HuaweiProjectID: pidSentinel,
-		HuaweiRegion:    regionSentinel,
+func TestRequest_HuaweiCreds_NeverFromTheWire(t *testing.T) {
+	var r Request
+	body := `{"provider":"huawei","huaweiAccessKey":"TESTAK_WIRE_PROBE","huaweiSecretKey":"TESTSK_WIRE_PROBE","huaweiProjectID":"TESTPID_WIRE_PROBE","huaweiRegion":"TESTREGION_WIRE_PROBE"}`
+	if err := json.Unmarshal([]byte(body), &r); err != nil {
+		t.Fatalf("decode: %v", err)
 	}
-
-	raw, err := jsonMarshal(r)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
+	if len(r.Credentials) != 0 {
+		t.Errorf("the old Huawei JSON names reached the credentials map: %v", r.Credentials)
 	}
-	for _, key := range []string{"huaweiAccessKey", "huaweiSecretKey", "huaweiProjectID", "huaweiRegion"} {
-		if strings.Contains(raw, key) {
-			t.Errorf("Huawei field %s leaked into wire JSON (must be json:\"-\"); got: %s", key, raw)
-		}
-	}
-	for _, sentinel := range []string{akSentinel, skSentinel, pidSentinel, regionSentinel} {
-		if strings.Contains(raw, sentinel) {
-			t.Errorf("Huawei credential sentinel %q leaked into wire JSON: %s", sentinel, raw)
+	for _, key := range []string{"access_key", "secret_key", "project_id", "region"} {
+		named := Request{Provider: "huawei", Credentials: map[string]string{key: "from-the-body"}}
+		fe := RefuseServerOnlyCredentials(&named)
+		if fe == nil || fe.Field != "credentials."+key {
+			t.Errorf("a body naming credentials.%s: got %v, want a field error on it", key, fe)
 		}
 	}
 }
@@ -305,107 +305,6 @@ func TestRequest_HuaweiFields_OmitEmpty(t *testing.T) {
 		if strings.Contains(raw, key) {
 			t.Errorf("empty %s should be omitted from JSON; got: %s", key, raw)
 		}
-	}
-}
-
-// TestWriteTfvars_Huawei_EmitsCredsAndProvider — for a Provider=huawei
-// Request, writeTfvars() MUST emit:
-//
-//   - `provider`: "huawei"
-//   - `huawei_access_key` / `huawei_secret_key` / `huawei_project_id`
-//   - `huawei_region` defaulted to "me-east-215" when omitted
-//
-// The OpenTofu module at infra/providers/huawei/variables.tf declares
-// the matching `var.huawei_*` set; this test pins the tfvars contract.
-func TestWriteTfvars_Huawei_EmitsCredsAndProvider(t *testing.T) {
-	dir := t.TempDir()
-	r := huaweiValidBase()
-	if err := r.Validate(); err != nil {
-		t.Fatalf("seed Request did not validate: %v", err)
-	}
-	if err := writeTfvars(dir, r); err != nil {
-		t.Fatalf("writeTfvars: %v", err)
-	}
-
-	got := readTfvars(t, dir)
-	if got["provider"] != "huawei" {
-		t.Errorf("tfvars[provider] = %v, want huawei", got["provider"])
-	}
-	if got["huawei_access_key"] != r.HuaweiAccessKey {
-		t.Errorf("tfvars[huawei_access_key] = %v, want %q", got["huawei_access_key"], r.HuaweiAccessKey)
-	}
-	if got["huawei_secret_key"] != r.HuaweiSecretKey {
-		t.Errorf("tfvars[huawei_secret_key] = %v, want %q", got["huawei_secret_key"], r.HuaweiSecretKey)
-	}
-	if got["huawei_project_id"] != r.HuaweiProjectID {
-		t.Errorf("tfvars[huawei_project_id] = %v, want %q", got["huawei_project_id"], r.HuaweiProjectID)
-	}
-	if got["huawei_region"] != "me-east-215" {
-		t.Errorf("tfvars[huawei_region] = %v, want me-east-215 (default)", got["huawei_region"])
-	}
-}
-
-// TestWriteTfvars_Huawei_RespectsExplicitRegion — when the operator
-// supplies a non-default HuaweiRegion (e.g. public Huawei Cloud
-// `ap-southeast-1`), writeTfvars() must honour it instead of
-// stomping with the HCS default.
-func TestWriteTfvars_Huawei_RespectsExplicitRegion(t *testing.T) {
-	dir := t.TempDir()
-	r := huaweiValidBase()
-	r.HuaweiRegion = "ap-southeast-1"
-	if err := r.Validate(); err != nil {
-		t.Fatalf("seed Request did not validate: %v", err)
-	}
-	if err := writeTfvars(dir, r); err != nil {
-		t.Fatalf("writeTfvars: %v", err)
-	}
-	got := readTfvars(t, dir)
-	if got["huawei_region"] != "ap-southeast-1" {
-		t.Errorf("explicit HuaweiRegion not honoured: got %v, want ap-southeast-1", got["huawei_region"])
-	}
-}
-
-// TestWriteTfvars_Hetzner_OmitsHuaweiKeys — for a Provider=hetzner
-// Request, writeTfvars() MUST NOT emit any `huawei_*` key. Credential
-// hygiene: Huawei creds never land in a Hetzner provision's tfvars
-// file, even if the Request struct happened to be re-used from a
-// Huawei context.
-func TestWriteTfvars_Hetzner_OmitsHuaweiKeys(t *testing.T) {
-	dir := t.TempDir()
-	r := validBase()
-	r.Region = "fsn1"
-	r.ControlPlaneSize = "cx42"
-	// Set Huawei fields to confirm they don't leak even when populated.
-	r.HuaweiAccessKey = "STALE_FROM_PREV_REQUEST"
-	r.HuaweiSecretKey = "STALE_FROM_PREV_REQUEST"
-	r.HuaweiProjectID = "STALE_FROM_PREV_REQUEST"
-	if err := r.Validate(); err != nil {
-		t.Fatalf("seed Request did not validate: %v", err)
-	}
-	if err := writeTfvars(dir, r); err != nil {
-		t.Fatalf("writeTfvars: %v", err)
-	}
-	got := readTfvars(t, dir)
-	if got["provider"] != "hetzner" {
-		t.Errorf("tfvars[provider] = %v, want hetzner", got["provider"])
-	}
-	for _, key := range []string{
-		"huawei_access_key", "huawei_secret_key", "huawei_project_id", "huawei_region",
-	} {
-		if _, ok := got[key]; ok {
-			t.Errorf("tfvars[%s] leaked into a Hetzner provision: %v", key, got[key])
-		}
-	}
-	// Also confirm raw bytes never carry the sentinel value — a tighter
-	// proof against a future regression that emits the key with an
-	// empty string (which would round-trip through map decoding fine
-	// but still leak credentials in the bytes).
-	raw, err := os.ReadFile(filepath.Join(dir, "tofu.auto.tfvars.json"))
-	if err != nil {
-		t.Fatalf("read tfvars: %v", err)
-	}
-	if strings.Contains(string(raw), "STALE_FROM_PREV_REQUEST") {
-		t.Errorf("Hetzner tfvars carried stale Huawei creds: %s", raw)
 	}
 }
 

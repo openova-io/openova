@@ -157,39 +157,81 @@ func fill(req *provisioner.Request, k kept) {
 	}
 }
 
+// credential is one credential of a request: the string field with index
+// field, or, when key is not empty, the key of the credentials map.
+type credential struct {
+	field int
+	key   string
+}
+
 // credentials sets on req every credential from the kept file, under the key
 // that credentialKeys finds for it. A credential is always the kept file's:
 // the record holds none, only the marker of a redacted value. A field that
 // writeTfvars does not write for this request keeps the record's value. The
-// record's credentials map holds the keys with markers only, so it is dropped:
-// Validate builds it again from the fields set here (a marker left in it would
-// fill an empty field).
+// record's credentials map holds the keys with markers only, so it is
+// dropped: it gets only the keys the kept file holds (a marker left in it
+// would be sent to the cloud as a credential).
 func credentials(req *provisioner.Request, file map[string]any) error {
-	req.Credentials = nil
 	keys, err := credentialKeys(*req)
 	if err != nil {
 		return err
 	}
+	req.Credentials = nil
 	rv := reflect.ValueOf(req).Elem()
-	for i, key := range keys {
+	for c, key := range keys {
 		s, _ := file[key].(string)
-		rv.Field(i).SetString(s)
+		if c.key != "" {
+			req.SetCredential(c.key, s)
+			continue
+		}
+		rv.Field(c.field).SetString(s)
 	}
 	return nil
 }
 
-// credentialKeys returns, by field index, the key of the variables file that
+// mapKeys returns the keys of the credentials map that a request of the
+// provider of req may carry: the keys the stored record holds, the credential
+// fields of the effective cloud profile and the operator's own keys, sorted.
+// A record written before the credentials map existed holds none.
+func mapKeys(req provisioner.Request) []string {
+	set := map[string]bool{}
+	for key := range req.Credentials {
+		set[key] = true
+	}
+	if profile, err := provisioner.EffectiveProfile(req.Provider, req.Installation); err == nil {
+		for _, f := range profile.Spec.Credentials.Fields {
+			set[f.Key] = true
+		}
+	}
+	for _, key := range provisioner.ServerOnlyCredentialKeys {
+		set[key] = true
+	}
+	out := make([]string, 0, len(set))
+	for key := range set {
+		out = append(out, key)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// credentialKeys returns, by credential, the key of the variables file that
 // writeTfvars writes each credential of req to. The credentials are the
-// fields that unheld returns. Each is given a probe value of its own,
-// writeTfvars writes a probe file for the request in a temporary directory,
-// and the top-level key that holds the probe value of a field is its key (the
-// first in sorted order, when several hold it). The probe file holds no
-// credential, because a probe value stands in for each one, and it is removed.
-func credentialKeys(req provisioner.Request) (map[int]string, error) {
+// fields that unheld returns and the keys that mapKeys returns. Each is given
+// a probe value of its own, writeTfvars writes a probe file for the request
+// in a temporary directory, and the top-level key that holds the probe value
+// of a credential is its key (the first in sorted order, when several hold
+// it). The probe file holds no credential, because a probe value stands in
+// for each one, and it is removed.
+func credentialKeys(req provisioner.Request) (map[credential]string, error) {
 	fields := unheld()
+	names := mapKeys(req)
 	pv := reflect.ValueOf(&req).Elem()
 	for _, i := range fields {
 		pv.Field(i).SetString(probeValue(i))
+	}
+	req.Credentials = map[string]string{}
+	for n, key := range names {
+		req.Credentials[key] = probeValue(-1 - n)
 	}
 	tmp, err := os.MkdirTemp("", "tfvars-regenerate-")
 	if err != nil {
@@ -211,10 +253,15 @@ func credentialKeys(req provisioner.Request) (map[int]string, error) {
 			}
 		}
 	}
-	out := map[int]string{}
+	out := map[credential]string{}
 	for _, i := range fields {
 		if key, ok := keyOf[probeValue(i)]; ok {
-			out[i] = key
+			out[credential{field: i}] = key
+		}
+	}
+	for n, name := range names {
+		if key, ok := keyOf[probeValue(-1-n)]; ok {
+			out[credential{key: name}] = key
 		}
 	}
 	return out, nil

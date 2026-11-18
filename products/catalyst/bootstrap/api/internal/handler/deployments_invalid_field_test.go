@@ -210,8 +210,8 @@ func TestCreateDeployment_Huawei_WizardRegionsShape(t *testing.T) {
 	if req.Provider != "huawei" || len(req.Regions) != 2 {
 		t.Fatalf("Provider=%q regions=%d, want huawei with 2 regions", req.Provider, len(req.Regions))
 	}
-	if req.HuaweiAccessKey != "TESTAK1234567890" || req.HuaweiRegion != "me-east-215" {
-		t.Errorf("operator credentials not stamped: access key %q, region %q", req.HuaweiAccessKey, req.HuaweiRegion)
+	if req.Credentials["access_key"] != "TESTAK1234567890" || req.Credentials["region"] != "me-east-215" {
+		t.Errorf("operator credentials not stamped: access key %q, region %q", req.Credentials["access_key"], req.Credentials["region"])
 	}
 	if req.ObjectStorageAccessKey != "TESTAK1234567890" || req.ObjectStorageRegion != "me-east-215" {
 		t.Errorf("Object Storage not derived from the operator credentials: access key %q, region %q", req.ObjectStorageAccessKey, req.ObjectStorageRegion)
