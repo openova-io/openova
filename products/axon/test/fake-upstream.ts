@@ -13,7 +13,13 @@ import {
 
 export interface FakeStep {
   text?: string;
+  /** The text as separate deltas; replaces text. */
+  deltas?: string[];
   tools?: ToolUse[];
+  /** Per tool, its arguments as separate deltas; by default the JSON of its input in one. */
+  argParts?: string[][];
+  /** The fake waits for this after the text, before the tool uses and the end of the message. */
+  hold?: Promise<void>;
   stop?: string;
   usage?: Usage;
 }
@@ -44,10 +50,14 @@ export class FakeRun implements UpstreamRun {
   private async play(): Promise<void> {
     for (const s of this.script.steps) {
       const tools = s.tools ?? [];
-      if (s.text) this.push({ kind: "text_delta", text: s.text });
+      for (const text of s.deltas ?? (s.text ? [s.text] : [])) this.push({ kind: "text_delta", text });
+      if (s.hold) {
+        await s.hold;
+        if (this.closed) return;
+      }
       tools.forEach((u, index) => {
         this.push({ kind: "tool_start", index, id: u.id, name: u.name });
-        this.push({ kind: "tool_args_delta", index, json: JSON.stringify(u.input) });
+        for (const json of s.argParts?.[index] ?? [JSON.stringify(u.input)]) this.push({ kind: "tool_args_delta", index, json });
       });
       const stopReason = s.stop ?? (tools.length > 0 ? "tool_use" : "end_turn");
       this.push({ kind: "message_end", stopReason, toolUses: tools, usage: s.usage ?? STEP_USAGE });
@@ -82,6 +92,8 @@ export class FakeRun implements UpstreamRun {
   interrupted = false;
 
   close(): Promise<void> {
+    // As the kit does, a run closed before its end ends with an error.
+    if (!this.closed && !this.ended) this.push({ kind: "run_end", error: { message: "closed" } });
     this.closed = true;
     return new Promise((resolve) =>
       setImmediate(() => {
