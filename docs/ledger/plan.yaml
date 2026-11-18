@@ -6210,16 +6210,20 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "sha256sum < scripts/local-pack.sh"
+    expect: "a90186ef3f982511eb21207a104bd555de5b3bc018416e2cb188ca7f6ecab02b  -"
+  acceptance:
+  - id: A1
+    run: "test \"$(sha256sum < scripts/local-pack.sh)\" = \"4d64abe3c5c3a64d5207fb7b58de6d186bafdb76e62c86f01ff73b9397d5c333  -\" && bash scripts/local-pack.sh --self-test && python3 scripts/check-provider-leaks.py --check"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'With two regions, scripts/local-pack.sh up does what the parent console does after phase 1 (runAutoEstablishClusterMesh): it writes the peer entries into kube-system/cilium-clustermesh of each region, sets the host aliases of the peers on the cilium DaemonSet, restarts it, and waits until every agent reports every peer ready.'
+  delivers: 'With two regions, scripts/local-pack.sh up connects the Cilium meshes of the regions the way the console connects them on a Sovereign after phase 1: in each region it writes the peer entries of every other region into the Secret kube-system/cilium-clustermesh, sets the host aliases of the peers on the DaemonSet kube-system/cilium and restarts cilium, cilium-operator and clustermesh-apiserver, then waits until every Cilium agent reports every peer cluster ready; scripts/local-pack.sh discovery runs the suite as a run that requests no journey and passes only when the discovery steps D0.1, D0.2 and D0.10 pass.'
 - id: CLD-092
   title: Seal hook conformance and the profile's seal section
   area: CLD
