@@ -2547,7 +2547,7 @@ packages:
   size: S
   lane: RAILS
   depends_on: [FND-064, SOV-225]
-  after: [FND-059, FND-027, FND-028, FND-029, CLD-076, SEC-095, SEC-126, CMP-020]
+  after: [FND-059, FND-027, FND-028, FND-029, CLD-076, CLD-211, SEC-095, SEC-126, CMP-020]
   touches:
   - .github/workflows/release-key-resign.yaml
   - scripts/release-key-resign.py
@@ -8024,25 +8024,37 @@ packages:
   size: S
   lane: RAILS
   depends_on: [CLD-080, CLD-108]
-  after: [FND-059, CLD-010]
+  after: []
   touches:
   - scripts/check-provider-leaks.py
   - scripts/check-provider-pack-additive.sh
-  - .github/workflows/check-provider-contract.yaml
+  - .github/workflows/tree-guards.yaml
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test ! -e scripts/check-provider-pack-additive.sh && echo absent"
+    expect: "absent"
+  acceptance:
+  - id: A1
+    run: "test \"$(sha256sum < scripts/check-provider-leaks.py)\" = \"0887176d9468bae33a23802d324b0de8a92adf606dcd8c8394f5b19ef94c1eea  -\" && python3 scripts/check-provider-leaks.py --self-test > /dev/null && python3 scripts/check-provider-leaks.py --check > /dev/null"
+  - id: A2
+    run: "d=\"$(mktemp -d)\"; mkdir -p \"$d/infra/providers/local\" \"$d/core\" \"$d/scripts\"; cp infra/providers/local/pack.yaml \"$d/infra/providers/local/pack.yaml\"; printf 'source = \"kreuzwerker/docker\"\\n' > \"$d/core/main.tf\"; : > \"$d/scripts/provider-leak-baseline.tsv\"; git -C \"$d\" init -q; git -C \"$d\" add -A; rc=0; out=\"$(python3 scripts/check-provider-leaks.py --repo \"$d\" --check)\" || rc=$?; test \"$rc\" = 1; grep -q -F 'FAIL core/main.tf: 1 lines name a provider' <<< \"$out\""
+  - id: A3
+    run: "test \"$(sha256sum < scripts/check-provider-pack-additive.sh)\" = \"f2fce2d0320b2f475effc803ae151641a351948d8f5196777075459ce92db3c5  -\" && bash scripts/check-provider-pack-additive.sh --self-test > /dev/null"
+  - id: A4
+    run: "d=\"$(mktemp -d)\"; cp --parents scripts/check-provider-pack-additive.sh scripts/generators/provider-registry.py scripts/generators/providers.py infra/providers/_contract/generated-files.txt infra/providers/*/pack.yaml infra/providers/*/profile.yaml products/catalyst/bootstrap/api/go.mod products/catalyst/bootstrap/api/internal/providers/*/provider.go products/catalyst/bootstrap/api/internal/providers/all/all.go docs/generated/providers.md \"$d\"; cd \"$d\"; git init -q; git add -A; git -c user.name=a -c user.email=a@example.invalid commit -q -m base; mkdir -p infra/providers/zeta products/catalyst/bootstrap/api/internal/providers/zeta; sed 's/name: local$/name: zeta/; s#providers/local#providers/zeta#g' infra/providers/local/pack.yaml > infra/providers/zeta/pack.yaml; sed 's/name: local$/name: zeta/' infra/providers/local/profile.yaml > infra/providers/zeta/profile.yaml; printf 'package zeta\\n' > products/catalyst/bootstrap/api/internal/providers/zeta/provider.go; python3 scripts/generators/provider-registry.py > /dev/null; python3 scripts/generators/providers.py > /dev/null; git add -A; git -c user.name=a -c user.email=a@example.invalid commit -q -m zeta; bash scripts/check-provider-pack-additive.sh HEAD~1 HEAD > /dev/null"
+  - id: A5
+    run: "test \"$(grep -c -x -F '        run: bash scripts/check-provider-pack-additive.sh --self-test' .github/workflows/tree-guards.yaml)\" = 1 && python3 scripts/check-pr-jobs.py folded > /dev/null"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Scanner reads pack.yaml tokens and charts; additive check with self-test. The generator wrapper is not written; the generators run in FND's drift workflow.
+  delivers: The provider-leak scanner reads the leak tokens and chart folders of every pack declaration, and scripts/check-provider-pack-additive.sh, whose self-test runs in tree-guards, proves that a change only adds files under the pack roots of one cloud plus regenerated files.
 - id: CLD-212
   title: Hard-zero directories; retire the old guard
   area: CLD
@@ -8052,7 +8064,7 @@ packages:
   size: S
   lane: RAILS
   depends_on: [CLD-114, CLD-123, CLD-146, CLD-152, CLD-164]
-  after: [CLD-010, CLD-030, NET-221, CTL-347]
+  after: [CLD-010, CLD-030, CLD-211, NET-221, CTL-347]
   touches:
   - scripts/check-provider-leaks.py
   - scripts/provider-leak-baseline.tsv
@@ -14067,7 +14079,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271, FND-063, SOV-230]
-  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-073, FND-074, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-090, CLD-092, CLD-093, CLD-108, CLD-113, CLD-131, CLD-132, CLD-134, SOV-040, SOV-050, SOV-135, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-335, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, NET-011, NET-012, NET-013, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-133, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-190, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-020, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-101, AIP-111, AIP-113, AIP-120, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-110, INF-120, INF-130, INF-135, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-501, PRD-503, PRD-508, PRD-513]
+  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-073, FND-074, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-090, CLD-092, CLD-093, CLD-108, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-135, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-335, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, NET-011, NET-012, NET-013, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-133, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-190, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-020, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-101, AIP-111, AIP-113, AIP-120, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-110, INF-120, INF-130, INF-135, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-501, PRD-503, PRD-508, PRD-513]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml
   - platform/kyverno-policies/chart/values.yaml
