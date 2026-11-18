@@ -88,6 +88,11 @@ spec:
                   fieldPath: metadata.namespace
             - name: CATALYST_HOST_CLUSTER
               value: {{ .Values.global.sovereignFQDN | default "catalyst-zero" | quote }}
+            # CLOUD_PROVIDER — the provider pack of this Sovereign (contract C2),
+            # the provider of the Environment the controller ensures per
+            # Organization. Empty: the Environment carries no provider.
+            - name: CLOUD_PROVIDER
+              value: {{ .Values.global.cloud.provider | default "" | quote }}
             - name: CATALYST_KC_ADDR
               valueFrom:
                 configMapKeyRef:

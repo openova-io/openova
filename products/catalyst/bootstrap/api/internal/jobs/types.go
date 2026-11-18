@@ -251,14 +251,12 @@ const (
 const (
 	GroupBootstrapKitDisplay  = "Bootstrap"
 	GroupDay2MutationsDisplay = "Day-2 Mutations"
-	// GroupProvisionerDisplay is the provider-agnostic fallback label
-	// for the Phase-0 lifecycle parent group, used when the deployment's
-	// cloud provider is unknown/empty. When the provider IS known the
-	// bridge derives a provider-specific label via ProvisionerDisplay
-	// ("Provision Huawei", "Provision AWS", …) so a Huawei prov never
-	// masquerades as Hetzner. Defaults to Hetzner for back-compat with
-	// pre-multi-cloud deployment records that never carried a provider.
-	GroupProvisionerDisplay  = "Provision Hetzner"
+	// GroupProvisionerDisplay is the provider-agnostic label of the
+	// Phase-0 lifecycle parent group, used while the deployment's cloud
+	// provider is unknown/empty. When the provider IS known the bridge
+	// derives a provider-specific label via ProvisionerDisplay. No
+	// provider is assumed for a record that never carried one.
+	GroupProvisionerDisplay  = "Provision infrastructure"
 	GroupCutoverDisplay      = "Cutover"
 	GroupHandoverDisplay     = "Handover"
 	GroupAppsDisplay         = "Apps"
@@ -266,39 +264,18 @@ const (
 	GroupApplicationsDisplay = "Applications"
 )
 
-// providerDisplayNames maps a canonical (lower-cased) cloud provider name
-// onto its human-readable label for the Phase-0 lifecycle parent group.
-// Kept in this package (rather than reaching into internal/providers) so
-// the jobs package stays free of a providers import — the set is small and
-// stable, and an unknown provider falls through to a Title-cased default.
-var providerDisplayNames = map[string]string{
-	"hetzner": "Hetzner",
-	"huawei":  "Huawei",
-	"aws":     "AWS",
-	"gcp":     "GCP",
-	"azure":   "Azure",
-}
-
 // ProvisionerDisplay returns the Phase-0 lifecycle parent group's display
-// label for the given cloud provider — e.g. "Provision Huawei" for
-// provider="huawei", "Provision Hetzner" for "hetzner". Matching is
-// case-insensitive + whitespace-trimmed (the deployment record may store
-// either "huawei" or "Huawei"). An empty/unknown provider falls back to
-// the package default (GroupProvisionerDisplay → "Provision Hetzner") so
-// legacy deployment records that never carried a provider keep rendering
-// exactly as before; a recognised-but-unmapped provider Title-cases its
-// own name rather than mislabelling it.
+// label for the given cloud provider: "Provision " and the provider name
+// with its first letter upper-cased, so the pack name "local" gives
+// "Provision Local". Matching is case-insensitive + whitespace-trimmed
+// (the deployment record may store either form). The label comes from the
+// name itself, so this package keeps no list of provider names. An empty
+// provider gives GroupProvisionerDisplay; no provider is assumed.
 func ProvisionerDisplay(provider string) string {
 	p := strings.ToLower(strings.TrimSpace(provider))
 	if p == "" {
 		return GroupProvisionerDisplay
 	}
-	if label, ok := providerDisplayNames[p]; ok {
-		return "Provision " + label
-	}
-	// Recognised provider string with no curated label: Title-case the
-	// raw value so "scaleway" → "Provision Scaleway" rather than silently
-	// inheriting the Hetzner default.
 	return "Provision " + strings.ToUpper(p[:1]) + p[1:]
 }
 

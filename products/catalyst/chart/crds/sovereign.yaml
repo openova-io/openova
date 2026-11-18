@@ -196,17 +196,11 @@ spec:
                 provider:
                   type: string
                   description: |
-                    Sovereign-wide default CloudProvider adapter name. Used
+                    Sovereign-wide default CloudProvider adapter name, a
+                    provider pack name (infra/providers/<name>). Used
                     as the fallback for `regions[].provider` and as the
                     dispatch target for `bp-self-sovereign-cutover`.
-                  enum:
-                    - hetzner
-                    - huawei
-                    - aws
-                    - gcp
-                    - azure
-                    - oci
-                    - contabo
+                  pattern: '^[a-z][a-z0-9-]{1,30}$'
               x-kubernetes-preserve-unknown-fields: true
             status:
               type: object

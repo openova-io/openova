@@ -97,8 +97,9 @@ func TestEnsureEnvironment_CreatesWhenMissing(t *testing.T) {
 	if rc, _ := reg["region"].(string); !envRegionCodePattern.MatchString(rc) {
 		t.Errorf("spec.regions[0].region = %q does not match CRD pattern", rc)
 	}
-	if p, _ := reg["provider"].(string); !envProviderAllowed[p] {
-		t.Errorf("spec.regions[0].provider = %q not in CRD enum", p)
+	// No CLOUD_PROVIDER configured: the provider is left out, never defaulted.
+	if p, ok := reg["provider"]; ok {
+		t.Errorf("spec.regions[0].provider = %v, want absent (no provider configured)", p)
 	}
 	if bb, _ := reg["buildingBlock"].(string); !envBuildingBlockAllowed[bb] {
 		t.Errorf("spec.regions[0].buildingBlock = %q not in CRD enum", bb)
@@ -196,6 +197,43 @@ func TestEnsureEnvironment_ConfiguredDefaultsOnFQDNHostCluster(t *testing.T) {
 	}
 	if rc, _ := reg["region"].(string); rc != "meb" {
 		t.Errorf("region = %q, want meb (configured)", rc)
+	}
+}
+
+// TestEnsureEnvironment_ProviderFromCloudProvider: the configured provider
+// (CLOUD_PROVIDER) is written when it matches the CRD pattern, whatever its
+// name, and left out when it is empty or does not match. No list, no default.
+func TestEnsureEnvironment_ProviderFromCloudProvider(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		configured string
+		want       string // "" = the region carries no provider
+	}{
+		{"local", "local"},
+		{" Hetzner ", "hetzner"},
+		{"huawei", "huawei"},
+		{"", ""},
+		{"Huawei Cloud", ""},
+		{"x", ""},
+	} {
+		cl := fake.NewClientBuilder().WithScheme(envEnsureScheme(t)).Build()
+		r := &Reconciler{
+			Client:            cl,
+			Log:               logr.Discard(),
+			HostCluster:       "omantel.biz",
+			EnvRegionProvider: tc.configured,
+		}
+		if err := r.ensureEnvironment(context.Background(), envEnsureOrg()); err != nil {
+			t.Fatalf("ensureEnvironment(%q): %v", tc.configured, err)
+		}
+		reg := getEnvRegion(t, cl, "acme-prod")
+		p, ok := reg["provider"].(string)
+		if tc.want == "" && ok {
+			t.Errorf("configured %q: provider = %q, want absent", tc.configured, p)
+		}
+		if tc.want != "" && p != tc.want {
+			t.Errorf("configured %q: provider = %q, want %q", tc.configured, p, tc.want)
+		}
 	}
 }
 
