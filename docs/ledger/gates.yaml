@@ -2057,7 +2057,7 @@ checks:
 - id: SEC-G02
   title: Security check SEC-G02
   owner: SEC
-  state: expected-fail
+  state: required
   runs_in: [local, cloud]
   destructive: false
   needs: []

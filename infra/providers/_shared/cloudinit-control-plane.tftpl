@@ -230,6 +230,9 @@ write_files:
   # ── flux-system/harbor-robot-token Secret (issue #557) ────────────────
   # catalyst-api references it via REQUIRED secretKeyRef. bp-reflector
   # mirrors flux-system → catalyst-system on first reconcile.
+  # SEC-040: catalyst-system is the one namespace it is copied into; the
+  # platform API there is its only reader. To the reflector an empty list
+  # means every namespace.
   - path: /var/lib/catalyst/harbor-robot-token-secret.yaml
     permissions: '0600'
     encoding: gz+b64
@@ -241,9 +244,9 @@ write_files:
         namespace: flux-system
         annotations:
           reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
-          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: ""
+          reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "catalyst-system"
           reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
-          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: ""
+          reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "catalyst-system"
       type: Opaque
       data:
         token: ${base64encode(harbor_robot_token)}
@@ -548,8 +551,9 @@ CILIUMVALUES
   # line indented at least six spaces (a directive line at column 0 is
   # fine: it renders no text), and keep the marker line FLUXBOOTSTRAP
   # alone at column 0.
+  # SEC-040: mode 0600; runcmd shreds the file once its apply succeeded.
   - path: /var/lib/catalyst/flux-bootstrap.yaml
-    permissions: '0644'
+    permissions: '0600'
     encoding: gz+b64
     content: ${base64gzip(format("%s\n", chomp(replace(replace(<<FLUXBOOTSTRAP
       apiVersion: source.toolkit.fluxcd.io/v1
@@ -1296,6 +1300,10 @@ runcmd:
   # every Secret to etcd as ciphertext. The key rests in
   # /var/lib/rancher/k3s/server/cred/encryption-config.json on each server,
   # and in etcd under the server token. Gate check SEC-G01 proves it.
+  # SEC-040: --write-kubeconfig-mode=0600. /etc/rancher/k3s/k3s.yaml is
+  # readable by root only. Every reader of it here runs in cloud-init as
+  # root, and the parent gets a ServiceAccount kubeconfig (SOV-140). Gate
+  # check SEC-G02 proves the mode on every control-plane node.
   #
   # #3971 — `--disable=local-storage` FORBIDS the k3s local-path provisioner
   # entirely: it is NEVER installed on a fresh prov. local-path is ephemeral
@@ -1363,7 +1371,7 @@ runcmd:
     for i in 1 2 3 4 5; do
       sh /var/lib/catalyst/oci_fetch k3s-install ${replace(k3s_version, "+", "-")} /var/lib/catalyst/k3s-install.sh https://get.k3s.io \
         && INSTALL_K3S_VERSION=${k3s_version} K3S_TOKEN=${k3s_server_token} \
-           INSTALL_K3S_EXEC="server --cluster-init --secrets-encryption --secrets-encryption-provider=secretbox --flannel-backend=none --disable-network-policy --disable-kube-proxy --disable=traefik --disable=servicelb --disable=local-storage --cluster-cidr=${cluster_cidr} --service-cidr=${service_cidr} --node-ip=$${NODE_IP} --node-external-ip=$${NODE_EXTERNAL_IP} --advertise-address=$${NODE_IP} --kubelet-arg=max-pods=220 --kubelet-arg=image-gc-high-threshold=70 --kubelet-arg=image-gc-low-threshold=60 --kubelet-arg=minimum-image-ttl-duration=2h --tls-san=${sovereign_fqdn} --tls-san=$${NODE_IP} --tls-san=$${NODE_EXTERNAL_IP} --node-label catalyst.openova.io/role=control-plane --node-label openova.io/region=${region_canonical_label} --agent-token=${k3s_agent_token} ${k3s_extra_args} --write-kubeconfig-mode=0644" \
+           INSTALL_K3S_EXEC="server --cluster-init --secrets-encryption --secrets-encryption-provider=secretbox --flannel-backend=none --disable-network-policy --disable-kube-proxy --disable=traefik --disable=servicelb --disable=local-storage --cluster-cidr=${cluster_cidr} --service-cidr=${service_cidr} --node-ip=$${NODE_IP} --node-external-ip=$${NODE_EXTERNAL_IP} --advertise-address=$${NODE_IP} --kubelet-arg=max-pods=220 --kubelet-arg=image-gc-high-threshold=70 --kubelet-arg=image-gc-low-threshold=60 --kubelet-arg=minimum-image-ttl-duration=2h --tls-san=${sovereign_fqdn} --tls-san=$${NODE_IP} --tls-san=$${NODE_EXTERNAL_IP} --node-label catalyst.openova.io/role=control-plane --node-label openova.io/region=${region_canonical_label} --agent-token=${k3s_agent_token} ${k3s_extra_args} --write-kubeconfig-mode=0600" \
            sh /var/lib/catalyst/k3s-install.sh \
         && break
       [ "$i" = 5 ] && { echo "[k3s] FATAL: install failed after 5 attempts" >&2; ${fail_mark_cmd}k3s-install-FAILED||true; exit 88; }
@@ -1767,40 +1775,31 @@ runcmd:
   # non-zero exit the WHOLE remainder (bootstrap secrets, openbao seed,
   # flux-bootstrap apply, cloud-init-complete marker) never ran → permanent
   # 0-HR fresh-prov wedge. Loop one `create namespace` per name through the
-  # idempotent dry-run|apply idiom. handover-jwt→catalyst-system and
-  # recovery-seed→openbao resolve here. The secret applies below run from
+  # idempotent dry-run|apply idiom. handover-jwt→catalyst-system
+  # resolves here. The secret applies below run from
   # `cd /var/lib/catalyst` so the 6 `-f` paths drop their dir prefix, keeping
   # the render under Hetzner's 32256B cap. (powerdns-api-credentials no longer
   # needs `cert-manager` created here — #3888 evicted it to the Flux
   # sovereign-tls Kustomization.)
   # #5057: ONE shell so KUBECONFIG exports once + every kubectl drops the
   # 38-B --kubeconfig flag — reclaims bytes the #5042 retry loops consumed.
+  # The Secrets are applied with --server-side. A client-side apply
+  # stores the whole manifest, so every value, in the annotation
+  # kubectl.kubernetes.io/last-applied-configuration of the Secret.
+  # SEC-040: when the apply succeeds (&&), shred -u removes the seven files,
+  # so no bootstrap secret stays on the disk of the node. set -e (from the
+  # cilium item) ignores a failed command left of &&, so (exit $?) on the
+  # next line stops the boot script with the exit code of a failed apply,
+  # and the files stay. The template creates
+  # no recovery seed for OpenBao: the bp-openbao chart creates that Secret
+  # when it is absent (platform/openbao/chart/templates/recovery-seed-bootstrap.yaml).
   - |
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
     for ns in catalyst-system openbao; do kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -; done
     cd /var/lib/catalyst
-    kubectl apply --server-side -f ghcr-pull-secret.yaml -f harbor-robot-token-secret.yaml -f pdm-basicauth-secret.yaml -f handover-jwt-public-secret.yaml -f object-storage-secret.yaml -f cloud-credentials-secret.yaml -f sovereign-tls-secrets.yaml
+    kubectl apply --server-side -f ghcr-pull-secret.yaml -f harbor-robot-token-secret.yaml -f pdm-basicauth-secret.yaml -f handover-jwt-public-secret.yaml -f object-storage-secret.yaml -f cloud-credentials-secret.yaml -f sovereign-tls-secrets.yaml && shred -u ghcr-pull-secret.yaml harbor-robot-token-secret.yaml pdm-basicauth-secret.yaml handover-jwt-public-secret.yaml object-storage-secret.yaml cloud-credentials-secret.yaml sovereign-tls-secrets.yaml
+    (exit $?)
 
-  # openbao-recovery-seed: one-shot 32-byte seed the bp-openbao init Job
-  # consumes + deletes on first success. Never in tfstate; node-local only.
-  # #7901: this Secret and the ones above are applied with --server-side. A
-  # client-side apply stores the whole manifest, so every value, in the
-  # annotation kubectl.kubernetes.io/last-applied-configuration of the Secret.
-  # The two flags cost 28 bytes of user data; the seed variable is named SD
-  # (it was OPENBAO_SEED), which gives 30 back.
-  - |
-    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-    SD=$(head -c 32 /dev/urandom | base64 | tr -d '\n')
-    kubectl -n openbao create secret generic openbao-recovery-seed \
-      --from-literal=recovery-seed="$SD" \
-      --dry-run=client -o yaml \
-      | kubectl annotate --local -f - \
-        openbao.openova.io/single-use=true -o yaml \
-      | kubectl apply --server-side -f -
-    unset SD
-    # object-storage-secret + cloud-credentials-secret are applied above in the
-    # single folded `kubectl apply -f … -f …` (no namespace dependency on the
-    # openbao seed), so they are intentionally not re-applied here.
   # Hand the cluster to Flux. From here it pulls clusters/_template/ and
   # installs bp-cilium, bp-cert-manager, …, bp-catalyst-platform. #4513: this
   # is THE critical handoff — a silent failure here leaves the cluster at
@@ -1814,12 +1813,15 @@ runcmd:
   # SOV-134: ConfigMap flux-system/sovereign-variables is created from
   # variables.env first, so the apply of flux-bootstrap.yaml merges the kit
   # keys into it; a failure of either is the same exit 92.
+  # SEC-040: after a successful apply flux-bootstrap.yaml is shredded; a
+  # failed apply exits 92 before that line.
   - |
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 %{ if crossplane_provider_yaml != "" ~}
     kubectl apply -f /var/lib/catalyst/crossplane-provider.yaml || true
 %{ endif ~}
     kubectl -n flux-system create cm sovereign-variables --from-env-file=/var/lib/catalyst/variables.env && kubectl apply -f /var/lib/catalyst/flux-bootstrap.yaml || { ${fail_mark_cmd}flux-bootstrap-FAILED||true; exit 92; }
+    shred -u /var/lib/catalyst/flux-bootstrap.yaml
 %{ if crossplane_provider_yaml != "" ~}
     nohup bash -c "deadline=\$((SECONDS+1800)); while [ \$SECONDS -lt \$deadline ]; do kubectl apply -f /var/lib/catalyst/crossplane-provider.yaml >/dev/null 2>&1 && break; sleep 30; done" >/dev/null 2>&1 &
 %{ endif ~}

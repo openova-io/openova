@@ -333,7 +333,7 @@ k3s is installed via `curl get.k3s.io | sh -` from cloud-init. The `INSTALL_K3S_
 | `--service-cidr=10.96+i.0/16` | Service CIDR — non-overlapping across ClusterMesh peers. Same allocation rule as `--cluster-cidr`. |
 | `--tls-san=<sovereign_fqdn>` | API server TLS cert must be valid for the public sovereign FQDN, otherwise the wizard's kubeconfig fetch and any operator running `kubectl --server=https://<fqdn>:6443` get a SAN mismatch. |
 | `--node-label catalyst.openova.io/role=control-plane` | Used by NodeAffinity on Catalyst control-plane services (Console, projector, etc.) to pin them off worker nodes. |
-| `--write-kubeconfig-mode=0644` | Lets the catalyst-api fetch the kubeconfig over the wizard channel without sudo. The kubeconfig is rotated and replaced with a SPIFFE-issued identity in Phase 2. |
+| `--write-kubeconfig-mode=0600` | The administrator kubeconfig `/etc/rancher/k3s/k3s.yaml` is readable by root only. Every reader of it on the node runs in cloud-init as root, and the parent receives a ServiceAccount kubeconfig instead (SOV-140). Gate check SEC-G02 proves the mode. |
 
 The `INSTALL_K3S_VERSION` environment variable is `var.k3s_version` (default `v1.31.8+k3s1`). Pinned so a Sovereign provisioned today and one provisioned next month land on the same Kubernetes minor — the Catalyst compatibility matrix in `docs/ARCHITECTURE.md` §8.1 is keyed to k3s minor versions.
 

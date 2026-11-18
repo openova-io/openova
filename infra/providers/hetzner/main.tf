@@ -1620,7 +1620,7 @@ locals {
   # render; tests/multi_region.tftest.hcl reads it here. Nothing else uses
   # it, and null (never an error) when the entry is missing, so a plan cannot
   # fail on it.
-  flux_bootstrap_entry_re      = "\n  - path: /var/lib/catalyst/flux-bootstrap\\.yaml\n    permissions: '0644'\n    encoding: gz\\+b64\n    content: ([A-Za-z0-9+/=]+)\n"
+  flux_bootstrap_entry_re      = "\n  - path: /var/lib/catalyst/flux-bootstrap\\.yaml\n    permissions: '0600'\n    encoding: gz\\+b64\n    content: ([A-Za-z0-9+/=]+)\n"
   control_plane_flux_bootstrap = try(base64gunzip(regex(local.flux_bootstrap_entry_re, local.control_plane_cloud_init)[0]), null)
   secondary_region_flux_bootstrap = {
     for k, ud in local.secondary_region_cloud_init : k => try(base64gunzip(regex(local.flux_bootstrap_entry_re, ud)[0]), null)

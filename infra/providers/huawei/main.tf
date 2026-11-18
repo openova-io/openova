@@ -1530,7 +1530,7 @@ locals {
   # null (never an error) when the entry is missing, so a plan cannot fail on it.
   cp_flux_bootstrap_by_region = {
     for code, ud in local.cp_cloud_init_by_region : code => try(base64gunzip(regex(
-      "\n  - path: /var/lib/catalyst/flux-bootstrap\\.yaml\n    permissions: '0644'\n    encoding: gz\\+b64\n    content: ([A-Za-z0-9+/=]+)\n", ud
+      "\n  - path: /var/lib/catalyst/flux-bootstrap\\.yaml\n    permissions: '0600'\n    encoding: gz\\+b64\n    content: ([A-Za-z0-9+/=]+)\n", ud
     )[0]), null)
   }
 }

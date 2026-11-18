@@ -129,8 +129,33 @@ run "hetzner_render_is_valid" {
   }
 
   assert {
-    condition     = strcontains(output.rendered_cloud_init, " -f cloud-credentials-secret.yaml -f sovereign-tls-secrets.yaml\n")
+    condition     = strcontains(output.rendered_cloud_init, " -f cloud-credentials-secret.yaml -f sovereign-tls-secrets.yaml && shred -u ")
     error_message = "SOV-130: the Secret file sovereign-tls-secrets.yaml must be applied with the other bootstrap Secrets."
+  }
+
+  # SEC-040 — bootstrap secret hygiene on the node. The kubeconfig and
+  # flux-bootstrap.yaml have mode 0600; the seven bootstrap Secret files are
+  # shredded once their apply succeeded, flux-bootstrap.yaml after its
+  # apply; the robot token is reflected into catalyst-system only; the
+  # template creates no OpenBao recovery seed (the bp-openbao chart does).
+  assert {
+    condition     = strcontains(output.rendered_cloud_init, " --write-kubeconfig-mode=0600\" \\\n") && !strcontains(output.rendered_cloud_init, "--write-kubeconfig-mode=0644") && strcontains(output.rendered_cloud_init, "\n  - path: /var/lib/catalyst/flux-bootstrap.yaml\n    permissions: '0600'\n")
+    error_message = "SEC-040: the k3s server line must pass --write-kubeconfig-mode=0600, and /var/lib/catalyst/flux-bootstrap.yaml must have mode 0600."
+  }
+
+  assert {
+    condition     = strcontains(output.rendered_cloud_init, " -f sovereign-tls-secrets.yaml && shred -u ghcr-pull-secret.yaml harbor-robot-token-secret.yaml pdm-basicauth-secret.yaml handover-jwt-public-secret.yaml object-storage-secret.yaml cloud-credentials-secret.yaml sovereign-tls-secrets.yaml\n    (exit $?)\n") && length(regexall("kubectl apply -f /var/lib/catalyst/flux-bootstrap\\.yaml \\|\\| \\{[^\n]*exit 92; \\}\n    shred -u /var/lib/catalyst/flux-bootstrap\\.yaml\n", output.rendered_cloud_init)) == 1
+    error_message = "SEC-040: the seven bootstrap Secret files must be shredded on the line of their apply once it succeeded, a failed apply must stop the script on the next line, (exit $?), and flux-bootstrap.yaml must be shredded on the line after its apply."
+  }
+
+  assert {
+    condition     = strcontains(output.boot_text, "\n  name: harbor-robot-token\n  namespace: flux-system\n  annotations:\n    reflector.v1.k8s.emberstack.com/reflection-allowed: \"true\"\n    reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: \"catalyst-system\"\n    reflector.v1.k8s.emberstack.com/reflection-auto-enabled: \"true\"\n    reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: \"catalyst-system\"\n")
+    error_message = "SEC-040: the Secret flux-system/harbor-robot-token must be reflected into catalyst-system and into no other namespace."
+  }
+
+  assert {
+    condition     = !strcontains(output.boot_text, "openbao-recovery-seed")
+    error_message = "SEC-040: cloud-init must not create the Secret openbao-recovery-seed; the bp-openbao chart creates it."
   }
 
   # SOV-140 — before the post-back, cloud-init creates
@@ -282,8 +307,33 @@ run "huawei_render_is_valid" {
   }
 
   assert {
-    condition     = strcontains(output.rendered_cloud_init, " -f cloud-credentials-secret.yaml -f sovereign-tls-secrets.yaml\n")
+    condition     = strcontains(output.rendered_cloud_init, " -f cloud-credentials-secret.yaml -f sovereign-tls-secrets.yaml && shred -u ")
     error_message = "SOV-130 (huawei branch): the Secret file sovereign-tls-secrets.yaml must be applied with the other bootstrap Secrets."
+  }
+
+  # SEC-040 — bootstrap secret hygiene on the node. The kubeconfig and
+  # flux-bootstrap.yaml have mode 0600; the seven bootstrap Secret files are
+  # shredded once their apply succeeded, flux-bootstrap.yaml after its
+  # apply; the robot token is reflected into catalyst-system only; the
+  # template creates no OpenBao recovery seed (the bp-openbao chart does).
+  assert {
+    condition     = strcontains(output.rendered_cloud_init, " --write-kubeconfig-mode=0600\" \\\n") && !strcontains(output.rendered_cloud_init, "--write-kubeconfig-mode=0644") && strcontains(output.rendered_cloud_init, "\n  - path: /var/lib/catalyst/flux-bootstrap.yaml\n    permissions: '0600'\n")
+    error_message = "SEC-040 (huawei branch): the k3s server line must pass --write-kubeconfig-mode=0600, and /var/lib/catalyst/flux-bootstrap.yaml must have mode 0600."
+  }
+
+  assert {
+    condition     = strcontains(output.rendered_cloud_init, " -f sovereign-tls-secrets.yaml && shred -u ghcr-pull-secret.yaml harbor-robot-token-secret.yaml pdm-basicauth-secret.yaml handover-jwt-public-secret.yaml object-storage-secret.yaml cloud-credentials-secret.yaml sovereign-tls-secrets.yaml\n    (exit $?)\n") && length(regexall("kubectl apply -f /var/lib/catalyst/flux-bootstrap\\.yaml \\|\\| \\{[^\n]*exit 92; \\}\n    shred -u /var/lib/catalyst/flux-bootstrap\\.yaml\n", output.rendered_cloud_init)) == 1
+    error_message = "SEC-040 (huawei branch): the seven bootstrap Secret files must be shredded on the line of their apply once it succeeded, a failed apply must stop the script on the next line, (exit $?), and flux-bootstrap.yaml must be shredded on the line after its apply."
+  }
+
+  assert {
+    condition     = strcontains(output.boot_text, "\n  name: harbor-robot-token\n  namespace: flux-system\n  annotations:\n    reflector.v1.k8s.emberstack.com/reflection-allowed: \"true\"\n    reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: \"catalyst-system\"\n    reflector.v1.k8s.emberstack.com/reflection-auto-enabled: \"true\"\n    reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: \"catalyst-system\"\n")
+    error_message = "SEC-040 (huawei branch): the Secret flux-system/harbor-robot-token must be reflected into catalyst-system and into no other namespace."
+  }
+
+  assert {
+    condition     = !strcontains(output.boot_text, "openbao-recovery-seed")
+    error_message = "SEC-040 (huawei branch): cloud-init must not create the Secret openbao-recovery-seed; the bp-openbao chart creates it."
   }
 
   # SOV-140 (huawei branch) — before the post-back, cloud-init creates
