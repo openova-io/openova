@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T22:15:04Z` |
+| Last refreshed | `2026-11-18T22:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -312,6 +312,7 @@ flowchart LR
 | 2026-11-18T21:34 | [#8211](https://github.com/openova-io/openova/pull/8211) | #7087 | docs(ledger): plan update |
 | 2026-11-18T21:20 | [#8210](https://github.com/openova-io/openova/pull/8210) | #8209 | fix(axon): bound active and parked runs, queue with 429, ste |
 | 2026-11-18T20:52 | [#8208](https://github.com/openova-io/openova/pull/8208) | #7087 | docs(ledger): plan update |
+| 2026-11-18T22:16 | [#8207](https://github.com/openova-io/openova/pull/8207) | #7798 | refactor(cilium): the API host and the native-routing range  |
 | 2026-11-18T20:42 | [#8206](https://github.com/openova-io/openova/pull/8206) | #7087 | docs(ledger): plan update |
 | 2026-11-18T20:34 | [#8205](https://github.com/openova-io/openova/pull/8205) | #8204 | test(gate): check NET-G07 proves the Organization fence with |
 | 2026-11-18T19:57 | [#8203](https://github.com/openova-io/openova/pull/8203) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-18T17:43 | [#8179](https://github.com/openova-io/openova/pull/8179) | #8169 | ci: run the self selection of the gate suite as a Job on the |
 | 2026-11-18T15:35 | [#8178](https://github.com/openova-io/openova/pull/8178) | #7087 | docs(ledger): plan update |
 | 2026-11-18T15:50 | [#8177](https://github.com/openova-io/openova/pull/8177) | #8141 | fix(guards): a generated file is judged at its source |
-| 2026-11-18T15:48 | [#8176](https://github.com/openova-io/openova/pull/8176) | #8175 | refactor(credentials): credential fields checked against the |
 
 ---
 
