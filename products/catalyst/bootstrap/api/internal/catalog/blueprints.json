@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-18T15:52:20.110Z",
+  "generatedAt": "2026-11-18T16:40:04.231Z",
   "blueprints": [
     {
       "id": "bp-agenity",
@@ -2902,7 +2902,7 @@
       "tagline": null,
       "tags": [],
       "visibility": "unlisted",
-      "version": "0.1.3",
+      "version": "0.1.4",
       "section": null,
       "depends": [],
       "shareable": false,
