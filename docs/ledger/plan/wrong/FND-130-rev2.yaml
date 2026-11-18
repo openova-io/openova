@@ -1,0 +1,50 @@
+schema: openova.io/plan-wrong/v1
+id: FND-130
+ticket_rev: 2
+base_commit: 2d3cb6cc08bf56fbd6d10fd96ef4d07b5abc443b
+stage: check
+ref: conformance-local
+command: |
+    gh api repos/openova-io/openova/actions/jobs/134632461437/logs | grep -B 40 -m 1 '##\[error\]' | cut -c30-300
+expected: |
+    the check finishes green
+actual: |
+    ACCEPTANCE run  env=local-pack  run=20261118T070914Z-076f  result=FAIL
+    J    STEP   RESULT  SECONDS  ASSERTION                                                  EVIDENCE / ERROR
+    --------------------------------------------------------------------------------------------------------------------------------------------
+    D0   D0.1   PASS        0.0  session authenticates as owner (GET /api/v1/whoami)        deploymentId="8b0673d62e2fd8d3" mode="sovereign" sovereignFQDN="sov.example.test" tier="owner"
+    D0   D0.2   PASS        0.4  regions: each kubeconfig IS the region it claims; ids fro… console_topology_regions=["local-region-a-rtz-prod","local-region-b-rtz-prod"] identity_source="TEMPORARY-fallback: SOVEREIGN_REGION_KEY of the bootstrap variables per kubeconfig" r
+    D0   D0.6   PASS        0.2  delivered control-plane images (what this run certifies)   images={"local-region-a-rtz-prod":{"catalyst-api":"ghcr.io/openova-io/openova/catalyst-api:109045b","catalyst-application-controller":"ghcr.io/openova-io/openova/application-controlle
+    D0   D0.10  FAIL        2.2  mesh: every Cilium agent holds the peer region's gateway … 3 agent(s) lack peer gateway identities — that gateway's requests are dropped (restart the stale agents: kubectl -n kube-system rollout restart ds/cilium)
+    AIP-G01 -      SKIP        0.0  check not run                                              discovery (D0) failed
+    CMP-G01 -      SKIP        0.0  check not run                                              discovery (D0) failed
+    CMP-G02 -      SKIP        0.0  check not run                                              discovery (D0) failed
+    CTL-G04 -      SKIP        0.0  check not run                                              discovery (D0) failed
+    FND-G03 -      SKIP        0.0  check not run                                              discovery (D0) failed
+    FND-G04 -      SKIP        0.0  check not run                                              discovery (D0) failed
+    FND-G05 -      SKIP        0.0  check not run                                              discovery (D0) failed
+    FND-G08 -      SKIP        0.0  check not run                                              discovery (D0) failed
+    NET-G03 -      SKIP        0.0  check not run                                              discovery (D0) failed
+    NET-G04 -      SKIP        0.0  check not run                                              discovery (D0) failed
+    SEC-G01 -      SKIP        0.0  check not run                                              discovery (D0) failed
+    SEC-G02 -      SKIP        0.0  check not run                                              discovery (D0) failed
+    SVC-G06 -      SKIP        0.0  check not run                                              discovery (D0) failed
+    --------------------------------------------------------------------------------------------------------------------------------------------
+      AIP-G01 SKIP (required) discovery (D0) failed
+      CMP-G01 SKIP (expected-fail) discovery (D0) failed
+      CMP-G02 SKIP (expected-fail) discovery (D0) failed
+      CTL-G04 SKIP (expected-fail) discovery (D0) failed
+      FND-G03 SKIP (required) discovery (D0) failed
+      FND-G04 SKIP (expected-fail) discovery (D0) failed
+      FND-G05 SKIP (required) discovery (D0) failed
+      FND-G08 SKIP (required) discovery (D0) failed
+      NET-G03 SKIP (required) discovery (D0) failed
+      NET-G04 SKIP (required) discovery (D0) failed
+      SEC-G01 SKIP (required) discovery (D0) failed
+      SEC-G02 SKIP (expected-fail) discovery (D0) failed
+      SVC-G06 SKIP (expected-fail) discovery (D0) failed
+    RESULT FAIL
+    recorded /home/runner/work/_temp/acceptance/local-pack-20261118T070914Z-076f.json
+    suite exit code: 1
+    ##[error]Process completed with exit code 1.
+reported_at: 2026-11-18T07:11:17Z
