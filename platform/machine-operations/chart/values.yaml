@@ -1,11 +1,12 @@
 # bp-machine-operations values.
 #
 # At these defaults the chart renders nothing: only the definitions of crds/
-# are installed. The kit slot that installs the Blueprint sets `enabled`
-# and `image`.
+# are installed. The kit slot that installs the Blueprint sets `enabled`,
+# `image`, `runner.image`, `evidence.endpoint` and `evidence.region`.
 
-# Switches the chart on: the inventory controller's Deployment, its service
-# account, its access rules and the built-in sources.
+# Switches the chart on: the Deployments of the inventory and the operations
+# controller, their service accounts and access rules, the service account of
+# the runner Jobs, the built-in sources and the default scan of the nodes.
 enabled: false
 
 # The catalyst-api image, which holds /usr/local/bin/machine-controller, as a
@@ -17,4 +18,32 @@ sources:
   nodes:
     # The built-in source `nodes` (type nodes) in namespace catalyst-infra: one
     # Machine for every Kubernetes Node of this cluster.
+    enabled: true
+
+runner:
+  # The machine-runner image, by digest. The operations controller starts its
+  # Jobs with it. Required when `enabled` is true: the render fails while it
+  # is empty.
+  image: ""
+
+evidence:
+  # The S3 endpoint of the evidence bucket, https://host[:port], and its
+  # region. Required when `enabled` is true: the render fails while either is
+  # empty. The key of the bucket is not a value: the operations controller and
+  # the runner Jobs read it from the CSI volume of the SecretProviderClass
+  # evidence-store.
+  endpoint: ""
+  region: ""
+  # The bucket that holds every file a run stores.
+  bucket: machine-evidence
+
+runs:
+  # How long a finished MachineRun is kept before the controller deletes it.
+  retention: 720h
+
+defaults:
+  nodeScan:
+    # Renders the ScanPolicy nodes and the HardeningBaseline nodes in
+    # catalyst-infra: a nightly scan of every node (profiles inventory and
+    # hardening).
     enabled: true

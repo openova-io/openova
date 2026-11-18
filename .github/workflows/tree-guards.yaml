@@ -373,6 +373,9 @@ jobs:
       - name: 'go-base-image | The golang base of each container file is not older than the go line of its module'
         if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
         run: python3 scripts/check-go-base-image.py
+      - name: 'provider-pack-additive | Self-test of the guard (every rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: bash scripts/check-provider-pack-additive.sh --self-test
       - name: 'secret-guards | a randAlphaNum added to a real chart template fails G2'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: |

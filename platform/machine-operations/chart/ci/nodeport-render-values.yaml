@@ -1,8 +1,14 @@
 # Read by scripts/check-no-nodeports.sh only. This chart renders nothing at
 # its defaults on purpose, so the guard renders it a second time with these
 # values and with its CRDs, and scans that render for a NodePort. These values
-# switch on every template of the chart: the inventory Deployment, its access
-# rules and the built-in source nodes. A version that adds a template behind
-# another value sets that value here too.
+# switch on every template of the chart: the inventory and the operations
+# Deployments, their access rules, the built-in source nodes and the default
+# scan of the nodes. A version that adds a template behind another value sets
+# that value here too.
 enabled: true
 image: registry.example/catalyst-api:render
+runner:
+  image: registry.example/machine-runner:render
+evidence:
+  endpoint: https://objects.example
+  region: example-1

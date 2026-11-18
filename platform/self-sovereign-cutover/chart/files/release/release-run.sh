@@ -23,7 +23,7 @@
 # run, so a repair of the mechanism acts on the delivery that carries it:
 #
 #   compose  builds the DELIVERY Job from the candidate's step 01 and step 03
-#            and its own release scripts, applies it and waits for it:
+#            and its own release scripts, creates it and waits for it:
 #   prewarm  (its init container) "prewarm <command...>": the candidate's step
 #            03, reading the pins from release/<candidate>. When it ends,
 #            whatever its outcome, the pull credential is removed from every
@@ -336,7 +336,14 @@ follower_job_of_mechanism() {
 # apply_json: server-side apply of the JSON object on stdin, as the release.
 apply_json() { kubectl apply --server-side --force-conflicts --field-manager=sovereign-release -f - >/dev/null; }
 
-# run_delivery: apply what the delivery Job mounts and the Job, then wait for it.
+# create_json: create the JSON object on stdin. The delivery Job is created, not
+# applied: its name is new for every request, and the runner service account
+# may create Jobs but not patch them (a server-side apply is a PATCH, refused).
+# Every kubectl call of this script is checked against the chart's RBAC by
+# release_rbac_test.go in the catalyst-api.
+create_json() { kubectl create -f - >/dev/null; }
+
+# run_delivery: apply what the delivery Job mounts, create the Job, wait for it.
 run_delivery() {
   _dj="${RELEASE_JOB}-delivery"
   compose_delivery >"${MECH}/delivery-job.json" 2>"${MECH}/compose.err" || { _mech_why="cannot compose the delivery Job: ${_mech_why:-$(tail -n 1 "${MECH}/compose.err")}"; return 1; }
@@ -361,7 +368,7 @@ run_delivery() {
   printf '%s' "${_rec}" | jq --arg ns "${RELEASE_NAMESPACE}" \
     '{apiVersion: "v1", kind: "ConfigMap", metadata: {name: "sovereign-release-recorded", namespace: $ns, labels: {"app.kubernetes.io/component": "sovereign-release"}}, data: .}' \
     | apply_json || { _mech_why="cannot record the staged commits for the delivery"; return 1; }
-  apply_json <"${MECH}/delivery-job.json" || { _mech_why="cannot create the delivery Job ${_dj}"; return 1; }
+  create_json <"${MECH}/delivery-job.json" || { _mech_why="cannot create the delivery Job ${_dj}"; return 1; }
   status_put --arg deliveryJob "${_dj}" --arg updatedAt "$(now)"
   say "the delivery runs as Job ${RELEASE_NAMESPACE}/${_dj}: prewarm and promote of $(cat "${MECH}/version")"
   _deadline=$(( $(date +%s) + $(jq '.spec.activeDeadlineSeconds' "${MECH}/delivery-job.json") + 600 ))

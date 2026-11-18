@@ -26,6 +26,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/cloudprofile"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
@@ -52,10 +53,6 @@ type stub5193Provider struct{}
 
 func (stub5193Provider) Name() string { return stub5193ProviderName }
 
-func (stub5193Provider) Provision(context.Context, providers.ProvisionSpec, chan<- providers.ProvisionEvent) (*providers.ProvisionResult, error) {
-	return &providers.ProvisionResult{}, nil
-}
-
 func (stub5193Provider) Wipe(_ context.Context, _ providers.WipeSpec, progress func(msg string)) (*providers.WipeResult, error) {
 	if progress != nil {
 		progress("stub5193 wipe invoked")
@@ -74,6 +71,12 @@ func (stub5193Provider) ListServers(context.Context, string, string, providers.P
 }
 
 func (stub5193Provider) ValidateCreds(context.Context, providers.ProviderCreds) error { return nil }
+
+func (stub5193Provider) Normalize(*providers.ProvisionSpec, *cloudprofile.Profile) error { return nil }
+
+func (stub5193Provider) TfVars(providers.ProvisionSpec, *cloudprofile.Profile) (map[string]any, error) {
+	return map[string]any{}, nil
+}
 
 func init() { providers.RegisterProvider(stub5193ProviderName, stub5193Provider{}) }
 

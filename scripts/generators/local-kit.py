@@ -63,6 +63,10 @@ ROOTS = (
     "bp-seaweedfs",
     "bp-harbor",
     "bp-kyverno",
+    # The policy library holds the NodePort ban forbid-nodeport-service, which gate check
+    # FND-G05 (scripts/check-live-nodeports.sh) requires at Enforce in every region. The pack's
+    # own file policy-values.yaml sets its values.
+    "bp-kyverno-policies",
 )
 
 # The kinds whose metadata.name a spec.dependsOn entry names.
@@ -239,11 +243,12 @@ def fixture(root):
         "bp-seaweedfs": ("18-seaweedfs.yaml", ("bp-flux",)),
         "bp-harbor": ("19-harbor.yaml", ("bp-flux",)),
         "bp-kyverno": ("27-kyverno.yaml", ("bp-cilium",)),
+        "bp-kyverno-policies": ("27a-kyverno-policies.yaml", ("bp-kyverno",)),
         "bp-unused": ("30-unused.yaml", ("bp-flux",)),
     }
     order = ["01-cilium.yaml", "01a-gateway-api.yaml", "02-cert-manager.yaml", "03-flux.yaml", "04-crossplane.yaml",
              "08-openbao.yaml", "10-gitea.yaml", "11-powerdns.yaml", "13-bp-catalyst-platform.yaml", "14-claims.yaml",
-             "18-seaweedfs.yaml", "19-harbor.yaml", "30-unused.yaml", "27-kyverno.yaml"]
+             "18-seaweedfs.yaml", "19-harbor.yaml", "30-unused.yaml", "27-kyverno.yaml", "27a-kyverno-policies.yaml"]
     for name, (file, depends) in names.items():
         put(root, "%s/%s" % (KIT, file), slot(name, depends))
     put(root, KIT + "/kustomization.yaml", "resources:\n" + "".join("  - %s\n" % f for f in order))
@@ -281,7 +286,7 @@ def self_test():
              and entries.index(RELATIVE + "01a-gateway-api.yaml") < entries.index(RELATIVE + "02-cert-manager.yaml"))
         case("the pack's own YAML files come last, and no other file of the folder",
              entries[-1] == "local-path.yaml" and "notes.txt" not in text)
-        case("14 slot files plus the pack file: 13 needed slots and one own file", len(entries) == 14)
+        case("15 slot files plus the pack file: 14 needed slots and one own file", len(entries) == 15)
         case("the output is a kustomization", yaml.safe_load(text)["kind"] == "Kustomization")
 
         write(root)

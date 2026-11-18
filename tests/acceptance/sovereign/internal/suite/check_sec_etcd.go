@@ -18,7 +18,9 @@ import (
 // the canary: `CANARY-` and 40 random hexadecimal characters. On every
 // control-plane node the probe (sec_probe.go) then reads the etcd file
 // `/var/lib/rancher/k3s/server/db/etcd/member/snap/db` and every file
-// `.../member/wal/*.wal`. The step of a node fails when the canary is in one
+// `.../member/wal/*.wal`, each once: etcd writes them while they are read,
+// so every count of a file comes from the same reading of it. The step of a
+// node fails when the canary is in one
 // of them in the clear, when a record of the canary's key in the etcd file
 // does not hold `k8s:enc:secretbox:v1:`, and when the etcd file or every log
 // file lacks the key: then nothing was measured. The check looks for the

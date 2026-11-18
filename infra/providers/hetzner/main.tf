@@ -922,19 +922,12 @@ locals {
     # A-record targets the console front door (the #4179 final layer).
     console_load_balancer_ipv4 = local.console_isolation_on ? hcloud_load_balancer.console[0].ipv4 : ""
 
-    # Huawei-branch substitute vars — passed empty/placeholder on Hetzner so
-    # the shared template's `provider == "huawei"` block parses (tofu
-    # evaluates var refs even in non-taken directive branches). Inert here,
-    # EXCEPT sovereign_region_role: it now feeds the SHARED
-    # SOVEREIGN_REGION_ROLE substitute (bp-cnpg-pair split-side, slot 16b
-    # `cnpgPair.side`), so the per-CP value is live on Hetzner too.
-    pdns_api_host = ""
+    # sovereign_region_role feeds the SHARED SOVEREIGN_REGION_ROLE substitute
+    # (bp-cnpg-pair split-side, slot 16b `cnpgPair.side`).
     # #5017 keystone — provider API CIDRs for the step-08 deny-egress
     # allow-list (empty on Hetzner; see variables.tf provider_api_cidrs).
     provider_api_cidrs_yaml = jsonencode(var.provider_api_cidrs)
     sovereign_region_role   = "primary"
-    node_external_ip_value  = ""
-    clustermesh_proxy_port  = 12379 # #4784 — inert on Hetzner (clustermesh-proxy off; hcloud-ccm LB IP has no k3s-etcd :2379 host collision)
 
     # CLD-131 — the Flux substitutes of this pack, from its own file.
     provider_substitutes_yaml = templatefile("${path.module}/provider-substitutes.yaml.tftpl", {
@@ -958,6 +951,17 @@ locals {
     # PUT-back: primary region → no ?region= suffix (catalyst-api stores at
     # <id>.yaml). Public IP from Hetzner metadata (rewrite 127.0.0.1→public).
     kubeconfig_put_block = local.kubeconfig_put_block_hetzner_primary
+
+    # CLD-132 — the provider tests of the shared template, as inputs. No
+    # IPv6-off step or IPv4 pins (dual-stack), a plain touch as the failure
+    # mark, no region Kustomization (it does not fit the user-data limit of
+    # this module), and no gateway host network: gateway_host_network equals
+    # spec.network.loadBalancer.mode == "external-hostport" of profile.yaml.
+    node_ipv4_only              = false
+    fail_mark_cmd               = "touch /var/lib/catalyst/"
+    render_region_kustomization = false
+    gateway_host_network        = false
+    provider_overlay_path       = "./clusters/_template/providers/hetzner"
   }), "/(?m)^[ ]*#( |$).*\n/", "")
 }
 
@@ -1513,16 +1517,12 @@ locals {
       # defined in both templatefile() calls.
       console_load_balancer_ipv4 = local.console_isolation_on ? hcloud_load_balancer.console[0].ipv4 : ""
 
-      # Huawei-branch substitute vars — inert on Hetzner (see primary call),
-      # EXCEPT sovereign_region_role: live via the shared
-      # SOVEREIGN_REGION_ROLE substitute (bp-cnpg-pair split-side).
-      pdns_api_host = ""
+      # sovereign_region_role feeds the shared SOVEREIGN_REGION_ROLE
+      # substitute (bp-cnpg-pair split-side).
       # #5017 keystone — provider API CIDRs for the step-08 deny-egress
       # allow-list (empty on Hetzner; see variables.tf provider_api_cidrs).
       provider_api_cidrs_yaml = jsonencode(var.provider_api_cidrs)
       sovereign_region_role   = "secondary"
-      node_external_ip_value  = ""
-      clustermesh_proxy_port  = 12379 # #4784 — inert on Hetzner (clustermesh-proxy off)
 
       # CLD-131 — the Flux substitutes of this pack, from its own file.
       provider_substitutes_yaml = templatefile("${path.module}/provider-substitutes.yaml.tftpl", {
@@ -1539,6 +1539,14 @@ locals {
       provider_id_cmd          = local.provider_id_cmd_hetzner
       provider_prelude         = local.provider_prelude_hetzner
       k3s_extra_args           = "--kube-apiserver-arg=oidc-issuer-url=https://auth.${var.sovereign_fqdn}/realms/sovereign --kube-apiserver-arg=oidc-client-id=kubectl --kube-apiserver-arg=oidc-username-claim=preferred_username --kube-apiserver-arg=oidc-username-prefix=oidc: --kube-apiserver-arg=oidc-groups-claim=groups --kube-apiserver-arg=oidc-groups-prefix=oidc: --disable-cloud-controller ${r.worker_count > 0 ? "--node-taint node-role.kubernetes.io/control-plane=true:NoSchedule" : ""}"
+
+      # CLD-132 — the same inputs as the primary call.
+      node_ipv4_only              = false
+      fail_mark_cmd               = "touch /var/lib/catalyst/"
+      render_region_kustomization = false
+      gateway_host_network        = false
+      provider_overlay_path       = "./clusters/_template/providers/hetzner"
+
       # cloud-credentials Secret — secondary region's autoscaler keys.
       cloud_credentials_secret_yaml = <<-CREDS
         apiVersion: v1

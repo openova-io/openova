@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T08:45:04Z` |
+| Last refreshed | `2026-11-18T11:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,22 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7793](https://github.com/openova-io/openova/issues/7793) | CTL-331 The shared events package is Kafka-free | Other |
-| [#7794](https://github.com/openova-io/openova/issues/7794) | CTL-350 Applications views from the informer cache | Other |
-| [#7795](https://github.com/openova-io/openova/issues/7795) | The image build of main fails its console smoke test since 14 Nov 2026 07:40 UTC | Other |
-| [#7796](https://github.com/openova-io/openova/issues/7796) | FND-075 The gate record carries the pre-flight numbers: quota headroom and the l | Other |
-| [#7797](https://github.com/openova-io/openova/issues/7797) | NET-095 Block the instance metadata address from pods | Other |
-| [#7798](https://github.com/openova-io/openova/issues/7798) | NET-110 Cilium base values to target | Other |
-| [#7799](https://github.com/openova-io/openova/issues/7799) | SVC-041 Blueprint names bp-<folder>, explicit visibility, and the two missing Bl | Other |
-| [#7803](https://github.com/openova-io/openova/issues/7803) | CTL-320 Durable audit | Other |
-| [#7804](https://github.com/openova-io/openova/issues/7804) | FND-131 A run without journeys asserts only what the pack holds: discovery of th | Other |
-| [#7805](https://github.com/openova-io/openova/issues/7805) | INF-130 Kinds ScanPolicy, HardeningBaseline, MachineRun; operations controller | Other |
-| [#7806](https://github.com/openova-io/openova/issues/7806) | SEC-150 Seal-provider contract and the static node-file implementation | Other |
-| [#7807](https://github.com/openova-io/openova/issues/7807) | SOV-135 The mothership registry name is a proxy name served at the root, with an | Other |
-| [#7813](https://github.com/openova-io/openova/issues/7813) | CLD-090 The three modules meet contract version 1; conformance tests | Other |
-| [#7814](https://github.com/openova-io/openova/issues/7814) | CTL-333 The org-services chart stops setting REDPANDA_BROKERS | Other |
-| [#7815](https://github.com/openova-io/openova/issues/7815) | NET-013 The gate dials the API port from an address in no list | Other |
-| [#7816](https://github.com/openova-io/openova/issues/7816) | PRD-509 Internal authorisation API | Other |
 | [#7820](https://github.com/openova-io/openova/issues/7820) | CTL-346 Kit slots 56 and 57 (flow server and emitter) leave the kit | Other |
 | [#7821](https://github.com/openova-io/openova/issues/7821) | CTL-355 Delete the second showback meter | Other |
 | [#7822](https://github.com/openova-io/openova/issues/7822) | INF-051 Check INF-G01: coordinated reboot, as a suite file | Other |
@@ -300,6 +284,22 @@ flowchart LR
 | [#8087](https://github.com/openova-io/openova/issues/8087) | SOV-146 The child Kustomizations of first boot are also files under clusters/_te | Other |
 | [#8092](https://github.com/openova-io/openova/issues/8092) | CLD-091 The local pack connects the meshes of its two regions | Other |
 | [#8099](https://github.com/openova-io/openova/issues/8099) | NET-098 The Hetzner storage node plugin is allowed to read instance metadata | Other |
+| [#8106](https://github.com/openova-io/openova/issues/8106) | CLD-108 Generated provider registry | Other |
+| [#8107](https://github.com/openova-io/openova/issues/8107) | INF-055 Leave the kured slot out of the local reduced kit | Other |
+| [#8108](https://github.com/openova-io/openova/issues/8108) | NET-150 Default-deny scaffolding and dial checks | Other |
+| [#8111](https://github.com/openova-io/openova/issues/8111) | AIP-114 Scripted back end: the stub subcommand | Other |
+| [#8118](https://github.com/openova-io/openova/issues/8118) | NET-096 Turn the metadata deny on in the kit | Other |
+| [#8125](https://github.com/openova-io/openova/issues/8125) | CLD-109 Port interface, capability interfaces | Other |
+| [#8132](https://github.com/openova-io/openova/issues/8132) | AIP-101 Axon builds against the pinned kit and gets a test rail | Other |
+| [#8135](https://github.com/openova-io/openova/issues/8135) | CLD-211 Pack tokens and the additive check | Other |
+| [#8138](https://github.com/openova-io/openova/issues/8138) | SVC-130 Enable function tests on the foundation slots | Other |
+| [#8140](https://github.com/openova-io/openova/issues/8140) | CLD-094 Standing check CLD-G12: the plan of a provisioned deployment shows no ch | Other |
+| [#8141](https://github.com/openova-io/openova/issues/8141) | SVC-150 One generator, part 1: embedded and console catalogue | Other |
+| [#8145](https://github.com/openova-io/openova/issues/8145) | INF-133 Check INF-G02: node host scans, as a suite file | Other |
+| [#8148](https://github.com/openova-io/openova/issues/8148) | INF-140 Vulnerability matching and daily re-matching | Other |
+| [#8149](https://github.com/openova-io/openova/issues/8149) | NET-097 Gate check NET-G10: a Pod cannot reach the instance metadata address | Other |
+| [#8155](https://github.com/openova-io/openova/issues/8155) | CLD-103 Credentials map, validation through the port, storage class from the pro | Other |
+| [#8157](https://github.com/openova-io/openova/issues/8157) | CLD-114 Adoption map, name lists and schema enums | Other |
 
 ---
 
@@ -307,36 +307,36 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
-| 2026-11-18T08:34 | [#8091](https://github.com/openova-io/openova/pull/8091) | #7087 | docs(ledger): plan update |
-| 2026-11-18T08:38 | [#8089](https://github.com/openova-io/openova/pull/8089) | #7970 | refactor(providers): each provider module passes its own Flu |
-| 2026-11-18T08:01 | [#8088](https://github.com/openova-io/openova/pull/8088) | #7969 | test(provisioner): pin the variables the engine writes and t |
-| 2026-11-18T07:54 | [#8085](https://github.com/openova-io/openova/pull/8085) | #7087 | docs(ledger): plan update |
-| 2026-11-18T07:43 | [#8082](https://github.com/openova-io/openova/pull/8082) | #7087 | docs(ledger): plan update |
-| 2026-11-18T07:48 | [#8081](https://github.com/openova-io/openova/pull/8081) | #7967 | test(providers): TestProviderPacks checks the seal hook of e |
-| 2026-11-18T07:16 | [#8078](https://github.com/openova-io/openova/pull/8078) | #7087 | docs(ledger): plan update |
-| 2026-11-18T07:26 | [#8076](https://github.com/openova-io/openova/pull/8076) | #7974 | chore: delete the flow server and the flow adapter with thei |
-| 2026-11-18T06:50 | [#8075](https://github.com/openova-io/openova/pull/8075) | #7087 | docs(ledger): plan update |
-| 2026-11-18T07:17 | [#8074](https://github.com/openova-io/openova/pull/8074) | #7813 | refactor(providers): the three modules meet contract version |
-| 2026-11-18T07:16 | [#8073](https://github.com/openova-io/openova/pull/8073) | #8066 | refactor(console): resource views show Managed by Git and se |
-| 2026-11-18T06:22 | [#8071](https://github.com/openova-io/openova/pull/8071) | #7087 | docs(ledger): plan update |
-| 2026-11-17T15:48 | [#8070](https://github.com/openova-io/openova/pull/8070) | #7087 | docs(ledger): plan update |
-| 2026-11-17T15:44 | [#8069](https://github.com/openova-io/openova/pull/8069) | #7087 | docs(ledger): plan update |
-| 2026-11-17T15:27 | [#8065](https://github.com/openova-io/openova/pull/8065) | #7087 | docs(ledger): plan update |
-| 2026-11-18T06:48 | [#8064](https://github.com/openova-io/openova/pull/8064) | #7986 | chore: delete the Sealed Secrets chart folder and its catalo |
-| 2026-11-17T15:13 | [#8062](https://github.com/openova-io/openova/pull/8062) | #7922 | fix(cutover): step 03 copies the sandbox image nodes are con |
-| 2026-11-17T15:12 | [#8061](https://github.com/openova-io/openova/pull/8061) | #11563 | fix(storage): the filer announces its stable Pod name, so S3 |
-| 2026-11-17T15:14 | [#8060](https://github.com/openova-io/openova/pull/8060) | #7815 | test(gate): dial the API port from a hosted runner and add g |
-| 2026-11-17T15:08 | [#8059](https://github.com/openova-io/openova/pull/8059) | #7938 | fix(release): the stage takes the candidate's deletions over |
-| 2026-11-17T15:02 | [#8056](https://github.com/openova-io/openova/pull/8056) | #7981 | fix(hetzner): open the API port only to declared ranges and  |
-| 2026-11-17T14:33 | [#8055](https://github.com/openova-io/openova/pull/8055) | #7568 | fix(huawei): open the API port only to declared sources and  |
-| 2026-11-17T14:33 | [#8054](https://github.com/openova-io/openova/pull/8054) | #7797 | fix(network-policies): deny the instance metadata address by |
-| 2026-11-17T14:19 | [#8052](https://github.com/openova-io/openova/pull/8052) | #7087 | docs(ledger): plan update |
-| 2026-11-17T14:32 | [#8051](https://github.com/openova-io/openova/pull/8051) | #7535 | chore: remove the Sandbox agent picker from the storefront a |
-| 2026-11-17T14:27 | [#8050](https://github.com/openova-io/openova/pull/8050) | #8036 | fix(crossplane): run the adoption Composition in Pipeline mo |
-| 2026-11-17T14:27 | [#8049](https://github.com/openova-io/openova/pull/8049) | #7775 | ci: a workflow gates the standing environment twice once it  |
-| 2026-11-17T14:02 | [#8046](https://github.com/openova-io/openova/pull/8046) | #7087 | docs(ledger): plan update |
-| 2026-11-17T13:49 | [#8044](https://github.com/openova-io/openova/pull/8044) | #7816 | feat(fingate): internal authorisation API package with the t |
-| 2026-11-17T13:48 | [#8043](https://github.com/openova-io/openova/pull/8043) | #7852 | feat(ops-records): alert signal intake and the rule path tha |
+| 2026-11-18T11:43 | [#8154](https://github.com/openova-io/openova/pull/8154) | #7087 | docs(ledger): plan update |
+| 2026-11-18T11:38 | [#8150](https://github.com/openova-io/openova/pull/8150) | #8149 | test(gate): check NET-G10 dials the instance metadata addres |
+| 2026-11-18T11:16 | [#8147](https://github.com/openova-io/openova/pull/8147) | #7087 | docs(ledger): plan update |
+| 2026-11-18T11:10 | [#8144](https://github.com/openova-io/openova/pull/8144) | #7087 | docs(ledger): plan update |
+| 2026-11-18T11:28 | [#8143](https://github.com/openova-io/openova/pull/8143) | #8138 | test(bootstrap-kit): run the function tests of the foundatio |
+| 2026-11-18T11:18 | [#8142](https://github.com/openova-io/openova/pull/8142) | #7765 | refactor(cloud-init): new control planes fetch the k3s insta |
+| 2026-11-18T11:00 | [#8139](https://github.com/openova-io/openova/pull/8139) | #7087 | docs(ledger): plan update |
+| 2026-11-18T10:55 | [#8137](https://github.com/openova-io/openova/pull/8137) | #7087 | docs(ledger): plan update |
+| 2026-11-18T10:57 | [#8136](https://github.com/openova-io/openova/pull/8136) | #8135 | feat(guards): pack tokens in the leak scanner and the additi |
+| 2026-11-18T10:47 | [#8134](https://github.com/openova-io/openova/pull/8134) | #7087 | docs(ledger): plan update |
+| 2026-11-18T11:00 | [#8133](https://github.com/openova-io/openova/pull/8133) | #8132 | fix(axon): build against the pinned agent kit and run its te |
+| 2026-11-18T10:41 | [#8131](https://github.com/openova-io/openova/pull/8131) | #7087 | docs(ledger): plan update |
+| 2026-11-18T10:45 | [#8130](https://github.com/openova-io/openova/pull/8130) | #8125 | refactor(providers): port methods Normalize and TfVars, capa |
+| 2026-11-18T10:21 | [#8129](https://github.com/openova-io/openova/pull/8129) | #7087 | docs(ledger): plan update |
+| 2026-11-18T10:30 | [#8127](https://github.com/openova-io/openova/pull/8127) | #8118 | fix(kit): kit slot 26 switches the deny of the instance meta |
+| 2026-11-18T10:03 | [#8126](https://github.com/openova-io/openova/pull/8126) | #7087 | docs(ledger): plan update |
+| 2026-11-18T10:02 | [#8123](https://github.com/openova-io/openova/pull/8123) | #7938 | fix(release): the delivery's calls are all granted, and a ch |
+| 2026-11-18T09:51 | [#8121](https://github.com/openova-io/openova/pull/8121) | #7087 | docs(ledger): plan update |
+| 2026-11-18T09:44 | [#8120](https://github.com/openova-io/openova/pull/8120) | #7087 | docs(ledger): plan update |
+| 2026-11-18T09:33 | [#8117](https://github.com/openova-io/openova/pull/8117) | #7087 | docs(ledger): plan update |
+| 2026-11-18T09:33 | [#8115](https://github.com/openova-io/openova/pull/8115) | #8111 | refactor(model-meter): add the stub subcommand, the scripted |
+| 2026-11-18T09:33 | [#8114](https://github.com/openova-io/openova/pull/8114) | #8106 | refactor(providers): generate the provider registry from the |
+| 2026-11-18T09:43 | [#8113](https://github.com/openova-io/openova/pull/8113) | #8107 | fix(local): leave the kured slot out of the local reduced ki |
+| 2026-11-18T10:46 | [#8112](https://github.com/openova-io/openova/pull/8112) | #8108 | feat(network-policies): default deny by enforcedNamespaces,  |
+| 2026-11-18T09:21 | [#8110](https://github.com/openova-io/openova/pull/8110) | #7087 | docs(ledger): plan update |
+| 2026-11-18T10:13 | [#8109](https://github.com/openova-io/openova/pull/8109) | #8086 | refactor(providers): the shared boot template tests no provi |
+| 2026-11-18T09:14 | [#8105](https://github.com/openova-io/openova/pull/8105) | #7087 | docs(ledger): plan update |
+| 2026-11-18T09:15 | [#8104](https://github.com/openova-io/openova/pull/8104) | #7984 | feat(providers): the region separation of a Sovereign as a m |
+| 2026-11-18T09:06 | [#8103](https://github.com/openova-io/openova/pull/8103) | #7087 | docs(ledger): plan update |
+| 2026-11-18T08:57 | [#8101](https://github.com/openova-io/openova/pull/8101) | #7087 | docs(ledger): plan update |
 
 ---
 

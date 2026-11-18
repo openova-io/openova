@@ -5,7 +5,7 @@
 // structure as providers/hetzner — translates the
 // providers.CloudProvider interface to:
 //   - `internal/provisioner` (`tofu apply` / `tofu destroy` against
-//     `infra/providers/huawei/`) for Provision + Wipe.
+//     `infra/providers/huawei/`) for Wipe.
 //   - A small Huawei-specific HTTP client (signed AK/SK Signature v3 —
 //     see sigv3.go) for ValidateCreds + ListServers + orphan-purge.
 //   - The same `minio-go` S3 client `internal/hetzner/buckets.go` uses,
@@ -35,13 +35,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/cloudprofile"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
@@ -85,7 +85,7 @@ func init() {
 // (*Provider).VPCQuota but as a free function so the provisioner
 // package can call it without importing huawei (preventing the
 // provisioner ↔ huawei import cycle — huawei already imports
-// provisioner for the Provision delegate).
+// provisioner for the Wipe delegate).
 func VPCQuotaPreflight(ctx context.Context, accessKey, secretKey, projectID, region string) (used, limit int, err error) {
 	return New().VPCQuota(ctx, accessKey, secretKey, projectID, region)
 }
@@ -107,6 +107,18 @@ func VPCReclaimPreflight(ctx context.Context, accessKey, secretKey, projectID, r
 
 // Name returns the canonical provider name.
 func (p *Provider) Name() string { return Name }
+
+// Normalize fills provider defaults into spec and validates it against
+// profile. It accepts every spec for now; the engine does not call it yet.
+func (p *Provider) Normalize(spec *providers.ProvisionSpec, profile *cloudprofile.Profile) error {
+	return nil
+}
+
+// TfVars returns the provider-specific OpenTofu variables for spec. It
+// returns none for now; the engine does not call it yet.
+func (p *Provider) TfVars(spec providers.ProvisionSpec, profile *cloudprofile.Profile) (map[string]any, error) {
+	return map[string]any{}, nil
+}
 
 // regionFromCreds returns the region for one call. Falls back to
 // the HCS default when the operator didn't override it (Wave 4
@@ -195,65 +207,6 @@ func (p *Provider) ValidateCreds(ctx context.Context, creds providers.ProviderCr
 		return fmt.Errorf("huawei: unexpected status %d from VPC endpoint: %s",
 			status, snippet(body, 240))
 	}
-}
-
-// Provision shells out to `tofu apply` against
-// infra/providers/huawei/ via the canonical internal/provisioner
-// package. The catalyst-api writes the operator's AK/SK + project_id
-// into tofu.auto.tfvars.json at workdir-prep time (mirroring how the
-// Hetzner adapter writes `hcloud_token`).
-//
-// MUST be idempotent: re-running on a deployment whose tofu workdir
-// already holds state returns the existing outputs without re-creating
-// cloud resources.
-func (p *Provider) Provision(ctx context.Context, spec providers.ProvisionSpec, events chan<- providers.ProvisionEvent) (*providers.ProvisionResult, error) {
-	if len(spec.Regions) == 0 {
-		return nil, errors.New("huawei provider: at least one region required")
-	}
-	if _, err := credsFromProviderCreds(spec.Creds); err != nil {
-		return nil, err
-	}
-	req, err := toProvisionerRequest(spec)
-	if err != nil {
-		return nil, err
-	}
-
-	// Bridge the cloud-agnostic event channel into the provisioner's
-	// concrete provisioner.Event channel — same plumbing the Hetzner
-	// adapter uses.
-	provEvents := make(chan provisioner.Event, 32)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for e := range provEvents {
-			select {
-			case events <- providers.ProvisionEvent{
-				Time:    e.Time,
-				Phase:   e.Phase,
-				Level:   e.Level,
-				Message: e.Message,
-			}:
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-	prov := provisioner.New()
-	res, err := prov.Provision(ctx, req, provEvents)
-	close(provEvents)
-	<-done
-	if err != nil {
-		return nil, err
-	}
-	return &providers.ProvisionResult{
-		SovereignFQDN:         res.SovereignFQDN,
-		ControlPlaneIP:        res.ControlPlaneIP,
-		LoadBalancerIP:        res.LoadBalancerIP,
-		ConsoleLoadBalancerIP: res.ConsoleLoadBalancerIP, // #4053 — dedicated console ELB
-		ConsoleURL:            res.ConsoleURL,
-		GitOpsRepoURL:         res.GitOpsRepoURL,
-		KubeconfigPath:        res.KubeconfigPath,
-	}, nil
 }
 
 // Wipe runs the canonical purge sequence:
@@ -2850,48 +2803,6 @@ func (p *Provider) SweepOrphanOBSBuckets(ctx context.Context, ak, sk, projectID,
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
-
-// toProvisionerRequest converts the cloud-agnostic ProvisionSpec into
-// the legacy provisioner.Request shape. The Wave 4 follow-up will
-// extend provisioner.Request with a per-provider Creds map so the
-// adapter can pass the AK/SK + project_id without re-using the
-// HetznerToken / HetznerProjectID field names.
-//
-// For Wave 3 we thread the Huawei creds via spec.Raw["huawei_*"]
-// which the provisioner's writeTfvars() will pick up alongside the
-// existing Hetzner keys.
-func toProvisionerRequest(spec providers.ProvisionSpec) (provisioner.Request, error) {
-	if spec.SovereignFQDN == "" {
-		return provisioner.Request{}, errors.New("huawei: SovereignFQDN required")
-	}
-	req := provisioner.Request{
-		DeploymentID:         spec.DeploymentID,
-		SovereignFQDN:        spec.SovereignFQDN,
-		HandoverJWTPublicKey: spec.HandoverJWTPublic,
-	}
-	for _, r := range spec.Regions {
-		req.Regions = append(req.Regions, provisioner.RegionSpec{
-			Provider:         Name,
-			CloudRegion:      r.Code,
-			ControlPlaneSize: r.ControlPlaneSize,
-			WorkerSize:       r.WorkerSize,
-			WorkerCount:      r.WorkerCount,
-		})
-	}
-	for _, pd := range spec.ParentDomains {
-		req.ParentDomains = append(req.ParentDomains, provisioner.ParentDomain{
-			Name:          pd.Name,
-			Role:          pd.Role,
-			RegistrarKind: pd.Registrar,
-		})
-	}
-	if v := spec.Raw["workerCount"]; v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			req.WorkerCount = n
-		}
-	}
-	return req, nil
-}
 
 // snippet returns the first n bytes of b for safe inclusion in error
 // strings (Huawei error bodies can be multi-kilobyte JSON when the

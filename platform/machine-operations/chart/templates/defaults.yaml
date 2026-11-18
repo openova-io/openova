@@ -1,0 +1,40 @@
+{{- if and .Values.enabled .Values.defaults.nodeScan.enabled }}
+# The default scan of the nodes: every Machine of class node in catalyst-infra
+# gets a bill of materials and a hardening report each night, between 02:00
+# and 04:00 UTC.
+apiVersion: machines.openova.io/v1alpha1
+kind: HardeningBaseline
+metadata:
+  name: nodes
+  namespace: catalyst-infra
+  labels:
+    {{- include "bp-machine-operations.labels" . | nindent 4 }}
+spec:
+  content:
+    source: complianceascode
+    release: "0.1.82"
+  profiles:
+    - osFamily: ubuntu
+      osVersion: "22.04"
+      profileId: xccdf_org.ssgproject.content_profile_cis_level1_server
+    - osFamily: ubuntu
+      osVersion: "24.04"
+      profileId: xccdf_org.ssgproject.content_profile_cis_level1_server
+---
+apiVersion: machines.openova.io/v1alpha1
+kind: ScanPolicy
+metadata:
+  name: nodes
+  namespace: catalyst-infra
+  labels:
+    {{- include "bp-machine-operations.labels" . | nindent 4 }}
+spec:
+  machineSelector:
+    matchLabels:
+      machines.openova.io/class: node
+  profiles: [inventory, hardening]
+  hardeningBaselineRef:
+    name: nodes
+  schedule: "0 2 * * *"
+  jitter: 2h
+{{- end }}

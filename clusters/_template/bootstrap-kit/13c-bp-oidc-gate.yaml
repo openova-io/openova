@@ -52,6 +52,9 @@ metadata:
   labels:
     catalyst.openova.io/slot: "13c"
 spec:
+  test:
+    enable: true
+    ignoreFailures: true
   interval: 1m
   releaseName: oidc-gate
   targetNamespace: oidc-gate

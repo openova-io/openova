@@ -38,6 +38,12 @@ name: Test — Bootstrap API (Go)
 # helm and read with yq:
 #   platform/self-sovereign-cutover/chart/files/release/**
 #   products/catalyst/chart/templates/clusterrole-cutover-driver.yaml
+# and the RBAC the release scripts run with: every kubectl call of a replayed
+# delivery is checked against the runner account's rules as the chart renders
+# them, that account read from the pods of step 01 and step 03 (#7938):
+#   platform/self-sovereign-cutover/chart/templates/rbac.yaml
+#   platform/self-sovereign-cutover/chart/templates/_helpers.tpl
+#   platform/self-sovereign-cutover/chart/templates/01-gitea-mirror-job.yaml
 # The network-registry tests of internal/lifecycle read the two-region registry
 # fixture of the registry guard, and replay the registry's calls against the
 # role that the first-boot template binds to parent-bootstrap (#7938; the
@@ -60,6 +66,9 @@ on:
       - 'platform/self-sovereign-cutover/chart/templates/03b-bootstrap-kit-pins.yaml'
       - 'platform/self-sovereign-cutover/chart/templates/03-harbor-prewarm-job.yaml'
       - 'platform/self-sovereign-cutover/chart/files/release/**'
+      - 'platform/self-sovereign-cutover/chart/templates/rbac.yaml'
+      - 'platform/self-sovereign-cutover/chart/templates/_helpers.tpl'
+      - 'platform/self-sovereign-cutover/chart/templates/01-gitea-mirror-job.yaml'
       - 'products/catalyst/chart/templates/clusterrole-cutover-driver.yaml'
       - 'scripts/tests/check-network-registry/valid-two-regions.json'
       - '.github/workflows/test-bootstrap-api.yaml'
@@ -80,6 +89,9 @@ on:
       - 'platform/self-sovereign-cutover/chart/templates/03b-bootstrap-kit-pins.yaml'
       - 'platform/self-sovereign-cutover/chart/templates/03-harbor-prewarm-job.yaml'
       - 'platform/self-sovereign-cutover/chart/files/release/**'
+      - 'platform/self-sovereign-cutover/chart/templates/rbac.yaml'
+      - 'platform/self-sovereign-cutover/chart/templates/_helpers.tpl'
+      - 'platform/self-sovereign-cutover/chart/templates/01-gitea-mirror-job.yaml'
       - 'products/catalyst/chart/templates/clusterrole-cutover-driver.yaml'
       - 'scripts/tests/check-network-registry/valid-two-regions.json'
       - '.github/workflows/test-bootstrap-api.yaml'

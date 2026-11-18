@@ -2031,7 +2031,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.2.2",
+    "version": "1.2.3",
     "section": "pts-3-5-storage-and-data",
     "depends": [],
     "shareable": false,
@@ -2993,7 +2993,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.2",
+    "version": "0.1.3",
     "section": null,
     "depends": [],
     "shareable": false,
@@ -3476,7 +3476,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.0.9",
+    "version": "1.0.10",
     "section": "pts-3-1-networking-and-service-mesh",
     "depends": [
       "bp-cilium"
@@ -4522,7 +4522,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "0.1.229",
+    "version": "0.1.230",
     "section": "pts-2-3-per-sovereign-supporting-services",
     "depends": [
       "bp-gitea",

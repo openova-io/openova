@@ -58,6 +58,9 @@ metadata:
   labels:
     catalyst.openova.io/slot: "26"
 spec:
+  test:
+    enable: true
+    ignoreFailures: true
   interval: 15m
   releaseName: network-policies
   targetNamespace: catalyst-system
@@ -73,26 +76,26 @@ spec:
       # 1.0.4 (Refs #3188, 2026-06-10): allow-system-namespaces now uses
       # the reserved entity `all` (was a bare `{}` rule that didn't cover
       # kube-apiserver/host/world) — fixes control-plane Pods losing the
-      # apiserver under default-deny. See the `enabled: false` gate below.
+      # apiserver under default-deny.
       # 1.0.5 (#4291 Workstream C): allowSystemNamespaces drops the retired
       # dmz/mgmt/rtz vCluster syncer namespaces + adds guacamole + sandbox
       # (de-vclustered to their own host namespaces).
-      version: 1.0.9
+      version: 1.0.10
       sourceRef:
         kind: HelmRepository
         name: bp-network-policies
         namespace: flux-system
-  # enabled: false — install the chart (so the HR/HelmChart resolves and
-  # the bootstrap-kit Kustomization reaches Ready) but render ZERO Cilium
-  # policies. Validated on live hw124 (2026-06-10): the 1.0.4 `all`-entity
-  # fix restores kyverno→apiserver under default-deny, BUT the default-deny
-  # still 403s the console ingress path — so the zero-trust posture is not
-  # yet safe to enforce cluster-wide. Re-enabling (enabled: true) is gated
-  # on a dedicated validation prov proving EVERY ingress/egress path
-  # (console, marketplace, SSO, tenant Orgs) survives default-deny. Until
-  # then this stays off so no fresh prov is severed. Refs #3188.
+  # enabled: true renders one cluster-wide object, baseline-deny-metadata:
+  # an egress deny to the instance metadata address 169.254.169.254 for every
+  # pod whose label network.openova.io/metadata-access is not "true". It puts
+  # no pod under default deny, so no other path is cut. Pods on the host
+  # network are not selected. A workload that must read the address carries
+  # that label on its pod template, and guard G10 (rule e) refuses the label
+  # without a recorded exception. The legacy default-deny set, which returned
+  # 403 on the console entry path (#3188), renders only with
+  # legacyBaseline.enabled, and this slot does not set it.
   values:
-    enabled: false
+    enabled: true
   install:
     timeout: 5m
     disableWait: true

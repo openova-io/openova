@@ -62,6 +62,9 @@ metadata:
   labels:
     catalyst.openova.io/slot: "09"
 spec:
+  test:
+    enable: true
+    ignoreFailures: true
   interval: 15m
   releaseName: keycloak
   targetNamespace: keycloak

@@ -172,17 +172,7 @@ fixture_common() {
     object_storage_secret_key         = "OBSTESTsecretkey0001"
     load_balancer_ipv4                = "203.0.113.10"
     console_load_balancer_ipv4        = "203.0.113.11"
-    # Huawei-branch substitute vars (inert on non-Huawei but referenced in
-    # the shared template's `provider == "huawei"` directive — tofu evaluates
-    # var refs even in non-taken branches, so every fixture must supply them).
-    pdns_api_host                     = "pdns.openova.io"
     sovereign_region_role             = "primary"
-    node_external_ip_value            = "203.0.113.10"
-    # #4784 — clustermesh-proxy host port (below k8s NodePort range, not
-    # 2379/2380). The real templatefile() maps in infra/providers/*/main.tf
-    # supply this; keep the lint fixture in lockstep or tofu errors
-    # "vars map does not contain key clustermesh_proxy_port".
-    clustermesh_proxy_port            = 12379
     # #5017 keystone — provider API CIDRs (inline-YAML array) for the step-08
     # deny-egress allow-list; every real templatefile() map supplies it.
     provider_api_cidrs_yaml           = "[]"
@@ -201,8 +191,13 @@ HCL
 # caller's name without the prefix fixture_.
 fixture_substitutes() {
   printf '    provider_substitutes_yaml = templatefile("%s/%s/provider-substitutes.yaml.tftpl", {\n' "${PROVIDERS_DIR}" "${FUNCNAME[1]#fixture_}"
-  fixture_common | grep -E '^    (region|sovereign_fqdn_slug|default_storage_class|sovereign_region_role|node_external_ip_value|clustermesh_proxy_port|pdns_api_host) +=' | sed 's/^/  /'
+  fixture_common | grep -E '^    (region|sovereign_fqdn_slug|default_storage_class|sovereign_region_role) +=' | sed 's/^/  /'
+  # CLD-132: the shared template reads none of these three; only the
+  # substitutes file of a pack does.
+  printf '      node_external_ip_value = "203.0.113.10"\n      clustermesh_proxy_port = 12379\n      pdns_api_host          = "pdns.openova.io"\n'
   printf '    })\n'
+  # CLD-132: the overlay folder of the pack, named like the substitutes file.
+  printf '    provider_overlay_path = "./clusters/_template/providers/%s"\n' "${FUNCNAME[1]#fixture_}"
 }
 
 fixture_hetzner() {
@@ -210,6 +205,10 @@ fixture_hetzner() {
   fixture_substitutes
   cat <<'HCL'
     provider             = "hetzner"
+    node_ipv4_only              = false
+    fail_mark_cmd               = "touch /var/lib/catalyst/"
+    render_region_kustomization = false
+    gateway_host_network        = false
     node_external_ip_cmd = "curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/public-ipv4"
     node_ip_cmd          = "echo 10.0.1.2"
     k3s_extra_args       = "--kube-apiserver-arg=oidc-issuer-url=https://auth.t99.omani.works/realms/sovereign --disable-cloud-controller --node-taint node-role.kubernetes.io/control-plane=true:NoSchedule"
@@ -278,6 +277,10 @@ fixture_huawei() {
   fixture_substitutes
   cat <<'HCL'
     provider             = "huawei"
+    node_ipv4_only              = true
+    fail_mark_cmd               = "sh /var/lib/catalyst/mark "
+    render_region_kustomization = true
+    gateway_host_network        = true
     node_external_ip_cmd = "printf '%s' '203.0.113.10'"
     node_ip_cmd          = "ip -4 -o addr show dev eth0 | awk '{print $4}' | cut -d/ -f1"
     k3s_extra_args       = "--node-label=topology.kubernetes.io/region=test-region-a --node-label=catalyst.openova.io/provider=huawei --kube-apiserver-arg=default-watch-cache-size=200 --kube-apiserver-arg=watch-cache-sizes=secrets#500,configmaps#500 --etcd-snapshot-retention=5"
@@ -332,6 +335,9 @@ fixture_huawei() {
             done
           ' >/dev/null 2>&1 &
         fi
+      - |
+        install -m 700 /dev/null /var/lib/catalyst/mark
+        printf '%s\n' 'touch "/var/lib/catalyst/$1"' 'echo "CLOUDINIT-SENTINEL: $1"' 'sleep 1' 'curl -4 -sk -X PUT -H "Authorization: Bearer kubeconfigTESTbearer0001" -H "Content-Type: text/plain" --data-binary @/var/log/cloud-init-output.log --max-time 20 "https://console.openova.io/sovereign/api/v1/deployments/test-dep-0001/cloudinit-log?node=$(hostname)" >/dev/null 2>&1' >/var/lib/catalyst/mark
     PRE
     # #6339 — this MIRRORS the real primary-region block in
     # infra/providers/huawei/main.tf (the `%{ if idx == 0 }` arm). It had drifted

@@ -28,15 +28,16 @@ import (
 	"time"
 )
 
-// Bus publishes one message on a JetStream subject with a message identifier and returns after
-// the acknowledgement. *events.NATSConn of core/services/shared implements it.
+// Bus publishes one message on a JetStream subject with a message identifier and returns the
+// stream sequence of the acknowledgement. *events.NATSConn of core/services/shared implements it.
 type Bus interface {
-	PublishRaw(ctx context.Context, subject, msgID string, body []byte) error
+	PublishRawSeq(ctx context.Context, subject, msgID string, body []byte) (uint64, error)
 }
 
-// Publisher publishes or spools one event; it never blocks the response path.
+// Publisher publishes or spools one event; it never blocks the response path. It returns the
+// JetStream sequence of an acknowledged publish, and 0 otherwise.
 type Publisher interface {
-	Publish(ctx context.Context, ev UsageEvent) error
+	Publish(ctx context.Context, ev UsageEvent) (uint64, error)
 }
 
 // ErrSpooled is returned by Publish when the event was written to the spool directory for a
@@ -58,23 +59,23 @@ type SpoolPublisher struct {
 	spoolDropFatal atomic.Int64
 }
 
-// Publish publishes the event synchronously and returns nil after the acknowledgement. When no
-// bus is configured, or the publish fails, the envelope is written to the spool directory and
-// Publish returns ErrSpooled. Any other error means the event is lost.
-func (p *SpoolPublisher) Publish(ctx context.Context, ev UsageEvent) error {
+// Publish publishes the event synchronously and returns its stream sequence after the
+// acknowledgement. When no bus is configured, or the publish fails, the envelope is written to
+// the spool directory and Publish returns ErrSpooled. Any other error means the event is lost.
+func (p *SpoolPublisher) Publish(ctx context.Context, ev UsageEvent) (uint64, error) {
 	body, err := ev.CloudEvent(p.Source)
 	if err != nil {
 		p.spoolDropFatal.Add(1)
 		slog.Error("meter: the event cannot be encoded and is dropped", "id", ev.ID, "error", err)
-		return err
+		return 0, err
 	}
 	if p.Bus != nil {
 		pubCtx, cancel := context.WithTimeout(ctx, p.PublishTimeout)
-		err := p.Bus.PublishRaw(pubCtx, Subject, ev.ID, body)
+		seq, err := p.Bus.PublishRawSeq(pubCtx, Subject, ev.ID, body)
 		cancel()
 		if err == nil {
 			p.publishedOK.Add(1)
-			return nil
+			return seq, nil
 		}
 		p.publishFailed.Add(1)
 		slog.Warn("meter: publish failed, spooling the event", "id", ev.ID, "error", err)
@@ -82,10 +83,10 @@ func (p *SpoolPublisher) Publish(ctx context.Context, ev UsageEvent) error {
 	if err := p.spoolEnvelope(ev.ID, body); err != nil {
 		p.spoolDropFatal.Add(1)
 		slog.Error("meter: the event could not be spooled and is dropped", "id", ev.ID, "error", err)
-		return err
+		return 0, err
 	}
 	p.spooled.Add(1)
-	return ErrSpooled
+	return 0, ErrSpooled
 }
 
 // spoolEnvelope writes the envelope bytes to SpoolDir/<id>.json. The file name is the event
@@ -158,7 +159,7 @@ func (p *SpoolPublisher) DrainSpoolOnce(ctx context.Context) {
 			continue
 		}
 		pubCtx, cancel := context.WithTimeout(ctx, p.PublishTimeout)
-		err = p.Bus.PublishRaw(pubCtx, Subject, head.ID, body)
+		_, err = p.Bus.PublishRawSeq(pubCtx, Subject, head.ID, body)
 		cancel()
 		if err != nil {
 			return // still down: leave the files for the next pass

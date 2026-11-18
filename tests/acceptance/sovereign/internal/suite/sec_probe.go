@@ -48,18 +48,29 @@ server=$root/var/lib/rancher/k3s/server
 # a space. In the etcd file a key and the start of its value are then one line.
 records() { tr '\000\n' '\n ' < "$1"; }
 if [ "$2" = etcd ]; then
+	key=$3 value=$4
+	# hits FILE: the records of FILE that hold the key or the value, from ONE
+	# reading of FILE. etcd writes its files while the probe reads them, and a
+	# page that holds a stale copy of a record can be written over between two
+	# readings, so counts taken from separate readings need not agree (SEC-G01
+	# on the local pack, 18 November 2026: 2 records in one reading, 1 in the next).
+	hits() { records "$1" | grep -F -e "$key" -e "$value"; }
+	# count HITS TEXT: the number of lines of HITS that hold TEXT.
+	count() { printf '%s\n' "$1" | grep -c -F -e "$2"; }
 	db=$server/db/etcd/member/snap/db
 	[ -r "$db" ] || { echo db=unreadable; exit 0; }
-	echo "db_canary=$(records "$db" | grep -c -F -e "$4")" "db_key=$(records "$db" | grep -c -F -e "$3")" \
-		"db_key_secretbox=$(records "$db" | grep -F -e "$3" | grep -c -F -e 'k8s:enc:secretbox:v1:')"
-	files=0 canary=0 key=0
+	h=$(hits "$db")
+	echo "db_canary=$(count "$h" "$value")" "db_key=$(count "$h" "$key")" \
+		"db_key_secretbox=$(printf '%s\n' "$h" | grep -F -e "$key" | grep -c -F -e 'k8s:enc:secretbox:v1:')"
+	files=0 canary=0 keys=0
 	for f in "$server"/db/etcd/member/wal/*.wal; do
 		[ -r "$f" ] || continue
 		files=$((files + 1))
-		canary=$((canary + $(records "$f" | grep -c -F -e "$4")))
-		key=$((key + $(records "$f" | grep -c -F -e "$3")))
+		h=$(hits "$f")
+		canary=$((canary + $(count "$h" "$value")))
+		keys=$((keys + $(count "$h" "$key")))
 	done
-	echo "wal_files=$files wal_canary=$canary wal_key=$key"
+	echo "wal_files=$files wal_canary=$canary wal_key=$keys"
 	exit 0
 fi
 # The token file holds K10<hash of the CA>::server:<token>, or the token alone.

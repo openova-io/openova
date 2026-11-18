@@ -5,13 +5,13 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
 spec:
-  version: 1.0.9
+  version: 1.0.10
   card:
     title: Network Policies (zero-trust baseline)
     summary: |
-      Default-deny CiliumClusterwideNetworkPolicy + allow-templates for
-      Catalyst control-plane namespaces, intra-namespace traffic, and DNS.
-      Activated by EPIC-5 #1100.
+      Cluster-wide Cilium policies: the instance metadata address denied to
+      every pod, and default deny with one hand-written allow object per
+      namespace listed in enforcedNamespaces.
     family: networking
     documentation: ./README.md
   visibility: unlisted
@@ -23,34 +23,14 @@ spec:
     properties:
       enabled:
         type: boolean
-        default: false
-        description: Master gate. Default off — installing this Blueprint is a no-op until flipped.
-      allowSystemNamespaces:
+        default: true
+        description: Master gate. false renders nothing at all.
+      enforcedNamespaces:
         type: array
-        description: Namespaces the Catalyst control plane needs full ingress/egress on.
+        description: Namespaces under default deny. Each one gets the allow object of its file templates/allow/<namespace>.yaml.
         items:
           type: string
-        default:
-          - kube-system
-          - flux-system
-          - cilium
-          - cert-manager
-          - catalyst
-          - openova-system
-          - monitoring
-          - ingress
-      allowEgressDNS:
-        type: boolean
-        default: true
-        description: Allow egress to CoreDNS from every namespace. Without this, Pods break.
-      dnsNamespace:
-        type: string
-        default: kube-system
-        description: Namespace where CoreDNS lives.
-      dnsServiceName:
-        type: string
-        default: kube-dns
-        description: Service name CoreDNS publishes under (k3s default is kube-dns).
+        default: []
   placementSchema:
     modes: [single-region, active-active]
     default: active-active

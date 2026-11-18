@@ -1,7 +1,9 @@
 """The worst-case inputs of this module's user data, for scripts/cloudinit-size-check.py (#7893).
 
-The program calls worst_case(c) with its own module as c (the fillers and the
-lengths shared by every provider are there) and renders this module's
+The program calls worst_case(c, limit) with its own module as c (the fillers
+and the lengths shared by every provider are there) and the user-data limit
+of this pack's profile.yaml as limit (spec.bootstrap.userDataLimitBytes, the
+one place of the cloud's limit), and renders this module's
 user-data locals with what it returns: the module variables, the resource
 attributes the locals read (`res`), stand-ins for locals derived from
 resources, the locals to render and the surfaces to measure with their limits.
@@ -12,16 +14,16 @@ import json
 # (see scripts/cloudinit-size-check.py).
 FQDN_LENGTH = 45
 
-# The limits. The API's hard cap is 32,768 bytes (main.tf, issue #966), and
-# this module refuses less at plan time: the primary control plane 32,576, a
-# secondary control plane 32,256, a worker 30,720 (its preconditions). The
-# smaller of the two is what a real installation can send.
+# The limits. The cloud's limit is `limit` (profile.yaml; main.tf, issue
+# #966), and this module refuses less at plan time: the primary control plane
+# 32,576, a secondary control plane 32,256, a worker 30,720 (its
+# preconditions). These are what a real installation can send.
 LIMIT_CP_PRIMARY = 32576
 LIMIT_CP_SECONDARY = 32256
 LIMIT_WORKER = 30720
 
 
-def worst_case(c):
+def worst_case(c, limit):
     fqdn = c.fqdn(FQDN_LENGTH)
     regions = [
         {"code": "fsn1", "cloud_region": "fsn1", "role": "primary", "control_plane_size": "ccx63", "worker_size": "ccx63", "worker_count": 50},

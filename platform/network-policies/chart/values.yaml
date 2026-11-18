@@ -8,90 +8,14 @@
 #   network.openova.io/metadata-access: "true"
 enabled: true
 
-# The legacy baseline: the objects `00-default-deny`,
-# `10-allow-system-namespaces` and `30-allow-egress-dns`. Off by default.
-# Together they put every pod of the cluster under default deny for
-# egress, and that cut the console entry path when it was tried.
-# They render only when this value AND `enabled` are both true. Every
-# value below this block (`allowSystemNamespaces`, `allowEgressDNS`,
-# `dnsNamespace`, `dnsServiceName`) is read by the legacy templates only.
-legacyBaseline:
-  enabled: false
-
-# G101 (Refs #2650, 2026-06-01) — EXPANDED. Catalyst control-plane
-# namespaces that need full ingress/egress so the platform itself stays
-# up after default-deny is applied. The list mirrors every
-# targetNamespace declared in clusters/_template/bootstrap-kit/*.yaml
-# plus the 3 vCluster syncer namespaces (dmz/mgmt/rtz). Per-Blueprint
-# explicit CNPs progressively tighten each namespace; this list is the
-# coarse-grained safety net so a fresh prov doesn't sever inter-platform
-# flows the moment default-deny activates.
-allowSystemNamespaces:
-  - alloy
-  - catalyst
-  - catalyst-system
-  - cert-manager
-  - cilium
-  - cilium-gateway
-  - cluster-autoscaler
-  - cnpg-system
-  - crossplane-system
-  # #4291 Workstream C — `dmz`/`mgmt`/`rtz` REMOVED: the platform planes are
-  # no longer vCluster syncer namespaces. Each former-plane component now runs
-  # in its OWN host namespace (gitea/harbor/keycloak/grafana/openbao/guacamole/
-  # newapi/nats-system/loki/mimir/tempo · valkey/seaweedfs/vllm), all listed
-  # individually below + tightened per-component by slot
-  # 26b bp-plane-isolation.
-  - external-dns
-  - external-secrets-system
-  - falco
-  - flux-system
-  - gitea
-  - grafana
-  - guacamole   # #4291 — guacamole de-vclustered to its own host ns (was catalyst-system in vc-mgmt)
-  - harbor
-  - ingress
-  - keycloak
-  - kube-system
-  - kyverno
-  - loki
-  - mimir
-  - monitoring
-  - nats-system
-  - newapi
-  - openbao
-  - opentelemetry
-  - openova-system
-  # org-services (#3859, 2026-06-19): the BSS/funnel control-plane tier was
-  # renamed `sme` → `org-services` (#3383 commit 7f6dfca23). The org-services
-  # namespace carries the marketplace/auth/billing/provisioning Deployments
-  # that the #3376 funnel depends on; it needs the same coarse-grained
-  # allow as the other control-plane namespaces so default-deny doesn't sever
-  # its inter-platform flows. The legacy `sme` entry is gone (#3985 — fresh
-  # provs allow only `org-services`).
-  - org-services
-  - powerdns
-  - reflector
-  - reloader
-  - seaweedfs
-  - sigstore-system
-  - syft-grype
-  - tempo
-  - trivy-system
-  - valkey
-  - velero
-  - vllm
-  - vpa
-
-# NOTE: Pod-to-Pod within the SAME namespace is NOT handled here. Cilium
-# CCNPs can't express "same namespace as the source Pod" without listing
-# every namespace explicitly — that's a per-tenant concern that the
-# organization-controller (slice C1 of #1095) renders as a per-namespace
-# CiliumNetworkPolicy (CNP, not CCNP) at Organization creation time. This
-# Blueprint handles only the cluster-wide policies.
-
-# Allow egress to CoreDNS from every namespace (without this, Pods break
-# on first DNS lookup).
-allowEgressDNS: true
-dnsNamespace: kube-system
-dnsServiceName: kube-dns
+# The namespaces under default deny. Empty (the default): no pod of the
+# cluster is under default deny, and the chart renders the baseline only.
+#
+# A namespace in this list is selected by the object `baseline-default-deny`:
+# nothing enters its pods, and the one flow that leaves them is DNS to the
+# cluster resolver. Its own allow object `allow-<namespace>`, written in
+# templates/allow/<namespace>.yaml, renders only while the namespace is in
+# this list. Each entry is a namespace name (an RFC 1123 label); another
+# value stops the render. The rule template of an allow file and the rule
+# for later namespaces are in templates/allow/_README.tpl.
+enforcedNamespaces: []

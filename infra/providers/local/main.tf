@@ -153,7 +153,6 @@ locals {
     primary_region_canonical_label = local.region_label[local.region_keys[0]]
     replica_region_canonical_label = length(var.regions) > 1 ? local.region_label[local.region_keys[1]] : ""
 
-    pdns_api_host           = "powerdns.${var.sovereign_fqdn}"
     provider_api_cidrs_yaml = jsonencode(var.provider_api_cidrs)
     gitops_repo_url         = var.gitops_repo_url
     gitops_branch           = var.gitops_branch
@@ -212,8 +211,15 @@ locals {
     k3s_extra_args                = "--node-label=topology.kubernetes.io/region=${r.code} --node-label=topology.kubernetes.io/zone=${r.code}"
     node_ip_cmd                   = "printf '%s' '${local.control_plane_ip[r.code]}'"
     node_external_ip_cmd          = "printf '%s' '${local.external_ip[r.code]}'"
-    node_external_ip_value        = local.external_ip[r.code]
-    clustermesh_proxy_port        = var.clustermesh_proxy_port
+
+    # CLD-132 — the provider tests of the shared template, as inputs. The
+    # gateway binds the host ports: gateway_host_network equals
+    # spec.network.loadBalancer.mode == "external-hostport" of profile.yaml.
+    node_ipv4_only              = false
+    fail_mark_cmd               = "touch /var/lib/catalyst/"
+    render_region_kustomization = true
+    gateway_host_network        = true
+    provider_overlay_path       = "./clusters/_template/providers/local"
 
     # CLD-131 — none: this pack writes its substitutes after the render
     # (local.pack_substitutes).

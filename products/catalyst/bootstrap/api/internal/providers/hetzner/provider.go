@@ -17,9 +17,8 @@
 // once Huawei has a concrete implementation worth dispatching on.
 //
 // Per docs/INVIOLABLE-PRINCIPLES.md #3 (OpenTofu owns Phase-0), the
-// adapter's Provision method shells out to `tofu apply`; the orphan
-// sweep + bucket purge are recovery fallbacks invoked by Wipe, never
-// by Provision.
+// provisioning engine runs `tofu apply`; the orphan sweep + bucket
+// purge are recovery fallbacks invoked by Wipe.
 
 package hetzner
 
@@ -27,9 +26,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"time"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/cloudprofile"
 	hcloudpurge "github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/hetzner"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
@@ -42,7 +41,7 @@ const Name = "hetzner"
 // Provider implements providers.CloudProvider for Hetzner Cloud.
 //
 // All state-bearing dependencies (the underlying *provisioner.Provisioner
-// instance) are created lazily on the first Provision call so that
+// instance) are created inside each Wipe call so that
 // init-time registration does not pay the cost of building a fully
 // configured Provisioner that may never be used (e.g. when the catalyst-
 // api Pod only handles GETs against persisted records).
@@ -61,55 +60,16 @@ func init() {
 // Name returns the canonical provider name.
 func (p *Provider) Name() string { return Name }
 
-// Provision delegates to provisioner.Provisioner.Provision with a
-// Hetzner-shaped Request constructed from the cloud-agnostic
-// ProvisionSpec.
-//
-// MUST stay byte-equivalent to the existing handler path through
-// internal/provisioner — Wave 2 is refactor-only.
-func (p *Provider) Provision(ctx context.Context, spec providers.ProvisionSpec, events chan<- providers.ProvisionEvent) (*providers.ProvisionResult, error) {
-	if len(spec.Regions) == 0 {
-		return nil, errors.New("hetzner provider: at least one region required")
-	}
-	req, err := toProvisionerRequest(spec)
-	if err != nil {
-		return nil, err
-	}
-	// Bridge the cloud-agnostic event channel into the provisioner's
-	// concrete provisioner.Event channel. Closes when ctx cancels.
-	provEvents := make(chan provisioner.Event, 32)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for e := range provEvents {
-			select {
-			case events <- providers.ProvisionEvent{
-				Time:    e.Time,
-				Phase:   e.Phase,
-				Level:   e.Level,
-				Message: e.Message,
-			}:
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-	prov := provisioner.New()
-	res, err := prov.Provision(ctx, req, provEvents)
-	close(provEvents)
-	<-done
-	if err != nil {
-		return nil, err
-	}
-	return &providers.ProvisionResult{
-		SovereignFQDN:         res.SovereignFQDN,
-		ControlPlaneIP:        res.ControlPlaneIP,
-		LoadBalancerIP:        res.LoadBalancerIP,
-		ConsoleLoadBalancerIP: res.ConsoleLoadBalancerIP, // #4053 — dedicated console LB
-		ConsoleURL:            res.ConsoleURL,
-		GitOpsRepoURL:         res.GitOpsRepoURL,
-		KubeconfigPath:        res.KubeconfigPath,
-	}, nil
+// Normalize fills provider defaults into spec and validates it against
+// profile. It accepts every spec for now; the engine does not call it yet.
+func (p *Provider) Normalize(spec *providers.ProvisionSpec, profile *cloudprofile.Profile) error {
+	return nil
+}
+
+// TfVars returns the provider-specific OpenTofu variables for spec. It
+// returns none for now; the engine does not call it yet.
+func (p *Provider) TfVars(spec providers.ProvisionSpec, profile *cloudprofile.Profile) (map[string]any, error) {
+	return map[string]any{}, nil
 }
 
 // Wipe runs the canonical purge sequence — tofu destroy + Hetzner
@@ -259,21 +219,11 @@ func (p *Provider) Wipe(ctx context.Context, spec providers.WipeSpec, progress f
 	return out, nil
 }
 
-// ListServers returns the current Hetzner-side server inventory for
-// one deployment by querying the Hetzner Cloud API with the label
-// selector `catalyst.openova.io/sovereign=<fqdn>`.
-//
-// Wave 2 returns nil + nil (placeholder) — the catalyst-api handlers
-// that need this surface today read from kubeconfig+kubectl. Wave 3
-// will wire this through to a direct hcloud API call once at least
-// one handler genuinely needs cloud-side inventory (the wizard's
-// infrastructure tab is the main planned caller; today it reads
-// from the tofu outputs).
+// ListServers cannot list the Hetzner-side server inventory yet: it
+// returns providers.ErrNotSupported, which a caller treats as
+// "unknown", never as "empty".
 func (p *Provider) ListServers(ctx context.Context, deploymentID, sovereignFQDN string, creds providers.ProviderCreds) ([]providers.ServerInfo, error) {
-	// Intentional minimal implementation — see method comment.
-	// Returning nil signals "no inventory available via this seam
-	// today"; callers fall back to existing paths.
-	return nil, nil
+	return nil, providers.ErrNotSupported
 }
 
 // ValidateCreds confirms the Hetzner Cloud API token by issuing a
@@ -306,49 +256,4 @@ func (p *Provider) BucketNameForDeployment(sovereignFQDN, deploymentID string) s
 // Implements providers.ObjectStorageNamer.
 func (p *Provider) BucketNamePrefixForSovereign(sovereignFQDN string) string {
 	return hcloudpurge.BucketNamePrefixForSovereign(sovereignFQDN)
-}
-
-// toProvisionerRequest converts a cloud-agnostic ProvisionSpec into
-// the legacy provisioner.Request the existing Provision path
-// consumes. The mapping is intentionally narrow — only the fields
-// the existing Hetzner-only path uses are copied; extension fields
-// for other clouds stay untouched in spec.Raw / spec.Creds and
-// future adapters will consume them directly.
-func toProvisionerRequest(spec providers.ProvisionSpec) (provisioner.Request, error) {
-	if spec.SovereignFQDN == "" {
-		return provisioner.Request{}, errors.New("hetzner: SovereignFQDN required")
-	}
-	req := provisioner.Request{
-		DeploymentID:         spec.DeploymentID,
-		SovereignFQDN:        spec.SovereignFQDN,
-		HetznerToken:         spec.Creds.Get("hcloud_token"),
-		HetznerProjectID:     spec.Creds.Get("hcloud_project_id"),
-		HandoverJWTPublicKey: spec.HandoverJWTPublic,
-	}
-	// Per-region payload (singular fields derived from Regions[0]
-	// inside Validate()).
-	for _, r := range spec.Regions {
-		req.Regions = append(req.Regions, provisioner.RegionSpec{
-			Provider:         Name,
-			CloudRegion:      r.Code,
-			ControlPlaneSize: r.ControlPlaneSize,
-			WorkerSize:       r.WorkerSize,
-			WorkerCount:      r.WorkerCount,
-		})
-	}
-	// Parent domains.
-	for _, pd := range spec.ParentDomains {
-		req.ParentDomains = append(req.ParentDomains, provisioner.ParentDomain{
-			Name:          pd.Name,
-			Role:          pd.Role,
-			RegistrarKind: pd.Registrar,
-		})
-	}
-	// Raw knobs the adapter consumes today.
-	if v := spec.Raw["workerCount"]; v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			req.WorkerCount = n
-		}
-	}
-	return req, nil
 }

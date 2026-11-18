@@ -22,8 +22,11 @@ variables pass through the module's own validation rules, so a value longer
 than a rule allows stops the render too.
 
 The worst-case values: the lengths every provider shares are below, the rest
-and the limits are in infra/providers/<p>/user_data_worst_case.py; each says
-what its length stands for and where that length comes from. Every token and
+are in infra/providers/<p>/user_data_worst_case.py; each says what its length
+stands for and where that length comes from. The cloud's user-data limit
+stands only in the pack's profile.yaml (spec.bootstrap.userDataLimitBytes):
+this program reads it and calls worst_case(c, limit), and a worst-case file
+holds a surface lower only by a precondition of its module. Every token and
 key is a deterministic filler of the right length and alphabet (filler()),
 never a real secret.
 
@@ -222,11 +225,21 @@ def provider_module(provider):
 # states the limit of each surface. check_profiles() names every pack where
 # they disagree: (1) a pack with a worst-case file states 0; (2) a surface is
 # held above the profile's limit (a module may hold one lower by a precondition
-# of its own); (3) the file's constant LIMIT, when it has one, is not the
-# profile's number; (4) a pack without a worst-case file states a limit that
-# nothing measures. The profile is read without a YAML library, because the
+# of its own); (3) the file names the profile's number itself, as a constant:
+# the cloud's limit stands only in profile.yaml and reaches the file as the
+# argument `limit` of worst_case; (4) a pack without a worst-case file states a
+# limit that nothing measures. The profile is read without a YAML library, because the
 # workflow cloud-init-size installs no package; a comment line is not read.
 PROFILE_LIMIT = re.compile(r"(?m)^[^#\n]*\buserDataLimitBytes:[ ]*([0-9]+)\b")
+
+
+def profile_limit(provider):
+    """The user-data limit that infra/providers/<provider>/profile.yaml states once."""
+    path = os.path.join(REPO, "infra", "providers", provider, "profile.yaml")
+    found = PROFILE_LIMIT.findall(open(path).read()) if os.path.isfile(path) else []
+    if len(found) != 1:
+        raise SystemExit(f"cloudinit-size-check: {provider}: profile.yaml must state userDataLimitBytes once")
+    return int(found[0])
 
 
 class _AnyText:
@@ -260,11 +273,14 @@ def check_profiles(base, only=None):
         spec = importlib.util.spec_from_file_location("user_data_limits_" + name.replace("-", "_"), wc)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
-        for row in mod.worst_case(sys.modules[__name__])[4](_AnyText()):
+        for row in mod.worst_case(sys.modules[__name__], limit)[4](_AnyText()):
             if row[2] > limit:
                 errors.append(f"{name}: {row[0]} is held to {row[2]}, above the {limit} of profile.yaml (rule 2)")
-        if getattr(mod, "LIMIT", limit) != limit:
-            errors.append(f"{name}: user_data_worst_case.py names LIMIT = {mod.LIMIT}, profile.yaml {limit} (rule 3)")
+        named = sorted(k for k, v in vars(mod).items()
+                       if k.isupper() and isinstance(v, int) and not isinstance(v, bool) and v == limit)
+        if named:
+            errors.append(f"{name}: user_data_worst_case.py names the cloud's limit {limit} itself ({', '.join(named)}); "
+                          "it stands only in profile.yaml (rule 3)")
     if packs == 0:
         errors.append("no pack found")
     return errors
@@ -285,18 +301,20 @@ def self_test():
             return prof, None
         rows = ", ".join(f'("surface {i}", out["s"][{i}], {n})' for i, n in enumerate(limits))
         return prof, (f"LIMIT = {cloud}\n" if cloud else "") + (
-            f"def worst_case(c):\n    return {{}}, {{}}, {{}}, [], lambda out: [{rows}]\n")
-    good = {"alpha": pack("  bootstrap: {userDataLimitBytes: 32768}\n", [32768, 32768], 32768),
+            f"def worst_case(c, limit):\n    return {{}}, {{}}, {{}}, [], lambda out: [{rows}]\n")
+    # A limit "limit" is the argument: the profile's number, passed in.
+    good = {"alpha": pack("  bootstrap: {userDataLimitBytes: 32768}\n", ["limit", "limit"]),
             "beta": pack("  bootstrap:\n    userDataLimitBytes: 32768\n", [32576, 32256, 30720]),
             "gamma": pack("  bootstrap: {userDataLimitBytes: 0}\n")}
     cases = [
         ("the packs as written agree", {}, None),
-        ("rule 1 fails", {"alpha": pack("  bootstrap: {userDataLimitBytes: 0}\n", [32768], 32768)},
+        ("rule 1 fails", {"alpha": pack("  bootstrap: {userDataLimitBytes: 0}\n", ["limit"])},
          "alpha: user_data_worst_case.py has limits and profile.yaml states 0 (rule 1)"),
         ("rule 2 fails", {"beta": pack("  bootstrap: {userDataLimitBytes: 32000}\n", [32576, 32256])},
          "beta: surface 0 is held to 32576, above the 32000 of profile.yaml (rule 2)"),
-        ("rule 3 fails", {"alpha": pack("  bootstrap: {userDataLimitBytes: 40000}\n", [32768], 32768)},
-         "alpha: user_data_worst_case.py names LIMIT = 32768, profile.yaml 40000 (rule 3)"),
+        ("rule 3 fails: a worst-case file names the cloud limit", {"alpha": pack("  bootstrap: {userDataLimitBytes: 32768}\n", ["limit"], 32768)},
+         "alpha: user_data_worst_case.py names the cloud's limit 32768 itself (LIMIT); it stands only in profile.yaml (rule 3)"),
+        ("the profile's limit reaches the worst case", {"alpha": pack("  bootstrap: {userDataLimitBytes: 32000}\n", ["limit", 31000])}, None),
         ("rule 4 fails", {"gamma": pack("  bootstrap: {userDataLimitBytes: 32768}\n")},
          "gamma: profile.yaml states 32768 and no user_data_worst_case.py measures it (rule 4)"),
         ("a limit stated twice fails", {"gamma": pack("  a: {userDataLimitBytes: 0}\n  b: {userDataLimitBytes: 0}\n")}, "2 times"),
@@ -467,7 +485,7 @@ def rewrite(expr, chunks, resource_types):
 def render(provider, dump=None):
     pdir = os.path.join(REPO, "infra", "providers", provider)
     src = open(os.path.join(pdir, "main.tf")).read()
-    variables, res, standins, roots, surfaces = provider_module(provider).worst_case(sys.modules[__name__])
+    variables, res, standins, roots, surfaces = provider_module(provider).worst_case(sys.modules[__name__], profile_limit(provider))
     locals_ = module_locals(src)
     needed, todo = [], list(roots)
     while todo:
@@ -561,7 +579,7 @@ def hcl(v, indent):
 
 
 def test_block(provider):
-    variables = provider_module(provider).worst_case(sys.modules[__name__])[0]
+    variables = provider_module(provider).worst_case(sys.modules[__name__], profile_limit(provider))[0]
     body = "".join(f"    {k} = {hcl(variables[k], 2)}\n" for k in sorted(variables))
     return BEGIN + "  variables {\n" + body + "  }\n" + END
 

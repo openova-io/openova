@@ -1584,6 +1584,7 @@ checks:
   needs: []
   proof: running
   asserts: Host vulnerability reports
+  implemented_by: INF-140
   delivered_by: INF-145
 - id: INF-G12
   title: Machine pages in the console
@@ -1782,12 +1783,14 @@ checks:
 - id: NET-G06
   title: Default deny
   owner: NET
-  state: not-built
+  state: expected-fail
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Default deny
+  implementation: tests/acceptance/sovereign/internal/suite/check_policy_dials.go
+  implemented_by: NET-150
   delivered_by: NET-166
 - id: NET-G07
   title: Organization isolation
@@ -1823,12 +1826,13 @@ checks:
 - id: NET-G10
   title: Security check NET-G10
   owner: NET
-  state: not-built
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Published with the ticket of the piece that delivers it.
+  implementation: tests/acceptance/sovereign/internal/suite/check_metadata_blocked.go
   delivered_by: NET-097
 - id: NET-G11
   title: Route admission by owner
