@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T17:15:04Z` |
+| Last refreshed | `2026-11-18T17:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-18T17:29 | [#8187](https://github.com/openova-io/openova/pull/8187) | #7087 | docs(ledger): plan update |
 | 2026-11-18T17:07 | [#8185](https://github.com/openova-io/openova/pull/8185) | #7087 | docs(ledger): plan update |
 | 2026-11-18T17:01 | [#8184](https://github.com/openova-io/openova/pull/8184) | #7087 | docs(ledger): plan update |
 | 2026-11-18T16:51 | [#8181](https://github.com/openova-io/openova/pull/8181) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-18T11:16 | [#8147](https://github.com/openova-io/openova/pull/8147) | #7087 | docs(ledger): plan update |
 | 2026-11-18T17:10 | [#8146](https://github.com/openova-io/openova/pull/8146) | #8140 | feat(gate): check CLD-G12, the plan of a provisioned deploym |
 | 2026-11-18T11:10 | [#8144](https://github.com/openova-io/openova/pull/8144) | #7087 | docs(ledger): plan update |
-| 2026-11-18T11:28 | [#8143](https://github.com/openova-io/openova/pull/8143) | #8138 | test(bootstrap-kit): run the function tests of the foundatio |
 
 ---
 
