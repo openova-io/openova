@@ -24,8 +24,14 @@ name: Build openova-mcp
 
 on:
   push:
+    # A chart or document change cannot change the image, so it starts no build
+    # on main, where the build would push the unchanged version again (Refs
+    # #7938). Chart.yaml stays in, so a bump of appVersion publishes.
     paths:
       - 'products/openova-mcp/**'
+      - '!products/openova-mcp/chart/**'
+      - 'products/openova-mcp/chart/Chart.yaml'
+      - '!products/openova-mcp/**/*.md'
       - 'core/services/shared/auth/**'
       - '.github/workflows/build-openova-mcp.yaml'
     branches: [main]
@@ -131,8 +137,9 @@ jobs:
         if: github.event_name == 'push'
         run: |
           set -euo pipefail
+          # The commit tag and latest only. The version tag is published after
+          # the signing step, through the shared check that never moves it.
           for TAG in \
-            "${{ env.IMAGE }}:${{ steps.vars.outputs.app_version }}" \
             "${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}" \
             "${{ env.IMAGE }}:latest"; do
             echo "pushing $TAG"
@@ -153,3 +160,13 @@ jobs:
           digest: ${{ steps.push.outputs.digest }}
           release-key: ${{ secrets.RELEASE_COSIGN_KEY }}
           release-key-password: ${{ secrets.RELEASE_COSIGN_PASSWORD }}
+
+      # A version tag is published once and never moved (Refs #7938). The shared
+      # check tags the signed digest as the appVersion when that tag does not
+      # exist; when it exists it pushes nothing and the job stays green, with a
+      # notice naming the digest that stays. A source change without an
+      # appVersion bump is refused before merge by
+      # scripts/check-appversion-bumped-with-source.sh.
+      - name: Publish the version tag (an existing one is never moved)
+        if: github.event_name == 'push'
+        run: bash scripts/ci/push-version-tag.sh "${{ env.IMAGE }}:${{ steps.vars.outputs.app_version }}" "${{ env.IMAGE }}@${{ steps.push.outputs.digest }}"

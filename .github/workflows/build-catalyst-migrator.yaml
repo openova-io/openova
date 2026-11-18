@@ -103,9 +103,10 @@ jobs:
           file: ${{ env.CONTEXT }}/Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
+          # The commit tag and latest only. The release tag is published after
+          # the signing step, through the shared check that never moves it.
           tags: |
             ${{ env.IMAGE }}:${{ steps.vars.outputs.sha_short }}
-            ${{ env.IMAGE }}:${{ steps.vars.outputs.release_tag }}
             ${{ env.IMAGE }}:latest
           labels: |
             org.opencontainers.image.source=https://github.com/openova-io/openova
@@ -131,6 +132,16 @@ jobs:
           digest: ${{ steps.build.outputs.digest }}
           release-key: ${{ secrets.RELEASE_COSIGN_KEY }}
           release-key-password: ${{ secrets.RELEASE_COSIGN_PASSWORD }}
+
+      # A version tag is published once and never moved (Refs #7938). The shared
+      # check tags the signed index as the release tag when that tag does not
+      # exist; when it exists it pushes nothing and the job stays green, with a
+      # notice naming the digest that stays. A change of the Dockerfile without
+      # a DEFAULT_RELEASE_TAG bump is refused before merge by
+      # scripts/check-appversion-bumped-with-source.sh.
+      - name: Publish the release tag (an existing one is never moved)
+        if: github.event_name != 'pull_request'
+        run: bash scripts/ci/push-version-tag.sh "${{ env.IMAGE }}:${{ steps.vars.outputs.release_tag }}" "${{ env.IMAGE }}@${{ steps.build.outputs.digest }}"
 
       - name: Summary
         if: github.event_name != 'pull_request'

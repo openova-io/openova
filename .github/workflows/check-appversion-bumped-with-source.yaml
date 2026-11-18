@@ -11,12 +11,28 @@ name: check — product source changes bump appVersion (#6841)
 # Deployment and read by a binary that had never heard of it — the SSO fix was
 # live, configured, and silently doing nothing.
 #
-# Refs #6841
+# Since #7938 a build never pushes a version tag that exists, so a source change
+# without a version bump is never published. This gate refuses it before merge,
+# for every image whose version tag a build workflow publishes from source in
+# this repository: the products found by their chart (nested ones included) and
+# the products that declare their version file, sources and pins in an
+# image-version.conf of their folder. The path list below holds every kind of
+# source, declaration and version file (build workflows hold some versions).
+#
+# Refs #6841, #7938
 
 on:
   pull_request:
     paths:
       - 'products/*/**'
+      - 'platform/*/image-version.conf'
+      - 'platform/**/*.go'
+      - 'platform/**/go.mod'
+      - 'platform/**/go.sum'
+      - 'platform/**/Dockerfile'
+      - 'platform/**/Containerfile'
+      - 'core/services/shared/**'
+      - '.github/workflows/*build*.yaml'
       - 'scripts/check-appversion-bumped-with-source.sh'
       - '.github/workflows/check-appversion-bumped-with-source.yaml'
   workflow_dispatch:
@@ -34,6 +50,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      # A fixture repository holds every product of the gate's tables; each one
+      # must fail on a source change without a bump and pass with one.
+      - name: Self-test — every covered product can fail
+        run: bash scripts/check-appversion-bumped-with-source.sh --self-test
+
       - name: Run the appVersion-drift gate
         run: |
           git fetch -q origin "${{ github.base_ref }}"
@@ -47,9 +68,11 @@ jobs:
           if ! git cat-file -e 79907a73b^{commit} 2>/dev/null; then
             echo "self-test skipped: reference commit not in this checkout"; exit 0
           fi
-          if bash scripts/check-appversion-bumped-with-source.sh \
-               "$(git rev-parse 79907a73b^)" 79907a73b >/dev/null 2>&1; then
-            echo "SELF-TEST FAILED: gate passed on the commit that shipped the appVersion drift"
+          rc=0
+          out="$(bash scripts/check-appversion-bumped-with-source.sh "$(git rev-parse 79907a73b^)" 79907a73b 2>&1)" || rc=$?
+          if [ "$rc" -eq 0 ] || ! grep -q '^FAIL: chargeback changed' <<< "$out"; then
+            echo "SELF-TEST FAILED: the gate did not reject chargeback on the commit that shipped the appVersion drift"
+            printf '%s\n' "$out"
             exit 1
           fi
-          echo "self-test ok — the gate rejects the known-bad commit"
+          echo "self-test ok — the gate rejects the known-bad commit, for chargeback"
