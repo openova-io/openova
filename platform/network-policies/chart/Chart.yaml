@@ -20,11 +20,10 @@ name: bp-network-policies
 # 1.0.2 (initial — operator-opt-in).
 version: 1.0.9
 description: |
-  Catalyst zero-trust default-deny CiliumClusterwideNetworkPolicy +
-  allow-templates for control-plane namespaces, intra-namespace traffic,
-  and CoreDNS egress. Default ON per docs/DOD.md §A5 (zero-trust) +
-  ADR-0001 §2 — every fresh Sovereign installs default-deny from boot;
-  operator MAY override per Sovereign overlay.
+  Cluster-wide Cilium network policies of a Sovereign: the deny of the
+  instance metadata address for every pod, and default deny with one
+  hand-written allow object for each namespace listed in
+  enforcedNamespaces (empty by default).
 type: application
 keywords: [catalyst, blueprint, network-policy, cilium, zero-trust]
 maintainers:

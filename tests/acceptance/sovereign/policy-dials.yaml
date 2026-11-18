@@ -1,0 +1,28 @@
+# The dial table of gate check NET-G06, default deny
+# (internal/suite/check_policy_dials.go, step block POL).
+#
+# In every region the check dials each row from a Pod in from.namespace that
+# carries from.labels, to the Service to.service of to.namespace (the name
+# <service>.<namespace>.svc.cluster.local) or to the IP address to.address, on
+# the TCP port to.port. expect allow passes when the connection is made;
+# expect deny passes when it is dropped (the dial times out). A refused
+# connection fails both: it reached the destination and found no listener.
+#
+# The file is YAML in flow style that is JSON once its comment lines are left
+# out: a comment is a whole line that starts with #, and no comma follows the
+# last entry of a list. The reader refuses an unknown field.
+#
+# A pull request that adds a kit namespace, or a flow to a namespace under
+# default deny, adds here one allow row (a flow its workload needs) and one
+# deny row (a dial from the namespace default to its main port); see
+# platform/network-policies/chart/templates/allow/_README.tpl.
+#
+# The first three rows deny the namespace default the three stores of the
+# platform. They fail until the namespaces of the stores are under default
+# deny, and the check stays expected-fail until then.
+{"schema": "openova.io/policy-dials/v1",
+ "dials": [
+  {"name": "default-to-openbao", "from": {"namespace": "default"}, "to": {"namespace": "openbao", "service": "openbao", "port": 8200}, "expect": "deny"},
+  {"name": "default-to-git", "from": {"namespace": "default"}, "to": {"namespace": "gitea", "service": "gitea-http", "port": 3000}, "expect": "deny"},
+  {"name": "default-to-shared-postgres", "from": {"namespace": "default"}, "to": {"namespace": "shared-data", "service": "shared-pg-rw", "port": 5432}, "expect": "deny"}
+ ]}
