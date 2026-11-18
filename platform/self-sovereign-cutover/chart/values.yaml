@@ -3295,11 +3295,13 @@ giteaTokenMint:
 #   ABSENT -> the mount is empty -> every leg no-ops -> behavior is
 #   byte-identical to 0.1.150. No overlay change needed.
 #
-# Step 04 (registry-pivot: region-B node containerd certs.d + the
-# per-region Dragonfly/dfdaemon + coredns-custom chain) is the
-# remaining region-B increment, tracked on #5359 — it requires the
-# region-B bootstrap-kit's own bp-dragonfly plumbing and is NOT
-# silently faked here.
+# Step 04 (registry-pivot: each node's containerd certs.d) reaches every
+# follower since #7938: step 03 ends by applying the same DaemonSet there,
+# with its own account and status ConfigMap, through the kubeconfig above,
+# and waits for every node's v2 ack (templates/04 cutover-follower-registry-
+# pivot, files/follower-registry-pivot.sh). Before it, hw307 region b kept
+# its first-boot mirror and could not pull an image only the Sovereign's
+# registry held.
 secondaryRegions:
   # Secret (in this release namespace) carrying one `<regionKey>.yaml`
   # kubeconfig per secondary region. Written by catalyst-api at every

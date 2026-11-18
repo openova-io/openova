@@ -22,231 +22,23 @@ ConfigMap, then treats that as step success. The DaemonSet is shipped
 HERE by the chart so it is already running by the time catalyst-api
 stamps the wait.
 
-WHAT CHANGED (#4639 / #4682) — Dragonfly, registry via external host on :443
-──────────────────────────────────────────────────────────────────
-The legacy step-04 wrote /etc/rancher/k3s/registries.yaml + regenerated
-the containerd certs.d/<host>/hosts.toml mirror dir to redirect the 7
-canonical upstreams through the in-cluster Harbor's PUBLIC host
-(registry.<fqdn>). Interim workarounds (the ClusterIP rewrite, the
-`30443`/DNAT surgery, the hostAlias→gateway-ClusterIP hairpin, per-cloud
-`if Hetzner/Huawei` branches) all stemmed from the gateway being unable to
-serve :443. #4682 turns hostNetwork OFF and serves the Cilium Gateway as a
-`Service type=LoadBalancer` on the standard :443, so `registry.<fqdn>`
-answers on its EXTERNAL routable host — the same address every node already
-resolves via public DNS — with no ClusterIP, no NodePort, no CoreDNS
-rewrite, no hairpin.
+WHAT IT DOES on registriesYamlActive=v2 (pivot.sh below), on its node: (1) containerd certs.d
+entries that send each upstream host of the offline-mirror map straight to the local registry
+(#4975; the #4639 `_default` dfdaemon catch-all is retired), with registry.<fqdn> pinned in the
+node's /etc/hosts to its region's gateway (#5007); (2) once per cluster, guarded by a status flag,
+the dfdaemon upstream flip to the local registry (#4639 #4652, reached on its external :443 host,
+#4682). containerd re-reads certs.d per pull: no node restarts. It acks v2 only once the registry
+answers. v1 is the reverse.
 
-Dragonfly (`bp-dragonfly`, slot 06) removes the assumption. Every node's
-containerd already mirrors through the LOCAL dfdaemon proxy on
-`127.0.0.1:{{ .Values.registryPivot.dragonfly.proxyPort }}` (a standard,
-documented containerd mirror — the node→127.0.0.1 path is IDENTICAL on
-every cloud, zero per-cloud branches). dfdaemon fetches each blob from
-its configured upstream ONCE per cluster and serves the rest P2P. So the
-cutover is now TWO generic moves, both of which this DaemonSet performs
-on the live node when it sees registriesYamlActive=v2:
-
-  1. CONTAINERD → dfdaemon. Write a containerd certs.d `_default/hosts.toml`
-     catch-all that mirrors EVERY registry namespace through
-     `http://127.0.0.1:{{ .Values.registryPivot.dragonfly.proxyPort }}`
-     (the dfdaemon proxy). containerd re-reads certs.d PER PULL, so this
-     takes effect on the RUNNING node with NO k3s restart — the same
-     live-certs.d mechanism the legacy step relied on (#3647), but the
-     endpoint is the node-LOCAL dfdaemon, never the un-hairpinnable EIP.
-     (When bp-dragonfly's own `dfinit` is enabled the node already carries
-     this mirror at boot; this write is then a harmless idempotent re-state.)
-
-  2. dfdaemon UPSTREAM FLIP. Patch the `{{ .Values.registryPivot.dragonfly.clientConfigMap }}`
-     ConfigMap (and the seed-peer's) `proxy.registryMirror.addr` from
-     `https://ghcr.io` → the cluster-LOCAL Harbor EXTERNAL host
-     (`https://registry.<fqdn>`, implicit :443 via the Gateway LoadBalancer).
-     This is the design's "one-line upstream flip": post-cutover dfdaemon
-     back-to-sources to the LOCAL Harbor, never ghcr. #4682 removed the old
-     move-3 hostAlias→cilium-gateway-ClusterIP hairpin and the CoreDNS
-     registry-local.server rewrite — the dfdaemon reaches the registry over
-     its external :443 host, so no in-cluster DNS surgery is needed.
-
-Move 2 is CLUSTER-wide (one ConfigMap), so the DaemonSet performs it ONCE,
-guarded by a status flag, on whichever node converges first; every node
-still independently performs move 1 on its own containerd and writes its
-own per-node ack.
-
-ROLLBACK (v1): remove the `_default/hosts.toml` catch-all (restore the
-node's pre-cutover containerd behaviour) and revert the dfdaemon upstream
-to ghcr. Idempotent across restarts.
+EVERY REGION (#7938). The chart runs in the primary region only. For each follower, step 03 applies
+this same DaemonSet (the define at the end of this file) with an account and a status ConfigMap of
+its own (cutover-follower-registry-pivot below) and waits for every node's ack. A rollback to v1
+reaches the primary only.
 
 Image phase: pre.
 */ -}}
 {{- if .Values.registryPivot.enabled }}
-apiVersion: apps/v1
-kind: DaemonSet
-metadata:
-  name: registry-pivot
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
-    app.kubernetes.io/component: cutover-daemonset
-spec:
-  selector:
-    matchLabels:
-      app.kubernetes.io/instance: {{ .Release.Name }}
-      app.kubernetes.io/component: cutover-daemonset
-      catalyst.openova.io/blueprint: bp-self-sovereign-cutover
-  template:
-    metadata:
-      labels:
-        {{- include "bp-self-sovereign-cutover.labels" . | nindent 8 }}
-        app.kubernetes.io/component: cutover-daemonset
-    spec:
-      serviceAccountName: {{ include "bp-self-sovereign-cutover.serviceAccountName" . }}
-      hostPID: true
-      tolerations:
-        - operator: Exists
-      containers:
-        - name: pivot
-          image: {{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.hostExec.repository "tag" .Values.images.hostExec.tag "cutoverPhase" "pre" "Values" .Values) }}
-          imagePullPolicy: IfNotPresent
-          securityContext:
-            privileged: true
-            runAsUser: 0
-          env:
-            - name: HARBOR_PUBLIC_URL
-              value: {{ .Values.sovereign.harborPublicURL | quote }}
-            # #4975 (Refs #3379 #3695) — the offline-mirror coverage map + the
-            # local registry host. The pivot writes PER-UPSTREAM-HOST containerd
-            # certs.d entries pointing at registry.<fqdn>/<project> (the exact
-            # path step-03 Phase A3 pushed to), replacing the single _default
-            # dfdaemon catch-all. Same map step-03/step-08 read.
-            - name: HOST_PROJECT_MAP
-              value: {{ include "bp-self-sovereign-cutover.hostProjectMapInline" . | quote }}
-            - name: LOCAL_REGISTRY_HOST
-              value: {{ include "bp-self-sovereign-cutover.localRegistryHost" . | quote }}
-            - name: STATUS_CONFIGMAP_NAME
-              value: {{ .Values.status.configMapName | quote }}
-            - name: STATUS_CONFIGMAP_NAMESPACE
-              value: {{ .Release.Namespace | quote }}
-            # ── Dragonfly coordinates (the #4639 rewrite) ──────────────────
-            # The dfdaemon proxy every node's containerd mirrors through.
-            - name: DF_PROXY_PORT
-              value: {{ .Values.registryPivot.dragonfly.proxyPort | quote }}
-            # The bp-dragonfly mesh namespace + the per-node dfdaemon
-            # DaemonSet + seed-peer + their config ConfigMaps the upstream
-            # flip patch targets.
-            - name: DF_NAMESPACE
-              value: {{ .Values.registryPivot.dragonfly.namespace | quote }}
-            - name: DF_CLIENT_DAEMONSET
-              value: {{ .Values.registryPivot.dragonfly.clientDaemonSet | quote }}
-            - name: DF_CLIENT_CONFIGMAP
-              value: {{ .Values.registryPivot.dragonfly.clientConfigMap | quote }}
-            - name: DF_SEED_STATEFULSET
-              value: {{ .Values.registryPivot.dragonfly.seedStatefulSet | quote }}
-            - name: DF_SEED_CONFIGMAP
-              value: {{ .Values.registryPivot.dragonfly.seedConfigMap | quote }}
-            - name: DF_RESTART_ON_FLIP
-              value: {{ .Values.registryPivot.dragonfly.restartOnFlip | quote }}
-            # The Sovereign FQDN — the wildcard-TLS Secret name is
-            # <prefix><fqdn-dashed>. Sourced from the chart's sovereign.fqdn
-            # (cloud-init substitutes ${SOVEREIGN_FQDN} via the 06a overlay).
-            - name: SOVEREIGN_FQDN
-              value: {{ .Values.sovereign.fqdn | quote }}
-            # ── #4652 dfdaemon registryMirror.cert (the x509 fix) ─────────────
-            # Read the in-cluster Harbor wildcard TLS Secret, create a dragonfly-
-            # namespace Opaque Secret carrying tls.crt (bp-dragonfly 0.1.1 mounts
-            # it OPTIONALLY at HARBOR_CA_MOUNT_PATH), and set
-            # proxy.registryMirror.cert = <mount>/<file> in the dfdaemon ConfigMap
-            # patch that flips registryMirror.addr. Same tls.crt-fallback as #3379.
-            - name: HARBOR_CA_ENABLED
-              value: {{ .Values.registryPivot.dragonfly.harborCA.enabled | quote }}
-            - name: HARBOR_CA_SRC_NAMESPACE
-              value: {{ .Values.registryPivot.dragonfly.harborCA.sourceNamespace | quote }}
-            - name: HARBOR_CA_SRC_NAME_PREFIX
-              value: {{ .Values.registryPivot.dragonfly.harborCA.sourceNamePrefix | quote }}
-            - name: HARBOR_CA_DEST_SECRET
-              value: {{ .Values.registryPivot.dragonfly.harborCA.destSecretName | quote }}
-            - name: HARBOR_CA_MOUNT_PATH
-              value: {{ .Values.registryPivot.dragonfly.harborCA.certMountPath | quote }}
-            - name: HARBOR_CA_FILE_NAME
-              value: {{ .Values.registryPivot.dragonfly.harborCA.certFileName | quote }}
-            - name: NODE_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: spec.nodeName
-            # #4637 follow-up: the dfdaemon-serving probe must reach the NODE's
-            # dfdaemon, but this pod is NOT hostNetwork — so its 127.0.0.1 is the
-            # pod loopback, never the node's :DF_PROXY_PORT. The dfdaemon binds
-            # 0.0.0.0:DF_PROXY_PORT (hostNetwork), so HOST_IP:DF_PROXY_PORT is
-            # reachable from this pod. (containerd still pulls via 127.0.0.1 in
-            # the NODE netns — that is correct and unchanged.)
-            - name: HOST_IP
-              valueFrom:
-                fieldRef:
-                  fieldPath: status.hostIP
-            # ── #5007 (Refs #4682 #3379) — NODE /etc/hosts pin for the local
-            # registry. containerd resolves registry.<fqdn> via the NODE resolver,
-            # which on hw241 returned the DEAD `*.omantel.biz` wildcard IP
-            # (49.12.16.160) instead of the live specific record → post-pivot fresh
-            # pulls ImagePullBackOff. The pivot pins registry.<fqdn> DIRECTLY to the
-            # gateway VIP the platform already knows (derived at runtime, no
-            # hardcoded IP), so the local-registry datapath NEVER depends on public
-            # DNS. GATEWAY_LB_SVC_* is the cilium-gateway LoadBalancer Service whose
-            # ingress IP is the VIP (empty → node-own-IP hostNetwork fallback).
-            - name: LOCAL_REGISTRY_PIN_ENABLED
-              value: {{ .Values.registryPivot.localRegistryHostPin.enabled | quote }}
-            - name: GATEWAY_LB_SVC_NAME
-              value: {{ .Values.registryPivot.localRegistryHostPin.gatewayServiceName | quote }}
-            - name: GATEWAY_LB_SVC_NAMESPACE
-              value: {{ .Values.registryPivot.localRegistryHostPin.gatewayServiceNamespace | quote }}
-          # readinessProbe: the script touches /tmp/ready after its first
-          # successful reconcile pass. catalyst-api's daemonset-wait
-          # then sees numberReady=desired and proceeds.
-          readinessProbe:
-            exec:
-              command: ["/bin/sh", "-c", "test -f /tmp/ready"]
-            initialDelaySeconds: 5
-            periodSeconds: 5
-          volumeMounts:
-            # #3647/#4639: the containerd certs.d host-mirror dir. The pivot
-            # loop writes the `_default/hosts.toml` catch-all that points
-            # containerd at the node-local dfdaemon proxy; containerd re-reads
-            # it per-pull so the pivot is effective on the RUNNING node.
-            - name: containerd-certs-d
-              mountPath: /host/var/lib/rancher/k3s/agent/etc/containerd/certs.d
-            - name: pivot-script
-              mountPath: /usr/local/bin/pivot.sh
-              subPath: pivot.sh
-              readOnly: true
-            # #5007 — the node's /etc/hosts (single-file bind mount). The pivot
-            # maintains a managed `<gateway-VIP> registry.<fqdn>` line so
-            # containerd resolves the local registry DIRECTLY to the gateway VIP,
-            # never via the public DNS wildcard-vs-specific race (the hw241 dead
-            # `*.omantel.biz` 49.12.16.160 ImagePullBackOff).
-            - name: node-etc-hosts
-              mountPath: /host/etc/hosts
-          command: ["/bin/sh", "/usr/local/bin/pivot.sh"]
-          resources:
-            requests: { cpu: 25m, memory: 32Mi }
-            limits:   { memory: 128Mi }
-      volumes:
-        # #3647/#4639: containerd host-mirror dir (k3s default data-dir; no
-        # --data-dir override in cloudinit-control-plane.tftpl). containerd
-        # re-reads <ns>/hosts.toml here on every pull, so writing the
-        # `_default/hosts.toml` catch-all makes the dfdaemon mirror effective
-        # on a RUNNING node — no k3s restart, no node reboot.
-        - name: containerd-certs-d
-          hostPath:
-            path: /var/lib/rancher/k3s/agent/etc/containerd/certs.d
-            type: DirectoryOrCreate
-        - name: pivot-script
-          configMap:
-            name: registry-pivot-script
-            defaultMode: 0755
-        # #5007 — node /etc/hosts (type: File bind mount). The pivot rewrites it
-        # IN PLACE (truncate, never mv — a single-file bind mount keeps the inode)
-        # to pin registry.<fqdn> -> the gateway VIP the platform already knows, so
-        # the local-registry pull never depends on public DNS resolution.
-        - name: node-etc-hosts
-          hostPath:
-            path: /etc/hosts
-            type: File
+{{ include "bp-self-sovereign-cutover.registryPivotDaemonSet" (dict "root" . "sa" (include "bp-self-sovereign-cutover.serviceAccountName" .) "status" .Values.status.configMapName) }}
 ---
 # Step ConfigMap for catalyst-api consumer (mode=daemonset-wait).
 # The handler resolves the DaemonSet name from the `bp.openova.io/cutover-daemonset`
@@ -917,4 +709,224 @@ data:
 
       sleep 15
     done
+{{- if or .Values.secondaryRegions.prewarmSecondaryHarbor .Values.secondaryRegions.replicaRegion }}
+{{- /*
+ #7938 — step 04 in each follower (see EVERY REGION above; files/follower-registry-pivot.sh says
+ why). The role is bound in each namespace pivot.sh calls: status, gateway, Harbor CA, dragonfly.
+*/}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cutover-follower-registry-pivot
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cutover-daemonset
+data:
+  follower-registry-pivot.sh: |
+    {{- .Files.Get "files/follower-registry-pivot.sh" | nindent 4 }}
+  objects.yaml: |
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata: {name: registry-pivot, namespace: {{ .Release.Namespace }}}
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata: {name: self-sovereign-cutover-registry-pivot}
+    rules:
+      - {apiGroups: [""], resources: [configmaps], verbs: [get, patch]}
+      - {apiGroups: [""], resources: [services], verbs: [get]}
+      - {apiGroups: [""], resources: [secrets], verbs: [get, create, patch, delete]}
+      - {apiGroups: [apps], resources: [daemonsets, statefulsets], verbs: [get, patch]}
+    {{- range $ns := list .Release.Namespace .Values.registryPivot.localRegistryHostPin.gatewayServiceNamespace .Values.registryPivot.dragonfly.harborCA.sourceNamespace .Values.registryPivot.dragonfly.namespace | compact | uniq }}
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata: {name: self-sovereign-cutover-registry-pivot-{{ $ns }}, namespace: {{ $ns }}}
+    roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: self-sovereign-cutover-registry-pivot}
+    subjects: [{kind: ServiceAccount, name: registry-pivot, namespace: {{ $.Release.Namespace }}}]
+    {{- end }}
+    ---
+    apiVersion: v1
+    kind: ConfigMap
+    metadata: {name: cutover-registry-pivot-follower-status, namespace: {{ .Release.Namespace }}}
+    data: {registriesYamlActive: v2}
+    ---
+    {{- include "bp-self-sovereign-cutover.registryPivotDaemonSet" (dict "root" . "sa" "registry-pivot" "status" "cutover-registry-pivot-follower-status") | nindent 4 }}
+{{- end }}
+{{- end }}
+{{- define "bp-self-sovereign-cutover.registryPivotDaemonSet" -}}
+{{- $sa := .sa }}{{- $status := .status }}{{- with .root -}}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: registry-pivot
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-self-sovereign-cutover.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cutover-daemonset
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: cutover-daemonset
+      catalyst.openova.io/blueprint: bp-self-sovereign-cutover
+  template:
+    metadata:
+      labels:
+        {{- include "bp-self-sovereign-cutover.labels" . | nindent 8 }}
+        app.kubernetes.io/component: cutover-daemonset
+    spec:
+      serviceAccountName: {{ $sa }}
+      hostPID: true
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: pivot
+          image: {{ include "bp-self-sovereign-cutover.image" (dict "repository" .Values.images.hostExec.repository "tag" .Values.images.hostExec.tag "cutoverPhase" "pre" "Values" .Values) }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          env:
+            - name: HARBOR_PUBLIC_URL
+              value: {{ .Values.sovereign.harborPublicURL | quote }}
+            # #4975 (Refs #3379 #3695) — the offline-mirror coverage map + the
+            # local registry host. The pivot writes PER-UPSTREAM-HOST containerd
+            # certs.d entries pointing at registry.<fqdn>/<project> (the exact
+            # path step-03 Phase A3 pushed to), replacing the single _default
+            # dfdaemon catch-all. Same map step-03/step-08 read.
+            - name: HOST_PROJECT_MAP
+              value: {{ include "bp-self-sovereign-cutover.hostProjectMapInline" . | quote }}
+            - name: LOCAL_REGISTRY_HOST
+              value: {{ include "bp-self-sovereign-cutover.localRegistryHost" . | quote }}
+            - name: STATUS_CONFIGMAP_NAME
+              value: {{ $status | quote }}
+            - name: STATUS_CONFIGMAP_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            # ── Dragonfly coordinates (the #4639 rewrite) ──────────────────
+            # The dfdaemon proxy every node's containerd mirrors through.
+            - name: DF_PROXY_PORT
+              value: {{ .Values.registryPivot.dragonfly.proxyPort | quote }}
+            # The bp-dragonfly mesh namespace + the per-node dfdaemon
+            # DaemonSet + seed-peer + their config ConfigMaps the upstream
+            # flip patch targets.
+            - name: DF_NAMESPACE
+              value: {{ .Values.registryPivot.dragonfly.namespace | quote }}
+            - name: DF_CLIENT_DAEMONSET
+              value: {{ .Values.registryPivot.dragonfly.clientDaemonSet | quote }}
+            - name: DF_CLIENT_CONFIGMAP
+              value: {{ .Values.registryPivot.dragonfly.clientConfigMap | quote }}
+            - name: DF_SEED_STATEFULSET
+              value: {{ .Values.registryPivot.dragonfly.seedStatefulSet | quote }}
+            - name: DF_SEED_CONFIGMAP
+              value: {{ .Values.registryPivot.dragonfly.seedConfigMap | quote }}
+            - name: DF_RESTART_ON_FLIP
+              value: {{ .Values.registryPivot.dragonfly.restartOnFlip | quote }}
+            # The Sovereign FQDN — the wildcard-TLS Secret name is
+            # <prefix><fqdn-dashed>. Sourced from the chart's sovereign.fqdn
+            # (cloud-init substitutes ${SOVEREIGN_FQDN} via the 06a overlay).
+            - name: SOVEREIGN_FQDN
+              value: {{ .Values.sovereign.fqdn | quote }}
+            # ── #4652 dfdaemon registryMirror.cert (the x509 fix) ─────────────
+            # Read the in-cluster Harbor wildcard TLS Secret, create a dragonfly-
+            # namespace Opaque Secret carrying tls.crt (bp-dragonfly 0.1.1 mounts
+            # it OPTIONALLY at HARBOR_CA_MOUNT_PATH), and set
+            # proxy.registryMirror.cert = <mount>/<file> in the dfdaemon ConfigMap
+            # patch that flips registryMirror.addr. Same tls.crt-fallback as #3379.
+            - name: HARBOR_CA_ENABLED
+              value: {{ .Values.registryPivot.dragonfly.harborCA.enabled | quote }}
+            - name: HARBOR_CA_SRC_NAMESPACE
+              value: {{ .Values.registryPivot.dragonfly.harborCA.sourceNamespace | quote }}
+            - name: HARBOR_CA_SRC_NAME_PREFIX
+              value: {{ .Values.registryPivot.dragonfly.harborCA.sourceNamePrefix | quote }}
+            - name: HARBOR_CA_DEST_SECRET
+              value: {{ .Values.registryPivot.dragonfly.harborCA.destSecretName | quote }}
+            - name: HARBOR_CA_MOUNT_PATH
+              value: {{ .Values.registryPivot.dragonfly.harborCA.certMountPath | quote }}
+            - name: HARBOR_CA_FILE_NAME
+              value: {{ .Values.registryPivot.dragonfly.harborCA.certFileName | quote }}
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            # #4637 follow-up: the dfdaemon-serving probe must reach the NODE's
+            # dfdaemon, but this pod is NOT hostNetwork — so its 127.0.0.1 is the
+            # pod loopback, never the node's :DF_PROXY_PORT. The dfdaemon binds
+            # 0.0.0.0:DF_PROXY_PORT (hostNetwork), so HOST_IP:DF_PROXY_PORT is
+            # reachable from this pod. (containerd still pulls via 127.0.0.1 in
+            # the NODE netns — that is correct and unchanged.)
+            - name: HOST_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            # ── #5007 (Refs #4682 #3379) — NODE /etc/hosts pin for the local
+            # registry. containerd resolves registry.<fqdn> via the NODE resolver,
+            # which on hw241 returned the DEAD `*.omantel.biz` wildcard IP
+            # (49.12.16.160) instead of the live specific record → post-pivot fresh
+            # pulls ImagePullBackOff. The pivot pins registry.<fqdn> DIRECTLY to the
+            # gateway VIP the platform already knows (derived at runtime, no
+            # hardcoded IP), so the local-registry datapath NEVER depends on public
+            # DNS. GATEWAY_LB_SVC_* is the cilium-gateway LoadBalancer Service whose
+            # ingress IP is the VIP (empty → node-own-IP hostNetwork fallback).
+            - name: LOCAL_REGISTRY_PIN_ENABLED
+              value: {{ .Values.registryPivot.localRegistryHostPin.enabled | quote }}
+            - name: GATEWAY_LB_SVC_NAME
+              value: {{ .Values.registryPivot.localRegistryHostPin.gatewayServiceName | quote }}
+            - name: GATEWAY_LB_SVC_NAMESPACE
+              value: {{ .Values.registryPivot.localRegistryHostPin.gatewayServiceNamespace | quote }}
+          # readinessProbe: the script touches /tmp/ready after its first
+          # successful reconcile pass. catalyst-api's daemonset-wait
+          # then sees numberReady=desired and proceeds.
+          readinessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "test -f /tmp/ready"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            # #3647/#4639: the containerd certs.d host-mirror dir. The pivot
+            # loop writes the `_default/hosts.toml` catch-all that points
+            # containerd at the node-local dfdaemon proxy; containerd re-reads
+            # it per-pull so the pivot is effective on the RUNNING node.
+            - name: containerd-certs-d
+              mountPath: /host/var/lib/rancher/k3s/agent/etc/containerd/certs.d
+            - name: pivot-script
+              mountPath: /usr/local/bin/pivot.sh
+              subPath: pivot.sh
+              readOnly: true
+            # #5007 — the node's /etc/hosts (single-file bind mount). The pivot
+            # maintains a managed `<gateway-VIP> registry.<fqdn>` line so
+            # containerd resolves the local registry DIRECTLY to the gateway VIP,
+            # never via the public DNS wildcard-vs-specific race (the hw241 dead
+            # `*.omantel.biz` 49.12.16.160 ImagePullBackOff).
+            - name: node-etc-hosts
+              mountPath: /host/etc/hosts
+          command: ["/bin/sh", "/usr/local/bin/pivot.sh"]
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits:   { memory: 128Mi }
+      volumes:
+        # #3647/#4639: containerd host-mirror dir (k3s default data-dir; no
+        # --data-dir override in cloudinit-control-plane.tftpl). containerd
+        # re-reads <ns>/hosts.toml here on every pull, so writing the
+        # `_default/hosts.toml` catch-all makes the dfdaemon mirror effective
+        # on a RUNNING node — no k3s restart, no node reboot.
+        - name: containerd-certs-d
+          hostPath:
+            path: /var/lib/rancher/k3s/agent/etc/containerd/certs.d
+            type: DirectoryOrCreate
+        - name: pivot-script
+          configMap:
+            name: registry-pivot-script
+            defaultMode: 0755
+        # #5007 — node /etc/hosts (type: File bind mount). The pivot rewrites it
+        # IN PLACE (truncate, never mv — a single-file bind mount keeps the inode)
+        # to pin registry.<fqdn> -> the gateway VIP the platform already knows, so
+        # the local-registry pull never depends on public DNS resolution.
+        - name: node-etc-hosts
+          hostPath:
+            path: /etc/hosts
+            type: File
+{{- end }}
 {{- end }}
