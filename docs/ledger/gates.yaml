@@ -1797,12 +1797,13 @@ checks:
 - id: NET-G07
   title: Organization isolation
   owner: NET
-  state: not-built
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Organization isolation
+  implementation: tests/acceptance/sovereign/internal/suite/check_org_isolation.go
   delivered_by: NET-172
 - id: NET-G08
   title: Registry equals live values
