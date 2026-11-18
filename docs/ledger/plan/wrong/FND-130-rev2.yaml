@@ -1,0 +1,52 @@
+schema: openova.io/plan-wrong/v1
+id: FND-130
+ticket_rev: 2
+base_commit: 6795e74aff5905f981fcb714c7c42ceb033029df
+stage: check
+ref: conformance-local
+command: |
+    gh api repos/openova-io/openova/actions/jobs/134702328142/logs | grep -B 40 -m 1 '##\[error\]' | cut -c30-300
+expected: |
+    the check finishes green
+actual: |
+    NET-G04 NET-G04.6 PASS        0.1  census D1.8 in region local-region-a-rtz-prod: nodes with… block="D1.8" nodes=[{"addresses":[{"address":"172.30.1.10","type":"InternalIP"},{"address":"198.51.100.10","type":"ExternalIP"},{"address":"region-a-cp1","type":"Hostname"}],"
+    NET-G04 NET-G04.7 PASS        0.2  census D1.1 in region local-region-b-rtz-prod: kube-proxy… block="D1.1" k3s_disable_kube_proxy={"region-b-cp1":"disabled"} kube_proxy_pods=[] region="local-region-b-rtz-prod"
+    NET-G04 NET-G04.8 PASS        0.1  census D1.2 in region local-region-b-rtz-prod: Cilium con… absent_keys=[] block="D1.2" cilium_config={"cluster-id":"2","cluster-name":"sov-region-b","enable-wireguard":"true","ipv4-native-routing-cidr":"10.42.0.0/15","kube-proxy-repla
+    NET-G04 NET-G04.9 PASS        0.1  census D1.3 in region local-region-b-rtz-prod: NetworkPol… block="D1.3" default_deny=[] networkpolicies=5 region="local-region-b-rtz-prod"
+    NET-G04 NET-G04.10 PASS        0.2  census D1.4 in region local-region-b-rtz-prod: CiliumNetw… block="D1.4" ciliumclusterwidenetworkpolicies=[] ciliumnetworkpolicies=7 region="local-region-b-rtz-prod"
+    NET-G04 NET-G04.11 PASS        0.1  census D1.7 in region local-region-b-rtz-prod: Gateway li… block="D1.7" listeners=[{"allowedRoutes":{"namespaces":{"from":"Selector","selector":{"matchExpressions":[{"key":"kubernetes.io/metadata.name","operator":"In","values":["cata
+    NET-G04 NET-G04.12 PASS        0.1  census D1.8 in region local-region-b-rtz-prod: nodes with… block="D1.8" nodes=[{"addresses":[{"address":"172.30.2.10","type":"InternalIP"},{"address":"198.51.100.11","type":"ExternalIP"},{"address":"region-b-cp1","type":"Hostname"}],
+    SEC-G01 SEC-G01.1 PASS        9.5  a probe Pod is Ready on every control-plane node of regio… namespace="sec-etcd-20261118t094223z-f75d" nodes=["region-a-cp1"]
+    SEC-G01 SEC-G01.2 PASS       25.9  the etcd files hold the canary Secret as secretbox cipher… db_canary=0 db_key=1 db_key_secretbox=1 node="region-a-cp1" wal_canary=0 wal_files=2 wal_key=2
+    SEC-G01 SEC-G01.3 PASS        0.1  the namespace sec-etcd-20261118t094223z-f75d is deleted
+    SEC-G01 SEC-G01.4 PASS       11.0  a probe Pod is Ready on every control-plane node of regio… namespace="sec-etcd-20261118t094258z-0cf0" nodes=["region-b-cp1"]
+    SEC-G01 SEC-G01.5 FAIL       42.2  the etcd files hold the canary Secret as secretbox cipher… 1 of 2 records of the canary Secret in the etcd file are not secretbox ciphertext
+    SEC-G01 SEC-G01.6 PASS        0.1  the namespace sec-etcd-20261118t094258z-0cf0 is deleted
+    SEC-G02 SEC-G02.1 PASS        2.2  a probe Pod is Ready on every control-plane node of regio… namespace="sec-node-20261118t094352z-9a84" nodes=["region-a-cp1"]
+    SEC-G02 SEC-G02.2 FAIL        0.1  the k3s token is not of the derived form, the kubeconfig … /etc/rancher/k3s/k3s.yaml has mode 644, want 600; bootstrap files remain: /var/lib/catalyst/cloud-credentials-secret.yaml, /var/lib/catalyst/ghcr-pull-secret.yaml, /var/lib/ca
+    SEC-G02 SEC-G02.3 PASS        0.1  the namespace sec-node-20261118t094352z-9a84 is deleted
+    SEC-G02 SEC-G02.4 PASS        1.6  a probe Pod is Ready on every control-plane node of regio… namespace="sec-node-20261118t094354z-b62a" nodes=["region-b-cp1"]
+    SEC-G02 SEC-G02.5 FAIL        0.2  the k3s token is not of the derived form, the kubeconfig … /etc/rancher/k3s/k3s.yaml has mode 644, want 600; bootstrap files remain: /var/lib/catalyst/cloud-credentials-secret.yaml, /var/lib/catalyst/ghcr-pull-secret.yaml, /var/lib/ca
+    SEC-G02 SEC-G02.6 PASS        0.1  the namespace sec-node-20261118t094354z-b62a is deleted
+    SVC-G06 SVC-G06.1 PASS        0.0  the candidate declares the HelmReleases of the foundation… declared=39
+    SVC-G06 SVC-G06.2 FAIL        0.3  every foundation HelmRelease that is not exempt has a pas… 14 of 14 foundation HelmReleases have no passing function test: flux-system/bp-catalyst-platform (bp-catalyst-platform) none: spec.test.enable is not true; flux-system/bp-cert
+    SVC-G06 SVC-G06.3 FAIL        0.1  every foundation HelmRelease that is not exempt has a pas… 13 of 13 foundation HelmReleases have no passing function test: flux-system/bp-cert-manager (bp-cert-manager) none: spec.test.enable is not true; flux-system/bp-cilium (bp-cil
+    --------------------------------------------------------------------------------------------------------------------------------------------
+      AIP-G01 PASS (required)
+      CMP-G01 FAIL (expected-fail) scorecard empty: the Sovereign score has denominator 0
+      CMP-G02 PASS (expected-fail)
+      CTL-G04 FAIL (expected-fail) region local-region-b-rtz-prod has no binding of the policy catalyst-intent-lock: the lock is not installed
+      FND-G03 PASS (required)
+      FND-G04 FAIL (expected-fail) 6 containers are in CrashLoopBackOff: org-services/auth-76857969c8-92fqg/auth; org-services/billing-689bbfdc6-mft72/billing; org-services/domain-585b89d7-cx8wr/domain; org-services/notification-788db9f6df-djvkq/notification; org-services/or
+      FND-G05 FAIL (required) scripts/check-live-nodeports.sh exited 1 for region local-region-a-rtz-prod: ────────────────────────────────────────────────────────
+      FND-G08 PASS (required)
+      NET-G03 PASS (required)
+      NET-G04 PASS (required)
+      SEC-G01 FAIL (required) 1 of 2 records of the canary Secret in the etcd file are not secretbox ciphertext
+      SEC-G02 FAIL (expected-fail) /etc/rancher/k3s/k3s.yaml has mode 644, want 600; bootstrap files remain: /var/lib/catalyst/cloud-credentials-secret.yaml, /var/lib/catalyst/ghcr-pull-secret.yaml, /var/lib/catalyst/handover-jwt-public-secret.yaml, /var/lib/catalyst/harbor-
+      SVC-G06 FAIL (expected-fail) 14 of 14 foundation HelmReleases have no passing function test: flux-system/bp-catalyst-platform (bp-catalyst-platform) none: spec.test.enable is not true; flux-system/bp-cert-manager (bp-cert-manager) none: spec.test.enable is not true; fl
+    RESULT FAIL
+    recorded /home/runner/work/_temp/acceptance/local-pack-20261118T094208Z-e4d8.json
+    suite exit code: 1
+    ##[error]Process completed with exit code 1.
+reported_at: 2026-11-18T09:46:30Z
