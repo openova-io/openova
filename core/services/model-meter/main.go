@@ -6,6 +6,7 @@
 // Subcommands:
 //
 //	serve    the proxy and its admin listener (the default when no subcommand is given)
+//	stub     the scripted back end of the alias conformance-echo, on :8081 (meter/stub.go)
 //	version  prints the version of the binary
 //
 // Configuration of serve (environment):
@@ -30,6 +31,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -42,6 +44,9 @@ import (
 
 // version is set by the build: -ldflags "-X main.version=<version>".
 var version = "dev"
+
+// stubAddr is the listen address of the subcommand stub.
+var stubAddr = meter.StubAddr
 
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
@@ -57,11 +62,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 	switch cmd {
 	case "serve":
 		return serve()
+	case "stub":
+		return stub(stubAddr, stopSignals())
 	case "version":
 		_, _ = fmt.Fprintln(stdout, version)
 		return 0
 	}
-	_, _ = fmt.Fprintf(stderr, "model-meter: unknown subcommand %q; use serve or version\n", cmd)
+	_, _ = fmt.Fprintf(stderr, "model-meter: unknown subcommand %q; use serve, stub or version\n", cmd)
 	return 2
 }
 
@@ -132,10 +139,8 @@ func serve() int {
 
 	// On SIGTERM, drain the spool one last time so that events of the last 30 seconds are not
 	// left behind.
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	select {
-	case <-sigCh:
+	case <-stopSignals():
 	case <-failed:
 		return 1
 	}
@@ -153,6 +158,47 @@ func serve() int {
 		}
 	}
 	return 0
+}
+
+// stub serves the scripted back end on addr until a signal arrives on stop. It returns 1 when
+// the listener cannot be opened or fails.
+func stub(addr string, stop <-chan os.Signal) int {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		slog.Error("the stub cannot listen", "addr", addr, "error", err)
+		return 1
+	}
+	return serveStub(ln, stop)
+}
+
+func serveStub(ln net.Listener, stop <-chan os.Signal) int {
+	s := &http.Server{Handler: meter.NewStub(), ReadHeaderTimeout: 10 * time.Second}
+	failed := make(chan error, 1)
+	go func() {
+		if err := s.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			failed <- err
+		}
+	}()
+	slog.Info("model stub listening", "addr", ln.Addr().String())
+	select {
+	case <-stop:
+	case err := <-failed:
+		slog.Error("server error", "addr", ln.Addr().String(), "error", err)
+		return 1
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := s.Shutdown(ctx); err != nil {
+		slog.Error("shutdown", "addr", ln.Addr().String(), "error", err)
+	}
+	return 0
+}
+
+// stopSignals returns a channel that receives SIGINT and SIGTERM.
+func stopSignals() <-chan os.Signal {
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
+	return ch
 }
 
 // listen serves s until it is shut down. It returns 1 when the listener fails.
