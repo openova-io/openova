@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T20:30:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-18T21:45:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7838](https://github.com/openova-io/openova/issues/7838) | FND-026 Two tasks that share only record files may run together | Other |
 | [#7839](https://github.com/openova-io/openova/issues/7839) | FND-077 The flight sweep counts the DNS records a wiped deployment left | Other |
 | [#7840](https://github.com/openova-io/openova/issues/7840) | FND-130 The gate suite runs on the local provider pack on every pull request | Other |
 | [#7841](https://github.com/openova-io/openova/issues/7841) | NET-170 Organization fence: two host-side deny objects for the Organization's ow | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8192](https://github.com/openova-io/openova/issues/8192) | CLD-104 The engine writes neutral variables; adapters write their own | Other |
 | [#8201](https://github.com/openova-io/openova/issues/8201) | AIP-103 Real streaming and real usage | Other |
 | [#8204](https://github.com/openova-io/openova/issues/8204) | NET-172 Gate check NET-G07: Organization isolation, journey ISO in both regions | Other |
+| [#8209](https://github.com/openova-io/openova/issues/8209) | AIP-104 Limits, queue, time-outs, admin listener | Other |
 
 ---
 
@@ -307,9 +307,15 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-18T21:34 | [#8211](https://github.com/openova-io/openova/pull/8211) | #7087 | docs(ledger): plan update |
+| 2026-11-18T21:20 | [#8210](https://github.com/openova-io/openova/pull/8210) | #8209 | fix(axon): bound active and parked runs, queue with 429, ste |
+| 2026-11-18T20:52 | [#8208](https://github.com/openova-io/openova/pull/8208) | #7087 | docs(ledger): plan update |
+| 2026-11-18T20:42 | [#8206](https://github.com/openova-io/openova/pull/8206) | #7087 | docs(ledger): plan update |
+| 2026-11-18T20:34 | [#8205](https://github.com/openova-io/openova/pull/8205) | #8204 | test(gate): check NET-G07 proves the Organization fence with |
 | 2026-11-18T19:57 | [#8203](https://github.com/openova-io/openova/pull/8203) | #7087 | docs(ledger): plan update |
 | 2026-11-18T20:11 | [#8202](https://github.com/openova-io/openova/pull/8202) | #8201 | fix(axon): stream one chunk per upstream event and close the |
 | 2026-11-18T19:35 | [#8200](https://github.com/openova-io/openova/pull/8200) | #7087 | docs(ledger): plan update |
+| 2026-11-18T20:37 | [#8199](https://github.com/openova-io/openova/pull/8199) | #7938 | fix(build): a version tag that exists is never pushed again |
 | 2026-11-18T19:20 | [#8198](https://github.com/openova-io/openova/pull/8198) | #7087 | docs(ledger): plan update |
 | 2026-11-18T19:12 | [#8197](https://github.com/openova-io/openova/pull/8197) | #7087 | docs(ledger): plan update |
 | 2026-11-18T19:02 | [#8196](https://github.com/openova-io/openova/pull/8196) | #7087 | docs(ledger): plan update |
@@ -331,12 +337,6 @@ flowchart LR
 | 2026-11-18T15:48 | [#8176](https://github.com/openova-io/openova/pull/8176) | #8175 | refactor(credentials): credential fields checked against the |
 | 2026-11-18T15:20 | [#8174](https://github.com/openova-io/openova/pull/8174) | #7087 | docs(ledger): plan update |
 | 2026-11-18T15:17 | [#8173](https://github.com/openova-io/openova/pull/8173) | #8172 | docs(ledger): result of the lab test SOV-148, first-boot ste |
-| 2026-11-18T15:10 | [#8171](https://github.com/openova-io/openova/pull/8171) | #7087 | docs(ledger): plan update |
-| 2026-11-18T15:12 | [#8170](https://github.com/openova-io/openova/pull/8170) | #8168 | chore(axon): remove the vLLM provider, Valkey and the conver |
-| 2026-11-18T14:42 | [#8167](https://github.com/openova-io/openova/pull/8167) | #7087 | docs(ledger): plan update |
-| 2026-11-18T14:13 | [#8166](https://github.com/openova-io/openova/pull/8166) | #7087 | docs(ledger): plan update |
-| 2026-11-18T15:03 | [#8165](https://github.com/openova-io/openova/pull/8165) | #8147 | fix(ci): a pull request that changes only plan files does no |
-| 2026-11-18T13:42 | [#8164](https://github.com/openova-io/openova/pull/8164) | #7087 | docs(ledger): plan update |
 
 ---
 

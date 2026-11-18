@@ -135,7 +135,7 @@ epics:
 - id: CLD-100
   title: 'Epic: the engine drives the port'
   wave: W1d
-  packages: [CLD-102, CLD-108, CLD-101, CLD-109, CLD-103, CLD-104, CLD-105, CLD-107, CLD-106]
+  packages: [CLD-102, CLD-108, CLD-101, CLD-109, CLD-103, CLD-104, CLD-105, CLD-115, CLD-107, CLD-106]
 - id: CLD-110
   title: 'Epic: handlers and controllers stop naming providers'
   wave: W1d
@@ -5179,7 +5179,7 @@ packages:
   size: S
   lane: RAILS
   depends_on: []
-  after: [FND-022, FND-052, FND-056, CLD-090, SOV-120, SOV-121, SOV-131, SVC-150, CTL-331, CTL-332, AIP-101, AIP-108, AIP-111, AIP-113, AIP-114, AIP-221, AIP-229, INF-110, PRD-101, PRD-102, PRD-103, PRD-501, PRD-513]
+  after: [FND-022, FND-052, FND-056, CLD-090, SOV-120, SOV-121, SOV-131, SVC-150, CTL-331, CTL-332, AIP-101, AIP-104, AIP-108, AIP-111, AIP-113, AIP-114, AIP-221, AIP-229, INF-110, PRD-101, PRD-102, PRD-103, PRD-501, PRD-513]
   touches:
   - '**/go.mod'
   - '**/go.sum'
@@ -6653,7 +6653,7 @@ packages:
   dropped: false
   delivers: writeTfvars writes the contract variables and the engine extras only; each adapter's TfVars returns the variables of its cloud and the engine merges them, refusing a clash with ErrTfVarCollision; the module's regions are placed by the adapter's Normalize; the six provider-named Request fields are deleted and every credential lives in the credentials map.
 - id: CLD-105
-  title: Hook variables become capability interfaces
+  title: Post-apply and apply-error hooks become capability interfaces
   area: CLD
   epic: CLD-100
   type: refactor
@@ -6661,9 +6661,15 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CLD-104]
-  after: [FND-071, CLD-114, SVC-040]
+  after: [FND-014, CLD-114, SOV-030, SOV-338, SVC-040]
   touches:
-  - products/catalyst/bootstrap/api/internal/providers/huawei/**
+  - products/catalyst/bootstrap/api/internal/providers/capabilities.go
+  - products/catalyst/bootstrap/api/internal/providers/huawei/capabilities.go
+  - products/catalyst/bootstrap/api/internal/providers/huawei/capabilities_test.go
+  - products/catalyst/bootstrap/api/internal/providers/huawei/preflight_eip.go
+  - products/catalyst/bootstrap/api/internal/providers/huawei/provider.go
+  - products/catalyst/bootstrap/api/internal/provisioner/provisioner.go
+  - products/catalyst/bootstrap/api/internal/provisioner/apply_retry_test.go
   resources: []
   flips: []
   implements: []
@@ -6677,7 +6683,7 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: Preflighter, PostApplier, ApplyErrorClassifier on the Huawei adapter; three global hooks deleted
+  delivers: 'The Huawei adapter implements providers.PostApplier (the NAT EIP rotation of Wave 5.93; a failed rotation is reported and does not fail the prov) and providers.ApplyErrorClassifier (Common.0021 and CollectInfoTask-fail, a conflict in the request on a create, VPC.2030 and the read-after-create inconsistency, with the compute addresses the failure names); ApplyErrorClass gains Addresses and StopOnRepeat. The engine calls both through providers.As: classifyApplyError and applyFailures replace its inline list of HCS failures and its per-address counter (the same address failing three times in a row on Common.0021 still stops the retries), a PostApply error fails the prov and ReapplyNeeded runs tofu apply once more, and capabilitySpec hands an adapter the request''s spec without a redacted credential. NATEIPPreflightHook and extractFailedAddrs are deleted. The VPC hooks and the Preflighter are CLD-115.'
 - id: CLD-106
   title: Operator credentials from mounted files
   area: CLD
@@ -7004,6 +7010,39 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: The adoption generator takes the resource types it adopts from each adapter through providers.AdoptionMapper and never defaults the provider, the Phase-0 job label keeps no provider list, the Organization controller takes the Environment provider from CLOUD_PROVIDER with no default, and the Environment and Sovereign kinds accept any provider pack name by pattern instead of a fixed list.
+- id: CLD-115
+  title: The VPC pre-flight becomes the Huawei adapter's Preflighter
+  area: CLD
+  epic: CLD-100
+  type: refactor
+  wave: W1d
+  size: M
+  lane: CONTROL
+  depends_on: [CLD-105]
+  after: [FND-014, CLD-114, SOV-030, SOV-338, SVC-040]
+  touches:
+  - products/catalyst/bootstrap/api/internal/providers/huawei/capabilities.go
+  - products/catalyst/bootstrap/api/internal/providers/huawei/capabilities_test.go
+  - products/catalyst/bootstrap/api/internal/providers/huawei/provider.go
+  - products/catalyst/bootstrap/api/internal/providers/huawei/vpc_quota_preflight.go
+  - products/catalyst/bootstrap/api/internal/providers/huawei/vpc_quota_preflight_6225_test.go
+  - products/catalyst/bootstrap/api/internal/provisioner/provisioner.go
+  - products/catalyst/bootstrap/api/internal/provisioner/vpc_quota_preflight.go
+  - products/catalyst/bootstrap/api/internal/provisioner/vpc_quota_preflight_6225_test.go
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'The Huawei adapter implements providers.Preflighter: the HCS VPC-quota pre-flight (G68 #2617, #4431, #6225) reads the quota, and over the cap reclaims orphaned catalyst VPCs destructively with the engine''s ProtectedIDs (every live deployment, #4614), reads again, and refuses only a project known to be full after the reclaim; a failed quota read lets the prov proceed. The engine calls it through providers.As before tofu init, with capabilitySpec(req) and reclaimProtectSet. The pure decision (quotaReading, vpcPreflightRefuses, effectiveReading) and its tests move from internal/provisioner to the adapter. VPCQuotaHook, VPCReclaimHook, VPCQuotaPreflight and VPCReclaimPreflight are deleted; with CLD-105 the three global hooks are gone.'
 - id: CLD-121
   title: Providers routes
   area: CLD
@@ -18695,18 +18734,15 @@ packages:
   size: M
   lane: RAILS
   depends_on: [SVC-150]
-  after: [FND-206, FND-059, FND-096, FND-098, CLD-142, SEC-103, SEC-104, SEC-105, NET-040, NET-150, NET-221, SVC-060, CTL-346, CTL-347, INF-110, ACC-050]
+  after: [FND-206, FND-059, FND-096, FND-098, CLD-142, SEC-103, SEC-104, SEC-105, NET-040, NET-041, NET-221, SVC-060, SVC-070, SVC-080, SVC-090, SVC-100, SVC-130, CTL-346, CTL-347, INF-110, ACC-050]
   touches:
   - platform/alloy/blueprint.yaml
-  - platform/anthropic-adapter/blueprint.yaml
   - platform/bge/blueprint.yaml
   - platform/bp-vcluster-helmrepo/blueprint.yaml
-  - platform/catalyst-edge-routes/blueprint.yaml
   - platform/catalyst-platform/blueprint.yaml
   - platform/cert-manager-issuers/blueprint.yaml
   - platform/cert-manager-powerdns-webhook/blueprint.yaml
   - platform/cert-manager/blueprint.yaml
-  - platform/cilium-policies/blueprint.yaml
   - platform/cilium/blueprint.yaml
   - platform/clickhouse/blueprint.yaml
   - platform/cluster-autoscaler-hcloud/blueprint.yaml
@@ -18714,14 +18750,10 @@ packages:
   - platform/cnpg/blueprint.yaml
   - platform/crossplane-claims/blueprint.yaml
   - platform/crossplane/blueprint.yaml
-  - platform/debezium/blueprint.yaml
-  - platform/dragonfly/blueprint.yaml
   - platform/external-dns/blueprint.yaml
   - platform/external-secrets-stores/blueprint.yaml
   - platform/external-secrets/blueprint.yaml
   - platform/falco/blueprint.yaml
-  - platform/ferretdb/blueprint.yaml
-  - platform/flink/blueprint.yaml
   - platform/flux/blueprint.yaml
   - platform/gateway-api/blueprint.yaml
   - platform/gitea/blueprint.yaml
@@ -18729,55 +18761,37 @@ packages:
   - platform/guacamole/blueprint.yaml
   - platform/harbor/blueprint.yaml
   - platform/hcloud-ccm/blueprint.yaml
-  - platform/hcloud-csi/blueprint.yaml
-  - platform/huawei-evs-csi/blueprint.yaml
-  - platform/iceberg/blueprint.yaml
   - platform/k8s-ws-proxy/blueprint.yaml
   - platform/keycloak/blueprint.yaml
-  - platform/knative/blueprint.yaml
   - platform/kserve/blueprint.yaml
-  - platform/kured/blueprint.yaml
   - platform/kyverno-policies/blueprint.yaml
   - platform/kyverno/blueprint.yaml
   - platform/langfuse/blueprint.yaml
-  - platform/librechat/blueprint.yaml
   - platform/litmus/blueprint.yaml
   - platform/livekit/blueprint.yaml
   - platform/llm-gateway/blueprint.yaml
   - platform/loki/blueprint.yaml
-  - platform/machine-operations/blueprint.yaml
   - platform/matrix/blueprint.yaml
-  - platform/milvus/blueprint.yaml
   - platform/mimir/blueprint.yaml
   - platform/nats-jetstream/blueprint.yaml
   - platform/nemo-guardrails/blueprint.yaml
-  - platform/neo4j/blueprint.yaml
-  - platform/netbird/blueprint.yaml
-  - platform/network-policies/blueprint.yaml
   - platform/newapi/blueprint.yaml
-  - platform/oidc-gate/blueprint.yaml
   - platform/openbao/blueprint.yaml
   - platform/openclaw/blueprint.yaml
   - platform/openmeter/blueprint.yaml
   - platform/opensearch/blueprint.yaml
   - platform/opentelemetry-operator/blueprint.yaml
   - platform/opentelemetry/blueprint.yaml
-  - platform/plane-isolation/blueprint.yaml
   - platform/postgres/blueprint.yaml
   - platform/powerdns-admin/blueprint.yaml
   - platform/powerdns/blueprint.yaml
-  - platform/qa-app/blueprint.yaml
   - platform/reflector/blueprint.yaml
   - platform/reloader/blueprint.yaml
   - platform/seaweedfs/blueprint.yaml
   - platform/self-sovereign-cutover/blueprint.yaml
   - platform/sigstore/blueprint.yaml
-  - platform/sovereign-tls-vars/blueprint.yaml
   - platform/sso-bridge/blueprint.yaml
-  - platform/stalwart-sovereign/blueprint.yaml
   - platform/stalwart-tenant/blueprint.yaml
-  - platform/storage-ready/blueprint.yaml
-  - platform/strimzi/blueprint.yaml
   - platform/stunner/blueprint.yaml
   - platform/syft-grype/blueprint.yaml
   - platform/tempo/blueprint.yaml
@@ -18794,6 +18808,8 @@ packages:
   - products/openova-mcp/blueprint.yaml
   - scripts/check-seed-equals-blueprints.py
   - .github/workflows/check-catalog-seed-lockstep.yaml
+  - platform/_catalog/card-categories.yaml
+  - scripts/service-model-baseline.yaml
   - products/catalyst/bootstrap/api/internal/catalog/blueprints.json
   - products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts
   resources: []
@@ -18811,7 +18827,7 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: Every Blueprint file that the hand-written seed holds says what the seed says, object by object and field by field, for every field the application controller or the console reads; where a file and the seed disagreed, the file took the seed's value, absence included. A check computes, without writing a file, the seed objects the generator will write from the files, compares them parsed with the hand-written seed and exits non-zero with the list of differing objects and fields; it runs in CI until SVC-160 removes the hand-written seed. The seed is not changed; outputs 1 and 2 of the generator are regenerated and committed.
+  delivers: Every Blueprint file that the hand-written seed holds says what the seed says, object by object and field by field, for every field the application controller or the console reads except configSchema (SVC-163); where a file and the seed disagreed, the file took the seed's value, absence included. The category of the 40 seeded Blueprints whose file has none is declared in one data file, platform/_catalog/card-categories.yaml, so no Blueprint file gains card.category. A check computes, without writing a file, the seed objects the generator will write from the files and that data file, compares them parsed with the hand-written seed and exits non-zero with the list of differing objects and fields; its output says that configSchema is not compared yet. It runs in CI until SVC-160 removes the hand-written seed. The seed is not changed; outputs 1 and 2 of the generator are regenerated and committed.
 - id: SVC-160
   title: 'One generator, part 2: the seed becomes generated'
   area: SVC
@@ -18820,7 +18836,7 @@ packages:
   wave: W0
   size: M
   lane: RAILS
-  depends_on: [FND-031, FND-032, FND-091, SVC-150, SVC-159]
+  depends_on: [FND-031, FND-032, FND-091, SVC-150, SVC-159, SVC-163]
   after: [FND-206, FND-011, FND-017, FND-018, FND-019, FND-020, FND-025, FND-059, FND-062, FND-063, FND-096, FND-098, CLD-010, CLD-022, CLD-023, CLD-030, CLD-064, CLD-113, CLD-142, SOV-035, SOV-040, SOV-135, SOV-190, SEC-103, SEC-104, SEC-105, NET-040, NET-041, NET-221, SVC-060, SVC-070, SVC-080, SVC-090, SVC-100, SVC-130, CTL-346, CTL-347, INF-110, ACC-050]
   touches:
   - scripts/generate-catalog.py
@@ -18940,6 +18956,72 @@ packages:
   ticket_rev: 0
   dropped: false
   delivers: Fifteen README-only folders and their nine scaffold blueprint.yaml files are deleted; one roadmap entry is written for each. products/cortex and products/fingate are not touched and get the two entries the later-products record gives. platform/stunner is not touched. Baselines of SVC-020 that count these files are lowered.
+- id: SVC-163
+  title: The Blueprint files carry the seed's configSchema
+  area: SVC
+  epic: null
+  type: refactor
+  wave: W0
+  size: M
+  lane: RAILS
+  depends_on: [SVC-159]
+  after: [SEC-103, SVC-060, ACC-050]
+  touches:
+  - platform/bge/blueprint.yaml
+  - platform/cilium/blueprint.yaml
+  - platform/clickhouse/blueprint.yaml
+  - platform/cluster-autoscaler-hcloud/blueprint.yaml
+  - platform/cnpg-pair/blueprint.yaml
+  - platform/cnpg/blueprint.yaml
+  - platform/external-secrets-stores/blueprint.yaml
+  - platform/external-secrets/blueprint.yaml
+  - platform/gateway-api/blueprint.yaml
+  - platform/grafana/blueprint.yaml
+  - platform/guacamole/blueprint.yaml
+  - platform/harbor/blueprint.yaml
+  - platform/hcloud-ccm/blueprint.yaml
+  - platform/k8s-ws-proxy/blueprint.yaml
+  - platform/keycloak/blueprint.yaml
+  - platform/kserve/blueprint.yaml
+  - platform/langfuse/blueprint.yaml
+  - platform/livekit/blueprint.yaml
+  - platform/llm-gateway/blueprint.yaml
+  - platform/loki/blueprint.yaml
+  - platform/matrix/blueprint.yaml
+  - platform/nemo-guardrails/blueprint.yaml
+  - platform/newapi/blueprint.yaml
+  - platform/openclaw/blueprint.yaml
+  - platform/openmeter/blueprint.yaml
+  - platform/opensearch/blueprint.yaml
+  - platform/opentelemetry-operator/blueprint.yaml
+  - platform/postgres/blueprint.yaml
+  - platform/powerdns/blueprint.yaml
+  - platform/seaweedfs/blueprint.yaml
+  - platform/stalwart-tenant/blueprint.yaml
+  - platform/stunner/blueprint.yaml
+  - platform/temporal/blueprint.yaml
+  - platform/valkey/blueprint.yaml
+  - platform/vllm/blueprint.yaml
+  - platform/vpa/blueprint.yaml
+  - platform/wordpress-tenant/blueprint.yaml
+  - products/agenity/blueprint.yaml
+  - products/chargeback/blueprint.yaml
+  - products/openova-mcp/blueprint.yaml
+  - scripts/check-seed-equals-blueprints.py
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'The 40 Blueprint files whose configSchema differed from the hand-written seed carry the seed''s configSchema, absence included. The equality check of SVC-159 compares configSchema too: it compares every field the application controller or the console reads with no exception, and its output names none. The seed and outputs 1 and 2 of the generator are not changed.'
 - id: SVC-164
   title: Delete the OpenMeter Blueprint
   area: SVC
@@ -27169,26 +27251,32 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [AIP-103]
-  after: [SVC-040]
+  after: []
   touches:
   - products/axon/src/turns.ts
   - products/axon/src/config.ts
   - products/axon/src/index.ts
   - products/axon/test/**
+  - products/axon/package.json
+  - products/axon/chart/Chart.yaml
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e products/axon/src/turns.ts && grep -c 'AXON_ADMIN_PORT' products/axon/src/config.ts"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "cd products/axon && npm ci && npm run build && npm test && node --import tsx --test test/limits.test.ts"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Bounded active and parked runs, queue with 429, step time-out, admin port 3001 with /stats
+  delivers: Axon runs at most four model steps at once and keeps at most eight conversations waiting for tool results; sixteen more requests wait up to 30 seconds and the rest get 429 with Retry-After 5; a step longer than its time-out gets 504; health and statistics move to an admin listener on port 3001; SIGTERM closes every run and exits within 10 seconds.
 - id: AIP-105
   title: One owner of the credential
   area: AIP

@@ -1,6 +1,7 @@
 // The turn chain: one upstream run kept open across HTTP requests while the
 // caller's tool calls are outstanding. A run is never reused for another
 // conversation.
+import { DEFAULTS } from "./config.js";
 import { render, textOf } from "./transcript.js";
 import type { Upstream, UpstreamEvent, UpstreamRun, UpstreamTool, Usage } from "./upstream.js";
 import type { ChatCompletionRequest, ChatCompletionUsage, ChatMessage, ToolCall } from "./types/openai.js";
@@ -51,8 +52,16 @@ export interface TurnManager {
    */
   step(req: ChatCompletionRequest, organization: string, sink?: StepSink, signal?: AbortSignal): Promise<StepResult>;
   stats(): { active: number; parked: number; queued: number };
+  counters(): Counters;
+  /** Refuses new steps, answers every queued request and closes every chain. */
   shutdown(): Promise<void>;
 }
+
+/**
+ * Since the start of the process (GET /stats): every request, resumed chains, new chains given
+ * a transcript, 429s of the queue, and steps ended by a run error (rule 8) or the time-out.
+ */
+export interface Counters { requests: number; resumed: number; replayed: number; rejected429: number; upstreamErrors: number }
 
 export interface TurnsOptions {
   upstream: Upstream;
@@ -60,6 +69,12 @@ export interface TurnsOptions {
   modelMap: Record<string, string>;
   /** Longest wait for tool results before a parked run is closed. */
   parkTtlMs: number;
+  /** The limits of config.ts; each one left out is its default. */
+  maxActive?: number;
+  maxParked?: number;
+  queueMax?: number;
+  queueWaitMs?: number;
+  stepTimeoutMs?: number;
   /** The access token passed to each run; empty until the credential owner sets it. */
   accessToken?: () => string;
 }
@@ -121,11 +136,16 @@ export function emulatedOf(req: ChatCompletionRequest): string[] {
   return withTools && (choice === "required" || namedTool(choice) !== undefined) ? ["tool_choice"] : [];
 }
 
+/** A conversation that is more than one user message reaches a new run as a transcript. */
+function replays(messages: ChatMessage[]): boolean {
+  const conversation = messages.filter((m) => m.role !== "system");
+  return conversation.length !== 1 || conversation[0].role !== "user";
+}
+
 /** The prompt: one user message as it is, any longer conversation as a transcript. */
 export function promptOf(messages: ChatMessage[]): string {
-  const conversation = messages.filter((m) => m.role !== "system");
-  if (conversation.length === 1 && conversation[0].role === "user") return textOf(conversation[0].content);
-  return render(messages);
+  if (replays(messages)) return render(messages);
+  return textOf(messages.filter((m) => m.role !== "system")[0].content);
 }
 
 /** Rule 6: the usage of the model messages of one step, in the contract's fields. */
@@ -152,30 +172,121 @@ function upstreamError(error?: { status?: number; message: string }): HttpError 
   return new HttpError(502, "backend_error", "the backend failed");
 }
 
+/** Rule 3: the queue is full or the wait ran out. */
+function busy(): HttpError {
+  return new HttpError(429, "rate_limit_exceeded", "the backend is at capacity", 5);
+}
+
+/** A step refused or ended because Axon is shutting down. */
+function shuttingDown(): HttpError {
+  return new HttpError(502, "backend_error", "the backend is shutting down");
+}
+
+/** The step deadline ran out. */
+class StepTimeout extends Error {}
+
+interface Waiter {
+  grant(): void;
+  fail(err: Error): void;
+}
+
 export class Turns implements TurnManager {
   private chains = new Set<Chain>();
   private parked = new Map<string, Chain>();
+  /** Parked chains, the oldest first. */
+  private parkedChains = new Set<Chain>();
+  /** Active slots taken: chains in state active, and requests granted a slot that start one. */
+  private active = 0;
+  private queue: Waiter[] = [];
+  private stopping = false;
+  private count: Counters = { requests: 0, resumed: 0, replayed: 0, rejected429: 0, upstreamErrors: 0 };
+  private max: Required<Pick<TurnsOptions, "maxActive" | "maxParked" | "queueMax" | "queueWaitMs" | "stepTimeoutMs">>;
 
-  constructor(private o: TurnsOptions) {}
+  constructor(private o: TurnsOptions) {
+    this.max = { ...DEFAULTS, ...o };
+  }
 
   async step(req: ChatCompletionRequest, organization: string, sink?: StepSink, signal?: AbortSignal): Promise<StepResult> {
     if (signal?.aborted) throw new Disconnected();
+    this.count.requests++;
+    if (this.stopping) throw shuttingDown();
     const { model, tools } = this.validate(req);
-    const chain = this.resume(req, organization) ?? this.start(req, model, tools, organization);
+    let chain = this.resume(req, organization);
+    if (chain) {
+      this.count.resumed++;
+    } else {
+      await this.slot(signal);
+      try {
+        if (this.stopping) throw shuttingDown();
+        chain = this.start(req, model, tools, organization);
+      } catch (err) {
+        this.release();
+        throw err;
+      }
+    }
     return this.read(chain, req, emulatedOf(req), sink, signal);
   }
 
   stats(): { active: number; parked: number; queued: number } {
-    const chains = [...this.chains];
-    return {
-      active: chains.filter((c) => c.state === "active").length,
-      parked: chains.filter((c) => c.state === "parked").length,
-      queued: 0,
-    };
+    return { active: this.active, parked: this.parkedChains.size, queued: this.queue.length };
+  }
+
+  counters(): Counters {
+    return { ...this.count };
   }
 
   async shutdown(): Promise<void> {
+    this.stopping = true;
+    for (const w of [...this.queue]) w.fail(shuttingDown());
     await Promise.all([...this.chains].map((c) => this.close(c)));
+  }
+
+  /**
+   * Rule 3: an active slot for a new chain. Taken at once while one is free and
+   * nobody waits; otherwise the request waits in the queue, in order, up to
+   * queueWaitMs. A full queue or a wait that runs out answers 429.
+   */
+  private slot(signal?: AbortSignal): Promise<void> {
+    if (this.active < this.max.maxActive && this.queue.length === 0) {
+      this.active++;
+      return Promise.resolve();
+    }
+    if (this.queue.length >= this.max.queueMax) {
+      this.count.rejected429++;
+      return Promise.reject(busy());
+    }
+    return new Promise((resolve, reject) => {
+      const leave = () => {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", gone);
+        const i = this.queue.indexOf(waiter);
+        if (i >= 0) this.queue.splice(i, 1);
+      };
+      const waiter: Waiter = {
+        grant: () => {
+          leave();
+          this.active++;
+          resolve();
+        },
+        fail: (err) => {
+          leave();
+          reject(err);
+        },
+      };
+      const gone = () => waiter.fail(new Disconnected());
+      const timer = setTimeout(() => {
+        this.count.rejected429++;
+        waiter.fail(busy());
+      }, this.max.queueWaitMs);
+      signal?.addEventListener("abort", gone, { once: true });
+      this.queue.push(waiter);
+    });
+  }
+
+  /** An active slot is free again: the first queued request takes it. */
+  private release(): void {
+    this.active--;
+    while (this.active < this.max.maxActive && this.queue.length > 0) this.queue[0].grant();
   }
 
   private validate(req: ChatCompletionRequest): { model: string; tools: UpstreamTool[] } {
@@ -212,7 +323,7 @@ export class Turns implements TurnManager {
     return { model, tools: req.tool_choice === "none" ? [] : tools };
   }
 
-  /** Rule 2: the parked chain these tool results answer, moved to active; undefined when there is none. */
+  /** Rule 2: the parked chain these tool results answer, moved to active (it does not queue); undefined when there is none. */
   private resume(req: ChatCompletionRequest, organization: string): Chain | undefined {
     const results = trailingTools(req.messages);
     const chain = results.map((m) => this.parked.get(m.tool_call_id ?? "")).find((c) => c !== undefined);
@@ -225,6 +336,7 @@ export class Turns implements TurnManager {
     }
     this.unpark(chain);
     chain.state = "active";
+    this.active++;
     for (const id of chain.pending) chain.run.resolveTool(id, byId.get(id) as string);
     for (const id of chain.internal) chain.run.resolveTool(id, NOT_EXECUTED);
     chain.pending = [];
@@ -243,37 +355,56 @@ export class Turns implements TurnManager {
       effort: effort && EFFORTS.has(effort) ? (effort as "low" | "medium" | "high") : undefined,
       accessToken: this.o.accessToken?.() ?? "",
     });
+    if (replays(req.messages)) this.count.replayed++;
     const chain: Chain = { run, organization, state: "active", pending: [], internal: [] };
     this.chains.add(chain);
     return chain;
   }
 
+  /** Rule 8, counted; a run closed by the shutdown is not an upstream error. */
+  private failed(error?: { status?: number; message: string }): HttpError {
+    if (this.stopping) return shuttingDown();
+    this.count.upstreamErrors++;
+    return upstreamError(error);
+  }
+
   /**
    * The next upstream event. When the caller goes away first, the chain is
-   * closed and the step throws Disconnected.
+   * closed and the step throws Disconnected. When the step deadline runs out
+   * first, the chain is closed and the step answers 504.
    */
-  private async next(chain: Chain, signal?: AbortSignal): Promise<UpstreamEvent> {
-    if (!signal) return chain.run.next();
-    let onAbort = () => {};
-    const gone = new Promise<never>((_, reject) => {
-      onAbort = () => reject(new Disconnected());
-      if (signal.aborted) onAbort();
-      else signal.addEventListener("abort", onAbort, { once: true });
+  private async next(chain: Chain, deadline: AbortSignal, signal?: AbortSignal): Promise<UpstreamEvent> {
+    let gone = () => {};
+    let late = () => {};
+    const stop = new Promise<never>((_, reject) => {
+      gone = () => reject(new Disconnected());
+      late = () => reject(new StepTimeout());
+      if (signal?.aborted) gone();
+      else if (deadline.aborted) late();
+      else {
+        signal?.addEventListener("abort", gone, { once: true });
+        deadline.addEventListener("abort", late, { once: true });
+      }
     });
     try {
-      return await Promise.race([chain.run.next(), gone]);
+      return await Promise.race([chain.run.next(), stop]);
     } catch (err) {
       if (err instanceof Disconnected) await this.close(chain);
-      throw err;
+      if (!(err instanceof StepTimeout)) throw err;
+      void this.close(chain);
+      this.count.upstreamErrors++;
+      throw new HttpError(504, "backend_timeout", `the model step took longer than ${this.max.stepTimeoutMs} ms`);
     } finally {
-      signal.removeEventListener("abort", onAbort);
+      signal?.removeEventListener("abort", gone);
+      deadline.removeEventListener("abort", late);
     }
   }
 
   /**
    * Rule 4: read upstream events until the model message ends. Rule 7: each
    * event reaches the sink as it arrives, the role first; an error before the
-   * first delta is still answered with its own status.
+   * first delta is still answered with its own status. The whole step has one
+   * deadline, stepTimeoutMs; it delays nothing.
    */
   private async read(
     chain: Chain,
@@ -282,6 +413,7 @@ export class Turns implements TurnManager {
     sink?: StepSink,
     signal?: AbortSignal,
   ): Promise<StepResult> {
+    const deadline = AbortSignal.timeout(this.max.stepTimeoutMs);
     const total: Usage = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
     let text = "";
     let opened = false;
@@ -294,7 +426,7 @@ export class Turns implements TurnManager {
     // With parallel_tool_calls false only the first call is returned, so only its deltas are sent.
     const sent = (index: number) => req.parallel_tool_calls !== false || index === 0;
     for (;;) {
-      const e = await this.next(chain, signal);
+      const e = await this.next(chain, deadline, signal);
       if (e.kind === "text_delta") {
         text += e.text;
         if (sink && e.text !== "") {
@@ -313,7 +445,7 @@ export class Turns implements TurnManager {
         }
       } else if (e.kind === "run_end") {
         void this.close(chain);
-        throw upstreamError(e.error);
+        throw this.failed(e.error);
       } else if (e.kind === "message_end") {
         total.input += e.usage.input;
         total.cacheRead += e.usage.cacheRead;
@@ -336,11 +468,11 @@ export class Turns implements TurnManager {
         // incomplete, so it is not returned, and the run is closed at once because the kit may
         // wait for its result. Otherwise the step waits for the end of the run and its error.
         if (e.toolUses.length === 0) {
-          let end = await this.next(chain, signal);
-          while (end.kind !== "run_end") end = await this.next(chain, signal);
+          let end = await this.next(chain, deadline, signal);
+          while (end.kind !== "run_end") end = await this.next(chain, deadline, signal);
           if (end.error) {
             void this.close(chain);
-            throw upstreamError(end.error);
+            throw this.failed(end.error);
           }
         }
         void this.close(chain);
@@ -350,28 +482,36 @@ export class Turns implements TurnManager {
     }
   }
 
+  /** Frees the active slot; beyond maxParked the oldest parked chain is closed. */
   private park(chain: Chain, pending: string[], internal: string[]): void {
     chain.state = "parked";
     chain.pending = pending;
     chain.internal = internal;
     for (const id of pending) this.parked.set(id, chain);
+    this.parkedChains.add(chain);
     const timer = setTimeout(() => void this.close(chain), this.o.parkTtlMs);
     if (typeof timer === "object" && typeof timer.unref === "function") timer.unref();
     chain.timer = timer;
+    if (this.parkedChains.size > this.max.maxParked) void this.close(this.parkedChains.values().next().value as Chain);
+    this.release();
   }
 
   private unpark(chain: Chain): void {
     if (chain.timer !== undefined) clearTimeout(chain.timer);
     chain.timer = undefined;
     for (const id of chain.pending) this.parked.delete(id);
+    this.parkedChains.delete(chain);
   }
 
-  /** Resolves once the run is interrupted. */
+  /** Resolves once the run is interrupted. An active chain frees its slot at once. */
   private close(chain: Chain): Promise<void> {
     if (chain.state === "closed") return Promise.resolve();
+    const active = chain.state === "active";
     this.unpark(chain);
     chain.state = "closed";
     this.chains.delete(chain);
-    return chain.run.close();
+    const closing = chain.run.close();
+    if (active) this.release();
+    return closing;
   }
 }
