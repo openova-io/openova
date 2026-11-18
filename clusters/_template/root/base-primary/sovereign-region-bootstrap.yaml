@@ -1,0 +1,24 @@
+# ADR-0015 D1: region path from this region's own Gitea (every region).
+# NOT rendered on Hetzner: its control-plane user-data sits at the
+# 32576 B guardrail on main (three-region ~36 B headroom), and this
+# ~450 B block cannot fit. A Hetzner Sovereign applies the same
+# Kustomization by hand (the hw307 migration manifest) until it is
+# delivered off cloud-init (follow-up under #7067).
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: sovereign-region-bootstrap
+  namespace: flux-system
+spec:
+  interval: 5m
+  retryInterval: 1m
+  path: ./clusters/_template/sovereign-region/base
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: openova
+  wait: false
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: sovereign-variables

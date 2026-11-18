@@ -1,0 +1,9 @@
+# Provider hetzner, region role secondary, every region layout: see clusters/_template/root/base-primary/kustomization.yaml.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../../../root/base-primary
+patches:
+  - patch: '{apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, metadata: {name: sovereign-tls, namespace: flux-system}, spec: {path: ./clusters/_template/sovereign-tls-hetzner}}'
+  - patch: '{$patch: delete, apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, metadata: {name: sovereign-region-bootstrap, namespace: flux-system}}'
+  - patch: '{$patch: delete, apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, metadata: {name: infrastructure-providers, namespace: flux-system}}'
