@@ -804,11 +804,21 @@ cmd_collect() {
     docker exec "$m" cat /var/log/cloud-init-output.log > "$d/cloud-init-output.log" 2>&1 || true
     docker exec "$m" ls -la /var/lib/catalyst > "$d/markers.txt" 2>&1 || true
     docker exec "$m" journalctl -u k3s --no-pager -n 400 > "$d/k3s-journal.txt" 2>&1 || true
+    docker exec "$m" sh -c 'cat /var/lib/catalyst/prepull.log' > "$d/prepull.log" 2>&1 || true
+    docker exec "$m" sh -c 'cat /var/log/cloud-init.log' > "$d/cloud-init.log" 2>&1 || true
+    docker exec "$m" sh -c 'ls -la --time-style=full-iso /var/lib/catalyst /var/lib/cloud/instance/scripts' > "$d/files-full.txt" 2>&1 || true
+    docker exec "$m" sh -c 'wc -c /var/lib/cloud/seed/nocloud/user-data /var/lib/cloud/instance/scripts/runcmd /var/lib/catalyst/cp-boot.sh; sha256sum /var/lib/catalyst/cp-boot.sh' > "$d/sizes.txt" 2>&1 || true
+    docker exec "$m" sh -c 'cat /proc/1/stat | cut -d" " -f22; cat /proc/uptime; date +%s' > "$d/started.txt" 2>&1 || true
+    docker exec "$m" sh -c 'cat /var/lib/cloud/seed/nocloud/user-data' > "$d/user-data" 2>&1 || true
+    docker exec "$m" sh -c 'cat /var/lib/cloud/instance/scripts/runcmd' > "$d/runcmd.sh" 2>&1 || true
+    docker inspect -f "{{.State.StartedAt}}" "$m" > "$d/container-started.txt" 2>&1 || true
     kin "$m" get nodes -o wide > "$d/nodes.txt" 2>&1 || true
     kin "$m" get pods -A -o wide > "$d/pods.txt" 2>&1 || true
     kin "$m" get jobs -A -o wide > "$d/jobs.txt" 2>&1 || true
     report_state "$vars" "$code" > "$d/state.txt" 2>&1 || true
     kin "$m" get helmrelease -A > "$d/helmreleases.txt" 2>&1 || true
+    kin "$m" get helmrelease -A -o json > "$d/helmreleases.json" 2>&1 || true
+    kin "$m" get pods -A -o json > "$d/pods.json" 2>&1 || true
     kin "$m" get kustomization,gitrepository,helmrepository,helmchart -A > "$d/flux.txt" 2>&1 || true
     kin "$m" get storageclass,pvc -A > "$d/storage.txt" 2>&1 || true
     kin "$m" get events -A --field-selector type=Warning --sort-by=.lastTimestamp > "$d/warnings.txt" 2>&1 || true

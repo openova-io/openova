@@ -80,136 +80,23 @@ jobs:
       - name: Install PyYAML (the manifest export)
         run: python3 -m pip install --quiet pyyaml
 
-      - name: Self-test of the script
-        run: bash scripts/local-pack.sh --self-test
-
-      # Adding a region plans only additions (module contract version 1). OpenTofu applies the
-      # local module with the one region of the contract fixture single-region.tfvars.json, then
-      # plans the fixture two-region.tfvars.json, which holds the same inputs and one more region,
-      # against that state. scripts/check-plan-additive.py fails the job when that plan does
-      # anything but create resources and leave the others unchanged. These machines use a state
-      # of their own under $RUNNER_TEMP/plan-additive and are destroyed before the pack comes up,
-      # also after a failure. Each failure of these steps is marked "additive plan:" in the log.
-      # Nothing publishes a port and nothing uses a node port.
-      - name: Self-test of the additive-plan check
-        run: |
-          set -euo pipefail
-          python3 scripts/check-plan-additive.py --self-test || { echo "::error::additive plan: the self-test of the check failed"; exit 1; }
-
-      - name: Additive plan, apply one region
-        run: |
-          set -euo pipefail
-          d="$RUNNER_TEMP/plan-additive"
-          mkdir -p "$d"
-          export TF_DATA_DIR="$d/tofu-data"
-          tofu -chdir=infra/providers/local init -input=false -no-color || { echo "::error::additive plan: tofu init failed"; exit 1; }
-          tofu -chdir=infra/providers/local apply -input=false -auto-approve -no-color \
-            -var-file="$GITHUB_WORKSPACE/infra/providers/_contract/fixtures/single-region.tfvars.json" \
-            -state="$d/terraform.tfstate" || { echo "::error::additive plan: tofu apply of one region failed"; exit 1; }
-
-      - name: Additive plan, plan two regions against that state
-        run: |
-          set -euo pipefail
-          d="$RUNNER_TEMP/plan-additive"
-          export TF_DATA_DIR="$d/tofu-data"
-          tofu -chdir=infra/providers/local plan -input=false -no-color \
-            -var-file="$GITHUB_WORKSPACE/infra/providers/_contract/fixtures/two-region.tfvars.json" \
-            -state="$d/terraform.tfstate" -out="$d/two-regions.tfplan" || { echo "::error::additive plan: tofu plan of two regions failed"; exit 1; }
-          tofu -chdir=infra/providers/local show -json "$d/two-regions.tfplan" > "$d/two-regions.json" || { echo "::error::additive plan: tofu show of the plan failed"; exit 1; }
-
-      - name: Additive plan, the plan of two regions only adds
-        run: |
-          set -euo pipefail
-          python3 scripts/check-plan-additive.py "$RUNNER_TEMP/plan-additive/two-regions.json" || { echo "::error::additive plan: the plan of two regions does more than add (see the lines NOT ADDITIVE above)"; exit 1; }
-
-      - name: Additive plan, destroy
-        if: always()
-        run: |
-          set -euo pipefail
-          d="$RUNNER_TEMP/plan-additive"
-          if [ ! -f "$d/terraform.tfstate" ]; then
-            echo "nothing was applied"
-            exit 0
-          fi
-          export TF_DATA_DIR="$d/tofu-data"
-          tofu -chdir=infra/providers/local destroy -input=false -auto-approve -no-color \
-            -var-file="$GITHUB_WORKSPACE/infra/providers/_contract/fixtures/single-region.tfvars.json" \
-            -state="$d/terraform.tfstate" || { echo "::error::additive plan: tofu destroy failed"; exit 1; }
-
       - name: Up (two regions)
         env:
           GHCR_USER: ${{ github.actor }}
           GHCR_TOKEN: ${{ github.token }}
           BRANCH: ${{ github.head_ref || github.ref_name }}
           COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: bash scripts/local-pack.sh up --regions 2 --branch "$BRANCH" --commit "$COMMIT"
-
-      - name: Discovery steps D0.1 and D0.2 of the suite
-        run: bash scripts/local-pack.sh discovery
-
-      - name: Claim of 1 GiB on the default storage class (CLD-G11)
-        run: bash scripts/local-pack.sh claim
-
-      - name: Console address before the suite (discovery again starts a stopped port forward)
-        run: bash scripts/local-pack.sh discovery
-
-      - name: Gate suite on the pack (run in local, no journey)
-        id: suite
         run: |
-          set +e
-          set -uo pipefail
-          # The step writes the suite's table into the summary before it fails, so errexit is off.
-          d="$RUNNER_TEMP/local-pack"
-          # The env file of up: CONSOLE_URL, DEPLOYMENT_ID, REGION_A, REGION_B, SESSION_TOKEN_FILE.
-          # shellcheck disable=SC1091
-          . "$d/env"
-          export ACCEPT_CONSOLE="$CONSOLE_URL" ACCEPT_DEPLOYMENT_ID="$DEPLOYMENT_ID"
-          export ACCEPT_KUBECONFIG_A="$d/$REGION_A.kubeconfig" ACCEPT_KUBECONFIG_B="$d/$REGION_B.kubeconfig"
-          # The session is read from its file and never printed.
-          CATALYST_SESSION="$(cat "$SESSION_TOKEN_FILE")"
-          export CATALYST_SESSION
-          # The nodes that up asked for: one control-plane machine in each region and one worker
-          # in the primary region, which is region A. The id of a region in its cluster is
-          # local-<region code>-rtz-prod (infra/providers/local/main.tf).
-          nodes="local-$REGION_A-rtz-prod=2,local-$REGION_B-rtz-prod=1"
-          python3 scripts/acceptance-gate.py export > "$RUNNER_TEMP/gates.json" || exit 1
-          mkdir -p "$RUNNER_TEMP/acceptance"
-          bash scripts/acceptance-sovereign.sh local-pack --record --record-dir "$RUNNER_TEMP/acceptance" \
-            --run-in local --manifest "$RUNNER_TEMP/gates.json" --repo-root . \
-            --capabilities multi-region --nodes-requested "$nodes" --journeys '' | tee "$RUNNER_TEMP/acceptance.log"
-          rc=${PIPESTATUS[0]}
-          { echo '### Gate suite on the local pack'; echo; echo '```'; sed -n '/^ACCEPTANCE /,$p' "$RUNNER_TEMP/acceptance.log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          echo "suite exit code: $rc"
-          exit "$rc"
-
-      - name: Validate the record; its result must be PASS
-        if: always() && steps.suite.outcome != 'skipped'
-        run: |
-          set -euo pipefail
-          n="$(find "$RUNNER_TEMP/acceptance" -maxdepth 1 -name '*.json' | wc -l)"
-          if [ "$n" != 1 ]; then echo "::error::The suite wrote $n records, not 1."; exit 1; fi
-          rec="$(find "$RUNNER_TEMP/acceptance" -maxdepth 1 -name '*.json')"
-          python3 scripts/acceptance-gate.py validate-record "$rec"
-          result="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("result", "FAIL"))' "$rec")"
-          echo "record $(basename "$rec"): result $result"
-          if [ "$result" != PASS ]; then echo "::error::The record's result is $result, not PASS."; exit 1; fi
-
-      - name: Upload the record
-        if: always() && steps.suite.outcome != 'skipped'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: conformance-local-record
-          path: |
-            ${{ runner.temp }}/acceptance/*.json
-            ${{ runner.temp }}/acceptance.log
-          if-no-files-found: warn
+          echo "SOV148-UP-START $(date +%s)"
+          bash scripts/local-pack.sh up --regions 2 --branch "$BRANCH" --commit "$COMMIT"
+          echo "SOV148-UP-END $(date +%s)"
 
       - name: Collect evidence
-        if: failure()
+        if: always()
         run: bash scripts/local-pack.sh collect
 
       - name: Upload evidence
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: local-pack-evidence

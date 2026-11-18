@@ -1156,9 +1156,13 @@ FLUXBOOTSTRAP
     , "/(?m)^[ ]*#( |$).*\n/", ""), "/(?m)^      /", ""))))}
 
 runcmd:
+  - echo "SOV148-T $(date +%s.%N) L1159"
   - swapoff -a
+  - echo "SOV148-T $(date +%s.%N) L1160"
   - sed -i '/swap/d' /etc/fstab
+  - echo "SOV148-T $(date +%s.%N) L1161"
   - update-alternatives --set iptables /usr/sbin/iptables-legacy || true
+  - echo "SOV148-T $(date +%s.%N) L1162"
   - update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy || true
 %{ if node_ipv4_only ~}
   # #3840 — disable IPv6 NOW (before the r4() DNS pin, k3s install + every image
@@ -1167,16 +1171,21 @@ runcmd:
   # #3837's per-host /etc/hosts pin could not deterministically close). The
   # sysctl drop-in written above persists it across any later `sysctl --system`;
   # `sysctl -w` makes it live immediately. Huawei-gated (see the drop-in header).
+  - echo "SOV148-T $(date +%s.%N) L1170"
   - sysctl -w net.ipv6.conf.all.disable_ipv6=1 net.ipv6.conf.default.disable_ipv6=1 net.ipv6.conf.lo.disable_ipv6=1 || true
 %{ endif ~}
 
   # Apply inotify-limit bumps + hardened sshd written by write_files.
+  - echo "SOV148-T $(date +%s.%N) L1174"
   - sysctl --system
+  - echo "SOV148-T $(date +%s.%N) L1175"
   - systemctl reload ssh || systemctl reload sshd || true
 %{ if enable_fail2ban ~}
+  - echo "SOV148-T $(date +%s.%N) L1177"
   - systemctl enable --now fail2ban || true
 %{ endif ~}
 %{ if enable_unattended_upgrades ~}
+  - echo "SOV148-T $(date +%s.%N) L1180"
   - systemctl enable --now unattended-upgrades || true
 %{ endif ~}
 
@@ -1242,6 +1251,7 @@ runcmd:
   # Both the side-file and the api.github.com host are Huawei-gated so the
   # byte-tight Hetzner render (only ~49 B headroom under the 32256 cap) stays
   # byte-identical — Hetzner is dual-stack and needs neither.
+  - echo "SOV148-T $(date +%s.%N) L1245"
   - |
 %{ if node_ipv4_only ~}
     mkdir -p /var/lib/catalyst
@@ -1342,6 +1352,7 @@ runcmd:
   # guardrail, so the ~123 B of kubelet args are paid for by shortening
   # log-only strings (the two k3s FATAL echoes below + two prepull log
   # lines) — exit codes 86/87 and every sentinel file are unchanged.
+  - echo "SOV148-T $(date +%s.%N) L1345"
   - |
     NODE_EXTERNAL_IP=$(${node_external_ip_cmd})
     [ -n "$${NODE_EXTERNAL_IP}" ] || { echo "[k3s] FATAL: no external IP" >&2; exit 87; }
@@ -1372,6 +1383,7 @@ runcmd:
   # #5042: BOUNDED (was unbounded `until ...; sleep 5` — a dead apiserver hung
   # forever + silently, masquerading as a downstream flux wedge). 120x5s=10m
   # then fail-loud (sentinel + exit 89, huawei log-push).
+  - echo "SOV148-T $(date +%s.%N) L1375"
   - |
     n=0
     until kubectl --kubeconfig=/etc/rancher/k3s/k3s.yaml get --raw /healthz >/dev/null 2>&1; do
@@ -1409,6 +1421,7 @@ runcmd:
   # It exists only until the post-back has run: the item after the post-back
   # deletes it. Fail-loud: sentinel parent-bootstrap-FAILED + exit 98.
   # Written tight: every byte counts against the 32 KiB user-data cap.
+  - echo "SOV148-T $(date +%s.%N) L1412"
   - |
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml N=parent-bootstrap S=kube-system K=/var/lib/catalyst/parent-bootstrap.kubeconfig
     for i in $(seq 60); do kubectl apply -f- <<E >/dev/null && T=$(kubectl -n $S get secret $N-token -o jsonpath='{.data.token}') && [ "$T" ] && break
@@ -1437,6 +1450,7 @@ runcmd:
   # peerKubeconfig; the parent gives it to the primary at hand-over. It
   # survives the deletion of parent-bootstrap. The item after the post-back
   # deletes the file. Fail-loud: sentinel handover-peer-FAILED + exit 97.
+  - echo "SOV148-T $(date +%s.%N) L1440"
   - |
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml N=handover-peer S=kube-system K=/var/lib/catalyst/handover-peer.kubeconfig
     for i in $(seq 60); do kubectl apply -f- <<E >/dev/null && T=$(kubectl -n $S get secret $N-token -o jsonpath='{.data.token}') && [ "$T" ] && break
@@ -1459,8 +1473,10 @@ runcmd:
     [ "$T" ] && (umask 077; sed /client-/d $KUBECONFIG >$K) && kubectl --kubeconfig=$K config set-credentials default --token="$(echo $T|base64 -d)" || { sh /var/lib/catalyst/mark $N-FAILED || touch /var/lib/catalyst/$N-FAILED; exit 97; }
 %{ endif ~}
   ${indent(2, kubeconfig_put_block)}
+  - echo "SOV148-T $(date +%s.%N) L1462"
   - rm -f /var/lib/catalyst/parent-bootstrap.kubeconfig
 %{ if sovereign_region_role != "primary" ~}
+  - echo "SOV148-T $(date +%s.%N) L1464"
   - rm -f /var/lib/catalyst/handover-peer.kubeconfig
 %{ endif ~}
 %{ endif ~}
@@ -1469,6 +1485,7 @@ runcmd:
   # re-applies post-bootstrap; this just unblocks the Cilium gateway-controller).
   # #5042: retried (a single-shot CDN miss killed the whole remaining runcmd).
   # ONE shell so KUBECONFIG is exported once — keeps the byte-tight Hetzner render.
+  - echo "SOV148-T $(date +%s.%N) L1472"
   - |
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
     for i in 1 2 3 4 5; do sh /var/lib/catalyst/oci_fetch gateway-api-experimental-install v1.1.0 /var/lib/catalyst/gwapi.yaml https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/experimental-install.yaml && kubectl apply -f /var/lib/catalyst/gwapi.yaml && break; [ "$i" = 5 ] && { ${fail_mark_cmd}gwapi-apply-FAILED||true; exit 95; }; sleep 15; done
@@ -1489,6 +1506,7 @@ runcmd:
   # available", exit 91 fired, and cilium finished healthy seconds later —
   # too late. Wrapping in `rt` gives cilium up to 5×240s=20m (breaking early
   # the instant it's Ready) while still failing loud on a genuinely dead CNI.
+  - echo "SOV148-T $(date +%s.%N) L1492"
   - |
     set -e
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
@@ -1534,6 +1552,7 @@ runcmd:
   # Huawei-only: Hetzner is dual-stack (no in-cluster IPv6 trap) and its render
   # is byte-tight, so the whole block renders empty there. POSIX/dash-clean
   # (printf, no nested heredoc).
+  - echo "SOV148-T $(date +%s.%N) L1537"
   - |
     PIN_FILE=/var/lib/catalyst/github-ipv4-hosts
     CM_FILE=/var/lib/catalyst/coredns-custom-github.yaml
@@ -1607,6 +1626,7 @@ runcmd:
   # do, so it rides the SAME background pre-pull — public (no auth), idempotent,
   # dedups against the pod's own pull. Keep the tag in lockstep with the cnpg
   # operator's imageName default + the kyverno proxy-ghcr rewrite prefix.
+  - echo "SOV148-T $(date +%s.%N) L1610"
   - |
     ( CRICTL="$(command -v crictl 2>/dev/null || echo /var/lib/rancher/k3s/data/current/bin/crictl)"
       for img in \
@@ -1668,6 +1688,7 @@ runcmd:
   # already on the node (the same `ghcr_pull_username`/`ghcr_pull_token` the
   # flux-system/ghcr-pull Secret carries) passed inline via `crictl pull
   # --creds`, so it works regardless of containerd registry-config state.
+  - echo "SOV148-T $(date +%s.%N) L1671"
   - |
     nohup sh -c '
       log=/var/lib/catalyst/prepull.log
@@ -1741,6 +1762,7 @@ runcmd:
   # zero-trust posture via CCNPs with flux-system allowlisted). ONE shell for the
   # whole leg so KUBECONFIG is exported once — keeps the byte-tight Hetzner render
   # under the 32256B cap; explicit exit 93/94 still halt runcmd fail-loud (#5042).
+  - echo "SOV148-T $(date +%s.%N) L1744"
   - |
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
     n=0
@@ -1772,6 +1794,7 @@ runcmd:
   # sovereign-tls Kustomization.)
   # #5057: ONE shell so KUBECONFIG exports once + every kubectl drops the
   # 38-B --kubeconfig flag — reclaims bytes the #5042 retry loops consumed.
+  - echo "SOV148-T $(date +%s.%N) L1775"
   - |
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
     for ns in catalyst-system openbao; do kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -; done
@@ -1785,6 +1808,7 @@ runcmd:
   # annotation kubectl.kubernetes.io/last-applied-configuration of the Secret.
   # The two flags cost 28 bytes of user data; the seed variable is named SD
   # (it was OPENBAO_SEED), which gives 30 back.
+  - echo "SOV148-T $(date +%s.%N) L1788"
   - |
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
     SD=$(head -c 32 /dev/urandom | base64 | tr -d '\n')
@@ -1811,6 +1835,7 @@ runcmd:
   # SOV-134: ConfigMap flux-system/sovereign-variables is created from
   # variables.env first, so the apply of flux-bootstrap.yaml merges the kit
   # keys into it; a failure of either is the same exit 92.
+  - echo "SOV148-T $(date +%s.%N) L1814"
   - |
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 %{ if crossplane_provider_yaml != "" ~}
@@ -1822,13 +1847,17 @@ runcmd:
 %{ endif ~}
 
   # Marker for the catalyst-api provisioner to detect cloud-init is done.
+  - echo "SOV148-T $(date +%s.%N) L1825"
   - mkdir -p /var/lib/catalyst
+  - echo "SOV148-T $(date +%s.%N) L1826"
   - touch /var/lib/catalyst/cloud-init-complete
   # #5042(b): the final mark on the success path. Where fail_mark_cmd is a
   # helper that pushes the log (the huawei provider_prelude writes it), this is
   # the deterministic FINAL log push: the background uploader caps at ~50 min
   # and can expire before a slow 2-region bootstrap finishes. Re-touching
   # cloud-init-complete is an idempotent no-op.
+  - echo "SOV148-T $(date +%s.%N) L1832"
   - ${fail_mark_cmd}cloud-init-complete||true
+  - echo "SOV148-T $(date +%%s.%%N) END"
 
 final_message: "Catalyst CP bootstrap done; Flux reconciling ${sovereign_fqdn}"
