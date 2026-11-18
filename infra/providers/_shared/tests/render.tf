@@ -176,6 +176,18 @@ locals {
     kubeconfig_put_block     = ""
     provider_id_cmd          = ""
     crossplane_provider_yaml = ""
+
+    # CLD-131 — the substitutes of the fixture's pack, rendered from that
+    # pack's own file with this fixture's values, as the module does.
+    provider_substitutes_yaml = templatefile("${path.module}/../../${fixture}/provider-substitutes.yaml.tftpl", {
+      region                 = fixture == "huawei" ? "me-east-215-a" : "fsn1"
+      sovereign_fqdn_slug    = "render-test-example-test"
+      default_storage_class  = fixture == "huawei" ? "evs-ssd" : "hcloud-volumes"
+      sovereign_region_role  = "primary"
+      node_external_ip_value = "203.0.113.10"
+      clustermesh_proxy_port = 12379
+      pdns_api_host          = "powerdns.example.test"
+    })
   }) }
 
   rendered_raw = local.rendered_raw_by_fixture[var.provider_name]

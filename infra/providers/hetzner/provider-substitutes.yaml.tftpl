@@ -1,0 +1,58 @@
+# Flux substitutes of the Hetzner pack: the input provider_substitutes_yaml
+# of the shared template infra/providers/_shared/cloudinit-control-plane.tftpl.
+# main.tf renders this file in each call of that template, with the values
+# of the call. The template writes the text into the data of ConfigMap
+# flux-system/sovereign-variables, twelve spaces in. Comment lines never
+# reach a node: the template drops them before it packs the document.
+# Hetzner: hcloud-CCM allocates the clustermesh-apiserver LB +
+# the Gateway binds host 443/80 directly (the tofu hcloud LB
+# forwards 443→… to envoy). Suspend HCS-only HRs (bp-velero-hcs).
+# #4765 — the clustermesh Service type is hardcoded LoadBalancer in
+# slot-01 (NodePort ABSOLUTELY FORBIDDEN), so the former
+# CLUSTERMESH_SERVICE_TYPE substitute is retired here.
+HCLOUD_LB_LOCATION: "${region}"
+SOVEREIGN_FQDN_SLUG: "${sovereign_fqdn_slug}"
+HUAWEI_HR_SUSPEND: "true"
+HCLOUD_HR_SUSPEND: "false"
+# #3971 — drive bp-hcloud-csi's chart `enabled` toggle (slot 55a).
+# Hetzner installs the real Hetzner Cloud CSI + the hcloud-volumes
+# default StorageClass. The HR stays ACTIVE (never suspended) on
+# BOTH providers so the stateful root slots (bp-cnpg / bp-mgmt-
+# vcluster) can `dependsOn` it without deadlocking — see slot 55a.
+HCLOUD_CSI_ENABLED: "true"
+# #892 — drive bp-huawei-evs-csi's chart `enabled` toggle (slot 55b).
+# Slot 55b is now ACTIVE on Hetzner too (no longer HUAWEI_HR_SUSPEND-
+# suspended) because the stateful root slots bp-cnpg/bp-mgmt-vcluster
+# now `dependsOn` it (a dependsOn on a SUSPENDED HR deadlocks). On
+# Hetzner EVS_CSI_ENABLED=false renders an EMPTY release (Ready
+# immediately, zero EVS resources) — the durable default class on
+# Hetzner is hcloud-volumes from slot 55a; the Hetzner-irrelevant EVS
+# driver never installs. WITHOUT this explicit "false" the chart
+# default ($${EVS_CSI_ENABLED:=true}) would try to install the EVS
+# driver on Hetzner. Mirrors HCLOUD_CSI_ENABLED:false on the Huawei
+# side below.
+EVS_CSI_ENABLED: "false"
+# #3971 (Refs #3992) — explicit per-provider durable StorageClass
+# name for the host-shared CNPG clusters (gitea-pg / harbor-pg /
+# guacamole-pg, slots 10/19/52). NAMING (not omitting) the class on
+# those Cluster CRs is the load-bearing fix for the empty-string
+# freeze: a PVC created with storageClassName UNSET BEFORE a default
+# StorageClass exists has "" PERMANENTLY frozen in by the
+# admission-default plugin and never picks up the default later —
+# the exact failure caught live on hw174 (gitea-pg-1/harbor-pg-1/
+# guacamole-pg-1 stuck Pending with empty SC because their PVCs were
+# minted at 21:03Z, 2h09m BEFORE evs-ssd appeared at 23:12Z). A PVC
+# that NAMES the class instead stays Pending (not frozen) until the
+# class exists, then binds — race-immune. On Hetzner the CSI default
+# is hcloud-volumes.
+#
+# #4057 — the class is now the operator-chosen
+# `default_storage_class` tofu var (catalyst-api
+# Request.StorageClass, defaulted to the per-provider durable CSI
+# class `hcloud-volumes` when the wizard field is omitted). The tofu
+# variable validation rejects "" and "local-path", so this substitute
+# can never render an empty or ephemeral class.
+SOVEREIGN_CNPG_STORAGE_CLASS: "${default_storage_class}"
+# #5086 Hetzner DNS front door: dnsdist hostPort:53 DaemonSet binds
+# node:53 (LB-IPAM anycast VIP dead here). hostPort, NEVER nodePort.
+POWERDNS_DNSDIST_HOSTPORT: "true"

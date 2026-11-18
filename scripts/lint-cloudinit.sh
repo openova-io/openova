@@ -195,8 +195,19 @@ HCL
 # the main.tf *_<provider> locals produce. Each emits 0-indent runcmd items
 # (the shared template re-indents via indent(2,…)) or a YAML/secret body.
 
+# CLD-131 — the input provider_substitutes_yaml as the pack's main.tf passes
+# it: infra/providers/<pack>/provider-substitutes.yaml.tftpl rendered with
+# the values that fixture_common gives the same keys. The pack is the
+# caller's name without the prefix fixture_.
+fixture_substitutes() {
+  printf '    provider_substitutes_yaml = templatefile("%s/%s/provider-substitutes.yaml.tftpl", {\n' "${PROVIDERS_DIR}" "${FUNCNAME[1]#fixture_}"
+  fixture_common | grep -E '^    (region|sovereign_fqdn_slug|default_storage_class|sovereign_region_role|node_external_ip_value|clustermesh_proxy_port|pdns_api_host) +=' | sed 's/^/  /'
+  printf '    })\n'
+}
+
 fixture_hetzner() {
   fixture_common
+  fixture_substitutes
   cat <<'HCL'
     provider             = "hetzner"
     node_external_ip_cmd = "curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/public-ipv4"
@@ -264,6 +275,7 @@ HCL
 
 fixture_huawei() {
   fixture_common
+  fixture_substitutes
   cat <<'HCL'
     provider             = "huawei"
     node_external_ip_cmd = "printf '%s' '203.0.113.10'"

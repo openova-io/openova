@@ -214,6 +214,10 @@ locals {
     node_external_ip_cmd          = "printf '%s' '${local.external_ip[r.code]}'"
     node_external_ip_value        = local.external_ip[r.code]
     clustermesh_proxy_port        = var.clustermesh_proxy_port
+
+    # CLD-131 — none: this pack writes its substitutes after the render
+    # (local.pack_substitutes).
+    provider_substitutes_yaml = ""
   }) }
 
   # The Flux bootstrap document of each render, decoded ("" when the render

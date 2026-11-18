@@ -89,6 +89,19 @@ func readBootstrapKitOverlay(t *testing.T) string {
 	return string(raw)
 }
 
+// readHuaweiSubstitutes loads
+// infra/providers/huawei/provider-substitutes.yaml.tftpl, the Flux
+// substitutes the Huawei pack passes to the shared template (CLD-131).
+func readHuaweiSubstitutes(t *testing.T) string {
+	t.Helper()
+	p := filepath.Join(filepath.Dir(modulePath(t)), "huawei", "provider-substitutes.yaml.tftpl")
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("read %s: %v", p, err)
+	}
+	return string(raw)
+}
+
 // TestCiliumValuesParity_BootstrapHasEnvoyConfigEnabled is the load-
 // bearing assertion for issue #491. Without `envoyConfig.enabled: true`
 // in the bootstrap install, cilium-operator never registers the
@@ -280,8 +293,9 @@ func TestCiliumValuesParity_GatewayHostNetworkLockstep(t *testing.T) {
 		t.Errorf("clusters/_template/bootstrap-kit/01-cilium.yaml must wire gatewayAPI.hostNetwork.enabled from CILIUM_GATEWAY_HOSTNETWORK_ENABLED (#4706)")
 	}
 
-	// (3) huawei substitute set to "true".
-	if !strings.Contains(tpl, `CILIUM_GATEWAY_HOSTNETWORK_ENABLED: "true"`) {
+	// (3) huawei substitute set to "true", in the Huawei pack's own
+	// substitutes file (CLD-131).
+	if !strings.Contains(readHuaweiSubstitutes(t), `CILIUM_GATEWAY_HOSTNETWORK_ENABLED: "true"`) {
 		t.Errorf(`cloud-init flux-bootstrap substitutes must set CILIUM_GATEWAY_HOSTNETWORK_ENABLED: "true" on huawei (#4706)`)
 	}
 }
@@ -303,7 +317,7 @@ func TestCiliumValuesParity_GatewayHostNetworkLockstep(t *testing.T) {
 // never re-ship silently. Hetzner is exempt (hostNetwork off — the two
 // Gateways get separate hcloud-ccm LB Services, no host-bind contention).
 func TestCiliumValuesParity_ConsolePortNoCollision(t *testing.T) {
-	tpl := readCloudInit(t)
+	tpl := readHuaweiSubstitutes(t)
 	for _, want := range []string{
 		`CONSOLE_GATEWAY_HTTPS_PORT: "8443"`,
 		`CONSOLE_GATEWAY_HTTP_PORT: "8080"`,

@@ -1355,6 +1355,16 @@ locals {
       # + CLUSTERMESH_APISERVER_DIAL_PORT; matches the ingress_clustermesh_proxy
       # SG rule + the bp-cilium clustermeshProxy.hostPort value.
       clustermesh_proxy_port = var.clustermesh_proxy_port
+
+      # CLD-131 — the Flux substitutes of this pack, from its own file.
+      provider_substitutes_yaml = templatefile("${path.module}/provider-substitutes.yaml.tftpl", {
+        region                 = r.code
+        default_storage_class  = var.default_storage_class
+        sovereign_region_role  = local.region_role_by_region[r.code]
+        node_external_ip_value = huaweicloud_vpc_eip.cp[r.code].publicip.0.ip_address
+        clustermesh_proxy_port = var.clustermesh_proxy_port
+        pdns_api_host          = var.pdns_api_host
+      })
       # node PRIVATE IP — HCS DHCP is non-deterministic (Wave 5.29 #2163:
       # cidrhost(subnet,2) is wrong), so detect the real eth0 address at
       # runtime. Used for k3s --node-ip + cilium k8sServiceHost substitution.
