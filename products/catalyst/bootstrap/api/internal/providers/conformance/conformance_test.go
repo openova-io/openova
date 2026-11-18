@@ -886,7 +886,7 @@ func TestProviderPacks(t *testing.T) {
 			// makes them true for every pack. That package removes the
 			// Skip line.
 			t.Run("adapter", func(t *testing.T) {
-				t.Skip("until CLD-102")
+				t.Skip("until CLD-088")
 				if _, err := os.Stat(filepath.Join(repoRoot(), filepath.FromSlash(pack.Spec.Adapter))); err != nil {
 					t.Errorf("the adapter root of pack.yaml: %v", err)
 				}

@@ -41,6 +41,7 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/cloudprofile"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
@@ -106,6 +107,18 @@ func VPCReclaimPreflight(ctx context.Context, accessKey, secretKey, projectID, r
 
 // Name returns the canonical provider name.
 func (p *Provider) Name() string { return Name }
+
+// Normalize fills provider defaults into spec and validates it against
+// profile. It accepts every spec for now; the engine does not call it yet.
+func (p *Provider) Normalize(spec *providers.ProvisionSpec, profile *cloudprofile.Profile) error {
+	return nil
+}
+
+// TfVars returns the provider-specific OpenTofu variables for spec. It
+// returns none for now; the engine does not call it yet.
+func (p *Provider) TfVars(spec providers.ProvisionSpec, profile *cloudprofile.Profile) (map[string]any, error) {
+	return map[string]any{}, nil
+}
 
 // regionFromCreds returns the region for one call. Falls back to
 // the HCS default when the operator didn't override it (Wave 4
