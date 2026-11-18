@@ -2884,8 +2884,8 @@ packages:
   wave: W0
   size: S
   lane: GATE
-  depends_on: [FND-073, NET-013, FND-079]
-  after: [FND-028, FND-036, FND-059, FND-075, CLD-094, CLD-211, SEC-095, CMP-020]
+  depends_on: [FND-073, FND-079]
+  after: [NET-013, FND-028, FND-036, FND-059, FND-075, CLD-094, CLD-211, SEC-095]
   touches:
   - .github/workflows/foundation-gate.yaml
   - .github/workflows/foundation-gate-standing.yaml
@@ -5104,6 +5104,32 @@ packages:
   ticket_rev: 0
   dropped: false
   delivers: The platform's own objectives are objects in Git, and a gate check proves that telemetry arrives in every region and that an alert makes the round trip.
+- id: FND-206
+  title: The size budget of a story leaves out the lines a registered generator writes
+  area: FND
+  epic: null
+  type: fix
+  wave: W0
+  size: XS
+  lane: RAILS
+  depends_on: []
+  after: [FND-021, FND-022, FND-023, FND-026, FND-040]
+  touches:
+  - scripts/plan.py
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: The size budget of a story leaves out the lines a registered generator writes.
 - id: FND-900
   title: Topology soak fixes (standing package)
   area: FND
@@ -18616,7 +18642,7 @@ packages:
   size: M
   lane: RAILS
   depends_on: [FND-031, FND-032, FND-091, SVC-150]
-  after: [FND-011, FND-017, FND-018, FND-019, FND-020, FND-025, FND-059, FND-062, FND-063, FND-096, FND-098, CLD-010, CLD-022, CLD-023, CLD-030, CLD-064, CLD-113, CLD-142, SOV-035, SOV-040, SOV-135, SOV-190, SEC-103, SEC-104, SEC-105, NET-040, NET-041, NET-221, SVC-060, SVC-070, SVC-080, SVC-090, SVC-100, SVC-130, CTL-346, CTL-347, INF-110, ACC-050]
+  after: [FND-206, FND-011, FND-017, FND-018, FND-019, FND-020, FND-025, FND-059, FND-062, FND-063, FND-096, FND-098, CLD-010, CLD-022, CLD-023, CLD-030, CLD-064, CLD-113, CLD-142, SOV-035, SOV-040, SOV-135, SOV-190, SEC-103, SEC-104, SEC-105, NET-040, NET-041, NET-221, SVC-060, SVC-070, SVC-080, SVC-090, SVC-100, SVC-130, CTL-346, CTL-347, INF-110, ACC-050]
   touches:
   - scripts/generate-catalog.py
   - scripts/tests/test_generate_catalog.py
@@ -23231,7 +23257,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-010, FND-080]
-  after: [FND-011]
+  after: [FND-078, FND-011]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/compliance.go
   - products/catalyst/bootstrap/api/internal/handler/compliance_runtime.go
