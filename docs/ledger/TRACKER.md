@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T06:45:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-11-18T07:00:02Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,10 +307,12 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-18T06:50 | [#8075](https://github.com/openova-io/openova/pull/8075) | #7087 | docs(ledger): plan update |
 | 2026-11-18T06:22 | [#8071](https://github.com/openova-io/openova/pull/8071) | #7087 | docs(ledger): plan update |
 | 2026-11-17T15:48 | [#8070](https://github.com/openova-io/openova/pull/8070) | #7087 | docs(ledger): plan update |
 | 2026-11-17T15:44 | [#8069](https://github.com/openova-io/openova/pull/8069) | #7087 | docs(ledger): plan update |
 | 2026-11-17T15:27 | [#8065](https://github.com/openova-io/openova/pull/8065) | #7087 | docs(ledger): plan update |
+| 2026-11-18T06:48 | [#8064](https://github.com/openova-io/openova/pull/8064) | #7986 | chore: delete the Sealed Secrets chart folder and its catalo |
 | 2026-11-17T15:13 | [#8062](https://github.com/openova-io/openova/pull/8062) | #7922 | fix(cutover): step 03 copies the sandbox image nodes are con |
 | 2026-11-17T15:12 | [#8061](https://github.com/openova-io/openova/pull/8061) | #11563 | fix(storage): the filer announces its stable Pod name, so S3 |
 | 2026-11-17T15:14 | [#8060](https://github.com/openova-io/openova/pull/8060) | #7815 | test(gate): dial the API port from a hosted runner and add g |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-17T09:12 | [#8029](https://github.com/openova-io/openova/pull/8029) | #7991 | fix(cutover): follower regions pivot the image registry of w |
 | 2026-11-17T09:12 | [#8028](https://github.com/openova-io/openova/pull/8028) | #7975 | chore(kit): the flow host leaves the sign-in gate, the DNS n |
 | 2026-11-17T08:37 | [#8027](https://github.com/openova-io/openova/pull/8027) | #7982 | chore: remove the unwired firewall and the unused SPIRE char |
-| 2026-11-17T07:36 | [#8026](https://github.com/openova-io/openova/pull/8026) | #7820 | chore(kit): kit slots 56 and 57, the flow server and the flo |
-| 2026-11-17T07:35 | [#8025](https://github.com/openova-io/openova/pull/8025) | #7864 | fix(ci): raise three golang bases, guard each base against i |
 
 ---
 
