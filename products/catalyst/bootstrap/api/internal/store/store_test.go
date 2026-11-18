@@ -361,7 +361,7 @@ func TestRedact_KeepsTheNonSecretCredentials(t *testing.T) {
 	if err := s.Save(rec); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	raw, err := os.ReadFile(filepath.Join(dir, id+".json"))
+	raw, err := os.ReadFile(filepath.Clean(filepath.Join(dir, id+".json")))
 	if err != nil {
 		t.Fatalf("read the record: %v", err)
 	}
