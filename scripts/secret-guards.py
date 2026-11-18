@@ -234,7 +234,11 @@ APPLY_INPUT_ELSEWHERE = {
         "/tmp/sec-pivot-job.yaml": "the Job of secondary-pivot-script-configmap.yaml, through sed"},
     "infra/providers/_shared/cloudinit-control-plane.tftpl": {
         "/var/lib/catalyst/crossplane-provider.yaml":
-            "the Provider and ProviderConfig a provider module injects; empty for every provider today"},
+            "the Provider and ProviderConfig a provider module injects; empty for every provider today",
+        "/var/lib/catalyst/gwapi.yaml":
+            "the Gateway API install manifest; oci_fetch writes it from the origin registry or its upstream release",
+        "/var/lib/catalyst/flux.yaml":
+            "the Flux install manifest; oci_fetch writes it from the origin registry or its upstream release"},
 }
 
 
