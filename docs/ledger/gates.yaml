@@ -1850,12 +1850,13 @@ checks:
 - id: NET-G12
   title: Region separation stated
   owner: NET
-  state: not-built
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Region separation stated
+  implementation: tests/acceptance/sovereign/internal/suite/check_region_separation.go
   delivered_by: NET-212
 - id: NET-G13
   title: Public listeners on edge nodes only

@@ -162,11 +162,12 @@ func TestSovereignObjectStatusFromRegistry(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := f.applied[objPath+"/status"]
-	if !reflect.DeepEqual(st["status"], map[string]interface{}{"network": doc}) || st["metadata"].(map[string]interface{})["name"] != Name {
+	if !reflect.DeepEqual(st["status"].(map[string]interface{})["network"], doc) || st["metadata"].(map[string]interface{})["name"] != Name {
 		got, _ := json.Marshal(st)
 		t.Fatalf("status %s", got)
 	}
-	if last := evidence[len(evidence)-1]; last != `status.network from ConfigMap flux-system/sovereign-network-registry revision "3f2a9c1b0d4e": 2 region(s)` {
+	if last := evidence[len(evidence)-1]; last != `status.network from ConfigMap flux-system/sovereign-network-registry revision "3f2a9c1b0d4e": 2 region(s); `+
+		`status.regionSeparation none, condition RegionSeparation False (SameFailureDomain)` {
 		t.Fatalf("evidence %q", evidence)
 	}
 

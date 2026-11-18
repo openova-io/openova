@@ -33,6 +33,13 @@
 // wrote before. A ConfigMap whose document is not a JSON object fails the run
 // before anything is written.
 //
+// status.regionSeparation and the condition RegionSeparation are computed from
+// the regions of status.network by the rule of the provider modules (see
+// Separation), and are absent while status.network is absent. The condition is
+// True with the reason SeparateZones for zone or SeparateSites for site, and
+// False with the reason SameFailureDomain for none. Its lastTransitionTime is
+// kept while its status does not change.
+//
 // The run fails after writing when the cluster holds another Sovereign
 // object: there must be exactly one per region cluster.
 package sovereignobject
@@ -108,6 +115,15 @@ func Write(ctx context.Context, c Cluster) ([]string, error) {
 		status["network"] = network
 		regions, _ := network["regions"].([]interface{})
 		note = fmt.Sprintf("status.network from ConfigMap %s/%s revision %q: %d region(s)", Namespace, RegistryName, rd[RevisionKey], len(regions))
+		current, err := c.Get(ctx, Resource+"/"+Name)
+		if err != nil {
+			return nil, fmt.Errorf("read Sovereign %s: %w", Name, err)
+		}
+		sep := Separation(network)
+		cond := separationCondition(sep, len(regions), current)
+		status["regionSeparation"] = sep
+		status["conditions"] = []interface{}{cond}
+		note += fmt.Sprintf("; status.regionSeparation %s, condition %s %s (%s)", sep, ConditionType, cond["status"], cond["reason"])
 	}
 
 	obj := map[string]interface{}{"apiVersion": APIVersion, "kind": Kind,

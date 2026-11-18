@@ -119,10 +119,13 @@ AREAS = ("ACC", "AIP", "BSS", "CLD", "CMP", "CTL", "FND", "INF", "MIG", "NET", "
 # The closed list of `needs` values. A work package adds a flag here, because a plan change may not
 # change this file (PLAN_PATHS of scripts/plan.py); the plan change then names the flag in a check's
 # `needs`. node-reboot: the run may restart nodes (check INF-G01). A gate run declares it only when
-# the input `capabilities` of the gate workflow holds it.
+# the input `capabilities` of the gate workflow holds it. disaster-recovery: the run claims that its
+# regions are separate failure domains; a check that needs it is recorded as SKIP, not run, in a run
+# that does not declare it, and a record that declares it must state provision.separation zone or site.
 CAPABILITIES = ("multi-region", "upgrade-path", "previous-wipe", "model-simulation", "model-selfhosted",
                 "host-security-service", "nested-virtualization", "vsphere-lab", "windows-target",
-                "product-ai-hub", "model-transcription", "product-open-banking", "gpu", "node-reboot")
+                "product-ai-hub", "model-transcription", "product-open-banking", "gpu", "node-reboot",
+                "disaster-recovery")
 TITLE_MAX = 100
 CHECK_ID = re.compile(r"^[A-Z]{3}-G[0-9]{2}$")
 PACKAGE_ID = re.compile(r"^[A-Z]{3}-([0-9]{3}|S[0-9])$")
@@ -184,7 +187,11 @@ RECORD = {
                           "preflight": (False, {"measured_at": (True, "time"),
                                                 "kinds": (True, ("list", {"kind": (True, "str"), "used": (False, "int"),
                                                                           "allowed": (False, "int"),
-                                                                          "leftovers": (False, "int")}))})}),
+                                                                          "leftovers": (False, "int")}))}),
+                          # The region separation that every region's Sovereign object states, and the summary line
+                          # of the record. Check NET-G12 writes it; the rule of the capability disaster-recovery reads it.
+                          "separation": (False, {"value": (True, ("enum", ("none", "zone", "site"))),
+                                                 "summary": (True, "str")})}),
     # What ran. Check FND-G01 of the suite observes it; pass rule 2 compares it between the two records of a pair.
     # Check SVC-G06 adds to a chart its Blueprint and the result of its function test.
     "artifacts": (False, {"charts": (True, ("list", {"region": (True, "str"), "namespace": (True, "str"),
@@ -765,6 +772,9 @@ def validate_record(rec, m):
             for n in ("used", "allowed", "leftovers"):
                 if k.get(n, 0) < 0:
                     out.append(f"provision.preflight.kinds[{i}].{n}: must not be negative")
+    separation = provision.get("separation", {}).get("value")
+    if "disaster-recovery" in rec["capabilities"] and separation not in ("zone", "site"):
+        out.append(f"capabilities: disaster-recovery needs provision.separation zone or site, not {separation or 'absent'}")
     cand = rec["candidate"]
     if rec["run_in"] == "self":
         if cand["id"] or cand["commit"]:
@@ -1297,6 +1307,21 @@ def self_test():
     r = validate_record(flown(counted, at="before the fire"), mv)
     check("record: pre-flight numbers without the time they were read are refused",
           has(r, "provision.preflight.measured_at: must be a time"), r)
+    def separated(value, *claims):
+        return dict(valid, capabilities=valid["capabilities"] + list(claims),
+                    provision=dict(valid["provision"], separation={"value": value, "summary": "two clusters"}))
+    r = validate_record(separated("none"), mv)
+    check("CONTROL: a record that states its region separation is valid", r == [], r)
+    r = validate_record(separated("zone", "disaster-recovery"), mv)
+    check("CONTROL: a disaster-recovery claim on regions in two zones is valid", r == [], r)
+    r = validate_record(separated("none", "disaster-recovery"), mv)
+    check("record: a disaster-recovery claim on one failure domain is refused",
+          has(r, "capabilities: disaster-recovery needs provision.separation zone or site, not none"), r)
+    r = validate_record(dict(valid, capabilities=valid["capabilities"] + ["disaster-recovery"]), mv)
+    check("record: a disaster-recovery claim without a stated separation is refused", has(r, "provision.separation zone or site, not absent"), r)
+    r = validate_record(separated("region"), mv)
+    check("record: a separation other than none, zone and site is refused",
+          has(r, "provision.separation.value: must be one of none, zone, site"), r)
     r = validate_record(dict(valid, candidate={"id": "20261101T000000Z-bbbbbbb", "commit": commit}), mv)
     check("record: a candidate id that does not end in its commit is refused", has(r, "candidate.id"), r)
     r = validate_record(dict(valid, producer={"kind": "workflow"}), mv)
