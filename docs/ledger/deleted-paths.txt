@@ -183,3 +183,5 @@ products/axon/chart/templates/ingress.yaml
 products/axon/chart/templates/token-refresh-cronjob.yaml
 products/axon/scripts
 products/catalyst/bootstrap/ui/scripts/build-catalog.mjs
+products/axon/src/providers/claude.ts
+products/axon/src/middleware/auth.ts

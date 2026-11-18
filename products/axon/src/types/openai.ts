@@ -25,9 +25,13 @@ export interface ToolCall {
 
 // ── Messages ────────────────────────────────────────────────────────
 
+export type ContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
 export interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool";
-  content: string | null;
+  content: string | ContentPart[] | null;
   name?: string;
   tool_calls?: ToolCall[];
   tool_call_id?: string;
@@ -66,11 +70,12 @@ export interface ChatCompletionRequest {
 
   // Tool calling
   tools?: Tool[];
-  tool_choice?: "none" | "auto" | "required" | { type: "function"; function: { name: string } };
+  tool_choice?: "none" | "auto" | "required" | { type: "function"; function: { name: string } } | null;
   parallel_tool_calls?: boolean;
 
   // Output format
   response_format?: ResponseFormat;
+  reasoning_effort?: string;
 
   // Streaming
   stream_options?: StreamOptions | null;
@@ -79,11 +84,6 @@ export interface ChatCompletionRequest {
   user?: string;
   store?: boolean;
   metadata?: Record<string, string>;
-
-  // V1 routing — presence of any of these sends the request through query() instead of session pool
-  thinking?: { type: "adaptive" } | { type: "enabled"; budget_tokens?: number } | { type: "disabled" };
-  effort?: "low" | "medium" | "high" | "max";
-  profile?: "fast" | "deep"; // fast = V2 session pool, deep = V1 with thinking=adaptive, effort=max
 }
 
 // ── Response ────────────────────────────────────────────────────────
@@ -92,6 +92,10 @@ export interface ChatCompletionUsage {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+  prompt_tokens_details: {
+    cached_tokens: number;
+    cache_write_tokens: number;
+  };
 }
 
 export interface ChatCompletionChoice {
@@ -118,10 +122,17 @@ export interface ChatCompletionResponse {
 
 // ── Streaming ───────────────────────────────────────────────────────
 
+export interface ToolCallDelta {
+  index: number;
+  id?: string;
+  type?: "function";
+  function?: { name?: string; arguments?: string };
+}
+
 export interface ChatCompletionChunkDelta {
   role?: "assistant";
   content?: string | null;
-  tool_calls?: ToolCall[];
+  tool_calls?: ToolCallDelta[];
 }
 
 export interface ChatCompletionChunkChoice {
