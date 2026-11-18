@@ -118,6 +118,18 @@ describe('ResourceDetailPage — Group A widget mount points (Refs #1099, follow
     expect(screen.queryByTestId('resource-actions-delete')).toBeNull()
   })
 
+  it('Overview tab of a Git-owned object shows Managed by Git with the owner and hides scale and delete', () => {
+    const labels = { 'kustomize.toolkit.fluxcd.io/name': 'apps', 'kustomize.toolkit.fluxcd.io/namespace': 'flux-system' }
+    const gitOwned: K8sObject = { ...sampleDeployment, metadata: { ...sampleDeployment.metadata, labels } }
+    render(
+      <ResourceDetailPage deploymentId="dep" basePath="/cloud" kind="deployment" ns="default" name="wp" tab="overview" initialObj={gitOwned} isTierAdmin={true} />,
+    )
+    expect(screen.getByTestId('resource-actions-managed-by-git').textContent).toContain('Managed by Git: Kustomization flux-system/apps')
+    expect(screen.queryByTestId('resource-actions-scale')).toBeNull()
+    expect(screen.queryByTestId('resource-actions-delete')).toBeNull()
+    expect(screen.getByTestId('resource-actions-restart')).toBeTruthy()
+  })
+
   it('Delete button opens a type-the-name confirmation modal (no one-click delete)', () => {
     render(
       <ResourceDetailPage

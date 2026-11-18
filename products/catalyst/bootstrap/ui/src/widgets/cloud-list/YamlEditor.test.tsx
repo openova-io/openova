@@ -1,6 +1,6 @@
 /**
- * YamlEditor.test.tsx — EPIC-4 Slice R3 (#1099) — flux-vs-manual
- * branch + diff render + validate flow.
+ * YamlEditor.test.tsx — EPIC-4 Slice R3 (#1099) — owner in Git vs
+ * break-glass apply + diff render + validate flow.
  */
 
 import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest'
@@ -39,7 +39,7 @@ const fluxObj: K8sObject = {
   metadata: {
     name: 'svc-flux',
     namespace: 'default',
-    labels: { 'app.kubernetes.io/managed-by': 'flux' },
+    labels: { 'helm.toolkit.fluxcd.io/name': 'svc-flux', 'helm.toolkit.fluxcd.io/namespace': 'default' },
   },
   spec: { ports: [] } as Record<string, unknown>,
 } as K8sObject
@@ -53,10 +53,11 @@ describe('YamlEditor — flux vs manual branch', () => {
     expect(screen.getByTestId('yaml-editor-apply').textContent).toContain('Apply')
   })
 
-  it('renders managed-by: flux when label is set', () => {
+  it('renders Managed by Git with the owner and offers no Apply for a Git-owned object', () => {
     render(<YamlEditor deploymentId="dep" kind="service" ns="default" name="svc-flux" obj={fluxObj} />)
-    expect(screen.getByTestId('yaml-editor-managed-by').textContent).toContain('flux')
-    expect(screen.getByTestId('yaml-editor-apply').textContent).toContain('Open PR')
+    expect(screen.getByTestId('yaml-editor-managed-by').textContent).toContain('Managed by Git: HelmRelease default/svc-flux')
+    expect(screen.queryByTestId('yaml-editor-apply')).toBeNull()
+    expect(screen.getByTestId('yaml-editor-validate')).toBeTruthy()
   })
 })
 
@@ -98,32 +99,24 @@ describe('YamlEditor — validate dry-run', () => {
   })
 })
 
-describe('YamlEditor — flux Apply opens PR (slice Z3)', () => {
-  const fluxObjOrgLabeled: K8sObject = {
+describe('YamlEditor — break-glass Apply', () => {
+  const directObj: K8sObject = {
     apiVersion: 'v1',
     kind: 'ConfigMap',
     metadata: {
       name: 'cm-flux',
       namespace: 'acme',
       labels: {
-        'app.kubernetes.io/managed-by': 'flux',
         'catalyst.openova.io/organization': 'acme',
       },
     },
     data: { foo: 'bar' } as unknown as Record<string, unknown>,
   } as K8sObject
 
-  it('clicking Open PR posts /blueprints/edit-pr and renders the PR link', async () => {
+  it('clicking Apply posts the YAML and the reason to /apply', async () => {
     ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
       new Response(
-        JSON.stringify({
-          prURL: 'http://gitea.local/acme/shared-blueprints/pulls/42',
-          prNumber: 42,
-          branch: 'edit/abc123',
-          repo: 'shared-blueprints',
-          path: 'edits/configmap/acme/cm-flux.yaml',
-          message: 'PR #42 opened against main',
-        }),
+        JSON.stringify({ name: 'cm-flux', dryRun: false, resourceVersion: '42' }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       ),
     )
@@ -134,7 +127,7 @@ describe('YamlEditor — flux Apply opens PR (slice Z3)', () => {
         kind="configmap"
         ns="acme"
         name="cm-flux"
-        obj={fluxObjOrgLabeled}
+        obj={directObj}
         onCreateEditor={(v) => {
           view = v
         }}
@@ -143,33 +136,29 @@ describe('YamlEditor — flux Apply opens PR (slice Z3)', () => {
     // Edit the editor so dirty=true (Apply enabled).
     await waitFor(() => expect(view).not.toBeNull())
     setEditorText(view!, 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: cm-flux\n')
+    fireEvent.change(screen.getByTestId('yaml-editor-reason'), { target: { value: 'rotate the cache key' } })
     await waitFor(() =>
       expect((screen.getByTestId('yaml-editor-apply') as HTMLButtonElement).disabled).toBe(false),
     )
     fireEvent.click(screen.getByTestId('yaml-editor-apply'))
 
     await waitFor(() => {
-      expect(screen.getByTestId('yaml-editor-apply-ok').textContent).toContain('PR #42')
+      expect(screen.getByTestId('yaml-editor-apply-ok').textContent).toContain('resourceVersion 42')
     })
-    const link = screen.getByTestId('yaml-editor-pr-link') as HTMLAnchorElement
-    expect(link.href).toContain('/pulls/42')
-    expect(link.textContent).toContain('Open PR #42')
 
     // Verify the request shape.
     const fetchSpy = global.fetch as ReturnType<typeof vi.fn>
     expect(fetchSpy).toHaveBeenCalledTimes(1)
     const [calledURL, calledOpts] = fetchSpy.mock.calls[0] as [string, RequestInit]
-    expect(calledURL).toContain('/blueprints/edit-pr')
+    expect(calledURL).toContain('/k8s/configmap/acme/cm-flux/apply')
     const body = JSON.parse(calledOpts.body as string)
-    expect(body.org).toBe('acme')
-    expect(body.path).toBe('edits/configmap/acme/cm-flux.yaml')
-    expect(body.content).toContain('cm-flux')
-    expect(typeof body.title).toBe('string')
+    expect(body.yaml).toContain('cm-flux')
+    expect(body.reason).toBe('rotate the cache key')
   })
 
-  it('flux Apply surfaces server error', async () => {
+  it('an answer 409 managed-by-git shows Managed by Git with the owner and removes Apply', async () => {
     ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
-      new Response('forbidden', { status: 403 }),
+      new Response(JSON.stringify({ error: 'managed-by-git', code: '409', owner: 'Kustomization flux-system/apps' }), { status: 409 }),
     )
     let view: EditorView | null = null
     render(
@@ -178,7 +167,7 @@ describe('YamlEditor — flux Apply opens PR (slice Z3)', () => {
         kind="configmap"
         ns="acme"
         name="cm-flux"
-        obj={fluxObjOrgLabeled}
+        obj={directObj}
         onCreateEditor={(v) => {
           view = v
         }}
@@ -186,13 +175,15 @@ describe('YamlEditor — flux Apply opens PR (slice Z3)', () => {
     )
     await waitFor(() => expect(view).not.toBeNull())
     setEditorText(view!, 'changed: 1\n')
+    fireEvent.change(screen.getByTestId('yaml-editor-reason'), { target: { value: 'rotate the cache key' } })
     await waitFor(() =>
       expect((screen.getByTestId('yaml-editor-apply') as HTMLButtonElement).disabled).toBe(false),
     )
     fireEvent.click(screen.getByTestId('yaml-editor-apply'))
     await waitFor(() => {
-      expect(screen.getByTestId('yaml-editor-apply-err').textContent).toContain('403')
+      expect(screen.getByTestId('yaml-editor-managed-by').textContent).toContain('Managed by Git: Kustomization flux-system/apps')
     })
-    expect(screen.queryByTestId('yaml-editor-pr-link')).toBeNull()
+    expect(screen.queryByTestId('yaml-editor-apply')).toBeNull()
+    expect(screen.queryByTestId('yaml-editor-apply-err')).toBeNull()
   })
 })

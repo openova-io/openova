@@ -155,6 +155,29 @@ function metricsURL(
   )}?window=${encodeURIComponent(window)}`
 }
 
+/** The answer 409 managed-by-git of a direct write: Git owns the object (`owner`), nothing was written. */
+export class ManagedByGitError extends Error {
+  readonly owner: string
+  constructor(owner: string, detail: string) {
+    super(detail || `Managed by Git: ${owner}`)
+    this.name = 'ManagedByGitError'
+    this.owner = owner
+  }
+}
+
+/** The ManagedByGitError of an answer, or null when the answer is not
+ *  409 managed-by-git. */
+export function managedByGitError(status: number, bodyText: string): ManagedByGitError | null {
+  if (status !== 409) return null
+  try {
+    const body = JSON.parse(bodyText) as { error?: unknown; owner?: unknown; detail?: unknown }
+    if (body.error !== 'managed-by-git') return null
+    return new ManagedByGitError(String(body.owner ?? ''), String(body.detail ?? ''))
+  } catch {
+    return null
+  }
+}
+
 /** Parse a JSON response, throwing with the body text on non-2xx. */
 async function parseJSON<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -164,7 +187,7 @@ async function parseJSON<T>(res: Response): Promise<T> {
     } catch {
       /* noop */
     }
-    throw new Error(`HTTP ${res.status}: ${bodyText.slice(0, 200)}`)
+    throw managedByGitError(res.status, bodyText) ?? new Error(`HTTP ${res.status}: ${bodyText.slice(0, 200)}`)
   }
   return (await res.json()) as T
 }
@@ -246,11 +269,12 @@ export async function applyYAML(
   ns: string | undefined,
   name: string,
   yaml: string,
+  reason: string,
 ): Promise<YAMLApplyResponse> {
   const res = await authedFetch(resourceURL(deploymentId, kind, ns, name, 'apply'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ yaml }),
+    body: JSON.stringify({ yaml, reason }),
   })
   return parseJSON<YAMLApplyResponse>(res)
 }
@@ -269,11 +293,12 @@ export async function scaleResource(
   ns: string | undefined,
   name: string,
   replicas: number,
+  reason: string,
 ): Promise<ScaleResponse> {
   const res = await authedFetch(resourceURL(deploymentId, kind, ns, name, 'scale'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ replicas }),
+    body: JSON.stringify({ replicas, reason }),
   })
   return parseJSON<ScaleResponse>(res)
 }
@@ -304,13 +329,16 @@ export interface DeleteResponse {
   message: string
 }
 
+/** A DELETE has no body, so the reason of the break-glass write is the query parameter `reason`. */
 export async function deleteResource(
   deploymentId: string,
   kind: string,
   ns: string | undefined,
   name: string,
+  reason: string,
 ): Promise<DeleteResponse> {
-  const res = await authedFetch(resourceURL(deploymentId, kind, ns, name), {
+  const url = `${resourceURL(deploymentId, kind, ns, name)}?reason=${encodeURIComponent(reason)}`
+  const res = await authedFetch(url, {
     method: 'DELETE',
   })
   return parseJSON<DeleteResponse>(res)
@@ -348,25 +376,29 @@ export async function getResourceMetrics(
 
 // ─── Helpers shared with widgets ────────────────────────────────────
 
-/** Detect the Flux-managed annotation per slice R3 branching. */
-export function isFluxManaged(obj: K8sObject | null | undefined): boolean {
-  if (!obj?.metadata) return false
-  const meta = obj.metadata as { labels?: Record<string, string>; annotations?: Record<string, string> }
-  const lbl = meta.labels?.['app.kubernetes.io/managed-by'] ?? meta.labels?.['managed-by']
-  if (lbl && lbl.toLowerCase() === 'flux') return true
-  const ann = meta.annotations?.['catalyst.openova.io/managed-by']
-  if (ann && ann.toLowerCase() === 'flux') return true
-  return false
-}
-
-/** Detect "manual" management (operator owns the resource directly). */
-export function isManuallyManaged(obj: K8sObject | null | undefined): boolean {
-  if (!obj?.metadata) return false
-  const meta = obj.metadata as { labels?: Record<string, string>; annotations?: Record<string, string> }
-  const ann = meta.annotations?.['catalyst.openova.io/managed-by']
-  if (ann && ann.toLowerCase() === 'manual') return true
-  // Default: when no managed-by annotation exists, treat as manual.
-  return !isFluxManaged(obj)
+/**
+ * The owner in Git of an object from its detail payload, or null. The rules and their order are
+ * those of Owner in the API package clusterwrite: the label kustomize.toolkit.fluxcd.io/name, the
+ * label helm.toolkit.fluxcd.io/name, a Flux owner reference, the label app.kubernetes.io/managed-by
+ * flux. A kind of the intent lock carries no such label: its write answers 409 (ManagedByGitError).
+ */
+export function gitOwner(obj: K8sObject | null | undefined): string | null {
+  const meta = obj?.metadata
+  if (!meta) return null
+  const labels = meta.labels ?? {}
+  const qualified = (namespace: string | undefined, name: string) => (namespace ? `${namespace}/${name}` : name)
+  for (const [group, kind] of [
+    ['kustomize.toolkit.fluxcd.io', 'Kustomization'],
+    ['helm.toolkit.fluxcd.io', 'HelmRelease'],
+  ]) {
+    const name = labels[`${group}/name`]
+    if (name) return `${kind} ${qualified(labels[`${group}/namespace`], name)}`
+  }
+  for (const ref of meta.ownerReferences ?? []) {
+    if ((ref.apiVersion ?? '').includes('fluxcd.io')) return `${ref.kind ?? ''} ${qualified(meta.namespace, ref.name ?? '')}`
+  }
+  if ((labels['app.kubernetes.io/managed-by'] ?? '').toLowerCase() === 'flux') return 'Flux'
+  return null
 }
 
 // ─── Logs WebSocket (X2) ─────────────────────────────────────────────

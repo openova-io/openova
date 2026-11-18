@@ -2,12 +2,12 @@
  * YamlEditor — EPIC-4 Slice R3 (#1099) — YAML editor with side-by-side
  * diff preview and validate / apply actions.
  *
- * Branching contract per the brief:
- *   - `managed-by: flux` resources → opens a Gitea PR via the unified
- *     /blueprints/edit-pr endpoint (slice T+O+P P1's GiteaBlueprintClient,
- *     extended by slice Z3 with CreatePullRequest).
- *   - `managed-by: manual` resources OR no managed-by annotation → calls
- *     /k8s/{kind}/{ns}/{name}/apply for direct apply.
+ * Who owns the object decides what the editor offers:
+ *   - an object that Git owns (gitOwner of resource.api, or a 409
+ *     managed-by-git answer) → "Managed by Git" with the owner; Apply is
+ *     not offered, Validate (dry-run) is. The change belongs in Git.
+ *   - any other object → /k8s/{kind}/{ns}/{name}/apply, a break-glass
+ *     write: the API needs the owner tier and the reason the editor sends.
  *
  * The editor surface is the shared <CodeView> (CodeMirror 6, lazy-loaded so
  * the ~200 KB core never lands in the initial SPA payload — Monaco's ~3 MB
@@ -28,11 +28,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { EditorView } from '@codemirror/view'
 
 import { CodeView } from '@/widgets/code/CodeView'
-import { editPRBlueprint, type BlueprintEditPRResponse } from '@/lib/catalog.api'
 import {
+  ManagedByGitError,
   applyYAML,
   dryRunYAML,
-  isFluxManaged,
+  gitOwner,
 } from '@/pages/sovereign/cloud-list/resource.api'
 import type { K8sObject } from '@/widgets/architecture-graph/useK8sCacheStream'
 
@@ -41,7 +41,7 @@ export interface YamlEditorProps {
   kind: string
   ns: string | undefined
   name: string
-  /** Live object — used to seed the editor + branch flux/manual. */
+  /** Live object — used to seed the editor and to name its owner in Git. */
   obj: K8sObject | null
   /**
    * #5124 — verbatim seed override. When a non-empty string is provided, the
@@ -52,13 +52,10 @@ export interface YamlEditorProps {
    * other callers are unaffected.
    */
   seedYaml?: string
-  /** Test seam — when true, "Apply" produces a PR-mode placeholder
-   *  instead of a real Gitea call. */
-  fluxOverride?: boolean
   /**
    * #3668 §5D — commit-target override. When provided, "Apply" commits the
-   * edited YAML through THIS callback instead of the default
-   * flux→edit-pr / manual→apply branching. The catalog's "Edit IaC" mode
+   * edited YAML through THIS callback instead of the direct apply. The
+   * catalog's "Edit IaC" mode
    * passes a callback that PUTs the full blueprint.yaml to
    * catalog-sovereign/<bp>/blueprint.yaml (the SAME Gitea file the card edit
    * writes), so the same shipping editor drives the catalog single source of
@@ -179,7 +176,7 @@ function computeDiff(left: string, right: string): DiffLine[] {
   return out
 }
 
-export function YamlEditor({ deploymentId, kind, ns, name, obj, seedYaml, fluxOverride, onCommit, commitLabel, onCreateEditor }: YamlEditorProps) {
+export function YamlEditor({ deploymentId, kind, ns, name, obj, seedYaml, onCommit, commitLabel, onCreateEditor }: YamlEditorProps) {
   // #5124 — a verbatim seedYaml (the committed blueprint.yaml) wins over the
   // obj-derived seed so the editor opens on the IaC source of truth.
   const initial = useMemo(
@@ -206,10 +203,14 @@ export function YamlEditor({ deploymentId, kind, ns, name, obj, seedYaml, fluxOv
   const [validateError, setValidateError] = useState<string | null>(null)
   const [applyMsg, setApplyMsg] = useState<string | null>(null)
   const [applyError, setApplyError] = useState<string | null>(null)
-  const [prInfo, setPRInfo] = useState<BlueprintEditPRResponse | null>(null)
   const [busy, setBusy] = useState<'validate' | 'apply' | null>(null)
+  const [reason, setReason] = useState('')
+  // The owner named by a 409 managed-by-git answer (a kind of the intent
+  // lock carries no label that names it).
+  const [answeredOwner, setAnsweredOwner] = useState<string | null>(null)
 
-  const flux = fluxOverride ?? isFluxManaged(obj)
+  // The catalog's "Edit IaC" mode commits to Git itself, so no owner applies.
+  const owner = onCommit ? null : (answeredOwner ?? gitOwner(obj))
   const dirty = yaml.trim() !== initial.trim()
   const diff = useMemo(() => computeDiff(initial, yaml), [initial, yaml])
 
@@ -230,40 +231,21 @@ export function YamlEditor({ deploymentId, kind, ns, name, obj, seedYaml, fluxOv
   async function onApply() {
     setApplyMsg(null)
     setApplyError(null)
-    setPRInfo(null)
     setBusy('apply')
     try {
       if (onCommit) {
         // #3668 §5D — catalog "Edit IaC" mode: commit through the provided
-        // catalog-sovereign writer instead of the cloud-list edit-pr/apply
-        // branching. A thrown error surfaces below (no false success).
+        // catalog-sovereign writer instead of the direct apply. A thrown
+        // error surfaces below (no false success).
         const msg = await onCommit(yaml)
         setApplyMsg(msg)
-      } else if (flux) {
-        // Slice Z3 — flux-managed resources route through the unified
-        // /blueprints/edit-pr endpoint: branch + commit + PR on the
-        // per-Org shared-blueprints repo. The org slug is derived from
-        // the K8s object's `catalyst.openova.io/organization` label
-        // (per slice I labels) with the namespace as fallback.
-        const org = orgFromObject(obj, ns)
-        const path = editPathFromObject(obj, kind, ns, name)
-        const title = `Edit ${kind}/${name} via Catalyst UI`
-        const message = `Edit ${kind}/${name} (ns=${ns ?? '(cluster)'}) via Catalyst YamlEditor`
-        const resp = await editPRBlueprint(deploymentId, {
-          org,
-          path,
-          content: yaml,
-          message,
-          title,
-        })
-        setPRInfo(resp)
-        setApplyMsg(`PR #${resp.prNumber} opened — ${resp.prURL}`)
       } else {
-        const resp = await applyYAML(deploymentId, kind, ns, name, yaml)
+        const resp = await applyYAML(deploymentId, kind, ns, name, yaml, reason)
         setApplyMsg(`Applied (resourceVersion ${resp.resourceVersion}).`)
       }
     } catch (err) {
-      setApplyError(err instanceof Error ? err.message : String(err))
+      if (err instanceof ManagedByGitError) setAnsweredOwner(err.owner)
+      else setApplyError(err instanceof Error ? err.message : String(err))
     } finally {
       setBusy(null)
     }
@@ -272,8 +254,8 @@ export function YamlEditor({ deploymentId, kind, ns, name, obj, seedYaml, fluxOv
   return (
     <div data-testid="yaml-editor" className="space-y-3">
       <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--color-text-dim)]">
-        <span data-testid="yaml-editor-managed-by">
-          managed-by: <span className={flux ? 'text-emerald-300' : 'text-amber-300'}>{flux ? 'flux' : 'manual'}</span>
+        <span data-testid="yaml-editor-managed-by" className={owner !== null ? 'text-emerald-300' : 'text-amber-300'}>
+          {owner !== null ? `Managed by Git: ${owner}. Change it in Git; Apply is not offered.` : 'managed-by: manual'}
         </span>
         <span className="text-[var(--color-text-dim)]">
           {/* #5113 Facet D — this is a LOCAL dirty-state indicator only. It
@@ -346,6 +328,17 @@ export function YamlEditor({ deploymentId, kind, ns, name, obj, seedYaml, fluxOv
         />
       )}
 
+      {!onCommit && owner === null && (
+        <input
+          data-testid="yaml-editor-reason"
+          aria-label="Reason"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="Reason for the apply: at least 10 characters, recorded in the audit log"
+          className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-1)] px-2 py-1 text-sm text-[var(--color-text)]"
+        />
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
@@ -356,21 +349,17 @@ export function YamlEditor({ deploymentId, kind, ns, name, obj, seedYaml, fluxOv
         >
           {busy === 'validate' ? 'Validating…' : 'Validate (dry-run)'}
         </button>
-        <button
-          type="button"
-          onClick={onApply}
-          disabled={busy !== null || !dirty}
-          data-testid="yaml-editor-apply"
-          className="rounded border border-emerald-500 bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-500 disabled:opacity-60"
-        >
-          {busy === 'apply'
-            ? 'Applying…'
-            : onCommit
-              ? (commitLabel ?? 'Commit IaC')
-              : flux
-                ? 'Open PR'
-                : 'Apply'}
-        </button>
+        {owner === null && (
+          <button
+            type="button"
+            onClick={onApply}
+            disabled={busy !== null || !dirty}
+            data-testid="yaml-editor-apply"
+            className="rounded border border-emerald-500 bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-500 disabled:opacity-60"
+          >
+            {busy === 'apply' ? 'Applying…' : onCommit ? (commitLabel ?? 'Commit IaC') : 'Apply'}
+          </button>
+        )}
         {validateMsg && (
           <span data-testid="yaml-editor-validate-ok" className="text-xs text-emerald-300">
             {validateMsg}
@@ -386,17 +375,6 @@ export function YamlEditor({ deploymentId, kind, ns, name, obj, seedYaml, fluxOv
             {applyMsg}
           </span>
         )}
-        {prInfo && prInfo.prURL && (
-          <a
-            data-testid="yaml-editor-pr-link"
-            href={prInfo.prURL}
-            target="_blank"
-            rel="noreferrer noopener"
-            className="text-xs text-emerald-200 underline"
-          >
-            Open PR #{prInfo.prNumber}
-          </a>
-        )}
         {applyError && (
           <span data-testid="yaml-editor-apply-err" className="text-xs text-rose-300">
             {applyError}
@@ -405,30 +383,4 @@ export function YamlEditor({ deploymentId, kind, ns, name, obj, seedYaml, fluxOv
       </div>
     </div>
   )
-}
-
-/** orgFromObject — extract the canonical Org slug from a K8s object's
- *  labels (per slice I labels) with the namespace as fallback. Empty
- *  namespace (cluster-scoped) → "" (the server rejects with 400). */
-function orgFromObject(obj: K8sObject | null | undefined, ns: string | undefined): string {
-  const labels = (obj?.metadata as { labels?: Record<string, string> } | undefined)?.labels
-  const fromLabel = labels?.['catalyst.openova.io/organization']
-  if (fromLabel && fromLabel.trim() !== '') return fromLabel.trim()
-  return (ns ?? '').trim()
-}
-
-/** editPathFromObject — repo-relative path the edit-pr handler writes
- *  to. Mirrors the Flux convention `<kind>/<ns>/<name>.yaml` so the
- *  per-Org shared-blueprints repo organises edits by resource. The
- *  blueprint-controller's reconciler ignores cross-bp edits. */
-function editPathFromObject(
-  obj: K8sObject | null | undefined,
-  kind: string,
-  ns: string | undefined,
-  name: string,
-): string {
-  const segments = ['edits', kind, ns && ns.trim() !== '' ? ns : '_cluster', `${name}.yaml`]
-  return segments.join('/')
-  // obj is reserved for future namespace-or-label-derived path overrides.
-  void obj
 }

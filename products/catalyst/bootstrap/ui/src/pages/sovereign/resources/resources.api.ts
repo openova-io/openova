@@ -23,6 +23,7 @@
 import { API_BASE } from '@/shared/config/urls'
 import { authedFetch } from '@/shared/lib/authedFetch'
 import type { K8sObject } from '@/widgets/architecture-graph/useK8sCacheStream'
+import { managedByGitError } from '@/pages/sovereign/cloud-list/resource.api'
 
 /* ── Wire types ──────────────────────────────────────────────────── */
 
@@ -52,8 +53,6 @@ export interface K8sMultiApplyResultEntry {
   name: string
   created: boolean
   resourceVersion?: string
-  flux?: boolean
-  giteaPRUrl?: string
   error?: string
 }
 
@@ -102,7 +101,7 @@ async function parseJSON<T>(res: Response): Promise<T> {
     } catch {
       /* noop */
     }
-    throw new Error(`HTTP ${res.status}: ${bodyText.slice(0, 240)}`)
+    throw managedByGitError(res.status, bodyText) ?? new Error(`HTTP ${res.status}: ${bodyText.slice(0, 240)}`)
   }
   return (await res.json()) as T
 }
@@ -138,7 +137,8 @@ export async function searchK8s(
 
 export interface MultiApplyRequest {
   yaml: string
-  commitMessage?: string
+  /** The reason of the break-glass write, recorded in the audit log. */
+  reason: string
 }
 
 export async function multiApplyYAML(
