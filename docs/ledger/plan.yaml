@@ -4295,23 +4295,31 @@ packages:
   size: S
   lane: GATE
   depends_on: []
-  after: [FND-153, FND-130, CLD-093]
+  after: [FND-153, FND-130]
   touches:
   - .github/workflows/conformance-local.yaml
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c 'run-in self' .github/workflows/conformance-local.yaml"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "test \"$(grep -c 'run-in self' .github/workflows/conformance-local.yaml)\" -ge 1"
+  - id: A2
+    run: "python3 - <<'EOF'\nimport json, os, re, subprocess, sys, yaml\nsteps = yaml.safe_load(open(\".github/workflows/conformance-local.yaml\", encoding=\"utf-8\"))[\"jobs\"][\"conformance-local\"][\"steps\"]\ncode = re.findall(r\"<<'PY'\\n(.*?)\\nPY\\n\", [s for s in steps if s.get(\"id\") == \"self\"][0][\"run\"], re.S)[0]\ndigest = \"sha256:\" + \"a\" * 64\nenv = dict(os.environ, SELF_REPO=\"ghcr.io/openova-io/openova/conformance\", SELF_DIGEST=digest, SELF_REGION=\"local-region-a-rtz-prod\")\nitems = {i[\"kind\"]: i for i in json.loads(subprocess.run([sys.executable, \"-c\", code], env=env, capture_output=True, text=True, check=True).stdout)[\"items\"]}\nassert items[\"ClusterRole\"][\"rules\"] == [\n    {\"apiGroups\": [\"helm.toolkit.fluxcd.io\"], \"resources\": [\"helmreleases\"], \"verbs\": [\"get\", \"list\", \"watch\"]},\n    {\"apiGroups\": [\"\"], \"resources\": [\"pods\", \"services\", \"nodes\"], \"verbs\": [\"get\", \"list\", \"watch\"]},\n    {\"apiGroups\": [\"\"], \"resources\": [\"namespaces\"], \"verbs\": [\"get\", \"list\"]},\n    {\"apiGroups\": [\"wgpolicyk8s.io\"], \"resources\": [\"clusterpolicyreports\"], \"verbs\": [\"get\", \"create\", \"update\", \"patch\"]},\n], items[\"ClusterRole\"][\"rules\"]\nassert items[\"ClusterRoleBinding\"][\"subjects\"] == [{\"kind\": \"ServiceAccount\", \"name\": \"catalyst-conformance\", \"namespace\": \"catalyst-system\"}]\nassert items[\"ClusterRoleBinding\"][\"roleRef\"][\"name\"] == \"catalyst-conformance\"\njob = items[\"Job\"]\npod = job[\"spec\"][\"template\"][\"spec\"]\nc = pod[\"containers\"][0]\nassert job[\"metadata\"][\"namespace\"] == \"catalyst-system\" and job[\"spec\"][\"backoffLimit\"] == 0\nassert pod[\"serviceAccountName\"] == \"catalyst-conformance\"\nassert c[\"image\"] == \"ghcr.io/openova-io/openova/conformance@\" + digest and c[\"imagePullPolicy\"] == \"Never\", c[\"image\"]\nfor flag in (\"--run-in self\", \"--env local-pack\", \"--region-a local-region-a-rtz-prod\", \"--suite-image-digest \" + digest,\n             \"--report-name conformance\", \"--manifest /opt/conformance/gates.json\", \"--repo-root /opt/conformance\"):\n    assert \" \" + flag + \" \" in c[\"command\"][2] + \" \", flag\nfields = {e[\"name\"]: e.get(\"valueFrom\", {}).get(\"fieldRef\", {}).get(\"fieldPath\") for e in c[\"env\"]}\nassert fields[\"ACCEPT_JOB_NAMESPACE\"] == \"metadata.namespace\", fields\nassert fields[\"ACCEPT_JOB_NAME\"] == \"metadata.labels['batch.kubernetes.io/job-name']\", fields\nassert fields[\"ACCEPT_JOB_UID\"] == \"metadata.labels['batch.kubernetes.io/controller-uid']\", fields\nprint(\"run in self: the ServiceAccount, its rules, the binding and the Job are as the ticket states\")\nEOF"
+  - id: A3
+    run: "python3 - <<'EOF'\nimport json, os, re, subprocess, sys, tempfile, yaml\nsteps = yaml.safe_load(open(\".github/workflows/conformance-local.yaml\", encoding=\"utf-8\"))[\"jobs\"][\"conformance-local\"][\"steps\"]\nmanifest_py, judge_py = re.findall(r\"<<'PY'\\n(.*?)\\nPY\\n\", [s for s in steps if s.get(\"id\") == \"self\"][0][\"run\"], re.S)\nd = tempfile.mkdtemp()\ndigest = \"sha256:\" + \"b\" * 64\nhead = subprocess.run([\"git\", \"rev-parse\", \"HEAD\"], capture_output=True, text=True, check=True).stdout.strip()\nfor p in (\"bin\", \"opt/conformance\", \"out\"):\n    os.makedirs(os.path.join(d, p))\nsubprocess.run([\"go\", \"build\", \"-o\", d + \"/bin/sovereign-acceptance\", \"./cmd/sovereign-acceptance\"],\n               cwd=\"tests/acceptance/sovereign\", env=dict(os.environ, CGO_ENABLED=\"0\"), check=True)\nwith open(d + \"/opt/conformance/gates.json\", \"w\", encoding=\"utf-8\") as f:\n    subprocess.run([sys.executable, \"scripts/acceptance-gate.py\", \"export\"], stdout=f, check=True)\nrelease = {\"metadata\": {\"name\": \"bp-x\", \"namespace\": \"flux-system\"}, \"spec\": {\"chart\": {\"spec\": {\"version\": \"1.0.0\"}}},\n           \"status\": {\"history\": [{\"status\": \"deployed\", \"chartVersion\": \"1.0.0\"}]}}\njson.dump({\"items\": [release]}, open(d + \"/releases.json\", \"w\", encoding=\"utf-8\"))\nwith open(d + \"/bin/kubectl\", \"w\", encoding=\"utf-8\") as f:\n    f.write('#!/bin/sh\\ncase \"$*\" in\\n*\"get helmreleases\"*) cat \"%s/releases.json\" ;;\\n*\"apply -f -\"*) cat > \"%s/out/clusterpolicyreport.json\" ;;\\n*) exit 1 ;;\\nesac\\n' % (d, d))\nos.chmod(d + \"/bin/kubectl\", 0o755)\nenv = dict(os.environ, SELF_REPO=\"ghcr.io/openova-io/openova/conformance\", SELF_DIGEST=digest, SELF_REGION=\"local-region-a-rtz-prod\")\nitems = json.loads(subprocess.run([sys.executable, \"-c\", manifest_py], env=env, capture_output=True, text=True, check=True).stdout)[\"items\"]\nscript = [i for i in items if i[\"kind\"] == \"Job\"][0][\"spec\"][\"template\"][\"spec\"][\"containers\"][0][\"command\"][2]\nscript = script.replace(\"/tmp/record\", d + \"/record\").replace(\"/opt/conformance\", d + \"/opt/conformance\")\npod_env = dict(os.environ, PATH=d + \"/bin:\" + os.environ[\"PATH\"], HOME=d, SUITE_GIT_SHA=head, ACCEPT_JOB_NAMESPACE=\"catalyst-system\",\n               ACCEPT_JOB_NAME=\"catalyst-conformance\", ACCEPT_JOB_UID=\"uid-1\")\nwith open(d + \"/out/job.log\", \"w\", encoding=\"utf-8\") as f:\n    assert subprocess.run([\"/bin/sh\", \"-c\", script], env=pod_env, stdout=f, stderr=subprocess.STDOUT).returncode == 0, \"the Job script failed\"\njson.dump({\"items\": [{\"status\": {\"containerStatuses\": [{\"imageID\": \"ghcr.io/openova-io/openova/conformance@\" + digest}]}}]},\n          open(d + \"/out/pods.json\", \"w\", encoding=\"utf-8\"))\ndef judge(uid):\n    json.dump({\"metadata\": {\"namespace\": \"catalyst-system\", \"name\": \"catalyst-conformance\", \"uid\": uid}, \"status\": {\"succeeded\": 1}},\n              open(d + \"/out/job.json\", \"w\", encoding=\"utf-8\"))\n    return subprocess.run([sys.executable, \"-c\", judge_py, d + \"/out\", digest, head]).returncode\nassert judge(\"uid-1\") == 0, \"the judge refused the record of this Job\"\nassert judge(\"uid-2\") == 1, \"the judge passed the record of another Job\"\nprint(\"run in self: the Job script writes the record and the report; the judge passes them and refuses another Job\")\nEOF"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: On the local provider pack, the workflow conformance-local.yaml runs the suite image of FND-153 as a Job with --run-in self, under a ServiceAccount with the rules of the conformance chart, and keeps the ClusterPolicyReport and the record of the run as evidence.
+  delivers: On the local provider pack, the workflow conformance-local.yaml runs the suite image of FND-153, built from the commit under test, as a Job with --run-in self under a ServiceAccount with the rules of the conformance chart, and keeps the ClusterPolicyReport and the record of the run as evidence.
 - id: FND-161
   title: Row map and browser harness
   area: FND
@@ -5135,7 +5143,7 @@ packages:
   size: S
   lane: RAILS
   depends_on: []
-  after: [FND-022, FND-052, FND-056, CLD-090, SOV-120, SOV-121, SOV-131, SVC-150, CTL-331, CTL-332, AIP-101, AIP-111, AIP-113, AIP-114, AIP-221, AIP-229, INF-110, PRD-101, PRD-102, PRD-103, PRD-501, PRD-513]
+  after: [FND-022, FND-052, FND-056, CLD-090, SOV-120, SOV-121, SOV-131, SVC-150, CTL-331, CTL-332, AIP-101, AIP-108, AIP-111, AIP-113, AIP-114, AIP-221, AIP-229, INF-110, PRD-101, PRD-102, PRD-103, PRD-501, PRD-513]
   touches:
   - '**/go.mod'
   - '**/go.sum'
@@ -14215,7 +14223,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271, FND-063, SOV-230]
-  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-074, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-108, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-135, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-335, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-133, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-150, SVC-190, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-020, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-101, AIP-111, AIP-113, AIP-120, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-501, PRD-503, PRD-508, PRD-513]
+  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-074, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, FND-155, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-108, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-135, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-335, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-133, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-150, SVC-190, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-020, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-101, AIP-108, AIP-111, AIP-113, AIP-120, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-501, PRD-503, PRD-508, PRD-513]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -26719,7 +26727,7 @@ packages:
   size: XS
   lane: CHARTS
   depends_on: [AIP-010, SVC-160]
-  after: [FND-011, FND-096, FND-098, CLD-142, NET-040, AIP-050, AIP-101, AIP-111, INF-110]
+  after: [FND-011, FND-096, FND-098, CLD-142, NET-040, AIP-050, AIP-101, AIP-108, AIP-111, INF-110]
   touches:
   - platform/llm-gateway/**
   - platform/anthropic-adapter/**
@@ -26990,19 +26998,29 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [AIP-101]
-  after: [FND-011, SVC-040, SVC-190, BSS-040, AIP-050, AIP-111]
+  after: [FND-011]
   touches:
-  - products/axon/src/**
+  - products/axon/src/providers/vllm.ts
+  - products/axon/src/providers/valkey.ts
+  - products/axon/src/providers/conversation.ts
+  - products/axon/src/config.ts
+  - products/axon/src/index.ts
+  - products/axon/src/middleware/auth.ts
+  - products/axon/src/routes/chat-completions.ts
+  - products/axon/src/routes/models.ts
+  - products/axon/src/types/openai.ts
   - products/axon/package.json
   - products/axon/package-lock.json
   - products/axon/.env.example
   - products/axon/chart/Chart.yaml
-  - products/axon/chart/templates/valkey-*.yaml
+  - products/axon/chart/templates/valkey-deployment.yaml
+  - products/axon/chart/templates/valkey-pvc.yaml
+  - products/axon/chart/templates/valkey-service.yaml
   - products/axon/chart/templates/ingress.yaml
   - products/axon/chart/templates/token-refresh-cronjob.yaml
   - products/axon/chart/templates/deployment.yaml
   - products/axon/chart/values.yaml
-  - products/axon/scripts/
+  - products/axon/scripts/**
   - scripts/check-single-replica-rollout.py
   - scripts/agent-plane-baseline.yaml
   - docs/ledger/deleted-paths.txt
@@ -27010,16 +27028,28 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "git ls-files products/axon/src/providers | wc -l"
+    expect: "5"
+  acceptance:
+  - id: A1
+    run: "test -z \"$(git grep -n -i -E 'vllm|valkey|ioredis|conversation_id|conversationstore|/v1/conversations|\"/stats\"|axon_pool_size|axon_conversation_ttl' -- products/axon/src products/axon/.env.example)\" && cd products/axon && npm ci && npm run build && npm test"
+  - id: A2
+    run: "python3 -c \"import json,sys; p=json.load(open('products/axon/package.json')); l=json.load(open('products/axon/package-lock.json'))['packages']; gone={'ioredis','uuid','@types/uuid'}; names=lambda d: set(d.get('dependencies', {})) | set(d.get('devDependencies', {})); left=[k for k in ['@ioredis/commands','@types/uuid','cluster-key-slot','denque','ioredis','redis-errors','redis-parser','standard-as-callback','uuid'] if 'node_modules/' + k in l]; ok=[not gone & names(p), not gone & names(l['']), not left, l['node_modules/debug'].get('peer') is True, l['node_modules/ms'].get('peer') is True]; print(ok); sys.exit(0 if all(ok) else 1)\""
+  - id: A3
+    run: "out=\"$(helm template axon products/axon/chart)\" && test \"$(grep -E '^kind: ' <<<\"$out\" | sort | tr '\\n' ' ')\" = \"kind: Deployment kind: Service \" && test -z \"$(grep -i -E 'vllm|valkey|AXON_PROVIDER|AXON_POOL_SIZE|AXON_CONVERSATION_TTL' <<<\"$out\")\" && test \"$(grep -c -E 'path: /healthz?$' <<<\"$out\")\" = 2 && grep -q -x 'appVersion: \"0.1.3\"' products/axon/chart/Chart.yaml && python3 -c \"import sys,yaml; v=yaml.safe_load(open('products/axon/chart/values.yaml')); ok=[sorted(v) == ['axon', 'image', 'resources'], sorted(v['axon']) == ['claudeAuthSecret', 'defaultModel', 'existingSecret', 'port'], sorted(v['resources']) == ['axon']]; print(ok); sys.exit(0 if all(ok) else 1)\""
+  - id: A4
+    run: "python3 scripts/check-single-replica-rollout.py > /dev/null && ! grep -q -F 'products/axon/chart/templates/valkey-deployment.yaml' scripts/check-single-replica-rollout.py && python3 scripts/check-agent-plane.py > /dev/null && python3 -c \"import sys,yaml; r=yaml.safe_load(open('scripts/agent-plane-baseline.yaml'))['rules']; t='products/axon/chart/templates/token-refresh-cronjob.yaml'; ok=[r['G1']['max'] <= 12, r['G2']['max'] <= 22, r['G3']['max'] <= 2, not any(t in r[k]['allow'] for k in r)]; print(ok); sys.exit(0 if all(ok) else 1)\""
+  - id: A5
+    run: "for p in products/axon/src/providers/vllm.ts products/axon/src/providers/valkey.ts products/axon/src/providers/conversation.ts products/axon/chart/templates/valkey-deployment.yaml products/axon/chart/templates/valkey-pvc.yaml products/axon/chart/templates/valkey-service.yaml products/axon/chart/templates/ingress.yaml products/axon/chart/templates/token-refresh-cronjob.yaml products/axon/scripts; do grep -q -x -F \"$p\" docs/ledger/deleted-paths.txt && test ! -e \"$p\" || exit 1; done && python3 scripts/check-repo-hygiene.py paths > /dev/null"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: vllm.ts, valkey.ts and conversation.ts are deleted with the vLLM, Valkey and conversation code of the other source files; ioredis and uuid leave package.json and the lock (9 entries removed, debug and ms marked peer); the chart loses the three valkey templates, ingress.yaml and token-refresh-cronjob.yaml, the Valkey and vLLM values, and in deployment.yaml the AXON_PROVIDER, AXON_POOL_SIZE, AXON_CONVERSATION_TTL and AXON_VALKEY_URL env vars, the vLLM env block and the provider conditionals (deleting the valkey key alone gives a nil-pointer render error); .env.example loses the same settings; products/axon/scripts/ (e2e-test.sh, pod-up.sh) is deleted; valkey-deployment.yaml leaves KNOWN_TRAPPED of check-single-replica-rollout.py; G1 13 to 12, G2 23 to 22 and G3 3 to 2 of the agent-plane baseline (at the measured base), written by check-agent-plane.py --write-baseline; appVersion one step; nine paths join the deletion list, the scripts folder as one.
+  delivers: 'Axon keeps only its Claude path: the vLLM provider, the Valkey cache and the conversation store are gone from its source, its dependencies and its chart, which renders one Deployment and one Service.'
 - id: AIP-111
   title: Move the sidecar, take identity from the gateway, publish quantity
   area: AIP
@@ -27440,7 +27470,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [AIP-250, AIP-151]
-  after: [FND-011, SVC-040, AIP-101, AIP-111]
+  after: [FND-011, SVC-040, AIP-101, AIP-108, AIP-111]
   touches:
   - products/agenity/chart/templates/externalsecret-mcp-bearer.yaml
   - products/agenity/chart/templates/externalsecret-anthropic.yaml
@@ -27474,7 +27504,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [AIP-155]
-  after: [CLD-103, CLD-113, SOV-141, SOV-180, NET-071, SVC-040, CTL-040, CTL-223, CTL-231, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, CMP-020, AIP-101, AIP-111]
+  after: [CLD-103, CLD-113, SOV-141, SOV-180, NET-071, SVC-040, CTL-040, CTL-223, CTL-231, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, CMP-020, AIP-101, AIP-108, AIP-111]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/sovereign_mcp_bearer_seed.go
   - products/catalyst/bootstrap/api/internal/handler/sovereign_mcp_bearer_seed_test.go
