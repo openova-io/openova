@@ -4,15 +4,16 @@
 // region is the kubeconfig that returned it, never a label on the object. The
 // verbs it uses are `get` and `exec` (psql SELECT, WordPress pod setup), and
 // `create`, `apply`, `wait`, `delete` and `rollout status` in gate checks CMP-G01,
-// SEC-G01, SEC-G02, SEC-G07, CTL-G04, CTL-G07, INF-G01, NET-G06 and NET-G10 only. It never patches — every other mutation of the
+// SEC-G01, SEC-G02, SEC-G07, CTL-G04, CTL-G07, INF-G01, INF-G02, NET-G06 and NET-G10 only. It never patches — every other mutation of the
 // Sovereign goes through the console API the way a sovereign-admin would.
 // A run in self (suite/report.go) also applies one object, the conformance
 // report, with `apply`.
 // SEC-G07 (suite/check_sec_scope.go) stores nothing: its `create` and `apply`
 // are server-side dry runs, its `create token` returns a token of 10 minutes
 // that is not stored, and its one `exec` in an OpenBao server pod logs in,
-// reads two paths with the output thrown away and revokes its token. Eight gate checks
-// write to a cluster. NET-G10 (suite/check_metadata_blocked.go) creates a namespace of
+// reads two paths with the output thrown away and revokes its token. Nine gate checks
+// write to a cluster. INF-G02 (suite/check_inf_g02.go) creates one MachineRun in
+// catalyst-infra in every region and deletes it. NET-G10 (suite/check_metadata_blocked.go) creates a namespace of
 // its own in every region and two dial Pods in it, runs nc in them with `exec`, and
 // deletes that namespace. NET-G06 (suite/check_policy_dials.go) creates one dial Pod per
 // source of its dial table in that source's namespace, runs nc in it with `exec`, and
