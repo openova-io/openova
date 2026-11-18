@@ -24,6 +24,12 @@ name: foundation-gate
 #              keycloak/keycloak-0), mints its session with the Sovereign's own signer, runs
 #              scripts/sso-zero-click-probe.mjs as that user, deletes the user in a step that always
 #              runs, and adds the result to the record with acceptance-gate.py merge-check.
+#              Then gate check CLD-G12: scripts/check-zero-change-plan.sh, inside the parent's engine
+#              Pod (kubectl exec with ACCEPTANCE_PARENT_KUBECONFIG), copies the deployment's working
+#              directory, stages the module of the commit under test, writes the variables file again
+#              from the deployment record with tfvars-regenerate of that commit and runs
+#              tofu plan -detailed-exitcode on the copy; any planned change is a FAIL that lists the
+#              actions. merge-check adds the result to the record.
 #              A run whose discovery could not reach the Sovereign from the runner after its
 #              retries ends NOT MEASURED (suite exit code 4, tests/acceptance/sovereign/internal/
 #              suite/reach.go): the suite writes no record, the sign-in check is not run, nothing
@@ -31,7 +37,11 @@ name: foundation-gate
 #              output result is NOT-MEASURED. Such a run is not one of the two runs the gate needs.
 # Secrets of the environment gate: ACCEPTANCE_KUBECONFIG_A and ACCEPTANCE_KUBECONFIG_B (base64 of
 # the kubeconfigs of the regions that start as Primary and as Standby), ACCEPTANCE_CATALYST_SESSION
-# (optional owner session; when empty the run mints one from the Sovereign's own signer).
+# (optional owner session; when empty the run mints one from the Sovereign's own signer),
+# ACCEPTANCE_PARENT_KUBECONFIG (base64 of a kubeconfig of the parent that provisioned the
+# Sovereign, allowed in namespace catalyst get on deployments.apps, get and list on pods and
+# create on pods/exec, which kubectl exec deploy/catalyst-api needs; when empty CLD-G12 is
+# recorded FAIL).
 
 on:
   workflow_dispatch:
@@ -103,6 +113,8 @@ on:
         required: false
       ACCEPTANCE_CATALYST_SESSION:
         required: false
+      ACCEPTANCE_PARENT_KUBECONFIG:
+        required: false
       RELEASE_WRITER_KEY:
         required: false
   pull_request:
@@ -114,6 +126,7 @@ on:
       - 'scripts/intent-lock-report.py'
       - 'scripts/gate-run-outcome.py'
       - 'scripts/gate-outside-dial.py'
+      - 'scripts/check-zero-change-plan.sh'
       - '.github/workflows/foundation-gate.yaml'
   merge_group:
 
@@ -141,6 +154,8 @@ jobs:
         run: python3 scripts/gate-run-outcome.py --self-test
       - name: outside dial self-test
         run: python3 scripts/gate-outside-dial.py --self-test
+      - name: zero-change plan self-test
+        run: bash scripts/check-zero-change-plan.sh --self-test
 
   candidate:
     name: verify the candidate
@@ -502,6 +517,44 @@ jobs:
             exit 0
           fi
           python3 scripts/acceptance-gate.py merge-check "candidate/$files" "$RUNNER_TEMP/sso/result.json" --check FND-G07
+      - name: "Zero-change plan CLD-G12: the plan of the deployment shows no change"
+        if: steps.run.outputs.not_measured != 'true'
+        env:
+          KP: ${{ secrets.ACCEPTANCE_PARENT_KUBECONFIG }}
+          DEPLOYMENT_ID: ${{ inputs.deployment_id }}
+          GOTOOLCHAIN: auto # tfvars-regenerate is built with the Go of its own go.mod
+        run: |
+          set +e
+          set -uo pipefail
+          # This step never fails the job. Whatever cannot be measured is recorded as FAIL by
+          # merge-check: a missing result file is never a pass.
+          d="$RUNNER_TEMP/cld-g12"
+          mkdir -p "$d"
+          rm -f "$d/result.json"
+          files="$(git -C candidate ls-files --others --exclude-standard -- docs/ledger/acceptance/)"
+          n="$(printf '%s' "$files" | grep -c .)"
+          if [ "$n" != 1 ]; then
+            echo "::warning::The suite wrote $n records, not 1, so CLD-G12 is not added. The step Validate the record fails on it."
+            exit 0
+          fi
+          id="$DEPLOYMENT_ID"
+          if [ -z "$id" ]; then
+            id="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("deployment_id", ""))' "candidate/$files")"
+          fi
+          if [ -z "$KP" ]; then
+            echo "CLD-G12 abort the secret ACCEPTANCE_PARENT_KUBECONFIG of the environment gate is not set" > "$d/transcript"
+            bash scripts/check-zero-change-plan.sh judge "$d/transcript" "$d/result.json" | tee "$d/check.log"
+          elif [ -z "$id" ]; then
+            echo "CLD-G12 abort neither the input deployment_id nor the gate record gives the deployment id" > "$d/transcript"
+            bash scripts/check-zero-change-plan.sh judge "$d/transcript" "$d/result.json" | tee "$d/check.log"
+          else
+            ( umask 077; printf '%s' "$KP" | base64 -d > "$d/parent.yaml" )
+            bash scripts/check-zero-change-plan.sh run --deployment "$id" --candidate candidate \
+              --kubeconfig "$d/parent.yaml" --result "$d/result.json" --transcript "$d/transcript" | tee "$d/check.log"
+            rm -f "$d/parent.yaml"
+          fi
+          { echo "### Zero-change plan CLD-G12 of deployment ${id:-unknown}"; echo; echo '```'; cat "$d/check.log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          python3 scripts/acceptance-gate.py merge-check "candidate/$files" "$d/result.json" --check CLD-G12
       - name: "NOT MEASURED: the discovery could not reach the Sovereign"
         if: steps.run.outputs.not_measured == 'true'
         run: |
