@@ -1712,12 +1712,10 @@ func TestBootstrapKit_LbIpamSharingCrossNamespace(t *testing.T) {
 
 	// Every file that participates in the sovereign-vip sharing contract.
 	// filepath.Glob over clusters/*/bootstrap-kit/*.yaml covers _template
-	// plus every per-Sovereign copy; values-clustermesh.yaml is the
-	// chart-side reference for the clustermesh Service annotations.
+	// plus every per-Sovereign copy.
 	var files []string
 	for _, pat := range []string{
 		filepath.Join(root, "clusters", "*", "bootstrap-kit", "*.yaml"),
-		filepath.Join(root, "platform", "cilium", "chart", "values-clustermesh.yaml"),
 	} {
 		matches, err := filepath.Glob(pat)
 		if err != nil {
@@ -1763,8 +1761,8 @@ func TestBootstrapKit_LbIpamSharingCrossNamespace(t *testing.T) {
 			}
 		}
 	}
-	if checked < 3 {
-		t.Fatalf("only %d files carry the sovereign-vip sharing-key — expected ≥3 (template 01-cilium + template 11-powerdns + values-clustermesh.yaml); the guard's file enumeration is broken", checked)
+	if checked < 2 {
+		t.Fatalf("only %d files carry the sovereign-vip sharing-key — expected ≥2 (template 01-cilium + template 11-powerdns); the guard's file enumeration is broken", checked)
 	}
 	t.Logf("sovereign-vip sharing contract: %d files checked, every sharing-key has its cross-namespace grant, zero wildcard grants", checked)
 }

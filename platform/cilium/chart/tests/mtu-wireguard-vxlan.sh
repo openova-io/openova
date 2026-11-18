@@ -23,7 +23,8 @@
 # routes with no tunnel; cross-region reach stays ClusterMesh's job.
 #
 # This test asserts:
-#   1. default render emits cilium-config `mtu: "1420"` (the WG-only value)
+#   1. a render with a native-routing range (the bootstrap-kit slot sets it;
+#      the chart names none, NET-110) emits cilium-config `mtu: "1420"` (the WG-only value)
 #      AND WireGuard encryption is on (the +80 overhead the 1420 accounts for)
 #      AND the datapath IS in native routing (routing-mode: native) with
 #      ipv4-native-routing-cidr set + auto-direct-node-routes on — so the
@@ -58,7 +59,7 @@ fi
 
 # ── Case 1: default render pins mtu: "1420" with WireGuard on + native ───
 echo "[mtu-wireguard-vxlan] Case 1: default render emits cilium-config mtu: \"1420\" (native routing)"
-helm template smoke-cilium . > "$TMP/default.yaml"
+helm template smoke-cilium . --set cilium.ipv4NativeRoutingCIDR=10.40.0.0/13 > "$TMP/default.yaml"
 
 # The upstream cilium-configmap renders `mtu: "1420"` only when .Values.MTU
 # is truthy. Grep the cilium ConfigMap data key.

@@ -93,6 +93,7 @@ fixture_common() {
     k3s_agent_token                   = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
     cp_private_ip                     = "10.0.1.2"
     cluster_cidr                      = "10.42.0.0/16"
+    pod_supernet                      = "10.42.0.0/15"
     service_cidr                      = "10.96.0.0/16"
     gitops_repo_url                   = "https://github.com/openova-io/openova"
     gitops_branch                     = "main"

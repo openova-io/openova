@@ -578,10 +578,9 @@ across regions. Per ADR-0001 §9 ClusterMesh is the canonical inter-region
 transport for OpenOva Sovereigns; replication / failover traffic
 (EPIC-6 #1101) flows over the private mesh, never public TLS.
 
-The chart ships the ClusterMesh values overlay separately at
-`chart/values-clustermesh.yaml` (default `values.yaml` keeps it OFF).
-Per-Sovereign overlays at `clusters/<sovereign>/bootstrap-kit/01-cilium.yaml`
-opt in by setting:
+The chart's default `values.yaml` keeps ClusterMesh off. The bootstrap-kit
+slot `clusters/_template/bootstrap-kit/01-cilium.yaml` turns it on by
+setting:
 
 - `spec.values.cilium.cluster.name` — peer name (e.g. `omantel-me-east-215-a`)
 - `spec.values.cilium.cluster.id` — peer ID (1..255, unique per mesh)

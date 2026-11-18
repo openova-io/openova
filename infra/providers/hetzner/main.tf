@@ -96,6 +96,11 @@ locals {
     k => format("10.%d.0.0/16", 96 + local.region_index[k])
   }
 
+  # NET-110: the one range that holds the pod CIDR of every region. The
+  # network registry states it as podSupernet; first boot gives it to
+  # Cilium as the native-routing range.
+  pod_supernet = length(local.all_region_keys) <= 2 ? "10.42.0.0/15" : "10.40.0.0/13"
+
   # Per-region canonical 4-segment region label per docs/NAMING-CONVENTION.md
   # §2.1: `{prov}-{reg}-{bb}-{env_type}`. For the Hetzner module the prov
   # prefix is `hz`; reg is the cloud_region with trailing digits stripped
@@ -855,6 +860,7 @@ locals {
     # its own hcloud_network — see local.secondary_region_cp_ips).
     cp_private_ip                  = "10.0.1.2"
     cluster_cidr                   = local.region_cluster_cidr["primary"]
+    pod_supernet                   = local.pod_supernet
     service_cidr                   = local.region_service_cidr["primary"]
     sovereign_fqdn                 = var.sovereign_fqdn
     sovereign_fqdn_slug            = replace(var.sovereign_fqdn, ".", "-")
@@ -1449,6 +1455,7 @@ locals {
 
       cp_private_ip                  = local.secondary_region_cp_ips[k]
       cluster_cidr                   = local.region_cluster_cidr[k]
+      pod_supernet                   = local.pod_supernet
       service_cidr                   = local.region_service_cidr[k]
       sovereign_fqdn                 = var.sovereign_fqdn
       sovereign_fqdn_slug            = replace(var.sovereign_fqdn, ".", "-")
@@ -1892,7 +1899,7 @@ locals {
   )
 
   network_registry = {
-    podSupernet      = length(local.all_region_keys) <= 2 ? "10.42.0.0/15" : "10.40.0.0/13"
+    podSupernet      = local.pod_supernet
     mtu              = 1420
     regionSeparation = local.network_registry_separation
     controlPlaneAccess = {
