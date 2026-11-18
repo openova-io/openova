@@ -1,6 +1,6 @@
 #!/bin/sh
-# release-run.sh <stage|deliver|compose|prewarm|promote> - the containers of a
-# release delivery (#7922, #7938).
+# release-run.sh <stage|deliver|verify|compose|prewarm|promote> - the containers
+# of a release delivery (#7922, #7938).
 #
 # A delivery runs the mechanism of the release it delivers. PUT
 # /api/v1/sovereign/release starts the BOOTSTRAP Job, in the primary region, in
@@ -14,16 +14,22 @@
 #            anything moves; a conflict or a refusal in any region fails this
 #            container. Then mechanism_render: the cutover chart of the staged
 #            commit, verified to be the one the candidate pins, rendered with
-#            the installed cutover HelmRelease's values. A dry run stops here. A
-#            delivery copies the pull credential into every follower
-#            (credential_deliver below).
+#            the installed cutover HelmRelease's values. A dry run then runs the
+#            CANDIDATE's release-run.sh "verify" and stops. A delivery copies
+#            the pull credential into every follower (credential_deliver below).
 #   deliver  runs the CANDIDATE's release-run.sh (from that render) "compose".
 #
 # The candidate's own script then does the rest; the installed step 03 is never
 # run, so a repair of the mechanism acts on the delivery that carries it:
 #
+#   verify   composes every object the delivery creates, in every region (the
+#            plans below), and sends each to the API server as a server-side
+#            dry run, as the account that will create it; every refusal is
+#            named, not the first.
 #   compose  builds the DELIVERY Job from the candidate's step 01 and step 03
-#            and its own release scripts, creates it and waits for it:
+#            and its own release scripts; runs verify's dry run, and creates
+#            nothing unless the API server accepts every object; then creates
+#            the Job and waits for it:
 #   prewarm  (its init container) "prewarm <command...>": the candidate's step
 #            03, reading the pins from release/<candidate>. When it ends,
 #            whatever its outcome, the pull credential is removed from every
@@ -59,6 +65,7 @@ set -eu
 : "${CUTOVER_SLOT:=clusters/_template/bootstrap-kit/06a-bp-self-sovereign-cutover.yaml}"
 : "${MECHANISM_SUFFIX:=-release}" "${RELEASE_JOB:=sovereign-release}" "${STATE_SEED:=}"
 : "${SECONDARY_KUBECONFIGS_SECRET:=cutover-secondary-kubeconfigs}"
+: "${SERVER_DRY_RUN:=false}" "${DRY_RUN_PULL_SECRET:=release-pull-dry-run}"
 mkdir -p "${STATE}"
 # A delivery Job starts with what the bootstrap's stage recorded (STATE_SEED).
 if [ -n "${STATE_SEED}" ] && [ -d "${STATE_SEED}" ]; then
@@ -68,6 +75,41 @@ MECH="${STATE}/mechanism"
 
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 say() { echo "[release] $*"; }
+
+# helm_local <args...>: helm with its home in STATE (the containers' root
+# filesystem is read-only, and so may HOME be).
+helm_local() {
+  mkdir -p "${STATE}/helm-home"
+  HOME="${STATE}/helm-home" HELM_CACHE_HOME="${STATE}/helm-home/cache" HELM_CONFIG_HOME="${STATE}/helm-home/config" HELM_DATA_HOME="${STATE}/helm-home/data" \
+    helm "$@"
+}
+
+# k8s_json <file>: the YAML documents of <file> as JSON, one per line, read the
+# way Kubernetes reads them. kubectl, Helm and the catalyst-api read YAML with
+# sigs.k8s.io/yaml, which follows YAML 1.1: 0755 is the octal number 493, and
+# yes, no, on and off are booleans. yq follows YAML 1.2, where 0755 is the
+# decimal 755 and yes is a string. The sixth delivery to a Sovereign was refused
+# for that: step 03 writes a volume's defaultMode 0755, the delivery read its
+# pod spec with yq and sent 755, above 0777 (#7938). So every YAML this script
+# turns into an object is read here, by Helm's fromYaml (sigs.k8s.io/yaml), the
+# same reader that installs the chart; no template can then mean one thing to
+# Kubernetes and another to the delivery. What it writes is JSON, which every
+# reader reads alike. A document that does not parse fails, _k8s_why names it;
+# an empty one is skipped.
+_k8s_why=""
+k8s_json() {
+  _kj="${STATE}/k8s-json"
+  mkdir -p "${_kj}/templates"
+  printf 'apiVersion: v2\nname: k8s-json\nversion: 0.0.0\n' >"${_kj}/Chart.yaml"
+  # shellcheck disable=SC2016 # a Helm template, not shell
+  printf '%s\n' '{{- range regexSplit "(?m)^---[ \\t]*$" .Values.doc -1 }}{{- $d := fromYaml . }}{{- if hasKey $d "Error" }}{{ fail (printf "a YAML document does not parse: %s" (get $d "Error")) }}{{- end }}{{- if $d }}{{ toJson $d }}{{ "\n" }}{{- end }}{{- end }}' \
+    >"${_kj}/templates/doc.yaml"
+  if ! helm_local template k8s-json "${_kj}" --set-file "doc=$1" >"${_kj}/out" 2>"${_kj}/err"; then
+    _k8s_why="$(basename "$1"): $(grep -v '^[[:space:]]*$' "${_kj}/err" | head -n 1 | cut -c1-400)"
+    return 1
+  fi
+  sed -n '/^{/p' "${_kj}/out"
+}
 
 # status_put --arg <key> <value> ...: merge the keys into the status ConfigMap.
 status_put() {
@@ -136,9 +178,16 @@ follower_storage() {
   status_put --arg followerPrewarm "${_fp}" --arg updatedAt "$(now)"
 }
 
+# secret_copy <namespace> <name>: the Secret on stdin as a copy named
+# <namespace>/<name>: only type and data travel; the copy carries the release's
+# labels.
+secret_copy() {
+  jq -c --arg c "${CANDIDATE}" --arg ns "$1" --arg n "$2" '{apiVersion: "v1", kind: "Secret", type: .type, data: .data,
+    metadata: {name: $n, namespace: $ns, labels: {"app.kubernetes.io/component": "sovereign-release", "catalyst.openova.io/release-candidate": $c}}}'
+}
+
 # credential_deliver: copy PULL_SECRET into RELEASE_NAMESPACE of every follower,
-# where step 03's follower leg reads it. Only type and data travel; the copy
-# carries the release's labels. On a failure _cred_why names it.
+# where step 03's follower leg reads it. On a failure _cred_why names it.
 _cred_why=""
 credential_deliver() {
   [ -n "${PULL_SECRET}" ] || return 0
@@ -149,9 +198,7 @@ credential_deliver() {
   for _kc in $(followers); do
     _r=$(basename "${_kc}" .yaml)
     if ! kubectl -n "${RELEASE_NAMESPACE}" get secret "${PULL_SECRET}" -o json 2>/dev/null \
-        | jq -c --arg c "${CANDIDATE}" '{apiVersion: "v1", kind: "Secret", type: .type, data: .data,
-            metadata: {name: .metadata.name, namespace: .metadata.namespace,
-              labels: {"app.kubernetes.io/component": "sovereign-release", "catalyst.openova.io/release-candidate": $c}}}' \
+        | secret_copy "${RELEASE_NAMESPACE}" "${PULL_SECRET}" \
         | kubectl --kubeconfig "${_kc}" apply --server-side --force-conflicts --field-manager=sovereign-release -f - >/dev/null 2>&1; then
       _cred_why="could not copy the pull credential into ${RELEASE_NAMESPACE}/${PULL_SECRET} of follower ${_r}"
       return 1
@@ -231,12 +278,12 @@ mechanism_render() {
   jq '.spec.values // {}' "${STATE}/cutover-hr.json" >"${STATE}/cutover-values.json"
   _rel=$(jq -r '.spec.releaseName // .metadata.name' "${STATE}/cutover-hr.json")
   _tns=$(jq -r '.spec.targetNamespace // .metadata.namespace' "${STATE}/cutover-hr.json")
-  rm -rf "${MECH}"; mkdir -p "${MECH}/cm" "${STATE}/helm-home"
-  HOME="${STATE}/helm-home" HELM_CACHE_HOME="${STATE}/helm-home/cache" HELM_CONFIG_HOME="${STATE}/helm-home/config" HELM_DATA_HOME="${STATE}/helm-home/data" \
-    helm template "${_rel}" "${_ch}" --namespace "${_tns}" -f "${STATE}/cutover-values.json" >"${MECH}/render.yaml" 2>"${MECH}/render.err" \
+  rm -rf "${MECH}"; mkdir -p "${MECH}/cm"
+  helm_local template "${_rel}" "${_ch}" --namespace "${_tns}" -f "${STATE}/cutover-values.json" >"${MECH}/render.yaml" 2>"${MECH}/render.err" \
     || { _mech_why="helm template of ${_cn} ${_cv} failed: $(tail -n 1 "${MECH}/render.err")"; return 1; }
-  yq -o=json -I=0 'select(.kind == "ConfigMap")' "${MECH}/render.yaml" >"${MECH}/cms.jsonl" \
-    || { _mech_why="the render of ${_cn} ${_cv} does not parse"; return 1; }
+  k8s_json "${MECH}/render.yaml" >"${MECH}/render.jsonl" \
+    || { _mech_why="the render of ${_cn} ${_cv} does not parse: ${_k8s_why}"; return 1; }
+  jq -c 'select(.kind == "ConfigMap")' "${MECH}/render.jsonl" >"${MECH}/cms.jsonl"
   while IFS= read -r _l; do
     [ -n "${_l}" ] || continue
     printf '%s\n' "${_l}" >"${MECH}/cm/$(printf '%s' "${_l}" | jq -r .metadata.name).json"
@@ -251,8 +298,13 @@ mechanism_render() {
   printf '%s %s (chart tree %s)' "${_cn}" "${_cv}" "$(cut -c1-12 "${_mexp}/.tree")" >"${MECH}/version"
 }
 
-# mech_podspec <ConfigMap>: the podSpec of a rendered step ConfigMap, as JSON.
-mech_podspec() { jq -r '.data.podSpec // empty' "${MECH}/cm/$1.json" | yq -o=json '.'; }
+# mech_podspec <ConfigMap>: the podSpec of a rendered step ConfigMap, as JSON,
+# read as Kubernetes reads it (k8s_json).
+mech_podspec() {
+  jq -r '.data.podSpec // empty' "${MECH}/cm/$1.json" >"${MECH}/$1.podspec.yaml" || return 1
+  [ -s "${MECH}/$1.podspec.yaml" ] || return 1
+  k8s_json "${MECH}/$1.podspec.yaml" | head -n 1
+}
 
 # compose_delivery: the delivery Job of THIS mechanism (JSON on stdout), from the
 # rendered step 03 (prewarm, wrapped by "prewarm") and step 01 (promote). Every
@@ -264,7 +316,7 @@ compose_delivery() {
     [ -s "${MECH}/p${_s%%:*}.json" ] || { _mech_why="the rendered ${_s#*:} has no podSpec"; return 1; }
   done
   jq -n --slurpfile p3 "${MECH}/p03.json" --slurpfile p1 "${MECH}/p01.json" --arg job "${RELEASE_JOB}-delivery" \
-    --arg ns "${RELEASE_NAMESPACE}" --arg cand "${CANDIDATE}" --arg pull "${PULL_SECRET}" --arg sfx "${MECHANISM_SUFFIX}" \
+    --arg ns "${RELEASE_NAMESPACE}" --arg cand "${CANDIDATE}" --arg pull "${_pull:-${PULL_SECRET}}" --arg sfx "${MECHANISM_SUFFIX}" \
     --arg st "${RELEASE_STATUS_CM}" --arg kcs "${SECONDARY_KUBECONFIGS_SECRET}" --arg fns "${SECONDARY_GITEA_NAMESPACE}" '
     def plain($n; $v): {name: $n, value: $v};
     def setenv($e): if any(.[]; .name == $e.name) then map(if .name == $e.name then $e else . end) else . + [$e] end;
@@ -312,12 +364,14 @@ compose_delivery() {
 
 # follower_job_of_mechanism: the rendered follower pivot Job of step 06, turned
 # into one phase of release-region.sh (the bootstrap's route does the same for
-# its stage), YAML on stdout; nothing when the render has none.
+# its stage), JSON on stdout (read by k8s_json; JSON, so that no YAML reader
+# reads a value of it differently); nothing when the render has none.
 follower_job_of_mechanism() {
-  _fj=$(jq -r '.data["secondary-pivot-job.yaml"] // empty' "${MECH}/cm/cutover-secondary-pivot-script.json" 2>/dev/null || true)
-  [ -n "${_fj}" ] || return 0
+  jq -r '.data["secondary-pivot-job.yaml"] // empty' "${MECH}/cm/cutover-secondary-pivot-script.json" >"${MECH}/follower-src.yaml" 2>/dev/null || true
+  [ -s "${MECH}/follower-src.yaml" ] || return 0
   _urepo=$(jq -r '([.containers[0].env[]? | select(.name == "UPSTREAM_REPO_URL") | .value] | .[0]) // ""' "${MECH}/p01.json")
-  printf '%s\n' "${_fj}" | yq -o=json '.' | jq --arg cand "${CANDIDATE}" --arg urepo "${_urepo}" '
+  k8s_json "${MECH}/follower-src.yaml" >"${MECH}/follower-src.json" || return 1
+  head -n 1 "${MECH}/follower-src.json" | jq --arg cand "${CANDIDATE}" --arg urepo "${_urepo}" '
     def plain($n; $v): {name: $n, value: $v};
     def setenv($e): if any(.[]; .name == $e.name) then map(if .name == $e.name then $e else . end) else . + [$e] end;
     .metadata.name = "__JOB__" | del(.metadata.resourceVersion, .metadata.uid)
@@ -330,50 +384,245 @@ follower_job_of_mechanism() {
                 plain("DRY_RUN"; "false"), plain("MAIN_SHA"; "__MAIN_SHA__"), plain("STAGED_SHA"; "__STAGED_SHA__"),
                 plain("UPSTREAM_REPO_URL"; $urepo), plain("KIT_REWRITE"; "/release/kit-rewrite.sh"), plain("PIN_EXTRACTOR"; "/release/extract-pins.sh")])[] as $e (.; setenv($e)))
         | .volumeMounts = [{name: "release", mountPath: "/release", readOnly: true}])
-    | .spec.template.spec.volumes = [{name: "release", configMap: {name: "sovereign-release-scripts", defaultMode: 493}}]' | yq -p=json -o=yaml '.'
+    | .spec.template.spec.volumes = [{name: "release", configMap: {name: "sovereign-release-scripts", defaultMode: 493}}]'
 }
 
-# apply_json: server-side apply of the JSON object on stdin, as the release.
-apply_json() { kubectl apply --server-side --force-conflicts --field-manager=sovereign-release -f - >/dev/null; }
+# follower_scripts_cm <release-region.sh> <kit-rewrite.sh> <extract-pins.sh>:
+# the ConfigMap of the scripts a follower's release Job runs, JSON.
+follower_scripts_cm() {
+  jq -n --rawfile a "$1" --rawfile b "$2" --rawfile c "$3" --arg ns "${SECONDARY_GITEA_NAMESPACE}" \
+    '{apiVersion: "v1", kind: "ConfigMap", metadata: {name: "sovereign-release-scripts", namespace: $ns},
+      data: {"release-region.sh": $a, "kit-rewrite.sh": $b, "extract-pins.sh": $c}}'
+}
 
-# create_json: create the JSON object on stdin. The delivery Job is created, not
-# applied: its name is new for every request, and the runner service account
-# may create Jobs but not patch them (a server-side apply is a PATCH, refused).
-# Every kubectl call of this script is checked against the chart's RBAC by
-# release_rbac_test.go in the catalyst-api.
-create_json() { kubectl create -f - >/dev/null; }
+# follower_job_name <region> <phase>; follower_job <manifest> <region> <phase>:
+# the follower Job manifest with the names and the recorded commits of a phase.
+follower_job_name() { printf 'sovereign-release-%s-%s' "$2" "$1" | cut -c1-63 | sed 's/-*$//'; }
+follower_job() {
+  sed -e "s|__JOB__|$(follower_job_name "$2" "$3")|g" -e "s|__REGION__|$2|g" -e "s|__PHASE__|$3|g" \
+    -e "s|__MAIN_SHA__|$(state_get "$2" main)|g" -e "s|__STAGED_SHA__|$(state_get "$2" staged)|g" "$1"
+}
 
-# run_delivery: apply what the delivery Job mounts, create the Job, wait for it.
-run_delivery() {
-  _dj="${RELEASE_JOB}-delivery"
+# ── The objects of a delivery, and the API server's dry run of them ──
+# A plan lists objects a delivery creates, one per line of a .tsv file: <region>
+# <how> <file> <what>. <region> is "primary" or a follower's kubeconfig, whose
+# account creates it there; <how> is how the step that makes it sends it
+# (submit). plan_delivery is what compose creates in the primary region, as the
+# account of the bootstrap Job; plan_later what the later steps create in each
+# follower: the stage's copy of the pull credential, what the candidate's step
+# 03 creates there (its #6764 leg), and promote's scripts and Jobs.
+
+_obj() { mkdir -p "${MECH}/objects"; printf '%s/objects/%s.json' "${MECH}" "$1"; }
+plan_add() { printf '%s\t%s\t%s\t%s\n' "$2" "$3" "$4" "$5" >>"$1"; }
+
+# plan_delivery: the delivery Job (composed with the request's pull Secret, or
+# DRY_RUN_PULL_SECRET in a dry run, which names none), the ConfigMaps it mounts,
+# under <name>${MECHANISM_SUFFIX}, and its record of the staged commits.
+plan_delivery() {
+  _pd="${MECH}/plan-deliver.tsv"; : >"${_pd}"
+  _pull="${PULL_SECRET}"
+  [ -n "${_pull}" ] || [ "${DRY_RUN}" != true ] || _pull="${DRY_RUN_PULL_SECRET}"
   compose_delivery >"${MECH}/delivery-job.json" 2>"${MECH}/compose.err" || { _mech_why="cannot compose the delivery Job: ${_mech_why:-$(tail -n 1 "${MECH}/compose.err")}"; return 1; }
   for _c in $(jq -r --arg s "${MECHANISM_SUFFIX}" '.spec.template.spec.volumes[].configMap.name // empty | select(endswith($s)) | rtrimstr($s)' "${MECH}/delivery-job.json" | sort -u); do
     [ "${_c}" != sovereign-release-delivery ] || continue
     [ -s "${MECH}/cm/${_c}.json" ] || { _mech_why="the delivery mounts ConfigMap ${_c}, which the render lacks"; return 1; }
+    _f=$(_obj "cm-${_c}")
     jq --arg n "${_c}${MECHANISM_SUFFIX}" --arg ns "${RELEASE_NAMESPACE}" --arg cand "${CANDIDATE}" \
       '{apiVersion: "v1", kind: "ConfigMap", metadata: {name: $n, namespace: $ns, labels: {"app.kubernetes.io/component": "sovereign-release", "catalyst.openova.io/release-candidate": $cand}}, data: .data}' \
-      "${MECH}/cm/${_c}.json" | apply_json || { _mech_why="cannot apply ConfigMap ${_c}${MECHANISM_SUFFIX}"; return 1; }
+      "${MECH}/cm/${_c}.json" >"${_f}"
+    plan_add "${_pd}" primary ssa "${_f}" "ConfigMap ${RELEASE_NAMESPACE}/${_c}${MECHANISM_SUFFIX}"
   done
-  follower_job_of_mechanism >"${MECH}/follower-job.yaml" || { _mech_why="cannot turn the rendered follower pivot Job into the release's"; return 1; }
+  follower_job_of_mechanism >"${MECH}/follower-job.yaml" || { _mech_why="cannot turn the rendered follower pivot Job into the release's: ${_k8s_why}"; return 1; }
   if [ -n "$(followers)" ] && [ ! -s "${MECH}/follower-job.yaml" ]; then _mech_why="this Sovereign has follower regions, and the render has no follower pivot Job (cutover-secondary-pivot-script)"; return 1; fi
-  _scripts=$(jq -n --rawfile a "${MECH}/release-run.sh" --rawfile b "${MECH}/release-region.sh" --rawfile c "${MECH}/follower-job.yaml" '{"release-run.sh": $a, "release-region.sh": $b, "follower-job.yaml": $c}')
-  printf '%s' "${_scripts}" | jq --arg n "sovereign-release-delivery${MECHANISM_SUFFIX}" --arg ns "${RELEASE_NAMESPACE}" \
-    '{apiVersion: "v1", kind: "ConfigMap", metadata: {name: $n, namespace: $ns, labels: {"app.kubernetes.io/component": "sovereign-release"}}, data: .}' \
-    | apply_json || { _mech_why="cannot apply the delivery's scripts"; return 1; }
+  _f=$(_obj sovereign-release-delivery)
+  jq -n --rawfile a "${MECH}/release-run.sh" --rawfile b "${MECH}/release-region.sh" --rawfile c "${MECH}/follower-job.yaml" \
+    --arg n "sovereign-release-delivery${MECHANISM_SUFFIX}" --arg ns "${RELEASE_NAMESPACE}" \
+    '{apiVersion: "v1", kind: "ConfigMap", metadata: {name: $n, namespace: $ns, labels: {"app.kubernetes.io/component": "sovereign-release"}},
+      data: {"release-run.sh": $a, "release-region.sh": $b, "follower-job.yaml": $c}}' >"${_f}"
+  plan_add "${_pd}" primary ssa "${_f}" "ConfigMap ${RELEASE_NAMESPACE}/sovereign-release-delivery${MECHANISM_SUFFIX} (the delivery's scripts)"
   _rec='{}'
-  for _f in "${STATE}"/*.main "${STATE}"/*.staged "${STATE}"/*.candidate; do
-    [ -f "${_f}" ] || continue
-    _rec=$(printf '%s' "${_rec}" | jq -c --arg k "$(basename "${_f}")" --rawfile v "${_f}" '. + {($k): $v}')
+  for _r in "${STATE}"/*.main "${STATE}"/*.staged "${STATE}"/*.candidate; do
+    [ -f "${_r}" ] || continue
+    _rec=$(printf '%s' "${_rec}" | jq -c --arg k "$(basename "${_r}")" --rawfile v "${_r}" '. + {($k): $v}')
   done
+  _f=$(_obj sovereign-release-recorded)
   printf '%s' "${_rec}" | jq --arg ns "${RELEASE_NAMESPACE}" \
-    '{apiVersion: "v1", kind: "ConfigMap", metadata: {name: "sovereign-release-recorded", namespace: $ns, labels: {"app.kubernetes.io/component": "sovereign-release"}}, data: .}' \
-    | apply_json || { _mech_why="cannot record the staged commits for the delivery"; return 1; }
-  create_json <"${MECH}/delivery-job.json" || { _mech_why="cannot create the delivery Job ${_dj}"; return 1; }
+    '{apiVersion: "v1", kind: "ConfigMap", metadata: {name: "sovereign-release-recorded", namespace: $ns, labels: {"app.kubernetes.io/component": "sovereign-release"}}, data: .}' >"${_f}"
+  plan_add "${_pd}" primary ssa "${_f}" "ConfigMap ${RELEASE_NAMESPACE}/sovereign-release-recorded (the staged commits)"
+  # The Job is created, not applied: its name is new for every request, and the
+  # runner may create Jobs but not patch them (a server-side apply is a PATCH).
+  plan_add "${_pd}" primary create "${MECH}/delivery-job.json" "Job ${RELEASE_NAMESPACE}/${RELEASE_JOB}-delivery"
+}
+
+# plan_later: what the steps after compose create in each follower region.
+plan_later() {
+  _pl="${MECH}/plan-later.tsv"; : >"${_pl}"
+  [ -n "$(followers)" ] || return 0
+  _envof() { jq -r --arg n "$1" '([.containers[0].env[]? | select(.name == $n) | .value] | .[0]) // ""' "${MECH}/p03.json"; }
+  _hns=$(_envof SECONDARY_HARBOR_NAMESPACE); _hsec=$(_envof SECONDARY_GHCR_DEST_SECRET)
+  _hcm="${MECH}/cm/cutover-secondary-harbor-prewarm-script.json"
+  _pull="${PULL_SECRET}"
+  [ -n "${_pull}" ] || _pull="${DRY_RUN_PULL_SECRET}"
+  # The copies carry the pull Secret's type and data; a dry run has none, and
+  # an empty docker configuration stands for it.
+  _dcfg=$(printf '{"auths":{}}' | base64 | tr -d '\n')
+  _src=$(jq -cn --arg d "${_dcfg}" '{type: "kubernetes.io/dockerconfigjson", data: {".dockerconfigjson": $d}}')
+  jq -r '.data["kit-rewrite.sh"] // ""' "${MECH}/cm/cutover-step-06-helmrepository-patches.json" >"${MECH}/kit-rewrite.sh"
+  jq -r '.data["extract-pins.sh"] // ""' "${MECH}/cm/cutover-bootstrap-kit-pins.json" >"${MECH}/extract-pins.sh"
+  for _kc in $(followers); do
+    _r=$(basename "${_kc}" .yaml)
+    _f=$(_obj "${_r}-pull-secret")
+    printf '%s' "${_src}" | secret_copy "${RELEASE_NAMESPACE}" "${_pull}" >"${_f}"
+    plan_add "${_pl}" "${_kc}" ssa "${_f}" "Secret ${RELEASE_NAMESPACE}/${_pull} in ${_r} (the stage's copy of the pull credential)"
+    if [ -n "${_hns}" ] && [ -n "${_hsec}" ] && [ -s "${_hcm}" ]; then
+      _f=$(_obj "${_r}-prewarm-secret")
+      printf '%s' "${_src}" | secret_copy "${_hns}" "${_hsec}" >"${_f}"
+      plan_add "${_pl}" "${_kc}" ssa "${_f}" "Secret ${_hns}/${_hsec} in ${_r} (step 03's copy of the pull credential)"
+      _f=$(_obj "${_r}-prewarm-cm")
+      jq --arg ns "${_hns}" '{apiVersion: "v1", kind: "ConfigMap", metadata: {name: "cutover-secondary-harbor-prewarm", namespace: $ns},
+          data: {"secondary-harbor-prewarm.sh": (.data["secondary-harbor-prewarm.sh"] // ""), "images.list": "", "charts.list": ""}}' "${_hcm}" >"${_f}"
+      plan_add "${_pl}" "${_kc}" ssa "${_f}" "ConfigMap ${_hns}/cutover-secondary-harbor-prewarm in ${_r} (step 03)"
+      jq -r '.data["secondary-harbor-prewarm-job.yaml"] // ""' "${_hcm}" | sed "s/__REGION__/${_r}/g; s/__REGISTRY_PIN_IP__//g" >"${MECH}/objects/${_r}-prewarm-job.yaml"
+      _f=$(_obj "${_r}-prewarm-job")
+      k8s_json "${MECH}/objects/${_r}-prewarm-job.yaml" | head -n 1 >"${_f}" || { _mech_why="step 03's secondary-harbor-prewarm-job.yaml: ${_k8s_why}"; return 1; }
+      plan_add "${_pl}" "${_kc}" ssa-recreate "${_f}" "Job $(jq -r '.metadata.namespace + "/" + .metadata.name' "${_f}") in ${_r} (step 03)"
+    fi
+    _f=$(_obj "${_r}-scripts")
+    follower_scripts_cm "${MECH}/release-region.sh" "${MECH}/kit-rewrite.sh" "${MECH}/extract-pins.sh" >"${_f}"
+    plan_add "${_pl}" "${_kc}" ssa "${_f}" "ConfigMap ${SECONDARY_GITEA_NAMESPACE}/sovereign-release-scripts in ${_r} (promote)"
+    for _ph in check promote; do
+      _f=$(_obj "${_r}-${_ph}")
+      follower_job "${MECH}/follower-job.yaml" "${_r}" "${_ph}" >"${_f}"
+      plan_add "${_pl}" "${_kc}" ssa-recreate "${_f}" "Job ${SECONDARY_GITEA_NAMESPACE}/$(follower_job_name "${_r}" "${_ph}") in ${_r} (promote, ${_ph})"
+    done
+  done
+}
+
+# submit <region> <how> <file>: send one object to the API server of <region>:
+# ssa (server-side apply as the release), create, or ssa-recreate (a Job the
+# step deletes by name first, then applies). Step 03 sends its follower
+# ConfigMap and Job by a client-side apply; the dry run sends them by a
+# server-side one, which validates the same object, as that step's account
+# (the peer, cluster-admin), and this script makes no client-side apply (G13).
+# With SERVER_DRY_RUN=true it is a server-side dry run: authorization,
+# admission and validation run and nothing is stored. A Job the step recreates
+# is then created under a name generated from its own: a dry run cannot delete
+# the one an earlier delivery left, and an update of it would be refused as
+# immutable. The answer is STATE/submit.out.
+submit() {
+  _sr="$1"; _sh="$2"; _sf="$3"
+  set --
+  [ "${_sr}" = primary ] || set -- --kubeconfig "${_sr}"
+  if [ "${SERVER_DRY_RUN}" = true ]; then
+    set -- "$@" --dry-run=server
+    case "${_sh}" in
+      *-recreate)
+        k8s_json "${_sf}" | head -n 1 | jq -c '.metadata.generateName = (.metadata.name + "-") | del(.metadata.name)' >"${_sf}.dry"
+        _sf="${_sf}.dry"; _sh=create ;;
+    esac
+  fi
+  case "${_sh}" in
+    ssa|ssa-recreate) kubectl "$@" apply --server-side --force-conflicts --field-manager=sovereign-release -f - <"${_sf}" ;;
+    create) kubectl "$@" create -f - <"${_sf}" ;;
+    *) echo "submit: no way ${_sh}" ;;
+  esac >"${STATE}/submit.out" 2>&1
+}
+
+# whoami_in <region>: the user the API server of <region> takes this Pod's
+# calls for (a SelfSubjectReview, which every authenticated user may create).
+whoami_in() {
+  _wr="$1"; set --
+  [ "${_wr}" = primary ] || set -- --kubeconfig "${_wr}"
+  kubectl "$@" auth whoami -o 'jsonpath={.status.userInfo.username}' 2>/dev/null || true
+}
+
+# plan_submit <plan...>: send every object of the plans, in order. In a dry run
+# every object is sent and each refusal is a line of MECH/refused; otherwise
+# the first refusal stops it (_mech_why names the object and the answer).
+plan_submit() {
+  _ok=0; _no=0; : >"${MECH}/refused"
+  for _p in "$@"; do
+    [ -s "${_p}" ] || continue
+    while IFS="$(printf '\t')" read -r _pr _ph _pf _pw; do
+      [ -n "${_pr}" ] || continue
+      if submit "${_pr}" "${_ph}" "${_pf}" </dev/null; then _ok=$((_ok + 1)); continue; fi
+      _no=$((_no + 1))
+      _ans=$(grep -v '^[[:space:]]*$' "${STATE}/submit.out" | tr '\n' ' ' | sed 's/  */ /g' | cut -c1-900)
+      printf '%s: %s\n' "${_pw}" "${_ans}" >>"${MECH}/refused"
+      [ "${SERVER_DRY_RUN}" = true ] || { _mech_why="${_pw}: ${_ans}"; return 1; }
+    done <"${_p}"
+  done
+  _plan_ok="${_ok}"; _plan_no="${_no}"
+  [ "${_no}" -eq 0 ]
+}
+
+# server_dry_run: every object of plan_delivery and plan_later, sent to the API
+# server as a server-side dry run by the account that will create it: this
+# Pod's in the primary region (the bootstrap's, which deliver creates the
+# delivery's objects with) and each follower's peer kubeconfig. MECH/
+# server-dry-run and the state key serverDryRun say what it answered. 0: every
+# object accepted; 1: refusals, each named; 2: the delivery cannot be composed
+# (_mech_why).
+server_dry_run() {
+  plan_delivery || return 2
+  plan_later || return 2
+  _who="primary as $(whoami_in primary)"
+  for _kc in $(followers); do _who="${_who}, $(basename "${_kc}" .yaml) as $(whoami_in "${_kc}")"; done
+  SERVER_DRY_RUN=true
+  _sdrc=0; plan_submit "${MECH}/plan-deliver.tsv" "${MECH}/plan-later.tsv" || _sdrc=1
+  SERVER_DRY_RUN=false
+  _n=$((_plan_ok + _plan_no))
+  if [ "${_sdrc}" -eq 0 ]; then
+    printf 'passed: the API server accepted all %s objects the delivery creates, each as a server-side dry run by the account that creates it (%s); nothing was stored' "${_n}" "${_who}" >"${MECH}/server-dry-run"
+  else
+    printf 'refused: the API server refuses %s of the %s objects the delivery creates (server-side dry run; %s): %s' "${_plan_no}" "${_n}" "${_who}" "$(tr '\n' ';' <"${MECH}/refused" | sed 's/;$//; s/;/; /g')" >"${MECH}/server-dry-run"
+  fi
+  status_put --arg serverDryRun "$(cut -c1-6000 "${MECH}/server-dry-run")" --arg updatedAt "$(now)"
+  say "server dry run: $(cat "${MECH}/server-dry-run")"
+  sed 's/^/[release]   REFUSED /' "${MECH}/refused"
+  return "${_sdrc}"
+}
+
+# pod_stall <job>: why the Pod of a Job has started no container, or "": a Pod
+# on a node that cannot start it (no sandbox image, say) waits until the Job's
+# deadline, and only its waiting reason names the cause.
+pod_stall() {
+  kubectl -n "${RELEASE_NAMESPACE}" get pods -l "job-name=$1" -o json 2>/dev/null | jq -r '
+    def ctrs: [(.status.initContainerStatuses // [])[], (.status.containerStatuses // [])[]];
+    def why: ([ctrs[] | .state.waiting // empty | (.reason // "") + " " + (.message // "")]
+      + [(.status.conditions // [])[] | select(.status != "True") | (.reason // .type) + " " + (.message // "")]) | first // "no container started";
+    [.items[] | select(ctrs | any(.state.running or .state.terminated) | not)
+      | "Pod \(.metadata.name) on node \(.spec.nodeName // "none") (\(.status.phase // "unknown")): \(why)"] | first // ""' 2>/dev/null || true
+}
+
+# run_delivery: the server's dry run of every object the delivery creates, in
+# every region; then, only if it accepted all, what compose creates, in order
+# (the ConfigMaps the Job mounts, then the Job); then wait for the Job.
+run_delivery() {
+  _dj="${RELEASE_JOB}-delivery"
+  _sdr=0; server_dry_run || _sdr=$?
+  case "${_sdr}" in
+    0) ;;
+    2) return 1 ;;
+    *) _mech_why="the API server refuses what the delivery creates, so nothing was created: $(sed 's/^refused: //' "${MECH}/server-dry-run")"; return 1 ;;
+  esac
+  plan_submit "${MECH}/plan-deliver.tsv" || { _mech_why="cannot create ${_mech_why}"; return 1; }
   status_put --arg deliveryJob "${_dj}" --arg updatedAt "$(now)"
   say "the delivery runs as Job ${RELEASE_NAMESPACE}/${_dj}: prewarm and promote of $(cat "${MECH}/version")"
-  _deadline=$(( $(date +%s) + $(jq '.spec.activeDeadlineSeconds' "${MECH}/delivery-job.json") + 600 ))
-  _end=""
+  _start=$(date +%s)
+  _deadline=$(( _start + $(jq '.spec.activeDeadlineSeconds' "${MECH}/delivery-job.json") + 600 ))
+  _end=""; _stall=""
   while [ "$(date +%s)" -lt "${_deadline}" ]; do
+    # A Pod that has started no container after DELIVERY_STALL_SECONDS is
+    # named in the state (deliveryPod) while the wait goes on.
+    if [ "$(( $(date +%s) - _start ))" -ge "${DELIVERY_STALL_SECONDS:-600}" ]; then
+      _s=$(pod_stall "${_dj}")
+      if [ "${_s}" != "${_stall}" ]; then
+        _stall="${_s}"
+        status_put --arg deliveryPod "${_s:-started}" --arg updatedAt "$(now)"
+        [ -z "${_s}" ] || say "WARN: the delivery Job has started no container: ${_s}"
+      fi
+    fi
     _ok=$(kubectl -n "${RELEASE_NAMESPACE}" get job "${_dj}" -o jsonpath='{.status.succeeded}' 2>/dev/null || true)
     _bad=$(kubectl -n "${RELEASE_NAMESPACE}" get job "${_dj}" -o jsonpath='{.status.failed}' 2>/dev/null || true)
     if [ "${_ok:-0}" -ge 1 ] 2>/dev/null; then _end=ok; break; fi
@@ -384,7 +633,7 @@ run_delivery() {
   case "${_end}" in
     ok) return 0 ;;
     failed) return 3 ;;   # its own containers recorded the step and the cause
-    *) _mech_why="the delivery Job ${_dj} did not end within its deadline"; return 1 ;;
+    *) _mech_why="the delivery Job ${_dj} did not end within its deadline${_stall:+: ${_stall}}"; return 1 ;;
   esac
 }
 
@@ -414,16 +663,23 @@ run_follower() {
   _kc="$1"; _ph="$2"
   _region=$(basename "${_kc}" .yaml)
   [ -r "${RELEASE_SCRIPTS}/follower-job.yaml" ] || { say "FAILED: follower ${_region} has no Job manifest in ${RELEASE_SCRIPTS}"; return 1; }
-  _job=$(printf 'sovereign-release-%s-%s' "${_ph}" "${_region}" | cut -c1-63 | sed 's/-*$//')
+  _job=$(follower_job_name "${_region}" "${_ph}")
   _out="${STATE}/${_region}.${_ph}.out"
-  kubectl --kubeconfig "${_kc}" -n "${SECONDARY_GITEA_NAMESPACE}" create configmap sovereign-release-scripts \
-    --from-file=release-region.sh="${RELEASE_SCRIPTS}/release-region.sh" \
-    --from-file=kit-rewrite.sh="${KIT_REWRITE}" --from-file=extract-pins.sh="${PIN_EXTRACTOR}" \
-    --dry-run=client -o yaml | kubectl --kubeconfig "${_kc}" apply --server-side --force-conflicts --field-manager=sovereign-release -f - >/dev/null
-  kubectl --kubeconfig "${_kc}" -n "${SECONDARY_GITEA_NAMESPACE}" delete job "${_job}" --ignore-not-found=true --wait=true >/dev/null
-  sed -e "s|__JOB__|${_job}|g" -e "s|__REGION__|${_region}|g" -e "s|__PHASE__|${_ph}|g" \
-    -e "s|__MAIN_SHA__|$(state_get "${_region}" main)|g" -e "s|__STAGED_SHA__|$(state_get "${_region}" staged)|g" \
-    "${RELEASE_SCRIPTS}/follower-job.yaml" | kubectl --kubeconfig "${_kc}" apply --server-side --force-conflicts --field-manager=sovereign-release -f - >/dev/null
+  follower_scripts_cm "${RELEASE_SCRIPTS}/release-region.sh" "${KIT_REWRITE}" "${PIN_EXTRACTOR}" >"${STATE}/${_region}.${_ph}.scripts.json"
+  follower_job "${RELEASE_SCRIPTS}/follower-job.yaml" "${_region}" "${_ph}" >"${STATE}/${_region}.${_ph}.job"
+  # What the API server refuses ends the phase at once, with its answer.
+  _sub="${SECONDARY_GITEA_NAMESPACE}/sovereign-release-scripts"
+  if submit "${_kc}" ssa "${STATE}/${_region}.${_ph}.scripts.json"; then
+    kubectl --kubeconfig "${_kc}" -n "${SECONDARY_GITEA_NAMESPACE}" delete job "${_job}" --ignore-not-found=true --wait=true >/dev/null
+    _sub="Job ${SECONDARY_GITEA_NAMESPACE}/${_job}"
+    submit "${_kc}" ssa-recreate "${STATE}/${_region}.${_ph}.job" && _sub=""
+  fi
+  if [ -n "${_sub}" ]; then
+    echo "release-report region=${_region} reason the API server refused ${_sub}: $(grep -v '^[[:space:]]*$' "${STATE}/submit.out" | tr '\n' ' ' | cut -c1-600)" >"${_out}"
+    cat "${_out}"
+    record "${_region}" "${_ph}" "${_out}"
+    return 1
+  fi
   say "follower ${_region}: ${_ph} runs as Job ${SECONDARY_GITEA_NAMESPACE}/${_job}"
   _deadline=$(( $(date +%s) + FOLLOWER_WAIT_SECONDS ))
   _end=""
@@ -435,7 +691,12 @@ run_follower() {
     sleep "${FOLLOWER_POLL_SECONDS}"
   done
   kubectl --kubeconfig "${_kc}" -n "${SECONDARY_GITEA_NAMESPACE}" logs "job/${_job}" --tail=-1 >"${_out}" 2>&1 || true
-  [ -n "${_end}" ] || echo "release-report region=${_region} reason the Job did not end within ${FOLLOWER_WAIT_SECONDS}s" >>"${_out}"
+  if [ -z "${_end}" ]; then
+    # Nothing waits for it any more, so it must not run on: a promote that
+    # starts after the wait gave up would move this region unobserved.
+    kubectl --kubeconfig "${_kc}" -n "${SECONDARY_GITEA_NAMESPACE}" delete job "${_job}" --ignore-not-found=true --wait=false >/dev/null 2>&1 || true
+    echo "release-report region=${_region} reason the Job did not end within ${FOLLOWER_WAIT_SECONDS}s and was deleted" >>"${_out}"
+  fi
   cat "${_out}"
   record "${_region}" "${_ph}" "${_out}"
   [ "${_end}" = ok ]
@@ -486,7 +747,24 @@ case "${1:-}" in
       FOLLOWER_PREWARM_COVERED=false follower_storage
     fi
     if [ "${DRY_RUN}" = "true" ]; then
-      status_put --arg phase dry-run --arg message "dry run: every region merged rc/${CANDIDATE} cleanly in a scratch copy; nothing was pushed" --arg updatedAt "$(now)"
+      # The candidate's own verify sends every object the delivery would
+      # create, in every region, to the API server as a server-side dry run.
+      # A candidate whose release-run.sh predates it is said to, not passed.
+      _dm="; the objects of the delivery were not sent to the API server: the release-run.sh of rc/${CANDIDATE} has no verify"
+      if grep -q '^  verify)' "${MECH}/release-run.sh"; then
+        _vrc=0; sh "${MECH}/release-run.sh" verify || _vrc=$?
+        _sd=$(cat "${MECH}/server-dry-run" 2>/dev/null || echo "the candidate's verify exited ${_vrc}")
+        if [ "${_vrc}" -ne 0 ]; then
+          status_put --arg phase failed --arg failedStep stage \
+            --arg message "dry run failed: every region merged rc/${CANDIDATE} cleanly, but the delivery would not run: ${_sd}; nothing was pushed" --arg updatedAt "$(now)"
+          say "dry run FAILED: ${_sd}"
+          exit 1
+        fi
+        _dm="; ${_sd}"
+      else
+        status_put --arg serverDryRun "not run: the release-run.sh of rc/${CANDIDATE} has no verify" --arg updatedAt "$(now)"
+      fi
+      status_put --arg phase dry-run --arg message "dry run: every region merged rc/${CANDIDATE} cleanly in a scratch copy${_dm}; nothing was pushed" --arg updatedAt "$(now)"
       say "dry run complete: nothing was pushed"
       exit 0
     fi
@@ -517,6 +795,19 @@ case "${1:-}" in
       exit "${_drc}"
     fi
     ;;
+  verify)
+    # The candidate's: compose every object the delivery creates and send each
+    # to the API server as a server-side dry run (server_dry_run). Nothing is
+    # created; MECH/server-dry-run is the verdict, for the stage to record.
+    [ -s "${MECH}/version" ] || { say "FAILED: no rendered release mechanism in ${MECH}"; exit 1; }
+    _vrc=0; server_dry_run || _vrc=$?
+    if [ "${_vrc}" -eq 2 ]; then
+      printf 'not run: the delivery cannot be composed: %s' "${_mech_why}" >"${MECH}/server-dry-run"
+      status_put --arg serverDryRun "$(cat "${MECH}/server-dry-run")" --arg updatedAt "$(now)"
+      say "FAILED: $(cat "${MECH}/server-dry-run")"
+    fi
+    [ "${_vrc}" -eq 0 ] || exit 1
+    ;;
   compose)
     # The candidate's: build the delivery Job of this mechanism, and run it.
     _crc=0; run_delivery || _crc=$?
@@ -545,6 +836,12 @@ case "${1:-}" in
       say "prewarm failed (exit ${_prc}): nothing moved in any region"
       exit "${_prc}"
     fi
+    # A warning of step 03 (say, an installed ClusterRole that does not let it
+    # read the nodes' sandbox image yet) is in the state, not only in the log.
+    _wn=$(grep -c '\] WARNING' "${STATE}/prewarm.log" 2>/dev/null || true)
+    if [ "${_wn:-0}" -gt 0 ] 2>/dev/null; then
+      status_put --arg prewarmWarnings "${_wn} warning(s) of step 03: $(grep '\] WARNING' "${STATE}/prewarm.log" | sed 's/^\[[^]]*\] *WARNING:* *//' | head -n 3 | tr '\n' ';' | cut -c1-1200)" --arg updatedAt "$(now)"
+    fi
     ;;
   promote)
     status_put --arg phase promoting --arg updatedAt "$(now)"
@@ -556,7 +853,11 @@ case "${1:-}" in
     for kc in $(followers); do run_follower "${kc}" check || _rc=1; done
     if [ "${_rc}" -ne 0 ]; then
       _v=$(verdict check); _v="${_v:-failed}"
-      status_put --arg phase "${_v}" --arg message "a region changed after staging: no region was promoted; request the release again" --arg updatedAt "$(now)"
+      case "${_v}" in
+        moved|conflict) _m="a region changed after staging: no region was promoted; request the release again" ;;
+        *) _m="the check did not run to its end in every region (<region>.check.report names why): no region was promoted" ;;
+      esac
+      status_put --arg phase "${_v}" --arg message "${_m}" --arg updatedAt "$(now)"
       say "check ${_v}: no region was promoted"
       exit 1
     fi
@@ -569,5 +870,5 @@ case "${1:-}" in
     status_put --arg phase delivered --arg message "every region follows rc/${CANDIDATE} merged with its own commits" --arg deliveredAt "$(now)" --arg updatedAt "$(now)"
     say "delivered rc/${CANDIDATE}"
     ;;
-  *) say "usage: release-run.sh stage|deliver|compose|prewarm <command...>|promote"; exit 2 ;;
+  *) say "usage: release-run.sh stage|deliver|verify|compose|prewarm <command...>|promote"; exit 2 ;;
 esac
