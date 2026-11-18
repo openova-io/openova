@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T07:30:09Z` |
+| Last refreshed | `2026-11-18T07:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7773](https://github.com/openova-io/openova/issues/7773) | CTL-330 The services stop building the Kafka client | Other |
-| [#7774](https://github.com/openova-io/openova/issues/7774) | CTL-345 The flow endpoints answer only from the local store; check CTL-G12 | Other |
 | [#7775](https://github.com/openova-io/openova/issues/7775) | FND-073 The gate runs twice against the standing environment once it carries the | Other |
 | [#7776](https://github.com/openova-io/openova/issues/7776) | SVC-040 Blueprint files move to apiVersion catalyst.openova.io/v1 | Other |
 | [#7785](https://github.com/openova-io/openova/issues/7785) | SEC-103 Remove the SealedSecret templates from the guacamole and netbird charts | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#8067](https://github.com/openova-io/openova/issues/8067) | NET-212 Show the separation; refuse the claim when it is none | Other |
 | [#8079](https://github.com/openova-io/openova/issues/8079) | AIP-113 Durable spool and admin routes | Other |
 | [#8080](https://github.com/openova-io/openova/issues/8080) | CLD-102 Delete the dead Provision method of the provider port | Other |
+| [#8083](https://github.com/openova-io/openova/issues/8083) | AIP-150 The tool server accepts agent tokens | Other |
+| [#8084](https://github.com/openova-io/openova/issues/8084) | INF-132 Chart templates for the operations controller | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-18T07:43 | [#8082](https://github.com/openova-io/openova/pull/8082) | #7087 | docs(ledger): plan update |
 | 2026-11-18T07:16 | [#8078](https://github.com/openova-io/openova/pull/8078) | #7087 | docs(ledger): plan update |
 | 2026-11-18T07:26 | [#8076](https://github.com/openova-io/openova/pull/8076) | #7974 | chore: delete the flow server and the flow adapter with thei |
 | 2026-11-18T06:50 | [#8075](https://github.com/openova-io/openova/pull/8075) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-17T13:30 | [#8038](https://github.com/openova-io/openova/pull/8038) | #8037 | docs(ledger): result of the lab test MIG-030 (MIG-030) |
 | 2026-11-17T13:21 | [#8034](https://github.com/openova-io/openova/pull/8034) | #7087 | docs(ledger): plan update |
 | 2026-11-17T13:20 | [#8033](https://github.com/openova-io/openova/pull/8033) | #7823 | chore(kit): remove bootstrap-kit slot 05, the Sealed Secrets |
-| 2026-11-17T10:29 | [#8031](https://github.com/openova-io/openova/pull/8031) | #7785 | chore: remove the SealedSecret templates from the guacamole  |
 
 ---
 
