@@ -1788,6 +1788,7 @@ checks:
   needs: []
   proof: running
   asserts: Default deny
+  implemented_by: NET-150
   delivered_by: NET-166
 - id: NET-G07
   title: Organization isolation
