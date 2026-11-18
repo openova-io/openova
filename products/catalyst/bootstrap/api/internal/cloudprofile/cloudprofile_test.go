@@ -188,6 +188,11 @@ func TestLoadBothPacks(t *testing.T) {
 		l.Storage.DefaultClass != "local-path" || l.Credentials.Source != "operator" {
 		t.Errorf("local profile: %+v", l)
 	}
+	for _, name := range names {
+		if got := profiles[name].Spec.Seal.Kind; got != "static-node-file" {
+			t.Errorf("%s profile: spec.seal.kind %q, want static-node-file", name, got)
+		}
+	}
 	packs, err := LoadPacks(providersDir())
 	if err != nil {
 		t.Fatalf("LoadPacks: %v", err)
@@ -256,6 +261,7 @@ spec:
   objectStorage: {checksumAlgorithm: ""}
   network:
     loadBalancer: {mode: external-hostport}
+  seal: {kind: static-node-file}
   bootstrap: {userDataLimitBytes: 0}
   capabilities: {multiRegion: true, multiCloudRegion: false}
   day2: {contracts: []}
@@ -304,6 +310,10 @@ func TestValidateRejectsMissingFieldAndBadValues(t *testing.T) {
 	wantField(t, err, ErrBadEnum, "spec.lifecycle")
 	_, err = Load(fixtureDir(t, strings.Replace(demoProfile, "mode: external-hostport", "mode: nodeport", 1)))
 	wantField(t, err, ErrBadEnum, "spec.network.loadBalancer.mode")
+	_, err = Load(fixtureDir(t, strings.Replace(demoProfile, "  seal: {kind: static-node-file}\n", "", 1)))
+	wantField(t, err, ErrMissingField, "spec.seal")
+	_, err = Load(fixtureDir(t, strings.Replace(demoProfile, "kind: static-node-file", "kind: node-disk", 1)))
+	wantField(t, err, ErrBadEnum, "spec.seal.kind")
 	_, err = Load(fixtureDir(t, strings.Replace(demoProfile, "vcpu: 2", "vcpu: two", 1)))
 	wantField(t, err, ErrBadValue, "spec.compute.flavors[0].vcpu")
 	_, err = Load(fixtureDir(t, strings.Replace(demoProfile, "metadata: {name: demo}", "metadata: {name: other}", 1)))

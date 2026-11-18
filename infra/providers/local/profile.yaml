@@ -25,6 +25,7 @@ spec:
   objectStorage: {checksumAlgorithm: ""}
   network:
     loadBalancer: {mode: external-hostport}
+  seal: {kind: static-node-file}
   bootstrap: {userDataLimitBytes: 0}
   capabilities: {multiRegion: true, multiCloudRegion: false}
   day2: {contracts: []}

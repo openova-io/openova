@@ -472,6 +472,251 @@ func checkContractTest(moduleDir string, body []byte) []string {
 	return nil
 }
 
+// The seal hook of contract C8 (docs/contracts/c8-seal-provider.md): the
+// child module seal/ of every pack. sealInputs and sealOutputs are the
+// contract's tables: a hook declares exactly these.
+type sealInput struct {
+	typ        string // the type as the contract writes it
+	required   bool   // a required input has no default
+	defaultNum int64  // the default of an input that is not required
+}
+
+var (
+	sealInputs = map[string]sealInput{
+		"region_keys":         {typ: "set(string)", required: true},
+		"seal_key_generation": {typ: "number", defaultNum: 1},
+	}
+	// sealOutputs: the name of each output and whether it is sensitive.
+	sealOutputs = map[string]bool{
+		"kind":                 false,
+		"stanza_by_region":     false,
+		"node_files_by_region": true,
+		"volume_device":        false,
+	}
+	sealKinds = map[string]bool{"static-node-file": true, "cloud-key-service": true}
+	// tokenResources are the two k3s tokens every module declares beside
+	// the call of the hook.
+	tokenResources = []string{"k3s_server_token", "k3s_agent_token"}
+)
+
+// sortedNames returns the keys of a map in order.
+func sortedNames[V any](m map[string]V) []string {
+	names := make([]string, 0, len(m))
+	for name := range m {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// literalBool is the value of a literal true or false attribute, and false
+// when the attribute is absent.
+func literalBool(body *hclsyntax.Body, name string) (value, ok bool) {
+	attr, has := body.Attributes[name]
+	if !has {
+		return false, true
+	}
+	val, diags := attr.Expr.Value(nil)
+	if diags.HasErrors() || val.Type() != cty.Bool || !val.IsKnown() || val.IsNull() {
+		return false, false
+	}
+	return val.True(), true
+}
+
+// isTraversal tells whether expr is exactly the reference root.a.b...
+func isTraversal(expr hcl.Expression, names ...string) bool {
+	traversal, diags := hcl.AbsTraversalForExpr(expr)
+	if diags.HasErrors() || len(traversal) != len(names) || traversal.RootName() != names[0] {
+		return false
+	}
+	for i, name := range names[1:] {
+		step, isAttr := traversal[i+1].(hcl.TraverseAttr)
+		if !isAttr || step.Name != name {
+			return false
+		}
+	}
+	return true
+}
+
+// checkSealHook (rule 11): the pack has the hook seal/, and it declares
+// exactly the inputs and the outputs of contract C8, with their types,
+// defaults and sensitive flags. It returns the hook's kind, or "" when the
+// output kind is not a literal kind of the contract.
+func checkSealHook(hook *module) (problems []string, kind string) {
+	for _, name := range sortedNames(hook.variables) {
+		if _, named := sealInputs[name]; !named {
+			problems = append(problems, fmt.Sprintf("the seal hook declares the input %q, which contract C8 does not name", name))
+		}
+	}
+	for _, name := range sortedNames(sealInputs) {
+		want := sealInputs[name]
+		block, declared := hook.variables[name]
+		if !declared {
+			problems = append(problems, fmt.Sprintf("the seal hook does not declare the input %q of contract C8", name))
+			continue
+		}
+		wantExpr, diags := hclsyntax.ParseExpression([]byte(want.typ), "contract C8", hcl.InitialPos)
+		if diags.HasErrors() {
+			problems = append(problems, fmt.Sprintf("input %q: the contract's type does not parse: %s", name, diags.Error()))
+			continue
+		}
+		_, wantCanonical, err := typeOf(wantExpr)
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("input %q: the contract's type: %v", name, err))
+			continue
+		}
+		typeAttr, hasType := block.Body.Attributes["type"]
+		if !hasType {
+			problems = append(problems, fmt.Sprintf("the seal hook's input %q has no type; contract C8 says %s", name, want.typ))
+		} else if _, got, err := typeOf(typeAttr.Expr); err != nil || got != wantCanonical {
+			problems = append(problems, fmt.Sprintf("the seal hook's input %q has the type %s; contract C8 says %s", name, got, wantCanonical))
+		}
+		defaultAttr, hasDefault := block.Body.Attributes["default"]
+		switch {
+		case want.required && hasDefault:
+			problems = append(problems, fmt.Sprintf("the seal hook's input %q has a default; contract C8 says it is required", name))
+		case !want.required && !hasDefault:
+			problems = append(problems, fmt.Sprintf("the seal hook's input %q has no default; contract C8 gives it the default %d", name, want.defaultNum))
+		case !want.required:
+			val, diags := defaultAttr.Expr.Value(nil)
+			if diags.HasErrors() || val.Type() != cty.Number || !val.IsKnown() || val.IsNull() || !val.RawEquals(cty.NumberIntVal(want.defaultNum)) {
+				problems = append(problems, fmt.Sprintf("the seal hook's input %q has another default than the %d of contract C8", name, want.defaultNum))
+			}
+		}
+	}
+	for _, name := range sortedNames(hook.outputs) {
+		if _, named := sealOutputs[name]; !named {
+			problems = append(problems, fmt.Sprintf("the seal hook declares the output %q, which contract C8 does not name", name))
+		}
+	}
+	for _, name := range sortedNames(sealOutputs) {
+		block, declared := hook.outputs[name]
+		if !declared {
+			problems = append(problems, fmt.Sprintf("the seal hook does not declare the output %q of contract C8", name))
+			continue
+		}
+		sensitive, ok := literalBool(block.Body, "sensitive")
+		if !ok {
+			problems = append(problems, fmt.Sprintf("the seal hook's output %q: sensitive is not a literal true or false", name))
+		} else if sensitive != sealOutputs[name] {
+			problems = append(problems, fmt.Sprintf("the seal hook's output %q has sensitive = %t; contract C8 says %t", name, sensitive, sealOutputs[name]))
+		}
+	}
+	if block, declared := hook.outputs["kind"]; declared {
+		attr, has := block.Body.Attributes["value"]
+		if !has {
+			problems = append(problems, "the seal hook's output \"kind\" has no value")
+			return problems, ""
+		}
+		val, diags := attr.Expr.Value(nil)
+		if diags.HasErrors() || val.Type() != cty.String || !val.IsKnown() || val.IsNull() {
+			problems = append(problems, "the seal hook's output \"kind\" is not a literal string")
+			return problems, ""
+		}
+		if !sealKinds[val.AsString()] {
+			problems = append(problems, fmt.Sprintf("the seal hook's output \"kind\" is %q; contract C8 names static-node-file and cloud-key-service", val.AsString()))
+			return problems, ""
+		}
+		kind = val.AsString()
+	}
+	return problems, kind
+}
+
+// checkSealKind (rule 12): the profile's spec.seal.kind equals the hook's
+// kind, and the module emits seal_kind as module.seal.kind.
+func checkSealKind(profile *cloudprofile.Profile, m *module, kind string) []string {
+	var problems []string
+	if kind != "" && profile.Spec.Seal.Kind != kind {
+		problems = append(problems, fmt.Sprintf("profile.yaml spec.seal.kind is %q; the seal hook's output \"kind\" is %q", profile.Spec.Seal.Kind, kind))
+	}
+	block, declared := m.outputs["seal_kind"]
+	if !declared {
+		return append(problems, "the module does not declare the output \"seal_kind\"")
+	}
+	if attr, has := block.Body.Attributes["value"]; !has || !isTraversal(attr.Expr, "module", "seal", "kind") {
+		problems = append(problems, "the module's output \"seal_kind\" is not module.seal.kind")
+	}
+	return problems
+}
+
+// checkSealCall (rule 13): the module calls the hook once as module "seal"
+// with source "./seal" and both inputs, and declares the two k3s tokens with
+// for_each, length = 64 and special = false.
+func checkSealCall(m *module) []string {
+	var problems []string
+	var calls []*hclsyntax.Block
+	for _, body := range m.bodies {
+		for _, b := range body.Blocks {
+			if b.Type == "module" && len(b.Labels) == 1 && b.Labels[0] == "seal" {
+				calls = append(calls, b)
+			}
+		}
+	}
+	if len(calls) != 1 {
+		problems = append(problems, fmt.Sprintf("the module calls module \"seal\" %d times, not once", len(calls)))
+	} else {
+		call := calls[0].Body
+		source := ""
+		if attr, has := call.Attributes["source"]; has {
+			if val, diags := attr.Expr.Value(nil); !diags.HasErrors() && val.Type() == cty.String && val.IsKnown() && !val.IsNull() {
+				source = val.AsString()
+			}
+		}
+		if source != "./seal" {
+			problems = append(problems, fmt.Sprintf("module \"seal\" has the source %q, not \"./seal\"", source))
+		}
+		for _, input := range sortedNames(sealInputs) {
+			if _, has := call.Attributes[input]; !has {
+				problems = append(problems, fmt.Sprintf("module \"seal\" does not set the input %q", input))
+			}
+		}
+	}
+	for _, name := range tokenResources {
+		var found *hclsyntax.Block
+		for _, r := range m.resources {
+			if r.Labels[0] == "random_password" && r.Labels[1] == name {
+				found = r
+			}
+		}
+		if found == nil {
+			problems = append(problems, fmt.Sprintf("the module does not declare random_password.%s", name))
+			continue
+		}
+		if _, has := found.Body.Attributes["for_each"]; !has {
+			problems = append(problems, fmt.Sprintf("random_password.%s has no for_each over the region keys", name))
+		}
+		length := cty.NilVal
+		if attr, has := found.Body.Attributes["length"]; has {
+			if val, diags := attr.Expr.Value(nil); !diags.HasErrors() {
+				length = val
+			}
+		}
+		if length == cty.NilVal || length.Type() != cty.Number || !length.IsKnown() || length.IsNull() || !length.RawEquals(cty.NumberIntVal(64)) {
+			problems = append(problems, fmt.Sprintf("random_password.%s does not set length = 64", name))
+		}
+		_, hasSpecial := found.Body.Attributes["special"]
+		if special, ok := literalBool(found.Body, "special"); !hasSpecial || !ok || special {
+			problems = append(problems, fmt.Sprintf("random_password.%s does not set special = false", name))
+		}
+	}
+	return problems
+}
+
+// checkSeal runs rules 11 to 13 for one pack.
+func checkSeal(profile *cloudprofile.Profile, m *module) ([]string, error) {
+	hook, ok, err := parseModule(filepath.Join(m.dir, "seal"))
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return []string{"the pack has no seal hook: seal/ holds no *.tf file (contract C8)"}, nil
+	}
+	problems, kind := checkSealHook(hook)
+	problems = append(problems, checkSealKind(profile, m, kind)...)
+	problems = append(problems, checkSealCall(m)...)
+	return problems, nil
+}
+
 // templateArguments returns the argument names of every call that renders
 // the shared control-plane template, one set per call.
 func templateArguments(m *module) ([]map[string]bool, error) {
@@ -575,7 +820,7 @@ func TestProviderPacks(t *testing.T) {
 	}
 
 	for _, name := range names {
-		pack, m := packs[name], modules[name]
+		pack, profile, m := packs[name], profiles[name], modules[name]
 		t.Run(name, func(t *testing.T) {
 			if pack.Spec.ContractVersion != contract.Version {
 				t.Errorf("pack.yaml spec.contractVersion is %q; the contract is version %q", pack.Spec.ContractVersion, contract.Version)
@@ -592,6 +837,13 @@ func TestProviderPacks(t *testing.T) {
 			t.Run("boot data", func(t *testing.T) { report(t, checkBootData(m)) })
 			t.Run("no node port", func(t *testing.T) { report(t, checkNoNodePort(m)) })
 			t.Run("contract test", func(t *testing.T) { report(t, checkContractTest(m.dir, body)) })
+			t.Run("seal", func(t *testing.T) {
+				problems, err := checkSeal(profile, m)
+				if err != nil {
+					t.Fatal(err)
+				}
+				report(t, problems)
+			})
 
 			// The three sub-tests below wait for the package that makes
 			// them true for every pack. That package removes the Skip line.

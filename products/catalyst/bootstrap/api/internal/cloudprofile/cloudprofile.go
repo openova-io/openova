@@ -138,7 +138,7 @@ type Spec struct {
 	Storage              Storage       `json:"storage"`
 	ObjectStorage        ObjectStorage `json:"objectStorage"`
 	Network              Network       `json:"network"`
-	Seal                 *Seal         `json:"seal,omitempty"`
+	Seal                 Seal          `json:"seal"`
 	Registry             *Registry     `json:"registry,omitempty"`
 	Bootstrap            Bootstrap     `json:"bootstrap"`
 	Capabilities         Capabilities  `json:"capabilities"`
