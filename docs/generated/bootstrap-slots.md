@@ -61,7 +61,7 @@ One row for each HelmRelease of each file that `clusters/_template/bootstrap-kit
 | 23 | 23-mimir.yaml | bp-mimir | mimir | mimir | bp-mimir | - | - | same |
 | 24 | 24-tempo.yaml | bp-tempo | tempo | tempo | bp-tempo | - | - | same |
 | 25 | 25-grafana.yaml | bp-grafana | grafana | grafana | bp-grafana | bp-cnpg, bp-loki, bp-mimir, bp-tempo, bp-keycloak, bp-gateway-api, bp-external-secrets, bp-postgres-shared-b | - | same |
-| 26 | 26-network-policies.yaml | bp-network-policies | network-policies | catalyst-system | bp-network-policies | bp-cilium | `values.enabled=false` | same |
+| 26 | 26-network-policies.yaml | bp-network-policies | network-policies | catalyst-system | bp-network-policies | bp-cilium | `values.enabled=true` | same |
 | 26b | 26b-bp-plane-isolation.yaml | bp-plane-isolation | plane-isolation | catalyst-system | bp-plane-isolation | bp-cilium, bp-network-policies | - | same |
 | 27 | 27-kyverno.yaml | bp-kyverno | kyverno | kyverno | bp-kyverno | bp-cilium, bp-cert-manager | - | same |
 | 27a | 27a-kyverno-policies.yaml | bp-kyverno-policies | kyverno-policies | kyverno | bp-kyverno-policies | bp-kyverno | - | same |
