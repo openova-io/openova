@@ -25,7 +25,6 @@ on:
       - "platform/cilium/**"
       - "platform/sso-bridge/**"
       - "platform/oidc-gate/**"
-      - "platform/openova-flow-server/**"
       # #5597 — SCOPED to the catalyst-api SSO/auth-landing surface only, NOT
       # the whole `bootstrap/api/**`. The broad glob fired the SSO-row flip on
       # ANY api change: commit 71c54d8d (the #5535 cutover secondary-kubeconfigs
@@ -61,7 +60,6 @@ on:
       - "clusters/_template/bootstrap-kit/19-harbor.yaml"
       - "clusters/_template/bootstrap-kit/25-grafana.yaml"
       - "clusters/_template/bootstrap-kit/52-bp-guacamole.yaml"
-      - "clusters/_template/bootstrap-kit/56-bp-openova-flow-server.yaml"
       - "clusters/_template/bootstrap-kit/80-newapi.yaml"
 
       # ── EXCLUSIONS (#5648) — must follow the positive patterns ──────────

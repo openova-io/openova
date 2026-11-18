@@ -3532,8 +3532,8 @@ from each platform/<x>/blueprint.yaml so the catalog-seed-lockstep guard
 vcluster apps (bp-dmz/mgmt/rtz-vcluster, bp-vcluster-helmrepo) live at
 platform/bp-<name>/ (already bp-prefixed), so `bp_short=<name>` maps to a
 non-existent platform/<name>/ and the lockstep guard SKIPS them (no source)
-— minimal singleton blocks are authored here for them, same as bp-continuum
-and the bp-openova-flow-* pair which have no platform/<short>/blueprint.yaml.
+— minimal singleton blocks are authored here for them, same as bp-continuum,
+which has no platform/<short>/blueprint.yaml.
 ─────────────────────────────────────────────────────────────────────────
 */}}
 ---
@@ -5316,103 +5316,6 @@ spec:
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
-  endpoints: []
----
-apiVersion: catalyst.openova.io/v1
-kind: Blueprint
-metadata:
-  name: bp-openova-flow-server
-  labels:
-    catalyst.openova.io/managed-by: catalog-seed
-    catalyst.openova.io/origin: openova-public
-    catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/category: platform
-    catalyst.openova.io/section: pts-3-observability
-    app.kubernetes.io/managed-by: {{ $managedBy }}
-    app.kubernetes.io/instance: {{ $instance }}
-spec:
-  version: "0.2.7"
-  visibility: unlisted
-  card:
-    title: "OpenOva Flow Server"
-    category: platform
-    summary: "Wire-capture aggregation server for the OpenOva Flow diagnostics pipeline — collects emitter events into a queryable provenance stream for operator forensics."
-    icon: flow.svg
-  placementSchema:
-    modes: [single-region]
-    default: single-region
-  manifests:
-    chart: bp-openova-flow-server
-  source:
-    kind: HelmRepository
-    type: oci
-    url: oci://ghcr.io/openova-io
-    chart: bp-openova-flow-server
-    version: "0.2.7"
-  topology:
-    supported:
-      - singleton
-    defaults:
-      multi-region: singleton
-      single-region: singleton
-    perTopology:
-      singleton:
-        placement:
-          tier: mgmt
-          clusters: [mgmt-A]
-          roles:
-            mgmt-A: singleton
-  endpoints: []
----
-apiVersion: catalyst.openova.io/v1
-kind: Blueprint
-metadata:
-  name: bp-openova-flow-emitter
-  labels:
-    catalyst.openova.io/managed-by: catalog-seed
-    catalyst.openova.io/origin: openova-public
-    catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/category: platform
-    catalyst.openova.io/section: pts-3-observability
-    app.kubernetes.io/managed-by: {{ $managedBy }}
-    app.kubernetes.io/instance: {{ $instance }}
-spec:
-  version: "0.1.2"
-  visibility: unlisted
-  card:
-    title: "OpenOva Flow Emitter"
-    category: platform
-    summary: "Per-node provenance emitter for the OpenOva Flow diagnostics pipeline — taps control-plane events and ships them to bp-openova-flow-server."
-    icon: flow.svg
-  placementSchema:
-    modes: [single-region]
-    default: single-region
-  manifests:
-    chart: bp-openova-flow-emitter
-  source:
-    kind: HelmRepository
-    type: oci
-    url: oci://ghcr.io/openova-io
-    chart: bp-openova-flow-emitter
-    version: "0.1.2"
-  topology:
-    supported:
-      - singleton
-    defaults:
-      multi-region: singleton
-      single-region: singleton
-    perTopology:
-      singleton:
-        placement:
-          tier: ""
-          clusters: [mgmt-A, mgmt-B, dmz-A, dmz-B, rtz-A, rtz-B]
-          roles:
-            mgmt-A: singleton
-            mgmt-B: singleton
-            dmz-A: singleton
-            dmz-B: singleton
-            rtz-A: singleton
-            rtz-B: singleton
   endpoints: []
 ---
 apiVersion: catalyst.openova.io/v1

@@ -176,7 +176,6 @@ REQUIRED_HRS=(
     bp-mimir bp-tempo bp-alloy
     bp-newapi bp-vllm
     bp-opentelemetry bp-opentelemetry-operator
-    bp-openova-flow-server bp-openova-flow-emitter
     bp-reloader bp-reflector bp-vpa
     bp-guacamole bp-k8s-ws-proxy bp-openova-mcp
     bp-catalyst-platform bp-continuum
