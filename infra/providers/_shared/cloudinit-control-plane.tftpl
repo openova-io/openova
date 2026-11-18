@@ -507,10 +507,11 @@ CILIUMVALUES
   # ── Flux bootstrap: GitRepository + bootstrap-kit Kustomization ───────
   # From here Flux owns the cluster. The postBuild.substitute map threads
   # every Sovereign-shape value into clusters/_template/bootstrap-kit/*.
-  # Provider-conditional substitutes (HCLOUD_HR_SUSPEND vs HUAWEI_HR_SUSPEND,
-  # Gateway NodePort vs LB, registry-mirror endpoint, PDNS host) are gated
-  # by `provider` below — these are bootstrap-kit envsubst keys, NOT new
-  # bootstrap logic, so they stay declarative + lockstep across clouds.
+  # The substitutes that differ per cloud (HCLOUD_HR_SUSPEND vs
+  # HUAWEI_HR_SUSPEND, the registry-mirror endpoint, the PDNS host) are
+  # the input provider_substitutes_yaml (CLD-131): each provider module
+  # renders its own provider-substitutes.yaml.tftpl and passes the text,
+  # which the ConfigMap sovereign-variables below writes in.
   #
   # #7893: this document travels packed (`encoding: gz+b64`), as the files
   # above do since CLD-185. It was about 7,160 of the 30,850 bytes of the
@@ -861,191 +862,8 @@ CILIUMVALUES
             SOVEREIGN_REGION_ROLE: "${sovereign_region_role}"
             SOVEREIGN_REGIONS_JSON: '${sovereign_regions_json}'
             SOVEREIGN_CONFIGURED_REGIONS_YAML: '${sovereign_configured_regions_yaml}'
-%{ if provider == "hetzner" ~}
-            # Hetzner: hcloud-CCM allocates the clustermesh-apiserver LB +
-            # the Gateway binds host 443/80 directly (the tofu hcloud LB
-            # forwards 443→… to envoy). Suspend HCS-only HRs (bp-velero-hcs).
-            # #4765 — the clustermesh Service type is hardcoded LoadBalancer in
-            # slot-01 (NodePort ABSOLUTELY FORBIDDEN), so the former
-            # CLUSTERMESH_SERVICE_TYPE substitute is retired here.
-            HCLOUD_LB_LOCATION: "${region}"
-            SOVEREIGN_FQDN_SLUG: "${sovereign_fqdn_slug}"
-            HUAWEI_HR_SUSPEND: "true"
-            HCLOUD_HR_SUSPEND: "false"
-            # #3971 — drive bp-hcloud-csi's chart `enabled` toggle (slot 55a).
-            # Hetzner installs the real Hetzner Cloud CSI + the hcloud-volumes
-            # default StorageClass. The HR stays ACTIVE (never suspended) on
-            # BOTH providers so the stateful root slots (bp-cnpg / bp-mgmt-
-            # vcluster) can `dependsOn` it without deadlocking — see slot 55a.
-            HCLOUD_CSI_ENABLED: "true"
-            # #892 — drive bp-huawei-evs-csi's chart `enabled` toggle (slot 55b).
-            # Slot 55b is now ACTIVE on Hetzner too (no longer HUAWEI_HR_SUSPEND-
-            # suspended) because the stateful root slots bp-cnpg/bp-mgmt-vcluster
-            # now `dependsOn` it (a dependsOn on a SUSPENDED HR deadlocks). On
-            # Hetzner EVS_CSI_ENABLED=false renders an EMPTY release (Ready
-            # immediately, zero EVS resources) — the durable default class on
-            # Hetzner is hcloud-volumes from slot 55a; the Hetzner-irrelevant EVS
-            # driver never installs. WITHOUT this explicit "false" the chart
-            # default ($${EVS_CSI_ENABLED:=true}) would try to install the EVS
-            # driver on Hetzner. Mirrors HCLOUD_CSI_ENABLED:false on the Huawei
-            # side below.
-            EVS_CSI_ENABLED: "false"
-            # #3971 (Refs #3992) — explicit per-provider durable StorageClass
-            # name for the host-shared CNPG clusters (gitea-pg / harbor-pg /
-            # guacamole-pg, slots 10/19/52). NAMING (not omitting) the class on
-            # those Cluster CRs is the load-bearing fix for the empty-string
-            # freeze: a PVC created with storageClassName UNSET BEFORE a default
-            # StorageClass exists has "" PERMANENTLY frozen in by the
-            # admission-default plugin and never picks up the default later —
-            # the exact failure caught live on hw174 (gitea-pg-1/harbor-pg-1/
-            # guacamole-pg-1 stuck Pending with empty SC because their PVCs were
-            # minted at 21:03Z, 2h09m BEFORE evs-ssd appeared at 23:12Z). A PVC
-            # that NAMES the class instead stays Pending (not frozen) until the
-            # class exists, then binds — race-immune. On Hetzner the CSI default
-            # is hcloud-volumes.
-            #
-            # #4057 — the class is now the operator-chosen
-            # `default_storage_class` tofu var (catalyst-api
-            # Request.StorageClass, defaulted to the per-provider durable CSI
-            # class `hcloud-volumes` when the wizard field is omitted). The tofu
-            # variable validation rejects "" and "local-path", so this substitute
-            # can never render an empty or ephemeral class.
-            SOVEREIGN_CNPG_STORAGE_CLASS: "${default_storage_class}"
-            # #5086 Hetzner DNS front door: dnsdist hostPort:53 DaemonSet binds
-            # node:53 (LB-IPAM anycast VIP dead here). hostPort, NEVER nodePort.
-            POWERDNS_DNSDIST_HOSTPORT: "true"
-%{ endif ~}
-%{ if provider == "huawei" ~}
-            # Huawei: no cloud CCM. Cilium LB-IPAM assigns the ExternalIP
-            # from this region's CP EIP/32 to both the clustermesh Service
-            # and the cilium-provisioned gateway `type=LoadBalancer` Service
-            # (#4682, hostNetwork OFF). The tofu HCS ELB L4-passthrough-maps
-            # public 443→gateway-Service:443 + 80→…:80, so the Gateway
-            # listeners serve the standard :443/:80. bastion mirror +
-            # PDNS-host overrides + per-region HR suspension also flow here.
-            HCLOUD_HR_SUSPEND: "true"
-            HUAWEI_HR_SUSPEND: "false"
-            # #3971 — bp-hcloud-csi (slot 55a) stays ACTIVE on Huawei but with
-            # the chart `enabled=false`, so it installs an EMPTY release that
-            # reports Ready immediately (the dependsOn from the stateful root
-            # slots is satisfied without the suspended-HR deadlock). The Hetzner
-            # Cloud CSI obviously does NOT run on HCS; Huawei's durable default
-            # StorageClass is the EVS CSI at slot 55b (below), which installs for
-            # real on Huawei (EVS_CSI_ENABLED=true).
-            HCLOUD_CSI_ENABLED: "false"
-            # #3971 follow-up — bp-huawei-evs-csi (slot 55b) installs the
-            # open-source huaweicloud-csi-driver EVS plugin + the evs-ssd default
-            # StorageClass so Huawei PVCs land on durable EVS block volumes (not
-            # the FORBIDDEN local-path). The driver derives every EVS service
-            # endpoint as https://<svc>.<region>.<cloud>/; pass the HCS cloud
-            # domain + the regional IAM auth-url so it never falls back to the
-            # public *.myhuaweicloud.com endpoints (unreachable from kom4dc).
-            HUAWEI_CLOUD_DOMAIN: "kom4dc.nationalcloud.om"
-            HUAWEI_AUTH_URL: "https://iam.${region}.kom4dc.nationalcloud.om/v3"
-            # EVS_CSI_ENABLED="true" — the HCS IAM auth blocker is FIXED and
-            # live-proven on hw174 (2026-06-21). The driver image is the
-            # OpenOva-patched fork (platform/huawei-evs-csi/driver-src) with the
-            # `idc` no-Keystone bypass: idc=true (the chart default) skips the
-            # Keystone /v3/auth/catalog|tokens fetch HCS me-east-215 doesn't
-            # publish (APIGW.0101) and signs every EVS/ECS call directly with
-            # SDK-HMAC-SHA256 AK/SK signing. Proof: the patched controller ran
-            # 6/6 / 0-restart, provisioned real EVS disks (`Got device path:
-            # /dev/vdb`), and the 12 Pending stateful PVCs bound → vClusters
-            # scheduled → spine resumed. local-path is FORBIDDEN, so a Huawei
-            # prov MUST install the EVS CSI; only flip to "false" for a
-            # deliberate no-storage smoke prov. #3971
-            EVS_CSI_ENABLED: "true"
-            # #3971 (Refs #3992 #4012) — explicit durable StorageClass name for
-            # the host-shared CNPG clusters (gitea-pg / harbor-pg / guacamole-pg,
-            # slots 10/19/52). evs-ssd is the default class the slot-55b EVS CSI
-            # installs. Naming it (vs omitting) makes these PVCs RACE-IMMUNE: with
-            # storageClassName UNSET the admission-default plugin freezes "" the
-            # instant a PVC is created before any default SC exists, and that ""
-            # is permanent (caught live on hw174 — gitea/harbor/guacamole-pg-1
-            # stuck Pending<empty>, 2h before evs-ssd appeared, while every PVC
-            # that named or post-dated the class Bound cleanly). A NAMED class
-            # instead keeps the PVC Pending (recoverable) until evs-ssd exists,
-            # then binds with zero re-creation — so the moment EVS_CSI_ENABLED
-            # flips true (or the SC lands by any path) these three converge.
-            #
-            # #4057 — the class is now the operator-chosen
-            # `default_storage_class` tofu var (catalyst-api
-            # Request.StorageClass, defaulted to the per-provider durable CSI
-            # class `evs-ssd` when the wizard field is omitted). The tofu
-            # variable validation rejects "" and "local-path", so this substitute
-            # can never render an empty or ephemeral class.
-            SOVEREIGN_CNPG_STORAGE_CLASS: "${default_storage_class}"
-            SECONDARY_HR_SUSPEND: "${sovereign_region_role == "primary" ? "false" : "true"}"
-            # #5289 — the symmetric INVERSE of SECONDARY_HR_SUSPEND for the
-            # region-b control-plane edge (bootstrap-kit slot 13b,
-            # bp-catalyst-secondary-edge). The umbrella bp-catalyst-platform
-            # is suspended on secondary CPs (G2 #2574), so those CPs serve NO
-            # api./console./marketplace. HTTPRoute and 404 ~half the requests
-            # that the #5246 both-region console ELB steers at their envoy.
-            # Slot 13b un-suspends there (suspend=false) to render the
-            # ClusterMesh global-Service stubs + HTTPRoutes that proxy those
-            # hosts back to region-a's singletons; on the PRIMARY CP the edge
-            # HR stays suspended (the umbrella already serves the routes
-            # locally). Renders "true" on the primary CP, "false" on every
-            # secondary CP — exactly opposite SECONDARY_HR_SUSPEND. On a
-            # single-region prov the only CP is "primary" → suspended → the
-            # slot-13b HR is inert and the render is unchanged from today.
-            SECONDARY_EDGE_SUSPEND: "${sovereign_region_role == "primary" ? "true" : "false"}"
-            # #4765 — the ONE shared LB-IPAM CIDR for the sovereign-vip pool.
-            # bp-cilium 1.4.9 renders a SINGLE CiliumLoadBalancerIPPool
-            # `sovereign-vip` from cilium.lbIpam; the clustermesh-apiserver
-            # (:2379) + powerdns anycast (:53) Services co-locate on this
-            # CP-node EIP via the `lbipam.cilium.io/sharing-key: sovereign-vip`
-            # annotation. The pre-#4765 CILIUM_GATEWAY_LB_IPAM_* substitutes are
-            # RETIRED: they seeded a SECOND pool (sovereign-gateway) on this
-            # SAME /32 → Conflicting=True → the clustermesh Service was starved
-            # of its VIP → forbidden NodePort fallback (hw224
-            # `…mesh.cilium.io:30868`). The gateway needs no LB-IPAM pool — it
-            # rides gateway-api hostNetwork (node:443/:80 direct, §854-clean;
-            # the ELB members target those durable host ports, NOT a nodePort —
-            # see infra/providers/huawei/main.tf elb_primary + variables.tf
-            # gateway_member_port_*). Left UNSET on Hetzner (hcloud-ccm path).
-            CILIUM_LB_IPAM_ENABLED: "true"
-            CILIUM_LB_IPAM_CIDRS: "${node_external_ip_value}/32"
-            # #4784 — clustermesh-proxy: the shared Sovereign EIP is the
-            # CP-node IP (1:1 NAT) AND the CP node runs k3s' own etcd on host
-            # :2379, so a peer dialing <EIP>:2379 lands on k3s etcd, not the
-            # Cilium clustermesh-apiserver (proven live hw225, #4784). Enable
-            # the bp-cilium clustermesh-proxy DaemonSet (hostNetwork socket on
-            # a dedicated non-2379 port → TCP-passthrough to the
-            # clustermesh-apiserver etcd) and point peers at it. The port MUST
-            # match infra/providers/huawei clustermesh_proxy_port (SG rule) +
-            # the catalyst-api CLUSTERMESH_APISERVER_DIAL_PORT env. Left UNSET
-            # on Hetzner (hcloud-ccm LB IP has no k3s-etcd host collision).
-            CILIUM_CLUSTERMESH_PROXY_ENABLED: "true"
-            CILIUM_CLUSTERMESH_PROXY_PORT: "${clustermesh_proxy_port}"
-            # catalyst-api dials peers on this port instead of 2379 (#4784).
-            # Consumed by the catalyst-api Deployment env (products/catalyst
-            # chart) — see clustermesh.go clusterMeshDialPort().
-            CLUSTERMESH_APISERVER_DIAL_PORT: "${clustermesh_proxy_port}"
-            # #4706 — lockstep w/ the cilium-values hostNetwork block above.
-            CILIUM_GATEWAY_HOSTNETWORK_ENABLED: "true"
-            # #4706 — console gateway binds 8443/8080 under hostNetwork (two
-            # Gateways cannot both bind node:443); the console ELB keeps public
-            # :443/:80 and forwards to node:8443/:8080. Lockstep: slot-13
-            # consoleGateway ports + main.tf console member/monitor ports.
-            CONSOLE_GATEWAY_HTTPS_PORT: "8443"
-            CONSOLE_GATEWAY_HTTP_PORT: "8080"
-            SOVEREIGN_GATEWAY_HTTPS_PORT: "443"
-            SOVEREIGN_GATEWAY_HTTP_PORT: "80"
-            HARBOR_PROXY_MIRROR_ENDPOINT: "http://212.72.24.20:5000"
-            PDNS_API_HOST: "${pdns_api_host}"
-            # #4656/#4854 — per-node pod-CIDR VPC route reconciler (bp-cilium
-            # CronJob). The #4807 whole-/16 peering routes only carry pod
-            # traffic INTO the peer VPC; without a per-/24 `type=ecs` route in
-            # the VPC's own table, delivery to the owning node rides
-            # Huawei-fabric learning and black-holes PER-NODE (hw228 wab0925,
-            # grafana 326× crashloop). node.spec.podCIDR is runtime data, so
-            # an in-cluster reconciler — not tofu — owns these routes. Creds
-            # resolve via the slot-01 valuesFrom against cloud-credentials
-            # (huawei-ak/sk/project-id/region). Left UNSET on Hetzner (pod
-            # routing rides the WireGuard node mesh; no VPC route table).
-            HUAWEI_VPC_ROUTES_ENABLED: "true"
+%{ if provider_substitutes_yaml != "" ~}
+            ${indent(12, chomp(provider_substitutes_yaml))}
 %{ endif ~}
             WILDCARD_CERT_ISSUER: "${wildcard_cert_issuer}"
 %{ if provider != "hetzner" ~}

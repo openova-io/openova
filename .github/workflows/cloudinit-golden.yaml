@@ -27,12 +27,14 @@ on:
     branches: [main]
     paths:
       - 'infra/providers/_shared/**'
+      - 'infra/providers/*/provider-substitutes.yaml.tftpl'
       - 'clusters/_template/infrastructure/providers/**'
       - 'scripts/update-cloudinit-golden.sh'
       - '.github/workflows/cloudinit-golden.yaml'
   pull_request:
     paths:
       - 'infra/providers/_shared/**'
+      - 'infra/providers/*/provider-substitutes.yaml.tftpl'
       - 'clusters/_template/infrastructure/providers/**'
       - 'scripts/update-cloudinit-golden.sh'
       - '.github/workflows/cloudinit-golden.yaml'

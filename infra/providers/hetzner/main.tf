@@ -936,6 +936,13 @@ locals {
     node_external_ip_value  = ""
     clustermesh_proxy_port  = 12379 # #4784 — inert on Hetzner (clustermesh-proxy off; hcloud-ccm LB IP has no k3s-etcd :2379 host collision)
 
+    # CLD-131 — the Flux substitutes of this pack, from its own file.
+    provider_substitutes_yaml = templatefile("${path.module}/provider-substitutes.yaml.tftpl", {
+      region                = var.region
+      sovereign_fqdn_slug   = replace(var.sovereign_fqdn, ".", "-")
+      default_storage_class = var.default_storage_class
+    })
+
     # ── Provider-injected strings (the §5 hard-dependency exceptions) ──
     registry_mirror_yaml          = local.registry_mirror_yaml_hetzner
     cloud_credentials_secret_yaml = local.cloud_credentials_secret_yaml_hetzner_primary
@@ -1516,6 +1523,13 @@ locals {
       sovereign_region_role   = "secondary"
       node_external_ip_value  = ""
       clustermesh_proxy_port  = 12379 # #4784 — inert on Hetzner (clustermesh-proxy off)
+
+      # CLD-131 — the Flux substitutes of this pack, from its own file.
+      provider_substitutes_yaml = templatefile("${path.module}/provider-substitutes.yaml.tftpl", {
+        region                = r.cloud_region
+        sovereign_fqdn_slug   = replace(var.sovereign_fqdn, ".", "-")
+        default_storage_class = var.default_storage_class
+      })
 
       # ── Provider-injected strings (the §5 hard-dependency exceptions) ──
       registry_mirror_yaml     = local.registry_mirror_yaml_hetzner
