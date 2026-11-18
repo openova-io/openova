@@ -49,6 +49,36 @@ func TestCheckCredentials(t *testing.T) {
 	}
 }
 
+func TestCheckCredentialValues(t *testing.T) {
+	p := testProfile(true, true)
+	p.Spec.Credentials.Fields[0].Pattern = "^.{8,}$"
+	for name, tc := range map[string]struct {
+		creds    map[string]string
+		required bool
+		want     string
+	}{
+		"matches":                 {map[string]string{"token": "12345678"}, true, ""},
+		"short":                   {map[string]string{"token": "1234567"}, false, "token"},
+		"blanks trimmed":          {map[string]string{"token": " 1234567 "}, false, "token"},
+		"missing, required":       {map[string]string{"project": "x"}, true, "token"},
+		"missing, not required":   {map[string]string{"project": "x"}, false, ""},
+		"no pattern, any value":   {map[string]string{"token": "12345678", "project": "x"}, true, ""},
+		"key outside the profile": {map[string]string{"token": "12345678", "other": "y"}, true, ""},
+	} {
+		err := CheckCredentialValues(ProviderCreds{Raw: tc.creds}, p, tc.required)
+		if got := fieldOf(err); got != tc.want || (tc.want == "" && err != nil) {
+			t.Errorf("%s: got %v, want field %q", name, err, tc.want)
+		}
+	}
+	p.Spec.Credentials.Fields[0].Pattern = "("
+	if err := CheckCredentialValues(ProviderCreds{Raw: map[string]string{"token": "x"}}, p, false); err == nil || fieldOf(err) != "" {
+		t.Errorf("a pattern that does not compile: got %v, want a plain error", err)
+	}
+	if fieldOf(CheckCredentialValues(ProviderCreds{}, nil, false)) != "provider" {
+		t.Error("no profile: want a field error on provider")
+	}
+}
+
 func TestCheckRegions(t *testing.T) {
 	one := []RegionSpec{{CloudRegion: "a"}}
 	two := []RegionSpec{{CloudRegion: "a"}, {CloudRegion: "a"}}

@@ -7,6 +7,7 @@ package providers
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/cloudprofile"
@@ -22,6 +23,37 @@ func CheckCredentials(spec *ProvisionSpec, profile *cloudprofile.Profile) error 
 	for _, f := range profile.Spec.Credentials.Fields {
 		if f.Required && strings.TrimSpace(spec.Creds.Get(f.Key)) == "" {
 			return &FieldError{Field: "credentials." + f.Key, Message: "required (" + f.Label + ")"}
+		}
+	}
+	return nil
+}
+
+// CheckCredentialValues checks a credentials map against the credential
+// fields of the profile before the cloud is called: a non-blank value must
+// match the field's pattern, and when required is true every field that the
+// profile marks required must be non-blank. The *FieldError names the
+// credential key. A pattern that does not compile is a plain error.
+func CheckCredentialValues(creds ProviderCreds, profile *cloudprofile.Profile, required bool) error {
+	if profile == nil {
+		return &FieldError{Field: "provider", Message: "no cloud profile"}
+	}
+	for _, f := range profile.Spec.Credentials.Fields {
+		v := strings.TrimSpace(creds.Get(f.Key))
+		if v == "" {
+			if required && f.Required {
+				return &FieldError{Field: f.Key, Message: "required (" + f.Label + ")"}
+			}
+			continue
+		}
+		if f.Pattern == "" {
+			continue
+		}
+		re, err := regexp.Compile(f.Pattern)
+		if err != nil {
+			return fmt.Errorf("cloud profile %q: credential field %s: pattern: %w", profile.Metadata.Name, f.Key, err)
+		}
+		if !re.MatchString(v) {
+			return &FieldError{Field: f.Key, Message: fmt.Sprintf("%s does not match the pattern %s of the cloud profile %q", f.Label, f.Pattern, profile.Metadata.Name)}
 		}
 	}
 	return nil

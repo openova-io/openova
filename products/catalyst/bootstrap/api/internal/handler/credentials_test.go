@@ -2,12 +2,9 @@
 // validators (issue #371, vendor-agnostic since #425).
 //
 // We exercise the input-validation branches end-to-end through the
-// HTTP handler — short-input rejection, region whitelist, body decode
-// errors. The Object Storage live ListBuckets is an integration
-// boundary covered by a real `tofu apply` against the staging tenant;
-// here we only ensure the validator gates the network call on the
-// inputs the wizard provides AND that the Provider registry resolves
-// known/unknown vendors correctly.
+// HTTP handler — the checks of the cloud profile, short-input rejection,
+// region whitelist, body decode errors. No test reaches a cloud: each
+// one is answered before the adapter calls it.
 package handler
 
 import (
@@ -19,6 +16,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
 
 func newCredentialsHandler() *Handler {
@@ -72,10 +72,10 @@ func TestValidateObjectStorageCredentials_InvalidRegion(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status=%d want 400, body=%s", w.Code, w.Body.String())
 	}
-	// Default provider is "hetzner" (back-compat); us-east-1 is not in
-	// Hetzner's Object Storage region set — Provider.Endpoint returns
-	// "" and the handler surfaces "region not supported by the chosen
-	// object storage provider".
+	// No provider: the one adapter with ObjectStorageValidator answers;
+	// us-east-1 is not one of its regions, so ObjectStorageEndpoint
+	// returns "" and the handler surfaces "region not supported by the
+	// chosen object storage provider".
 	if !strings.Contains(w.Body.String(), "region not supported") {
 		t.Errorf("body must mention 'region not supported', got %s", w.Body.String())
 	}
@@ -122,8 +122,6 @@ func TestValidateObjectStorageCredentials_ShortAccessKey(t *testing.T) {
 	}
 }
 
-
-
 func TestValidateObjectStorageCredentials_ShortSecretKey(t *testing.T) {
 	h := newCredentialsHandler()
 	body, _ := json.Marshal(map[string]string{
@@ -141,5 +139,88 @@ func TestValidateObjectStorageCredentials_ShortSecretKey(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "secret key") {
 		t.Errorf("body must mention secret-key, got %s", w.Body.String())
+	}
+}
+
+// postValidate sends body to ValidateCredentials and returns the status and
+// the decoded answer.
+func postValidate(t *testing.T, body string) (int, validateResponse) {
+	t.Helper()
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/credentials/validate", strings.NewReader(body))
+	newCredentialsHandler().ValidateCredentials(w, r)
+	var got validateResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("body %s: decode the answer %q: %v", body, w.Body.String(), err)
+	}
+	return w.Code, got
+}
+
+// A 10-character token fails the pattern of the Hetzner profile's credential
+// field hcloud_token, in the legacy body of the wizard and in the credentials
+// map, before the cloud is called.
+func TestValidateCredentials_TokenFailsTheProfilePattern(t *testing.T) {
+	for _, body := range []string{
+		`{"provider":"hetzner","token":"0123456789"}`,
+		`{"provider":"hetzner","credentials":{"hcloud_token":"0123456789"}}`,
+	} {
+		code, got := postValidate(t, body)
+		if code != http.StatusBadRequest || got.Valid || got.Field != "hcloud_token" {
+			t.Errorf("body %s: got %d %+v, want 400 with field hcloud_token", body, code, got)
+		}
+	}
+}
+
+// A credentials map is checked for every field its profile marks required.
+func TestValidateCredentials_RequiredFieldOfTheProfile(t *testing.T) {
+	token := strings.Repeat("t", 64)
+	for body, want := range map[string]string{
+		`{"provider":"huawei","credentials":{"access_key":"a"}}`:                "secret_key",
+		`{"provider":"hetzner","credentials":{"hcloud_token":"` + token + `"}}`: "object_storage_access_key",
+		`{"provider":"hetzner","credentials":{}}`:                               "hcloud_token",
+	} {
+		code, got := postValidate(t, body)
+		if code != http.StatusBadRequest || got.Field != want {
+			t.Errorf("body %s: got %d %+v, want 400 with field %s", body, code, got, want)
+		}
+	}
+}
+
+// The provider is never assumed, and an unknown one is 404.
+func TestValidateCredentials_ProviderNamedAndKnown(t *testing.T) {
+	token := strings.Repeat("t", 64)
+	if code, got := postValidate(t, `{"token":"`+token+`"}`); code != http.StatusBadRequest || got.Field != "provider" {
+		t.Errorf("no provider: got %d %+v, want 400 with field provider", code, got)
+	}
+	if code, got := postValidate(t, `{"provider":"made-up-cloud","token":"`+token+`"}`); code != http.StatusNotFound || got.Valid {
+		t.Errorf("unknown provider: got %d %+v, want 404", code, got)
+	}
+	if code, got := postValidate(t, `{"provider":"hetzner","installation":"site-x","token":"`+token+`"}`); code != http.StatusBadRequest || got.Field != "installation" {
+		t.Errorf("unreadable installation: got %d %+v, want 400 with field installation", code, got)
+	}
+}
+
+// The wizard's legacy body carries only the token: it reaches the adapter's
+// cloud check, because the required fields are not checked for it.
+func TestValidateCredentials_LegacyTokenBodyReachesTheCloudCheck(t *testing.T) {
+	token := strings.Repeat("t", 64)
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(`{"provider":"hetzner","token":"`+token+`"}`), &fields); err != nil {
+		t.Fatal(err)
+	}
+	cp, err := providers.Get("hetzner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, err := provisioner.EffectiveProfile("hetzner", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	creds, legacy := credentialsOf(cp, nil, fields)
+	if !legacy || creds.Get("hcloud_token") != token {
+		t.Fatalf("credentialsOf = %v, legacy %v; want hcloud_token from the token field", creds.Raw, legacy)
+	}
+	if err := providers.CheckCredentialValues(creds, profile, !legacy); err != nil {
+		t.Errorf("the legacy token body is refused before the cloud check: %v", err)
 	}
 }

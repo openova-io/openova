@@ -128,10 +128,12 @@ func checkObjectStorageRegion(region string, profile *cloudprofile.Profile) erro
 }
 
 // LegacyCredentialAliases names the request JSON fields that carried a
-// Hetzner credential before the credentials map, by credential key.
+// Hetzner credential before the credentials map, by credential key: those of
+// the deployment request, and "token" of the credentials route's body.
 // Transitional: CLD-124 removes it.
 func (p *Provider) LegacyCredentialAliases() map[string]string {
 	return map[string]string{
+		"token":                  "hcloud_token",
 		"hetznerToken":           "hcloud_token",
 		"hetznerProjectID":       "hcloud_project_id",
 		"objectStorageAccessKey": "object_storage_access_key",
