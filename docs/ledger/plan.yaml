@@ -6930,7 +6930,7 @@ packages:
   epic: CLD-130
   type: refactor
   wave: W1b
-  size: S
+  size: M
   lane: SUBSTRATE
   depends_on: [CLD-131]
   after: [CLD-134]
@@ -6949,6 +6949,7 @@ packages:
   - scripts/cloudinit-size-check.sh
   - scripts/check-provider-contract.sh
   - scripts/check-cloudinit-primary-kubeconfig-capture.sh
+  - scripts/check-root-kustomization-parity.py
   - products/catalyst/bootstrap/api/internal/providers/conformance/conformance_test.go
   resources: []
   flips: []
@@ -6966,12 +6967,14 @@ packages:
     run: "out=\"$(bash scripts/check-provider-contract.sh --self-test)\"; printf '%s\\n' \"$out\" | grep -x -F 'ok   rule 14: a call of the template without a contract input fails'; printf '%s\\n' \"$out\" | grep -x -F 'ok   rule 15: a gateway_host_network that differs from the profile fails'"
   - id: A4
     run: "out=\"$(python3 scripts/cloudinit-size-check.py --self-test)\"; printf '%s\\n' \"$out\" | grep -x -F 'ok   rule 3 fails: a worst-case file names the cloud limit'; printf '%s\\n' \"$out\" | grep -x -F \"ok   the profile's limit reaches the worst case\"; python3 scripts/cloudinit-size-check.py --check-profiles; if grep -n -E '^LIMIT *=' infra/providers/huawei/user_data_worst_case.py; then exit 1; fi"
+  - id: A5
+    run: "python3 scripts/check-root-kustomization-parity.py && out=\"$(python3 scripts/check-root-kustomization-parity.py --self-test)\" && printf '%s\\n' \"$out\" | grep -x -F 'ok   self-test R1 a module literal that disagrees with the root folder: exit 1, expected 1' && printf '%s\\n' \"$out\" | grep -x -F 'ok   self-test cannot judge a module that passes an input as true and as false: exit 2, expected 2'"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 2
+  ticket_rev: 3
   dropped: false
   delivers: The shared control-plane boot template replaces its remaining tests of the provider name by the inputs node_ipv4_only, fail_mark_cmd, render_region_kustomization and gateway_host_network, every module also passes provider_overlay_path, the failure-mark helper is written by the Huawei module, and the size check reads the user-data limit of each pack from its profile.
 - id: CLD-133
@@ -16150,23 +16153,23 @@ packages:
   - id: A1
     run: "bash platform/network-policies/chart/tests/render.sh platform/network-policies/chart && bash platform/network-policies/chart/tests/function-test-render.sh platform/network-policies/chart"
   - id: A2
-    run: "for f in default-deny allow-system-namespaces allow-egress-dns; do test ! -e \"platform/network-policies/chart/templates/$f.yaml\"; done && helm template t platform/network-policies/chart --skip-tests > /tmp/NET-150-default.yaml && test \"$(grep -c -x 'kind: CiliumClusterwideNetworkPolicy' /tmp/NET-150-default.yaml)\" = 1 && grep -q -x '  name: baseline-deny-metadata' /tmp/NET-150-default.yaml && test -z \"$(git grep -l -E 'legacyBaseline|allowSystemNamespaces|allowEgressDNS|dnsNamespace|dnsServiceName' -- platform/network-policies ':(exclude)platform/network-policies/chart/Chart.yaml')\""
+    run: "for f in default-deny allow-system-namespaces allow-egress-dns; do test ! -e \"platform/network-policies/chart/templates/$f.yaml\" || exit 1; done && helm template t platform/network-policies/chart --skip-tests > /tmp/NET-150-default.yaml && test \"$(grep -c -x 'kind: CiliumClusterwideNetworkPolicy' /tmp/NET-150-default.yaml)\" = 1 && grep -q -x '  name: baseline-deny-metadata' /tmp/NET-150-default.yaml && test -z \"$(git grep -l -E 'legacyBaseline|allowSystemNamespaces|allowEgressDNS|dnsNamespace|dnsServiceName' -- platform/network-policies ':(exclude)platform/network-policies/chart/Chart.yaml')\""
   - id: A3
-    run: "(cd tests/acceptance/sovereign && go vet ./... && go test -count=1 -v -run 'TestReadDialTable|TestDialOutcome|TestPolicyDialsCheck|TestDialer' ./internal/suite/) > /tmp/NET-150-test.txt && for t in TestReadDialTable_Repository TestReadDialTable_Refusals TestDialOutcome TestPolicyDialsCheck TestPolicyDialsCheck_Faults TestDialer_OnePodPerSource; do grep -q -E \"^--- PASS: $t \\(\" /tmp/NET-150-test.txt; done && test -z \"$(gofmt -l tests/acceptance/sovereign/internal)\""
+    run: "(cd tests/acceptance/sovereign && go vet ./... && go test -count=1 -v -run 'TestReadDialTable|TestDialOutcome|TestPolicyDialsCheck|TestDialer' ./internal/suite/) > /tmp/NET-150-test.txt && for t in TestReadDialTable_Repository TestReadDialTable_Refusals TestDialOutcome TestPolicyDialsCheck TestPolicyDialsCheck_Faults TestPolicyDialsCheck_AllowRows TestDialer_OnePodPerSource; do grep -q -E \"^--- PASS: $t \\(\" /tmp/NET-150-test.txt || exit 1; done && test -z \"$(gofmt -l tests/acceptance/sovereign/internal)\""
   - id: A4
     run: "python3 -c \"import yaml,sys; c=[x for x in yaml.safe_load(open('docs/ledger/gates.yaml'))['checks'] if x['id']=='NET-G06'][0]; sys.exit(0 if (c['state'], c.get('implementation'), c.get('implemented_by'), c['delivered_by'], c['runs_in']) == ('expected-fail', 'tests/acceptance/sovereign/internal/suite/check_policy_dials.go', 'NET-150', 'NET-166', ['cloud']) else 1)\" && printf 'Work-Package: NET-150\\n' > /tmp/NET-150-a4.txt && python3 scripts/acceptance-gate.py validate --base origin/main --body-file /tmp/NET-150-a4.txt"
   - id: A5
     run: "python3 -c \"import json,yaml,sys; t=open('tests/acceptance/sovereign/policy-dials.yaml').read(); j=json.loads(''.join(l + '\\n' for l in t.split('\\n') if not l.lstrip(' \\t').startswith('#'))); sys.exit(0 if yaml.safe_load(t) == j and j['schema'] == 'openova.io/policy-dials/v1' and len(j['dials']) >= 3 else 1)\""
   - id: A6
-    run: "printf '%s\\n' 'beab51814c59767da6884b75e371525c612179966dd646c05036e77534933db2  platform/network-policies/README.md' '340147144536a6009f6804b17ba473c80eedbc3058f9bdad75b22d1d7fd46d38  platform/network-policies/blueprint.yaml' 'dca7e927c1e5021204238b78e30d8ccf60bd85168797ab561493afd5e0e37ed5  platform/network-policies/chart/Chart.yaml' 'db6bb2f9f89f0abdf2938e09c13736971ffec6c290225febba85a5244f7aba54  platform/network-policies/chart/templates/allow/_README.tpl' 'dce026c5c1f9dbd9918b84ce5267d9f68d4d631a60028bc548143b32efbbe843  platform/network-policies/chart/templates/allow/_helpers.tpl' '1edf24f8654e6053a77e5245a6636f8ffdd04db03aa0aafe95d2528b0e30a768  platform/network-policies/chart/templates/baseline-default-deny.yaml' '63dbd82e4e43c13dcc08022a60dff538614976ecd9c859b18bfc9113d7e71063  platform/network-policies/chart/templates/baseline-deny-metadata.yaml' '8f6ec0fca457b7d1d4ca67c1d6da0f601bea01fcc4aa0da44da51912074e906c  platform/network-policies/chart/templates/tests/function-test.yaml' '4ebc10faee86446c7834bbdc6fe589da22ddae187458b381e9c5a82d7294f905  platform/network-policies/chart/tests/function-test-render.sh' '9b2ed87bcb110f8452791770bc47ec2c9c73d079c7ef672803083056365de09e  platform/network-policies/chart/tests/render.sh' 'f5268a27c5f7820f17041027f9f98ab65822b013048e50dcb02bcf4e8b468e44  platform/network-policies/chart/values.yaml' '895d35aa757b7e4d35606b858d667d7b6e5da481117def6c8408bc5f08803431  tests/acceptance/sovereign/internal/suite/check_policy_dials.go' '5647abd8606026058f1ab28379af9d3d63af0dd777a287e23ccf6e10d161368e  tests/acceptance/sovereign/internal/suite/check_policy_dials_test.go' '37dd0ca9e3ef7b86f34a71e1f264e7d6922d9c29f743e52335410bc773dda287  tests/acceptance/sovereign/policy-dials.yaml' | sha256sum --check --quiet -"
+    run: "printf '%s\\n' 'beab51814c59767da6884b75e371525c612179966dd646c05036e77534933db2  platform/network-policies/README.md' '340147144536a6009f6804b17ba473c80eedbc3058f9bdad75b22d1d7fd46d38  platform/network-policies/blueprint.yaml' 'dca7e927c1e5021204238b78e30d8ccf60bd85168797ab561493afd5e0e37ed5  platform/network-policies/chart/Chart.yaml' '58f7b233671a154ce8bc92a496bc25d4286ce6566cfdb463d16b3911f85bb551  platform/network-policies/chart/templates/allow/_README.tpl' '7153f027c2f53bc5c57a9610605088f08719c52f728d9448554c69934bc232e8  platform/network-policies/chart/templates/allow/_helpers.tpl' 'f1c172e63d5b0821bfe8920757bca878b9bf04a402b261484ac4be43ba7d4775  platform/network-policies/chart/templates/baseline-default-deny.yaml' '63dbd82e4e43c13dcc08022a60dff538614976ecd9c859b18bfc9113d7e71063  platform/network-policies/chart/templates/baseline-deny-metadata.yaml' '8f6ec0fca457b7d1d4ca67c1d6da0f601bea01fcc4aa0da44da51912074e906c  platform/network-policies/chart/templates/tests/function-test.yaml' '4ebc10faee86446c7834bbdc6fe589da22ddae187458b381e9c5a82d7294f905  platform/network-policies/chart/tests/function-test-render.sh' '8e15a75d5c34cb1b697c48b0e32e0b12fdee3000c75fd58923e02c7cf49eb7ab  platform/network-policies/chart/tests/render.sh' 'f5268a27c5f7820f17041027f9f98ab65822b013048e50dcb02bcf4e8b468e44  platform/network-policies/chart/values.yaml' '7677b77183fc58743cb32015d3ab98dbff7821963e5e5fcab174dde98fec8f10  tests/acceptance/sovereign/internal/suite/check_policy_dials.go' 'fbcbbbe00a8967aa2677be521a556f1e1926b414b94928189e70446701d90b24  tests/acceptance/sovereign/internal/suite/check_policy_dials_test.go' '37dd0ca9e3ef7b86f34a71e1f264e7d6922d9c29f743e52335410bc773dda287  tests/acceptance/sovereign/policy-dials.yaml' | sha256sum --check --quiet -"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
-  delivers: The chart bp-network-policies renders the object baseline-default-deny for the namespaces of the new value enforcedNamespaces (empty by default, so the default render stays the deny of the instance metadata address alone) and one allow object per file templates/allow/<namespace>.yaml through a helper that renders it only while its namespace is enforced and stops the render on a rule without a port or open to the whole internet; the three legacy default-deny templates and the values only they read are deleted; and gate check NET-G06, implemented in tests/acceptance/sovereign/internal/suite/check_policy_dials.go and set to expected-fail, dials every row of the new table tests/acceptance/sovereign/policy-dials.yaml from a Pod in every region.
+  delivers: The chart bp-network-policies renders the object baseline-default-deny for the namespaces of the new value enforcedNamespaces (empty by default, so the default render stays the deny of the instance metadata address alone) and one allow object per file templates/allow/<namespace>.yaml through a helper that renders it only while its namespace is enforced and stops the render on a rule that breaks the rule template (no peer, no port, an entity other than ingress, kube-apiserver, host and remote-node, a range wider than /8 or /16, an open DNS wildcard); the three legacy default-deny templates and the values only they read are deleted; and gate check NET-G06, implemented in tests/acceptance/sovereign/internal/suite/check_policy_dials.go and set to expected-fail, dials every row of the new table tests/acceptance/sovereign/policy-dials.yaml from a Pod in every region.
 - id: NET-153
   title: Allow-list of the hand-over proof's deny-egress object
   area: NET

@@ -13,3 +13,7 @@ bp-harbor
 bp-openbao
 bp-powerdns
 bp-seaweedfs
+#
+# Left out because a container node has no boot of its own: kured (slot 04b, INF-050)
+# reboots nodes, and the machines of the pack are containers.
+bp-kured
