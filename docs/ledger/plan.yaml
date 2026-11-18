@@ -179,7 +179,7 @@ epics:
 - id: SOV-100
   title: 'EPIC: Upstream contract and born-local bootstrap'
   wave: W1b
-  packages: [SOV-110, SOV-130, SOV-131, SOV-150, SOV-133, SOV-140, SOV-160, SOV-135, SOV-143, SOV-141, SOV-180, SOV-120, SOV-181, SOV-190, SOV-121, SOV-134, SOV-151, SOV-161, SOV-175, SOV-183, SOV-182, SOV-132, SOV-142, SOV-170]
+  packages: [SOV-110, SOV-130, SOV-131, SOV-150, SOV-133, SOV-140, SOV-160, SOV-135, SOV-143, SOV-141, SOV-180, SOV-120, SOV-181, SOV-190, SOV-121, SOV-134, SOV-142, SOV-151, SOV-161, SOV-175, SOV-183, SOV-182, SOV-132, SOV-170]
 - id: SOV-200
   title: 'EPIC: Hand-over as a short ordered flip'
   wave: W1b
@@ -4662,7 +4662,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [FND-181, FND-120]
-  after: [CLD-023, CLD-040, CLD-131, CLD-185, SOV-130, SOV-133, SOV-134, SOV-140, SOV-141, SOV-144, SOV-145, SOV-335, SEC-020, SEC-030, NET-020, NET-031, INF-060]
+  after: [CLD-023, CLD-040, CLD-131, CLD-185, SOV-130, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-335, SEC-020, SEC-030, NET-020, NET-031, INF-060]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - infra/providers/_shared/tests/**
@@ -6818,7 +6818,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CLD-131]
-  after: [CLD-134, CLD-023, CLD-092, CLD-185, SOV-133, SOV-134, SOV-140, SOV-141, SOV-144, SOV-145, SOV-335, SEC-030, NET-020, SVC-040, INF-060]
+  after: [CLD-134, CLD-023, CLD-092, CLD-185, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-335, SEC-030, NET-020, SVC-040, INF-060]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - scripts/lint-cloudinit.sh
@@ -6847,7 +6847,7 @@ packages:
   size: XS
   lane: SUBSTRATE
   depends_on: [CLD-132]
-  after: [CLD-023, CLD-185, SOV-133, SOV-134, SOV-140, SOV-141, SOV-144, SOV-145, SEC-030, NET-020, NET-100, INF-060]
+  after: [CLD-023, CLD-185, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SEC-030, NET-020, NET-100, INF-060]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - infra/providers/huawei/main.tf
@@ -7035,7 +7035,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-080, CLD-132, CLD-141, CLD-142, FND-032]
-  after: [FND-033, FND-034, FND-075, FND-154, CLD-023, CLD-030, CLD-067, CLD-092, CLD-113, CLD-185, SOV-020, SOV-133, SOV-134, SOV-140, SOV-141, SOV-144, SOV-145, SOV-151, SOV-161, SOV-175, SOV-336, SOV-337, SEC-010, SEC-030, SEC-080, SEC-095, SEC-100, SEC-104, SEC-120, NET-013, NET-020, NET-040, NET-060, NET-100, NET-102, NET-190, SVC-040, SVC-060, SVC-125, CTL-040, CTL-041, CTL-151, CTL-320, CTL-345, CTL-346, CTL-348, CMP-010, CMP-036, BSS-030, AIP-040, AIP-042, AIP-120, INF-050, INF-051, INF-052, INF-060, ACC-010]
+  after: [FND-033, FND-034, FND-075, FND-154, CLD-023, CLD-030, CLD-067, CLD-092, CLD-113, CLD-185, SOV-020, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-151, SOV-161, SOV-175, SOV-336, SOV-337, SEC-010, SEC-030, SEC-080, SEC-095, SEC-100, SEC-104, SEC-120, NET-013, NET-020, NET-040, NET-060, NET-100, NET-102, NET-190, SVC-040, SVC-060, SVC-125, CTL-040, CTL-041, CTL-151, CTL-320, CTL-345, CTL-346, CTL-348, CMP-010, CMP-036, BSS-030, AIP-040, AIP-042, AIP-120, INF-050, INF-051, INF-052, INF-060, ACC-010]
   touches:
   - clusters/_template/bootstrap-kit/**
   - infra/providers/_shared/cloudinit-control-plane.tftpl
@@ -7094,7 +7094,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CLD-023, CLD-145]
-  after: [FND-011, CLD-089, CLD-185, SOV-133, SOV-134, SOV-140, SOV-141, SOV-144, SOV-145, SEC-030, NET-020, NET-133, SVC-040, SVC-041, SVC-060, INF-060]
+  after: [FND-011, CLD-089, CLD-185, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SEC-030, NET-020, NET-133, SVC-040, SVC-041, SVC-060, INF-060]
   touches:
   - clusters/_template/providers/*/sovereign-tls/**
   - clusters/_template/providers/hetzner/values/**
@@ -7246,7 +7246,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-104, CLD-121, CLD-144, CLD-161]
-  after: [CLD-075, FND-011, FND-071, CLD-023, CLD-092, CLD-185, SOV-133, SOV-134, SOV-140, SOV-141, SOV-144, SOV-145, SOV-335, SEC-030, NET-020, NET-100, NET-210, SVC-040, SVC-041, INF-060]
+  after: [CLD-075, FND-011, FND-071, CLD-023, CLD-092, CLD-185, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-335, SEC-030, NET-020, NET-100, NET-210, SVC-040, SVC-041, INF-060]
   touches:
   - infra/providers/huawei/**
   - products/catalyst/bootstrap/api/internal/providers/huawei/**
@@ -8612,7 +8612,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [SOV-130, SOV-060, CLD-086, CLD-087, SOV-131, SOV-134, SOV-135]
-  after: [CLD-023, CLD-064, CLD-090, CLD-131, SOV-040, SOV-144, SOV-145, SOV-190, SOV-335, SEC-104, SEC-105, SEC-150, NET-010, NET-011, NET-012, NET-020, NET-040, NET-100, NET-210, NET-221, CTL-346, CTL-347, INF-060]
+  after: [CLD-023, CLD-064, CLD-090, CLD-131, SOV-040, SOV-142, SOV-144, SOV-145, SOV-190, SOV-335, SEC-104, SEC-105, SEC-150, NET-010, NET-011, NET-012, NET-020, NET-040, NET-100, NET-210, NET-221, CTL-346, CTL-347, INF-060]
   touches:
   - infra/providers/hetzner/main.tf
   - infra/providers/huawei/main.tf
@@ -8883,27 +8883,37 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [SOV-140, SOV-130, SOV-160, SOV-131, SOV-134]
-  after: [CLD-023, CLD-131, SOV-144, SOV-145, NET-020, INF-060]
+  after: []
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - infra/providers/_shared/tests/cloudinit_render.tftest.hcl
   - infra/providers/_shared/tests/golden.auto.tfvars.json
-  - infra/providers/hetzner/cloudinit-worker.tftpl
-  - infra/providers/huawei/cloudinit-worker.tftpl
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c -F 'oci_fetch' infra/providers/_shared/cloudinit-control-plane.tftpl"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "python3 -c 'import hashlib, sys; L = open(\"infra/providers/_shared/cloudinit-control-plane.tftpl\").read().split(\"\\n\"); p = \"  - path: /var/lib/catalyst/oci_fetch\"; n = L.count(p); i = L.index(p) if n == 1 else 0; j = L.index(\"    )}\", i) if n == 1 and \"    )}\" in L[i:] else i; b = \"\\n\".join(x[6:] for x in L[i + 4:j - 1]).replace(\"%%{\", \"%{\").replace(\"$${\", \"${\") + \"\\n\"; r = [n, j - i + 1, hashlib.sha256(\"\\n\".join(L[i:j + 1]).encode()).hexdigest(), hashlib.sha256(b.encode()).hexdigest(), i < L.index(\"runcmd:\"), sum(\"NODE_ARTIFACT_FALLBACK=\" in x for x in L)]; print(r); sys.exit(r != [1, 30, \"ec055bce16566852c1cd232172bdf62ccaee8218bce50d2d9122304b234b3471\", \"edbe98eeb3d54922bc764b93299c830f6d963474f80abfa8df9730191bc995dd\", True, 1])'"
+  - id: A2
+    run: "python3 -c 'import sys; t = open(\"infra/providers/_shared/cloudinit-control-plane.tftpl\").read(); L = t.split(\"\\n\"); k = \"kube\" + \"ctl\"; f = \"sh /var/lib/catalyst/oci_fetch \"; a = \"      \" + f + \"k3s-install ${replace(k3s_version, \\\"+\\\", \\\"-\\\")} /var/lib/catalyst/k3s-install.sh https://get.k3s.io \\\\\"; g = \"; do \" + f + \"gateway-api-experimental-install v1.1.0 /var/lib/catalyst/gwapi.yaml https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/experimental-install.yaml && \" + k + \" apply -f /var/lib/catalyst/gwapi.yaml && break;\"; x = \"     \" + f + \"flux-install v2.4.0 /var/lib/catalyst/flux.yaml https://github.com/fluxcd/flux2/releases/download/v2.4.0/install.yaml && \" + k + \" apply -f /var/lib/catalyst/flux.yaml || true\"; r = [L.count(a), t.count(g), L.count(x), t.count(f), t.count(\"curl -fsSL --max-time 60 https://\"), t.count(k + \" apply -f https://\"), t.count(\"install.yaml | \" + k + \" apply\")]; print(r); sys.exit(r != [1, 1, 1, 3, 0, 0, 0])'"
+  - id: A3
+    run: "python3 -c 'import hashlib, sys; L = [x for x in open(\"infra/providers/_shared/tests/cloudinit_render.tftest.hcl\").read().split(\"\\n\") if \"SOV-142\" in x or \"oci_fetch\" in x or \"NODE_ARTIFACT_FALLBACK\" in x]; r = [len(L), hashlib.sha256(\"\\n\".join(L).encode()).hexdigest()]; print(r); sys.exit(r != [14, \"dcaaafde8016241c06475f93145b84761c2bc6648572e2a7917a2e91b511d594\"])'"
+  - id: A4
+    run: "python3 -c 'import json; d = json.load(open(\"infra/providers/_shared/tests/golden.auto.tfvars.json\")); h, w, p = d[\"golden_files_hetzner\"], d[\"golden_files_huawei\"], \"/var/lib/catalyst/oci_fetch\"; r = [d[\"golden_hetzner\"], d[\"golden_huawei\"], h.get(p), w.get(p), len(h), len(w)]; print(r); assert r == [\"424621951d8bc8f67efef5532919e06993f0e2a3d9a99e6c9de55513124f9105\", \"33a6eeb60376ab5ffc20b3800253c6394a2d0bdaec48c3f2e7f446f615aff40a\", \"edbe98eeb3d54922bc764b93299c830f6d963474f80abfa8df9730191bc995dd\", \"edbe98eeb3d54922bc764b93299c830f6d963474f80abfa8df9730191bc995dd\", 15, 17]'"
+  - id: A5
+    run: "test \"$(grep -c -F 'sh /var/lib/catalyst/oci_fetch ' infra/providers/_shared/cloudinit-control-plane.tftpl)\" = 3 && python3 scripts/check-cloudinit-exit-codes.py > /dev/null && bash scripts/check-upstream-literals.sh > /dev/null && bash platform/flux/chart/tests/version-pin-replay.sh > /dev/null && bash scripts/check-tofu-flux-envsubst.sh > /dev/null && python3 scripts/check-provider-leaks.py --check > /dev/null"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 2
   dropped: false
-  delivers: The boot template defines oci_fetch (token, manifest, first layer, sha256 check) and uses it to fetch the k3s installer, the Flux install manifest and the Gateway API manifest from the node-artifacts registry path. It falls back to today's address on a 404 only while NODE_ARTIFACT_FALLBACK is true, which is the default.
+  delivers: The shared control-plane template writes the helper /var/lib/catalyst/oci_fetch, which fetches the k3s installer, the Gateway API install manifest and the Flux install manifest from the node-artifacts path of the origin registry (token, manifest, first layer, SHA-256 check) and falls back to the upstream address of each only while NODE_ARTIFACT_FALLBACK is true, its default; every worst-case control-plane surface grows by 1,255 bytes and stays under its limit, and no entry is packed to make room.
 - id: SOV-143
   title: The Secret register lists parent-bootstrap-token, with SOV-435 as the package that removes it
   area: SOV
@@ -9028,7 +9038,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: []
-  after: [SOV-145, CLD-023, CLD-040, CLD-086, CLD-090, CLD-131, CLD-134, CLD-185, SOV-130, SOV-131, SOV-133, SOV-134, SOV-140, SOV-141, SOV-144, SOV-335, SEC-020, SEC-030, SEC-150, NET-010, NET-011, NET-012, NET-020, NET-031, NET-100, NET-210, INF-060]
+  after: [SOV-145, CLD-023, CLD-040, CLD-086, CLD-090, CLD-131, CLD-134, CLD-185, SOV-130, SOV-131, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-335, SEC-020, SEC-030, SEC-150, NET-010, NET-011, NET-012, NET-020, NET-031, NET-100, NET-210, INF-060]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - infra/providers/_shared/tests/cloudinit_render.tftest.hcl
@@ -9064,7 +9074,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: []
-  after: [SOV-146, CLD-023, CLD-030, CLD-040, CLD-064, CLD-086, CLD-089, CLD-113, CLD-131, CLD-134, CLD-141, CLD-142, CLD-185, SOV-020, SOV-130, SOV-133, SOV-134, SOV-140, SOV-141, SOV-144, SOV-151, SOV-160, SOV-161, SOV-175, SOV-335, SOV-336, SOV-337, SEC-020, SEC-030, SEC-100, SEC-104, NET-020, NET-031, NET-040, NET-190, SVC-060, CTL-041, CTL-346, CTL-348, CMP-036, INF-050, INF-060, ACC-010]
+  after: [SOV-146, CLD-023, CLD-030, CLD-040, CLD-064, CLD-086, CLD-089, CLD-113, CLD-131, CLD-134, CLD-141, CLD-142, CLD-185, SOV-020, SOV-130, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-151, SOV-160, SOV-161, SOV-175, SOV-335, SOV-336, SOV-337, SEC-020, SEC-030, SEC-100, SEC-104, NET-020, NET-031, NET-040, NET-190, SVC-060, CTL-041, CTL-346, CTL-348, CMP-036, INF-050, INF-060, ACC-010]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - infra/providers/_shared/tests/cloudinit_render.tftest.hcl
@@ -10017,7 +10027,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-086, CLD-090, SOV-090, SOV-150]
-  after: [FND-014, CLD-023, CLD-131, CLD-185, SOV-030, SOV-133, SOV-134, SOV-140, SOV-141, SOV-143, SOV-144, SOV-145, SOV-151, SOV-338, SEC-030, SEC-095, SEC-096, NET-020, SVC-040, CTL-041, INF-060]
+  after: [FND-014, CLD-023, CLD-131, CLD-185, SOV-030, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-143, SOV-144, SOV-145, SOV-151, SOV-338, SEC-030, SEC-095, SEC-096, NET-020, SVC-040, CTL-041, INF-060]
   touches:
   - clusters/_template/sovereign-tls/powerdns-api-credentials.yaml
   - clusters/_template/bootstrap-kit/49-bp-cert-manager-powerdns-webhook.yaml
@@ -10182,7 +10192,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CTL-201, SOV-310]
-  after: [FND-011, FND-014, CLD-023, CLD-030, CLD-113, CLD-131, CLD-185, SOV-030, SOV-035, SOV-133, SOV-134, SOV-140, SOV-141, SOV-144, SOV-145, SOV-338, SEC-030, NET-020, NET-080, SVC-040, SVC-190, CTL-150, CTL-333, BSS-040, AIP-120, INF-060, INF-135]
+  after: [FND-011, FND-014, CLD-023, CLD-030, CLD-113, CLD-131, CLD-185, SOV-030, SOV-035, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-338, SEC-030, NET-020, NET-080, SVC-040, SVC-190, CTL-150, CTL-333, BSS-040, AIP-120, INF-060, INF-135]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - products/catalyst/bootstrap/api/internal/provisioner/provisioner.go
@@ -11070,7 +11080,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CTL-035, CTL-110, FND-032, FND-120, SOV-130, SOV-170, SVC-220]
-  after: [CLD-023, CLD-090, CLD-131, SOV-135, SOV-144, SOV-175, SOV-180, SOV-181, SOV-335, SOV-338, SEC-150, NET-011, NET-020, NET-071, CTL-038, CTL-039, CTL-160, CTL-231, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, BSS-040, AIP-120, INF-060]
+  after: [CLD-023, CLD-090, CLD-131, SOV-135, SOV-142, SOV-144, SOV-175, SOV-180, SOV-181, SOV-335, SOV-338, SEC-150, NET-011, NET-020, NET-071, CTL-038, CTL-039, CTL-160, CTL-231, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, BSS-040, AIP-120, INF-060]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - infra/providers/_shared/tests/cloudinit_render.tftest.hcl
@@ -11586,7 +11596,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [SEC-030]
-  after: [CLD-023, CLD-131, CLD-185, SOV-130, SOV-133, SOV-134, SOV-140, SOV-141, SOV-144, SOV-145, NET-020, INF-060]
+  after: [CLD-023, CLD-131, CLD-185, SOV-130, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, NET-020, INF-060]
   touches: []
   resources: []
   flips: [SEC-G02]
@@ -11611,7 +11621,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [FND-036, FND-080, SEC-040]
-  after: [FND-011, FND-151, CLD-023, CLD-030, CLD-090, CLD-113, CLD-131, CLD-185, SOV-035, SOV-130, SOV-131, SOV-133, SOV-134, SOV-140, SOV-141, SOV-143, SOV-144, SOV-145, SOV-151, SOV-335, SEC-095, SEC-096, SEC-150, NET-010, NET-011, NET-012, NET-020, NET-080, NET-100, SVC-040, SVC-041, SVC-190, CTL-041, CTL-150, CTL-333, BSS-040, AIP-120, INF-053, INF-060, INF-135]
+  after: [FND-011, FND-151, CLD-023, CLD-030, CLD-090, CLD-113, CLD-131, CLD-185, SOV-035, SOV-130, SOV-131, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-143, SOV-144, SOV-145, SOV-151, SOV-335, SEC-095, SEC-096, SEC-150, NET-010, NET-011, NET-012, NET-020, NET-080, NET-100, SVC-040, SVC-041, SVC-190, CTL-041, CTL-150, CTL-333, BSS-040, AIP-120, INF-053, INF-060, INF-135]
   touches: []
   resources: []
   flips: [SEC-G06]
@@ -12599,7 +12609,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [SEC-095]
-  after: [SEC-040, SOV-145, FND-064, FND-104, FND-105, CLD-023, CLD-131, CLD-134, CLD-185, SOV-130, SOV-133, SOV-134, SOV-140, SOV-141, SOV-143, SOV-144, SOV-335, SEC-010, SEC-080, SEC-096, SEC-100, SEC-110, NET-020, NET-055, INF-060]
+  after: [SEC-040, SOV-145, FND-064, FND-104, FND-105, CLD-023, CLD-131, CLD-134, CLD-185, SOV-130, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-143, SOV-144, SOV-335, SEC-010, SEC-080, SEC-096, SEC-100, SEC-110, NET-020, NET-055, INF-060]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - infra/providers/_shared/tests/cloudinit_render.tftest.hcl
@@ -12633,7 +12643,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [SEC-153]
-  after: [CLD-023, CLD-131, CLD-134, CLD-185, SOV-130, SOV-133, SOV-134, SOV-140, SOV-141, SOV-143, SOV-144, SOV-335, SEC-096, NET-020, INF-060]
+  after: [CLD-023, CLD-131, CLD-134, CLD-185, SOV-130, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-143, SOV-144, SOV-335, SEC-096, NET-020, INF-060]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - infra/providers/_shared/tests/cloudinit_render.tftest.hcl
@@ -15506,7 +15516,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [NET-020, NET-100]
-  after: [FND-011, CLD-023, CLD-090, CLD-131, CLD-185, SOV-130, SOV-131, SOV-133, SOV-134, SOV-140, SOV-141, SOV-144, SOV-145, SOV-151, SEC-020, SEC-030, SEC-150, NET-010, NET-011, NET-012, NET-031, NET-040, NET-190, SVC-040, SVC-041, SVC-090, CTL-041, INF-060]
+  after: [FND-011, CLD-023, CLD-090, CLD-131, CLD-185, SOV-130, SOV-131, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-151, SEC-020, SEC-030, SEC-150, NET-010, NET-011, NET-012, NET-031, NET-040, NET-190, SVC-040, SVC-041, SVC-090, CTL-041, INF-060]
   touches:
   - platform/cilium/chart/values.yaml
   - platform/cilium/chart/values-clustermesh.yaml
@@ -22082,7 +22092,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CTL-040, FND-141, CTL-041]
-  after: [FND-011, FND-020, FND-027, FND-029, CLD-023, CLD-076, CLD-131, CLD-185, SOV-130, SOV-133, SOV-134, SOV-140, SOV-141, SOV-144, SOV-145, SEC-020, SEC-030, SEC-126, NET-020, SVC-040, SVC-041, INF-060]
+  after: [FND-011, FND-020, FND-027, FND-029, CLD-023, CLD-076, CLD-131, CLD-185, SOV-130, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SEC-020, SEC-030, SEC-126, NET-020, SVC-040, SVC-041, INF-060]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - platform/flux/chart/Chart.yaml
