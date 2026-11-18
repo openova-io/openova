@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T15:30:07Z` |
+| Last refreshed | `2026-11-18T15:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-18T15:35 | [#8178](https://github.com/openova-io/openova/pull/8178) | #7087 | docs(ledger): plan update |
 | 2026-11-18T15:20 | [#8174](https://github.com/openova-io/openova/pull/8174) | #7087 | docs(ledger): plan update |
 | 2026-11-18T15:17 | [#8173](https://github.com/openova-io/openova/pull/8173) | #8172 | docs(ledger): result of the lab test SOV-148, first-boot ste |
 | 2026-11-18T15:10 | [#8171](https://github.com/openova-io/openova/pull/8171) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-18T10:41 | [#8131](https://github.com/openova-io/openova/pull/8131) | #7087 | docs(ledger): plan update |
 | 2026-11-18T10:45 | [#8130](https://github.com/openova-io/openova/pull/8130) | #8125 | refactor(providers): port methods Normalize and TfVars, capa |
 | 2026-11-18T10:21 | [#8129](https://github.com/openova-io/openova/pull/8129) | #7087 | docs(ledger): plan update |
-| 2026-11-18T11:48 | [#8128](https://github.com/openova-io/openova/pull/8128) | #8102 | fix(gate): the local pack carries the NodePort ban at Enforc |
 
 ---
 
