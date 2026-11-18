@@ -65,8 +65,6 @@ updates:
       - "/products/chargeback/docrender"
       - "/products/fingate"
       - "/products/fingate/tools"
-      - "/products/openova-flow/adapter-flux"
-      - "/products/openova-flow/server"
       - "/products/openova-mcp"
       - "/tests/acceptance/sovereign"
       - "/tests/dod"
@@ -121,8 +119,6 @@ updates:
       - "/products/catalyst/bootstrap/ui"
       - "/products/chargeback"
       - "/products/chargeback/docrender"
-      - "/products/openova-flow/adapter-flux"
-      - "/products/openova-flow/server"
       - "/products/openova-mcp"
     schedule:
       interval: "weekly"

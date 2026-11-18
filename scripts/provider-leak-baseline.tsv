@@ -70,7 +70,6 @@ platform/openbao/chart/templates/init-job.yaml	1
 platform/openclaw/chart/Chart.yaml	4
 platform/openclaw/chart/templates/cilium-ingress-networkpolicy.yaml	4
 platform/openclaw/controller/main.go	1
-platform/openova-flow-emitter/chart/values.yaml	1
 platform/plane-isolation/chart/templates/apiserver-egress-cnp.yaml	1
 platform/plane-isolation/chart/templates/apiserver-webhook-ingress-cnp.yaml	1
 platform/postgres/chart/templates/_helpers.tpl	3

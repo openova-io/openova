@@ -1337,30 +1337,6 @@ if ! grep -q 'node.${NODE_NAME}.registriesYaml' <<<"$pivot_block"; then
 fi
 echo "  PASS (step-04 is the Dragonfly path: containerd -> node-local dfdaemon, dfdaemon upstream -> local Harbor external host on :443; no hostAlias/GATEWAY_SERVICE_NAME/GATEWAY_HTTPS_PORT/CoreDNS-rewrite; legacy registries.yaml hairpin machinery removed; per-node acks preserved)"
 
-echo "[cutover-contract] Case 32: Step-07 ALSO pivots the bp-openova-flow-server HR global.imageRegistry to local Harbor (#4563, Refs #3379)"
-# openova-flow-server is a SEPARATE HelmRelease (slot 56) whose chart honours
-# global.imageRegistry. Step-07 historically patched ONLY bp-catalyst-platform,
-# so openova-flow-server (and catalyst-ui, before its chart was templated) kept
-# the literal ghcr.io image — under the 600s deny-egress hold the anonymous-
-# token fetch to ghcr.io is blocked -> 401 ImagePullBackOff -> step-08 fresh-
-# pull proof FATALs. Step-07 MUST now patch the flow-server HR too (live HR
-# patch + durable Gitea edit) so the residual tether pivots to local Harbor.
-step07_block="$(awk '/cutover-step-07-catalyst-api-env-patch/{c=1} c{print} c&&/cutover-order: "8"/{exit}' "$TMP/render.yaml")"
-[ -n "$step07_block" ] || step07_block="$(cat "$TMP/render.yaml")"
-if ! grep -q 'FLOW_HR_NAME="bp-openova-flow-server"' <<<"$step07_block"; then
-  echo "FAIL: Step-07 does not define FLOW_HR_NAME=bp-openova-flow-server — the flow-server HR is never pivoted, its ghcr.io image 401s under deny-egress and step-08 fresh-pull FATALs (#4563)" >&2
-  exit 1
-fi
-if ! grep -q 'kubectl patch hr "${FLOW_HR_NAME}"' <<<"$step07_block"; then
-  echo "FAIL: Step-07 does not kubectl-patch the flow-server HR spec.values.global.imageRegistry (#4563)" >&2
-  exit 1
-fi
-if ! grep -q '56-bp-openova-flow-server.yaml' <<<"$step07_block"; then
-  echo "FAIL: Step-07 does not durably edit the slot-56 source-of-truth in local Gitea — the live HR patch is reverted on the next Flux reconcile (#4563)" >&2
-  exit 1
-fi
-echo "  PASS (Step-07 pivots bp-openova-flow-server HR global.imageRegistry live + durably edits slot-56; catalyst-ui pivots via bp-catalyst-platform's templated ui-deployment.yaml)"
-
 echo "[cutover-contract] Case 33: Step-03 Phase A2 chart-mirror pivot set is DRIFT-PROOF — derived from LIVE openova-io HelmRepositories, not the static names list alone (#4573 F4, Refs #3379)"
 # #4573 F4: the prior Phase A2 seeded its pivot set ONLY from the static
 # .Values.helmRepositories.names list (mounted chart-mirror-names.txt). That
