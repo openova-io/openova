@@ -5079,7 +5079,7 @@ packages:
   size: S
   lane: RAILS
   depends_on: []
-  after: [FND-022, FND-052, FND-056, CLD-090, SOV-120, SOV-121, SOV-131, CTL-331, CTL-332, AIP-111, AIP-113, AIP-114, AIP-221, AIP-229, INF-110, PRD-101, PRD-102, PRD-103, PRD-501, PRD-513]
+  after: [FND-022, FND-052, FND-056, CLD-090, SOV-120, SOV-121, SOV-131, CTL-331, CTL-332, AIP-101, AIP-111, AIP-113, AIP-114, AIP-221, AIP-229, INF-110, PRD-101, PRD-102, PRD-103, PRD-501, PRD-513]
   touches:
   - '**/go.mod'
   - '**/go.sum'
@@ -14067,7 +14067,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271, FND-063, SOV-230]
-  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-073, FND-074, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-090, CLD-092, CLD-093, CLD-108, CLD-113, CLD-131, CLD-132, CLD-134, SOV-040, SOV-050, SOV-135, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-335, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, NET-011, NET-012, NET-013, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-133, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-190, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-020, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-111, AIP-113, AIP-120, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-110, INF-120, INF-130, INF-135, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-501, PRD-503, PRD-508, PRD-513]
+  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-073, FND-074, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-090, CLD-092, CLD-093, CLD-108, CLD-113, CLD-131, CLD-132, CLD-134, SOV-040, SOV-050, SOV-135, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-335, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, NET-011, NET-012, NET-013, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-133, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-190, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-020, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-101, AIP-111, AIP-113, AIP-120, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-110, INF-120, INF-130, INF-135, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-501, PRD-503, PRD-508, PRD-513]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -26496,7 +26496,7 @@ packages:
   size: XS
   lane: CHARTS
   depends_on: [AIP-010, SVC-160]
-  after: [FND-011, FND-096, FND-098, CLD-142, NET-040, AIP-050, AIP-111, INF-110]
+  after: [FND-011, FND-096, FND-098, CLD-142, NET-040, AIP-050, AIP-101, AIP-111, INF-110]
   touches:
   - platform/llm-gateway/**
   - platform/anthropic-adapter/**
@@ -26526,7 +26526,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [AIP-020]
-  after: [FND-011, FND-062, FND-063, SVC-040, AIP-050, AIP-111]
+  after: [FND-011]
   touches:
   - products/axon/src/providers/claude.ts
   - products/axon/src/providers/session-pool.ts
@@ -26544,16 +26544,30 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c unstable_v2_createSession products/axon/src/providers/session-pool.ts"
+    expect: "3"
+  acceptance:
+  - id: A1
+    run: "cd products/axon && npm ci && npm run build && npm test"
+  - id: A2
+    run: "test -z \"$(git grep -n unstable_v2_createSession -- products/axon)\""
+  - id: A3
+    run: "test \"$(git grep -l -F @anthropic-ai/claude-agent-sdk -- products/axon/src | wc -l)\" = 1 && python3 -c \"import json,sys; k='@anthropic-ai/claude-agent-sdk'; p=json.load(open('products/axon/package.json')); l=json.load(open('products/axon/package-lock.json'))['packages']; ok=[p['dependencies'][k] == '0.3.220', l['']['dependencies'][k] == '0.3.220', l['node_modules/' + k]['version'] == '0.3.220', 'test' in p['scripts']]; print(ok); sys.exit(0 if all(ok) else 1)\""
+  - id: A4
+    run: "out=\"$(python3 scripts/check-agent-plane.py)\" && grep -qx 'G7d=1' <<<\"$out\" && python3 -c \"import sys,yaml; r=yaml.safe_load(open('scripts/agent-plane-baseline.yaml'))['rules']['G7d']; print(r); sys.exit(0 if r == {'max': 1, 'allow': ['products/axon/src/providers/claude.ts']} else 1)\""
+  - id: A5
+    run: "python3 -c \"import sys,yaml; w=yaml.safe_load(open('.github/workflows/axon-build.yaml')); s=w['jobs']['build-axon']['steps']; u=lambda x: x.get('uses', ''); g=\\\"github.event_name != 'pull_request'\\\"; pub=[x for x in s if u(x).startswith('docker/login-action@') or (x.get('with') or {}).get('push') is True or u(x) == './.github/actions/sign-and-attest']; t=[x for x in s if 'npm test' in x.get('run', '')]; ok=[sorted(w[True]['pull_request']['paths']) == ['.github/workflows/axon-build.yaml', 'products/axon/**'], [u(x) for x in s][:2] == ['actions/checkout@11d5960a326750d5838078e36cf38b85af677262', 'actions/setup-node@v7'], str(s[1]['with']['node-version']) == '22', len(t) == 1 and t[0].get('working-directory') == 'products/axon' and 'if' not in t[0], len(pub) == 3 and all(x.get('if') == g for x in pub)]; print(ok); sys.exit(0 if all(ok) else 1)\""
+  - id: A6
+    run: "grep -qx 'products/axon/src/providers/session-pool.ts' docs/ledger/deleted-paths.txt && test ! -e products/axon/src/providers/session-pool.ts"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'Axon builds on main again. The pinned kit 0.3.220 no longer exports unstable_v2_createSession, so session-pool.ts is deleted with getPool, initPool, shutdownPool, poolSize and AXON_POOL_SIZE in the source; chat and chatStream keep their names with bodies on query() (the former chatV1 and chatV1Stream with their two type errors fixed; contract 4.7.2), chatV1 leaves chat-completions.ts, the thinking and effort plumbing goes (contract 4.1.3), formatPrompt(messages) is the plain prompt builder without the tool-JSON prompt, and extractText goes. package.json pins the kit at 0.3.220 and gains the test script, with the root entry of the lock; test/smoke.test.ts imports formatPrompt. axon-build.yaml runs on pull requests for products/axon/** and its own file, adds a test step on actions/setup-node (node 22), gates its publish steps with if: github.event_name != ''pull_request'' and pins actions/checkout to 11d5960a326750d5838078e36cf38b85af677262 (v4.4.0), so the check-pins count stays. appVersion one step; G7d of the agent-plane baseline 2 to 1; session-pool.ts joins the deletion list.'
+  delivers: Axon compiles and passes its unit tests against the agent kit pinned at 0.3.220, every request runs one query() of the kit with no shared session, and the Axon build workflow builds and tests each pull request that changes Axon without publishing an image.
 - id: AIP-102
   title: Tool calls passed through; no shared sessions
   area: AIP
@@ -27203,7 +27217,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [AIP-250, AIP-151]
-  after: [FND-011, SVC-040, AIP-111]
+  after: [FND-011, SVC-040, AIP-101, AIP-111]
   touches:
   - products/agenity/chart/templates/externalsecret-mcp-bearer.yaml
   - products/agenity/chart/templates/externalsecret-anthropic.yaml
@@ -27237,7 +27251,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [AIP-155]
-  after: [CLD-113, SOV-141, SOV-180, NET-071, SVC-040, CTL-040, CTL-223, CTL-231, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, CMP-020, AIP-111]
+  after: [CLD-113, SOV-141, SOV-180, NET-071, SVC-040, CTL-040, CTL-223, CTL-231, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, CMP-020, AIP-101, AIP-111]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/sovereign_mcp_bearer_seed.go
   - products/catalyst/bootstrap/api/internal/handler/sovereign_mcp_bearer_seed_test.go
