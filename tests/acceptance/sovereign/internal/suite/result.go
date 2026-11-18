@@ -118,12 +118,27 @@ type ChartProof struct {
 // Provision is the part of the record about the installation under test. A run
 // in the cloud always writes the Installation (provision.go); a run that
 // follows a wipe writes the PreviousWipe; a run that is given --preflight
-// writes the Preflight. A nil part is left out of the record.
+// writes the Preflight; check NET-G12 writes the Separation. A nil part is
+// left out of the record.
 type Provision struct {
 	*Installation
 	*PreviousWipe
-	Preflight *Preflight `json:"preflight,omitempty"`
+	Preflight  *Preflight  `json:"preflight,omitempty"`
+	Separation *Separation `json:"separation,omitempty"`
 }
+
+// Separation is the region separation that every region's Sovereign object
+// states (check_region_separation.go): its value, none, zone or site, and the
+// summary line of the record, such as "two clusters, one failure domain".
+type Separation struct {
+	Value   string `json:"value"`
+	Summary string `json:"summary"`
+}
+
+// SeparationKey is the evidence key under which check NET-G12 hands a
+// *Separation to the record. Finalize moves it to provision.separation when
+// the record has a provision.
+const SeparationKey = "separation"
 
 // Installation is what step D0.11 measured (provision.go).
 type Installation struct {
@@ -219,6 +234,12 @@ func (r *Run) Finalize(requested []string) {
 		if a, ok := s.Evidence[ArtifactsKey].(*Artifacts); ok {
 			r.Artifacts = a
 			delete(s.Evidence, ArtifactsKey)
+		}
+	}
+	for _, s := range r.Steps {
+		if sep, ok := s.Evidence[SeparationKey].(*Separation); ok && r.Provision != nil {
+			r.Provision.Separation = sep
+			delete(s.Evidence, SeparationKey)
 		}
 	}
 	// The function-test results stay in the evidence of their step; each one
