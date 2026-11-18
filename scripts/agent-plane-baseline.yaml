@@ -85,4 +85,4 @@ rules:
   G7d:
     max: 1
     allow:
-    - products/axon/src/providers/claude.ts
+    - products/axon/src/upstream.ts
