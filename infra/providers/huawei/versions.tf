@@ -61,20 +61,20 @@ terraform {
 # standard trust store. For public Huawei Cloud the same module flips
 # to `insecure = false` via a variable override.
 provider "huaweicloud" {
-  region     = var.huawei_region
+  region     = local.cloud_region
   access_key = var.huawei_access_key
   secret_key = var.huawei_secret_key
   project_id = var.huawei_project_id
 
   endpoints = {
-    iam = "https://iam.${var.huawei_region}.kom4dc.nationalcloud.om"
-    ecs = "https://ecs.${var.huawei_region}.kom4dc.nationalcloud.om"
-    vpc = "https://vpc.${var.huawei_region}.kom4dc.nationalcloud.om"
-    evs = "https://evs.${var.huawei_region}.kom4dc.nationalcloud.om"
-    ims = "https://ims.${var.huawei_region}.kom4dc.nationalcloud.om"
-    obs = "https://obs.${var.huawei_region}.kom4dc.nationalcloud.om"
-    elb = "https://elb.${var.huawei_region}.kom4dc.nationalcloud.om"
-    tms = "https://tms.${var.huawei_region}.kom4dc.nationalcloud.om"
+    iam = "https://iam.${local.cloud_region}.kom4dc.nationalcloud.om"
+    ecs = "https://ecs.${local.cloud_region}.kom4dc.nationalcloud.om"
+    vpc = "https://vpc.${local.cloud_region}.kom4dc.nationalcloud.om"
+    evs = "https://evs.${local.cloud_region}.kom4dc.nationalcloud.om"
+    ims = "https://ims.${local.cloud_region}.kom4dc.nationalcloud.om"
+    obs = "https://obs.${local.cloud_region}.kom4dc.nationalcloud.om"
+    elb = "https://elb.${local.cloud_region}.kom4dc.nationalcloud.om"
+    tms = "https://tms.${local.cloud_region}.kom4dc.nationalcloud.om"
 
     # KMS / KPS (Key Pair Service) — needed for huaweicloud_kps_keypair
     # which registers the operator-supplied SSH key for ECS attachment.
@@ -83,11 +83,11 @@ provider "huaweicloud" {
     # on-prem HCS deployment can't reach. Caught live on 8f711cae
     # 2026-05-22T19:52Z: `dial tcp: lookup kms.me-east-215.
     # myhuaweicloud.com: no such host`.
-    kms = "https://kms.${var.huawei_region}.kom4dc.nationalcloud.om"
+    kms = "https://kms.${local.cloud_region}.kom4dc.nationalcloud.om"
     # NAT Gateway (Wave 5.21, Refs #2140) — workers need internet egress
     # for apt-install + k3s installer. SNAT rule + EIP gives transparent
     # egress without per-worker EIP.
-    nat = "https://nat.${var.huawei_region}.kom4dc.nationalcloud.om"
+    nat = "https://nat.${local.cloud_region}.kom4dc.nationalcloud.om"
   }
 
   insecure = var.huawei_insecure
@@ -99,7 +99,7 @@ provider "huaweicloud" {
 # preflight calls (STS GetCallerIdentity, IMDS metadata discovery) that
 # HCS does not implement.
 provider "aws" {
-  region                      = var.huawei_region
+  region                      = local.cloud_region
   access_key                  = var.huawei_access_key
   secret_key                  = var.huawei_secret_key
   skip_credentials_validation = true
@@ -109,6 +109,6 @@ provider "aws" {
   s3_use_path_style           = true
 
   endpoints {
-    s3 = "https://obs.${var.huawei_region}.kom4dc.nationalcloud.om"
+    s3 = "https://obs.${local.cloud_region}.kom4dc.nationalcloud.om"
   }
 }

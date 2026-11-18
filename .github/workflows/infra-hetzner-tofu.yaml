@@ -18,11 +18,17 @@ on:
       # #3145 — the control-plane cloud-init is the shared cloud-agnostic
       # template; a change to it must re-validate this provider's render.
       - 'infra/providers/_shared/**'
+      # CLD-090 — the contract file, its fixtures and the shared body of
+      # tests/contract.tftest.hcl.
+      - 'infra/providers/_contract/**'
       - '.github/workflows/infra-hetzner-tofu.yaml'
   pull_request:
     paths:
       - 'infra/providers/hetzner/**'
       - 'infra/providers/_shared/**'
+      # CLD-090 — the contract file, its fixtures and the shared body of
+      # tests/contract.tftest.hcl.
+      - 'infra/providers/_contract/**'
       - '.github/workflows/infra-hetzner-tofu.yaml'
   workflow_dispatch:
 
@@ -30,7 +36,7 @@ jobs:
   validate-and-test:
     name: validate + fmt + test
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: infra/providers/hetzner
@@ -41,11 +47,12 @@ jobs:
       - name: Install OpenTofu
         uses: opentofu/setup-opentofu@v1
         with:
-          # Pinned to match the version `infra/hetzner/versions.tf` declares
-          # (`required_version = ">= 1.6.0"`) and the version
-          # `tests/e2e/hetzner-provisioning` already uses (1.8.5). Bump in
-          # lockstep with that workflow to keep CI behaviour deterministic.
-          tofu_version: 1.8.5
+          # CLD-090 — 1.11.6, the version catalyst-build.yaml and
+          # infra-local-tofu.yaml run the same tests with. The shared body
+          # of tests/contract.tftest.hcl calls functions in its variables
+          # block, which OpenTofu 1.8.5 refuses. Bump in lockstep with
+          # infra-huawei-tofu.yaml.
+          tofu_version: 1.11.6
 
       - name: tofu init (backend=false — no real state for module-local checks)
         run: tofu init -backend=false

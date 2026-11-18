@@ -47,7 +47,7 @@
 # `hcloud_network_subnet.main` (singletons) are REPLACED by
 # `hcloud_network.region[<key>]` and `hcloud_network_subnet.region[<key>]`
 # (for_each maps keyed by region key — "primary" for regions[0], the
-# slice-G1 "{cloudRegion}-{index}" form for secondaries). The legacy
+# slice-G1 "{cloud_region}-{index}" form for secondaries). The legacy
 # `hcloud_network_subnet.secondary` (for_each) is also replaced by the
 # unified `hcloud_network_subnet.region` map. Any pre-2026-05-15 Sovereign
 # state will plan a network-recreate on the next apply — by founder
@@ -61,7 +61,7 @@ locals {
   all_region_keys = concat(["primary"], [for k, _ in local.secondary_regions : k])
 
   # Per-region network zone. The primary region reads var.region; each
-  # secondary reads its cloudRegion from local.secondary_regions. The
+  # secondary reads its cloud_region from local.secondary_regions. The
   # network zone is just a Hetzner placement hint for the subnet; the
   # subnet CIDR (10.0.1.0/24) is identical across regions because they
   # live in DIFFERENT networks.
@@ -71,7 +71,7 @@ locals {
     },
     {
       for k, r in local.secondary_regions :
-      k => lookup(local.hetzner_network_zones, r.cloudRegion, "eu-central")
+      k => lookup(local.hetzner_network_zones, r.cloud_region, "eu-central")
     }
   )
 
@@ -98,7 +98,7 @@ locals {
 
   # Per-region canonical 4-segment region label per docs/NAMING-CONVENTION.md
   # §2.1: `{prov}-{reg}-{bb}-{env_type}`. For the Hetzner module the prov
-  # prefix is `hz`; reg is the cloudRegion with trailing digits stripped
+  # prefix is `hz`; reg is the cloud_region with trailing digits stripped
   # (`fsn1` → `fsn`, `nbg1` → `nbg`, `sin` → `sin`); bb is the building-
   # block tag `rtz` (regional-tier-zero) and env_type is `prod`. Each
   # cluster's k3s nodes label themselves with this canonical tag via
@@ -126,7 +126,7 @@ locals {
     },
     {
       for k, r in local.secondary_regions :
-      k => format("hz-%s-rtz-prod", replace(r.cloudRegion, "/[0-9]+/", ""))
+      k => format("hz-%s-rtz-prod", replace(r.cloud_region, "/[0-9]+/", ""))
     }
   )
 }
@@ -524,15 +524,39 @@ locals {
   # existing state carries, so legacy `tofu plan` outputs are unchanged
   # for any Sovereign whose request body has len(regions) ≤ 1.
   #
-  # Key shape: "{cloudRegion}-{index}". Including the index protects
+  # Key shape: "{cloud_region}-{index}". Including the index protects
   # against same-region duplicates (e.g. fsn1 mgmt + fsn1 dataplane in
   # the same Sovereign — legal, even if uncommon). Index starts at 1
-  # because regions[0] is owned by the singular path.
+  # because regions[0] is owned by the singular path. The key is internal
+  # to this module (resource addresses); the contract's region code is
+  # local.region_code below.
   secondary_regions = {
     for i, r in var.regions :
-    "${r.cloudRegion}-${i}" => r
-    if i > 0 && r.provider == "hetzner"
+    "${r.cloud_region}-${i}" => r
+    if i > 0
   }
+
+  # CLD-090 — the region code of contract version 1 per internal region
+  # key: regions[0].code for "primary", regions[i].code for a secondary.
+  # The contract output control_plane_ips_per_region and the network
+  # registry are keyed by it.
+  region_code = merge(
+    { primary = var.regions[0].code },
+    { for k, r in local.secondary_regions : k => r.code },
+  )
+
+  # CLD-090 — var.regions in the field names the Sovereign reads from
+  # SOVEREIGN_REGIONS_JSON (core/controllers/pkg/regions): the names this
+  # module passed before `regions` took the contract's type.
+  sovereign_regions_wire = [
+    for r in var.regions : {
+      provider         = "hetzner"
+      cloudRegion      = r.cloud_region
+      controlPlaneSize = r.control_plane_size
+      workerSize       = r.worker_size
+      workerCount      = r.worker_count
+    }
+  ]
 
   # Per-secondary-region Cilium ClusterMesh peer anchors (#1101 EPIC-6).
   # Auto-derive cluster.name as `<sovereign-stem>-<region-code-no-digits>`
@@ -555,7 +579,7 @@ locals {
       var.cluster_mesh_name == "" ? "" : format(
         "%s-%s",
         split(".", var.sovereign_fqdn)[0],
-        replace(r.cloudRegion, "/[0-9]+/", "")
+        replace(r.cloud_region, "/[0-9]+/", "")
       )
     )
   }
@@ -870,9 +894,9 @@ locals {
       var.parent_domains_yaml,
       format("[{name: \"%s\", role: \"primary\"}]", var.sovereign_fqdn)
     )
-    sovereign_regions_json = jsonencode(var.regions)
+    sovereign_regions_json = jsonencode(local.sovereign_regions_wire)
     sovereign_configured_regions_yaml = jsonencode([
-      for r in var.regions : r.cloudRegion
+      for r in var.regions : r.cloud_region
     ])
     enable_unattended_upgrades = var.enable_unattended_upgrades
     enable_fail2ban            = var.enable_fail2ban
@@ -978,6 +1002,8 @@ resource "hcloud_server" "control_plane" {
   # already at its documented floor — guardrail raised 32512 → 32576, still
   # 192 B below the 32768 hard cap.
   lifecycle {
+    # CLD-090 — boot data never replaces a node (module contract version 1).
+    ignore_changes = [user_data]
     precondition {
       condition = length(local.control_plane_cloud_init) <= 32576
       # G107 #2702 (2026-06-01): wrap length() with nonsensitive() so the
@@ -1027,6 +1053,8 @@ resource "hcloud_server" "worker" {
   # cloud-inits, but mirror it here so a worker-only future change can't
   # bypass the gate by editing only cloudinit-worker.tftpl.
   lifecycle {
+    # CLD-090 — boot data never replaces a node (module contract version 1).
+    ignore_changes = [user_data]
     precondition {
       condition     = length(local.worker_cloud_init) <= 30720
       error_message = "Rendered worker cloud-init is ${nonsensitive(length(local.worker_cloud_init))} bytes, exceeds 30720 (30 KiB) guardrail (Hetzner hard cap is 32768). Cull comments / move bloat out of cloudinit-worker.tftpl. See issue #966."
@@ -1416,7 +1444,7 @@ locals {
       deployment_id                  = var.deployment_id
       org_name                       = var.org_name
       org_email                      = var.org_email
-      region                         = r.cloudRegion
+      region                         = r.cloud_region
       sovereign_region_key           = k # secondary each.key (raw region key)
       region_canonical_label         = local.region_canonical_label[k]
       primary_region_canonical_label = local.region_canonical_label["primary"]
@@ -1449,9 +1477,9 @@ locals {
         var.parent_domains_yaml,
         format("[{name: \"%s\", role: \"primary\"}]", var.sovereign_fqdn)
       )
-      sovereign_regions_json = jsonencode(var.regions)
+      sovereign_regions_json = jsonencode(local.sovereign_regions_wire)
       sovereign_configured_regions_yaml = jsonencode([
-        for rr in var.regions : rr.cloudRegion
+        for rr in var.regions : rr.cloud_region
       ])
       enable_unattended_upgrades = var.enable_unattended_upgrades
       enable_fail2ban            = var.enable_fail2ban
@@ -1496,7 +1524,7 @@ locals {
       node_ip_cmd              = local.node_ip_cmd_hetzner
       provider_id_cmd          = local.provider_id_cmd_hetzner
       provider_prelude         = local.provider_prelude_hetzner
-      k3s_extra_args           = "--kube-apiserver-arg=oidc-issuer-url=https://auth.${var.sovereign_fqdn}/realms/sovereign --kube-apiserver-arg=oidc-client-id=kubectl --kube-apiserver-arg=oidc-username-claim=preferred_username --kube-apiserver-arg=oidc-username-prefix=oidc: --kube-apiserver-arg=oidc-groups-claim=groups --kube-apiserver-arg=oidc-groups-prefix=oidc: --disable-cloud-controller ${r.workerCount > 0 ? "--node-taint node-role.kubernetes.io/control-plane=true:NoSchedule" : ""}"
+      k3s_extra_args           = "--kube-apiserver-arg=oidc-issuer-url=https://auth.${var.sovereign_fqdn}/realms/sovereign --kube-apiserver-arg=oidc-client-id=kubectl --kube-apiserver-arg=oidc-username-claim=preferred_username --kube-apiserver-arg=oidc-username-prefix=oidc: --kube-apiserver-arg=oidc-groups-claim=groups --kube-apiserver-arg=oidc-groups-prefix=oidc: --disable-cloud-controller ${r.worker_count > 0 ? "--node-taint node-role.kubernetes.io/control-plane=true:NoSchedule" : ""}"
       # cloud-credentials Secret — secondary region's autoscaler keys.
       cloud_credentials_secret_yaml = <<-CREDS
         apiVersion: v1
@@ -1580,8 +1608,8 @@ resource "hcloud_server" "secondary_control_plane" {
 
   name         = "catalyst-${replace(var.sovereign_fqdn, ".", "-")}-${each.key}-cp1"
   image        = "ubuntu-24.04"
-  server_type  = each.value.controlPlaneSize
-  location     = each.value.cloudRegion
+  server_type  = each.value.control_plane_size
+  location     = each.value.cloud_region
   ssh_keys     = [hcloud_ssh_key.main.id]
   firewall_ids = [hcloud_firewall.main.id]
   user_data    = local.secondary_region_cloud_init[each.key]
@@ -1594,7 +1622,7 @@ resource "hcloud_server" "secondary_control_plane" {
   labels = {
     "catalyst.openova.io/sovereign" = var.sovereign_fqdn
     "catalyst.openova.io/role"      = "control-plane"
-    "catalyst.openova.io/region"    = each.value.cloudRegion
+    "catalyst.openova.io/region"    = each.value.cloud_region
     "catalyst.openova.io/region-id" = each.key
   }
 
@@ -1604,6 +1632,8 @@ resource "hcloud_server" "secondary_control_plane" {
   # write_files payload; worker variant stays at 30720 because
   # cloudinit-worker.tftpl is unaffected by this change.
   lifecycle {
+    # CLD-090 — boot data never replaces a node (module contract version 1).
+    ignore_changes = [user_data]
     precondition {
       condition     = length(local.secondary_region_cloud_init[each.key]) <= 32256
       error_message = "Rendered control-plane cloud-init for secondary region ${each.key} is ${nonsensitive(length(local.secondary_region_cloud_init[each.key]))} bytes, exceeds 32256 (~31.5 KiB) guardrail (Hetzner hard cap is 32768)."
@@ -1629,7 +1659,7 @@ locals {
   secondary_workers = {
     for pair in flatten([
       for k, r in local.secondary_regions : [
-        for i in range(r.workerCount) : {
+        for i in range(r.worker_count) : {
           key        = "${k}-w${i + 1}"
           region_key = k
           region     = r
@@ -1647,8 +1677,8 @@ resource "hcloud_server" "secondary_worker" {
 
   name         = "catalyst-${replace(var.sovereign_fqdn, ".", "-")}-${each.value.region_key}-w${each.value.worker_idx + 1}"
   image        = "ubuntu-24.04"
-  server_type  = each.value.region.workerSize
-  location     = each.value.region.cloudRegion
+  server_type  = each.value.region.worker_size
+  location     = each.value.region.cloud_region
   ssh_keys     = [hcloud_ssh_key.main.id]
   firewall_ids = [hcloud_firewall.main.id]
   user_data    = local.secondary_region_worker_cloud_init[each.value.region_key]
@@ -1661,11 +1691,13 @@ resource "hcloud_server" "secondary_worker" {
   labels = {
     "catalyst.openova.io/sovereign" = var.sovereign_fqdn
     "catalyst.openova.io/role"      = "worker"
-    "catalyst.openova.io/region"    = each.value.region.cloudRegion
+    "catalyst.openova.io/region"    = each.value.region.cloud_region
     "catalyst.openova.io/region-id" = each.value.region_key
   }
 
   lifecycle {
+    # CLD-090 — boot data never replaces a node (module contract version 1).
+    ignore_changes = [user_data]
     precondition {
       condition     = length(local.secondary_region_worker_cloud_init[each.value.region_key]) <= 30720
       error_message = "Rendered worker cloud-init for secondary region ${each.value.region_key} is ${length(local.secondary_region_worker_cloud_init[each.value.region_key])} bytes, exceeds 30720 (30 KiB) guardrail."
@@ -1685,13 +1717,13 @@ resource "hcloud_load_balancer" "secondary" {
 
   name               = "catalyst-${replace(var.sovereign_fqdn, ".", "-")}-${each.key}-lb"
   load_balancer_type = "lb11"
-  location           = each.value.cloudRegion
+  location           = each.value.cloud_region
   algorithm {
     type = "round_robin"
   }
   labels = {
     "catalyst.openova.io/sovereign" = var.sovereign_fqdn
-    "catalyst.openova.io/region"    = each.value.cloudRegion
+    "catalyst.openova.io/region"    = each.value.cloud_region
     "catalyst.openova.io/region-id" = each.key
   }
 }
@@ -1785,7 +1817,8 @@ resource "hcloud_load_balancer_service" "secondary_dns" {
 # in the order of local.all_region_keys. Output network_registry is its JSON
 # form; scripts/check-network-registry.py checks it. The values are the
 # module's own:
-#   - code: the module's region key, the key of control_plane_ips_per_region;
+#   - code: the region code of contract version 1 (local.region_code), the
+#     key of control_plane_ips_per_region;
 #   - cloudRegion: the Hetzner location; az: "none" (Hetzner has no zones);
 #   - clusterName and clusterID: the mesh name and identifier the template
 #     receives ("" and 0 when var.cluster_mesh_name and var.cluster_mesh_id
@@ -1804,7 +1837,7 @@ resource "hcloud_load_balancer_service" "secondary_dns" {
 locals {
   network_registry_cloud_region = merge(
     { primary = var.region },
-    { for k, r in local.secondary_regions : k => r.cloudRegion },
+    { for k, r in local.secondary_regions : k => r.cloud_region },
   )
 
   network_registry_cluster_name = merge(
@@ -1846,7 +1879,7 @@ locals {
     }
     regions = [
       for k in local.all_region_keys : {
-        code            = k
+        code            = local.region_code[k]
         cloudRegion     = local.network_registry_cloud_region[k]
         az              = "none"
         clusterName     = local.network_registry_cluster_name[k]

@@ -5,13 +5,12 @@
 # both providers are mocked so the test runs offline in CI on every PR
 # touching infra/hetzner/**.
 #
-# Three scenarios:
-#   1. Legacy single-region shape (var.regions = []) — every secondary
-#      output is empty and the singular-path resources are unchanged.
+# var.regions has the type of contract version 1 (CLD-090): one entry per
+# region, index 0 the primary. Three scenarios:
+#   1. An empty regions list is refused: the contract needs the primary.
 #   2. Single-entry regions list (len(regions) == 1) — secondary
 #      resources stay empty (regions[0] is owned by the singular path),
-#      preserving the cost-zero shape for solo Sovereigns that pre-date
-#      the per-region wizard payload.
+#      preserving the cost-zero shape for solo Sovereigns.
 #   3. Three-region shape (mgmt + fsn + hel — the EPIC-6 #1101
 #      Continuum DR shape per docs/EPICS-1-6-unified-design.md §3.8 +
 #      §11) — secondary resources fire for regions[1] and regions[2],
@@ -151,6 +150,28 @@ variables {
   worker_size        = "cpx32"
   worker_count       = 2
 
+  # CLD-090: contract version 1. regions is required and index 0 is the
+  # primary region; a run with more regions sets its own list.
+  regions = [
+    {
+      code               = "nbg1"
+      cloud_region       = "nbg1"
+      role               = "primary"
+      control_plane_size = "cpx22"
+      worker_size        = "cpx32"
+      worker_count       = 2
+    }
+  ]
+
+  # CLD-090: contract version 1 gives these four no default; catalyst-api
+  # always writes them. The values are the defaults the module had before.
+  # An empty deployment_id leaves the kubeconfig post-back out of the render;
+  # the run post_back_render_fits_the_size_guards_with_room sets a real one.
+  deployment_id         = ""
+  gitops_repo_url       = "https://github.com/openova-io/openova"
+  catalyst_api_url      = "https://console.openova.io/sovereign"
+  default_storage_class = "hcloud-volumes"
+
   k3s_version    = "v1.31.4+k3s1"
   ssh_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITESTKEYTESTKEYTESTKEYTESTKEYTESTKEY test@local"
 
@@ -207,32 +228,86 @@ variables {
   }
 }
 
-# ── Scenario 1: legacy single-region (var.regions = []) ──────────────────
-# Confirms slice G1 is purely additive — when no per-region payload is
-# supplied (every Sovereign provisioned before slice G1 + every wizard
-# request body that omits the regions field), the multi-region overlay
-# is a no-op and no secondary resources are planned.
+# ── Scenario 1: an empty regions list is refused ─────────────────────────
+# Contract version 1: regions has at least one entry and regions[0] is the
+# primary region. catalyst-api writes one entry for a request that names no
+# regions, so the module never sees an empty list.
 
-run "legacy_no_regions_payload" {
+run "empty_regions_list_is_refused" {
   command = plan
 
   variables {
     regions = []
   }
 
+  expect_failures = [var.regions]
+}
+
+run "first_region_that_is_not_primary_is_refused" {
+  command = plan
+
+  variables {
+    regions = [
+      {
+        code               = "nbg1"
+        cloud_region       = "nbg1"
+        role               = "secondary"
+        control_plane_size = "cpx22"
+        worker_size        = "cpx32"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  expect_failures = [var.regions]
+}
+
+# ── Scenario 2: single-entry regions[] ────────────────────────────────────
+# regions[0] is owned by the singular path so with len(regions)==1 no
+# secondary resources are planned: the multi-region overlay is a no-op.
+# This protects single-region Sovereigns from materialising duplicate
+# primary-region resources.
+
+run "single_region_entry_does_not_double_provision" {
+  command = plan
+
+  variables {
+    regions = [
+      {
+        code               = "nbg1"
+        cloud_region       = "nbg1"
+        role               = "primary"
+        control_plane_size = "cpx22"
+        worker_size        = "cpx32"
+        worker_count       = 2
+      }
+    ]
+  }
+
   assert {
     condition     = length(output.secondary_region_keys) == 0
-    error_message = "secondary_region_keys must be empty when var.regions=[] (legacy single-region apply path)."
+    error_message = "regions[0] is owned by the singular path; secondary_region_keys must be empty for len(regions)==1."
   }
 
   assert {
     condition     = length(output.control_plane_ips_by_region) == 0
-    error_message = "control_plane_ips_by_region must be empty when var.regions=[]."
+    error_message = "control_plane_ips_by_region must be empty for len(regions)==1."
   }
 
   assert {
     condition     = length(output.load_balancer_ips_by_region) == 0
-    error_message = "load_balancer_ips_by_region must be empty when var.regions=[]."
+    error_message = "load_balancer_ips_by_region must be empty for len(regions)==1."
+  }
+
+  # CLD-090: the contract outputs. One key per region, the region code.
+  assert {
+    condition     = output.contract_version == "1"
+    error_message = "CLD-090: output contract_version must be \"1\"."
+  }
+
+  assert {
+    condition     = sort(keys(output.control_plane_ips_per_region)) == tolist(["nbg1"])
+    error_message = "CLD-090: control_plane_ips_per_region must have exactly the key of regions[0].code."
   }
 
   # Per-region network refactor: even with NO secondary regions, the
@@ -242,7 +317,7 @@ run "legacy_no_regions_payload" {
   # for_each map keyed on local.all_region_keys.
   assert {
     condition     = length(hcloud_network.region) == 1
-    error_message = "Single-region (var.regions=[]) must still produce exactly 1 hcloud_network keyed 'primary' (the legacy hcloud_network.main was retired)."
+    error_message = "A single region must still produce exactly 1 hcloud_network keyed 'primary' (the legacy hcloud_network.main was retired)."
   }
 
   assert {
@@ -289,33 +364,6 @@ run "api_port_lists_refuse_any_source" {
   expect_failures = [var.admin_cidrs, var.provisioner_cidrs]
 }
 
-# ── Scenario 2: single-entry regions[] ────────────────────────────────────
-# regions[0] is owned by the singular path so even with len(regions)==1
-# no secondary resources are planned. This protects existing wizard
-# payloads (every wizard run today emits 1 entry) from accidentally
-# materialising duplicate primary-region resources.
-
-run "single_region_entry_does_not_double_provision" {
-  command = plan
-
-  variables {
-    regions = [
-      {
-        provider         = "hetzner"
-        cloudRegion      = "nbg1"
-        controlPlaneSize = "cpx22"
-        workerSize       = "cpx32"
-        workerCount      = 2
-      }
-    ]
-  }
-
-  assert {
-    condition     = length(output.secondary_region_keys) == 0
-    error_message = "regions[0] is owned by the singular path; secondary_region_keys must be empty for len(regions)==1."
-  }
-}
-
 # ── Scenario 3: three-region EPIC-6 shape (mgmt + fsn + hel) ─────────────
 # Mirrors docs/EPICS-1-6-unified-design.md §3.8: one mgmt cluster
 # (regions[0], drives the singular path) + two data-plane clusters in
@@ -323,7 +371,7 @@ run "single_region_entry_does_not_double_provision" {
 #
 # The slice G1 success gate: secondary_region_keys carries exactly two
 # entries, in stable insertion order, with the deterministic
-# "{cloudRegion}-{index}" naming.
+# "{cloud_region}-{index}" naming.
 
 run "three_region_mgmt_fsn_hel" {
   command = plan
@@ -331,25 +379,28 @@ run "three_region_mgmt_fsn_hel" {
   variables {
     regions = [
       {
-        provider         = "hetzner"
-        cloudRegion      = "nbg1"
-        controlPlaneSize = "cpx32"
-        workerSize       = "cpx32"
-        workerCount      = 1
+        code               = "nbg1"
+        cloud_region       = "nbg1"
+        role               = "primary"
+        control_plane_size = "cpx32"
+        worker_size        = "cpx32"
+        worker_count       = 1
       },
       {
-        provider         = "hetzner"
-        cloudRegion      = "fsn1"
-        controlPlaneSize = "cpx32"
-        workerSize       = "cpx32"
-        workerCount      = 2
+        code               = "fsn1"
+        cloud_region       = "fsn1"
+        role               = "secondary"
+        control_plane_size = "cpx32"
+        worker_size        = "cpx32"
+        worker_count       = 2
       },
       {
-        provider         = "hetzner"
-        cloudRegion      = "hel1"
-        controlPlaneSize = "cpx32"
-        workerSize       = "cpx32"
-        workerCount      = 2
+        code               = "hel1"
+        cloud_region       = "hel1"
+        role               = "secondary"
+        control_plane_size = "cpx32"
+        worker_size        = "cpx32"
+        worker_count       = 2
       },
     ]
   }
@@ -367,6 +418,18 @@ run "three_region_mgmt_fsn_hel" {
   assert {
     condition     = contains(output.secondary_region_keys, "hel1-2")
     error_message = "secondary_region_keys must contain the hel1-2 key for regions[2] (Helsinki data plane)."
+  }
+
+  # CLD-090: the contract output and the network registry are keyed by
+  # region code, in the order of var.regions.
+  assert {
+    condition     = sort(keys(output.control_plane_ips_per_region)) == tolist(["fsn1", "hel1", "nbg1"])
+    error_message = "CLD-090: control_plane_ips_per_region must have one key per region code."
+  }
+
+  assert {
+    condition     = [for r in jsondecode(output.network_registry).regions : r.code] == ["nbg1", "fsn1", "hel1"]
+    error_message = "CLD-090: the network registry must name each region by its code, in the order of var.regions."
   }
 
   # Per-region network refactor (2026-05-15 DoD A2) — one hcloud_network
@@ -428,11 +491,11 @@ run "three_region_mgmt_fsn_hel" {
   }
 }
 
-# ── Scenario 4: same-region duplicate ────────────────────────────────────
-# Same cloudRegion appearing multiple times must produce distinct
-# secondary keys (the index suffix is what makes them unique). Tests
-# the deterministic naming rule that "{cloudRegion}-{index}" never
-# collapses to a single key.
+# ── Scenario 4: two regions in one location ──────────────────────────────
+# The same cloud_region may appear more than once when every entry has its
+# own region code. The module's internal keys stay distinct (the index
+# suffix of "{cloud_region}-{index}"), and the contract output is keyed by
+# the codes.
 
 run "same_region_duplicates_produce_distinct_keys" {
   command = plan
@@ -440,25 +503,28 @@ run "same_region_duplicates_produce_distinct_keys" {
   variables {
     regions = [
       {
-        provider         = "hetzner"
-        cloudRegion      = "nbg1"
-        controlPlaneSize = "cpx22"
-        workerSize       = "cpx32"
-        workerCount      = 1
+        code               = "nbg1"
+        cloud_region       = "nbg1"
+        role               = "primary"
+        control_plane_size = "cpx22"
+        worker_size        = "cpx32"
+        worker_count       = 1
       },
       {
-        provider         = "hetzner"
-        cloudRegion      = "fsn1"
-        controlPlaneSize = "cpx32"
-        workerSize       = "cpx32"
-        workerCount      = 1
+        code               = "fsn1-a"
+        cloud_region       = "fsn1"
+        role               = "secondary"
+        control_plane_size = "cpx32"
+        worker_size        = "cpx32"
+        worker_count       = 1
       },
       {
-        provider         = "hetzner"
-        cloudRegion      = "fsn1"
-        controlPlaneSize = "cpx32"
-        workerSize       = "cpx32"
-        workerCount      = 1
+        code               = "fsn1-b"
+        cloud_region       = "fsn1"
+        role               = "secondary"
+        control_plane_size = "cpx32"
+        worker_size        = "cpx32"
+        worker_count       = 1
       },
     ]
   }
@@ -472,55 +538,53 @@ run "same_region_duplicates_produce_distinct_keys" {
     condition     = contains(output.secondary_region_keys, "fsn1-1") && contains(output.secondary_region_keys, "fsn1-2")
     error_message = "Same-region duplicates must yield index-distinguished keys fsn1-1 and fsn1-2."
   }
+
+  assert {
+    condition     = sort(keys(output.control_plane_ips_per_region)) == tolist(["fsn1-a", "fsn1-b", "nbg1"])
+    error_message = "CLD-090: control_plane_ips_per_region must be keyed by the three region codes."
+  }
 }
 
-# ── Scenario 5: non-Hetzner regions are skipped by the Hetzner module ────
-# A regions[] payload may carry entries for other providers (oci, aws,
-# huawei) when the operator chose multi-cloud at signup. The Hetzner
-# module's overlay filters by `r.provider == "hetzner"` so non-Hetzner
-# entries are quietly ignored here — sister provider modules (slice G2,
-# G4, …) own their own iteration. This test pins that contract so a
-# regression silently materialising a non-Hetzner row in the Hetzner
-# overlay fails fast.
+# ── Scenario 5: a repeated region code is refused ────────────────────────
+# Contract version 1: regions[].code is unique. Two regions in one location
+# with the same code would share one key in control_plane_ips_per_region.
+# (Before contract version 1 this scenario pinned the filter by
+# regions[].provider; the contract's type has no such field, so every
+# regions[1+] entry is a region of this module.)
 
-run "non_hetzner_regions_are_filtered_out" {
+run "repeated_region_code_is_refused" {
   command = plan
 
   variables {
     regions = [
       {
-        provider         = "hetzner"
-        cloudRegion      = "nbg1"
-        controlPlaneSize = "cpx22"
-        workerSize       = "cpx32"
-        workerCount      = 1
+        code               = "nbg1"
+        cloud_region       = "nbg1"
+        role               = "primary"
+        control_plane_size = "cpx22"
+        worker_size        = "cpx32"
+        worker_count       = 1
       },
       {
-        provider         = "hetzner"
-        cloudRegion      = "fsn1"
-        controlPlaneSize = "cpx32"
-        workerSize       = "cpx32"
-        workerCount      = 2
+        code               = "fsn1"
+        cloud_region       = "fsn1"
+        role               = "secondary"
+        control_plane_size = "cpx32"
+        worker_size        = "cpx32"
+        worker_count       = 2
       },
       {
-        provider         = "oci"
-        cloudRegion      = "fra"
-        controlPlaneSize = "VM.Standard.E5.Flex.4.32"
-        workerSize       = "VM.Standard.E5.Flex.4.32"
-        workerCount      = 2
+        code               = "fsn1"
+        cloud_region       = "fsn1"
+        role               = "secondary"
+        control_plane_size = "cpx32"
+        worker_size        = "cpx32"
+        worker_count       = 2
       },
     ]
   }
 
-  assert {
-    condition     = length(output.secondary_region_keys) == 1
-    error_message = "OCI region at index 2 must be filtered out by the Hetzner overlay; only fsn1-1 should remain in secondary_region_keys."
-  }
-
-  assert {
-    condition     = contains(output.secondary_region_keys, "fsn1-1")
-    error_message = "fsn1-1 (regions[1], hetzner) must be present after filtering."
-  }
+  expect_failures = [var.regions]
 }
 
 # ── Scenario 6: QA-mode auto-flips to bigger SKUs (Fix #157) ─────────────
@@ -656,7 +720,7 @@ run "qa_mode_on_body_overrides_win" {
 #      Sovereigns ran multi-region.
 #
 # The fix derives node-label region from `region` (the templatefile
-# variable that's set to `r.cloudRegion` for secondary blocks and to
+# variable that's set to `r.cloud_region` for secondary blocks and to
 # `var.region` for the primary block) instead of a hardcoded literal,
 # and verifies the rendered cloud-init at the local.* level. We assert
 # on local.secondary_region_cloud_init[k] (a string) so the test does
@@ -670,25 +734,28 @@ run "per_region_cloud_init_carries_secondarys_own_region" {
     cluster_mesh_id         = 1
     regions = [
       {
-        provider         = "hetzner"
-        cloudRegion      = "hel1"
-        controlPlaneSize = "cpx32"
-        workerSize       = "cpx32"
-        workerCount      = 1
+        code               = "hel1"
+        cloud_region       = "hel1"
+        role               = "primary"
+        control_plane_size = "cpx32"
+        worker_size        = "cpx32"
+        worker_count       = 1
       },
       {
-        provider         = "hetzner"
-        cloudRegion      = "nbg1"
-        controlPlaneSize = "cpx32"
-        workerSize       = "cpx32"
-        workerCount      = 1
+        code               = "nbg1"
+        cloud_region       = "nbg1"
+        role               = "secondary"
+        control_plane_size = "cpx32"
+        worker_size        = "cpx32"
+        worker_count       = 1
       },
       {
-        provider         = "hetzner"
-        cloudRegion      = "sin"
-        controlPlaneSize = "cpx32"
-        workerSize       = "cpx32"
-        workerCount      = 1
+        code               = "sin"
+        cloud_region       = "sin"
+        role               = "secondary"
+        control_plane_size = "cpx32"
+        worker_size        = "cpx32"
+        worker_count       = 1
       },
     ]
     # Singular-path region must mirror regions[0] (provisioner.go contract).
@@ -704,7 +771,7 @@ run "per_region_cloud_init_carries_secondarys_own_region" {
 
   assert {
     condition     = strcontains(local.secondary_region_flux_bootstrap["nbg1-1"], "HCLOUD_LB_LOCATION: \"nbg1\"")
-    error_message = "Secondary nbg1-1 cloud-init must render HCLOUD_LB_LOCATION=\"nbg1\" (r.cloudRegion); got primary's hel1 instead — breaks hcloud-ccm clustermesh-apiserver LB allocation (D10/D12)."
+    error_message = "Secondary nbg1-1 cloud-init must render HCLOUD_LB_LOCATION=\"nbg1\" (r.cloud_region); got primary's hel1 instead — breaks hcloud-ccm clustermesh-apiserver LB allocation (D10/D12)."
   }
 
   assert {
@@ -720,7 +787,7 @@ run "per_region_cloud_init_carries_secondarys_own_region" {
 
   assert {
     condition     = strcontains(local.secondary_region_flux_bootstrap["sin-2"], "HCLOUD_LB_LOCATION: \"sin\"")
-    error_message = "Secondary sin-2 cloud-init must render HCLOUD_LB_LOCATION=\"sin\" (r.cloudRegion)."
+    error_message = "Secondary sin-2 cloud-init must render HCLOUD_LB_LOCATION=\"sin\" (r.cloud_region)."
   }
 
   # ── K3s node-label must derive from the per-region `region` var, never a
@@ -739,7 +806,7 @@ run "per_region_cloud_init_carries_secondarys_own_region" {
 
   assert {
     condition     = strcontains(local.secondary_region_cloud_init["sin-2"], "openova.io/region=hz-sin-rtz-prod")
-    error_message = "Secondary sin-2 k3s node-label must carry openova.io/region=hz-sin-rtz-prod (digits stripped from cloudRegion when the region has none preserves the bare label)."
+    error_message = "Secondary sin-2 k3s node-label must carry openova.io/region=hz-sin-rtz-prod (digits stripped from cloud_region when the region has none preserves the bare label)."
   }
 
   # ── QA_PRIMARY_REGION substitute on every cluster's bootstrap-kit
@@ -756,6 +823,13 @@ run "per_region_cloud_init_carries_secondarys_own_region" {
   assert {
     condition     = strcontains(local.secondary_region_flux_bootstrap["nbg1-1"], "QA_PRIMARY_REGION: \"hz-hel-rtz-prod\"")
     error_message = "Secondary nbg1-1 cloud-init bootstrap-kit substitute must thread QA_PRIMARY_REGION=hz-hel-rtz-prod (the SOVEREIGN's primary, NOT this secondary's own region) — qaFixtures.primaryRegion is Sovereign-wide singular."
+  }
+
+  # ── CLD-090: SOVEREIGN_REGIONS_JSON keeps the field names the Sovereign
+  # ── reads (core/controllers/pkg/regions), not the contract's names.
+  assert {
+    condition     = strcontains(local.control_plane_flux_bootstrap, "SOVEREIGN_REGIONS_JSON: '${jsonencode([for r in ["hel1", "nbg1", "sin"] : { provider = "hetzner", cloudRegion = r, controlPlaneSize = "cpx32", workerSize = "cpx32", workerCount = 1 }])}'")
+    error_message = "CLD-090: the Flux bootstrap document of the primary cloud-init must carry SOVEREIGN_REGIONS_JSON with the fields provider, cloudRegion, controlPlaneSize, workerSize and workerCount."
   }
 
   # ── Primary's cloud-init still carries the primary's region.
@@ -787,18 +861,19 @@ run "per_region_cloud_init_carries_secondarys_own_region" {
 # the host-shared CNPG Cluster CRs (slots 10/19/52) + the bp-cnpg/bp-mgmt-
 # vcluster default class. local-path is FORBIDDEN; the var validation rejects
 # "" and "local-path" so this substitute can never render ephemeral storage.
-run "default_storage_class_falls_back_to_hcloud_volumes" {
+run "default_storage_class_hcloud_volumes_renders" {
   command = plan
 
   variables {
     region = "hel1"
-    # default_storage_class NOT set → the variables.tf default `hcloud-volumes`
-    # applies (the per-provider Hetzner CSI durable class).
+    # default_storage_class is the file-level value `hcloud-volumes`: the
+    # class catalyst-api writes when the sovereign-admin chose none (the
+    # per-provider Hetzner CSI durable class). The module has no default.
   }
 
   assert {
     condition     = strcontains(local.control_plane_flux_bootstrap, "SOVEREIGN_CNPG_STORAGE_CLASS: \"hcloud-volumes\"")
-    error_message = "Primary cloud-init must render SOVEREIGN_CNPG_STORAGE_CLASS=\"hcloud-volumes\" when default_storage_class is unset (the per-provider Hetzner CSI default). #4057"
+    error_message = "Primary cloud-init must render SOVEREIGN_CNPG_STORAGE_CLASS=\"hcloud-volumes\" when default_storage_class is \"hcloud-volumes\" (the per-provider Hetzner CSI class catalyst-api writes by default). #4057"
   }
 
   assert {
@@ -876,7 +951,7 @@ run "variables_refuses_a_document_without_the_contract_keys" {
 }
 
 # ── CLD-185, #7893: the worst-case render fits the size guards.
-# The runs above use short values and leave deployment_id empty, so their
+# The runs above use short values and an empty deployment_id, so their
 # renders are smaller than the render of a real Sovereign. This run renders
 # the module with the worst-case variables that
 # scripts/cloudinit-size-check.py measures (it writes them below with
@@ -902,10 +977,12 @@ run "post_back_render_fits_the_size_guards_with_room" {
     cluster_mesh_name          = "ae1r3b3eqk10j5wbg8ulhppktid7yj0g9-mesh"
     console_isolation_enabled  = "true"
     control_plane_size         = "ccx63"
+    default_storage_class      = "hcloud-volumes"
     deployment_id              = "63ccf96f83c59e51"
     enable_hot_standby         = "true"
     enable_shared_pg           = "true"
     ghcr_pull_token            = "ghcr_filler_JKoBErUo62nLAJK5Keh4Biwuz53hoMGaBPB6HXU3W5gocWjikuaW8mPH1UVL6h8hS4DEzcnPVUnhHo0cS"
+    gitops_repo_url            = "http://gitea-http.gitea.svc.cluster.local:3000/openova/provider-pack"
     handover_jwt_public_key    = "{\"alg\":\"RS256\",\"e\":\"AQAB\",\"kty\":\"RSA\",\"n\":\"jFfiWIe242hUG0FlefX2yClTWSyh-4cTacQBjPJuGLoXnxhR4t0_0WZeah0ImeJsw9HMrloVq7ooT76jrcXebjmIEScBf0v7CN4Kj4bkkNUJRpLMDY56nzOPqALld61c8K3IDDdoAUR4tNoYEABKlWT8XD3oQMINzGg-x7kUsudqkheDYqziWbwd9EsWw2evx8l900IvGvXCfDEOAPe-YQBM5ENUdbbJyqKVl9BrQFVBOPO5c7fAI4uCeVNVzvIrl4IQ7i50i1kA5DS5YvCFSaPlXHxwDrZsn9TLuChC90XeLo_jcyfr_08yxGV5nUMcim2uYB8wNRzSA-xUeCZG8x\",\"use\":\"sig\"}"
     harbor_robot_token         = "KCVhNCbzrrWzD3iyA5c4cVWoqF25f5j6"
     hcloud_project_id          = "12345678"
@@ -932,18 +1009,20 @@ run "post_back_render_fits_the_size_guards_with_room" {
     region              = "fsn1"
     regions = [
       {
-        "cloudRegion"      = "fsn1"
-        "controlPlaneSize" = "ccx63"
-        "provider"         = "hetzner"
-        "workerCount"      = 50
-        "workerSize"       = "ccx63"
+        "cloud_region"       = "fsn1"
+        "code"               = "fsn1"
+        "control_plane_size" = "ccx63"
+        "role"               = "primary"
+        "worker_count"       = 50
+        "worker_size"        = "ccx63"
       },
       {
-        "cloudRegion"      = "nbg1"
-        "controlPlaneSize" = "ccx63"
-        "provider"         = "hetzner"
-        "workerCount"      = 50
-        "workerSize"       = "ccx63"
+        "cloud_region"       = "nbg1"
+        "code"               = "nbg1"
+        "control_plane_size" = "ccx63"
+        "role"               = "secondary"
+        "worker_count"       = 50
+        "worker_size"        = "ccx63"
       },
     ]
     sovereign_deployment_id = "63ccf96f83c59e51"

@@ -81,6 +81,12 @@ variables {
   ssh_public_key      = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakeKeyForTest test@bastion"
   parent_domains_yaml = ""
 
+  # CLD-090: contract version 1 gives these three no default; catalyst-api
+  # always writes them. The values are the defaults the module had before.
+  gitops_repo_url       = "https://github.com/openova-io/openova"
+  catalyst_api_url      = "https://console.openova.io/sovereign"
+  default_storage_class = "evs-ssd"
+
   # SOV-131: the variables document (contract C5); HANDOVER_AUTO is "false"
   # so that variables_handover_auto_reaches_cloud_init sees where it goes.
   variables = {
@@ -139,6 +145,7 @@ run "tier_b_two_regions_poc" {
     regions = [
       {
         code               = "me-east-215-a"
+        cloud_region       = "me-east-215"
         role               = "primary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -146,6 +153,7 @@ run "tier_b_two_regions_poc" {
       },
       {
         code               = "me-east-215-b"
+        cloud_region       = "me-east-215"
         role               = "secondary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -262,6 +270,7 @@ run "single_region" {
     regions = [
       {
         code               = "me-east-215-a"
+        cloud_region       = "me-east-215"
         role               = "primary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -314,6 +323,7 @@ run "regions_json_populated_3110" {
     regions = [
       {
         code               = "me-east-215-a"
+        cloud_region       = "me-east-215"
         role               = "primary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -321,6 +331,7 @@ run "regions_json_populated_3110" {
       },
       {
         code               = "me-east-215-b"
+        cloud_region       = "me-east-215"
         role               = "secondary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -402,6 +413,7 @@ run "regions_json_single_region_3110" {
     regions = [
       {
         code               = "me-east-215-a"
+        cloud_region       = "me-east-215"
         role               = "primary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -437,6 +449,7 @@ run "ha_three_cp_per_region" {
     regions = [
       {
         code               = "me-east-215-a"
+        cloud_region       = "me-east-215"
         role               = "primary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -466,21 +479,23 @@ run "ha_three_cp_per_region" {
 # On Huawei the per-provider durable default is `evs-ssd` (bp-huawei-evs-csi
 # slot 55b). local-path is FORBIDDEN; the var validation rejects "" and
 # "local-path".
-run "default_storage_class_falls_back_to_evs_ssd" {
+run "default_storage_class_evs_ssd_renders" {
   command = plan
 
   variables {
     regions = [
       {
         code               = "me-east-215-a"
+        cloud_region       = "me-east-215"
         role               = "primary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
         worker_count       = 2
       }
     ]
-    # default_storage_class NOT set → the variables.tf default `evs-ssd`
-    # applies (the per-provider Huawei EVS CSI durable class).
+    # default_storage_class is the file-level value `evs-ssd`: the class
+    # catalyst-api writes when the sovereign-admin chose none (the
+    # per-provider Huawei EVS CSI durable class). The module has no default.
   }
 
   assert {
@@ -488,7 +503,7 @@ run "default_storage_class_falls_back_to_evs_ssd" {
       local.cp_flux_bootstrap_by_region["me-east-215-a"],
       "SOVEREIGN_CNPG_STORAGE_CLASS: \"evs-ssd\""
     )
-    error_message = "Primary-CP cloud-init must render SOVEREIGN_CNPG_STORAGE_CLASS=\"evs-ssd\" when default_storage_class is unset (the per-provider Huawei EVS CSI default). #4057"
+    error_message = "Primary-CP cloud-init must render SOVEREIGN_CNPG_STORAGE_CLASS=\"evs-ssd\" when default_storage_class is \"evs-ssd\" (the per-provider Huawei EVS CSI class catalyst-api writes by default). #4057"
   }
 
   assert {
@@ -507,6 +522,7 @@ run "default_storage_class_operator_override_renders_huawei" {
     regions = [
       {
         code               = "me-east-215-a"
+        cloud_region       = "me-east-215"
         role               = "primary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -536,6 +552,7 @@ run "k3s_server_and_agent_tokens" {
     regions = [
       {
         code               = "me-east-215-a"
+        cloud_region       = "me-east-215"
         role               = "primary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -580,6 +597,7 @@ run "post_back_sends_parent_bootstrap_kubeconfig" {
     regions = [
       {
         code               = "me-east-215-a"
+        cloud_region       = "me-east-215"
         role               = "primary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -587,6 +605,7 @@ run "post_back_sends_parent_bootstrap_kubeconfig" {
       },
       {
         code               = "me-east-215-b"
+        cloud_region       = "me-east-215"
         role               = "secondary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -620,6 +639,7 @@ run "post_back_sends_handover_peer_kubeconfig" {
     regions = [
       {
         code               = "me-east-215-a"
+        cloud_region       = "me-east-215"
         role               = "primary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -627,6 +647,7 @@ run "post_back_sends_handover_peer_kubeconfig" {
       },
       {
         code               = "me-east-215-b"
+        cloud_region       = "me-east-215"
         role               = "secondary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -659,6 +680,7 @@ run "peer_ports_closed" {
     regions = [
       {
         code               = "me-east-215-a"
+        cloud_region       = "me-east-215"
         role               = "primary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -666,6 +688,7 @@ run "peer_ports_closed" {
       },
       {
         code               = "me-east-215-b"
+        cloud_region       = "me-east-215"
         role               = "secondary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -728,6 +751,7 @@ run "peer_ports_closed_single_region" {
     regions = [
       {
         code               = "me-east-215-a"
+        cloud_region       = "me-east-215"
         role               = "primary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -774,11 +798,11 @@ run "network_registry_one_region" {
   }
 
   variables {
-    huawei_region = "region-1"
-    huawei_az     = "region-1a"
+    huawei_az = "region-1a"
     regions = [
       {
         code               = "region-a"
+        cloud_region       = "region-1"
         role               = "primary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -822,11 +846,11 @@ run "network_registry_two_regions" {
   }
 
   variables {
-    huawei_region = "region-1"
-    huawei_az     = "region-1a"
+    huawei_az = "region-1a"
     regions = [
       {
         code               = "region-a"
+        cloud_region       = "region-1"
         role               = "primary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -834,6 +858,7 @@ run "network_registry_two_regions" {
       },
       {
         code               = "region-b"
+        cloud_region       = "region-1"
         role               = "secondary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -879,11 +904,11 @@ run "network_registry_three_regions" {
 
   variables {
     deployment_id = "0123456789ef59d0"
-    huawei_region = "region-1"
     huawei_az     = "region-1a"
     regions = [
       {
         code               = "region-a"
+        cloud_region       = "region-1"
         role               = "primary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -891,6 +916,7 @@ run "network_registry_three_regions" {
       },
       {
         code               = "region-b"
+        cloud_region       = "region-1"
         role               = "secondary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -898,6 +924,7 @@ run "network_registry_three_regions" {
       },
       {
         code               = "region-c"
+        cloud_region       = "region-1"
         role               = "secondary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -921,11 +948,11 @@ run "network_registry_seven_regions_refused" {
   command = plan
 
   variables {
-    huawei_region = "region-1"
-    huawei_az     = "region-1a"
+    huawei_az = "region-1a"
     regions = [
       for c in ["a", "b", "c", "d", "e", "f", "g"] : {
         code               = "region-${c}"
+        cloud_region       = "region-1"
         role               = c == "a" ? "primary" : "secondary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -958,10 +985,12 @@ run "worst_case_user_data_fits_the_api_limit" {
     bcp_topology              = "active-hotstandby"
     catalyst_api_url          = "https://console.vhwtxhpiag5nlbjhyfkfz36kcox31rsv6.omantel.biz/sovereign"
     console_isolation_enabled = "true"
+    default_storage_class     = "evs-ssd"
     deployment_id             = "63ccf96f83c59e51"
     enable_hot_standby        = "true"
     enable_shared_pg          = "true"
     ghcr_pull_token           = "ghcr_filler_JKoBErUo62nLAJK5Keh4Biwuz53hoMGaBPB6HXU3W5gocWjikuaW8mPH1UVL6h8hS4DEzcnPVUnhHo0cS"
+    gitops_repo_url           = "http://gitea-http.gitea.svc.cluster.local:3000/openova/provider-pack"
     handover_jwt_public_key   = "{\"alg\":\"RS256\",\"e\":\"AQAB\",\"kty\":\"RSA\",\"n\":\"jFfiWIe242hUG0FlefX2yClTWSyh-4cTacQBjPJuGLoXnxhR4t0_0WZeah0ImeJsw9HMrloVq7ooT76jrcXebjmIEScBf0v7CN4Kj4bkkNUJRpLMDY56nzOPqALld61c8K3IDDdoAUR4tNoYEABKlWT8XD3oQMINzGg-x7kUsudqkheDYqziWbwd9EsWw2evx8l900IvGvXCfDEOAPe-YQBM5ENUdbbJyqKVl9BrQFVBOPO5c7fAI4uCeVNVzvIrl4IQ7i50i1kA5DS5YvCFSaPlXHxwDrZsn9TLuChC90XeLo_jcyfr_08yxGV5nUMcim2uYB8wNRzSA-xUeCZG8x\",\"use\":\"sig\"}"
     harbor_robot_token        = "KCVhNCbzrrWzD3iyA5c4cVWoqF25f5j6"
     huawei_access_key         = "HWAKFILLER7ELYYULOHV"
@@ -986,6 +1015,7 @@ run "worst_case_user_data_fits_the_api_limit" {
     qa_fixtures_enabled = "true"
     regions = [
       {
+        "cloud_region"       = "me-east-215"
         "code"               = "me-east-215-a"
         "control_plane_size" = "s7n.large.4"
         "role"               = "primary"
@@ -993,6 +1023,7 @@ run "worst_case_user_data_fits_the_api_limit" {
         "worker_size"        = "m7n.xlarge.8"
       },
       {
+        "cloud_region"       = "me-east-215"
         "code"               = "me-east-215-b"
         "control_plane_size" = "s7n.large.4"
         "role"               = "secondary"
@@ -1088,6 +1119,7 @@ run "variables_handover_auto_reaches_cloud_init" {
     regions = [
       {
         code               = "me-east-215-a"
+        cloud_region       = "me-east-215"
         role               = "primary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -1110,6 +1142,7 @@ run "variables_refuses_a_document_without_the_contract_keys" {
     regions = [
       {
         code               = "me-east-215-a"
+        cloud_region       = "me-east-215"
         role               = "primary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -1134,6 +1167,7 @@ run "api_port_limited" {
     regions = [
       {
         code               = "me-east-215-a"
+        cloud_region       = "me-east-215"
         role               = "primary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -1141,6 +1175,7 @@ run "api_port_limited" {
       },
       {
         code               = "me-east-215-b"
+        cloud_region       = "me-east-215"
         role               = "secondary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -1191,6 +1226,7 @@ run "api_port_limited_single_region" {
     regions = [
       {
         code               = "me-east-215-a"
+        cloud_region       = "me-east-215"
         role               = "primary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -1218,6 +1254,7 @@ run "api_port_limited_duplicate_range_one_rule" {
     regions = [
       {
         code               = "me-east-215-a"
+        cloud_region       = "me-east-215"
         role               = "primary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -1241,6 +1278,7 @@ run "admin_cidrs_refuses_any_source" {
     regions = [
       {
         code               = "me-east-215-a"
+        cloud_region       = "me-east-215"
         role               = "primary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -1260,6 +1298,7 @@ run "provisioner_cidrs_refuses_a_range_with_host_bits" {
     regions = [
       {
         code               = "me-east-215-a"
+        cloud_region       = "me-east-215"
         role               = "primary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -1279,6 +1318,7 @@ run "provisioner_cidrs_refuses_ipv6_any_source" {
     regions = [
       {
         code               = "me-east-215-a"
+        cloud_region       = "me-east-215"
         role               = "primary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -1288,6 +1328,143 @@ run "provisioner_cidrs_refuses_ipv6_any_source" {
   }
 
   expect_failures = [var.provisioner_cidrs]
+}
+
+# ── CLD-090: contract version 1. The cloud region and the zone come from
+# var.regions: cloud_region is the region of the provider, of the service
+# endpoints and of the bucket; availability_zone is the region's zone, and an
+# empty one falls back to var.huawei_az.
+run "cloud_region_and_zone_come_from_regions" {
+  command = plan
+
+  variables {
+    huawei_az = "region-9a"
+    regions = [
+      {
+        code               = "region-a"
+        cloud_region       = "region-9"
+        availability_zone  = "region-9z"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 1
+      },
+      {
+        code               = "region-b"
+        cloud_region       = "region-9"
+        role               = "secondary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 1
+      }
+    ]
+  }
+
+  assert {
+    condition     = output.contract_version == "1"
+    error_message = "CLD-090: output contract_version must be \"1\"."
+  }
+  assert {
+    condition     = output.obs_region == "region-9" && startswith(output.obs_endpoint, "https://obs.region-9.")
+    error_message = "CLD-090: the bucket's region and endpoint must come from regions[0].cloud_region."
+  }
+  assert {
+    condition     = huaweicloud_vpc_subnet.region["region-a"].availability_zone == "region-9z" && huaweicloud_vpc_subnet.region["region-b"].availability_zone == "region-9a"
+    error_message = "CLD-090: a region's subnet must be in its availability_zone, or in var.huawei_az when that is empty."
+  }
+  assert {
+    condition     = alltrue([for i in huaweicloud_compute_instance.control_plane : i.availability_zone == (strcontains(i.name, "-region-a-") ? "region-9z" : "region-9a")])
+    error_message = "CLD-090: a control-plane node must be in its region's zone."
+  }
+  assert {
+    condition     = alltrue([for k, i in huaweicloud_compute_instance.worker : i.availability_zone == (startswith(k, "region-a-") ? "region-9z" : "region-9a")])
+    error_message = "CLD-090: a worker node must be in its region's zone."
+  }
+  assert {
+    condition     = [for r in jsondecode(output.network_registry).regions : "${r.code}/${r.cloudRegion}/${r.az}"] == ["region-a/region-9/region-9z", "region-b/region-9/region-9a"]
+    error_message = "CLD-090: the network registry must carry each region's cloud region and zone."
+  }
+  assert {
+    condition     = jsondecode(output.network_registry).regionSeparation == "zone"
+    error_message = "CLD-090: two regions of one cloud region in two zones are separated by zone."
+  }
+}
+
+# CLD-090: this cloud cannot span cloud regions (profile: multiCloudRegion
+# false), so regions with two different cloud_region values are refused.
+run "regions_refuses_two_cloud_regions" {
+  command = plan
+
+  variables {
+    regions = [
+      {
+        code               = "region-a"
+        cloud_region       = "region-9"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 1
+      },
+      {
+        code               = "region-b"
+        cloud_region       = "region-8"
+        role               = "secondary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 1
+      }
+    ]
+  }
+
+  expect_failures = [var.regions]
+}
+
+# CLD-090: the first region must be the primary one, and a region code must
+# not repeat.
+run "regions_refuses_a_first_region_that_is_not_primary" {
+  command = plan
+
+  variables {
+    regions = [
+      {
+        code               = "region-a"
+        cloud_region       = "region-9"
+        role               = "secondary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 1
+      }
+    ]
+  }
+
+  expect_failures = [var.regions]
+}
+
+run "regions_refuses_a_repeated_code" {
+  command = plan
+
+  variables {
+    regions = [
+      {
+        code               = "region-a"
+        cloud_region       = "region-9"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 1
+      },
+      {
+        code               = "region-a"
+        cloud_region       = "region-9"
+        role               = "secondary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 1
+      }
+    ]
+  }
+
+  expect_failures = [var.regions]
 }
 
 # ── SEC-150: the module calls the seal hook with its own region keys ──────
@@ -1301,6 +1478,7 @@ run "seal_hook_is_called_with_the_region_keys" {
     regions = [
       {
         code               = "me-east-215-a"
+        cloud_region       = "me-east-215"
         role               = "primary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"
@@ -1308,6 +1486,7 @@ run "seal_hook_is_called_with_the_region_keys" {
       },
       {
         code               = "me-east-215-b"
+        cloud_region       = "me-east-215"
         role               = "secondary"
         control_plane_size = "s7n.large.4"
         worker_size        = "m7n.xlarge.8"

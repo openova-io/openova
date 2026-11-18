@@ -19,6 +19,9 @@ on:
       # #3145 — the control-plane cloud-init is the shared cloud-agnostic
       # template; a change to it must re-validate this provider's render.
       - 'infra/providers/_shared/**'
+      # CLD-090 — the contract file, its fixtures and the shared body of
+      # tests/contract.tftest.hcl.
+      - 'infra/providers/_contract/**'
       - '.github/workflows/infra-huawei-tofu.yaml'
       - 'scripts/check-vpc-cidr-no-pod-overlap.py'
       - 'scripts/check-network-registry.py'
@@ -27,6 +30,9 @@ on:
     paths:
       - 'infra/providers/huawei/**'
       - 'infra/providers/_shared/**'
+      # CLD-090 — the contract file, its fixtures and the shared body of
+      # tests/contract.tftest.hcl.
+      - 'infra/providers/_contract/**'
       - '.github/workflows/infra-huawei-tofu.yaml'
       - 'scripts/check-vpc-cidr-no-pod-overlap.py'
       - 'scripts/check-network-registry.py'
@@ -48,10 +54,12 @@ jobs:
       - name: Install OpenTofu
         uses: opentofu/setup-opentofu@v1
         with:
-          # Pinned to match the same 1.8.5 version the Hetzner sibling
-          # workflow uses. Lockstep so a future OpenTofu bump moves
-          # both providers atomically.
-          tofu_version: 1.8.5
+          # CLD-090 — 1.11.6, the version the Hetzner sibling workflow,
+          # catalyst-build.yaml and infra-local-tofu.yaml use. The shared
+          # body of tests/contract.tftest.hcl calls functions in its
+          # variables block, which OpenTofu 1.8.5 refuses. Lockstep so a
+          # future OpenTofu bump moves both providers atomically.
+          tofu_version: 1.11.6
 
       - name: tofu init (backend=false — no real state for module-local checks)
         run: tofu init -backend=false

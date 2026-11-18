@@ -24,8 +24,8 @@ LIMIT_WORKER = 30720
 def worst_case(c):
     fqdn = c.fqdn(FQDN_LENGTH)
     regions = [
-        {"provider": "hetzner", "cloudRegion": "fsn1", "controlPlaneSize": "ccx63", "workerSize": "ccx63", "workerCount": 50},
-        {"provider": "hetzner", "cloudRegion": "nbg1", "controlPlaneSize": "ccx63", "workerSize": "ccx63", "workerCount": 50},
+        {"code": "fsn1", "cloud_region": "fsn1", "role": "primary", "control_plane_size": "ccx63", "worker_size": "ccx63", "worker_count": 50},
+        {"code": "nbg1", "cloud_region": "nbg1", "role": "secondary", "control_plane_size": "ccx63", "worker_size": "ccx63", "worker_count": 50},
     ]
     slug = fqdn.replace(".", "-")
     variables = {
@@ -62,6 +62,10 @@ def worst_case(c):
         "powerdns_api_key": c.filler("powerdns", c.TOKENS["powerdns"], c.ALNUM),
         "kubeconfig_bearer_token": c.filler("bearer", c.TOKENS["bearer"], c.HEX),
         "catalyst_api_url": c.CATALYST_API_URL,
+        # Required since CLD-090 (contract version 1): the durable class the
+        # module defaulted to, and the GitOps repository of the variables document.
+        "default_storage_class": "hcloud-volumes",
+        "gitops_repo_url": c.variables_doc(fqdn, c.PARENT_FQDN, c.CATALYST_API_URL)["GITOPS_REPO_URL"],
         "object_storage_region": "fsn1",
         # The longest the module's validation allows: access key 64, secret key 128 characters.
         "object_storage_access_key": c.filler("obs-ak", 64, c.ALNUM),

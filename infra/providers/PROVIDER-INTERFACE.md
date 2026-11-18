@@ -1,10 +1,10 @@
 # OpenTofu provider module contract — `infra/providers/<name>/`
 
-## Contract version 1: target, not yet enforced
+## Contract version 1: enforced by `TestProviderPacks`
 
-This document states the contract that every provider module under `infra/providers/<name>/` will meet. It is a target. No test enforces it yet, and neither module meets all of it today: section 7 lists what was measured. The decision record is [ADR-0016](../../docs/adr/0016-cloud-abstraction-contract.md).
+This document states the contract that every provider module under `infra/providers/<name>/` meets. The conformance tests of section 6 enforce it on every pull request. Section 7 lists what was measured before the modules were brought into line. The decision record is [ADR-0016](../../docs/adr/0016-cloud-abstraction-contract.md).
 
-Two work packages make it real. CLD-080 publishes the contract as a machine-readable file, `infra/providers/_contract/contract.json`. CLD-090 brings the modules into line, adds the conformance tests of section 6 and changes the heading above. From CLD-080 on, the file is the source and this document is its readable form. Where the two differ, the file wins.
+Two work packages made it real. CLD-080 published the contract as a machine-readable file, `infra/providers/_contract/contract.json`. CLD-090 brought the modules into line, added the conformance tests of section 6 and changed the heading above. The file is the source and this document is its readable form. Where the two differ, the file wins.
 
 A module receives three classes of variable.
 
@@ -178,8 +178,8 @@ Every module renders the control-plane boot data with the one shared template, `
 
 ### 6. Conformance tests (added by CLD-090)
 
-1. A Go test, `TestProviderPacks`, lists the directories under `infra/providers/` whose name does not start with `_`. For each it compares the declared variables, outputs and template inputs with `contract.json`, and it asserts the first two rules of section 5.
-2. Each module has `tests/contract.tftest.hcl`. Its body is the same in every module. It plans the module for one region and for two regions and asserts `contract_version` and the keys of `control_plane_ips_per_region`.
+1. A Go test, `TestProviderPacks` (`products/catalyst/bootstrap/api/internal/providers/conformance`), lists the directories under `infra/providers/` whose name does not start with `_`. For each it compares the declared variables and outputs with `contract.json`, compares the OpenTofu providers of the module with `pack.yaml`, and asserts the first two rules of section 5. `scripts/check-provider-contract.sh` runs it; its `--self-test` proves that each rule can fail. Three of its checks are written and skipped until the work package named in their skip line makes them true for every pack: the adapter (CLD-102), the template inputs (CLD-132) and the overlay (CLD-144).
+2. Each module has `tests/contract.tftest.hcl`. Its body is the same in every module (`infra/providers/_contract/contract.tftest.body.hcl`). It plans the module for one region and for two regions and asserts `contract_version` and the keys of `control_plane_ips_per_region`. A module's own required variables, such as its credentials, come from `tests/contract.auto.tfvars.json`.
 3. CI finds the modules by directory. No workflow holds a list of provider names.
 
 ### 7. What the two modules do today

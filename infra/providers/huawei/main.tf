@@ -33,6 +33,18 @@ locals {
   # Region keys preserve operator-supplied order. Index 0 = primary.
   region_keys = [for r in var.regions : r.code]
 
+  # CLD-090 — the cloud region of this Sovereign: contract version 1 carries
+  # it per region in var.regions[].cloud_region, and var.regions refuses
+  # entries that differ (this cloud cannot span cloud regions). It replaces
+  # the variable huawei_region.
+  cloud_region = var.regions[0].cloud_region
+
+  # CLD-090 — the availability zone per region code: the region's
+  # availability_zone, or var.huawei_az when that is empty.
+  region_az = {
+    for r in var.regions : r.code => (r.availability_zone != "" ? r.availability_zone : var.huawei_az)
+  }
+
   # Per-region VPC CIDR — second octet derived from deployment_id hash
   # so re-provisions of the same FQDN (or sibling Sovereigns sharing a
   # project) NEVER collide on VPC CIDR. Range 10.32-10.247 (216 buckets)
@@ -415,7 +427,7 @@ resource "huaweicloud_vpc_subnet" "region" {
   cidr              = local.region_subnet_cidr[each.key]
   gateway_ip        = cidrhost(local.region_subnet_cidr[each.key], 1)
   vpc_id            = huaweicloud_vpc.region[each.key].id
-  availability_zone = var.huawei_az
+  availability_zone = local.region_az[each.key]
   # tags disabled Wave 5.4 (HCS tag API divergence).
 
   # HCS subnet read-back surfaces `dns_list`, `dhcp_lease_time`,
@@ -1041,12 +1053,12 @@ locals {
     stringData:
       huawei-ak: "${var.huawei_access_key}"
       huawei-sk: "${var.huawei_secret_key}"
-      # #3971 follow-up: was wrongly set to var.huawei_region (a latent bug
+      # #3971 follow-up: was wrongly set to the cloud region (a latent bug
       # harmless until the EVS CSI — slot 55b — needed the REAL project-id for
       # the EVS API path https://evs.<region>.<cloud>/v3/<project-id>/...).
       # The huaweicloud-csi-driver cloud-config reads this as `project-id`.
       huawei-project-id: "${var.huawei_project_id}"
-      huawei-region: "${var.huawei_region}"
+      huawei-region: "${local.cloud_region}"
       # #4620: the crossplane cloud-adoption Composition's Workspace env sets
       # HCLOUD_TOKEN from a REQUIRED secretKeyRef to key `hcloud-token` (the
       # provider-opentofu env schema has NO `optional` field — #4739). On a
@@ -1296,8 +1308,8 @@ locals {
       ghcr_pull_auth_b64 = local.ghcr_pull_auth_b64
       # Object storage — Huawei OBS via S3-compatible endpoint. Shared template
       # uses the vendor-agnostic object_storage_* contract.
-      object_storage_endpoint    = "https://obs.${var.huawei_region}.kom4dc.nationalcloud.om"
-      object_storage_region      = var.huawei_region
+      object_storage_endpoint    = "https://obs.${local.cloud_region}.kom4dc.nationalcloud.om"
+      object_storage_region      = local.cloud_region
       object_storage_bucket_name = var.obs_bucket_name
       object_storage_access_key  = var.huawei_access_key
       object_storage_secret_key  = var.huawei_secret_key
@@ -1507,7 +1519,7 @@ resource "huaweicloud_compute_instance" "control_plane" {
   name              = "${local.name_prefix}-${local.cp_nodes[count.index].region}-cp${local.cp_nodes[count.index].index + 1}-${substr(sha256("${var.deployment_id}-${local.cp_nodes[count.index].region}-cp${local.cp_nodes[count.index].index}-${var.retry_attempt}"), 0, 6)}"
   image_id          = var.image_id
   flavor_id         = local.cp_nodes[count.index].flavor
-  availability_zone = var.huawei_az
+  availability_zone = local.region_az[local.cp_nodes[count.index].region]
   security_groups   = [huaweicloud_networking_secgroup.region[local.cp_nodes[count.index].region].name]
 
   network {
@@ -1548,7 +1560,7 @@ resource "huaweicloud_compute_instance" "control_plane" {
   # destroyed when the retry-loop bumps var.retry_attempt and
   # changes its formula-computed name.
   lifecycle {
-    ignore_changes = [tags, metadata, name]
+    ignore_changes = [tags, metadata, name, user_data]
   }
 }
 
@@ -1585,7 +1597,7 @@ resource "huaweicloud_compute_instance" "worker" {
   name              = "${local.name_prefix}-${each.value.region}-w${substr(sha256("${var.deployment_id}-${each.value.region}-${each.value.index}-${var.retry_attempt}"), 0, 6)}"
   image_id          = var.image_id
   flavor_id         = each.value.flavor
-  availability_zone = var.huawei_az
+  availability_zone = local.region_az[each.value.region]
   security_groups   = [huaweicloud_networking_secgroup.region[each.value.region].name]
 
   network {
@@ -1611,7 +1623,7 @@ resource "huaweicloud_compute_instance" "worker" {
   # (which changes the formula-computed name for not-yet-created
   # workers but must NOT trigger a destroy of the alive ones).
   lifecycle {
-    ignore_changes = [tags, metadata, name]
+    ignore_changes = [tags, metadata, name, user_data]
   }
 }
 
@@ -1696,7 +1708,7 @@ resource "huaweicloud_elb_loadbalancer" "primary" {
   vpc_id            = huaweicloud_vpc.region[local.region_keys[0]].id
   ipv4_subnet_id    = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
   ipv4_eip_id       = huaweicloud_vpc_eip.elb_primary.id
-  availability_zone = [var.huawei_az]
+  availability_zone = [local.region_az[local.region_keys[0]]]
   description       = "Catalyst Sovereign ${var.sovereign_fqdn} — #4690 gateway ELB, public 443/80 → node:443/:80 (cilium-envoy hostNetwork host ports, §854 — no nodePort)"
 
   # #5244 — IP-as-backend so PEER-REGION nodes can be pool members. The ELB
@@ -1917,7 +1929,7 @@ resource "huaweicloud_elb_loadbalancer" "console" {
   vpc_id            = huaweicloud_vpc.region[local.region_keys[0]].id
   ipv4_subnet_id    = huaweicloud_vpc_subnet.region[local.region_keys[0]].ipv4_subnet_id
   ipv4_eip_id       = huaweicloud_vpc_eip.elb_console[0].id
-  availability_zone = [var.huawei_az]
+  availability_zone = [local.region_az[local.region_keys[0]]]
   description       = "Catalyst Sovereign ${var.sovereign_fqdn} — #4053 dedicated CONSOLE gateway 443→8443 + 80→8080 passthrough (#4682/#4715)"
 
   # #5244 — same cross-VPC backend rationale as elb_primary above: the console
@@ -2026,8 +2038,8 @@ resource "huaweicloud_elb_monitor" "console_http" {
 # Sovereign, one entry per region in the order of var.regions. Output
 # network_registry is its JSON form; scripts/check-network-registry.py
 # checks it. Every value comes from a local or a resource of this module:
-#   - cloudRegion and az: var.huawei_region and var.huawei_az, the same for
-#     every region of this module;
+#   - cloudRegion and az: the region's cloud_region and its zone
+#     (local.region_az: its availability_zone, or var.huawei_az);
 #   - nodeCIDR: the region's node subnet (region_subnet_cidr);
 #   - meshEndpoint: present only with more than one region; the region's
 #     control-plane EIP and the mesh dial port;
@@ -2046,8 +2058,8 @@ locals {
   network_registry_mtu = 1420
 
   network_registry_separation = (
-    length(var.regions) > 1 && length(distinct([for r in var.regions : var.huawei_region])) == length(var.regions) ? "site" :
-    length(var.regions) > 1 && length(distinct([for r in var.regions : "${var.huawei_region}/${var.huawei_az}"])) == length(var.regions) ? "zone" :
+    length(var.regions) > 1 && length(distinct([for r in var.regions : r.cloud_region])) == length(var.regions) ? "site" :
+    length(var.regions) > 1 && length(distinct([for r in var.regions : "${r.cloud_region}/${local.region_az[r.code]}"])) == length(var.regions) ? "zone" :
     "none"
   )
 
@@ -2063,8 +2075,8 @@ locals {
       for c in local.region_keys : merge(
         {
           code            = c
-          cloudRegion     = var.huawei_region
-          az              = var.huawei_az
+          cloudRegion     = local.cloud_region
+          az              = local.region_az[c]
           clusterName     = local.cluster_mesh_name_by_region[c]
           clusterID       = local.cluster_mesh_id_by_region[c]
           nodeCIDR        = local.region_subnet_cidr[c]

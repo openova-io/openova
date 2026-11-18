@@ -613,7 +613,7 @@ checks:
 - id: CLD-G03
   title: TestProviderPacks and every module's tofu test pass
   owner: CLD
-  state: expected-fail
+  state: required
   runs_in: [local]
   destructive: false
   needs: []

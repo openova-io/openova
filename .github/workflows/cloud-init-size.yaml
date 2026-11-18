@@ -10,12 +10,15 @@ name: cloud-init-size
 # red was overlooked and the PR merged, silently freezing "Build & Deploy
 # Catalyst" (G36 tofu test) on every subsequent main commit for hours.
 #
-# This workflow gives each provider its OWN uniquely-named status check —
-# `cloud-init-size / hetzner` and `cloud-init-size / huawei` (via the matrix
-# job name) — that can be marked a REQUIRED branch-protection check and will
-# NEVER collide with another job's name. It renders the REAL templates, applies
+# This workflow has ONE uniquely-named status check, `cloud-init-size / packs`,
+# that will NEVER collide with another job's name. It finds the provider packs
+# by directory (CLD-090: every folder of infra/providers whose name does not
+# start with "_"; no list of provider names) and runs the size script for each
+# pack the script has a fixture for. It renders the REAL templates, applies
 # the SAME comment-strip the provider applies to user_data, and asserts the byte
-# size against the limit a real installation meets.
+# size against the limit a real installation meets. A pack without a fixture
+# passes only when its profile.yaml states that it has no boot-data limit
+# (userDataLimitBytes: 0); with a limit and no fixture the check fails.
 #
 # #7893: the gate is the WORST-CASE render (scripts/cloudinit-size-check.py),
 # made from the provider module's own expressions with the longest values a
@@ -34,18 +37,14 @@ on:
   push:
     branches: [main]
     paths:
-      - 'infra/providers/_shared/**'
-      - 'infra/providers/hetzner/**'
-      - 'infra/providers/huawei/**'
+      - 'infra/providers/**'
       - 'products/catalyst/bootstrap/**'
       - 'scripts/cloudinit-size-check.sh'
       - 'scripts/cloudinit-size-check.py'
       - '.github/workflows/cloud-init-size.yaml'
   pull_request:
     paths:
-      - 'infra/providers/_shared/**'
-      - 'infra/providers/hetzner/**'
-      - 'infra/providers/huawei/**'
+      - 'infra/providers/**'
       - 'products/catalyst/bootstrap/**'
       - 'scripts/cloudinit-size-check.sh'
       - 'scripts/cloudinit-size-check.py'
@@ -58,15 +57,10 @@ permissions:
 jobs:
   size:
     # IMPORTANT: the `name:` below is what surfaces as the status-check name
-    # (`cloud-init-size / hetzner`, `cloud-init-size / huawei`). It is unique
-    # per provider and required-able. Do NOT genericise it.
-    name: ${{ matrix.provider }}
+    # (`cloud-init-size / packs`). Do NOT genericise it.
+    name: packs
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        provider: [hetzner, huawei]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -74,9 +68,10 @@ jobs:
       - name: Install OpenTofu
         uses: opentofu/setup-opentofu@v1
         with:
-          # Lockstep with infra-hetzner-tofu.yaml / infra-huawei-tofu.yaml /
-          # preflight-cloudinit-posix.yml.
-          tofu_version: 1.8.5
+          # CLD-090 — 1.11.6, the version infra-hetzner-tofu.yaml,
+          # infra-huawei-tofu.yaml and catalyst-build.yaml use. Bump in
+          # lockstep with those two module workflows.
+          tofu_version: 1.11.6
 
       - name: Pin runner deps (python3)
         run: |
@@ -84,17 +79,35 @@ jobs:
           echo "python3: $(python3 --version)"
           echo "tofu:    $(tofu version | head -1)"
 
-      - name: Render + assert cloud-init user_data byte size (${{ matrix.provider }})
+      - name: Render + assert cloud-init user_data byte size (every provider pack)
         run: |
           set -eu
           chmod +x scripts/cloudinit-size-check.sh
-          # Renders the worst-case control plane and worker of the primary and
-          # the secondary region, applies the SAME comment-strip the provider
-          # applies to user_data, and FAILS (exit 1 + ::error::) if any surface
-          # exceeds its limit. Emits a ::warning:: when a surface is within
-          # 1024 B of its limit so the cliff is visible BEFORE a PR trips it,
-          # and a ::notice:: with the exact byte count and margin otherwise.
-          ./scripts/cloudinit-size-check.sh "${{ matrix.provider }}"
+          # For every pack with a fixture: renders the worst-case control plane
+          # and worker of the primary and the secondary region, applies the
+          # SAME comment-strip the provider applies to user_data, and FAILS
+          # (exit 1 + ::error::) if any surface exceeds its limit. Emits a
+          # ::warning:: when a surface is within 1024 B of its limit so the
+          # cliff is visible BEFORE a PR trips it, and a ::notice:: with the
+          # exact byte count and margin otherwise.
+          checked=0
+          for d in infra/providers/*/; do
+            pack="$(basename "$d")"
+            case "$pack" in _*) continue ;; esac
+            if grep -q "^fixture_cp_${pack}()" scripts/cloudinit-size-check.sh; then
+              ./scripts/cloudinit-size-check.sh "$pack"
+              checked=$((checked + 1))
+            elif grep -Eq 'userDataLimitBytes: *0([^0-9]|$)' "$d/profile.yaml"; then
+              echo "::notice title=cloud-init-size ${pack}::pack ${pack} has no boot-data limit (profile.yaml: userDataLimitBytes 0) and the size script has no fixture for it: nothing to check"
+            else
+              echo "::error title=cloud-init-size ${pack}::pack ${pack} has a boot-data limit in profile.yaml and scripts/cloudinit-size-check.sh has no fixture for it"
+              exit 1
+            fi
+          done
+          if [ "$checked" -eq 0 ]; then
+            echo "::error title=cloud-init-size::no provider pack was checked"
+            exit 1
+          fi
 
       - name: Self-test the gate (pad the template oversized, prove it FAILS, then restore)
         if: always()
@@ -106,26 +119,36 @@ jobs:
           # cannot remove it — the rendered surface must blow past its limit.
           # (python3 -c, NOT a heredoc, to avoid YAML/heredoc-indentation traps.)
           python3 -c 'import sys; p=sys.argv[1]; s=open(p).read(); i=s.find(chr(10)); pad=(chr(10)+"  CLOUDINIT_SIZE_SELFTEST_PADDING_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"+chr(10))*280; open(p,"w").write(s[:i+1]+pad+s[i+1:])' "$TPL"
-          set +e
-          ./scripts/cloudinit-size-check.sh "${{ matrix.provider }}" >/tmp/selftest.log 2>&1
-          rc=$?
-          set -e
+          # Every pack with a fixture must fail by itself.
+          missed=""
+          caught=0
+          : >/tmp/selftest.log
+          for d in infra/providers/*/; do
+            pack="$(basename "$d")"
+            case "$pack" in _*) continue ;; esac
+            grep -q "^fixture_cp_${pack}()" scripts/cloudinit-size-check.sh || continue
+            set +e
+            ./scripts/cloudinit-size-check.sh "$pack" >>/tmp/selftest.log 2>&1
+            rc=$?
+            set -e
+            if [ "$rc" -eq 0 ]; then missed="${missed} ${pack}"; else caught=$((caught + 1)); fi
+          done
           mv "${TPL}.orig" "$TPL"
           echo "--- self-test output (oversized padding injected) ---"
           cat /tmp/selftest.log
-          if [ "$rc" -eq 0 ]; then
-            echo "SELF-TEST FAILED: gate did NOT catch the oversized cloud-init (exit 0)"
+          if [ -n "$missed" ] || [ "$caught" -eq 0 ]; then
+            echo "SELF-TEST FAILED: gate did NOT catch the oversized cloud-init for:${missed:- any pack}"
             exit 1
           fi
-          echo "SELF-TEST PASSED: gate caught the oversized cloud-init (exit ${rc}); template restored"
+          echo "SELF-TEST PASSED: gate caught the oversized cloud-init for ${caught} pack(s); template restored"
 
       - name: Summary
         if: always()
         run: |
           {
-            echo "## cloud-init-size / ${{ matrix.provider }}"
+            echo "## cloud-init-size / packs"
             echo ''
-            echo "Rendered the ${{ matrix.provider }} cloud-init with worst-case values"
+            echo "Rendered the cloud-init of every provider pack with worst-case values"
             echo '(control plane and worker of the primary and the secondary region),'
             echo 'applied the same comment-strip the provider applies to `user_data`,'
             echo 'and asserted each surface is within the limit a real installation'

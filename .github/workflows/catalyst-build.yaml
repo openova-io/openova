@@ -479,16 +479,22 @@ jobs:
             tofu test -no-color
           )
           echo "=== _shared/tests: PASS ==="
-          for provider in hetzner huawei; do
+          # CLD-090 — the modules are found by directory: every folder of
+          # infra/providers whose name does not start with "_" is a provider
+          # pack. No list of provider names. Each module's tests include
+          # tests/contract.tftest.hcl, the plan of contract version 1.
+          for d in openova-src/infra/providers/*/; do
+            provider="$(basename "$d")"
+            case "$provider" in _*) continue ;; esac
             echo "=== tofu test: infra/providers/${provider} ==="
             (
-              cd openova-src/infra/providers/${provider}
+              cd "$d"
               tofu init -backend=false -input=false -no-color
               tofu test -no-color
             )
             echo "=== ${provider}: PASS ==="
           done
-          echo "G36 gate OK: every templatefile() in huawei parses + renders."
+          echo "G36 gate OK: every templatefile() of every provider module parses + renders."
 
       # #3724 — LOUD main-push failure. The G36 `tofu test` step is what froze
       # "Build & Deploy Catalyst" for hours on PR #3715 (the rendered cloud-init
@@ -504,7 +510,7 @@ jobs:
         if: failure()
         run: |
           set -eu
-          MSG="Build & Deploy Catalyst FAILED before pushing the catalyst-api image. The most common cause is a cloud-init regression that trips the G36 'tofu test' guardrail (rendered user_data over a precondition of the provider module or over the 32768-byte user-data limit of the cloud — see #3715/#3724). The mothership will NOT receive a new image until this is green. The 'cloud-init-size / {hetzner,huawei}' PR gate should have caught an oversized cloud-init before merge — verify it was a required check on the offending PR."
+          MSG="Build & Deploy Catalyst FAILED before pushing the catalyst-api image. The most common cause is a cloud-init regression that trips the G36 'tofu test' guardrail (rendered user_data over a precondition of the provider module or over the 32768-byte user-data limit of the cloud — see #3715/#3724). The mothership will NOT receive a new image until this is green. The 'cloud-init-size / packs' PR gate should have caught an oversized cloud-init before merge — verify it was a required check on the offending PR."
           echo "::error title=catalyst-build FAILED on main (mothership now stalled)::${MSG}"
           {
             echo '## :rotating_light: Build & Deploy Catalyst FAILED'

@@ -154,12 +154,12 @@ variable "enable_shared_pg" {
 # bp-cnpg / bp-mgmt-vcluster default class all name the chosen class. The k3s
 # ephemeral local-path provisioner is FORBIDDEN (--disable=local-storage + the
 # K23 Kyverno ENFORCE deny, #3971/#892); the validation below rejects it so an
-# operator can never select non-durable node-local storage. Default
-# 'hcloud-volumes' keeps a fresh Hetzner prov byte-identical to today.
+# operator can never select non-durable node-local storage. Required by
+# contract version 1 (no default): catalyst-api always writes it, and on
+# Hetzner it writes 'hcloud-volumes' when the sovereign-admin chose none.
 variable "default_storage_class" {
   type        = string
-  description = "Default StorageClass name for the Sovereign's stateful workloads (#4057). Chosen by the operator in the wizard; catalyst-api defaults it to the per-provider durable cloud CSI class (Hetzner: hcloud-volumes) when empty. local-path is FORBIDDEN."
-  default     = "hcloud-volumes"
+  description = "Default StorageClass name for the Sovereign's stateful workloads (#4057). Chosen by the sovereign-admin in the wizard; catalyst-api defaults it to the per-provider durable cloud CSI class (Hetzner: hcloud-volumes) when empty. local-path is FORBIDDEN. Required: contract version 1 gives it no default."
   validation {
     condition     = var.default_storage_class != "" && var.default_storage_class != "local-path"
     error_message = "default_storage_class must be a non-empty durable cloud CSI class; the ephemeral k3s 'local-path' is FORBIDDEN (#3971/#892)."
@@ -593,29 +593,40 @@ variable "ha_enabled" {
 # activation is a follow-up commit, not a redesign.
 variable "regions" {
   type = list(object({
-    provider         = string
-    cloudRegion      = string
-    controlPlaneSize = string
-    workerSize       = string
-    workerCount      = number
+    code               = string
+    cloud_region       = string
+    availability_zone  = optional(string, "")
+    role               = string
+    control_plane_size = string
+    worker_size        = string
+    worker_count       = number
   }))
   description = <<-EOT
-    Per-region SKU payload from the wizard's StepProvider. One entry per
-    topology slot (plus 1 for AIR-GAP when enabled). SKU strings are the
-    provider's NATIVE instance-type identifier (cx32, m6i.xlarge,
-    Standard_D4s_v5, ...) — passed verbatim to that provider's API.
+    One entry per region, in the type of contract version 1
+    (infra/providers/_contract/contract.json). Index 0 is the primary region.
 
-    When empty, main.tf falls back to the singular control_plane_size /
-    worker_size / worker_count variables (the back-compat path used by
-    handler/load_test.go and any pre-rework wizard payload).
+    The primary region's servers are built from the singular variables
+    region, control_plane_size, worker_size and worker_count; catalyst-api
+    writes them with the values of regions[0]. Every further entry is a
+    secondary region: cloud_region is its Hetzner location, and the two sizes
+    are Hetzner server types passed verbatim to the API. availability_zone is
+    not read: Hetzner has no zones.
+
+    code is the region code. The output control_plane_ips_per_region and the
+    network registry are keyed by it, so two regions in one location need
+    two different codes.
   EOT
-  default     = []
   validation {
-    condition = alltrue([
-      for r in var.regions :
-      contains(["hetzner", "huawei", "oci", "aws", "azure"], r.provider)
-    ])
-    error_message = "Each regions[].provider must be one of: hetzner, huawei, oci, aws, azure."
+    condition     = length(var.regions) >= 1 && var.regions[0].role == "primary"
+    error_message = "regions must have at least one entry and regions[0].role must be \"primary\"."
+  }
+  validation {
+    condition     = alltrue([for r in var.regions : contains(["primary", "secondary"], r.role)])
+    error_message = "regions[].role must be primary or secondary."
+  }
+  validation {
+    condition     = length(distinct([for r in var.regions : r.code])) == length(var.regions)
+    error_message = "regions[].code must be unique."
   }
 }
 
@@ -757,11 +768,10 @@ variable "deployment_id" {
 
       PUT $${var.catalyst_api_url}/api/v1/deployments/$${var.deployment_id}/kubeconfig
 
-    Empty when the catalyst-api caller is using the legacy
-    out-of-band kubeconfig fetch path; cloud-init then skips the PUT
-    runcmd entirely.
+    Required by contract version 1 (no default): catalyst-api always
+    writes it. When the value is empty, cloud-init skips the PUT runcmd
+    (the legacy out-of-band kubeconfig fetch path).
   EOT
-  default     = ""
 }
 
 variable "kubeconfig_bearer_token" {
@@ -791,21 +801,18 @@ variable "catalyst_api_url" {
 
       $${var.catalyst_api_url}/api/v1/deployments/$${var.deployment_id}/kubeconfig
 
-    Defaults to the OpenOva-hosted franchise console; air-gapped
-    franchises override this with their own catalyst-api ingress
-    via the CATALYST_API_PUBLIC_URL env var on the catalyst-api
-    Pod. Per docs/INVIOLABLE-PRINCIPLES.md #4 this is runtime
-    configuration, not code.
+    Required by contract version 1 (no default): catalyst-api always
+    writes it, from the CATALYST_API_PUBLIC_URL env var on the
+    catalyst-api Pod. Per docs/INVIOLABLE-PRINCIPLES.md #4 this is
+    runtime configuration, not code.
   EOT
-  default     = "https://console.openova.io/sovereign"
 }
 
 # ── GitOps source for Flux bootstrap ──────────────────────────────────────
 
 variable "gitops_repo_url" {
   type        = string
-  description = "Git URL Flux on the new cluster watches for clusters/<sovereign-fqdn>/. Defaults to public OpenOva monorepo."
-  default     = "https://github.com/openova-io/openova"
+  description = "Git URL Flux on the new cluster watches for clusters/<sovereign-fqdn>/. Required: contract version 1 gives it no default; catalyst-api always writes it."
 }
 
 variable "gitops_branch" {

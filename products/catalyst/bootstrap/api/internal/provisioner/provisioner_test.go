@@ -474,14 +474,14 @@ func TestWriteTfvars_OmitsEmptySingularSizes(t *testing.T) {
 	}
 }
 
-// TestWriteTfvars_EmitsRegionsAsEmptyArrayNotNull proves writeTfvars
-// emits an empty JSON array for `regions` when the request has no
-// per-region overrides — never JSON null. The OpenTofu module's
-// variables.tf has a validation block (`for r in var.regions`) that
-// fails on null with "Error: Iteration over null value" but accepts
-// an empty list. Live failure on otech86 (DID 103c52d08510006f,
-// 2026-05-04 11:12:43Z).
-func TestWriteTfvars_EmitsRegionsAsEmptyArrayNotNull(t *testing.T) {
+// TestWriteTfvars_RegionsOfARequestWithoutRegions proves writeTfvars
+// writes `regions` as a JSON array with one entry of module contract
+// version 1 when the request has no per-region entries (CLD-090): never
+// JSON null and never an empty array. The contract refuses an empty
+// list, and OpenTofu cannot walk a null list in the module's
+// `for r in var.regions` (live failure on otech86, DID
+// 103c52d08510006f, 2026-05-04 11:12:43Z).
+func TestWriteTfvars_RegionsOfARequestWithoutRegions(t *testing.T) {
 	dir, err := os.MkdirTemp("", "writeTfvars-*")
 	if err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -505,9 +505,9 @@ func TestWriteTfvars_EmitsRegionsAsEmptyArrayNotNull(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	// Must contain `"regions": []` — never `"regions": null`.
+	// Never `"regions": null`.
 	if strings.Contains(string(raw), `"regions": null`) {
-		t.Fatalf("regions must serialise as [] (not null) so OpenTofu's `for r in var.regions` validator accepts the input. Got:\n%s", string(raw))
+		t.Fatalf("regions must never serialise as null: OpenTofu's `for r in var.regions` validator refuses it. Got:\n%s", string(raw))
 	}
 	var parsed map[string]any
 	if err := json.Unmarshal(raw, &parsed); err != nil {
@@ -517,8 +517,12 @@ func TestWriteTfvars_EmitsRegionsAsEmptyArrayNotNull(t *testing.T) {
 	if !ok {
 		t.Fatalf("regions must be a JSON array, got %T (%v)", parsed["regions"], parsed["regions"])
 	}
-	if len(regions) != 0 {
-		t.Fatalf("regions must be empty when request has none, got %d entries", len(regions))
+	if len(regions) != 1 {
+		t.Fatalf("regions must have one entry when the request has none, got %d entries", len(regions))
+	}
+	first, _ := regions[0].(map[string]any)
+	if first["code"] != "fsn1" || first["cloud_region"] != "fsn1" || first["role"] != "primary" || first["worker_count"] != float64(2) {
+		t.Fatalf("regions[0] must be built from the singular fields (code and cloud_region fsn1, role primary, worker_count 2), got %v", regions[0])
 	}
 }
 
