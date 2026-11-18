@@ -81,15 +81,11 @@ var providerInapplicableComponents = map[string]map[string]bool{
 	},
 }
 
-// normalizeProvider lower-cases/trims the provider string and applies the same
-// empty→"hetzner" default Validate() uses, so the census filter agrees with the
-// rest of the provisioner on what provider a deployment targets.
+// normalizeProvider lower-cases and trims the provider string, as Validate()
+// does. An empty provider stays empty: it names no pack, so no component is
+// gated off for it.
 func normalizeProvider(provider string) string {
-	p := strings.ToLower(strings.TrimSpace(provider))
-	if p == "" {
-		return "hetzner"
-	}
-	return p
+	return strings.ToLower(strings.TrimSpace(provider))
 }
 
 // isComponentInapplicable reports whether component ID is provider-gated-OFF on

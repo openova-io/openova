@@ -349,9 +349,9 @@ func TestFilterApplicable(t *testing.T) {
 			t.Errorf("hetzner gates nothing: got %d entries, want %d", len(got), len(states))
 		}
 	})
-	t.Run("empty provider defaults to hetzner via normalizeProvider", func(t *testing.T) {
-		if normalizeProvider("") != "hetzner" {
-			t.Errorf("empty provider must default to hetzner")
+	t.Run("empty provider stays empty in normalizeProvider", func(t *testing.T) {
+		if normalizeProvider("") != "" {
+			t.Errorf("an empty provider must not be defaulted to a pack")
 		}
 		if normalizeProvider("  HUAWEI ") != "huawei" {
 			t.Errorf("provider must be trimmed + lowercased")

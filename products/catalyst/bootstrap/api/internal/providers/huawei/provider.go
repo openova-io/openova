@@ -123,9 +123,29 @@ func (p *Provider) AdoptionKinds() map[string]string {
 	}
 }
 
-// Normalize fills provider defaults into spec and validates it against
-// profile. It accepts every spec for now; the engine does not call it yet.
+// Normalize applies profile to spec: the required credential fields, the
+// region capabilities, the worker minimum (spec.compute.minWorkerCount) and
+// the flavor floors (spec.compute.minimumFlavor, floors.go).
+//
+// The Sovereign has one cloud region, regionFromCreds (CLD-090): a request
+// entry's cloudRegion is its region code. Normalize keeps that value in Code
+// and sets CloudRegion of every entry to the one cloud region before the
+// region capabilities are checked.
 func (p *Provider) Normalize(spec *providers.ProvisionSpec, profile *cloudprofile.Profile) error {
+	if err := providers.CheckCredentials(spec, profile); err != nil {
+		return err
+	}
+	region := regionFromCreds(spec.Creds)
+	for i := range spec.Regions {
+		if spec.Regions[i].Code == "" {
+			spec.Regions[i].Code = spec.Regions[i].CloudRegion
+		}
+		spec.Regions[i].CloudRegion = region
+	}
+	if err := providers.CheckRegions(spec, profile); err != nil {
+		return err
+	}
+	applyFloors(spec, profile)
 	return nil
 }
 

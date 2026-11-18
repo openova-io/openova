@@ -14,7 +14,9 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers"
 )
 
-// adoptionStandIn is a registered adapter that only maps adoption kinds.
+// adoptionStandIn is a registered adapter that maps adoption kinds. Its
+// CloudProvider is the port double of port_double_test.go, so each pack name
+// is registered once and serves the Validate tests as well.
 type adoptionStandIn struct {
 	providers.CloudProvider
 	kinds map[string]string
@@ -26,14 +28,14 @@ func (a adoptionStandIn) AdoptionKinds() map[string]string { return a.kinds }
 type noAdoptionStandIn struct{ providers.CloudProvider }
 
 func init() {
-	providers.RegisterProvider("huawei", adoptionStandIn{kinds: map[string]string{
+	providers.RegisterProvider("huawei", adoptionStandIn{CloudProvider: portDouble{name: "huawei"}, kinds: map[string]string{
 		"huaweicloud_elb_loadbalancer": "loadbalancer",
 		"huaweicloud_compute_instance": "server",
 		"huaweicloud_vpc":              "network",
 		"huaweicloud_vpc_subnet":       "subnet",
 		"huaweicloud_vpc_eip":          "eip",
 	}})
-	providers.RegisterProvider("hetzner", adoptionStandIn{kinds: map[string]string{
+	providers.RegisterProvider("hetzner", adoptionStandIn{CloudProvider: portDouble{name: "hetzner"}, kinds: map[string]string{
 		"hcloud_load_balancer": "loadbalancer",
 		"hcloud_server":        "server",
 		"hcloud_network":       "network",

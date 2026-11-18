@@ -11,11 +11,12 @@
 //
 // This file pins:
 //
-//   1. Empty Provider field auto-populates to "hetzner" + still requires
-//      HetznerToken/HetznerProjectID (back-compat).
-//   2. Provider == "huawei" requires all three Huawei fields (access key,
-//      secret key, project ID); each missing field surfaces as a distinct
-//      400 with the offending field name.
+//   1. An empty Provider is a *providers.FieldError on "provider": it is
+//      never defaulted (CLD-103). A named provider requires the credential
+//      fields its cloud profile marks required.
+//   2. Provider == "huawei" requires all three Huawei credentials (access
+//      key, secret key, project ID); each missing one surfaces as a distinct
+//      field error naming its credential key.
 //   3. An unrecognised Provider value rejects with the "unsupported
 //      provider" message + the allow-list.
 //   4. writeTfvars() emits the Huawei keys (huawei_access_key etc.) into
@@ -28,10 +29,13 @@ package provisioner
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers"
 )
 
 // huaweiValidBase mirrors validBase() but populates the Huawei credential
@@ -52,31 +56,84 @@ func huaweiValidBase() Request {
 	return r
 }
 
-// TestRequestValidate_Provider_DefaultsHetzner — empty Provider field
-// auto-populates to "hetzner" so existing wizard payloads (every wizard
-// payload as of Wave 3) keep landing as Hetzner deployments without a
-// wire change. The HetznerToken-required gate must then fire on the
-// hetzner branch as before.
-func TestRequestValidate_Provider_DefaultsHetzner(t *testing.T) {
+// TestRequestValidate_Provider_EmptyIsAFieldError — an empty Provider is
+// refused with the field error of the port, never defaulted to a pack
+// (CLD-103); a named pack then requires its profile's credential fields.
+func TestRequestValidate_Provider_EmptyIsAFieldError(t *testing.T) {
 	r := validBase()
 	r.Region = "fsn1"
 	r.ControlPlaneSize = "cx42"
-	// Provider intentionally empty.
-
-	if err := r.Validate(); err != nil {
-		t.Fatalf("empty Provider + valid hetzner fields should pass: %v", err)
-	}
-	if r.Provider != "hetzner" {
-		t.Errorf("Provider was not normalised to %q: got %q", "hetzner", r.Provider)
-	}
-
-	// Removing HetznerToken must now reject with the existing
-	// "hetzner token is required" message — proves the switch's
-	// default branch still gates on HetznerToken.
-	r.HetznerToken = ""
+	r.Provider = ""
 	err := r.Validate()
-	if err == nil || !strings.Contains(err.Error(), "hetzner token is required") {
-		t.Fatalf("missing HetznerToken should reject in default branch, got %v", err)
+	var fe *providers.FieldError
+	if !errors.As(err, &fe) || fe.Field != "provider" {
+		t.Fatalf("empty Provider: got %v, want a *providers.FieldError on provider", err)
+	}
+
+	r.Provider = "hetzner"
+	if err := r.Validate(); err != nil {
+		t.Fatalf("Provider hetzner + valid fields should pass: %v", err)
+	}
+
+	// The profile marks hcloud_token required: without it the request is
+	// refused with a field error naming the credential key.
+	r = validBase()
+	r.Region = "fsn1"
+	r.ControlPlaneSize = "cx42"
+	r.HetznerToken = ""
+	err = r.Validate()
+	if !errors.As(err, &fe) || fe.Field != "credentials.hcloud_token" {
+		t.Fatalf("missing hcloud_token: got %v, want a field error on credentials.hcloud_token", err)
+	}
+}
+
+// TestValidate_CredentialsMapAndLegacyFieldsAgree — syncLegacyCredentials
+// fills an empty legacy field from the credentials map and writes a set one
+// into the map, so the field set server-side wins.
+func TestValidate_CredentialsMapAndLegacyFieldsAgree(t *testing.T) {
+	r := validBase()
+	r.Region = "fsn1"
+	r.ControlPlaneSize = "cx42"
+	r.HetznerToken = ""
+	r.Credentials = map[string]string{"hcloud_token": "from-the-map"}
+	if err := r.Validate(); err != nil {
+		t.Fatalf("a token in the credentials map should satisfy the profile: %v", err)
+	}
+	if r.HetznerToken != "from-the-map" {
+		t.Errorf("HetznerToken = %q, want it filled from the map", r.HetznerToken)
+	}
+	if r.Credentials["object_storage_region"] != "fsn1" {
+		t.Errorf("credentials[object_storage_region] = %q, want the request's Object Storage region", r.Credentials["object_storage_region"])
+	}
+
+	h := huaweiValidBase()
+	h.Credentials = map[string]string{"access_key": "from-the-body"}
+	if err := h.Validate(); err != nil {
+		t.Fatalf("huawei request should validate: %v", err)
+	}
+	if h.Credentials["access_key"] != "TESTAK1234567890" || h.HuaweiAccessKey != "TESTAK1234567890" {
+		t.Errorf("the server-side access key must win: field %q, map %q", h.HuaweiAccessKey, h.Credentials["access_key"])
+	}
+}
+
+// TestRequest_UnmarshalJSON_LegacyAliases — for a provider whose adapter
+// names legacy JSON fields, decoding copies each into the credentials map; a
+// key the map already holds keeps its value, and a provider without aliases
+// decodes as before.
+func TestRequest_UnmarshalJSON_LegacyAliases(t *testing.T) {
+	var r Request
+	if err := json.Unmarshal([]byte(`{"provider":"aliasing","legacyToken":"t-1","legacyProject":"p-1","credentials":{"project":"kept"}}`), &r); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if r.Credentials["token"] != "t-1" || r.Credentials["project"] != "kept" || len(r.Credentials) != 2 {
+		t.Errorf("credentials = %v, want token from the alias and project kept", r.Credentials)
+	}
+	var plain Request
+	if err := json.Unmarshal([]byte(`{"provider":"hetzner","legacyToken":"t-1","orgName":"O"}`), &plain); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if plain.Credentials != nil || plain.OrgName != "O" {
+		t.Errorf("a provider without aliases: credentials %v, orgName %q", plain.Credentials, plain.OrgName)
 	}
 }
 
@@ -96,21 +153,21 @@ func TestRequestValidate_Provider_HuaweiRequiresAllThreeFields(t *testing.T) {
 			patch: func(r *Request) {
 				r.HuaweiAccessKey = ""
 			},
-			wantField: "huaweiAccessKey",
+			wantField: "credentials.access_key",
 		},
 		{
 			name: "missing-secret-key",
 			patch: func(r *Request) {
 				r.HuaweiSecretKey = ""
 			},
-			wantField: "huaweiSecretKey",
+			wantField: "credentials.secret_key",
 		},
 		{
 			name: "missing-project-id",
 			patch: func(r *Request) {
 				r.HuaweiProjectID = ""
 			},
-			wantField: "huaweiProjectID",
+			wantField: "credentials.project_id",
 		},
 	}
 
@@ -125,9 +182,6 @@ func TestRequestValidate_Provider_HuaweiRequiresAllThreeFields(t *testing.T) {
 			if !strings.Contains(err.Error(), tc.wantField) {
 				t.Errorf("error must name the offending field %q, got %q",
 					tc.wantField, err.Error())
-			}
-			if !strings.Contains(err.Error(), "huawei") {
-				t.Errorf("error must mention provider=huawei context, got %q", err.Error())
 			}
 		})
 	}

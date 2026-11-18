@@ -217,6 +217,9 @@ func TestLegacyRecord_NoParentDomainsKey_LoadsCleanly(t *testing.T) {
 	// the parent-domains synthesis, so we patch the placeholders in
 	// to make the validator pass.
 	preq := rec.Request.ToProvisionerRequest()
+	// The record predates the stored provider; Validate never defaults one
+	// (CLD-103), so the harness names it like the other placeholders.
+	preq.Provider = "hetzner"
 	preq.HetznerToken = "harness-token"
 	preq.HetznerProjectID = "harness-project"
 	preq.HarborRobotToken = "harness-harbor"

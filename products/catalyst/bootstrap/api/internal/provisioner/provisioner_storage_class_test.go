@@ -18,6 +18,13 @@ package provisioner
 
 import "testing"
 
+// The default classes of the two cloud profiles,
+// infra/providers/{hetzner,huawei}/profile.yaml spec.storage.defaultClass.
+const (
+	StorageClassDefaultHetzner = "hcloud-volumes"
+	StorageClassDefaultHuawei  = "evs-ssd"
+)
+
 // huaweiTfvarsRequest returns a minimal valid Huawei Request for the
 // storage-class tests. The Huawei credentials are `json:"-"` server-side
 // fields, so they are set directly here (the same way the handler stamps them
@@ -142,8 +149,6 @@ func TestDeriveStorageClass(t *testing.T) {
 	}{
 		{"hetzner-empty", "hetzner", "", StorageClassDefaultHetzner},
 		{"huawei-empty", "huawei", "", StorageClassDefaultHuawei},
-		{"empty-provider-falls-back-hetzner", "", "", StorageClassDefaultHetzner},
-		{"unknown-provider-falls-back-hetzner", "aws", "", StorageClassDefaultHetzner},
 		{"explicit-honored", "hetzner", "my-class", "my-class"},
 		{"explicit-trimmed", "huawei", "  evs-sas  ", "evs-sas"},
 		{"explicit-overrides-provider-default", "huawei", "custom", "custom"},
@@ -161,20 +166,19 @@ func TestDeriveStorageClass(t *testing.T) {
 	}
 }
 
-// defaultStorageClassForProvider returns the right per-provider class and is
-// case/space-insensitive on the provider name.
-func TestDefaultStorageClassForProvider(t *testing.T) {
-	cases := map[string]string{
-		"hetzner":   StorageClassDefaultHetzner,
-		"Hetzner":   StorageClassDefaultHetzner,
-		"  huawei ": StorageClassDefaultHuawei,
-		"HUAWEI":    StorageClassDefaultHuawei,
-		"":          StorageClassDefaultHetzner,
-		"oci":       StorageClassDefaultHetzner,
+// The default class of a request is spec.storage.defaultClass of its cloud
+// profile, read from the pack directory: with that directory unreadable,
+// storageClass fails and the variables file is not written.
+func TestStorageClass_ReadsTheCloudProfile(t *testing.T) {
+	old := ProvidersDir
+	t.Cleanup(func() { ProvidersDir = old })
+	ProvidersDir = t.TempDir()
+	if _, err := storageClass(Request{Provider: "hetzner"}); err == nil {
+		t.Fatal("storageClass with no cloud profile = no error, want the profile read error")
 	}
-	for provider, want := range cases {
-		if got := defaultStorageClassForProvider(provider); got != want {
-			t.Errorf("defaultStorageClassForProvider(%q) = %q, want %q", provider, got, want)
-		}
+	req := tfvarsRequest(t)
+	req.BcpTopology = BcpTopologySingleRegion
+	if err := writeTfvars(t.TempDir(), req); err == nil {
+		t.Fatal("writeTfvars with no cloud profile and no storage class = no error, want an error")
 	}
 }

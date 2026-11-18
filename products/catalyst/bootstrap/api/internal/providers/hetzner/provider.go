@@ -26,6 +26,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/cloudprofile"
@@ -75,10 +76,68 @@ func (p *Provider) AdoptionKinds() map[string]string {
 	}
 }
 
-// Normalize fills provider defaults into spec and validates it against
-// profile. It accepts every spec for now; the engine does not call it yet.
+// Normalize validates spec against profile: the required credential fields,
+// the region capabilities, the Object Storage region (the pattern of the
+// profile's credential field object_storage_region) and the availability of
+// each flavor in its region (sku.go). It changes nothing in spec.
 func (p *Provider) Normalize(spec *providers.ProvisionSpec, profile *cloudprofile.Profile) error {
+	if err := providers.CheckCredentials(spec, profile); err != nil {
+		return err
+	}
+	if err := providers.CheckRegions(spec, profile); err != nil {
+		return err
+	}
+	if err := checkObjectStorageRegion(spec.ObjectStorage.Region, profile); err != nil {
+		return err
+	}
+	for i, r := range spec.Regions {
+		if !skuAvailableInRegion(r.ControlPlaneSize, r.CloudRegion) {
+			return &providers.FieldError{Field: fmt.Sprintf("regions[%d].controlPlaneSize", i), Message: skuRegionError("controlPlaneSize", r.ControlPlaneSize, r.CloudRegion)}
+		}
+		if r.WorkerCount > 0 && !skuAvailableInRegion(r.WorkerSize, r.CloudRegion) {
+			return &providers.FieldError{Field: fmt.Sprintf("regions[%d].workerSize", i), Message: skuRegionError("workerSize", r.WorkerSize, r.CloudRegion)}
+		}
+	}
 	return nil
+}
+
+// objectStorageRegionKey is the credential field of the profile whose pattern
+// lists the Object Storage regions.
+const objectStorageRegionKey = "object_storage_region"
+
+// checkObjectStorageRegion refuses an Object Storage region that does not
+// match the pattern of the profile's credential field objectStorageRegionKey.
+// An empty region is left to the required-field checks.
+func checkObjectStorageRegion(region string, profile *cloudprofile.Profile) error {
+	if region == "" {
+		return nil
+	}
+	for _, f := range profile.Spec.Credentials.Fields {
+		if f.Key != objectStorageRegionKey || f.Pattern == "" {
+			continue
+		}
+		re, err := regexp.Compile(f.Pattern)
+		if err != nil {
+			return fmt.Errorf("hetzner profile: credential field %s: pattern: %w", f.Key, err)
+		}
+		if !re.MatchString(region) {
+			return &providers.FieldError{Field: "objectStorageRegion", Message: fmt.Sprintf("%q is not a Hetzner Object Storage region (the profile allows %s)", region, f.Pattern)}
+		}
+	}
+	return nil
+}
+
+// LegacyCredentialAliases names the request JSON fields that carried a
+// Hetzner credential before the credentials map, by credential key.
+// Transitional: CLD-124 removes it.
+func (p *Provider) LegacyCredentialAliases() map[string]string {
+	return map[string]string{
+		"hetznerToken":           "hcloud_token",
+		"hetznerProjectID":       "hcloud_project_id",
+		"objectStorageAccessKey": "object_storage_access_key",
+		"objectStorageSecretKey": "object_storage_secret_key",
+		"objectStorageRegion":    objectStorageRegionKey,
+	}
 }
 
 // TfVars returns the provider-specific OpenTofu variables for spec. It
@@ -117,6 +176,7 @@ func (p *Provider) Wipe(ctx context.Context, spec providers.WipeSpec, progress f
 	// provisioner.Destroy's writeTfvars renders a valid tfvars file
 	// for the destroy run.
 	destroyReq := provisioner.Request{
+		Provider:         Name,
 		DeploymentID:     spec.DeploymentID,
 		SovereignFQDN:    spec.SovereignFQDN,
 		HetznerToken:     token,
