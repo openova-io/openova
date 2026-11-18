@@ -6593,7 +6593,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CLD-102, CLD-101, CLD-080]
-  after: [FND-071, CLD-092, CLD-132, SVC-040]
+  after: []
   touches:
   - products/catalyst/bootstrap/api/internal/providers/provider.go
   - products/catalyst/bootstrap/api/internal/providers/capabilities.go
@@ -6608,16 +6608,24 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test ! -e products/catalyst/bootstrap/api/internal/providers/capabilities.go && echo absent"
+    expect: "absent"
+  acceptance:
+  - id: A1
+    run: "cd products/catalyst/bootstrap/api && go build ./... && go vet ./internal/providers/... ./internal/handler/ ./cmd/flight-sweep/ && test \"$(go test -count=1 -v -run '^TestAs$' ./internal/providers/ | grep -c '^--- PASS: TestAs ')\" = 1"
+  - id: A2
+    run: "cd products/catalyst/bootstrap/api && test \"$(go test -count=1 -v -run '^(TestJanitorDoesNotReapOnNotSupported|TestJanitorProbeKeepsRecordWhenHetznerCannotList|TestGateFailedReap_InfraAliveLogOnly_PreservesDestroyCapability|TestGateFailedReap_InfraAliveDestructive_DestroysThenReaps|TestGateFailedReap_InfraGone_ReapsAsToday|TestGateFailedReap_ProbeError_FailsClosed|TestGateFailedReap_UnverifiedDestroy_Preserves|TestWipePurge_PartialDestroy_RetainsWorkdir|TestWipePurge_VerifiedComplete_RemovesWorkdir)$' ./internal/handler/ | grep -c '^--- PASS: ')\" = 9"
+  - id: A3
+    run: "f=products/catalyst/bootstrap/api/internal/providers/conformance/conformance_test.go && test \"$(grep -c -F 't.Skip(\"until CLD-102\")' \"$f\")\" = 0 && test \"$(grep -c -F 't.Skip(\"until CLD-088\")' \"$f\")\" = 1 && python3 scripts/check-provider-leaks.py --check && python3 scripts/check-api-structure.py && cd products/catalyst/bootstrap/api && go test -count=1 -run '^TestProviderPacks$' ./internal/providers/conformance/"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'provider.go: Normalize and TfVars, ErrNotSupported, FieldError, ErrTfVarCollision, ProvisionSpec with ObjectStorageSpec, RegionSpec with CloudRegion and Zone, and the package comment fixed. capabilities.go: the capability interfaces of the port contract (IdentityManager and KeyProber come with CLD-107). As[T] in registry.go with its test. Normalize and TfVars stubs in both adapters; Hetzner ListServers returns nil, ErrNotSupported. janitor.go is unchanged: a ListServers error already keeps the record and runs no destroy.'
+  delivers: The provider port gains Normalize, TfVars, ErrNotSupported, FieldError, ErrTfVarCollision, the new ProvisionSpec with ObjectStorageSpec and RegionSpec with CloudRegion and Zone, and a true package comment; capabilities.go holds the capability interfaces of the port contract and registry.go gains As[T] with its test; both adapters and the wipe test stub carry Normalize and TfVars stubs, the Hetzner ListServers returns ErrNotSupported, and two janitor tests prove that such an error keeps a failed record.
 - id: CLD-111
   title: Wipe and janitor through capabilities
   area: CLD
@@ -9763,7 +9771,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [SOV-180, SOV-134]
-  after: [CLD-102, CLD-113, SOV-030, SOV-175, NET-011, NET-071, NET-125, SVC-040, CTL-040, CTL-223, CTL-231, CTL-320, CTL-340, CTL-345, CTL-348, CTL-350, CTL-355, CMP-020, AIP-040, AIP-041, AIP-120]
+  after: [CLD-102, CLD-109, CLD-113, SOV-030, SOV-175, NET-011, NET-071, NET-125, SVC-040, CTL-040, CTL-223, CTL-231, CTL-320, CTL-340, CTL-345, CTL-348, CTL-350, CTL-355, CMP-020, AIP-040, AIP-041, AIP-120]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/**
   - products/catalyst/bootstrap/api/internal/handoverjwt/**
@@ -17503,7 +17511,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [NET-322, NET-327]
-  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-101, CLD-102, CLD-108, CLD-113, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-141, SOV-175, SOV-180, SOV-181, SOV-338, SEC-103, SEC-104, SEC-105, SEC-150, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-212, NET-221, SVC-030, SVC-040, SVC-041, SVC-060, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CMP-016, CMP-020, CMP-030, BSS-141, AIP-040, AIP-041, AIP-120, INF-040, INF-110, INF-112, INF-120, INF-130, INF-135, ACC-050]
+  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-101, CLD-102, CLD-108, CLD-109, CLD-113, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-141, SOV-175, SOV-180, SOV-181, SOV-338, SEC-103, SEC-104, SEC-105, SEC-150, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-212, NET-221, SVC-030, SVC-040, SVC-041, SVC-060, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CMP-016, CMP-020, CMP-030, BSS-141, AIP-040, AIP-041, AIP-120, INF-040, INF-110, INF-112, INF-120, INF-130, INF-135, ACC-050]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/
   - products/catalyst/bootstrap/api/
