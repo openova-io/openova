@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T10:15:04Z` |
+| Last refreshed | `2026-11-18T10:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-18T10:21 | [#8129](https://github.com/openova-io/openova/pull/8129) | #7087 | docs(ledger): plan update |
 | 2026-11-18T10:03 | [#8126](https://github.com/openova-io/openova/pull/8126) | #7087 | docs(ledger): plan update |
 | 2026-11-18T10:02 | [#8123](https://github.com/openova-io/openova/pull/8123) | #7938 | fix(release): the delivery's calls are all granted, and a ch |
 | 2026-11-18T09:51 | [#8121](https://github.com/openova-io/openova/pull/8121) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-18T07:48 | [#8081](https://github.com/openova-io/openova/pull/8081) | #7967 | test(providers): TestProviderPacks checks the seal hook of e |
 | 2026-11-18T07:16 | [#8078](https://github.com/openova-io/openova/pull/8078) | #7087 | docs(ledger): plan update |
 | 2026-11-18T07:26 | [#8076](https://github.com/openova-io/openova/pull/8076) | #7974 | chore: delete the flow server and the flow adapter with thei |
-| 2026-11-18T06:50 | [#8075](https://github.com/openova-io/openova/pull/8075) | #7087 | docs(ledger): plan update |
 
 ---
 
