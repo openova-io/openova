@@ -376,6 +376,9 @@ jobs:
       - name: 'provider-pack-additive | Self-test of the guard (every rule can fail)'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: bash scripts/check-provider-pack-additive.sh --self-test
+      - name: 'conformance-local-scope | Self-test of the decision (plan data only skips the pack; any other path, gates.yaml or an empty list runs it)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: bash scripts/check-plan-only-change.sh --self-test
       - name: 'secret-guards | a randAlphaNum added to a real chart template fails G2'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: |
