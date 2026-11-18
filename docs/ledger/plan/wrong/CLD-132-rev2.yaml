@@ -1,0 +1,31 @@
+schema: openova.io/plan-wrong/v1
+id: CLD-132
+ticket_rev: 2
+base_commit: fa016cca0c54995b687e8d7b824a17ac89468994
+stage: check
+ref: kit render equivalence
+command: |
+    gh api repos/openova-io/openova/actions/jobs/134695068180/logs | grep -B 40 -m 1 '##\[error\]' | cut -c30-300
+expected: |
+    the check finishes green
+actual: |
+    ##[group]Run python3 scripts/check-root-kustomization-parity.py --self-test
+    FAIL self-test the tree as it is: exit 1, expected 0
+    ok   self-test R1 a child file differs: exit 1, expected 1
+    ok   self-test R1 a folder patches the wrong path: exit 1, expected 1
+    ok   self-test R1 a folder keeps a document it must delete: exit 1, expected 1
+    ok   self-test R1 a child of the template differs: exit 1, expected 1
+    ok   self-test R1 another condition changes a child: exit 1, expected 1
+    ok   self-test R2 a folder is missing: exit 1, expected 1
+    ok   self-test R2 an extra folder: exit 1, expected 1
+    ok   self-test R2 a root folder of no provider: exit 1, expected 1
+    FAIL self-test cannot judge a field beyond the model: exit 1, expected 2
+    ok   self-test cannot judge a value outside sovereign-variables: exit 2, expected 2
+    ##[error]Process completed with exit code 1.
+    The same check run on the head, by hand: python3 scripts/check-root-kustomization-parity.py
+    FAIL R1: the conditions ['length([for z in yamldecode(parent_domains_yaml) : z.name if z.role == "org-pool"]) > 0', 'length(distinct([for z in yamldecode(parent_domains_yaml) : z.name])) > 1', 'provider_api_cidrs_yaml != "[]"', 'provider_substitutes_yaml != ""', 'render_region_kustomization'] change the Kustomizations of provider hetzner, layout base, role primary
+    It passes on main (18 branches). The check came with SOV-146 (#8097), merged after this ticket was measured. It models
+    provider ==/!= per pack and tries both values of any other condition, so the input render_region_kustomization, which
+    now gates sovereign-region-bootstrap in place of provider != "hetzner", fails R1. The fix is in
+    scripts/check-root-kustomization-parity.py, which field 14 does not allow, and it is a 16th file against the budget of 15.
+reported_at: 2026-11-18T09:28:11Z
