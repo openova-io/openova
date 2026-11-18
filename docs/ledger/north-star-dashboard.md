@@ -2,15 +2,15 @@
 
 | Merged to main | Deployed: running on hw307, not yet tested | Validated: passed the acceptance gate twice |
 |---|---|---|
-| **383** of 973 tasks · 996 of 2,883 points (35%) | **286** tasks · 748 points; 0 needed a hand change to run there | **12** tasks · 32 points |
+| **384** of 973 tasks · 1,001 of 2,883 points (35%) | **286** tasks · 748 points; 0 needed a hand change to run there | **12** tasks · 32 points |
 
-<sub>Gate coverage: 40 of 383 merged tasks are covered by a check.</sub>
+<sub>Gate coverage: 40 of 384 merged tasks are covered by a check.</sub>
 
 Only the 12 validated tasks count as tested: gate runs [43753984302](https://github.com/openova-io/openova/actions/runs/43753984302) and [43758207406](https://github.com/openova-io/openova/actions/runs/43758207406) on candidate `rc/20261115T144352Z-67402a1` are the pair (J1 to J5 pass in both, 23 of 33 checks pass), and a task counts only when its own checks passed in both.
 
 **Environment:** hw307 runs candidate `67402a1` since 15 Nov 15:58 UTC, installed with 0 hand changes, ready at 17:05, at the end of the hand-over chain at 18:55; 6 repairs merged since are on main, not on it.
 
-**In the way:** two required checks fail: INF-G01 (a worker restart is blocked by a single-instance database's disruption budget) and NET-G08 (the Sovereign object has no writer yet); 343 of 383 merged tasks have no check in the gate.
+**In the way:** two required checks fail: INF-G01 (a worker restart is blocked by a single-instance database's disruption budget) and NET-G08 (the Sovereign object has no writer yet); 344 of 384 merged tasks have no check in the gate.
 
 <table>
 <tr><td colspan="4" align="center" valign="top"><a href="#burndown-in-story-points"><img src="dashboard/burndown.svg" width="820" alt="Burndown: story points not yet merged, not yet deployed, not yet validated"></a><br><sub><a href="#burndown-in-story-points">Burndown: story points not yet merged, not yet deployed, not yet validated</a></sub></td></tr>
@@ -20,39 +20,39 @@ Only the 12 validated tasks count as tested: gate runs [43753984302](https://git
 
 **Dates, and what each depends on.**
 
-- **The plan's end, merged: target 19 Nov 05:02 UTC.** Merging the 1,887 points left by then needs 7,506 points a day; the last 72 hours merged 83 a day, which ends about **11 Dec** if the scope stops growing. The plan's dates count merges only. Validation has one measurement so far (the gate pair of 15 November), too few for a pace, so the dates are not yet re-based on it.
+- **The plan's end, merged: target 19 Nov 05:02 UTC.** Merging the 1,882 points left by then needs 8,164 points a day; the last 72 hours merged 84 a day, which ends about **11 Dec** if the scope stops growing. The plan's dates count merges only. Validation has one measurement so far (the gate pair of 15 November), too few for a pace, so the dates are not yet re-based on it.
 - **The new mothership on Hetzner can host new projects the standard way: likely 20 Nov 12:00 UTC** (earliest 16 Nov 02:00, could slip to 25 Nov). Depends on a Hetzner API token with raised project limits (neither exists today); a candidate that reaches a green gate on hw307 first (likely 17 Nov 12:00, could slip to 19 Nov); and how many Hetzner-only defects appear, as the Hetzner pack has not been installed since 22 May.
 - **The last name has moved off the old mothership node: likely 2 Dec 18:00 UTC** (earliest 21 Nov 18:00, could slip to 20 Dec); the old node is switched off seven quiet days later, likely 9 Dec. Depends on the mothership as an installable mode, with the move of the child records (never done before); the mail move (port 25 on a new address, reverse DNS, sender reputation); and Blueprints for our own applications, two of which have no chart yet.
 - The two mothership dates are those of its plan of 15 Nov 07:30 UTC.
 
-**Today in five lines** (the 24 hours to 23:00 UTC on 18 Nov):
+**Today in five lines** (the 24 hours to 23:30 UTC on 18 Nov):
 
 1. **Fires:** none in the last 24 hours.
 2. **Installation:** A gate run on hw307 ended FAIL: a journey fails, 20 of 34 checks passed; it names candidate 20261116T044806Z-d6692ff. A gate run on hw307 ended FAIL: a journey fails, 21 of 34 checks passed; it names candidate 20261116T044806Z-d6692ff. A gate run on hw307 ended FAIL: a journey fails, 20 of 34 checks passed; it names candidate 20261116T044806Z-d6692ff. A gate run on hw307 ended FAIL: a journey fails, 21 of 34 checks passed; it names candidate 20261116T044806Z-d6692ff. A gate run on hw307 ended FAIL: a journey fails, 21 of 34 checks passed; it names candidate 20261116T044806Z-d6692ff. A gate run on hw307 ended FAIL: a journey fails, 21 of 34 checks passed; it names candidate 20261116T044806Z-d6692ff. A gate run on hw307 ended FAIL: J1 to J5 pass, 25 of 38 checks passed; it names candidate 20261118T135154Z-5aa3bd0. A gate run on hw307 ended FAIL: J1 to J5 pass, 26 of 38 checks passed; it names candidate 20261118T135154Z-5aa3bd0. A gate run on hw307 ended FAIL: J1 to J5 pass, 26 of 39 checks passed; it names candidate 20261118T135154Z-5aa3bd0. A gate run on hw307 ended FAIL: J1 to J5 pass, 28 of 40 checks passed; it names candidate 20261118T192901Z-d6173f6. A gate run on hw307 ended FAIL: J1 to J5 pass, 27 of 40 checks passed; it names candidate 20261118T192901Z-d6173f6.
 3. **Repairs of main merged: 0**.
-4. **Plan tasks merged: 48**, 131 points: SEC-105, CTL-233, CLD-090, CTL-347, CLD-092, CLD-101, CLD-131, CLD-091, INF-132, CLD-102, AIP-113, NET-098, SOV-146, NET-210 and 34 more.
+4. **Plan tasks merged: 49**, 136 points: SEC-105, CTL-233, CLD-090, CTL-347, CLD-092, CLD-101, CLD-131, CLD-091, INF-132, CLD-102, AIP-113, NET-098, SOV-146, NET-210 and 35 more.
 5. **On the environment:** no candidate, no wipe and no restore.
 
 # Details
 
 ## On the environment: what is deployed and what is not
 
-Measured from git and the gate records on main at 23:00 UTC. Merged means the task's done marker is on main. Deployed means its merge commit is in the commit the environment runs: `rc/20261115T144352Z-67402a1` since 15 Nov 15:58 UTC. Validated means it passed in two gate runs on that installation.
+Measured from git and the gate records on main at 23:30 UTC. Merged means the task's done marker is on main. Deployed means its merge commit is in the commit the environment runs: `rc/20261115T144352Z-67402a1` since 15 Nov 15:58 UTC. Validated means it passed in two gate runs on that installation.
 
 | State of the merged tasks | Tasks |
 |---|---|
-| Merged in total | 383 |
+| Merged in total | 384 |
 | **Deployed**: in the commit the environment runs | **286** |
 | — of these, needed a hand change on this installation, repaired on main since | 0 |
 | **Validated**: passed in two gate runs on the environment | **12** |
-| **Merged, NOT deployed**: merged after the commit the environment runs | **97** |
-| How the merged tasks are proven: on a running environment, by a fresh installation, with no environment (CI checks, guards, tests, records, lab results) | 167, 58, 158 |
+| **Merged, NOT deployed**: merged after the commit the environment runs | **98** |
+| How the merged tasks are proven: on a running environment, by a fresh installation, with no environment (CI checks, guards, tests, records, lab results) | 168, 58, 158 |
 
 **The next installation.** The environment is not updated in place: each candidate cut from main is installed fresh, after a wipe. The next one waits for the last open repair of main, then a quiet main, a new candidate, a dump of the environment's databases and the wipe; what stands in the way now is at the top of this page. On that installation the gate runs twice with the candidate's id, and only then does a task count as validated.
 
 ### Deployed (286)
 
-Deployed counts merged tasks whose merge commit is an ancestor of the commit the environment runs: hw307 runs candidate `rc/20261115T144352Z-67402a1` since 15 Nov 15:58 UTC, which holds 286 of the 383 merged tasks. Deployed is not tested: a task counts as tested only when the acceptance gate has passed twice on it. That installation was made with 0 hand changes. The installation work (candidates, fires, the lab run, the repairs of main) is in the burndown at the top of this page and in Today in five lines.
+Deployed counts merged tasks whose merge commit is an ancestor of the commit the environment runs: hw307 runs candidate `rc/20261115T144352Z-67402a1` since 15 Nov 15:58 UTC, which holds 286 of the 384 merged tasks. Deployed is not tested: a task counts as tested only when the acceptance gate has passed twice on it. That installation was made with 0 hand changes. The installation work (candidates, fires, the lab run, the repairs of main) is in the burndown at the top of this page and in Today in five lines.
 
 | Task | What it does | State on the environment |
 |---|---|---|
@@ -214,9 +214,9 @@ ACC-020, ACC-030, [ACC-040](plan/tickets/ACC-040.md), [ACC-050](plan/tickets/ACC
 
 </details>
 
-### Merged and NOT deployed (97)
+### Merged and NOT deployed (98)
 
-A merged task is not deployed when its merge came after the commit the environment runs; it reaches the environment with the next candidate that holds it. These 97 merged after `rc/20261115T144352Z-67402a1` was cut.
+A merged task is not deployed when its merge came after the commit the environment runs; it reaches the environment with the next candidate that holds it. These 98 merged after `rc/20261115T144352Z-67402a1` was cut.
 
 | Task | What it does | State on the environment |
 |---|---|---|
@@ -251,6 +251,7 @@ A merged task is not deployed when its merge came after the commit the environme
 | [CLD-109](plan/tickets/CLD-109.md) | Port interface, capability interfaces | **not deployed**, merged after the running candidate |
 | [CLD-112](plan/tickets/CLD-112.md) | Credential check from the profile; one registry | **not deployed**, merged after the running candidate |
 | [CLD-114](plan/tickets/CLD-114.md) | Adoption map, name lists and schema enums | **not deployed**, merged after the running candidate |
+| [CLD-115](plan/tickets/CLD-115.md) | The VPC pre-flight becomes the Huawei adapter's Preflighter | **not deployed**, merged after the running candidate |
 | [CLD-131](plan/tickets/CLD-131.md) | Provider substitutes move from the template into the modules (pure move) | **not deployed**, merged after the running candidate |
 | [CLD-132](plan/tickets/CLD-132.md) | Remaining provider tests become injected inputs | **not deployed**, merged after the running candidate |
 | [CLD-134](plan/tickets/CLD-134.md) | The reference cloud's profile declares its user-data limit; the guard checks it | **not deployed**, merged after the running candidate |
@@ -402,25 +403,25 @@ hw307 runs candidate `rc/20261115T144352Z-67402a1` (commit 67402a1) since 15 Nov
 
 ## Right now
 
-Measured from GitHub at 23:00 UTC on 18 November 2026. This block is rebuilt automatically every 30 minutes.
+Measured from GitHub at 23:30 UTC on 18 November 2026. This block is rebuilt automatically every 30 minutes.
 
 | | |
 |---|---|
-| **Overall completion** | **39.4%** of the tasks are merged (383 of 973). By effort that is 37.6% (269 of 716 agent-hours). Proven on a live environment: 12 tasks on the installation running now (4 were proven on the installation wiped on 14 November). |
-| **Estimated time still needed** | About **283 running hours** until every task is merged (about 12 days if the agents run day and night). About **288 running hours** until every task is also proven on an environment. Agent effort still to spend: about 447 agent-hours. |
-| How the estimate is made | Merged: 590 tasks are left; the last 12 hours merged 2.1 tasks an hour, lab results not counted, which gives 283 hours; the longest row of tasks that must follow one another is 25 long, at about 2 hours each, which gives 50 hours; the larger number is shown. Proven: the plan's simulation of six agents with an update of the environment every 4 hours and a fresh install every 24. Both move as the work goes; a stop or an interruption adds to them. |
-| **Tokens used so far** | **29.6 billion** tokens, nearly all of them since 11 November: 3.2 billion to design the plan and 26.5 billion to carry it out so far. Of the total, 28.9 billion are re-reads of text the models had already read once, which is the cheap kind; 646 million are text read for the first time and 120 million are text the models wrote. By model: Opus 5.5 22.0 billion, Fable 5.2 7.7 billion. At the published pay-as-you-go prices these tokens would cost about $13,000. |
-| **Tokens still expected** | About **44 billion** more until every task is merged, which makes about 74 billion in all; 40% of that is spent. Basis: carrying out the plan has used 98 million tokens for each agent-hour of merged work, and 447 agent-hours are left. Proving the tasks on an environment comes on top; too few are proven to measure it. |
-| **Accounts needed on the $200 plan** | The account in use now (plan Max 20x) has spent **67%** of this week's allowance, 17 hours into the week (the week runs from 18 Nov 06:00 to 25 Nov 06:00 UTC). Over the last 6.0 hours the usage meter rose by 13 points. At that rise this account's allowance is used up around **19 Nov 14:00 UTC**, 6 days before it is filled again. Paid extra usage is switched off on the account, so the agents stop there unless another account is logged in. Holding that rise for a whole week would take **4 accounts**; measured from the tokens of the last 24 hours it is 4.7. The work still to merge needs about 11.1 weekly allowances by the token measure. |
+| **Overall completion** | **39.5%** of the tasks are merged (384 of 973). By effort that is 37.7% (270 of 716 agent-hours). Proven on a live environment: 12 tasks on the installation running now (4 were proven on the installation wiped on 14 November). |
+| **Estimated time still needed** | About **294 running hours** until every task is merged (about 12 days if the agents run day and night). About **294 running hours** until every task is also proven on an environment. Agent effort still to spend: about 446 agent-hours. |
+| How the estimate is made | Merged: 589 tasks are left; the last 12 hours merged 2.0 tasks an hour, lab results not counted, which gives 294 hours; the longest row of tasks that must follow one another is 25 long, at about 2 hours each, which gives 50 hours; the larger number is shown. Proven: the plan's simulation of six agents with an update of the environment every 4 hours and a fresh install every 24. Both move as the work goes; a stop or an interruption adds to them. |
+| **Tokens used so far** | **29.7 billion** tokens, nearly all of them since 11 November: 3.2 billion to design the plan and 26.5 billion to carry it out so far. Of the total, 28.9 billion are re-reads of text the models had already read once, which is the cheap kind; 650 million are text read for the first time and 120 million are text the models wrote. By model: Opus 5.5 22.0 billion, Fable 5.2 7.7 billion. At the published pay-as-you-go prices these tokens would cost about $13,100. |
+| **Tokens still expected** | About **44 billion** more until every task is merged, which makes about 74 billion in all; 40% of that is spent. Basis: carrying out the plan has used 98 million tokens for each agent-hour of merged work, and 446 agent-hours are left. Proving the tasks on an environment comes on top; too few are proven to measure it. |
+| **Accounts needed on the $200 plan** | The account in use now (plan Max 20x) has spent **69%** of this week's allowance, 18 hours into the week (the week runs from 18 Nov 06:00 to 25 Nov 06:00 UTC). Over the last 6.0 hours the usage meter rose by 14 points. At that rise this account's allowance is used up around **19 Nov 12:00 UTC**, 6 days before it is filled again. Paid extra usage is switched off on the account, so the agents stop there unless another account is logged in. Holding that rise for a whole week would take **4 accounts**; measured from the tokens of the last 24 hours it is 4.8. The work still to merge needs about 11.1 weekly allowances by the token measure. |
 | How the tokens and the allowance are measured | Tokens are counted from the transcripts on the build machine, each model call once, for every agent of this work. Anthropic states no token figure for the plan, so the share of the weekly allowance that is used is read from the account's own usage meter every 30 minutes and set against the tokens counted in the same hours; by that measure one weekly allowance is about 4 billion tokens of this mix. The meter counts Fable and Opus differently, so each is weighed on its own. The pace is taken from the meter itself once it has been read for an hour (the oldest reading of the last six hours); until then from the tokens. Every session on the account counts, also work that is not this plan. |
-| Tasks merged to the main branch | **383 of 973** |
-| Tasks with a written ticket | 354 |
-| Being worked on by an agent now | CLD-115 ([#8228](https://github.com/openova-io/openova/pull/8228)), FND-107, FND-156, NET-055, NET-120 ([#8227](https://github.com/openova-io/openova/pull/8227)), NET-153, PRD-800, SEC-040 ([#8221](https://github.com/openova-io/openova/pull/8221)), SEC-127, SOV-338, SVC-159 |
+| Tasks merged to the main branch | **384 of 973** |
+| Tasks with a written ticket | 357 |
+| Being worked on by an agent now | FND-107, FND-156 ([#8233](https://github.com/openova-io/openova/pull/8233)), FND-207 ([#8236](https://github.com/openova-io/openova/pull/8236)), NET-055, NET-120 ([#8227](https://github.com/openova-io/openova/pull/8227)), NET-153, PRD-800, SEC-040 ([#8221](https://github.com/openova-io/openova/pull/8221)), SEC-127, SOV-338, SVC-159 |
 | Lab-test results waiting to merge | none |
 | Lab tests started, each on its own branch in CI | 30: ACC-020, ACC-030, AIP-010, AIP-020, AIP-030, CLD-050, CLD-055, CMP-S1, CMP-S2, CMP-S3, CMP-S4, CMP-S5, CMP-S6, CTL-050, CTL-055, INF-030, MIG-020, MIG-050, NET-270, PRD-040, PRD-060, PRD-070, PRD-080, SEC-130, SEC-140, SEC-280, SOV-060, SVC-120, SVC-210, SVC-340 |
-| Merged per day | 2026-11-12: 8, 2026-11-13: 159, 2026-11-14: 79, 2026-11-15: 40, 2026-11-16: 23, 2026-11-17: 26, 2026-11-18: 34, 2026-11-19: 15 |
-| Proven on the live environment hw307 | **12** on the installation running now (passed in two gate runs). 4 were seen working in a browser on the installation wiped on 14 Nov 21:34 UTC: BSS-035, NET-041, NET-070, NET-072. Since that wipe hw307 is installed fresh from release candidates cut from main; it runs `rc/20261115T144352Z-67402a1`, which holds 286 of the 383 merged tasks. |
-| Milestone: replacement mothership on Hetzner (SOV-920) | 63 tasks before it are not merged yet. The three proofs it needs: SOV-810 open, SOV-820 open, CLD-182 open. The founder is told on issue #7087 when it starts. |
+| Merged per day | 2026-11-12: 8, 2026-11-13: 159, 2026-11-14: 79, 2026-11-15: 40, 2026-11-16: 23, 2026-11-17: 26, 2026-11-18: 34, 2026-11-19: 16 |
+| Proven on the live environment hw307 | **12** on the installation running now (passed in two gate runs). 4 were seen working in a browser on the installation wiped on 14 Nov 21:34 UTC: BSS-035, NET-041, NET-070, NET-072. Since that wipe hw307 is installed fresh from release candidates cut from main; it runs `rc/20261115T144352Z-67402a1`, which holds 286 of the 384 merged tasks. |
+| Milestone: replacement mothership on Hetzner (SOV-920) | 62 tasks before it are not merged yet. The three proofs it needs: SOV-810 open, SOV-820 open, CLD-182 open. The founder is told on issue #7087 when it starts. |
 | Board with every task as a card | [github.com/orgs/openova-io/projects/2](https://github.com/orgs/openova-io/projects/2) |
 
 ### Burndown in story points
@@ -431,14 +432,14 @@ A story point is fixed per task by its size in the plan: XS 1, S 2, M 5, L 8, an
 
 | | |
 |---|---|
-| **Work left** | **1,887 points**. Not yet merged, of 2,883 points in the plan; 996 merged. |
-| **Tasks not yet merged** | **590**. Of 973 tasks in the plan; 383 merged. |
+| **Work left** | **1,882 points**. Not yet merged, of 2,883 points in the plan; 1,001 merged. |
+| **Tasks not yet merged** | **589**. Of 973 tasks in the plan; 384 merged. |
 | **Scope growth** | **+16% in 6 days**. +396 points since the start, from 2,487 to 2,883; 131 tasks added, +326 points; 1 dropped, -2 points; 44 open tasks re-sized, +72 points; 15 rises of 10 points or more are marked on the chart. |
-| **Not yet validated on the environment** | **2,851 points**. 961 tasks, deployed meaning in the commit the environment runs (candidate rc/20261115T144352Z-67402a1), measured at 18 Nov 23:00 UTC; not merged: 590 tasks, 1,887 points; merged, not deployed: 97 tasks, 248 points; deployed, not validated: 274 tasks, 716 points; validated: 12 tasks. |
+| **Not yet validated on the environment** | **2,851 points**. 961 tasks, deployed meaning in the commit the environment runs (candidate rc/20261115T144352Z-67402a1), measured at 18 Nov 23:30 UTC; not merged: 589 tasks, 1,882 points; merged, not deployed: 98 tasks, 253 points; deployed, not validated: 274 tasks, 716 points; validated: 12 tasks. |
 | **Projected end** | **11 Dec**. At the velocity of the last 72 hours, if the scope stops growing; planned end: 19 Nov 05:02 UTC. |
-| **Velocity, last 3 days** | **83 points a day**. 248 points (97 tasks) merged in the last 72 hours. |
-| **Velocity needed** | **7,506 points a day**. To merge the rest by the plan's end, in 0.3 days. |
-| **Not yet merged, by size** | **61 XS, 273 S, 256 M**. XS: 61 tasks, 61 points; S: 273 tasks, 546 points; M: 256 tasks, 1,280 points. |
+| **Velocity, last 3 days** | **84 points a day**. 253 points (98 tasks) merged in the last 72 hours. |
+| **Velocity needed** | **8,164 points a day**. To merge the rest by the plan's end, in 0.2 days. |
+| **Not yet merged, by size** | **61 XS, 273 S, 255 M**. XS: 61 tasks, 61 points; S: 273 tasks, 546 points; M: 255 tasks, 1,275 points. |
 
 | Day (UTC) | Scope, points | Work left, points | Ideal, points | Tasks merged | Points merged | Tasks added | Scope change, points |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -449,7 +450,7 @@ A story point is fixed per task by its size in the plan: XS 1, S 2, M 5, L 8, an
 | 15 Nov | 2,823 | 2,075 | 1,205 | 8 | 37 | 17 | +28 |
 | 16 Nov | 2,830 | 2,028 | 830 | 25 | 54 | 0 | +7 |
 | 17 Nov | 2,833 | 1,968 | 454 | 24 | 63 | 0 | +3 |
-| 18 Nov, to 23:00 | 2,883 | 1,887 | 94 | 48 | 131 | 18 | +50 |
+| 18 Nov, to 23:30 | 2,883 | 1,882 | 87 | 49 | 136 | 18 | +50 |
 
 <details><summary>Rises of the scope by 10 points or more: 15 (the dots on the grey line)</summary>
 
@@ -485,24 +486,24 @@ A story point is fixed per task by its size in the plan: XS 1, S 2, M 5, L 8, an
 | 15 Nov | 24 | 8 | 37 |
 | 16 Nov | 24 | 25 | 54 |
 | 17 Nov | 24 | 24 | 63 |
-| 18 Nov, so far | 23 | 48 | 131 |
-| Average of the last 72 hours | 72 | 97 | 83 a day |
-| Needed from now to the plan's end | 6 |  | 7,506 a day |
+| 18 Nov, so far | 24 | 49 | 136 |
+| Average of the last 72 hours | 72 | 98 | 84 a day |
+| Needed from now to the plan's end | 6 |  | 8,164 a day |
 
-How it is measured. Scope is the published plan on main as it stood at each of its 141 commits so far, the last at 18 Nov 22:56 UTC. It is exact at every commit; a change between two commits shows at the next one, so other figures on this page that read the plan in between can differ by a task or two. Merged means the task's done marker is on the main branch. The time is that of the merge that added it. A merged task keeps the points it merged with. Remaining is scope minus merged at every moment, so remaining can only rise when the scope grows. The ideal line runs from the scope at the start (12 Nov 14:02 UTC) to zero at the plan's end (19 Nov 05:02 UTC). That end comes from the schedule model of the first plan, as before. Days are UTC days. The first and the last day are part days.
+How it is measured. Scope is the published plan on main as it stood at each of its 144 commits so far, the last at 18 Nov 23:24 UTC. It is exact at every commit; a change between two commits shows at the next one, so other figures on this page that read the plan in between can differ by a task or two. Merged means the task's done marker is on the main branch. The time is that of the merge that added it. A merged task keeps the points it merged with. Remaining is scope minus merged at every moment, so remaining can only rise when the scope grows. The ideal line runs from the scope at the start (12 Nov 14:02 UTC) to zero at the plan's end (19 Nov 05:02 UTC). That end comes from the schedule model of the first plan, as before. Days are UTC days. The first and the last day are part days.
 
 ### On the environment: deployed and validated
 
-Read from git and the gate records on main at 23:00 UTC. A task counts as deployed when its merge commit is in the commit the environment runs (`rc/20261115T144352Z-67402a1` since 15 Nov 15:58 UTC), and as validated when it passed in two gate runs there. The reader of the clusters below last ran at 23:00 UTC on 18 November.
+Read from git and the gate records on main at 23:30 UTC. A task counts as deployed when its merge commit is in the commit the environment runs (`rc/20261115T144352Z-67402a1` since 15 Nov 15:58 UTC), and as validated when it passed in two gate runs there. The reader of the clusters below last ran at 23:30 UTC on 18 November.
 
 | | Tasks |
 |---|---|
-| Merged tasks | 383 |
+| Merged tasks | 384 |
 | **Deployed**: in the commit the environment runs, not yet tested | **286** |
-| — of the merged, proven on a running environment (a test or a browser) | 167 |
+| — of the merged, proven on a running environment (a test or a browser) | 168 |
 | — of the merged, proven only by a fresh installation | 58 |
 | **Validated**: passed the acceptance gate twice | **12** |
-| Merged after the commit the environment runs, **not deployed** | **97** |
+| Merged after the commit the environment runs, **not deployed** | **98** |
 
 | Release to the installation wiped on 14 Nov 21:34 UTC | When | Running now (checked) | Tasks it carried | Seen working there, before the wipe | Evidence |
 |---|---|---|---|---|---|
@@ -513,23 +514,23 @@ Read from git and the gate records on main at 23:00 UTC. A task counts as deploy
 | a | 62 of 62 | 5 | none | 1.4.2136 | catalyst-api `d06dec8`, catalyst-ui `d06dec8`, marketplace `495fbc1` |
 | b | 60 of 60 | 7 | none | 1.4.2136 | none of the console images run in this region |
 
-Not deployed (97): AIP-041, AIP-101, AIP-102, AIP-103, AIP-104, AIP-105, AIP-108, AIP-111, AIP-112, AIP-113, AIP-114, AIP-120, AIP-222, AIP-224, CLD-062, CLD-064, CLD-089, CLD-090, CLD-091, CLD-092, CLD-093, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-105, CLD-108, CLD-109, CLD-112, CLD-114, CLD-131, CLD-132, CLD-134, CLD-211, CTL-223, CTL-230, CTL-231, CTL-233, CTL-346, CTL-347, CTL-348, FND-028, FND-064, FND-070, FND-073, FND-080, FND-089, FND-130, FND-151, FND-153, FND-154, FND-155, FND-206, INF-055, INF-132, INF-133, INF-135, INF-140, MIG-030, NET-011, NET-012, NET-013, NET-040, NET-095, NET-096, NET-097, NET-098, NET-110, NET-150, NET-170, NET-172, NET-190, NET-210, NET-212, PRD-509, SEC-096, SEC-103, SEC-104, SEC-105, SEC-126, SOV-010, SOV-135, SOV-142, SOV-143, SOV-145, SOV-146, SOV-148, SOV-175, SOV-183, SOV-241, SOV-750, SVC-041, SVC-100, SVC-130, SVC-150, SVC-190.
+Not deployed (98): AIP-041, AIP-101, AIP-102, AIP-103, AIP-104, AIP-105, AIP-108, AIP-111, AIP-112, AIP-113, AIP-114, AIP-120, AIP-222, AIP-224, CLD-062, CLD-064, CLD-089, CLD-090, CLD-091, CLD-092, CLD-093, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-105, CLD-108, CLD-109, CLD-112, CLD-114, CLD-115, CLD-131, CLD-132, CLD-134, CLD-211, CTL-223, CTL-230, CTL-231, CTL-233, CTL-346, CTL-347, CTL-348, FND-028, FND-064, FND-070, FND-073, FND-080, FND-089, FND-130, FND-151, FND-153, FND-154, FND-155, FND-206, INF-055, INF-132, INF-133, INF-135, INF-140, MIG-030, NET-011, NET-012, NET-013, NET-040, NET-095, NET-096, NET-097, NET-098, NET-110, NET-150, NET-170, NET-172, NET-190, NET-210, NET-212, PRD-509, SEC-096, SEC-103, SEC-104, SEC-105, SEC-126, SOV-010, SOV-135, SOV-142, SOV-143, SOV-145, SOV-146, SOV-148, SOV-175, SOV-183, SOV-241, SOV-750, SVC-041, SVC-100, SVC-130, SVC-150, SVC-190.
 
 Since the wipe of 14 Nov 21:34 UTC the environment is installed fresh from release candidates cut from main, not updated by a release built for it; it runs `rc/20261115T144352Z-67402a1` now, and a merged task reaches it with the next candidate that holds it. The release in the table above ran on the installation that was wiped.
 
 ### Is it real? Delivery and quality, measured
 
-A merged task has passed its checks in CI. It counts as **validated** only when the acceptance gate has passed twice on the installation that runs it. Today **12 of the 383** merged tasks are validated. hw307 runs candidate `rc/20261115T144352Z-67402a1` of main since 15 Nov 15:58 UTC, which holds 286 of the 383 merged tasks: they are deployed, not tested; hands finished that installation, and no pair of gate runs on it exists yet. The figures below are taken from GitHub and from main by script.
+A merged task has passed its checks in CI. It counts as **validated** only when the acceptance gate has passed twice on the installation that runs it. Today **12 of the 384** merged tasks are validated. hw307 runs candidate `rc/20261115T144352Z-67402a1` of main since 15 Nov 15:58 UTC, which holds 286 of the 384 merged tasks: they are deployed, not tested; hands finished that installation, and no pair of gate runs on it exists yet. The figures below are taken from GitHub and from main by script.
 
 ![From plan to proof: how many tasks reached each stage](dashboard/funnel.svg)
 
 | Stage | Tasks | Agent-hours |
 |---|---|---|
 | In the plan | 973 | 716 |
-| Ticket written | 393 | 277 |
-| Merged to main | 383 | 269 |
+| Ticket written | 395 | 278 |
+| Merged to main | 384 | 270 |
 | — of these: final at merge (a document, a guard, a check) | 115 | 76 |
-| — of these: need proof on an environment | 268 | 193 |
+| — of these: need proof on an environment | 269 | 194 |
 | Deployed: running on hw307, in the commit it runs | 286 | 201 |
 | Validated: passed the acceptance gate twice | 12 | 9 |
 
@@ -539,7 +540,7 @@ A merged task has passed its checks in CI. It counts as **validated** only when 
 
 | Kind of work | Merged: share of effort | Merged: tasks | Whole plan: share of effort | Whole plan: tasks |
 |---|---|---|---|---|
-| Product changes | 44% | 164 | 62% | 586 |
+| Product changes | 44% | 165 | 62% | 586 |
 | Dead code removed | 11% | 45 | 10% | 104 |
 | Guards and tests | 26% | 96 | 17% | 172 |
 | Records and decisions | 19% | 78 | 10% | 111 |
@@ -548,9 +549,9 @@ A merged task has passed its checks in CI. It counts as **validated** only when 
 |---|---|---|
 | The plan's own checks (238) by state | 192 not-built, 12 expected-fail, 34 required | A check is the plan's definition of done for a capability. "required" means it must pass on a fresh install; none has been run on one yet. |
 | Acceptance commands of merged tasks, run again on main (2026-11-13 19:00 UTC, commit b44ef5300) | **842 of 891** still pass. 49 do not: 45 replaced on purpose by a later task, 4 broken by a later merge, 0 not yet explained. 30 more compare a change with its base and can only run on the pull request. | A command that passed on its pull request and fails on today's main was either replaced by plan or broken by a later merge. Each failure is explained by name. |
-| Workflow runs on main that ended red, per day | 12 Nov: 3 red of 982 (0.3%); 13 Nov: 8 red of 2508 (0.3%); 14 Nov: 64 red of 2564 (2.5%); 15 Nov: 8 red of 1216 (0.7%); 16 Nov: 4 red of 1066 (0.4%); 17 Nov: 8 red of 1124 (0.7%); 18 Nov: 18 red of 1679 (1.1%) | Whether main is a base one can build on. A red run on main is a defect that reached main or a check that is not reliable. |
-| Times an executor stopped and reported a ticket or main as wrong | 68 reports on 57 tasks, against 383 merged | A stop is the system refusing to guess. Many stops for one cause point at a defect of main or of the tickets. |
-| Lines changed on main since the plan started | Product code and configuration: +168,302 −90,434; Tests: +82,538 −26,396; Checks and tooling: +46,362 −3,722; Plan, tickets and documents: +585,126 −8,851; Other: +53 −2,524 | How much of the change is the product itself. Tickets and the plan are large by nature. Generated files count too (one generated client is about 70,000 lines), and so do the release bot's version lines. |
+| Workflow runs on main that ended red, per day | 12 Nov: 3 red of 982 (0.3%); 13 Nov: 8 red of 2508 (0.3%); 14 Nov: 64 red of 2564 (2.5%); 15 Nov: 8 red of 1216 (0.7%); 16 Nov: 4 red of 1066 (0.4%); 17 Nov: 8 red of 1124 (0.7%); 18 Nov: 19 red of 1721 (1.1%) | Whether main is a base one can build on. A red run on main is a defect that reached main or a check that is not reliable. |
+| Times an executor stopped and reported a ticket or main as wrong | 68 reports on 57 tasks, against 384 merged | A stop is the system refusing to guess. Many stops for one cause point at a defect of main or of the tickets. |
+| Lines changed on main since the plan started | Product code and configuration: +168,367 −90,571; Tests: +82,654 −26,400; Checks and tooling: +46,362 −3,722; Plan, tickets and documents: +586,504 −8,840; Other: +53 −2,524 | How much of the change is the product itself. Tickets and the plan are large by nature. Generated files count too (one generated client is about 70,000 lines), and so do the release bot's version lines. |
 | Fresh install from main: did it start, how long, how many releases ready | **3 fires from candidates of main**: fire 1 at 14 Nov 22:19 UTC, fire 1 failed at 22:22; fire 2 at 15 Nov 04:53 UTC, fire 2 stuck at 05:42; fire 3 at 15 Nov 15:58 UTC. None finished by itself; the events are at the top of this page. | The only proof that the merged first-boot changes work together. |
 | Acceptance suite and walk on that install | **a pair of gate runs exists on the running installation** | That a person can do the thing: the five pillars. |
 
@@ -558,6 +559,7 @@ A merged task has passed its checks in CI. It counts as **validated** only when 
 
 | Merged (UTC) | Task | What it did | Pull request |
 |---|---|---|---|
+| 18 Nov 23:28 | [CLD-115](plan/tickets/CLD-115.md) | refactor(provisioner): the VPC pre-flight becomes the Preflighter of the Huawei adapter | [#8228](https://github.com/openova-io/openova/pull/8228) |
 | 18 Nov 22:59 | [AIP-105](plan/tickets/AIP-105.md) | fix(axon): one owner of the credential, one refresh timer, check-and-set write-back, access token per run | [#8215](https://github.com/openova-io/openova/pull/8215) |
 | 18 Nov 22:46 | [NET-212](plan/tickets/NET-212.md) | feat(network): the Sovereign states its region separation and a gate record may not claim disaster recovery on one failure domain | [#8219](https://github.com/openova-io/openova/pull/8219) |
 | 18 Nov 22:42 | [INF-133](plan/tickets/INF-133.md) | test(gate): check INF-G02 scans every node and finds its report and bill of materials | [#8151](https://github.com/openova-io/openova/pull/8151) |
@@ -582,11 +584,10 @@ A merged task has passed its checks in CI. It counts as **validated** only when 
 | 18 Nov 12:10 | [CLD-114](plan/tickets/CLD-114.md) | refactor(api): adoption kinds come from the adapters, and provider lists and enums give way to the pack name | [#8159](https://github.com/openova-io/openova/pull/8159) |
 | 18 Nov 11:48 | [FND-130](plan/tickets/FND-130.md) | fix(gate): the local pack carries the NodePort ban at Enforce, and SEC-G01 counts from one reading of the etcd file | [#8128](https://github.com/openova-io/openova/pull/8128) |
 | 18 Nov 11:38 | [NET-097](plan/tickets/NET-097.md) | test(gate): check NET-G10 dials the instance metadata address from a Pod in every region | [#8150](https://github.com/openova-io/openova/pull/8150) |
-| 18 Nov 11:28 | [SVC-130](plan/tickets/SVC-130.md) | test(bootstrap-kit): run the function tests of the foundation slots | [#8143](https://github.com/openova-io/openova/pull/8143) |
 
 ### Merged changes a user can see
 
-Of the 383 merged tasks, 115 are documents, decisions and checks that change no running product. The tasks below change a screen. The last column says whether the change has been seen working on hw307. The record of the walk, with screenshots, is [screenshots/north-star](screenshots/north-star/README.md).
+Of the 384 merged tasks, 115 are documents, decisions and checks that change no running product. The tasks below change a screen. The last column says whether the change has been seen working on hw307. The record of the walk, with screenshots, is [screenshots/north-star](screenshots/north-star/README.md).
 
 | Task | What changes on the screen | Pull request | On hw307 |
 |---|---|---|---|
@@ -680,7 +681,7 @@ Of the 383 merged tasks, 115 are documents, decisions and checks that change no 
 | [INF-050](plan/tickets/INF-050.md) | Install kured | [#7846](https://github.com/openova-io/openova/pull/7846) |
 | [INF-055](plan/tickets/INF-055.md) | Leave the kured slot out of the local reduced kit | [#8113](https://github.com/openova-io/openova/pull/8113) |
 
-A further 184 merged tasks change a running service without a screen of their own; they are proven by a test on the environment.
+A further 185 merged tasks change a running service without a screen of their own; they are proven by a test on the environment.
 
 
 
@@ -706,9 +707,9 @@ Against the target of this plan, that work stands at **24% built** across the 14
 | | |
 |---|---|
 | Built before the baseline | **24%** of the target, by the code audit |
-| Tasks of the plan delivered since | **383 of 973** |
+| Tasks of the plan delivered since | **384 of 973** |
 | Epics in the backlog | 102, plus single fixes in 14 areas |
-| Still to spend | about 447 agent-hours and 448 million tokens |
+| Still to spend | about 446 agent-hours and 447 million tokens |
 | Last feature done, six agents in parallel | about 1 Dec (288 running hours at 16 a day) |
 | Releases | 54 updates of the environment and 12 fresh installs |
 
@@ -716,7 +717,7 @@ Against the target of this plan, that work stands at **24% built** across the 14
 
 The length of a bar is the size of that area, so a long bar is a big area and a short bar a small one. Dark blue is what was already built on 12 November. Green is what has been merged since. Grey is still to do. Sizes are in agent-hours: the green and grey parts are the plan's own estimate; the dark part is scaled from the audit percentage, so it is an estimate of size, not a record of hours spent.
 
-All 14 areas together: 24% was built before the baseline, and the target is now 52.5% built. 269 agent-hours of the plan are merged and 447 are still to do.
+All 14 areas together: 24% was built before the baseline, and the target is now 52.6% built. 270 agent-hours of the plan are merged and 446 are still to do.
 
 ![Progress per product area, to scale](dashboard/progress.svg)
 
@@ -725,7 +726,7 @@ All 14 areas together: 24% was built before the baseline, and the target is now 
 | Network and zones | 42% | 41 of 84 | 28 | 33 | 7% |
 | Delivery engine | 23% | 79 of 114 | 53 | 26 | 6% |
 | Independent Sovereign | 25% | 43 of 98 | 30 | 42 | 9% |
-| Multi-cloud | 29% | 44 of 87 | 32 | 32 | 7% |
+| Multi-cloud | 29% | 45 of 87 | 32 | 31 | 7% |
 | Console and change through Git | 25% | 41 of 90 | 30 | 35 | 8% |
 | Billing | 60% | 8 of 42 | 5 | 28 | 6% |
 | Security and secrets | 10% | 27 of 84 | 19 | 42 | 9% |
@@ -754,7 +755,7 @@ The number for now is the start score plus the share of the remaining distance t
 | Product area (start → now) | At the start | Target | Epics | Tasks | Agent-hours to do | Tokens to do, M | Done by |
 |---|---|---|---:|---:|---:|---:|---|
 | **Independent Sovereign** (25 → 56) | Installs and runs in two regions, but still depends on its parent after hand-over. | Local from first boot, owns its keys, upgrades in place, can create a child Sovereign. | 9 | 98 | 42 | 42 | 27 Nov |
-| **Multi-cloud** (29 → 64) | Runs on the National Cloud and one other cloud by special cases in shared code. | A cloud is a pack of files behind one contract. A second cloud and a hyperscaler proven. Managed Kubernetes as an option. | 13 | 87 | 32 | 32 | 29 Nov |
+| **Multi-cloud** (29 → 65) | Runs on the National Cloud and one other cloud by special cases in shared code. | A cloud is a pack of files behind one contract. A second cloud and a hyperscaler proven. Managed Kubernetes as an option. | 13 | 87 | 31 | 31 | 29 Nov |
 | **Security and secrets** (10 → 38) | The vault runs, but every application credential is still stored in etcd. | Credentials are mounted from the vault into the running workload. Urgent holes closed first. | 7 | 84 | 42 | 42 | 27 Nov |
 | **Network and zones** (42 → 69) | The data plane is sound. The network is open by default. | Deny by default, mesh declared in Git, edge nodes and a load balancer per region. | 6 | 84 | 33 | 34 | 1 Dec |
 | **Console and change through Git** (25 → 59) | Delivery goes through Git. Most console actions write straight to the cluster. | Every change is a commit. Screens update by push. | 2 | 90 | 35 | 34 | 24 Nov |
@@ -793,7 +794,7 @@ Dates come from a simulation of six agents over the plan's dependencies, 16 runn
 
 </details>
 
-<details><summary><b>Multi-cloud</b>: 13 epics, 87 tasks, 32 agent-hours, done by 29 Nov</summary>
+<details><summary><b>Multi-cloud</b>: 13 epics, 87 tasks, 31 agent-hours, done by 29 Nov</summary>
 
 | Feature (epic) | Tasks | Delivered | Agent-hours | Tokens, M | Starts | Done by |
 |---|---:|---:|---:|---:|---|---|
@@ -803,7 +804,7 @@ Dates come from a simulation of six agents over the plan's dependencies, 16 runn
 | One boot template with no provider special cases | 3 | 2 | 0.5 | 0.5 | 17 Nov | 17 Nov |
 | A local test cloud on every pull request | 6 | 5 | 0.9 | 0.9 | 19 Nov | 19 Nov |
 | One overlay per cloud | 7 | 2 | 3.4 | 3.4 | 17 Nov | 19 Nov |
-| The provisioning engine no longer names a cloud | 10 | 7 | 2.5 | 2.5 | 13 Nov | 21 Nov |
+| The provisioning engine no longer names a cloud | 10 | 8 | 1.6 | 1.6 | 19 Nov | 21 Nov |
 | The Huawei cloud controller runs inside the Sovereign | 2 | 0 | 1.6 | 1.6 | 21 Nov | 21 Nov |
 | Installation settings leave the code | 6 | 1 | 3.2 | 3.1 | 13 Nov | 23 Nov |
 | No cloud name left in shared code | 2 | 1 | 0.7 | 0.7 | 23 Nov | 23 Nov |
@@ -1007,7 +1008,7 @@ How tickets are proven: 101 in a browser as an end user (Playwright with a scree
 | AIP-250 | Spike: agent workspace on the Organization's own sign-in with a short-lived tool identity | test on the environment |
 | BSS-S1 | Spike: suite sign-in, suite access to the engine API, and the price list a fresh Sovereign shows | test on the environment |
 | CLD-065 | Crossplane 1.20 to 2.4 | test on the environment |
-| CLD-115 | The VPC pre-flight becomes the Huawei adapter's Preflighter | test on the environment |
+| CLD-111 | Wipe and janitor through capabilities | test on the environment |
 | CLD-166 | The mothership holds the checked installation document of the installation in use | test on the environment |
 | CTL-816 | A peer region's serving verdict reaches the Application, and the API sees a running move | test on the environment |
 | FND-079 | The gate has a scoped access to the parent | test on the environment |
@@ -1039,9 +1040,9 @@ How tickets are proven: 101 in a browser as an end user (Playwright with a scree
 | AIP-201 | Node preparation for the sandbox class, exactly as the spike recorded | test on the environment |
 | AIP-225 | MCP endpoint and console HTTP routes inside the service | test on the environment |
 | BSS-060 | Gate check: self-service onboarding | test on the environment |
-| CLD-111 | Wipe and janitor through capabilities | test on the environment |
 | CMP-071 | Policy files in every region's folder: scopes, the alignment function, the empty document | test on the environment |
 | CTL-170 | Inspection: where chart-seeded Applications live and who reads them | test on the environment |
+| CTL-810 | Delete the legacy promoter and failback templates | test on the environment |
 | FND-038 | Suite helper: a test Organization and a Blueprint install | test on the environment |
 | FND-078 | The gate's cluster jobs run as a Job on the parent | test on the environment |
 | FND-161 | Row map and browser harness | browser, as an end user |
@@ -1062,7 +1063,7 @@ How tickets are proven: 101 in a browser as an end user (Playwright with a scree
 
 </details>
 
-<details><summary><b>R-003</b> Update of hw307 · 13 tickets · about 14 Nov · waits for R-001, R-002</summary>
+<details><summary><b>R-003</b> Update of hw307 · 12 tickets · about 14 Nov · waits for R-001, R-002</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1070,7 +1071,6 @@ How tickets are proven: 101 in a browser as an end user (Playwright with a scree
 | BSS-070 | BSS-G01 becomes required | test on the environment |
 | CMP-020 | The API tells the truth: live mode, no fixture data, no invented list | test on the environment |
 | CTL-172 | Platform charts take placement from values | test on the environment |
-| CTL-810 | Delete the legacy promoter and failback templates | test on the environment |
 | CTL-820 | Region-loss gate check | test on the environment |
 | FND-076 | The standing environment is updated by a workflow of the repository | test on the environment |
 | FND-141 | Flight workflow: one fresh installation with pre-flight and leftover sweep | test on the environment |
@@ -1182,7 +1182,7 @@ How tickets are proven: 101 in a browser as an end user (Playwright with a scree
 
 </details>
 
-<details><summary><b>R-009</b> Update of hw308 · 9 tickets · about 15 Nov · waits for R-001, R-002, R-007, R-008</summary>
+<details><summary><b>R-009</b> Update of hw308 · 9 tickets · about 15 Nov · waits for R-001, R-007, R-008</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1198,7 +1198,7 @@ How tickets are proven: 101 in a browser as an end user (Playwright with a scree
 
 </details>
 
-<details><summary><b>R-010</b> Update of hw308 · 2 tickets · about 15 Nov · waits for R-001, R-009</summary>
+<details><summary><b>R-010</b> Update of hw308 · 2 tickets · about 15 Nov · waits for R-009</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1268,7 +1268,7 @@ How tickets are proven: 101 in a browser as an end user (Playwright with a scree
 
 </details>
 
-<details><summary><b>R-014</b> Update of hw310 · 3 tickets · about 18 Nov · waits for F-01, R-001, R-004, R-005, R-013</summary>
+<details><summary><b>R-014</b> Update of hw310 · 3 tickets · about 18 Nov · waits for F-01, R-004, R-005, R-013</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1297,7 +1297,7 @@ How tickets are proven: 101 in a browser as an end user (Playwright with a scree
 
 </details>
 
-<details><summary><b>R-015</b> Update of hw311 · 7 tickets · about 19 Nov · waits for F-01, F-04, R-001, R-002, R-003, R-007</summary>
+<details><summary><b>R-015</b> Update of hw311 · 7 tickets · about 19 Nov · waits for F-01, F-04, R-001, R-003, R-007</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1349,7 +1349,7 @@ How tickets are proven: 101 in a browser as an end user (Playwright with a scree
 
 </details>
 
-<details><summary><b>R-018</b> Update of hw312 · 13 tickets · about 21 Nov · waits for R-001, R-002, R-003, R-007, R-015, R-016 and 3 earlier</summary>
+<details><summary><b>R-018</b> Update of hw312 · 13 tickets · about 21 Nov · waits for F-05, R-001, R-003, R-007, R-015, R-016 and 2 earlier</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1654,7 +1654,7 @@ How tickets are proven: 101 in a browser as an end user (Playwright with a scree
 
 </details>
 
-<details><summary><b>F-08</b> Fresh install, creates hw315 · 16 tickets · about 25 Nov · waits for R-025, R-028, R-029, R-030, R-031, R-032 and 11 earlier</summary>
+<details><summary><b>F-08</b> Fresh install, creates hw315 · 16 tickets · about 25 Nov · waits for R-025, R-028, R-029, R-030, R-031, R-032 and 10 earlier</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -1707,7 +1707,7 @@ How tickets are proven: 101 in a browser as an end user (Playwright with a scree
 
 </details>
 
-<details><summary><b>R-035</b> Update of hw315 · 6 tickets · about 25 Nov · waits for F-07, R-001, R-003, R-026, R-034</summary>
+<details><summary><b>R-035</b> Update of hw315 · 6 tickets · about 25 Nov · waits for F-07, R-003, R-026, R-034</summary>
 
 | Ticket | What it does | Proven by |
 |---|---|---|
@@ -2057,6 +2057,6 @@ How tickets are proven: 101 in a browser as an end user (Playwright with a scree
 
 ## Delivered since the baseline
 
-`ACC-020`, `ACC-030`, `ACC-040`, `ACC-050`, `ACC-060`, `AIP-010`, `AIP-020`, `AIP-040`, `AIP-041`, `AIP-042`, `AIP-050`, `AIP-060`, `AIP-101`, `AIP-102`, `AIP-103`, `AIP-104`, `AIP-105`, `AIP-108`, `AIP-111`, `AIP-112`, `AIP-113`, `AIP-114`, `AIP-120`, `AIP-221`, `AIP-222`, `AIP-224`, `AIP-229`, `BSS-010`, `BSS-020`, `BSS-030`, `BSS-035`, `BSS-040`, `BSS-050`, `BSS-141`, `BSS-S2`, `CLD-010`, `CLD-021`, `CLD-022`, `CLD-023`, `CLD-030`, `CLD-040`, `CLD-050`, `CLD-055`, `CLD-061`, `CLD-062`, `CLD-063`, `CLD-064`, `CLD-067`, `CLD-070`, `CLD-071`, `CLD-075`, `CLD-076`, `CLD-080`, `CLD-086`, `CLD-087`, `CLD-089`, `CLD-090`, `CLD-091`, `CLD-092`, `CLD-093`, `CLD-094`, `CLD-101`, `CLD-102`, `CLD-103`, `CLD-104`, `CLD-105`, `CLD-108`, `CLD-109`, `CLD-112`, `CLD-113`, `CLD-114`, `CLD-131`, `CLD-132`, `CLD-134`, `CLD-141`, `CLD-142`, `CLD-161`, `CLD-185`, `CLD-211`, `CMP-005`, `CMP-010`, `CMP-012`, `CMP-014`, `CMP-016`, `CMP-030`, `CMP-036`, `CMP-073`, `CMP-S1`, `CMP-S2`, `CMP-S3`, `CMP-S4`, `CMP-S5`, `CMP-S6`, `CTL-010`, `CTL-020`, `CTL-025`, `CTL-030`, `CTL-035`, `CTL-038`, `CTL-039`, `CTL-040`, `CTL-041`, `CTL-044`, `CTL-045`, `CTL-050`, `CTL-055`, `CTL-060`, `CTL-061`, `CTL-110`, `CTL-112`, `CTL-150`, `CTL-151`, `CTL-160`, `CTL-201`, `CTL-223`, `CTL-230`, `CTL-231`, `CTL-233`, `CTL-240`, `CTL-300`, `CTL-320`, `CTL-330`, `CTL-331`, `CTL-332`, `CTL-333`, `CTL-340`, `CTL-345`, `CTL-346`, `CTL-347`, `CTL-348`, `CTL-350`, `CTL-355`, `CTL-420`, `CTL-700`, `FND-001`, `FND-002`, `FND-011`, `FND-012`, `FND-013`, `FND-014`, `FND-015`, `FND-017`, `FND-018`, `FND-019`, `FND-020`, `FND-021`, `FND-022`, `FND-023`, `FND-024`, `FND-025`, `FND-026`, `FND-027`, `FND-028`, `FND-029`, `FND-031`, `FND-032`, `FND-033`, `FND-034`, `FND-035`, `FND-036`, `FND-039`, `FND-040`, `FND-041`, `FND-051`, `FND-052`, `FND-053`, `FND-054`, `FND-055`, `FND-056`, `FND-057`, `FND-058`, `FND-059`, `FND-061`, `FND-062`, `FND-063`, `FND-064`, `FND-070`, `FND-071`, `FND-072`, `FND-073`, `FND-074`, `FND-075`, `FND-077`, `FND-080`, `FND-088`, `FND-089`, `FND-091`, `FND-092`, `FND-093`, `FND-094`, `FND-095`, `FND-096`, `FND-097`, `FND-098`, `FND-099`, `FND-101`, `FND-102`, `FND-103`, `FND-104`, `FND-105`, `FND-106`, `FND-107`, `FND-110`, `FND-130`, `FND-131`, `FND-151`, `FND-153`, `FND-154`, `FND-155`, `FND-171`, `FND-173`, `FND-181`, `FND-206`, `INF-010`, `INF-030`, `INF-040`, `INF-050`, `INF-051`, `INF-052`, `INF-053`, `INF-055`, `INF-070`, `INF-110`, `INF-112`, `INF-120`, `INF-130`, `INF-132`, `INF-133`, `INF-135`, `INF-140`, `MIG-010`, `MIG-030`, `MIG-050`, `MIG-060`, `NET-010`, `NET-011`, `NET-012`, `NET-013`, `NET-020`, `NET-030`, `NET-031`, `NET-032`, `NET-033`, `NET-040`, `NET-041`, `NET-042`, `NET-050`, `NET-052`, `NET-055`, `NET-060`, `NET-070`, `NET-071`, `NET-072`, `NET-080`, `NET-090`, `NET-095`, `NET-096`, `NET-097`, `NET-098`, `NET-100`, `NET-102`, `NET-110`, `NET-125`, `NET-133`, `NET-135`, `NET-150`, `NET-170`, `NET-172`, `NET-190`, `NET-210`, `NET-212`, `NET-221`, `NET-290`, `NET-300`, `NET-321`, `PRD-010`, `PRD-020`, `PRD-030`, `PRD-040`, `PRD-060`, `PRD-070`, `PRD-080`, `PRD-101`, `PRD-102`, `PRD-103`, `PRD-104`, `PRD-105`, `PRD-106`, `PRD-501`, `PRD-502`, `PRD-503`, `PRD-508`, `PRD-509`, `PRD-513`, `PRD-800`, `SEC-005`, `SEC-006`, `SEC-010`, `SEC-020`, `SEC-030`, `SEC-071`, `SEC-073`, `SEC-080`, `SEC-090`, `SEC-095`, `SEC-096`, `SEC-100`, `SEC-103`, `SEC-104`, `SEC-105`, `SEC-110`, `SEC-120`, `SEC-125`, `SEC-126`, `SEC-127`, `SEC-130`, `SEC-135`, `SEC-140`, `SEC-150`, `SEC-161`, `SEC-271`, `SEC-280`, `SOV-010`, `SOV-020`, `SOV-030`, `SOV-035`, `SOV-040`, `SOV-050`, `SOV-060`, `SOV-070`, `SOV-080`, `SOV-090`, `SOV-110`, `SOV-120`, `SOV-121`, `SOV-130`, `SOV-131`, `SOV-133`, `SOV-134`, `SOV-135`, `SOV-140`, `SOV-141`, `SOV-142`, `SOV-143`, `SOV-144`, `SOV-145`, `SOV-146`, `SOV-148`, `SOV-150`, `SOV-151`, `SOV-160`, `SOV-161`, `SOV-175`, `SOV-180`, `SOV-181`, `SOV-183`, `SOV-190`, `SOV-220`, `SOV-241`, `SOV-320`, `SOV-335`, `SOV-336`, `SOV-337`, `SOV-338`, `SOV-750`, `SVC-010`, `SVC-020`, `SVC-030`, `SVC-040`, `SVC-041`, `SVC-060`, `SVC-070`, `SVC-080`, `SVC-090`, `SVC-100`, `SVC-120`, `SVC-125`, `SVC-130`, `SVC-150`, `SVC-190`, `SVC-210`, `SVC-315`, `SVC-340`.
+`ACC-020`, `ACC-030`, `ACC-040`, `ACC-050`, `ACC-060`, `AIP-010`, `AIP-020`, `AIP-040`, `AIP-041`, `AIP-042`, `AIP-050`, `AIP-060`, `AIP-101`, `AIP-102`, `AIP-103`, `AIP-104`, `AIP-105`, `AIP-108`, `AIP-111`, `AIP-112`, `AIP-113`, `AIP-114`, `AIP-120`, `AIP-221`, `AIP-222`, `AIP-224`, `AIP-229`, `BSS-010`, `BSS-020`, `BSS-030`, `BSS-035`, `BSS-040`, `BSS-050`, `BSS-141`, `BSS-S2`, `CLD-010`, `CLD-021`, `CLD-022`, `CLD-023`, `CLD-030`, `CLD-040`, `CLD-050`, `CLD-055`, `CLD-061`, `CLD-062`, `CLD-063`, `CLD-064`, `CLD-067`, `CLD-070`, `CLD-071`, `CLD-075`, `CLD-076`, `CLD-080`, `CLD-086`, `CLD-087`, `CLD-089`, `CLD-090`, `CLD-091`, `CLD-092`, `CLD-093`, `CLD-094`, `CLD-101`, `CLD-102`, `CLD-103`, `CLD-104`, `CLD-105`, `CLD-108`, `CLD-109`, `CLD-112`, `CLD-113`, `CLD-114`, `CLD-115`, `CLD-131`, `CLD-132`, `CLD-134`, `CLD-141`, `CLD-142`, `CLD-161`, `CLD-185`, `CLD-211`, `CMP-005`, `CMP-010`, `CMP-012`, `CMP-014`, `CMP-016`, `CMP-030`, `CMP-036`, `CMP-073`, `CMP-S1`, `CMP-S2`, `CMP-S3`, `CMP-S4`, `CMP-S5`, `CMP-S6`, `CTL-010`, `CTL-020`, `CTL-025`, `CTL-030`, `CTL-035`, `CTL-038`, `CTL-039`, `CTL-040`, `CTL-041`, `CTL-044`, `CTL-045`, `CTL-050`, `CTL-055`, `CTL-060`, `CTL-061`, `CTL-110`, `CTL-112`, `CTL-150`, `CTL-151`, `CTL-160`, `CTL-201`, `CTL-223`, `CTL-230`, `CTL-231`, `CTL-233`, `CTL-240`, `CTL-300`, `CTL-320`, `CTL-330`, `CTL-331`, `CTL-332`, `CTL-333`, `CTL-340`, `CTL-345`, `CTL-346`, `CTL-347`, `CTL-348`, `CTL-350`, `CTL-355`, `CTL-420`, `CTL-700`, `FND-001`, `FND-002`, `FND-011`, `FND-012`, `FND-013`, `FND-014`, `FND-015`, `FND-017`, `FND-018`, `FND-019`, `FND-020`, `FND-021`, `FND-022`, `FND-023`, `FND-024`, `FND-025`, `FND-026`, `FND-027`, `FND-028`, `FND-029`, `FND-031`, `FND-032`, `FND-033`, `FND-034`, `FND-035`, `FND-036`, `FND-039`, `FND-040`, `FND-041`, `FND-051`, `FND-052`, `FND-053`, `FND-054`, `FND-055`, `FND-056`, `FND-057`, `FND-058`, `FND-059`, `FND-061`, `FND-062`, `FND-063`, `FND-064`, `FND-070`, `FND-071`, `FND-072`, `FND-073`, `FND-074`, `FND-075`, `FND-077`, `FND-080`, `FND-088`, `FND-089`, `FND-091`, `FND-092`, `FND-093`, `FND-094`, `FND-095`, `FND-096`, `FND-097`, `FND-098`, `FND-099`, `FND-101`, `FND-102`, `FND-103`, `FND-104`, `FND-105`, `FND-106`, `FND-107`, `FND-110`, `FND-130`, `FND-131`, `FND-151`, `FND-153`, `FND-154`, `FND-155`, `FND-171`, `FND-173`, `FND-181`, `FND-206`, `INF-010`, `INF-030`, `INF-040`, `INF-050`, `INF-051`, `INF-052`, `INF-053`, `INF-055`, `INF-070`, `INF-110`, `INF-112`, `INF-120`, `INF-130`, `INF-132`, `INF-133`, `INF-135`, `INF-140`, `MIG-010`, `MIG-030`, `MIG-050`, `MIG-060`, `NET-010`, `NET-011`, `NET-012`, `NET-013`, `NET-020`, `NET-030`, `NET-031`, `NET-032`, `NET-033`, `NET-040`, `NET-041`, `NET-042`, `NET-050`, `NET-052`, `NET-055`, `NET-060`, `NET-070`, `NET-071`, `NET-072`, `NET-080`, `NET-090`, `NET-095`, `NET-096`, `NET-097`, `NET-098`, `NET-100`, `NET-102`, `NET-110`, `NET-125`, `NET-133`, `NET-135`, `NET-150`, `NET-170`, `NET-172`, `NET-190`, `NET-210`, `NET-212`, `NET-221`, `NET-290`, `NET-300`, `NET-321`, `PRD-010`, `PRD-020`, `PRD-030`, `PRD-040`, `PRD-060`, `PRD-070`, `PRD-080`, `PRD-101`, `PRD-102`, `PRD-103`, `PRD-104`, `PRD-105`, `PRD-106`, `PRD-501`, `PRD-502`, `PRD-503`, `PRD-508`, `PRD-509`, `PRD-513`, `PRD-800`, `SEC-005`, `SEC-006`, `SEC-010`, `SEC-020`, `SEC-030`, `SEC-071`, `SEC-073`, `SEC-080`, `SEC-090`, `SEC-095`, `SEC-096`, `SEC-100`, `SEC-103`, `SEC-104`, `SEC-105`, `SEC-110`, `SEC-120`, `SEC-125`, `SEC-126`, `SEC-127`, `SEC-130`, `SEC-135`, `SEC-140`, `SEC-150`, `SEC-161`, `SEC-271`, `SEC-280`, `SOV-010`, `SOV-020`, `SOV-030`, `SOV-035`, `SOV-040`, `SOV-050`, `SOV-060`, `SOV-070`, `SOV-080`, `SOV-090`, `SOV-110`, `SOV-120`, `SOV-121`, `SOV-130`, `SOV-131`, `SOV-133`, `SOV-134`, `SOV-135`, `SOV-140`, `SOV-141`, `SOV-142`, `SOV-143`, `SOV-144`, `SOV-145`, `SOV-146`, `SOV-148`, `SOV-150`, `SOV-151`, `SOV-160`, `SOV-161`, `SOV-175`, `SOV-180`, `SOV-181`, `SOV-183`, `SOV-190`, `SOV-220`, `SOV-241`, `SOV-320`, `SOV-335`, `SOV-336`, `SOV-337`, `SOV-338`, `SOV-750`, `SVC-010`, `SVC-020`, `SVC-030`, `SVC-040`, `SVC-041`, `SVC-060`, `SVC-070`, `SVC-080`, `SVC-090`, `SVC-100`, `SVC-120`, `SVC-125`, `SVC-130`, `SVC-150`, `SVC-190`, `SVC-210`, `SVC-315`, `SVC-340`.
 
 The same page with hover and filters is the file `north-star-dashboard.html` beside this one: download it and open it in a browser.
