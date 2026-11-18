@@ -104,9 +104,8 @@ type hwSNATRule struct {
 // Returns (rotated_count, error). Idempotent — re-running on a clean
 // state is a no-op.
 //
-// Wave 5.93 entry point — signature matches provisioner.natEIPPreflightFunc
-// so the provisioner package can register it as the NATEIPPreflightHook
-// at init() time without an import cycle.
+// Wave 5.93 entry point — called by PostApply (capabilities.go) after
+// `tofu apply`.
 func RotateBlocklistedNATEIPs(ctx context.Context, _provider, deploymentID, sovereignFQDN, accessKey, secretKey, projectID, region string, progress func(msg string)) (int, error) {
 	if progress == nil {
 		progress = func(string) {}
