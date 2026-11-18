@@ -47,6 +47,8 @@ import (
 	"time"
 
 	"github.com/openova-io/openova/core/controllers/pkg/upstream"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/cloudprofile"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers"
 )
 
 // Wave 5.93 (#2445) — pluggable hook for post-tofu-apply NAT EIP
@@ -307,54 +309,74 @@ func consoleIsolationEnabled(req Request) bool {
 	return *req.ConsoleIsolationEnabled
 }
 
-// Per-provider default StorageClass names — the durable cloud-block-storage
-// CSI class each provider's bootstrap-kit installs and flips to
-// cluster-default (#3971/#892). These are the FALLBACKS the operator gets
-// when Request.StorageClass is empty (the common case). They mirror the
-// hardcoded `SOVEREIGN_CNPG_STORAGE_CLASS` literals the cloud-init template
-// carried before #4057 made the class a choosable input — Hetzner installs
-// `hcloud-volumes` (bp-hcloud-csi slot 55a / csi.hetzner.cloud); Huawei
-// installs `evs-ssd` (bp-huawei-evs-csi slot 55b / evs.csi.huaweicloud.com).
-// local-path is FORBIDDEN on both (k3s `--disable=local-storage` + the K23
-// Kyverno ENFORCE deny), so a per-provider cloud CSI class is ALWAYS the
-// default — never an ephemeral fallback.
-const (
-	StorageClassDefaultHetzner = "hcloud-volumes"
-	StorageClassDefaultHuawei  = "evs-ssd"
-)
-
-// defaultStorageClassForProvider returns the per-provider default cloud CSI
-// StorageClass name. Provider names are the normalized lower-cased values
-// Validate() guarantees (`hetzner` / `huawei`); any unrecognized provider
-// falls back to the Hetzner default so a future provider added to the wire
-// without a storage default still lands on a non-local-path class. A wrong
-// literal here cannot silently land ephemeral storage: the Phase-1
-// storage-durability gate independently fails any prov whose resolved
-// default class is local-path or absent.
-func defaultStorageClassForProvider(provider string) string {
-	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "huawei":
-		return StorageClassDefaultHuawei
-	default:
-		return StorageClassDefaultHetzner
-	}
-}
-
 // DeriveStorageClass applies the #4057 defaulting rule for Request.StorageClass:
 //
 //   - Explicit non-empty value (operator chose a class in the wizard or via
 //     the API) → preserved verbatim, trimmed of surrounding whitespace.
-//   - Empty (the common case — operator accepted the wizard's pre-selected
-//     default, or a legacy/automation payload omits the field) → the
-//     per-provider cloud CSI default (hcloud-volumes / evs-ssd).
+//   - Empty (the common case) → spec.storage.defaultClass of the effective
+//     cloud profile of the request's provider (EffectiveProfile).
 //
-// One source of truth shared by Validate(), writeTfvars(), and the unit
-// tests — exactly one place decides the effective StorageClass for a Request.
+// Empty when the class is empty and the profile cannot be read. One source of
+// truth shared by writeTfvars(), the deployment view and the unit tests.
 func DeriveStorageClass(req Request) string {
+	sc, _ := storageClass(req)
+	return sc
+}
+
+// storageClass is DeriveStorageClass with the error of the profile read.
+func storageClass(req Request) (string, error) {
 	if sc := strings.TrimSpace(req.StorageClass); sc != "" {
-		return sc
+		return sc, nil
 	}
-	return defaultStorageClassForProvider(req.Provider)
+	profile, err := EffectiveProfile(req.Provider, req.Installation)
+	if err != nil {
+		return "", err
+	}
+	return profile.Spec.Storage.DefaultClass, nil
+}
+
+// ProvidersDir holds the provider packs (contract C2): the cloud profiles
+// the engine reads. The catalyst-api image carries them at
+// cloudprofile.DefaultDir; tests repoint it.
+var ProvidersDir = cloudprofile.DefaultDir
+
+// ReadInstallation returns an installation document by its metadata.name.
+// Nil: a request that names an installation is refused.
+var ReadInstallation cloudprofile.InstallationReader
+
+// EffectiveProfile returns the cloud profile of the pack named provider,
+// merged with the installation document named installation when that is not
+// empty. The pack is read from ProvidersDir and the document through
+// ReadInstallation.
+func EffectiveProfile(provider, installation string) (*cloudprofile.Profile, error) {
+	name := strings.ToLower(strings.TrimSpace(provider))
+	profiles, err := cloudprofile.Load(ProvidersDir)
+	if err != nil {
+		return nil, fmt.Errorf("cloud profiles: %w", err)
+	}
+	pack, ok := profiles[name]
+	if !ok {
+		return nil, fmt.Errorf("cloud profile: no pack %q in %s", name, ProvidersDir)
+	}
+	installation = strings.TrimSpace(installation)
+	if installation == "" {
+		return pack, nil
+	}
+	if ReadInstallation == nil {
+		return nil, fmt.Errorf("cloud profile: installation %q cannot be read here", installation)
+	}
+	data, err := ReadInstallation(context.Background(), installation)
+	if err != nil {
+		return nil, fmt.Errorf("cloud profile: installation %q: %w", installation, err)
+	}
+	doc, err := cloudprofile.Parse(data)
+	if err != nil {
+		return nil, fmt.Errorf("cloud profile: installation %q: %w", installation, err)
+	}
+	if doc.Metadata.Name != installation {
+		return nil, fmt.Errorf("cloud profile: installation %q: the document is %q", installation, doc.Metadata.Name)
+	}
+	return cloudprofile.Merge(pack, doc)
 }
 
 // RegionSpec is one entry in Request.Regions — the per-region sizing
@@ -447,27 +469,24 @@ type Request struct {
 	// ProvisionParentDomain.
 	ParentDomains []ParentDomain `json:"parentDomains,omitempty"`
 
-	// Provider — which CloudProvider adapter to dispatch to. Wave 4
-	// (refs #2140) introduces this top-level wire field so a single
-	// POST body shape can dispatch to any registered CloudProvider
-	// adapter — today "hetzner" or "huawei"; tomorrow "aws" / "gcp" /
-	// "azure" / "oci". The catalyst-api handler maps this string to
-	// providers.Get(name) at runProvisioning time.
-	//
-	// Empty value is treated as "hetzner" by Validate() so existing
-	// wizard payloads (every payload as of Wave 3, which pre-date the
-	// multi-provider wire work) keep landing as Hetzner deployments
-	// without a wire change. New callers (Wave 5 Huawei pane in the
-	// wizard, direct API callers, automation) MUST set this field
-	// explicitly when targeting a non-Hetzner provider.
-	//
-	// Allowed values match the registry in
-	// products/catalyst/bootstrap/api/internal/providers/all/all.go.
-	// Validation rejects anything outside that set with an actionable
-	// error ("unsupported provider %q (allowed: hetzner, huawei)") so
-	// an operator hitting the API with a typo gets a 400 instead of
-	// silent dispatch to the default Hetzner path.
+	// Provider — the provider pack and CloudProvider adapter of the
+	// deployment, one of providers.Names(). Required: Validate() returns a
+	// *providers.FieldError on "provider" for an empty value and
+	// `unsupported provider "<x>"; known: <names>` for an unknown one. It is
+	// never defaulted and never inferred from the credentials present.
 	Provider string `json:"provider,omitempty"`
+
+	// Installation — the installation document laid over the pack profile of
+	// Provider (its metadata.name). Empty: the pack profile alone.
+	Installation string `json:"installation,omitempty"`
+
+	// Credentials — the credential map of the provider, keyed by the
+	// credential fields of its cloud profile (spec.credentials.fields[].key).
+	// UnmarshalJSON also fills it from the legacy JSON fields an adapter
+	// names (providers.LegacyAliaser), and syncLegacyCredentials keeps it
+	// equal to the provider-named fields below until CLD-104 deletes them.
+	// The stored record keeps the keys and redacts every value.
+	Credentials map[string]string `json:"credentials,omitempty"`
 
 	HetznerToken     string `json:"hetznerToken"`
 	HetznerProjectID string `json:"hetznerProjectID"`
@@ -966,8 +985,9 @@ func (r *Request) Validate() error {
 		return err
 	}
 	if len(r.Regions) > 0 {
-		// Each region must carry a provider + cloudRegion + control-plane
-		// SKU. Worker SKU is required only when WorkerCount > 0.
+		// Each region must carry a provider + cloudRegion. The sizes are
+		// checked after normalize, because the adapter may fill an empty
+		// size from the profile's floors.
 		for i, rs := range r.Regions {
 			if strings.TrimSpace(rs.Provider) == "" {
 				return fmt.Errorf("region[%d] provider is required", i)
@@ -975,37 +995,8 @@ func (r *Request) Validate() error {
 			if strings.TrimSpace(rs.CloudRegion) == "" {
 				return fmt.Errorf("region[%d] cloudRegion is required", i)
 			}
-			if strings.TrimSpace(rs.ControlPlaneSize) == "" {
-				return fmt.Errorf("region[%d] controlPlaneSize is required", i)
-			}
 			if rs.WorkerCount < 0 {
 				return fmt.Errorf("region[%d] workerCount must be non-negative", i)
-			}
-			if rs.WorkerCount > 0 && strings.TrimSpace(rs.WorkerSize) == "" {
-				return fmt.Errorf("region[%d] workerSize is required when workerCount > 0", i)
-			}
-
-			// Issue #916 — region/SKU availability gate. The wizard
-			// already filters its dropdowns by isSkuAvailableInRegion
-			// (providerSizes.ts), but we MUST re-check here at the
-			// catalyst-api boundary so a stale wizard build OR a
-			// direct API caller bypassing the UI cannot dispatch
-			// otech109's exact failure mode (cpx32 + ash → tofu
-			// rejected after CP + LB + firewall already created).
-			// See sku_availability.go for the matrix + rationale.
-			if !IsSkuAvailableInRegion(rs.Provider, rs.ControlPlaneSize, rs.CloudRegion) {
-				return fmt.Errorf(
-					"region[%d]: %s",
-					i,
-					formatSkuRegionError("controlPlaneSize", rs.Provider, rs.ControlPlaneSize, rs.CloudRegion),
-				)
-			}
-			if rs.WorkerCount > 0 && !IsSkuAvailableInRegion(rs.Provider, rs.WorkerSize, rs.CloudRegion) {
-				return fmt.Errorf(
-					"region[%d]: %s",
-					i,
-					formatSkuRegionError("workerSize", rs.Provider, rs.WorkerSize, rs.CloudRegion),
-				)
 			}
 		}
 
@@ -1020,42 +1011,28 @@ func (r *Request) Validate() error {
 		// an operator who set the class at the top level (the common wizard
 		// shape) keeps it, while a per-region-only payload still surfaces a
 		// class to writeTfvars. Empty here flows through DeriveStorageClass
-		// to the per-provider CSI default.
+		// to the default class of the cloud profile.
 		if strings.TrimSpace(r.StorageClass) == "" {
 			r.StorageClass = r.Regions[0].StorageClass
 		}
 	}
 
-	// Provider switch (Wave 4 — Refs #2140). Empty value defaults to
-	// "hetzner" for backward compatibility with every wizard payload
-	// shipped before this PR. Each registered provider has its own
-	// required credential triplet — the validator dispatches on the
-	// normalized lower-cased name so a typo'd "Hetzner" / "HUAWEI" /
-	// "  hetzner " still routes correctly. Unknown providers reject
-	// with a list of the supported names so the operator can fix the
-	// payload without grepping the source.
-	switch strings.ToLower(strings.TrimSpace(r.Provider)) {
-	case "", "hetzner":
-		r.Provider = "hetzner"
-		if strings.TrimSpace(r.HetznerToken) == "" {
-			return errors.New("hetzner token is required")
+	// The adapter of the provider validates and normalises the request
+	// (CLD-103): the required credentials, the region capabilities and every
+	// provider rule are applied by its Normalize, read from the effective
+	// cloud profile.
+	if err := r.normalize(); err != nil {
+		return err
+	}
+	// A control-plane SKU per region, and a worker SKU when WorkerCount > 0:
+	// what the adapter's Normalize left in place.
+	for i, rs := range r.Regions {
+		if strings.TrimSpace(rs.ControlPlaneSize) == "" {
+			return fmt.Errorf("region[%d] controlPlaneSize is required", i)
 		}
-		if strings.TrimSpace(r.HetznerProjectID) == "" {
-			return errors.New("hetzner project ID is required")
+		if rs.WorkerCount > 0 && strings.TrimSpace(rs.WorkerSize) == "" {
+			return fmt.Errorf("region[%d] workerSize is required when workerCount > 0", i)
 		}
-	case "huawei":
-		r.Provider = "huawei"
-		if strings.TrimSpace(r.HuaweiAccessKey) == "" {
-			return errors.New("huaweiAccessKey is required when provider=huawei")
-		}
-		if strings.TrimSpace(r.HuaweiSecretKey) == "" {
-			return errors.New("huaweiSecretKey is required when provider=huawei")
-		}
-		if strings.TrimSpace(r.HuaweiProjectID) == "" {
-			return errors.New("huaweiProjectID is required when provider=huawei")
-		}
-	default:
-		return fmt.Errorf("unsupported provider %q (allowed: hetzner, huawei)", r.Provider)
 	}
 
 	if strings.TrimSpace(r.Region) == "" {
@@ -1063,30 +1040,6 @@ func (r *Request) Validate() error {
 	}
 	if strings.TrimSpace(r.SovereignFQDN) == "" {
 		return errors.New("sovereign FQDN is required")
-	}
-
-	// Issue #916 — legacy single-region path SKU/region check. When
-	// the request did NOT supply r.Regions[] (back-compat payload from
-	// a pre-multi-region wizard or a direct API caller), the singular
-	// ControlPlaneSize / WorkerSize / Region fields ARE the canonical
-	// SKU+region pair. Wave 4 (#2140) generalises the check to the
-	// resolved r.Provider so a Huawei back-compat caller is not
-	// validated against Hetzner's SKU matrix. IsSkuAvailableInRegion
-	// returns true for un-registered (provider, sku) pairs so the
-	// Huawei path passes through gracefully until the matrix is
-	// populated for HCS flavours.
-	if len(r.Regions) == 0 && strings.TrimSpace(r.ControlPlaneSize) != "" {
-		if !IsSkuAvailableInRegion(r.Provider, r.ControlPlaneSize, r.Region) {
-			return errors.New(formatSkuRegionError(
-				"controlPlaneSize", r.Provider, r.ControlPlaneSize, r.Region,
-			))
-		}
-		if r.WorkerCount > 0 && strings.TrimSpace(r.WorkerSize) != "" &&
-			!IsSkuAvailableInRegion(r.Provider, r.WorkerSize, r.Region) {
-			return errors.New(formatSkuRegionError(
-				"workerSize", r.Provider, r.WorkerSize, r.Region,
-			))
-		}
 	}
 
 	// BCP topology (Refs #2666 G93.1) — validate explicit value if
@@ -1251,22 +1204,6 @@ func (r *Request) Validate() error {
 	if strings.TrimSpace(r.ObjectStorageRegion) == "" {
 		return errors.New("object storage region is required (Hetzner Object Storage region: fsn1 | nbg1 | hel1)")
 	}
-	// Per-provider region whitelist. Hetzner has the fsn1/nbg1/hel1
-	// triplet (every other Hetzner region was added post-2026-04 and is
-	// re-validated downstream by writeTfvars); Huawei (HCS) keeps the
-	// canonical "me-east-215" plus the broader public-Huawei-Cloud
-	// region set (accepted permissively here — the OBS API will reject
-	// at runtime with a clearer message than a hand-curated allow-list
-	// could provide). Wave 4 (#2140) un-pins the Hetzner-specific switch
-	// so a Huawei prov doesn't immediately 400 on a non-Hetzner region.
-	if r.Provider == "hetzner" {
-		switch r.ObjectStorageRegion {
-		case "fsn1", "nbg1", "hel1":
-			// OK — Hetzner Object Storage availability as of 2026-04.
-		default:
-			return fmt.Errorf("object storage region %q is not a valid Hetzner Object Storage region (must be fsn1, nbg1, or hel1)", r.ObjectStorageRegion)
-		}
-	}
 	if strings.TrimSpace(r.ObjectStorageAccessKey) == "" {
 		return errors.New("object storage access key is required (issued in Hetzner Console → Object Storage → Manage Credentials)")
 	}
@@ -1283,6 +1220,217 @@ func (r *Request) Validate() error {
 	// so we re-enforce here.
 	if !s3BucketNamePattern.MatchString(r.ObjectStorageBucket) {
 		return fmt.Errorf("object storage bucket name %q does not match S3 naming rules (3-63 chars, lowercase alphanumeric + hyphens, start/end alphanumeric)", r.ObjectStorageBucket)
+	}
+	return nil
+}
+
+// regionsProvider is the lower-case provider every entry of regions names, or
+// "" when there are no regions, an entry names none, or two entries differ.
+func regionsProvider(regions []RegionSpec) string {
+	name := ""
+	for _, rs := range regions {
+		p := strings.ToLower(strings.TrimSpace(rs.Provider))
+		if p == "" || (name != "" && p != name) {
+			return ""
+		}
+		name = p
+	}
+	return name
+}
+
+// ResolveProvider returns the lower-case provider of r: the top-level
+// Provider, else the one provider every regions[] entry names (the wizard
+// names it per region, StepReview.tsx), else "". The create handler calls it
+// before it stamps any server-side value, so both request shapes take one
+// path; normalize calls it too.
+func ResolveProvider(r *Request) string {
+	if name := strings.ToLower(strings.TrimSpace(r.Provider)); name != "" {
+		return name
+	}
+	return regionsProvider(r.Regions)
+}
+
+// normalize resolves the adapter of r.Provider and runs its Normalize on the
+// spec of r, with the effective cloud profile (CLD-103). r.Provider becomes the
+// canonical lower-case name. The sizes and worker counts that Normalize sets
+// are copied back into r; region codes and cloud regions are not, because the
+// engine still writes the module's regions from r (until CLD-104).
+func (r *Request) normalize() error {
+	name := ResolveProvider(r)
+	if name == "" {
+		return &providers.FieldError{Field: "provider", Message: "required; known: " + strings.Join(providers.Names(), ", ")}
+	}
+	adapter, err := providers.Get(name)
+	if err != nil {
+		return fmt.Errorf("unsupported provider %q; known: %s", name, strings.Join(providers.Names(), ", "))
+	}
+	r.Provider = name
+	profile, err := EffectiveProfile(name, r.Installation)
+	if err != nil {
+		return err
+	}
+	syncLegacyCredentials(r)
+	spec := r.providerSpec()
+	if err := adapter.Normalize(&spec, profile); err != nil {
+		return err
+	}
+	if len(r.Regions) == 0 {
+		r.ControlPlaneSize = spec.Regions[0].ControlPlaneSize
+		r.WorkerSize = spec.Regions[0].WorkerSize
+		r.WorkerCount = spec.Regions[0].WorkerCount
+		return nil
+	}
+	for i := range r.Regions {
+		r.Regions[i].ControlPlaneSize = spec.Regions[i].ControlPlaneSize
+		r.Regions[i].WorkerSize = spec.Regions[i].WorkerSize
+		r.Regions[i].WorkerCount = spec.Regions[i].WorkerCount
+	}
+	r.ControlPlaneSize = r.Regions[0].ControlPlaneSize
+	r.WorkerSize = r.Regions[0].WorkerSize
+	r.WorkerCount = r.Regions[0].WorkerCount
+	return nil
+}
+
+// providerSpec is what the adapter of r sees of the request (section 4.1 of
+// the port): the credentials map, the Object Storage fields and one RegionSpec
+// per entry of Regions, or one built from the legacy singular fields when
+// Regions is empty. Code is the entry's code, or its cloudRegion when that is
+// empty; Role comes from the position.
+func (r *Request) providerSpec() providers.ProvisionSpec {
+	creds := make(map[string]string, len(r.Credentials))
+	for k, v := range r.Credentials {
+		creds[k] = v
+	}
+	regions := r.Regions
+	if len(regions) == 0 {
+		regions = []RegionSpec{{CloudRegion: r.Region, ControlPlaneSize: r.ControlPlaneSize, WorkerSize: r.WorkerSize, WorkerCount: r.WorkerCount}}
+	}
+	spec := providers.ProvisionSpec{
+		DeploymentID:  r.DeploymentID,
+		SovereignFQDN: r.SovereignFQDN,
+		Installation:  r.Installation,
+		Creds:         providers.ProviderCreds{Raw: creds},
+		StorageClass:  r.StorageClass,
+		ObjectStorage: providers.ObjectStorageSpec{
+			Region:    r.ObjectStorageRegion,
+			Bucket:    r.ObjectStorageBucket,
+			AccessKey: r.ObjectStorageAccessKey,
+			SecretKey: r.ObjectStorageSecretKey,
+		},
+	}
+	for i, rs := range regions {
+		role := "secondary"
+		if i == 0 {
+			role = "primary"
+		}
+		spec.Regions = append(spec.Regions, providers.RegionSpec{
+			Code:             regionCode(rs),
+			CloudRegion:      rs.CloudRegion,
+			Zone:             rs.Zone,
+			Role:             role,
+			ControlPlaneSize: rs.ControlPlaneSize,
+			WorkerSize:       rs.WorkerSize,
+			WorkerCount:      rs.WorkerCount,
+		})
+	}
+	return spec
+}
+
+// legacyCredentialFields are the Request fields that carried a credential
+// before the credentials map, by credential key. CLD-104 deletes the
+// provider-named ones; the Object Storage fields stay as the source of
+// ProvisionSpec.ObjectStorage. serverOnly marks a field tagged `json:"-"`:
+// only the operator's server-side configuration sets it.
+func (r *Request) legacyCredentialFields() []struct {
+	key        string
+	field      *string
+	serverOnly bool
+} {
+	return []struct {
+		key        string
+		field      *string
+		serverOnly bool
+	}{
+		{"hcloud_token", &r.HetznerToken, false},
+		{"hcloud_project_id", &r.HetznerProjectID, false},
+		{"access_key", &r.HuaweiAccessKey, true},
+		{"secret_key", &r.HuaweiSecretKey, true},
+		{"project_id", &r.HuaweiProjectID, true},
+		{"region", &r.HuaweiRegion, true},
+		{"object_storage_access_key", &r.ObjectStorageAccessKey, false},
+		{"object_storage_secret_key", &r.ObjectStorageSecretKey, false},
+		{"object_storage_region", &r.ObjectStorageRegion, false},
+	}
+}
+
+// RefuseServerOnlyCredentials returns a *providers.FieldError on
+// "credentials.<key>" when the credentials map of r names the key of a
+// server-only field (legacyCredentialFields). The create handler calls it on
+// the decoded body before it stamps anything: syncLegacyCredentials fills an
+// empty field from the map, so a body that named such a key would choose the
+// keys, or the region and with it the endpoints, that the operator's
+// credentials are used against.
+func RefuseServerOnlyCredentials(r *Request) *providers.FieldError {
+	for _, l := range r.legacyCredentialFields() {
+		if _, named := r.Credentials[l.key]; named && l.serverOnly {
+			return &providers.FieldError{Field: "credentials." + l.key, Message: "server-only: set from the operator's configuration, never from a request"}
+		}
+	}
+	return nil
+}
+
+// syncLegacyCredentials makes the credentials map and the legacy credential
+// fields agree: a non-empty field is written into the map under its key, and
+// an empty field is filled from the map. A field set server-side (the
+// operator credentials the create handler stamps) therefore wins, and a
+// request body that names the key of a server-only field is refused before
+// this runs (RefuseServerOnlyCredentials).
+func syncLegacyCredentials(r *Request) {
+	for _, l := range r.legacyCredentialFields() {
+		if v := *l.field; strings.TrimSpace(v) != "" {
+			if r.Credentials == nil {
+				r.Credentials = map[string]string{}
+			}
+			r.Credentials[l.key] = v
+		} else if v, ok := r.Credentials[l.key]; ok {
+			*l.field = v
+		}
+	}
+}
+
+// UnmarshalJSON decodes a request and then, for its provider, copies every
+// legacy JSON field that the adapter names (providers.LegacyAliaser) into
+// Credentials, unless the map already holds that key. An unknown or empty
+// provider is left to Validate.
+func (r *Request) UnmarshalJSON(data []byte) error {
+	type plain Request
+	if err := json.Unmarshal(data, (*plain)(r)); err != nil {
+		return err
+	}
+	aliaser, ok, err := providers.As[providers.LegacyAliaser](r.Provider)
+	if err != nil || !ok {
+		return nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	for legacy, key := range aliaser.LegacyCredentialAliases() {
+		raw, present := fields[legacy]
+		if !present {
+			continue
+		}
+		var v string
+		if json.Unmarshal(raw, &v) != nil || v == "" {
+			continue
+		}
+		if _, set := r.Credentials[key]; set {
+			continue
+		}
+		if r.Credentials == nil {
+			r.Credentials = map[string]string{}
+		}
+		r.Credentials[key] = v
 	}
 	return nil
 }
@@ -2885,6 +3033,10 @@ func writeTfvars(deployDir string, req Request) error {
 	if err != nil {
 		return err
 	}
+	defaultStorageClass, err := storageClass(req)
+	if err != nil {
+		return fmt.Errorf("default storage class: %w", err)
+	}
 	// The address the new Sovereign calls back to. The variables document
 	// names it as its parent's API address.
 	apiURL := env(
@@ -3007,11 +3159,10 @@ func writeTfvars(deployDir string, req Request) error {
 
 		// Operator-chosen default StorageClass (#4057 — founder point #1:
 		// "storage class is an INPUT chosen by the user, with defaults").
-		// DeriveStorageClass returns the operator's explicit class verbatim,
-		// or the per-provider durable cloud CSI default when empty (Hetzner
-		// → hcloud-volumes, Huawei → evs-ssd). NEVER empty, NEVER local-path
-		// (which is FORBIDDEN by --disable=local-storage + the K23 Kyverno
-		// ENFORCE deny). The Hetzner + Huawei cloud-init templates interpolate
+		// storageClass returns the operator's explicit class verbatim, or
+		// the default class of the provider's cloud profile. On a cloud pack
+		// NEVER local-path (which is FORBIDDEN by --disable=local-storage +
+		// the K23 Kyverno ENFORCE deny). The Hetzner + Huawei cloud-init templates interpolate
 		// this var into the bootstrap-kit Kustomization postBuild.substitute
 		// `SOVEREIGN_CNPG_STORAGE_CLASS` — which previously HARDCODED the
 		// per-provider literal — so the host-shared CNPG Cluster CRs (slots
@@ -3019,7 +3170,7 @@ func writeTfvars(deployDir string, req Request) error {
 		// chosen class. infra/providers/{hetzner,huawei}/variables.tf declare
 		// the matching string variable; a fresh prov that omits the wizard
 		// field lands byte-identical to today (the per-provider default).
-		"default_storage_class": DeriveStorageClass(req),
+		"default_storage_class": defaultStorageClass,
 
 		// QA namespace + Organization names — derived from the Sovereign
 		// FQDN's first label at provision time per principle #4 (never

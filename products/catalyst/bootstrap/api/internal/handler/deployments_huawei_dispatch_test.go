@@ -246,7 +246,7 @@ func TestCreateDeployment_Huawei_MissingAccessKey_Rejected(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d body=%s; want 400", w.Code, w.Body.String())
 	}
-	if !strings.Contains(w.Body.String(), "huaweiAccessKey") {
+	if !strings.Contains(w.Body.String(), `"field":"credentials.access_key"`) {
 		t.Errorf("error body must name the offending field; got %s", w.Body.String())
 	}
 }
