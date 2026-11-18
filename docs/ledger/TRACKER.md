@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T11:15:03Z` |
+| Last refreshed | `2026-11-18T11:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7815](https://github.com/openova-io/openova/issues/7815) | NET-013 The gate dials the API port from an address in no list | Other |
 | [#7816](https://github.com/openova-io/openova/issues/7816) | PRD-509 Internal authorisation API | Other |
 | [#7820](https://github.com/openova-io/openova/issues/7820) | CTL-346 Kit slots 56 and 57 (flow server and emitter) leave the kit | Other |
 | [#7821](https://github.com/openova-io/openova/issues/7821) | CTL-355 Delete the second showback meter | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8145](https://github.com/openova-io/openova/issues/8145) | INF-133 Check INF-G02: node host scans, as a suite file | Other |
 | [#8148](https://github.com/openova-io/openova/issues/8148) | INF-140 Vulnerability matching and daily re-matching | Other |
 | [#8149](https://github.com/openova-io/openova/issues/8149) | NET-097 Gate check NET-G10: a Pod cannot reach the instance metadata address | Other |
+| [#8155](https://github.com/openova-io/openova/issues/8155) | CLD-103 Credentials map, validation through the port, storage class from the pro | Other |
 
 ---
 
@@ -307,7 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-18T11:16 | [#8147](https://github.com/openova-io/openova/pull/8147) | #7087 | docs(ledger): plan update |
 | 2026-11-18T11:10 | [#8144](https://github.com/openova-io/openova/pull/8144) | #7087 | docs(ledger): plan update |
+| 2026-11-18T11:28 | [#8143](https://github.com/openova-io/openova/pull/8143) | #8138 | test(bootstrap-kit): run the function tests of the foundatio |
+| 2026-11-18T11:18 | [#8142](https://github.com/openova-io/openova/pull/8142) | #7765 | refactor(cloud-init): new control planes fetch the k3s insta |
 | 2026-11-18T11:00 | [#8139](https://github.com/openova-io/openova/pull/8139) | #7087 | docs(ledger): plan update |
 | 2026-11-18T10:55 | [#8137](https://github.com/openova-io/openova/pull/8137) | #7087 | docs(ledger): plan update |
 | 2026-11-18T10:57 | [#8136](https://github.com/openova-io/openova/pull/8136) | #8135 | feat(guards): pack tokens in the leak scanner and the additi |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-18T08:57 | [#8101](https://github.com/openova-io/openova/pull/8101) | #7087 | docs(ledger): plan update |
 | 2026-11-18T09:00 | [#8100](https://github.com/openova-io/openova/pull/8100) | #8099 | fix(hcloud-csi): exempt the node plugin from the metadata de |
 | 2026-11-18T08:52 | [#8098](https://github.com/openova-io/openova/pull/8098) | #7087 | docs(ledger): plan update |
-| 2026-11-18T09:02 | [#8097](https://github.com/openova-io/openova/pull/8097) | #8087 | refactor(kit): the child Kustomizations of first boot are al |
-| 2026-11-18T08:58 | [#8096](https://github.com/openova-io/openova/pull/8096) | #8079 | refactor(model-meter): add the admin listener, the ring rout |
-| 2026-11-18T08:57 | [#8095](https://github.com/openova-io/openova/pull/8095) | #8080 | refactor(providers): delete the dead Provision method of the |
 
 ---
 
