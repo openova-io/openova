@@ -1584,6 +1584,7 @@ checks:
   needs: []
   proof: running
   asserts: Host vulnerability reports
+  implemented_by: INF-140
   delivered_by: INF-145
 - id: INF-G12
   title: Machine pages in the console
