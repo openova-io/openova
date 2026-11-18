@@ -3,7 +3,6 @@ import { loadConfig } from "./config.js";
 import { createAuthHook } from "./middleware/auth.js";
 import { modelsRoute } from "./routes/models.js";
 import { chatCompletionsRoute } from "./routes/chat-completions.js";
-import { initPool, shutdownPool, getPool } from "./providers/claude.js";
 import { connectValkey, disconnectValkey, getPoolStats } from "./providers/valkey.js";
 import { ConversationStore } from "./providers/conversation.js";
 import { refreshIfExpired, startPeriodicRefresh, stopPeriodicRefresh } from "./providers/token-refresh.js";
@@ -60,11 +59,9 @@ app.get("/stats", async () => {
       conversations: convCount,
     };
   }
-  const pool = getPool();
   return {
     provider: "claude",
     pool: poolStats ?? "valkey not connected",
-    sessions: pool?.stats ?? "pool not initialized",
     conversations: convCount,
   };
 });
@@ -103,26 +100,21 @@ app.get<{ Params: { id: string } }>(
 await connectValkey(config.valkeyUrl);
 
 if (!isVllm) {
-  // Claude provider: refresh OAuth token and warm session pool
+  // Claude provider: refresh the OAuth token; each request starts its own kit run
   app.log.info("Checking OAuth token...");
   const tokenOk = await refreshIfExpired();
   if (!tokenOk) {
-    app.log.warn("Token refresh failed — sessions may fail to authenticate");
+    app.log.warn("Token refresh failed — requests may fail to authenticate");
   }
   startPeriodicRefresh();
-
-  app.log.info(`Warming session pool (size=${config.poolSize})...`);
-  await initPool(config.defaultModel, config.poolSize);
-  app.log.info("Session pool ready — accepting requests");
 } else {
-  app.log.info("vLLM provider — skipping session pool and OAuth token refresh");
+  app.log.info("vLLM provider — skipping OAuth token refresh");
 }
 
 // Graceful shutdown
 const shutdown = () => {
   if (!isVllm) {
     stopPeriodicRefresh();
-    shutdownPool();
   }
   disconnectValkey();
   process.exit(0);
@@ -135,7 +127,6 @@ try {
   app.log.info(`Axon gateway listening on port ${config.port} (provider: ${config.provider})`);
 } catch (err) {
   app.log.error(err);
-  if (!isVllm) shutdownPool();
   await disconnectValkey();
   process.exit(1);
 }

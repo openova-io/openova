@@ -11,7 +11,6 @@ export interface Config {
   apiKeys: string[];
   provider: Provider;
   defaultModel: string;
-  poolSize: number;
   valkeyUrl: string;
   conversationTtl: number; // seconds, default 7 days
   vllm: VllmConfig;
@@ -37,7 +36,6 @@ export function loadConfig(): Config {
     defaultModel: provider === "vllm"
       ? vllmDefaultModel
       : (process.env.AXON_DEFAULT_MODEL ?? "claude-sonnet-4-6"),
-    poolSize: parseInt(process.env.AXON_POOL_SIZE ?? "3", 10),
     valkeyUrl: process.env.AXON_VALKEY_URL ?? "redis://localhost:6379",
     conversationTtl: parseInt(process.env.AXON_CONVERSATION_TTL ?? "604800", 10),
     vllm: {

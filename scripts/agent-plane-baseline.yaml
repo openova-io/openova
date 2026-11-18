@@ -86,7 +86,6 @@ rules:
     - products/openova-mcp/cmd/openova-mcp/http.go
     - products/openova-mcp/cmd/openova-mcp/main.go
   G7d:
-    max: 2
+    max: 1
     allow:
     - products/axon/src/providers/claude.ts
-    - products/axon/src/providers/session-pool.ts

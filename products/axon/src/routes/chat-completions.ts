@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { v4 as uuidv4 } from "uuid";
-import { chat, chatStream, chatV1, chatV1Stream, type ChatOptions, type ChatV1Options } from "../providers/claude.js";
+import { chat, chatStream, type ChatOptions } from "../providers/claude.js";
 import { trackPoolMetric } from "../providers/valkey.js";
 import type { VllmProvider } from "../providers/vllm.js";
 import type { ConversationStore } from "../providers/conversation.js";
@@ -31,7 +31,6 @@ export async function chatCompletionsRoute(
       const newMessages = body.messages;
       const stream = body.stream ?? false;
       const conversationId = body.conversation_id;
-      const maxTokens = body.max_tokens ?? body.max_completion_tokens;
       const includeUsage = stream && body.stream_options?.include_usage === true;
 
       if (!newMessages || newMessages.length === 0) {
@@ -166,38 +165,16 @@ export async function chatCompletionsRoute(
         return;
       }
 
-      // ── Claude provider (existing logic) ──────────────────────
-      const useV1 = body.thinking !== undefined || body.effort !== undefined || body.profile === "deep";
-
+      // ── Claude provider: one kit run per request ─────────────
       const chatOpts: ChatOptions = {
         messages: allMessages,
         model,
-        temperature: body.temperature,
-        maxTokens,
-        topP: body.top_p,
-        stop: body.stop,
-        frequencyPenalty: body.frequency_penalty,
-        presencePenalty: body.presence_penalty,
         responseFormat: body.response_format,
-        tools: body.tools,
       };
 
       if (!stream) {
         const t0 = Date.now();
-        let text: string;
-        if (useV1) {
-          const v1Opts: ChatV1Options = {
-            messages: allMessages,
-            model,
-            thinking: body.thinking,
-            effort: body.effort,
-            maxTokens,
-            responseFormat: body.response_format,
-          };
-          text = await chatV1(v1Opts);
-        } else {
-          text = await chat(chatOpts);
-        }
+        const text = await chat(chatOpts);
         trackPoolMetric("request", Date.now() - t0);
 
         await conversations.append(convId, { role: "assistant", content: text });
@@ -263,12 +240,8 @@ export async function chatCompletionsRoute(
 
       let fullText = "";
 
-      const streamSource = useV1
-        ? chatV1Stream({ messages: allMessages, model, thinking: body.thinking, effort: body.effort, maxTokens, responseFormat: body.response_format })
-        : chatStream(chatOpts);
-
       try {
-        for await (const text of streamSource) {
+        for await (const text of chatStream(chatOpts)) {
           fullText += text;
           sendChunk({
             id,
