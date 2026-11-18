@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T19:30:06Z` |
+| Last refreshed | `2026-11-18T19:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7834](https://github.com/openova-io/openova/issues/7834) | a fresh two-region Sovereign: the hand-over chain never pivots the follower regi | Other |
 | [#7837](https://github.com/openova-io/openova/issues/7837) | CTL-332 The service modules no longer require the Kafka client | Other |
 | [#7838](https://github.com/openova-io/openova/issues/7838) | FND-026 Two tasks that share only record files may run together | Other |
 | [#7839](https://github.com/openova-io/openova/issues/7839) | FND-077 The flight sweep counts the DNS records a wiped deployment left | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8182](https://github.com/openova-io/openova/issues/8182) | AIP-102 Tool calls passed through; no shared sessions | Other |
 | [#8189](https://github.com/openova-io/openova/issues/8189) | FND-206 The size budget of a story leaves out the lines a registered generator w | Other |
 | [#8192](https://github.com/openova-io/openova/issues/8192) | CLD-104 The engine writes neutral variables; adapters write their own | Other |
+| [#8201](https://github.com/openova-io/openova/issues/8201) | AIP-103 Real streaming and real usage | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-18T19:35 | [#8200](https://github.com/openova-io/openova/pull/8200) | #7087 | docs(ledger): plan update |
 | 2026-11-18T19:20 | [#8198](https://github.com/openova-io/openova/pull/8198) | #7087 | docs(ledger): plan update |
 | 2026-11-18T19:12 | [#8197](https://github.com/openova-io/openova/pull/8197) | #7087 | docs(ledger): plan update |
 | 2026-11-18T19:02 | [#8196](https://github.com/openova-io/openova/pull/8196) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-18T13:42 | [#8164](https://github.com/openova-io/openova/pull/8164) | #7087 | docs(ledger): plan update |
 | 2026-11-18T13:36 | [#8163](https://github.com/openova-io/openova/pull/8163) | #7938 | fix(release): the delivery builds valid objects, and its dry |
 | 2026-11-18T13:13 | [#8162](https://github.com/openova-io/openova/pull/8162) | #7087 | docs(ledger): plan update |
-| 2026-11-18T12:48 | [#8161](https://github.com/openova-io/openova/pull/8161) | #7968 | test(providers): adding a region to the local pack plans onl |
 
 ---
 
