@@ -95,7 +95,7 @@ func readBootstrapKitOverlay(t *testing.T) string {
 func readHuaweiSubstitutes(t *testing.T) string {
 	t.Helper()
 	p := filepath.Join(filepath.Dir(modulePath(t)), "huawei", "provider-substitutes.yaml.tftpl")
-	raw, err := os.ReadFile(p)
+	raw, err := os.ReadFile(filepath.Clean(p))
 	if err != nil {
 		t.Fatalf("read %s: %v", p, err)
 	}
