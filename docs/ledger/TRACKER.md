@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T14:45:04Z` |
+| Last refreshed | `2026-11-18T15:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -315,6 +315,7 @@ flowchart LR
 | 2026-11-18T12:48 | [#8161](https://github.com/openova-io/openova/pull/8161) | #7968 | test(providers): adding a region to the local pack plans onl |
 | 2026-11-18T12:47 | [#8160](https://github.com/openova-io/openova/pull/8160) | #7087 | docs(ledger): plan update |
 | 2026-11-18T12:10 | [#8159](https://github.com/openova-io/openova/pull/8159) | #8157 | refactor(api): adoption kinds come from the adapters, and pr |
+| 2026-11-18T14:50 | [#8158](https://github.com/openova-io/openova/pull/8158) | #8155 | refactor(provisioner): credentials map, validation through t |
 | 2026-11-18T11:56 | [#8156](https://github.com/openova-io/openova/pull/8156) | #7087 | docs(ledger): plan update |
 | 2026-11-18T11:43 | [#8154](https://github.com/openova-io/openova/pull/8154) | #7087 | docs(ledger): plan update |
 | 2026-11-18T11:38 | [#8150](https://github.com/openova-io/openova/pull/8150) | #8149 | test(gate): check NET-G10 dials the instance metadata addres |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-18T10:02 | [#8123](https://github.com/openova-io/openova/pull/8123) | #7938 | fix(release): the delivery's calls are all granted, and a ch |
 | 2026-11-18T09:51 | [#8121](https://github.com/openova-io/openova/pull/8121) | #7087 | docs(ledger): plan update |
 | 2026-11-18T09:44 | [#8120](https://github.com/openova-io/openova/pull/8120) | #7087 | docs(ledger): plan update |
-| 2026-11-18T09:33 | [#8117](https://github.com/openova-io/openova/pull/8117) | #7087 | docs(ledger): plan update |
 
 ---
 
