@@ -1,0 +1,10 @@
+# The exception of this chart from the deny of the instance metadata address
+# (object baseline-deny-metadata of bp-network-policies). Rule e of guard G10
+# (scripts/secret-object-register.py) refuses the pod label
+# network.openova.io/metadata-access in values.yaml without this file.
+metadataAccess:
+  - chart: platform/hcloud-csi/chart
+    workload: hcloud-csi-node
+    reason: "The node plugin of the Hetzner storage driver reads its server ID and availability zone from the instance metadata address at start and exits when it cannot."
+    removal: none
+    reviewBy: "2027-11-01"
