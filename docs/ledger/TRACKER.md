@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T12:45:04Z` |
+| Last refreshed | `2026-11-18T13:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-18T12:48 | [#8161](https://github.com/openova-io/openova/pull/8161) | #7968 | test(providers): adding a region to the local pack plans onl |
+| 2026-11-18T12:47 | [#8160](https://github.com/openova-io/openova/pull/8160) | #7087 | docs(ledger): plan update |
 | 2026-11-18T12:10 | [#8159](https://github.com/openova-io/openova/pull/8159) | #8157 | refactor(api): adoption kinds come from the adapters, and pr |
 | 2026-11-18T11:56 | [#8156](https://github.com/openova-io/openova/pull/8156) | #7087 | docs(ledger): plan update |
 | 2026-11-18T11:43 | [#8154](https://github.com/openova-io/openova/pull/8154) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-18T09:43 | [#8113](https://github.com/openova-io/openova/pull/8113) | #8107 | fix(local): leave the kured slot out of the local reduced ki |
 | 2026-11-18T10:46 | [#8112](https://github.com/openova-io/openova/pull/8112) | #8108 | feat(network-policies): default deny by enforcedNamespaces,  |
 | 2026-11-18T09:21 | [#8110](https://github.com/openova-io/openova/pull/8110) | #7087 | docs(ledger): plan update |
-| 2026-11-18T10:13 | [#8109](https://github.com/openova-io/openova/pull/8109) | #8086 | refactor(providers): the shared boot template tests no provi |
-| 2026-11-18T09:14 | [#8105](https://github.com/openova-io/openova/pull/8105) | #7087 | docs(ledger): plan update |
 
 ---
 
