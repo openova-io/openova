@@ -81,6 +81,7 @@ GATE_TOOL = "scripts/acceptance-gate.py"
 LINTER = "scripts/ticket-lint.py"
 STABILITY = "docs/ledger/stability.yaml"
 FROZEN_TOOL = "scripts/check-frozen-paths.py"
+REGISTRY_TOOL = "scripts/generator_registry.py"
 
 ID_RE = re.compile(r"^[A-Z]{3}-([0-9]{3}|S[0-9])$")
 TYPES = ["fix", "guard", "delete", "refactor", "new", "test", "doc", "spike", "decision"]
@@ -765,10 +766,42 @@ GREEN = ("success", "skipped", "neutral")
 
 
 class Change:
-    """What a pull request changes. files: (A, M or D; path; changed lines). old(path) and new(path): the text before and after, or None."""
+    """What a pull request changes. files: (A, M or D; path; changed lines). old(path) and new(path): the text before and after, or None.
+    paths: every file of the tree after the change, or None when it is not known; then no file counts as generated."""
 
-    def __init__(self, files, old, new):
-        self.files, self.old, self.new = files, old, new
+    def __init__(self, files, old, new, paths=None):
+        self.files, self.old, self.new, self.paths = files, old, new, paths
+        self._generated = None
+
+    def generated(self):
+        """({file: generator}, None) for the files of the tree after the change that a registered generator writes, or ({}, why not)."""
+        if self._generated is None:
+            self._generated = generated_files(self.paths, self.new)
+        return self._generated
+
+
+def generated_files(paths, read):
+    """Ruling 148: the files among paths that a registered generator writes; read(path) gives the text after the change.
+
+    Returns ({file: generator}, None), or ({}, the reason) when the registry cannot be read, and every file is then counted.
+    Nothing is listed here: scripts/generator_registry.py, beside this file, reads the job "regenerate and prove no diff" at
+    run time, in the tree after the change. A file is listed only when that job runs its generator and names it, and the file
+    names the generator in its first lines; that job is red when a committed output differs from what its generator writes.
+    A file that only says it is generated is therefore not listed.
+    """
+    if not paths:
+        return {}, None
+    tool = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.path.basename(REGISTRY_TOOL))
+    if not os.path.exists(tool):
+        return {}, "%s does not exist, so every file is counted" % REGISTRY_TOOL
+    spec = importlib.util.spec_from_file_location("generator_registry", tool)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    try:
+        listed = mod.generated_files("", sorted(paths), lambda repo, path: read(path))
+    except mod.RegistryError as e:
+        return {}, "the registry of generated files cannot be read (%s), so every file is counted" % e
+    return {f: generator for f, (generator, sources) in listed.items()}, None
 
 
 def load_change(root, base, head):
@@ -781,7 +814,14 @@ def load_change(root, base, head):
             lines[path] = sum(int(n) for n in (added, deleted) if n.isdigit())
     st = git(root, "diff", "--no-renames", "--name-status", "-z", mb, head).decode("utf-8", "replace").split("\0")
     files = [(st[n][0], st[n + 1], 1 if st[n][0] == "D" else lines.get(st[n + 1], 0)) for n in range(0, len(st) - 1, 2)]
-    return Change(files, lambda p: git_read(root, mb, [p]).get(p), lambda p: git_read(root, head, [p]).get(p))
+    paths = [f for f in git(root, "ls-tree", "-r", "--name-only", "-z", head).decode("utf-8", "replace").split("\0") if f]
+    seen = {}
+
+    def new(p):
+        if p not in seen:
+            seen[p] = git_read(root, head, [p]).get(p)
+        return seen[p]
+    return Change(files, lambda p: git_read(root, mb, [p]).get(p), new, paths)
 
 
 def pr_package(model, change, body, author=None, branch=None):
@@ -827,6 +867,8 @@ def check_pr(model, change, body, author=None, branch=None):
 
     Rules 1, 2, 4, 5, 6 and 7 are here. Rule 3 (no release-owned line changes) is the check of the guard that FND-011 adds.
     Rule 7 applies the policies of the stability register on main to the changed files, with scripts/check-frozen-paths.py.
+    Rule 6 does not count a file that a registered generator writes, its lines nor the file (ruling 148): a generated file is
+    judged at its source, and its generator and sources are counted where they change. See generated_files.
     """
     i, kind, failure = pr_package(model, change, body, author, branch)
     if failure:
@@ -865,10 +907,14 @@ def check_pr(model, change, body, author=None, branch=None):
         if not (isinstance(m, dict) and m.get("schema") == DONE_SCHEMA and m.get("id") == i and m.get("ticket_rev") == p["ticket_rev"]):
             out.append("rule 5: the pull request must add %s with schema %s, id %s and ticket_rev %d" % (marker, DONE_SCHEMA, i, p["ticket_rev"]))
     budget = p["budget"] or model.plan["budgets"][p["size"]]
-    counted = [(st, n) for st, f, n in change.files if not matches(mine, f)]
+    generated, note = change.generated()
+    counted = [(st, n) for st, f, n in change.files if not matches(mine, f) and f not in generated]
     files, lines = sum(1 for st, n in counted if st != "D"), sum(n for st, n in counted)
     if files > budget["files"] or lines > budget["lines"]:
-        out.append("rule 6: %d files added or modified and %d changed lines; the budget of %s is %d files and %d lines" % (files, lines, i, budget["files"], budget["lines"]))
+        left = [n for st, f, n in change.files if f in generated and not matches(mine, f)]
+        out.append("rule 6: %d files added or modified and %d changed lines; the budget of %s is %d files and %d lines" % (files, lines, i, budget["files"], budget["lines"])
+                   + (" (not counted: %d changed lines of %d files that a registered generator writes)" % (sum(left), len(left)) if left else "")
+                   + ("; " + note if note else ""))
     out += ["rule 7: " + x for x in stability_lines(model, change, body, i)]
     return out
 
@@ -1297,6 +1343,15 @@ class Cases:
         self.ok(any(needle in x for x in lines), "%s can fail" % rule)
 
 
+T_GENERATOR = {"scripts/gen.py": 'OUT = "old/out.txt"\n', "old/out.txt": "# generated by scripts/gen.py\nx\n"}
+
+
+def t_registry(name="regenerate and prove no diff"):
+    """A workflow whose job of this name runs scripts/gen.py, which names old/out.txt (see T_GENERATOR)."""
+    return ("on:\n  pull_request:\n    paths: ['old/in.txt']\njobs:\n  drift:\n    name: %s\n    runs-on: ubuntu-latest\n"
+            "    steps:\n      - run: python3 scripts/gen.py --check\n") % name
+
+
 def t_pkg(i, **kw):
     p = {"id": i, "title": "A title", "area": i[:3], "epic": None, "type": "fix", "wave": "W0", "size": "S", "lane": "RAILS",
          "depends_on": [], "after": [], "touches": ["src/%s.txt" % i], "resources": [], "flips": [], "implements": [], "proven_by": None,
@@ -1701,6 +1756,27 @@ def test_check_pr(t):
     t.ok(seven("AAA-001", "src/open.go") == [] and seven("FND-900", "src/closed/a.go") == [], "check-pr: the stability register lets a package change an open path, and FND-900 a path of an entry that allows it")
     t.refused(seven("AAA-001", "src/closed/a.go"), "rule 7: register rule 3: src/closed/a.go is in entry topo", "check-pr rule 7: a package that changes a path of a closed stability entry")
     t.refused(seven("AAA-001", "src/kept/a.go"), "rule 7: register rule 4: src/kept/a.go is in entry kept", "check-pr rule 7: a package of type new that changes a path of a fix-only stability entry")
+    # Ruling 148: a file that a registered generator writes is judged at its source. Rule 6 counts neither its lines nor the file.
+    # AAA-009 has a budget of 1 file and 5 lines; 9562 lines is what the generated seed of SVC-160 changes.
+    tree = dict(markers, **T_GENERATOR)
+    tree.update({"old/in.txt": "in\n", "old/claims.txt": "# generated by scripts/gen.py\nx\n", "old/hand.txt": "x\n"})
+
+    def gen(files, workflow=t_registry()):
+        texts = dict(tree, **{".github/workflows/gen.yaml": workflow})
+        return check_pr(model, Change(files + [done("AAA-009")], {}.get, texts.get, sorted(texts)), "Work-Package: AAA-009\n")
+    big = 9562
+    t.ok(gen([("M", "old/out.txt", big)]) == [], "check-pr rule 6: a generated output over the budget passes; its lines and the file are not counted")
+    t.refused(gen([("M", "old/hand.txt", big)]), "rule 6: 1 files added or modified and %d changed lines" % big, "check-pr rule 6: the same lines in a hand-written file")
+    t.refused(gen([("M", "old/claims.txt", big)]), "rule 6: 1 files added or modified and %d changed lines" % big,
+              "check-pr rule 6: a file that says it is generated but is not in the registry (the registry job names it nowhere)")
+    t.refused(gen([("M", "old/out.txt", big)], t_registry("build")), "rule 6: 1 files added or modified and %d changed lines" % big,
+              "check-pr rule 6: the same output when no job is named 'regenerate and prove no diff' (the registry is read at run time)")
+    t.ok(gen([("M", "old/out.txt", big), ("M", "old/hand.txt", 5)]) == [], "check-pr rule 6: beside a generated output a hand-written file is counted as before")
+    t.refused(gen([("M", "old/out.txt", big), ("M", "old/hand.txt", 1), ("A", "old/claims.txt", 1)]),
+              "rule 6: 2 files added or modified and 2 changed lines; the budget of AAA-009 is 1 files and 5 lines (not counted: %d changed lines of 1 files" % big,
+              "check-pr rule 6: the file count beside a generated output")
+    t.refused(gen([("M", "old/out.txt", big)], "jobs: [regenerate and prove no diff\n"), "the registry of generated files cannot be read",
+              "check-pr rule 6: a registry that cannot be read leaves no file out, and the line says so;")
 
 
 def test_run(t):
@@ -1849,6 +1925,13 @@ def test_pull_request(t):
         pr = ("--base", "main~1", "--head", "main", "--body-file", "plain")
         t.ok(all(tool(c, *pr) == (0, NOT_JUDGED + "\n") for c in ("check-pr", "precondition", "accept")), "a pull request that is not a work package: the three commands pass with the notice")
         t.ok(tool("check-pr", "--branch", "wp/AAA-001", *pr)[0] == 1, "check-pr --branch: the same pull request from a branch wp/<ID> is judged and can fail")
+        run("checkout", "-q", "-b", "gen")
+        for path, text in dict(T_GENERATOR, **{".github/workflows/gen.yaml": t_registry()}).items():
+            put(path, text)
+        run("add", "--", ".github", "scripts", "old")
+        run("commit", "-q", "-m", "a generator, its registry job and its output")
+        t.ok(load_change(work, "main", "gen").generated() == ({"old/out.txt": "scripts/gen.py"}, None) and load_change(work, "main~1", "main").generated() == ({}, None),
+             "pull request: the generated files come from the registry job in the tree of the head; a tree without that job lists none")
 
 
 def self_test():
