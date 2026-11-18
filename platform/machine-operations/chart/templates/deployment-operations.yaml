@@ -1,0 +1,91 @@
+{{- if .Values.enabled }}
+# The operations controller: creates the MachineRuns of every ScanPolicy's
+# schedule and runs one machine-runner Job per target in the release
+# namespace. One replica; leader election on the Lease
+# machine-controller-operations keeps a second copy idle during a roll. It
+# reads the evidence bucket with the object-storage binding, mounted by the
+# CSI driver from the SecretProviderClass evidence-store, as the runner Jobs
+# do.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: machine-controller-operations
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bp-machine-operations.labels" . | nindent 4 }}
+    app.kubernetes.io/component: operations
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bp-machine-operations
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: operations
+  template:
+    metadata:
+      labels:
+        {{- include "bp-machine-operations.labels" . | nindent 8 }}
+        app.kubernetes.io/component: operations
+    spec:
+      serviceAccountName: machine-controller-operations
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: machine-controller
+          image: {{ include "bp-machine-operations.image" . | quote }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - /usr/local/bin/machine-controller
+            - --controllers=operations
+            - {{ printf "--job-namespace=%s" .Release.Namespace | quote }}
+            - {{ printf "--runner-image=%s" (required "bp-machine-operations: .Values.runner.image is empty. Set it to the machine-runner image, by digest." .Values.runner.image) | quote }}
+            - {{ printf "--evidence-endpoint=%s" (required "bp-machine-operations: .Values.evidence.endpoint is empty. Set it to the S3 endpoint of the evidence bucket." .Values.evidence.endpoint) | quote }}
+            - {{ printf "--evidence-region=%s" (required "bp-machine-operations: .Values.evidence.region is empty. Set it to the region of the evidence endpoint." .Values.evidence.region) | quote }}
+            - {{ printf "--evidence-bucket=%s" .Values.evidence.bucket | quote }}
+            - {{ printf "--runs-retention=%s" .Values.runs.retention | quote }}
+          ports:
+            - name: health
+              containerPort: 8081
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: evidence-store
+              mountPath: /var/run/secrets/evidence-store
+              readOnly: true
+      volumes:
+        - name: evidence-store
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: evidence-store
+{{- end }}
