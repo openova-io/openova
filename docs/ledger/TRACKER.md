@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T16:15:04Z` |
+| Last refreshed | `2026-11-18T16:30:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -327,6 +327,8 @@ flowchart LR
 | 2026-11-18T14:50 | [#8158](https://github.com/openova-io/openova/pull/8158) | #8155 | refactor(provisioner): credentials map, validation through t |
 | 2026-11-18T11:56 | [#8156](https://github.com/openova-io/openova/pull/8156) | #7087 | docs(ledger): plan update |
 | 2026-11-18T11:43 | [#8154](https://github.com/openova-io/openova/pull/8154) | #7087 | docs(ledger): plan update |
+| 2026-11-18T16:23 | [#8153](https://github.com/openova-io/openova/pull/8153) | #8141 | refactor: one Python generator writes the embedded and conso |
+| 2026-11-18T16:15 | [#8152](https://github.com/openova-io/openova/pull/8152) | #8148 | feat(machine-operations): match the bills of materials of ma |
 | 2026-11-18T11:38 | [#8150](https://github.com/openova-io/openova/pull/8150) | #8149 | test(gate): check NET-G10 dials the instance metadata addres |
 | 2026-11-18T11:16 | [#8147](https://github.com/openova-io/openova/pull/8147) | #7087 | docs(ledger): plan update |
 | 2026-11-18T11:10 | [#8144](https://github.com/openova-io/openova/pull/8144) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-18T11:00 | [#8139](https://github.com/openova-io/openova/pull/8139) | #7087 | docs(ledger): plan update |
 | 2026-11-18T10:55 | [#8137](https://github.com/openova-io/openova/pull/8137) | #7087 | docs(ledger): plan update |
 | 2026-11-18T10:57 | [#8136](https://github.com/openova-io/openova/pull/8136) | #8135 | feat(guards): pack tokens in the leak scanner and the additi |
-| 2026-11-18T10:47 | [#8134](https://github.com/openova-io/openova/pull/8134) | #7087 | docs(ledger): plan update |
-| 2026-11-18T11:00 | [#8133](https://github.com/openova-io/openova/pull/8133) | #8132 | fix(axon): build against the pinned agent kit and run its te |
 
 ---
 
