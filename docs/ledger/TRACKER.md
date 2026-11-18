@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T11:00:05Z` |
+| Last refreshed | `2026-11-18T11:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,9 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7807](https://github.com/openova-io/openova/issues/7807) | SOV-135 The mothership registry name is a proxy name served at the root, with an | Other |
-| [#7813](https://github.com/openova-io/openova/issues/7813) | CLD-090 The three modules meet contract version 1; conformance tests | Other |
-| [#7814](https://github.com/openova-io/openova/issues/7814) | CTL-333 The org-services chart stops setting REDPANDA_BROKERS | Other |
 | [#7815](https://github.com/openova-io/openova/issues/7815) | NET-013 The gate dials the API port from an address in no list | Other |
 | [#7816](https://github.com/openova-io/openova/issues/7816) | PRD-509 Internal authorisation API | Other |
 | [#7820](https://github.com/openova-io/openova/issues/7820) | CTL-346 Kit slots 56 and 57 (flow server and emitter) leave the kit | Other |
@@ -300,6 +297,9 @@ flowchart LR
 | [#8138](https://github.com/openova-io/openova/issues/8138) | SVC-130 Enable function tests on the foundation slots | Other |
 | [#8140](https://github.com/openova-io/openova/issues/8140) | CLD-094 Standing check CLD-G12: the plan of a provisioned deployment shows no ch | Other |
 | [#8141](https://github.com/openova-io/openova/issues/8141) | SVC-150 One generator, part 1: embedded and console catalogue | Other |
+| [#8145](https://github.com/openova-io/openova/issues/8145) | INF-133 Check INF-G02: node host scans, as a suite file | Other |
+| [#8148](https://github.com/openova-io/openova/issues/8148) | INF-140 Vulnerability matching and daily re-matching | Other |
+| [#8149](https://github.com/openova-io/openova/issues/8149) | NET-097 Gate check NET-G10: a Pod cannot reach the instance metadata address | Other |
 
 ---
 
@@ -307,9 +307,12 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-18T11:10 | [#8144](https://github.com/openova-io/openova/pull/8144) | #7087 | docs(ledger): plan update |
+| 2026-11-18T11:00 | [#8139](https://github.com/openova-io/openova/pull/8139) | #7087 | docs(ledger): plan update |
 | 2026-11-18T10:55 | [#8137](https://github.com/openova-io/openova/pull/8137) | #7087 | docs(ledger): plan update |
 | 2026-11-18T10:57 | [#8136](https://github.com/openova-io/openova/pull/8136) | #8135 | feat(guards): pack tokens in the leak scanner and the additi |
 | 2026-11-18T10:47 | [#8134](https://github.com/openova-io/openova/pull/8134) | #7087 | docs(ledger): plan update |
+| 2026-11-18T11:00 | [#8133](https://github.com/openova-io/openova/pull/8133) | #8132 | fix(axon): build against the pinned agent kit and run its te |
 | 2026-11-18T10:41 | [#8131](https://github.com/openova-io/openova/pull/8131) | #7087 | docs(ledger): plan update |
 | 2026-11-18T10:45 | [#8130](https://github.com/openova-io/openova/pull/8130) | #8125 | refactor(providers): port methods Normalize and TfVars, capa |
 | 2026-11-18T10:21 | [#8129](https://github.com/openova-io/openova/pull/8129) | #7087 | docs(ledger): plan update |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-18T09:02 | [#8097](https://github.com/openova-io/openova/pull/8097) | #8087 | refactor(kit): the child Kustomizations of first boot are al |
 | 2026-11-18T08:58 | [#8096](https://github.com/openova-io/openova/pull/8096) | #8079 | refactor(model-meter): add the admin listener, the ring rout |
 | 2026-11-18T08:57 | [#8095](https://github.com/openova-io/openova/pull/8095) | #8080 | refactor(providers): delete the dead Provision method of the |
-| 2026-11-18T08:57 | [#8094](https://github.com/openova-io/openova/pull/8094) | #8084 | feat(machine-operations): the chart runs the operations cont |
-| 2026-11-18T08:54 | [#8093](https://github.com/openova-io/openova/pull/8093) | #8092 | ci: the local pack connects the meshes of its two regions an |
-| 2026-11-18T08:34 | [#8091](https://github.com/openova-io/openova/pull/8091) | #7087 | docs(ledger): plan update |
 
 ---
 
