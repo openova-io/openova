@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T10:30:07Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-11-18T10:45:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7799](https://github.com/openova-io/openova/issues/7799) | SVC-041 Blueprint names bp-<folder>, explicit visibility, and the two missing Bl | Other |
-| [#7803](https://github.com/openova-io/openova/issues/7803) | CTL-320 Durable audit | Other |
 | [#7804](https://github.com/openova-io/openova/issues/7804) | FND-131 A run without journeys asserts only what the pack holds: discovery of th | Other |
 | [#7805](https://github.com/openova-io/openova/issues/7805) | INF-130 Kinds ScanPolicy, HardeningBaseline, MachineRun; operations controller | Other |
 | [#7806](https://github.com/openova-io/openova/issues/7806) | SEC-150 Seal-provider contract and the static node-file implementation | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#8111](https://github.com/openova-io/openova/issues/8111) | AIP-114 Scripted back end: the stub subcommand | Other |
 | [#8118](https://github.com/openova-io/openova/issues/8118) | NET-096 Turn the metadata deny on in the kit | Other |
 | [#8125](https://github.com/openova-io/openova/issues/8125) | CLD-109 Port interface, capability interfaces | Other |
+| [#8132](https://github.com/openova-io/openova/issues/8132) | AIP-101 Axon builds against the pinned kit and gets a test rail | Other |
+| [#8135](https://github.com/openova-io/openova/issues/8135) | CLD-211 Pack tokens and the additive check | Other |
 
 ---
 
@@ -307,7 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-18T10:41 | [#8131](https://github.com/openova-io/openova/pull/8131) | #7087 | docs(ledger): plan update |
+| 2026-11-18T10:45 | [#8130](https://github.com/openova-io/openova/pull/8130) | #8125 | refactor(providers): port methods Normalize and TfVars, capa |
 | 2026-11-18T10:21 | [#8129](https://github.com/openova-io/openova/pull/8129) | #7087 | docs(ledger): plan update |
+| 2026-11-18T10:30 | [#8127](https://github.com/openova-io/openova/pull/8127) | #8118 | fix(kit): kit slot 26 switches the deny of the instance meta |
 | 2026-11-18T10:03 | [#8126](https://github.com/openova-io/openova/pull/8126) | #7087 | docs(ledger): plan update |
 | 2026-11-18T10:02 | [#8123](https://github.com/openova-io/openova/pull/8123) | #7938 | fix(release): the delivery's calls are all granted, and a ch |
 | 2026-11-18T09:51 | [#8121](https://github.com/openova-io/openova/pull/8121) | #7087 | docs(ledger): plan update |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-18T08:01 | [#8088](https://github.com/openova-io/openova/pull/8088) | #7969 | test(provisioner): pin the variables the engine writes and t |
 | 2026-11-18T07:54 | [#8085](https://github.com/openova-io/openova/pull/8085) | #7087 | docs(ledger): plan update |
 | 2026-11-18T07:43 | [#8082](https://github.com/openova-io/openova/pull/8082) | #7087 | docs(ledger): plan update |
-| 2026-11-18T07:48 | [#8081](https://github.com/openova-io/openova/pull/8081) | #7967 | test(providers): TestProviderPacks checks the seal hook of e |
-| 2026-11-18T07:16 | [#8078](https://github.com/openova-io/openova/pull/8078) | #7087 | docs(ledger): plan update |
-| 2026-11-18T07:26 | [#8076](https://github.com/openova-io/openova/pull/8076) | #7974 | chore: delete the flow server and the flow adapter with thei |
 
 ---
 
