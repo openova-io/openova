@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T09:00:06Z` |
+| Last refreshed | `2026-11-18T09:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,9 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7793](https://github.com/openova-io/openova/issues/7793) | CTL-331 The shared events package is Kafka-free | Other |
-| [#7794](https://github.com/openova-io/openova/issues/7794) | CTL-350 Applications views from the informer cache | Other |
-| [#7795](https://github.com/openova-io/openova/issues/7795) | The image build of main fails its console smoke test since 14 Nov 2026 07:40 UTC | Other |
 | [#7796](https://github.com/openova-io/openova/issues/7796) | FND-075 The gate record carries the pre-flight numbers: quota headroom and the l | Other |
 | [#7797](https://github.com/openova-io/openova/issues/7797) | NET-095 Block the instance metadata address from pods | Other |
 | [#7798](https://github.com/openova-io/openova/issues/7798) | NET-110 Cilium base values to target | Other |
@@ -300,6 +297,9 @@ flowchart LR
 | [#8087](https://github.com/openova-io/openova/issues/8087) | SOV-146 The child Kustomizations of first boot are also files under clusters/_te | Other |
 | [#8092](https://github.com/openova-io/openova/issues/8092) | CLD-091 The local pack connects the meshes of its two regions | Other |
 | [#8099](https://github.com/openova-io/openova/issues/8099) | NET-098 The Hetzner storage node plugin is allowed to read instance metadata | Other |
+| [#8106](https://github.com/openova-io/openova/issues/8106) | CLD-108 Generated provider registry | Other |
+| [#8107](https://github.com/openova-io/openova/issues/8107) | INF-055 Leave the kured slot out of the local reduced kit | Other |
+| [#8108](https://github.com/openova-io/openova/issues/8108) | NET-150 Default-deny scaffolding and dial checks | Other |
 
 ---
 
@@ -307,8 +307,12 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-18T09:14 | [#8105](https://github.com/openova-io/openova/pull/8105) | #7087 | docs(ledger): plan update |
+| 2026-11-18T09:06 | [#8103](https://github.com/openova-io/openova/pull/8103) | #7087 | docs(ledger): plan update |
 | 2026-11-18T08:57 | [#8101](https://github.com/openova-io/openova/pull/8101) | #7087 | docs(ledger): plan update |
+| 2026-11-18T09:00 | [#8100](https://github.com/openova-io/openova/pull/8100) | #8099 | fix(hcloud-csi): exempt the node plugin from the metadata de |
 | 2026-11-18T08:52 | [#8098](https://github.com/openova-io/openova/pull/8098) | #7087 | docs(ledger): plan update |
+| 2026-11-18T09:02 | [#8097](https://github.com/openova-io/openova/pull/8097) | #8087 | refactor(kit): the child Kustomizations of first boot are al |
 | 2026-11-18T08:58 | [#8096](https://github.com/openova-io/openova/pull/8096) | #8079 | refactor(model-meter): add the admin listener, the ring rout |
 | 2026-11-18T08:57 | [#8095](https://github.com/openova-io/openova/pull/8095) | #8080 | refactor(providers): delete the dead Provision method of the |
 | 2026-11-18T08:57 | [#8094](https://github.com/openova-io/openova/pull/8094) | #8084 | feat(machine-operations): the chart runs the operations cont |
@@ -333,10 +337,6 @@ flowchart LR
 | 2026-11-17T15:12 | [#8061](https://github.com/openova-io/openova/pull/8061) | #11563 | fix(storage): the filer announces its stable Pod name, so S3 |
 | 2026-11-17T15:14 | [#8060](https://github.com/openova-io/openova/pull/8060) | #7815 | test(gate): dial the API port from a hosted runner and add g |
 | 2026-11-17T15:08 | [#8059](https://github.com/openova-io/openova/pull/8059) | #7938 | fix(release): the stage takes the candidate's deletions over |
-| 2026-11-17T15:02 | [#8056](https://github.com/openova-io/openova/pull/8056) | #7981 | fix(hetzner): open the API port only to declared ranges and  |
-| 2026-11-17T14:33 | [#8055](https://github.com/openova-io/openova/pull/8055) | #7568 | fix(huawei): open the API port only to declared sources and  |
-| 2026-11-17T14:33 | [#8054](https://github.com/openova-io/openova/pull/8054) | #7797 | fix(network-policies): deny the instance metadata address by |
-| 2026-11-17T14:19 | [#8052](https://github.com/openova-io/openova/pull/8052) | #7087 | docs(ledger): plan update |
 
 ---
 
