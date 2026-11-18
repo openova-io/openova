@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T10:45:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-18T11:00:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,9 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7804](https://github.com/openova-io/openova/issues/7804) | FND-131 A run without journeys asserts only what the pack holds: discovery of th | Other |
-| [#7805](https://github.com/openova-io/openova/issues/7805) | INF-130 Kinds ScanPolicy, HardeningBaseline, MachineRun; operations controller | Other |
-| [#7806](https://github.com/openova-io/openova/issues/7806) | SEC-150 Seal-provider contract and the static node-file implementation | Other |
 | [#7807](https://github.com/openova-io/openova/issues/7807) | SOV-135 The mothership registry name is a proxy name served at the root, with an | Other |
 | [#7813](https://github.com/openova-io/openova/issues/7813) | CLD-090 The three modules meet contract version 1; conformance tests | Other |
 | [#7814](https://github.com/openova-io/openova/issues/7814) | CTL-333 The org-services chart stops setting REDPANDA_BROKERS | Other |
@@ -300,6 +297,9 @@ flowchart LR
 | [#8125](https://github.com/openova-io/openova/issues/8125) | CLD-109 Port interface, capability interfaces | Other |
 | [#8132](https://github.com/openova-io/openova/issues/8132) | AIP-101 Axon builds against the pinned kit and gets a test rail | Other |
 | [#8135](https://github.com/openova-io/openova/issues/8135) | CLD-211 Pack tokens and the additive check | Other |
+| [#8138](https://github.com/openova-io/openova/issues/8138) | SVC-130 Enable function tests on the foundation slots | Other |
+| [#8140](https://github.com/openova-io/openova/issues/8140) | CLD-094 Standing check CLD-G12: the plan of a provisioned deployment shows no ch | Other |
+| [#8141](https://github.com/openova-io/openova/issues/8141) | SVC-150 One generator, part 1: embedded and console catalogue | Other |
 
 ---
 
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-18T10:55 | [#8137](https://github.com/openova-io/openova/pull/8137) | #7087 | docs(ledger): plan update |
+| 2026-11-18T10:57 | [#8136](https://github.com/openova-io/openova/pull/8136) | #8135 | feat(guards): pack tokens in the leak scanner and the additi |
+| 2026-11-18T10:47 | [#8134](https://github.com/openova-io/openova/pull/8134) | #7087 | docs(ledger): plan update |
 | 2026-11-18T10:41 | [#8131](https://github.com/openova-io/openova/pull/8131) | #7087 | docs(ledger): plan update |
 | 2026-11-18T10:45 | [#8130](https://github.com/openova-io/openova/pull/8130) | #8125 | refactor(providers): port methods Normalize and TfVars, capa |
 | 2026-11-18T10:21 | [#8129](https://github.com/openova-io/openova/pull/8129) | #7087 | docs(ledger): plan update |
@@ -319,6 +322,7 @@ flowchart LR
 | 2026-11-18T09:33 | [#8115](https://github.com/openova-io/openova/pull/8115) | #8111 | refactor(model-meter): add the stub subcommand, the scripted |
 | 2026-11-18T09:33 | [#8114](https://github.com/openova-io/openova/pull/8114) | #8106 | refactor(providers): generate the provider registry from the |
 | 2026-11-18T09:43 | [#8113](https://github.com/openova-io/openova/pull/8113) | #8107 | fix(local): leave the kured slot out of the local reduced ki |
+| 2026-11-18T10:46 | [#8112](https://github.com/openova-io/openova/pull/8112) | #8108 | feat(network-policies): default deny by enforcedNamespaces,  |
 | 2026-11-18T09:21 | [#8110](https://github.com/openova-io/openova/pull/8110) | #7087 | docs(ledger): plan update |
 | 2026-11-18T10:13 | [#8109](https://github.com/openova-io/openova/pull/8109) | #8086 | refactor(providers): the shared boot template tests no provi |
 | 2026-11-18T09:14 | [#8105](https://github.com/openova-io/openova/pull/8105) | #7087 | docs(ledger): plan update |
@@ -333,10 +337,6 @@ flowchart LR
 | 2026-11-18T08:57 | [#8094](https://github.com/openova-io/openova/pull/8094) | #8084 | feat(machine-operations): the chart runs the operations cont |
 | 2026-11-18T08:54 | [#8093](https://github.com/openova-io/openova/pull/8093) | #8092 | ci: the local pack connects the meshes of its two regions an |
 | 2026-11-18T08:34 | [#8091](https://github.com/openova-io/openova/pull/8091) | #7087 | docs(ledger): plan update |
-| 2026-11-18T08:38 | [#8089](https://github.com/openova-io/openova/pull/8089) | #7970 | refactor(providers): each provider module passes its own Flu |
-| 2026-11-18T08:01 | [#8088](https://github.com/openova-io/openova/pull/8088) | #7969 | test(provisioner): pin the variables the engine writes and t |
-| 2026-11-18T07:54 | [#8085](https://github.com/openova-io/openova/pull/8085) | #7087 | docs(ledger): plan update |
-| 2026-11-18T07:43 | [#8082](https://github.com/openova-io/openova/pull/8082) | #7087 | docs(ledger): plan update |
 
 ---
 
