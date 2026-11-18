@@ -173,3 +173,12 @@ platform/openova-flow-emitter
 .github/workflows/build-openova-flow-server.yaml
 .github/workflows/build-openova-flow-adapter-flux.yaml
 products/axon/src/providers/session-pool.ts
+products/axon/src/providers/vllm.ts
+products/axon/src/providers/valkey.ts
+products/axon/src/providers/conversation.ts
+products/axon/chart/templates/valkey-deployment.yaml
+products/axon/chart/templates/valkey-pvc.yaml
+products/axon/chart/templates/valkey-service.yaml
+products/axon/chart/templates/ingress.yaml
+products/axon/chart/templates/token-refresh-cronjob.yaml
+products/axon/scripts
