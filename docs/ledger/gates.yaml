@@ -700,12 +700,13 @@ checks:
 - id: CLD-G12
   title: Zero-change plan on a copy of a live Huawei working directory with regenerated variables
   owner: CLD
-  state: not-built
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Zero-change plan on a copy of a live Huawei working directory with regenerated variables
+  implementation: scripts/check-zero-change-plan.sh
   delivered_by: CLD-094
 - id: CLD-G13
   title: The installation-literal check exits 0
