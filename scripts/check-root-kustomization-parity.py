@@ -5,8 +5,9 @@ provider (infra/providers/<p>/pack.yaml), region layout (base: no replica region
 primary region; multi-region-follower: any other) and role. The folder is clusters/_template/providers/
 <p>/root/<role> if that exists (it serves every layout), else clusters/_template/root/<layout>-<role>.
 Template: a line that is only %{ if c ~}, %{ else ~} or %{ endif ~} is dropped, inline %{ if c }..%{ endif }
-is evaluated; provider ==/!= "<p>" and COND follow the branch, any other condition takes both values,
-which must agree; comments and the six-space indent go as in the template; ${name} becomes the today.env
+is evaluated; provider ==/!= "<p>" and COND follow the branch, and so does a bare template input that
+every call in infra/providers/<p>/main.tf passes as one literal true or false (CLD-132); any other
+condition takes both values, which must agree; comments and the six-space indent go as in the template; ${name} becomes the today.env
 value of the key whose ConfigMap line is KEY: "${name}". Folder: kustomize resources (files, folders) and
 inline patches without a target ("$patch: delete" removes, else merged); then ${NAME} from today.env.
 R1 each folder builds what the template renders for its branch. R2 clusters/_template/root holds the six
@@ -34,6 +35,7 @@ PROVIDER_COND = re.compile(r'^provider (==|!=) "([a-z0-9-]+)"$')
 DIRECTIVE = re.compile(r"(?m)^%\{ (if .+?|else|endif) ~\}\n|%\{ (if .+?|else|endif) \}")
 CM_LINE = re.compile(r'(?m)^ +([A-Z][A-Z0-9_]*): "?\$\{([a-z_][a-z0-9_]*)\}"?$')
 VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+INPUT = re.compile(r"^[a-z_][a-z0-9_]*$")
 
 
 class CannotJudge(Exception):
@@ -52,6 +54,15 @@ def branches(root):
 def folder_of(root, p, l, r):
     own = "%s/%s/root" % (OVERLAYS, p)
     return own + "/" + r if os.path.isdir(os.path.join(root, own)) else "%s/%s-%s" % (FOLDER, l, r)
+
+
+def literal(root, p, name):
+    """The one literal true/false that every call in infra/providers/<p>/main.tf passes as name, else None."""
+    path = os.path.join(root, "infra/providers", p, "main.tf")
+    found = set(re.findall(r"(?m)^ *%s *= *(true|false) *$" % re.escape(name), open(path).read())) if os.path.isfile(path) else set()
+    if len(found) > 1:
+        raise CannotJudge("infra/providers/%s/main.tf passes %s as both true and false" % (p, name))
+    return found.pop() == "true" if found else None
 
 
 def render(text, truth):
@@ -97,7 +108,10 @@ def from_template(root, values):
             raise CannotJudge("%s is not a value of sovereign-variables" % v.group(0))
         return values[keys[v.group(1)]]
     conds = {c.strip() for c in re.findall(r"%\{ if (.+?) ~?\}", text)}
-    other = sorted(c for c in conds if not PROVIDER_COND.match(c) and c not in COND)
+    packs = sorted({b[0] for b in branches(root)})
+    fixed = {c: {p: literal(root, p, c) for p in packs} for c in conds if INPUT.match(c)}
+    fixed = {c: v for c, v in fixed.items() if None not in v.values()}
+    other = sorted(c for c in conds if not PROVIDER_COND.match(c) and c not in COND and c not in fixed)
     if len(other) > 10:
         raise CannotJudge("too many conditions: %s" % other)
     result = {}
@@ -105,7 +119,7 @@ def from_template(root, values):
         seen = None
         for choice in itertools.product((True, False), repeat=len(other)):
             pick = dict(zip(other, choice))
-            body = render(text, lambda c: pick[c] if c in pick else (b[0] == PROVIDER_COND.match(c).group(2)) == (PROVIDER_COND.match(c).group(1) == "==") if PROVIDER_COND.match(c) else COND[c](*b[1:]))
+            body = render(text, lambda c: pick[c] if c in pick else fixed[c][b[0]] if c in fixed else (b[0] == PROVIDER_COND.match(c).group(2)) == (PROVIDER_COND.match(c).group(1) == "==") if PROVIDER_COND.match(c) else COND[c](*b[1:]))
             docs = [VAR.sub(value, d) for d in re.split(r"(?m)^---\n", body) if re.search(r"(?m)^kind: Kustomization$", d)]
             if any("${" in d for d in docs):
                 raise CannotJudge("a Kustomization of the template holds an expression the check does not model")
@@ -193,6 +207,8 @@ def self_test(repo):
         ("R1 a folder keeps a document it must delete", 1, FOLDER + "/multi-region-secondary/kustomization.yaml", "{$patch: delete, ", "{"),
         ("R1 a child of the template differs", 1, T, "name: bootstrap-kit-crs\n        namespace: flux-system\n      spec:\n        interval: 5m\n", "name: bootstrap-kit-crs\n        namespace: flux-system\n      spec:\n        interval: 7m\n"),
         ("R1 another condition changes a child", 1, T, "name: bootstrap-kit\n        namespace: flux-system\n      spec:\n        interval: 5m\n", "name: bootstrap-kit\n        namespace: flux-system\n      spec:\n%{ if enable_x ~}\n        interval: 5m\n%{ else ~}\n        interval: 9m\n%{ endif ~}\n"),
+        ("R1 a module literal that disagrees with the root folder", 1, "infra/providers/local/main.tf", "render_region_kustomization = true\n", "render_region_kustomization = false\n"),
+        ("cannot judge a module that passes an input as true and as false", 2, "infra/providers/local/main.tf", "render_region_kustomization = true\n", "render_region_kustomization = true\n    render_region_kustomization = false\n"),
         ("R2 a folder is missing", 1, FOLDER + "/base-secondary", None, "remove"),
         ("R2 an extra folder", 1, FOLDER + "/extra", None, "create"),
         ("R2 a root folder of no provider", 1, OVERLAYS + "/nosuch/root/primary", None, "create"),
@@ -202,7 +218,7 @@ def self_test(repo):
     for label, expect, path, old, new in cases:
         tmp = tempfile.mkdtemp()
         try:
-            for p in [TEMPLATE, FIXTURE] + ["infra/providers/%s/pack.yaml" % p for p in sorted({b[0] for b in branches(repo)})]:
+            for p in [TEMPLATE, FIXTURE] + ["infra/providers/%s/%s" % (p, f) for p in sorted({b[0] for b in branches(repo)}) for f in ("pack.yaml", "main.tf")]:
                 os.makedirs(os.path.dirname(os.path.join(tmp, p)), exist_ok=True)
                 shutil.copy(os.path.join(repo, p), os.path.join(tmp, p))
             for p in (FOLDER, OVERLAYS):
