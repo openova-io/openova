@@ -1488,12 +1488,13 @@ checks:
 - id: INF-G02
   title: Node host scans
   owner: INF
-  state: not-built
+  state: expected-fail
   runs_in: [local, cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Node host scans
+  implementation: tests/acceptance/sovereign/internal/suite/check_inf_g02.go
   implemented_by: INF-133
   delivered_by: INF-160
 - id: INF-G03
