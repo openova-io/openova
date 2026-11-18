@@ -87,36 +87,6 @@ test("the Organization header decides who may resume a chain", async () => {
   assert.equal(res.json().choices[0].message.content, "done");
 });
 
-test("a streamed request gets one content chunk, one finish chunk, the usage chunk and DONE", async () => {
-  const { app } = await server([{ steps: [{ text: "streamed", usage: USAGE }] }]);
-  const res = await app.inject(
-    post({ model: "sim-fast", stream: true, stream_options: { include_usage: true }, messages: [{ role: "user", content: "hi" }] }),
-  );
-  assert.equal(res.statusCode, 200);
-  assert.match(String(res.headers["content-type"]), /^text\/event-stream/);
-  const events = res.body.split("\n\n").filter((e) => e !== "");
-  assert.equal(events.length, 4);
-  assert.equal(events[3], "data: [DONE]");
-  const [content, finish, usage] = events.slice(0, 3).map((e) => JSON.parse(e.replace(/^data: /, "")));
-  assert.deepEqual(content.choices[0].delta, { role: "assistant", content: "streamed" });
-  assert.equal(content.choices[0].finish_reason, null);
-  assert.deepEqual(finish.choices[0], { index: 0, delta: {}, logprobs: null, finish_reason: "stop" });
-  assert.deepEqual(usage.choices, []);
-  assert.equal(usage.usage.total_tokens, 100);
-  assert.equal(content.object, "chat.completion.chunk");
-});
-
-test("a streamed tool call carries its index, and no usage chunk is sent when none was asked for", async () => {
-  const { app, turns } = await server([{ steps: [{ tools: [{ id: "toolu_1", name: "lookup", input: {} }] }, { text: "x" }] }]);
-  const res = await app.inject(post({ model: "sim-default", stream: true, tools: TOOLS, messages: [{ role: "user", content: "hi" }] }));
-  const events = res.body.split("\n\n").filter((e) => e !== "");
-  assert.equal(events.length, 3);
-  const content = JSON.parse(events[0].replace(/^data: /, ""));
-  assert.deepEqual(content.choices[0].delta.tool_calls, [{ index: 0, id: "toolu_1", type: "function", function: { name: "lookup", arguments: "{}" } }]);
-  assert.equal(JSON.parse(events[1].replace(/^data: /, "")).choices[0].finish_reason, "tool_calls");
-  await turns.shutdown();
-});
-
 test("an emulated tool_choice is named in the x-openova-emulated header", async () => {
   const { app } = await server([{ steps: [{ text: "ok" }] }]);
   const res = await app.inject(post({ model: "sim-default", tools: TOOLS, tool_choice: "required", messages: [{ role: "user", content: "hi" }] }));

@@ -2,8 +2,20 @@
 // caller's tool calls are outstanding. A run is never reused for another
 // conversation.
 import { render, textOf } from "./transcript.js";
-import type { Upstream, UpstreamRun, UpstreamTool, Usage } from "./upstream.js";
+import type { Upstream, UpstreamEvent, UpstreamRun, UpstreamTool, Usage } from "./upstream.js";
 import type { ChatCompletionRequest, ChatCompletionUsage, ChatMessage, ToolCall } from "./types/openai.js";
+
+/**
+ * Receives the upstream events of one step as they arrive (rule 7): role()
+ * once, before the first delta; then text and tool-call deltas. The finish
+ * and usage chunks are written from the StepResult.
+ */
+export interface StepSink {
+  role(): void;
+  text(delta: string): void;
+  toolStart(index: number, id: string, name: string): void;
+  toolArgs(index: number, json: string): void;
+}
 
 export interface StepResult {
   text: string;
@@ -24,9 +36,20 @@ export class HttpError extends Error {
   }
 }
 
+/** The caller went away during a step; its chain is closed. Nothing is answered. */
+export class Disconnected extends Error {
+  constructor() {
+    super("the caller closed the connection");
+  }
+}
+
 export interface TurnManager {
-  /** Answers one chat completion request; throws HttpError. */
-  step(req: ChatCompletionRequest, organization: string): Promise<StepResult>;
+  /**
+   * Answers one chat completion request; throws HttpError. A sink receives the
+   * deltas as they arrive; when signal aborts, the chain is closed and the step
+   * throws Disconnected.
+   */
+  step(req: ChatCompletionRequest, organization: string, sink?: StepSink, signal?: AbortSignal): Promise<StepResult>;
   stats(): { active: number; parked: number; queued: number };
   shutdown(): Promise<void>;
 }
@@ -91,6 +114,13 @@ function namedTool(choice: ChatCompletionRequest["tool_choice"]): string | undef
   return typeof name === "string" && name !== "" ? name : undefined;
 }
 
+/** What the request asks for that is emulated by instruction (the x-openova-emulated header). */
+export function emulatedOf(req: ChatCompletionRequest): string[] {
+  const choice = req.tool_choice;
+  const withTools = Array.isArray(req.tools) && req.tools.length > 0;
+  return withTools && (choice === "required" || namedTool(choice) !== undefined) ? ["tool_choice"] : [];
+}
+
 /** The prompt: one user message as it is, any longer conversation as a transcript. */
 export function promptOf(messages: ChatMessage[]): string {
   const conversation = messages.filter((m) => m.role !== "system");
@@ -128,12 +158,11 @@ export class Turns implements TurnManager {
 
   constructor(private o: TurnsOptions) {}
 
-  async step(req: ChatCompletionRequest, organization: string): Promise<StepResult> {
+  async step(req: ChatCompletionRequest, organization: string, sink?: StepSink, signal?: AbortSignal): Promise<StepResult> {
+    if (signal?.aborted) throw new Disconnected();
     const { model, tools } = this.validate(req);
     const chain = this.resume(req, organization) ?? this.start(req, model, tools, organization);
-    const choice = req.tool_choice;
-    const emulated = tools.length > 0 && (choice === "required" || namedTool(choice) !== undefined) ? ["tool_choice"] : [];
-    return this.read(chain, req, emulated);
+    return this.read(chain, req, emulatedOf(req), sink, signal);
   }
 
   stats(): { active: number; parked: number; queued: number } {
@@ -219,14 +248,69 @@ export class Turns implements TurnManager {
     return chain;
   }
 
-  /** Rule 4: read upstream events until the model message ends. */
-  private async read(chain: Chain, req: ChatCompletionRequest, emulated: string[]): Promise<StepResult> {
+  /**
+   * The next upstream event. When the caller goes away first, the chain is
+   * closed and the step throws Disconnected.
+   */
+  private async next(chain: Chain, signal?: AbortSignal): Promise<UpstreamEvent> {
+    if (!signal) return chain.run.next();
+    let onAbort = () => {};
+    const gone = new Promise<never>((_, reject) => {
+      onAbort = () => reject(new Disconnected());
+      if (signal.aborted) onAbort();
+      else signal.addEventListener("abort", onAbort, { once: true });
+    });
+    try {
+      return await Promise.race([chain.run.next(), gone]);
+    } catch (err) {
+      if (err instanceof Disconnected) await this.close(chain);
+      throw err;
+    } finally {
+      signal.removeEventListener("abort", onAbort);
+    }
+  }
+
+  /**
+   * Rule 4: read upstream events until the model message ends. Rule 7: each
+   * event reaches the sink as it arrives, the role first; an error before the
+   * first delta is still answered with its own status.
+   */
+  private async read(
+    chain: Chain,
+    req: ChatCompletionRequest,
+    emulated: string[],
+    sink?: StepSink,
+    signal?: AbortSignal,
+  ): Promise<StepResult> {
     const total: Usage = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
     let text = "";
+    let opened = false;
+    const open = () => {
+      if (sink && !opened) {
+        opened = true;
+        sink.role();
+      }
+    };
+    // With parallel_tool_calls false only the first call is returned, so only its deltas are sent.
+    const sent = (index: number) => req.parallel_tool_calls !== false || index === 0;
     for (;;) {
-      const e = await chain.run.next();
+      const e = await this.next(chain, signal);
       if (e.kind === "text_delta") {
         text += e.text;
+        if (sink && e.text !== "") {
+          open();
+          sink.text(e.text);
+        }
+      } else if (e.kind === "tool_start") {
+        if (sink && sent(e.index)) {
+          open();
+          sink.toolStart(e.index, e.id, e.name);
+        }
+      } else if (e.kind === "tool_args_delta") {
+        if (sink && sent(e.index)) {
+          open();
+          sink.toolArgs(e.index, e.json);
+        }
       } else if (e.kind === "run_end") {
         void this.close(chain);
         throw upstreamError(e.error);
@@ -245,20 +329,22 @@ export class Turns implements TurnManager {
           }));
           const returned = req.parallel_tool_calls === false ? calls.slice(0, 1) : calls;
           this.park(chain, returned.map((c) => c.id), calls.slice(returned.length).map((c) => c.id));
+          open();
           return { text, toolCalls: returned, finishReason: "tool_calls", usage: usageOf(total), emulated };
         }
         // The last model message. A tool use in it was cut off (max_tokens): its arguments are
         // incomplete, so it is not returned, and the run is closed at once because the kit may
         // wait for its result. Otherwise the step waits for the end of the run and its error.
         if (e.toolUses.length === 0) {
-          let end = await chain.run.next();
-          while (end.kind !== "run_end") end = await chain.run.next();
+          let end = await this.next(chain, signal);
+          while (end.kind !== "run_end") end = await this.next(chain, signal);
           if (end.error) {
             void this.close(chain);
             throw upstreamError(end.error);
           }
         }
         void this.close(chain);
+        open();
         return { text, toolCalls: [], finishReason: finishOf(e.stopReason), usage: usageOf(total), emulated };
       }
     }
