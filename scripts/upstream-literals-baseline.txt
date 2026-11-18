@@ -4,3 +4,4 @@ charts=148
 api=20
 controllers=9
 console=19
+blueprints=9

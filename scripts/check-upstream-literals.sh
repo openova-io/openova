@@ -3,7 +3,7 @@
 #
 # A Sovereign must be able to pull everything from its own registry and its own Git. Every
 # company or public source address that is written into the code as a literal is a place
-# where it cannot. This guard counts those lines in six scopes and refuses a rise. It is a
+# where it cannot. This guard counts those lines in seven scopes and refuses a rise. It is a
 # ratchet: it asks for no clean-up, it refuses one more line.
 #
 # Scopes (paths under the repository root):
@@ -15,6 +15,14 @@
 #   controllers  the .go files under core/controllers and core/services, without *_test.go
 #   console      every file under products/catalyst/bootstrap/ui/src whose name holds
 #                neither ".test." nor ".spec."
+#   blueprints   platform/*/blueprint.yaml and products/*/blueprint.yaml
+#
+# Generated files (ruling 147): a file is judged at its source, not as a copy. A file that
+# scripts/generator_registry.py lists (a generator of the job "regenerate and prove no diff"
+# writes it) is not counted when it has sources and each lies inside a scope above; its lines
+# are counted in those sources. A listed file with a source outside every scope is counted.
+# The list is read from the registry at run time; the registry job is red when a committed
+# output differs from what its generator writes, so a hand-edited copy cannot hide here.
 #
 # A line counts when it matches the extended regular expression PATTERN below, with H one of
 # the hosts [a-z0-9.-]*openova.io, ghcr.io, github.com/openova-io, raw.githubusercontent.com,
@@ -25,7 +33,7 @@
 # {{- /*) is not counted. An image name (ghcr.io/x/y:tag with no scheme) is not matched, by
 # design. Binary files are not read.
 #
-# The baseline is scripts/upstream-literals-baseline.txt: six lines, <scope>=<count>, in the
+# The baseline is scripts/upstream-literals-baseline.txt: seven lines, <scope>=<count>, in the
 # order above. A count above its baseline fails. A count below it passes with a note: the
 # change that removed the lines lowers the baseline in the same pull request, with
 # --write-baseline. That command refuses to raise a number, so a baseline only goes down.
@@ -46,7 +54,8 @@ export LC_ALL=C
 ME=check-upstream-literals
 SELF="${BASH_SOURCE[0]}"
 BASELINE=scripts/upstream-literals-baseline.txt
-SCOPES=(infra kit charts api controllers console)
+REGISTRY="$(cd "$(dirname "$SELF")" && pwd)/generator_registry.py"
+SCOPES=(infra kit charts api controllers console blueprints)
 REQUIRED=(infra/providers clusters/_template products/catalyst/chart/templates
           products/catalyst/bootstrap/api core/controllers core/services
           products/catalyst/bootstrap/ui/src)
@@ -71,11 +80,52 @@ hits() {
     api)         args=(products/catalyst/bootstrap/api); opts=(--include='*.go' --exclude='*_test.go') ;;
     controllers) args=(core/controllers core/services); opts=(--include='*.go' --exclude='*_test.go') ;;
     console)     args=(products/catalyst/bootstrap/ui/src); opts=(--exclude='*.test.*' --exclude='*.spec.*') ;;
+    blueprints)  for f in "$root"/platform/*/blueprint.yaml "$root"/products/*/blueprint.yaml; do
+                   if [ -f "$f" ]; then args+=("${f#"$root"/}"); fi
+                 done
+                 [ "${#args[@]}" -gt 0 ] || return 0 ;;
     *)           return 3 ;;
   esac
   ( cd "$root" && { grep -rnHIE ${opts[@]+"${opts[@]}"} -e "$PATTERN" -- "${args[@]}" || [ $? -eq 1 ]; } ) \
     | { grep -vE "$COMMENT" || [ $? -eq 1 ]; } \
+    | drop_generated \
     | sort -t: -k1,1 -k2,2n
+}
+
+# in_scope <path> - true when a scope of this guard reads the file.
+in_scope() {
+  local p="$1" b="${1##*/}"
+  case "$p" in
+    infra/providers/*|clusters/_template/*|products/catalyst/chart/templates/*) return 0 ;;
+    products/catalyst/bootstrap/api/*.go|core/controllers/*.go|core/services/*.go) [[ "$b" != *_test.go ]]; return ;;
+    products/catalyst/bootstrap/ui/src/*) [[ "$b" != *.test.* && "$b" != *.spec.* ]]; return ;;
+  esac
+  [[ "$p" =~ ^(platform|products)/[^/]+/(chart/values\.yaml|blueprint\.yaml)$ ]]
+}
+
+# judged_at_source - fills GENERATED[<file>]=<generator> with the files of the generator
+# registry whose sources all lie inside a scope (ruling 147); hits leaves them out.
+declare -A GENERATED=()
+judged_at_source() {
+  local out file gen srcs s ok
+  out="$(python3 "$REGISTRY" --repo "$ROOT")" || die "the generator registry $REGISTRY cannot be read"
+  while IFS=$'\t' read -r file gen srcs; do
+    [ -n "$file" ] || continue
+    ok=0
+    if [ -n "$srcs" ]; then ok=1; fi
+    for s in $srcs; do
+      in_scope "$s" || { ok=0; break; }
+    done
+    if [ "$ok" = 1 ]; then GENERATED[$file]="$gen"; fi
+  done <<< "$out"
+}
+
+# drop_generated - path:line:text lines on stdin, without those of a file in GENERATED.
+drop_generated() {
+  if [ "${#GENERATED[@]}" -eq 0 ]; then cat; return; fi
+  awk -v list="$(printf '%s\n' "${!GENERATED[@]}")" '
+    BEGIN { n = split(list, a, "\n"); for (i = 1; i <= n; i++) if (a[i] != "") x[a[i]] = 1 }
+    { p = $0; sub(/:[0-9]+:.*/, "", p); if (!(p in x)) print }'
 }
 
 # count <root> <scope> - the number of counted lines; fails when the files cannot be read.
@@ -124,8 +174,11 @@ rises() {
 }
 
 judge() {
-  local s fails
+  local s fails f
   for s in "${SCOPES[@]}"; do echo "$s=${NOW[$s]}"; done
+  for f in $(printf '%s\n' "${!GENERATED[@]}" | sort); do
+    echo "$ME: $f is not counted: ${GENERATED[$f]} writes it and its sources are counted (ruling 147)"
+  done
   fails="$(rises)"
   for s in "${SCOPES[@]}"; do
     if [ "${NOW[$s]}" -lt "${BASE[$s]}" ]; then
@@ -183,6 +236,24 @@ fixture() {
   mk "$t/products/catalyst/bootstrap/ui/src/a.ts" "const h = 'sso.openova.io'"
   mk "$t/products/catalyst/bootstrap/ui/src/a.test.ts" "const h = 'sso.openova.io'"
   mk "$t/products/catalyst/bootstrap/ui/src/b.spec.tsx" "const h = 'sso.openova.io'"
+  mk "$t/platform/p1/blueprint.yaml" "summary: served at sso.openova.io"
+}
+
+# registry <tree> [<path filter>] - the job of the generator registry runs scripts/gen.py, which
+# writes ui/src/gen.ts; that file holds the address of platform/p1/blueprint.yaml.
+registry() {
+  local t="$1" filter="${2:-platform/*/blueprint.yaml}"
+  mk "$t/.github/workflows/drift.yaml" "on:
+  pull_request:
+    paths: ['$filter', 'scripts/gen.py']
+jobs:
+  drift:
+    name: regenerate and prove no diff
+    steps:
+      - run: python3 scripts/gen.py --check"
+  mk "$t/scripts/gen.py" 'OUT = "products/catalyst/bootstrap/ui/src/gen.ts"'
+  mk "$t/products/catalyst/bootstrap/ui/src/gen.ts" '// Generated by python3 scripts/gen.py from every blueprint.yaml'
+  mk "$t/products/catalyst/bootstrap/ui/src/gen.ts" "const h = 'sso.openova.io'"
 }
 
 CLEAN='infra=1
@@ -190,7 +261,8 @@ kit=1
 charts=3
 api=1
 controllers=2
-console=1'
+console=1
+blueprints=1'
 
 self_test() {
   local failed=0 total=0
@@ -221,7 +293,14 @@ self_test() {
     fi
   }
   local add='printf "%s\n" "url: oci://ghcr.io/openova-io" >>'
-  one_case "an unchanged tree passes and prints the six counts" 0 "$CLEAN" ':'
+  local ui="products/catalyst/bootstrap/ui/src" lit="const h = 'sso.openova.io'"
+  one_case "an unchanged tree passes and prints the seven counts" 0 "$CLEAN" ':'
+  one_case "a new address in a Blueprint file fails" 1 "FAIL blueprints: 2 lines" "$add \"\$t/products/x/blueprint.yaml\""
+  one_case "a file a registered generator writes is not counted; its source is" 0 "$ui/gen.ts is not counted: scripts/gen.py writes it" 'registry "$t"'
+  one_case "the same line in a hand-written console file is counted" 1 "FAIL console: 2 lines" 'registry "$t"; mk "$t/$ui/hand.ts" "$lit"'
+  one_case "a file that claims a generator the registry does not run is counted" 1 "FAIL console: 2 lines" 'registry "$t"; mk "$t/scripts/other.py" "OUT = \"$ui/other.ts\""; mk "$t/$ui/other.ts" "// Generated by python3 scripts/other.py"; mk "$t/$ui/other.ts" "$lit"'
+  one_case "a file that claims a registered generator which does not name it is counted" 1 "FAIL console: 2 lines" 'registry "$t"; mk "$t/$ui/stray.ts" "// Generated by python3 scripts/gen.py"; mk "$t/$ui/stray.ts" "$lit"'
+  one_case "a generated file with a source outside every scope is counted" 1 "FAIL console: 2 lines" 'registry "$t" "notes/*.txt"; mk "$t/notes/a.txt" "x"'
   one_case "a new address in the kit fails" 1 "FAIL kit: 2 lines, the baseline allows 1" "$add \"\$t/clusters/_template/a.yaml\""
   one_case "a new address in a provider module fails" 1 "FAIL infra: 2 lines" "$add \"\$t/infra/providers/x/new.tf\""
   one_case "a new address in a product chart's values fails" 1 "FAIL charts: 4 lines" "$add \"\$t/products/x/chart/values.yaml\""
@@ -240,7 +319,7 @@ self_test() {
   one_case "--list refuses an unknown scope" 2 "unknown scope" ':' --list nothing
   one_case "a missing baseline is not a pass" 2 "cannot judge" 'rm "$t/$BASELINE"'
   one_case "a baseline without a line for every scope is not a pass" 2 "cannot judge" 'sed -i "/^api=/d" "$t/$BASELINE"'
-  one_case "a baseline with a line more than the six is not a pass" 2 "must hold exactly 6 lines" 'echo "extra=0" >> "$t/$BASELINE"'
+  one_case "a baseline with a line more than the seven is not a pass" 2 "must hold exactly 7 lines" 'echo "extra=0" >> "$t/$BASELINE"'
   one_case "a missing scope directory is not a pass" 2 "core/services is not a directory" 'rm -r "$t/core/services"'
   echo "$ME: self-test $([ "$failed" = 0 ] && echo passed || echo failed): $((total - failed)) of $total cases as expected"
   [ "$failed" = 0 ]
@@ -267,15 +346,18 @@ case "$MODE" in
   list)
     case " ${SCOPES[*]} " in *" $LIST "*) ;; *) die "unknown scope $LIST; the scopes are ${SCOPES[*]}" ;; esac
     check_tree
+    judged_at_source
     hits "$ROOT" "$LIST" || die "the files of scope $LIST cannot be read" ;;
   write)
     check_tree
+    judged_at_source
     measure
     write_baseline
     read_baseline
     judge ;;
   check)
     check_tree
+    judged_at_source
     measure
     read_baseline
     judge ;;
