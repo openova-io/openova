@@ -84,8 +84,9 @@ BIN="$DIR/bin/sovereign-acceptance"
 REPO_URL="https://github.com/openova-io/openova"
 STORAGE_CLASS="local-path"
 # The kit core: the HelmReleases that must be Ready in every region before up exits 0. They
-# carry the network, the certificates, Flux itself and the default storage class.
-CORE="bp-gateway-api bp-cilium bp-cert-manager bp-flux storage-ready local-path"
+# carry the network, the certificates, Flux itself, the default storage class and the policy
+# library, whose NodePort ban gate check FND-G05 requires in every region.
+CORE="bp-gateway-api bp-cilium bp-cert-manager bp-flux storage-ready local-path bp-kyverno-policies"
 # The console release. The primary region must have it Ready too; a secondary region holds it
 # suspended (slot 13 of the kit), so it is not judged there.
 CONSOLE_RELEASE="bp-catalyst-platform"
