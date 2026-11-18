@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T08:45:04Z` |
+| Last refreshed | `2026-11-18T09:00:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,12 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-18T08:57 | [#8101](https://github.com/openova-io/openova/pull/8101) | #7087 | docs(ledger): plan update |
+| 2026-11-18T08:52 | [#8098](https://github.com/openova-io/openova/pull/8098) | #7087 | docs(ledger): plan update |
+| 2026-11-18T08:58 | [#8096](https://github.com/openova-io/openova/pull/8096) | #8079 | refactor(model-meter): add the admin listener, the ring rout |
+| 2026-11-18T08:57 | [#8095](https://github.com/openova-io/openova/pull/8095) | #8080 | refactor(providers): delete the dead Provision method of the |
+| 2026-11-18T08:57 | [#8094](https://github.com/openova-io/openova/pull/8094) | #8084 | feat(machine-operations): the chart runs the operations cont |
+| 2026-11-18T08:54 | [#8093](https://github.com/openova-io/openova/pull/8093) | #8092 | ci: the local pack connects the meshes of its two regions an |
 | 2026-11-18T08:34 | [#8091](https://github.com/openova-io/openova/pull/8091) | #7087 | docs(ledger): plan update |
 | 2026-11-18T08:38 | [#8089](https://github.com/openova-io/openova/pull/8089) | #7970 | refactor(providers): each provider module passes its own Flu |
 | 2026-11-18T08:01 | [#8088](https://github.com/openova-io/openova/pull/8088) | #7969 | test(provisioner): pin the variables the engine writes and t |
@@ -331,12 +337,6 @@ flowchart LR
 | 2026-11-17T14:33 | [#8055](https://github.com/openova-io/openova/pull/8055) | #7568 | fix(huawei): open the API port only to declared sources and  |
 | 2026-11-17T14:33 | [#8054](https://github.com/openova-io/openova/pull/8054) | #7797 | fix(network-policies): deny the instance metadata address by |
 | 2026-11-17T14:19 | [#8052](https://github.com/openova-io/openova/pull/8052) | #7087 | docs(ledger): plan update |
-| 2026-11-17T14:32 | [#8051](https://github.com/openova-io/openova/pull/8051) | #7535 | chore: remove the Sandbox agent picker from the storefront a |
-| 2026-11-17T14:27 | [#8050](https://github.com/openova-io/openova/pull/8050) | #8036 | fix(crossplane): run the adoption Composition in Pipeline mo |
-| 2026-11-17T14:27 | [#8049](https://github.com/openova-io/openova/pull/8049) | #7775 | ci: a workflow gates the standing environment twice once it  |
-| 2026-11-17T14:02 | [#8046](https://github.com/openova-io/openova/pull/8046) | #7087 | docs(ledger): plan update |
-| 2026-11-17T13:49 | [#8044](https://github.com/openova-io/openova/pull/8044) | #7816 | feat(fingate): internal authorisation API package with the t |
-| 2026-11-17T13:48 | [#8043](https://github.com/openova-io/openova/pull/8043) | #7852 | feat(ops-records): alert signal intake and the rule path tha |
 
 ---
 
