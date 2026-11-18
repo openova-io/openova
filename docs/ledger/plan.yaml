@@ -18678,6 +18678,39 @@ packages:
   ticket_rev: 1
   dropped: false
   delivers: The new scripts/generate-catalog.py writes the embedded catalogue blueprints.json and the console catalogue catalog.generated.ts from every Blueprint file and kit slot (no flag writes in place, --check, --dry-run, --self-test); the pull request commits the regenerated outputs, in which no summary is the bare block-scalar sign and flow-list tags are read; the drift workflow runs --check on pull requests, merge groups and main; the release writer, its guard and the train check call the new generator; the Node generator and its build hooks are deleted.
+- id: SVC-159
+  title: The Blueprint files say what the seed says
+  area: SVC
+  epic: null
+  type: refactor
+  wave: W0
+  size: M
+  lane: RAILS
+  depends_on: [SVC-150]
+  after: [FND-206, FND-014, FND-028, FND-054, FND-059, FND-071, FND-077, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-030, CLD-061, CLD-062, CLD-064, CLD-070, CLD-076, CLD-080, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-108, CLD-109, CLD-112, CLD-113, CLD-114, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-020, SOV-030, SOV-035, SOV-131, SOV-135, SOV-141, SOV-160, SOV-161, SOV-175, SOV-180, SOV-181, SOV-183, SOV-190, SOV-220, SOV-241, SOV-320, SOV-336, SOV-337, SOV-338, SEC-010, SEC-080, SEC-100, SEC-103, SEC-104, SEC-105, SEC-110, SEC-150, SEC-161, NET-011, NET-030, NET-032, NET-040, NET-041, NET-050, NET-070, NET-071, NET-072, NET-080, NET-095, NET-098, NET-102, NET-110, NET-125, NET-133, NET-135, NET-150, NET-170, NET-190, NET-212, NET-221, SVC-030, SVC-060, SVC-070, SVC-080, SVC-090, SVC-100, SVC-190, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-150, CTL-160, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-300, CTL-320, CTL-333, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CMP-016, CMP-020, CMP-030, CMP-073, BSS-020, BSS-040, BSS-141, AIP-040, AIP-041, AIP-101, AIP-102, AIP-108, AIP-120, AIP-150, AIP-221, AIP-222, AIP-224, AIP-229, INF-110, INF-112, INF-120, INF-130, INF-132, INF-135, INF-140, ACC-010, ACC-050, PRD-010, PRD-101, PRD-102, PRD-103, PRD-104, PRD-105, PRD-501, PRD-502, PRD-503, PRD-508, PRD-509, PRD-513, PRD-800]
+  touches:
+  - platform/*/blueprint.yaml
+  - products/*/blueprint.yaml
+  - scripts/check-seed-equals-blueprints.py
+  - .github/workflows/check-catalog-seed-lockstep.yaml
+  - products/catalyst/bootstrap/api/internal/catalog/blueprints.json
+  - products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget:
+    files: 100
+    lines: 3000
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: Every Blueprint file that the hand-written seed holds says what the seed says, object by object and field by field, for every field the application controller or the console reads; where a file and the seed disagreed, the file took the seed's value, absence included. A check computes, without writing a file, the seed objects the generator will write from the files, compares them parsed with the hand-written seed and exits non-zero with the list of differing objects and fields; it runs in CI until SVC-160 removes the hand-written seed. The seed is not changed; outputs 1 and 2 of the generator are regenerated and committed.
 - id: SVC-160
   title: 'One generator, part 2: the seed becomes generated'
   area: SVC
@@ -18686,25 +18719,14 @@ packages:
   wave: W0
   size: M
   lane: RAILS
-  depends_on: [FND-031, FND-032, FND-091, SVC-150]
+  depends_on: [FND-031, FND-032, FND-091, SVC-150, SVC-159]
   after: [FND-206, FND-011, FND-017, FND-018, FND-019, FND-020, FND-025, FND-059, FND-062, FND-063, FND-096, FND-098, CLD-010, CLD-022, CLD-023, CLD-030, CLD-064, CLD-113, CLD-142, SOV-035, SOV-040, SOV-135, SOV-190, SEC-103, SEC-104, SEC-105, NET-040, NET-041, NET-221, SVC-060, SVC-070, SVC-080, SVC-090, SVC-100, SVC-130, CTL-346, CTL-347, INF-110, ACC-050]
   touches:
   - scripts/generate-catalog.py
   - scripts/tests/test_generate_catalog.py
   - platform/_catalog/seed-exclusions.yaml
   - platform/_catalog/chart-locations.yaml
-  - platform/alloy/blueprint.yaml
-  - platform/cnpg/blueprint.yaml
-  - platform/grafana/blueprint.yaml
-  - platform/keycloak/blueprint.yaml
-  - platform/langfuse/blueprint.yaml
-  - platform/litmus/blueprint.yaml
-  - platform/loki/blueprint.yaml
-  - platform/mimir/blueprint.yaml
-  - platform/opentelemetry/blueprint.yaml
-  - platform/tempo/blueprint.yaml
-  - platform/velero/blueprint.yaml
-  - platform/velero-hcs/blueprint.yaml
+  - scripts/check-seed-equals-blueprints.py
   - products/catalyst/chart/templates/catalog-seed/_README.txt
   - products/catalyst/chart/templates/catalog-seed/blueprints.yaml
   - products/catalyst/bootstrap/api/internal/catalog/blueprints.json
@@ -18735,7 +18757,7 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: 'Output 3 of scripts/generate-catalog.py: the seed is generated at the same path, names its generator in its first lines and is committed by the pull request. Five ghost objects are gone. The listed set of the seed is unchanged: the 12 Blueprints that only the hand seed listed say visibility listed in their own files. The generator derives each source block from the Blueprint''s name and version. bp-catalyst-platform is seeded from products/catalyst/chart through one entry of a mapping file. The release writer runs the generator after it has written versions, in place of its two sync calls, and the lockstep-writer guard replays that. The release-owned list is changed for site 3. Implements SVC-G01 and sets it to expected-fail.'
+  delivers: 'Output 3 of scripts/generate-catalog.py: the seed is generated at the same path, names its generator in its first lines and is committed by the pull request. Five ghost objects are gone. The generated seed equals the hand-written one for every field the application controller or the console reads (SVC-159 proved it), so the listed set is unchanged; the equality check of SVC-159 is replaced by the registered no-diff check. The generator derives each source block from the Blueprint''s name and version, with the projection SVC-159''s check proved. bp-catalyst-platform is seeded from products/catalyst/chart through one entry of a mapping file. The release writer runs the generator after it has written versions, in place of its two sync calls, and the lockstep-writer guard replays that. The release-owned list is changed for site 3. Implements SVC-G01 and sets it to expected-fail.'
 - id: SVC-161
   title: The seed sync script is deleted with its three importers and four order calls
   area: SVC
@@ -19135,7 +19157,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [SVC-150, SVC-210]
-  after: [FND-096, FND-098, CLD-142, SOV-175, SEC-103, SEC-104, SEC-105, NET-040, NET-221, SVC-060, SVC-130, CTL-346, CTL-347, INF-110, ACC-050]
+  after: [SVC-160, FND-096, FND-098, CLD-142, SOV-175, SEC-103, SEC-104, SEC-105, NET-040, NET-221, SVC-060, SVC-130, CTL-346, CTL-347, INF-110, ACC-050]
   touches:
   - scripts/generate-catalog.py
   - scripts/check-service-model.py
