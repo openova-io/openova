@@ -1,0 +1,963 @@
+package suite
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/openova-io/openova/tests/acceptance/sovereign/internal/kube"
+	"github.com/openova-io/openova/tests/acceptance/sovereign/internal/wordpress"
+)
+
+// Check NET-G07, Organization isolation: journey ISO. It proves on a running
+// Sovereign the Organization fence that the organization controller writes
+// into the host namespace of every Organization (org-fence and org-fence-api,
+// package NET-170), with two test Organizations A and B in both regions.
+//
+// The Organizations. The check creates A (iso-a-<tag>) and B (iso-b-<tag>)
+// through the console API, POST /api/v1/organizations with kind internal (no
+// voucher step), plan s and the free subdomain of the first ready parent
+// domain, and waits until GET /api/v1/organizations/{id} says done for both
+// (failed ends the wait). Before it ends, also when a step failed, it deletes
+// every Organization it created with DELETE /api/v1/organizations/{id} and
+// waits until their host namespaces are gone in every region.
+//
+// The kubeconfig of an Organization. In every region the vCluster of an
+// Organization writes its kubeconfig into the Secret vc-vcluster (key config)
+// of the host namespace, and bp-reflector mirrors it to
+// tenant-<slug>-kubeconfig in that namespace and in flux-system. Its server is
+// the Service vcluster.<slug>:443, which only the cluster resolves. The check
+// reads the Secret with the kubeconfig of the region, starts `kubectl
+// port-forward` to that Service, and calls kubectl with the kubeconfig of the
+// Organization, --server set to the local address and --tls-server-name set
+// to the host of the server of the kubeconfig, so the certificate of the
+// vCluster is checked as for every other client. No Service of type NodePort
+// is created or used.
+//
+// The dial Pods. In every region the check creates the namespace iso-<tag> in
+// the vCluster of A and of B, each with the kubeconfig of its Organization,
+// and one dial Pod in it with the Dialer of check NET-G06 (image secProbeImage,
+// busybox `nc -z -vv -w 3`: exit code 0 when it connects, exit code 1 with
+// "Connection refused" or "timed out" in its output when not). The syncer
+// writes each Pod into the host namespace of its Organization with the label
+// vcluster.loft.sh/managed-by, which the fence selects; the check reads that
+// host Pod. A Pod created on the host would carry no such label and prove
+// nothing. A row that expects deny passes on a timeout only: the fence drops
+// the packets, and a refused connection reached its target. A row that
+// expects allow passes when nc connects. Every dial first dials the cluster
+// DNS Service of the vCluster on TCP port 53; when that does not connect, the
+// Pod has no working network and the row fails, so a Pod without a network
+// never passes.
+//
+// The assertions, in every region r with the peer region p:
+//
+//	ISO-1 the three kubeconfig Secrets of A exist in r and hold one kubeconfig,
+//	      which reaches the vCluster of A; that kubeconfig lists its own
+//	      namespace and dial Pod, no namespace of the host (catalyst-system,
+//	      openbao, gitea, the host namespaces of A and B) and no dial Pod of B.
+//	ISO-2 the Pod of A times out on the DNS Service of B in r, on a DNS Pod of
+//	      B in r and on a DNS Pod of B in p (the selector of the fence across
+//	      the mesh). Before that the Pod of B in r connects to the DNS Service
+//	      and the DNS Pod of B in r, so these targets answer.
+//	ISO-3 it times out on the ClusterIP of openbao/openbao:8200,
+//	      gitea/gitea-http:3000 and catalyst-system/catalyst-api:8080, each a
+//	      Service with a ready endpoint (or the row fails).
+//	ISO-4 it times out on the ClusterIP of the host API server
+//	      (default/kubernetes:443, with a ready endpoint), on port 10250 of the
+//	      InternalIP of every Ready node of r and on 169.254.169.254:80.
+//	ISO-5 it times out on the internet address 1.1.1.1:443, which no
+//	      Application of A declares. Measured before ISO-6.
+//	ISO-6 A creates the NetworkPolicy iso-allow-all (every Pod, all ingress,
+//	      all egress) in iso-<tag> of its vCluster. The Pod of A then connects
+//	      to the internet address within three minutes: the policy was synced
+//	      and took effect, and the timeout of ISO-5 was a deny. ISO-2 to ISO-4
+//	      are dialed again and must still time out. The fence denies no
+//	      internet egress, so ISO-5 is not dialed again.
+//	ISO-9 an Application of bp-wordpress-tenant (topology singleton, the first
+//	      region, the first Environment of A) becomes Ready and answers
+//	      https://<its endpoint>/ through the gateway with HTTP 200 and a
+//	      WordPress page. TLS is not verified there: the path through the
+//	      gateway is asserted, not the certificate. The Application is deleted
+//	      before the Organizations.
+//
+// ISO-7 is check NET-G11 and ISO-8 is reported by the compliance area; neither
+// is part of this check. A run with fewer than two regions or without a
+// console session fails.
+const (
+	orgIsolationID = "NET-G07"
+	// isoBlueprint is the Blueprint of ISO-9: the Blueprint of the journeys,
+	// whose HTTPRoute inside the vCluster the syncer reflects to the host,
+	// where the gateway routes it.
+	isoBlueprint       = "bp-wordpress-tenant"
+	isoInternet        = "1.1.1.1" // ISO-5: a public anycast address that answers on TCP port 443
+	isoInternetPort    = 443
+	isoAllowAll        = "iso-allow-all" // ISO-6: the NetworkPolicy that A creates in its vCluster
+	isoVClusterName    = "vcluster"      // the vCluster of an Organization, and its Service in the host namespace (port 443)
+	isoVClusterSecret  = "vc-vcluster"   // the kubeconfig Secret that the vCluster writes into the host namespace
+	isoManagedBy       = "vcluster.loft.sh/managed-by"
+	isoKubeletPort     = 10250
+	isoForwardWait     = 30 * time.Second // the longest wait for kubectl port-forward to print its local address
+	isoVClusterAPIPort = 443
+)
+
+// isoPlatform are the Services of ISO-3: OpenBao, the Git service and catalyst-system.
+var isoPlatform = []DialTarget{
+	{Namespace: "openbao", Service: "openbao", Port: 8200},
+	{Namespace: "gitea", Service: "gitea-http", Port: 3000},
+	{Namespace: "catalyst-system", Service: "catalyst-api", Port: 8080},
+}
+
+// isoHostNamespaces are namespaces of the host that the kubeconfig of A must
+// not list, besides the host namespaces of A and B.
+var isoHostNamespaces = []string{"catalyst-system", "openbao", "gitea"}
+
+// isoServerRE finds the host of the https server of a kubeconfig.
+var isoServerRE = regexp.MustCompile(`(?m)^\s*server:\s*"?https://([^:/\s"]+)`)
+
+// forwardRE is the line of kubectl port-forward that names its local address.
+var forwardRE = regexp.MustCompile(`^Forwarding from (127\.0\.0\.1:[0-9]+) -> `)
+
+// isoWaits are the longest waits of the check and the pause between two reads.
+type isoWaits struct{ org, app, gone, policy, every time.Duration }
+
+// forwardFunc forwards a local port to port of the Service in namespace,
+// through the kubeconfig of region. It returns the local address and a
+// function that ends the forward.
+type forwardFunc func(ctx context.Context, region kube.Region, namespace, service string, port int) (string, func(), error)
+
+type orgIsolationCheck struct {
+	kubectl kubectlFunc
+	forward forwardFunc
+	fetch   func(ctx context.Context, host string) (*wordpress.Page, error)
+	waits   isoWaits
+}
+
+func init() {
+	RegisterCheck(orgIsolationCheck{kubectl: kube.Region.Run, forward: portForward, fetch: fetchHome,
+		waits: isoWaits{org: 30 * time.Minute, app: 25 * time.Minute, gone: 15 * time.Minute, policy: 3 * time.Minute, every: 10 * time.Second}})
+}
+
+func (orgIsolationCheck) ID() string { return orgIsolationID }
+
+// isoOrg is one test Organization.
+type isoOrg struct {
+	label, slug, id, namespace string
+	created                    bool
+	vc                         map[string]*isoVC // by region ID
+}
+
+// isoVC is the vCluster of an Organization in one region, reached through a port forward.
+type isoVC struct {
+	region      kube.Region // ID <slug>@<region>, the kubeconfig file of the Organization
+	server, sni string
+	stop        func()
+	dialer      *Dialer
+}
+
+// isoRow is one dial: the assertion, what the target is and where it is.
+type isoRow struct {
+	iso, what string
+	to        DialTarget
+}
+
+// isoTargets are the targets of one region: the DNS Service and a DNS Pod of
+// B, and the rows of ISO-3 and ISO-4.
+type isoTargets struct {
+	bService, bPod DialTarget
+	rest           []isoRow
+}
+
+type isoJourney struct {
+	c       orgIsolationCheck
+	cc      *CheckContext
+	rec     StepRecorder
+	n       int
+	tag, ns string
+	dir     string
+	a, b    *isoOrg
+	targets map[string]*isoTargets
+	app     struct {
+		name, namespace, uid, fqdn string
+		created                    bool
+	}
+}
+
+func (c orgIsolationCheck) Run(ctx context.Context, cc *CheckContext, rec StepRecorder) error {
+	if len(cc.Regions) < 2 {
+		return fmt.Errorf("journey ISO runs in two regions, and the run has %d", len(cc.Regions))
+	}
+	if cc.API == nil {
+		return errors.New("journey ISO creates its Organizations through the console API, and the run has no console session")
+	}
+	dir, err := os.MkdirTemp("", "net-g07-")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	run := strings.ToLower(NewRunID(time.Now())) // 20261119t101500z-abcd
+	tag := run[9:15] + run[len(run)-4:]
+	j := &isoJourney{c: c, cc: cc, rec: rec, dir: dir, tag: tag, ns: "iso-" + tag, targets: map[string]*isoTargets{},
+		a: &isoOrg{label: "A", slug: "iso-a-" + tag, vc: map[string]*isoVC{}},
+		b: &isoOrg{label: "B", slug: "iso-b-" + tag, vc: map[string]*isoVC{}}}
+	j.run(ctx)
+	return nil
+}
+
+func (j *isoJourney) orgs() []*isoOrg { return []*isoOrg{j.a, j.b} }
+
+func (j *isoJourney) step(name string, fn func(ev Evidence) error) bool {
+	j.n++
+	return checkStep(j.rec, orgIsolationID, j.n, name, fn)
+}
+
+func (j *isoJourney) run(ctx context.Context) {
+	if j.createOrgs(ctx) {
+		j.install(ctx)
+		if j.connect(ctx) && j.startPods(ctx) {
+			j.listOwn(ctx)
+			if j.readTargets(ctx) {
+				j.dials(ctx)
+				j.allowAll(ctx)
+			}
+		}
+		j.answers(ctx)
+	}
+	j.cleanup(ctx)
+}
+
+// createOrgs creates A and B and waits until both are done.
+func (j *isoJourney) createOrgs(ctx context.Context) bool {
+	ok := true
+	for _, o := range j.orgs() {
+		ok = j.step("ISO: Organization "+o.label+" ("+o.slug+") is created through the console API (POST /api/v1/organizations)", func(ev Evidence) error {
+			body := map[string]any{"subdomain": o.slug, "admin_email": o.slug + "@acceptance.invalid", "kind": "internal", "plan_slug": "s"}
+			ev["organization"], ev["request"] = o.label, body
+			res, err := j.cc.API.Do(ctx, "POST", "/api/v1/organizations", body)
+			if err != nil {
+				return err
+			}
+			ev["http"] = res.Status
+			o.created = res.Status >= 200 && res.Status < 300
+			var v struct {
+				ID        string `json:"org_tenant_id"`
+				Namespace string `json:"tenant_namespace"`
+				State     string `json:"state"`
+			}
+			if o.created {
+				if err := res.JSON(&v); err != nil {
+					return err
+				}
+			}
+			o.id, o.namespace = v.ID, v.Namespace
+			ev["id"], ev["namespace"], ev["state"] = v.ID, o.namespace, v.State
+			switch {
+			case res.Status != 202:
+				return fmt.Errorf("HTTP %d (want 202): %s", res.Status, trunc(string(res.Body), 300))
+			case v.ID == "":
+				return errors.New("the answer names no org_tenant_id")
+			case v.Namespace == "":
+				return errors.New("the answer names no tenant_namespace")
+			}
+			return nil
+		}) && ok
+	}
+	if !ok {
+		return false
+	}
+	return j.step("ISO: Organizations A and B reach the state done (GET /api/v1/organizations/{id})", func(ev Evidence) error {
+		states := map[string]string{}
+		ev["states"] = states
+		_, err := poll(ctx, j.c.waits.org, j.c.waits.every, func() (bool, string, error) {
+			done := true
+			for _, o := range j.orgs() {
+				var v struct {
+					State     string `json:"state"`
+					LastError string `json:"last_error"`
+				}
+				if _, err := j.cc.API.Get(ctx, "/api/v1/organizations/"+url.PathEscape(o.id), &v); err != nil {
+					return false, err.Error(), nil
+				}
+				states[o.label] = v.State
+				if v.State == "failed" {
+					return false, "", fmt.Errorf("the Organization %s is failed: %s", o.slug, v.LastError)
+				}
+				done = done && v.State == "done"
+			}
+			return done, fmt.Sprintf("A=%s B=%s", states["A"], states["B"]), nil
+		})
+		return err
+	})
+}
+
+// connect reads the kubeconfig of each Organization in each region and reaches its vCluster.
+func (j *isoJourney) connect(ctx context.Context) bool {
+	ok := true
+	for _, region := range j.cc.Regions {
+		for _, o := range j.orgs() {
+			prefix := "ISO: "
+			if o == j.a {
+				prefix = "ISO-1: "
+			}
+			name := prefix + "the kubeconfig Secret of Organization " + o.label + " and its two mirrors exist in region " + region.ID +
+				" with one kubeconfig, and it reaches the vCluster of " + o.label
+			ok = j.step(name, func(ev Evidence) error { return j.reach(ctx, o, region, ev) }) && ok
+		}
+	}
+	return ok
+}
+
+func (j *isoJourney) reach(ctx context.Context, o *isoOrg, region kube.Region, ev Evidence) error {
+	mirror := "tenant-" + o.slug + "-kubeconfig"
+	secrets := []string{o.namespace + "/" + isoVClusterSecret, o.namespace + "/" + mirror, "flux-system/" + mirror}
+	ev["organization"], ev["region"], ev["secrets"] = o.label, region.ID, secrets
+	config := ""
+	_, err := poll(ctx, j.c.waits.org, j.c.waits.every, func() (bool, string, error) {
+		var missing []string
+		seen := map[string]bool{}
+		for i, s := range secrets {
+			ns, name, _ := strings.Cut(s, "/")
+			out, err := j.c.kubectl(region, ctx, nil, "-n", ns, "get", "secret", name, "--ignore-not-found", "-o", "jsonpath={.data.config}")
+			if err != nil {
+				return false, err.Error(), nil
+			}
+			v := strings.TrimSpace(string(out))
+			if v == "" {
+				missing = append(missing, s)
+				continue
+			}
+			if i == 0 {
+				config = v
+			}
+			seen[v] = true
+		}
+		switch {
+		case len(missing) > 0:
+			return false, "no kubeconfig in " + strings.Join(missing, ", "), nil
+		case len(seen) > 1:
+			return false, "the three Secrets hold different kubeconfigs", nil
+		}
+		return true, "", nil
+	})
+	if err != nil {
+		return err
+	}
+	raw, err := base64.StdEncoding.DecodeString(config)
+	if err != nil {
+		return fmt.Errorf("the key config of %s is not base64: %v", secrets[0], err)
+	}
+	m := isoServerRE.FindSubmatch(raw)
+	if m == nil {
+		return fmt.Errorf("the kubeconfig in %s names no https server", secrets[0])
+	}
+	path := filepath.Join(j.dir, o.slug+"."+region.ID+".kubeconfig")
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		return err
+	}
+	addr, stop, err := j.c.forward(ctx, region, o.namespace, isoVClusterName, isoVClusterAPIPort)
+	if err != nil {
+		return err
+	}
+	v := &isoVC{region: kube.Region{ID: o.slug + "@" + region.ID, Kubeconfig: path, Kubectl: region.Kubectl},
+		server: "https://" + addr, sni: string(m[1]), stop: stop}
+	o.vc[region.ID] = v
+	ev["tls_server_name"] = v.sni
+	out, err := j.vcKubectl(v)(v.region, ctx, nil, "get", "namespace", "default", "-o", "name")
+	if err != nil {
+		return err
+	}
+	if got := strings.TrimSpace(string(out)); got != "namespace/default" {
+		return fmt.Errorf("the vCluster of %s in region %s answered %q for its namespace default", o.label, region.ID, got)
+	}
+	return nil
+}
+
+// vcKubectl is kubectl of the vCluster v: the kubeconfig of its Organization,
+// the server of the port forward, and the certificate checked for the host of
+// the kubeconfig.
+func (j *isoJourney) vcKubectl(v *isoVC) kubectlFunc {
+	return func(r kube.Region, ctx context.Context, stdin io.Reader, args ...string) ([]byte, error) {
+		return j.c.kubectl(r, ctx, stdin, append([]string{"--server", v.server, "--tls-server-name", v.sni}, args...)...)
+	}
+}
+
+// startPods starts one dial Pod of A and one of B in every region.
+func (j *isoJourney) startPods(ctx context.Context) bool {
+	ok := true
+	for _, region := range j.cc.Regions {
+		ok = j.step("ISO: a dial Pod of A and one of B are Ready in the namespace "+j.ns+" of their vCluster in region "+region.ID+
+			", created through the kubeconfig of each and synced into its host namespace with the label "+isoManagedBy, func(ev Evidence) error {
+			ev["region"], ev["namespace"] = region.ID, j.ns
+			for _, o := range j.orgs() {
+				v := o.vc[region.ID]
+				k := j.vcKubectl(v)
+				if _, err := k(v.region, ctx, nil, "create", "namespace", j.ns); err != nil {
+					return err
+				}
+				v.dialer = &Dialer{Kubectl: k, Region: v.region, Run: j.tag + strings.ToLower(o.label)}
+				err := v.dialer.Start(ctx, []DialSource{{Namespace: j.ns}})
+				ev[o.label] = v.dialer.Pods()
+				if err != nil {
+					return err
+				}
+				// The syncer names the host Pod <name>-x-<namespace>-x-<vCluster>.
+				want := v.dialer.pods[DialSource{Namespace: j.ns}.key()].name + "-x-"
+				out, err := j.c.kubectl(region, ctx, nil, "-n", o.namespace, "get", "pods", "-l", isoManagedBy, "-o", "jsonpath={.items[*].metadata.name}")
+				if err != nil {
+					return err
+				}
+				found := ""
+				for _, name := range strings.Fields(string(out)) {
+					if strings.HasPrefix(name, want) {
+						found = name
+					}
+				}
+				if found == "" {
+					return fmt.Errorf("the host namespace %s of region %s holds no Pod %s... with the label %s: the fence would not select the dial Pod of %s",
+						o.namespace, region.ID, want, isoManagedBy, o.label)
+				}
+				ev[o.label+"_host_pod"] = o.namespace + "/" + found
+			}
+			return nil
+		}) && ok
+	}
+	return ok
+}
+
+// listOwn is the second half of ISO-1: what the kubeconfig of A lists.
+func (j *isoJourney) listOwn(ctx context.Context) {
+	for _, region := range j.cc.Regions {
+		j.step("ISO-1: the kubeconfig of A in region "+region.ID+" lists its namespace "+j.ns+" and its dial Pod, and no namespace of the host and no dial Pod of B", func(ev Evidence) error {
+			v := j.a.vc[region.ID]
+			k := j.vcKubectl(v)
+			out, err := k(v.region, ctx, nil, "get", "namespaces", "-o", "jsonpath={.items[*].metadata.name}")
+			if err != nil {
+				return err
+			}
+			namespaces := strings.Fields(string(out))
+			if out, err = k(v.region, ctx, nil, "get", "pods", "-A", "-o", `jsonpath={range .items[*]}{.metadata.namespace}/{.metadata.name}{" "}{end}`); err != nil {
+				return err
+			}
+			pods := strings.Fields(string(out))
+			ev["region"], ev["namespaces"], ev["pods"] = region.ID, namespaces, pods
+			own := v.dialer.Pods()
+			switch {
+			case !contains(namespaces, j.ns):
+				return fmt.Errorf("the kubeconfig of A lists no namespace %s, so the list proves nothing", j.ns)
+			case len(own) != 1 || !contains(pods, own[0]):
+				return fmt.Errorf("the kubeconfig of A lists no Pod %v of its own, so the list proves nothing", own)
+			}
+			for _, ns := range append([]string{j.a.namespace, j.b.namespace}, isoHostNamespaces...) {
+				if contains(namespaces, ns) {
+					return fmt.Errorf("the kubeconfig of A lists the namespace %s of the host", ns)
+				}
+			}
+			for _, p := range j.b.vc[region.ID].dialer.Pods() {
+				if contains(pods, p) {
+					return fmt.Errorf("the kubeconfig of A lists the Pod %s of B", p)
+				}
+			}
+			return nil
+		})
+	}
+}
+
+// readTargets reads the targets of every region.
+func (j *isoJourney) readTargets(ctx context.Context) bool {
+	ok := true
+	for _, region := range j.cc.Regions {
+		ok = j.step("ISO: the targets of region "+region.ID+" are read: the DNS Service and a DNS Pod of B, the Services of ISO-3 and the API server, each with a ready endpoint, and the Ready nodes", func(ev Evidence) error {
+			ev["region"] = region.ID
+			v := j.b.vc[region.ID]
+			k := j.vcKubectl(v)
+			out, err := k(v.region, ctx, nil, "-n", "kube-system", "get", "service", "kube-dns", "-o", "jsonpath={.spec.clusterIP}")
+			if err != nil {
+				return err
+			}
+			ip := strings.TrimSpace(string(out))
+			if net.ParseIP(ip) == nil {
+				return fmt.Errorf("the DNS Service of B in region %s has no ClusterIP (%q)", region.ID, ip)
+			}
+			t := &isoTargets{bService: DialTarget{Address: ip, Port: dialControlPort}}
+			if t.bPod, err = isoDNSPod(ctx, k, v.region); err != nil {
+				return err
+			}
+			host := &Dialer{Kubectl: j.c.kubectl, Region: region}
+			for _, s := range isoPlatform {
+				ip, err := isoClusterIP(ctx, host, s)
+				if err != nil {
+					return err
+				}
+				t.rest = append(t.rest, isoRow{"ISO-3", "the Service " + s.Namespace + "/" + s.Service, DialTarget{Address: ip, Port: s.Port}})
+			}
+			api := DialTarget{Namespace: "default", Service: "kubernetes", Port: 443}
+			if ip, err = isoClusterIP(ctx, host, api); err != nil {
+				return err
+			}
+			t.rest = append(t.rest, isoRow{"ISO-4", "the host API server (default/kubernetes)", DialTarget{Address: ip, Port: api.Port}})
+			nodes, err := isoNodes(ctx, j.c.kubectl, region)
+			if err != nil {
+				return err
+			}
+			t.rest = append(t.rest, nodes...)
+			t.rest = append(t.rest, isoRow{"ISO-4", "the instance metadata address", DialTarget{Address: metadataAddress, Port: metadataPort}})
+			j.targets[region.ID] = t
+			rows := []string{"B DNS Service " + t.bService.String(), "B DNS Pod " + t.bPod.String()}
+			for _, r := range t.rest {
+				rows = append(rows, r.what+" "+r.to.String())
+			}
+			ev["targets"] = rows
+			return nil
+		}) && ok
+	}
+	return ok
+}
+
+// isoClusterIP is the ClusterIP of the Service t in the region of host. The
+// Service must have a ready endpoint: without one nothing listens, and a
+// timeout would prove nothing.
+func isoClusterIP(ctx context.Context, host *Dialer, t DialTarget) (string, error) {
+	out, err := host.Kubectl(host.Region, ctx, nil, "-n", t.Namespace, "get", "service", t.Service, "-o", "jsonpath={.spec.clusterIP}")
+	if err != nil {
+		return "", err
+	}
+	ip := strings.TrimSpace(string(out))
+	if net.ParseIP(ip) == nil {
+		return "", fmt.Errorf("the Service %s/%s of region %s has no ClusterIP (%q)", t.Namespace, t.Service, host.Region.ID, ip)
+	}
+	n, err := host.ReadyEndpoints(ctx, t)
+	if err != nil {
+		return "", err
+	}
+	if n == 0 {
+		return "", fmt.Errorf("the Service %s/%s of region %s has no ready endpoint: nothing listens, so a timeout would prove nothing", t.Namespace, t.Service, host.Region.ID)
+	}
+	return ip, nil
+}
+
+// isoDNSPod is the address and the TCP port of a ready endpoint of the DNS
+// Service of a vCluster, read through its kubeconfig.
+func isoDNSPod(ctx context.Context, k kubectlFunc, r kube.Region) (DialTarget, error) {
+	out, err := k(r, ctx, nil, "-n", "kube-system", "get", "endpointslices", "-l", "kubernetes.io/service-name=kube-dns", "-o", "json")
+	if err != nil {
+		return DialTarget{}, err
+	}
+	var list struct {
+		Items []struct {
+			Endpoints []struct {
+				Addresses  []string `json:"addresses"`
+				Conditions struct {
+					Ready *bool `json:"ready"`
+				} `json:"conditions"`
+			} `json:"endpoints"`
+			Ports []struct {
+				Name     string `json:"name"`
+				Port     *int   `json:"port"`
+				Protocol string `json:"protocol"`
+			} `json:"ports"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(out, &list); err != nil {
+		return DialTarget{}, fmt.Errorf("the EndpointSlices of the DNS Service of %s are not JSON: %v", r.ID, err)
+	}
+	for _, s := range list.Items {
+		// The port named dns-tcp; else the first TCP port (the Service also has a metrics port).
+		port := 0
+		for _, p := range s.Ports {
+			if p.Port != nil && (p.Protocol == "TCP" || p.Protocol == "") && (port == 0 || p.Name == "dns-tcp") {
+				port = *p.Port
+			}
+		}
+		for _, e := range s.Endpoints {
+			if port > 0 && len(e.Addresses) > 0 && (e.Conditions.Ready == nil || *e.Conditions.Ready) {
+				return DialTarget{Address: e.Addresses[0], Port: port}, nil
+			}
+		}
+	}
+	return DialTarget{}, fmt.Errorf("the DNS Service of %s has no ready endpoint on a TCP port", r.ID)
+}
+
+// isoNodes are the rows of port 10250 of every Ready node of a region.
+func isoNodes(ctx context.Context, k kubectlFunc, region kube.Region) ([]isoRow, error) {
+	out, err := k(region, ctx, nil, "get", "nodes", "-o", "json")
+	if err != nil {
+		return nil, err
+	}
+	var list kube.List
+	if err := json.Unmarshal(out, &list); err != nil {
+		return nil, fmt.Errorf("the nodes of region %s are not JSON: %v", region.ID, err)
+	}
+	var rows []isoRow
+	for _, n := range list.Items {
+		if st, _, _, _ := n.Condition("Ready"); st != "True" {
+			continue
+		}
+		for _, a := range n.Objects("status", "addresses") {
+			if a.Str("type") == "InternalIP" && net.ParseIP(a.Str("address")) != nil {
+				rows = append(rows, isoRow{"ISO-4", "the kubelet of the node " + n.Name(), DialTarget{Address: a.Str("address"), Port: isoKubeletPort}})
+				break
+			}
+		}
+	}
+	if len(rows) == 0 {
+		return nil, fmt.Errorf("region %s has no Ready node with an InternalIP", region.ID)
+	}
+	return rows, nil
+}
+
+// rowsFor are the deny rows of ISO-2 to ISO-4 of the Pod of A in region i.
+func (j *isoJourney) rowsFor(i int) []isoRow {
+	region, peer := j.cc.Regions[i], j.cc.Regions[(i+1)%len(j.cc.Regions)]
+	t := j.targets[region.ID]
+	rows := []isoRow{
+		{"ISO-2", "the DNS Service of B in region " + region.ID, t.bService},
+		{"ISO-2", "a DNS Pod of B in region " + region.ID, t.bPod},
+		{"ISO-2", "a DNS Pod of B in the peer region " + peer.ID, j.targets[peer.ID].bPod},
+	}
+	return append(rows, t.rest...)
+}
+
+// dial records one row from the dial Pod of o in region.
+func (j *isoJourney) dial(ctx context.Context, region kube.Region, o *isoOrg, r isoRow, expect string) bool {
+	src := DialSource{Namespace: j.ns}
+	return j.step(fmt.Sprintf("%s in region %s: the Pod of %s to %s (%s) is %s", r.iso, region.ID, o.label, r.what, r.to, expect), func(ev Evidence) error {
+		ev["iso"], ev["region"], ev["from"], ev["to"], ev["target"], ev["expect"] = r.iso, region.ID, o.label+" "+j.ns, r.to.String(), r.what, expect
+		res, err := o.vc[region.ID].dialer.Dial(ctx, src, r.to)
+		if err != nil {
+			return err
+		}
+		ev["control"], ev["observed"], ev["output"] = res.Control, res.Outcome, res.Output
+		return judgeDial(DialRow{Name: r.iso, From: src, To: r.to, Expect: expect}, res)
+	})
+}
+
+// dials are ISO-2 to ISO-5: first the rows of B that must connect, then the rows of A that must time out.
+func (j *isoJourney) dials(ctx context.Context) {
+	for _, region := range j.cc.Regions {
+		t := j.targets[region.ID]
+		j.dial(ctx, region, j.b, isoRow{"ISO-2", "its own DNS Service", t.bService}, "allow")
+		j.dial(ctx, region, j.b, isoRow{"ISO-2", "its own DNS Pod", t.bPod}, "allow")
+	}
+	internet := DialTarget{Address: isoInternet, Port: isoInternetPort}
+	for i, region := range j.cc.Regions {
+		for _, r := range j.rowsFor(i) {
+			j.dial(ctx, region, j.a, r, "deny")
+		}
+		j.dial(ctx, region, j.a, isoRow{"ISO-5", "an internet address that no Application of A declares", internet}, "deny")
+	}
+}
+
+// isoAllowAllPolicy is the NetworkPolicy of ISO-6.
+func isoAllowAllPolicy(ns string) map[string]any {
+	return map[string]any{"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy",
+		"metadata": map[string]any{"name": isoAllowAll, "namespace": ns},
+		"spec": map[string]any{"podSelector": map[string]any{}, "policyTypes": []string{"Ingress", "Egress"},
+			"ingress": []any{map[string]any{}}, "egress": []any{map[string]any{}}}}
+}
+
+// allowAll is ISO-6.
+func (j *isoJourney) allowAll(ctx context.Context) {
+	internet := DialTarget{Address: isoInternet, Port: isoInternetPort}
+	for i, region := range j.cc.Regions {
+		v := j.a.vc[region.ID]
+		if !j.step("ISO-6: A creates the NetworkPolicy "+isoAllowAll+" (every Pod, all ingress, all egress) in "+j.ns+" of its vCluster in region "+region.ID, func(ev Evidence) error {
+			b, err := json.Marshal(isoAllowAllPolicy(j.ns))
+			if err != nil {
+				return err
+			}
+			ev["region"], ev["policy"] = region.ID, string(b)
+			_, err = j.vcKubectl(v)(v.region, ctx, bytes.NewReader(b), "-n", j.ns, "create", "-f", "-")
+			return err
+		}) {
+			continue
+		}
+		if !j.step("ISO-6 in region "+region.ID+": the Pod of A reaches "+internet.String()+" once the policy is synced (allow): the policy took effect", func(ev Evidence) error {
+			src := DialSource{Namespace: j.ns}
+			var res DialResult
+			_, err := poll(ctx, j.c.waits.policy, j.c.waits.every, func() (bool, string, error) {
+				var err error
+				if res, err = v.dialer.Dial(ctx, src, internet); err != nil {
+					return false, "", err
+				}
+				return res.Control == DialConnected && res.Outcome == DialConnected, "control " + res.Control + ", target " + res.Outcome, nil
+			})
+			ev["region"], ev["to"], ev["control"], ev["observed"], ev["output"] = region.ID, internet.String(), res.Control, res.Outcome, res.Output
+			if err != nil {
+				return fmt.Errorf("the policy did not take effect, or the Sovereign has no internet egress, so ISO-6 would measure nothing: %v", err)
+			}
+			return nil
+		}) {
+			continue
+		}
+		for _, r := range j.rowsFor(i) {
+			r.iso = "ISO-6 (" + r.iso + ")"
+			j.dial(ctx, region, j.a, r, "deny")
+		}
+	}
+}
+
+// install starts ISO-9: an Application in the first Environment of A.
+func (j *isoJourney) install(ctx context.Context) {
+	region := j.cc.Regions[0]
+	j.app.name = "iso-app-" + j.tag
+	j.step("ISO-9: the Application "+j.app.name+" of "+isoBlueprint+" (topology singleton, region "+region.ID+") is installed in the first Environment of A (POST /catalyst/v1/apps/instances)", func(ev Evidence) error {
+		env := ""
+		_, err := poll(ctx, j.c.waits.org, j.c.waits.every, func() (bool, string, error) {
+			var v struct {
+				Environments []struct {
+					Name string `json:"name"`
+				} `json:"environments"`
+			}
+			if _, err := j.cc.API.Get(ctx, "/api/v1/refs/organizations/"+url.PathEscape(j.a.slug)+"/environments", &v); err != nil {
+				return false, err.Error(), nil
+			}
+			if len(v.Environments) == 0 {
+				return false, "A has no Environment yet", nil
+			}
+			env = v.Environments[0].Name
+			return true, "", nil
+		})
+		if err != nil {
+			return err
+		}
+		body := map[string]any{"blueprint": isoBlueprint, "org": j.a.slug, "environment": env, "name": j.app.name,
+			"topology": "singleton", "placement": map[string]any{"regions": []string{region.ID}}}
+		ev["request"] = body
+		res, err := j.cc.API.Do(ctx, "POST", "/catalyst/v1/apps/instances", body)
+		if err != nil {
+			return err
+		}
+		ev["http"] = res.Status
+		j.app.created = res.Status >= 200 && res.Status < 300
+		if res.Status != 201 {
+			return fmt.Errorf("HTTP %d (want 201): %s", res.Status, trunc(string(res.Body), 300))
+		}
+		return nil
+	})
+}
+
+func (j *isoJourney) appsPath() string {
+	dep := ""
+	if j.cc.Deploy != nil {
+		dep = j.cc.Deploy.ID
+	}
+	return "/api/v1/sovereigns/" + url.PathEscape(dep) + "/applications"
+}
+
+// answers ends ISO-9: the Application is Ready and answers through the gateway.
+func (j *isoJourney) answers(ctx context.Context) {
+	if !j.app.created {
+		return
+	}
+	if !j.step("ISO-9: the Application "+j.app.name+" is Ready and has an endpoint (GET /api/v1/sovereigns/{id}/applications/{name}, GET /catalyst/v1/apps/{uid}/endpoints)", func(ev Evidence) error {
+		if j.cc.Deploy == nil || j.cc.Deploy.ID == "" {
+			return errors.New("the run names no deployment, so the Application cannot be read")
+		}
+		_, err := poll(ctx, j.c.waits.app, j.c.waits.every, func() (bool, string, error) {
+			if j.app.namespace == "" {
+				var list struct {
+					Items []struct{ Name, Namespace string } `json:"items"`
+				}
+				if _, err := j.cc.API.Get(ctx, j.appsPath(), &list); err != nil {
+					return false, err.Error(), nil
+				}
+				for _, a := range list.Items {
+					if a.Name == j.app.name {
+						j.app.namespace = a.Namespace
+					}
+				}
+				if j.app.namespace == "" {
+					return false, "the Application is not listed yet", nil
+				}
+			}
+			var a appView
+			if _, err := j.cc.API.Get(ctx, j.appsPath()+"/"+url.PathEscape(j.app.name)+"?namespace="+url.QueryEscape(j.app.namespace), &a); err != nil {
+				return false, err.Error(), nil
+			}
+			j.app.uid = a.UID
+			if st, why := a.ready(); st != "True" {
+				return false, "Ready=" + st + " " + why, nil
+			}
+			var eps struct {
+				Items []struct {
+					Hostname      string `json:"hostname"`
+					LaunchDefault bool   `json:"launchDefault"`
+				} `json:"items"`
+			}
+			if _, err := j.cc.API.Get(ctx, "/catalyst/v1/apps/"+url.PathEscape(j.app.uid)+"/endpoints", &eps); err != nil {
+				return false, err.Error(), nil
+			}
+			for _, e := range eps.Items {
+				if e.Hostname != "" && (e.LaunchDefault || j.app.fqdn == "") {
+					j.app.fqdn = e.Hostname
+				}
+			}
+			return j.app.fqdn != "", fmt.Sprintf("Ready, %d endpoints", len(eps.Items)), nil
+		})
+		ev["namespace"], ev["uid"], ev["fqdn"] = j.app.namespace, j.app.uid, j.app.fqdn
+		return err
+	}) {
+		return
+	}
+	j.step("ISO-9: the Application of A answers https://"+j.app.fqdn+"/ through the gateway with HTTP 200 and a WordPress page", func(ev Evidence) error {
+		_, err := poll(ctx, j.c.waits.app, j.c.waits.every, func() (bool, string, error) {
+			p, err := j.c.fetch(ctx, j.app.fqdn)
+			if err != nil {
+				return false, err.Error(), nil
+			}
+			ev["status"], ev["final_url"] = p.Status, p.FinalURL
+			configured, _ := wordpress.IsConfiguredHome(p)
+			return p.Status == 200 && (configured || wordpress.NeedsInstall(p)), fmt.Sprintf("HTTP %d at %s", p.Status, p.FinalURL), nil
+		})
+		return err
+	})
+}
+
+// cleanup ends the port forwards and deletes the Application and the Organizations that the check created.
+func (j *isoJourney) cleanup(ctx context.Context) {
+	for _, o := range j.orgs() {
+		for _, v := range o.vc {
+			v.stop()
+		}
+	}
+	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), j.c.waits.gone+5*time.Minute)
+	defer cancel()
+	if j.app.created {
+		j.step("ISO-9: the Application "+j.app.name+" is deleted (DELETE /api/v1/sovereigns/{id}/applications/{name})", func(ev Evidence) error {
+			path := j.appsPath() + "/" + url.PathEscape(j.app.name)
+			if j.app.namespace != "" {
+				path += "?namespace=" + url.QueryEscape(j.app.namespace)
+			}
+			res, err := j.cc.API.Do(cctx, "DELETE", path, nil)
+			if err != nil {
+				return err
+			}
+			ev["http"] = res.Status
+			if res.Status < 200 || res.Status > 299 {
+				return fmt.Errorf("HTTP %d: %s", res.Status, trunc(string(res.Body), 300))
+			}
+			return nil
+		})
+	}
+	var gone []string
+	for _, o := range j.orgs() {
+		if !o.created {
+			continue
+		}
+		if j.step("ISO: Organization "+o.label+" ("+o.slug+") is deleted (DELETE /api/v1/organizations/{id})", func(ev Evidence) error {
+			if o.id == "" {
+				return errors.New("the create answered no id, so the Organization cannot be deleted through the API")
+			}
+			res, err := j.cc.API.Do(cctx, "DELETE", "/api/v1/organizations/"+url.PathEscape(o.id), nil)
+			if err != nil {
+				return err
+			}
+			ev["id"], ev["http"] = o.id, res.Status
+			if res.Status < 200 || res.Status > 299 {
+				return fmt.Errorf("HTTP %d: %s", res.Status, trunc(string(res.Body), 300))
+			}
+			if o.namespace == "" {
+				return errors.New("deleted, but the create answered no tenant_namespace, so no host namespace can be awaited")
+			}
+			return nil
+		}) {
+			gone = append(gone, o.namespace)
+		}
+	}
+	if len(gone) == 0 {
+		return
+	}
+	j.step("ISO: the host namespaces "+strings.Join(gone, " and ")+" are gone in every region", func(ev Evidence) error {
+		_, err := poll(cctx, j.c.waits.gone, j.c.waits.every, func() (bool, string, error) {
+			var left []string
+			for _, region := range j.cc.Regions {
+				for _, ns := range gone {
+					out, err := j.c.kubectl(region, cctx, nil, "get", "namespace", ns, "--ignore-not-found", "-o", "name")
+					if err != nil {
+						return false, err.Error(), nil
+					}
+					if strings.TrimSpace(string(out)) != "" {
+						left = append(left, ns+" in "+region.ID)
+					}
+				}
+			}
+			ev["left"] = left
+			return len(left) == 0, "left: " + strings.Join(left, ", "), nil
+		})
+		return err
+	})
+}
+
+// portForward starts `kubectl port-forward` to port of the Service and
+// returns the local address that kubectl prints. The forward ends when stop
+// is called.
+func portForward(ctx context.Context, region kube.Region, namespace, service string, port int) (string, func(), error) {
+	bin := region.Kubectl
+	if bin == "" {
+		bin = "kubectl"
+	}
+	args := []string{"-n", namespace, "port-forward", "service/" + service, ":" + strconv.Itoa(port)}
+	if region.Kubeconfig != "" {
+		args = append([]string{"--kubeconfig", region.Kubeconfig}, args...)
+	}
+	fctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	cmd := exec.CommandContext(fctx, bin, args...) //nolint:gosec // G204: the kubectl of the region, with arguments of the check
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		cancel()
+		return "", nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		cancel()
+		return "", nil, fmt.Errorf("[%s] kubectl port-forward %s/%s: %v", region.ID, namespace, service, err)
+	}
+	stop := func() {
+		cancel()
+		_ = cmd.Wait()
+	}
+	found := make(chan string, 1)
+	go func() {
+		addr := ""
+		sc := bufio.NewScanner(out)
+		for sc.Scan() {
+			if m := forwardRE.FindStringSubmatch(sc.Text()); m != nil && addr == "" {
+				addr = m[1]
+				found <- addr
+			}
+		}
+		if addr == "" {
+			found <- ""
+		}
+	}()
+	select {
+	case addr := <-found:
+		if addr != "" {
+			return addr, stop, nil
+		}
+		stop()
+		return "", nil, fmt.Errorf("[%s] kubectl port-forward %s/%s ended before it printed its local address: %s", region.ID, namespace, service, strings.TrimSpace(stderr.String()))
+	case <-time.After(isoForwardWait):
+		stop()
+		return "", nil, fmt.Errorf("[%s] kubectl port-forward %s/%s printed no local address in %s: %s", region.ID, namespace, service, isoForwardWait, strings.TrimSpace(stderr.String()))
+	}
+}
+
+// fetchHome reads https://<host>/ through the gateway, without checking the certificate.
+func fetchHome(ctx context.Context, host string) (*wordpress.Page, error) {
+	return wordpress.New(host, true).Get(ctx, "/")
+}
