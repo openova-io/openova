@@ -182,3 +182,4 @@ products/axon/chart/templates/valkey-service.yaml
 products/axon/chart/templates/ingress.yaml
 products/axon/chart/templates/token-refresh-cronjob.yaml
 products/axon/scripts
+products/catalyst/bootstrap/ui/scripts/build-catalog.mjs

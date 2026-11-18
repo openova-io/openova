@@ -1,24 +1,19 @@
 name: check — generated catalog is in sync (#5520)
 
-# The committed `blueprints.json` + `catalog.generated.ts` are BUILD OUTPUT:
-# `npm run build` in products/catalyst/bootstrap/ui runs a `prebuild` step
-# that regenerates them from the blueprint sources. When the committed copies
-# drift from what the generator produces, every PR that runs a real build
-# carries a spurious diff, and authors either commit unrelated churn or revert
-# it by hand. The revert path was the common one, which is exactly how the
-# 508-line drift in #5520 accumulated unnoticed — and it broke StepComponents
-# tests that then read as "pre-existing and unrelated".
+# The committed `blueprints.json` + `catalog.generated.ts` are GENERATED:
+# `python3 scripts/generate-catalog.py` writes them from every
+# platform/<name>/blueprint.yaml, products/<name>/blueprint.yaml and
+# bootstrap-kit slot. The pull request that changes one of those inputs runs
+# the generator and commits both files; nothing edits them by hand.
 #
-# This gate makes the drift impossible to accumulate silently: regenerate, and
-# fail if the working tree changed. It is the mechanical enforcement of
-# "generated files are committed in sync", the same shape as the repo's other
-# drift guards (cluster-template-drift, check-catalog-seed-lockstep).
+# This gate makes drift impossible to accumulate silently (the 508-line drift
+# of #5520): `--check` regenerates in memory and fails when a committed file
+# differs. It runs on pull requests, merge groups and every push to main.
 #
 # Prerequisite that makes this gate meaningful: the generator is DETERMINISTIC.
-# `generatedAt` used to be a wall-clock stamp, so a rebuild of identical input
-# always produced a diff and a gate like this could never have gone green.
-# build-catalog.mjs now preserves the prior stamp when the content is
-# unchanged, so `generatedAt` marks when the catalog CONTENT last changed.
+# `generatedAt` keeps the committed stamp while the content is unchanged, so it
+# marks when the catalog CONTENT last changed; the last step proves two runs
+# write the same bytes.
 
 on:
   pull_request:
@@ -26,17 +21,19 @@ on:
       - 'platform/*/blueprint.yaml'
       - 'products/*/blueprint.yaml'
       - 'clusters/_template/bootstrap-kit/**'
-      - 'products/catalyst/bootstrap/ui/scripts/build-catalog.mjs'
+      - 'scripts/generate-catalog.py'
+      - 'scripts/tests/test_generate_catalog.py'
       - 'products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts'
       - 'products/catalyst/bootstrap/api/internal/catalog/blueprints.json'
       - '.github/workflows/check-catalog-generated-drift.yaml'
+  merge_group:
   push:
     branches: [main]
     paths:
       - 'platform/*/blueprint.yaml'
       - 'products/*/blueprint.yaml'
       - 'clusters/_template/bootstrap-kit/**'
-      - 'products/catalyst/bootstrap/ui/scripts/build-catalog.mjs'
+      - 'scripts/generate-catalog.py'
       - 'products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts'
       - 'products/catalyst/bootstrap/api/internal/catalog/blueprints.json'
   workflow_dispatch:
@@ -48,42 +45,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-python@v5
         with:
-          node-version: '22'
+          python-version: '3.12'
 
-      - name: Regenerate the catalog
-        working-directory: products/catalyst/bootstrap/ui
-        run: node scripts/build-catalog.mjs
+      - name: Install PyYAML
+        run: pip install --quiet pyyaml
 
-      - name: Prove the generator is deterministic (run it twice)
-        working-directory: products/catalyst/bootstrap/ui
+      - name: Test the generator
         run: |
           set -euo pipefail
-          cp ../api/internal/catalog/blueprints.json /tmp/first.json
-          node scripts/build-catalog.mjs
-          if ! diff -q /tmp/first.json ../api/internal/catalog/blueprints.json >/dev/null; then
-            echo "::error::build-catalog.mjs is NOT deterministic — two consecutive runs on identical input produced different output."
-            diff -u /tmp/first.json ../api/internal/catalog/blueprints.json | head -40 || true
+          python3 scripts/generate-catalog.py --self-test
+          python3 scripts/tests/test_generate_catalog.py
+
+      - name: Fail if the committed generated files drifted
+        run: python3 scripts/generate-catalog.py --check
+
+      - name: Prove the generator is deterministic (run it twice)
+        run: |
+          set -euo pipefail
+          python3 scripts/generate-catalog.py --dry-run "$RUNNER_TEMP/first"
+          python3 scripts/generate-catalog.py --dry-run "$RUNNER_TEMP/second"
+          if ! diff -r "$RUNNER_TEMP/first" "$RUNNER_TEMP/second"; then
+            echo "::error::scripts/generate-catalog.py is NOT deterministic — two consecutive runs on identical input produced different output."
             exit 1
           fi
           echo "deterministic: two consecutive runs are byte-identical"
-
-      - name: Fail if the committed generated files drifted
-        run: |
-          set -euo pipefail
-          if ! git diff --quiet -- \
-              products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts \
-              products/catalyst/bootstrap/api/internal/catalog/blueprints.json; then
-            echo "::error::The committed generated catalog is stale (#5520). Run 'node scripts/build-catalog.mjs' in products/catalyst/bootstrap/ui and COMMIT the result — do not revert it."
-            echo ""
-            echo "Drift:"
-            git --no-pager diff --stat -- \
-              products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts \
-              products/catalyst/bootstrap/api/internal/catalog/blueprints.json
-            git --no-pager diff -- \
-              products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts \
-              products/catalyst/bootstrap/api/internal/catalog/blueprints.json | head -80
-            exit 1
-          fi
-          echo "generated catalog is in sync with build-catalog.mjs"

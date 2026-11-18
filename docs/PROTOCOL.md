@@ -526,7 +526,7 @@ Every ticket carries these lines at its head, word for word.
 1. Do one work package at a time. Its ticket is the whole specification.
 2. Before you change anything, run the precondition and every pre-flight command. If any output differs from the ticket, stop this package and file the wrong report.
 3. Change only files under "Allowed paths". If the work needs any other file, stop this package and file the wrong report.
-4. Never edit a chart `version:`, an `appVersion:`, a slot pin, a catalogue pin or an image tag line. CI writes them. If your ticket changes a `blueprint.yaml` or a slot file, run `node scripts/build-catalog.mjs` in `products/catalyst/bootstrap/ui` and commit the two files it writes; do not edit them by hand.
+4. Never edit a chart `version:`, an `appVersion:`, a slot pin, a catalogue pin or an image tag line. CI writes them. If your ticket changes a `blueprint.yaml` or a slot file, run `python3 scripts/generate-catalog.py` from the repository root and commit the two files it writes; do not edit them by hand.
 5. Never edit `docs/ledger/plan.yaml`, `docs/ledger/stability.yaml` or any file under `docs/adr/`, unless the ticket lists that exact file. In `docs/ledger/gates.yaml` change only the lines the ticket quotes.
 6. Make no design decision. If the ticket does not say which of two things to do, stop this package and file the wrong report.
 7. Do not rename, move, reformat or "clean up" anything the ticket does not name.

@@ -190,7 +190,6 @@ SEED_REL = "products/catalyst/chart/templates/catalog-seed/blueprints.yaml"
 JSON_REL = "products/catalyst/bootstrap/api/internal/catalog/blueprints.json"
 TS_REL = "products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts"
 KIT_REL = "clusters/_template/bootstrap-kit"
-UI_REL = "products/catalyst/bootstrap/ui"
 FUNNEL_REL = "core/services/provisioning/gitops/helmrelease_apps.go"
 FUNNEL_MODULE = "core/services/provisioning"
 FUNNEL_TEST = "TestDefaultHRAppPins_"
@@ -606,7 +605,7 @@ def read_blueprint_version(tree, path):
 def catalog_card_source(tree, path):
     """FND-029: the blueprint.yaml of `path` that the generated catalogue is built from, or None.
 
-    build-catalog.mjs reads platform/<name>/blueprint.yaml and
+    scripts/generate-catalog.py reads platform/<name>/blueprint.yaml and
     products/<name>/blueprint.yaml and nothing deeper; the card it writes carries
     that file's spec.version. A chart that keeps its blueprint.yaml in its chart
     folder (bp-continuum) or has none (the umbrella) has no card that follows its
@@ -772,9 +771,9 @@ def assert_sites(pushed, path, chart, want, expect, problems, funnel_slug=None):
 
 def assert_generated_in_sync(pushed, problems):
     """Site 4 — the #5520 gate, run against what landed on main."""
-    r = sh("node scripts/build-catalog.mjs", cwd=os.path.join(pushed, UI_REL), check=False)
+    r = sh("python3 scripts/generate-catalog.py", cwd=pushed, check=False)
     if r.returncode != 0:
-        problems.append("site 4 build-catalog.mjs failed:\n%s" % r.stdout)
+        problems.append("site 4 generate-catalog.py failed:\n%s" % r.stdout)
         return
     d = sh("git diff --stat -- %s %s" % (JSON_REL, TS_REL), cwd=pushed)
     if d.stdout.strip():
@@ -1486,7 +1485,7 @@ def run_case(name, case, keep, skip_slow, base):
                 sh("python3 scripts/sync-catalog-seed-pin.py %s %s --quiet" % (chart, want), cwd=work)
                 # The generated catalog too, so that the funnel pin is the ONLY site
                 # the release has left to move: it alone must drive the commit.
-                sh("node scripts/build-catalog.mjs", cwd=os.path.join(work, UI_REL))
+                sh("python3 scripts/generate-catalog.py", cwd=work)
                 moved = "Chart.yaml + blueprint.yaml + catalog-seed + generated catalog"
             if committed is None:
                 sh("git add -A", cwd=work)
@@ -1604,7 +1603,7 @@ def run_case(name, case, keep, skip_slow, base):
             if case["expect"]["seed"] == "literal":
                 need.append(SEED_REL)
             # FND-029: the generated catalogue moves with a release only for a
-            # chart whose blueprint.yaml build-catalog.mjs reads.
+            # chart whose blueprint.yaml generate-catalog.py reads.
             if catalog_card_source(pushed, case["path"]):
                 need += [JSON_REL, TS_REL]
             else:

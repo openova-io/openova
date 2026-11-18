@@ -36,7 +36,7 @@ on:
       - 'core/services/provisioning/gitops/helmrelease_apps.go'
       - 'scripts/check-bootstrap-kit-pin-sync.sh'
       - 'scripts/check-umbrella-republish-gate.py'
-      - 'products/catalyst/bootstrap/ui/scripts/build-catalog.mjs'
+      - 'scripts/generate-catalog.py'
       - 'products/catalyst/chart/templates/catalog-seed/blueprints.yaml'
       - 'clusters/_template/bootstrap-kit/**'
   push:
@@ -52,7 +52,7 @@ on:
       - 'core/services/provisioning/gitops/helmrelease_apps.go'
       - 'scripts/check-bootstrap-kit-pin-sync.sh'
       - 'scripts/check-umbrella-republish-gate.py'
-      - 'products/catalyst/bootstrap/ui/scripts/build-catalog.mjs'
+      - 'scripts/generate-catalog.py'
   workflow_dispatch:
 
 jobs:
@@ -61,12 +61,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      # node 22 = the pin the #5520 drift gate uses; build-catalog.mjs has zero
-      # npm dependencies, so no `npm ci` is needed.
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '22'
 
       # The harness runs the repo's own bootstrap-kit Go lockstep guards against
       # the tree the writer pushed — they are the guards that actually redden, so
