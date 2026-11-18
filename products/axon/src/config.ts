@@ -14,6 +14,18 @@ export interface Config {
   parkTtlMs: number;
   /** Longest single model step before 504. */
   stepTimeoutMs: number;
+  /** The simulation credential and its one owner (src/credential.ts). */
+  credential: CredentialConfig;
+}
+
+/** The document mounted by CSI (read once at start), where refreshed documents are written back
+ * (`<mount>/data/<path>` of OpenBao's KV store), the Kubernetes-auth role of that write, and the refresh margin. */
+export interface CredentialConfig {
+  file: string;
+  kvPath: string;
+  role: string;
+  openbaoAddr: string;
+  refreshMarginMs: number;
 }
 
 /** The start values. A Sovereign changes them through the environment, never here. */
@@ -26,6 +38,7 @@ export const DEFAULTS = {
   queueWaitMs: 30000,
   parkTtlMs: 600000,
   stepTimeoutMs: 1800000,
+  refreshMarginMs: 600000,
 } as const;
 
 const DEFAULT_MODEL_MAP = '{"sim-default":"claude-sonnet-4-6","sim-fast":"claude-haiku-4-5-20251001"}';
@@ -65,7 +78,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     queueWaitMs: int("AXON_QUEUE_WAIT_MS", DEFAULTS.queueWaitMs),
     parkTtlMs: int("AXON_PARK_TTL_MS", DEFAULTS.parkTtlMs),
     stepTimeoutMs: int("AXON_STEP_TIMEOUT_MS", DEFAULTS.stepTimeoutMs),
+    credential: {
+      file: env.AXON_CREDENTIAL_FILE || "/var/run/secrets/openova/model-credential",
+      kvPath: env.AXON_CREDENTIAL_KV_PATH || "mounted/data/axon/sa/axon/model-credential/e1",
+      role: env.AXON_CREDENTIAL_ROLE || "axon-credential",
+      openbaoAddr: (env.OPENBAO_ADDR || "http://openbao.openbao.svc.cluster.local:8200").replace(/\/+$/, ""),
+      refreshMarginMs: int("AXON_REFRESH_MARGIN_MS", DEFAULTS.refreshMarginMs),
+    },
   };
   if (config.adminPort === config.port) throw new Error("AXON_ADMIN_PORT must differ from AXON_PORT");
+  if (!/^[^/]+\/data\/[^/]/.test(config.credential.kvPath)) {
+    throw new Error("AXON_CREDENTIAL_KV_PATH must be <mount>/data/<path>");
+  }
   return config;
 }

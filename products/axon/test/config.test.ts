@@ -13,7 +13,21 @@ test("the defaults serve sim-default and sim-fast and need no caller key", () =>
     queueWaitMs: 30000,
     parkTtlMs: 600000,
     stepTimeoutMs: 1800000,
+    credential: {
+      file: "/var/run/secrets/openova/model-credential",
+      kvPath: "mounted/data/axon/sa/axon/model-credential/e1",
+      role: "axon-credential",
+      openbaoAddr: "http://openbao.openbao.svc.cluster.local:8200",
+      refreshMarginMs: 600000,
+    },
   });
+});
+
+test("the credential settings come from the environment, and the write-back path must be a KV data path", () => {
+  const env = { AXON_CREDENTIAL_FILE: "/f", AXON_CREDENTIAL_KV_PATH: "kv/data/a", AXON_CREDENTIAL_ROLE: "r", OPENBAO_ADDR: "http://b:8200/" };
+  assert.deepEqual(loadConfig({ ...env, AXON_REFRESH_MARGIN_MS: "5000" }).credential, { file: "/f", kvPath: "kv/data/a", role: "r", openbaoAddr: "http://b:8200", refreshMarginMs: 5000 });
+  assert.throws(() => loadConfig({ AXON_CREDENTIAL_KV_PATH: "kv/a" }), /AXON_CREDENTIAL_KV_PATH/);
+  assert.throws(() => loadConfig({ AXON_REFRESH_MARGIN_MS: "0" }), /AXON_REFRESH_MARGIN_MS/);
 });
 
 test("the model map and the park time come from the environment", () => {
