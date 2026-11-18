@@ -1493,6 +1493,7 @@ checks:
   needs: []
   proof: running
   asserts: Node host scans
+  implemented_by: INF-133
   delivered_by: INF-160
 - id: INF-G03
   title: Virtual machine by Git
