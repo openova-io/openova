@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T08:30:03Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-18T08:45:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7785](https://github.com/openova-io/openova/issues/7785) | SEC-103 Remove the SealedSecret templates from the guacamole and netbird charts | Other |
-| [#7792](https://github.com/openova-io/openova/issues/7792) | CLD-061 Crossplane 1.18 to 1.19 | Other |
 | [#7793](https://github.com/openova-io/openova/issues/7793) | CTL-331 The shared events package is Kafka-free | Other |
 | [#7794](https://github.com/openova-io/openova/issues/7794) | CTL-350 Applications views from the informer cache | Other |
 | [#7795](https://github.com/openova-io/openova/issues/7795) | The image build of main fails its console smoke test since 14 Nov 2026 07:40 UTC | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#8084](https://github.com/openova-io/openova/issues/8084) | INF-132 Chart templates for the operations controller | Other |
 | [#8086](https://github.com/openova-io/openova/issues/8086) | CLD-132 Remaining provider tests become injected inputs | Other |
 | [#8087](https://github.com/openova-io/openova/issues/8087) | SOV-146 The child Kustomizations of first boot are also files under clusters/_te | Other |
+| [#8092](https://github.com/openova-io/openova/issues/8092) | CLD-091 The local pack connects the meshes of its two regions | Other |
+| [#8099](https://github.com/openova-io/openova/issues/8099) | NET-098 The Hetzner storage node plugin is allowed to read instance metadata | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-18T08:34 | [#8091](https://github.com/openova-io/openova/pull/8091) | #7087 | docs(ledger): plan update |
+| 2026-11-18T08:38 | [#8089](https://github.com/openova-io/openova/pull/8089) | #7970 | refactor(providers): each provider module passes its own Flu |
 | 2026-11-18T08:01 | [#8088](https://github.com/openova-io/openova/pull/8088) | #7969 | test(provisioner): pin the variables the engine writes and t |
 | 2026-11-18T07:54 | [#8085](https://github.com/openova-io/openova/pull/8085) | #7087 | docs(ledger): plan update |
 | 2026-11-18T07:43 | [#8082](https://github.com/openova-io/openova/pull/8082) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-17T14:02 | [#8046](https://github.com/openova-io/openova/pull/8046) | #7087 | docs(ledger): plan update |
 | 2026-11-17T13:49 | [#8044](https://github.com/openova-io/openova/pull/8044) | #7816 | feat(fingate): internal authorisation API package with the t |
 | 2026-11-17T13:48 | [#8043](https://github.com/openova-io/openova/pull/8043) | #7852 | feat(ops-records): alert signal intake and the rule path tha |
-| 2026-11-17T13:50 | [#8042](https://github.com/openova-io/openova/pull/8042) | #7842 | test(charts): function tests for the policy, reloader, cross |
-| 2026-11-17T13:48 | [#8041](https://github.com/openova-io/openova/pull/8041) | #7853 | feat(ops-records): guard library agentguard with its adversa |
 
 ---
 
