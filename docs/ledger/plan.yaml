@@ -135,7 +135,7 @@ epics:
 - id: CLD-100
   title: 'Epic: the engine drives the port'
   wave: W1d
-  packages: [CLD-102, CLD-108, CLD-101, CLD-109, CLD-103, CLD-104, CLD-105, CLD-107, CLD-106]
+  packages: [CLD-102, CLD-108, CLD-101, CLD-109, CLD-103, CLD-104, CLD-105, CLD-106, CLD-107]
 - id: CLD-110
   title: 'Epic: handlers and controllers stop naming providers'
   wave: W1d
@@ -179,7 +179,7 @@ epics:
 - id: SOV-100
   title: 'EPIC: Upstream contract and born-local bootstrap'
   wave: W1b
-  packages: [SOV-110, SOV-130, SOV-131, SOV-150, SOV-133, SOV-140, SOV-160, SOV-135, SOV-143, SOV-141, SOV-180, SOV-120, SOV-181, SOV-190, SOV-121, SOV-134, SOV-142, SOV-151, SOV-161, SOV-175, SOV-183, SOV-132, SOV-182, SOV-170]
+  packages: [SOV-110, SOV-130, SOV-131, SOV-150, SOV-133, SOV-140, SOV-160, SOV-135, SOV-143, SOV-141, SOV-180, SOV-120, SOV-181, SOV-190, SOV-121, SOV-134, SOV-142, SOV-151, SOV-161, SOV-175, SOV-183, SOV-132, SOV-170, SOV-182]
 - id: SOV-200
   title: 'EPIC: Hand-over as a short ordered flip'
   wave: W1b
@@ -191,7 +191,7 @@ epics:
 - id: SOV-400
   title: 'EPIC: Ownership pivot and parent release'
   wave: W1b
-  packages: [SOV-405, SOV-410, SOV-420, SOV-430, SOV-440, SOV-435, SOV-436, SOV-437, SOV-450]
+  packages: [SOV-405, SOV-410, SOV-420, SOV-430, SOV-435, SOV-440, SOV-436, SOV-437, SOV-450]
 - id: SOV-500
   title: 'EPIC: Release channel and in-place upgrade'
   wave: W1b
@@ -203,7 +203,7 @@ epics:
 - id: SOV-700
   title: 'EPIC: Day-2 with the parent switched off'
   wave: W1b
-  packages: [SOV-750, SOV-760, SOV-765, SOV-720, SOV-740, SOV-725, SOV-710, SOV-726, SOV-730]
+  packages: [SOV-750, SOV-760, SOV-765, SOV-720, SOV-740, SOV-710, SOV-725, SOV-730, SOV-726]
 - id: SOV-800
   title: 'EPIC: Mothership mode and the child walk'
   wave: W1b
@@ -299,7 +299,7 @@ epics:
 - id: CMP-080
   title: 'Epic: decisions (waivers and remediation requests)'
   wave: W2
-  packages: [CMP-081, CMP-083, CMP-082, CMP-085]
+  packages: [CMP-081, CMP-082, CMP-083, CMP-085]
 - id: CMP-090
   title: 'Epic: scanner reports'
   wave: W2
@@ -4191,7 +4191,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [FND-151, SOV-510, CMP-150, CTL-038, FND-153]
-  after: [FND-011, FND-154, FND-155, SOV-175, SEC-010, SEC-103, SEC-104, SEC-105, NET-040, NET-097, NET-150, NET-221, SVC-040, SVC-041, SVC-150, CTL-151, CTL-320, CTL-346, CTL-347, INF-040, INF-050, INF-051, INF-052, INF-110, INF-133, ACC-050]
+  after: [FND-011, FND-154, FND-155, SOV-175, SEC-010, SEC-103, SEC-104, SEC-105, NET-040, NET-097, NET-150, NET-221, CTL-151, CTL-320, CTL-346, CTL-347, INF-050, INF-051, INF-052, INF-110, INF-133, ACC-050]
   touches:
   - platform/conformance/**
   - clusters/_template/bootstrap-kit/99-bp-conformance.yaml
@@ -14030,7 +14030,7 @@ packages:
   size: XS
   lane: CHARTS
   depends_on: [AIP-155, SEC-200, SEC-212]
-  after: [FND-011, SOV-143, SEC-073, SEC-095, SEC-096, SVC-040, BSS-040]
+  after: [FND-011, SOV-143, SEC-073, SEC-095, SEC-096, BSS-040]
   touches:
   - products/agenity/chart/**
   - scripts/secret-guard-baselines/*
@@ -14408,7 +14408,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-273, CMP-066]
-  after: [FND-011, NET-030, SVC-040, SVC-041, SVC-100]
+  after: [FND-011, NET-030, SVC-100]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml
   - platform/kyverno-policies/chart/templates/baseline/26-image-signature.yaml
@@ -18687,7 +18687,7 @@ packages:
   size: M
   lane: RAILS
   depends_on: [SVC-150]
-  after: [FND-206, FND-014, FND-028, FND-054, FND-059, FND-071, FND-077, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-030, CLD-061, CLD-062, CLD-064, CLD-070, CLD-076, CLD-080, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-108, CLD-109, CLD-112, CLD-113, CLD-114, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-020, SOV-030, SOV-035, SOV-131, SOV-135, SOV-141, SOV-160, SOV-161, SOV-175, SOV-180, SOV-181, SOV-183, SOV-190, SOV-220, SOV-241, SOV-320, SOV-336, SOV-337, SOV-338, SEC-010, SEC-080, SEC-100, SEC-103, SEC-104, SEC-105, SEC-110, SEC-150, SEC-161, NET-011, NET-030, NET-032, NET-040, NET-041, NET-050, NET-070, NET-071, NET-072, NET-080, NET-095, NET-098, NET-102, NET-110, NET-125, NET-133, NET-135, NET-150, NET-170, NET-190, NET-212, NET-221, SVC-030, SVC-060, SVC-070, SVC-080, SVC-090, SVC-100, SVC-190, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-150, CTL-160, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-300, CTL-320, CTL-333, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CMP-016, CMP-020, CMP-030, CMP-073, BSS-020, BSS-040, BSS-141, AIP-040, AIP-041, AIP-101, AIP-102, AIP-108, AIP-120, AIP-150, AIP-221, AIP-222, AIP-224, AIP-229, INF-110, INF-112, INF-120, INF-130, INF-132, INF-135, INF-140, ACC-010, ACC-050, PRD-010, PRD-101, PRD-102, PRD-103, PRD-104, PRD-105, PRD-501, PRD-502, PRD-503, PRD-508, PRD-509, PRD-513, PRD-800]
+  after: [FND-206, FND-014, FND-028, FND-054, FND-059, FND-071, FND-077, FND-093, FND-094, FND-095, FND-096, FND-097, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-030, CLD-061, CLD-062, CLD-064, CLD-070, CLD-076, CLD-080, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-108, CLD-109, CLD-112, CLD-113, CLD-114, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-020, SOV-030, SOV-035, SOV-131, SOV-135, SOV-141, SOV-160, SOV-161, SOV-175, SOV-180, SOV-181, SOV-183, SOV-190, SOV-220, SOV-241, SOV-320, SOV-336, SOV-337, SOV-338, SEC-010, SEC-080, SEC-100, SEC-103, SEC-104, SEC-105, SEC-110, SEC-150, SEC-161, NET-011, NET-030, NET-032, NET-040, NET-041, NET-050, NET-070, NET-071, NET-072, NET-080, NET-095, NET-098, NET-102, NET-110, NET-125, NET-133, NET-135, NET-150, NET-170, NET-190, NET-212, NET-221, SVC-030, SVC-060, SVC-070, SVC-080, SVC-090, SVC-100, SVC-190, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-150, CTL-160, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-300, CTL-320, CTL-333, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CMP-016, CMP-030, CMP-073, BSS-020, BSS-040, BSS-141, AIP-040, AIP-041, AIP-101, AIP-102, AIP-108, AIP-120, AIP-221, AIP-222, AIP-224, AIP-229, INF-110, INF-112, INF-120, INF-130, INF-132, INF-135, INF-140, ACC-050, PRD-010, PRD-101, PRD-102, PRD-103, PRD-104, PRD-105, PRD-501, PRD-502, PRD-503, PRD-508, PRD-509, PRD-513, PRD-800]
   touches:
   - platform/*/blueprint.yaml
   - products/*/blueprint.yaml
@@ -23324,7 +23324,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-010, FND-080]
-  after: [FND-078, FND-011]
+  after: [FND-078, SVC-159, FND-011]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/compliance.go
   - products/catalyst/bootstrap/api/internal/handler/compliance_runtime.go
@@ -23373,7 +23373,7 @@ packages:
   size: S
   lane: CONSOLE
   depends_on: [CMP-020]
-  after: [FND-094, SOV-190, SVC-040]
+  after: [FND-094, SOV-190]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/admin/compliance/**
   - products/catalyst/bootstrap/ui/src/lib/compliance.api.ts
@@ -23443,7 +23443,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-020, CMP-030]
-  after: [SVC-040]
+  after: []
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/resolver.go
   - products/catalyst/bootstrap/api/internal/compliance/readmodel.go
@@ -23509,7 +23509,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [CMP-016, CMP-032, CMP-036, CMP-014]
-  after: [FND-011, SVC-040, SVC-041, CMP-073]
+  after: [FND-011, CMP-073]
   touches:
   - platform/kyverno-policies/chart/crds/compliancemodel.yaml
   - platform/kyverno-policies/chart/model/**
@@ -23547,7 +23547,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-041, CTL-035]
-  after: [SVC-040]
+  after: []
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
   - products/catalyst/bootstrap/api/internal/compliance/stream.go
@@ -23578,7 +23578,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CMP-045, CTL-360, FND-161]
-  after: [SOV-190, SVC-040]
+  after: [SOV-190]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/**
   - products/catalyst/bootstrap/ui/src/lib/useLiveQuery.ts
@@ -23611,7 +23611,7 @@ packages:
   size: S
   lane: CONSOLE
   depends_on: [CMP-052, CMP-072, CMP-093, CMP-101]
-  after: [SOV-190, SVC-040]
+  after: [SOV-190]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/admin/compliance/**
   - products/catalyst/bootstrap/ui/src/widgets/compliance/**
@@ -23646,7 +23646,7 @@ packages:
   size: XS
   lane: CHARTS
   depends_on: [CMP-012, CMP-014, CMP-020]
-  after: [FND-011, SVC-040, SVC-041]
+  after: [FND-011]
   touches:
   - platform/kyverno/chart/Chart.yaml
   - platform/kyverno/chart/values.yaml
@@ -23674,7 +23674,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [CMP-014, CMP-016, CMP-032, CMP-058, CMP-S1]
-  after: [FND-011, SVC-040, SVC-041]
+  after: [FND-011]
   touches:
   - platform/kyverno/chart/values.yaml
   - platform/kyverno/chart/templates/clusterpolicy-*.yaml
@@ -23706,7 +23706,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [CMP-061, CMP-073]
-  after: [FND-011, SVC-040, SVC-041, SVC-100]
+  after: [FND-011, SVC-100]
   touches:
   - platform/kyverno-policies/chart/templates/_helpers.tpl
   - platform/kyverno-policies/chart/tests/**
@@ -23734,7 +23734,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [CMP-062]
-  after: [FND-011, SVC-040, SVC-041, SVC-100]
+  after: [FND-011, SVC-100]
   touches:
   - platform/kyverno-policies/chart/tests/**
   - scripts/baselines/kyverno-legacy.json
@@ -23761,7 +23761,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [CMP-063]
-  after: [FND-011, SVC-040, SVC-041, SVC-100]
+  after: [FND-011, SVC-100]
   touches:
   - platform/kyverno-policies/chart/templates/rbac-*.yaml
   - platform/kyverno-policies/chart/tests/**
@@ -23789,7 +23789,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [CMP-064]
-  after: [FND-011, SVC-040, SVC-041, SVC-100]
+  after: [FND-011, SVC-100]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/21-app-label-mutate.yaml
   - platform/kyverno-policies/chart/templates/mutate/*.yaml
@@ -23818,7 +23818,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [CMP-065]
-  after: [FND-011, SVC-040, SVC-041]
+  after: [FND-011]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/16-hubble-flows-seen.yaml
   - platform/kyverno-policies/chart/templates/baseline/25-useraccess-boundary.yaml
@@ -23850,7 +23850,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CMP-041, CMP-S5, FND-038]
-  after: [FND-011, NET-170, SVC-040, SVC-041, AIP-041]
+  after: [FND-011, NET-170, AIP-041]
   touches:
   - core/controllers/organization/internal/gitops/manifests.go
   - core/controllers/organization/internal/gitops/testdata/**
@@ -23881,7 +23881,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [CMP-066, FND-151, SEC-275]
-  after: [FND-011, SVC-040, SVC-041]
+  after: [FND-011]
   touches:
   - platform/kyverno/chart/Chart.yaml
   - platform/kyverno/chart/values.yaml
@@ -23941,7 +23941,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-036, CMP-041, CMP-052, CMP-071, CMP-S6, CTL-045, CTL-160]
-  after: [FND-011, SOV-190, SVC-040, CTL-231, CTL-320, CTL-345, BSS-040, AIP-120]
+  after: [FND-011, SOV-190, CTL-231, CTL-320, CTL-345, BSS-040, AIP-120]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/mode.go
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
@@ -24080,7 +24080,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-016, CMP-045, CMP-071, CTL-160]
-  after: [FND-011, SVC-040, SVC-041, CTL-231, CTL-345, BSS-040, AIP-120]
+  after: [FND-011, CTL-231, CTL-345, BSS-040, AIP-120]
   touches:
   - platform/kyverno-policies/chart/crds/compliancedecision.yaml
   - platform/kyverno-policies/chart/templates/decision-admission.yaml
@@ -24115,7 +24115,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CMP-052, CMP-081, FND-161]
-  after: [SOV-190, SVC-040]
+  after: [SOV-190]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/DecisionsTab.tsx
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/DecisionDrawer.tsx
@@ -24146,7 +24146,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CMP-061, CMP-066, CMP-081, CMP-S1]
-  after: [SVC-040]
+  after: []
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/decisions/render.go
   - products/catalyst/bootstrap/api/internal/compliance/decisions/render_test.go
@@ -24177,7 +24177,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CMP-081, CMP-082]
-  after: [FND-011, SVC-040, SVC-041]
+  after: [FND-011]
   touches:
   - platform/kyverno-policies/chart/crds/compliancedecision.yaml
   - platform/kyverno-policies/chart/templates/decision-admission.yaml
@@ -24208,7 +24208,7 @@ packages:
   size: XS
   lane: CHARTS
   depends_on: [CMP-091]
-  after: [FND-011, SOV-337, SVC-040, SVC-041]
+  after: [FND-011, SOV-337]
   touches:
   - platform/trivy/chart/Chart.yaml
   - platform/trivy/chart/values.yaml
@@ -24235,7 +24235,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-016, CMP-045, CMP-S3]
-  after: [FND-011, SVC-040, SVC-041]
+  after: [FND-011]
   touches:
   - products/catalyst/bootstrap/api/internal/k8scache/kinds.go
   - products/catalyst/bootstrap/api/internal/k8scache/factory.go
@@ -24271,7 +24271,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CMP-091]
-  after: [FND-011, SVC-040, SVC-041]
+  after: [FND-011]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/adapters/configaudit.go
   - products/catalyst/bootstrap/api/internal/compliance/adapters/exposedsecret.go
@@ -24303,7 +24303,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CMP-052, CMP-091, CMP-092, FND-161]
-  after: [SOV-190, SVC-040]
+  after: [SOV-190]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/security/**
   - products/catalyst/bootstrap/ui/src/pages/sovereign/cloud-list/SBOMTab.tsx
@@ -24333,7 +24333,7 @@ packages:
   size: XS
   lane: CHARTS
   depends_on: [CMP-101]
-  after: [FND-011, SVC-040, SVC-041]
+  after: [FND-011]
   touches:
   - platform/falco/chart/Chart.yaml
   - platform/falco/chart/values.yaml
@@ -24360,7 +24360,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CMP-045, CMP-052, CMP-081, CMP-S2, CTL-045]
-  after: [FND-011, FND-088, SOV-190, SVC-040, SVC-041, CTL-320, AIP-111]
+  after: [FND-011, FND-088, SOV-190, CTL-320, AIP-111]
   touches:
   - platform/falco/chart/values.yaml
   - docs/contracts/C3-event-subjects.yaml
@@ -24401,7 +24401,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-016, CMP-045]
-  after: [FND-011, NET-030, SVC-040, SVC-041, CMP-073]
+  after: [FND-011, NET-030, CMP-073]
   touches:
   - products/catalyst/bootstrap/api/internal/k8scache/evaluators/evaluators.go
   - products/catalyst/bootstrap/api/internal/k8scache/evaluators/backup.go
@@ -24436,7 +24436,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CMP-052, CMP-111, NET-212]
-  after: [FND-011, SOV-190, SVC-040, SVC-041]
+  after: [FND-011, SOV-190]
   touches:
   - products/catalyst/bootstrap/api/internal/k8scache/evaluators/continuity.go
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
@@ -24468,7 +24468,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CMP-111]
-  after: [FND-011, SVC-040, SVC-041]
+  after: [FND-011]
   touches:
   - products/catalyst/bootstrap/api/internal/k8scache/evaluators/stability.go
   - products/catalyst/bootstrap/api/internal/k8scache/evaluators/certificate.go
@@ -24500,7 +24500,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [CMP-092, CMP-111]
-  after: [FND-011, SOV-337, SVC-040, SVC-041]
+  after: [FND-011, SOV-337]
   touches:
   - platform/kyverno-policies/chart/crds/compliancemodel.yaml
   - platform/kyverno-policies/chart/model/frameworks/*.yaml
@@ -24535,7 +24535,7 @@ packages:
   size: S
   lane: CONSOLE
   depends_on: [CMP-052, CMP-121, FND-161]
-  after: [SOV-190, SVC-040]
+  after: [SOV-190]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/FrameworksTab.tsx
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/FrameworkDetail.tsx
@@ -24565,7 +24565,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-123, CMP-131]
-  after: [SVC-040]
+  after: []
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/oscal.go
   - products/catalyst/bootstrap/api/internal/compliance/testdata/oscal/*.json
@@ -24599,7 +24599,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-045, CMP-052, CMP-071, CTL-045]
-  after: [FND-011, FND-088, SOV-190, SVC-040, SVC-041, CTL-300, CTL-320, AIP-111, AIP-120]
+  after: [FND-011, FND-088, SOV-190, CTL-300, CTL-320, AIP-111, AIP-120]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/snapshot.go
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
@@ -24637,7 +24637,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CMP-082, CMP-085, CMP-093, CMP-101, CMP-113, CMP-121, CMP-131, FND-038]
-  after: [SVC-040, CTL-223, AIP-120]
+  after: [CTL-223, AIP-120]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/orgroutes.go
   - products/catalyst/bootstrap/api/internal/compliance/orgroutes_test.go
@@ -24669,7 +24669,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CMP-091, CMP-101, CMP-111, CTL-150, FND-151]
-  after: [SOV-190, SVC-040]
+  after: [SOV-190]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/producers.go
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
@@ -24701,7 +24701,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CMP-150, CTL-320, CTL-231]
-  after: [SVC-040]
+  after: []
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/ClustersTab.tsx
@@ -24729,7 +24729,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CMP-092, SEC-095]
-  after: [FND-011, SVC-040, SVC-041]
+  after: [FND-011]
   touches:
   - platform/kyverno-policies/chart/model/checks.yaml
   - docs/ledger/gates.yaml
@@ -24815,7 +24815,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CMP-150, FND-203, FND-205]
-  after: [FND-011, SVC-040, SVC-041]
+  after: [FND-011]
   touches:
   - products/catalyst/bootstrap/api/internal/compliance/efficiency.go
   - platform/kyverno-policies/chart/model/model.yaml
@@ -27584,7 +27584,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [AIP-120]
-  after: [FND-011]
+  after: [SVC-159, FND-011]
   touches:
   - products/openova-mcp/README.md
   - products/openova-mcp/chart/Chart.yaml
@@ -27630,7 +27630,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [AIP-150]
-  after: [FND-011, SVC-040]
+  after: [FND-011]
   touches:
   - products/openova-mcp/internal/fit/**
   - products/openova-mcp/internal/tools/registry.go
@@ -27661,7 +27661,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [AIP-250, AIP-151]
-  after: [FND-011, SVC-040, AIP-101, AIP-102, AIP-108, AIP-111]
+  after: [FND-011, AIP-101, AIP-102, AIP-108, AIP-111]
   touches:
   - products/agenity/chart/templates/externalsecret-mcp-bearer.yaml
   - products/agenity/chart/templates/externalsecret-anthropic.yaml
@@ -27695,7 +27695,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [AIP-155]
-  after: [CLD-103, CLD-104, CLD-112, CLD-113, SOV-141, SOV-180, NET-071, SVC-040, CTL-040, CTL-223, CTL-231, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, CMP-020, AIP-101, AIP-102, AIP-108, AIP-111]
+  after: [CLD-103, CLD-104, CLD-112, CLD-113, SOV-141, SOV-180, NET-071, CTL-040, CTL-223, CTL-231, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, CMP-020, AIP-101, AIP-102, AIP-108, AIP-111]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/sovereign_mcp_bearer_seed.go
   - products/catalyst/bootstrap/api/internal/handler/sovereign_mcp_bearer_seed_test.go
@@ -32584,7 +32584,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [FND-034, FND-080]
-  after: [FND-011]
+  after: [SVC-159, FND-011]
   touches:
   - platform/oidc-gate/chart/templates/instances.yaml
   - platform/oidc-gate/chart/values.yaml
