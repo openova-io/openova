@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T18:15:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-11-18T18:30:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -308,6 +308,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-11-18T17:56 | [#8191](https://github.com/openova-io/openova/pull/8191) | #7087 | docs(ledger): plan update |
+| 2026-11-18T18:17 | [#8190](https://github.com/openova-io/openova/pull/8190) | #8186 | fix(plan): generated lines do not count toward a story size  |
 | 2026-11-18T17:47 | [#8188](https://github.com/openova-io/openova/pull/8188) | #7087 | docs(ledger): plan update |
 | 2026-11-18T17:29 | [#8187](https://github.com/openova-io/openova/pull/8187) | #7087 | docs(ledger): plan update |
 | 2026-11-18T17:07 | [#8185](https://github.com/openova-io/openova/pull/8185) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-18T11:56 | [#8156](https://github.com/openova-io/openova/pull/8156) | #7087 | docs(ledger): plan update |
 | 2026-11-18T11:43 | [#8154](https://github.com/openova-io/openova/pull/8154) | #7087 | docs(ledger): plan update |
 | 2026-11-18T16:23 | [#8153](https://github.com/openova-io/openova/pull/8153) | #8141 | refactor: one Python generator writes the embedded and conso |
-| 2026-11-18T16:15 | [#8152](https://github.com/openova-io/openova/pull/8152) | #8148 | feat(machine-operations): match the bills of materials of ma |
 
 ---
 
