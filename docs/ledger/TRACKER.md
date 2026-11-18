@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T07:45:04Z` |
+| Last refreshed | `2026-11-18T08:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7775](https://github.com/openova-io/openova/issues/7775) | FND-073 The gate runs twice against the standing environment once it carries the | Other |
-| [#7776](https://github.com/openova-io/openova/issues/7776) | SVC-040 Blueprint files move to apiVersion catalyst.openova.io/v1 | Other |
 | [#7785](https://github.com/openova-io/openova/issues/7785) | SEC-103 Remove the SealedSecret templates from the guacamole and netbird charts | Other |
 | [#7792](https://github.com/openova-io/openova/issues/7792) | CLD-061 Crossplane 1.18 to 1.19 | Other |
 | [#7793](https://github.com/openova-io/openova/issues/7793) | CTL-331 The shared events package is Kafka-free | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#8080](https://github.com/openova-io/openova/issues/8080) | CLD-102 Delete the dead Provision method of the provider port | Other |
 | [#8083](https://github.com/openova-io/openova/issues/8083) | AIP-150 The tool server accepts agent tokens | Other |
 | [#8084](https://github.com/openova-io/openova/issues/8084) | INF-132 Chart templates for the operations controller | Other |
+| [#8086](https://github.com/openova-io/openova/issues/8086) | CLD-132 Remaining provider tests become injected inputs | Other |
+| [#8087](https://github.com/openova-io/openova/issues/8087) | SOV-146 The child Kustomizations of first boot are also files under clusters/_te | Other |
 
 ---
 
@@ -307,7 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-18T07:54 | [#8085](https://github.com/openova-io/openova/pull/8085) | #7087 | docs(ledger): plan update |
 | 2026-11-18T07:43 | [#8082](https://github.com/openova-io/openova/pull/8082) | #7087 | docs(ledger): plan update |
+| 2026-11-18T07:48 | [#8081](https://github.com/openova-io/openova/pull/8081) | #7967 | test(providers): TestProviderPacks checks the seal hook of e |
 | 2026-11-18T07:16 | [#8078](https://github.com/openova-io/openova/pull/8078) | #7087 | docs(ledger): plan update |
 | 2026-11-18T07:26 | [#8076](https://github.com/openova-io/openova/pull/8076) | #7974 | chore: delete the flow server and the flow adapter with thei |
 | 2026-11-18T06:50 | [#8075](https://github.com/openova-io/openova/pull/8075) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-17T13:50 | [#8042](https://github.com/openova-io/openova/pull/8042) | #7842 | test(charts): function tests for the policy, reloader, cross |
 | 2026-11-17T13:48 | [#8041](https://github.com/openova-io/openova/pull/8041) | #7853 | feat(ops-records): guard library agentguard with its adversa |
 | 2026-11-17T13:30 | [#8038](https://github.com/openova-io/openova/pull/8038) | #8037 | docs(ledger): result of the lab test MIG-030 (MIG-030) |
-| 2026-11-17T13:21 | [#8034](https://github.com/openova-io/openova/pull/8034) | #7087 | docs(ledger): plan update |
-| 2026-11-17T13:20 | [#8033](https://github.com/openova-io/openova/pull/8033) | #7823 | chore(kit): remove bootstrap-kit slot 05, the Sealed Secrets |
 
 ---
 
