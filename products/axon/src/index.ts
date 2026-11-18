@@ -1,52 +1,107 @@
-import Fastify from "fastify";
-import { loadConfig } from "./config.js";
+import Fastify, { type FastifyInstance } from "fastify";
+import { pathToFileURL } from "node:url";
+import { type Config, loadConfig } from "./config.js";
 import { KitUpstream } from "./upstream.js";
-import { Turns } from "./turns.js";
+import { Turns, type TurnManager } from "./turns.js";
 import { modelsRoute } from "./routes/models.js";
 import { chatCompletionsRoute } from "./routes/chat-completions.js";
 import { refreshIfExpired, startPeriodicRefresh, stopPeriodicRefresh } from "./providers/token-refresh.js";
 
-const config = loadConfig();
-const app = Fastify({ logger: true });
-const turns = new Turns({ upstream: new KitUpstream(), modelMap: config.modelMap, parkTtlMs: config.parkTtlMs });
+/** The longest a SIGTERM may take before the process exits anyway. */
+export const SHUTDOWN_GRACE_MS = 10000;
 
-app.log.info(`Models: ${Object.keys(config.modelMap).join(", ")}`);
+/** model (AXON_PORT): /v1/* only, for meter pods. admin (AXON_ADMIN_PORT): /healthz, /health, /stats. */
+export interface Servers { model: FastifyInstance; admin: FastifyInstance; listen(host: string): Promise<void> }
 
-// Liveness — process-death detection. ALWAYS returns 200 when the
-// Fastify event loop is alive, independent of upstream state. Kubelet
-// kills the pod ONLY when this returns non-200, which happens only when
-// the JS event loop is stuck. Issue #2203 — without the liveness /
-// readiness split, an upstream TLS/DNS blip caused 97 restarts in 6h08m
-// on one Sovereign.
-app.get("/healthz", async () => ({ status: "alive" }));
+export async function servers(config: Config, turns: TurnManager, logger = false): Promise<Servers> {
+  const model = Fastify({ logger });
+  const admin = Fastify({ logger });
+  let up = false;
 
-// Readiness — kubelet uses this to gate traffic via the Service endpoint.
-app.get("/health", async () => ({ status: "ok" }));
+  // Liveness: 200 while the event loop runs, whatever the upstream state. Issue #2203: without
+  // the liveness / readiness split an upstream TLS/DNS blip caused 97 restarts in 6h08m.
+  admin.get("/healthz", async () => ({ status: "alive" }));
 
-// No caller keys: the network policy in front of Axon is the fence.
-await modelsRoute(app, config.modelMap);
-await chatCompletionsRoute(app, turns);
+  // Readiness — 200 once both listeners are up, whatever the credential state,
+  // so that callers receive the precise error body and not a connection error.
+  admin.get("/health", async (_request, reply) => (up ? { status: "ok" } : reply.code(503).send({ status: "starting" })));
 
-// Refresh the OAuth token; each conversation starts its own kit run
-app.log.info("Checking OAuth token...");
-const tokenOk = await refreshIfExpired();
-if (!tokenOk) {
-  app.log.warn("Token refresh failed — requests may fail to authenticate");
+  // No authentication: the network policy admits catalyst-api pods to this port and nothing else.
+  admin.get("/stats", async () => ({
+    // The credential owner reports its state here (package AIP-105).
+    credential: { state: "absent" },
+    turns: { ...turns.stats(), maxActive: config.maxActive, maxParked: config.maxParked },
+    counters: turns.counters(),
+  }));
+
+  // No caller keys: the network policy in front of Axon is the fence.
+  await modelsRoute(model, config.modelMap);
+  await chatCompletionsRoute(model, turns);
+
+  return {
+    model,
+    admin,
+    async listen(host: string) {
+      await model.listen({ port: config.port, host });
+      await admin.listen({ port: config.adminPort, host });
+      up = true;
+    },
+  };
 }
-startPeriodicRefresh();
 
-// Graceful shutdown: close every open run, then exit
-const shutdown = () => {
-  stopPeriodicRefresh();
-  void turns.shutdown().finally(() => process.exit(0));
-};
-process.on("SIGTERM", shutdown);
-process.on("SIGINT", shutdown);
-
-try {
-  await app.listen({ port: config.port, host: "0.0.0.0" });
-  app.log.info(`Axon gateway listening on port ${config.port}`);
-} catch (err) {
-  app.log.error(err);
-  process.exit(1);
+/** SIGTERM: stop accepting, close every chain (open requests get their error), exit; after graceMs exit anyway. */
+export async function stop(
+  s: Pick<Servers, "model" | "admin">,
+  turns: TurnManager,
+  exit: (code: number) => void,
+  graceMs = SHUTDOWN_GRACE_MS,
+): Promise<void> {
+  let exited = false;
+  const leave = (code: number) => {
+    if (exited) return;
+    exited = true;
+    clearTimeout(timer);
+    exit(code);
+  };
+  const timer = setTimeout(() => leave(1), graceMs);
+  try {
+    const closing = Promise.all([s.model.close(), s.admin.close()]);
+    await turns.shutdown();
+    await closing;
+  } finally {
+    leave(0);
+  }
 }
+
+async function main(): Promise<void> {
+  const config = loadConfig();
+  const turns = new Turns({ ...config, upstream: new KitUpstream() });
+  const s = await servers(config, turns, true);
+  const log = s.model.log;
+  log.info(`Models: ${Object.keys(config.modelMap).join(", ")}`);
+
+  // Refresh the OAuth token; each conversation starts its own kit run
+  if (!(await refreshIfExpired())) log.warn("Token refresh failed — requests may fail to authenticate");
+  startPeriodicRefresh();
+
+  let stopping = false;
+  const shutdown = () => {
+    if (stopping) return;
+    stopping = true;
+    stopPeriodicRefresh();
+    void stop(s, turns, (code) => process.exit(code));
+  };
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
+
+  try {
+    await s.listen("0.0.0.0");
+    log.info(`Axon listening on port ${config.port} (models) and ${config.adminPort} (admin)`);
+  } catch (err) {
+    log.error(err);
+    process.exit(1);
+  }
+}
+
+// Run only as the entry point: the tests import servers() and stop().
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) await main();
