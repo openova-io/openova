@@ -52,10 +52,6 @@ type stub5193Provider struct{}
 
 func (stub5193Provider) Name() string { return stub5193ProviderName }
 
-func (stub5193Provider) Provision(context.Context, providers.ProvisionSpec, chan<- providers.ProvisionEvent) (*providers.ProvisionResult, error) {
-	return &providers.ProvisionResult{}, nil
-}
-
 func (stub5193Provider) Wipe(_ context.Context, _ providers.WipeSpec, progress func(msg string)) (*providers.WipeResult, error) {
 	if progress != nil {
 		progress("stub5193 wipe invoked")

@@ -132,26 +132,6 @@ func TestProvider_ValidateCreds_AcceptsGoodAKSK(t *testing.T) {
 	}
 }
 
-// TestProvider_Provision_FailsCloseOnMissingCreds proves Provision
-// short-circuits before any tofu shell-out when creds are missing.
-// Wave 4 will add a fresh-prov walk against a real HCS endpoint; for
-// Wave 3 we assert the fail-close contract.
-func TestProvider_Provision_FailsCloseOnMissingCreds(t *testing.T) {
-	p := New()
-	events := make(chan providers.ProvisionEvent, 16)
-	_, err := p.Provision(context.Background(), providers.ProvisionSpec{
-		DeploymentID:  "deadbeefcafef00d",
-		SovereignFQDN: "t99.omani.works",
-		Regions: []providers.RegionSpec{
-			{Code: "me-east-215-a", Role: "primary"},
-		},
-		// Creds intentionally empty.
-	}, events)
-	if err == nil || !strings.Contains(err.Error(), "access_key is required") {
-		t.Fatalf("Provision should fail-close on missing creds; got %v", err)
-	}
-}
-
 // TestProvider_Wipe_IsIdempotent verifies that calling Wipe twice
 // against an already-empty Huawei project returns a clean
 // WipeResult both times (no errors, zero deletions).
