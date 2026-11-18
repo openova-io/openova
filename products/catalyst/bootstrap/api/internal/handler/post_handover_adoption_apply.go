@@ -111,7 +111,7 @@ func (h *Handler) runPostHandoverAdoptionApply(dep *Deployment) {
 
 	// 2. Regenerate the real-id CloudAdoption CRs (same pure generator the
 	//    provisioner already calls; re-running is deterministic).
-	region := strings.TrimSpace(dep.Request.HuaweiRegion)
+	region := strings.TrimSpace(dep.Request.Credential("region"))
 	if region == "" && len(dep.Request.Regions) > 0 {
 		region = strings.TrimSpace(dep.Request.Regions[0].CloudRegion)
 	}

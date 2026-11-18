@@ -65,8 +65,8 @@ func request(provider string) provisioner.Request {
 	}
 	switch provider {
 	case "huawei":
-		r.HuaweiAccessKey, r.HuaweiSecretKey = "test-huawei-access-key", "test-huawei-secret-key"
-		r.HuaweiProjectID, r.HuaweiRegion, r.ObjectStorageRegion = "test-huawei-project", "region-1", "region-1"
+		r.Credentials = map[string]string{"access_key": "test-huawei-access-key", "secret_key": "test-huawei-secret-key", "project_id": "test-huawei-project", "region": "region-1"}
+		r.ObjectStorageRegion = "region-1"
 		r.Regions = []provisioner.RegionSpec{
 			{Provider: "huawei", CloudRegion: "region-1-a", ControlPlaneSize: "m7n.large.8", WorkerSize: "m7n.xlarge.8", WorkerCount: 4, Code: "region-1-a", Role: "primary"},
 			{Provider: "huawei", CloudRegion: "region-1-b", ControlPlaneSize: "m7n.large.8", WorkerSize: "m7n.xlarge.8", WorkerCount: 3, Code: "region-1-b", Role: "secondary"},
@@ -74,8 +74,8 @@ func request(provider string) provisioner.Request {
 	default:
 		// The cloud profile of hetzner allows one region and a token of 64 characters or more.
 		r.BcpTopology = provisioner.BcpTopologySingleRegion
-		r.HetznerToken = "test-hetzner-token-" + strings.Repeat("0", 64)
-		r.HetznerProjectID, r.ObjectStorageRegion = "test-hetzner-project", "fsn1"
+		r.Credentials = map[string]string{"hcloud_token": "test-hetzner-token-" + strings.Repeat("0", 64), "hcloud_project_id": "test-hetzner-project"}
+		r.ObjectStorageRegion = "fsn1"
 		r.Regions = []provisioner.RegionSpec{
 			{Provider: "hetzner", CloudRegion: "fsn1", ControlPlaneSize: "cx43", WorkerSize: "cx53", WorkerCount: 3, Code: "fsn1", Role: "primary"},
 		}
@@ -151,10 +151,10 @@ func TestCredentialKeys(t *testing.T) {
 	pinEnv(t)
 	common := []string{"dynadot_key", "dynadot_secret", "powerdns_api_key", "ghcr_pull_token", "harbor_robot_token",
 		"pdm_basic_auth_user", "pdm_basic_auth_pass", "kubeconfig_bearer_token", "handover_jwt_public_key",
-		"object_storage_access_key", "object_storage_secret_key", "hcloud_token"}
+		"object_storage_access_key", "object_storage_secret_key"}
 	for provider, own := range map[string][]string{
 		"huawei":  {"huawei_access_key", "huawei_secret_key", "huawei_project_id", "huawei_region"},
-		"hetzner": nil,
+		"hetzner": {"hcloud_token", "hcloud_project_id"},
 	} {
 		t.Run(provider, func(t *testing.T) {
 			req := request(provider)
@@ -345,5 +345,35 @@ func TestRefusals(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(empty, tfvarsName)); err == nil {
 		t.Errorf("a refused run wrote a variables file")
+	}
+}
+
+// TestRoundTrip_RecordWithoutCredentialsMap: a record written before the
+// request had a credentials map names no credential key. The keys come from
+// the cloud profile and the operator's own keys, so the command still writes
+// the same file again (CLD-104).
+func TestRoundTrip_RecordWithoutCredentialsMap(t *testing.T) {
+	pinEnv(t)
+	for _, provider := range []string{"huawei", "hetzner"} {
+		t.Run(provider, func(t *testing.T) {
+			recordPath, work := deployment(t, request(provider))
+			var rec map[string]any
+			if err := json.Unmarshal(readFile(t, recordPath), &rec); err != nil {
+				t.Fatalf("decode the record: %v", err)
+			}
+			delete(rec["request"].(map[string]any), "credentials")
+			raw, _ := json.Marshal(rec)
+			if err := os.WriteFile(recordPath, raw, 0o600); err != nil {
+				t.Fatalf("write the record: %v", err)
+			}
+			want := readFile(t, filepath.Join(work, tfvarsName))
+			var stdout, stderr bytes.Buffer
+			if code := run([]string{"-record", recordPath, "-dir", work}, &stdout, &stderr); code != 0 {
+				t.Fatalf("exit code %d, stderr: %s", code, stderr.String())
+			}
+			if got := readFile(t, filepath.Join(work, tfvarsName)); !bytes.Equal(got, want) {
+				t.Errorf("the file written again differs from the kept file; reported: %q", stdout.String())
+			}
+		})
 	}
 }

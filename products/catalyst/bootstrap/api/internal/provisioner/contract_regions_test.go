@@ -67,44 +67,24 @@ func TestWriteTfvars_Regions_ContractShape_Hetzner(t *testing.T) {
 	}
 }
 
-func TestWriteTfvars_Regions_ContractShape_Huawei(t *testing.T) {
-	for _, tc := range []struct {
-		name, huaweiRegion, wantCloudRegion string
-	}{
-		{"the request names the cloud region", "eu-test-9", "eu-test-9"},
-		{"the request names none", "", sovereignCloudRegion(Request{})},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			req := huaweiValidBase()
-			req.HuaweiRegion = tc.huaweiRegion
-			req.Regions = []RegionSpec{
-				{Provider: "huawei", CloudRegion: "zone-tag-a", ControlPlaneSize: "s7n.large.4", WorkerSize: "m7n.xlarge.8", WorkerCount: 3},
-				{Provider: "huawei", CloudRegion: "zone-tag-b", Zone: "not-written", ControlPlaneSize: "s7n.large.4", WorkerSize: "m7n.xlarge.8", WorkerCount: 3},
-			}
-			got := writtenRegions(t, req)
-			want := []map[string]any{
-				{"code": "zone-tag-a", "cloud_region": tc.wantCloudRegion, "availability_zone": "", "role": "primary", "control_plane_size": "s7n.large.4", "worker_size": "m7n.xlarge.8", "worker_count": float64(3)},
-				{"code": "zone-tag-b", "cloud_region": tc.wantCloudRegion, "availability_zone": "", "role": "secondary", "control_plane_size": "s7n.large.4", "worker_size": "m7n.xlarge.8", "worker_count": float64(3)},
-			}
-			if !reflect.DeepEqual(got, want) {
-				t.Fatalf("regions = %v\nwant      %v", got, want)
-			}
-		})
-	}
-}
-
-// A Huawei region entry keeps every field the module read before contract
-// version 1 with the same value: the contract shape only adds fields.
-func TestWriteTfvars_Regions_Huawei_KeepsTheFieldsOfTheOldShape(t *testing.T) {
+// The place of each region (code, cloud_region, availability_zone) is the
+// one the adapter's Normalize gives it (CLD-104); the sizes and the count are
+// the request's. The real adapters are tested end to end in tfvarsgolden.
+func TestWriteTfvars_Regions_PlacedByTheAdapter(t *testing.T) {
+	withDouble(t, oneCloudRegion, nil)
 	req := huaweiValidBase()
-	req.Regions = []RegionSpec{{Provider: "huawei", CloudRegion: "zone-tag-a", ControlPlaneSize: "s7n.large.4", WorkerSize: "m7n.xlarge.8", WorkerCount: 3}}
-	got := writtenRegions(t, req)[0]
-	for key, want := range map[string]any{
-		"code": "zone-tag-a", "role": "primary", "control_plane_size": "s7n.large.4", "worker_size": "m7n.xlarge.8", "worker_count": float64(3),
-	} {
-		if got[key] != want {
-			t.Errorf("regions[0].%s = %v, want %v", key, got[key], want)
-		}
+	req.SetCredential("region", "eu-test-9")
+	req.Regions = []RegionSpec{
+		{Provider: "huawei", CloudRegion: "zone-tag-a", ControlPlaneSize: "s7n.large.4", WorkerSize: "m7n.xlarge.8", WorkerCount: 3},
+		{Provider: "huawei", CloudRegion: "zone-tag-b", Zone: "not-written", ControlPlaneSize: "s7n.large.4", WorkerSize: "m7n.xlarge.8", WorkerCount: 2},
+	}
+	got := writtenRegions(t, req)
+	want := []map[string]any{
+		{"code": "zone-tag-a", "cloud_region": "eu-test-9", "availability_zone": "", "role": "primary", "control_plane_size": "s7n.large.4", "worker_size": "m7n.xlarge.8", "worker_count": float64(3)},
+		{"code": "zone-tag-b", "cloud_region": "eu-test-9", "availability_zone": "", "role": "secondary", "control_plane_size": "s7n.large.4", "worker_size": "m7n.xlarge.8", "worker_count": float64(2)},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("regions = %v\nwant      %v", got, want)
 	}
 }
 
@@ -135,7 +115,7 @@ func TestAddCloudRegionIfMissing(t *testing.T) {
 		if err := os.WriteFile(path, []byte(`{"huawei_region": "eu-test-9", "obs_bucket_name": "kept", `+oldShape+`}`), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if err := addCloudRegionIfMissing(path, Request{HuaweiRegion: "not-read"}); err != nil {
+		if err := addCloudRegionIfMissing(path, Request{Provider: "huawei", Credentials: map[string]string{"region": "not-read"}}); err != nil {
 			t.Fatal(err)
 		}
 		vars := read(t, path)
@@ -148,12 +128,13 @@ func TestAddCloudRegionIfMissing(t *testing.T) {
 		}
 	})
 
-	t.Run("a file without huawei_region takes the region of the request", func(t *testing.T) {
+	t.Run("a file without huawei_region takes the region the adapter gives the request", func(t *testing.T) {
+		withDouble(t, oneCloudRegion, nil)
 		path := filepath.Join(t.TempDir(), "tofu.auto.tfvars.json")
 		if err := os.WriteFile(path, []byte(`{`+oldShape+`}`), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if err := addCloudRegionIfMissing(path, Request{HuaweiRegion: "eu-test-7"}); err != nil {
+		if err := addCloudRegionIfMissing(path, Request{Provider: "huawei", Credentials: map[string]string{"region": "eu-test-7"}}); err != nil {
 			t.Fatal(err)
 		}
 		if got := cloudRegions(read(t, path)); !reflect.DeepEqual(got, []any{"eu-test-7", "eu-test-7"}) {

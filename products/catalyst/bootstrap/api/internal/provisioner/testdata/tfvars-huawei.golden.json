@@ -21,8 +21,6 @@
   "ha_enabled": true,
   "handover_jwt_public_key": "{\"kty\":\"RSA\",\"n\":\"dGVzdA\",\"e\":\"AQAB\"}",
   "harbor_robot_token": "test-harbor-robot-token",
-  "hcloud_project_id": "",
-  "hcloud_token": "",
   "huawei_access_key": "test-huawei-access-key",
   "huawei_project_id": "test-huawei-project",
   "huawei_region": "region-1",
@@ -52,7 +50,7 @@
       "role": "org-pool"
     }
   ],
-  "parent_domains_yaml": "[{name: \"example.com\", role: \"primary\"}, {name: \"orgs.example.net\", role: \"org-pool\"}]",
+  "parent_domains_yaml": "[{\"name\":\"example.com\",\"role\":\"primary\"},{\"name\":\"orgs.example.net\",\"role\":\"org-pool\"}]",
   "pdm_basic_auth_pass": "test-pdm-pass",
   "pdm_basic_auth_user": "test-pdm-user",
   "pool_domain": "example.com",
@@ -110,7 +108,7 @@
     "MAIL_RELAY_SECRET": "",
     "ORIGIN_PARENT_API_URL": "https://console.parent.example.org/sovereign",
     "ORIGIN_PARENT_FQDN": "parent.example.org",
-    "ORIGIN_PROXY_ENDPOINTS_JSON": "{\"docker.io\":\"https://harbor.openova.io\",\"gcr.io\":\"https://harbor.openova.io\",\"ghcr.io\":\"https://harbor.openova.io\",\"harbor.openova.io\":\"https://harbor.openova.io\",\"quay.io\":\"https://harbor.openova.io\",\"registry-1.docker.io\":\"https://harbor.openova.io\",\"registry.k8s.io\":\"https://harbor.openova.io\",\"xpkg.upbound.io\":\"https://xpkg.upbound.io\"}",
+    "ORIGIN_PROXY_ENDPOINTS_JSON": "{\"docker.io\":\"http://212.72.24.20:5000\",\"gcr.io\":\"http://212.72.24.20:5000\",\"ghcr.io\":\"http://212.72.24.20:5000\",\"harbor.openova.io\":\"http://212.72.24.20:5000\",\"quay.io\":\"http://212.72.24.20:5000\",\"registry-1.docker.io\":\"http://212.72.24.20:5000\",\"registry.k8s.io\":\"http://212.72.24.20:5000\",\"xpkg.upbound.io\":\"https://xpkg.upbound.io\"}",
     "ORIGIN_REGISTRY_CA_B64": "",
     "ORIGIN_REGISTRY_HOST": "ghcr.io",
     "ORIGIN_REGISTRY_SCHEME": "https",

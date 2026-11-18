@@ -151,7 +151,23 @@ func TestLegacyCredentialAliases_Decode(t *testing.T) {
 			t.Errorf("credentials[%s] = %q, want %q", k, r.Credentials[k], v)
 		}
 	}
-	if r.HetznerToken != "t-1" {
-		t.Errorf("the legacy field still decodes: HetznerToken = %q", r.HetznerToken)
+	if r.Credentials["hcloud_token"] != "t-1" {
+		t.Errorf("the legacy field still decodes: HetznerToken = %q", r.Credentials["hcloud_token"])
+	}
+}
+
+// TfVars returns the variables of this cloud (CLD-104): the API token and the
+// project of the credentials map, and nothing else.
+func TestTfVars_TokenAndProject(t *testing.T) {
+	spec := validSpec()
+	spec.Creds.Raw["access_key"] = "not-of-this-cloud"
+	spec.Creds.Raw["hcloud_project_id"] = "p-1"
+	got, err := (&Provider{}).TfVars(spec, packProfile(t))
+	if err != nil {
+		t.Fatalf("TfVars: %v", err)
+	}
+	want := map[string]any{"hcloud_token": spec.Creds.Get("hcloud_token"), "hcloud_project_id": spec.Creds.Get("hcloud_project_id")}
+	if len(got) != 2 || got["hcloud_token"] != want["hcloud_token"] || got["hcloud_project_id"] != want["hcloud_project_id"] {
+		t.Errorf("TfVars = %v, want %v", got, want)
 	}
 }

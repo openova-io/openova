@@ -47,8 +47,7 @@ func validBaseWithSecrets() Request {
 		OrgEmail:               "ops@acme.io",
 		SovereignFQDN:          "acme.openova.io",
 		Provider:               "hetzner",
-		HetznerToken:           "TEST-TOKEN-NOT-REAL",
-		HetznerProjectID:       "test-project",
+		Credentials:            map[string]string{"hcloud_token": "TEST-TOKEN-NOT-REAL", "hcloud_project_id": "test-project"},
 		Region:                 "fsn1",
 		SSHPublicKey:           "ssh-ed25519 AAAA test-not-a-real-key",
 		HarborRobotToken:       "harbor-test-token",
@@ -454,14 +453,13 @@ func TestWriteTfvars_EmitsParentDomainsAsArrayNotNull(t *testing.T) {
 	defer os.RemoveAll(dir)
 
 	req := Request{
-		SovereignFQDN:    "otech87.omani.works",
-		OrgName:          "Acme",
-		OrgEmail:         "ops@acme.io",
-		Provider:         "hetzner",
-		HetznerToken:     "tok",
-		HetznerProjectID: "p1",
-		Region:           "fsn1",
-		WorkerCount:      2,
+		SovereignFQDN: "otech87.omani.works",
+		OrgName:       "Acme",
+		OrgEmail:      "ops@acme.io",
+		Provider:      "hetzner",
+		Credentials:   map[string]string{"hcloud_token": "tok", "hcloud_project_id": "p1"},
+		Region:        "fsn1",
+		WorkerCount:   2,
 		// ParentDomains intentionally nil — the typical Day-1 path
 		// before Validate() has run synthesis.
 	}
@@ -501,14 +499,13 @@ func TestWriteTfvars_EmitsParentDomainsRoundTripsEntries(t *testing.T) {
 	defer os.RemoveAll(dir)
 
 	req := Request{
-		SovereignFQDN:    "otech88.omani.works",
-		OrgName:          "Acme",
-		OrgEmail:         "ops@acme.io",
-		Provider:         "hetzner",
-		HetznerToken:     "tok",
-		HetznerProjectID: "p1",
-		Region:           "fsn1",
-		WorkerCount:      2,
+		SovereignFQDN: "otech88.omani.works",
+		OrgName:       "Acme",
+		OrgEmail:      "ops@acme.io",
+		Provider:      "hetzner",
+		Credentials:   map[string]string{"hcloud_token": "tok", "hcloud_project_id": "p1"},
+		Region:        "fsn1",
+		WorkerCount:   2,
 		ParentDomains: []ParentDomain{
 			{Name: "omani.works", Role: ParentDomainRolePrimary, RegistrarKind: "dynadot"},
 			{Name: "omani.trade", Role: ParentDomainRoleOrgPool, RegistrarKind: "dynadot", RegistrarCredsRef: "dynadot-omani-trade"},
@@ -568,14 +565,13 @@ func TestWriteTfvars_EmitsParentDomainsYAMLForOrgPool(t *testing.T) {
 	defer os.RemoveAll(dir)
 
 	req := Request{
-		SovereignFQDN:    "t22.omantel.biz",
-		OrgName:          "Omantel",
-		OrgEmail:         "ops@omantel.biz",
-		Provider:         "hetzner",
-		HetznerToken:     "tok",
-		HetznerProjectID: "p1",
-		Region:           "fsn1",
-		WorkerCount:      2,
+		SovereignFQDN: "t22.omantel.biz",
+		OrgName:       "Omantel",
+		OrgEmail:      "ops@omantel.biz",
+		Provider:      "hetzner",
+		Credentials:   map[string]string{"hcloud_token": "tok", "hcloud_project_id": "p1"},
+		Region:        "fsn1",
+		WorkerCount:   2,
 		ParentDomains: []ParentDomain{
 			{Name: "omantel.biz", Role: ParentDomainRolePrimary, RegistrarKind: "dynadot"},
 			{Name: "omani.homes", Role: ParentDomainRoleOrgPool, RegistrarKind: "dynadot"},
@@ -649,14 +645,13 @@ func TestWriteTfvars_EmitsParentDomainsYAMLEmptyOnSingleZone(t *testing.T) {
 	defer os.RemoveAll(dir)
 
 	req := Request{
-		SovereignFQDN:    "solo.example.io",
-		OrgName:          "Solo",
-		OrgEmail:         "ops@example.io",
-		Provider:         "hetzner",
-		HetznerToken:     "tok",
-		HetznerProjectID: "p1",
-		Region:           "fsn1",
-		WorkerCount:      2,
+		SovereignFQDN: "solo.example.io",
+		OrgName:       "Solo",
+		OrgEmail:      "ops@example.io",
+		Provider:      "hetzner",
+		Credentials:   map[string]string{"hcloud_token": "tok", "hcloud_project_id": "p1"},
+		Region:        "fsn1",
+		WorkerCount:   2,
 		// ParentDomains intentionally nil — legacy single-zone payload.
 	}
 	if err := writeTfvars(dir, req); err != nil {
@@ -775,14 +770,13 @@ func TestWriteTfvars_ThreadsEveryOrgPoolZoneIntoParentZones(t *testing.T) {
 
 	poolTLDs := []string{"omani.homes", "omani.rest", "omani.trade"}
 	req := Request{
-		SovereignFQDN:    "hw301.omantel.biz",
-		OrgName:          "Omantel",
-		OrgEmail:         "ops@omantel.biz",
-		Provider:         "hetzner",
-		HetznerToken:     "tok",
-		HetznerProjectID: "p1",
-		Region:           "fsn1",
-		WorkerCount:      2,
+		SovereignFQDN: "hw301.omantel.biz",
+		OrgName:       "Omantel",
+		OrgEmail:      "ops@omantel.biz",
+		Provider:      "hetzner",
+		Credentials:   map[string]string{"hcloud_token": "tok", "hcloud_project_id": "p1"},
+		Region:        "fsn1",
+		WorkerCount:   2,
 		ParentDomains: []ParentDomain{
 			{Name: "omantel.biz", Role: ParentDomainRolePrimary, RegistrarKind: "dynadot"},
 			{Name: "omani.homes", Role: ParentDomainRoleOrgPool, RegistrarKind: "dynadot"},

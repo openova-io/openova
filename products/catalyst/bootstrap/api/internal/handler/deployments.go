@@ -1353,9 +1353,9 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 	// field, else the one every regions[] entry names (the wizard's shape).
 	req.Provider = provisioner.ResolveProvider(&req)
 	// The operator's Huawei IAM access key, secret key, project id and
-	// region are server-only: the Request fields are `json:"-"`, a
-	// credentials map that names one of their keys is refused here, and the
-	// env vars below (Secret `huawei-operator-creds`) fill them. So no body
+	// region are server-only keys of the credentials map: a body map that
+	// names one of them is refused here, and the env vars below (Secret
+	// `huawei-operator-creds`) fill them (CLD-104). So no body
 	// can set them or choose the region, and with it the endpoints, the
 	// operator's keys are used against. Empty env = Validate() refuses.
 	if fe := provisioner.RefuseServerOnlyCredentials(&req); fe != nil {
@@ -1364,29 +1364,29 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Provider == "huawei" {
 		if v := os.Getenv("CATALYST_HUAWEI_ACCESS_KEY"); v != "" {
-			req.HuaweiAccessKey = v
+			req.SetCredential("access_key", v)
 		}
 		if v := os.Getenv("CATALYST_HUAWEI_SECRET_KEY"); v != "" {
-			req.HuaweiSecretKey = v
+			req.SetCredential("secret_key", v)
 		}
 		if v := os.Getenv("CATALYST_HUAWEI_PROJECT_ID"); v != "" {
-			req.HuaweiProjectID = v
+			req.SetCredential("project_id", v)
 		}
 		if v := os.Getenv("CATALYST_HUAWEI_REGION"); v != "" {
-			req.HuaweiRegion = v
+			req.SetCredential("region", v)
 		}
 		// The worker minimum and the flavor floors are the adapter's
 		// Normalize, read from the cloud profile (CLD-103). Object Storage
 		// uses the same IAM AK/SK as compute (#2528): fill only the fields
 		// the body left empty (separate Object Storage keys in a body win).
 		if req.ObjectStorageAccessKey == "" {
-			req.ObjectStorageAccessKey = req.HuaweiAccessKey
+			req.ObjectStorageAccessKey = req.Credential("access_key")
 		}
 		if req.ObjectStorageSecretKey == "" {
-			req.ObjectStorageSecretKey = req.HuaweiSecretKey
+			req.ObjectStorageSecretKey = req.Credential("secret_key")
 		}
 		if req.ObjectStorageRegion == "" {
-			req.ObjectStorageRegion = req.HuaweiRegion
+			req.ObjectStorageRegion = req.Credential("region")
 		}
 	}
 

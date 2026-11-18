@@ -43,13 +43,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
 
 // redactedMarker is the literal value substituted for any field that the
 // redaction list flags as a credential. Tests assert exact equality on
 // this marker so a regex change here shows up as a test diff, not a leak.
-const redactedMarker = "<redacted>"
+const redactedMarker = provisioner.RedactedMarker
 
 // Record is the on-disk shape of a single deployment. The catalyst-api
 // handler.Deployment type carries goroutine-coordination fields
@@ -169,11 +170,10 @@ type RedactedRequest struct {
 
 	// Credentials — the request's credential map (CLD-103) with every key
 	// kept and every non-empty value replaced by the redaction marker, so a
-	// reader sees which credentials were attached and never their values.
+	// reader sees which credentials were attached and never their values;
+	// the value of a key that the cloud profile marks not secret is kept
+	// (provisioner.StoredCredentialKeys).
 	Credentials map[string]string `json:"credentials,omitempty"`
-
-	HetznerToken     string `json:"hetznerToken,omitempty"`
-	HetznerProjectID string `json:"hetznerProjectID,omitempty"`
 
 	Region           string `json:"region,omitempty"`
 	ControlPlaneSize string `json:"controlPlaneSize,omitempty"`
@@ -244,7 +244,6 @@ func Redact(req provisioner.Request) RedactedRequest {
 		SovereignPoolDomain: req.SovereignPoolDomain,
 		SovereignSubdomain:  req.SovereignSubdomain,
 		Provider:            req.Provider, // Wave 5.131 — persist provider routing
-		HetznerProjectID:    req.HetznerProjectID,
 		Region:              req.Region,
 		ControlPlaneSize:    req.ControlPlaneSize,
 		WorkerSize:          req.WorkerSize,
@@ -269,19 +268,19 @@ func Redact(req provisioner.Request) RedactedRequest {
 	}
 	// Credentials: present-and-non-empty → redactedMarker; empty → empty.
 	// This is the test-load-bearing branch for TestRedact_OmitsAllSecrets.
-	// The credentials map keeps its keys; every value is redacted.
+	// The credentials map keeps its keys; every value is redacted except
+	// that of a key the cloud profile marks not secret, which a reloaded
+	// record still needs (TestRedact_KeepsTheNonSecretCredentials).
 	out.Installation = req.Installation
 	if len(req.Credentials) > 0 {
+		plain := provisioner.StoredCredentialKeys(provisioner.ResolveProvider(&req))
 		out.Credentials = make(map[string]string, len(req.Credentials))
 		for k, v := range req.Credentials {
-			if strings.TrimSpace(v) != "" {
+			if strings.TrimSpace(v) != "" && !plain[k] {
 				v = redactedMarker
 			}
 			out.Credentials[k] = v
 		}
-	}
-	if strings.TrimSpace(req.HetznerToken) != "" {
-		out.HetznerToken = redactedMarker
 	}
 	if strings.TrimSpace(req.DynadotAPIKey) != "" {
 		out.DynadotAPIKey = redactedMarker
@@ -298,6 +297,43 @@ func Redact(req provisioner.Request) RedactedRequest {
 		out.ObjectStorageSecretKey = redactedMarker
 	}
 	return out
+}
+
+// UnmarshalJSON decodes a stored request. A record written before the
+// credentials map carried every credential holds the value of a non-secret
+// one (provisioner.StoredCredentialKeys) in a legacy field that the adapter
+// of its provider names (providers.LegacyAliaser); that value is copied into
+// Credentials when the map holds the key empty, redacted or not at all, so a
+// reload and the next Save keep it.
+func (r *RedactedRequest) UnmarshalJSON(data []byte) error {
+	type plain RedactedRequest
+	if err := json.Unmarshal(data, (*plain)(r)); err != nil {
+		return err
+	}
+	name := provisioner.ResolveProvider(&provisioner.Request{Provider: r.Provider, Regions: r.Regions})
+	aliaser, ok, err := providers.As[providers.LegacyAliaser](name)
+	if err != nil || !ok {
+		return nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	keep := provisioner.StoredCredentialKeys(name)
+	for legacy, key := range aliaser.LegacyCredentialAliases() {
+		var v string
+		if !keep[key] || json.Unmarshal(fields[legacy], &v) != nil || strings.TrimSpace(v) == "" || v == redactedMarker {
+			continue
+		}
+		if cur := r.Credentials[key]; strings.TrimSpace(cur) != "" && cur != redactedMarker {
+			continue
+		}
+		if r.Credentials == nil {
+			r.Credentials = map[string]string{}
+		}
+		r.Credentials[key] = v
+	}
+	return nil
 }
 
 // ToProvisionerRequest reconstructs a provisioner.Request from the
@@ -323,9 +359,7 @@ func (r RedactedRequest) ToProvisionerRequest() provisioner.Request {
 		ParentDomains:    r.ParentDomains,
 		Provider:         r.Provider, // Wave 5.131 — restore provider routing
 		Installation:     r.Installation,
-		Credentials:      maps.Clone(r.Credentials), // keys with <redacted> or "" values
-		HetznerToken:     r.HetznerToken, // <redacted> or ""
-		HetznerProjectID: r.HetznerProjectID,
+		Credentials:      maps.Clone(r.Credentials), // <redacted>, "" or a non-secret value
 		Region:           r.Region,
 		ControlPlaneSize: r.ControlPlaneSize,
 		WorkerSize:       r.WorkerSize,

@@ -128,19 +128,22 @@ func (p *Provider) AdoptionKinds() map[string]string {
 // the flavor floors (spec.compute.minimumFlavor, floors.go).
 //
 // The Sovereign has one cloud region, regionFromCreds (CLD-090): a request
-// entry's cloudRegion is its region code. Normalize keeps that value in Code
-// and sets CloudRegion of every entry to the one cloud region before the
-// region capabilities are checked.
+// entry's cloudRegion is its region code. Normalize keeps that value in Code,
+// sets CloudRegion of every entry to the one cloud region and empties Zone
+// (the module's own zone variable, huawei_az, places each region). It does so
+// first, before any check, because the engine writes the module's regions
+// from the spec as Normalize leaves it (CLD-104).
 func (p *Provider) Normalize(spec *providers.ProvisionSpec, profile *cloudprofile.Profile) error {
-	if err := providers.CheckCredentials(spec, profile); err != nil {
-		return err
-	}
 	region := regionFromCreds(spec.Creds)
 	for i := range spec.Regions {
 		if spec.Regions[i].Code == "" {
 			spec.Regions[i].Code = spec.Regions[i].CloudRegion
 		}
 		spec.Regions[i].CloudRegion = region
+		spec.Regions[i].Zone = ""
+	}
+	if err := providers.CheckCredentials(spec, profile); err != nil {
+		return err
 	}
 	if err := providers.CheckRegions(spec, profile); err != nil {
 		return err
@@ -149,10 +152,20 @@ func (p *Provider) Normalize(spec *providers.ProvisionSpec, profile *cloudprofil
 	return nil
 }
 
-// TfVars returns the provider-specific OpenTofu variables for spec. It
-// returns none for now; the engine does not call it yet.
+// TfVars returns the variables of this cloud for spec (class 3 of module
+// contract version 1): the IAM access key, secret key and project of the
+// credentials map, the OBS bucket name, and huawei_region, the one cloud
+// region. The module reads the region from regions[].cloud_region; the
+// variable stays because the wipe and the janitor read it back from the
+// stored variables file.
 func (p *Provider) TfVars(spec providers.ProvisionSpec, profile *cloudprofile.Profile) (map[string]any, error) {
-	return map[string]any{}, nil
+	return map[string]any{
+		"huawei_access_key": spec.Creds.Get("access_key"),
+		"huawei_secret_key": spec.Creds.Get("secret_key"),
+		"huawei_project_id": spec.Creds.Get("project_id"),
+		"huawei_region":     regionFromCreds(spec.Creds),
+		"obs_bucket_name":   spec.ObjectStorage.Bucket,
+	}, nil
 }
 
 // regionFromCreds returns the region for one call. Falls back to
@@ -282,13 +295,15 @@ func (p *Provider) Wipe(ctx context.Context, spec providers.WipeSpec, progress f
 	// empty creds and tofu would fail with 401 verify aksk signature.
 	// Surfaced live by #2428 during the inline #2423 wipe-recreate.
 	destroyReq := provisioner.Request{
-		DeploymentID:    spec.DeploymentID,
-		SovereignFQDN:   spec.SovereignFQDN,
-		Provider:        "huawei",
-		HuaweiAccessKey: hw.AccessKey,
-		HuaweiSecretKey: hw.SecretKey,
-		HuaweiProjectID: hw.ProjectID,
-		HuaweiRegion:    regionFromCreds(spec.Creds),
+		DeploymentID:  spec.DeploymentID,
+		SovereignFQDN: spec.SovereignFQDN,
+		Provider:      "huawei",
+		Credentials: map[string]string{
+			"access_key": hw.AccessKey,
+			"secret_key": hw.SecretKey,
+			"project_id": hw.ProjectID,
+			"region":     regionFromCreds(spec.Creds),
+		},
 	}
 	provEvents := make(chan provisioner.Event, 32)
 	done := make(chan struct{})

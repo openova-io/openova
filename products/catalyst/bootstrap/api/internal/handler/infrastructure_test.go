@@ -38,7 +38,7 @@ func installInfraDeployment(t *testing.T, h *Handler, status string) (*Deploymen
 			ControlPlaneSize: "cpx21",
 			WorkerSize:       "cpx41",
 			WorkerCount:      2,
-			HetznerProjectID: "test-project",
+			Credentials:      map[string]string{"hcloud_project_id": "test-project"},
 		},
 		mu: sync.Mutex{},
 	}
