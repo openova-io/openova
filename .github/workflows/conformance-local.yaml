@@ -83,6 +83,59 @@ jobs:
       - name: Self-test of the script
         run: bash scripts/local-pack.sh --self-test
 
+      # Adding a region plans only additions (module contract version 1). OpenTofu applies the
+      # local module with the one region of the contract fixture single-region.tfvars.json, then
+      # plans the fixture two-region.tfvars.json, which holds the same inputs and one more region,
+      # against that state. scripts/check-plan-additive.py fails the job when that plan does
+      # anything but create resources and leave the others unchanged. These machines use a state
+      # of their own under $RUNNER_TEMP/plan-additive and are destroyed before the pack comes up,
+      # also after a failure. Each failure of these steps is marked "additive plan:" in the log.
+      # Nothing publishes a port and nothing uses a node port.
+      - name: Self-test of the additive-plan check
+        run: |
+          set -euo pipefail
+          python3 scripts/check-plan-additive.py --self-test || { echo "::error::additive plan: the self-test of the check failed"; exit 1; }
+
+      - name: Additive plan, apply one region
+        run: |
+          set -euo pipefail
+          d="$RUNNER_TEMP/plan-additive"
+          mkdir -p "$d"
+          export TF_DATA_DIR="$d/tofu-data"
+          tofu -chdir=infra/providers/local init -input=false -no-color || { echo "::error::additive plan: tofu init failed"; exit 1; }
+          tofu -chdir=infra/providers/local apply -input=false -auto-approve -no-color \
+            -var-file="$GITHUB_WORKSPACE/infra/providers/_contract/fixtures/single-region.tfvars.json" \
+            -state="$d/terraform.tfstate" || { echo "::error::additive plan: tofu apply of one region failed"; exit 1; }
+
+      - name: Additive plan, plan two regions against that state
+        run: |
+          set -euo pipefail
+          d="$RUNNER_TEMP/plan-additive"
+          export TF_DATA_DIR="$d/tofu-data"
+          tofu -chdir=infra/providers/local plan -input=false -no-color \
+            -var-file="$GITHUB_WORKSPACE/infra/providers/_contract/fixtures/two-region.tfvars.json" \
+            -state="$d/terraform.tfstate" -out="$d/two-regions.tfplan" || { echo "::error::additive plan: tofu plan of two regions failed"; exit 1; }
+          tofu -chdir=infra/providers/local show -json "$d/two-regions.tfplan" > "$d/two-regions.json" || { echo "::error::additive plan: tofu show of the plan failed"; exit 1; }
+
+      - name: Additive plan, the plan of two regions only adds
+        run: |
+          set -euo pipefail
+          python3 scripts/check-plan-additive.py "$RUNNER_TEMP/plan-additive/two-regions.json" || { echo "::error::additive plan: the plan of two regions does more than add (see the lines NOT ADDITIVE above)"; exit 1; }
+
+      - name: Additive plan, destroy
+        if: always()
+        run: |
+          set -euo pipefail
+          d="$RUNNER_TEMP/plan-additive"
+          if [ ! -f "$d/terraform.tfstate" ]; then
+            echo "nothing was applied"
+            exit 0
+          fi
+          export TF_DATA_DIR="$d/tofu-data"
+          tofu -chdir=infra/providers/local destroy -input=false -auto-approve -no-color \
+            -var-file="$GITHUB_WORKSPACE/infra/providers/_contract/fixtures/single-region.tfvars.json" \
+            -state="$d/terraform.tfstate" || { echo "::error::additive plan: tofu destroy failed"; exit 1; }
+
       - name: Up (two regions)
         env:
           GHCR_USER: ${{ github.actor }}
