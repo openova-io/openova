@@ -17,7 +17,7 @@ Pods on the host network are not subject to pod policy and are not
 selected by any policy of this chart.
 
 Renders whenever .Values.enabled is true. It does not depend on
-.Values.legacyBaseline.
+.Values.enforcedNamespaces.
 */}}
 {{- if .Values.enabled }}
 apiVersion: cilium.io/v2

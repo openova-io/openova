@@ -28,16 +28,17 @@ if grep -q -F 'metadata-access' "$TMP/default-test.yaml"; then
 fi
 grep -q -F 'automountServiceAccountToken: false' "$TMP/default-test.yaml" || fail "the test Pod mounts a token it does not need"
 
-echo "[function-test] Case 2: legacyBaseline.enabled=true still runs the test"
-helm template network-policies . --namespace catalyst-system --set legacyBaseline.enabled=true > "$TMP/legacy.yaml"
-python3 "$CHECK" --chart bp-network-policies --release network-policies < "$TMP/legacy.yaml"
+echo "[function-test] Case 2: default deny on the namespace default still runs the test"
+helm template network-policies . --namespace catalyst-system --set 'enforcedNamespaces={default}' > "$TMP/enforced.yaml"
+python3 "$CHECK" --chart bp-network-policies --release network-policies < "$TMP/enforced.yaml"
+grep -q -F 'name: baseline-default-deny' "$TMP/enforced.yaml" || fail "enforcedNamespaces={default} renders no baseline-default-deny"
 
 echo "[function-test] Case 3: enabled=false renders no test"
 helm template network-policies . --namespace catalyst-system --set enabled=false > "$TMP/off.yaml"
 python3 "$CHECK" --chart bp-network-policies --release network-policies --absent < "$TMP/off.yaml"
 
-echo "[function-test] Case 4: enabled=false with legacyBaseline.enabled=true renders no test"
-helm template network-policies . --namespace catalyst-system --set enabled=false --set legacyBaseline.enabled=true > "$TMP/off-legacy.yaml"
-python3 "$CHECK" --chart bp-network-policies --release network-policies --absent < "$TMP/off-legacy.yaml"
+echo "[function-test] Case 4: enabled=false with enforcedNamespaces={default} renders no test"
+helm template network-policies . --namespace catalyst-system --set enabled=false --set 'enforcedNamespaces={default}' > "$TMP/off-enforced.yaml"
+python3 "$CHECK" --chart bp-network-policies --release network-policies --absent < "$TMP/off-enforced.yaml"
 
 echo "function-test-render: all cases passed"

@@ -1,0 +1,67 @@
+{{/*
+baseline-default-deny: the pods of the namespaces in .Values.enforcedNamespaces
+are under default deny in both directions.
+
+The empty ingress rule `{}` allows no peer, so nothing enters these pods. The
+one flow that leaves them is DNS to the cluster resolver (namespace
+kube-system, label k8s-app=kube-dns, port 53 over UDP and TCP). The DNS rule
+sends the lookups through the DNS proxy of Cilium, so that an allow object can
+name an internet host by its name (toFQDNs).
+
+Everything else a pod of such a namespace needs, same-namespace traffic
+included, is written in the allow object of its namespace,
+templates/allow/<namespace>.yaml (templates/allow/_README.tpl).
+
+Renders when .Values.enabled is true and the list is not empty. The value
+must be a list (or null, which is the empty list): false, 0, "" or a map stop
+the render, so a wrong type never means "no default deny". Every entry must be
+a namespace name (an RFC 1123 label) and appear once; another value stops the
+render. Pods on the host network are not subject to pod policy and
+are not selected by any policy of this chart.
+*/}}
+{{- if .Values.enabled }}
+{{- $raw := .Values.enforcedNamespaces }}
+{{- if not (or (kindIs "invalid" $raw) (kindIs "slice" $raw)) }}
+{{- fail (printf "enforcedNamespaces must be a list of namespace names, not %s" (kindOf $raw)) }}
+{{- end }}
+{{- $enforced := $raw | default list }}
+{{- range $enforced }}
+{{- if not (and (kindIs "string" .) (regexMatch "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$" .)) }}
+{{- fail (printf "enforcedNamespaces: %v is not a namespace name" .) }}
+{{- end }}
+{{- end }}
+{{- if ne (len $enforced) (len (uniq $enforced)) }}
+{{- fail "enforcedNamespaces names a namespace twice" }}
+{{- end }}
+{{- if $enforced }}
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: baseline-default-deny
+spec:
+  endpointSelector:
+    matchExpressions:
+      - key: io.kubernetes.pod.namespace
+        operator: In
+        values:
+          {{- range $enforced }}
+          - {{ . }}
+          {{- end }}
+  ingress:
+    - {}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+{{- end }}
+{{- end }}

@@ -10,14 +10,14 @@ It makes two requests:
      lookup is judged: curl exit code 6 means cluster DNS did not resolve the
      name, and then the Pod has no working network and the second request
      would prove nothing. Any other exit code passes this request, because
-     the legacy baseline (legacyBaseline.enabled) may deny the connection
-     itself.
+     the object baseline-default-deny denies the connection itself when the
+     namespace of the test is in enforcedNamespaces.
   2. http://169.254.169.254/. It passes when the connection is not made
      within 5 seconds (curl exit code 28, or 7 when it is refused). It fails
      when the address answers: then the deny does not hold.
 It writes nothing.
 
-It renders whenever enabled is true, with and without the legacy baseline,
+It renders whenever enabled is true, with and without enforced namespaces,
 because the deny object renders then. The Pod mounts no service-account
 token. The image is the kubectl image the kit already pulls (bp-cnpg's
 webhook gate), which carries curl; functionTest.image overrides it.
