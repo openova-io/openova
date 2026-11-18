@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/cloudprofile"
 	hcloudpurge "github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/hetzner"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
@@ -58,6 +59,18 @@ func init() {
 
 // Name returns the canonical provider name.
 func (p *Provider) Name() string { return Name }
+
+// Normalize fills provider defaults into spec and validates it against
+// profile. It accepts every spec for now; the engine does not call it yet.
+func (p *Provider) Normalize(spec *providers.ProvisionSpec, profile *cloudprofile.Profile) error {
+	return nil
+}
+
+// TfVars returns the provider-specific OpenTofu variables for spec. It
+// returns none for now; the engine does not call it yet.
+func (p *Provider) TfVars(spec providers.ProvisionSpec, profile *cloudprofile.Profile) (map[string]any, error) {
+	return map[string]any{}, nil
+}
 
 // Wipe runs the canonical purge sequence — tofu destroy + Hetzner
 // orphan sweep + S3 bucket purge.
@@ -206,21 +219,11 @@ func (p *Provider) Wipe(ctx context.Context, spec providers.WipeSpec, progress f
 	return out, nil
 }
 
-// ListServers returns the current Hetzner-side server inventory for
-// one deployment by querying the Hetzner Cloud API with the label
-// selector `catalyst.openova.io/sovereign=<fqdn>`.
-//
-// Wave 2 returns nil + nil (placeholder) — the catalyst-api handlers
-// that need this surface today read from kubeconfig+kubectl. Wave 3
-// will wire this through to a direct hcloud API call once at least
-// one handler genuinely needs cloud-side inventory (the wizard's
-// infrastructure tab is the main planned caller; today it reads
-// from the tofu outputs).
+// ListServers cannot list the Hetzner-side server inventory yet: it
+// returns providers.ErrNotSupported, which a caller treats as
+// "unknown", never as "empty".
 func (p *Provider) ListServers(ctx context.Context, deploymentID, sovereignFQDN string, creds providers.ProviderCreds) ([]providers.ServerInfo, error) {
-	// Intentional minimal implementation — see method comment.
-	// Returning nil signals "no inventory available via this seam
-	// today"; callers fall back to existing paths.
-	return nil, nil
+	return nil, providers.ErrNotSupported
 }
 
 // ValidateCreds confirms the Hetzner Cloud API token by issuing a

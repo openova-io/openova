@@ -88,6 +88,19 @@ func Names() []string {
 	return out
 }
 
+// As returns the registered adapter for name as capability T.
+// ok is false when the adapter does not implement T. err is non-nil only
+// when no adapter is registered under name.
+func As[T any](name string) (T, bool, error) {
+	var zero T
+	p, err := Get(name)
+	if err != nil {
+		return zero, false, err
+	}
+	c, ok := p.(T)
+	return c, ok, nil
+}
+
 // knownNamesLocked — comma-joined list of registered names.
 // Caller must hold registryMu (read or write).
 func knownNamesLocked() string {

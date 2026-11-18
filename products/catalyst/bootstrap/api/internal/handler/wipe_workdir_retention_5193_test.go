@@ -26,6 +26,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/cloudprofile"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
@@ -70,6 +71,12 @@ func (stub5193Provider) ListServers(context.Context, string, string, providers.P
 }
 
 func (stub5193Provider) ValidateCreds(context.Context, providers.ProviderCreds) error { return nil }
+
+func (stub5193Provider) Normalize(*providers.ProvisionSpec, *cloudprofile.Profile) error { return nil }
+
+func (stub5193Provider) TfVars(providers.ProvisionSpec, *cloudprofile.Profile) (map[string]any, error) {
+	return map[string]any{}, nil
+}
 
 func init() { providers.RegisterProvider(stub5193ProviderName, stub5193Provider{}) }
 
