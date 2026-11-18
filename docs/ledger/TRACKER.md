@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T11:30:07Z` |
+| Last refreshed | `2026-11-18T11:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7816](https://github.com/openova-io/openova/issues/7816) | PRD-509 Internal authorisation API | Other |
 | [#7820](https://github.com/openova-io/openova/issues/7820) | CTL-346 Kit slots 56 and 57 (flow server and emitter) leave the kit | Other |
 | [#7821](https://github.com/openova-io/openova/issues/7821) | CTL-355 Delete the second showback meter | Other |
 | [#7822](https://github.com/openova-io/openova/issues/7822) | INF-051 Check INF-G01: coordinated reboot, as a suite file | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8148](https://github.com/openova-io/openova/issues/8148) | INF-140 Vulnerability matching and daily re-matching | Other |
 | [#8149](https://github.com/openova-io/openova/issues/8149) | NET-097 Gate check NET-G10: a Pod cannot reach the instance metadata address | Other |
 | [#8155](https://github.com/openova-io/openova/issues/8155) | CLD-103 Credentials map, validation through the port, storage class from the pro | Other |
+| [#8157](https://github.com/openova-io/openova/issues/8157) | CLD-114 Adoption map, name lists and schema enums | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-18T11:43 | [#8154](https://github.com/openova-io/openova/pull/8154) | #7087 | docs(ledger): plan update |
+| 2026-11-18T11:38 | [#8150](https://github.com/openova-io/openova/pull/8150) | #8149 | test(gate): check NET-G10 dials the instance metadata addres |
 | 2026-11-18T11:16 | [#8147](https://github.com/openova-io/openova/pull/8147) | #7087 | docs(ledger): plan update |
 | 2026-11-18T11:10 | [#8144](https://github.com/openova-io/openova/pull/8144) | #7087 | docs(ledger): plan update |
 | 2026-11-18T11:28 | [#8143](https://github.com/openova-io/openova/pull/8143) | #8138 | test(bootstrap-kit): run the function tests of the foundatio |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-18T09:15 | [#8104](https://github.com/openova-io/openova/pull/8104) | #7984 | feat(providers): the region separation of a Sovereign as a m |
 | 2026-11-18T09:06 | [#8103](https://github.com/openova-io/openova/pull/8103) | #7087 | docs(ledger): plan update |
 | 2026-11-18T08:57 | [#8101](https://github.com/openova-io/openova/pull/8101) | #7087 | docs(ledger): plan update |
-| 2026-11-18T09:00 | [#8100](https://github.com/openova-io/openova/pull/8100) | #8099 | fix(hcloud-csi): exempt the node plugin from the metadata de |
-| 2026-11-18T08:52 | [#8098](https://github.com/openova-io/openova/pull/8098) | #7087 | docs(ledger): plan update |
 
 ---
 
