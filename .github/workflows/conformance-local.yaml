@@ -30,6 +30,11 @@
 # No path filter, on purpose: the ruleset of main (.github/rulesets/main.json) requires the
 # job by its name, conformance-local, so it must run and pass on every pull request and every
 # merge group; a check that did not run is not green.
+# One exception, decided inside the job: when every path a pull request or merge group changes
+# is docs/ledger/plan.yaml or a file under docs/ledger/plan/ (plan data: tickets, done markers,
+# spike records), the step "Decide whether the pack runs" says so in one line and every later
+# step is skipped, so the job ends green under the same name in about a minute. Any other path,
+# an empty list, or a list that cannot be made runs the job in full.
 # Charts and images come from ghcr.io at the versions the kit pins; the job token pulls them.
 name: conformance-local
 
@@ -55,32 +60,66 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # The changed paths are listed the way policy-chart-tests.yaml lists them: the base commit
+      # is fetched and its tree compared with HEAD, here with --no-renames so that a file moved
+      # into docs/ledger/plan/ also lists the path it left. scripts/check-plan-only-change.sh
+      # decides (its self-test runs in tree-guards.yaml); any exit code but 0 runs the job in
+      # full. Every later step holds steps.decide.outputs.run == 'true' in its if.
+      - name: Decide whether the pack runs
+        id: decide
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" != pull_request ] && [ "$EVENT_NAME" != merge_group ]; then
+            echo "Event $EVENT_NAME: the job runs in full."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "$BASE_SHA" ] || ! git fetch --no-tags --depth=1 origin "$BASE_SHA" || ! changed="$(git diff --no-renames --name-only "$BASE_SHA" HEAD)"; then
+            echo "The changed paths could not be listed: the job runs in full."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif reason="$(printf '%s\n' "$changed" | bash scripts/check-plan-only-change.sh)"; then
+            echo "::notice title=conformance-local::Pack and suite skipped, $reason."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "${reason:-full run: the decision script failed}: the job runs in full."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Free disk (toolchains this job does not use)
+        if: steps.decide.outputs.run == 'true'
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
           df -h /
 
       - name: Install OpenTofu
+        if: steps.decide.outputs.run == 'true'
         uses: opentofu/setup-opentofu@v1
         with:
           tofu_version: 1.11.6
           tofu_wrapper: false
 
       - name: Install kubectl
+        if: steps.decide.outputs.run == 'true'
         uses: azure/setup-kubectl@v4
         with:
           version: v1.31.4
 
       - name: Install Go (the suite's session minter and discovery)
+        if: steps.decide.outputs.run == 'true'
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: tests/acceptance/sovereign/go.mod
           cache: false
 
       - name: Install PyYAML (the manifest export)
+        if: steps.decide.outputs.run == 'true'
         run: python3 -m pip install --quiet pyyaml
 
       - name: Self-test of the script
+        if: steps.decide.outputs.run == 'true'
         run: bash scripts/local-pack.sh --self-test
 
       # Adding a region plans only additions (module contract version 1). OpenTofu applies the
@@ -92,11 +131,13 @@ jobs:
       # also after a failure. Each failure of these steps is marked "additive plan:" in the log.
       # Nothing publishes a port and nothing uses a node port.
       - name: Self-test of the additive-plan check
+        if: steps.decide.outputs.run == 'true'
         run: |
           set -euo pipefail
           python3 scripts/check-plan-additive.py --self-test || { echo "::error::additive plan: the self-test of the check failed"; exit 1; }
 
       - name: Additive plan, apply one region
+        if: steps.decide.outputs.run == 'true'
         run: |
           set -euo pipefail
           d="$RUNNER_TEMP/plan-additive"
@@ -108,6 +149,7 @@ jobs:
             -state="$d/terraform.tfstate" || { echo "::error::additive plan: tofu apply of one region failed"; exit 1; }
 
       - name: Additive plan, plan two regions against that state
+        if: steps.decide.outputs.run == 'true'
         run: |
           set -euo pipefail
           d="$RUNNER_TEMP/plan-additive"
@@ -118,12 +160,13 @@ jobs:
           tofu -chdir=infra/providers/local show -json "$d/two-regions.tfplan" > "$d/two-regions.json" || { echo "::error::additive plan: tofu show of the plan failed"; exit 1; }
 
       - name: Additive plan, the plan of two regions only adds
+        if: steps.decide.outputs.run == 'true'
         run: |
           set -euo pipefail
           python3 scripts/check-plan-additive.py "$RUNNER_TEMP/plan-additive/two-regions.json" || { echo "::error::additive plan: the plan of two regions does more than add (see the lines NOT ADDITIVE above)"; exit 1; }
 
       - name: Additive plan, destroy
-        if: always()
+        if: always() && steps.decide.outputs.run == 'true'
         run: |
           set -euo pipefail
           d="$RUNNER_TEMP/plan-additive"
@@ -137,6 +180,7 @@ jobs:
             -state="$d/terraform.tfstate" || { echo "::error::additive plan: tofu destroy failed"; exit 1; }
 
       - name: Up (two regions)
+        if: steps.decide.outputs.run == 'true'
         env:
           GHCR_USER: ${{ github.actor }}
           GHCR_TOKEN: ${{ github.token }}
@@ -145,16 +189,20 @@ jobs:
         run: bash scripts/local-pack.sh up --regions 2 --branch "$BRANCH" --commit "$COMMIT"
 
       - name: Discovery steps D0.1 and D0.2 of the suite
+        if: steps.decide.outputs.run == 'true'
         run: bash scripts/local-pack.sh discovery
 
       - name: Claim of 1 GiB on the default storage class (CLD-G11)
+        if: steps.decide.outputs.run == 'true'
         run: bash scripts/local-pack.sh claim
 
       - name: Console address before the suite (discovery again starts a stopped port forward)
+        if: steps.decide.outputs.run == 'true'
         run: bash scripts/local-pack.sh discovery
 
       - name: Gate suite on the pack (run in local, no journey)
         id: suite
+        if: steps.decide.outputs.run == 'true'
         run: |
           set +e
           set -uo pipefail
@@ -183,7 +231,7 @@ jobs:
           exit "$rc"
 
       - name: Validate the record; its result must be PASS
-        if: always() && steps.suite.outcome != 'skipped'
+        if: always() && steps.decide.outputs.run == 'true' && steps.suite.outcome != 'skipped'
         run: |
           set -euo pipefail
           n="$(find "$RUNNER_TEMP/acceptance" -maxdepth 1 -name '*.json' | wc -l)"
@@ -195,7 +243,7 @@ jobs:
           if [ "$result" != PASS ]; then echo "::error::The record's result is $result, not PASS."; exit 1; fi
 
       - name: Upload the record
-        if: always() && steps.suite.outcome != 'skipped'
+        if: always() && steps.decide.outputs.run == 'true' && steps.suite.outcome != 'skipped'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: conformance-local-record
@@ -205,11 +253,11 @@ jobs:
           if-no-files-found: warn
 
       - name: Collect evidence
-        if: failure()
+        if: failure() && steps.decide.outputs.run == 'true'
         run: bash scripts/local-pack.sh collect
 
       - name: Upload evidence
-        if: failure()
+        if: failure() && steps.decide.outputs.run == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: local-pack-evidence
@@ -217,5 +265,5 @@ jobs:
           if-no-files-found: warn
 
       - name: Down
-        if: always()
+        if: always() && steps.decide.outputs.run == 'true'
         run: bash scripts/local-pack.sh down
