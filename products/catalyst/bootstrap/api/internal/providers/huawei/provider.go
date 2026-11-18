@@ -67,15 +67,12 @@ func New() *Provider { return &Provider{} }
 
 // init registers the adapter so providers.Get("huawei") returns a
 // usable instance. Per registry.go RegisterProvider contract, this
-// MUST be called from an init() — never from runtime code.
-//
-// Wave 5.93 (#2445): also wires RotateBlocklistedNATEIPs as the
-// provisioner-package NATEIPPreflightHook so the provisioner's
-// generic post-apply step calls into the Huawei-specific rotation
-// without an import cycle.
+// MUST be called from an init() — never from runtime code. The engine
+// reaches the adapter's post-apply and apply-error steps through
+// providers.As (capabilities.go); the VPC pre-flight still uses the two
+// hooks set here.
 func init() {
 	providers.RegisterProvider(Name, New())
-	provisioner.NATEIPPreflightHook = RotateBlocklistedNATEIPs
 	provisioner.VPCQuotaHook = VPCQuotaPreflight
 	provisioner.VPCReclaimHook = VPCReclaimPreflight
 }

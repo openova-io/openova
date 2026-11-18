@@ -55,21 +55,9 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers"
 )
 
-// Wave 5.93 (#2445) — pluggable hook for post-tofu-apply NAT EIP
-// pre-flight rotation. The huawei package registers itself at init()
-// time via NATEIPPreflightHook = huawei.RotateBlocklistedNATEIPs.
-// Decoupled to avoid the provisioner ↔ huawei import cycle (huawei
-// already imports provisioner for the Provision delegate).
-type natEIPPreflightFunc func(ctx context.Context, provider, deploymentID, sovereignFQDN, accessKey, secretKey, projectID, region string, progress func(msg string)) (int, error)
-
-// NATEIPPreflightHook is the registration point. nil by default — only
-// the huawei adapter's init() sets it. provisioner.Provision calls it
-// after tofu apply for provider == "huawei".
-var NATEIPPreflightHook natEIPPreflightFunc
-
 // G68 #2617 — pluggable hook for pre-Phase-0 HCS VPC quota check.
-// Same decoupling rationale as NATEIPPreflightHook: the huawei package
-// registers itself at init() time via
+// Decoupled to avoid the provisioner ↔ huawei import cycle: the huawei
+// package registers itself at init() time via
 // VPCQuotaHook = huawei.VPCQuotaPreflight, which calls
 // (*huawei.Provider).VPCQuota under the hood. The hook returns
 // (used, limit, err). On err != nil the caller logs + skips the check
@@ -2394,16 +2382,11 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 	const maxApplyRetries = 6
 	const baseBackoff = 90 * time.Second
 	var lastErr error
-	// Wave 5.145 (hw30 #21 fix-forward 2026-05-27): track consecutive
-	// Common.0021 failures on the SAME resource address. If HCS
-	// scheduler keeps rejecting the same address across N retries
-	// despite Wave 5.139/5.144's per-retry name-salt rotation, the
-	// underlying compute cell pool is degraded — name salt can't help.
-	// Abort with a clear "HCS scheduler degraded" error after the 3rd
-	// consecutive same-address failure so we don't burn the remaining
-	// 12m+24m backoffs on a doomed prov. Operator sees the signal in
-	// minutes, can retry later or escalate to HCS ops.
-	lastFailedAddrs := map[string]int{}
+	// Wave 5.145 (hw30 #21 fix-forward 2026-05-27): the consecutive failures
+	// of each resource address (applyFailures), so a prov whose address keeps
+	// failing despite the per-retry name salt stops after the third attempt
+	// instead of spending the remaining backoffs.
+	failed := applyFailures{}
 	for attempt := 1; attempt <= maxApplyRetries; attempt++ {
 		err := p.runTofu(ctx, deployDir, applyArgs, emit)
 		if err == nil {
@@ -2411,89 +2394,21 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 			break
 		}
 		lastErr = err
-		// Only retry transient HCS-side failures. Configuration errors
-		// (ELB.8959, VPC.0211, SYS.0400) are deterministic and won't
-		// fix themselves on retry.
-		//
-		// Wave 5.143 (hw30 #19 fix-forward 2026-05-27): also catch
-		// `error allocating EIP: The request could not be processed due
-		// to conflict in the request`. This fires when HCS publicIp
-		// quota is at cap from prior-deployment orphan EIPs (Wave 5.138
-		// janitor sweeps these every 1h, but a fresh prov right after a
-		// failed one hasn't waited that long yet). Retrying after a
-		// backoff gives the janitor sweep room to free quota slots OR
-		// gives our manual cleanup time to propagate. Without this,
-		// hw30 #19 fast-failed at 92s with no retry, even though the
-		// underlying quota was about to free.
+		// Only a failure that providers.ApplyErrorClassifier (or OpenTofu's own
+		// read-after-create text, classifyApplyError) calls transient is
+		// retried; a configuration error does not fix itself on retry.
 		errStr := err.Error()
-		isTransient := strings.Contains(errStr, "Common.0021") ||
-			strings.Contains(errStr, "CollectInfoTask-fail") ||
-			(strings.Contains(errStr, "error allocating EIP") && strings.Contains(errStr, "conflict in the request")) ||
-			// Wave 5.149: VPC-conflict has the same root cause as EIP-conflict
-			// (project quota cap + slow propagation of prior-wipe deletes). HCS
-			// returns: "error creating VPC: The request could not be processed
-			// due to conflict in the request". Same retry semantics — backoff
-			// gives the janitor / manual cleanup time to free a slot.
-			(strings.Contains(errStr, "error creating VPC") && strings.Contains(errStr, "conflict in the request")) ||
-			// Wave 5.149: also subnet/NAT/SG conflicts which share the same
-			// root cause (project-scoped resource pools).
-			(strings.Contains(errStr, "error creating") && strings.Contains(errStr, "conflict in the request")) ||
-			// Wave 5.158 (Refs #2527): HCS NAT plane eventual consistency — EIP
-			// just created but NAT API hasn't propagated it yet. The time_sleep
-			// resource in main.tf guards the canonical path; this catch handles
-			// any residual race (e.g. concurrent apply, slow HCS cell).
-			strings.Contains(errStr, "VPC.2030") ||
-			// #3142 (hw110 2026-06-08): HuaweiCloud provider read-after-create
-			// flake — "Provider produced inconsistent result after apply ... root
-			// object was present, but now absent" on compute_instance.worker. The
-			// instance IS created; the provider's post-apply read flaked. A re-plan
-			// reads it back and the re-apply reconciles (no-op or minor update);
-			// existing ACTIVE workers are name-protected by lifecycle.ignore_changes.
-			// hw110 died here with NO retry because this string wasn't matched.
-			strings.Contains(errStr, "Provider produced inconsistent result after apply")
-		if attempt < maxApplyRetries && isTransient {
-			// Wave 5.145 — early-abort detection. Extract resource
-			// addresses from the error string ("with huaweicloud_...
-			// .control_plane[0]," / "worker[\"me-east-215-a-N\"]")
-			// and track consecutive failures per address. After 3
-			// consecutive same-address Common.0021 failures (with 3
-			// different name salts), HCS scheduler is degraded for
-			// that compute pool and further retries are futile.
-			addrs := extractFailedAddrs(errStr)
-			degradedAddrs := []string{}
-			for _, a := range addrs {
-				lastFailedAddrs[a]++
-				if lastFailedAddrs[a] >= 3 && strings.Contains(errStr, "Common.0021") {
-					degradedAddrs = append(degradedAddrs, a)
-				}
-			}
-			// Reset counters for addresses NOT in this attempt's failure set
-			// (so a transient failure doesn't permanently count).
-			for a := range lastFailedAddrs {
-				found := false
-				for _, fa := range addrs {
-					if fa == a {
-						found = true
-						break
-					}
-				}
-				if !found {
-					delete(lastFailedAddrs, a)
-				}
-			}
-			if len(degradedAddrs) > 0 {
-				return nil, fmt.Errorf("HCS scheduler degraded: %d resource address(es) hit Common.0021 in 3+ consecutive retries despite per-retry name salt — %v. The compute cell pool for the (AZ, flavor) tuple is unhealthy. Retry later, escalate to HCS Kom4DC ops with deployment_id=%s, or try a different AZ/flavor", len(degradedAddrs), degradedAddrs, req.DeploymentID)
+		class := classifyApplyError(req.Provider, errStr)
+		if attempt < maxApplyRetries && class.Retryable {
+			// Wave 5.145 — stop early when the same resource address keeps
+			// failing despite the per-retry name salt: the cloud's capacity for
+			// it is unhealthy, and the remaining backoffs would be spent on a
+			// doomed prov.
+			if stuck := failed.record(class); len(stuck) > 0 {
+				return nil, fmt.Errorf("%s: %d resource address(es) failed in 3 or more consecutive attempts despite the per-retry name salt — %v. The cloud's capacity for that zone and flavor is unhealthy. Retry later, or try another zone or flavor (deployment_id=%s)", class.Reason, len(stuck), stuck, req.DeploymentID)
 			}
 			backoff := baseBackoff * time.Duration(1<<(attempt-1))
-			errLabel := "HCS Common.0021 (CollectInfoTask-fail)"
-			if strings.Contains(errStr, "error allocating EIP") {
-				errLabel = "HCS EIP-conflict (quota / propagation)"
-			} else if strings.Contains(errStr, "error creating VPC") {
-				errLabel = "HCS VPC-conflict (quota / propagation)"
-			} else if strings.Contains(errStr, "error creating") && strings.Contains(errStr, "conflict in the request") {
-				errLabel = "HCS resource-conflict (quota / propagation)"
-			}
-			emit("tofu-apply", "warn", fmt.Sprintf("%s — attempt %d/%d, re-planning + retrying in %s", errLabel, attempt, maxApplyRetries, backoff))
+			emit("tofu-apply", "warn", fmt.Sprintf("%s — attempt %d/%d, re-planning + retrying in %s", class.Reason, attempt, maxApplyRetries, backoff))
 			time.Sleep(backoff)
 			// Wave 5.139 — bump the retry_attempt salt so any worker
 			// NOT yet in state (i.e. the ones the prior attempt hit
@@ -2518,19 +2433,22 @@ func (p *Provisioner) Provision(ctx context.Context, req Request, events chan<- 
 		return nil, fmt.Errorf("tofu apply: %w", lastErr)
 	}
 
-	// Wave 5.93 (#2445) — for Huawei deployments, rotate any NAT EIPs
-	// that got assigned a blocklisted IP from the Huawei free-pool
-	// before cloud-init starts pulling from harbor.openova.io. Without
-	// this, hw01/hw02/hw03 needed a manual watcher script to rotate
-	// blocklisted .48/.14 EIPs the moment they got assigned.
-	if req.Provider == "huawei" && NATEIPPreflightHook != nil {
-		rotated, err := NATEIPPreflightHook(ctx, req.Provider, req.DeploymentID, req.SovereignFQDN,
-			req.Credential("access_key"), req.Credential("secret_key"), req.Credential("project_id"), req.Credential("region"),
-			func(msg string) { emit("nat-eip-preflight", "info", msg) })
+	// The adapter's step after a successful `tofu apply` (providers.PostApplier),
+	// before cloud-init needs the network. An error fails the prov; a step that
+	// may fail without harm reports through Progress and returns nil.
+	if pa, ok, _ := providers.As[providers.PostApplier](req.Provider); ok {
+		res, err := pa.PostApply(ctx, providers.PostApplyInput{
+			Spec:     capabilitySpec(req),
+			Progress: func(msg string) { emit("post-apply", "info", msg) },
+		})
 		if err != nil {
-			emit("nat-eip-preflight", "warn", "EIP pre-flight check failed (non-fatal — cloudinit may stall on harbor.openova.io if a blocklisted EIP is in play): "+err.Error())
-		} else if rotated > 0 {
-			emit("nat-eip-preflight", "info", fmt.Sprintf("Wave 5.93: rotated %d blocklisted NAT EIPs before Phase 1", rotated))
+			return nil, fmt.Errorf("post-apply: %w", err)
+		}
+		if res.ReapplyNeeded {
+			emit("tofu-apply", "info", "Applying once more, as the cloud adapter asked after its post-apply step")
+			if err := p.runTofu(ctx, deployDir, []string{"apply", "-input=false", "-no-color", "-auto-approve", "-parallelism=2"}, emit); err != nil {
+				return nil, fmt.Errorf("tofu apply (after post-apply): %w", err)
+			}
 		}
 	}
 
@@ -3609,25 +3527,60 @@ func addVariablesIfMissing(path string, req Request) error {
 	return os.WriteFile(path, out, 0o600)
 }
 
-// extractFailedAddrs parses tofu's stderr-formatted error block for
-// resource addresses appearing after a `with huaweicloud_...` line.
-// Returns canonical addresses like "control_plane[0]" or
-// "worker[\"me-east-215-a-3\"]" so the retry-loop can track per-address
-// recurrence (Wave 5.145).
-func extractFailedAddrs(errStr string) []string {
-	var addrs []string
-	for _, line := range strings.Split(errStr, "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "with huaweicloud_compute_instance.") {
-			continue
-		}
-		// "with huaweicloud_compute_instance.control_plane[0]," → "control_plane[0]"
-		// "with huaweicloud_compute_instance.worker["me-east-215-a-3"]," → "worker["me-east-215-a-3"]"
-		rest := strings.TrimPrefix(line, "with huaweicloud_compute_instance.")
-		rest = strings.TrimSuffix(rest, ",")
-		addrs = append(addrs, rest)
+// classifyApplyError decides on one failed `tofu apply`: the adapter's
+// providers.ApplyErrorClassifier, and OpenTofu's own read-after-create
+// inconsistency (#3142), which a re-plan reconciles on every cloud.
+func classifyApplyError(provider, stderr string) providers.ApplyErrorClass {
+	var class providers.ApplyErrorClass
+	if c, ok, _ := providers.As[providers.ApplyErrorClassifier](provider); ok {
+		class = c.ClassifyApplyError(stderr)
 	}
-	return addrs
+	if strings.Contains(stderr, "Provider produced inconsistent result after apply") {
+		class.Retryable = true
+	}
+	if class.Retryable && class.Reason == "" {
+		class.Reason = "transient apply failure"
+	}
+	return class
+}
+
+// applyFailures counts, per resource address, the consecutive retryable
+// `tofu apply` failures that named it (Wave 5.145).
+type applyFailures map[string]int
+
+// record counts the addresses of one retryable failure and forgets every
+// address the failure does not name, so a transient failure does not count
+// for ever. It returns the addresses that have now failed three consecutive
+// times when the failure's class stops on a repeat.
+func (f applyFailures) record(class providers.ApplyErrorClass) []string {
+	named := map[string]bool{}
+	var stuck []string
+	for _, a := range class.Addresses {
+		named[a] = true
+		f[a]++
+		if f[a] >= 3 && class.StopOnRepeat {
+			stuck = append(stuck, a)
+		}
+	}
+	for a := range f {
+		if !named[a] {
+			delete(f, a)
+		}
+	}
+	return stuck
+}
+
+// capabilitySpec is the spec the engine hands an adapter's capabilities: the
+// request's, without a credential that a stored record holds as
+// RedactedMarker (as Request.Credential reads it).
+func capabilitySpec(req Request) providers.ProvisionSpec {
+	spec := req.providerSpec()
+	for k, v := range spec.Creds.Raw {
+		if v == RedactedMarker {
+			delete(spec.Creds.Raw, k)
+		}
+	}
+	return spec
 }
 
 // bumpRetryAttempt rewrites the on-disk tofu.auto.tfvars.json with an

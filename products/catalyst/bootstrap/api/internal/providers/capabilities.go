@@ -48,6 +48,13 @@ type ApplyErrorClassifier interface {
 type ApplyErrorClass struct {
 	Retryable bool
 	Reason    string // shown to the user; "" = use the engine's text
+	// Addresses are the resource addresses the failure names. Across
+	// consecutive retryable failures the engine counts the failures of each
+	// address; an address that a failure does not name starts again at 0.
+	Addresses []string
+	// StopOnRepeat stops the retries when an address of this failure has now
+	// failed three consecutive times: more attempts cannot help.
+	StopOnRepeat bool
 }
 
 // OrphanSweeper replaces the five SweepOrphan* methods.
