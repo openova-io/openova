@@ -48,6 +48,9 @@ metadata:
     # the routes there locally).
     catalyst.openova.io/region-role: secondary
 spec:
+  test:
+    enable: true
+    ignoreFailures: true
   # #5289 — un-suspend ONLY on the secondary CP. SECONDARY_EDGE_SUSPEND renders
   # "false" on secondary CPs (sovereign_region_role != "primary") and "true" on
   # the primary CP + on any single-region prov (the only CP is "primary"),

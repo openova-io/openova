@@ -61,6 +61,9 @@ metadata:
     catalyst.openova.io/component: cutover
     catalyst.openova.io/region-role: primary
 spec:
+  test:
+    enable: true
+    ignoreFailures: true
   # G2 (Refs #2574, 2026-05-29): primary-only HR — bp-self-sovereign-
   # cutover installs the per-Sovereign cutover orchestration on the
   # primary CP only (cutoverComplete state lives on the mothership-side

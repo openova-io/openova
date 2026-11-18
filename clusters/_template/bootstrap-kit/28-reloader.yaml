@@ -44,6 +44,9 @@ metadata:
   labels:
     catalyst.openova.io/slot: "28"
 spec:
+  test:
+    enable: true
+    ignoreFailures: true
   interval: 15m
   releaseName: reloader
   targetNamespace: reloader

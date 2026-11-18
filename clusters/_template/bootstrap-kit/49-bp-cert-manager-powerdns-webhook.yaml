@@ -85,6 +85,9 @@ metadata:
   labels:
     catalyst.openova.io/slot: "49"
 spec:
+  test:
+    enable: true
+    ignoreFailures: true
   interval: 15m
   releaseName: cert-manager-powerdns-webhook
   # Co-located with cert-manager so the webhook's serving Certificate

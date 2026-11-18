@@ -32,6 +32,9 @@ metadata:
   labels:
     catalyst.openova.io/slot: "02"
 spec:
+  test:
+    enable: true
+    ignoreFailures: true
   interval: 15m
   releaseName: cert-manager
   targetNamespace: cert-manager

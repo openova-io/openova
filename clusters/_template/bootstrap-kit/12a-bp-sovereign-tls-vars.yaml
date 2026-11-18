@@ -67,6 +67,9 @@ metadata:
   labels:
     catalyst.openova.io/slot: "12a"
 spec:
+  test:
+    enable: true
+    ignoreFailures: true
   interval: 15m
   releaseName: sovereign-tls-vars
   targetNamespace: flux-system

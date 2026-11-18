@@ -49,6 +49,9 @@ metadata:
     catalyst.openova.io/slot: "16c"
     catalyst.openova.io/data-instance: shared-pg-b
 spec:
+  test:
+    enable: true
+    ignoreFailures: true
   interval: 15m
   releaseName: shared-pg-b
   targetNamespace: shared-data

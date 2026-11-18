@@ -64,6 +64,9 @@ metadata:
   labels:
     catalyst.openova.io/slot: "06"
 spec:
+  test:
+    enable: true
+    ignoreFailures: true
   # interval 1m so install remediation retries fire within ~5min total
   # (mirrors the slot-19 harbor cadence). Dragonfly's manager waits on its
   # bundled mysql + redis init, which can legitimately take a few minutes on
