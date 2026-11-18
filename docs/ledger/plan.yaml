@@ -9424,16 +9424,16 @@ packages:
   acceptance:
   - id: A1
     run: "test -s docs/ledger/plan/spikes/SOV-148.md && grep -q '^## Evidence' docs/ledger/plan/spikes/SOV-148.md"
+  - id: A2
+    run: "sha256sum docs/ledger/plan/spikes/SOV-148.md | cut -d' ' -f1 | grep -qx 482a82702bdb3009ac6db89a551f53f0fb9914888435a695bc137d8e838e2b5a"
   rollback: revert
   adr: null
   due: null
-  budget:
-    files: 5
-    lines: 800
+  budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: A measured answer to how much of the runcmd block of first boot can become one script bundle that the node fetches and checks before k3s, with the list of follow-up tasks.
+  delivers: The repository holds the result of the lab test that booted a control plane of the local pack from one fetched, checksum-pinned bundle of its runcmd, with the bytes that stay inline, the failure reports, the seconds per step, the pre-pull answer and five follow-up tasks.
 - id: SOV-149
   title: The image pre-pull leaves first boot
   area: SOV
@@ -12734,7 +12734,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, SOV-750, MIG-030]
+  after: [FND-070, SOV-148, SOV-750, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-130.md
@@ -12767,7 +12767,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, SOV-750, MIG-030]
+  after: [FND-070, SOV-148, SOV-750, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-135.md
@@ -12800,7 +12800,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, SOV-750, MIG-030]
+  after: [FND-070, SOV-148, SOV-750, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-140.md
@@ -14190,7 +14190,7 @@ packages:
   size: S
   lane: SPIKE
   depends_on: [FND-061]
-  after: [FND-070, SOV-750, MIG-030]
+  after: [FND-070, SOV-148, SOV-750, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-271.md
@@ -14345,7 +14345,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, SOV-750, MIG-030]
+  after: [FND-070, SOV-148, SOV-750, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-280.md
@@ -14500,7 +14500,7 @@ packages:
   size: S
   lane: SPIKE
   depends_on: [SEC-211]
-  after: [FND-070, SOV-750, MIG-030]
+  after: [FND-070, SOV-148, SOV-750, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-335.md
