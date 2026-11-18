@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T19:15:05Z` |
+| Last refreshed | `2026-11-18T19:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-18T19:20 | [#8198](https://github.com/openova-io/openova/pull/8198) | #7087 | docs(ledger): plan update |
 | 2026-11-18T19:12 | [#8197](https://github.com/openova-io/openova/pull/8197) | #7087 | docs(ledger): plan update |
 | 2026-11-18T19:02 | [#8196](https://github.com/openova-io/openova/pull/8196) | #7087 | docs(ledger): plan update |
 | 2026-11-18T18:54 | [#8195](https://github.com/openova-io/openova/pull/8195) | #7938 | fix(cutover): step 04 pivots the registry of every node in e |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-18T13:36 | [#8163](https://github.com/openova-io/openova/pull/8163) | #7938 | fix(release): the delivery builds valid objects, and its dry |
 | 2026-11-18T13:13 | [#8162](https://github.com/openova-io/openova/pull/8162) | #7087 | docs(ledger): plan update |
 | 2026-11-18T12:48 | [#8161](https://github.com/openova-io/openova/pull/8161) | #7968 | test(providers): adding a region to the local pack plans onl |
-| 2026-11-18T12:47 | [#8160](https://github.com/openova-io/openova/pull/8160) | #7087 | docs(ledger): plan update |
 
 ---
 
