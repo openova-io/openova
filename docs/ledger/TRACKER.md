@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T07:15:03Z` |
+| Last refreshed | `2026-11-18T07:30:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,7 +307,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-18T07:16 | [#8078](https://github.com/openova-io/openova/pull/8078) | #7087 | docs(ledger): plan update |
+| 2026-11-18T07:26 | [#8076](https://github.com/openova-io/openova/pull/8076) | #7974 | chore: delete the flow server and the flow adapter with thei |
 | 2026-11-18T06:50 | [#8075](https://github.com/openova-io/openova/pull/8075) | #7087 | docs(ledger): plan update |
+| 2026-11-18T07:17 | [#8074](https://github.com/openova-io/openova/pull/8074) | #7813 | refactor(providers): the three modules meet contract version |
+| 2026-11-18T07:16 | [#8073](https://github.com/openova-io/openova/pull/8073) | #8066 | refactor(console): resource views show Managed by Git and se |
 | 2026-11-18T06:22 | [#8071](https://github.com/openova-io/openova/pull/8071) | #7087 | docs(ledger): plan update |
 | 2026-11-17T15:48 | [#8070](https://github.com/openova-io/openova/pull/8070) | #7087 | docs(ledger): plan update |
 | 2026-11-17T15:44 | [#8069](https://github.com/openova-io/openova/pull/8069) | #7087 | docs(ledger): plan update |
@@ -333,10 +337,6 @@ flowchart LR
 | 2026-11-17T13:21 | [#8034](https://github.com/openova-io/openova/pull/8034) | #7087 | docs(ledger): plan update |
 | 2026-11-17T13:20 | [#8033](https://github.com/openova-io/openova/pull/8033) | #7823 | chore(kit): remove bootstrap-kit slot 05, the Sealed Secrets |
 | 2026-11-17T10:29 | [#8031](https://github.com/openova-io/openova/pull/8031) | #7785 | chore: remove the SealedSecret templates from the guacamole  |
-| 2026-11-17T09:18 | [#8030](https://github.com/openova-io/openova/pull/8030) | #7087 | docs(ledger): plan update |
-| 2026-11-17T09:12 | [#8029](https://github.com/openova-io/openova/pull/8029) | #7991 | fix(cutover): follower regions pivot the image registry of w |
-| 2026-11-17T09:12 | [#8028](https://github.com/openova-io/openova/pull/8028) | #7975 | chore(kit): the flow host leaves the sign-in gate, the DNS n |
-| 2026-11-17T08:37 | [#8027](https://github.com/openova-io/openova/pull/8027) | #7982 | chore: remove the unwired firewall and the unused SPIRE char |
 
 ---
 
