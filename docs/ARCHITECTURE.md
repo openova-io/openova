@@ -1272,7 +1272,7 @@ This subsection is the source of truth for ClusterMesh peer identity across the 
 
 #### §8.7.1 The chart shape
 
-The `bp-cilium` umbrella chart at `platform/cilium/chart/` ships the ClusterMesh values overlay separately at `values-clustermesh.yaml` (see that file's header for rationale). The default `values.yaml` has no ClusterMesh block — it is opt-in per Sovereign so single-region Sovereigns don't pay the LoadBalancer cost.
+The default `values.yaml` of the `bp-cilium` umbrella chart at `platform/cilium/chart/` has no ClusterMesh block. The ClusterMesh values are set by the bootstrap-kit slot `clusters/_template/bootstrap-kit/01-cilium.yaml`.
 
 When a Sovereign joins a mesh, its overlay merges these values on top of the chart defaults:
 
@@ -1332,7 +1332,7 @@ When Continuum cross-Sovereign federation goes live, the cross-Sovereign managem
 
 #### §8.7.5 Sovereign-admin runbook (per-peer bringup)
 
-See `platform/cilium/chart/values-clustermesh.yaml` header — the steps are the source of truth. In short:
+The steps, in short:
 
 1. Apply the overlay (HelmRelease reconcile).
 2. `cilium clustermesh enable --service-type LoadBalancer --context <local>`

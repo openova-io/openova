@@ -19,10 +19,8 @@ global:
   imageRegistry: ""
 
 catalystBlueprint:
-  # Pinned to match Chart.lock (truth-on-disk). Aligned with Chart.yaml's
-  # dependencies version. The previous "1.19.3" was provenance drift —
-  # Chart.lock had been resolving 1.16.5 the whole time (EPIC-0 #1095 audit).
-  upstream: { chart: cilium, version: "1.16.5", repo: "https://helm.cilium.io" }
+  # The upstream chart this Blueprint bundles: the dependency of Chart.yaml.
+  upstream: { chart: cilium, version: "1.19.3", repo: "https://helm.cilium.io" }
 
 # Catalyst-curated Cilium values per platform/cilium/README.md.
 #
@@ -53,19 +51,12 @@ cilium:
   # incompat. Both single-node and multi-node Sovereigns hit this once
   # cluster-autoscaler scales workers.
   kubeProxyReplacement: true
-  # k8sServiceHost: CP's stable private IP on the Sovereign's 10.0.1.0/24
-  # subnet (cp1=10.0.1.2 per infra/hetzner/main.tf). Multi-node-aware:
-  # works on the CP itself (10.0.1.2 IS its own private IP) AND on
-  # workers (which need the CP's IP because k3s agents do NOT expose the
-  # apiserver on localhost — only the supervisor on :6444). Previously
-  # `127.0.0.1` here, which crashloop'd Cilium on every worker for
-  # multi-node Sovereigns (issue #733). For air-gap / multi-CP / non-
-  # Hetzner Sovereigns the canonical fix is to point this at the in-
-  # cluster apiserver Service (kubernetes.default.svc.cluster.local) —
-  # but that requires DNS up before Cilium, which is the chicken-egg
-  # this whole config exists to solve. The Sovereign template subnet
-  # is fixed at 10.0.1.0/24 so 10.0.1.2 is a stable load-bearing value.
-  k8sServiceHost: 10.0.1.2
+  # k8sServiceHost: the private address of the region's control-plane
+  # node. Workers need it: a k3s agent does not serve the API on
+  # localhost. The chart names no address. The bootstrap-kit
+  # slot clusters/_template/bootstrap-kit/01-cilium.yaml sets it from the
+  # substitute CILIUM_K8S_SERVICE_HOST, which first boot writes per region.
+  k8sServiceHost: ""
   k8sServicePort: 6443
 
   # eBPF-host-routing — bypasses iptables stack
@@ -159,22 +150,17 @@ cilium:
   # no VXLAN the WG-only MTU is eth0(1500)−80 = 1420.
   MTU: 1420
 
-  # #4656: native routing (NOT the upstream vxlan-tunnel default). WireGuard
-  # node-encryption then encapsulates cross-node pod traffic ONCE. Nodes are
-  # L2-adjacent within a region (same VPC subnet) so autoDirectNodeRoutes
-  # installs direct cross-node pod routes with no tunnel.
+  # Native routing: WireGuard node encryption encapsulates cross-node
+  # pod traffic once, which is what MTU 1420 above budgets for. Nodes of a
+  # region share one network, so autoDirectNodeRoutes installs direct routes.
   #
-  # ipv4NativeRoutingCIDR spans BOTH per-region k3s pod CIDRs — region-a
-  # 10.42.0.0/16 + region-b 10.43.0.0/16 collapse to the /15 10.42.0.0/15 —
-  # so a single chart value is correct for every region AND for single-region
-  # Sovereigns (whose pod CIDR is a subset). Traffic to pod IPs inside this
-  # CIDR is routed natively (never masqueraded); everything else egresses
-  # NAT'd. The bootstrap cloud-init pins the tighter per-region cluster_cidr
-  # explicitly; this chart overlay widens it to cover cross-region ClusterMesh.
-  # ⚠️ 2-region ClusterMesh cross-region pod reach MUST be fresh-prov-verified
-  # before merge (see #4656 spec) — this is the reviewable starting point.
+  # ipv4NativeRoutingCIDR, the range of pod addresses that is routed without
+  # masquerading, is a value of the Sovereign: the pod supernet of its
+  # provider module. The chart names no range. The bootstrap-kit slot
+  # clusters/_template/bootstrap-kit/01-cilium.yaml sets it from the
+  # substitute CILIUM_NATIVE_ROUTING_CIDR. A release that names an API host
+  # and no range fails to render (templates/native-routing-range.yaml).
   routingMode: native
-  ipv4NativeRoutingCIDR: "10.42.0.0/15"
   autoDirectNodeRoutes: true
 
   # Hubble — network observability (L3/L4/L7 flows, DNS, drop, http metrics).

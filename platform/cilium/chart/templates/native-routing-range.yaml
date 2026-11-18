@@ -1,0 +1,14 @@
+{{- /*
+NET-110: native routing needs the range of pod addresses that is routed
+without masquerading. The chart names no range: the bootstrap-kit slot
+clusters/_template/bootstrap-kit/01-cilium.yaml sets it from the substitute
+CILIUM_NATIVE_ROUTING_CIDR, the pod supernet of the provider module. A release
+for a cluster names its API host; without the range its agents would start and
+then fail on every node, so such a render fails first. The chart's own values
+name no API host and are not judged, so the release workflow and helm lint
+still render the chart. This template renders nothing.
+*/ -}}
+{{- $c := .Values.cilium | default dict -}}
+{{- if and (eq (toString ($c.routingMode | default "")) "native") $c.k8sServiceHost (not $c.ipv4NativeRoutingCIDR) -}}
+{{- fail "bp-cilium: cilium.ipv4NativeRoutingCIDR is not set. A release that names an API host runs native routing and needs the range of pod addresses that is routed without masquerading; the bootstrap-kit slot sets it from CILIUM_NATIVE_ROUTING_CIDR." -}}
+{{- end -}}
