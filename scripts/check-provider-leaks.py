@@ -13,6 +13,13 @@ no name ending in SKIP_SUFFIXES. A line counts once if TIER1 (any case) or else 
 A line whose first non-blank characters are one of COMMENT is a comment line: reported, never gated. A file
 is allow (a plug-in path; a directory starting with _ is shared), legacy (counted apart, must reach zero) or
 shared. Baseline: one line per shared file with a count above 0, <path><TAB><count>, sorted by path.
+
+Provider packs (infra/providers/<name>/pack.yaml, read with PyYAML when at least one is tracked): every token of
+spec.leakTokens joins TIER1 as a word in any case (no letter or digit next to it), except a token that TIER2
+counts when written in capitals: such a short cloud acronym keeps the exact-case rule of TIER2. The folders
+platform/<chart>/ of every spec.charts replace CHART_ALLOW. With no pack.yaml, TIER1 and CHART_ALLOW apply as
+they are. A pack.yaml that cannot be read, or whose spec.leakTokens or spec.charts is not a list of names, ends
+every mode with exit 2. TIER1 and TIER2 stay the built-in rules: other guards import them.
 """
 import argparse, os, re, shutil, subprocess, sys, tempfile
 
@@ -28,7 +35,7 @@ TIER2 = re.compile(r"\b(EVS|ELB|EIP|ECS|CCE|HCS|OBS)\b|\b(evs|elb|eip|ecs|cce|hc
 ALLOW = re.compile(r"^infra/providers/[a-z0-9][a-z0-9-]*/|^clusters/_template/providers/[a-z0-9][a-z0-9-]*/"
                    r"|^products/catalyst/bootstrap/api/internal/providers/(?!all/)[a-z0-9-]+/"
                    r"|^products/chargeback/internal/collector/[a-z0-9-]+/")
-# The chart folders of the provider packs, until each pack.yaml lists them under spec.charts.
+# The chart folders of the provider packs when no pack.yaml exists (the fixed commit of the known answer).
 CHART_ALLOW = ("platform/hcloud-ccm/", "platform/hcloud-csi/", "platform/huawei-evs-csi/",
                "platform/cluster-autoscaler-hcloud/", "platform/velero-hcs/")
 KIT = "clusters/_template/bootstrap-kit/"
@@ -40,18 +47,25 @@ LEGACY_DIRS = ("clusters/_template/infrastructure/hetzner/", "clusters/_template
                "clusters/_template/sovereign-tls-hetzner/", "products/catalyst/bootstrap/api/internal/hetzner/",
                "products/catalyst/bootstrap/api/internal/objectstorage/hetzner/")
 
+PACK = re.compile(r"^infra/providers/([a-z0-9][a-z0-9-]*)/pack\.yaml$")
+TOKEN = re.compile(r"^[a-z0-9][a-z0-9.-]*$")
+CHART = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
+
+class PackError(Exception):
+    """A pack.yaml cannot be read, or its spec.leakTokens or spec.charts is not a list of names."""
+
 def scanned(path):
     return (path.endswith(EXTENSIONS) and not path.endswith(SKIP_SUFFIXES) and not path.startswith("docs/")
             and not SKIP_SEGMENTS.intersection(path.split("/")[:-1]))
 
-def kind(path):
-    if ALLOW.match(path) or path.startswith(CHART_ALLOW):
+def kind(path, charts=CHART_ALLOW):
+    if ALLOW.match(path) or path.startswith(charts):
         return "allow"
     return "legacy" if path in LEGACY_FILES or path.startswith(LEGACY_DIRS) else "shared"
 
-def count_lines(text):
+def count_lines(text, tier1=TIER1):
     """(lines, comment lines) that name a provider."""
-    hits = [l for l in text.split("\n") if TIER1.search(l) or TIER2.search(l)]
+    hits = [l for l in text.split("\n") if tier1.search(l) or TIER2.search(l)]
     comments = sum(1 for l in hits if l.lstrip().startswith(COMMENT))
     return len(hits) - comments, comments
 
@@ -60,11 +74,43 @@ def read_text(repo, path):
     if os.path.isfile(full) and not os.path.islink(full):
         return open(full, "rb").read().decode("utf-8", "replace")
 
+def pack_rules(repo, paths, reader=read_text):
+    """(tier-1 expression, chart folders) from the pack.yaml files among paths; the built-in rules when none."""
+    packs = sorted(p for p in paths if PACK.match(p))
+    if not packs:
+        return TIER1, CHART_ALLOW
+    try:
+        import yaml
+    except ImportError:
+        raise PackError("PyYAML is needed to read " + packs[0])
+    tokens, charts = set(), set()
+    for path in packs:
+        text = reader(repo, path)
+        try:
+            doc = yaml.safe_load(text) if text is not None else None
+        except yaml.YAMLError as e:
+            raise PackError(f"{path}: not YAML: {e}")
+        spec = doc.get("spec") if isinstance(doc, dict) else None
+        spec = spec if isinstance(spec, dict) else {}
+        words, folders = spec.get("leakTokens"), spec.get("charts", [])
+        if not isinstance(words, list) or not words or not all(isinstance(w, str) and TOKEN.match(w) for w in words):
+            raise PackError(f"{path}: spec.leakTokens is not a list of lower-case words")
+        if not isinstance(folders, list) or not all(isinstance(c, str) and CHART.match(c) for c in folders):
+            raise PackError(f"{path}: spec.charts is not a list of folder names")
+        tokens.update(words)
+        charts.update(folders)
+    words = sorted((w for w in tokens if not TIER2.search(w.upper())), key=lambda w: (-len(w), w))
+    tier1 = TIER1 if not words else re.compile(
+        TIER1.pattern + r"|(?<![a-z0-9])(?:" + "|".join(map(re.escape, words)) + r")(?![a-z0-9])", re.IGNORECASE)
+    return tier1, tuple(f"platform/{c}/" for c in sorted(charts))
+
 def scan(repo, reader=read_text):
     """{path: (kind, lines, comment lines)} for every scanned file of `git ls-files`."""
     out = subprocess.run(["git", "-C", repo, "ls-files", "-z"], check=True, stdout=subprocess.PIPE).stdout
-    texts = {p: reader(repo, p) for p in out.decode("utf-8", "surrogateescape").split("\0") if p and scanned(p)}
-    return {p: (kind(p),) + count_lines(t) for p, t in texts.items() if t is not None}
+    paths = [p for p in out.decode("utf-8", "surrogateescape").split("\0") if p]
+    tier1, charts = pack_rules(repo, paths, reader)
+    texts = {p: reader(repo, p) for p in paths if scanned(p)}
+    return {p: (kind(p, charts),) + count_lines(t, tier1) for p, t in texts.items() if t is not None}
 
 def shared_counts(result):
     return {p: v[1] for p, v in result.items() if v[0] == "shared" and v[1] > 0}
@@ -180,6 +226,22 @@ def self_test():
         put({BASELINE: "core/shared.go 1\n"})
         expect("--check exits 2 on a malformed baseline", run("--check") == 2)
         expect("--report exits 0", run("--report") == 0)
+        put({BASELINE: "", "core/pack.go": "a := Acmecloud_id\nb := acmecloudy\nc := obs\n",
+             "platform/acme-csi/v.yaml": "a := acmecloud\n"})
+        expect("without a pack.yaml a pack token counts nothing", scan(tmp)["core/pack.go"] == ("shared", 0, 0))
+        put({"infra/providers/acme/pack.yaml": "spec:\n  leakTokens: [acmecloud, obs]\n  charts: [acme-csi]\n"})
+        r = scan(tmp)
+        expect("a pack token counts as a word in any case; an acronym of tier 2 keeps its exact case",
+               r["core/pack.go"] == ("shared", 1, 0))
+        expect("with a pack.yaml its spec.charts replace the built-in chart folders",
+               (r["platform/acme-csi/v.yaml"][0], r[CHART_ALLOW[0] + "chart/v.yaml"][0]) == ("allow", "shared"))
+        expect("a pack token in a comment line is reported, not gated",
+               count_lines("# acmecloud\n", pack_rules(tmp, ["infra/providers/acme/pack.yaml"])[0]) == (0, 1))
+        put({"infra/providers/acme/pack.yaml": "spec:\n  charts: [acme-csi]\n"})
+        expect("a pack.yaml without spec.leakTokens: --check and --report exit 2",
+               (run("--check"), run("--report")) == (2, 2))
+        put({"infra/providers/acme/pack.yaml": "spec:\n  leakTokens: [acmecloud]\n  charts: [Acme CSI]\n"})
+        expect("a pack.yaml whose spec.charts is not a list of folder names: --check exits 2", run("--check") == 2)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print(f"self-test: {len(failed)} case(s) failed" if failed else "self-test: every case passed")
@@ -194,7 +256,11 @@ def main():
     a = ap.parse_args()
     if a.self_test:
         return self_test()
-    return report(a.repo) if a.report else ratchet(a.repo, a.update)
+    try:
+        return report(a.repo) if a.report else ratchet(a.repo, a.update)
+    except PackError as e:
+        print(f"provider-leak: {e}")
+        return 2
 
 if __name__ == "__main__":
     sys.exit(main())
