@@ -1,0 +1,49 @@
+{{- /*
+The conformance account (FND-156). The default agentTokens.callers entry
+(values.yaml) names this ServiceAccount, gate check AIP-G07 asks the API
+server for its token, and the conformance Job runs the suite under it with
+--run-in self. The six rules are the reads of the checks of that self
+selection, get on the definition clusterpolicies.kyverno.io and on the policy
+forbid-nodeport-service, and the write of the suite's ClusterPolicyReport:
+no Secret, no exec into a Pod, no wildcard. They are cluster-wide, so they are
+a ClusterRole. tests/conformance-account-rbac.sh fails on any other rule or
+binding. Helm only (the binding names the release namespace), so
+templates/kustomization.yaml does not list this file.
+*/ -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: catalyst-conformance
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: catalyst-conformance
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: catalyst-conformance
+  labels:
+    app.kubernetes.io/name: catalyst-conformance
+rules:
+  - {apiGroups: ["helm.toolkit.fluxcd.io"], resources: ["helmreleases"], verbs: ["get", "list", "watch"]}
+  - {apiGroups: [""], resources: ["pods", "services", "nodes"], verbs: ["get", "list", "watch"]}
+  - {apiGroups: [""], resources: ["namespaces"], verbs: ["get", "list"]}
+  - {apiGroups: ["apiextensions.k8s.io"], resources: ["customresourcedefinitions"], resourceNames: ["clusterpolicies.kyverno.io"], verbs: ["get"]}
+  - {apiGroups: ["kyverno.io"], resources: ["clusterpolicies"], resourceNames: ["forbid-nodeport-service"], verbs: ["get"]}
+  # create cannot be limited by name: a create has no name to match yet.
+  - {apiGroups: ["wgpolicyk8s.io"], resources: ["clusterpolicyreports"], verbs: ["get", "create", "update", "patch"]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: catalyst-conformance
+  labels:
+    app.kubernetes.io/name: catalyst-conformance
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: catalyst-conformance
+subjects:
+  - kind: ServiceAccount
+    name: catalyst-conformance
+    namespace: {{ .Release.Namespace }}
