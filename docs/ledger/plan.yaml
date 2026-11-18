@@ -5079,7 +5079,7 @@ packages:
   size: S
   lane: RAILS
   depends_on: []
-  after: [FND-022, FND-052, FND-056, CLD-090, SOV-120, SOV-121, SOV-131, CTL-331, CTL-332, AIP-111, AIP-113, AIP-221, AIP-229, INF-110, PRD-101, PRD-102, PRD-103, PRD-501, PRD-513]
+  after: [FND-022, FND-052, FND-056, CLD-090, SOV-120, SOV-121, SOV-131, CTL-331, CTL-332, AIP-111, AIP-113, AIP-114, AIP-221, AIP-229, INF-110, PRD-101, PRD-102, PRD-103, PRD-501, PRD-513]
   touches:
   - '**/go.mod'
   - '**/go.sum'
@@ -26896,16 +26896,20 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c '\"stub\"' core/services/model-meter/main.go"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "cd core/services/model-meter && go vet ./... && log=\"$(mktemp)\" && { go test -race -count=1 -v ./... > \"$log\" 2>&1 || { tail -n 60 \"$log\"; exit 1; }; } && for t in TestStubAnswersTheFourCases TestStubCountsRoundUp TestStubStreamsTheUsageChunkOnlyWhenAsked TestStubAnswers404OutsideChatCompletions TestStubBehindTheMeterGivesTheMeasureFormula TestUnknownSubcommandExits2 TestStubSubcommandExits1WhenItsAddressIsTaken TestStubSubcommandAnswersAndStops; do grep -q -E -- \"^--- PASS: $t \\(\" \"$log\" || { echo \"$t did not pass\"; exit 1; }; done"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'The subcommand stub of the meter (meter/stub.go, StubAddr :8081, back end call_stub_1): deterministic token counts, streaming that adds the usage chunk only when include_usage is set; a last message with role tool wins over the tool-call rule; a list of content parts is read as its text parts joined; any path other than POST /v1/chat/completions gets 404 not_found. The stub case of main.go and its test.'
+  delivers: The model meter binary has the subcommand stub, a scripted back end on :8081 that answers POST /v1/chat/completions with an echo or one tool call call_stub_1 and deterministic token counts, streams with the usage chunk only when include_usage is set, and answers every other path with 404 not_found.
 - id: AIP-120
   title: Agent tokens and the signer key set route
   area: AIP
