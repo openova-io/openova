@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T04:30:09Z` |
+| Last refreshed | `2026-11-19T04:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7884](https://github.com/openova-io/openova/issues/7884) | FND-064 Custody procedure of the release key, safe rotation, and the pre-live st | Other |
 | [#7885](https://github.com/openova-io/openova/issues/7885) | FND-151 The suite as an image, with the self selection | Other |
 | [#7886](https://github.com/openova-io/openova/issues/7886) | SEC-095 Exception register, source guard and Secret census | Other |
 | [#7893](https://github.com/openova-io/openova/issues/7893) | a fresh two-region installation: the control-plane user data is 32,931 bytes, ov | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8257](https://github.com/openova-io/openova/issues/8257) | SVC-163 The Blueprint files carry the seed's configSchema | Other |
 | [#8264](https://github.com/openova-io/openova/issues/8264) | CLD-066 provider-opentofu v1.1.11 by digest | Other |
 | [#8265](https://github.com/openova-io/openova/issues/8265) | INF-513 Runner test task: the ZAP baseline scan and its SARIF report (profile we | Other |
+| [#8270](https://github.com/openova-io/openova/issues/8270) | SVC-160 One generator, part 2: the seed becomes generated | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-19T04:43 | [#8269](https://github.com/openova-io/openova/pull/8269) | #7087 | docs(ledger): plan update |
 | 2026-11-19T04:23 | [#8267](https://github.com/openova-io/openova/pull/8267) | #7087 | docs(ledger): plan update |
 | 2026-11-19T04:14 | [#8263](https://github.com/openova-io/openova/pull/8263) | #7087 | docs(ledger): plan update |
 | 2026-11-19T04:05 | [#8262](https://github.com/openova-io/openova/pull/8262) | #8247 | fix(gate): the parent Job asks for what the parent can sched |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-18T22:56 | [#8224](https://github.com/openova-io/openova/pull/8224) | #7087 | docs(ledger): plan update |
 | 2026-11-18T22:51 | [#8222](https://github.com/openova-io/openova/pull/8222) | #7087 | docs(ledger): plan update |
 | 2026-11-19T00:09 | [#8221](https://github.com/openova-io/openova/pull/8221) | #7450 | fix(cloud-init): shred the bootstrap secret files, make the  |
-| 2026-11-18T22:39 | [#8220](https://github.com/openova-io/openova/pull/8220) | #7087 | docs(ledger): plan update |
 
 ---
 
