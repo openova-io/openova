@@ -69,8 +69,8 @@ func setup(t *testing.T) *fixture {
 	u.User = url.UserPassword("cortex", "cortex-test")
 	f := &fixture{ctx: ctx, ownerURL: u.String()}
 	applied, err := Migrate(ctx, f.ownerURL, testDimensions)
-	if err != nil || !reflect.DeepEqual(applied, []int{1}) {
-		t.Fatalf("Migrate = %v, %v; want [1]", applied, err)
+	if err != nil || !reflect.DeepEqual(applied, []int{1, 2}) {
+		t.Fatalf("Migrate = %v, %v; want [1 2]", applied, err)
 	}
 	if f.query, err = Open(ctx, f.ownerURL, RoleQuery, testDimensions); err != nil {
 		t.Fatal(err)
@@ -140,9 +140,11 @@ const (
 	hrLate   = "00000000-0000-0000-0000-000000000004" // inherits; indexed while a revoke is in flight
 )
 
+var chunk512 = ChunkSettings{Tokens: 512, Overlap: 64}
+
 var baseDefs = []SourceDefinition{
-	{ID: "hr", Title: "HR policies", Digest: "d1", Readers: []string{"group:staff"}, Managers: []string{"user:hr-admin"}},
-	{ID: "board", Title: "Board papers", Digest: "d2", Readers: []string{"group:board"}, Managers: []string{"user:secretary"}},
+	{ID: "hr", Title: "HR policies", Digest: "d1", Readers: []string{"group:staff"}, Managers: []string{"user:hr-admin"}, Connector: "upload", Chunk: chunk512},
+	{ID: "board", Title: "Board papers", Digest: "d2", Readers: []string{"group:board"}, Managers: []string{"user:secretary"}, Connector: "git", Chunk: chunk512},
 }
 
 func (f *fixture) load(t *testing.T) {
@@ -356,7 +358,8 @@ func TestPostgresStore(t *testing.T) {
 
 	t.Run("a grant change rewrites the readers of the chunks it covers", func(t *testing.T) {
 		defs := []SourceDefinition{
-			{ID: "hr", Title: "HR policies", Digest: "d1b", Readers: []string{"group:staff", "group:board"}, Managers: []string{"user:hr-admin", "user:bob"}},
+			{ID: "hr", Title: "HR policies", Digest: "d1b", Readers: []string{"group:staff", "group:board"}, Managers: []string{"user:hr-admin", "user:bob"},
+				Connector: "upload", Chunk: chunk512},
 			baseDefs[1],
 		}
 		if err := f.index.ApplyDefinitions(f.ctx, defs); err != nil {
@@ -475,6 +478,133 @@ func TestPostgresStore(t *testing.T) {
 		  + (SELECT count(*) FROM document WHERE source_id = 'board') + (SELECT count(*) FROM chunk WHERE source_id = 'board')`).Scan(&n); err != nil || n != 0 {
 			t.Errorf("board left %d rows (%v)", n, err)
 		}
+		if err := f.index.pool.QueryRow(f.ctx, `SELECT count(*) FROM job WHERE kind = 'delete' AND state = 'queued'
+		  AND document_id = $1::uuid AND item->>'object' = 'obj'`, boardDoc).Scan(&n); err != nil || n != 1 {
+			t.Errorf("the removed document has %d delete jobs for its original (%v), want 1", n, err)
+		}
+	})
+
+	t.Run("an upload's document, its own readers, and who may see it", func(t *testing.T) {
+		const up = "00000000-0000-0000-0000-0000000000a1"
+		doc := NewDocument{ID: up, SourceID: "hr", ExternalID: "upload:" + up, Title: "Pay", URI: "/v1/documents/" + up + "/content", SHA256: "s", ObjectKey: up + "/s"}
+		if c, err := f.index.PutDocument(f.ctx, doc, []string{"user:carol"}); err != nil || c != chunk512 {
+			t.Fatalf("PutDocument = %+v, %v", c, err)
+		}
+		gone := doc
+		gone.ID, gone.SourceID = "00000000-0000-0000-0000-0000000000a2", "board"
+		if _, err := f.index.PutDocument(f.ctx, gone, nil); !errors.Is(err, ErrNotFound) {
+			t.Errorf("PutDocument into a removed source: %v, want ErrNotFound", err)
+		}
+		if _, err := f.query.PutDocument(f.ctx, doc, nil); err == nil {
+			t.Error("PutDocument as cortex_query passed")
+		}
+		for p, want := range map[string][3]bool{"user:carol": {true, false, true}, "group:staff": {false, false, false}, "user:hr-admin": {true, true, true}} {
+			d, err := f.query.Document(f.ctx, []string{p}, up)
+			watch, werr := f.query.MayWatch(f.ctx, []string{p}, "hr", up)
+			if got := [3]bool{err == nil, d.Manager, watch}; got != want || werr != nil || (err == nil && (d.ObjectKey != up+"/s" || d.State != "fetched")) {
+				t.Errorf("%s: read, manage, watch = %v (%v, %v), want %v", p, got, err, werr, want)
+			}
+		}
+		if _, err := f.query.Document(f.ctx, []string{"user:hr-admin"}, "not-a-uuid"); !errors.Is(err, ErrNotFound) {
+			t.Errorf("a malformed id: %v", err)
+		}
+		for p, want := range map[string]SourceAccess{"user:hr-admin": {"upload", true}, "group:staff": {"upload", false}} {
+			if s, err := f.query.Source(f.ctx, []string{p}, "hr"); err != nil || s != want {
+				t.Errorf("Source(hr) for %s = %+v, %v", p, s, err)
+			}
+		}
+		if _, err := f.query.Source(f.ctx, []string{"user:hr-admin"}, "board"); !errors.Is(err, ErrNotFound) {
+			t.Errorf("Source(board) = %v, want ErrNotFound", err)
+		}
+		for p, want := range map[string]bool{"group:staff": true, "group:other": false} {
+			if ok, err := f.query.MayWatch(f.ctx, []string{p}, "hr", ""); err != nil || ok != want {
+				t.Errorf("MayWatch(hr) without a document for %s = %v, %v", p, ok, err)
+			}
+		}
+		if err := f.index.MarkDocument(f.ctx, up, "indexed"); err != nil {
+			t.Fatal(err)
+		}
+		if d, err := f.query.Document(f.ctx, []string{"user:carol"}, up); err != nil || d.State != "indexed" {
+			t.Errorf("after MarkDocument: %+v, %v", d, err)
+		}
+		if err := f.index.DeleteDocument(f.ctx, up); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.query.Document(f.ctx, []string{"user:hr-admin"}, up); !errors.Is(err, ErrNotFound) {
+			t.Errorf("Document after DeleteDocument: %v", err)
+		}
+	})
+
+	t.Run("jobs are claimed oldest first, retried, leased and notified", func(t *testing.T) {
+		if _, err := f.index.pool.Exec(f.ctx, `DELETE FROM job`); err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(f.ctx)
+		defer cancel()
+		notes := make(chan string, 64)
+		go func() { _ = f.index.Listen(ctx, func(id string) { notes <- id }) }()
+		note := func() string {
+			select {
+			case id := <-notes:
+				return id
+			case <-time.After(10 * time.Second):
+				t.Fatal("no notification")
+			}
+			return ""
+		}
+		if id := note(); id != "" {
+			t.Fatalf("the first call of Listen gave %q, want the empty id", id)
+		}
+		var ids []string
+		for _, kind := range []string{"index", "delete", "index"} {
+			id, err := f.query.Enqueue(f.ctx, Job{Kind: kind, SourceID: "hr", DocumentID: hrOpen, Item: []byte(`{"object": "o"}`)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := note(); got != id {
+				t.Fatalf("the insert notified %q, want %q", got, id)
+			}
+			ids = append(ids, id)
+		}
+		j, err := f.index.Claim(f.ctx, time.Minute)
+		if err != nil || j == nil || j.ID != ids[0] || j.State != "running" || j.Attempts != 1 || j.Kind != "index" || j.DocumentID != hrOpen || string(j.Item) != `{"object": "o"}` {
+			t.Fatalf("Claim = %+v, %v", j, err)
+		}
+		if got := note(); got != ids[0] {
+			t.Errorf("the claim notified %q", got)
+		}
+		if err := f.index.Fail(f.ctx, ids[0], "the gateway is away", time.Hour, false); err != nil {
+			t.Fatal(err)
+		}
+		if j, err := f.index.Claim(f.ctx, time.Minute); err != nil || j == nil || j.ID != ids[1] {
+			t.Fatalf("the second claim = %+v, %v", j, err)
+		}
+		if err := f.index.Finish(f.ctx, ids[1]); err != nil {
+			t.Fatal(err)
+		}
+		// A lease of zero runs out at once: the job is due again, with one more attempt.
+		for attempt := 1; attempt <= 2; attempt++ {
+			if j, err := f.index.Claim(f.ctx, 0); err != nil || j == nil || j.ID != ids[2] || j.Attempts != attempt {
+				t.Fatalf("claim %d of the leased job = %+v, %v", attempt, j, err)
+			}
+		}
+		if err := f.index.Fail(f.ctx, ids[2], "parse", 0, true); err != nil {
+			t.Fatal(err)
+		}
+		if j, err := f.index.Claim(f.ctx, time.Minute); err != nil || j != nil {
+			t.Fatalf("a claim with nothing due = %+v, %v", j, err)
+		}
+		if in, ok, err := f.index.NextDue(f.ctx); err != nil || !ok || in < 50*time.Minute || in > time.Hour {
+			t.Errorf("NextDue = %v, %v, %v; want the failed job in about an hour", in, ok, err)
+		}
+		for id, want := range map[string]string{ids[0]: "failed", ids[1]: "done", ids[2]: "dead"} {
+			if j, err := f.query.Job(f.ctx, id); err != nil || j.State != want || j.SourceID != "hr" {
+				t.Errorf("job %s = %+v, %v; want %s", id, j, err, want)
+			}
+		}
+		if _, err := f.query.Claim(f.ctx, time.Minute); err == nil {
+			t.Error("Claim as cortex_query passed")
+		}
 	})
 
 	t.Run("open checks the role, the extension and the vector length", func(t *testing.T) {
@@ -513,7 +643,8 @@ func (f *fixture) narrowReaderPlans(t *testing.T) (string, string) {
 	for i := 0; i < 200; i++ {
 		id := fmt.Sprintf("bulk-%03d", i)
 		sources = append(sources, id)
-		defs = append(defs, SourceDefinition{ID: id, Title: id, Digest: "d", Readers: []string{"group:g-" + id}, Managers: []string{"user:m-" + id}})
+		defs = append(defs, SourceDefinition{ID: id, Title: id, Digest: "d", Readers: []string{"group:g-" + id}, Managers: []string{"user:m-" + id},
+			Connector: "upload", Chunk: chunk512})
 	}
 	if err := f.index.ApplyDefinitions(f.ctx, defs); err != nil {
 		t.Fatal(err)

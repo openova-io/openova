@@ -12,8 +12,8 @@ func TestMigrationsAreNumberedFromOne(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(migs) != 1 || migs[0].Version != 1 || migs[0].Name != "cortex" {
-		t.Fatalf("migrations = %+v, want only 0001_cortex", migs)
+	if len(migs) != 2 || migs[0].Name != "cortex" || migs[1].Version != 2 || migs[1].Name != "ingest" {
+		t.Fatalf("migrations = %+v, want 0001_cortex and 0002_ingest", migs)
 	}
 	sql, err := render(migs[0].SQL, 1024)
 	if err != nil {

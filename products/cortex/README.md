@@ -2,7 +2,7 @@
 
 The AI hub's document search for one Organization: uploaded documents are split into passages, embedded through the platform's model gateway, and found again by meaning, each search trimmed to what the caller may read.
 
-**Status: store and query process.** No chart, no Blueprint and no running service ship yet. `docs/STATUS.md` is the inventory of what is built.
+**Status: store, query process and index process.** No chart, no Blueprint and no running service ship yet. `docs/STATUS.md` is the inventory of what is built.
 
 ## Role in Catalyst
 
@@ -10,9 +10,10 @@ An Application Blueprint, `bp-cortex`, not published yet, written fresh in Go on
 
 ## What is here
 
-- `internal/store/`: migration `0001`, the two database roles and the `Store` port. `cortex_query` (the query process) reads and queues jobs; `cortex_index` (the index process) writes the rest. Row-level security is forced on `chunk` and `document`: a session reads only rows whose readers meet the principals it set in `cortex.principals`, and a session that set none fails.
+- `internal/store/`: migrations `0001` and `0002` (connector and chunk settings of a source, the job table's item and its `NOTIFY cortex_job`), the two database roles and the `Store` port. `cortex_query` (the query process) reads and queues jobs; `cortex_index` (the index process) writes the rest. Row-level security is forced on `chunk` and `document`: a session reads only rows whose readers meet the principals it set in `cortex.principals`, and a session that set none fails.
 - `cmd/cortex`: `cortex query`, the query process. It serves `POST /v1/search` and `GET /v1/sources` behind the check of a token of the Organization's realm (`internal/auth`; signature, issuer, audience `cortex`, expiry), and `/healthz`, `/readyz` and `/metrics` on a second listener that no route publishes. A search is embedded and reranked through the model gateway (`internal/gateway`), with the virtual key read from its mounted file; the text of a search is never logged.
-- `internal/definitions`: the loader that watches the definitions ConfigMap through an informer and applies its `sources` to the store; the index process will run it.
+- `internal/definitions`: the loader that watches the definitions ConfigMap through an informer and applies its `sources` to the store; the index process runs it.
+- Uploads: `POST /v1/sources/{id}/documents` stores the original in the originals bucket (`internal/ingest`, contract `object-storage` v1) and queues an index job; `cortex index` claims it (`internal/jobs`), parses the text (`internal/parse`), chunks it (`internal/chunk`) and embeds it. `GET /v1/events` streams job changes (`internal/events`).
 - Each passage row carries its readers, the principals of its source's grants or of the document's own reader list plus the source's managers. The search binds the caller's principals as well, so a narrow reader gets an exact scan of its own rows (spikes PRD-060 and PRD-061, under `docs/ledger/plan/spikes/`).
 
 ## Configuration
