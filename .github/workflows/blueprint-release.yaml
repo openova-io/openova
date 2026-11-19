@@ -322,7 +322,7 @@ jobs:
             fi
           done
           # FND-018: the release writer's one version comparison.
-          order="$(python3 scripts/sync-catalog-seed-pin.py --order "${main_ver}" "${cur}")"
+          order="$(python3 scripts/lib/version_order.py "${main_ver}" "${cur}")"
           top="${cur}"
           if [ "${order}" = "higher" ]; then
             top="${main_ver}"
@@ -1004,7 +1004,7 @@ jobs:
 
             # FND-018: a slot that pins a HIGHER version was moved by a newer
             # run of this chart. An older run never moves it back.
-            order="$(python3 scripts/sync-catalog-seed-pin.py --order "$current" "$CHART_VERSION" --site "${f} version")"
+            order="$(python3 scripts/lib/version_order.py "$current" "$CHART_VERSION" --site "${f} version")"
             if [ "$order" = "higher" ]; then
               continue
             fi
@@ -1135,7 +1135,7 @@ jobs:
 
           # FND-018: a HIGHER spec.version was written by a newer run of this
           # chart. An older run never moves it back.
-          order="$(python3 scripts/sync-catalog-seed-pin.py --order "$current" "$CHART_VERSION" --site "${bp_file} spec.version")"
+          order="$(python3 scripts/lib/version_order.py "$current" "$CHART_VERSION" --site "${bp_file} spec.version")"
           if [ "$order" = "higher" ]; then
             echo "bumped=false" >> "$GITHUB_OUTPUT"
             echo "bp_file=${bp_file}" >> "$GITHUB_OUTPUT"
@@ -1290,7 +1290,7 @@ jobs:
           # does not apply, so a failed comparison exits explicitly.
           newer_there() {
             local order
-            order="$(python3 scripts/sync-catalog-seed-pin.py --order "$1" "${CHART_VERSION}" --site "$2")" || exit 1
+            order="$(python3 scripts/lib/version_order.py "$1" "${CHART_VERSION}" --site "$2")" || exit 1
             [ "$order" = "higher" ]
           }
           # FND-011: write the published chart version again after a reset.
