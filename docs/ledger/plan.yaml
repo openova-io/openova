@@ -195,7 +195,7 @@ epics:
 - id: SOV-500
   title: 'EPIC: Release channel and in-place upgrade'
   wave: W1b
-  packages: [SOV-510, SOV-520, SOV-530, SOV-540]
+  packages: [SOV-521, SOV-510, SOV-520, SOV-530, SOV-540]
 - id: SOV-600
   title: 'EPIC: Proof and freeze'
   wave: W1b
@@ -2811,19 +2811,20 @@ packages:
   dropped: false
   delivers: 'The gate record carries, as provision.preflight, what the flight checklist counted before the fire (per kind of resource: how many the account held, how many it may hold and how many the wiped deployment left); the suite flag --preflight and the input preflight of the gate workflow fill it, the record checker validates it, and step 2 of check FND-G13 judges it.'
 - id: FND-076
-  title: The standing environment is updated by a workflow of the repository
+  title: The standing environment is updated through the release route by a workflow of the repository
   area: FND
   epic: null
   type: refactor
   wave: W0
   size: M
   lane: GATE
-  depends_on: [FND-073, FND-078]
+  depends_on: [FND-073, FND-078, SOV-521]
   after: []
   touches:
   - .github/workflows/foundation-gate-standing.yaml
   - scripts/standing-update.sh
   - scripts/standing-update/**
+  - scripts/gate-parent-job.sh
   resources: [env]
   flips: []
   implements: []
@@ -2837,7 +2838,7 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: 'A workflow of the repository updates the standing environment in place to a candidate, region b first and then region a: it merges the candidate commit into the region''s own Git main by fast-forward only and stops on any conflict, fills the region''s registry with the charts and images the candidate moves, takes the secret-store snapshot, checks the region against its state before the update and rolls back to the commit before on a failure. Then it runs the verify-and-gate job. The hand-run delivery tool is no longer needed for an update.'
+  delivers: The standing environment is updated through the release route by a workflow of the repository.
 - id: FND-077
   title: The flight sweep counts the DNS records a wiped deployment left
   area: FND
@@ -11350,6 +11351,42 @@ packages:
   ticket_rev: 0
   dropped: false
   delivers: CronJob that copies a new release before moving the local tag; version rule; route PUT /api/v1/sovereign/release
+- id: SOV-521
+  title: The release route promotes one region per request and rolls a region back to its recorded main
+  area: SOV
+  epic: SOV-500
+  type: new
+  wave: W0
+  size: M
+  lane: CONTROL
+  depends_on: []
+  after: [FND-011, SVC-040, SVC-041]
+  touches:
+  - products/catalyst/bootstrap/api/internal/lifecycle/release.go
+  - products/catalyst/bootstrap/api/internal/lifecycle/release_job.go
+  - products/catalyst/bootstrap/api/internal/lifecycle/release/release-run.sh
+  - products/catalyst/bootstrap/api/internal/lifecycle/release/release-region.sh
+  - products/catalyst/bootstrap/api/internal/lifecycle/release_test.go
+  - products/catalyst/bootstrap/api/internal/lifecycle/release_run_test.go
+  - products/catalyst/bootstrap/api/internal/lifecycle/release_scripts_test.go
+  - platform/self-sovereign-cutover/chart/files/release/release-run.sh
+  - platform/self-sovereign-cutover/chart/files/release/release-region.sh
+  - platform/self-sovereign-cutover/chart/README.md
+  - platform/self-sovereign-cutover/chart/tests/step7938-promote-one-region.sh
+  resources: []
+  flips: []
+  implements: []
+  proven_by: null
+  precondition: null
+  acceptance: []
+  rollback: revert
+  adr: null
+  due: null
+  budget: null
+  repeatable: false
+  ticket_rev: 0
+  dropped: false
+  delivers: 'PUT /api/v1/sovereign/release accepts two optional fields. region names one region of the Sovereign as the state ConfigMap sovereign-release names it (primary, or a follower''s name): a delivery that names it stages and prewarms as today, in every region, so a conflict anywhere moves nothing, and its promote checks and pushes that region only; without region every region is promoted, followers first, as today. rollback true with a region puts that region back to the main recorded at the stage of the request that promoted it: refused unless the region''s main is still the commit that promote pushed for this candidate; it pushes, as a fast-forward the server checks, one commit whose tree is the tree of the recorded main and whose parent is the promoted commit, so Flux applies the earlier tree and no force push is ever made; it runs no stage and no prewarm and refuses dryRun and pullSecret. Across the requests of one candidate the state ConfigMap keeps, per region, the main recorded at stage and the commit promoted (<region>.promotedFrom, <region>.promotedTo) and the last phase, and GET answers them. The bootstrap sends a request with region or rollback only to a candidate whose release-run.sh has the phase rollback (read as the phase verify is read today; the contract stays 1) and refuses it otherwise, nothing moved. The installed route answers 400 to a body with a field it does not know, so the first delivery that carries this task to a Sovereign is a whole delivery.'
 - id: SOV-530
   title: Offline bundle load
   area: SOV
@@ -23537,7 +23574,7 @@ packages:
   area: CTL
   epic: null
   type: decision
-  wave: W2
+  wave: W1a
   size: S
   lane: CONTRACTS
   depends_on: [CTL-055, FND-120]
@@ -23558,7 +23595,7 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: 'Record 0027 from text the ticket carries; the architect writes it with area NET for the mesh part. It holds: recovery point and recovery time per data class as numbers, with recovery in minutes by operator-approved promotion through a Git commit; the follower''s Git copy after the spike; the dr-leases bucket; whether the outside-witness worker is the write lease; lock stage topology; the record shape of per-Application DNS that follows the Primary; what remains of the mesh loop in the API; the package that implements promotion; one Unfreezes line for each topology entry that CTL-810, CTL-815 and CTL-820 touch.'
+  delivers: 'Record 0027 from text the ticket carries; the architect writes it with area NET for the mesh part. It holds: recovery point and recovery time per data class as numbers, with recovery in minutes by operator-approved promotion through a Git commit; the follower''s Git copy after the spike; the dr-leases bucket; whether the outside-witness worker is the write lease; lock stage topology; the record shape of per-Application DNS that follows the Primary; what remains of the mesh loop in the API; the package that implements promotion; one Unfreezes line for each topology entry that CTL-810, CTL-815, CTL-816 and CTL-820 touch, and a table of what the lines permit that names each of these packages with its change, as record 0021 has (CTL-816: the Continuum observer serves its region''s serving verdict at GET /v1/serving with read rights on HTTPRoutes and Services, and the application controller asks the peer region''s observer; entries topology-continuum and application-controller).'
 - id: CTL-810
   title: Delete the legacy promoter and failback templates
   area: CTL
@@ -23631,7 +23668,7 @@ packages:
   wave: W1a
   size: M
   lane: CONTROL
-  depends_on: []
+  depends_on: [FND-120, CTL-800]
   after: [FND-011, SVC-040]
   touches:
   - core/controllers/pkg/serving/serving.go
@@ -23658,7 +23695,7 @@ packages:
   repeatable: false
   ticket_rev: 0
   dropped: false
-  delivers: The functional serving probe moves into the shared package core/controllers/pkg/serving. The Continuum observer of every region serves its own verdict at GET /v1/serving (read-only rights on HTTPRoutes and Services), and the application controller asks the peer region's observer when a leg or the Primary is in that region, so after a planned move the Application becomes Ready again. The API reads the phase Transitioning, which the Continuum controller writes, as a running move and returns the move's steps with the name of its Jobs group.
+  delivers: 'The functional serving probe moves into the shared package core/controllers/pkg/serving. The Continuum observer of every region serves its own verdict at GET /v1/serving (read-only rights on HTTPRoutes and Services), and the application controller asks the peer region''s observer when a leg or the Primary is in that region, so after a planned move the Application becomes Ready again. The API reads the phase Transitioning, which the Continuum controller writes, as a running move and returns the move''s steps with the name of its Jobs group. Precondition: python3 scripts/plan.py state FND-120 --no-fetch prints merged. Trailer Decision: ADR-0027.'
 - id: CTL-820
   title: Region-loss gate check
   area: CTL
