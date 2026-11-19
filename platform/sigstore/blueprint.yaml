@@ -2,14 +2,13 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-sigstore
-  labels:
-    catalyst.openova.io/section: pts-3-3-security-and-policy
 spec:
   version: 1.0.2
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: Sigstore Policy Controller
-    family: guardian
     description: Admission controller for signed-image enforcement (Sigstore/Cosign). Verifies signatures + attestations on container images before admission. Pairs with bp-harbor for the supply-chain trust path.
     icon: sigstore.svg
     docs: https://docs.sigstore.dev/policy-controller/overview/

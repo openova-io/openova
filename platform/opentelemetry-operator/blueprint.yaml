@@ -2,8 +2,6 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-opentelemetry-operator
-  labels:
-    catalyst.openova.io/section: pts-3-2-observability-and-tracing
 spec:
   version: 1.0.6
   card:
@@ -11,6 +9,8 @@ spec:
     summary: Manages OpenTelemetry Collector + auto-instrumentation CRs across the Sovereign — the operator layer behind the LGTM telemetry pipeline.
     icon: opentelemetry.svg
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   owner:
     team: platform
     contact: platform@openova.io

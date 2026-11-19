@@ -2,17 +2,15 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-powerdns
-  labels:
-    catalyst.openova.io/category: per-host-cluster-infrastructure
-    catalyst.openova.io/section: pts-3-2-gitops-and-iac
 spec:
   version: 1.2.27
   card:
     title: PowerDNS
-    category: infrastructure
     summary: Authoritative DNS for every Sovereign zone — per-zone DNSSEC, lua-records for geo + health-checked failover, dnsdist rate-limiting. See docs/MULTI-REGION-DNS.md.
     icon: powerdns.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  class: platform-component
+  lifecycle: experimental
   placementSchema:
     modes: [single-region]
     default: single-region

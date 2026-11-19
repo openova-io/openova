@@ -2,19 +2,17 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-vcluster-helmrepo
-  labels:
-    catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
-    catalyst.openova.io/category: platform
 spec:
   # 0.2.0 — adds the `vclusters.vcluster.com` CRD alongside the existing
   # HelmRepository + namespace pre-staging (issue #1945, TBD-A53).
   version: 0.2.3
   card:
     title: vCluster HelmRepository
-    category: platform
     summary: Seeds the in-vCluster HelmRepository CR so per-Org Applications resolve their Blueprint charts against the Sovereign's local OCI registry post-cutover.
     icon: vcluster.svg
   visibility: unlisted              # mandatory bootstrap topology
+  class: platform-component
+  lifecycle: experimental
   placementSchema:
     modes: [single-region]
     default: single-region

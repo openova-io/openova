@@ -2,17 +2,16 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-stunner
-  labels:
-    catalyst.openova.io/section: pts-4-5-communication
 spec:
   version: 1.0.0
   card:
     title: STUNner
-    category: communication
     summary: "K8s-native TURN/STUN media gateway for WebRTC NAT traversal. Wraps the upstream `stunner/stunner-gateway-operator` chart and ships Catalyst-curated NetworkPolicy + ServiceMonitor + HPA overlays. Used by bp-relay (LiveKit) so WebRTC clients behind NATs reach the in-cluster SFU. Cilium-native Gateway integration (no separate Envoy/NGINX hop) — STUNner registers a GatewayClass + manages a UDP-listening Gateway whose backing Service is exposed on the Sovereign's UDP allocation port range (default 30000-32767, opened at the firewall by the Sovereign's bp-firewall composition). "
     description: "K8s-native TURN/STUN media gateway for WebRTC NAT traversal. Wraps the upstream `stunner/stunner-gateway-operator` chart and ships Catalyst-curated NetworkPolicy + ServiceMonitor + HPA overlays. Used by bp-relay (LiveKit) so WebRTC clients behind NATs reach the in-cluster SFU. Cilium-native Gateway integration (no separate Envoy/NGINX hop) — STUNner registers a GatewayClass + manages a UDP-listening Gateway whose backing Service is exposed on the Sovereign's UDP allocation port range (default 30000-32767, opened at the firewall by the Sovereign's bp-firewall composition). "
     icon: stunner.svg
   visibility: unlisted              # bootstrap-kit infrastructure component
+  class: network-security-service
+  lifecycle: experimental
   placementSchema:
     modes: [single-region]
     default: single-region

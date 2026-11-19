@@ -2,8 +2,6 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-network-policies
-  labels:
-    catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
 spec:
   version: 1.0.10
   card:
@@ -12,9 +10,10 @@ spec:
       Cluster-wide Cilium policies: the instance metadata address denied to
       every pod, and default deny with one hand-written allow object per
       namespace listed in enforcedNamespaces.
-    family: networking
     documentation: ./README.md
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   owner:
     team: platform
     contact: platform@openova.io

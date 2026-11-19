@@ -2,15 +2,10 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-llm-gateway
-  labels:
-    catalyst.openova.io/category: ai-runtime
-    catalyst.openova.io/section: pts-4-6-llm-serving
 spec:
   version: 1.0.2
   card:
     title: LLM Gateway
-    category: ai
-    family: llm-routing
     summary: Multi-provider LLM router with rate limits, cost tracking, and prompt caching.
     description: Provider-agnostic LLM gateway (OpenAI, Anthropic, Bedrock, local). Pairs with bp-langfuse for traces.
     icon: llm-gateway.svg
@@ -18,6 +13,8 @@ spec:
     tags: [ai, llm, gateway, routing, cost]
     docs: https://github.com/openova-io/openova/tree/main/platform/llm-gateway
   visibility: listed
+  class: ai-service
+  lifecycle: experimental
   owner:
     team: ai-platform
     contact: ai-platform@openova.io

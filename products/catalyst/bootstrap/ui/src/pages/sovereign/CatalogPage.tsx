@@ -35,9 +35,22 @@ import { useCatalogAdmin } from '@/shared/lib/useCatalogAdmin'
 import { listApps, type CommerceApp } from '@/lib/commerce.api'
 import { useCatalog } from '@/lib/useCatalog'
 import type { CatalogItem } from '@/lib/catalog.api'
-import { BLUEPRINT_BY_ID } from '@/shared/constants/catalog.generated'
+import { BLUEPRINT_BY_ID, type BlueprintClass } from '@/shared/constants/catalog.generated'
 
 const DEFAULT_APP_ENVIRONMENT = 'dev'
+
+/** Contract C1 — the screen label of each class (spec.class). */
+const CLASS_LABEL: Record<BlueprintClass, string> = {
+  application: 'Applications',
+  'data-service': 'Data services',
+  'network-security-service': 'Network and security services',
+  'ai-service': 'AI services',
+  infrastructure: 'Infrastructure',
+  'platform-component': 'Platform components',
+}
+
+/** Contract C1 — the badge of a lifecycle (spec.lifecycle); supported shows none. */
+const LIFECYCLE_BADGE: Record<string, string> = { experimental: 'Experimental', deprecated: 'Deprecated' }
 
 /** Stable empty list so the merge memo doesn't re-run on every render. */
 const EMPTY_ITEMS: readonly CatalogItem[] = []
@@ -59,14 +72,17 @@ function catalogItemToDescriptor(it: CatalogItem): ApplicationDescriptor | null 
   if (!id) return null
   const bareId = id.replace(/^bp-/, '')
   const card = it.card ?? { title: bareId }
-  const category = card.category ?? card.family ?? 'application'
+  // Contract C1 — the chip is the Blueprint's class: spec.class of its file, as
+  // the build-time catalogue carries it. A Blueprint it does not know is an
+  // application, the class's default.
+  const cls = BLUEPRINT_BY_ID[id]?.class ?? 'application'
   return {
     id,
     bareId,
     title: card.title || bareId,
     description: card.summary ?? card.description ?? card.tagline ?? '',
-    familyId: category,
-    familyName: category,
+    familyId: cls,
+    familyName: CLASS_LABEL[cls],
     tier: 'optional',
     logoUrl: null,
     dependencies: [],
@@ -379,53 +395,60 @@ export function CatalogPage() {
             const catalogIcon = catalogIconBySlug[slug]
             const iconLight = edit?.iconLight || catalogIcon?.iconLight
             const iconDark = edit?.iconDark || catalogIcon?.iconDark
+            const lifecycle = BLUEPRINT_BY_ID[app.id]?.lifecycle ?? ''
             return (
-              <AppCard
-                key={app.id}
-                app={cardApp}
-                isCatalog
-                environment={environment}
-                externalURL={externalURL}
-                status={(() => {
-                  const live = liveStatus[app.id]
-                  if (live) return live
-                  if (isSovereignMode && liveQuery.isSuccess) return 'available'
-                  return 'pending'
-                })()}
-                isService={false}
-                marketplacePublished={published}
-                slug={slug}
-                iconLight={iconLight}
-                iconDark={iconDark}
-                onEdit={
-                  isAdmin
-                    ? () => {
-                        // Chroot-aware: on the mothership provision monitor the
-                        // catalog lives under /provision/$deploymentId/…; on the
-                        // Sovereign's own console it is the bare /catalog/….
-                        const detail = deploymentId
-                          ? `/provision/${deploymentId}/catalog/${slug}`
-                          : `/catalog/${slug}`
-                        void navigate({ to: detail as never })
-                      }
-                    : undefined
-                }
-                onPublishedChange={async (next) => {
-                  const r = await authedFetch(
-                    `${API_BASE}/v1/sovereign/apps/${encodeURIComponent(slug)}/publish`,
-                    {
-                      method: 'PATCH',
-                      headers: {
-                        Accept: 'application/json',
-                        'Content-Type': 'application/json',
+              <div key={app.id} className="catalog-card">
+                <AppCard
+                  app={cardApp}
+                  isCatalog
+                  environment={environment}
+                  externalURL={externalURL}
+                  status={(() => {
+                    const live = liveStatus[app.id]
+                    if (live) return live
+                    if (isSovereignMode && liveQuery.isSuccess) return 'available'
+                    return 'pending'
+                  })()}
+                  isService={false}
+                  marketplacePublished={published}
+                  slug={slug}
+                  iconLight={iconLight}
+                  iconDark={iconDark}
+                  onEdit={
+                    isAdmin
+                      ? () => {
+                          // Chroot-aware: on the mothership provision monitor the
+                          // catalog lives under /provision/$deploymentId/…; on the
+                          // Sovereign's own console it is the bare /catalog/….
+                          const detail = deploymentId
+                            ? `/provision/${deploymentId}/catalog/${slug}`
+                            : `/catalog/${slug}`
+                          void navigate({ to: detail as never })
+                        }
+                      : undefined
+                  }
+                  onPublishedChange={async (next) => {
+                    const r = await authedFetch(
+                      `${API_BASE}/v1/sovereign/apps/${encodeURIComponent(slug)}/publish`,
+                      {
+                        method: 'PATCH',
+                        headers: {
+                          Accept: 'application/json',
+                          'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ published: next }),
                       },
-                      body: JSON.stringify({ published: next }),
-                    },
-                  )
-                  if (!r.ok) throw new Error(`publish toggle failed: ${r.status}`)
-                  await refetchLive()
-                }}
-              />
+                    )
+                    if (!r.ok) throw new Error(`publish toggle failed: ${r.status}`)
+                    await refetchLive()
+                  }}
+                />
+                {LIFECYCLE_BADGE[lifecycle] ? (
+                  <span className={`lifecycle-badge lifecycle-${lifecycle}`} data-testid={`sov-catalog-lifecycle-${app.id}`}>
+                    {LIFECYCLE_BADGE[lifecycle]}
+                  </span>
+                ) : null}
+              </div>
             )
           })}
         </div>
@@ -474,6 +497,14 @@ const CATALOG_PAGE_CSS = `
   grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
   gap: 0.65rem;
 }
+/* Contract C1 — the lifecycle badge sits in the card's top-right corner. */
+.catalog-card { position: relative; }
+.lifecycle-badge {
+  position: absolute; top: 0.5rem; right: 0.55rem; pointer-events: none;
+  padding: 0.05rem 0.4rem; border-radius: 999px; font-size: 0.6rem; font-weight: 600; line-height: 1.4;
+}
+.lifecycle-experimental { background: color-mix(in srgb, var(--color-accent) 12%, transparent); color: var(--color-accent); }
+.lifecycle-deprecated { background: color-mix(in srgb, var(--color-danger) 14%, transparent); color: var(--color-danger); }
 
 .empty-state { margin-top: 3rem; text-align: center; color: var(--color-text-dim); }
 .empty-title { font-size: 1rem; color: var(--color-text-strong); margin: 0 0 0.3rem; font-weight: 600; }

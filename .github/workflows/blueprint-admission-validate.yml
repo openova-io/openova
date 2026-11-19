@@ -15,6 +15,11 @@ name: blueprint admission validate (G117 schema)
 #
 # The flip lives in this file at the env var FAIL_ON_INVALID. Wave-2
 # closing PR flips it.
+#
+# Contract C1: the same job validates every file against
+# platform/_schemas/blueprint.schema.json (class, lifecycle and visibility
+# required; the deleted classifiers refused) with
+# scripts/check-blueprint-schema.py, and an invalid file fails the job.
 
 on:
   push:
@@ -23,6 +28,7 @@ on:
       - 'platform/**/blueprint.yaml'
       - 'products/**/blueprint.yaml'
       - 'platform/_schemas/**'
+      - 'scripts/check-blueprint-schema.py'
       - '.github/workflows/blueprint-admission-validate.yml'
   pull_request:
     paths:
@@ -31,6 +37,7 @@ on:
       - 'platform/_schemas/**'
       - '.github/workflows/blueprint-admission-validate.yml'
       - 'scripts/test-topology-admission-gate.sh'
+      - 'scripts/check-blueprint-schema.py'
   workflow_dispatch:
 
 env:
@@ -67,6 +74,12 @@ jobs:
 
       - name: Install jsonschema + pyyaml
         run: pip install --quiet jsonschema pyyaml
+
+      - name: Contract C1 — every blueprint.yaml validates against blueprint.schema.json
+        run: |
+          set -euo pipefail
+          python3 scripts/check-blueprint-schema.py --self-test
+          python3 scripts/check-blueprint-schema.py
 
       - name: Validate every blueprint.yaml
         run: |

@@ -2,14 +2,13 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-opentelemetry
-  labels:
-    catalyst.openova.io/section: pts-3-observability
 spec:
   version: 1.2.2
-  visibility: listed
+  visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: OpenTelemetry Collector
-    family: insights
     description: Vendor-neutral telemetry collector (OTLP receiver/forwarder). Sibling to bp-alloy — Catalyst supports both; per-Sovereign overlays choose one. The OpenTelemetry Operator + default Instrumentation CR live in bp-opentelemetry-operator (slot 19c) — Wave 5.41 chart-split.
     icon: opentelemetry.svg
     docs: https://opentelemetry.io/docs/collector/

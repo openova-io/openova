@@ -2407,7 +2407,7 @@ checks:
 - id: SVC-G01
   title: Catalogue honest
   owner: SVC
-  state: expected-fail
+  state: required
   runs_in: [cloud]
   destructive: false
   needs: []

@@ -2,9 +2,6 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-oidc-gate
-  labels:
-    catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
-    catalyst.openova.io/tier: catalyst-cp
 spec:
   # 0.1.6 (#4556): spaTokenSeed — TRUE zero-click for a token-paste SPA
   # (agenity/chepherd). 302s the bare root, post-SSO, to /app/?token=<sentinel>
@@ -26,6 +23,8 @@ spec:
       ConfigMaps + ExternalSecrets. First gated instance: openova-flow.
       Mandatory infra — auto-installed by the bootstrap-kit (slot 13c).
   visibility: unlisted              # mandatory infra
+  class: platform-component
+  lifecycle: experimental
   manifests:
     chart: ./chart
   depends:

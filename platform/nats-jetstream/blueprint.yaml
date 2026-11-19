@@ -2,9 +2,6 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-nats-jetstream
-  labels:
-    catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
-    catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 1.3.7
   card:
@@ -12,6 +9,8 @@ spec:
     summary: Event spine for the Catalyst control plane — JetStream Streams + KV + Object Store via the bundled nack JetStream Controller. Per-Organization Accounts.
     icon: nats.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  class: platform-component
+  lifecycle: experimental
 
   manifests:
     chart: bp-nats-jetstream

@@ -9,6 +9,9 @@
 // bot's lockstep commit that moved those to 0.1.67 carries [skip ci], so it
 // never rebuilt the image; the row reported the image's 0.1.66 next to an
 // "installed" status that came from the 0.1.67 HelmRelease.
+//
+// The fixture is a listed application: since contract C1 bp-chargeback is a
+// platform component and unlisted, so it has no catalog row of its own.
 package handler
 
 import (
@@ -66,7 +69,7 @@ func embeddedListedVersion(t *testing.T, id string) string {
 }
 
 func TestSovereignApps_CatalogRowReportsTheSovereignsCatalogVersionNotTheImages(t *testing.T) {
-	const id = "bp-chargeback"
+	const id = "bp-wordpress-tenant"
 	embedded := embeddedListedVersion(t, id)
 	kit := embedded + "-kit" // any version the image does not carry
 
@@ -87,7 +90,7 @@ func TestSovereignApps_CatalogRowReportsTheSovereignsCatalogVersionNotTheImages(
 }
 
 func TestSovereignApps_CatalogRowWithoutABlueprintCRKeepsTheEmbeddedVersion(t *testing.T) {
-	const id = "bp-chargeback"
+	const id = "bp-wordpress-tenant"
 	embedded := embeddedListedVersion(t, id)
 
 	// A Blueprint CR for a different Blueprint must not leak into this row,

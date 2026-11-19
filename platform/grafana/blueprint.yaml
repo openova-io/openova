@@ -2,15 +2,13 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-grafana
-  labels:
-    catalyst.openova.io/section: pts-3-observability
-    catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 1.0.19  # lockstep with chart/Chart.yaml (#5022 deploymentStrategy Recreate — RWO single-replica roll deadlock)
-  visibility: listed
+  visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: Grafana
-    family: dashboards
     summary: Open-source observability dashboards. Pre-wired to Prometheus + Loki sources.
     description: Multi-source observability platform with dashboards, alerting, and Keycloak SSO.
     icon: grafana.svg

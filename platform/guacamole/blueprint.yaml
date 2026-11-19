@@ -2,19 +2,16 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-guacamole
-  labels:
-    catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
-    catalyst.openova.io/category: platform
-    catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 0.2.55
   card:
     title: Apache Guacamole
-    category: platform
     summary: Clientless HTML5 remote-desktop gateway. Browser-based RDP / VNC / SSH and kubectl-exec into Pods, with Keycloak SSO. One Guacamole per Sovereign per ADR-0001 §11.
     description: Clientless HTML5 remote-desktop gateway. Browser-based RDP / VNC / SSH and kubectl-exec into Pods, with Keycloak SSO. One Guacamole per Sovereign per ADR-0001 §11.
     icon: guacamole.svg
-  visibility: listed
+  visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   placementSchema:
     modes: [single-region, active-hot-standby]
     default: single-region

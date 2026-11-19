@@ -11,11 +11,11 @@ counts:
   G3.provisioning-map-keys: 15
   G4.bp-literal-lines-api: 43
   G4.bp-literal-lines-controllers: 23
-  G5.card-category: 37
-  G5.card-family: 31
-  G5.label-category: 26
-  G5.label-tier: 19
-  G5.label-section: 93
+  G5.card-category: 1
+  G5.card-family: 0
+  G5.label-category: 0
+  G5.label-tier: 0
+  G5.label-section: 1
   G6.function-test-charts: 32
   G7.seed-exclusions: 23
   G8.slots-without-ring: 64

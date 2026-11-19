@@ -319,12 +319,6 @@ func parseBlueprintCRToCatalog(u *unstructured.Unstructured) (*CatalogBlueprint,
 		if v, ok := cardRaw["iconDark"].(string); ok {
 			card.IconDark = v
 		}
-		if v, ok := cardRaw["category"].(string); ok {
-			card.Category = v
-		}
-		if v, ok := cardRaw["family"].(string); ok {
-			card.Family = v
-		}
 		if v, ok := cardRaw["license"].(string); ok {
 			card.License = v
 		}

@@ -2,8 +2,6 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-cnpg
-  labels:
-    catalyst.openova.io/section: pts-4-1-data-services
 spec:
   # 1.0.13 (G64 #4322): lockstep with chart/Chart.yaml — durable fix for the
   # cnpg-system operator corrupting the webhook caBundle with a leaf cert.
@@ -13,15 +11,15 @@ spec:
   version: 1.0.17
   card:
     title: CloudNativePG
-    category: database
-    family: postgres
     summary: PostgreSQL operator for Kubernetes (HA primary/replica, automated backups, point-in-time recovery).
     description: Production-grade Postgres operator. Provisions a Cluster CR per database with streaming replication, scheduled backups, and S3 PITR.
     icon: postgres.svg
     license: Apache-2.0
     tags: [database, postgres, sql, operator, ha]
     docs: https://cloudnative-pg.io/documentation/
-  visibility: listed
+  visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   # ── producesInstances (#3648) ───────────────────────────────────────
   # bp-cnpg is the OPERATOR / engine; it PRODUCES shareable data-instances
   # of bp-postgres (each install of bp-postgres = one CNPG Cluster = one

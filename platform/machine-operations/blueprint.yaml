@@ -9,6 +9,8 @@ spec:
     summary: The inventory of the machines a Sovereign runs on, as the kinds Machine and MachineSource.
     documentation: ./README.md
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   owner:
     team: platform
     contact: platform@openova.io

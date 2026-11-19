@@ -2,8 +2,6 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-flux
-  labels:
-    catalyst.openova.io/section: pts-3-2-gitops-and-iac
 spec:
   # 1.2.7 (#3735): proxy all 6 Flux controller images + flux-cli onto Harbor
   # proxy-ghcr/fluxcd; RollingUpdate(maxUnavailable:0) post-render patch on
@@ -14,6 +12,8 @@ spec:
     summary: GitOps engine — reconciles every Sovereign Blueprint HelmRelease from the local Gitea source. The continuous-reconciliation backbone of the platform.
     icon: flux.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  class: platform-component
+  lifecycle: experimental
   manifests:
     chart: bp-flux
   topology:

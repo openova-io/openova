@@ -2,8 +2,6 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-crossplane
-  labels:
-    catalyst.openova.io/section: pts-3-2-gitops-and-iac
 spec:
   version: 1.1.11
   card:
@@ -11,6 +9,8 @@ spec:
     summary: Control-plane day-2 infrastructure provisioning. Renders Composite Resources (XRs) into cloud + in-cluster resources the Sovereign never surfaces to Users directly.
     icon: crossplane.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  class: platform-component
+  lifecycle: experimental
   manifests:
     chart: bp-crossplane
   topology:

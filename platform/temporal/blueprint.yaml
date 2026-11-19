@@ -2,14 +2,10 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-temporal
-  labels:
-    catalyst.openova.io/section: pts-4-3-workflow-and-processing
 spec:
   version: 1.1.1
   card:
     title: Temporal
-    category: workflow
-    family: orchestration
     summary: Durable workflow orchestration. Code-first, language-agnostic, exactly-once execution.
     description: Temporal cluster + Web UI. Backed by Postgres (bp-cnpg) for durable state.
     icon: temporal.svg
@@ -17,6 +13,8 @@ spec:
     tags: [workflow, orchestration, temporal, durable]
     docs: https://docs.temporal.io/
   visibility: listed
+  class: application
+  lifecycle: experimental
   configSchema:
     type: object
     properties:

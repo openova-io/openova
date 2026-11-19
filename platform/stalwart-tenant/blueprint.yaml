@@ -2,9 +2,6 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-stalwart-tenant
-  labels:
-    catalyst.openova.io/category: communication
-    catalyst.openova.io/section: pts-4-5-communication
 spec:
   # 0.1.2 (#915) — Keycloak OIDC end-to-end. Orchestrator now emits
   # `keycloak.realmURL` + `clientID` + `clientSecretName` for the
@@ -72,7 +69,6 @@ spec:
   version: 0.1.16
   card:
     title: Stalwart (per-Organization)
-    category: communication
     summary: "Dedicated per-Org (per-vcluster) Stalwart mail server. Implements locked decision [Q3] of EPIC #795 — every Organization on a Sovereign gets its OWN Stalwart instance in its Organization namespace, with its OWN domain, OWN MTA reputation, and OWN queue. NOT a shared otech- level multi-domain Stalwart.\nWebmail UI at `https://mail.<org-domain>`; SMTP/IMAP via LoadBalancer. SSO authenticated against the Organization-vcluster Keycloak realm (NOT otech-level Keycloak). Per-user mailbox provisioning is event-driven (ADR-0003 §3). "
     description: "Dedicated per-Org (per-vcluster) Stalwart mail server. Implements locked decision [Q3] of EPIC #795 — every Organization on a Sovereign gets its OWN Stalwart instance in its Organization namespace, with its OWN domain, OWN MTA reputation, and OWN queue. NOT a shared otech- level multi-domain Stalwart.\nWebmail UI at `https://mail.<org-domain>`; SMTP/IMAP via LoadBalancer. SSO authenticated against the Organization-vcluster Keycloak realm (NOT otech-level Keycloak). Per-user mailbox provisioning is event-driven (ADR-0003 §3). "
     icon: stalwart.svg
@@ -80,6 +76,8 @@ spec:
     tags: [mail, smtp, imap, jmap, org, per-organization, vcluster, sso, oidc]
     docs: https://stalw.art/
   visibility: listed
+  class: application
+  lifecycle: experimental
   owner:
     team: platform
     contact: catalyst@openova.io

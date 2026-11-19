@@ -2,9 +2,6 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-catalyst-edge-routes
-  labels:
-    catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
-    catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 0.2.3
   card:
@@ -15,9 +12,10 @@ spec:
       region-a's single control-plane pods, so the #5246 both-region console
       ELB stops 404-ing on region-b's cilium-gateway-console envoy (#5289).
       Services + HTTPRoutes only — never a Deployment, StatefulSet, PVC, or Job.
-    family: networking
     documentation: ./README.md
   visibility: unlisted  # mandatory infra, installed by bootstrap-kit slot 13e on secondary CPs only
+  class: platform-component
+  lifecycle: experimental
   owner:
     team: platform
     contact: platform@openova.io

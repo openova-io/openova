@@ -2,9 +2,6 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-harbor
-  labels:
-    catalyst.openova.io/section: pts-3-5-storage-and-data
-    catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 1.2.56
   card:
@@ -13,6 +10,8 @@ spec:
     description: Per-Sovereign OCI registry mirroring Catalyst Blueprint OCI artefacts + container images. Keycloak OIDC SSO; blobs in Object Storage, metadata in CNPG.
     icon: harbor.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  class: platform-component
+  lifecycle: experimental
   placementSchema:
     modes: [singleton, active-hot-standby]
     default: singleton
