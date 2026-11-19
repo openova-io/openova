@@ -27,8 +27,13 @@ package identity
 
 import (
 	"crypto/rsa"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"math/big"
+	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -123,6 +128,10 @@ type Identity struct {
 	// Email is the caller's primary email (echoed by whoami).
 	Email string
 
+	// Agent is the claim `agent` of an agent token (typ agent): the name of
+	// the agent acting in OrgID. Empty for every other token. Echoed by whoami.
+	Agent string
+
 	// RawBearer is the compact JWT the caller presented, retained so the
 	// thin-facade tool handlers can forward the caller's IDENTITY verbatim
 	// to the real catalyst-api endpoint (the endpoint's own authz is the
@@ -214,6 +223,10 @@ type Resolver struct {
 	// this instance's surface at all (#3988 §4.3 "pinned scope").
 	orgPin string
 
+	// agentIssuer — when non-empty, the `iss` claim of an agent token MUST
+	// equal it (OPENOVA_MCP_AGENT_ISSUER). It applies to agent tokens only.
+	agentIssuer string
+
 	// degradedReason — a human-readable explanation of WHY this resolver is
 	// in VerifyDegradedNoKey mode (surfaced in the 401 detail + the startup
 	// WARN). Set only by NewDegradedResolver.
@@ -224,6 +237,13 @@ type Resolver struct {
 // Empty = no issuer pin (any issuer the signature verifies for).
 func (r *Resolver) WithExpectedIssuer(iss string) *Resolver {
 	r.expectedIssuer = strings.TrimSpace(iss)
+	return r
+}
+
+// WithAgentIssuer pins the exact `iss` claim an agent token must carry.
+// Empty = no agent issuer pin. Session tokens are not affected.
+func (r *Resolver) WithAgentIssuer(iss string) *Resolver {
+	r.agentIssuer = strings.TrimSpace(iss)
 	return r
 }
 
@@ -308,9 +328,14 @@ func (r *Resolver) Resolve(rawBearer string) (*Identity, error) {
 		return nil, errors.New("identity: empty bearer")
 	}
 
-	claims := &sharedauth.Claims{}
+	claims := &tokenClaims{}
 	parser := jwt.NewParser()
 
+	// verifiedBy and kid record which trusted key verified the bearer and
+	// which key the bearer's header names; an agent token must name the key
+	// that verified it.
+	var verifiedBy *rsa.PublicKey
+	var kid string
 	var err error
 	switch r.mode {
 	case VerifyRS256PublicKey:
@@ -327,8 +352,8 @@ func (r *Resolver) Resolve(rawBearer string) (*Identity, error) {
 			err = errors.New("no RS256 verify key is configured")
 		}
 		for i, pub := range r.rsaPubs {
-			attempt := &sharedauth.Claims{}
-			_, perr := parser.ParseWithClaims(raw, attempt, func(t *jwt.Token) (any, error) {
+			attempt := &tokenClaims{}
+			tok, perr := parser.ParseWithClaims(raw, attempt, func(t *jwt.Token) (any, error) {
 				if _, ok := t.Method.(*jwt.SigningMethodRSA); !ok {
 					return nil, fmt.Errorf("identity: unexpected signing method %v (want RS256)", t.Header["alg"])
 				}
@@ -336,6 +361,8 @@ func (r *Resolver) Resolve(rawBearer string) (*Identity, error) {
 			})
 			if perr == nil {
 				*claims = *attempt
+				verifiedBy = pub
+				kid, _ = tok.Header["kid"].(string)
 				err = nil
 				break
 			}
@@ -370,7 +397,12 @@ func (r *Resolver) Resolve(rawBearer string) (*Identity, error) {
 		}
 	}
 
-	id, err := r.fromClaims(claims)
+	var id *Identity
+	if isAgentTyp(claims.Typ) {
+		id, err = r.fromAgentClaims(claims, verifiedBy, kid)
+	} else {
+		id, err = r.fromClaims(&claims.Claims)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -378,17 +410,110 @@ func (r *Resolver) Resolve(rawBearer string) (*Identity, error) {
 	return id, nil
 }
 
+// tokenClaims is the claim set Resolve parses: the shared contract plus the
+// claim `agent`, which only an agent token carries.
+type tokenClaims struct {
+	sharedauth.Claims
+	Agent string `json:"agent,omitempty"`
+}
+
+// AudienceTools is the audience every platform tool server requires of an
+// agent token.
+const AudienceTools = "platform-tools"
+
+// agentNamePattern is the pattern of the claim `agent`.
+var agentNamePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{1,62}$`)
+
+// isAgentTyp reports whether a `typ` claim names an agent token, in any
+// letter case.
+func isAgentTyp(typ string) bool {
+	return strings.EqualFold(strings.TrimSpace(typ), "agent")
+}
+
+// IsAgentToken reports whether the bearer's unverified claims name an agent
+// token; the server keeps such a token off the /whoami fallback.
+func IsAgentToken(rawBearer string) bool {
+	raw := strings.TrimSpace(strings.TrimPrefix(rawBearer, "Bearer "))
+	if raw == "" {
+		return false
+	}
+	claims := &tokenClaims{}
+	if _, _, err := jwt.NewParser().ParseUnverified(raw, claims); err != nil {
+		return false
+	}
+	return isAgentTyp(claims.Typ)
+}
+
+// KeyID returns the RFC 7638 thumbprint of an RSA public key (SHA-256 of
+// {"e":<e>,"kty":"RSA","n":<n>}, base64url without padding): the kid that
+// catalyst-api writes into the header of an agent token.
+func KeyID(pub *rsa.PublicKey) string {
+	n := base64.RawURLEncoding.EncodeToString(pub.N.Bytes())
+	e := base64.RawURLEncoding.EncodeToString(big.NewInt(int64(pub.E)).Bytes())
+	sum := sha256.Sum256([]byte(`{"e":"` + e + `","kty":"RSA","n":"` + n + `"}`))
+	return base64.RawURLEncoding.EncodeToString(sum[:])
+}
+
+// fromAgentClaims accepts an agent token only when every rule below holds.
+// The tier is the claim `tier` alone, capped at developer: role, groups and
+// capabilities are not read, so an agent never sees create_application.
+func (r *Resolver) fromAgentClaims(claims *tokenClaims, verifiedBy *rsa.PublicKey, kid string) (*Identity, error) {
+	if r.mode != VerifyRS256PublicKey || verifiedBy == nil {
+		return nil, errors.New("identity: agent token refused: only an RS256 resolver with a key set accepts agent tokens")
+	}
+	if kid == "" || kid != KeyID(verifiedBy) {
+		return nil, errors.New("identity: agent token refused: its header kid does not name the key that verified it")
+	}
+	if !slices.Contains(claims.Audience, AudienceTools) {
+		return nil, fmt.Errorf("identity: agent token refused: aud does not contain %q", AudienceTools)
+	}
+	if r.agentIssuer != "" {
+		iss, _ := claims.GetIssuer()
+		if strings.TrimSpace(iss) != r.agentIssuer {
+			return nil, fmt.Errorf("identity: agent token refused: issuer %q is not %q", iss, r.agentIssuer)
+		}
+	}
+	if claims.ExpiresAt == nil {
+		return nil, errors.New("identity: agent token refused: no exp claim")
+	}
+	if strings.TrimSpace(claims.OrgID) == "" {
+		return nil, errors.New("identity: agent token refused: no org_id claim")
+	}
+	if !agentNamePattern.MatchString(claims.Agent) {
+		return nil, fmt.Errorf("identity: agent token refused: agent name %q does not match %s", claims.Agent, agentNamePattern)
+	}
+	tier := tierFromLabel(claims.Tier)
+	if tier == TierNone {
+		return nil, fmt.Errorf("identity: agent token refused: tier %q is not on the ladder", claims.Tier)
+	}
+	if tier > TierDeveloper {
+		tier = TierDeveloper
+	}
+	id, err := r.scope(&claims.Claims, tier)
+	if err != nil {
+		return nil, err
+	}
+	id.Agent = claims.Agent
+	return id, nil
+}
+
 // fromClaims derives the (context, tier, scope) triple from already-parsed
 // claims. Exported-via-Resolve only; split out so unit tests can exercise
 // the derivation without minting a signed token.
 func (r *Resolver) fromClaims(claims *sharedauth.Claims) (*Identity, error) {
+	return r.scope(claims, deriveTier(claims))
+}
+
+// scope builds the Identity from claims and an already-derived tier, then
+// applies the instance pins (context pin, Sovereign-mode guards, org pin).
+func (r *Resolver) scope(claims *sharedauth.Claims, tier Tier) (*Identity, error) {
 	id := &Identity{
 		Claims:        claims,
 		OrgID:         claims.OrgID,
 		DeploymentID:  claims.DeploymentID,
 		SovereignFQDN: claims.SovereignFQDN,
 		Email:         claims.Email,
-		Tier:          deriveTier(claims),
+		Tier:          tier,
 	}
 
 	// Realm context: an explicit sovereign-admin role / tier wins; else a

@@ -91,10 +91,21 @@ ships:
 | `OPENOVA_MCP_VERIFY` | `rs256` (default) \| `hs256` \| `insecure` — bearer verification mode |
 | `OPENOVA_MCP_RS256_PUBKEY_PEM` | PEM of the RS256 public key (Sovereign handover-jwt pubkey) when verify=rs256 |
 | `OPENOVA_MCP_HS256_SECRET` | HS256 shared secret when verify=hs256 |
-| `OPENOVA_MCP_BEARER` | fallback bearer when a `tools/call` omits the `_auth.token` argument |
+| `OPENOVA_MCP_BEARER` | stdio transport only: fallback bearer when a `tools/call` omits the `_auth.token` argument. The HTTP transport has no fallback bearer and reads the `Authorization` header alone |
 | `OPENOVA_MCP_EXPECTED_ISSUER` | optional exact `iss` claim pin — the instance-level trusted-realm boundary (#3988 §4.3) |
+| `OPENOVA_MCP_AGENT_ISSUER` | optional exact `iss` an agent token must carry; the chart sets it to `https://console.<sovereignFqdn>` when `sovereignFqdn` is set |
 | `OPENOVA_MCP_ORG_SCOPE` | optional Org slug pin for a per-Org instance — a token minted for a different Org is rejected outright |
 | `OPENOVA_MCP_LISTEN` | optional listen address (e.g. `:8080`) — serves the **streamable-HTTP transport** (`POST /mcp` with `Authorization: Bearer`, `GET /healthz`, `GET /readyz`) instead of stdio (#5114) |
+
+## Agent tokens
+
+An agent token (`typ: agent`, minted by catalyst-api) is accepted only when it
+was verified RS256 by a key of the set whose RFC 7638 thumbprint is its header
+`kid`, `aud` contains `platform-tools`, `iss` equals `OPENOVA_MCP_AGENT_ISSUER`
+when set, and `exp`, `org_id`, `agent` and a `tier` on the ladder are present.
+Its tier is the `tier` claim capped at developer, so an agent never sees
+`create_application`. It never takes the `/whoami` fallback; agents use an
+instance in organization mode.
 
 ## Install path (bp-openova-mcp)
 

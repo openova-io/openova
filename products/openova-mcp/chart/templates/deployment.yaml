@@ -95,6 +95,10 @@ spec:
             - name: OPENOVA_MCP_EXPECTED_ISSUER
               value: {{ . | quote }}
             {{- end }}
+            {{- with .Values.sovereignFqdn }}
+            - name: OPENOVA_MCP_AGENT_ISSUER
+              value: {{ printf "https://console.%s" . | quote }}
+            {{- end }}
             {{- if and (eq .Values.auth.verify "rs256") .Values.auth.rs256PubkeySecret.name }}
             - name: OPENOVA_MCP_RS256_PUBKEY_PEM
               valueFrom:
@@ -121,14 +125,6 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.auth.hs256Secret.name }}
                   key: {{ .Values.auth.hs256Secret.key }}
-                  optional: true
-            {{- end }}
-            {{- if .Values.auth.bearerSecret.name }}
-            - name: OPENOVA_MCP_BEARER
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.auth.bearerSecret.name }}
-                  key: {{ .Values.auth.bearerSecret.key }}
                   optional: true
             {{- end }}
           readinessProbe:

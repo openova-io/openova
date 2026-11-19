@@ -123,7 +123,9 @@ version: 0.1.9
 # the OPENOVA_MCP_EXPECTED_ISSUER / OPENOVA_MCP_ORG_SCOPE instance pins) —
 # the 0.1.x binary was stdio-only (the agenity in-pod child, #4010/#4097)
 # and cannot back a Service.
-appVersion: "0.2.7"
+# 0.2.8 (AIP-150): the tool server accepts agent tokens, and the HTTP
+# transport has no fallback bearer.
+appVersion: "0.2.8"
 keywords:
   - mcp
   - agent
