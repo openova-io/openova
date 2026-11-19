@@ -13080,7 +13080,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-750, NET-270, BSS-S1, AIP-030, INF-710, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, INF-710, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-130.md
@@ -13113,7 +13113,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-750, NET-270, BSS-S1, AIP-030, INF-710, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, INF-710, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-135.md
@@ -13146,7 +13146,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-750, NET-270, BSS-S1, AIP-030, INF-710, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, INF-710, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-140.md
@@ -14536,7 +14536,7 @@ packages:
   size: S
   lane: SPIKE
   depends_on: [FND-061]
-  after: [FND-070, FND-079, SOV-148, SOV-750, NET-270, BSS-S1, AIP-030, INF-710, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, INF-710, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-271.md
@@ -14691,7 +14691,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-750, NET-270, BSS-S1, AIP-030, INF-710, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, INF-710, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-280.md
@@ -14846,7 +14846,7 @@ packages:
   size: S
   lane: SPIKE
   depends_on: [SEC-211]
-  after: [FND-070, FND-079, SOV-148, SOV-750, NET-270, BSS-S1, AIP-030, INF-710, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, INF-710, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-335.md
@@ -19846,16 +19846,16 @@ packages:
   acceptance:
   - id: A1
     run: "test -s docs/ledger/plan/spikes/SVC-250.md && grep -q '^## Evidence' docs/ledger/plan/spikes/SVC-250.md"
+  - id: A2
+    run: "sha256sum docs/ledger/plan/spikes/SVC-250.md | cut -d' ' -f1 | grep -qx f6492472f0af68659d8c2b3cd0cc384984d68c862ec213ac6a375c00dda8e7bf"
   rollback: revert
   adr: null
   due: null
-  budget:
-    files: 5
-    lines: 800
+  budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Result record for (a) composite resource per Context under Flux and (b) bucket and scoped key on the kit SeaweedFS without an administrator credential in the Organization namespace
+  delivers: The repository holds the result of the spike that measured composite resources per Context under Flux and bucket and key provisioning from an Organization namespace on the kit SeaweedFS, with the timings, the refusals, the paths that need no credential, the volume-slot limit and what later packages must do.
 - id: SVC-260
   title: provides, requires, the contract format, the registry and the install API
   area: SVC
