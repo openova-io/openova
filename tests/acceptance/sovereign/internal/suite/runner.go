@@ -181,6 +181,7 @@ func Execute(ctx context.Context, cfg Config, out io.Writer) (*Run, error) {
 		}
 		r.runChecks(ctx, manifest, checks, cc, ok)
 	}
+	r.runAtEnd(ctx)
 
 	// A run in the cloud measures the installation under test last: whether
 	// it is fresh depends on both looks of check FND-G02 (provision.go).
@@ -249,6 +250,7 @@ func executeSelf(ctx context.Context, cfg Config, out io.Writer) (*Run, error) {
 		cc.Caps[c] = true
 	}
 	r.runChecks(ctx, manifest, checks, cc, true)
+	r.runAtEnd(ctx)
 	r.run.FinishedAt = time.Now().UTC()
 	r.run.Finalize(nil)
 	r.run.PrintTable(out)
@@ -361,6 +363,45 @@ func poll(ctx context.Context, timeout, interval time.Duration, f func() (bool, 
 		case <-ctx.Done():
 			return last, ctx.Err()
 		case <-time.After(interval):
+		}
+	}
+}
+
+// endHook is one clean-up that a check registered with AtEnd.
+type endHook struct {
+	check string
+	f     func(ctx context.Context, rec StepRecorder)
+}
+
+// atEnd holds the clean-ups registered during the run.
+var atEnd []endHook
+
+// AtEnd registers f to run once after the last check of the run, also when
+// that check failed. The hooks run in the reverse order of registration and
+// under a context that the run's cancellation does not end. The steps f
+// records belong to check: a step of f that fails makes that check FAIL.
+func AtEnd(check string, f func(ctx context.Context, rec StepRecorder)) {
+	atEnd = append(atEnd, endHook{check: check, f: f})
+}
+
+// runAtEnd runs and forgets the hooks that AtEnd registered.
+func (r *runner) runAtEnd(ctx context.Context) {
+	hooks := atEnd
+	atEnd = nil
+	ctx = context.WithoutCancel(ctx)
+	for i := len(hooks) - 1; i >= 0; i-- {
+		h := hooks[i]
+		first := len(r.run.Steps)
+		h.f(ctx, checkRecorder{r: r, id: h.check})
+		for _, s := range r.run.Steps[first:] {
+			if s.Status != Fail {
+				continue
+			}
+			for j := range r.run.Checks {
+				if c := &r.run.Checks[j]; c.ID == h.check && c.Status != Fail {
+					c.Status, c.Reason = Fail, s.Error
+				}
+			}
 		}
 	}
 }
