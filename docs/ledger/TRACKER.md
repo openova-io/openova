@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T11:45:03Z` |
+| Last refreshed | `2026-11-19T12:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -311,6 +311,7 @@ flowchart LR
 | 2026-11-19T11:04 | [#8327](https://github.com/openova-io/openova/pull/8327) | #8313 | docs(ledger): result of the spike SOV-321, the own mail serv |
 | 2026-11-19T11:00 | [#8325](https://github.com/openova-io/openova/pull/8325) | #7087 | docs(ledger): plan update |
 | 2026-11-19T11:03 | [#8324](https://github.com/openova-io/openova/pull/8324) | #8316 | docs(ledger): result of the spike INF-020, hardware virtuali |
+| 2026-11-19T11:52 | [#8323](https://github.com/openova-io/openova/pull/8323) | #8320 | feat(cortex): store with migration 0001, two database roles  |
 | 2026-11-19T10:40 | [#8321](https://github.com/openova-io/openova/pull/8321) | #7087 | docs(ledger): plan update |
 | 2026-11-19T10:06 | [#8319](https://github.com/openova-io/openova/pull/8319) | #7087 | docs(ledger): plan update |
 | 2026-11-19T10:18 | [#8318](https://github.com/openova-io/openova/pull/8318) | #8312 | test(gate): check BSS-G01 walks the self-service onboarding  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-19T06:37 | [#8283](https://github.com/openova-io/openova/pull/8283) | #7087 | docs(ledger): plan update |
 | 2026-11-19T06:29 | [#8282](https://github.com/openova-io/openova/pull/8282) | #7087 | docs(ledger): plan update |
 | 2026-11-19T07:23 | [#8281](https://github.com/openova-io/openova/pull/8281) | #8280 | docs(ledger): result of the lab test AIP-030, agent runtime  |
-| 2026-11-19T06:25 | [#8279](https://github.com/openova-io/openova/pull/8279) | #7087 | docs(ledger): plan update |
 
 ---
 
