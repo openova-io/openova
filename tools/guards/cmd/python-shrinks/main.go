@@ -94,6 +94,12 @@
 //	         quote, ], ), }, a comma, <, >, |, ; or &. A LABEL line of an image
 //	         file is not read.
 //
+// A shell variable that the file itself assigns a name of python (PYTHON=python3,
+// PYTHON="${PYTHON:-python3}", PY=$(command -v python3)) is python in that file:
+// "$PYTHON", "${PYTHON}" and $PYTHON open a -c program, a here-string and a
+// here-document as python does, and a line that names one is an invoke line and
+// an invoke place.
+//
 // The guard fails (exit 1) only when a total is higher than its baseline. It
 // names the total and by how much, and with --base <commit> it lists the files
 // whose share of that total grew against <commit> (a renamed or moved file is
@@ -110,7 +116,8 @@
 // What the guard does not see, by design: Python assembled or fetched at run
 // time (a program built from pieces, downloaded, or read from a Secret), an
 // encoded payload (base64 or compressed), and a file run by an interpreter chosen
-// at run time ("$INTERP" "$f"). docs/PRINCIPLES.md IV.4 forbids those all the
+// at run time ("$INTERP" "$f"; a variable that the same file assigns a name of
+// python is read as python). docs/PRINCIPLES.md IV.4 forbids those all the
 // same; review holds them.
 //
 // --write-baseline writes the five totals of the tree. It refuses (exit 1) when
@@ -179,7 +186,7 @@ var kinds = []string{"install", "invoke", "shebang"}
 var (
 	templateComment = regexp.MustCompile(`(?s)\{\{-?\s*/\*.*?\*/\s*-?\}\}`)
 	shebangRe       = regexp.MustCompile(`^#!.*?(?:/|\s)python[0-9]*(?:\.[0-9]+)?(?:\s|$)`)
-	invokeRe        = regexp.MustCompile("(?:^|[\\s\"'\\[(=`{]|:-)(?:[A-Za-z0-9_.-]*/)*python[0-9]*(?:\\.[0-9]+)?(?:[\\s\"'\\]),`}<>|;&]|$)")
+	invokeRe        = invokeOf(pyNameExpr)
 	pkgInstallRe    = regexp.MustCompile(`(?:^|[\s"'(])(?:apk\s+add|apt-get\s+install|apt\s+install|dnf\s+install|yum\s+install|microdnf\s+install|tdnf\s+install|zypper\s+(?:in|install))(?:\s|$)`)
 	pythonPkgRe     = regexp.MustCompile(`(?:^|\s)(?:python[A-Za-z0-9_.+-]*|py3-[A-Za-z0-9_.+-]+)(?:\s|$)`)
 	pipInstallRe    = regexp.MustCompile(`(?:^|[\s"'(/])(?:pip[0-9.]*|python[0-9.]*\s+-m\s+pip)\s+install(?:\s|$)`)
@@ -192,7 +199,7 @@ var (
 	// Python inside a file of another language.
 	heredocRe    = regexp.MustCompile(`(?:^|[^<])<<-?[ \t]*(?:'([^'\s]+)'|"([^"\s]+)"|\\?([A-Za-z_][A-Za-z0-9_]*))`)
 	writesPyRe   = regexp.MustCompile(`(?:>|\btee\s+(?:-a\s+)?)\s*["']?[^\s"'<>|;&]*\.py["']?(?:\s|<|$)`)
-	pyProgramRe  = regexp.MustCompile("(?:^|[\\s\"'\\[(=`{]|:-)(?:[A-Za-z0-9_.-]*/)*python[0-9]*(?:\\.[0-9]+)?[\"'`]?(?:(?:[\\s,\\[]+[\"'`]?-[A-Za-z]+[\"'`]?)*?[\\s,\\[]+(?:[\"'`]-c[\"'`]|-c)[\\s,]*|(?:\\s+-[A-Za-z]*)*\\s*<<<\\s*)\\$?(\\\\?['\"]|`)")
+	pyProgramRe  = programOf(pyNameExpr)
 	programVar   = regexp.MustCompile(`^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$`)
 	blockRe      = regexp.MustCompile(`^([ \t]*)(?:-[ \t]+)?(?:["']?([^"'\s:#][^"':]*?)["']?[ \t]*:[ \t]+)?[|>][-+1-9]*[ \t]*(?:#.*)?$`)
 	embeddedExts = map[string]bool{".sh": true, ".bash": true, ".zsh": true, ".ksh": true, ".bats": true, ".yaml": true, ".yml": true,
@@ -209,6 +216,54 @@ var (
 	yamlKeyRe  = regexp.MustCompile(`^( *)((?:- +)*)([A-Za-z_][A-Za-z0-9_-]*) *:(?: +(.*))?$`)
 	blockValRe = regexp.MustCompile(`^[|>][-+0-9]*(?: +#.*)?$`)
 )
+
+// pyNameExpr is a name of python as a word: python, python3 or python3.N, a path before it or not.
+const pyNameExpr = `(?:[A-Za-z0-9_.-]*/)*python[0-9]*(?:\.[0-9]+)?`
+
+// invokeOf is the pattern of the kind invoke for the names of python in name (a pattern).
+func invokeOf(name string) *regexp.Regexp {
+	return regexp.MustCompile("(?:^|[\\s\"'\\[(=`{]|:-)(?:" + name + ")(?:[\\s\"'\\]),`}<>|;&]|$)")
+}
+
+// programOf is the pattern of the quoted program of python -c and of a here-string given to python,
+// for the names of python in name (a pattern); its group is the opening quote.
+func programOf(name string) *regexp.Regexp {
+	return regexp.MustCompile("(?:^|[\\s\"'\\[(=`{]|:-)(?:" + name + ")[\"'`]?(?:(?:[\\s,\\[]+[\"'`]?-[A-Za-z]+[\"'`]?)*?[\\s,\\[]+(?:[\"'`]-c[\"'`]|-c)[\\s,]*|(?:\\s+-[A-Za-z]*)*\\s*<<<\\s*)\\$?(\\\\?['\"]|`)")
+}
+
+// pyNames are the patterns that name python in one file: invoke (a line that names python) and
+// program (the quoted program of python -c or of a here-string).
+type pyNames struct{ invoke, program *regexp.Regexp }
+
+// pyVarRe finds a shell variable assigned a name of python: NAME=python3,
+// NAME="${NAME:-python3}", NAME=$(command -v python3).
+var pyVarRe = regexp.MustCompile(`(?:^|[\s;(&|])([A-Za-z_][A-Za-z0-9_]*)=["']?(?:\$\{[A-Za-z_][A-Za-z0-9_]*:?[-=]|\$\(\s*(?:command\s+-v|which|type\s+-P)\s+)?["']?` +
+	pyNameExpr + `(?:["'})\s;|&]|$)`)
+
+// namesOf returns the patterns that name python in text: a name of python, and "$NAME", "${NAME}"
+// and $NAME for each shell variable that text assigns a name of python (PYTHON="${PYTHON:-python3}"
+// and then "$PYTHON" -c "..." or "$PYTHON" - <<'PY').
+func namesOf(text string) pyNames {
+	plain := pyNames{invokeRe, pyProgramRe}
+	if !strings.Contains(text, "python") {
+		return plain
+	}
+	seen := map[string]bool{}
+	var vars []string
+	for _, m := range pyVarRe.FindAllStringSubmatch(text, -1) {
+		if !seen[m[1]] {
+			seen[m[1]] = true
+			vars = append(vars, m[1])
+		}
+	}
+	if len(vars) == 0 {
+		return plain
+	}
+	sort.Strings(vars)
+	v := strings.Join(vars, "|")
+	name := pyNameExpr + `|\$(?:` + v + `|\{(?:` + v + `)\})`
+	return pyNames{invokeOf(name), programOf(name)}
+}
 
 type place struct {
 	kind string
@@ -571,15 +626,16 @@ func commentLine(t string) bool {
 }
 
 // invocations counts the lines that name python as a command; a comment line is not read, nor a
-// line that kept does not hold (nil holds every line).
+// line that kept does not hold (nil holds every line). A variable that text assigns a name of
+// python names python (namesOf).
 func invocations(text string, kept []bool) int {
-	n := 0
+	n, invoke := 0, namesOf(text).invoke
 	for i, line := range strings.Split(text, "\n") {
 		t := strings.TrimSpace(line)
 		if t == "" || commentLine(t) || kept != nil && !kept[i] {
 			continue
 		}
-		if invokeRe.MatchString(t) {
+		if invoke.MatchString(t) {
 			n++
 		}
 	}
@@ -939,8 +995,10 @@ func pythonSteps(text string) (int, string) {
 // ---- Python inside a file of another language
 
 // embedded returns the lines of Python inside a file of another language. Only a line that kept
-// holds opens Python (nil holds every line); what it opens is read to its end.
+// holds opens Python (nil holds every line); what it opens is read to its end. A variable that
+// text assigns a name of python runs python as python does (namesOf).
 func embedded(text string, kept []bool) int {
+	names := namesOf(text)
 	lines := strings.Split(text, "\n")
 	starts := make([]int, len(lines))
 	for i, off := 0, 0; i < len(lines); i++ {
@@ -970,7 +1028,7 @@ func embedded(text string, kept []bool) int {
 		// is Python, not a here-document.
 		end, programs := starts[k]+len(lines[k]), 0
 		for from := starts[i]; from < end; programs++ {
-			m := pyProgramRe.FindStringSubmatchIndex(text[from:end])
+			m := names.program.FindStringSubmatchIndex(text[from:end])
 			if m == nil {
 				break
 			}
@@ -990,7 +1048,7 @@ func embedded(text string, kept []bool) int {
 			// On a line that runs python or writes a .py file every here-document is Python; on
 			// any other line only one whose body starts with a #! line that names python.
 			var body int
-			body, next = heredocs(line, lines, next, !invokeRe.MatchString(line) && !writesPyRe.MatchString(line))
+			body, next = heredocs(line, lines, next, !names.invoke.MatchString(line) && !writesPyRe.MatchString(line))
 			n += body
 		}
 		i = next
@@ -1220,10 +1278,10 @@ func scan(scope, p, text string) []place {
 	text = templateComment.ReplaceAllStringFunc(text, func(m string) string {
 		return strings.Repeat("\n", strings.Count(m, "\n"))
 	})
-	logical, start := "", 0
+	logical, start, invoke := "", 0, namesOf(text).invoke
 	flush := func() {
 		if start > 0 {
-			for _, kind := range classify(scope, logical) {
+			for _, kind := range classify(scope, logical, invoke) {
 				out = append(out, place{kind, p, start})
 			}
 		}
@@ -1253,8 +1311,8 @@ func scan(scope, p, text string) []place {
 	return out
 }
 
-// classify returns the kinds of the commands of one logical line.
-func classify(scope, line string) []string {
+// classify returns the kinds of the commands of one logical line; invoke names python in its file.
+func classify(scope, line string, invoke *regexp.Regexp) []string {
 	if scope == scopeImage {
 		if labelRe.MatchString(line) {
 			return nil
@@ -1269,7 +1327,7 @@ func classify(scope, line string) []string {
 		case pipInstallRe.MatchString(command), imageRe.MatchString(command),
 			pkgInstallRe.MatchString(command) && pythonPkgRe.MatchString(command):
 			out = append(out, "install")
-		case invokeRe.MatchString(command):
+		case invoke.MatchString(command):
 			out = append(out, "invoke")
 		}
 	}

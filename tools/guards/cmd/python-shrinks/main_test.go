@@ -571,6 +571,8 @@ func TestPatterns(t *testing.T) {
 		{"CMD with python3", scopeImage, "Containerfile", "CMD [\"/usr/bin/python3\", \"--version\"]\n", []string{"invoke"}},
 		{"a python image in a chart", scopeChart, "t.yaml", "      - image: docker.io/library/python:3.12-slim\n", []string{"install"}},
 		{"another image in a chart", scopeChart, "t.yaml", "      - image: ghcr.io/x/autoinstrumentation-python:1.0\n", nil},
+		{"a variable the file assigns python3 runs python", scopeChart, "files/x.sh", "PY=python3\n\"$PY\" -c 'x'\n${PY} y\n", []string{"invoke", "invoke", "invoke"}},
+		{"a variable assigned another program", scopeChart, "files/x.sh", "PY=/bin/sh\n\"$PY\" -c 'x'\n", nil},
 	}
 	for _, c := range cases {
 		var got []string
@@ -624,6 +626,13 @@ func TestEmbedded(t *testing.T) {
 		{"the second here-document of a line starts with a python #! line", "cat <<A >a; cat <<B >b\n#!/bin/sh\nA\n#!/usr/bin/env python3\nprint(1)\nB\n", 2},
 		{"a python #! here-document inside a quoted YAML string", "run: \"cat > x <<'PY'\\n#!/usr/bin/env python3\\nprint(1)\\nPY\"\n", 2},
 		{"a python #! here-document in Terraform", "locals {\n  stub = <<-EOT\n    #!/usr/bin/env python3\n    print(1)\n  EOT\n}\n", 2},
+		// python run through a variable that the file itself assigns a name of python.
+		{"\"$PYTHON\" -c over lines", "PYTHON=\"${PYTHON:-python3}\"\nok=$(echo \"$j\" | \"$PYTHON\" -c \"\nimport json\nprint(1)\n\")\n", 4},
+		{"\"$PYTHON\" - <<'PY'", "PYTHON=\"${PYTHON:-python3}\"\n\"$PYTHON\" - \"$f\" <<'PY'\nimport sys\nprint(1)\nPY\necho done\n", 2},
+		{"\"${PY_BIN}\" - <<'PY'", "PY_BIN=\"${PY_BIN:-python3}\"\nout=$(\"${PY_BIN}\" - <<'PY'\nimport os\nPY\n)\n", 1},
+		{"$PY -c after PY=$(command -v python3)", "PY=$(command -v python3)\n$PY -c 'print(1)'\n", 1},
+		{"a variable assigned another program opens nothing", "PYTHON=/bin/sh\n\"$PYTHON\" -c \"\necho 1\n\"\n\"$PYTHON\" - <<'EOF'\necho 2\nEOF\n", 0},
+		{"a longer variable that starts with the name is not python", "PYTHON=python3\ncat > \"$PYTHONPATH/x\" <<'EOF'\nprint(1)\nEOF\n", 0},
 	}
 	for _, c := range cases {
 		if got := embedded(c.text, nil); got != c.want {
@@ -683,6 +692,10 @@ func TestInvocations(t *testing.T) {
 		{"a comment", "# python3 scripts/x\n// python3 y\n", 0},
 		{"a word inside another word", "inject-python: true\nmypython3 x\npython3-pip\n", 0},
 		{"two lines", "python3 a\npython b\n", 2},
+		{"a variable the file assigns python3", "PYTHON=\"${PYTHON:-python3}\"\nx=$(\"$PYTHON\" -c 'print(1)')\n${PYTHON} - <<'PY'\n$PYTHON x\n", 4},
+		{"PY_BIN and PY=$(command -v python3)", "PY_BIN=\"${PY_BIN:-python3}\"\nPY=\"$(command -v python3 || true)\"\n\"${PY_BIN}\" - <<'PY'\n\"$PY\" y\n", 4},
+		{"a variable assigned another program", "PYTHON=/bin/sh\n\"$PYTHON\" -c 'x'\n", 0},
+		{"a longer variable that starts with the name", "PYTHON=python3\nexport PYTHONPATH=\"$PYTHONPATH:/x\"\n", 1},
 	}
 	for _, c := range cases {
 		if got := invocations(c.text, nil); got != c.want {

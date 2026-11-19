@@ -40,6 +40,8 @@ It reads the files Git lists (tracked, and new files Git does not ignore).
   - the run of a workflow or action step whose shell is python (its own `shell:` or the `defaults: run: shell:` of its job or workflow);
   - a Go, Rust, TypeScript or JavaScript string that starts with a python `#!` line (a stub that a test writes with `os.WriteFile` and runs): its lines from the `#!` line to the last line with text.
 
+  A shell variable that the file itself assigns a name of python (`PYTHON=python3`, `PYTHON="${PYTHON:-python3}"`, `PY=$(command -v python3)`) is python in that file: `"$PYTHON" -c "..."`, `"$PYTHON" - <<'PY'` and `"${PY_BIN}" - <<'PY'` count as they do with `python3`, and a line that names the variable counts in `invoke_lines` and as a place.
+
   Any other string of a Go, Rust, TypeScript or JavaScript file is data (the fixture of a test). Of such a file only these lines are read for the rest: a `//go:generate` line, a line with a string that is only the name of python (`"python3"`), and a call that starts a process (`exec.Command`, `Command::new`, `spawn`, `execSync`, ...) from its name to its closing parenthesis.
 - `invoke_lines`: the lines of those same files (of Go, Rust, TypeScript and JavaScript only the lines read above) that NAME python, `python3` or `python3.N` as a word, comment lines left out. A line that runs python counts (`python3 <path>`, `exec.Command("python3", ...)`, `//go:generate python3`), and so does a line of `echo` text or of prose in a YAML string that names python. That only makes the total stricter.
 - `sovereign_places`: in what reaches a Sovereign or a shipped image (chart templates and files, the cloud-init templates and the Terraform under `infra/providers/`, container files): a package install that names a python package, a `pip install`, an image whose name starts with python (`FROM`, `image:`), a command that names python, and a python `#!` line.
@@ -50,6 +52,6 @@ The guard reads text as it stands in the tree. By design it does not see:
 
 - Python assembled or fetched at run time: a program built from pieces (`"#!" + rest`, a `printf` of fragments), downloaded, or read from a Secret, a ConfigMap or an environment variable; also a program that Go, Rust or TypeScript holds in a variable and passes to `python -c` (the line that runs python still counts in `invoke_lines`).
 - An encoded payload: base64, compressed or otherwise encoded text that becomes Python when decoded.
-- A file run by an interpreter chosen at run time: `"$INTERP" "$f"`, `env "$X"`, a name looked up in `PATH`.
+- A file run by an interpreter chosen at run time: `"$INTERP" "$f"`, `env "$X"`, a name looked up in `PATH`. A variable that the same file assigns a name of python is not one of these: it is read as python.
 
 `docs/PRINCIPLES.md` IV.4 forbids all of these the same as the shapes the guard counts: no new Python is written, in any form. Review holds what the guard cannot see.
