@@ -6,7 +6,9 @@ could use it.
 
   - Role in the release namespace: read the submission Secret, patch the
     dns-records ConfigMap (DKIM public key write-back), read the mail
-    Service (its cluster address for the pin).
+    Service (its cluster address for the pin). With a conformance mailbox
+    (conformanceMailbox.user): create its Secret, and read it by name.
+    The Job never updates or deletes it.
   - Role in the mirror namespace (catalyst-system): create the mirror
     Secret, and read and replace it by name. "create" cannot be limited by
     resourceNames, so it is a rule of its own.
@@ -37,6 +39,16 @@ rules:
     resources: ["services"]
     resourceNames: ["{{ include "bp-stalwart-sovereign.fullname" . }}-mail"]
     verbs: ["get"]
+  {{- $mbox := .Values.conformanceMailbox | default dict }}
+  {{- if $mbox.user }}
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: [{{ required "conformanceMailbox.secretName is required with conformanceMailbox.user" $mbox.secretName | quote }}]
+    verbs: ["get"]
+  {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

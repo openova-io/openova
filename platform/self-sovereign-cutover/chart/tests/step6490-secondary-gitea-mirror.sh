@@ -73,7 +73,7 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
   if [ -d "${MAIN_CHART}" ]; then
     helm template ssc "${MAIN_CHART}" --set sovereign.fqdn="${FQDN}" --set mirrorResync.enabled=true \
       >"${TMP}/main.yaml" 2>/dev/null
-    # Normalise TWO axes that are EXPECTED to differ from origin/main and are NOT
+    # Normalise SEVENTEEN axes that are EXPECTED to differ from origin/main and are NOT
     # the secondary-leg leak this byte-check guards:
     #   1. the chart-version baked into helm.sh/chart labels (the 0.1.19x bump);
     #   2. the #6490 git-auth MECHANISM on the ALWAYS-rendered primary resync push
@@ -192,7 +192,15 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
     #      are left out of BOTH trees, as axes 5, 8 and 10 do;
     #      tests/step7938-prewarm-tag-never-moves.sh executes the change. The
     #      axis switches itself off once origin/main holds the change.
-    #  16. step 08's #3695 host GitOps loop gate waits a bounded time for a
+    #  16. FND-G02 (Zero touch): every kubectl write of a HelmRelease or a
+    #      workload carries --field-manager=catalyst-self-sovereign-cutover, and
+    #      steps 08 and 09 restart by a patch of catalyst.openova.io/restartedAt
+    #      instead of kubectl rollout restart, in EVERY topology; rbac.yaml's
+    #      comment says so. None of that is the follower leg. The flag is
+    #      removed and each restart (either form) becomes one token on BOTH
+    #      trees, so every other character of those lines is still compared;
+    #      tools/guards/cmd/no-hand-marks holds the change itself.
+    #  17. step 08's #3695 host GitOps loop gate waits a bounded time for a
     #      Kustomization that is still progressing and names the HelmReleases
     #      that hold it, in EVERY topology (two env lines and three functions).
     #      None of that is the follower leg. While origin/main lacks
@@ -246,6 +254,12 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
         -e 's#bp-self-sovereign-cutover-[0-9]+\.[0-9]+\.[0-9]+#bp-self-sovereign-cutover-VERSION#g' \
         -e 's#^( *activeDeadlineSeconds: )(2400|3600)$#\1STEP06_DEADLINE#' \
         -e 's# --server-side --force-conflicts --field-manager=self-sovereign-cutover##g' \
+        -e 's# --field-manager=catalyst-self-sovereign-cutover##g' \
+        -e 's#kubectl rollout restart "\$\{kind\}/\$\{name\}" -n "\$\{ns\}"#RESTART_WORKLOAD#' \
+        -e 's#kubectl patch "\$\{kind\}/\$\{name\}" -n "\$\{ns\}" -p "\{.*catalyst\.openova\.io/restartedBy.*\}"#RESTART_WORKLOAD#' \
+        -e 's#kubectl -n "\$\{DEST_SECRET_NAMESPACE\}" rollout restart deploy/provisioning#RESTART_PROVISIONING#' \
+        -e 's#kubectl -n "\$\{DEST_SECRET_NAMESPACE\}" patch deploy/provisioning -p "\{.*catalyst\.openova\.io/restartedBy.*\}"#RESTART_PROVISIONING#' \
+        -e 's#(to prove fresh-pullability) — (kubectl rollout restart|the restart) patches (catalyst\.openova\.io/restartedAt onto )?the workload#\1 — RESTART_COMMENT the workload#' \
         -e 's#(No override exists for this refusal).*"$#\1 CATALOG_REFUSAL_TAIL"#' \
         -e '/- name: PUSH_BATCH_BRANCHES/{N;d}' \
         -e '/^ *default_branch="\$\{UPSTREAM_BRANCH\}"$/d' \
@@ -258,9 +272,9 @@ if git -C "${REPO_ROOT}" rev-parse --verify --quiet origin/main >/dev/null 2>&1;
     norm "${TMP}/main.yaml" >"${TMP}/main.norm"
     norm "${TMP}/off.yaml"  >"${TMP}/off.norm"
     if diff -q "${TMP}/main.norm" "${TMP}/off.norm" >/dev/null; then
-      pass "the ENTIRE single-region render is byte-identical to origin/main (modulo the chart-version bump and the #6490 resync git-auth mechanism, which Case 96 verifies)"
+      pass "the ENTIRE single-region render is byte-identical to origin/main (modulo the seventeen axes normalised above, each verified by its own test)"
     else
-      fail "single-region render DIFFERS from origin/main beyond the version bump — see diff:"
+      fail "single-region render DIFFERS from origin/main beyond the seventeen normalised axes — see diff:"
       diff "${TMP}/main.norm" "${TMP}/off.norm" | head -40
     fi
   else

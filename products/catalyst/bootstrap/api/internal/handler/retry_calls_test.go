@@ -336,7 +336,10 @@ func importRecord(t *testing.T, h *Handler, rec store.Record, query string) {
 func TestRetryCalls_TravelWithTheHandOver(t *testing.T) {
 	const fqdn = "t99.omani.works"
 	t.Setenv("CATALYST_OTECH_FQDN", fqdn)
-	at := time.Date(2026, 11, 19, 20, 0, 0, 0, time.UTC)
+	// The Sovereign stamps its own call with the wall clock, so the parent's
+	// calls sit around now: the first before it, the forwarded one an hour
+	// after. A fixed date broke this test once the clock passed it.
+	at := time.Now().UTC().Truncate(time.Second)
 	parent := &Deployment{ID: "dep-handover", Status: "ready", Request: provisioner.Request{SovereignFQDN: fqdn}}
 	parent.retries.Set([]store.RetryCall{{At: at, Route: retrycall.RoutePhase, Target: "phase phase1-watch", By: "owner@t99.omani.works"}}, 0)
 

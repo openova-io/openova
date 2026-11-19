@@ -421,6 +421,12 @@ jobs:
       - name: 'python-shrinks | No total of Python above its baseline: Python files, their lines, Python inside other files, places on a Sovereign'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: cd tools/guards && go run ./cmd/python-shrinks --base HEAD^1
+      - name: 'no-hand-marks | Tests of the guard (every rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go test -count=1 ./cmd/no-hand-marks
+      - name: 'no-hand-marks | The start-up data and the charts restart no workload with kubectl rollout restart and write no object FND-G02 tracks without --field-manager=catalyst-'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go run ./cmd/no-hand-marks
       - name: 'secret-guards | a randAlphaNum added to a real chart template fails G2'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: |

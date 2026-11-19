@@ -3,7 +3,8 @@
 
 The access of FND-079 is the secret ACCEPTANCE_PARENT_KUBECONFIG of the GitHub environment gate,
 which only the default branch may use. With it a job creates Jobs on the parent cluster
-(scripts/gate-parent-job.sh). This guard reads .github/workflows/*.yml and *.yaml and runs nothing.
+(scripts/gate-parent-job.sh). This guard reads .github/workflows/*.y*ml and the manifest ACCESS, and
+runs only `gate-parent-job.sh policy`, which prints the NetworkPolicy of a run without a cluster.
 
   python3 scripts/check-gate-parent-access.py [--root DIR]
   python3 scripts/check-gate-parent-access.py --self-test
@@ -25,6 +26,10 @@ Rules (LIST: the workflows that may use the access):
   P4  the job outside of foundation-gate.yaml has an environment or names a secret (secrets: of a
       call, or an expression that reads the context secrets, toJSON(secrets) included): its dial
       of NET-G02 must come from a hosted machine that holds nothing of the gate.
+  P5  ACCESS holds anything but the Role acceptance-gate/gate-jobs with exactly the rights of ROLE and gate-egress.
+  P6  a NetworkPolicy differs from POLICIES: gate-egress is default deny with DNS only; the one the Job script
+      creates for a run allows TCP 6443 and 443 to each address as /32, for the Pods of the run's Job only
+      (another range, port, peer or selector fails).
 
 GitHub reads the names of secrets and environments in any letter case, so the guard does too. A
 job is read as YAML parses it: each key and each string on its own (a quoted path is the path), and
@@ -37,6 +42,7 @@ import importlib.util
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 
@@ -50,7 +56,38 @@ TRIGGERS = {"workflow_dispatch", "workflow_call", "pull_request", "merge_group",
 ALLOWED = {("contents", "read"), ("packages", "write")}
 OUTSIDE = (".github/workflows/foundation-gate.yaml", "outside")
 HERE = os.path.dirname(os.path.abspath(__file__))
-HARMLESS = ("--self-test", "execution", "recipe")
+HARMLESS = ("--self-test", "execution", "recipe", "preflight", "targets", "policy")
+ACCESS = "scripts/gate-parent-access.yaml"
+ROLE = {(g, r, v) for g, r, vs in (("batch", "jobs", "create get list watch delete"), ("", "pods", "create get list watch delete"), ("", "pods/log", "get"),
+                                   ("", "secrets", "create delete"), ("networking.k8s.io", "networkpolicies", "create get delete")) for v in vs.split()}
+DNS = {"to": [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}}, "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}}}],
+       "ports": [{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}]}
+RUN, GATE_EGRESS = ("gate-1-1-live-abcdef", "198.51.100.9", "203.0.113.7"), "NetworkPolicy acceptance-gate/gate-egress"
+POLICIES = {  # each NetworkPolicy exactly: any other range, port, peer or selector is a finding
+    GATE_EGRESS: ({"podSelector": {}, "policyTypes": ["Ingress", "Egress"], "ingress": [], "egress": [DNS]}, "default deny with DNS only"),
+    SCRIPT + " policy": ({"podSelector": {"matchLabels": {"batch.kubernetes.io/job-name": RUN[0]}}, "policyTypes": ["Egress"],
+                          "egress": [{"to": [{"ipBlock": {"cidr": a + "/32"}} for a in RUN[1:]], "ports": [{"protocol": "TCP", "port": p} for p in (6443, 443)]}]},
+                         "TCP 6443 and 443 to each address of the install as /32, for the Pods of the run's Job only")}
+
+
+def access(root):
+    """P5 and P6: the objects of ACCESS, and the NetworkPolicy that the Job script prints for the run RUN."""
+    try:
+        docs = [d for d in yaml.safe_load_all(open(os.path.join(root, ACCESS), encoding="utf-8")) if isinstance(d, dict)]
+    except (OSError, yaml.YAMLError) as e:
+        raise Unreadable("%s: %s" % (ACCESS, e))
+    got = {"%s %s/%s" % (d.get("kind"), (d.get("metadata") or {}).get("namespace"), (d.get("metadata") or {}).get("name")): d for d in docs}
+    role = got.pop("Role acceptance-gate/gate-jobs", {})
+    found = ["P5 %s: holds %s, which the access does not need" % (ACCESS, k) for k in sorted(set(got) - {GATE_EGRESS})]
+    grants = {(g, r, v) for x in role.get("rules") or [] for g in x.get("apiGroups") or ["?"] for r in x.get("resources") or ["?"] for v in x.get("verbs") or []}
+    if grants != ROLE:
+        found.append("P5 %s: the Role acceptance-gate/gate-jobs grants %s and lacks %s" % (ACCESS, sorted(grants - ROLE), sorted(ROLE - grants)))
+    out = subprocess.run(["bash", os.path.join(root, "scripts", SCRIPT), "policy", RUN[0], ",".join(RUN[1:])], capture_output=True, text=True).stdout
+    got[SCRIPT + " policy"] = json.loads(out) if out.strip() else {"spec": "nothing printed"}
+    for k, (spec, text) in sorted(POLICIES.items()):
+        if (got.get(k) or {}).get("spec") != spec:
+            found.append("P6 %s: %s is not exactly %s: %s" % (ACCESS if k == GATE_EGRESS else SCRIPT, k, text, json.dumps((got.get(k) or {}).get("spec"))))
+    return found
 
 
 class Unreadable(Exception):
@@ -77,11 +114,7 @@ def load(root, rel):
 
 def triggers(d):
     on = d.get(True, d.get("on"))
-    if isinstance(on, str):
-        return [on]
-    if isinstance(on, list):
-        return list(on)
-    return list((on or {}).keys())
+    return [on] if isinstance(on, str) else list(on or [])  # a list as it is, a mapping by its keys
 
 
 def jobs(d):
@@ -91,9 +124,7 @@ def jobs(d):
 
 def environment_of(job):
     e = job.get("environment")
-    if isinstance(e, dict):
-        e = e.get("name")
-    return e
+    return e.get("name") if isinstance(e, dict) else e
 
 
 def is_gate(e):
@@ -122,9 +153,7 @@ def uses_access(job):
     """True when a string of the job names the secret (any letter case), or names the Job script without a harmless
     command right after it: a path in a variable, a quoted path or a command built at run time all count."""
     for s in strings_of(job):
-        if SECRET.lower() in s.lower():
-            return True
-        if any(m.group(1) not in HARMLESS for m in CALL.finditer(s)):
+        if SECRET.lower() in s.lower() or any(m.group(1) not in HARMLESS for m in CALL.finditer(s)):
             return True
     return False
 
@@ -198,7 +227,7 @@ def check(root, evaluate):
                     found.append("P4 %s: job %s has an environment" % (rel, OUTSIDE[1]))
                 if names_secrets(job):
                     found.append("P4 %s: job %s names a secret" % (rel, OUTSIDE[1]))
-    return found, len(files)
+    return found + access(root), len(files)
 
 
 def main(argv):
@@ -223,50 +252,7 @@ def main(argv):
 
 
 # ---- self-test
-GATE = """
-on:
-  workflow_dispatch: {}
-  workflow_call: {}
-  pull_request: {paths: [x]}
-  merge_group:
-permissions:
-  contents: read
-jobs:
-  unit:
-    runs-on: ubuntu-latest
-    steps: [{run: bash scripts/gate-parent-job.sh --self-test}]
-  outside:
-    runs-on: ubuntu-latest
-    steps: [{run: python3 scripts/gate-outside-dial.py dial x}]
-  live:
-    if: ${{ !cancelled() && github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
-    runs-on: ubuntu-latest
-    environment: gate
-    permissions: {contents: read, packages: write}
-    steps: [{run: bash scripts/gate-parent-job.sh run --mode live, env: {K: "${{ secrets.ACCEPTANCE_PARENT_KUBECONFIG }}", GATE_RESOURCES: "${{ vars.GATE_PARENT_RESOURCES }}"}}]
-"""
-STANDING = """
-on:
-  workflow_dispatch: {}
-  pull_request: {}
-jobs:
-  regions:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    environment: gate
-    permissions: {contents: read}
-    steps: [{run: bash scripts/gate-parent-job.sh run --mode regions}]
-  gate-1:
-    uses: ./.github/workflows/foundation-gate.yaml
-    secrets: inherit
-"""
-OTHER = """
-on: [push]
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps: [{run: echo hi}]
-"""
+GATE, STANDING, OTHER = re.split(r"(?m)^--- # fixture \w+\n", open(os.path.join(HERE, "check-gate-parent-access.fixtures.yaml"), encoding="utf-8").read())[1:]
 REGIONS_STEPS = "    steps: [{run: bash scripts/gate-parent-job.sh run --mode regions}]\n"
 
 
@@ -282,20 +268,21 @@ def regions(run, env=None):
 
 def self_test():
     evaluate = pr_jobs().evaluate
-    fails = [0]
-    count = [0]
+    fails, count = [0], [0]
+    MANIFEST, JOB = open(os.path.join(HERE, "..", ACCESS)).read(), open(os.path.join(HERE, SCRIPT)).read()
 
     def run(files):
         with tempfile.TemporaryDirectory() as root:
             os.makedirs(os.path.join(root, ".github/workflows"))
             for rel, text in files.items():
+                os.makedirs(os.path.dirname(os.path.join(root, rel)), exist_ok=True)
                 if text is not None:
                     open(os.path.join(root, rel), "w").write(text)
             return check(root, evaluate)[0]
 
     def case(name, files, want):
         count[0] += 1
-        base = {LIST[0]: GATE, LIST[1]: STANDING, ".github/workflows/other.yaml": OTHER}
+        base = {LIST[0]: GATE, LIST[1]: STANDING, ".github/workflows/other.yaml": OTHER, ACCESS: MANIFEST, "scripts/" + SCRIPT: JOB}
         base.update(files)
         got = run(base)
         ok = (not got) if want is None else bool(got) and all(f.startswith(want) for f in got)
@@ -367,6 +354,19 @@ def self_test():
     case("clean: the job outside may read a variable (the resources of the Job), which is no secret",
          {LIST[0]: GATE.replace("dial x}", "dial x, env: {R: '${{ vars.GATE_PARENT_RESOURCES }}'}}")}, None)
     case("P4 the job outside is gone", {LIST[0]: GATE.replace("  outside:", "  outside2:")}, "P4 .github/workflows/foundation-gate.yaml: there is no job outside")
+    sec, np, dns = "[secrets], verbs: [create, delete]}", "[networkpolicies], verbs: [create, get, delete]}", "egress:\n  - to: [{namespaceSelector"
+    std_p6, run_p6 = "P6 %s: %s is not exactly default deny" % (ACCESS, GATE_EGRESS), "P6 %s: %s policy is not exactly TCP 6443 and 443" % (SCRIPT, SCRIPT)
+    case("P5 the Role of the gate may also read Secrets", {ACCESS: MANIFEST.replace(sec, "[secrets], verbs: [create, delete, get, list]}")}, "P5 %s: the Role" % ACCESS)
+    case("P5 the Role of the gate cannot create the run's NetworkPolicy", {ACCESS: MANIFEST.replace(np, "[networkpolicies], verbs: [get, delete]}")}, "P5 %s: the Role" % ACCESS)
+    case("P5 the Role of the gate may update NetworkPolicies", {ACCESS: MANIFEST.replace(np, np[:-2] + ", update]}")}, "P5 %s: the Role" % ACCESS)
+    case("P5 the manifest holds another object", {ACCESS: MANIFEST + "---\nkind: NetworkPolicy\nmetadata: {name: x, namespace: acceptance-gate}\n"}, "P5 %s: holds NetworkPolicy acceptance-gate/x" % ACCESS)
+    case("P6 the standing policy allows a range wider than /32", {ACCESS: MANIFEST.replace(dns, "egress:\n  - to: [{ipBlock: {cidr: 5.37.79.0/24}}]\n  - to: [{namespaceSelector")}, std_p6)
+    case("P6 the standing policy allows a port other than DNS", {ACCESS: MANIFEST.replace("{protocol: TCP, port: 53}", "{protocol: TCP, port: 22}")}, std_p6)
+    case("P6 the standing policy selects some Pods only", {ACCESS: MANIFEST.replace("podSelector: {}", "podSelector: {matchLabels: {a: b}}")}, std_p6)
+    case("P6 the run's policy allows a range wider than /32", {"scripts/" + SCRIPT: JOB.replace("$a/32", "$a/24")}, run_p6)
+    case("P6 the run's policy allows a port other than 443 and 6443", {"scripts/" + SCRIPT: JOB.replace('"port": 443}', '"port": 22}')}, run_p6)
+    case("P6 the run's policy selects every Pod of the namespace", {"scripts/" + SCRIPT: JOB.replace('{"matchLabels": {"batch.kubernetes.io/job-name": "%s"}}', "{}")}, run_p6)
+    case("P6 the Job script prints no policy", {"scripts/" + SCRIPT: JOB.replace("cmd_policy() {", "cmd_policy() { exit 0;")}, run_p6)
     print("gate-parent-access self-test: %d of %d cases passed" % (count[0] - fails[0], count[0]))
     return 1 if fails[0] else 0
 

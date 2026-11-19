@@ -5,11 +5,22 @@
 # machines hosted by GitHub. In parent execution, everything that dials a Sovereign's API port runs
 # in a Job on the parent, created through the scoped access of FND-079: namespace acceptance-gate,
 # ServiceAccount gate (jobs and pods: create, get, list, watch, delete; pods/log: get; secrets:
-# create, delete, never read), Pod Security restricted, a quota of 4 pods, egress only to DNS and
-# to TCP 443 and 6443 of the standing environment. The node's container runtime pulls the images,
-# outside the Pod's network, so every image is named by its digest.
+# create, delete, never read; networkpolicies: create, get, delete), Pod Security restricted, a quota
+# of 4 pods. The namespace's standing NetworkPolicy denies everything but DNS; each run creates its own
+# NetworkPolicy, named as its Job, that lets the Job's Pods reach TCP 6443 and 443 of the addresses of
+# the install under test only (/32 each, given with --targets), and deletes it with the Job. The
+# manifest of the access is scripts/gate-parent-access.yaml. The node's container runtime pulls the
+# images, outside the Pod's network, so every image is named by its digest.
 #
 #   gate-parent-job.sh execution <value>     prints hosted or parent; empty means hosted; else exit 2
+#   gate-parent-job.sh preflight <value>     prints the input preflight without the prefix PREFLIGHT=
+#                                            that the flight checklist prints before it
+#   gate-parent-job.sh targets --env <label>
+#        On the hosted machine, before any Job: prints the addresses of the install, joined by commas:
+#        the API servers named by GATE_KUBECONFIG_A and _B (read from the files; a name is resolved),
+#        and the IPv4 addresses the DNS gives for console.<label>.omani.works (required) and the other
+#        hosts of GATEWAY_HOSTS that the suite and the probe dial. Nothing is dialed.
+#   gate-parent-job.sh policy <name> <addresses>   prints the NetworkPolicy a run creates (no cluster)
 #   gate-parent-job.sh image --candidate <dir> --commit <sha> --output <file>
 #        Builds or reuses, and pushes with docker buildx: the suite image of the commit under test,
 #        built with tests/acceptance/sovereign/Containerfile as build-conformance.yaml builds it;
@@ -17,14 +28,17 @@
 #        repository root a run in cloud reads); the probe image, the Playwright image by digest
 #        plus the playwright package. Writes job=<ref@digest>, probe=<ref@digest> and, when it
 #        built it, suite=<ref@digest> into <file>. Needs GH_TOKEN and GITHUB_ACTOR.
-#   gate-parent-job.sh run --mode addresses|live|regions --out <dir> --job-image <ref@digest>
-#                         [--probe-image <ref@digest>]
-#        Writes the region kubeconfigs and the tool scripts into a Secret of the run (never into
+#   gate-parent-job.sh run --mode addresses|live|regions --out <dir> --targets <addresses>
+#                         --job-image <ref@digest> [--probe-image <ref@digest>]
+#        Creates the run's NetworkPolicy for <addresses> (as targets prints them; none, or one that is
+#        not the IPv4 address of a host, ends the run with exit code 2 before anything is created),
+#        writes the region kubeconfigs and the tool scripts into a Secret of the run (never into
 #        the Job object), the pull credential into a second Secret, creates the Job with the run's
-#        inputs, streams its log, fetches the files the Job printed and deletes the Job and both
-#        Secrets whatever happened. Into <dir>: name, outputs (key=value), summary.md, errors,
-#        files/<path>, gate.log. Exit 0 when the Job did its work and every file arrived whole.
-#   gate-parent-job.sh cleanup --out <dir>   deletes the Job and the Secrets named in <dir>/name
+#        inputs, streams its log, fetches the files the Job printed and deletes the Job, both
+#        Secrets and the NetworkPolicy whatever happened. Into <dir>: name, outputs (key=value),
+#        summary.md, errors, files/<path>, gate.log. Exit 0 when the Job did its work and every file
+#        arrived whole.
+#   gate-parent-job.sh cleanup --out <dir>   deletes the Job, the Secrets and the NetworkPolicy named in <dir>
 #   gate-parent-job.sh recipe job <base>|probe   prints a generated Containerfile
 #   gate-parent-job.sh inner addresses|live|regions   in the Job, container gate
 #   gate-parent-job.sh probe                 in the Job, container probe (live only)
@@ -52,6 +66,10 @@
 # reported with its phase and the scheduler's reason; once the container gate has ended, its log
 # is read whether the probe has ended or not, and the wait ends GATE_FOLLOW_GRACE_SECONDS (default
 # 300) after the Job's own deadline at the latest.
+# In the Job no wait is silent: every wait is bounded and prints what it waits for at least once a
+# minute. Each reading of a region is bounded by GATE_READ_SECONDS (default 20); the first reading of
+# each region is logged; a region that cannot be read for GATE_UNREAD_MINUTES (default 5) in a row ends
+# the run at once with a line that names the region, its API address and the error.
 #
 # Exit codes: 0 done, 1 failed, 2 wrong usage.
 set -uo pipefail
@@ -114,6 +132,86 @@ cmd_execution() {
     parent) echo parent ;;
     *) echo "gate-parent-job: the input execution must be hosted or parent, not '${1:-}'" >&2; exit 2 ;;
   esac
+}
+
+# ---------------------------------------------------------------- preflight
+cmd_preflight() { # the one place the prefix is taken off: the flight checklist prints PREFLIGHT=<value>
+  local v="${1:-}"
+  printf '%s\n' "${v#PREFLIGHT=}"
+}
+
+# ---------------------------------------------------------------- the addresses a run may reach
+# The hosts under <label>.omani.works that the suite and the probe dial on TCP 443 (console, the sign-in
+# and the applications behind the gateway); console must resolve, the others when they exist.
+GATEWAY_HOSTS="console auth bao chargeback gitea grafana guacamole hubble marketplace newapi pdns-admin registry"
+
+is_ipv4() { # $1 is the IPv4 address of a host: four numbers up to 255, the first 1 to 223 and not 127
+  [[ "$1" =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]] || return 1
+  local a=$((10#${BASH_REMATCH[1]})) b=$((10#${BASH_REMATCH[2]})) c=$((10#${BASH_REMATCH[3]})) d=$((10#${BASH_REMATCH[4]}))
+  [ "$a" -ge 1 ] && [ "$a" -le 223 ] && [ "$a" != 127 ] && [ "$b" -le 255 ] && [ "$c" -le 255 ] && [ "$d" -le 255 ]
+}
+
+norm_targets() { # $1 addresses separated by commas or blanks: prints them sorted, each once, joined by commas
+  local x out="" list
+  read -ra list <<< "$(printf '%s' "${1:-}" | tr ',\n\t' '   ')"
+  for x in "${list[@]}"; do
+    is_ipv4 "$x" || { echo "gate-parent-job: '$x' is not the IPv4 address of a host" >&2; return 1; }
+    out="$out$x"$'\n'
+  done
+  [ -n "$out" ] || { echo "gate-parent-job: no address of the install under test was given" >&2; return 1; }
+  printf '%s' "$out" | sort -u -t. -k1,1n -k2,2n -k3,3n -k4,4n | paste -sd, -
+}
+
+kube_server() { # $1 a kubeconfig: the host of the API server of its current context, read from the file only
+  local u
+  u="$(kubectl config view --kubeconfig "$1" --minify --raw -o 'jsonpath={.clusters[0].cluster.server}' 2>/dev/null)" || return 1
+  u="${u#*://}"; u="${u%%/*}"
+  case "$u" in \[*) u="${u%%]*}"; u="${u#[}" ;; *) u="${u%:*}" ;; esac
+  [ -n "$u" ] && printf '%s\n' "$u"
+}
+
+resolve4() { # $1 a host name or an IPv4 address: its IPv4 addresses, one a line; nothing when it does not resolve
+  if is_ipv4 "$1"; then echo "$1"; return 0; fi
+  getent ahostsv4 "$1" 2>/dev/null | awk '{print $1}' | sort -u
+}
+
+cmd_targets() {
+  [ "${1:-}" = --env ] && [ -n "${2:-}" ] && [ $# = 2 ] || usage
+  local label="$2" r v h a all=""
+  [[ "$label" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "gate-parent-job: --env must be an environment label such as hw307, not '$label'" >&2; exit 2; }
+  for r in a b; do
+    v="GATE_KUBECONFIG_${r^}"
+    [ -r "${!v:-}" ] || die "$v is not a readable file"
+    h="$(kube_server "${!v}")" || die "the kubeconfig of region $r names no API server"
+    a="$(resolve4 "$h")"
+    [ -n "$a" ] || die "the API server $h of region $r has no IPv4 address"
+    echo "gate-parent-job: the API server of region $r: $h -> $(printf '%s ' $a)" >&2
+    all="$all $a"
+  done
+  for h in $GATEWAY_HOSTS; do
+    a="$(resolve4 "$h.$label.omani.works")"
+    echo "gate-parent-job: $h.$label.omani.works -> ${a:+$(printf '%s ' $a)}${a:-no IPv4 address}" >&2
+    if [ -z "$a" ]; then [ "$h" != console ] || die "console.$label.omani.works has no IPv4 address"; continue; fi
+    all="$all $a"
+  done
+  norm_targets "$all" || exit 1
+}
+
+policy_json() { # $1 the run's name, $2 its addresses (as norm_targets prints them): the run's NetworkPolicy
+  local a to="" run="${GATE_RUN:-}"
+  run="${run//[^0-9A-Za-z._-]/}"
+  for a in ${2//,/ }; do to="$to${to:+, }{\"ipBlock\": {\"cidr\": \"$a/32\"}}"; done
+  printf '{"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy",\n'
+  printf ' "metadata": {"name": "%s", "namespace": "%s", "labels": {"app.kubernetes.io/managed-by": "gate-parent-job", "openova.io/gate-run": "%s"}},\n' "$1" "$NS" "${run:-none}"
+  printf ' "spec": {"podSelector": {"matchLabels": {"batch.kubernetes.io/job-name": "%s"}}, "policyTypes": ["Egress"],\n' "$1"
+  printf '  "egress": [{"to": [%s], "ports": [{"protocol": "TCP", "port": 6443}, {"protocol": "TCP", "port": 443}]}]}}\n' "$to"
+}
+
+cmd_policy() {
+  [ $# = 2 ] && [[ "$1" =~ ^gate-[a-z0-9-]{1,58}$ ]] || usage
+  local t
+  t="$(norm_targets "$2")" || exit 2
+  policy_json "$1" "$t"
 }
 
 # ---------------------------------------------------------------- recipes
@@ -498,7 +596,10 @@ cleanup_names() { # $1 the folder of the run
       pk delete secret "$s" --ignore-not-found --wait=false > /dev/null || rc=1
     done < "$1/secrets"
   fi
-  [ "$rc" = 0 ] && echo "gate-parent-job: deleted the Job $name and its Secrets" >&2
+  if [ -e "$1/policy.json" ]; then
+    pk delete networkpolicy "$name" --ignore-not-found --wait=false > /dev/null || rc=1
+  fi
+  [ "$rc" = 0 ] && echo "gate-parent-job: deleted the Job $name, its Secrets and its NetworkPolicy" >&2
   return $rc
 }
 
@@ -509,12 +610,13 @@ cmd_cleanup() {
 }
 
 cmd_run() {
-  local mode="" jimg="" pimg=""
+  local mode="" jimg="" pimg="" targets=""
   RUN_OUT=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --mode) mode="$2"; shift 2 ;;
       --out) RUN_OUT="$2"; shift 2 ;;
+      --targets) targets="$2"; shift 2 ;;
       --job-image) jimg="$2"; shift 2 ;;
       --probe-image) pimg="$2"; shift 2 ;;
       *) usage ;;
@@ -526,6 +628,8 @@ cmd_run() {
   if [ "$mode" = live ] && ! [[ "$pimg" =~ $DIGEST_RE ]]; then
     echo "gate-parent-job: --probe-image must name a digest: <repository>@sha256:<64 hex>, not '$pimg'" >&2; exit 2
   fi
+  targets="$(norm_targets "$targets")" || {
+    echo "gate-parent-job: --targets must list the IPv4 addresses of the install under test (gate-parent-job.sh targets); the run does not start" >&2; exit 2; }
   resources_json > /dev/null || exit 2
   local v
   for v in GATE_PARENT_KUBECONFIG GATE_KUBECONFIG_A GATE_KUBECONFIG_B; do
@@ -537,6 +641,10 @@ cmd_run() {
   printf '%s\n' "$name" > "$RUN_OUT/name"
   trap 'rm -f "$RUN_OUT/secret.json" "$RUN_OUT/pull.json"; cleanup_names "$RUN_OUT"' EXIT
   manifests "$mode" "$name" "$jimg" "${pimg:-none}" "$RUN_OUT" || die "the manifests could not be written"
+  policy_json "$name" "$targets" > "$RUN_OUT/policy.json"
+  pk create -f "$RUN_OUT/policy.json" > /dev/null \
+    || die "the NetworkPolicy of the run could not be created: the Role of the gate needs create, get and delete on networkpolicies (scripts/gate-parent-access.yaml)"
+  echo "gate-parent-job: created the NetworkPolicy $name: the Pods of the Job may reach TCP 6443 and 443 of $targets and nothing else but DNS" >&2
   pk create -f "$RUN_OUT/secret.json" > /dev/null || die "the Secret of the run could not be created"
   rm -f "$RUN_OUT/secret.json"
   if [ -s "$RUN_OUT/pull.json" ]; then
@@ -550,7 +658,7 @@ cmd_run() {
   # 1. Every container starts: the node pulls the images. A container that can never start ends the run at
   #    once; an image the node cannot pull ends it after GATE_PULL_MINUTES of back-off; the container gate
   #    ending first goes straight to its log.
-  local start_deadline=$(( created + ${GATE_START_MINUTES:-30} * 60 )) st last="" pull_since=""
+  local start_deadline=$(( created + ${GATE_START_MINUTES:-30} * 60 )) st last="" pull_since="" said=0
   while :; do
     st="$(pod_view "$name")" || die "the Pod of the Job could not be read"
     case "$st" in
@@ -562,7 +670,9 @@ cmd_run() {
           && die "the node could not pull an image of the Job for ${GATE_PULL_MINUTES:-5} minutes: ${st#backoff }" ;;
       *) pull_since="" ;;
     esac
-    [ "$st" != "$last" ] && echo "gate-parent-job: the Pod of the Job: $st" >&2
+    if [ "$st" != "$last" ] || [ $(( $(date +%s) - said )) -ge 50 ]; then
+      echo "gate-parent-job: the Pod of the Job: $st" >&2; said="$(date +%s)"
+    fi
     last="$st"
     [ "$(date +%s)" -ge "$start_deadline" ] && die "the Pod of the Job did not start within ${GATE_START_MINUTES:-30} minutes; last: $st"
     sleep "${GATE_POLL_SECONDS:-10}"
@@ -626,10 +736,57 @@ inner_setup() {
   KA="$SECRET_DIR/ka"; KB="$SECRET_DIR/kb"
 }
 
+# ---------------------------------------------------------------- in the Job: reading a region
+# rk REGION ARGS...: kubectl against region a or b, bounded by GATE_READ_SECONDS (default 20); the output is
+# left in RK_OUT, the error in RK_ERR. Returns 0 when it read, 2 when the region's API server answered with
+# an error (Error from server: the region can be read), 1 when the region was not reached, and 3 when it has
+# not been reached for GATE_UNREAD_MINUTES (default 5) in a row: then it prints a GATE-ERROR line that names
+# the region, its API address and the error. The first reading of each region is logged.
+declare -A RK_SEEN=() RK_DOWN=()
+RK_OUT="" RK_ERR=""
+region_addr() { kube_server "$SECRET_DIR/k$1" || echo "address not read"; }
+rk() {
+  local r="$1" rc now s="${GATE_READ_SECONDS:-20}"
+  shift
+  RK_OUT="$(timeout "$s" kubectl --kubeconfig "$SECRET_DIR/k$r" --request-timeout="${s}s" "$@" 2> "$SCRATCH/tmp/rk.err")"
+  rc=$?
+  RK_ERR="$(tr '\n' ' ' < "$SCRATCH/tmp/rk.err" | head -c 400 | sed 's/ *$//')"
+  case "$rc" in 124 | 143) RK_ERR="no answer within $s seconds${RK_ERR:+: $RK_ERR}" ;; esac
+  now="$(date +%s)"
+  if [ "$rc" = 0 ] || [[ "$RK_ERR" == *"Error from server"* ]]; then
+    [ -n "${RK_SEEN[$r]:-}" ] || echo "gate: region $r ($(region_addr "$r")) read for the first time at $(date -u +%H:%M:%SZ)"
+    RK_SEEN[$r]=1; RK_DOWN[$r]=""
+    [ "$rc" = 0 ] && return 0
+    return 2
+  fi
+  [ -n "${RK_DOWN[$r]:-}" ] || RK_DOWN[$r]="$now"
+  if [ $(( now - RK_DOWN[$r] )) -ge $(( ${GATE_UNREAD_MINUTES:-5} * 60 )) ]; then
+    echo "GATE-ERROR region $r ($(region_addr "$r")) could not be read for ${GATE_UNREAD_MINUTES:-5} minutes: ${RK_ERR:-kubectl exit code $rc}"
+    return 3
+  fi
+  return 1
+}
+
+rk_until() { # rk_until REGION WHAT ARGS...: rk until the region answers (rk's code) or gives up (3); says what it waits for at every try
+  local r="$1" what="$2" rc
+  shift 2
+  while :; do
+    rk "$r" "$@"; rc=$?
+    [ "$rc" = 1 ] || return "$rc"
+    echo "gate: waiting to read $what of region $r ($(region_addr "$r")): $RK_ERR"
+    sleep "${GATE_WAIT_SECONDS:-15}"
+  done
+}
+
 inner_addresses() {
   local r list rc=0
   for r in a b; do
-    kubectl --kubeconfig "$SECRET_DIR/k$r" get nodes -o json > "$SCRATCH/$r.json" || { echo "GATE-ERROR the nodes of region $r could not be read"; rc=1; }
+    rk_until "$r" "the nodes" get nodes -o json
+    case "$?" in
+      0) printf '%s\n' "$RK_OUT" > "$SCRATCH/$r.json" ;;
+      3) rc=1; break ;;
+      *) echo "GATE-ERROR the nodes of region $r ($(region_addr "$r")) could not be read: $RK_ERR"; rc=1 ;;
+    esac
   done
   if [ "$rc" = 0 ]; then
     list="$(python3 "$SECRET_DIR/gate-outside-dial.py" addresses "$SCRATCH/a.json" "$SCRATCH/b.json")" || rc=1
@@ -706,9 +863,13 @@ sso_check() { # gate check FND-G07, as the hosted step does it; the session stay
   ( umask 077; mint "$user" > "$SHARED/session" ) || { stop "the session of $user could not be minted"; return; }
   [ -s "$SHARED/session" ] || { stop "the session of $user is empty"; return; }
   touch "$SHARED/probe.go"
-  local deadline=$(( $(date +%s) + ${GATE_PROBE_MINUTES:-20} * 60 ))
+  local deadline=$(( $(date +%s) + ${GATE_PROBE_MINUTES:-20} * 60 )) said=0
   while [ ! -e "$SHARED/probe.done" ]; do
     [ "$(date +%s)" -ge "$deadline" ] && { stop "the browser probe did not end within ${GATE_PROBE_MINUTES:-20} minutes"; return; }
+    if [ $(( $(date +%s) - said )) -ge 50 ]; then
+      echo "gate: waiting for the browser probe of FND-G07 (container probe), at most $(( (deadline - $(date +%s) + 59) / 60 )) minutes more"
+      said="$(date +%s)"
+    fi
     sleep 5
   done
   rc="$(cat "$SHARED/probe.rc" 2>/dev/null || echo unknown)"
@@ -735,42 +896,61 @@ sso_delete() { # the user of this run; a user it cannot delete is deleted by the
   summ "Sign-in check FND-G07: the user $user is deleted."
 }
 
-inner_live() {
-  local r t born="" chain="" last="nothing was read" s complete failed current deadline rc f
-  trap '[ -e "$SHARED/probe.go" ] || touch "$SHARED/probe.skip"' EXIT
+not_read() { # $1 the region rk gave up on (its GATE-ERROR line is printed): the run ends without the suite
+  out "chain=unreachable"
+  summ "Hand-over chain: not read; region $1 ($(region_addr "$1")) could not be read for ${GATE_UNREAD_MINUTES:-5} minutes: $RK_ERR. The suite was not run."
+}
+
+live_wait() { # the creation time, then the wait for the hand-over chain; 1 when the suite must not run
+  local r t rc born="" chain="" last="nothing was read" complete failed current deadline mins="${GATE_CHAIN_MINUTES:-180}"
   # When the environment was created: the earliest creation of kube-system in the two regions.
   for r in a b; do
-    t="$(kubectl --kubeconfig "$SECRET_DIR/k$r" get namespace kube-system -o jsonpath='{.metadata.creationTimestamp}')"
+    rk_until "$r" "the creation time of kube-system" get namespace kube-system -o jsonpath='{.metadata.creationTimestamp}'
+    rc=$?
+    [ "$rc" = 3 ] && { not_read "$r"; return 1; }
+    t="$RK_OUT"; [ "$rc" = 0 ] || t=""
     if [[ ! "$t" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]; then born=""; break; fi
     if [ -z "$born" ] || [[ "$t" < "$born" ]]; then born="$t"; fi
   done
   out "born=$born"
   summ "Environment created at: ${born:-not read}"
-  # Wait until the hand-over chain has ended (completed, or failed at a step), at most 180 minutes.
-  deadline=$(( $(date +%s) + 180 * 60 ))
+  # Wait until the hand-over chain has ended (completed, or failed at a step), at most GATE_CHAIN_MINUTES (180).
+  # Every pass reads both regions and prints one line: a pass takes at most two readings and the pause.
+  deadline=$(( $(date +%s) + mins * 60 ))
   while :; do
-    if s="$(kubectl --kubeconfig "$KA" -n catalyst get configmap self-sovereign-cutover-status \
-          -o jsonpath='{.data.cutoverComplete}|{.data.failedStep}|{.data.currentStep}' 2>&1)"; then
-      IFS='|' read -r complete failed current <<<"$s"
-      if [ "$complete" = true ]; then chain="completed"; break; fi
-      if [ -n "$failed" ]; then chain="failed at step $failed"; break; fi
-      last="not ended, current step: ${current:-none}"
-    else
-      last="the status ConfigMap could not be read: $s"
-    fi
+    rk a -n catalyst get configmap self-sovereign-cutover-status -o jsonpath='{.data.cutoverComplete}|{.data.failedStep}|{.data.currentStep}'
+    case "$?" in
+      0) IFS='|' read -r complete failed current <<< "$RK_OUT"
+         if [ "$complete" = true ]; then chain="completed"; break; fi
+         if [ -n "$failed" ]; then chain="failed at step $failed"; break; fi
+         last="not ended, current step: ${current:-none}" ;;
+      3) not_read a; return 1 ;;
+      *) last="the status ConfigMap could not be read: $RK_ERR" ;;
+    esac
+    rk b get namespace kube-system -o name
+    [ "$?" = 3 ] && { not_read b; return 1; }
+    echo "gate: waiting for the hand-over chain, read in region a ($(region_addr a)): $last; region b ($(region_addr b)) $([ -z "${RK_DOWN[b]:-}" ] && echo answers || echo "not read for $(( $(date +%s) - RK_DOWN[b] )) seconds: $RK_ERR"); $(( (deadline - $(date +%s) + 59) / 60 )) minutes left"
     if [ "$(date +%s)" -ge "$deadline" ]; then
-      summ "Hand-over chain: did not end within 180 minutes; last observed: $last"
+      summ "Hand-over chain: did not end within $mins minutes; last observed: $last"
       out "chain=timeout"
-      echo "GATE-ERROR The hand-over chain did not end within 180 minutes; last observed: $last. The suite was not run."
-      return
+      echo "GATE-ERROR The hand-over chain did not end within $mins minutes; last observed: $last. The suite was not run."
+      return 1
     fi
-    sleep 30
+    sleep "${GATE_WAIT_SECONDS:-15}"
   done
   out "chain=$chain"
   summ "Hand-over chain: $chain"
   if [ "$chain" != completed ]; then
-    summ "Hand-over error: $(kubectl --kubeconfig "$KA" -n catalyst get configmap self-sovereign-cutover-status -o jsonpath='{.data.lastError}' 2>&1 || true)"
+    rk a -n catalyst get configmap self-sovereign-cutover-status -o jsonpath='{.data.lastError}'
+    summ "Hand-over error: ${RK_OUT:-$RK_ERR}"
   fi
+  return 0
+}
+
+inner_live() {
+  local rc f
+  trap '[ -e "$SHARED/probe.go" ] || touch "$SHARED/probe.skip"' EXIT
+  live_wait || return 0
   # The suite, as scripts/acceptance-sovereign.sh runs it, from the files of the commit under test.
   export ACCEPT_KUBECONFIG_A="$KA" ACCEPT_KUBECONFIG_B="$KB" ACCEPT_MANIFEST=/opt/conformance/gates.json \
     ACCEPT_RUN_IN=cloud ACCEPT_REPO_ROOT=/opt/candidate ACCEPT_CONSOLE="${ACCEPT_CONSOLE:-https://console.$ENV_LABEL.omani.works}"
@@ -808,10 +988,14 @@ cmd_inner() {
 
 # ---------------------------------------------------------------- in the Job: container probe
 cmd_probe() {
-  local deadline=$(( $(date +%s) + ${GATE_PROBE_WAIT_MINUTES:-330} * 60 )) d="$SCRATCH/probe" rc
+  local deadline=$(( $(date +%s) + ${GATE_PROBE_WAIT_MINUTES:-330} * 60 )) d="$SCRATCH/probe" rc said=0
   mkdir -p "$SCRATCH/home" "$SCRATCH/tmp"
   while [ ! -e "$SHARED/probe.go" ] && [ ! -e "$SHARED/probe.skip" ]; do
     [ "$(date +%s)" -ge "$deadline" ] && { echo "no sign of the container gate; the probe did not run"; exit 0; }
+    if [ $(( $(date +%s) - said )) -ge 50 ]; then
+      echo "probe: waiting for the container gate to start the browser probe, at most $(( (deadline - $(date +%s) + 59) / 60 )) minutes more"
+      said="$(date +%s)"
+    fi
     sleep 5
   done
   [ -e "$SHARED/probe.go" ] || { echo "the container gate skipped the probe"; exit 0; }
@@ -850,10 +1034,15 @@ self_test() {
   # the Pod's container gate is in the state STUB_GATE, the container probe (when STUB_PROBE is
   # set) in the state STUB_PROBE, a JSON object; STUB_HANG: following the log never ends the Job;
   # STUB_UNSCHEDULED: the Pod is Pending, not scheduled, with that message and no container status.
+  # The regions (kubeconfigs $T/sec/ka and kb): `config view` prints the server of the file; STUB_DOWN
+  # (a or b) cannot be reached; STUB_CHAIN is the status ConfigMap (down: not reached, missing: NotFound).
+  # A stand-in getent answers the names of the file dns ("<name> <address>...").
   mkdir -p "$T/bin"
   cat > "$T/bin/kubectl" <<'STUB'
 #!/usr/bin/env bash
 S="$STUB_DIR"
+k=""; p=""; for x in "$@"; do [ "$p" = --kubeconfig ] && k="$x"; p="$x"; done
+if [ "${1:-}" = config ]; then sed -n 's/^ *server: *//p' "$k" | head -n 1; exit 0; fi
 echo "$*" >> "$S/calls"
 c=$(cat "$S/count" 2>/dev/null || echo 0); c=$((c + 1)); echo "$c" > "$S/count"
 if [ "$c" -le "${STUB_FAIL_TIMES:-0}" ]; then echo 'Unable to connect to the server: http2: client connection lost' >&2; exit 1; fi
@@ -861,8 +1050,20 @@ case "${STUB_FINAL:-ok}" in
   forbidden) echo 'Error from server (Forbidden): jobs.batch is forbidden' >&2; exit 1 ;;
   exists) echo 'Error from server (AlreadyExists): jobs.batch "x" already exists' >&2; exit 1 ;;
 esac
+if [ -n "${STUB_DOWN:-}" ] && [ "$k" = "$S/sec/k$STUB_DOWN" ]; then
+  echo "Unable to connect to the server: dial tcp $(sed -n 's#^ *server: *https://##p' "$k"): i/o timeout" >&2; exit 1
+fi
 a=" $* "
 case "$a" in
+  *" get namespace kube-system -o jsonpath="*) echo 2026-11-19T20:00:00Z ;;
+  *" get namespace kube-system -o name "*) echo namespace/kube-system ;;
+  *" get configmap self-sovereign-cutover-status "*)
+    case "${STUB_CHAIN:-true||}" in
+      down) echo 'Unable to connect to the server: dial tcp 203.0.113.1:6443: i/o timeout' >&2; exit 1 ;;
+      missing) echo 'Error from server (NotFound): configmaps "self-sovereign-cutover-status" not found' >&2; exit 1 ;;
+      *) printf '%s' "${STUB_CHAIN:-true||}" ;;
+    esac ;;
+  *" get nodes "*) echo '{"items": []}' ;;
   *" create -f "*) f="${a#* create -f }"; f="${f%% *}"; cp "$f" "$S/created-$(basename "$f")"; echo created ;;
   *" get job "*) printf '{"status": {%s}}\n' "$(cat "$S/job.state" 2>/dev/null)" ;;
   *" get pods "*) p=""; [ -z "${STUB_PROBE:-}" ] || p=', {"name": "probe", "state": '"$STUB_PROBE"'}'
@@ -877,7 +1078,14 @@ case "$a" in
   *) echo "stub: $*" >&2; exit 3 ;;
 esac
 STUB
-  chmod +x "$T/bin/kubectl"
+  cat > "$T/bin/getent" <<'STUB'
+#!/usr/bin/env bash
+[ "$1" = ahostsv4 ] || exit 2
+v="$(awk -v n="$2" '$1 == n {for (i = 2; i <= NF; i++) print $i}' "$STUB_DIR/dns" 2>/dev/null)"
+[ -n "$v" ] || exit 2
+for x in $v; do printf '%s STREAM %s\n%s DGRAM\n%s RAW\n' "$x" "$2" "$x" "$x"; done
+STUB
+  chmod +x "$T/bin/kubectl" "$T/bin/getent"
   reset_stub() { rm -f "$T/calls" "$T/count" "$T/created-"* "$T/job.state"; : > "$T/calls"; }
   export STUB_DIR="$T" GATE_PARENT_BACKOFF=0 GATE_POLL_SECONDS=0 GATE_PARENT_TRIES=6
   export PATH="$T/bin:$PATH" GATE_PARENT_KUBECONFIG="$T/parent.yaml"
@@ -904,11 +1112,83 @@ STUB
   reset_stub; STUB_FAIL_TIMES=0 STUB_FINAL=exists pk create -f "$T/parent.yaml" >/dev/null 2>&1; [ $? = 1 ]
   ok $? "retry: AlreadyExists at the first attempt is a conflict"
 
+  # the input preflight, with or without the prefix the flight checklist prints
+  [ "$(cmd_preflight 'PREFLIGHT=2026-11-19T20:41:00Z;servers=3/20/17,volumes=12/50/38')" = '2026-11-19T20:41:00Z;servers=3/20/17,volumes=12/50/38' ]
+  ok $? "preflight: the prefix PREFLIGHT= is taken off"
+  [ "$(cmd_preflight '2026-11-19T20:41:00Z;servers=3/20/17,volumes=12/50/38')" = '2026-11-19T20:41:00Z;servers=3/20/17,volumes=12/50/38' ] && [ -z "$(cmd_preflight '')" ]
+  ok $? "preflight: a value without the prefix and an empty one stay as they are"
+
+  # the addresses of the install: the API servers of the kubeconfigs and the gateway hosts in the DNS, nothing dialed
+  mkdir -p "$T/sec" "$T/scr" "$T/sh"
+  printf 'apiVersion: v1\nclusters:\n- cluster:\n    server: https://203.0.113.1:6443\n  name: a\n' > "$T/sec/ka"
+  printf 'apiVersion: v1\nclusters:\n- cluster:\n    server: https://203.0.113.24:6443\n  name: b\n' > "$T/sec/kb"
+  sed 's#https://203.0.113.24:6443#https://api-b.example.org:6443#' "$T/sec/kb" > "$T/kb-name"
+  printf '%s\n' 'console.hw399.omani.works 203.0.113.35' 'auth.hw399.omani.works 203.0.113.35' \
+    'marketplace.hw399.omani.works 203.0.113.36' 'api-b.example.org 203.0.113.25' 'console.hw400.omani.works' > "$T/dns"
+  [ "$(GATE_KUBECONFIG_A="$T/sec/ka" GATE_KUBECONFIG_B="$T/sec/kb" cmd_targets --env hw399 2>/dev/null)" = 203.0.113.1,203.0.113.24,203.0.113.35,203.0.113.36 ]
+  ok $? "targets: the API servers of both kubeconfigs and the gateway addresses in the DNS, sorted, each once"
+  [ "$(GATE_KUBECONFIG_A="$T/sec/ka" GATE_KUBECONFIG_B="$T/kb-name" cmd_targets --env hw399 2>/dev/null)" = 203.0.113.1,203.0.113.25,203.0.113.35,203.0.113.36 ]
+  ok $? "targets: an API server named by a host name is resolved"
+  ( GATE_KUBECONFIG_A="$T/sec/ka" GATE_KUBECONFIG_B="$T/sec/kb" cmd_targets --env hw400 ) > "$T/t3.out" 2>&1
+  [ $? = 1 ] && grep -q 'console.hw400.omani.works has no IPv4 address' "$T/t3.out"
+  ok $? "targets: a console the DNS does not resolve stops before any Job"
+
+  # the run's NetworkPolicy: the addresses in, one exact /32 each out, TCP 6443 and 443 only, the Pods of the run's Job only
+  cmd_policy gate-9-1-live-abcdef ' 203.0.113.35, 203.0.113.1,203.0.113.1' > "$T/pol.json"
+  jq -e '.kind == "NetworkPolicy" and .metadata.namespace == "acceptance-gate" and .metadata.name == "gate-9-1-live-abcdef"
+    and .spec.podSelector == {"matchLabels": {"batch.kubernetes.io/job-name": "gate-9-1-live-abcdef"}} and .spec.policyTypes == ["Egress"]
+    and .spec.egress == [{"to": [{"ipBlock": {"cidr": "203.0.113.1/32"}}, {"ipBlock": {"cidr": "203.0.113.35/32"}}],
+                          "ports": [{"protocol": "TCP", "port": 6443}, {"protocol": "TCP", "port": 443}]}]' "$T/pol.json" > /dev/null
+  ok $? "policy: each address once as an exact /32, TCP 6443 and 443 only, for the Pods of the run's Job only"
+  local bad_t rc_t=0
+  for bad_t in '' ' , ' '203.0.113.0/24' '0.0.0.0' '203.0.113.256' '127.0.0.1' '224.0.0.1' 'console.hw399.omani.works' '203.0.113.1,*'; do
+    ( cmd_policy gate-9-1-live-abcdef "$bad_t" ) > /dev/null 2>&1; [ $? = 2 ] || { echo "not refused: '$bad_t'"; rc_t=1; }
+  done
+  ok "$rc_t" "policy: no address, a range, an address that is no host's or a name: exit code 2"
+
+  # the waits of the Job: bounded, one line per pass, and a region that cannot be read ends the run with its address and error
+  live() { ( export STUB_DOWN="$1" STUB_CHAIN="$2" GATE_UNREAD_MINUTES=0 GATE_CHAIN_MINUTES=0
+             SECRET_DIR="$T/sec" SCRATCH="$T/scr" SHARED="$T/sh" GATE_WAIT_SECONDS=0 GATE_READ_SECONDS=5
+             inner_setup; live_wait; echo "live_wait=$?" ) 2>&1; }
+  live b 'true||' > "$T/w1.out"
+  grep -q '^gate: region a (203.0.113.1) read for the first time at ' "$T/w1.out" \
+    && grep -qx 'GATE-ERROR region b (203.0.113.24) could not be read for 0 minutes: Unable to connect to the server: dial tcp 203.0.113.24:6443: i/o timeout' "$T/w1.out" \
+    && grep -qx 'GATE-OUTPUT chain=unreachable' "$T/w1.out" && grep -qx 'live_wait=1' "$T/w1.out" && ! grep -q 'born=' "$T/w1.out"
+  ok $? "wait: a region not read ends the run at once with its name, its address and the error; the first reading is logged"
+  live '' down > "$T/w2.out"
+  grep -qx 'GATE-OUTPUT born=2026-11-19T20:00:00Z' "$T/w2.out" && grep -qx 'GATE-OUTPUT chain=unreachable' "$T/w2.out" \
+    && grep -qx 'GATE-ERROR region a (203.0.113.1) could not be read for 0 minutes: Unable to connect to the server: dial tcp 203.0.113.1:6443: i/o timeout' "$T/w2.out" \
+    && grep -qx 'live_wait=1' "$T/w2.out" && ! grep -q 'chain=timeout' "$T/w2.out"
+  ok $? "wait: region a not read during the wait for the hand-over chain ends the wait at once, not after 180 minutes"
+  live '' missing > "$T/w3.out"
+  grep -q '^gate: waiting for the hand-over chain, read in region a (203.0.113.1): the status ConfigMap could not be read: Error from server (NotFound): .*; region b (203.0.113.24) answers; 0 minutes left$' "$T/w3.out" \
+    && grep -qx 'GATE-OUTPUT chain=timeout' "$T/w3.out" && ! grep -q 'unreachable' "$T/w3.out"
+  ok $? "wait: a region whose server answers with an error is read, not unreachable; the wait ends at its bound"
+  live '' '||5' > "$T/w4.out"
+  [ "$(grep -c '^gate: waiting for the hand-over chain, read in region a (203.0.113.1): not ended, current step: 5; region b (203.0.113.24) answers; ' "$T/w4.out")" = 1 ] \
+    && grep -q '^gate: region b (203.0.113.24) read for the first time at ' "$T/w4.out" && grep -qx 'GATE-OUTPUT chain=timeout' "$T/w4.out"
+  ok $? "wait: every pass prints what it waits for, with both regions"
+  live '' 'true||' > "$T/w5.out"
+  grep -qx 'GATE-OUTPUT chain=completed' "$T/w5.out" && grep -qx 'live_wait=0' "$T/w5.out"
+  ok $? "wait: a completed hand-over chain lets the suite run"
+  reset_stub
+  ( export STUB_FAIL_TIMES=2 GATE_UNREAD_MINUTES=5; SECRET_DIR="$T/sec" SCRATCH="$T/scr" SHARED="$T/sh" GATE_WAIT_SECONDS=0 GATE_READ_SECONDS=5
+    inner_setup; inner_addresses ) > "$T/w6.out" 2>&1
+  [ "$(grep -c '^gate: waiting to read the nodes of region a (203.0.113.1): Unable to connect to the server: http2: client connection lost$' "$T/w6.out")" = 2 ] \
+    && grep -q '^gate: region a (203.0.113.1) read for the first time' "$T/w6.out" && grep -q '^gate: region b (203.0.113.24) read for the first time' "$T/w6.out"
+  ok $? "wait: a region not reached yet is read again within its bound, saying so at every try"
+  reset_stub
+  ( export STUB_DOWN=a GATE_UNREAD_MINUTES=0; SECRET_DIR="$T/sec" SCRATCH="$T/scr" SHARED="$T/sh" GATE_WAIT_SECONDS=0 GATE_READ_SECONDS=5
+    inner_setup; inner_addresses ) > "$T/w7.out" 2>&1
+  grep -qx 'GATE-ERROR region a (203.0.113.1) could not be read for 0 minutes: Unable to connect to the server: dial tcp 203.0.113.1:6443: i/o timeout' "$T/w7.out" \
+    && grep -qx 'GATE-OUTPUT rc=1' "$T/w7.out" && ! grep -q 'sec/kb' "$T/calls"
+  ok $? "wait: the addresses end at once when a region cannot be read, naming it, without reading the other"
+
   # the manifests
   mkdir -p "$T/tools/scripts" "$T/m"
   for f in gate-outside-dial.py standing-gate.py sso-zero-click-probe.mjs; do echo "tool $f" > "$T/tools/scripts/$f"; done
   echo "region-a-credential-abc" > "$T/ka"; echo "region-b-credential-def" > "$T/kb"; echo "owner-session-ghi" > "$T/session"
-  local JI PI
+  local JI PI TG=203.0.113.1,203.0.113.24
   JI="ghcr.io/openova-io/openova/conformance@sha256:$(printf 'a%.0s' {1..64})"
   PI="ghcr.io/openova-io/openova/conformance@sha256:$(printf 'b%.0s' {1..64})"
   ( export GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" GATE_SESSION_FILE="$T/session" GATE_TOOLS="$T/tools" \
@@ -992,17 +1272,17 @@ sys.exit(0 if c == {"gate": {"requests": {"cpu": "250m", "memory": "256Mi"}, "li
   ok "$rc_all" "resources: an unknown key, a key named twice, a quantity of the wrong form or 0, a request above its limit: exit code 2"
   reset_stub
   ( export GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" GITHUB_RUN_ID=55 GATE_RESOURCES='probe.requests.memory=3Gi'
-    TOOLS="$T/tools" cmd_run --mode live --out "$T/r13" --job-image "$JI" --probe-image "$PI" ) > "$T/r13.out" 2>&1
+    TOOLS="$T/tools" cmd_run --mode live --out "$T/r13" --targets "$TG" --job-image "$JI" --probe-image "$PI" ) > "$T/r13.out" 2>&1
   o=$?
   [ "$o" = 2 ] && [ "$(calls)" = 0 ] && grep -q 'probe.requests.memory=3Gi is above its limit 2Gi' "$T/r13.out"
   ok $? "run: GATE_RESOURCES that is not valid ends the run with exit code 2 before anything is created on the parent"
 
   # images by digest only
-  ( GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" cmd_run --mode live --out "$T/r0" --job-image ghcr.io/x/y:latest --probe-image "$PI" ) 2>/dev/null
+  ( GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" cmd_run --mode live --out "$T/r0" --targets "$TG" --job-image ghcr.io/x/y:latest --probe-image "$PI" ) 2>/dev/null
   [ $? = 2 ]; ok $? "run: a Job image named by a tag is refused"
-  ( GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" cmd_run --mode live --out "$T/r0" --job-image "$JI" ) 2>/dev/null
+  ( GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" cmd_run --mode live --out "$T/r0" --targets "$TG" --job-image "$JI" ) 2>/dev/null
   [ $? = 2 ]; ok $? "run: live without a probe image is refused"
-  ( cmd_run --mode sweep --out "$T/r0" --job-image "$JI" ) 2>/dev/null; [ $? = 2 ]; ok $? "run: an unknown mode is refused"
+  ( cmd_run --mode sweep --out "$T/r0" --targets "$TG" --job-image "$JI" ) 2>/dev/null; [ $? = 2 ]; ok $? "run: an unknown mode is refused"
 
   # the files of the Job: emitted, streamed, parsed
   printf 'line one\n\x00\x01 binary\n' > "$T/payload"
@@ -1024,38 +1304,51 @@ sys.exit(0 if c == {"gate": {"requests": {"cpu": "250m", "memory": "256Mi"}, "li
   # a whole run against the stand-in parent: created, streamed, read, deleted
   reset_stub
   ( export GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" GATE_TOOLS="$T/tools" GITHUB_RUN_ID=42 ENV_LABEL=hw307
-    TOOLS="$T/tools" cmd_run --mode live --out "$T/r1" --job-image "$JI" --probe-image "$PI" ) > "$T/r1.out" 2>&1
+    TOOLS="$T/tools" cmd_run --mode live --out "$T/r1" --targets "$TG" --job-image "$JI" --probe-image "$PI" ) > "$T/r1.out" 2>&1
   o=$?
   [ "$o" = 0 ] && cmp -s "$T/payload" "$T/r1/files/record/hw307-1.json" && [ -e "$T/created-job.json" ] && [ -e "$T/created-secret.json" ] \
     && grep -q "delete job gate-42-1-live-" "$T/calls" && grep -q "delete secret gate-42-1-live-" "$T/calls" && [ ! -e "$T/r1/secret.json" ]
   ok $? "run: the Secret and the Job are created, the record arrives, the Job and the Secret are deleted"
+  [ "$(grep -o 'create -f [^ ]*' "$T/calls" | sed 's#.*/##' | paste -sd' ' -)" = "policy.json secret.json job.json" ] \
+    && jq -e '.metadata.name == $n and .spec.podSelector.matchLabels["batch.kubernetes.io/job-name"] == $n
+      and [.spec.egress[].to[].ipBlock.cidr] == ["203.0.113.1/32", "203.0.113.24/32"]' --arg n "$(cat "$T/r1/name")" "$T/created-policy.json" > /dev/null \
+    && grep -q "delete networkpolicy gate-42-1-live-" "$T/calls"
+  ok $? "run: the run's NetworkPolicy for its addresses is created before the Secret and the Job, and deleted with them"
+  local bad_r rc_r=0
+  for bad_r in '' '203.0.113.0/24' 'console.hw307.omani.works'; do
+    reset_stub
+    ( export GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" GITHUB_RUN_ID=61
+      TOOLS="$T/tools" cmd_run --mode addresses --out "$T/r15" --targets "$bad_r" --job-image "$JI" ) > "$T/r15.out" 2>&1
+    [ $? = 2 ] && [ "$(calls)" = 0 ] && grep -q 'the run does not start' "$T/r15.out" || { echo "not refused: '$bad_r'"; rc_r=1; }
+  done
+  ok "$rc_r" "run: an empty address list, a range or a name refuses to start, before anything is created on the parent"
   grep -q '::warning::from the cluster' "$T/r1.out" && ! grep -q '::stop-commands::' "$T/r1.out"; ok $? "run: outside GitHub the log is streamed as it is"
   reset_stub
   ( export GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" GITHUB_ACTIONS=true GITHUB_RUN_ID=43
-    TOOLS="$T/tools" cmd_run --mode live --out "$T/r1b" --job-image "$JI" --probe-image "$PI" ) > "$T/r1b.out" 2>&1
+    TOOLS="$T/tools" cmd_run --mode live --out "$T/r1b" --targets "$TG" --job-image "$JI" --probe-image "$PI" ) > "$T/r1b.out" 2>&1
   grep -q '^::stop-commands::' "$T/r1b.out" && grep -q '^::error::a message$' "$T/r1b.out"
   ok $? "run: on GitHub the streamed log cannot issue workflow commands; the Job's errors become annotations"
   reset_stub; cp "$T/nodone.txt" "$T/log.txt"
   ( export GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" GITHUB_RUN_ID=44
-    TOOLS="$T/tools" cmd_run --mode addresses --out "$T/r2" --job-image "$JI" ) > /dev/null 2>&1
+    TOOLS="$T/tools" cmd_run --mode addresses --out "$T/r2" --targets "$TG" --job-image "$JI" ) > /dev/null 2>&1
   o=$?
   [ "$o" = 1 ] && grep -q "delete job gate-44-1-addresses-" "$T/calls" && grep -q "delete secret gate-44-1-addresses-" "$T/calls"
   ok $? "run: a Job that did not finish its work fails the run, and the Job and the Secret are still deleted"
   reset_stub
   ( export GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" GITHUB_RUN_ID=45 STUB_FAIL_TIMES=1 STUB_FINAL=forbidden
-    TOOLS="$T/tools" cmd_run --mode regions --out "$T/r3" --job-image "$JI" ) > /dev/null 2>&1
+    TOOLS="$T/tools" cmd_run --mode regions --out "$T/r3" --targets "$TG" --job-image "$JI" ) > /dev/null 2>&1
   o=$?
   [ "$o" = 1 ] && grep -q "delete job gate-45-1-regions-" "$T/calls"
   ok $? "run: a refused create fails the run and still deletes by name"
   reset_stub; { echo "suite output"; echo GATE-DONE; } > "$T/log.txt"
   ( export GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" GITHUB_RUN_ID=46 STUB_GATE=terminated STUB_HANG=1 GATE_FOLLOW_MAX=5
-    TOOLS="$T/tools" cmd_run --mode addresses --out "$T/r4" --job-image "$JI" ) > /dev/null 2>&1
+    TOOLS="$T/tools" cmd_run --mode addresses --out "$T/r4" --targets "$TG" --job-image "$JI" ) > /dev/null 2>&1
   o=$?
   [ "$o" = 0 ] && [ "$(grep -c ' logs -f ' "$T/calls")" = 1 ] && grep -q "delete job gate-46-1-addresses-" "$T/calls"
   ok $? "run: when the container gate has ended the log is read at once, though the Job has not ended"
   reset_stub; { echo "suite output"; echo GATE-DONE; } > "$T/log.txt"
   ( export GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" GITHUB_RUN_ID=47 GITHUB_RUN_ATTEMPT=2
-    TOOLS="$T/tools" cmd_run --mode addresses --out "$T/r5" --job-image "$JI" ) > /dev/null 2>&1
+    TOOLS="$T/tools" cmd_run --mode addresses --out "$T/r5" --targets "$TG" --job-image "$JI" ) > /dev/null 2>&1
   o=$?
   [ "$o" = 0 ] && grep -Eqx 'gate-47-2-addresses-[0-9a-f]{6}' "$T/r5/name" && grep -q '"name": "gate-47-2-addresses-' "$T/created-job.json" \
     && grep -q "delete job gate-47-2-addresses-" "$T/calls" && grep -q "delete secret gate-47-2-addresses-" "$T/calls"
@@ -1063,21 +1356,21 @@ sys.exit(0 if c == {"gate": {"requests": {"cpu": "250m", "memory": "256Mi"}, "li
   local pull='{"waiting": {"reason": "ImagePullBackOff", "message": "Back-off pulling image \"x\": not found"}}'
   reset_stub
   ( export GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" GITHUB_RUN_ID=48 STUB_PROBE="$pull" GATE_PULL_MINUTES=0 GATE_START_MINUTES=0
-    TOOLS="$T/tools" cmd_run --mode live --out "$T/r6" --job-image "$JI" --probe-image "$PI" ) > "$T/r6.out" 2>&1
+    TOOLS="$T/tools" cmd_run --mode live --out "$T/r6" --targets "$TG" --job-image "$JI" --probe-image "$PI" ) > "$T/r6.out" 2>&1
   o=$?
   [ "$o" = 1 ] && grep -q 'could not pull an image of the Job for 0 minutes: probe:ImagePullBackOff (Back-off pulling image "x": not found)' "$T/r6.out" \
     && ! grep -q ' logs ' "$T/calls" && grep -q "delete job gate-48-1-live-" "$T/calls" && grep -q "delete secret gate-48-1-live-" "$T/calls"
   ok $? "run: a probe container in image pull back-off fails the run with its reason, without following the log, and deletes the Job"
   reset_stub
   ( export GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" GITHUB_RUN_ID=49 STUB_PROBE="$pull" GATE_START_MINUTES=0
-    TOOLS="$T/tools" cmd_run --mode live --out "$T/r7" --job-image "$JI" --probe-image "$PI" ) > "$T/r7.out" 2>&1
+    TOOLS="$T/tools" cmd_run --mode live --out "$T/r7" --targets "$TG" --job-image "$JI" --probe-image "$PI" ) > "$T/r7.out" 2>&1
   o=$?
   [ "$o" = 1 ] && grep -q 'did not start within 0 minutes; last: backoff probe:ImagePullBackOff' "$T/r7.out" && ! grep -q 'could not pull' "$T/r7.out"
   ok $? "run: a back-off shorter than GATE_PULL_MINUTES is waited on, within the bound GATE_START_MINUTES"
   reset_stub
   ( export GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" GITHUB_RUN_ID=54 GATE_START_MINUTES=0
     export STUB_UNSCHEDULED='0/1 nodes are available: 1 Insufficient memory. preemption: 0/1 nodes are available: 1 No preemption victims found for incoming pod.'
-    TOOLS="$T/tools" cmd_run --mode live --out "$T/r12" --job-image "$JI" --probe-image "$PI" ) > "$T/r12.out" 2>&1
+    TOOLS="$T/tools" cmd_run --mode live --out "$T/r12" --targets "$TG" --job-image "$JI" --probe-image "$PI" ) > "$T/r12.out" 2>&1
   o=$?
   [ "$o" = 1 ] && grep -q 'the Pod of the Job: waiting gate:not created,probe:not created (Pending; not scheduled: Unschedulable, 0/1 nodes are available: 1 Insufficient memory\.' "$T/r12.out" \
     && grep -q 'did not start within 0 minutes; last: waiting gate:not created,probe:not created (Pending; not scheduled: Unschedulable, 0/1 nodes' "$T/r12.out" \
@@ -1085,26 +1378,26 @@ sys.exit(0 if c == {"gate": {"requests": {"cpu": "250m", "memory": "256Mi"}, "li
   ok $? "run: a Pod the scheduler has not placed is reported with its phase and the scheduler's reason, and the Job is deleted"
   reset_stub
   ( export GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" GITHUB_RUN_ID=50 STUB_PROBE='{"waiting": {"reason": "CreateContainerConfigError", "message": "no such key"}}'
-    TOOLS="$T/tools" cmd_run --mode live --out "$T/r8" --job-image "$JI" --probe-image "$PI" ) > "$T/r8.out" 2>&1
+    TOOLS="$T/tools" cmd_run --mode live --out "$T/r8" --targets "$TG" --job-image "$JI" --probe-image "$PI" ) > "$T/r8.out" 2>&1
   o=$?
   [ "$o" = 1 ] && grep -q 'cannot start: probe:CreateContainerConfigError (no such key)' "$T/r8.out" && [ "$(calls_of ' get pods ')" = 1 ]
   ok $? "run: a container that can never start fails the run at the first reading"
   reset_stub; { echo "suite output"; echo GATE-DONE; } > "$T/log.txt"
   ( export GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" GITHUB_RUN_ID=51 STUB_GATE=terminated STUB_PROBE='{"running": {}}' STUB_HANG=1 GATE_FOLLOW_MAX=5
-    TOOLS="$T/tools" cmd_run --mode live --out "$T/r9" --job-image "$JI" --probe-image "$PI" ) > "$T/r9.out" 2>&1
+    TOOLS="$T/tools" cmd_run --mode live --out "$T/r9" --targets "$TG" --job-image "$JI" --probe-image "$PI" ) > "$T/r9.out" 2>&1
   o=$?
   [ "$o" = 0 ] && [ "$(calls_of ' logs -f ')" = 1 ] && grep -q 'has not ended: its container gate has ended (still: probe:running); its log is read now' "$T/r9.out" \
     && grep -q "delete job gate-51-1-live-" "$T/calls"
   ok $? "run: a probe that hangs after the container gate has ended does not hold the run; it says so"
   reset_stub; { echo "suite output"; echo GATE-DONE; } > "$T/log.txt"
   ( export GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" GITHUB_RUN_ID=52 STUB_GATE=terminated STUB_PROBE='{"waiting": {"reason": "ContainerCreating"}}' STUB_HANG=1 GATE_FOLLOW_MAX=5
-    TOOLS="$T/tools" cmd_run --mode live --out "$T/r10" --job-image "$JI" --probe-image "$PI" ) > "$T/r10.out" 2>&1
+    TOOLS="$T/tools" cmd_run --mode live --out "$T/r10" --targets "$TG" --job-image "$JI" --probe-image "$PI" ) > "$T/r10.out" 2>&1
   o=$?
   [ "$o" = 0 ] && grep -q '(still: probe:ContainerCreating)' "$T/r10.out"
   ok $? "run: a probe that never started does not hold the run once the container gate has ended"
   reset_stub; echo "suite output" > "$T/log.txt"
   ( export GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" GITHUB_RUN_ID=53 STUB_HANG=1 GATE_FOLLOW_GRACE_SECONDS=-100000 GATE_FOLLOW_MAX=5
-    TOOLS="$T/tools" cmd_run --mode regions --out "$T/r11" --job-image "$JI" ) > "$T/r11.out" 2>&1
+    TOOLS="$T/tools" cmd_run --mode regions --out "$T/r11" --targets "$TG" --job-image "$JI" ) > "$T/r11.out" 2>&1
   o=$?
   [ "$o" = 1 ] && [ "$(calls_of ' logs -f ')" = 1 ] && grep -q 'has not ended .* minutes after it was created' "$T/r11.out" && grep -q "delete job gate-53-1-regions-" "$T/calls"
   ok $? "run: the wait ends at the Job's deadline even when its log can be followed for ever"
@@ -1121,6 +1414,9 @@ sys.exit(0 if c == {"gate": {"requests": {"cpu": "250m", "memory": "256Mi"}, "li
 
 case "${1:-}" in
   execution) shift; cmd_execution "$@" ;;
+  preflight) shift; cmd_preflight "$@" ;;
+  targets) shift; cmd_targets "$@" ;;
+  policy) shift; cmd_policy "$@" ;;
   image) shift; cmd_image "$@" ;;
   run) shift; cmd_run "$@" ;;
   cleanup) shift; cmd_cleanup "$@" ;;

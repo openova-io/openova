@@ -60,7 +60,7 @@ was written with the default `kubectl-patch` field manager, which
 kustomize-controller's managed-fields cleanup CLAIMS AND STRIPS on every
 reconcile of the applying Kustomization (hw275: suspend stripped 06:55:20
 → helm re-demoted the survivor 06:55:23 → self-heal re-latched 06:55:27,
-×19) — every write now uses `--field-manager=dr-promoter`, which the
+×19) — every write now uses `--field-manager=catalyst-dr-promoter`, which the
 cleanup list does not match; (b) nothing ever LIFTED the latch — the
 DURABLE HANDOFF below moves the promotion into the bootstrap-kit
 Kustomization's postBuild.substitute (SOVEREIGN_CNPG_PAIR_PROMOTED) and
@@ -823,7 +823,7 @@ spec:
               # in that cleanup list, so the latch + annotations now survive
               # (live precedent: the catalyst-api substitute flips persist
               # under manager `catalyst-api`).
-              FM="--field-manager=dr-promoter"
+              FM="--field-manager=catalyst-dr-promoter"
               # suspend_hr <reason> — patch spec.suspend=true (+ latched-at
               # annotation), then READBACK-VERIFY it landed. spec.suspend is a
               # field flux's Kustomization (slot 16b) does NOT own, so its SSA

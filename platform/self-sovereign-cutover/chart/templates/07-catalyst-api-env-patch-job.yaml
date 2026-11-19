@@ -382,7 +382,7 @@ data:
                 echo "[catalyst-api-env-patch]     WARN could not build sweep patch for ${_sw_kind}/${_sw_name} (skipping)"
                 rm -f "${_sw_changes}"; return 0
               fi
-              if kubectl patch "${_sw_kind}" "${_sw_name}" -n "${_sw_ns}" --type=strategic -p "${_sw_patch}" >/dev/null 2>&1; then
+              if kubectl patch "${_sw_kind}" "${_sw_name}" -n "${_sw_ns}" --type=strategic --field-manager=catalyst-self-sovereign-cutover -p "${_sw_patch}" >/dev/null 2>&1; then
                 echo "[catalyst-api-env-patch]     PIVOTED ${_sw_kind}/${_sw_name} -n ${_sw_ns}:"
                 awk -F"$(printf '\t')" '{print "[catalyst-api-env-patch]       "$2": "$3" -> "$4}' "${_sw_changes}"
               else
@@ -698,7 +698,7 @@ data:
             echo "[catalyst-api-env-patch] G61 HR patch ${HR_NAMESPACE}/${HR_NAME} spec.values.global.imageRegistry=${REGISTRY}"
             PATCH=$(printf '{"spec":{"values":{"global":{"imageRegistry":"%s"}}}}' "${REGISTRY}")
             kubectl patch hr "${HR_NAME}" \
-              -n "${HR_NAMESPACE}" \
+              -n "${HR_NAMESPACE}" --field-manager=catalyst-self-sovereign-cutover \
               --type=merge \
               -p "${PATCH}" || echo "[catalyst-api-env-patch] HR patch failed (non-fatal; will retry on next cutover)"
 
@@ -760,7 +760,7 @@ data:
              (HR default interval is 15m, too slow for cutover SLA).
             */}}
             kubectl annotate hr "${HR_NAME}" \
-              -n "${HR_NAMESPACE}" \
+              -n "${HR_NAMESPACE}" --field-manager=catalyst-self-sovereign-cutover \
               "reconcile.fluxcd.io/requestedAt=$(date +%s)" \
               --overwrite || true
 
@@ -812,7 +812,7 @@ data:
               echo "[catalyst-api-env-patch] #4885 HR patch ${_hr_ns}/${_hr_name} spec.values.global.imageRegistry=${REGISTRY}"
               _patch=$(printf '{"spec":{"values":{"global":{"imageRegistry":"%s"}}}}' "${REGISTRY}")
               kubectl patch hr "${_hr_name}" \
-                -n "${_hr_ns}" \
+                -n "${_hr_ns}" --field-manager=catalyst-self-sovereign-cutover \
                 --type=merge \
                 -p "${_patch}" || echo "[catalyst-api-env-patch] #4885 ${_hr_name} HR patch failed (non-fatal; will retry on next cutover)"
 
@@ -855,7 +855,7 @@ data:
               fi
 
               kubectl annotate hr "${_hr_name}" \
-                -n "${_hr_ns}" \
+                -n "${_hr_ns}" --field-manager=catalyst-self-sovereign-cutover \
                 "reconcile.fluxcd.io/requestedAt=$(date +%s)" \
                 --overwrite || true
             }
@@ -883,7 +883,7 @@ data:
             */}}
             echo "[catalyst-api-env-patch] ${ENV_VAR_NAME}=${ENV_VAR_VALUE}"
             kubectl set env "deploy/${DEPLOYMENT_NAME}" \
-              -n "${DEPLOYMENT_NAMESPACE}" \
+              -n "${DEPLOYMENT_NAMESPACE}" --field-manager=catalyst-self-sovereign-cutover \
               "${ENV_VAR_NAME}=${ENV_VAR_VALUE}"
             {{- /*
              #4996: deadlock-aware wait (image-pull tolerant + EVS detach-gate)
@@ -929,7 +929,7 @@ data:
              fallbacks ONLY when the env is unset).
             */}}
             kubectl set env "deploy/${DEPLOYMENT_NAME}" \
-              -n "${DEPLOYMENT_NAMESPACE}" \
+              -n "${DEPLOYMENT_NAMESPACE}" --field-manager=catalyst-self-sovereign-cutover \
               "CATALYST_PIN_ISSUER=${CONSOLE_PUBLIC_URL}" \
               "CATALYST_HANDOVER_JWT_ISSUER=${CONSOLE_PUBLIC_URL}"
             {{- /* #4996: deadlock-aware wait for the issuer-env roll too. */}}
@@ -989,7 +989,7 @@ data:
             if kubectl get deploy "${ORG_PROVISIONING_DEPLOYMENT}" -n "${ORG_PROVISIONING_NAMESPACE}" >/dev/null 2>&1; then
               echo "[catalyst-api-env-patch] #5527 Phase 3d: CATALYST_LOCAL_REGISTRY_URL=${LOCAL_OCI_BASE} -> deploy/${ORG_PROVISIONING_DEPLOYMENT} -n ${ORG_PROVISIONING_NAMESPACE}"
               kubectl set env "deploy/${ORG_PROVISIONING_DEPLOYMENT}" \
-                -n "${ORG_PROVISIONING_NAMESPACE}" \
+                -n "${ORG_PROVISIONING_NAMESPACE}" --field-manager=catalyst-self-sovereign-cutover \
                 "CATALYST_LOCAL_REGISTRY_URL=${LOCAL_OCI_BASE}"
               {{- /* Read-back assert — live template value, not intention. */}}
               LIVE=$(kubectl get deploy "${ORG_PROVISIONING_DEPLOYMENT}" \
@@ -1057,7 +1057,7 @@ data:
                 continue
               fi
               echo "[catalyst-api-env-patch] #5439 Phase 3e: CATALYST_LOCAL_IMAGE_REGISTRY_HOST=${LOCAL_IMAGE_HOST} -> deploy/${_d} -n ${_n}"
-              kubectl set env "deploy/${_d}" -n "${_n}" \
+              kubectl set env "deploy/${_d}" -n "${_n}" --field-manager=catalyst-self-sovereign-cutover \
                 "CATALYST_LOCAL_IMAGE_REGISTRY_HOST=${LOCAL_IMAGE_HOST}"
               {{- /* Read-back assert — live template value, not intention. */}}
               _live=$(kubectl get deploy "${_d}" -n "${_n}" \

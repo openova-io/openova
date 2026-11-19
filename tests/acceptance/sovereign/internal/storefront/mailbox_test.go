@@ -3,11 +3,18 @@ package storefront
 import (
 	"bufio"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
+	"math/big"
 	"net"
 	"strings"
 	"testing"
+	"time"
 )
 
 // imapServer answers as an IMAP server with the mails in box: UID -> recipient
@@ -98,6 +105,42 @@ func TestMailboxFailures(t *testing.T) {
 	s.fail = "EXAMINE"
 	if _, err := s.mailbox("pw").Code(ctx, "gate+a@mail.test"); err == nil || !strings.Contains(err.Error(), "EXAMINE INBOX: NO refused") {
 		t.Errorf("a refused EXAMINE: got %v", err)
+	}
+}
+
+// Through a port forward the reader dials a local address: the certificate is
+// checked against ServerName. The test's certificate is for mail.sov.test and
+// signed by no known authority, so a dial past the name check fails on that.
+func TestMailboxChecksTheCertificateAgainstServerName(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), DNSNames: []string{"mail.sov.test"},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour)}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{MinVersion: tls.VersionTLS12,
+		Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	go func() {
+		for c, err := ln.Accept(); err == nil; c, err = ln.Accept() {
+			_ = c.(*tls.Conn).Handshake()
+			_ = c.Close()
+		}
+	}()
+	var unknown x509.UnknownAuthorityError
+	var name x509.HostnameError
+	for serverName, want := range map[string]any{"mail.sov.test": &unknown, "": &name, "other.sov.test": &name} {
+		_, err := Mailbox{Addr: ln.Addr().String(), ServerName: serverName, User: "gate", Password: "pw"}.Code(context.Background(), "gate+a@sov.test")
+		if !errors.As(err, want) {
+			t.Errorf("ServerName %q: got %v, want %T", serverName, err, want)
+		}
 	}
 }
 

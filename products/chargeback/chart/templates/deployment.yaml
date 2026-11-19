@@ -125,6 +125,57 @@ spec:
             - name: dsn
               mountPath: /dsn
               readOnly: true
+        # Holds the Pod until the database ACCEPTS CONNECTIONS. A written DSN
+        # does not mean the CNPG primary serves yet: on a fresh install the
+        # binary started while <fullname>-pg-rw had no ready endpoint and
+        # exited on `connection refused` (hw307, 19 Nov 2026: 4 restarts in
+        # each Pod). pg_isready asks the server itself and sends no
+        # credentials; only host and port are read from the DSN and logged.
+        # `-U postgres` is load-bearing: the Pod's uid 65532 has no passwd
+        # entry in the CNPG image, and with no user name libpq gives up
+        # before connecting (pg_isready exit 3, "no attempt"). The name only
+        # fills the startup packet; a refused login still counts as up.
+        - name: wait-for-database
+          image: {{ include "chargeback.pivotImage" (dict "repo" .Values.cnpg.cluster.imageName "tag" "" "root" .) | quote }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -u
+              budget={{ .Values.cnpg.databaseGate.timeoutSeconds | int }}
+              hostport=$(sed -E 's#^.*@([^/?@]+)([/?].*)?$#\1#' /dsn/DATABASE_URL)
+              host=${hostport%:*}
+              port=${hostport##*:}
+              [ "$port" != "$hostport" ] || port=5432
+              start=$(date +%s)
+              elapsed=0
+              while [ "$elapsed" -lt "$budget" ]; do
+                if pg_isready -q -h "$host" -p "$port" -U postgres -t 5; then
+                  echo "database ${host}:${port} accepts connections after ${elapsed}s"; exit 0
+                fi
+                echo "waiting for database ${host}:${port} to accept connections (${elapsed}s of ${budget}s)"
+                sleep 5
+                elapsed=$(( $(date +%s) - start ))
+              done
+              echo "database ${host}:${port} did not accept connections within ${budget}s: is the CNPG Cluster healthy?" >&2
+              exit 1
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 10m
+              memory: 32Mi
+          volumeMounts:
+            - name: dsn
+              mountPath: /dsn
+              readOnly: true
       {{- end }}
       containers:
         - name: chargeback

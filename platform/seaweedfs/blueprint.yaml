@@ -3,7 +3,7 @@ kind: Blueprint
 metadata:
   name: bp-seaweedfs
 spec:
-  version: 1.3.4
+  version: 1.3.5
   card:
     title: SeaweedFS
     description: Unified S3-compatible object storage encapsulation. Master + volume + filer + S3 services. Single S3 surface that every consumer (Loki, Mimir, Tempo, Velero, Harbor, CNPG WAL, OpenSearch snapshots) talks to; SeaweedFS handles tiered storage hot→warm→cold, with cold-tier offload to Cloudflare R2 / AWS S3 Glacier / Hetzner Object Storage configured per-Sovereign.

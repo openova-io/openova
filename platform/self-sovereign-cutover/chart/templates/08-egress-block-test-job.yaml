@@ -1818,7 +1818,7 @@ data:
              BackOffs FAILS the proof. This is the cross-cutting guarantee:
              the gate is generic across ALL workloads/HRs, so leaving ANY one
              on harbor.openova.io / ghcr.io/openova-io fails the proof. We
-             roll via `kubectl rollout restart` then `rollout status` with a
+             roll via a catalyst.openova.io/restartedAt patch then `rollout status` with a
              bounded timeout, and explicitly scan the new Pods for image-pull
              errors (rollout status alone would just time out on a BackOff).
             */}}
@@ -1837,7 +1837,7 @@ data:
                 [ "${ds_budget}" -gt "${roll_timeout}" ] && roll_timeout="${ds_budget}"
               fi
               echo "  rolling ${kind}/${name} -n ${ns} (forces fresh pull from local registry; budget ${roll_timeout}s)"
-              kubectl rollout restart "${kind}/${name}" -n "${ns}" >/dev/null 2>&1 || true
+              kubectl patch "${kind}/${name}" -n "${ns}" --field-manager=catalyst-self-sovereign-cutover -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"catalyst.openova.io/restartedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"catalyst.openova.io/restartedBy\":\"catalyst-self-sovereign-cutover\"}}}}}" >/dev/null 2>&1 || true
               {{- /* Bounded wait; rollout status returns non-zero on timeout. */}}
               if kubectl rollout status "${kind}/${name}" -n "${ns}" --timeout="${roll_timeout}s" >/dev/null 2>&1; then
                 echo "    PASS — ${kind}/${name} rolled out (images pulled from local registry under deny-egress)"

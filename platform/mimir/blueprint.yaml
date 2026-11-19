@@ -3,7 +3,7 @@ kind: Blueprint
 metadata:
   name: bp-mimir
 spec:
-  version: 1.0.13
+  version: 1.0.14
   visibility: unlisted
   class: platform-component
   lifecycle: experimental

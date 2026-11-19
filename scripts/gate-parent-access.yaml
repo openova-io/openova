@@ -1,0 +1,42 @@
+# The access of the gate to the parent (FND-079, docs/ledger/plan/spikes/FND-079.md): the two objects
+# that the parent execution's per-run NetworkPolicy changes. The rest of the access (namespace,
+# ServiceAccount, RoleBinding, quota, the Role in catalyst) is unchanged and stays as recorded.
+#
+#   Role gate-jobs       gains create, get and delete on networkpolicies of its own namespace:
+#                        scripts/gate-parent-job.sh creates one NetworkPolicy per run, named as the
+#                        run's Job, for the run's Pods only (label batch.kubernetes.io/job-name), with
+#                        TCP 6443 and 443 to the addresses of the install under test, /32 each, and
+#                        deletes it with the Job.
+#   NetworkPolicy gate-egress   the namespace's standing policy: default deny, DNS only. The range
+#                        5.37.79.0/24 it allowed before is gone: an install's addresses come from the
+#                        cloud's pool and are known only when it exists.
+#
+# Applied on the parent with its admin kubeconfig (both objects exist, so replace them whole):
+#   kubectl replace -f scripts/gate-parent-access.yaml
+# scripts/check-gate-parent-access.py keeps this file narrow (rules P5 and P6).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gate-jobs
+  namespace: acceptance-gate
+  labels: {openova.io/work-package: FND-079}
+rules:
+- {apiGroups: [batch], resources: [jobs], verbs: [create, get, list, watch, delete]}
+- {apiGroups: [""], resources: [pods], verbs: [create, get, list, watch, delete]}
+- {apiGroups: [""], resources: [pods/log], verbs: [get]}
+- {apiGroups: [""], resources: [secrets], verbs: [create, delete]}
+- {apiGroups: [networking.k8s.io], resources: [networkpolicies], verbs: [create, get, delete]}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gate-egress
+  namespace: acceptance-gate
+  labels: {openova.io/work-package: FND-079}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress:
+  - to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}, podSelector: {matchLabels: {k8s-app: kube-dns}}}]
+    ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]

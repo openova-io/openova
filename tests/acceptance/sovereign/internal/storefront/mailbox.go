@@ -24,7 +24,12 @@ type Mailbox struct {
 	Addr     string // host:port of the IMAP server, implicit TLS
 	User     string
 	Password string
-	// Dial opens the connection. Nil: TLS to Addr, the server name checked.
+	// ServerName is the name the server's certificate is checked against.
+	// Empty: the host of Addr. A reader that reaches the server through a
+	// port forward dials a local address and names the server here.
+	ServerName string
+	// Dial opens the connection. Nil: TLS to Addr, the certificate checked
+	// against ServerName.
 	Dial func(ctx context.Context, addr string) (net.Conn, error)
 }
 
@@ -59,7 +64,7 @@ func (m Mailbox) Code(ctx context.Context, address string) (string, error) {
 	dial := m.Dial
 	if dial == nil {
 		dial = func(ctx context.Context, addr string) (net.Conn, error) {
-			d := tls.Dialer{Config: &tls.Config{MinVersion: tls.VersionTLS12}}
+			d := tls.Dialer{Config: &tls.Config{MinVersion: tls.VersionTLS12, ServerName: m.ServerName}}
 			return d.DialContext(ctx, "tcp", addr)
 		}
 	}
