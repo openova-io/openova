@@ -13080,7 +13080,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, INF-710, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-130.md
@@ -13113,7 +13113,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, INF-710, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-135.md
@@ -13146,7 +13146,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, INF-710, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-140.md
@@ -14536,7 +14536,7 @@ packages:
   size: S
   lane: SPIKE
   depends_on: [FND-061]
-  after: [FND-070, FND-079, SOV-148, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, INF-710, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-271.md
@@ -14691,7 +14691,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, INF-710, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-280.md
@@ -14846,7 +14846,7 @@ packages:
   size: S
   lane: SPIKE
   depends_on: [SEC-211]
-  after: [FND-070, FND-079, SOV-148, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, INF-710, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-335.md
@@ -34808,7 +34808,6 @@ packages:
   depends_on: [PRD-060]
   after: []
   touches:
-  - docs/ledger/plan/spikes/PRD-061-*.md
   - docs/ledger/plan/spikes/PRD-061.md
   resources: []
   flips: []
@@ -34820,16 +34819,16 @@ packages:
   acceptance:
   - id: A1
     run: "test -s docs/ledger/plan/spikes/PRD-061.md && grep -q '^## Evidence' docs/ledger/plan/spikes/PRD-061.md"
+  - id: A2
+    run: "sha256sum docs/ledger/plan/spikes/PRD-061.md | cut -d' ' -f1 | grep -qx 733444c9b8ce2408118a654fcf4e723e5f14d14fff90532310d1f6c5978509be"
   rollback: revert
   adr: null
   due: null
-  budget:
-    files: 5
-    lines: 800
+  budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'One measurement record: recall and latency of vector search when the readable principals sit on the chunk row, for both reader shapes'
+  delivers: The repository holds the result of the lab test that measured vector search with the readable principals on the chunk row for both one-percent reader shapes on one million chunks, with the plan each reader got, the limit for broader readers, the cost of a grant change and what the store must do.
 - id: PRD-070
   title: 'Spike: chat front end forwards the user''s token'
   area: PRD
