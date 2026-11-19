@@ -1042,7 +1042,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
-    "version": "1.1.10",
+    "version": "1.1.11",
     "section": "pts-3-2-gitops-and-iac",
     "depends": [],
     "shareable": false,

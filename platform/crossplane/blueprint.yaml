@@ -5,7 +5,7 @@ metadata:
   labels:
     catalyst.openova.io/section: pts-3-2-gitops-and-iac
 spec:
-  version: 1.1.10
+  version: 1.1.11
   card:
     title: Crossplane
     summary: Control-plane day-2 infrastructure provisioning. Renders Composite Resources (XRs) into cloud + in-cluster resources the Sovereign never surfaces to Users directly.
