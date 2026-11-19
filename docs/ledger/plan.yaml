@@ -17997,7 +17997,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [NET-322, NET-327]
-  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-105, CLD-108, CLD-109, CLD-111, CLD-112, CLD-113, CLD-114, CLD-115, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-141, SOV-175, SOV-180, SOV-181, SOV-338, SEC-103, SEC-104, SEC-105, SEC-150, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-212, NET-221, SVC-030, SVC-040, SVC-041, SVC-060, SVC-150, SVC-159, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CMP-016, CMP-020, CMP-030, BSS-141, AIP-040, AIP-041, AIP-120, INF-040, INF-110, INF-112, INF-120, INF-130, INF-135, INF-140, ACC-050]
+  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-105, CLD-108, CLD-109, CLD-111, CLD-112, CLD-113, CLD-114, CLD-115, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-141, SOV-175, SOV-180, SOV-181, SOV-338, SEC-103, SEC-104, SEC-105, SEC-150, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-212, NET-221, SVC-030, SVC-040, SVC-041, SVC-060, SVC-150, SVC-159, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CMP-016, CMP-020, CMP-030, BSS-141, AIP-040, AIP-041, AIP-120, INF-040, INF-110, INF-112, INF-120, INF-130, INF-135, INF-140, INF-512, ACC-050]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/
   - products/catalyst/bootstrap/api/
@@ -31003,30 +31003,40 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [INF-120]
-  after: [INF-140]
+  after: []
   touches:
+  - products/catalyst/bootstrap/api/internal/machines/runner/config.go
+  - products/catalyst/bootstrap/api/internal/machines/runner/runner.go
   - products/catalyst/bootstrap/api/internal/machines/runner/test.go
   - products/catalyst/bootstrap/api/internal/machines/runner/test_test.go
   - products/machine-runner/Containerfile
-  - products/machine-runner/tools.lock.yaml
   - products/machine-runner/LICENSES.md
-  - products/catalyst/bootstrap/api/internal/machines/runner/config.go
-  - products/catalyst/bootstrap/api/internal/machines/runner/runner.go
   - products/machine-runner/README.md
+  - products/machine-runner/tools.lock.yaml
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -ci 'nuclei' products/machine-runner/tools.lock.yaml"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "cd products/catalyst/bootstrap/api && test \"$(go test ./internal/machines/runner/ -count=1 -v -run '^(TestNetworkPassiveRunsNucleiWithTheExactArguments|TestNetworkPassiveWithoutFindingsStoresOneEmptyRun|TestATargetOutsideTheDeclaredSetIsRefusedBeforeTheToolStarts|TestCheckTargetsRefusesEveryLineOutsideTheDeclaredSet|TestTestRefusesWebPassiveAndNodeMode|TestNucleiFailureOrABadReportStoresNothing|TestParseArgsReadsATestRun)$' | grep -c '^--- PASS: ')\" = 7"
+  - id: A2
+    run: "cd products/catalyst/bootstrap/api && test -f internal/machines/runner/test.go && test -z \"$(gofmt -l internal/machines cmd/machine-runner)\" && go vet ./internal/machines/... ./cmd/machine-runner/ && go test -count=1 ./internal/machines/... ./cmd/machine-runner/"
+  - id: A3
+    run: "printf '%s\\n' 'c941be4f15eddbdc87d5c5a723bbe2afba22835fdeac43ff56b8cd64492f245c  products/catalyst/bootstrap/api/internal/machines/runner/config.go' '1f055563b82095b8b445412f57dc4c33dda98b676644b36531f3e055d12cdf52  products/catalyst/bootstrap/api/internal/machines/runner/runner.go' '35674bb209b8e70a110b64424f5aeb044f1f1b115a017deb71882cd8d799be8f  products/catalyst/bootstrap/api/internal/machines/runner/test.go' '10e441cc52e0cba141be6e2b7034bd2582b38fbe7f6d6f634ba3e259d477e581  products/catalyst/bootstrap/api/internal/machines/runner/test_test.go' '25440f8c6c06e0d61280a7a67d1fa57c1f9a503f7f11445faef5f07b7a5b9cb3  products/machine-runner/Containerfile' 'f198a4524d50b0c866b15357d7e5f9c69d4161d06d229a6c29b8d4294d965bdf  products/machine-runner/LICENSES.md' '69446fe40be3b4603d92ac2c3516f808db083dd5964bae320fd01dbe5049627c  products/machine-runner/README.md' 'a1e37a008de8151fc21b265aef3c30b43112d642e5fad958782592b14ced10c9  products/machine-runner/tools.lock.yaml' | sha256sum --check --quiet"
+  - id: A4
+    run: "test \"$(grep -c -E '^  - name: nuclei(-templates)?$' products/machine-runner/tools.lock.yaml)\" = 2 && out=\"$(python3 scripts/check-machine-plane.py)\" && grep -q -x -F 'forbidden-tool=0' <<< \"$out\" && grep -q -x -F 'unpinned-runner-tool=0' <<< \"$out\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'Task test of the runner, in the Job shape of SSH mode with no SSH session: the flags --test-profile, --ports (comma-separated) and --requests-per-second, a target list built only from --address and --ports, and profile network-passive, Nuclei 3.11.1 with the signed templates of a tag archive in the image; findings are written as test.sarif.json (evidence kind test-sarif) and counted in the result member test.'
+  delivers: The runner gains the task test in the Job shape of SSH mode with no SSH session, with the flags --test-profile, --ports and --requests-per-second, a target list built only from --address and --ports and checked before the tool starts, and profile network-passive, which runs Nuclei 3.11.1 with the signed templates of release 10.5.2 from the image and writes its findings as test.sarif.json (evidence kind test-sarif), counted in the result member test.
 - id: INF-513
   title: 'Runner test task: the ZAP baseline scan and its SARIF report (profile web-passive)'
   area: INF
@@ -31475,7 +31485,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [INF-455]
-  after: []
+  after: [INF-512]
   touches:
   - products/machine-runner/content/playbooks/facts-windows.yml
   - products/machine-runner/content/playbooks/patch-windows.yml
