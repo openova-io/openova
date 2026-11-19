@@ -58,6 +58,7 @@ import (
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/cloudprofile"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/lifecycle"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/orgrecords"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/pdm"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
@@ -208,6 +209,8 @@ type wipeResponse struct {
 	// what survived without re-scanning the cloud account.
 	VerifiedZeroOrphans bool                `json:"verifiedZeroOrphans"`
 	ResidualOrphans     map[string][]string `json:"residualOrphans,omitempty"`
+	// The record sets of the Sovereign's Organizations: released, left, or not enumerated (orgrecords).
+	OrgRecordSets *orgrecords.Report `json:"orgRecordSets,omitempty"`
 }
 
 // providerPurgeTotal sums every per-resource-kind slice in a
@@ -485,6 +488,9 @@ func (h *Handler) runWipePurge(dep *Deployment, id string, creds map[string]stri
 		}
 	}
 	emit("wipe", "info", "Wipe initiated for "+dep.Request.SovereignFQDN+" (was: "+prevStatus+")")
+	// Step 0 — read the Organizations from the LIVE Sovereign before anything is destroyed; release their record sets (orgrecords).
+	orgSets := orgrecords.Read(h.k8sCache, id)
+	orgSets.Release(h.powerdnsZoneClient, emit)
 
 	// Cancel the per-deployment helmwatch.Watcher BEFORE we destroy the
 	// underlying apiserver. Issue #156: previously this site relied on
@@ -672,6 +678,9 @@ func (h *Handler) runWipePurge(dep *Deployment, id string, creds map[string]stri
 		}
 		dnsCancel()
 	}
+	// Step 2c — release them again, now that no organization-controller re-asserts them; this pass is reported.
+	report.OrgRecordSets = orgSets.Release(h.powerdnsZoneClient, emit)
+	report.Errors = append(report.Errors, report.OrgRecordSets.Errors()...)
 
 	// Step 3 — PDM release (pool-subdomain only). Resolve pool + subdomain
 	// from either the Deployment record (set during the reservation step)
@@ -763,7 +772,6 @@ func (h *Handler) runWipePurge(dep *Deployment, id string, creds map[string]stri
 	// created at provision time. FQDN-keyed lookups would miss when two
 	// reprovs of the same FQDN existed in sequence.
 	tofuWorkDir := filepath.Join(prov.WorkDir, id)
-	_ = deploymentSovereignName // retained for backwards-compat callers; unused on the wipe path now
 	// Refs #5193 (item 3) — RETAIN the per-deployment tofu workdir (tfvars +
 	// terraform.tfstate) unless the wipe is VERIFIED complete. Removing it
 	// unconditionally here clobbered the exact state a retried wipe
@@ -872,14 +880,6 @@ func (h *Handler) runWipePurge(dep *Deployment, id string, creds map[string]stri
 	}
 	dep.mu.Unlock()
 	h.persistDeployment(dep)
-}
-
-// deploymentSovereignName mirrors provisioner.Request.sovereignName() —
-// dot-to-dash so the workdir lookup matches what Provision/Destroy use.
-// Duplicated here (vs exported on the package) to keep that field
-// internal to the provisioner; the handler only needs this for cleanup.
-func deploymentSovereignName(fqdn string) string {
-	return strings.ReplaceAll(fqdn, ".", "-")
 }
 
 // releaseSubdomainResponse is the wire shape of DELETE
