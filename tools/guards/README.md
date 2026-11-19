@@ -20,7 +20,7 @@ tooling is written here, in Go, never as a new Python file (docs/PRINCIPLES.md I
 
 | Command | What it holds |
 |---|---|
-| `cmd/python-shrinks` | No new Python. Five totals never rise above `scripts/baselines/python.json` (code owner review). No file list and no exception list besides the documentation that is not read (below): a rename passes. What each total counts is below. |
+| `cmd/python-shrinks` | No new Python. Five totals never rise above `scripts/baselines/python.json` (code owner review). No file list, no exception list: a rename passes. What each total counts is below. |
 
 `go run ./cmd/python-shrinks --list` prints the share of every file of each total and every place it counts;
 `--write-baseline` writes the totals of the tree and refuses to raise any (a total that fell passes and says the baseline can be lowered);
@@ -30,11 +30,9 @@ tooling is written here, in Go, never as a new Python file (docs/PRINCIPLES.md I
 
 It reads the files Git lists (tracked, and new files Git does not ignore).
 
-Not read for `embedded_lines` and `invoke_lines`: documentation, the one list `notCommandFiles` in `cmd/python-shrinks/main.go`. It is every path under `docs/` (the plan and its ledger, tickets, spikes, gates, acceptance records, generated documents, decision records) and every `.md` and `.txt` file anywhere. These quote the commands of existing tools (`python3 scripts/plan.py accept ...`) and run nothing; every published plan update adds such lines. A `.py` file there still counts in `python_files` and `python_file_lines` (`docs/training/bss/*.py`), and a file of a scope still counts in `sovereign_places`. Everything that executes stays counted: workflows, shell scripts, chart templates and files, cloud-init templates, container files, Go, Rust and TypeScript.
-
 - `python_files`: every file whose path ends in `.py`, and every other file whose first line is a `#!` line that names python.
 - `python_file_lines`: the lines of those files.
-- `embedded_lines`: the lines of Python inside every other file of code or configuration: shell, YAML, JSON, templates (`.tpl` `.tftpl` `.j2`), Terraform and HCL, make and just files, Go, Rust, TypeScript, JavaScript, a chart template or file, and any file whose first line is a `#!` line; never documentation (above). Counted:
+- `embedded_lines`: the lines of Python inside every other file of code or configuration: shell, YAML, JSON, templates (`.tpl` `.tftpl` `.j2`), Terraform and HCL, make and just files, Go, Rust, TypeScript, JavaScript, a chart template or file, and any file whose first line is a `#!` line; never a `.md` or `.txt` file. Counted:
   - the body of a here-document opened on a line that runs python or writes a `.py` file;
   - the body of any other here-document whose first line is a python `#!` line, that line included (`cat > "$BIN/curl" <<'PY'` and then `#!/usr/bin/env python3`: a program saved without the `.py` suffix and run later);
   - the program of `python -c` and of a here-string (`<<<`) given to python, from quote to quote; when it is `"$NAME"`, the text or here-document assigned to `NAME`;
@@ -45,7 +43,7 @@ Not read for `embedded_lines` and `invoke_lines`: documentation, the one list `n
   A shell variable that the file itself assigns a name of python (`PYTHON=python3`, `PYTHON="${PYTHON:-python3}"`, `PY=$(command -v python3)`) is python in that file: `"$PYTHON" -c "..."`, `"$PYTHON" - <<'PY'` and `"${PY_BIN}" - <<'PY'` count as they do with `python3`, and a line that names the variable counts in `invoke_lines` and as a place.
 
   Any other string of a Go, Rust, TypeScript or JavaScript file is data (the fixture of a test). Of such a file only these lines are read for the rest: a `//go:generate` line, a line with a string that is only the name of python (`"python3"`), and a call that starts a process (`exec.Command`, `Command::new`, `spawn`, `execSync`, ...) from its name to its closing parenthesis.
-- `invoke_lines`: the lines of those same files (of Go, Rust, TypeScript and JavaScript only the lines read above) that NAME python, `python3` or `python3.N` as a word, comment lines left out. A line that runs python counts (`python3 <path>`, `exec.Command("python3", ...)`, `//go:generate python3`), and so does a line of `echo` text or of prose in a YAML string that names python. That only makes the total stricter.
+- `invoke_lines`: the lines of those same files (of Go, Rust, TypeScript and JavaScript only the lines read above) that NAME python, `python3` or `python3.N` as a word, comment lines left out. A line that runs python counts (`python3 <path>`, `exec.Command("python3", ...)`, `//go:generate python3`), and so does a line of `echo` text or of prose in a YAML string that names python. That only makes the total stricter. A line whose every name of python is a call of a `.py` file of the tree (`python3 scripts/plan.py accept AIP-150`, `python3 "./scripts/x.py"`, `python3 "$ROOT/scripts/x.py"`) does not count: that file counts in `python_files`. A call with an option before the path, `-c`, a here-string and a here-document still count, in `docs/ledger/plan.yaml` as anywhere (`plan.py accept` runs its commands in CI). A `.py` file deleted or renamed while a line still calls its old path makes that line count again; `--base` lists that file as grown.
 - `sovereign_places`: in what reaches a Sovereign or a shipped image (chart templates and files, the cloud-init templates and the Terraform under `infra/providers/`, container files): a package install that names a python package, a `pip install`, an image whose name starts with python (`FROM`, `image:`), a command that names python, and a python `#!` line.
 
 ### Known limits

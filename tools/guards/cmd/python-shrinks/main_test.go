@@ -306,17 +306,26 @@ func wantUnchanged(t *testing.T, dir, why string) {
 	}
 }
 
-// Documentation and the ledger quote the commands of existing tools and run nothing: a line that
-// names python there changes no total. On a guard that reads docs/ each case fails.
-func TestDocumentationAndTheLedgerChangeNoTotal(t *testing.T) {
-	plan := "stories:\n  - id: AIP-150\n    accept:\n      - python3 scripts/plan.py accept AIP-150\n"
+const planFile = "docs/ledger/plan.yaml"
+
+// plan is a ledger whose acceptance commands run with bash, as plan.py accept runs them.
+func plan(commands ...string) string {
+	s := "stories:\n  - id: AIP-150\n    accept:\n"
+	for _, c := range commands {
+		s += "      - run: " + c + "\n"
+	}
+	return s
+}
+
+// A line whose every name of python calls a .py file of the tree is not new Python: that file
+// counts in python_files. In the plan and in a workflow alike, such a line changes no total.
+func TestACallOfAPythonFileOfTheTreeChangesNoTotal(t *testing.T) {
+	before := plan("python3 scripts/tool.py accept AIP-150")
 	cases := []struct{ name, path, before, after string }{
-		{"a new acceptance command in the plan", "docs/ledger/plan.yaml", plan,
-			plan + "  - id: AIP-151\n    accept:\n      - python3 scripts/plan.py accept AIP-151\n      - python3 scripts/check-pins.py --base HEAD^1\n"},
-		{"a here-document run by python in a file under docs/", "docs/runbooks/drill.sh", "",
-			"set -eu\npython3 - \"$@\" <<'PY'\nimport sys\nprint(sys.argv)\nPY\n"},
-		{"python -c in a generated document under docs/", "docs/ledger/gates.json", "",
-			"{\"gate\": \"python3 -c 'import json; print(1)'\"}\n"},
+		{"a new acceptance command of the plan", planFile, before,
+			before + "      - run: python3 scripts/tool.py accept AIP-151 && python3 \"$ROOT/scripts/lib/helper.py\" --self-test\n"},
+		{"a workflow step", ".github/workflows/x.yaml", "",
+			"jobs:\n  a:\n    steps:\n      - run: python3 ./scripts/tool.py --check\n"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -326,13 +335,58 @@ func TestDocumentationAndTheLedgerChangeNoTotal(t *testing.T) {
 			}
 			commitAll(t, dir)
 			put(t, dir, c.path, c.after)
-			wantUnchanged(t, dir, "documentation changes no total")
+			wantUnchanged(t, dir, "a call of a .py file of the tree changes no total")
 		})
 	}
 }
 
-// The same line that the plan quotes, in a workflow, runs python: invoke_lines rises and fails.
-func TestTheLedgerLineInAWorkflowFails(t *testing.T) {
+// The plan's acceptance commands run in CI (plan.py accept, bash -c): new Python in them fails, and
+// so does a call of python that is not a call of a .py file of the tree.
+func TestNewPythonInThePlanFails(t *testing.T) {
+	cases := []struct {
+		name, command string
+		fails         []string
+	}{
+		{"python -c", "python3 -c 'import json; print(1)'", []string{
+			"FAIL embedded_lines is 10, 1 more than the baseline 9", "  " + planFile + " grew from 0 to 1 against HEAD",
+			"FAIL invoke_lines is 8, 1 more than the baseline 7", "  " + planFile + " grew from 0 to 1 against HEAD"}},
+		{"a here-string", "python3 <<< 'print(1)'", []string{
+			"FAIL embedded_lines is 10, 1 more than the baseline 9", "  " + planFile + " grew from 0 to 1 against HEAD",
+			"FAIL invoke_lines is 8, 1 more than the baseline 7", "  " + planFile + " grew from 0 to 1 against HEAD"}},
+		{"a here-document", "|\n          python3 - <<'PY'\n          import sys\n          print(sys.argv)\n          PY", []string{
+			"FAIL embedded_lines is 11, 2 more than the baseline 9", "  " + planFile + " grew from 0 to 2 against HEAD",
+			"FAIL invoke_lines is 8, 1 more than the baseline 7", "  " + planFile + " grew from 0 to 1 against HEAD"}},
+		{"a call of a file that is not in the tree", "python3 scripts/plan.py accept AIP-151", []string{
+			"FAIL invoke_lines is 8, 1 more than the baseline 7", "  " + planFile + " grew from 0 to 1 against HEAD"}},
+		{"an option before the file", "python3 -u scripts/tool.py", []string{
+			"FAIL invoke_lines is 8, 1 more than the baseline 7", "  " + planFile + " grew from 0 to 1 against HEAD"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := seeded(t)
+			put(t, dir, planFile, plan("go version"))
+			commitAll(t, dir)
+			put(t, dir, planFile, plan("go version", c.command))
+			code, out := guardOn(dir, "--base", "HEAD")
+			wantFails(t, code, out, c.fails...)
+		})
+	}
+}
+
+// A .py file deleted while the plan still calls it: that line counts again, and --base names the
+// plan, which the change did not touch, as the file that grew.
+func TestBaseNamesTheCallerOfADeletedPythonFile(t *testing.T) {
+	dir := seeded(t)
+	put(t, dir, planFile, plan("python3 scripts/lib/helper.py accept AIP-150"))
+	commitAll(t, dir)
+	remove(t, dir, "scripts/lib/helper.py")
+	code, out := guardOn(dir, "--base", "HEAD")
+	wantFails(t, code, out, "FAIL invoke_lines is 8, 1 more than the baseline 7", "  "+planFile+" grew from 0 to 1 against HEAD")
+}
+
+// A call of a path that is not a .py file of the tree, in a workflow, runs python: invoke_lines
+// rises and fails.
+func TestACallOfAFileNotInTheTreeFails(t *testing.T) {
 	dir := seeded(t)
 	commitAll(t, dir)
 	put(t, dir, ".github/workflows/x.yaml", "jobs:\n  a:\n    steps:\n      - run: python3 scripts/plan.py accept AIP-151\n")
@@ -743,7 +797,7 @@ func TestPythonSteps(t *testing.T) {
 		{"another YAML file is not read for steps", "platform/x/steps.yaml", step("        shell: python\n", block), 0},
 	}
 	for _, c := range cases {
-		got, _ := measureFile(c.path, "", []byte(c.text))
+		got, _ := measureFile(c.path, "", []byte(c.text), nil)
 		if got[embeddedLines] != c.want {
 			t.Errorf("%s: embedded_lines %d, want %d", c.name, got[embeddedLines], c.want)
 		}
@@ -769,7 +823,37 @@ func TestInvocations(t *testing.T) {
 		{"a longer variable that starts with the name", "PYTHON=python3\nexport PYTHONPATH=\"$PYTHONPATH:/x\"\n", 1},
 	}
 	for _, c := range cases {
-		if got := invocations(c.text, nil); got != c.want {
+		if got := invocations(c.text, nil, nil); got != c.want {
+			t.Errorf("%s: %d lines, want %d", c.name, got, c.want)
+		}
+	}
+}
+
+// A line whose every name of python calls a .py file of the tree is not counted; any other use of
+// python on the line is.
+func TestInvocationsOfAPythonFileOfTheTree(t *testing.T) {
+	py := map[string]bool{"scripts/plan.py": true, "scripts/x.py": true}
+	cases := []struct {
+		name, text string
+		want       int
+	}{
+		{"python3 <file>", "python3 scripts/plan.py accept AIP-150\n", 0},
+		{"a run step, quoted, ./", "      - run: python3 \"./scripts/plan.py\" accept\n", 0},
+		{"a root variable", "python3 \"$ROOT/scripts/x.py\" --self-test\npython3 ${REPO_ROOT}/scripts/x.py\n", 0},
+		{"escaped quotes of JSON", `"cmd": "python3 \"$ROOT/scripts/x.py\""` + "\n", 0},
+		{"two calls of files", "python3 scripts/plan.py a && python3 scripts/x.py b\n", 0},
+		{"a variable the file assigns python3", "PY=python3\n\"$PY\" scripts/x.py\n", 1},
+		{"a file and then -c", "python3 scripts/plan.py a | python3 -c 'print(1)'\n", 1},
+		{"-c", "python3 -c 'import scripts'\n", 1},
+		{"a here-document", "python3 - <<'PY'\n", 1},
+		{"a here-string", "python3 <<< 'print(1)'\n", 1},
+		{"an option before the file", "python3 -u scripts/x.py\n", 1},
+		{"a file not in the tree", "python3 scripts/y.py\npython3 scripts/x.pyc\npython3 lib/scripts/x.py\n", 3},
+		{"no space after the name", "python3;scripts/x.py\n", 1},
+		{"the name alone", "python3\n", 1},
+	}
+	for _, c := range cases {
+		if got := invocations(c.text, nil, py); got != c.want {
 			t.Errorf("%s: %d lines, want %d", c.name, got, c.want)
 		}
 	}
@@ -814,7 +898,7 @@ func TestCodeFiles(t *testing.T) {
 		{"a Rust string over lines", "src/stub.rs", "let stub = \"#!/usr/bin/env python3\nimport sys\nprint(1)\n\";\n", 3, 0},
 	}
 	for _, c := range cases {
-		got, _ := measureFile(c.path, "", []byte(c.text))
+		got, _ := measureFile(c.path, "", []byte(c.text), nil)
 		if got[embeddedLines] != c.embedded || got[invokeLines] != c.invokes {
 			t.Errorf("%s: embedded_lines %d invoke_lines %d, want %d %d", c.name, got[embeddedLines], got[invokeLines], c.embedded, c.invokes)
 		}
@@ -827,8 +911,7 @@ func TestReadsEmbedded(t *testing.T) {
 		"infra/providers/huawei/main.tf": true, "Makefile": true, "package.json": true, "core/x/main.go": true,
 		"core/x/main_test.go": true, "core/x/src/main.rs": true, "web/src/run.ts": true, "web/src/App.tsx": true, "web/lib/x.mjs": true, "web/lib/x.js": true,
 		"docs/RUNBOOKS.md": false, "notes.txt": false, "scripts/no-suffix": false, "web/logo.svg": false,
-		"docs/ledger/plan.yaml": false, "docs/ledger/gates.json": false, "docs/runbooks/drill.sh": false, "docs/training/bss/shoot.js": false,
-		"platform/app/chart/README.md": false, "core/docs/x.yaml": true, "scripts/docs/x.sh": true,
+		"docs/ledger/plan.yaml": true, "docs/ledger/gates.json": true, "docs/runbooks/drill.sh": true, "docs/training/bss/shoot.js": true,
 	}
 	for p, wantRead := range cases {
 		if got := readsEmbedded(p, "", ""); got != wantRead {
@@ -837,8 +920,5 @@ func TestReadsEmbedded(t *testing.T) {
 	}
 	if !readsEmbedded("scripts/no-suffix", "", "#!/usr/bin/env bash") {
 		t.Error("a file with a #! line is read")
-	}
-	if readsEmbedded("docs/no-suffix", "", "#!/usr/bin/env bash") || readsEmbedded("docs/x/Containerfile", scopeImage, "") {
-		t.Error("a file under docs/ is not a command file, whatever its first line or scope")
 	}
 }
