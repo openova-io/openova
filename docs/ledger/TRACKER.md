@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-18T23:45:03Z` |
+| Last refreshed | `2026-11-19T00:00:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,7 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-18T23:51 | [#8240](https://github.com/openova-io/openova/pull/8240) | #8238 | docs(ledger): result of the operator action FND-079 (FND-079 |
+| 2026-11-18T23:49 | [#8239](https://github.com/openova-io/openova/pull/8239) | #7087 | docs(ledger): plan update |
 | 2026-11-18T23:42 | [#8237](https://github.com/openova-io/openova/pull/8237) | #7087 | docs(ledger): plan update |
+| 2026-11-18T23:51 | [#8236](https://github.com/openova-io/openova/pull/8236) | #8235 | fix(gate): judge a cloud check on the newest valid pair of r |
 | 2026-11-18T23:24 | [#8234](https://github.com/openova-io/openova/pull/8234) | #7087 | docs(ledger): plan update |
 | 2026-11-18T23:42 | [#8233](https://github.com/openova-io/openova/pull/8233) | #8232 | feat(chart): bp-catalyst-platform creates the conformance ac |
 | 2026-11-18T23:18 | [#8231](https://github.com/openova-io/openova/pull/8231) | #7087 | docs(ledger): plan update |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-18T19:20 | [#8198](https://github.com/openova-io/openova/pull/8198) | #7087 | docs(ledger): plan update |
 | 2026-11-18T19:12 | [#8197](https://github.com/openova-io/openova/pull/8197) | #7087 | docs(ledger): plan update |
 | 2026-11-18T19:02 | [#8196](https://github.com/openova-io/openova/pull/8196) | #7087 | docs(ledger): plan update |
-| 2026-11-18T18:54 | [#8195](https://github.com/openova-io/openova/pull/8195) | #7938 | fix(cutover): step 04 pivots the registry of every node in e |
-| 2026-11-18T18:54 | [#8194](https://github.com/openova-io/openova/pull/8194) | #7938 | fix(cutover): step 03 never moves a tag of the local registr |
-| 2026-11-18T19:13 | [#8193](https://github.com/openova-io/openova/pull/8193) | #8192 | refactor(provisioner): the engine writes neutral variables,  |
 
 ---
 
