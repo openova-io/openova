@@ -13124,7 +13124,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, AIP-031, INF-020, INF-710, MIG-030, PRD-061]
+  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, NET-330, SVC-250, BSS-S1, AIP-030, AIP-031, INF-020, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-130.md
@@ -13157,7 +13157,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, AIP-031, INF-020, INF-710, MIG-030, PRD-061]
+  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, NET-330, SVC-250, BSS-S1, AIP-030, AIP-031, INF-020, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-135.md
@@ -13190,7 +13190,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, AIP-031, INF-020, INF-710, MIG-030, PRD-061]
+  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, NET-330, SVC-250, BSS-S1, AIP-030, AIP-031, INF-020, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-140.md
@@ -14580,7 +14580,7 @@ packages:
   size: S
   lane: SPIKE
   depends_on: [FND-061]
-  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, AIP-031, INF-020, INF-710, MIG-030, PRD-061]
+  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, NET-330, SVC-250, BSS-S1, AIP-030, AIP-031, INF-020, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-271.md
@@ -14735,7 +14735,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, AIP-031, INF-020, INF-710, MIG-030, PRD-061]
+  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, NET-330, SVC-250, BSS-S1, AIP-030, AIP-031, INF-020, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-280.md
@@ -14890,7 +14890,7 @@ packages:
   size: S
   lane: SPIKE
   depends_on: [SEC-211]
-  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, AIP-031, INF-020, INF-710, MIG-030, PRD-061]
+  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, NET-330, SVC-250, BSS-S1, AIP-030, AIP-031, INF-020, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-335.md
@@ -17858,11 +17858,11 @@ packages:
   - id: A2
     run: "cd tests/acceptance/sovereign && test -f internal/suite/check_waf.go && test -z \"$(gofmt -l internal)\" && go vet ./... && go test -count=1 ./..."
   - id: A3
-    run: "printf '%s\\n' 'f48703a1f164e499d9d5c79387c52afc8095b061355b73d86271fad391179c4c  tests/acceptance/sovereign/internal/suite/check_waf.go' 'dfe41381070f8783ff6425a3b1605924c4615a9be34724574e0ef09d3c9b40d4  tests/acceptance/sovereign/internal/suite/check_waf_test.go' '073a7e33871d3175642d9bc12c256c694b1a1f10125d00bccb16f177749f0532  tests/waf/corpus/crs-4.14.0.txt' | sha256sum --check --quiet -"
+    run: "printf '%s\\n' '20274042b9f253258491e2d4429a1180d790d7c404eaaedfc3dce9150c252432  tests/acceptance/sovereign/internal/suite/check_waf.go' 'a047d978a9ab262d7aebbe9cdf0e25e6bf68046afd63eb03e53984831c65dd81  tests/acceptance/sovereign/internal/suite/check_waf_test.go' '073a7e33871d3175642d9bc12c256c694b1a1f10125d00bccb16f177749f0532  tests/waf/corpus/crs-4.14.0.txt' | sha256sum --check --quiet -"
   - id: A4
     run: "python3 scripts/acceptance-gate.py validate --base HEAD --body-file <(printf 'Work-Package: NET-255\\n') > /dev/null && test \"$(awk '/^- id: NET-G15$/{f=1;next} /^- id: /{f=0} f' docs/ledger/gates.yaml | grep -c -x -F -e '  state: expected-fail' -e '  implementation: tests/acceptance/sovereign/internal/suite/check_waf.go' -e '  runs_in: [cloud]' -e '  destructive: false' -e '  implemented_by: NET-255' -e '  delivered_by: NET-257')\" = 6"
   - id: A5
-    run: "f=tests/acceptance/sovereign/README.md && test \"$(grep -c -F '| NET-G15 Firewall proof | `check_waf.go` | No region holds a WebApplicationFirewall object' $f)\" = 1 && test \"$(grep -c -F 'dry runs, like the one `apply` per object of NET-G15,' $f)\" = 1 && test \"$(grep -c -F 'WAF-5: a server-side dry-run update of the object with one more exclusion that expired yesterday is accepted' $f)\" = 1"
+    run: "f=tests/acceptance/sovereign/README.md && test \"$(grep -c -F '| NET-G15 Firewall proof | `check_waf.go` | No region holds a WebApplicationFirewall object' $f)\" = 1 && test \"$(grep -c -F 'dry runs, like the two `apply` runs per object of NET-G15,' $f)\" = 1 && test \"$(grep -c -F 'WAF-5: a server-side dry-run update of the object with one more exclusion that expired yesterday is accepted' $f)\" = 1"
   - id: A6
     run: "python3 scripts/check-no-new-polling.py > /dev/null && f=tests/acceptance/sovereign/internal/suite/check_waf.go && test -f $f && test \"$(grep -c -E 'time\\.(Sleep|NewTicker|Tick)\\(' $f)\" = 0 && test \"$(grep -c '^require' tests/acceptance/sovereign/go.mod)\" = 0 && c=tests/waf/corpus/crs-4.14.0.txt && test \"$(grep -c -v '^#' $c)\" = 43 && test \"$(grep -c -E '^\\{\"rule\":9(13|3[0-4]|4[1-4])[0-9]{3},\"test\":[0-9]+,\"method\":\"(GET|POST)\",\"target\":\"/' $c)\" = 43"
   rollback: revert
@@ -17870,7 +17870,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: 'The acceptance suite has gate check NET-G15, Firewall proof, as expected-fail: for each WebApplicationFirewall object it runs journey WAF of ADR-0038 point WF7 against the public hosts of its Gateway with the corpus tests/waf/corpus/, 43 requests written from the regression tests of the OWASP Core Rule Set 4.14.0, and with no object it records one failed step named no web application firewall in the path.'
 - id: NET-256
@@ -18422,16 +18422,16 @@ packages:
   acceptance:
   - id: A1
     run: "test -s docs/ledger/plan/spikes/NET-330.md && grep -q '^## Evidence' docs/ledger/plan/spikes/NET-330.md"
+  - id: A2
+    run: "sha256sum docs/ledger/plan/spikes/NET-330.md | cut -d' ' -f1 | grep -qx 76a8ac6b9fbb55e2737a0ba61070b4c8dbd877b881595d06c27126346510d1bf"
   rollback: revert
   adr: null
   due: null
-  budget:
-    files: 5
-    lines: 800
+  budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: A result record that says how a second, bridged network sits beside the pod network on the reference class, whether a machine keeps its address on it, and what policy covers it. Outcome words are fixed in the ticket when the package is revived.
+  delivers: The repository holds the result of the lab test that measured on the local pack how a bridged second network sits beside Cilium, whether a KubeVirt machine keeps its MAC and IP on it across a live migration and a restart, and which policy covers it, with the outcome words, the evidence and what later packages must do with it.
 - id: SVC-010
   title: Decision record and glossary edits
   area: SVC
@@ -28564,6 +28564,7 @@ packages:
   depends_on: [AIP-120]
   after: [FND-011]
   touches:
+  - products/agenity/chart/Chart.yaml
   - products/openova-mcp/README.md
   - products/openova-mcp/chart/Chart.yaml
   - products/openova-mcp/chart/templates/deployment.yaml
@@ -28588,17 +28589,17 @@ packages:
   - id: A2
     run: "d=products/openova-mcp/cmd/openova-mcp && ! grep -q -F 'processFallback' $d/http.go && ! grep -q -F 't.fallbackBearer' $d/http.go && grep -q -F 'func serveHTTP(addr string, reg *tools.Registry, resolver *identity.Resolver) error {' $d/http.go && grep -q -F 'if err := serveHTTP(listen, reg, resolver); err != nil {' $d/main.go && grep -q -F 'if identity.IsAgentToken(bearer) {' $d/main.go && grep -q -F 'WithAgentIssuer(os.Getenv(\"OPENOVA_MCP_AGENT_ISSUER\")).' $d/main.go && grep -q -F '\"agent\":           id.Agent,' products/openova-mcp/internal/tools/catalogue.go"
   - id: A3
-    run: "c=products/openova-mcp/chart && ! grep -q -E 'OPENOVA_MCP_BEARER|bearerSecret' $c/templates/deployment.yaml $c/values.yaml && env_is() { python3 -c 'import sys, yaml; d = yaml.safe_load(sys.stdin); env = [e for x in d[\"spec\"][\"template\"][\"spec\"][\"containers\"] for e in x.get(\"env\", [])]; got = [e.get(\"value\") for e in env if e[\"name\"] == \"OPENOVA_MCP_AGENT_ISSUER\"]; sys.exit(0 if got == sys.argv[1:] and not [e for e in env if e[\"name\"] == \"OPENOVA_MCP_BEARER\"] else 1)' \"$@\"; } && helm template t $c --set sovereignFqdn=hw307.omani.works --set auth.bearerSecret.name=x --show-only templates/deployment.yaml | env_is https://console.hw307.omani.works && helm template t $c --set auth.bearerSecret.name=x --show-only templates/deployment.yaml | env_is && bash $c/tests/render-modes.sh > /dev/null"
+    run: "c=products/openova-mcp/chart && ! grep -q -E 'OPENOVA_MCP_BEARER|bearerSecret' $c/templates/deployment.yaml $c/values.yaml && a=\"$(helm template t $c --set sovereignFqdn=hw307.omani.works --set auth.bearerSecret.name=x --show-only templates/deployment.yaml)\" && b=\"$(helm template t $c --set auth.bearerSecret.name=x --show-only templates/deployment.yaml)\" && test \"$(printf '%s\\n' \"$a\" | grep -c -x -E ' +- name: OPENOVA_MCP_AGENT_ISSUER')\" = 1 && test \"$(printf '%s\\n' \"$a\" | grep -A 1 -x -E ' +- name: OPENOVA_MCP_AGENT_ISSUER' | grep -c -x -E ' +value: \"https://console\\.hw307\\.omani\\.works\"')\" = 1 && test \"$(printf '%s\\n' \"$b\" | grep -c -F 'OPENOVA_MCP_AGENT_ISSUER')\" = 0 && test \"$(printf '%s\\n%s\\n' \"$a\" \"$b\" | grep -c -F 'OPENOVA_MCP_BEARER')\" = 0 && bash $c/tests/render-modes.sh > /dev/null"
   - id: A4
-    run: "test \"$(grep -c -x -F 'appVersion: \"0.2.8\"' products/openova-mcp/chart/Chart.yaml)\" = 1 && bash scripts/check-appversion-bumped-with-source.sh origin/main HEAD > /dev/null && python3 scripts/check-agent-plane.py > /dev/null"
+    run: "test \"$(grep -c -x -F 'appVersion: \"0.2.8\"' products/openova-mcp/chart/Chart.yaml)\" = 1 && test \"$(grep -c -x -F 'appVersion: \"0.9.8\"' products/agenity/chart/Chart.yaml)\" = 1 && bash scripts/check-appversion-bumped-with-source.sh origin/main HEAD > /dev/null && python3 scripts/check-agent-plane.py > /dev/null"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
-  delivers: The tool server accepts a token of typ agent (any letter case) only when it was verified RS256 by a key of the set whose RFC 7638 thumbprint is the header kid, aud contains platform-tools, iss equals OPENOVA_MCP_AGENT_ISSUER when that is set, and exp, org_id, an agent name and a tier on the ladder are present; the tier is the tier claim capped at developer, the hs256 and insecure resolvers refuse agent tokens, an agent token never takes the /whoami fallback and whoami echoes the agent; the HTTP transport reads the Authorization header alone, the chart has no OPENOVA_MCP_BEARER and no auth.bearerSecret, it sets OPENOVA_MCP_AGENT_ISSUER to https://console.<sovereignFqdn> when sovereignFqdn is set, and appVersion moves from 0.2.7 to 0.2.8 (stdio keeps its environment bearer until AIP-156).
+  delivers: The tool server accepts a token of typ agent (any letter case) only when it was verified RS256 by a key of the set whose RFC 7638 thumbprint is the header kid, aud contains platform-tools, iss equals OPENOVA_MCP_AGENT_ISSUER when that is set, and exp, org_id, an agent name and a tier on the ladder are present; the tier is the tier claim capped at developer, the hs256 and insecure resolvers refuse agent tokens, an agent token never takes the /whoami fallback and whoami echoes the agent; the HTTP transport reads the Authorization header alone, the chart has no OPENOVA_MCP_BEARER and no auth.bearerSecret, it sets OPENOVA_MCP_AGENT_ISSUER to https://console.<sovereignFqdn> when sovereignFqdn is set, and appVersion moves from 0.2.7 to 0.2.8, and that of the agent workspace image, which embeds the tool server, from 0.9.7 to 0.9.8 (stdio keeps its environment bearer until AIP-156).
 - id: AIP-151
   title: Tool answers are fitted and made inert
   area: AIP
@@ -29165,23 +29166,31 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [AIP-120, AIP-222]
-  after: [SVC-040]
+  after: []
   touches:
   - products/ops-records/internal/judge/**
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e products/ops-records/internal/judge; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "cd products/ops-records && go vet ./... && go test -count=1 -race ./internal/judge/"
+  - id: A2
+    run: "cd products/ops-records && go test -count=1 -race -v -run '^(TestFakeAgent|TestLaneLimit|TestCancelledTurnFreesItsSlot|TestTokenRequestCarriesServiceAccountToken|TestValidateCorrelation|TestRevise)$' ./internal/judge/ | grep -c -E -- '--- PASS: (TestFakeAgent/(valid|invalid|late_and_valid|never)|TestLaneLimit|TestCancelledTurnFreesItsSlot|TestTokenRequestCarriesServiceAccountToken|TestValidateCorrelation|TestRevise) ' | grep -qx 9"
+  - id: A3
+    run: "test -f products/ops-records/internal/judge/dispatcher.go && python3 scripts/check-no-new-polling.py"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Bounded-judge contract of section 4.10.4 in code
+  delivers: The package products/ops-records/internal/judge asks an agent one bounded question over A2A with an agent token, writes the rule result when the agent is invalid, unavailable or late, applies a valid correlator answer before the deadline and revises the records with a valid late one, and records every outcome in ops.judgements.
 - id: AIP-224
   title: Guard library agentguard and its adversarial corpus
   area: AIP

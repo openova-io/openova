@@ -75,8 +75,8 @@ run "hetzner_render_is_valid" {
   # reboot of unattended-upgrades at 02:30 node time and rebooted a region's only
   # control plane mid-cutover. kured's node-patch-config owns that configuration.
   assert {
-    condition     = !strcontains(output.rendered_cloud_init, "Automatic-Reboot") && !strcontains(output.rendered_cloud_init, "/etc/apt/apt.conf.d/")
-    error_message = "#7922 (hetzner branch): the control-plane cloud-init must write no unattended-upgrade configuration (no apt.conf.d file, no Automatic-Reboot); bp-kured's node-patch-config owns it."
+    condition     = !strcontains(output.rendered_cloud_init, "Automatic-Reboot") && !strcontains(output.rendered_cloud_init, "/etc/apt/apt.conf.d/") && !strcontains(output.rendered_cloud_init, "enable --now unattended-upgrades") && strcontains(output.rendered_cloud_init, "\n  - unattended-upgrades\n")
+    error_message = "#7922 (hetzner branch): the control-plane cloud-init must write no unattended-upgrade configuration (no apt.conf.d file, no Automatic-Reboot) and must not enable the service itself; bp-kured's node-patch-config owns the configuration. The package unattended-upgrades must still be installed."
   }
 
   # SEC-020 — the k3s server starts with the server token and hands workers a
@@ -399,8 +399,8 @@ run "huawei_render_is_valid" {
   # reboot of unattended-upgrades at 02:30 node time and rebooted a region's only
   # control plane mid-cutover. kured's node-patch-config owns that configuration.
   assert {
-    condition     = !strcontains(output.rendered_cloud_init, "Automatic-Reboot") && !strcontains(output.rendered_cloud_init, "/etc/apt/apt.conf.d/")
-    error_message = "#7922 (huawei branch): the control-plane cloud-init must write no unattended-upgrade configuration (no apt.conf.d file, no Automatic-Reboot); bp-kured's node-patch-config owns it."
+    condition     = !strcontains(output.rendered_cloud_init, "Automatic-Reboot") && !strcontains(output.rendered_cloud_init, "/etc/apt/apt.conf.d/") && !strcontains(output.rendered_cloud_init, "enable --now unattended-upgrades") && strcontains(output.rendered_cloud_init, "\n  - unattended-upgrades\n")
+    error_message = "#7922 (huawei branch): the control-plane cloud-init must write no unattended-upgrade configuration (no apt.conf.d file, no Automatic-Reboot) and must not enable the service itself; bp-kured's node-patch-config owns the configuration. The package unattended-upgrades must still be installed."
   }
 }
 
