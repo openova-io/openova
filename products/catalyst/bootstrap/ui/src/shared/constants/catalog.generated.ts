@@ -3481,7 +3481,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "reseller"
     ],
     "visibility": "listed",
-    "version": "1.4.165",
+    "version": "1.4.166",
     "section": "pts-4-6-llm-serving",
     "depends": [],
     "shareable": false,
