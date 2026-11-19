@@ -13043,7 +13043,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-750, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, AIP-030, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-130.md
@@ -13076,7 +13076,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-750, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, AIP-030, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-135.md
@@ -13109,7 +13109,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-750, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, AIP-030, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-140.md
@@ -14499,7 +14499,7 @@ packages:
   size: S
   lane: SPIKE
   depends_on: [FND-061]
-  after: [FND-070, FND-079, SOV-148, SOV-750, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, AIP-030, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-271.md
@@ -14654,7 +14654,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-750, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, AIP-030, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-280.md
@@ -14809,7 +14809,7 @@ packages:
   size: S
   lane: SPIKE
   depends_on: [SEC-211]
-  after: [FND-070, FND-079, SOV-148, SOV-750, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, AIP-030, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-335.md
@@ -27082,16 +27082,20 @@ packages:
   acceptance:
   - id: A1
     run: "test -s docs/ledger/plan/spikes/AIP-030.md && grep -q '^## Evidence' docs/ledger/plan/spikes/AIP-030.md"
+  - id: A2
+    run: "sha256sum docs/ledger/plan/spikes/AIP-030.md | cut -d' ' -f1 | grep -qx 44a070dd2e5239006efa2dd18e240a6b6bd6f04689363562ddf005abb834188e"
+  - id: A3
+    run: "sha256sum docs/ledger/plan/spikes/AIP-030.yaml | cut -d' ' -f1 | grep -qx 56415de449cd39658f9e1fc9292b0a8a2e882d5ccd0ca79946a85c6f9abb9e4d"
+  - id: A4
+    run: "python3 -I -c \"import yaml,sys; d=yaml.safe_load(open('docs/ledger/plan/spikes/AIP-030.yaml')); k=['kagentChart','kagentVersion','substrateVersion','nodePreparation','policyExceptions','harnessYAML','workerPoolYAML','snapshotLocation','placement','databaseCredentialRoute','a2aURLTemplate']; sys.exit(0 if d['id']=='AIP-030' and d['verdict']=='fail' and all(d.get(x) for x in k) else 1)\""
   rollback: revert
   adr: null
   due: null
-  budget:
-    files: 5
-    lines: 800
+  budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Spike record with versions, node preparation, placement and A2A address template
+  delivers: The repository holds the result of the lab test of kagent 1.x with its sandbox substrate on k3s, Cilium and vcluster, with the versions, the node preparation, the policy exceptions, the placement and the A2A address template as a machine-readable record.
 - id: AIP-031
   title: 'Spike: one sandbox substrate shared by Organizations, with grants scoped to each Organization'
   area: AIP
