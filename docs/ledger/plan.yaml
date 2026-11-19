@@ -299,7 +299,7 @@ epics:
 - id: CMP-080
   title: 'Epic: decisions (waivers and remediation requests)'
   wave: W2
-  packages: [CMP-081, CMP-082, CMP-083, CMP-085]
+  packages: [CMP-081, CMP-083, CMP-082, CMP-085]
 - id: CMP-090
   title: 'Epic: scanner reports'
   wave: W2
@@ -2885,7 +2885,7 @@ packages:
   size: M
   lane: GATE
   depends_on: [FND-073, FND-079]
-  after: [NET-013, FND-028, FND-036, FND-059, FND-075, CLD-094, CLD-211, SEC-095]
+  after: [NET-013]
   touches:
   - .github/workflows/foundation-gate.yaml
   - .github/workflows/foundation-gate-standing.yaml
@@ -2896,16 +2896,32 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e scripts/gate-parent-job.sh; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "python3 scripts/check-gate-parent-access.py --self-test"
+  - id: A2
+    run: "python3 scripts/check-gate-parent-access.py"
+  - id: A3
+    run: "bash scripts/gate-parent-job.sh --self-test"
+  - id: A4
+    run: "python3 -c 'import glob, sys, yaml; bad = [f + \": names inputs.runner\" for f in sorted(glob.glob(\".github/workflows/*.y*ml\")) if \"inputs.runner\" in open(f).read()]; fs = (\".github/workflows/foundation-gate.yaml\", \".github/workflows/foundation-gate-standing.yaml\"); ds = {f: yaml.safe_load(open(f)) for f in fs}; ons = {f: d.get(True, d.get(\"on\")) for f, d in ds.items()}; bad += [f + \" \" + ev + \": the input runner\" for f in fs for ev in (\"workflow_dispatch\", \"workflow_call\") if \"runner\" in ((ons[f].get(ev) or {}).get(\"inputs\") or {})]; bad += [f + \" \" + ev + \": the input execution has no default hosted\" for f in fs for ev in (\"workflow_dispatch\", \"workflow_call\") if ev in ons[f] and (((ons[f][ev] or {}).get(\"inputs\") or {}).get(\"execution\") or {}).get(\"default\") != \"hosted\"]; bad += [f + \" job \" + n + \": runs on \" + str(j.get(\"runs-on\")) for f in fs for n, j in ds[f][\"jobs\"].items() if \"uses\" not in j and j.get(\"runs-on\") != \"ubuntu-latest\"]; bad += [f + \" job \" + n + \": does not pass execution\" for f in fs for n, j in ds[f][\"jobs\"].items() if \"uses\" in j and (j.get(\"with\") or {}).get(\"execution\") != \"${{ inputs.execution }}\"]; print(\"\\n\".join(bad)); sys.exit(1 if bad else 0)'"
+  - id: A5
+    run: "python3 -c 'import sys, yaml; runs = [s.get(\"run\", \"\") for j in yaml.safe_load(open(\".github/workflows/tree-guards.yaml\"))[\"jobs\"].values() for s in j[\"steps\"]]; sys.exit(0 if \"python3 scripts/check-gate-parent-access.py --self-test\" in runs and \"python3 scripts/check-gate-parent-access.py\" in runs else 1)'"
+  - id: A6
+    run: "d=\"$(mktemp -d)\"; mkdir -p \"$d/.github\"; cp -r .github/workflows \"$d/.github/\"; python3 -c 'import sys; p = sys.argv[1] + \"/.github/workflows/foundation-gate.yaml\"; s = open(p).read(); i = s.index(\"\\n  addresses:\\n\"); e = \"    environment: gate\\n\"; j = s.index(e, i); open(p, \"w\").write(s[:j] + s[j + len(e):])' \"$d\"; rc=0; python3 scripts/check-gate-parent-access.py --root \"$d\" > \"$d/out\" || rc=$?; test \"$rc\" = 1 && grep -q \"FAIL P3 .github/workflows/foundation-gate.yaml: job addresses uses the access without environment gate\" \"$d/out\""
+  - id: A7
+    run: "python3 -c 'import sys, yaml; want = {(\".github/workflows/foundation-gate.yaml\", \"addresses\"): \"addresses\", (\".github/workflows/foundation-gate.yaml\", \"live\"): \"live\", (\".github/workflows/foundation-gate-standing.yaml\", \"regions\"): \"regions\"}; bad = []; [bad.append(\"%s %s: %s\" % (f, n, why)) for (f, n), mode in sorted(want.items()) for steps in [yaml.safe_load(open(f))[\"jobs\"][n][\"steps\"]] for runs in [[(str(s.get(\"if\", \"\")), s.get(\"run\", \"\")) for s in steps]] for why, ok in ((\"no step runs the Job of mode \" + mode, any(\"gate-parent-job.sh\\\" run --mode \" + mode in r or \"gate-parent-job.sh run --mode \" + mode in r for _, r in runs)), (\"no step that always runs deletes the Job\", any(\"always()\" in c and \"gate-parent-job.sh cleanup\" in r for c, r in runs))) if not ok]; print(\"\\n\".join(bad)); sys.exit(1 if bad else 0)'"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'The cluster work of the gate runs as a short-lived Job on the parent, created through the access of FND-079; a Sovereign''s API port is reachable from there because the parent''s outbound address is in the list NET-011 and NET-012 write. The workflows themselves run on machines hosted by GitHub, with no self-hosted runner and no organisation setting. An input execution (hosted or parent) of foundation-gate.yaml and foundation-gate-standing.yaml selects where the cluster work runs; left empty it means parent when the secret ACCEPTANCE_PARENT_KUBECONFIG of the environment gate is set and hosted otherwise, so the default is hosted until FND-079 is recorded. In parent execution everything that dials a Sovereign''s API port runs in the Job: the addresses read, the wait for the hand-over chain, the creation time, the suite, every step of the sign-in check FND-G07 with its browser probe (so no session or token minted from the Sovereign''s signer leaves the Job), and the regions work of foundation-gate-standing.yaml. scripts/gate-parent-job.sh takes the suite image of the commit under test by digest (it builds it with tests/acceptance/sovereign/Containerfile as build-conformance.yaml does and pushes it, or takes the digest of an image of that commit that already exists), writes the region kubeconfigs into a Secret of the run, creates the Job with the run''s inputs, streams its log, fetches the record the suite wrote and the result of FND-G07, and deletes the Job and the Secret whatever happened; the workflow then merges the results and commits the record as it does today. CLD-G12 keeps running on the hosted machine with the same access, as it does today. The job outside stays on a hosted machine, because NET-G02 judges a dial from an address that is in no list. The input runner leaves both workflows and the calls of gate-1 and gate-2, and every job runs on ubuntu-latest. The new guard scripts/check-gate-parent-access.py runs as two steps of the shared job tree-guards and fails when: (P1) a workflow not on its list, which holds foundation-gate.yaml and foundation-gate-standing.yaml, names the secret ACCEPTANCE_PARENT_KUBECONFIG, runs scripts/gate-parent-job.sh, has a job with environment gate, or calls a workflow of the list; (P2) a workflow of the list has a trigger other than workflow_dispatch, workflow_call, pull_request, merge_group and schedule (pull_request_target and workflow_run would run the file of main with its secrets for a change of another ref); (P3) a job that names the secret or runs the Job script has no environment gate, has a permission other than contents read and packages write, or has an if that is not false on pull_request and on merge_group, read as rule N2 of scripts/check-pr-jobs.py reads an if; (P4) the job outside of foundation-gate.yaml has an environment or names a secret. The list is one constant; FND-141 adds release-train.yaml to it.'
+  delivers: An input execution of foundation-gate.yaml and foundation-gate-standing.yaml (hosted, the default, or parent) selects where the work that dials a Sovereign's API port runs; in parent execution scripts/gate-parent-job.sh builds or finds the suite image of the commit under test, a Job image on it and a probe image, all by digest, writes the region kubeconfigs into a Secret of the run, creates a short-lived Job on the parent through the access of FND-079 that reads the addresses, waits for the hand-over chain, reads the creation time, runs the suite and every step of FND-G07 with its browser probe, or runs the regions work of the standing workflow, retries every call to the parent within a bound, takes the record and the result of FND-G07 back from the Job's log, and deletes the Job and its Secrets whatever happened; the input runner is gone and every job runs on ubuntu-latest; the outside dial of NET-G02 and CLD-G12 stay on the hosted machine; the guard scripts/check-gate-parent-access.py, two steps of tree-guards, fails when a workflow other than the two names the access's secret, runs the Job script, has a job with environment gate or calls one of them, when one of them has another trigger, when a job that uses the access lacks environment gate, holds another permission than contents read and packages write or may run on pull_request or merge_group, and when the job outside has an environment or a secret.
 - id: FND-079
   title: The gate has a scoped access to the parent
   area: FND
@@ -4373,7 +4389,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [FND-036, FND-120]
-  after: [FND-035, CLD-094, NET-013, SVC-040]
+  after: [FND-035, FND-078, CLD-094, NET-013, SVC-040]
   touches:
   - docs/ledger/uat-row-map.csv
   - products/catalyst/bootstrap/ui/e2e/gate/**
@@ -27875,7 +27891,7 @@ packages:
   size: XS
   lane: GATE
   depends_on: [AIP-130, AIP-140, AIP-160, FND-035]
-  after: [FND-036, FND-075, CLD-094, NET-013]
+  after: [FND-036, FND-075, FND-078, CLD-094, NET-013]
   touches:
   - .github/workflows/foundation-gate.yaml
   resources: []
