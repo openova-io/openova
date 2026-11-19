@@ -29436,25 +29436,36 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [AIP-223, AIP-224]
-  after: [AIP-229, SVC-040]
+  after: [AIP-229]
   touches:
-  - products/ops-records/internal/mcp/**
-  - products/ops-records/internal/api/**
   - products/ops-records/cmd/**
+  - products/ops-records/internal/api/**
+  - products/ops-records/internal/mcp/**
+  - products/ops-records/README.md
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e products/ops-records/internal/mcp; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "cd products/ops-records && go vet ./... && go test -count=1 -race ./cmd/... ./internal/api/... ./internal/mcp/..."
+  - id: A2
+    run: "cd products/ops-records && go test -count=1 -race -v -run '^(TestEveryRouteFiltersByOrganization|TestAgentTokenIsRefused|TestActions|TestStreamSendsOnlyTheCallersChanges|TestEveryToolFiltersByTheTokensOrganization|TestToolAnswersPassThroughAgentguard|TestALongListIsFitted|TestVerify)$' ./internal/api/ ./internal/mcp/ | grep -c -E '^--- PASS: (TestEveryRouteFiltersByOrganization|TestAgentTokenIsRefused|TestActions|TestStreamSendsOnlyTheCallersChanges|TestEveryToolFiltersByTheTokensOrganization|TestToolAnswersPassThroughAgentguard|TestALongListIsFitted|TestVerify) ' | grep -qx 8"
+  - id: A3
+    run: "cd products/ops-records && go test -count=1 -race -v -run '^(TestServe|TestServeConfigurationIsRequired|TestDeciderByRulesAlone|TestDeciderWithTheCorrelator|TestNextBatch|TestDeciderWaits)$' ./cmd/ops-records/ | grep -c -E '^--- PASS: (TestServe|TestServeConfigurationIsRequired|TestDeciderByRulesAlone|TestDeciderWithTheCorrelator|TestNextBatch|TestDeciderWaits) ' | grep -qx 6"
+  - id: A4
+    run: "test -f products/ops-records/cmd/ops-records/decide.go && python3 scripts/check-no-new-polling.py"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Incident tools and the routes of section 4.10.5, filtered by Organization
+  delivers: The service products/ops-records answers the incident tools at POST /mcp for agent tokens and the console routes /api/v1/ops on an address of its own, each confined to the caller's Organization, passes every tool answer through agentguard, refuses agent tokens on the console routes, and decides pending signals through the correlator judge or by the rules alone.
 - id: AIP-226
   title: 'bp-ops-records: chart, Blueprint file, slot 83, caller entry and check'
   area: AIP
