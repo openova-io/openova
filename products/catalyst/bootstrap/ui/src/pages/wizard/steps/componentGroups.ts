@@ -291,7 +291,6 @@ export const GROUPS: GroupDef[] = [
       { id: 'mimir',         name: 'Mimir',         desc: 'Horizontally-scaled metrics store with PromQL compatibility',  tier: 'recommended', dependencies: ['seaweedfs'], logoUrl: basePath('component-logos/mimir.png') },
       { id: 'tempo',         name: 'Tempo',         desc: 'Object-storage tracing backend with TraceQL analytics',        tier: 'recommended', dependencies: ['seaweedfs'] },
       { id: 'litmus',        name: 'Litmus',        desc: 'Cron-driven chaos experiments across pod, node, network failure', tier: 'optional', dependencies: [] },
-      { id: 'openmeter',     name: 'OpenMeter',     desc: 'High-throughput event metering for billing and analytics',     tier: 'optional',    dependencies: ['cnpg'], logoUrl: basePath('component-logos/openmeter.png') },
       // UAT row W5 / #3969 / #5575 / #6183 — `specter` was removed from
       // this family. It resolved to NO Blueprint source of any kind: no
       // platform/specter, no products/specter, no bp-specter blueprint.yaml,
@@ -472,7 +471,7 @@ export const PRODUCTS: Product[] = [
     subtitle: 'AIOps & Observability',
     description: 'Unified metrics, logs, traces, dashboards, and AI-powered operations',
     tier: 'recommended',
-    components: ['grafana', 'opentelemetry', 'alloy', 'loki', 'mimir', 'tempo', 'litmus', 'openmeter'],
+    components: ['grafana', 'opentelemetry', 'alloy', 'loki', 'mimir', 'tempo', 'litmus'],
     cascadeOnMemberSelection: false,
     // INSIGHTS as a family does not pull CORTEX. It used to reach CORTEX
     // through exactly one member — Specter, via its `familyRequires:
@@ -689,7 +688,7 @@ const _promotionResult = applyTransitiveMandatoryPromotion(RAW_COMPONENTS)
  * Component ids whose tier was lifted from recommended/optional to
  * mandatory by the transitive-closure walk. Stable across loads — the
  * graph is static. Currently: ['cnpg', 'valkey'] (Harbor needs both;
- * Gitea / PowerDNS / Keycloak / Temporal / OpenMeter / FerretDB /
+ * Gitea / PowerDNS / Keycloak / Temporal / FerretDB /
  * Superset / Matrix / LangFuse / LibreChat all share cnpg).
  *
  * Exposed for tests + telemetry; UI code reads `ALL_COMPONENTS` directly.

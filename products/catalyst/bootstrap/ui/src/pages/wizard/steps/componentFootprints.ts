@@ -122,7 +122,6 @@ export const COMPONENT_FOOTPRINTS: Record<string, ComponentFootprint> = {
   tempo:          { ramMb: 768,  cpuMilli: 300 },
   opensearch:     { ramMb: 2048, cpuMilli: 500 },
   litmus:         { ramMb: 256,  cpuMilli: 100 },
-  openmeter:      { ramMb: 512,  cpuMilli: 200 },
   // specter removed with its catalog card — UAT row W5 / #6183. It never
   // had a chart to derive a floor from, so the 512 MiB / 200m here was an
   // estimate of nothing; it inflated the sizing recommendation for a

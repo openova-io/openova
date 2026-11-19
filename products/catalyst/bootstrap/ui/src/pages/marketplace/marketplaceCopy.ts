@@ -137,8 +137,7 @@ export const FAMILY_COPY: Record<string, FamilyCopy> = {
       // no bp-specter, and the card was removed under UAT row W5 / #6183.
       // Restore the paragraph with the card at #6318.
       'OpenSearch adds full-text and vector-hybrid retrieval over the same ' +
-        'signals; Litmus exercises the stack with scheduled chaos experiments ' +
-        'and OpenMeter turns usage into billable events.',
+        'signals; Litmus exercises the stack with scheduled chaos experiments.',
     ],
     capabilities: [
       'Unified metrics, logs, and traces over OpenTelemetry',
@@ -148,7 +147,7 @@ export const FAMILY_COPY: Record<string, FamilyCopy> = {
       // Specter card (UAT row W5 / #6183) — no remaining INSIGHTS member
       // delivers it, so the bullet promised a capability the family cannot
       // install.
-      'Chaos engineering via Litmus and usage metering via OpenMeter',
+      'Chaos engineering via Litmus',
     ],
     chip: { bg: 'rgba(56,189,248,0.16)', fg: '#38BDF8', border: 'rgba(56,189,248,0.35)' },
   },
@@ -815,21 +814,6 @@ export const COMPONENT_COPY: Record<string, ComponentCopy> = {
     upstreamUrl: 'https://litmuschaos.io',
     upstreamLabel: 'litmuschaos.io',
   },
-  openmeter: {
-    positioning:
-      'OpenMeter is the usage metering engine for cloud-native and AI workloads. It records events, ' +
-      'aggregates them on configurable windows, and exposes the totals to billing and analytics.',
-    integration:
-      'OpenMeter backs onto CloudNative PG and ClickHouse. Events arrive through the OpenMeter ' +
-      'SDKs or by Kafka topic subscription.',
-    highlights: [
-      'High-throughput event ingestion',
-      'Configurable aggregation windows',
-      'Native Kafka and HTTP ingestion paths',
-    ],
-    upstreamUrl: 'https://openmeter.io',
-    upstreamLabel: 'openmeter.io',
-  },
   // `specter` removed with its catalog card — UAT row W5 / #6183. This map
   // keys the /marketplace/product/<id> detail page, which carries a
   // Select CTA wired straight into the wizard store — so a copy entry here
@@ -844,7 +828,7 @@ export const COMPONENT_COPY: Record<string, ComponentCopy> = {
       'asynchronous replicas, point-in-time recovery, and connection pooling out of the box.',
     integration:
       'Catalyst components that need a relational database (Gitea, Harbor, Keycloak, LangFuse, ' +
-      'OpenMeter, Temporal, Superset, FerretDB, Matrix, LibreChat) read and write through ' +
+      'Temporal, Superset, FerretDB, Matrix, LibreChat) read and write through ' +
       'CloudNative PG-managed clusters.',
     highlights: [
       'Operated PostgreSQL with synchronous and async replicas',
@@ -934,7 +918,7 @@ export const COMPONENT_COPY: Record<string, ComponentCopy> = {
       'ClickHouse is the columnar analytics database. It serves OLAP queries over billions of ' +
       'rows with sub-second latency.',
     integration:
-      'ClickHouse hosts the analytical layer for OpenMeter, security events, and operator-defined ' +
+      'ClickHouse hosts the analytical layer for security events and operator-defined ' +
       'data marts. Backups land on SeaweedFS.',
     highlights: [
       'Columnar storage with vectorised execution',

@@ -209,3 +209,4 @@ platform/stalwart
 platform/strimzi
 products/fabric
 products/relay
+platform/openmeter
