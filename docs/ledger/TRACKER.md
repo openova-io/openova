@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T03:15:03Z` |
+| Last refreshed | `2026-11-19T03:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-19T03:28 | [#8261](https://github.com/openova-io/openova/pull/8261) | #8247 | fix(gate): the parent Job's wait names why the scheduler has |
+| 2026-11-19T03:22 | [#8258](https://github.com/openova-io/openova/pull/8258) | #8254 | feat(machine-runner): the task test with its target check an |
 | 2026-11-19T02:28 | [#8255](https://github.com/openova-io/openova/pull/8255) | #7087 | docs(ledger): plan update |
 | 2026-11-19T02:23 | [#8253](https://github.com/openova-io/openova/pull/8253) | #7087 | docs(ledger): plan update |
 | 2026-11-19T01:43 | [#8250](https://github.com/openova-io/openova/pull/8250) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-18T22:08 | [#8216](https://github.com/openova-io/openova/pull/8216) | #7087 | docs(ledger): plan update |
 | 2026-11-18T22:59 | [#8215](https://github.com/openova-io/openova/pull/8215) | #8213 | fix(axon): one owner of the credential, one refresh timer, c |
 | 2026-11-18T21:57 | [#8214](https://github.com/openova-io/openova/pull/8214) | #7087 | docs(ledger): plan update |
-| 2026-11-18T21:34 | [#8211](https://github.com/openova-io/openova/pull/8211) | #7087 | docs(ledger): plan update |
-| 2026-11-18T21:20 | [#8210](https://github.com/openova-io/openova/pull/8210) | #8209 | fix(axon): bound active and parked runs, queue with 429, ste |
 
 ---
 
