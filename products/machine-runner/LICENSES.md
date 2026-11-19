@@ -18,6 +18,10 @@ the exact version, the release address and the SHA-256 that the build checks.
 | scap-security-guide | 0.1.82 | BSD-3-Clause | data (the data streams under `/content/scap/0.1.82`) |
 | nuclei | 3.11.1 | MIT | separate process (`nuclei`) |
 | nuclei-templates | 10.5.2 | MIT | data (the signed templates under `/content/nuclei-templates`) |
+| zap | 2.17.0 | Apache-2.0 | separate process (ZAP under `/zap`, started by the baseline script) |
+| zap-baseline | 2.17.0 | Apache-2.0 | separate process (`/zap/zap-baseline.py`) |
+| zap-common | 2.17.0 | Apache-2.0 | separate process (`/zap/zap_common.py`, the library of the baseline script) |
+| zaproxy | 0.6.0 | Apache-2.0 | separate process (the Python module `zapv2`, imported only by the baseline script) |
 
 Where the licence texts are in the image:
 
@@ -28,12 +32,17 @@ Where the licence texts are in the image:
 - scap-security-guide: `/usr/share/doc/scap-security-guide/LICENSE`.
 - nuclei: `/usr/share/doc/nuclei/LICENSE.md`.
 - nuclei-templates: `/content/nuclei-templates/LICENSE.md`.
+- zap, zap-baseline, zap-common and zaproxy: `/zap/license/ApacheLicense-2.0.txt`; the libraries
+  that ZAP bundles keep their licence texts in the same folder `/zap/license/`.
 - this file: `/usr/share/doc/machine-runner/LICENSES.md`.
 
 Where the source is: the wheels of ansible-core and ansible-runner are their source. The
-source of trivy, scap-security-guide, nuclei and nuclei-templates is the release named by the
-address in `tools.lock.yaml`. The source of the OpenSCAP packages is the Debian source package
+source of trivy, scap-security-guide, nuclei, nuclei-templates and zap is the release named by
+the address in `tools.lock.yaml`; the baseline script, its library and the zaproxy wheel are
+their source. The source of the OpenSCAP packages is the Debian source package
 `openscap` 1.4.2+dfsg-1, in the same snapshot of the Debian archive as the packages.
 
 The Debian base image and the Debian packages that the tools depend on keep their own
-licence files under `/usr/share/doc/<package>/copyright`.
+licence files under `/usr/share/doc/<package>/copyright`. Among them is the Java runtime of
+ZAP, `openjdk-21-jre-headless` (GPL-2.0 with the Classpath exception), installed from the
+archive of the base image like Python 3, with no entry of its own in the lock.

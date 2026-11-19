@@ -18,9 +18,11 @@ in its decision record,
 - The tools of `tools.lock.yaml`, each at an exact version whose SHA-256 the build checks:
   ansible-core, ansible-runner, Trivy, the OpenSCAP scanner with `oscap-chroot`, the
   ComplianceAsCode data streams of the Ubuntu and RHEL families under
-  `/content/scap/<release>/`, and Nuclei with the signed templates of one template release
+  `/content/scap/<release>/`, Nuclei with the signed templates of one template release
   under `/content/nuclei-templates/` (only the folders of the protocols tcp, ssl, dns and
-  http).
+  http), and ZAP with its baseline script under `/zap` (only the ten add-ons of the passive
+  baseline scan: no active-scan rule, fuzzer, brute-force or out-of-band add-on),
+  with the Java runtime from the Debian archive of the base image.
 - `LICENSES.md`: the licence of each tool and how it is used.
 
 The default user is `65534`. A node-mode Job runs as root with a read-only root file system and
@@ -56,7 +58,7 @@ multicast, broadcast, unspecified) and a port outside 1 to 65535 or given twice 
 | Profile | Tool | File stored |
 |---|---|---|
 | `network-passive` | `nuclei -duc -t /content/nuclei-templates -l <targets> -pt tcp,ssl,dns,http -dut -tags tech,detect,ssl,tls,dns -etags intrusive,dos,fuzz,bruteforce,default-login,vuln -ni -dr -rl <requests per second> -se <file> -silent -nc` | `test.sarif.json` |
-| `web-passive` | not in this version: outcome `Refused`, `not-supported: test-profile web-passive` | |
+| `web-passive` | `/zap/zap-baseline.py -t <scheme>://<address>:<port>/ -J zap-<port>.json -m 1 -z "-silent -dir <home>"`, once per port | `test.sarif.json` |
 
 Profile `network-passive` runs signed templates only, of the protocols tcp, ssl, dns and http;
 no code, headless or fuzzing template runs. It runs only fingerprints of services and
@@ -64,8 +66,20 @@ technologies and the TLS and DNS checks, never a template that changes state, de
 guesses passwords or probes a vulnerability (vulnerabilities come from the bill of materials).
 There is no update check, no template download, no out-of-band interaction server and no HTTP
 redirect. A tcp template may dial its own port; the egress policy drops it unless it is a port
-of the scope. `test.sarif.json` (evidence kind `test-sarif`) holds one SARIF 2.1.0 run per tool
-run; the result member `test` gives the number of results and the object key of the file.
+of the scope.
+
+Profile `web-passive` is the ZAP baseline scan: the spider for at most one minute and the
+passive scan rules, with no active scan, no fuzzing and no attack. Port 443 is https and port 80
+is http; on any other port the runner tries a TLS handshake, whatever the certificate, with no
+request: https if it completes, else http. Each run has its own home under the work folder,
+fetches nothing (`-silent`) and writes its JSON report into `/zap/wrk`, a link to the work
+folder. Exit codes 0, 1 and 2 are results; any other is outcome `Failed`. The runner converts
+each report into one SARIF run, one result per alert instance, with the levels of ZAP's own
+SARIF report: risk High `error`, Medium `warning`, Low `note`, Informational `none`.
+
+`test.sarif.json` (evidence kind `test-sarif`) holds one SARIF 2.1.0 run per tool run, in the
+order of the profiles; the result member `test` gives the number of results and the object key
+of the file.
 `--task=test --mode=node` and every other task in SSH mode give outcome `Refused`.
 
 ## Arguments
@@ -77,7 +91,7 @@ run; the result member `test` gives the number of results and the object key of 
 for `hardening` also `--profile-id`, `--content-release` and `--disabled-rules`
 (comma-separated XCCDF rule identifiers), and for `test` also `--address`, `--ports`
 (comma-separated), `--test-profile` (comma-separated, each once) and `--requests-per-second`
-(1 to 50, default 10).
+(1 to 50, default 10; the rate of Nuclei, not passed to ZAP).
 
 ## Evidence and result
 

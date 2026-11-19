@@ -39,13 +39,18 @@ RUN set -eu; \
     done < /tools.list
 # The packages and wheels the runtime stage installs; Trivy; Nuclei; the ComplianceAsCode data
 # streams of the Ubuntu and RHEL families, one folder per content release:
-# /content/scap/<release>/ssg-<product>-ds.xml; and of the Nuclei templates only the folders
-# of the protocols tcp, ssl, dns and http (no code, headless, fuzzing or file template).
+# /content/scap/<release>/ssg-<product>-ds.xml; of the Nuclei templates only the folders
+# of the protocols tcp, ssl, dns and http (no code, headless, fuzzing or file template); and
+# ZAP with the baseline script, of its add-ons only the ten the passive baseline scan needs
+# (automation framework, passive scanner and its release rules, spider, reports, their
+# libraries, and callhome, without which ZAP does not start and which -silent keeps from
+# calling): no active-scan rule, fuzzer, brute-force or out-of-band add-on.
 RUN set -eu; \
-    mkdir -p /out/pkg /out/bin /out/doc/trivy /out/doc/scap-security-guide /out/doc/nuclei /out/nuclei-templates /work/nt; \
+    mkdir -p /out/pkg /out/bin /out/doc/trivy /out/doc/scap-security-guide /out/doc/nuclei /out/nuclei-templates /work/nt \
+       /out/zap/plugin /work/zap; \
     cp /tools/libopenscap33/*.deb /tools/openscap-common/*.deb /tools/openscap-scanner/*.deb \
        /tools/python3-openscap/*.deb /tools/openscap-utils/*.deb \
-       /tools/ansible-core/*.whl /tools/ansible-runner/*.whl /out/pkg/; \
+       /tools/ansible-core/*.whl /tools/ansible-runner/*.whl /tools/zaproxy/*.whl /out/pkg/; \
     tar -xzf /tools/trivy/*.tar.gz -C /out/bin trivy; \
     tar -xzf /tools/trivy/*.tar.gz -C /out/doc/trivy LICENSE; \
     release="$(awk '$1 == "-" && $2 == "name:" { name = $3 } $1 == "version:" && name == "scap-security-guide" { gsub(/"/, "", $2); print $2 }' /tools.lock.yaml)"; \
@@ -58,18 +63,27 @@ RUN set -eu; \
     unzip -q -d /out/doc/nuclei /tools/nuclei/*.zip LICENSE.md; \
     tar -xzf /tools/nuclei-templates/*.tar.gz -C /work/nt --strip-components=1; \
     cp -R /work/nt/http /work/nt/network /work/nt/ssl /work/nt/dns /work/nt/LICENSE.md /out/nuclei-templates/; \
-    test -s /out/nuclei-templates/ssl/tls-version.yaml
+    test -s /out/nuclei-templates/ssl/tls-version.yaml; \
+    tar -xzf /tools/zap/*.tar.gz -C /work/zap --strip-components=1; \
+    cp -R /work/zap/zap.sh /work/zap/zap-*.jar /work/zap/db /work/zap/lang /work/zap/lib /work/zap/license /work/zap/xml /out/zap/; \
+    for a in automation callhome commonlib database network pscan pscanrules reports retire spider; do cp /work/zap/plugin/"$a"-*.zap /out/zap/plugin/; done; \
+    test "$(ls /out/zap/plugin | wc -l)" -eq 10; \
+    cp /tools/zap-baseline/zap-baseline.py /tools/zap-common/zap_common.py /out/zap/; \
+    printf '#!/bin/sh\n# ZAP has no display here: the baseline script starts it through this file.\nexec /zap/zap.sh "$@"\n' > /out/zap/zap-x.sh; \
+    chmod 0755 /out/zap/zap.sh /out/zap/zap-x.sh /out/zap/zap-baseline.py
 
 # ---------- Stage 3: the runtime ----------
 FROM docker.io/library/debian:trixie-20261104-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2
-# The OpenSCAP packages of the lock, and from Debian the Python libraries that ansible-core
-# and ansible-runner need. pip installs the two wheels of the lock without dependencies,
-# checks that every dependency is met, and is removed again.
+# The OpenSCAP packages of the lock, and from Debian the Python libraries that ansible-core,
+# ansible-runner and the ZAP baseline script need, the Java runtime of ZAP, and the command
+# python that the first line of the baseline script names. pip installs the three wheels of
+# the lock without dependencies, checks that every dependency is met, and is removed again.
 COPY --from=fetch /out/pkg/ /tmp/pkg/
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates python3 python3-pip \
        python3-jinja2 python3-yaml python3-cryptography python3-packaging python3-resolvelib \
-       python3-pexpect python3-daemon \
+       python3-pexpect python3-daemon python3-six python3-requests python-is-python3 \
+       openjdk-21-jre-headless \
        /tmp/pkg/*.deb \
     && python3 -m pip install --no-deps --no-index --no-cache-dir --break-system-packages \
        --root-user-action=ignore /tmp/pkg/*.whl \
@@ -80,6 +94,7 @@ RUN apt-get update \
 COPY --from=fetch /out/bin/trivy /usr/local/bin/trivy
 COPY --from=fetch /out/bin/nuclei /usr/local/bin/nuclei
 COPY --from=fetch /out/nuclei-templates/ /content/nuclei-templates/
+COPY --from=fetch /out/zap/ /zap/
 COPY --from=fetch /out/scap/ /content/scap/
 COPY --from=fetch /out/doc/ /usr/share/doc/
 COPY products/machine-runner/LICENSES.md /usr/share/doc/machine-runner/LICENSES.md
@@ -90,18 +105,22 @@ RUN trivy --version \
     && ansible --version \
     && ansible-runner --version \
     && nuclei -version \
-    && rm -rf /root/.ansible /root/.config
+    && python3 -c 'import zapv2, six, yaml' \
+    && /zap/zap.sh -cmd -silent -dir /root/.ZAP -version \
+    && rm -rf /root/.ansible /root/.config /root/.ZAP
 # The home of the image and its temporary folder are the work folder /run/machine-runner,
 # which is not a path of the host and is empty in the image. ansible-core creates
 # ~/.ansible/tmp when it starts, and the home of user 65534 in /etc/passwd (/nonexistent)
 # cannot be created. Trivy and oscap create their temporary folders in /tmp; oscap always
-# uses /tmp/oscap.XXXXXX and reads no TMPDIR, so /tmp is a link to the work folder. A runner
+# uses /tmp/oscap.XXXXXX and reads no TMPDIR, so /tmp is a link to the work folder. The ZAP
+# baseline script writes its reports into /zap/wrk, also a link to the work folder. A runner
 # Job runs with a read-only root file system and mounts a memory volume (emptyDir) at
 # /run/machine-runner and no volume at /tmp: the home and /tmp are writable there and hold
 # nothing between runs. Without that volume the folder of the image, owned by 65534, is used.
 RUN install -d -o 65534 -g 65534 -m 0700 /run/machine-runner \
     && rm -rf /tmp \
-    && ln -s /run/machine-runner /tmp
+    && ln -s /run/machine-runner /tmp \
+    && ln -s /run/machine-runner /zap/wrk
 ENV HOME=/run/machine-runner
 USER 65534:65534
 ENTRYPOINT ["/usr/local/bin/machine-runner"]
