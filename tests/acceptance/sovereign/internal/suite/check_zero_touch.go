@@ -2,8 +2,10 @@ package suite
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"slices"
 	"sort"
 	"strconv"
@@ -33,8 +35,15 @@ import (
 // that comes back without any field manager was not measured, and fails.
 //
 // The third clause of the check, that the deployment record shows no retry
-// call, is recorded as SKIP: the suite has no source for it yet. A SKIP is
-// never a PASS, so this check cannot pass before that source exists.
+// call, reads the record on the Sovereign: GET /api/v1/deployments/{id} with
+// the console session of the run, field retryCalls. The engine appends one
+// entry to that list for every retry call it accepts, on the parent (the list
+// travels with the record the hand-over gives the Sovereign) and on the
+// Sovereign (products/catalyst/bootstrap/api/internal/retrycall). The clause
+// passes only when the record was read and the list holds no entry. It fails,
+// naming the entries, when the list holds any; and it fails as not measured
+// when the record cannot be read or carries no list (an engine too old to
+// record retry calls).
 const zeroTouchID = "FND-G02"
 
 const restartedAtAnnotation = "kubectl.kubernetes.io/restartedAt"
@@ -72,8 +81,51 @@ func (zeroTouchCheck) Run(ctx context.Context, cc *CheckContext, rec StepRecorde
 			return zeroTouchLook(ctx, region, ev)
 		})
 	}
-	rec.Skip(next(), "the deployment record shows no retry call",
-		"not measured: the suite has no source for the retry calls of the deployment")
+	rec.Step(next(), "the deployment record shows no retry call", func(ev Evidence) error {
+		return zeroTouchRetryCalls(ctx, cc, ev)
+	})
+	return nil
+}
+
+// zeroTouchRetryCall is one entry of the record's retryCalls list.
+type zeroTouchRetryCall struct {
+	At     string `json:"at"`
+	Route  string `json:"route"`
+	Target string `json:"target"`
+	By     string `json:"by"`
+}
+
+// zeroTouchRetryCalls reads the retry calls of the deployment from the
+// Sovereign's own API and fails unless the list was read and is empty.
+func zeroTouchRetryCalls(ctx context.Context, cc *CheckContext, ev Evidence) error {
+	if cc.API == nil {
+		return errors.New("not measured: the run has no console session, so the deployment record cannot be read")
+	}
+	if cc.Deploy == nil || cc.Deploy.ID == "" {
+		return errors.New("not measured: the run names no deployment")
+	}
+	path := "/api/v1/deployments/" + url.PathEscape(cc.Deploy.ID)
+	ev["source"] = "GET " + path + " (retryCalls)"
+	var record map[string]json.RawMessage
+	if _, err := cc.API.Get(ctx, path, &record); err != nil {
+		return fmt.Errorf("not measured: the deployment record could not be read: %w", err)
+	}
+	raw, ok := record["retryCalls"]
+	if !ok || string(raw) == "null" {
+		return errors.New("not measured: the deployment record carries no retryCalls list, so its engine does not record retry calls")
+	}
+	var calls []zeroTouchRetryCall
+	if err := json.Unmarshal(raw, &calls); err != nil {
+		return fmt.Errorf("not measured: retryCalls of the deployment record is not a list of retry calls: %w", err)
+	}
+	entries := make([]string, 0, len(calls))
+	for _, c := range calls {
+		entries = append(entries, c.At+" "+c.Route+" "+c.Target+" by "+c.By)
+	}
+	ev["retry_calls"] = entries
+	if len(entries) > 0 {
+		return fmt.Errorf("%d retry calls: %s", len(entries), strings.Join(entries, "; "))
+	}
 	return nil
 }
 

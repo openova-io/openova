@@ -43,6 +43,7 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/jobs"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/retrycall"
 )
 
 // reconcileRequestedAtAnnotation — the Flux-native "reconcile now" intent.
@@ -155,7 +156,7 @@ func (h *Handler) RetryJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	operator := retryOperatorIdentity(claims, r)
+	operator := retrycall.Caller(r)
 	now := time.Now().UTC()
 	action, rerr := h.dispatchRetry(r.Context(), dyn, job, now)
 	if rerr != nil {
@@ -191,6 +192,7 @@ func (h *Handler) RetryJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	RecordRetryCall(h, dep, "", retrycall.RouteJob, "job "+job.JobName+": "+action, r)
 	// Record attempt N+1 as a NEW Execution on the same row with the
 	// operator's identity in the first LogLine — the audit trail the
 	// Execution-per-attempt model (types.go:259) was built for.
@@ -738,22 +740,4 @@ func jobRetryCallerAuthorized(claims *auth.Claims, dep *Deployment) bool {
 		}
 	}
 	return false
-}
-
-// retryOperatorIdentity returns a stable operator identifier for the audit
-// LogLine — the claims subject/email when present, else the X-User-Email
-// header, else "operator".
-func retryOperatorIdentity(claims *auth.Claims, r *http.Request) string {
-	if claims != nil {
-		if e := strings.TrimSpace(claims.Email); e != "" {
-			return e
-		}
-		if s := strings.TrimSpace(claims.Sub); s != "" {
-			return s
-		}
-	}
-	if e := strings.TrimSpace(r.Header.Get("X-User-Email")); e != "" {
-		return e
-	}
-	return "operator"
 }

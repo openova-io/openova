@@ -41,6 +41,7 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/pdm"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/retrycall"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 
 	// Side-effect import: registers every CloudProvider adapter so
@@ -148,6 +149,8 @@ type Deployment struct {
 	// check skips with a log warning when empty so an in-place upgrade
 	// doesn't lock operators out of pre-existing rows.
 	OwnerEmail string
+
+	retries retrycall.Log // the retry calls of the deployment, gate check FND-G02 (internal/retrycall)
 
 	// phase1Started gates the at-most-once launch of the Phase-1
 	// helmwatch goroutine. Two callers race to start it:
@@ -385,6 +388,7 @@ func (d *Deployment) toRecord() store.Record {
 		KubeconfigBearerHash: d.kubeconfigBearerHash,
 		AdoptedAt:            d.AdoptedAt,
 		OwnerEmail:           d.OwnerEmail,
+		RetryCalls:           d.retries.List(),
 	}
 }
 
@@ -430,6 +434,7 @@ func fromRecord(rec store.Record) *Deployment {
 		AdoptedAt:            rec.AdoptedAt,
 		OwnerEmail:           rec.OwnerEmail,
 	}
+	dep.retries.Set(rec.RetryCalls)
 
 	// Kubeconfig file lost across restart → mark as failed. If the
 	// record claims a path but the file is missing, the helmwatch
@@ -540,6 +545,21 @@ func (h *Handler) recordEventAndPersist(d *Deployment, ev provisioner.Event) pro
 		}
 	}
 	return ev
+}
+
+// RecordRetryCall appends one retry call to the record of dep, or of the deployment id when dep is
+// nil, and saves it; after the hand-over fired the parent sends the list on (internal/retrycall).
+func RecordRetryCall(h *Handler, dep *Deployment, id, route, target string, r *http.Request) {
+	if val, ok := h.deployments.Load(id); ok && dep == nil {
+		dep = val.(*Deployment)
+	}
+	if dep == nil || !dep.retries.Add(route, target, retrycall.Caller(r)) {
+		return
+	}
+	h.persistDeployment(dep)
+	if url, body, ok := retrycall.Forward(h.store, dep.ID); ok {
+		go postHandoverExportWithRetry(retrycall.Client(), url, body, retrycall.Attempts(h.log, dep.ID))
+	}
 }
 
 // persistDeployment serializes the current state under the lock and
@@ -1041,6 +1061,7 @@ func (d *Deployment) State() map[string]any {
 	if d.lastWipeReport != nil {
 		out["lastWipeReport"] = d.lastWipeReport
 	}
+	out["retryCalls"] = d.retries.List() // null when the record never recorded them: FND-G02 then fails
 	if d.Result != nil {
 		out["result"] = d.Result
 		// Lift the Phase-1 fields to the top level too — the
@@ -1540,6 +1561,7 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 		kubeconfigBearerHash: bearerHash,
 		OwnerEmail:           ownerEmail,
 	}
+	dep.retries.Start()
 
 	// Reserve the pool subdomain via PDM BEFORE we kick off `tofu apply`.
 	// PDM holds the name with a TTL — if `tofu apply` fails or this catalyst-
