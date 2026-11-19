@@ -32,7 +32,12 @@ answers (the process is up) AND (2) the peer filer answers through the mesh
 — so the Deployment's native `Available` condition reads "replication
 streaming" vs not, and the gauge's age (time() - offset/1e9) reads lag.
 If the peer is unreachable at start, filer.sync exits (cannot read the peer
-filer signature) and kubelet restarts it with backoff until the peer is back.
+filer signature), and every exit is a restart that stays on the Pod (hw307
+region a, 19 Nov 2026: 7 restarts while region b was still installing). So
+the Pod waits for the peer in the `wait-for-peer-filer` init container: it
+polls the peer filer through the mesh Service, logs each attempt, and gives up
+loudly after crossRegion.filerSync.peerWaitSeconds. The process starts only
+once the peer answers.
 */ -}}
 {{- if include "bp-seaweedfs.filerSyncActive" . }}
 {{- $self := include "bp-seaweedfs.topologySelf" . -}}
@@ -112,8 +117,8 @@ spec:
       terminationGracePeriodSeconds: 30
       securityContext:
         fsGroup: 1000
-      {{- if $fs.ensureBuckets }}
       initContainers:
+      {{- if $fs.ensureBuckets }}
         # Create every replicated bucket on the LOCAL filer (idempotent —
         # same list-then-create shape as the upstream post-install bucket
         # hook), so an Application can write in either region before the
@@ -151,6 +156,41 @@ spec:
           resources:
             {{- toYaml $fs.resources | nindent 12 }}
       {{- end }}
+        # Hold the Pod until the PEER filer answers through its mesh Service
+        # (after the local buckets exist, so local writes never wait on the
+        # peer). filer.sync cannot start without reading the peer filer's
+        # signature; started earlier it exits and is restarted.
+        - name: wait-for-peer-filer
+          image: {{ $image }}
+          imagePullPolicy: {{ $pullPolicy }}
+          securityContext:
+            runAsUser: 1000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+          env:
+            - name: PEER_FILER
+              value: {{ $peerFilerHttp | quote }}
+            - name: WAIT_BUDGET_SECONDS
+              value: {{ $fs.peerWaitSeconds | default 3600 | int | quote }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -u
+              start=$(date +%s)
+              elapsed=0
+              while [ "$elapsed" -lt "$WAIT_BUDGET_SECONDS" ]; do
+                if wget -q -T 5 -O /dev/null "http://${PEER_FILER}/"; then
+                  echo "peer filer ${PEER_FILER} answers after ${elapsed}s"; exit 0
+                fi
+                echo "waiting for peer filer ${PEER_FILER} (${elapsed}s of ${WAIT_BUDGET_SECONDS}s)"
+                sleep 5
+                elapsed=$(( $(date +%s) - start ))
+              done
+              echo "peer filer ${PEER_FILER} did not answer within ${WAIT_BUDGET_SECONDS}s: is the peer region's filer up and its mesh Service shared?" >&2
+              exit 1
+          resources:
+            {{- toYaml $fs.resources | nindent 12 }}
       containers:
         {{- range $i, $bucket := $buckets }}
         {{- $port := add $portBase $i | int }}

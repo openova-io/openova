@@ -42,6 +42,21 @@ mimir-distributed:
   # livenessProbe. The value path the upstream template renders is
   # `mimir-distributed.<component>.livenessProbe`.
 
+  # Wait for the object storage before a component that reads it starts.
+  # Mimir's start-up sanity check retries the S3 backend, but the livenessProbe
+  # above (`/ready`, 45-60 s) kills the process long before the Catalyst-owned
+  # MinIO answers on a fresh install, and every kill is a restart that stays on
+  # the Pod (hw307, 19 Nov 2026: querier 7, ruler 6 and 8, store-gateway 4,
+  # alertmanager 1, all `mimir-minio ... connection refused`). Each component
+  # with an object-storage client (alertmanager, ingester, querier, ruler,
+  # store_gateway, compactor) therefore waits in this init container until
+  # MinIO's readiness endpoint answers, polling and logging each attempt, for
+  # at most WAIT_BUDGET_SECONDS; past the budget it fails loudly. The upstream
+  # chart renders `<component>.initContainers` verbatim (no templating), so the
+  # Service is named literally: `<release>-minio` with the kit's release name
+  # `mimir` (templates/devcluster-workloads.yaml). An overlay that renames the
+  # release or swaps the object storage overrides these lists with it.
+  #
   # Per-component replicas — solo-Sovereign minimum is 1 each. Per-Sovereign
   # overlays scale these up and flip zoneAwareReplication on for HA.
   alertmanager:
@@ -54,6 +69,45 @@ mimir-distributed:
         path: /ready
         port: http-metrics
       initialDelaySeconds: 45
+    initContainers: &waitForObjectStorage
+      - name: wait-for-object-storage
+        image: harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1
+        imagePullPolicy: IfNotPresent
+        env:
+          - name: OBJECT_STORAGE_READY_URL
+            value: http://mimir-minio:9000/minio/health/ready
+          - name: WAIT_BUDGET_SECONDS
+            value: "1800"
+        command:
+          - /bin/sh
+          - -c
+          - |
+            set -u
+            start=$(date +%s)
+            elapsed=0
+            while [ "$elapsed" -lt "$WAIT_BUDGET_SECONDS" ]; do
+              if curl -fsS -o /dev/null --max-time 5 "$OBJECT_STORAGE_READY_URL"; then
+                echo "object storage ${OBJECT_STORAGE_READY_URL} ready after ${elapsed}s"; exit 0
+              fi
+              echo "waiting for object storage ${OBJECT_STORAGE_READY_URL} (${elapsed}s of ${WAIT_BUDGET_SECONDS}s)"
+              sleep 5
+              elapsed=$(( $(date +%s) - start ))
+            done
+            echo "object storage ${OBJECT_STORAGE_READY_URL} did not answer within ${WAIT_BUDGET_SECONDS}s: is mimir-minio healthy?" >&2
+            exit 1
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          capabilities:
+            drop: ["ALL"]
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 10m
+            memory: 32Mi
   distributor:
     replicas: 1
     # #4347 — mirror readinessProbe into livenessProbe (probes-present policy).
@@ -72,6 +126,7 @@ mimir-distributed:
         path: /ready
         port: http-metrics
       initialDelaySeconds: 60
+    initContainers: *waitForObjectStorage
   querier:
     replicas: 1
     # #4347 — mirror readinessProbe into livenessProbe (probes-present policy).
@@ -80,6 +135,7 @@ mimir-distributed:
         path: /ready
         port: http-metrics
       initialDelaySeconds: 45
+    initContainers: *waitForObjectStorage
   query_frontend:
     replicas: 1
     # #4347 — mirror readinessProbe into livenessProbe (probes-present policy).
@@ -105,7 +161,15 @@ mimir-distributed:
       httpGet:
         path: /ready
         port: http-metrics
-      initialDelaySeconds: 60
+      # Mimir holds a store-gateway / compactor un-ready while it waits for
+      # its ring to be stable (wait_stability_min_duration 1m, bounded by
+      # wait_stability_max_duration, 5m). A liveness check inside that bounded
+      # wait kills a process that is starting normally (hw307 region b, 19
+      # Nov 2026: store-gateway SIGTERM 89 s after start, object storage
+      # already answering, "ring topology is not stable after the max waiting
+      # time" logged on the kill). Liveness starts after that bound.
+      initialDelaySeconds: 330
+    initContainers: *waitForObjectStorage
   compactor:
     replicas: 1
     # #4347 — mirror readinessProbe into livenessProbe (probes-present policy).
@@ -113,7 +177,15 @@ mimir-distributed:
       httpGet:
         path: /ready
         port: http-metrics
-      initialDelaySeconds: 60
+      # Mimir holds a store-gateway / compactor un-ready while it waits for
+      # its ring to be stable (wait_stability_min_duration 1m, bounded by
+      # wait_stability_max_duration, 5m). A liveness check inside that bounded
+      # wait kills a process that is starting normally (hw307 region b, 19
+      # Nov 2026: store-gateway SIGTERM 89 s after start, object storage
+      # already answering, "ring topology is not stable after the max waiting
+      # time" logged on the kill). Liveness starts after that bound.
+      initialDelaySeconds: 330
+    initContainers: *waitForObjectStorage
   ruler:
     replicas: 1
     # #4347 — mirror readinessProbe into livenessProbe (probes-present policy).
@@ -122,6 +194,7 @@ mimir-distributed:
         path: /ready
         port: http-metrics
       initialDelaySeconds: 45
+    initContainers: *waitForObjectStorage
   overrides_exporter:
     replicas: 1
     # overrides_exporter already ships a default livenessProbe upstream (#4347
