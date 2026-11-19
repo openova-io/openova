@@ -9799,13 +9799,13 @@ packages:
   - id: A2
     run: "t=infra/providers/_shared/tests/cloudinit_render.tftest.hcl; test \"$(grep -c -F 'condition     = !strcontains(output.rendered_cloud_init, \"crictl\") && !strcontains(output.rendered_cloud_init, \"prepull\") && ' \"$t\")\" = 2 && test \"$(grep -c -F '!strcontains(output.rendered_cloud_init, \"ghcr.io/fluxcd/\")' \"$t\")\" = 1 && test \"$(grep -c -F '!strcontains(output.rendered_cloud_init, \"render-test-token\")' \"$t\")\" = 2 && grep -q -F 'ghcr_pull_token                   = \"render-test-token\"' infra/providers/_shared/tests/render.tf"
   - id: A3
-    run: "g=infra/providers/_shared/tests/golden.auto.tfvars.json; test \"$(grep -c -x -F '  \"golden_hetzner\": \"2686fb2a5fe4559432d340fb56e14511c7f41648d8afff1c300b1dfb43da1627\",' \"$g\")\" = 1 && test \"$(grep -c -x -F '  \"golden_huawei\": \"a9e75795cb440cad8f155f6c2f5504a20e096a3faa365de3b87fc7d8d8ba809a\",' \"$g\")\" = 1 && test \"$(grep -c -F '\"/var/lib/catalyst/ghcr-pull-secret.yaml\": \"7a98267b5778fcceca86a4578e07c308c66b774c163e353153552f9327e2c971\",' \"$g\")\" = 2"
+    run: "g=infra/providers/_shared/tests/golden.auto.tfvars.json; test \"$(grep -c -x -F '  \"golden_hetzner\": \"2686fb2a5fe4559432d340fb56e14511c7f41648d8afff1c300b1dfb43da1627\",' \"$g\")\" = 1 && test \"$(grep -c -x -F '  \"golden_huawei\": \"bfd6890e65c16be5b64aeaf92bd16e4874058f18e29c03655ff59719ed1b44db\",' \"$g\")\" = 1 && test \"$(grep -c -F '\"/var/lib/catalyst/ghcr-pull-secret.yaml\": \"7a98267b5778fcceca86a4578e07c308c66b774c163e353153552f9327e2c971\",' \"$g\")\" = 2"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: 'The shared control-plane template no longer pre-pulls images at first boot: the background pull of the platform images, which carried the registry token in plain text inside runcmd, and the pull of the Flux controller images and the database image on IPv4-only clouds are deleted, and the render test fails if either comes back.'
 - id: SOV-150
