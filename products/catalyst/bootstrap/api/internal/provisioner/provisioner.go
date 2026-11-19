@@ -672,6 +672,11 @@ type Request struct {
 	// keep the cutover an operator-gated action.
 	FireCutoverOnHandover *bool `json:"fireCutoverOnHandover,omitempty"`
 
+	// MailRelay — set on a cloud where a mail server inside the Sovereign
+	// cannot send: its sign-in codes then go through this relay (MAIL_MODE
+	// relay of the variables document, SOV-323). Nil keeps MAIL_MODE local.
+	MailRelay *MailRelay `json:"mailRelay,omitempty"`
+
 	// QAFixturesNamespace — explicit override for the qa-fixtures
 	// namespace name. Empty (default) → derived from SovereignFQDN's
 	// first label as "qa-<label>" at writeTfvars() time. Operator may
@@ -959,6 +964,9 @@ func (r *Request) Validate() error {
 	}
 	if strings.TrimSpace(r.SovereignFQDN) == "" {
 		return errors.New("sovereign FQDN is required")
+	}
+	if err := r.MailRelay.validate(); err != nil {
+		return err
 	}
 
 	// BCP topology (Refs #2666 G93.1) — validate explicit value if
@@ -3359,7 +3367,7 @@ func childVariables(req Request, apiURL string) (map[string]string, error) {
 	v.HandoverAuto = req.FireCutoverOnHandover == nil || *req.FireCutoverOnHandover
 	v.LocalRegistryHost = "registry." + strings.ToLower(strings.TrimSpace(req.SovereignFQDN))
 	v.K3sVersion = moduleK3sVersion
-	v.MailMode = "local"
+	req.MailRelay.apply(&v)
 	v.CloudCredentialMode = "supplied"
 	originRegistry := legacyOriginRegistry
 	if address := OriginRegistryByProvider[strings.ToLower(strings.TrimSpace(req.Provider))]; address != "" {
