@@ -171,7 +171,6 @@ products/catalyst/chart/templates/api-deployment-kustomize.yaml	10
 products/catalyst/chart/templates/api-deployment.yaml	12
 products/catalyst/chart/templates/api-priorityclass-kustomize.yaml	1
 products/catalyst/chart/templates/api-priorityclass.yaml	1
-products/catalyst/chart/templates/catalog-seed/blueprints.yaml	34
 products/catalyst/chart/templates/clusterrole-cutover-driver.yaml	1
 products/catalyst/chart/templates/network-policies/keycloak-backchannel-ingress.yaml	1
 products/catalyst/chart/templates/org-services/configmap.yaml	1

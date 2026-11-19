@@ -2407,12 +2407,13 @@ checks:
 - id: SVC-G01
   title: Catalogue honest
   owner: SVC
-  state: not-built
+  state: expected-fail
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Catalogue honest
+  implementation: tests/acceptance/sovereign/internal/suite/check_svc_catalogue.go
   implemented_by: SVC-160
   delivered_by: SVC-170
 - id: SVC-G02

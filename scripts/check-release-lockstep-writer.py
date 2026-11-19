@@ -630,10 +630,9 @@ def kit_slots(tree, chart):
 def seed_entries(tree, chart):
     """Return [(name, spec_raw, source_raw)] for every seed entry delivering `chart`.
 
-    Deliberately an INDEPENDENT reader, not an import of the writer's own parser
-    in scripts/sync-catalog-seed-pin.py: a guard that reuses the subject's parser
-    inherits the subject's blind spots, and it must also be runnable against a
-    tree where that helper does not exist yet. The seed is a Helm template, so a
+    Deliberately an INDEPENDENT reader, not an import of the writer's own code in
+    scripts/generate-catalog.py: a guard that reuses the subject's parser inherits
+    the subject's blind spots. The seed is a Helm template, so a
     YAML unmarshal is impossible; the fields read here are static YAML at a fixed
     2-/4-space shape, the same shape the Go guards key on.
     """
@@ -775,7 +774,7 @@ def assert_generated_in_sync(pushed, problems):
     if r.returncode != 0:
         problems.append("site 4 generate-catalog.py failed:\n%s" % r.stdout)
         return
-    d = sh("git diff --stat -- %s %s" % (JSON_REL, TS_REL), cwd=pushed)
+    d = sh("git diff --stat -- %s %s %s" % (JSON_REL, TS_REL, SEED_REL), cwd=pushed)
     if d.stdout.strip():
         problems.append("site 4 committed generated catalog is STALE on the pushed main "
                         "(#5520 gate would be red on every open PR):\n%s" % d.stdout.strip())
@@ -950,7 +949,7 @@ CASES = {
     ),
     "dispatch-changed": dict(
         path="products/continuum", do_bump=False, change=True, dispatched=True,
-        expect=dict(blueprint="literal", seed="literal", kit="literal"),
+        expect=dict(blueprint="literal", seed="absent", kit="literal"),
         why="POSITIVE (FND-029) — the continuum image build commits a new tag into the "
             "chart's values and dispatches the release; the registry holds the version "
             "with the files before the change, so the writer must bump the patch version "
@@ -965,13 +964,13 @@ CASES = {
     ),
     "dispatch-unchanged": dict(
         path="products/continuum", do_bump=False, dispatched=True, unchanged=True,
-        expect=dict(blueprint="literal", seed="literal", kit="literal"),
+        expect=dict(blueprint="literal", seed="absent", kit="literal"),
         why="POSITIVE (FND-029) — a dispatched release of a chart whose files the registry "
             "already holds under its version must push nothing: no helm push, no commit",
     ),
     "republish-refused": dict(
         path="products/continuum", do_bump=False, kind="republish",
-        expect=dict(blueprint="literal", seed="literal", kit="literal"),
+        expect=dict(blueprint="literal", seed="absent", kit="literal"),
         why="POSITIVE (FND-029) — the step before helm push refuses a version the registry "
             "holds with other files, with one line naming both, and lets the same files "
             "and a version the registry does not hold through",
@@ -1156,7 +1155,9 @@ def run_stale_case(name, case, keep, base):
         kit = ["%s/%s" % (KIT_REL, f) for f, _ in kit_slots(pushed, chart)]
         bp = os.path.relpath(blueprint_path(pushed, path), pushed)
         funnel = [FUNNEL_REL] if case["expect"].get("funnel") == "literal" else []
-        assert_kept_notes(ctx_old, kit + [bp, SEED_REL] + funnel, problems)
+        # SVC-160: the seed is generated from the blueprint.yaml, so it keeps the newer
+        # version with it (assert_sites reads it) and has no note of its own.
+        assert_kept_notes(ctx_old, kit + [bp] + funnel, problems)
         if funnel:
             assert_funnel_gate(pushed, problems)
 
@@ -1303,7 +1304,12 @@ def run_midrelease_case(name, case, keep, base):
             return lambda: set_line(rel, r"^      version:.*$", "      version: %s" % v)
 
         def seed_pin(v):
-            return lambda: sh("python3 scripts/sync-catalog-seed-pin.py %s %s --quiet" % (chart, v), cwd=work)
+            # SVC-160: the seed is generated, so its pin moves with the blueprint.yaml it is written from.
+            def move():
+                bp = blueprint_path(work, path)
+                set_line(os.path.relpath(bp, work), r"^  version:.*$", "  version: %s" % v)
+                sh("python3 scripts/generate-catalog.py", cwd=work)
+            return move
 
         def no_pin_change():
             with open(os.path.join(work, "README.md"), "a") as fh:
@@ -1474,7 +1480,7 @@ def run_case(name, case, keep, skip_slow, base):
                 txt = open(bp).read()
                 open(bp, "w").write(re.sub(r"^  version:\s*.*$", "  version: %s" % want, txt, count=1, flags=re.M))
                 if SEED_REL in committed:
-                    sh("python3 scripts/sync-catalog-seed-pin.py %s %s --quiet" % (chart, want), cwd=work)
+                    sh("python3 scripts/generate-catalog.py", cwd=work)
                 moved = "the deploy-bump paths of openclaw-controller.yaml: %s" % " ".join(committed)
             if case.get("seed_ahead"):
                 # openclaw-controller.yaml writes blueprint.yaml and the seed itself,
@@ -1482,9 +1488,9 @@ def run_case(name, case, keep, skip_slow, base):
                 bp = blueprint_path(work, case["path"])
                 txt = open(bp).read()
                 open(bp, "w").write(re.sub(r"^  version:\s*.*$", "  version: %s" % want, txt, count=1, flags=re.M))
-                sh("python3 scripts/sync-catalog-seed-pin.py %s %s --quiet" % (chart, want), cwd=work)
-                # The generated catalog too, so that the funnel pin is the ONLY site
-                # the release has left to move: it alone must drive the commit.
+                # The seed and the generated catalog follow (SVC-160: one generator
+                # writes both), so that the funnel pin is the ONLY site the release
+                # has left to move: it alone must drive the commit.
                 sh("python3 scripts/generate-catalog.py", cwd=work)
                 moved = "Chart.yaml + blueprint.yaml + catalog-seed + generated catalog"
             if committed is None:

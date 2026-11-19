@@ -11,7 +11,10 @@
 # application-controller can never install.
 #
 # The entries below are the Blueprint CRs that are seeded today with NO chart
-# behind them. They are recorded here — not deleted from the seed — because
+# behind them. scripts/generate-catalog.py writes the seed (SVC-160) and gives a
+# seeded Blueprint without a chart folder the version registered here; the seed
+# objects that no Blueprint file declared (bp-continuum, bp-n8n, bp-prometheus,
+# bp-redis) left the seed with it. They are recorded here — not deleted from the seed — because
 # deleting them would make the gate pass while leaving the operator-visible
 # behaviour (a catalog entry that cannot install) exactly as broken. Recording
 # them converts an invisible defect into an enumerated, CI-enforced one.
@@ -30,8 +33,8 @@
 #
 # ── How to retire an entry ───────────────────────────────────────────────
 # Author the chart under platform/<name>/chart/, let blueprint-release.yaml
-# publish it, sync all five lockstep sites, then delete the row here. The gate
-# will tell you if you forget.
+# publish it, then delete the row here and run scripts/generate-catalog.py. The
+# gate will tell you if you forget.
 #
 # Refs #5559 #4432 #960
 
@@ -51,26 +54,3 @@ unpublished:
     version: "1.0.0"
     issue: 5559
     reason: "platform/opensearch has blueprint.yaml (version 0.0.0) but no chart/ — nothing to publish yet"
-
-  # No platform/prometheus directory at all. The Sovereign's metrics path is
-  # served by bp-mimir + bp-alloy + bp-opentelemetry, all of which are
-  # published and seeded; this CR is a leftover of the original 14-CR baseline
-  # documented in templates/catalog-seed/_README.txt.
-  - chart: bp-prometheus
-    version: "1.0.0"
-    issue: 5559
-    reason: "no platform/prometheus source in the monorepo — leftover of the original 14-CR baseline seed"
-
-  # No platform/redis directory. bp-valkey (published, 1.1.5) is the in-repo
-  # key/value store Blueprint. Re-pointing this CR at bp-valkey would change
-  # what the card delivers, so it stays recorded rather than silently swapped.
-  - chart: bp-redis
-    version: "1.0.0"
-    issue: 5559
-    reason: "no platform/redis source in the monorepo — leftover of the original 14-CR baseline seed"
-
-  # No platform/n8n directory.
-  - chart: bp-n8n
-    version: "1.0.0"
-    issue: 5559
-    reason: "no platform/n8n source in the monorepo — leftover of the original 14-CR baseline seed"

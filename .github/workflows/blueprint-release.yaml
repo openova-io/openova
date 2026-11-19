@@ -1166,11 +1166,13 @@ jobs:
       #   4. products/catalyst/chart/templates/catalog-seed/blueprints.yaml —
       #      the seeded card's spec.version AND its delivery source.version. The
       #      catalog-seed is the in-cluster fallback the bp-catalog-client reads
-      #      when the gitea catalog-sovereign repo 404s.
+      #      when the gitea catalog-sovereign repo 404s. It is generated (SVC-160):
+      #      scripts/generate-catalog.py writes it with site 5.
       #   5. the committed generated catalog
       #      (products/catalyst/bootstrap/api/internal/catalog/blueprints.json +
       #      products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts),
-      #      regenerated from the already-bumped blueprint.yaml by scripts/generate-catalog.py.
+      #      regenerated with the seed from the already-bumped blueprint.yaml by
+      #      scripts/generate-catalog.py.
       #   6. the funnel pin, DefaultHRAppChartVersions in
       #      core/services/provisioning/gitops/helmrelease_apps.go — only for a
       #      chart a funnel app installs (bp-openclaw, bp-newapi,
@@ -1206,27 +1208,19 @@ jobs:
         run: |
           set -euo pipefail
 
-          # (4) Sync the catalog-seed card spec.version + delivery source.version
-          # for the ONE entry (or entries) whose manifests.chart == CHART_NAME.
-          # Idempotent: a graceful no-op when the chart is not seeded (the
-          # products/catalyst umbrella card renders {{ .Chart.Version }} and is
-          # skipped) or is already at CHART_VERSION. Never rewrites a Go-template
-          # version line into a literal, and never moves a line that holds a
-          # higher version back (FND-018: the script notes it and leaves it).
-          python3 scripts/sync-catalog-seed-pin.py "${CHART_NAME}" "${CHART_VERSION}"
-
           # (4b) The funnel pin: the entry of DefaultHRAppChartVersions in
           # core/services/provisioning/gitops/helmrelease_apps.go for the funnel
           # app whose generator installs CHART_NAME (#7829). The drift test
           # TestDefaultHRAppPins_MatchCatalogSeed requires it to equal the seed
-          # pin written just above. Same rules as the seed writer: only that one
-          # entry, never a version back (FND-018), a no-op for a chart with no
-          # entry, exit 2 on a file shape it does not know.
+          # pin. Only that one entry, never a version back (FND-018), a no-op for
+          # a chart with no entry, exit 2 on a file shape it does not know.
           python3 scripts/sync-funnel-pin.py "${CHART_NAME}" "${CHART_VERSION}"
 
-          # (5) Regenerate the committed catalog from the (already-bumped)
-          # blueprint.yaml sources. Deterministic — the generator #5520's drift
-          # gate runs with --check.
+          # (4) + (5) Regenerate the seed and the committed catalog from the
+          # (already-bumped) blueprint.yaml sources (SVC-160). Deterministic — the
+          # generator #5520's drift gate runs with --check. The seed's versions
+          # are the blueprint.yaml versions, which bump_blueprint never moves back
+          # (FND-018); the umbrella's own card renders {{ .Chart.Version }}.
           python3 scripts/generate-catalog.py
 
           # Did any of the four managed files actually move? Emit `bumped` so
@@ -1338,7 +1332,7 @@ jobs:
             sed -i -E "s|^  version: .*\$|  version: ${CHART_VERSION}|" "$bp"
             return 0
           }
-          # Re-apply the catalog-seed sync + catalog regeneration for THIS chart
+          # Re-apply the funnel pin + seed and catalog regeneration for THIS chart
           # after a `git reset --hard origin/main` (retry path only) — the reset
           # wipes the sync_seed step's working-tree edits, so a retry commit
           # would otherwise drop sites 4+5 and re-introduce exactly the #5583
@@ -1346,10 +1340,6 @@ jobs:
           # so this converges to the same final state on every attempt. Returns 0
           # iff the managed files ended up changed vs origin/main.
           resync_seed() {
-            if ! python3 scripts/sync-catalog-seed-pin.py "${CHART_NAME}" "${CHART_VERSION}" --quiet; then
-              echo "::error title=catalog-seed resync failed::sync-catalog-seed-pin.py errored on retry for ${CHART_NAME}=${CHART_VERSION}" >&2
-              return 2
-            fi
             if ! python3 scripts/sync-funnel-pin.py "${CHART_NAME}" "${CHART_VERSION}" --quiet; then
               echo "::error title=funnel pin resync failed::sync-funnel-pin.py errored on retry for ${CHART_NAME}=${CHART_VERSION}" >&2
               return 2

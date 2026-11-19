@@ -6,7 +6,7 @@ counts:
   G2.visibility-missing: 0
   G2.api-version-not-v1: 1
   G3.wizard-groups-entries: 57
-  G3.hand-seed-blueprints: 74
+  G3.hand-seed-blueprints: 0
   G3.storefront-seed-rows: 31
   G3.provisioning-map-keys: 15
   G4.bp-literal-lines-api: 43
@@ -17,7 +17,7 @@ counts:
   G5.label-tier: 19
   G5.label-section: 93
   G6.function-test-charts: 32
-  G7.seed-exclusions: 0
+  G7.seed-exclusions: 23
   G8.slots-without-ring: 64
   G8.ring-edges-outside: 0
   G9.wizard-ids-without-chart: 13
