@@ -867,8 +867,8 @@ describe('reset to defaults', () => {
 describe('reverse-graph helpers', () => {
   it('resolveTransitiveDependents includes every component that needs cnpg directly or transitively', () => {
     // Flux-canonical dependents since #652. The pre-#652 expectation also
-    // listed ferretdb / temporal / librechat / matrix / superset /
-    // openmeter — every one of those was a hand-maintained `→ cnpg` edge
+    // listed ferretdb / temporal / librechat / matrix / superset — every
+    // one of those was a hand-maintained `→ cnpg` edge
     // on a component with NO bp-* HelmRelease, so `depsFor()` now returns
     // `[]` for them (componentGroups.ts:533-535) and they are no longer
     // cnpg dependents. The ids below each have a real bootstrap-kit HR

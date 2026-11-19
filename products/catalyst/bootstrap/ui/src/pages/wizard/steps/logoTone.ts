@@ -132,8 +132,6 @@ export const LOGO_SURFACE: Record<string, LogoSurface> = {
   opensearch:   { background: '#FFFFFF', border: 'rgba(15,23,42,0.10)', text: '#005EB8' },
   // Litmus — LitmusChaos periwinkle backplate ; the canonical CNCF artwork (cncf/artwork/projects/litmus/icon/color) bakes a `#878EDE` periwinkle backplate into the icon itself. We extend that backplate to the tile surface so the logo sits flush with no visible seam between the SVG's internal rectangle and the surrounding tile. Inner mark uses `#5A44BA` deep purple over the periwinkle.
   litmus:       { background: '#878EDE', border: 'rgba(255,255,255,0.18)', text: '#ffffff' },
-  // OpenMeter — magenta on dark ; openmeter.io uses `#1F1F1F` with `#F23173` accent.
-  openmeter:    { background: '#1F1F1F', border: 'rgba(255,255,255,0.10)', text: '#F23173' },
   // specter removed with its catalog card — UAT row W5 / #6183.
 
   /* ── FABRIC ────────────────────────────────────────────────────── */

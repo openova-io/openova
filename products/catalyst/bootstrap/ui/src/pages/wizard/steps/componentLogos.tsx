@@ -217,12 +217,6 @@ export const logo_litmus = Badge('#5B42BC', '#fff',
   <path d="M11 4L7 9.5h4L7 14" stroke="#fff" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
 )
 
-export const logo_openmeter = Badge('#7C3AED', '#fff',
-  // OpenMeter: bar chart / usage meter
-  <><path d="M5 13V9M8 13V7M11 13V5M14 13V9" stroke="#fff" strokeWidth="1.5" strokeLinecap="round"/>
-    <path d="M4 13h11" stroke="#fff" strokeWidth="1" strokeLinecap="round"/></>
-)
-
 // logo_specter removed with the Specter catalog card — UAT row W5 / #6183.
 
 // ── FABRIC ─────────────────────────────────────────────────────────
@@ -416,7 +410,6 @@ export const COMPONENT_LOGOS: Record<string, React.ReactNode> = {
   tempo:            logo_tempo,
   opensearch:       logo_opensearch,
   litmus:           logo_litmus,
-  openmeter:        logo_openmeter,
   cnpg:             logo_cnpg,
   valkey:           logo_valkey,
   strimzi:          logo_strimzi,

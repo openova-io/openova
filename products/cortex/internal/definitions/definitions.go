@@ -50,9 +50,13 @@ type entry struct {
 		Readers  []string `json:"readers"`
 		Managers []string `json:"managers"`
 	} `json:"access"`
+	Chunk json.RawMessage `json:"chunk"`
 }
 
-// Parse returns the sources of a definitions document. The digest of each is the SHA-256 of
+// Parse returns the sources of a definitions document. A key the schema requires is refused
+// when it is missing or null. chunk and its keys take the schema's defaults (512 tokens, an
+// overlap of 64) when they are missing and are refused when they are null; the overlap must be
+// less than the tokens. The digest of each is the SHA-256 of
 // its entry in canonical JSON (keys sorted, no space), so a change of any field of the entry
 // changes it and a change of layout does not.
 func Parse(doc []byte) ([]store.SourceDefinition, error) {
@@ -91,12 +95,16 @@ func Parse(doc []byte) ([]store.SourceDefinition, error) {
 			return nil, fmt.Errorf("definitions: source %q is defined twice", e.ID)
 		}
 		seen[e.ID] = true
+		chunk, err := chunkOf(e.Chunk)
+		if err != nil {
+			return nil, fmt.Errorf("definitions: sources[%d] %q: %w", i, e.ID, err)
+		}
 		var v any
 		_ = json.Unmarshal(raw, &v)
 		canonical, _ := json.Marshal(v)
 		sum := sha256.Sum256(canonical)
 		defs = append(defs, store.SourceDefinition{ID: e.ID, Title: e.Title, Digest: hex.EncodeToString(sum[:]),
-			Readers: e.Access.Readers, Managers: e.Access.Managers})
+			Readers: e.Access.Readers, Managers: e.Access.Managers, Connector: e.Connector.Type, Chunk: chunk})
 	}
 	return defs, nil
 }
@@ -124,4 +132,36 @@ func check(e entry) error {
 		}
 	}
 	return nil
+}
+
+// chunkOf reads the object chunk of an entry: tokens 128 to 2048 (default 512) and overlap 0 to
+// 256 (default 64), less than tokens. A missing object or key takes the default; null, another
+// key and a value that is not a whole number are refused.
+func chunkOf(raw json.RawMessage) (store.ChunkSettings, error) {
+	c := store.ChunkSettings{Tokens: 512, Overlap: 64}
+	if raw == nil {
+		return c, nil
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil || m == nil {
+		return c, errors.New("chunk must be an object")
+	}
+	for k, v := range m {
+		n := new(int)
+		if string(v) == "null" || json.Unmarshal(v, n) != nil {
+			return c, fmt.Errorf("chunk.%s must be a whole number", k)
+		}
+		switch k {
+		case "tokens":
+			c.Tokens = *n
+		case "overlap":
+			c.Overlap = *n
+		default:
+			return c, fmt.Errorf("chunk has the unknown key %s", k)
+		}
+	}
+	if c.Tokens < 128 || c.Tokens > 2048 || c.Overlap < 0 || c.Overlap > 256 || c.Overlap >= c.Tokens {
+		return c, fmt.Errorf("chunk.tokens must be 128 to 2048 and chunk.overlap 0 to 256 and less than tokens; got %d and %d", c.Tokens, c.Overlap)
+	}
+	return c, nil
 }

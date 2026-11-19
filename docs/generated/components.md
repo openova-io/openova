@@ -71,7 +71,6 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | platform/oidc-gate | bp-oidc-gate | bp-oidc-gate | unlisted | 13c |
 | platform/openbao | bp-openbao | bp-openbao | unlisted | 08 |
 | platform/openclaw | bp-openclaw | bp-openclaw | listed | - |
-| platform/openmeter | bp-openmeter | bp-openmeter | listed | - |
 | platform/opentelemetry | bp-opentelemetry | bp-opentelemetry | unlisted | 20 |
 | platform/opentelemetry-operator | bp-opentelemetry-operator | bp-opentelemetry-operator | unlisted | 19c |
 | platform/plane-isolation | bp-plane-isolation | bp-plane-isolation | unlisted | 26b |

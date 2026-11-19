@@ -23,7 +23,9 @@ import (
 	"time"
 
 	"github.com/openova-io/openova/products/cortex/internal/auth"
+	"github.com/openova-io/openova/products/cortex/internal/events"
 	"github.com/openova-io/openova/products/cortex/internal/gateway"
+	"github.com/openova-io/openova/products/cortex/internal/ingest"
 	"github.com/openova-io/openova/products/cortex/internal/search"
 	"github.com/openova-io/openova/products/cortex/internal/store"
 )
@@ -40,6 +42,7 @@ const marker = "quarterly-figures-7f3a"
 type memStore struct {
 	store.Store
 	searched []string
+	queued   []store.Job
 }
 
 func (m *memStore) ReadableSources(context.Context, []string) ([]string, error) {
@@ -63,6 +66,8 @@ type fixture struct {
 	log     *bytes.Buffer
 	gwFail  *bool
 	unready error
+	objects memBucket
+	hub     *events.Hub
 }
 
 // newFixture builds a server with the real token check and the real gateway client in front
@@ -73,7 +78,7 @@ func newFixture(t *testing.T) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &fixture{store: &memStore{}, key: key, log: &bytes.Buffer{}, gwFail: new(bool)}
+	f := &fixture{store: &memStore{}, key: key, log: &bytes.Buffer{}, gwFail: new(bool), objects: memBucket{}, hub: events.NewHub()}
 	set, _ := json.Marshal(map[string]any{"keys": []map[string]string{{"kty": "RSA", "kid": "k1",
 		"n": b64(key.N.Bytes()), "e": b64(big.NewInt(int64(key.E)).Bytes())}}})
 	checker, err := auth.New(auth.Config{Issuer: issuer, Keys: func(context.Context) ([]byte, error) { return set, nil }})
@@ -101,6 +106,8 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	f.srv = New(Config{Auth: checker, Store: f.store, Search: &search.Service{Store: f.store, Embedder: client.Embedder("embed-default", 64)},
+		Uploads: &ingest.Intake{Objects: f.objects, Queue: f.store}, Originals: f.objects, Hub: f.hub, MaxUpload: 64,
+		Heartbeat: 50 * time.Millisecond, StreamFor: 300 * time.Millisecond,
 		Ready: func(context.Context) error { return f.unready },
 		Log:   slog.New(slog.NewJSONHandler(f.log, &slog.HandlerOptions{Level: slog.LevelDebug}))})
 	return f

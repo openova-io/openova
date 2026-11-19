@@ -1,14 +1,15 @@
 // Package httpapi is the HTTP interface of the cortex query process.
 //
-// Handler serves the routes that the Organization's gateway publishes: POST /v1/search and
-// GET /v1/sources. The token check wraps the whole router, so it runs before routing: a call
+// Handler serves the routes that the Organization's gateway publishes: POST /v1/search,
+// GET /v1/sources and the document routes of documents.go. The token check wraps the whole
+// router, so it runs before routing: a call
 // without an accepted token ends with 401 unauthenticated whatever it addresses, and a route
 // handler also refuses a request that reached it without a caller. Health serves the
 // cluster-internal paths GET /healthz, GET /readyz and GET /metrics on a listener of its own,
 // which is never routed.
 //
 // One line is logged per call: method, route, status and duration. A request body, a query
-// string and a search text are never logged.
+// string, a search text and an upload are never logged.
 package httpapi
 
 import (
@@ -25,6 +26,8 @@ import (
 	"time"
 
 	"github.com/openova-io/openova/products/cortex/internal/auth"
+	"github.com/openova-io/openova/products/cortex/internal/events"
+	"github.com/openova-io/openova/products/cortex/internal/ingest"
 	"github.com/openova-io/openova/products/cortex/internal/search"
 	"github.com/openova-io/openova/products/cortex/internal/store"
 )
@@ -39,11 +42,17 @@ type Authenticator interface {
 
 // Config configures a Server.
 type Config struct {
-	Auth   Authenticator
-	Search *search.Service
-	Store  store.Store
-	Ready  func(ctx context.Context) error // nil error: the process can serve
-	Log    *slog.Logger                    // nil: slog.Default()
+	Auth      Authenticator
+	Search    *search.Service
+	Store     store.Store
+	Uploads   Uploader                        // stages an upload; *ingest.Intake is one
+	Originals ingest.Objects                  // the originals bucket, read by the content route
+	Hub       *events.Hub                     // the job changes of GET /v1/events
+	MaxUpload int64                           // the largest upload in bytes, policy.maxUploadMb
+	Heartbeat time.Duration                   // the silence after which GET /v1/events writes a comment line; 0: 20 seconds
+	StreamFor time.Duration                   // how long one GET /v1/events runs; 0: 5 minutes
+	Ready     func(ctx context.Context) error // nil error: the process can serve
+	Log       *slog.Logger                    // nil: slog.Default()
 }
 
 // Server holds the two handlers.
@@ -68,6 +77,11 @@ func New(cfg Config) *Server {
 	s := &Server{cfg: cfg, mux: http.NewServeMux(), health: http.NewServeMux(), calls: map[[2]string]int64{}}
 	s.route("POST /v1/search", s.search)
 	s.route("GET /v1/sources", s.sources)
+	s.route("POST /v1/sources/{id}/documents", s.upload)
+	s.route("GET /v1/documents/{id}", s.document)
+	s.route("GET /v1/documents/{id}/content", s.content)
+	s.route("DELETE /v1/documents/{id}", s.deleteDocument)
+	s.route("GET /v1/events", s.events)
 	s.internal("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
@@ -136,6 +150,9 @@ func (r *recorder) WriteHeader(code int) {
 	r.status = code
 	r.ResponseWriter.WriteHeader(code)
 }
+
+// Unwrap lets http.ResponseController flush the stream of GET /v1/events.
+func (r *recorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
 
 // observe counts and logs each call of the route pattern.
 func (s *Server) observe(pattern string, h http.HandlerFunc) http.Handler {

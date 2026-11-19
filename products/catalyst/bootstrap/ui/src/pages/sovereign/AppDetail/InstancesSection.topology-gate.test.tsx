@@ -246,7 +246,7 @@ describe('#5609 — the shipped catalog actually offers active-passive to operat
 
     // #5609 was filed asserting the intersection of "declares active-passive"
     // and "an operator can reach it" is EMPTY. It is not: bp-matrix,
-    // bp-newapi, bp-openmeter, bp-stalwart-tenant, bp-temporal and
+    // bp-newapi, bp-stalwart-tenant, bp-temporal and
     // bp-wordpress-tenant are all visibility=listed and declare it. If a
     // future catalog edit really did empty this set, THAT would make the mode
     // unreachable — and this assertion is what would catch it.
