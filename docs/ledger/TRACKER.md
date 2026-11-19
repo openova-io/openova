@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T23:00:11Z` |
+| Last refreshed | `2026-11-19T23:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7990](https://github.com/openova-io/openova/issues/7990) | SOV-145 Two node files that nothing reads leave first boot | Other |
 | [#7991](https://github.com/openova-io/openova/issues/7991) | SOV-241 Follower regions pivot the image registry of the other kit workloads tha | Other |
 | [#7992](https://github.com/openova-io/openova/issues/7992) | SOV-750 Spike: an auto-scaling group worker pool on the reference cloud | Other |
 | [#7993](https://github.com/openova-io/openova/issues/7993) | SVC-190 Delete the Blueprint controller | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8410](https://github.com/openova-io/openova/issues/8410) | AIP-130 Model contract conformance client | Other |
 | [#8414](https://github.com/openova-io/openova/issues/8414) | SOV-341 The kubeconfig route serves the primary region's file that the parent ho | Other |
 | [#8415](https://github.com/openova-io/openova/issues/8415) | SVC-166 The umbrella chart's Blueprint file moves beside its chart | Other |
+| [#8418](https://github.com/openova-io/openova/issues/8418) | SOV-522 The release stage applies the provider pivot again where a candidate cha | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-19T23:00 | [#8413](https://github.com/openova-io/openova/pull/8413) | #7087 | docs(ledger): plan update |
 | 2026-11-19T22:53 | [#8412](https://github.com/openova-io/openova/pull/8412) | #7087 | docs(ledger): plan update |
 | 2026-11-19T22:45 | [#8409](https://github.com/openova-io/openova/pull/8409) | #7087 | docs(ledger): plan update |
 | 2026-11-19T22:54 | [#8408](https://github.com/openova-io/openova/pull/8408) | fix(gate): the parent execution reaches the install it is as |  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-19T15:50 | [#8369](https://github.com/openova-io/openova/pull/8369) | #7087 | docs(ledger): plan update |
 | 2026-11-19T15:46 | [#8367](https://github.com/openova-io/openova/pull/8367) | #7087 | docs(ledger): plan update |
 | 2026-11-19T15:44 | [#8366](https://github.com/openova-io/openova/pull/8366) | #8355 | docs(ledger): result of the lab test NET-280, the overlay pr |
-| 2026-11-19T15:39 | [#8360](https://github.com/openova-io/openova/pull/8360) | #8359 | docs(ledger): result of the spike INF-210, composite resourc |
 
 ---
 
