@@ -23,6 +23,7 @@ import (
 	"sort"
 
 	"github.com/openova-io/openova/products/openova-mcp/internal/catalystapi"
+	"github.com/openova-io/openova/products/openova-mcp/internal/fit"
 	"github.com/openova-io/openova/products/openova-mcp/internal/identity"
 )
 
@@ -150,6 +151,19 @@ func (r *Registry) Call(ctx context.Context, id *identity.Identity, name string,
 		return map[string]any{"status": "not_implemented", "tool": name}, nil
 	}
 	return t.Handler(ctx, id, r.api, args)
+}
+
+// Answer calls the named tool through Call, with the same two-layer gate and
+// the same errors, and returns its result as the text an agent reads: secrets
+// redacted, every string made inert and the whole fitted to fit.MaxAnswer
+// characters of valid JSON (AIP-151). The MCP dispatch answers tools/call
+// with this text; Call keeps returning the plain value.
+func (r *Registry) Answer(ctx context.Context, id *identity.Identity, name string, args json.RawMessage) (string, error) {
+	v, err := r.Call(ctx, id, name, args)
+	if err != nil {
+		return "", err
+	}
+	return fit.Answer(v)
 }
 
 // Has reports whether the catalogue contains a tool by name (test helper).
