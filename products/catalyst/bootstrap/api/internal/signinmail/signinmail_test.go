@@ -7,8 +7,11 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
+
+	"github.com/openova-io/openova/core/controllers/pkg/upstream"
 )
 
 // withClient makes Resolve read from cli (or fail to get a client when err is set).
@@ -104,5 +107,82 @@ func TestFromEnv_Defaults(t *testing.T) {
 	want := Settings{Host: "stalwart-web.stalwart.svc.cluster.local", Port: "587", From: "noreply@openova.io"}
 	if got := FromEnv(); got != want {
 		t.Fatalf("FromEnv = %+v, want %+v", got, want)
+	}
+}
+
+// variablesDocument is the ConfigMap flux-system/sovereign-variables with the
+// given keys.
+func variablesDocument(kv ...string) *corev1.ConfigMap {
+	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: upstream.Namespace, Name: upstream.Name}, Data: map[string]string{}}
+	for i := 0; i+1 < len(kv); i += 2 {
+		cm.Data[kv[i]] = kv[i+1]
+	}
+	return cm
+}
+
+func relaySecret(user, pass string) *corev1.Secret {
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: Namespace, Name: "sovereign-mail-relay"},
+		Data:       map[string][]byte{"smtp-user": []byte(user), "smtp-pass": []byte(pass)},
+	}
+}
+
+var relayVariables = []string{
+	"MAIL_MODE", "relay", "MAIL_RELAY_HOST", "smtp.relay.example.net", "MAIL_RELAY_PORT", "2525",
+	"MAIL_FROM", "noreply@t2.example.test", "MAIL_RELAY_SECRET", "sovereign-mail-relay",
+}
+
+// TestResolve_RelayMode (SOV-323): the variables document says MAIL_MODE
+// relay. The code goes to the relay, as MAIL_FROM, with the credential the
+// relay issued for this Sovereign, even when the local Secret and the
+// environment hold another one.
+func TestResolve_RelayMode(t *testing.T) {
+	withEnv(t, "env.example.test", "env-user", "env-pass")
+	withClient(t, fake.NewSimpleClientset(variablesDocument(relayVariables...), mailSecret(written), relaySecret("t2", "issued-for-t2")), nil)
+	want := Settings{Host: "smtp.relay.example.net", Port: "2525", From: "noreply@t2.example.test", User: "t2", Pass: "issued-for-t2"}
+	if got := Resolve(context.Background()); got != want {
+		t.Fatalf("Resolve = %+v, want %+v", got, want)
+	}
+}
+
+// TestResolve_RelayWithoutCredential (SOV-323): in relay mode a relay Secret
+// that is absent, unnamed or incomplete gives the relay's address with no
+// credential. The local Secret and the environment are never used instead.
+func TestResolve_RelayWithoutCredential(t *testing.T) {
+	withEnv(t, "env.example.test", "env-user", "env-pass")
+	want := Settings{Host: "smtp.relay.example.net", Port: "2525", From: "noreply@t2.example.test"}
+	unnamed := append(append([]string{}, relayVariables[:8]...), "MAIL_RELAY_SECRET", "")
+	for name, objects := range map[string][]runtime.Object{
+		"no relay Secret": {variablesDocument(relayVariables...), mailSecret(written)},
+		"no Secret named": {variablesDocument(unnamed...), mailSecret(written), relaySecret("t2", "issued-for-t2")},
+		"no smtp-pass":    {variablesDocument(relayVariables...), mailSecret(written), relaySecret("t2", "")},
+		"no smtp-user":    {variablesDocument(relayVariables...), mailSecret(written), relaySecret("", "issued-for-t2")},
+	} {
+		withClient(t, fake.NewSimpleClientset(objects...), nil)
+		if got := Resolve(context.Background()); got != want {
+			t.Errorf("%s: Resolve = %+v, want %+v", name, got, want)
+		}
+	}
+	noPort := append(append([]string{}, relayVariables...), "MAIL_RELAY_PORT", "")
+	withClient(t, fake.NewSimpleClientset(variablesDocument(noPort...), relaySecret("t2", "issued-for-t2")), nil)
+	if got := Resolve(context.Background()); got.Port != "587" || got.User != "t2" {
+		t.Errorf("no MAIL_RELAY_PORT: Resolve = %+v, want port 587 and the relay credential", got)
+	}
+}
+
+// TestResolve_LocalModeIgnoresRelay (SOV-323): MAIL_MODE local, or a document
+// that holds no MAIL_MODE, keeps the local path: the relay Secret is not read.
+func TestResolve_LocalModeIgnoresRelay(t *testing.T) {
+	withEnv(t, "", "", "")
+	local := Settings{Host: "mail.t1.example.test", Port: "587", From: "noreply@t1.example.test", User: "noreply", Pass: "generated-in-cluster"}
+	localKeys := append(append([]string{}, relayVariables...), "MAIL_MODE", "local")
+	for name, doc := range map[string]*corev1.ConfigMap{
+		"MAIL_MODE local": variablesDocument(localKeys...),
+		"no MAIL_MODE":    variablesDocument("RELEASE_CHANNEL", "stable"),
+	} {
+		withClient(t, fake.NewSimpleClientset(doc, mailSecret(written), relaySecret("t2", "issued-for-t2")), nil)
+		if got := Resolve(context.Background()); got != local {
+			t.Errorf("%s: Resolve = %+v, want %+v", name, got, local)
+		}
 	}
 }

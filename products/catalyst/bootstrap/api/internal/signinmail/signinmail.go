@@ -12,6 +12,16 @@
 // therefore reads the Secret on every send and falls back to the
 // environment, the same way as the live read of the Anthropic credential
 // (#6163).
+//
+// A Sovereign whose variables document (ConfigMap
+// flux-system/sovereign-variables, contract C5) says MAIL_MODE relay runs no
+// mail server of its own. Its codes go to MAIL_RELAY_HOST:MAIL_RELAY_PORT as
+// MAIL_FROM, with the keys smtp-user and smtp-pass of the Secret
+// catalyst-system/<MAIL_RELAY_SECRET>: a credential the relay issued for
+// this Sovereign alone. In relay mode neither the Secret of the local mail
+// server nor the environment is read; a relay Secret that is absent or
+// incomplete gives the relay's address with no credential, so the relay
+// refuses the code and no other server ever receives it.
 package signinmail
 
 import (
@@ -23,6 +33,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+
+	"github.com/openova-io/openova/core/controllers/pkg/upstream"
 )
 
 const (
@@ -82,7 +94,8 @@ func FromEnv() Settings {
 // Resolve returns the settings of the Secret when it holds a host, a user
 // and a password, and the settings of the environment otherwise: when the
 // Secret is absent, unreadable or incomplete, or when the process has no
-// in-cluster identity. It never mixes the two credentials.
+// in-cluster identity. It never mixes the two credentials. When the variables
+// document says MAIL_MODE relay, the relay answers instead (relayMode).
 func Resolve(ctx context.Context) Settings {
 	env := FromEnv()
 	cli, err := ClientFor()
@@ -91,11 +104,47 @@ func Resolve(ctx context.Context) Settings {
 	}
 	ctx, cancel := context.WithTimeout(ctx, readBudget)
 	defer cancel()
+	if relay, ok := relayMode(ctx, cli); ok {
+		return relay
+	}
 	sec, err := cli.CoreV1().Secrets(Namespace).Get(ctx, ObjectName, metav1.GetOptions{})
 	if err != nil || sec == nil {
 		return env
 	}
 	return fromSecret(sec.Data, env)
+}
+
+// relayMode reads the variables document. ok is false when the document
+// cannot be read or its MAIL_MODE is not relay; the local path answers then.
+// In relay mode host, port and sender are the document's, and the credential
+// is the relay Secret's when it holds both keys, otherwise none.
+func relayMode(ctx context.Context, cli kubernetes.Interface) (Settings, bool) {
+	cm, err := cli.CoreV1().ConfigMaps(upstream.Namespace).Get(ctx, upstream.Name, metav1.GetOptions{})
+	if err != nil || cm == nil {
+		return Settings{}, false
+	}
+	v := func(k string) string { return strings.TrimSpace(cm.Data[k]) }
+	if v("MAIL_MODE") != "relay" {
+		return Settings{}, false
+	}
+	s := Settings{Host: v("MAIL_RELAY_HOST"), Port: v("MAIL_RELAY_PORT"), From: v("MAIL_FROM")}
+	if s.Port == "" {
+		s.Port = defaultPort
+	}
+	name := v("MAIL_RELAY_SECRET")
+	if name == "" {
+		return s, true
+	}
+	sec, err := cli.CoreV1().Secrets(Namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil || sec == nil {
+		return s, true
+	}
+	user := strings.TrimSpace(string(sec.Data["smtp-user"]))
+	pass := strings.TrimSpace(string(sec.Data["smtp-pass"]))
+	if user != "" && pass != "" {
+		s.User, s.Pass = user, pass
+	}
+	return s, true
 }
 
 // fromSecret reads the keys smtp-host, smtp-port, smtp-from, smtp-user and
