@@ -12,9 +12,8 @@ spec:
   version: 1.0.6
   card:
     title: Vertical Pod Autoscaler
-    family: guardian
-    description: Automated CPU/memory right-sizing. Recommender + Updater + Admission Controller. Pairs with HPA/KEDA on the horizontal axis. Defaults to recommend-only mode (Off); SREs opt workloads into Auto via VerticalPodAutoscaler resources.
-    docs: https://github.com/kubernetes/autoscaler/tree/master/vertical-pod-autoscaler
+    summary: VPA recommender + updater — right-sizes Pod CPU/memory requests from observed usage so the Sovereign's workloads stay efficiently packed.
+    icon: vpa.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
   configSchema:
     type: object
@@ -40,36 +39,22 @@ spec:
         minimum: 1
         maximum: 3
   placementSchema:
-    modes: [single-region, active-active]
-    default: active-active           # VPA runs on every host cluster
+    modes: [single-region]
+    default: single-region
   manifests:
-    chart: ./chart
-  depends: []                        # independent infrastructure helper — no sibling-Blueprint deps
+    chart: bp-vpa
   upgrades:
     from: ["0.x"]
   topology:
-    supported:
-      - singleton
+    supported: [singleton]
     defaults:
       multi-region: singleton
       single-region: singleton
     perTopology:
       singleton:
         placement:
-          tier: ''
-          clusters:
-            - mgmt-A
-            - mgmt-B
-            - dmz-A
-            - dmz-B
-            - rtz-A
-            - rtz-B
+          tier: mgmt
+          clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
-            mgmt-B: singleton
-            dmz-A: singleton
-            dmz-B: singleton
-            rtz-A: singleton
-            rtz-B: singleton
-  multiInstance:
-    enabled: false
+  endpoints: []

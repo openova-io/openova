@@ -8,23 +8,13 @@ metadata:
 spec:
   version: 1.3.7
   card:
-    title: nats-jetstream
-    summary: Event spine for the Catalyst control plane. JetStream Streams + KV + Object Store via bundled nack JetStream Controller (Wave 5.45 #2254). Per-Organization Accounts. Replaces what was previously specified as Redpanda + Valkey for the control plane.
+    title: NATS JetStream
+    summary: Event spine for the Catalyst control plane — JetStream Streams + KV + Object Store via the bundled nack JetStream Controller. Per-Organization Accounts.
+    icon: nats.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
-  # ── #3373: class-level placement SUGGESTION + allow-list ────────────────
-  # Placement is an INSTANCE property (Application.spec.placement); this is
-  # only the default every instance inherits silently — the provisioning
-  # journey's generic advanced selector (and a direct Git edit of the
-  # instance's spec.placement) may override it within allowedPlacements.
-  # Founder §4 table target: mgmt. Single render mechanism: the Flux
-  # spec.kubeConfig.secretRef pivot — zero per-app placement code.
-  defaultPlacement:
-    vcluster: mgmt
-  allowedPlacements: [host, mgmt]
 
   manifests:
-    chart: ./chart
-  depends: []
+    chart: bp-nats-jetstream
 
   # ── G117.1: Topology declaration ────────────────────────────────────────
   # Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md:
@@ -34,22 +24,20 @@ spec:
   #   DNS flip; in-flight messages on lost region drop unless stream.mirror
   #   enabled.
   topology:
-    supported:
-      - active-passive
-      - singleton
+    supported: [active-passive, singleton]
     defaults:
       multi-region: active-passive
       single-region: singleton
     perTopology:
       active-passive:
         replication:
-          backend: raft
-          mode: sync
-          lagSloSeconds: 0
+          backend: none
+          mode: async
+          lagSloSeconds: 30
         switchover:
           mechanism: bp-continuum
-          rtoSeconds: 30
-          rpoSeconds: 60
+          rtoSeconds: 60
+          rpoSeconds: 30
         placement:
           tier: mgmt
           clusters: [mgmt-A, mgmt-B]
@@ -75,6 +63,6 @@ spec:
     protocolMapper: oidc
     silentLogin: false
 
-  # ── G117.6: Multi-instance ─────────────────────────────────────────────
-  multiInstance:
-    enabled: false
+  placementSchema:
+    modes: [single-region]
+    default: single-region

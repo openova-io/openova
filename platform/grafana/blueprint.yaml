@@ -7,27 +7,17 @@ metadata:
     catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 1.0.19  # lockstep with chart/Chart.yaml (#5022 deploymentStrategy Recreate — RWO single-replica roll deadlock)
-  visibility: unlisted
+  visibility: listed
   card:
     title: Grafana
-    family: insights
-    description: Visualization and dashboarding for the LGTM observability stack (Loki/Grafana/Tempo/Mimir).
+    family: dashboards
+    summary: Open-source observability dashboards. Pre-wired to Prometheus + Loki sources.
+    description: Multi-source observability platform with dashboards, alerting, and Keycloak SSO.
+    icon: grafana.svg
+    license: AGPL-3.0
+    tags: [observability, monitoring, dashboards, grafana]
     docs: https://grafana.com/docs/grafana/latest/
 
-  # ── G117.1: Topology declaration ────────────────────────────────────────
-  # Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md:
-  #   mgmt-A=Active, mgmt-B=Passive; Grafana DB on bp-cnpg-pair sync;
-  #   dashboards backed by Loki/Mimir/Tempo (S3 bucket replicated cross-region).
-  # ── #3373: class-level placement SUGGESTION + allow-list ────────────────
-  # Placement is an INSTANCE property (Application.spec.placement); this is
-  # only the default every instance inherits silently — the provisioning
-  # journey's generic advanced selector (and a direct Git edit of the
-  # instance's spec.placement) may override it within allowedPlacements.
-  # Founder §4 table target: mgmt. Single render mechanism: the Flux
-  # spec.kubeConfig.secretRef pivot — zero per-app placement code.
-  defaultPlacement:
-    vcluster: mgmt
-  allowedPlacements: [host, mgmt]
 
   topology:
     supported:
@@ -85,13 +75,10 @@ spec:
     realm: sovereign
     protocolMapper: oidc
     groupsClaim: groups
-    rolesFromGroup:
-      sovereign-admins: admin
-      grafana-editors: editor
-      grafana-viewers: viewer
     silentLogin: true
 
-  # ── G117.6: Multi-instance ─────────────────────────────────────────────
-  # CP-tier singleton-per-Sovereign: one Grafana per Sovereign.
-  multiInstance:
-    enabled: false
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-grafana

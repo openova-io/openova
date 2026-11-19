@@ -9,12 +9,13 @@ spec:
   version: 1.0.0
   card:
     title: NeMo Guardrails
-    summary: Programmable AI safety firewall — blocks prompt injection, PII leaks, off-topic content, and hallucinated citations between user input and the LLM. Wraps NVIDIA's `nemoguardrails server` (FastAPI on port 8000) as a Deployment + Service. Inline filter for bp-llm-gateway and bp-vllm.
-    icon: nemo-guardrails.svg
     category: ai-safety
-    tags: [ai-safety, guardrails, prompt-injection, pii, llm, nvidia]
-    documentation: https://docs.nvidia.com/nemo/guardrails/
+    summary: Programmable AI safety firewall — blocks prompt injection, PII leaks, off-topic content, and hallucinated citations between user input and the LLM. Wraps NVIDIA's `nemoguardrails server` (FastAPI on port 8000) as a Deployment + Service. Inline filter for bp-llm-gateway and bp-vllm.
+    description: Programmable AI safety firewall — blocks prompt injection, PII leaks, off-topic content, and hallucinated citations between user input and the LLM. Wraps NVIDIA's `nemoguardrails server` (FastAPI on port 8000) as a Deployment + Service. Inline filter for bp-llm-gateway and bp-vllm.
+    icon: nemo-guardrails.svg
     license: Apache-2.0
+    tags: [ai-safety, guardrails, prompt-injection, pii, llm, nvidia]
+    docs: https://docs.nvidia.com/nemo/guardrails/
   # #5468 — UNLISTED until the image exists. This Blueprint pins
   # ghcr.io/openova-io/openova/nemo-guardrails:0.21.0 and Chart.yaml asserts
   # "Catalyst's CI builds a reproducible image" there — but no such build
@@ -56,14 +57,10 @@ spec:
         default: false
         description: Auto-reload config on change. Development only — never enable in production.
   placementSchema:
-    modes: [single-region, active-active]
-    default: active-active
+    modes: [single-region]
+    default: single-region
   manifests:
-    chart: ./chart
-  depends:
-    - blueprint: bp-vllm
-      version: ^1.0
-      alias: vllm
+    chart: bp-nemo-guardrails
   upgrades:
     from: ["0.x"]
   observability:
@@ -100,9 +97,4 @@ spec:
           roles:
             rtz-A: singleton
   endpoints: []
-  multiInstance:
-    enabled: true
-    maxPerOrg: 3
-    namingTemplate: '{{.AppName}}-{{.InstanceID}}'
-    isolationLevel: namespace
   # ── /G117.1 ──

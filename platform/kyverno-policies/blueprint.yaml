@@ -9,29 +9,18 @@ spec:
   visibility: unlisted
   card:
     title: Kyverno Policy Library
-    family: guardian
-    description: EPIC-1 (#1096) compliance ClusterPolicy library. 18 baseline policies in Audit mode (resilience, security, governance, observability). Installed AFTER bp-kyverno so CRDs are registered before policy CRs apply.
-    docs: https://kyverno.io/docs/
+    summary: The Sovereign's curated Kyverno ClusterPolicy set — image-signature enforcement, namespace guardrails, and resource-hygiene rules applied at admission time.
+    icon: kyverno.svg
   topology:
-    supported:
-      - singleton
+    supported: [singleton]
     defaults:
       multi-region: singleton
       single-region: singleton
     perTopology:
       singleton:
-        replication:
-          backend: flux-git
-          mode: async
         placement:
-          tier: ''
-          clusters:
-            - mgmt-A
-            - mgmt-B
-            - dmz-A
-            - dmz-B
-            - rtz-A
-            - rtz-B
+          tier: ""
+          clusters: [mgmt-A, mgmt-B, dmz-A, dmz-B, rtz-A, rtz-B]
           roles:
             mgmt-A: singleton
             mgmt-B: singleton
@@ -39,5 +28,9 @@ spec:
             dmz-B: singleton
             rtz-A: singleton
             rtz-B: singleton
-  multiInstance:
-    enabled: false
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-kyverno-policies
+  endpoints: []

@@ -9,14 +9,9 @@ spec:
   version: 1.2.27
   card:
     title: PowerDNS
-    summary: |
-      Authoritative DNS for every Sovereign zone (pool + BYO). Per-zone
-      DNSSEC (ECDSAP256SHA256), lua-records for geo + health-checked
-      failover, dnsdist front-end for query rate-limiting + DDoS posture,
-      REST API at pdns.openova.io/api (operator-only). See
-      docs/MULTI-REGION-DNS.md for the lua-record patterns.
-    icon: powerdns.svg
     category: infrastructure
+    summary: Authoritative DNS for every Sovereign zone — per-zone DNSSEC, lua-records for geo + health-checked failover, dnsdist rate-limiting. See docs/MULTI-REGION-DNS.md.
+    icon: powerdns.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
   configSchema:
     type: object
@@ -44,62 +39,36 @@ spec:
         default: 100
         description: dnsdist MaxQPSIPRule threshold per source IP.
   placementSchema:
-    modes: [single-region, active-active]
-    default: active-active           # the public NS endpoints span regions
+    modes: [single-region]
+    default: single-region
   manifests:
-    chart: ./chart
-  # Hard depends — these primitives MUST be present in-cluster before
-  # bp-powerdns reconciles cleanly:
-  #   - postgresql.cnpg.io/v1.Cluster CRD (CNPG operator) consumed by
-  #     templates/cnpg-cluster.yaml. Catalyst-Zero installs CNPG as a
-  #     mandatory platform component (FABRIC group, componentGroups.ts
-  #     `cnpg`); the wrapper Blueprint bp-cnpg is on the roadmap as a
-  #     follow-up — until then we depend on the CRD being present, not
-  #     on a sibling Blueprint.
-  #   - cert-manager.io/v1.ClusterIssuer (letsencrypt-prod) referenced by
-  #     templates/api-ingress.yaml. bp-cert-manager already exists.
-  #   - traefik.io/v1alpha1.Middleware CRD — Traefik is the Catalyst-Zero
-  #     ingress controller and is a fixture of every Sovereign.
-  depends:
-    - blueprint: bp-cert-manager
+    chart: bp-powerdns
   upgrades:
     from: ["0.x"]
   topology:
-    supported:
-      - singleton
+    supported: [singleton]
     defaults:
       multi-region: singleton
       single-region: singleton
     perTopology:
       singleton:
         placement:
-          tier: ''
-          clusters:
-            - mgmt-A
-            - mgmt-B
-            - dmz-A
-            - dmz-B
-            - rtz-A
-            - rtz-B
+          tier: mgmt
+          clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
-            mgmt-B: singleton
-            dmz-A: singleton
-            dmz-B: singleton
-            rtz-A: singleton
-            rtz-B: singleton
   endpoints:
     - name: ns1
-      hostnameTemplate: ns1.{{.SovereignFQDN}}
+      hostnameTemplate: "ns1.{{.SovereignFQDN}}"
       port: 53
       protocol: udp
       tls: false
       visibility: public
+      launchDefault: false
     - name: ns2
-      hostnameTemplate: ns2.{{.SovereignFQDN}}
+      hostnameTemplate: "ns2.{{.SovereignFQDN}}"
       port: 53
       protocol: udp
       tls: false
       visibility: public
-  multiInstance:
-    enabled: false
+      launchDefault: false

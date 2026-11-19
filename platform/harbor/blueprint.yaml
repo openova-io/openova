@@ -9,9 +9,9 @@ spec:
   version: 1.2.56
   card:
     title: Harbor
-    family: foundation
-    description: Per-Sovereign OCI registry. Mirrors Catalyst Blueprint OCI artefacts and container images so the Sovereign isn't dependent on ghcr.io for day-2 image pulls. Stores blobs DIRECTLY in cloud-native Object Storage (Hetzner Object Storage / AWS S3 / etc., per ADR-0001 §13), metadata in CNPG. SSO via Keycloak OIDC. Vulnerability scanning via Trivy (off by default; opt-in once bp-trivy reconciles).
-    docs: https://goharbor.io/docs/
+    summary: Per-Sovereign OCI registry. Keycloak SSO via OIDC. One Harbor per Catalyst control plane.
+    description: Per-Sovereign OCI registry mirroring Catalyst Blueprint OCI artefacts + container images. Keycloak OIDC SSO; blobs in Object Storage, metadata in CNPG.
+    icon: harbor.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
   configSchema:
     type: object
@@ -50,50 +50,12 @@ spec:
         default: false
         description: Enable OIDC SSO via Catalyst Keycloak. Default off — opt in via per-Sovereign overlay once bp-keycloak has reconciled.
   placementSchema:
-    # Aligned with spec.topology below (#4212 Seam 3): the application-
-    # controller validates an Application's spec.placement against modes[]
-    # (blueprintAllowedModes) and derives the effective default from
-    # default / defaultOnMultiRegion (EffectiveDefault). The spine
-    # Application-CR producer stamps active-hot-standby on a multi-region
-    # Sovereign (matching topology.defaults.multi-region), so modes[] must
-    # admit it AND defaultOnMultiRegion must name it — otherwise the
-    # explicit placement is rejected and no Continuum CR is minted.
-    modes: [single-region, singleton, active-hot-standby]
-    default: single-region
+    modes: [singleton, active-hot-standby]
+    default: singleton
     defaultOnMultiRegion: active-hot-standby
-    minRegions: 1
-    maxRegions: 2
-  # ── #3373: class-level placement SUGGESTION + allow-list ────────────────
-  # Placement is an INSTANCE property (Application.spec.placement); this is
-  # only the default every instance inherits silently — the provisioning
-  # journey's generic advanced selector (and a direct Git edit of the
-  # instance's spec.placement) may override it within allowedPlacements.
-  # Founder §4 table target: mgmt. Single render mechanism: the Flux
-  # spec.kubeConfig.secretRef pivot — zero per-app placement code.
-  defaultPlacement:
-    vcluster: mgmt
-  allowedPlacements: [host, mgmt]
 
   manifests:
-    chart: ./chart
-  depends:
-    - blueprint: bp-cnpg             # CNPG operator + CRDs (engine substrate)
-      version: ^1
-    # bp-postgres (#3370): Harbor's registry metadata DB is a Context on a
-    # SHAREABLE bp-postgres data-instance (the slot wires harbor's HR
-    # dependsOn bp-postgres-shared). Declaring bp-postgres here — the
-    # shareable INSTANCE Blueprint, not just bp-cnpg the engine operator —
-    # makes the console's New-instance wizard render the generic PostgreSQL
-    # backing selector (Create new / Reuse existing) per §2.4 / §7.
-    - blueprint: bp-postgres
-      version: ^0
-    - blueprint: bp-cert-manager     # registry endpoint TLS via ClusterIssuer
-      version: ^1
-    # Note: bp-seaweedfs dependency REMOVED in 1.1.0 (issue #383). Per
-    # ADR-0001 §13 Harbor on Sovereigns writes blobs DIRECTLY to the
-    # cloud-provider's native S3 endpoint (Hetzner Object Storage / AWS
-    # S3 / etc.). SeaweedFS is reserved as a POSIX→S3 buffer for legacy
-    # POSIX-only writers and is not in the minimal Sovereign set.
+    chart: bp-harbor
   upgrades:
     from: ["0.x", "1.0.x"]
 
@@ -186,12 +148,5 @@ spec:
     groupsClaim: groups
     rolesFromGroup:
       sovereign-admins: admin
-      harbor-admins: admin
-      harbor-developers: developer
-      harbor-guests: guest
     silentLogin: true
 
-  # ── G117.6: Multi-instance ─────────────────────────────────────────────
-  # Singleton per Sovereign — one Harbor per Catalyst control plane.
-  multiInstance:
-    enabled: false

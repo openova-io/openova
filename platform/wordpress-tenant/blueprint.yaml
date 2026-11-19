@@ -27,20 +27,14 @@ spec:
   version: 0.6.6
   card:
     title: WordPress (per-Organization)
-    summary: |
-      Turnkey, SSO-pre-wired WordPress per Organization, served at
-      https://<instance>.<org-domain> with TLS. Its own PostgreSQL (CNPG) in
-      every region it runs in, synchronously replicated under
-      active-hot-standby / active-passive, so moving the Primary loses no
-      data. Uploaded media live in the Sovereign's replicated object store.
-      Sign-in is SSO through the Organization's realm (openid-connect-generic
-      plugin); the Organization owner is pre-seeded as administrator, so the
-      first sign-in lands in /wp-admin. No install wizard, no manual config.
-    icon: wordpress.svg
     category: organization-app
-    tags: [wordpress, cms, organization, sso, keycloak, oidc, postgres]
-    documentation: https://wordpress.org/documentation/
+    family: cms
+    summary: Turnkey, SSO-pre-wired WordPress per Organization. Postgres + cert-manager TLS pre-wired.
+    description: Runs in the Organization's vcluster, namespace = Organization namespace. SSO via the Organization-vcluster Keycloak realm. Default theme + admin user pre-seeded at install time.
+    icon: wordpress.svg
     license: GPL-2.0-or-later
+    tags: [wordpress, cms, org, organization, sso, keycloak, postgres]
+    docs: https://wordpress.org/documentation/
   visibility: listed
   owner:
     team: platform
@@ -245,7 +239,7 @@ spec:
     default: single-region
     defaultOnMultiRegion: active-passive
   manifests:
-    chart: ./chart
+    chart: bp-wordpress-tenant
   # ── ADR-0015 D6 — region-local volumes ───────────────────────────────
   # Every piece of FILE state this Blueprint keeps per region, and how it
   # survives a primary move. The D6 admission gate (catalyst-api
@@ -281,27 +275,6 @@ spec:
       contents: [uploads]
       replication: s3-replicated
       bucket: replicated
-  depends:
-    # This chart provisions and owns its database: one CNPG Cluster per
-    # region (`<app>-db-<hash>`, synchronous cross-region replication under
-    # a multi-region topology — database.* above). It consumes NO bp-postgres
-    # Context, so it declares none. Declaring bp-postgres here made the
-    # console's New-instance dialog create a separate `<app>-postgres`
-    # Application and wire the WordPress HelmReleases' dependsOn to it — on
-    # hw307 that instance failed placement and blocked the install
-    # (Refs #7067). bp-cnpg is the engine operator the Clusters need.
-    - blueprint: bp-cnpg
-      version: ^1.0
-      alias: db-operator
-    - blueprint: bp-keycloak
-      version: ^1.0
-      alias: idp
-    - blueprint: bp-reflector
-      version: ^1.0
-      alias: reflector
-    - blueprint: bp-cert-manager
-      version: ^1.0
-      alias: tls
   upgrades:
     from: ["0.x"]
   observability:
@@ -372,15 +345,10 @@ spec:
     launchDefault: true
     ssoEnabled: true
   sso:
-    realm: '{{.OrgSlug}}'
+    realm: "{{.OrgSlug}}"
     protocolMapper: oidc
-    groupsClaim: groups
-    rolesFromGroup:
-      sovereign-admins: admin
     silentLogin: true
   multiInstance:
     enabled: true
-    maxPerOrg: 20
-    namingTemplate: '{{.AppName}}-{{.InstanceID}}'
-    isolationLevel: namespace
+    maxPerOrg: 10
   # ── /G117.1 ──

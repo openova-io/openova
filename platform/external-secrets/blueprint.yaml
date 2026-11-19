@@ -8,13 +8,9 @@ spec:
   version: 1.1.7
   card:
     title: External Secrets Operator
-    summary: |
-      Day-2 secret pipeline. Materializes K8s Secrets from OpenBao
-      (the Catalyst secret backend) via ExternalSecret / PushSecret CRs
-      and ESO Generators. Replaces the bootstrap-only bp-sealed-secrets
-      slot 05 once OpenBao + ESO are Ready.
-    icon: external-secrets.svg
     category: security
+    summary: Syncs secrets from OpenBao into Kubernetes Secrets via ExternalSecret CRs. The materialisation layer every app's SSO/DB credential flows through.
+    icon: external-secrets.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
   configSchema:
     type: object
@@ -64,42 +60,22 @@ spec:
                 type: string
                 default: external-secrets-system
   placementSchema:
-    modes: [single-region, active-active]
-    default: active-active            # ESO runs on every host cluster
+    modes: [single-region]
+    default: single-region
   manifests:
-    chart: ./chart
-  # Per W2.K1 PR #262 the Flux HR at clusters/_template/bootstrap-kit/
-  # 15-external-secrets.yaml gates install on bp-openbao + bp-cert-manager
-  # via dependsOn. Declared here for documentation parity; the
-  # blueprint-controller does not yet reconcile this field — it is the
-  # HR's dependsOn that takes effect at install time.
-  depends:
-    - blueprint: bp-openbao
-      version: ^1.0
-    - blueprint: bp-cert-manager
-      version: ^1.0
+    chart: bp-external-secrets
   upgrades:
     from: ["0.x"]
   topology:
-    supported:
-      - singleton
+    supported: [singleton]
     defaults:
       multi-region: singleton
       single-region: singleton
     perTopology:
       singleton:
-        replication:
-          backend: openbao-perf-replication
-          mode: async
         placement:
-          tier: ''
-          clusters:
-            - mgmt-A
-            - mgmt-B
-            - dmz-A
-            - dmz-B
-            - rtz-A
-            - rtz-B
+          tier: ""
+          clusters: [mgmt-A, mgmt-B, dmz-A, dmz-B, rtz-A, rtz-B]
           roles:
             mgmt-A: singleton
             mgmt-B: singleton
@@ -107,5 +83,4 @@ spec:
             dmz-B: singleton
             rtz-A: singleton
             rtz-B: singleton
-  multiInstance:
-    enabled: false
+  endpoints: []

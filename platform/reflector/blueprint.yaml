@@ -18,33 +18,18 @@ spec:
   visibility: unlisted
   card:
     title: Reflector
-    family: guardian
-    description: |
-      Mirrors Kubernetes Secrets and ConfigMaps across namespaces via
-      reflector.v1.k8s.emberstack.com/* annotations. Eliminates the
-      cross-namespace secret propagation gap that previously caused
-      ImagePullBackOff on every new tenant namespace (issue #543).
-    docs: https://github.com/emberstack/kubernetes-reflector
+    summary: Reflects Secrets + ConfigMaps across namespaces via annotations — propagates wildcard TLS + shared config to every namespace that needs them.
+    icon: reflector.svg
   topology:
-    supported:
-      - singleton
+    supported: [singleton]
     defaults:
       multi-region: singleton
       single-region: singleton
     perTopology:
       singleton:
-        replication:
-          backend: none
-          mode: none
         placement:
-          tier: ''
-          clusters:
-            - mgmt-A
-            - mgmt-B
-            - dmz-A
-            - dmz-B
-            - rtz-A
-            - rtz-B
+          tier: ""
+          clusters: [mgmt-A, mgmt-B, dmz-A, dmz-B, rtz-A, rtz-B]
           roles:
             mgmt-A: singleton
             mgmt-B: singleton
@@ -52,5 +37,9 @@ spec:
             dmz-B: singleton
             rtz-A: singleton
             rtz-B: singleton
-  multiInstance:
-    enabled: false
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-reflector
+  endpoints: []

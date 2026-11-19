@@ -8,23 +8,12 @@ spec:
   version: 1.0.2
   card:
     title: cert-manager — Issuers
-    summary: |
-      Default Let's Encrypt ClusterIssuer CR(s) (letsencrypt-dns01-prod,
-      letsencrypt-http01-prod). Split from bp-cert-manager (#3734) to
-      resolve the helm-controller RESTMapper-cache CRD-ordering race — the
-      ClusterIssuer CRs cannot live in the same Helm release as the
-      cert-manager subchart that registers their CRD; Flux dependsOn orders
-      this chart after bp-cert-manager is Ready so a fresh reconcile maps
-      the ClusterIssuer kind and the CRs apply cleanly.
-
-      Mirrors the bp-external-secrets-stores / bp-crossplane-claims pattern.
-    icon: cert-manager.svg
     category: security
+    summary: The Sovereign's Let's Encrypt ClusterIssuers (letsencrypt-dns01-prod, letsencrypt-http01-prod). Split from bp-cert-manager (#3734) into a separate HelmRelease (dependsOn bp-cert-manager) so a fresh helm-controller reconcile maps the ClusterIssuer kind after its CRD registers.
+    icon: cert-manager.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
   manifests:
-    chart: ./chart
-  depends:
-    - bp-cert-manager
+    chart: bp-cert-manager-issuers
 
   # ── Outputs advertised to dependent Blueprints (inherited from #113) ─────
   # The issuer NAMES are unchanged from when they lived in bp-cert-manager,
@@ -37,25 +26,15 @@ spec:
     issuerKind: ClusterIssuer
     wildcardIssuerName: letsencrypt-dns01-prod
   topology:
-    supported:
-      - singleton
+    supported: [singleton]
     defaults:
       multi-region: singleton
       single-region: singleton
     perTopology:
       singleton:
-        replication:
-          backend: flux-git
-          mode: async
         placement:
-          tier: ''
-          clusters:
-            - mgmt-A
-            - mgmt-B
-            - dmz-A
-            - dmz-B
-            - rtz-A
-            - rtz-B
+          tier: ""
+          clusters: [mgmt-A, mgmt-B, dmz-A, dmz-B, rtz-A, rtz-B]
           roles:
             mgmt-A: singleton
             mgmt-B: singleton
@@ -63,5 +42,7 @@ spec:
             dmz-B: singleton
             rtz-A: singleton
             rtz-B: singleton
-  multiInstance:
-    enabled: false
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  endpoints: []

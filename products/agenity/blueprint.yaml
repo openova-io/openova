@@ -50,18 +50,14 @@ spec:
     sidebarIcon: 'M3 4a1 1 0 011-1h16a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm5 5l3 3-3 3m5 0h4M8 21h8'
   card:
     title: Agenity
-    summary: |
-      Your AI engineering team — a multi-agent runtime + dashboard you
-      install into your own Organization. Chat with the built-in solo
-      agent (Claude Opus 4.7, token pre-configured); it creates and
-      manages Applications in YOUR Organization on your behalf through the
-      OpenOva MCP, scoped to exactly what you can do in the console.
-    icon: agenity.svg
     category: ai-runtime
     family: agent-runtime
-    tags: [agenity, agent, multi-agent, claude, opus, mcp, self-service]
-    documentation: https://github.com/openova-io/openova
+    summary: Your AI engineering team — chat with a built-in solo agent (Claude Opus 4.7) that creates Applications in your Organization for you.
+    description: Install Agenity into your Organization and chat with its solo agent (Claude Opus 4.7, token pre-configured). The agent reaches the OpenOva MCP — scoped to exactly what you can do in the console — to create and manage Applications in YOUR Organization on your behalf.
+    icon: agenity.svg
     license: MIT
+    tags: [agenity, agent, multi-agent, claude, opus, mcp, self-service]
+    docs: https://github.com/openova-io/openova
   visibility: listed
   owner:
     team: ai-platform
@@ -149,24 +145,9 @@ spec:
     modes: [single-region]
     default: single-region
   manifests:
-    chart: ./chart
+    chart: bp-agenity
     helmRelease:
-      # disableWait — do NOT block the helm install on workload (pod)
-      # readiness. The agenity image (chepherd + claude-code + node runtime,
-      # appVersion 0.9.7) is large and cold-pulls slowly on a fresh Org node;
-      # with Flux's default --wait the install burns its timeout waiting for
-      # the Pod, then helm-controller UNINSTALLS the release (deleting the
-      # StatefulSet + Pod) and retries — restarting the image pull from zero
-      # every cycle, so the Pod never converges (live on the omantel.biz demo
-      # Org post-#4325, #4362). disableWait lets the release reach Released so
-      # the StatefulSet survives and the Pod finishes pulling on its own
-      # schedule. The dashboard SPA has zero dependsOn (it must serve while
-      # keycloak/cnpg converge), so nothing downstream needs the readiness gate.
       disableWait: true
-  depends:
-    - blueprint: bp-external-secrets
-      version: ^1.0
-      alias: eso
   upgrades:
     from: ["0.x"]
   observability:

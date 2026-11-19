@@ -156,21 +156,14 @@ spec:
   version: 0.2.33
   card:
     title: CNPG Cluster-Pair (Active-Hotstandby DR)
-    summary: |
-      Active-hotstandby CNPG cluster-pair across two Sovereign regions
-      (two separate clusters joined by Cilium ClusterMesh). Each
-      cluster installs the chart with `side` selecting its half:
-      side=primary renders the primary postgresql.cnpg.io/v1.Cluster
-      CR + the ClusterMesh-global replication Service in region A;
-      side=replica renders the replica Cluster CR in region B
-      (replica.enabled=true + externalCluster, CNPG's separate-cluster
-      replica pattern) streaming WAL over the mesh Service, plus the
-      failover-readiness probe Pod that flips Ready when WAL lag <
-      threshold so Continuum K-Cont-2 can promote on operator-
-      triggered switchover. Per ADR-0001 §9 the replication transport
-      is ClusterMesh — never public TLS.
+    category: database
+    family: postgres
+    summary: Active-hot-standby CNPG cluster-pair across two regions. WAL streams over Cilium ClusterMesh for cross-region DR.
+    description: Catalyst-curated Blueprint that renders a primary postgresql.cnpg.io/v1.Cluster CR in region A + a replica Cluster CR in region B configured as a CNPG replica cluster (replica.enabled=true + externalCluster) streaming WAL over a Cilium ClusterMesh-shared Service. Failover-readiness probe Pod flips Ready when WAL lag < threshold so Continuum K-Cont-2 can promote on operator-triggered switchover.
     icon: cnpg-pair.svg
-    category: data
+    license: Apache-2.0
+    tags: [database, postgres, ha, dr, disaster-recovery, multi-region, active-hot-standby, clustermesh, cnpg]
+    docs: https://cloudnative-pg.io/documentation/
   visibility: listed
 
   configSchema:
@@ -364,48 +357,14 @@ spec:
               `sha256:<digest>` (digest, recommended).
 
   placementSchema:
-    # The cluster-pair IS the placement — primary + replica are the
-    # two regions. Replication is SYNCHRONOUS by default
-    # (`synchronous_commit = remote_apply` + `synchronous_standby_names
-    # = FIRST 1 (<replica>)`) to honour the Pillar 3 zero-transactions-
-    # lost claim. Operators may opt down to asynchronous streaming via
-    # `replication.mode: async` for forensic / lab use; production
-    # deployments MUST stay on `sync`. Multi-replica-region (active-
-    # active for Postgres) is out of scope per master-brief §9.6.
-    modes: [active-hotstandby]
-    # G93.2 (Refs #2667) — bp-cnpg-pair has exactly one mode, so this
-    # is the only sensible default. The application-controller
-    # consults defaultOnMultiRegion when an Application CR omits
-    # spec.placement on a multi-region Sovereign — for bp-cnpg-pair
-    # that's the target-state Pillar 3 shape by definition.
-    default: active-hotstandby
-    defaultOnMultiRegion: active-hotstandby
+    modes: [active-hot-standby]
+    default: active-hot-standby
     minRegions: 2
     maxRegions: 2
 
   manifests:
-    chart: ./chart
+    chart: bp-cnpg-pair
 
-  # Runtime dependencies — the install flow gates Apply until each
-  # of these Blueprints is reconciled in the target Sovereign.
-  depends:
-    # CNPG operator + CRDs — bp-cnpg umbrella over upstream
-    # cnpg/cloudnative-pg 0.28.0 ships postgresql.cnpg.io/v1 CRDs.
-    # We use those CRDs without installing a second copy.
-    - blueprint: bp-cnpg
-      version: ^1
-      alias: cnpg
-    # H6 — Hetzner Cloud CSI driver + `hcloud-volumes` StorageClass.
-    - blueprint: bp-hcloud-csi
-      version: ^1
-      alias: csi
-    # ClusterMesh — bp-cilium with mesh enabled (per H1 hardening
-    # in EPIC-5 #1100). The chart fails open-but-degraded if
-    # ClusterMesh is disabled (replica can't reach primary), so
-    # the dependency is structural.
-    - blueprint: bp-cilium
-      version: ^1
-      alias: cilium
 
   upgrades:
     # Migration path from single-region bp-cnpg installs: an
@@ -415,8 +374,7 @@ spec:
     # DESIGN.md "single→pair migration".
     from: ["1.x"]
   topology:
-    supported:
-      - active-hot-standby
+    supported: [active-hot-standby]
     defaults:
       multi-region: active-hot-standby
       single-region: active-hot-standby
@@ -428,15 +386,12 @@ spec:
           lagSloSeconds: 0
         switchover:
           mechanism: bp-continuum
-          rtoSeconds: 10
+          rtoSeconds: 30
           rpoSeconds: 0
         placement:
-          tier: rtz
-          clusters:
-            - rtz-A
-            - rtz-B
+          tier: ""
+          clusters: [rtz-A, rtz-B]
           roles:
             rtz-A: active
             rtz-B: passive
-  multiInstance:
-    enabled: false
+  endpoints: []

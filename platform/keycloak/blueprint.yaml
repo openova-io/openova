@@ -13,19 +13,15 @@ spec:
   #   sovereign-admin host is the first redirectUri.
   version: 1.5.16
   card:
-    title: keycloak
-    summary: Keycloak — user identity. Topology decided by Sovereign CRD spec.keycloakTopology (per-organization for Organizations, shared-sovereign for corporate).
-  visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
-  # ── #3373: class-level placement SUGGESTION + allow-list ────────────────
-  # Placement is an INSTANCE property (Application.spec.placement); this is
-  # only the default every instance inherits silently — the provisioning
-  # journey's generic advanced selector (and a direct Git edit of the
-  # instance's spec.placement) may override it within allowedPlacements.
-  # Founder §4 table target: mgmt. Single render mechanism: the Flux
-  # spec.kubeConfig.secretRef pivot — zero per-app placement code.
-  defaultPlacement:
-    vcluster: mgmt
-  allowedPlacements: [host, mgmt]
+    title: Keycloak
+    family: iam
+    summary: Open-source Identity and Access Management. OIDC + SAML + social login + realm-per-Organization.
+    description: Per-Organization Keycloak realm with pre-seeded OIDC client. Pairs with bp-wordpress-tenant for SSO.
+    icon: keycloak.svg
+    license: Apache-2.0
+    tags: [identity, sso, oidc, saml, iam, keycloak]
+    docs: https://www.keycloak.org/documentation
+  visibility: listed
 
   # placementSchema aligned with spec.topology below (#4212 Seam 3). The
   # spine Application-CR producer stamps active-hot-standby on a multi-region
@@ -36,19 +32,9 @@ spec:
     modes: [singleton, active-hot-standby]
     default: singleton
     defaultOnMultiRegion: active-hot-standby
-    minRegions: 1
-    maxRegions: 2
 
   manifests:
-    chart: ./chart
-  # bp-postgres (#3370): Keycloak's database is a Context on a SHAREABLE
-  # bp-postgres data-instance (slot 09 wires keycloak's HR dependsOn
-  # bp-postgres-shared). Declaring the shareable INSTANCE Blueprint here
-  # (not just the engine) makes the console New-instance wizard render the
-  # generic PostgreSQL backing selector (Create new / Reuse existing).
-  depends:
-    - blueprint: bp-postgres
-      version: ^0
+    chart: bp-keycloak
 
   # ── G117.1: Topology declaration ────────────────────────────────────────
   # Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md:
@@ -110,12 +96,5 @@ spec:
   sso:
     realm: sovereign
     protocolMapper: oidc
-    groupsClaim: groups
-    rolesFromGroup:
-      sovereign-admins: admin
     silentLogin: false
 
-  # ── G117.6: Multi-instance ─────────────────────────────────────────────
-  # Singleton per Sovereign — one Keycloak per Catalyst control plane.
-  multiInstance:
-    enabled: false

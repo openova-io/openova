@@ -10,9 +10,10 @@ spec:
   version: 0.2.53
   card:
     title: Apache Guacamole
-    summary: Clientless HTML5 remote-desktop gateway. Browser-based RDP / VNC / SSH and kubectl-exec into Pods, with Keycloak SSO. One Guacamole per Sovereign per ADR-0001 §11.
-    icon: guacamole.svg
     category: platform
+    summary: Clientless HTML5 remote-desktop gateway. Browser-based RDP / VNC / SSH and kubectl-exec into Pods, with Keycloak SSO. One Guacamole per Sovereign per ADR-0001 §11.
+    description: Clientless HTML5 remote-desktop gateway. Browser-based RDP / VNC / SSH and kubectl-exec into Pods, with Keycloak SSO. One Guacamole per Sovereign per ADR-0001 §11.
+    icon: guacamole.svg
   visibility: listed
   configSchema:
     type: object
@@ -32,33 +33,13 @@ spec:
         default: "50Gi"
         description: "Unused: sessions are not recorded today."
   placementSchema:
-    modes: [single-region]
-    minRegions: 1
-    maxRegions: 1
+    modes: [single-region, active-hot-standby]
+    default: single-region
   upgrades:
     from: ["0.x"]
-  # ── #3373: class-level placement SUGGESTION + allow-list ────────────────
-  # Placement is an INSTANCE property (Application.spec.placement); this is
-  # only the default every instance inherits silently — the provisioning
-  # journey's generic advanced selector (and a direct Git edit of the
-  # instance's spec.placement) may override it within allowedPlacements.
-  # Founder §4 table target: mgmt. Single render mechanism: the Flux
-  # spec.kubeConfig.secretRef pivot — zero per-app placement code.
-  defaultPlacement:
-    vcluster: mgmt
-  allowedPlacements: [host, mgmt]
 
   manifests:
-    chart: ./chart
-  depends:
-    - blueprint: bp-keycloak
-      version: ^1
-    - blueprint: bp-cilium
-      version: ^1
-    - blueprint: bp-seaweedfs
-      version: ^1
-    - blueprint: bp-k8s-ws-proxy
-      version: ^0
+    chart: bp-guacamole
 
   # ── G117.1: Topology declaration ────────────────────────────────────────
   # Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md:
@@ -124,7 +105,3 @@ spec:
       sovereign-admins: admin
     silentLogin: true
 
-  # ── G117.6: Multi-instance ─────────────────────────────────────────────
-  # Singleton per Sovereign per ADR-0001 §11.
-  multiInstance:
-    enabled: false

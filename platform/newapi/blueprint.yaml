@@ -10,24 +10,13 @@ spec:
   version: 1.4.164
   card:
     title: NewAPI
-    summary: |
-      Multi-tenant LLM marketplace gateway. Wraps the upstream NewAPI
-      (github.com/Calcium-Ion/new-api, MIT, fork of OneAPI) with credits,
-      per-key budgets, channel routing, and BYOK as first-class primitives.
-      Deployed in **backend-only** mode: the OpenAI-compatible API at
-      `api.<host>/v1/*` is customer-facing; the upstream's portal UI is
-      disabled at ingress; Catalyst replaces it as the customer surface;
-      NewAPI's admin UI at `admin.<host>` is exposed only to ops staff
-      (IdP-gated). Compliance posture (channel attestation, geographic
-      AUP, BYOK isolation, reseller disclosure) enforced at the
-      blueprint layer. Use `bp-newapi` when the Sovereign operator's
-      business model is reselling LLM access to its own customers; use
-      `bp-llm-gateway` for self-consumption.
-    icon: newapi.svg
     category: ai-runtime
-    tags: [llm, gateway, marketplace, multi-tenant, credits, byok, openai-compatible, reseller]
-    documentation: https://github.com/Calcium-Ion/new-api
+    summary: "Multi-tenant LLM marketplace gateway. Wraps the upstream NewAPI (github.com/Calcium-Ion/new-api, MIT, fork of OneAPI) with credits, per-key budgets, channel routing, and BYOK as first-class primitives. Deployed in **backend-only** mode: the OpenAI-compatible API at `api.<host>/v1/*` is customer-facing; the upstream's portal UI is disabled at ingress; Catalyst replaces it as the customer surface; NewAPI's admin UI at `admin.<host>` is exposed only to ops staff (IdP-gated). Compliance posture (channel attestation, geographic AUP, BYOK isolation, reseller disclosure) enforced at the blueprint layer. Use `bp-newapi` when the Sovereign operator's business model is reselling LLM access to its own customers; use `bp-llm-gateway` for self-consumption. "
+    description: "Multi-tenant LLM marketplace gateway. Wraps the upstream NewAPI (github.com/Calcium-Ion/new-api, MIT, fork of OneAPI) with credits, per-key budgets, channel routing, and BYOK as first-class primitives. Deployed in **backend-only** mode: the OpenAI-compatible API at `api.<host>/v1/*` is customer-facing; the upstream's portal UI is disabled at ingress; Catalyst replaces it as the customer surface; NewAPI's admin UI at `admin.<host>` is exposed only to ops staff (IdP-gated). Compliance posture (channel attestation, geographic AUP, BYOK isolation, reseller disclosure) enforced at the blueprint layer. Use `bp-newapi` when the Sovereign operator's business model is reselling LLM access to its own customers; use `bp-llm-gateway` for self-consumption. "
+    icon: newapi.svg
     license: MIT
+    tags: [llm, gateway, marketplace, multi-tenant, credits, byok, openai-compatible, reseller]
+    docs: https://github.com/Calcium-Ion/new-api
   visibility: listed
   owner:
     team: ai-platform
@@ -247,48 +236,10 @@ spec:
               per-user API keys against NewAPI. Disable only in Sovereigns where Catalyst
               is not the customer surface (rare).
   placementSchema:
-    modes: [single-region, active-active]
+    modes: [single-region, active-passive]
     default: single-region
-  # ── #3373: class-level placement SUGGESTION + allow-list ────────────────
-  # Placement is an INSTANCE property (Application.spec.placement); this is
-  # only the default every instance inherits silently — the provisioning
-  # journey's generic advanced selector (and a direct Git edit of the
-  # instance's spec.placement) may override it within allowedPlacements.
-  # Founder §4 table target: mgmt. Single render mechanism: the Flux
-  # spec.kubeConfig.secretRef pivot — zero per-app placement code.
-  defaultPlacement:
-    vcluster: mgmt
-  allowedPlacements: [host, mgmt]
   manifests:
-    chart: ./chart
-    helmRelease:
-      # #4246 — newapi's wait-for-sql-dsn initContainer blocks until the
-      # database-secret-sync-job (a post-install/post-upgrade Helm hook)
-      # PATCHes the SQL_DSN Secret. With Flux's default --wait, helm-
-      # controller waits for the Deployment to be Ready BEFORE running the
-      # post-install hooks → the hook that unblocks the Pod never runs →
-      # install deadlocks + times out. disableWait lets the hooks run
-      # immediately so the DSN populates and the Pod proceeds. The
-      # bootstrap-kit newapi HR sets this by hand; this propagates it to
-      # the per-Org Application render path (fanout via pkg/render).
-      disableWait: true
-  depends:
-    - blueprint: bp-cnpg
-      version: ^1.0
-      alias: db
-    - blueprint: bp-keycloak
-      version: ^1.0
-      alias: idp
-    - blueprint: bp-external-secrets
-      version: ^1.0
-      alias: eso
-    - blueprint: bp-valkey
-      version: ^1.0
-      alias: cache
-    - blueprint: bp-vllm
-      version: ^1.0
-      alias: vllm
-      optional: true
+    chart: bp-newapi
   upgrades:
     from: ["0.x"]
   observability:
@@ -386,18 +337,3 @@ spec:
     rolesFromGroup:
       sovereign-admins: admin
     silentLogin: true
-    # #3648 — STANDARD sso-bootstrap contract (the SAME spec.sso.adminGroup +
-    # spec.sso.bootstrap every app declares). NewAPI is a Pattern-B app
-    # (upstream has no group→role mechanism), so the platform seeds + promotes
-    # its first admin via the chart's DB-direct admin-sso-seed-job — but WHO
-    # becomes admin (adminGroup) and the bootstrap parameters are declared
-    # HERE, uniformly, never in a newapi-bespoke key.
-    adminGroup: sovereign-admins
-    bootstrap:
-      enabled: true
-      providerSlug: sovereign
-      enforceAdminGroup: false
-  # ── G117.6: Multi-instance ─────────────────────────────────────────────
-  # Singleton per Sovereign — one NewAPI instance per Sovereign control plane.
-  multiInstance:
-    enabled: false

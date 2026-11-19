@@ -17,29 +17,18 @@ spec:
   visibility: unlisted
   card:
     title: Kyverno
-    family: guardian
-    description: Kubernetes-native policy management. Validating/mutating/generating admission control. HA mode with separate admission/background/cleanup/reports controllers.
-    docs: https://kyverno.io/docs/
+    summary: Kubernetes-native policy engine — validates, mutates, and generates resources via admission control. Enforces the Sovereign's guardrail policy set.
+    icon: kyverno.svg
   topology:
-    supported:
-      - singleton
+    supported: [singleton]
     defaults:
       multi-region: singleton
       single-region: singleton
     perTopology:
       singleton:
-        replication:
-          backend: flux-git
-          mode: async
         placement:
-          tier: ''
-          clusters:
-            - mgmt-A
-            - mgmt-B
-            - dmz-A
-            - dmz-B
-            - rtz-A
-            - rtz-B
+          tier: ""
+          clusters: [mgmt-A, mgmt-B, dmz-A, dmz-B, rtz-A, rtz-B]
           roles:
             mgmt-A: singleton
             mgmt-B: singleton
@@ -47,5 +36,9 @@ spec:
             dmz-B: singleton
             rtz-A: singleton
             rtz-B: singleton
-  multiInstance:
-    enabled: false
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-kyverno
+  endpoints: []

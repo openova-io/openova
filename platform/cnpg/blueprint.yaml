@@ -13,16 +13,15 @@ spec:
   version: 1.0.17
   card:
     title: CloudNativePG
-    summary: |
-      Production-grade PostgreSQL operator. Per-Sovereign Postgres-as-a-
-      service via postgresql.cnpg.io/v1.Cluster CRs. Bootstrap-kit slot 16
-      — required by every PG-backed bootstrap component (bp-powerdns,
-      bp-keycloak HA, bp-gitea metadata, bp-langfuse, bp-grafana config DB,
-      bp-temporal, bp-matrix synapse, bp-llm-gateway, bp-bge,
-      bp-nemo-guardrails, bp-openmeter, pool-domain-manager).
-    icon: cnpg.svg
-    category: data
-  visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+    category: database
+    family: postgres
+    summary: PostgreSQL operator for Kubernetes (HA primary/replica, automated backups, point-in-time recovery).
+    description: Production-grade Postgres operator. Provisions a Cluster CR per database with streaming replication, scheduled backups, and S3 PITR.
+    icon: postgres.svg
+    license: Apache-2.0
+    tags: [database, postgres, sql, operator, ha]
+    docs: https://cloudnative-pg.io/documentation/
+  visibility: listed
   # ── producesInstances (#3648) ───────────────────────────────────────
   # bp-cnpg is the OPERATOR / engine; it PRODUCES shareable data-instances
   # of bp-postgres (each install of bp-postgres = one CNPG Cluster = one
@@ -60,18 +59,10 @@ spec:
               `postgresql.cnpg.io/v1.Cluster` (bp-powerdns, bp-keycloak,
               bp-gitea, …) gate themselves on bp-cnpg via Flux dependsOn.
   placementSchema:
-    modes: [single-region, active-active]
-    default: single-region            # operator runs once per host cluster; Cluster CRs handle replication
+    modes: [single-region]
+    default: single-region
   manifests:
-    chart: ./chart
-  # CNPG only needs Flux Ready (its own CRDs ship in the same chart;
-  # consumers of postgresql.cnpg.io/v1.Cluster gate themselves on bp-cnpg).
-  # The Flux HR at clusters/_template/bootstrap-kit/16-cnpg.yaml encodes
-  # this dependsOn. Declared here for documentation parity; the
-  # blueprint-controller does not yet reconcile this field.
-  depends:
-    - blueprint: bp-flux
-      version: ^1.0
+    chart: bp-cnpg
   upgrades:
     from: ["0.x"]
   topology:
@@ -98,5 +89,4 @@ spec:
             dmz-B: singleton
             rtz-A: singleton
             rtz-B: singleton
-  multiInstance:
-    enabled: false
+  endpoints: []

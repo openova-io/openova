@@ -4,7 +4,10 @@ name: check — generated catalog is in sync (#5520)
 # `python3 scripts/generate-catalog.py` writes them from every
 # platform/<name>/blueprint.yaml, products/<name>/blueprint.yaml and
 # bootstrap-kit slot. The pull request that changes one of those inputs runs
-# the generator and commits both files; nothing edits them by hand.
+# the generator and commits both files; nothing edits them by hand. The same
+# job checks `docs/generated/components.md`, which
+# `python3 scripts/generators/components.py` writes, so that
+# scripts/generator_registry.py lists all three.
 #
 # This gate makes drift impossible to accumulate silently (the 508-line drift
 # of #5520): `--check` regenerates in memory and fails when a committed file
@@ -25,6 +28,8 @@ on:
       - 'scripts/tests/test_generate_catalog.py'
       - 'products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts'
       - 'products/catalyst/bootstrap/api/internal/catalog/blueprints.json'
+      - 'scripts/generators/components.py'
+      - 'docs/generated/components.md'
       - '.github/workflows/check-catalog-generated-drift.yaml'
   merge_group:
   push:
@@ -36,6 +41,8 @@ on:
       - 'scripts/generate-catalog.py'
       - 'products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts'
       - 'products/catalyst/bootstrap/api/internal/catalog/blueprints.json'
+      - 'scripts/generators/components.py'
+      - 'docs/generated/components.md'
   workflow_dispatch:
 
 jobs:
@@ -60,6 +67,9 @@ jobs:
 
       - name: Fail if the committed generated files drifted
         run: python3 scripts/generate-catalog.py --check
+
+      - name: Fail if the components table drifted
+        run: python3 scripts/generators/components.py --check
 
       - name: Prove the generator is deterministic (run it twice)
         run: |

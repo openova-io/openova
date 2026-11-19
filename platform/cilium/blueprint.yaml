@@ -30,11 +30,10 @@ spec:
         default: false
         description: Enable for bare-metal Sovereigns. Cloud Sovereigns use Hetzner LB / AWS NLB.
   placementSchema:
-    modes: [single-region, active-active]
-    default: active-active           # Cilium runs on every host cluster
+    modes: [single-region]
+    default: single-region
   manifests:
-    chart: ./chart
-  depends: []                        # foundational — no dependencies
+    chart: bp-cilium
   upgrades:
     from: ["0.x"]
   topology:
@@ -63,10 +62,9 @@ spec:
             rtz-B: singleton
   endpoints:
     - name: hubble
-      hostnameTemplate: hubble.{{.SovereignFQDN}}
+      hostnameTemplate: "hubble.{{.SovereignFQDN}}"
       port: 443
       protocol: https
       tls: true
       visibility: private
-  multiInstance:
-    enabled: false
+      launchDefault: false

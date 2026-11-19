@@ -16,26 +16,12 @@ spec:
   version: 0.0.0   # placeholder — actual chart version pinned in clusters/<sov>/bootstrap-kit/13-bp-catalyst-platform.yaml
   card:
     title: Catalyst Platform
-    summary: |
-      Umbrella Blueprint for the Catalyst control plane. Brings up the
-      console, marketplace, admin, catalog-svc, projector, provisioning,
-      environment-controller, blueprint-controller, and billing services.
-      Once this Helm release is Ready, the Sovereign is fully self-sufficient:
-      the sovereign-admin logs into console.<sovereignFQDN> and proceeds
-      with Phase 2 day-1 setup. See docs/ARCHITECTURE.md §11 (Catalyst-on-
-      Catalyst) and bootstrap-kit slot 13.
+    summary: Umbrella Blueprint for the Catalyst control plane — console, marketplace, admin, catalog-svc, projector, provisioning, environment/blueprint controllers, billing. Once Ready the Sovereign is self-sufficient.
+    description: Umbrella Blueprint for the Catalyst control plane. Brings up the console, marketplace, admin, catalog-svc, projector, provisioning, environment-controller, blueprint-controller, and billing services. See docs/ARCHITECTURE.md §11 (Catalyst-on-Catalyst) and bootstrap-kit slot 13.
+    icon: catalyst.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap-kit slot 13
   manifests:
-    # Catalog-side reference to the published OCI chart artefact. The
-    # actual install path is via bootstrap-kit (Flux HelmRelease at slot
-    # 13), not via the application-controller's per-Org install path.
-    chart: oci://ghcr.io/openova-io/bp-catalyst-platform
-  depends:
-    - blueprint: bp-gitea
-    - blueprint: bp-gateway-api
-    - blueprint: bp-keycloak
-    - blueprint: bp-cnpg
-    - blueprint: bp-crossplane-claims
+    chart: bp-catalyst-platform
 
   # ── G117.1: Topology declaration ────────────────────────────────────────
   # Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md:
@@ -109,7 +95,6 @@ spec:
       sovereign-admins: admin
     silentLogin: true
 
-  # ── G117.6: Multi-instance ─────────────────────────────────────────────
-  # Singleton per Sovereign — exactly one Catalyst control plane per Sovereign.
-  multiInstance:
-    enabled: false
+  placementSchema:
+    modes: [single-region]
+    default: single-region

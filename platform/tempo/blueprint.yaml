@@ -7,27 +7,14 @@ metadata:
     catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 1.0.1  # lockstep with chart/Chart.yaml (#4347 harbor-proxy image for host-ns Kyverno harbor-proxy-pull Enforce)
-  visibility: unlisted
+  visibility: listed
   card:
     title: Tempo
     family: insights
     description: Distributed tracing backend for the LGTM observability stack. Single-binary mode for solo Sovereign; tempo-distributed is a values toggle.
+    icon: tempo.svg
     docs: https://grafana.com/docs/tempo/latest/
 
-  # ── G117.1: Topology declaration ────────────────────────────────────────
-  # Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md:
-  #   mgmt-A=Active, mgmt-B=Passive; traces on object storage; cross-region
-  #   S3 bucket replication async. Same shape as Loki/Mimir.
-  # ── #3373: class-level placement SUGGESTION + allow-list ────────────────
-  # Placement is an INSTANCE property (Application.spec.placement); this is
-  # only the default every instance inherits silently — the provisioning
-  # journey's generic advanced selector (and a direct Git edit of the
-  # instance's spec.placement) may override it within allowedPlacements.
-  # Founder §4 table target: mgmt. Single render mechanism: the Flux
-  # spec.kubeConfig.secretRef pivot — zero per-app placement code.
-  defaultPlacement:
-    vcluster: mgmt
-  allowedPlacements: [host, mgmt]
 
   topology:
     supported:
@@ -70,6 +57,8 @@ spec:
     groupsClaim: groups
     silentLogin: true
 
-  # ── G117.6: Multi-instance ─────────────────────────────────────────────
-  multiInstance:
-    enabled: false
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-tempo

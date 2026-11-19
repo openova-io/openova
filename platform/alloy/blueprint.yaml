@@ -7,11 +7,12 @@ metadata:
     catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 1.0.3
-  visibility: unlisted
+  visibility: listed
   card:
     title: Alloy
     family: insights
     description: Grafana Alloy — telemetry collector (logs/metrics/traces, OTLP-native) for the LGTM observability stack.
+    icon: alloy.svg
     docs: https://grafana.com/docs/alloy/latest/
 
   # ── G117.1: Topology declaration ────────────────────────────────────────
@@ -55,7 +56,8 @@ spec:
     protocolMapper: oidc
     silentLogin: false
 
-  # ── G117.6: Multi-instance ─────────────────────────────────────────────
-  # Singleton DaemonSet per cluster.
-  multiInstance:
-    enabled: false
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-alloy

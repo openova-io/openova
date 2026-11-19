@@ -7,47 +7,24 @@ metadata:
 spec:
   version: 0.1.19
   card:
-    title: powerdns-admin
-    summary: |
-      PowerDNS-Admin (ngoduykhanh/powerdns-admin) web UI for per-Sovereign
-      PowerDNS zone + record management. CNPG-backed Postgres metadata,
-      Catalyst SSO via Keycloak. Reads PDNS_API_URL / PDNS_API_KEY from
-      bp-powerdns to drive the authoritative DNS server.
+    title: PowerDNS-Admin
+    summary: Web UI for per-Sovereign PowerDNS zone + record management. CNPG-backed metadata, Catalyst SSO via Keycloak, drives the authoritative server via the bp-powerdns REST API.
+    icon: powerdns.svg
   visibility: unlisted              # mandatory infra
   manifests:
-    chart: ./chart
-  depends:
-    - bp-powerdns
-    - bp-cnpg
-    - bp-keycloak
-    - bp-sso-bridge
-    - bp-external-secrets-stores
-    - bp-reflector
-    - bp-gateway-api
+    chart: bp-powerdns-admin
   topology:
-    supported:
-      - singleton
+    supported: [singleton]
     defaults:
       multi-region: singleton
       single-region: singleton
     perTopology:
       singleton:
         placement:
-          tier: ''
-          clusters:
-            - mgmt-A
-            - mgmt-B
-            - dmz-A
-            - dmz-B
-            - rtz-A
-            - rtz-B
+          tier: mgmt
+          clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
-            mgmt-B: singleton
-            dmz-A: singleton
-            dmz-B: singleton
-            rtz-A: singleton
-            rtz-B: singleton
   endpoints:
     - name: ui
       hostnameTemplate: pdns-admin.{{.SovereignFQDN}}
@@ -73,5 +50,6 @@ spec:
     rolesFromGroup:
       sovereign-admins: admin
     silentLogin: true
-  multiInstance:
-    enabled: false
+  placementSchema:
+    modes: [single-region]
+    default: single-region

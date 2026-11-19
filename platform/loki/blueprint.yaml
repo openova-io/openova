@@ -7,31 +7,17 @@ metadata:
     catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 1.0.3  # lockstep with chart/Chart.yaml (#4623a disable loki-sc-rules sidecar — no rules ship + CrashLoop hazard from /proc/1/cmdline probe)
-  visibility: unlisted
+  visibility: listed
   card:
     title: Loki
-    family: insights
-    description: Log aggregation backend for the LGTM observability stack. Single-binary mode for solo Sovereign; scalable mode is a values toggle.
+    family: logs
+    summary: Log aggregation system from Grafana Labs. Multi-tenant + cheap object-storage backend.
+    description: Loki + Promtail (log shipper). Pre-wired as a Grafana data source for unified log + metric queries.
+    icon: loki.svg
+    license: AGPL-3.0
+    tags: [observability, logs, loki, grafana]
     docs: https://grafana.com/docs/loki/latest/
 
-  # ── G117.1: Topology declaration ────────────────────────────────────────
-  # Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md:
-  #   mgmt-A=Active, mgmt-B=Passive; chunks + index on object storage
-  #   (cross-region S3 bucket replication async). Not active-hot-standby
-  #   because replication mode is async (schema constrains active-hot-standby
-  #   to sync); active-active feasible if read-only queries split, but the
-  #   audit calls out async/eventual-consistency so active-passive is the
-  #   honest default.
-  # ── #3373: class-level placement SUGGESTION + allow-list ────────────────
-  # Placement is an INSTANCE property (Application.spec.placement); this is
-  # only the default every instance inherits silently — the provisioning
-  # journey's generic advanced selector (and a direct Git edit of the
-  # instance's spec.placement) may override it within allowedPlacements.
-  # Founder §4 table target: mgmt. Single render mechanism: the Flux
-  # spec.kubeConfig.secretRef pivot — zero per-app placement code.
-  defaultPlacement:
-    vcluster: mgmt
-  allowedPlacements: [host, mgmt]
 
   topology:
     supported:
@@ -76,6 +62,8 @@ spec:
     groupsClaim: groups
     silentLogin: true
 
-  # ── G117.6: Multi-instance ─────────────────────────────────────────────
-  multiInstance:
-    enabled: false
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-loki

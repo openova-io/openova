@@ -9,12 +9,13 @@ spec:
   version: 1.0.0
   card:
     title: BGE Embeddings + Reranker
-    summary: BAAI General Embedding (sentence-transformers + bge-reranker). CPU-friendly multilingual embeddings + cross-encoder reranking. Default model bge-small-en-v1.5; bp-llm-gateway discovers via Service annotation.
-    icon: bge.svg
     category: ai-runtime
-    tags: [embeddings, reranker, rag, sentence-transformers, ai]
-    documentation: https://huggingface.co/BAAI
+    summary: BAAI General Embedding (sentence-transformers + bge-reranker). CPU-friendly multilingual embeddings + cross-encoder reranking. Default model bge-small-en-v1.5; bp-llm-gateway discovers via Service annotation.
+    description: BAAI General Embedding (sentence-transformers + bge-reranker). CPU-friendly multilingual embeddings + cross-encoder reranking. Default model bge-small-en-v1.5; bp-llm-gateway discovers via Service annotation.
+    icon: bge.svg
     license: MIT
+    tags: [embeddings, reranker, rag, sentence-transformers, ai]
+    docs: https://huggingface.co/BAAI
   visibility: listed
   owner:
     team: ai-platform
@@ -47,14 +48,10 @@ spec:
         default: 512
         description: Token cap per request (bge-small-en-v1.5 supports 512; bge-m3 supports 8192).
   placementSchema:
-    modes: [single-region, active-active]
-    default: active-active
+    modes: [single-region]
+    default: single-region
   manifests:
-    chart: ./chart
-  depends:
-    - blueprint: bp-cnpg
-      version: ^1.0
-      alias: cnpg
+    chart: bp-bge
   upgrades:
     from: ["0.x"]
   observability:
@@ -99,9 +96,4 @@ spec:
     visibility: public
     launchDefault: true
     ssoEnabled: false
-  multiInstance:
-    enabled: true
-    maxPerOrg: 5
-    namingTemplate: '{{.AppName}}-{{.InstanceID}}'
-    isolationLevel: namespace
   # ── /G117.1 ──

@@ -6,11 +6,12 @@ metadata:
     catalyst.openova.io/section: pts-3-observability
 spec:
   version: 1.2.2
-  visibility: unlisted
+  visibility: listed
   card:
     title: OpenTelemetry Collector
     family: insights
     description: Vendor-neutral telemetry collector (OTLP receiver/forwarder). Sibling to bp-alloy — Catalyst supports both; per-Sovereign overlays choose one. The OpenTelemetry Operator + default Instrumentation CR live in bp-opentelemetry-operator (slot 19c) — Wave 5.41 chart-split.
+    icon: opentelemetry.svg
     docs: https://opentelemetry.io/docs/collector/
   topology:
     supported:
@@ -36,5 +37,9 @@ spec:
             dmz-B: singleton
             rtz-A: singleton
             rtz-B: singleton
-  multiInstance:
-    enabled: false
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-opentelemetry
+  endpoints: []

@@ -8,18 +8,10 @@ spec:
   version: 1.0.0
   card:
     title: KServe
-    summary: |
-      Kubernetes-native model serving — InferenceService CRD, multi-
-      framework predictors (vLLM, TorchServe, Triton, SKLearn), inference
-      graphs. Wraps the upstream `kserve/kserve` chart and ships a
-      Catalyst-curated `RawDeployment` mode (no per-InferenceService
-      Knative Service hop by default — KServe writes Deployments
-      directly), with **Knative still installed** (via bp-knative) for
-      Application-tier Blueprints that opt in to scale-to-zero on a per-
-      InferenceService basis. Used by bp-cortex (composite AI Hub
-      Blueprint).
-    icon: kserve.svg
     category: ai-ml
+    summary: "Kubernetes-native model serving — InferenceService CRD, multi- framework predictors (vLLM, TorchServe, Triton, SKLearn), inference graphs. Wraps the upstream `kserve/kserve` chart and ships a Catalyst-curated `RawDeployment` mode (no per-InferenceService Knative Service hop by default — KServe writes Deployments directly), with **Knative still installed** (via bp-knative) for Application-tier Blueprints that opt in to scale-to-zero on a per- InferenceService basis. Used by bp-cortex (composite AI Hub Blueprint). "
+    description: "Kubernetes-native model serving — InferenceService CRD, multi- framework predictors (vLLM, TorchServe, Triton, SKLearn), inference graphs. Wraps the upstream `kserve/kserve` chart and ships a Catalyst-curated `RawDeployment` mode (no per-InferenceService Knative Service hop by default — KServe writes Deployments directly), with **Knative still installed** (via bp-knative) for Application-tier Blueprints that opt in to scale-to-zero on a per- InferenceService basis. Used by bp-cortex (composite AI Hub Blueprint). "
+    icon: kserve.svg
   visibility: unlisted              # bootstrap-kit infrastructure component
   configSchema:
     type: object
@@ -60,19 +52,10 @@ spec:
               CRDs ship with the upstream chart; consumers gated via
               Flux dependsOn.
   placementSchema:
-    modes: [single-region, active-active]
+    modes: [single-region]
     default: single-region
-    minRegions: 1
-    maxRegions: 5
   manifests:
-    chart: ./chart
-  depends:
-    - blueprint: bp-cilium            # Cilium native Gateway-API ingress
-      version: ^1
-    - blueprint: bp-cert-manager      # KServe webhook TLS
-      version: ^1
-    - blueprint: bp-knative           # Knative still installed for per-IS Serverless opt-in
-      version: ^1
+    chart: bp-kserve
   upgrades:
     from: ["0.x"]
   # ── G117.1 (Wave-1/B3) — topology + endpoints + sso + multiInstance ──
@@ -121,9 +104,4 @@ spec:
     rolesFromGroup:
       sovereign-admins: admin
     silentLogin: true
-  multiInstance:
-    enabled: true
-    maxPerOrg: 5
-    namingTemplate: '{{.AppName}}-{{.InstanceID}}'
-    isolationLevel: namespace
   # ── /G117.1 ──
