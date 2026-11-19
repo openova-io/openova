@@ -25,6 +25,7 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+	"sync"
 	"testing"
 
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
@@ -66,11 +67,23 @@ func renderEmptyMap(t *testing.T) (*admissionregistrationv1.ValidatingAdmissionP
 		"--set-json", "legacyKeyMap=null"))
 }
 
+// The chart includes the library kube-access-lib through a file://
+// dependency, and charts/ is gitignored: the render needs it built once.
+var (
+	depsOnce sync.Once
+	depsOut  []byte
+	depsErr  error
+)
+
 // render runs a helm template command and returns the policy and its binding.
 func render(t *testing.T, cmd *exec.Cmd) (*admissionregistrationv1.ValidatingAdmissionPolicy, *admissionregistrationv1.ValidatingAdmissionPolicyBinding) {
 	t.Helper()
 	if cmd.Err != nil {
 		t.Fatalf("helm is not on PATH; this test renders the chart with it: %v", cmd.Err)
+	}
+	depsOnce.Do(func() { depsOut, depsErr = exec.Command("helm", "dependency", "build", chartDir).CombinedOutput() })
+	if depsErr != nil {
+		t.Fatalf("helm dependency build %s: %v\n%s", chartDir, depsErr, depsOut)
 	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

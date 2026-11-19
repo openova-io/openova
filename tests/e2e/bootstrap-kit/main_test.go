@@ -1075,6 +1075,7 @@ func TestBootstrapKit_PlaneIsolationDialGraphIsCovered(t *testing.T) {
 	// coverage below could never be asserted. The flag forces every component to
 	// render so this test validates the allow-list CONTENT (the contract);
 	// the deferral mechanism is a live-delivery concern orthogonal to content.
+	ensureChartDeps(t, helmBin, chartDir) // the kube-access-lib library, file://, charts/ is gitignored
 	cmd := exec.Command(helmBin, "template", "plane-isolation", ".",
 		"--api-versions", "cilium.io/v2", "--set", "renderUnconditional=true")
 	cmd.Dir = chartDir
@@ -1877,6 +1878,7 @@ func TestBootstrapKit_McpSecondaryEdgeArmedBothLegs(t *testing.T) {
 	}
 	render := func(dir string, args ...string) []map[string]any {
 		t.Helper()
+		ensureChartDeps(t, helmBin, filepath.Join(root, dir)) // file:// dependencies, charts/ is gitignored
 		cmd := exec.Command(helmBin, append([]string{"template"}, args...)...)
 		cmd.Dir = filepath.Join(root, dir)
 		out, err := cmd.CombinedOutput()
