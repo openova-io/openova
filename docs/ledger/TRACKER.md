@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T00:00:06Z` |
+| Last refreshed | `2026-11-19T00:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -318,6 +318,7 @@ flowchart LR
 | 2026-11-18T23:28 | [#8228](https://github.com/openova-io/openova/pull/8228) | #8225 | refactor(provisioner): the VPC pre-flight becomes the Prefli |
 | 2026-11-18T22:56 | [#8224](https://github.com/openova-io/openova/pull/8224) | #7087 | docs(ledger): plan update |
 | 2026-11-18T22:51 | [#8222](https://github.com/openova-io/openova/pull/8222) | #7087 | docs(ledger): plan update |
+| 2026-11-19T00:09 | [#8221](https://github.com/openova-io/openova/pull/8221) | #7450 | fix(cloud-init): shred the bootstrap secret files, make the  |
 | 2026-11-18T22:39 | [#8220](https://github.com/openova-io/openova/pull/8220) | #7087 | docs(ledger): plan update |
 | 2026-11-18T22:46 | [#8219](https://github.com/openova-io/openova/pull/8219) | #8067 | feat(network): the Sovereign states its region separation an |
 | 2026-11-18T22:37 | [#8218](https://github.com/openova-io/openova/pull/8218) | #8217 | refactor(provisioner): the post-apply step and the apply-err |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-18T20:37 | [#8199](https://github.com/openova-io/openova/pull/8199) | #7938 | fix(build): a version tag that exists is never pushed again |
 | 2026-11-18T19:20 | [#8198](https://github.com/openova-io/openova/pull/8198) | #7087 | docs(ledger): plan update |
 | 2026-11-18T19:12 | [#8197](https://github.com/openova-io/openova/pull/8197) | #7087 | docs(ledger): plan update |
-| 2026-11-18T19:02 | [#8196](https://github.com/openova-io/openova/pull/8196) | #7087 | docs(ledger): plan update |
 
 ---
 
