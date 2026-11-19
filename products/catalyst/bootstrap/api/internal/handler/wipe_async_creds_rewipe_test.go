@@ -15,8 +15,8 @@
 //   - async destroy kickoff (WipeDeployment responds before the purge
 //     finishes, and the purge survives cancellation of the ORIGINAL
 //     request context)
-//   - the operator-creds env fallback (huaweiOperatorCredsFromEnv +
-//     the HTTP-level 400 guard)
+//   - the operator-creds env fallback (deploymentCredentials + the
+//     HTTP-level 400 guard)
 //   - idempotent re-wipe of a stranded `wiping` record
 package handler
 
@@ -51,6 +51,7 @@ func TestWipeDeployment_RespondsBeforePurgeCompletes(t *testing.T) {
 		Status:    "failed",
 		StartedAt: time.Now().Add(-10 * time.Minute),
 		Request: provisioner.Request{
+			Provider:            "hetzner",
 			SovereignFQDN:       "otech-async.omani.works",
 			SovereignDomainMode: "pool",
 		},
@@ -116,6 +117,7 @@ func TestWipeDeployment_PurgeSurvivesRequestContextCancellation(t *testing.T) {
 		Status:    "failed",
 		StartedAt: time.Now().Add(-10 * time.Minute),
 		Request: provisioner.Request{
+			Provider:            "hetzner",
 			SovereignFQDN:       "otech-detached.omani.works",
 			SovereignDomainMode: "pool",
 		},
@@ -173,68 +175,6 @@ func TestWipeDeployment_PurgeSurvivesRequestContextCancellation(t *testing.T) {
 
 // ── operator-creds env fallback ──────────────────────────────────────
 
-// TestHuaweiOperatorCredsFromEnv_AllPresent — the happy path: all four
-// CATALYST_HUAWEI_* env vars set, region included verbatim.
-func TestHuaweiOperatorCredsFromEnv_AllPresent(t *testing.T) {
-	t.Setenv("CATALYST_HUAWEI_ACCESS_KEY", "ak-operator")
-	t.Setenv("CATALYST_HUAWEI_SECRET_KEY", "sk-operator")
-	t.Setenv("CATALYST_HUAWEI_PROJECT_ID", "proj-operator")
-	t.Setenv("CATALYST_HUAWEI_REGION", "me-east-215")
-
-	hw, ok := huaweiOperatorCredsFromEnv()
-	if !ok {
-		t.Fatal("expected ok=true with all four env vars set")
-	}
-	if hw.AccessKey != "ak-operator" || hw.SecretKey != "sk-operator" || hw.ProjectID != "proj-operator" || hw.Region != "me-east-215" {
-		t.Fatalf("unexpected creds: %+v", hw)
-	}
-}
-
-// TestHuaweiOperatorCredsFromEnv_DefaultsRegion — empty region defaults
-// to me-east-215, mirroring the janitor's discoverHuaweiCreds fallback
-// default (janitor.go).
-func TestHuaweiOperatorCredsFromEnv_DefaultsRegion(t *testing.T) {
-	t.Setenv("CATALYST_HUAWEI_ACCESS_KEY", "ak-operator")
-	t.Setenv("CATALYST_HUAWEI_SECRET_KEY", "sk-operator")
-	t.Setenv("CATALYST_HUAWEI_PROJECT_ID", "proj-operator")
-	t.Setenv("CATALYST_HUAWEI_REGION", "")
-
-	hw, ok := huaweiOperatorCredsFromEnv()
-	if !ok {
-		t.Fatal("expected ok=true with access/secret/project set and region empty")
-	}
-	if hw.Region != "me-east-215" {
-		t.Errorf("empty region must default to me-east-215, got %q", hw.Region)
-	}
-}
-
-// TestHuaweiOperatorCredsFromEnv_MissingAnyReturnsFalse — access_key,
-// secret_key, and project_id are each individually required; region is
-// the only optional field (defaulted).
-func TestHuaweiOperatorCredsFromEnv_MissingAnyReturnsFalse(t *testing.T) {
-	cases := []struct {
-		name              string
-		ak, sk, projectID string
-	}{
-		{"missing access_key", "", "sk", "proj"},
-		{"missing secret_key", "ak", "", "proj"},
-		{"missing project_id", "ak", "sk", ""},
-		{"all missing", "", "", ""},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("CATALYST_HUAWEI_ACCESS_KEY", tc.ak)
-			t.Setenv("CATALYST_HUAWEI_SECRET_KEY", tc.sk)
-			t.Setenv("CATALYST_HUAWEI_PROJECT_ID", tc.projectID)
-			t.Setenv("CATALYST_HUAWEI_REGION", "")
-
-			if _, ok := huaweiOperatorCredsFromEnv(); ok {
-				t.Errorf("%s: expected ok=false", tc.name)
-			}
-		})
-	}
-}
-
 // TestWipeDeployment_HuaweiOperatorCredsEnvFallbackAvoids400 is the
 // HTTP-level integration proof for #5193 fix 2. A Huawei deployment
 // whose body, in-memory Request, AND per-deployment PVC tfvars are ALL
@@ -250,7 +190,7 @@ func TestWipeDeployment_HuaweiOperatorCredsEnvFallbackAvoids400(t *testing.T) {
 	t.Setenv("CATALYST_HUAWEI_PROJECT_ID", "proj-operator-secret")
 	t.Setenv("CATALYST_HUAWEI_REGION", "me-east-215")
 	// No per-deployment tfvars on disk — points at an empty workdir root
-	// so loadHuaweiCredsFromTfvars honestly misses (simulating the
+	// so the variables-file source honestly misses (simulating the
 	// partial-destroy-already-deleted-tfvars shape).
 	t.Setenv("CATALYST_TOFU_WORKDIR", t.TempDir())
 
@@ -343,6 +283,7 @@ func TestWipeDeployment_StrandedWipingRecordIsReWipeable(t *testing.T) {
 		Status:    "wiping", // left behind by a dead process
 		StartedAt: time.Now().Add(-45 * time.Minute),
 		Request: provisioner.Request{
+			Provider:            "hetzner",
 			SovereignFQDN:       "hw268-stranded.omani.works",
 			SovereignDomainMode: "pool",
 		},
@@ -391,6 +332,7 @@ func TestWipeDeployment_GenuinelyInFlightWipeReturns409(t *testing.T) {
 		Status:    "wiping",
 		StartedAt: time.Now().Add(-5 * time.Minute),
 		Request: provisioner.Request{
+			Provider:            "hetzner",
 			SovereignFQDN:       "hw268-inflight.omani.works",
 			SovereignDomainMode: "pool",
 		},

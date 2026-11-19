@@ -47,6 +47,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers"
+	huaweiprovider "github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers/huawei"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
 
@@ -91,9 +93,14 @@ func (h *Handler) runPostHandoverGatewayELB(dep *Deployment) {
 		return
 	}
 
-	hp := h.huaweiProvider("gateway-elb")
-	if hp == nil {
-		return // huaweiProvider already logged the reason
+	// The one assertion on an adapter type left in this package; the
+	// FrontDoorReconciler of the in-Sovereign cloud controller replaces it
+	// (CLD-152).
+	cp, perr := providers.Get("huawei")
+	hp, _ := cp.(*huaweiprovider.Provider)
+	if perr != nil || hp == nil {
+		h.log.Warn("gateway-elb: huawei provider not wired — skipping ELB reconcile", "err", perr)
+		return
 	}
 
 	kcPath, ok := h.resolvePrimaryKubeconfigPath(dep)

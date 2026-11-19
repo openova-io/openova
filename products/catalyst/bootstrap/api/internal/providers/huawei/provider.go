@@ -422,6 +422,9 @@ func (p *Provider) Wipe(ctx context.Context, spec providers.WipeSpec, progress f
 		out.S3Buckets = append(out.S3Buckets, prefix+"-*")
 	}
 
+	// Step 4 (#5028) — the detached volumes of the storage driver.
+	p.reapDetachedVolumes(ctx, spec, hw, region, progress)
+
 	return out, nil
 }
 

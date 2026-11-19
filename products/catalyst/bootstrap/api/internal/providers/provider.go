@@ -203,6 +203,14 @@ type WipeSpec struct {
 	// GCs the original credentials post-provision (credential
 	// hygiene, see handler/wipe.go for rationale).
 	Creds ProviderCreds
+
+	// ProtectedIDs are the 8-character deployment-id prefixes of every
+	// other deployment that may still own resources in the account; the
+	// deployment being wiped is not among them. An adapter that also
+	// reclaims what the cluster created outside the module (volumes of the
+	// storage driver) leaves the resources of these prefixes alone, and
+	// reclaims nothing of that kind when ProtectedIDs is nil.
+	ProtectedIDs map[string]struct{}
 }
 
 // WipeResult — generic, provider-agnostic summary of what Wipe

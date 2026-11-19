@@ -45,14 +45,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/cloudprofile"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/lifecycle"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/pdm"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers"
@@ -155,50 +159,15 @@ func shouldRefuseWipe(status string, startedAt, now time.Time, threshold time.Du
 	return age < threshold
 }
 
-// wipeRequest is the body of POST /api/v1/deployments/{id}/wipe.
-//
-// HetznerToken is required ONLY when the on-disk Deployment record's
-// Request.HetznerToken has been GC'd (the field is intentionally cleared
-// after writeTfvars per the credential-hygiene principle). The wizard
-// re-prompts the operator for the token in the Cancel & Wipe modal, so
-// the value survives just long enough to drive `tofu destroy` + the
-// Hetzner orphan purge, then is forgotten.
-//
-// ObjectStorageAccessKey / ObjectStorageSecretKey / ObjectStorageRegion
-// mirror the same pattern (issue #166): the on-disk Deployment record
-// strips S3 credentials at Save() time per the credential-hygiene
-// principle, so after a catalyst-api Pod restart `dep.Request` carries
-// EMPTY S3 creds and the bucket purge in WipeDeployment silently
-// skipped — leaking 10+ orphan buckets in the field (one per wiped
-// provision back to prov #11, observed 2026-05-11). The wizard MUST
-// re-prompt the operator for the same triplet it captured at provision
-// time and pass it on the wipe body; the handler then prefers body
-// values over `dep.Request` so the purge runs whether or not the Pod
-// has rolled. Wire shape mirrors the existing HetznerToken sibling.
-//
-// TODO(#166-followup): consider Option B (per-deployment K8s Secret
-// holding S3 creds, reaped on wipe) if a future security review
-// objects to the operator re-prompt model. Option A is shipped today
-// because it matches the canonical HetznerToken pattern and survives
-// Pod restarts with zero extra storage.
+// wipeRequest is the body of POST /api/v1/deployments/{id}/wipe: the
+// credentials map of the deployment's provider (keys of its cloud profile),
+// re-prompted because catalyst-api GCs secrets from the in-memory Request
+// after writeTfvars. The legacy fields that the provider's adapter names
+// (providers.LegacyAliaser) are read from the same body; CLD-124 removes
+// them. A key the body leaves out comes from the
+// record, the workdir variables file or the operator (deploymentCredentials).
 type wipeRequest struct {
-	HetznerToken           string `json:"hetznerToken"`
-	ObjectStorageAccessKey string `json:"objectStorageAccessKey,omitempty"`
-	ObjectStorageSecretKey string `json:"objectStorageSecretKey,omitempty"`
-	ObjectStorageRegion    string `json:"objectStorageRegion,omitempty"`
-
-	// Wave 5.130 (hw30 fix-forward 2026-05-27): typed Huawei creds.
-	// Replaces the legacy `hetznerToken`/`objectStorageSecretKey`
-	// overload that Wave 3 introduced for the Cancel & Wipe modal.
-	// All three sources (typed body, legacy body, in-memory depReq,
-	// per-deployment tfvars on PVC) feed buildWipeCredsRaw via
-	// firstNonEmpty so the wipe handler always finds creds whether
-	// the operator re-prompted via the wizard, the Pod has them in
-	// memory, OR they're only on disk.
-	HuaweiAccessKey string `json:"huaweiAccessKey,omitempty"`
-	HuaweiSecretKey string `json:"huaweiSecretKey,omitempty"`
-	HuaweiProjectID string `json:"huaweiProjectId,omitempty"`
-	HuaweiRegion    string `json:"huaweiRegion,omitempty"`
+	Credentials map[string]string `json:"credentials,omitempty"`
 }
 
 // wipeResponse summarises what was actually purged. The wizard renders
@@ -251,20 +220,6 @@ func providerPurgeTotal(p map[string][]string) int {
 	return n
 }
 
-// resolveProviderName returns the canonical provider name for a
-// deployment. Walks the per-region Provider field (the canonical
-// source on the existing wizard payload — every RegionSpec carries
-// its own provider per docs/ARCHITECTURE.md). Defaults to "hetzner"
-// for legacy records that pre-date the per-region payload.
-func resolveProviderName(dep *Deployment) string {
-	for _, r := range dep.Request.Regions {
-		if r.Provider != "" {
-			return strings.ToLower(strings.TrimSpace(r.Provider))
-		}
-	}
-	return "hetzner"
-}
-
 // WipeDeployment handles POST /api/v1/deployments/{id}/wipe.
 //
 // Response codes:
@@ -275,10 +230,10 @@ func resolveProviderName(dep *Deployment) string {
 //     status=wiped + the `lastWipeReport` field (the same shape this
 //     endpoint used to return synchronously in a 200 body), or GET
 //     .../events for the live SSE purge log.
-//   - 400 Bad Request when the body cannot be parsed, or (huawei) no
-//     credential source resolves (typed body, legacy body, in-memory
-//     request, per-deployment PVC tfvars, or the huawei-operator-creds
-//     env fallback — see the provHint switch below).
+//   - 400 Bad Request when the body cannot be parsed, when the record
+//     names no provider ("provider unknown"; it is read from the record,
+//     never inferred or defaulted), or when a credential the cloud profile
+//     requires resolves from no source (deploymentCredentials).
 //   - 404 Not Found when the deployment id is unknown
 //   - 409 Conflict if a purge goroutine is ALREADY running for this
 //     deployment in this process (dep.wipeInFlight==true), OR (issue
@@ -311,111 +266,33 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse body — the wizard re-prompts for the Hetzner token because
-	// catalyst-api intentionally GCs it from the in-memory Request after
-	// writeTfvars. Without it tofu destroy + the orphan purge can't
-	// authenticate.
+	// #5193: an environment the platform created must always be wipeable,
+	// so a credential the body leaves out comes from the record, the
+	// per-deployment variables file on the PVC (a partial destroy may have
+	// deleted it) or the operator's configuration, never a 400 loop.
 	var body wipeRequest
-	if err := decodeJSONBody(r, &body); err != nil {
-		http.Error(w, "invalid request body: "+err.Error(), http.StatusBadRequest)
+	var fields map[string]json.RawMessage
+	raw, rerr := []byte(nil), errors.New("empty body")
+	if r.Body != nil {
+		raw, rerr = io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	}
+	if rerr != nil || json.Unmarshal(raw, &body) != nil || json.Unmarshal(raw, &fields) != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	// Wave 5.130 (hw30 fix-forward 2026-05-27): for Huawei deployments
-	// the canonical creds resolution order is (1) typed body fields,
-	// (2) in-memory depReq, (3) the per-deployment tofu.auto.tfvars.json
-	// on PVC (which catalyst-api wrote during provision and survives
-	// Pod restart unconditionally), (4) — #5193 — the `huawei-operator-
-	// creds` Secret projected into the catalyst-api Pod as
-	// CATALYST_HUAWEI_ACCESS_KEY/_SECRET_KEY/_PROJECT_ID/_REGION, the
-	// SAME in-cluster fallback the janitor's discoverHuaweiCreds
-	// (janitor.go:584) already uses for the project-wide orphan sweep.
-	// If ALL FOUR sources are empty, THEN refuse the wipe with a typed
-	// error. Otherwise let the wipe proceed and let buildWipeCredsRaw +
-	// the provider adapter do the rest. For Hetzner the legacy
-	// `hetznerToken` is still the only path until the wizard ships a
-	// typed shape.
-	//
-	// #5193 root cause: a partial destroy (killed mid-teardown by the
-	// nginx 60s proxy-timeout — see runWipePurge) deletes the per-
-	// deployment tfvars off the PVC. If the catalyst-api Pod has also
-	// rolled since (dep.Request.Huawei* GC'd from memory) and the
-	// operator re-fires the wipe with an empty body, sources (1)-(3)
-	// are ALL empty even though an environment the platform
-	// created must always be wipeable — the operator-creds Secret is
-	// right there in the catalyst ns. Without this fallback the wipe
-	// 400s "credentials are required" forever, stranding the record at
-	// status=wiping and blocking the one-environment-at-a-time gate.
-	provHint := strings.ToLower(strings.TrimSpace(dep.Request.Provider))
-	if provHint == "" {
-		// #6495 — dep.Request.Provider is GC'd on a handed-over Sovereign
-		// (FinaliseHandover clears the in-memory Request) and after a
-		// catalyst-api Pod roll. Defaulting straight to "hetzner" then
-		// demands a hetznerToken and 400s forever, stranding a Huawei
-		// deployment as un-wipeable (its EIPs/VPCs leak and block the next
-		// one-environment-at-a-time prov on EIP-allocation conflict). Infer
-		// "huawei" when the caller supplied huawei creds, or the huawei
-		// operator-creds env is present — the same signals the huawei branch
-		// already consumes below. Only fall back to hetzner when neither is.
-		switch {
-		case strings.TrimSpace(body.HuaweiAccessKey) != "" || strings.TrimSpace(body.HuaweiSecretKey) != "":
-			provHint = "huawei"
-		default:
-			if _, ok := huaweiOperatorCredsFromEnv(); ok {
-				provHint = "huawei"
-			} else {
-				provHint = "hetzner"
-			}
-		}
+	providerName := provisioner.ResolveProvider(&dep.Request)
+	if providerName == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid-field", "field": "provider", "message": "provider unknown: no provider in the deployment record"})
+		return
 	}
-	switch provHint {
-	case "huawei":
-		// Try to harvest from PVC tfvars when body fields are empty.
-		if strings.TrimSpace(body.HuaweiAccessKey) == "" || strings.TrimSpace(body.HuaweiSecretKey) == "" {
-			if hw, ok := loadHuaweiCredsFromTfvars(filepath.Join(h.tofuWorkDir(), id)); ok {
-				if strings.TrimSpace(body.HuaweiAccessKey) == "" {
-					body.HuaweiAccessKey = hw.AccessKey
-				}
-				if strings.TrimSpace(body.HuaweiSecretKey) == "" {
-					body.HuaweiSecretKey = hw.SecretKey
-				}
-				if strings.TrimSpace(body.HuaweiProjectID) == "" {
-					body.HuaweiProjectID = hw.ProjectID
-				}
-				if strings.TrimSpace(body.HuaweiRegion) == "" {
-					body.HuaweiRegion = hw.Region
-				}
-			}
-		}
-		// #5193 — operator-creds env fallback. Only fires when body +
-		// tfvars + in-memory dep.Request are still empty for the
-		// authenticating pair; body/tfvars-supplied values always win.
-		if firstNonEmpty(body.HuaweiAccessKey, dep.Request.Credential("access_key")) == "" ||
-			firstNonEmpty(body.HuaweiSecretKey, dep.Request.Credential("secret_key")) == "" {
-			if hw, ok := huaweiOperatorCredsFromEnv(); ok {
-				if strings.TrimSpace(body.HuaweiAccessKey) == "" {
-					body.HuaweiAccessKey = hw.AccessKey
-				}
-				if strings.TrimSpace(body.HuaweiSecretKey) == "" {
-					body.HuaweiSecretKey = hw.SecretKey
-				}
-				if strings.TrimSpace(body.HuaweiProjectID) == "" {
-					body.HuaweiProjectID = hw.ProjectID
-				}
-				if strings.TrimSpace(body.HuaweiRegion) == "" {
-					body.HuaweiRegion = hw.Region
-				}
-			}
-		}
-		if firstNonEmpty(body.HuaweiAccessKey, body.HetznerToken, dep.Request.Credential("access_key")) == "" ||
-			firstNonEmpty(body.HuaweiSecretKey, body.ObjectStorageSecretKey, dep.Request.Credential("secret_key")) == "" {
-			http.Error(w, "huawei credentials are required (huaweiAccessKey + huaweiSecretKey in body, or already on PVC tfvars, or CATALYST_HUAWEI_ACCESS_KEY/_SECRET_KEY env on catalyst-api)", http.StatusBadRequest)
-			return
-		}
-	default:
-		if strings.TrimSpace(body.HetznerToken) == "" {
-			http.Error(w, "hetznerToken is required (re-prompt the operator before calling this endpoint)", http.StatusBadRequest)
-			return
-		}
+	cp, gerr := providers.Get(providerName)
+	if gerr != nil {
+		cp = nil // runWipePurge reports the missing adapter
+	}
+	creds, legacy := deploymentCredentials(cp, providerName, body.Credentials, fields, dep.Request, filepath.Join(h.tofuWorkDir(), id))
+	if fe := missingCredential(providerName, dep.Request.Installation, creds, legacy); fe != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid-field", "field": "credentials." + fe.Field, "message": fe.Message + ": not in the body, the record, its variables file or the operator's configuration"})
+		return
 	}
 
 	// Issue #914 — minimum-life guard against externally-triggered
@@ -548,7 +425,7 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 		"message":       "wipe started; poll GET /api/v1/deployments/" + id + " for status=wiped, or GET .../events for the live purge log",
 	})
 
-	go h.runWipePurge(dep, id, body, prevStatus)
+	go h.runWipePurge(dep, id, creds, prevStatus)
 }
 
 // runWipePurge runs the full destructive purge sequence for a wipe —
@@ -566,14 +443,14 @@ func (h *Handler) WipeDeployment(w http.ResponseWriter, r *http.Request) {
 // POST .../wipe; the single-flight guard in WipeDeployment only blocks
 // a genuinely-running goroutine, never a bare status string left over
 // from a dead one.
-func (h *Handler) runWipePurge(dep *Deployment, id string, body wipeRequest, prevStatus string) {
+func (h *Handler) runWipePurge(dep *Deployment, id string, creds map[string]string, prevStatus string) {
 	defer func() {
 		dep.mu.Lock()
 		dep.wipeInFlight = false
 		dep.mu.Unlock()
 	}()
 
-	providerName := resolveProviderName(dep)
+	providerName := provisioner.ResolveProvider(&dep.Request)
 	report := wipeResponse{
 		DeploymentID:  id,
 		SovereignFQDN: dep.Request.SovereignFQDN,
@@ -665,12 +542,9 @@ func (h *Handler) runWipePurge(dep *Deployment, id string, body wipeRequest, pre
 	// implement. Future AWS / GCP / Azure adapters get the same
 	// dispatch automatically — the handler does not change.
 	//
-	// Credential resolution mirrors the legacy single-provider path:
-	// REQUEST BODY values win over the in-memory dep.Request fallback
-	// (which itself survives a Pod restart only when the wizard didn't
-	// re-prompt before submit). The provider-specific Creds map below
-	// resolves both layers so adapter.Wipe() gets a clean union.
-	wipeReq := dep.Request.WithCredential("hcloud_token", body.HetznerToken)
+	// creds is the union WipeDeployment resolved (deploymentCredentials).
+	wipeReq := dep.Request
+	wipeReq.Credentials = maps.Clone(creds)
 
 	prov := provisioner.New()
 	// #5193 — rooted in context.Background(), NOT the (now long-since-
@@ -715,32 +589,14 @@ func (h *Handler) runWipePurge(dep *Deployment, id string, body wipeRequest, pre
 			}
 		}
 
-		credsRaw := buildWipeCredsRaw(providerName, body, dep.Request)
-
-		// #5135 / #5028 — WORKDIR-CRED FALLBACK for the post-destroy EVS
-		// backstop. On the canonical body-less wipe (`{}`) AFTER a
-		// catalyst-api Pod roll, dep.Request's Huawei AK/SK are gone (secrets
-		// are GC'd from the in-memory Request post-writeTfvars and do not
-		// survive a restart), so buildWipeCredsRaw yields empty
-		// access_key/secret_key here even though providerName resolves to
-		// "huawei" from the per-region spec. tofu destroy still authenticates
-		// (the provider reads the workdir tfvars directly), but
-		// huaweiSweepCredsFromRaw would return ok=false below and the #5028
-		// EVS backstop would SILENTLY SKIP — stranding every CSI `pvc-*`
-		// volume as status=available toward the HCS quota (413
-		// VolumeLimitExceeded on the next fresh prov). Recover the creds from
-		// the durable per-deployment tofu.auto.tfvars.json on the
-		// catalyst-api-deployments PVC while the workdir still exists (tofu
-		// destroy may remove it below). Only empty keys are filled —
-		// body/request-provided values always win.
-		if applyWorkdirEVSCredsFallback(providerName, credsRaw, filepath.Join(h.tofuWorkDir(), id)) {
-			emit("wipe", "info", "huawei: #5028 EVS backstop creds recovered from workdir tofu.auto.tfvars.json (body/request creds empty after Pod roll) (#5135)")
-		}
-
+		// ProtectedIDs: every other live deployment, so the adapter's
+		// post-destroy reclaim of the volumes the storage driver created
+		// outside the module (#5028) never touches a neighbour.
 		wipeSpec := providers.WipeSpec{
 			DeploymentID:  dep.ID,
 			SovereignFQDN: dep.Request.SovereignFQDN,
-			Creds:         providers.ProviderCreds{Raw: credsRaw},
+			Creds:         providers.ProviderCreds{Raw: maps.Clone(creds)},
+			ProtectedIDs:  h.buildActivePrefixes(),
 		}
 		wipeRes, werr := cp.Wipe(tofuCtx, wipeSpec, func(msg string) {
 			emit("wipe", "info", providerName+": "+msg)
@@ -759,29 +615,6 @@ func (h *Handler) runWipePurge(dep *Deployment, id string, body wipeRequest, pre
 			report.ResidualOrphans = wipeRes.ResidualOrphans
 			if len(wipeRes.Errors) > 0 {
 				report.Errors = append(report.Errors, wipeRes.Errors...)
-			}
-		}
-
-		// #5028 — POST-DESTROY EVS BACKSTOP. tofu destroy + the provider
-		// orphan-purge remove IaC-declared infra, but NOT the CSI-provisioned
-		// `pvc-*` EVS volumes (no dep name → invisible to the name-prefix
-		// purge). The #4677 drain releases them only when the cluster was
-		// still reachable; on an already-dead env it no-ops and the volumes
-		// strand as status=available, filling the HCS 400-volume quota after
-		// ~3 wipes and hard-blocking the next fresh prov's PVCs (413
-		// VolumeLimitExceeded). This is the "post-destroy cloud-GC backstop"
-		// wipe_drain.go promised: reap THIS dep's detached `pvc-*` volumes
-		// (throttled + 429-backoff), protecting every OTHER live dep.
-		if strings.EqualFold(providerName, "huawei") {
-			if hp := h.huaweiProvider("post-wipe-EVS"); hp != nil {
-				if creds, ok := huaweiSweepCredsFromRaw(credsRaw); ok {
-					reaped := h.reapDeploymentEVSBackstop(tofuCtx, hp, id, creds, func(msg string) {
-						emit("wipe", "info", "huawei: post-destroy EVS backstop: "+msg)
-					})
-					if reaped > 0 {
-						emit("wipe", "info", "huawei: post-destroy EVS backstop reaped "+itoa(reaped)+" detached CSI volume(s) tofu destroy left orphaned (#5028)")
-					}
-				}
 			}
 		}
 	}
@@ -1235,79 +1068,132 @@ func (h *Handler) ReleaseSubdomain(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// buildWipeCredsRaw assembles the provider-specific credential bag
-// passed to providers.CloudProvider.Wipe. Resolution order:
+// deploymentCredentials resolves the credentials of an existing deployment of
+// provider name (a wipe, the janitor), key by key, the first non-blank value
+// winning:
 //
-//  1. wipeRequest body fields (canonical, survive Pod restart — the
-//     wizard re-prompts the operator on the Cancel & Wipe modal).
-//  2. In-memory dep.Request fallback (still useful when the operator
-//     triggers wipe seconds after a successful provision and no Pod
-//     restart has happened in between).
+//  1. body, the credentials map of a wipe body, and its legacy fields that
+//     the adapter names (credentialsOf, providers.LegacyAliaser);
+//  2. the record, dep.Request.Credential: everything until a Pod roll, then
+//     only the keys the profile marks not secret;
+//  3. the variables file the adapter wrote into workdir (#5135,
+//     workdirCredentials);
+//  4. the operator's configuration (#5193): the environment variable
+//     CATALYST_<PROVIDER>_<KEY>, from the operator's Secret today. CLD-106
+//     replaces it with the file cloud-credential.<provider>.<key>.
 //
-// Per provider, the key names follow each adapter's documented
-// ProviderCreds shape:
-//   - hetzner: hcloud_token, hcloud_project_id, object_storage_*
-//   - huawei:  access_key, secret_key, project_id, region
-func buildWipeCredsRaw(providerName string, body wipeRequest, depReq provisioner.Request) map[string]string {
+// The keys are those of the cloud profile, the server-only keys, and every
+// key of the body or the record. No value is defaulted: the adapter
+// defaults its own region. legacy reports whether a legacy field supplied a
+// value. cp nil (no adapter) skips the legacy fields and the variables file.
+func deploymentCredentials(cp providers.CloudProvider, name string, body map[string]string, fields map[string]json.RawMessage, depReq provisioner.Request, workdir string) (map[string]string, bool) {
+	creds, legacy := map[string]string{}, false
+	if cp != nil {
+		var pc providers.ProviderCreds
+		pc, legacy = credentialsOf(cp, body, fields)
+		creds = pc.Raw
+	} else {
+		for k, v := range body {
+			creds[k] = strings.TrimSpace(v)
+		}
+	}
+	keys := map[string]bool{}
+	if profile := profileOf(name, depReq.Installation); profile != nil {
+		for _, f := range profile.Spec.Credentials.Fields {
+			keys[f.Key] = true
+		}
+	}
+	for _, k := range provisioner.ServerOnlyCredentialKeys {
+		keys[k] = true
+	}
+	for k := range creds {
+		keys[k] = true
+	}
+	for k := range depReq.Credentials {
+		keys[k] = true
+	}
+	sorted := slices.Sorted(maps.Keys(keys))
+	fill := func(get func(string) string) {
+		for _, k := range sorted {
+			if creds[k] == "" {
+				if v := strings.TrimSpace(get(k)); v != "" {
+					creds[k] = v
+				}
+			}
+		}
+	}
+	fill(depReq.Credential)
+	if cp != nil && workdir != "" {
+		file := workdirCredentials(cp, sorted, workdir)
+		fill(func(k string) string { return file[k] })
+	}
+	fill(func(k string) string { return os.Getenv("CATALYST_" + strings.ToUpper(name+"_"+k)) })
+	return creds, legacy
+}
+
+// workdirCredentials returns the credentials that the adapter of cp wrote
+// into the variables file tofu.auto.tfvars.json of workdir. The adapter's
+// TfVars, run on credentials whose every key holds a marker, names the
+// variable that carries each key; a key no variable carries, or a file that
+// is missing or unreadable, yields nothing.
+func workdirCredentials(cp providers.CloudProvider, keys []string, workdir string) map[string]string {
+	data, err := os.ReadFile(filepath.Join(workdir, "tofu.auto.tfvars.json")) //nolint:gosec // the deployment's own workdir under the tofu root, as before
+	if err != nil {
+		return nil
+	}
+	var file map[string]any
+	if json.Unmarshal(data, &file) != nil {
+		return nil
+	}
+	const marker = "\x00credential:"
+	marked := make(map[string]string, len(keys))
+	for _, k := range keys {
+		marked[k] = marker + k
+	}
+	vars, err := cp.TfVars(providers.ProvisionSpec{Creds: providers.ProviderCreds{Raw: marked}}, nil)
+	if err != nil {
+		return nil
+	}
 	out := map[string]string{}
-	switch strings.ToLower(strings.TrimSpace(providerName)) {
-	case "huawei":
-		// Wave 3 + Wave 5.130 (hw30 fix-forward 2026-05-27): legacy
-		// `hetznerToken` overload kept for the wizard's existing
-		// Cancel & Wipe modal, but PRIMARY path is now the typed
-		// huawei{accessKey,secretKey,projectId,region} body fields
-		// + a fallback to the in-memory dep.Request fields (set at
-		// provision time, survive Pod restart only if the operator
-		// re-submitted via the wizard). When all three sources are
-		// empty, the wipe.go entry path reads from the per-deployment
-		// tofu.auto.tfvars.json on the PVC (see
-		// loadHuaweiCredsFromWorkdir). This makes the wipe truly
-		// atomic: no need for the operator to re-prompt creds after
-		// a Pod restart, because catalyst-api wrote them to disk
-		// during provision.
-		// #5193 — final fallback to the huawei-operator-creds projected env
-		// (CATALYST_HUAWEI_*, api-deployment.yaml). WORST case a partial destroy
-		// leaves behind: the per-deployment tofu.auto.tfvars.json is gone, the Pod
-		// rolled (no in-memory depReq creds), and the wipe body carries none —
-		// without this the bag is empty → the wipe 400s "huawei credentials are
-		// required" and the record strands at status=wiping, blocking the
-		// one-environment-at-a-time preflight for the next fire. catalyst-api's
-		// OWN env still holds the operator creds, so a re-wipe can authenticate.
-		// Precedence: body > depReq > operator env.
-		out["access_key"] = firstNonEmpty(body.HuaweiAccessKey, body.HetznerToken, depReq.Credential("access_key"), os.Getenv("CATALYST_HUAWEI_ACCESS_KEY"))
-		out["secret_key"] = firstNonEmpty(body.HuaweiSecretKey, body.ObjectStorageSecretKey, depReq.Credential("secret_key"), os.Getenv("CATALYST_HUAWEI_SECRET_KEY"))
-		out["project_id"] = firstNonEmpty(body.HuaweiProjectID, body.ObjectStorageAccessKey, depReq.Credential("project_id"), os.Getenv("CATALYST_HUAWEI_PROJECT_ID"))
-		out["region"] = firstNonEmpty(body.HuaweiRegion, body.ObjectStorageRegion, depReq.Credential("region"), os.Getenv("CATALYST_HUAWEI_REGION"))
-		// Region defaults to me-east-215 ONLY when AK/SK/PID all resolved
-		// (mirrors janitor.go:818). The truly-empty case stays region="" so the
-		// EVS/orphan backstop reads "no creds" instead of scanning me-east-215
-		// with a blank AK/SK.
-		if out["region"] == "" && out["access_key"] != "" && out["secret_key"] != "" && out["project_id"] != "" {
-			out["region"] = "me-east-215"
+	for v, val := range vars {
+		s, _ := val.(string)
+		if k, ok := strings.CutPrefix(s, marker); ok {
+			if fv, _ := file[v].(string); strings.TrimSpace(fv) != "" {
+				out[k] = strings.TrimSpace(fv)
+			}
 		}
-	default:
-		// hetzner (canonical) — same wire shape pre-Wave-3.
-		token := strings.TrimSpace(body.HetznerToken)
-		out["hcloud_token"] = token
-		out["hcloud_project_id"] = strings.TrimSpace(depReq.Credential("hcloud_project_id"))
-		// Object-storage creds: body-supplied wins, in-memory dep.Request fallback.
-		access := strings.TrimSpace(body.ObjectStorageAccessKey)
-		if access == "" {
-			access = depReq.ObjectStorageAccessKey
-		}
-		secret := strings.TrimSpace(body.ObjectStorageSecretKey)
-		if secret == "" {
-			secret = depReq.ObjectStorageSecretKey
-		}
-		region := strings.TrimSpace(body.ObjectStorageRegion)
-		if region == "" {
-			region = depReq.ObjectStorageRegion
-		}
-		out["object_storage_access_key"] = access
-		out["object_storage_secret_key"] = secret
-		out["object_storage_region"] = region
 	}
 	return out
+}
+
+// missingCredential returns the first credential field that the cloud
+// profile of name marks required and that creds leaves blank, or nil. A body
+// that used a legacy field is not checked for required fields, as on the
+// credentials route (CLD-112); neither is a provider whose profile cannot be
+// read: its adapter's Wipe refuses missing credentials itself.
+func missingCredential(name, installation string, creds map[string]string, legacy bool) *providers.FieldError {
+	profile := profileOf(name, installation)
+	if legacy || profile == nil {
+		return nil
+	}
+	for _, f := range profile.Spec.Credentials.Fields {
+		if f.Required && strings.TrimSpace(creds[f.Key]) == "" {
+			return &providers.FieldError{Field: f.Key, Message: "required (" + f.Label + ")"}
+		}
+	}
+	return nil
+}
+
+// profileOf returns the effective cloud profile of provider name for the
+// installation, else its pack profile, else nil.
+func profileOf(name, installation string) *cloudprofile.Profile {
+	if p, err := provisioner.EffectiveProfile(name, installation); err == nil {
+		return p
+	}
+	if p, err := provisioner.EffectiveProfile(name, ""); err == nil {
+		return p
+	}
+	return nil
 }
 
 // kindCountSummary returns a stable "kind=N, kind=N, ..." string for
@@ -1340,82 +1226,6 @@ func decodeJSONBody(r *http.Request, dst any) error {
 	}
 	defer r.Body.Close()
 	return json.NewDecoder(r.Body).Decode(dst)
-}
-
-// huaweiCreds is the typed extraction of Huawei IAM credentials from
-// tofu.auto.tfvars.json. Used by the wipe handler's Pod-restart-safe
-// fallback (Wave 5.130 hw30 fix-forward 2026-05-27).
-type huaweiCreds struct {
-	AccessKey string
-	SecretKey string
-	ProjectID string
-	Region    string
-}
-
-// loadHuaweiCredsFromTfvars reads tofu.auto.tfvars.json from the given
-// per-deployment workdir and returns the Huawei creds quartet. Returns
-// (zero, false) on any IO/parse error — the caller falls back to the
-// typed-error path that asks the operator to re-prompt via the wizard.
-//
-// The tfvars file is written by provisioner.writeTfvars during phase 0
-// and contains the AK/SK/projectId/region. It persists on the
-// catalyst-api-deployments PVC across Pod restarts.
-func loadHuaweiCredsFromTfvars(workdir string) (huaweiCreds, bool) {
-	path := filepath.Join(workdir, "tofu.auto.tfvars.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return huaweiCreds{}, false
-	}
-	var raw map[string]any
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return huaweiCreds{}, false
-	}
-	get := func(k string) string {
-		if v, ok := raw[k].(string); ok {
-			return strings.TrimSpace(v)
-		}
-		return ""
-	}
-	hw := huaweiCreds{
-		AccessKey: get("huawei_access_key"),
-		SecretKey: get("huawei_secret_key"),
-		ProjectID: get("huawei_project_id"),
-		Region:    get("huawei_region"),
-	}
-	if hw.AccessKey == "" || hw.SecretKey == "" {
-		return huaweiCreds{}, false
-	}
-	return hw, true
-}
-
-// huaweiOperatorCredsFromEnv resolves the `huawei-operator-creds`
-// Kubernetes Secret, projected into the catalyst-api Pod as
-// CATALYST_HUAWEI_ACCESS_KEY / _SECRET_KEY / _PROJECT_ID / _REGION —
-// the exact same in-cluster fallback discoverHuaweiCreds (janitor.go)
-// already uses for the project-wide orphan sweep. Refs #5193: the
-// wipe path lacked this fallback, so a wipe whose per-deployment
-// tfvars were already destroyed by a partial prior destroy (and whose
-// in-memory dep.Request was lost to a Pod roll) had nowhere left to
-// turn and 400'd "credentials required" forever. An environment the
-// platform created must always be wipeable from in-cluster creds.
-//
-// Returns (zero, false) when access_key, secret_key, or project_id is
-// missing — region alone defaults to "me-east-215" (same default the
-// janitor's discoverHuaweiCreds applies) when unset.
-func huaweiOperatorCredsFromEnv() (huaweiCreds, bool) {
-	hw := huaweiCreds{
-		AccessKey: strings.TrimSpace(os.Getenv("CATALYST_HUAWEI_ACCESS_KEY")),
-		SecretKey: strings.TrimSpace(os.Getenv("CATALYST_HUAWEI_SECRET_KEY")),
-		ProjectID: strings.TrimSpace(os.Getenv("CATALYST_HUAWEI_PROJECT_ID")),
-		Region:    strings.TrimSpace(os.Getenv("CATALYST_HUAWEI_REGION")),
-	}
-	if hw.AccessKey == "" || hw.SecretKey == "" || hw.ProjectID == "" {
-		return huaweiCreds{}, false
-	}
-	if hw.Region == "" {
-		hw.Region = "me-east-215"
-	}
-	return hw, true
 }
 
 // tofuWorkDir returns the root tofu workdir path. Defaults to

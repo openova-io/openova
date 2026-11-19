@@ -98,16 +98,16 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers"
-	huaweiprovider "github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers/huawei"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
 
 const (
@@ -290,80 +290,24 @@ func (h *Handler) runJanitorPass(tofuWorkDir string, failedMaxAge, wipedMaxAge t
 	stats.OrphanKubeconfigs = h.cleanOrphanKubeconfigs(activeIDs)
 	stats.OrphanTofuWorkdirs = h.cleanOrphanTofuWorkdirs(tofuWorkDir, activeIDs)
 
-	// Step 3: Wave 5.138 — per-provider orphan-EIP sweep. EIPs are not
-	// tagged on HCS (Wave 5.4 disabled tags) so per-deployment Wipe
-	// cannot find EIPs from PRIOR failed provs. They accumulate up to
-	// the project quota (publicIp default cap = 10) and the next
-	// fresh prov fails fast with "error allocating EIP: conflict". This
-	// sweep identifies catalyst-owned EIPs through their bandwidth name
-	// prefix and deletes any status=DOWN + unbound ones across all
-	// known HCS tfvars on the PVC. Idempotent + safe during active provs
-	// (bound + ACTIVE EIPs are never touched).
-	stats.OrphanEIPs = h.cleanOrphanEIPsHuawei(tofuWorkDir, activeIDs)
+	// Steps 3-7: the project-wide orphan sweep of every provider whose adapter
+	// has one (providers.OrphanSweeper: addresses #5.138, key pairs #2620,
+	// networks #4431, detached volumes #4466, buckets #4872). Where the cloud
+	// does not tag these, the per-deployment Wipe cannot find what a PRIOR
+	// failed or wiped prov left; they pile up against the project quotas. Every non-wiped record protects its prefix
+	// (buildActivePrefixes, #4454) and the deletes are log-only unless
+	// CATALYST_JANITOR_DESTRUCTIVE=true.
+	swept := h.cleanCloudOrphans(tofuWorkDir)
 
-	// Step 4: G73 (Refs #2620) — per-provider orphan-keypair sweep.
-	// Keypairs are not tagged on HCS so per-deployment Wipe.sweepKeypairs
-	// finds them only via the parent Sovereign FQDN in tfvars; every
-	// keypair belonging to a wiped record falls out of reach and
-	// accumulates against the project quota (default cap = 100). The
-	// 2026-05-27 Kom4DC RCA observed 68 orphans piled up across failed
-	// provs (memory feedback_hcs_kom4dc_wipe_cascade_quirks.md). Same
-	// shape as Step 3: catalyst- prefix match, in-flight protection by
-	// 8-char deployment-ID prefix, bastion-* hard-protected.
-	stats.OrphanKeypairs = h.cleanOrphanKeypairsHuawei(tofuWorkDir, activeIDs)
-
-	// Step 5: #4431 — per-provider orphan-VPC sweep. VPCs are not tagged
-	// on HCS so per-deployment Wipe.cascadeDeleteVPC finds them only via
-	// the parent Sovereign FQDN in tfvars; a wipe whose VPC teardown
-	// lagged (peering pin / residual ports) leaks a catalyst-* VPC that
-	// occupies the project quota (Kom4DC me-east-215 cap = 5, NOT
-	// tenant-raisable) until a manual bastion cleanup — false-failing the
-	// next fresh multi-region prov at the G68 VPC pre-flight. EIPs (Step
-	// 3) and keypairs (Step 4) already had a reclaim sweep; VPCs did not.
-	// Same catalyst- prefix match + 8-char in-flight protection, with
-	// bastion / non-catalyst VPCs hard-protected.
-	stats.OrphanVPCs = h.cleanOrphanVPCsHuawei(tofuWorkDir, activeIDs)
-
-	// Step 6: #4466 — standalone detached-EVS-orphan sweep. A node
-	// self-reap BEFORE a wipe strands CSI `pvc-*` volumes (283 on
-	// b9f9590b) as pure quota debt with no controller left to detach +
-	// delete them. EIPs/keypairs/VPCs each had a reclaim sweep; detached
-	// volumes did not. Only status=available, zero-attachment pvc-* volumes
-	// owned by no live dep are eligible (same protect-by-default guard).
-	stats.OrphanEVS = h.cleanOrphanEVSHuawei(tofuWorkDir, activeIDs)
-
-	// Step 7: #4872 — per-account orphan-OBS-bucket sweep. OBS buckets are
-	// not tagged on HCS (Wave 5.4 disabled tags) so the per-deployment Wipe
-	// (purgeOBSBuckets) reaches only buckets bearing the CURRENT Sovereign's
-	// prefix; a bucket from a PRIOR failed/wiped prov — or one whose wipe
-	// never ran — falls out of reach and piles up against the OBS 100-bucket
-	// account quota, false-failing the next fresh prov's Phase-0 tofu apply
-	// with `Code=TooManyBuckets` (58 May+June orphans back to hw01 observed).
-	// EIPs/keypairs/VPCs/EVS each already had a project-wide reclaim sweep;
-	// object storage did not. Same catalyst- prefix match + 8-char in-flight
-	// protection + log-only gate as its siblings; bastion/non-catalyst
-	// buckets are hard-protected in isReclaimableOrphanOBSBucket itself.
-	stats.OrphanOBSBuckets = h.cleanOrphanOBSBucketsHuawei(tofuWorkDir, activeIDs)
-
-	// #5545 — the five cloud sweeps (EIP / keypair / VPC / EVS / OBS) count
-	// a candidate INSIDE their `if !destructive` branch — e.g.
-	// SweepOrphanOBSBuckets does `progress("… would-reap (log-only …)")`
-	// then `reaped++` (providers/huawei/provider.go:2837-2840). So when the
-	// destructive gate is CLOSED the returned number is a WOULD-REAP count
-	// and nothing was removed.
-	//
-	// Emitting that under a `…Deleted` key made a dry run report deletions
-	// that never happened: observed live on the mothership 2026-08-01,
-	// `destructive=false` alongside `orphanOBSBucketsDeleted=61` and
-	// `orphanKeypairsDeleted=2`, with zero objects touched. The per-item
-	// lines said "would-reap" while the machine-readable summary said
-	// "Deleted", so a dashboard, an alert, or a walker reading the summary
-	// records 61 reclamations that did not occur — and it already
-	// contaminated two UAT rows (G4/G5) before it was caught.
-	//
-	// The count is honest; the NAME was the lie. Name it for what the
-	// number actually is in this mode. The filesystem sweeps above
-	// (kubeconfigs / tofu workdirs) are not gated this way and keep theirs.
+	// #5545 — with the destructive gate closed a sweep's count is a
+	// WOULD-REAP count and nothing was removed (it counts inside its
+	// `if !destructive` branch). Emitting it under a `…Deleted` key made a
+	// dry run report deletions that never happened: observed live on the
+	// mothership 2026-08-01, `destructive=false` next to
+	// `orphanOBSBucketsDeleted=61`, with zero objects touched, and two UAT
+	// rows (G4/G5) recorded it. The count is honest; the key names it for
+	// what it is in this mode. The filesystem sweeps (kubeconfigs / tofu
+	// workdirs) delete when they run and keep their `…Deleted` keys.
 	cloudKey := func(base string) string {
 		if janitorDestructive() {
 			return "orphan" + base + "Deleted"
@@ -371,7 +315,7 @@ func (h *Handler) runJanitorPass(tofuWorkDir string, failedMaxAge, wipedMaxAge t
 		return "orphan" + base + "WouldReap"
 	}
 
-	h.log.Info("[JANITOR] pass complete",
+	args := []any{
 		"durationMs", int(time.Since(startedAt).Milliseconds()),
 		"destructive", janitorDestructive(),
 		"reaped", stats.Reaped,
@@ -379,12 +323,17 @@ func (h *Handler) runJanitorPass(tofuWorkDir string, failedMaxAge, wipedMaxAge t
 		"failedInfraPreserved", stats.FailedPreserved,
 		"orphanKubeconfigsDeleted", stats.OrphanKubeconfigs,
 		"orphanTofuWorkdirsDeleted", stats.OrphanTofuWorkdirs,
-		cloudKey("EIPs"), stats.OrphanEIPs,
-		cloudKey("Keypairs"), stats.OrphanKeypairs,
-		cloudKey("VPCs"), stats.OrphanVPCs,
-		cloudKey("EVS"), stats.OrphanEVS,
-		cloudKey("OBSBuckets"), stats.OrphanOBSBuckets,
-	)
+	}
+	for _, k := range swept {
+		args = append(args, cloudKey(k.kind), k.count)
+	}
+	h.log.Info("[JANITOR] pass complete", args...)
+}
+
+// sweptKind is the count of one kind of a cloud orphan sweep.
+type sweptKind struct {
+	kind  string
+	count int
 }
 
 type reapTarget struct {
@@ -400,11 +349,6 @@ type janitorStats struct {
 	OrphanKubeconfigs  int
 	GhostRecords       int
 	OrphanTofuWorkdirs int
-	OrphanEIPs         int
-	OrphanKeypairs     int
-	OrphanVPCs         int
-	OrphanEVS          int
-	OrphanOBSBuckets   int
 }
 
 // reapDeployment is the cleanup primitive used by the janitor. It
@@ -562,47 +506,35 @@ func (h *Handler) gateFailedReap(id, tofuWorkDir string) bool {
 
 // failedDeploymentInfraAlive is the production infra probe behind
 // gateFailedReap (#5327). It asks the deployment's own cloud provider for the
-// server inventory scoped to this deployment — the same ListServers seam the
-// wizard's infrastructure tab and the wipe pre-flight use. Every error path
-// reports alive=true (fail-closed: never authorise a reap on a probe that
-// could not actually see the cloud).
-//
-// Huawei needs a second look: Wave 5.4 disabled tags on HCS, so the
-// tag-filtered ListServers returns ZERO for a live deployment (the exact
-// blindness Wave 5.147 closed for the wipe's purge path with
-// listECSByNamePrefix). A zero tag-scoped inventory therefore only counts as
-// "gone" once the canonical name-prefix listing
-// (catalyst-<fqdn-dashed>-<dep8>-*) ALSO comes back empty.
+// server inventory scoped to this deployment (ListServers, the seam of the
+// wizard's infrastructure tab and the wipe pre-flight), then, when that is
+// empty, the adapter's providers.LivenessProber: where the cloud does not
+// tag servers (Wave 5.4) the tag-scoped ListServers returns zero for a live
+// deployment, and the prober lists by name prefix instead. Every error path, and a
+// record that names no provider, reports alive=true (fail-closed: never
+// authorise a reap on a probe that could not actually see the cloud).
 func (h *Handler) failedDeploymentInfraAlive(ctx context.Context, dep *Deployment, tofuWorkDir string) (bool, error) {
-	providerName := resolveProviderName(dep)
+	providerName := provisioner.ResolveProvider(&dep.Request)
+	if providerName == "" {
+		return true, errors.New("provider unknown: no provider in the record")
+	}
 	cp, err := providers.Get(providerName)
 	if err != nil {
 		return true, fmt.Errorf("providers.Get(%s): %w", providerName, err)
 	}
-	credsRaw := h.janitorWipeCredsRaw(providerName, dep, tofuWorkDir)
-	servers, err := cp.ListServers(ctx, dep.ID, dep.Request.SovereignFQDN, providers.ProviderCreds{Raw: credsRaw})
+	creds := providers.ProviderCreds{Raw: h.janitorWipeCredsRaw(cp, providerName, dep, tofuWorkDir)}
+	servers, err := cp.ListServers(ctx, dep.ID, dep.Request.SovereignFQDN, creds)
 	if err != nil {
 		return true, fmt.Errorf("%s ListServers: %w", providerName, err)
 	}
 	if len(servers) > 0 {
 		return true, nil
 	}
-	if strings.EqualFold(providerName, "huawei") {
-		hp := h.huaweiProvider("failed-reap probe")
-		if hp == nil {
-			return true, errors.New("huawei provider not wired — cannot verify infra is gone")
-		}
-		creds, ok := huaweiSweepCredsFromRaw(credsRaw)
-		if !ok {
-			return true, errors.New("no huawei creds resolvable (request / workdir tfvars / operator env all empty) — cannot verify infra is gone")
-		}
-		alive, aerr := hp.HasServersByNamePrefix(ctx, creds.AK, creds.SK, creds.ProjectID, creds.Region, dep.Request.SovereignFQDN, dep.ID)
-		if aerr != nil {
-			return true, fmt.Errorf("huawei name-prefix probe: %w", aerr)
-		}
-		return alive, nil
+	prober, ok, err := providers.As[providers.LivenessProber](providerName)
+	if err != nil || !ok {
+		return false, err
 	}
-	return false, nil
+	return prober.HasLiveInfrastructure(ctx, dep.ID, dep.Request.SovereignFQDN, creds)
 }
 
 // destroyFailedDeploymentInfra is the production destroy behind gateFailedReap
@@ -613,16 +545,16 @@ func (h *Handler) failedDeploymentInfraAlive(ctx context.Context, dep *Deploymen
 // body-less credential resolution. Any error, including a Wipe that reports
 // per-resource errors, is surfaced so the caller preserves record + state.
 func (h *Handler) destroyFailedDeploymentInfra(ctx context.Context, dep *Deployment, tofuWorkDir string) error {
-	providerName := resolveProviderName(dep)
+	providerName := provisioner.ResolveProvider(&dep.Request)
 	cp, err := providers.Get(providerName)
 	if err != nil {
 		return fmt.Errorf("providers.Get(%s): %w", providerName, err)
 	}
-	credsRaw := h.janitorWipeCredsRaw(providerName, dep, tofuWorkDir)
 	res, werr := cp.Wipe(ctx, providers.WipeSpec{
 		DeploymentID:  dep.ID,
 		SovereignFQDN: dep.Request.SovereignFQDN,
-		Creds:         providers.ProviderCreds{Raw: credsRaw},
+		Creds:         providers.ProviderCreds{Raw: h.janitorWipeCredsRaw(cp, providerName, dep, tofuWorkDir)},
+		ProtectedIDs:  h.buildActivePrefixes(),
 	}, func(msg string) {
 		h.log.Info("[JANITOR] failed-reap destroy: " + providerName + ": " + msg)
 	})
@@ -635,33 +567,14 @@ func (h *Handler) destroyFailedDeploymentInfra(ctx context.Context, dep *Deploym
 	return nil
 }
 
-// janitorWipeCredsRaw mirrors the wipe handler's body-less credential
-// resolution for the janitor's background (no operator in the loop) probe +
-// destroy: in-memory dep.Request first (buildWipeCredsRaw with an empty
-// body), then the durable per-deployment tofu.auto.tfvars.json on the PVC
-// (#5135 — dep.Request secrets are GC'd post-writeTfvars and do not survive a
-// Pod roll; the failed dep's workdir still exists precisely BECAUSE this gate
-// preserved it), then the huawei-operator-creds Secret env (#5193 last
-// resort).
-func (h *Handler) janitorWipeCredsRaw(providerName string, dep *Deployment, tofuWorkDir string) map[string]string {
-	credsRaw := buildWipeCredsRaw(providerName, wipeRequest{}, dep.Request)
-	applyWorkdirEVSCredsFallback(providerName, credsRaw, filepath.Join(tofuWorkDir, dep.ID))
-	if strings.EqualFold(providerName, "huawei") {
-		if _, ok := huaweiSweepCredsFromRaw(credsRaw); !ok {
-			if env, eok := huaweiOperatorCredsFromEnv(); eok {
-				fill := func(key, val string) {
-					if strings.TrimSpace(credsRaw[key]) == "" {
-						credsRaw[key] = val
-					}
-				}
-				fill("access_key", env.AccessKey)
-				fill("secret_key", env.SecretKey)
-				fill("project_id", env.ProjectID)
-				fill("region", env.Region)
-			}
-		}
-	}
-	return credsRaw
+// janitorWipeCredsRaw is the wipe handler's body-less credential resolution
+// (deploymentCredentials) for the janitor's background probe + destroy: the
+// record, then the durable per-deployment variables file on the PVC (#5135 —
+// the failed dep's workdir still exists precisely BECAUSE gateFailedReap
+// preserved it), then the operator's configuration (#5193).
+func (h *Handler) janitorWipeCredsRaw(cp providers.CloudProvider, providerName string, dep *Deployment, tofuWorkDir string) map[string]string {
+	creds, _ := deploymentCredentials(cp, providerName, nil, nil, dep.Request, filepath.Join(tofuWorkDir, dep.ID))
+	return creds
 }
 
 // activeIDSet returns the union of deployment IDs known in-memory or
@@ -782,281 +695,69 @@ func (h *Handler) buildActivePrefixes() map[string]struct{} {
 	return activePrefixes
 }
 
-// huaweiSweepCreds is a discovered set of project-wide Huawei creds the
-// orphan sweeps run under. All catalyst-huawei deployments in one
-// mothership share the same HCS project, so any one set drives the
-// project-wide sweep.
-type huaweiSweepCreds struct {
-	AK        string
-	SK        string
-	ProjectID string
-	Region    string
-}
-
-// discoverHuaweiCreds finds a working set of Huawei creds for the
-// project-wide orphan sweep. It first walks the per-deployment tfvars on
-// the PVC (the historical source). #4466 cred-source fallback: when the
-// LAST wipe has deleted its own `tofu.auto.tfvars.json` (the only cred
-// source the tfvars-walk knows), the walk short-circuits to "no huawei
-// deployments" and the post-wipe orphan sweep never runs — leaving the
-// very orphans the wipe failed to delete (283 stranded EVS on b9f9590b).
-// So when the tfvars walk comes up empty we fall back to the
-// `huawei-operator-creds` Secret, projected into the catalyst-api Pod as
-// CATALYST_HUAWEI_ACCESS_KEY / _SECRET_KEY / _PROJECT_ID / _REGION — the
-// same env the provisioner reads. Returns ok=false only when BOTH sources
-// are empty (genuinely no Huawei on this mothership).
-func discoverHuaweiCreds(tofuWorkDir string) (huaweiSweepCreds, bool) {
-	var c huaweiSweepCreds
-	if tofuWorkDir != "" {
-		if entries, err := os.ReadDir(tofuWorkDir); err == nil {
-			for _, e := range entries {
-				if !e.IsDir() {
-					continue
-				}
-				data, err := os.ReadFile(filepath.Join(tofuWorkDir, e.Name(), "tofu.auto.tfvars.json"))
-				if err != nil {
-					continue
-				}
-				var tv map[string]any
-				if err := json.Unmarshal(data, &tv); err != nil {
-					continue
-				}
-				akV, _ := tv["huawei_access_key"].(string)
-				skV, _ := tv["huawei_secret_key"].(string)
-				pidV, _ := tv["huawei_project_id"].(string)
-				regV, _ := tv["huawei_region"].(string)
-				if akV != "" && skV != "" && pidV != "" {
-					c.AK, c.SK, c.ProjectID, c.Region = akV, skV, pidV, regV
-					if c.Region == "" {
-						c.Region = "me-east-215"
-					}
-					return c, true
-				}
+// cleanCloudOrphans runs the project-wide orphan sweep of every registered
+// provider whose adapter implements providers.OrphanSweeper, under the
+// credentials of sweepCredentials, and returns the count of each kind in the
+// order the sweepers name them. A provider without a sweeper, or without
+// credentials (no account of that provider on this mothership), is skipped.
+// The pass may take the sum of the adapter's per-kind budgets; errors are
+// logged, never returned.
+func (h *Handler) cleanCloudOrphans(tofuWorkDir string) []sweptKind {
+	var out []sweptKind
+	for _, name := range providers.Names() {
+		sweeper, ok, err := providers.As[providers.OrphanSweeper](name)
+		if err != nil || !ok {
+			continue
+		}
+		cp, _ := providers.Get(name)
+		creds, ok := h.sweepCredentials(cp, name, tofuWorkDir)
+		if !ok {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		res, err := sweeper.SweepOrphans(ctx, providers.SweepInput{
+			Creds:        providers.ProviderCreds{Raw: creds},
+			ProtectedIDs: h.buildActivePrefixes(), // #4454: protect by DEFAULT
+			Destructive:  janitorDestructive(),
+			Progress:     func(msg string) { h.log.Info("[JANITOR] " + msg) },
+		})
+		cancel()
+		if err != nil {
+			h.log.Warn("[JANITOR] orphan sweep error", "provider", name, "err", err.Error())
+		}
+		for _, kind := range sweeper.SweepKinds() {
+			i := slices.IndexFunc(out, func(k sweptKind) bool { return k.kind == kind })
+			if i < 0 {
+				out = append(out, sweptKind{kind: kind})
+				i = len(out) - 1
 			}
+			out[i].count += res.Deleted[kind]
 		}
 	}
-	// Fallback: the huawei-operator-creds Secret env. This is what keeps a
-	// post-wipe sweep alive after the wipe deletes the dep's tfvars.
-	c.AK = os.Getenv("CATALYST_HUAWEI_ACCESS_KEY")
-	c.SK = os.Getenv("CATALYST_HUAWEI_SECRET_KEY")
-	c.ProjectID = os.Getenv("CATALYST_HUAWEI_PROJECT_ID")
-	c.Region = os.Getenv("CATALYST_HUAWEI_REGION")
-	if c.AK != "" && c.SK != "" && c.ProjectID != "" {
-		if c.Region == "" {
-			c.Region = "me-east-215"
+	return out
+}
+
+// sweepCredentials returns the credentials the project-wide sweep of provider
+// name runs under: those of the first record of that provider, by id, whose
+// credentials (janitorWipeCredsRaw) hold every field its cloud profile marks
+// required, else the operator's configuration alone (#4466: the last wipe
+// deletes its own variables file). ok is false when neither resolves.
+func (h *Handler) sweepCredentials(cp providers.CloudProvider, name, tofuWorkDir string) (map[string]string, bool) {
+	var deps []*Deployment
+	h.deployments.Range(func(_, v any) bool {
+		if dep, ok := v.(*Deployment); ok && dep != nil && provisioner.ResolveProvider(&dep.Request) == name {
+			deps = append(deps, dep)
 		}
-		return c, true
-	}
-	return huaweiSweepCreds{}, false
-}
-
-// cleanOrphanEIPsHuawei walks the per-deployment tfvars files on the
-// PVC to find a working set of huawei creds (any active deployment's
-// AK/SK/project_id/region), then calls huawei.Provider.SweepOrphanEIPs
-// which lists all publicIPs in the project and deletes catalyst-owned
-// status=DOWN + unbound ones.
-//
-// Wave 5.138 (2026-05-27): EIPs are NOT tagged on HCS so per-deployment
-// Wipe.listEIPsByTag cannot find EIPs from PRIOR failed provs. They
-// accumulate to project quota (publicIp default cap = 10) and the next
-// fresh prov fails fast with "error allocating EIP: conflict". This
-// sweep solves the gap; see huawei.Provider.SweepOrphanEIPs for the
-// full rationale.
-//
-// Returns the number of EIPs deleted. Returns 0 + logs on any error.
-// Safe to call even when no huawei deployment exists (no-op).
-func (h *Handler) cleanOrphanEIPsHuawei(tofuWorkDir string, activeIDs map[string]struct{}) int {
-	creds, ok := discoverHuaweiCreds(tofuWorkDir)
-	if !ok {
-		// No huawei deployments on this mothership — nothing to sweep.
-		return 0
-	}
-	hp := h.huaweiProvider("orphan-EIP")
-	if hp == nil {
-		return 0
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	// #4454: protect by DEFAULT (every non-wiped record), reclaim ONLY
-	// genuinely-wiped records' leaked infra. See buildActivePrefixes for
-	// the fail-safe-inversion rationale (the b9f9590b self-destruct).
-	activePrefixes := h.buildActivePrefixes()
-	deleted, err := hp.SweepOrphanEIPs(ctx, creds.AK, creds.SK, creds.ProjectID, creds.Region, activePrefixes, janitorDestructive(), func(msg string) {
-		h.log.Info("[JANITOR] " + msg)
+		return true
 	})
-	if err != nil {
-		h.log.Warn("[JANITOR] orphan-EIP sweep error", "err", err.Error())
-		return deleted
+	slices.SortFunc(deps, func(a, b *Deployment) int { return strings.Compare(a.ID, b.ID) })
+	for _, dep := range deps {
+		if creds := h.janitorWipeCredsRaw(cp, name, dep, tofuWorkDir); missingCredential(name, dep.Request.Installation, creds, false) == nil {
+			return creds, true
+		}
 	}
-	return deleted
-}
-
-// huaweiProvider resolves the wired Huawei provider, logging + returning
-// nil when it is unavailable. Shared by every orphan sweep. `what`
-// labels the log line (e.g. "orphan-EVS").
-func (h *Handler) huaweiProvider(what string) *huaweiprovider.Provider {
-	cp, perr := providers.Get("huawei")
-	if perr != nil || cp == nil {
-		h.log.Warn("[JANITOR] huawei provider not wired — skipping "+what+" sweep", "err", perr)
-		return nil
-	}
-	hp, ok := cp.(*huaweiprovider.Provider)
-	if !ok || hp == nil {
-		h.log.Warn("[JANITOR] huawei provider type assertion failed — skipping " + what + " sweep")
-		return nil
-	}
-	return hp
-}
-
-// cleanOrphanKeypairsHuawei mirrors cleanOrphanEIPsHuawei but for SSH
-// keypairs. Keypairs are not tagged on HCS, so per-deployment Wipe
-// finds them only via the parent Sovereign FQDN in tfvars — every
-// keypair on a record wiped via the canonical wipe endpoint falls out
-// of reach and piles up against the project quota (default cap = 100).
-//
-// G73 (Refs #2620): walks `tofuWorkDir` for any per-deployment
-// `tofu.auto.tfvars.json` carrying huawei creds, then calls
-// `huawei.Provider.SweepOrphanKeypairs` for the project-wide sweep.
-//
-// Same fail-safe protection scheme as cleanOrphanEIPsHuawei (#4454):
-// buildActivePrefixes protects EVERY non-`wiped` record's 8-char ID
-// prefix. Only a `wiped` record (which SHOULD have no cloud infra) leaves
-// its keypairs reclaimable.
-func (h *Handler) cleanOrphanKeypairsHuawei(tofuWorkDir string, activeIDs map[string]struct{}) int {
-	creds, ok := discoverHuaweiCreds(tofuWorkDir)
-	if !ok {
-		return 0
-	}
-	hp := h.huaweiProvider("orphan-keypair")
-	if hp == nil {
-		return 0
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	// #4454: protect by DEFAULT (every non-wiped record). See
-	// buildActivePrefixes for the fail-safe-inversion rationale.
-	activePrefixes := h.buildActivePrefixes()
-	deleted, err := hp.SweepOrphanKeypairs(ctx, creds.AK, creds.SK, creds.ProjectID, creds.Region, activePrefixes, janitorDestructive(), func(msg string) {
-		h.log.Info("[JANITOR] " + msg)
-	})
-	if err != nil {
-		h.log.Warn("[JANITOR] orphan-keypair sweep error", "err", err.Error())
-		return deleted
-	}
-	return deleted
-}
-
-// cleanOrphanVPCsHuawei mirrors cleanOrphanEIPsHuawei / cleanOrphanKeypairsHuawei
-// but for VPCs (#4431). VPCs are untagged on HCS so the per-deployment
-// Wipe finds them only via the parent Sovereign FQDN in tfvars; a wipe
-// whose VPC teardown lagged (peering pin / residual ports) leaks an
-// orphaned catalyst-* VPC that occupies the HCS project quota (default
-// cap = 5 on Kom4DC me-east-215, NOT tenant-raisable) forever — so the
-// next fresh 2-region prov false-fails the G68 VPC pre-flight at
-// "project at 5/5 VPCs". This sweep is the missing reclaim path: EIPs
-// and keypairs already had one, VPCs did not.
-//
-// Same fail-safe protection scheme as its siblings (#4454):
-// buildActivePrefixes protects EVERY non-`wiped` record's 8-char ID
-// prefix; only a `wiped` record leaves its VPCs reclaimable. Bastion /
-// non-catalyst VPCs are hard-protected in SweepOrphanVPCs itself.
-func (h *Handler) cleanOrphanVPCsHuawei(tofuWorkDir string, activeIDs map[string]struct{}) int {
-	creds, ok := discoverHuaweiCreds(tofuWorkDir)
-	if !ok {
-		return 0
-	}
-	hp := h.huaweiProvider("orphan-VPC")
-	if hp == nil {
-		return 0
-	}
-	// VPC cascade teardown (peerings → floating-IPs → subnets → ports →
-	// VPC) is slower than the EIP/keypair single-DELETE, so give it a
-	// wider budget than the 2-minute sibling sweeps.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-	// #4454: protect by DEFAULT (every non-wiped record). See
-	// buildActivePrefixes for the fail-safe-inversion rationale.
-	activePrefixes := h.buildActivePrefixes()
-	deleted, err := hp.SweepOrphanVPCs(ctx, creds.AK, creds.SK, creds.ProjectID, creds.Region, activePrefixes, janitorDestructive(), func(msg string) {
-		h.log.Info("[JANITOR] " + msg)
-	})
-	if err != nil {
-		h.log.Warn("[JANITOR] orphan-VPC sweep error", "err", err.Error())
-		return deleted
-	}
-	return deleted
-}
-
-// cleanOrphanEVSHuawei is the detached-EVS-orphan sweep (#4466). A node
-// self-reap BEFORE a wipe strands CSI `pvc-*` volumes — 283 were stranded
-// on b9f9590b as pure quota debt because nothing was left to detach +
-// delete them. EIPs / keypairs / VPCs each already had a project-wide
-// reclaim sweep; detached volumes did not. Same protect-by-default guard
-// (buildActivePrefixes) + same log-only gate (janitorDestructive) as its
-// siblings. Only `status:available`, zero-attachment `pvc-*` volumes that
-// belong to no live dep are eligible.
-func (h *Handler) cleanOrphanEVSHuawei(tofuWorkDir string, activeIDs map[string]struct{}) int {
-	creds, ok := discoverHuaweiCreds(tofuWorkDir)
-	if !ok {
-		return 0
-	}
-	hp := h.huaweiProvider("orphan-EVS")
-	if hp == nil {
-		return 0
-	}
-	// #5028 — the destructive reap now throttles deletes ≥~0.9s apart (the
-	// HCS EVS API rate-limits HARD → un-throttled bulk deletes 429 wholesale).
-	// A one-time backlog near the 400-volume quota therefore needs real
-	// wall-clock to drain, so widen the budget from 3m to 10m (≈600 deletes)
-	// — enough to clear a full backlog in a single pass. The next pass (5m
-	// later) continues anything still outstanding.
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
-	activePrefixes := h.buildActivePrefixes()
-	deleted, err := hp.SweepOrphanEVS(ctx, creds.AK, creds.SK, creds.ProjectID, creds.Region, activePrefixes, janitorDestructive(), func(msg string) {
-		h.log.Info("[JANITOR] " + msg)
-	})
-	if err != nil {
-		h.log.Warn("[JANITOR] orphan-EVS sweep error", "err", err.Error())
-		return deleted
-	}
-	return deleted
-}
-
-// cleanOrphanOBSBucketsHuawei is the object-storage orphan sweep (#4872). OBS
-// buckets are not tagged on HCS so the per-deployment Wipe (purgeOBSBuckets)
-// reaches only buckets bearing the CURRENT Sovereign's prefix; a bucket from a
-// PRIOR failed/wiped prov falls out of reach and accumulates against the OBS
-// 100-bucket account quota until the next fresh prov false-fails Phase-0 with
-// `Code=TooManyBuckets`. EIPs / keypairs / VPCs / EVS each already had a
-// project-wide reclaim sweep; object storage did not. Same protect-by-default
-// guard (buildActivePrefixes) + same log-only gate (janitorDestructive) as its
-// siblings. Only catalyst-prefixed buckets that carry no in-flight
-// deployment-ID prefix are eligible; bastion / non-catalyst buckets are
-// hard-protected.
-func (h *Handler) cleanOrphanOBSBucketsHuawei(tofuWorkDir string, activeIDs map[string]struct{}) int {
-	creds, ok := discoverHuaweiCreds(tofuWorkDir)
-	if !ok {
-		return 0
-	}
-	hp := h.huaweiProvider("orphan-OBS-bucket")
-	if hp == nil {
-		return 0
-	}
-	// Emptying + deleting many buckets (each may hold a full CNPG/openbao
-	// backup set + incomplete multipart parts) is slower than the single-
-	// DELETE sibling sweeps, so give it a wider budget.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-	activePrefixes := h.buildActivePrefixes()
-	deleted, err := hp.SweepOrphanOBSBuckets(ctx, creds.AK, creds.SK, creds.ProjectID, creds.Region, activePrefixes, janitorDestructive(), func(msg string) {
-		h.log.Info("[JANITOR] " + msg)
-	})
-	if err != nil {
-		h.log.Warn("[JANITOR] orphan-OBS-bucket sweep error", "err", err.Error())
-		return deleted
-	}
-	return deleted
+	creds, _ := deploymentCredentials(cp, name, nil, nil, provisioner.Request{}, "")
+	return creds, missingCredential(name, "", creds, false) == nil
 }
 
 // cleanOrphanTofuWorkdirs walks tofuWorkDir and deletes any sub-dir

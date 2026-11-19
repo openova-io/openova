@@ -273,6 +273,9 @@ func Purge(ctx context.Context, token, sovereignFQDN string, progress func(msg s
 		report.Errors = append(report.Errors, "list volumes: "+err.Error())
 	}
 	for _, r := range volumes {
+		if keepAttachedVolume(r, progress) {
+			continue
+		}
 		if err := deleteResource(ctx, token, "/v1/volumes/"+strconv.FormatInt(r.ID, 10)); err != nil {
 			report.Errors = append(report.Errors, fmt.Sprintf("delete volume %s: %s", r.Name, err.Error()))
 			continue
@@ -703,6 +706,9 @@ func purgeByNamePrefix(ctx context.Context, token, prefix string, report *PurgeR
 		if _, seen := already["volumes"][r.Name]; seen {
 			continue
 		}
+		if keepAttachedVolume(r, progress) {
+			continue
+		}
 		if err := deleteResource(ctx, token, "/v1/volumes/"+strconv.FormatInt(r.ID, 10)); err != nil {
 			report.Errors = append(report.Errors, fmt.Sprintf("delete volume %s (name-prefix): %s", r.Name, err.Error()))
 			continue
@@ -814,6 +820,20 @@ func listAllResources(ctx context.Context, token, path, listKey string) ([]hetzn
 type hetznerResource struct {
 	ID   int64  `json:"id"`
 	Name string `json:"name"`
+	// Server is the server a volume is attached to; nil when detached.
+	Server *int64 `json:"server"`
+}
+
+// keepAttachedVolume reports whether volume r is attached to a server: the
+// purge never deletes such a volume, whatever created it (CLD-111). The
+// servers of the Sovereign are deleted first, so a volume still attached
+// belongs to a server the purge did not delete.
+func keepAttachedVolume(r hetznerResource, progress func(string)) bool {
+	if r.Server == nil {
+		return false
+	}
+	progress(fmt.Sprintf("kept volume %s: attached to server %d", r.Name, *r.Server))
+	return true
 }
 
 // listResources GETs /v1/<resource> with the label selector and returns
