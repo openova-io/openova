@@ -285,6 +285,7 @@ checks:
   needs: []
   proof: running
   asserts: Tool-call round trip through the gateway
+  implemented_by: AIP-131
   delivered_by: AIP-140
 - id: AIP-G03
   title: A streamed call is metered
@@ -295,6 +296,7 @@ checks:
   needs: []
   proof: running
   asserts: A streamed call is metered
+  implemented_by: AIP-131
   delivered_by: AIP-140
 - id: AIP-G04
   title: Usage carries the verified Organization
@@ -305,6 +307,7 @@ checks:
   needs: []
   proof: running
   asserts: Usage carries the verified Organization
+  implemented_by: AIP-131
   delivered_by: AIP-140
 - id: AIP-G05
   title: Simulation aliases meet the model contract (expected-fail with a nightly record until flipped)
@@ -315,6 +318,7 @@ checks:
   needs: []
   proof: running
   asserts: Simulation aliases meet the model contract (expected-fail with a nightly record until flipped)
+  implemented_by: AIP-131
   delivered_by: AIP-320
 - id: AIP-G06
   title: Simulation back end installed, truthful and fenced
