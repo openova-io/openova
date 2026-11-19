@@ -2,8 +2,6 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-reflector
-  labels:
-    catalyst.openova.io/section: pts-3-3-security-and-policy
 spec:
   # G117.1-followup (Refs #2749, 2026-06-02): initial spec.topology
   # declaration. Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md
@@ -16,6 +14,8 @@ spec:
   # flux-system/ghcr-pull Secret created by bp-flux).
   version: 1.0.2
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: Reflector
     summary: Reflects Secrets + ConfigMaps across namespaces via annotations — propagates wildcard TLS + shared config to every namespace that needs them.

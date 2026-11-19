@@ -3,7 +3,6 @@ kind: Blueprint
 metadata:
   name: bp-postgres
   labels:
-    catalyst.openova.io/section: pts-4-1-data-services
     catalyst.openova.io/companion: bp-cnpg
 spec:
   # 0.2.8 (#4460): -mesh/-mesh-rw global Service aliases decoupled from the
@@ -108,8 +107,6 @@ spec:
   version: 0.2.35
   card:
     title: PostgreSQL
-    category: data
-    family: postgres
     summary: A reusable, shareable PostgreSQL data-instance. Each install is ONE CNPG Cluster — the engine — and a first-class App card. Consumers SHARE it via isolated databases + per-consumer roles (ADR-0010).
     description: "The binding is pure declarative YAML (a CNPG Database CR + a managed.roles entry + a reflected connection Secret + a Flux dependsOn edge) reconciled by Flux + the CNPG operator. NO custom controller and NO Crossplane. topology: active-hot-standby renders the Pillar-3 synchronous-replication shape (ADR-0004)."
     icon: postgres.svg
@@ -122,6 +119,8 @@ spec:
   # data-instances (gitea-pg, harbor-pg, shared-pg, …) are bp-postgres
   # App cards.
   visibility: listed
+  class: data-service
+  lifecycle: experimental
   # ── Shareability + Contexts (#3370) ─────────────────────────────────
   # shareable: instances of this Blueprint support multi-application
   # reuse — one instance serves many consumer applications, each through

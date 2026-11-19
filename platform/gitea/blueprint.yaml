@@ -2,9 +2,6 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-gitea
-  labels:
-    catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
-    catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 1.2.54
   card:
@@ -12,6 +9,8 @@ spec:
     summary: Gitea — per-Sovereign Git server. Hosts catalog (public Blueprint mirror), catalog-sovereign (curated private Blueprints), one Gitea Org per Catalyst Organization, and system scope.
     icon: gitea.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  class: platform-component
+  lifecycle: experimental
 
   # placementSchema aligned with spec.topology below (#4212 Seam 3). The
   # spine Application-CR producer stamps active-hot-standby on a multi-region

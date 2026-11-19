@@ -9,6 +9,8 @@ spec:
     summary: Neutral storage gate of the bootstrap kit. A hook Job waits until the expected StorageClass is the cluster default.
     documentation: ./README.md
   visibility: unlisted              # mandatory infra, installed by bootstrap-kit slot 15b
+  class: platform-component
+  lifecycle: experimental
   owner:
     team: platform
     contact: platform@openova.io

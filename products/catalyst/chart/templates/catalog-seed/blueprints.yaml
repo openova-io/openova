@@ -17,8 +17,6 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/category: ai-runtime
-    catalyst.openova.io/section: pts-7-org-tenant
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
@@ -31,8 +29,6 @@ spec:
     sidebarIcon: M3 4a1 1 0 011-1h16a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm5 5l3 3-3 3m5 0h4M8 21h8
   card:
     title: Agenity
-    category: ai-runtime
-    family: agent-runtime
     summary: Your AI engineering team — chat with a built-in solo agent (Claude Opus 4.7) that creates Applications in your Organization for you.
     description: Install Agenity into your Organization and chat with its solo agent (Claude Opus 4.7, token pre-configured). The agent reaches the OpenOva MCP — scoped to exactly what you can do in the console — to create and manage Applications in YOUR Organization on your behalf.
     icon: agenity.svg
@@ -40,6 +36,8 @@ spec:
     tags: [agenity, agent, multi-agent, claude, opus, mcp, self-service]
     docs: https://github.com/openova-io/openova
   visibility: listed
+  class: ai-service
+  lifecycle: experimental
   placementSchema:
     modes: [single-region]
     default: single-region
@@ -92,20 +90,18 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-observability
-    catalyst.openova.io/tier: catalyst-cp
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.0.3
-  visibility: listed
+  visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: Alloy
-    family: insights
     description: Grafana Alloy — telemetry collector (logs/metrics/traces, OTLP-native) for the LGTM observability stack.
     icon: alloy.svg
     docs: https://grafana.com/docs/alloy/latest/
-    category: observability
   topology:
     supported: [singleton]
     defaults:
@@ -151,15 +147,12 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/category: ai-runtime
-    catalyst.openova.io/section: pts-4-6-llm-serving
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.0.0
   card:
     title: BGE Embeddings + Reranker
-    category: ai-runtime
     summary: BAAI General Embedding (sentence-transformers + bge-reranker). CPU-friendly multilingual embeddings + cross-encoder reranking. Default model bge-small-en-v1.5; bp-llm-gateway discovers via Service annotation.
     description: BAAI General Embedding (sentence-transformers + bge-reranker). CPU-friendly multilingual embeddings + cross-encoder reranking. Default model bge-small-en-v1.5; bp-llm-gateway discovers via Service annotation.
     icon: bge.svg
@@ -167,6 +160,8 @@ spec:
     tags: [embeddings, reranker, rag, sentence-transformers, ai]
     docs: https://huggingface.co/BAAI
   visibility: listed
+  class: ai-service
+  lifecycle: experimental
   placementSchema:
     modes: [single-region]
     default: single-region
@@ -220,8 +215,6 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
-    catalyst.openova.io/tier: catalyst-cp
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
@@ -231,8 +224,9 @@ spec:
     summary: Umbrella Blueprint for the Catalyst control plane — console, marketplace, admin, catalog-svc, projector, provisioning, environment/blueprint controllers, billing. Once Ready the Sovereign is self-sufficient.
     description: Umbrella Blueprint for the Catalyst control plane. Brings up the console, marketplace, admin, catalog-svc, projector, provisioning, environment-controller, blueprint-controller, and billing services. See docs/ARCHITECTURE.md §11 (Catalyst-on-Catalyst) and bootstrap-kit slot 13.
     icon: catalyst.svg
-    category: platform
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   manifests:
     chart: bp-catalyst-platform
   source:
@@ -304,7 +298,6 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-3-security-and-policy
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
@@ -313,8 +306,9 @@ spec:
     title: cert-manager
     summary: X.509 certificate automation for Kubernetes — Let's Encrypt ACME issuance, renewal, and the controllers + CRDs the Sovereign's ClusterIssuers (bp-cert-manager-issuers) bind against.
     icon: cert-manager.svg
-    category: platform
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   manifests:
     chart: bp-cert-manager
   source:
@@ -353,17 +347,17 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-3-security-and-policy
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.0.2
   card:
     title: cert-manager — Issuers
-    category: security
     summary: The Sovereign's Let's Encrypt ClusterIssuers (letsencrypt-dns01-prod, letsencrypt-http01-prod). Split from bp-cert-manager (#3734) into a separate HelmRelease (dependsOn bp-cert-manager) so a fresh helm-controller reconcile maps the ClusterIssuer kind after its CRD registers.
     icon: cert-manager.svg
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   manifests:
     chart: bp-cert-manager-issuers
   source:
@@ -402,7 +396,6 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-3-security-and-policy
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
@@ -411,8 +404,9 @@ spec:
     title: cert-manager PowerDNS Webhook
     summary: ACME DNS-01 solver webhook that lets cert-manager satisfy Let's Encrypt DNS-01 challenges against the Sovereign's own PowerDNS authoritative zones.
     icon: cert-manager.svg
-    category: platform
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   manifests:
     chart: bp-cert-manager-powerdns-webhook
   source:
@@ -446,23 +440,21 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/category: bss
-    catalyst.openova.io/section: pts-4-8-identity-and-metering
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 0.1.68
   card:
     title: Chargeback
-    category: bss
-    family: billing
     summary: Usage ledger, rating and monthly statements for your Organizations and external cloud projects — collect allocation-hours, rate them against a price book, issue statements.
     description: "Standalone chargeback / showback: PIN sign-in, customers with their own cost sources (projects via a read-only access key), a price book imported as CSV, allocation-based usage collected every 15 minutes, monthly draft statements issued as JSON or CSV."
     icon: chargeback.svg
     license: Apache-2.0
     tags: [chargeback, showback, usage, rating, statements, bss]
     docs: https://github.com/openova-io/openova
-  visibility: listed
+  visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   placementSchema:
     modes: [single-region]
     default: single-region
@@ -511,8 +503,6 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/category: per-host-cluster-infrastructure
-    catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
@@ -521,8 +511,9 @@ spec:
     title: Cilium
     summary: Unified CNI + Service Mesh (eBPF). mTLS via WireGuard, Hubble observability, Gateway API.
     icon: cilium.svg
-    category: infrastructure
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   placementSchema:
     modes: [single-region]
     default: single-region
@@ -568,22 +559,21 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-4-application-tier
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.0.0
   visibility: unlisted
+  class: data-service
+  lifecycle: experimental
   card:
     title: ClickHouse
-    family: olap
     summary: Column-oriented OLAP database. Sub-second queries over billions of rows.
     description: Distributed columnar database for real-time analytics. Pairs with bp-loki for log analytics at scale.
     icon: clickhouse.svg
     license: Apache-2.0
     tags: [analytics, olap, columnar, sql, clickhouse]
     docs: https://clickhouse.com/docs
-    category: analytics
   topology:
     supported: [active-active, singleton]
     defaults:
@@ -654,7 +644,6 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-2-scaling-and-resilience
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
@@ -663,8 +652,9 @@ spec:
     title: Cluster Autoscaler (Hetzner)
     summary: Kubernetes Cluster Autoscaler with the Hetzner Cloud provider — scales worker node pools up/down to match scheduled-Pod demand on hcloud-backed Sovereigns.
     icon: cluster-autoscaler.svg
-    category: infrastructure
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   placementSchema:
     modes: [single-region]
     default: single-region
@@ -698,22 +688,21 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-4-1-data-services
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.0.17
   card:
     title: CloudNativePG
-    category: database
-    family: postgres
     summary: PostgreSQL operator for Kubernetes (HA primary/replica, automated backups, point-in-time recovery).
     description: Production-grade Postgres operator. Provisions a Cluster CR per database with streaming replication, scheduled backups, and S3 PITR.
     icon: postgres.svg
     license: Apache-2.0
     tags: [database, postgres, sql, operator, ha]
     docs: https://cloudnative-pg.io/documentation/
-  visibility: listed
+  visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   producesInstances:
     kind: postgres
     instanceBlueprint: bp-postgres
@@ -770,7 +759,6 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-9-disaster-recovery
     catalyst.openova.io/companion: bp-cnpg
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
@@ -778,15 +766,15 @@ spec:
   version: 0.2.33
   card:
     title: CNPG Cluster-Pair (Active-Hotstandby DR)
-    category: database
-    family: postgres
     summary: Active-hot-standby CNPG cluster-pair across two regions. WAL streams over Cilium ClusterMesh for cross-region DR.
     description: Catalyst-curated Blueprint that renders a primary postgresql.cnpg.io/v1.Cluster CR in region A + a replica Cluster CR in region B configured as a CNPG replica cluster (replica.enabled=true + externalCluster) streaming WAL over a Cilium ClusterMesh-shared Service. Failover-readiness probe Pod flips Ready when WAL lag < threshold so Continuum K-Cont-2 can promote on operator-triggered switchover.
     icon: cnpg-pair.svg
     license: Apache-2.0
     tags: [database, postgres, ha, dr, disaster-recovery, multi-region, active-hot-standby, clustermesh, cnpg]
     docs: https://cloudnative-pg.io/documentation/
-  visibility: listed
+  visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   configSchema:
     type: object
     required: [primary, replica, image]
@@ -911,7 +899,6 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-2-gitops-and-iac
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
@@ -920,8 +907,9 @@ spec:
     title: Crossplane
     summary: Control-plane day-2 infrastructure provisioning. Renders Composite Resources (XRs) into cloud + in-cluster resources the Sovereign never surfaces to Users directly.
     icon: crossplane.svg
-    category: platform
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   manifests:
     chart: bp-crossplane
   source:
@@ -955,7 +943,6 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-2-gitops-and-iac
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
@@ -964,8 +951,9 @@ spec:
     title: Crossplane Claims
     summary: Sovereign-scoped Crossplane Composite Resource claims (XRDs + Compositions) — the in-cluster contract the control plane uses to request infrastructure from bp-crossplane.
     icon: crossplane.svg
-    category: platform
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   manifests:
     chart: bp-crossplane-claims
   source:
@@ -999,17 +987,17 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.1.10
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: ExternalDNS
     summary: Synchronises Kubernetes Ingress/HTTPRoute/Service hostnames into the Sovereign's PowerDNS authoritative zones automatically.
     icon: external-dns.svg
-    category: infrastructure
   topology:
     supported: [singleton]
     defaults:
@@ -1043,17 +1031,17 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-3-security-and-policy
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.1.7
   card:
     title: External Secrets Operator
-    category: security
     summary: Syncs secrets from OpenBao into Kubernetes Secrets via ExternalSecret CRs. The materialisation layer every app's SSO/DB credential flows through.
     icon: external-secrets.svg
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   placementSchema:
     modes: [single-region]
     default: single-region
@@ -1092,17 +1080,17 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-3-security-and-policy
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.0.14
   card:
     title: External Secrets — Stores
-    category: security
     summary: ClusterSecretStore + SecretStore CRs binding the External Secrets Operator to the Sovereign's OpenBao backend. The store-configuration companion to bp-external-secrets.
     icon: external-secrets.svg
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   topology:
     supported: [singleton]
     defaults:
@@ -1141,17 +1129,17 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-3-security-and-policy
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.0.2
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: Falco
     summary: Runtime security — eBPF syscall + Kubernetes-audit threat detection. Streams security events to the Sovereign observability stack.
     icon: falco.svg
-    category: security
   topology:
     supported: [singleton]
     defaults:
@@ -1190,7 +1178,6 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-2-gitops-and-iac
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
@@ -1199,8 +1186,9 @@ spec:
     title: Flux
     summary: GitOps engine — reconciles every Sovereign Blueprint HelmRelease from the local Gitea source. The continuous-reconciliation backbone of the platform.
     icon: flux.svg
-    category: platform
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   manifests:
     chart: bp-flux
   source:
@@ -1239,18 +1227,17 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/category: per-host-cluster-infrastructure
-    catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.3.1
   card:
     title: Gateway API
-    category: infrastructure
     summary: Kubernetes Gateway API CRDs (GatewayClass/Gateway/HTTPRoute) — the north-south traffic contract every Sovereign endpoint is exposed through via Cilium.
     icon: gateway-api.svg
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   placementSchema:
     modes: [single-region]
     default: single-region
@@ -1289,8 +1276,6 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
-    catalyst.openova.io/tier: catalyst-cp
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
@@ -1299,8 +1284,9 @@ spec:
     title: Gitea
     summary: Gitea — per-Sovereign Git server. Hosts catalog (public Blueprint mirror), catalog-sovereign (curated private Blueprints), one Gitea Org per Catalyst Organization, and system scope.
     icon: gitea.svg
-    category: platform
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   placementSchema:
     modes: [singleton, active-hot-standby]
     default: singleton
@@ -1367,23 +1353,21 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-observability
-    catalyst.openova.io/tier: catalyst-cp
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.0.19
-  visibility: listed
+  visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: Grafana
-    family: dashboards
     summary: Open-source observability dashboards. Pre-wired to Prometheus + Loki sources.
     description: Multi-source observability platform with dashboards, alerting, and Keycloak SSO.
     icon: grafana.svg
     license: AGPL-3.0
     tags: [observability, monitoring, dashboards, grafana]
     docs: https://grafana.com/docs/grafana/latest/
-    category: observability
   topology:
     supported: [active-hot-standby, singleton]
     defaults:
@@ -1458,20 +1442,18 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
-    catalyst.openova.io/category: platform
-    catalyst.openova.io/tier: catalyst-cp
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 0.2.55
   card:
     title: Apache Guacamole
-    category: platform
     summary: Clientless HTML5 remote-desktop gateway. Browser-based RDP / VNC / SSH and kubectl-exec into Pods, with Keycloak SSO. One Guacamole per Sovereign per ADR-0001 §11.
     description: Clientless HTML5 remote-desktop gateway. Browser-based RDP / VNC / SSH and kubectl-exec into Pods, with Keycloak SSO. One Guacamole per Sovereign per ADR-0001 §11.
     icon: guacamole.svg
-  visibility: listed
+  visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   placementSchema:
     modes: [single-region, active-hot-standby]
     default: single-region
@@ -1536,8 +1518,6 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-5-storage-and-data
-    catalyst.openova.io/tier: catalyst-cp
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
@@ -1547,8 +1527,9 @@ spec:
     summary: Per-Sovereign OCI registry. Keycloak SSO via OIDC. One Harbor per Catalyst control plane.
     description: Per-Sovereign OCI registry mirroring Catalyst Blueprint OCI artefacts + container images. Keycloak OIDC SSO; blobs in Object Storage, metadata in CNPG.
     icon: harbor.svg
-    category: platform
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   placementSchema:
     modes: [singleton, active-hot-standby]
     default: singleton
@@ -1622,7 +1603,6 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-1-cloud-integration
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
@@ -1631,8 +1611,9 @@ spec:
     title: Hetzner Cloud Controller Manager
     summary: Hetzner Cloud provider integration — node lifecycle, LoadBalancer Services, and route reconciliation on hcloud-backed Sovereign clusters.
     icon: hetzner.svg
-    category: infrastructure
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   placementSchema:
     modes: [single-region]
     default: single-region
@@ -1666,19 +1647,17 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-3-security-and-policy
-    catalyst.openova.io/category: platform
-    catalyst.openova.io/tier: catalyst-cp
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 0.1.21
   card:
     title: k8s-ws-proxy
-    category: platform
     summary: Per-node WebSocket exec proxy bridging HMAC-signed callers (catalyst-api, Guacamole) onto the local kube-apiserver pods/exec stream. DaemonSet with node-local internalTrafficPolicy.
     icon: k8s-ws-proxy.svg
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   placementSchema:
     modes: [single-region]
     default: single-region
@@ -1728,23 +1707,21 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
-    catalyst.openova.io/tier: catalyst-cp
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.5.16
   card:
     title: Keycloak
-    family: iam
     summary: Open-source Identity and Access Management. OIDC + SAML + social login + realm-per-Organization.
     description: Per-Organization Keycloak realm with pre-seeded OIDC client. Pairs with bp-wordpress-tenant for SSO.
     icon: keycloak.svg
     license: Apache-2.0
     tags: [identity, sso, oidc, saml, iam, keycloak]
     docs: https://www.keycloak.org/documentation
-    category: identity
-  visibility: listed
+  visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   configSchema:
     type: object
     required: [realmName]
@@ -1816,18 +1793,18 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-4-6-ai-ml
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.0.0
   card:
     title: KServe
-    category: ai-ml
     summary: "Kubernetes-native model serving — InferenceService CRD, multi- framework predictors (vLLM, TorchServe, Triton, SKLearn), inference graphs. Wraps the upstream `kserve/kserve` chart and ships a Catalyst-curated `RawDeployment` mode (no per-InferenceService Knative Service hop by default — KServe writes Deployments directly), with **Knative still installed** (via bp-knative) for Application-tier Blueprints that opt in to scale-to-zero on a per- InferenceService basis. Used by bp-cortex (composite AI Hub Blueprint). "
     description: "Kubernetes-native model serving — InferenceService CRD, multi- framework predictors (vLLM, TorchServe, Triton, SKLearn), inference graphs. Wraps the upstream `kserve/kserve` chart and ships a Catalyst-curated `RawDeployment` mode (no per-InferenceService Knative Service hop by default — KServe writes Deployments directly), with **Knative still installed** (via bp-knative) for Application-tier Blueprints that opt in to scale-to-zero on a per- InferenceService basis. Used by bp-cortex (composite AI Hub Blueprint). "
     icon: kserve.svg
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   placementSchema:
     modes: [single-region]
     default: single-region
@@ -1888,17 +1865,17 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-3-security-and-policy
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.3.9
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: Kyverno
     summary: Kubernetes-native policy engine — validates, mutates, and generates resources via admission control. Enforces the Sovereign's guardrail policy set.
     icon: kyverno.svg
-    category: security
   topology:
     supported: [singleton]
     defaults:
@@ -1937,17 +1914,17 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-3-security-and-policy
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.0.56
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: Kyverno Policy Library
     summary: The Sovereign's curated Kyverno ClusterPolicy set — image-signature enforcement, namespace guardrails, and resource-hygiene rules applied at admission time.
     icon: kyverno.svg
-    category: security
   topology:
     supported: [singleton]
     defaults:
@@ -1986,22 +1963,21 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-observability
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.1.0
   visibility: listed
+  class: ai-service
+  lifecycle: experimental
   card:
     title: Langfuse
-    family: llm-observability
     summary: LLM observability + evals. Traces, prompts, scores, datasets.
     description: Langfuse server backed by Postgres (bp-cnpg) and ClickHouse (bp-clickhouse) for trace storage.
     icon: langfuse.svg
     license: MIT
     tags: [ai, llm, observability, langfuse, traces]
     docs: https://langfuse.com/docs
-    category: ai
   topology:
     supported: [active-passive, singleton]
     defaults:
@@ -2068,19 +2044,18 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-3-security-and-policy
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.0.0
-  visibility: listed
+  visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: LitmusChaos
-    family: guardian
     description: CNCF chaos engineering platform. Cloud-native fault injection (pod-kill, network-loss, disk-fill, etc.) with experiment workflows. Validates Sovereign resilience as part of the SRE posture.
     icon: litmus.svg
     docs: https://docs.litmuschaos.io/
-    category: application
   topology:
     supported: [singleton]
     defaults:
@@ -2130,15 +2105,12 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/category: application
-    catalyst.openova.io/section: pts-4-5-communication
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.0.0
   card:
     title: LiveKit
-    category: application
     summary: "WebRTC SFU for real-time video, audio, and data. Powers the Huawei iFlytek voice demo and any Application that needs sub-second media routing. Pairs with bp-stunner for K8s-native TURN/STUN — Catalyst routes LiveKit's TURN config at the stunner Service so SFU traffic survives the host cluster's NAT boundary. Hetzner firewall opens UDP 50000-60000 (LiveKit's RTC port range) per the operator's per-Sovereign overlay. "
     description: "WebRTC SFU for real-time video, audio, and data. Powers the Huawei iFlytek voice demo and any Application that needs sub-second media routing. Pairs with bp-stunner for K8s-native TURN/STUN — Catalyst routes LiveKit's TURN config at the stunner Service so SFU traffic survives the host cluster's NAT boundary. Hetzner firewall opens UDP 50000-60000 (LiveKit's RTC port range) per the operator's per-Sovereign overlay. "
     icon: livekit.svg
@@ -2146,6 +2118,8 @@ spec:
     tags: [webrtc, sfu, video, audio, communication, application]
     docs: https://docs.livekit.io
   visibility: listed
+  class: application
+  lifecycle: experimental
   placementSchema:
     modes: [single-region]
     default: single-region
@@ -2206,16 +2180,12 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/category: ai-runtime
-    catalyst.openova.io/section: pts-4-6-llm-serving
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.0.2
   card:
     title: LLM Gateway
-    category: ai
-    family: llm-routing
     summary: Multi-provider LLM router with rate limits, cost tracking, and prompt caching.
     description: Provider-agnostic LLM gateway (OpenAI, Anthropic, Bedrock, local). Pairs with bp-langfuse for traces.
     icon: llm-gateway.svg
@@ -2223,6 +2193,8 @@ spec:
     tags: [ai, llm, gateway, routing, cost]
     docs: https://github.com/openova-io/openova/tree/main/platform/llm-gateway
   visibility: listed
+  class: ai-service
+  lifecycle: experimental
   configSchema:
     type: object
     properties:
@@ -2288,23 +2260,21 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-observability
-    catalyst.openova.io/tier: catalyst-cp
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.0.3
-  visibility: listed
+  visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: Loki
-    family: logs
     summary: Log aggregation system from Grafana Labs. Multi-tenant + cheap object-storage backend.
     description: Loki + Promtail (log shipper). Pre-wired as a Grafana data source for unified log + metric queries.
     icon: loki.svg
     license: AGPL-3.0
     tags: [observability, logs, loki, grafana]
     docs: https://grafana.com/docs/loki/latest/
-    category: observability
   topology:
     supported: [active-passive, singleton]
     defaults:
@@ -2364,15 +2334,12 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/category: application
-    catalyst.openova.io/section: pts-4-5-communication
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.1.0
   card:
     title: Matrix (Synapse)
-    category: application
     summary: "Self-hosted, federation-capable team chat. Synapse is the reference Matrix homeserver implementation — Catalyst's per- Sovereign tenancy default keeps federation OFF (private rooms only), and operator overlays toggle it on per-Organization for cross-Sovereign collaboration. Hosted at chat.<sovereign-fqdn> with a paired Element-Web client at chat-web.<sovereign-fqdn>. OIDC SSO via bp-keycloak; Postgres backend via bp-cnpg. (\"Synapse\" here = the Matrix server implementation, NOT the retired OpenOva product noun.) "
     description: "Self-hosted, federation-capable team chat. Synapse is the reference Matrix homeserver implementation — Catalyst's per- Sovereign tenancy default keeps federation OFF (private rooms only), and operator overlays toggle it on per-Organization for cross-Sovereign collaboration. Hosted at chat.<sovereign-fqdn> with a paired Element-Web client at chat-web.<sovereign-fqdn>. OIDC SSO via bp-keycloak; Postgres backend via bp-cnpg. (\"Synapse\" here = the Matrix server implementation, NOT the retired OpenOva product noun.) "
     icon: matrix.svg
@@ -2380,6 +2347,8 @@ spec:
     tags: [chat, messaging, federation, e2ee, oidc, application]
     docs: https://element-hq.github.io/synapse/
   visibility: listed
+  class: application
+  lifecycle: experimental
   placementSchema:
     modes: [single-region]
     default: single-region
@@ -2443,20 +2412,18 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-observability
-    catalyst.openova.io/tier: catalyst-cp
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.0.13
-  visibility: listed
+  visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: Mimir
-    family: insights
     description: Horizontally scalable, highly available Prometheus-compatible metrics storage for the LGTM observability stack.
     icon: mimir.svg
     docs: https://grafana.com/docs/mimir/latest/
-    category: observability
   topology:
     supported: [active-passive, singleton]
     defaults:
@@ -2510,8 +2477,6 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
-    catalyst.openova.io/tier: catalyst-cp
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
@@ -2520,8 +2485,9 @@ spec:
     title: NATS JetStream
     summary: Event spine for the Catalyst control plane — JetStream Streams + KV + Object Store via the bundled nack JetStream Controller. Per-Organization Accounts.
     icon: nats.svg
-    category: platform
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   manifests:
     chart: bp-nats-jetstream
   source:
@@ -2574,15 +2540,12 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/category: ai-safety
-    catalyst.openova.io/section: pts-4-7-ai-safety
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.0.0
   card:
     title: NeMo Guardrails
-    category: ai-safety
     summary: Programmable AI safety firewall — blocks prompt injection, PII leaks, off-topic content, and hallucinated citations between user input and the LLM. Wraps NVIDIA's `nemoguardrails server` (FastAPI on port 8000) as a Deployment + Service. Inline filter for bp-llm-gateway and bp-vllm.
     description: Programmable AI safety firewall — blocks prompt injection, PII leaks, off-topic content, and hallucinated citations between user input and the LLM. Wraps NVIDIA's `nemoguardrails server` (FastAPI on port 8000) as a Deployment + Service. Inline filter for bp-llm-gateway and bp-vllm.
     icon: nemo-guardrails.svg
@@ -2590,6 +2553,8 @@ spec:
     tags: [ai-safety, guardrails, prompt-injection, pii, llm, nvidia]
     docs: https://docs.nvidia.com/nemo/guardrails/
   visibility: unlisted
+  class: ai-service
+  lifecycle: experimental
   placementSchema:
     modes: [single-region]
     default: single-region
@@ -2635,16 +2600,12 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/category: ai-runtime
-    catalyst.openova.io/section: pts-4-6-llm-serving
-    catalyst.openova.io/tier: catalyst-cp
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.4.166
   card:
     title: NewAPI
-    category: ai-runtime
     summary: "Multi-tenant LLM marketplace gateway. Wraps the upstream NewAPI (github.com/Calcium-Ion/new-api, MIT, fork of OneAPI) with credits, per-key budgets, channel routing, and BYOK as first-class primitives. Deployed in **backend-only** mode: the OpenAI-compatible API at `api.<host>/v1/*` is customer-facing; the upstream's portal UI is disabled at ingress; Catalyst replaces it as the customer surface; NewAPI's admin UI at `admin.<host>` is exposed only to ops staff (IdP-gated). Compliance posture (channel attestation, geographic AUP, BYOK isolation, reseller disclosure) enforced at the blueprint layer. Use `bp-newapi` when the Sovereign operator's business model is reselling LLM access to its own customers; use `bp-llm-gateway` for self-consumption. "
     description: "Multi-tenant LLM marketplace gateway. Wraps the upstream NewAPI (github.com/Calcium-Ion/new-api, MIT, fork of OneAPI) with credits, per-key budgets, channel routing, and BYOK as first-class primitives. Deployed in **backend-only** mode: the OpenAI-compatible API at `api.<host>/v1/*` is customer-facing; the upstream's portal UI is disabled at ingress; Catalyst replaces it as the customer surface; NewAPI's admin UI at `admin.<host>` is exposed only to ops staff (IdP-gated). Compliance posture (channel attestation, geographic AUP, BYOK isolation, reseller disclosure) enforced at the blueprint layer. Use `bp-newapi` when the Sovereign operator's business model is reselling LLM access to its own customers; use `bp-llm-gateway` for self-consumption. "
     icon: newapi.svg
@@ -2652,6 +2613,8 @@ spec:
     tags: [llm, gateway, marketplace, multi-tenant, credits, byok, openai-compatible, reseller]
     docs: https://github.com/Calcium-Ion/new-api
   visibility: listed
+  class: ai-service
+  lifecycle: experimental
   placementSchema:
     modes: [single-region, active-passive]
     default: single-region
@@ -2716,8 +2679,6 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
-    catalyst.openova.io/tier: catalyst-cp
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
@@ -2727,8 +2688,9 @@ spec:
     summary: Per-Sovereign secret backend. 3-node Raft per region. Keycloak OIDC SSO. MPL-2.0 Vault replacement.
     description: OpenBao secret backend (Raft per region). UI + CLI login via the Keycloak OIDC auth method.
     icon: openbao.svg
-    category: platform
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   placementSchema:
     modes: [singleton, active-passive]
     default: singleton
@@ -2794,15 +2756,12 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/category: ai-runtime
-    catalyst.openova.io/section: pts-4-7-agentic-workspace
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 0.2.25
   card:
     title: OpenClaw
-    category: ai-runtime
     summary: "Per-user agentic workspace for an Organization. A multi-tenant controller deployment in the Organization namespace authenticates end users via the Organization-vcluster Keycloak realm and spawns one runtime pod per active session. Each runtime pod reads ONLY two env vars (NEWAPI_BASE_URL + NEWAPI_KEY) mounted from the per-user `newapi-key-{uuid}` Secret rendered by the unified-rbac user-create hook (ADR-0003). Identity-blind by construction. "
     description: "Per-user agentic workspace for an Organization. A multi-tenant controller deployment in the Organization namespace authenticates end users via the Organization-vcluster Keycloak realm and spawns one runtime pod per active session. Each runtime pod reads ONLY two env vars (NEWAPI_BASE_URL + NEWAPI_KEY) mounted from the per-user `newapi-key-{uuid}` Secret rendered by the unified-rbac user-create hook (ADR-0003). Identity-blind by construction. "
     icon: openclaw.svg
@@ -2810,6 +2769,8 @@ spec:
     tags: [openclaw, agentic, workspace, org, keycloak, newapi, multi-tenant, per-user-pod]
     docs: https://github.com/openova-io/openova/blob/main/platform/openclaw/README.md
   visibility: listed
+  class: ai-service
+  lifecycle: experimental
   placementSchema:
     modes: [single-region]
     default: single-region
@@ -2855,15 +2816,12 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/category: application
-    catalyst.openova.io/section: pts-4-8-identity-and-metering
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.1.0
   card:
     title: OpenMeter
-    category: application
     summary: "Real-time usage metering. CloudEvents ingestion, deterministic per-subject aggregation, OpenAPI Query endpoint. Used by bp-fingate (Open Banking) to meter API calls per TPP for monetization, and available to any Application that needs per-event usage tracking. omantel-1 ships the ClickHouse-less profile per docs/BOOTSTRAP-KIT-EXPANSION-PLAN.md §6.4 — backend writes go to bp-cnpg (PostgreSQL) and bp-nats-jetstream (event bus). Re-roll with backend.kind=clickhouse once a host cluster adds bp-clickhouse. "
     description: "Real-time usage metering. CloudEvents ingestion, deterministic per-subject aggregation, OpenAPI Query endpoint. Used by bp-fingate (Open Banking) to meter API calls per TPP for monetization, and available to any Application that needs per-event usage tracking. omantel-1 ships the ClickHouse-less profile per docs/BOOTSTRAP-KIT-EXPANSION-PLAN.md §6.4 — backend writes go to bp-cnpg (PostgreSQL) and bp-nats-jetstream (event bus). Re-roll with backend.kind=clickhouse once a host cluster adds bp-clickhouse. "
     icon: openmeter.svg
@@ -2871,6 +2829,8 @@ spec:
     tags: [metering, usage, billing, cloudevents, application]
     docs: https://openmeter.io/docs
   visibility: listed
+  class: application
+  lifecycle: experimental
   placementSchema:
     modes: [single-region]
     default: single-region
@@ -2934,16 +2894,12 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/category: ai-runtime
-    catalyst.openova.io/section: pts-4-7-agentic-workspace
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 0.1.9
   card:
     title: OpenOva MCP
-    category: ai-runtime
-    family: agent-runtime
     summary: The RBAC-scoped OpenOva MCP server — exposes Applications, Environments and Organizations as MCP tools whose surface is exactly what the calling User can do in the console.
     description: "A thin facade over the live catalyst-api: every data tool forwards the caller's own bearer, so the platform's authz is the final word and the server holds no privileged token. mode=organization pins the instance to a single Organization's scope and tool subset."
     icon: openova-mcp.svg
@@ -2951,6 +2907,8 @@ spec:
     tags: [mcp, agent, rbac, thin-facade, pillar-4]
     docs: https://github.com/openova-io/openova
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   placementSchema:
     modes: [single-region]
     default: single-region
@@ -2985,22 +2943,21 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-4-application-tier
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.0.0
   visibility: unlisted
+  class: data-service
+  lifecycle: experimental
   card:
     title: OpenSearch
-    family: search
     summary: Open-source search + analytics suite (Elasticsearch fork). Full-text search, log aggregation, vector search.
     description: OpenSearch cluster + Dashboards. Suitable for full-text search, observability, and SIEM use cases.
     icon: opensearch.svg
     license: Apache-2.0
     tags: [search, elasticsearch, opensearch, logs, vector]
     docs: https://opensearch.org/docs/
-    category: search
   topology:
     supported: [active-active, active-passive, singleton]
     defaults:
@@ -3086,19 +3043,18 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-observability
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.2.2
-  visibility: listed
+  visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: OpenTelemetry Collector
-    family: insights
     description: Vendor-neutral telemetry collector (OTLP receiver/forwarder). Sibling to bp-alloy — Catalyst supports both; per-Sovereign overlays choose one. The OpenTelemetry Operator + default Instrumentation CR live in bp-opentelemetry-operator (slot 19c) — Wave 5.41 chart-split.
     icon: opentelemetry.svg
     docs: https://opentelemetry.io/docs/collector/
-    category: observability
   topology:
     supported: [singleton]
     defaults:
@@ -3137,7 +3093,6 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-2-observability-and-tracing
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
@@ -3146,8 +3101,9 @@ spec:
     title: OpenTelemetry Operator
     summary: Manages OpenTelemetry Collector + auto-instrumentation CRs across the Sovereign — the operator layer behind the LGTM telemetry pipeline.
     icon: opentelemetry.svg
-    category: observability
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   placementSchema:
     modes: [single-region]
     default: single-region
@@ -3181,7 +3137,6 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-4-1-data-services
     catalyst.openova.io/companion: bp-cnpg
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
@@ -3189,8 +3144,6 @@ spec:
   version: 0.2.35
   card:
     title: PostgreSQL
-    category: data
-    family: postgres
     summary: A reusable, shareable PostgreSQL data-instance. Each install is ONE CNPG Cluster — the engine — and a first-class App card. Consumers SHARE it via isolated databases + per-consumer roles (ADR-0010).
     description: "The binding is pure declarative YAML (a CNPG Database CR + a managed.roles entry + a reflected connection Secret + a Flux dependsOn edge) reconciled by Flux + the CNPG operator. NO custom controller and NO Crossplane. topology: active-hot-standby renders the Pillar-3 synchronous-replication shape (ADR-0004)."
     icon: postgres.svg
@@ -3198,6 +3151,8 @@ spec:
     tags: [database, postgres, sql, data, shareable, cnpg, adr-0010]
     docs: https://cloudnative-pg.io/documentation/
   visibility: listed
+  class: data-service
+  lifecycle: experimental
   shareable: true
   contextSchema:
     kind: db
@@ -3301,18 +3256,17 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/category: per-host-cluster-infrastructure
-    catalyst.openova.io/section: pts-3-2-gitops-and-iac
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.2.27
   card:
     title: PowerDNS
-    category: infrastructure
     summary: Authoritative DNS for every Sovereign zone — per-zone DNSSEC, lua-records for geo + health-checked failover, dnsdist rate-limiting. See docs/MULTI-REGION-DNS.md.
     icon: powerdns.svg
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   placementSchema:
     modes: [single-region]
     default: single-region
@@ -3360,7 +3314,6 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
@@ -3369,8 +3322,9 @@ spec:
     title: PowerDNS-Admin
     summary: Web UI for per-Sovereign PowerDNS zone + record management. CNPG-backed metadata, Catalyst SSO via Keycloak, drives the authoritative server via the bp-powerdns REST API.
     icon: powerdns.svg
-    category: infrastructure
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   manifests:
     chart: bp-powerdns-admin
   source:
@@ -3420,17 +3374,17 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-3-security-and-policy
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.0.2
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: Reflector
     summary: Reflects Secrets + ConfigMaps across namespaces via annotations — propagates wildcard TLS + shared config to every namespace that needs them.
     icon: reflector.svg
-    category: platform
   topology:
     supported: [singleton]
     defaults:
@@ -3469,17 +3423,17 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-3-security-and-policy
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.0.2
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: Reloader
     summary: Watches ConfigMap/Secret changes and triggers rolling restarts of the Deployments/StatefulSets that consume them — keeps workloads in sync with rotated credentials.
     icon: reloader.svg
-    category: platform
   topology:
     supported: [singleton]
     defaults:
@@ -3518,19 +3472,18 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-5-storage-and-data
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.3.4
   card:
     title: SeaweedFS
-    family: foundation
     description: Unified S3-compatible object storage encapsulation. Master + volume + filer + S3 services. Single S3 surface that every consumer (Loki, Mimir, Tempo, Velero, Harbor, CNPG WAL, OpenSearch snapshots) talks to; SeaweedFS handles tiered storage hot→warm→cold, with cold-tier offload to Cloudflare R2 / AWS S3 Glacier / Hetzner Object Storage configured per-Sovereign.
     icon: seaweedfs.svg
     docs: https://github.com/seaweedfs/seaweedfs/wiki
-    category: data
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   placementSchema:
     modes: [single-region, active-active]
     default: single-region
@@ -3578,8 +3531,6 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
-    catalyst.openova.io/tier: catalyst-cp
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
@@ -3588,8 +3539,9 @@ spec:
     title: Self-Sovereignty Cutover
     summary: "Post-handover cutover Blueprint — pivots every upstream tether (GitOps source, OCI HelmRepositories, registry mirrors, catalyst-api repo env) to the local Sovereign. See ADR-0002 + issue #790."
     icon: cutover.svg
-    category: platform
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   manifests:
     chart: bp-self-sovereign-cutover
   source:
@@ -3627,19 +3579,18 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-3-security-and-policy
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.0.2
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: Sigstore Policy Controller
-    family: guardian
     description: Admission controller for signed-image enforcement (Sigstore/Cosign). Verifies signatures + attestations on container images before admission. Pairs with bp-harbor for the supply-chain trust path.
     icon: sigstore.svg
     docs: https://docs.sigstore.dev/policy-controller/overview/
-    category: security
   topology:
     supported: [singleton]
     defaults:
@@ -3680,8 +3631,6 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
-    catalyst.openova.io/tier: catalyst-cp
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
@@ -3690,8 +3639,9 @@ spec:
     title: SSO Bridge
     summary: Catalyst SSO framework — watches every HelmRelease and auto-provisions Keycloak Clients + OpenBao client_secrets + ExternalSecrets for apps that declare sso.enabled. Mandatory infra. See SECURITY.md §6.3.
     icon: sso-bridge.svg
-    category: security
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   manifests:
     chart: bp-sso-bridge
   source:
@@ -3741,15 +3691,12 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/category: communication
-    catalyst.openova.io/section: pts-4-5-communication
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 0.1.16
   card:
     title: Stalwart (per-Organization)
-    category: communication
     summary: "Dedicated per-Org (per-vcluster) Stalwart mail server. Implements locked decision [Q3] of EPIC #795 — every Organization on a Sovereign gets its OWN Stalwart instance in its Organization namespace, with its OWN domain, OWN MTA reputation, and OWN queue. NOT a shared otech- level multi-domain Stalwart.\nWebmail UI at `https://mail.<org-domain>`; SMTP/IMAP via LoadBalancer. SSO authenticated against the Organization-vcluster Keycloak realm (NOT otech-level Keycloak). Per-user mailbox provisioning is event-driven (ADR-0003 §3). "
     description: "Dedicated per-Org (per-vcluster) Stalwart mail server. Implements locked decision [Q3] of EPIC #795 — every Organization on a Sovereign gets its OWN Stalwart instance in its Organization namespace, with its OWN domain, OWN MTA reputation, and OWN queue. NOT a shared otech- level multi-domain Stalwart.\nWebmail UI at `https://mail.<org-domain>`; SMTP/IMAP via LoadBalancer. SSO authenticated against the Organization-vcluster Keycloak realm (NOT otech-level Keycloak). Per-user mailbox provisioning is event-driven (ADR-0003 §3). "
     icon: stalwart.svg
@@ -3757,6 +3704,8 @@ spec:
     tags: [mail, smtp, imap, jmap, org, per-organization, vcluster, sso, oidc]
     docs: https://stalw.art/
   visibility: listed
+  class: application
+  lifecycle: experimental
   placementSchema:
     modes: [single-region]
     default: single-region
@@ -3835,18 +3784,18 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-4-5-communication
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.0.0
   card:
     title: STUNner
-    category: communication
     summary: "K8s-native TURN/STUN media gateway for WebRTC NAT traversal. Wraps the upstream `stunner/stunner-gateway-operator` chart and ships Catalyst-curated NetworkPolicy + ServiceMonitor + HPA overlays. Used by bp-relay (LiveKit) so WebRTC clients behind NATs reach the in-cluster SFU. Cilium-native Gateway integration (no separate Envoy/NGINX hop) — STUNner registers a GatewayClass + manages a UDP-listening Gateway whose backing Service is exposed on the Sovereign's UDP allocation port range (default 30000-32767, opened at the firewall by the Sovereign's bp-firewall composition). "
     description: "K8s-native TURN/STUN media gateway for WebRTC NAT traversal. Wraps the upstream `stunner/stunner-gateway-operator` chart and ships Catalyst-curated NetworkPolicy + ServiceMonitor + HPA overlays. Used by bp-relay (LiveKit) so WebRTC clients behind NATs reach the in-cluster SFU. Cilium-native Gateway integration (no separate Envoy/NGINX hop) — STUNner registers a GatewayClass + manages a UDP-listening Gateway whose backing Service is exposed on the Sovereign's UDP allocation port range (default 30000-32767, opened at the firewall by the Sovereign's bp-firewall composition). "
     icon: stunner.svg
   visibility: unlisted
+  class: network-security-service
+  lifecycle: experimental
   placementSchema:
     modes: [single-region]
     default: single-region
@@ -3900,17 +3849,17 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-3-security-and-policy
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.0.0
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: Syft + Grype
     summary: SBOM generation (Syft) + vulnerability scanning (Grype) for the Sovereign supply chain — produces and scans image bills-of-materials in the CI/admission path.
     icon: grype.svg
-    category: security
   topology:
     supported: [singleton]
     defaults:
@@ -3944,20 +3893,18 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-observability
-    catalyst.openova.io/tier: catalyst-cp
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.0.1
-  visibility: listed
+  visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: Tempo
-    family: insights
     description: Distributed tracing backend for the LGTM observability stack. Single-binary mode for solo Sovereign; tempo-distributed is a values toggle.
     icon: tempo.svg
     docs: https://grafana.com/docs/tempo/latest/
-    category: observability
   topology:
     supported: [active-passive, singleton]
     defaults:
@@ -4011,15 +3958,12 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-4-3-workflow-and-processing
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.1.1
   card:
     title: Temporal
-    category: workflow
-    family: orchestration
     summary: Durable workflow orchestration. Code-first, language-agnostic, exactly-once execution.
     description: Temporal cluster + Web UI. Backed by Postgres (bp-cnpg) for durable state.
     icon: temporal.svg
@@ -4027,6 +3971,8 @@ spec:
     tags: [workflow, orchestration, temporal, durable]
     docs: https://docs.temporal.io/
   visibility: listed
+  class: application
+  lifecycle: experimental
   configSchema:
     type: object
     properties:
@@ -4093,17 +4039,17 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-3-security-and-policy
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.0.7
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: Trivy
     summary: Trivy Operator — continuous in-cluster vulnerability, misconfiguration, and secret scanning. Surfaces VulnerabilityReport CRs for every workload.
     icon: trivy.svg
-    category: security
   topology:
     supported: [singleton]
     defaults:
@@ -4137,18 +4083,18 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-4-1-data-services
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.1.7
   card:
     title: Valkey
-    category: data
     summary: "Redis-compatible in-memory cache (BSD-3 fork of Redis 7.2.4 under Linux Foundation governance). Bootstrap-kit slot 17 — used by Catalyst control-plane services for ephemeral session/state, and by Application-tier Apps that need a Redis wire-protocol cache. Replication via REPLICAOF (per-Application choice — see docs/SRE.md §2.5). "
     description: "Redis-compatible in-memory cache (BSD-3 fork of Redis 7.2.4 under Linux Foundation governance). Bootstrap-kit slot 17 — used by Catalyst control-plane services for ephemeral session/state, and by Application-tier Apps that need a Redis wire-protocol cache. Replication via REPLICAOF (per-Application choice — see docs/SRE.md §2.5). "
     icon: valkey.svg
   visibility: unlisted
+  class: data-service
+  lifecycle: experimental
   shareable: true
   contextSchema:
     kind: keyspace
@@ -4209,18 +4155,17 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
-    catalyst.openova.io/category: platform
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 0.2.3
   card:
     title: vCluster HelmRepository
-    category: platform
     summary: Seeds the in-vCluster HelmRepository CR so per-Org Applications resolve their Blueprint charts against the Sovereign's local OCI registry post-cutover.
     icon: vcluster.svg
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   placementSchema:
     modes: [single-region]
     default: single-region
@@ -4254,19 +4199,18 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-observability
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.2.2
-  visibility: listed
+  visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: Velero
-    family: insights
     description: Kubernetes-native backup and disaster recovery. Backups land directly in the Sovereign's cloud-provider object storage (Hetzner Object Storage, AWS S3, Azure Blob, …) per ADR-0001 §13's S3-aware-app architecture rule.
     icon: velero.svg
     docs: https://velero.io/docs/
-    category: observability
   topology:
     supported: [singleton]
     defaults:
@@ -4308,19 +4252,18 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-observability
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 0.1.2
-  visibility: listed
+  visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: Velero (HCS)
-    family: insights
     description: "HCS-native Velero — Kubernetes backup + disaster recovery for Huawei Cloud Sovereigns. Per ADR-0001 §13 (S3-aware app rule) writes backups DIRECTLY to Huawei OBS (S3-compatible endpoint), mirroring the Hetzner bp-velero pattern but with the `flux-system/object-storage` Secret pointing at OBS. Wave 6 follow-up to PR #2846 which suspended Hetzner-flavored bp-velero on HCS Sovereigns — this Blueprint closes the resulting backup-engine gap (#2847). "
     icon: velero-hcs.svg
     docs: https://velero.io/docs/
-    category: observability
   topology:
     supported: [singleton]
     defaults:
@@ -4362,15 +4305,12 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/category: ai-runtime
-    catalyst.openova.io/section: pts-4-6-llm-serving
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 1.0.1
   card:
     title: vLLM
-    category: ai-runtime
     summary: High-throughput LLM inference engine with PagedAttention. OpenAI-compatible API. GPU-accelerated when nvidia.com/gpu is available; CPU fallback for non-GPU dev Sovereigns.
     description: High-throughput LLM inference engine with PagedAttention. OpenAI-compatible API. GPU-accelerated when nvidia.com/gpu is available; CPU fallback for non-GPU dev Sovereigns.
     icon: vllm.svg
@@ -4378,6 +4318,8 @@ spec:
     tags: [llm, inference, openai-compatible, gpu, ai]
     docs: https://docs.vllm.ai/
   visibility: listed
+  class: ai-service
+  lifecycle: experimental
   placementSchema:
     modes: [single-region]
     default: single-region
@@ -4438,7 +4380,6 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/section: pts-3-3-security-and-policy
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
@@ -4447,8 +4388,9 @@ spec:
     title: Vertical Pod Autoscaler
     summary: VPA recommender + updater — right-sizes Pod CPU/memory requests from observed usage so the Sovereign's workloads stay efficiently packed.
     icon: vpa.svg
-    category: infrastructure
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   placementSchema:
     modes: [single-region]
     default: single-region
@@ -4482,16 +4424,12 @@ metadata:
     catalyst.openova.io/managed-by: catalog-seed
     catalyst.openova.io/origin: openova-public
     catalyst.openova.io/curation: openova-public
-    catalyst.openova.io/category: organization-app
-    catalyst.openova.io/section: pts-7-org-tenant
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
   version: 0.6.6
   card:
     title: WordPress (per-Organization)
-    category: organization-app
-    family: cms
     summary: Turnkey, SSO-pre-wired WordPress per Organization. Postgres + cert-manager TLS pre-wired.
     description: Runs in the Organization's vcluster, namespace = Organization namespace. SSO via the Organization-vcluster Keycloak realm. Default theme + admin user pre-seeded at install time.
     icon: wordpress.svg
@@ -4499,6 +4437,8 @@ spec:
     tags: [wordpress, cms, org, organization, sso, keycloak, postgres]
     docs: https://wordpress.org/documentation/
   visibility: listed
+  class: application
+  lifecycle: experimental
   configSchema:
     type: object
     properties:

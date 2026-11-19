@@ -2,14 +2,10 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-vllm
-  labels:
-    catalyst.openova.io/category: ai-runtime
-    catalyst.openova.io/section: pts-4-6-llm-serving
 spec:
   version: 1.0.1
   card:
     title: vLLM
-    category: ai-runtime
     summary: High-throughput LLM inference engine with PagedAttention. OpenAI-compatible API. GPU-accelerated when nvidia.com/gpu is available; CPU fallback for non-GPU dev Sovereigns.
     description: High-throughput LLM inference engine with PagedAttention. OpenAI-compatible API. GPU-accelerated when nvidia.com/gpu is available; CPU fallback for non-GPU dev Sovereigns.
     icon: vllm.svg
@@ -17,6 +13,8 @@ spec:
     tags: [llm, inference, openai-compatible, gpu, ai]
     docs: https://docs.vllm.ai/
   visibility: listed
+  class: ai-service
+  lifecycle: experimental
   owner:
     team: ai-platform
     contact: ai-platform@openova.io

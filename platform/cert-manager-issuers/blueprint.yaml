@@ -2,16 +2,15 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-cert-manager-issuers
-  labels:
-    catalyst.openova.io/section: pts-3-3-security-and-policy
 spec:
   version: 1.0.2
   card:
     title: cert-manager — Issuers
-    category: security
     summary: The Sovereign's Let's Encrypt ClusterIssuers (letsencrypt-dns01-prod, letsencrypt-http01-prod). Split from bp-cert-manager (#3734) into a separate HelmRelease (dependsOn bp-cert-manager) so a fresh helm-controller reconcile maps the ClusterIssuer kind after its CRD registers.
     icon: cert-manager.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  class: platform-component
+  lifecycle: experimental
   manifests:
     chart: bp-cert-manager-issuers
 

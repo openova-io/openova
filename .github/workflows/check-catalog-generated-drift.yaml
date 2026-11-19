@@ -6,7 +6,10 @@ name: check — generated catalog is in sync (#5520)
 # platform/<name>/blueprint.yaml, products/<name>/blueprint.yaml and
 # bootstrap-kit slot, the data files under platform/_catalog/ and a provider's
 # own under infra/providers/<provider>/, the register of unpublished seed pins
-# and the chart folders. The pull request that changes one of those inputs runs
+# and the chart folders. A Blueprint that says lifecycle supported is proven by
+# the newest counting gate record (docs/ledger/acceptance/, the pass rule of
+# scripts/acceptance-gate.py), which this job hands to the generator with
+# --gate-record. The pull request that changes one of those inputs runs
 # the generator and commits the three files; nothing edits them by hand. The same
 # job checks `docs/generated/components.md`, which
 # `python3 scripts/generators/components.py` writes, so that
@@ -33,7 +36,6 @@ on:
       - 'products/catalyst/bootstrap/api/internal/catalog/blueprints.json'
       - 'platform/_catalog/**'
       - 'infra/providers/*/pack.yaml'
-      - 'infra/providers/*/card-categories.yaml'
       - 'infra/providers/*/seed-exclusions.yaml'
       - 'scripts/expected-unpublished-catalog-seed-pins.yaml'
       - 'platform/*/chart/Chart.yaml'
@@ -54,7 +56,6 @@ on:
       - 'products/catalyst/bootstrap/api/internal/catalog/blueprints.json'
       - 'platform/_catalog/**'
       - 'infra/providers/*/pack.yaml'
-      - 'infra/providers/*/card-categories.yaml'
       - 'infra/providers/*/seed-exclusions.yaml'
       - 'scripts/expected-unpublished-catalog-seed-pins.yaml'
       - 'platform/*/chart/Chart.yaml'
@@ -70,6 +71,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The pass rule asks Git whether a record's candidate commit is on
+          # main and which rc/<candidate> refs exist.
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -88,8 +93,27 @@ jobs:
           python3 scripts/generate-catalog.py --self-test
           python3 scripts/tests/test_generate_catalog.py
 
+      - name: The newest counting gate record (the proof of lifecycle supported)
+        id: gate
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin '+refs/heads/main:refs/remotes/origin/main' '+refs/heads/rc/*:refs/remotes/origin/rc/*'
+          record="$(python3 - <<'PY'
+          import importlib.util
+          spec = importlib.util.spec_from_file_location("gate", "scripts/acceptance-gate.py")
+          gate = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(gate)
+          counting = gate.counting_records(gate.load_records("."), gate.GitFacts("."))
+          print("docs/ledger/acceptance/" + counting[-1][0] if counting else "")
+          PY
+          )"
+          echo "newest counting gate record: ${record:-none}"
+          echo "record=${record}" >> "$GITHUB_OUTPUT"
+
       - name: Fail if the committed generated files drifted
-        run: python3 scripts/generate-catalog.py --check
+        env:
+          GATE_RECORD: ${{ steps.gate.outputs.record }}
+        run: python3 scripts/generate-catalog.py --check ${GATE_RECORD:+--gate-record "$GATE_RECORD"}
 
       - name: Fail if the components table drifted
         run: python3 scripts/generators/components.py --check

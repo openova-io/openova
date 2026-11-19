@@ -56,7 +56,7 @@ spec:
               - configSchema is per-Blueprint JSON Schema — its shape is
                 arbitrary by design.
               - 58 existing blueprint.yaml files (38 v1alpha1 + 20 v1) carry
-                a union of card variants (summary|description, category|family,
+                a union of card variants (summary|description,
                 docs|documentation), optional manifests blocks for catalog-
                 metadata-only entries, and one-off fields (outputs, etc.).
               - Tightening happens via follow-up slices that author specific
@@ -88,10 +88,6 @@ spec:
                       type: string
                     icon:
                       type: string
-                    category:
-                      type: string
-                    family:
-                      type: string
                     tags:
                       type: array
                       items:
@@ -110,6 +106,63 @@ spec:
                 visibility:
                   type: string
                   enum: [listed, unlisted, private]
+                class:
+                  type: string
+                  description: |
+                    What kind of thing this Blueprint installs. application: a
+                    workload people use directly; data-service: stores or moves
+                    data for other Applications; network-security-service:
+                    connects or protects traffic for other Applications;
+                    ai-service: serves or routes models, or runs agents;
+                    infrastructure: delivers machines, networks or storage as
+                    resources; platform-component: cluster plumbing and control
+                    plane, never installed by an Organization (it must be
+                    unlisted, and the install route refuses it for any caller
+                    that is not a sovereign-admin).
+                  enum: [application, data-service, network-security-service, ai-service, infrastructure, platform-component]
+                  default: application
+                lifecycle:
+                  type: string
+                  description: |
+                    Support stage. experimental: installable, shown with a
+                    badge. supported: written only while the newest counting
+                    gate record shows a passed function test for the chart
+                    (scripts/generate-catalog.py refuses it otherwise).
+                    deprecated: no new Application may be created (HTTP 409
+                    blueprint-deprecated); it must be unlisted.
+                  enum: [experimental, supported, deprecated]
+                  default: experimental
+                shareable:
+                  type: boolean
+                  description: |
+                    true = one Application of this Blueprint serves many
+                    consumers, each through its own Context.
+                  default: false
+                contextSchema:
+                  type: object
+                  description: |
+                    What one Context is on this Blueprint. Required when
+                    shareable is true.
+                  required: [kind, valuesKey]
+                  properties:
+                    kind:
+                      type: string
+                      description: Short label of a Context, for example db, keyspace, bucket.
+                      pattern: '^[a-z][a-z0-9-]{0,20}$'
+                    valuesKey:
+                      type: string
+                      description: Key under the provider Application's spec.parameters that holds the list of Context entries.
+                      pattern: '^[a-zA-Z][a-zA-Z0-9]{0,40}$'
+                    needs:
+                      type: array
+                      description: Field names every Context entry must carry.
+                      items:
+                        type: string
+                    produces:
+                      type: array
+                      description: Named outputs of a Context.
+                      items:
+                        type: string
                 owner:
                   type: object
                   properties:
@@ -850,6 +903,12 @@ spec:
                         The instance Blueprint id this operator provisions
                         (e.g. `bp-postgres`); the dependsOn HR prefix.
               x-kubernetes-preserve-unknown-fields: true
+              # Contract C1: each rule passes when its optional field is absent.
+              x-kubernetes-validations:
+                - rule: "!has(self.shareable) || !self.shareable || has(self.contextSchema)"
+                  message: "shareable Blueprints must declare contextSchema"
+                - rule: "!has(self.class) || self.class != 'platform-component' || (has(self.visibility) && self.visibility == 'unlisted')"
+                  message: "platform-component Blueprints must be unlisted"
             status:
               type: object
               properties:

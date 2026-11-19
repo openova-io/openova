@@ -2,14 +2,10 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-livekit
-  labels:
-    catalyst.openova.io/category: application
-    catalyst.openova.io/section: pts-4-5-communication
 spec:
   version: 1.0.0
   card:
     title: LiveKit
-    category: application
     summary: "WebRTC SFU for real-time video, audio, and data. Powers the Huawei iFlytek voice demo and any Application that needs sub-second media routing. Pairs with bp-stunner for K8s-native TURN/STUN — Catalyst routes LiveKit's TURN config at the stunner Service so SFU traffic survives the host cluster's NAT boundary. Hetzner firewall opens UDP 50000-60000 (LiveKit's RTC port range) per the operator's per-Sovereign overlay. "
     description: "WebRTC SFU for real-time video, audio, and data. Powers the Huawei iFlytek voice demo and any Application that needs sub-second media routing. Pairs with bp-stunner for K8s-native TURN/STUN — Catalyst routes LiveKit's TURN config at the stunner Service so SFU traffic survives the host cluster's NAT boundary. Hetzner firewall opens UDP 50000-60000 (LiveKit's RTC port range) per the operator's per-Sovereign overlay. "
     icon: livekit.svg
@@ -17,6 +13,8 @@ spec:
     tags: [webrtc, sfu, video, audio, communication, application]
     docs: https://docs.livekit.io
   visibility: listed
+  class: application
+  lifecycle: experimental
   owner:
     team: platform
     contact: platform@openova.io

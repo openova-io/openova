@@ -2,11 +2,11 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-falco
-  labels:
-    catalyst.openova.io/section: pts-3-3-security-and-policy
 spec:
   version: 1.0.2
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: Falco
     summary: Runtime security — eBPF syscall + Kubernetes-audit threat detection. Streams security events to the Sovereign observability stack.

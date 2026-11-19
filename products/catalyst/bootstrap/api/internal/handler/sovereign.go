@@ -446,11 +446,11 @@ type sovereignAppItem struct {
 	Slug         string   `json:"slug"`
 	Title        string   `json:"title"`
 	Summary      string   `json:"summary"`
-	Category     string   `json:"category,omitempty"`
+	Class        string   `json:"class,omitempty"`
+	Lifecycle    string   `json:"lifecycle,omitempty"`
 	Tagline      string   `json:"tagline,omitempty"`
 	Tags         []string `json:"tags"`
 	Version      string   `json:"version,omitempty"`
-	Section      string   `json:"section,omitempty"`
 	Depends      []string `json:"depends"`
 	Status       string   `json:"status"` // installed | available | bootstrap
 	BootstrapKit bool     `json:"bootstrapKit"`
@@ -1168,11 +1168,11 @@ func (h *Handler) HandleSovereignApps(w http.ResponseWriter, r *http.Request) {
 			Slug:         b.Slug,
 			Title:        b.Title,
 			Summary:      b.Summary,
-			Category:     deref(b.Category),
+			Class:        b.Class,
+			Lifecycle:    b.Lifecycle,
 			Tagline:      deref(b.Tagline),
 			Tags:         b.Tags,
 			Version:      deref(b.Version),
-			Section:      deref(b.Section),
 			Depends:      b.Depends,
 			Status:       status,
 			BootstrapKit: false,

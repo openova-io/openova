@@ -2,9 +2,6 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-anthropic-adapter
-  labels:
-    catalyst.openova.io/category: ai-runtime
-    catalyst.openova.io/section: pts-4-6-llm-serving
 spec:
   version: 1.0.0
   card:
@@ -15,11 +12,12 @@ spec:
       Anthropic `/v1/messages`, including streaming SSE. Pairs with
       bp-llm-gateway so OpenAI-SDK clients can target Claude transparently.
     icon: anthropic-adapter.svg
-    category: ai-runtime
     tags: [llm, anthropic, claude, openai, adapter, proxy]
     documentation: https://docs.anthropic.com/en/api/messages
     license: Apache-2.0
-  visibility: listed
+  visibility: unlisted
+  class: ai-service
+  lifecycle: experimental
   owner:
     team: ai-platform
     contact: ai-platform@openova.io

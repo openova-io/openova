@@ -2,11 +2,11 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-syft-grype
-  labels:
-    catalyst.openova.io/section: pts-3-3-security-and-policy
 spec:
   version: 1.0.0
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: Syft + Grype
     summary: SBOM generation (Syft) + vulnerability scanning (Grype) for the Sovereign supply chain — produces and scans image bills-of-materials in the CI/admission path.

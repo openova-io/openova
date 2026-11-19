@@ -16,8 +16,8 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 |---|---|---|---|---|
 | platform/_catalog | - | - | - | - |
 | platform/_schemas | - | - | - | - |
-| platform/alloy | bp-alloy | bp-alloy | listed | 21 |
-| platform/anthropic-adapter | bp-anthropic-adapter | bp-anthropic-adapter | listed | - |
+| platform/alloy | bp-alloy | bp-alloy | unlisted | 21 |
+| platform/anthropic-adapter | bp-anthropic-adapter | bp-anthropic-adapter | unlisted | - |
 | platform/bge | bp-bge | bp-bge | listed | - |
 | platform/bp-vcluster-helmrepo | bp-vcluster-helmrepo | bp-vcluster-helmrepo | unlisted | 60 |
 | platform/catalyst-edge-routes | bp-catalyst-edge-routes | bp-catalyst-edge-routes | unlisted | 13e |
@@ -29,8 +29,8 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | platform/cilium-policies | bp-cilium-policies | bp-cilium-policies | unlisted | - |
 | platform/clickhouse | - | bp-clickhouse | unlisted | - |
 | platform/cluster-autoscaler-hcloud | bp-cluster-autoscaler-hcloud | bp-cluster-autoscaler-hcloud | unlisted | 50 |
-| platform/cnpg | bp-cnpg | bp-cnpg | listed | 16 |
-| platform/cnpg-pair | bp-cnpg-pair | bp-cnpg-pair | listed | 16b |
+| platform/cnpg | bp-cnpg | bp-cnpg | unlisted | 16 |
+| platform/cnpg-pair | bp-cnpg-pair | bp-cnpg-pair | unlisted | 16b |
 | platform/crossplane | bp-crossplane | bp-crossplane | unlisted | 04 |
 | platform/crossplane-claims | bp-crossplane-claims | bp-crossplane-claims | unlisted | 14 |
 | platform/debezium | - | bp-debezium | unlisted | - |
@@ -45,8 +45,8 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | platform/flux | bp-flux | bp-flux | unlisted | 03 |
 | platform/gateway-api | bp-gateway-api | bp-gateway-api | unlisted | 01a |
 | platform/gitea | bp-gitea | bp-gitea | unlisted | 10 |
-| platform/grafana | bp-grafana | bp-grafana | listed | 25 |
-| platform/guacamole | bp-guacamole | bp-guacamole | listed | 52 |
+| platform/grafana | bp-grafana | bp-grafana | unlisted | 25 |
+| platform/guacamole | bp-guacamole | bp-guacamole | unlisted | 52 |
 | platform/harbor | bp-harbor | bp-harbor | unlisted | 19 |
 | platform/hcloud-ccm | bp-hcloud-ccm | bp-hcloud-ccm | unlisted | 55 |
 | platform/hcloud-csi | bp-hcloud-csi | bp-hcloud-csi | unlisted | 55a |
@@ -54,27 +54,27 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | platform/iceberg | - | bp-iceberg | unlisted | - |
 | platform/k8s-ws-proxy | bp-k8s-ws-proxy | bp-k8s-ws-proxy | unlisted | 51 |
 | platform/keda | - | - | - | - |
-| platform/keycloak | bp-keycloak | bp-keycloak | listed | 09 |
+| platform/keycloak | bp-keycloak | bp-keycloak | unlisted | 09 |
 | platform/knative | bp-knative | bp-knative | unlisted | - |
 | platform/kserve | bp-kserve | bp-kserve | unlisted | - |
 | platform/kured | bp-kured | bp-kured | unlisted | 04b |
 | platform/kyverno | bp-kyverno | bp-kyverno | unlisted | 27 |
 | platform/kyverno-policies | bp-kyverno-policies | bp-kyverno-policies | unlisted | 27a |
 | platform/langfuse | bp-langfuse | bp-langfuse | listed | - |
-| platform/librechat | bp-librechat | bp-librechat | listed | - |
-| platform/litmus | bp-litmus | bp-litmus | listed | - |
+| platform/librechat | bp-librechat | bp-librechat | unlisted | - |
+| platform/litmus | bp-litmus | bp-litmus | unlisted | - |
 | platform/livekit | bp-livekit | bp-livekit | listed | - |
 | platform/llm-gateway | bp-llm-gateway | bp-llm-gateway | listed | - |
-| platform/loki | bp-loki | bp-loki | listed | 22 |
+| platform/loki | bp-loki | bp-loki | unlisted | 22 |
 | platform/machine-operations | bp-machine-operations | bp-machine-operations | unlisted | - |
 | platform/matrix | bp-matrix | bp-matrix | listed | - |
 | platform/milvus | - | bp-milvus | unlisted | - |
-| platform/mimir | bp-mimir | bp-mimir | listed | 23 |
+| platform/mimir | bp-mimir | bp-mimir | unlisted | 23 |
 | platform/mothership-ops | - | - | - | - |
 | platform/nats-jetstream | bp-nats-jetstream | bp-nats-jetstream | unlisted | 07 |
 | platform/nemo-guardrails | bp-nemo-guardrails | bp-nemo-guardrails | unlisted | - |
 | platform/neo4j | - | bp-neo4j | unlisted | - |
-| platform/netbird | bp-netbird | bp-netbird | listed | - |
+| platform/netbird | bp-netbird | bp-netbird | unlisted | - |
 | platform/network-policies | bp-network-policies | bp-network-policies | unlisted | 26 |
 | platform/newapi | bp-newapi | bp-newapi | listed | 80 |
 | platform/oidc-gate | bp-oidc-gate | bp-oidc-gate | unlisted | 13c |
@@ -82,14 +82,14 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | platform/openclaw | bp-openclaw | bp-openclaw | listed | - |
 | platform/openmeter | bp-openmeter | bp-openmeter | listed | - |
 | platform/opensearch | - | bp-opensearch | unlisted | - |
-| platform/opentelemetry | bp-opentelemetry | bp-opentelemetry | listed | 20 |
+| platform/opentelemetry | bp-opentelemetry | bp-opentelemetry | unlisted | 20 |
 | platform/opentelemetry-operator | bp-opentelemetry-operator | bp-opentelemetry-operator | unlisted | 19c |
 | platform/opentofu | - | - | - | - |
 | platform/plane-isolation | bp-plane-isolation | bp-plane-isolation | unlisted | 26b |
 | platform/postgres | bp-postgres | bp-postgres | listed | 16a, 16c, 16d |
 | platform/powerdns | bp-powerdns | bp-powerdns | unlisted | 11 |
 | platform/powerdns-admin | bp-powerdns-admin | bp-powerdns-admin | unlisted | 11a |
-| platform/qa-app | bp-qa-app | bp-qa-app | listed | - |
+| platform/qa-app | bp-qa-app | bp-qa-app | unlisted | - |
 | platform/reflector | bp-reflector | bp-reflector | unlisted | 05a |
 | platform/reloader | bp-reloader | bp-reloader | unlisted | 28 |
 | platform/seaweedfs | bp-seaweedfs | bp-seaweedfs | unlisted | 18 |
@@ -98,19 +98,19 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | platform/sovereign-tls-vars | bp-sovereign-tls-vars | bp-sovereign-tls-vars | unlisted | 12a |
 | platform/sso-bridge | bp-sso-bridge | bp-sso-bridge | unlisted | 13b |
 | platform/stalwart | - | - | - | - |
-| platform/stalwart-sovereign | bp-stalwart-sovereign | bp-stalwart-sovereign | listed | - |
+| platform/stalwart-sovereign | bp-stalwart-sovereign | bp-stalwart-sovereign | unlisted | - |
 | platform/stalwart-tenant | bp-stalwart-tenant | bp-stalwart-tenant | listed | - |
 | platform/storage-ready | bp-storage-ready | bp-storage-ready | unlisted | 15b |
 | platform/strimzi | - | bp-strimzi | unlisted | - |
 | platform/stunner | bp-stunner | bp-stunner | unlisted | - |
 | platform/syft-grype | bp-syft-grype | bp-syft-grype | unlisted | 33 |
-| platform/tempo | bp-tempo | bp-tempo | listed | 24 |
+| platform/tempo | bp-tempo | bp-tempo | unlisted | 24 |
 | platform/temporal | bp-temporal | bp-temporal | listed | - |
 | platform/topology-lib | topology-lib | - | - | - |
 | platform/trivy | bp-trivy | bp-trivy | unlisted | 30 |
 | platform/valkey | bp-valkey | bp-valkey | unlisted | 17 |
-| platform/velero | bp-velero | bp-velero | listed | 34 |
-| platform/velero-hcs | bp-velero-hcs | bp-velero-hcs | listed | 34a |
+| platform/velero | bp-velero | bp-velero | unlisted | 34 |
+| platform/velero-hcs | bp-velero-hcs | bp-velero-hcs | unlisted | 34a |
 | platform/vllm | bp-vllm | bp-vllm | listed | 39 |
 | platform/vpa | bp-vpa | bp-vpa | unlisted | 29 |
 | platform/wordpress-tenant | bp-wordpress-tenant | bp-wordpress-tenant | listed | - |
@@ -118,7 +118,7 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | products/axon | axon | - | - | - |
 | products/catalyst | bp-catalyst-platform | - | - | 13 |
 | products/catalyst-migrator | - | - | - | - |
-| products/chargeback | bp-chargeback, docrender (docrender/chart) | bp-chargeback | listed | 13f |
+| products/chargeback | bp-chargeback, docrender (docrender/chart) | bp-chargeback | unlisted | 13f |
 | products/continuum | bp-continuum | bp-continuum (chart/blueprint.yaml) | listed | 62 |
 | products/cortex | - | - | - | - |
 | products/fabric | - | - | - | - |

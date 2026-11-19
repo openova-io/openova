@@ -9,6 +9,8 @@ spec:
     summary: Coordinated node reboots, one node at a time inside the reboot span, and the node's unattended-upgrade configuration.
     documentation: ./README.md
   visibility: unlisted              # cluster plumbing, installed by a bootstrap-kit slot
+  class: platform-component
+  lifecycle: experimental
   owner:
     team: platform
     contact: platform@openova.io

@@ -2,14 +2,10 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-openmeter
-  labels:
-    catalyst.openova.io/category: application
-    catalyst.openova.io/section: pts-4-8-identity-and-metering
 spec:
   version: 1.1.0
   card:
     title: OpenMeter
-    category: application
     summary: "Real-time usage metering. CloudEvents ingestion, deterministic per-subject aggregation, OpenAPI Query endpoint. Used by bp-fingate (Open Banking) to meter API calls per TPP for monetization, and available to any Application that needs per-event usage tracking. omantel-1 ships the ClickHouse-less profile per docs/BOOTSTRAP-KIT-EXPANSION-PLAN.md §6.4 — backend writes go to bp-cnpg (PostgreSQL) and bp-nats-jetstream (event bus). Re-roll with backend.kind=clickhouse once a host cluster adds bp-clickhouse. "
     description: "Real-time usage metering. CloudEvents ingestion, deterministic per-subject aggregation, OpenAPI Query endpoint. Used by bp-fingate (Open Banking) to meter API calls per TPP for monetization, and available to any Application that needs per-event usage tracking. omantel-1 ships the ClickHouse-less profile per docs/BOOTSTRAP-KIT-EXPANSION-PLAN.md §6.4 — backend writes go to bp-cnpg (PostgreSQL) and bp-nats-jetstream (event bus). Re-roll with backend.kind=clickhouse once a host cluster adds bp-clickhouse. "
     icon: openmeter.svg
@@ -17,6 +13,8 @@ spec:
     tags: [metering, usage, billing, cloudevents, application]
     docs: https://openmeter.io/docs
   visibility: listed
+  class: application
+  lifecycle: experimental
   owner:
     team: platform
     contact: platform@openova.io

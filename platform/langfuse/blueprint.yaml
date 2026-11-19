@@ -2,14 +2,13 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-langfuse
-  labels:
-    catalyst.openova.io/section: pts-3-observability
 spec:
   version: 1.1.0
   visibility: listed
+  class: ai-service
+  lifecycle: experimental
   card:
     title: Langfuse
-    family: llm-observability
     summary: LLM observability + evals. Traces, prompts, scores, datasets.
     description: Langfuse server backed by Postgres (bp-cnpg) and ClickHouse (bp-clickhouse) for trace storage.
     icon: langfuse.svg

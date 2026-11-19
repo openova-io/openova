@@ -2,15 +2,13 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-tempo
-  labels:
-    catalyst.openova.io/section: pts-3-observability
-    catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 1.0.1  # lockstep with chart/Chart.yaml (#4347 harbor-proxy image for host-ns Kyverno harbor-proxy-pull Enforce)
-  visibility: listed
+  visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: Tempo
-    family: insights
     description: Distributed tracing backend for the LGTM observability stack. Single-binary mode for solo Sovereign; tempo-distributed is a values toggle.
     icon: tempo.svg
     docs: https://grafana.com/docs/tempo/latest/

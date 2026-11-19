@@ -2,16 +2,15 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-external-secrets-stores
-  labels:
-    catalyst.openova.io/section: pts-3-3-security-and-policy
 spec:
   version: 1.0.14
   card:
     title: External Secrets — Stores
-    category: security
     summary: ClusterSecretStore + SecretStore CRs binding the External Secrets Operator to the Sovereign's OpenBao backend. The store-configuration companion to bp-external-secrets.
     icon: external-secrets.svg
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   dependsOn:
     - bp-external-secrets
     - bp-openbao

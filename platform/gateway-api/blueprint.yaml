@@ -2,17 +2,15 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-gateway-api
-  labels:
-    catalyst.openova.io/category: per-host-cluster-infrastructure
-    catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
 spec:
   version: 1.3.1
   card:
     title: Gateway API
-    category: infrastructure
     summary: Kubernetes Gateway API CRDs (GatewayClass/Gateway/HTTPRoute) — the north-south traffic contract every Sovereign endpoint is exposed through via Cilium.
     icon: gateway-api.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  class: platform-component
+  lifecycle: experimental
   placementSchema:
     modes: [single-region]
     default: single-region

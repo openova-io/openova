@@ -2,9 +2,6 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-openbao
-  labels:
-    catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
-    catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 1.2.79
   card:
@@ -13,6 +10,8 @@ spec:
     description: OpenBao secret backend (Raft per region). UI + CLI login via the Keycloak OIDC auth method.
     icon: openbao.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  class: platform-component
+  lifecycle: experimental
 
   # placementSchema aligned with spec.topology below (#4212 Seam 3). The
   # application-controller validates an Application's spec.placement against

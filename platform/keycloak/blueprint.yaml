@@ -2,9 +2,6 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-keycloak
-  labels:
-    catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
-    catalyst.openova.io/tier: catalyst-cp
 spec:
   # 1.5.13 — #6870 (Refs #6509): catalyst-ui `post.logout.redirect.uris` = `+`
   #   (Keycloak expands it to the client's redirectUris), so sign-out from a
@@ -14,14 +11,15 @@ spec:
   version: 1.5.16
   card:
     title: Keycloak
-    family: iam
     summary: Open-source Identity and Access Management. OIDC + SAML + social login + realm-per-Organization.
     description: Per-Organization Keycloak realm with pre-seeded OIDC client. Pairs with bp-wordpress-tenant for SSO.
     icon: keycloak.svg
     license: Apache-2.0
     tags: [identity, sso, oidc, saml, iam, keycloak]
     docs: https://www.keycloak.org/documentation
-  visibility: listed
+  visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
 
   configSchema:
     type: object

@@ -2,15 +2,13 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-mimir
-  labels:
-    catalyst.openova.io/section: pts-3-observability
-    catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 1.0.13
-  visibility: listed
+  visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: Mimir
-    family: insights
     description: Horizontally scalable, highly available Prometheus-compatible metrics storage for the LGTM observability stack.
     icon: mimir.svg
     docs: https://grafana.com/docs/mimir/latest/

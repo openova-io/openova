@@ -2,14 +2,10 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-dragonfly
-  labels:
-    catalyst.openova.io/section: pts-3-5-storage-and-data
-    catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 0.1.2
   card:
     title: Dragonfly
-    family: foundation
     description: >-
       Per-cluster P2P container-image distribution. A per-node dfdaemon serves
       every node's containerd registry-mirror; each image blob is fetched from
@@ -22,6 +18,8 @@ spec:
       cross-plane/cross-region image path.
     docs: https://d7y.io/docs/
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  class: platform-component
+  lifecycle: experimental
   configSchema:
     type: object
     properties:

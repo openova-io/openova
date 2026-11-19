@@ -2,11 +2,11 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-kyverno-policies
-  labels:
-    catalyst.openova.io/section: pts-3-3-security-and-policy
 spec:
   version: 1.0.56
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: Kyverno Policy Library
     summary: The Sovereign's curated Kyverno ClusterPolicy set — image-signature enforcement, namespace guardrails, and resource-hygiene rules applied at admission time.

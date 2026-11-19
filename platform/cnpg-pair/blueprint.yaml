@@ -3,7 +3,6 @@ kind: Blueprint
 metadata:
   name: bp-cnpg-pair
   labels:
-    catalyst.openova.io/section: pts-9-disaster-recovery
     catalyst.openova.io/companion: bp-cnpg
 spec:
   # 0.2.9 (#4846): cross-region DR admission is an identity-based
@@ -156,15 +155,15 @@ spec:
   version: 0.2.33
   card:
     title: CNPG Cluster-Pair (Active-Hotstandby DR)
-    category: database
-    family: postgres
     summary: Active-hot-standby CNPG cluster-pair across two regions. WAL streams over Cilium ClusterMesh for cross-region DR.
     description: Catalyst-curated Blueprint that renders a primary postgresql.cnpg.io/v1.Cluster CR in region A + a replica Cluster CR in region B configured as a CNPG replica cluster (replica.enabled=true + externalCluster) streaming WAL over a Cilium ClusterMesh-shared Service. Failover-readiness probe Pod flips Ready when WAL lag < threshold so Continuum K-Cont-2 can promote on operator-triggered switchover.
     icon: cnpg-pair.svg
     license: Apache-2.0
     tags: [database, postgres, ha, dr, disaster-recovery, multi-region, active-hot-standby, clustermesh, cnpg]
     docs: https://cloudnative-pg.io/documentation/
-  visibility: listed
+  visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
 
   configSchema:
     type: object

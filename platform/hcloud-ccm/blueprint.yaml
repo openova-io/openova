@@ -2,8 +2,6 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-hcloud-ccm
-  labels:
-    catalyst.openova.io/section: pts-3-1-cloud-integration
   annotations:
     catalyst.openova.io/provider: hetzner
 spec:
@@ -13,6 +11,8 @@ spec:
     summary: Hetzner Cloud provider integration — node lifecycle, LoadBalancer Services, and route reconciliation on hcloud-backed Sovereign clusters.
     icon: hetzner.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  class: platform-component
+  lifecycle: experimental
   placementSchema:
     modes: [single-region]
     default: single-region

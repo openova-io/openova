@@ -2,9 +2,6 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-stalwart-sovereign
-  labels:
-    catalyst.openova.io/category: communication
-    catalyst.openova.io/section: pts-4-5-communication
 spec:
   # 0.1.0 (#924) — initial release. Phase-2 follow-up to the Phase-1
   # SMTP seed seam (#883): the Sovereign Console's PIN/magic-link mail
@@ -48,11 +45,12 @@ spec:
       webmail UI in the Sovereign-level instance — Sovereign Console
       is the only consumer.
     icon: stalwart.svg
-    category: communication
     tags: [mail, smtp, sovereign, console, pin, dkim, spf, dmarc]
     documentation: https://stalw.art/
     license: AGPL-3.0
-  visibility: listed
+  visibility: unlisted
+  class: application
+  lifecycle: deprecated
   owner:
     team: platform
     contact: catalyst@openova.io

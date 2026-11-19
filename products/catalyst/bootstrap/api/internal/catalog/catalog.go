@@ -64,13 +64,17 @@ type Blueprint struct {
 	Title      string     `json:"title"`
 	Summary    string     `json:"summary"`
 	Icon       *string    `json:"icon"`
-	Category   *string    `json:"category"`
 	Tagline    *string    `json:"tagline"`
 	Tags       []string   `json:"tags"`
 	Visibility Visibility `json:"visibility"`
-	Version    *string    `json:"version"`
-	Section    *string    `json:"section"`
-	Depends    []string   `json:"depends"`
+	// Class and Lifecycle — contract C1: spec.class (application,
+	// data-service, network-security-service, ai-service, infrastructure,
+	// platform-component) and spec.lifecycle (experimental, supported,
+	// deprecated) of the Blueprint file.
+	Class     string   `json:"class"`
+	Lifecycle string   `json:"lifecycle"`
+	Version   *string  `json:"version"`
+	Depends   []string `json:"depends"`
 
 	// Shareable (#3370) — instances of this Blueprint support
 	// multi-application reuse: one instance serves many consumer

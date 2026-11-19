@@ -2,8 +2,6 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-huawei-evs-csi
-  labels:
-    catalyst.openova.io/section: pts-3-5-storage-and-data
   annotations:
     catalyst.openova.io/provider: huawei
 spec:
@@ -18,9 +16,10 @@ spec:
       cluster-default SC so production PVCs land on durable EVS block volumes,
       never ephemeral k3s local-path (which #3992 FORBIDS via
       --disable=local-storage + Kyverno K23 deny).
-    family: storage
     documentation: ./README.md
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   owner:
     team: platform
     contact: platform@openova.io
