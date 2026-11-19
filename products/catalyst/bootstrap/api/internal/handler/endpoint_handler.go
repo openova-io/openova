@@ -637,6 +637,9 @@ func (h *Handler) createApplicationInstance(ctx context.Context, client dynamic.
 	if bpErr != nil {
 		return nil, "", &refError{Status: http.StatusServiceUnavailable, Code: "blueprint-unavailable", Field: "blueprint", Message: bpErr.Error()}
 	}
+	if rej := instances.ClassLifecycleRefusal(body.Blueprint, bpDoc.Class, bpDoc.Lifecycle, policyModeCallerAuthorized(auth.ClaimsFromContext(ctx))); rej != nil {
+		return nil, "", &refError{Status: rej.Status, Code: rej.Code, Field: "blueprint", Message: rej.Message}
+	}
 
 	// Topology gating per locked decision #1+#7.
 	// G117.3d #2780: multi-region detection MUST consult
@@ -1317,6 +1320,9 @@ type blueprintMeta struct {
 	// exact semver; the old create path omitted it and every
 	// console-created CR failed admission on a real apiserver).
 	Version string `yaml:"version,omitempty" json:"version,omitempty"`
+	// Class and Lifecycle — contract C1; read by instances.ClassLifecycleRefusal.
+	Class     string `yaml:"class,omitempty" json:"class,omitempty"`
+	Lifecycle string `yaml:"lifecycle,omitempty" json:"lifecycle,omitempty"`
 
 	Endpoints     []endpointDecl     `yaml:"endpoints,omitempty" json:"endpoints,omitempty"`
 	SSO           *ssoDecl           `yaml:"sso,omitempty" json:"sso,omitempty"`

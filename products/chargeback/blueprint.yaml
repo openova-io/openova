@@ -2,9 +2,6 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-chargeback
-  labels:
-    catalyst.openova.io/category: bss
-    catalyst.openova.io/section: pts-4-8-identity-and-metering
 spec:
   # 0.1.0 (#6723, ADR-0014, lane B): first release — the chargeback
   # application (usage ledger + rating + statements): Deployment + ClusterIP
@@ -16,8 +13,6 @@ spec:
   version: 0.1.68
   card:
     title: Chargeback
-    category: bss
-    family: billing
     summary: Usage ledger, rating and monthly statements for your Organizations and external cloud projects — collect allocation-hours, rate them against a price book, issue statements.
     description: "Standalone chargeback / showback: PIN sign-in, customers with their own cost sources (projects via a read-only access key), a price book imported as CSV, allocation-based usage collected every 15 minutes, monthly draft statements issued as JSON or CSV."
     icon: chargeback.svg
@@ -27,7 +22,9 @@ spec:
   # listed — the per-Organization placement (ADR-0014 D5) installs from the
   # catalog card; the Sovereign BSS placement is auto-installed by
   # bootstrap-kit slot 13f and never goes through the card.
-  visibility: listed
+  visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   owner:
     team: platform
     contact: platform@openova.io

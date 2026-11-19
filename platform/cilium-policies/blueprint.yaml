@@ -2,8 +2,6 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-cilium-policies
-  labels:
-    catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
 spec:
   # G117.1-followup (Refs #2749, 2026-06-02): initial spec.topology
   # declaration AND fresh chart scaffold. Per
@@ -20,9 +18,10 @@ spec:
   # that bp-kyverno-policies addresses for Kyverno; see Issue #2019).
   version: 1.0.0
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: Cilium Policy Library
-    family: networking
     description: |
       Catalyst-authored CiliumNetworkPolicy / CiliumClusterwideNetwork
       Policy CR library. Per-cluster network microsegmentation overlay

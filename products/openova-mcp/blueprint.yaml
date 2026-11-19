@@ -2,9 +2,6 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-openova-mcp
-  labels:
-    catalyst.openova.io/category: ai-runtime
-    catalyst.openova.io/section: pts-4-7-agentic-workspace
 spec:
   # 0.1.5 (#5206): appVersion 0.2.5 — internal/identity (fromClaims +
   # FromWhoami) now rejects an Org-scoped caller reaching a Sovereign-pinned
@@ -35,8 +32,6 @@ spec:
   version: 0.1.9
   card:
     title: OpenOva MCP
-    category: ai-runtime
-    family: agent-runtime
     summary: The RBAC-scoped OpenOva MCP server — exposes Applications, Environments and Organizations as MCP tools whose surface is exactly what the calling User can do in the console.
     description: "A thin facade over the live catalyst-api: every data tool forwards the caller's own bearer, so the platform's authz is the final word and the server holds no privileged token. mode=organization pins the instance to a single Organization's scope and tool subset."
     icon: openova-mcp.svg
@@ -50,6 +45,8 @@ spec:
   # card. The USER-facing Pillar-4 card is bp-agenity, which consumes this
   # MCP.
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   owner:
     team: ai-platform
     contact: ai-platform@openova.io

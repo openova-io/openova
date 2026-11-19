@@ -2,11 +2,11 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-reloader
-  labels:
-    catalyst.openova.io/section: pts-3-3-security-and-policy
 spec:
   version: 1.0.2
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: Reloader
     summary: Watches ConfigMap/Secret changes and triggers rolling restarts of the Deployments/StatefulSets that consume them — keeps workloads in sync with rotated credentials.

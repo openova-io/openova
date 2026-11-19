@@ -2,9 +2,6 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-sovereign-tls-vars
-  labels:
-    catalyst.openova.io/category: per-host-cluster-infrastructure
-    catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
 spec:
   version: 0.1.3
   card:
@@ -20,6 +17,8 @@ spec:
       region's own wildcard Certificate + Gateway can warm up ahead of
       a region-kill promotion.
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  class: platform-component
+  lifecycle: experimental
   placementSchema:
     modes: [single-region, active-active]
     default: active-active           # runs on every region's control plane, like bp-cilium

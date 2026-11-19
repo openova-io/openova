@@ -2,8 +2,6 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-cert-manager-powerdns-webhook
-  labels:
-    catalyst.openova.io/section: pts-3-3-security-and-policy
 spec:
   version: 1.1.1
   card:
@@ -11,6 +9,8 @@ spec:
     summary: ACME DNS-01 solver webhook that lets cert-manager satisfy Let's Encrypt DNS-01 challenges against the Sovereign's own PowerDNS authoritative zones.
     icon: cert-manager.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  class: platform-component
+  lifecycle: experimental
   manifests:
     chart: bp-cert-manager-powerdns-webhook
   outputs:

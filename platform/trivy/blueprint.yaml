@@ -2,11 +2,11 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-trivy
-  labels:
-    catalyst.openova.io/section: pts-3-3-security-and-policy
 spec:
   version: 1.0.7
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: Trivy
     summary: Trivy Operator — continuous in-cluster vulnerability, misconfiguration, and secret scanning. Surfaces VulnerabilityReport CRs for every workload.

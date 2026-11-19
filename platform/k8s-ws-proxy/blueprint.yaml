@@ -2,18 +2,15 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-k8s-ws-proxy
-  labels:
-    catalyst.openova.io/section: pts-3-3-security-and-policy
-    catalyst.openova.io/category: platform
-    catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 0.1.21
   card:
     title: k8s-ws-proxy
-    category: platform
     summary: Per-node WebSocket exec proxy bridging HMAC-signed callers (catalyst-api, Guacamole) onto the local kube-apiserver pods/exec stream. DaemonSet with node-local internalTrafficPolicy.
     icon: k8s-ws-proxy.svg
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   placementSchema:
     modes: [single-region]
     default: single-region

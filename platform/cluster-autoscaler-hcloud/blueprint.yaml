@@ -2,8 +2,6 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-cluster-autoscaler-hcloud
-  labels:
-    catalyst.openova.io/section: pts-3-2-scaling-and-resilience
   annotations:
     catalyst.openova.io/provider: hetzner
 spec:
@@ -13,6 +11,8 @@ spec:
     summary: Kubernetes Cluster Autoscaler with the Hetzner Cloud provider — scales worker node pools up/down to match scheduled-Pod demand on hcloud-backed Sovereigns.
     icon: cluster-autoscaler.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
+  class: platform-component
+  lifecycle: experimental
   placementSchema:
     modes: [single-region]
     default: single-region

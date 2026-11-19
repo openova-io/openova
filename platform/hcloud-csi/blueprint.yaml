@@ -2,8 +2,6 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-hcloud-csi
-  labels:
-    catalyst.openova.io/section: pts-3-5-storage-and-data
   annotations:
     catalyst.openova.io/provider: hetzner
 spec:
@@ -16,9 +14,10 @@ spec:
       pairs) on Hetzner Sovereigns. Bootstrap-kit slot 55a (#3971) installs
       it on every fresh Hetzner Sovereign as the cluster-default SC so
       production PVCs never land on ephemeral k3s local-path.
-    family: storage
     documentation: ./README.md
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   owner:
     team: platform
     contact: platform@openova.io

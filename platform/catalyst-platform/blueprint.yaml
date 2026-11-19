@@ -2,9 +2,6 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-catalyst-platform
-  labels:
-    catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
-    catalyst.openova.io/tier: catalyst-cp
 spec:
   # The umbrella Blueprint that brings up the Catalyst control plane:
   # console, marketplace, admin, catalog-svc, projector, provisioning,
@@ -20,6 +17,8 @@ spec:
     description: Umbrella Blueprint for the Catalyst control plane. Brings up the console, marketplace, admin, catalog-svc, projector, provisioning, environment-controller, blueprint-controller, and billing services. See docs/ARCHITECTURE.md §11 (Catalyst-on-Catalyst) and bootstrap-kit slot 13.
     icon: catalyst.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap-kit slot 13
+  class: platform-component
+  lifecycle: experimental
   manifests:
     chart: bp-catalyst-platform
 

@@ -2,9 +2,6 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-sso-bridge
-  labels:
-    catalyst.openova.io/section: pts-2-3-per-sovereign-supporting-services
-    catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 0.2.28
   card:
@@ -12,6 +9,8 @@ spec:
     summary: Catalyst SSO framework — watches every HelmRelease and auto-provisions Keycloak Clients + OpenBao client_secrets + ExternalSecrets for apps that declare sso.enabled. Mandatory infra. See SECURITY.md §6.3.
     icon: sso-bridge.svg
   visibility: unlisted              # mandatory infra
+  class: platform-component
+  lifecycle: experimental
   manifests:
     chart: bp-sso-bridge
 

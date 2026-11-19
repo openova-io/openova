@@ -2,8 +2,6 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-strimzi
-  labels:
-    catalyst.openova.io/section: pts-4-application-tier
 spec:
   # G117.1 (Wave-1/B3) — scaffold-only Application Blueprint.
   #
@@ -14,6 +12,8 @@ spec:
   # against it ahead of the chart being authored.
   version: 0.0.0
   visibility: unlisted
+  class: data-service
+  lifecycle: experimental
   card:
     title: Strimzi
     summary: |

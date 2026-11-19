@@ -2,9 +2,6 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-qa-app
-  labels:
-    catalyst.openova.io/category: testing
-    catalyst.openova.io/section: pts-qa
 spec:
   version: 0.1.0
   card:
@@ -21,11 +18,12 @@ spec:
       what an operator would deploy if they were testing the install
       flow themselves.
     icon: nginx.svg
-    category: testing
     tags: [qa, test, nginx, fixture]
     documentation: https://docs.openova.io/qa/qa-app
     license: Apache-2.0
-  visibility: listed
+  visibility: unlisted
+  class: application
+  lifecycle: experimental
   owner:
     team: platform
     contact: catalyst@openova.io

@@ -2,8 +2,6 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-external-dns
-  labels:
-    catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
 spec:
   # G117.1-followup (Refs #2749, 2026-06-02): initial spec.topology
   # declaration. Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md
@@ -16,6 +14,8 @@ spec:
   # (replicated by bp-powerdns lua-records + PG-backed pair).
   version: 1.1.10
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: ExternalDNS
     summary: Synchronises Kubernetes Ingress/HTTPRoute/Service hostnames into the Sovereign's PowerDNS authoritative zones automatically.

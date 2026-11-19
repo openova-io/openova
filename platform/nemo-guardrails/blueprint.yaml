@@ -2,14 +2,10 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-nemo-guardrails
-  labels:
-    catalyst.openova.io/category: ai-safety
-    catalyst.openova.io/section: pts-4-7-ai-safety
 spec:
   version: 1.0.0
   card:
     title: NeMo Guardrails
-    category: ai-safety
     summary: Programmable AI safety firewall — blocks prompt injection, PII leaks, off-topic content, and hallucinated citations between user input and the LLM. Wraps NVIDIA's `nemoguardrails server` (FastAPI on port 8000) as a Deployment + Service. Inline filter for bp-llm-gateway and bp-vllm.
     description: Programmable AI safety firewall — blocks prompt injection, PII leaks, off-topic content, and hallucinated citations between user input and the LLM. Wraps NVIDIA's `nemoguardrails server` (FastAPI on port 8000) as a Deployment + Service. Inline filter for bp-llm-gateway and bp-vllm.
     icon: nemo-guardrails.svg
@@ -25,6 +21,8 @@ spec:
   # it CONTRACTUAL for the cutover's #5442 A3 guard, failing hw291 at step-03.
   # Restore to `listed` in the same commit that ships the build.
   visibility: unlisted
+  class: ai-service
+  lifecycle: experimental
   owner:
     team: ai-platform
     contact: ai-platform@openova.io

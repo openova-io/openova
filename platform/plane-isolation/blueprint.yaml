@@ -2,8 +2,6 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-plane-isolation
-  labels:
-    catalyst.openova.io/section: pts-3-1-networking-and-service-mesh
 spec:
   version: 0.1.17
   card:
@@ -14,9 +12,10 @@ spec:
       Workstream C). Replaces the whole-plane policy on the mgmt/rtz/dmz
       vCluster syncer namespaces with a tight per-component policy pair —
       one-component blast radius, the core micro-segmentation win.
-    family: networking
     documentation: ./README.md
   visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   owner:
     team: platform
     contact: platform@openova.io

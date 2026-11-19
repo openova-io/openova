@@ -2,14 +2,10 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-matrix
-  labels:
-    catalyst.openova.io/category: application
-    catalyst.openova.io/section: pts-4-5-communication
 spec:
   version: 1.1.0
   card:
     title: Matrix (Synapse)
-    category: application
     summary: "Self-hosted, federation-capable team chat. Synapse is the reference Matrix homeserver implementation — Catalyst's per- Sovereign tenancy default keeps federation OFF (private rooms only), and operator overlays toggle it on per-Organization for cross-Sovereign collaboration. Hosted at chat.<sovereign-fqdn> with a paired Element-Web client at chat-web.<sovereign-fqdn>. OIDC SSO via bp-keycloak; Postgres backend via bp-cnpg. (\"Synapse\" here = the Matrix server implementation, NOT the retired OpenOva product noun.) "
     description: "Self-hosted, federation-capable team chat. Synapse is the reference Matrix homeserver implementation — Catalyst's per- Sovereign tenancy default keeps federation OFF (private rooms only), and operator overlays toggle it on per-Organization for cross-Sovereign collaboration. Hosted at chat.<sovereign-fqdn> with a paired Element-Web client at chat-web.<sovereign-fqdn>. OIDC SSO via bp-keycloak; Postgres backend via bp-cnpg. (\"Synapse\" here = the Matrix server implementation, NOT the retired OpenOva product noun.) "
     icon: matrix.svg
@@ -17,6 +13,8 @@ spec:
     tags: [chat, messaging, federation, e2ee, oidc, application]
     docs: https://element-hq.github.io/synapse/
   visibility: listed
+  class: application
+  lifecycle: experimental
   owner:
     team: platform
     contact: platform@openova.io

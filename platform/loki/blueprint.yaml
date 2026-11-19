@@ -2,15 +2,13 @@ apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
   name: bp-loki
-  labels:
-    catalyst.openova.io/section: pts-3-observability
-    catalyst.openova.io/tier: catalyst-cp
 spec:
   version: 1.0.3  # lockstep with chart/Chart.yaml (#4623a disable loki-sc-rules sidecar — no rules ship + CrashLoop hazard from /proc/1/cmdline probe)
-  visibility: listed
+  visibility: unlisted
+  class: platform-component
+  lifecycle: experimental
   card:
     title: Loki
-    family: logs
     summary: Log aggregation system from Grafana Labs. Multi-tenant + cheap object-storage backend.
     description: Loki + Promtail (log shipper). Pre-wired as a Grafana data source for unified log + metric queries.
     icon: loki.svg
