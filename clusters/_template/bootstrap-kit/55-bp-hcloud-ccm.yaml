@@ -78,6 +78,7 @@ metadata:
   namespace: flux-system
   labels:
     catalyst.openova.io/slot: "55"
+    catalyst.openova.io/ring: provider
   annotations:
     kustomize.toolkit.fluxcd.io/prune: disabled
 spec:

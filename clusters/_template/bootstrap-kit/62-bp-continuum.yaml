@@ -86,6 +86,7 @@ metadata:
   namespace: flux-system
   labels:
     catalyst.openova.io/slot: "62"
+    catalyst.openova.io/ring: foundation
     catalyst.openova.io/component: continuum-controller
     catalyst.openova.io/region-role: every-region
     openova.io/category: customer-facing-capability
@@ -179,7 +180,7 @@ spec:
       # phase commits to Git + Git lease + region-loss detection, in every
       # region; the imperative switchover sequencer is deleted. Ships the
       # Continuum CRD in crds/. Pin moves in lockstep (Inviolable Principle #13).
-      version: 0.2.3
+      version: 0.2.4
       sourceRef:
         kind: HelmRepository
         name: bp-continuum

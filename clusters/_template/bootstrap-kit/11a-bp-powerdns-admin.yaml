@@ -53,6 +53,8 @@ kind: HelmRelease
 metadata:
   name: bp-powerdns-admin
   namespace: flux-system
+  labels:
+    catalyst.openova.io/ring: operations
 spec:
   releaseName: powerdns-admin
   targetNamespace: powerdns-admin

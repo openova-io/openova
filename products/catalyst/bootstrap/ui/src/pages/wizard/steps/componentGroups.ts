@@ -203,7 +203,6 @@ export const GROUPS: GroupDef[] = [
       { id: 'flux',       name: 'Flux CD',    desc: 'GitOps reconciler driving every Sovereign cluster from Git', tier: 'mandatory', dependencies: [] },
       { id: 'crossplane', name: 'Crossplane', desc: 'Cloud and Kubernetes APIs as native CRDs',                   tier: 'mandatory', dependencies: [] },
       { id: 'gitea',      name: 'Gitea',      desc: 'Sovereign-local Git server with five organizations',         tier: 'mandatory', dependencies: ['cnpg'] },
-      { id: 'opentofu',   name: 'OpenTofu',   desc: 'Phase-zero IaC for cloud machines, networks, DNS',           tier: 'mandatory', dependencies: [] },
       { id: 'vcluster',   name: 'vCluster',   desc: 'Virtual control planes for Organization isolation on shared nodes', tier: 'mandatory', dependencies: [] },
     ],
   },
@@ -241,7 +240,6 @@ export const GROUPS: GroupDef[] = [
     required: true,
     components: [
       { id: 'vpa',       name: 'VPA',       desc: 'Right-sizes pod requests from real-usage telemetry',     tier: 'mandatory',   dependencies: [] },
-      { id: 'keda',      name: 'KEDA',      desc: 'Event-driven autoscaling across queues, streams, and metrics', tier: 'mandatory',   dependencies: [] },
       { id: 'reloader',  name: 'Reloader',  desc: 'Rolls workloads automatically when ConfigMaps or Secrets change', tier: 'mandatory',   dependencies: [] },
       // Continuum is an OpenOva-internal component without a finalized
       // upstream brand mark — render the letter-mark fallback (#173).
@@ -292,7 +290,6 @@ export const GROUPS: GroupDef[] = [
       { id: 'loki',          name: 'Loki',          desc: 'Label-indexed log store backed by object storage',            tier: 'recommended', dependencies: ['seaweedfs'], logoUrl: basePath('component-logos/loki.png') },
       { id: 'mimir',         name: 'Mimir',         desc: 'Horizontally-scaled metrics store with PromQL compatibility',  tier: 'recommended', dependencies: ['seaweedfs'], logoUrl: basePath('component-logos/mimir.png') },
       { id: 'tempo',         name: 'Tempo',         desc: 'Object-storage tracing backend with TraceQL analytics',        tier: 'recommended', dependencies: ['seaweedfs'] },
-      { id: 'opensearch',    name: 'OpenSearch',    desc: 'Full-text search and analytics with vector hybrid retrieval',  tier: 'recommended', dependencies: [] },
       { id: 'litmus',        name: 'Litmus',        desc: 'Cron-driven chaos experiments across pod, node, network failure', tier: 'optional', dependencies: [] },
       { id: 'openmeter',     name: 'OpenMeter',     desc: 'High-throughput event metering for billing and analytics',     tier: 'optional',    dependencies: ['cnpg'], logoUrl: basePath('component-logos/openmeter.png') },
       // UAT row W5 / #3969 / #5575 / #6183 — `specter` was removed from
@@ -340,13 +337,8 @@ export const GROUPS: GroupDef[] = [
       // — same explicit-fallback path as powerdns).
       { id: 'postgres',   name: 'PostgreSQL',     desc: 'Shareable PostgreSQL data-instance — many apps via isolated Contexts', tier: 'recommended', dependencies: ['cnpg'], logoUrl: null },
       { id: 'valkey',     name: 'Valkey',         desc: 'Drop-in Redis-compatible operated cache and queue store',      tier: 'recommended', dependencies: [] },
-      { id: 'strimzi',    name: 'Strimzi',        desc: 'Operated Kafka with TLS, SCRAM, and Cruise Control',           tier: 'recommended', dependencies: [] },
-      { id: 'debezium',   name: 'Debezium',       desc: 'Row-level change-data-capture from PostgreSQL into Kafka topics', tier: 'recommended', dependencies: ['strimzi'] },
-      { id: 'flink',      name: 'Apache Flink',   desc: 'Exactly-once stream processing with continuous SQL and Java',  tier: 'optional',    dependencies: [] },
       { id: 'temporal',   name: 'Temporal',       desc: 'Durable code-defined workflow orchestration with deterministic replay', tier: 'optional', dependencies: ['cnpg'] },
       { id: 'clickhouse', name: 'ClickHouse',     desc: 'Columnar analytics database for sub-second OLAP queries',      tier: 'optional',    dependencies: [] },
-      { id: 'ferretdb',   name: 'FerretDB',       desc: 'MongoDB wire protocol on PostgreSQL-backed storage',           tier: 'optional',    dependencies: ['cnpg'], logoUrl: basePath('component-logos/ferretdb.png') },
-      { id: 'iceberg',    name: 'Iceberg',        desc: 'ACID lakehouse format with time travel over object storage',   tier: 'optional',    dependencies: ['seaweedfs'] },
       // `superset` removed — UAT row W5 / #5575: no Blueprint source of any
       // kind resolved for it, so the card offered a BI stack that could not
       // be installed.
@@ -385,20 +377,18 @@ export const GROUPS: GroupDef[] = [
       // Axon is an OpenOva-internal component without a finalized
       // upstream brand mark — render the letter-mark fallback (#173).
       { id: 'axon',      name: 'Axon',      desc: 'Provider-agnostic LLM gateway with per-Organization quota and cost', tier: 'recommended', dependencies: [], logoUrl: null },
-      { id: 'neo4j',     name: 'Neo4j',     desc: 'Graph database for fraud, identity, and knowledge graphs',     tier: 'optional',  dependencies: [] },
       { id: 'vllm',      name: 'vLLM',      desc: 'High-throughput LLM inference with PagedAttention and batching', tier: 'optional', dependencies: [], logoUrl: basePath('component-logos/vllm.png') },
-      { id: 'milvus',    name: 'Milvus',    desc: 'Vector database for billion-scale similarity search',          tier: 'optional',  dependencies: ['seaweedfs'] },
       // BGE is a model-family identifier (BAAI General Embedding) rather
       // than a branded product — render the letter-mark fallback (#173).
       { id: 'bge',       name: 'BGE',       desc: 'Multilingual embedding model server for retrieval pipelines',   tier: 'optional',  dependencies: [], logoUrl: null },
       { id: 'langfuse',  name: 'LangFuse',  desc: 'Prompt, completion, and cost tracing for the AI plane',        tier: 'optional',  dependencies: ['cnpg'], logoUrl: basePath('component-logos/langfuse.png') },
       // LibreChat persists conversations / users / presets in MongoDB.
-      // OpenOva's MongoDB drop-in is FerretDB (FABRIC), which itself runs
-      // on cnpg — so cnpg comes along transitively via FerretDB. The
-      // earlier dep `['cnpg']` was wrong: LibreChat does not speak
-      // PostgreSQL and would not start with cnpg alone. (audit 2026-04 —
-      // confirmed against https://www.librechat.ai/docs/user_guides/mongodb)
-      { id: 'librechat', name: 'LibreChat', desc: 'Multi-model self-hosted chat with Organization onboarding and RBAC', tier: 'optional', dependencies: ['ferretdb'] },
+      // `cnpg` is not its dependency: LibreChat does not speak PostgreSQL
+      // (audit 2026-04 — https://www.librechat.ai/docs/user_guides/mongodb).
+      // Its MongoDB drop-in was the FerretDB card, which installed nothing
+      // and is gone with platform/ferretdb (SVC-162; docs/STATUS.md
+      // §Roadmap: components that are not built), so no card can supply it.
+      { id: 'librechat', name: 'LibreChat', desc: 'Multi-model self-hosted chat with Organization onboarding and RBAC', tier: 'optional', dependencies: [] },
     ],
   },
   {
@@ -432,7 +422,7 @@ export const PRODUCTS: Product[] = [
     subtitle: 'GitOps & IaC',
     description: 'Continuous delivery engine with GitOps workflows, infrastructure as code, and virtual cluster isolation',
     tier: 'mandatory',
-    components: ['flux', 'crossplane', 'gitea', 'opentofu', 'vcluster'],
+    components: ['flux', 'crossplane', 'gitea', 'vcluster'],
     cascadeOnMemberSelection: false,
     familyDependencies: [],
   },
@@ -452,7 +442,7 @@ export const PRODUCTS: Product[] = [
     subtitle: 'Scaling & Resilience',
     description: 'Autoscaling, config-change reloading, and high-availability orchestration',
     tier: 'mandatory',
-    components: ['vpa', 'keda', 'reloader', 'continuum'],
+    components: ['vpa', 'reloader', 'continuum'],
     cascadeOnMemberSelection: false,
     familyDependencies: [],
   },
@@ -482,7 +472,7 @@ export const PRODUCTS: Product[] = [
     subtitle: 'AIOps & Observability',
     description: 'Unified metrics, logs, traces, dashboards, and AI-powered operations',
     tier: 'recommended',
-    components: ['grafana', 'opentelemetry', 'alloy', 'loki', 'mimir', 'tempo', 'opensearch', 'litmus', 'openmeter'],
+    components: ['grafana', 'opentelemetry', 'alloy', 'loki', 'mimir', 'tempo', 'litmus', 'openmeter'],
     cascadeOnMemberSelection: false,
     // INSIGHTS as a family does not pull CORTEX. It used to reach CORTEX
     // through exactly one member — Specter, via its `familyRequires:
@@ -501,7 +491,7 @@ export const PRODUCTS: Product[] = [
     subtitle: 'Data & Integration',
     description: 'Event streaming, CDC, workflow orchestration, and analytics databases',
     tier: 'recommended',
-    components: ['cnpg', 'postgres', 'valkey', 'strimzi', 'debezium', 'flink', 'temporal', 'clickhouse', 'ferretdb', 'iceberg'],
+    components: ['cnpg', 'postgres', 'valkey', 'temporal', 'clickhouse'],
     // FABRIC is à-la-carte — Strimzi, Temporal, ClickHouse, Superset are
     // independent stacks operators pick individually. Selecting one
     // doesn't imply the others.
@@ -514,7 +504,7 @@ export const PRODUCTS: Product[] = [
     subtitle: 'AI & Machine Learning',
     description: 'Model serving, LLM inference, vector search, embeddings, and AI observability',
     tier: 'optional',
-    components: ['kserve', 'knative', 'axon', 'neo4j', 'vllm', 'milvus', 'bge', 'langfuse', 'librechat'],
+    components: ['kserve', 'knative', 'axon', 'vllm', 'bge', 'langfuse', 'librechat'],
     // CORTEX is the operator's archetypal "all or nothing" product (issue
     // #175): "BGE alone doesn't have much meaning unless we have Cortex.
     // [...] when chosen the entire family needs to be selected." So
@@ -525,7 +515,7 @@ export const PRODUCTS: Product[] = [
     // `['fabric']` value was over-broad — the only real cross-family
     // need from CORTEX was cnpg (LangFuse) and a Mongo-compatible store
     // (LibreChat). Both are encoded at the COMPONENT level via
-    // `dependencies` (langfuse → cnpg, librechat → ferretdb → cnpg) and
+    // `dependencies` (langfuse → cnpg) and
     // the only one that's truly always-on (cnpg) is mandatory by
     // transitive promotion. CORTEX has no runtime requirement on
     // Strimzi / Debezium / Flink / Temporal / ClickHouse / Iceberg /

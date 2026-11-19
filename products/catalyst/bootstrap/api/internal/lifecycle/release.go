@@ -50,6 +50,22 @@ import (
 //  3. promote: if no region's main moved since stage, push release/<id> as main
 //     in every region, a fast-forward the server checks. Never a force push.
 //
+// One region at a time (SOV-521). A request may name a region: primary, or a
+// follower's name, as the state ConfigMap names them. Stage and prewarm run in
+// every region as above, so a conflict anywhere moves nothing; promote checks
+// and pushes that region only. Without a region every region is promoted, the
+// followers first. A request with rollback and a region puts that region back
+// to the main recorded at the stage of the request that promoted it: refused
+// unless the region's main is still the commit that promote pushed, it pushes
+// one commit whose tree is the recorded main's and whose parent is the
+// promoted commit, a fast-forward, so Flux applies the earlier tree and no
+// force push is ever made. It runs no stage and no prewarm. Across the
+// requests of one candidate the state keeps, per region, <region>.promotedFrom,
+// <region>.promotedTo and <region>.phase. A region request reaches only a
+// candidate whose release-run.sh has the phase rollback (the stage refuses any
+// other, nothing moved); a rollback needs the recorded promote, which only
+// such a release-run.sh records.
+//
 // GET /api/v1/sovereign/release answers the state the Job records in the
 // ConfigMap sovereign-release, with the step the Job runs now.
 //
@@ -72,7 +88,47 @@ const (
 var (
 	candidateID = regexp.MustCompile(`^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{7}$`)
 	objectName  = regexp.MustCompile(`^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$`)
+	commitID    = regexp.MustCompile(`^[0-9a-f]{40}([0-9a-f]{24})?$`)
 )
+
+// regionStateKeys are the keys the state keeps per region across the requests
+// of one candidate, as <region>.<key> (SOV-521).
+var regionStateKeys = []string{"promotedFrom", "promotedTo", "phase"}
+
+// keptRegionState is the per-region state of the earlier requests that a
+// request for candidate keeps: all of it when the state is of that candidate,
+// none otherwise.
+func keptRegionState(cur map[string]string, candidate string) map[string]string {
+	out := map[string]string{}
+	if cur["candidate"] != candidate {
+		return out
+	}
+	for k, v := range cur {
+		for _, s := range regionStateKeys {
+			if r, ok := strings.CutSuffix(k, "."+s); ok && r != "" {
+				out[k] = v
+			}
+		}
+	}
+	return out
+}
+
+// promotedView is the per-region state as GET answers it:
+// {"<region>": {"promotedFrom": ..., "promotedTo": ..., "phase": ...}}.
+func promotedView(data map[string]string) map[string]map[string]string {
+	out := map[string]map[string]string{}
+	for k, v := range data {
+		for _, s := range regionStateKeys {
+			if r, ok := strings.CutSuffix(k, "."+s); ok && r != "" {
+				if out[r] == nil {
+					out[r] = map[string]string{}
+				}
+				out[r][s] = v
+			}
+		}
+	}
+	return out
+}
 
 // ReleaseRoute serves PUT and GET /api/v1/sovereign/release.
 type ReleaseRoute struct {
@@ -138,7 +194,8 @@ func (rt *ReleaseRoute) cutoverStatus() string {
 }
 
 // Request handles PUT /api/v1/sovereign/release with the body
-// {"candidate": "<id>", "dryRun": false, "pullSecret": "<name>"}. pullSecret is a
+// {"candidate": "<id>", "dryRun": false, "pullSecret": "<name>", "region": "<region>",
+// "rollback": false}; region and rollback are optional (SOV-521). pullSecret is a
 // Secret of type kubernetes.io/dockerconfigjson in the cutover namespace with an
 // entry for ghcr.io; a delivery needs it, and a dry run refuses it: a dry run
 // copies, uses and deletes no credential, so a Secret named for one would stay
@@ -167,6 +224,20 @@ func (rt *ReleaseRoute) Request(w http.ResponseWriter, r *http.Request) {
 	if req.PullSecret != "" && !objectName.MatchString(req.PullSecret) {
 		refuse(w, http.StatusBadRequest, "bad-pull-secret", "pullSecret is the name of a Secret")
 		return
+	}
+	if req.Rollback {
+		switch {
+		case req.Region == "":
+			refuse(w, http.StatusBadRequest, "rollback-without-region", "a rollback puts one region back: name it in region (primary, or a follower's name)")
+			return
+		case req.DryRun:
+			refuse(w, http.StatusBadRequest, "rollback-dry-run", "a rollback runs no stage, so it has no dry run: leave dryRun out of a rollback")
+			return
+		case req.PullSecret != "":
+			refuse(w, http.StatusBadRequest, "rollback-pull-secret",
+				"a rollback runs no prewarm and copies no chart or image: leave pullSecret out, and delete the Secret "+req.PullSecret+" if it was made for it")
+			return
+		}
 	}
 	if req.DryRun && req.PullSecret != "" {
 		refuse(w, http.StatusBadRequest, "dry-run-pull-secret",
@@ -216,7 +287,34 @@ func (rt *ReleaseRoute) Request(w http.ResponseWriter, r *http.Request) {
 		refuse(w, http.StatusBadGateway, "cutover-chart-read-failed", err.Error())
 		return
 	}
-	if !req.DryRun {
+	if req.Region != "" && !in.hasRegion(req.Region) {
+		followers := "none"
+		if len(in.followerNames) > 0 {
+			followers = strings.Join(in.followerNames, ", ")
+		}
+		refuse(w, http.StatusBadRequest, "bad-region",
+			fmt.Sprintf("region %q is not a region of this Sovereign: name %s, or a follower region (%s)", req.Region, primaryRegion, followers))
+		return
+	}
+	prev, err := cs.CoreV1().ConfigMaps(ns).Get(ctx, ReleaseStatusConfigMap, metav1.GetOptions{})
+	if err != nil && !apierrors.IsNotFound(err) {
+		refuse(w, http.StatusBadGateway, "status-read-failed", err.Error())
+		return
+	}
+	kept := map[string]string{}
+	if err == nil {
+		kept = keptRegionState(prev.Data, req.Candidate)
+	}
+	if req.Rollback {
+		from, to := kept[req.Region+".promotedFrom"], kept[req.Region+".promotedTo"]
+		if !commitID.MatchString(from) || !commitID.MatchString(to) {
+			refuse(w, http.StatusConflict, "not-promoted",
+				fmt.Sprintf("no promote of region %s by rc/%s is recorded in %s/%s (%s.promotedFrom, %s.promotedTo): a rollback puts back the main a promote of this candidate recorded, and only a release-run.sh with the phase rollback records it; nothing moved",
+					req.Region, req.Candidate, ns, ReleaseStatusConfigMap, req.Region, req.Region))
+			return
+		}
+		in.promotedFrom, in.promotedTo = from, to
+	} else if !req.DryRun {
 		if why := checkPullSecret(ctx, cs, ns, req.PullSecret); why != "" {
 			refuse(w, http.StatusUnprocessableEntity, "pull-secret", why)
 			return
@@ -247,6 +345,11 @@ func (rt *ReleaseRoute) Request(w http.ResponseWriter, r *http.Request) {
 	if in.followers > 0 {
 		followerPrewarm = "unknown until the stage renders the candidate's step 03, which is the one that runs"
 	}
+	mechanism := "unknown until the stage renders it: the cutover chart rc/" + req.Candidate + " pins, from its own tree; the installed one only bootstraps the delivery"
+	if req.Rollback {
+		followerPrewarm = "none: a rollback runs no prewarm"
+		mechanism = "the installed release scripts: a rollback runs no stage, so no candidate is rendered"
+	}
 	status := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: ReleaseStatusConfigMap, Namespace: ns, Labels: map[string]string{"app.kubernetes.io/component": releaseComponent}},
 		Data: map[string]string{
@@ -260,9 +363,18 @@ func (rt *ReleaseRoute) Request(w http.ResponseWriter, r *http.Request) {
 			"updatedAt":       now.Format(time.RFC3339),
 			"regions":         strconv.Itoa(1 + in.followers),
 			"followerPrewarm": followerPrewarm,
-			"mechanism":       "unknown until the stage renders it: the cutover chart rc/" + req.Candidate + " pins, from its own tree; the installed one only bootstraps the delivery",
+			"mechanism":       mechanism,
 			"signature":       signatureUnverified + ": candidate refs are cut unsigned (scripts/release-candidate.sh); " + envReleaseSignature + "=required refuses every request until the cut signs",
 		},
+	}
+	for k, v := range kept {
+		status.Data[k] = v
+	}
+	if req.Region != "" {
+		status.Data["region"] = req.Region
+	}
+	if req.Rollback {
+		status.Data["rollback"] = "true"
 	}
 	for _, cm := range []*corev1.ConfigMap{scripts, status} {
 		if err := putConfigMap(ctx, cs, cm); err != nil {
@@ -275,7 +387,7 @@ func (rt *ReleaseRoute) Request(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if rt.log != nil {
-		rt.log.Info("release requested", "candidate", req.Candidate, "dryRun", req.DryRun, "job", name, "by", who)
+		rt.log.Info("release requested", "candidate", req.Candidate, "dryRun", req.DryRun, "region", req.Region, "rollback", req.Rollback, "job", name, "by", who)
 	}
 	writeJSON(w, http.StatusAccepted, releaseView(status.Data, job, nil))
 }
@@ -380,10 +492,14 @@ func managedBy(m metav1.ObjectMeta) string {
 	return ""
 }
 
-// releaseView is the answer of both routes: the recorded state, and the state
-// of the Job and of the step it runs now.
+// releaseView is the answer of both routes: the recorded state, the state of
+// the Job and of the step it runs now, and per region what its promote and
+// rollback recorded (promoted).
 func releaseView(data map[string]string, job *batchv1.Job, pods []corev1.Pod) map[string]any {
 	v := map[string]any{"status": data, "phase": data["phase"], "job": data["job"], "jobState": jobState(job)}
+	if p := promotedView(data); len(p) > 0 {
+		v["promoted"] = p
+	}
 	if s := data["failedStep"]; s != "" {
 		v["failedStep"] = s
 	}
@@ -404,7 +520,7 @@ func releaseView(data map[string]string, job *batchv1.Job, pods []corev1.Pod) ma
 	}
 	if jobState(job) == "failed" {
 		switch data["phase"] {
-		case "requested", "staging", "staged", "promoting":
+		case "requested", "staging", "staged", "promoting", "rolling-back":
 			v["phase"] = "failed"
 		}
 	}

@@ -12,9 +12,11 @@
 //	               transports. A notification (no id → no reply frame)
 //	               returns 202 Accepted with an empty body.
 //	               The caller's bearer travels in `Authorization: Bearer
-//	               <jwt>` (preferred; per the MCP HTTP-auth convention).
-//	               The stdio `_auth.token` argument envelope keeps working
-//	               unchanged — extractBearer prefers it when present.
+//	               <jwt>` (per the MCP HTTP-auth convention). There is no
+//	               process-level fallback bearer on this transport: a
+//	               request without one is unauthenticated. The stdio
+//	               `_auth.token` argument envelope keeps working unchanged —
+//	               extractBearer prefers it when present.
 //	GET  /healthz  liveness  — 200 "ok".
 //	GET  /readyz   readiness — 200 "ok" (the server is stateless; ready
 //	               once listening).
@@ -51,13 +53,12 @@ const maxHTTPBodyBytes = 4 << 20
 // request runs through a per-request server value so the framing/bearer
 // state never crosses requests.
 type httpTransport struct {
-	reg            *tools.Registry
-	resolver       *identity.Resolver
-	fallbackBearer string
+	reg      *tools.Registry
+	resolver *identity.Resolver
 }
 
-func serveHTTP(addr string, reg *tools.Registry, resolver *identity.Resolver, fallbackBearer string) error {
-	t := &httpTransport{reg: reg, resolver: resolver, fallbackBearer: fallbackBearer}
+func serveHTTP(addr string, reg *tools.Registry, resolver *identity.Resolver) error {
+	t := &httpTransport{reg: reg, resolver: resolver}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/mcp", t.handleMCP)
@@ -115,14 +116,14 @@ func (t *httpTransport) handleMCP(w http.ResponseWriter, r *http.Request) {
 	// Per-request server value: the SAME dispatch (and therefore the SAME
 	// identity resolution + two-layer RBAC + parity-403 mapping) as the
 	// stdio loop, with the reply frame captured into buf. The caller's
-	// Authorization bearer becomes the request-scoped fallback so the
-	// stdio `_auth.token` argument envelope still wins when present
+	// Authorization bearer is the only request-scoped bearer; the stdio
+	// `_auth.token` argument envelope still wins when present
 	// (extractBearer's precedence, unchanged).
 	var buf bytes.Buffer
 	srv := &server{
 		reg:            t.reg,
 		resolver:       t.resolver,
-		fallbackBearer: bearerFromRequest(r, t.fallbackBearer),
+		fallbackBearer: bearerFromRequest(r),
 		out:            &buf,
 		lineDelimited:  true, // NDJSON frame — a bare JSON document per reply
 	}
@@ -146,12 +147,11 @@ func (t *httpTransport) handleMCP(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(reply)
 }
 
-// bearerFromRequest resolves the request-scoped fallback bearer:
-// Authorization: Bearer <jwt> header first, else the process-level
-// OPENOVA_MCP_BEARER fallback. The `_auth.token` argument envelope (when a
-// caller uses the stdio convention over HTTP) still takes precedence inside
-// extractBearer.
-func bearerFromRequest(r *http.Request, processFallback string) string {
+// bearerFromRequest reads the request-scoped bearer from the Authorization
+// header and nothing else: "" when the header is absent. The `_auth.token`
+// argument envelope (when a caller uses the stdio convention over HTTP)
+// still takes precedence inside extractBearer.
+func bearerFromRequest(r *http.Request) string {
 	h := strings.TrimSpace(r.Header.Get("Authorization"))
 	if h != "" {
 		if strings.HasPrefix(strings.ToLower(h), "bearer ") {
@@ -161,5 +161,5 @@ func bearerFromRequest(r *http.Request, processFallback string) string {
 		// trims a literal "Bearer " prefix itself, never a bare token.
 		return h
 	}
-	return processFallback
+	return ""
 }

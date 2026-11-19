@@ -35,6 +35,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/openova-io/openova/core/controllers/pkg/orgdns"
 )
 
 // PowerDNSWriter is a minimal PowerDNS API client matching the subset
@@ -241,20 +243,19 @@ func (p DefaultOrganizationDNSProvisioner) ProvisionFreeSubdomain(ctx context.Co
 		consoleIP = ingressIPv4
 	}
 	for _, prefix := range theFreeSubdomainPrefixes {
-		fqdn := fmt.Sprintf("%s.%s.%s.", prefix, subdomain, parentZone)
+		fqdn := orgdns.Name(prefix, subdomain, parentZone)
 		// Every prefix in this Org's subtree — the wildcard and the app hosts
 		// as much as `console` — is served by the console gateway, because
 		// that is the only gateway carrying a `*.<slug>.<parent>` listener and
 		// cert (see the rationale above). consoleIP already collapses to
 		// ingressIPv4 on a single-gateway Sovereign.
-		content := consoleIP
 		rrsets = append(rrsets, pdnsRRSet{
 			Name:       fqdn,
 			Type:       "A",
 			TTL:        300,
 			ChangeType: "REPLACE",
 			Records: []pdnsRecord{
-				{Content: content, Disabled: false},
+				{Content: consoleIP, Disabled: false},
 			},
 		})
 	}
@@ -265,11 +266,10 @@ func (p DefaultOrganizationDNSProvisioner) ProvisionFreeSubdomain(ctx context.Co
 // writes and DeprovisionFreeSubdomain deletes — kept in ONE place so the write
 // and delete paths can never drift (the #4459 leak class: write N, delete <N,
 // the surplus records survive the Org and shadow a re-prov's wildcard with a
-// dead IP).
+// dead IP). Each name is built by orgdns.Name (shared with the wipe).
 var theFreeSubdomainPrefixes = []string{"*", "console", "wordpress", "openclaw", "mail", "keycloak"}
 
-// lookupHostFn is the seam tests stub to avoid live DNS. Production uses
-// net.DefaultResolver.
+// lookupHostFn is the seam tests stub to avoid live DNS (production: net.DefaultResolver).
 var lookupHostFn = func(ctx context.Context, host string) ([]string, error) {
 	return net.DefaultResolver.LookupHost(ctx, host)
 }
@@ -323,7 +323,7 @@ func (p DefaultOrganizationDNSProvisioner) DeprovisionFreeSubdomain(ctx context.
 	rrsets := make([]pdnsRRSet, 0, len(theFreeSubdomainPrefixes))
 	for _, prefix := range theFreeSubdomainPrefixes {
 		rrsets = append(rrsets, pdnsRRSet{
-			Name:       fmt.Sprintf("%s.%s.%s.", prefix, subdomain, parentZone),
+			Name:       orgdns.Name(prefix, subdomain, parentZone),
 			Type:       "A",
 			ChangeType: "DELETE",
 		})

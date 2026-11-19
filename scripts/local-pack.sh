@@ -82,8 +82,11 @@
 #            restarts-previous-logs.txt (the last lines of the log of its previous run), so that
 #            a restart names its container and its cause. It never fails.
 #            The kubeconfigs, the session and the module inputs are not copied there.
-# down       Stops the port forward, then tofu destroy of what up started. Exit 0 when nothing
-#            was started.
+# down       Stops the port forward, then removes what up started: tofu destroy of the machines,
+#            docker volume rm of each volume of the pack (each within VOLUME_LIMIT seconds; the
+#            provider allows a volume only 30), tofu destroy of the rest. Exit 0 when nothing was
+#            started, or when after that no container, volume or network of the pack is left;
+#            otherwise exit 1 naming what is left.
 #
 # LOCAL_PACK_DIR defaults to $RUNNER_TEMP/local-pack (CI) or /tmp/local-pack. Requires bash,
 # python3 with PyYAML, docker with BuildKit (buildx), timeout, tofu, kubectl, curl and go;
@@ -116,6 +119,9 @@ SIGNER_DEFAULT="/var/lib/catalyst/handover-jwt-private.pem"
 IMAGE_NAME="catalyst-local-machine"
 IMAGE_ATTEMPTS=3
 IMAGE_ATTEMPT_LIMIT=300
+# down: the most seconds docker volume rm may take for one volume of the pack (the slowest
+# measured took more than 50, see cmd_down).
+VOLUME_LIMIT=300
 MARKER_LIMIT=900
 CORE_LIMIT=2400
 DISCOVERY_LIMIT=600
@@ -210,7 +216,17 @@ tfvar() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.ar
 # machine <file> <region code>: the container name of the region's control-plane machine,
 # by the naming rule of infra/providers/local/main.tf.
 machine() {
-  python3 -c 'import json,sys; v=json.load(open(sys.argv[1])); print("catalyst-%s-%s-%s-cp1" % (v["sovereign_fqdn"].replace(".", "-"), v["deployment_id"][:8], sys.argv[2]))' "$1" "$2"
+  local p
+  p=$(pack_prefix "$1") || return 1
+  echo "$p-$2-cp1"
+}
+
+# pack_prefix <file>: the start of the name of every container, volume and network of the pack,
+# local.name_prefix of infra/providers/local/main.tf.
+pack_prefix() {
+  local fqdn id
+  fqdn=$(tfvar "$1" sovereign_fqdn) && id=$(tfvar "$1" deployment_id) || return 1
+  echo "catalyst-${fqdn//./-}-${id:0:8}"
 }
 
 # core_for <region code> <primary code>: the releases that must be Ready in that region.
@@ -948,13 +964,59 @@ cmd_collect() {
   log "collect: evidence under $DIR/evidence"
 }
 
+# remove_volumes <name prefix>: docker volume rm of every volume of the pack, each within
+# VOLUME_LIMIT seconds, logging how long each took. Exit 1 naming the first volume not removed.
+remove_volumes() {
+  local p=$1 v start rc all
+  all=$(docker volume ls --format '{{.Name}}') || { echo "local-pack: docker cannot list the volumes" >&2; return 1; }
+  while IFS= read -r v; do
+    case $v in "$p"-*) ;; *) continue ;; esac
+    start=$SECONDS
+    rc=0
+    timeout "$VOLUME_LIMIT" docker volume rm "$v" > /dev/null < /dev/null || rc=$?
+    if [ "$rc" != 0 ]; then
+      echo "local-pack: volume $v is not removed (docker volume rm exit $rc; 124 is the limit of ${VOLUME_LIMIT}s)" >&2
+      return 1
+    fi
+    log "down: volume $v removed in $((SECONDS - start))s"
+  done <<< "$all"
+}
+
+# pack_left <name prefix>: "<kind> <name>" for every container, volume and network of the pack
+# still on this host. Exit 1 when docker cannot list them: then nothing is known.
+pack_left() {
+  local p=$1 kind all name
+  for kind in container volume network; do
+    if [ "$kind" = container ]; then all=$(docker container ls -a --format '{{.Names}}') || return 1
+    else all=$(docker "$kind" ls --format '{{.Name}}') || return 1; fi
+    while IFS= read -r name; do
+      case $name in "$p" | "$p"-*) echo "$kind $name" ;; esac
+    done <<< "$all"
+  done
+}
+
+# down, in three parts. The provider (kreuzwerker/docker 3.9.0) gives the removal of a volume a
+# fixed 30 seconds (plus the SDK's 30 seconds of grace) that no setting changes, and the volume
+# rancher of a machine holds every image its k3s pulled: on the CI runner on 19 November the three
+# took 22 s, 47 s and more than 50 s, so the destroy failed after a suite that passed. So the
+# machines are destroyed first, then docker volume rm removes each volume of the pack with the
+# time it needs (VOLUME_LIMIT), then the destroy of the rest finds the volumes gone. down passes
+# only when no container, volume or network of the pack is left after that.
 cmd_down() {
-  local vars="$DIR/pack.tfvars.json"
+  local vars="$DIR/pack.tfvars.json" state="$DIR/terraform.tfstate" p left start=$SECONDS
   forward_stop
-  [ -f "$DIR/terraform.tfstate" ] || { log "down: nothing was started"; return 0; }
-  tofu_run destroy -input=false -auto-approve -var-file="$vars" -state="$DIR/terraform.tfstate" > "$DIR/tofu-destroy.log" 2>&1 \
+  [ -f "$state" ] || { log "down: nothing was started"; return 0; }
+  p=$(pack_prefix "$vars") || die "down: the module inputs $vars cannot be read"
+  tofu_run destroy -input=false -auto-approve -var-file="$vars" -state="$state" \
+    -target=docker_container.control_plane -target=docker_container.worker > "$DIR/tofu-destroy-machines.log" 2>&1 \
+    || { tail -40 "$DIR/tofu-destroy-machines.log"; die "tofu destroy of the machines failed"; }
+  log "down: the machines are removed ($((SECONDS - start))s)"
+  remove_volumes "$p" || die "down: a volume of the pack is not removed"
+  tofu_run destroy -input=false -auto-approve -var-file="$vars" -state="$state" > "$DIR/tofu-destroy.log" 2>&1 \
     || { tail -40 "$DIR/tofu-destroy.log"; die "tofu destroy failed"; }
-  log "down: every machine, volume and network of the pack is removed"
+  left=$(pack_left "$p") || die "down: docker cannot list what is left of the pack"
+  [ -z "$left" ] || { echo "$left" >&2; die "down: the lines above are left of the pack after the destroy"; }
+  log "down: every machine, volume and network of the pack is removed ($((SECONDS - start))s)"
 }
 
 # --- self-test ------------------------------------------------------------------------------
@@ -1294,6 +1356,71 @@ assert sorted(d) == ["sov-region-a", "sov-region-a-ca.crt", "sov-region-a.crt", 
   expect 2 "usage: an unknown command is refused" bash "${BASH_SOURCE[0]}" console
   expect 1 "up: no pull credential is refused" env -u GHCR_TOKEN GHCR_USER=x LOCAL_PACK_DIR="$t/pack" bash "${BASH_SOURCE[0]}" up --regions 2 --branch b --commit "$(printf 'a%.0s' $(seq 40))"
   expect 0 "down: nothing started is a pass" env LOCAL_PACK_DIR="$t/none" bash "${BASH_SOURCE[0]}" down
+
+  # down, against a stand-in tofu and docker on PATH. The host is one file per kind under
+  # $t/dn/host, one name per line, beside one container, volume and network of something else.
+  # tofu destroy -target removes the machines of the pack; tofu destroy removes its network and,
+  # like the provider with a volume that needs more than its 30 seconds, fails while a volume of
+  # the pack is still there. docker volume rm hangs while $t/dn/host/hang exists; docker
+  # container ls fails while $t/dn/host/nolist exists.
+  local dn_p="catalyst-sov-example-test-01234567"
+  mkdir -p "$t/dn/bin"
+  cat > "$t/dn/bin/docker" << 'SH'
+#!/usr/bin/env bash
+h="$(dirname "$0")/../host"
+[ ! -f "$h/nolist" ] || [ "$1 $2" != "container ls" ] || exit 1
+case "$1 $2" in
+  "container ls") cat "$h/container" ;;
+  "volume ls") cat "$h/volume" ;;
+  "network ls") cat "$h/network" ;;
+  "volume rm")
+    echo "volume rm $3" >> "$h/calls"
+    [ ! -f "$h/hang" ] || exec sleep 60
+    grep -qx -- "$3" "$h/volume" || exit 1
+    grep -vx -- "$3" "$h/volume" > "$h/rest"
+    mv "$h/rest" "$h/volume" ;;
+  *) exit 3 ;;
+esac
+SH
+  cat > "$t/dn/bin/tofu" << 'SH'
+#!/usr/bin/env bash
+h="$(dirname "$0")/../host"
+p="catalyst-sov-example-test-01234567"
+case " $* " in
+  *" -target="*)
+    echo "destroy machines" >> "$h/calls"
+    grep -v "^$p-" "$h/container" > "$h/rest"
+    mv "$h/rest" "$h/container" ;;
+  *)
+    echo "destroy" >> "$h/calls"
+    if grep -q "^$p-" "$h/volume"; then echo "Error: timeout while waiting for state to become 'removed' (timeout: 30s)"; exit 1; fi
+    [ -f "$h/keep-network" ] || { grep -vx "$p" "$h/network" > "$h/rest"; mv "$h/rest" "$h/network"; } ;;
+esac
+SH
+  chmod +x "$t/dn/bin/docker" "$t/dn/bin/tofu"
+  dn_case() { rm -rf "$t/dn/host" "$t/dn/dir"; mkdir -p "$t/dn/host" "$t/dn/dir"
+    cp "$t/v2.json" "$t/dn/dir/pack.tfvars.json"; : > "$t/dn/dir/terraform.tfstate"; : > "$t/dn/host/calls"
+    printf '%s\n' "$dn_p-region-a-cp1" "$dn_p-region-a-w1" "$dn_p-region-b-cp1" other > "$t/dn/host/container"
+    printf '%s\n' "$dn_p-region-a-cp1-rancher" "$dn_p-region-a-cp1-kubelet" "$dn_p-region-b-cp1-rancher" other > "$t/dn/host/volume"
+    printf '%s\n' bridge "$dn_p" > "$t/dn/host/network"
+    for f in "$@"; do : > "$t/dn/host/$f"; done; }
+  dn_run() { (PATH="$t/dn/bin:$PATH" DIR="$t/dn/dir" VOLUME_LIMIT=2 cmd_down) 2> "$t/dn/err"; }
+  # dn_passed: down passed; the machines went first, then each volume of the pack, then the rest;
+  # only what is not the pack's is left.
+  dn_passed() { dn_run && [ "$(cat "$t/dn/host/calls")" = "$(printf '%s\n' "destroy machines" "volume rm $dn_p-region-a-cp1-rancher" \
+      "volume rm $dn_p-region-a-cp1-kubelet" "volume rm $dn_p-region-b-cp1-rancher" destroy)" ] \
+    && [ "$(cat "$t/dn/host/container" "$t/dn/host/volume" "$t/dn/host/network" | tr '\n' ' ')" = "other other bridge " ]; }
+  dn_case
+  expect 0 "down: a volume the provider cannot remove in its 30 s is removed by docker volume rm before the destroy, nothing of the pack is left" dn_passed
+  dn_case hang
+  expect 1 "down: a volume not removed within VOLUME_LIMIT fails down" dn_run
+  expect 0 "down: ... naming the volume, and the destroy of the rest does not run" bash -c "grep -q 'volume $dn_p-region-a-cp1-rancher is not removed' '$t/dn/err' && ! grep -qx destroy '$t/dn/host/calls'"
+  dn_case keep-network
+  expect 1 "down: a network of the pack left after the destroy fails down" dn_run
+  expect 0 "down: ... naming it" grep -qx "network $dn_p" "$t/dn/err"
+  dn_case nolist
+  expect 1 "down: when docker cannot list what is left, down fails" dn_run
+  expect 0 "down: ... saying so" grep -q "docker cannot list what is left of the pack" "$t/dn/err"
   expect 1 "claim: no env file is a failure" env LOCAL_PACK_DIR="$t/none" bash "${BASH_SOURCE[0]}" claim
   expect 1 "discovery: no env file is a failure" env LOCAL_PACK_DIR="$t/none" bash "${BASH_SOURCE[0]}" discovery
   mkdir -p "$t/one"

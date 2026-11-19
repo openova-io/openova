@@ -88,13 +88,13 @@ run "control_plane_user_data_holds_the_kit_and_the_substitutes" {
   }
 
   assert {
-    condition     = alltrue([for k, m in docker_container.control_plane : length(regexall("(?m)^ +path: \\./clusters/_template/providers/local/kit$", base64gunzip(regex(local.flux_bootstrap_entry_re, nonsensitive(one([for u in m.upload : u.content if u.file == "/var/lib/cloud/seed/nocloud/user-data"])))[0]))) == 1])
-    error_message = "the Flux Kustomization bootstrap-kit must point at the reduced kit."
+    condition     = alltrue([for k, m in docker_container.control_plane : length(regexall("(?m)^    - patch: '\\{apiVersion: kustomize\\.toolkit\\.fluxcd\\.io/v1, kind: Kustomization, metadata: \\{name: bootstrap-kit, namespace: flux-system\\}, spec: \\{path: \\./clusters/_template/providers/local/kit\\}\\}'$", base64gunzip(regex(local.flux_bootstrap_entry_re, nonsensitive(one([for u in m.upload : u.content if u.file == "/var/lib/cloud/seed/nocloud/user-data"])))[0]))) == 1])
+    error_message = "SOV-154: the root Kustomization must patch the path of its child bootstrap-kit to the reduced kit."
   }
 
   assert {
-    condition     = alltrue([for k, m in docker_container.control_plane : length(regexall("(?m)^ +path: \\./clusters/_template/bootstrap-kit$", base64gunzip(regex(local.flux_bootstrap_entry_re, nonsensitive(one([for u in m.upload : u.content if u.file == "/var/lib/cloud/seed/nocloud/user-data"])))[0]))) == 0])
-    error_message = "no Flux Kustomization may point at the whole kit."
+    condition     = [for k in ["region-a-cp1", "region-b-cp1"] : regex("(?m)^  path: \\./(.+)$", base64gunzip(regex(local.flux_bootstrap_entry_re, nonsensitive(one([for u in docker_container.control_plane[k].upload : u.content if u.file == "/var/lib/cloud/seed/nocloud/user-data"])))[0]))[0]] == ["clusters/_template/root/multi-region-primary", "clusters/_template/root/multi-region-follower-secondary"]
+    error_message = "SOV-154: the root Kustomization of each region must apply the shared folder of its region layout and role."
   }
 
   assert {

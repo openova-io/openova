@@ -11,12 +11,15 @@
 #                      public Sovereign console URL (an Org install cannot
 #                      resolve the host catalyst-api Service).
 #
-# Inviolable Principle #4: no hardcoded secrets — verify keys and fallback
-# bearers come from Secrets; nothing sensitive is a literal here.
+# Inviolable Principle #4: no hardcoded secrets — verify keys come from
+# Secrets; nothing sensitive is a literal here. The pod holds no bearer of
+# its own: every caller sends its own in the Authorization header.
 
 # Sovereign primary FQDN (e.g. hw255.omani.works). The bootstrap-kit slot
 # stamps ${SOVEREIGN_FQDN}. Used to derive the HTTPRoute hostname
-# (mcp.<fqdn>) and, in organization mode, the public console URL fallback.
+# (mcp.<fqdn>), the issuer agent tokens must carry
+# (OPENOVA_MCP_AGENT_ISSUER = https://console.<fqdn>; not rendered while
+# empty) and, in organization mode, the public console URL fallback.
 sovereignFqdn: ""
 
 # "sovereign" | "organization" — maps to OPENOVA_MCP_CONTEXT (the instance
@@ -125,14 +128,6 @@ auth:
   hs256Secret:
     name: ""
     key: secret
-  # Optional fallback bearer (OPENOVA_MCP_BEARER) for installs where the
-  # caller cannot attach per-call auth. Production callers attach the
-  # user's session bearer per call (Authorization header / _auth.token);
-  # leave empty unless an operator wires an interim bearer Secret (the
-  # same seam as bp-agenity openovaMCP.bearerSecret).
-  bearerSecret:
-    name: ""
-    key: bearer
 
 # ── Service (ClusterIP — NEVER NodePort, §854) ───────────────────────────
 service:

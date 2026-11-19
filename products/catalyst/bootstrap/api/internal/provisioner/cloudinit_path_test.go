@@ -52,15 +52,46 @@ func modulePath(t *testing.T) string {
 }
 
 // readCloudInit reads the canonical cloud-agnostic cloud-init control-plane
-// template from infra/providers/_shared/cloudinit-control-plane.tftpl (#3145).
+// template from infra/providers/_shared/cloudinit-control-plane.tftpl (#3145),
+// followed by the five child Kustomizations of its root Kustomization, the
+// files of clusters/_template/root/base-primary (SOV-154): together they are
+// the Flux documents of first boot that the guards of this package read.
 func readCloudInit(t *testing.T) string {
 	t.Helper()
-	p := filepath.Join(modulePath(t), "cloudinit-control-plane.tftpl")
-	raw, err := os.ReadFile(p)
-	if err != nil {
-		t.Fatalf("read %s: %v", p, err)
+	dir := filepath.Join(modulePath(t), "..", "..", "..", "clusters", "_template", "root", "base-primary")
+	out := ""
+	for _, p := range []string{filepath.Join(modulePath(t), "cloudinit-control-plane.tftpl"), filepath.Join(dir, "bootstrap-kit.yaml"),
+		filepath.Join(dir, "sovereign-tls.yaml"), filepath.Join(dir, "bootstrap-kit-crs.yaml"),
+		filepath.Join(dir, "sovereign-region-bootstrap.yaml"), filepath.Join(dir, "infrastructure-providers.yaml")} {
+		raw, err := os.ReadFile(filepath.Clean(p))
+		if err != nil {
+			t.Fatalf("read %s: %v", p, err)
+		}
+		out += string(raw) + "\n---\n"
 	}
-	return string(raw)
+	return out
+}
+
+// TestRootKustomization_OneRootChildrenFromFolder (SOV-154): the template
+// applies one Flux Kustomization, sovereign-root, with no wait and no timeout,
+// so it never holds its children behind their health; the five children are
+// the files that readCloudInit appends.
+func TestRootKustomization_OneRootChildrenFromFolder(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(modulePath(t), "cloudinit-control-plane.tftpl"))
+	if err != nil {
+		t.Fatalf("read the template: %v", err)
+	}
+	tpl := string(raw)
+	if strings.Count(tpl, "\n      kind: Kustomization\n      metadata:\n        name: sovereign-root\n") != 1 || strings.Count(tpl, "kind: Kustomization\n") != 1 {
+		t.Errorf("SOV-154: the cloud-init template must define exactly one Flux Kustomization, sovereign-root")
+	}
+	root, _, _ := strings.Cut(tpl[strings.Index(tpl+"name: sovereign-root", "name: sovereign-root"):], "\n      ---\n")
+	if regexp.MustCompile(`(?m)^ +(wait|timeout|dependsOn):`).MatchString(root) {
+		t.Errorf("SOV-154: the root Kustomization carries no wait, timeout or dependsOn")
+	}
+	if n := strings.Count(readCloudInit(t), "kind: Kustomization\n"); n != 6 {
+		t.Errorf("SOV-154: the template and the files of its root must define 6 Flux Kustomizations, not %d", n)
+	}
 }
 
 // TestStageModule_StagesSharedSibling is the structural guard for #3145/#3146.

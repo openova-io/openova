@@ -314,9 +314,19 @@ if [ -n "${CHECK_GHCR}" ]; then
   # a backslash, or a stray `|`. Left undetected, every lookup misses and the
   # gate reports the declared known-gaps as fresh defects — which is exactly how
   # the yq "\t" skew above presented. Fail as an input error, not a pin defect.
+  # The register may be empty (SVC-162). The parser is judged against the number of rows the
+  # file declares: a list that yq cannot read, or fewer parsed rows than declared, is still an
+  # input error, and an empty list is not taken for one.
   register_rows="$(printf '%s\n' "$register" | grep -c . || true)"
-  if [ "${register_rows}" -eq 0 ]; then
-    echo "ERROR: parsed zero rows from ${UNPUBLISHED_REGISTER#${REPO_ROOT}/} — the register parser is broken." >&2
+  declared_rows="$(yq eval '.unpublished | select(tag == "!!seq") | length' "${UNPUBLISHED_REGISTER}" 2>/dev/null || true)"
+  case "${declared_rows}" in
+    ''|*[!0-9]*)
+      echo "ERROR: the key 'unpublished' of ${UNPUBLISHED_REGISTER#${REPO_ROOT}/} is not a list yq can read — the register parser is broken." >&2
+      exit 2
+      ;;
+  esac
+  if [ "${register_rows}" -ne "${declared_rows}" ]; then
+    echo "ERROR: parsed ${register_rows} of the ${declared_rows} rows of ${UNPUBLISHED_REGISTER#${REPO_ROOT}/} — the register parser is broken." >&2
     exit 2
   fi
   for rc in $register_charts; do

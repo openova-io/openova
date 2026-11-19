@@ -16,7 +16,7 @@
 #
 # The ONLY per-provider differences are injected inputs, the template inputs of
 # module contract version 1 (infra/providers/_contract/contract.json). The
-# template tests no provider name except in the sovereign-tls path line.
+# template tests no provider name.
 #   - node_external_ip_cmd       public-IP discovery (metadata curl vs tofu EIP)
 #   - provider_id_cmd            .spec.providerID patch (hcloud vs huawei vs "")
 #   - registry_mirror_yaml       /etc/rancher/k3s/registries.yaml body
@@ -527,7 +527,7 @@ CILIUMVALUES
       EOT
     )}
 
-  # ── Flux bootstrap: GitRepository + bootstrap-kit Kustomization ───────
+  # ── Flux bootstrap: GitRepository + one root Kustomization ────────────
   # From here Flux owns the cluster. The postBuild.substitute map threads
   # every Sovereign-shape value into clusters/_template/bootstrap-kit/*.
   # The substitutes that differ per cloud (HCLOUD_HR_SUSPEND vs
@@ -615,30 +615,32 @@ CILIUMVALUES
           !/platform
           !/products
       ---
+      # SOV-154: the one root Kustomization. Its children (bootstrap-kit,
+      # sovereign-tls, bootstrap-kit-crs, sovereign-region-bootstrap,
+      # infrastructure-providers) are files under clusters/_template/root; the
+      # path names the folder root/<region layout>-<region role>, or, for a
+      # pack that renders no region Kustomization, root/<region role> of its
+      # overlay. No wait (false) and no timeout: it never holds a child behind health.
       apiVersion: kustomize.toolkit.fluxcd.io/v1
       kind: Kustomization
       metadata:
-        name: bootstrap-kit
+        name: sovereign-root
         namespace: flux-system
       spec:
         interval: 5m
-        path: ./clusters/_template/bootstrap-kit
+        retryInterval: 1m
+        path: %{ if render_region_kustomization }./clusters/_template/root/%{ if replica_region_canonical_label == "" }base%{ else }%{ if region_canonical_label == primary_region_canonical_label }multi-region%{ else }multi-region-follower%{ endif }%{ endif }-%{ else }${provider_overlay_path}/root/%{ endif }${sovereign_region_role}
         prune: true
         sourceRef:
           kind: GitRepository
           name: openova
-        # wait/timeout contract (issue #492): bootstrap-kit Ready iff every
-        # HR + Kustomization in it Ready=True; 5m timeout releases the
-        # revision lock fast so iterative fix-forwards apply on next poll.
-        wait: true
-        timeout: 5m
         postBuild:
           substituteFrom:
             - kind: ConfigMap
               name: sovereign-variables
       ---
       # SOV-130: ConfigMap sovereign-variables holds every value that the
-      # inline Kustomizations of this file substitute (postBuild.substituteFrom).
+      # root Kustomization and its children substitute (postBuild.substituteFrom).
       # Flux reads it only after the GitRepository above has an artifact, so it
       # exists by then although bootstrap-kit is applied a moment earlier.
       # The one secret value, POWERDNS_API_KEY, is not here: it is the Secret
@@ -896,269 +898,6 @@ CILIUMVALUES
             SOVEREIGN_REGION_ID: "${region_canonical_label}"
             SOVEREIGN_WRITER_REGION_ID: "${primary_region_canonical_label}"
 %{ endif ~}
-      ---
-      # sovereign-tls Kustomization — carries the cert-manager Certificate
-      # that backs Cilium Gateway's wildcard-TLS listener. Split out so its
-      # cert-manager.io CRD-dependent apply runs AFTER bp-cert-manager Ready.
-      #
-      # #3845 — does NOT `dependsOn: [bootstrap-kit]` (and runs wait:false +
-      # retryInterval, mirroring bootstrap-kit-crs above). RATIONALE: the
-      # Sovereign's wildcard TLS + Gateway are the datapath that the console
-      # and EVERY `*.<fqdn>` surface terminate on — they must NOT be gated on
-      # all ~50 bootstrap-kit HRs being Ready. With `dependsOn: [bootstrap-kit]
-      # + wait:true`, a SINGLE non-foundational leaf app failing (caught live
-      # hw167: bp-guacamole slot 52's jdbc-seed post-install Job stuck on a
-      # missing guacamole-pg-app secret → DeadlineExceeded → bp-guacamole
-      # never Ready → bootstrap-kit health-check never completes) wedged
-      # bootstrap-kit, which blocked sovereign-tls, so the wildcard Certificate
-      # was never created → cert Secret missing → cilium-envoy HTTPS listener
-      # InvalidCertificateRef → TLS reset on :443 → console 000 for the whole
-      # Sovereign. The ONLY real prerequisites here are the cert-manager.io
-      # (bp-cert-manager) + gateway.networking.k8s.io (bp-gateway-api/bp-cilium)
-      # CRDs plus the sovereign-tls-vars CM (bp-catalyst-platform) — all of
-      # which land early and independently of leaf apps. Reconciling in
-      # parallel with a short retryInterval RETRIES the apply until those CRDs
-      # are registered, then applies the Certificate + Gateway — exactly the
-      # bootstrap-kit-crs idiom (#3804/#3642). wait:false so the per-resource
-      # health (cert issuance, envoy restart Job) reconciles async + does not
-      # re-gate this Kustomization on the apps it never needed.
-      apiVersion: kustomize.toolkit.fluxcd.io/v1
-      kind: Kustomization
-      metadata:
-        name: sovereign-tls
-        namespace: flux-system
-        annotations:
-          openova.io/wildcard-cert-issuer-tag: "${wildcard_cert_issuer}"
-      spec:
-        interval: 5m
-        # retryInterval short (cf. bootstrap-kit-crs): with NO dependsOn the
-        # Certificate/Gateway apply fails the dry-run until bp-cert-manager /
-        # bp-gateway-api register their CRDs + bp-catalyst-platform emits the
-        # sovereign-tls-vars CM, so retry FAST to issue the wildcard promptly
-        # after — not at the 5m interval.
-        retryInterval: 1m
-        # #4706 point-3 — hetzner gets the -hetzner overlay (base + the
-        # hcloud-ccm LB annotation patches, git-side so cloud-init stays
-        # under the 32 KiB user_data cap); huawei gets the bare base with
-        # ZERO hetzner vendor annotations.
-        path: ./clusters/_template/sovereign-tls%{ if provider == "hetzner" }-hetzner%{ endif }
-        prune: true
-        sourceRef:
-          kind: GitRepository
-          name: openova
-        wait: false
-        postBuild:
-          substituteFrom:
-            - kind: ConfigMap
-              name: sovereign-tls-vars
-              optional: false
-            - kind: ConfigMap
-              name: sovereign-variables
-            # POWERDNS_API_KEY (#3888 / Refs #3847) — the central pdns.openova.io
-            # DNS-01 API key, base64-encoded so it threads into the cert-manager/
-            # powerdns-api-credentials Secret's `data.api-key` cluster-side
-            # (clusters/_template/sovereign-tls/powerdns-api-credentials.yaml).
-            # sovereign-tls is the natural home: it OWNS the wildcard-cert
-            # datapath (the Certificate issued by $${WILDCARD_CERT_ISSUER} =
-            # letsencrypt-dns01-prod-powerdns), and the DNS-01 solver needs this
-            # key to PATCH the challenge TXT record. Carried via this postBuild
-            # channel so the raw key never lands in the reconciled Git tree —
-            # the same way cloud-init used to base64-seed it into the inline
-            # Secret. Evicting it OUT of cloud-init into this Flux-reconciled
-            # resource fixes #3847's prune-orphan (cloud-init applied it
-            # imperatively into the bootstrap-kit-pruned `cert-manager` ns) and
-            # reverts #3884 (whose flux-system+reflector workaround pushed the
-            # 3-region render past the 32256 cap). SOV-130: it is the one key of
-            # the Secret flux-system/sovereign-tls-secrets, never a value of the
-            # ConfigMap sovereign-variables or of this Kustomization's spec.
-            - kind: Secret
-              name: sovereign-tls-secrets
-      ---
-      # bootstrap-kit-crs Kustomization (#3804 / Refs #3642) — the host-bridge
-      # CRD-dependent CRs tier. #3642 re-homed 7 host apps into the mgmt
-      # vCluster and extracted their host-side HTTPRoute / ExternalSecret /
-      # CNPG `Cluster` CRs OUT of the (now in-vCluster) Helm charts into RAW
-      # kustomize resources. Raw resources cannot carry the chart's
-      # `.Capabilities.APIVersions.Has` gate, so when they lived inside the
-      # bootstrap-kit kustomization they failed bootstrap-kit's atomic
-      # server-side dry-run with `no matches for kind "Cluster"/"HTTPRoute"/
-      # "ExternalSecret"` — because the gateway-api / external-secrets / cnpg
-      # CRDs are installed by HelmReleases that have NOT reconciled yet on a
-      # fresh prov's FIRST pass. That aborted the WHOLE bootstrap-kit
-      # reconcile → 0 HRs ever applied → the operators never installed → the
-      # CRDs never appeared → permanent 0-HelmRelease deadlock (diagnosed live
-      # on hw161; pre-#3642 there were zero raw CRs in bootstrap-kit).
-      #
-      # Fix: this SEPARATE Flux Kustomization carries those CRs and reconciles
-      # in PARALLEL with bootstrap-kit (NO dependsOn), RETRYING (retryInterval)
-      # until the operator CRDs (cnpg / external-secrets / gateway-api) that
-      # bootstrap-kit installs are registered, then applies the CRs.
-      # It must NOT `dependsOn: [bootstrap-kit]`: several of these CRs are APP
-      # DATABASES (per-app CNPG `Cluster`s — keycloak-pg / guacamole-pg / …) that
-      # the apps INSIDE bootstrap-kit need Ready to come up, and bootstrap-kit
-      # (wait:true) cannot go Ready until those apps ARE Ready. A dependsOn would
-      # deadlock CIRCULARLY: app waits for its DB CR → DB CR (this Kustomization)
-      # waits for bootstrap-kit Ready → bootstrap-kit waits for the app. Caught
-      # live on hw162: keycloak-0 stuck Init:0/2 with no DB, convergence frozen
-      # at 49/64 HRs. Reconciling independently + retrying breaks the circle yet
-      # still applies the CRs only AFTER their CRDs exist. wait:false — per-CR
-      # health (CNPG cluster ready, ESO sync) reconciles async + must NOT gate
-      # this Kustomization. Provider-agnostic; OUTSIDE the hetzner-only block.
-      apiVersion: kustomize.toolkit.fluxcd.io/v1
-      kind: Kustomization
-      metadata:
-        name: bootstrap-kit-crs
-        namespace: flux-system
-      spec:
-        interval: 5m
-        # retryInterval short: with NO dependsOn (see header), the CRs fail the
-        # dry-run until the operators register their CRDs, so retry FAST to apply
-        # promptly after — not at the 5m interval. timeout defaults to interval.
-        retryInterval: 1m
-        path: ./clusters/_template/bootstrap-kit-crs
-        prune: true
-        sourceRef:
-          kind: GitRepository
-          name: openova
-        wait: false
-        postBuild:
-          substituteFrom:
-            - kind: ConfigMap
-              name: sovereign-variables
-            # #4206 — the host-shared CNPG Cluster CRs reconciled by THIS
-            # Kustomization (gitea-pg / harbor-pg / guacamole-pg, slots
-            # 10/19/52) name their storageClass via this var so their PVCs are
-            # RACE-IMMUNE. Omitting the field (the prior #4107 shape) lets the
-            # admission-default plugin freeze "" the instant a PVC is created
-            # before the default SC lands (the fresh-prov ordering race) — and
-            # that "" is PERMANENT (opts out of dynamic provisioning) → Pending
-            # forever. The same per-provider durable class the bootstrap-kit
-            # block uses (evs-ssd on Huawei, hcloud-volumes on Hetzner); the
-            # tofu var validation rejects "" and "local-path". SOV-130: the
-            # value is SOVEREIGN_CNPG_STORAGE_CLASS of sovereign-variables.
-%{ if render_region_kustomization ~}
-      ---
-      # ADR-0015 D1: region path from this region's own Gitea (every region).
-      # NOT rendered on Hetzner: its control-plane user-data sits at the
-      # 32576 B guardrail on main (three-region ~36 B headroom), and this
-      # ~450 B block cannot fit. A Hetzner Sovereign applies the same
-      # Kustomization by hand (the hw307 migration manifest) until it is
-      # delivered off cloud-init (follow-up under #7067).
-      apiVersion: kustomize.toolkit.fluxcd.io/v1
-      kind: Kustomization
-      metadata:
-        name: sovereign-region-bootstrap
-        namespace: flux-system
-      spec:
-        interval: 5m
-        retryInterval: 1m
-        path: ./clusters/_template/sovereign-region/%{ if replica_region_canonical_label == "" }base%{ else }%{ if region_canonical_label == primary_region_canonical_label }multi-region%{ else }multi-region-follower%{ endif }%{ endif }
-        prune: true
-        sourceRef:
-          kind: GitRepository
-          name: openova
-        wait: false
-        postBuild:
-          substituteFrom:
-            - kind: ConfigMap
-              name: sovereign-variables
-%{ endif ~}
-%{ if sovereign_region_role == "primary" ~}
-      ---
-      # PRIMARY-REGION ONLY (#4521): the Crossplane adoption seam is a
-      # once-per-Sovereign primary-CP concern — the post-handover applier
-      # (handler/post_handover_adoption_apply.go) server-side-applies the
-      # CloudAdoption CRs ONCE against the primary cluster from the primary's
-      # tofu state, observing the Sovereign's cloud resources. Secondary-region
-      # CPs SUSPEND their HRs (SECONDARY_HR_SUSPEND) and never need their own
-      # provider install, so gating these two Kustomizations to the primary
-      # keeps the secondary cloud-init under the 32256B Hetzner cap (its
-      # headroom was already thin) AND avoids a duplicate provider package pull
-      # per region.
-      # infrastructure-providers Kustomization — LAYER 1 of the two-layer
-      # Crossplane bootstrap (#4521, Refs #4212 #4488, un-gates #4002/#4018).
-      # Installs ONLY the Provider PACKAGE CR provider-opentofu, from the one
-      # path ./providers on every cloud. CLD-023 deleted the Hetzner overlay
-      # and its native provider-hcloud.
-      #
-      # WHY THIS IS A SEPARATE KUSTOMIZATION (#4521): the Provider CR and the
-      # `tf.upbound.io/v1beta1` ProviderConfig that CONSUMES the CRD the
-      # Provider registers were previously batched in ONE Kustomization. Flux
-      # server-side dry-runs a Kustomization ATOMICALLY; the ProviderConfig
-      # dry-run failed `no matches for kind "ProviderConfig" in version
-      # "tf.upbound.io/v1beta1"` (the CRD does not exist until the provider
-      # installs) → the WHOLE apply was rejected → the Provider CR itself never
-      # applied → the provider never installed → its CRD never registered →
-      # permanent ordering deadlock (`infrastructure-config Ready=False`,
-      # `kubectl get providers.pkg.crossplane.io` empty). Splitting the
-      # Provider CR into THIS layer (whose only CRD is pkg.crossplane.io/v1,
-      # already landed by bp-crossplane at slot 04) lets it apply cleanly; the
-      # LAYER-2 `infrastructure-config` `dependsOn`s this + carries the
-      # CRD-CONSUMING ProviderConfig/CloudAdoption. The established
-      # bootstrap-kit → bootstrap-kit-crs CRD-then-CR idiom.
-      #
-      # wait:false — the Crossplane provider PACKAGE pull is a day-2 surface
-      # that must NEVER gate Phase-1 (sacred-thin cloud-init). retryInterval
-      # short so the Provider re-applies promptly after bp-crossplane lands
-      # pkg.crossplane.io (no dependsOn on bp-crossplane: it lives inside
-      # bootstrap-kit which this already depends on). ORDERING is the pure
-      # bootstrap-kit-crs idiom: layer-2 `dependsOn`s this (Provider CR applied)
-      # AND retries its own dry-run (retryInterval) until the provider finishes
-      # registering tf.upbound.io — no healthCheck needed (and kstatus has no
-      # reliable Ready signal for a crossplane Provider's Healthy/Installed
-      # conditions anyway).
-      apiVersion: kustomize.toolkit.fluxcd.io/v1
-      kind: Kustomization
-      metadata:
-        name: infrastructure-providers
-        namespace: flux-system
-      spec:
-        interval: 5m
-        # NO dependsOn (pure bootstrap-kit-crs idiom): the Provider CR's only
-        # CRD is pkg.crossplane.io/v1 (landed by bp-crossplane INSIDE
-        # bootstrap-kit). retryInterval short so the apply RETRIES until that
-        # CRD registers, then applies — without gating on the ~50 leaf-app HRs
-        # (a dependsOn on wait:true bootstrap-kit would needlessly delay it).
-        retryInterval: 1m
-        path: ./clusters/_template/infrastructure/providers
-        prune: true
-        sourceRef:
-          kind: GitRepository
-          name: openova
-        wait: false
-        # SOV-130: reads sovereign-variables like the Kustomizations above. The
-        # providers tree names no variable today, so nothing in it changes.
-        postBuild:
-          substituteFrom:
-            - kind: ConfigMap
-              name: sovereign-variables
-        # #4600 — NO XPKG_REGISTRY postBuild substitution on ANY cloud.
-        # provider-opentofu pulls DIRECTLY from xpkg.upbound.io (the manifest's
-        # XPKG_REGISTRY := xpkg.upbound.io default) on Hetzner AND Huawei.
-        # The former Huawei-only `harbor.openova.io/proxy-xpkg` substitution
-        # (#4488/#4491/#4542) was an ARTIFICIAL bastion-Harbor tether whose
-        # `proxy-xpkg` project never existed → 401 → provider-opentofu
-        # Installed=False → adoption seam inert. Its "poisoned NAT" premise is
-        # FALSE: xpkg.upbound.io answers HTTP 401 (the anon-auth challenge) in
-        # 0.43s direct from the live Huawei Sovereign, and crossplane-system
-        # has no egress NetworkPolicy. Cutover step-11 already pivots the raw
-        # `xpkg.upbound.io/...` spec.package to `harbor.<fqdn>/proxy-xpkg`
-        # post-handover, so Principle #11 sovereignty is unaffected.
-      # NOTE (#4521): LAYER 2 — the CRD-CONSUMING `infrastructure-config` Flux
-      # Kustomization (ProviderConfig + the Observe-first CloudAdoption
-      # placeholder) is NOT inlined here. It ships as a COMMITTED Flux
-      # Kustomization CR in the providers tree
-      # (clusters/_template/infrastructure/providers/
-      # infrastructure-config-kustomization.yaml), applied by THIS
-      # `infrastructure-providers` Kustomization above and `dependsOn`ing it.
-      # That keeps the second Kustomization OFF the byte-capped cloud-init
-      # render (the #1981/#3884 "evict bloat out of cloud-init" precedent — a
-      # third inline Kustomization pushed the 3-region Hetzner render past the
-      # 32256B cap). The committed CR needs NO postBuild: the placeholder
-      # CloudAdoption's only token (SOVEREIGN_FQDN) is now a static
-      # `pending-generation` (it is a no-op overwritten by the post-handover
-      # generator), so it renders identically on every Sovereign.
-%{ endif ~}
 FLUXBOOTSTRAP
     , "/(?m)^[ ]*#( |$).*\n/", ""), "/(?m)^      /", ""))))}
 
@@ -1182,9 +921,6 @@ runcmd:
   - systemctl reload ssh || systemctl reload sshd || true
 %{ if enable_fail2ban ~}
   - systemctl enable --now fail2ban || true
-%{ endif ~}
-%{ if enable_unattended_upgrades ~}
-  - systemctl enable --now unattended-upgrades || true
 %{ endif ~}
 
   # ── PROVIDER PRELUDE (injected) ───────────────────────────────────────

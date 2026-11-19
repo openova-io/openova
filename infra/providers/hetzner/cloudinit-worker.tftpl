@@ -115,9 +115,6 @@ runcmd:
 %{ if enable_fail2ban ~}
   - systemctl enable --now fail2ban
 %{ endif ~}
-%{ if enable_unattended_upgrades ~}
-  - systemctl enable --now unattended-upgrades
-%{ endif ~}
   # ── Private NIC bring-up BEFORE k3s agent join (prov #71 root cause) ────
   #
   # Same Hetzner private-NIC hot-attach race as the control-plane template

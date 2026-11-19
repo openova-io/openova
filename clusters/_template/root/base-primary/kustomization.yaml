@@ -1,7 +1,7 @@
-# The child Kustomizations of first boot, one file each (SOV-146); the boot template still
-# renders them inline. scripts/check-root-kustomization-parity.py proves that each folder
-# <region layout>-<region role> here, and root/<region role> in a provider's overlay, builds
-# what the template renders for its branch. Every other folder builds this one and patches it.
+# The child Kustomizations of first boot, one file each (SOV-146). First boot applies the one root
+# Kustomization sovereign-root (SOV-154), whose path is the folder <region layout>-<region role>
+# here, or root/<region role> in a provider's overlay when the provider renders no region
+# Kustomization. Every other folder builds this one and patches it.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:

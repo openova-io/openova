@@ -95,13 +95,14 @@ self_test() {
   tpl="$tree/infra/providers/_shared/cloudinit-control-plane.tftpl"
 
   # A fresh copy of what the render test reads: the shared template with the
-  # test folder, the folder of the two committed Kustomization files, and the
+  # test folder, the folders of the committed Kustomization files, and the
   # substitutes file of every pack, which render.tf reads (CLD-131).
   fresh() {
     rm -rf "$tree"
     mkdir -p "$tree/infra/providers" "$tree/clusters/_template/infrastructure"
     cp -R "$ROOT/infra/providers/_shared" "$tree/infra/providers/_shared"
     cp -R "$ROOT/clusters/_template/infrastructure/providers" "$tree/clusters/_template/infrastructure/providers"
+    cp -R "$ROOT/clusters/_template/root" "$ROOT/clusters/_template/providers" "$tree/clusters/_template/"
     local f pack
     for f in "$ROOT"/infra/providers/*/provider-substitutes.yaml.tftpl; do
       pack="$(basename "$(dirname "$f")")"

@@ -23,10 +23,8 @@
 // reported as UNOBSERVED (empty phase, ready=false), never as ready. An
 // Organization whose substrate nobody could look at is not a provisioned
 // Organization, and publishing terminal success for it is the exact defect
-// this file exists to remove. Nothing is stranded by that choice — the
-// record stays at the highest non-terminal state and the NATS-driven
-// reconciler (ReconcileAllPending, which walks every non-terminal row)
-// re-runs the pipeline until the boundary is observed Ready.
+// this file exists to remove. The held record is re-run by the tenant-registry
+// pass (orgpromote) while its CR exists, until the boundary is observed Ready.
 
 package handler
 
@@ -133,8 +131,10 @@ func (h *Handler) observeOrgBoundary(ctx context.Context, rec store.Organization
 			"slug", slug, "org_tenant_id", rec.OrganizationID, "err", err)
 		return "", false
 	}
-	phase := boundaryPhaseFromCR(obj)
-	return phase, phase == boundaryPhaseReady
+	if phase := boundaryPhaseFromCR(obj); obj.GetDeletionTimestamp() == nil {
+		return phase, phase == boundaryPhaseReady
+	}
+	return "Deleting", false // a CR being deleted is never a Ready boundary, whatever its status says
 }
 
 // boundaryStepFor maps an observed boundary phase onto the wire step value

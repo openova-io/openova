@@ -167,7 +167,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "listed",
     "class": "ai-service",
     "lifecycle": "experimental",
-    "version": "0.5.34",
+    "version": "0.5.35",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
@@ -816,76 +816,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "hasUserUIEndpoint": false
   },
   {
-    "id": "bp-clickhouse",
-    "slug": "clickhouse",
-    "title": "ClickHouse",
-    "summary": "Column-oriented OLAP database. Sub-second queries over billions of rows.",
-    "icon": "clickhouse.svg",
-    "tagline": null,
-    "tags": [
-      "analytics",
-      "olap",
-      "columnar",
-      "sql",
-      "clickhouse"
-    ],
-    "visibility": "unlisted",
-    "class": "data-service",
-    "lifecycle": "experimental",
-    "version": "0.0.0",
-    "depends": [],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "active-active",
-        "singleton"
-      ],
-      "multiRegion": "active-active",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "active-active": {
-          "replication": {
-            "backend": "none",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
-          "switchover": {
-            "mechanism": "none",
-            "rtoSeconds": null,
-            "rpoSeconds": null
-          },
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "rtz-A": "active",
-              "rtz-B": "active"
-            }
-          }
-        },
-        "singleton": {
-          "replication": null,
-          "switchover": null,
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A"
-            ],
-            "roles": {
-              "rtz-A": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": false
-  },
-  {
     "id": "bp-cluster-autoscaler-hcloud",
     "slug": "cluster-autoscaler-hcloud",
     "title": "Cluster Autoscaler (Hetzner)",
@@ -1125,70 +1055,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "hasUserUIEndpoint": false
   },
   {
-    "id": "bp-debezium",
-    "slug": "debezium",
-    "title": "Debezium",
-    "summary": "Scaffold-only Application Blueprint — chart not yet packaged.\nTopology + endpoints + sso + multiInstance are declared per the\nG117.1 audit so downstream Catalyst surfaces can render against\nit.\n",
-    "icon": null,
-    "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
-    "class": "data-service",
-    "lifecycle": "experimental",
-    "version": "0.0.0",
-    "depends": [],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "active-passive",
-        "singleton"
-      ],
-      "multiRegion": "active-passive",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "active-passive": {
-          "replication": {
-            "backend": "mirrormaker2",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
-          "switchover": {
-            "mechanism": "bp-continuum",
-            "rtoSeconds": null,
-            "rpoSeconds": null
-          },
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "rtz-A": "active",
-              "rtz-B": "passive"
-            }
-          }
-        },
-        "singleton": {
-          "replication": null,
-          "switchover": null,
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A"
-            ],
-            "roles": {
-              "rtz-A": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": false
-  },
-  {
     "id": "bp-dragonfly",
     "slug": "dragonfly",
     "title": "Dragonfly",
@@ -1419,134 +1285,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       }
     },
     "hasUserUIEndpoint": false
-  },
-  {
-    "id": "bp-ferretdb",
-    "slug": "ferretdb",
-    "title": "Ferretdb",
-    "summary": "Scaffold-only Application Blueprint — chart not yet packaged.\nTopology + endpoints + sso + multiInstance are declared per the\nG117.1 audit so downstream Catalyst surfaces can render against\nit.\n",
-    "icon": null,
-    "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
-    "class": "data-service",
-    "lifecycle": "experimental",
-    "version": "0.0.0",
-    "depends": [],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "active-passive",
-        "singleton"
-      ],
-      "multiRegion": "active-passive",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "active-passive": {
-          "replication": {
-            "backend": "cnpg-pair",
-            "mode": "sync",
-            "lagSloSeconds": 0
-          },
-          "switchover": {
-            "mechanism": "bp-continuum",
-            "rtoSeconds": 60,
-            "rpoSeconds": 0
-          },
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "rtz-A": "active",
-              "rtz-B": "passive"
-            }
-          }
-        },
-        "singleton": {
-          "replication": null,
-          "switchover": null,
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A"
-            ],
-            "roles": {
-              "rtz-A": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": true
-  },
-  {
-    "id": "bp-flink",
-    "slug": "flink",
-    "title": "Flink",
-    "summary": "Scaffold-only Application Blueprint — chart not yet packaged.\nTopology + endpoints + sso + multiInstance are declared per the\nG117.1 audit so downstream Catalyst surfaces can render against\nit.\n",
-    "icon": null,
-    "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
-    "class": "data-service",
-    "lifecycle": "experimental",
-    "version": "0.0.0",
-    "depends": [],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "active-passive",
-        "singleton"
-      ],
-      "multiRegion": "active-passive",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "active-passive": {
-          "replication": {
-            "backend": "s3-bucket-replication",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
-          "switchover": {
-            "mechanism": "bp-continuum",
-            "rtoSeconds": null,
-            "rpoSeconds": null
-          },
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "rtz-A": "active",
-              "rtz-B": "passive"
-            }
-          }
-        },
-        "singleton": {
-          "replication": null,
-          "switchover": null,
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A"
-            ],
-            "roles": {
-              "rtz-A": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-flux",
@@ -2042,70 +1780,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
               "dmz-B": "singleton",
               "rtz-A": "singleton",
               "rtz-B": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": false
-  },
-  {
-    "id": "bp-iceberg",
-    "slug": "iceberg",
-    "title": "Iceberg",
-    "summary": "Scaffold-only Application Blueprint — chart not yet packaged.\nTopology + endpoints + sso + multiInstance are declared per the\nG117.1 audit so downstream Catalyst surfaces can render against\nit.\n",
-    "icon": null,
-    "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
-    "class": "data-service",
-    "lifecycle": "experimental",
-    "version": "0.0.0",
-    "depends": [],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "active-active",
-        "singleton"
-      ],
-      "multiRegion": "active-active",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "active-active": {
-          "replication": {
-            "backend": "s3-bucket-replication",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
-          "switchover": {
-            "mechanism": "none",
-            "rtoSeconds": null,
-            "rpoSeconds": null
-          },
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "rtz-A": "active",
-              "rtz-B": "active"
-            }
-          }
-        },
-        "singleton": {
-          "replication": null,
-          "switchover": null,
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A"
-            ],
-            "roles": {
-              "rtz-A": "singleton"
             }
           }
         }
@@ -3025,70 +2699,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "hasUserUIEndpoint": true
   },
   {
-    "id": "bp-milvus",
-    "slug": "milvus",
-    "title": "Milvus",
-    "summary": "Scaffold-only Application Blueprint — chart not yet packaged.\nTopology + endpoints + sso + multiInstance are declared per the\nG117.1 audit so downstream Catalyst surfaces can render against\nit.\n",
-    "icon": null,
-    "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
-    "class": "data-service",
-    "lifecycle": "experimental",
-    "version": "0.0.0",
-    "depends": [],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "active-passive",
-        "singleton"
-      ],
-      "multiRegion": "active-passive",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "active-passive": {
-          "replication": {
-            "backend": "s3-bucket-replication",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
-          "switchover": {
-            "mechanism": "bp-continuum",
-            "rtoSeconds": null,
-            "rpoSeconds": null
-          },
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "rtz-A": "active",
-              "rtz-B": "passive"
-            }
-          }
-        },
-        "singleton": {
-          "replication": null,
-          "switchover": null,
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A"
-            ],
-            "roles": {
-              "rtz-A": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": false
-  },
-  {
     "id": "bp-mimir",
     "slug": "mimir",
     "title": "Mimir",
@@ -3286,70 +2896,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       }
     },
     "hasUserUIEndpoint": false
-  },
-  {
-    "id": "bp-neo4j",
-    "slug": "neo4j",
-    "title": "Neo4J",
-    "summary": "Scaffold-only Application Blueprint — chart not yet packaged.\nTopology + endpoints + sso + multiInstance are declared per the\nG117.1 audit so downstream Catalyst surfaces can render against\nit.\n",
-    "icon": null,
-    "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
-    "class": "data-service",
-    "lifecycle": "experimental",
-    "version": "0.0.0",
-    "depends": [],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "active-passive",
-        "singleton"
-      ],
-      "multiRegion": "active-passive",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "active-passive": {
-          "replication": {
-            "backend": "velero",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
-          "switchover": {
-            "mechanism": "bp-velero-restore",
-            "rtoSeconds": null,
-            "rpoSeconds": null
-          },
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "rtz-A": "active",
-              "rtz-B": "passive"
-            }
-          }
-        },
-        "singleton": {
-          "replication": null,
-          "switchover": null,
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A"
-            ],
-            "roles": {
-              "rtz-A": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-netbird",
@@ -3815,7 +3361,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "class": "platform-component",
     "lifecycle": "experimental",
-    "version": "0.1.9",
+    "version": "0.1.10",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
@@ -3843,100 +3389,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       }
     },
     "hasUserUIEndpoint": false
-  },
-  {
-    "id": "bp-opensearch",
-    "slug": "opensearch",
-    "title": "OpenSearch",
-    "summary": "Open-source search + analytics suite (Elasticsearch fork). Full-text search, log aggregation, vector search.",
-    "icon": "opensearch.svg",
-    "tagline": null,
-    "tags": [
-      "search",
-      "elasticsearch",
-      "opensearch",
-      "logs",
-      "vector"
-    ],
-    "visibility": "unlisted",
-    "class": "data-service",
-    "lifecycle": "experimental",
-    "version": "0.0.0",
-    "depends": [],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "active-active",
-        "active-passive",
-        "singleton"
-      ],
-      "multiRegion": "active-active",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "active-active": {
-          "replication": {
-            "backend": "ccr",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
-          "switchover": {
-            "mechanism": "ccr-promote",
-            "rtoSeconds": null,
-            "rpoSeconds": null
-          },
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "rtz-A": "active",
-              "rtz-B": "active"
-            }
-          }
-        },
-        "active-passive": {
-          "replication": {
-            "backend": "ccr",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
-          "switchover": {
-            "mechanism": "ccr-promote",
-            "rtoSeconds": null,
-            "rpoSeconds": null
-          },
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "rtz-A": "active",
-              "rtz-B": "passive"
-            }
-          }
-        },
-        "singleton": {
-          "replication": null,
-          "switchover": null,
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A"
-            ],
-            "roles": {
-              "rtz-A": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-opentelemetry",
@@ -4458,7 +3910,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "class": "platform-component",
     "lifecycle": "experimental",
-    "version": "0.1.233",
+    "version": "0.1.235",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
@@ -4807,94 +4259,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
               "dmz-B": "singleton",
               "rtz-A": "singleton",
               "rtz-B": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": false
-  },
-  {
-    "id": "bp-strimzi",
-    "slug": "strimzi",
-    "title": "Strimzi",
-    "summary": "Scaffold-only Application Blueprint — chart not yet packaged.\nTopology + endpoints + sso + multiInstance are declared per the\nG117.1 audit so downstream Catalyst surfaces can render against\nit.\n",
-    "icon": null,
-    "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
-    "class": "data-service",
-    "lifecycle": "experimental",
-    "version": "0.0.0",
-    "depends": [],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "active-active",
-        "active-passive",
-        "singleton"
-      ],
-      "multiRegion": "active-active",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "active-active": {
-          "replication": {
-            "backend": "mirrormaker2",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
-          "switchover": {
-            "mechanism": "mm2-symmetric",
-            "rtoSeconds": null,
-            "rpoSeconds": null
-          },
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "rtz-A": "active",
-              "rtz-B": "active"
-            }
-          }
-        },
-        "active-passive": {
-          "replication": {
-            "backend": "mirrormaker2",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
-          "switchover": {
-            "mechanism": "mm2-symmetric",
-            "rtoSeconds": null,
-            "rpoSeconds": null
-          },
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "rtz-A": "active",
-              "rtz-B": "passive"
-            }
-          }
-        },
-        "singleton": {
-          "replication": null,
-          "switchover": null,
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A"
-            ],
-            "roles": {
-              "rtz-A": "singleton"
             }
           }
         }
@@ -5644,20 +5008,16 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/chargeback/blueprint.yaml",
   "platform/cilium-policies/blueprint.yaml",
   "platform/cilium/blueprint.yaml",
-  "platform/clickhouse/blueprint.yaml",
   "platform/cluster-autoscaler-hcloud/blueprint.yaml",
   "platform/cnpg-pair/blueprint.yaml",
   "platform/cnpg/blueprint.yaml",
   "platform/crossplane-claims/blueprint.yaml",
   "platform/crossplane/blueprint.yaml",
-  "platform/debezium/blueprint.yaml",
   "platform/dragonfly/blueprint.yaml",
   "platform/external-dns/blueprint.yaml",
   "platform/external-secrets-stores/blueprint.yaml",
   "platform/external-secrets/blueprint.yaml",
   "platform/falco/blueprint.yaml",
-  "platform/ferretdb/blueprint.yaml",
-  "platform/flink/blueprint.yaml",
   "platform/flux/blueprint.yaml",
   "platform/gateway-api/blueprint.yaml",
   "platform/gitea/blueprint.yaml",
@@ -5667,7 +5027,6 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/hcloud-ccm/blueprint.yaml",
   "platform/hcloud-csi/blueprint.yaml",
   "platform/huawei-evs-csi/blueprint.yaml",
-  "platform/iceberg/blueprint.yaml",
   "platform/k8s-ws-proxy/blueprint.yaml",
   "platform/keycloak/blueprint.yaml",
   "platform/knative/blueprint.yaml",
@@ -5683,11 +5042,9 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/loki/blueprint.yaml",
   "platform/machine-operations/blueprint.yaml",
   "platform/matrix/blueprint.yaml",
-  "platform/milvus/blueprint.yaml",
   "platform/mimir/blueprint.yaml",
   "platform/nats-jetstream/blueprint.yaml",
   "platform/nemo-guardrails/blueprint.yaml",
-  "platform/neo4j/blueprint.yaml",
   "platform/netbird/blueprint.yaml",
   "platform/network-policies/blueprint.yaml",
   "platform/newapi/blueprint.yaml",
@@ -5696,7 +5053,6 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/openclaw/blueprint.yaml",
   "platform/openmeter/blueprint.yaml",
   "platform/openova-mcp/blueprint.yaml",
-  "platform/opensearch/blueprint.yaml",
   "platform/opentelemetry-operator/blueprint.yaml",
   "platform/opentelemetry/blueprint.yaml",
   "platform/plane-isolation/blueprint.yaml",
@@ -5714,7 +5070,6 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/stalwart-sovereign/blueprint.yaml",
   "platform/stalwart-tenant/blueprint.yaml",
   "platform/storage-ready/blueprint.yaml",
-  "platform/strimzi/blueprint.yaml",
   "platform/stunner/blueprint.yaml",
   "platform/syft-grype/blueprint.yaml",
   "platform/tempo/blueprint.yaml",
@@ -5747,6 +5102,8 @@ export interface BootstrapKitEntry {
   file: string
   /** Numerical prefix on the filename — defines install order. */
   order: number
+  /** Ring of the slot: the label catalyst.openova.io/ring of its release (null when it has none). */
+  ring: string | null
 }
 
 export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = [
@@ -5755,293 +5112,335 @@ export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = [
     "slug": "cilium",
     "label": "cilium",
     "file": "01-cilium.yaml",
-    "order": 1
+    "order": 1,
+    "ring": "foundation"
   },
   {
     "id": "bp-cert-manager",
     "slug": "cert-manager",
     "label": "cert-manager",
     "file": "02-cert-manager.yaml",
-    "order": 2
+    "order": 2,
+    "ring": "foundation"
   },
   {
     "id": "bp-flux",
     "slug": "flux",
     "label": "flux",
     "file": "03-flux.yaml",
-    "order": 3
+    "order": 3,
+    "ring": "foundation"
   },
   {
     "id": "bp-crossplane",
     "slug": "crossplane",
     "label": "crossplane",
     "file": "04-crossplane.yaml",
-    "order": 4
+    "order": 4,
+    "ring": "foundation"
   },
   {
     "id": "bp-dragonfly",
     "slug": "dragonfly",
     "label": "dragonfly",
     "file": "06-bp-dragonfly.yaml",
-    "order": 6
+    "order": 6,
+    "ring": "foundation"
   },
   {
     "id": "bp-nats-jetstream",
     "slug": "nats-jetstream",
     "label": "nats-jetstream",
     "file": "07-nats-jetstream.yaml",
-    "order": 7
+    "order": 7,
+    "ring": "foundation"
   },
   {
     "id": "bp-openbao",
     "slug": "openbao",
     "label": "openbao",
     "file": "08-openbao.yaml",
-    "order": 8
+    "order": 8,
+    "ring": "foundation"
   },
   {
     "id": "bp-keycloak",
     "slug": "keycloak",
     "label": "keycloak",
     "file": "09-keycloak.yaml",
-    "order": 9
+    "order": 9,
+    "ring": "foundation"
   },
   {
     "id": "bp-gitea",
     "slug": "gitea",
     "label": "gitea",
     "file": "10-gitea.yaml",
-    "order": 10
+    "order": 10,
+    "ring": "foundation"
   },
   {
     "id": "bp-powerdns",
     "slug": "powerdns",
     "label": "powerdns",
     "file": "11-powerdns.yaml",
-    "order": 11
+    "order": 11,
+    "ring": "foundation"
   },
   {
     "id": "bp-external-dns",
     "slug": "external-dns",
     "label": "external-dns",
     "file": "12-external-dns.yaml",
-    "order": 12
+    "order": 12,
+    "ring": "foundation"
   },
   {
     "id": "bp-catalyst-platform",
     "slug": "catalyst-platform",
     "label": "catalyst-platform",
     "file": "13-bp-catalyst-platform.yaml",
-    "order": 13
+    "order": 13,
+    "ring": "foundation"
   },
   {
     "id": "bp-crossplane-claims",
     "slug": "crossplane-claims",
     "label": "crossplane-claims",
     "file": "14-crossplane-claims.yaml",
-    "order": 14
+    "order": 14,
+    "ring": "foundation"
   },
   {
     "id": "bp-external-secrets",
     "slug": "external-secrets",
     "label": "external-secrets",
     "file": "15-external-secrets.yaml",
-    "order": 15
+    "order": 15,
+    "ring": "foundation"
   },
   {
     "id": "bp-cnpg",
     "slug": "cnpg",
     "label": "cnpg",
     "file": "16-cnpg.yaml",
-    "order": 16
+    "order": 16,
+    "ring": "foundation"
   },
   {
     "id": "bp-valkey",
     "slug": "valkey",
     "label": "valkey",
     "file": "17-valkey.yaml",
-    "order": 17
+    "order": 17,
+    "ring": "foundation"
   },
   {
     "id": "bp-seaweedfs",
     "slug": "seaweedfs",
     "label": "seaweedfs",
     "file": "18-seaweedfs.yaml",
-    "order": 18
+    "order": 18,
+    "ring": "foundation"
   },
   {
     "id": "bp-harbor",
     "slug": "harbor",
     "label": "harbor",
     "file": "19-harbor.yaml",
-    "order": 19
+    "order": 19,
+    "ring": "foundation"
   },
   {
     "id": "bp-opentelemetry",
     "slug": "opentelemetry",
     "label": "opentelemetry",
     "file": "20-opentelemetry.yaml",
-    "order": 20
+    "order": 20,
+    "ring": "observability"
   },
   {
     "id": "bp-alloy",
     "slug": "alloy",
     "label": "alloy",
     "file": "21-alloy.yaml",
-    "order": 21
+    "order": 21,
+    "ring": "observability"
   },
   {
     "id": "bp-loki",
     "slug": "loki",
     "label": "loki",
     "file": "22-loki.yaml",
-    "order": 22
+    "order": 22,
+    "ring": "observability"
   },
   {
     "id": "bp-mimir",
     "slug": "mimir",
     "label": "mimir",
     "file": "23-mimir.yaml",
-    "order": 23
+    "order": 23,
+    "ring": "observability"
   },
   {
     "id": "bp-tempo",
     "slug": "tempo",
     "label": "tempo",
     "file": "24-tempo.yaml",
-    "order": 24
+    "order": 24,
+    "ring": "observability"
   },
   {
     "id": "bp-grafana",
     "slug": "grafana",
     "label": "grafana",
     "file": "25-grafana.yaml",
-    "order": 25
+    "order": 25,
+    "ring": "observability"
   },
   {
     "id": "bp-network-policies",
     "slug": "network-policies",
     "label": "network-policies",
     "file": "26-network-policies.yaml",
-    "order": 26
+    "order": 26,
+    "ring": "foundation"
   },
   {
     "id": "bp-kyverno",
     "slug": "kyverno",
     "label": "kyverno",
     "file": "27-kyverno.yaml",
-    "order": 27
+    "order": 27,
+    "ring": "foundation"
   },
   {
     "id": "bp-reloader",
     "slug": "reloader",
     "label": "reloader",
     "file": "28-reloader.yaml",
-    "order": 28
+    "order": 28,
+    "ring": "foundation"
   },
   {
     "id": "bp-vpa",
     "slug": "vpa",
     "label": "vpa",
     "file": "29-vpa.yaml",
-    "order": 29
+    "order": 29,
+    "ring": "operations"
   },
   {
     "id": "bp-trivy",
     "slug": "trivy",
     "label": "trivy",
     "file": "30-trivy.yaml",
-    "order": 30
+    "order": 30,
+    "ring": "security-scanning"
   },
   {
     "id": "bp-falco",
     "slug": "falco",
     "label": "falco",
     "file": "31-falco.yaml",
-    "order": 31
+    "order": 31,
+    "ring": "security-scanning"
   },
   {
     "id": "bp-sigstore",
     "slug": "sigstore",
     "label": "sigstore",
     "file": "32-sigstore.yaml",
-    "order": 32
+    "order": 32,
+    "ring": "security-scanning"
   },
   {
     "id": "bp-syft-grype",
     "slug": "syft-grype",
     "label": "syft-grype",
     "file": "33-syft-grype.yaml",
-    "order": 33
+    "order": 33,
+    "ring": "security-scanning"
   },
   {
     "id": "bp-velero",
     "slug": "velero",
     "label": "velero",
     "file": "34-velero.yaml",
-    "order": 34
+    "order": 34,
+    "ring": "provider"
   },
   {
     "id": "bp-vllm",
     "slug": "vllm",
     "label": "vllm",
     "file": "39-bp-vllm.yaml",
-    "order": 39
+    "order": 39,
+    "ring": "ai"
   },
   {
     "id": "bp-cert-manager-powerdns-webhook",
     "slug": "cert-manager-powerdns-webhook",
     "label": "cert-manager-powerdns-webhook",
     "file": "49-bp-cert-manager-powerdns-webhook.yaml",
-    "order": 49
+    "order": 49,
+    "ring": "foundation"
   },
   {
     "id": "bp-cluster-autoscaler",
     "slug": "cluster-autoscaler",
     "label": "cluster-autoscaler",
     "file": "50-cluster-autoscaler.yaml",
-    "order": 50
+    "order": 50,
+    "ring": "provider"
   },
   {
     "id": "bp-k8s-ws-proxy",
     "slug": "k8s-ws-proxy",
     "label": "k8s-ws-proxy",
     "file": "51-bp-k8s-ws-proxy.yaml",
-    "order": 51
+    "order": 51,
+    "ring": "access"
   },
   {
     "id": "bp-guacamole",
     "slug": "guacamole",
     "label": "guacamole",
     "file": "52-bp-guacamole.yaml",
-    "order": 52
+    "order": 52,
+    "ring": "access"
   },
   {
     "id": "bp-hcloud-ccm",
     "slug": "hcloud-ccm",
     "label": "hcloud-ccm",
     "file": "55-bp-hcloud-ccm.yaml",
-    "order": 55
+    "order": 55,
+    "ring": "provider"
   },
   {
     "id": "bp-vcluster-helmrepo",
     "slug": "vcluster-helmrepo",
     "label": "vcluster-helmrepo",
     "file": "60-bp-vcluster-helmrepo.yaml",
-    "order": 60
+    "order": 60,
+    "ring": "foundation"
   },
   {
     "id": "bp-continuum",
     "slug": "continuum",
     "label": "continuum",
     "file": "62-bp-continuum.yaml",
-    "order": 62
+    "order": 62,
+    "ring": "foundation"
   },
   {
     "id": "bp-newapi",
     "slug": "newapi",
     "label": "newapi",
     "file": "80-newapi.yaml",
-    "order": 80
+    "order": 80,
+    "ring": "ai"
   }
 ] as const

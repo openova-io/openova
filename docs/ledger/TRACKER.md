@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T13:00:03Z` |
+| Last refreshed | `2026-11-19T18:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,17 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7969](https://github.com/openova-io/openova/issues/7969) | CLD-101 Golden files for the variables the engine writes | Other |
-| [#7970](https://github.com/openova-io/openova/issues/7970) | CLD-131 Provider substitutes move from the template into the modules (pure move) | Other |
-| [#7971](https://github.com/openova-io/openova/issues/7971) | CLD-134 The reference cloud's profile declares its user-data limit; the guard ch | Other |
-| [#7972](https://github.com/openova-io/openova/issues/7972) | CTL-223 Settings, Menu accepts console pages as menu candidates | Other |
-| [#7973](https://github.com/openova-io/openova/issues/7973) | CTL-231 Resource browser: Git-owned objects refused, break-glass for the rest | Other |
-| [#7974](https://github.com/openova-io/openova/issues/7974) | CTL-347 The flow server and adapter sources, charts and builds are deleted | Other |
-| [#7975](https://github.com/openova-io/openova/issues/7975) | CTL-348 The flow host leaves the sign-in gate and the DNS name list | Other |
-| [#7976](https://github.com/openova-io/openova/issues/7976) | FND-080 Set the manifest from the baseline | Other |
-| [#7977](https://github.com/openova-io/openova/issues/7977) | FND-153 The suite image and its signed build | Other |
-| [#7978](https://github.com/openova-io/openova/issues/7978) | FND-154 Check FND-G01 in its self form | Other |
-| [#7979](https://github.com/openova-io/openova/issues/7979) | INF-060 Remove the reboot settings from cloud-init | Other |
 | [#7980](https://github.com/openova-io/openova/issues/7980) | INF-135 Lock stage machine-ops in audit | Other |
 | [#7981](https://github.com/openova-io/openova/issues/7981) | NET-012 Second provider firewall to the same rule | Other |
 | [#7982](https://github.com/openova-io/openova/issues/7982) | NET-040 Remove the unwired firewall and the unused SPIRE chart | Other |
@@ -300,6 +289,17 @@ flowchart LR
 | [#8320](https://github.com/openova-io/openova/issues/8320) | PRD-202 cortex store: migrations, roles, trimmed query | Other |
 | [#8326](https://github.com/openova-io/openova/issues/8326) | AIP-031 Spike: one sandbox substrate shared by Organizations, with grants scoped | Other |
 | [#8334](https://github.com/openova-io/openova/issues/8334) | PRD-203 cortex query process: token check, gateway client, search, definitions l | Other |
+| [#8341](https://github.com/openova-io/openova/issues/8341) | NET-255 Journey WAF, its corpus and gate check NET-G15 as expected-fail | Other |
+| [#8346](https://github.com/openova-io/openova/issues/8346) | NET-330 Spike: a bridged secondary network for virtual machines (conditional, dr | Other |
+| [#8352](https://github.com/openova-io/openova/issues/8352) | AIP-223 Judge dispatcher: lanes, deadlines, agent tokens, A2A call, validation,  | Other |
+| [#8355](https://github.com/openova-io/openova/issues/8355) | NET-280 Spike: overlay profile | Other |
+| [#8356](https://github.com/openova-io/openova/issues/8356) | SVC-220 Ring labels on the kit | Other |
+| [#8358](https://github.com/openova-io/openova/issues/8358) | FND-076 The standing environment is updated through the release route by a workf | Other |
+| [#8359](https://github.com/openova-io/openova/issues/8359) | INF-210 Spike: composite resource in an Organization's release, changed placemen | Other |
+| [#8363](https://github.com/openova-io/openova/issues/8363) | AIP-151 Tool answers are fitted and made inert | Other |
+| [#8364](https://github.com/openova-io/openova/issues/8364) | AIP-250 Spike: agent workspace on the Organization's own sign-in with a short-li | Other |
+| [#8365](https://github.com/openova-io/openova/issues/8365) | SOV-154 First boot applies one root Kustomization; its children come from Git | Other |
+| [#8368](https://github.com/openova-io/openova/issues/8368) | SOV-322 Sign-in mail from the Sovereign's own server: kit slot, settings, and th | Other |
 
 ---
 
@@ -307,36 +307,36 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-19T18:10 | [#8380](https://github.com/openova-io/openova/pull/8380) | #8374 | fix(guards): the Python guard counts code and configuration, |
+| 2026-11-19T16:14 | [#8372](https://github.com/openova-io/openova/pull/8372) | #7087 | docs(ledger): plan update |
+| 2026-11-19T16:20 | [#8371](https://github.com/openova-io/openova/pull/8371) | #8365 | refactor(cloud-init): first boot applies one root Kustomizat |
+| 2026-11-19T16:27 | [#8370](https://github.com/openova-io/openova/pull/8370) | #8356 | refactor(kit): every kit release carries its ring label, the |
+| 2026-11-19T15:50 | [#8369](https://github.com/openova-io/openova/pull/8369) | #7087 | docs(ledger): plan update |
+| 2026-11-19T15:46 | [#8367](https://github.com/openova-io/openova/pull/8367) | #7087 | docs(ledger): plan update |
+| 2026-11-19T15:44 | [#8366](https://github.com/openova-io/openova/pull/8366) | #8355 | docs(ledger): result of the lab test NET-280, the overlay pr |
+| 2026-11-19T15:39 | [#8360](https://github.com/openova-io/openova/pull/8360) | #8359 | docs(ledger): result of the spike INF-210, composite resourc |
+| 2026-11-19T15:32 | [#8357](https://github.com/openova-io/openova/pull/8357) | #7087 | docs(ledger): plan update |
+| 2026-11-19T15:27 | [#8354](https://github.com/openova-io/openova/pull/8354) | #7087 | docs(ledger): plan update |
+| 2026-11-19T15:50 | [#8353](https://github.com/openova-io/openova/pull/8353) | #8352 | feat(ops-records): judge dispatcher with lanes, deadlines, a |
+| 2026-11-19T15:07 | [#8351](https://github.com/openova-io/openova/pull/8351) | #7087 | docs(ledger): plan update |
+| 2026-11-19T15:14 | [#8350](https://github.com/openova-io/openova/pull/8350) | #8083 | fix(openova-mcp): the tool server accepts agent tokens and i |
+| 2026-11-19T14:46 | [#8349](https://github.com/openova-io/openova/pull/8349) | #8346 | docs(ledger): result of the spike NET-330, a bridged seconda |
+| 2026-11-19T14:42 | [#8348](https://github.com/openova-io/openova/pull/8348) | #7087 | docs(ledger): plan update |
+| 2026-11-19T14:36 | [#8347](https://github.com/openova-io/openova/pull/8347) | #7087 | docs(ledger): plan update |
+| 2026-11-19T14:31 | [#8345](https://github.com/openova-io/openova/pull/8345) | #7087 | docs(ledger): plan update |
+| 2026-11-19T15:00 | [#8344](https://github.com/openova-io/openova/pull/8344) | #8341 | test(gate): check NET-G15 runs journey WAF against each web  |
+| 2026-11-19T14:43 | [#8343](https://github.com/openova-io/openova/pull/8343) | #7922 | refactor(cloud-init): first boot no longer enables the unatt |
+| 2026-11-19T14:48 | [#8342](https://github.com/openova-io/openova/pull/8342) | fix(wipe): the wipe releases the record sets of the Sovereig |  |
+| 2026-11-19T14:17 | [#8340](https://github.com/openova-io/openova/pull/8340) | #7087 | docs(ledger): plan update |
+| 2026-11-19T14:12 | [#8339](https://github.com/openova-io/openova/pull/8339) | #7087 | docs(ledger): plan update |
+| 2026-11-19T14:16 | [#8338](https://github.com/openova-io/openova/pull/8338) | fix(ci): the local pack's teardown no longer fails a run who |  |
+| 2026-11-19T13:52 | [#8337](https://github.com/openova-io/openova/pull/8337) | #7087 | docs(ledger): plan update |
+| 2026-11-19T13:35 | [#8336](https://github.com/openova-io/openova/pull/8336) | #7087 | docs(ledger): plan update |
+| 2026-11-19T13:08 | [#8333](https://github.com/openova-io/openova/pull/8333) | #7087 | docs(ledger): plan update |
+| 2026-11-19T15:52 | [#8332](https://github.com/openova-io/openova/pull/8332) | #8333 | feat(guards): Python may only shrink, and no new Python file |
 | 2026-11-19T12:18 | [#8330](https://github.com/openova-io/openova/pull/8330) | #5400 | fix(auth): the sign-in broker's backchannel Service exists i |
+| 2026-11-19T13:40 | [#8329](https://github.com/openova-io/openova/pull/8329) | fix(org): an Organization created through the console reache |  |
 | 2026-11-19T11:16 | [#8328](https://github.com/openova-io/openova/pull/8328) | #8326 | docs(ledger): result of the lab test AIP-031, Organization-s |
-| 2026-11-19T11:04 | [#8327](https://github.com/openova-io/openova/pull/8327) | #8313 | docs(ledger): result of the spike SOV-321, the own mail serv |
-| 2026-11-19T11:00 | [#8325](https://github.com/openova-io/openova/pull/8325) | #7087 | docs(ledger): plan update |
-| 2026-11-19T11:03 | [#8324](https://github.com/openova-io/openova/pull/8324) | #8316 | docs(ledger): result of the spike INF-020, hardware virtuali |
-| 2026-11-19T11:52 | [#8323](https://github.com/openova-io/openova/pull/8323) | #8320 | feat(cortex): store with migration 0001, two database roles  |
-| 2026-11-19T10:40 | [#8321](https://github.com/openova-io/openova/pull/8321) | #7087 | docs(ledger): plan update |
-| 2026-11-19T10:06 | [#8319](https://github.com/openova-io/openova/pull/8319) | #7087 | docs(ledger): plan update |
-| 2026-11-19T10:18 | [#8318](https://github.com/openova-io/openova/pull/8318) | #8312 | test(gate): check BSS-G01 walks the self-service onboarding  |
-| 2026-11-19T09:56 | [#8315](https://github.com/openova-io/openova/pull/8315) | #7087 | docs(ledger): plan update |
-| 2026-11-19T12:12 | [#8314](https://github.com/openova-io/openova/pull/8314) | #8311 | fix(cloud-init): turn on the Pod Certificate gates from k3s  |
-| 2026-11-19T09:38 | [#8310](https://github.com/openova-io/openova/pull/8310) | #7087 | docs(ledger): plan update |
-| 2026-11-19T09:09 | [#8309](https://github.com/openova-io/openova/pull/8309) | #7087 | docs(ledger): plan update |
-| 2026-11-19T09:25 | [#8308](https://github.com/openova-io/openova/pull/8308) | #8306 | docs(adr): record 0038 on the firewall mechanism and the pac |
-| 2026-11-19T12:13 | [#8307](https://github.com/openova-io/openova/pull/8307) | #8252 | fix(ci): the local pack's machine image build no longer hang |
-| 2026-11-19T08:48 | [#8305](https://github.com/openova-io/openova/pull/8305) | #7087 | docs(ledger): plan update |
-| 2026-11-19T08:38 | [#8304](https://github.com/openova-io/openova/pull/8304) | #8302 | docs(ledger): result of the lab test PRD-061, vector search  |
-| 2026-11-19T08:53 | [#8303](https://github.com/openova-io/openova/pull/8303) | fix(gate): the zero-touch check measures retry calls |  |
-| 2026-11-19T08:31 | [#8301](https://github.com/openova-io/openova/pull/8301) | #7087 | docs(ledger): plan update |
-| 2026-11-19T08:09 | [#8300](https://github.com/openova-io/openova/pull/8300) | #8298 | docs(ledger): result of the spike SVC-250, composite resourc |
-| 2026-11-19T12:01 | [#8299](https://github.com/openova-io/openova/pull/8299) | #8256 | fix(crossplane): package runtimes pass admission with real p |
-| 2026-11-19T07:46 | [#8297](https://github.com/openova-io/openova/pull/8297) | #7087 | docs(ledger): plan update |
-| 2026-11-19T08:33 | [#8296](https://github.com/openova-io/openova/pull/8296) | fix(prov): the fire pre-flight judges the parent against the |  |
-| 2026-11-19T07:25 | [#8295](https://github.com/openova-io/openova/pull/8295) | #8292 | docs(ledger): result of the spike INF-710, the host security |
-| 2026-11-19T07:24 | [#8294](https://github.com/openova-io/openova/pull/8294) | #8293 | docs(ledger): result of the spike NET-270, firewall attachme |
-| 2026-11-19T07:08 | [#8291](https://github.com/openova-io/openova/pull/8291) | #7087 | docs(ledger): plan update |
-| 2026-11-19T07:03 | [#8290](https://github.com/openova-io/openova/pull/8290) | #7087 | docs(ledger): plan update |
-| 2026-11-19T07:23 | [#8289](https://github.com/openova-io/openova/pull/8289) | #8287 | docs(ledger): result of the spike BSS-S1, storefront sign-in |
-| 2026-11-19T08:34 | [#8288](https://github.com/openova-io/openova/pull/8288) | #8284 | feat(catalog): every Blueprint says its class and lifecycle, |
-| 2026-11-19T06:43 | [#8286](https://github.com/openova-io/openova/pull/8286) | #7087 | docs(ledger): plan update |
 
 ---
 

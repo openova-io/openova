@@ -3,10 +3,10 @@
 # Flux Kustomizations the control-plane cloud-init creates (#3380 row D).
 #
 # WHAT THIS DOES
-#   1. Parses the THREE top-level Flux Kustomizations defined inline in
-#      infra/providers/_shared/cloudinit-control-plane.tftpl —
-#      `bootstrap-kit`, `sovereign-tls`, `infrastructure-config` — and
-#      extracts each one's metadata.name + spec.dependsOn[].name.
+#   1. Parses the root `sovereign-root` of first boot in infra/providers/_shared/
+#      cloudinit-control-plane.tftpl and its children, the files of
+#      clusters/_template/root/base-primary (SOV-154), and extracts each
+#      one's metadata.name + spec.dependsOn[].name.
 #   2. Compares the actual dependsOn sets against the pinned expectation in
 #      scripts/expected-cloudinit-kustomization-deps.yaml.
 #   3. Fails (non-zero exit) on ANY drift: a missing edge, an extra edge,
@@ -36,6 +36,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 TFTPL="${REPO_ROOT}/infra/providers/_shared/cloudinit-control-plane.tftpl"
 EXPECTED_FILE="${REPO_ROOT}/scripts/expected-cloudinit-kustomization-deps.yaml"
+ROOT_DIR="${REPO_ROOT}/clusters/_template/root/base-primary"
 
 usage() {
   cat <<EOF
@@ -67,6 +68,9 @@ if ! command -v yq >/dev/null 2>&1; then
 fi
 [[ -f "${TFTPL}" ]]        || { echo "ERROR: tftpl not found: ${TFTPL}" >&2; exit 3; }
 [[ -f "${EXPECTED_FILE}" ]] || { echo "ERROR: expected file not found: ${EXPECTED_FILE}" >&2; exit 3; }
+CHILDREN=()
+for f in "${ROOT_DIR}"/*.yaml; do [[ "${f##*/}" == kustomization.yaml ]] || CHILDREN+=("${f}"); done
+[[ -f "${CHILDREN[0]:-}" ]] || { echo "ERROR: no child Kustomization file in ${ROOT_DIR}" >&2; exit 3; }
 
 _ok()   { printf 'OK: %s\n'    "$*"; }
 _err()  { printf 'ERROR: %s\n' "$*" >&2; }
@@ -148,7 +152,7 @@ ACTUAL="$(awk '
     }
   }
   END{ if (in_doc && name!="") print name "|" deps }
-' "${TFTPL}")"
+' "${TFTPL}" "${CHILDREN[@]}")"
 
 if [[ -z "${ACTUAL}" ]]; then
   _err "no Kustomization documents parsed from ${TFTPL#"${REPO_ROOT}/"} — extractor returned nothing."

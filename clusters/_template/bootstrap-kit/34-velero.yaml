@@ -81,6 +81,7 @@ metadata:
   namespace: flux-system
   labels:
     catalyst.openova.io/slot: "34"
+    catalyst.openova.io/ring: provider
 spec:
   # Wave 5.102 (#2447): suspend on non-Hetzner providers (see 55-bp-hcloud-ccm.yaml comment).
   # Velero needs hcloud-storage backend — Huawei port needs an OBS adapter (Wave 6 scope).
