@@ -18557,7 +18557,7 @@ packages:
   size: M
   lane: GATE
   depends_on: [NET-325, NET-326, NET-327, NET-328]
-  after: [FND-032, FND-033, FND-034, FND-035, FND-039, FND-041, FND-075, FND-077, FND-131, FND-151, FND-153, FND-154, FND-155, FND-157, FND-207, CLD-030, CLD-067, SOV-175, SEC-010, SEC-080, SEC-095, SEC-120, NET-010, NET-013, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, NET-255, SVC-125, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, CMP-010, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
+  after: [FND-032, FND-033, FND-034, FND-035, FND-039, FND-041, FND-075, FND-077, FND-131, FND-151, FND-153, FND-154, FND-155, FND-157, FND-207, CLD-030, CLD-067, SOV-175, SEC-010, SEC-080, SEC-095, SEC-120, NET-010, NET-013, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, NET-255, SVC-125, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, CMP-010, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-130, INF-051, INF-052, INF-133, INF-140, ACC-010]
   touches:
   - tests/acceptance/sovereign/
   resources: []
@@ -24016,7 +24016,7 @@ packages:
   size: M
   lane: GATE
   depends_on: [CTL-162, CTL-180, CTL-210, FND-035, FND-130, FND-184, FND-185]
-  after: [FND-027, FND-029, FND-064, FND-151, FND-153, FND-154, FND-155, FND-157, FND-207, CLD-030, CLD-067, CLD-076, SOV-175, SEC-010, SEC-126, NET-010, NET-013, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, NET-255, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
+  after: [FND-027, FND-029, FND-064, FND-151, FND-153, FND-154, FND-155, FND-157, FND-207, CLD-030, CLD-067, CLD-076, SOV-175, SEC-010, SEC-126, NET-010, NET-013, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, NET-255, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-130, INF-051, INF-052, INF-133, INF-140, ACC-010]
   touches:
   - scripts/rebuild-from-git-drill.sh
   - tests/acceptance/sovereign/**
@@ -28721,16 +28721,22 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls tests/acceptance/sovereign/internal/modelcontract/client.go 2>/dev/null | wc -l"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "printf '%s\\n' '8ad5a6d7914570beb96b0fc6905c39479623a42f53f60c3366711a36308b4e6c  tests/acceptance/sovereign/internal/modelcontract/client_test.go' | sha256sum --check --quiet && cd tests/acceptance/sovereign && test -z \"$(gofmt -l internal/modelcontract)\" && go vet ./... && go test -count=1 ./... && test \"$(go test -count=1 -v -run '^(TestProbes|TestModelOwner)$' ./internal/modelcontract/ | grep -c -e '--- PASS: ')\" = 20"
+  - id: A2
+    run: "f=tests/acceptance/sovereign/internal/modelcontract/client.go && for s in 'ToolRoundTrip(ctx context.Context, alias string) (Reply, error)' 'ParallelTools(ctx context.Context, alias string) (Reply, error)' 'StreamWithToolDeltas(ctx context.Context, alias string) (Reply, error)' 'UsageNonZero(ctx context.Context, alias string) (Reply, error)' 'Unauthorized(ctx context.Context, alias string) (Reply, error)' 'UnknownModel(ctx context.Context) (Reply, error)' 'Chat(ctx context.Context, alias, text string, h http.Header) (Reply, error)' 'Stream(ctx context.Context, alias, text string) (Reply, error)' 'ModelOwner(ctx context.Context, alias string) (string, error)'; do grep -q -F \"func (c Client) $s {\" \"$f\" || exit 1; done && imports=\"$(cd tests/acceptance/sovereign && go list -f '{{join .Imports \" \"}}' ./internal/modelcontract/)\" && test -n \"$imports\" && test \"$imports\" = \"${imports//./}\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'The acceptance suite has a client of the model contract, tests/acceptance/sovereign/internal/modelcontract: Client{BaseURL, Token} with ToolRoundTrip, ParallelTools, StreamWithToolDeltas, UsageNonZero, Unauthorized and UnknownModel, plus Chat (extra headers), Stream (a plain streamed call) and ModelOwner (owned_by in GET /v1/models). Every error starts with the section of docs/contracts/model-contract.md whose clause failed (1.1, 1.4, 1.5); each request carries its own x-request-id, which a 200 answer must echo; the token never appears in an error. Standard library only. It changes no gate check: the meter reader, ModelUsageProbe and the checks AIP-G02 to AIP-G05 are AIP-131.'
+  delivers: 'The acceptance suite has the package tests/acceptance/sovereign/internal/modelcontract, a standard-library client of the model contract: Client{BaseURL, Token} with ToolRoundTrip, ParallelTools, StreamWithToolDeltas, UsageNonZero, Unauthorized and UnknownModel, plus Chat (extra headers), Stream (a plain streamed call) and ModelOwner (owned_by in GET /v1/models); every error starts with the section of docs/contracts/model-contract.md whose clause failed (1.1, 1.4, 1.5), every request carries its own x-request-id, which a 200 answer must echo, and the token never appears in an error; it changes no gate check.'
 - id: AIP-131
   title: Model checks AIP-G02 to AIP-G05 as expected-fail
   area: AIP
