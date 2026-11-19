@@ -29,7 +29,6 @@ G2	platform/oidc-gate/chart/templates/networkpolicy.yaml	2
 G2	platform/openbao/chart/templates/peer-trust.yaml	2
 G2	platform/openclaw/chart/templates/cilium-ingress-networkpolicy.yaml	1
 G2	platform/openclaw/chart/templates/networkpolicy.yaml	1
-G2	platform/openmeter/chart/templates/networkpolicy.yaml	1
 G2	platform/plane-isolation/chart/templates/apiserver-egress-cnp.yaml	1
 G2	platform/plane-isolation/chart/templates/apiserver-webhook-ingress-cnp.yaml	1
 G2	platform/plane-isolation/chart/templates/crossregion-db-egress-cnp.yaml	1

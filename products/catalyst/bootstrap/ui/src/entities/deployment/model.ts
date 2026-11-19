@@ -516,11 +516,6 @@ export function getProfileDefaults(
 
   // RELAY: keep opt-in; no profile auto-enables it
 
-  // openmeter for usage billing (financial, SaaS, retail)
-  if (isFinancial || isTech || isRetail) {
-    defaults.insights = [...defaults.insights, 'openmeter']
-  }
-
   // The strongSwan IPsec profile rule is REMOVED, not re-pointed — UAT row
   // W5 / #5575. `strongswan` resolved to no Blueprint, so for a financial /
   // healthcare / audit-bound org this rule silently pre-selected an IPsec
