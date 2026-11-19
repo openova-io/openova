@@ -243,7 +243,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: gate
     permissions: {contents: read, packages: write}
-    steps: [{run: bash scripts/gate-parent-job.sh run --mode live, env: {K: "${{ secrets.ACCEPTANCE_PARENT_KUBECONFIG }}"}}]
+    steps: [{run: bash scripts/gate-parent-job.sh run --mode live, env: {K: "${{ secrets.ACCEPTANCE_PARENT_KUBECONFIG }}", GATE_RESOURCES: "${{ vars.GATE_PARENT_RESOURCES }}"}}]
 """
 STANDING = """
 on:
@@ -364,6 +364,8 @@ def self_test():
          {LIST[0]: GATE.replace("dial x}", "dial x, env: {T: '${{ secrets.ANY }}'}}")}, "P4 .github/workflows/foundation-gate.yaml: job outside names a secret")
     case("P4 the job outside reads every secret with toJSON(secrets)",
          {LIST[0]: GATE.replace("dial x}", "dial x, env: {ALL: '${{ toJSON(secrets) }}'}}")}, "P4 .github/workflows/foundation-gate.yaml: job outside names a secret")
+    case("clean: the job outside may read a variable (the resources of the Job), which is no secret",
+         {LIST[0]: GATE.replace("dial x}", "dial x, env: {R: '${{ vars.GATE_PARENT_RESOURCES }}'}}")}, None)
     case("P4 the job outside is gone", {LIST[0]: GATE.replace("  outside:", "  outside2:")}, "P4 .github/workflows/foundation-gate.yaml: there is no job outside")
     print("gate-parent-access self-test: %d of %d cases passed" % (count[0] - fails[0], count[0]))
     return 1 if fails[0] else 0

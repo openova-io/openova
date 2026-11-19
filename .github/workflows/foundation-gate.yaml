@@ -291,6 +291,7 @@ jobs:
           EXECUTION: ${{ steps.mode.outputs.execution }}
           JOB_IMAGE: ${{ steps.images.outputs.job }}
           GH_TOKEN: ${{ github.token }}
+          GATE_RESOURCES: ${{ vars.GATE_PARENT_RESOURCES }} # empty: the defaults of scripts/gate-parent-job.sh
         run: |
           set -euo pipefail
           if [ -z "$KA" ] || [ -z "$KB" ]; then echo "::error::ACCEPTANCE_KUBECONFIG_A/B secrets are not set"; exit 2; fi
@@ -486,6 +487,7 @@ jobs:
           PROBE_IMAGE: ${{ needs.addresses.outputs.probe_image }}
           GH_TOKEN: ${{ github.token }}
           GATE_RUN: ${{ github.run_id }}
+          GATE_RESOURCES: ${{ vars.GATE_PARENT_RESOURCES }} # empty: the defaults of scripts/gate-parent-job.sh
         run: |
           set +e
           caps=multi-region # the suite always drives two regions
