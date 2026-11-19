@@ -38,19 +38,5 @@
 #
 # Refs #5559 #4432 #960
 
-unpublished:
-  # platform/clickhouse/ carries blueprint.yaml + README.md but NO chart/
-  # directory, and its blueprint.yaml declares the repo's explicit "unbuilt"
-  # marker `version: 0.0.0`. The seed nonetheless pins 1.0.0 — a version that
-  # never existed on GHCR or in this repo.
-  - chart: bp-clickhouse
-    version: "1.0.0"
-    issue: 5559
-    reason: "platform/clickhouse has blueprint.yaml (version 0.0.0) but no chart/ — nothing to publish yet"
-
-  # Same shape as bp-clickhouse: blueprint.yaml + README.md, version 0.0.0,
-  # no chart/ directory.
-  - chart: bp-opensearch
-    version: "1.0.0"
-    issue: 5559
-    reason: "platform/opensearch has blueprint.yaml (version 0.0.0) but no chart/ — nothing to publish yet"
+# Empty since SVC-162: the two charts it named were scaffolds, and their Blueprints are deleted.
+unpublished: []

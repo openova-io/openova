@@ -18,23 +18,11 @@ exclusions:
     reason: >-
       No kit slot and no seed entry. Cilium network policy bundle — cluster posture, never an
       Organization-installable catalog item; recorded so the absence is visible.
-  - blueprint: bp-debezium
-    reason: >-
-      No chart; it was not seeded before the seed was generated.
   - blueprint: bp-dragonfly
     reason: >-
       Bootstrap-kit-owned — installs from slot 06 (06-bp-dragonfly.yaml). The node-level
       image-distribution layer the cutover's registry pivot depends on; never installed from the
       catalog.
-  - blueprint: bp-ferretdb
-    reason: >-
-      No chart; it was not seeded before the seed was generated.
-  - blueprint: bp-flink
-    reason: >-
-      No chart; it was not seeded before the seed was generated.
-  - blueprint: bp-iceberg
-    reason: >-
-      No chart; it was not seeded before the seed was generated.
   - blueprint: bp-knative
     reason: >-
       No kit slot and no seed entry — not installable from either door today. Enumerated here, not
@@ -53,12 +41,6 @@ exclusions:
       No kit slot and no seed entry yet. Its kinds (group machines.openova.io) belong to the
       Sovereign's machine plane, so a bootstrap-kit slot will install it, never the catalog. Until
       that slot exists nothing installs it.
-  - blueprint: bp-milvus
-    reason: >-
-      No chart; it was not seeded before the seed was generated.
-  - blueprint: bp-neo4j
-    reason: >-
-      No chart; it was not seeded before the seed was generated.
   - blueprint: bp-netbird
     reason: >-
       No kit slot and no seed entry — not installable from either door today. Enumerated here, not
@@ -94,6 +76,3 @@ exclusions:
     reason: >-
       Bootstrap-kit-owned — installs from slot 15b (15b-storage-ready.yaml). The neutral storage
       gate that holds bp-cnpg until the default StorageClass exists; not a catalog item.
-  - blueprint: bp-strimzi
-    reason: >-
-      No chart; it was not seeded before the seed was generated.

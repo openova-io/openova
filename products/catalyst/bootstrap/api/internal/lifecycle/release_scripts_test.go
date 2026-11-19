@@ -484,7 +484,8 @@ func TestReleaseOfTheInstalledCandidateIsUpToDate(t *testing.T) {
 }
 
 // TestReleaseNeverForcesTheBranchFluxFollows reads the scripts: no push names
-// --force, and the only forced refspec is the staging branch release/<id>.
+// --force, and the only forced refspec is the staging branch release/<id>. The
+// rollback (SOV-521) is a push too: a plain one.
 func TestReleaseNeverForcesTheBranchFluxFollows(t *testing.T) {
 	for _, n := range []string{"release-region.sh", "release-run.sh"} {
 		b, err := releaseScripts.ReadFile("release/" + n)
@@ -506,8 +507,8 @@ func TestReleaseNeverForcesTheBranchFluxFollows(t *testing.T) {
 				}
 			}
 		}
-		if n == "release-region.sh" && pushes != 2 {
-			t.Fatalf("%s has %d push lines, want 2 (stage and promote); a new push needs this test to read it", n, pushes)
+		if n == "release-region.sh" && pushes != 3 {
+			t.Fatalf("%s has %d push lines, want 3 (stage, promote and rollback); a new push needs this test to read it", n, pushes)
 		}
 	}
 }
@@ -549,5 +550,102 @@ func TestReleasePivotReportCountsTheFilesItChanges(t *testing.T) {
 				t.Fatalf("the pivot commit (%q) changes %v, want %v", top, files, c.want)
 			}
 		})
+	}
+}
+
+// promoted stages and promotes the candidate id in the primary region and
+// returns the promoted commit.
+func (f *fixture) promoted(sh []string, id string) string {
+	f.t.Helper()
+	out, code := f.region(sh, "PHASE=stage", "CANDIDATE="+id)
+	staged := resultOf(out)["staged"]
+	if code != 0 || staged == "" {
+		f.t.Fatalf("stage: exit %d\n%s", code, out)
+	}
+	out, code = f.region(sh, "PHASE=promote", "CANDIDATE="+id, "MAIN_SHA="+f.main, "STAGED_SHA="+staged)
+	if code != 0 || f.remote("main") != staged {
+		f.t.Fatalf("promote: exit %d, main %s, want %s\n%s", code, f.remote("main"), staged, out)
+	}
+	return staged
+}
+
+// SOV-521: a rollback pushes one commit whose tree is the main recorded at the
+// stage and whose parent is the promoted commit, a fast-forward; the promoted
+// commit stays in the history. A second rollback of the same promote pushes
+// nothing.
+func TestReleaseRollbackRestoresTheRecordedTree(t *testing.T) {
+	for _, sh := range shells() {
+		t.Run(strings.Join(sh, "-"), func(t *testing.T) {
+			f := newFixture(t)
+			id, _ := f.candidate(1, f.laterRelease)
+			staged := f.promoted(sh, id)
+
+			out, code := f.region(sh, "PHASE=rollback", "CANDIDATE="+id, "MAIN_SHA="+f.main, "STAGED_SHA="+staged)
+			r := resultOf(out)
+			back := f.remote("main")
+			if code != 0 || r["phase"] != "rolled-back" || r["main"] != back || back == staged || back == f.main {
+				t.Fatalf("rollback: exit %d, result %v, main %s\n%s", code, r, back, out)
+			}
+			if parents := strings.Fields(f.git(f.dir, "--git-dir="+f.repo, "rev-list", "--parents", "-n", "1", back)); len(parents) != 2 || parents[1] != staged {
+				t.Fatalf("the rollback commit %s has parents %v, want exactly %s", back, parents[1:], staged)
+			}
+			if err := command("git", "--git-dir="+f.repo, "diff", "--quiet", f.main, back).Run(); err != nil {
+				t.Fatalf("git diff --quiet %s %s: %v; the rollback must carry the recorded main's tree", f.main, back, err)
+			}
+			if err := command("git", "--git-dir="+f.repo, "merge-base", "--is-ancestor", staged, back).Run(); err != nil {
+				t.Fatal("the promoted commit is no longer in the history")
+			}
+			if !strings.Contains(out, "Flux applies it") {
+				t.Fatalf("the rollback does not say what follows:\n%s", out)
+			}
+
+			out, code = f.region(sh, "PHASE=rollback", "CANDIDATE="+id, "MAIN_SHA="+f.main, "STAGED_SHA="+staged)
+			if r := resultOf(out); code != 0 || r["phase"] != "rolled-back" || f.remote("main") != back || !strings.Contains(out, "already rolled back") {
+				t.Fatalf("second rollback: exit %d, result %v, main %s (want %s)\n%s", code, r, f.remote("main"), back, out)
+			}
+		})
+	}
+}
+
+// SOV-521: a rollback is refused with nothing pushed when no promote is
+// recorded, when this candidate never promoted the region, and when the
+// region's main moved after the promote.
+func TestReleaseRollbackRefusals(t *testing.T) {
+	f := newFixture(t)
+	id, _ := f.candidate(1, f.laterRelease)
+	out, code := f.region([]string{"sh"}, "PHASE=stage", "CANDIDATE="+id)
+	staged := resultOf(out)["staged"]
+	if code != 0 || staged == "" {
+		t.Fatalf("stage: exit %d\n%s", code, out)
+	}
+	for _, c := range []struct {
+		name, phase string
+		code        int
+		env         []string
+	}{
+		{"no promote recorded", "refused", 2, nil},
+		{"never promoted by this candidate", "moved", 4, []string{"MAIN_SHA=" + f.main, "STAGED_SHA=" + staged}},
+	} {
+		out, code := f.region([]string{"sh"}, append([]string{"PHASE=rollback", "CANDIDATE=" + id}, c.env...)...)
+		if r := resultOf(out); code != c.code || r["phase"] != c.phase || f.remote("main") != f.main {
+			t.Fatalf("%s: exit %d, result %v, main %s; want exit %d phase %s and main %s\n%s", c.name, code, r, f.remote("main"), c.code, c.phase, f.main, out)
+		}
+	}
+
+	out, code = f.region([]string{"sh"}, "PHASE=promote", "CANDIDATE="+id, "MAIN_SHA="+f.main, "STAGED_SHA="+staged)
+	if code != 0 || f.remote("main") != staged {
+		t.Fatalf("promote: exit %d\n%s", code, out)
+	}
+	s := f.dir + "/sovereign"
+	f.git(s, "fetch", "-q", f.repo, "main")
+	f.git(s, "checkout", "-q", "FETCH_HEAD")
+	f.write(s, "later.txt", "a commit after the promote\n")
+	f.git(s, "add", "-A")
+	f.git(s, "commit", "-q", "-m", "sovereign-admin: a commit after the promote")
+	moved := f.git(s, "rev-parse", "HEAD")
+	f.git(s, "push", "-q", f.repo, "HEAD:refs/heads/main")
+	out, code = f.region([]string{"sh"}, "PHASE=rollback", "CANDIDATE="+id, "MAIN_SHA="+f.main, "STAGED_SHA="+staged)
+	if r := resultOf(out); code != 4 || r["phase"] != "moved" || f.remote("main") != moved {
+		t.Fatalf("a rollback after main moved: exit %d, result %v, main %s (want %s)\n%s", code, r, f.remote("main"), moved, out)
 	}
 }

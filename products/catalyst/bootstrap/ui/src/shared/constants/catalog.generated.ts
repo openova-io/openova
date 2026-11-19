@@ -816,76 +816,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "hasUserUIEndpoint": false
   },
   {
-    "id": "bp-clickhouse",
-    "slug": "clickhouse",
-    "title": "ClickHouse",
-    "summary": "Column-oriented OLAP database. Sub-second queries over billions of rows.",
-    "icon": "clickhouse.svg",
-    "tagline": null,
-    "tags": [
-      "analytics",
-      "olap",
-      "columnar",
-      "sql",
-      "clickhouse"
-    ],
-    "visibility": "unlisted",
-    "class": "data-service",
-    "lifecycle": "experimental",
-    "version": "0.0.0",
-    "depends": [],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "active-active",
-        "singleton"
-      ],
-      "multiRegion": "active-active",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "active-active": {
-          "replication": {
-            "backend": "none",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
-          "switchover": {
-            "mechanism": "none",
-            "rtoSeconds": null,
-            "rpoSeconds": null
-          },
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "rtz-A": "active",
-              "rtz-B": "active"
-            }
-          }
-        },
-        "singleton": {
-          "replication": null,
-          "switchover": null,
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A"
-            ],
-            "roles": {
-              "rtz-A": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": false
-  },
-  {
     "id": "bp-cluster-autoscaler-hcloud",
     "slug": "cluster-autoscaler-hcloud",
     "title": "Cluster Autoscaler (Hetzner)",
@@ -1125,70 +1055,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "hasUserUIEndpoint": false
   },
   {
-    "id": "bp-debezium",
-    "slug": "debezium",
-    "title": "Debezium",
-    "summary": "Scaffold-only Application Blueprint — chart not yet packaged.\nTopology + endpoints + sso + multiInstance are declared per the\nG117.1 audit so downstream Catalyst surfaces can render against\nit.\n",
-    "icon": null,
-    "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
-    "class": "data-service",
-    "lifecycle": "experimental",
-    "version": "0.0.0",
-    "depends": [],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "active-passive",
-        "singleton"
-      ],
-      "multiRegion": "active-passive",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "active-passive": {
-          "replication": {
-            "backend": "mirrormaker2",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
-          "switchover": {
-            "mechanism": "bp-continuum",
-            "rtoSeconds": null,
-            "rpoSeconds": null
-          },
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "rtz-A": "active",
-              "rtz-B": "passive"
-            }
-          }
-        },
-        "singleton": {
-          "replication": null,
-          "switchover": null,
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A"
-            ],
-            "roles": {
-              "rtz-A": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": false
-  },
-  {
     "id": "bp-dragonfly",
     "slug": "dragonfly",
     "title": "Dragonfly",
@@ -1419,134 +1285,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       }
     },
     "hasUserUIEndpoint": false
-  },
-  {
-    "id": "bp-ferretdb",
-    "slug": "ferretdb",
-    "title": "Ferretdb",
-    "summary": "Scaffold-only Application Blueprint — chart not yet packaged.\nTopology + endpoints + sso + multiInstance are declared per the\nG117.1 audit so downstream Catalyst surfaces can render against\nit.\n",
-    "icon": null,
-    "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
-    "class": "data-service",
-    "lifecycle": "experimental",
-    "version": "0.0.0",
-    "depends": [],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "active-passive",
-        "singleton"
-      ],
-      "multiRegion": "active-passive",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "active-passive": {
-          "replication": {
-            "backend": "cnpg-pair",
-            "mode": "sync",
-            "lagSloSeconds": 0
-          },
-          "switchover": {
-            "mechanism": "bp-continuum",
-            "rtoSeconds": 60,
-            "rpoSeconds": 0
-          },
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "rtz-A": "active",
-              "rtz-B": "passive"
-            }
-          }
-        },
-        "singleton": {
-          "replication": null,
-          "switchover": null,
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A"
-            ],
-            "roles": {
-              "rtz-A": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": true
-  },
-  {
-    "id": "bp-flink",
-    "slug": "flink",
-    "title": "Flink",
-    "summary": "Scaffold-only Application Blueprint — chart not yet packaged.\nTopology + endpoints + sso + multiInstance are declared per the\nG117.1 audit so downstream Catalyst surfaces can render against\nit.\n",
-    "icon": null,
-    "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
-    "class": "data-service",
-    "lifecycle": "experimental",
-    "version": "0.0.0",
-    "depends": [],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "active-passive",
-        "singleton"
-      ],
-      "multiRegion": "active-passive",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "active-passive": {
-          "replication": {
-            "backend": "s3-bucket-replication",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
-          "switchover": {
-            "mechanism": "bp-continuum",
-            "rtoSeconds": null,
-            "rpoSeconds": null
-          },
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "rtz-A": "active",
-              "rtz-B": "passive"
-            }
-          }
-        },
-        "singleton": {
-          "replication": null,
-          "switchover": null,
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A"
-            ],
-            "roles": {
-              "rtz-A": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-flux",
@@ -2042,70 +1780,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
               "dmz-B": "singleton",
               "rtz-A": "singleton",
               "rtz-B": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": false
-  },
-  {
-    "id": "bp-iceberg",
-    "slug": "iceberg",
-    "title": "Iceberg",
-    "summary": "Scaffold-only Application Blueprint — chart not yet packaged.\nTopology + endpoints + sso + multiInstance are declared per the\nG117.1 audit so downstream Catalyst surfaces can render against\nit.\n",
-    "icon": null,
-    "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
-    "class": "data-service",
-    "lifecycle": "experimental",
-    "version": "0.0.0",
-    "depends": [],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "active-active",
-        "singleton"
-      ],
-      "multiRegion": "active-active",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "active-active": {
-          "replication": {
-            "backend": "s3-bucket-replication",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
-          "switchover": {
-            "mechanism": "none",
-            "rtoSeconds": null,
-            "rpoSeconds": null
-          },
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "rtz-A": "active",
-              "rtz-B": "active"
-            }
-          }
-        },
-        "singleton": {
-          "replication": null,
-          "switchover": null,
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A"
-            ],
-            "roles": {
-              "rtz-A": "singleton"
             }
           }
         }
@@ -3025,70 +2699,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "hasUserUIEndpoint": true
   },
   {
-    "id": "bp-milvus",
-    "slug": "milvus",
-    "title": "Milvus",
-    "summary": "Scaffold-only Application Blueprint — chart not yet packaged.\nTopology + endpoints + sso + multiInstance are declared per the\nG117.1 audit so downstream Catalyst surfaces can render against\nit.\n",
-    "icon": null,
-    "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
-    "class": "data-service",
-    "lifecycle": "experimental",
-    "version": "0.0.0",
-    "depends": [],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "active-passive",
-        "singleton"
-      ],
-      "multiRegion": "active-passive",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "active-passive": {
-          "replication": {
-            "backend": "s3-bucket-replication",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
-          "switchover": {
-            "mechanism": "bp-continuum",
-            "rtoSeconds": null,
-            "rpoSeconds": null
-          },
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "rtz-A": "active",
-              "rtz-B": "passive"
-            }
-          }
-        },
-        "singleton": {
-          "replication": null,
-          "switchover": null,
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A"
-            ],
-            "roles": {
-              "rtz-A": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": false
-  },
-  {
     "id": "bp-mimir",
     "slug": "mimir",
     "title": "Mimir",
@@ -3286,70 +2896,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       }
     },
     "hasUserUIEndpoint": false
-  },
-  {
-    "id": "bp-neo4j",
-    "slug": "neo4j",
-    "title": "Neo4J",
-    "summary": "Scaffold-only Application Blueprint — chart not yet packaged.\nTopology + endpoints + sso + multiInstance are declared per the\nG117.1 audit so downstream Catalyst surfaces can render against\nit.\n",
-    "icon": null,
-    "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
-    "class": "data-service",
-    "lifecycle": "experimental",
-    "version": "0.0.0",
-    "depends": [],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "active-passive",
-        "singleton"
-      ],
-      "multiRegion": "active-passive",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "active-passive": {
-          "replication": {
-            "backend": "velero",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
-          "switchover": {
-            "mechanism": "bp-velero-restore",
-            "rtoSeconds": null,
-            "rpoSeconds": null
-          },
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "rtz-A": "active",
-              "rtz-B": "passive"
-            }
-          }
-        },
-        "singleton": {
-          "replication": null,
-          "switchover": null,
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A"
-            ],
-            "roles": {
-              "rtz-A": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-netbird",
@@ -3843,100 +3389,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       }
     },
     "hasUserUIEndpoint": false
-  },
-  {
-    "id": "bp-opensearch",
-    "slug": "opensearch",
-    "title": "OpenSearch",
-    "summary": "Open-source search + analytics suite (Elasticsearch fork). Full-text search, log aggregation, vector search.",
-    "icon": "opensearch.svg",
-    "tagline": null,
-    "tags": [
-      "search",
-      "elasticsearch",
-      "opensearch",
-      "logs",
-      "vector"
-    ],
-    "visibility": "unlisted",
-    "class": "data-service",
-    "lifecycle": "experimental",
-    "version": "0.0.0",
-    "depends": [],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "active-active",
-        "active-passive",
-        "singleton"
-      ],
-      "multiRegion": "active-active",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "active-active": {
-          "replication": {
-            "backend": "ccr",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
-          "switchover": {
-            "mechanism": "ccr-promote",
-            "rtoSeconds": null,
-            "rpoSeconds": null
-          },
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "rtz-A": "active",
-              "rtz-B": "active"
-            }
-          }
-        },
-        "active-passive": {
-          "replication": {
-            "backend": "ccr",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
-          "switchover": {
-            "mechanism": "ccr-promote",
-            "rtoSeconds": null,
-            "rpoSeconds": null
-          },
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "rtz-A": "active",
-              "rtz-B": "passive"
-            }
-          }
-        },
-        "singleton": {
-          "replication": null,
-          "switchover": null,
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A"
-            ],
-            "roles": {
-              "rtz-A": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": true
   },
   {
     "id": "bp-opentelemetry",
@@ -4458,7 +3910,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "class": "platform-component",
     "lifecycle": "experimental",
-    "version": "0.1.233",
+    "version": "0.1.234",
     "depends": [],
     "shareable": false,
     "contextSchema": null,
@@ -4807,94 +4259,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
               "dmz-B": "singleton",
               "rtz-A": "singleton",
               "rtz-B": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": false
-  },
-  {
-    "id": "bp-strimzi",
-    "slug": "strimzi",
-    "title": "Strimzi",
-    "summary": "Scaffold-only Application Blueprint — chart not yet packaged.\nTopology + endpoints + sso + multiInstance are declared per the\nG117.1 audit so downstream Catalyst surfaces can render against\nit.\n",
-    "icon": null,
-    "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
-    "class": "data-service",
-    "lifecycle": "experimental",
-    "version": "0.0.0",
-    "depends": [],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "active-active",
-        "active-passive",
-        "singleton"
-      ],
-      "multiRegion": "active-active",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "active-active": {
-          "replication": {
-            "backend": "mirrormaker2",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
-          "switchover": {
-            "mechanism": "mm2-symmetric",
-            "rtoSeconds": null,
-            "rpoSeconds": null
-          },
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "rtz-A": "active",
-              "rtz-B": "active"
-            }
-          }
-        },
-        "active-passive": {
-          "replication": {
-            "backend": "mirrormaker2",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
-          "switchover": {
-            "mechanism": "mm2-symmetric",
-            "rtoSeconds": null,
-            "rpoSeconds": null
-          },
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "rtz-A": "active",
-              "rtz-B": "passive"
-            }
-          }
-        },
-        "singleton": {
-          "replication": null,
-          "switchover": null,
-          "placement": {
-            "tier": "rtz",
-            "clusters": [
-              "rtz-A"
-            ],
-            "roles": {
-              "rtz-A": "singleton"
             }
           }
         }
@@ -5644,20 +5008,16 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/chargeback/blueprint.yaml",
   "platform/cilium-policies/blueprint.yaml",
   "platform/cilium/blueprint.yaml",
-  "platform/clickhouse/blueprint.yaml",
   "platform/cluster-autoscaler-hcloud/blueprint.yaml",
   "platform/cnpg-pair/blueprint.yaml",
   "platform/cnpg/blueprint.yaml",
   "platform/crossplane-claims/blueprint.yaml",
   "platform/crossplane/blueprint.yaml",
-  "platform/debezium/blueprint.yaml",
   "platform/dragonfly/blueprint.yaml",
   "platform/external-dns/blueprint.yaml",
   "platform/external-secrets-stores/blueprint.yaml",
   "platform/external-secrets/blueprint.yaml",
   "platform/falco/blueprint.yaml",
-  "platform/ferretdb/blueprint.yaml",
-  "platform/flink/blueprint.yaml",
   "platform/flux/blueprint.yaml",
   "platform/gateway-api/blueprint.yaml",
   "platform/gitea/blueprint.yaml",
@@ -5667,7 +5027,6 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/hcloud-ccm/blueprint.yaml",
   "platform/hcloud-csi/blueprint.yaml",
   "platform/huawei-evs-csi/blueprint.yaml",
-  "platform/iceberg/blueprint.yaml",
   "platform/k8s-ws-proxy/blueprint.yaml",
   "platform/keycloak/blueprint.yaml",
   "platform/knative/blueprint.yaml",
@@ -5683,11 +5042,9 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/loki/blueprint.yaml",
   "platform/machine-operations/blueprint.yaml",
   "platform/matrix/blueprint.yaml",
-  "platform/milvus/blueprint.yaml",
   "platform/mimir/blueprint.yaml",
   "platform/nats-jetstream/blueprint.yaml",
   "platform/nemo-guardrails/blueprint.yaml",
-  "platform/neo4j/blueprint.yaml",
   "platform/netbird/blueprint.yaml",
   "platform/network-policies/blueprint.yaml",
   "platform/newapi/blueprint.yaml",
@@ -5696,7 +5053,6 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/openclaw/blueprint.yaml",
   "platform/openmeter/blueprint.yaml",
   "platform/openova-mcp/blueprint.yaml",
-  "platform/opensearch/blueprint.yaml",
   "platform/opentelemetry-operator/blueprint.yaml",
   "platform/opentelemetry/blueprint.yaml",
   "platform/plane-isolation/blueprint.yaml",
@@ -5714,7 +5070,6 @@ export const PLATFORM_BLUEPRINT_FILES: readonly string[] = [
   "platform/stalwart-sovereign/blueprint.yaml",
   "platform/stalwart-tenant/blueprint.yaml",
   "platform/storage-ready/blueprint.yaml",
-  "platform/strimzi/blueprint.yaml",
   "platform/stunner/blueprint.yaml",
   "platform/syft-grype/blueprint.yaml",
   "platform/tempo/blueprint.yaml",

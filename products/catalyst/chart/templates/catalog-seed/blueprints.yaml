@@ -554,91 +554,6 @@ spec:
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
-  name: bp-clickhouse
-  labels:
-    catalyst.openova.io/managed-by: catalog-seed
-    catalyst.openova.io/origin: openova-public
-    catalyst.openova.io/curation: openova-public
-    app.kubernetes.io/managed-by: {{ $managedBy }}
-    app.kubernetes.io/instance: {{ $instance }}
-spec:
-  version: 1.0.0
-  visibility: unlisted
-  class: data-service
-  lifecycle: experimental
-  card:
-    title: ClickHouse
-    summary: Column-oriented OLAP database. Sub-second queries over billions of rows.
-    description: Distributed columnar database for real-time analytics. Pairs with bp-loki for log analytics at scale.
-    icon: clickhouse.svg
-    license: Apache-2.0
-    tags: [analytics, olap, columnar, sql, clickhouse]
-    docs: https://clickhouse.com/docs
-  topology:
-    supported: [active-active, singleton]
-    defaults:
-      multi-region: active-active
-      single-region: singleton
-    perTopology:
-      active-active:
-        replication:
-          backend: none
-          mode: async
-        switchover:
-          mechanism: none
-        placement:
-          tier: rtz
-          clusters: [rtz-A, rtz-B]
-          roles:
-            rtz-A: active
-            rtz-B: active
-      singleton:
-        placement:
-          tier: rtz
-          clusters: [rtz-A]
-          roles:
-            rtz-A: singleton
-  endpoints:
-  - name: http
-    hostnameTemplate: clickhouse.{{ "{{" }}.OrgDomain{{ "}}" }}
-    port: 8443
-    protocol: https
-    tls: true
-    visibility: private
-    launchDefault: false
-    ssoEnabled: false
-  multiInstance:
-    enabled: true
-    maxPerOrg: 5
-    namingTemplate: "{{ "{{" }}.AppName{{ "}}" }}-{{ "{{" }}.InstanceID{{ "}}" }}"
-  configSchema:
-    type: object
-    properties:
-      shards:
-        type: integer
-        default: 1
-        minimum: 1
-        maximum: 8
-      replicas:
-        type: integer
-        default: 2
-        minimum: 1
-        maximum: 3
-  placementSchema:
-    modes: [single-region]
-    default: single-region
-  manifests:
-    chart: bp-clickhouse
-  source:
-    kind: HelmRepository
-    type: oci
-    url: oci://ghcr.io/openova-io
-    chart: bp-clickhouse
-    version: 1.0.0
----
-apiVersion: catalyst.openova.io/v1
-kind: Blueprint
-metadata:
   name: bp-cluster-autoscaler-hcloud
   labels:
     catalyst.openova.io/managed-by: catalog-seed
@@ -2938,106 +2853,6 @@ spec:
 apiVersion: catalyst.openova.io/v1
 kind: Blueprint
 metadata:
-  name: bp-opensearch
-  labels:
-    catalyst.openova.io/managed-by: catalog-seed
-    catalyst.openova.io/origin: openova-public
-    catalyst.openova.io/curation: openova-public
-    app.kubernetes.io/managed-by: {{ $managedBy }}
-    app.kubernetes.io/instance: {{ $instance }}
-spec:
-  version: 1.0.0
-  visibility: unlisted
-  class: data-service
-  lifecycle: experimental
-  card:
-    title: OpenSearch
-    summary: Open-source search + analytics suite (Elasticsearch fork). Full-text search, log aggregation, vector search.
-    description: OpenSearch cluster + Dashboards. Suitable for full-text search, observability, and SIEM use cases.
-    icon: opensearch.svg
-    license: Apache-2.0
-    tags: [search, elasticsearch, opensearch, logs, vector]
-    docs: https://opensearch.org/docs/
-  topology:
-    supported: [active-active, active-passive, singleton]
-    defaults:
-      multi-region: active-active
-      single-region: singleton
-    perTopology:
-      active-active:
-        replication:
-          backend: ccr
-          mode: async
-        switchover:
-          mechanism: ccr-promote
-        placement:
-          tier: rtz
-          clusters: [rtz-A, rtz-B]
-          roles:
-            rtz-A: active
-            rtz-B: active
-      active-passive:
-        replication:
-          backend: ccr
-          mode: async
-        switchover:
-          mechanism: ccr-promote
-        placement:
-          tier: rtz
-          clusters: [rtz-A, rtz-B]
-          roles:
-            rtz-A: active
-            rtz-B: passive
-      singleton:
-        placement:
-          tier: rtz
-          clusters: [rtz-A]
-          roles:
-            rtz-A: singleton
-  endpoints:
-  - name: api
-    hostnameTemplate: opensearch.{{ "{{" }}.OrgDomain{{ "}}" }}
-    port: 443
-    protocol: https
-    tls: true
-    visibility: public
-    launchDefault: false
-    ssoEnabled: true
-  - name: dashboards
-    hostnameTemplate: dashboards.{{ "{{" }}.OrgDomain{{ "}}" }}
-    port: 443
-    protocol: https
-    tls: true
-    visibility: public
-    launchDefault: true
-    ssoEnabled: true
-  sso:
-    realm: "{{ "{{" }}.OrgSlug{{ "}}" }}"
-    protocolMapper: oidc
-    silentLogin: true
-  configSchema:
-    type: object
-    properties:
-      replicas:
-        type: integer
-        default: 3
-        minimum: 1
-        maximum: 6
-  placementSchema:
-    modes: [single-region]
-    default: single-region
-  manifests:
-    chart: bp-opensearch
-  source:
-    kind: HelmRepository
-    type: oci
-    url: oci://ghcr.io/openova-io
-    chart: bp-opensearch
-    version: 1.0.0
----
-apiVersion: catalyst.openova.io/v1
-kind: Blueprint
-metadata:
   name: bp-opentelemetry
   labels:
     catalyst.openova.io/managed-by: catalog-seed
@@ -3534,7 +3349,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 0.1.233
+  version: 0.1.234
   card:
     title: Self-Sovereignty Cutover
     summary: "Post-handover cutover Blueprint — pivots every upstream tether (GitOps source, OCI HelmRepositories, registry mirrors, catalyst-api repo env) to the local Sovereign. See ADR-0002 + issue #790."
@@ -3549,7 +3364,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-self-sovereign-cutover
-    version: 0.1.233
+    version: 0.1.234
   topology:
     supported: [singleton]
     defaults:

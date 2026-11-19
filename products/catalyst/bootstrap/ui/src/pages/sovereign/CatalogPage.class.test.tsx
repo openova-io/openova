@@ -27,9 +27,11 @@ import { ALL_BLUEPRINTS } from '@/shared/constants/catalog.generated'
 import { resolveApplications } from './applicationCatalog'
 
 const STATIC_IDS = new Set(resolveApplications(INITIAL_WIZARD_STATE.selectedComponents).map((a) => a.id))
-// A data service the static component graph does not hold: the live catalog
-// alone brings its card, so its chip comes from its class.
-const LIVE_DATA_SERVICE = ALL_BLUEPRINTS.find((b) => b.class === 'data-service' && !STATIC_IDS.has(b.id))
+// An AI service the static component graph does not hold: the live catalog
+// alone brings its card, so its chip comes from its class. (Both data
+// services left in the catalogue, bp-postgres and bp-valkey, are in the
+// static graph since SVC-162 deleted the scaffold ones.)
+const LIVE_ONLY_SERVICE = ALL_BLUEPRINTS.find((b) => b.class === 'ai-service' && !STATIC_IDS.has(b.id))
 
 const liveHolder: { value: Array<Record<string, unknown>> } = { value: [] }
 
@@ -70,7 +72,7 @@ beforeEach(() => {
   useWizardStore.setState({ ...INITIAL_WIZARD_STATE })
   liveHolder.value = [
     {
-      name: LIVE_DATA_SERVICE?.id ?? '',
+      name: LIVE_ONLY_SERVICE?.id ?? '',
       version: '1.0.0',
       visibility: 'listed',
       // A card category the page must no longer show.
@@ -86,21 +88,21 @@ beforeEach(() => {
 afterEach(() => cleanup())
 
 describe('CatalogPage — class and lifecycle (contract C1)', () => {
-  it('the fixture holds: a data service the static graph does not hold', () => {
-    expect(LIVE_DATA_SERVICE?.id).toMatch(/^bp-/)
+  it('the fixture holds: an AI service the static graph does not hold', () => {
+    expect(LIVE_ONLY_SERVICE?.id).toMatch(/^bp-/)
   })
 
   it('the chip of a live-only card is the label of its class', async () => {
     renderCatalog('/provision/d-1/catalog?unlisted=1')
-    const card = await screen.findByTestId(`sov-app-card-${LIVE_DATA_SERVICE?.id}`)
-    expect(within(card).getByText('Data services')).toBeTruthy()
+    const card = await screen.findByTestId(`sov-app-card-${LIVE_ONLY_SERVICE?.id}`)
+    expect(within(card).getByText('AI services')).toBeTruthy()
     expect(within(card).queryByText('database')).toBeNull()
     expect(within(card).queryByText('postgres')).toBeNull()
   })
 
   it('an experimental Blueprint shows the badge Experimental', async () => {
     renderCatalog('/provision/d-1/catalog?unlisted=1')
-    const badge = await screen.findByTestId(`sov-catalog-lifecycle-${LIVE_DATA_SERVICE?.id}`)
+    const badge = await screen.findByTestId(`sov-catalog-lifecycle-${LIVE_ONLY_SERVICE?.id}`)
     expect(badge.textContent).toBe('Experimental')
   })
 

@@ -163,6 +163,43 @@ kept small and stable):
 The state ConfigMap `sovereign-release` names what ran (`mechanism`, and
 `deliveryJob`).
 
+**One region per request, and its rollback** (SOV-521). The body of
+`PUT /api/v1/sovereign/release` takes two optional fields:
+
+- `region` names one region as the state names it: `primary`, or a follower's
+  name (the key `<name>.yaml` of `cutover-secondary-kubeconfigs`); any other
+  name is answered `400 bad-region`. The stage and the prewarm run in every
+  region as above, so a conflict anywhere moves nothing; `promote` checks and
+  pushes that region only, and every other region's `main` stays the commit it
+  was. Without `region` every region is promoted, the followers first, as
+  before. The stage refuses a region request, nothing moved, when the
+  candidate's `release-run.sh` has no phase `rollback` (read as `verify` is
+  read): that mechanism promotes every region. The installed route of an
+  earlier release answers `400` to a body with a field it does not know, so
+  the first delivery that carries this to a Sovereign is a whole one.
+- `rollback: true` with a `region` puts that region back to the `main` recorded
+  at the stage of the request that promoted it. It runs no stage and no
+  prewarm, and refuses `dryRun` and `pullSecret`. The route refuses it
+  (`409 not-promoted`) unless the state records that promote for this
+  candidate; the bootstrap's one container `release-run.sh rollback` then runs
+  `release-region.sh rollback` in that region, which refuses (phase `moved`,
+  nothing pushed) unless the region's `main` is still the promoted commit, and
+  pushes one commit whose tree is the recorded `main`'s and whose parent is the
+  promoted commit: a plain push, a fast-forward the server checks, never a
+  force push. Flux applies the earlier tree; the promoted commit stays in the
+  history. A second rollback of the same promote pushes nothing. The candidate
+  then counts as merged in that region, so delivering it there again takes a
+  later candidate.
+
+Each promote records, per region, `<region>.promotedFrom` (the `main` of the
+stage), `<region>.promotedTo` (the commit pushed) and `<region>.phase`
+(`promoted`, `rolled-back`); a promote that pushes nothing, because the
+region's `main` already held the candidate, leaves them as they are. The route
+keeps these keys across the requests of one candidate and drops them for another; `GET` answers them in `status` and as
+`promoted.<region>`. `tests/step7938-promote-one-region.sh` runs this chart's
+two scripts on Git repositories on disk: one region promoted, its rollback, a
+rollback refused after the region moved.
+
 **What a chart version must carry for the bootstrap** (contract `1`):
 
 - `files/release/contract` holds `1`, and `files/release/release-run.sh` and
@@ -170,7 +207,8 @@ The state ConfigMap `sovereign-release` names what ran (`mechanism`, and
   `products/catalyst/bootstrap/api/internal/lifecycle/release/`, tested);
   `release-run.sh` has the phases `verify`, `compose`, `prewarm` and `promote`
   (a chart without `verify` is delivered, and its dry run says its objects were
-  not sent to the API server). They are read from the chart folder; nothing
+  not sent to the API server), and `rollback` for a request that names a region
+  (a chart without it is delivered whole only). They are read from the chart folder; nothing
   renders or installs them.
 - The render holds ConfigMaps `cutover-step-01-gitea-mirror` and `cutover-step-03-harbor-prewarm`
   with a `podSpec`, `cutover-step-06-helmrepository-patches` with

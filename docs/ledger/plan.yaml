@@ -2550,9 +2550,9 @@ packages:
   after: [FND-059, FND-027, FND-028, FND-029, CLD-076, CLD-211, SEC-095, SEC-126, CMP-020]
   touches:
   - .github/workflows/release-key-resign.yaml
-  - scripts/release-key-resign.py
   - .github/workflows/tree-guards.yaml
   - docs/RUNBOOKS.md
+  - tools/guards/cmd/release-key-resign/**
   resources: []
   flips: []
   implements: []
@@ -4215,7 +4215,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [FND-151, SOV-510, CMP-150, CTL-038, FND-153, FND-156]
-  after: [FND-011, FND-154, FND-155, FND-207, SOV-175, SEC-010, SEC-103, SEC-104, SEC-105, NET-040, NET-097, NET-150, NET-221, SVC-040, SVC-041, SVC-150, SVC-159, SVC-160, SVC-162, SVC-170, CTL-151, CTL-320, CTL-346, CTL-347, BSS-060, INF-040, INF-050, INF-051, INF-052, INF-110, INF-133, ACC-050]
+  after: [FND-011, FND-154, FND-155, FND-207, SOV-175, SEC-010, SEC-103, SEC-104, SEC-105, NET-040, NET-097, NET-150, NET-221, NET-255, SVC-040, SVC-041, SVC-150, SVC-159, SVC-160, SVC-162, SVC-170, CTL-151, CTL-320, CTL-346, CTL-347, BSS-060, INF-040, INF-050, INF-051, INF-052, INF-110, INF-133, ACC-050]
   touches:
   - platform/conformance/**
   - clusters/_template/bootstrap-kit/99-bp-conformance.yaml
@@ -4390,7 +4390,7 @@ packages:
   size: S
   lane: GATE
   depends_on: [SOV-322, BSS-060]
-  after: [FND-011, FND-039, FND-075, FND-077, FND-131, FND-151, FND-154, FND-207, SEC-010, SEC-080, SEC-095, SEC-120, NET-013, NET-097, NET-150, SVC-040, SVC-041, CTL-151, CTL-320, INF-051, INF-052, INF-133]
+  after: [FND-011, FND-039, FND-075, FND-077, FND-131, FND-151, FND-154, FND-207, SEC-010, SEC-080, SEC-095, SEC-120, NET-013, NET-097, NET-150, NET-255, SVC-040, SVC-041, CTL-151, CTL-320, INF-051, INF-052, INF-133]
   touches:
   - platform/stalwart-sovereign/chart/templates/setup-job.yaml
   - platform/stalwart-sovereign/chart/templates/setup-job-rbac.yaml
@@ -4429,7 +4429,7 @@ packages:
   - docs/ledger/uat-row-map.csv
   - products/catalyst/bootstrap/ui/e2e/gate/**
   - .github/workflows/foundation-gate.yaml
-  - scripts/check-uat-row-map.py
+  - tools/guards/cmd/check-uat-row-map/**
   resources: []
   flips: []
   implements: []
@@ -6868,7 +6868,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CLD-088, FND-032, SOV-070, CLD-109]
-  after: [FND-033, FND-034, FND-075, FND-154, CLD-030, CLD-067, CLD-105, SOV-175, SEC-010, SEC-080, SEC-095, SEC-120, NET-013, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, SVC-040, SVC-125, SVC-160, CTL-040, CTL-151, CTL-320, CTL-345, CMP-010, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-112, INF-133, INF-140, ACC-010]
+  after: [FND-033, FND-034, FND-075, FND-154, CLD-030, CLD-067, CLD-105, SOV-175, SEC-010, SEC-080, SEC-095, SEC-120, NET-013, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, NET-255, SVC-040, SVC-125, SVC-160, CTL-040, CTL-151, CTL-320, CTL-345, CMP-010, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-112, INF-133, INF-140, ACC-010]
   touches:
   - products/catalyst/bootstrap/api/internal/providers/capabilities.go
   - products/catalyst/bootstrap/api/cmd/provider-identity/**
@@ -7234,7 +7234,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CLD-103, CLD-113, CTL-035, FND-032]
-  after: [FND-033, FND-034, FND-075, FND-154, CLD-030, CLD-067, SOV-175, SEC-010, SEC-080, SEC-095, SEC-120, NET-013, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, SVC-040, SVC-125, SVC-160, CTL-040, CTL-151, CTL-320, CTL-345, CMP-010, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
+  after: [FND-033, FND-034, FND-075, FND-154, CLD-030, CLD-067, SOV-175, SEC-010, SEC-080, SEC-095, SEC-120, NET-013, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, NET-255, SVC-040, SVC-125, SVC-160, CTL-040, CTL-151, CTL-320, CTL-345, CMP-010, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
   touches:
   - products/catalyst/bootstrap/api/cmd/api/main.go
   - products/catalyst/bootstrap/api/internal/providersapi/**
@@ -7641,7 +7641,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-080, CLD-132, CLD-141, CLD-142, FND-032]
-  after: [FND-033, FND-034, FND-075, FND-154, CLD-023, CLD-030, CLD-067, CLD-092, CLD-103, CLD-113, CLD-185, SOV-020, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-146, SOV-151, SOV-161, SOV-175, SOV-336, SOV-337, SEC-010, SEC-030, SEC-040, SEC-080, SEC-095, SEC-100, SEC-104, SEC-120, NET-013, NET-020, NET-040, NET-060, NET-096, NET-097, NET-100, NET-102, NET-110, NET-150, NET-153, NET-172, NET-190, NET-212, SVC-040, SVC-060, SVC-125, SVC-130, SVC-160, CTL-040, CTL-041, CTL-151, CTL-320, CTL-345, CTL-346, CTL-348, CMP-010, CMP-036, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-201, INF-050, INF-051, INF-052, INF-060, INF-133, INF-140, ACC-010]
+  after: [FND-033, FND-034, FND-075, FND-154, CLD-023, CLD-030, CLD-067, CLD-092, CLD-103, CLD-113, CLD-185, SOV-020, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-146, SOV-151, SOV-161, SOV-175, SOV-336, SOV-337, SEC-010, SEC-030, SEC-040, SEC-080, SEC-095, SEC-100, SEC-104, SEC-120, NET-013, NET-020, NET-040, NET-060, NET-096, NET-097, NET-100, NET-102, NET-110, NET-150, NET-153, NET-172, NET-190, NET-212, NET-255, SVC-040, SVC-060, SVC-125, SVC-130, SVC-160, CTL-040, CTL-041, CTL-151, CTL-320, CTL-345, CTL-346, CTL-348, CMP-010, CMP-036, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-201, INF-050, INF-051, INF-052, INF-060, INF-133, INF-140, ACC-010]
   touches:
   - clusters/_template/bootstrap-kit/**
   - infra/providers/_shared/cloudinit-control-plane.tftpl
@@ -7785,7 +7785,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CLD-111, CLD-151, FND-032]
-  after: [FND-011, FND-033, FND-034, FND-075, FND-154, CLD-030, CLD-067, SOV-175, SEC-010, SEC-080, SEC-095, SEC-120, NET-013, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, SVC-040, SVC-041, SVC-125, SVC-160, CTL-040, CTL-151, CTL-320, CTL-345, CMP-010, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-110, INF-112, INF-133, INF-140, ACC-010]
+  after: [FND-011, FND-033, FND-034, FND-075, FND-154, CLD-030, CLD-067, SOV-175, SEC-010, SEC-080, SEC-095, SEC-120, NET-013, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, NET-255, SVC-040, SVC-041, SVC-125, SVC-160, CTL-040, CTL-151, CTL-320, CTL-345, CMP-010, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-110, INF-112, INF-133, INF-140, ACC-010]
   touches:
   - products/catalyst/bootstrap/api/cmd/cloud-controller/**
   - products/catalyst/bootstrap/api/Containerfile
@@ -7993,7 +7993,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CLD-050, CLD-066, CLD-087, FND-032, SEC-190, SEC-211]
-  after: [FND-033, FND-034, FND-075, FND-154, CLD-030, CLD-089, CLD-090, CLD-092, CLD-131, CLD-132, CLD-134, SOV-146, SOV-175, SOV-335, SEC-010, SEC-080, SEC-095, NET-010, NET-011, NET-012, NET-013, NET-020, NET-060, NET-097, NET-100, NET-102, NET-110, NET-150, NET-172, NET-210, NET-212, SVC-125, SVC-159, SVC-160, SVC-170, CTL-040, CTL-151, CTL-320, CTL-345, CMP-010, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-201, INF-051, INF-052, INF-055, INF-060, INF-133, INF-140, ACC-010]
+  after: [FND-033, FND-034, FND-075, FND-154, CLD-030, CLD-089, CLD-090, CLD-092, CLD-131, CLD-132, CLD-134, SOV-146, SOV-175, SOV-335, SEC-010, SEC-080, SEC-095, NET-010, NET-011, NET-012, NET-013, NET-020, NET-060, NET-097, NET-100, NET-102, NET-110, NET-150, NET-172, NET-210, NET-212, NET-255, SVC-125, SVC-159, SVC-160, SVC-170, CTL-040, CTL-151, CTL-320, CTL-345, CMP-010, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, AIP-201, INF-051, INF-052, INF-055, INF-060, INF-133, INF-140, ACC-010]
   touches:
   - clusters/_template/infrastructure/base/**
   - clusters/_template/infrastructure/providers/base/provider-opentofu.yaml
@@ -8081,7 +8081,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-088, CLD-172, CLD-173, FND-032, SOV-230]
-  after: [FND-154, CLD-030, SOV-175, SEC-010, SEC-080, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, SVC-160, CTL-040, CTL-151, CTL-320, CTL-345, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
+  after: [FND-154, CLD-030, SOV-175, SEC-010, SEC-080, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, NET-255, SVC-160, CTL-040, CTL-151, CTL-320, CTL-345, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
   touches:
   - tests/acceptance/sovereign/internal/suite/check_*.go
   resources: []
@@ -8107,7 +8107,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [CLD-174, CTL-045, CTL-150]
-  after: [FND-011, FND-154, CLD-030, SOV-175, SEC-010, SEC-080, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, SVC-040, SVC-041, SVC-160, CTL-040, CTL-151, CTL-320, CTL-345, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
+  after: [FND-011, FND-154, CLD-030, SOV-175, SEC-010, SEC-080, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, NET-255, SVC-040, SVC-041, SVC-160, CTL-040, CTL-151, CTL-320, CTL-345, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
   touches:
   - platform/crossplane-claims/chart/templates/xrds/nodepool.yaml
   - platform/crossplane-claims/chart/values.yaml
@@ -8553,7 +8553,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-175, FND-032, SVC-270]
-  after: [FND-154, CLD-030, SOV-175, SEC-010, SEC-080, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, CTL-040, CTL-151, CTL-320, CTL-345, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
+  after: [FND-154, CLD-030, SOV-175, SEC-010, SEC-080, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, NET-255, CTL-040, CTL-151, CTL-320, CTL-345, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
   touches:
   - tests/acceptance/sovereign/internal/suite/check_*.go
   resources: []
@@ -8579,7 +8579,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CLD-221, SVC-320]
-  after: [CLD-075, FND-154, CLD-030, CLD-092, SOV-175, SEC-010, SEC-080, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, CTL-040, CTL-151, CTL-320, CTL-345, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
+  after: [CLD-075, FND-154, CLD-030, CLD-092, SOV-175, SEC-010, SEC-080, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, NET-255, CTL-040, CTL-151, CTL-320, CTL-345, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
   touches:
   - infra/providers/huawei/day2/postgresinstance/**
   - clusters/_template/providers/huawei/compositions/postgresinstance-native.yaml
@@ -10064,7 +10064,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [FND-032, FND-120, SOV-120, SOV-130, SOV-160, SOV-131, SOV-134, SOV-121]
-  after: [SOV-154, FND-131, FND-151, FND-154, FND-155, CLD-030, CLD-067, SOV-175, SEC-010, SEC-080, SEC-095, NET-013, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
+  after: [SOV-154, FND-131, FND-151, FND-154, FND-155, CLD-030, CLD-067, SOV-175, SEC-010, SEC-080, SEC-095, NET-013, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, NET-255, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
   touches:
   - tests/acceptance/sovereign/internal/suite/
   - tests/acceptance/sovereign/internal/suite/check_born_local.go
@@ -10572,7 +10572,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [FND-032, SOV-060, SOV-240, SOV-131, SOV-132, SOV-134]
-  after: [SOV-161, FND-011, FND-151, FND-154, FND-155, CLD-030, CLD-067, SOV-020, SOV-175, SEC-010, SEC-080, SEC-095, NET-020, NET-040, NET-060, NET-080, NET-097, NET-102, NET-150, NET-172, NET-212, SVC-040, SVC-041, SVC-130, SVC-160, CTL-039, CTL-151, CTL-320, CTL-345, CTL-346, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
+  after: [SOV-161, FND-011, FND-151, FND-154, FND-155, CLD-030, CLD-067, SOV-020, SOV-175, SEC-010, SEC-080, SEC-095, NET-020, NET-040, NET-060, NET-080, NET-097, NET-102, NET-150, NET-172, NET-212, NET-255, SVC-040, SVC-041, SVC-130, SVC-160, CTL-039, CTL-151, CTL-320, CTL-345, CTL-346, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
   touches:
   - platform/self-sovereign-cutover/chart/templates/04-registry-pivot-daemonset.yaml
   - platform/self-sovereign-cutover/chart/values.yaml
@@ -10660,7 +10660,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [FND-032, NET-153, SOV-250, SOV-310, SOV-320, SOV-330, SOV-322]
-  after: [FND-011, FND-151, FND-154, FND-155, CLD-030, CLD-067, SOV-020, SOV-175, SEC-010, SEC-080, SEC-095, NET-040, NET-060, NET-080, NET-097, NET-102, NET-150, NET-172, NET-212, SVC-040, SVC-041, SVC-160, CTL-039, CTL-151, CTL-320, CTL-345, CTL-346, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
+  after: [FND-011, FND-151, FND-154, FND-155, CLD-030, CLD-067, SOV-020, SOV-175, SEC-010, SEC-080, SEC-095, NET-040, NET-060, NET-080, NET-097, NET-102, NET-150, NET-172, NET-212, NET-255, SVC-040, SVC-041, SVC-160, CTL-039, CTL-151, CTL-320, CTL-345, CTL-346, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
   touches:
   - platform/self-sovereign-cutover/chart/templates/08-egress-block-test-job.yaml
   - platform/self-sovereign-cutover/chart/values.yaml
@@ -11033,7 +11033,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [FND-032, NET-131, SOV-030, SOV-140, SOV-141]
-  after: [FND-033, FND-034, FND-039, FND-041, FND-075, FND-131, FND-151, FND-154, FND-155, CLD-030, CLD-067, SOV-175, SEC-010, SEC-080, SEC-095, NET-013, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, SVC-040, SVC-125, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, CMP-010, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
+  after: [FND-033, FND-034, FND-039, FND-041, FND-075, FND-131, FND-151, FND-154, FND-155, CLD-030, CLD-067, SOV-175, SEC-010, SEC-080, SEC-095, NET-013, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, NET-255, SVC-040, SVC-125, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, CMP-010, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
   touches:
   - products/catalyst/bootstrap/api/internal/handler/phase1_watch.go
   - products/catalyst/bootstrap/api/internal/handler/deployment_handover_export.go
@@ -11116,7 +11116,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [CLD-171, CTL-110, CTL-112, FND-032, SEC-196, SOV-240, SOV-410]
-  after: [FND-011, FND-151, FND-154, FND-155, CLD-030, SOV-175, SEC-010, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, SVC-040, SVC-041, SVC-160, CTL-039, CTL-151, CTL-320, CTL-345, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
+  after: [FND-011, FND-151, FND-154, FND-155, CLD-030, SOV-175, SEC-010, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, NET-255, SVC-040, SVC-041, SVC-160, CTL-039, CTL-151, CTL-320, CTL-345, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
   touches:
   - platform/self-sovereign-cutover/chart/templates/03x-ownership-pivot-job.yaml
   - platform/self-sovereign-cutover/chart/templates/rbac.yaml
@@ -11174,7 +11174,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CLD-107, FND-032, SOV-310, SOV-320, SOV-330, SOV-405, SOV-420, SOV-430, SOV-322, SOV-141, SOV-143]
-  after: [FND-011, FND-151, FND-154, FND-155, CLD-030, SOV-175, SEC-010, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, SVC-040, SVC-041, SVC-160, CTL-039, CTL-151, CTL-320, CTL-345, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
+  after: [FND-011, FND-151, FND-154, FND-155, CLD-030, SOV-175, SEC-010, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, NET-255, SVC-040, SVC-041, SVC-160, CTL-039, CTL-151, CTL-320, CTL-345, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
   touches:
   - core/cmd/sovereign-ops/internal/release/**
   - core/cmd/sovereign-ops/internal/rotation/**
@@ -11270,7 +11270,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [FND-032, SEC-190, SOV-080, SOV-420]
-  after: [FND-027, FND-029, FND-151, FND-154, FND-155, CLD-030, CLD-076, SOV-175, SEC-010, SEC-126, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, SVC-160, CTL-039, CTL-151, CTL-320, CTL-345, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
+  after: [FND-027, FND-029, FND-151, FND-154, FND-155, CLD-030, CLD-076, SOV-175, SEC-010, SEC-126, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, NET-255, SVC-160, CTL-039, CTL-151, CTL-320, CTL-345, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
   touches:
   - core/cmd/sovereign-ops/internal/restore/**
   - tests/hermetic/handover/assert/
@@ -11365,7 +11365,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CTL-035, FND-032, SOV-230, SOV-240, SOV-510]
-  after: [FND-151, FND-154, FND-155, CLD-030, CLD-067, SOV-175, SOV-521, SEC-010, SEC-080, SEC-095, SEC-104, NET-020, NET-040, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, SVC-040, SVC-160, CTL-039, CTL-151, CTL-320, CTL-345, CTL-346, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-050, INF-051, INF-052, INF-133, INF-140, ACC-010]
+  after: [FND-151, FND-154, FND-155, CLD-030, CLD-067, SOV-175, SOV-521, SEC-010, SEC-080, SEC-095, SEC-104, NET-020, NET-040, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, NET-255, SVC-040, SVC-160, CTL-039, CTL-151, CTL-320, CTL-345, CTL-346, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-050, INF-051, INF-052, INF-133, INF-140, ACC-010]
   touches:
   - core/cmd/sovereign-ops/internal/releasesync/**
   - clusters/_template/bootstrap-kit/06c-release-sync.yaml
@@ -16790,7 +16790,7 @@ packages:
   touches:
   - platform/network-policies/audit/flows.json
   - platform/network-policies/audit/README.md
-  - scripts/summarise-audit-flows.py
+  - tools/guards/cmd/summarise-audit-flows/**
   resources: []
   flips: []
   implements: []
@@ -17838,9 +17838,9 @@ packages:
   size: S
   lane: GATE
   depends_on: [NET-251]
-  after: [FND-031, FND-032, FND-033, FND-034, FND-035, FND-039, FND-075, FND-077, FND-131, FND-151, FND-154, FND-207, SEC-010, SEC-080, SEC-095, SEC-120, NET-013, NET-097, NET-150, CTL-151, CTL-320, CMP-010, BSS-060, INF-051, INF-052, INF-133]
+  after: []
   touches:
-  - tests/waf/corpus/**
+  - tests/waf/corpus/crs-4.14.0.txt
   - tests/acceptance/sovereign/internal/suite/check_waf.go
   - tests/acceptance/sovereign/internal/suite/check_waf_test.go
   - tests/acceptance/sovereign/README.md
@@ -17849,16 +17849,30 @@ packages:
   flips: []
   implements: [NET-G15]
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls tests/acceptance/sovereign/internal/suite | grep -c '^check_waf'"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "cd tests/acceptance/sovereign && test \"$(go test -count=1 -run '^TestWAFCheck$' -v ./internal/suite/ | grep -c -E '^    --- PASS: TestWAFCheck/')\" = 16"
+  - id: A2
+    run: "cd tests/acceptance/sovereign && test -f internal/suite/check_waf.go && test -z \"$(gofmt -l internal)\" && go vet ./... && go test -count=1 ./..."
+  - id: A3
+    run: "printf '%s\\n' 'f48703a1f164e499d9d5c79387c52afc8095b061355b73d86271fad391179c4c  tests/acceptance/sovereign/internal/suite/check_waf.go' 'dfe41381070f8783ff6425a3b1605924c4615a9be34724574e0ef09d3c9b40d4  tests/acceptance/sovereign/internal/suite/check_waf_test.go' '073a7e33871d3175642d9bc12c256c694b1a1f10125d00bccb16f177749f0532  tests/waf/corpus/crs-4.14.0.txt' | sha256sum --check --quiet -"
+  - id: A4
+    run: "python3 scripts/acceptance-gate.py validate --base HEAD --body-file <(printf 'Work-Package: NET-255\\n') > /dev/null && test \"$(awk '/^- id: NET-G15$/{f=1;next} /^- id: /{f=0} f' docs/ledger/gates.yaml | grep -c -x -F -e '  state: expected-fail' -e '  implementation: tests/acceptance/sovereign/internal/suite/check_waf.go' -e '  runs_in: [cloud]' -e '  destructive: false' -e '  implemented_by: NET-255' -e '  delivered_by: NET-257')\" = 6"
+  - id: A5
+    run: "f=tests/acceptance/sovereign/README.md && test \"$(grep -c -F '| NET-G15 Firewall proof | `check_waf.go` | No region holds a WebApplicationFirewall object' $f)\" = 1 && test \"$(grep -c -F 'dry runs, like the one `apply` per object of NET-G15,' $f)\" = 1 && test \"$(grep -c -F 'WAF-5: a server-side dry-run update of the object with one more exclusion that expired yesterday is accepted' $f)\" = 1"
+  - id: A6
+    run: "python3 scripts/check-no-new-polling.py > /dev/null && f=tests/acceptance/sovereign/internal/suite/check_waf.go && test -f $f && test \"$(grep -c -E 'time\\.(Sleep|NewTicker|Tick)\\(' $f)\" = 0 && test \"$(grep -c '^require' tests/acceptance/sovereign/go.mod)\" = 0 && c=tests/waf/corpus/crs-4.14.0.txt && test \"$(grep -c -v '^#' $c)\" = 43 && test \"$(grep -c -E '^\\{\"rule\":9(13|3[0-4]|4[1-4])[0-9]{3},\"test\":[0-9]+,\"method\":\"(GET|POST)\",\"target\":\"/' $c)\" = 43"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'The corpus tests/waf/corpus/, written fresh from the upstream regression tests of the pinned Core Rule Set version 4.14.0, and journey WAF in the acceptance suite as gate check NET-G15, Firewall proof (ADR-0038 WF7): for each WebApplicationFirewall object, WAF-1 a benign request returns 200; WAF-2 every request of the corpus returns 403 in block mode; WAF-3 the same requests pass and are logged in detect mode; WAF-4 no public path reaches a backend without passing the firewall, and a direct dial to a node address fails; WAF-5 an exclusion whose expires is in the past is rejected at admission. With no object the record prints "no web application firewall in the path". The check is listed as expected-fail and stays not required; NET-257 makes it required.'
+  delivers: 'The acceptance suite has gate check NET-G15, Firewall proof, as expected-fail: for each WebApplicationFirewall object it runs journey WAF of ADR-0038 point WF7 against the public hosts of its Gateway with the corpus tests/waf/corpus/, 43 requests written from the regression tests of the OWASP Core Rule Set 4.14.0, and with no object it records one failed step named no web application firewall in the path.'
 - id: NET-256
   title: The native firewall's unit module for the reference pack, proven as a plain unit Workspace
   area: NET
@@ -18182,7 +18196,7 @@ packages:
   size: M
   lane: GATE
   depends_on: [NET-321]
-  after: [FND-032, FND-033, FND-034, FND-039, FND-041, FND-075, FND-131, FND-151, FND-154, FND-155, CLD-030, CLD-067, SOV-175, SEC-010, SEC-080, SEC-095, SEC-120, NET-010, NET-013, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, SVC-040, SVC-041, SVC-125, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, CMP-010, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
+  after: [FND-032, FND-033, FND-034, FND-039, FND-041, FND-075, FND-131, FND-151, FND-154, FND-155, CLD-030, CLD-067, SOV-175, SEC-010, SEC-080, SEC-095, SEC-120, NET-010, NET-013, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, NET-255, SVC-040, SVC-041, SVC-125, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, CMP-010, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
   touches:
   - platform/cluster-classes/
   - tests/acceptance/sovereign/internal/suite/
@@ -18369,7 +18383,7 @@ packages:
   size: M
   lane: GATE
   depends_on: [NET-325, NET-326, NET-327, NET-328]
-  after: [FND-032, FND-033, FND-034, FND-035, FND-039, FND-041, FND-075, FND-077, FND-131, FND-151, FND-153, FND-154, FND-155, FND-207, CLD-030, CLD-067, SOV-175, SEC-010, SEC-080, SEC-095, SEC-120, NET-010, NET-013, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, SVC-125, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, CMP-010, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
+  after: [FND-032, FND-033, FND-034, FND-035, FND-039, FND-041, FND-075, FND-077, FND-131, FND-151, FND-153, FND-154, FND-155, FND-207, CLD-030, CLD-067, SOV-175, SEC-010, SEC-080, SEC-095, SEC-120, NET-010, NET-013, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, NET-255, SVC-125, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, CMP-010, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
   touches:
   - tests/acceptance/sovereign/
   resources: []
@@ -22709,10 +22723,10 @@ packages:
   touches:
   - products/catalyst/bootstrap/api/internal/giteapr/**
   - core/controllers/organization/internal/iacbootstrap/bootstrap.go
-  - scripts/check-git-writers.py
   - scripts/baselines/git-writers.json
   - .github/workflows/check-git-writers.yaml
   - docs/ledger/deleted-paths.txt
+  - tools/guards/cmd/check-git-writers/**
   resources: []
   flips: []
   implements: []
@@ -23733,10 +23747,9 @@ packages:
   size: M
   lane: GATE
   depends_on: [CTL-162, CTL-180, CTL-210, FND-035, FND-130, FND-184, FND-185]
-  after: [FND-027, FND-029, FND-064, FND-151, FND-153, FND-154, FND-155, FND-207, CLD-030, CLD-067, CLD-076, SOV-175, SEC-010, SEC-126, NET-013, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
+  after: [FND-027, FND-029, FND-064, FND-151, FND-153, FND-154, FND-155, FND-207, CLD-030, CLD-067, CLD-076, SOV-175, SEC-010, SEC-126, NET-013, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, NET-255, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
   touches:
   - scripts/rebuild-from-git-drill.sh
-  - scripts/intent-snapshot.py
   - tests/acceptance/sovereign/**
   - docs/RUNBOOKS.md
   - tests/acceptance/sovereign/internal/suite/check_ctl_rebuild_from_git.go
@@ -24433,7 +24446,6 @@ packages:
   - platform/kyverno-policies/chart/model/**
   - platform/kyverno-policies/chart/templates/compliance-model.yaml
   - platform/kyverno-policies/chart/tests/model-render.sh
-  - scripts/check-compliance-model.py
   - scripts/baselines/policy-suites.json
   - scripts/baselines/policy-exemptions.json
   - products/catalyst/bootstrap/api/internal/k8scache/kinds.go
@@ -24442,6 +24454,7 @@ packages:
   - tests/acceptance/sovereign/internal/suite/check_compliance_model.go
   - docs/ledger/gates.yaml
   - scripts/run-policy-chart-tests.sh
+  - tools/guards/cmd/check-compliance-model/**
   resources: []
   flips: [CMP-G03]
   implements: []
@@ -25424,12 +25437,12 @@ packages:
   - platform/kyverno-policies/chart/model/frameworks/*.yaml
   - platform/kyverno-policies/chart/model/schema/framework.schema.json
   - platform/kyverno-policies/chart/templates/compliance-model.yaml
-  - scripts/check-compliance-model.py
   - platform/trivy/chart/values.yaml
   - products/catalyst/bootstrap/api/internal/compliance/frameworks.go
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
   - tests/acceptance/sovereign/internal/suite/check_frameworks.go
   - docs/ledger/gates.yaml
+  - tools/guards/cmd/check-compliance-model/**
   resources: []
   flips: [CMP-G20]
   implements: []
@@ -25488,12 +25501,12 @@ packages:
   - products/catalyst/bootstrap/api/internal/compliance/oscal.go
   - products/catalyst/bootstrap/api/internal/compliance/testdata/oscal/*.json
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
-  - scripts/check-oscal-export.py
   - scripts/oscal/*.json
   - .github/workflows/policy-chart-tests.yaml
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/FrameworkDetail.tsx
   - tests/acceptance/sovereign/internal/suite/check_oscal_export.go
   - docs/ledger/gates.yaml
+  - tools/guards/cmd/check-oscal-export/**
   resources: []
   flips: [CMP-G25]
   implements: []
@@ -26354,12 +26367,12 @@ packages:
   - core/controllers/pkg/offer/**
   - docs/contracts/commerce-offer.schema.json
   - docs/contracts/README.md
-  - scripts/check-commerce-offer.py
   - .github/workflows/bss-ratchets.yaml
   - core/controllers/organization/internal/gitops/manifests.go
   - core/controllers/organization/internal/gitops/manifests_test.go
   - core/controllers/organization/internal/gitops/testdata/plan-quota/**
   - scripts/baselines/bss.json
+  - tools/guards/cmd/check-commerce-offer/**
   resources: []
   flips: []
   implements: []
@@ -29375,7 +29388,7 @@ packages:
   after: [FND-011]
   touches:
   - products/agents-service-management/**
-  - scripts/agent-eval.py
+  - tools/guards/cmd/agent-eval/**
   resources: []
   flips: []
   implements: []
@@ -30171,17 +30184,17 @@ packages:
     expect: "1"
   acceptance:
   - id: A1
-    run: "python3 -c 'import sys; keep = {\"infra/providers/_shared/cloudinit-control-plane.tftpl\": \"\\n  - systemctl enable --now fail2ban || true\\n\", \"infra/providers/hetzner/cloudinit-worker.tftpl\": \"\\n  - systemctl enable --now fail2ban\\n\", \"infra/providers/huawei/cloudinit-worker.tftpl\": \"\\n  - unattended-upgrades\\n\"}; text = {p: open(p).read() for p in keep}; bad = [p for p, t in text.items() if \"enable --now unattended-upgrades\" in t or t.count(\"\\n  - unattended-upgrades\\n\") != 1 or t.count(keep[p]) != 1]; print(\"wrong:\", bad); sys.exit(1 if bad else 0)'"
+    run: "for f in infra/providers/_shared/cloudinit-control-plane.tftpl infra/providers/hetzner/cloudinit-worker.tftpl infra/providers/huawei/cloudinit-worker.tftpl; do test \"$(grep -c -F 'enable --now unattended-upgrades' \"$f\")\" = 0 && test \"$(grep -c -x -F '  - unattended-upgrades' \"$f\")\" = 1 || { echo \"wrong: $f\"; exit 1; }; done; test \"$(grep -c -x -F '  - systemctl enable --now fail2ban || true' infra/providers/_shared/cloudinit-control-plane.tftpl)\" = 1 && test \"$(grep -c -x -F '  - systemctl enable --now fail2ban' infra/providers/hetzner/cloudinit-worker.tftpl)\" = 1"
   - id: A2
-    run: "python3 -c 'import json, sys; d = json.load(open(\"infra/providers/_shared/tests/golden.auto.tfvars.json\")); print(d[\"golden_hetzner\"], d[\"golden_huawei\"]); sys.exit(0 if d[\"golden_hetzner\"] == \"a24e27762b50a54ecdc8f3d6832c2f29b45467c72723025deb91f0e2e5d4aacf\" and d[\"golden_huawei\"] == \"f7e78b7ad24212e6f12290aae6a808911ad49755779afddab6bdaf68f22c71e3\" else 1)'"
+    run: "test \"$(grep -c -x -F '  \"golden_hetzner\": \"fd54dcf203c7379d39caf295bc2f714df8884af9e7c44d6dba21e5bae116c64e\",' infra/providers/_shared/tests/golden.auto.tfvars.json)\" = 1 && test \"$(grep -c -x -F '  \"golden_huawei\": \"f407c19fc68ba34de8bdbb895b7b6eb58f78c489ecf50dc20491d67daf5f0e49\",' infra/providers/_shared/tests/golden.auto.tfvars.json)\" = 1"
   - id: A3
-    run: "python3 -c 'import sys; t = open(\"infra/providers/_shared/tests/cloudinit_render.tftest.hcl\").read(); c = t.count(\" && !strcontains(output.rendered_cloud_init, \\\"enable --now unattended-upgrades\\\") && strcontains(output.rendered_cloud_init, \\\"\\\\n  - unattended-upgrades\\\\n\\\")\\n\"); print(c); sys.exit(0 if c == 2 else 1)'"
+    run: "test \"$(grep -c -F ' && !strcontains(output.rendered_cloud_init, \"enable --now unattended-upgrades\") && strcontains(output.rendered_cloud_init, \"\\n  - unattended-upgrades\\n\")' infra/providers/_shared/tests/cloudinit_render.tftest.hcl)\" = 2"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: Neither the shared control-plane template nor the Hetzner worker template runs systemctl enable --now unattended-upgrades any more; the package unattended-upgrades stays installed on every node, the render test fails if the enable line comes back or the package leaves, and the worst-case control-plane user data falls by 55 bytes on Huawei and by 67 bytes on Hetzner.
 - id: INF-070
@@ -35607,7 +35620,7 @@ packages:
   - id: A1
     run: "(cd products/cortex && go vet ./... && go test -count=1 ./cmd/cortex ./internal/auth ./internal/gateway ./internal/search ./internal/definitions ./internal/httpapi ./internal/store)"
   - id: A2
-    run: "printf '%s  %s\\n' 6b12be6471f4482e9f80d6378b5276a026f2f64e415e73521e35e13088fee787 products/cortex/cmd/cortex/main.go f8c0e8caaf56eee063a788a112bcb2c1518e080bfefd81393f401787dc29d7cf products/cortex/cmd/cortex/main_test.go 560ef47ccf708bf8617f24e6d90635e24febb740a0d49c0e4ee66f3e77659b0a products/cortex/internal/auth/auth.go 05b5ce3275719b3a161b7a4f0f9f7ded9fbd99baea1e8a04f1b199da30ef69e9 products/cortex/internal/auth/auth_test.go e81f0bacd05751dc799bd171b10037e6cd7f754876bd725dd84b01c928223051 products/cortex/internal/definitions/definitions.go 00c06904e1d2ad6df05028c64a849c0a74c1e5c0a3ade2114d56e5f83282305b products/cortex/internal/definitions/definitions_test.go c20bc345d605e7a6f266fce0f1a18cc059f71fce330b7cf311f082c74b4a9a66 products/cortex/internal/definitions/loader.go 707729b9f0fc711782e4661a019658d88088e11a4a453f244dd5cfbcf85085e1 products/cortex/internal/gateway/gateway.go 5ff1e6b72d294dd59678bc1ea3320594ea6db0fa4ccbf2ad9ffb654a73bb0d5c products/cortex/internal/gateway/gateway_test.go c42ebf8ba3e00f5e11a808d5dedc8f8a989d090c1ca00844cb6264485572d1f0 products/cortex/internal/httpapi/router.go 7dc5ea36b40870972cfe9237f54e68f5b878d77656b4311b1fa6c35373373c76 products/cortex/internal/httpapi/router_test.go cbbdf4ccc96f7e7fd2a5ebbf7f98da697c0ab20f85d0f19b76d10d8801966baa products/cortex/internal/search/search.go db2dca450ef93d55a51cb583e0bf95f0102127e7cda804832cf00ce94b895f9f products/cortex/internal/search/search_test.go 339f9d15f97d698d12406fdb2ad7a1dff2eb52f50659ca682b56c7c5c8719883 products/cortex/internal/store/read.go e4f3fccf9c47d83340517c7f496a1a859aef087c5210b4a16d70b0db3118effe products/cortex/README.md 7797795da1bd4b8949b30c1f6418ecd959c5eaf812af290ae48314eb13b794b4 products/cortex/go.mod 6d109220201d9cb12a30c3ea573313f5355224b7253973201087bd1d4e2d91d6 products/cortex/go.sum 793e006b81d2a34f931d623eb559b522542efa9e299aed2f35fc98dd8c48e260 products/cortex/internal/store/postgres_test.go 6888b0e70472af20cd9310a3f9e11f0b4ab32276c13307917813e64835895bb6 products/cortex/internal/store/store.go faaaadea48b4296aa2005846c717b55b23df91288a5ab1e60caad821b2fb62a7 scripts/baselines/products.json f1515f9d71e4b6ceaad3e2e8e379a75b661e0edabd969b0d34efc587c6a0de03 scripts/check-products.py | sha256sum --check --quiet -"
+    run: "printf '%s  %s\\n' 6b12be6471f4482e9f80d6378b5276a026f2f64e415e73521e35e13088fee787 products/cortex/cmd/cortex/main.go f8c0e8caaf56eee063a788a112bcb2c1518e080bfefd81393f401787dc29d7cf products/cortex/cmd/cortex/main_test.go c16a5760612292b6ae19a30aabc990e1545abed8ac8b71380d008d2812f3e798 products/cortex/internal/auth/auth.go 05524dd7c794b9d448b1d2418ff1f3311816d871813a57817f0baa25177aaa6b products/cortex/internal/auth/auth_test.go d5a5185aa936cbb7d621cf481071d68135c732330ba05aaedb8d6d7e8dadb292 products/cortex/internal/definitions/definitions.go 06d4b7bc449bab94dbadee194f9d0aa4b4afbe3f10c49454f969eaa5fc160745 products/cortex/internal/definitions/definitions_test.go c20bc345d605e7a6f266fce0f1a18cc059f71fce330b7cf311f082c74b4a9a66 products/cortex/internal/definitions/loader.go 707729b9f0fc711782e4661a019658d88088e11a4a453f244dd5cfbcf85085e1 products/cortex/internal/gateway/gateway.go 5ff1e6b72d294dd59678bc1ea3320594ea6db0fa4ccbf2ad9ffb654a73bb0d5c products/cortex/internal/gateway/gateway_test.go c42ebf8ba3e00f5e11a808d5dedc8f8a989d090c1ca00844cb6264485572d1f0 products/cortex/internal/httpapi/router.go 7dc5ea36b40870972cfe9237f54e68f5b878d77656b4311b1fa6c35373373c76 products/cortex/internal/httpapi/router_test.go cbbdf4ccc96f7e7fd2a5ebbf7f98da697c0ab20f85d0f19b76d10d8801966baa products/cortex/internal/search/search.go db2dca450ef93d55a51cb583e0bf95f0102127e7cda804832cf00ce94b895f9f products/cortex/internal/search/search_test.go 339f9d15f97d698d12406fdb2ad7a1dff2eb52f50659ca682b56c7c5c8719883 products/cortex/internal/store/read.go e4f3fccf9c47d83340517c7f496a1a859aef087c5210b4a16d70b0db3118effe products/cortex/README.md 7797795da1bd4b8949b30c1f6418ecd959c5eaf812af290ae48314eb13b794b4 products/cortex/go.mod 6d109220201d9cb12a30c3ea573313f5355224b7253973201087bd1d4e2d91d6 products/cortex/go.sum 793e006b81d2a34f931d623eb559b522542efa9e299aed2f35fc98dd8c48e260 products/cortex/internal/store/postgres_test.go 6888b0e70472af20cd9310a3f9e11f0b4ab32276c13307917813e64835895bb6 products/cortex/internal/store/store.go faaaadea48b4296aa2005846c717b55b23df91288a5ab1e60caad821b2fb62a7 scripts/baselines/products.json f1515f9d71e4b6ceaad3e2e8e379a75b661e0edabd969b0d34efc587c6a0de03 scripts/check-products.py | sha256sum --check --quiet -"
   - id: A3
     run: "(cd products/cortex && go test -count=1 -v -run '^TestToken(Format|Algorithm|Signature|KeyRefresh|Issuer|Audience|Expiry|Principals)$' ./internal/auth) | grep -c -E '^--- PASS: TestToken(Format|Algorithm|Signature|KeyRefresh|Issuer|Audience|Expiry|Principals) ' | grep -x 8"
   - id: A4
@@ -35619,7 +35632,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: The query process of the document search serves the search and sources routes behind the check of a token of the Organization's realm, embeds and reranks through the model gateway with the key read from its file, logs no search text, has a loader that applies the sources of the definitions ConfigMap through an informer, and the product guard gains the router-walk rule for cortex and the rule against unsafe patterns in product Go code.
 - id: PRD-204

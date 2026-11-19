@@ -1883,8 +1883,6 @@ Each major Blueprint folder ships a `DESIGN.md` capturing the architectural deci
 | bp-cortex | [`products/cortex/README.md`](../products/cortex/README.md) — Knative → KServe → vLLM/bge pipeline; OpenMeter metering |
 | bp-axon | [`products/axon/README.md`](../products/axon/README.md) — standalone gateway profile + Claude Code subscription proxy |
 | bp-fingate | [`products/fingate/README.md`](../products/fingate/README.md) — FAPI-mode Keycloak + ext_authz + 6 banking services |
-| bp-fabric | [`products/fabric/README.md`](../products/fabric/README.md) — Strimzi + Flink + Temporal + Debezium + Iceberg + ClickHouse |
-| bp-relay | [`products/relay/README.md`](../products/relay/README.md) — Stalwart + LiveKit + Stunner + Matrix + Guacamole |
 
 Where a chart does not yet ship a DESIGN.md, the canonical authoring rule is in [`docs/RUNBOOKS.md`](RUNBOOKS.md). When a chart's DESIGN.md contradicts this document, this document wins; raise a PR to reconcile.
 

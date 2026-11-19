@@ -461,7 +461,7 @@ export const TOPOLOGY_REGION_LABELS: Record<TopologyTemplate, string[]> = {
 
 /** Base defaults: all M + all R in required blocks; optional blocks empty */
 export const DEFAULT_COMPONENT_GROUPS: Record<string, string[]> = {
-  pilot:    ['flux', 'crossplane', 'gitea', 'opentofu', 'vcluster'],
+  pilot:    ['flux', 'crossplane', 'gitea', 'vcluster'],
   // UAT row W5 / #5575: `envoy` and `frpc` dropped. This table is a SECOND
   // component catalog — it seeds INITIAL_WIZARD_STATE.componentGroups — and
   // nothing validated it against componentGroups.ts, so removing the cards
@@ -469,10 +469,10 @@ export const DEFAULT_COMPONENT_GROUPS: Record<string, string[]> = {
   // run. componentGroups.catalog-integrity.5575.test.ts now cross-checks
   // this table too.
   spine:    ['cilium', 'powerdns', 'external-dns', 'netbird'],
-  surge:    ['vpa', 'keda', 'reloader', 'continuum'],
+  surge:    ['vpa', 'reloader', 'continuum'],
   silo:     ['seaweedfs', 'velero', 'harbor'],
   guardian: ['kyverno', 'openbao', 'external-secrets', 'cert-manager', 'falco', 'trivy', 'syft-grype', 'sigstore', 'keycloak'],
-  insights: ['grafana', 'opentelemetry', 'alloy', 'loki', 'mimir', 'tempo', 'opensearch'],
+  insights: ['grafana', 'opentelemetry', 'alloy', 'loki', 'mimir', 'tempo'],
   fabric:   [],
   cortex:   [],
   relay:    [],
@@ -506,7 +506,7 @@ export function getProfileDefaults(
 
   // FABRIC: data-heavy and regulated industries
   if (isFinancial || isHealthcare || isRetail || isLarge || comp.includes('gdpr')) {
-    defaults.fabric = ['cnpg', 'valkey', 'strimzi', 'debezium']
+    defaults.fabric = ['cnpg', 'valkey']
   }
 
   // CORTEX: AI/tech companies and large enterprises
