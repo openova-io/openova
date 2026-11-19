@@ -2550,9 +2550,9 @@ packages:
   after: [FND-059, FND-027, FND-028, FND-029, CLD-076, CLD-211, SEC-095, SEC-126, CMP-020]
   touches:
   - .github/workflows/release-key-resign.yaml
-  - scripts/release-key-resign.py
   - .github/workflows/tree-guards.yaml
   - docs/RUNBOOKS.md
+  - tools/guards/cmd/release-key-resign/**
   resources: []
   flips: []
   implements: []
@@ -4429,7 +4429,7 @@ packages:
   - docs/ledger/uat-row-map.csv
   - products/catalyst/bootstrap/ui/e2e/gate/**
   - .github/workflows/foundation-gate.yaml
-  - scripts/check-uat-row-map.py
+  - tools/guards/cmd/check-uat-row-map/**
   resources: []
   flips: []
   implements: []
@@ -16790,7 +16790,7 @@ packages:
   touches:
   - platform/network-policies/audit/flows.json
   - platform/network-policies/audit/README.md
-  - scripts/summarise-audit-flows.py
+  - tools/guards/cmd/summarise-audit-flows/**
   resources: []
   flips: []
   implements: []
@@ -22709,10 +22709,10 @@ packages:
   touches:
   - products/catalyst/bootstrap/api/internal/giteapr/**
   - core/controllers/organization/internal/iacbootstrap/bootstrap.go
-  - scripts/check-git-writers.py
   - scripts/baselines/git-writers.json
   - .github/workflows/check-git-writers.yaml
   - docs/ledger/deleted-paths.txt
+  - tools/guards/cmd/check-git-writers/**
   resources: []
   flips: []
   implements: []
@@ -23736,7 +23736,6 @@ packages:
   after: [FND-027, FND-029, FND-064, FND-151, FND-153, FND-154, FND-155, FND-207, CLD-030, CLD-067, CLD-076, SOV-175, SEC-010, SEC-126, NET-013, NET-020, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, SVC-160, CTL-039, CTL-040, CTL-151, CTL-320, CTL-345, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-051, INF-052, INF-133, INF-140, ACC-010]
   touches:
   - scripts/rebuild-from-git-drill.sh
-  - scripts/intent-snapshot.py
   - tests/acceptance/sovereign/**
   - docs/RUNBOOKS.md
   - tests/acceptance/sovereign/internal/suite/check_ctl_rebuild_from_git.go
@@ -24433,7 +24432,6 @@ packages:
   - platform/kyverno-policies/chart/model/**
   - platform/kyverno-policies/chart/templates/compliance-model.yaml
   - platform/kyverno-policies/chart/tests/model-render.sh
-  - scripts/check-compliance-model.py
   - scripts/baselines/policy-suites.json
   - scripts/baselines/policy-exemptions.json
   - products/catalyst/bootstrap/api/internal/k8scache/kinds.go
@@ -24442,6 +24440,7 @@ packages:
   - tests/acceptance/sovereign/internal/suite/check_compliance_model.go
   - docs/ledger/gates.yaml
   - scripts/run-policy-chart-tests.sh
+  - tools/guards/cmd/check-compliance-model/**
   resources: []
   flips: [CMP-G03]
   implements: []
@@ -25424,12 +25423,12 @@ packages:
   - platform/kyverno-policies/chart/model/frameworks/*.yaml
   - platform/kyverno-policies/chart/model/schema/framework.schema.json
   - platform/kyverno-policies/chart/templates/compliance-model.yaml
-  - scripts/check-compliance-model.py
   - platform/trivy/chart/values.yaml
   - products/catalyst/bootstrap/api/internal/compliance/frameworks.go
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
   - tests/acceptance/sovereign/internal/suite/check_frameworks.go
   - docs/ledger/gates.yaml
+  - tools/guards/cmd/check-compliance-model/**
   resources: []
   flips: [CMP-G20]
   implements: []
@@ -25488,12 +25487,12 @@ packages:
   - products/catalyst/bootstrap/api/internal/compliance/oscal.go
   - products/catalyst/bootstrap/api/internal/compliance/testdata/oscal/*.json
   - products/catalyst/bootstrap/api/internal/compliance/routes.go
-  - scripts/check-oscal-export.py
   - scripts/oscal/*.json
   - .github/workflows/policy-chart-tests.yaml
   - products/catalyst/bootstrap/ui/src/pages/sovereign/posture/FrameworkDetail.tsx
   - tests/acceptance/sovereign/internal/suite/check_oscal_export.go
   - docs/ledger/gates.yaml
+  - tools/guards/cmd/check-oscal-export/**
   resources: []
   flips: [CMP-G25]
   implements: []
@@ -26354,12 +26353,12 @@ packages:
   - core/controllers/pkg/offer/**
   - docs/contracts/commerce-offer.schema.json
   - docs/contracts/README.md
-  - scripts/check-commerce-offer.py
   - .github/workflows/bss-ratchets.yaml
   - core/controllers/organization/internal/gitops/manifests.go
   - core/controllers/organization/internal/gitops/manifests_test.go
   - core/controllers/organization/internal/gitops/testdata/plan-quota/**
   - scripts/baselines/bss.json
+  - tools/guards/cmd/check-commerce-offer/**
   resources: []
   flips: []
   implements: []
@@ -29375,7 +29374,7 @@ packages:
   after: [FND-011]
   touches:
   - products/agents-service-management/**
-  - scripts/agent-eval.py
+  - tools/guards/cmd/agent-eval/**
   resources: []
   flips: []
   implements: []
