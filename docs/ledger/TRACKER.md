@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T06:00:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-19T06:15:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7886](https://github.com/openova-io/openova/issues/7886) | SEC-095 Exception register, source guard and Secret census | Other |
 | [#7893](https://github.com/openova-io/openova/issues/7893) | a fresh two-region installation: the control-plane user data is 32,931 bytes, ov | Other |
 | [#7900](https://github.com/openova-io/openova/issues/7900) | a fresh two-region Sovereign: six defects of the hand-over chain (hook wait, pro | Other |
 | [#7901](https://github.com/openova-io/openova/issues/7901) | a fresh two-region Sovereign: bp-openbao's own network policies cut its server o | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8265](https://github.com/openova-io/openova/issues/8265) | INF-513 Runner test task: the ZAP baseline scan and its SARIF report (profile we | Other |
 | [#8270](https://github.com/openova-io/openova/issues/8270) | SVC-160 One generator, part 2: the seed becomes generated | Other |
 | [#8273](https://github.com/openova-io/openova/issues/8273) | SVC-161 The seed sync script is deleted with its three importers and four order  | Other |
+| [#8277](https://github.com/openova-io/openova/issues/8277) | SVC-162 Shelf deletion: README-only folders and scaffold Blueprint files | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-19T06:06 | [#8276](https://github.com/openova-io/openova/pull/8276) | #7087 | docs(ledger): plan update |
+| 2026-11-19T06:03 | [#8274](https://github.com/openova-io/openova/pull/8274) | #8247 | fix(gate): outside dials stay outside, and run without a can |
 | 2026-11-19T05:33 | [#8272](https://github.com/openova-io/openova/pull/8272) | #7087 | docs(ledger): plan update |
 | 2026-11-19T05:14 | [#8271](https://github.com/openova-io/openova/pull/8271) | #8270 | refactor(catalog): the catalogue seed is generated from the  |
 | 2026-11-19T04:43 | [#8269](https://github.com/openova-io/openova/pull/8269) | #7087 | docs(ledger): plan update |
@@ -321,6 +323,7 @@ flowchart LR
 | 2026-11-19T03:22 | [#8258](https://github.com/openova-io/openova/pull/8258) | #8254 | feat(machine-runner): the task test with its target check an |
 | 2026-11-19T02:28 | [#8255](https://github.com/openova-io/openova/pull/8255) | #7087 | docs(ledger): plan update |
 | 2026-11-19T02:23 | [#8253](https://github.com/openova-io/openova/pull/8253) | #7087 | docs(ledger): plan update |
+| 2026-11-19T06:13 | [#8252](https://github.com/openova-io/openova/pull/8252) | #8227 | fix(mesh): name a restarted mesh container and its cause in  |
 | 2026-11-19T01:43 | [#8250](https://github.com/openova-io/openova/pull/8250) | #7087 | docs(ledger): plan update |
 | 2026-11-19T01:24 | [#8249](https://github.com/openova-io/openova/pull/8249) | #7087 | docs(ledger): plan update |
 | 2026-11-19T02:16 | [#8248](https://github.com/openova-io/openova/pull/8248) | #8247 | ci: the gate runs its cluster work as a Job on the parent, s |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-18T23:42 | [#8237](https://github.com/openova-io/openova/pull/8237) | #7087 | docs(ledger): plan update |
 | 2026-11-18T23:51 | [#8236](https://github.com/openova-io/openova/pull/8236) | #8235 | fix(gate): judge a cloud check on the newest valid pair of r |
 | 2026-11-18T23:24 | [#8234](https://github.com/openova-io/openova/pull/8234) | #7087 | docs(ledger): plan update |
-| 2026-11-18T23:42 | [#8233](https://github.com/openova-io/openova/pull/8233) | #8232 | feat(chart): bp-catalyst-platform creates the conformance ac |
-| 2026-11-18T23:18 | [#8231](https://github.com/openova-io/openova/pull/8231) | #7087 | docs(ledger): plan update |
-| 2026-11-18T23:05 | [#8229](https://github.com/openova-io/openova/pull/8229) | #7087 | docs(ledger): plan update |
 
 ---
 
