@@ -13080,7 +13080,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-750, BSS-S1, AIP-030, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, NET-270, BSS-S1, AIP-030, INF-710, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-130.md
@@ -13113,7 +13113,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-750, BSS-S1, AIP-030, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, NET-270, BSS-S1, AIP-030, INF-710, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-135.md
@@ -13146,7 +13146,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-750, BSS-S1, AIP-030, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, NET-270, BSS-S1, AIP-030, INF-710, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-140.md
@@ -14536,7 +14536,7 @@ packages:
   size: S
   lane: SPIKE
   depends_on: [FND-061]
-  after: [FND-070, FND-079, SOV-148, SOV-750, BSS-S1, AIP-030, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, NET-270, BSS-S1, AIP-030, INF-710, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-271.md
@@ -14691,7 +14691,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-750, BSS-S1, AIP-030, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, NET-270, BSS-S1, AIP-030, INF-710, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-280.md
@@ -14846,7 +14846,7 @@ packages:
   size: S
   lane: SPIKE
   depends_on: [SEC-211]
-  after: [FND-070, FND-079, SOV-148, SOV-750, BSS-S1, AIP-030, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, NET-270, BSS-S1, AIP-030, INF-710, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-335.md
@@ -17689,7 +17689,6 @@ packages:
   depends_on: [CLD-055]
   after: []
   touches:
-  - docs/sessions/
   - docs/ledger/plan/spikes/NET-270.md
   resources: []
   flips: []
@@ -17701,16 +17700,16 @@ packages:
   acceptance:
   - id: A1
     run: "test -s docs/ledger/plan/spikes/NET-270.md && grep -q '^## Evidence' docs/ledger/plan/spikes/NET-270.md"
+  - id: A2
+    run: "sha256sum docs/ledger/plan/spikes/NET-270.md | cut -d' ' -f1 | grep -qx 4742830a89c9599fd2861384cc35cca2b93298108fb5ec369cbc9a88931db863"
   rollback: revert
   adr: null
   due: null
-  budget:
-    files: 5
-    lines: 800
+  budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Outcome ATTACHED, SECOND-TIER or NONE with commands and output
+  delivers: The repository holds the result of the spike that attached Coraza to the shipped Cilium Envoy, with outcome ATTACHED, the filter list of the image, the commands and their output from three CI runs, the measured fallback and what the firewall epic must do with it.
 - id: NET-280
   title: 'Spike: overlay profile'
   area: NET
@@ -31581,16 +31580,16 @@ packages:
   acceptance:
   - id: A1
     run: "test -s docs/ledger/plan/spikes/INF-710.md && grep -q '^## Evidence' docs/ledger/plan/spikes/INF-710.md"
+  - id: A2
+    run: "sha256sum docs/ledger/plan/spikes/INF-710.md | cut -d' ' -f1 | grep -qx 8f5cf32e7c6dd58d531324ae0238371a77b8f3d468f79b5792966fff2c300465"
   rollback: revert
   adr: null
   due: null
-  budget:
-    files: 5
-    lines: 800
+  budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Whether the service is deployed and callable, which families it protects, whether findings list by API, whether an agent is needed
+  delivers: The repository holds the result of the spike that probed the host security service of the operator-hosted stack, with its four answers, the measured calls behind them and what INF-720, INF-730 and INF-G09 must do with them.
 - id: INF-720
   title: Capability HostSecurity; engine native for scans; check INF-G09
   area: INF
