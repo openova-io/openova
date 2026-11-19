@@ -1,8 +1,7 @@
 {
-  "schema": "openova.io/guard-baseline/v2",
+  "schema": "openova.io/guard-baseline/v3",
   "python_files": 151,
   "python_file_lines": 51325,
   "embedded_lines": 12132,
-  "invoke_lines": 1279,
   "sovereign_places": 20
 }
