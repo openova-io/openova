@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T04:15:03Z` |
+| Last refreshed | `2026-11-19T04:30:09Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-19T04:23 | [#8267](https://github.com/openova-io/openova/pull/8267) | #7087 | docs(ledger): plan update |
 | 2026-11-19T04:14 | [#8263](https://github.com/openova-io/openova/pull/8263) | #7087 | docs(ledger): plan update |
 | 2026-11-19T04:05 | [#8262](https://github.com/openova-io/openova/pull/8262) | #8247 | fix(gate): the parent Job asks for what the parent can sched |
 | 2026-11-19T03:28 | [#8261](https://github.com/openova-io/openova/pull/8261) | #8247 | fix(gate): the parent Job's wait names why the scheduler has |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-18T22:51 | [#8222](https://github.com/openova-io/openova/pull/8222) | #7087 | docs(ledger): plan update |
 | 2026-11-19T00:09 | [#8221](https://github.com/openova-io/openova/pull/8221) | #7450 | fix(cloud-init): shred the bootstrap secret files, make the  |
 | 2026-11-18T22:39 | [#8220](https://github.com/openova-io/openova/pull/8220) | #7087 | docs(ledger): plan update |
-| 2026-11-18T22:46 | [#8219](https://github.com/openova-io/openova/pull/8219) | #8067 | feat(network): the Sovereign states its region separation an |
 
 ---
 
