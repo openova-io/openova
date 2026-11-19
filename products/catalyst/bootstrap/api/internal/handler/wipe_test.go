@@ -29,6 +29,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
 
@@ -244,6 +245,7 @@ func TestWipeDeployment_StillConvergingReturns409(t *testing.T) {
 		Status:    "phase1-watching",
 		StartedAt: time.Now().Add(-5 * time.Minute), // 5m old, well under 30m
 		Request: provisioner.Request{
+			Provider:            "hetzner",
 			SovereignFQDN:       "otech106.omani.works",
 			SovereignDomainMode: "pool",
 		},
@@ -322,6 +324,7 @@ func TestWipeDeployment_ForceFlagBypassesGuard(t *testing.T) {
 		Status:    "phase1-watching",
 		StartedAt: time.Now().Add(-5 * time.Minute),
 		Request: provisioner.Request{
+			Provider:            "hetzner",
 			SovereignFQDN:       "otech-force.omani.works",
 			SovereignDomainMode: "pool",
 		},
@@ -368,6 +371,7 @@ func TestWipeDeployment_MissingTokenIs400(t *testing.T) {
 		Status:    "phase1-watching",
 		StartedAt: time.Now().Add(-2 * time.Minute),
 		Request: provisioner.Request{
+			Provider:            "hetzner",
 			SovereignFQDN:       "otech-no-tok.omani.works",
 			SovereignDomainMode: "pool",
 		},
@@ -395,61 +399,42 @@ func TestWipeDeployment_UnknownDeploymentIs404(t *testing.T) {
 
 // ── issue #166 wire-shape + body-supplied S3 creds tests ────────────
 
-// TestWipeRequest_DecodesObjectStorageCredsFromBody — issue #166.
-// Confirms the wipeRequest struct deserialises the three new fields
-// the wizard MUST POST when re-prompting the operator for S3 creds
-// after a catalyst-api Pod restart. The fields are `omitempty` on
-// marshal so the dev-tools network tab stays small for the
-// common-case wipe-immediately-after-provision flow that doesn't need
-// them.
-func TestWipeRequest_DecodesObjectStorageCredsFromBody(t *testing.T) {
-	raw := `{
+// TestWipeBody_LegacyFieldsReachTheCredentials — issue #166. The wizard
+// re-prompts the operator for the token and the S3 creds after a Pod
+// restart and POSTs the legacy fields; they reach the credentials through
+// the Hetzner adapter's aliases (CLD-124 removes them), and the
+// credentials map of the body wins over a legacy field.
+func TestWipeBody_LegacyFieldsReachTheCredentials(t *testing.T) {
+	raw := []byte(`{
 		"hetznerToken": "fake-hetzner-token-1234567890",
 		"objectStorageAccessKey": "FAKEACCESSKEY1234567",
 		"objectStorageSecretKey": "FAKESECRETKEY1234567890123456789012345678",
-		"objectStorageRegion": "fsn1"
-	}`
-	var got wipeRequest
-	if err := json.Unmarshal([]byte(raw), &got); err != nil {
-		t.Fatalf("unmarshal: %v", err)
+		"objectStorageRegion": "fsn1",
+		"credentials": {"object_storage_region": "nbg1"}
+	}`)
+	var body wipeRequest
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &body) != nil || json.Unmarshal(raw, &fields) != nil {
+		t.Fatal("unmarshal")
 	}
-	if got.HetznerToken != "fake-hetzner-token-1234567890" {
-		t.Errorf("HetznerToken=%q, want fake-hetzner-token-1234567890", got.HetznerToken)
-	}
-	if got.ObjectStorageAccessKey != "FAKEACCESSKEY1234567" {
-		t.Errorf("ObjectStorageAccessKey=%q, want FAKEACCESSKEY1234567", got.ObjectStorageAccessKey)
-	}
-	if got.ObjectStorageSecretKey != "FAKESECRETKEY1234567890123456789012345678" {
-		t.Errorf("ObjectStorageSecretKey=%q, want FAKESECRETKEY...", got.ObjectStorageSecretKey)
-	}
-	if got.ObjectStorageRegion != "fsn1" {
-		t.Errorf("ObjectStorageRegion=%q, want fsn1", got.ObjectStorageRegion)
-	}
-}
-
-// TestWipeRequest_OmitsEmptyObjectStorageFieldsOnMarshal — wire-shape
-// hygiene. When the wizard sends a wipe WITHOUT re-prompting for S3
-// creds (e.g. immediately after a successful provision), the
-// outbound body must NOT carry empty objectStorageAccessKey="" /
-// SecretKey="" / Region="" fields — those would muddy the dev-tools
-// view and could trip a future strict-decoder. Verify the `,omitempty`
-// JSON tag actually drops them.
-func TestWipeRequest_OmitsEmptyObjectStorageFieldsOnMarshal(t *testing.T) {
-	req := wipeRequest{HetznerToken: "tok"}
-	raw, err := json.Marshal(req)
+	cp, err := providers.Get("hetzner")
 	if err != nil {
-		t.Fatalf("marshal: %v", err)
+		t.Fatal(err)
 	}
-	got := string(raw)
-	for _, field := range []string{"objectStorageAccessKey", "objectStorageSecretKey", "objectStorageRegion"} {
-		if bytes.Contains(raw, []byte(field)) {
-			t.Errorf("empty %s field leaked into marshalled body: %s", field, got)
+	got, legacy := deploymentCredentials(cp, "hetzner", body.Credentials, fields, provisioner.Request{}, "")
+	want := map[string]string{
+		"hcloud_token":              "fake-hetzner-token-1234567890",
+		"object_storage_access_key": "FAKEACCESSKEY1234567",
+		"object_storage_secret_key": "FAKESECRETKEY1234567890123456789012345678",
+		"object_storage_region":     "nbg1",
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s = %q, want %q", k, got[k], v)
 		}
 	}
-	// HetznerToken is NOT omitempty (it's a required field — the
-	// handler returns 400 when absent), so it must always appear.
-	if !bytes.Contains(raw, []byte(`"hetznerToken":"tok"`)) {
-		t.Errorf("hetznerToken missing from marshalled body: %s", got)
+	if !legacy {
+		t.Error("legacy = false, want true: a legacy field supplied a value")
 	}
 }
 
@@ -481,6 +466,7 @@ func TestWipeDeployment_BodyS3CredsBypassPodRestartScrub(t *testing.T) {
 		Status:    "failed", // terminal — guard allows wipe regardless of age
 		StartedAt: time.Now().Add(-10 * time.Minute),
 		Request: provisioner.Request{
+			Provider:            "hetzner",
 			SovereignFQDN:       "otech-restart.omani.works",
 			SovereignDomainMode: "pool",
 			// Critical: S3 creds are EMPTY here, simulating the
@@ -546,6 +532,7 @@ func TestWipeDeployment_NoS3CredsAnywhereSurfacesError(t *testing.T) {
 		Status:    "failed",
 		StartedAt: time.Now().Add(-10 * time.Minute),
 		Request: provisioner.Request{
+			Provider:            "hetzner",
 			SovereignFQDN:       "otech-no-s3.omani.works",
 			SovereignDomainMode: "pool",
 		},
@@ -610,6 +597,7 @@ func handedOverDeployment(id string) *Deployment {
 		Status:    "ready",
 		StartedAt: time.Now().Add(-2 * time.Hour),
 		Request: provisioner.Request{
+			Provider:            "hetzner",
 			SovereignFQDN:       "otech-handed.omani.works",
 			SovereignDomainMode: "pool",
 		},
@@ -690,7 +678,7 @@ func TestWipeDeployment_AdoptedWithoutConfirmIs412(t *testing.T) {
 		ID:        "dep-adopted-noconfirm",
 		Status:    "adopted",
 		StartedAt: time.Now().Add(-2 * time.Hour),
-		Request:   provisioner.Request{SovereignFQDN: "otech-adopted.omani.works"},
+		Request:   provisioner.Request{Provider: "hetzner", SovereignFQDN: "otech-adopted.omani.works"},
 		AdoptedAt: &at,
 	}
 	h.deployments.Store(dep.ID, dep)
@@ -718,6 +706,7 @@ func TestWipeDeployment_NeverHandedOverNeedsNoConfirm(t *testing.T) {
 		Status:    "failed",
 		StartedAt: time.Now().Add(-2 * time.Hour),
 		Request: provisioner.Request{
+			Provider:            "hetzner",
 			SovereignFQDN:       "otech-never.omani.works",
 			SovereignDomainMode: "pool",
 		},
@@ -743,7 +732,7 @@ func TestFireHandover_StampsHandoverCompletedAt(t *testing.T) {
 		StartedAt:  time.Now().Add(-2 * time.Hour),
 		eventsCh:   make(chan provisioner.Event, 256),
 		done:       make(chan struct{}),
-		Request:    provisioner.Request{SovereignFQDN: "otech-completes.omani.works"},
+		Request:    provisioner.Request{Provider: "hetzner", SovereignFQDN: "otech-completes.omani.works"},
 		Result:     &provisioner.Result{SovereignFQDN: "otech-completes.omani.works"},
 		OwnerEmail: "owner@completes.example.com",
 	}

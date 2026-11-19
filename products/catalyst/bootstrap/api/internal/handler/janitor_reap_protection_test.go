@@ -9,6 +9,9 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
 )
 
 // TestBuildActivePrefixes_ProtectsEveryNonWipedStatus — #4454 regression.
@@ -149,33 +152,35 @@ func TestBuildActivePrefixes_MergesExplicitAllowlist(t *testing.T) {
 	}
 }
 
-// TestDiscoverHuaweiCreds_EnvFallback — #4466 cred-source gap. After the
-// last wipe deletes its own tofu.auto.tfvars.json the tfvars walk finds
-// nothing; the sweep must still run by falling back to the
-// huawei-operator-creds Secret env. With an EMPTY tofu dir + the env set,
-// discovery must succeed.
-func TestDiscoverHuaweiCreds_EnvFallback(t *testing.T) {
-	emptyTofu := t.TempDir() // no per-deployment tfvars at all (post-wipe)
+// TestSweepCredentials_EnvFallback — #4466 cred-source gap. After the last
+// wipe deletes its own tofu.auto.tfvars.json no record of the provider is
+// left; the sweep must still run under the operator's configuration (the
+// huawei-operator-creds Secret env). The region is not defaulted here: the
+// adapter defaults its own.
+func TestSweepCredentials_EnvFallback(t *testing.T) {
 	t.Setenv("CATALYST_HUAWEI_ACCESS_KEY", "ak-env")
 	t.Setenv("CATALYST_HUAWEI_SECRET_KEY", "sk-env")
 	t.Setenv("CATALYST_HUAWEI_PROJECT_ID", "proj-env")
 	t.Setenv("CATALYST_HUAWEI_REGION", "")
+	h := &Handler{log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	cp, _ := providers.Get("huawei")
 
-	c, ok := discoverHuaweiCreds(emptyTofu)
+	c, ok := h.sweepCredentials(cp, "huawei", t.TempDir())
 	if !ok {
-		t.Fatal("post-wipe sweep must fall back to huawei-operator-creds env when no tfvars survive — got ok=false (the 'no huawei deployments' short-circuit that strands orphans)")
+		t.Fatal("post-wipe sweep must fall back to the operator env when no record is left — got ok=false (the short-circuit that strands orphans)")
 	}
-	if c.AK != "ak-env" || c.SK != "sk-env" || c.ProjectID != "proj-env" {
-		t.Fatalf("env-fallback creds wrong: %+v", c)
+	if c["access_key"] != "ak-env" || c["secret_key"] != "sk-env" || c["project_id"] != "proj-env" {
+		t.Fatalf("env-fallback creds wrong: %v", c)
 	}
-	if c.Region != "me-east-215" {
-		t.Fatalf("empty region must default to me-east-215, got %q", c.Region)
+	if c["region"] != "" {
+		t.Fatalf("the handler defaulted the region to %q; the adapter owns the default", c["region"])
 	}
 }
 
-// TestDiscoverHuaweiCreds_TfvarsWins — when a per-deployment tfvars DOES
-// carry creds it is used in preference to the env (the normal path).
-func TestDiscoverHuaweiCreds_TfvarsWins(t *testing.T) {
+// TestSweepCredentials_TfvarsWins — a record of the provider whose
+// per-deployment variables file carries credentials is used in preference
+// to the env (the normal path).
+func TestSweepCredentials_TfvarsWins(t *testing.T) {
 	dir := t.TempDir()
 	depDir := filepath.Join(dir, "dep1")
 	if err := os.MkdirAll(depDir, 0o755); err != nil {
@@ -186,21 +191,26 @@ func TestDiscoverHuaweiCreds_TfvarsWins(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("CATALYST_HUAWEI_ACCESS_KEY", "ak-env-should-not-win")
+	h := &Handler{log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	h.deployments.Store("dep1", &Deployment{ID: "dep1", Status: "ready", Request: provisioner.Request{Provider: "huawei"}})
+	cp, _ := providers.Get("huawei")
 
-	c, ok := discoverHuaweiCreds(dir)
-	if !ok || c.AK != "ak-tfvars" {
-		t.Fatalf("tfvars creds must win over env: ok=%v ak=%q", ok, c.AK)
+	c, ok := h.sweepCredentials(cp, "huawei", dir)
+	if !ok || c["access_key"] != "ak-tfvars" || c["region"] != "me-east-215" {
+		t.Fatalf("tfvars creds must win over env: ok=%v creds=%v", ok, c)
 	}
 }
 
-// TestDiscoverHuaweiCreds_NoneAvailable — both sources empty → ok=false (a
-// genuine no-Huawei mothership; the sweep correctly no-ops).
-func TestDiscoverHuaweiCreds_NoneAvailable(t *testing.T) {
+// TestSweepCredentials_NoneAvailable — no record and no env → ok=false (a
+// mothership without that provider; the sweep correctly no-ops).
+func TestSweepCredentials_NoneAvailable(t *testing.T) {
 	t.Setenv("CATALYST_HUAWEI_ACCESS_KEY", "")
 	t.Setenv("CATALYST_HUAWEI_SECRET_KEY", "")
 	t.Setenv("CATALYST_HUAWEI_PROJECT_ID", "")
-	if _, ok := discoverHuaweiCreds(t.TempDir()); ok {
-		t.Fatal("with neither tfvars nor env creds, discovery must report ok=false")
+	h := &Handler{log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	cp, _ := providers.Get("huawei")
+	if _, ok := h.sweepCredentials(cp, "huawei", t.TempDir()); ok {
+		t.Fatal("with neither a record nor env creds, discovery must report ok=false")
 	}
 }
 
@@ -264,7 +274,7 @@ func makeFailedReapFixture(t *testing.T, id, status string) *failedReapFixture {
 	})
 	// Keep the pass's cloud sweeps + cred discovery inert: no tfvars in the
 	// workdir (only a bare tfstate marker) and no operator-env creds, so
-	// discoverHuaweiCreds reports ok=false and no sweep ever dials out.
+	// sweepCredentials reports ok=false and no sweep ever dials out.
 	t.Setenv("CATALYST_HUAWEI_ACCESS_KEY", "")
 	t.Setenv("CATALYST_HUAWEI_SECRET_KEY", "")
 	t.Setenv("CATALYST_HUAWEI_PROJECT_ID", "")

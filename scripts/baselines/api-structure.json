@@ -175,14 +175,13 @@
       "products/catalyst/bootstrap/api/internal/handler/user_access_owner_seed.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/version.go": 1,
       "products/catalyst/bootstrap/api/internal/handler/wipe.go": 1,
-      "products/catalyst/bootstrap/api/internal/handler/wipe_drain.go": 1,
-      "products/catalyst/bootstrap/api/internal/handler/wipe_evs_backstop.go": 1
+      "products/catalyst/bootstrap/api/internal/handler/wipe_drain.go": 1
     },
     "handler_lines": {
-      "products/catalyst/bootstrap/api/internal/handler": 96661
+      "products/catalyst/bootstrap/api/internal/handler": 96032
     },
     "handler_methods": {
-      "products/catalyst/bootstrap/api/internal/handler": 625
+      "products/catalyst/bootstrap/api/internal/handler": 619
     },
     "main_lines": {
       "products/catalyst/bootstrap/api/cmd/api/main.go": 926
