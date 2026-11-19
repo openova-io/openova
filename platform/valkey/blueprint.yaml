@@ -38,50 +38,6 @@ spec:
     # What a Context produces (consumer-visible outputs).
     produces:
       - credentialSecret
-  configSchema:
-    type: object
-    properties:
-      architecture:
-        type: string
-        enum: [standalone, replication]
-        default: replication
-        description: |
-          Standalone (single primary, no replicas) or replication (one
-          primary + N replicas). Solo Sovereigns use replication with
-          replicaCount: 0 to keep the StatefulSet shape stable while
-          paying for only one pod.
-      auth:
-        type: object
-        properties:
-          enabled:
-            type: boolean
-            default: false
-            description: |
-              Enforce password auth on the Valkey wire protocol.
-              Default false (TBD-V12 #2003) — matches bp-newapi's
-              passwordless REDIS_CONN_STRING contract; flipping true
-              requires every consumer chart (bp-newapi, catalyst
-              org-services, projector) to wire the bp-valkey-
-              generated password into their connection strings.
-      metrics:
-        type: object
-        properties:
-          enabled:
-            type: boolean
-            default: false
-            description: |
-              Sidecar Prometheus exporter (redis-exporter) on each pod.
-              Cluster overlays flip true once kube-prometheus-stack
-              reconciles (issue #182).
-          serviceMonitor:
-            type: object
-            properties:
-              enabled:
-                type: boolean
-                default: false
-                description: |
-                  monitoring.coreos.com/v1 ServiceMonitor — requires the
-                  Prometheus Operator CRDs from kube-prometheus-stack.
   placementSchema:
     modes: [single-region]
     default: single-region

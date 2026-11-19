@@ -41,187 +41,30 @@ spec:
     contact: catalyst@openova.io
   configSchema:
     type: object
-    # #4936: orgDomain + adminUser are NOT customer-required. Neither the
-    # console 'New instance' dialog nor the marketplace funnel collects them,
-    # so requiring them failed Application admission
+    # #4936: orgDomain + adminUser are NOT customer-required. The console
+    # 'New instance' dialog + marketplace funnel collect neither, so
+    # requiring them failed Application admission
     # (`missing properties: 'orgDomain','adminUser'`). The Organization
-    # controller DERIVES both from Org context — orgDomain from the Org's
-    # domain, adminUser.email from the Org owner identity — and injects them
-    # into the Application config before render (organization_gitops.go /
-    # the application-controller). They remain accepted here (with their
-    # own nested validation) for operator overlays that DO set them.
-    required: [oidc]
+    # controller DERIVES both from Org context (orgDomain from the Org
+    # domain, adminUser.email from the Org owner) and injects them into the
+    # Application config before render — a customer never types them. They
+    # stay accepted (with nested validation) for explicit operator overlays.
     properties:
       orgDomain:
         type: string
-        description: |
-          The Organization tenant's domain (e.g. `acme.<otech-fqdn>` for free-
-          subdomain tenants, or `acme.com` for BYO). Used to derive the
-          default ingress host as `wordpress.<orgDomain>`. #4936: DERIVED by
-          the Organization controller from Org context — customers never type
-          it. Operator overlays MAY still set it explicitly.
+        description: "Organization domain (e.g. acme.<sov-fqdn>)."
       replicas:
         type: integer
         default: 1
         minimum: 1
         maximum: 8
-      oidc:
-        type: object
-        required: [issuerURL, clientSecretName]
-        properties:
-          enabled:
-            type: boolean
-            default: true
-            description: Master toggle — when false the post-install Job is rendered but short-circuits.
-          issuerURL:
-            type: string
-            description: |
-              Discovery URL of the per-tenant Keycloak realm. Example:
-              `https://keycloak.<org-domain>/realms/org-<subdomain>`.
-              The openid-connect-generic plugin uses this to derive the
-              token / userinfo / authorization / end-session endpoints.
-          clientId:
-            type: string
-            default: wordpress
-            description: OIDC client ID registered in the per-tenant realm.
-          clientSecretName:
-            type: string
-            default: wordpress-oidc-client-secret
-            description: |
-              K8s Secret carrying the OIDC client secret (key
-              `client-secret`). Provisioned by the bp-keycloak chart
-              (PR #918) at the same time as the realm import.
-          defaultRole:
-            type: string
-            default: subscriber
-            description: |
-              WordPress role assigned to a brand-new SSO user when
-              `create_if_does_not_exist=1`. Set to empty string to
-              create SSO users with no role.
-          identityKey:
-            type: string
-            default: preferred_username
-            description: Keycloak claim used to match id_token back to a WP user.
-      keycloak:
-        type: object
-        description: |
-          DEPRECATED — preserved as a backward-compat alias for chart
-          0.1.x clusters whose orchestrator overlays still emit
-          `keycloak.{realmURL,clientID,clientSecretName}`. New overlays
-          MUST emit `oidc.*`. Folded into oidc.* by _helpers.tpl when
-          oidc.* is at its values.yaml defaults.
-        properties:
-          realmURL:
-            type: string
-          clientID:
-            type: string
-          clientSecretName:
-            type: string
-      database:
-        type: object
-        properties:
-          cnpgClusterName:
-            type: string
-            default: wordpress-db
-            description: |
-              Name of the `Cluster.postgresql.cnpg.io` provisioned for
-              this WordPress instance (single-region). Under a multi-region
-              `openova.topology` it is the BASE of the per-region name
-              `<cnpgClusterName>-<sha256(region-id)[0:8]>`.
-          topology:
-            type: object
-            description: |
-              Multi-region DB knobs, read only when `openova.topology.mode` is
-              active-passive / active-hot-standby (ADR-0015 D2): clusterNames
-              (region-id → name migration overrides), promotionToken (CNPG
-              demotion token for a planned primary move), promotion.mechanism
-              (#5623, REQUIRED: continuum | manual), clusterMesh, replication (ADR-0004
-              sync default), sharedSecrets (replication CA + DB owner
-              credentials identical in every region).
-      openova:
-        type: object
-        properties:
-          topology:
-            type: object
-            description: |
-              THE placement contract (ADR-0015 D2), written per region by the
-              orchestrator: {mode: singleton|active-passive|active-hot-standby,
-              self: <region-id>, primary: <region-id>, peers: [<region-id>]}.
-              Empty ⇒ single-region. active-active is refused (single-writer).
-            properties:
-              mode:
-                type: string
-                enum: [singleton, active-passive, active-hot-standby]
-              self:
-                type: string
-              primary:
-                type: string
-              peers:
-                type: array
-                items:
-                  type: string
       adminUser:
         type: object
         required: [email]
         properties:
           email:
             type: string
-            description: |
-              Email of the Organization admin (must match the `email` claim
-              Keycloak issues). The admin-user Job pre-seeds a wp_user
-              row with this email and the administrator role.
-          displayName:
-            type: string
-            description: Display name shown in the WP admin bar. Defaults to the local-part of the email.
-      defaultTheme:
-        type: string
-        default: twentytwentyfive
-        description: WordPress theme slug installed + activated at first install.
-      persistence:
-        type: object
-        properties:
-          wpContent:
-            type: object
-            properties:
-              size:
-                type: string
-                default: 10Gi
-              storageClass:
-                # #3971 / #4139 — empty ⇒ omit storageClassName ⇒ bind to the
-                # cluster-default durable cloud CSI. local-path is FORBIDDEN by
-                # the forbid-local-path-storage Kyverno ENFORCE policy (ephemeral
-                # node-local disk). Matches the chart values.yaml default ("").
-                type: string
-                default: ""
-      gateway:
-        # #3785 — the canonical Sovereign exposure: a Cilium Gateway API
-        # HTTPRoute on cilium-gateway-console (the per-Org pool host serves
-        # the WordPress site over the `*.<pool>` wildcard TLS listener). The
-        # org-tenant overlay wires gateway.host from the chosen public host.
-        type: object
-        properties:
-          host:
-            type: string
-            description: >-
-              Public host the WordPress site serves at, e.g.
-              `wordpress.<slug>.<pool>`. REQUIRED to expose the app — empty
-              renders no HTTPRoute (fails closed).
-      ingress:
-        # Legacy traefik Ingress — DEFAULT OFF on a Sovereign (Cilium Gateway
-        # API via `gateway` above is canonical). Retained for non-Cilium dev
-        # clusters only.
-        type: object
-        properties:
-          host:
-            type: string
-            description: Override the derived `wordpress.<orgDomain>` ingress host (traefik dev clusters only).
-          tls:
-            type: object
-            properties:
-              issuer:
-                type: string
-                default: letsencrypt-prod
-                description: cert-manager ClusterIssuer name.
+            description: "Admin email (must match Keycloak realm email claim)."
   # placementSchema aligned with spec.topology below (#4212 Seam 4). The
   # application-controller derives the effective placement from
   # default / defaultOnMultiRegion (EffectiveDefault) and validates it

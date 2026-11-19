@@ -168,85 +168,41 @@ spec:
 
   configSchema:
     type: object
-    required:
-      - primary
-      - replica
-      - image
+    required: [primary, replica, image]
     properties:
-      side:
-        type: string
-        enum: [primary, replica, secondary]
-        default: primary
-        description: |
-          WHICH HALF of the pair this install renders (chart 0.2.0
-          split-side topology). A 2-region Sovereign is two SEPARATE
-          clusters joined by Cilium ClusterMesh, so each cluster
-          applies the same chart and renders exactly its own half:
-          `primary` → primary Cluster CR + mesh Service + audit-config
-          (region A); `replica` → replica Cluster CR + failover-
-          readiness probe (region B). `secondary` is accepted as an
-          alias for `replica` so the bootstrap-kit slot can substitute
-          the per-region SOVEREIGN_REGION_ROLE value verbatim.
       primary:
         type: object
         required: [region]
         properties:
           region:
             type: string
-            enum:
-              - hz-fsn-rtz-prod
-              - hz-hel-rtz-prod
-              - hz-nbg-mgt-prod
-            description: |
-              Hetzner region key for the primary CNPG Cluster.
-              MUST differ from `replica.region`. Matches the
-              `openova.io/region` label on data-plane nodes.
+            description: "Region key for the primary CNPG Cluster (e.g. hz-fsn-rtz-prod). Must differ from replica.region."
           instances:
             type: integer
+            default: 3
             minimum: 3
             maximum: 5
-            default: 3
-            description: |
-              Number of CNPG instances in the primary region.
-              CNPG operator places one Pod per node via anti-
-              affinity; minimum 3 for HA quorum.
           storage:
             type: object
             properties:
               size:
                 type: string
                 default: "100Gi"
-                description: |
-                  Per-instance PVC size. Use Kubernetes resource
-                  quantities (e.g. "100Gi", "1Ti").
               storageClass:
                 type: string
-                default: ""
-                description: |
-                  StorageClass for the primary's PVCs. H6's
-                  bp-hcloud-csi provides `hcloud-volumes` on every
-                  Hetzner Sovereign.
+                default: hcloud-volumes
       replica:
         type: object
         required: [region]
         properties:
           region:
             type: string
-            enum:
-              - hz-fsn-rtz-prod
-              - hz-hel-rtz-prod
-              - hz-nbg-mgt-prod
-            description: |
-              Hetzner region for the replica. MUST differ from
-              `primary.region` — UI install-flow validates this
-              before submitting the Application CR; the chart's
-              _helpers.tpl `cnpg-pair.validateRegions` re-asserts
-              at template-render time.
+            description: "Region key for the replica CNPG Cluster. Must differ from primary.region."
           instances:
             type: integer
+            default: 3
             minimum: 3
             maximum: 5
-            default: 3
           storage:
             type: object
             properties:
@@ -255,90 +211,31 @@ spec:
                 default: "100Gi"
               storageClass:
                 type: string
-                default: ""
+                default: hcloud-volumes
       walStreaming:
         type: object
         properties:
           targetLagSeconds:
             type: integer
+            default: 30
             minimum: 1
             maximum: 600
-            default: 30
-            description: |
-              Replica becomes promotable when WAL replay lag drops
-              below this threshold (seconds). Continuum K-Cont-2
-              gates switchover on the failover-readiness Pod's
-              Ready condition, which derives from this threshold.
           timeoutSeconds:
             type: integer
+            default: 60
             minimum: 5
             maximum: 600
-            default: 60
       clusterMesh:
         type: object
         properties:
           enabled:
             type: boolean
             default: true
-            description: |
-              When true (DEFAULT, REQUIRED for production), the
-              replication Service carries the
-              `service.cilium.io/global: "true"` annotation so
-              Cilium ClusterMesh exposes it cross-region.
-              Disabling this is FORENSIC ONLY — replication
-              traffic over public TLS is NOT supported per
-              ADR-0001 §9.
+            description: "Cilium ClusterMesh transport for WAL. Disabling is FORENSIC ONLY — public-TLS replication is unsupported per ADR-0001 §9."
           affinity:
             type: string
-            enum: [local, remote, none]
             default: local
-            description: |
-              ClusterMesh affinity hint. `local` (DEFAULT) keeps
-              the primary region's reads inside the region and
-              falls through to the replica region only when no
-              local primary backend exists.
-      replication:
-        type: object
-        properties:
-          mode:
-            type: string
-            enum: [sync, async]
-            default: sync
-            description: |
-              Replication MODE.
-
-              `sync` (DEFAULT, canonical for Pillar 3 zero-tx-loss):
-              configures the primary CNPG Cluster CR with
-              `synchronous_commit = remote_apply` and
-              `synchronous_standby_names = FIRST 1 (<replica>)`.
-              COMMIT on the primary blocks until the replica has
-              replayed the WAL. This is the bar required for
-              region-kill failover with zero transactions lost.
-
-              `async` (forensic/lab only): leaves the primary at
-              PostgreSQL's default async streaming. In-flight
-              transactions at primary-kill time are LOST.
-              Production deployments MUST use `sync`.
-          sync:
-            type: object
-            properties:
-              commit:
-                type: string
-                enum: [on, remote_write, remote_apply]
-                default: remote_apply
-                description: |
-                  PostgreSQL `synchronous_commit` level (strongest
-                  durability = `remote_apply`: replica must have
-                  REPLAYED the WAL before COMMIT returns).
-              numSync:
-                type: integer
-                minimum: 1
-                maximum: 3
-                default: 1
-                description: |
-                  Number of synchronous standbys required to ACK
-                  COMMIT. For a 2-region pair (primary + 1 replica)
-                  the canonical value is 1.
+            description: "ClusterMesh affinity hint (local|remote|none)."
       image:
         type: object
         required: [tag]
@@ -346,15 +243,9 @@ spec:
           repository:
             type: string
             default: ghcr.io/cloudnative-pg/postgresql
-            description: |
-              CNPG postgres image. Per Inviolable Principle #4a
-              cluster overlays SHOULD pin to a digest in production.
           tag:
             type: string
-            description: |
-              REQUIRED — empty triggers a template-time fail-fast.
-              Example: `16.3-23` (versioned) or
-              `sha256:<digest>` (digest, recommended).
+            description: "REQUIRED — empty triggers a template-time fail-fast. Example: '16.3-23' or 'sha256:<digest>'."
 
   placementSchema:
     modes: [active-hot-standby]

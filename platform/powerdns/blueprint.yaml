@@ -13,31 +13,6 @@ spec:
     summary: Authoritative DNS for every Sovereign zone — per-zone DNSSEC, lua-records for geo + health-checked failover, dnsdist rate-limiting. See docs/MULTI-REGION-DNS.md.
     icon: powerdns.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
-  configSchema:
-    type: object
-    properties:
-      replicaCount:
-        type: integer
-        default: 3
-        description: PowerDNS Authoritative replicas. Each connects to the same CNPG database.
-      dnssec:
-        type: boolean
-        default: true
-        description: |
-          DNSSEC ON (ECDSAP256SHA256) per #167 acceptance. Off requires explicit
-          override in cluster overlay AND a documented exception.
-      luaRecords:
-        type: boolean
-        default: true
-        description: PowerDNS Lua records — geo + health-checked failover. See docs/MULTI-REGION-DNS.md.
-      dnsdistEnabled:
-        type: boolean
-        default: true
-        description: Companion dnsdist for query rate-limiting (default 100 qps per source IP).
-      qpsPerSource:
-        type: integer
-        default: 100
-        description: dnsdist MaxQPSIPRule threshold per source IP.
   placementSchema:
     modes: [single-region]
     default: single-region

@@ -13,9 +13,6 @@ spec:
     summary: Kubernetes Gateway API CRDs (GatewayClass/Gateway/HTTPRoute) — the north-south traffic contract every Sovereign endpoint is exposed through via Cilium.
     icon: gateway-api.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
-  configSchema:
-    type: object
-    properties: {}
   placementSchema:
     modes: [single-region]
     default: single-region

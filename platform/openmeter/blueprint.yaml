@@ -20,56 +20,6 @@ spec:
   owner:
     team: platform
     contact: platform@openova.io
-  configSchema:
-    type: object
-    properties:
-      backend:
-        type: object
-        description: |
-          Aggregation backend selector. Catalyst defaults to `cnpg` —
-          the ClickHouse-less profile (CNPG materialized views + a
-          JetStream subject for raw events) per
-          docs/BOOTSTRAP-KIT-EXPANSION-PLAN.md §6.4. Re-roll with
-          `clickhouse` once a host cluster adds bp-clickhouse.
-        properties:
-          kind:
-            type: string
-            enum: [cnpg, clickhouse]
-            default: cnpg
-            description: |
-              `cnpg` (default): aggregate via CNPG materialized views,
-              raw events on a JetStream subject. `clickhouse`: route
-              aggregation to an external ClickHouse cluster supplied
-              by bp-clickhouse.
-      eventBus:
-        type: object
-        properties:
-          kind:
-            type: string
-            enum: [jetstream, kafka]
-            default: jetstream
-            description: |
-              Catalyst defaults to NATS JetStream (bp-nats-jetstream).
-              The upstream OpenMeter binary speaks Kafka natively;
-              Catalyst routes via the OpenTelemetry Collector or the
-              JetStream→Kafka shim documented at
-              docs/PLATFORM-TECH-STACK.md §4.8.
-      replicas:
-        type: integer
-        default: 1
-        minimum: 1
-        maximum: 10
-      serviceMonitor:
-        type: object
-        properties:
-          enabled:
-            type: boolean
-            default: false
-            description: |
-              monitoring.coreos.com/v1 ServiceMonitor — requires the
-              Prometheus Operator CRDs from kube-prometheus-stack.
-              Per docs/BLUEPRINT-AUTHORING.md §11.2 default false;
-              operator opts in via per-cluster overlay (issue #182).
   placementSchema:
     modes: [single-region]
     default: single-region

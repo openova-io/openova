@@ -13,27 +13,6 @@ spec:
     summary: Kubernetes Cluster Autoscaler with the Hetzner Cloud provider — scales worker node pools up/down to match scheduled-Pod demand on hcloud-backed Sovereigns.
     icon: cluster-autoscaler.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
-  configSchema:
-    type: object
-    properties:
-      minWorkers:
-        type: integer
-        default: 2
-        minimum: 0
-        maximum: 100
-        description: Minimum number of worker nodes the autoscaler will keep online. Tofu Phase 0 provisions exactly this many — the autoscaler never scales BELOW this count.
-      maxWorkers:
-        type: integer
-        default: 10
-        minimum: 1
-        maximum: 100
-        description: Maximum number of worker nodes the autoscaler may add to the project. Caps blast radius for runaway scale-ups.
-      scaleDownIdleMinutes:
-        type: integer
-        default: 10
-        minimum: 1
-        maximum: 60
-        description: Minutes a worker must remain underutilised before the autoscaler removes it. Cost-saving default.
   placementSchema:
     modes: [single-region]
     default: single-region

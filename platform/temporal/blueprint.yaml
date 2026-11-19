@@ -20,28 +20,9 @@ spec:
   configSchema:
     type: object
     properties:
-      web:
-        type: object
-        properties:
-          enabled:
-            type: boolean
-            default: true
-            description: Enable the Temporal Web UI.
-      auth:
-        type: object
-        properties:
-          enabled:
-            type: boolean
-            default: false
-            description: Enable Keycloak OIDC integration via `--auth-claim-mapper`. Operator opt-in once bp-keycloak is reconciled and a realm/client exists.
-      persistence:
-        type: object
-        properties:
-          mode:
-            type: string
-            enum: [embedded, external]
-            default: external
-            description: external = Catalyst-curated CNPG Cluster (recommended); embedded = chart-bundled bitnami postgresql (dev only).
+      historyShards:
+        type: integer
+        default: 512
   placementSchema:
     modes: [single-region]
     default: single-region

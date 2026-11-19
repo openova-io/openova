@@ -20,33 +20,6 @@ spec:
   owner:
     team: ai-platform
     contact: ai-platform@openova.io
-  configSchema:
-    type: object
-    properties:
-      embeddingModel:
-        type: string
-        default: "BAAI/bge-small-en-v1.5"
-        description: HuggingFace model ID for the embeddings endpoint.
-      rerankerModel:
-        type: string
-        default: "BAAI/bge-reranker-base"
-        description: HuggingFace model ID for the reranker endpoint.
-      enableReranker:
-        type: boolean
-        default: true
-        description: Whether to start the reranker container alongside embeddings.
-      replicas:
-        type: integer
-        default: 1
-        minimum: 1
-        maximum: 8
-      maxBatchSize:
-        type: integer
-        default: 32
-      maxLength:
-        type: integer
-        default: 512
-        description: Token cap per request (bge-small-en-v1.5 supports 512; bge-m3 supports 8192).
   placementSchema:
     modes: [single-region]
     default: single-region

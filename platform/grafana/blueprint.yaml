@@ -77,6 +77,18 @@ spec:
     groupsClaim: groups
     silentLogin: true
 
+  configSchema:
+    type: object
+    properties:
+      adminUser:
+        type: string
+        default: admin
+      persistence:
+        type: object
+        properties:
+          size:
+            type: string
+            default: 10Gi
   placementSchema:
     modes: [single-region]
     default: single-region

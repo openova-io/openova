@@ -23,6 +23,16 @@ spec:
     docs: https://www.keycloak.org/documentation
   visibility: listed
 
+  configSchema:
+    type: object
+    required: [realmName]
+    properties:
+      realmName:
+        type: string
+        description: "Keycloak realm name (e.g. org-<orgslug>)."
+      adminUser:
+        type: string
+        default: admin
   # placementSchema aligned with spec.topology below (#4212 Seam 3). The
   # spine Application-CR producer stamps active-hot-standby on a multi-region
   # Sovereign (matching topology.defaults.multi-region) — modes[] must admit
