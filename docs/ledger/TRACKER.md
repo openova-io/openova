@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T02:00:03Z` |
+| Last refreshed | `2026-11-19T02:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -313,6 +313,7 @@ flowchart LR
 | 2026-11-19T01:43 | [#8245](https://github.com/openova-io/openova/pull/8245) | #8244 | refactor(api): the wipe and the janitor reach the cloud thro |
 | 2026-11-19T00:37 | [#8243](https://github.com/openova-io/openova/pull/8243) | #7087 | docs(ledger): plan update |
 | 2026-11-19T00:58 | [#8242](https://github.com/openova-io/openova/pull/8242) | #8230 | fix(self-sovereign-cutover): the deny-egress hold keeps the  |
+| 2026-11-19T02:06 | [#8241](https://github.com/openova-io/openova/pull/8241) | #8226 | refactor(catalog): the Blueprint files carry the seed values |
 | 2026-11-18T23:51 | [#8240](https://github.com/openova-io/openova/pull/8240) | #8238 | docs(ledger): result of the operator action FND-079 (FND-079 |
 | 2026-11-18T23:49 | [#8239](https://github.com/openova-io/openova/pull/8239) | #7087 | docs(ledger): plan update |
 | 2026-11-18T23:42 | [#8237](https://github.com/openova-io/openova/pull/8237) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-18T20:52 | [#8208](https://github.com/openova-io/openova/pull/8208) | #7087 | docs(ledger): plan update |
 | 2026-11-18T22:16 | [#8207](https://github.com/openova-io/openova/pull/8207) | #7798 | refactor(cilium): the API host and the native-routing range  |
 | 2026-11-18T20:42 | [#8206](https://github.com/openova-io/openova/pull/8206) | #7087 | docs(ledger): plan update |
-| 2026-11-18T20:34 | [#8205](https://github.com/openova-io/openova/pull/8205) | #8204 | test(gate): check NET-G07 proves the Organization fence with |
 
 ---
 
