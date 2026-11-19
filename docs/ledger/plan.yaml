@@ -13043,7 +13043,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-750, AIP-030, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, BSS-S1, AIP-030, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-130.md
@@ -13076,7 +13076,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-750, AIP-030, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, BSS-S1, AIP-030, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-135.md
@@ -13109,7 +13109,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-750, AIP-030, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, BSS-S1, AIP-030, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-140.md
@@ -14499,7 +14499,7 @@ packages:
   size: S
   lane: SPIKE
   depends_on: [FND-061]
-  after: [FND-070, FND-079, SOV-148, SOV-750, AIP-030, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, BSS-S1, AIP-030, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-271.md
@@ -14654,7 +14654,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-750, AIP-030, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, BSS-S1, AIP-030, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-280.md
@@ -14809,7 +14809,7 @@ packages:
   size: S
   lane: SPIKE
   depends_on: [SEC-211]
-  after: [FND-070, FND-079, SOV-148, SOV-750, AIP-030, MIG-030]
+  after: [FND-070, FND-079, SOV-148, SOV-750, BSS-S1, AIP-030, MIG-030]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-335.md
@@ -27080,16 +27080,16 @@ packages:
   acceptance:
   - id: A1
     run: "test -s docs/ledger/plan/spikes/BSS-S1.md && grep -q '^## Evidence' docs/ledger/plan/spikes/BSS-S1.md"
+  - id: A2
+    run: "sha256sum docs/ledger/plan/spikes/BSS-S1.md | cut -d' ' -f1 | grep -qx c47d9f293b177286c641e0b2a2489b49397cf1bc9e47eac0b4312ac580928305"
   rollback: revert
   adr: null
   due: null
-  budget:
-    files: 5
-    lines: 800
+  budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Result record with the exact calls for (a) storefront customer sign-in, (b) engine API with sovereign scope, (c) measured price lists before and after the first Organization
+  delivers: The repository holds the measured result of the spike on storefront sign-in by the acceptance suite, the suite's access to the billing engine's API with the sovereign scope, and the price lists a fresh Sovereign shows before and after its first Organization, with what the later billing packages must do with it.
 - id: BSS-S2
   title: 'Spike: does the operator-hosted cloud export a FOCUS cost file'
   area: BSS
