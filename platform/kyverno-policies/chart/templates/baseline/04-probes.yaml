@@ -51,6 +51,21 @@ spec:
                 {{- range $ns := .Values.compliancePolicies.probesPresent.excludeNamespaces }}
                 - {{ $ns }}
                 {{- end }}
+      {{- /*
+        A probe requirement judges what a workload declares when it is created
+        or changed; it cannot judge its removal. Kyverno evaluates this deny
+        rule on DELETE too, so a workload created without probes could not be
+        removed. Proven on hw307 (candidate rc/20261119T053558Z-6972370):
+        Crossplane 2.4.3's deactivation of the old provider revision failed
+        with "cannot delete provider package deployment ... probes-present",
+        and the old pod kept running. Deleting such a workload is what this
+        policy wants; the rule now skips DELETE.
+      */}}
+      preconditions:
+        all:
+          - key: "{{ `{{ request.operation || 'BACKGROUND' }}` }}"
+            operator: NotEquals
+            value: DELETE
       validate:
         message: >-
           Every container in

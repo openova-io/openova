@@ -46,3 +46,31 @@ spec:
                 limits:
                   cpu: 500m
                   memory: 512Mi
+              # The Kyverno policy probes-present (Enforce) refuses a
+              # Deployment whose containers lack a liveness or a readiness
+              # probe, and Crossplane creates a new Deployment for every new
+              # FunctionRevision.
+              #
+              # What the runtime serves (function-patch-and-transform v0.11.2,
+              # function-sdk-go v0.7.1 sdk.go Serve): gRPC with mTLS on 9443
+              # (the Service Crossplane creates routes to it, port `grpc`)
+              # and plain HTTP GET /metrics on 8080 (DefaultMetricsAddress).
+              # No gRPC health service is registered, and a kubelet gRPC
+              # probe cannot speak mTLS, so readiness is a TCP connect to the
+              # gRPC port and liveness an HTTP GET of the metrics page. Run
+              # under podman on 2026-11-19, the image listened on exactly
+              # these two ports: /metrics answered 200 and 9443 accepted.
+              readinessProbe:
+                tcpSocket:
+                  port: 9443
+                periodSeconds: 10
+                timeoutSeconds: 5
+                failureThreshold: 3
+              livenessProbe:
+                httpGet:
+                  path: /metrics
+                  port: 8080
+                initialDelaySeconds: 10
+                periodSeconds: 20
+                timeoutSeconds: 5
+                failureThreshold: 6

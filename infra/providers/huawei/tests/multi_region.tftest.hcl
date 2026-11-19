@@ -582,6 +582,67 @@ run "k3s_server_and_agent_tokens" {
   }
 }
 
+# ── AIP-201: the Pod Certificate gates follow the k3s line ───────────────
+# From k3s 1.35 on, the control plane starts k3s with the feature gates
+# ClusterTrustBundle, ClusterTrustBundleProjection and PodCertificateRequest on
+# the API server, controller manager, scheduler and kubelet, and with
+# certificates.k8s.io/v1beta1 served; every worker's kubelet gets the gates.
+# Below 1.35 a server with these gates does not start, so nothing is added.
+run "pod_certificate_gates_absent_below_k3s_1_35" {
+  command = plan
+
+  variables {
+    regions = [
+      {
+        code               = "me-east-215-a"
+        cloud_region       = "me-east-215"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  assert {
+    condition     = !strcontains(local.cp_cloud_init_by_region["me-east-215-a"], "feature-gates")
+    error_message = "AIP-201: below k3s 1.35 the control-plane cloud-init must carry no feature gate."
+  }
+
+  assert {
+    condition     = !strcontains(local.worker_cloud_init_by_region["me-east-215-a"], "feature-gates")
+    error_message = "AIP-201: below k3s 1.35 the worker cloud-init must carry no feature gate."
+  }
+}
+
+run "pod_certificate_gates_from_k3s_1_35" {
+  command = plan
+
+  variables {
+    k3s_version = "v1.35.10+k3s1"
+    regions = [
+      {
+        code               = "me-east-215-a"
+        cloud_region       = "me-east-215"
+        role               = "primary"
+        control_plane_size = "s7n.large.4"
+        worker_size        = "m7n.xlarge.8"
+        worker_count       = 2
+      }
+    ]
+  }
+
+  assert {
+    condition     = strcontains(local.cp_cloud_init_by_region["me-east-215-a"], " --kube-apiserver-arg=feature-gates=ClusterTrustBundle=true,ClusterTrustBundleProjection=true,PodCertificateRequest=true --kube-apiserver-arg=runtime-config=certificates.k8s.io/v1beta1=true --kube-controller-manager-arg=feature-gates=ClusterTrustBundle=true,ClusterTrustBundleProjection=true,PodCertificateRequest=true --kube-scheduler-arg=feature-gates=ClusterTrustBundle=true,ClusterTrustBundleProjection=true,PodCertificateRequest=true --kubelet-arg=feature-gates=ClusterTrustBundle=true,ClusterTrustBundleProjection=true,PodCertificateRequest=true --write-kubeconfig-mode=0600")
+    error_message = "AIP-201: on k3s 1.35 the control-plane cloud-init must start k3s with the five gate flags after k3s_extra_args."
+  }
+
+  assert {
+    condition     = strcontains(local.worker_cloud_init_by_region["me-east-215-a"], " --kubelet-arg=feature-gates=ClusterTrustBundle=true,ClusterTrustBundleProjection=true,PodCertificateRequest=true\"")
+    error_message = "AIP-201: on k3s 1.35 the worker cloud-init must start the kubelet with the gates."
+  }
+}
+
 # ── SOV-140: the post-back sends the parent-bootstrap kubeconfig ──────────
 # The kubeconfig post-back of every region's first control plane reads
 # /var/lib/catalyst/parent-bootstrap.kubeconfig: the kubeconfig of

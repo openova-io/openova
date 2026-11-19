@@ -7,8 +7,13 @@ FROM ubuntu:22.04
 ENV container=docker \
     DEBIAN_FRONTEND=noninteractive
 
-# Packages that an Ubuntu server cloud image carries and the container base lacks.
-RUN apt-get update \
+# Packages that an Ubuntu server cloud image carries and the container base lacks. Every
+# download of apt gives up after 30 seconds without data and is tried again up to 5 times, so
+# a stalled archive connection is dropped and retried instead of holding the build; the build
+# as a whole is bounded per attempt by scripts/local-pack.sh image.
+RUN printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n' \
+      > /etc/apt/apt.conf.d/80-retries \
+ && apt-get update \
  && apt-get install -y --no-install-recommends \
       systemd systemd-sysv dbus cloud-init openssh-server sudo \
       iproute2 iptables kmod ca-certificates curl openssl gnupg \

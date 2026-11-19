@@ -1445,7 +1445,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 0.2.55
+  version: 0.2.56
   card:
     title: Apache Guacamole
     summary: Clientless HTML5 remote-desktop gateway. Browser-based RDP / VNC / SSH and kubectl-exec into Pods, with Keycloak SSO. One Guacamole per Sovereign per ADR-0001 §11.
@@ -1464,7 +1464,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-guacamole
-    version: 0.2.55
+    version: 0.2.56
   topology:
     supported: [active-hot-standby, singleton]
     defaults:
@@ -1710,7 +1710,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.5.16
+  version: 1.5.17
   card:
     title: Keycloak
     summary: Open-source Identity and Access Management. OIDC + SAML + social login + realm-per-Organization.
@@ -1743,7 +1743,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-keycloak
-    version: 1.5.16
+    version: 1.5.17
   topology:
     supported: [active-hot-standby, singleton]
     defaults:
