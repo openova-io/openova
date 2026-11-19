@@ -2,5 +2,4 @@
 # scripts/generate-catalog.py. The seed object of such a Blueprint takes the version of that chart: written as
 # the template of .Chart.Version when the folder is products/catalyst/chart, the chart that holds the seed.
 # An entry leaves when the Blueprint file moves beside its chart.
-charts:
-  bp-catalyst-platform: products/catalyst/chart
+charts: {}

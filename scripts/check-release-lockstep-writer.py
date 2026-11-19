@@ -53,8 +53,8 @@ Cases
   umbrella  CONTROL, must be GREEN on both trees. Same harness, same mechanism,
             run against bp-catalyst-platform: it IS in the kit and IS in the
             seed (so it is in scope — the in-scope precondition is asserted, not
-            assumed), but its seed card renders `{{ .Chart.Version }}` and it has
-            no blueprint.yaml, so sites 2/3/4 are legitimate no-ops. A guard that
+            assumed), but its seed card renders `{{ .Chart.Version }}`, so site 3
+            is a legitimate no-op (its blueprint.yaml moves). A guard that
             demanded a literal rewrite here would be wrong; this control fails if
             someone "fixes" the guard by blanket-asserting every site always moves.
 
@@ -851,10 +851,10 @@ CASES = {
     ),
     "umbrella": dict(
         path="products/catalyst", do_bump=True,
-        expect=dict(blueprint="absent", seed="templated", kit="literal"),
+        expect=dict(blueprint="literal", seed="templated", kit="literal"),
         why="CONTROL — in the kit and in the seed (in scope), but the seed card is "
-            "`{{ .Chart.Version }}` and there is no blueprint.yaml, so sites 2/3/4 "
-            "are legitimate no-ops; must stay green on a pre-fix tree too",
+            "`{{ .Chart.Version }}`, so site 3 is a legitimate no-op; its "
+            "blueprint.yaml moves like any other; must stay green on a pre-fix tree too",
     ),
     "release": dict(
         path="platform/keycloak", do_bump=False, change=True,
@@ -870,7 +870,7 @@ CASES = {
     ),
     "umbrella-defer": dict(
         path="products/catalyst", do_bump=False, change=True, defer=True,
-        expect=dict(blueprint="absent", seed="templated", kit="literal"),
+        expect=dict(blueprint="literal", seed="templated", kit="literal"),
         why="CONTROL (FND-011) — the umbrella's version is written by the deploy job; a "
             "push that changes it without a version publishes and pushes nothing",
     ),
@@ -957,7 +957,7 @@ CASES = {
     ),
     "dispatch-umbrella": dict(
         path="products/catalyst", do_bump=False, change=True, dispatched=True,
-        expect=dict(blueprint="absent", seed="templated", kit="literal"),
+        expect=dict(blueprint="literal", seed="templated", kit="literal"),
         why="POSITIVE (FND-029) — the same for the umbrella chart, which six controller "
             "builds dispatch after a values bump; its version and its kit pin must move "
             "in ONE commit",

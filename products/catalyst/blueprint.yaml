@@ -5,12 +5,13 @@ metadata:
 spec:
   # The umbrella Blueprint that brings up the Catalyst control plane:
   # console, marketplace, admin, catalog-svc, projector, provisioning,
-  # environment-controller, blueprint-controller, billing. The chart bytes
-  # live in products/catalyst/chart/ (oci://ghcr.io/openova-io/bp-catalyst-platform).
+  # environment-controller, blueprint-controller, billing. Its chart is
+  # products/catalyst/chart beside this file (oci://ghcr.io/openova-io/bp-catalyst-platform);
+  # the release writer keeps spec.version equal to that chart's version.
   # This blueprint.yaml is the catalog-side declaration that catalyst-api
   # surfaces in the catalog UI and that the application-controller reads
   # for placement / topology / endpoints / sso / multi-instance per G117.
-  version: 0.0.0   # placeholder — actual chart version pinned in clusters/<sov>/bootstrap-kit/13-bp-catalyst-platform.yaml
+  version: 1.4.2186
   card:
     title: Catalyst Platform
     summary: Umbrella Blueprint for the Catalyst control plane — console, marketplace, admin, catalog-svc, projector, provisioning, environment/blueprint controllers, billing. Once Ready the Sovereign is self-sufficient.

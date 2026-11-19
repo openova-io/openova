@@ -21,7 +21,6 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | platform/bge | bp-bge | bp-bge | listed | - |
 | platform/bp-vcluster-helmrepo | bp-vcluster-helmrepo | bp-vcluster-helmrepo | unlisted | 60 |
 | platform/catalyst-edge-routes | bp-catalyst-edge-routes | bp-catalyst-edge-routes | unlisted | 13e |
-| platform/catalyst-platform | - | bp-catalyst-platform | unlisted | - |
 | platform/cert-manager | bp-cert-manager | bp-cert-manager | unlisted | 02 |
 | platform/cert-manager-issuers | bp-cert-manager-issuers | bp-cert-manager-issuers | unlisted | 02a |
 | platform/cert-manager-powerdns-webhook | bp-cert-manager-powerdns-webhook | bp-cert-manager-powerdns-webhook | unlisted | 49 |
@@ -102,7 +101,7 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | platform/wordpress-tenant | bp-wordpress-tenant | bp-wordpress-tenant | listed | - |
 | products/agenity | bp-agenity | bp-agenity | listed | - |
 | products/axon | axon | - | - | - |
-| products/catalyst | bp-catalyst-platform | - | - | 13 |
+| products/catalyst | bp-catalyst-platform | bp-catalyst-platform | unlisted | 13 |
 | products/catalyst-migrator | - | - | - | - |
 | products/chargeback | bp-chargeback, docrender (docrender/chart) | bp-chargeback | unlisted | 13f |
 | products/continuum | bp-continuum | bp-continuum (chart/blueprint.yaml) | listed | 62 |
