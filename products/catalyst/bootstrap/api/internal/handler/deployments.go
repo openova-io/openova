@@ -389,6 +389,7 @@ func (d *Deployment) toRecord() store.Record {
 		AdoptedAt:            d.AdoptedAt,
 		OwnerEmail:           d.OwnerEmail,
 		RetryCalls:           d.retries.List(),
+		RetryCallsSent:       d.retries.Sent(),
 	}
 }
 
@@ -434,7 +435,7 @@ func fromRecord(rec store.Record) *Deployment {
 		AdoptedAt:            rec.AdoptedAt,
 		OwnerEmail:           rec.OwnerEmail,
 	}
-	dep.retries.Set(rec.RetryCalls)
+	dep.retries.Set(rec.RetryCalls, rec.RetryCallsSent)
 
 	// Kubeconfig file lost across restart → mark as failed. If the
 	// record claims a path but the file is missing, the helmwatch
@@ -557,15 +558,20 @@ func RecordRetryCall(h *Handler, dep *Deployment, id, route, target string, r *h
 		return
 	}
 	h.persistDeployment(dep)
-	if url, body, ok := retrycall.Forward(h.store, dep.ID); ok {
-		go postHandoverExportWithRetry(retrycall.Client(), url, body, retrycall.Attempts(h.log, dep.ID))
-	}
+	go deliverRetryCalls(h, dep)
 }
 
-// persistDeployment serializes the current state under the lock and
-// writes it. Used at terminal state (runProvisioning end) and at
-// row creation (CreateDeployment). Same best-effort policy as
-// recordEventAndPersist.
+// deliverRetryCalls sends dep's retry calls to its Sovereign until it confirms them all (retrycall.Log.Deliver).
+func deliverRetryCalls(h *Handler, dep *Deployment) {
+	dep.retries.Deliver(h.store, dep.ID, func(url string, body []byte) (bool, bool) {
+		out := postHandoverExportWithRetry(retrycall.Client(), url, body, retrycall.Attempts(h.log, dep.ID))
+		return out == handoverExportSucceeded, out == handoverExportGaveUpBudget
+	}, func() { h.persistDeployment(dep) })
+}
+
+// persistDeployment serializes the current state under the lock and writes it.
+// Used at terminal state (runProvisioning end), at row creation (CreateDeployment)
+// and for retry calls. Same best-effort policy as recordEventAndPersist.
 func (h *Handler) persistDeployment(d *Deployment) {
 	if h.store == nil {
 		return
@@ -581,13 +587,9 @@ func (h *Handler) persistDeployment(d *Deployment) {
 	}
 }
 
-// restoreFromStore reads every record from h.store and registers each
-// in h.deployments. Called from New() after the store wires up so the
-// catalyst-api process restored from a Pod restart still answers
-// /api/v1/deployments/<id> for every deployment the previous Pod knew
-// about. Per-file decode failures are logged but do not abort the
-// load — the user-facing requirement is "as many deployments as
-// possible recovered" not "all-or-nothing".
+// restoreFromStore registers every record of h.store in h.deployments (from New()),
+// so after a Pod restart /api/v1/deployments/<id> answers for every deployment the
+// previous Pod knew. A record that fails to decode is logged and skipped.
 func (h *Handler) restoreFromStore() {
 	if h.store == nil {
 		return
@@ -612,6 +614,7 @@ func (h *Handler) restoreFromStore() {
 	for _, rec := range records {
 		dep := fromRecord(rec)
 		h.deployments.Store(dep.ID, dep)
+		go deliverRetryCalls(h, dep) // FND-G02: send the retry calls the Sovereign never confirmed
 		// If the load step rewrote a stuck in-flight status to failed,
 		// re-persist so the on-disk state matches what we serve. This
 		// is the architectural promise: the wizard reading

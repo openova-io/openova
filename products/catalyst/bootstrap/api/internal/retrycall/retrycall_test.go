@@ -116,21 +116,88 @@ func TestForward(t *testing.T) {
 	save("before", "t99.omani.works", false)
 	save("after", "t99.omani.works", true)
 	save("nameless", "", true)
+	wiped := store.Record{ID: "wiped", Status: "wiped", Request: store.RedactedRequest{SovereignFQDN: "t99.omani.works"},
+		Result: &provisioner.Result{HandoverFiredAt: &fired}, RetryCalls: []store.RetryCall{{At: fired, Route: RoutePhase, Target: "phase x", By: "op"}}}
+	if err := st.Save(wiped); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("SOVEREIGN_FQDN", "")
-	if _, _, ok := Forward(nil, "after"); ok {
+	if _, _, _, ok := Forward(nil, "after"); ok {
 		t.Errorf("no store: forwarded")
 	}
-	for _, id := range []string{"before", "nameless", "unknown"} {
-		if _, _, ok := Forward(st, id); ok {
+	for _, id := range []string{"before", "nameless", "unknown", "wiped"} {
+		if _, _, _, ok := Forward(st, id); ok {
 			t.Errorf("%s: forwarded", id)
 		}
 	}
-	url, body, ok := Forward(st, "after")
-	if !ok || url != "https://api.t99.omani.works/api/v1/internal/deployments/import?"+OnlyParam+"=true" || !strings.Contains(string(body), `"id":"after"`) {
-		t.Errorf("after the hand-over: got %q %q %v", url, body, ok)
+	url, body, n, ok := Forward(st, "after")
+	if !ok || n != 0 || url != "https://api.t99.omani.works/api/v1/internal/deployments/import?"+OnlyParam+"=true" || !strings.Contains(string(body), `"id":"after"`) {
+		t.Errorf("after the hand-over: got %q %q %d %v", url, body, n, ok)
+	}
+	wiped.ID, wiped.Status = "listed", "ready"
+	if err := st.Save(wiped); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, n, ok := Forward(st, "listed"); !ok || n != 1 {
+		t.Errorf("a record that lists one entry: got n=%d ok=%v", n, ok)
 	}
 	t.Setenv("SOVEREIGN_FQDN", "t99.omani.works")
-	if _, _, ok := Forward(st, "after"); ok {
+	if _, _, _, ok := Forward(st, "after"); ok {
 		t.Errorf("the Sovereign itself forwarded to itself")
+	}
+}
+
+// TestDeliver: Deliver sends until the Sovereign took every entry and counts
+// them, tries again after the export budget ran out, stops on a refusal with
+// the entries unconfirmed, sends nothing once every entry is confirmed, runs
+// one round at a time, and sends a call recorded during a round in the next.
+func TestDeliver(t *testing.T) {
+	st, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SOVEREIGN_FQDN", "")
+	fired := time.Now().UTC()
+	var l Log
+	l.Start()
+	l.Add(RoutePhase, "phase tofu-apply", "op")
+	save := func() {
+		if err := st.Save(store.Record{ID: "dep", Status: "ready", Request: store.RedactedRequest{SovereignFQDN: "t99.omani.works"},
+			Result: &provisioner.Result{HandoverFiredAt: &fired}, RetryCalls: l.List(), RetryCallsSent: l.Sent()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	save()
+	posts := 0
+	deliver := func(post func() (bool, bool)) {
+		posts = 0
+		l.Deliver(st, "dep", func(string, []byte) (bool, bool) { posts++; return post() }, save)
+	}
+
+	deliver(func() (bool, bool) { return false, false }) // a 4xx
+	if posts != 1 || l.Sent() != 0 {
+		t.Fatalf("a refusal: posts=%d sent=%d, want 1 and 0", posts, l.Sent())
+	}
+	deliver(func() (bool, bool) { return posts == 3, posts < 3 }) // the budget runs out twice
+	if rec, _ := st.Load("dep"); posts != 3 || l.Sent() != 1 || rec.RetryCallsSent != 1 {
+		t.Fatalf("after two expired budgets: posts=%d sent=%d saved=%d, want 3, 1 and 1", posts, l.Sent(), rec.RetryCallsSent)
+	}
+	deliver(func() (bool, bool) { return true, false })
+	if posts != 0 {
+		t.Fatalf("every entry confirmed: %d posts, want none", posts)
+	}
+
+	l.Add(RouteJob, "job a: b", "op")
+	save()
+	deliver(func() (bool, bool) {
+		if posts == 1 {
+			l.Add(RouteJob, "job a: c", "op")
+			save()
+			l.Deliver(st, "dep", func(string, []byte) (bool, bool) { t.Error("a second round ran during a round"); return false, false }, save)
+		}
+		return true, false
+	})
+	if posts != 2 || l.Sent() != 3 {
+		t.Fatalf("a call recorded during a round: posts=%d sent=%d, want 2 and 3", posts, l.Sent())
 	}
 }

@@ -21,8 +21,10 @@
 // it holds and the list that arrives, so no import drops an entry. A call the
 // parent accepts after the hand-over fired is sent to the Sovereign through
 // the same import route with OnlyParam, which merges the list into the record
-// the Sovereign holds and changes nothing else. The Sovereign appends its own
-// calls to the same list.
+// the Sovereign holds and changes nothing else. Delivery is durable: the parent
+// counts the entries the Sovereign confirmed (Record.RetryCallsSent) and sends
+// the list again until it confirms them all (Log.Deliver), after a restart of
+// the engine too. The Sovereign appends its own calls to the same list.
 package retrycall
 
 import (
@@ -60,8 +62,10 @@ const OnlyParam = "retryCallsOnly"
 // null and the check reads as "not measured". Start makes it record, from an
 // empty list.
 type Log struct {
-	mu    sync.Mutex
-	calls []store.RetryCall
+	mu      sync.Mutex
+	calls   []store.RetryCall
+	sent    int  // the entries the Sovereign confirmed it holds
+	sending bool // a round of Deliver runs
 }
 
 // Start makes l record from an empty list; a list it holds stays.
@@ -94,11 +98,60 @@ func (l *Log) List() []store.RetryCall {
 	return slices.Clone(l.calls)
 }
 
-// Set replaces the list, as a record read back from the store holds it.
-func (l *Log) Set(calls []store.RetryCall) {
+// Set replaces the list and the count of entries the Sovereign confirmed, as
+// a record read back from the store holds them.
+func (l *Log) Set(calls []store.RetryCall, sent int) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.calls = slices.Clone(calls)
+	l.calls, l.sent = slices.Clone(calls), sent
+}
+
+// Sent returns how many entries the Sovereign confirmed it holds.
+func (l *Log) Sent() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.sent
+}
+
+// Deliver sends the list of the record id in st to its Sovereign (Forward)
+// until the Sovereign confirms every entry, and calls save after each
+// confirmation so the count survives a restart. post sends one body and
+// reports whether the Sovereign took it (2xx) and, when not, whether to try
+// again: the export budget ran out while the Sovereign was unreachable. One
+// round runs at a time; a call recorded during a round is sent by the next.
+// A 4xx, a record Forward does not send, or a wiped Sovereign end the rounds;
+// what stays unconfirmed is sent by the next call or the next start.
+func (l *Log) Deliver(st *store.Store, id string, post func(url string, body []byte) (took, again bool), save func()) {
+	for l.begin() {
+		url, body, n, ok := Forward(st, id)
+		took, again := false, false
+		if ok {
+			took, again = post(url, body)
+		}
+		l.mu.Lock()
+		if took {
+			l.sent = max(l.sent, n)
+		}
+		l.sending = false
+		l.mu.Unlock()
+		if took {
+			save()
+		} else if !again {
+			return
+		}
+	}
+}
+
+// begin starts a round of Deliver: the list holds an entry the Sovereign has
+// not confirmed and no other round runs.
+func (l *Log) begin() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.sending || l.sent >= len(l.calls) {
+		return false
+	}
+	l.sending = true
+	return true
 }
 
 // Merge adds to l the entries of rec's list that l lacks, sets rec's list to
@@ -172,28 +225,30 @@ var ChildImportURL = func(fqdn string) string {
 }
 
 // Forward returns what the parent sends the Sovereign after it saved a retry
-// call in the record id of st: the import URL with OnlyParam and the record
-// as JSON. ok is false when the record cannot be read, when the hand-over has
-// not fired (the hand-over itself then carries the list), when the record
-// names no Sovereign, or when this engine is that Sovereign (SOVEREIGN_FQDN,
-// the variable a Sovereign's catalyst-api runs with).
-func Forward(st *store.Store, id string) (url string, body []byte, ok bool) {
+// call in the record id of st: the import URL with OnlyParam, the record as
+// JSON and the number of entries the record lists. ok is false when the
+// record cannot be read, when the hand-over has not fired (the hand-over
+// itself then carries the list), when the record names no Sovereign, when the
+// Sovereign is wiped or being wiped, or when this engine is that Sovereign
+// (SOVEREIGN_FQDN, the variable a Sovereign's catalyst-api runs with).
+func Forward(st *store.Store, id string) (url string, body []byte, n int, ok bool) {
 	if st == nil {
-		return "", nil, false
+		return "", nil, 0, false
 	}
 	rec, err := st.Load(id)
 	if err != nil {
-		return "", nil, false
+		return "", nil, 0, false
 	}
 	fqdn := strings.TrimSpace(rec.Request.SovereignFQDN)
 	if rec.Result == nil || rec.Result.HandoverFiredAt == nil || fqdn == "" ||
+		slices.Contains([]string{"wiping", "wiped", "aborted"}, rec.Status) ||
 		fqdn == strings.TrimSpace(os.Getenv("SOVEREIGN_FQDN")) {
-		return "", nil, false
+		return "", nil, 0, false
 	}
 	if body, err = json.Marshal(rec); err != nil {
-		return "", nil, false
+		return "", nil, 0, false
 	}
-	return ChildImportURL(fqdn) + "?" + OnlyParam + "=true", body, true
+	return ChildImportURL(fqdn) + "?" + OnlyParam + "=true", body, len(rec.RetryCalls), true
 }
 
 // Client is the HTTP client of a forward, the client of the hand-over

@@ -7,10 +7,12 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -170,6 +172,23 @@ func TestRetryCalls_JobRetry(t *testing.T) {
 	}
 }
 
+// TestRetryCalls_FailedJobRetryRecords: a job retry whose remediation fails
+// (502) past the two refusals is a retry call too.
+func TestRetryCalls_FailedJobRetryRecords(t *testing.T) {
+	r, h, depID := installRetryHarness(t, "owner@t99.omani.works", "install-velero", jobs.StatusFailed) // no HelmRelease to annotate
+	st := retryCallStore(t, h)
+	val, _ := h.deployments.Load(depID)
+	dep := val.(*Deployment)
+	dep.retries.Start()
+	t.Setenv("OPERATOR_EMAIL", "")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, retryReq(depID, "install-velero", &auth.Claims{Email: "owner@t99.omani.works", Tier: "operator"}))
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("want 502, got %d %s", rec.Code, rec.Body.String())
+	}
+	assertOneRetryCall(t, st, dep, retrycall.RouteJob, "job install-velero: remediation failed")
+}
+
 func TestRetryCalls_ReconcilerReconcileAndResume(t *testing.T) {
 	r, h, depID := manageHarness(t, "", helmReleaseObj("bp-keycloak", false, false, "0.4.1"))
 	st := retryCallStore(t, h)
@@ -319,7 +338,7 @@ func TestRetryCalls_TravelWithTheHandOver(t *testing.T) {
 	t.Setenv("CATALYST_OTECH_FQDN", fqdn)
 	at := time.Date(2026, 11, 19, 20, 0, 0, 0, time.UTC)
 	parent := &Deployment{ID: "dep-handover", Status: "ready", Request: provisioner.Request{SovereignFQDN: fqdn}}
-	parent.retries.Set([]store.RetryCall{{At: at, Route: retrycall.RoutePhase, Target: "phase phase1-watch", By: "owner@t99.omani.works"}})
+	parent.retries.Set([]store.RetryCall{{At: at, Route: retrycall.RoutePhase, Target: "phase phase1-watch", By: "owner@t99.omani.works"}}, 0)
 
 	child := NewWithPDM(silentLogger(), &fakePDM{})
 	childSt := retryCallStore(t, child)
@@ -347,7 +366,7 @@ func TestRetryCalls_TravelWithTheHandOver(t *testing.T) {
 	held().mu.Lock()
 	held().Error = "set on the Sovereign"
 	held().mu.Unlock()
-	parent.retries.Set(append(parent.retries.List(), store.RetryCall{At: at.Add(time.Hour), Route: retrycall.RouteRepublishDNS, Target: "DNS records of " + fqdn, By: "owner@t99.omani.works"}))
+	parent.retries.Set(append(parent.retries.List(), store.RetryCall{At: at.Add(time.Hour), Route: retrycall.RouteRepublishDNS, Target: "DNS records of " + fqdn, By: "owner@t99.omani.works"}), 0)
 	importRecord(t, child, parent.toRecord(), "?"+retrycall.OnlyParam+"=true")
 	calls := retryCallsOf(held())
 	if len(calls) != 3 || calls[2].Route != retrycall.RouteRepublishDNS {
@@ -395,4 +414,116 @@ func TestRetryCalls_ParentForwardsAfterTheHandOver(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("the Sovereign's record never received the parent's retry call")
+}
+
+// sovereignStub serves the Sovereign child's import route at a stub URL for
+// the test, answering 503 while down is set, and counts the posts per record.
+func sovereignStub(t *testing.T, child *Handler, down *atomic.Bool) (posts func(id string) int) {
+	t.Helper()
+	var mu sync.Mutex
+	seen := map[string]int{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var rec store.Record
+		_ = json.Unmarshal(body, &rec)
+		mu.Lock()
+		seen[rec.ID]++
+		mu.Unlock()
+		if down.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		child.HandleDeploymentImport(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	saved := retrycall.ChildImportURL
+	retrycall.ChildImportURL = func(string) string { return srv.URL + "/api/v1/internal/deployments/import" }
+	t.Cleanup(func() { retrycall.ChildImportURL = saved })
+	return func(id string) int { mu.Lock(); defer mu.Unlock(); return seen[id] }
+}
+
+// waitForRetryCalls polls cond for up to 15 s.
+func waitForRetryCalls(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if cond() {
+			return
+		}
+	}
+	t.Fatalf("timed out waiting for %s", what)
+}
+
+// sovereignHolds reports whether child holds the record id with n entries.
+func sovereignHolds(child *Handler, id string, n int) bool {
+	val, ok := child.deployments.Load(id)
+	return ok && len(retryCallsOf(val.(*Deployment))) == n
+}
+
+// TestRetryCalls_ParentSendsAgainAfterTheBudget: a Sovereign unreachable for
+// longer than the export budget still receives the parent's call once it
+// answers, and the parent saves that the Sovereign holds it.
+func TestRetryCalls_ParentSendsAgainAfterTheBudget(t *testing.T) {
+	const fqdn = "t99.omani.works"
+	t.Setenv("SOVEREIGN_FQDN", "")
+	t.Setenv("CATALYST_OTECH_FQDN", fqdn)
+	t.Setenv("CATALYST_HANDOVER_EXPORT_BUDGET_SECONDS", "1")
+	t.Setenv("CATALYST_HANDOVER_EXPORT_MAX_BACKOFF_SECONDS", "1")
+	child := NewWithPDM(silentLogger(), &fakePDM{})
+	retryCallStore(t, child)
+	var down atomic.Bool
+	down.Store(true)
+	posts := sovereignStub(t, child, &down)
+
+	fired := time.Now().UTC()
+	parent := NewWithPDM(silentLogger(), &fakePDM{})
+	parentSt := retryCallStore(t, parent)
+	dep := &Deployment{ID: "dep-again", Status: "ready", Request: provisioner.Request{SovereignFQDN: fqdn},
+		Result: &provisioner.Result{HandoverFiredAt: &fired}}
+	dep.retries.Start()
+	parent.deployments.Store(dep.ID, dep)
+	RecordRetryCall(parent, dep, "", retrycall.RouteRepublishDNS, "DNS records of "+fqdn, httptest.NewRequest(http.MethodPost, "/", nil))
+
+	// One budget of 1 s holds at most two posts; a third is a second round.
+	waitForRetryCalls(t, "a post after the export budget ran out", func() bool { return posts(dep.ID) >= 3 })
+	down.Store(false)
+	waitForRetryCalls(t, "the Sovereign to hold the call", func() bool { return sovereignHolds(child, dep.ID, 1) })
+	waitForRetryCalls(t, "the parent to save the confirmation", func() bool { return mustLoad(t, parentSt, dep.ID).RetryCallsSent == 1 })
+}
+
+// TestRetryCalls_ParentSendsUnconfirmedCallsAtStart: a restart of the parent
+// sends the list of a record whose entries the Sovereign never confirmed
+// (the Pod died during the send) and not the list of a confirmed one.
+func TestRetryCalls_ParentSendsUnconfirmedCallsAtStart(t *testing.T) {
+	const fqdn = "t99.omani.works"
+	t.Setenv("SOVEREIGN_FQDN", "")
+	t.Setenv("CATALYST_OTECH_FQDN", fqdn)
+	t.Setenv("CATALYST_HANDOVER_EXPORT_BUDGET_SECONDS", "10")
+	child := NewWithPDM(silentLogger(), &fakePDM{})
+	retryCallStore(t, child)
+	var down atomic.Bool
+	posts := sovereignStub(t, child, &down)
+
+	parentSt, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	fired := time.Now().UTC()
+	pending := store.Record{ID: "dep-pending", Status: "ready", Request: store.RedactedRequest{SovereignFQDN: fqdn},
+		Result:     &provisioner.Result{HandoverFiredAt: &fired},
+		RetryCalls: []store.RetryCall{{At: fired, Route: retrycall.RouteRepublishDNS, Target: "DNS records of " + fqdn, By: "owner@t99.omani.works"}}}
+	confirmed := pending
+	confirmed.ID, confirmed.RetryCallsSent = "dep-confirmed", 1
+	for _, rec := range []store.Record{pending, confirmed} {
+		if err := parentSt.Save(rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	NewWithStore(silentLogger(), &fakePDM{}, parentSt) // the parent starts again
+	waitForRetryCalls(t, "the Sovereign to hold the unconfirmed call", func() bool { return sovereignHolds(child, pending.ID, 1) })
+	waitForRetryCalls(t, "the parent to save the confirmation", func() bool { return mustLoad(t, parentSt, pending.ID).RetryCallsSent == 1 })
+	if n := posts(confirmed.ID); n != 0 {
+		t.Fatalf("the confirmed list was sent %d times, want none", n)
+	}
 }

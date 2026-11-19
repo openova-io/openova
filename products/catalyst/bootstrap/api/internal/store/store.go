@@ -128,6 +128,12 @@ type Record struct {
 	// the calls were never recorded, so "no retry call" was not measured.
 	// No omitempty: an empty list must stay [] across a save and a load.
 	RetryCalls []RetryCall `json:"retryCalls"`
+
+	// RetryCallsSent is how many entries of RetryCalls the Sovereign confirmed
+	// it holds, as the parent counts them: the parent sends the list again
+	// until the Sovereign confirms them all, after a restart too
+	// (retrycall.Log.Deliver). A Sovereign does not read it.
+	RetryCallsSent int `json:"retryCallsSent,omitempty"`
 }
 
 // RetryCall is one accepted retry call of a deployment.

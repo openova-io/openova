@@ -160,10 +160,8 @@ func (h *Handler) RetryJob(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	action, rerr := h.dispatchRetry(r.Context(), dyn, job, now)
 	if rerr != nil {
-		// #3379: a cutover-step Re-run that arrives while the engine already
-		// holds its single-run flag is a CONFLICT, not a fault — the same
-		// answer HandleCutoverStart gives a concurrent /start. Spawning a
-		// second engine goroutine would race the first over the step Jobs.
+		// #3379: a cutover-step Re-run while the engine holds its single-run flag is a
+		// CONFLICT, as for a concurrent /start: a second engine would race the first.
 		if errors.Is(rerr, errCutoverRunInFlight) {
 			writeJSON(w, http.StatusConflict, map[string]string{
 				"error":  "cutover-in-progress",
@@ -171,11 +169,8 @@ func (h *Handler) RetryJob(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		// #4845: a leaf with no directly-retryable backing (aggregate
-		// trivy-operator scan, mutation-bridge, unsupported kind) is a
-		// client-side condition, not a server fault — return a graceful 422
-		// with an actionable message instead of a raw 502 so the operator
-		// sees "not directly retryable" rather than a gateway error.
+		// #4845: a leaf with no directly-retryable backing (aggregate trivy scan,
+		// mutation-bridge, unsupported kind) is a client-side condition: 422, not 502.
 		if errors.Is(rerr, errNotDirectlyRetryable) {
 			h.log.Info("RetryJob: leaf not directly retryable", "depId", depID, "jobId", jobID, "kind", job.Kind, "detail", rerr.Error())
 			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
@@ -185,6 +180,8 @@ func (h *Handler) RetryJob(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.log.Warn("RetryJob: remediation failed", "depId", depID, "jobId", jobID, "kind", job.Kind, "err", rerr)
+		// Past the two refusals a failed remediation is a retry call too: a task Job may be deleted already.
+		RecordRetryCall(h, dep, "", retrycall.RouteJob, "job "+job.JobName+": remediation failed: "+rerr.Error(), r)
 		writeJSON(w, http.StatusBadGateway, map[string]string{
 			"error":  "remediation-failed",
 			"detail": rerr.Error(),
