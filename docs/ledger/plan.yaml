@@ -5051,7 +5051,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [FND-201, FND-106]
-  after: [FND-181, CLD-070, CLD-071, SEC-006, NET-050, NET-052, NET-321, SVC-010, CTL-060, CTL-061, CMP-005, BSS-010, AIP-060, INF-070, MIG-010, ACC-060, PRD-020]
+  after: [FND-181, CLD-070, CLD-071, SEC-006, NET-050, NET-052, NET-251, NET-321, SVC-010, CTL-060, CTL-061, CMP-005, BSS-010, AIP-060, INF-070, MIG-010, ACC-060, PRD-020]
   touches:
   - docs/adr/0035-observability-pipeline.md
   - docs/adr/README.md
@@ -17661,23 +17661,38 @@ packages:
   size: XS
   lane: CONTRACTS
   depends_on: [NET-270]
-  after: [FND-106, FND-181, CLD-070, CLD-071, SEC-006, NET-050, NET-052, NET-321, SVC-010, CTL-060, CTL-061, CMP-005, BSS-010, AIP-060, INF-070, MIG-010, ACC-060, PRD-020]
+  after: []
   touches:
+  - docs/adr/0038-firewall-mechanism.md
   - docs/adr/README.md
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls docs/adr | grep -c '^0038-'"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "test \"$(sha256sum < docs/adr/0038-firewall-mechanism.md | cut -d' ' -f1)\" = 7b85a0f3fa3665b1f5dbcd0912f797833f8ddb00276ef585a2c36fb859553bf7 && test \"$(ls docs/adr | grep -c '^0038-')\" = 1"
+  - id: A2
+    run: "test \"$(sed -n '3p' docs/adr/0038-firewall-mechanism.md)\" = 'Status: Accepted' && test \"$(sed -n '4p' docs/adr/0038-firewall-mechanism.md)\" = 'Date: 2026-11-19' && test \"$(grep -c '^Status: ' docs/adr/0038-firewall-mechanism.md)\" = 1 && test \"$(grep -c -E '^(Supersedes|Unfreezes|Retires-Check):' docs/adr/0038-firewall-mechanism.md)\" = 0"
+  - id: A3
+    run: "test \"$(grep -c -x -F '| [0038](0038-firewall-mechanism.md) | Firewall mechanism: Coraza in the Envoy of Cilium through a listener the platform writes, the native firewall as the second implementation, and the packages of epic NET-250 | Accepted |' docs/adr/README.md)\" = 1 && test \"$(grep -c -F '[0038]' docs/adr/README.md)\" = 1 && python3 -c 'import re; L = open(\"docs/adr/README.md\", encoding=\"utf-8\").read().split(\"\\n\"); num = lambda l: int(l[3:7]) if re.match(r\"\\| \\[[0-9]{4}\\]\\(\", l) else -1; n = [num(l) for l in L if num(l) >= 0]; i = [num(l) for l in L].index(38); print(n, num(L[i - 1]), num(L[i + 1])); raise SystemExit(0 if n == sorted(set(n)) and 0 <= num(L[i - 1]) < 38 < num(L[i + 1]) else 1)'"
+  - id: A4
+    run: "test \"$(git diff --numstat \"$(git merge-base origin/main HEAD)\" -- docs/adr/README.md | cut -f1,2 | tr '\\t' ' ')\" = '1 0'"
+  - id: A5
+    run: "python3 -c 'import os, re, sys; t = open(\"docs/adr/0038-firewall-mechanism.md\", encoding=\"utf-8\").read(); p = sorted(set(re.findall(r\"`((?:docs|platform|products|scripts|infra|clusters|\\.github)/[^`*<]+)`\", t))); bad = [x for x in p if not os.path.exists(x)]; print(len(p), bad); sys.exit(1 if bad or len(p) < 4 else 0)'"
+  - id: A6
+    run: "python3 -c 'import re, yaml; plan = yaml.safe_load(open(\"docs/ledger/plan.yaml\")); pk = {p[\"id\"]: p for p in plan[\"packages\"]}; live = {i for i, p in pk.items() if not p[\"dropped\"]}; epic = {e[\"id\"]: e for e in plan[\"epics\"]}; known = live | set(epic) | {c[\"id\"] for c in yaml.safe_load(open(\"docs/ledger/gates.yaml\"))[\"checks\"]}; t = open(\"docs/adr/0038-firewall-mechanism.md\", encoding=\"utf-8\").read(); rows = [[c.strip() for c in l.strip(\"|\").split(\"|\")] for l in t.split(\"\\n\") if re.match(r\"\\| NET-[0-9]{3} \\|\", l)]; table = [r[0] for r in rows]; bad = [r[0] for r in rows if len(r) != 6 or r[1] not in {p[\"type\"] for p in plan[\"packages\"]} or r[2] not in plan[\"budgets\"] or r[3] not in plan[\"lanes\"] or (r[0] in pk and pk[r[0]][\"epic\"] != \"NET-250\") or any(d not in live and d not in table for d in re.findall(r\"[A-Z]{3}-[0-9]{3}\", r[4]))]; cited = set(re.findall(r\"\\b(?!SHA-)[A-Z]{3}-(?:[0-9]{3}|G[0-9]{2}|S[0-9])\\b\", t)); unknown = sorted(cited - known - set(table) - {\"NET-G15\"}); missing = sorted(set(epic[\"NET-250\"][\"packages\"]) - set(table) - {\"NET-251\"}); print(len(rows), len(cited), bad, unknown, missing); raise SystemExit(1 if bad or unknown or missing or len(rows) < 8 or len(set(table)) != len(table) else 0)'"
   rollback: revert
   adr: 38
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'Decision record: firewall mechanism and the package list of epic NET-250.'
+  delivers: Decision record 0038 states how a web application firewall enters the public path of a Sovereign after lab test NET-270 (Coraza in the shipped cilium-envoy through a front listener the platform writes, the native firewall of the cloud as the second implementation), the WebApplicationFirewall contract with its Compositions waf-coraza and waf-native, the proof journey WAF and gate check NET-G15, and the eight packages of epic NET-250 in order with type, size, lane and dependencies, with the header lines Status and Date; the index of decision records lists it in number order.
 - id: NET-270
   title: 'Spike: firewall attachment'
   area: NET
@@ -23577,7 +23592,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [CTL-055, FND-120]
-  after: [FND-181, CLD-070, CLD-071, SEC-006, NET-050, NET-052, NET-321, SVC-010, CTL-060, CTL-061, CMP-005, BSS-010, AIP-060, INF-070, MIG-010, ACC-060, PRD-020]
+  after: [FND-181, CLD-070, CLD-071, SEC-006, NET-050, NET-052, NET-251, NET-321, SVC-010, CTL-060, CTL-061, CMP-005, BSS-010, AIP-060, INF-070, MIG-010, ACC-060, PRD-020]
   touches:
   - docs/adr/0027-region-loss-contract.md
   - docs/adr/README.md
