@@ -40,6 +40,7 @@ metadata:
     # Phase 3 (Sovereign Live) on the openova-flow canvas — once
     # Ready=True the Sovereign is fully self-sufficient.
     catalyst.openova.io/slot: "13"
+    catalyst.openova.io/ring: foundation
     catalyst.openova.io/component: catalyst-platform
     catalyst.openova.io/region-role: primary
 spec:

@@ -58,6 +58,7 @@ metadata:
     # install order). component=cutover overrides the slot rule so
     # this HR lands in Phase 2 (Cutover) on the canvas, NOT Phase 1.
     catalyst.openova.io/slot: "06a"
+    catalyst.openova.io/ring: foundation
     catalyst.openova.io/component: cutover
     catalyst.openova.io/region-role: primary
 spec:

@@ -86,6 +86,7 @@ metadata:
   namespace: flux-system
   labels:
     catalyst.openova.io/slot: "62"
+    catalyst.openova.io/ring: foundation
     catalyst.openova.io/component: continuum-controller
     catalyst.openova.io/region-role: every-region
     openova.io/category: customer-facing-capability

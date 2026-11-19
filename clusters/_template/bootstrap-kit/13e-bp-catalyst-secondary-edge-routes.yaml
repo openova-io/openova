@@ -42,6 +42,7 @@ metadata:
   namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   labels:
     catalyst.openova.io/slot: "13e"
+    catalyst.openova.io/ring: foundation
     catalyst.openova.io/component: catalyst-secondary-edge
     # region-role=secondary: this HR is the INVERSE of the slot-13 umbrella —
     # active on secondary CPs, suspended on the primary (the umbrella serves
