@@ -11,3 +11,4 @@
 /scripts/plan.py @alierenbaysal
 /scripts/acceptance-gate.py @alierenbaysal
 /scripts/check-frozen-paths.py @alierenbaysal
+/scripts/baselines/python.json @alierenbaysal

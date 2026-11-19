@@ -20,8 +20,8 @@ tooling is written here, in Go, never as a new Python file (docs/PRINCIPLES.md I
 
 | Command | What it holds |
 |---|---|
-| `cmd/python-shrinks` | No new Python file, no more lines of Python, no new place where Python runs on a Sovereign or is put into a shipped image. Baseline `scripts/baselines/python.json`. |
+| `cmd/python-shrinks` | Python only shrinks, file by file: no new file that holds Python (a `.py` file, a python `#!` script, or Python inside a shell, workflow, chart, plan or template file: a here-document or `-c` program given to python, a `.py` key of a ConfigMap), no file with more lines of Python than its baseline, no new place where Python runs on a Sovereign or is put into a shipped image. Baseline `scripts/baselines/python.json` (code owner review). |
 
-`go run ./cmd/python-shrinks --list` prints every Python file and every place it counts;
-`--write-baseline` lowers the baseline after Python was removed and refuses to raise it;
+`go run ./cmd/python-shrinks --list` prints every file that holds Python (`file` or `inside`) and every place it counts;
+`--write-baseline` lowers the baseline after Python was removed (the guard fails until it is lowered) and refuses to raise it;
 `--base <commit>` also fails when the baseline file is higher than at that commit.

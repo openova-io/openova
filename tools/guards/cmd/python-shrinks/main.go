@@ -1,19 +1,35 @@
-// Command python-shrinks keeps Python in this repository from growing.
+// Command python-shrinks keeps Python in this repository from growing, file by
+// file.
 //
 // The languages of this repository are Go, Rust where a design record says so,
 // TypeScript for the consoles and shell for a few lines of glue
-// (docs/PRINCIPLES.md IV.4). Python stays only where it is today, and only
-// shrinks, or where the exception list of the baseline names the file with a
-// one-line reason.
+// (docs/PRINCIPLES.md IV.4). The Python that exists is debt to port: each file
+// that holds Python is listed in the baseline with its own number of lines,
+// and that number only falls. A file the exception list names, with a
+// one-line reason, is not counted.
 //
 // It reads the files Git lists (the tracked files, and new files Git does not
 // ignore) and compares them with scripts/baselines/python.json:
 //
-//	python_files  every Python file: a path that ends in .py, or a file whose
-//	              first line is a #! line that names python
-//	python_lines  the lines of those files, summed
+//	python_files  every file that holds Python -> its lines of Python
 //	sites         the places where Python runs on a Sovereign or is put into a
 //	              shipped image: kind -> path -> number of places
+//
+// The lines of Python of a file:
+//
+//	a Python file  a path that ends in .py, or a file whose first line is a #!
+//	               line that names python: every line.
+//	another file   a shell, YAML, template, Terraform, HCL or make file, a
+//	               container file, a file of a scope below, or a file whose
+//	               first line is a #! line (never a .md or .txt file):
+//	               - the body of a here-document opened on a line that runs
+//	                 python or writes a .py file (<< or <<-, quoted or not);
+//	               - the quoted program of python -c, and of a here-string (<<<)
+//	                 given to python, from its quote to the closing quote;
+//	               - the body of a YAML block scalar (| or >) whose key ends in
+//	                 .py, or whose first line is a #! line that names python.
+//	               A comment line (#) opens nothing; lines that end in a
+//	               backslash are read as one line.
 //
 // The files read for places (the scope):
 //
@@ -36,29 +52,35 @@
 //	         name starts with python (a FROM line of an image file, or image: in
 //	         a chart)
 //	invoke   the word python, python3 or python3.N as a command: before it the
-//	         start of the command, a space, a quote, [, ( or = (a path such as
-//	         /usr/bin/ may stand between); after it the end, a space, a quote,
-//	         ], ) or a comma. A LABEL line of an image file is not read.
+//	         start of the command, a space, a quote, [, (, =, { or :- (a path
+//	         such as /usr/bin/ may stand between); after it the end, a space, a
+//	         quote, ], ), }, a comma, <, >, |, ; or &. A LABEL line of an image
+//	         file is not read.
 //
 // The rules. Exit 1 when one fails:
 //
-//  1. A Python file that the baseline does not list is a new Python file.
-//  2. The Python files hold no more lines than python_lines.
+//  1. A file that holds Python and that python_files does not list is new.
+//  2. No file holds more lines of Python than python_files lists for it.
 //  3. No path holds more places of a kind than sites lists for it; a place in
 //     a path that sites does not list for that kind is a new place.
-//  4. An exception names a file Git lists that holds Python, once, with a
+//  4. The baseline is not stale: a file that holds fewer lines of Python, or a
+//     path that holds fewer places, than the baseline lists fails until the
+//     baseline is lowered with --write-baseline. Room Python gave up cannot be
+//     taken again later.
+//  5. An exception names a file Git lists that holds Python, once, with a
 //     reason of one line and ten characters or more. A file it names is not
-//     counted by rules 1 to 3.
-//  5. With --base <commit>: no number of the baseline file is higher than in
+//     counted by rules 1 to 4; since every file has its own number, it frees
+//     no room for any other file.
+//  6. With --base <commit>: no number of the baseline file is higher than in
 //     the same file at <commit>, and it lists no file or place that it did not
 //     list there. When the file does not exist at <commit> there is nothing to
 //     compare.
 //
-// A number below its baseline passes and prints a note: lower the baseline
-// with --write-baseline. --write-baseline writes the baseline from the tree and
-// keeps the exception list; it refuses (exit 1) when rule 1, 2, 3 or 4 fails,
-// so a baseline is never raised and never gains a file or a place. Exit 2
-// when the tree, the baseline or the base commit cannot be read.
+// --write-baseline writes the baseline from the tree and keeps the exception
+// list; it refuses (exit 1) when rule 1, 2, 3 or 5 fails, so a baseline is
+// never raised and never gains a file or a place. Exit 2 when the tree, the
+// baseline or the base commit cannot be read. The baseline file has a code
+// owner (.github/CODEOWNERS), so an exception is added only with that review.
 package main
 
 import (
@@ -96,7 +118,7 @@ var kinds = []string{"install", "invoke", "shebang"}
 var (
 	templateComment = regexp.MustCompile(`(?s)\{\{-?\s*/\*.*?\*/\s*-?\}\}`)
 	shebangRe       = regexp.MustCompile(`^#!.*?(?:/|\s)python[0-9]*(?:\.[0-9]+)?(?:\s|$)`)
-	invokeRe        = regexp.MustCompile("(?:^|[\\s\"'\\[(=`])(?:[A-Za-z0-9_.-]*/)*python[0-9]*(?:\\.[0-9]+)?(?:[\\s\"'\\]),`]|$)")
+	invokeRe        = regexp.MustCompile("(?:^|[\\s\"'\\[(=`{]|:-)(?:[A-Za-z0-9_.-]*/)*python[0-9]*(?:\\.[0-9]+)?(?:[\\s\"'\\]),`}<>|;&]|$)")
 	pkgInstallRe    = regexp.MustCompile(`(?:^|[\s"'(])(?:apk\s+add|apt-get\s+install|apt\s+install|dnf\s+install|yum\s+install|microdnf\s+install|tdnf\s+install|zypper\s+(?:in|install))(?:\s|$)`)
 	pythonPkgRe     = regexp.MustCompile(`(?:^|\s)(?:python[A-Za-z0-9_.+-]*|py3-[A-Za-z0-9_.+-]+)(?:\s|$)`)
 	pipInstallRe    = regexp.MustCompile(`(?:^|[\s"'(/])(?:pip[0-9.]*|python[0-9.]*\s+-m\s+pip)\s+install(?:\s|$)`)
@@ -105,6 +127,16 @@ var (
 	labelRe         = regexp.MustCompile(`(?i)^LABEL\s`)
 	cloudInitName   = regexp.MustCompile(`^cloud-?init[^/]*\.(?:tftpl|tpl|ya?ml)$`)
 	commandSep      = regexp.MustCompile(`&&|\|\||;|\|`)
+
+	// Python inside a file of another language.
+	heredocRe    = regexp.MustCompile(`(?:^|[^<])<<-?[ \t]*(?:'([^'\s]+)'|"([^"\s]+)"|\\?([A-Za-z_][A-Za-z0-9_]*))`)
+	writesPyRe   = regexp.MustCompile(`(?:>|\btee\s+(?:-a\s+)?)\s*["']?[^\s"'<>|;&]*\.py["']?(?:\s|<|$)`)
+	pyProgramRe  = regexp.MustCompile("(?:^|[\\s\"'\\[(=`{]|:-)(?:[A-Za-z0-9_.-]*/)*python[0-9]*(?:\\.[0-9]+)?[\"']?(?:(?:[\\s,]+[\"']?-[A-Za-z]+[\"']?)*?[\\s,]+[\"']?-c[\"']?[\\s,]*|(?:\\s+-[A-Za-z]*)*\\s*<<<\\s*)\\$?(\\\\?['\"])")
+	programVar   = regexp.MustCompile(`^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$`)
+	blockRe      = regexp.MustCompile(`^([ \t]*)(?:-[ \t]+)?(?:["']?([^"'\s:#][^"':]*?)["']?[ \t]*:[ \t]+)?[|>][-+1-9]*[ \t]*(?:#.*)?$`)
+	embeddedExts = map[string]bool{".sh": true, ".bash": true, ".zsh": true, ".ksh": true, ".bats": true, ".yaml": true, ".yml": true,
+		".tpl": true, ".tftpl": true, ".tf": true, ".hcl": true, ".mk": true, ".j2": true}
+	embeddedNames = []string{"Makefile", "makefile", "GNUmakefile", "Justfile", "justfile"}
 )
 
 type exception struct {
@@ -116,8 +148,7 @@ type exception struct {
 // their keys, so the file is written with its keys sorted.
 type baseline struct {
 	Exceptions  []exception               `json:"exceptions"`
-	PythonFiles []string                  `json:"python_files"`
-	PythonLines *int                      `json:"python_lines"`
+	PythonFiles map[string]int            `json:"python_files"`
 	Schema      string                    `json:"schema"`
 	Sites       map[string]map[string]int `json:"sites"`
 }
@@ -130,9 +161,10 @@ type place struct {
 
 // tree is what the guard measured.
 type tree struct {
-	listed map[string]bool // every regular file Git lists
-	python map[string]int  // Python file -> lines
-	places []place
+	listed   map[string]bool // every regular file Git lists
+	python   map[string]int  // file that holds Python -> its lines of Python
+	embedded map[string]bool // a file of python whose Python sits inside another language
+	places   []place
 }
 
 func main() {
@@ -195,7 +227,9 @@ func guard(root, base string, write, list bool, out io.Writer) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	fails, notes := judge(t, b)
+	fails, stale := judge(t, b)
+	fails = append(fails, stale...)
+	var notes []string
 	if base != "" {
 		more, note, err := compareBase(root, base, b)
 		if err != nil {
@@ -269,7 +303,7 @@ func measure(root string) (*tree, error) {
 			charts[path.Dir(p)] = true
 		}
 	}
-	t := &tree{listed: map[string]bool{}, python: map[string]int{}}
+	t := &tree{listed: map[string]bool{}, python: map[string]int{}, embedded: map[string]bool{}}
 	fsys := os.DirFS(root)
 	for _, p := range paths {
 		info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(p)))
@@ -297,16 +331,22 @@ func measure(root string) (*tree, error) {
 		if bytes.IndexByte(text, 0) >= 0 {
 			continue // not text
 		}
-		if !isPy && shebangRe.MatchString(firstLine(text)) {
-			isPy = true
-			if scope == "" {
-				if text, err = fs.ReadFile(fsys, p); err != nil {
-					return nil, err
-				}
+		first := firstLine(text)
+		isPy = isPy || shebangRe.MatchString(first)
+		inner := !isPy && readsEmbedded(p, scope, first)
+		if (isPy || inner) && scope == "" && !strings.HasSuffix(p, ".py") {
+			if text, err = fs.ReadFile(fsys, p); err != nil {
+				return nil, err
 			}
 		}
-		if isPy {
+		switch {
+		case isPy:
 			t.python[p] = countLines(text)
+		case inner:
+			if n := embedded(string(text)); n > 0 {
+				t.python[p] = n
+				t.embedded[p] = true
+			}
 		}
 		if scope != "" {
 			t.places = append(t.places, scan(scope, p, string(text))...)
@@ -369,6 +409,248 @@ func scopeOf(p string, charts map[string]bool) string {
 		return ""
 	}
 	return ""
+}
+
+// readsEmbedded is true when a file of another language is read for Python inside it.
+func readsEmbedded(p, scope, first string) bool {
+	name := path.Base(p)
+	if strings.HasSuffix(name, ".md") || strings.HasSuffix(name, ".txt") {
+		return false
+	}
+	if scope != "" || embeddedExts[path.Ext(name)] || strings.HasPrefix(first, "#!") {
+		return true
+	}
+	for _, prefix := range embeddedNames {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func indentOf(line string) int {
+	return len(line) - len(strings.TrimLeft(line, " \t"))
+}
+
+// embedded returns the lines of Python inside a file of another language.
+func embedded(text string) int {
+	lines := strings.Split(text, "\n")
+	starts := make([]int, len(lines))
+	for i, off := 0, 0; i < len(lines); i++ {
+		starts[i] = off
+		off += len(lines[i]) + 1
+		lines[i] = strings.TrimSuffix(lines[i], "\r")
+	}
+	if last := len(lines) - 1; last > 0 && lines[last] == "" {
+		lines, starts = lines[:last], starts[:last] // the end of the last line is not a line
+	}
+	n := 0
+	vars := map[string]bool{} // shell variables that hold a program given to python -c
+	for i := 0; i < len(lines); {
+		trimmed := strings.TrimSpace(lines[i])
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			i++
+			continue
+		}
+		if body, end, ok := pythonBlock(lines, i); ok {
+			n += body
+			i = end
+			continue
+		}
+		k := logicalEnd(lines, i)
+		line, next := logicalLine(lines, i, k), k+1
+		// The quoted programs of python -c and of here-strings given to python. A << inside one
+		// is Python, not a here-document.
+		end, programs := starts[k]+len(lines[k]), 0
+		for from := starts[i]; from < end; programs++ {
+			m := pyProgramRe.FindStringSubmatchIndex(text[from:end])
+			if m == nil {
+				break
+			}
+			open := from + m[2]
+			quote := text[open : from+m[3]]
+			count, closing := quotedLines(text, open, quote, end)
+			n += count
+			if v := programVar.FindStringSubmatch(text[open+len(quote) : closing]); v != nil {
+				vars[v[1]] = true
+			}
+			if last := sort.SearchInts(starts, closing+1) - 1; last+1 > next {
+				next = last + 1
+			}
+			from = closing + len(quote)
+		}
+		if programs == 0 && (invokeRe.MatchString(line) || writesPyRe.MatchString(line)) {
+			var body int
+			body, next = heredocs(line, lines, next)
+			n += body
+		}
+		i = next
+	}
+	// A program given as python -c "$NAME": the quoted text or the here-document assigned to NAME.
+	for name := range vars {
+		assign := regexp.MustCompile(`(?:^|[\s;(&|])` + name + `=(\$?\\?['"]|\$\()|\bread\b[^<]*\s` + name + `\s[^<]*<<`)
+		for i := 0; i < len(lines); {
+			k := logicalEnd(lines, i)
+			m := assign.FindStringSubmatchIndex(text[starts[i] : starts[k]+len(lines[k])])
+			next := k + 1
+			switch {
+			case m == nil || strings.HasPrefix(strings.TrimSpace(lines[i]), "#"):
+			case m[2] >= 0 && !strings.HasSuffix(text[starts[i]+m[2]:starts[i]+m[3]], "("):
+				open := starts[i] + m[3] - 1
+				quote := text[open : starts[i]+m[3]]
+				if strings.HasSuffix(text[starts[i]+m[2]:starts[i]+m[3]], `\`+quote) {
+					open, quote = open-1, `\`+quote
+				}
+				body, closing := quotedLines(text, open, quote, starts[k]+len(lines[k]))
+				n += body
+				next = sort.SearchInts(starts, closing+1)
+			default:
+				var body int
+				body, next = heredocs(logicalLine(lines, i, k), lines, next)
+				n += body
+			}
+			i = max(next, i+1)
+		}
+	}
+	return n
+}
+
+// logicalEnd returns the last line of the logical line that starts at line i: lines that end in
+// a backslash are read as one line.
+func logicalEnd(lines []string, i int) int {
+	k := i
+	for k < len(lines)-1 && strings.HasSuffix(strings.TrimSpace(lines[k]), "\\") {
+		k++
+	}
+	return k
+}
+
+func logicalLine(lines []string, i, k int) string {
+	var b strings.Builder
+	for j := i; j <= k; j++ {
+		b.WriteString(strings.TrimSuffix(strings.TrimSpace(lines[j]), "\\"))
+		b.WriteString(" ")
+	}
+	return b.String()
+}
+
+// quotedLines counts the lines of the quoted text opened at open, and returns its closing quote. A
+// quote of two characters (\") is a quote inside a quoted string of YAML or JSON: the text ends
+// with the line, and a \n in it is a line.
+func quotedLines(text string, open int, quote string, lineEnd int) (int, int) {
+	limit := len(text)
+	if len(quote) == 2 {
+		limit = lineEnd
+	}
+	closing := closingQuote(text[:limit], open+len(quote), quote)
+	program := text[open:closing]
+	n := strings.Count(program, "\n") + 1
+	if len(quote) == 2 {
+		n += escapedNewlines(program)
+	}
+	return n, closing
+}
+
+// heredocs counts the bodies of the here-documents opened on a logical line, in order: inside the
+// line when it is a quoted string of YAML or JSON (lines written \n), else on the lines from next
+// on. A << inside a body that was read is part of that body. It returns the line after the last
+// body.
+func heredocs(line string, lines []string, next int) (int, int) {
+	n, read := 0, 0
+	for _, m := range heredocRe.FindAllStringSubmatchIndex(line, -1) {
+		if m[0] < read {
+			continue
+		}
+		delim := ""
+		for g := 2; g < len(m); g += 2 {
+			if m[g] >= 0 {
+				delim = line[m[g]:m[g+1]]
+			}
+		}
+		if body, size, ok := inlineBody(line[m[1]:], delim); ok {
+			n += body
+			read = m[1] + size
+			continue
+		}
+		j := next
+		for j < len(lines) && strings.TrimSpace(lines[j]) != delim {
+			j++
+		}
+		n += j - next
+		next = j + 1
+	}
+	return n, next
+}
+
+// inlineBody counts the lines of a here-document written inside one quoted line as
+// "<<'PY'\n...\nPY": the \n before the delimiter that ends it, and the lines before it. size is
+// the length of the body with its delimiter.
+func inlineBody(rest, delim string) (lines, size int, ok bool) {
+	for from := 0; ; {
+		at := strings.Index(rest[from:], `\n`+delim)
+		if at < 0 {
+			return 0, 0, false
+		}
+		at += from
+		size = at + 2 + len(delim)
+		after := rest[size:]
+		if after == "" || strings.HasPrefix(after, `\n`) || strings.HasPrefix(after, `"`) || strings.HasPrefix(after, `'`) ||
+			strings.HasPrefix(after, " ") {
+			return escapedNewlines(rest[:at]), size, true
+		}
+		from = at + 2
+	}
+}
+
+// closingQuote returns the offset of the quote that closes a quoted text, or the end of the text.
+// A quote of two characters (\" or \') is a quote inside a quoted string of YAML or JSON.
+func closingQuote(text string, from int, quote string) int {
+	for i := from; i < len(text); i++ {
+		switch {
+		case quote == `'`:
+			if text[i] == '\'' {
+				return i
+			}
+		case quote == `"` && text[i] == '\\', len(quote) == 2 && strings.HasPrefix(text[i:], `\\`):
+			i++ // an escaped character
+		case strings.HasPrefix(text[i:], quote):
+			return i
+		}
+	}
+	return len(text)
+}
+
+// pythonBlock reads a YAML block scalar opened at line i that holds Python: its key ends in
+// .py, or its first line is a #! line that names python. A body that is one template action at
+// any indent ({{ .Files.Get ... | default "...\n..." | indent 4 }}) is its line and each \n in it.
+// It returns the lines of the body and the line after it.
+func pythonBlock(lines []string, i int) (int, int, bool) {
+	m := blockRe.FindStringSubmatch(lines[i])
+	if m == nil {
+		return 0, 0, false
+	}
+	indent, last, first := indentOf(lines[i]), i, ""
+	j := i + 1
+	for ; j < len(lines); j++ {
+		if strings.TrimSpace(lines[j]) == "" {
+			continue
+		}
+		if indentOf(lines[j]) <= indent {
+			break
+		}
+		if first == "" {
+			first = strings.TrimSpace(lines[j])
+		}
+		last = j
+	}
+	isPy := strings.HasSuffix(m[2], ".py")
+	if last == i && isPy && j < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[j]), "{{") {
+		return 1 + escapedNewlines(lines[j]), j + 1, true
+	}
+	if !isPy && !shebangRe.MatchString(first) {
+		return 0, 0, false
+	}
+	return last - i, last + 1, true
 }
 
 // scan returns the places of one file of a scope.
@@ -448,11 +730,13 @@ func parseBaseline(data []byte, where string) (*baseline, error) {
 	if err := dec.Decode(&b); err != nil {
 		return nil, fmt.Errorf("%s: %v", where, err)
 	}
-	if b.Schema != schema || b.Exceptions == nil || b.PythonFiles == nil || b.PythonLines == nil || b.Sites == nil {
-		return nil, fmt.Errorf("%s: need schema %s and the keys exceptions, python_files, python_lines and sites", where, schema)
+	if b.Schema != schema || b.Exceptions == nil || b.PythonFiles == nil || b.Sites == nil {
+		return nil, fmt.Errorf("%s: need schema %s and the keys exceptions, python_files and sites", where, schema)
 	}
-	if *b.PythonLines < 0 {
-		return nil, fmt.Errorf("%s: python_lines is below 0", where)
+	for p, n := range b.PythonFiles {
+		if p == "" || n < 1 {
+			return nil, fmt.Errorf("%s: python_files.%s is %d; a listed file holds 1 line of Python or more", where, p, n)
+		}
 	}
 	if len(b.Sites) != len(kinds) {
 		return nil, fmt.Errorf("%s: sites holds exactly the kinds %s", where, strings.Join(kinds, ", "))
@@ -467,13 +751,6 @@ func parseBaseline(data []byte, where string) (*baseline, error) {
 				return nil, fmt.Errorf("%s: sites.%s.%s is %d; a listed path holds 1 place or more", where, kind, p, n)
 			}
 		}
-	}
-	seen := map[string]bool{}
-	for _, p := range b.PythonFiles {
-		if p == "" || seen[p] {
-			return nil, fmt.Errorf("%s: python_files names %q twice or is empty", where, p)
-		}
-		seen[p] = true
 	}
 	return &b, nil
 }
@@ -522,17 +799,14 @@ func excepted(b *baseline, t *tree) map[string]bool {
 	return out
 }
 
-// counted returns the Python files, their lines and the places, without the exceptions.
-func counted(t *tree, skip map[string]bool) ([]string, int, map[string]map[string][]int) {
-	var files []string
-	lines := 0
+// counted returns the files that hold Python with their lines, and the places, without the exceptions.
+func counted(t *tree, skip map[string]bool) (map[string]int, map[string]map[string][]int) {
+	files := map[string]int{}
 	for p, n := range t.python {
 		if !skip[p] {
-			files = append(files, p)
-			lines += n
+			files[p] = n
 		}
 	}
-	sort.Strings(files)
 	sites := map[string]map[string][]int{}
 	for _, kind := range kinds {
 		sites[kind] = map[string][]int{}
@@ -542,11 +816,19 @@ func counted(t *tree, skip map[string]bool) ([]string, int, map[string]map[strin
 			sites[pl.kind][pl.path] = append(sites[pl.kind][pl.path], pl.line)
 		}
 	}
-	return files, lines, sites
+	return files, sites
 }
 
 func summary(t *tree, skip map[string]bool) string {
-	files, lines, sites := counted(t, skip)
+	files, sites := counted(t, skip)
+	lines, inner, innerLines := 0, 0, 0
+	for p, n := range files {
+		lines += n
+		if t.embedded[p] {
+			inner++
+			innerLines += n
+		}
+	}
 	total, per := 0, []string{}
 	for _, kind := range kinds {
 		n := 0
@@ -556,53 +838,55 @@ func summary(t *tree, skip map[string]bool) string {
 		total += n
 		per = append(per, fmt.Sprintf("%s=%d", kind, n))
 	}
-	return fmt.Sprintf("python_files=%d python_lines=%d places=%d (%s) exceptions=%d",
-		len(files), lines, total, strings.Join(per, " "), len(skip))
+	return fmt.Sprintf("python_files=%d python_lines=%d (inside other files: %d files, %d lines) places=%d (%s) exceptions=%d",
+		len(files), lines, inner, innerLines, total, strings.Join(per, " "), len(skip))
 }
 
-// judge applies rules 1 to 4.
-func judge(t *tree, b *baseline) (fails, notes []string) {
-	skip, fails := checkExceptions(b, t)
-	files, lines, sites := counted(t, skip)
-	known := map[string]bool{}
-	for _, p := range b.PythonFiles {
-		known[p] = true
-	}
-	present := map[string]bool{}
-	for _, p := range files {
-		present[p] = true
-		if !known[p] {
-			fails = append(fails, fmt.Sprintf("a new Python file: %s (%d lines)", p, t.python[p]))
+const lower = "lower the baseline with --write-baseline"
+
+// judge applies rules 1 to 5: grown is a file or place above the baseline (rules 1, 2, 3, 5),
+// stale is one below it (rule 4).
+func judge(t *tree, b *baseline) (grown, stale []string) {
+	skip, grown := checkExceptions(b, t)
+	files, sites := counted(t, skip)
+	for _, p := range unionKeys(files, b.PythonFiles) {
+		now, was := files[p], b.PythonFiles[p]
+		what := "a Python file"
+		if t.embedded[p] {
+			what = "a file with Python inside"
 		}
-	}
-	for _, p := range b.PythonFiles {
-		if !present[p] {
-			notes = append(notes, fmt.Sprintf("%s is listed but is no longer counted; lower the baseline with --write-baseline", p))
+		switch {
+		case now > was && was == 0:
+			grown = append(grown, fmt.Sprintf("a new file that holds Python: %s (%d lines, %s)", p, now, what))
+		case now > was:
+			grown = append(grown, fmt.Sprintf("%s holds %d lines of Python, the baseline allows %d", p, now, was))
+		case now < was && now == 0:
+			stale = append(stale, fmt.Sprintf("%s is listed with %d lines but holds no counted Python now; %s", p, was, lower))
+		case now < was:
+			stale = append(stale, fmt.Sprintf("%s holds %d lines of Python, the baseline still says %d; %s", p, now, was, lower))
 		}
-	}
-	switch {
-	case lines > *b.PythonLines:
-		fails = append(fails, fmt.Sprintf("the Python files hold %d lines, the baseline allows %d", lines, *b.PythonLines))
-	case lines < *b.PythonLines:
-		notes = append(notes, fmt.Sprintf("the Python files hold %d lines, the baseline still says %d; lower it with --write-baseline", lines, *b.PythonLines))
 	}
 	for _, kind := range kinds {
-		for _, p := range unionKeys(sites[kind], b.Sites[kind]) {
-			now, was := len(sites[kind][p]), b.Sites[kind][p]
+		at := map[string]int{}
+		for p, lines := range sites[kind] {
+			at[p] = len(lines)
+		}
+		for _, p := range unionKeys(at, b.Sites[kind]) {
+			now, was := at[p], b.Sites[kind][p]
 			switch {
 			case now > was && was == 0:
-				fails = append(fails, fmt.Sprintf("a new place where Python runs or is installed: %s %s (line %s)", kind, p, joinInts(sites[kind][p])))
+				grown = append(grown, fmt.Sprintf("a new place where Python runs or is installed: %s %s (line %s)", kind, p, joinInts(sites[kind][p])))
 			case now > was:
-				fails = append(fails, fmt.Sprintf("%s: %s has %d places, the baseline allows %d (lines %s)", kind, p, now, was, joinInts(sites[kind][p])))
+				grown = append(grown, fmt.Sprintf("%s: %s has %d places, the baseline allows %d (lines %s)", kind, p, now, was, joinInts(sites[kind][p])))
 			case now < was:
-				notes = append(notes, fmt.Sprintf("%s: %s has %d places, the baseline still says %d; lower it with --write-baseline", kind, p, now, was))
+				stale = append(stale, fmt.Sprintf("%s: %s has %d places, the baseline still says %d; %s", kind, p, now, was, lower))
 			}
 		}
 	}
-	return fails, notes
+	return grown, stale
 }
 
-func unionKeys(a map[string][]int, b map[string]int) []string {
+func unionKeys(a, b map[string]int) []string {
 	seen := map[string]bool{}
 	for k := range a {
 		seen[k] = true
@@ -651,11 +935,8 @@ func writeBaseline(root string, t *tree, out io.Writer) (int, error) {
 		return 0, fmt.Errorf("%s cannot be read: %v", baselinePath, err)
 	}
 	skip, _ := checkExceptions(&baseline{Exceptions: keep}, t)
-	files, lines, sites := counted(t, skip)
-	nb := baseline{Exceptions: keep, PythonFiles: files, PythonLines: &lines, Schema: schema, Sites: map[string]map[string]int{}}
-	if nb.PythonFiles == nil {
-		nb.PythonFiles = []string{}
-	}
+	files, sites := counted(t, skip)
+	nb := baseline{Exceptions: keep, PythonFiles: files, Schema: schema, Sites: map[string]map[string]int{}}
 	for _, kind := range kinds {
 		nb.Sites[kind] = map[string]int{}
 		for p, at := range sites[kind] {
@@ -730,16 +1011,13 @@ func compareBase(root, base string, cur *baseline) (fails []string, note string,
 	if err != nil {
 		return nil, "", err
 	}
-	if *cur.PythonLines > *old.PythonLines {
-		fails = append(fails, fmt.Sprintf("%s: python_lines is %d, higher than %d at %s. A baseline only falls", baselinePath, *cur.PythonLines, *old.PythonLines, base))
-	}
-	had := map[string]bool{}
-	for _, p := range old.PythonFiles {
-		had[p] = true
-	}
-	for _, p := range cur.PythonFiles {
-		if !had[p] {
+	for _, p := range sortedKeys(cur.PythonFiles) {
+		now, was := cur.PythonFiles[p], old.PythonFiles[p]
+		switch {
+		case was == 0:
 			fails = append(fails, fmt.Sprintf("%s: python_files lists %s, which it did not list at %s. A baseline only falls", baselinePath, p, base))
+		case now > was:
+			fails = append(fails, fmt.Sprintf("%s: python_files lists %s with %d, higher than %d at %s. A baseline only falls", baselinePath, p, now, was, base))
 		}
 	}
 	for _, kind := range kinds {
@@ -768,7 +1046,11 @@ func printList(t *tree, out io.Writer) {
 	}
 	sort.Strings(files)
 	for _, p := range files {
-		say(out, "file %6d %s\n", t.python[p], p)
+		how := "file  "
+		if t.embedded[p] {
+			how = "inside"
+		}
+		say(out, "%s %6d %s\n", how, t.python[p], p)
 	}
 	places := append([]place(nil), t.places...)
 	sort.SliceStable(places, func(i, j int) bool {
@@ -783,4 +1065,19 @@ func printList(t *tree, out io.Writer) {
 	for _, pl := range places {
 		say(out, "place %-7s %s:%d\n", pl.kind, pl.path, pl.line)
 	}
+}
+
+// escapedNewlines counts the \n of a quoted string of YAML, JSON or a template: a \\n is a
+// backslash and an n, not a line.
+func escapedNewlines(s string) int {
+	n := 0
+	for i := 0; i < len(s)-1; i++ {
+		if s[i] == '\\' {
+			if s[i+1] == 'n' {
+				n++
+			}
+			i++
+		}
+	}
+	return n
 }
