@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T00:45:04Z` |
+| Last refreshed | `2026-11-19T01:00:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -309,6 +309,7 @@ flowchart LR
 |---|---|---|---|
 | 2026-11-19T00:43 | [#8246](https://github.com/openova-io/openova/pull/8246) | #7087 | docs(ledger): plan update |
 | 2026-11-19T00:37 | [#8243](https://github.com/openova-io/openova/pull/8243) | #7087 | docs(ledger): plan update |
+| 2026-11-19T00:58 | [#8242](https://github.com/openova-io/openova/pull/8242) | #8230 | fix(self-sovereign-cutover): the deny-egress hold keeps the  |
 | 2026-11-18T23:51 | [#8240](https://github.com/openova-io/openova/pull/8240) | #8238 | docs(ledger): result of the operator action FND-079 (FND-079 |
 | 2026-11-18T23:49 | [#8239](https://github.com/openova-io/openova/pull/8239) | #7087 | docs(ledger): plan update |
 | 2026-11-18T23:42 | [#8237](https://github.com/openova-io/openova/pull/8237) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-18T19:57 | [#8203](https://github.com/openova-io/openova/pull/8203) | #7087 | docs(ledger): plan update |
 | 2026-11-18T20:11 | [#8202](https://github.com/openova-io/openova/pull/8202) | #8201 | fix(axon): stream one chunk per upstream event and close the |
 | 2026-11-18T19:35 | [#8200](https://github.com/openova-io/openova/pull/8200) | #7087 | docs(ledger): plan update |
-| 2026-11-18T20:37 | [#8199](https://github.com/openova-io/openova/pull/8199) | #7938 | fix(build): a version tag that exists is never pushed again |
 
 ---
 
