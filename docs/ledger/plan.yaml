@@ -4113,7 +4113,7 @@ packages:
   size: M
   lane: RAILS
   depends_on: [FND-141, FND-017]
-  after: [FND-062, FND-027, FND-029, FND-018, FND-019, FND-024, FND-025, FND-130, SVC-150, SVC-160]
+  after: [FND-062, FND-027, FND-029, FND-018, FND-019, FND-024, FND-025, FND-130, SVC-150, SVC-160, SVC-161]
   touches:
   - .github/actions/deploy-bump/action.yaml
   - .github/workflows/chart-auto-bump.yaml
@@ -8489,7 +8489,7 @@ packages:
   size: S
   lane: RAILS
   depends_on: [CLD-114, CLD-123, CLD-146, CLD-152, CLD-164]
-  after: [CLD-010, CLD-030, CLD-112, CLD-211, NET-221, SVC-160, CTL-347]
+  after: [CLD-010, CLD-030, CLD-112, CLD-211, NET-221, SVC-160, SVC-161, CTL-347]
   touches:
   - scripts/check-provider-leaks.py
   - scripts/provider-leak-baseline.tsv
@@ -14532,7 +14532,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271, FND-063, SOV-230]
-  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-074, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, FND-155, FND-206, FND-207, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-066, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-135, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-335, SEC-040, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-133, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-150, SVC-159, SVC-160, SVC-163, SVC-190, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-020, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-101, AIP-102, AIP-105, AIP-108, AIP-111, AIP-113, AIP-120, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-501, PRD-503, PRD-508, PRD-513]
+  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-074, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, FND-155, FND-206, FND-207, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-066, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-135, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-335, SEC-040, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-133, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-150, SVC-159, SVC-160, SVC-161, SVC-163, SVC-190, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-020, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-101, AIP-102, AIP-105, AIP-108, AIP-111, AIP-113, AIP-120, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-501, PRD-503, PRD-508, PRD-513]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -19120,35 +19120,42 @@ packages:
   size: S
   lane: RAILS
   depends_on: [SVC-160]
-  after: [FND-017, FND-018, FND-019, FND-020, FND-056, FND-059, FND-062, FND-063, FND-096, FND-098, CLD-010, CLD-022, CLD-023, CLD-030, CLD-113, CLD-142, SOV-035, NET-040, NET-221, CTL-347, INF-110]
+  after: []
   touches:
-  - scripts/sync-catalog-seed-pin.py
-  - scripts/check-catalog-seed-source-coverage.py
-  - scripts/expected-unseeded-blueprints.yaml
-  - scripts/check-umbrella-republish-gate.py
-  - scripts/sync-funnel-pin.py
-  - scripts/lib/version_order.py
-  - scripts/check-release-lockstep-writer.py
   - .github/workflows/blueprint-release.yaml
   - .github/workflows/check-catalog-seed-lockstep.yaml
   - .github/workflows/check-release-lockstep-writer.yaml
   - .github/workflows/test-bootstrap-kit.yaml
-  - scripts/provider-leak-baseline.tsv
   - docs/ledger/deleted-paths.txt
+  - scripts/check-catalog-seed-source-coverage.py
+  - scripts/check-umbrella-republish-gate.py
+  - scripts/expected-unseeded-blueprints.yaml
+  - scripts/lib/version_order.py
+  - scripts/provider-leak-baseline.tsv
+  - scripts/sync-catalog-seed-pin.py
+  - scripts/sync-funnel-pin.py
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "ls scripts/sync-catalog-seed-pin.py scripts/check-catalog-seed-source-coverage.py scripts/expected-unseeded-blueprints.yaml | wc -l"
+    expect: "3"
+  acceptance:
+  - id: A1
+    run: "python3 scripts/lib/version_order.py --self-test > /dev/null && test \"$(python3 scripts/lib/version_order.py 1.10.0 1.9.9)\" = higher && test \"$(python3 scripts/lib/version_order.py 1.4.1951 1.4.1952)\" = lower && ! python3 scripts/lib/version_order.py 1.2 1.0.0 2> /dev/null && test \"$(grep -c -F 'python3 scripts/lib/version_order.py ' .github/workflows/blueprint-release.yaml)\" = 4 && ! grep -q -F sync-catalog-seed-pin .github/workflows/blueprint-release.yaml && grep -q -x -F '        run: python3 scripts/lib/version_order.py --self-test' .github/workflows/check-release-lockstep-writer.yaml"
+  - id: A2
+    run: "! test -e scripts/sync-catalog-seed-pin.py && ! grep -q -e sync-catalog-seed-pin -e sync_catalog_seed_pin scripts/sync-funnel-pin.py scripts/check-umbrella-republish-gate.py && python3 scripts/sync-funnel-pin.py --self-test > /dev/null && python3 scripts/check-umbrella-republish-gate.py --self-test > /dev/null && python3 scripts/check-umbrella-republish-gate.py --ref HEAD --base \"$(git merge-base HEAD origin/main)\" > /dev/null"
+  - id: A3
+    run: "! test -e scripts/check-catalog-seed-source-coverage.py && ! test -e scripts/expected-unseeded-blueprints.yaml && ! grep -q -e source-coverage -e check-catalog-seed-source-coverage -e expected-unseeded-blueprints -e sync-catalog-seed-pin .github/workflows/check-catalog-seed-lockstep.yaml .github/workflows/test-bootstrap-kit.yaml .github/workflows/check-release-lockstep-writer.yaml && ! grep -q -F expected-unseeded-blueprints scripts/provider-leak-baseline.tsv && for p in scripts/sync-catalog-seed-pin.py scripts/check-catalog-seed-source-coverage.py scripts/expected-unseeded-blueprints.yaml; do grep -q -x -F \"$p\" docs/ledger/deleted-paths.txt; done && python3 scripts/check-repo-hygiene.py paths > /dev/null && python3 scripts/check-provider-leaks.py --check > /dev/null && python3 -c 'import sys, yaml; [yaml.safe_load(open(f)) for f in sys.argv[1:]]' .github/workflows/blueprint-release.yaml .github/workflows/check-catalog-seed-lockstep.yaml .github/workflows/check-release-lockstep-writer.yaml .github/workflows/test-bootstrap-kit.yaml"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: scripts/sync-catalog-seed-pin.py is deleted. Its --order mode, the release writer's one version comparison (FND-018), moves with its self-test cases to one file of its own, which the four order calls of blueprint-release.yaml, sync-funnel-pin.py (version_order and note_kept) and the lockstep-writer guard call. check-umbrella-republish-gate.py reads the generated seed without the deleted parser. check-catalog-seed-source-coverage.py and its register expected-unseeded-blueprints.yaml are deleted, with the job that runs them; the path filters and the self-test step that name the deleted files go; the register's line leaves the provider-leak baseline.
+  delivers: 'scripts/sync-catalog-seed-pin.py is deleted: its version comparison, with its self-test cases, is scripts/lib/version_order.py, which the four order calls of blueprint-release.yaml, sync-funnel-pin.py and the release lockstep-writer workflow call; check-umbrella-republish-gate.py reads the generated seed with a reader of its own; check-catalog-seed-source-coverage.py and its register expected-unseeded-blueprints.yaml are deleted with the job that runs them, and the path filters, the self-test step and the provider-leak baseline line that name the deleted files go.'
 - id: SVC-162
   title: 'Shelf deletion: README-only folders and scaffold Blueprint files'
   area: SVC
@@ -23273,7 +23280,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CTL-040, FND-141, CTL-041]
-  after: [FND-011, FND-020, FND-027, FND-029, CLD-023, CLD-076, CLD-131, CLD-132, CLD-185, SOV-130, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-146, SEC-020, SEC-030, SEC-040, SEC-126, NET-020, NET-110, SVC-040, SVC-041, INF-060]
+  after: [FND-011, FND-020, FND-027, FND-029, CLD-023, CLD-076, CLD-131, CLD-132, CLD-185, SOV-130, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-145, SOV-146, SEC-020, SEC-030, SEC-040, SEC-126, NET-020, NET-110, SVC-040, SVC-041, SVC-161, INF-060]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - platform/flux/chart/Chart.yaml
@@ -26702,7 +26709,7 @@ packages:
   size: M
   lane: CONTRACTS
   depends_on: [BSS-131, CLD-163]
-  after: [FND-011, CLD-010, CLD-023, CLD-030, NET-032, NET-221, CTL-231, CTL-345, CTL-347, BSS-040, BSS-050, BSS-141]
+  after: [FND-011, CLD-010, CLD-023, CLD-030, NET-032, NET-221, SVC-161, CTL-231, CTL-345, CTL-347, BSS-040, BSS-050, BSS-141]
   touches:
   - products/chargeback/internal/collector/collector.go
   - products/chargeback/internal/collector/huawei/plugin.go
@@ -26778,7 +26785,7 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [BSS-202]
-  after: [CLD-010, CLD-023, CLD-030, NET-221, CTL-347]
+  after: [CLD-010, CLD-023, CLD-030, NET-221, SVC-161, CTL-347]
   touches:
   - products/chargeback/internal/store/store.go
   - products/chargeback/internal/store/cost.go
