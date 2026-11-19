@@ -4935,7 +4935,7 @@ packages:
   size: S
   lane: CONSOLE
   depends_on: [FND-120]
-  after: [FND-017, FND-024, FND-061, FND-063, CLD-040, CLD-090, CLD-134, NET-040, NET-041, NET-070, SVC-040, SVC-190, BSS-040]
+  after: [FND-017, FND-024, FND-061, FND-063, CLD-040, CLD-090, CLD-134, NET-040, NET-041, NET-070, SVC-040, SVC-162, SVC-190, BSS-040]
   touches:
   - products/catalyst/bootstrap/ui/src/entities/deployment/model.ts
   - products/catalyst/bootstrap/ui/src/pages/marketplace/marketplaceCopy.ts
@@ -7228,7 +7228,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [CLD-121]
-  after: [NET-041, NET-070, SVC-040]
+  after: [NET-041, NET-070, SVC-040, SVC-162]
   touches:
   - products/catalyst/bootstrap/ui/src/lib/providers.api.ts
   - products/catalyst/bootstrap/ui/src/entities/deployment/model.ts
@@ -11170,7 +11170,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [SOV-140, SOV-435]
-  after: [CLD-105, CLD-115, SOV-181, SOV-335, SOV-338, NET-012, NET-041, NET-070, NET-071, SVC-040, CTL-038, CTL-039, CTL-160, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, AIP-120]
+  after: [CLD-105, CLD-115, SOV-181, SOV-335, SOV-338, NET-012, NET-041, NET-070, NET-071, SVC-040, SVC-162, CTL-038, CTL-039, CTL-160, CTL-320, CTL-340, CTL-345, CTL-350, CTL-355, AIP-120]
   touches:
   - infra/providers/huawei/main.tf
   - infra/providers/huawei/variables.tf
@@ -11512,7 +11512,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-035, CTL-110, CTL-112, FND-032, SOV-435, CLD-175]
-  after: [NET-071, SVC-030, SVC-040, SVC-170, CTL-223, CTL-233, CTL-355]
+  after: [NET-071, SVC-030, SVC-040, SVC-162, SVC-170, CTL-223, CTL-233, CTL-355]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/
   - products/catalyst/bootstrap/api/internal/lifecycle/pools.go
@@ -11779,7 +11779,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CLD-104, CLD-106, CLD-172, SEC-080, SEC-196, SOV-180, SOV-190, SOV-310, SOV-330, SOV-405, SOV-430, SOV-510]
-  after: [FND-011, CLD-105, CLD-113, CLD-115, SOV-338, NET-041, NET-070, SVC-040, SVC-190, CTL-347, CMP-020, AIP-120]
+  after: [FND-011, CLD-105, CLD-113, CLD-115, SOV-338, NET-041, NET-070, SVC-040, SVC-162, SVC-190, CTL-347, CMP-020, AIP-120]
   touches:
   - products/catalyst/chart/templates/api-deployment.yaml
   - products/catalyst/bootstrap/api/internal/provisioner/provisioner.go
@@ -19246,6 +19246,11 @@ packages:
   - products/catalyst/bootstrap/api/internal/catalog/blueprints.json
   - products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts
   - products/catalyst/chart/templates/catalog-seed/blueprints.yaml
+  - products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentGroups.ts
+  - products/catalyst/bootstrap/ui/src/entities/deployment/model.ts
+  - products/catalyst/bootstrap/ui/src/pages/wizard/steps/StepComponents.test.tsx
+  - products/catalyst/bootstrap/ui/src/pages/wizard/steps/componentGroups.catalog-integrity.5575.test.ts
+  - products/catalyst/bootstrap/ui/src/pages/sovereign/CatalogPage.class.test.tsx
   resources: []
   flips: []
   implements: []
@@ -19257,7 +19262,7 @@ packages:
   - id: A1
     run: "for p in platform/clickhouse platform/debezium platform/failover-controller platform/ferretdb platform/flink platform/iceberg platform/keda platform/milvus platform/neo4j platform/opensearch platform/opentofu platform/stalwart platform/strimzi products/fabric products/relay; do test ! -e \"$p\"; grep -q -x -F \"$p\" docs/ledger/deleted-paths.txt; done; test -f products/cortex/README.md; test -f products/fingate/README.md; test -f platform/stunner/blueprint.yaml; python3 scripts/check-repo-hygiene.py paths > /dev/null"
   - id: A2
-    run: "python3 scripts/generate-catalog.py --check > /dev/null && python3 scripts/generators/components.py --check > /dev/null && python3 -c 'import json, re, sys, yaml; nine = [\"bp-\" + n for n in \"clickhouse debezium ferretdb flink iceberg milvus neo4j opensearch strimzi\".split()]; ids = {b[\"id\"] for b in json.load(open(\"products/catalyst/bootstrap/api/internal/catalog/blueprints.json\", encoding=\"utf-8\"))[\"blueprints\"]}; ts = open(\"products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts\", encoding=\"utf-8\").read(); seed = open(\"products/catalyst/chart/templates/catalog-seed/blueprints.yaml\", encoding=\"utf-8\").read(); ex = {e[\"blueprint\"] for e in yaml.safe_load(open(\"platform/_catalog/seed-exclusions.yaml\", encoding=\"utf-8\"))[\"exclusions\"]}; cat = set(yaml.safe_load(open(\"platform/_catalog/card-categories.yaml\", encoding=\"utf-8\"))[\"categories\"]); reg = yaml.safe_load(open(\"scripts/expected-unpublished-catalog-seed-pins.yaml\", encoding=\"utf-8\"))[\"unpublished\"]; bad = [n for n in nine if n in ids or n in ex or n in cat or \"\\\"id\\\": \\\"%s\\\"\" % n in ts or re.search(\"(?m)^  name: %s$\" % n, seed)]; sys.exit(1 if bad or reg != [] or len(ids) < 50 or \"bp-stunner\" not in ids else 0)' && test \"$(grep -c -E '^\\| (platform/(clickhouse|debezium|failover-controller|ferretdb|flink|iceberg|keda|milvus|neo4j|opensearch|opentofu|stalwart|strimzi)|products/(fabric|relay)) \\|' docs/generated/components.md)\" = 0"
+    run: "python3 scripts/generate-catalog.py --check > /dev/null && python3 scripts/generators/components.py --check > /dev/null && python3 -c 'import json, re, sys, yaml; nine = [\"bp-\" + n for n in \"clickhouse debezium ferretdb flink iceberg milvus neo4j opensearch strimzi\".split()]; ids = {b[\"id\"] for b in json.load(open(\"products/catalyst/bootstrap/api/internal/catalog/blueprints.json\", encoding=\"utf-8\"))[\"blueprints\"]}; ts = open(\"products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts\", encoding=\"utf-8\").read(); seed = open(\"products/catalyst/chart/templates/catalog-seed/blueprints.yaml\", encoding=\"utf-8\").read(); ex = {e[\"blueprint\"] for e in yaml.safe_load(open(\"platform/_catalog/seed-exclusions.yaml\", encoding=\"utf-8\"))[\"exclusions\"]}; reg = yaml.safe_load(open(\"scripts/expected-unpublished-catalog-seed-pins.yaml\", encoding=\"utf-8\"))[\"unpublished\"]; bad = [n for n in nine if n in ids or n in ex or \"\\\"id\\\": \\\"%s\\\"\" % n in ts or re.search(\"(?m)^  name: %s$\" % n, seed)]; sys.exit(1 if bad or reg != [] or len(ids) < 50 or \"bp-stunner\" not in ids else 0)' && test \"$(grep -c -E '^\\| (platform/(clickhouse|debezium|failover-controller|ferretdb|flink|iceberg|keda|milvus|neo4j|opensearch|opentofu|stalwart|strimzi)|products/(fabric|relay)) \\|' docs/generated/components.md)\" = 0"
   - id: A3
     run: "python3 scripts/check-service-model.py > /dev/null && python3 scripts/check-doc-state.py > /dev/null && python3 -c 'import sys; s = [x for x in open(\"docs/STATUS.md\", encoding=\"utf-8\").read().split(\"\\n## \") if x.startswith(\"Roadmap: components that are not built\\n\")]; sys.exit(1) if len(s) != 1 else None; lines = [l for l in s[0].splitlines() if l]; entries = [l for l in lines if l.startswith(\"- \")]; names = [\"AI hub\", \"Open banking\", \"ClickHouse\", \"Debezium\", \"Failover controller\", \"FerretDB\", \"Apache Flink\", \"Apache Iceberg\", \"KEDA\", \"Milvus\", \"Neo4j\", \"OpenSearch\", \"OpenTofu as a Blueprint\", \"Stalwart as a general mail Blueprint\", \"Strimzi\", \"Fabric\", \"Relay\"]; adr = \"Design: [the later-products decision record](adr/0034-later-products-ai-hub-and-open-banking.md).\"; given = [\"- AI hub: a family of serving Blueprints behind the model gateway plus the per-Organization knowledge product. Not built. \" + adr, \"- Open banking: a specification-first product on platform services. Not built. \" + adr]; ok = lines[1] == \"> State: target. Decision: ADR-0020, ADR-0022, ADR-0034\" and lines[2].startswith(\"Target, not built.\") and [l[2:].split(\":\")[0] for l in entries] == names and entries[:2] == given and all(\"ot built\" in l for l in entries); sys.exit(0 if ok else 1)'"
   - id: A4
@@ -19267,7 +19272,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: The fifteen folders that hold only a README, nine of them also a Blueprint file with no chart, are deleted and listed as deleted paths; the catalogue outputs, the seed exclusions, the card categories and the register of unpublished pins lose them, and the GHCR gate accepts the empty register; the status document gains a roadmap section with one entry for each and the two entries of the AI hub and open banking; two links to deleted folders go; and the service-model baseline falls by the counts these files carried.
 - id: SVC-163
