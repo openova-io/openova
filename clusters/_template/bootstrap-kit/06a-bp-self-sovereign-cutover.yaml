@@ -58,6 +58,7 @@ metadata:
     # install order). component=cutover overrides the slot rule so
     # this HR lands in Phase 2 (Cutover) on the canvas, NOT Phase 1.
     catalyst.openova.io/slot: "06a"
+    catalyst.openova.io/ring: foundation
     catalyst.openova.io/component: cutover
     catalyst.openova.io/region-role: primary
 spec:
@@ -1120,7 +1121,7 @@ spec:
       #   artifact no longer race one local path (the second push into a proxy-<x>
       #   project answered `unauthorized ... action: push` and FATALed the step for
       #   an image that was already mirrored; hw296, ~55 min + a retry burned).
-      version: 0.1.234
+      version: 0.1.235
       sourceRef:
         kind: HelmRepository
         name: bp-self-sovereign-cutover

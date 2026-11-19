@@ -64,6 +64,7 @@ metadata:
   namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   labels:
     catalyst.openova.io/slot: "52"
+    catalyst.openova.io/ring: access
 spec:
   interval: 15m
   releaseName: guacamole

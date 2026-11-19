@@ -265,17 +265,22 @@ locals {
   # applying.
   #
   # LAYER 1 (`infrastructure-providers`, the Provider-install) is the ONLY
-  # crossplane Flux Kustomization INLINED in cloud-init — it points at the
+  # crossplane Flux Kustomization of first boot (SOV-154) — it points at the
   # providers/ tree (Provider package CRs only). LAYER 2
   # (`infrastructure-config`, the ProviderConfig + CloudAdoption claims) is a
   # COMMITTED Flux Kustomization CR in the providers/ tree (kept OFF the
   # byte-capped cloud-init), asserted separately below against the repo file.
-  has_providers_kustomization = length(regexall("(?m)^[ ]+name: infrastructure-providers$", local.flux_bootstrap_yaml)) > 0
+  root_children               = join("\n", [for f in sort(fileset("${path.module}/../../../../clusters/_template/root/base-primary", "*.yaml")) : file("${path.module}/../../../../clusters/_template/root/base-primary/${f}")])
+  has_providers_kustomization = length(regexall("(?m)^[ ]+name: infrastructure-providers$", local.root_children)) > 0
 
-  # The inline Provider-install layer must point at the providers/ tree (NOT
+  # The Provider-install layer must point at the providers/ tree (NOT
   # the config tree) so it carries ONLY the Provider package CRs. The path is
   # the same on every cloud: CLD-023 deleted the Hetzner overlay.
-  providers_path_correct = length(regexall("(?m)^[ ]+path: ./clusters/_template/infrastructure/providers$", local.flux_bootstrap_yaml)) > 0
+  providers_path_correct = length(regexall("(?m)^[ ]+path: ./clusters/_template/infrastructure/providers$", local.root_children)) > 0
+
+  kustomization_names = [for m in regexall("(?m)^kind: Kustomization\nmetadata:\n  name: (.+)$", local.flux_bootstrap_yaml) : m[0]]
+  root_path           = one([for m in regexall("(?m)^  path: \\./(.+)$", local.flux_bootstrap_yaml) : m[0]])
+  root_folder_exists  = fileexists("${path.module}/../../../../${local.root_path}/kustomization.yaml")
 
   # LAYER 2 must NOT be re-inlined into cloud-init (the #1981/#3884 byte-cap
   # regression class): no operative `name: infrastructure-config` Kustomization
@@ -332,6 +337,10 @@ output "has_providers_kustomization" {
 
 output "providers_path_correct" {
   value = local.providers_path_correct
+}
+
+output "root" {
+  value = { names = local.kustomization_names, path = local.root_path, folder = local.root_folder_exists }
 }
 
 output "config_not_inlined" {

@@ -14,7 +14,7 @@
 # render carries that document packed (gz+b64, #7893): the module decodes it,
 # sets the two values in the decoded text, which is the file the machine gets,
 # and packs it again:
-#   - the path of the Flux Kustomization bootstrap-kit becomes the reduced kit
+#   - the root Kustomization gains a patch: its child bootstrap-kit applies the reduced kit
 #     clusters/_template/providers/local/kit (scripts/generators/local-kit.py);
 #   - the substitutes of this pack (local.pack_substitutes) are written into
 #     the ConfigMap flux-system/sovereign-variables, before the key
@@ -103,8 +103,8 @@ locals {
 
   # The two texts of the Flux bootstrap document that this module changes,
   # with the indentation of the decoded document (the file on the machine).
-  kit_path_shared   = "\n  path: ./clusters/_template/bootstrap-kit\n"
-  kit_path_local    = "\n  path: ./clusters/_template/providers/local/kit\n"
+  root_path_anchor  = "\n  path: ./clusters/_template/root/"
+  kit_patch         = "\n  patches:\n    - patch: '{apiVersion: kustomize.toolkit.fluxcd.io/v1, kind: Kustomization, metadata: {name: bootstrap-kit, namespace: flux-system}, spec: {path: ./clusters/_template/providers/local/kit}}'"
   substitute_anchor = "\n      WILDCARD_CERT_ISSUER: "
 
   substitute_lines = { for code, subs in local.pack_substitutes : code => join("", [
@@ -232,9 +232,9 @@ locals {
   flux_bootstrap_packed = { for code, raw in local.control_plane_render_raw : code => regexall(local.flux_bootstrap_entry_re, raw) }
   flux_bootstrap_shared = { for code, m in local.flux_bootstrap_packed : code => length(m) == 1 ? base64gunzip(m[0][0]) : "" }
 
-  # The document this module boots: the kit path and the pack substitutes set.
+  # The document this module boots: the kit patch and the pack substitutes set.
   control_plane_flux_bootstrap = { for code, doc in local.flux_bootstrap_shared : code => replace(
-    replace(doc, local.kit_path_shared, local.kit_path_local),
+    replace(doc, local.root_path_anchor, "${local.kit_patch}${local.root_path_anchor}"),
     local.substitute_anchor, "${local.substitute_lines[code]}${local.substitute_anchor}",
   ) }
 
@@ -248,7 +248,7 @@ locals {
   # The packed entry occurs exactly once in each render, and each changed text
   # exactly once in its decoded document.
   render_texts_found = alltrue([for code, doc in local.flux_bootstrap_shared :
-    length(local.flux_bootstrap_packed[code]) == 1 && length(split(local.kit_path_shared, doc)) == 2 && length(split(local.substitute_anchor, doc)) == 2
+    length(local.flux_bootstrap_packed[code]) == 1 && length(split(local.root_path_anchor, doc)) == 2 && length(split(local.substitute_anchor, doc)) == 2
   ])
 
   worker_user_data = { for name, m in local.workers : name => templatefile("${path.module}/cloudinit-worker.tftpl", {
@@ -365,7 +365,7 @@ resource "docker_container" "control_plane" {
 
     precondition {
       condition     = local.render_texts_found
-      error_message = "The shared template no longer holds exactly one packed (gz+b64) write_files entry /var/lib/catalyst/flux-bootstrap.yaml whose decoded document holds exactly one line '  path: ./clusters/_template/bootstrap-kit' and exactly one line starting '      WILDCARD_CERT_ISSUER: '. The local module sets its kit path and its substitutes at these two texts."
+      error_message = "The shared template no longer holds exactly one packed (gz+b64) write_files entry /var/lib/catalyst/flux-bootstrap.yaml whose decoded document holds exactly one line starting '  path: ./clusters/_template/root/' and exactly one line starting '      WILDCARD_CERT_ISSUER: '. The local module sets its kit patch and its substitutes at these two texts."
     }
   }
 }

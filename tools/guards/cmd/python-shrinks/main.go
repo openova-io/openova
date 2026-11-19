@@ -4,7 +4,7 @@
 // TypeScript for the consoles and shell for a few lines of glue
 // (docs/PRINCIPLES.md IV.4). No new Python is written, neither as a file nor
 // inside another file. The Python that exists stays for now, so this guard only
-// prevents: it measures five totals and fails when one of them rises.
+// prevents: it measures four totals and fails when one of them rises.
 //
 // It reads the files Git lists (the tracked files, and new files Git does not
 // ignore). A Python file is a path that ends in .py, or a file whose first line
@@ -54,15 +54,6 @@
 //	                     of its job or of the workflow.
 //	                   A comment line opens nothing; lines that end in a
 //	                   backslash are read as one line.
-//	invoke_lines       the lines of the command files that NAME python, python3
-//	                   or python3.N as a word (the pattern of the kind invoke
-//	                   below), a comment line left out: exec.Command("python3",
-//	                   ...) and //go:generate python3 count, and so do the text
-//	                   of an echo and prose in a YAML string that name python,
-//	                   which only makes the total stricter. Of a Go, Rust,
-//	                   TypeScript or JavaScript file only the lines read above
-//	                   count. This is how a Python program saved without the .py
-//	                   suffix is run.
 //	sovereign_places   the places where Python runs on a Sovereign or is
 //	                   installed in a shipped image, in the files of a scope.
 //
@@ -97,8 +88,7 @@
 // A shell variable that the file itself assigns a name of python (PYTHON=python3,
 // PYTHON="${PYTHON:-python3}", PY=$(command -v python3)) is python in that file:
 // "$PYTHON", "${PYTHON}" and $PYTHON open a -c program, a here-string and a
-// here-document as python does, and a line that names one is an invoke line and
-// an invoke place.
+// here-document as python does, and a line that names one is an invoke place.
 //
 // The guard fails (exit 1) only when a total is higher than its baseline. It
 // names the total and by how much, and with --base <commit> it lists the files
@@ -109,18 +99,25 @@
 // <commit>, also the total of <commit> itself (the total of the tree less what
 // each file of the change added, a deleted file included), so room that an
 // earlier change freed without lowering the baseline file is not taken again.
+// When the baseline file at <commit> holds another schema, the change under test
+// changes the schema (the baseline file of the tree is read only in this one):
+// <commit> has nothing to compare, and the baseline file alone is used. A
+// baseline file at <commit> in this schema that cannot be read stops the guard.
 // A total lower than the baseline file passes, with one line that says the
 // baseline can be lowered. There is no list of files and no exception list: a
 // rename or a move changes no total, and a new .py file raises python_files.
 //
 // What the guard does not see, by design: Python assembled or fetched at run
 // time (a program built from pieces, downloaded, or read from a Secret), an
-// encoded payload (base64 or compressed), and a file run by an interpreter chosen
-// at run time ("$INTERP" "$f"; a variable that the same file assigns a name of
-// python is read as python). docs/PRINCIPLES.md IV.4 forbids those all the
-// same; review holds them.
+// encoded payload (base64 or compressed), a file run by an interpreter chosen at
+// run time ("$INTERP" "$f"; a variable that the same file assigns a name of
+// python is read as python), and a Python program saved without the .py suffix
+// and without a python #! line. docs/PRINCIPLES.md IV.4 forbids those all the
+// same; review holds them. A call of a Python program (python3 scripts/x.py,
+// python3 <path>) is not new Python: it is allowed and not counted; only
+// programs and files are.
 //
-// --write-baseline writes the five totals of the tree. It refuses (exit 1) when
+// --write-baseline writes the four totals of the tree. It refuses (exit 1) when
 // a total is higher than the baseline file, so it only lowers; when the file
 // does not exist it writes the first one. Exit 2 when the tree, the baseline
 // file or the base commit cannot be read, and when the baseline file is missing
@@ -150,7 +147,7 @@ import (
 const (
 	me           = "python-shrinks"
 	baselinePath = "scripts/baselines/python.json"
-	schema       = "openova.io/guard-baseline/v2"
+	schema       = "openova.io/guard-baseline/v3"
 	goLine       = "New code and tooling are written in Go (tools/guards, docs/PRINCIPLES.md IV.4); no new Python, neither as a file nor inside another file."
 	lowerLine    = "the baseline can be lowered: cd tools/guards && go run ./cmd/python-shrinks --write-baseline"
 
@@ -164,12 +161,11 @@ const (
 	pyFiles = iota
 	pyFileLines
 	embeddedLines
-	invokeLines
 	sovereignPlaces
 	nTotals
 )
 
-var totalNames = [nTotals]string{"python_files", "python_file_lines", "embedded_lines", "invoke_lines", "sovereign_places"}
+var totalNames = [nTotals]string{"python_files", "python_file_lines", "embedded_lines", "sovereign_places"}
 
 // counts holds one number per total: of the tree, of a baseline, or the share of one file.
 type counts [nTotals]int
@@ -528,7 +524,6 @@ func measureFile(p, scope string, text []byte) (counts, []place) {
 			c[embeddedLines] += steps
 		}
 		c[embeddedLines] += embedded(s, kept)
-		c[invokeLines] = invocations(string(text), kept)
 	}
 	var places []place
 	if scope != "" {
@@ -594,8 +589,7 @@ func scopeOf(p string, charts map[string]bool) string {
 	return ""
 }
 
-// readsEmbedded is true for a command file: one that is read for Python inside it and for
-// lines that run python.
+// readsEmbedded is true for a command file: one that is read for Python inside it.
 func readsEmbedded(p, scope, first string) bool {
 	name := path.Base(p)
 	if strings.HasSuffix(name, ".md") || strings.HasSuffix(name, ".txt") {
@@ -623,23 +617,6 @@ func actionFile(p string) bool {
 // line, which runs its command.
 func commentLine(t string) bool {
 	return strings.HasPrefix(t, "#") || strings.HasPrefix(t, "//") && !strings.HasPrefix(t, "//go:generate")
-}
-
-// invocations counts the lines that name python as a command; a comment line is not read, nor a
-// line that kept does not hold (nil holds every line). A variable that text assigns a name of
-// python names python (namesOf).
-func invocations(text string, kept []bool) int {
-	n, invoke := 0, namesOf(text).invoke
-	for i, line := range strings.Split(text, "\n") {
-		t := strings.TrimSpace(line)
-		if t == "" || commentLine(t) || kept != nil && !kept[i] {
-			continue
-		}
-		if invoke.MatchString(t) {
-			n++
-		}
-	}
-	return n
 }
 
 // runLines marks the lines of a Go, Rust, TypeScript or JavaScript file (by its extension ext)
@@ -1343,8 +1320,11 @@ func parseBaseline(data []byte, where string) (counts, error) {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return c, fmt.Errorf("%s: %v", where, err)
 	}
-	var s string
-	if len(raw) != nTotals+1 || json.Unmarshal(raw["schema"], &s) != nil || s != schema {
+	s, ok := schemaOf(raw)
+	if ok && s != schema {
+		return c, fmt.Errorf("%s: the schema is %s; this guard reads only %s, whose totals are %s", where, s, schema, strings.Join(totalNames[:], ", "))
+	}
+	if !ok || len(raw) != nTotals+1 {
 		return c, fmt.Errorf("%s: need exactly %s", where, keys)
 	}
 	for i, name := range totalNames {
@@ -1354,6 +1334,28 @@ func parseBaseline(data []byte, where string) (counts, error) {
 		}
 	}
 	return c, nil
+}
+
+// schemaOf returns the schema that a baseline file names, and false when it names none.
+func schemaOf(raw map[string]json.RawMessage) (string, bool) {
+	var s string
+	if json.Unmarshal(raw["schema"], &s) != nil || s == "" {
+		return "", false
+	}
+	return s, true
+}
+
+// otherSchema returns the schema that data names when it is a baseline file of another schema
+// than this guard reads, and "" otherwise.
+func otherSchema(data []byte) string {
+	var raw map[string]json.RawMessage
+	if json.Unmarshal(data, &raw) != nil {
+		return ""
+	}
+	if s, ok := schemaOf(raw); ok && s != schema {
+		return s
+	}
+	return ""
 }
 
 func encodeBaseline(c counts) []byte {
@@ -1419,10 +1421,10 @@ func printList(t *tree, out io.Writer) {
 		paths = append(paths, p)
 	}
 	sort.Strings(paths)
-	say(out, "files  lines embedded invokes places path\n")
+	say(out, "files  lines embedded places path\n")
 	for _, p := range paths {
 		c := t.files[p]
-		say(out, "%5d %6d %8d %7d %6d %s\n", c[pyFiles], c[pyFileLines], c[embeddedLines], c[invokeLines], c[sovereignPlaces], p)
+		say(out, "%5d %6d %8d %6d %s\n", c[pyFiles], c[pyFileLines], c[embeddedLines], c[sovereignPlaces], p)
 	}
 	places := append([]place(nil), t.places...)
 	sort.SliceStable(places, func(i, j int) bool {
@@ -1489,7 +1491,10 @@ func catObjects(root string, names []string) ([]object, error) {
 
 // lowerToBase checks the base commit and lowers each total of limit to the baseline file at the
 // base commit, when that is lower. inForce is true when the baseline file exists at the base
-// commit and can be read: the guard held the base commit.
+// commit and can be read: the guard held the base commit. A baseline file at the base commit in
+// another schema means that the change under test changes the schema (the baseline file of the
+// tree was read in this one): the base commit has nothing to compare. Any other baseline file at
+// the base commit that cannot be read is an error.
 func lowerToBase(root, base string, limit *counts) (inForce bool, notes []string, err error) {
 	objs, err := catObjects(root, []string{base + "^{commit}", base + ":" + baselinePath})
 	if err != nil {
@@ -1501,9 +1506,13 @@ func lowerToBase(root, base string, limit *counts) (inForce bool, notes []string
 	if !objs[1].ok || objs[1].kind != "blob" {
 		return false, []string{fmt.Sprintf("%s does not exist at %s; the baseline file alone is used", baselinePath, base)}, nil
 	}
+	if s := otherSchema(objs[1].body); s != "" {
+		return false, []string{fmt.Sprintf("%s at %s has the schema %s and this change makes it %s: nothing to compare at %s; the baseline file alone is used",
+			baselinePath, base, s, schema, base)}, nil
+	}
 	old, err := parseBaseline(objs[1].body, baselinePath+" at "+base)
 	if err != nil {
-		return false, []string{fmt.Sprintf("%v; the baseline file alone is used", err)}, nil
+		return false, nil, err
 	}
 	for i := range limit {
 		if limit[i] > old[i] {

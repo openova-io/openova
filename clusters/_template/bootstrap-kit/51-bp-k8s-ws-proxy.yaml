@@ -48,6 +48,7 @@ metadata:
   namespace: flux-system
   labels:
     catalyst.openova.io/slot: "51"
+    catalyst.openova.io/ring: access
 spec:
   interval: 15m
   releaseName: k8s-ws-proxy

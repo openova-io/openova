@@ -41,6 +41,9 @@ owner's file; a chart location whose Chart.yaml is missing or has another name; 
 folder, chart location or registered pin; a spec.class or spec.lifecycle that is missing or not one of its values; a
 platform-component or deprecated Blueprint that is not unlisted; lifecycle supported without the proof above.
 
+Each kit slot of outputs 1 and 2 carries ring: the label catalyst.openova.io/ring of the slot's release (its
+HelmRelease, or the Flux Kustomization of a slot that applies a folder), null when it has none.
+
 generatedAt marks when the catalogue content last changed: it keeps the committed stamp while the content is
 unchanged, else it is the current time (SOURCE_DATE_EPOCH, when set, gives the time instead).
 """
@@ -279,7 +282,11 @@ def kit(root):
         if not m or name == "kustomization.yaml":
             continue
         slug = re.sub(r"^bp-", "", m.group(2))
-        out.append({"id": "bp-" + slug, "slug": slug, "label": slug, "file": name, "order": int(m.group(1))})
+        with open(os.path.join(base, name), encoding="utf-8") as f:
+            labels = [(mapping((mapping(d.get("metadata")) or {}).get("labels")) or {}).get("catalyst.openova.io/ring")
+                      for d in yaml.load_all(f, Loader=Loader) if mapping(d) and d.get("kind") in ("HelmRelease", "Kustomization")]
+        out.append({"id": "bp-" + slug, "slug": slug, "label": slug, "file": name, "order": int(m.group(1)),
+                    "ring": next((r for r in labels if r), None)})
     return sorted(out, key=lambda k: k["order"])
 
 
@@ -849,6 +856,8 @@ export interface BootstrapKitEntry {
   file: string
   /** Numerical prefix on the filename — defines install order. */
   order: number
+  /** Ring of the slot: the label catalyst.openova.io/ring of its release (null when it has none). */
+  ring: string | null
 }
 
 export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = @KIT@ as const
