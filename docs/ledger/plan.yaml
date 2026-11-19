@@ -2834,9 +2834,9 @@ packages:
     expect: "0"
   acceptance:
   - id: A1
-    run: "printf '%s  %s\\n' 128cc7ce8d1cc33250b57a372774dded534cb9bc8cb4ffb73b13f358d17e1b74 .github/workflows/foundation-gate-standing.yaml a67efefdb1e50189a179ba12f96bbb1399e5a85856c7b81a536c271585db3798 scripts/gate-parent-job.sh e73f60012bd8b74b922dbb03b3d958b391a242d42e6e1251813c211bf08aa24b scripts/standing-update.sh 623325c70d4298bdc9b6e9770d1ddbd45abfcf989f2789ee00f73f0659adb0fe scripts/standing-update/self-test.sh | sha256sum -c --quiet -"
+    run: "printf '%s  %s\\n' 128cc7ce8d1cc33250b57a372774dded534cb9bc8cb4ffb73b13f358d17e1b74 .github/workflows/foundation-gate-standing.yaml 64a37c453996a3696f03e5f80d9cca2acb1e1a102ce52c39fe2048a26b15d512 scripts/gate-parent-job.sh 13b0f012c96a219f3ca558785bc27dd2fddd952a13f252fb410833338f1a1a57 scripts/standing-update.sh 07713bf8749304a7112c19fef789fea4c32948d2d649931522120f5e19771471 scripts/standing-update/self-test.sh | sha256sum -c --quiet -"
   - id: A2
-    run: "out=\"$(bash scripts/standing-update.sh --self-test)\" && test \"$(printf '%s\\n' \"$out\" | grep -c '^ok ')\" = 23"
+    run: "out=\"$(bash scripts/standing-update.sh --self-test)\" && test \"$(printf '%s\\n' \"$out\" | grep -c '^ok ')\" = 31"
   - id: A3
     run: "out=\"$(bash scripts/gate-parent-job.sh --self-test)\" && test \"$(printf '%s\\n' \"$out\" | grep -c '^ok   update: ')\" = 5"
   - id: A4
@@ -2850,7 +2850,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: The job update of foundation-gate-standing.yaml runs scripts/standing-update.sh in a Job on the parent (scripts/gate-parent-job.sh run --mode update), which delivers the candidate to the standing environment through the release route PUT /api/v1/sovereign/release one region per request, region b first, after it has recorded the state of each region, read back the OpenBao snapshot of each region and had a dry run answered dry-run, sends nothing when both regions already run the candidate and the route reports it delivered, stops by name on every refusal of the route, waits for each region to apply the candidate, converge and compare clean before the next, and sends a rollback request for each region it promoted, primary first, when a region does not; then the workflow runs its verify-and-gate jobs as before.
 - id: FND-077
