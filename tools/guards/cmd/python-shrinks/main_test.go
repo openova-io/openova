@@ -371,6 +371,88 @@ func TestBaseUsesTheLowerBaseline(t *testing.T) {
 	want(t, code, out, 1, "note: the baseline file raises python_files from 4 at HEAD to 5; 4 is used")
 }
 
+// The reviewer's reuse of freed room: change A deletes Python and does not lower the baseline
+// file; change B adds Python up to the freed number. Against the baseline file alone B fits;
+// with --base each total is also held to the total of the base commit, a deletion of B included.
+func TestBaseHoldsTheTotalOfTheBaseCommit(t *testing.T) {
+	dir := seeded(t)
+	commitAll(t, dir)
+	remove(t, dir, "scripts/lib/helper.py")
+	code, out := guardOn(dir, "--base", "HEAD")
+	want(t, code, out, 0, "lower than the baseline: python_files 3 (baseline 4), python_file_lines 7 (baseline 8)")
+	commitAll(t, dir)
+
+	// B: tool.py (3 lines) goes, two files of one line come: one file more, one line less.
+	remove(t, dir, tool)
+	put(t, dir, "scripts/new.py", "x = 2\n")
+	put(t, dir, "scripts/other.py", "y = 3\n")
+	code, out = guardOn(dir)
+	want(t, code, out, 0)
+	code, out = guardOn(dir, "--base", "HEAD")
+	wantFails(t, code, out, "FAIL python_files is 4, 1 more than the baseline 3",
+		"  scripts/new.py grew from 0 to 1 against HEAD", "  scripts/other.py grew from 0 to 1 against HEAD")
+	want(t, code, out, 1, "note: python_files is 3 at HEAD, below the baseline 4: room freed before is not taken again; 3 is used",
+		"note: python_file_lines is 7 at HEAD, below the baseline 8")
+
+	// The same reuse of room freed in Python inside another file.
+	dir = seeded(t)
+	commitAll(t, dir)
+	put(t, dir, shellTool, strings.Replace(get(t, dir, shellTool), "print(sys.argv)\n", "", 1))
+	commitAll(t, dir)
+	put(t, dir, configMap, get(t, dir, configMap)+"    print(2)\n")
+	code, out = guardOn(dir)
+	want(t, code, out, 0)
+	code, out = guardOn(dir, "--base", "HEAD")
+	wantFails(t, code, out, "FAIL embedded_lines is 9, 1 more than the baseline 8", "  "+configMap+" grew from 2 to 3 against HEAD")
+}
+
+// A Chart.yaml that comes makes an unchanged template a file of the chart scope: the base total
+// measures that file in the scope of the base commit.
+func TestBaseMeasuresAFileWhoseScopeChanged(t *testing.T) {
+	dir := seeded(t)
+	put(t, dir, "platform/lib/templates/run.yaml", "command: /usr/bin/python3 /x/run\n")
+	editBaseline(t, dir, func(c *counts) { c[invokeLines]++ })
+	commitAll(t, dir)
+	put(t, dir, image, strings.Replace(get(t, dir, image), " python3", "", 1))
+	commitAll(t, dir)
+	put(t, dir, "platform/lib/Chart.yaml", "apiVersion: v2\nname: lib\nversion: 0.1.0\n")
+	code, out := guardOn(dir)
+	want(t, code, out, 0)
+	code, out = guardOn(dir, "--base", "HEAD")
+	wantFails(t, code, out, "FAIL sovereign_places is 4, 1 more than the baseline 3",
+		"  platform/lib/templates/run.yaml grew from 0 to 1 against HEAD")
+}
+
+// The reviewer's other gap: Python run from Go, TypeScript or JavaScript.
+func TestPythonInsideGoIsCounted(t *testing.T) {
+	dir := seeded(t)
+	commitAll(t, dir)
+	put(t, dir, "core/x/main.go", "package main\n\nimport \"os/exec\"\n\nfunc main() {\n"+
+		"\t_ = exec.Command(\"python3\", \"-c\", `\nimport os\nprint(os.sep)\n`).Run()\n}\n")
+	code, out := guardOn(dir, "--base", "HEAD")
+	wantFails(t, code, out,
+		"FAIL embedded_lines is 13, 4 more than the baseline 9", "  core/x/main.go grew from 0 to 4 against HEAD",
+		"FAIL invoke_lines is 8, 1 more than the baseline 7", "  core/x/main.go grew from 0 to 1 against HEAD")
+
+	put(t, dir, "core/x/main.go", "package main\n\n//go:generate python3 gen.py\n\nfunc main() {}\n")
+	put(t, dir, "web/src/run.ts", "import { spawnSync } from 'node:child_process'\nspawnSync('python3', ['-c', 'print(1)'])\n")
+	code, out = guardOn(dir, "--base", "HEAD")
+	wantFails(t, code, out,
+		"FAIL embedded_lines is 10, 1 more than the baseline 9", "  web/src/run.ts grew from 0 to 1 against HEAD",
+		"FAIL invoke_lines is 9, 2 more than the baseline 7", "  core/x/main.go grew from 0 to 1 against HEAD", "  web/src/run.ts grew from 0 to 1 against HEAD")
+}
+
+// A .py path is a Python file by its path, also when it holds a NUL byte.
+func TestPythonFileWithANulByteIsCounted(t *testing.T) {
+	dir := seeded(t)
+	commitAll(t, dir)
+	put(t, dir, "scripts/blob.py", "x = 1\x00\n")
+	code, out := guardOn(dir, "--base", "HEAD")
+	wantFails(t, code, out,
+		"FAIL python_files is 5, 1 more than the baseline 4", "  scripts/blob.py grew from 0 to 1 against HEAD",
+		"FAIL python_file_lines is 9, 1 more than the baseline 8", "  scripts/blob.py grew from 0 to 1 against HEAD")
+}
+
 func TestBaseWithoutABaselineUsesTheFile(t *testing.T) {
 	dir := seeded(t)
 	baselineText := get(t, dir, baselinePath)
@@ -536,7 +618,7 @@ func TestEmbedded(t *testing.T) {
 		{"a run of a .py file is no Python inside", "python3 scripts/tool.py --flag\n", 0},
 	}
 	for _, c := range cases {
-		if got := embedded(c.text); got != c.want {
+		if got := embedded(c.text, nil); got != c.want {
 			t.Errorf("%s: %d lines, want %d", c.name, got, c.want)
 		}
 	}
@@ -595,8 +677,39 @@ func TestInvocations(t *testing.T) {
 		{"two lines", "python3 a\npython b\n", 2},
 	}
 	for _, c := range cases {
-		if got := invocations(c.text); got != c.want {
+		if got := invocations(c.text, nil); got != c.want {
 			t.Errorf("%s: %d lines, want %d", c.name, got, c.want)
+		}
+	}
+}
+
+// Of a Go, TypeScript or JavaScript file only the lines that can run python are read.
+func TestCodeFiles(t *testing.T) {
+	cases := []struct {
+		name, path, text  string
+		embedded, invokes int
+	}{
+		{"exec.CommandContext", "s/check.go", "\tcmd := exec.CommandContext(ctx, \"python3\")\n", 0, 1},
+		{"a Go raw string given to python3 -c", "s/x.go", "cmd := exec.Command(\"python3\", \"-c\", `\nimport os\nprint(os.sep)\n`)\n", 4, 1},
+		{"a call over lines", "s/x.go", "cmd := exec.Command(\n\t\"/usr/bin/python3\",\n\tscript,\n)\n", 0, 1},
+		{"python3 run by sh -c", "s/x.go", "exec.Command(\"sh\", \"-c\", \"python3 tools/check\")\n", 0, 1},
+		{"the name of python held for later", "s/x.go", "const interpreter = \"python3\"\n", 0, 1},
+		{"a //go:generate line", "s/gen.go", "package all\n\n//go:generate python3 ../gen.py\n", 0, 1},
+		{"a spawn of TypeScript", "web/run.ts", "spawn('python3', [script])\n", 0, 1},
+		{"an argument list of JavaScript", "web/run.mjs", "spawnSync('python3', ['-c', 'import os'])\n", 1, 1},
+		{"a template literal of JavaScript", "web/run.js", "execFileSync(\"python3\", [\"-I\", \"-c\", `import os\nprint(1)`])\n", 2, 1},
+		{"execSync of a command line", "web/run.cjs", "execSync(`python3 tools/check --flag`)\n", 0, 1},
+		{"a comment", "s/x.go", "// exec.Command(\"python3\", \"-c\", \"x\")\n/* python3 -c 'y' */\n", 0, 0},
+		{"the fixture of a test is data", "s/x_test.go",
+			"var f = map[string]string{\"run.sh\": \"python3 -c 'print(1)'\\n\", \"job.yaml\": `command: [\"python3\", \"-c\", \"x\"]`}\n" +
+				"var g = \"cmd := exec.Command(\\\"python3\\\")\"\n", 0, 0},
+		{"a word in code is not a command", "s/x.go", "if lang == python {\n\tpythonSteps(x)\n}\n", 0, 0},
+		{"a call that runs another program", "s/x.go", "exec.Command(\"git\", \"-c\", \"core.x=1\", \"status\")\n", 0, 0},
+	}
+	for _, c := range cases {
+		got, _ := measureFile(c.path, "", []byte(c.text))
+		if got[embeddedLines] != c.embedded || got[invokeLines] != c.invokes {
+			t.Errorf("%s: embedded_lines %d invoke_lines %d, want %d %d", c.name, got[embeddedLines], got[invokeLines], c.embedded, c.invokes)
 		}
 	}
 }
@@ -604,8 +717,9 @@ func TestInvocations(t *testing.T) {
 func TestReadsEmbedded(t *testing.T) {
 	cases := map[string]bool{
 		"scripts/x.sh": true, ".github/workflows/x.yaml": true, ".github/actions/a/action.yml": true,
-		"infra/providers/huawei/main.tf": true, "Makefile": true, "package.json": true, "core/x/main.go": false,
-		"docs/RUNBOOKS.md": false, "notes.txt": false, "scripts/no-suffix": false,
+		"infra/providers/huawei/main.tf": true, "Makefile": true, "package.json": true, "core/x/main.go": true,
+		"core/x/main_test.go": true, "web/src/run.ts": true, "web/src/App.tsx": true, "web/lib/x.mjs": true, "web/lib/x.js": true,
+		"docs/RUNBOOKS.md": false, "notes.txt": false, "scripts/no-suffix": false, "web/logo.svg": false,
 	}
 	for p, wantRead := range cases {
 		if got := readsEmbedded(p, "", ""); got != wantRead {

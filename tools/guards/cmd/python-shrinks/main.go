@@ -11,15 +11,26 @@
 // is a #! line that names python. A command file is any other file that is a
 // shell file (.sh .bash .zsh .ksh .bats), YAML (.yaml .yml), JSON (.json), a
 // template (.tpl .tftpl .j2), Terraform or HCL (.tf .hcl), a make or just file,
-// a file of a scope below, or a file whose first line is a #! line; never a .md
-// or .txt file. The totals are the keys of scripts/baselines/python.json:
+// Go (.go), TypeScript or JavaScript (.ts .tsx .mts .cts .js .jsx .mjs .cjs), a
+// file of a scope below, or a file whose first line is a #! line; never a .md
+// or .txt file. A comment line is one that starts with # or //, but not a
+// //go:generate line, which runs its command. Of a Go, TypeScript or JavaScript
+// file only the lines that can run python are read: a //go:generate line, a line
+// that holds a string that is only the name of python ("python3"), and the lines
+// of a call that starts a process (exec.Command, exec.CommandContext,
+// syscall.Exec, os.StartProcess, spawn, spawnSync, exec, execSync, execFile,
+// execFileSync, fork, execa, Bun.spawn, Deno.Command) from its name to its
+// closing parenthesis; a string elsewhere, such as the fixture of a test, is
+// data. The totals are the keys of scripts/baselines/python.json:
 //
 //	python_files       the Python files
 //	python_file_lines  the lines of the Python files
 //	embedded_lines     the lines of Python inside the command files:
 //	                   - the body of a here-document opened on a line that runs
 //	                     python or writes a .py file (<< or <<-, quoted or not);
-//	                   - the quoted program of python -c, and of a here-string
+//	                   - the quoted program of python -c (a Go raw string or a
+//	                     template literal in backquotes too, and an argument
+//	                     list such as ["-c", ...]), and of a here-string
 //	                     (<<<) given to python, from its quote to the closing
 //	                     quote; when it is "$NAME", the text assigned to NAME;
 //	                   - the body of a YAML block scalar (| or >) whose key ends
@@ -30,11 +41,12 @@
 //	                     python (shell: python, python3, python {0}): the shell of
 //	                     the step, or else the run default (defaults: run: shell:)
 //	                     of its job or of the workflow.
-//	                   A comment line (#) opens nothing; lines that end in a
+//	                   A comment line opens nothing; lines that end in a
 //	                   backslash are read as one line.
 //	invoke_lines       the lines of the command files that name python, python3
 //	                   or python3.N as a command (as the kind invoke below), a
-//	                   comment line (# or //) left out. This is how a Python
+//	                   comment line left out: exec.Command("python3", ...) and
+//	                   //go:generate python3 count. This is how a Python
 //	                   program saved without the .py suffix is run.
 //	sovereign_places   the places where Python runs on a Sovereign or is
 //	                   installed in a shipped image, in the files of a scope.
@@ -72,10 +84,13 @@
 // whose share of that total grew against <commit> (a renamed or moved file is
 // compared with its old path). With --base the baseline of a total is the lower
 // of the baseline file and the same file at <commit>, so a baseline raised in
-// the change under test raises nothing. A total lower than its baseline passes,
-// with one line that says the baseline can be lowered. There is no list of
-// files and no exception list: a rename or a move changes no total, and a new
-// .py file raises python_files.
+// the change under test raises nothing; and when the baseline file exists at
+// <commit>, also the total of <commit> itself (the total of the tree less what
+// each file of the change added, a deleted file included), so room that an
+// earlier change freed without lowering the baseline file is not taken again.
+// A total lower than the baseline file passes, with one line that says the
+// baseline can be lowered. There is no list of files and no exception list: a
+// rename or a move changes no total, and a new .py file raises python_files.
 //
 // --write-baseline writes the five totals of the tree. It refuses (exit 1) when
 // a total is higher than the baseline file, so it only lowers; when the file
@@ -154,12 +169,17 @@ var (
 	// Python inside a file of another language.
 	heredocRe    = regexp.MustCompile(`(?:^|[^<])<<-?[ \t]*(?:'([^'\s]+)'|"([^"\s]+)"|\\?([A-Za-z_][A-Za-z0-9_]*))`)
 	writesPyRe   = regexp.MustCompile(`(?:>|\btee\s+(?:-a\s+)?)\s*["']?[^\s"'<>|;&]*\.py["']?(?:\s|<|$)`)
-	pyProgramRe  = regexp.MustCompile("(?:^|[\\s\"'\\[(=`{]|:-)(?:[A-Za-z0-9_.-]*/)*python[0-9]*(?:\\.[0-9]+)?[\"']?(?:(?:[\\s,]+[\"']?-[A-Za-z]+[\"']?)*?[\\s,]+[\"']?-c[\"']?[\\s,]*|(?:\\s+-[A-Za-z]*)*\\s*<<<\\s*)\\$?(\\\\?['\"])")
+	pyProgramRe  = regexp.MustCompile("(?:^|[\\s\"'\\[(=`{]|:-)(?:[A-Za-z0-9_.-]*/)*python[0-9]*(?:\\.[0-9]+)?[\"'`]?(?:(?:[\\s,\\[]+[\"'`]?-[A-Za-z]+[\"'`]?)*?[\\s,\\[]+[\"'`]?-c[\"'`]?[\\s,]*|(?:\\s+-[A-Za-z]*)*\\s*<<<\\s*)\\$?(\\\\?['\"]|`)")
 	programVar   = regexp.MustCompile(`^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$`)
 	blockRe      = regexp.MustCompile(`^([ \t]*)(?:-[ \t]+)?(?:["']?([^"'\s:#][^"':]*?)["']?[ \t]*:[ \t]+)?[|>][-+1-9]*[ \t]*(?:#.*)?$`)
 	embeddedExts = map[string]bool{".sh": true, ".bash": true, ".zsh": true, ".ksh": true, ".bats": true, ".yaml": true, ".yml": true,
 		".json": true, ".tpl": true, ".tftpl": true, ".tf": true, ".hcl": true, ".mk": true, ".j2": true}
 	embeddedNames = []string{"Makefile", "makefile", "GNUmakefile", "Justfile", "justfile"}
+
+	// Go, TypeScript and JavaScript: only the lines that can run python are read (runLines).
+	codeExts      = map[string]bool{".go": true, ".ts": true, ".tsx": true, ".mts": true, ".cts": true, ".js": true, ".jsx": true, ".mjs": true, ".cjs": true}
+	processCallRe = regexp.MustCompile(`\b(?:exec\.Command(?:Context)?|syscall\.Exec|os\.StartProcess|spawn(?:Sync)?|exec(?:Sync)?|execFile(?:Sync)?|fork|execa(?:Sync|Command|CommandSync)?|Bun\.spawn(?:Sync)?|Deno\.Command)\s*\(`)
+	pyNameRe      = regexp.MustCompile(`^(?:[A-Za-z0-9_.-]*/)*python[0-9]*(?:\.[0-9]+)?$`)
 
 	// The steps of a workflow or an action.
 	yamlKeyRe  = regexp.MustCompile(`^( *)((?:- +)*)([A-Za-z_][A-Za-z0-9_-]*) *:(?: +(.*))?$`)
@@ -177,6 +197,7 @@ type tree struct {
 	files  map[string]counts // a file with a share of a total -> its share of each total
 	places []place
 	total  counts
+	charts map[string]bool // the folders that hold a Chart.yaml
 }
 
 func main() {
@@ -235,36 +256,45 @@ func guard(root, base string, write, list bool, out io.Writer) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("%s cannot be read: %v", baselinePath, err)
 	}
-	limit, err := parseBaseline(data, baselinePath)
+	written, err := parseBaseline(data, baselinePath)
 	if err != nil {
 		return 0, err
 	}
+	limit := written
 	var notes []string
+	var grown [nTotals][]string
 	if base != "" {
-		if notes, err = lowerToBase(root, base, &limit); err != nil {
+		var inForce bool
+		if inForce, notes, err = lowerToBase(root, base, &limit); err != nil {
 			return 0, err
+		}
+		var baseTotal counts
+		if baseTotal, grown, err = againstBase(root, base, t); err != nil {
+			return 0, err
+		}
+		for i := range limit {
+			// Room that an earlier change freed without lowering the baseline file is not taken again.
+			if inForce && baseTotal[i] < limit[i] {
+				notes = append(notes, fmt.Sprintf("%s is %d at %s, below the baseline %d: room freed before is not taken again; %d is used",
+					totalNames[i], baseTotal[i], base, limit[i], baseTotal[i]))
+				limit[i] = baseTotal[i]
+			}
 		}
 	}
 	say(out, "%s: %s\n", me, summary(t))
 	for _, n := range notes {
 		say(out, "%s: note: %s\n", me, n)
 	}
-	rose, fell := judge(t.total, limit)
-	if len(fell) > 0 {
+	rose, _ := judge(t.total, limit)
+	if _, fell := judge(t.total, written); len(fell) > 0 {
 		var parts []string
 		for _, i := range fell {
-			parts = append(parts, fmt.Sprintf("%s %d (baseline %d)", totalNames[i], t.total[i], limit[i]))
+			parts = append(parts, fmt.Sprintf("%s %d (baseline %d)", totalNames[i], t.total[i], written[i]))
 		}
 		say(out, "%s: lower than the baseline: %s; %s\n", me, strings.Join(parts, ", "), lowerLine)
 	}
 	if len(rose) == 0 {
 		return 0, nil
-	}
-	var grown [nTotals][]string
-	if base != "" {
-		if grown, err = grownFiles(root, base, t); err != nil {
-			return 0, err
-		}
 	}
 	for _, i := range rose {
 		say(out, "%s: FAIL %s is %d, %d more than the baseline %d\n", me, totalNames[i], t.total[i], t.total[i]-limit[i], limit[i])
@@ -358,7 +388,7 @@ func measure(root string) (*tree, error) {
 		return nil, fmt.Errorf("git lists no file in %s", root)
 	}
 	charts := chartsOf(paths)
-	t := &tree{files: map[string]counts{}}
+	t := &tree{files: map[string]counts{}, charts: charts}
 	fsys := os.DirFS(root)
 	for _, p := range paths {
 		info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(p)))
@@ -395,7 +425,11 @@ func measure(root string) (*tree, error) {
 func measureFile(p, scope string, text []byte) (counts, []place) {
 	var c counts
 	if bytes.IndexByte(text, 0) >= 0 {
-		return c, nil // not text
+		// Not text. A .py path is a Python file by its path all the same.
+		if strings.HasSuffix(p, ".py") {
+			c[pyFiles], c[pyFileLines] = 1, countLines(text)
+		}
+		return c, nil
 	}
 	first := firstLine(text)
 	switch {
@@ -403,11 +437,15 @@ func measureFile(p, scope string, text []byte) (counts, []place) {
 		c[pyFiles], c[pyFileLines] = 1, countLines(text)
 	case readsEmbedded(p, scope, first):
 		s := string(text)
+		var kept []bool // nil: every line is read
+		if codeExts[path.Ext(p)] {
+			kept = runLines(s)
+		}
 		if actionFile(p) {
 			c[embeddedLines], s = pythonSteps(s)
 		}
-		c[embeddedLines] += embedded(s)
-		c[invokeLines] = invocations(string(text))
+		c[embeddedLines] += embedded(s, kept)
+		c[invokeLines] = invocations(string(text), kept)
 	}
 	var places []place
 	if scope != "" {
@@ -480,7 +518,7 @@ func readsEmbedded(p, scope, first string) bool {
 	if strings.HasSuffix(name, ".md") || strings.HasSuffix(name, ".txt") {
 		return false
 	}
-	if scope != "" || embeddedExts[path.Ext(name)] || strings.HasPrefix(first, "#!") {
+	if scope != "" || embeddedExts[path.Ext(name)] || codeExts[path.Ext(name)] || strings.HasPrefix(first, "#!") {
 		return true
 	}
 	for _, prefix := range embeddedNames {
@@ -498,12 +536,19 @@ func actionFile(p string) bool {
 		name == "action.yml" || name == "action.yaml"
 }
 
-// invocations counts the lines that name python as a command; a comment line is not read.
-func invocations(text string) int {
+// commentLine is true for a trimmed line that starts with # or //, other than a //go:generate
+// line, which runs its command.
+func commentLine(t string) bool {
+	return strings.HasPrefix(t, "#") || strings.HasPrefix(t, "//") && !strings.HasPrefix(t, "//go:generate")
+}
+
+// invocations counts the lines that name python as a command; a comment line is not read, nor a
+// line that kept does not hold (nil holds every line).
+func invocations(text string, kept []bool) int {
 	n := 0
-	for _, line := range strings.Split(text, "\n") {
+	for i, line := range strings.Split(text, "\n") {
 		t := strings.TrimSpace(line)
-		if t == "" || strings.HasPrefix(t, "#") || strings.HasPrefix(t, "//") {
+		if t == "" || commentLine(t) || kept != nil && !kept[i] {
 			continue
 		}
 		if invokeRe.MatchString(t) {
@@ -511,6 +556,78 @@ func invocations(text string) int {
 		}
 	}
 	return n
+}
+
+// runLines marks the lines of a Go, TypeScript or JavaScript file that can run python: a
+// //go:generate line; a line that holds a string that is only the name of python ("python3",
+// "/usr/bin/python3"); and the lines of a call that starts a process (exec.Command, spawn, ...),
+// from its name to its closing parenthesis. A string elsewhere, such as the fixture of a test, is
+// data. The file is read as code, strings (" ' and backquotes) and comments (// and /* */).
+func runLines(text string) []bool {
+	starts := []int{0}
+	for i := 0; i < len(text); i++ {
+		if text[i] == '\n' {
+			starts = append(starts, i+1)
+		}
+	}
+	lineAt := func(off int) int { return sort.SearchInts(starts, off+1) - 1 }
+	kept := make([]bool, len(starts))
+	code := make([]bool, len(text))
+	for i := 0; i < len(text); {
+		switch c := text[i]; {
+		case strings.HasPrefix(text[i:], "//"):
+			if strings.HasPrefix(text[i:], "//go:generate") {
+				kept[lineAt(i)] = true
+			}
+			end := strings.IndexByte(text[i:], '\n')
+			if end < 0 {
+				end = len(text) - i
+			}
+			i += end
+		case strings.HasPrefix(text[i:], "/*"):
+			end := strings.Index(text[i+2:], "*/")
+			if end < 0 {
+				end = len(text) - i - 4
+			}
+			i += end + 4
+		case c == '"' || c == '\'' || c == '`':
+			j := i + 1
+			for j < len(text) && text[j] != c && (c == '`' || text[j] != '\n') {
+				if text[j] == '\\' && c != '`' {
+					j++
+				}
+				j++
+			}
+			if pyNameRe.MatchString(text[i+1 : min(j, len(text))]) {
+				kept[lineAt(i)] = true
+			}
+			i = j + 1
+		default:
+			code[i] = true
+			i++
+		}
+	}
+	for _, m := range processCallRe.FindAllStringIndex(text, -1) {
+		if !code[m[0]] {
+			continue // inside a string or a comment
+		}
+		last, depth := len(text)-1, 0
+		for k := m[1] - 1; k < len(text) && last == len(text)-1; k++ {
+			switch {
+			case !code[k]:
+			case text[k] == '(':
+				depth++
+			case text[k] == ')':
+				if depth--; depth == 0 {
+					last = k
+				}
+			}
+		}
+		for l := lineAt(m[0]); l <= lineAt(last); l++ {
+			kept[l] = true
+		}
+	}
+	return kept
 }
 
 func indentOf(line string) int {
@@ -660,8 +777,9 @@ func pythonSteps(text string) (int, string) {
 
 // ---- Python inside a file of another language
 
-// embedded returns the lines of Python inside a file of another language.
-func embedded(text string) int {
+// embedded returns the lines of Python inside a file of another language. Only a line that kept
+// holds opens Python (nil holds every line); what it opens is read to its end.
+func embedded(text string, kept []bool) int {
 	lines := strings.Split(text, "\n")
 	starts := make([]int, len(lines))
 	for i, off := 0, 0; i < len(lines); i++ {
@@ -676,7 +794,7 @@ func embedded(text string) int {
 	vars := map[string]bool{} // shell variables that hold a program given to python -c
 	for i := 0; i < len(lines); {
 		trimmed := strings.TrimSpace(lines[i])
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		if trimmed == "" || commentLine(trimmed) || kept != nil && !kept[i] {
 			i++
 			continue
 		}
@@ -722,7 +840,7 @@ func embedded(text string) int {
 			m := assign.FindStringSubmatchIndex(text[starts[i] : starts[k]+len(lines[k])])
 			next := k + 1
 			switch {
-			case m == nil || strings.HasPrefix(strings.TrimSpace(lines[i]), "#"):
+			case m == nil || commentLine(strings.TrimSpace(lines[i])):
 			case m[2] >= 0 && !strings.HasSuffix(text[starts[i]+m[2]:starts[i]+m[3]], "("):
 				open := starts[i] + m[3] - 1
 				quote := text[open : starts[i]+m[3]]
@@ -1120,63 +1238,88 @@ func catObjects(root string, names []string) ([]object, error) {
 }
 
 // lowerToBase checks the base commit and lowers each total of limit to the baseline file at the
-// base commit, when that is lower.
-func lowerToBase(root, base string, limit *counts) ([]string, error) {
+// base commit, when that is lower. inForce is true when the baseline file exists at the base
+// commit and can be read: the guard held the base commit.
+func lowerToBase(root, base string, limit *counts) (inForce bool, notes []string, err error) {
 	objs, err := catObjects(root, []string{base + "^{commit}", base + ":" + baselinePath})
 	if err != nil {
-		return nil, err
+		return false, nil, err
 	}
 	if !objs[0].ok || objs[0].kind != "commit" {
-		return nil, fmt.Errorf("the base %s is not a commit of this checkout", base)
+		return false, nil, fmt.Errorf("the base %s is not a commit of this checkout", base)
 	}
 	if !objs[1].ok || objs[1].kind != "blob" {
-		return []string{fmt.Sprintf("%s does not exist at %s; the baseline file alone is used", baselinePath, base)}, nil
+		return false, []string{fmt.Sprintf("%s does not exist at %s; the baseline file alone is used", baselinePath, base)}, nil
 	}
 	old, err := parseBaseline(objs[1].body, baselinePath+" at "+base)
 	if err != nil {
-		return []string{fmt.Sprintf("%v; the baseline file alone is used", err)}, nil
+		return false, []string{fmt.Sprintf("%v; the baseline file alone is used", err)}, nil
 	}
-	var notes []string
 	for i := range limit {
 		if limit[i] > old[i] {
 			notes = append(notes, fmt.Sprintf("the baseline file raises %s from %d at %s to %d; %d is used", totalNames[i], old[i], base, limit[i], old[i]))
 			limit[i] = old[i]
 		}
 	}
-	return notes, nil
+	return true, notes, nil
 }
 
-// grownFiles returns, per total, the files of the change whose share of that total grew against
-// base: the files that differ from base in the work tree, and the new files Git does not ignore.
-// A renamed or moved file is compared with its old path.
-func grownFiles(root, base string, t *tree) ([nTotals][]string, error) {
-	var out [nTotals][]string
+// againstBase compares the tree with base. It returns the totals of the base commit: the totals of
+// the tree less what each file of the change added (a deleted file adds a negative share). The
+// change is every file that differs from base in the work tree, the new files Git does not
+// ignore, and every file whose scope differs because a Chart.yaml came or went. It also returns,
+// per total, the files whose share of that total grew; a renamed or moved file is compared with
+// its old path.
+func againstBase(root, base string, t *tree) (counts, [nTotals][]string, error) {
+	baseTotal := t.total
+	var grown [nTotals][]string
 	diff, err := gitOut(root, "diff", "-z", "-M", "--name-status", base, "--")
 	if err != nil {
-		return out, err
+		return baseTotal, grown, err
 	}
 	untracked, err := gitOut(root, "ls-files", "-z", "--others", "--exclude-standard")
 	if err != nil {
-		return out, err
+		return baseTotal, grown, err
 	}
-	names, err := gitOut(root, "ls-tree", "-r", "-z", "--name-only", base)
+	listing, err := gitOut(root, "ls-tree", "-r", "-z", base)
 	if err != nil {
-		return out, err
+		return baseTotal, grown, err
 	}
-	type change struct{ now, was string } // was is "" for a new file
+	// The files of base: "<mode> <type> <object>\t<path>". Only a regular file was measured.
+	var basePaths []string
+	regular := map[string]bool{}
+	for _, e := range splitZ(listing) {
+		tab := strings.IndexByte(e, '\t')
+		if tab < 0 {
+			return baseTotal, grown, fmt.Errorf("git ls-tree %s: unexpected entry %q", base, e)
+		}
+		p := e[tab+1:]
+		basePaths = append(basePaths, p)
+		if mode := strings.Fields(e[:tab]); len(mode) > 0 && (mode[0] == "100644" || mode[0] == "100755") {
+			regular[p] = true
+		}
+	}
+	charts := chartsOf(basePaths)
+	type change struct{ now, was string } // now is "" for a deleted file, was is "" for a new file
 	var changes []change
 	f := splitZ(diff)
 	for i := 0; i+1 < len(f); {
 		switch f[i][0] {
-		case 'R', 'C':
+		case 'R':
 			if i+2 < len(f) {
 				changes = append(changes, change{f[i+2], f[i+1]})
+			}
+			i += 3
+		case 'C':
+			if i+2 < len(f) {
+				changes = append(changes, change{f[i+2], ""}) // the source of a copy stays
 			}
 			i += 3
 		case 'A':
 			changes = append(changes, change{f[i+1], ""})
 			i += 2
 		case 'D':
+			changes = append(changes, change{"", f[i+1]})
 			i += 2
 		default:
 			changes = append(changes, change{f[i+1], f[i+1]})
@@ -1186,6 +1329,15 @@ func grownFiles(root, base string, t *tree) ([nTotals][]string, error) {
 	for _, p := range splitZ(untracked) {
 		changes = append(changes, change{p, ""})
 	}
+	inChange := map[string]bool{}
+	for _, c := range changes {
+		inChange[c.now], inChange[c.was] = true, true
+	}
+	for _, p := range basePaths {
+		if !inChange[p] && regular[p] && scopeOf(p, charts) != scopeOf(p, t.charts) {
+			changes = append(changes, change{p, p})
+		}
+	}
 	var objNames []string
 	for _, c := range changes {
 		if c.was != "" {
@@ -1194,31 +1346,33 @@ func grownFiles(root, base string, t *tree) ([nTotals][]string, error) {
 	}
 	objs, err := catObjects(root, objNames)
 	if err != nil {
-		return out, err
+		return baseTotal, grown, err
 	}
-	charts := chartsOf(splitZ(names))
 	next := 0
 	for _, c := range changes {
-		var was counts
+		var was, now counts
 		if c.was != "" {
-			if o := objs[next]; o.ok && o.kind == "blob" {
+			if o := objs[next]; o.ok && o.kind == "blob" && regular[c.was] {
 				was, _ = measureFile(c.was, scopeOf(c.was, charts), o.body)
 			}
 			next++
 		}
-		now := t.files[c.now]
+		if c.now != "" {
+			now = t.files[c.now]
+		}
 		name := c.now
 		if c.was != "" && c.was != c.now {
 			name += " (was " + c.was + ")"
 		}
 		for i := range now {
+			baseTotal[i] -= now[i] - was[i]
 			if now[i] > was[i] {
-				out[i] = append(out[i], fmt.Sprintf("%s grew from %d to %d", name, was[i], now[i]))
+				grown[i] = append(grown[i], fmt.Sprintf("%s grew from %d to %d", name, was[i], now[i]))
 			}
 		}
 	}
-	for i := range out {
-		sort.Strings(out[i])
+	for i := range grown {
+		sort.Strings(grown[i])
 	}
-	return out, nil
+	return baseTotal, grown, nil
 }
