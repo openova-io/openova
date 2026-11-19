@@ -1,0 +1,26 @@
+{{- /*
+Certificate of the submission host mail.<sovereignFQDN>, issued by the
+issuer the bootstrap kit names (certificate.issuerName). The catalyst-api's
+mail client dials that name and checks the certificate against it; the
+Service name or the zone's wildcard certificate in kube-system cannot be
+used (docs/ledger/plan/spikes/SOV-321.md, point 1). One name only, so the
+order is never the same set of names as another certificate of the
+Sovereign.
+*/}}
+{{- if and (include "bp-stalwart-sovereign.active" .) (include "bp-stalwart-sovereign.tlsEnabled" .) }}
+{{- $mailHost := include "bp-stalwart-sovereign.mailFQDN" . }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "bp-stalwart-sovereign.tlsSecretName" . }}
+  labels:
+    {{- include "bp-stalwart-sovereign.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "bp-stalwart-sovereign.tlsSecretName" . }}
+  commonName: {{ $mailHost | quote }}
+  dnsNames:
+    - {{ $mailHost | quote }}
+  issuerRef:
+    name: {{ .Values.certificate.issuerName | quote }}
+    kind: {{ .Values.certificate.issuerKind | default "ClusterIssuer" | quote }}
+{{- end }}

@@ -45,6 +45,47 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
+Selector of the two Services: the selector labels and the label that only
+the server's pods carry. The setup Job's pod has the selector labels too
+(the NetworkPolicy selects it by them) but not this label, so it is never
+an endpoint of a Service. The StatefulSet's own selector stays the selector
+labels: a StatefulSet's selector cannot change.
+*/}}
+{{- define "bp-stalwart-sovereign.serverSelectorLabels" -}}
+{{ include "bp-stalwart-sovereign.selectorLabels" . }}
+app.kubernetes.io/component: mail-server
+{{- end }}
+
+{{/*
+"true" when the chart installs the mail server: stalwart.enabled and the
+Sovereign's mail mode is local. Every template is gated on it, so a
+Sovereign in relay or none mode gets no object of this chart.
+*/}}
+{{- define "bp-stalwart-sovereign.active" -}}
+{{- if and .Values.stalwart.enabled (eq (toString (.Values.mailMode | default "local")) "local") -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{/*
+Name of the Secret that holds the certificate of mail.<sovereignFQDN>.
+*/}}
+{{- define "bp-stalwart-sovereign.tlsSecretName" -}}
+{{- printf "%s-mail-tls" (include "bp-stalwart-sovereign.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+"true" when the chart asks for the certificate of mail.<sovereignFQDN>: an
+issuer is named and the Sovereign FQDN is known.
+*/}}
+{{- define "bp-stalwart-sovereign.tlsEnabled" -}}
+{{- $c := .Values.certificate | default dict -}}
+{{- if and $c.issuerName (include "bp-stalwart-sovereign.mailFQDN" .) -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{/*
 ServiceAccount name.
 */}}
 {{- define "bp-stalwart-sovereign.serviceAccountName" -}}
@@ -163,12 +204,12 @@ SHA-pinned via digest when present (Inviolable Principle #4 / #4a).
 
 {{/*
 Effective setup-Job image reference. Same registry-override semantics
-as the main image.
+as the main image; the Job's image has a registry of its own.
 */}}
 {{- define "bp-stalwart-sovereign.setupJobImage" -}}
 {{- $g := .Values.global | default dict -}}
 {{- $img := .Values.setupJob.image -}}
-{{- $reg := default .Values.stalwart.image.registry $g.imageRegistry -}}
+{{- $reg := default ($img.registry | default .Values.stalwart.image.registry) $g.imageRegistry -}}
 {{- if $img.digest -}}
 {{- printf "%s/%s@%s" $reg $img.repository $img.digest -}}
 {{- else -}}

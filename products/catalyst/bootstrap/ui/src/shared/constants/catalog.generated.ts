@@ -5442,5 +5442,13 @@ export const BOOTSTRAP_KIT: readonly BootstrapKitEntry[] = [
     "file": "80-newapi.yaml",
     "order": 80,
     "ring": "ai"
+  },
+  {
+    "id": "bp-stalwart-sovereign",
+    "slug": "stalwart-sovereign",
+    "label": "stalwart-sovereign",
+    "file": "95-bp-stalwart-sovereign.yaml",
+    "order": 95,
+    "ring": "foundation"
   }
 ] as const

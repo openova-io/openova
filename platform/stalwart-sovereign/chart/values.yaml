@@ -31,14 +31,16 @@ stalwart:
   # `global.imageRegistry` value (when set by the per-Sovereign overlay
   # post-handover) rewrites the registry on every pull.
   #
-  # Digest below is `docker.io/stalwartlabs/stalwart:v0.16.3` linux/amd64
-  # (verified via Docker Hub API on 2026-05-04, same digest as
-  # bp-stalwart-tenant 0.1.2).
+  # Release v0.15.5, the last release that reads this chart's TOML file and
+  # answers the REST admin API the setup Job calls. v0.16 reads neither: it
+  # starts in bootstrap mode with no mail listener and answers /api/* with
+  # 404 (docs/ledger/plan/spikes/SOV-321.md, point 4). The digest is the
+  # image index of the tag v0.15.5 on Docker Hub, the one the spike ran.
   image:
     registry: docker.io
     repository: stalwartlabs/stalwart
-    tag: "v0.16.3"
-    digest: "sha256:5d75cff4e9c6d75e64636e9ef9674b1d877f8f6fb2e11ee8176fbad3faaa5289"
+    tag: "v0.15.5"
+    digest: "sha256:dcf575db2d53d9ef86d6ced8abe4ba491984659a0f8862cc6079ee7b41c3c568"
     pullPolicy: IfNotPresent
     # Per-Sovereign Harbor pull secret. Empty by default — Sovereign
     # bootstrap-kit overlay supplies the namespace dockercfg secret
@@ -100,6 +102,38 @@ stalwart:
 # helper to return empty (smoke-render-safe — per-template gates skip
 # render in that case).
 sovereignFQDN: ""
+
+# ─── Mail mode ───────────────────────────────────────────────────────────
+# MAIL_MODE of the Sovereign's variables (docs/contracts/c5-upstream-
+# variables.schema.json). The chart installs the mail server only when it
+# is `local`; with `relay` or `none` it renders no object at all, so it
+# never writes the sign-in mail credential that another writer owns.
+mailMode: local
+
+# ─── Certificate of the submission host ──────────────────────────────────
+# The catalyst-api's mail client checks the certificate of the host it
+# dials, mail.<sovereignFQDN>, and never sends without TLS. The chart asks
+# cert-manager for a certificate of that one name from `issuerName` and
+# the server presents it on every TLS listener. Empty `issuerName`: no
+# Certificate is rendered and the server keeps its own certificate, which
+# no client accepts. The bootstrap kit passes the Sovereign's
+# WILDCARD_CERT_ISSUER.
+certificate:
+  issuerName: ""
+  issuerKind: ClusterIssuer
+
+# ─── Name of the submission host inside the cluster ──────────────────────
+# mail.<sovereignFQDN> has no record of its own; outside the cluster it
+# resolves through the zone's wildcard to the gateway, where 587 does not
+# answer. The setup Job therefore pins the name to the mail Service's
+# cluster address: a separate server block in the key `pinKey` of the
+# k3s CoreDNS extension ConfigMap kube-system/coredns-custom (merge-patch,
+# so other keys stay). false: no pin.
+corednsPin:
+  enabled: true
+  namespace: kube-system
+  configMapName: coredns-custom
+  pinKey: stalwart-sovereign-mail-pin.server
 
 # ─── Mail-spool persistence ──────────────────────────────────────────────
 persistence:
@@ -214,26 +248,31 @@ dnsRecords:
   enabled: true
 
 # ─── Post-install setup Job ──────────────────────────────────────────────
-# Run-once Job that:
-#   1. Waits for Stalwart's HTTP admin API on the local Service to be
-#      reachable.
-#   2. POSTs the submission principal to `/api/principal/<submissionUser>`
-#      with the auto-generated password (read from the in-namespace
-#      submission Secret via env-var injection, NEVER logged).
-#   3. POSTs `lookup.sender-allow.<submissionUser>|<submissionUser>@<sovereignFQDN>`
-#      so the principal can send-as the `noreply@<sovereignFQDN>`
-#      address (per stalwart_send_as.md).
-#   4. Reads the DKIM public key back via `/api/settings` and patches
-#      the dns-records ConfigMap with the populated TXT record string.
+# Run-once Job; its steps are listed at the top of templates/setup-job.yaml.
+# Its image is not the server's: the server image has no curl. curl 8.10.1
+# is the image the other charts of this repository use for the same kind of
+# Job; the digest is its image index on Docker Hub. `global.imageRegistry`
+# replaces `registry` for both images. The deadline is long enough for the
+# certificate of the submission host to be issued, since the server pod
+# starts only when it is (templates/statefulset.yaml); the release never
+# waits for the Job.
 setupJob:
   enabled: true
   image:
-    repository: stalwartlabs/stalwart
-    tag: "v0.16.3"
-    digest: "sha256:5d75cff4e9c6d75e64636e9ef9674b1d877f8f6fb2e11ee8176fbad3faaa5289"
+    registry: docker.io
+    repository: curlimages/curl
+    tag: "8.10.1"
+    digest: "sha256:d9b4541e214bcd85196d6e92e2753ac6d0ea699f0af5741f8c6cccbfcf00ef4b"
     pullPolicy: IfNotPresent
-  activeDeadlineSeconds: 600
+  activeDeadlineSeconds: 1800
   backoffLimit: 6
+  resources:
+    requests:
+      cpu: 10m
+      memory: 16Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
 
 # ─── Mirror Secret into catalyst-system ──────────────────────────────────
 # The bp-catalyst-platform chart's `catalyst-openova-kc-credentials`

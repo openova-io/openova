@@ -12,7 +12,7 @@ only via the in-cluster ClusterIP Service (templates/service-http.yaml)
 and is gated by the chart's NetworkPolicy to the catalyst-system
 namespace + the post-install Job's pod.
 */}}
-{{- if .Values.stalwart.enabled }}
+{{- if include "bp-stalwart-sovereign.active" . }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -36,10 +36,11 @@ spec:
   # Without this field the apiserver silently allocates a nodePort per port
   # and the Kyverno forbid-nodeport-service guard denies the install.
   allocateLoadBalancerNodePorts: false
-  {{- end }}
+  {{- /* The API server refuses externalTrafficPolicy on a ClusterIP Service. */}}
   externalTrafficPolicy: {{ .Values.service.mail.externalTrafficPolicy }}
+  {{- end }}
   selector:
-    {{- include "bp-stalwart-sovereign.selectorLabels" . | nindent 4 }}
+    {{- include "bp-stalwart-sovereign.serverSelectorLabels" . | nindent 4 }}
   ports:
     - name: smtp
       port: {{ .Values.service.mail.ports.smtp }}

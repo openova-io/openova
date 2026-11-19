@@ -5,15 +5,18 @@ hook-succeeded would be deleted as soon as it was created, before the Job
 could use it.
 
   - Role in the release namespace: read the submission Secret, patch the
-    dns-records ConfigMap (DKIM public key write-back).
+    dns-records ConfigMap (DKIM public key write-back), read the mail
+    Service (its cluster address for the pin).
   - Role in the mirror namespace (catalyst-system): create the mirror
     Secret, and read and replace it by name. "create" cannot be limited by
     resourceNames, so it is a rule of its own.
+  - Role in the pin namespace (kube-system): create the CoreDNS extension
+    ConfigMap, and read and patch it by name.
 
-The mirror Role and RoleBinding live in the mirror namespace, so that
-namespace must exist when the release is installed.
+The mirror and pin Roles and RoleBindings live in those namespaces, so they
+must exist when the release is installed.
 */}}
-{{- if and .Values.stalwart.enabled .Values.setupJob.enabled }}
+{{- if and (include "bp-stalwart-sovereign.active" .) .Values.setupJob.enabled }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -30,6 +33,10 @@ rules:
     resources: ["configmaps"]
     resourceNames: [{{ include "bp-stalwart-sovereign.dnsRecordsConfigMapName" . | quote }}]
     verbs: ["get", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["services"]
+    resourceNames: ["{{ include "bp-stalwart-sovereign.fullname" . }}-mail"]
+    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -79,6 +86,42 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: {{ include "bp-stalwart-sovereign.fullname" . }}-mirror
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "bp-stalwart-sovereign.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace | quote }}
+{{- end }}
+{{- $pin := .Values.corednsPin | default dict -}}
+{{- if dig "enabled" true $pin }}
+{{- $pinNs := default "kube-system" $pin.namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "bp-stalwart-sovereign.fullname" . }}-pin
+  namespace: {{ $pinNs | quote }}
+  labels:
+    {{- include "bp-stalwart-sovereign.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: [{{ default "coredns-custom" $pin.configMapName | quote }}]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "bp-stalwart-sovereign.fullname" . }}-pin
+  namespace: {{ $pinNs | quote }}
+  labels:
+    {{- include "bp-stalwart-sovereign.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "bp-stalwart-sovereign.fullname" . }}-pin
 subjects:
   - kind: ServiceAccount
     name: {{ include "bp-stalwart-sovereign.serviceAccountName" . }}

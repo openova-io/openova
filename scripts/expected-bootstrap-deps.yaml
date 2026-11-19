@@ -837,3 +837,13 @@ slots:
     depends_on: [bp-openbao, bp-keycloak, bp-cnpg]
     wave: present
 
+
+  # ---- Slot 95 — bp-stalwart-sovereign, the Sovereign's own mail server. It
+  # sends the console's sign-in codes. The chart renders a cert-manager
+  # Certificate (bp-cert-manager) and keeps its mail store on a volume
+  # (storage-ready). The release does not wait for its setup Job and no slot
+  # depends on it.
+  - slot: 95
+    name: bp-stalwart-sovereign
+    depends_on: [bp-cert-manager, storage-ready]
+    wave: present

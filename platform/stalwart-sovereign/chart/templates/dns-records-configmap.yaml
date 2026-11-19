@@ -15,7 +15,7 @@ gates: skip when sovereignFQDN unset (smoke-render-safe).
 {{- $fqdn := include "bp-stalwart-sovereign.sovereignFQDN" . -}}
 {{- $mailHost := include "bp-stalwart-sovereign.mailFQDN" . -}}
 {{- $rua := include "bp-stalwart-sovereign.dmarcRua" . -}}
-{{- if and .Values.dnsRecords.enabled $fqdn $mailHost -}}
+{{- if and .Values.dnsRecords.enabled $fqdn $mailHost (include "bp-stalwart-sovereign.active" .) -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:

@@ -12,28 +12,43 @@ template. A Job's pod template cannot be changed in place, so a changed
 template gives a new name: Helm creates the new Job and deletes the old one.
 An unchanged template keeps the name, and an upgrade leaves the Job as it is.
 
+The Job's pod carries the selector labels, so the chart's NetworkPolicy
+selects it, but not the label app.kubernetes.io/component of the server's
+pods, so it is never an endpoint of the chart's Services.
+
+The server (release v0.15.5) answers HTTP 200 to almost every admin call,
+also when it refuses one: a refusal is the body {"error":"<name>",...}, a
+success the body {"data":...}. Every call is judged by its body.
+
 Every step can run again with the same result:
 
-  1. Wait for the admin API, at most 60 tries with a 2 s time limit each.
-     The chart's NetworkPolicy (templates/networkpolicy.yaml) selects this
-     pod too, and allows it to reach port 8080 of the chart's own pods.
-  2. Make the submission principal match the in-namespace submission Secret:
-     create it when it does not exist, otherwise set its secret to the
-     Secret's password. Then read it back; anything but HTTP 200 fails the
-     run.
-  3. Allow the principal to send as the sender address.
-  4. Write catalyst-system/sovereign-smtp-credentials (the mirror) from the
+  1. Wait until the server is ready (/healthz/ready), at most 60 tries with
+     a 2 s time limit each. The chart's NetworkPolicy allows this pod to
+     reach port 8080 of the chart's own pods.
+  2. Make the Sovereign's domain a principal of the server, or find it
+     there: the server refuses an address in a domain it does not hold.
+  3. Make the submission principal match the in-namespace submission Secret:
+     create it when the server says notFound, otherwise set its secret to
+     the Secret's password. Then read it back; anything but a principal
+     fails the run.
+  4. Pin mail.<sovereignFQDN> to the cluster address of the mail Service:
+     merge the key corednsPin.pinKey into the CoreDNS extension ConfigMap
+     (create it when absent). The mail client checks the certificate
+     against that name, and outside the cluster the name does not reach
+     the server.
+  5. Write catalyst-system/sovereign-smtp-credentials (the mirror) from the
      submission Secret: create it when it does not exist, otherwise replace
      it (PUT), so that it holds exactly what this chart writes and no label,
      annotation or key of an earlier writer stays. The mirror is written only
-     after step 2 succeeded, so a reader never gets a credential the server
-     does not know. It carries the key shape of every reader (smtp-*,
-     user/password, SMTP_*) and the reflector annotations that copy it into
-     the namespaces of sovereignSMTPCredentialsMirror.reflectionNamespaces.
-  5. Write the DKIM public key into the dns-records ConfigMap. Best effort:
+     after steps 3 and 4 succeeded, so a reader never gets a credential the
+     server does not know or a host that does not reach it. It carries the
+     key shape of every reader (smtp-*, user/password, SMTP_*) and the
+     reflector annotations that copy it into the namespaces of
+     sovereignSMTPCredentialsMirror.reflectionNamespaces.
+  6. Write the DKIM public key into the dns-records ConfigMap. Best effort:
      it never fails the run.
 
-A failure in steps 1, 2 or 4 exits 1; the Job is retried until it succeeds or
+A failure in steps 1 to 5 exits 1; the Job is retried until it succeeds or
 its deadline passes. No password is ever printed: credentials are read from
 env and written to files under /tmp that only this container reads.
 */}}
@@ -44,6 +59,8 @@ env and written to files under /tmp that only this container reads.
 {{- $mirrorNs := default "catalyst-system" $cfg.namespace -}}
 {{- $mirrorName := default "sovereign-smtp-credentials" $cfg.secretName -}}
 {{- $reflectNs := default "chargeback" $cfg.reflectionNamespaces -}}
+{{- $pin := .Values.corednsPin | default dict -}}
+{{- $pinEnabled := dig "enabled" true $pin -}}
 {{- $mailHost := include "bp-stalwart-sovereign.mailFQDN" . -}}
 {{- $sender := include "bp-stalwart-sovereign.senderAddress" . -}}
 metadata:
@@ -72,6 +89,10 @@ spec:
         readOnlyRootFilesystem: false
         capabilities:
           drop: ["ALL"]
+      {{- with .Values.setupJob.resources }}
+      resources:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       env:
         - name: STALWART_URL
           value: "http://{{ include "bp-stalwart-sovereign.fullname" . }}-http.{{ .Release.Namespace }}.svc.cluster.local:8080"
@@ -85,11 +106,21 @@ spec:
           value: {{ .Values.smtp.submissionUser | quote }}
         - name: RELEASE_NAMESPACE
           value: {{ .Release.Namespace | quote }}
+        - name: MAIL_SERVICE
+          value: "{{ include "bp-stalwart-sovereign.fullname" . }}-mail"
         - name: DNS_RECORDS_CONFIGMAP
           value: {{ include "bp-stalwart-sovereign.dnsRecordsConfigMapName" . | quote }}
+        - name: PIN_ENABLED
+          value: {{ ternary "true" "false" $pinEnabled | quote }}
+        - name: PIN_NAMESPACE
+          value: {{ default "kube-system" $pin.namespace | quote }}
+        - name: PIN_CONFIGMAP
+          value: {{ default "coredns-custom" $pin.configMapName | quote }}
+        - name: PIN_ENTRY
+          value: {{ default "stalwart-sovereign-mail-pin.server" $pin.pinKey | quote }}
         - name: MIRROR_NAMESPACE
           value: {{ $mirrorNs | quote }}
-        - name: MIRROR_SECRET_NAME
+        - name: MIRROR_NAME
           value: {{ $mirrorName | quote }}
         - name: MIRROR_ENABLED
           value: {{ ternary "true" "false" $cfgEnabled | quote }}
@@ -103,72 +134,119 @@ spec:
         - |
           set -eu
           log() { echo "[stalwart-sovereign-setup] $*"; }
-          trap 'rm -f /tmp/principal.json /tmp/mirror.json /tmp/dkim.json' EXIT
+          trap 'rm -f /tmp/principal.json /tmp/answer.json /tmp/service.json /tmp/pin.json /tmp/mirror.json /tmp/dkim.json' EXIT
+          # answer: "data" for a success body of the admin API, the error name
+          # for a refusal ({"error":"notFound",...} gives notFound), "other" else.
+          answer() {
+            if grep -q '^{"data"' /tmp/answer.json 2>/dev/null; then echo data; return 0; fi
+            a="$(sed -n 's/^{"error":"\([A-Za-z]*\)".*/\1/p' /tmp/answer.json 2>/dev/null | head -1)"
+            echo "${a:-other}"
+          }
 
           if [ -z "${SOVEREIGN_FQDN:-}" ]; then
             log "sovereignFQDN unset; nothing to set up"
             exit 0
           fi
 
-          # 1. Wait for the admin API: at most 60 tries.
-          log "waiting for ${STALWART_URL}/api"
+          # 1. Wait until the server is ready: at most 60 tries.
+          log "waiting for ${STALWART_URL}/healthz/ready"
           ready=0
           for i in $(seq 1 60); do
-            if curl -fsS -m 2 -u "admin:${ADMIN_PASSWORD}" "${STALWART_URL}/api/health" >/dev/null 2>&1; then
+            if curl -fsS -m 2 "${STALWART_URL}/healthz/ready" >/dev/null 2>&1; then
               ready=1
               break
             fi
             sleep 5
           done
           if [ "${ready}" != "1" ]; then
-            log "admin API did not answer; the Job retries"
+            log "mail server not ready; the Job retries"
             exit 1
           fi
 
-          # 2. The submission principal matches the submission Secret.
-          code="$(curl -sS -m 10 -o /dev/null -w '%{http_code}' -u "admin:${ADMIN_PASSWORD}" \
+          # 2. The Sovereign's domain is a principal of the server.
+          printf '{"type":"domain","name":"%s","description":"Sovereign mail domain"}' "${SOVEREIGN_FQDN}" > /tmp/principal.json
+          code="$(curl -sS -m 10 -o /tmp/answer.json -w '%{http_code}' -u "admin:${ADMIN_PASSWORD}" -H "Content-Type: application/json" \
+            -X POST "${STALWART_URL}/api/principal" -d @/tmp/principal.json)" || code=000
+          a="$(answer)"
+          if [ "${code}" != "200" ] || { [ "${a}" != "data" ] && [ "${a}" != "fieldAlreadyExists" ]; }; then
+            log "domain ${SOVEREIGN_FQDN} not created (HTTP ${code}, ${a}); the Job retries"
+            exit 1
+          fi
+          log "domain ${SOVEREIGN_FQDN} present"
+
+          # 3. The submission principal matches the submission Secret.
+          code="$(curl -sS -m 10 -o /tmp/answer.json -w '%{http_code}' -u "admin:${ADMIN_PASSWORD}" \
             "${STALWART_URL}/api/principal/${SUBMISSION_USER}")" || code=000
-          if [ "${code}" = "404" ]; then
+          a="$(answer)"
+          if [ "${code}" = "200" ] && [ "${a}" = "notFound" ]; then
             log "create principal ${SUBMISSION_USER}"
             printf '{"name":"%s","description":"Sovereign Console submission principal","secrets":["%s"],"emails":["%s"],"roles":["user"]}' \
               "${SUBMISSION_USER}" "${SUBMISSION_PASSWORD}" "${SENDER_ADDRESS}" > /tmp/principal.json
-            curl -fsS -m 10 -u "admin:${ADMIN_PASSWORD}" -H "Content-Type: application/json" \
-              -X POST "${STALWART_URL}/api/principal" -d @/tmp/principal.json >/dev/null || {
-              log "principal ${SUBMISSION_USER} not created; the Job retries"
-              exit 1
-            }
-          elif [ "${code}" = "200" ]; then
+            code="$(curl -sS -m 10 -o /tmp/answer.json -w '%{http_code}' -u "admin:${ADMIN_PASSWORD}" -H "Content-Type: application/json" \
+              -X POST "${STALWART_URL}/api/principal" -d @/tmp/principal.json)" || code=000
+          elif [ "${code}" = "200" ] && [ "${a}" = "data" ]; then
             log "set the secret of principal ${SUBMISSION_USER}"
             printf '[{"action":"set","field":"secrets","value":["%s"]}]' "${SUBMISSION_PASSWORD}" > /tmp/principal.json
-            curl -fsS -m 10 -u "admin:${ADMIN_PASSWORD}" -H "Content-Type: application/json" \
-              -X PATCH "${STALWART_URL}/api/principal/${SUBMISSION_USER}" -d @/tmp/principal.json >/dev/null || {
-              log "secret of principal ${SUBMISSION_USER} not set; the Job retries"
-              exit 1
-            }
+            code="$(curl -sS -m 10 -o /tmp/answer.json -w '%{http_code}' -u "admin:${ADMIN_PASSWORD}" -H "Content-Type: application/json" \
+              -X PATCH "${STALWART_URL}/api/principal/${SUBMISSION_USER}" -d @/tmp/principal.json)" || code=000
           else
-            log "principal read answered HTTP ${code}; the Job retries"
+            log "principal read answered HTTP ${code} (${a}); the Job retries"
             exit 1
           fi
           rm -f /tmp/principal.json
-          code="$(curl -sS -m 10 -o /dev/null -w '%{http_code}' -u "admin:${ADMIN_PASSWORD}" \
+          a="$(answer)"
+          if [ "${code}" != "200" ] || [ "${a}" != "data" ]; then
+            log "principal ${SUBMISSION_USER} not written (HTTP ${code}, ${a}); the Job retries"
+            exit 1
+          fi
+          code="$(curl -sS -m 10 -o /tmp/answer.json -w '%{http_code}' -u "admin:${ADMIN_PASSWORD}" \
             "${STALWART_URL}/api/principal/${SUBMISSION_USER}")" || code=000
-          if [ "${code}" != "200" ]; then
+          if [ "${code}" != "200" ] || [ "$(answer)" != "data" ]; then
             log "principal ${SUBMISSION_USER} not confirmed (HTTP ${code}); the Job retries"
             exit 1
           fi
           log "principal ${SUBMISSION_USER} confirmed"
 
-          # 3. Allow send-as for the sender address.
-          curl -fsS -m 10 -u "admin:${ADMIN_PASSWORD}" -H "Content-Type: application/json" \
-            -X POST "${STALWART_URL}/api/settings" \
-            -d "[{\"key\":\"lookup.sender-allow.${SUBMISSION_USER}|${SENDER_ADDRESS}\",\"value\":\"true\",\"assert_empty\":false}]" \
-            >/dev/null || log "sender-allow write answered non-2xx (continuing)"
-
           K8S_API="https://kubernetes.default.svc"
           K8S_TOKEN="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)"
           CACERT="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 
-          # 4. The mirror Secret, written only after step 2.
+          # 4. mail.<fqdn> resolves to the mail Service inside the cluster.
+          if [ "${PIN_ENABLED}" = "true" ]; then
+            code="$(curl -sS -m 10 --cacert "${CACERT}" -H "Authorization: Bearer ${K8S_TOKEN}" \
+              -o /tmp/service.json -w '%{http_code}' \
+              "${K8S_API}/api/v1/namespaces/${RELEASE_NAMESPACE}/services/${MAIL_SERVICE}")" || code=000
+            cip="$(grep -o '"clusterIP": *"[0-9a-fA-F.:]*"' /tmp/service.json 2>/dev/null | head -1 | sed 's/.*"\([^"]*\)"$/\1/')"
+            rm -f /tmp/service.json
+            if [ "${code}" != "200" ] || [ -z "${cip}" ]; then
+              log "no cluster address of Service ${RELEASE_NAMESPACE}/${MAIL_SERVICE} (HTTP ${code}); the Job retries"
+              exit 1
+            fi
+            data="$(printf '"data":{"%s":"%s {\\n    hosts {\\n        %s %s\\n        fallthrough\\n    }\\n    forward . /etc/resolv.conf\\n}\\n"}' \
+              "${PIN_ENTRY}" "${MAIL_HOST}" "${cip}" "${MAIL_HOST}")"
+            CM="${K8S_API}/api/v1/namespaces/${PIN_NAMESPACE}/configmaps"
+            printf '{%s}' "${data}" > /tmp/pin.json
+            code="$(curl -sS -m 10 --cacert "${CACERT}" -H "Authorization: Bearer ${K8S_TOKEN}" \
+              -H "Content-Type: application/merge-patch+json" -o /dev/null -w '%{http_code}' \
+              -X PATCH "${CM}/${PIN_CONFIGMAP}" -d @/tmp/pin.json)" || code=000
+            if [ "${code}" = "404" ]; then
+              printf '{"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":"%s","namespace":"%s"},%s}' \
+                "${PIN_CONFIGMAP}" "${PIN_NAMESPACE}" "${data}" > /tmp/pin.json
+              code="$(curl -sS -m 10 --cacert "${CACERT}" -H "Authorization: Bearer ${K8S_TOKEN}" \
+                -H "Content-Type: application/json" -o /dev/null -w '%{http_code}' \
+                -X POST "${CM}" -d @/tmp/pin.json)" || code=000
+            fi
+            rm -f /tmp/pin.json
+            if [ "${code}" != "200" ] && [ "${code}" != "201" ]; then
+              log "pin of ${MAIL_HOST} not written into ${PIN_NAMESPACE}/${PIN_CONFIGMAP} (HTTP ${code}); the Job retries"
+              exit 1
+            fi
+            log "pin ${MAIL_HOST} -> ${cip} written into ${PIN_NAMESPACE}/${PIN_CONFIGMAP}"
+          else
+            log "pin disabled; skipping"
+          fi
+
+          # 5. The mirror Secret, written only after steps 3 and 4.
           if [ "${MIRROR_ENABLED}" = "true" ]; then
             B64_HOST="$(printf '%s' "${MAIL_HOST}" | base64 -w0)"
             B64_PORT="$(printf '%s' '587' | base64 -w0)"
@@ -180,7 +258,7 @@ spec:
             "apiVersion": "v1",
             "kind": "Secret",
             "metadata": {
-              "name": "${MIRROR_SECRET_NAME}",
+              "name": "${MIRROR_NAME}",
               "namespace": "${MIRROR_NAMESPACE}",
               "labels": {
                 "app.kubernetes.io/name": "bp-stalwart-sovereign",
@@ -212,7 +290,7 @@ spec:
           MIRROR_JSON
             code="$(curl -sS -m 10 --cacert "${CACERT}" -H "Authorization: Bearer ${K8S_TOKEN}" \
               -o /dev/null -w '%{http_code}' \
-              "${K8S_API}/api/v1/namespaces/${MIRROR_NAMESPACE}/secrets/${MIRROR_SECRET_NAME}")" || code=000
+              "${K8S_API}/api/v1/namespaces/${MIRROR_NAMESPACE}/secrets/${MIRROR_NAME}")" || code=000
             if [ "${code}" = "404" ]; then
               code="$(curl -sS -m 10 --cacert "${CACERT}" -H "Authorization: Bearer ${K8S_TOKEN}" \
                 -H "Content-Type: application/json" -o /dev/null -w '%{http_code}' \
@@ -221,20 +299,20 @@ spec:
             elif [ "${code}" = "200" ]; then
               code="$(curl -sS -m 10 --cacert "${CACERT}" -H "Authorization: Bearer ${K8S_TOKEN}" \
                 -H "Content-Type: application/json" -o /dev/null -w '%{http_code}' \
-                -X PUT "${K8S_API}/api/v1/namespaces/${MIRROR_NAMESPACE}/secrets/${MIRROR_SECRET_NAME}" \
+                -X PUT "${K8S_API}/api/v1/namespaces/${MIRROR_NAMESPACE}/secrets/${MIRROR_NAME}" \
                 -d @/tmp/mirror.json)" || code=000
             fi
             rm -f /tmp/mirror.json
             if [ "${code}" != "200" ] && [ "${code}" != "201" ]; then
-              log "mirror ${MIRROR_NAMESPACE}/${MIRROR_SECRET_NAME} not written (HTTP ${code}); the Job retries"
+              log "mirror ${MIRROR_NAMESPACE}/${MIRROR_NAME} not written (HTTP ${code}); the Job retries"
               exit 1
             fi
-            log "mirror ${MIRROR_NAMESPACE}/${MIRROR_SECRET_NAME} written (HTTP ${code})"
+            log "mirror ${MIRROR_NAMESPACE}/${MIRROR_NAME} written (HTTP ${code})"
           else
             log "mirror disabled; skipping"
           fi
 
-          # 5. DKIM public key into the dns-records ConfigMap (best effort).
+          # 6. DKIM public key into the dns-records ConfigMap (best effort).
           DKIM_PUBLIC_KEY="$(curl -fsS -m 10 -u "admin:${ADMIN_PASSWORD}" \
             "${STALWART_URL}/api/settings/group?prefix=signature.dkim" 2>/dev/null \
             | grep -oE '"public-key":"[^"]*"' | head -1 \
@@ -252,7 +330,7 @@ spec:
 
           log "done"
 {{- end -}}
-{{- if and .Values.stalwart.enabled .Values.setupJob.enabled }}
+{{- if and (include "bp-stalwart-sovereign.active" .) .Values.setupJob.enabled }}
 {{- $pod := include "bp-stalwart-sovereign.setupPodTemplate" . }}
 apiVersion: batch/v1
 kind: Job

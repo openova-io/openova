@@ -13,11 +13,17 @@
 # customer onboarding does — invite links are the ONLY way to activate a
 # customer admin.
 #
-# This gate fails if the Sovereign slot ships without an SMTP secret.
+# This gate fails if the Sovereign slot ships without an SMTP secret, or if the
+# writer of that Secret does not give it the shape chargeback reads.
+#
+# The writer is the setup Job of the Sovereign's own mail server (SOV-322,
+# platform/stalwart-sovereign/chart/templates/setup-job.yaml): it writes
+# catalyst-system/sovereign-smtp-credentials once the server knows the
+# credential. The parent's seed that wrote it before is deleted.
 set -euo pipefail
 
 CB="${1:-clusters/_template/bootstrap-kit/13f-bp-chargeback.yaml}"
-SEED="${2:-products/catalyst/bootstrap/api/internal/handler/sovereign_smtp_seed.go}"
+SEED="${2:-platform/stalwart-sovereign/chart/templates/setup-job.yaml}"
 fail=0
 
 [[ -f "$CB" ]] || { echo "FAIL: $CB not found"; exit 1; }
@@ -38,23 +44,25 @@ fi
 if [[ -f "$SEED" ]]; then
   for k in SMTP_HOST SMTP_PORT SMTP_FROM SMTP_USER SMTP_PASS; do
     if ! grep -q "\"$k\":" "$SEED"; then
-      echo "FAIL: the seeder does not write $k — an envFrom consumer gets no SMTP config."
+      echo "FAIL: the writer does not write $k — an envFrom consumer gets no SMTP config."
       fail=1
     fi
   done
   grep -q 'reflection-allowed-namespaces' "$SEED" || {
-    echo "FAIL: the seeded Secret is not reflectable — it can never reach the app's namespace"
+    echo "FAIL: the written Secret is not reflectable — it can never reach the app's namespace"
     echo "      (Kubernetes forbids a cross-namespace secretKeyRef)."; fail=1; }
-  ns=$(grep -oE 'sovereignSMTPConsumerNamespaces = "[^"]*"' "$SEED" | head -1 | sed -E 's/.*"([^"]*)".*/\1/')
+  # The default of sovereignSMTPCredentialsMirror.reflectionNamespaces in the template.
+  ns=$(grep -oE 'default "[^"]*" \$cfg\.reflectionNamespaces' "$SEED" | head -1 | sed -E 's/^default "([^"]*)".*/\1/' || true)
   if [[ -n "$secret" && "$ns" != *chargeback* ]]; then
     echo "FAIL: reflection namespaces '$ns' do not include chargeback — the Secret"
     echo "      is named by the slot but never arrives."
     fail=1
   else
-    echo "  ok: seeder writes the SMTP_* shape and reflects into '$ns'"
+    echo "  ok: the writer writes the SMTP_* shape and reflects into '$ns'"
   fi
 else
-  echo "  note: seeder not found at $SEED, skipped the producer checks"
+  echo "FAIL: the writer of the SMTP secret is not at $SEED — nothing gives chargeback its mail settings."
+  fail=1
 fi
 
 [[ $fail -eq 0 ]] || { echo "FAILED — chargeback would discard mail while reporting success."; exit 1; }

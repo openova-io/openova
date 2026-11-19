@@ -123,11 +123,13 @@ sovereign:
   # SMTP relay for catalyst-api PIN-email delivery. Consumed by the
   # auto-provisioned `catalyst-openova-kc-credentials` Secret (template
   # at templates/catalyst-openova-kc-credentials-secret.yaml — issue
-  # #901). Defaults match the openova.io platform mail relay; per-
-  # Sovereign overlays MAY repoint at a Sovereign-local Stalwart
-  # instance once SMTP creds are reflected from cloud-init via the
-  # `catalyst-system/sovereign-smtp-credentials` Secret seam (issue
-  # #883, agent A5).
+  # #901). The defaults below serve the mothership. On a Sovereign the
+  # setup Job of its own mail server (bootstrap-kit slot 95) writes
+  # `catalyst-system/sovereign-smtp-credentials` with mail.<fqdn>, the
+  # Sovereign's sender and a credential generated in the cluster; that
+  # Secret wins over these defaults, and the catalyst-api also reads it
+  # live on every send (internal/signinmail), because it is written after
+  # this chart renders. No parent mailbox credential is copied (SOV-322).
   smtp:
     # #4696: in-cluster Stalwart Service (matches the catalyst-api
     # CATALYST_SMTP_HOST code default in auth.go). mail.openova.io resolves via
@@ -1976,8 +1978,8 @@ orgSecrets:
   namespace: org-services            # #3383: was `sme`
   smtp:
     # ─── Sovereign source-Secret (issue #934) ────────────────────────
-    # On a freshly franchised Sovereign the SMTP creds are seeded by
-    # cloud-init / A5's provisioner (#883/#905) into
+    # On a Sovereign the setup Job of its own mail server (bootstrap-kit
+    # slot 95, SOV-322) writes the SMTP settings into
     # `catalyst-system/sovereign-smtp-credentials`. The org-services-secrets
     # template reads from there with source-wins precedence so any
     # non-empty bytes override the chart-level defaults below. Empty
@@ -2712,6 +2714,12 @@ security:
       # → sme/newapi egress" but only touched the world-egress TCP/6443
       # block; this PR closes the `newapi` half of that theater.
       - newapi
+      # SOV-322: catalyst-system → platform for the sign-in codes. The
+      # Sovereign's own mail server (bootstrap-kit slot 95) listens on 587
+      # behind a ClusterIP Service; the world egress rule below covers only
+      # addresses outside the cluster, so without this entry the catalyst-api
+      # could not submit a code to it.
+      - platform
     # Adjacent namespaces whose Pods are allowed to INGRESS into
     # catalyst-system. Defaults cover:
     #   - catalyst — bp-self-sovereign-cutover Jobs (incl. the

@@ -85,11 +85,6 @@ func putKubeconfigWithFakeSovereign(t *testing.T, query string, seed ...*corev1.
 	h.SetSovereignAnthropicSeedClientFactory(func(string) (kubernetes.Interface, error) {
 		return fake, nil
 	})
-	// The SMTP seed shares this hot path; give it a sink of its own so
-	// its own env-driven behaviour never colours this test's fake.
-	h.SetSovereignSMTPSeedClientFactory(func(string) (kubernetes.Interface, error) {
-		return fakek8s.NewSimpleClientset(), nil
-	})
 
 	r := putReq(t, id, bearer, []byte(validKubeconfigYAML))
 	if query != "" {
