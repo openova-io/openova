@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T20:30:06Z` |
+| Last refreshed | `2026-11-19T20:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7984](https://github.com/openova-io/openova/issues/7984) | NET-210 Availability zone per region and a separation output | Other |
 | [#7985](https://github.com/openova-io/openova/issues/7985) | SEC-096 Census limit set from the first measured census; SEC-G11 required | Other |
 | [#7986](https://github.com/openova-io/openova/issues/7986) | SEC-105 Delete Sealed Secrets | Other |
 | [#7987](https://github.com/openova-io/openova/issues/7987) | SEC-126 The runbook states how and when to rotate the etcd encryption key of a r | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8386](https://github.com/openova-io/openova/issues/8386) | SVC-164 Delete the OpenMeter Blueprint | Other |
 | [#8389](https://github.com/openova-io/openova/issues/8389) | SOV-323 Relay mode: sign-in mail through a relay with a credential for that chil | Other |
 | [#8391](https://github.com/openova-io/openova/issues/8391) | AIP-225 MCP endpoint and console HTTP routes inside the service | Other |
+| [#8396](https://github.com/openova-io/openova/issues/8396) | FND-157 A gate run reads the storefront's sign-in code from a mailbox on the Sov | Other |
 
 ---
 
@@ -309,6 +309,7 @@ flowchart LR
 |---|---|---|---|
 | 2026-11-19T20:18 | [#8390](https://github.com/openova-io/openova/pull/8390) | #7087 | docs(ledger): plan update |
 | 2026-11-19T20:13 | [#8388](https://github.com/openova-io/openova/pull/8388) | #7087 | docs(ledger): plan update |
+| 2026-11-19T20:32 | [#8387](https://github.com/openova-io/openova/pull/8387) | #8385 | feat(cloud-init): first boot writes the OpenBao seal key, pr |
 | 2026-11-19T19:58 | [#8384](https://github.com/openova-io/openova/pull/8384) | #7087 | docs(ledger): plan update |
 | 2026-11-19T19:27 | [#8383](https://github.com/openova-io/openova/pull/8383) | #8368 | refactor(mail): kit slot 95 runs the mail server that sends  |
 | 2026-11-19T18:17 | [#8382](https://github.com/openova-io/openova/pull/8382) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-19T14:48 | [#8342](https://github.com/openova-io/openova/pull/8342) | fix(wipe): the wipe releases the record sets of the Sovereig |  |
 | 2026-11-19T14:17 | [#8340](https://github.com/openova-io/openova/pull/8340) | #7087 | docs(ledger): plan update |
 | 2026-11-19T14:12 | [#8339](https://github.com/openova-io/openova/pull/8339) | #7087 | docs(ledger): plan update |
-| 2026-11-19T14:16 | [#8338](https://github.com/openova-io/openova/pull/8338) | fix(ci): the local pack's teardown no longer fails a run who |  |
 
 ---
 
