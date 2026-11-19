@@ -316,6 +316,44 @@ func TestPostgresStore(t *testing.T) {
 		}
 	})
 
+	t.Run("sources and documents are trimmed to the caller", func(t *testing.T) {
+		for principal, want := range map[string]string{
+			"group:staff": "hr 1 3", "user:alice": "hr 1 2", "user:hr-admin": "hr 2 5", "user:secretary": "board 1 1", "user:nobody": "",
+		} {
+			got, err := f.query.Sources(f.ctx, []string{principal})
+			var list []string
+			for _, s := range got {
+				if s.State != "idle" || s.LastSyncAt != nil || s.LastError != nil || s.Title == "" {
+					t.Errorf("%s: %+v", principal, s)
+				}
+				list = append(list, fmt.Sprintf("%s %d %d", s.ID, s.Documents, s.Chunks))
+			}
+			if err != nil || strings.Join(list, ",") != want {
+				t.Errorf("%s: %v, %v; want %q", principal, list, err, want)
+			}
+		}
+		all := []string{hrOpen, hrClosed, boardDoc, "00000000-0000-0000-0000-0000000000ff"}
+		for principal, want := range map[string][]string{"group:staff": {hrOpen}, "user:hr-admin": {hrOpen, hrClosed}, "user:nobody": nil} {
+			got, err := f.query.Documents(f.ctx, []string{principal}, all)
+			var ids []string
+			for _, d := range got {
+				if d.URI != "https://example.org/"+d.ID || d.State != "fetched" || d.UpdatedAt.IsZero() {
+					t.Errorf("%s: %+v", principal, d)
+				}
+				ids = append(ids, d.ID)
+			}
+			if err != nil || !reflect.DeepEqual(ids, want) {
+				t.Errorf("%s reads documents %v (%v), want %v", principal, ids, err, want)
+			}
+		}
+		if _, err := f.query.Sources(f.ctx, nil); !errors.Is(err, ErrNoPrincipals) {
+			t.Errorf("no principals gave %v", err)
+		}
+		if err := f.query.Ping(f.ctx); err != nil {
+			t.Error(err)
+		}
+	})
+
 	t.Run("a grant change rewrites the readers of the chunks it covers", func(t *testing.T) {
 		defs := []SourceDefinition{
 			{ID: "hr", Title: "HR policies", Digest: "d1b", Readers: []string{"group:staff", "group:board"}, Managers: []string{"user:hr-admin", "user:bob"}},

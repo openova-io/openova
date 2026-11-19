@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""check-products.py - the product guard: the AI-hub charts and the open-banking product keep the rules G-P1 to G-P4 and G-P7.
+"""check-products.py - the product guard: the AI-hub charts and products keep the rules G-P1 to G-P5 and G-P7.
 
 Each rule is one function, one list of folders it scans, and one fixture. It counts, per file,
 the lines that break the rule:
@@ -16,10 +16,12 @@ the lines that break the rule:
         platform/librechat: a line that contains secretKeyRef. A credential is mounted as a
         file, never read from a Secret object into an environment variable. The count of
         each file may only fall; a new file starts at zero.
-  G-P4  hard zero. The router tests of the open-banking product: the file
-        products/fingate/internal/api/router_test.go declares the test
+  G-P4  hard zero. The router tests of the products, products/cortex/internal/httpapi/router_test.go
+        and products/fingate/internal/api/router_test.go: each declares the test
         TestEveryRouteAuthenticated, which walks every route and fails on one without the
         token check. A file without that declaration counts one.
+  G-P5  hard zero. Every non-test .go file under products/cortex and products/fingate: a line that skips TLS verification,
+        starts a program, reads a credential name from the environment, allows every CORS origin or formats SQL with fmt.Sprintf.
   G-P7  ratchet. The lines of products/fingate/internal/api/unimplemented.txt, the operations
         the profile serves and the resource server does not implement yet: test C1 of the
         product serves every other one, so this count only falls. Also every line of a
@@ -31,7 +33,7 @@ The counts are compared with scripts/baselines/products.json:
 
   {"schema": "openova.io/guard-baseline/v1",
    "counts": {"G-P1": {}, "G-P2": {}, "G-P3": {"<repository path>": <number>}, "G-P4": {},
-              "G-P7": {"<repository path>": <number>}},
+              "G-P5": {}, "G-P7": {"<repository path>": <number>}},
    "allow": []}
 
   counts  per rule, per file, the number of lines allowed. A file absent from the map is
@@ -53,18 +55,9 @@ never writes an entry for a hard-zero rule.
 A rule over folders that do not exist cannot fail. So a scanned folder that is missing, or
 that holds no file, is never a pass: nothing is judged and the exit code is 2.
 
-A later rule is added as one more function with its folders and its fixture, registered in
-RULES, and one more key in the counts of the baseline. No other rule changes.
-
-Usage:
-  python3 scripts/check-products.py                    compare; print <rule>=<total> per rule
-  python3 scripts/check-products.py --write-baseline   write the baseline from the tree
-  python3 scripts/check-products.py --self-test        prove that every rule can fail
-  --root <dir>  measure another checkout (default: the one this script lies in)
-
+Usage: python3 scripts/check-products.py [--write-baseline | --self-test] [--root <dir>]; see --help.
 Exit codes: 0 no count rose and the baseline is exact; 1 a rule is broken;
 2 a scanned folder or the baseline cannot be read, so nothing was judged.
-It needs Python 3 and nothing else.
 """
 import argparse
 import hashlib
@@ -116,14 +109,14 @@ def files_under(root, folder):
     return sorted(out)
 
 
-def scan(root, folders, pattern):
-    """path -> line numbers of the lines of the files under folders that match pattern."""
+def scan(root, folders, pattern, keep=lambda path: True, more=lambda text: set()):
+    """path -> line numbers of the lines of the files under folders (those keep accepts) that match pattern, or that more(text) names."""
     found = {}
     for folder in folders:
-        for path in files_under(root, folder):
+        for path in filter(keep, files_under(root, folder)):
             with open(os.path.join(root, path), "rb") as f:
-                lines = f.read().split(b"\n")
-            hits = [n + 1 for n, line in enumerate(lines) if pattern.search(line)]
+                text = f.read()
+            hits = sorted({n + 1 for n, line in enumerate(text.split(b"\n")) if pattern.search(line)} | more(text))
             if hits:
                 found[path] = hits
     return found
@@ -133,13 +126,7 @@ def scan(root, folders, pattern):
 
 G_P1_FOLDERS = ("platform/vllm/chart/templates", "platform/bge/chart/templates")
 G_P1_RE = re.compile(rb"^\s*(?:-\s+)?kind:\s*[\"']?(HTTPRoute|Ingress|Gateway|GRPCRoute)[\"']?\s*(?:#.*)?$")
-
-
-def g_p1(root):
-    return scan(root, G_P1_FOLDERS, G_P1_RE)
-
-
-G_P1 = Rule("G-P1", G_P1_FOLDERS, g_p1, True,
+G_P1 = Rule("G-P1", G_P1_FOLDERS, lambda root: scan(root, G_P1_FOLDERS, G_P1_RE), True,
             "a model server is reached through the model gateway, never on a route of its own",
             {"base": {"platform/vllm/chart/templates/service.yaml": "kind: Service\n",
                       "platform/bge/chart/templates/service.yaml": "kind: Service\n"},
@@ -165,13 +152,7 @@ G_P1 = Rule("G-P1", G_P1_FOLDERS, g_p1, True,
 
 G_P2_FOLDERS = ("platform/vllm", "platform/bge", "platform/librechat")
 G_P2_RE = re.compile(rb"api\.openai\.com|api\.anthropic\.com|generativelanguage\.googleapis\.com", re.IGNORECASE)
-
-
-def g_p2(root):
-    return scan(root, G_P2_FOLDERS, G_P2_RE)
-
-
-G_P2 = Rule("G-P2", G_P2_FOLDERS, g_p2, True,
+G_P2 = Rule("G-P2", G_P2_FOLDERS, lambda root: scan(root, G_P2_FOLDERS, G_P2_RE), True,
             "a model is reached through the model gateway, never at a provider's host",
             {"base": {"platform/vllm/README.md": "A model server.\n",
                       "platform/bge/README.md": "An embedding server.\n",
@@ -194,13 +175,7 @@ G_P2 = Rule("G-P2", G_P2_FOLDERS, g_p2, True,
 
 G_P3_FOLDERS = ("platform/vllm/chart/templates", "platform/bge/chart/templates", "platform/librechat/chart/templates")
 G_P3_RE = re.compile(rb"secretKeyRef")
-
-
-def g_p3(root):
-    return scan(root, G_P3_FOLDERS, G_P3_RE)
-
-
-G_P3 = Rule("G-P3", G_P3_FOLDERS, g_p3, False,
+G_P3 = Rule("G-P3", G_P3_FOLDERS, lambda root: scan(root, G_P3_FOLDERS, G_P3_RE), False,
             "a credential is mounted as a file, so this count only falls",
             {"base": {"platform/vllm/chart/templates/deployment.yaml": "kind: Deployment\n",
                       "platform/bge/chart/templates/deployment.yaml": "kind: Deployment\n",
@@ -217,9 +192,9 @@ G_P3 = Rule("G-P3", G_P3_FOLDERS, g_p3, False,
                        {"platform/other/chart/templates/deployment.yaml": "secretKeyRef:\n"})]})
 
 
-# ---- G-P4: the router of the open-banking product proves that every route is authenticated. Hard zero.
+# ---- G-P4: the router of each product proves that every route is authenticated. Hard zero.
 
-G_P4_FOLDERS = ("products/fingate/internal/api",)
+G_P4_FOLDERS = ("products/cortex/internal/httpapi", "products/fingate/internal/api")
 G_P4_FILE = "router_test.go"
 G_P4_RE = re.compile(rb"^func TestEveryRouteAuthenticated\(t \*testing\.T\) \{$")
 
@@ -242,8 +217,10 @@ def g_p4(root):
 G_P4 = Rule("G-P4", G_P4_FOLDERS, g_p4, True,
             "the file must declare func TestEveryRouteAuthenticated(t *testing.T), the test that walks every route",
             {"base": {"products/fingate/internal/api/router_test.go":
-                      "package api\n\nfunc TestEveryRouteAuthenticated(t *testing.T) {\n}\n"},
-             "fail": [("the test is missing",
+                      "package api\n\nfunc TestEveryRouteAuthenticated(t *testing.T) {\n}\n",
+                      "products/cortex/internal/httpapi/router_test.go": "package httpapi\n\nfunc TestEveryRouteAuthenticated(t *testing.T) {\n}\n"},
+             "fail": [("the cortex router test is missing", {"products/cortex/internal/httpapi/router_test.go": "package httpapi\n"}),
+                      ("the test is missing",
                        {"products/fingate/internal/api/router_test.go": "package api\n"}),
                       ("the test is renamed",
                        {"products/fingate/internal/api/router_test.go": "package api\n\nfunc TestSomeRoutesAuthenticated(t *testing.T) {\n}\n"}),
@@ -251,6 +228,32 @@ G_P4 = Rule("G-P4", G_P4_FOLDERS, g_p4, True,
                        {"products/fingate/internal/api/router_test.go": "package api\n\n// func TestEveryRouteAuthenticated(t *testing.T) {\n"})],
              "pass": [("another test file beside it",
                        {"products/fingate/internal/api/other_test.go": "package api\n"})]})
+
+
+# ---- G-P5: no unsafe pattern in the Go code of the products: a query binds its values, a credential is a mounted file. Hard zero.
+
+G_P5_FOLDERS = ("products/cortex", "products/fingate")
+G_P5_LINE = re.compile(rb"InsecureSkipVerify\s*:\s*true|\bexec\.Command(?:Context)?\s*\(|\bos\.(?:Getenv|LookupEnv)\(\s*\"[^\"]*(?i:password|secret|token|key)[^\"]*\""
+                       rb"|(?i:access-control-allow-origin)[\"']\s*,\s*[\"']\*[\"']|\bAllow(?:ed)?Origins\s*:\s*\[\]string\{\s*\"\*\"|\bAllowAllOrigins\s*:\s*true")
+G_P5_SPRINTF = re.compile(rb"\bfmt\.Sprintf\(\s*(\"(?:[^\"\\\n]|\\.)*\"|`[^`]*`)")
+G_P5_SQL = re.compile(rb"\b(?:SELECT|INSERT|UPDATE|DELETE|WHERE)\b")
+G_P5 = Rule("G-P5", G_P5_FOLDERS, lambda root: scan(root, G_P5_FOLDERS, G_P5_LINE, lambda path: path.endswith(".go") and not path.endswith("_test.go"),
+                                                    lambda text: {text.count(b"\n", 0, m.start()) + 1 for m in G_P5_SPRINTF.finditer(text) if G_P5_SQL.search(m.group(1))}),
+            True, "a query binds its values, a credential is a mounted file, TLS is verified, no other program runs and no origin is a wildcard",
+            {"base": {"products/cortex/cmd/cortex/main.go": "package main\n", "products/fingate/cmd/fingate-api/main.go": "package main\n"},
+             "fail": [("skipped TLS verification", {"products/fingate/internal/x/tls.go": "package x\n\nvar c = tls.Config{InsecureSkipVerify: true}\n"}),
+                      ("a query formatted with fmt.Sprintf", {"products/cortex/internal/store/q.go": "package store\n\nvar q = fmt.Sprintf(\"SELECT text FROM chunk WHERE id = %s\", id)\n"}),
+                      ("a query formatted with fmt.Sprintf over several lines", {"products/cortex/internal/store/u.go": "package store\n\nvar q = fmt.Sprintf(`\n  UPDATE chunk\n  SET readers = %s`, r)\n"}),
+                      ("a token read from the environment", {"products/cortex/cmd/cortex/env.go": "package main\n\nvar k = os.Getenv(\"GATEWAY_TOKEN\")\n"}),
+                      ("a password looked up in the environment, in small letters", {"products/fingate/cmd/x/env.go": "package main\n\nvar p, _ = os.LookupEnv(\"db_password\")\n"}),
+                      ("another program started", {"products/cortex/internal/ingest/git.go": "package ingest\n\nvar c = exec.CommandContext(ctx, \"git\", \"clone\")\n"}),
+                      ("a wildcard CORS header", {"products/fingate/internal/api/cors.go": "package api\n\nfunc f(w http.ResponseWriter) { w.Header().Set(\"Access-Control-Allow-Origin\", \"*\") }\n"}),
+                      ("a wildcard CORS option", {"products/cortex/internal/httpapi/cors.go": "package httpapi\n\nvar o = cors.Options{AllowedOrigins: []string{\"*\"}}\n"})],
+             "pass": [("a test file may skip TLS verification", {"products/cortex/internal/x/x_test.go": "package x\n\nvar c = tls.Config{InsecureSkipVerify: true}\n"}),
+                      ("a query with bound parameters, and fmt.Sprintf of a message", {"products/cortex/internal/store/ok.go": "package store\n\nconst q = `SELECT text FROM chunk WHERE id = $1`\n\nvar m = fmt.Sprintf(\"cannot delete %s\", id)\n"}),
+                      ("an environment value of another name", {"products/cortex/cmd/cortex/home.go": "package main\n\nvar h = os.Getenv(\"HOME\")\n"}),
+                      ("a named CORS origin", {"products/fingate/internal/api/cors.go": "package api\n\nfunc f(w http.ResponseWriter) { w.Header().Set(\"Access-Control-Allow-Origin\", \"https://portal.example\") }\n"}),
+                      ("a file that is not Go", {"products/cortex/README.md": "Never set InsecureSkipVerify: true.\n"})]})
 
 
 # ---- G-P7: the open-banking product serves no fewer operations, and its vendored documents are unchanged. Ratchet.
@@ -317,7 +320,7 @@ G_P7 = Rule("G-P7", G_P7_FOLDERS, g_p7, False,
                        {G_P7_LIST: "\n"})]})
 
 
-RULES = [G_P1, G_P2, G_P3, G_P4, G_P7]
+RULES = [G_P1, G_P2, G_P3, G_P4, G_P5, G_P7]
 NAMES = [r.name for r in RULES]
 
 
@@ -421,10 +424,7 @@ def self_test():
             f.write(text)
 
     def files(mapping):
-        def apply(root):
-            for path, text in mapping.items():
-                put(root, path, text)
-        return apply
+        return lambda root: [put(root, path, text) for path, text in mapping.items()]
 
     def baseline(change):
         def apply(root):
@@ -505,7 +505,7 @@ def self_test():
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="The product guard: rules G-P1 to G-P4 and G-P7.")
+    parser = argparse.ArgumentParser(description="The product guard: rules G-P1 to G-P5 and G-P7.")
     parser.add_argument("--root", default=os.path.dirname(os.path.dirname(os.path.abspath(__file__))), help="the checkout to measure")
     parser.add_argument("--write-baseline", action="store_true", help="write %s from the tree; never raises an entry" % BASELINE)
     parser.add_argument("--self-test", action="store_true", help="prove that every rule can fail")

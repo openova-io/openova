@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"time"
 )
 
 // Hit is one chunk a search returned.
@@ -43,6 +44,27 @@ type SourceDefinition struct {
 	Managers []string // principals that manage the source and read all of its documents
 }
 
+// SourceStatus is one source as a caller sees it.
+type SourceStatus struct {
+	ID         string
+	Title      string
+	State      string // idle, syncing or error
+	Documents  int64  // the documents of the source the caller may read
+	Chunks     int64  // the chunks of those documents
+	LastSyncAt *time.Time
+	LastError  *string
+}
+
+// Document is the record of one document.
+type Document struct {
+	ID        string
+	SourceID  string
+	Title     string
+	URI       string
+	State     string // fetched, indexed or failed
+	UpdatedAt time.Time
+}
+
 // Store is the port of the cortex database, the one place a second vector implementation
 // would enter.
 type Store interface {
@@ -51,6 +73,11 @@ type Store interface {
 	// ReadableSources returns the ids of sources in which any of the principals may read at least one document
 	// (through source_acl or document_acl).
 	ReadableSources(ctx context.Context, principals []string) ([]string, error)
+	// Sources returns, sorted by id, the sources in which any of the principals may read at least
+	// one document, each with the number of its documents and chunks that they may read.
+	Sources(ctx context.Context, principals []string) ([]SourceStatus, error)
+	// Documents returns, sorted by id, the documents of ids that any of the principals may read.
+	Documents(ctx context.Context, principals []string, ids []string) ([]Document, error)
 	// ReplaceChunks writes a document's chunks and, when readers is not nil, its access rows, in one transaction.
 	ReplaceChunks(ctx context.Context, documentID string, chunks []Chunk, readers []string) error
 	// ApplyDefinitions makes source and source_acl equal to the definitions; removed sources are deleted.
