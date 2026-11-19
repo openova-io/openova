@@ -12,7 +12,8 @@
 #      gpgsql backend reads; the gate itself reads no Secret;
 #   3. its image is the image the pdns-pg Cluster itself runs;
 #   4. requests == limits, non-root, no privilege escalation;
-#   5. run: refused twice then accepting -> exit 0, every attempt logged;
+#   5. run: refused twice then accepting -> exit 0, every attempt logged, and
+#      pg_isready is given a user name (without one it exits 3 for the uid);
 #   6. run: never accepting within the budget -> exit 1, loud.
 #
 # Usage: tests/waits-for-database.sh [chart_dir]
@@ -52,24 +53,44 @@ cluster_image="$(yq ea "$cluster | .spec.imageName" "$TMP/r.yaml")"
 [ "$(yq ea "$gate | .securityContext.allowPrivilegeEscalation" "$TMP/r.yaml")" = "false" ] || fail "wait-for-database allows privilege escalation"
 
 # ── run the rendered script with a stand-in pg_isready ───────────────────
+# The stand-in does what libpq does for the Pod's uid (953), which has no
+# passwd entry in the CNPG image: with no user name (-U or PGUSER) it gives
+# up before connecting and pg_isready exits 3 ("no attempt"). The run gets
+# the PGUSER the chart renders. sleep and date share a fake clock, so a gate
+# that never succeeds fails the test at once.
 mkdir -p "$TMP/bin"
 cat > "$TMP/bin/pg_isready" <<'STUB'
 #!/bin/sh
+case " $* " in
+  *" -U"?*|*" --username"*) ;;
+  *) [ -n "${PGUSER:-}" ] || { echo "NO-USER $*" >> "$STUB_LOG"; exit 3; } ;;
+esac
 echo "$PGHOST:$PGPORT $*" >> "$STUB_LOG"
 n=$(cat "$STUB_COUNT" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$STUB_COUNT"
 [ "$n" -gt "$STUB_FAILS" ]
 STUB
-printf '#!/bin/sh\nexit 0\n' > "$TMP/bin/sleep"
-chmod +x "$TMP/bin/pg_isready" "$TMP/bin/sleep"
+cat > "$TMP/bin/sleep" <<'STUB'
+#!/bin/sh
+t=$(cat "$STUB_CLOCK" 2>/dev/null || echo 0); echo $((t + $1)) > "$STUB_CLOCK"
+STUB
+cat > "$TMP/bin/date" <<'STUB'
+#!/bin/sh
+cat "$STUB_CLOCK" 2>/dev/null || echo 0
+STUB
+chmod +x "$TMP/bin/pg_isready" "$TMP/bin/sleep" "$TMP/bin/date"
 yq ea "$gate | .command[2]" "$TMP/r.yaml" > "$TMP/gate.sh"
+pguser="$(yq ea "$gate | .env[] | select(.name == \"PGUSER\") | .value" "$TMP/r.yaml")"
 
 run_gate() { # fails-before-success, budget -> exit code
-  rm -f "$TMP/count" "$TMP/calls"
+  rm -f "$TMP/count" "$TMP/calls" "$TMP/clock"
   set +e
-  PGHOST=pdns-pg-rw PGPORT=5432 WAIT_BUDGET_SECONDS="$2" STUB_LOG="$TMP/calls" STUB_COUNT="$TMP/count" \
-    STUB_FAILS="$1" PATH="$TMP/bin:$PATH" sh "$TMP/gate.sh" > "$TMP/out" 2> "$TMP/err"
+  PGHOST=pdns-pg-rw PGPORT=5432 PGUSER="$pguser" WAIT_BUDGET_SECONDS="$2" STUB_LOG="$TMP/calls" STUB_COUNT="$TMP/count" \
+    STUB_CLOCK="$TMP/clock" STUB_FAILS="$1" PATH="$TMP/bin:$PATH" sh "$TMP/gate.sh" > "$TMP/out" 2> "$TMP/err"
   local rc=$?
   set -e
+  if grep -q '^NO-USER' "$TMP/calls" 2>/dev/null; then
+    fail "pg_isready got no user name (-U or PGUSER): libpq exits 3 'no attempt' for the Pod's uid, which has no passwd entry in the CNPG image"
+  fi
   return "$rc"
 }
 

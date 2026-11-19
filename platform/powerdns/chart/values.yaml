@@ -99,6 +99,12 @@ powerdns:
           value: pdns-pg-rw
         - name: PGPORT
           value: "5432"
+        # Load-bearing: the Pod's uid 953 has no passwd entry in the CNPG
+        # image, and with no user name libpq gives up before connecting
+        # (pg_isready exit 3, "no attempt"). The name only fills the
+        # startup packet; a refused login still counts as up.
+        - name: PGUSER
+          value: postgres
         - name: WAIT_BUDGET_SECONDS
           value: "900"
       command:

@@ -12,7 +12,8 @@
 #      by global.imageRegistry), mounts the DSN read-only, requests == limits;
 #   3. its budget is cnpg.databaseGate.timeoutSeconds;
 #   4. run: the database refuses twice then accepts -> exit 0, pg_isready was
-#      asked host and port of the DSN (never the password), every attempt logged;
+#      asked host and port of the DSN (never the password) with a user name
+#      (without one it exits 3 for the Pod's uid), every attempt logged;
 #   5. run: the database never accepts within the budget -> exit 1, loud;
 #   6. cnpg.enabled=false -> no init container at all.
 #
@@ -52,25 +53,43 @@ pimage="$(yq ea "$gate | .image" "$TMP/pivot.yaml")"
 case "$pimage" in harbor.local.example/*) ;; *) fail "global.imageRegistry pivot not applied to wait-for-database: $pimage" ;; esac
 
 # ── run the rendered script with a stand-in pg_isready ───────────────────
+# The stand-in does what libpq does for the Pod's uid (65532), which has no
+# passwd entry in the CNPG image: with no user name (-U or PGUSER) it gives
+# up before connecting and pg_isready exits 3 ("no attempt"). sleep and date
+# share a fake clock, so a gate that never succeeds fails the test at once.
 mkdir -p "$TMP/bin" "$TMP/dsn"
 cat > "$TMP/bin/pg_isready" <<'STUB'
 #!/bin/sh
+case " $* " in
+  *" -U"?*|*" --username"*) ;;
+  *) [ -n "${PGUSER:-}" ] || { echo "NO-USER $*" >> "$STUB_LOG"; exit 3; } ;;
+esac
 echo "$*" >> "$STUB_LOG"
 n=$(cat "$STUB_COUNT" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$STUB_COUNT"
 [ "$n" -gt "$STUB_FAILS" ]
 STUB
-printf '#!/bin/sh\nexit 0\n' > "$TMP/bin/sleep"
-chmod +x "$TMP/bin/pg_isready" "$TMP/bin/sleep"
+cat > "$TMP/bin/sleep" <<'STUB'
+#!/bin/sh
+t=$(cat "$STUB_CLOCK" 2>/dev/null || echo 0); echo $((t + $1)) > "$STUB_CLOCK"
+STUB
+cat > "$TMP/bin/date" <<'STUB'
+#!/bin/sh
+cat "$STUB_CLOCK" 2>/dev/null || echo 0
+STUB
+chmod +x "$TMP/bin/pg_isready" "$TMP/bin/sleep" "$TMP/bin/date"
 printf 'postgres://chargeback:s3cr%%40t@chargeback-pg-rw:5432/chargeback?sslmode=require' > "$TMP/dsn/DATABASE_URL"
 
 run_gate() { # rendered-file, fails-before-success -> exit code
   yq ea "$gate | .command[2]" "$1" | sed "s#/dsn/DATABASE_URL#$TMP/dsn/DATABASE_URL#g" > "$TMP/gate.sh"
-  rm -f "$TMP/count" "$TMP/calls"
+  rm -f "$TMP/count" "$TMP/calls" "$TMP/clock"
   set +e
-  STUB_LOG="$TMP/calls" STUB_COUNT="$TMP/count" STUB_FAILS="$2" PATH="$TMP/bin:$PATH" \
+  PGUSER= STUB_LOG="$TMP/calls" STUB_COUNT="$TMP/count" STUB_CLOCK="$TMP/clock" STUB_FAILS="$2" PATH="$TMP/bin:$PATH" \
     sh "$TMP/gate.sh" > "$TMP/out" 2> "$TMP/err"
   local rc=$?
   set -e
+  if grep -q '^NO-USER' "$TMP/calls" 2>/dev/null; then
+    fail "pg_isready got no user name (-U or PGUSER): libpq exits 3 'no attempt' for the Pod's uid, which has no passwd entry in the CNPG image"
+  fi
   return "$rc"
 }
 

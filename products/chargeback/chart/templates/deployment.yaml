@@ -131,6 +131,10 @@ spec:
         # exited on `connection refused` (hw307, 19 Nov 2026: 4 restarts in
         # each Pod). pg_isready asks the server itself and sends no
         # credentials; only host and port are read from the DSN and logged.
+        # `-U postgres` is load-bearing: the Pod's uid 65532 has no passwd
+        # entry in the CNPG image, and with no user name libpq gives up
+        # before connecting (pg_isready exit 3, "no attempt"). The name only
+        # fills the startup packet; a refused login still counts as up.
         - name: wait-for-database
           image: {{ include "chargeback.pivotImage" (dict "repo" .Values.cnpg.cluster.imageName "tag" "" "root" .) | quote }}
           imagePullPolicy: IfNotPresent
@@ -147,7 +151,7 @@ spec:
               start=$(date +%s)
               elapsed=0
               while [ "$elapsed" -lt "$budget" ]; do
-                if pg_isready -q -h "$host" -p "$port" -t 5; then
+                if pg_isready -q -h "$host" -p "$port" -U postgres -t 5; then
                   echo "database ${host}:${port} accepts connections after ${elapsed}s"; exit 0
                 fi
                 echo "waiting for database ${host}:${port} to accept connections (${elapsed}s of ${budget}s)"
