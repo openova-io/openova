@@ -183,6 +183,14 @@ smtp:
   submissionUser: "noreply"
   submissionSecretName: "stalwart-sovereign-submission"
 
+# ─── Mailbox of the acceptance gate ──────────────────────────────────────
+# The setup Job makes the principal `user`, address <user>@<sovereignFQDN>,
+# where gate check BSS-G01 reads sign-in codes; its generated password is kept
+# only in the Secret `secretName` of the release namespace. Empty user: none.
+conformanceMailbox:
+  user: "conformance"
+  secretName: "stalwart-sovereign-conformance"
+
 # ─── DKIM / SPF / DMARC ──────────────────────────────────────────────────
 # Stalwart generates the DKIM keypair on first boot (RocksDB-stored).
 # The post-install Job reads the public component back via the admin

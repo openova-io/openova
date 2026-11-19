@@ -45,12 +45,19 @@ Every step can run again with the same result:
      key shape of every reader (smtp-*, user/password, SMTP_*) and the
      reflector annotations that copy it into the namespaces of
      sovereignSMTPCredentialsMirror.reflectionNamespaces.
-  6. Write the DKIM public key into the dns-records ConfigMap. Best effort:
+  6. With conformanceMailbox.user, the mailbox of the acceptance gate: the
+     principal <user> with the one address <user>@<sovereignFQDN> and the
+     password its Secret holds, or a new one from /dev/urandom when there is
+     no Secret yet; read back; then, when it did not exist, the Secret is
+     created (never replaced) with the address, the login and the host,
+     Service and port of the IMAP listener with implicit TLS.
+  7. Write the DKIM public key into the dns-records ConfigMap. Best effort:
      it never fails the run.
 
-A failure in steps 1 to 5 exits 1; the Job is retried until it succeeds or
+A failure in steps 1 to 6 exits 1; the Job is retried until it succeeds or
 its deadline passes. No password is ever printed: credentials are read from
-env and written to files under /tmp that only this container reads.
+env or the API, or made here, and written to files under /tmp that only this
+container reads.
 */}}
 {{- define "bp-stalwart-sovereign.setupPodTemplate" -}}
 {{- $fqdn := include "bp-stalwart-sovereign.sovereignFQDN" . -}}
@@ -63,6 +70,7 @@ env and written to files under /tmp that only this container reads.
 {{- $pinEnabled := dig "enabled" true $pin -}}
 {{- $mailHost := include "bp-stalwart-sovereign.mailFQDN" . -}}
 {{- $sender := include "bp-stalwart-sovereign.senderAddress" . -}}
+{{- $mbox := .Values.conformanceMailbox | default dict -}}
 metadata:
   labels:
     {{- include "bp-stalwart-sovereign.selectorLabels" . | nindent 4 }}
@@ -126,6 +134,12 @@ spec:
           value: {{ ternary "true" "false" $cfgEnabled | quote }}
         - name: REFLECTION_NAMESPACES
           value: {{ $reflectNs | quote }}
+        - name: CONFORMANCE_USER
+          value: {{ $mbox.user | default "" | quote }}
+        - name: CONFORMANCE_STORE
+          value: {{ $mbox.secretName | default "" | quote }}
+        - name: IMAP_PORT
+          value: {{ .Values.service.mail.ports.imaps | quote }}
         {{- include "bp-stalwart-sovereign.adminPasswordEnv" . | nindent 8 }}
         {{- include "bp-stalwart-sovereign.submissionPasswordEnv" . | nindent 8 }}
       command:
@@ -134,7 +148,7 @@ spec:
         - |
           set -eu
           log() { echo "[stalwart-sovereign-setup] $*"; }
-          trap 'rm -f /tmp/principal.json /tmp/answer.json /tmp/service.json /tmp/pin.json /tmp/mirror.json /tmp/dkim.json' EXIT
+          trap 'rm -f /tmp/principal.json /tmp/answer.json /tmp/service.json /tmp/pin.json /tmp/mirror.json /tmp/mailbox.json /tmp/dkim.json' EXIT
           # answer: "data" for a success body of the admin API, the error name
           # for a refusal ({"error":"notFound",...} gives notFound), "other" else.
           answer() {
@@ -312,7 +326,56 @@ spec:
             log "mirror disabled; skipping"
           fi
 
-          # 6. DKIM public key into the dns-records ConfigMap (best effort).
+          # 6. The mailbox of the acceptance gate. Its Secret is created only
+          #    after the server has confirmed the principal, and never replaced.
+          if [ -n "${CONFORMANCE_USER:-}" ]; then
+            MBOX="${CONFORMANCE_USER}@${SOVEREIGN_FQDN}"
+            STORE="${K8S_API}/api/v1/namespaces/${RELEASE_NAMESPACE}/secrets"
+            code="$(curl -sS -m 10 --cacert "${CACERT}" -H "Authorization: Bearer ${K8S_TOKEN}" \
+              -o /tmp/mailbox.json -w '%{http_code}' "${STORE}/${CONFORMANCE_STORE}")" || code=000
+            case "${code}" in
+              200) stored=1; MBOX_PASSWORD="$(grep -o '"password": *"[A-Za-z0-9+/=]*"' /tmp/mailbox.json | head -1 \
+                     | sed 's/.*"\([^"]*\)"$/\1/' | base64 -d 2>/dev/null || true)" ;;
+              404) stored=0; MBOX_PASSWORD="$(head -c 64 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)" ;;
+              *) log "Secret ${CONFORMANCE_STORE} not read (HTTP ${code}); the Job retries"; exit 1 ;;
+            esac
+            rm -f /tmp/mailbox.json
+            if [ "${#MBOX_PASSWORD}" -lt 24 ]; then log "no usable password for ${MBOX}; the Job retries"; exit 1; fi
+            code="$(curl -sS -m 10 -o /tmp/answer.json -w '%{http_code}' -u "admin:${ADMIN_PASSWORD}" \
+              "${STALWART_URL}/api/principal/${CONFORMANCE_USER}")" || code=000
+            a="$(answer)"
+            if [ "${code}" = "200" ] && [ "${a}" = "notFound" ]; then
+              method=POST; target="${STALWART_URL}/api/principal"
+              printf '{"name":"%s","description":"Mailbox of the acceptance gate","secrets":["%s"],"emails":["%s"],"roles":["user"]}' \
+                "${CONFORMANCE_USER}" "${MBOX_PASSWORD}" "${MBOX}" > /tmp/principal.json
+            elif [ "${code}" = "200" ] && [ "${a}" = "data" ]; then
+              method=PATCH; target="${STALWART_URL}/api/principal/${CONFORMANCE_USER}"
+              printf '[{"action":"set","field":"secrets","value":["%s"]},{"action":"set","field":"emails","value":["%s"]}]' \
+                "${MBOX_PASSWORD}" "${MBOX}" > /tmp/principal.json
+            else
+              log "mailbox read answered HTTP ${code} (${a}); the Job retries"; exit 1
+            fi
+            code="$(curl -sS -m 10 -o /tmp/answer.json -w '%{http_code}' -u "admin:${ADMIN_PASSWORD}" -H "Content-Type: application/json" \
+              -X "${method}" "${target}" -d @/tmp/principal.json)" || code=000
+            rm -f /tmp/principal.json
+            a="$(answer)"
+            if [ "${code}" != "200" ] || [ "${a}" != "data" ]; then log "mailbox ${MBOX} not written (HTTP ${code}, ${a}); the Job retries"; exit 1; fi
+            code="$(curl -sS -m 10 -o /tmp/answer.json -w '%{http_code}' -u "admin:${ADMIN_PASSWORD}" \
+              "${STALWART_URL}/api/principal/${CONFORMANCE_USER}")" || code=000
+            if [ "${code}" != "200" ] || [ "$(answer)" != "data" ]; then log "mailbox ${MBOX} not read back (HTTP ${code}); the Job retries"; exit 1; fi
+            log "mailbox ${MBOX} confirmed"
+            if [ "${stored}" = "0" ]; then
+              printf '{"apiVersion":"v1","kind":"Secret","metadata":{"name":"%s","labels":{"app.kubernetes.io/name":"bp-stalwart-sovereign","catalyst.openova.io/component":"conformance-mailbox"}},"type":"Opaque","stringData":{"address":"%s","user":"%s","password":"%s","imap-host":"%s","imap-service":"%s","imap-port":"%s"}}' \
+                "${CONFORMANCE_STORE}" "${MBOX}" "${CONFORMANCE_USER}" "${MBOX_PASSWORD}" "${MAIL_HOST}" "${MAIL_SERVICE}" "${IMAP_PORT}" > /tmp/mailbox.json
+              code="$(curl -sS -m 10 --cacert "${CACERT}" -H "Authorization: Bearer ${K8S_TOKEN}" -H "Content-Type: application/json" \
+                -o /dev/null -w '%{http_code}' -X POST "${STORE}" -d @/tmp/mailbox.json)" || code=000
+              rm -f /tmp/mailbox.json
+              if [ "${code}" != "201" ]; then log "Secret ${CONFORMANCE_STORE} not created (HTTP ${code}); the Job retries"; exit 1; fi
+              log "Secret ${CONFORMANCE_STORE} created"
+            fi
+          fi
+
+          # 7. DKIM public key into the dns-records ConfigMap (best effort).
           DKIM_PUBLIC_KEY="$(curl -fsS -m 10 -u "admin:${ADMIN_PASSWORD}" \
             "${STALWART_URL}/api/settings/group?prefix=signature.dkim" 2>/dev/null \
             | grep -oE '"public-key":"[^"]*"' | head -1 \
