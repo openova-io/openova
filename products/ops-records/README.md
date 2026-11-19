@@ -9,7 +9,8 @@ module. Its place in the model is described in [`docs/ARCHITECTURE.md`](../../do
 State today: the module holds the identifiers (`internal/ids`), the health routes
 (`internal/health`), the store interface with an in-memory store and a PostgreSQL store
 (`internal/store`), migration 0001 of the schema, the contract test every store must pass,
-and the program `cmd/ops-records`. Nothing installs the service yet: it has no chart, no
+the tool endpoint (`internal/mcp`), the console routes (`internal/api`) and the program
+`cmd/ops-records`. Nothing installs the service yet: it has no chart, no
 Blueprint file and no bootstrap-kit slot.
 
 Records: one database schema, `ops`, with the tables `signals`, `incidents`, `incident_events`,
@@ -22,15 +23,24 @@ program. The program applies the pending ones when it starts, each in its own tr
 an advisory lock, and records them in `ops.schema_migrations`. It refuses a database whose
 version it does not know. A released migration is never changed; a change is a new version.
 
-Program: `ops-records` (or `ops-records serve`) applies the migrations and serves `GET /healthz`
-and `GET /readyz` (ready when the database answers); `ops-records migrate` applies them and
-exits; `ops-records version` prints the version. Configuration:
+Program: `ops-records` (or `ops-records serve`) applies the migrations, marks the judgements a
+stopped run left undecided, serves `GET /healthz`, `GET /readyz` (ready when the database
+answers) and the tool endpoint `POST /mcp` (agent tokens only; rules at the top of
+`internal/mcp/server.go`), serves the console routes `/api/v1/ops/*` on a second address for
+catalyst-api only (rules at the top of `internal/api/api.go`), and decides the batches of
+pending signals (`cmd/ops-records/decide.go`). It runs as one replica. `ops-records migrate`
+applies the migrations and exits; `ops-records version` prints the version. Configuration:
 
 - `OPS_RECORDS_DATABASE_URL` (required): the database, as a `postgres://` URL with no password.
 - `OPS_RECORDS_DATABASE_CREDENTIALS_DIR` (required): a directory with the files `username` and
   `password`, mounted from OpenBao. They are read for every new connection, so a rotated
   credential is used without a restart. A password anywhere else is refused.
-- `OPS_RECORDS_LISTEN`: the address of the health routes, default `:8080`.
+- `OPS_RECORDS_LISTEN`: the address of the health routes and of `POST /mcp`, default `:8080`.
+- `OPS_RECORDS_CONSOLE_LISTEN`: the address of the console routes, default `:8081`; the chart
+  opens it to catalyst-api pods only, because the routes trust the identity headers.
+- `OPS_RECORDS_CATALYST_API_URL`, `OPS_RECORDS_TOKEN_ISSUER` and `OPS_RECORDS_JUDGE_POLICY`
+  (required to serve): catalyst-api's base address (agent tokens and key set), the `iss` of
+  every agent token, and the file of the judge policy (`internal/judge/policy.go`).
 
 Tests: `go vet ./... && go test ./...` in this folder. The PostgreSQL tests need a database
 named by `OPS_RECORDS_TEST_DSN` (for example

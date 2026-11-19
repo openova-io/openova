@@ -5,26 +5,33 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/openova-io/openova/products/ops-records/internal/ids"
+	"github.com/openova-io/openova/products/ops-records/internal/mcp/mcptest"
+	"github.com/openova-io/openova/products/ops-records/internal/store"
 )
 
 // fakeDB stands in for the PostgreSQL store. The program's own use of PostgreSQL is the
 // store's, which internal/store tests against a database.
 type fakeDB struct {
-	mu        sync.Mutex
-	migrated  int
-	migrate   error
-	ping      error
-	closed    bool
-	openedURL string
-	openedDir string
+	*store.Memory // the records; MigrateUp, Ping and Close are the fake's own
+	mu            sync.Mutex
+	migrated      int
+	migrate       error
+	ping          error
+	closed        bool
+	openedURL     string
+	openedDir     string
 }
 
 func (f *fakeDB) MigrateUp(context.Context) ([]int, error) {
@@ -70,6 +77,9 @@ func newProgram(t *testing.T, env map[string]string, db *fakeDB) (program, *byte
 	hermetic(t)
 	var stdout, stderr bytes.Buffer
 	opened := 0
+	if db.Memory == nil {
+		db.Memory = store.NewMemory()
+	}
 	p := program{
 		getenv: func(k string) string { return env[k] },
 		stdout: &stdout,
@@ -83,9 +93,21 @@ func newProgram(t *testing.T, env map[string]string, db *fakeDB) (program, *byte
 	return p, &stdout, &stderr, &opened
 }
 
-func goodEnv() map[string]string {
-	return map[string]string{envURL: goodURL, envLoginDir: "/var/run/secrets/ops-records/db", envListen: "127.0.0.1:0"}
+// goodEnv is a configuration that serves on free local addresses. catalyst-api is an address
+// where nothing answers; a test that needs it sets its own.
+func goodEnv(t *testing.T) map[string]string {
+	t.Helper()
+	policy := filepath.Join(t.TempDir(), "policy.json")
+	writeFile(t, policy, testPolicy)
+	return map[string]string{envURL: goodURL, envLoginDir: "/var/run/secrets/ops-records/db", envListen: "127.0.0.1:0",
+		envConsoleListen: "127.0.0.1:0", envCatalystAPI: "http://127.0.0.1:1", envIssuer: "https://auth.sovereign.test", envPolicy: policy}
 }
+
+// testPolicy is a judge policy with the correlator judge.
+const testPolicy = `{"operationsOrganization":"operations",
+ "agentRuntime":{"urlTemplate":"http://kagent-controller.{organization}.svc.cluster.local:8083/agents/{organization}/{agent}"},
+ "judges":{"correlator":{"agent":"correlator","lane":"deciding","deadlineSeconds":150,"urgentDeadlineSeconds":30,"tokenTier":"viewer","tokenTTLSeconds":1800}},
+ "lanes":{"deciding":2},"batchSeconds":60,"urgentBatchSeconds":15,"turnBudget":{"turns":120,"windowSeconds":3600}}`
 
 func TestVersion(t *testing.T) {
 	p, stdout, _, opened := newProgram(t, nil, &fakeDB{})
@@ -102,7 +124,7 @@ func TestBadArguments(t *testing.T) {
 		"unknown command":    {"drop"},
 		"too many arguments": {"serve", "now"},
 	} {
-		p, _, stderr, opened := newProgram(t, goodEnv(), &fakeDB{})
+		p, _, stderr, opened := newProgram(t, goodEnv(t), &fakeDB{})
 		if code := p.run(context.Background(), args); code != 2 || *opened != 0 {
 			t.Errorf("%s: exit code %d, opened %d", name, code, *opened)
 		}
@@ -114,7 +136,7 @@ func TestBadArguments(t *testing.T) {
 
 func TestConfigurationIsRequired(t *testing.T) {
 	for _, missing := range []string{envURL, envLoginDir} {
-		env := goodEnv()
+		env := goodEnv(t)
 		delete(env, missing)
 		p, _, stderr, opened := newProgram(t, env, &fakeDB{})
 		if code := p.run(context.Background(), []string{"migrate"}); code != 2 || *opened != 0 {
@@ -138,7 +160,7 @@ func TestAPasswordOutsideTheFilesIsRefused(t *testing.T) {
 	}
 	for name, set := range cases {
 		t.Run(name, func(t *testing.T) {
-			env := goodEnv()
+			env := goodEnv(t)
 			p, _, stderr, opened := newProgram(t, env, &fakeDB{})
 			set(t, env)
 			if code := p.run(context.Background(), []string{"migrate"}); code != 2 || *opened != 0 {
@@ -156,8 +178,8 @@ func TestAPasswordOutsideTheFilesIsRefused(t *testing.T) {
 
 func TestMigrate(t *testing.T) {
 	db := &fakeDB{}
-	p, _, stderr, opened := newProgram(t, goodEnv(), db)
-	p.listening = func(net.Addr) { t.Error("migrate started the health routes") }
+	p, _, stderr, opened := newProgram(t, goodEnv(t), db)
+	p.listening = func(net.Addr, net.Addr) { t.Error("migrate started the health routes") }
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if code := p.run(ctx, []string{"migrate"}); code != 0 {
@@ -176,7 +198,7 @@ func TestMigrate(t *testing.T) {
 
 func TestMigrateFailure(t *testing.T) {
 	db := &fakeDB{migrate: errors.New("no database")}
-	p, _, _, _ := newProgram(t, goodEnv(), db)
+	p, _, _, _ := newProgram(t, goodEnv(t), db)
 	if code := p.run(context.Background(), nil); code != 1 {
 		t.Fatalf("exit code %d, want 1", code)
 	}
@@ -203,20 +225,81 @@ func get(t *testing.T, url string) (int, map[string]any) {
 	return resp.StatusCode, body
 }
 
+func TestServeConfigurationIsRequired(t *testing.T) {
+	for _, missing := range []string{envCatalystAPI, envIssuer, envPolicy} {
+		env := goodEnv(t)
+		delete(env, missing)
+		p, _, stderr, opened := newProgram(t, env, &fakeDB{})
+		if code := p.run(context.Background(), []string{"serve"}); code != 2 || *opened != 0 {
+			t.Errorf("without %s: exit code %d, opened %d", missing, code, *opened)
+		}
+		if !strings.Contains(stderr.String(), "must be set to serve") {
+			t.Errorf("without %s: %q", missing, stderr.String())
+		}
+	}
+	env := goodEnv(t)
+	writeFile(t, env[envPolicy], `{"judges":{}}`)
+	p, _, stderr, opened := newProgram(t, env, &fakeDB{})
+	if code := p.run(context.Background(), nil); code != 2 || *opened != 0 || !strings.Contains(stderr.String(), "judge policy") {
+		t.Errorf("an invalid policy: exit code %d, opened %d, %q", code, *opened, stderr.String())
+	}
+}
+
+// call sends one request and decodes the JSON answer, if there is one.
+func call(t *testing.T, method, url string, headers map[string]string, body string) (int, map[string]any) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(context.Background(), method, url, strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var out map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	return resp.StatusCode, out
+}
+
 func TestServe(t *testing.T) {
-	db := &fakeDB{}
-	p, _, stderr, _ := newProgram(t, goodEnv(), db)
-	addrs := make(chan net.Addr, 1)
-	p.listening = func(a net.Addr) { addrs <- a }
+	signer := mcptest.NewSigner(t)
+	catalyst := httptest.NewServer(http.HandlerFunc(signer.KeySet))
+	defer catalyst.Close()
+	db := &fakeDB{Memory: store.NewMemory()}
+	at := time.Date(2026, 12, 1, 9, 0, 0, 0, time.UTC)
+	acme, globex := ids.NewIncident(), ids.NewIncident()
+	undecided := ids.New()
+	if err := db.InTx(context.Background(), func(ctx context.Context, tx store.Tx) error {
+		for org, id := range map[string]string{"acme": acme, "globex": globex} {
+			if err := tx.InsertIncident(ctx, store.Incident{ID: id, Organization: org, Title: org + " web down", Severity: 3,
+				SeveritySetBy: store.ByRules, State: store.IncidentOpen, OpenedBy: store.ByRules, OpenedAt: at}); err != nil {
+				return err
+			}
+		}
+		return tx.InsertJudgement(ctx, store.Judgement{ID: undecided, Organization: "acme", Judge: "correlator",
+			SubjectKind: "signal_batch", SubjectID: "cluster/c1", AskedAt: at, DeadlineAt: at.Add(time.Minute)})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	env := goodEnv(t)
+	env[envCatalystAPI] = catalyst.URL + "/"
+	env[envIssuer] = mcptest.Issuer
+	p, _, stderr, _ := newProgram(t, env, db)
+	addrs := make(chan [2]net.Addr, 1)
+	p.listening = func(a, c net.Addr) { addrs <- [2]net.Addr{a, c} }
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	codes := make(chan int, 1)
 	go func() { codes <- p.run(ctx, nil) }()
 
-	var base string
+	var base, console string
 	select {
 	case a := <-addrs:
-		base = "http://" + a.String()
+		base, console = "http://"+a[0].String(), "http://"+a[1].String()
 	case code := <-codes:
 		t.Fatalf("the program ended with exit code %d: %s", code, stderr.String())
 	case <-time.After(10 * time.Second):
@@ -224,6 +307,9 @@ func TestServe(t *testing.T) {
 	}
 	if db.migrated != 1 {
 		t.Fatalf("migrated %d times before serving", db.migrated)
+	}
+	if j, err := db.GetJudgement(context.Background(), "acme", undecided); err != nil || j.Outcome != store.OutcomeUnavailable {
+		t.Fatalf("the undecided judgement was not recovered before serving: %+v %v", j, err)
 	}
 
 	status, body := get(t, base+"/healthz")
@@ -240,6 +326,46 @@ func TestServe(t *testing.T) {
 	if status != http.StatusServiceUnavailable || checks["database"] != "connection refused" {
 		t.Fatalf("/readyz without a database: %d %v", status, body)
 	}
+	db.setPing(nil)
+
+	// The tool endpoint answers an agent token of acme with acme's incidents only.
+	bearer := map[string]string{"Authorization": "Bearer " + signer.Token(t, signer.Kid, mcptest.Claims("acme", "correlator"))}
+	status, body = call(t, http.MethodPost, base+"/mcp", bearer,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_incidents","arguments":{}}}`)
+	text := fmt.Sprint(body["result"])
+	if status != http.StatusOK || !strings.Contains(text, acme) || strings.Contains(text, globex) {
+		t.Fatalf("POST /mcp list_incidents: %d %v", status, body)
+	}
+	if status, _ = call(t, http.MethodPost, base+"/mcp", nil, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`); status != http.StatusUnauthorized {
+		t.Fatalf("POST /mcp without a token: %d", status)
+	}
+	// The console routes listen on their own address, and only there.
+	person := map[string]string{"x-openova-organization": "acme", "x-openova-user": "ops@acme.test", "x-openova-tier": "operator"}
+	status, body = call(t, http.MethodGet, console+"/api/v1/ops/incidents", person, "")
+	if items, _ := body["items"].([]any); status != http.StatusOK || len(items) != 1 {
+		t.Fatalf("GET /api/v1/ops/incidents on the console address: %d %v", status, body)
+	}
+	if status, _ = call(t, http.MethodGet, base+"/api/v1/ops/incidents", person, ""); status != http.StatusNotFound {
+		t.Fatalf("the console routes answer on the tool address: %d", status)
+	}
+	status, _ = call(t, http.MethodPost, console+"/api/v1/ops/incidents/"+acme+"/actions", bearer, `{"action":"resolve"}`)
+	if in, _ := db.GetIncident(context.Background(), "acme", acme); status != http.StatusForbidden || in.State != store.IncidentOpen {
+		t.Fatalf("an agent token on the actions route: %d, state %s", status, in.State)
+	}
+
+	// An open stream does not keep the program from stopping.
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, console+"/api/v1/ops/stream", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for k, v := range person {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/v1/ops/stream: %v %v", resp, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
 
 	cancel()
 	select {
@@ -261,11 +387,13 @@ func TestServeOnABusyAddress(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = ln.Close() }()
-	env := goodEnv()
-	env[envListen] = ln.Addr().String()
-	p, _, _, _ := newProgram(t, env, &fakeDB{})
-	if code := p.run(context.Background(), []string{"serve"}); code != 1 {
-		t.Fatalf("exit code %d, want 1", code)
+	for _, key := range []string{envListen, envConsoleListen} {
+		env := goodEnv(t)
+		env[key] = ln.Addr().String()
+		p, _, _, _ := newProgram(t, env, &fakeDB{})
+		if code := p.run(context.Background(), []string{"serve"}); code != 1 {
+			t.Fatalf("%s busy: exit code %d, want 1", key, code)
+		}
 	}
 }
 
