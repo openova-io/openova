@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T08:30:05Z` |
+| Last refreshed | `2026-11-19T08:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7912](https://github.com/openova-io/openova/issues/7912) | a fresh two-region Sovereign: the second gate run's failures traced to source (O | Other |
 | [#7922](https://github.com/openova-io/openova/issues/7922) | flight 3: defects that healed alone | Other |
 | [#7936](https://github.com/openova-io/openova/issues/7936) | SOV-175 The Sovereign object gets its writer | Other |
 | [#7938](https://github.com/openova-io/openova/issues/7938) | Deliver a later release candidate to a Sovereign that has cut over | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8293](https://github.com/openova-io/openova/issues/8293) | NET-270 Spike: firewall attachment | Other |
 | [#8298](https://github.com/openova-io/openova/issues/8298) | SVC-250 Spike: composite resources in a release; bucket provisioning for an Orga | Other |
 | [#8302](https://github.com/openova-io/openova/issues/8302) | PRD-061 Spike: vector search with the readable principals on the chunk row | Other |
+| [#8306](https://github.com/openova-io/openova/issues/8306) | NET-251 Decision record: firewall mechanism and the package list of epic NET-250 | Other |
 
 ---
 
@@ -307,14 +307,19 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-19T08:38 | [#8304](https://github.com/openova-io/openova/pull/8304) | #8302 | docs(ledger): result of the lab test PRD-061, vector search  |
+| 2026-11-19T08:31 | [#8301](https://github.com/openova-io/openova/pull/8301) | #7087 | docs(ledger): plan update |
 | 2026-11-19T08:09 | [#8300](https://github.com/openova-io/openova/pull/8300) | #8298 | docs(ledger): result of the spike SVC-250, composite resourc |
 | 2026-11-19T07:46 | [#8297](https://github.com/openova-io/openova/pull/8297) | #7087 | docs(ledger): plan update |
+| 2026-11-19T08:33 | [#8296](https://github.com/openova-io/openova/pull/8296) | fix(prov): the fire pre-flight judges the parent against the |  |
 | 2026-11-19T07:25 | [#8295](https://github.com/openova-io/openova/pull/8295) | #8292 | docs(ledger): result of the spike INF-710, the host security |
 | 2026-11-19T07:24 | [#8294](https://github.com/openova-io/openova/pull/8294) | #8293 | docs(ledger): result of the spike NET-270, firewall attachme |
 | 2026-11-19T07:08 | [#8291](https://github.com/openova-io/openova/pull/8291) | #7087 | docs(ledger): plan update |
 | 2026-11-19T07:03 | [#8290](https://github.com/openova-io/openova/pull/8290) | #7087 | docs(ledger): plan update |
 | 2026-11-19T07:23 | [#8289](https://github.com/openova-io/openova/pull/8289) | #8287 | docs(ledger): result of the spike BSS-S1, storefront sign-in |
+| 2026-11-19T08:34 | [#8288](https://github.com/openova-io/openova/pull/8288) | #8284 | feat(catalog): every Blueprint says its class and lifecycle, |
 | 2026-11-19T06:43 | [#8286](https://github.com/openova-io/openova/pull/8286) | #7087 | docs(ledger): plan update |
+| 2026-11-19T08:34 | [#8285](https://github.com/openova-io/openova/pull/8285) | #7670 | test(acceptance): rename the DNS step of a move to the name  |
 | 2026-11-19T06:37 | [#8283](https://github.com/openova-io/openova/pull/8283) | #7087 | docs(ledger): plan update |
 | 2026-11-19T06:29 | [#8282](https://github.com/openova-io/openova/pull/8282) | #7087 | docs(ledger): plan update |
 | 2026-11-19T07:23 | [#8281](https://github.com/openova-io/openova/pull/8281) | #8280 | docs(ledger): result of the lab test AIP-030, agent runtime  |
@@ -332,11 +337,6 @@ flowchart LR
 | 2026-11-19T04:05 | [#8262](https://github.com/openova-io/openova/pull/8262) | #8247 | fix(gate): the parent Job asks for what the parent can sched |
 | 2026-11-19T03:28 | [#8261](https://github.com/openova-io/openova/pull/8261) | #8247 | fix(gate): the parent Job's wait names why the scheduler has |
 | 2026-11-19T03:30 | [#8260](https://github.com/openova-io/openova/pull/8260) | #8256 | fix(crossplane): raise Crossplane core to 2.4.3 (CLD-065) |
-| 2026-11-19T03:39 | [#8259](https://github.com/openova-io/openova/pull/8259) | #8257 | refactor(catalog): the Blueprint files carry the seed config |
-| 2026-11-19T03:22 | [#8258](https://github.com/openova-io/openova/pull/8258) | #8254 | feat(machine-runner): the task test with its target check an |
-| 2026-11-19T02:28 | [#8255](https://github.com/openova-io/openova/pull/8255) | #7087 | docs(ledger): plan update |
-| 2026-11-19T02:23 | [#8253](https://github.com/openova-io/openova/pull/8253) | #7087 | docs(ledger): plan update |
-| 2026-11-19T06:13 | [#8252](https://github.com/openova-io/openova/pull/8252) | #8227 | fix(mesh): name a restarted mesh container and its cause in  |
 
 ---
 
