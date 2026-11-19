@@ -26,7 +26,9 @@
 # Fix path B from the brief: ship a Job in this same Kustomization that
 # (a) waits for the `sovereign-wildcard-tls` Secret to materialise with
 # a non-empty `tls.crt` field, then (b) bumps the cilium-envoy DaemonSet
-# pod template via `kubectl rollout restart`. The fresh envoy pods
+# pod template via a `kubectl patch` with field manager
+# `catalyst-sovereign-tls` (never `kubectl rollout restart`, whose marks
+# FND-G02 Zero touch reads as a hand). The fresh envoy pods
 # subscribe to the now-existing Secret and the listener comes up cleanly
 # within ~30s of the cert appearing.
 #
@@ -58,8 +60,12 @@
 #     must persist for the deterministic-name no-op contract to hold.
 #
 # Idempotency at the envoy side:
-#   - `kubectl rollout restart` patches a `kubectl.kubernetes.io/restartedAt`
-#     annotation on the pod template. If the cert was already present at
+#   - The restart is a `kubectl patch --field-manager=catalyst-sovereign-tls`
+#     that sets the `catalyst.openova.io/restartedAt` and
+#     `catalyst.openova.io/restartedBy` annotations on the pod template (not
+#     `kubectl rollout restart`, which leaves the field manager
+#     `kubectl-rollout` and `kubectl.kubernetes.io/restartedAt`, the marks
+#     FND-G02 Zero touch reads as a hand). If the cert was already present at
 #     envoy startup (steady-state cluster), the restart still happens but
 #     incurs only a ~10s data-plane blip; the bootstrap window is short
 #     enough that this is the expected hot-path on every fresh provision
@@ -81,10 +87,10 @@ metadata:
 # the exact resource names so this SA cannot be repurposed to mutate
 # other workloads.
 #
-# Note: `patch` (not `update`) on daemonsets is sufficient for
-# `kubectl rollout restart` because that command issues a strategic-
-# merge patch on `.spec.template.metadata.annotations`. Verified
-# against kubectl 1.31.4 source (pkg/cmd/rollout/rollout_restart.go).
+# Note: `patch` (not `update`) on daemonsets is sufficient for the
+# restart because the Job issues a strategic-merge `kubectl patch` on
+# `.spec.template.metadata.annotations` (catalyst.openova.io/restartedAt
+# + restartedBy, field manager catalyst-sovereign-tls).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -267,8 +273,15 @@ spec:
               # hit its initial-fetch timeout, and does not re-subscribe once
               # the Secret materialises — the listener stays down until the
               # envoy process restarts.
+              # The restart is a patch of catalyst.openova.io/restartedAt +
+              # restartedBy under the field manager catalyst-sovereign-tls:
+              # `kubectl rollout restart` would leave the manager
+              # kubectl-rollout and kubectl.kubernetes.io/restartedAt on a
+              # kube-system DaemonSet, which FND-G02 Zero touch reads as a hand.
               echo "[tls-restart] bumping ds/$${DS_NAME} in $${DS_NS} to force envoy SDS re-subscribe"
-              kubectl rollout restart -n "$${DS_NS}" "ds/$${DS_NAME}"
+              now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+              kubectl patch -n "$${DS_NS}" "ds/$${DS_NAME}" --field-manager=catalyst-sovereign-tls \
+                -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"catalyst.openova.io/restartedAt\":\"$${now}\",\"catalyst.openova.io/restartedBy\":\"catalyst-sovereign-tls\"}}}}}"
 
               # Block until the new pods are Ready. `kubectl rollout
               # status` exits 0 on full rollout, non-zero on timeout.

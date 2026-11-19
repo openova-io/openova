@@ -19,6 +19,9 @@
 //
 //	node   a file under infra/providers/ outside a tests/ folder: the
 //	       start-up data of the nodes
+//	flux   a file under clusters/ outside a tests/ folder: the manifests
+//	       Flux applies to every Sovereign (clusters/_template/**), such
+//	       as the Jobs of the sovereign-tls Kustomization
 //	chart  a file of a chart (platform/<x>/chart/, products/<x>/chart/,
 //	       products/<x>/charts/<y>/) outside the chart's own tests/ folder,
 //	       other than its Chart.yaml (metadata that nothing runs): hooks,
@@ -164,7 +167,7 @@ func run(args []string, out, errw io.Writer) int {
 		}
 	}
 	if read == 0 {
-		say(errw, "no-hand-marks: no file of the start-up data or of a chart was read: nothing was measured\n")
+		say(errw, "no-hand-marks: no file of the start-up data, of the Flux manifests or of a chart was read: nothing was measured\n")
 		return 2
 	}
 	if bad > 0 {
@@ -197,7 +200,7 @@ func inScope(p string) bool {
 	default:
 		return false
 	}
-	if strings.HasPrefix(p, "infra/providers/") {
+	if strings.HasPrefix(p, "infra/providers/") || strings.HasPrefix(p, "clusters/") {
 		return !strings.Contains(p, "/tests/")
 	}
 	m := chartRoot.FindString(p)

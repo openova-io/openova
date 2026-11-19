@@ -90,6 +90,8 @@ func TestScope(t *testing.T) {
 		"infra/providers/_shared/cloudinit-control-plane.tftpl",
 		"infra/providers/hetzner/main.tf",
 		"infra/providers/huawei/cloudinit-worker.tftpl",
+		"clusters/_template/sovereign-tls/cilium-envoy-tls-restart-job.yaml",
+		"clusters/_template/bootstrap-kit/03-flux.yaml",
 		"platform/flux/chart/templates/helm-release-stuck-recovery.yaml",
 		"platform/self-sovereign-cutover/chart/files/follower-registry-pivot.sh",
 		"platform/x/chart/templates/tests/function-test.yaml",
@@ -98,6 +100,8 @@ func TestScope(t *testing.T) {
 	}
 	out := []string{
 		"infra/providers/huawei/tests/x.yaml",
+		"clusters/_template/tests/x.yaml",
+		"clusters/_template/sovereign-tls/README.md",
 		"platform/flux/chart/tests/leader-election-and-recovery.sh",
 		"products/catalyst/charts/sub/tests/x.sh",
 		"platform/flux/chart/README.md",
@@ -136,8 +140,13 @@ func TestRunOnATree(t *testing.T) {
 	}
 	restart := "  - |\n    kubectl -n kube-system rollout restart deploy/coredns\n"
 	manager := "        kubectl patch hr -n \"$NS\" \"$NAME\" --type=merge -p '{}'\n"
+	// A Job Flux applies to every Sovereign (the shape of the sovereign-tls
+	// cilium-envoy restart, with Flux's $$ escape).
+	fluxJob := "              kubectl rollout restart -n \"$${DS_NS}\" \"ds/$${DS_NAME}\"\n"
 	put("infra/providers/_shared/cloudinit-control-plane.tftpl", restart)
 	put("platform/flux/chart/templates/recovery.yaml", manager)
+	put("clusters/_template/sovereign-tls/restart-job.yaml", fluxJob)
+	put("clusters/_template/tests/render.sh", fluxJob)
 	put("platform/flux/chart/tests/render.sh", restart+manager)
 	put("platform/flux/chart/README.md", restart)
 	put("platform/x/chart/templates/clean.yaml", "kubectl -n kube-system get deploy x\n")
@@ -150,7 +159,8 @@ func TestRunOnATree(t *testing.T) {
 	for _, want := range []string{
 		"FAIL restart infra/providers/_shared/cloudinit-control-plane.tftpl:2:",
 		"FAIL manager platform/flux/chart/templates/recovery.yaml:1:",
-		"2 findings in 3 files read",
+		"FAIL restart clusters/_template/sovereign-tls/restart-job.yaml:1:",
+		"3 findings in 4 files read",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output lacks %q:\n%s", want, out.String())
@@ -159,9 +169,13 @@ func TestRunOnATree(t *testing.T) {
 	if strings.Contains(out.String(), "tests/render.sh") || strings.Contains(out.String(), "README.md") {
 		t.Errorf("a file out of scope was judged:\n%s", out.String())
 	}
+	if strings.Contains(out.String(), "clusters/_template/tests/") {
+		t.Errorf("a file out of scope was judged:\n%s", out.String())
+	}
 
 	put("infra/providers/_shared/cloudinit-control-plane.tftpl", "  - |\n    M=--field-manager=catalyst-first-boot\n    kubectl -n kube-system patch deploy coredns $M -p '{}'\n")
 	put("platform/flux/chart/templates/recovery.yaml", "        kubectl patch hr -n \"$NS\" \"$NAME\" --field-manager=catalyst-helm-release-stuck-recovery --type=merge -p '{}'\n")
+	put("clusters/_template/sovereign-tls/restart-job.yaml", "              kubectl patch -n \"$${DS_NS}\" \"ds/$${DS_NAME}\" --field-manager=catalyst-sovereign-tls \\\n                -p '{}'\n")
 	out.Reset()
 	errw.Reset()
 	if code := run([]string{"--root", root}, &out, &errw); code != 0 {
