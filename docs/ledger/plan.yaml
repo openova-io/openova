@@ -5874,20 +5874,27 @@ packages:
   after: []
   touches:
   - clusters/_template/infrastructure/providers/base/provider-opentofu.yaml
+  - scripts/check-crossplane-gvk.sh
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c -F '/upbound/provider-opentofu:v1.1.3' clusters/_template/infrastructure/providers/base/provider-opentofu.yaml"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "python3 -c \"import re, subprocess, yaml; f = 'clusters/_template/infrastructure/providers/base/provider-opentofu.yaml'; d = list(yaml.safe_load_all(open(f))); pkg = d[0]['spec']['package']; pre, sep, ref = pkg.partition('/upbound/provider-opentofu@'); assert sep and ref == 'sha256:b4690e8ffe0a963b1d7df64f18f409217600b2a3bda25d1e01e4bafde976e675', pkg; b = list(yaml.safe_load_all(subprocess.run(['git', 'show', 'origin/main:' + f], capture_output=True, text=True, check=True).stdout)); m = re.match(r'^(\\S+)/upbound/provider-opentofu[:@]', b[0]['spec']['package']); assert m and pre == m.group(1), (pre, b[0]['spec']['package']); b[0]['spec']['package'] = pkg; assert d == b, d; w = yaml.safe_load(open('.github/workflows/mirror-crossplane-packages.yaml'))['jobs']['mirror-crossplane-packages']['env']['PACKAGES'].splitlines(); assert 'upbound/provider-opentofu v1.1.11 ' + ref in w, w\""
+  - id: A2
+    run: "d=\"$(mktemp -d)\" && for f in clusters/_template/infrastructure/providers/base/provider-opentofu.yaml clusters/_template/infrastructure/base/provider-config-opentofu.yaml platform/crossplane-claims/chart/templates/compositions/cloudadoption.yaml; do for t in ok bad; do mkdir -p \"$d/$t/$(dirname \"$f\")\" && cp \"$f\" \"$d/$t/$f\"; done; done && sed -i 's|/provider-opentofu@sha256:|/provider-terraform@sha256:|' \"$d/bad/clusters/_template/infrastructure/providers/base/provider-opentofu.yaml\" && ROOT=\"$d/ok\" bash scripts/check-crossplane-gvk.sh > /dev/null && ! ROOT=\"$d/bad\" bash scripts/check-crossplane-gvk.sh > /dev/null 2>&1 && bash scripts/check-crossplane-gvk.sh > /dev/null"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Provider package pinned by digest. The package keeps the registry prefix it finds in the line and changes only the version to the v1.1.11 digest.
+  delivers: Every Sovereign installs provider-opentofu v1.1.11 by its content digest from the registry that the package line already names, and the provider guard accepts the digest form.
 - id: CLD-067
   title: Gate check CLD-G06 as a suite file
   area: CLD
@@ -9654,7 +9661,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: []
-  after: [SOV-154, CLD-023, CLD-030, CLD-040, CLD-064, CLD-086, CLD-089, CLD-113, CLD-131, CLD-132, CLD-134, CLD-141, CLD-142, CLD-185, SOV-020, SOV-130, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-151, SOV-160, SOV-161, SOV-175, SOV-335, SOV-336, SOV-337, SEC-020, SEC-030, SEC-040, SEC-100, SEC-104, NET-020, NET-031, NET-040, NET-096, NET-110, NET-153, NET-190, SVC-060, SVC-130, CTL-041, CTL-346, CTL-348, CMP-036, INF-050, INF-060, ACC-010]
+  after: [SOV-154, CLD-023, CLD-030, CLD-040, CLD-064, CLD-066, CLD-086, CLD-089, CLD-113, CLD-131, CLD-132, CLD-134, CLD-141, CLD-142, CLD-185, SOV-020, SOV-130, SOV-133, SOV-134, SOV-140, SOV-141, SOV-142, SOV-144, SOV-151, SOV-160, SOV-161, SOV-175, SOV-335, SOV-336, SOV-337, SEC-020, SEC-030, SEC-040, SEC-100, SEC-104, NET-020, NET-031, NET-040, NET-096, NET-110, NET-153, NET-190, SVC-060, SVC-130, CTL-041, CTL-346, CTL-348, CMP-036, INF-050, INF-060, ACC-010]
   touches:
   - infra/providers/_shared/cloudinit-control-plane.tftpl
   - infra/providers/_shared/tests/cloudinit_render.tftest.hcl
@@ -10460,7 +10467,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [CTL-110, CTL-112, FND-144, SOV-150, SOV-170, SOV-180, SOV-225, SOV-230, SOV-510, SOV-131, SOV-151, SOV-134]
-  after: [SOV-241, FND-011, CLD-023, CLD-030, CLD-064, CLD-113, CLD-141, SOV-020, SOV-040, SOV-135, SOV-161, SOV-175, SOV-190, SOV-336, SOV-337, SEC-100, SEC-104, SEC-105, NET-040, NET-080, NET-096, NET-110, NET-153, NET-190, NET-221, SVC-040, SVC-041, SVC-130, CTL-346, CTL-347, CTL-348, CMP-036, INF-050, ACC-010]
+  after: [SOV-241, FND-011, CLD-023, CLD-030, CLD-064, CLD-066, CLD-113, CLD-141, SOV-020, SOV-040, SOV-135, SOV-161, SOV-175, SOV-190, SOV-336, SOV-337, SEC-100, SEC-104, SEC-105, NET-040, NET-080, NET-096, NET-110, NET-153, NET-190, NET-221, SVC-040, SVC-041, SVC-130, CTL-346, CTL-347, CTL-348, CMP-036, INF-050, ACC-010]
   touches:
   - core/cmd/sovereign-ops/internal/flip/**
   - platform/self-sovereign-cutover/chart/templates/05-upstream-flip-job.yaml
@@ -14525,7 +14532,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271, FND-063, SOV-230]
-  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-074, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, FND-155, FND-206, FND-207, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-135, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-335, SEC-040, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-133, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-150, SVC-159, SVC-163, SVC-190, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-020, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-101, AIP-102, AIP-105, AIP-108, AIP-111, AIP-113, AIP-120, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-501, PRD-503, PRD-508, PRD-513]
+  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-074, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, FND-155, FND-206, FND-207, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-066, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-135, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-335, SEC-040, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-133, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-150, SVC-159, SVC-163, SVC-190, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-020, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-101, AIP-102, AIP-105, AIP-108, AIP-111, AIP-113, AIP-120, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-501, PRD-503, PRD-508, PRD-513]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -17898,7 +17905,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [NET-323]
-  after: [CLD-023, CLD-030, CLD-064, CLD-086, CLD-089, CLD-113, CLD-141, CLD-142, SOV-020, SOV-130, SOV-146, SOV-151, SOV-160, SOV-161, SOV-175, SOV-336, SOV-337, SEC-100, SEC-104, NET-040, NET-096, NET-110, NET-153, NET-190, SVC-060, SVC-130, CTL-041, CTL-346, CTL-348, CMP-036, INF-050, ACC-010]
+  after: [CLD-023, CLD-030, CLD-064, CLD-066, CLD-086, CLD-089, CLD-113, CLD-141, CLD-142, SOV-020, SOV-130, SOV-146, SOV-151, SOV-160, SOV-161, SOV-175, SOV-336, SOV-337, SEC-100, SEC-104, NET-040, NET-096, NET-110, NET-153, NET-190, SVC-060, SVC-130, CTL-041, CTL-346, CTL-348, CMP-036, INF-050, ACC-010]
   touches:
   - clusters/_template/
   resources: []
@@ -18004,7 +18011,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [NET-322, NET-327]
-  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-105, CLD-108, CLD-109, CLD-111, CLD-112, CLD-113, CLD-114, CLD-115, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-141, SOV-175, SOV-180, SOV-181, SOV-338, SEC-103, SEC-104, SEC-105, SEC-150, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-212, NET-221, SVC-030, SVC-040, SVC-041, SVC-060, SVC-150, SVC-159, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CMP-016, CMP-020, CMP-030, BSS-141, AIP-040, AIP-041, AIP-120, INF-040, INF-110, INF-112, INF-120, INF-130, INF-135, INF-140, INF-512, ACC-050]
+  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-105, CLD-108, CLD-109, CLD-111, CLD-112, CLD-113, CLD-114, CLD-115, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-141, SOV-175, SOV-180, SOV-181, SOV-338, SEC-103, SEC-104, SEC-105, SEC-150, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-212, NET-221, SVC-030, SVC-040, SVC-041, SVC-060, SVC-150, SVC-159, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CMP-016, CMP-020, CMP-030, BSS-141, AIP-040, AIP-041, AIP-120, INF-040, INF-110, INF-112, INF-120, INF-130, INF-135, INF-140, INF-512, INF-513, ACC-050]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/
   - products/catalyst/bootstrap/api/
@@ -31062,28 +31069,38 @@ packages:
   depends_on: [INF-512]
   after: []
   touches:
-  - products/catalyst/bootstrap/api/internal/machines/runner/test.go
-  - products/catalyst/bootstrap/api/internal/machines/runner/test_test.go
   - products/catalyst/bootstrap/api/internal/machines/runner/sarif.go
   - products/catalyst/bootstrap/api/internal/machines/runner/sarif_test.go
+  - products/catalyst/bootstrap/api/internal/machines/runner/test.go
+  - products/catalyst/bootstrap/api/internal/machines/runner/test_test.go
   - products/machine-runner/Containerfile
-  - products/machine-runner/tools.lock.yaml
   - products/machine-runner/LICENSES.md
   - products/machine-runner/README.md
+  - products/machine-runner/tools.lock.yaml
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -ci 'zap' products/machine-runner/tools.lock.yaml"
+    expect: "0"
+  acceptance:
+  - id: A1
+    run: "cd products/catalyst/bootstrap/api && test \"$(go test ./internal/machines/runner/ -count=1 -v -run '^(TestWebPassiveRunsZAPOncePerPortBesideNuclei|TestWebURLProbesOnlyAPortOtherThan80And443|TestZAPFailureOrABadReportStoresNothing|TestATargetOutsideTheDeclaredSetIsRefusedBeforeTheToolStarts|TestTestRefusesNodeModeAndAnUnknownProfile|TestZAPRunMapsEveryRiskCodeAndInstance|TestZAPRunWithoutAlertsIsOneRunWithNoResult|TestZAPRunRefusesABadReport)$' | grep -c '^--- PASS: ')\" = 8"
+  - id: A2
+    run: "cd products/catalyst/bootstrap/api && test -f internal/machines/runner/sarif.go && test -z \"$(gofmt -l internal/machines cmd/machine-runner)\" && go vet ./internal/machines/... ./cmd/machine-runner/ && go test -count=1 ./internal/machines/... ./cmd/machine-runner/"
+  - id: A3
+    run: "printf '%s\\n' '69e2e93dd2d980554e2ef8a45e965d836564d97a16c816d21be845319ad0dd7a  products/catalyst/bootstrap/api/internal/machines/runner/sarif.go' '29ad278f9fa989ea01727ea015888d4143e568686c1d7af0cf9309426edde905  products/catalyst/bootstrap/api/internal/machines/runner/sarif_test.go' '28cb75e58fbc454e686bbc4157cb12a748d6ea0fce0bfce98de4afaccdf46a5f  products/catalyst/bootstrap/api/internal/machines/runner/test.go' '13cc27b0bb663e1c15a38feea6a2b059011d6d406c752f76231563afac7ad745  products/catalyst/bootstrap/api/internal/machines/runner/test_test.go' '4ad16ad98e9e9a773bb45d70d800a8710be6ae4f023e32cebdef2d1d8ee6ce31  products/machine-runner/Containerfile' 'd648e4f2bf1c32f10f74e11c83e9be3cfe2e1e75699c9be379dae1a97a67318d  products/machine-runner/LICENSES.md' '9c92bfcb8bc401c8c68e2613ce67e24afa371168a5acd66d7431775c45da1c57  products/machine-runner/README.md' '996bdae1d8c054c0db790f5d60b9ef04d5675644a3aeb84d0c519bf042abc8b8  products/machine-runner/tools.lock.yaml' | sha256sum --check --quiet"
+  - id: A4
+    run: "test \"$(grep -c -E '^  - name: (zap|zap-baseline|zap-common|zaproxy)$' products/machine-runner/tools.lock.yaml)\" = 4 && out=\"$(python3 scripts/check-machine-plane.py)\" && grep -q -x -F 'forbidden-tool=0' <<< \"$out\" && grep -q -x -F 'unpinned-runner-tool=0' <<< \"$out\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'Profile web-passive of the task test: the ZAP 2.17.0 baseline scan in the image, run once per port of the scope against the target address, with its Java runtime from the Debian archive of the base image; the runner converts each JSON report and writes the findings as test.sarif.json (evidence kind test-sarif).'
+  delivers: Profile web-passive of the task test runs the ZAP 2.17.0 baseline scan from the image, with ten add-ons and no active-scan, fuzzing, brute-force or out-of-band add-on and with its Java runtime from the Debian archive of the base image, once per line of the checked target list, the spider capped at one minute and nothing fetched at run time, and converts each JSON report into one SARIF run of test.sarif.json (evidence kind test-sarif).
 - id: INF-515
   title: Kill route; check INF-G07
   area: INF
@@ -31499,7 +31516,7 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [INF-455]
-  after: [INF-512]
+  after: [INF-512, INF-513]
   touches:
   - products/machine-runner/content/playbooks/facts-windows.yml
   - products/machine-runner/content/playbooks/patch-windows.yml
