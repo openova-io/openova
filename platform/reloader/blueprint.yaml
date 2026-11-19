@@ -9,9 +9,8 @@ spec:
   visibility: unlisted
   card:
     title: Reloader
-    family: guardian
-    description: Watches ConfigMap/Secret changes and triggers rolling restarts of dependent Deployments/StatefulSets/DaemonSets. Lets bp-* workloads pick up rotated secrets and rotated TLS material without manual rollouts.
-    docs: https://github.com/stakater/Reloader
+    summary: Watches ConfigMap/Secret changes and triggers rolling restarts of the Deployments/StatefulSets that consume them — keeps workloads in sync with rotated credentials.
+    icon: reloader.svg
   topology:
     supported:
       - singleton
@@ -36,5 +35,9 @@ spec:
             dmz-B: singleton
             rtz-A: singleton
             rtz-B: singleton
-  multiInstance:
-    enabled: false
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-reloader
+  endpoints: []

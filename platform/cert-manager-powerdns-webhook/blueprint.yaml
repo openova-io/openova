@@ -7,32 +7,12 @@ metadata:
 spec:
   version: 1.1.1
   card:
-    title: cert-manager-powerdns-webhook
-    summary: |
-      cert-manager DNS-01 external webhook for PowerDNS. Lets the
-      letsencrypt-dns01-prod-powerdns ClusterIssuer (shipped by this
-      blueprint) issue wildcard TLS certificates (e.g. *.<sovereign>)
-      by writing ACME challenge TXT records to contabo's central
-      PowerDNS at https://pdns.openova.io (authoritative for omani.works
-      because Dynadot delegates the zone to ns1/2/3.openova.io). Caught
-      live on otech43–46. Closes openova#373; supersedes
-      bp-cert-manager-dynadot-webhook for omani.works Sovereigns.
+    title: cert-manager PowerDNS Webhook
+    summary: ACME DNS-01 solver webhook that lets cert-manager satisfy Let's Encrypt DNS-01 challenges against the Sovereign's own PowerDNS authoritative zones.
+    icon: cert-manager.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
   manifests:
-    chart: ./chart
-  depends:
-    # bp-cert-manager registers the cert-manager.io CRDs and deploys the
-    # controllers; this webhook is meaningless without them. Per the
-    # waterfall locked in by docs/INVIOLABLE-PRINCIPLES.md (intra-chart
-    # CRD ordering) this chart MUST be installed AFTER bp-cert-manager
-    # is Ready — Flux dependsOn enforces that at the HelmRelease level.
-    - blueprint: bp-cert-manager
-    # NOTE: bp-powerdns dependency intentionally REMOVED. The webhook
-    # calls contabo's central PowerDNS (https://pdns.openova.io) — an
-    # out-of-cluster endpoint — not the Sovereign's local PowerDNS. The
-    # Sovereign's bp-powerdns slot is still installed (it backs the
-    # Sovereign's own subzone for app-level records via bp-external-dns)
-    # but it is NOT in the cert-issuance path.
+    chart: bp-cert-manager-powerdns-webhook
   outputs:
     # Tells dependents (the per-Sovereign Gateway's wildcard Certificate
     # in clusters/_template/sovereign-tls/cilium-gateway-cert.yaml, etc.)
@@ -43,28 +23,18 @@ spec:
     groupName: acme.powerdns.openova.io
     issuerName: letsencrypt-dns01-prod-powerdns
   topology:
-    supported:
-      - singleton
+    supported: [singleton]
     defaults:
       multi-region: singleton
       single-region: singleton
     perTopology:
       singleton:
         placement:
-          tier: ''
-          clusters:
-            - mgmt-A
-            - mgmt-B
-            - dmz-A
-            - dmz-B
-            - rtz-A
-            - rtz-B
+          tier: mgmt
+          clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
-            mgmt-B: singleton
-            dmz-A: singleton
-            dmz-B: singleton
-            rtz-A: singleton
-            rtz-B: singleton
-  multiInstance:
-    enabled: false
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  endpoints: []

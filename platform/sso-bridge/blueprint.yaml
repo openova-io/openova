@@ -8,22 +8,12 @@ metadata:
 spec:
   version: 0.2.28
   card:
-    title: sso-bridge
-    summary: |
-      Catalyst SSO framework. Watches every HelmRelease cluster-wide; when an
-      app declares `sso.enabled: true` in its values, auto-provisions a
-      Keycloak Client in the Sovereign realm, materialises the OAuth
-      client_secret in OpenBao + emits an ExternalSecret CR in the app's
-      namespace, and grants the Sovereign operator (Org.email) the app's
-      admin role. Mandatory infra — auto-installed by the bootstrap-kit.
-      Per SECURITY.md §6.3 (App-level SSO).
+    title: SSO Bridge
+    summary: Catalyst SSO framework — watches every HelmRelease and auto-provisions Keycloak Clients + OpenBao client_secrets + ExternalSecrets for apps that declare sso.enabled. Mandatory infra. See SECURITY.md §6.3.
+    icon: sso-bridge.svg
   visibility: unlisted              # mandatory infra
   manifests:
-    chart: ./chart
-  depends:
-    - bp-keycloak
-    - bp-openbao
-    - bp-external-secrets-stores
+    chart: bp-sso-bridge
 
   # ── G117.1: Topology declaration ────────────────────────────────────────
   # Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md:
@@ -31,9 +21,7 @@ spec:
   #   chain). Secrets via External-Secrets / openbao — no per-Pod state.
   #   Switchover: bp-continuum DNS flip.
   topology:
-    supported:
-      - active-passive
-      - singleton
+    supported: [active-passive, singleton]
     defaults:
       multi-region: active-passive
       single-region: singleton
@@ -43,9 +31,7 @@ spec:
           backend: none
           mode: none
         switchover:
-          mechanism: bp-continuum
-          rtoSeconds: 30
-          rpoSeconds: 0
+          mechanism: none
         placement:
           tier: mgmt
           clusters: [mgmt-A, mgmt-B]
@@ -71,6 +57,6 @@ spec:
     protocolMapper: oidc
     silentLogin: false
 
-  # ── G117.6: Multi-instance ─────────────────────────────────────────────
-  multiInstance:
-    enabled: false
+  placementSchema:
+    modes: [single-region]
+    default: single-region

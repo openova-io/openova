@@ -8,17 +8,9 @@ spec:
   version: 1.0.14
   card:
     title: External Secrets — Stores
-    summary: |
-      Default ClusterSecretStore CR(s) wiring the bp-external-secrets
-      controller to bp-openbao. Split from bp-external-secrets@1.0.0 (#331)
-      to resolve CRD-ordering deadlock — the CR cannot live in the same
-      Helm release as the operator that registers its CRD; Flux dependsOn
-      orders the two charts so this one applies after the controller is
-      Ready and CRDs are guaranteed registered.
-
-      Mirrors the bp-crossplane-claims pattern (PR #247).
-    icon: external-secrets.svg
     category: security
+    summary: ClusterSecretStore + SecretStore CRs binding the External Secrets Operator to the Sovereign's OpenBao backend. The store-configuration companion to bp-external-secrets.
+    icon: external-secrets.svg
   visibility: unlisted
   configSchema:
     type: object
@@ -46,25 +38,15 @@ spec:
     - bp-external-secrets
     - bp-openbao
   topology:
-    supported:
-      - singleton
+    supported: [singleton]
     defaults:
       multi-region: singleton
       single-region: singleton
     perTopology:
       singleton:
-        replication:
-          backend: flux-git
-          mode: async
         placement:
-          tier: ''
-          clusters:
-            - mgmt-A
-            - mgmt-B
-            - dmz-A
-            - dmz-B
-            - rtz-A
-            - rtz-B
+          tier: ""
+          clusters: [mgmt-A, mgmt-B, dmz-A, dmz-B, rtz-A, rtz-B]
           roles:
             mgmt-A: singleton
             mgmt-B: singleton
@@ -72,5 +54,9 @@ spec:
             dmz-B: singleton
             rtz-A: singleton
             rtz-B: singleton
-  multiInstance:
-    enabled: false
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-external-secrets-stores
+  endpoints: []

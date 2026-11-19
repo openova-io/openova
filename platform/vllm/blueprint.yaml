@@ -9,12 +9,13 @@ spec:
   version: 1.0.1
   card:
     title: vLLM
-    summary: High-throughput LLM inference engine with PagedAttention. OpenAI-compatible API. GPU-accelerated when nvidia.com/gpu is available; CPU fallback for non-GPU dev Sovereigns.
-    icon: vllm.svg
     category: ai-runtime
-    tags: [llm, inference, openai-compatible, gpu, ai]
-    documentation: https://docs.vllm.ai/
+    summary: High-throughput LLM inference engine with PagedAttention. OpenAI-compatible API. GPU-accelerated when nvidia.com/gpu is available; CPU fallback for non-GPU dev Sovereigns.
+    description: High-throughput LLM inference engine with PagedAttention. OpenAI-compatible API. GPU-accelerated when nvidia.com/gpu is available; CPU fallback for non-GPU dev Sovereigns.
+    icon: vllm.svg
     license: Apache-2.0
+    tags: [llm, inference, openai-compatible, gpu, ai]
+    docs: https://docs.vllm.ai/
   visibility: listed
   owner:
     team: ai-platform
@@ -51,25 +52,11 @@ spec:
         default: 0.9
         description: Fraction of GPU memory vLLM may use (--gpu-memory-utilization).
   placementSchema:
-    modes: [single-region, active-active]
+    modes: [single-region]
     default: single-region
-  # ── #3373: class-level placement SUGGESTION + allow-list ────────────────
-  # Placement is an INSTANCE property (Application.spec.placement); this is
-  # only the default every instance inherits silently — the provisioning
-  # journey's generic advanced selector (and a direct Git edit of the
-  # instance's spec.placement) may override it within allowedPlacements.
-  # Founder §4 table target: rtz. Single render mechanism: the Flux
-  # spec.kubeConfig.secretRef pivot — zero per-app placement code.
-  defaultPlacement:
-    vcluster: rtz
-  allowedPlacements: [host, rtz]
 
   manifests:
-    chart: ./chart
-  depends:
-    - blueprint: bp-kserve
-      version: ^1.0
-      alias: kserve
+    chart: bp-vllm
   upgrades:
     from: ["0.x"]
   observability:
@@ -121,9 +108,4 @@ spec:
     rolesFromGroup:
       sovereign-admins: admin
     silentLogin: true
-  multiInstance:
-    enabled: true
-    maxPerOrg: 10
-    namingTemplate: '{{.AppName}}-{{.InstanceID}}'
-    isolationLevel: namespace
   # ── /G117.1 ──

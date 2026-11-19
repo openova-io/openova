@@ -9,19 +9,13 @@ spec:
   version: 0.2.25
   card:
     title: OpenClaw
-    summary: |
-      Per-user agentic workspace for Organization tenants. A multi-tenant
-      controller deployment in the Organization tenant namespace authenticates
-      end users via the Organization-vcluster Keycloak realm and spawns one
-      runtime pod per active session. Each runtime pod reads ONLY two
-      env vars (NEWAPI_BASE_URL + NEWAPI_KEY) mounted from the per-user
-      `newapi-key-{uuid}` Secret rendered by the unified-rbac user-create
-      hook (ADR-0003). Identity-blind by construction.
-    icon: openclaw.svg
     category: ai-runtime
-    tags: [openclaw, agentic, workspace, organization, keycloak, newapi, multi-tenant, per-user-pod]
-    documentation: https://github.com/openova-io/openova/blob/main/platform/openclaw/README.md
+    summary: "Per-user agentic workspace for an Organization. A multi-tenant controller deployment in the Organization namespace authenticates end users via the Organization-vcluster Keycloak realm and spawns one runtime pod per active session. Each runtime pod reads ONLY two env vars (NEWAPI_BASE_URL + NEWAPI_KEY) mounted from the per-user `newapi-key-{uuid}` Secret rendered by the unified-rbac user-create hook (ADR-0003). Identity-blind by construction. "
+    description: "Per-user agentic workspace for an Organization. A multi-tenant controller deployment in the Organization namespace authenticates end users via the Organization-vcluster Keycloak realm and spawns one runtime pod per active session. Each runtime pod reads ONLY two env vars (NEWAPI_BASE_URL + NEWAPI_KEY) mounted from the per-user `newapi-key-{uuid}` Secret rendered by the unified-rbac user-create hook (ADR-0003). Identity-blind by construction. "
+    icon: openclaw.svg
     license: Apache-2.0
+    tags: [openclaw, agentic, workspace, org, keycloak, newapi, multi-tenant, per-user-pod]
+    docs: https://github.com/openova-io/openova/blob/main/platform/openclaw/README.md
   visibility: listed
   owner:
     team: ai-platform
@@ -116,23 +110,17 @@ spec:
   # this is the safe scaffold default matching bp-qa-app: singleton in
   # the rtz tier on rtz-A. See docs/topology-matrix.md §ROW-AMENDMENTS.
   topology:
-    supported:
-      - singleton
+    supported: [singleton]
     defaults:
       multi-region: singleton
       single-region: singleton
     perTopology:
       singleton:
         placement:
-          # #4375 (#4325 de-vcluster fallout): the `rtz` plane vCluster was
-          # removed; per-Org apps land host-native in their OWN Org namespace
-          # (#4297 keystone). Host placement = empty tier; keep the rtz-A
-          # region designator (clusters/roles).
-          tier: ''
-          clusters:
-            - rtz-A
+          tier: ""
+          clusters: [mgmt-A]
           roles:
-            rtz-A: singleton
+            mgmt-A: singleton
   # #5389 — bp-openclaw is `visibility: listed` (customer-installable) and
   # chart/templates/httproute.yaml publishes a real Cilium-Gateway front door,
   # yet the Blueprint declared NO endpoints at all. Both console surfaces read
@@ -166,17 +154,7 @@ spec:
     protocolMapper: oidc
     groupsClaim: groups
   manifests:
-    chart: ./chart
-  depends:
-    - blueprint: bp-newapi
-      version: ^1.0
-      alias: gateway
-    - blueprint: bp-keycloak
-      version: ^1.0
-      alias: idp
-    - blueprint: bp-cert-manager
-      version: ^1.0
-      alias: tls
+    chart: bp-openclaw
   upgrades:
     from: []
   observability:

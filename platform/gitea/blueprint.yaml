@@ -8,19 +8,10 @@ metadata:
 spec:
   version: 1.2.54
   card:
-    title: gitea
-    summary: Gitea — per-Sovereign Git server. Catalyst control plane. Hosts catalog (public Blueprint mirror), catalog-sovereign (Sovereign-curated private Blueprints), one Gitea Org per Catalyst Organization, and system (sovereign-admin scope).
+    title: Gitea
+    summary: Gitea — per-Sovereign Git server. Hosts catalog (public Blueprint mirror), catalog-sovereign (curated private Blueprints), one Gitea Org per Catalyst Organization, and system scope.
+    icon: gitea.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
-  # ── #3373: class-level placement SUGGESTION + allow-list ────────────────
-  # Placement is an INSTANCE property (Application.spec.placement); this is
-  # only the default every instance inherits silently — the provisioning
-  # journey's generic advanced selector (and a direct Git edit of the
-  # instance's spec.placement) may override it within allowedPlacements.
-  # Founder §4 table target: mgmt. Single render mechanism: the Flux
-  # spec.kubeConfig.secretRef pivot — zero per-app placement code.
-  defaultPlacement:
-    vcluster: mgmt
-  allowedPlacements: [host, mgmt]
 
   # placementSchema aligned with spec.topology below (#4212 Seam 3). The
   # spine Application-CR producer stamps active-hot-standby on a multi-region
@@ -31,19 +22,9 @@ spec:
     modes: [singleton, active-hot-standby]
     default: singleton
     defaultOnMultiRegion: active-hot-standby
-    minRegions: 1
-    maxRegions: 2
 
   manifests:
-    chart: ./chart
-  # bp-postgres (#3370): Gitea's database is a Context on a SHAREABLE
-  # bp-postgres data-instance (slot 10 wires gitea's HR dependsOn
-  # bp-postgres-shared). Declaring the shareable INSTANCE Blueprint here
-  # (not just the engine) makes the console New-instance wizard render the
-  # generic PostgreSQL backing selector (Create new / Reuse existing).
-  depends:
-    - blueprint: bp-postgres
-      version: ^0
+    chart: bp-gitea
 
   # ── G117.1: Topology declaration ────────────────────────────────────────
   # Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md:
@@ -116,7 +97,3 @@ spec:
       gitea-admins: admin
     silentLogin: true
 
-  # ── G117.6: Multi-instance ─────────────────────────────────────────────
-  # Singleton per Sovereign — one Gitea per Catalyst control plane.
-  multiInstance:
-    enabled: false

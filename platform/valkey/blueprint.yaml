@@ -8,15 +8,10 @@ spec:
   version: 1.1.7
   card:
     title: Valkey
-    summary: |
-      Redis-compatible in-memory cache (BSD-3 fork of Redis 7.2.4 under
-      Linux Foundation governance). Bootstrap-kit slot 17 — used by
-      Catalyst control-plane services for ephemeral session/state, and
-      by Application-tier Apps that need a Redis wire-protocol cache.
-      Replication via REPLICAOF (per-Application choice — see
-      docs/SRE.md §2.5).
-    icon: valkey.svg
     category: data
+    summary: "Redis-compatible in-memory cache (BSD-3 fork of Redis 7.2.4 under Linux Foundation governance). Bootstrap-kit slot 17 — used by Catalyst control-plane services for ephemeral session/state, and by Application-tier Apps that need a Redis wire-protocol cache. Replication via REPLICAOF (per-Application choice — see docs/SRE.md §2.5). "
+    description: "Redis-compatible in-memory cache (BSD-3 fork of Redis 7.2.4 under Linux Foundation governance). Bootstrap-kit slot 17 — used by Catalyst control-plane services for ephemeral session/state, and by Application-tier Apps that need a Redis wire-protocol cache. Replication via REPLICAOF (per-Application choice — see docs/SRE.md §2.5). "
+    icon: valkey.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
   # ── Shareability + Contexts (#3370 generality proof) ────────────────
   # shareable: one Valkey instance serves many consumer applications,
@@ -88,37 +83,11 @@ spec:
                   monitoring.coreos.com/v1 ServiceMonitor — requires the
                   Prometheus Operator CRDs from kube-prometheus-stack.
   placementSchema:
-    modes: [single-region, active-active, active-hotstandby]
-    default: single-region            # Valkey replication is per-Application
-    # G93.2 (Refs #2667) — On a multi-region Sovereign the canonical
-    # Valkey topology is active-hotstandby: primary instance accepts
-    # writes in regions[0], replica streams from primary in regions[1]
-    # over Cilium ClusterMesh (REPLICAOF protocol per docs/SRE.md §2
-    # replication matrix). Without this seam, a fresh Application
-    # install on a 2-region Sovereign defaults to single-region and
-    # the cross-region replica never spins up — Pillar 3 cache-warm-
-    # failover is impossible.
-    defaultOnMultiRegion: active-hotstandby
-  # ── #3373: class-level placement SUGGESTION + allow-list ────────────────
-  # Placement is an INSTANCE property (Application.spec.placement); this is
-  # only the default every instance inherits silently — the provisioning
-  # journey's generic advanced selector (and a direct Git edit of the
-  # instance's spec.placement) may override it within allowedPlacements.
-  # Founder §4 table target: rtz. Single render mechanism: the Flux
-  # spec.kubeConfig.secretRef pivot — zero per-app placement code.
-  defaultPlacement:
-    vcluster: rtz
-  allowedPlacements: [host, rtz]
+    modes: [single-region]
+    default: single-region
 
   manifests:
-    chart: ./chart
-  # Valkey is a self-contained cache — only needs Flux Ready. The Flux HR
-  # at clusters/_template/bootstrap-kit/17-valkey.yaml encodes this
-  # dependsOn. Declared here for documentation parity; the
-  # blueprint-controller does not yet reconcile this field.
-  depends:
-    - blueprint: bp-flux
-      version: ^1.0
+    chart: bp-valkey
   upgrades:
     from: ["0.x"]
   # ── G117.1 (Wave-1/B3) — topology + endpoints + sso + multiInstance ──
@@ -161,9 +130,4 @@ spec:
     visibility: private
     launchDefault: false
     ssoEnabled: false
-  multiInstance:
-    enabled: true
-    maxPerOrg: 10
-    namingTemplate: '{{.AppName}}-{{.InstanceID}}'
-    isolationLevel: namespace
   # ── /G117.1 ──

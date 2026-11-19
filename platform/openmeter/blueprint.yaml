@@ -9,21 +9,13 @@ spec:
   version: 1.1.0
   card:
     title: OpenMeter
-    summary: |
-      Real-time usage metering. CloudEvents ingestion, deterministic
-      per-subject aggregation, OpenAPI Query endpoint. Used by
-      bp-fingate (Open Banking) to meter API calls per TPP for
-      monetization, and available to any Application that needs
-      per-event usage tracking. omantel-1 ships the ClickHouse-less
-      profile per docs/BOOTSTRAP-KIT-EXPANSION-PLAN.md §6.4 — backend
-      writes go to bp-cnpg (PostgreSQL) and bp-nats-jetstream (event
-      bus). Re-roll with backend.kind=clickhouse once a host cluster
-      adds bp-clickhouse.
-    icon: openmeter.svg
     category: application
-    tags: [metering, usage, billing, cloudevents, application]
-    documentation: https://openmeter.io/docs
+    summary: "Real-time usage metering. CloudEvents ingestion, deterministic per-subject aggregation, OpenAPI Query endpoint. Used by bp-fingate (Open Banking) to meter API calls per TPP for monetization, and available to any Application that needs per-event usage tracking. omantel-1 ships the ClickHouse-less profile per docs/BOOTSTRAP-KIT-EXPANSION-PLAN.md §6.4 — backend writes go to bp-cnpg (PostgreSQL) and bp-nats-jetstream (event bus). Re-roll with backend.kind=clickhouse once a host cluster adds bp-clickhouse. "
+    description: "Real-time usage metering. CloudEvents ingestion, deterministic per-subject aggregation, OpenAPI Query endpoint. Used by bp-fingate (Open Banking) to meter API calls per TPP for monetization, and available to any Application that needs per-event usage tracking. omantel-1 ships the ClickHouse-less profile per docs/BOOTSTRAP-KIT-EXPANSION-PLAN.md §6.4 — backend writes go to bp-cnpg (PostgreSQL) and bp-nats-jetstream (event bus). Re-roll with backend.kind=clickhouse once a host cluster adds bp-clickhouse. "
+    icon: openmeter.svg
     license: Apache-2.0
+    tags: [metering, usage, billing, cloudevents, application]
+    docs: https://openmeter.io/docs
   visibility: listed
   owner:
     team: platform
@@ -79,17 +71,10 @@ spec:
               Per docs/BLUEPRINT-AUTHORING.md §11.2 default false;
               operator opts in via per-cluster overlay (issue #182).
   placementSchema:
-    modes: [single-region, active-active]
+    modes: [single-region]
     default: single-region
   manifests:
-    chart: ./chart
-  depends:
-    - blueprint: bp-cnpg              # aggregation backend (ClickHouse-less profile)
-      version: ^1
-    - blueprint: bp-nats-jetstream    # raw-event subject (ClickHouse-less profile)
-      version: ^1
-    - blueprint: bp-cert-manager      # ingress TLS
-      version: ^1
+    chart: bp-openmeter
   upgrades:
     from: ["0.x"]
   observability:
@@ -144,9 +129,4 @@ spec:
     rolesFromGroup:
       sovereign-admins: admin
     silentLogin: true
-  multiInstance:
-    enabled: true
-    maxPerOrg: 3
-    namingTemplate: '{{.AppName}}-{{.InstanceID}}'
-    isolationLevel: namespace
   # ── /G117.1 ──

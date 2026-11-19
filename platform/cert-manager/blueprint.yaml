@@ -8,11 +8,11 @@ spec:
   version: 1.2.8
   card:
     title: cert-manager
-    summary: TLS certificate automation. Lets Encrypt issuer with Dynadot DNS-01 for omani.works pool, HTTP-01 for BYO domains.
+    summary: X.509 certificate automation for Kubernetes — Let's Encrypt ACME issuance, renewal, and the controllers + CRDs the Sovereign's ClusterIssuers (bp-cert-manager-issuers) bind against.
+    icon: cert-manager.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
   manifests:
-    chart: ./chart
-  depends: []
+    chart: bp-cert-manager
 
   # ── Outputs advertised to dependent Blueprints (#113) ────────────────────
   # Blueprints that issue Certificates (cilium-gateway, harbor, gitea, etc.)
@@ -48,25 +48,15 @@ spec:
     # independent of which issuer is currently the default.
     wildcardIssuerName: letsencrypt-dns01-prod
   topology:
-    supported:
-      - singleton
+    supported: [singleton]
     defaults:
       multi-region: singleton
       single-region: singleton
     perTopology:
       singleton:
-        replication:
-          backend: openbao-perf-replication
-          mode: async
         placement:
-          tier: ''
-          clusters:
-            - mgmt-A
-            - mgmt-B
-            - dmz-A
-            - dmz-B
-            - rtz-A
-            - rtz-B
+          tier: ""
+          clusters: [mgmt-A, mgmt-B, dmz-A, dmz-B, rtz-A, rtz-B]
           roles:
             mgmt-A: singleton
             mgmt-B: singleton
@@ -74,5 +64,7 @@ spec:
             dmz-B: singleton
             rtz-A: singleton
             rtz-B: singleton
-  multiInstance:
-    enabled: false
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  endpoints: []

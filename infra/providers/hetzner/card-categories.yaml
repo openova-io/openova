@@ -1,0 +1,8 @@
+# The card category of each of this provider's seeded Blueprints whose blueprint.yaml carries no
+# spec.card.category, as the hand-written seed (products/catalyst/chart/templates/catalog-seed/blueprints.yaml)
+# says it. A provider's Blueprint is one whose folder this pack's pack.yaml lists in spec.charts; its category
+# is declared here and never in the shared platform/_catalog/card-categories.yaml.
+# Read by scripts/check-seed-equals-blueprints.py; scripts/generate-catalog.py reads it from SVC-160 on.
+categories:
+  bp-cluster-autoscaler-hcloud: infrastructure
+  bp-hcloud-ccm: infrastructure

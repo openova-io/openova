@@ -16,19 +16,14 @@ spec:
   version: 0.1.68
   card:
     title: Chargeback
-    summary: Usage ledger, rating and monthly statements for your Organizations and external cloud projects — collect allocation-hours, rate them against a price book, issue statements.
-    icon: chargeback.svg
     category: bss
     family: billing
-    tags:
-      - chargeback
-      - showback
-      - usage
-      - rating
-      - statements
-      - bss
-    documentation: https://github.com/openova-io/openova
+    summary: Usage ledger, rating and monthly statements for your Organizations and external cloud projects — collect allocation-hours, rate them against a price book, issue statements.
+    description: "Standalone chargeback / showback: PIN sign-in, customers with their own cost sources (projects via a read-only access key), a price book imported as CSV, allocation-based usage collected every 15 minutes, monthly draft statements issued as JSON or CSV."
+    icon: chargeback.svg
     license: Apache-2.0
+    tags: [chargeback, showback, usage, rating, statements, bss]
+    docs: https://github.com/openova-io/openova
   # listed — the per-Organization placement (ADR-0014 D5) installs from the
   # catalog card; the Sovereign BSS placement is auto-installed by
   # bootstrap-kit slot 13f and never goes through the card.
@@ -113,11 +108,7 @@ spec:
     modes: [single-region]
     default: single-region
   manifests:
-    chart: ./chart
-  # Standalone by design (ADR-0014 D4): no hard dependency on Catalyst
-  # CRDs. bp-cnpg is a bootstrap-kit prerequisite on a Sovereign (the slot's
-  # dependsOn edge), not a catalog dependency.
-  depends: []
+    chart: bp-chargeback
   upgrades:
     from: ["0.x"]
   observability:

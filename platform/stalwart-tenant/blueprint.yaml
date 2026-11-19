@@ -72,22 +72,13 @@ spec:
   version: 0.1.16
   card:
     title: Stalwart (per-Organization)
-    summary: |
-      Dedicated per-Org (per-vcluster) Stalwart mail server. Implements
-      locked decision [Q3] of EPIC #795 — every Organization on a Sovereign gets
-      its OWN Stalwart instance in its Organization namespace, with its OWN
-      domain, OWN MTA reputation, and OWN queue. NOT a shared otech-
-      level multi-domain Stalwart.
-
-      Webmail UI at `https://mail.<org-domain>`; SMTP/IMAP via
-      LoadBalancer. SSO authenticated against the Organization-vcluster Keycloak
-      realm (NOT otech-level Keycloak). Per-user mailbox provisioning
-      is event-driven (ADR-0003 §3).
-    icon: stalwart.svg
     category: communication
-    tags: [mail, smtp, imap, jmap, organization, per-organization, vcluster, sso, oidc]
-    documentation: https://stalw.art/
+    summary: "Dedicated per-Org (per-vcluster) Stalwart mail server. Implements locked decision [Q3] of EPIC #795 — every Organization on a Sovereign gets its OWN Stalwart instance in its Organization namespace, with its OWN domain, OWN MTA reputation, and OWN queue. NOT a shared otech- level multi-domain Stalwart.\nWebmail UI at `https://mail.<org-domain>`; SMTP/IMAP via LoadBalancer. SSO authenticated against the Organization-vcluster Keycloak realm (NOT otech-level Keycloak). Per-user mailbox provisioning is event-driven (ADR-0003 §3). "
+    description: "Dedicated per-Org (per-vcluster) Stalwart mail server. Implements locked decision [Q3] of EPIC #795 — every Organization on a Sovereign gets its OWN Stalwart instance in its Organization namespace, with its OWN domain, OWN MTA reputation, and OWN queue. NOT a shared otech- level multi-domain Stalwart.\nWebmail UI at `https://mail.<org-domain>`; SMTP/IMAP via LoadBalancer. SSO authenticated against the Organization-vcluster Keycloak realm (NOT otech-level Keycloak). Per-user mailbox provisioning is event-driven (ADR-0003 §3). "
+    icon: stalwart.svg
     license: AGPL-3.0
+    tags: [mail, smtp, imap, jmap, org, per-organization, vcluster, sso, oidc]
+    docs: https://stalw.art/
   visibility: listed
   owner:
     team: platform
@@ -218,35 +209,7 @@ spec:
     modes: [single-region]
     default: single-region
   manifests:
-    chart: ./chart
-    helmRelease:
-      # #4307 — the StatefulSet mounts the `stalwart-tls` Secret NON-optional
-      # so the Pod blocks at ContainerCreating until cert-manager issues the
-      # mail.<tenant-domain> leaf via DNS-01 (can take several minutes). With
-      # Flux's default --wait, helm-controller blocks on StatefulSet readiness
-      # BEFORE running the post-install setup Job (a post-install Helm hook) →
-      # the install burns its budget and exits `context deadline exceeded`, the
-      # HR wedges InstallFailed/RetriesExceeded, and the OIDC-directory-seeding
-      # Job never fires (verified live on the omantel.biz demo Org 2026-06-24:
-      # Pod 1/1 Running, HR Ready=False, NO setup Job present). disableWait lets
-      # the release reach hook execution so the Job runs and the HR converges.
-      # Mirrors bp-newapi #4246/#4278. Propagates to the per-Org Application
-      # render path via core/controllers/pkg/render (manifests.go DisableWait).
-      disableWait: true
-  depends:
-    - blueprint: bp-keycloak
-      version: ^1.3
-      alias: idp
-    - blueprint: bp-external-secrets
-      version: ^1.0
-      alias: eso
-    - blueprint: bp-cert-manager
-      version: ^1.0
-      alias: certs
-    - blueprint: bp-powerdns
-      version: ^1.0
-      alias: dns
-      optional: true
+    chart: bp-stalwart-tenant
   upgrades:
     from: []
   observability:
@@ -320,9 +283,4 @@ spec:
     rolesFromGroup:
       sovereign-admins: admin
     silentLogin: true
-  multiInstance:
-    enabled: false
-    maxPerOrg: 1
-    namingTemplate: '{{.AppName}}-{{.InstanceID}}'
-    isolationLevel: namespace
   # ── /G117.1 ──

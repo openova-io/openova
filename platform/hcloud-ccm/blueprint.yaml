@@ -10,17 +10,8 @@ spec:
   version: 1.0.0
   card:
     title: Hetzner Cloud Controller Manager
-    family: cloud-integration
-    description: |
-      hcloud-cloud-controller-manager — the Hetzner cloud-provider integration
-      for Kubernetes. Sets node providerIDs (`hcloud://<server-id>`) so
-      kube-controller-manager + scheduler can correlate Pod placement with
-      Hetzner zones, hot-fills node IPs/labels from the Hetzner API, and
-      materialises Service-of-type-LoadBalancer as Hetzner Cloud Load
-      Balancers (ADR-0001 §13). Without this CCM running, every LB-typed
-      Service stays Pending forever and the Cilium clustermesh-apiserver
-      cannot expose itself across regions via a Hetzner LB.
-    docs: https://github.com/hetznercloud/hcloud-cloud-controller-manager
+    summary: Hetzner Cloud provider integration — node lifecycle, LoadBalancer Services, and route reconciliation on hcloud-backed Sovereign clusters.
+    icon: hetzner.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
   configSchema:
     type: object
@@ -43,36 +34,22 @@ spec:
           reconciliation runs — useful for clusters that source LBs from
           MetalLB or another path.
   placementSchema:
-    modes: [single-region, active-active]
-    default: active-active           # one CCM per host cluster
+    modes: [single-region]
+    default: single-region
   manifests:
-    chart: ./chart
-  depends: []                        # cloud-credentials Secret is provisioned by cloud-init before Flux installs anything
+    chart: bp-hcloud-ccm
   upgrades:
     from: ["0.x"]
   topology:
-    supported:
-      - singleton
+    supported: [singleton]
     defaults:
       multi-region: singleton
       single-region: singleton
     perTopology:
       singleton:
         placement:
-          tier: ''
-          clusters:
-            - mgmt-A
-            - mgmt-B
-            - dmz-A
-            - dmz-B
-            - rtz-A
-            - rtz-B
+          tier: mgmt
+          clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
-            mgmt-B: singleton
-            dmz-A: singleton
-            dmz-B: singleton
-            rtz-A: singleton
-            rtz-B: singleton
-  multiInstance:
-    enabled: false
+  endpoints: []

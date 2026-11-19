@@ -7,45 +7,25 @@ metadata:
 spec:
   version: 1.3.8
   card:
-    title: crossplane-claims
-    summary: |
-      Catalyst Crossplane XRDs (compose.openova.io/v1alpha1 family) +
-      default Compositions. Splits the CRD-and-CR ordering bind from
-      bp-crossplane: this Blueprint MUST be installed AFTER bp-crossplane is
-      Ready so the apiextensions.crossplane.io CRDs that the upstream
-      crossplane subchart registers are live before these
-      CompositeResourceDefinition + Composition CRs are applied.
+    title: Crossplane Claims
+    summary: Sovereign-scoped Crossplane Composite Resource claims (XRDs + Compositions) — the in-cluster contract the control plane uses to request infrastructure from bp-crossplane.
+    icon: crossplane.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
   manifests:
-    chart: ./chart
-  depends:
-    - blueprint: bp-crossplane
+    chart: bp-crossplane-claims
   topology:
-    supported:
-      - singleton
+    supported: [singleton]
     defaults:
       multi-region: singleton
       single-region: singleton
     perTopology:
       singleton:
-        replication:
-          backend: flux-git
-          mode: async
         placement:
-          tier: ''
-          clusters:
-            - mgmt-A
-            - mgmt-B
-            - dmz-A
-            - dmz-B
-            - rtz-A
-            - rtz-B
+          tier: mgmt
+          clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
-            mgmt-B: singleton
-            dmz-A: singleton
-            dmz-B: singleton
-            rtz-A: singleton
-            rtz-B: singleton
-  multiInstance:
-    enabled: false
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  endpoints: []

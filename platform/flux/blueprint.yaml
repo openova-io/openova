@@ -10,32 +10,22 @@ spec:
   # source-controller eliminates the Recreate serving-gap (Ready 26→7 on hw157).
   version: 1.2.9
   card:
-    title: flux
-    summary: GitOps reconciler. One per vcluster (source + kustomize + helm controllers); host-level Flux per host cluster watches its bp-* OCI sources.
+    title: Flux
+    summary: GitOps engine — reconciles every Sovereign Blueprint HelmRelease from the local Gitea source. The continuous-reconciliation backbone of the platform.
+    icon: flux.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
   manifests:
-    chart: ./chart
-  depends: []
+    chart: bp-flux
   topology:
-    supported:
-      - singleton
+    supported: [singleton]
     defaults:
       multi-region: singleton
       single-region: singleton
     perTopology:
       singleton:
-        replication:
-          backend: flux-git
-          mode: async
         placement:
-          tier: ''
-          clusters:
-            - mgmt-A
-            - mgmt-B
-            - dmz-A
-            - dmz-B
-            - rtz-A
-            - rtz-B
+          tier: ""
+          clusters: [mgmt-A, mgmt-B, dmz-A, dmz-B, rtz-A, rtz-B]
           roles:
             mgmt-A: singleton
             mgmt-B: singleton
@@ -43,5 +33,7 @@ spec:
             dmz-B: singleton
             rtz-A: singleton
             rtz-B: singleton
-  multiInstance:
-    enabled: false
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  endpoints: []

@@ -9,19 +9,13 @@ spec:
   version: 1.0.0
   card:
     title: LiveKit
-    summary: |
-      WebRTC SFU for real-time video, audio, and data. Powers the
-      Huawei iFlytek voice demo and any Application that needs
-      sub-second media routing. Pairs with bp-stunner for K8s-native
-      TURN/STUN — Catalyst routes LiveKit's TURN config at the stunner
-      Service so SFU traffic survives the host cluster's NAT
-      boundary. Hetzner firewall opens UDP 50000-60000 (LiveKit's RTC
-      port range) per the operator's per-Sovereign overlay.
-    icon: livekit.svg
     category: application
-    tags: [webrtc, sfu, video, audio, communication, application]
-    documentation: https://docs.livekit.io
+    summary: "WebRTC SFU for real-time video, audio, and data. Powers the Huawei iFlytek voice demo and any Application that needs sub-second media routing. Pairs with bp-stunner for K8s-native TURN/STUN — Catalyst routes LiveKit's TURN config at the stunner Service so SFU traffic survives the host cluster's NAT boundary. Hetzner firewall opens UDP 50000-60000 (LiveKit's RTC port range) per the operator's per-Sovereign overlay. "
+    description: "WebRTC SFU for real-time video, audio, and data. Powers the Huawei iFlytek voice demo and any Application that needs sub-second media routing. Pairs with bp-stunner for K8s-native TURN/STUN — Catalyst routes LiveKit's TURN config at the stunner Service so SFU traffic survives the host cluster's NAT boundary. Hetzner firewall opens UDP 50000-60000 (LiveKit's RTC port range) per the operator's per-Sovereign overlay. "
+    icon: livekit.svg
     license: Apache-2.0
+    tags: [webrtc, sfu, video, audio, communication, application]
+    docs: https://docs.livekit.io
   visibility: listed
   owner:
     team: platform
@@ -94,17 +88,8 @@ spec:
   placementSchema:
     modes: [single-region]
     default: single-region
-    minRegions: 1
-    maxRegions: 1
   manifests:
-    chart: ./chart
-  depends:
-    - blueprint: bp-stunner            # K8s-native TURN/STUN for NAT traversal
-      version: ^1
-    - blueprint: bp-cert-manager       # ingress TLS via ClusterIssuer
-      version: ^1
-    - blueprint: bp-valkey             # required when LiveKit runs >1 replica (signaling state)
-      version: ^1
+    chart: bp-livekit
   upgrades:
     from: ["0.x"]
   observability:
@@ -156,9 +141,4 @@ spec:
     rolesFromGroup:
       sovereign-admins: admin
     silentLogin: true
-  multiInstance:
-    enabled: true
-    maxPerOrg: 5
-    namingTemplate: '{{.AppName}}-{{.InstanceID}}'
-    isolationLevel: namespace
   # ── /G117.1 ──

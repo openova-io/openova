@@ -18,40 +18,23 @@ spec:
   visibility: unlisted
   card:
     title: ExternalDNS
-    family: networking
-    description: |
-      Synchronizes Kubernetes Gateway/Service/Ingress resources with the
-      per-Sovereign PowerDNS authoritative server (and any external cloud
-      DNS providers — Cloudflare, Route53, Hetzner DNS, Dynadot via the
-      Catalyst webhook). Health-checked geo-failover responses are owned
-      by PowerDNS lua-records, NOT by ExternalDNS.
-    docs: https://kubernetes-sigs.github.io/external-dns/
+    summary: Synchronises Kubernetes Ingress/HTTPRoute/Service hostnames into the Sovereign's PowerDNS authoritative zones automatically.
+    icon: external-dns.svg
   topology:
-    supported:
-      - singleton
+    supported: [singleton]
     defaults:
       multi-region: singleton
       single-region: singleton
     perTopology:
       singleton:
-        replication:
-          backend: none
-          mode: none
         placement:
-          tier: ''
-          clusters:
-            - mgmt-A
-            - mgmt-B
-            - dmz-A
-            - dmz-B
-            - rtz-A
-            - rtz-B
+          tier: mgmt
+          clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
-            mgmt-B: singleton
-            dmz-A: singleton
-            dmz-B: singleton
-            rtz-A: singleton
-            rtz-B: singleton
-  multiInstance:
-    enabled: false
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-external-dns
+  endpoints: []

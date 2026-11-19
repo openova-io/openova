@@ -8,9 +8,14 @@ spec:
   version: 1.1.1
   card:
     title: Temporal
-    summary: Durable workflow orchestration with saga + compensation. Postgres-backed (CNPG); Postgres visibility store; Web UI; Keycloak OIDC integration via `--auth-claim-mapper`.
-    icon: temporal.svg
     category: workflow
+    family: orchestration
+    summary: Durable workflow orchestration. Code-first, language-agnostic, exactly-once execution.
+    description: Temporal cluster + Web UI. Backed by Postgres (bp-cnpg) for durable state.
+    icon: temporal.svg
+    license: MIT
+    tags: [workflow, orchestration, temporal, durable]
+    docs: https://docs.temporal.io/
   visibility: listed
   configSchema:
     type: object
@@ -39,17 +44,9 @@ spec:
             description: external = Catalyst-curated CNPG Cluster (recommended); embedded = chart-bundled bitnami postgresql (dev only).
   placementSchema:
     modes: [single-region]
-    minRegions: 1
-    maxRegions: 1
+    default: single-region
   manifests:
-    chart: ./chart
-  depends:
-    - blueprint: bp-cnpg
-      version: ^1
-      alias: db
-    - blueprint: bp-cert-manager
-      version: ^1
-      alias: certs
+    chart: bp-temporal
   upgrades:
     from: ["0.x"]
   # ── G117.1 (Wave-1/B3) — topology + endpoints + sso + multiInstance ──
@@ -95,15 +92,7 @@ spec:
     launchDefault: true
     ssoEnabled: true
   sso:
-    realm: '{{.OrgSlug}}'
+    realm: "{{.OrgSlug}}"
     protocolMapper: oidc
-    groupsClaim: groups
-    rolesFromGroup:
-      sovereign-admins: admin
     silentLogin: true
-  multiInstance:
-    enabled: true
-    maxPerOrg: 3
-    namingTemplate: '{{.AppName}}-{{.InstanceID}}'
-    isolationLevel: namespace
   # ── /G117.1 ──

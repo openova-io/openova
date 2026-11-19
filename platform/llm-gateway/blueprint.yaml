@@ -9,18 +9,14 @@ spec:
   version: 1.0.2
   card:
     title: LLM Gateway
-    summary: |
-      Subscription-aware LLM proxy. Wraps the upstream LiteLLM proxy
-      (`ghcr.io/berriai/litellm:main-stable`) and routes requests to
-      Anthropic (via the operator's Claude OAuth/Max subscription —
-      NEVER an ANTHROPIC_API_KEY), Bedrock, Vertex, OpenAI-compatible
-      backends (via bp-anthropic-adapter), and self-hosted vLLM. CNPG-
-      backed audit log; Keycloak SSO for human callers.
+    category: ai
+    family: llm-routing
+    summary: Multi-provider LLM router with rate limits, cost tracking, and prompt caching.
+    description: Provider-agnostic LLM gateway (OpenAI, Anthropic, Bedrock, local). Pairs with bp-langfuse for traces.
     icon: llm-gateway.svg
-    category: ai-runtime
-    tags: [llm, gateway, litellm, proxy, claude, openai, bedrock, vertex]
-    documentation: https://docs.litellm.ai/
-    license: MIT
+    license: Apache-2.0
+    tags: [ai, llm, gateway, routing, cost]
+    docs: https://github.com/openova-io/openova/tree/main/platform/llm-gateway
   visibility: listed
   owner:
     team: ai-platform
@@ -102,20 +98,10 @@ spec:
                 default: false
                 description: Route OpenAI-compatible callers to Claude via bp-anthropic-adapter.
   placementSchema:
-    modes: [single-region, active-active]
+    modes: [single-region]
     default: single-region
   manifests:
-    chart: ./chart
-  depends:
-    - blueprint: bp-cnpg
-      version: ^1.0
-      alias: db
-    - blueprint: bp-keycloak
-      version: ^1.0
-      alias: idp
-    - blueprint: bp-external-secrets
-      version: ^1.0
-      alias: eso
+    chart: bp-llm-gateway
   upgrades:
     from: ["0.x"]
   observability:
@@ -161,15 +147,7 @@ spec:
     launchDefault: true
     ssoEnabled: true
   sso:
-    realm: '{{.OrgSlug}}'
+    realm: "{{.OrgSlug}}"
     protocolMapper: oidc
-    groupsClaim: groups
-    rolesFromGroup:
-      sovereign-admins: admin
     silentLogin: true
-  multiInstance:
-    enabled: true
-    maxPerOrg: 5
-    namingTemplate: '{{.AppName}}-{{.InstanceID}}'
-    isolationLevel: namespace
   # ── /G117.1 ──

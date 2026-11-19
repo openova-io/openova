@@ -396,12 +396,12 @@ spec:
       active-hot-standby:
         replication:
           backend: cnpg-pair
-          mode: async
-          lagSloSeconds: 30
+          mode: sync
+          lagSloSeconds: 0
         switchover:
           mechanism: bp-continuum
-          rtoSeconds: 60
-          rpoSeconds: 30
+          rtoSeconds: 30
+          rpoSeconds: 0
         placement:
           # 1.4.489 (hw91): the seed predated the Blueprint CRD's
           # canonical placement vocabulary (pattern
@@ -1664,8 +1664,8 @@ spec:
   card:
     title: "Apache Guacamole"
     category: "platform"
-    summary: "Clientless HTML5 remote-desktop gateway. Browser-based RDP / VNC / SSH and kubectl-exec into Pods, with Keycloak SSO and full session recording to SeaweedFS. One Guacamole per Sovereign per ADR-0001 §11."
-    description: "Clientless HTML5 remote-desktop gateway. Browser-based RDP / VNC / SSH and kubectl-exec into Pods, with Keycloak SSO and full session recording to SeaweedFS. One Guacamole per Sovereign per ADR-0001 §11."
+    summary: "Clientless HTML5 remote-desktop gateway. Browser-based RDP / VNC / SSH and kubectl-exec into Pods, with Keycloak SSO. One Guacamole per Sovereign per ADR-0001 §11."
+    description: "Clientless HTML5 remote-desktop gateway. Browser-based RDP / VNC / SSH and kubectl-exec into Pods, with Keycloak SSO. One Guacamole per Sovereign per ADR-0001 §11."
     icon: "guacamole.svg"
   placementSchema:
     # #5358 — bp-guacamole 0.2.36 gained `crossRegion` (primary owns the
@@ -2836,7 +2836,7 @@ in-cluster SFU. Cilium-native Gateway integration (no separate
 Envoy/NGINX hop) — STUNner registers a GatewayClass + manages a
 UDP-listening Gateway whose backing Service is exposed on the
 Sovereign's UDP allocation port range (default 30000-32767, opened
-at the Hetzner firewall by the Sovereign's bp-firewall composition).
+at the firewall by the Sovereign's bp-firewall composition).
 "
     description: "K8s-native TURN/STUN media gateway for WebRTC NAT traversal. Wraps
 the upstream `stunner/stunner-gateway-operator` chart and ships
@@ -2846,7 +2846,7 @@ in-cluster SFU. Cilium-native Gateway integration (no separate
 Envoy/NGINX hop) — STUNner registers a GatewayClass + manages a
 UDP-listening Gateway whose backing Service is exposed on the
 Sovereign's UDP allocation port range (default 30000-32767, opened
-at the Hetzner firewall by the Sovereign's bp-firewall composition).
+at the firewall by the Sovereign's bp-firewall composition).
 "
     icon: "stunner.svg"
   placementSchema:
@@ -3417,7 +3417,7 @@ spec:
     title: "OpenBao"
     category: platform
     summary: "Per-Sovereign secret backend. 3-node Raft per region. Keycloak OIDC SSO. MPL-2.0 Vault replacement."
-    description: "OpenBao secret backend (Raft per region, async perf-replication across regions). UI + CLI login via the Keycloak OIDC auth method."
+    description: "OpenBao secret backend (Raft per region). UI + CLI login via the Keycloak OIDC auth method."
     icon: "openbao.svg"
   # placementSchema aligned with spec.topology below (#4212 Seam 3). This is
   # the catalog-seed copy the application-controller resolves by name when it
@@ -3447,7 +3447,7 @@ spec:
     perTopology:
       active-passive:
         replication:
-          backend: openbao-perf-replication
+          backend: raft
           mode: async
           lagSloSeconds: 30
         switchover:
@@ -5914,7 +5914,7 @@ spec:
     category: bss
     family: billing
     summary: "Usage ledger, rating and monthly statements for your Organizations and external cloud projects — collect allocation-hours, rate them against a price book, issue statements."
-    description: "Standalone chargeback / showback: PIN sign-in, customers with their own cost sources (Huawei projects via a read-only access key), a price book imported as CSV, allocation-based usage collected every 15 minutes, monthly draft statements issued as JSON or CSV."
+    description: "Standalone chargeback / showback: PIN sign-in, customers with their own cost sources (projects via a read-only access key), a price book imported as CSV, allocation-based usage collected every 15 minutes, monthly draft statements issued as JSON or CSV."
     icon: chargeback.svg
     license: "Apache-2.0"
     tags: [chargeback, showback, usage, rating, statements, bss]

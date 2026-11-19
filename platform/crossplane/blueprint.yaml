@@ -7,45 +7,25 @@ metadata:
 spec:
   version: 1.1.10
   card:
-    title: crossplane
-    summary: |
-      Crossplane core + provider-hcloud (controller-only payload). The
-      compose.openova.io/v1alpha1 XRDs and default Compositions ship in a
-      sibling Blueprint, bp-crossplane-claims, which depends on this one
-      via Flux HelmRelease `dependsOn` so the apiextensions.crossplane.io
-      CRDs registered here are live before the XRDs/Compositions apply.
-      Split rationale: a single Helm release cannot install a CRD AND a
-      CR of that CRD's kind in the same apply pass.
+    title: Crossplane
+    summary: Control-plane day-2 infrastructure provisioning. Renders Composite Resources (XRs) into cloud + in-cluster resources the Sovereign never surfaces to Users directly.
+    icon: crossplane.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
   manifests:
-    chart: ./chart
-  depends: []
+    chart: bp-crossplane
   topology:
-    supported:
-      - singleton
+    supported: [singleton]
     defaults:
       multi-region: singleton
       single-region: singleton
     perTopology:
       singleton:
-        replication:
-          backend: flux-git
-          mode: async
         placement:
-          tier: ''
-          clusters:
-            - mgmt-A
-            - mgmt-B
-            - dmz-A
-            - dmz-B
-            - rtz-A
-            - rtz-B
+          tier: mgmt
+          clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
-            mgmt-B: singleton
-            dmz-A: singleton
-            dmz-B: singleton
-            rtz-A: singleton
-            rtz-B: singleton
-  multiInstance:
-    enabled: false
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  endpoints: []

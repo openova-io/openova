@@ -6,11 +6,12 @@ metadata:
     catalyst.openova.io/section: pts-3-observability
 spec:
   version: 1.2.2
-  visibility: unlisted
+  visibility: listed
   card:
     title: Velero
     family: insights
     description: Kubernetes-native backup and disaster recovery. Backups land directly in the Sovereign's cloud-provider object storage (Hetzner Object Storage, AWS S3, Azure Blob, …) per ADR-0001 §13's S3-aware-app architecture rule.
+    icon: velero.svg
     docs: https://velero.io/docs/
   topology:
     supported:
@@ -39,5 +40,9 @@ spec:
             dmz-B: singleton
             rtz-A: singleton
             rtz-B: singleton
-  multiInstance:
-    enabled: false
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-velero
+  endpoints: []

@@ -108,17 +108,14 @@ spec:
   version: 0.2.35
   card:
     title: PostgreSQL
-    summary: |
-      A reusable, shareable PostgreSQL data-instance. Each install is ONE
-      CNPG Cluster — the engine — and a first-class App card. Consumers
-      SHARE it via isolated databases + per-consumer roles (ADR-0010):
-      the binding is pure declarative YAML (a CNPG `Database` CR + a
-      `managed.roles` entry + a reflected connection Secret + a Flux
-      `dependsOn` edge) reconciled by Flux + the CNPG operator. NO custom
-      controller and NO Crossplane. topology: active-hot-standby renders
-      the Pillar-3 synchronous-replication shape (ADR-0004).
-    icon: postgres.svg
     category: data
+    family: postgres
+    summary: A reusable, shareable PostgreSQL data-instance. Each install is ONE CNPG Cluster — the engine — and a first-class App card. Consumers SHARE it via isolated databases + per-consumer roles (ADR-0010).
+    description: "The binding is pure declarative YAML (a CNPG Database CR + a managed.roles entry + a reflected connection Secret + a Flux dependsOn edge) reconciled by Flux + the CNPG operator. NO custom controller and NO Crossplane. topology: active-hot-standby renders the Pillar-3 synchronous-replication shape (ADR-0004)."
+    icon: postgres.svg
+    license: Apache-2.0
+    tags: [database, postgres, sql, data, shareable, cnpg, adr-0010]
+    docs: https://cloudnative-pg.io/documentation/
   # listed — this IS the operator-facing data-instance card (unlike
   # bp-cnpg, the engine OPERATOR, which stays unlisted). The PostgreSQL
   # ENGINE CLASS is shown once via bp-cnpg under Platform/engines; the N
@@ -277,20 +274,7 @@ spec:
     modes: [singleton, active-active, active-hot-standby, active-passive]
     default: singleton
   manifests:
-    chart: ./chart
-  # Runtime dependencies — Flux gates Apply until each is reconciled.
-  depends:
-    # CNPG operator + CRDs (Cluster + Database + managed.roles). bp-cnpg
-    # is the ENGINE; bp-postgres is the INSTANCE. The Flux dependsOn edge
-    # for a bp-postgres instance HR is bp-cnpg.
-    - blueprint: bp-cnpg
-      version: ^1
-      alias: cnpg
-    # bp-reflector mirrors the CNPG-generated role Secret into consumer
-    # namespaces (externalDatabase mode).
-    - blueprint: bp-reflector
-      version: ^1
-      alias: reflector
+    chart: bp-postgres
   upgrades:
     from: ["0.x"]
   # ── Topology — multi-region BCP ─────────────────────────────────────
@@ -335,3 +319,4 @@ spec:
     maxPerOrg: 0           # 0 = unlimited
     namingTemplate: '{{.AppName}}-{{.InstanceID}}'
     isolationLevel: namespace
+  endpoints: []

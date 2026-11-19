@@ -35,18 +35,14 @@ spec:
   version: 0.1.9
   card:
     title: OpenOva MCP
-    summary: |
-      The OpenOva MCP server — exposes your OpenOva surface (Applications,
-      Environments, Organizations) as MCP tools for AI agents, RBAC-scoped
-      per user so an agent can do exactly what YOU can do in the console —
-      nothing more. A thin facade over the live catalyst-api: every call
-      forwards your own session, so the platform's authz is the final word.
-    icon: openova-mcp.svg
     category: ai-runtime
     family: agent-runtime
-    tags: [mcp, agent, rbac, thin-facade, pillar-4]
-    documentation: https://github.com/openova-io/openova
+    summary: The RBAC-scoped OpenOva MCP server — exposes Applications, Environments and Organizations as MCP tools whose surface is exactly what the calling User can do in the console.
+    description: "A thin facade over the live catalyst-api: every data tool forwards the caller's own bearer, so the platform's authz is the final word and the server holds no privileged token. mode=organization pins the instance to a single Organization's scope and tool subset."
+    icon: openova-mcp.svg
     license: MIT
+    tags: [mcp, agent, rbac, thin-facade, pillar-4]
+    docs: https://github.com/openova-io/openova
   # unlisted — infrastructure component: the sovereign-mode instance is
   # auto-installed by bootstrap-kit slot 13d; the per-Org instance installs
   # standalone through the SAME Application-CR door bp-agenity's embedded
@@ -129,12 +125,7 @@ spec:
     modes: [single-region]
     default: single-region
   manifests:
-    chart: ./chart
-  # #3988 §4.4 declares dependsOn bp-chepherd — DEVIATION (recorded on
-  # #5114): no bp-chepherd Blueprint exists in this catalog; the chepherd
-  # runtime ships bundled inside bp-agenity. Standalone-capable — zero
-  # Blueprint dependencies. Add bp-chepherd here when it lands.
-  depends: []
+    chart: bp-openova-mcp
   upgrades:
     from: ["0.x"]
   observability:

@@ -10,6 +10,7 @@ spec:
     title: SeaweedFS
     family: foundation
     description: Unified S3-compatible object storage encapsulation. Master + volume + filer + S3 services. Single S3 surface that every consumer (Loki, Mimir, Tempo, Velero, Harbor, CNPG WAL, OpenSearch snapshots) talks to; SeaweedFS handles tiered storage hot→warm→cold, with cold-tier offload to Cloudflare R2 / AWS S3 Glacier / Hetzner Object Storage configured per-Sovereign.
+    icon: seaweedfs.svg
     docs: https://github.com/seaweedfs/seaweedfs/wiki
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
   configSchema:
@@ -46,26 +47,11 @@ spec:
         default: true
         description: Prefix every resource with `seaweedfs-` so multi-tenant namespacing works (one SeaweedFS per Sovereign vs. shared deployments).
   placementSchema:
-    modes: [single-region, active-active, active-hotstandby]
+    modes: [single-region, active-active]
     default: single-region
-    minRegions: 1
-    maxRegions: 5
-  # ── #3373: class-level placement SUGGESTION + allow-list ────────────────
-  # Placement is an INSTANCE property (Application.spec.placement); this is
-  # only the default every instance inherits silently — the provisioning
-  # journey's generic advanced selector (and a direct Git edit of the
-  # instance's spec.placement) may override it within allowedPlacements.
-  # Founder §4 table target: rtz. Single render mechanism: the Flux
-  # spec.kubeConfig.secretRef pivot — zero per-app placement code.
-  defaultPlacement:
-    vcluster: rtz
-  allowedPlacements: [host, rtz]
 
   manifests:
-    chart: ./chart
-  depends:
-    - blueprint: bp-cert-manager     # S3 endpoint terminates TLS via cert-manager-issued cert
-      version: ^1
+    chart: bp-seaweedfs
   upgrades:
     from: ["0.x"]
   topology:
@@ -102,5 +88,3 @@ spec:
       protocol: https
       tls: true
       visibility: internal
-  multiInstance:
-    enabled: false

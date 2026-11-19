@@ -9,32 +9,23 @@ spec:
   visibility: unlisted
   card:
     title: Trivy
-    family: guardian
-    description: Vulnerability and misconfiguration scanner operator. Scans workloads, images, IaC, RBAC. Targets bp-* namespaces; pairs with bp-falco (runtime) and bp-kyverno (admission).
-    docs: https://aquasecurity.github.io/trivy-operator/
+    summary: Trivy Operator — continuous in-cluster vulnerability, misconfiguration, and secret scanning. Surfaces VulnerabilityReport CRs for every workload.
+    icon: trivy.svg
   topology:
-    supported:
-      - singleton
+    supported: [singleton]
     defaults:
       multi-region: singleton
       single-region: singleton
     perTopology:
       singleton:
         placement:
-          tier: ''
-          clusters:
-            - mgmt-A
-            - mgmt-B
-            - dmz-A
-            - dmz-B
-            - rtz-A
-            - rtz-B
+          tier: mgmt
+          clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
-            mgmt-B: singleton
-            dmz-A: singleton
-            dmz-B: singleton
-            rtz-A: singleton
-            rtz-B: singleton
-  multiInstance:
-    enabled: false
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-trivy
+  endpoints: []

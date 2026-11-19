@@ -9,21 +9,13 @@ spec:
   version: 1.1.0
   card:
     title: Matrix (Synapse)
-    summary: |
-      Self-hosted, federation-capable team chat. Synapse is the
-      reference Matrix homeserver implementation — Catalyst's per-
-      Sovereign tenancy default keeps federation OFF (private rooms
-      only), and operator overlays toggle it on per-Organization for
-      cross-Sovereign collaboration. Hosted at chat.<sovereign-fqdn>
-      with a paired Element-Web client at chat-web.<sovereign-fqdn>.
-      OIDC SSO via bp-keycloak; Postgres backend via bp-cnpg.
-      ("Synapse" here = the Matrix server implementation, NOT the
-      retired OpenOva product noun.)
-    icon: matrix.svg
     category: application
-    tags: [chat, messaging, federation, e2ee, oidc, application]
-    documentation: https://element-hq.github.io/synapse/
+    summary: "Self-hosted, federation-capable team chat. Synapse is the reference Matrix homeserver implementation — Catalyst's per- Sovereign tenancy default keeps federation OFF (private rooms only), and operator overlays toggle it on per-Organization for cross-Sovereign collaboration. Hosted at chat.<sovereign-fqdn> with a paired Element-Web client at chat-web.<sovereign-fqdn>. OIDC SSO via bp-keycloak; Postgres backend via bp-cnpg. (\"Synapse\" here = the Matrix server implementation, NOT the retired OpenOva product noun.) "
+    description: "Self-hosted, federation-capable team chat. Synapse is the reference Matrix homeserver implementation — Catalyst's per- Sovereign tenancy default keeps federation OFF (private rooms only), and operator overlays toggle it on per-Organization for cross-Sovereign collaboration. Hosted at chat.<sovereign-fqdn> with a paired Element-Web client at chat-web.<sovereign-fqdn>. OIDC SSO via bp-keycloak; Postgres backend via bp-cnpg. (\"Synapse\" here = the Matrix server implementation, NOT the retired OpenOva product noun.) "
+    icon: matrix.svg
     license: AGPL-3.0
+    tags: [chat, messaging, federation, e2ee, oidc, application]
+    docs: https://element-hq.github.io/synapse/
   visibility: listed
   owner:
     team: platform
@@ -122,17 +114,8 @@ spec:
   placementSchema:
     modes: [single-region]
     default: single-region
-    minRegions: 1
-    maxRegions: 1
   manifests:
-    chart: ./chart
-  depends:
-    - blueprint: bp-cnpg               # Postgres backend (postgresql.cnpg.io/v1.Cluster)
-      version: ^1
-    - blueprint: bp-keycloak           # OIDC SSO
-      version: ^1
-    - blueprint: bp-cert-manager       # ingress TLS via ClusterIssuer
-      version: ^1
+    chart: bp-matrix
   upgrades:
     from: ["0.x"]
   observability:
@@ -187,9 +170,4 @@ spec:
     rolesFromGroup:
       sovereign-admins: admin
     silentLogin: true
-  multiInstance:
-    enabled: true
-    maxPerOrg: 3
-    namingTemplate: '{{.AppName}}-{{.InstanceID}}'
-    isolationLevel: namespace
   # ── /G117.1 ──

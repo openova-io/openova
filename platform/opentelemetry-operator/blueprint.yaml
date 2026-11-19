@@ -8,14 +8,8 @@ spec:
   version: 1.0.6
   card:
     title: OpenTelemetry Operator
-    summary: |
-      Auto-injection of OTel SDK sidecars into Pods via Instrumentation
-      CRs. Companion to bp-opentelemetry (the collector). Activated by
-      Wave 5.41 (#2227) to unblock #2215 — splits Operator + CRDs out
-      of bp-opentelemetry so Helm 3's subchart-CRDs-on-upgrade race
-      doesn't reoccur.
-    family: observability
-    documentation: ./README.md
+    summary: Manages OpenTelemetry Collector + auto-instrumentation CRs across the Sovereign — the operator layer behind the LGTM telemetry pipeline.
+    icon: opentelemetry.svg
   visibility: unlisted
   owner:
     team: platform
@@ -54,42 +48,22 @@ spec:
             properties:
               enabled: {type: boolean, default: false}
   placementSchema:
-    modes: [single-region, active-active]
-    default: active-active
-    minRegions: 1
-    maxRegions: 5
+    modes: [single-region]
+    default: single-region
   manifests:
-    chart: ./chart
-  depends:
-    - blueprint: bp-opentelemetry
-      version: ^1
-    - blueprint: bp-cert-manager
-      version: ^1
+    chart: bp-opentelemetry-operator
   upgrades:
     from: ["0.x"]
   topology:
-    supported:
-      - singleton
+    supported: [singleton]
     defaults:
       multi-region: singleton
       single-region: singleton
     perTopology:
       singleton:
         placement:
-          tier: ''
-          clusters:
-            - mgmt-A
-            - mgmt-B
-            - dmz-A
-            - dmz-B
-            - rtz-A
-            - rtz-B
+          tier: mgmt
+          clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
-            mgmt-B: singleton
-            dmz-A: singleton
-            dmz-B: singleton
-            rtz-A: singleton
-            rtz-B: singleton
-  multiInstance:
-    enabled: false
+  endpoints: []

@@ -8,19 +8,11 @@ metadata:
 spec:
   version: 1.2.79
   card:
-    title: openbao
-    summary: OpenBao secret backend. 3-node Raft per region (independent quorum, async perf-replication across regions). MPL 2.0 — drop-in Vault replacement.
+    title: OpenBao
+    summary: Per-Sovereign secret backend. 3-node Raft per region. Keycloak OIDC SSO. MPL-2.0 Vault replacement.
+    description: OpenBao secret backend (Raft per region). UI + CLI login via the Keycloak OIDC auth method.
+    icon: openbao.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
-  # ── #3373: class-level placement SUGGESTION + allow-list ────────────────
-  # Placement is an INSTANCE property (Application.spec.placement); this is
-  # only the default every instance inherits silently — the provisioning
-  # journey's generic advanced selector (and a direct Git edit of the
-  # instance's spec.placement) may override it within allowedPlacements.
-  # Founder §4 table target: mgmt. Single render mechanism: the Flux
-  # spec.kubeConfig.secretRef pivot — zero per-app placement code.
-  defaultPlacement:
-    vcluster: mgmt
-  allowedPlacements: [host, mgmt]
 
   # placementSchema aligned with spec.topology below (#4212 Seam 3). The
   # application-controller validates an Application's spec.placement against
@@ -34,12 +26,9 @@ spec:
     modes: [singleton, active-passive]
     default: singleton
     defaultOnMultiRegion: active-passive
-    minRegions: 1
-    maxRegions: 2
 
   manifests:
-    chart: ./chart
-  depends: []
+    chart: bp-openbao
 
   # ── G117.1: Topology declaration ────────────────────────────────────────
   # Per docs/sessions/2026-06-02-per-blueprint-topology-audit.md +
@@ -56,9 +45,7 @@ spec:
   # disallowed by schema (requires sync mode); the raft replication stream is
   # async.
   topology:
-    supported:
-      - active-passive
-      - singleton
+    supported: [active-passive, singleton]
     defaults:
       multi-region: active-passive
       single-region: singleton
@@ -72,26 +59,17 @@ spec:
           lagSloSeconds: 30
         switchover:
           mechanism: raft-transition
-          rtoSeconds: 60
-          rpoSeconds: 30
+          rtoSeconds: 30
+          rpoSeconds: 0
         placement:
-          # #4402 (#4325 de-vcluster fallout): the `mgmt` plane vCluster was
-          # removed; the spine lands host-native in its own host namespace
-          # (openbao/keycloak/harbor/gitea). The #4334 spine producer drives
-          # this Blueprint through the application-controller fan-out, which
-          # resolved `tier: mgmt` → host ns `mgmt` (now absent) → the spine
-          # Application Degraded with `namespaces "mgmt" not found` and never
-          # reached the Continuum producer. Host placement = empty tier; keep
-          # the mgmt-A/-B region designators for the multi-region split.
-          # Mirrors the per-Org #4375/#4379 tier:rtz→'' repoint.
-          tier: ''
+          tier: ""
           clusters: [mgmt-A, mgmt-B]
           roles:
             mgmt-A: active
             mgmt-B: passive
       singleton:
         placement:
-          tier: ''
+          tier: ""
           clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
@@ -150,6 +128,3 @@ spec:
       sovereign-admins: admin
     silentLogin: true
 
-  # ── G117.6: Multi-instance ─────────────────────────────────────────────
-  multiInstance:
-    enabled: false

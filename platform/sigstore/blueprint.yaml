@@ -10,38 +10,31 @@ spec:
   card:
     title: Sigstore Policy Controller
     family: guardian
-    description: Admission controller for signed-image enforcement (Sigstore/Cosign). Verifies signatures + attestations on container images before admission. Pairs with bp-harbor/bp-cosign for the supply-chain trust path.
+    description: Admission controller for signed-image enforcement (Sigstore/Cosign). Verifies signatures + attestations on container images before admission. Pairs with bp-harbor for the supply-chain trust path.
+    icon: sigstore.svg
     docs: https://docs.sigstore.dev/policy-controller/overview/
   topology:
-    supported:
-      - singleton
+    supported: [singleton]
     defaults:
       multi-region: singleton
       single-region: singleton
     perTopology:
       singleton:
         placement:
-          tier: ''
-          clusters:
-            - mgmt-A
-            - mgmt-B
-            - dmz-A
-            - dmz-B
-            - rtz-A
-            - rtz-B
+          tier: mgmt
+          clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
-            mgmt-B: singleton
-            dmz-A: singleton
-            dmz-B: singleton
-            rtz-A: singleton
-            rtz-B: singleton
   endpoints:
     - name: cosign
-      hostnameTemplate: cosign.{{.SovereignFQDN}}
+      hostnameTemplate: "cosign.{{.SovereignFQDN}}"
       port: 443
       protocol: https
       tls: true
       visibility: private
-  multiInstance:
-    enabled: false
+      launchDefault: false
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-sigstore

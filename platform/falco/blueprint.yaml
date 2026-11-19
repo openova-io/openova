@@ -9,9 +9,8 @@ spec:
   visibility: unlisted
   card:
     title: Falco
-    family: guardian
-    description: Runtime threat detection (CNCF Graduated). eBPF kernel-level syscall monitoring for container escapes, privilege escalation, anomalous behavior. Feeds the SIEM pipeline via Falcosidekick.
-    docs: https://falco.org/docs/
+    summary: Runtime security — eBPF syscall + Kubernetes-audit threat detection. Streams security events to the Sovereign observability stack.
+    icon: falco.svg
   topology:
     supported:
       - singleton
@@ -36,5 +35,9 @@ spec:
             dmz-B: singleton
             rtz-A: singleton
             rtz-B: singleton
-  multiInstance:
-    enabled: false
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-falco
+  endpoints: []

@@ -9,32 +9,23 @@ spec:
   visibility: unlisted
   card:
     title: Syft + Grype
-    family: guardian
-    description: SBOM generation (Syft) + vulnerability scanning (Grype) as a scheduled CronJob. Anchore tools — no upstream Helm chart, scratch chart wires the official containers.
-    docs: https://github.com/anchore/grype
+    summary: SBOM generation (Syft) + vulnerability scanning (Grype) for the Sovereign supply chain — produces and scans image bills-of-materials in the CI/admission path.
+    icon: grype.svg
   topology:
-    supported:
-      - singleton
+    supported: [singleton]
     defaults:
       multi-region: singleton
       single-region: singleton
     perTopology:
       singleton:
         placement:
-          tier: ''
-          clusters:
-            - mgmt-A
-            - mgmt-B
-            - dmz-A
-            - dmz-B
-            - rtz-A
-            - rtz-B
+          tier: mgmt
+          clusters: [mgmt-A]
           roles:
             mgmt-A: singleton
-            mgmt-B: singleton
-            dmz-A: singleton
-            dmz-B: singleton
-            rtz-A: singleton
-            rtz-B: singleton
-  multiInstance:
-    enabled: false
+  placementSchema:
+    modes: [single-region]
+    default: single-region
+  manifests:
+    chart: bp-syft-grype
+  endpoints: []

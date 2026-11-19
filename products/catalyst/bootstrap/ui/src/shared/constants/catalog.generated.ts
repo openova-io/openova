@@ -140,7 +140,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-agenity",
     "slug": "agenity",
     "title": "Agenity",
-    "summary": "Your AI engineering team — a multi-agent runtime + dashboard you\ninstall into your own Organization. Chat with the built-in solo\nagent (Claude Opus 4.7, token pre-configured); it creates and\nmanages Applications in YOUR Organization on your behalf through the\nOpenOva MCP, scoped to exactly what you can do in the console.\n",
+    "summary": "Your AI engineering team — chat with a built-in solo agent (Claude Opus 4.7) that creates Applications in your Organization for you.",
     "icon": "agenity.svg",
     "category": "ai-runtime",
     "tagline": null,
@@ -156,9 +156,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "listed",
     "version": "0.5.34",
     "section": "pts-7-org-tenant",
-    "depends": [
-      "bp-external-secrets"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -191,11 +189,11 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "slug": "alloy",
     "title": "Alloy",
     "summary": "",
-    "icon": null,
+    "icon": "alloy.svg",
     "category": null,
     "tagline": null,
     "tags": [],
-    "visibility": "unlisted",
+    "visibility": "listed",
     "version": "1.0.3",
     "section": "pts-3-observability",
     "depends": [],
@@ -331,9 +329,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "listed",
     "version": "1.0.0",
     "section": "pts-4-6-llm-serving",
-    "depends": [
-      "bp-cnpg"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -456,21 +452,15 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-catalyst-platform",
     "slug": "catalyst-platform",
     "title": "Catalyst Platform",
-    "summary": "Umbrella Blueprint for the Catalyst control plane. Brings up the\nconsole, marketplace, admin, catalog-svc, projector, provisioning,\nenvironment-controller, blueprint-controller, and billing services.\nOnce this Helm release is Ready, the Sovereign is fully self-sufficient:\nthe sovereign-admin logs into console.<sovereignFQDN> and proceeds\nwith Phase 2 day-1 setup. See docs/ARCHITECTURE.md §11 (Catalyst-on-\nCatalyst) and bootstrap-kit slot 13.\n",
-    "icon": null,
+    "summary": "Umbrella Blueprint for the Catalyst control plane — console, marketplace, admin, catalog-svc, projector, provisioning, environment/blueprint controllers, billing. Once Ready the Sovereign is self-sufficient.",
+    "icon": "catalyst.svg",
     "category": null,
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
     "version": "0.0.0",
     "section": "pts-2-3-per-sovereign-supporting-services",
-    "depends": [
-      "bp-gitea",
-      "bp-gateway-api",
-      "bp-keycloak",
-      "bp-cnpg",
-      "bp-crossplane-claims"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -526,8 +516,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-cert-manager",
     "slug": "cert-manager",
     "title": "cert-manager",
-    "summary": "TLS certificate automation. Lets Encrypt issuer with Dynadot DNS-01 for omani.works pool, HTTP-01 for BYO domains.",
-    "icon": null,
+    "summary": "X.509 certificate automation for Kubernetes — Let's Encrypt ACME issuance, renewal, and the controllers + CRDs the Sovereign's ClusterIssuers (bp-cert-manager-issuers) bind against.",
+    "icon": "cert-manager.svg",
     "category": null,
     "tagline": null,
     "tags": [],
@@ -535,118 +525,6 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "version": "1.2.8",
     "section": "pts-3-3-security-and-policy",
     "depends": [],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "singleton"
-      ],
-      "multiRegion": "singleton",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "singleton": {
-          "replication": {
-            "backend": "openbao-perf-replication",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
-          "switchover": null,
-          "placement": {
-            "tier": "",
-            "clusters": [
-              "mgmt-A",
-              "mgmt-B",
-              "dmz-A",
-              "dmz-B",
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "mgmt-A": "singleton",
-              "mgmt-B": "singleton",
-              "dmz-A": "singleton",
-              "dmz-B": "singleton",
-              "rtz-A": "singleton",
-              "rtz-B": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": false
-  },
-  {
-    "id": "bp-cert-manager-issuers",
-    "slug": "cert-manager-issuers",
-    "title": "cert-manager — Issuers",
-    "summary": "Default Let's Encrypt ClusterIssuer CR(s) (letsencrypt-dns01-prod,\nletsencrypt-http01-prod). Split from bp-cert-manager (#3734) to\nresolve the helm-controller RESTMapper-cache CRD-ordering race — the\nClusterIssuer CRs cannot live in the same Helm release as the\ncert-manager subchart that registers their CRD; Flux dependsOn orders\nthis chart after bp-cert-manager is Ready so a fresh reconcile maps\nthe ClusterIssuer kind and the CRs apply cleanly.\n\nMirrors the bp-external-secrets-stores / bp-crossplane-claims pattern.\n",
-    "icon": "cert-manager.svg",
-    "category": "security",
-    "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
-    "version": "1.0.2",
-    "section": "pts-3-3-security-and-policy",
-    "depends": [
-      "bp-cert-manager"
-    ],
-    "shareable": false,
-    "contextSchema": null,
-    "producesInstances": null,
-    "topology": {
-      "supported": [
-        "singleton"
-      ],
-      "multiRegion": "singleton",
-      "singleRegion": "singleton",
-      "perTopology": {
-        "singleton": {
-          "replication": {
-            "backend": "flux-git",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
-          "switchover": null,
-          "placement": {
-            "tier": "",
-            "clusters": [
-              "mgmt-A",
-              "mgmt-B",
-              "dmz-A",
-              "dmz-B",
-              "rtz-A",
-              "rtz-B"
-            ],
-            "roles": {
-              "mgmt-A": "singleton",
-              "mgmt-B": "singleton",
-              "dmz-A": "singleton",
-              "dmz-B": "singleton",
-              "rtz-A": "singleton",
-              "rtz-B": "singleton"
-            }
-          }
-        }
-      }
-    },
-    "hasUserUIEndpoint": false
-  },
-  {
-    "id": "bp-cert-manager-powerdns-webhook",
-    "slug": "cert-manager-powerdns-webhook",
-    "title": "cert-manager-powerdns-webhook",
-    "summary": "cert-manager DNS-01 external webhook for PowerDNS. Lets the\nletsencrypt-dns01-prod-powerdns ClusterIssuer (shipped by this\nblueprint) issue wildcard TLS certificates (e.g. *.<sovereign>)\nby writing ACME challenge TXT records to contabo's central\nPowerDNS at https://pdns.openova.io (authoritative for omani.works\nbecause Dynadot delegates the zone to ns1/2/3.openova.io). Caught\nlive on otech43–46. Closes openova#373; supersedes\nbp-cert-manager-dynadot-webhook for omani.works Sovereigns.\n",
-    "icon": null,
-    "category": null,
-    "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
-    "version": "1.1.1",
-    "section": "pts-3-3-security-and-policy",
-    "depends": [
-      "bp-cert-manager"
-    ],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -677,6 +555,96 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
               "dmz-B": "singleton",
               "rtz-A": "singleton",
               "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    },
+    "hasUserUIEndpoint": false
+  },
+  {
+    "id": "bp-cert-manager-issuers",
+    "slug": "cert-manager-issuers",
+    "title": "cert-manager — Issuers",
+    "summary": "The Sovereign's Let's Encrypt ClusterIssuers (letsencrypt-dns01-prod, letsencrypt-http01-prod). Split from bp-cert-manager (#3734) into a separate HelmRelease (dependsOn bp-cert-manager) so a fresh helm-controller reconcile maps the ClusterIssuer kind after its CRD registers.",
+    "icon": "cert-manager.svg",
+    "category": "security",
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.0.2",
+    "section": "pts-3-3-security-and-policy",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "producesInstances": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "",
+            "clusters": [
+              "mgmt-A",
+              "mgmt-B",
+              "dmz-A",
+              "dmz-B",
+              "rtz-A",
+              "rtz-B"
+            ],
+            "roles": {
+              "mgmt-A": "singleton",
+              "mgmt-B": "singleton",
+              "dmz-A": "singleton",
+              "dmz-B": "singleton",
+              "rtz-A": "singleton",
+              "rtz-B": "singleton"
+            }
+          }
+        }
+      }
+    },
+    "hasUserUIEndpoint": false
+  },
+  {
+    "id": "bp-cert-manager-powerdns-webhook",
+    "slug": "cert-manager-powerdns-webhook",
+    "title": "cert-manager PowerDNS Webhook",
+    "summary": "ACME DNS-01 solver webhook that lets cert-manager satisfy Let's Encrypt DNS-01 challenges against the Sovereign's own PowerDNS authoritative zones.",
+    "icon": "cert-manager.svg",
+    "category": null,
+    "tagline": null,
+    "tags": [],
+    "visibility": "unlisted",
+    "version": "1.1.1",
+    "section": "pts-3-3-security-and-policy",
+    "depends": [],
+    "shareable": false,
+    "contextSchema": null,
+    "producesInstances": null,
+    "topology": {
+      "supported": [
+        "singleton"
+      ],
+      "multiRegion": "singleton",
+      "singleRegion": "singleton",
+      "perTopology": {
+        "singleton": {
+          "replication": null,
+          "switchover": null,
+          "placement": {
+            "tier": "mgmt",
+            "clusters": [
+              "mgmt-A"
+            ],
+            "roles": {
+              "mgmt-A": "singleton"
             }
           }
         }
@@ -838,12 +806,18 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
   {
     "id": "bp-clickhouse",
     "slug": "clickhouse",
-    "title": "Clickhouse",
-    "summary": "Scaffold-only Application Blueprint — chart not yet packaged.\nTopology + endpoints + sso + multiInstance are declared per the\nG117.1 audit so downstream Catalyst surfaces can render against\nit.\n",
-    "icon": null,
+    "title": "ClickHouse",
+    "summary": "Column-oriented OLAP database. Sub-second queries over billions of rows.",
+    "icon": "clickhouse.svg",
     "category": null,
     "tagline": null,
-    "tags": [],
+    "tags": [
+      "analytics",
+      "olap",
+      "columnar",
+      "sql",
+      "clickhouse"
+    ],
     "visibility": "unlisted",
     "version": "0.0.0",
     "section": "pts-4-application-tier",
@@ -903,8 +877,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-cluster-autoscaler-hcloud",
     "slug": "cluster-autoscaler-hcloud",
     "title": "Cluster Autoscaler (Hetzner)",
-    "summary": "",
-    "icon": null,
+    "summary": "Kubernetes Cluster Autoscaler with the Hetzner Cloud provider — scales worker node pools up/down to match scheduled-Pod demand on hcloud-backed Sovereigns.",
+    "icon": "cluster-autoscaler.svg",
     "category": null,
     "tagline": null,
     "tags": [],
@@ -926,22 +900,12 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "",
+            "tier": "mgmt",
             "clusters": [
-              "mgmt-A",
-              "mgmt-B",
-              "dmz-A",
-              "dmz-B",
-              "rtz-A",
-              "rtz-B"
+              "mgmt-A"
             ],
             "roles": {
-              "mgmt-A": "singleton",
-              "mgmt-B": "singleton",
-              "dmz-A": "singleton",
-              "dmz-B": "singleton",
-              "rtz-A": "singleton",
-              "rtz-B": "singleton"
+              "mgmt-A": "singleton"
             }
           }
         }
@@ -953,17 +917,21 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-cnpg",
     "slug": "cnpg",
     "title": "CloudNativePG",
-    "summary": "Production-grade PostgreSQL operator. Per-Sovereign Postgres-as-a-\nservice via postgresql.cnpg.io/v1.Cluster CRs. Bootstrap-kit slot 16\n— required by every PG-backed bootstrap component (bp-powerdns,\nbp-keycloak HA, bp-gitea metadata, bp-langfuse, bp-grafana config DB,\nbp-temporal, bp-matrix synapse, bp-llm-gateway, bp-bge,\nbp-nemo-guardrails, bp-openmeter, pool-domain-manager).\n",
-    "icon": "cnpg.svg",
-    "category": "data",
+    "summary": "PostgreSQL operator for Kubernetes (HA primary/replica, automated backups, point-in-time recovery).",
+    "icon": "postgres.svg",
+    "category": "database",
     "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
+    "tags": [
+      "database",
+      "postgres",
+      "sql",
+      "operator",
+      "ha"
+    ],
+    "visibility": "listed",
     "version": "1.0.17",
     "section": "pts-4-1-data-services",
-    "depends": [
-      "bp-flux"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": {
@@ -1008,19 +976,25 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-cnpg-pair",
     "slug": "cnpg-pair",
     "title": "CNPG Cluster-Pair (Active-Hotstandby DR)",
-    "summary": "Active-hotstandby CNPG cluster-pair across two Sovereign regions\n(two separate clusters joined by Cilium ClusterMesh). Each\ncluster installs the chart with `side` selecting its half:\nside=primary renders the primary postgresql.cnpg.io/v1.Cluster\nCR + the ClusterMesh-global replication Service in region A;\nside=replica renders the replica Cluster CR in region B\n(replica.enabled=true + externalCluster, CNPG's separate-cluster\nreplica pattern) streaming WAL over the mesh Service, plus the\nfailover-readiness probe Pod that flips Ready when WAL lag <\nthreshold so Continuum K-Cont-2 can promote on operator-\ntriggered switchover. Per ADR-0001 §9 the replication transport\nis ClusterMesh — never public TLS.\n",
+    "summary": "Active-hot-standby CNPG cluster-pair across two regions. WAL streams over Cilium ClusterMesh for cross-region DR.",
     "icon": "cnpg-pair.svg",
-    "category": "data",
+    "category": "database",
     "tagline": null,
-    "tags": [],
+    "tags": [
+      "database",
+      "postgres",
+      "ha",
+      "dr",
+      "disaster-recovery",
+      "multi-region",
+      "active-hot-standby",
+      "clustermesh",
+      "cnpg"
+    ],
     "visibility": "listed",
     "version": "0.2.33",
     "section": "pts-9-disaster-recovery",
-    "depends": [
-      "bp-cnpg",
-      "bp-hcloud-csi",
-      "bp-cilium"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -1039,11 +1013,11 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           },
           "switchover": {
             "mechanism": "bp-continuum",
-            "rtoSeconds": 10,
+            "rtoSeconds": 30,
             "rpoSeconds": 0
           },
           "placement": {
-            "tier": "rtz",
+            "tier": "",
             "clusters": [
               "rtz-A",
               "rtz-B"
@@ -1061,9 +1035,9 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
   {
     "id": "bp-crossplane",
     "slug": "crossplane",
-    "title": "crossplane",
-    "summary": "Crossplane core + provider-hcloud (controller-only payload). The\ncompose.openova.io/v1alpha1 XRDs and default Compositions ship in a\nsibling Blueprint, bp-crossplane-claims, which depends on this one\nvia Flux HelmRelease `dependsOn` so the apiextensions.crossplane.io\nCRDs registered here are live before the XRDs/Compositions apply.\nSplit rationale: a single Helm release cannot install a CRD AND a\nCR of that CRD's kind in the same apply pass.\n",
-    "icon": null,
+    "title": "Crossplane",
+    "summary": "Control-plane day-2 infrastructure provisioning. Renders Composite Resources (XRs) into cloud + in-cluster resources the Sovereign never surfaces to Users directly.",
+    "icon": "crossplane.svg",
     "category": null,
     "tagline": null,
     "tags": [],
@@ -1082,29 +1056,15 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "singleRegion": "singleton",
       "perTopology": {
         "singleton": {
-          "replication": {
-            "backend": "flux-git",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
+          "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "",
+            "tier": "mgmt",
             "clusters": [
-              "mgmt-A",
-              "mgmt-B",
-              "dmz-A",
-              "dmz-B",
-              "rtz-A",
-              "rtz-B"
+              "mgmt-A"
             ],
             "roles": {
-              "mgmt-A": "singleton",
-              "mgmt-B": "singleton",
-              "dmz-A": "singleton",
-              "dmz-B": "singleton",
-              "rtz-A": "singleton",
-              "rtz-B": "singleton"
+              "mgmt-A": "singleton"
             }
           }
         }
@@ -1115,18 +1075,16 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
   {
     "id": "bp-crossplane-claims",
     "slug": "crossplane-claims",
-    "title": "crossplane-claims",
-    "summary": "Catalyst Crossplane XRDs (compose.openova.io/v1alpha1 family) +\ndefault Compositions. Splits the CRD-and-CR ordering bind from\nbp-crossplane: this Blueprint MUST be installed AFTER bp-crossplane is\nReady so the apiextensions.crossplane.io CRDs that the upstream\ncrossplane subchart registers are live before these\nCompositeResourceDefinition + Composition CRs are applied.\n",
-    "icon": null,
+    "title": "Crossplane Claims",
+    "summary": "Sovereign-scoped Crossplane Composite Resource claims (XRDs + Compositions) — the in-cluster contract the control plane uses to request infrastructure from bp-crossplane.",
+    "icon": "crossplane.svg",
     "category": null,
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
     "version": "1.3.8",
     "section": "pts-3-2-gitops-and-iac",
-    "depends": [
-      "bp-crossplane"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -1138,29 +1096,15 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "singleRegion": "singleton",
       "perTopology": {
         "singleton": {
-          "replication": {
-            "backend": "flux-git",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
+          "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "",
+            "tier": "mgmt",
             "clusters": [
-              "mgmt-A",
-              "mgmt-B",
-              "dmz-A",
-              "dmz-B",
-              "rtz-A",
-              "rtz-B"
+              "mgmt-A"
             ],
             "roles": {
-              "mgmt-A": "singleton",
-              "mgmt-B": "singleton",
-              "dmz-A": "singleton",
-              "dmz-B": "singleton",
-              "rtz-A": "singleton",
-              "rtz-B": "singleton"
+              "mgmt-A": "singleton"
             }
           }
         }
@@ -1278,8 +1222,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-external-dns",
     "slug": "external-dns",
     "title": "ExternalDNS",
-    "summary": "",
-    "icon": null,
+    "summary": "Synchronises Kubernetes Ingress/HTTPRoute/Service hostnames into the Sovereign's PowerDNS authoritative zones automatically.",
+    "icon": "external-dns.svg",
     "category": null,
     "tagline": null,
     "tags": [],
@@ -1298,29 +1242,15 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "singleRegion": "singleton",
       "perTopology": {
         "singleton": {
-          "replication": {
-            "backend": "none",
-            "mode": "none",
-            "lagSloSeconds": null
-          },
+          "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "",
+            "tier": "mgmt",
             "clusters": [
-              "mgmt-A",
-              "mgmt-B",
-              "dmz-A",
-              "dmz-B",
-              "rtz-A",
-              "rtz-B"
+              "mgmt-A"
             ],
             "roles": {
-              "mgmt-A": "singleton",
-              "mgmt-B": "singleton",
-              "dmz-A": "singleton",
-              "dmz-B": "singleton",
-              "rtz-A": "singleton",
-              "rtz-B": "singleton"
+              "mgmt-A": "singleton"
             }
           }
         }
@@ -1332,7 +1262,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-external-secrets",
     "slug": "external-secrets",
     "title": "External Secrets Operator",
-    "summary": "Day-2 secret pipeline. Materializes K8s Secrets from OpenBao\n(the Catalyst secret backend) via ExternalSecret / PushSecret CRs\nand ESO Generators. Replaces the bootstrap-only bp-sealed-secrets\nslot 05 once OpenBao + ESO are Ready.\n",
+    "summary": "Syncs secrets from OpenBao into Kubernetes Secrets via ExternalSecret CRs. The materialisation layer every app's SSO/DB credential flows through.",
     "icon": "external-secrets.svg",
     "category": "security",
     "tagline": null,
@@ -1340,10 +1270,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "version": "1.1.7",
     "section": "pts-3-3-security-and-policy",
-    "depends": [
-      "bp-openbao",
-      "bp-cert-manager"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -1355,11 +1282,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "singleRegion": "singleton",
       "perTopology": {
         "singleton": {
-          "replication": {
-            "backend": "openbao-perf-replication",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
+          "replication": null,
           "switchover": null,
           "placement": {
             "tier": "",
@@ -1389,7 +1312,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-external-secrets-stores",
     "slug": "external-secrets-stores",
     "title": "External Secrets — Stores",
-    "summary": "Default ClusterSecretStore CR(s) wiring the bp-external-secrets\ncontroller to bp-openbao. Split from bp-external-secrets@1.0.0 (#331)\nto resolve CRD-ordering deadlock — the CR cannot live in the same\nHelm release as the operator that registers its CRD; Flux dependsOn\norders the two charts so this one applies after the controller is\nReady and CRDs are guaranteed registered.\n\nMirrors the bp-crossplane-claims pattern (PR #247).\n",
+    "summary": "ClusterSecretStore + SecretStore CRs binding the External Secrets Operator to the Sovereign's OpenBao backend. The store-configuration companion to bp-external-secrets.",
     "icon": "external-secrets.svg",
     "category": "security",
     "tagline": null,
@@ -1409,11 +1332,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "singleRegion": "singleton",
       "perTopology": {
         "singleton": {
-          "replication": {
-            "backend": "flux-git",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
+          "replication": null,
           "switchover": null,
           "placement": {
             "tier": "",
@@ -1443,8 +1362,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-falco",
     "slug": "falco",
     "title": "Falco",
-    "summary": "",
-    "icon": null,
+    "summary": "Runtime security — eBPF syscall + Kubernetes-audit threat detection. Streams security events to the Sovereign observability stack.",
+    "icon": "falco.svg",
     "category": null,
     "tagline": null,
     "tags": [],
@@ -1620,9 +1539,9 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
   {
     "id": "bp-flux",
     "slug": "flux",
-    "title": "flux",
-    "summary": "GitOps reconciler. One per vcluster (source + kustomize + helm controllers); host-level Flux per host cluster watches its bp-* OCI sources.",
-    "icon": null,
+    "title": "Flux",
+    "summary": "GitOps engine — reconciles every Sovereign Blueprint HelmRelease from the local Gitea source. The continuous-reconciliation backbone of the platform.",
+    "icon": "flux.svg",
     "category": null,
     "tagline": null,
     "tags": [],
@@ -1641,11 +1560,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "singleRegion": "singleton",
       "perTopology": {
         "singleton": {
-          "replication": {
-            "backend": "flux-git",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
+          "replication": null,
           "switchover": null,
           "placement": {
             "tier": "",
@@ -1675,8 +1590,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-gateway-api",
     "slug": "gateway-api",
     "title": "Gateway API",
-    "summary": "Upstream Kubernetes Gateway API CRDs (Experimental channel, v1.3.0) — the\ngateway.networking.k8s.io/v1 family that every HTTPRoute/Gateway/\nGatewayClass-using Blueprint depends on. Cilium 1.16's `gatewayAPI.\nenabled=true` flag wires up the cilium controller but does NOT\ninstall these CRDs — that's why this Blueprint exists as an explicit,\nauditable dependency edge in the bootstrap-kit DAG.\n",
-    "icon": "kubernetes.svg",
+    "summary": "Kubernetes Gateway API CRDs (GatewayClass/Gateway/HTTPRoute) — the north-south traffic contract every Sovereign endpoint is exposed through via Cilium.",
+    "icon": "gateway-api.svg",
     "category": "infrastructure",
     "tagline": null,
     "tags": [],
@@ -1695,11 +1610,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "singleRegion": "singleton",
       "perTopology": {
         "singleton": {
-          "replication": {
-            "backend": "flux-git",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
+          "replication": null,
           "switchover": null,
           "placement": {
             "tier": "",
@@ -1728,18 +1639,16 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
   {
     "id": "bp-gitea",
     "slug": "gitea",
-    "title": "gitea",
-    "summary": "Gitea — per-Sovereign Git server. Catalyst control plane. Hosts catalog (public Blueprint mirror), catalog-sovereign (Sovereign-curated private Blueprints), one Gitea Org per Catalyst Organization, and system (sovereign-admin scope).",
-    "icon": null,
+    "title": "Gitea",
+    "summary": "Gitea — per-Sovereign Git server. Hosts catalog (public Blueprint mirror), catalog-sovereign (curated private Blueprints), one Gitea Org per Catalyst Organization, and system scope.",
+    "icon": "gitea.svg",
     "category": null,
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
     "version": "1.2.54",
     "section": "pts-2-3-per-sovereign-supporting-services",
-    "depends": [
-      "bp-postgres"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -1795,12 +1704,17 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-grafana",
     "slug": "grafana",
     "title": "Grafana",
-    "summary": "",
-    "icon": null,
+    "summary": "Open-source observability dashboards. Pre-wired to Prometheus + Loki sources.",
+    "icon": "grafana.svg",
     "category": null,
     "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
+    "tags": [
+      "observability",
+      "monitoring",
+      "dashboards",
+      "grafana"
+    ],
+    "visibility": "listed",
     "version": "1.0.19",
     "section": "pts-3-observability",
     "depends": [],
@@ -1867,12 +1781,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "listed",
     "version": "0.2.53",
     "section": "pts-3-1-networking-and-service-mesh",
-    "depends": [
-      "bp-keycloak",
-      "bp-cilium",
-      "bp-seaweedfs",
-      "bp-k8s-ws-proxy"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -1928,19 +1837,15 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-harbor",
     "slug": "harbor",
     "title": "Harbor",
-    "summary": "",
-    "icon": null,
+    "summary": "Per-Sovereign OCI registry. Keycloak SSO via OIDC. One Harbor per Catalyst control plane.",
+    "icon": "harbor.svg",
     "category": null,
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
     "version": "1.2.56",
     "section": "pts-3-5-storage-and-data",
-    "depends": [
-      "bp-cnpg",
-      "bp-postgres",
-      "bp-cert-manager"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -1996,8 +1901,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-hcloud-ccm",
     "slug": "hcloud-ccm",
     "title": "Hetzner Cloud Controller Manager",
-    "summary": "",
-    "icon": null,
+    "summary": "Hetzner Cloud provider integration — node lifecycle, LoadBalancer Services, and route reconciliation on hcloud-backed Sovereign clusters.",
+    "icon": "hetzner.svg",
     "category": null,
     "tagline": null,
     "tags": [],
@@ -2019,22 +1924,12 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "",
+            "tier": "mgmt",
             "clusters": [
-              "mgmt-A",
-              "mgmt-B",
-              "dmz-A",
-              "dmz-B",
-              "rtz-A",
-              "rtz-B"
+              "mgmt-A"
             ],
             "roles": {
-              "mgmt-A": "singleton",
-              "mgmt-B": "singleton",
-              "dmz-A": "singleton",
-              "dmz-B": "singleton",
-              "rtz-A": "singleton",
-              "rtz-B": "singleton"
+              "mgmt-A": "singleton"
             }
           }
         }
@@ -2210,7 +2105,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-k8s-ws-proxy",
     "slug": "k8s-ws-proxy",
     "title": "k8s-ws-proxy",
-    "summary": "Per-node WebSocket exec proxy that bridges HMAC-signed upstream callers (catalyst-api, Guacamole) onto the local kube-apiserver pods/exec stream. DaemonSet with internalTrafficPolicy=Local for node-local sessions.",
+    "summary": "Per-node WebSocket exec proxy bridging HMAC-signed callers (catalyst-api, Guacamole) onto the local kube-apiserver pods/exec stream. DaemonSet with node-local internalTrafficPolicy.",
     "icon": "k8s-ws-proxy.svg",
     "category": "platform",
     "tagline": null,
@@ -2237,12 +2132,12 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "lagSloSeconds": null
           },
           "switchover": {
-            "mechanism": "bp-continuum",
-            "rtoSeconds": 5,
-            "rpoSeconds": 0
+            "mechanism": "none",
+            "rtoSeconds": null,
+            "rpoSeconds": null
           },
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A",
               "mgmt-B"
@@ -2257,7 +2152,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "mgmt",
+            "tier": "",
             "clusters": [
               "mgmt-A"
             ],
@@ -2273,18 +2168,23 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
   {
     "id": "bp-keycloak",
     "slug": "keycloak",
-    "title": "keycloak",
-    "summary": "Keycloak — user identity. Topology decided by Sovereign CRD spec.keycloakTopology (per-organization for Organizations, shared-sovereign for corporate).",
-    "icon": null,
+    "title": "Keycloak",
+    "summary": "Open-source Identity and Access Management. OIDC + SAML + social login + realm-per-Organization.",
+    "icon": "keycloak.svg",
     "category": null,
     "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
+    "tags": [
+      "identity",
+      "sso",
+      "oidc",
+      "saml",
+      "iam",
+      "keycloak"
+    ],
+    "visibility": "listed",
     "version": "1.5.16",
     "section": "pts-2-3-per-sovereign-supporting-services",
-    "depends": [
-      "bp-postgres"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -2407,7 +2307,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-kserve",
     "slug": "kserve",
     "title": "KServe",
-    "summary": "Kubernetes-native model serving — InferenceService CRD, multi-\nframework predictors (vLLM, TorchServe, Triton, SKLearn), inference\ngraphs. Wraps the upstream `kserve/kserve` chart and ships a\nCatalyst-curated `RawDeployment` mode (no per-InferenceService\nKnative Service hop by default — KServe writes Deployments\ndirectly), with **Knative still installed** (via bp-knative) for\nApplication-tier Blueprints that opt in to scale-to-zero on a per-\nInferenceService basis. Used by bp-cortex (composite AI Hub\nBlueprint).\n",
+    "summary": "Kubernetes-native model serving — InferenceService CRD, multi- framework predictors (vLLM, TorchServe, Triton, SKLearn), inference graphs. Wraps the upstream `kserve/kserve` chart and ships a Catalyst-curated `RawDeployment` mode (no per-InferenceService Knative Service hop by default — KServe writes Deployments directly), with **Knative still installed** (via bp-knative) for Application-tier Blueprints that opt in to scale-to-zero on a per- InferenceService basis. Used by bp-cortex (composite AI Hub Blueprint). ",
     "icon": "kserve.svg",
     "category": "ai-ml",
     "tagline": null,
@@ -2415,11 +2315,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "version": "1.0.0",
     "section": "pts-4-6-ai-ml",
-    "depends": [
-      "bp-cilium",
-      "bp-cert-manager",
-      "bp-knative"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -2525,8 +2421,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-kyverno",
     "slug": "kyverno",
     "title": "Kyverno",
-    "summary": "",
-    "icon": null,
+    "summary": "Kubernetes-native policy engine — validates, mutates, and generates resources via admission control. Enforces the Sovereign's guardrail policy set.",
+    "icon": "kyverno.svg",
     "category": null,
     "tagline": null,
     "tags": [],
@@ -2545,11 +2441,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "singleRegion": "singleton",
       "perTopology": {
         "singleton": {
-          "replication": {
-            "backend": "flux-git",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
+          "replication": null,
           "switchover": null,
           "placement": {
             "tier": "",
@@ -2579,8 +2471,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-kyverno-policies",
     "slug": "kyverno-policies",
     "title": "Kyverno Policy Library",
-    "summary": "",
-    "icon": null,
+    "summary": "The Sovereign's curated Kyverno ClusterPolicy set — image-signature enforcement, namespace guardrails, and resource-hygiene rules applied at admission time.",
+    "icon": "kyverno.svg",
     "category": null,
     "tagline": null,
     "tags": [],
@@ -2599,11 +2491,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "singleRegion": "singleton",
       "perTopology": {
         "singleton": {
-          "replication": {
-            "backend": "flux-git",
-            "mode": "async",
-            "lagSloSeconds": null
-          },
+          "replication": null,
           "switchover": null,
           "placement": {
             "tier": "",
@@ -2633,12 +2521,18 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-langfuse",
     "slug": "langfuse",
     "title": "Langfuse",
-    "summary": "",
-    "icon": null,
+    "summary": "LLM observability + evals. Traces, prompts, scores, datasets.",
+    "icon": "langfuse.svg",
     "category": null,
     "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
+    "tags": [
+      "ai",
+      "llm",
+      "observability",
+      "langfuse",
+      "traces"
+    ],
+    "visibility": "listed",
     "version": "1.1.0",
     "section": "pts-3-observability",
     "depends": [],
@@ -2774,11 +2668,11 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "slug": "litmus",
     "title": "LitmusChaos",
     "summary": "",
-    "icon": null,
+    "icon": "litmus.svg",
     "category": null,
     "tagline": null,
     "tags": [],
-    "visibility": "unlisted",
+    "visibility": "listed",
     "version": "1.0.0",
     "section": "pts-3-3-security-and-policy",
     "depends": [],
@@ -2815,7 +2709,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-livekit",
     "slug": "livekit",
     "title": "LiveKit",
-    "summary": "WebRTC SFU for real-time video, audio, and data. Powers the\nHuawei iFlytek voice demo and any Application that needs\nsub-second media routing. Pairs with bp-stunner for K8s-native\nTURN/STUN — Catalyst routes LiveKit's TURN config at the stunner\nService so SFU traffic survives the host cluster's NAT\nboundary. Hetzner firewall opens UDP 50000-60000 (LiveKit's RTC\nport range) per the operator's per-Sovereign overlay.\n",
+    "summary": "WebRTC SFU for real-time video, audio, and data. Powers the Huawei iFlytek voice demo and any Application that needs sub-second media routing. Pairs with bp-stunner for K8s-native TURN/STUN — Catalyst routes LiveKit's TURN config at the stunner Service so SFU traffic survives the host cluster's NAT boundary. Hetzner firewall opens UDP 50000-60000 (LiveKit's RTC port range) per the operator's per-Sovereign overlay. ",
     "icon": "livekit.svg",
     "category": "application",
     "tagline": null,
@@ -2830,11 +2724,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "listed",
     "version": "1.0.0",
     "section": "pts-4-5-communication",
-    "depends": [
-      "bp-stunner",
-      "bp-cert-manager",
-      "bp-valkey"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -2890,28 +2780,21 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-llm-gateway",
     "slug": "llm-gateway",
     "title": "LLM Gateway",
-    "summary": "Subscription-aware LLM proxy. Wraps the upstream LiteLLM proxy\n(`ghcr.io/berriai/litellm:main-stable`) and routes requests to\nAnthropic (via the operator's Claude OAuth/Max subscription —\nNEVER an ANTHROPIC_API_KEY), Bedrock, Vertex, OpenAI-compatible\nbackends (via bp-anthropic-adapter), and self-hosted vLLM. CNPG-\nbacked audit log; Keycloak SSO for human callers.\n",
+    "summary": "Multi-provider LLM router with rate limits, cost tracking, and prompt caching.",
     "icon": "llm-gateway.svg",
-    "category": "ai-runtime",
+    "category": "ai",
     "tagline": null,
     "tags": [
+      "ai",
       "llm",
       "gateway",
-      "litellm",
-      "proxy",
-      "claude",
-      "openai",
-      "bedrock",
-      "vertex"
+      "routing",
+      "cost"
     ],
     "visibility": "listed",
     "version": "1.0.2",
     "section": "pts-4-6-llm-serving",
-    "depends": [
-      "bp-cnpg",
-      "bp-keycloak",
-      "bp-external-secrets"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -2967,12 +2850,17 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-loki",
     "slug": "loki",
     "title": "Loki",
-    "summary": "",
-    "icon": null,
+    "summary": "Log aggregation system from Grafana Labs. Multi-tenant + cheap object-storage backend.",
+    "icon": "loki.svg",
     "category": null,
     "tagline": null,
-    "tags": [],
-    "visibility": "unlisted",
+    "tags": [
+      "observability",
+      "logs",
+      "loki",
+      "grafana"
+    ],
+    "visibility": "listed",
     "version": "1.0.3",
     "section": "pts-3-observability",
     "depends": [],
@@ -3057,7 +2945,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-matrix",
     "slug": "matrix",
     "title": "Matrix (Synapse)",
-    "summary": "Self-hosted, federation-capable team chat. Synapse is the\nreference Matrix homeserver implementation — Catalyst's per-\nSovereign tenancy default keeps federation OFF (private rooms\nonly), and operator overlays toggle it on per-Organization for\ncross-Sovereign collaboration. Hosted at chat.<sovereign-fqdn>\nwith a paired Element-Web client at chat-web.<sovereign-fqdn>.\nOIDC SSO via bp-keycloak; Postgres backend via bp-cnpg.\n(\"Synapse\" here = the Matrix server implementation, NOT the\nretired OpenOva product noun.)\n",
+    "summary": "Self-hosted, federation-capable team chat. Synapse is the reference Matrix homeserver implementation — Catalyst's per- Sovereign tenancy default keeps federation OFF (private rooms only), and operator overlays toggle it on per-Organization for cross-Sovereign collaboration. Hosted at chat.<sovereign-fqdn> with a paired Element-Web client at chat-web.<sovereign-fqdn>. OIDC SSO via bp-keycloak; Postgres backend via bp-cnpg. (\"Synapse\" here = the Matrix server implementation, NOT the retired OpenOva product noun.) ",
     "icon": "matrix.svg",
     "category": "application",
     "tagline": null,
@@ -3072,11 +2960,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "listed",
     "version": "1.1.0",
     "section": "pts-4-5-communication",
-    "depends": [
-      "bp-cnpg",
-      "bp-keycloak",
-      "bp-cert-manager"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -3197,11 +3081,11 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "slug": "mimir",
     "title": "Mimir",
     "summary": "",
-    "icon": null,
+    "icon": "mimir.svg",
     "category": null,
     "tagline": null,
     "tags": [],
-    "visibility": "unlisted",
+    "visibility": "listed",
     "version": "1.0.13",
     "section": "pts-3-observability",
     "depends": [],
@@ -3259,9 +3143,9 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
   {
     "id": "bp-nats-jetstream",
     "slug": "nats-jetstream",
-    "title": "nats-jetstream",
-    "summary": "Event spine for the Catalyst control plane. JetStream Streams + KV + Object Store via bundled nack JetStream Controller (Wave 5.45",
-    "icon": null,
+    "title": "NATS JetStream",
+    "summary": "Event spine for the Catalyst control plane — JetStream Streams + KV + Object Store via the bundled nack JetStream Controller. Per-Organization Accounts.",
+    "icon": "nats.svg",
     "category": null,
     "tagline": null,
     "tags": [],
@@ -3282,14 +3166,14 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "perTopology": {
         "active-passive": {
           "replication": {
-            "backend": "raft",
-            "mode": "sync",
-            "lagSloSeconds": 0
+            "backend": "none",
+            "mode": "async",
+            "lagSloSeconds": 30
           },
           "switchover": {
             "mechanism": "bp-continuum",
-            "rtoSeconds": 30,
-            "rpoSeconds": 60
+            "rtoSeconds": 60,
+            "rpoSeconds": 30
           },
           "placement": {
             "tier": "mgmt",
@@ -3339,9 +3223,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "version": "1.0.0",
     "section": "pts-4-7-ai-safety",
-    "depends": [
-      "bp-vllm"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -3584,7 +3466,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-newapi",
     "slug": "newapi",
     "title": "NewAPI",
-    "summary": "Multi-tenant LLM marketplace gateway. Wraps the upstream NewAPI\n(github.com/Calcium-Ion/new-api, MIT, fork of OneAPI) with credits,\nper-key budgets, channel routing, and BYOK as first-class primitives.\nDeployed in **backend-only** mode: the OpenAI-compatible API at\n`api.<host>/v1/*` is customer-facing; the upstream's portal UI is\ndisabled at ingress; Catalyst replaces it as the customer surface;\nNewAPI's admin UI at `admin.<host>` is exposed only to ops staff\n(IdP-gated). Compliance posture (channel attestation, geographic\nAUP, BYOK isolation, reseller disclosure) enforced at the\nblueprint layer. Use `bp-newapi` when the Sovereign operator's\nbusiness model is reselling LLM access to its own customers; use\n`bp-llm-gateway` for self-consumption.\n",
+    "summary": "Multi-tenant LLM marketplace gateway. Wraps the upstream NewAPI (github.com/Calcium-Ion/new-api, MIT, fork of OneAPI) with credits, per-key budgets, channel routing, and BYOK as first-class primitives. Deployed in **backend-only** mode: the OpenAI-compatible API at `api.<host>/v1/*` is customer-facing; the upstream's portal UI is disabled at ingress; Catalyst replaces it as the customer surface; NewAPI's admin UI at `admin.<host>` is exposed only to ops staff (IdP-gated). Compliance posture (channel attestation, geographic AUP, BYOK isolation, reseller disclosure) enforced at the blueprint layer. Use `bp-newapi` when the Sovereign operator's business model is reselling LLM access to its own customers; use `bp-llm-gateway` for self-consumption. ",
     "icon": "newapi.svg",
     "category": "ai-runtime",
     "tagline": null,
@@ -3601,13 +3483,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "listed",
     "version": "1.4.164",
     "section": "pts-4-6-llm-serving",
-    "depends": [
-      "bp-cnpg",
-      "bp-keycloak",
-      "bp-external-secrets",
-      "bp-valkey",
-      "bp-vllm"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -3730,9 +3606,9 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
   {
     "id": "bp-openbao",
     "slug": "openbao",
-    "title": "openbao",
-    "summary": "OpenBao secret backend. 3-node Raft per region (independent quorum, async perf-replication across regions). MPL 2.0 — drop-in Vault replacement.",
-    "icon": null,
+    "title": "OpenBao",
+    "summary": "Per-Sovereign secret backend. 3-node Raft per region. Keycloak OIDC SSO. MPL-2.0 Vault replacement.",
+    "icon": "openbao.svg",
     "category": null,
     "tagline": null,
     "tags": [],
@@ -3759,8 +3635,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           },
           "switchover": {
             "mechanism": "raft-transition",
-            "rtoSeconds": 60,
-            "rpoSeconds": 30
+            "rtoSeconds": 30,
+            "rpoSeconds": 0
           },
           "placement": {
             "tier": "",
@@ -3795,7 +3671,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-openclaw",
     "slug": "openclaw",
     "title": "OpenClaw",
-    "summary": "Per-user agentic workspace for Organization tenants. A multi-tenant\ncontroller deployment in the Organization tenant namespace authenticates\nend users via the Organization-vcluster Keycloak realm and spawns one\nruntime pod per active session. Each runtime pod reads ONLY two\nenv vars (NEWAPI_BASE_URL + NEWAPI_KEY) mounted from the per-user\n`newapi-key-{uuid}` Secret rendered by the unified-rbac user-create\nhook (ADR-0003). Identity-blind by construction.\n",
+    "summary": "Per-user agentic workspace for an Organization. A multi-tenant controller deployment in the Organization namespace authenticates end users via the Organization-vcluster Keycloak realm and spawns one runtime pod per active session. Each runtime pod reads ONLY two env vars (NEWAPI_BASE_URL + NEWAPI_KEY) mounted from the per-user `newapi-key-{uuid}` Secret rendered by the unified-rbac user-create hook (ADR-0003). Identity-blind by construction. ",
     "icon": "openclaw.svg",
     "category": "ai-runtime",
     "tagline": null,
@@ -3803,7 +3679,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "openclaw",
       "agentic",
       "workspace",
-      "organization",
+      "org",
       "keycloak",
       "newapi",
       "multi-tenant",
@@ -3812,11 +3688,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "listed",
     "version": "0.2.25",
     "section": "pts-4-7-agentic-workspace",
-    "depends": [
-      "bp-newapi",
-      "bp-keycloak",
-      "bp-cert-manager"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -3833,10 +3705,10 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "placement": {
             "tier": "",
             "clusters": [
-              "rtz-A"
+              "mgmt-A"
             ],
             "roles": {
-              "rtz-A": "singleton"
+              "mgmt-A": "singleton"
             }
           }
         }
@@ -3848,7 +3720,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-openmeter",
     "slug": "openmeter",
     "title": "OpenMeter",
-    "summary": "Real-time usage metering. CloudEvents ingestion, deterministic\nper-subject aggregation, OpenAPI Query endpoint. Used by\nbp-fingate (Open Banking) to meter API calls per TPP for\nmonetization, and available to any Application that needs\nper-event usage tracking. omantel-1 ships the ClickHouse-less\nprofile per docs/BOOTSTRAP-KIT-EXPANSION-PLAN.md §6.4 — backend\nwrites go to bp-cnpg (PostgreSQL) and bp-nats-jetstream (event\nbus). Re-roll with backend.kind=clickhouse once a host cluster\nadds bp-clickhouse.\n",
+    "summary": "Real-time usage metering. CloudEvents ingestion, deterministic per-subject aggregation, OpenAPI Query endpoint. Used by bp-fingate (Open Banking) to meter API calls per TPP for monetization, and available to any Application that needs per-event usage tracking. omantel-1 ships the ClickHouse-less profile per docs/BOOTSTRAP-KIT-EXPANSION-PLAN.md §6.4 — backend writes go to bp-cnpg (PostgreSQL) and bp-nats-jetstream (event bus). Re-roll with backend.kind=clickhouse once a host cluster adds bp-clickhouse. ",
     "icon": "openmeter.svg",
     "category": "application",
     "tagline": null,
@@ -3862,11 +3734,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "listed",
     "version": "1.1.0",
     "section": "pts-4-8-identity-and-metering",
-    "depends": [
-      "bp-cnpg",
-      "bp-nats-jetstream",
-      "bp-cert-manager"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -3922,7 +3790,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-openova-mcp",
     "slug": "openova-mcp",
     "title": "OpenOva MCP",
-    "summary": "The OpenOva MCP server — exposes your OpenOva surface (Applications,\nEnvironments, Organizations) as MCP tools for AI agents, RBAC-scoped\nper user so an agent can do exactly what YOU can do in the console —\nnothing more. A thin facade over the live catalyst-api: every call\nforwards your own session, so the platform's authz is the final word.\n",
+    "summary": "The RBAC-scoped OpenOva MCP server — exposes Applications, Environments and Organizations as MCP tools whose surface is exactly what the calling User can do in the console.",
     "icon": "openova-mcp.svg",
     "category": "ai-runtime",
     "tagline": null,
@@ -3967,12 +3835,18 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
   {
     "id": "bp-opensearch",
     "slug": "opensearch",
-    "title": "Opensearch",
-    "summary": "Scaffold-only Application Blueprint — chart not yet packaged.\nTopology + endpoints + sso + multiInstance are declared per the\nG117.1 audit so downstream Catalyst surfaces can render against\nit.\n",
-    "icon": null,
+    "title": "OpenSearch",
+    "summary": "Open-source search + analytics suite (Elasticsearch fork). Full-text search, log aggregation, vector search.",
+    "icon": "opensearch.svg",
     "category": null,
     "tagline": null,
-    "tags": [],
+    "tags": [
+      "search",
+      "elasticsearch",
+      "opensearch",
+      "logs",
+      "vector"
+    ],
     "visibility": "unlisted",
     "version": "0.0.0",
     "section": "pts-4-application-tier",
@@ -4057,11 +3931,11 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "slug": "opentelemetry",
     "title": "OpenTelemetry Collector",
     "summary": "",
-    "icon": null,
+    "icon": "opentelemetry.svg",
     "category": null,
     "tagline": null,
     "tags": [],
-    "visibility": "unlisted",
+    "visibility": "listed",
     "version": "1.2.2",
     "section": "pts-3-observability",
     "depends": [],
@@ -4106,18 +3980,15 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-opentelemetry-operator",
     "slug": "opentelemetry-operator",
     "title": "OpenTelemetry Operator",
-    "summary": "Auto-injection of OTel SDK sidecars into Pods via Instrumentation\nCRs. Companion to bp-opentelemetry (the collector). Activated by\nWave 5.41 (#2227) to unblock #2215 — splits Operator + CRDs out\nof bp-opentelemetry so Helm 3's subchart-CRDs-on-upgrade race\ndoesn't reoccur.\n",
-    "icon": null,
+    "summary": "Manages OpenTelemetry Collector + auto-instrumentation CRs across the Sovereign — the operator layer behind the LGTM telemetry pipeline.",
+    "icon": "opentelemetry.svg",
     "category": null,
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
     "version": "1.0.6",
     "section": "pts-3-2-observability-and-tracing",
-    "depends": [
-      "bp-opentelemetry",
-      "bp-cert-manager"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -4132,22 +4003,12 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "",
+            "tier": "mgmt",
             "clusters": [
-              "mgmt-A",
-              "mgmt-B",
-              "dmz-A",
-              "dmz-B",
-              "rtz-A",
-              "rtz-B"
+              "mgmt-A"
             ],
             "roles": {
-              "mgmt-A": "singleton",
-              "mgmt-B": "singleton",
-              "dmz-A": "singleton",
-              "dmz-B": "singleton",
-              "rtz-A": "singleton",
-              "rtz-B": "singleton"
+              "mgmt-A": "singleton"
             }
           }
         }
@@ -4215,18 +4076,23 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-postgres",
     "slug": "postgres",
     "title": "PostgreSQL",
-    "summary": "A reusable, shareable PostgreSQL data-instance. Each install is ONE\nCNPG Cluster — the engine — and a first-class App card. Consumers\nSHARE it via isolated databases + per-consumer roles (ADR-0010):\nthe binding is pure declarative YAML (a CNPG `Database` CR + a\n`managed.roles` entry + a reflected connection Secret + a Flux\n`dependsOn` edge) reconciled by Flux + the CNPG operator. NO custom\ncontroller and NO Crossplane. topology: active-hot-standby renders\nthe Pillar-3 synchronous-replication shape (ADR-0004).\n",
+    "summary": "A reusable, shareable PostgreSQL data-instance. Each install is ONE CNPG Cluster — the engine — and a first-class App card. Consumers SHARE it via isolated databases + per-consumer roles (ADR-0010).",
     "icon": "postgres.svg",
     "category": "data",
     "tagline": null,
-    "tags": [],
+    "tags": [
+      "database",
+      "postgres",
+      "sql",
+      "data",
+      "shareable",
+      "cnpg",
+      "adr-0010"
+    ],
     "visibility": "listed",
     "version": "0.2.35",
     "section": "pts-4-1-data-services",
-    "depends": [
-      "bp-cnpg",
-      "bp-reflector"
-    ],
+    "depends": [],
     "shareable": true,
     "contextSchema": {
       "kind": "db",
@@ -4292,7 +4158,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-powerdns",
     "slug": "powerdns",
     "title": "PowerDNS",
-    "summary": "Authoritative DNS for every Sovereign zone (pool + BYO). Per-zone\nDNSSEC (ECDSAP256SHA256), lua-records for geo + health-checked\nfailover, dnsdist front-end for query rate-limiting + DDoS posture,\nREST API at pdns.openova.io/api (operator-only). See\ndocs/MULTI-REGION-DNS.md for the lua-record patterns.\n",
+    "summary": "Authoritative DNS for every Sovereign zone — per-zone DNSSEC, lua-records for geo + health-checked failover, dnsdist rate-limiting. See docs/MULTI-REGION-DNS.md.",
     "icon": "powerdns.svg",
     "category": "infrastructure",
     "tagline": null,
@@ -4300,9 +4166,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "version": "1.2.27",
     "section": "pts-3-2-gitops-and-iac",
-    "depends": [
-      "bp-cert-manager"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -4317,22 +4181,12 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "",
+            "tier": "mgmt",
             "clusters": [
-              "mgmt-A",
-              "mgmt-B",
-              "dmz-A",
-              "dmz-B",
-              "rtz-A",
-              "rtz-B"
+              "mgmt-A"
             ],
             "roles": {
-              "mgmt-A": "singleton",
-              "mgmt-B": "singleton",
-              "dmz-A": "singleton",
-              "dmz-B": "singleton",
-              "rtz-A": "singleton",
-              "rtz-B": "singleton"
+              "mgmt-A": "singleton"
             }
           }
         }
@@ -4343,24 +4197,16 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
   {
     "id": "bp-powerdns-admin",
     "slug": "powerdns-admin",
-    "title": "powerdns-admin",
-    "summary": "PowerDNS-Admin (ngoduykhanh/powerdns-admin) web UI for per-Sovereign\nPowerDNS zone + record management. CNPG-backed Postgres metadata,\nCatalyst SSO via Keycloak. Reads PDNS_API_URL / PDNS_API_KEY from\nbp-powerdns to drive the authoritative DNS server.\n",
-    "icon": null,
+    "title": "PowerDNS-Admin",
+    "summary": "Web UI for per-Sovereign PowerDNS zone + record management. CNPG-backed metadata, Catalyst SSO via Keycloak, drives the authoritative server via the bp-powerdns REST API.",
+    "icon": "powerdns.svg",
     "category": null,
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
     "version": "0.1.19",
     "section": "pts-2-3-per-sovereign-supporting-services",
-    "depends": [
-      "bp-powerdns",
-      "bp-cnpg",
-      "bp-keycloak",
-      "bp-sso-bridge",
-      "bp-external-secrets-stores",
-      "bp-reflector",
-      "bp-gateway-api"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -4375,22 +4221,12 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "",
+            "tier": "mgmt",
             "clusters": [
-              "mgmt-A",
-              "mgmt-B",
-              "dmz-A",
-              "dmz-B",
-              "rtz-A",
-              "rtz-B"
+              "mgmt-A"
             ],
             "roles": {
-              "mgmt-A": "singleton",
-              "mgmt-B": "singleton",
-              "dmz-A": "singleton",
-              "dmz-B": "singleton",
-              "rtz-A": "singleton",
-              "rtz-B": "singleton"
+              "mgmt-A": "singleton"
             }
           }
         }
@@ -4449,8 +4285,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-reflector",
     "slug": "reflector",
     "title": "Reflector",
-    "summary": "",
-    "icon": null,
+    "summary": "Reflects Secrets + ConfigMaps across namespaces via annotations — propagates wildcard TLS + shared config to every namespace that needs them.",
+    "icon": "reflector.svg",
     "category": null,
     "tagline": null,
     "tags": [],
@@ -4469,11 +4305,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "singleRegion": "singleton",
       "perTopology": {
         "singleton": {
-          "replication": {
-            "backend": "none",
-            "mode": "none",
-            "lagSloSeconds": null
-          },
+          "replication": null,
           "switchover": null,
           "placement": {
             "tier": "",
@@ -4503,8 +4335,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-reloader",
     "slug": "reloader",
     "title": "Reloader",
-    "summary": "",
-    "icon": null,
+    "summary": "Watches ConfigMap/Secret changes and triggers rolling restarts of the Deployments/StatefulSets that consume them — keeps workloads in sync with rotated credentials.",
+    "icon": "reloader.svg",
     "category": null,
     "tagline": null,
     "tags": [],
@@ -4554,16 +4386,14 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "slug": "seaweedfs",
     "title": "SeaweedFS",
     "summary": "",
-    "icon": null,
+    "icon": "seaweedfs.svg",
     "category": null,
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
     "version": "1.3.4",
     "section": "pts-3-5-storage-and-data",
-    "depends": [
-      "bp-cert-manager"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -4608,20 +4438,16 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
   {
     "id": "bp-self-sovereign-cutover",
     "slug": "self-sovereign-cutover",
-    "title": "self-sovereignty-cutover",
-    "summary": "Post-handover Self-Sovereignty Cutover. After bp-gitea + bp-harbor\nreach Ready, this Blueprint installs DORMANT on the new Sovereign.\nThe catalyst-api cutover endpoint (#792) stamps Jobs from the\neight PodSpec ConfigMaps shipped here and pivots EVERY upstream\nreference (GitOps source, OCI HelmRepositories, container-registry\nmirrors, catalyst-api repo env) to the local Sovereign — eliminating\nruntime dependencies on github.com / ghcr.io / harbor.openova.io.\nTrigger is operator-driven (admin-console button) or auto-fired\nafter the first successful operator login on the new Sovereign.\nSee ADR-0002 + issue #790 for the full tether map.\n",
-    "icon": null,
+    "title": "Self-Sovereignty Cutover",
+    "summary": "Post-handover cutover Blueprint — pivots every upstream tether (GitOps source, OCI HelmRepositories, registry mirrors, catalyst-api repo env) to the local Sovereign. See ADR-0002 + issue #790.",
+    "icon": "cutover.svg",
     "category": null,
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
     "version": "0.1.233",
     "section": "pts-2-3-per-sovereign-supporting-services",
-    "depends": [
-      "bp-gitea",
-      "bp-harbor",
-      "bp-dragonfly"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -4633,11 +4459,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "singleRegion": "singleton",
       "perTopology": {
         "singleton": {
-          "replication": {
-            "backend": "none",
-            "mode": "none",
-            "lagSloSeconds": null
-          },
+          "replication": null,
           "switchover": null,
           "placement": {
             "tier": "mgmt",
@@ -4658,7 +4480,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "slug": "sigstore",
     "title": "Sigstore Policy Controller",
     "summary": "",
-    "icon": null,
+    "icon": "sigstore.svg",
     "category": null,
     "tagline": null,
     "tags": [],
@@ -4680,22 +4502,12 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "",
+            "tier": "mgmt",
             "clusters": [
-              "mgmt-A",
-              "mgmt-B",
-              "dmz-A",
-              "dmz-B",
-              "rtz-A",
-              "rtz-B"
+              "mgmt-A"
             ],
             "roles": {
-              "mgmt-A": "singleton",
-              "mgmt-B": "singleton",
-              "dmz-A": "singleton",
-              "dmz-B": "singleton",
-              "rtz-A": "singleton",
-              "rtz-B": "singleton"
+              "mgmt-A": "singleton"
             }
           }
         }
@@ -4756,20 +4568,16 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
   {
     "id": "bp-sso-bridge",
     "slug": "sso-bridge",
-    "title": "sso-bridge",
-    "summary": "Catalyst SSO framework. Watches every HelmRelease cluster-wide; when an\napp declares `sso.enabled: true` in its values, auto-provisions a\nKeycloak Client in the Sovereign realm, materialises the OAuth\nclient_secret in OpenBao + emits an ExternalSecret CR in the app's\nnamespace, and grants the Sovereign operator (Org.email) the app's\nadmin role. Mandatory infra — auto-installed by the bootstrap-kit.\nPer SECURITY.md §6.3 (App-level SSO).\n",
-    "icon": null,
+    "title": "SSO Bridge",
+    "summary": "Catalyst SSO framework — watches every HelmRelease and auto-provisions Keycloak Clients + OpenBao client_secrets + ExternalSecrets for apps that declare sso.enabled. Mandatory infra. See SECURITY.md §6.3.",
+    "icon": "sso-bridge.svg",
     "category": null,
     "tagline": null,
     "tags": [],
     "visibility": "unlisted",
     "version": "0.2.28",
     "section": "pts-2-3-per-sovereign-supporting-services",
-    "depends": [
-      "bp-keycloak",
-      "bp-openbao",
-      "bp-external-secrets-stores"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -4788,9 +4596,9 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
             "lagSloSeconds": null
           },
           "switchover": {
-            "mechanism": "bp-continuum",
-            "rtoSeconds": 30,
-            "rpoSeconds": 0
+            "mechanism": "none",
+            "rtoSeconds": null,
+            "rpoSeconds": null
           },
           "placement": {
             "tier": "mgmt",
@@ -4874,7 +4682,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-stalwart-tenant",
     "slug": "stalwart-tenant",
     "title": "Stalwart (per-Organization)",
-    "summary": "Dedicated per-Org (per-vcluster) Stalwart mail server. Implements\nlocked decision [Q3] of EPIC #795 — every Organization on a Sovereign gets\nits OWN Stalwart instance in its Organization namespace, with its OWN\ndomain, OWN MTA reputation, and OWN queue. NOT a shared otech-\nlevel multi-domain Stalwart.\n\nWebmail UI at `https://mail.<org-domain>`; SMTP/IMAP via\nLoadBalancer. SSO authenticated against the Organization-vcluster Keycloak\nrealm (NOT otech-level Keycloak). Per-user mailbox provisioning\nis event-driven (ADR-0003 §3).\n",
+    "summary": "Dedicated per-Org (per-vcluster) Stalwart mail server. Implements locked decision [Q3] of EPIC #795 — every Organization on a Sovereign gets its OWN Stalwart instance in its Organization namespace, with its OWN domain, OWN MTA reputation, and OWN queue. NOT a shared otech- level multi-domain Stalwart.\nWebmail UI at `https://mail.<org-domain>`; SMTP/IMAP via LoadBalancer. SSO authenticated against the Organization-vcluster Keycloak realm (NOT otech-level Keycloak). Per-user mailbox provisioning is event-driven (ADR-0003 §3). ",
     "icon": "stalwart.svg",
     "category": "communication",
     "tagline": null,
@@ -4883,7 +4691,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
       "smtp",
       "imap",
       "jmap",
-      "organization",
+      "org",
       "per-organization",
       "vcluster",
       "sso",
@@ -4892,12 +4700,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "listed",
     "version": "0.1.16",
     "section": "pts-4-5-communication",
-    "depends": [
-      "bp-keycloak",
-      "bp-external-secrets",
-      "bp-cert-manager",
-      "bp-powerdns"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -5091,7 +4894,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-stunner",
     "slug": "stunner",
     "title": "STUNner",
-    "summary": "K8s-native TURN/STUN media gateway for WebRTC NAT traversal. Wraps\nthe upstream `stunner/stunner-gateway-operator` chart and ships\nCatalyst-curated NetworkPolicy + ServiceMonitor + HPA overlays.\nUsed by bp-relay (LiveKit) so WebRTC clients behind NATs reach the\nin-cluster SFU. Cilium-native Gateway integration (no separate\nEnvoy/NGINX hop) — STUNner registers a GatewayClass + manages a\nUDP-listening Gateway whose backing Service is exposed on the\nSovereign's UDP allocation port range (default 30000-32767, opened\nat the Hetzner firewall by the Sovereign's bp-firewall composition).\n",
+    "summary": "K8s-native TURN/STUN media gateway for WebRTC NAT traversal. Wraps the upstream `stunner/stunner-gateway-operator` chart and ships Catalyst-curated NetworkPolicy + ServiceMonitor + HPA overlays. Used by bp-relay (LiveKit) so WebRTC clients behind NATs reach the in-cluster SFU. Cilium-native Gateway integration (no separate Envoy/NGINX hop) — STUNner registers a GatewayClass + manages a UDP-listening Gateway whose backing Service is exposed on the Sovereign's UDP allocation port range (default 30000-32767, opened at the firewall by the Sovereign's bp-firewall composition). ",
     "icon": "stunner.svg",
     "category": "communication",
     "tagline": null,
@@ -5099,10 +4902,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "version": "1.0.0",
     "section": "pts-4-5-communication",
-    "depends": [
-      "bp-cilium",
-      "bp-cert-manager"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -5158,8 +4958,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-syft-grype",
     "slug": "syft-grype",
     "title": "Syft + Grype",
-    "summary": "",
-    "icon": null,
+    "summary": "SBOM generation (Syft) + vulnerability scanning (Grype) for the Sovereign supply chain — produces and scans image bills-of-materials in the CI/admission path.",
+    "icon": "grype.svg",
     "category": null,
     "tagline": null,
     "tags": [],
@@ -5181,22 +4981,12 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "",
+            "tier": "mgmt",
             "clusters": [
-              "mgmt-A",
-              "mgmt-B",
-              "dmz-A",
-              "dmz-B",
-              "rtz-A",
-              "rtz-B"
+              "mgmt-A"
             ],
             "roles": {
-              "mgmt-A": "singleton",
-              "mgmt-B": "singleton",
-              "dmz-A": "singleton",
-              "dmz-B": "singleton",
-              "rtz-A": "singleton",
-              "rtz-B": "singleton"
+              "mgmt-A": "singleton"
             }
           }
         }
@@ -5209,11 +4999,11 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "slug": "tempo",
     "title": "Tempo",
     "summary": "",
-    "icon": null,
+    "icon": "tempo.svg",
     "category": null,
     "tagline": null,
     "tags": [],
-    "visibility": "unlisted",
+    "visibility": "listed",
     "version": "1.0.1",
     "section": "pts-3-observability",
     "depends": [],
@@ -5272,18 +5062,20 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-temporal",
     "slug": "temporal",
     "title": "Temporal",
-    "summary": "Durable workflow orchestration with saga + compensation. Postgres-backed (CNPG); Postgres visibility store; Web UI; Keycloak OIDC integration via `--auth-claim-mapper`.",
+    "summary": "Durable workflow orchestration. Code-first, language-agnostic, exactly-once execution.",
     "icon": "temporal.svg",
     "category": "workflow",
     "tagline": null,
-    "tags": [],
+    "tags": [
+      "workflow",
+      "orchestration",
+      "temporal",
+      "durable"
+    ],
     "visibility": "listed",
     "version": "1.1.1",
     "section": "pts-4-3-workflow-and-processing",
-    "depends": [
-      "bp-cnpg",
-      "bp-cert-manager"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -5339,8 +5131,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-trivy",
     "slug": "trivy",
     "title": "Trivy",
-    "summary": "",
-    "icon": null,
+    "summary": "Trivy Operator — continuous in-cluster vulnerability, misconfiguration, and secret scanning. Surfaces VulnerabilityReport CRs for every workload.",
+    "icon": "trivy.svg",
     "category": null,
     "tagline": null,
     "tags": [],
@@ -5362,22 +5154,12 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "",
+            "tier": "mgmt",
             "clusters": [
-              "mgmt-A",
-              "mgmt-B",
-              "dmz-A",
-              "dmz-B",
-              "rtz-A",
-              "rtz-B"
+              "mgmt-A"
             ],
             "roles": {
-              "mgmt-A": "singleton",
-              "mgmt-B": "singleton",
-              "dmz-A": "singleton",
-              "dmz-B": "singleton",
-              "rtz-A": "singleton",
-              "rtz-B": "singleton"
+              "mgmt-A": "singleton"
             }
           }
         }
@@ -5389,7 +5171,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-valkey",
     "slug": "valkey",
     "title": "Valkey",
-    "summary": "Redis-compatible in-memory cache (BSD-3 fork of Redis 7.2.4 under\nLinux Foundation governance). Bootstrap-kit slot 17 — used by\nCatalyst control-plane services for ephemeral session/state, and\nby Application-tier Apps that need a Redis wire-protocol cache.\nReplication via REPLICAOF (per-Application choice — see\ndocs/SRE.md §2.5).\n",
+    "summary": "Redis-compatible in-memory cache (BSD-3 fork of Redis 7.2.4 under Linux Foundation governance). Bootstrap-kit slot 17 — used by Catalyst control-plane services for ephemeral session/state, and by Application-tier Apps that need a Redis wire-protocol cache. Replication via REPLICAOF (per-Application choice — see docs/SRE.md §2.5). ",
     "icon": "valkey.svg",
     "category": "data",
     "tagline": null,
@@ -5397,9 +5179,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "version": "1.1.7",
     "section": "pts-4-1-data-services",
-    "depends": [
-      "bp-flux"
-    ],
+    "depends": [],
     "shareable": true,
     "contextSchema": {
       "kind": "keyspace",
@@ -5465,7 +5245,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-vcluster-helmrepo",
     "slug": "vcluster-helmrepo",
     "title": "vCluster HelmRepository",
-    "summary": "Pre-stages the upstream loft-sh vcluster Helm chart source on the\nSovereign cluster so the Organization controller\n(core/controllers/organization) can render per-tenant vCluster\nHelmReleases that reference `sourceRef name=loft namespace=\nvcluster-system`. Convergence blocker #2 (vCluster source install\non Sovereign). Different layer from bp-mgmt/dmz/rtz-vcluster\n(those bundle the upstream chart as a subchart for Sovereign-tier\nvClusters; this slot registers a live Flux source so per-TENANT\nvClusters can be spawned by the Organization controller at\nruntime).\n",
+    "summary": "Seeds the in-vCluster HelmRepository CR so per-Org Applications resolve their Blueprint charts against the Sovereign's local OCI registry post-cutover.",
     "icon": "vcluster.svg",
     "category": "platform",
     "tagline": null,
@@ -5473,9 +5253,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "unlisted",
     "version": "0.2.3",
     "section": "pts-3-1-networking-and-service-mesh",
-    "depends": [
-      "bp-flux"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -5490,22 +5268,12 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "",
+            "tier": "rtz",
             "clusters": [
-              "mgmt-A",
-              "mgmt-B",
-              "dmz-A",
-              "dmz-B",
-              "rtz-A",
-              "rtz-B"
+              "rtz-A"
             ],
             "roles": {
-              "mgmt-A": "singleton",
-              "mgmt-B": "singleton",
-              "dmz-A": "singleton",
-              "dmz-B": "singleton",
-              "rtz-A": "singleton",
-              "rtz-B": "singleton"
+              "rtz-A": "singleton"
             }
           }
         }
@@ -5518,11 +5286,11 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "slug": "velero",
     "title": "Velero",
     "summary": "",
-    "icon": null,
+    "icon": "velero.svg",
     "category": null,
     "tagline": null,
     "tags": [],
-    "visibility": "unlisted",
+    "visibility": "listed",
     "version": "1.2.2",
     "section": "pts-3-observability",
     "depends": [],
@@ -5572,11 +5340,11 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "slug": "velero-hcs",
     "title": "Velero (HCS)",
     "summary": "",
-    "icon": null,
+    "icon": "velero-hcs.svg",
     "category": null,
     "tagline": null,
     "tags": [],
-    "visibility": "unlisted",
+    "visibility": "listed",
     "version": "0.1.2",
     "section": "pts-3-observability",
     "depends": [],
@@ -5639,9 +5407,7 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "visibility": "listed",
     "version": "1.0.1",
     "section": "pts-4-6-llm-serving",
-    "depends": [
-      "bp-kserve"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
@@ -5697,8 +5463,8 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-vpa",
     "slug": "vpa",
     "title": "Vertical Pod Autoscaler",
-    "summary": "",
-    "icon": null,
+    "summary": "VPA recommender + updater — right-sizes Pod CPU/memory requests from observed usage so the Sovereign's workloads stay efficiently packed.",
+    "icon": "vpa.svg",
     "category": null,
     "tagline": null,
     "tags": [],
@@ -5720,22 +5486,12 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
           "replication": null,
           "switchover": null,
           "placement": {
-            "tier": "",
+            "tier": "mgmt",
             "clusters": [
-              "mgmt-A",
-              "mgmt-B",
-              "dmz-A",
-              "dmz-B",
-              "rtz-A",
-              "rtz-B"
+              "mgmt-A"
             ],
             "roles": {
-              "mgmt-A": "singleton",
-              "mgmt-B": "singleton",
-              "dmz-A": "singleton",
-              "dmz-B": "singleton",
-              "rtz-A": "singleton",
-              "rtz-B": "singleton"
+              "mgmt-A": "singleton"
             }
           }
         }
@@ -5747,28 +5503,23 @@ export const ALL_BLUEPRINTS: readonly BlueprintCardEntry[] = [
     "id": "bp-wordpress-tenant",
     "slug": "wordpress-tenant",
     "title": "WordPress (per-Organization)",
-    "summary": "Turnkey, SSO-pre-wired WordPress per Organization, served at\nhttps://<instance>.<org-domain> with TLS. Its own PostgreSQL (CNPG) in\nevery region it runs in, synchronously replicated under\nactive-hot-standby / active-passive, so moving the Primary loses no\ndata. Uploaded media live in the Sovereign's replicated object store.\nSign-in is SSO through the Organization's realm (openid-connect-generic\nplugin); the Organization owner is pre-seeded as administrator, so the\nfirst sign-in lands in /wp-admin. No install wizard, no manual config.\n",
+    "summary": "Turnkey, SSO-pre-wired WordPress per Organization. Postgres + cert-manager TLS pre-wired.",
     "icon": "wordpress.svg",
     "category": "organization-app",
     "tagline": null,
     "tags": [
       "wordpress",
       "cms",
+      "org",
       "organization",
       "sso",
       "keycloak",
-      "oidc",
       "postgres"
     ],
     "visibility": "listed",
     "version": "0.6.6",
     "section": "pts-7-org-tenant",
-    "depends": [
-      "bp-cnpg",
-      "bp-keycloak",
-      "bp-reflector",
-      "bp-cert-manager"
-    ],
+    "depends": [],
     "shareable": false,
     "contextSchema": null,
     "producesInstances": null,
