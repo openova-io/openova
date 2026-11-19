@@ -11329,7 +11329,7 @@ packages:
   size: M
   lane: SUBSTRATE
   depends_on: [CTL-035, FND-032, SOV-230, SOV-240, SOV-510]
-  after: [FND-151, FND-154, FND-155, CLD-030, CLD-067, SOV-175, SEC-010, SEC-080, SEC-095, SEC-104, NET-020, NET-040, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, SVC-040, SVC-160, CTL-039, CTL-151, CTL-320, CTL-345, CTL-346, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-050, INF-051, INF-052, INF-133, INF-140, ACC-010]
+  after: [FND-151, FND-154, FND-155, CLD-030, CLD-067, SOV-175, SOV-521, SEC-010, SEC-080, SEC-095, SEC-104, NET-020, NET-040, NET-060, NET-097, NET-102, NET-150, NET-172, NET-212, SVC-040, SVC-160, CTL-039, CTL-151, CTL-320, CTL-345, CTL-346, BSS-030, BSS-060, AIP-040, AIP-042, AIP-120, INF-050, INF-051, INF-052, INF-133, INF-140, ACC-010]
   touches:
   - core/cmd/sovereign-ops/internal/releasesync/**
   - clusters/_template/bootstrap-kit/06c-release-sync.yaml
@@ -11360,33 +11360,41 @@ packages:
   size: M
   lane: CONTROL
   depends_on: []
-  after: [FND-011, SVC-040, SVC-041]
+  after: [FND-011]
   touches:
+  - platform/self-sovereign-cutover/chart/README.md
+  - platform/self-sovereign-cutover/chart/files/release/release-region.sh
+  - platform/self-sovereign-cutover/chart/files/release/release-run.sh
+  - platform/self-sovereign-cutover/chart/tests/step7938-promote-one-region.sh
   - products/catalyst/bootstrap/api/internal/lifecycle/release.go
-  - products/catalyst/bootstrap/api/internal/lifecycle/release_job.go
-  - products/catalyst/bootstrap/api/internal/lifecycle/release/release-run.sh
   - products/catalyst/bootstrap/api/internal/lifecycle/release/release-region.sh
-  - products/catalyst/bootstrap/api/internal/lifecycle/release_test.go
+  - products/catalyst/bootstrap/api/internal/lifecycle/release/release-run.sh
+  - products/catalyst/bootstrap/api/internal/lifecycle/release_job.go
   - products/catalyst/bootstrap/api/internal/lifecycle/release_run_test.go
   - products/catalyst/bootstrap/api/internal/lifecycle/release_scripts_test.go
-  - platform/self-sovereign-cutover/chart/files/release/release-run.sh
-  - platform/self-sovereign-cutover/chart/files/release/release-region.sh
-  - platform/self-sovereign-cutover/chart/README.md
-  - platform/self-sovereign-cutover/chart/tests/step7938-promote-one-region.sh
+  - products/catalyst/bootstrap/api/internal/lifecycle/release_test.go
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e platform/self-sovereign-cutover/chart/tests/step7938-promote-one-region.sh; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "cd products/catalyst/bootstrap/api && go build ./... && go vet ./internal/lifecycle/ && out=\"$(go test ./internal/lifecycle/ -count=1 -v 2>&1)\" || { printf '%s\\n' \"$out\" | tail -n 80; exit 1; }; for t in TestReleaseRequestRefusals/a_region_that_is_not_one_of_the_Sovereign TestReleaseRequestRefusals/a_rollback_without_a_region TestReleaseRequestRefusals/a_rollback_with_a_dry_run TestReleaseRequestRefusals/a_rollback_with_a_pull_secret TestReleaseRequestRefusals/a_rollback_of_a_region_this_candidate_never_promoted TestReleaseRegionRequestNamesTheRegionToTheBootstrap TestReleaseRollbackRequestIsTheRollbackContainerAlone TestReleaseStateKeepsWhatEachRegionPromotedAcrossTheRequestsOfOneCandidate TestReleaseRunPromotesOneRegionAndRollsItBack TestReleaseRunWholePromoteIsFollowersFirstAndRecordsEachRegion TestReleaseRunRollbackRefusals TestReleaseRunRegionRequestNeedsACandidateWithThePhaseRollback TestReleaseRunDeliversOneRegionThroughTheCandidatesMechanism TestReleaseRollbackRestoresTheRecordedTree TestReleaseRollbackRefusals TestReleaseNeverForcesTheBranchFluxFollows TestReleaseScriptsAreTheCutoverChartsOwn; do grep -q -e \"--- PASS: $t (\" <<<\"$out\" || { echo \"this test did not pass: $t\"; exit 1; }; done"
+  - id: A2
+    run: "cmp products/catalyst/bootstrap/api/internal/lifecycle/release/release-run.sh platform/self-sovereign-cutover/chart/files/release/release-run.sh && cmp products/catalyst/bootstrap/api/internal/lifecycle/release/release-region.sh platform/self-sovereign-cutover/chart/files/release/release-region.sh && test \"$(cat platform/self-sovereign-cutover/chart/files/release/contract)\" = 1 && grep -q '^  rollback)$' platform/self-sovereign-cutover/chart/files/release/release-run.sh && grep -q '^  rollback) rollback ;;$' platform/self-sovereign-cutover/chart/files/release/release-region.sh"
+  - id: A3
+    run: "bash platform/self-sovereign-cutover/chart/tests/step7938-promote-one-region.sh"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'PUT /api/v1/sovereign/release accepts two optional fields. region names one region of the Sovereign as the state ConfigMap sovereign-release names it (primary, or a follower''s name): a delivery that names it stages and prewarms as today, in every region, so a conflict anywhere moves nothing, and its promote checks and pushes that region only; without region every region is promoted, followers first, as today. rollback true with a region puts that region back to the main recorded at the stage of the request that promoted it: refused unless the region''s main is still the commit that promote pushed for this candidate; it pushes, as a fast-forward the server checks, one commit whose tree is the tree of the recorded main and whose parent is the promoted commit, so Flux applies the earlier tree and no force push is ever made; it runs no stage and no prewarm and refuses dryRun and pullSecret. Across the requests of one candidate the state ConfigMap keeps, per region, the main recorded at stage and the commit promoted (<region>.promotedFrom, <region>.promotedTo) and the last phase, and GET answers them. The bootstrap sends a request with region or rollback only to a candidate whose release-run.sh has the phase rollback (read as the phase verify is read today; the contract stays 1) and refuses it otherwise, nothing moved. The installed route answers 400 to a body with a field it does not know, so the first delivery that carries this task to a Sovereign is a whole delivery.'
+  delivers: 'PUT /api/v1/sovereign/release takes two optional fields: region, which names primary or a follower and makes the promote check and push that region only while the stage and the prewarm still run in every region, and rollback with a region, which pushes one fast-forward commit whose tree is the main recorded at the stage of this candidate''s promote of that region and whose parent is the promoted commit; the state ConfigMap keeps <region>.promotedFrom, <region>.promotedTo and <region>.phase across the requests of one candidate, GET answers them, and a request without region delivers every region as before.'
 - id: SOV-530
   title: Offline bundle load
   area: SOV
@@ -13080,7 +13088,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, INF-710, MIG-030, PRD-061]
+  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, INF-020, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-130.md
@@ -13113,7 +13121,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, INF-710, MIG-030, PRD-061]
+  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, INF-020, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-135.md
@@ -13146,7 +13154,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, INF-710, MIG-030, PRD-061]
+  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, INF-020, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-140.md
@@ -14536,7 +14544,7 @@ packages:
   size: S
   lane: SPIKE
   depends_on: [FND-061]
-  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, INF-710, MIG-030, PRD-061]
+  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, INF-020, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-271.md
@@ -14569,7 +14577,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271, FND-063, SOV-230]
-  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-074, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, FND-155, FND-206, FND-207, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-066, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-135, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-335, SEC-040, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-133, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-150, SVC-159, SVC-160, SVC-161, SVC-162, SVC-163, SVC-170, SVC-190, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-020, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-101, AIP-102, AIP-105, AIP-108, AIP-111, AIP-113, AIP-120, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-501, PRD-503, PRD-508, PRD-513]
+  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-074, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, FND-155, FND-206, FND-207, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-066, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-135, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-335, SEC-040, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-133, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-150, SVC-159, SVC-160, SVC-161, SVC-162, SVC-163, SVC-170, SVC-190, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-020, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-101, AIP-102, AIP-105, AIP-108, AIP-111, AIP-113, AIP-120, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-202, PRD-501, PRD-503, PRD-508, PRD-513]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -14691,7 +14699,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, INF-710, MIG-030, PRD-061]
+  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, INF-020, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-280.md
@@ -14846,7 +14854,7 @@ packages:
   size: S
   lane: SPIKE
   depends_on: [SEC-211]
-  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, INF-710, MIG-030, PRD-061]
+  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, INF-020, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-335.md
@@ -18062,7 +18070,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [NET-322, NET-327]
-  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-105, CLD-108, CLD-109, CLD-111, CLD-112, CLD-113, CLD-114, CLD-115, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-141, SOV-175, SOV-180, SOV-181, SOV-338, SEC-103, SEC-104, SEC-105, SEC-150, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-212, NET-221, SVC-030, SVC-040, SVC-041, SVC-060, SVC-150, SVC-159, SVC-160, SVC-162, SVC-170, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CMP-016, CMP-020, CMP-030, BSS-141, AIP-040, AIP-041, AIP-120, INF-040, INF-110, INF-112, INF-120, INF-130, INF-135, INF-140, INF-512, INF-513, ACC-050]
+  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-105, CLD-108, CLD-109, CLD-111, CLD-112, CLD-113, CLD-114, CLD-115, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-141, SOV-175, SOV-180, SOV-181, SOV-338, SOV-521, SEC-103, SEC-104, SEC-105, SEC-150, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-212, NET-221, SVC-030, SVC-040, SVC-041, SVC-060, SVC-150, SVC-159, SVC-160, SVC-162, SVC-170, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CMP-016, CMP-020, CMP-030, BSS-141, AIP-040, AIP-041, AIP-120, INF-040, INF-110, INF-112, INF-120, INF-130, INF-135, INF-140, INF-512, INF-513, ACC-050]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/
   - products/catalyst/bootstrap/api/
@@ -29582,16 +29590,16 @@ packages:
   acceptance:
   - id: A1
     run: "test -s docs/ledger/plan/spikes/INF-020.md && grep -q '^## Evidence' docs/ledger/plan/spikes/INF-020.md"
+  - id: A2
+    run: "sha256sum docs/ledger/plan/spikes/INF-020.md | cut -d' ' -f1 | grep -qx 02abf8abd396618c388fed52a3513a8f6160a3dd3c7478329dddf2c7b03ae346"
   rollback: revert
   adr: null
   due: null
-  budget:
-    files: 5
-    lines: 800
+  budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'Per pack: flavor and whether /dev/kvm exists on a worker of the operator-hosted stack'
+  delivers: The repository holds the result of the spike that read /dev/kvm and the CPU virtualisation flags on every node of the standing test environment, with the flavours, the answer per pack, what was not measured and what the KubeVirt epic, the sandbox class and the migration area must do with it.
 - id: INF-030
   title: 'Spike: kured beside the upgrade controller on k3s'
   area: INF
@@ -35259,9 +35267,10 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [FND-023, PRD-060, PRD-061]
-  after: [SVC-040]
+  after: []
   touches:
   - products/cortex/go.mod
+  - products/cortex/go.sum
   - products/cortex/README.md
   - products/cortex/internal/store/**
   - .github/workflows/cortex-ci.yaml
@@ -35269,16 +35278,30 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e products/cortex/go.mod; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "(cd products/cortex && go vet ./... && go test -count=1 ./...)"
+  - id: A2
+    run: "printf '%s  %s\\n' 595314198ad552caeb99f3dfccb0848a5b2504c976ebe718e98609160f2ffbdc products/cortex/go.mod 7556bbf2ecaac2602ce4562797618550daa343aaad9a0fa4fd2de95181183cd1 products/cortex/go.sum e24077aec399e055958af4eeabbf793c91bda23cc58a0ea7f541c27ca3b5d37c products/cortex/README.md fd838f4bc811e59f269f79650b0c9feebcaae76909ba3283028157ef996178be products/cortex/internal/store/migrations/0001_cortex.sql 44fd97e27687f69265abec097e596a07ce0fdc4776ff347a10dd08e26ca83004 products/cortex/internal/store/store.go 8f3c04ba49dce07a618df9955e75fd712518273fa67ecfe5d8ce4663c7a2c7ff products/cortex/internal/store/migrate.go 43e6ebd02ed8565b752f4ebfcff3bb750dafc8623339f47bb385174b0dcd9bde products/cortex/internal/store/postgres.go ef458bcbe22f080763b94a15adefe93aacae1e0e841c7a71cfc0e2f1271ba874 products/cortex/internal/store/store_test.go a798cdb8e246e782008eaa9e3156a41d45558ebdbe6653888283102f25331fbe products/cortex/internal/store/postgres_test.go da00216c47f11378a81cbfff593ce2af48a6efd1cedb1e62af6244574ee693ac .github/workflows/cortex-ci.yaml | sha256sum --check --quiet -"
+  - id: A3
+    run: "(cd products/cortex && go test -count=1 -v -run '^Test(MigrationsAreNumberedFromOne|ParseMigrationsRefusesBadSets|DimensionsAreBounded|CheckPrincipals|VersionAtLeast|VectorLiteral|SortHitsBestFirst)$' ./internal/store) | grep -c -E '^--- PASS: Test(MigrationsAreNumberedFromOne|ParseMigrationsRefusesBadSets|DimensionsAreBounded|CheckPrincipals|VersionAtLeast|VectorLiteral|SortHitsBestFirst) ' | grep -x 7"
+  - id: A4
+    run: "(cd products/cortex && env -u CORTEX_TEST_DATABASE_URL go test -count=1 -v -run '^TestPostgresStore$' ./internal/store) | grep -c -E '^--- SKIP: TestPostgresStore ' | grep -x 1"
+  - id: A5
+    run: "test \"$(wc -l < products/cortex/README.md)\" -le 30 && grep -c -x -E '## (Role in Catalyst|What is here|Configuration|Operations)' products/cortex/README.md | grep -x 4"
+  - id: A6
+    run: "t=\"$(mktemp -d)\"; trap 'rm -rf \"$t\"' EXIT; python3 -c \"import sys, yaml; j = yaml.safe_load(open('.github/workflows/cortex-ci.yaml'))['jobs']['postgres']; assert j['env']['PG_IMAGE'] == 'ghcr.io/cloudnative-pg/postgresql@sha256:34cd4159d07b3410a1b29da35072e2e927a0905e717a61afa3814624a2e8859a'; assert j['env']['CORTEX_TEST_DATABASE_URL'] == 'postgres://postgres@127.0.0.1:5432/postgres?sslmode=disable'; open(sys.argv[1], 'w').write(j['steps'][3]['run'])\" \"$t/job.sh\"; code=0; out=\"$(env -u CORTEX_TEST_DATABASE_URL bash -e \"$t/job.sh\" 2>&1)\" || code=$?; test \"$code\" = 1; grep -q -x -F 'self-test: a clean module passes; a skipped test, a skipped subtest, a failed test and a missing named test fail' <<<\"$out\"; grep -q -x -F '::error::products/cortex: 1 tests were skipped; with a database every test must run' <<<\"$out\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Migration 0001, two roles, Store port, integration tests incl. per-document reader list and row-level security; old README replaced.
+  delivers: 'The document search of the AI hub has its store: migration 0001 with the readers on every chunk row, the two database roles with forced row-level security, the Store port on PostgreSQL whose search binds the caller''s principals, tests that prove the trimming and the search plan against the platform''s own PostgreSQL image in a CI job that fails on a skipped test, and a README that describes it in place of the withdrawn one.'
 - id: PRD-203
   title: 'cortex query process: token check, gateway client, search, definitions loader'
   area: PRD
