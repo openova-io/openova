@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T15:15:03Z` |
+| Last refreshed | `2026-11-19T15:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,10 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7972](https://github.com/openova-io/openova/issues/7972) | CTL-223 Settings, Menu accepts console pages as menu candidates | Other |
-| [#7973](https://github.com/openova-io/openova/issues/7973) | CTL-231 Resource browser: Git-owned objects refused, break-glass for the rest | Other |
-| [#7974](https://github.com/openova-io/openova/issues/7974) | CTL-347 The flow server and adapter sources, charts and builds are deleted | Other |
-| [#7975](https://github.com/openova-io/openova/issues/7975) | CTL-348 The flow host leaves the sign-in gate and the DNS name list | Other |
 | [#7976](https://github.com/openova-io/openova/issues/7976) | FND-080 Set the manifest from the baseline | Other |
 | [#7977](https://github.com/openova-io/openova/issues/7977) | FND-153 The suite image and its signed build | Other |
 | [#7978](https://github.com/openova-io/openova/issues/7978) | FND-154 Check FND-G01 in its self form | Other |
@@ -300,6 +296,10 @@ flowchart LR
 | [#8341](https://github.com/openova-io/openova/issues/8341) | NET-255 Journey WAF, its corpus and gate check NET-G15 as expected-fail | Other |
 | [#8346](https://github.com/openova-io/openova/issues/8346) | NET-330 Spike: a bridged secondary network for virtual machines (conditional, dr | Other |
 | [#8352](https://github.com/openova-io/openova/issues/8352) | AIP-223 Judge dispatcher: lanes, deadlines, agent tokens, A2A call, validation,  | Other |
+| [#8355](https://github.com/openova-io/openova/issues/8355) | NET-280 Spike: overlay profile | Other |
+| [#8356](https://github.com/openova-io/openova/issues/8356) | SVC-220 Ring labels on the kit | Other |
+| [#8358](https://github.com/openova-io/openova/issues/8358) | FND-076 The standing environment is updated through the release route by a workf | Other |
+| [#8359](https://github.com/openova-io/openova/issues/8359) | INF-210 Spike: composite resource in an Organization's release, changed placemen | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-19T15:27 | [#8354](https://github.com/openova-io/openova/pull/8354) | #7087 | docs(ledger): plan update |
 | 2026-11-19T15:07 | [#8351](https://github.com/openova-io/openova/pull/8351) | #7087 | docs(ledger): plan update |
 | 2026-11-19T15:14 | [#8350](https://github.com/openova-io/openova/pull/8350) | #8083 | fix(openova-mcp): the tool server accepts agent tokens and i |
 | 2026-11-19T14:46 | [#8349](https://github.com/openova-io/openova/pull/8349) | #8346 | docs(ledger): result of the spike NET-330, a bridged seconda |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-19T09:56 | [#8315](https://github.com/openova-io/openova/pull/8315) | #7087 | docs(ledger): plan update |
 | 2026-11-19T12:12 | [#8314](https://github.com/openova-io/openova/pull/8314) | #8311 | fix(cloud-init): turn on the Pod Certificate gates from k3s  |
 | 2026-11-19T09:38 | [#8310](https://github.com/openova-io/openova/pull/8310) | #7087 | docs(ledger): plan update |
-| 2026-11-19T09:09 | [#8309](https://github.com/openova-io/openova/pull/8309) | #7087 | docs(ledger): plan update |
 
 ---
 
