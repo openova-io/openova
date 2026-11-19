@@ -1,42 +1,23 @@
 // Phase-retry endpoint for the wizard's failed-phase UX (issue #125).
 //
-// When a provisioning phase fails, the wizard renders the failed phase
-// with a "Retry phase" button. This endpoint accepts that retry and
-// re-drives the phase, distinguishing two architectural cases:
+// When a provisioning phase fails, the wizard renders a "Retry phase"
+// button; this endpoint accepts that retry and re-drives the phase:
 //
 //  1. Phase 0 phases (tofu-init, tofu-plan, tofu-apply, tofu-output,
-//     flux-bootstrap) — catalyst-api owns the OpenTofu workdir directly,
-//     so we re-run `tofu apply` against the same workdir. Re-runs are
-//     idempotent (OpenTofu's state model). This is in-bounds: Phase 0
-//     IS the catalyst-api's job per docs/SOVEREIGN-PROVISIONING.md §3.
+//     flux-bootstrap) — catalyst-api owns the OpenTofu workdir, so it
+//     re-runs `tofu apply` against it (idempotent; Phase 0 IS the
+//     catalyst-api's job per docs/SOVEREIGN-PROVISIONING.md §3).
+//  2. Phase 1 bootstrap-kit phases (cilium … bp-catalyst-platform) — Flux
+//     HelmReleases on the NEW Sovereign. catalyst-api MUST NOT exec
+//     kubectl/helm there (INVIOLABLE-PRINCIPLES.md #3, Lesson #24); Flux
+//     retries on its own (install.remediation.retries: 3), and until the
+//     Flux Receiver webhook is wired this endpoint emits an event pointing
+//     the operator at the runbook's "Rollback procedures per phase".
+//  3. phase1-watch — re-attaches only the Phase-1 watcher (#6795).
 //
-//  2. Phase 1 bootstrap-kit phases (cilium, cert-manager, flux,
-//     crossplane, sealed-secrets, spire, jetstream, openbao, keycloak,
-//     gitea, bp-catalyst-platform) — these are Flux HelmReleases on the
-//     NEW Sovereign's cluster. Per docs/INVIOLABLE-PRINCIPLES.md #3
-//     ("Flux is the ONLY GitOps reconciler") and Lesson #24, the
-//     catalyst-api MUST NOT exec kubectl/helm to drive Phase 1. Flux
-//     itself has built-in retry (HelmRelease.spec.install.remediation.
-//     retries: 3) which handles transient failures automatically.
-//
-//     For operator-driven retries (after the automatic retry exhausts),
-//     the documented path is the Flux Receiver webhook published by
-//     bp-catalyst-platform — the wizard POSTs the receiver token + the
-//     specific HelmRelease name, and the new Sovereign's notification-
-//     controller annotates the HelmRelease for fresh reconciliation.
-//     The receiver URL + token are Phase 0 outputs that flow through
-//     the OpenTofu module's flux-bootstrap step. Until the receiver is
-//     wired through cloud-init (separate ticket — outside the UX scope
-//     of #125), this endpoint emits a structured event pointing the
-//     operator at the runbook's "Rollback procedures per phase" section
-//     for manual `flux reconcile helmrelease` instructions.
-//
-// In both cases, the endpoint streams events back through the same
-// SSE channel as the original deployment — the wizard's BootstrapProgress
-// widget continues to render the live state without needing a second
-// stream. We re-open the deployment.Events channel by replacing it on
-// the Deployment struct (after the original channel closed when
-// runProvisioning finished).
+// Every accepted retry is one entry of the record's retry calls (gate
+// check FND-G02, internal/retrycall). Events stream back through the
+// deployment's SSE channel, re-opened after runProvisioning closed it.
 package handler
 
 import (
@@ -50,6 +31,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/retrycall"
 )
 
 // phase0Phases — the OpenTofu phases this catalyst-api directly owns.
@@ -134,11 +116,13 @@ func (h *Handler) RetryPhase(w http.ResponseWriter, r *http.Request) {
 
 	switch {
 	case phase0Phases[phase]:
+		RecordRetryCall(h, dep, "", retrycall.RoutePhase, "phase "+phase, r)
 		h.retryPhase0(w, dep, phase)
 	case phase1Phases[phase]:
+		RecordRetryCall(h, dep, "", retrycall.RoutePhase, "phase "+phase, r)
 		h.retryPhase1(w, dep, phase)
 	case rewatchPhases[phase]:
-		h.retryPhase1Rewatch(w, dep, phase)
+		h.retryPhase1Rewatch(w, r, dep, phase)
 	default:
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error": fmt.Sprintf("unknown phase %q — see docs/RUNBOOK-PROVISIONING.md for the canonical phase list", phase),
@@ -257,7 +241,7 @@ func (h *Handler) retryPhase1(w http.ResponseWriter, dep *Deployment, phase stri
 // allocate a fresh eventsCh/done pair (the originals were closed when
 // the first run finished), and close them ourselves when the watch
 // returns because runProvisioning is not on this path.
-func (h *Handler) retryPhase1Rewatch(w http.ResponseWriter, dep *Deployment, phase string) {
+func (h *Handler) retryPhase1Rewatch(w http.ResponseWriter, r *http.Request, dep *Deployment, phase string) {
 	// Resolve the kubeconfig BEFORE taking dep.mu — the helper takes the
 	// lock itself and stats the file on disk.
 	kubeconfigPath, haveKubeconfig := h.resolvePrimaryKubeconfigPath(dep)
@@ -295,6 +279,7 @@ func (h *Handler) retryPhase1Rewatch(w http.ResponseWriter, dep *Deployment, pha
 	dep.eventsCh = make(chan provisioner.Event, 256)
 	dep.done = make(chan struct{})
 	dep.mu.Unlock()
+	RecordRetryCall(h, dep, "", retrycall.RoutePhase, "phase "+phase, r)
 
 	// Record the banner into the durable buffer (this also persists the
 	// phase1-watching flip, so a Pod restart mid-watch rehydrates as

@@ -116,6 +116,32 @@ type Record struct {
 	// catalyst-api upgrade doesn't lock operators out of their own
 	// pre-existing deployments. New deployments always populate it.
 	OwnerEmail string `json:"ownerEmail,omitempty"`
+
+	// RetryCalls lists every accepted call of a route whose effect is "run
+	// this install step again" (gate check FND-G02, Zero touch), oldest
+	// first. The hand-over carries it to the Sovereign with the rest of the
+	// record, and the Sovereign appends its own calls to the same list.
+	//
+	// nil and empty differ on purpose. A deployment created by an engine
+	// that records retry calls starts with an empty list, written as [];
+	// nil (written as null, or absent in a record of an older engine) means
+	// the calls were never recorded, so "no retry call" was not measured.
+	// No omitempty: an empty list must stay [] across a save and a load.
+	RetryCalls []RetryCall `json:"retryCalls"`
+
+	// RetryCallsSent is how many entries of RetryCalls the Sovereign confirmed
+	// it holds, as the parent counts them: the parent sends the list again
+	// until the Sovereign confirms them all, after a restart too
+	// (retrycall.Log.Deliver). A Sovereign does not read it.
+	RetryCallsSent int `json:"retryCallsSent,omitempty"`
+}
+
+// RetryCall is one accepted retry call of a deployment.
+type RetryCall struct {
+	At     time.Time `json:"at"`     // when the engine accepted the call, UTC
+	Route  string    `json:"route"`  // method and route pattern, e.g. "POST /api/v1/deployments/{id}/phases/{phase}/retry"
+	Target string    `json:"target"` // what was run again, e.g. "phase tofu-apply"
+	By     string    `json:"by"`     // the session's email or subject, "operator" when the request carried neither
 }
 
 // RedactedRequest is the on-disk projection of provisioner.Request with

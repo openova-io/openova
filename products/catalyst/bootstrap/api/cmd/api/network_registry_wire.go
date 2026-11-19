@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"os"
 	"sync"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/k8scache"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/lifecycle"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/retrycall"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
 
@@ -66,6 +68,9 @@ func newNetworkRegistry(log *slog.Logger, h *handler.Handler) *lifecycle.Network
 			return nil
 		},
 		StateDir: func() string { return provisioner.New().WorkDir },
+		Accepted: func(r *http.Request, id string) {
+			handler.RecordRetryCall(h, nil, id, retrycall.RouteNetworkRegistry, "network registry of the hand-over", r)
+		},
 	}
 }
 

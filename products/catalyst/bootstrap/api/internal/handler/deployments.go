@@ -41,6 +41,7 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/pdm"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/providers"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/provisioner"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/retrycall"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 
 	// Side-effect import: registers every CloudProvider adapter so
@@ -148,6 +149,8 @@ type Deployment struct {
 	// check skips with a log warning when empty so an in-place upgrade
 	// doesn't lock operators out of pre-existing rows.
 	OwnerEmail string
+
+	retries retrycall.Log // the retry calls of the deployment, gate check FND-G02 (internal/retrycall)
 
 	// phase1Started gates the at-most-once launch of the Phase-1
 	// helmwatch goroutine. Two callers race to start it:
@@ -385,6 +388,8 @@ func (d *Deployment) toRecord() store.Record {
 		KubeconfigBearerHash: d.kubeconfigBearerHash,
 		AdoptedAt:            d.AdoptedAt,
 		OwnerEmail:           d.OwnerEmail,
+		RetryCalls:           d.retries.List(),
+		RetryCallsSent:       d.retries.Sent(),
 	}
 }
 
@@ -430,6 +435,7 @@ func fromRecord(rec store.Record) *Deployment {
 		AdoptedAt:            rec.AdoptedAt,
 		OwnerEmail:           rec.OwnerEmail,
 	}
+	dep.retries.Set(rec.RetryCalls, rec.RetryCallsSent)
 
 	// Kubeconfig file lost across restart → mark as failed. If the
 	// record claims a path but the file is missing, the helmwatch
@@ -542,10 +548,30 @@ func (h *Handler) recordEventAndPersist(d *Deployment, ev provisioner.Event) pro
 	return ev
 }
 
-// persistDeployment serializes the current state under the lock and
-// writes it. Used at terminal state (runProvisioning end) and at
-// row creation (CreateDeployment). Same best-effort policy as
-// recordEventAndPersist.
+// RecordRetryCall appends one retry call to the record of dep, or of the deployment id when dep is
+// nil, and saves it; after the hand-over fired the parent sends the list on (internal/retrycall).
+func RecordRetryCall(h *Handler, dep *Deployment, id, route, target string, r *http.Request) {
+	if val, ok := h.deployments.Load(id); ok && dep == nil {
+		dep = val.(*Deployment)
+	}
+	if dep == nil || !dep.retries.Add(route, target, retrycall.Caller(r)) {
+		return
+	}
+	h.persistDeployment(dep)
+	go deliverRetryCalls(h, dep)
+}
+
+// deliverRetryCalls sends dep's retry calls to its Sovereign until it confirms them all (retrycall.Log.Deliver).
+func deliverRetryCalls(h *Handler, dep *Deployment) {
+	dep.retries.Deliver(h.store, dep.ID, func(url string, body []byte) (bool, bool) {
+		out := postHandoverExportWithRetry(retrycall.Client(), url, body, retrycall.Attempts(h.log, dep.ID))
+		return out == handoverExportSucceeded, out == handoverExportGaveUpBudget
+	}, func() { h.persistDeployment(dep) })
+}
+
+// persistDeployment serializes the current state under the lock and writes it.
+// Used at terminal state (runProvisioning end), at row creation (CreateDeployment)
+// and for retry calls. Same best-effort policy as recordEventAndPersist.
 func (h *Handler) persistDeployment(d *Deployment) {
 	if h.store == nil {
 		return
@@ -561,13 +587,9 @@ func (h *Handler) persistDeployment(d *Deployment) {
 	}
 }
 
-// restoreFromStore reads every record from h.store and registers each
-// in h.deployments. Called from New() after the store wires up so the
-// catalyst-api process restored from a Pod restart still answers
-// /api/v1/deployments/<id> for every deployment the previous Pod knew
-// about. Per-file decode failures are logged but do not abort the
-// load — the user-facing requirement is "as many deployments as
-// possible recovered" not "all-or-nothing".
+// restoreFromStore registers every record of h.store in h.deployments (from New()),
+// so after a Pod restart /api/v1/deployments/<id> answers for every deployment the
+// previous Pod knew. A record that fails to decode is logged and skipped.
 func (h *Handler) restoreFromStore() {
 	if h.store == nil {
 		return
@@ -592,6 +614,7 @@ func (h *Handler) restoreFromStore() {
 	for _, rec := range records {
 		dep := fromRecord(rec)
 		h.deployments.Store(dep.ID, dep)
+		go deliverRetryCalls(h, dep) // FND-G02: send the retry calls the Sovereign never confirmed
 		// If the load step rewrote a stuck in-flight status to failed,
 		// re-persist so the on-disk state matches what we serve. This
 		// is the architectural promise: the wizard reading
@@ -1041,6 +1064,7 @@ func (d *Deployment) State() map[string]any {
 	if d.lastWipeReport != nil {
 		out["lastWipeReport"] = d.lastWipeReport
 	}
+	out["retryCalls"] = d.retries.List() // null when the record never recorded them: FND-G02 then fails
 	if d.Result != nil {
 		out["result"] = d.Result
 		// Lift the Phase-1 fields to the top level too — the
@@ -1540,6 +1564,7 @@ func (h *Handler) CreateDeployment(w http.ResponseWriter, r *http.Request) {
 		kubeconfigBearerHash: bearerHash,
 		OwnerEmail:           ownerEmail,
 	}
+	dep.retries.Start()
 
 	// Reserve the pool subdomain via PDM BEFORE we kick off `tofu apply`.
 	// PDM holds the name with a TTL — if `tofu apply` fails or this catalyst-

@@ -51,6 +51,7 @@ import (
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/retrycall"
 )
 
 // Reconciler-log paging defaults — mirror the jobs execution-log contract
@@ -245,7 +246,8 @@ func (h *Handler) ReconcilerAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	operator := retryOperatorIdentity(claims, r)
+	operator := retrycall.Caller(r)
+	RecordRetryCall(h, dep, "", retrycall.RouteReconciler, retrycall.ReconcilerTarget(action, kind, ns, name), r)
 	h.log.Info("ReconcilerAction applied",
 		"depId", depID, "kind", kind, "ns", ns, "name", name,
 		"action", action, "by", operator)

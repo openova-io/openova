@@ -64,6 +64,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/retrycall"
 )
 
 // dnsRepublishResponse is the JSON body returned on success.
@@ -137,6 +138,7 @@ func (h *Handler) HandleRepublishDNS(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	RecordRetryCall(h, dep, "", retrycall.RouteRepublishDNS, "DNS records of "+result.SovereignFQDN, r)
 
 	// Collect parent zones — mirror the logic in upsertSovereignParentZoneRecordsFromResult
 	// verbatim so both paths agree on which zones are written.

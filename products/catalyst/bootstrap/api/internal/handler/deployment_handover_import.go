@@ -17,10 +17,10 @@
 // a record claiming a different FQDN is silently rejected — protects
 // against cross-cluster data poisoning.
 //
-// Idempotent: if a record with the same id already exists in the local
-// store, the import OVERWRITES it (intentional — mother is the source
-// of truth for events / job history during provisioning, and a re-fire
-// of handover is a legitimate retry).
+// Idempotent: a record with the same id is OVERWRITTEN (the mother is the
+// source of truth; a re-fire of handover is a legitimate retry), except its
+// retry calls (FND-G02, internal/retrycall): the union is kept, and with
+// ?retryCallsOnly=true only they are merged into the record held here.
 package handler
 
 import (
@@ -77,6 +77,11 @@ func (h *Handler) HandleDeploymentImport(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	if val, held := h.deployments.Load(rec.ID); held && val.(*Deployment).retries.Merge(r, &rec) {
+		h.persistDeployment(val.(*Deployment))
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "deploymentId": rec.ID, "retryCalls": len(rec.RetryCalls)})
+		return
+	}
 	// D30 PR I (2026-05-17 t140 /parent-domains regression): mark imported
 	// deployment as Adopted at import time. The chroot IS the owner of
 	// this Sovereign (FQDN-match guard above verifies it) and the record
