@@ -394,6 +394,9 @@ jobs:
       - name: 'gate-parent-access | Only the two gate workflows use the access to the parent'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: python3 scripts/check-gate-parent-access.py
+      - name: 'prov-preflight | Item 4b judges the parent against the ref the fire installs (stand-in kubectl and git)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: bash scripts/tests/test-prov-preflight-ref.sh
       - name: 'secret-guards | a randAlphaNum added to a real chart template fails G2'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: |
