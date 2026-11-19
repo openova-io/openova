@@ -113,7 +113,7 @@ locals {
 
   # The packed write_files entry of the Flux bootstrap document in the shared
   # render; its one group is the base64 text.
-  flux_bootstrap_entry_re = "\n  - path: /var/lib/catalyst/flux-bootstrap\\.yaml\n    permissions: '0644'\n    encoding: gz\\+b64\n    content: ([A-Za-z0-9+/=]+)\n"
+  flux_bootstrap_entry_re = "\n  - path: /var/lib/catalyst/flux-bootstrap\\.yaml\n    permissions: '0600'\n    encoding: gz\\+b64\n    content: ([A-Za-z0-9+/=]+)\n"
 }
 
 resource "random_password" "k3s_server_token" {
