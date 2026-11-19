@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T01:30:05Z` |
+| Last refreshed | `2026-11-19T01:45:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,8 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-19T01:43 | [#8250](https://github.com/openova-io/openova/pull/8250) | #7087 | docs(ledger): plan update |
 | 2026-11-19T01:24 | [#8249](https://github.com/openova-io/openova/pull/8249) | #7087 | docs(ledger): plan update |
 | 2026-11-19T00:43 | [#8246](https://github.com/openova-io/openova/pull/8246) | #7087 | docs(ledger): plan update |
+| 2026-11-19T01:43 | [#8245](https://github.com/openova-io/openova/pull/8245) | #8244 | refactor(api): the wipe and the janitor reach the cloud thro |
 | 2026-11-19T00:37 | [#8243](https://github.com/openova-io/openova/pull/8243) | #7087 | docs(ledger): plan update |
 | 2026-11-19T00:58 | [#8242](https://github.com/openova-io/openova/pull/8242) | #8230 | fix(self-sovereign-cutover): the deny-egress hold keeps the  |
 | 2026-11-18T23:51 | [#8240](https://github.com/openova-io/openova/pull/8240) | #8238 | docs(ledger): result of the operator action FND-079 (FND-079 |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-18T22:16 | [#8207](https://github.com/openova-io/openova/pull/8207) | #7798 | refactor(cilium): the API host and the native-routing range  |
 | 2026-11-18T20:42 | [#8206](https://github.com/openova-io/openova/pull/8206) | #7087 | docs(ledger): plan update |
 | 2026-11-18T20:34 | [#8205](https://github.com/openova-io/openova/pull/8205) | #8204 | test(gate): check NET-G07 proves the Organization fence with |
-| 2026-11-18T19:57 | [#8203](https://github.com/openova-io/openova/pull/8203) | #7087 | docs(ledger): plan update |
-| 2026-11-18T20:11 | [#8202](https://github.com/openova-io/openova/pull/8202) | #8201 | fix(axon): stream one chunk per upstream event and close the |
 
 ---
 
