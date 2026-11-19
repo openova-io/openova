@@ -1,18 +1,29 @@
 name: foundation-gate
 
 # The gate workflow: it runs the acceptance suite (scripts/acceptance-sovereign.sh) against a live
-# Sovereign and commits the record to docs/ledger/acceptance/ on main, PASS or FAIL.
+# Sovereign and commits the record to docs/ledger/acceptance/ on main, PASS or FAIL. Every job runs on
+# a machine hosted by GitHub (ubuntu-latest); there is no self-hosted runner.
+# The input execution says where the work that dials the Sovereign's API port runs:
+#   hosted     (the default) on the job's own machine, with the region kubeconfigs.
+#   parent     in a short-lived Job on the parent cluster, created through the scoped access of
+#              FND-079 (scripts/gate-parent-job.sh; docs/ledger/plan/spikes/FND-079.md): the
+#              addresses read, the wait for the hand-over chain, the creation time, the suite and
+#              every step of FND-G07 with its browser probe, so no session minted from the
+#              Sovereign's signer leaves the Job. The Job runs the suite image of the commit under
+#              test and a probe image, both by digest; the region kubeconfigs travel in a Secret of
+#              the run; the Job and its Secrets are deleted whatever happened. The outside dial of
+#              NET-G02 and CLD-G12 stay on the hosted machine.
 #   unit       suite unit tests and gate tool self-tests, no cluster; also before every live run.
 #   candidate  with candidate_id only: scripts/release-candidate.sh verify; live needs it green.
-#   addresses  on the gate runner, environment gate: reads the control-plane addresses of every
-#              region with kubectl (scripts/gate-outside-dial.py addresses).
+#   addresses  environment gate: reads the control-plane addresses of every region with kubectl
+#              (scripts/gate-outside-dial.py addresses), on its machine or in a Job on the parent;
+#              in parent execution it first builds or finds the images of the Job.
 #   outside    on a runner hosted by GitHub, whose address is in no list of the Sovereign's
 #              firewall: scripts/gate-outside-dial.py dial opens a TCP connection to port 6443 of
 #              each of those addresses. The job live gives the outcome to the suite as
 #              ACCEPT_API_PORT_OUTSIDE, and gate check NET-G02 judges it. When this job did not
 #              run, the value is empty and NET-G02 fails.
-#   live       environment gate, runner label from the input runner (default foundation-gate).
-#              Checks out this workflow's commit (the tools; the record is committed from here) and,
+#   live       environment gate. Checks out this workflow's commit (the tools; the record is committed from here) and,
 #              in candidate/, the commit under test: the candidate's, or else the one the run was
 #              started from (that record has an empty candidate.id and certifies nothing). Waits up
 #              to 180 minutes until the hand-over chain has ended (region A's ConfigMap
@@ -35,13 +46,16 @@ name: foundation-gate
 #              suite/reach.go): the suite writes no record, the sign-in check is not run, nothing
 #              is committed, the job fails with the annotation "Gate run NOT MEASURED", and its
 #              output result is NOT-MEASURED. Such a run is not one of the two runs the gate needs.
-# Secrets of the environment gate: ACCEPTANCE_KUBECONFIG_A and ACCEPTANCE_KUBECONFIG_B (base64 of
-# the kubeconfigs of the regions that start as Primary and as Standby), ACCEPTANCE_CATALYST_SESSION
-# (optional owner session; when empty the run mints one from the Sovereign's own signer),
-# ACCEPTANCE_PARENT_KUBECONFIG (base64 of a kubeconfig of the parent that provisioned the
-# Sovereign, allowed in namespace catalyst get on deployments.apps, get and list on pods and
-# create on pods/exec, which kubectl exec deploy/catalyst-api needs; when empty CLD-G12 is
-# recorded FAIL).
+# Secrets: ACCEPTANCE_KUBECONFIG_A and ACCEPTANCE_KUBECONFIG_B (base64 of the kubeconfigs of the
+# regions that start as Primary and as Standby), ACCEPTANCE_CATALYST_SESSION (optional owner
+# session; when empty the run mints one from the Sovereign's own signer), and, of the environment
+# gate only, ACCEPTANCE_PARENT_KUBECONFIG (base64 of the kubeconfig of the parent's ServiceAccount
+# acceptance-gate/gate: Jobs, Pods and their logs, and creating and deleting Secrets, in the
+# namespace acceptance-gate only). CLD-G12 uses the same kubeconfig; the access has no right in the
+# namespace catalyst, so CLD-G12 records that the parent could not be reached until it reads the
+# plan through an API route of the engine (when the secret is empty CLD-G12 is recorded FAIL).
+# scripts/check-gate-parent-access.py keeps the access to this workflow and
+# foundation-gate-standing.yaml.
 
 on:
   workflow_dispatch:
@@ -70,9 +84,11 @@ on:
       capabilities:
         description: Further capability flags this environment has, comma separated. multi-region is always declared.
         default: ''
-      runner:
-        description: The runs-on label of the runner that reaches every region
-        default: foundation-gate
+      execution:
+        description: "Where the work that dials the Sovereign's API port runs: hosted (this job's machine) or parent (a Job on the parent cluster)"
+        type: choice
+        options: [hosted, parent]
+        default: hosted
   workflow_call:
     inputs:
       env:
@@ -99,9 +115,9 @@ on:
       capabilities:
         type: string
         default: ''
-      runner:
+      execution:
         type: string
-        default: foundation-gate
+        default: hosted
     outputs:
       result:
         description: The result of the record, PASS or FAIL; NOT-MEASURED when the discovery could not reach the Sovereign (no record); FAIL when no valid record was written
@@ -127,6 +143,7 @@ on:
       - 'scripts/gate-run-outcome.py'
       - 'scripts/gate-outside-dial.py'
       - 'scripts/check-zero-change-plan.sh'
+      - 'scripts/gate-parent-job.sh'
       - '.github/workflows/foundation-gate.yaml'
   merge_group:
 
@@ -156,6 +173,8 @@ jobs:
         run: python3 scripts/gate-outside-dial.py --self-test
       - name: zero-change plan self-test
         run: bash scripts/check-zero-change-plan.sh --self-test
+      - name: parent Job self-test
+        run: bash scripts/gate-parent-job.sh --self-test
 
   candidate:
     name: verify the candidate
@@ -204,26 +223,74 @@ jobs:
       ${{ !cancelled() && github.event_name != 'pull_request' && github.event_name != 'merge_group' &&
       needs.unit.result == 'success' &&
       (needs.candidate.result == 'success' || (inputs.candidate_id == '' && needs.candidate.result == 'skipped')) }}
-    runs-on: ${{ inputs.runner }}
+    runs-on: ubuntu-latest
     environment: gate
-    timeout-minutes: 15
+    timeout-minutes: 60
     permissions:
       contents: read
+      packages: write
     outputs:
       list: ${{ steps.read.outputs.list }}
+      job_image: ${{ steps.images.outputs.job }}
+      probe_image: ${{ steps.images.outputs.probe }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+      - name: Where the cluster work runs
+        id: mode
+        env:
+          EXECUTION: ${{ inputs.execution }}
+        run: |
+          set -euo pipefail
+          e="$(bash scripts/gate-parent-job.sh execution "$EXECUTION")"
+          echo "execution=$e" >> "$GITHUB_OUTPUT"
+          echo "Execution: $e" >> "$GITHUB_STEP_SUMMARY"
+      - name: "Parent execution: check out the commit under test"
+        if: steps.mode.outputs.execution == 'parent'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.candidate.outputs.commit || github.sha }}
+          path: candidate
+          persist-credentials: false
+      - if: steps.mode.outputs.execution == 'parent'
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: '1.23'
+          cache: false
       - uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4.0.1
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.11'
+      - name: "Parent execution: the images of the Job, by digest"
+        id: images
+        if: steps.mode.outputs.execution == 'parent'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ needs.candidate.outputs.commit || github.sha }}
+        run: |
+          set -euo pipefail
+          pip install --quiet pyyaml
+          bash scripts/gate-parent-job.sh image --candidate candidate --commit "$COMMIT" --output "$RUNNER_TEMP/images"
+          cat "$RUNNER_TEMP/images" >> "$GITHUB_OUTPUT"
+          { echo '### Images of the Job'; echo; echo '```'; cat "$RUNNER_TEMP/images"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: "Parent execution: the parent kubeconfig (never echoed)"
+        if: steps.mode.outputs.execution == 'parent'
+        env:
+          KP: ${{ secrets.ACCEPTANCE_PARENT_KUBECONFIG }}
+        run: |
+          set -euo pipefail
+          if [ -z "$KP" ]; then echo "::error::the secret ACCEPTANCE_PARENT_KUBECONFIG of the environment gate is not set"; exit 2; fi
+          umask 077; mkdir -p "$RUNNER_TEMP/parent"
+          printf '%s' "$KP" | base64 -d > "$RUNNER_TEMP/parent/parent.yaml"
       - name: Read the control-plane addresses of every region (kubeconfigs never echoed)
         id: read
         env:
           KA: ${{ secrets.ACCEPTANCE_KUBECONFIG_A }}
           KB: ${{ secrets.ACCEPTANCE_KUBECONFIG_B }}
+          EXECUTION: ${{ steps.mode.outputs.execution }}
+          JOB_IMAGE: ${{ steps.images.outputs.job }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [ -z "$KA" ] || [ -z "$KB" ]; then echo "::error::ACCEPTANCE_KUBECONFIG_A/B secrets are not set"; exit 2; fi
@@ -231,12 +298,31 @@ jobs:
           trap 'rm -f "$d/a.yaml" "$d/b.yaml"' EXIT
           printf '%s' "$KA" | base64 -d > "$d/a.yaml"
           printf '%s' "$KB" | base64 -d > "$d/b.yaml"
-          for r in a b; do
-            kubectl --kubeconfig "$d/$r.yaml" get nodes -o json > "$d/$r.json"
-          done
-          list="$(python3 scripts/gate-outside-dial.py addresses "$d/a.json" "$d/b.json")"
+          if [ "$EXECUTION" = parent ]; then
+            o="$RUNNER_TEMP/parent-addresses"
+            GATE_PARENT_KUBECONFIG="$RUNNER_TEMP/parent/parent.yaml" GATE_KUBECONFIG_A="$d/a.yaml" GATE_KUBECONFIG_B="$d/b.yaml" \
+              GATE_PULL_USER="$GITHUB_ACTOR" GATE_PULL_TOKEN="$GH_TOKEN" GATE_RUN="$GITHUB_RUN_ID" \
+              bash scripts/gate-parent-job.sh run --mode addresses --out "$o" --job-image "$JOB_IMAGE"
+            grep -qx 'rc=0' "$o/outputs" || { echo "::error::The Job on the parent could not read the addresses."; exit 1; }
+            list="$(sed -n 's/^list=//p' "$o/outputs")"
+          else
+            for r in a b; do
+              kubectl --kubeconfig "$d/$r.yaml" get nodes -o json > "$d/$r.json"
+            done
+            list="$(python3 scripts/gate-outside-dial.py addresses "$d/a.json" "$d/b.json")"
+          fi
           echo "list=$list" >> "$GITHUB_OUTPUT"
           echo "Control-plane addresses: $list" >> "$GITHUB_STEP_SUMMARY"
+      - name: "Parent execution: delete the Job and its Secrets"
+        if: always() && steps.mode.outputs.execution == 'parent'
+        run: |
+          set -uo pipefail
+          p="$RUNNER_TEMP/parent/parent.yaml"
+          if [ -r "$p" ]; then
+            GATE_PARENT_KUBECONFIG="$p" bash scripts/gate-parent-job.sh cleanup --out "$RUNNER_TEMP/parent-addresses" \
+              || echo "::warning::The Job of this run or its Secrets could not be deleted; the Job deletes itself an hour after it ended."
+          fi
+          rm -f "$p"
 
   outside:
     name: dial the API port from outside
@@ -263,12 +349,12 @@ jobs:
 
   live:
     name: live gate run on ${{ inputs.env }}
-    needs: [unit, candidate, outside]
+    needs: [unit, candidate, addresses, outside]
     if: >-
       ${{ !cancelled() && github.event_name != 'pull_request' && github.event_name != 'merge_group' &&
       needs.unit.result == 'success' &&
       (needs.candidate.result == 'success' || (inputs.candidate_id == '' && needs.candidate.result == 'skipped')) }}
-    runs-on: ${{ inputs.runner }}
+    runs-on: ubuntu-latest
     environment: gate
     timeout-minutes: 330
     concurrency: # one live run per Sovereign: two would move the same Primary under each other
@@ -276,6 +362,7 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: read
+      packages: write
     outputs:
       result: ${{ steps.run.outputs.not_measured == 'true' && 'NOT-MEASURED' || steps.record.outputs.result || 'FAIL' }}
     steps:
@@ -296,6 +383,15 @@ jobs:
           python-version: '3.11'
       - name: Install PyYAML
         run: pip install --quiet pyyaml
+      - name: Where the cluster work runs
+        id: mode
+        env:
+          EXECUTION: ${{ inputs.execution }}
+        run: |
+          set -euo pipefail
+          e="$(bash scripts/gate-parent-job.sh execution "$EXECUTION")"
+          echo "execution=$e" >> "$GITHUB_OUTPUT"
+          echo "Execution: $e" >> "$GITHUB_STEP_SUMMARY"
       - name: Write kubeconfigs (never echoed)
         env:
           KA: ${{ secrets.ACCEPTANCE_KUBECONFIG_A }}
@@ -306,7 +402,17 @@ jobs:
           umask 077; mkdir -p "$RUNNER_TEMP/kube"
           printf '%s' "$KA" | base64 -d > "$RUNNER_TEMP/kube/a.yaml"
           printf '%s' "$KB" | base64 -d > "$RUNNER_TEMP/kube/b.yaml"
+      - name: "Parent execution: the parent kubeconfig (never echoed)"
+        if: steps.mode.outputs.execution == 'parent'
+        env:
+          KP: ${{ secrets.ACCEPTANCE_PARENT_KUBECONFIG }}
+        run: |
+          set -euo pipefail
+          if [ -z "$KP" ]; then echo "::error::the secret ACCEPTANCE_PARENT_KUBECONFIG of the environment gate is not set"; exit 2; fi
+          umask 077; mkdir -p "$RUNNER_TEMP/parent"
+          printf '%s' "$KP" | base64 -d > "$RUNNER_TEMP/parent/parent.yaml"
       - name: Wait until the hand-over chain has ended
+        if: steps.mode.outputs.execution == 'hosted'
         env:
           KA: ${{ runner.temp }}/kube/a.yaml
         run: |
@@ -338,6 +444,7 @@ jobs:
           fi
       - name: When the environment was created
         id: born
+        if: steps.mode.outputs.execution == 'hosted'
         run: |
           set -uo pipefail
           # The earliest creation of kube-system in the two regions. Unread: the last step fails.
@@ -374,6 +481,11 @@ jobs:
           ACCEPT_API_PORT_OUTSIDE: ${{ needs.outside.outputs.outcome }}
           MORE_CAPABILITIES: ${{ inputs.capabilities }}
           ENV_LABEL: ${{ inputs.env }}
+          EXECUTION: ${{ steps.mode.outputs.execution }}
+          JOB_IMAGE: ${{ needs.addresses.outputs.job_image }}
+          PROBE_IMAGE: ${{ needs.addresses.outputs.probe_image }}
+          GH_TOKEN: ${{ github.token }}
+          GATE_RUN: ${{ github.run_id }}
         run: |
           set +e
           caps=multi-region # the suite always drives two regions
@@ -383,22 +495,55 @@ jobs:
           # The suite reads the commit it was built from from GITHUB_SHA: make it this checkout's commit.
           GITHUB_SHA="$(git rev-parse HEAD)"
           export GITHUB_SHA
-          bash scripts/acceptance-sovereign.sh "$ENV_LABEL" --record | tee "$RUNNER_TEMP/acceptance.log"
-          rc=${PIPESTATUS[0]}
+          if [ "$EXECUTION" = parent ]; then
+            # The Job on the parent waits for the hand-over chain, reads the creation time, runs the
+            # suite and FND-G07, and prints the record, the log and the result of FND-G07.
+            o="$RUNNER_TEMP/parent-live"
+            if [ -n "$CATALYST_SESSION" ]; then
+              ( umask 077; printf '%s' "$CATALYST_SESSION" > "$RUNNER_TEMP/parent/session" )
+              export GATE_SESSION_FILE="$RUNNER_TEMP/parent/session"
+            fi
+            GATE_PARENT_KUBECONFIG="$RUNNER_TEMP/parent/parent.yaml" GATE_KUBECONFIG_A="$ACCEPT_KUBECONFIG_A" \
+              GATE_KUBECONFIG_B="$ACCEPT_KUBECONFIG_B" GATE_PULL_USER="$GITHUB_ACTOR" GATE_PULL_TOKEN="$GH_TOKEN" \
+              CANDIDATE_COMMIT="$GITHUB_SHA" \
+              bash "$GITHUB_WORKSPACE/scripts/gate-parent-job.sh" run --mode live --out "$o" --job-image "$JOB_IMAGE" --probe-image "$PROBE_IMAGE"
+            prc=$?
+            rm -f "$RUNNER_TEMP/parent/session"
+            if [ "$prc" != 0 ]; then echo "::error::The Job on the parent did not finish its work; its log is above."; exit 1; fi
+            echo "born=$(sed -n 's/^born=//p' "$o/outputs")" >> "$GITHUB_OUTPUT"
+            if grep -qx 'chain=timeout' "$o/outputs"; then exit 1; fi
+            rc="$(sed -n 's/^suite_rc=//p' "$o/outputs" | tail -n 1)"
+            if ! [[ "$rc" =~ ^[0-9]+$ ]]; then
+              echo "::error::The Job on the parent printed no suite return code (suite_rc='$rc'); its log is above; no record is committed."; exit 1
+            fi
+            if [ ! -s "$o/files/acceptance.log" ]; then
+              echo "::error::The Job on the parent sent no acceptance.log, or an empty one; its log is above; no record is committed."; exit 1
+            fi
+            cp "$o/files/acceptance.log" "$RUNNER_TEMP/acceptance.log"
+            for f in "$o"/files/record/*.json; do
+              [ -f "$f" ] && cp "$f" docs/ledger/acceptance/
+            done
+            mkdir -p "$RUNNER_TEMP/sso"
+            rm -f "$RUNNER_TEMP/sso/result.json"
+            [ -f "$o/files/sso/result.json" ] && cp "$o/files/sso/result.json" "$RUNNER_TEMP/sso/result.json"
+          else
+            bash scripts/acceptance-sovereign.sh "$ENV_LABEL" --record | tee "$RUNNER_TEMP/acceptance.log"
+            rc=${PIPESTATUS[0]}
+          fi
           set -e
           { echo '### Gate run'; echo; echo '```'; sed -n '/^ACCEPTANCE /,$p' "$RUNNER_TEMP/acceptance.log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           echo "suite exit code: $rc"
           # Exit code 4: the discovery could not reach the Sovereign after its retries (NOT MEASURED).
           if [ "$rc" = 4 ]; then echo "not_measured=true" >> "$GITHUB_OUTPUT"; fi
       - name: "Sign-in check FND-G07: Node for the probe"
-        if: steps.run.outputs.not_measured != 'true'
+        if: steps.mode.outputs.execution == 'hosted' && steps.run.outputs.not_measured != 'true'
         continue-on-error: true # without Node the next step records no result, and FND-G07 is a FAIL
         uses: actions/setup-node@v7
         with:
           node-version: '22'
       - name: "Sign-in check FND-G07: a user of this run signs in through the identity provider"
         id: sso
-        if: steps.run.outputs.not_measured != 'true'
+        if: steps.mode.outputs.execution == 'hosted' && steps.run.outputs.not_measured != 'true'
         env:
           KA: ${{ runner.temp }}/kube/a.yaml
           ENV_LABEL: ${{ inputs.env }}
@@ -555,6 +700,16 @@ jobs:
           fi
           { echo "### Zero-change plan CLD-G12 of deployment ${id:-unknown}"; echo; echo '```'; cat "$d/check.log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           python3 scripts/acceptance-gate.py merge-check "candidate/$files" "$d/result.json" --check CLD-G12
+      - name: "Parent execution: delete the Job and its Secrets"
+        if: always() && steps.mode.outputs.execution == 'parent'
+        run: |
+          set -uo pipefail
+          p="$RUNNER_TEMP/parent/parent.yaml"
+          if [ -r "$p" ]; then
+            GATE_PARENT_KUBECONFIG="$p" bash scripts/gate-parent-job.sh cleanup --out "$RUNNER_TEMP/parent-live" \
+              || echo "::warning::The Job of this run or its Secrets could not be deleted; the Job deletes itself an hour after it ended."
+          fi
+          rm -f "$p" "$RUNNER_TEMP/parent/session"
       - name: "NOT MEASURED: the discovery could not reach the Sovereign"
         if: steps.run.outputs.not_measured == 'true'
         run: |
@@ -621,7 +776,7 @@ jobs:
         working-directory: candidate
         env:
           REC: ${{ steps.record.outputs.file }}
-          BORN: ${{ steps.born.outputs.born }}
+          BORN: ${{ steps.born.outputs.born || steps.run.outputs.born }}
         run: |
           set -uo pipefail
           python3 "$GITHUB_WORKSPACE/scripts/gate-run-outcome.py" --record "$GITHUB_WORKSPACE/$REC" --born "$BORN" | tee "$RUNNER_TEMP/outcome.txt"
