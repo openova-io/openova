@@ -48,14 +48,24 @@ func Due(pending []store.OrganizationProvisionRecord, listed []unstructured.Unst
 
 // Run calls run for every record Due returns, one after the other, and stops
 // early when ctx ends. It returns how many records reached done.
+//
+// pending and listed are read at the start of the pass, and each run can take
+// seconds, so a record may have been deleted since. Just before running a
+// record, Run reads it again through current and skips it unless it is still
+// held at tenant_registered; run is given that fresh copy.
 func Run(ctx context.Context, pending []store.OrganizationProvisionRecord, listed []unstructured.Unstructured,
+	current func(id string) (store.OrganizationProvisionRecord, bool),
 	run func(context.Context, store.OrganizationProvisionRecord) store.OrganizationProvisionRecord) int {
 	done := 0
 	for _, rec := range Due(pending, listed) {
 		if ctx.Err() != nil {
 			break
 		}
-		if run(ctx, rec).State == store.STSDone {
+		fresh, ok := current(rec.OrganizationID)
+		if !ok || fresh.State != store.STSTenantRegistered {
+			continue
+		}
+		if run(ctx, fresh).State == store.STSDone {
 			done++
 		}
 	}

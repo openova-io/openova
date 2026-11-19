@@ -1292,14 +1292,14 @@ func (h *Handler) runOrganizationPipeline(ctx context.Context, rec store.Organiz
 	}
 
 	persist := func(updated store.OrganizationProvisionRecord) store.OrganizationProvisionRecord {
-		// #5501 — Save writes the stamped CreatedAt/UpdatedAt back onto
-		// `updated`, so every record this pipeline returns (and every
-		// record the response mapper serializes) carries the same
-		// timestamps the persisted row does, instead of Go zero values.
-		if err := deps.Store.Save(&updated); err != nil {
+		// #5501 — the save stamps CreatedAt/UpdatedAt back onto `updated`. It never
+		// writes over STSDeleted: a DELETE that landed during this run stands,
+		// `updated` becomes the deleted row, and no later step matches its state.
+		deleted, err := deps.Store.SaveUnlessDeleted(&updated)
+		if err != nil {
 			h.log.Warn("org-tenant: persist failed during pipeline", "err", err)
 		}
-		if deps.Events != nil {
+		if deps.Events != nil && !deleted {
 			if err := deps.Events.EmitOrganizationStateChanged(ctx, updated); err != nil {
 				h.log.Warn("org-tenant: nats emit state-changed failed", "err", err)
 			}

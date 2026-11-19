@@ -71,8 +71,16 @@ func TestRun(t *testing.T) {
 		rec("c", "c-org", store.STSTenantRegistered),
 	}
 	listed := []unstructured.Unstructured{orgCR("a-org", false), orgCR("b-org", false)}
+	unchanged := func(id string) (store.OrganizationProvisionRecord, bool) {
+		for _, r := range pending {
+			if r.OrganizationID == id {
+				return r, true
+			}
+		}
+		return store.OrganizationProvisionRecord{}, false
+	}
 	var ran []string
-	done := Run(context.Background(), pending, listed, func(_ context.Context, r store.OrganizationProvisionRecord) store.OrganizationProvisionRecord {
+	done := Run(context.Background(), pending, listed, unchanged, func(_ context.Context, r store.OrganizationProvisionRecord) store.OrganizationProvisionRecord {
 		ran = append(ran, r.OrganizationID)
 		if r.OrganizationID == "a" {
 			r.State = store.STSDone
@@ -86,10 +94,46 @@ func TestRun(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	ran = nil
-	if n := Run(ctx, pending, listed, func(_ context.Context, r store.OrganizationProvisionRecord) store.OrganizationProvisionRecord {
+	if n := Run(ctx, pending, listed, unchanged, func(_ context.Context, r store.OrganizationProvisionRecord) store.OrganizationProvisionRecord {
 		ran = append(ran, r.OrganizationID)
 		return r
 	}); n != 0 || len(ran) != 0 {
 		t.Fatalf("an ended context runs nothing, ran %v", ran)
+	}
+}
+
+// A record that was deleted, finished or removed after the pass read its list
+// is skipped: Run reads each record again just before running it and runs only
+// a record still held at tenant_registered, handing run that fresh copy.
+func TestRun_RereadsEachRecordBeforeRunningIt(t *testing.T) {
+	pending := []store.OrganizationProvisionRecord{
+		rec("deleted", "deleted-org", store.STSTenantRegistered),
+		rec("finished", "finished-org", store.STSTenantRegistered),
+		rec("removed", "removed-org", store.STSTenantRegistered),
+		rec("held", "held-org", store.STSTenantRegistered),
+	}
+	listed := []unstructured.Unstructured{
+		orgCR("deleted-org", false), orgCR("finished-org", false),
+		orgCR("removed-org", false), orgCR("held-org", false),
+	}
+	now := map[string]store.OrganizationProvisionRecord{
+		"deleted":  rec("deleted", "deleted-org", store.STSDeleted),
+		"finished": rec("finished", "finished-org", store.STSDone),
+		"held":     {OrganizationID: "held", Subdomain: "held-org", State: store.STSTenantRegistered, BoundaryPhase: "Provisioning"},
+	}
+	current := func(id string) (store.OrganizationProvisionRecord, bool) {
+		r, ok := now[id]
+		return r, ok
+	}
+	var ran []store.OrganizationProvisionRecord
+	Run(context.Background(), pending, listed, current, func(_ context.Context, r store.OrganizationProvisionRecord) store.OrganizationProvisionRecord {
+		ran = append(ran, r)
+		return r
+	})
+	if got := ids(ran); !reflect.DeepEqual(got, []string{"held"}) {
+		t.Fatalf("ran %v, want only [held]", got)
+	}
+	if ran[0].BoundaryPhase != "Provisioning" {
+		t.Fatalf("run must get the record as read just now, got boundary %q", ran[0].BoundaryPhase)
 	}
 }

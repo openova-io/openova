@@ -139,7 +139,7 @@ func (h *Handler) reconcileTenantRegistryOnce(ctx context.Context) {
 	}
 	// Records the pipeline holds at tenant_registered run again once their CR is listed (orgpromote).
 	if s := h.orgTenantDeps.Store; s != nil {
-		orgpromote.Run(ctx, s.ListPending(), list.Items, h.runOrganizationPipeline)
+		orgpromote.Run(ctx, s.ListPending(), list.Items, s.Get, h.runOrganizationPipeline)
 	}
 }
 

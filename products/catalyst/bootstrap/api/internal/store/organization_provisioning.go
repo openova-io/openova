@@ -268,22 +268,43 @@ func (s *OrganizationProvisionStore) Put(rec OrganizationProvisionRecord) error 
 // persisted carries the same timestamps the on-disk row does. Same
 // semantics as Put in every other respect.
 func (s *OrganizationProvisionStore) Save(rec *OrganizationProvisionRecord) error {
+	_, err := s.save(rec, false)
+	return err
+}
+
+// SaveUnlessDeleted is Save, except that it never writes over a row that is
+// already STSDeleted. The check and the write happen under the same lock as
+// every other write, so a DELETE that lands while the pipeline is running
+// (HandleDeleteOrganization writes STSDeleted through Put) is never undone by
+// the pipeline's later write. On refusal it returns deleted=true and replaces
+// *rec with the deleted row.
+func (s *OrganizationProvisionStore) SaveUnlessDeleted(rec *OrganizationProvisionRecord) (deleted bool, err error) {
+	return s.save(rec, true)
+}
+
+func (s *OrganizationProvisionStore) save(rec *OrganizationProvisionRecord, keepDeleted bool) (bool, error) {
 	if rec == nil {
-		return errors.New("org-tenant: record is required")
+		return false, errors.New("org-tenant: record is required")
 	}
 	if strings.TrimSpace(rec.OrganizationID) == "" {
-		return errors.New("org-tenant: org_tenant_id is required")
+		return false, errors.New("org-tenant: org_tenant_id is required")
 	}
 	if rec.State == "" {
 		rec.State = STSPending
 	}
 	now := time.Now().UTC()
-	rec.UpdatedAt = now
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	path := filepath.Join(s.dir, sanitizeID(rec.OrganizationID)+".json")
+	if keepDeleted {
+		if existing, err := readOrganizationRec(path); err == nil && existing.State == STSDeleted {
+			*rec = existing
+			return true, nil
+		}
+	}
+	rec.UpdatedAt = now
 	if rec.CreatedAt.IsZero() {
 		if existing, err := readOrganizationRec(path); err == nil && !existing.CreatedAt.IsZero() {
 			rec.CreatedAt = existing.CreatedAt
@@ -294,13 +315,13 @@ func (s *OrganizationProvisionStore) Save(rec *OrganizationProvisionRecord) erro
 
 	data, err := json.MarshalIndent(rec, "", "  ")
 	if err != nil {
-		return fmt.Errorf("org-tenant: marshal: %w", err)
+		return false, fmt.Errorf("org-tenant: marshal: %w", err)
 	}
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return fmt.Errorf("org-tenant: write tmp: %w", err)
+		return false, fmt.Errorf("org-tenant: write tmp: %w", err)
 	}
-	return os.Rename(tmp, path)
+	return false, os.Rename(tmp, path)
 }
 
 // Get returns the record for the given tenant id.

@@ -73,3 +73,55 @@ func TestTenantRegistryPass_NeverRecreatesADeletedOrganization(t *testing.T) {
 		t.Fatalf("a record whose CR is gone stays where it is, got %q", rec.State)
 	}
 }
+
+// TestPipeline_NeverWritesOverADeleteThatLandedDuringTheRun: the pass reads a
+// held record, and a DELETE lands before its run persists. The DELETE wrote
+// STSDeleted; the run must not write tenant_registered (or done) over it, or
+// the deleted Organization comes back and stays at tenant_registered for ever.
+func TestPipeline_NeverWritesOverADeleteThatLandedDuringTheRun(t *testing.T) {
+	h, _ := newOrgPipelineHandlerWithCRs(t)
+	ctx := context.Background()
+	_, created := postCreateOrg(t, h, `{"subdomain":"racecorp","admin_email":"admin@racecorp.test","domain_mode":"free-subdomain"}`)
+	held, ok := h.orgTenantDeps.Store.Get(created.OrganizationID)
+	if !ok || held.State != store.STSTenantRegistered {
+		t.Fatalf("precondition: held at tenant_registered, got %q", held.State)
+	}
+
+	if w := deleteOrgViaHandler(t, h, created.OrganizationID); w.Code != 204 {
+		t.Fatalf("delete: want 204, got %d (%s)", w.Code, w.Body.String())
+	}
+
+	// The run that read the record before the DELETE now persists.
+	got := h.runOrganizationPipeline(ctx, held)
+	rec, _ := h.orgTenantDeps.Store.Get(created.OrganizationID)
+	if rec.State != store.STSDeleted || got.State != store.STSDeleted {
+		t.Fatalf("a DELETE during the run must stand: stored %q, returned %q", rec.State, got.State)
+	}
+}
+
+// TestPipeline_TerminatingCRIsNeverReady: a CR being deleted keeps its last
+// status, which may still say Ready. The pipeline must not promote the record
+// to done on it.
+func TestPipeline_TerminatingCRIsNeverReady(t *testing.T) {
+	h, dyn := newOrgPipelineHandlerWithCRs(t)
+	ctx := context.Background()
+	_, created := postCreateOrg(t, h, `{"subdomain":"leavingcorp","admin_email":"admin@leavingcorp.test","domain_mode":"free-subdomain"}`)
+	held, _ := h.orgTenantDeps.Store.Get(created.OrganizationID)
+
+	cr, err := dyn.Resource(organizationGVR()).Get(ctx, "leavingcorp", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get minted CR: %v", err)
+	}
+	now := metav1.Now()
+	cr.SetFinalizers([]string{"orgs.openova.io/tenant-networking"})
+	cr.SetDeletionTimestamp(&now)
+	cr.Object["status"] = map[string]any{"vcluster": map[string]any{"phase": "Ready"}}
+	if _, err := dyn.Resource(organizationGVR()).Update(ctx, cr, metav1.UpdateOptions{}); err != nil {
+		t.Fatalf("stamp terminating Ready: %v", err)
+	}
+
+	got := h.runOrganizationPipeline(ctx, held)
+	if got.State != store.STSTenantRegistered || got.BoundaryPhase != "Deleting" {
+		t.Fatalf("a terminating CR is not a Ready boundary: state %q, boundary %q", got.State, got.BoundaryPhase)
+	}
+}
