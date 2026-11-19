@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T02:15:04Z` |
+| Last refreshed | `2026-11-19T02:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,9 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7865](https://github.com/openova-io/openova/issues/7865) | INF-052 Check INF-G01: upgrade windows and recovery; set to required | Other |
-| [#7866](https://github.com/openova-io/openova/issues/7866) | INF-053 Capability flag node-reboot: a gate run restarts nodes only when it decl | Other |
-| [#7881](https://github.com/openova-io/openova/issues/7881) | AIP-111 Move the sidecar, take identity from the gateway, publish quantity | Other |
 | [#7882](https://github.com/openova-io/openova/issues/7882) | CTL-230 Batch F: resource browser | Other |
 | [#7883](https://github.com/openova-io/openova/issues/7883) | FND-029 A published chart version is never published again with other content | Other |
 | [#7884](https://github.com/openova-io/openova/issues/7884) | FND-064 Custody procedure of the release key, safe rotation, and the pre-live st | Other |
@@ -300,6 +297,9 @@ flowchart LR
 | [#8238](https://github.com/openova-io/openova/issues/8238) | FND-079 The gate has a scoped access to the parent | Other |
 | [#8244](https://github.com/openova-io/openova/issues/8244) | CLD-111 Wipe and janitor through capabilities | Other |
 | [#8247](https://github.com/openova-io/openova/issues/8247) | FND-078 The gate's cluster jobs run as a Job on the parent | Other |
+| [#8254](https://github.com/openova-io/openova/issues/8254) | INF-512 Runner test task: arguments, target check and Nuclei (profile network-pa | Other |
+| [#8256](https://github.com/openova-io/openova/issues/8256) | CLD-065 Crossplane 1.20 to 2.4 | Other |
+| [#8257](https://github.com/openova-io/openova/issues/8257) | SVC-163 The Blueprint files carry the seed's configSchema | Other |
 
 ---
 
@@ -307,8 +307,11 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-19T02:28 | [#8255](https://github.com/openova-io/openova/pull/8255) | #7087 | docs(ledger): plan update |
+| 2026-11-19T02:23 | [#8253](https://github.com/openova-io/openova/pull/8253) | #7087 | docs(ledger): plan update |
 | 2026-11-19T01:43 | [#8250](https://github.com/openova-io/openova/pull/8250) | #7087 | docs(ledger): plan update |
 | 2026-11-19T01:24 | [#8249](https://github.com/openova-io/openova/pull/8249) | #7087 | docs(ledger): plan update |
+| 2026-11-19T02:16 | [#8248](https://github.com/openova-io/openova/pull/8248) | #8247 | ci: the gate runs its cluster work as a Job on the parent, s |
 | 2026-11-19T00:43 | [#8246](https://github.com/openova-io/openova/pull/8246) | #7087 | docs(ledger): plan update |
 | 2026-11-19T01:43 | [#8245](https://github.com/openova-io/openova/pull/8245) | #8244 | refactor(api): the wipe and the janitor reach the cloud thro |
 | 2026-11-19T00:37 | [#8243](https://github.com/openova-io/openova/pull/8243) | #7087 | docs(ledger): plan update |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-18T21:57 | [#8214](https://github.com/openova-io/openova/pull/8214) | #7087 | docs(ledger): plan update |
 | 2026-11-18T21:34 | [#8211](https://github.com/openova-io/openova/pull/8211) | #7087 | docs(ledger): plan update |
 | 2026-11-18T21:20 | [#8210](https://github.com/openova-io/openova/pull/8210) | #8209 | fix(axon): bound active and parked runs, queue with 429, ste |
-| 2026-11-18T20:52 | [#8208](https://github.com/openova-io/openova/pull/8208) | #7087 | docs(ledger): plan update |
-| 2026-11-18T22:16 | [#8207](https://github.com/openova-io/openova/pull/8207) | #7798 | refactor(cilium): the API host and the native-routing range  |
-| 2026-11-18T20:42 | [#8206](https://github.com/openova-io/openova/pull/8206) | #7087 | docs(ledger): plan update |
 
 ---
 
