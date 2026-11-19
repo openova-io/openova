@@ -7,7 +7,7 @@ metadata:
     catalyst.openova.io/category: platform
     catalyst.openova.io/tier: catalyst-cp
 spec:
-  version: 0.2.54
+  version: 0.2.55
   card:
     title: Apache Guacamole
     category: platform
