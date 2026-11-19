@@ -2834,9 +2834,9 @@ packages:
     expect: "0"
   acceptance:
   - id: A1
-    run: "printf '%s  %s\\n' 128cc7ce8d1cc33250b57a372774dded534cb9bc8cb4ffb73b13f358d17e1b74 .github/workflows/foundation-gate-standing.yaml a67efefdb1e50189a179ba12f96bbb1399e5a85856c7b81a536c271585db3798 scripts/gate-parent-job.sh e73f60012bd8b74b922dbb03b3d958b391a242d42e6e1251813c211bf08aa24b scripts/standing-update.sh 623325c70d4298bdc9b6e9770d1ddbd45abfcf989f2789ee00f73f0659adb0fe scripts/standing-update/self-test.sh | sha256sum -c --quiet -"
+    run: "printf '%s  %s\\n' 128cc7ce8d1cc33250b57a372774dded534cb9bc8cb4ffb73b13f358d17e1b74 .github/workflows/foundation-gate-standing.yaml 64a37c453996a3696f03e5f80d9cca2acb1e1a102ce52c39fe2048a26b15d512 scripts/gate-parent-job.sh 13b0f012c96a219f3ca558785bc27dd2fddd952a13f252fb410833338f1a1a57 scripts/standing-update.sh 07713bf8749304a7112c19fef789fea4c32948d2d649931522120f5e19771471 scripts/standing-update/self-test.sh | sha256sum -c --quiet -"
   - id: A2
-    run: "out=\"$(bash scripts/standing-update.sh --self-test)\" && test \"$(printf '%s\\n' \"$out\" | grep -c '^ok ')\" = 23"
+    run: "out=\"$(bash scripts/standing-update.sh --self-test)\" && test \"$(printf '%s\\n' \"$out\" | grep -c '^ok ')\" = 31"
   - id: A3
     run: "out=\"$(bash scripts/gate-parent-job.sh --self-test)\" && test \"$(printf '%s\\n' \"$out\" | grep -c '^ok   update: ')\" = 5"
   - id: A4
@@ -2850,7 +2850,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: The job update of foundation-gate-standing.yaml runs scripts/standing-update.sh in a Job on the parent (scripts/gate-parent-job.sh run --mode update), which delivers the candidate to the standing environment through the release route PUT /api/v1/sovereign/release one region per request, region b first, after it has recorded the state of each region, read back the OpenBao snapshot of each region and had a dry run answered dry-run, sends nothing when both regions already run the candidate and the route reports it delivered, stops by name on every refusal of the route, waits for each region to apply the candidate, converge and compare clean before the next, and sends a rollback request for each region it promoted, primary first, when a region does not; then the workflow runs its verify-and-gate jobs as before.
 - id: FND-077
@@ -10825,7 +10825,6 @@ packages:
   - clusters/_template/bootstrap-kit/95-bp-stalwart-sovereign.yaml
   - clusters/_template/bootstrap-kit/kustomization.yaml
   - clusters/_template/bootstrap-kit/placement.yaml
-  - core/services/tenant/handlers/handlers.go
   - docs/generated/bootstrap-slots.md
   - docs/generated/components.md
   - platform/stalwart-sovereign/chart/Chart.yaml
@@ -10855,7 +10854,6 @@ packages:
   - products/catalyst/bootstrap/api/internal/signinmail/signinmail.go
   - products/catalyst/bootstrap/api/internal/signinmail/signinmail_test.go
   - products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts
-  - products/catalyst/chart/crds/organization.yaml
   - products/catalyst/chart/values.yaml
   - scripts/baselines/api-structure.json
   - scripts/baselines/direct-cluster-writes.json
@@ -10876,11 +10874,11 @@ packages:
   - id: A2
     run: "t=platform/stalwart-sovereign/chart/tests/setup-job.sh && test \"$(bash \"$t\" --self-test | grep -c -x 'self-test: R[0-9]* fails as it should')\" = 21 && out=\"$(bash \"$t\")\" && grep -q '^PASS: ' <<<\"$out\""
   - id: A3
-    run: "k=clusters/_template/bootstrap-kit && f=\"$k/95-bp-stalwart-sovereign.yaml\" && grep -q -x '  - 95-bp-stalwart-sovereign.yaml' \"$k/kustomization.yaml\" && test \"$(grep -c -x '    disableWait: true' \"$f\")\" = 2 && grep -q -x '    mailMode: ${MAIL_MODE:=local}' \"$f\" && grep -q -x '      issuerName: ${WILDCARD_CERT_ISSUER}' \"$f\" && grep -q -x '      imageRegistry: ${REGISTRY_MIRROR:=harbor.openova.io}/proxy-dockerhub' \"$f\" && grep -q -x '        type: ClusterIP' \"$f\" && test \"$(awk '/^  dependsOn:$/{d=1;next} d&&/^    - name: /{print $3} d&&/^  [a-z]/{d=0}' \"$f\" | LC_ALL=C sort | tr '\\n' ' ')\" = 'bp-cert-manager storage-ready ' && test \"$(grep -A2 -x '    name: bp-stalwart-sovereign' scripts/expected-bootstrap-deps.yaml | grep -c -x '    depends_on: \\[bp-cert-manager, storage-ready\\]')\" = 1 && python3 scripts/render-slot-placement.py check > /dev/null && python3 scripts/check-reserved-slugs.py > /dev/null && python3 scripts/tests/test-kit-flux-substitution.py > /dev/null"
+    run: "k=clusters/_template/bootstrap-kit && f=\"$k/95-bp-stalwart-sovereign.yaml\" && grep -q -x '  - 95-bp-stalwart-sovereign.yaml' \"$k/kustomization.yaml\" && test \"$(grep -c -x '    disableWait: true' \"$f\")\" = 2 && grep -q -x '  targetNamespace: platform' \"$f\" && grep -q -x '    mailMode: ${MAIL_MODE:=local}' \"$f\" && grep -q -x '      issuerName: ${WILDCARD_CERT_ISSUER}' \"$f\" && grep -q -x '      imageRegistry: ${REGISTRY_MIRROR:=harbor.openova.io}/proxy-dockerhub' \"$f\" && grep -q -x '        type: ClusterIP' \"$f\" && test \"$(awk '/^  dependsOn:$/{d=1;next} d&&/^    - name: /{print $3} d&&/^  [a-z]/{d=0}' \"$f\" | LC_ALL=C sort | tr '\\n' ' ')\" = 'bp-cert-manager storage-ready ' && test \"$(grep -A2 -x '    name: bp-stalwart-sovereign' scripts/expected-bootstrap-deps.yaml | grep -c -x '    depends_on: \\[bp-cert-manager, storage-ready\\]')\" = 1 && python3 scripts/render-slot-placement.py check > /dev/null && python3 scripts/check-reserved-slugs.py > /dev/null && python3 scripts/tests/test-kit-flux-substitution.py > /dev/null"
   - id: A4
     run: "cd products/catalyst/bootstrap/api && go test -count=1 ./internal/signinmail/ > /dev/null && grep -q 'signinmail.Resolve(context.Background())' internal/handler/auth.go && ! grep -q 'func smtpAddr()' internal/handler/auth.go"
   - id: A5
-    run: "awk '/^    allowedPlatformNamespaces:$/{f=1;next} f&&/^    [a-z]/{exit} f&&/^      - stalwart$/{ok=1} END{exit ok?0:1}' products/catalyst/chart/values.yaml"
+    run: "awk '/^    allowedPlatformNamespaces:$/{f=1;next} f&&/^    [a-z]/{exit} f&&/^      - platform$/{ok=1} END{exit ok?0:1}' products/catalyst/chart/values.yaml"
   - id: A6
     run: "out=\"$(bash scripts/check-chargeback-mail-not-dev-mode.sh)\" && grep -q -x \"  ok: the writer writes the SMTP_\\* shape and reflects into 'chargeback'\" <<<\"$out\" && bash scripts/check-secret-object-register.sh > /dev/null && grep -q -x '  - id: mail-server-tls' scripts/secret-guard-baselines/secret-object-register.yaml"
   - id: A7
@@ -10890,7 +10888,7 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: Bootstrap-kit slot 95 installs the Sovereign's own mail server, whose setup Job creates the submission account with a password generated in the cluster, pins mail.<fqdn> to the server inside the cluster and writes catalyst-system/sovereign-smtp-credentials, which the catalyst-api reads for every sign-in code; the parent no longer copies its mailbox credential into a new Sovereign.
 - id: SOV-323
@@ -17716,7 +17714,7 @@ packages:
   size: S
   lane: CONTRACTS
   depends_on: [NET-222, NET-223, NET-224, NET-226]
-  after: [FND-011, CLD-114, SOV-322, NET-032, NET-102, BSS-141]
+  after: [FND-011, CLD-114, NET-032, NET-102, BSS-141]
   touches:
   - products/catalyst/chart/crds/blueprint.yaml
   - products/catalyst/chart/crds/application.yaml
