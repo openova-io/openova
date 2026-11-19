@@ -36,6 +36,11 @@
 #   GATE_SESSION_FILE        optional: an owner session (secret ACCEPTANCE_CATALYST_SESSION)
 #   GATE_PULL_USER, GATE_PULL_TOKEN   the credential the node pulls the images with
 #   GATE_TOOLS               the checkout of the gate tools (default: the folder above this one)
+#   GATE_RESOURCES           optional: requests and limits of the Job's containers that differ from
+#                            RESOURCES_DEFAULT below, as <gate|probe>.<requests|limits>.<cpu|memory>=<quantity>
+#                            separated by commas (a CPU in m or cores, a memory in Ki, Mi or Gi); the
+#                            workflows pass the variable GATE_PARENT_RESOURCES of the environment gate.
+#                            A value that is not valid ends the run with exit code 2 before anything is created.
 #   The run's inputs, copied into the Job's environment: ENV_LABEL, GATE_RUN, CANDIDATE_COMMIT,
 #   GITHUB_ACTIONS, GITHUB_WORKFLOW_REF, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT and every ACCEPT_*
 #   except the paths ACCEPT_KUBECONFIG_A, _B, ACCEPT_MANIFEST, ACCEPT_REPO_ROOT, ACCEPT_RECORD_DIR.
@@ -61,6 +66,16 @@ SHARED=/shared
 SCRATCH=/scratch
 DIGEST_RE='^[a-z0-9][a-z0-9.:_/-]*@sha256:[0-9a-f]{64}$'
 TRANSIENT_RE='connection (lost|refused|reset)|reset by peer|i/o timeout|TLS handshake timeout|unexpected EOF|EOF$|http2:|Unable to connect to the server|ServiceUnavailable|InternalError|Too Many Requests|context deadline exceeded|Client.Timeout|timed out|the server is currently unable|net/http'
+# The resources of the Job's containers, the one place they are set. A request is what the scheduler
+# reserves on the parent's node, so it is sized from what the container needs to START, not from its
+# peak: the parent's node is 89% requested (run 44443420236 waited 30 minutes for 1 CPU and 1.5 GiB),
+# and the live Pod must fit in about 1 GiB and half a CPU. Measured with podman on the images of the
+# recipes: the container gate starts in 8 MiB (bash, kubectl, python3, the suite) and reads an 11 MiB
+# list in 101 MiB; the container probe waits in 3 MiB and peaks at 575 MiB while Chromium loads four
+# pages in two contexts, as FND-G07 does for about a minute. A limit is the ceiling of that peak. A
+# container above its request is the first one evicted when the node runs short, so the parent's own
+# services stay. A larger parent raises any value with GATE_RESOURCES.
+RESOURCES_DEFAULT='gate.requests.cpu=250m,gate.requests.memory=256Mi,gate.limits.cpu=1,gate.limits.memory=1Gi,probe.requests.cpu=100m,probe.requests.memory=128Mi,probe.limits.cpu=1,probe.limits.memory=2Gi'
 SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 TOOLS="${GATE_TOOLS:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
@@ -229,15 +244,67 @@ cmd_image() {
   cat "$output"
 }
 
+# ---------------------------------------------------------------- resources
+# resources_json: RESOURCES_DEFAULT with GATE_RESOURCES over it, as JSON {container: {requests|limits:
+# {cpu, memory}}} and, under "amount", the same in millicores and bytes. Exit 2 when a value is not
+# valid: an unknown key, a key named twice, a quantity not of its resource's form or not above 0, a
+# request above its limit.
+resources_json() {
+  python3 - "$RESOURCES_DEFAULT" "${GATE_RESOURCES:-}" <<'PY'
+import json, re, sys
+def bad(msg):
+    print("gate-parent-job: GATE_RESOURCES: " + msg, file=sys.stderr); sys.exit(2)
+def parse(text):
+    out = {}
+    for item in (x for x in re.split(r"[\s,]+", text) if x):
+        key, eq, value = item.partition("=")
+        p = key.split(".")
+        if not eq or len(p) != 3 or p[0] not in ("gate", "probe") or p[1] not in ("requests", "limits") or p[2] not in ("cpu", "memory"):
+            bad("'%s' is not <gate|probe>.<requests|limits>.<cpu|memory>=<quantity>" % item)
+        if key in out:
+            bad("%s is named twice" % key)
+        out[key] = value
+    return out
+def amount(key, value):  # millicores or bytes, or None when the quantity is not of the resource's form
+    if key.endswith(".cpu"):
+        m = re.fullmatch(r"([0-9]{1,6})m|([0-9]{1,3})(?:\.([0-9]{1,3}))?", value)
+        if not m:
+            return None
+        return int(m.group(1)) if m.group(1) else int(m.group(2)) * 1000 + int((m.group(3) or "").ljust(3, "0"))
+    m = re.fullmatch(r"([0-9]{1,7})(Ki|Mi|Gi)", value)
+    return int(m.group(1)) << {"Ki": 10, "Mi": 20, "Gi": 30}[m.group(2)] if m else None
+values = parse(sys.argv[1])
+values.update(parse(sys.argv[2]))
+res, amt = {}, {}
+for key, value in sorted(values.items()):
+    a = amount(key, value)
+    if not a:
+        bad("%s=%s is not a %s above 0" % (key, value, "CPU in m or cores" if key.endswith(".cpu") else "memory in Ki, Mi or Gi"))
+    c, kind, r = key.split(".")
+    res.setdefault(c, {}).setdefault(kind, {})[r] = value
+    amt.setdefault(c, {}).setdefault(kind, {})[r] = a
+for c in sorted(amt):
+    for r in ("cpu", "memory"):
+        if amt[c]["requests"][r] > amt[c]["limits"][r]:
+            bad("%s.requests.%s=%s is above its limit %s" % (c, r, res[c]["requests"][r], res[c]["limits"][r]))
+res["amount"] = amt
+print(json.dumps(res, sort_keys=True))
+PY
+}
+
 # ---------------------------------------------------------------- manifests
 # manifests MODE NAME JOB_IMAGE PROBE_IMAGE OUTDIR: writes secret.json, pull.json (when a pull
-# credential is set) and job.json. Only secret.json and pull.json hold a credential; they are
-# written with mode 600 and removed by the caller once created.
+# credential is set), job.json and resources (one line: what the Pod requests and its limits). Only
+# secret.json and pull.json hold a credential; they are written with mode 600 and removed by the
+# caller once created. Exit 2 when GATE_RESOURCES is not valid.
 manifests() {
+  local res
+  res="$(resources_json)" || return 2
   ( umask 077
-    python3 - "$@" "$SELF" "$TOOLS" <<'PY'
+    python3 - "$@" "$SELF" "$TOOLS" "$res" <<'PY'
 import base64, json, os, re, sys
-mode, name, job_image, probe_image, out, self_path, tools = sys.argv[1:8]
+mode, name, job_image, probe_image, out, self_path, tools, res = sys.argv[1:9]
+res = json.loads(res)
 labels = {"app.kubernetes.io/managed-by": "gate-parent-job",
           "openova.io/gate-run": re.sub(r"[^0-9A-Za-z._-]", "", os.environ.get("GATE_RUN", "")) or "none",
           "openova.io/gate-mode": mode}
@@ -277,7 +344,7 @@ mounts = [{"name": "run", "mountPath": "/run/gate-secret", "readOnly": True},
 containers = [{"name": "gate", "image": job_image, "imagePullPolicy": "IfNotPresent",
                "command": ["/bin/bash", "/run/gate-secret/gate-parent-job.sh", "inner", mode],
                "env": env, "securityContext": restricted, "volumeMounts": mounts,
-               "resources": {"requests": {"cpu": "500m", "memory": "512Mi"}, "limits": {"cpu": "1", "memory": "1Gi"}}}]
+               "resources": {k: dict(res["gate"][k]) for k in ("requests", "limits")}}]
 volumes = [{"name": "run", "secret": {"secretName": name, "defaultMode": 0o440}},
            {"name": "shared", "emptyDir": {"medium": "Memory", "sizeLimit": "16Mi"}},
            {"name": "scratch", "emptyDir": {"sizeLimit": "4Gi"}}]
@@ -286,8 +353,15 @@ if mode == "live":
                        "command": ["/bin/bash", "/run/gate-secret/gate-parent-job.sh", "probe"],
                        "env": env, "securityContext": restricted,
                        "volumeMounts": mounts + [{"name": "shm", "mountPath": "/dev/shm"}],
-                       "resources": {"requests": {"cpu": "500m", "memory": "1Gi"}, "limits": {"cpu": "1", "memory": "2Gi"}}})
+                       "resources": {k: dict(res["probe"][k]) for k in ("requests", "limits")}})
     volumes.append({"name": "shm", "emptyDir": {"medium": "Memory", "sizeLimit": "256Mi"}})
+def total(kind):
+    names = [c["name"] for c in containers]
+    cpu = sum(res["amount"][n][kind]["cpu"] for n in names)
+    mem = sum(res["amount"][n][kind]["memory"] for n in names)
+    each = ", ".join("%s %s CPU %s" % (n, res[n][kind]["cpu"], res[n][kind]["memory"]) for n in names)
+    return "%dm CPU and %dMi (%s)" % (cpu, mem >> 20, each)
+open(os.path.join(out, "resources"), "w").write("its Pod requests %s; limits %s\n" % (total("requests"), total("limits")))
 deadline = {"addresses": 900, "regions": 9000, "live": 19200}[mode]
 pod = {"restartPolicy": "Never", "automountServiceAccountToken": False, "enableServiceLinks": False,
        "securityContext": {"runAsNonRoot": True, "runAsUser": 65534, "runAsGroup": 65534, "fsGroup": 65534,
@@ -452,6 +526,7 @@ cmd_run() {
   if [ "$mode" = live ] && ! [[ "$pimg" =~ $DIGEST_RE ]]; then
     echo "gate-parent-job: --probe-image must name a digest: <repository>@sha256:<64 hex>, not '$pimg'" >&2; exit 2
   fi
+  resources_json > /dev/null || exit 2
   local v
   for v in GATE_PARENT_KUBECONFIG GATE_KUBECONFIG_A GATE_KUBECONFIG_B; do
     [ -r "${!v:-}" ] || die "$v is not a readable file"
@@ -471,7 +546,7 @@ cmd_run() {
   pk create -f "$RUN_OUT/job.json" > /dev/null || die "the Job could not be created"
   local created
   created="$(date +%s)"
-  echo "gate-parent-job: created the Job $name in $NS on the parent" >&2
+  echo "gate-parent-job: created the Job $name in $NS on the parent; $(cat "$RUN_OUT/resources")" >&2
   # 1. Every container starts: the node pulls the images. A container that can never start ends the run at
   #    once; an image the node cannot pull ends it after GATE_PULL_MINUTES of back-off; the container gate
   #    ending first goes straight to its log.
@@ -874,6 +949,52 @@ PY
   ( export GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb"; TOOLS="$T/tools" manifests addresses gate-1-1-addresses-x "$JI" none "$T/m2" )
   python3 -c 'import json, sys; p = json.load(open(sys.argv[1]))["spec"]["template"]["spec"]; sys.exit(0 if [c["name"] for c in p["containers"]] == ["gate"] and "imagePullSecrets" not in p else 1)' "$T/m2/job.json"
   ok $? "manifests: addresses runs the container gate only"
+
+  # the resources: requests the parent can schedule, limits as the ceiling, GATE_RESOURCES over the defaults
+  python3 - "$T/m/job.json" <<'PY'
+import json, re, sys
+def q(v):  # millicores or bytes
+    m = re.fullmatch(r"([0-9]+)m", v)
+    if m: return int(m.group(1))
+    m = re.fullmatch(r"([0-9]+)(Ki|Mi|Gi)", v)
+    return int(m.group(1)) << {"Ki": 10, "Mi": 20, "Gi": 30}[m.group(2)] if m else int(float(v) * 1000)
+cs = json.load(open(sys.argv[1]))["spec"]["template"]["spec"]["containers"]
+req = lambda r: sum(q(c["resources"]["requests"][r]) for c in cs)
+bad = []
+if req("cpu") > 500: bad.append("the Pod requests %dm CPU" % req("cpu"))
+if req("memory") > 1 << 30: bad.append("the Pod requests %dMi" % (req("memory") >> 20))
+for c in cs:
+    for r in ("cpu", "memory"):
+        if q(c["resources"]["requests"][r]) > q(c["resources"]["limits"][r]): bad.append(c["name"] + " request above limit")
+lim = {c["name"]: c["resources"]["limits"] for c in cs}
+if lim != {"gate": {"cpu": "1", "memory": "1Gi"}, "probe": {"cpu": "1", "memory": "2Gi"}}: bad.append("limits %s" % lim)
+print(bad) if bad else None
+sys.exit(1 if bad else 0)
+PY
+  ok $? "resources: the live Pod requests at most 500m CPU and 1Gi in all, the limits stay 1 CPU 1Gi and 1 CPU 2Gi"
+  grep -qx 'its Pod requests 350m CPU and 384Mi (gate 250m CPU 256Mi, probe 100m CPU 128Mi); limits 2000m CPU and 3072Mi (gate 1 CPU 1Gi, probe 1 CPU 2Gi)' "$T/m/resources"
+  ok $? "resources: the line the run prints names what the Pod requests and its limits"
+  mkdir -p "$T/m3"
+  ( export GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" GATE_RESOURCES='probe.requests.memory=1Gi, gate.limits.cpu=2500m'
+    TOOLS="$T/tools" manifests live gate-2-1-live-x "$JI" "$PI" "$T/m3" )
+  python3 -c '
+import json, sys
+c = {x["name"]: x["resources"] for x in json.load(open(sys.argv[1]))["spec"]["template"]["spec"]["containers"]}
+sys.exit(0 if c == {"gate": {"requests": {"cpu": "250m", "memory": "256Mi"}, "limits": {"cpu": "2500m", "memory": "1Gi"}},
+                    "probe": {"requests": {"cpu": "100m", "memory": "1Gi"}, "limits": {"cpu": "1", "memory": "2Gi"}}} else 1)' "$T/m3/job.json"
+  ok $? "resources: GATE_RESOURCES raises the values it names, the others keep their defaults"
+  local bad_res rc_all=0
+  for bad_res in 'gate.requests.memory=lots' 'sidecar.requests.cpu=1' 'gate.request.cpu=1' 'gate.requests.cpu' 'gate.requests.cpu=0m' \
+      'gate.requests.memory=512M' 'gate.requests.cpu=512Mi' 'probe.requests.memory=4Gi' 'gate.limits.cpu=100m' 'gate.requests.cpu=1,gate.requests.cpu=2'; do
+    ( GATE_RESOURCES="$bad_res" resources_json ) > /dev/null 2>&1; [ $? = 2 ] || { echo "not refused: $bad_res"; rc_all=1; }
+  done
+  ok "$rc_all" "resources: an unknown key, a key named twice, a quantity of the wrong form or 0, a request above its limit: exit code 2"
+  reset_stub
+  ( export GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" GITHUB_RUN_ID=55 GATE_RESOURCES='probe.requests.memory=3Gi'
+    TOOLS="$T/tools" cmd_run --mode live --out "$T/r13" --job-image "$JI" --probe-image "$PI" ) > "$T/r13.out" 2>&1
+  o=$?
+  [ "$o" = 2 ] && [ "$(calls)" = 0 ] && grep -q 'probe.requests.memory=3Gi is above its limit 2Gi' "$T/r13.out"
+  ok $? "run: GATE_RESOURCES that is not valid ends the run with exit code 2 before anything is created on the parent"
 
   # images by digest only
   ( GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" cmd_run --mode live --out "$T/r0" --job-image ghcr.io/x/y:latest --probe-image "$PI" ) 2>/dev/null

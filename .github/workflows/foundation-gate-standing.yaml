@@ -185,6 +185,7 @@ jobs:
           COMMIT: ${{ needs.candidate.outputs.commit }}
           JOB_IMAGE: ${{ steps.images.outputs.job }}
           GH_TOKEN: ${{ github.token }}
+          GATE_RESOURCES: ${{ vars.GATE_PARENT_RESOURCES }} # empty: the defaults of scripts/gate-parent-job.sh
         run: |
           set -euo pipefail
           o="$RUNNER_TEMP/parent-regions"
