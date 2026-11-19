@@ -879,6 +879,10 @@ locals {
     k3s_version         = var.k3s_version
     k3s_server_token    = random_password.k3s_server_token["primary"].result
     k3s_agent_token     = random_password.k3s_agent_token["primary"].result
+    seal_kind           = module.seal.kind
+    seal_stanza         = module.seal.stanza_by_region["primary"]
+    seal_node_files     = module.seal.node_files_by_region["primary"]
+    seal_volume_device  = module.seal.volume_device
     gitops_repo_url     = var.gitops_repo_url
     gitops_branch       = var.gitops_branch
     marketplace_enabled = var.marketplace_enabled
@@ -1474,6 +1478,10 @@ locals {
       k3s_version         = var.k3s_version
       k3s_server_token    = random_password.k3s_server_token[k].result
       k3s_agent_token     = random_password.k3s_agent_token[k].result
+      seal_kind           = module.seal.kind
+      seal_stanza         = module.seal.stanza_by_region[k]
+      seal_node_files     = module.seal.node_files_by_region[k]
+      seal_volume_device  = module.seal.volume_device
       gitops_repo_url     = var.gitops_repo_url
       gitops_branch       = var.gitops_branch
       marketplace_enabled = var.marketplace_enabled

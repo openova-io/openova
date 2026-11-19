@@ -135,6 +135,10 @@ fixture_cp_common() {
     k3s_version                       = "v1.31.5+k3s1"
     k3s_server_token                  = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
     k3s_agent_token                   = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+    # SEC-152: the outputs of a static-node-file seal hook (contract C8).
+    seal_kind                         = "static-node-file"
+    seal_stanza                       = "seal \"static\" {\n  current_key_id = \"0123456789abcdef\"\n  current_key    = \"file:///openbao/seal/openbao-seal-0123456789abcdef.key\"\n}\n"
+    seal_node_files                   = [{ path = "/var/lib/catalyst/seal/openbao-seal-0123456789abcdef.key", owner = "100:1000", permissions = "0400", content_b64 = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=" }]
     cp_private_ip                     = "10.0.1.2"
     cluster_cidr                      = "10.42.0.0/16"
     pod_supernet                      = "10.42.0.0/15"
@@ -248,6 +252,7 @@ fixture_cp_hetzner() {
     fail_mark_cmd               = "touch /var/lib/catalyst/"
     render_region_kustomization = false
     gateway_host_network        = false
+    seal_volume_device          = ""
     node_external_ip_cmd = "curl -fsSL --retry 30 --retry-delay 2 http://169.254.169.254/hetzner/v1/metadata/public-ipv4"
     node_ip_cmd          = "echo 10.0.1.2"
     k3s_extra_args       = "--kube-apiserver-arg=oidc-issuer-url=https://auth.t99.omani.works/realms/sovereign --disable-cloud-controller --node-taint node-role.kubernetes.io/control-plane=true:NoSchedule"
@@ -320,6 +325,7 @@ fixture_cp_huawei() {
     fail_mark_cmd               = "sh /var/lib/catalyst/mark "
     render_region_kustomization = true
     gateway_host_network        = true
+    seal_volume_device          = "/dev/vdb"
     node_external_ip_cmd = "printf '%s' '203.0.113.10'"
     node_ip_cmd          = "ip -4 -o addr show dev eth0 | awk '{print $4}' | cut -d/ -f1"
     k3s_extra_args       = "--node-label=topology.kubernetes.io/region=test-region-a --node-label=catalyst.openova.io/provider=huawei --kube-apiserver-arg=default-watch-cache-size=200 --kube-apiserver-arg=watch-cache-sizes=secrets#500,configmaps#500 --etcd-snapshot-retention=5"

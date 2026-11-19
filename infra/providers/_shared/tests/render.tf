@@ -99,6 +99,10 @@ locals {
   # One render per fixture, so that one evaluation yields the golden hash of
   # both cloud branches (CLD-040). `rendered_raw` below stays the render of
   # the one fixture that the variable provider_name selects.
+  # SEC-152: the four seal_* inputs are the outputs of a static-node-file seal
+  # hook (contract C8). The huawei fixture names a seal volume and the hetzner
+  # fixture none, so the two renders cover both forms of the volume step; the
+  # key is 32 ASCII bytes, so that the test can decode it.
   rendered_raw_by_fixture = { for fixture in ["hetzner", "huawei"] : fixture => templatefile("${path.module}/../cloudinit-control-plane.tftpl", {
     provider                          = fixture
     cp_private_ip                     = "10.0.1.2"
@@ -121,6 +125,10 @@ locals {
     k3s_version                       = "v1.31.4+k3s1"
     k3s_server_token                  = "render-test-server-token"
     k3s_agent_token                   = "render-test-agent-token"
+    seal_kind                         = "static-node-file"
+    seal_stanza                       = "seal \"static\" {\n  current_key_id = \"0123456789abcdef\"\n  current_key    = \"file:///openbao/seal/openbao-seal-0123456789abcdef.key\"\n}\n"
+    seal_node_files                   = [{ path = "/var/lib/catalyst/seal/openbao-seal-0123456789abcdef.key", owner = "100:1000", permissions = "0400", content_b64 = base64encode("render-test-seal-key-32-bytes-ok") }]
+    seal_volume_device                = fixture == "huawei" ? "/dev/vdb" : ""
     gitops_repo_url                   = "https://github.com/openova-io/openova"
     gitops_branch                     = "main"
     marketplace_enabled               = "true"
@@ -211,12 +219,14 @@ locals {
   # #7893: the files cloud-init writes, as it writes them. Each write_files
   # entry of each fixture's render (comment lines stripped), keyed by path:
   # a packed entry (`encoding: gz+b64`) is decoded with base64gunzip, the
-  # same decoding cloud-init applies, and a plain entry is the YAML string.
+  # same decoding cloud-init applies, a seal key file (`encoding: b64`,
+  # SEC-152) with base64decode, and a plain entry is the YAML string.
   # An entry with any other encoding fails the render on purpose.
   files_by_fixture = { for fixture, raw in local.rendered_raw_by_fixture : fixture => {
     for f in yamldecode(replace(raw, "/(?m)^[ ]*#( |$).*\n/", "")).write_files :
     f.path => (
       try(f.encoding, "") == "gz+b64" ? base64gunzip(f.content) :
+      try(f.encoding, "") == "b64" ? base64decode(f.content) :
       try(f.encoding, "") == "" ? f.content :
       file("unsupported write_files encoding ${f.encoding} of ${f.path}")
     )
@@ -243,6 +253,13 @@ locals {
   # The Flux bootstrap document as the node has it. It travels packed, so
   # every check of its content reads it here, not in the render.
   flux_bootstrap_yaml = local.files["/var/lib/catalyst/flux-bootstrap.yaml"]
+
+  # SEC-152 — the seal key file as cloud-init writes it under /run, and the
+  # seal profile ConfigMap, decoded; "" and null when the render lacks them.
+  seal = {
+    key     = lookup(local.files, "/run/catalyst-seal-stage/openbao-seal-0123456789abcdef.key", "")
+    profile = try(yamldecode(local.files["/var/lib/catalyst/sovereign-seal-profile.yaml"]), null)
+  }
 
   # The render and every file it writes, decoded: the subject of the checks
   # that something appears nowhere a node reads.
@@ -369,6 +386,10 @@ output "flux_bootstrap_yaml" {
 
 output "boot_text" {
   value = local.boot_text
+}
+
+output "seal" {
+  value = local.seal
 }
 
 output "files_sha256_hetzner" {

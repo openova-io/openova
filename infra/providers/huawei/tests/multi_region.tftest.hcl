@@ -69,6 +69,18 @@ override_resource {
   }
 }
 
+# SEC-152: the control-plane cloud-init carries the seal key of the seal
+# hook (module.seal, contract C8). Its random_bytes are unknown under
+# `command = plan` too; this override fixes the key to 32 known bytes, so the
+# key id of every region is 493ee6f33a535b93 (the first 16 hex characters of
+# the SHA-256 of the base64 text).
+override_resource {
+  target = module.seal.random_bytes.seal
+  values = {
+    base64 = "dGVzdC1zZWFsLWtleS0wMTIzNDU2Nzg5YWJjZGVmZ2g="
+  }
+}
+
 variables {
   deployment_id       = "deadbeefcafef00d"
   sovereign_fqdn      = "t99.omani.works"
@@ -1569,6 +1581,28 @@ run "seal_hook_is_called_with_the_region_keys" {
   assert {
     condition     = module.seal.volume_device == "/dev/vdb"
     error_message = "SEC-150: the hook's volume_device of this pack must be /dev/vdb."
+  }
+
+  # SEC-152, contract C8: every control-plane instance carries the seal volume
+  # the hook names, one 10 GB SSD data disk deleted with the instance; a
+  # worker carries none. The control-plane cloud-init of each region stages
+  # the region's key under /run, stops with code 96 when /dev/vdb is missing,
+  # installs the key under /var/lib/catalyst/seal and writes the seal profile;
+  # a worker's cloud-init carries no key. The key is the override at the head
+  # of this file.
+  assert {
+    condition     = length(huaweicloud_compute_instance.control_plane) == 2 && alltrue([for cp in huaweicloud_compute_instance.control_plane : length(cp.data_disks) == 1 && cp.data_disks[0].type == "SSD" && cp.data_disks[0].size == 10 && cp.delete_disks_on_termination == true]) && alltrue([for w in huaweicloud_compute_instance.worker : length(w.data_disks) == 0])
+    error_message = "SEC-152: each control-plane instance must carry one data disk (type SSD, size 10) and delete_disks_on_termination = true; a worker must carry no data disk."
+  }
+
+  assert {
+    condition = length(local.cp_cloud_init_by_region) == 2 && alltrue([for code, ud in local.cp_cloud_init_by_region :
+      strcontains(ud, "\n  - path: /run/catalyst-seal-stage/openbao-seal-493ee6f33a535b93.key\n    permissions: '0400'\n    encoding: b64\n    content: dGVzdC1zZWFsLWtleS0wMTIzNDU2Nzg5YWJjZGVmZ2g=\n")
+      && strcontains(ud, "\n    [ -b /dev/vdb ] || exit 96\n")
+      && strcontains(ud, "\n    install -m 0400 -o 100 -g 1000 /run/catalyst-seal-stage/openbao-seal-493ee6f33a535b93.key /var/lib/catalyst/seal/openbao-seal-493ee6f33a535b93.key\n")
+      && strcontains(ud, "\n        kind: static-node-file\n        stanza: |\n          seal \"static\" {\n            current_key_id = \"493ee6f33a535b93\"\n")
+    ]) && alltrue([for code, ud in local.worker_cloud_init_by_region : !strcontains(ud, "dGVzdC1zZWFsLWtleS0wMTIzNDU2Nzg5YWJjZGVmZ2g=") && !strcontains(ud, "catalyst-seal")])
+    error_message = "SEC-152: the control-plane cloud-init of each region must stage the seal key under /run (0400, b64), check /dev/vdb with exit 96, install the key at /var/lib/catalyst/seal/openbao-seal-<key id>.key and write the seal profile; a worker's cloud-init must carry no key and no seal step."
   }
 }
 
