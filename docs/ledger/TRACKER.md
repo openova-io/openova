@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T05:00:03Z` |
+| Last refreshed | `2026-11-19T05:15:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-19T05:14 | [#8271](https://github.com/openova-io/openova/pull/8271) | #8270 | refactor(catalog): the catalogue seed is generated from the  |
 | 2026-11-19T04:43 | [#8269](https://github.com/openova-io/openova/pull/8269) | #7087 | docs(ledger): plan update |
 | 2026-11-19T04:51 | [#8268](https://github.com/openova-io/openova/pull/8268) | #8264 | fix(crossplane): pin provider-opentofu v1.1.11 by digest (CL |
 | 2026-11-19T04:23 | [#8267](https://github.com/openova-io/openova/pull/8267) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-18T23:05 | [#8229](https://github.com/openova-io/openova/pull/8229) | #7087 | docs(ledger): plan update |
 | 2026-11-18T23:28 | [#8228](https://github.com/openova-io/openova/pull/8228) | #8225 | refactor(provisioner): the VPC pre-flight becomes the Prefli |
 | 2026-11-18T22:56 | [#8224](https://github.com/openova-io/openova/pull/8224) | #7087 | docs(ledger): plan update |
-| 2026-11-18T22:51 | [#8222](https://github.com/openova-io/openova/pull/8222) | #7087 | docs(ledger): plan update |
 
 ---
 
