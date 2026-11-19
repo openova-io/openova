@@ -350,7 +350,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.0.2
+  version: 1.0.3
   card:
     title: cert-manager — Issuers
     summary: The Sovereign's Let's Encrypt ClusterIssuers (letsencrypt-dns01-prod, letsencrypt-http01-prod). Split from bp-cert-manager (#3734) into a separate HelmRelease (dependsOn bp-cert-manager) so a fresh helm-controller reconcile maps the ClusterIssuer kind after its CRD registers.
@@ -365,7 +365,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-cert-manager-issuers
-    version: 1.0.2
+    version: 1.0.3
   topology:
     supported: [singleton]
     defaults:
@@ -2518,7 +2518,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.4.167
+  version: 1.4.168
   card:
     title: NewAPI
     summary: "Multi-tenant LLM marketplace gateway. Wraps the upstream NewAPI (github.com/Calcium-Ion/new-api, MIT, fork of OneAPI) with credits, per-key budgets, channel routing, and BYOK as first-class primitives. Deployed in **backend-only** mode: the OpenAI-compatible API at `api.<host>/v1/*` is customer-facing; the upstream's portal UI is disabled at ingress; Catalyst replaces it as the customer surface; NewAPI's admin UI at `admin.<host>` is exposed only to ops staff (IdP-gated). Compliance posture (channel attestation, geographic AUP, BYOK isolation, reseller disclosure) enforced at the blueprint layer. Use `bp-newapi` when the Sovereign operator's business model is reselling LLM access to its own customers; use `bp-llm-gateway` for self-consumption. "
@@ -2540,7 +2540,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-newapi
-    version: 1.4.167
+    version: 1.4.168
   topology:
     supported: [active-passive, singleton]
     defaults:
