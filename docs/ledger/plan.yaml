@@ -5256,7 +5256,7 @@ packages:
   due: null
   budget: null
   repeatable: true
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: The DNS step of each move in the acceptance suite is named for what it checks, so a record no longer claims that DNS moved to the new region when the name answered with the shared ingress.
 - id: FND-910
@@ -16316,9 +16316,9 @@ packages:
     expect: "0 1 1"
   acceptance:
   - id: A1
-    run: "test \"$(sha256sum < tests/hermetic/mesh/mesh-test.sh)\" = \"62b8c027e415b6f4f202c62842c871d8662fc4ffb6c2faef4e8650891e05cfa2  -\" && bash tests/hermetic/mesh/mesh-test.sh --self-test > /dev/null"
+    run: "test \"$(sha256sum < tests/hermetic/mesh/mesh-test.sh)\" = \"c6ff42ad5a59c6ca71e15414b7d8880aea81d81c0ea02007e0f97d41a7cf72e2  -\" && bash tests/hermetic/mesh/mesh-test.sh --self-test > /dev/null"
   - id: A2
-    run: "test \"$(sha256sum < .github/workflows/test-mesh-hermetic.yaml)\" = \"ad86c564055bc516bdbd8a364a22ed55d735d582c8578c87f22ea45b6ae1895f  -\" && python3 scripts/check-pins.py --base origin/main > /dev/null"
+    run: "test \"$(sha256sum < .github/workflows/test-mesh-hermetic.yaml)\" = \"7c55d5b7fb19e0f76b22a545a6782d3da316a55a2c3ed36ea057eda07f1067df  -\" && python3 scripts/check-pins.py --base origin/main > /dev/null"
   - id: A3
     run: "test -f tests/hermetic/mesh/mesh-test.sh && ! grep -r -n -E 'type: *NodePort|\"type\": *\"NodePort\"|nodePort|clustermesh connect' tests/hermetic/mesh .github/workflows/test-mesh-hermetic.yaml && python3 scripts/check-provider-leaks.py --check > /dev/null && python3 scripts/check-repo-hygiene.py paths > /dev/null"
   rollback: revert
@@ -16326,9 +16326,9 @@ packages:
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 2
+  ticket_rev: 3
   dropped: false
-  delivers: 'The workflow test-mesh-hermetic brings the local provider pack up with two regions, lays the mesh layer over the Cilium of both (clustermesh.config with the peer from the network registry, KVStoreMesh, and the certificates of the mesh API server from the cert-manager ClusterIssuer sovereign-mesh-ca), and runs three cases with tests/hermetic/mesh/mesh-test.sh: one shared self-signed authority, one root with an intermediate per cluster, and the passing shape with tls.authMode cluster; each case checks the mesh, a global Service across both ways, a 5-minute pause of one cluster during which the other serves its local backends, and the reconnect with zero pod restarts, and the job summary states PASS or FAIL per case.'
+  delivers: 'The workflow test-mesh-hermetic brings the local provider pack up with two regions, lays the mesh layer over the Cilium of both (clustermesh.config with the peer from the network registry, KVStoreMesh, and the certificates of the mesh API server from the cert-manager ClusterIssuer sovereign-mesh-ca), and runs three cases with tests/hermetic/mesh/mesh-test.sh: one shared self-signed authority, one root with an intermediate per cluster, and the passing shape with tls.authMode cluster; each case checks the mesh, a global Service across both ways, a 5-minute pause of one cluster during which the other serves its local backends, and the reconnect with exactly the container restarts the platform makes, and the job summary states PASS or FAIL per case.'
 - id: NET-125
   title: Mesh status read, and a mode switch, in the API
   area: NET
