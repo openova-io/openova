@@ -2,6 +2,7 @@ package suite
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,7 +36,8 @@ import (
 // reads it from the gate lane's mailbox over IMAP (storefront.Mailbox) with
 // the four values of the environment below; the address holds {tag}, which
 // the journey replaces with a value of its own, so each run signs in a new
-// customer. Without them step 1 fails before any request: there is no sign-in
+// customer. Without them it reads the Sovereign's own (sovereignMailbox), and
+// without either step 1 fails before any request: there is no sign-in
 // bypass. The sign-in service lets 5 code requests a minute through per
 // source address; the journey makes one.
 
@@ -46,6 +48,12 @@ const (
 	envMailboxPhrase  = "BSS_GATE_MAILBOX_PASSWORD"
 	envMailboxAddress = "BSS_GATE_MAILBOX_ADDRESS" // one address with {tag}, for example gate+{tag}@example.org
 )
+
+// The Secret of the Sovereign's own gate mailbox, written by the setup Job of
+// its mail server (bp-stalwart-sovereign, kit slot 95), and its keys.
+const sovMailboxNamespace, sovMailboxSecret = "platform", "stalwart-sovereign-conformance"
+
+var sovMailboxKeys = []string{"address", "user", "password", "imap-host", "imap-service", "imap-port"}
 
 // storefrontDefaultTLD is the parent domain the storefront preselects
 // (DEFAULT_TLD, core/marketplace/src/lib/cart.ts). The tenant service puts an
@@ -70,8 +78,9 @@ type codeReader interface {
 // onboarding is what the journey reads besides the run: the tests fake it.
 type onboarding struct {
 	getenv    func(string) string
-	mailbox   func(addr, user, password string) codeReader
+	mailbox   func(addr, serverName, user, password string) codeReader // serverName "": the host of addr
 	kubectl   kubectlFunc
+	forward   forwardFunc
 	transport http.RoundTripper // nil: a new connection per request
 	waits     onboardWaits
 	tag       func() string
@@ -80,10 +89,11 @@ type onboarding struct {
 func defaultOnboarding() onboarding {
 	return onboarding{
 		getenv: getenvTrimmed,
-		mailbox: func(addr, user, password string) codeReader {
-			return storefront.Mailbox{Addr: addr, User: user, Password: password}
+		mailbox: func(addr, serverName, user, password string) codeReader {
+			return storefront.Mailbox{Addr: addr, ServerName: serverName, User: user, Password: password}
 		},
 		kubectl: kube.Region.Run,
+		forward: portForward,
 		waits:   onboardDefaultWaits,
 		tag: func() string {
 			s := strconv.FormatInt(time.Now().UnixNano(), 36)
@@ -196,7 +206,7 @@ func (o onboarding) journey(ctx context.Context, cc *CheckContext, rec StepRecor
 	var mail codeReader
 	var tag string
 
-	if !checkStep(rec, onboardID, 1, "the run holds a mailbox of the gate lane for the new customer", func(ev Evidence) error {
+	if !checkStep(rec, onboardID, 1, "the run holds a mailbox for the new customer: the gate lane's or the Sovereign's own", func(ev Evidence) error {
 		switch {
 		case fqdn == "":
 			return errors.New("the run did not learn the name of the Sovereign: step D0.1 recorded no sovereignFQDN")
@@ -209,17 +219,27 @@ func (o onboarding) journey(ctx context.Context, cc *CheckContext, rec StepRecor
 				missing = append(missing, k)
 			}
 		}
-		if len(missing) > 0 {
-			return fmt.Errorf("%s not set: the gate lane holds no mailbox to read the storefront's sign-in code from, and the journey has no sign-in bypass", strings.Join(missing, ", "))
-		}
-		template := vals[envMailboxAddress]
-		if strings.Count(template, "{tag}") != 1 || strings.Count(template, "@") != 1 {
-			return fmt.Errorf("%s must be one address that holds {tag} once, for example gate+{tag}@example.org", envMailboxAddress)
+		var template string
+		switch {
+		case len(missing) == 0:
+			template = vals[envMailboxAddress]
+			if strings.Count(template, "{tag}") != 1 || strings.Count(template, "@") != 1 {
+				return fmt.Errorf("%s must be one address that holds {tag} once, for example gate+{tag}@example.org", envMailboxAddress)
+			}
+			mail = o.mailbox(vals[envMailboxIMAP], "", vals[envMailboxUser], vals[envMailboxPhrase])
+			ev["mailbox"], ev["imap"] = "gate lane", vals[envMailboxIMAP]
+		case len(missing) < 4:
+			return fmt.Errorf("%s not set: set all four BSS_GATE_MAILBOX_* for the gate lane's mailbox, or none for the Sovereign's own", strings.Join(missing, ", "))
+		default:
+			m, t, err := o.sovereignMailbox(ctx, cc, ev)
+			if err != nil {
+				return err
+			}
+			mail, template = m, t
 		}
 		tag = strings.ToLower(o.tag())
 		res.Email, res.OrgSlug = strings.Replace(template, "{tag}", tag, 1), "g01-"+tag
-		mail = o.mailbox(vals[envMailboxIMAP], vals[envMailboxUser], vals[envMailboxPhrase])
-		ev["imap"], ev["address"], ev["org_slug"] = vals[envMailboxIMAP], res.Email, res.OrgSlug
+		ev["address"], ev["org_slug"] = res.Email, res.OrgSlug
 		return nil
 	}) {
 		return res, failed(1)
@@ -429,6 +449,73 @@ func (o onboarding) journey(ctx context.Context, cc *CheckContext, rec StepRecor
 		return res, failed(7)
 	}
 	return res, nil
+}
+
+// sovereignMailbox reads the Secret of the gate mailbox from the first region
+// that holds it. It returns a reader that reaches the IMAP port through that
+// region's API server (a port forward) with the certificate checked against the
+// server's name, and the template <user>+{tag}@<fqdn>. No password goes into ev.
+func (o onboarding) sovereignMailbox(ctx context.Context, cc *CheckContext, ev Evidence) (codeReader, string, error) {
+	where := sovMailboxNamespace + "/" + sovMailboxSecret
+	ev["mailbox"], ev["secret"] = "sovereign", where
+	looked := []string{}
+	for _, region := range cc.Regions {
+		out, err := o.kubectl(region, ctx, nil, "get", "secret", sovMailboxSecret, "-n", sovMailboxNamespace, "--ignore-not-found", "-o", "json")
+		if err != nil {
+			return nil, "", fmt.Errorf("read the Secret %s: %w", where, err)
+		}
+		if strings.TrimSpace(string(out)) == "" {
+			looked = append(looked, region.ID)
+			continue
+		}
+		var s kube.Object
+		if err := json.Unmarshal(out, &s); err != nil {
+			return nil, "", fmt.Errorf("[%s] the Secret %s is not a Secret object", region.ID, where)
+		}
+		val, missing := map[string]string{}, []string{}
+		for _, k := range sovMailboxKeys {
+			b, err := base64.StdEncoding.DecodeString(s.Str("data", k))
+			if val[k] = strings.TrimSpace(string(b)); err != nil || val[k] == "" {
+				missing = append(missing, k)
+			}
+		}
+		port, perr := strconv.Atoi(val["imap-port"])
+		local, domain, ok := strings.Cut(val["address"], "@")
+		switch {
+		case len(missing) > 0:
+			return nil, "", fmt.Errorf("[%s] the Secret %s holds no %s", region.ID, where, strings.Join(missing, ", "))
+		case perr != nil || port < 1 || port > 65535:
+			return nil, "", fmt.Errorf("[%s] the key imap-port of the Secret %s is not a port", region.ID, where)
+		case !ok || local == "" || domain == "" || strings.ContainsAny(local+domain, "@+{}"):
+			return nil, "", fmt.Errorf("[%s] the key address of the Secret %s is not one plain address", region.ID, where)
+		}
+		ev["mailbox_region"] = region.ID
+		ev["imap"] = fmt.Sprintf("%s/service/%s:%d through the API server of region %s, certificate of %s",
+			sovMailboxNamespace, val["imap-service"], port, region.ID, val["imap-host"])
+		return forwardedMailbox{o: o, region: region, service: val["imap-service"], port: port,
+			host: val["imap-host"], user: val["user"], password: val["password"]}, local + "+{tag}@" + domain, nil
+	}
+	return nil, "", fmt.Errorf("no region (%s) holds the Secret %s, which the Sovereign's mail server writes once the gate's mailbox exists, and BSS_GATE_MAILBOX_* are not set: the run has no mailbox to read the sign-in code from, and the journey has no sign-in bypass",
+		strings.Join(looked, ", "), where)
+}
+
+// forwardedMailbox is the Sovereign's own mailbox: each read starts a port
+// forward to the server's IMAP port, reads, and ends the forward.
+type forwardedMailbox struct {
+	o                    onboarding
+	region               kube.Region
+	service              string
+	port                 int
+	host, user, password string
+}
+
+func (m forwardedMailbox) Code(ctx context.Context, address string) (string, error) {
+	addr, stop, err := m.o.forward(ctx, m.region, sovMailboxNamespace, m.service, m.port)
+	if err != nil {
+		return "", err
+	}
+	defer stop()
+	return m.o.mailbox(addr, m.host, m.user, m.password).Code(ctx, address)
 }
 
 // serving looks once, in every region, for the Organization of res, its

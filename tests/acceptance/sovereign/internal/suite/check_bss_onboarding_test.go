@@ -2,7 +2,9 @@ package suite
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,8 +20,8 @@ import (
 )
 
 // onboardWorld answers as the hosts of sov.test do for the onboarding journey,
-// as the gate lane's mailbox does, and as kubectl does in the regions a and b.
-// The Organization lives in region a. Every request is kept as
+// as the mailbox does, and as kubectl and its port forward do in the regions
+// a and b. The Organization lives in region a. Every request is kept as
 // "<host> <method> <path>", with " session" when it carried the console cookie.
 type onboardWorld struct {
 	t  *testing.T
@@ -38,6 +40,45 @@ type onboardWorld struct {
 	issued, orgReq, provReq map[string]any
 	orgSlug                 string
 	deleted, revoked        bool
+
+	// The Sovereign's own mailbox: its Secret per region, the reads of that
+	// Secret, the forwards started and ended, the mailboxes opened.
+	secrets                     map[string]string
+	kubeCalls, forwards, opened []string
+	stops                       int
+	forwardErr                  error
+}
+
+const sovPhrase = "stand-in-7Hq2"
+
+// sovSecret is the Secret of the Sovereign's gate mailbox as kubectl prints
+// it, without the key drop and with the pairs of set.
+func sovSecret(drop string, set ...string) string {
+	kv := map[string]string{"address": "conformance@sov.test", "user": "conformance", "password": sovPhrase,
+		"imap-host": "mail.sov.test", "imap-service": "bp-stalwart-sovereign-mail", "imap-port": "993"}
+	delete(kv, drop)
+	for i := 0; i+1 < len(set); i += 2 {
+		kv[set[i]] = set[i+1]
+	}
+	for k, v := range kv {
+		kv[k] = base64.StdEncoding.EncodeToString([]byte(v))
+	}
+	b, _ := json.Marshal(map[string]any{"kind": "Secret", "data": kv})
+	return string(b)
+}
+
+func (w *onboardWorld) forward(_ context.Context, r kube.Region, ns, svc string, port int) (string, func(), error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.forwards = append(w.forwards, fmt.Sprintf("%s %s %s %d", r.ID, ns, svc, port))
+	return "127.0.0.1:40993", func() { w.mu.Lock(); w.stops++; w.mu.Unlock() }, w.forwardErr
+}
+
+func (w *onboardWorld) open(addr, serverName, user, password string) codeReader {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.opened = append(w.opened, strings.Join([]string{addr, serverName, user, password}, "|"))
+	return w
 }
 
 const (
@@ -146,6 +187,9 @@ func (w *onboardWorld) kubectl(r kube.Region, _ context.Context, _ io.Reader, ar
 	defer w.mu.Unlock()
 	there := r.ID == "a" && w.orgSlug != "" && (!w.deleted || w.keepOrg)
 	switch args[1] {
+	case "secret":
+		w.kubeCalls = append(w.kubeCalls, r.ID+" "+strings.Join(args, " "))
+		return []byte(w.secrets[r.ID]), nil
 	case "organizations.orgs.openova.io":
 		if !there {
 			return []byte(`{"items":[]}`), nil
@@ -173,8 +217,9 @@ func (w *onboardWorld) kubectl(r kube.Region, _ context.Context, _ io.Reader, ar
 func onboardRun(t *testing.T, w *onboardWorld) *runner {
 	t.Helper()
 	o := onboarding{getenv: func(k string) string { return w.env[k] },
-		mailbox:   func(string, string, string) codeReader { return w },
+		mailbox:   w.open,
 		kubectl:   w.kubectl,
+		forward:   w.forward,
 		transport: w,
 		waits:     onboardWaits{mail: 60 * time.Millisecond, ready: 60 * time.Millisecond, price: 60 * time.Millisecond, gone: 60 * time.Millisecond, every: 5 * time.Millisecond},
 		tag:       func() string { return "TAG1" }}
@@ -236,6 +281,9 @@ func TestOnboardingJourneyPasses(t *testing.T) {
 	if len(w.mailed) != 1 || w.mailed[0] != "gate+tag1@mail.test" {
 		t.Errorf("sign-in codes asked for %v, want one for gate+tag1@mail.test", w.mailed)
 	}
+	if strings.Join(w.opened, ",") != "imap.test:993||gate|pw" || len(w.forwards) != 0 || len(w.kubeCalls) != 0 {
+		t.Errorf("the gate lane's mailbox: opened %v, forwards %v, Secret reads %v", w.opened, w.forwards, w.kubeCalls)
+	}
 	if !w.deleted || !w.revoked {
 		t.Errorf("clean-up: deleted=%t revoked=%t", w.deleted, w.revoked)
 	}
@@ -255,9 +303,23 @@ func TestOnboardingJourneyFails(t *testing.T) {
 		name, step, fail string
 		set              func(w *onboardWorld)
 	}{
-		{"no mailbox", "BSS-G01.1", "BSS_GATE_MAILBOX_IMAP, BSS_GATE_MAILBOX_PASSWORD not set", func(w *onboardWorld) {
+		{"a half-set mailbox of the gate lane", "BSS-G01.1", "BSS_GATE_MAILBOX_IMAP, BSS_GATE_MAILBOX_PASSWORD not set", func(w *onboardWorld) {
 			delete(w.env, envMailboxIMAP)
 			delete(w.env, envMailboxPhrase)
+			w.secrets = map[string]string{"a": sovSecret("")}
+		}},
+		{"no mailbox", "BSS-G01.1", "no region (a, b) holds the Secret platform/stalwart-sovereign-conformance", func(w *onboardWorld) { w.env = map[string]string{} }},
+		{"the Sovereign's Secret holds no password", "BSS-G01.1", "[b] the Secret platform/stalwart-sovereign-conformance holds no password", func(w *onboardWorld) {
+			w.env, w.secrets = map[string]string{}, map[string]string{"b": sovSecret("password")}
+		}},
+		{"the Sovereign's Secret names a sub-address", "BSS-G01.1", "the key address of the Secret platform/stalwart-sovereign-conformance is not one plain address", func(w *onboardWorld) {
+			w.env, w.secrets = map[string]string{}, map[string]string{"a": sovSecret("", "address", "conformance+x@sov.test")}
+		}},
+		{"the Sovereign's Secret names no port", "BSS-G01.1", "the key imap-port of the Secret platform/stalwart-sovereign-conformance is not a port", func(w *onboardWorld) {
+			w.env, w.secrets = map[string]string{}, map[string]string{"a": sovSecret("", "imap-port", "imaps")}
+		}},
+		{"the port forward fails", "BSS-G01.4", "the sign-in code to conformance+tag1@sov.test: timed out after 60ms; last observed: [a] kubectl port-forward refused", func(w *onboardWorld) {
+			w.env, w.secrets, w.forwardErr = map[string]string{}, map[string]string{"a": sovSecret("")}, errors.New("[a] kubectl port-forward refused")
 		}},
 		{"an address without {tag}", "BSS-G01.1", "holds {tag} once", func(w *onboardWorld) { w.env[envMailboxAddress] = "gate@mail.test" }},
 		{"no priced plan", "BSS-G01.2", "lists no plan without a product and with a price", func(w *onboardWorld) {
@@ -306,8 +368,37 @@ func TestOnboardingJourneySendsNothingWithoutAMailbox(t *testing.T) {
 	w := newOnboardWorld(t)
 	w.env = map[string]string{}
 	r := onboardRun(t, w)
-	if len(w.seen) != 0 || len(onboardSteps(r)) != 1 {
-		t.Errorf("want one failed step and no request, got steps %v and requests %v", onboardSteps(r), w.seen)
+	read := "get secret stalwart-sovereign-conformance -n platform --ignore-not-found -o json"
+	if len(w.seen) != 0 || len(onboardSteps(r)) != 1 || len(w.forwards) != 0 || strings.Join(w.kubeCalls, ",") != "a "+read+",b "+read {
+		t.Errorf("want one failed step, no request or forward, and the two reads of the Secret; got steps %v, requests %v, forwards %v, reads %v",
+			onboardSteps(r), w.seen, w.forwards, w.kubeCalls)
+	}
+}
+
+// With no BSS_GATE_MAILBOX_* the journey reads the Secret from the region that
+// holds it, signs in a sub-address of its one address, and reads the code
+// through a port forward of that region, the certificate checked against the
+// server's name; the password is in no record.
+func TestOnboardingJourneyReadsTheSovereignsMailbox(t *testing.T) {
+	w := newOnboardWorld(t)
+	w.env, w.secrets = map[string]string{}, map[string]string{"b": sovSecret("")}
+	r := onboardRun(t, w)
+	if got := r.run.Checks[0]; got.Status != Pass {
+		t.Fatalf("want PASS, got %s %q; steps %v", got.Status, got.Reason, onboardSteps(r))
+	}
+	if strings.Join(w.mailed, ",") != "conformance+tag1@sov.test" || len(w.forwards) == 0 || w.stops != len(w.forwards) || len(w.opened) != len(w.forwards) {
+		t.Errorf("codes asked for %v, forwards %v (%d ended), mailboxes opened %v", w.mailed, w.forwards, w.stops, w.opened)
+	}
+	for i := range w.forwards {
+		if w.forwards[i] != "b platform bp-stalwart-sovereign-mail 993" || w.opened[i] != "127.0.0.1:40993|mail.sov.test|conformance|"+sovPhrase {
+			t.Errorf("read %d: forward %q and mailbox %q, want the Service and port of the Secret in region b, the server's name and its login", i, w.forwards[i], w.opened[i])
+		}
+	}
+	ev := onboardStep(r, "BSS-G01.1").Evidence
+	all, _ := json.Marshal(r.run)
+	if ev["mailbox"] != "sovereign" || ev["mailbox_region"] != "b" || ev["address"] != "conformance+tag1@sov.test" ||
+		strings.Contains(string(all), sovPhrase) || strings.Contains(string(all), base64.StdEncoding.EncodeToString([]byte(sovPhrase))) {
+		t.Errorf("step 1 evidence %v, or the record of the run holds the password", ev)
 	}
 }
 
@@ -323,8 +414,8 @@ func TestOnboardingPriceListNotSeen(t *testing.T) {
 
 func TestOnboardedOrgIsMemoised(t *testing.T) {
 	w := newOnboardWorld(t)
-	o := onboarding{getenv: func(k string) string { return w.env[k] }, mailbox: func(string, string, string) codeReader { return w },
-		kubectl: w.kubectl, transport: w, waits: onboardWaits{mail: time.Second, ready: time.Second, every: time.Millisecond},
+	o := onboarding{getenv: func(k string) string { return w.env[k] }, mailbox: w.open,
+		kubectl: w.kubectl, forward: w.forward, transport: w, waits: onboardWaits{mail: time.Second, ready: time.Second, every: time.Millisecond},
 		tag: func() string { return "m1" }}
 	console := api.New("https://console.sov.test", onboardSession)
 	console.HTTP.Transport = w
