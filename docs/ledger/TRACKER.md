@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T03:30:07Z` |
+| Last refreshed | `2026-11-19T03:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -308,6 +308,8 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-11-19T03:28 | [#8261](https://github.com/openova-io/openova/pull/8261) | #8247 | fix(gate): the parent Job's wait names why the scheduler has |
+| 2026-11-19T03:30 | [#8260](https://github.com/openova-io/openova/pull/8260) | #8256 | fix(crossplane): raise Crossplane core to 2.4.3 (CLD-065) |
+| 2026-11-19T03:39 | [#8259](https://github.com/openova-io/openova/pull/8259) | #8257 | refactor(catalog): the Blueprint files carry the seed config |
 | 2026-11-19T03:22 | [#8258](https://github.com/openova-io/openova/pull/8258) | #8254 | feat(machine-runner): the task test with its target check an |
 | 2026-11-19T02:28 | [#8255](https://github.com/openova-io/openova/pull/8255) | #7087 | docs(ledger): plan update |
 | 2026-11-19T02:23 | [#8253](https://github.com/openova-io/openova/pull/8253) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-18T22:46 | [#8219](https://github.com/openova-io/openova/pull/8219) | #8067 | feat(network): the Sovereign states its region separation an |
 | 2026-11-18T22:37 | [#8218](https://github.com/openova-io/openova/pull/8218) | #8217 | refactor(provisioner): the post-apply step and the apply-err |
 | 2026-11-18T22:08 | [#8216](https://github.com/openova-io/openova/pull/8216) | #7087 | docs(ledger): plan update |
-| 2026-11-18T22:59 | [#8215](https://github.com/openova-io/openova/pull/8215) | #8213 | fix(axon): one owner of the credential, one refresh timer, c |
-| 2026-11-18T21:57 | [#8214](https://github.com/openova-io/openova/pull/8214) | #7087 | docs(ledger): plan update |
 
 ---
 
