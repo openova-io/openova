@@ -67,6 +67,19 @@ spec:
     maxPerOrg: 5
     namingTemplate: "{{.AppName}}-{{.InstanceID}}"
   # ── /G117.1 ──
+  configSchema:
+    type: object
+    properties:
+      shards:
+        type: integer
+        default: 1
+        minimum: 1
+        maximum: 8
+      replicas:
+        type: integer
+        default: 2
+        minimum: 1
+        maximum: 3
   placementSchema:
     modes: [single-region]
     default: single-region

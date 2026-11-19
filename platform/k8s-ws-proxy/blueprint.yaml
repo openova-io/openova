@@ -14,21 +14,6 @@ spec:
     summary: Per-node WebSocket exec proxy bridging HMAC-signed callers (catalyst-api, Guacamole) onto the local kube-apiserver pods/exec stream. DaemonSet with node-local internalTrafficPolicy.
     icon: k8s-ws-proxy.svg
   visibility: unlisted
-  configSchema:
-    type: object
-    properties:
-      enabled:
-        type: boolean
-        default: false
-      tmuxCascade:
-        type: boolean
-        default: false
-        description: Wrap exec sessions in shared `catalyst-ops` tmux. Only enable on bastion nodes.
-      allowedNamespaces:
-        type: array
-        items: { type: string }
-        default: []
-        description: Optional namespace allowlist. Empty = all namespaces.
   placementSchema:
     modes: [single-region]
     default: single-region

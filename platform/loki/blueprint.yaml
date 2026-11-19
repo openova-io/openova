@@ -62,6 +62,12 @@ spec:
     groupsClaim: groups
     silentLogin: true
 
+  configSchema:
+    type: object
+    properties:
+      retention:
+        type: string
+        default: 168h
   placementSchema:
     modes: [single-region]
     default: single-region

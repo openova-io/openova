@@ -12,53 +12,6 @@ spec:
     summary: Syncs secrets from OpenBao into Kubernetes Secrets via ExternalSecret CRs. The materialisation layer every app's SSO/DB credential flows through.
     icon: external-secrets.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
-  configSchema:
-    type: object
-    properties:
-      clusterSecretStore:
-        type: object
-        properties:
-          enabled:
-            type: boolean
-            default: true
-            description: |
-              Render the default `vault-region1` ClusterSecretStore that
-              points at the in-cluster bp-openbao service. Set false if
-              the operator wants to author ClusterSecretStore CRs
-              themselves (e.g. multi-region with explicit primary/replica).
-          name:
-            type: string
-            default: vault-region1
-            description: ClusterSecretStore name.
-          server:
-            type: string
-            default: "http://openbao.openbao-system.svc.cluster.local:8200"
-            description: |
-              In-cluster OpenBao endpoint. Cluster overlays override to
-              the external FQDN (https://openbao.<location-code>.<sovereign-domain>)
-              when ESO is reading from a different region's primary.
-          path:
-            type: string
-            default: secret
-          version:
-            type: string
-            default: v2
-            enum: [v1, v2]
-          kubernetesAuth:
-            type: object
-            properties:
-              mountPath:
-                type: string
-                default: kubernetes
-              role:
-                type: string
-                default: external-secrets
-              serviceAccountName:
-                type: string
-                default: external-secrets
-              serviceAccountNamespace:
-                type: string
-                default: external-secrets-system
   placementSchema:
     modes: [single-region]
     default: single-region

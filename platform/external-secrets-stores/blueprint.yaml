@@ -12,28 +12,6 @@ spec:
     summary: ClusterSecretStore + SecretStore CRs binding the External Secrets Operator to the Sovereign's OpenBao backend. The store-configuration companion to bp-external-secrets.
     icon: external-secrets.svg
   visibility: unlisted
-  configSchema:
-    type: object
-    properties:
-      clusterSecretStore:
-        type: object
-        properties:
-          enabled:
-            type: boolean
-            default: true
-          name:
-            type: string
-            default: vault-region1
-          server:
-            type: string
-            default: "http://openbao.openbao.svc.cluster.local:8200"
-          path:
-            type: string
-            default: secret
-          version:
-            type: string
-            enum: [v1, v2]
-            default: v2
   dependsOn:
     - bp-external-secrets
     - bp-openbao

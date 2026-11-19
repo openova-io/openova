@@ -13,26 +13,6 @@ spec:
     summary: Hetzner Cloud provider integration — node lifecycle, LoadBalancer Services, and route reconciliation on hcloud-backed Sovereign clusters.
     icon: hetzner.svg
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
-  configSchema:
-    type: object
-    properties:
-      networkID:
-        type: string
-        default: ""
-        description: |
-          Hetzner Cloud Network ID the cluster runs on. When set, hcloud-CCM
-          configures Cilium-routed pod CIDR routes through the Hetzner private
-          network and exposes node InternalIP from the network interface.
-          Leave empty for clusters that don't use a private Hetzner Network.
-      loadBalancersEnabled:
-        type: boolean
-        default: true
-        description: |
-          When true, type=LoadBalancer Service objects are materialised as
-          Hetzner Cloud LBs (per the `load-balancer.hetzner.cloud/*`
-          annotation contract). When false, only providerID + node-info
-          reconciliation runs — useful for clusters that source LBs from
-          MetalLB or another path.
   placementSchema:
     modes: [single-region]
     default: single-region

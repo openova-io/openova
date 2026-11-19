@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""check-seed-equals-blueprints.py - the Blueprint files say what the hand-written seed says (SVC-159).
+"""check-seed-equals-blueprints.py - the Blueprint files say what the hand-written seed says (SVC-159, SVC-163).
 
 products/catalyst/chart/templates/catalog-seed/blueprints.yaml is what every installed Sovereign holds. SVC-160
 replaces it with a file that scripts/generate-catalog.py writes from the Blueprint files, and that switch may
@@ -20,7 +20,7 @@ parsed with its Loader and named by its entry(). The projection of a file to its
                 spec.charts of infra/providers/<provider>/pack.yaml) that provider's own
                 infra/providers/<provider>/card-categories.yaml. A category is said in one place: a data file never
                 names a Blueprint whose file carries one, and a Blueprint is named only in the data file of its owner.
-Compared: every key of spec but NOT_READ and NOT_COMPARED_YET, and the labels in READ_LABELS. A seed object
+Compared: every key of spec but NOT_READ, configSchema included, and the labels in READ_LABELS. A seed object
 without a Blueprint file is a difference unless GHOSTS names it; a Blueprint file without a seed object is not
 compared.
 
@@ -52,8 +52,6 @@ NOT_READ = {
     "outputs": "no reader",
     "dependsOn": "no reader on a Blueprint; Application and HelmRelease objects carry their own",
 }
-# Keys that are read but not compared yet, with the package that makes the files carry them.
-NOT_COMPARED_YET = {"configSchema": "SVC-163"}
 # The one label read from a Blueprint object: blueprintRequiresHostCNPGOperator in
 # core/controllers/application/internal/controller/application_controller.go.
 READ_LABELS = ("catalyst.openova.io/companion",)
@@ -164,7 +162,7 @@ def check(root, gc, seed):
     chart = (c.get("name"), gc.js_str(c.get("version")))
     unpublished = {e["chart"]: gc.js_str(e["version"]) for e in read_yaml(root, UNPUBLISHED).get("unpublished") or []}
     categories, lines = category_files(root, files)
-    skip = set(NOT_READ) | set(NOT_COMPARED_YET)
+    skip = set(NOT_READ)
     for name in sorted(categories):
         if name not in seed or name not in files:
             lines.append("%s: %s names it, but it is not a seeded Blueprint with a file; delete the entry" % (name, categories[name][1]))
@@ -195,8 +193,6 @@ def check(root, gc, seed):
 
 
 def report(lines, compared):
-    for key in sorted(NOT_COMPARED_YET):
-        print("check-seed-equals-blueprints: spec.%s is not compared yet (%s makes the files carry it)" % (key, NOT_COMPARED_YET[key]))
     for ln in lines:
         print("check-seed-equals-blueprints: " + ln)
     if lines:
@@ -234,6 +230,8 @@ def self_test():
     """One failing case per rule, in a scratch tree; each must give its result."""
     gc = generator(ROOT)
     nocat = {"card": {"title": "A"}}
+    noschema = seed_object("bp-a")
+    del noschema["spec"]["configSchema"]
     PACK, PCAT = PROVIDERS + "/p/pack.yaml", PROVIDERS + "/p/" + PROVIDER_CATEGORIES
     cases = [
         # (title, files written over the base tree, changes to the base seed (None deletes an object), differences)
@@ -244,7 +242,9 @@ def self_test():
         ("a string and a number are different", {"platform/a/blueprint.yaml": BP % "a" + "  replicas: 1\n"}, {"bp-a": {"replicas": "1"}}, 1),
         ("true and 1 are different", {"platform/a/blueprint.yaml": BP % "a" + "  replicas: 1\n"}, {"bp-a": {"replicas": True}}, 1),
         ("a key nobody reads is not compared", {"platform/a/blueprint.yaml": BP.replace("owner: team", "owner: other") % "a"}, {}, 0),
-        ("configSchema is not compared yet", {}, {"bp-a": {"configSchema": {"type": "string"}}}, 0),
+        ("a configSchema that differs is a difference", {}, {"bp-a": {"configSchema": {"type": "string"}}}, 1),
+        ("a configSchema only the file has is a difference", {}, {"bp-a": noschema}, 1),
+        ("a configSchema only the seed has is a difference", {"platform/a/blueprint.yaml": BP.replace("  configSchema:\n    type: object\n", "") % "a"}, {}, 1),
         ("the companion label is compared", {"platform/a/blueprint.yaml": BP.replace("bp-x", "bp-y") % "a"}, {}, 1),
         ("source is derived from the name and version", {}, {"bp-a": {"source": dict(SOURCE + (("chart", "bp-a"), ("version", "2.0.0")))}}, 1),
         ("the chart that holds the seed gives its own version", {"platform/catalyst-platform/blueprint.yaml": BP.replace("1.0.0", "0.0.0") % "catalyst-platform"},

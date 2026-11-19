@@ -105,7 +105,7 @@ jobs:
       - name: GHCR listing errors are not missing pins (#7922)
         run: bash scripts/test-ghcr-not-measured.sh
       # SVC-159 — every seeded Blueprint file says what the hand-written seed says,
-      # field by field, except configSchema (SVC-163). SVC-160 generates the seed
+      # field by field, configSchema included (SVC-163). SVC-160 generates the seed
       # and replaces this check with scripts/generate-catalog.py --check.
       - uses: actions/setup-python@v5
         with:

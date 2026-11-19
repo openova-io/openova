@@ -15,23 +15,6 @@ spec:
     description: Clientless HTML5 remote-desktop gateway. Browser-based RDP / VNC / SSH and kubectl-exec into Pods, with Keycloak SSO. One Guacamole per Sovereign per ADR-0001 §11.
     icon: guacamole.svg
   visibility: listed
-  configSchema:
-    type: object
-    properties:
-      enabled:
-        type: boolean
-        default: false
-        description: Default-OFF gate. Operator opts in via per-Sovereign overlay.
-      hostname:
-        type: string
-        description: Browser-facing hostname (e.g. guacamole.<sovereign-fqdn>). Required when enabled.
-      oidcIssuer:
-        type: string
-        description: Keycloak realm issuer URL. Required when enabled.
-      recordingsSize:
-        type: string
-        default: "50Gi"
-        description: "Unused: sessions are not recorded today."
   placementSchema:
     modes: [single-region, active-hot-standby]
     default: single-region

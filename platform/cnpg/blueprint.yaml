@@ -37,27 +37,18 @@ spec:
   configSchema:
     type: object
     properties:
-      monitoring:
+      instances:
+        type: integer
+        default: 3
+        minimum: 1
+        maximum: 5
+        description: "Number of Postgres replicas (incl. primary)."
+      storage:
         type: object
         properties:
-          podMonitorEnabled:
-            type: boolean
-            default: false
-            description: |
-              Render PodMonitor for the operator. Requires Prometheus
-              Operator CRDs (kube-prometheus-stack); cluster overlays flip
-              true once that Application Blueprint reconciles.
-      crds:
-        type: object
-        properties:
-          create:
-            type: boolean
-            default: true
-            description: |
-              Install postgresql.cnpg.io CRDs as part of this chart. CNPG's
-              CRDs ship with the upstream chart so consumers of
-              `postgresql.cnpg.io/v1.Cluster` (bp-powerdns, bp-keycloak,
-              bp-gitea, …) gate themselves on bp-cnpg via Flux dependsOn.
+          size:
+            type: string
+            default: 10Gi
   placementSchema:
     modes: [single-region]
     default: single-region

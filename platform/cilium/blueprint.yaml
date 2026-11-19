@@ -13,22 +13,6 @@ spec:
     icon: cilium.svg
     category: infrastructure
   visibility: unlisted              # mandatory infra, auto-installed by bootstrap kit
-  configSchema:
-    type: object
-    properties:
-      kubeProxyReplacement:
-        type: boolean
-        default: true
-      hubbleUI:
-        type: boolean
-        default: true
-      gatewayAPI:
-        type: boolean
-        default: true
-      l2announcements:
-        type: boolean
-        default: false
-        description: Enable for bare-metal Sovereigns. Cloud Sovereigns use Hetzner LB / AWS NLB.
   placementSchema:
     modes: [single-region]
     default: single-region

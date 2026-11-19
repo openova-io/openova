@@ -26,77 +26,9 @@ spec:
     properties:
       replicas:
         type: integer
-        default: 1
+        default: 2
         minimum: 1
-        maximum: 16
-      auth:
-        type: object
-        properties:
-          mode:
-            type: string
-            enum: [keycloak, masterKey, hybrid]
-            default: keycloak
-            description: |
-              `keycloak` = OIDC-only (every caller authenticates via
-              bp-keycloak realm). `masterKey` = static per-tenant master
-              keys (dev only — operators MUST NOT enable in production).
-              `hybrid` = Keycloak for human callers, master keys for
-              CI/automation accounts.
-          keycloak:
-            type: object
-            properties:
-              issuer:
-                type: string
-                description: Keycloak realm issuer URL (https://keycloak.<env>.<sovereign-domain>/realms/<realm>).
-              audience:
-                type: string
-                default: llm-gateway
-      audit:
-        type: object
-        properties:
-          enabled:
-            type: boolean
-            default: true
-            description: Enable CNPG-backed audit log (every prompt + response stored for compliance).
-      backends:
-        type: object
-        properties:
-          anthropic:
-            type: object
-            properties:
-              enabled:
-                type: boolean
-                default: false
-                description: |
-                  Forward Claude requests via the operator's
-                  OAuth/Max subscription. NEVER set an ANTHROPIC_API_KEY
-                  — the gateway uses subscription tokens issued by the
-                  operator's Claude account.
-          bedrock:
-            type: object
-            properties:
-              enabled:
-                type: boolean
-                default: false
-          vertex:
-            type: object
-            properties:
-              enabled:
-                type: boolean
-                default: false
-          vllm:
-            type: object
-            properties:
-              enabled:
-                type: boolean
-                default: false
-          anthropicAdapter:
-            type: object
-            properties:
-              enabled:
-                type: boolean
-                default: false
-                description: Route OpenAI-compatible callers to Claude via bp-anthropic-adapter.
+        maximum: 8
   placementSchema:
     modes: [single-region]
     default: single-region

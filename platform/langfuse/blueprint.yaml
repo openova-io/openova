@@ -63,6 +63,12 @@ spec:
     protocolMapper: oidc
     silentLogin: true
   # ── /G117.1 ──
+  configSchema:
+    type: object
+    properties:
+      replicas:
+        type: integer
+        default: 1
   placementSchema:
     modes: [single-region]
     default: single-region

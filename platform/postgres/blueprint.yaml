@@ -214,47 +214,6 @@ spec:
                   instances, and by catalyst-api for a per-Org install. REQUIRED
                   in active-hot-standby: chart 0.2.17+ refuses to render without
                   it rather than emitting `openova.io/region In [""]`.
-      databases:
-        type: array
-        description: |
-          The bindings. Each entry = one consumer SHARING this engine:
-          renders a `Database` CR (isolated DB) + a managed role + an
-          optional reflected connection Secret. N entries = N consumers
-          on one Cluster. The catalyst-layer generator writes these from
-          a consumer's spec.backingServices declaration (ADR-0010).
-        items:
-          type: object
-          required: [name, owner]
-          properties:
-            name:
-              type: string
-              description: The isolated database name on the shared Cluster.
-            owner:
-              type: string
-              description: The per-consumer login role (CNPG-managed).
-            passwordSecret:
-              type: string
-              description: |
-                Secret CNPG reconciles the role password FROM. Empty →
-                `<instance>-<owner>`.
-            consumer:
-              type: object
-              properties:
-                blueprint:
-                  type: string
-                  description: Consumer Blueprint id (for the Consumers table).
-                mode:
-                  type: string
-                  enum: [private, shared]
-                  description: Binding provenance (display only).
-            reflect:
-              type: object
-              properties:
-                secretName:
-                  type: string
-                namespaces:
-                  type: array
-                  items: { type: string }
   placementSchema:
     # ONE canonical placement vocabulary (#3375 DoD-1, #3768 follow-up).
     # The catalog New-instance picker + the inline-edit topology checkboxes
