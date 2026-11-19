@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T21:45:03Z` |
+| Last refreshed | `2026-11-19T22:00:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -309,6 +309,7 @@ flowchart LR
 |---|---|---|---|
 | 2026-11-19T21:16 | [#8401](https://github.com/openova-io/openova/pull/8401) | #7087 | docs(ledger): plan update |
 | 2026-11-19T21:19 | [#8400](https://github.com/openova-io/openova/pull/8400) | #8398 | feat(cortex): ingestion of uploads with the job table, the d |
+| 2026-11-19T21:49 | [#8399](https://github.com/openova-io/openova/pull/8399) | #8396 | feat(gate): BSS-G01 reads its sign-in code from a mailbox on |
 | 2026-11-19T20:51 | [#8397](https://github.com/openova-io/openova/pull/8397) | #7087 | docs(ledger): plan update |
 | 2026-11-19T20:45 | [#8395](https://github.com/openova-io/openova/pull/8395) | #7087 | docs(ledger): plan update |
 | 2026-11-19T20:52 | [#8394](https://github.com/openova-io/openova/pull/8394) | #8386 | chore(catalog): delete the OpenMeter Blueprint and what list |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-19T15:07 | [#8351](https://github.com/openova-io/openova/pull/8351) | #7087 | docs(ledger): plan update |
 | 2026-11-19T15:14 | [#8350](https://github.com/openova-io/openova/pull/8350) | #8083 | fix(openova-mcp): the tool server accepts agent tokens and i |
 | 2026-11-19T14:46 | [#8349](https://github.com/openova-io/openova/pull/8349) | #8346 | docs(ledger): result of the spike NET-330, a bridged seconda |
-| 2026-11-19T14:42 | [#8348](https://github.com/openova-io/openova/pull/8348) | #7087 | docs(ledger): plan update |
 
 ---
 
