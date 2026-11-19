@@ -18911,6 +18911,7 @@ packages:
   depends_on: [SVC-150]
   after: [FND-206]
   touches:
+  - .github/workflows/check-catalog-generated-drift.yaml
   - .github/workflows/check-catalog-seed-lockstep.yaml
   - docs/generated/components.md
   - infra/providers/hetzner/card-categories.yaml
@@ -18990,6 +18991,7 @@ packages:
   - products/chargeback/blueprint.yaml
   - products/openova-mcp/blueprint.yaml
   - scripts/check-seed-equals-blueprints.py
+  - scripts/generate-catalog.py
   - scripts/service-model-baseline.yaml
   resources: []
   flips: []
@@ -19000,13 +19002,17 @@ packages:
     expect: "0"
   acceptance:
   - id: A1
-    run: "python3 scripts/check-seed-equals-blueprints.py --self-test && test \"$(grep -c '^        run: python3 scripts/check-seed-equals-blueprints.py' .github/workflows/check-catalog-seed-lockstep.yaml)\" = 2 && test \"$(grep -c -F \"      - 'infra/providers/*/card-categories.yaml'\" .github/workflows/check-catalog-seed-lockstep.yaml)\" = 2"
+    run: "python3 scripts/check-seed-equals-blueprints.py --self-test && test \"$(grep -c '^        run: python3 scripts/check-seed-equals-blueprints.py' .github/workflows/check-catalog-seed-lockstep.yaml)\" = 2 && test \"$(grep -c -F \"      - 'infra/providers/*/card-categories.yaml'\" .github/workflows/check-catalog-seed-lockstep.yaml)\" = 2 && test \"$(grep -c -F \"      - 'platform/_catalog/card-categories.yaml'\" .github/workflows/check-catalog-seed-lockstep.yaml)\" = 2"
   - id: A2
     run: "out=\"$(python3 scripts/check-seed-equals-blueprints.py)\" && printf '%s\\n' \"$out\" && printf '%s\\n' \"$out\" | grep -qx 'check-seed-equals-blueprints: spec.configSchema is not compared yet (SVC-163 makes the files carry it)' && python3 scripts/generate-catalog.py --check && python3 scripts/generators/components.py --check"
   - id: A3
-    run: "python3 scripts/check-provider-leaks.py --check && bash scripts/check-access-guards.sh && test -f infra/providers/hetzner/card-categories.yaml && test -f infra/providers/huawei/card-categories.yaml && test \"$(git grep -c -e 'session recording to SeaweedFS' -e 'Hetzner firewall by' -e 'Huawei projects via' -e 'backend: openbao-perf-replication' -- products/catalyst/chart/templates/catalog-seed/blueprints.yaml platform/guacamole/blueprint.yaml platform/openbao/blueprint.yaml platform/stunner/blueprint.yaml products/chargeback/blueprint.yaml | wc -l)\" = 0"
+    run: "python3 scripts/check-provider-leaks.py --check && bash scripts/check-access-guards.sh && test -f infra/providers/hetzner/card-categories.yaml && test -f infra/providers/huawei/card-categories.yaml && test \"$(git grep -c -e 'session recording to SeaweedFS' -e 'Hetzner firewall by' -e 'Huawei projects via' -e 'backend: openbao-perf-replication' -e 'async perf-replication across regions' -- products/catalyst/chart/templates/catalog-seed/blueprints.yaml platform/guacamole/blueprint.yaml platform/openbao/blueprint.yaml platform/stunner/blueprint.yaml products/chargeback/blueprint.yaml | wc -l)\" = 0"
   - id: A4
     run: "grep -qx '  G5.card-family: 31' scripts/service-model-baseline.yaml && grep -qx '  G5.card-category: 37' scripts/service-model-baseline.yaml && python3 scripts/check-service-model.py"
+  - id: A5
+    run: "python3 -c 'import jsonschema' 2> /dev/null || python3 -m pip install --quiet jsonschema; bash scripts/test-topology-admission-gate.sh"
+  - id: A6
+    run: "out=\"$(python3 scripts/generator_registry.py | cut -f1)\" && printf '%s\\n' \"$out\" && for f in docs/generated/components.md products/catalyst/bootstrap/api/internal/catalog/blueprints.json products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts; do printf '%s\\n' \"$out\" | grep -qx \"$f\"; done"
   rollback: revert
   adr: null
   due: null
@@ -19014,9 +19020,9 @@ packages:
     files: 100
     lines: 3000
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
-  delivers: Every Blueprint file that the hand-written seed holds says what the seed says, object by object and field by field, for every field the application controller or the console reads except configSchema (SVC-163); the guacamole, stunner and chargeback texts that a guard refuses, and the OpenBao replication backend that a console test refuses, are corrected in the seed and in the files alike; the category of each seeded Blueprint whose file has none is declared in platform/_catalog/card-categories.yaml, or for a Blueprint of a provider pack in infra/providers/<provider>/card-categories.yaml, so no Blueprint file gains card.category; scripts/check-seed-equals-blueprints.py computes the seed objects from the files and those data files without writing a file, compares them with the seed as Helm renders it, says that configSchema is not compared yet, and runs in the catalog-seed lockstep workflow until SVC-160 removes the hand-written seed; outputs 1 and 2 of the generator and docs/generated/components.md are regenerated.
+  delivers: Every Blueprint file that the hand-written seed holds says what the seed says, object by object and field by field, for every field the application controller or the console reads except configSchema (SVC-163); the guacamole, stunner and chargeback texts that a guard refuses, the OpenBao replication backend that a console test refuses, the OpenBao description that names a replication its chart does not run, and the bp-cnpg-pair replication, which its chart runs synchronously, are corrected in the seed and in the files alike; the category of each seeded Blueprint whose file has none is declared in platform/_catalog/card-categories.yaml, or for a Blueprint of a provider pack in infra/providers/<provider>/card-categories.yaml, so no Blueprint file gains card.category; scripts/check-seed-equals-blueprints.py computes the seed objects from the files and those data files without writing a file, compares them with the seed as Helm renders it, says that configSchema is not compared yet, and runs in the catalog-seed lockstep workflow until SVC-160 removes the hand-written seed; outputs 1 and 2 of the generator and docs/generated/components.md are regenerated, and the job that proves them current checks all three, so scripts/generator_registry.py lists them.
 - id: SVC-160
   title: 'One generator, part 2: the seed becomes generated'
   area: SVC
