@@ -1625,7 +1625,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.5.16
+  version: 1.5.17
   card:
     title: Keycloak
     summary: Open-source Identity and Access Management. OIDC + SAML + social login + realm-per-Organization.
@@ -1658,7 +1658,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-keycloak
-    version: 1.5.16
+    version: 1.5.17
   topology:
     supported: [active-hot-standby, singleton]
     defaults:
@@ -1832,7 +1832,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.0.56
+  version: 1.0.57
   visibility: unlisted
   class: platform-component
   lifecycle: experimental
@@ -1867,7 +1867,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-kyverno-policies
-    version: 1.0.56
+    version: 1.0.57
   endpoints: []
 ---
 apiVersion: catalyst.openova.io/v1

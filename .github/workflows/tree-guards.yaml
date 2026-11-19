@@ -397,6 +397,12 @@ jobs:
       - name: 'prov-preflight | Item 4b judges the parent against the ref the fire installs (stand-in kubectl and git)'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: bash scripts/tests/test-prov-preflight-ref.sh
+      - name: 'crossplane-runtime-probes | Self-test of the guard (every rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: python3 scripts/check-crossplane-runtime-probes.py --self-test
+      - name: 'crossplane-runtime-probes | Every Crossplane Provider and Function runs with probes on a port its runtime serves'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: python3 scripts/check-crossplane-runtime-probes.py
       - name: 'secret-guards | a randAlphaNum added to a real chart template fails G2'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: |

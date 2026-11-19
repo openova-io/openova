@@ -121,3 +121,34 @@ spec:
                 limits:
                   cpu: 500m
                   memory: 512Mi
+              # The Kyverno policy probes-present (Enforce) refuses a
+              # Deployment whose containers lack a liveness or a readiness
+              # probe. Crossplane 2.4.3 creates a new Deployment for every
+              # new ProviderRevision, so without these probes every upgrade
+              # of this provider is refused and the old pod keeps running.
+              #
+              # What the runtime serves: HTTP GET /metrics on port 8080.
+              # provider-opentofu v1.1.11 (cmd/provider/main.go) builds its
+              # manager with no Metrics and no HealthProbeBindAddress option,
+              # so controller-runtime v0.19.0 serves metrics on its default
+              # ":8080" (pkg/metrics/server/server.go, DefaultBindAddress) and
+              # serves no health endpoint. Crossplane declares the same port on
+              # the runtime container as `metrics` (internal/controller/pkg/
+              # runtime/runtime.go, MetricsPortNumber = 8080). The server
+              # starts with the manager, after the RBAC pre-check, so the
+              # liveness probe waits 30 s and tolerates 2 minutes of silence.
+              readinessProbe:
+                httpGet:
+                  path: /metrics
+                  port: 8080
+                periodSeconds: 10
+                timeoutSeconds: 5
+                failureThreshold: 3
+              livenessProbe:
+                httpGet:
+                  path: /metrics
+                  port: 8080
+                initialDelaySeconds: 30
+                periodSeconds: 20
+                timeoutSeconds: 5
+                failureThreshold: 6
