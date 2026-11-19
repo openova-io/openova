@@ -107,7 +107,6 @@ Refs #5734 #817 #960
 """
 
 import argparse
-import importlib.util
 import os
 import re
 import subprocess
@@ -120,7 +119,7 @@ UMBRELLA_CHART_PATH = "products/catalyst/chart/Chart.yaml"
 # bp-catalyst-platform's own seed card is self-referential
 # ({{ .Chart.Version | quote }}) — see check-release-lockstep-writer.py's
 # `umbrella` control. It is intentionally excluded from _parse_entries'
-# "static token" results anyway (the shared parser below never emits a
+# "static token" results anyway (_static_version below never returns a
 # version for a templated line), but the name is excluded explicitly too
 # so a future author cannot make it comparable by accident.
 SELF_REFERENTIAL = {"bp-catalyst-platform"}
@@ -134,17 +133,54 @@ _RE_UMBRELLA_VERSION = re.compile(r'^version:\s*"?([^"\s]+)"?\s*$')
 _NO_PREDECESSOR = object()
 
 
-def _load_sync_module():
-    """Import scripts/sync-catalog-seed-pin.py (hyphenated filename, not a
-    normal import target) so this gate shares EXACTLY the writer's own
-    version-line parser — no second copy of the catalog-seed shape to drift
-    away from the thing it guards (same rationale as
-    check-release-lockstep-writer.py's docstring)."""
-    path = os.path.join(REPO_ROOT, "scripts", "sync-catalog-seed-pin.py")
-    spec = importlib.util.spec_from_file_location("sync_catalog_seed_pin", path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+# The seed is generated (SVC-160): scripts/generate-catalog.py writes every object
+# in one shape. `kind: Blueprint` opens an object, the 2-space `name:` is its
+# metadata.name, the first 2-space `version:` outside `source:` is spec.version and
+# the 4-space `version:` inside `  source:` is the delivery pin. The gate needs the
+# line of each pin, for blame, so it reads the lines and not the rendered YAML.
+_RE_KIND = re.compile(r"^kind:\s*Blueprint\s*$")
+_RE_NAME = re.compile(r'^  name:\s*"?(bp-[A-Za-z0-9._-]+)"?\s*$')
+_RE_SOURCE = re.compile(r"^  source:\s*$")
+_RE_VERSION = re.compile(r"^(  |    )version:\s*(.*?)\s*$")
+# A static version is numeric-leading, quoted or bare; a `{{ … }}` template is not.
+_RE_STATIC = re.compile(r'^"?([0-9][0-9A-Za-z._+-]*)"?$')
+
+
+def _parse_entries(lines):
+    """Every Blueprint object of the seed as {name, spec_idx, source_idx}: the
+    0-based index of its spec.version line and of its source.version line, or None."""
+    entries, cur, in_source = [], None, False
+    for i, ln in enumerate(lines):
+        if _RE_KIND.match(ln):
+            cur = {"name": None, "spec_idx": None, "source_idx": None}
+            entries.append(cur)
+            in_source = False
+            continue
+        if cur is None:
+            continue
+        if _RE_SOURCE.match(ln):
+            in_source = True
+            continue
+        if in_source and ln.strip() and not ln.startswith("    "):
+            in_source = False
+        m = _RE_NAME.match(ln)
+        if m and cur["name"] is None:
+            cur["name"] = m.group(1)
+        m = _RE_VERSION.match(ln)
+        if not m:
+            continue
+        if in_source and m.group(1) == "    " and cur["source_idx"] is None:
+            cur["source_idx"] = i
+        elif not in_source and m.group(1) == "  " and cur["spec_idx"] is None:
+            cur["spec_idx"] = i
+    return entries
+
+
+def _static_version(line):
+    """The bare version on a static `version:` line, else None (a templated line)."""
+    m = _RE_VERSION.match(line)
+    s = _RE_STATIC.match(m.group(2)) if m else None
+    return s.group(1) if s else None
 
 
 def _git(*args, ref_cwd=REPO_ROOT):
@@ -182,8 +218,6 @@ def _umbrella_version_value(text):
 def _evaluate(ref, err, repo_root, seed_path, umbrella_path):
     """The failures of the gate at `ref`, as (failures, checked, entries,
     umbrella version at ref), or an exit code 2 after printing the error."""
-    sync_mod = _load_sync_module()
-
     try:
         seed_text = _git("show", "%s:%s" % (ref, seed_path), ref_cwd=repo_root)
     except subprocess.CalledProcessError as exc:
@@ -201,7 +235,7 @@ def _evaluate(ref, err, repo_root, seed_path, umbrella_path):
         return 2
 
     seed_lines = seed_text.split("\n")
-    entries = sync_mod._parse_entries(seed_lines)
+    entries = _parse_entries(seed_lines)
     if not entries:
         print("ERROR: parsed zero catalog-seed Blueprint entries at %s — the parser or "
               "the file is broken (expected dozens); refusing to report a vacuous PASS" % ref, file=err)
@@ -267,7 +301,7 @@ def _evaluate(ref, err, repo_root, seed_path, umbrella_path):
         for kind, idx in (("spec.version", e["spec_idx"]), ("source.version", e["source_idx"])):
             if idx is None:
                 continue
-            token = sync_mod._current_value(seed_lines[idx])
+            token = _static_version(seed_lines[idx])
             if token is None:
                 # Templated line (e.g. `{{ … }}`) — nothing static to date.
                 continue

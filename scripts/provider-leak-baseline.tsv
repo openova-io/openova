@@ -266,7 +266,6 @@ scripts/check-vendor-coupling.sh	2
 scripts/check-vpc-cidr-no-pod-overlap.py	3
 scripts/cloudinit-size-check.sh	36
 scripts/expected-bootstrap-deps.yaml	5
-scripts/expected-unseeded-blueprints.yaml	6
 scripts/hw01-recover-secondary-kubeconfig.sh	1
 scripts/lint-cloudinit.sh	32
 scripts/operator-recover-sovereign.sh	20

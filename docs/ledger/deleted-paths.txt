@@ -191,3 +191,6 @@ platform/cilium/chart/tests/clustermesh-overlay.sh
 products/axon/src/providers/token-refresh.ts
 products/catalyst/bootstrap/api/internal/handler/wipe_evs_backstop.go
 scripts/check-seed-equals-blueprints.py
+scripts/sync-catalog-seed-pin.py
+scripts/check-catalog-seed-source-coverage.py
+scripts/expected-unseeded-blueprints.yaml
