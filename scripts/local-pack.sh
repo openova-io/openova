@@ -63,7 +63,11 @@
 # collect    Writes evidence of every machine under LOCAL_PACK_DIR/evidence (cloud-init status
 #            and log, k3s journal, nodes, pods, jobs, HelmReleases, Flux objects, the state
 #            report of the region, warning events, the console's pods and log, and what each
-#            Cilium agent reports of its peer clusters). It never fails.
+#            Cilium agent reports of its peer clusters). For every container that restarted it
+#            writes restarts.txt (the container, its restart count and its last termination:
+#            exit code, reason, signal, start, end and the end of the termination message) and
+#            restarts-previous-logs.txt (the last lines of the log of its previous run), so that
+#            a restart names its container and its cause. It never fails.
 #            The kubeconfigs, the session and the module inputs are not copied there.
 # down       Stops the port forward, then tofu destroy of what up started. Exit 0 when nothing
 #            was started.
@@ -97,6 +101,9 @@ CORE_LIMIT=2400
 DISCOVERY_LIMIT=600
 CLAIM_LIMIT=300
 MESH_LIMIT=600
+# collect: at most RESTART_MAX restarted containers per region, PREVIOUS_TAIL log lines each.
+RESTART_MAX=40
+PREVIOUS_TAIL=40
 # What a Cilium agent says of its peer clusters: "<cluster name>=<true|false>;" per peer. The
 # same read as Command of products/catalyst/bootstrap/api/internal/meshagents/meshagents.go.
 MESH_STATUS='jsonpath={range .cluster-mesh.clusters[*]}{.name}={.ready};{end}'
@@ -269,6 +276,41 @@ for line in out[:60]:
     print(line.rstrip())
 if len(out) > 60:
     print("... %d more pods that do not run" % (len(out) - 60))'
+}
+
+# restart_lines: reads `kubectl get pods -A -o json` on stdin; prints one line per container
+# (init or regular) whose restart count is at least 1, sorted, with its last termination:
+#   <namespace>/<pod> <container> restarts=<n> exit=<code> reason=<reason> signal=<signal>
+#   started=<time> finished=<time> message=<the last 300 characters of the message, on one line>
+# "-" stands for what the last termination does not hold. A container whose policy is
+# FallbackToLogsOnError carries the end of its log as that message. At most RESTART_MAX lines
+# and a count of the rest; exit 0.
+restart_lines() {
+  python3 -c '
+import json, sys
+limit = int(sys.argv[1])
+try:
+    items = json.load(sys.stdin).get("items", [])
+except ValueError:
+    items = []
+out = []
+for p in items:
+    md, st = p.get("metadata", {}), p.get("status", {})
+    for c in (st.get("initContainerStatuses") or []) + (st.get("containerStatuses") or []):
+        n = int(c.get("restartCount") or 0)
+        if n < 1:
+            continue
+        t = (c.get("lastState") or {}).get("terminated") or {}
+        f = lambda k: "-" if t.get(k) in (None, "") else str(t[k])
+        msg = " ".join(str(t.get("message") or "").split())[-300:] or "-"
+        out.append("%s/%s %s restarts=%d exit=%s reason=%s signal=%s started=%s finished=%s message=%s" % (
+            md.get("namespace", ""), md.get("name", ""), c.get("name", "?"), n, f("exitCode"), f("reason"),
+            f("signal"), f("startedAt"), f("finishedAt"), msg))
+out.sort()
+for line in out[:limit]:
+    print(line)
+if len(out) > limit:
+    print("... %d more containers that restarted" % (len(out) - limit))' "$RESTART_MAX"
 }
 
 # rewrite_kubeconfig <ip>: stdin is the k3s kubeconfig of a machine; stdout has its API
@@ -505,6 +547,19 @@ mesh_status() {
   local m=$1 pod
   for pod in $(kin "$m" -n kube-system get pods -l k8s-app=cilium -o name 2> /dev/null); do
     echo "${pod#pod/} $(kin "$m" -n kube-system exec "${pod#pod/}" -c cilium-agent -- cilium-dbg status -o "$MESH_STATUS" < /dev/null 2> /dev/null || true)"
+  done
+}
+
+# previous_logs <machine>: stdin is what restart_lines printed for the machine's region. Per
+# container a header line, the line of restart_lines, then the last PREVIOUS_TAIL lines of the
+# log of its previous run (kubectl logs --previous), each cut at 500 characters. kubectl reads
+# no stdin here: docker exec -i would otherwise take the rest of the list. It never fails.
+previous_logs() {
+  local m=$1 pod container rest
+  while read -r pod container rest; do
+    case "$pod" in */*) ;; *) continue ;; esac
+    echo "---- $pod $container $rest"
+    kin "$m" -n "${pod%%/*}" logs "${pod#*/}" -c "$container" --previous --tail="$PREVIOUS_TAIL" < /dev/null 2>&1 | cut -c1-500 || true
   done
 }
 
@@ -806,6 +861,8 @@ cmd_collect() {
     docker exec "$m" journalctl -u k3s --no-pager -n 400 > "$d/k3s-journal.txt" 2>&1 || true
     kin "$m" get nodes -o wide > "$d/nodes.txt" 2>&1 || true
     kin "$m" get pods -A -o wide > "$d/pods.txt" 2>&1 || true
+    { kin "$m" get pods -A -o json 2> /dev/null || true; } | restart_lines > "$d/restarts.txt" 2>&1 || true
+    previous_logs "$m" < "$d/restarts.txt" > "$d/restarts-previous-logs.txt" 2>&1 || true
     kin "$m" get jobs -A -o wide > "$d/jobs.txt" 2>&1 || true
     report_state "$vars" "$code" > "$d/state.txt" 2>&1 || true
     kin "$m" get helmrelease -A > "$d/helmreleases.txt" 2>&1 || true
@@ -955,6 +1012,65 @@ print(json.dumps({"items": [
   python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["items"]=[dict(d["items"][2], metadata={"namespace": "ns", "name": "p%03d" % n}) for n in range(75)]; print(json.dumps(d))' "$t/pods.json" | pod_lines > "$t/cap.txt"
   expect 0 "pods: at most 60 lines and a count of the rest" test "$(wc -l < "$t/cap.txt") $(tail -1 "$t/cap.txt")" = "61 ... 15 more pods that do not run"
   expect 0 "pods: no answer from the cluster prints nothing and does not fail" test "$(pod_lines < /dev/null)" = ""
+
+  # The pod of the mesh API server as it was after the pause of its region: kvstoremesh ran
+  # again once, after it left on its own with the end of its log as the termination message.
+  python3 -c '
+import json
+def pod(ns, name, cs=(), init=()):
+    return {"metadata": {"namespace": ns, "name": name}, "spec": {}, "status": {"phase": "Running", "containerStatuses": list(cs), "initContainerStatuses": list(init)}}
+def c(name, n, term=None):
+    return {"name": name, "ready": True, "restartCount": n, "state": {"running": {}}, "lastState": {"terminated": term} if term else {}}
+log = "time=a level=warn msg=\"Lease expired\"\ntime=b level=fatal msg=\"Leader election lost\"\n"
+print(json.dumps({"items": [
+    pod("kube-system", "clustermesh-apiserver-x", [c("etcd", 0), c("apiserver", 0), c("kvstoremesh", 1, {"exitCode": 255, "reason": "Error",
+        "startedAt": "2026-11-19T00:10:50Z", "finishedAt": "2026-11-19T00:17:40Z", "message": log})]),
+    pod("ns", "job", [c("c", 0)], [c("i", 2, {"exitCode": 1, "reason": "Error"})]),
+    pod("ns", "killed", [c("c", 3)]),
+    pod("ns", "oom", [c("c", 1, {"exitCode": 137, "reason": "OOMKilled", "signal": 9})]),
+    pod("ns", "fine", [c("c", 0)]),
+]}))' > "$t/restarts.json"
+  expect 0 "restarts: every restarted container with its last termination, sorted" test "$(restart_lines < "$t/restarts.json")" = "$(printf '%s\n' \
+    'kube-system/clustermesh-apiserver-x kvstoremesh restarts=1 exit=255 reason=Error signal=- started=2026-11-19T00:10:50Z finished=2026-11-19T00:17:40Z message=time=a level=warn msg="Lease expired" time=b level=fatal msg="Leader election lost"' \
+    'ns/job i restarts=2 exit=1 reason=Error signal=- started=- finished=- message=-' \
+    'ns/killed c restarts=3 exit=- reason=- signal=- started=- finished=- message=-' \
+    'ns/oom c restarts=1 exit=137 reason=OOMKilled signal=9 started=- finished=- message=-')"
+  python3 -c '
+import json
+print(json.dumps({"items": [{"metadata": {"namespace": "ns", "name": "p"}, "status": {"containerStatuses": [
+    {"name": "c", "restartCount": 1, "lastState": {"terminated": {"exitCode": 2, "message": "x" * 400 + "\nEND"}}}]}}]}))' \
+    | restart_lines | sed 's/.* message=//' > "$t/rlong.txt"
+  expect 0 "restarts: a long message keeps its last 300 characters" test "$(tr -d '\n' < "$t/rlong.txt" | wc -c) $(grep -o 'x END$' "$t/rlong.txt")" = "300 x END"
+  expect 0 "restarts: no container restarted prints nothing" test "$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["items"]=d["items"][4:]; print(json.dumps(d))' "$t/restarts.json" | restart_lines)" = ""
+  python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["items"]=[dict(d["items"][2], metadata={"namespace": "ns", "name": "p%03d" % n}) for n in range(45)]; print(json.dumps(d))' "$t/restarts.json" | restart_lines > "$t/rcap.txt"
+  expect 0 "restarts: at most 40 lines and a count of the rest" test "$(wc -l < "$t/rcap.txt") $(tail -1 "$t/rcap.txt")" = "41 ... 5 more containers that restarted"
+  expect 0 "restarts: no answer from the cluster prints nothing and does not fail" test "$(restart_lines < /dev/null)" = ""
+  # collect against a stand-in for docker: it answers the pod list with the pods above and each
+  # kubectl logs --previous with a line naming the pod and the container, and it reads its stdin
+  # whenever it is called with -i, as docker exec -i does.
+  mkdir -p "$t/col/bin"
+  write_tfvars "$FIXTURES/single-region.tfvars.json" "$t/col/pack.tfvars.json" 0123456789abcdef main
+  cat > "$t/col/bin/docker" <<'SH'
+#!/usr/bin/env bash
+[ "${2:-}" = -i ] && cat > /dev/null
+case " $* " in
+  *" get pods -A -o json "*) cat "$FAKE_PODS" ;;
+  *" --previous "*)
+    p="" c=""
+    while [ $# -gt 0 ]; do
+      case "$1" in logs) p=$2 ;; -c) c=$2 ;; esac
+      shift
+    done
+    echo "previous run of $p/$c: the last line" ;;
+esac
+exit 0
+SH
+  chmod +x "$t/col/bin/docker"
+  env LOCAL_PACK_DIR="$t/col" FAKE_PODS="$t/restarts.json" PATH="$t/col/bin:$PATH" bash "${BASH_SOURCE[0]}" collect < /dev/null > "$t/col/out" 2>&1 || true
+  expect 0 "collect: restarts.txt names every restarted container with its last termination" \
+    test "$(cat "$t/col/evidence/region-a/restarts.txt" 2> /dev/null)" = "$(restart_lines < "$t/restarts.json")"
+  expect 0 "collect: the previous log of every restarted container, each under its own header" \
+    test "$(cat "$t/col/evidence/region-a/restarts-previous-logs.txt" 2> /dev/null)" = "$(restart_lines < "$t/restarts.json" | while read -r p c r; do echo "---- $p $c $r"; echo "previous run of ${p#*/}/$c: the last line"; done)"
 
   printf 'clusters:\n- cluster:\n    server: https://127.0.0.1:6443\n' > "$t/k3s.yaml"
   expect 0 "kubeconfig: the API server at the machine address" bash -c "$(declare -f rewrite_kubeconfig); rewrite_kubeconfig 172.30.1.10 < '$t/k3s.yaml' | grep -qx '    server: https://172.30.1.10:6443'"
