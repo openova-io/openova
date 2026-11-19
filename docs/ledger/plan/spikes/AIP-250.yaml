@@ -1,0 +1,60 @@
+# Values of lab test AIP-250 (the agent workspace on the Organization's own sign-in with a short-lived tool identity).
+# The measurement record is docs/ledger/plan/spikes/AIP-250.md. Every value was measured in the runs under evidence,
+# or read in the source at the pins; later packages copy them and choose none.
+id: AIP-250
+date: "2026-11-19"
+verdict: fail                 # as shipped
+tests:
+  T1: pass                    # a person's plan sign-in lands only in the workspace home; provider stubbed
+  T2: fail-as-shipped         # the daemon spends the refresh token at a spawn and loses the new pair (E4)
+  T3: fail-as-shipped         # stdio bearer fixed at start (E6 arm A); headersHelper run once per connection (arm B)
+  T4list: pass
+  T4create: fail-as-shipped   # an agent token is capped at developer and may not POST; tools/list hides the tool
+passWithChange:
+  T2: "CHEPHERD_CLAUDE_CREDS_PATH on the daemon, pointed at a file with no refresh token and a far expiresAt (E4B)"
+  T3: "the tool server reads its bearer from OPENOVA_MCP_BEARER_FILE at every tools/list and tools/call (E6 arm C)"
+  T4create: "not measured: needs a token of at most one hour that carries the acting person's tier admin (arm D shows the tool path)"
+signInLocation: workspace-volume      # choice (a); a mounted copy cannot take back the successor of a single-use refresh token
+toolIdentity: agent-token-acting-person   # choice (b); the gate passes no token upstream and the daemon reads none
+pins:
+  claudeCode: "2.1.185"       # npm @anthropic-ai/claude-code-linux-x64 2.1.185, shasum d7a897fbc8e7c7a92b055247bda64523c5ed4b15
+  workspaceDaemon: bcd38b15816694e82bddbbc9d6385ff3de00e3cf   # AGENITY_REF of products/agenity/Containerfile
+  node: "22.14.0"
+claudeCode:
+  credentialFile: "<config directory>/.credentials.json"      # CLAUDE_CONFIG_DIR, else ~/.claude; mode 600
+  refreshLock: "<config directory>/.oauth_refresh.lock"       # stale after 10 s; four processes sent one refresh (E3)
+  tokenEndpoint: https://platform.claude.com/v1/oauth/token
+  signInPage: https://claude.com/cai/oauth/authorize
+  codeRedirect: https://platform.claude.com/oauth/code/callback
+  writesRotatedPairBack: true                                 # E1, E2B
+  callsAtStart: ["GET https://api.anthropic.com/api/oauth/profile", "HEAD https://api.anthropic.com/"]
+  headersHelper: once-per-connection                          # E6 arm B: one run in a session of four tool calls
+  toolSearch: "on for the provider's own host; ENABLE_TOOL_SEARCH=false offers the tool server's tools up front"
+workspaceDaemon:
+  agentHome: daemon-home                                      # in-pod spawner: the agent's home is the daemon's home
+  refreshesAtSpawn: true                                      # when the credential expires within 60 s
+  refreshEndpoint: https://console.anthropic.com/v1/oauth/token
+  writesRefreshedPairToHome: false                            # E4: R-h4-0 spent, R-h4-1 kept nowhere
+  credentialLookupOverride: CHEPHERD_CLAUDE_CREDS_PATH
+  signInScreenInPodMode: "the sign-in succeeds and lands in the home; the screen answers 504 and stores nothing (E5)"
+  vault: "<state>/vault.json, key <state>/vault.key beside it"
+  readsForwardedIdentity: false                               # no X-Forwarded-Access-Token, no X-Forwarded-Email
+chart:
+  homeVolume: persistent                                      # /home/chepherd/.claude and /home/chepherd/.claude.json
+  daemonLookupFile: '{"claudeAiOauth":{"accessToken":"daemon-lookup-placeholder","expiresAt":4102444800000}}'
+  toolBearerEnv: OPENOVA_MCP_BEARER_FILE
+  toolBearerRenewal: "a sidecar calls POST /api/v1/internal/agent-tokens before half the life has passed and replaces the file by rename"
+  egressHosts: [api.anthropic.com, platform.claude.com]
+  removes: [externalsecret-anthropic.yaml, externalsecret-mcp-bearer.yaml, seed-claude-creds credential copy, creds-resync, OPENOVA_MCP_BEARER]
+agentToken:
+  maxLifeSeconds: 3600
+  tiers: [viewer, developer]
+  mutationsAllowed: []
+  actingPersonClaim: absent                                   # needed for create_application (tool tier admin, one POST entry)
+  toolServerCap: developer                                    # AIP-150, merged after the runs: an agent never sees create_application
+evidence:
+  branch: lab/AIP-250-a                                       # never merged; deleted after the runs
+  commits: [38d9e7cc5206d08e02cbc794660ae00f79e0ba20, 23988e740b41781a1823bd31bd4e3a86807c0ef2, c7221b904ab737d277358d1ad011e1be2432750c]
+  runs: [44548204495, 44553448198, 44554480972]
+  jobs: [135644448841, 135663049585, 135666727786]
+  artifacts: [14544655369, 14544890455, 14543123899]
