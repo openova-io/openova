@@ -74,6 +74,64 @@ powerdns:
   # database; PowerDNS Authoritative is stateless beyond the database.
   replicaCount: 3
 
+  # ─── Wait for the database before pdns_server starts ────────────────
+  # pdns_server exits when its gpgsql backend refuses the connection, and
+  # every exit is a restart that stays on the Pod. On a fresh install the
+  # Deployment starts before the CNPG operator has created `pdns-pg-rw` or
+  # before the primary accepts connections (hw307, 19 Nov 2026: 5 restarts
+  # in each Pod of region a, 2 in region b, all `pdns-pg-rw ... Connection
+  # refused`). This init container holds the Pod until the database's
+  # read-write Service (`<postgres.cluster.name>-rw`, the host the CNPG
+  # operator writes into `pdns-pg-app`) accepts connections, polling with
+  # pg_isready (reads no Secret, sends no credentials) and logging each
+  # attempt, for at most WAIT_BUDGET_SECONDS; past the budget it fails
+  # loudly. The image is the one the `pdns-pg` Cluster itself runs
+  # (postgres.cluster.imageName + pgVersion defaults below), so it is
+  # pullable wherever the database is. The upstream chart renders this list
+  # verbatim (no templating): an overlay that renames postgres.cluster.name
+  # sets PGHOST here with it.
+  initContainers:
+    - name: wait-for-database
+      image: harbor.openova.io/proxy-ghcr/cloudnative-pg/postgresql:16
+      imagePullPolicy: IfNotPresent
+      env:
+        - name: PGHOST
+          value: pdns-pg-rw
+        - name: PGPORT
+          value: "5432"
+        - name: WAIT_BUDGET_SECONDS
+          value: "900"
+      command:
+        - /bin/sh
+        - -c
+        - |
+          set -u
+          start=$(date +%s)
+          elapsed=0
+          while [ "$elapsed" -lt "$WAIT_BUDGET_SECONDS" ]; do
+            if pg_isready -q -t 5; then
+              echo "database ${PGHOST}:${PGPORT} accepts connections after ${elapsed}s"; exit 0
+            fi
+            echo "waiting for database ${PGHOST}:${PGPORT} to accept connections (${elapsed}s of ${WAIT_BUDGET_SECONDS}s)"
+            sleep 5
+            elapsed=$(( $(date +%s) - start ))
+          done
+          echo "database ${PGHOST}:${PGPORT} did not accept connections within ${WAIT_BUDGET_SECONDS}s: is the pdns-pg Cluster healthy?" >&2
+          exit 1
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop: ["ALL"]
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          cpu: 10m
+          memory: 32Mi
+
   image:
     # 2026-06-13: REVERTED #3380-D's `harbor.openova.io/proxy-docker/...`
     # reroute back to raw `docker.io/powerdns/pdns-auth-50`. WHY: the

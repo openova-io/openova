@@ -166,6 +166,12 @@ cnpg:
   dsnGate:
     image: harbor.openova.io/proxy-dockerhub/curlimages/curl:8.10.1
     timeoutSeconds: 600
+  # Second init-container gate: after the DSN is written, wait until the
+  # database accepts connections (pg_isready, cnpg.cluster.imageName) so the
+  # binary never starts against a primary that is not serving yet and exits.
+  # A bounded wait: past the budget the init container fails loudly.
+  databaseGate:
+    timeoutSeconds: 900
 
 # ── Service (ClusterIP — NEVER NodePort, §854) ───────────────────────────
 service:

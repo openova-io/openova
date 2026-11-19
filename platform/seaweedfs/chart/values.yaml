@@ -527,6 +527,11 @@ crossRegion:
     # start) so an Application can write in ANY region before the first
     # replicated event arrives.
     ensureBuckets: true
+    # Longest time the Pod waits, in its `wait-for-peer-filer` init container,
+    # for the peer region's filer to answer before filer.sync starts. On a
+    # fresh two-region install the peer can finish many minutes later; past
+    # this bound the init container fails loudly instead of waiting silently.
+    peerWaitSeconds: 3600
     # Deletes/overwrites in one region propagate to the other.
     # CONFLICT RULE (native filer.sync sink): per object, the newer mtime
     # wins; an incoming entry whose mtime is <= the existing entry's is
