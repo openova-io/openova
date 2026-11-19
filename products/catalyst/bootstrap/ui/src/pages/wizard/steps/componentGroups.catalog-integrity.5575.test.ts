@@ -181,8 +181,9 @@ describe('#5575 wizard component catalog integrity (fail-closed)', () => {
     // carried on the side. Refs #3969.
     expect([...KNOWN_UNBUILT.keys()]).toEqual([])
     expect(ids.filter(id => !resolvesToBlueprint(id))).toEqual([])
-    // …and the sweep really examined the catalog.
-    expect(ids.length).toBeGreaterThan(50)
+    // …and the sweep really examined the catalog (47 cards since SVC-162
+    // removed the ten whose README-only folders it deleted).
+    expect(ids.length).toBeGreaterThan(40)
   })
 
   it('no MANDATORY component may be tracked as unbuilt debt (UAT row W5)', () => {

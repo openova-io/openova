@@ -27,21 +27,16 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | platform/cert-manager-powerdns-webhook | bp-cert-manager-powerdns-webhook | bp-cert-manager-powerdns-webhook | unlisted | 49 |
 | platform/cilium | bp-cilium | bp-cilium | unlisted | 01 |
 | platform/cilium-policies | bp-cilium-policies | bp-cilium-policies | unlisted | - |
-| platform/clickhouse | - | bp-clickhouse | unlisted | - |
 | platform/cluster-autoscaler-hcloud | bp-cluster-autoscaler-hcloud | bp-cluster-autoscaler-hcloud | unlisted | 50 |
 | platform/cnpg | bp-cnpg | bp-cnpg | unlisted | 16 |
 | platform/cnpg-pair | bp-cnpg-pair | bp-cnpg-pair | unlisted | 16b |
 | platform/crossplane | bp-crossplane | bp-crossplane | unlisted | 04 |
 | platform/crossplane-claims | bp-crossplane-claims | bp-crossplane-claims | unlisted | 14 |
-| platform/debezium | - | bp-debezium | unlisted | - |
 | platform/dragonfly | bp-dragonfly | bp-dragonfly | unlisted | 06 |
 | platform/external-dns | bp-external-dns | bp-external-dns | unlisted | 12 |
 | platform/external-secrets | bp-external-secrets | bp-external-secrets | unlisted | 15 |
 | platform/external-secrets-stores | bp-external-secrets-stores | bp-external-secrets-stores | unlisted | 15a |
-| platform/failover-controller | - | - | - | - |
 | platform/falco | bp-falco | bp-falco | unlisted | 31 |
-| platform/ferretdb | - | bp-ferretdb | unlisted | - |
-| platform/flink | - | bp-flink | unlisted | - |
 | platform/flux | bp-flux | bp-flux | unlisted | 03 |
 | platform/gateway-api | bp-gateway-api | bp-gateway-api | unlisted | 01a |
 | platform/gitea | bp-gitea | bp-gitea | unlisted | 10 |
@@ -51,9 +46,7 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | platform/hcloud-ccm | bp-hcloud-ccm | bp-hcloud-ccm | unlisted | 55 |
 | platform/hcloud-csi | bp-hcloud-csi | bp-hcloud-csi | unlisted | 55a |
 | platform/huawei-evs-csi | bp-huawei-evs-csi | bp-huawei-evs-csi | unlisted | 55b |
-| platform/iceberg | - | bp-iceberg | unlisted | - |
 | platform/k8s-ws-proxy | bp-k8s-ws-proxy | bp-k8s-ws-proxy | unlisted | 51 |
-| platform/keda | - | - | - | - |
 | platform/keycloak | bp-keycloak | bp-keycloak | unlisted | 09 |
 | platform/knative | bp-knative | bp-knative | unlisted | - |
 | platform/kserve | bp-kserve | bp-kserve | unlisted | - |
@@ -68,12 +61,10 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | platform/loki | bp-loki | bp-loki | unlisted | 22 |
 | platform/machine-operations | bp-machine-operations | bp-machine-operations | unlisted | - |
 | platform/matrix | bp-matrix | bp-matrix | listed | - |
-| platform/milvus | - | bp-milvus | unlisted | - |
 | platform/mimir | bp-mimir | bp-mimir | unlisted | 23 |
 | platform/mothership-ops | - | - | - | - |
 | platform/nats-jetstream | bp-nats-jetstream | bp-nats-jetstream | unlisted | 07 |
 | platform/nemo-guardrails | bp-nemo-guardrails | bp-nemo-guardrails | unlisted | - |
-| platform/neo4j | - | bp-neo4j | unlisted | - |
 | platform/netbird | bp-netbird | bp-netbird | unlisted | - |
 | platform/network-policies | bp-network-policies | bp-network-policies | unlisted | 26 |
 | platform/newapi | bp-newapi | bp-newapi | listed | 80 |
@@ -81,10 +72,8 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | platform/openbao | bp-openbao | bp-openbao | unlisted | 08 |
 | platform/openclaw | bp-openclaw | bp-openclaw | listed | - |
 | platform/openmeter | bp-openmeter | bp-openmeter | listed | - |
-| platform/opensearch | - | bp-opensearch | unlisted | - |
 | platform/opentelemetry | bp-opentelemetry | bp-opentelemetry | unlisted | 20 |
 | platform/opentelemetry-operator | bp-opentelemetry-operator | bp-opentelemetry-operator | unlisted | 19c |
-| platform/opentofu | - | - | - | - |
 | platform/plane-isolation | bp-plane-isolation | bp-plane-isolation | unlisted | 26b |
 | platform/postgres | bp-postgres | bp-postgres | listed | 16a, 16c, 16d |
 | platform/powerdns | bp-powerdns | bp-powerdns | unlisted | 11 |
@@ -97,11 +86,9 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | platform/sigstore | bp-sigstore | bp-sigstore | unlisted | 32 |
 | platform/sovereign-tls-vars | bp-sovereign-tls-vars | bp-sovereign-tls-vars | unlisted | 12a |
 | platform/sso-bridge | bp-sso-bridge | bp-sso-bridge | unlisted | 13b |
-| platform/stalwart | - | - | - | - |
 | platform/stalwart-sovereign | bp-stalwart-sovereign | bp-stalwart-sovereign | unlisted | - |
 | platform/stalwart-tenant | bp-stalwart-tenant | bp-stalwart-tenant | listed | - |
 | platform/storage-ready | bp-storage-ready | bp-storage-ready | unlisted | 15b |
-| platform/strimzi | - | bp-strimzi | unlisted | - |
 | platform/stunner | bp-stunner | bp-stunner | unlisted | - |
 | platform/syft-grype | bp-syft-grype | bp-syft-grype | unlisted | 33 |
 | platform/tempo | bp-tempo | bp-tempo | unlisted | 24 |
@@ -121,10 +108,8 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | products/chargeback | bp-chargeback, docrender (docrender/chart) | bp-chargeback | unlisted | 13f |
 | products/continuum | bp-continuum | bp-continuum (chart/blueprint.yaml) | listed | 62 |
 | products/cortex | - | - | - | - |
-| products/fabric | - | - | - | - |
 | products/fingate | - | - | - | - |
 | products/machine-runner | - | - | - | - |
 | products/openova-flow | - | - | - | - |
 | products/openova-mcp | bp-openova-mcp | bp-openova-mcp | unlisted | 13d |
 | products/ops-records | - | - | - | - |
-| products/relay | - | - | - | - |

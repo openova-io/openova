@@ -236,12 +236,12 @@ describe('component catalog', () => {
     expect(harbor!.dependencies).not.toContain('valkey')
   })
 
-  it('OpenSearch has no dependencies (it owns its storage)', () => {
-    expect(findComponent('opensearch')!.dependencies).toEqual([])
+  it('OpenSearch is not offered: platform/opensearch is deleted (SVC-162)', () => {
+    expect(findComponent('opensearch')).toBeUndefined()
   })
 
-  it('Reloader / KEDA / VPA / Cilium have no deps', () => {
-    for (const id of ['reloader', 'keda', 'vpa', 'cilium']) {
+  it('Reloader / VPA / Cilium have no deps', () => {
+    for (const id of ['reloader', 'vpa', 'cilium']) {
       expect(findComponent(id)!.dependencies ?? []).toEqual([])
     }
   })
@@ -412,11 +412,11 @@ describe('Tab 1 — search filter', () => {
     render(<StepComponents />)
     const input = screen.getByTestId('component-search') as HTMLInputElement
     fireEvent.change(input, { target: { value: 'fabric' } })
-    // strimzi is recommended (non-mandatory) and lives in fabric. cnpg
+    // temporal is optional (non-mandatory) and lives in fabric. cnpg
     // / valkey were here pre-#175 but the transitive-mandatory promotion
     // has lifted them into Tab 2 ("Always Included") so we use a member
     // that is still user-toggleable in Tab 1.
-    expect(screen.getByTestId('component-card-strimzi')).toBeTruthy()
+    expect(screen.getByTestId('component-card-temporal')).toBeTruthy()
     expect(screen.queryByTestId('component-card-grafana')).toBeNull()
   })
 

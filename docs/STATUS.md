@@ -160,6 +160,35 @@ Target, not built. Brownfield virtual-machine migration is the optional Blueprin
 
 ---
 
+## Roadmap: components that are not built
+
+> State: target. Decision: ADR-0020, ADR-0022, ADR-0034
+
+Target, not built. Nothing in this section has a chart, an image or a test, and no Sovereign installs it. Each entry names the component, what it would be, and its state.
+
+- AI hub: a family of serving Blueprints behind the model gateway plus the per-Organization knowledge product. Not built. Design: [the later-products decision record](adr/0034-later-products-ai-hub-and-open-banking.md).
+- Open banking: a specification-first product on platform services. Not built. Design: [the later-products decision record](adr/0034-later-products-ai-hub-and-open-banking.md).
+
+Each component below was described by a folder that held a README only, nine of them also a Blueprint file with no chart. The folders are deleted and their paths are listed in [`docs/ledger/deleted-paths.txt`](ledger/deleted-paths.txt); a change that brings one back fails its pull request. The Git history keeps their text.
+
+- ClickHouse: a column-oriented database for analytics. Not built.
+- Debezium: change data capture from databases into an event stream. Not built.
+- Failover controller: an orchestrator of failover between regions. Not built.
+- FerretDB: the MongoDB wire protocol on PostgreSQL. Not built.
+- Apache Flink: stream and batch processing. Not built.
+- Apache Iceberg: an open table format for analytic datasets. Not built.
+- KEDA: event-driven autoscaling with scale to zero. Not built.
+- Milvus: a vector database. Not built; the AI hub keeps its vectors in PostgreSQL ([ADR-0034](adr/0034-later-products-ai-hub-and-open-banking.md)).
+- Neo4j: a graph database. Not built; the AI hub has no graph database ([ADR-0034](adr/0034-later-products-ai-hub-and-open-banking.md)).
+- OpenSearch: full-text search, log analytics and a store for security events. Not built.
+- OpenTofu as a Blueprint: not built. OpenTofu itself provisions a new Sovereign from outside the cluster, and Crossplane adopts what it created ([ADR-0011](adr/0011-opentofu-crossplane-adoption-seam.md)).
+- Stalwart as a general mail Blueprint: not built. The two Stalwart Blueprints that have a chart stay.
+- Strimzi: Apache Kafka on Kubernetes, for Applications. Not built.
+- Fabric: a data-integration and lakehouse product composed of the components above. Not built.
+- Relay: a communication product with mail, video, chat and WebRTC. Not built.
+
+---
+
 ## 11. How to update this file
 
 This file is updated whenever a status changes:
