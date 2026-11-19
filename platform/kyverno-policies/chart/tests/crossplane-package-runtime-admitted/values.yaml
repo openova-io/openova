@@ -1,0 +1,18 @@
+# Case 10 of resources.yaml is judged as the DELETE that Crossplane's
+# deactivation hook sends for the runtime Deployment of an inactive revision.
+# Every other case is judged as a CREATE.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Values
+globalValues:
+  request.operation: CREATE
+policies:
+  - name: probes-present
+    resources:
+      - name: provider-opentofu-4aeddb701725
+        values:
+          request.operation: DELETE
+  - name: flux-managed
+    resources:
+      - name: provider-opentofu-4aeddb701725
+        values:
+          request.operation: DELETE
