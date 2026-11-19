@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T16:00:04Z` |
+| Last refreshed | `2026-11-19T16:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-19T16:14 | [#8372](https://github.com/openova-io/openova/pull/8372) | #7087 | docs(ledger): plan update |
 | 2026-11-19T15:50 | [#8369](https://github.com/openova-io/openova/pull/8369) | #7087 | docs(ledger): plan update |
 | 2026-11-19T15:46 | [#8367](https://github.com/openova-io/openova/pull/8367) | #7087 | docs(ledger): plan update |
 | 2026-11-19T15:44 | [#8366](https://github.com/openova-io/openova/pull/8366) | #8355 | docs(ledger): result of the lab test NET-280, the overlay pr |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-19T11:04 | [#8327](https://github.com/openova-io/openova/pull/8327) | #8313 | docs(ledger): result of the spike SOV-321, the own mail serv |
 | 2026-11-19T11:00 | [#8325](https://github.com/openova-io/openova/pull/8325) | #7087 | docs(ledger): plan update |
 | 2026-11-19T11:03 | [#8324](https://github.com/openova-io/openova/pull/8324) | #8316 | docs(ledger): result of the spike INF-020, hardware virtuali |
-| 2026-11-19T11:52 | [#8323](https://github.com/openova-io/openova/pull/8323) | #8320 | feat(cortex): store with migration 0001, two database roles  |
 
 ---
 
