@@ -107,6 +107,11 @@ type DeploymentInfo struct {
 	// of the firewall. It is nil when the run did not say; check NET-G02 then
 	// fails.
 	APIPortOutside map[string]string
+	// PeerPortsOutside is the value of --peer-ports-outside: for each
+	// control-plane address and port, keyed "<address>:<port>" as
+	// net.JoinHostPort writes it, what a dial gave from that machine. It is
+	// nil when the run did not say; check NET-G01 then fails.
+	PeerPortsOutside map[string]string
 }
 
 // CheckContext is what a check may read. A check must not modify it.

@@ -2,7 +2,9 @@ package suite
 
 import (
 	"context"
+	"io"
 	"net"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -69,6 +71,25 @@ func d010(status, reason string) *Step {
 	return &Step{Journey: "D0", ID: "D0.10", Status: status, Error: reason}
 }
 
+// peerClosed is what a dial from outside gives when every peer port of the
+// fixture's control-plane addresses is closed.
+func peerClosed() map[string]string {
+	return map[string]string{"203.0.113.1:2379": "timeout", "203.0.113.1:12379": "timeout",
+		"203.0.113.2:2379": "timeout", "203.0.113.2:12379": "timeout"}
+}
+
+func peerWith(target, outcome string) map[string]string {
+	out := peerClosed()
+	out[target] = outcome
+	return out
+}
+
+func peerWithout(target string) map[string]string {
+	out := peerClosed()
+	delete(out, target)
+	return out
+}
+
 func TestPeerPortsCheck(t *testing.T) {
 	if _, ok := registry[peerPortsID]; !ok || peerPortsID != "NET-G01" {
 		t.Fatalf("check %s is not registered", peerPortsID)
@@ -77,20 +98,30 @@ func TestPeerPortsCheck(t *testing.T) {
 	for name, c := range map[string]struct {
 		scenario string
 		before   []*Step
-		override map[string]error
-		want     string // "" = PASS, else a part of the reason of the FAIL
+		outside  map[string]string
+		override map[string]error // what the dial from here answers
+		want     string           // "" = PASS, else a part of the reason of the FAIL
 	}{
-		"every peer port times out":      {"peer-ports", []*Step{d010(Pass, "")}, nil, ""},
-		"the mesh endpoint is open":      {"peer-ports", []*Step{d010(Pass, "")}, map[string]error{"203.0.113.2:12379": nil}, "203.0.113.2:12379 is open"},
-		"etcd refuses":                   {"peer-ports", []*Step{d010(Pass, "")}, map[string]error{"203.0.113.1:2379": refused}, "203.0.113.1:2379 is refused"},
-		"the control port times out":     {"peer-ports", []*Step{d010(Pass, "")}, map[string]error{"203.0.113.1:6443": timeoutError{}}, "203.0.113.1:6443 is timeout, so a time-out proves nothing"},
-		"a region has no public address": {"peer-ports-no-address", []*Step{d010(Pass, "")}, nil, "no control-plane node of region region-b has an ExternalIP address"},
-		"a region cannot be read":        {"peer-ports-region-b-unreachable", []*Step{d010(Pass, "")}, nil, "[region-b] kubectl get nodes"},
-		"the mesh step failed":           {"peer-ports", []*Step{d010(Fail, "2 agent(s) lack peer gateway identities")}, nil, "mesh step D0.10 is FAIL: 2 agent(s) lack peer gateway identities"},
-		"the mesh step did not run":      {"peer-ports", nil, nil, "mesh step D0.10 was not run in this run"},
+		"every peer port times out from outside": {"peer-ports", []*Step{d010(Pass, "")}, peerClosed(), nil, ""},
+		"a worker's address is not judged":       {"peer-ports", []*Step{d010(Pass, "")}, peerWith("198.51.100.9:2379", "open"), nil, ""},
+		"the mesh endpoint is open from outside": {"peer-ports", []*Step{d010(Pass, "")}, peerWith("203.0.113.2:12379", "open"), nil, "203.0.113.2:12379 is open from outside"},
+		"etcd refuses from outside":              {"peer-ports", []*Step{d010(Pass, "")}, peerWith("203.0.113.1:2379", "refused"), nil, "203.0.113.1:2379 is refused from outside"},
+		"the dial from outside went wrong":       {"peer-ports", []*Step{d010(Pass, "")}, peerWith("203.0.113.1:12379", "error"), nil, "203.0.113.1:12379 is error from outside"},
+		"a port was not dialled from outside":    {"peer-ports", []*Step{d010(Pass, "")}, peerWithout("203.0.113.2:12379"), nil, "203.0.113.2:12379 was not dialled from outside"},
+		"no port was dialled from outside":       {"peer-ports", []*Step{d010(Pass, "")}, map[string]string{}, nil, "203.0.113.1:2379 was not dialled from outside"},
+		"the run did not say":                    {"peer-ports", []*Step{d010(Pass, "")}, nil, nil, "the run was not given the outcome of the dial from outside (--peer-ports-outside)"},
+		"the control port times out from here":   {"peer-ports", []*Step{d010(Pass, "")}, peerClosed(), map[string]error{"203.0.113.1:6443": timeoutError{}}, "203.0.113.1:6443 is timeout from here, so a time-out from outside proves nothing"},
+		// Gate run 44455908137 from the parent, which the firewall lets
+		// through: 2379 and 12379 refused from there. That is no outside
+		// dial, and the check does not judge it.
+		"a refusal from here is not judged": {"peer-ports", []*Step{d010(Pass, "")}, peerClosed(), map[string]error{"203.0.113.1:2379": refused, "203.0.113.1:12379": refused}, ""},
+		"a region has no public address":    {"peer-ports-no-address", []*Step{d010(Pass, "")}, peerClosed(), nil, "no control-plane node of region region-b has an ExternalIP address"},
+		"a region cannot be read":           {"peer-ports-region-b-unreachable", []*Step{d010(Pass, "")}, peerClosed(), nil, "[region-b] kubectl get nodes"},
+		"the mesh step failed":              {"peer-ports", []*Step{d010(Fail, "2 agent(s) lack peer gateway identities")}, peerClosed(), nil, "mesh step D0.10 is FAIL: 2 agent(s) lack peer gateway identities"},
+		"the mesh step did not run":         {"peer-ports", nil, peerClosed(), nil, "mesh step D0.10 was not run in this run"},
 	} {
 		fakePeerDial(t, c.override)
-		got := runCheck(t, c.scenario, peerPortsCheck{}, &CheckContext{}, c.before...).run.Checks[0]
+		got := runCheck(t, c.scenario, peerPortsCheck{}, &CheckContext{Deploy: &DeploymentInfo{PeerPortsOutside: c.outside}}, c.before...).run.Checks[0]
 		switch {
 		case c.want == "" && got.Status != Pass:
 			t.Errorf("%s: want PASS, got %+v", name, got)
@@ -98,13 +129,71 @@ func TestPeerPortsCheck(t *testing.T) {
 			t.Errorf("%s: want FAIL with %q, got %+v", name, c.want, got)
 		}
 	}
-	// Only the control-plane addresses are dialled, each once per port; a
-	// worker's address is not.
+	// A run without the facts of the deployment fails too.
+	fakePeerDial(t, nil)
+	if got := runCheck(t, "peer-ports", peerPortsCheck{}, &CheckContext{}, d010(Pass, "")).run.Checks[0]; got.Status != Fail ||
+		!strings.Contains(got.Reason, "--peer-ports-outside") {
+		t.Errorf("no deployment facts: want FAIL, got %+v", got)
+	}
+	// From here only port 6443 of the control-plane addresses is dialled,
+	// once each: never 2379 or 12379, and never a worker's address. The
+	// evidence holds both outcomes.
 	dialled := fakePeerDial(t, nil)
-	runCheck(t, "peer-ports", peerPortsCheck{}, &CheckContext{}, d010(Pass, ""))
-	want := "203.0.113.1:6443 203.0.113.1:2379 203.0.113.1:12379 203.0.113.2:6443 203.0.113.2:2379 203.0.113.2:12379"
-	if got := strings.Join(*dialled, " "); got != want {
+	r := runCheck(t, "peer-ports", peerPortsCheck{}, &CheckContext{Deploy: &DeploymentInfo{PeerPortsOutside: peerClosed()}}, d010(Pass, ""))
+	if got, want := strings.Join(*dialled, " "), "203.0.113.1:6443 203.0.113.2:6443"; got != want {
 		t.Errorf("dialled %q, want %q", got, want)
+	}
+	var ev Evidence
+	for _, s := range r.run.Steps {
+		if s.ID == "NET-G01.3" {
+			ev = s.Evidence
+		}
+	}
+	if !reflect.DeepEqual(ev["from_here"], map[string]string{"203.0.113.2:6443": "open"}) ||
+		!reflect.DeepEqual(ev["from_outside"], map[string]string{"203.0.113.2:2379": "timeout", "203.0.113.2:12379": "timeout"}) ||
+		!reflect.DeepEqual(ev["addresses"], []string{"203.0.113.2"}) {
+		t.Errorf("the evidence of region b is %v", ev)
+	}
+}
+
+func TestParsePeerPortsOutside(t *testing.T) {
+	if got, err := parsePeerPortsOutside("  "); got != nil || err != nil {
+		t.Errorf("an empty value: want nil and no error, got %v %v", got, err)
+	}
+	got, err := parsePeerPortsOutside(" 203.0.113.1:2379=timeout, 203.0.113.1:12379 = open ,[2001:DB8::1]:2379=refused,192.0.2.7:12379=error")
+	want := map[string]string{"203.0.113.1:2379": "timeout", "203.0.113.1:12379": "open", "[2001:db8::1]:2379": "refused", "192.0.2.7:12379": "error"}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("a good value: got %v %v, want %v", got, err, want)
+	}
+	for _, bad := range []string{
+		"203.0.113.1:2379",                                   // no outcome
+		"203.0.113.1:2379=",                                  // an empty outcome
+		"203.0.113.1:2379=closed",                            // an outcome outside the list
+		"203.0.113.1=timeout",                                // no port
+		"203.0.113.1:0=timeout",                              // port 0
+		"203.0.113.1:65536=timeout",                          // a port above 65535
+		"203.0.113.1:02379=timeout",                          // a port in another spelling
+		"203.0.113.1:etcd=timeout",                           // a port by name
+		"node-1:2379=timeout",                                // a name, not an address
+		"2001:db8::1:2379=timeout",                           // IPv6 without brackets
+		"=timeout",                                           // nothing
+		"203.0.113.1:2379=timeout,203.0.113.1:2379=open",     // a pair named twice
+		"[2001:db8::1]:2379=timeout,[2001:DB8::1]:2379=open", // the same pair in two spellings
+		"203.0.113.1:2379=timeout;203.0.113.2:2379=timeout",  // another separator
+	} {
+		if got, err := parsePeerPortsOutside(bad); err == nil || got != nil || !strings.HasPrefix(err.Error(), "--peer-ports-outside: ") {
+			t.Errorf("%q: want an error that starts with --peer-ports-outside: , got %v %v", bad, got, err)
+		}
+	}
+}
+
+// TestExecuteRefusesPeerPortsOutside: a value in another form stops the run
+// before anything runs, as the other values of a run do.
+func TestExecuteRefusesPeerPortsOutside(t *testing.T) {
+	cfg := Config{Env: "x", Console: "http://127.0.0.1:9", Session: "x", KubeconfigA: "a", KubeconfigB: "b",
+		RunIn: string(RunInLocal), RepoRoot: ".", PeerPortsOutside: "203.0.113.1:2379=closed"}
+	if _, err := Execute(context.Background(), cfg, io.Discard); err == nil || !strings.HasPrefix(err.Error(), "--peer-ports-outside: ") {
+		t.Errorf("a value in another form: want the run refused, got %v", err)
 	}
 }
 
