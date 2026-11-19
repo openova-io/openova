@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T23:15:04Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
+| Last refreshed | `2026-11-19T23:30:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,12 +307,15 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-19T23:20 | [#8417](https://github.com/openova-io/openova/pull/8417) | #7087 | docs(ledger): plan update |
 | 2026-11-19T23:00 | [#8413](https://github.com/openova-io/openova/pull/8413) | #7087 | docs(ledger): plan update |
 | 2026-11-19T22:53 | [#8412](https://github.com/openova-io/openova/pull/8412) | #7087 | docs(ledger): plan update |
+| 2026-11-19T23:22 | [#8411](https://github.com/openova-io/openova/pull/8411) | #8410 | test(acceptance): a client of the model contract for the gat |
 | 2026-11-19T22:45 | [#8409](https://github.com/openova-io/openova/pull/8409) | #7087 | docs(ledger): plan update |
 | 2026-11-19T22:54 | [#8408](https://github.com/openova-io/openova/pull/8408) | fix(gate): the parent execution reaches the install it is as |  |
 | 2026-11-19T22:53 | [#8407](https://github.com/openova-io/openova/pull/8407) | #4347 | fix(install): a workload waits for what it needs and does no |
 | 2026-11-19T22:24 | [#8406](https://github.com/openova-io/openova/pull/8406) | #7087 | docs(ledger): plan update |
+| 2026-11-19T23:28 | [#8405](https://github.com/openova-io/openova/pull/8405) | #8402 | refactor(cloud-init): first boot pulls no image ahead of tim |
 | 2026-11-19T22:37 | [#8404](https://github.com/openova-io/openova/pull/8404) | #5245 | fix(install): the platform's own automation leaves no hand's |
 | 2026-11-19T21:16 | [#8401](https://github.com/openova-io/openova/pull/8401) | #7087 | docs(ledger): plan update |
 | 2026-11-19T21:19 | [#8400](https://github.com/openova-io/openova/pull/8400) | #8398 | feat(cortex): ingestion of uploads with the job table, the d |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-19T16:14 | [#8372](https://github.com/openova-io/openova/pull/8372) | #7087 | docs(ledger): plan update |
 | 2026-11-19T16:20 | [#8371](https://github.com/openova-io/openova/pull/8371) | #8365 | refactor(cloud-init): first boot applies one root Kustomizat |
 | 2026-11-19T16:27 | [#8370](https://github.com/openova-io/openova/pull/8370) | #8356 | refactor(kit): every kit release carries its ring label, the |
-| 2026-11-19T15:50 | [#8369](https://github.com/openova-io/openova/pull/8369) | #7087 | docs(ledger): plan update |
-| 2026-11-19T15:46 | [#8367](https://github.com/openova-io/openova/pull/8367) | #7087 | docs(ledger): plan update |
-| 2026-11-19T15:44 | [#8366](https://github.com/openova-io/openova/pull/8366) | #8355 | docs(ledger): result of the lab test NET-280, the overlay pr |
 
 ---
 
