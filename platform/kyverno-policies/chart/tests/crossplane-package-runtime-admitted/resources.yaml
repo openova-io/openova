@@ -1,0 +1,789 @@
+# INPUT fixtures of the crossplane-package-runtime-admitted suite.
+#
+# Cases 1 to 4 are the objects Crossplane v2.4.3's package manager builds,
+# produced by its own code (internal/controller/pkg/runtime: the builder
+# NewDeploymentRuntimeBuilder with BuilderWithRuntimeConfig, and the
+# overrides the provider and function hooks pass) from the two runtime
+# configs in clusters/_template/infrastructure/providers/base, status
+# dropped. Revision names are those of hw307. The ServiceAccount the
+# builder also makes is left out: neither policy matches ServiceAccount.
+# Note what Crossplane does NOT stamp: no label on the metadata of any of
+# these objects. The package label sits on the Deployment's selector and
+# pod template and on the Service's selector.
+#
+# check-crossplane-runtime-probes.py proves the runtime configs carry the
+# probes that cases 1 and 2 show; crossplane-runtime-suite-current.sh
+# proves policy.yaml is the current render of the two templates.
+---
+# 1. The Deployment of a ProviderRevision, as Crossplane 2.4.3 builds it with
+#    the runtime config provider-opentofu. ADMITTED by both policies.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: provider-opentofu-81ec1e8dd865
+  namespace: crossplane-system
+  ownerReferences:
+  - apiVersion: pkg.crossplane.io/v1
+    blockOwnerDeletion: true
+    controller: true
+    kind: ProviderRevision
+    name: provider-opentofu-81ec1e8dd865
+    uid: 7d1f3b52-0c55-4a3e-9d0e-2b6f4f7c1a11
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      pkg.crossplane.io/provider: provider-opentofu
+      pkg.crossplane.io/revision: provider-opentofu-81ec1e8dd865
+  template:
+    metadata:
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: '8080'
+        prometheus.io/scrape: 'true'
+      labels:
+        pkg.crossplane.io/provider: provider-opentofu
+        pkg.crossplane.io/revision: provider-opentofu-81ec1e8dd865
+    spec:
+      containers:
+      - env:
+        - name: TLS_CLIENT_CERTS_DIR
+          value: /tls/client
+        - name: TLS_SERVER_CERTS_DIR
+          value: /tls/server
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: PROVIDER_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.labels['pkg.crossplane.io/provider']
+        - name: REVISION_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.labels['pkg.crossplane.io/revision']
+        - name: REVISION_UID
+          value: 7d1f3b52-0c55-4a3e-9d0e-2b6f4f7c1a11
+        - name: WEBHOOK_TLS_CERT_DIR
+          value: $(TLS_SERVER_CERTS_DIR)
+        envFrom:
+        - secretRef:
+            name: cloud-credentials
+            optional: true
+        image: xpkg.upbound.io/upbound/provider-opentofu@sha256:b4690e8ffe0a963b1d7df64f18f409217600b2a3bda25d1e01e4bafde976e675
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 6
+          httpGet:
+            path: /metrics
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 20
+          timeoutSeconds: 5
+        name: package-runtime
+        ports:
+        - containerPort: 8080
+          name: metrics
+        - containerPort: 9443
+          name: webhook
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /metrics
+            port: 8080
+          periodSeconds: 10
+          timeoutSeconds: 5
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          privileged: false
+          runAsGroup: 2000
+          runAsNonRoot: true
+          runAsUser: 2000
+        volumeMounts:
+        - mountPath: /tls/client
+          name: tls-client-certs
+          readOnly: true
+        - mountPath: /tls/server
+          name: tls-server-certs
+          readOnly: true
+      securityContext:
+        runAsGroup: 2000
+        runAsNonRoot: true
+        runAsUser: 2000
+      serviceAccountName: provider-opentofu-81ec1e8dd865
+      volumes:
+      - name: tls-client-certs
+        secret:
+          items:
+          - key: tls.crt
+            path: tls.crt
+          - key: tls.key
+            path: tls.key
+          - key: ca.crt
+            path: ca.crt
+          secretName: provider-opentofu-tls-client
+      - name: tls-server-certs
+        secret:
+          items:
+          - key: tls.crt
+            path: tls.crt
+          - key: tls.key
+            path: tls.key
+          - key: ca.crt
+            path: ca.crt
+          secretName: provider-opentofu-tls-server
+---
+# 2. The Deployment of a FunctionRevision, as Crossplane 2.4.3 builds it with
+#    the runtime config function-patch-and-transform. ADMITTED by both.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: function-patch-and-transform-e9fec78aeef5
+  namespace: crossplane-system
+  ownerReferences:
+  - apiVersion: pkg.crossplane.io/v1
+    blockOwnerDeletion: true
+    controller: true
+    kind: FunctionRevision
+    name: function-patch-and-transform-e9fec78aeef5
+    uid: 3c9a2e70-5b1d-4f86-8a43-9e0d6c2b7f22
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      pkg.crossplane.io/function: function-patch-and-transform
+      pkg.crossplane.io/revision: function-patch-and-transform-e9fec78aeef5
+  template:
+    metadata:
+      labels:
+        pkg.crossplane.io/function: function-patch-and-transform
+        pkg.crossplane.io/revision: function-patch-and-transform-e9fec78aeef5
+    spec:
+      containers:
+      - env:
+        - name: TLS_SERVER_CERTS_DIR
+          value: /tls/server
+        - name: FUNCTION_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.labels['pkg.crossplane.io/function']
+        - name: REVISION_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.labels['pkg.crossplane.io/revision']
+        - name: REVISION_UID
+          value: 3c9a2e70-5b1d-4f86-8a43-9e0d6c2b7f22
+        image: xpkg.upbound.io/crossplane-contrib/function-patch-and-transform:v0.11.2
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 6
+          httpGet:
+            path: /metrics
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 20
+          timeoutSeconds: 5
+        name: package-runtime
+        ports:
+        - containerPort: 8080
+          name: metrics
+        - containerPort: 9443
+          name: grpc
+        readinessProbe:
+          failureThreshold: 3
+          periodSeconds: 10
+          tcpSocket:
+            port: 9443
+          timeoutSeconds: 5
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          privileged: false
+          runAsGroup: 2000
+          runAsNonRoot: true
+          runAsUser: 2000
+        volumeMounts:
+        - mountPath: /tls/server
+          name: tls-server-certs
+          readOnly: true
+      securityContext:
+        runAsGroup: 2000
+        runAsNonRoot: true
+        runAsUser: 2000
+      serviceAccountName: function-patch-and-transform-e9fec78aeef5
+      volumes:
+      - name: tls-server-certs
+        secret:
+          items:
+          - key: tls.crt
+            path: tls.crt
+          - key: tls.key
+            path: tls.key
+          - key: ca.crt
+            path: ca.crt
+          secretName: function-patch-and-transform-tls-server
+---
+# 3. The provider's Service (created by the Pre hook). ADMITTED.
+apiVersion: v1
+kind: Service
+metadata:
+  name: provider-opentofu
+  namespace: crossplane-system
+  ownerReferences:
+  - apiVersion: pkg.crossplane.io/v1
+    blockOwnerDeletion: true
+    controller: true
+    kind: ProviderRevision
+    name: provider-opentofu-81ec1e8dd865
+    uid: 7d1f3b52-0c55-4a3e-9d0e-2b6f4f7c1a11
+spec:
+  ports:
+  - name: webhook
+    port: 9443
+    protocol: TCP
+    targetPort: webhook
+  selector:
+    pkg.crossplane.io/provider: provider-opentofu
+    pkg.crossplane.io/revision: provider-opentofu-81ec1e8dd865
+---
+# 4. The function's Service, headless, port grpc. ADMITTED. This is the
+#    object flux-managed refused on hw307 since the function's first install.
+apiVersion: v1
+kind: Service
+metadata:
+  name: function-patch-and-transform
+  namespace: crossplane-system
+  ownerReferences:
+  - apiVersion: pkg.crossplane.io/v1
+    blockOwnerDeletion: true
+    controller: true
+    kind: FunctionRevision
+    name: function-patch-and-transform-e9fec78aeef5
+    uid: 3c9a2e70-5b1d-4f86-8a43-9e0d6c2b7f22
+spec:
+  clusterIP: None
+  ports:
+  - appProtocol: tls
+    name: grpc
+    port: 9443
+    protocol: TCP
+    targetPort: grpc
+  selector:
+    pkg.crossplane.io/function: function-patch-and-transform
+    pkg.crossplane.io/revision: function-patch-and-transform-e9fec78aeef5
+---
+# 5. Case 1 without the package label pkg.crossplane.io/revision on its
+#    selector and pod template. DENIED by flux-managed.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: provider-opentofu-no-package-label
+  namespace: crossplane-system
+  ownerReferences:
+  - apiVersion: pkg.crossplane.io/v1
+    blockOwnerDeletion: true
+    controller: true
+    kind: ProviderRevision
+    name: provider-opentofu-81ec1e8dd865
+    uid: 7d1f3b52-0c55-4a3e-9d0e-2b6f4f7c1a11
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      pkg.crossplane.io/provider: provider-opentofu
+  template:
+    metadata:
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: '8080'
+        prometheus.io/scrape: 'true'
+      labels:
+        pkg.crossplane.io/provider: provider-opentofu
+    spec:
+      containers:
+      - env:
+        - name: TLS_CLIENT_CERTS_DIR
+          value: /tls/client
+        - name: TLS_SERVER_CERTS_DIR
+          value: /tls/server
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: PROVIDER_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.labels['pkg.crossplane.io/provider']
+        - name: REVISION_UID
+          value: 7d1f3b52-0c55-4a3e-9d0e-2b6f4f7c1a11
+        - name: WEBHOOK_TLS_CERT_DIR
+          value: $(TLS_SERVER_CERTS_DIR)
+        envFrom:
+        - secretRef:
+            name: cloud-credentials
+            optional: true
+        image: xpkg.upbound.io/upbound/provider-opentofu@sha256:b4690e8ffe0a963b1d7df64f18f409217600b2a3bda25d1e01e4bafde976e675
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 6
+          httpGet:
+            path: /metrics
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 20
+          timeoutSeconds: 5
+        name: package-runtime
+        ports:
+        - containerPort: 8080
+          name: metrics
+        - containerPort: 9443
+          name: webhook
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /metrics
+            port: 8080
+          periodSeconds: 10
+          timeoutSeconds: 5
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          privileged: false
+          runAsGroup: 2000
+          runAsNonRoot: true
+          runAsUser: 2000
+        volumeMounts:
+        - mountPath: /tls/client
+          name: tls-client-certs
+          readOnly: true
+        - mountPath: /tls/server
+          name: tls-server-certs
+          readOnly: true
+      securityContext:
+        runAsGroup: 2000
+        runAsNonRoot: true
+        runAsUser: 2000
+      serviceAccountName: provider-opentofu-81ec1e8dd865
+      volumes:
+      - name: tls-client-certs
+        secret:
+          items:
+          - key: tls.crt
+            path: tls.crt
+          - key: tls.key
+            path: tls.key
+          - key: ca.crt
+            path: ca.crt
+          secretName: provider-opentofu-tls-client
+      - name: tls-server-certs
+        secret:
+          items:
+          - key: tls.crt
+            path: tls.crt
+          - key: tls.key
+            path: tls.key
+          - key: ca.crt
+            path: ca.crt
+          secretName: provider-opentofu-tls-server
+---
+# 6. Case 1 without probes (the runtime config before this change). DENIED by
+#    probes-present.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: provider-opentofu-no-probes
+  namespace: crossplane-system
+  ownerReferences:
+  - apiVersion: pkg.crossplane.io/v1
+    blockOwnerDeletion: true
+    controller: true
+    kind: ProviderRevision
+    name: provider-opentofu-81ec1e8dd865
+    uid: 7d1f3b52-0c55-4a3e-9d0e-2b6f4f7c1a11
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      pkg.crossplane.io/provider: provider-opentofu
+      pkg.crossplane.io/revision: provider-opentofu-81ec1e8dd865
+  template:
+    metadata:
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: '8080'
+        prometheus.io/scrape: 'true'
+      labels:
+        pkg.crossplane.io/provider: provider-opentofu
+        pkg.crossplane.io/revision: provider-opentofu-81ec1e8dd865
+    spec:
+      containers:
+      - env:
+        - name: TLS_CLIENT_CERTS_DIR
+          value: /tls/client
+        - name: TLS_SERVER_CERTS_DIR
+          value: /tls/server
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: PROVIDER_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.labels['pkg.crossplane.io/provider']
+        - name: REVISION_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.labels['pkg.crossplane.io/revision']
+        - name: REVISION_UID
+          value: 7d1f3b52-0c55-4a3e-9d0e-2b6f4f7c1a11
+        - name: WEBHOOK_TLS_CERT_DIR
+          value: $(TLS_SERVER_CERTS_DIR)
+        envFrom:
+        - secretRef:
+            name: cloud-credentials
+            optional: true
+        image: xpkg.upbound.io/upbound/provider-opentofu@sha256:b4690e8ffe0a963b1d7df64f18f409217600b2a3bda25d1e01e4bafde976e675
+        imagePullPolicy: IfNotPresent
+        name: package-runtime
+        ports:
+        - containerPort: 8080
+          name: metrics
+        - containerPort: 9443
+          name: webhook
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          privileged: false
+          runAsGroup: 2000
+          runAsNonRoot: true
+          runAsUser: 2000
+        volumeMounts:
+        - mountPath: /tls/client
+          name: tls-client-certs
+          readOnly: true
+        - mountPath: /tls/server
+          name: tls-server-certs
+          readOnly: true
+      securityContext:
+        runAsGroup: 2000
+        runAsNonRoot: true
+        runAsUser: 2000
+      serviceAccountName: provider-opentofu-81ec1e8dd865
+      volumes:
+      - name: tls-client-certs
+        secret:
+          items:
+          - key: tls.crt
+            path: tls.crt
+          - key: tls.key
+            path: tls.key
+          - key: ca.crt
+            path: ca.crt
+          secretName: provider-opentofu-tls-client
+      - name: tls-server-certs
+        secret:
+          items:
+          - key: tls.crt
+            path: tls.crt
+          - key: tls.key
+            path: tls.key
+          - key: ca.crt
+            path: ca.crt
+          secretName: provider-opentofu-tls-server
+---
+# 7. Case 1 carrying the package label but no controller owner: a hand-made
+#    copy. DENIED by flux-managed.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: provider-opentofu-no-owner
+  namespace: crossplane-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      pkg.crossplane.io/provider: provider-opentofu
+      pkg.crossplane.io/revision: provider-opentofu-81ec1e8dd865
+  template:
+    metadata:
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: '8080'
+        prometheus.io/scrape: 'true'
+      labels:
+        pkg.crossplane.io/provider: provider-opentofu
+        pkg.crossplane.io/revision: provider-opentofu-81ec1e8dd865
+    spec:
+      containers:
+      - env:
+        - name: TLS_CLIENT_CERTS_DIR
+          value: /tls/client
+        - name: TLS_SERVER_CERTS_DIR
+          value: /tls/server
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: PROVIDER_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.labels['pkg.crossplane.io/provider']
+        - name: REVISION_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.labels['pkg.crossplane.io/revision']
+        - name: REVISION_UID
+          value: 7d1f3b52-0c55-4a3e-9d0e-2b6f4f7c1a11
+        - name: WEBHOOK_TLS_CERT_DIR
+          value: $(TLS_SERVER_CERTS_DIR)
+        envFrom:
+        - secretRef:
+            name: cloud-credentials
+            optional: true
+        image: xpkg.upbound.io/upbound/provider-opentofu@sha256:b4690e8ffe0a963b1d7df64f18f409217600b2a3bda25d1e01e4bafde976e675
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 6
+          httpGet:
+            path: /metrics
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 20
+          timeoutSeconds: 5
+        name: package-runtime
+        ports:
+        - containerPort: 8080
+          name: metrics
+        - containerPort: 9443
+          name: webhook
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /metrics
+            port: 8080
+          periodSeconds: 10
+          timeoutSeconds: 5
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          privileged: false
+          runAsGroup: 2000
+          runAsNonRoot: true
+          runAsUser: 2000
+        volumeMounts:
+        - mountPath: /tls/client
+          name: tls-client-certs
+          readOnly: true
+        - mountPath: /tls/server
+          name: tls-server-certs
+          readOnly: true
+      securityContext:
+        runAsGroup: 2000
+        runAsNonRoot: true
+        runAsUser: 2000
+      serviceAccountName: provider-opentofu-81ec1e8dd865
+      volumes:
+      - name: tls-client-certs
+        secret:
+          items:
+          - key: tls.crt
+            path: tls.crt
+          - key: tls.key
+            path: tls.key
+          - key: ca.crt
+            path: ca.crt
+          secretName: provider-opentofu-tls-client
+      - name: tls-server-certs
+        secret:
+          items:
+          - key: tls.crt
+            path: tls.crt
+          - key: tls.key
+            path: tls.key
+          - key: ca.crt
+            path: ca.crt
+          secretName: provider-opentofu-tls-server
+---
+# 8. A plain Deployment in crossplane-system, with probes, without the package
+#    label or a revision owner. DENIED by flux-managed.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: plain-deployment
+  namespace: crossplane-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: plain
+  template:
+    metadata:
+      labels:
+        app: plain
+    spec:
+      containers:
+      - name: app
+        image: busybox:1.36
+        livenessProbe:
+          tcpSocket:
+            port: 8080
+        readinessProbe:
+          tcpSocket:
+            port: 8080
+---
+# 9. A plain Service in crossplane-system. DENIED by flux-managed.
+apiVersion: v1
+kind: Service
+metadata:
+  name: plain-service
+  namespace: crossplane-system
+spec:
+  selector:
+    app: plain
+  ports:
+  - port: 80
+---
+# 10. The runtime Deployment of an OLD provider revision, created before this
+#    change without probes, as hw307 runs it. Its DELETE (values.yaml sets
+#    request.operation) is what Crossplane's deactivation sends: ADMITTED by
+#    flux-managed (package label) and skipped by probes-present.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: provider-opentofu-4aeddb701725
+  namespace: crossplane-system
+  ownerReferences:
+  - apiVersion: pkg.crossplane.io/v1
+    blockOwnerDeletion: true
+    controller: true
+    kind: ProviderRevision
+    name: provider-opentofu-4aeddb701725
+    uid: 7d1f3b52-0c55-4a3e-9d0e-2b6f4f7c1a11
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      pkg.crossplane.io/provider: provider-opentofu
+      pkg.crossplane.io/revision: provider-opentofu-4aeddb701725
+  template:
+    metadata:
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: '8080'
+        prometheus.io/scrape: 'true'
+      labels:
+        pkg.crossplane.io/provider: provider-opentofu
+        pkg.crossplane.io/revision: provider-opentofu-4aeddb701725
+    spec:
+      containers:
+      - env:
+        - name: TLS_CLIENT_CERTS_DIR
+          value: /tls/client
+        - name: TLS_SERVER_CERTS_DIR
+          value: /tls/server
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: PROVIDER_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.labels['pkg.crossplane.io/provider']
+        - name: REVISION_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.labels['pkg.crossplane.io/revision']
+        - name: REVISION_UID
+          value: 7d1f3b52-0c55-4a3e-9d0e-2b6f4f7c1a11
+        - name: WEBHOOK_TLS_CERT_DIR
+          value: $(TLS_SERVER_CERTS_DIR)
+        envFrom:
+        - secretRef:
+            name: cloud-credentials
+            optional: true
+        image: xpkg.upbound.io/upbound/provider-opentofu@sha256:b4690e8ffe0a963b1d7df64f18f409217600b2a3bda25d1e01e4bafde976e675
+        imagePullPolicy: IfNotPresent
+        name: package-runtime
+        ports:
+        - containerPort: 8080
+          name: metrics
+        - containerPort: 9443
+          name: webhook
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          privileged: false
+          runAsGroup: 2000
+          runAsNonRoot: true
+          runAsUser: 2000
+        volumeMounts:
+        - mountPath: /tls/client
+          name: tls-client-certs
+          readOnly: true
+        - mountPath: /tls/server
+          name: tls-server-certs
+          readOnly: true
+      securityContext:
+        runAsGroup: 2000
+        runAsNonRoot: true
+        runAsUser: 2000
+      serviceAccountName: provider-opentofu-4aeddb701725
+      volumes:
+      - name: tls-client-certs
+        secret:
+          items:
+          - key: tls.crt
+            path: tls.crt
+          - key: tls.key
+            path: tls.key
+          - key: ca.crt
+            path: ca.crt
+          secretName: provider-opentofu-tls-client
+      - name: tls-server-certs
+        secret:
+          items:
+          - key: tls.crt
+            path: tls.crt
+          - key: tls.key
+            path: tls.key
+          - key: ca.crt
+            path: ca.crt
+          secretName: provider-opentofu-tls-server

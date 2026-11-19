@@ -1,0 +1,107 @@
+# Kyverno test of the Crossplane package-runtime admission (flux-managed (10)
+# and probes-present (04)).
+#
+# MEASURED on hw307 (candidate rc/20261119T053558Z-6972370, Crossplane core
+# 1.20.14 -> 2.4.3): the new ProviderRevision's Deployment was denied by
+# flux-managed AND probes-present, so the provider went NOT Healthy and the old
+# pod kept running; the deletion of the old revision's Deployment was denied by
+# the same two; the function's Service was denied by flux-managed from its first
+# install. Any new package revision on any Sovereign met the same denial.
+#
+# Run it as scripts/run-policy-chart-tests.sh does:
+#   kyverno test platform/kyverno-policies/chart/tests/crossplane-package-runtime-admitted
+# policy.yaml is the render of the two templates; tests/crossplane-runtime-suite-current.sh
+# fails when it is not the current render. Re-render with:
+#   helm template platform/kyverno-policies/chart \
+#     --show-only templates/baseline/10-flux-managed.yaml \
+#     --show-only templates/baseline/04-probes.yaml | grep -v '^# Source:' | sed '1{/^---$/d}'
+#
+# On main before this change, cases 1 to 4 and 10 fail (denied), so this suite
+# fails there.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: crossplane-package-runtime-admitted-test
+policies:
+  - policy.yaml
+resources:
+  - resources.yaml
+variables: values.yaml
+results:
+  # 1-2. The runtime Deployments Crossplane builds: admitted by both policies.
+  - policy: flux-managed
+    rule: workload-must-be-flux-managed
+    resources:
+      - crossplane-system/provider-opentofu-81ec1e8dd865
+      - crossplane-system/function-patch-and-transform-e9fec78aeef5
+    kind: Deployment
+    result: pass
+  - policy: probes-present
+    rule: containers-must-have-liveness-and-readiness
+    resources:
+      - crossplane-system/provider-opentofu-81ec1e8dd865
+      - crossplane-system/function-patch-and-transform-e9fec78aeef5
+    kind: Deployment
+    result: pass
+  # 3-4. The Services Crossplane builds: admitted.
+  - policy: flux-managed
+    rule: workload-must-be-flux-managed
+    resources:
+      - crossplane-system/provider-opentofu
+      - crossplane-system/function-patch-and-transform
+    kind: Service
+    result: pass
+  # 5. Without the package label: denied.
+  - policy: flux-managed
+    rule: workload-must-be-flux-managed
+    resources:
+      - crossplane-system/provider-opentofu-no-package-label
+    kind: Deployment
+    result: fail
+  # 6. Without probes: denied by probes-present, still admitted by flux-managed.
+  - policy: probes-present
+    rule: containers-must-have-liveness-and-readiness
+    resources:
+      - crossplane-system/provider-opentofu-no-probes
+    kind: Deployment
+    result: fail
+  - policy: flux-managed
+    rule: workload-must-be-flux-managed
+    resources:
+      - crossplane-system/provider-opentofu-no-probes
+    kind: Deployment
+    result: pass
+  # 7. The package label without a revision as controller owner: denied.
+  - policy: flux-managed
+    rule: workload-must-be-flux-managed
+    resources:
+      - crossplane-system/provider-opentofu-no-owner
+    kind: Deployment
+    result: fail
+  # 8-9. A plain Deployment and a plain Service in crossplane-system: denied.
+  - policy: flux-managed
+    rule: workload-must-be-flux-managed
+    resources:
+      - crossplane-system/plain-deployment
+    kind: Deployment
+    result: fail
+  - policy: flux-managed
+    rule: workload-must-be-flux-managed
+    resources:
+      - crossplane-system/plain-service
+    kind: Service
+    result: fail
+  # 10. DELETE of an old probe-less runtime Deployment: admitted by
+  #     flux-managed, skipped by probes-present (a skip admits).
+  - policy: flux-managed
+    rule: workload-must-be-flux-managed
+    resources:
+      - crossplane-system/provider-opentofu-4aeddb701725
+    kind: Deployment
+    result: pass
+  - policy: probes-present
+    rule: containers-must-have-liveness-and-readiness
+    resources:
+      - crossplane-system/provider-opentofu-4aeddb701725
+    kind: Deployment
+    result: skip

@@ -30,6 +30,7 @@ SHELL_TESTS=(
   nodeport-enforce-5491.sh
   apicall-rbac-correspondence.sh
   bootstrap-window.sh
+  crossplane-runtime-suite-current.sh
 )
 
 # step <label> <command...>
