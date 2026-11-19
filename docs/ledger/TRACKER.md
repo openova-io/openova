@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T10:30:07Z` |
+| Last refreshed | `2026-11-19T10:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7967](https://github.com/openova-io/openova/issues/7967) | CLD-092 Seal hook conformance and the profile's seal section | Other |
 | [#7968](https://github.com/openova-io/openova/issues/7968) | CLD-093 Contract rule: adding a region plans only additions | Other |
 | [#7969](https://github.com/openova-io/openova/issues/7969) | CLD-101 Golden files for the variables the engine writes | Other |
 | [#7970](https://github.com/openova-io/openova/issues/7970) | CLD-131 Provider substitutes move from the template into the modules (pure move) | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8316](https://github.com/openova-io/openova/issues/8316) | INF-020 Spike: hardware virtualisation on worker nodes | Other |
 | [#8317](https://github.com/openova-io/openova/issues/8317) | SOV-521 The release route promotes one region per request and rolls a region bac | Other |
 | [#8320](https://github.com/openova-io/openova/issues/8320) | PRD-202 cortex store: migrations, roles, trimmed query | Other |
+| [#8326](https://github.com/openova-io/openova/issues/8326) | AIP-031 Spike: one sandbox substrate shared by Organizations, with grants scoped | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-19T10:40 | [#8321](https://github.com/openova-io/openova/pull/8321) | #7087 | docs(ledger): plan update |
 | 2026-11-19T10:06 | [#8319](https://github.com/openova-io/openova/pull/8319) | #7087 | docs(ledger): plan update |
 | 2026-11-19T10:18 | [#8318](https://github.com/openova-io/openova/pull/8318) | #8312 | test(gate): check BSS-G01 walks the self-service onboarding  |
 | 2026-11-19T09:56 | [#8315](https://github.com/openova-io/openova/pull/8315) | #7087 | docs(ledger): plan update |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-19T06:17 | [#8275](https://github.com/openova-io/openova/pull/8275) | #8273 | refactor(catalog): delete the seed sync script; the version  |
 | 2026-11-19T06:03 | [#8274](https://github.com/openova-io/openova/pull/8274) | #8247 | fix(gate): outside dials stay outside, and run without a can |
 | 2026-11-19T05:33 | [#8272](https://github.com/openova-io/openova/pull/8272) | #7087 | docs(ledger): plan update |
-| 2026-11-19T05:14 | [#8271](https://github.com/openova-io/openova/pull/8271) | #8270 | refactor(catalog): the catalogue seed is generated from the  |
 
 ---
 
