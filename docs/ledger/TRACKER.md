@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T09:15:03Z` |
+| Last refreshed | `2026-11-19T09:30:10Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -308,6 +308,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-11-19T09:09 | [#8309](https://github.com/openova-io/openova/pull/8309) | #7087 | docs(ledger): plan update |
+| 2026-11-19T09:25 | [#8308](https://github.com/openova-io/openova/pull/8308) | #8306 | docs(adr): record 0038 on the firewall mechanism and the pac |
 | 2026-11-19T08:48 | [#8305](https://github.com/openova-io/openova/pull/8305) | #7087 | docs(ledger): plan update |
 | 2026-11-19T08:38 | [#8304](https://github.com/openova-io/openova/pull/8304) | #8302 | docs(ledger): result of the lab test PRD-061, vector search  |
 | 2026-11-19T08:53 | [#8303](https://github.com/openova-io/openova/pull/8303) | fix(gate): the zero-touch check measures retry calls |  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-19T04:51 | [#8268](https://github.com/openova-io/openova/pull/8268) | #8264 | fix(crossplane): pin provider-opentofu v1.1.11 by digest (CL |
 | 2026-11-19T04:23 | [#8267](https://github.com/openova-io/openova/pull/8267) | #7087 | docs(ledger): plan update |
 | 2026-11-19T05:21 | [#8266](https://github.com/openova-io/openova/pull/8266) | #8265 | feat(machine-runner): the passive web profile of the task te |
-| 2026-11-19T04:14 | [#8263](https://github.com/openova-io/openova/pull/8263) | #7087 | docs(ledger): plan update |
 
 ---
 
