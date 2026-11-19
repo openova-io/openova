@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T06:15:03Z` |
+| Last refreshed | `2026-11-19T06:30:08Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7893](https://github.com/openova-io/openova/issues/7893) | a fresh two-region installation: the control-plane user data is 32,931 bytes, ov | Other |
 | [#7900](https://github.com/openova-io/openova/issues/7900) | a fresh two-region Sovereign: six defects of the hand-over chain (hook wait, pro | Other |
 | [#7901](https://github.com/openova-io/openova/issues/7901) | a fresh two-region Sovereign: bp-openbao's own network policies cut its server o | Other |
 | [#7902](https://github.com/openova-io/openova/issues/7902) | a fresh two-region Sovereign: the parent declares it ready before the follower r | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8270](https://github.com/openova-io/openova/issues/8270) | SVC-160 One generator, part 2: the seed becomes generated | Other |
 | [#8273](https://github.com/openova-io/openova/issues/8273) | SVC-161 The seed sync script is deleted with its three importers and four order  | Other |
 | [#8277](https://github.com/openova-io/openova/issues/8277) | SVC-162 Shelf deletion: README-only folders and scaffold Blueprint files | Other |
+| [#8280](https://github.com/openova-io/openova/issues/8280) | AIP-030 Spike: agent runtime proof (kagent 1.x on k3s, Cilium, vcluster) | Other |
 
 ---
 
@@ -307,7 +307,10 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-19T06:29 | [#8282](https://github.com/openova-io/openova/pull/8282) | #7087 | docs(ledger): plan update |
+| 2026-11-19T06:25 | [#8279](https://github.com/openova-io/openova/pull/8279) | #7087 | docs(ledger): plan update |
 | 2026-11-19T06:06 | [#8276](https://github.com/openova-io/openova/pull/8276) | #7087 | docs(ledger): plan update |
+| 2026-11-19T06:17 | [#8275](https://github.com/openova-io/openova/pull/8275) | #8273 | refactor(catalog): delete the seed sync script; the version  |
 | 2026-11-19T06:03 | [#8274](https://github.com/openova-io/openova/pull/8274) | #8247 | fix(gate): outside dials stay outside, and run without a can |
 | 2026-11-19T05:33 | [#8272](https://github.com/openova-io/openova/pull/8272) | #7087 | docs(ledger): plan update |
 | 2026-11-19T05:14 | [#8271](https://github.com/openova-io/openova/pull/8271) | #8270 | refactor(catalog): the catalogue seed is generated from the  |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-19T02:06 | [#8241](https://github.com/openova-io/openova/pull/8241) | #8226 | refactor(catalog): the Blueprint files carry the seed values |
 | 2026-11-18T23:51 | [#8240](https://github.com/openova-io/openova/pull/8240) | #8238 | docs(ledger): result of the operator action FND-079 (FND-079 |
 | 2026-11-18T23:49 | [#8239](https://github.com/openova-io/openova/pull/8239) | #7087 | docs(ledger): plan update |
-| 2026-11-18T23:42 | [#8237](https://github.com/openova-io/openova/pull/8237) | #7087 | docs(ledger): plan update |
-| 2026-11-18T23:51 | [#8236](https://github.com/openova-io/openova/pull/8236) | #8235 | fix(gate): judge a cloud check on the newest valid pair of r |
-| 2026-11-18T23:24 | [#8234](https://github.com/openova-io/openova/pull/8234) | #7087 | docs(ledger): plan update |
 
 ---
 
