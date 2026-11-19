@@ -102,8 +102,10 @@ DISCOVERY_LIMIT=600
 CLAIM_LIMIT=300
 MESH_LIMIT=600
 # collect: at most RESTART_MAX restarted containers per region, PREVIOUS_TAIL log lines each.
+# The cause comes before the shutdown: kvstoremesh logs about 45 lines between its lease
+# expiring and its last line, so 40 lines held the exit but not why.
 RESTART_MAX=40
-PREVIOUS_TAIL=40
+PREVIOUS_TAIL=150
 # What a Cilium agent says of its peer clusters: "<cluster name>=<true|false>;" per peer. The
 # same read as Command of products/catalyst/bootstrap/api/internal/meshagents/meshagents.go.
 MESH_STATUS='jsonpath={range .cluster-mesh.clusters[*]}{.name}={.ready};{end}'
