@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T15:00:03Z` |
+| Last refreshed | `2026-11-19T15:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7971](https://github.com/openova-io/openova/issues/7971) | CLD-134 The reference cloud's profile declares its user-data limit; the guard ch | Other |
 | [#7972](https://github.com/openova-io/openova/issues/7972) | CTL-223 Settings, Menu accepts console pages as menu candidates | Other |
 | [#7973](https://github.com/openova-io/openova/issues/7973) | CTL-231 Resource browser: Git-owned objects refused, break-glass for the rest | Other |
 | [#7974](https://github.com/openova-io/openova/issues/7974) | CTL-347 The flow server and adapter sources, charts and builds are deleted | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8334](https://github.com/openova-io/openova/issues/8334) | PRD-203 cortex query process: token check, gateway client, search, definitions l | Other |
 | [#8341](https://github.com/openova-io/openova/issues/8341) | NET-255 Journey WAF, its corpus and gate check NET-G15 as expected-fail | Other |
 | [#8346](https://github.com/openova-io/openova/issues/8346) | NET-330 Spike: a bridged secondary network for virtual machines (conditional, dr | Other |
+| [#8352](https://github.com/openova-io/openova/issues/8352) | AIP-223 Judge dispatcher: lanes, deadlines, agent tokens, A2A call, validation,  | Other |
 
 ---
 
@@ -307,10 +307,13 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-19T15:07 | [#8351](https://github.com/openova-io/openova/pull/8351) | #7087 | docs(ledger): plan update |
+| 2026-11-19T15:14 | [#8350](https://github.com/openova-io/openova/pull/8350) | #8083 | fix(openova-mcp): the tool server accepts agent tokens and i |
 | 2026-11-19T14:46 | [#8349](https://github.com/openova-io/openova/pull/8349) | #8346 | docs(ledger): result of the spike NET-330, a bridged seconda |
 | 2026-11-19T14:42 | [#8348](https://github.com/openova-io/openova/pull/8348) | #7087 | docs(ledger): plan update |
 | 2026-11-19T14:36 | [#8347](https://github.com/openova-io/openova/pull/8347) | #7087 | docs(ledger): plan update |
 | 2026-11-19T14:31 | [#8345](https://github.com/openova-io/openova/pull/8345) | #7087 | docs(ledger): plan update |
+| 2026-11-19T15:00 | [#8344](https://github.com/openova-io/openova/pull/8344) | #8341 | test(gate): check NET-G15 runs journey WAF against each web  |
 | 2026-11-19T14:43 | [#8343](https://github.com/openova-io/openova/pull/8343) | #7922 | refactor(cloud-init): first boot no longer enables the unatt |
 | 2026-11-19T14:48 | [#8342](https://github.com/openova-io/openova/pull/8342) | fix(wipe): the wipe releases the record sets of the Sovereig |  |
 | 2026-11-19T14:17 | [#8340](https://github.com/openova-io/openova/pull/8340) | #7087 | docs(ledger): plan update |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-19T12:12 | [#8314](https://github.com/openova-io/openova/pull/8314) | #8311 | fix(cloud-init): turn on the Pod Certificate gates from k3s  |
 | 2026-11-19T09:38 | [#8310](https://github.com/openova-io/openova/pull/8310) | #7087 | docs(ledger): plan update |
 | 2026-11-19T09:09 | [#8309](https://github.com/openova-io/openova/pull/8309) | #7087 | docs(ledger): plan update |
-| 2026-11-19T09:25 | [#8308](https://github.com/openova-io/openova/pull/8308) | #8306 | docs(adr): record 0038 on the firewall mechanism and the pac |
-| 2026-11-19T12:13 | [#8307](https://github.com/openova-io/openova/pull/8307) | #8252 | fix(ci): the local pack's machine image build no longer hang |
-| 2026-11-19T08:48 | [#8305](https://github.com/openova-io/openova/pull/8305) | #7087 | docs(ledger): plan update |
 
 ---
 
