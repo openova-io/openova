@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T04:00:03Z` |
+| Last refreshed | `2026-11-19T04:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7882](https://github.com/openova-io/openova/issues/7882) | CTL-230 Batch F: resource browser | Other |
-| [#7883](https://github.com/openova-io/openova/issues/7883) | FND-029 A published chart version is never published again with other content | Other |
 | [#7884](https://github.com/openova-io/openova/issues/7884) | FND-064 Custody procedure of the release key, safe rotation, and the pre-live st | Other |
 | [#7885](https://github.com/openova-io/openova/issues/7885) | FND-151 The suite as an image, with the self selection | Other |
 | [#7886](https://github.com/openova-io/openova/issues/7886) | SEC-095 Exception register, source guard and Secret census | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#8254](https://github.com/openova-io/openova/issues/8254) | INF-512 Runner test task: arguments, target check and Nuclei (profile network-pa | Other |
 | [#8256](https://github.com/openova-io/openova/issues/8256) | CLD-065 Crossplane 1.20 to 2.4 | Other |
 | [#8257](https://github.com/openova-io/openova/issues/8257) | SVC-163 The Blueprint files carry the seed's configSchema | Other |
+| [#8264](https://github.com/openova-io/openova/issues/8264) | CLD-066 provider-opentofu v1.1.11 by digest | Other |
+| [#8265](https://github.com/openova-io/openova/issues/8265) | INF-513 Runner test task: the ZAP baseline scan and its SARIF report (profile we | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-19T04:14 | [#8263](https://github.com/openova-io/openova/pull/8263) | #7087 | docs(ledger): plan update |
+| 2026-11-19T04:05 | [#8262](https://github.com/openova-io/openova/pull/8262) | #8247 | fix(gate): the parent Job asks for what the parent can sched |
 | 2026-11-19T03:28 | [#8261](https://github.com/openova-io/openova/pull/8261) | #8247 | fix(gate): the parent Job's wait names why the scheduler has |
 | 2026-11-19T03:30 | [#8260](https://github.com/openova-io/openova/pull/8260) | #8256 | fix(crossplane): raise Crossplane core to 2.4.3 (CLD-065) |
 | 2026-11-19T03:39 | [#8259](https://github.com/openova-io/openova/pull/8259) | #8257 | refactor(catalog): the Blueprint files carry the seed config |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-19T00:09 | [#8221](https://github.com/openova-io/openova/pull/8221) | #7450 | fix(cloud-init): shred the bootstrap secret files, make the  |
 | 2026-11-18T22:39 | [#8220](https://github.com/openova-io/openova/pull/8220) | #7087 | docs(ledger): plan update |
 | 2026-11-18T22:46 | [#8219](https://github.com/openova-io/openova/pull/8219) | #8067 | feat(network): the Sovereign states its region separation an |
-| 2026-11-18T22:37 | [#8218](https://github.com/openova-io/openova/pull/8218) | #8217 | refactor(provisioner): the post-apply step and the apply-err |
-| 2026-11-18T22:08 | [#8216](https://github.com/openova-io/openova/pull/8216) | #7087 | docs(ledger): plan update |
 
 ---
 
