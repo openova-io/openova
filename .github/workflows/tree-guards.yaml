@@ -388,6 +388,12 @@ jobs:
       - name: 'version-tags | No workflow pushes a version tag except through the shared check'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: python3 scripts/check-version-tags-immutable.py
+      - name: 'gate-parent-access | Self-test of the guard (every rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: python3 scripts/check-gate-parent-access.py --self-test
+      - name: 'gate-parent-access | Only the two gate workflows use the access to the parent'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: python3 scripts/check-gate-parent-access.py
       - name: 'secret-guards | a randAlphaNum added to a real chart template fails G2'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: |

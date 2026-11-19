@@ -1,13 +1,16 @@
 name: foundation-gate-standing
 
 # The gate against the standing environment, after it was updated in place to a candidate. It
-# updates, wipes and installs nothing. Inputs: candidate_id, env, runner (as in foundation-gate.yaml).
+# updates, wipes and installs nothing. Inputs: candidate_id, env, execution (as in
+# foundation-gate.yaml: hosted, the default, or parent). Every job runs on ubuntu-latest.
 #   test       scripts/standing-gate.py --self-test (also on pull requests that change it).
 #   candidate  scripts/release-candidate.sh verify: the candidate's commit.
 #   regions    with the kubeconfigs of the environment gate: `standing-gate.py source` for region b,
 #              then a (Flux applied the candidate commit or a descendant, read in the region's own
 #              Gitea), then `standing-gate.py converge` for both (every HelmRelease that is not
 #              suspended is Ready, within 60 minutes per region). Its failure stops the run early.
+#              In parent execution these run in a Job on the parent (scripts/gate-parent-job.sh),
+#              after the images of the Job are built or found.
 #   gate-1     the first run of foundation-gate.yaml; records-1: one valid record of this run on main.
 #   gate-2     the second run, only when records-1 passed; records-2: two valid records of this run.
 # A record of this run has producer.run_id equal to this run's id (a called workflow runs under the
@@ -22,9 +25,11 @@ on:
       env:
         description: The environment label of the standing environment
         required: true
-      runner:
-        description: The runs-on label of the runner that reaches every region
-        default: foundation-gate
+      execution:
+        description: "Where the work that dials the Sovereign's API port runs: hosted (the job's machine) or parent (a Job on the parent cluster)"
+        type: choice
+        options: [hosted, parent]
+        default: hosted
   pull_request:
     paths:
       - 'scripts/standing-gate.py'
@@ -91,19 +96,63 @@ jobs:
   regions:
     name: the regions carry the candidate and have converged
     needs: candidate
-    runs-on: ${{ inputs.runner }}
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
     environment: gate
-    timeout-minutes: 150
+    timeout-minutes: 190
     permissions:
       contents: read
+      packages: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+      - name: Where the cluster work runs
+        id: mode
+        env:
+          EXECUTION: ${{ inputs.execution }}
+        run: |
+          set -euo pipefail
+          e="$(bash scripts/gate-parent-job.sh execution "$EXECUTION")"
+          echo "execution=$e" >> "$GITHUB_OUTPUT"
+          echo "Execution: $e" >> "$GITHUB_STEP_SUMMARY"
+      - name: "Parent execution: check out the commit under test"
+        if: steps.mode.outputs.execution == 'parent'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.candidate.outputs.commit }}
+          path: candidate
+          persist-credentials: false
+      - if: steps.mode.outputs.execution == 'parent'
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: '1.23'
+          cache: false
       - uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4.0.1
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.11'
+      - name: "Parent execution: the images of the Job, by digest"
+        id: images
+        if: steps.mode.outputs.execution == 'parent'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ needs.candidate.outputs.commit }}
+        run: |
+          set -euo pipefail
+          pip install --quiet pyyaml
+          bash scripts/gate-parent-job.sh image --candidate candidate --commit "$COMMIT" --output "$RUNNER_TEMP/images"
+          cat "$RUNNER_TEMP/images" >> "$GITHUB_OUTPUT"
+          { echo '### Images of the Job'; echo; echo '```'; cat "$RUNNER_TEMP/images"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: "Parent execution: the parent kubeconfig (never echoed)"
+        if: steps.mode.outputs.execution == 'parent'
+        env:
+          KP: ${{ secrets.ACCEPTANCE_PARENT_KUBECONFIG }}
+        run: |
+          set -euo pipefail
+          if [ -z "$KP" ]; then echo "::error::the secret ACCEPTANCE_PARENT_KUBECONFIG of the environment gate is not set"; exit 2; fi
+          umask 077; mkdir -p "$RUNNER_TEMP/parent"
+          printf '%s' "$KP" | base64 -d > "$RUNNER_TEMP/parent/parent.yaml"
       - name: Write kubeconfigs (never echoed)
         env:
           KA: ${{ secrets.ACCEPTANCE_KUBECONFIG_A }}
@@ -115,6 +164,7 @@ jobs:
           printf '%s' "$KA" | base64 -d > "$RUNNER_TEMP/kube/a.yaml"
           printf '%s' "$KB" | base64 -d > "$RUNNER_TEMP/kube/b.yaml"
       - name: Flux of each region applied the candidate commit or a descendant
+        if: steps.mode.outputs.execution == 'hosted'
         env:
           COMMIT: ${{ needs.candidate.outputs.commit }}
         run: |
@@ -123,11 +173,36 @@ jobs:
             python3 scripts/standing-gate.py source --kubeconfig "$RUNNER_TEMP/kube/$r.yaml" --region "$r" --candidate "$COMMIT"
           done
       - name: Every HelmRelease of each region is Ready
+        if: steps.mode.outputs.execution == 'hosted'
         run: |
           set -euo pipefail
           for r in b a; do
             python3 scripts/standing-gate.py converge --kubeconfig "$RUNNER_TEMP/kube/$r.yaml" --region "$r" --minutes 60 --interval 30
           done
+      - name: "Parent execution: the regions carry the candidate and have converged, read in a Job on the parent"
+        if: steps.mode.outputs.execution == 'parent'
+        env:
+          COMMIT: ${{ needs.candidate.outputs.commit }}
+          JOB_IMAGE: ${{ steps.images.outputs.job }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          o="$RUNNER_TEMP/parent-regions"
+          GATE_PARENT_KUBECONFIG="$RUNNER_TEMP/parent/parent.yaml" GATE_KUBECONFIG_A="$RUNNER_TEMP/kube/a.yaml" \
+            GATE_KUBECONFIG_B="$RUNNER_TEMP/kube/b.yaml" GATE_PULL_USER="$GITHUB_ACTOR" GATE_PULL_TOKEN="$GH_TOKEN" \
+            GATE_RUN="$GITHUB_RUN_ID" CANDIDATE_COMMIT="$COMMIT" \
+            bash scripts/gate-parent-job.sh run --mode regions --out "$o" --job-image "$JOB_IMAGE"
+          grep -qx 'rc=0' "$o/outputs" || { echo "::error::The regions do not carry the candidate or have not converged; the Job's log is above."; exit 1; }
+      - name: "Parent execution: delete the Job and its Secrets"
+        if: always() && steps.mode.outputs.execution == 'parent'
+        run: |
+          set -uo pipefail
+          p="$RUNNER_TEMP/parent/parent.yaml"
+          if [ -r "$p" ]; then
+            GATE_PARENT_KUBECONFIG="$p" bash scripts/gate-parent-job.sh cleanup --out "$RUNNER_TEMP/parent-regions" \
+              || echo "::warning::The Job of this run or its Secrets could not be deleted; the Job deletes itself an hour after it ended."
+          fi
+          rm -f "$p"
 
   gate-1:
     name: gate run 1
@@ -135,13 +210,13 @@ jobs:
     permissions:
       actions: read
       contents: read
-      packages: read
+      packages: write
       pull-requests: read
     uses: ./.github/workflows/foundation-gate.yaml
     with:
       env: ${{ inputs.env }}
       candidate_id: ${{ inputs.candidate_id }}
-      runner: ${{ inputs.runner }}
+      execution: ${{ inputs.execution }}
     secrets: inherit
 
   records-1:
@@ -174,13 +249,13 @@ jobs:
     permissions:
       actions: read
       contents: read
-      packages: read
+      packages: write
       pull-requests: read
     uses: ./.github/workflows/foundation-gate.yaml
     with:
       env: ${{ inputs.env }}
       candidate_id: ${{ inputs.candidate_id }}
-      runner: ${{ inputs.runner }}
+      execution: ${{ inputs.execution }}
     secrets: inherit
 
   records-2:
