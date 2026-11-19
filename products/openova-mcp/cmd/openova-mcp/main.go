@@ -255,13 +255,13 @@ func (s *server) handleToolsCall(req rpcRequest) error {
 	}
 	args := stripAuthEnvelope(params.Arguments)
 
-	result, callErr := s.reg.Call(context.Background(), id, params.Name, args)
+	// The answer an agent reads is redacted, inert and fitted (AIP-151).
+	text, callErr := s.reg.Answer(context.Background(), id, params.Name, args)
 	if callErr != nil {
 		return s.toolError(req.ID, callErr)
 	}
-	body, _ := json.Marshal(result)
 	return s.writeResult(req.ID, map[string]any{
-		"content": []map[string]any{{"type": "text", "text": string(body)}},
+		"content": []map[string]any{{"type": "text", "text": text}},
 		"isError": false,
 	})
 }

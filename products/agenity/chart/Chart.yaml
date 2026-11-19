@@ -369,7 +369,9 @@ version: 0.5.35
 # HTTPRoute change (the durable fix for the founder's stale-browser-cache view).
 # 0.9.8 (AIP-150): the image embeds the openova-mcp binary that accepts agent
 # tokens.
-appVersion: "0.9.8"
+# 0.9.9 (AIP-151): the image embeds the openova-mcp binary whose tool answers
+# are fitted and inert.
+appVersion: "0.9.9"
 keywords:
   - agenity
   - agent-runtime
