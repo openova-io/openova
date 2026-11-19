@@ -6,7 +6,7 @@ spec:
   # 1.2.7 (#3735): proxy all 6 Flux controller images + flux-cli onto Harbor
   # proxy-ghcr/fluxcd; RollingUpdate(maxUnavailable:0) post-render patch on
   # source-controller eliminates the Recreate serving-gap (Ready 26→7 on hw157).
-  version: 1.2.9
+  version: 1.2.10
   card:
     title: Flux
     summary: GitOps engine — reconciles every Sovereign Blueprint HelmRelease from the local Gitea source. The continuous-reconciliation backbone of the platform.
