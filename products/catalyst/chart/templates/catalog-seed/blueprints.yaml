@@ -817,7 +817,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.1.11
+  version: 1.1.12
   card:
     title: Crossplane
     summary: Control-plane day-2 infrastructure provisioning. Renders Composite Resources (XRs) into cloud + in-cluster resources the Sovereign never surfaces to Users directly.
@@ -832,7 +832,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-crossplane
-    version: 1.1.11
+    version: 1.1.12
   topology:
     supported: [singleton]
     defaults:
