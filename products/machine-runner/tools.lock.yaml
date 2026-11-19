@@ -60,3 +60,17 @@ tools:
     sha256: 765e84bdce7f9055f9b9c2dd0ee2b713d4255f8eec94eac6d35ea4973c28919c
     licence: BSD-3-Clause
     use: data
+  - name: nuclei
+    version: "3.11.1"
+    source: https://github.com/projectdiscovery/nuclei/releases/download/v3.11.1/nuclei_3.11.1_linux_amd64.zip
+    sha256: ea63d4ae232808cd7c6bc00d0142428e231fab59dae01042246097d195835ab6
+    licence: MIT
+    use: separate-process
+# The template release publishes no checksum of its tag archive; this SHA-256 was measured
+# on the archive itself.
+  - name: nuclei-templates
+    version: "10.5.2"
+    source: https://github.com/projectdiscovery/nuclei-templates/archive/refs/tags/v10.5.2.tar.gz
+    sha256: 016b7abbf931d4d1a851a5a568e44510dc61691dc8a5202e3b24e701515ec574
+    licence: MIT
+    use: data

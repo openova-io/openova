@@ -12,8 +12,8 @@ import (
 )
 
 // The tasks and modes the arguments may name. This version runs the tasks inventory and
-// hardening in node mode, and the task match, which has no target and no mode; any other
-// valid task or mode gives outcome Refused.
+// hardening in node mode, the task test in the Job shape of SSH mode, and the task match,
+// which has no target and no mode; any other valid task or mode gives outcome Refused.
 var (
 	tasks = []string{TaskFacts, TaskInventory, TaskHardening, TaskPatch, TaskTest, TaskMatch}
 	modes = []string{ModeNode, ModeSSH}
@@ -64,8 +64,21 @@ type Config struct {
 	DisabledRules  []string
 	SBOMKeys       []string // match: the bills of materials to match
 	DBRepository   string   // match: the OCI repository of the vulnerability database; empty: Trivy's own
+	TestProfiles   []string // test: the profiles of the scope, each once
+	Ports          []int    // test: the destination ports of the scope, each once
+	RequestsPerSec int      // test: the rate limit passed to the tool
 	Evidence       Evidence
 }
+
+// The profiles of the task test, and the rate limit of --requests-per-second.
+const (
+	ProfileWebPassive     = "web-passive"
+	ProfileNetworkPassive = "network-passive"
+	DefaultRequestsPerSec = 10
+	MaxRequestsPerSec     = 50
+)
+
+var testProfiles = []string{ProfileWebPassive, ProfileNetworkPassive}
 
 // MatchPrefix is the key prefix of the files of the task match of one run.
 func MatchPrefix(run string) string { return "_match/" + run + "/" }
@@ -95,7 +108,7 @@ func ParseArgs(args []string) (Config, error) {
 	fs := flag.NewFlagSet("machine-runner", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	var c Config
-	var machine, run, disabled, sboms string
+	var machine, run, disabled, sboms, profiles, ports, rate string
 	fs.StringVar(&c.Task, "task", "", "the task: facts, inventory, hardening, patch or test")
 	fs.StringVar(&c.Mode, "mode", "", "the mode: node or ssh")
 	fs.StringVar(&machine, "machine", "", "the Machine, as <namespace>/<name>")
@@ -108,6 +121,9 @@ func ParseArgs(args []string) (Config, error) {
 	fs.StringVar(&disabled, "disabled-rules", "", "hardening: comma-separated XCCDF rule identifiers that are not evaluated")
 	fs.StringVar(&sboms, "sbom-keys", "", "match: comma-separated object keys <namespace>/<machine>/<run>/sbom.cdx.json")
 	fs.StringVar(&c.DBRepository, "db-repository", "", "match: the OCI repository of the vulnerability database")
+	fs.StringVar(&profiles, "test-profile", "", "test: comma-separated profiles, web-passive and network-passive")
+	fs.StringVar(&ports, "ports", "", "test: comma-separated destination ports of the target")
+	fs.StringVar(&rate, "requests-per-second", "", "test: the rate limit of the tool, 1 to 50; default 10")
 	fs.StringVar(&c.Evidence.Endpoint, "evidence-endpoint", "", "the S3 endpoint, https://host[:port]")
 	fs.StringVar(&c.Evidence.Region, "evidence-region", "", "the region of the S3 endpoint")
 	fs.StringVar(&c.Evidence.Bucket, "evidence-bucket", "", "the evidence bucket")
@@ -182,6 +198,22 @@ func ParseArgs(args []string) (Config, error) {
 		}
 	} else if c.ProfileID != "" || c.ContentRelease != "" || disabled != "" {
 		bad("--profile-id, --content-release and --disabled-rules belong to the task hardening")
+	}
+	if c.Task == TaskTest {
+		if c.TestProfiles = splitKeys(profiles); len(c.TestProfiles) == 0 || !eachOnce(c.TestProfiles, testProfiles) {
+			bad("--test-profile must name %s, each once", strings.Join(testProfiles, " or "))
+		}
+		if c.Ports, ok = ParsePorts(ports); !ok {
+			bad("--ports must be comma-separated ports from 1 to 65535, each once")
+		}
+		if c.RequestsPerSec, ok = parseRate(rate); !ok {
+			bad("--requests-per-second must be a whole number from 1 to %d", MaxRequestsPerSec)
+		}
+		if c.Address == "" {
+			bad("--address is required for the task test")
+		}
+	} else if profiles != "" || ports != "" || rate != "" {
+		bad("--test-profile, --ports and --requests-per-second belong to the task test")
 	}
 	if err := checkEndpoint(c.Evidence.Endpoint); err != nil {
 		bad("--evidence-endpoint %s", err)

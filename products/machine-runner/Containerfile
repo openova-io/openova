@@ -37,11 +37,12 @@ RUN set -eu; \
       curl -fsSL --retry 3 -o "/tools/$name/${source##*/}" "$source"; \
       echo "$sha  /tools/$name/${source##*/}" | sha256sum -c -; \
     done < /tools.list
-# The packages and wheels the runtime stage installs; Trivy; and the ComplianceAsCode data
+# The packages and wheels the runtime stage installs; Trivy; Nuclei; the ComplianceAsCode data
 # streams of the Ubuntu and RHEL families, one folder per content release:
-# /content/scap/<release>/ssg-<product>-ds.xml.
+# /content/scap/<release>/ssg-<product>-ds.xml; and of the Nuclei templates only the folders
+# of the protocols tcp, ssl, dns and http (no code, headless, fuzzing or file template).
 RUN set -eu; \
-    mkdir -p /out/pkg /out/bin /out/doc/trivy /out/doc/scap-security-guide; \
+    mkdir -p /out/pkg /out/bin /out/doc/trivy /out/doc/scap-security-guide /out/doc/nuclei /out/nuclei-templates /work/nt; \
     cp /tools/libopenscap33/*.deb /tools/openscap-common/*.deb /tools/openscap-scanner/*.deb \
        /tools/python3-openscap/*.deb /tools/openscap-utils/*.deb \
        /tools/ansible-core/*.whl /tools/ansible-runner/*.whl /out/pkg/; \
@@ -52,7 +53,12 @@ RUN set -eu; \
     unzip -q -j -d "/out/scap/$release" /tools/scap-security-guide/*.zip \
       '*/ssg-ubuntu*-ds.xml' '*/ssg-rhel[0-9]*-ds.xml' '*/ssg-almalinux*-ds.xml' '*/ssg-ol[0-9]*-ds.xml'; \
     unzip -q -j -d /out/doc/scap-security-guide /tools/scap-security-guide/*.zip '*/LICENSE'; \
-    test -s "/out/scap/$release/ssg-ubuntu2404-ds.xml"
+    test -s "/out/scap/$release/ssg-ubuntu2404-ds.xml"; \
+    unzip -q -d /out/bin /tools/nuclei/*.zip nuclei; \
+    unzip -q -d /out/doc/nuclei /tools/nuclei/*.zip LICENSE.md; \
+    tar -xzf /tools/nuclei-templates/*.tar.gz -C /work/nt --strip-components=1; \
+    cp -R /work/nt/http /work/nt/network /work/nt/ssl /work/nt/dns /work/nt/LICENSE.md /out/nuclei-templates/; \
+    test -s /out/nuclei-templates/ssl/tls-version.yaml
 
 # ---------- Stage 3: the runtime ----------
 FROM docker.io/library/debian:trixie-20261104-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2
@@ -72,6 +78,8 @@ RUN apt-get update \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/* /tmp/pkg
 COPY --from=fetch /out/bin/trivy /usr/local/bin/trivy
+COPY --from=fetch /out/bin/nuclei /usr/local/bin/nuclei
+COPY --from=fetch /out/nuclei-templates/ /content/nuclei-templates/
 COPY --from=fetch /out/scap/ /content/scap/
 COPY --from=fetch /out/doc/ /usr/share/doc/
 COPY products/machine-runner/LICENSES.md /usr/share/doc/machine-runner/LICENSES.md
@@ -81,7 +89,8 @@ RUN trivy --version \
     && command -v oscap-chroot \
     && ansible --version \
     && ansible-runner --version \
-    && rm -rf /root/.ansible
+    && nuclei -version \
+    && rm -rf /root/.ansible /root/.config
 # The home of the image and its temporary folder are the work folder /run/machine-runner,
 # which is not a path of the host and is empty in the image. ansible-core creates
 # ~/.ansible/tmp when it starts, and the home of user 65534 in /etc/passwd (/nonexistent)

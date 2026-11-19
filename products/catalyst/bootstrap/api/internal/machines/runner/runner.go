@@ -2,11 +2,13 @@
 // machine plane on one target, stores the task's files in the evidence bucket and writes
 // the result document of package runresult.
 //
-// This version has node mode only, with two tasks, and the task match, which has no
+// This version has two tasks in node mode, the task test, and the task match, which has no
 // target. Task inventory writes the software inventory of the node as CycloneDX with
 // Trivy, offline. Task hardening evaluates an XCCDF profile of the ComplianceAsCode
 // content with oscap-chroot. Task match fetches the vulnerability database once and
-// matches stored bills of materials against it with Trivy. Every task writes a
+// matches stored bills of materials against it with Trivy. Task test runs a passive
+// profile against the target address and ports only, in the Job shape of SSH mode with no
+// SSH session. Every task writes a
 // completion marker as its last step; the document says completed only when the marker
 // exists, and a run whose collector did not finish stores nothing.
 package runner
@@ -33,6 +35,8 @@ type Env struct {
 	ResultFile  string // the termination-message file of the container
 	Trivy       string // the trivy program
 	OscapChroot string // the oscap-chroot program
+	Nuclei      string // the nuclei program
+	Templates   string // the signed Nuclei templates of the image
 }
 
 // NodeEnv returns the places of a node-mode Job of the machine-runner image.
@@ -45,6 +49,8 @@ func NodeEnv() Env {
 		ResultFile:  "/dev/termination-log",
 		Trivy:       "trivy",
 		OscapChroot: "oscap-chroot",
+		Nuclei:      "nuclei",
+		Templates:   "/content/nuclei-templates",
 	}
 }
 
@@ -56,6 +62,8 @@ const (
 	KindSBOM             = "sbom"
 	KindHardeningARF     = "hardening-arf"
 	KindHardeningResults = "hardening-results"
+	FileTestSARIF        = "test.sarif.json"
+	KindTestSARIF        = "test-sarif"
 )
 
 // Messages the runner writes. Each one starts with a fixed word that a reader can match.
@@ -78,6 +86,7 @@ type taskResult struct {
 	message   string
 	files     []file
 	hardening *runresult.Hardening
+	test      *runresult.Test
 }
 
 func failed(format string, a ...any) taskResult {
@@ -96,7 +105,9 @@ func Run(ctx context.Context, cfg Config, env Env) runresult.Document {
 	switch {
 	case cfg.Task == TaskMatch:
 		t = match(ctx, cfg, env)
-	case cfg.Mode != ModeNode:
+	case cfg.Task == TaskTest && cfg.Mode == ModeSSH:
+		t = test(ctx, cfg, env)
+	case cfg.Mode != ModeNode, cfg.Task == TaskTest:
 		t = refused(messageNotSupported + "mode " + cfg.Mode)
 	case cfg.Task == TaskInventory:
 		t = inventory(ctx, cfg, env)
@@ -127,6 +138,14 @@ func Run(ctx context.Context, cfg Config, env Env) runresult.Document {
 			}
 		}
 		doc.Hardening = t.hardening
+	}
+	if t.test != nil {
+		for _, e := range evidence {
+			if e.Kind == KindTestSARIF {
+				t.test.ResultsKey = e.Key
+			}
+		}
+		doc.Test = t.test
 	}
 	return doc
 }
