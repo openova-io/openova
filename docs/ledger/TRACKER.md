@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T07:00:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-19T07:15:05Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7902](https://github.com/openova-io/openova/issues/7902) | a fresh two-region Sovereign: the parent declares it ready before the follower r | Other |
-| [#7903](https://github.com/openova-io/openova/issues/7903) | a fresh two-region Sovereign: kured reboots nodes mid-install, bp-plane-isolatio | Other |
 | [#7908](https://github.com/openova-io/openova/issues/7908) | a fresh two-region Sovereign: the two regions' Harbor sign registry tokens with  | Other |
 | [#7909](https://github.com/openova-io/openova/issues/7909) | a fresh Sovereign: the billing engine publishes no offer, the storefront silentl | Other |
 | [#7912](https://github.com/openova-io/openova/issues/7912) | a fresh two-region Sovereign: the second gate run's failures traced to source (O | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#8280](https://github.com/openova-io/openova/issues/8280) | AIP-030 Spike: agent runtime proof (kagent 1.x on k3s, Cilium, vcluster) | Other |
 | [#8284](https://github.com/openova-io/openova/issues/8284) | SVC-170 Contract C1: class and lifecycle on every Blueprint, with their readers | Other |
 | [#8287](https://github.com/openova-io/openova/issues/8287) | BSS-S1 Spike: suite sign-in, suite access to the engine API, and the price list  | Other |
+| [#8292](https://github.com/openova-io/openova/issues/8292) | INF-710 Spike: the host security service on the operator-hosted stack | Other |
+| [#8293](https://github.com/openova-io/openova/issues/8293) | NET-270 Spike: firewall attachment | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-19T07:08 | [#8291](https://github.com/openova-io/openova/pull/8291) | #7087 | docs(ledger): plan update |
+| 2026-11-19T07:03 | [#8290](https://github.com/openova-io/openova/pull/8290) | #7087 | docs(ledger): plan update |
 | 2026-11-19T06:43 | [#8286](https://github.com/openova-io/openova/pull/8286) | #7087 | docs(ledger): plan update |
 | 2026-11-19T06:37 | [#8283](https://github.com/openova-io/openova/pull/8283) | #7087 | docs(ledger): plan update |
 | 2026-11-19T06:29 | [#8282](https://github.com/openova-io/openova/pull/8282) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-19T00:43 | [#8246](https://github.com/openova-io/openova/pull/8246) | #7087 | docs(ledger): plan update |
 | 2026-11-19T01:43 | [#8245](https://github.com/openova-io/openova/pull/8245) | #8244 | refactor(api): the wipe and the janitor reach the cloud thro |
 | 2026-11-19T00:37 | [#8243](https://github.com/openova-io/openova/pull/8243) | #7087 | docs(ledger): plan update |
-| 2026-11-19T00:58 | [#8242](https://github.com/openova-io/openova/pull/8242) | #8230 | fix(self-sovereign-cutover): the deny-egress hold keeps the  |
-| 2026-11-19T02:06 | [#8241](https://github.com/openova-io/openova/pull/8241) | #8226 | refactor(catalog): the Blueprint files carry the seed values |
 
 ---
 
