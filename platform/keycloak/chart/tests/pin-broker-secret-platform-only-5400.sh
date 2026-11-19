@@ -57,7 +57,7 @@ render_tenant() {
 # so fail loudly instead of reporting a green we did not earn.
 render_tenant_or_die() {
   local out; out="$(render_tenant)"
-  if printf '%s\n' "${out}" | grep -qE '^Error'; then
+  if grep -qE '^Error' <<<"${out}"; then
     echo "FAIL: tenant render ERRORED — this test cannot evaluate the guard, and an errored render would pass it vacuously. Fix the values below (a new required realmConfig.tenant.* was likely added):" >&2
     printf '%s\n' "${out}" | grep -E '^Error' >&2
     exit 1

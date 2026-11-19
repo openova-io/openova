@@ -282,7 +282,7 @@ echo "[cutover-contract] Case 7: RBAC splits create verbs into a Rule WITHOUT re
 clusterrole_block=$(awk '/^kind: ClusterRole$/,/^---$/' "$TMP/render.yaml")
 # Crude but reliable: check that no rule has 'create' immediately followed
 # (within 5 lines) by 'resourceNames'.
-if printf '%s\n' "${clusterrole_block}" | awk '
+if awk '
   /verbs:/ { in_verbs=1; verbs_line=NR; line=$0; verb_block=line; next }
   in_verbs && (NR <= verbs_line + 1) { verb_block=verb_block"\n"$0 }
   in_verbs && (NR > verbs_line + 1) { in_verbs=0 }
@@ -292,7 +292,7 @@ if printf '%s\n' "${clusterrole_block}" | awk '
       exit 1
     }
   }
-'; then
+' <<<"${clusterrole_block}"; then
   echo "  PASS (create verbs split out)"
 else
   echo "FAIL: RBAC has create verbs combined with resourceNames" >&2

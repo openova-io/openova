@@ -98,7 +98,7 @@ if [ -z "$realm_json" ]; then
 fi
 echo "$realm_json" | "$PYTHON" -c "import json,sys; json.load(sys.stdin)" 2>/dev/null || {
   echo "FAIL: org-realm.json for acme is not valid JSON" >&2
-  echo "$realm_json" | head -30 >&2
+  head -30 <<<"$realm_json" >&2
   exit 1
 }
 echo "  PASS"

@@ -89,7 +89,7 @@ show() { # show <template> <api-array-name> [extra helm args...]
     --show-only "templates/${tpl}" "$@" 2>&1) || true
   if grep -qE "execution error|parse error|YAML parse" <<<"$out"; then
     echo "FAIL: helm render ERRORED while showing ${tpl} — an empty-render assertion against this output would be vacuous:" >&2
-    echo "$out" | head -3 >&2
+    head -3 <<<"$out" >&2
     exit 1
   fi
   printf '%s' "$out"

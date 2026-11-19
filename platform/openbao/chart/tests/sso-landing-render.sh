@@ -49,7 +49,7 @@ out="$(render)"
 # never SIGPIPE under `set -o pipefail` — the broken-pipe trap that blocked
 # 1.2.35 in CI. Helm quotes the value, so match both quoted + unquoted.
 echo "[bp-openbao] Case 1: bare paths 302 -> /sso/landing (same host, not the shim)"
-route_block="$(echo "$out" | awk '/^kind: HTTPRoute$/{f=1} f && /^---$/{exit} f')"
+route_block="$(awk '/^kind: HTTPRoute$/{f=1} f && /^---$/{exit} f' <<<"$out")"
 rb_has() { case "$route_block" in *"$1"*) return 0 ;; *) return 1 ;; esac; }
 if ! { rb_has 'replaceFullPath: /sso/landing' || rb_has 'replaceFullPath: "/sso/landing"'; }; then
   echo "FAIL: bare-path redirect does not target /sso/landing"
