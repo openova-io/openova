@@ -27,11 +27,20 @@
 #            fast-forward.
 #   promote  Push STAGED_SHA as UPSTREAM_BRANCH with a plain push, which the
 #            server refuses unless it is a fast-forward. Never --force.
+#   rollback (SOV-521) MAIN_SHA is the main recorded at the stage of the
+#            request that promoted this region, STAGED_SHA the commit that
+#            promote pushed. Refused unless UPSTREAM_BRANCH is still
+#            STAGED_SHA. Push one commit whose tree is MAIN_SHA's and whose
+#            parent is STAGED_SHA, with a plain push, a fast-forward the server
+#            checks: Flux applies the earlier tree, the promoted commit stays in
+#            the history, and nothing is forced. A branch that already is that
+#            commit (an earlier rollback of the same promote) is left as it is.
 #
 # Output: log lines "[release <region>] ...", report lines
 # "release-report region=<r> <kind> <text>" and one last line
 # "release-result region=<r> phase=<phase> [main=<sha>] [candidate=<sha>] [staged=<sha>]".
-# Phases: staged, up-to-date, dry-run, checked, promoted, conflict, moved, refused, failed.
+# Phases: staged, up-to-date, dry-run, checked, promoted, rolled-back, conflict,
+# moved, refused, failed.
 # Exit: 0 done; 2 refused; 3 conflict; 4 the branch moved; 1 a tool failed.
 #
 # Environment: PHASE CANDIDATE REGION DRY_RUN MAIN_SHA STAGED_SHA UPSTREAM_REPO_URL
@@ -57,7 +66,7 @@ fail() { report "reason $*"; say "FAILED: $*"; result "phase=failed"; exit 1; }
 
 printf '%s\n' "${CANDIDATE:-}" | grep -Eqx '[0-9]{8}T[0-9]{6}Z-[0-9a-f]{7}' \
   || refuse "'${CANDIDATE:-}' is not a candidate id (<yyyymmddThhmmssZ>-<first 7 hex of the commit>)"
-case "${PHASE:-}" in stage|check|promote) ;; *) refuse "unknown phase '${PHASE:-}'" ;; esac
+case "${PHASE:-}" in stage|check|promote|rollback) ;; *) refuse "unknown phase '${PHASE:-}'" ;; esac
 [ -n "${GITEA_PAT:-}" ] || fail "no Gitea token in this region"
 for v in UPSTREAM_REPO_URL UPSTREAM_BRANCH UPSTREAM_PREFIX GITEA_INTERNAL_URL GITEA_ORG GITEA_REPO GITEA_USERNAME; do
   eval "[ -n \"\${${v}:-}\" ]" || fail "${v} is empty"
@@ -353,8 +362,57 @@ promote() {
   result "phase=promoted main=${STAGED_SHA} staged=${STAGED_SHA}"
 }
 
+# rollback: put this region back to MAIN_SHA, the main recorded at the stage of
+# the request whose promote pushed STAGED_SHA, as one commit on top of it.
+rollback() {
+  if [ -z "${MAIN_SHA}" ] || [ -z "${STAGED_SHA}" ]; then refuse "no promote of ${rc_ref} is recorded for this region"; fi
+  rb="${work}/rollback.git"
+  git init --quiet --bare "${rb}"
+  # The recorded main is two or three parents below the promoted commit, so a
+  # shallow fetch holds it; a branch with a longer history of its own since is
+  # fetched in full.
+  if ! retry3 g --git-dir="${rb}" fetch --quiet --depth=5 "${local_url}" "+refs/heads/${branch}:refs/heads/main-now" 2>"${work}/rfetch.err"; then
+    fail "cannot fetch ${branch} from ${local_url}: $(redact <"${work}/rfetch.err" | tail -n 1)"
+  fi
+  if ! git --git-dir="${rb}" cat-file -e "${MAIN_SHA}^{commit}" 2>/dev/null; then
+    retry3 g --git-dir="${rb}" fetch --quiet --unshallow "${local_url}" "+refs/heads/${branch}:refs/heads/main-now" 2>"${work}/rfetch.err" || true
+  fi
+  now_main=$(git --git-dir="${rb}" rev-parse refs/heads/main-now)
+  main_tree=$(git --git-dir="${rb}" rev-parse -q --verify "${MAIN_SHA}^{tree}" 2>/dev/null || true)
+  if [ "${now_main}" != "${STAGED_SHA}" ]; then
+    if [ -n "${main_tree}" ] && [ "$(git --git-dir="${rb}" rev-parse -q --verify "${now_main}^1" 2>/dev/null || true)" = "${STAGED_SHA}" ] \
+        && [ "$(git --git-dir="${rb}" rev-parse "${now_main}^{tree}")" = "${main_tree}" ]; then
+      report "already rolled back: ${branch} is ${now_main}, the tree of ${MAIN_SHA} on top of ${STAGED_SHA}; nothing was pushed"
+      result "phase=rolled-back main=${now_main} staged=${STAGED_SHA}"
+      return 0
+    fi
+    report "reason ${branch} is ${now_main}, not ${STAGED_SHA}, the commit the promote of ${rc_ref} pushed: it moved after the promote"
+    say "MOVED: ${branch} is ${now_main}, the promote of ${rc_ref} pushed ${STAGED_SHA}; nothing was pushed"
+    result "phase=moved main=${now_main} staged=${STAGED_SHA}"
+    exit 4
+  fi
+  [ -n "${main_tree}" ] || refuse "${MAIN_SHA}, the main recorded at the stage, is not in the history of ${branch}"
+  if [ "$(git --git-dir="${rb}" rev-parse "${STAGED_SHA}^{tree}")" = "${main_tree}" ]; then
+    report "nothing to roll back: ${STAGED_SHA} has the tree of ${MAIN_SHA}"
+    result "phase=rolled-back main=${now_main} staged=${STAGED_SHA}"
+    return 0
+  fi
+  new=$(git --git-dir="${rb}" commit-tree "${main_tree}" -p "${STAGED_SHA}" \
+    -m "release: roll back ${branch} of region ${REGION} to ${MAIN_SHA}" \
+    -m "The tree of ${MAIN_SHA}, the main recorded at the stage of ${rc_ref}, on top of ${STAGED_SHA}, the commit its promote pushed.")
+  if ! g --git-dir="${rb}" push --quiet "${local_url}" "${new}:refs/heads/${branch}" 2>"${work}/rpush.err"; then
+    report "reason the push of ${new} as ${branch} was refused: $(redact <"${work}/rpush.err" | tail -n 1)"
+    result "phase=moved main=$(remote_sha "${branch}") staged=${STAGED_SHA}"
+    exit 4
+  fi
+  [ "$(remote_sha "${branch}")" = "${new}" ] || fail "${branch} at ${local_url} is not ${new} after the push"
+  say "${branch} moved ${STAGED_SHA} -> ${new}, the tree of ${MAIN_SHA}; Flux applies it on its next interval"
+  result "phase=rolled-back main=${new} staged=${STAGED_SHA}"
+}
+
 case "${PHASE}" in
   stage) stage ;;
   check) check ;;
   promote) promote ;;
+  rollback) rollback ;;
 esac

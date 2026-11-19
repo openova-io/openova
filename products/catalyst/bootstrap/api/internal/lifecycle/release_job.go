@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"sort"
 	"strings"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -72,7 +73,26 @@ type releaseInputs struct {
 	follower       *batchv1.Job
 	followerNS     string
 	followers      int
-	cutoverRelease string // <namespace>/<name> of the cutover HelmRelease
+	followerNames  []string // the follower regions, as the state names them
+	cutoverRelease string   // <namespace>/<name> of the cutover HelmRelease
+	// promotedFrom and promotedTo are what the promote of the region a
+	// rollback names recorded (SOV-521): the main of the stage and the commit
+	// pushed.
+	promotedFrom, promotedTo string
+}
+
+// hasRegion reports whether name is a region of the Sovereign as the state
+// ConfigMap names it: primary, or a follower's name.
+func (in *releaseInputs) hasRegion(name string) bool {
+	if name == primaryRegion {
+		return true
+	}
+	for _, f := range in.followerNames {
+		if f == name {
+			return true
+		}
+	}
+	return false
 }
 
 func podSpecOf(cm *corev1.ConfigMap) (corev1.PodSpec, error) {
@@ -183,8 +203,10 @@ func readReleaseInputs(ctx context.Context, cs kubernetes.Interface, ns string) 
 		for k, v := range sec.Data {
 			if strings.HasSuffix(k, ".yaml") && len(v) > 0 {
 				in.followers++
+				in.followerNames = append(in.followerNames, strings.TrimSuffix(k, ".yaml"))
 			}
 		}
+		sort.Strings(in.followerNames)
 	}
 	if in.followers > 0 {
 		cm, err := getConfigMap(ctx, cs, ns, followerPivotConfigMap)
@@ -200,12 +222,18 @@ func readReleaseInputs(ctx context.Context, cs kubernetes.Interface, ns string) 
 	return in, nil
 }
 
-// releaseRequest is the body of PUT /api/v1/sovereign/release.
+// releaseRequest is the body of PUT /api/v1/sovereign/release. Region names
+// the one region a delivery promotes, or a rollback puts back (SOV-521).
 type releaseRequest struct {
 	Candidate  string `json:"candidate"`
 	DryRun     bool   `json:"dryRun"`
 	PullSecret string `json:"pullSecret,omitempty"`
+	Region     string `json:"region,omitempty"`
+	Rollback   bool   `json:"rollback,omitempty"`
 }
+
+// primaryRegion is the name of the primary region in the state ConfigMap.
+const primaryRegion = "primary"
 
 func boolString(b bool) string {
 	if b {
@@ -216,9 +244,9 @@ func boolString(b bool) string {
 
 func plain(name, value string) corev1.EnvVar { return corev1.EnvVar{Name: name, Value: value} }
 
-// runContainer is a container of the bootstrap: release-run.sh <phase> (stage
-// or deliver) with the image, environment, resources and security context of
-// cutover step 01.
+// runContainer is a container of the bootstrap: release-run.sh <phase> (stage,
+// deliver or rollback) with the image, environment, resources and security
+// context of cutover step 01. A whole delivery sets no RELEASE_REGION.
 func (in *releaseInputs) runContainer(name, phase, ns, job string, req releaseRequest) corev1.Container {
 	c := *in.mirror.DeepCopy()
 	c.Name = name
@@ -243,6 +271,12 @@ func (in *releaseInputs) runContainer(name, phase, ns, job string, req releaseRe
 		c.Env = setEnv(c.Env, v)
 	}
 	c.Env = setEnvs(c.Env, credentialEnv(req)...)
+	if req.Region != "" {
+		c.Env = setEnv(c.Env, plain("RELEASE_REGION", req.Region))
+	}
+	if req.Rollback {
+		c.Env = setEnvs(c.Env, plain("PROMOTED_FROM", in.promotedFrom), plain("PROMOTED_TO", in.promotedTo))
+	}
 	c.VolumeMounts = []corev1.VolumeMount{
 		{Name: "release-scripts", MountPath: "/release", ReadOnly: true},
 		{Name: "release-kit-rewrite", MountPath: "/kit-rewrite", ReadOnly: true},
@@ -326,7 +360,8 @@ func (in *releaseInputs) followerJobManifest(req releaseRequest) (string, error)
 // delivery runs the stage as the init container and deliver as the container,
 // which runs the candidate's release-run.sh compose: Kubernetes starts deliver
 // only when the stage succeeded, and the delivery Job it runs promotes only
-// when its prewarm succeeded.
+// when its prewarm succeeded. A rollback (SOV-521) is the rollback container
+// alone: no stage, no prewarm.
 func composeRelease(in *releaseInputs, req releaseRequest, ns, name string, labels, annotations map[string]string) (*batchv1.Job, *corev1.ConfigMap, error) {
 	scripts := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: releaseScriptsConfigMap, Namespace: ns, Labels: map[string]string{
@@ -374,9 +409,12 @@ func composeRelease(in *releaseInputs, req releaseRequest, ns, name string, labe
 		Volumes:            vols,
 	}
 	deadline := int64(releaseGitSeconds)
-	if req.DryRun {
+	switch {
+	case req.Rollback:
+		pod.Containers = []corev1.Container{in.runContainer("rollback", "rollback", ns, name, req)}
+	case req.DryRun:
 		pod.Containers = []corev1.Container{in.runContainer("stage", "stage", ns, name, req)}
-	} else {
+	default:
 		deadline += releaseDeliverySeconds
 		pod.InitContainers = []corev1.Container{in.runContainer("stage", "stage", ns, name, req)}
 		pod.Containers = []corev1.Container{in.runContainer("deliver", "deliver", ns, name, req)}

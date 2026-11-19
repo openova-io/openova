@@ -457,3 +457,293 @@ func TestReleaseStageTellsWhetherAFollowerRegistrySharesThePrimaryStorage(t *tes
 		})
 	}
 }
+
+// patchOrder is the position of the first status patch that writes key, or -1.
+func (r *runFixture) patchOrder(key string) int {
+	r.t.Helper()
+	b, _ := os.ReadFile(r.stub + "/status")
+	for i, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		var p struct{ Data map[string]string }
+		if json.Unmarshal([]byte(l), &p) == nil {
+			if _, ok := p.Data[key]; ok {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+func (r *runFixture) followerGit(args ...string) string {
+	r.t.Helper()
+	return r.git(r.dir, append([]string{"--git-dir=" + r.dir + "/gitea-region-b/openova/openova.git"}, args...)...)
+}
+
+// SOV-521: a request that names region b stages every region and promotes b
+// alone; the primary's main stays the commit it was. A rollback of b then puts
+// b's recorded main back as one commit on top of the promoted one.
+func TestReleaseRunPromotesOneRegionAndRollsItBack(t *testing.T) {
+	f := newFixture(t)
+	id, _ := f.candidate(1, f.laterRelease)
+	req := releaseRequest{Candidate: id, Region: "region-b"}
+	r := newRunFixtureFrom(t, f, req, false)
+	r.env = []string{"RELEASE_REGION=region-b"}
+
+	out, code := r.run("stage", req)
+	st := r.status()
+	if code != 0 || st["phase"] != "staged" || !strings.Contains(st["primary.stage"], "phase=staged") || !strings.Contains(st["region-b.stage"], "phase=staged") {
+		t.Fatalf("stage: exit %d, phase %q, primary %q, region-b %q\n%s", code, st["phase"], st["primary.stage"], st["region-b.stage"], out)
+	}
+	bStaged := r.followerRef("release/" + id)
+
+	out, code = r.run("promote", req)
+	st = r.status()
+	if code != 0 || st["phase"] != "delivered" {
+		t.Fatalf("promote: exit %d, phase %q, message %q\n%s", code, st["phase"], st["message"], out)
+	}
+	if got := r.followerRef("main"); got != bStaged {
+		t.Fatalf("region b's main is %s, want its staged commit %s", got, bStaged)
+	}
+	if got := r.remote("main"); got != f.main {
+		t.Fatalf("the primary's main moved to %s; a request for region b leaves it at %s", got, f.main)
+	}
+	if st["primary.check"] != "" || st["primary.promote"] != "" || st["primary.promotedTo"] != "" {
+		t.Fatalf("a request for region b checked or promoted the primary: check %q, promote %q", st["primary.check"], st["primary.promote"])
+	}
+	if st["region-b.promotedFrom"] != r.followerMain || st["region-b.promotedTo"] != bStaged || st["region-b.phase"] != "promoted" {
+		t.Fatalf("the state of region b: promotedFrom %q (want %s), promotedTo %q (want %s), phase %q",
+			st["region-b.promotedFrom"], r.followerMain, st["region-b.promotedTo"], bStaged, st["region-b.phase"])
+	}
+
+	r.env = []string{"RELEASE_REGION=region-b", "PROMOTED_FROM=" + r.followerMain, "PROMOTED_TO=" + bStaged}
+	out, code = r.run("rollback", releaseRequest{Candidate: id, Region: "region-b", Rollback: true})
+	st = r.status()
+	if code != 0 || st["phase"] != "rolled-back" || st["region-b.phase"] != "rolled-back" {
+		t.Fatalf("rollback: exit %d, phase %q, region-b %q, message %q\n%s", code, st["phase"], st["region-b.phase"], st["message"], out)
+	}
+	back := r.followerRef("main")
+	if back == bStaged || back == r.followerMain {
+		t.Fatalf("region b's main is %s after the rollback; want one new commit", back)
+	}
+	if parents := strings.Fields(r.followerGit("rev-list", "--parents", "-n", "1", back)); len(parents) != 2 || parents[1] != bStaged {
+		t.Fatalf("the rollback commit %s has parents %v, want exactly the promoted commit %s", back, parents[1:], bStaged)
+	}
+	if err := command("git", "--git-dir="+r.dir+"/gitea-region-b/openova/openova.git", "diff", "--quiet", r.followerMain, back).Run(); err != nil {
+		t.Fatalf("git diff --quiet %s %s: %v; the rollback must carry the recorded main's tree", r.followerMain, back, err)
+	}
+	if err := command("git", "--git-dir="+r.dir+"/gitea-region-b/openova/openova.git", "merge-base", "--is-ancestor", bStaged, back).Run(); err != nil {
+		t.Fatal("the promoted commit is no longer in region b's history")
+	}
+	if r.remote("main") != f.main {
+		t.Fatal("a rollback of region b moved the primary")
+	}
+	if _, err := os.Stat(r.stub + "/job-sovereign-release-rollback-region-b.yaml"); err != nil {
+		t.Fatalf("the rollback did not run as a Job in region b: %v", err)
+	}
+}
+
+// SOV-521: a whole request of a candidate that region b's own request already
+// promoted finds b up-to-date and pushes nothing there, so the state keeps what
+// b's promote recorded and a rollback of b still restores the main of before.
+// A whole request after that rollback leaves b rolled back.
+func TestReleaseRunWholeRequestKeepsWhatARegionRequestPromoted(t *testing.T) {
+	f := newFixture(t)
+	id, _ := f.candidate(1, f.laterRelease)
+	region, whole := releaseRequest{Candidate: id, Region: "region-b"}, releaseRequest{Candidate: id}
+	r := newRunFixtureFrom(t, f, region, false)
+	deliver := func(req releaseRequest, env ...string) {
+		t.Helper()
+		r.env = env
+		for _, ph := range []string{"stage", "promote"} {
+			if out, code := r.run(ph, req); code != 0 {
+				t.Fatalf("%s of region %q: exit %d\n%s", ph, req.Region, code, out)
+			}
+		}
+	}
+	deliver(region, "RELEASE_REGION=region-b")
+	bPromoted := r.followerRef("main")
+	if bPromoted == r.followerMain {
+		t.Fatal("the request for region b did not move it")
+	}
+
+	deliver(whole)
+	st := r.status()
+	if !strings.Contains(st["region-b.stage"], "phase=up-to-date") || r.followerRef("main") != bPromoted || st["phase"] != "delivered" {
+		t.Fatalf("the whole request: region-b.stage %q, region b main %s (want %s), phase %q", st["region-b.stage"], r.followerRef("main"), bPromoted, st["phase"])
+	}
+	if st["region-b.promotedFrom"] != r.followerMain || st["region-b.promotedTo"] != bPromoted || st["region-b.phase"] != "promoted" {
+		t.Fatalf("a promote that pushed nothing rewrote region b's record: promotedFrom %q (want %s), promotedTo %q (want %s), phase %q",
+			st["region-b.promotedFrom"], r.followerMain, st["region-b.promotedTo"], bPromoted, st["region-b.phase"])
+	}
+
+	r.env = []string{"RELEASE_REGION=region-b", "PROMOTED_FROM=" + st["region-b.promotedFrom"], "PROMOTED_TO=" + st["region-b.promotedTo"]}
+	out, code := r.run("rollback", releaseRequest{Candidate: id, Region: "region-b", Rollback: true})
+	back := r.followerRef("main")
+	if st = r.status(); code != 0 || st["region-b.phase"] != "rolled-back" || back == bPromoted {
+		t.Fatalf("rollback: exit %d, region-b.phase %q, region b main %s\n%s", code, st["region-b.phase"], back, out)
+	}
+	if err := command("git", "--git-dir="+r.dir+"/gitea-region-b/openova/openova.git", "diff", "--quiet", r.followerMain, back).Run(); err != nil {
+		t.Fatalf("git diff --quiet %s %s: %v; the rollback must restore the main of before region b's promote", r.followerMain, back, err)
+	}
+
+	deliver(whole)
+	if st = r.status(); st["region-b.phase"] != "rolled-back" || r.followerRef("main") != back || st["region-b.promotedTo"] != bPromoted {
+		t.Fatalf("a whole request after the rollback: region-b.phase %q, region b main %s (want %s), promotedTo %q", st["region-b.phase"], r.followerRef("main"), back, st["region-b.promotedTo"])
+	}
+}
+
+// SOV-521: without a region every region is promoted as before, the followers
+// first, and the state records what each promote moved.
+func TestReleaseRunWholePromoteIsFollowersFirstAndRecordsEachRegion(t *testing.T) {
+	f := newFixture(t)
+	id, _ := f.candidate(1, f.laterRelease)
+	req := releaseRequest{Candidate: id}
+	r := newRunFixtureFrom(t, f, req, false)
+	if out, code := r.run("stage", req); code != 0 {
+		t.Fatalf("stage: exit %d\n%s", code, out)
+	}
+	staged, bStaged := r.remote("release/"+id), r.followerRef("release/"+id)
+	out, code := r.run("promote", req)
+	st := r.status()
+	if code != 0 || st["phase"] != "delivered" || r.remote("main") != staged || r.followerRef("main") != bStaged {
+		t.Fatalf("promote: exit %d, phase %q\n%s", code, st["phase"], out)
+	}
+	if b, p := r.patchOrder("region-b.promote"), r.patchOrder("primary.promote"); b < 0 || p < 0 || b > p {
+		t.Fatalf("promote order: region b at patch %d, primary at %d; the followers come first", b, p)
+	}
+	for region, want := range map[string][2]string{"primary": {f.main, staged}, "region-b": {r.followerMain, bStaged}} {
+		if st[region+".promotedFrom"] != want[0] || st[region+".promotedTo"] != want[1] || st[region+".phase"] != "promoted" {
+			t.Fatalf("%s: promotedFrom %q promotedTo %q phase %q, want %s %s promoted", region, st[region+".promotedFrom"], st[region+".promotedTo"], st[region+".phase"], want[0], want[1])
+		}
+	}
+}
+
+// SOV-521: a rollback is refused, with nothing pushed, when the region's main
+// moved after the promote, and when no promote is recorded for it.
+func TestReleaseRunRollbackRefusals(t *testing.T) {
+	f := newFixture(t)
+	id, _ := f.candidate(1, f.laterRelease)
+	req := releaseRequest{Candidate: id, Region: "region-b"}
+	r := newRunFixtureFrom(t, f, req, false)
+	r.env = []string{"RELEASE_REGION=region-b"}
+	if out, code := r.run("stage", req); code != 0 {
+		t.Fatalf("stage: exit %d\n%s", code, out)
+	}
+	bStaged := r.followerRef("release/" + id)
+	rb := releaseRequest{Candidate: id, Region: "region-b", Rollback: true}
+
+	// Never promoted: region b's main is still the main of the stage.
+	r.env = []string{"RELEASE_REGION=region-b", "PROMOTED_FROM=" + r.followerMain, "PROMOTED_TO=" + bStaged}
+	out, code := r.run("rollback", rb)
+	if st := r.status(); code == 0 || st["phase"] != "moved" || r.followerRef("main") != r.followerMain {
+		t.Fatalf("a rollback of a region this candidate never promoted: exit %d, phase %q, main %s\n%s", code, st["phase"], r.followerRef("main"), out)
+	}
+	// No promote recorded: the request carries no commits.
+	r.env = []string{"RELEASE_REGION=region-b"}
+	out, code = r.run("rollback", rb)
+	if st := r.status(); code == 0 || st["phase"] != "refused" || r.followerRef("main") != r.followerMain {
+		t.Fatalf("a rollback without a recorded promote: exit %d, phase %q\n%s", code, st["phase"], out)
+	}
+	// Promoted, then a commit of region b's own: its main moved.
+	r.env = []string{"RELEASE_REGION=region-b"}
+	if out, code := r.run("promote", req); code != 0 {
+		t.Fatalf("promote: exit %d\n%s", code, out)
+	}
+	w := r.dir + "/follower-region-b"
+	r.git(w, "fetch", "-q", r.dir+"/gitea-region-b/openova/openova.git", "main")
+	r.git(w, "checkout", "-q", "FETCH_HEAD")
+	r.write(w, "later.txt", "after the promote\n")
+	r.git(w, "add", "-A")
+	r.git(w, "commit", "-q", "-m", "region b: a commit after the promote")
+	r.git(w, "push", "-q", r.dir+"/gitea-region-b/openova/openova.git", "HEAD:refs/heads/main")
+	moved := r.followerRef("main")
+	r.env = []string{"RELEASE_REGION=region-b", "PROMOTED_FROM=" + r.followerMain, "PROMOTED_TO=" + bStaged}
+	out, code = r.run("rollback", rb)
+	if st := r.status(); code == 0 || st["phase"] != "moved" || r.followerRef("main") != moved {
+		t.Fatalf("a rollback after region b moved: exit %d, phase %q, main %s (want %s)\n%s", code, st["phase"], r.followerRef("main"), moved, out)
+	}
+	if r.remote("main") != f.main {
+		t.Fatal("a refused rollback moved the primary")
+	}
+}
+
+// SOV-521: a request for one region reaches only a candidate whose
+// release-run.sh has the phase rollback; any other promotes every region, so
+// the stage refuses it and nothing moves. A whole delivery of the same
+// candidate runs as before.
+func TestReleaseRunRegionRequestNeedsACandidateWithThePhaseRollback(t *testing.T) {
+	f := newFixture(t)
+	id, cand := f.candidate(1, func(w string) {
+		f.candidateCutoverRelease(step03Marker(candidateCutover))(w)
+		sed(t, w+"/"+cutoverChartPath+"/files/release/release-run.sh", "\n  rollback)\n", "\n  not-this-phase)\n")
+	})
+	req := releaseRequest{Candidate: id, PullSecret: releasePull, Region: "region-b"}
+	r := newRunFixtureFrom(t, f, req, false)
+	r.putSecret("primary", testNS, releasePull, "openova-bot")
+	r.env = []string{"PULL_SECRET=" + releasePull, "RELEASE_REGION=region-b"}
+	out, code := r.run("stage", req)
+	st := r.status()
+	if code == 0 || st["phase"] != "refused" || !strings.Contains(st["message"], "has no phase rollback") || !strings.Contains(st["message"], "nothing moved") {
+		t.Fatalf("stage of a region request: exit %d, phase %q, message %q\n%s", code, st["phase"], st["message"], out)
+	}
+	if r.remote("main") != f.main || r.followerRef("main") != r.followerMain {
+		t.Fatal("a refused region request moved a main")
+	}
+	if r.secretData("primary", testNS, releasePull) != nil {
+		t.Fatal("a refused region request left its pull credential")
+	}
+
+	whole := releaseRequest{Candidate: id, PullSecret: releasePull}
+	r.putSecret("primary", testNS, releasePull, "openova-bot")
+	r.env = []string{"PULL_SECRET=" + releasePull}
+	if out, code := r.run("stage", whole); code != 0 {
+		t.Fatalf("stage of a whole delivery: exit %d\n%s", code, out)
+	}
+	out, code = r.run("deliver", whole)
+	if st := r.status(); code != 0 || st["phase"] != "delivered" {
+		t.Fatalf("deliver: exit %d, phase %q\n%s\n%s", code, st["phase"], out, r.jobLog(whole))
+	}
+	if err := command("git", "--git-dir="+f.repo, "merge-base", "--is-ancestor", cand, r.remote("main")).Run(); err != nil || r.followerRef("main") == r.followerMain {
+		t.Fatal("the whole delivery did not move every region")
+	}
+}
+
+// SOV-521: a region request through the bootstrap and the candidate's
+// mechanism (stage, then deliver: compose, prewarm, promote) moves region b
+// only; the delivery Job's promote gets the region from compose.
+func TestReleaseRunDeliversOneRegionThroughTheCandidatesMechanism(t *testing.T) {
+	f := newFixture(t)
+	id, cand := f.candidate(1, f.candidateCutoverRelease(step03Marker(candidateCutover)))
+	req := releaseRequest{Candidate: id, PullSecret: releasePull, Region: "region-b"}
+	r := newRunFixtureFrom(t, f, req, false)
+	r.putSecret("primary", testNS, releasePull, "openova-bot")
+	r.env = []string{"PULL_SECRET=" + releasePull, "RELEASE_REGION=region-b"}
+	if out, code := r.run("stage", req); code != 0 {
+		t.Fatalf("stage: exit %d\n%s", code, out)
+	}
+	bStaged := r.followerRef("release/" + id)
+	out, code := r.run("deliver", req)
+	st := r.status()
+	if code != 0 || st["phase"] != "delivered" {
+		t.Fatalf("deliver: exit %d, phase %q, message %q\n%s\n%s", code, st["phase"], st["message"], out, r.jobLog(req))
+	}
+	b, err := os.ReadFile(r.stub + "/job-sovereign-release-delivery.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var job batchv1.Job
+	if err := json.Unmarshal(b, &job); err != nil {
+		t.Fatal(err)
+	}
+	if e := env(job.Spec.Template.Spec.Containers[0], "RELEASE_REGION"); e == nil || e.Value != "region-b" {
+		t.Fatalf("the delivery Job's promote has RELEASE_REGION %v, want region-b", e)
+	}
+	if r.followerRef("main") != bStaged || r.remote("main") != f.main {
+		t.Fatalf("after the delivery: region b main %s (staged %s), primary main %s (want %s)", r.followerRef("main"), bStaged, r.remote("main"), f.main)
+	}
+	if err := command("git", "--git-dir="+r.dir+"/gitea-region-b/openova/openova.git", "merge-base", "--is-ancestor", cand, bStaged).Run(); err != nil {
+		t.Fatal("region b does not run the candidate")
+	}
+	if st["region-b.promotedTo"] != bStaged || st["primary.promotedTo"] != "" {
+		t.Fatalf("the state: region-b.promotedTo %q (want %s), primary.promotedTo %q", st["region-b.promotedTo"], bStaged, st["primary.promotedTo"])
+	}
+}
