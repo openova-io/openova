@@ -7,9 +7,10 @@
 # script proves that, root by root, by rendering the kit of the working tree and the kit of a
 # base commit with the same values and comparing the results.
 #
-# Roots. Every path that the boot template infra/providers/_shared/cloudinit-control-plane.tftpl
-# gives to a Flux Kustomization as "path: ./clusters/_template/<root>", in every branch of its
-# template conditions. A root is rendered by walking its kustomization.yaml: each listed file,
+# Roots. Every folder that the root Kustomization of first boot can apply (SOV-154): root/<name>
+# and providers/<pack>/root/<name> of the kit, and every path "./clusters/_template/<root>" that a
+# file in such a folder names outside a comment line, the paths of the root's children. A root is
+# rendered by walking its kustomization.yaml: each listed file,
 # each listed folder (through its own kustomization.yaml), each patch file, and the
 # kustomization.yaml itself, so the text of an inline patch is compared too. A kustomization.yaml
 # may hold only the fields apiVersion, kind, resources and patches; any other field, a missing
@@ -53,6 +54,7 @@ set -euo pipefail
 SELF="${BASH_SOURCE[0]}"
 ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"
 exec python3 - "$ROOT" "$@" <<'PY'
+import glob
 import hashlib
 import io
 import json
@@ -65,15 +67,14 @@ import tempfile
 
 ME = "check-kit-render-equivalence"
 KIT = "clusters/_template"
-TEMPLATE = "infra/providers/_shared/cloudinit-control-plane.tftpl"
 FIXTURE = "tests/fixtures/variables/today.env"
 KIT_KEYS = "docs/contracts/c5-kit-keys.txt"
 DISABLED = "kustomize.toolkit.fluxcd.io/substitute"
 KUSTOMIZATION_FIELDS = {"apiVersion", "kind", "resources", "patches"}
 NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-PATH_LINE = re.compile(r"^\s+path: \./clusters/_template/(.+?)\s*$")
+PATH = re.compile(r"path: \./clusters/_template/([^\s'\"}]+)")
 ROOT_NAME = re.compile(r"[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*")
-DIRECTIVE = re.compile(r"%\{~?\s*(if\b[^}]*?|else|endif)\s*~?\}")
+ROOT_FOLDERS = ("root/*/kustomization.yaml", "providers/*/root/*/kustomization.yaml")
 
 
 class CannotJudge(Exception):
@@ -90,62 +91,20 @@ def yaml_module():
 
 # ---- roots
 
-def expand(text):
-    """Every string that the template text can give, one per choice of its if, else and endif branches."""
-    tokens = []
-    pos = 0
-    for m in DIRECTIVE.finditer(text):
-        tokens.append(("text", text[pos:m.start()]))
-        word = m.group(1).split()[0]
-        tokens.append((word, None))
-        pos = m.end()
-    tokens.append(("text", text[pos:]))
-
-    def seq(i, stop):
-        outs = [""]
-        while i < len(tokens):
-            kind, value = tokens[i]
-            if kind in stop:
-                return outs, i
-            if kind == "text":
-                outs = [o + value for o in outs]
-                i += 1
-            elif kind == "if":
-                then, i = seq(i + 1, ("else", "endif"))
-                other = [""]
-                if tokens[i][0] == "else":
-                    other, i = seq(i + 1, ("endif",))
-                if i >= len(tokens) or tokens[i][0] != "endif":
-                    raise CannotJudge("a template condition has no endif: %s" % text)
-                i += 1
-                outs = [o + b for o in outs for b in then + other]
-            else:
-                raise CannotJudge("a template condition is not balanced: %s" % text)
-        if stop:
-            raise CannotJudge("a template condition is not closed: %s" % text)
-        return outs, i
-
-    outs, _ = seq(0, ())
-    return outs
-
-
-def roots_of(template_path):
-    try:
-        lines = open(template_path, encoding="utf-8").read().split("\n")
-    except OSError as e:
-        raise CannotJudge("%s cannot be read: %s" % (template_path, e))
-    found = []
-    for line in lines:
-        m = PATH_LINE.match(line)
-        if m:
-            for r in expand(m.group(1)):
-                r = r.strip("/")
-                if not ROOT_NAME.fullmatch(r) or ".." in r.split("/"):
-                    raise CannotJudge("%s names the path %r, which is not a folder name" % (template_path, r))
-                if r not in found:
-                    found.append(r)
-    if not found:
-        raise CannotJudge("%s names no path ./clusters/_template/<root>" % template_path)
+def roots_of(kit):
+    """The root folders of the kit and the paths that their files name, outside a comment line."""
+    folders = sorted({os.path.relpath(os.path.dirname(f), kit) for p in ROOT_FOLDERS for f in glob.glob(os.path.join(kit, p))})
+    if not folders:
+        raise CannotJudge("%s holds no root folder root/<name> or providers/<pack>/root/<name>" % kit)
+    found = set(folders)
+    for folder in folders:
+        for f in sorted(glob.glob(os.path.join(kit, folder, "*.yaml"))):
+            for line in open(f, encoding="utf-8").read().split("\n"):
+                if not line.lstrip().startswith("#"):
+                    found.update(r.strip("/") for r in PATH.findall(line))
+    for r in found:
+        if not ROOT_NAME.fullmatch(r) or ".." in r.split("/"):
+            raise CannotJudge("a root folder of %s names the path %r, which is not a folder name" % (kit, r))
     return sorted(found)
 
 
@@ -410,7 +369,7 @@ def describe(rows):
 # ---- commands
 
 def compare(repo, ref):
-    roots = roots_of(os.path.join(repo, TEMPLATE))
+    roots = roots_of(os.path.join(repo, KIT))
     value_sets = read_values(os.path.join(repo, FIXTURE), os.path.join(repo, KIT_KEYS))
     with tempfile.TemporaryDirectory() as tmp:
         sha, base_kit = kit_at(repo, ref, tmp)
@@ -443,7 +402,7 @@ def compare(repo, ref):
 
 
 def print_kit(repo, kit):
-    roots = roots_of(os.path.join(repo, TEMPLATE))
+    roots = roots_of(kit)
     value_sets = read_values(os.path.join(repo, FIXTURE), os.path.join(repo, KIT_KEYS))
     rendered = render_kit(kit, roots, value_sets)
     for name, _ in value_sets:
@@ -454,17 +413,6 @@ def print_kit(repo, kit):
 
 
 # ---- self-test: a Git repository of its own; nothing of the checkout is read
-
-TEMPLATE_TEXT = """\
-#cloud-config
-write_files:
-  - content: |
-      spec:
-        # path: ./clusters/_template/commented-out
-        path: ./clusters/_template/apps
-        path: ./clusters/_template/edge%{ if provider == "a" }-a%{ endif }
-        path: ./clusters/_template/region/%{ if one == "" }base%{ else }%{ if two }multi%{ else }follower%{ endif }%{ endif }
-"""
 
 APP = """\
 apiVersion: source.toolkit.fluxcd.io/v1
@@ -500,7 +448,12 @@ def self_fixture(t):
         os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p, "w", encoding="utf-8") as f:
             f.write(text)
-    put(TEMPLATE, TEMPLATE_TEXT)
+    put(KIT + "/root/base/kustomization.yaml", "resources:\n  - children.yaml\n")
+    put(KIT + "/root/base/children.yaml", "# path: ./clusters/_template/commented-out\n" + "---\n".join(
+        "kind: Kustomization\nmetadata:\n  name: %s\nspec:\n  path: ./clusters/_template/%s\n" % (n, n if n != "region" else "region/base") for n in ("apps", "edge", "region")))
+    for r, n, p in (("root/multi", "region", "region/multi"), ("root/follower", "region", "region/follower"), ("providers/a/root/one", "edge", "edge-a")):
+        put("%s/%s/kustomization.yaml" % (KIT, r), "resources:\n  - %s/root/base\npatches:\n  - patch: '{kind: Kustomization, metadata: {name: %s}, spec: {path: ./clusters/_template/%s}}'\n"
+            % ("/".join([".."] * (r.count("/") + 1)), n, p))
     put(FIXTURE, "# values\nFQDN=alpha.example.test\nPULL_SECRET=pull-secret\nREGISTRY_HOST=registry.example.test\n"
                  "ZONES=[{name: a.example.test}]\nFLAG=true\nOTHER_HOST=other.example.test\nEMPTY=\nBAD=[unclosed\n")
     put(KIT_KEYS, "FQDN\nZONES\nFLAG\nEMPTY\n")
@@ -535,7 +488,7 @@ def edit(t, rel, old, new):
 CASES = [
     # (what it shows, exit code, text the output holds, change)
     ("an unchanged kit renders the same", 0, "every root renders the same", lambda t: None),
-    ("the roots come from every branch of the template conditions, not from a comment", 0,
+    ("the roots come from the root folders and the paths their files name, not from a comment", 0,
      "kit  region/follower same", lambda t: None),
     ("a literal turned into a kit key with the same value renders the same", 0, "every root renders the same",
      lambda t: edit(t, "apps/shared/shared.yaml", "fqdn: ${FQDN}", "fqdn: alpha.example.test")),
@@ -592,8 +545,8 @@ CASES = [
      lambda t: open(os.path.join(t, FIXTURE), "a").write("FQDN=x\n")),
     ("a missing kit key list cannot be judged", 2, "c5-kit-keys.txt cannot be read",
      lambda t: os.remove(os.path.join(t, KIT_KEYS))),
-    ("a template without a root cannot be judged", 2, "names no path",
-     lambda t: open(os.path.join(t, TEMPLATE), "w").write("#cloud-config\n")),
+    ("a kit without a root folder cannot be judged", 2, "holds no root folder",
+     lambda t: [os.rename(os.path.join(t, KIT, d), os.path.join(t, d)) for d in ("root", "providers")]),
     ("a root missing in the working tree cannot be judged", 2, "edge-a/kustomization.yaml does not exist",
      lambda t: os.remove(os.path.join(t, KIT, "edge-a/kustomization.yaml"))),
 ]
@@ -640,7 +593,7 @@ def self_test():
             sys.stdout = stdout
         lines = buf.getvalue().rstrip().split("\n")
         name = "--print prints one line per value set and root"
-        if code == 0 and len(lines) == 12 and lines[0].startswith("full apps ") and lines[0].endswith(" 5"):
+        if code == 0 and len(lines) == 20 and lines[0].startswith("full apps ") and lines[0].endswith(" 5"):
             print("ok    %s" % name)
         else:
             failed += 1

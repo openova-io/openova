@@ -126,9 +126,9 @@ def say(ok, msg):
     global bad
     print(("  ok   — " if ok else "  FAIL — ") + msg)
     bad += 0 if ok else 1
-tf = open(os.path.join(root, "infra/providers/_shared/cloudinit-control-plane.tftpl")).read()
-m = re.search(r"path: \./(clusters/_template/sovereign-region/)%\{.*?%\{ else \}([a-z-]+)%\{ endif \}%\{ endif \}", tf)
-say(m is not None, "cloud-init renders the follower region's sovereign-region-bootstrap path")
+tf = open(os.path.join(root, "clusters/_template/root/multi-region-follower-secondary/kustomization.yaml")).read()
+m = re.search(r"name: sovereign-region-bootstrap, .*path: \./(clusters/_template/sovereign-region/)([a-z-]+)\}", tf)
+say(m is not None, "the follower region's root folder (SOV-154) gives the sovereign-region-bootstrap path")
 if m:
     follower = m.group(1) + m.group(2)
     say(follower in dirs, f"{follower} (the follower path of cloud-init) is in FOLLOWER_SOURCE_DIRS {dirs}")
