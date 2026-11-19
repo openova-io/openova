@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T22:30:05Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-19T22:45:04Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7987](https://github.com/openova-io/openova/issues/7987) | SEC-126 The runbook states how and when to rotate the etcd encryption key of a r | Other |
 | [#7988](https://github.com/openova-io/openova/issues/7988) | SOV-010 Record the cutover result of the baseline provision and correct the life | Other |
 | [#7989](https://github.com/openova-io/openova/issues/7989) | SOV-143 The Secret register lists parent-bootstrap-token, with SOV-435 as the pa | Other |
 | [#7990](https://github.com/openova-io/openova/issues/7990) | SOV-145 Two node files that nothing reads leave first boot | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8396](https://github.com/openova-io/openova/issues/8396) | FND-157 A gate run reads the storefront's sign-in code from a mailbox on the Sov | Other |
 | [#8398](https://github.com/openova-io/openova/issues/8398) | PRD-204 cortex ingestion of uploads: job table, upload and document routes, inde | Other |
 | [#8402](https://github.com/openova-io/openova/issues/8402) | SOV-149 The image pre-pull leaves first boot | Other |
+| [#8410](https://github.com/openova-io/openova/issues/8410) | AIP-130 Model contract conformance client | Other |
 
 ---
 
@@ -308,6 +308,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-11-19T22:24 | [#8406](https://github.com/openova-io/openova/pull/8406) | #7087 | docs(ledger): plan update |
+| 2026-11-19T22:37 | [#8404](https://github.com/openova-io/openova/pull/8404) | #5245 | fix(install): the platform's own automation leaves no hand's |
 | 2026-11-19T21:16 | [#8401](https://github.com/openova-io/openova/pull/8401) | #7087 | docs(ledger): plan update |
 | 2026-11-19T21:19 | [#8400](https://github.com/openova-io/openova/pull/8400) | #8398 | feat(cortex): ingestion of uploads with the job table, the d |
 | 2026-11-19T21:49 | [#8399](https://github.com/openova-io/openova/pull/8399) | #8396 | feat(gate): BSS-G01 reads its sign-in code from a mailbox on |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-19T15:27 | [#8354](https://github.com/openova-io/openova/pull/8354) | #7087 | docs(ledger): plan update |
 | 2026-11-19T15:50 | [#8353](https://github.com/openova-io/openova/pull/8353) | #8352 | feat(ops-records): judge dispatcher with lanes, deadlines, a |
 | 2026-11-19T15:07 | [#8351](https://github.com/openova-io/openova/pull/8351) | #7087 | docs(ledger): plan update |
-| 2026-11-19T15:14 | [#8350](https://github.com/openova-io/openova/pull/8350) | #8083 | fix(openova-mcp): the tool server accepts agent tokens and i |
 
 ---
 
