@@ -593,7 +593,7 @@ func (r *runner) move(ctx context.Context, j string, to, from kube.Region) bool 
 		return false
 	}
 
-	if !r.step(j, j+".5", "DNS for the app FQDN answers with "+to.ID+"'s address", func(ev Evidence) error {
+	if !r.step(j, j+".5", "the name still answers: DNS for the app FQDN resolves only to the shared ingress or only to the addresses of "+to.ID, func(ev Evidence) error {
 		_, err := poll(ctx, left(), 10*time.Second, func() (bool, string, error) {
 			ans, err := r.lookup(ctx, r.app.FQDN)
 			ev["answers"] = ans
