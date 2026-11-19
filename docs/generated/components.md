@@ -86,7 +86,7 @@ This file carries no chart version and no Blueprint version: CI writes versions,
 | platform/sigstore | bp-sigstore | bp-sigstore | unlisted | 32 |
 | platform/sovereign-tls-vars | bp-sovereign-tls-vars | bp-sovereign-tls-vars | unlisted | 12a |
 | platform/sso-bridge | bp-sso-bridge | bp-sso-bridge | unlisted | 13b |
-| platform/stalwart-sovereign | bp-stalwart-sovereign | bp-stalwart-sovereign | unlisted | - |
+| platform/stalwart-sovereign | bp-stalwart-sovereign | bp-stalwart-sovereign | unlisted | 95 |
 | platform/stalwart-tenant | bp-stalwart-tenant | bp-stalwart-tenant | listed | - |
 | platform/storage-ready | bp-storage-ready | bp-storage-ready | unlisted | 15b |
 | platform/stunner | bp-stunner | bp-stunner | unlisted | - |

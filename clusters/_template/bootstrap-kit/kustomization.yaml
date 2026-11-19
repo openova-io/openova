@@ -379,14 +379,8 @@ resources:
   # CNPG Cluster + DSN-sync + admin-sso-seed + AppRegistration + both
   # ExternalSecrets). Slot 80a (bp-newapi-host-seams) is RETIRED.
   - 80-newapi.yaml
-  # bp-stalwart-sovereign (slot 95) — REMOVED 2026-05-05.
-  # Phase-2 Sovereign-local mail (per-Sovereign Stalwart for Console
-  # PIN/magic-link delivery, umbrella #924) is OUT OF SCOPE for the
-  # current Phase-1 cutover. The Phase-1 design is mothership SMTP
-  # relay (mail.openova.io:587) — see products/catalyst/chart/values.yaml
-  # `sovereign.smtp.*` and the catalyst-api `sovereign_smtp_seed.go`
-  # path. The chart's post-install Job was timing out on otech113 and
-  # blocking the bootstrap-kit Kustomization. Re-introduce this slot
-  # only when Phase-2 is explicitly in scope and the chart's readiness
-  # gate is reliable. See platform/stalwart-sovereign/ for the chart
-  # itself (kept in-tree for future Phase-2 work).
+  # bp-stalwart-sovereign (slot 95) — the Sovereign's own mail server, which
+  # sends the console's sign-in codes. Its setup Job is an ordinary bounded
+  # Job and the release does not wait for it (install/upgrade disableWait),
+  # so mail never holds this Kustomization; no slot depends on it.
+  - 95-bp-stalwart-sovereign.yaml

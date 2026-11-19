@@ -14,6 +14,7 @@ templated from chart values — no literal hostnames or selectors.
 */}}
 {{- $fqdn := include "bp-stalwart-sovereign.sovereignFQDN" . -}}
 {{- $mailHost := include "bp-stalwart-sovereign.mailFQDN" . -}}
+{{- if include "bp-stalwart-sovereign.active" . }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -69,20 +70,29 @@ data:
     type = "internal"
     store = "rocksdb"
 
-    # ─── DKIM signing — Sovereign Console mail ────────────────────────
-    # Stalwart generates the keypair on first boot; the public component
-    # is read back by the post-install Job and patched into the dns-
-    # records ConfigMap for orchestrator-side registration via PDM.
-    [auth.dkim]
-    sign = [{if = "is_local_domain('*')", then = true}, {else = false}]
+    # ─── Administrator of the admin API ───────────────────────────────
+    # The setup Job calls the admin API as `admin` with the password of
+    # the chart's admin Secret, which the pod gets as ADMIN_PASSWORD.
+    # Without this section no account can use the API (answer 401).
+    [authentication.fallback-admin]
+    user = "admin"
+    secret = "%{env:ADMIN_PASSWORD}%"
+{{- if include "bp-stalwart-sovereign.tlsEnabled" . }}
 
-    [signature.dkim]
-    domain = {{ $fqdn | default "" | quote }}
-    selector = {{ .Values.dns.dkim.selector | quote }}
-    algorithm = {{ .Values.dns.dkim.algorithm | quote }}
-    canonicalization = "relaxed/relaxed"
-    set-body-length = false
-    report = true
+    # ─── Certificate of mail.<sovereignFQDN> ──────────────────────────
+    # Issued by cert-manager (templates/certificate.yaml) and mounted by
+    # the StatefulSet; presented on every TLS listener.
+    [certificate.mail]
+    cert = "%{file:/opt/stalwart/tls/tls.crt}%"
+    private-key = "%{file:/opt/stalwart/tls/tls.key}%"
+    default = true
+{{- end }}
+
+    # ─── DKIM signing ─────────────────────────────────────────────────
+    # No [auth.dkim] override: the server's own rule signs mail of a
+    # local domain with the signatures rsa-<domain> and ed25519-<domain>
+    # once they exist. The earlier override called is_local_domain with
+    # one argument, which the server refuses to parse at every start.
 
     # Per-recipient-domain TLS — default profile only at install time.
     # Stalwart expression syntax requires `==` (comparison), not `=`
@@ -113,3 +123,4 @@ data:
     # else is relayed/rejected per the [queue.outbound] policy above.
     [config.local-domain]
     {{ printf "%q" ($fqdn | default "") }} = true
+{{- end }}

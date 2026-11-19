@@ -1,0 +1,88 @@
+# bp-stalwart-sovereign — bootstrap-kit slot 95, the Sovereign's own mail
+# server (chart platform/stalwart-sovereign). It sends the console's sign-in
+# codes from noreply@<sovereign fqdn>, so no parent mailbox credential is
+# copied into the Sovereign.
+#
+# What the chart does on a Sovereign whose MAIL_MODE is local (the default;
+# relay and none render nothing):
+#   - runs the mail server (release v0.15.5) with a certificate of
+#     mail.<sovereign fqdn> from the Sovereign's WILDCARD_CERT_ISSUER;
+#   - its setup Job creates the domain and the submission principal with a
+#     password generated in the cluster, pins mail.<sovereign fqdn> to the
+#     mail Service in kube-system/coredns-custom, and then writes
+#     catalyst-system/sovereign-smtp-credentials, which the catalyst-api
+#     reads for every sign-in code.
+#
+# disableWait on install and upgrade: the release is Ready once its objects
+# are applied and never waits for the setup Job, so mail never holds the kit.
+# No other slot depends on this one.
+#
+# dependsOn:
+#   - bp-cert-manager — the chart renders a cert-manager Certificate.
+#   - storage-ready   — the server keeps its mail store on a volume.
+#
+# The mail Service is ClusterIP: sign-in mail only needs the submission port
+# inside the cluster and outbound port 25. A public mail name with MX, SPF,
+# DKIM and DMARC records comes with the delegated zone of the Sovereign.
+#
+# Namespace platform: a platform namespace name that no Organization may take
+# (the reserved names of products/catalyst/chart/crds/organization.yaml).
+#
+# Primary region only, like its reader bp-catalyst-platform (slot 13). Ring
+# foundation, like slot 13. The chart comes through the HelmRepository
+# bp-flux of slot 03 (the same OCI registry).
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: bp-stalwart-sovereign
+  namespace: flux-system
+  labels:
+    catalyst.openova.io/slot: "95"
+    # foundation: the console (slot 13, foundation) signs people in with
+    # the codes this server sends; MAIL_MODE, not a ring, turns it off.
+    catalyst.openova.io/ring: foundation
+    catalyst.openova.io/component: stalwart-sovereign
+    catalyst.openova.io/region-role: primary
+spec:
+  suspend: ${SECONDARY_HR_SUSPEND:=false}
+  interval: 15m
+  releaseName: bp-stalwart-sovereign
+  targetNamespace: platform
+  dependsOn:
+    - name: bp-cert-manager
+      namespace: flux-system
+    - name: storage-ready
+      namespace: flux-system
+  chart:
+    spec:
+      chart: bp-stalwart-sovereign
+      version: 0.1.2
+      sourceRef:
+        kind: HelmRepository
+        name: bp-flux
+        namespace: flux-system
+  install:
+    createNamespace: true
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 3
+  upgrade:
+    timeout: 15m
+    disableWait: true
+    remediation:
+      retries: 3
+  values:
+    global:
+      sovereignFQDN: ${SOVEREIGN_FQDN}
+      # Both images through the registry proxy: after the hand-over the
+      # admission policy refuses a pod whose image is not pulled through it.
+      imageRegistry: ${REGISTRY_MIRROR:=harbor.openova.io}/proxy-dockerhub
+    # Sovereigns made before MAIL_MODE was a variable carry no such key.
+    mailMode: ${MAIL_MODE:=local}
+    certificate:
+      issuerName: ${WILDCARD_CERT_ISSUER}
+    service:
+      mail:
+        type: ClusterIP

@@ -49,6 +49,7 @@ import (
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/handoverjwt"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/keycloak"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/signinmail"
 )
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -224,31 +225,6 @@ func (h *Handler) pinSessionAuthority(ctx context.Context, email string) (tier s
 const pinSessionTTL = 8 * time.Hour
 
 // ── helpers ──────────────────────────────────────────────────────────────────
-
-// smtpAddr returns "host:port" for the outbound SMTP relay.
-// Env: CATALYST_SMTP_HOST (default: stalwart-web.stalwart.svc.cluster.local)
-//
-//	CATALYST_SMTP_PORT (default: 587)
-func smtpAddr() string {
-	host := os.Getenv("CATALYST_SMTP_HOST")
-	if host == "" {
-		host = "stalwart-web.stalwart.svc.cluster.local"
-	}
-	port := os.Getenv("CATALYST_SMTP_PORT")
-	if port == "" {
-		port = "587"
-	}
-	return host + ":" + port
-}
-
-// smtpFrom returns the envelope-from / From header.
-// Env: CATALYST_SMTP_FROM (default: noreply@openova.io)
-func smtpFrom() string {
-	if v := os.Getenv("CATALYST_SMTP_FROM"); v != "" {
-		return v
-	}
-	return "noreply@openova.io"
-}
 
 // openovaKCClient returns the openova-realm Keycloak client.
 //
@@ -705,7 +681,7 @@ func (h *Handler) HandlePinIssue(w http.ResponseWriter, r *http.Request) {
 
 // sendPinEmail is a package-level var so tests can swap in a stub
 // without requiring an SMTP relay. The default implementation sends
-// via Stalwart per smtpAddr().
+// where signinmail.Resolve says.
 var sendPinEmail = sendPinEmailDefault
 
 // pinEmailMessage assembles the full RFC 5322 message (headers + RFC
@@ -751,12 +727,12 @@ func pinEmailMessage(from, to, subject, plain, html, boundary string) string {
 // query string). The login URL is shown only as informational text so
 // the operator pastes the code into the on-screen 6-box input.
 func sendPinEmailDefault(to, pin string) error {
-	from := smtpFrom()
-	addr := smtpAddr()
-
 	if len(pin) != 6 {
 		return errors.New("sendPinEmail: pin must be 6 digits")
 	}
+	// The Sovereign's own mail server, read live (package signinmail).
+	mail := signinmail.Resolve(context.Background())
+	from := mail.From
 
 	subject := fmt.Sprintf("Your OpenOva sign-in code: %s", pin)
 	loginURL := pinEmailLoginURL()
@@ -769,16 +745,12 @@ func sendPinEmailDefault(to, pin string) error {
 	boundary := strings.ReplaceAll(uuid.NewString(), "-", "")
 	msg := pinEmailMessage(from, to, subject, plain, html, boundary)
 
-	smtpUser := os.Getenv("CATALYST_SMTP_USER")
-	smtpPass := os.Getenv("CATALYST_SMTP_PASS")
-
 	var authMethod smtp.Auth
-	if smtpUser != "" && smtpPass != "" {
-		host := strings.Split(addr, ":")[0]
-		authMethod = smtp.PlainAuth("", smtpUser, smtpPass, host)
+	if mail.User != "" && mail.Pass != "" {
+		authMethod = smtp.PlainAuth("", mail.User, mail.Pass, mail.Host)
 	}
 
-	return smtp.SendMail(addr, authMethod, from, []string{to}, []byte(msg))
+	return smtp.SendMail(mail.Addr(), authMethod, from, []string{to}, []byte(msg))
 }
 
 // pinEmailLoginURL returns the console login URL the PIN email body

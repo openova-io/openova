@@ -573,18 +573,12 @@ type Handler struct {
 	// pre-bridge state produced.
 	orgJWTSecret []byte
 
-	// ── Sovereign SMTP seed (issue #883) ────────────────────────────────────
-	// sovereignSMTPSeedClientFactory — test-only override for building a
-	// kubernetes.Interface from a kubeconfig YAML. Production wires
-	// helmwatch.NewKubernetesClientFromKubeconfig. Tests inject a
-	// closure returning a fake.NewSimpleClientset so the seed path is
-	// exercised without standing up a real cluster.
-	sovereignSMTPSeedClientFactory SovereignSMTPSeedClientFactory
-
 	// ── Sovereign Anthropic seed (issues #4277 / #4111) ─────────────────────
-	// sovereignAnthropicSeedClientFactory — same seam as the SMTP one
-	// above, for the mothership→Sovereign write of
-	// catalyst-system/sovereign-anthropic-credentials. See
+	// sovereignAnthropicSeedClientFactory — test-only override for building
+	// a kubernetes.Interface from a kubeconfig YAML, for the
+	// mothership→Sovereign write of
+	// catalyst-system/sovereign-anthropic-credentials. Production wires
+	// helmwatch.NewKubernetesClientFromKubeconfig. See
 	// sovereign_anthropic_seed_mothership.go.
 	sovereignAnthropicSeedClientFactory SovereignAnthropicSeedClientFactory
 

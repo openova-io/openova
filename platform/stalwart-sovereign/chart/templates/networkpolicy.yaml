@@ -16,7 +16,7 @@ ADR-0001 multi-tenant isolation). Explicit allows:
       carries the selector labels, so this policy selects it too; without
       this rule it could never reach the admin API.
 */}}
-{{- if and .Values.stalwart.enabled .Values.networkPolicy.enabled }}
+{{- if and (include "bp-stalwart-sovereign.active" .) .Values.networkPolicy.enabled }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

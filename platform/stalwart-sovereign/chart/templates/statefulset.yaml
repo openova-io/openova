@@ -3,14 +3,24 @@ Stalwart Sovereign Console mail StatefulSet — single replica with PVC
 for the RocksDB mail spool. Per docs/INVIOLABLE-PRINCIPLES.md #4 every
 knob is operator-tunable; per ADR-0001 the per-Sovereign Harbor proxy-
 cache is honoured via `global.imageRegistry`.
+
+With a certificate issuer (templates/certificate.yaml) the pod mounts the
+certificate of mail.<sovereignFQDN> and starts only once it is issued;
+reloader restarts the pod when the certificate is renewed, because the
+server reads the files at start.
 */}}
-{{- if .Values.stalwart.enabled }}
+{{- if include "bp-stalwart-sovereign.active" . }}
+{{- $tls := include "bp-stalwart-sovereign.tlsEnabled" . }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: {{ include "bp-stalwart-sovereign.fullname" . }}
   labels:
     {{- include "bp-stalwart-sovereign.labels" . | nindent 4 }}
+  {{- if $tls }}
+  annotations:
+    secret.reloader.stakater.com/reload: {{ include "bp-stalwart-sovereign.tlsSecretName" . | quote }}
+  {{- end }}
 spec:
   serviceName: {{ include "bp-stalwart-sovereign.fullname" . }}-headless
   replicas: {{ .Values.stalwart.replicas }}
@@ -20,7 +30,7 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "bp-stalwart-sovereign.selectorLabels" . | nindent 8 }}
+        {{- include "bp-stalwart-sovereign.serverSelectorLabels" . | nindent 8 }}
       annotations:
         # Roll the pod when the bootstrap config changes. RocksDB
         # persists user state across restarts so the config-only roll
@@ -73,6 +83,11 @@ spec:
             - name: config
               mountPath: /opt/stalwart/etc
               readOnly: true
+            {{- if $tls }}
+            - name: tls
+              mountPath: /opt/stalwart/tls
+              readOnly: true
+            {{- end }}
           livenessProbe:
             tcpSocket:
               port: smtp
@@ -94,6 +109,11 @@ spec:
             items:
               - key: config.toml
                 path: config.toml
+        {{- if $tls }}
+        - name: tls
+          secret:
+            secretName: {{ include "bp-stalwart-sovereign.tlsSecretName" . }}
+        {{- end }}
   volumeClaimTemplates:
     - metadata:
         name: data

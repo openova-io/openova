@@ -686,22 +686,19 @@ func (h *Handler) PutKubeconfig(w http.ResponseWriter, r *http.Request) {
 		"relaunchAfterKubeconfigMissing", relaunchAfterTerminalKubeconfigMissing,
 	)
 
-	// SMTP seed + Phase-1 watch launch happen ONCE per deployment, on
+	// Anthropic seed + Phase-1 watch launch happen ONCE per deployment, on
 	// the primary CP's PUT. Secondary-region PUTs just deposit the
 	// per-region kubeconfig file; runPhase1Watch's per-region
 	// helmwatch.Bridge spawner picks them up at its next refresh.
+	//
+	// No mail credential is written here (SOV-322): the Sovereign's own
+	// mail server (bootstrap-kit slot 95) writes
+	// catalyst-system/sovereign-smtp-credentials in the cluster, and the
+	// parent's mailbox credential is never copied into a Sovereign.
 	if region == "" {
-		// Issue #883 — seed the Sovereign-side
-		// catalyst-system/sovereign-smtp-credentials Secret with the
-		// mothership's SMTP submission credentials BEFORE Phase-1 watch
-		// launches.
-		seedOutcome := h.seedSovereignSMTPCredentials(r.Context(), dep, string(body))
-		h.emitSovereignSMTPSeedEvent(dep, seedOutcome)
-
 		// Issues #4277 / #4111 — seed the Sovereign-side
 		// catalyst-system/sovereign-anthropic-credentials Secret from the
-		// mothership's own Anthropic credential, on the same rail and for
-		// the same reason as the SMTP seed above.
+		// mothership's own Anthropic credential.
 		//
 		// Before this, that Secret had two readers and NO writer anywhere
 		// in the repo: it came into existence only when a human ran

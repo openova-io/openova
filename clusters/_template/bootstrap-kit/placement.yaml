@@ -426,3 +426,8 @@ spec:
     # CNPG Cluster already lived host-side so the DB is undisturbed).
     - {file: 80-newapi.yaml, hr: bp-newapi, vcluster: host, target: host, namespace: newapi,
        justification: "#4291 DE-VCLUSTER §C — LLM gateway is a platform plane, not a tenant boundary; native host ns renders its own route/CNPG/seams (split collapsed, 80a retired) + per-component default-deny CNP (Refs #4293)"}
+
+    # ── bp-stalwart-sovereign (95, SOV-322) — the Sovereign's own mail server ──
+    - {file: 95-bp-stalwart-sovereign.yaml, hr: bp-stalwart-sovereign, vcluster: host, target: host,
+       namespace: platform,
+       justification: "SOV-322 — sends the console's sign-in codes; its setup Job writes catalyst-system/sovereign-smtp-credentials and the kube-system CoreDNS pin of the submission host, both host namespaces"}

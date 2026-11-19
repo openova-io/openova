@@ -7,9 +7,9 @@ package handler
 // Every other platform credential a fresh Sovereign needs has a producer
 // with a name and a file. `powerdns_api_key`, `harbor_robot_token`,
 // `ghcr_pull_token` and `hcloud_token` ride the tfvars → terraform →
-// cloud-init rail; the SMTP relay credential rides the mothership-writes-
-// the-Sovereign's-apiserver rail (#883, sovereign_smtp_seed.go, called
-// from PutKubeconfig). The Anthropic credential had CONSUMERS at four
+// cloud-init rail; the SMTP relay credential rode the mothership-writes-
+// the-Sovereign's-apiserver rail (#883, from PutKubeconfig, until SOV-322
+// deleted it). The Anthropic credential had CONSUMERS at four
 // layers —
 //
 //	catalyst-openova-kc-credentials-secret.yaml   (helm lookup, source-wins)
@@ -36,8 +36,8 @@ package handler
 // ── What this does NOT do ───────────────────────────────────────────
 //
 // It does not conjure a credential. If the mothership itself holds none,
-// the seed says so and skips — the same loud no-op posture as the SMTP
-// seed's skipped-no-env branch and as seedAnthropicToken's ABSENT branch.
+// the seed says so and skips — the same loud no-op posture as
+// seedAnthropicToken's ABSENT branch.
 // What it changes is the SHAPE of the remaining gap: from "a human must
 // run kubectl on every Sovereign that will ever exist" to "the founder
 // populates one Secret on the mothership, once, and every Sovereign
@@ -61,7 +61,7 @@ import (
 )
 
 // sovereignAnthropicSeedTimeoutEnv bounds the seed's K8s calls. Same
-// budget and the same reasoning as the SMTP seed: generous for first
+// budget: generous for first
 // contact with an LB-fronted apiserver right after kubeconfig postback.
 const (
 	sovereignAnthropicSeedTimeoutEnv     = "CATALYST_SOVEREIGN_ANTHROPIC_SEED_TIMEOUT"
@@ -69,7 +69,7 @@ const (
 )
 
 // sovereignAnthropicSeedPhase — SSE phase tag on the deployment event
-// bus, alongside sovereign-smtp-seed.
+// bus.
 const sovereignAnthropicSeedPhase = "sovereign-anthropic-seed"
 
 // SovereignAnthropicSeedOutcome — terminal classification of one attempt.
@@ -91,8 +91,8 @@ const (
 	SovereignAnthropicSeedOutcomeAPIFailure      SovereignAnthropicSeedOutcome = "api-failure"
 )
 
-// SovereignAnthropicSeedClientFactory — test-only override, mirroring
-// SovereignSMTPSeedClientFactory.
+// SovereignAnthropicSeedClientFactory — test-only override of the client
+// built from the posted kubeconfig.
 type SovereignAnthropicSeedClientFactory func(kubeconfigYAML string) (kubernetes.Interface, error)
 
 // SetSovereignAnthropicSeedClientFactory wires a test-only factory.
@@ -104,7 +104,7 @@ func (h *Handler) SetSovereignAnthropicSeedClientFactory(f SovereignAnthropicSee
 // catalyst-system/sovereign-anthropic-credentials on the freshly
 // provisioned Sovereign from the MOTHERSHIP's own Anthropic credential.
 //
-// Idempotent and non-destructive in the same way as the SMTP seed: an
+// Idempotent and non-destructive: an
 // existing Secret short-circuits to AlreadyExists and is never
 // overwritten, so a Sovereign whose operator already rotated the
 // credential by hand keeps their bytes. Rotation of a seeded Sovereign
@@ -199,7 +199,7 @@ func (h *Handler) seedSovereignAnthropicCredentials(ctx context.Context, dep *De
 	}
 
 	// catalyst-system may not exist yet — bp-catalyst-platform installs
-	// later in Phase 1. Same pre-create as the SMTP seed.
+	// later in Phase 1.
 	if _, nsErr := clientset.CoreV1().Namespaces().Create(cctx, &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{Name: anthropicCredentialNamespace},
 	}, metav1.CreateOptions{}); nsErr != nil && !apierrors.IsAlreadyExists(nsErr) {
@@ -268,8 +268,8 @@ func (h *Handler) seedSovereignAnthropicCredentials(ctx context.Context, dep *De
 	return SovereignAnthropicSeedOutcomeCreated
 }
 
-// emitSovereignAnthropicSeedEvent mirrors emitSovereignSMTPSeedEvent so
-// the provisioning wizard renders this line next to the SMTP one.
+// emitSovereignAnthropicSeedEvent puts one line on the deployment event bus,
+// which the provisioning wizard renders.
 //
 // Every message names the Secret and what the operator loses without it.
 // None of them carries a credential — the outcome and the Secret's

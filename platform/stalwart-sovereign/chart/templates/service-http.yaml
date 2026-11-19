@@ -8,7 +8,7 @@ No webmail / JMAP exposure at the Sovereign Console mail tier — the
 Sovereign Console itself is the only mail consumer, and it talks SMTP
 on submission 587 via the LoadBalancer Service.
 */}}
-{{- if .Values.stalwart.enabled }}
+{{- if include "bp-stalwart-sovereign.active" . }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -19,7 +19,7 @@ metadata:
 spec:
   type: ClusterIP
   selector:
-    {{- include "bp-stalwart-sovereign.selectorLabels" . | nindent 4 }}
+    {{- include "bp-stalwart-sovereign.serverSelectorLabels" . | nindent 4 }}
   ports:
     - name: http
       port: 8080
