@@ -106,8 +106,31 @@ that host. The anchor and the realm are one unit: any render that
 produces the plaintext backchannel has to produce the Service that makes
 it resolve, or it produces the hw294 wedge. That coupling is what
 tests/catalyst-pin-backchannel-resolvable-6172.sh asserts.
+
+A PER-ORGANIZATION RELEASE RENDERS NO ANCHOR
+─────────────────────────────────────────────────────────────────────────
+bp-keycloak also installs once per Organization (tenant mode,
+`realmConfig.tenant.enabled: true`; the Organization's HelmRelease keeps
+`sovereignRealm.enabled: true` and the default catalystAPIInternalURL).
+The guard used to be `sovereignRealm.enabled` alone, so every Organization
+release rendered THIS Service, in catalyst-system, under the name the
+Sovereign's own release (keycloak/keycloak) owns. It is the only object a
+tenant render puts outside its own namespace, and a tenant release has no
+realm that names the host: configmap-sovereign-realm.yaml and the egress
+policy already skip tenant mode. Measured on hw307 region A, 2026-11-19:
+two Organizations installed at once while the anchor was absent; one
+release created it, the other failed with it in its stored manifest, and
+deleting the Organizations uninstalled both, which deleted the anchor.
+Keycloak in region A then answered every catalyst-pin callback with
+UnknownHostException, and region B's copy (no local endpoints) lost the
+region-A backends ClusterMesh had merged into it, so every brokered
+sign-in in both regions ended in a 502. While the Sovereign's copy exists,
+the same render makes every Organization's Keycloak install fail instead
+(`exists and cannot be imported into the current release`). The anchor is
+a Sovereign object: the same tenant gate as its two siblings.
+tests/catalyst-api-backchannel-platform-only.sh asserts it.
 */ -}}
-{{- if .Values.sovereignRealm.enabled }}
+{{- if and .Values.sovereignRealm.enabled (not (and .Values.realmConfig (and .Values.realmConfig.tenant .Values.realmConfig.tenant.enabled))) }}
 {{- $bc := fromYaml (include "bp-keycloak.catalystBackchannel" .) }}
 {{- if and $bc.url $bc.inCluster (eq $bc.scheme "http") }}
 {{- $workload := trim (.Values.catalystAPIWorkloadName | default "") }}
