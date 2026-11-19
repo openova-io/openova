@@ -606,7 +606,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.0.17
+  version: 1.0.18
   card:
     title: CloudNativePG
     summary: PostgreSQL operator for Kubernetes (HA primary/replica, automated backups, point-in-time recovery).
@@ -646,7 +646,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-cnpg
-    version: 1.0.17
+    version: 1.0.18
   topology:
     supported: [singleton]
     defaults:
