@@ -304,7 +304,7 @@ type: application
 # the substituted value back. A 0s interval is floored to 1s at runtime, loudly.
 # New suite tests/credential-wait-falsy-default-6374.sh renders the zero case
 # FIRST. appVersion (image) unchanged.
-version: 0.5.35
+version: 0.5.36
 # 0.5.22 (#5617): the per-Org oidc-gate companion gains its EGRESS
 # CiliumNetworkPolicy (templates/oidc-gate.yaml `oidc-gate-<cid>-egress`).
 # The gate shipped an ingress-only gateway CNP into a DEFAULT-DENY per-Org
