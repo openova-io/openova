@@ -13124,7 +13124,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, AIP-031, INF-020, INF-710, MIG-030, PRD-061]
+  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, NET-330, SVC-250, BSS-S1, AIP-030, AIP-031, INF-020, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-130.md
@@ -13157,7 +13157,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, AIP-031, INF-020, INF-710, MIG-030, PRD-061]
+  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, NET-330, SVC-250, BSS-S1, AIP-030, AIP-031, INF-020, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-135.md
@@ -13190,7 +13190,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, AIP-031, INF-020, INF-710, MIG-030, PRD-061]
+  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, NET-330, SVC-250, BSS-S1, AIP-030, AIP-031, INF-020, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-140.md
@@ -14580,7 +14580,7 @@ packages:
   size: S
   lane: SPIKE
   depends_on: [FND-061]
-  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, AIP-031, INF-020, INF-710, MIG-030, PRD-061]
+  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, NET-330, SVC-250, BSS-S1, AIP-030, AIP-031, INF-020, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-271.md
@@ -14735,7 +14735,7 @@ packages:
   size: M
   lane: SPIKE
   depends_on: []
-  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, AIP-031, INF-020, INF-710, MIG-030, PRD-061]
+  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, NET-330, SVC-250, BSS-S1, AIP-030, AIP-031, INF-020, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-280.md
@@ -14890,7 +14890,7 @@ packages:
   size: S
   lane: SPIKE
   depends_on: [SEC-211]
-  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, SVC-250, BSS-S1, AIP-030, AIP-031, INF-020, INF-710, MIG-030, PRD-061]
+  after: [FND-070, FND-079, SOV-148, SOV-321, SOV-750, NET-270, NET-330, SVC-250, BSS-S1, AIP-030, AIP-031, INF-020, INF-710, MIG-030, PRD-061]
   touches:
   - docs/ledger/plan/spikes/
   - docs/ledger/plan/spikes/SEC-335.md
@@ -18422,16 +18422,16 @@ packages:
   acceptance:
   - id: A1
     run: "test -s docs/ledger/plan/spikes/NET-330.md && grep -q '^## Evidence' docs/ledger/plan/spikes/NET-330.md"
+  - id: A2
+    run: "sha256sum docs/ledger/plan/spikes/NET-330.md | cut -d' ' -f1 | grep -qx 76a8ac6b9fbb55e2737a0ba61070b4c8dbd877b881595d06c27126346510d1bf"
   rollback: revert
   adr: null
   due: null
-  budget:
-    files: 5
-    lines: 800
+  budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: A result record that says how a second, bridged network sits beside the pod network on the reference class, whether a machine keeps its address on it, and what policy covers it. Outcome words are fixed in the ticket when the package is revived.
+  delivers: The repository holds the result of the lab test that measured on the local pack how a bridged second network sits beside Cilium, whether a KubeVirt machine keeps its MAC and IP on it across a live migration and a restart, and which policy covers it, with the outcome words, the evidence and what later packages must do with it.
 - id: SVC-010
   title: Decision record and glossary edits
   area: SVC
