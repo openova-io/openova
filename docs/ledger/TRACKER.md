@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T07:15:05Z` |
+| Last refreshed | `2026-11-19T07:30:07Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7908](https://github.com/openova-io/openova/issues/7908) | a fresh two-region Sovereign: the two regions' Harbor sign registry tokens with  | Other |
 | [#7909](https://github.com/openova-io/openova/issues/7909) | a fresh Sovereign: the billing engine publishes no offer, the storefront silentl | Other |
 | [#7912](https://github.com/openova-io/openova/issues/7912) | a fresh two-region Sovereign: the second gate run's failures traced to source (O | Other |
 | [#7922](https://github.com/openova-io/openova/issues/7922) | flight 3: defects that healed alone | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8287](https://github.com/openova-io/openova/issues/8287) | BSS-S1 Spike: suite sign-in, suite access to the engine API, and the price list  | Other |
 | [#8292](https://github.com/openova-io/openova/issues/8292) | INF-710 Spike: the host security service on the operator-hosted stack | Other |
 | [#8293](https://github.com/openova-io/openova/issues/8293) | NET-270 Spike: firewall attachment | Other |
+| [#8298](https://github.com/openova-io/openova/issues/8298) | SVC-250 Spike: composite resources in a release; bucket provisioning for an Orga | Other |
 
 ---
 
@@ -307,11 +307,15 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-19T07:25 | [#8295](https://github.com/openova-io/openova/pull/8295) | #8292 | docs(ledger): result of the spike INF-710, the host security |
+| 2026-11-19T07:24 | [#8294](https://github.com/openova-io/openova/pull/8294) | #8293 | docs(ledger): result of the spike NET-270, firewall attachme |
 | 2026-11-19T07:08 | [#8291](https://github.com/openova-io/openova/pull/8291) | #7087 | docs(ledger): plan update |
 | 2026-11-19T07:03 | [#8290](https://github.com/openova-io/openova/pull/8290) | #7087 | docs(ledger): plan update |
+| 2026-11-19T07:23 | [#8289](https://github.com/openova-io/openova/pull/8289) | #8287 | docs(ledger): result of the spike BSS-S1, storefront sign-in |
 | 2026-11-19T06:43 | [#8286](https://github.com/openova-io/openova/pull/8286) | #7087 | docs(ledger): plan update |
 | 2026-11-19T06:37 | [#8283](https://github.com/openova-io/openova/pull/8283) | #7087 | docs(ledger): plan update |
 | 2026-11-19T06:29 | [#8282](https://github.com/openova-io/openova/pull/8282) | #7087 | docs(ledger): plan update |
+| 2026-11-19T07:23 | [#8281](https://github.com/openova-io/openova/pull/8281) | #8280 | docs(ledger): result of the lab test AIP-030, agent runtime  |
 | 2026-11-19T06:25 | [#8279](https://github.com/openova-io/openova/pull/8279) | #7087 | docs(ledger): plan update |
 | 2026-11-19T06:06 | [#8276](https://github.com/openova-io/openova/pull/8276) | #7087 | docs(ledger): plan update |
 | 2026-11-19T06:17 | [#8275](https://github.com/openova-io/openova/pull/8275) | #8273 | refactor(catalog): delete the seed sync script; the version  |
@@ -333,10 +337,6 @@ flowchart LR
 | 2026-11-19T06:13 | [#8252](https://github.com/openova-io/openova/pull/8252) | #8227 | fix(mesh): name a restarted mesh container and its cause in  |
 | 2026-11-19T01:43 | [#8250](https://github.com/openova-io/openova/pull/8250) | #7087 | docs(ledger): plan update |
 | 2026-11-19T01:24 | [#8249](https://github.com/openova-io/openova/pull/8249) | #7087 | docs(ledger): plan update |
-| 2026-11-19T02:16 | [#8248](https://github.com/openova-io/openova/pull/8248) | #8247 | ci: the gate runs its cluster work as a Job on the parent, s |
-| 2026-11-19T00:43 | [#8246](https://github.com/openova-io/openova/pull/8246) | #7087 | docs(ledger): plan update |
-| 2026-11-19T01:43 | [#8245](https://github.com/openova-io/openova/pull/8245) | #8244 | refactor(api): the wipe and the janitor reach the cloud thro |
-| 2026-11-19T00:37 | [#8243](https://github.com/openova-io/openova/pull/8243) | #7087 | docs(ledger): plan update |
 
 ---
 
