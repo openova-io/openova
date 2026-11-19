@@ -277,6 +277,15 @@ async function probeRow(ctx, row) {
   const page = await ctx.newPage();
   const result = { name: row.name, url: row.url.replace(/token=[^&]+/, 'token=<redacted>'), status: 'RED', finalURL: '', shot: '', details: [] };
   const started = new Date();
+  // The HTTP status of the last document (not a redirect) the main frame loaded: a RED row says what that page
+  // answered (gate run 44455908137 stopped eight rows on the broker endpoint and said nothing more).
+  let docStatus = 0;
+  page.on('response', (r) => {
+    try {
+      const code = r.status(); // a redirect is a hop, not the page
+      if (r.request().isNavigationRequest() && r.frame() === page.mainFrame() && (code < 300 || code >= 400)) docStatus = code;
+    } catch { /* the page is closing */ }
+  });
   try {
     await page.goto(row.url, { waitUntil: 'load', timeout: 45000 }).catch((e) => {
       result.details.push(`goto: ${e.message.split('\n')[0]}`);
@@ -296,7 +305,18 @@ async function probeRow(ctx, row) {
     const anyLogin = logins.some(([, hit]) => hit);
     for (const [m, ok] of positives) if (!ok) result.details.push(`missing positive marker ${m.kind}:${m.v}`);
     for (const [m, hit] of logins) if (hit) result.details.push(`LOGIN-UI marker present ${m.kind}:${m.v}`);
-    result.status = allPositive && !anyLogin ? 'GREEN' : 'RED';
+    // An application whose browser is still on the identity provider did not sign in, whatever its
+    // own markers say: gate run 44455908137 recorded newapi GREEN on the page of
+    // auth.<fqdn>/realms/sovereign/broker/catalyst-pin/endpoint. Only the identity provider's own
+    // row (keycloak-admin) and the anonymous rows may end there.
+    const atIdP = row.ctx === 'authed' && row.name !== 'keycloak-admin' && result.finalURL.startsWith(`${host('auth')}/realms/`);
+    if (atIdP) result.details.push(`stopped at the identity provider: ${new URL(result.finalURL).pathname}`);
+    result.status = allPositive && !anyLogin && !atIdP ? 'GREEN' : 'RED';
+    if (result.status !== 'GREEN') {
+      const title = await page.title().catch(() => '');
+      const text = String((await page.innerText('body').catch(() => '')) || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+      result.details.push(`page: HTTP ${docStatus || 'unknown'}, title ${JSON.stringify(title)}, text ${JSON.stringify(text)}`);
+    }
   } catch (e) {
     result.details.push(`error: ${e.message.split('\n')[0]}`);
   } finally {
@@ -306,7 +326,7 @@ async function probeRow(ctx, row) {
   result.step = { journey: CHECK_ID, id: row.name, name: `${row.name}: the bare URL lands as the row asserts`,
     status: result.status === 'GREEN' ? 'PASS' : 'FAIL', started_at: started.toISOString(),
     finished_at: finished.toISOString(), duration_ms: finished.getTime() - started.getTime(),
-    evidence: { url: result.url, finalURL: result.finalURL } };
+    evidence: { url: result.url, finalURL: result.finalURL, status: docStatus } };
   if (result.status !== 'GREEN') result.step.error = result.details.join('; ') || 'RED';
   return result;
 }

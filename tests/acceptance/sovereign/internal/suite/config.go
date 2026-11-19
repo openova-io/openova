@@ -47,6 +47,11 @@ type Config struct {
 	// gave from a machine that is in no list of the firewall:
 	// "<address>=<outcome>,..." (see parseAPIPortOutside). Check NET-G02 reads it.
 	APIPortOutside string
+	// PeerPortsOutside is what a dial of ports 2379 and 12379 of every
+	// control-plane address gave from that machine:
+	// "<address>:<port>=<outcome>,..." (see parsePeerPortsOutside). Check
+	// NET-G01 reads it.
+	PeerPortsOutside string
 
 	Record     bool
 	RecordDir  string

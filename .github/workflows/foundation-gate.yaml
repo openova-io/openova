@@ -11,8 +11,9 @@ name: foundation-gate
 #              every step of FND-G07 with its browser probe, so no session minted from the
 #              Sovereign's signer leaves the Job. The Job runs the suite image of the commit under
 #              test and a probe image, both by digest; the region kubeconfigs travel in a Secret of
-#              the run; the Job and its Secrets are deleted whatever happened. The outside dial of
-#              NET-G02 and CLD-G12 stay on the hosted machine.
+#              the run; the Job and its Secrets are deleted whatever happened. The outside dials of
+#              NET-G01 and NET-G02, and CLD-G12, stay on the hosted machine: the firewall lists the
+#              parent, so a dial from the Job is no outside dial.
 #   unit       suite unit tests and gate tool self-tests, no cluster; also before every live run.
 #   candidate  with candidate_id only: scripts/release-candidate.sh verify; live needs it green.
 #   addresses  environment gate: reads the control-plane addresses of every region with kubectl
@@ -20,9 +21,11 @@ name: foundation-gate
 #              in parent execution it first builds or finds the images of the Job.
 #   outside    on a runner hosted by GitHub, whose address is in no list of the Sovereign's
 #              firewall: scripts/gate-outside-dial.py dial opens a TCP connection to port 6443 of
-#              each of those addresses. The job live gives the outcome to the suite as
-#              ACCEPT_API_PORT_OUTSIDE, and gate check NET-G02 judges it. When this job did not
-#              run, the value is empty and NET-G02 fails.
+#              each of those addresses, and dial-peer to ports 2379 and 12379. The job live gives
+#              the outcomes to the suite as ACCEPT_API_PORT_OUTSIDE (gate check NET-G02 judges it)
+#              and ACCEPT_PEER_PORTS_OUTSIDE (gate check NET-G01). It runs whenever addresses
+#              succeeded, with or without a candidate. When this job did not run, the values are
+#              empty and NET-G01 and NET-G02 fail; neither check falls back to a dial from inside.
 #   live       environment gate. Checks out this workflow's commit (the tools; the record is committed from here) and,
 #              in candidate/, the commit under test: the candidate's, or else the one the run was
 #              started from (that record has an empty candidate.id and certifies nothing). Waits up
@@ -326,27 +329,34 @@ jobs:
           rm -f "$p"
 
   outside:
-    name: dial the API port from outside
+    name: dial the API port and the peer ports from outside
     needs: [addresses]
+    # Only the addresses are needed. Without this condition the job inherits the skip of the
+    # job candidate (no candidate_id) through addresses, and NET-G01 and NET-G02 fail.
+    if: ${{ !cancelled() && needs.addresses.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
     outputs:
       outcome: ${{ steps.dial.outputs.outcome }}
+      peer: ${{ steps.dial.outputs.peer }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - name: Dial port 6443 of every control-plane address
+      - name: Dial ports 6443, 2379 and 12379 of every control-plane address
         id: dial
         env:
           ADDRESSES: ${{ needs.addresses.outputs.list }}
         run: |
           set -euo pipefail
           outcome="$(python3 scripts/gate-outside-dial.py dial "$ADDRESSES")"
+          peer="$(python3 scripts/gate-outside-dial.py dial-peer "$ADDRESSES")"
           echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
+          echo "peer=$peer" >> "$GITHUB_OUTPUT"
           { echo '### Port 6443 from a runner hosted by GitHub'; echo; echo '```'; echo "$outcome" | tr ',' '\n'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          { echo '### Ports 2379 and 12379 from a runner hosted by GitHub'; echo; echo '```'; echo "$peer" | tr ',' '\n'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
   live:
     name: live gate run on ${{ inputs.env }}
@@ -480,6 +490,7 @@ jobs:
           ACCEPT_PREFLIGHT: ${{ inputs.preflight }}
           ACCEPT_NODES_REQUESTED: ${{ inputs.nodes_requested }}
           ACCEPT_API_PORT_OUTSIDE: ${{ needs.outside.outputs.outcome }}
+          ACCEPT_PEER_PORTS_OUTSIDE: ${{ needs.outside.outputs.peer }}
           MORE_CAPABILITIES: ${{ inputs.capabilities }}
           ENV_LABEL: ${{ inputs.env }}
           EXECUTION: ${{ steps.mode.outputs.execution }}

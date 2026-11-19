@@ -913,6 +913,7 @@ STUB
   PI="ghcr.io/openova-io/openova/conformance@sha256:$(printf 'b%.0s' {1..64})"
   ( export GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" GATE_SESSION_FILE="$T/session" GATE_TOOLS="$T/tools" \
       GATE_PULL_USER=bot GATE_PULL_TOKEN=pull-token-jkl ENV_LABEL=hw307 GATE_RUN=42 ACCEPT_API_PORT_OUTSIDE=1.2.3.4=timeout \
+      ACCEPT_PEER_PORTS_OUTSIDE=1.2.3.4:2379=timeout,1.2.3.4:12379=timeout \
       ACCEPT_MANIFEST=/runner/gates.json CATALYST_SESSION=env-session-mno
     TOOLS="$T/tools" manifests live gate-42-1-live-abc "$JI" "$PI" "$T/m" )
   ok $? "manifests: written"
@@ -931,7 +932,7 @@ for c in p["containers"]:
     if "@sha256:" not in c["image"]: bad.append(c["name"] + " image by tag")
     names = {e["name"] for e in c["env"]}
     if "CATALYST_SESSION" in names or "ACCEPT_MANIFEST" in names: bad.append(c["name"] + " env")
-    if "ACCEPT_API_PORT_OUTSIDE" not in names or "ENV_LABEL" not in names: bad.append(c["name"] + " inputs")
+    if not {"ACCEPT_API_PORT_OUTSIDE", "ACCEPT_PEER_PORTS_OUTSIDE", "ENV_LABEL"} <= names: bad.append(c["name"] + " inputs")
 if [c["name"] for c in p["containers"]] != ["gate", "probe"]: bad.append("containers")
 if j["spec"]["backoffLimit"] != 0 or not j["spec"].get("activeDeadlineSeconds"): bad.append("job spec")
 if p.get("imagePullSecrets") != [{"name": "gate-42-1-live-abc-pull"}]: bad.append("pull secret")

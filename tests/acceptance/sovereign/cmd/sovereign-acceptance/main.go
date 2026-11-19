@@ -122,6 +122,7 @@ func run(mode string, args []string) int {
 	fs.IntVar(&cfg.WaitForReleaseMinutes, "wait-for-release", envInt("ACCEPT_WAIT_FOR_RELEASE", 30), "run in self: minutes to wait until every HelmRelease runs the chart version its spec names")
 	fs.StringVar(&cfg.ReportName, "report-name", env("ACCEPT_REPORT_NAME", "conformance"), "run in self: the name of the ClusterPolicyReport that the run writes")
 	fs.StringVar(&cfg.APIPortOutside, "api-port-outside", env("ACCEPT_API_PORT_OUTSIDE", ""), "what a dial of port 6443 of every control-plane address gave from a machine in no list of the firewall: '<address>=<outcome>,...', an outcome of open, timeout, refused or error (check NET-G02)")
+	fs.StringVar(&cfg.PeerPortsOutside, "peer-ports-outside", env("ACCEPT_PEER_PORTS_OUTSIDE", ""), "what a dial of ports 2379 and 12379 of every control-plane address gave from a machine in no list of the firewall: '<address>:<port>=<outcome>,...' ([<address>]:<port> for IPv6), an outcome of open, timeout, refused or error (check NET-G01)")
 	fs.BoolVar(&cfg.Record, "record", false, "write docs/ledger/acceptance/<env>-<runid>.json")
 	fs.StringVar(&cfg.RecordDir, "record-dir", env("ACCEPT_RECORD_DIR", "docs/ledger/acceptance"), "where --record writes")
 	fs.BoolVar(&cfg.KeepOnFail, "keep-on-fail", envBool("ACCEPT_KEEP_ON_FAIL"), "skip J5 cleanup when an earlier journey failed (leave the app for debugging)")
