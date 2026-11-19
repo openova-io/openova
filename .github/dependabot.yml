@@ -69,6 +69,7 @@ updates:
       - "/tests/acceptance/sovereign"
       - "/tests/dod"
       - "/tests/e2e/bootstrap-kit"
+      - "/tools/guards"
     schedule:
       interval: "weekly"
       day: "monday"

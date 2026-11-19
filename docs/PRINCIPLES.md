@@ -665,6 +665,23 @@ Before every sub-agent dispatch, output this briefing to the operator in the sam
 
 Rules: total briefing ≤ 6 lines — don't restate the full agent prompt; one briefing per agent (N briefings for parallel multi-dispatch turns); after the agent returns, its report is a CLAIM — re-query live state (rule IV.2-7) before propagating. Exception: trivial <2-min sync lookups → a single sentence.
 
+### IV.4 — Languages: Go; no new Python (founder mandate, restated 2026-11-19)
+
+First-party code and tooling of this repository are written in **Go**, and in **Rust** where a design record ([`docs/adr/`](adr/)) says so. **TypeScript** is the language of the consoles. **Shell** is for a few lines of glue. **No new Python is written anywhere**, neither as a file (a new `.py` file of a product, chart, image, CI guard, generator, test helper or tool) nor inside another file (a `python3 -c` one-liner, a here-document program in a shell script, a workflow step with `shell: python`, a Python line in a chart template or in node start-up data).
+
+**The existing Python is debt.** Measured 2026-11-19 by `python-shrinks` on main `385718c3d3` with this guard: 152 Python files; 51,582 lines in them; 11,693 lines of Python inside other files (84 of them two stand-ins that a Harbor chart test writes without the `.py` suffix, 15 the fixtures of the guard's own tests); 1,880 lines of other files that name python (900 of them in `docs/ledger/plan.yaml`, 3 in Go); 20 places where Python runs on a Sovereign or is installed in a shipped image. That Python stays for now. Whether and how it is refactored is decided in the plan's final stage.
+
+- New repository tooling (a guard, a generator, a check, a one-off tool, a test helper, an acceptance command of the plan) is a command of the Go module [`tools/guards`](../tools/guards/README.md) (`cmd/<name>`, its tests beside it), or a few lines of POSIX shell.
+- An existing Python file is edited only where a change must alter what it does, and it is not grown when the same change can live in Go.
+- `tools/guards/cmd/python-shrinks`, a step of `tree-guards`, holds the five numbers above as totals in `scripts/baselines/python.json`. It reads the files Git lists. Exactly:
+  - `python_files`: every file whose path ends in `.py`, and every other file whose first line is a `#!` line that names python.
+  - `python_file_lines`: the lines of those files.
+  - `embedded_lines`: the lines of Python inside every other file of code or configuration (shell, YAML, JSON, templates, Terraform and HCL, make and just files, Go, Rust, TypeScript, JavaScript, a file with a `#!` line; never `.md` or `.txt`): the body of a here-document opened on a line that runs python or writes a `.py` file; the body of any other here-document whose first line is a python `#!` line (a program saved without the suffix and run later); the program of `python -c` and of a here-string given to python, and the text assigned to `NAME` when the program is `"$NAME"`; a YAML block whose key ends in `.py` or whose first line is a python `#!` line; the run of a workflow or action step whose shell is python; and a Go, Rust, TypeScript or JavaScript string that starts with a python `#!` line (a stub a test writes and runs). Of a Go, Rust, TypeScript or JavaScript file the other strings are data: only a `//go:generate` line, a string that is only the name of python and a call that starts a process (`exec.Command`, `Command::new`, `spawn`, ...) are read for the rest.
+  - `invoke_lines`: the lines of those same files that NAME python, `python3` or `python3.N` as a word, comment lines left out. A line that runs python counts (`python3 <path>`, `exec.Command("python3", ...)`, `//go:generate python3`), and so does the text of an `echo` or prose in a YAML string that names python; that only makes the total stricter. Of a Go, Rust, TypeScript or JavaScript file only the lines read for the rest above count.
+  - `sovereign_places`: the package installs that name a python package, the `pip install` commands, the images whose name starts with python (`FROM`, `image:`), the commands that name python, and the python `#!` lines, in what reaches a Sovereign or a shipped image: chart templates and files, the cloud-init templates and the Terraform under `infra/providers/`, container files.
+
+  Python assembled or fetched at run time, an encoded payload and a file run by an interpreter chosen at run time are not seen by the guard ([Known limits](../tools/guards/README.md#known-limits)); this rule forbids them all the same. The guard fails only when a total is higher than its baseline, and names the total, by how much, and the files that grew against the base commit. Against the base commit a total is also held to the total of that commit, so room freed by one change and left in the baseline file is not taken by the next. A total that falls passes and says that the baseline can be lowered (`cd tools/guards && go run ./cmd/python-shrinks --write-baseline`, which never raises a number). There is no file list and no exception list, so a rename or a move passes. The baseline file has a code owner (`.github/CODEOWNERS`).
+
 ---
 
 ## Part V — How these relate
@@ -720,6 +737,7 @@ When you catch a new shape of failure in a PR review, add an A19+ entry here wit
 - Is the work actually done, or did I write "scaffolding" and call it done?
 - Did I scan the diff for the A1-A18 shapes?
 - Is my PR body using `Refs #N` (default) rather than `Closes #N`?
+- Did I add Python, as a file or inside another file? New code and tooling are Go (Part IV.4); no new Python anywhere, and the existing Python stays until the plan's final stage decides its refactor.
 
 ---
 

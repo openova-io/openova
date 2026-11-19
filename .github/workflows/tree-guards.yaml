@@ -8,16 +8,19 @@
 # (scripts/ci-gate.py) judges this job like any other check run, and the ruleset of main
 # requires it by its name, tree-guards. scripts/check-pr-jobs.py proves these rules.
 #
-# The job needs a checkout of two commits, Python 3.12 with PyYAML, bash and git, and
-# nothing else. A guard that needs another tool (Go, Node, Helm) or a secret, or that reads
-# the pull request itself, runs elsewhere: go-lint.yaml, console-lint.yaml,
-# check-lock-stages.yaml, redact-guard.yml, pull-request-guards.yaml.
+# The job needs a checkout of two commits, Python 3.12 with PyYAML, the Go of the module
+# tools/guards (set up from its go.mod, before the steps of its guards), bash and git, and
+# nothing else. A guard that needs another tool (Node, Helm), the Go of another module or a
+# secret, or that reads the pull request itself, runs elsewhere: go-lint.yaml,
+# console-lint.yaml, check-lock-stages.yaml, redact-guard.yml, pull-request-guards.yaml.
 #
 # A step keeps the events of its old workflow: pull requests and merge groups for every
 # step, pushes to main where the old workflow had them, a start by hand only for the
 # conflict markers. No path filter, on purpose: a check that a path filter skips never
 # reports. A new guard of this kind is a new group of steps at the end of the job, before
-# the two steps that change the tree, never a new workflow.
+# the two steps that change the tree, never a new workflow. A new guard is written in Go,
+# as a command of tools/guards (docs/PRINCIPLES.md IV.4): one step runs its tests, one runs
+# the command with `cd tools/guards && go run ./cmd/<name>`.
 #
 # Two steps change the checkout and so stay last: the probe of the secret guards adds a
 # line to a chart template and restores it, and the known answer of the provider-leak
@@ -403,6 +406,18 @@ jobs:
       - name: 'crossplane-runtime-probes | Every Crossplane Provider and Function runs with probes on a port its runtime serves'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: python3 scripts/check-crossplane-runtime-probes.py
+      - name: 'python-shrinks | Set up the Go of tools/guards'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: tools/guards/go.mod
+          cache: false
+      - name: 'python-shrinks | Tests of the guard (every rule can fail)'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go test -count=1 ./...
+      - name: 'python-shrinks | No total of Python above its baseline: Python files, their lines, Python inside other files, lines that start Python, places on a Sovereign'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go run ./cmd/python-shrinks --base HEAD^1
       - name: 'secret-guards | a randAlphaNum added to a real chart template fails G2'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: |
