@@ -74,3 +74,29 @@ tools:
     sha256: 016b7abbf931d4d1a851a5a568e44510dc61691dc8a5202e3b24e701515ec574
     licence: MIT
     use: data
+  - name: zap
+    version: "2.17.0"
+    source: https://github.com/zaproxy/zaproxy/releases/download/v2.17.0/ZAP_2.17.0_Linux.tar.gz
+    sha256: efe799aaa3627db683b43f00c9c210aea0b75c00cc8f0a0f0434d12bb3ddde5a
+    licence: Apache-2.0
+    use: separate-process
+# The baseline script and its library are files of the release tag; the tag publishes no
+# checksum of them, so each SHA-256 was measured on the file itself.
+  - name: zap-baseline
+    version: "2.17.0"
+    source: https://raw.githubusercontent.com/zaproxy/zaproxy/v2.17.0/docker/zap-baseline.py
+    sha256: 18df1d2275c2cc7113ec4dd061687f8c9d6b9032b2e9d7e561bcd173236eda42
+    licence: Apache-2.0
+    use: separate-process
+  - name: zap-common
+    version: "2.17.0"
+    source: https://raw.githubusercontent.com/zaproxy/zaproxy/v2.17.0/docker/zap_common.py
+    sha256: 9554545f10fd2adebecd9a4d1d7248e9bc7ca27dccf44e2c2d5a7449a1225f82
+    licence: Apache-2.0
+    use: separate-process
+  - name: zaproxy
+    version: "0.6.0"
+    source: https://files.pythonhosted.org/packages/f2/20/17fa3a9e0053e39a4cf6d0f902f1d39eca93bbc71e36a329b1620c265802/zaproxy-0.6.0-py3-none-any.whl
+    sha256: 1a9123f4fe31605143e6cefe5adbc31af0d62bd6f86e10bdce7ec99573b74310
+    licence: Apache-2.0
+    use: separate-process

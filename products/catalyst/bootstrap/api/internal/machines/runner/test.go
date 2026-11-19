@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/machines/runresult"
 )
@@ -124,12 +126,53 @@ func NucleiArgs(templates, targets, sarif string, rate int) []string {
 		"-rl", strconv.Itoa(rate), "-se", sarif, "-silent", "-nc"}
 }
 
+// zapBaseline is the ZAP baseline script of the image. With IS_CONTAINERIZED=true it writes
+// its reports into /zap/wrk, which the image links to the work folder. A test replaces it.
+var zapBaseline = "/zap/zap-baseline.py"
+
+// probeTimeout bounds the TLS handshake that chooses the scheme of a port.
+const probeTimeout = 5 * time.Second
+
+// ZAPArgs are the arguments of one run of profile web-passive: the target URL, the JSON
+// report in /zap/wrk, the spider capped at one minute, and the ZAP options -silent (no
+// update check and no add-on download, so nothing is fetched at run time) and -dir (the
+// isolated home of this run). The scan has no active-scan, fuzzing or attack step.
+func ZAPArgs(url, report, home string) []string {
+	return []string{"-t", url, "-J", report, "-m", "1", "-z", "-silent -dir " + home}
+}
+
+// WebURL returns the URL ZAP scans for one line <address>:<port> of the checked target
+// list: https on port 443, http on port 80, and on any other port https when a TLS
+// handshake with the target completes, whatever the certificate, else http.
+func WebURL(ctx context.Context, target string, port int, handshake func(context.Context, string) bool) string {
+	scheme := "http"
+	if port == 443 || port != 80 && handshake(ctx, target) {
+		scheme = "https"
+	}
+	return scheme + "://" + target + "/"
+}
+
+// TLSHandshake reports whether a TLS handshake with target completes within probeTimeout,
+// whatever the certificate. It sends no request and closes the connection.
+func TLSHandshake(ctx context.Context, target string) bool {
+	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+	d := tls.Dialer{Config: &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}} //nolint:gosec // the probe asks only whether the port speaks TLS; no request is sent
+	conn, err := d.DialContext(ctx, "tcp", target)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
 // test runs the profiles of the scope against the target and writes test.sarif.json, one
-// SARIF run per tool run. It opens no SSH session. Profile web-passive is refused in this
-// version. The target list is written, read back and checked before the tool starts.
+// SARIF run per tool run, in the order of the profiles. It opens no SSH session. The target
+// list is written, read back and checked before any tool starts, and each tool reads only
+// the lines of that checked list.
 func test(ctx context.Context, cfg Config, env Env) taskResult {
 	for _, p := range cfg.TestProfiles {
-		if p != ProfileNetworkPassive {
+		if !contains(testProfiles, p) {
 			return refused(messageNotSupported + "test-profile " + p)
 		}
 	}
@@ -137,8 +180,11 @@ func test(ctx context.Context, cfg Config, env Env) taskResult {
 	if err != nil {
 		return refused(messageTargetRefused + err.Error())
 	}
-	if info, err := os.Stat(env.Templates); err != nil || !info.IsDir() {
+	if info, err := os.Stat(env.Templates); contains(cfg.TestProfiles, ProfileNetworkPassive) && (err != nil || !info.IsDir()) {
 		return failed("nuclei-templates-not-in-image: %s", env.Templates)
+	}
+	if _, err := os.Stat(zapBaseline); contains(cfg.TestProfiles, ProfileWebPassive) && err != nil {
+		return failed("zap-not-in-image: %s", zapBaseline)
 	}
 	list := filepath.Join(env.WorkDir, fileTargets)
 	if err := os.WriteFile(list, []byte(strings.Join(targets, "\n")+"\n"), 0o600); err != nil {
@@ -148,24 +194,25 @@ func test(ctx context.Context, cfg Config, env Env) taskResult {
 	if err != nil {
 		return failed("the target list cannot be read: %v", err)
 	}
-	if err := CheckTargets(strings.Split(strings.TrimSuffix(string(data), "\n"), "\n"), cfg.Address, cfg.Ports); err != nil {
+	checked := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+	if err := CheckTargets(checked, cfg.Address, cfg.Ports); err != nil {
 		return refused(messageTargetRefused + err.Error())
 	}
-	sarif := filepath.Join(env.WorkDir, fileNucleiSARIF)
-	if err := os.Remove(sarif); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return failed("%s cannot be removed: %v", fileNucleiSARIF, err)
-	}
-	if r := collect(ctx, nil, []int{0}, env.Nuclei, NucleiArgs(env.Templates, list, sarif, cfg.RequestsPerSec)...); r != nil {
-		return *r
-	}
-	// Nuclei writes no file when it found nothing: that is one run without results.
-	runs, findings := []json.RawMessage{json.RawMessage(`{"tool":{"driver":{"name":"nuclei"}},"results":[]}`)}, 0
-	if data, err := os.ReadFile(sarif); err == nil { //nolint:gosec // a fixed name in the work folder
-		if runs, findings, err = ParseSARIF(data); err != nil {
-			return failed("%s cannot be read: %v", fileNucleiSARIF, err)
+	var runs []json.RawMessage
+	findings := 0
+	for _, p := range cfg.TestProfiles {
+		var r []json.RawMessage
+		var n int
+		var bad *taskResult
+		if p == ProfileNetworkPassive {
+			r, n, bad = nuclei(ctx, cfg, env, list)
+		} else {
+			r, n, bad = zap(ctx, env, checked)
 		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return failed("%s cannot be read: %v", fileNucleiSARIF, err)
+		if bad != nil {
+			return *bad
+		}
+		runs, findings = append(runs, r...), findings+n
 	}
 	out := map[string]any{"version": sarifVersion, "$schema": sarifSchema, "runs": runs}
 	if err := writeJSON(filepath.Join(env.WorkDir, FileTestSARIF), out); err != nil {
@@ -177,6 +224,71 @@ func test(ctx context.Context, cfg Config, env Env) taskResult {
 	return taskResult{outcome: runresult.Succeeded, test: &runresult.Test{Findings: findings},
 		files: []file{{KindTestSARIF, FileTestSARIF}}}
 }
+
+// nuclei runs profile network-passive on the checked target list and returns its runs.
+func nuclei(ctx context.Context, cfg Config, env Env, list string) ([]json.RawMessage, int, *taskResult) {
+	sarif := filepath.Join(env.WorkDir, fileNucleiSARIF)
+	if err := os.Remove(sarif); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, 0, ptr(failed("%s cannot be removed: %v", fileNucleiSARIF, err))
+	}
+	if r := collect(ctx, nil, []int{0}, env.Nuclei, NucleiArgs(env.Templates, list, sarif, cfg.RequestsPerSec)...); r != nil {
+		return nil, 0, r
+	}
+	data, err := os.ReadFile(sarif) //nolint:gosec // a fixed name in the work folder
+	if errors.Is(err, os.ErrNotExist) {
+		// Nuclei writes no file when it found nothing: that is one run without results.
+		return []json.RawMessage{json.RawMessage(`{"tool":{"driver":{"name":"nuclei"}},"results":[]}`)}, 0, nil
+	}
+	if err != nil {
+		return nil, 0, ptr(failed("%s cannot be read: %v", fileNucleiSARIF, err))
+	}
+	runs, n, err := ParseSARIF(data)
+	if err != nil {
+		return nil, 0, ptr(failed("%s cannot be read: %v", fileNucleiSARIF, err))
+	}
+	return runs, n, nil
+}
+
+// zap runs profile web-passive: the ZAP baseline scan once per line of the checked target
+// list, each with its own home, and converts each JSON report into one SARIF run. Exit
+// codes 0, 1 and 2 are results (no warning, a FAIL-level alert, a WARN-level alert); any
+// other exit, for example 3 when the scan could not run, is a failure, whose message adds
+// the end of the script's standard output, where the script says why.
+func zap(ctx context.Context, env Env, checked []string) ([]json.RawMessage, int, *taskResult) {
+	var runs []json.RawMessage
+	findings := 0
+	for _, target := range checked {
+		port := int(netip.MustParseAddrPort(target).Port())
+		home := filepath.Join(env.WorkDir, fmt.Sprintf("zap-%d", port))
+		report := fmt.Sprintf("zap-%d.json", port)
+		if err := os.MkdirAll(home, 0o700); err != nil {
+			return nil, 0, ptr(failed("the home of ZAP was not created: %v", err))
+		}
+		if err := os.Remove(filepath.Join(env.WorkDir, report)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, 0, ptr(failed("%s cannot be removed: %v", report, err))
+		}
+		url := WebURL(ctx, target, port, TLSHandshake)
+		var out tail
+		if r := collectTo(ctx, &out, []string{"IS_CONTAINERIZED=true", "HOME=" + home}, []int{0, 1, 2}, zapBaseline, ZAPArgs(url, report, home)...); r != nil {
+			if s := strings.TrimSpace(out.String()); r.outcome == runresult.Failed && s != "" {
+				r.message += "; " + s
+			}
+			return nil, 0, r
+		}
+		data, err := os.ReadFile(filepath.Join(env.WorkDir, report)) //nolint:gosec // a fixed name in the work folder
+		if err != nil {
+			return nil, 0, ptr(failed("%s cannot be read: %v", report, err))
+		}
+		run, n, err := ZAPRun(data, url)
+		if err != nil {
+			return nil, 0, ptr(failed("%s cannot be read: %v", report, err))
+		}
+		runs, findings = append(runs, run), findings+n
+	}
+	return runs, findings, nil
+}
+
+func ptr(t taskResult) *taskResult { return &t }
 
 // ParseSARIF returns the runs of a SARIF 2.1.0 log and the number of their results.
 func ParseSARIF(data []byte) ([]json.RawMessage, int, error) {

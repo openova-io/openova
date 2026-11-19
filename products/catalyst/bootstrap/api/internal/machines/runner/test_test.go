@@ -3,9 +3,15 @@ package runner
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"net"
+	"net/http/httptest"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -16,13 +22,26 @@ import (
 const writeSARIF = `for a in "$@"; do [ "$prev" = "-se" ] && out="$a"; prev="$a"; done
 printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"Nuclei"}},"results":[{"ruleId":"tls-version"},{"ruleId":"apache-detect"}]}]}\n' > "$out"`
 
-// testTaskEnv is testEnv with a templates folder and a nuclei that fails when it runs.
+// writeZAPReport is a fake ZAP baseline script, with the work folder for its verb: it
+// appends its arguments, HOME and IS_CONTAINERIZED to <script>.calls, writes a report with
+// one Medium alert at the target URL to the -J file in the work folder, and exits 2.
+const writeZAPReport = `printf '%%s\n' "$@" "HOME=$HOME" "IS_CONTAINERIZED=$IS_CONTAINERIZED" -- >> "$0.calls"
+for a in "$@"; do [ "$prev" = "-J" ] && out="$a"; [ "$prev" = "-t" ] && url="$a"; prev="$a"; done
+printf '{"@programName":"ZAP","@version":"2.17.0","site":[{"alerts":[{"pluginid":"10038","alertRef":"10038-1","name":"CSP Header Not Set","riskcode":"2","confidence":"3","instances":[{"uri":"%%s","method":"GET"}]}]}]}\n' "$url" > '%s'/"$out"
+exit 2`
+
+// testTaskEnv is testEnv with a templates folder, and a nuclei and a ZAP baseline script
+// that fail when they run.
 func testTaskEnv(t *testing.T, s3 *fakeS3) Env {
 	env := testEnv(t, s3)
 	env.Nuclei = filepath.Join(filepath.Dir(env.Trivy), "nuclei")
 	env.Templates = filepath.Join(env.ContentDir, "nuclei-templates")
 	must(t, os.MkdirAll(env.Templates, 0o750))
 	fakeProgram(t, env.Nuclei, "echo nuclei must not run >&2; exit 99")
+	saved := zapBaseline
+	zapBaseline = filepath.Join(filepath.Dir(env.Trivy), "zap-baseline.py")
+	t.Cleanup(func() { zapBaseline = saved })
+	fakeProgram(t, zapBaseline, "echo zap must not run >&2; exit 99")
 	return env
 }
 
@@ -82,6 +101,93 @@ func TestNetworkPassiveWithoutFindingsStoresOneEmptyRun(t *testing.T) {
 	}
 }
 
+func TestWebPassiveRunsZAPOncePerPortBesideNuclei(t *testing.T) {
+	s3 := newFakeS3(t)
+	env := testTaskEnv(t, s3)
+	fakeProgram(t, env.Nuclei, writeSARIF)
+	fakeProgram(t, zapBaseline, fmt.Sprintf(writeZAPReport, env.WorkDir))
+	cfg := testConfig(s3)
+	cfg.TestProfiles = []string{ProfileNetworkPassive, ProfileWebPassive}
+	doc := Run(context.Background(), cfg, env)
+	if doc.Outcome != runresult.Succeeded || !doc.Completed || doc.Test == nil || doc.Test.Findings != 4 {
+		t.Fatalf("got %+v, want Succeeded with two Nuclei and two ZAP findings", doc)
+	}
+	h80, h443 := filepath.Join(env.WorkDir, "zap-80"), filepath.Join(env.WorkDir, "zap-443")
+	want := strings.Join([]string{"-t", "http://10.0.0.5:80/", "-J", "zap-80.json", "-m", "1", "-z", "-silent -dir " + h80, "HOME=" + h80, "IS_CONTAINERIZED=true", "--",
+		"-t", "https://10.0.0.5:443/", "-J", "zap-443.json", "-m", "1", "-z", "-silent -dir " + h443, "HOME=" + h443, "IS_CONTAINERIZED=true", "--", ""}, "\n")
+	if data, err := os.ReadFile(zapBaseline + ".calls"); err != nil || string(data) != want { //nolint:gosec // a file of the test folder
+		t.Fatalf("zap runs %q, want %q", data, want)
+	}
+	runs, n, err := ParseSARIF(s3.objects["/machine-evidence/"+doc.Test.ResultsKey])
+	if err != nil || len(runs) != 3 || n != 4 {
+		t.Fatalf("stored %d runs with %d results: %v", len(runs), n, err)
+	}
+	var got []string
+	for _, raw := range runs {
+		var r parsedRun
+		must(t, json.Unmarshal(raw, &r))
+		got = append(got, fmt.Sprintf("%s %s %d", r.Tool.Driver.Name, r.Properties["target"], len(r.Results)))
+	}
+	if want := []string{"Nuclei  2", "ZAP http://10.0.0.5:80/ 1", "ZAP https://10.0.0.5:443/ 1"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("stored runs %q, want %q", got, want)
+	}
+}
+
+func TestWebURLProbesOnlyAPortOtherThan80And443(t *testing.T) {
+	var probed []string
+	probe := func(_ context.Context, target string) bool {
+		probed = append(probed, target)
+		return !strings.HasSuffix(target, ":8080")
+	}
+	ctx := context.Background()
+	for target, want := range map[string]string{"10.0.0.5:80": "http://10.0.0.5:80/", "10.0.0.5:443": "https://10.0.0.5:443/",
+		"10.0.0.5:8443": "https://10.0.0.5:8443/", "[2001:db8::5]:8080": "http://[2001:db8::5]:8080/"} {
+		if got := WebURL(ctx, target, int(netip.MustParseAddrPort(target).Port()), probe); got != want {
+			t.Errorf("%s: got %s, want %s", target, got, want)
+		}
+	}
+	if sort.Strings(probed); !reflect.DeepEqual(probed, []string{"10.0.0.5:8443", "[2001:db8::5]:8080"}) {
+		t.Errorf("probed %q", probed)
+	}
+	tlsServer, plain := httptest.NewTLSServer(nil), httptest.NewServer(nil)
+	defer tlsServer.Close()
+	defer plain.Close()
+	closed, err := net.Listen("tcp", "127.0.0.1:0")
+	must(t, err)
+	must(t, closed.Close())
+	if !TLSHandshake(ctx, tlsServer.Listener.Addr().String()) || TLSHandshake(ctx, plain.Listener.Addr().String()) || TLSHandshake(ctx, closed.Addr().String()) {
+		t.Errorf("the handshake must complete only with the TLS server, whatever its certificate")
+	}
+}
+
+func TestZAPFailureOrABadReportStoresNothing(t *testing.T) {
+	for want, body := range map[string]string{
+		"zap-baseline.py exited 3: no summary; Job spider failed": "echo Job spider failed; echo no summary >&2; exit 3",
+		"zap-80.json cannot be read":                              "exit 0",
+		"zap-80.json cannot be read: not a ZAP":                   `for a in "$@"; do [ "$prev" = "-J" ] && out="$a"; prev="$a"; done; echo '{"@programName":"X","site":[]}' > '%s'/"$out"`,
+	} {
+		s3 := newFakeS3(t)
+		env := testTaskEnv(t, s3)
+		if strings.Contains(body, "%s") {
+			body = fmt.Sprintf(body, env.WorkDir)
+		}
+		fakeProgram(t, zapBaseline, body)
+		cfg := testConfig(s3)
+		cfg.TestProfiles = []string{ProfileWebPassive}
+		doc := Run(context.Background(), cfg, env)
+		if doc.Outcome != runresult.Failed || !strings.HasPrefix(doc.Message, want) || doc.Test != nil || s3.requests() != 0 {
+			t.Errorf("got %+v and %d requests, want Failed %q and nothing stored", doc, s3.requests(), want)
+		}
+	}
+	env := testTaskEnv(t, nil)
+	must(t, os.Remove(zapBaseline))
+	cfg := testConfig(nil)
+	cfg.TestProfiles = []string{ProfileWebPassive}
+	if doc := Run(context.Background(), cfg, env); doc.Outcome != runresult.Failed || !strings.HasPrefix(doc.Message, "zap-not-in-image") {
+		t.Errorf("without ZAP: %+v", doc)
+	}
+}
+
 func TestATargetOutsideTheDeclaredSetIsRefusedBeforeTheToolStarts(t *testing.T) {
 	for _, c := range []struct{ address, ports, message string }{
 		{"ledger-db-1.acme.internal", "443", "invalid-arguments: --address must be an IP address"},
@@ -104,16 +210,18 @@ func TestATargetOutsideTheDeclaredSetIsRefusedBeforeTheToolStarts(t *testing.T) 
 		{"10.0.0.5", "1-1024", "invalid-arguments: --ports must be"},
 		{"10.0.0.5", "443 -t /tmp", "invalid-arguments: --ports must be"},
 	} {
-		s3 := newFakeS3(t)
-		env := testTaskEnv(t, s3)
-		var stdout, stderr bytes.Buffer
-		code := Main(context.Background(), testArgs(s3.srv.URL, "--address="+c.address, "--ports="+c.ports, "--test-profile=network-passive"), env, &stdout, &stderr)
-		doc := runresult.OrNoResult(bytes.TrimSpace(stdout.Bytes()))
-		if code != 1 || doc.Outcome != runresult.Refused || !strings.HasPrefix(doc.Message, c.message) || doc.Completed {
-			t.Errorf("address %q ports %q: got %d %+v, want Refused %q", c.address, c.ports, code, doc, c.message)
-		}
-		if args(t, env.Nuclei) != nil || s3.requests() != 0 {
-			t.Errorf("address %q ports %q: nuclei ran or the bucket was called", c.address, c.ports)
+		for _, profiles := range []string{"network-passive", "web-passive", "web-passive,network-passive"} {
+			s3 := newFakeS3(t)
+			env := testTaskEnv(t, s3)
+			var stdout, stderr bytes.Buffer
+			code := Main(context.Background(), testArgs(s3.srv.URL, "--address="+c.address, "--ports="+c.ports, "--test-profile="+profiles), env, &stdout, &stderr)
+			doc := runresult.OrNoResult(bytes.TrimSpace(stdout.Bytes()))
+			if code != 1 || doc.Outcome != runresult.Refused || !strings.HasPrefix(doc.Message, c.message) || doc.Completed {
+				t.Errorf("%s: address %q ports %q: got %d %+v, want Refused %q", profiles, c.address, c.ports, code, doc, c.message)
+			}
+			if args(t, env.Nuclei) != nil || args(t, zapBaseline) != nil || s3.requests() != 0 {
+				t.Errorf("%s: address %q ports %q: a tool ran or the bucket was called", profiles, c.address, c.ports)
+			}
 		}
 	}
 }
@@ -137,18 +245,18 @@ func TestCheckTargetsRefusesEveryLineOutsideTheDeclaredSet(t *testing.T) {
 	}
 }
 
-func TestTestRefusesWebPassiveAndNodeMode(t *testing.T) {
-	both := testConfig(nil)
-	both.TestProfiles = []string{ProfileNetworkPassive, ProfileWebPassive}
+func TestTestRefusesNodeModeAndAnUnknownProfile(t *testing.T) {
 	node := testConfig(nil)
-	node.Mode = ModeNode
-	for want, cfg := range map[string]Config{"not-supported: test-profile web-passive": both, "not-supported: mode node": node} {
+	node.Mode, node.TestProfiles = ModeNode, []string{ProfileWebPassive}
+	active := testConfig(nil)
+	active.TestProfiles = []string{ProfileWebPassive, "web-active"}
+	for want, cfg := range map[string]Config{"not-supported: mode node": node, "not-supported: test-profile web-active": active} {
 		env := testTaskEnv(t, nil)
 		if doc := Run(context.Background(), cfg, env); doc.Outcome != runresult.Refused || doc.Message != want || doc.Completed {
 			t.Errorf("got %+v, want Refused %q", doc, want)
 		}
-		if args(t, env.Nuclei) != nil {
-			t.Errorf("%s: nuclei ran", want)
+		if args(t, env.Nuclei) != nil || args(t, zapBaseline) != nil {
+			t.Errorf("%s: a tool ran", want)
 		}
 	}
 }
