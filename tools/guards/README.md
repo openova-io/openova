@@ -50,8 +50,10 @@ It reads the files Git lists (tracked, and new files Git does not ignore).
 The guard reads text as it stands in the tree. By design it does not see:
 
 - Python assembled or fetched at run time: a program built from pieces (`"#!" + rest`, a `printf` of fragments), downloaded, or read from a Secret, a ConfigMap or an environment variable; also a program that Go, Rust or TypeScript holds in a variable and passes to `python -c`.
-- A call of a Python program: `python3 scripts/x.py`, `python3 <path>`, `exec.Command("python3", script)`, `//go:generate python3 gen.py`. A call is not counted, only programs and files are; so a Python program saved without the `.py` suffix and without a python `#!` line is not seen either.
+- A Python program saved without the `.py` suffix and without a python `#!` line. Only programs and files are counted, never the call that runs them, so such a program is not seen where it is called either.
 - An encoded payload: base64, compressed or otherwise encoded text that becomes Python when decoded.
 - A file run by an interpreter chosen at run time: `"$INTERP" "$f"`, `env "$X"`, a name looked up in `PATH`. A variable that the same file assigns a name of python is not one of these: it is read as python.
 
 `docs/PRINCIPLES.md` IV.4 forbids all of these the same as the shapes the guard counts: no new Python is written, in any form. Review holds what the guard cannot see.
+
+A call of a Python program (`python3 scripts/x.py`, `python3 scripts/plan.py accept`, `exec.Command("python3", script)`, `//go:generate python3 gen.py`) is not one of these. It writes no Python: it is allowed, and the guard does not count it.

@@ -109,12 +109,13 @@
 //
 // What the guard does not see, by design: Python assembled or fetched at run
 // time (a program built from pieces, downloaded, or read from a Secret), an
-// encoded payload (base64 or compressed), and a file run by an interpreter chosen
-// at run time ("$INTERP" "$f"; a variable that the same file assigns a name of
-// python is read as python). A call of a Python program (python3 scripts/x.py,
-// python3 <path>) is not counted: only programs and files are, so a program
-// saved without the .py suffix and without a python #! line is not seen either.
-// docs/PRINCIPLES.md IV.4 forbids those all the same; review holds them.
+// encoded payload (base64 or compressed), a file run by an interpreter chosen at
+// run time ("$INTERP" "$f"; a variable that the same file assigns a name of
+// python is read as python), and a Python program saved without the .py suffix
+// and without a python #! line. docs/PRINCIPLES.md IV.4 forbids those all the
+// same; review holds them. A call of a Python program (python3 scripts/x.py,
+// python3 <path>) is not new Python: it is allowed and not counted; only
+// programs and files are.
 //
 // --write-baseline writes the four totals of the tree. It refuses (exit 1) when
 // a total is higher than the baseline file, so it only lowers; when the file

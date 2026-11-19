@@ -415,7 +415,7 @@ jobs:
       - name: 'python-shrinks | Tests of the guard (every rule can fail)'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: cd tools/guards && go test -count=1 ./...
-      - name: 'python-shrinks | No total of Python above its baseline: Python files, their lines, Python inside other files, lines that start Python, places on a Sovereign'
+      - name: 'python-shrinks | No total of Python above its baseline: Python files, their lines, Python inside other files, places on a Sovereign'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: cd tools/guards && go run ./cmd/python-shrinks --base HEAD^1
       - name: 'secret-guards | a randAlphaNum added to a real chart template fails G2'
