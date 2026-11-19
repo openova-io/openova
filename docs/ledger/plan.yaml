@@ -28564,6 +28564,7 @@ packages:
   depends_on: [AIP-120]
   after: [FND-011]
   touches:
+  - products/agenity/chart/Chart.yaml
   - products/openova-mcp/README.md
   - products/openova-mcp/chart/Chart.yaml
   - products/openova-mcp/chart/templates/deployment.yaml
@@ -28588,17 +28589,17 @@ packages:
   - id: A2
     run: "d=products/openova-mcp/cmd/openova-mcp && ! grep -q -F 'processFallback' $d/http.go && ! grep -q -F 't.fallbackBearer' $d/http.go && grep -q -F 'func serveHTTP(addr string, reg *tools.Registry, resolver *identity.Resolver) error {' $d/http.go && grep -q -F 'if err := serveHTTP(listen, reg, resolver); err != nil {' $d/main.go && grep -q -F 'if identity.IsAgentToken(bearer) {' $d/main.go && grep -q -F 'WithAgentIssuer(os.Getenv(\"OPENOVA_MCP_AGENT_ISSUER\")).' $d/main.go && grep -q -F '\"agent\":           id.Agent,' products/openova-mcp/internal/tools/catalogue.go"
   - id: A3
-    run: "c=products/openova-mcp/chart && ! grep -q -E 'OPENOVA_MCP_BEARER|bearerSecret' $c/templates/deployment.yaml $c/values.yaml && env_is() { python3 -c 'import sys, yaml; d = yaml.safe_load(sys.stdin); env = [e for x in d[\"spec\"][\"template\"][\"spec\"][\"containers\"] for e in x.get(\"env\", [])]; got = [e.get(\"value\") for e in env if e[\"name\"] == \"OPENOVA_MCP_AGENT_ISSUER\"]; sys.exit(0 if got == sys.argv[1:] and not [e for e in env if e[\"name\"] == \"OPENOVA_MCP_BEARER\"] else 1)' \"$@\"; } && helm template t $c --set sovereignFqdn=hw307.omani.works --set auth.bearerSecret.name=x --show-only templates/deployment.yaml | env_is https://console.hw307.omani.works && helm template t $c --set auth.bearerSecret.name=x --show-only templates/deployment.yaml | env_is && bash $c/tests/render-modes.sh > /dev/null"
+    run: "c=products/openova-mcp/chart && ! grep -q -E 'OPENOVA_MCP_BEARER|bearerSecret' $c/templates/deployment.yaml $c/values.yaml && a=\"$(helm template t $c --set sovereignFqdn=hw307.omani.works --set auth.bearerSecret.name=x --show-only templates/deployment.yaml)\" && b=\"$(helm template t $c --set auth.bearerSecret.name=x --show-only templates/deployment.yaml)\" && test \"$(printf '%s\\n' \"$a\" | grep -c -x -E ' +- name: OPENOVA_MCP_AGENT_ISSUER')\" = 1 && test \"$(printf '%s\\n' \"$a\" | grep -A 1 -x -E ' +- name: OPENOVA_MCP_AGENT_ISSUER' | grep -c -x -E ' +value: \"https://console\\.hw307\\.omani\\.works\"')\" = 1 && test \"$(printf '%s\\n' \"$b\" | grep -c -F 'OPENOVA_MCP_AGENT_ISSUER')\" = 0 && test \"$(printf '%s\\n%s\\n' \"$a\" \"$b\" | grep -c -F 'OPENOVA_MCP_BEARER')\" = 0 && bash $c/tests/render-modes.sh > /dev/null"
   - id: A4
-    run: "test \"$(grep -c -x -F 'appVersion: \"0.2.8\"' products/openova-mcp/chart/Chart.yaml)\" = 1 && bash scripts/check-appversion-bumped-with-source.sh origin/main HEAD > /dev/null && python3 scripts/check-agent-plane.py > /dev/null"
+    run: "test \"$(grep -c -x -F 'appVersion: \"0.2.8\"' products/openova-mcp/chart/Chart.yaml)\" = 1 && test \"$(grep -c -x -F 'appVersion: \"0.9.8\"' products/agenity/chart/Chart.yaml)\" = 1 && bash scripts/check-appversion-bumped-with-source.sh origin/main HEAD > /dev/null && python3 scripts/check-agent-plane.py > /dev/null"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
-  delivers: The tool server accepts a token of typ agent (any letter case) only when it was verified RS256 by a key of the set whose RFC 7638 thumbprint is the header kid, aud contains platform-tools, iss equals OPENOVA_MCP_AGENT_ISSUER when that is set, and exp, org_id, an agent name and a tier on the ladder are present; the tier is the tier claim capped at developer, the hs256 and insecure resolvers refuse agent tokens, an agent token never takes the /whoami fallback and whoami echoes the agent; the HTTP transport reads the Authorization header alone, the chart has no OPENOVA_MCP_BEARER and no auth.bearerSecret, it sets OPENOVA_MCP_AGENT_ISSUER to https://console.<sovereignFqdn> when sovereignFqdn is set, and appVersion moves from 0.2.7 to 0.2.8 (stdio keeps its environment bearer until AIP-156).
+  delivers: The tool server accepts a token of typ agent (any letter case) only when it was verified RS256 by a key of the set whose RFC 7638 thumbprint is the header kid, aud contains platform-tools, iss equals OPENOVA_MCP_AGENT_ISSUER when that is set, and exp, org_id, an agent name and a tier on the ladder are present; the tier is the tier claim capped at developer, the hs256 and insecure resolvers refuse agent tokens, an agent token never takes the /whoami fallback and whoami echoes the agent; the HTTP transport reads the Authorization header alone, the chart has no OPENOVA_MCP_BEARER and no auth.bearerSecret, it sets OPENOVA_MCP_AGENT_ISSUER to https://console.<sovereignFqdn> when sovereignFqdn is set, and appVersion moves from 0.2.7 to 0.2.8, and that of the agent workspace image, which embeds the tool server, from 0.9.7 to 0.9.8 (stdio keeps its environment bearer until AIP-156).
 - id: AIP-151
   title: Tool answers are fitted and made inert
   area: AIP
