@@ -616,6 +616,14 @@ func TestEmbedded(t *testing.T) {
 		{"a block of shell", "run: |\n  echo hi\n  ls\n", 0},
 		{"a .py key filled by a template action", "  x.py: |-\n{{ .Files.Get \"files/x.py\" | default \"import sys\\nsys.exit(1)\\n\" | indent 4 }}\n", 3},
 		{"a run of a .py file is no Python inside", "python3 scripts/tool.py --flag\n", 0},
+		// A program saved without the .py suffix: the here-document does not name python, its body does.
+		{"a here-document whose body starts with a python #! line", "cat > \"$BIN/curl\" <<'PY'\n#!/usr/bin/env python3\nimport sys\n\nprint(sys.argv)\nPY\nchmod +x \"$BIN/curl\"\n", 4},
+		{"<<- and a tab before the python #! line", "\tcat > \"$BIN/x\" <<-EOF\n\t#!/usr/bin/python3\n\tprint(1)\n\tEOF\n", 2},
+		{"a here-document of shell is read line by line, one of python is counted", "cat > a <<'EOF'\n#!/bin/sh\npython3 -c 'print(1)'\nEOF\n" +
+			"cat > b <<'EOF'\n#!/usr/bin/env python3\nprint(2)\nEOF\n", 3},
+		{"the second here-document of a line starts with a python #! line", "cat <<A >a; cat <<B >b\n#!/bin/sh\nA\n#!/usr/bin/env python3\nprint(1)\nB\n", 2},
+		{"a python #! here-document inside a quoted YAML string", "run: \"cat > x <<'PY'\\n#!/usr/bin/env python3\\nprint(1)\\nPY\"\n", 2},
+		{"a python #! here-document in Terraform", "locals {\n  stub = <<-EOT\n    #!/usr/bin/env python3\n    print(1)\n  EOT\n}\n", 2},
 	}
 	for _, c := range cases {
 		if got := embedded(c.text, nil); got != c.want {
@@ -705,6 +713,21 @@ func TestCodeFiles(t *testing.T) {
 				"var g = \"cmd := exec.Command(\\\"python3\\\")\"\n", 0, 0},
 		{"a word in code is not a command", "s/x.go", "if lang == python {\n\tpythonSteps(x)\n}\n", 0, 0},
 		{"a call that runs another program", "s/x.go", "exec.Command(\"git\", \"-c\", \"core.x=1\", \"status\")\n", 0, 0},
+		// A string that starts with a python #! line is a program saved without the .py suffix.
+		{"a Go stub written with os.WriteFile", "s/x_test.go",
+			"stub := \"#!/usr/bin/env python3\\nimport sys\\nprint(sys.argv)\\n\"\nos.WriteFile(p, []byte(stub), 0o755)\n", 3, 0},
+		{"a Go raw string: a \\n in it is not a line", "s/x_test.go",
+			"os.WriteFile(p, []byte(`#!/usr/bin/python3\nimport sys\nprint(\"a\\nb\")\n`), 0o755)\n", 3, 0},
+		{"a TypeScript template literal", "web/stub.test.ts", "writeFileSync(p, `#!/usr/bin/env python3\\nprint(1)\\n`, { mode: 0o755 })\n", 2, 0},
+		{"a #! string of shell is data, one of python is not", "s/x_test.go",
+			"a := \"#!/bin/sh\\necho hi\\n\"\nb := \"#!/usr/bin/env python3\\nprint(1)\\n\"\n", 2, 0},
+		{"a python #! string given to python3 -c is counted once", "s/x.go", "exec.Command(\"python3\", \"-c\", \"#!/usr/bin/env python3\\nprint(1)\")\n", 2, 1},
+		{"the quote that closes \"-c\" opens no program", "s/x.go", "exec.Command(\"python3\", \"-c\", prog)\nx := \"a\"\n", 0, 1},
+		// Rust is a first-party language.
+		{"a Rust Command::new", "src/run.rs", "let out = std::process::Command::new(\"python3\").arg(\"-V\").output()?;\n", 0, 1},
+		{"a Rust lifetime is code", "src/run.rs", "fn run(s: &'static str) -> Output { Command::new(\"python3\").arg(s).output().unwrap() }\n", 0, 1},
+		{"a Rust raw string", "src/stub.rs", "fs::write(&p, r#\"#!/usr/bin/env python3\nprint(\"x\")\n\"#)?;\n", 2, 0},
+		{"a Rust string over lines", "src/stub.rs", "let stub = \"#!/usr/bin/env python3\nimport sys\nprint(1)\n\";\n", 3, 0},
 	}
 	for _, c := range cases {
 		got, _ := measureFile(c.path, "", []byte(c.text))
@@ -718,7 +741,7 @@ func TestReadsEmbedded(t *testing.T) {
 	cases := map[string]bool{
 		"scripts/x.sh": true, ".github/workflows/x.yaml": true, ".github/actions/a/action.yml": true,
 		"infra/providers/huawei/main.tf": true, "Makefile": true, "package.json": true, "core/x/main.go": true,
-		"core/x/main_test.go": true, "web/src/run.ts": true, "web/src/App.tsx": true, "web/lib/x.mjs": true, "web/lib/x.js": true,
+		"core/x/main_test.go": true, "core/x/src/main.rs": true, "web/src/run.ts": true, "web/src/App.tsx": true, "web/lib/x.mjs": true, "web/lib/x.js": true,
 		"docs/RUNBOOKS.md": false, "notes.txt": false, "scripts/no-suffix": false, "web/logo.svg": false,
 	}
 	for p, wantRead := range cases {

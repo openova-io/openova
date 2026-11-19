@@ -2,7 +2,7 @@
   "schema": "openova.io/guard-baseline/v2",
   "python_files": 152,
   "python_file_lines": 51582,
-  "embedded_lines": 11598,
-  "invoke_lines": 1882,
+  "embedded_lines": 11693,
+  "invoke_lines": 1880,
   "sovereign_places": 20
 }

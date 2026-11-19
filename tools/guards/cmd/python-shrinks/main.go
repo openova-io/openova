@@ -11,23 +11,34 @@
 // is a #! line that names python. A command file is any other file that is a
 // shell file (.sh .bash .zsh .ksh .bats), YAML (.yaml .yml), JSON (.json), a
 // template (.tpl .tftpl .j2), Terraform or HCL (.tf .hcl), a make or just file,
-// Go (.go), TypeScript or JavaScript (.ts .tsx .mts .cts .js .jsx .mjs .cjs), a
-// file of a scope below, or a file whose first line is a #! line; never a .md
-// or .txt file. A comment line is one that starts with # or //, but not a
-// //go:generate line, which runs its command. Of a Go, TypeScript or JavaScript
-// file only the lines that can run python are read: a //go:generate line, a line
-// that holds a string that is only the name of python ("python3"), and the lines
-// of a call that starts a process (exec.Command, exec.CommandContext,
-// syscall.Exec, os.StartProcess, spawn, spawnSync, exec, execSync, execFile,
-// execFileSync, fork, execa, Bun.spawn, Deno.Command) from its name to its
-// closing parenthesis; a string elsewhere, such as the fixture of a test, is
-// data. The totals are the keys of scripts/baselines/python.json:
+// Go (.go), Rust (.rs), TypeScript or JavaScript (.ts .tsx .mts .cts .js .jsx
+// .mjs .cjs), a file of a scope below, or a file whose first line is a #! line;
+// never a .md or .txt file. A comment line is one that starts with # or //, but
+// not a //go:generate line, which runs its command. Of a Go, Rust, TypeScript or
+// JavaScript file only the lines that can run python are read: a //go:generate
+// line, a line that holds a string that is only the name of python ("python3"),
+// and the lines of a call that starts a process (exec.Command,
+// exec.CommandContext, syscall.Exec, os.StartProcess, Command::new, spawn,
+// spawnSync, exec, execSync, execFile, execFileSync, fork, execa, Bun.spawn,
+// Deno.Command) from its name to its closing parenthesis; and a string that
+// starts with a #! line that names python is Python wherever it stands (a stub
+// that a test writes with os.WriteFile and runs). Any other string elsewhere,
+// such as the fixture of a test, is data. The totals are the keys of
+// scripts/baselines/python.json:
 //
 //	python_files       the Python files
 //	python_file_lines  the lines of the Python files
 //	embedded_lines     the lines of Python inside the command files:
 //	                   - the body of a here-document opened on a line that runs
 //	                     python or writes a .py file (<< or <<-, quoted or not);
+//	                   - the body of any other here-document whose first line is
+//	                     a #! line that names python (cat > "$BIN/curl" <<'PY'
+//	                     then #!/usr/bin/env python3: a program saved without
+//	                     the .py suffix and run later), the #! line included;
+//	                   - a string of a Go, Rust, TypeScript or JavaScript file
+//	                     that starts with a #! line that names python: its lines
+//	                     from the #! line to the last line that holds text (a \n
+//	                     of a string that is not raw ends a line);
 //	                   - the quoted program of python -c (a Go raw string or a
 //	                     template literal in backquotes too, and an argument
 //	                     list such as ["-c", ...]), and of a here-string
@@ -43,11 +54,15 @@
 //	                     of its job or of the workflow.
 //	                   A comment line opens nothing; lines that end in a
 //	                   backslash are read as one line.
-//	invoke_lines       the lines of the command files that name python, python3
-//	                   or python3.N as a command (as the kind invoke below), a
-//	                   comment line left out: exec.Command("python3", ...) and
-//	                   //go:generate python3 count. This is how a Python
-//	                   program saved without the .py suffix is run.
+//	invoke_lines       the lines of the command files that NAME python, python3
+//	                   or python3.N as a word (the pattern of the kind invoke
+//	                   below), a comment line left out: exec.Command("python3",
+//	                   ...) and //go:generate python3 count, and so do the text
+//	                   of an echo and prose in a YAML string that name python,
+//	                   which only makes the total stricter. Of a Go, Rust,
+//	                   TypeScript or JavaScript file only the lines read above
+//	                   count. This is how a Python program saved without the .py
+//	                   suffix is run.
 //	sovereign_places   the places where Python runs on a Sovereign or is
 //	                   installed in a shipped image, in the files of a scope.
 //
@@ -92,6 +107,12 @@
 // baseline can be lowered. There is no list of files and no exception list: a
 // rename or a move changes no total, and a new .py file raises python_files.
 //
+// What the guard does not see, by design: Python assembled or fetched at run
+// time (a program built from pieces, downloaded, or read from a Secret), an
+// encoded payload (base64 or compressed), and a file run by an interpreter chosen
+// at run time ("$INTERP" "$f"). docs/PRINCIPLES.md IV.4 forbids those all the
+// same; review holds them.
+//
 // --write-baseline writes the five totals of the tree. It refuses (exit 1) when
 // a total is higher than the baseline file, so it only lowers; when the file
 // does not exist it writes the first one. Exit 2 when the tree, the baseline
@@ -115,6 +136,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 const (
@@ -169,16 +192,17 @@ var (
 	// Python inside a file of another language.
 	heredocRe    = regexp.MustCompile(`(?:^|[^<])<<-?[ \t]*(?:'([^'\s]+)'|"([^"\s]+)"|\\?([A-Za-z_][A-Za-z0-9_]*))`)
 	writesPyRe   = regexp.MustCompile(`(?:>|\btee\s+(?:-a\s+)?)\s*["']?[^\s"'<>|;&]*\.py["']?(?:\s|<|$)`)
-	pyProgramRe  = regexp.MustCompile("(?:^|[\\s\"'\\[(=`{]|:-)(?:[A-Za-z0-9_.-]*/)*python[0-9]*(?:\\.[0-9]+)?[\"'`]?(?:(?:[\\s,\\[]+[\"'`]?-[A-Za-z]+[\"'`]?)*?[\\s,\\[]+[\"'`]?-c[\"'`]?[\\s,]*|(?:\\s+-[A-Za-z]*)*\\s*<<<\\s*)\\$?(\\\\?['\"]|`)")
+	pyProgramRe  = regexp.MustCompile("(?:^|[\\s\"'\\[(=`{]|:-)(?:[A-Za-z0-9_.-]*/)*python[0-9]*(?:\\.[0-9]+)?[\"'`]?(?:(?:[\\s,\\[]+[\"'`]?-[A-Za-z]+[\"'`]?)*?[\\s,\\[]+(?:[\"'`]-c[\"'`]|-c)[\\s,]*|(?:\\s+-[A-Za-z]*)*\\s*<<<\\s*)\\$?(\\\\?['\"]|`)")
 	programVar   = regexp.MustCompile(`^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$`)
 	blockRe      = regexp.MustCompile(`^([ \t]*)(?:-[ \t]+)?(?:["']?([^"'\s:#][^"':]*?)["']?[ \t]*:[ \t]+)?[|>][-+1-9]*[ \t]*(?:#.*)?$`)
 	embeddedExts = map[string]bool{".sh": true, ".bash": true, ".zsh": true, ".ksh": true, ".bats": true, ".yaml": true, ".yml": true,
 		".json": true, ".tpl": true, ".tftpl": true, ".tf": true, ".hcl": true, ".mk": true, ".j2": true}
 	embeddedNames = []string{"Makefile", "makefile", "GNUmakefile", "Justfile", "justfile"}
 
-	// Go, TypeScript and JavaScript: only the lines that can run python are read (runLines).
-	codeExts      = map[string]bool{".go": true, ".ts": true, ".tsx": true, ".mts": true, ".cts": true, ".js": true, ".jsx": true, ".mjs": true, ".cjs": true}
-	processCallRe = regexp.MustCompile(`\b(?:exec\.Command(?:Context)?|syscall\.Exec|os\.StartProcess|spawn(?:Sync)?|exec(?:Sync)?|execFile(?:Sync)?|fork|execa(?:Sync|Command|CommandSync)?|Bun\.spawn(?:Sync)?|Deno\.Command)\s*\(`)
+	// Go, Rust, TypeScript and JavaScript: only the lines that can run python are read (runLines).
+	codeExts = map[string]bool{".go": true, ".rs": true, ".ts": true, ".tsx": true, ".mts": true, ".cts": true, ".js": true, ".jsx": true,
+		".mjs": true, ".cjs": true}
+	processCallRe = regexp.MustCompile(`\b(?:exec\.Command(?:Context)?|syscall\.Exec|os\.StartProcess|Command::new|spawn(?:Sync)?|exec(?:Sync)?|execFile(?:Sync)?|fork|execa(?:Sync|Command|CommandSync)?|Bun\.spawn(?:Sync)?|Deno\.Command)\s*\(`)
 	pyNameRe      = regexp.MustCompile(`^(?:[A-Za-z0-9_.-]*/)*python[0-9]*(?:\.[0-9]+)?$`)
 
 	// The steps of a workflow or an action.
@@ -439,10 +463,14 @@ func measureFile(p, scope string, text []byte) (counts, []place) {
 		s := string(text)
 		var kept []bool // nil: every line is read
 		if codeExts[path.Ext(p)] {
-			kept = runLines(s)
+			var stubs int
+			kept, s, stubs = runLines(s, path.Ext(p))
+			c[embeddedLines] += stubs
 		}
 		if actionFile(p) {
-			c[embeddedLines], s = pythonSteps(s)
+			var steps int
+			steps, s = pythonSteps(s)
+			c[embeddedLines] += steps
 		}
 		c[embeddedLines] += embedded(s, kept)
 		c[invokeLines] = invocations(string(text), kept)
@@ -558,12 +586,18 @@ func invocations(text string, kept []bool) int {
 	return n
 }
 
-// runLines marks the lines of a Go, TypeScript or JavaScript file that can run python: a
-// //go:generate line; a line that holds a string that is only the name of python ("python3",
-// "/usr/bin/python3"); and the lines of a call that starts a process (exec.Command, spawn, ...),
-// from its name to its closing parenthesis. A string elsewhere, such as the fixture of a test, is
-// data. The file is read as code, strings (" ' and backquotes) and comments (// and /* */).
-func runLines(text string) []bool {
+// runLines marks the lines of a Go, Rust, TypeScript or JavaScript file (by its extension ext)
+// that can run python: a //go:generate line; a line that holds a string that is only the name of
+// python ("python3", "/usr/bin/python3"); and the lines of a call that starts a process
+// (exec.Command, Command::new, spawn, ...), from its name to its closing parenthesis. A string
+// that starts with a #! line that names python is Python wherever it stands: runLines returns the
+// number of its lines (stubs) and the text with each such string blanked, quotes included, so that
+// it is not read again as a program given to python -c. Any other string elsewhere, such as the
+// fixture of a test, is data. The file is read as code, strings (" ' and backquotes; in Rust also
+// raw strings r"..." r#"..."#, a " string over lines, and a lifetime 'a that is code) and comments
+// (// and /* */).
+func runLines(text, ext string) (kept []bool, data string, stubs int) {
+	rust := ext == ".rs"
 	starts := []int{0}
 	for i := 0; i < len(text); i++ {
 		if text[i] == '\n' {
@@ -571,10 +605,34 @@ func runLines(text string) []bool {
 		}
 	}
 	lineAt := func(off int) int { return sort.SearchInts(starts, off+1) - 1 }
-	kept := make([]bool, len(starts))
+	kept = make([]bool, len(starts))
 	code := make([]bool, len(text))
+	var blanked []byte
+	// str reads the string whose body is text[from:to] and whose quotes span text[open:end].
+	str := func(open, from, to, end int, raw bool) {
+		body := text[from:to]
+		if pyNameRe.MatchString(body) {
+			kept[lineAt(open)] = true
+		}
+		if n, ok := pythonStub(body, raw); ok {
+			stubs += n
+			if blanked == nil {
+				blanked = []byte(text)
+			}
+			for k := open; k < end; k++ {
+				if blanked[k] != '\n' {
+					blanked[k] = ' '
+				}
+			}
+		}
+	}
 	for i := 0; i < len(text); {
-		switch c := text[i]; {
+		c := text[i]
+		rawOpen, hashes := 0, 0
+		if rust && (c == 'r' || c == 'b') {
+			rawOpen, hashes = rustRawOpen(text, i)
+		}
+		switch {
 		case strings.HasPrefix(text[i:], "//"):
 			if strings.HasPrefix(text[i:], "//go:generate") {
 				kept[lineAt(i)] = true
@@ -590,22 +648,39 @@ func runLines(text string) []bool {
 				end = len(text) - i - 4
 			}
 			i += end + 4
+		case rawOpen > 0:
+			from := i + rawOpen
+			to := len(text)
+			if at := strings.Index(text[from:], `"`+strings.Repeat("#", hashes)); at >= 0 {
+				to = from + at
+			}
+			end := min(to+1+hashes, len(text))
+			str(i, from, to, end, true)
+			i = end
+		case rust && c == '\'' && !rustChar(text, i):
+			code[i] = true // a lifetime or a label
+			i++
 		case c == '"' || c == '\'' || c == '`':
+			// A Go raw string has no escapes; a " string of Rust and a template literal may span lines.
+			raw, lines := c == '`' && ext == ".go", c == '`' || rust && c == '"'
 			j := i + 1
-			for j < len(text) && text[j] != c && (c == '`' || text[j] != '\n') {
-				if text[j] == '\\' && c != '`' {
+			for j < len(text) && text[j] != c && (lines || text[j] != '\n') {
+				if text[j] == '\\' && !raw {
 					j++
 				}
 				j++
 			}
-			if pyNameRe.MatchString(text[i+1 : min(j, len(text))]) {
-				kept[lineAt(i)] = true
-			}
+			to := min(j, len(text))
+			str(i, i+1, to, min(j+1, len(text)), raw)
 			i = j + 1
 		default:
 			code[i] = true
 			i++
 		}
+	}
+	data = text
+	if blanked != nil {
+		data = string(blanked)
 	}
 	for _, m := range processCallRe.FindAllStringIndex(text, -1) {
 		if !code[m[0]] {
@@ -627,7 +702,93 @@ func runLines(text string) []bool {
 			kept[l] = true
 		}
 	}
-	return kept
+	return kept, data, stubs
+}
+
+// pythonStub is true for the body of a string that starts with a #! line that names python (blank
+// space and a \n before it are passed over), and returns its lines: from the #! line to the last
+// line that holds text. A newline of the source ends a line, and so does a \n of a string that is
+// not raw.
+func pythonStub(body string, raw bool) (int, bool) {
+	s := strings.TrimLeft(body, " \t\r\n")
+	for !raw && strings.HasPrefix(s, `\n`) {
+		s = strings.TrimLeft(s[2:], " \t\r\n")
+	}
+	if !strings.HasPrefix(s, "#!") {
+		return 0, false
+	}
+	first := s
+	if k := strings.IndexByte(first, '\n'); k >= 0 {
+		first = first[:k]
+	}
+	if k := strings.Index(first, `\n`); k >= 0 && !raw {
+		first = first[:k]
+	}
+	if !shebangRe.MatchString(strings.TrimSuffix(first, "\r")) {
+		return 0, false
+	}
+	for {
+		s = strings.TrimRight(s, " \t\r\n")
+		if raw || !endsInEscapedNewline(s) {
+			break
+		}
+		s = s[:len(s)-2]
+	}
+	n := 1 + strings.Count(s, "\n")
+	if !raw {
+		n += escapedNewlines(s)
+	}
+	return n, true
+}
+
+// endsInEscapedNewline is true when s ends in a \n escape, not in an escaped backslash and an n.
+func endsInEscapedNewline(s string) bool {
+	if !strings.HasSuffix(s, `\n`) {
+		return false
+	}
+	k := 0
+	for i := len(s) - 2; i >= 0 && s[i] == '\\'; i-- {
+		k++
+	}
+	return k%2 == 1
+}
+
+// rustRawOpen returns the length of the opener of a Rust raw string at i (r" r#" br##" ...) and the
+// number of # in it, or 0 when none starts at i.
+func rustRawOpen(text string, i int) (int, int) {
+	if i > 0 && (text[i-1] == '_' || unicode.IsLetter(rune(text[i-1])) || unicode.IsDigit(rune(text[i-1]))) {
+		return 0, 0 // inside a name
+	}
+	j := i
+	if text[j] == 'b' {
+		j++
+	}
+	if j >= len(text) || text[j] != 'r' {
+		return 0, 0
+	}
+	j++
+	h := 0
+	for j < len(text) && text[j] == '#' {
+		j++
+		h++
+	}
+	if j >= len(text) || text[j] != '"' {
+		return 0, 0
+	}
+	return j + 1 - i, h
+}
+
+// rustChar is true when the ' at i opens a Rust character literal ('x', '\n', '\u{1F600}'), not
+// a lifetime or a label ('a, 'static).
+func rustChar(text string, i int) bool {
+	if i+1 >= len(text) {
+		return false
+	}
+	if text[i+1] == '\\' {
+		return true
+	}
+	_, size := utf8.DecodeRuneInString(text[i+1:])
+	return i+1+size < len(text) && text[i+1+size] == '\''
 }
 
 func indentOf(line string) int {
@@ -825,9 +986,11 @@ func embedded(text string, kept []bool) int {
 			}
 			from = closing + len(quote)
 		}
-		if programs == 0 && (invokeRe.MatchString(line) || writesPyRe.MatchString(line)) {
+		if programs == 0 {
+			// On a line that runs python or writes a .py file every here-document is Python; on
+			// any other line only one whose body starts with a #! line that names python.
 			var body int
-			body, next = heredocs(line, lines, next)
+			body, next = heredocs(line, lines, next, !invokeRe.MatchString(line) && !writesPyRe.MatchString(line))
 			n += body
 		}
 		i = next
@@ -852,7 +1015,7 @@ func embedded(text string, kept []bool) int {
 				next = sort.SearchInts(starts, closing+1)
 			default:
 				var body int
-				body, next = heredocs(logicalLine(lines, i, k), lines, next)
+				body, next = heredocs(logicalLine(lines, i, k), lines, next, false)
 				n += body
 			}
 			i = max(next, i+1)
@@ -900,9 +1063,11 @@ func quotedLines(text string, open int, quote string, lineEnd int) (int, int) {
 // heredocs counts the bodies of the here-documents opened on a logical line, in order: inside the
 // line when it is a quoted string of YAML or JSON (lines written \n), else on the lines from next
 // on. A << inside a body that was read is part of that body. It returns the line after the last
-// body.
-func heredocs(line string, lines []string, next int) (int, int) {
-	n, read := 0, 0
+// body. With stubsOnly (the line neither runs python nor writes a .py file) it counts only a body
+// whose first line is a #! line that names python, blanks the lines of that body in lines so that
+// they are not read again, and returns next: the other bodies are read line by line as before.
+func heredocs(line string, lines []string, next int, stubsOnly bool) (int, int) {
+	n, read, at := 0, 0, next
 	for _, m := range heredocRe.FindAllStringSubmatchIndex(line, -1) {
 		if m[0] < read {
 			continue
@@ -914,18 +1079,45 @@ func heredocs(line string, lines []string, next int) (int, int) {
 			}
 		}
 		if body, size, ok := inlineBody(line[m[1]:], delim); ok {
-			n += body
+			if !stubsOnly || shebangRe.MatchString(inlineFirst(line[m[1]:m[1]+size-2-len(delim)])) {
+				n += body
+			}
 			read = m[1] + size
 			continue
 		}
-		j := next
+		j := at
 		for j < len(lines) && strings.TrimSpace(lines[j]) != delim {
 			j++
 		}
-		n += j - next
-		next = j + 1
+		switch {
+		case !stubsOnly:
+			n += j - at
+		case j > at && shebangRe.MatchString(strings.TrimSpace(lines[at])):
+			n += j - at
+			for b := at; b < j; b++ {
+				lines[b] = ""
+			}
+		}
+		at = j + 1
 	}
-	return n, next
+	if stubsOnly {
+		return n, next
+	}
+	return n, at
+}
+
+// inlineFirst returns the first line of the body of a here-document written inside one quoted
+// line: the text after the first \n of what follows the opener, up to the next \n.
+func inlineFirst(rest string) string {
+	k := strings.Index(rest, `\n`)
+	if k < 0 {
+		return ""
+	}
+	first := rest[k+2:]
+	if e := strings.Index(first, `\n`); e >= 0 {
+		first = first[:e]
+	}
+	return strings.TrimSpace(first)
 }
 
 // inlineBody counts the lines of a here-document written inside one quoted line as
