@@ -43,7 +43,8 @@
 # GATE_PARENT_TRIES times (default 6, waiting GATE_PARENT_BACKOFF x attempt seconds, default 5).
 # The Pod's containers are read on every pass: every container must start within GATE_START_MINUTES
 # (default 30); a container that can never start fails the run at once, an image the node cannot
-# pull after GATE_PULL_MINUTES of back-off (default 5); once the container gate has ended, its log
+# pull after GATE_PULL_MINUTES of back-off (default 5); a Pod the scheduler has not placed is
+# reported with its phase and the scheduler's reason; once the container gate has ended, its log
 # is read whether the probe has ended or not, and the wait ends GATE_FOLLOW_GRACE_SECONDS (default
 # 300) after the Job's own deadline at the latest.
 #
@@ -320,7 +321,9 @@ pod_view() { # the containers of the Job's Pod, read from their statuses, as one
   #   started                 every container runs or has ended
   #   stuck <why>             a container can never start (its configuration or image name is wrong)
   #   backoff <why>           the node cannot pull an image and is backing off
-  #   waiting <why>           a container is still being created
+  #   waiting <why>           a container is still being created; when no container has a status and
+  #                           the Pod is not scheduled, <why> ends with its phase and the reason of
+  #                           its condition PodScheduled
   pk get pods -l "job-name=$1" -o json | python3 -c '
 import json, sys
 items = json.load(sys.stdin).get("items", [])
@@ -346,7 +349,13 @@ if not waiting:
 rs = {reason(n) for n in waiting}
 kind = ("stuck" if rs & {"CreateContainerConfigError", "CreateContainerError", "InvalidImageName", "ErrImageNeverPull"}
         else "backoff" if rs & {"ErrImagePull", "ImagePullBackOff"} else "waiting")
-print(kind + " " + ",".join(why(n) for n in waiting))'
+sched = next((c for c in status.get("conditions", []) or [] if c.get("type") == "PodScheduled"), {})
+note = ""
+if not cs and sched.get("status") != "True":
+    m =" ".join(str(sched.get("message", "")).split())[:300]
+    note = " (%s; not scheduled%s%s)" % (status.get("phase") or "no phase", ": " + str(sched["reason"]) if sched.get("reason") else "",
+                                         ", " + m if m else "")
+print(kind + " " + ",".join(why(n) for n in waiting) + note)'
 }
 
 view_filter() { # hides the file blocks from the streamed log
@@ -764,7 +773,8 @@ self_test() {
   # file of the test). STUB_FAIL_TIMES lost connections first, then STUB_FINAL (ok, forbidden,
   # exists). It writes every call into calls, the Job state from job.state, the log from log.txt;
   # the Pod's container gate is in the state STUB_GATE, the container probe (when STUB_PROBE is
-  # set) in the state STUB_PROBE, a JSON object; STUB_HANG: following the log never ends the Job.
+  # set) in the state STUB_PROBE, a JSON object; STUB_HANG: following the log never ends the Job;
+  # STUB_UNSCHEDULED: the Pod is Pending, not scheduled, with that message and no container status.
   mkdir -p "$T/bin"
   cat > "$T/bin/kubectl" <<'STUB'
 #!/usr/bin/env bash
@@ -781,7 +791,11 @@ case "$a" in
   *" create -f "*) f="${a#* create -f }"; f="${f%% *}"; cp "$f" "$S/created-$(basename "$f")"; echo created ;;
   *" get job "*) printf '{"status": {%s}}\n' "$(cat "$S/job.state" 2>/dev/null)" ;;
   *" get pods "*) p=""; [ -z "${STUB_PROBE:-}" ] || p=', {"name": "probe", "state": '"$STUB_PROBE"'}'
-    echo '{"items": [{"status": {"phase": "Running", "containerStatuses": [{"name": "gate", "state": {"'"${STUB_GATE:-running}"'": {}}}'"$p"']}}]}' ;;
+    if [ -n "${STUB_UNSCHEDULED:-}" ]; then
+      echo '{"items": [{"spec": {"containers": [{"name": "gate"}, {"name": "probe"}]}, "status": {"phase": "Pending", "conditions": [{"type": "PodScheduled", "status": "False", "reason": "Unschedulable", "message": "'"$STUB_UNSCHEDULED"'"}]}}]}'
+    else
+      echo '{"items": [{"status": {"phase": "Running", "containerStatuses": [{"name": "gate", "state": {"'"${STUB_GATE:-running}"'": {}}}'"$p"']}}]}'
+    fi ;;
   *" logs -f "*) cat "$S/log.txt"; [ -n "${STUB_HANG:-}" ] || echo '"succeeded": 1' > "$S/job.state" ;;
   *" logs "*) cat "$S/log.txt" ;;
   *" delete "*) echo deleted ;;
@@ -938,6 +952,15 @@ PY
   o=$?
   [ "$o" = 1 ] && grep -q 'did not start within 0 minutes; last: backoff probe:ImagePullBackOff' "$T/r7.out" && ! grep -q 'could not pull' "$T/r7.out"
   ok $? "run: a back-off shorter than GATE_PULL_MINUTES is waited on, within the bound GATE_START_MINUTES"
+  reset_stub
+  ( export GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" GITHUB_RUN_ID=54 GATE_START_MINUTES=0
+    export STUB_UNSCHEDULED='0/1 nodes are available: 1 Insufficient memory. preemption: 0/1 nodes are available: 1 No preemption victims found for incoming pod.'
+    TOOLS="$T/tools" cmd_run --mode live --out "$T/r12" --job-image "$JI" --probe-image "$PI" ) > "$T/r12.out" 2>&1
+  o=$?
+  [ "$o" = 1 ] && grep -q 'the Pod of the Job: waiting gate:not created,probe:not created (Pending; not scheduled: Unschedulable, 0/1 nodes are available: 1 Insufficient memory\.' "$T/r12.out" \
+    && grep -q 'did not start within 0 minutes; last: waiting gate:not created,probe:not created (Pending; not scheduled: Unschedulable, 0/1 nodes' "$T/r12.out" \
+    && ! grep -q ' logs ' "$T/calls" && grep -q "delete job gate-54-1-live-" "$T/calls" && grep -q "delete secret gate-54-1-live-" "$T/calls"
+  ok $? "run: a Pod the scheduler has not placed is reported with its phase and the scheduler's reason, and the Job is deleted"
   reset_stub
   ( export GATE_KUBECONFIG_A="$T/ka" GATE_KUBECONFIG_B="$T/kb" GITHUB_RUN_ID=50 STUB_PROBE='{"waiting": {"reason": "CreateContainerConfigError", "message": "no such key"}}'
     TOOLS="$T/tools" cmd_run --mode live --out "$T/r8" --job-image "$JI" --probe-image "$PI" ) > "$T/r8.out" 2>&1
