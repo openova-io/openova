@@ -46,6 +46,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/orgpromote"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/store"
 )
 
@@ -135,6 +136,10 @@ func (h *Handler) reconcileTenantRegistryOnce(ctx context.Context) {
 	if registered > 0 {
 		h.log.Info("tenant-registry-reconcile: pass complete",
 			"orgs", len(list.Items), "registered", registered, "skipped", skipped)
+	}
+	// Records the pipeline holds at tenant_registered run again once their CR is listed (orgpromote).
+	if s := h.orgTenantDeps.Store; s != nil {
+		orgpromote.Run(ctx, s.ListPending(), list.Items, h.runOrganizationPipeline)
 	}
 }
 

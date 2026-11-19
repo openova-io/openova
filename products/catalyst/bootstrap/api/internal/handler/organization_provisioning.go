@@ -26,10 +26,8 @@
 // State machine: see store.OrganizationProvisionState. Each step is
 // independently idempotent; the orchestrator persists the row at every
 // state transition so a Pod restart never strands a half-provisioned
-// tenant. The reconciler is event-driven (NATS subject
-// `org.tenant.reconcile-pending`) per Inviolable Principle 1 and
-// ADR-0001 §6 — never a Kubernetes CronJob, never a goroutine
-// `time.Tick`.
+// tenant. A record held at tenant_registered is re-run by the
+// tenant-registry pass (tenant_registry_reconcile.go, orgpromote).
 //
 // HTTP surface:
 //
@@ -1553,11 +1551,9 @@ func (h *Handler) runOrganizationPipeline(ctx context.Context, rec store.Organiz
 		// unobservable — holds the record at STSTenantRegistered, the
 		// highest NON-terminal state, meaning exactly "every side effect
 		// the orchestrator owns is committed; the substrate has not been
-		// confirmed". Nothing is stranded: ListPending returns every
-		// non-terminal row, so the NATS-driven reconciler
-		// (ReconcileAllPending) re-runs this step until the boundary comes
-		// up, and both finalisers above are idempotent so they are simply
-		// re-ensured on each pass.
+		// confirmed". The tenant-registry pass (orgpromote) re-runs this
+		// step every minute while the Org's CR exists; both finalisers
+		// above are idempotent, so each pass simply re-ensures them.
 		phase, ready := h.observeOrgBoundary(ctx, rec)
 		rec.BoundaryPhase = phase
 		if !ready {
@@ -1593,19 +1589,12 @@ func (h *Handler) runOrganizationPipeline(ctx context.Context, rec store.Organiz
 	return rec
 }
 
-/* ── Reconciler hook (NATS-driven) ─────────────────────────────── */
+/* ── Reconciler hook ───────────────────────────────────────────── */
 
-// ReconcileAllPending walks every non-terminal record and re-runs the
-// pipeline. Called from the NATS subscriber main.go wires on the
-// `org.tenant.reconcile-pending` subject (see ADR-0003 §3.5 for the
-// architectural pattern — heartbeat-to-self instead of CronJob).
-//
-// The reconciler is NOT a goroutine `time.Tick` and NOT a Kubernetes
-// CronJob — both violate Inviolable Principle 1. The catalyst-api's
-// main.go publishes a heartbeat envelope on
-// `org.tenant.reconcile-pending` every 30s; the consumer (in the
-// same process) handles the heartbeat by calling this method. Tests
-// invoke it directly to exercise the reconcile path.
+// ReconcileAllPending re-runs the pipeline for every non-terminal record.
+// Nothing in production calls it (no NATS heartbeat was ever wired); the
+// re-run that does happen is the tenant-registry pass, which re-runs only the
+// records held at tenant_registered whose Organization CR exists (orgpromote).
 func (h *Handler) ReconcileAllPending(ctx context.Context) {
 	deps := h.orgTenantDeps
 	if deps.Store == nil {
