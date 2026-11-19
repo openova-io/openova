@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T18:00:02Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-19T18:15:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-19T18:10 | [#8380](https://github.com/openova-io/openova/pull/8380) | #8374 | fix(guards): the Python guard counts code and configuration, |
 | 2026-11-19T16:14 | [#8372](https://github.com/openova-io/openova/pull/8372) | #7087 | docs(ledger): plan update |
 | 2026-11-19T16:20 | [#8371](https://github.com/openova-io/openova/pull/8371) | #8365 | refactor(cloud-init): first boot applies one root Kustomizat |
 | 2026-11-19T16:27 | [#8370](https://github.com/openova-io/openova/pull/8370) | #8356 | refactor(kit): every kit release carries its ring label, the |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-19T12:18 | [#8330](https://github.com/openova-io/openova/pull/8330) | #5400 | fix(auth): the sign-in broker's backchannel Service exists i |
 | 2026-11-19T13:40 | [#8329](https://github.com/openova-io/openova/pull/8329) | fix(org): an Organization created through the console reache |  |
 | 2026-11-19T11:16 | [#8328](https://github.com/openova-io/openova/pull/8328) | #8326 | docs(ledger): result of the lab test AIP-031, Organization-s |
-| 2026-11-19T11:04 | [#8327](https://github.com/openova-io/openova/pull/8327) | #8313 | docs(ledger): result of the spike SOV-321, the own mail serv |
 
 ---
 
