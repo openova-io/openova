@@ -61,8 +61,8 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
 
-	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/auth"
 	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/helmwatch"
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/retrycall"
 )
 
 // ── Contract constants ──────────────────────────────────────────────
@@ -354,7 +354,7 @@ func (h *Handler) HandleScheduleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clone, err := buildScheduleClone(source, body, retryOperatorIdentity(auth.ClaimsFromContext(r.Context()), r))
+	clone, err := buildScheduleClone(source, body, retrycall.Caller(r))
 	if err != nil {
 		writeBadRequest(w, "invalid-source", err.Error())
 		return

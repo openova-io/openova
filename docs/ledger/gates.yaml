@@ -450,12 +450,13 @@ checks:
 - id: BSS-G01
   title: Self-service onboarding
   owner: BSS
-  state: not-built
+  state: expected-fail
   runs_in: [cloud]
   destructive: false
   needs: []
   proof: running
   asserts: Self-service onboarding
+  implementation: tests/acceptance/sovereign/internal/suite/check_bss_onboarding.go
   implemented_by: BSS-060
   delivered_by: BSS-070
 - id: BSS-G02

@@ -128,6 +128,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/openova-io/openova/products/catalyst/bootstrap/api/internal/retrycall"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -2927,16 +2928,15 @@ func (h *Handler) HandleCutoverStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Run the engine with a context independent of the request so a
-	// client disconnect doesn't cancel a multi-step cutover. The
-	// cutoverStepTimeout on each step bounds the overall runtime.
-	//
-	// operatorRetry=true (#3379): this is the operator-session CTA path
-	// (behind RequireSession). A deliberate human re-POST of /start after a
-	// step failed GENUINELY (e.g. the hw139 step-10 residual-tether FATAL,
-	// now fixed in chart 0.1.62) deletes the prior failed Job + re-runs the
-	// step. The in-cluster auto-trigger + startup-resume keep this false
-	// (fail-closed) so an unattended genuine failure never auto-loops.
+	// Run the engine with a context independent of the request, so a client
+	// disconnect doesn't cancel a multi-step cutover (cutoverStepTimeout bounds
+	// each step). operatorRetry=true (#3379): this is the operator-session CTA
+	// path (behind RequireSession); a deliberate human re-POST of /start after
+	// a step failed GENUINELY (e.g. the hw139 step-10 residual-tether FATAL)
+	// deletes the prior failed Job and re-runs the step, a retry call (FND-G02).
+	// The in-cluster auto-trigger + startup-resume keep this false (fail-closed)
+	// so an unattended genuine failure never auto-loops.
+	RecordRetryCall(h, h.resolveCutoverDeployment(), "", retrycall.RouteCutoverStart, retrycall.CutoverTarget(remirror), r)
 	go h.runCutoverWith(context.Background(), deps, steps, cutoverRunOpts{operatorRetry: true, remirror: remirror})
 
 	// Re-read status so the response reflects the freshly-patched

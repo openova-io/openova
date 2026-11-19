@@ -75,6 +75,22 @@ func TestCreateDeployment_ManagedPoolReservesViaPDM(t *testing.T) {
 	if fake.reserves[0].pool != "omani.works" || fake.reserves[0].sub != "omantel" {
 		t.Errorf("reserve called with wrong args: %+v", fake.reserves[0])
 	}
+	// FND-G02: a new deployment records retry calls from its creation on,
+	// so its list starts empty, never absent.
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &created); err != nil || created.ID == "" {
+		t.Fatalf("201 body names no id: %s (%v)", w.Body.String(), err)
+	}
+	val, ok := h.deployments.Load(created.ID)
+	if !ok {
+		t.Fatalf("deployment %s is not loaded", created.ID)
+	}
+	dep := val.(*Deployment)
+	if calls := dep.retries.List(); calls == nil || len(calls) != 0 {
+		t.Errorf("a new deployment must start with an empty list of retry calls, got %#v", calls)
+	}
 }
 
 func TestCreateDeployment_PDMConflictBlocksDeployment(t *testing.T) {

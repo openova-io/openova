@@ -56,6 +56,10 @@ type NetworkRegistry struct {
 	Records  func() (DeploymentRecords, error)
 	Clusters func() Clusters
 	StateDir func() string
+	// Accepted, when set, is told of every request of the route whose
+	// reconcile ran (200 or 502, not a refusal): the parent records it as a
+	// retry call of the deployment (gate check FND-G02).
+	Accepted func(r *http.Request, id string)
 }
 
 // deploymentID is the shape of a deployment id the route accepts; any other
@@ -180,6 +184,9 @@ func (n *NetworkRegistry) Serve(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "network-registry-not-delivered", "detail": err.Error()})
 		return
+	}
+	if n.Accepted != nil {
+		n.Accepted(r, rec.ID)
 	}
 	n.log().Info("network-registry", "id", rec.ID, "trigger", "route", "revision", rev, "regions", regions)
 	code := http.StatusOK
