@@ -929,6 +929,44 @@ run "k3s_server_and_agent_tokens" {
   }
 }
 
+# ── AIP-201: the Pod Certificate gates follow the k3s line ───────────────
+# From k3s 1.35 on, the control plane starts k3s with the feature gates
+# ClusterTrustBundle, ClusterTrustBundleProjection and PodCertificateRequest on
+# the API server, controller manager, scheduler and kubelet, and with
+# certificates.k8s.io/v1beta1 served; every worker's kubelet gets the gates.
+# Below 1.35 a server with these gates does not start, so nothing is added.
+run "pod_certificate_gates_absent_below_k3s_1_35" {
+  command = plan
+
+  assert {
+    condition     = !strcontains(local.control_plane_cloud_init, "feature-gates")
+    error_message = "AIP-201: below k3s 1.35 the control-plane cloud-init must carry no feature gate."
+  }
+
+  assert {
+    condition     = !strcontains(local.worker_cloud_init, "feature-gates")
+    error_message = "AIP-201: below k3s 1.35 the worker cloud-init must carry no feature gate."
+  }
+}
+
+run "pod_certificate_gates_from_k3s_1_35" {
+  command = plan
+
+  variables {
+    k3s_version = "v1.35.10+k3s1"
+  }
+
+  assert {
+    condition     = strcontains(local.control_plane_cloud_init, " --kube-apiserver-arg=feature-gates=ClusterTrustBundle=true,ClusterTrustBundleProjection=true,PodCertificateRequest=true --kube-apiserver-arg=runtime-config=certificates.k8s.io/v1beta1=true --kube-controller-manager-arg=feature-gates=ClusterTrustBundle=true,ClusterTrustBundleProjection=true,PodCertificateRequest=true --kube-scheduler-arg=feature-gates=ClusterTrustBundle=true,ClusterTrustBundleProjection=true,PodCertificateRequest=true --kubelet-arg=feature-gates=ClusterTrustBundle=true,ClusterTrustBundleProjection=true,PodCertificateRequest=true --write-kubeconfig-mode=0600")
+    error_message = "AIP-201: on k3s 1.35 the control-plane cloud-init must start k3s with the five gate flags after k3s_extra_args."
+  }
+
+  assert {
+    condition     = strcontains(local.worker_cloud_init, " --kubelet-arg=feature-gates=ClusterTrustBundle=true,ClusterTrustBundleProjection=true,PodCertificateRequest=true\"")
+    error_message = "AIP-201: on k3s 1.35 the worker cloud-init must start the kubelet with the gates."
+  }
+}
+
 # ── SOV-131: HANDOVER_AUTO reaches FIRE_CUTOVER_ON_HANDOVER; a document
 # without exactly the keys of contract C5 is refused at plan time.
 run "variables_handover_auto_reaches_cloud_init" {
