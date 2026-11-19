@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T18:45:03Z` |
+| Last refreshed | `2026-11-19T19:00:05Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -335,8 +335,8 @@ flowchart LR
 | 2026-11-19T14:16 | [#8338](https://github.com/openova-io/openova/pull/8338) | fix(ci): the local pack's teardown no longer fails a run who |  |
 | 2026-11-19T13:52 | [#8337](https://github.com/openova-io/openova/pull/8337) | #7087 | docs(ledger): plan update |
 | 2026-11-19T13:35 | [#8336](https://github.com/openova-io/openova/pull/8336) | #7087 | docs(ledger): plan update |
+| 2026-11-19T18:52 | [#8335](https://github.com/openova-io/openova/pull/8335) | #8334 | feat(cortex): query process with the realm token check, the  |
 | 2026-11-19T13:08 | [#8333](https://github.com/openova-io/openova/pull/8333) | #7087 | docs(ledger): plan update |
-| 2026-11-19T15:52 | [#8332](https://github.com/openova-io/openova/pull/8332) | #8333 | feat(guards): Python may only shrink, and no new Python file |
 
 ---
 
