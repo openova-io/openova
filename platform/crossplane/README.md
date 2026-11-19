@@ -42,7 +42,7 @@ flowchart TB
 
 ## OpenTofu vs Crossplane
 
-Catalyst uses **OpenTofu** (the open-source Terraform fork) for bootstrap IaC, not Terraform. See [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §3.2 and [`platform/opentofu/`](../opentofu/).
+Catalyst uses **OpenTofu** (the open-source Terraform fork) for bootstrap IaC, not Terraform. See [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §3.2.
 
 | Aspect | OpenTofu | Crossplane |
 |--------|----------|------------|

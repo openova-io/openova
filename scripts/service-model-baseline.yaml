@@ -5,7 +5,7 @@ counts:
   G1.name-without-bp-prefix: 0
   G2.visibility-missing: 0
   G2.api-version-not-v1: 1
-  G3.wizard-groups-entries: 57
+  G3.wizard-groups-entries: 47
   G3.hand-seed-blueprints: 0
   G3.storefront-seed-rows: 31
   G3.provisioning-map-keys: 15
@@ -17,10 +17,10 @@ counts:
   G5.label-tier: 0
   G5.label-section: 1
   G6.function-test-charts: 32
-  G7.seed-exclusions: 23
+  G7.seed-exclusions: 16
   G8.slots-without-ring: 64
   G8.ring-edges-outside: 0
-  G9.wizard-ids-without-chart: 13
+  G9.wizard-ids-without-chart: 3
   G9.raw-image-apps: 12
   G9.coming-soon-rows: 13
   G9.system-rows-external-chart: 3
