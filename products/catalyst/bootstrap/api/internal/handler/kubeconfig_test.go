@@ -1319,3 +1319,69 @@ func TestGetKubeconfig_PerRegion_PrimaryRegionResolvesViaBarePath(t *testing.T) 
 		t.Fatalf("unknown-region status = %d, want 409; body=%s", w2.Code, w2.Body.String())
 	}
 }
+
+// SOV-341 — after hand-over the parent's record of a deployment carries
+// no kubeconfig path (only the bearer hash), while the parent still holds
+// the primary's file at the bare `<id>.yaml`. GET must serve that file,
+// with no region and with the primary's cloud region, as it serves a
+// follower's `<id>-<region>.yaml`. Without a file every answer stays as
+// before: 409 not-implemented with no region, 409 kubeconfig-file-missing
+// with a region.
+func TestGetKubeconfig_RecordWithoutPathServesBarePrimaryFile(t *testing.T) {
+	kubeconfigsDir := t.TempDir()
+	st, _ := store.New(t.TempDir())
+	h := NewWithStoreAndKubeconfigsDir(silentLogger(), &fakePDM{}, st, kubeconfigsDir)
+
+	const primary, follower = "region-a", "region-b"
+	handedOver := func(id string) *Deployment {
+		return &Deployment{
+			ID:        id,
+			Status:    "ready",
+			StartedAt: time.Now(),
+			eventsCh:  make(chan provisioner.Event, 256),
+			done:      make(chan struct{}),
+			Request: provisioner.Request{
+				SovereignFQDN: "test." + id + ".example",
+				Region:        primary,
+				Regions:       []provisioner.RegionSpec{{CloudRegion: primary}, {CloudRegion: follower}},
+			},
+			// No KubeconfigPath: the shape of a handed-over record.
+			Result: &provisioner.Result{SovereignFQDN: "test." + id + ".example"},
+		}
+	}
+	held, gone := "sov341-held", "sov341-gone"
+	h.deployments.Store(held, handedOver(held))
+	h.deployments.Store(gone, handedOver(gone))
+	followerYAML := strings.Replace(validKubeconfigYAML, "TEST-CA-MARKER", "FOLLOWER-CA-MARKER", 1)
+	for name, body := range map[string]string{held + ".yaml": validKubeconfigYAML, held + "-" + follower + ".yaml": followerYAML} {
+		if err := os.WriteFile(filepath.Join(kubeconfigsDir, name), []byte(body), 0o600); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	cases := []struct {
+		name, id, query string
+		wantCode        int
+		wantBody        string
+	}{
+		{"primary file, no region", held, "", http.StatusOK, "TEST-CA-MARKER"},
+		{"primary file, primary cloud region", held, "?region=" + primary, http.StatusOK, "TEST-CA-MARKER"},
+		{"follower file as before", held, "?region=" + follower, http.StatusOK, "FOLLOWER-CA-MARKER"},
+		{"unknown region as before", held, "?region=does-not-exist", http.StatusConflict, "kubeconfig-file-missing"},
+		{"no file, no region as before", gone, "", http.StatusConflict, "not-implemented"},
+		{"no file, primary cloud region as before", gone, "?region=" + primary, http.StatusConflict, "kubeconfig-file-missing"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/"+c.id+"/kubeconfig"+c.query, nil)
+			rctx := chi.NewRouteContext()
+			rctx.URLParams.Add("id", c.id)
+			r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
+			h.GetKubeconfig(w, r)
+			if w.Code != c.wantCode || !strings.Contains(w.Body.String(), c.wantBody) {
+				t.Fatalf("status = %d, want %d with %q; body=%s", w.Code, c.wantCode, c.wantBody, w.Body.String())
+			}
+		})
+	}
+}
