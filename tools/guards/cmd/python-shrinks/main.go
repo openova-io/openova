@@ -1,43 +1,53 @@
-// Command python-shrinks keeps Python in this repository from growing, file by
-// file.
+// Command python-shrinks keeps the Python of this repository from growing.
 //
 // The languages of this repository are Go, Rust where a design record says so,
 // TypeScript for the consoles and shell for a few lines of glue
-// (docs/PRINCIPLES.md IV.4). The Python that exists is debt to port: each file
-// that holds Python is listed in the baseline with its own number of lines,
-// and that number only falls. A file the exception list names, with a
-// one-line reason, is not counted.
+// (docs/PRINCIPLES.md IV.4). No new Python is written, neither as a file nor
+// inside another file. The Python that exists stays for now, so this guard only
+// prevents: it measures five totals and fails when one of them rises.
 //
 // It reads the files Git lists (the tracked files, and new files Git does not
-// ignore) and compares them with scripts/baselines/python.json:
+// ignore). A Python file is a path that ends in .py, or a file whose first line
+// is a #! line that names python. A command file is any other file that is a
+// shell file (.sh .bash .zsh .ksh .bats), YAML (.yaml .yml), JSON (.json), a
+// template (.tpl .tftpl .j2), Terraform or HCL (.tf .hcl), a make or just file,
+// a file of a scope below, or a file whose first line is a #! line; never a .md
+// or .txt file. The totals are the keys of scripts/baselines/python.json:
 //
-//	python_files  every file that holds Python -> its lines of Python
-//	sites         the places where Python runs on a Sovereign or is put into a
-//	              shipped image: kind -> path -> number of places
+//	python_files       the Python files
+//	python_file_lines  the lines of the Python files
+//	embedded_lines     the lines of Python inside the command files:
+//	                   - the body of a here-document opened on a line that runs
+//	                     python or writes a .py file (<< or <<-, quoted or not);
+//	                   - the quoted program of python -c, and of a here-string
+//	                     (<<<) given to python, from its quote to the closing
+//	                     quote; when it is "$NAME", the text assigned to NAME;
+//	                   - the body of a YAML block scalar (| or >) whose key ends
+//	                     in .py, or whose first line is a #! line that names
+//	                     python;
+//	                   - the run of a step of a workflow (.github/workflows/) or
+//	                     of an action (action.yml, action.yaml) whose shell is
+//	                     python (shell: python, python3, python {0}): the shell of
+//	                     the step, or else the run default (defaults: run: shell:)
+//	                     of its job or of the workflow.
+//	                   A comment line (#) opens nothing; lines that end in a
+//	                   backslash are read as one line.
+//	invoke_lines       the lines of the command files that name python, python3
+//	                   or python3.N as a command (as the kind invoke below), a
+//	                   comment line (# or //) left out. This is how a Python
+//	                   program saved without the .py suffix is run.
+//	sovereign_places   the places where Python runs on a Sovereign or is
+//	                   installed in a shipped image, in the files of a scope.
 //
-// The lines of Python of a file:
+// The scopes:
 //
-//	a Python file  a path that ends in .py, or a file whose first line is a #!
-//	               line that names python: every line.
-//	another file   a shell, YAML, template, Terraform, HCL or make file, a
-//	               container file, a file of a scope below, or a file whose
-//	               first line is a #! line (never a .md or .txt file):
-//	               - the body of a here-document opened on a line that runs
-//	                 python or writes a .py file (<< or <<-, quoted or not);
-//	               - the quoted program of python -c, and of a here-string (<<<)
-//	                 given to python, from its quote to the closing quote;
-//	               - the body of a YAML block scalar (| or >) whose key ends in
-//	                 .py, or whose first line is a #! line that names python.
-//	               A comment line (#) opens nothing; lines that end in a
-//	               backslash are read as one line.
-//
-// The files read for places (the scope):
-//
-//	chart      a file under templates/ or files/ of a chart (a folder that holds
-//	           a Chart.yaml Git lists), other than a .md or .txt file
-//	cloudinit  a file under infra/providers/ whose name starts with cloudinit or
-//	           cloud-init and ends in .tftpl, .tpl, .yaml or .yml
-//	image      a file whose name starts with Containerfile or Dockerfile
+//	chart  a file under templates/ or files/ of a chart (a folder that holds a
+//	       Chart.yaml Git lists), other than a .md or .txt file
+//	node   a file under infra/providers/ that builds the start-up data of the
+//	       nodes: a template whose name starts with cloudinit or cloud-init and
+//	       ends in .tftpl, .tpl, .yaml or .yml, and every Terraform file (.tf),
+//	       whose here-documents templatefile() puts into that cloud-init
+//	image  a file whose name starts with Containerfile or Dockerfile
 //
 // The kinds of place. A line that starts with # (a comment) and a Go template
 // comment {{/* */}} hold none. Lines that end in a backslash are read as one
@@ -57,30 +67,21 @@
 //	         quote, ], ), }, a comma, <, >, |, ; or &. A LABEL line of an image
 //	         file is not read.
 //
-// The rules. Exit 1 when one fails:
+// The guard fails (exit 1) only when a total is higher than its baseline. It
+// names the total and by how much, and with --base <commit> it lists the files
+// whose share of that total grew against <commit> (a renamed or moved file is
+// compared with its old path). With --base the baseline of a total is the lower
+// of the baseline file and the same file at <commit>, so a baseline raised in
+// the change under test raises nothing. A total lower than its baseline passes,
+// with one line that says the baseline can be lowered. There is no list of
+// files and no exception list: a rename or a move changes no total, and a new
+// .py file raises python_files.
 //
-//  1. A file that holds Python and that python_files does not list is new.
-//  2. No file holds more lines of Python than python_files lists for it.
-//  3. No path holds more places of a kind than sites lists for it; a place in
-//     a path that sites does not list for that kind is a new place.
-//  4. The baseline is not stale: a file that holds fewer lines of Python, or a
-//     path that holds fewer places, than the baseline lists fails until the
-//     baseline is lowered with --write-baseline. Room Python gave up cannot be
-//     taken again later.
-//  5. An exception names a file Git lists that holds Python, once, with a
-//     reason of one line and ten characters or more. A file it names is not
-//     counted by rules 1 to 4; since every file has its own number, it frees
-//     no room for any other file.
-//  6. With --base <commit>: no number of the baseline file is higher than in
-//     the same file at <commit>, and it lists no file or place that it did not
-//     list there. When the file does not exist at <commit> there is nothing to
-//     compare.
-//
-// --write-baseline writes the baseline from the tree and keeps the exception
-// list; it refuses (exit 1) when rule 1, 2, 3 or 5 fails, so a baseline is
-// never raised and never gains a file or a place. Exit 2 when the tree, the
-// baseline or the base commit cannot be read. The baseline file has a code
-// owner (.github/CODEOWNERS), so an exception is added only with that review.
+// --write-baseline writes the five totals of the tree. It refuses (exit 1) when
+// a total is higher than the baseline file, so it only lowers; when the file
+// does not exist it writes the first one. Exit 2 when the tree, the baseline
+// file or the base commit cannot be read, and when the baseline file is missing
+// (without --write-baseline).
 package main
 
 import (
@@ -104,13 +105,35 @@ import (
 const (
 	me           = "python-shrinks"
 	baselinePath = "scripts/baselines/python.json"
-	schema       = "openova.io/guard-baseline/v1"
-	goLine       = "New tooling is written in Go (tools/guards, docs/PRINCIPLES.md IV.4); Python is added only as a named exception in " + baselinePath + "."
+	schema       = "openova.io/guard-baseline/v2"
+	goLine       = "New code and tooling are written in Go (tools/guards, docs/PRINCIPLES.md IV.4); no new Python, neither as a file nor inside another file."
+	lowerLine    = "the baseline can be lowered: cd tools/guards && go run ./cmd/python-shrinks --write-baseline"
 
-	scopeChart     = "chart"
-	scopeCloudInit = "cloudinit"
-	scopeImage     = "image"
+	scopeChart = "chart"
+	scopeNode  = "node"
+	scopeImage = "image"
 )
+
+// The totals, in the order of the baseline file.
+const (
+	pyFiles = iota
+	pyFileLines
+	embeddedLines
+	invokeLines
+	sovereignPlaces
+	nTotals
+)
+
+var totalNames = [nTotals]string{"python_files", "python_file_lines", "embedded_lines", "invoke_lines", "sovereign_places"}
+
+// counts holds one number per total: of the tree, of a baseline, or the share of one file.
+type counts [nTotals]int
+
+func (c *counts) add(o counts) {
+	for i := range c {
+		c[i] += o[i]
+	}
+}
 
 // kinds are the kinds of place, in the order they are reported.
 var kinds = []string{"install", "invoke", "shebang"}
@@ -135,23 +158,13 @@ var (
 	programVar   = regexp.MustCompile(`^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$`)
 	blockRe      = regexp.MustCompile(`^([ \t]*)(?:-[ \t]+)?(?:["']?([^"'\s:#][^"':]*?)["']?[ \t]*:[ \t]+)?[|>][-+1-9]*[ \t]*(?:#.*)?$`)
 	embeddedExts = map[string]bool{".sh": true, ".bash": true, ".zsh": true, ".ksh": true, ".bats": true, ".yaml": true, ".yml": true,
-		".tpl": true, ".tftpl": true, ".tf": true, ".hcl": true, ".mk": true, ".j2": true}
+		".json": true, ".tpl": true, ".tftpl": true, ".tf": true, ".hcl": true, ".mk": true, ".j2": true}
 	embeddedNames = []string{"Makefile", "makefile", "GNUmakefile", "Justfile", "justfile"}
+
+	// The steps of a workflow or an action.
+	yamlKeyRe  = regexp.MustCompile(`^( *)((?:- +)*)([A-Za-z_][A-Za-z0-9_-]*) *:(?: +(.*))?$`)
+	blockValRe = regexp.MustCompile(`^[|>][-+0-9]*(?: +#.*)?$`)
 )
-
-type exception struct {
-	Path   string `json:"path"`
-	Reason string `json:"reason"`
-}
-
-// baseline is scripts/baselines/python.json. The fields are in the order of
-// their keys, so the file is written with its keys sorted.
-type baseline struct {
-	Exceptions  []exception               `json:"exceptions"`
-	PythonFiles map[string]int            `json:"python_files"`
-	Schema      string                    `json:"schema"`
-	Sites       map[string]map[string]int `json:"sites"`
-}
 
 type place struct {
 	kind string
@@ -161,10 +174,9 @@ type place struct {
 
 // tree is what the guard measured.
 type tree struct {
-	listed   map[string]bool // every regular file Git lists
-	python   map[string]int  // file that holds Python -> its lines of Python
-	embedded map[string]bool // a file of python whose Python sits inside another language
-	places   []place
+	files  map[string]counts // a file with a share of a total -> its share of each total
+	places []place
+	total  counts
 }
 
 func main() {
@@ -180,9 +192,9 @@ func run(args []string, out io.Writer) int {
 	flags := flag.NewFlagSet(me, flag.ContinueOnError)
 	flags.SetOutput(out)
 	root := flags.String("root", "", "the checkout to read (default: the top of the Git work tree of the current folder)")
-	base := flags.String("base", "", "also fail when the baseline file is higher than at this commit")
+	base := flags.String("base", "", "list the files that grew against this commit, and use the lower of the baseline file and the file at this commit")
 	write := flags.Bool("write-baseline", false, "write "+baselinePath+" from the tree; refuses to raise it")
-	list := flags.Bool("list", false, "print every Python file and every place, then judge")
+	list := flags.Bool("list", false, "print the share of every file and every place, then judge")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -200,11 +212,11 @@ func run(args []string, out io.Writer) int {
 
 func guard(root, base string, write, list bool, out io.Writer) (int, error) {
 	if root == "" {
-		top, err := topLevel()
+		top, err := gitOut("", "rev-parse", "--show-toplevel")
 		if err != nil {
-			return 0, err
+			return 0, fmt.Errorf("the current folder is not in a Git work tree: %v", err)
 		}
-		root = top
+		root = strings.TrimSpace(top)
 	}
 	t, err := measure(root)
 	if err != nil {
@@ -223,70 +235,118 @@ func guard(root, base string, write, list bool, out io.Writer) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("%s cannot be read: %v", baselinePath, err)
 	}
-	b, err := parseBaseline(data, baselinePath)
+	limit, err := parseBaseline(data, baselinePath)
 	if err != nil {
 		return 0, err
 	}
-	fails, stale := judge(t, b)
-	fails = append(fails, stale...)
 	var notes []string
 	if base != "" {
-		more, note, err := compareBase(root, base, b)
-		if err != nil {
+		if notes, err = lowerToBase(root, base, &limit); err != nil {
 			return 0, err
 		}
-		fails = append(fails, more...)
-		if note != "" {
-			notes = append(notes, note)
-		}
 	}
-	say(out, "%s: %s\n", me, summary(t, excepted(b, t)))
+	say(out, "%s: %s\n", me, summary(t))
 	for _, n := range notes {
 		say(out, "%s: note: %s\n", me, n)
 	}
-	for _, f := range fails {
-		say(out, "%s: FAIL %s\n", me, f)
+	rose, fell := judge(t.total, limit)
+	if len(fell) > 0 {
+		var parts []string
+		for _, i := range fell {
+			parts = append(parts, fmt.Sprintf("%s %d (baseline %d)", totalNames[i], t.total[i], limit[i]))
+		}
+		say(out, "%s: lower than the baseline: %s; %s\n", me, strings.Join(parts, ", "), lowerLine)
 	}
-	if len(fails) > 0 {
-		say(out, "%s: %d failure(s). %s\n", me, len(fails), goLine)
-		return 1, nil
+	if len(rose) == 0 {
+		return 0, nil
 	}
-	return 0, nil
+	var grown [nTotals][]string
+	if base != "" {
+		if grown, err = grownFiles(root, base, t); err != nil {
+			return 0, err
+		}
+	}
+	for _, i := range rose {
+		say(out, "%s: FAIL %s is %d, %d more than the baseline %d\n", me, totalNames[i], t.total[i], t.total[i]-limit[i], limit[i])
+		if base == "" {
+			continue
+		}
+		if len(grown[i]) == 0 {
+			say(out, "%s:   no file of the change grew against %s\n", me, base)
+		}
+		for _, g := range grown[i] {
+			say(out, "%s:   %s against %s\n", me, g, base)
+		}
+	}
+	say(out, "%s: %d total(s) above the baseline. %s\n", me, len(rose), goLine)
+	return 1, nil
+}
+
+// judge returns the totals above their baseline and the totals below it.
+func judge(now, limit counts) (rose, fell []int) {
+	for i := range now {
+		switch {
+		case now[i] > limit[i]:
+			rose = append(rose, i)
+		case now[i] < limit[i]:
+			fell = append(fell, i)
+		}
+	}
+	return rose, fell
 }
 
 // ---- measuring the tree
 
-func topLevel() (string, error) {
-	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	b, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("the current folder is not in a Git work tree: %v %s", err, strings.TrimSpace(stderr.String()))
-	}
-	return strings.TrimSpace(string(b)), nil
-}
-
-// listFiles returns the files Git lists below root: tracked, and new files Git does not ignore.
-func listFiles(root string) ([]string, error) {
-	cmd := exec.Command("git", "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+func gitOut(root string, args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
 	cmd.Dir = root
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	b, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("git ls-files in %s: %v %s", root, err, strings.TrimSpace(stderr.String()))
+		return "", fmt.Errorf("git %s in %q: %v %s", strings.Join(args, " "), root, err, strings.TrimSpace(stderr.String()))
+	}
+	return string(b), nil
+}
+
+// splitZ splits the output of a git command run with -z.
+func splitZ(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, "\x00") {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// listFiles returns the files Git lists below root: tracked, and new files Git does not ignore.
+func listFiles(root string) ([]string, error) {
+	b, err := gitOut(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+	if err != nil {
+		return nil, err
 	}
 	seen := map[string]bool{}
 	var paths []string
-	for _, p := range strings.Split(string(b), "\x00") {
-		if p != "" && !seen[p] {
+	for _, p := range splitZ(b) {
+		if !seen[p] {
 			seen[p] = true
 			paths = append(paths, p)
 		}
 	}
 	sort.Strings(paths)
 	return paths, nil
+}
+
+// chartsOf returns the folders that hold a Chart.yaml.
+func chartsOf(paths []string) map[string]bool {
+	charts := map[string]bool{}
+	for _, p := range paths {
+		if path.Base(p) == "Chart.yaml" {
+			charts[path.Dir(p)] = true
+		}
+	}
+	return charts
 }
 
 func measure(root string) (*tree, error) {
@@ -297,13 +357,8 @@ func measure(root string) (*tree, error) {
 	if len(paths) == 0 {
 		return nil, fmt.Errorf("git lists no file in %s", root)
 	}
-	charts := map[string]bool{}
-	for _, p := range paths {
-		if path.Base(p) == "Chart.yaml" {
-			charts[path.Dir(p)] = true
-		}
-	}
-	t := &tree{listed: map[string]bool{}, python: map[string]int{}, embedded: map[string]bool{}}
+	charts := chartsOf(paths)
+	t := &tree{files: map[string]counts{}}
 	fsys := os.DirFS(root)
 	for _, p := range paths {
 		info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(p)))
@@ -316,43 +371,50 @@ func measure(root string) (*tree, error) {
 		if !info.Mode().IsRegular() {
 			continue
 		}
-		t.listed[p] = true
 		scope := scopeOf(p, charts)
-		isPy := strings.HasSuffix(p, ".py")
 		var text []byte
-		if isPy || scope != "" {
+		if strings.HasSuffix(p, ".py") || readsEmbedded(p, scope, "") {
 			text, err = fs.ReadFile(fsys, p)
-		} else {
-			text, err = readHead(fsys, p, 512)
+		} else if text, err = readHead(fsys, p, 512); err == nil && bytes.HasPrefix(text, []byte("#!")) {
+			text, err = fs.ReadFile(fsys, p)
 		}
 		if err != nil {
 			return nil, err
 		}
-		if bytes.IndexByte(text, 0) >= 0 {
-			continue // not text
+		c, places := measureFile(p, scope, text)
+		if c != (counts{}) {
+			t.files[p] = c
+			t.total.add(c)
 		}
-		first := firstLine(text)
-		isPy = isPy || shebangRe.MatchString(first)
-		inner := !isPy && readsEmbedded(p, scope, first)
-		if (isPy || inner) && scope == "" && !strings.HasSuffix(p, ".py") {
-			if text, err = fs.ReadFile(fsys, p); err != nil {
-				return nil, err
-			}
-		}
-		switch {
-		case isPy:
-			t.python[p] = countLines(text)
-		case inner:
-			if n := embedded(string(text)); n > 0 {
-				t.python[p] = n
-				t.embedded[p] = true
-			}
-		}
-		if scope != "" {
-			t.places = append(t.places, scan(scope, p, string(text))...)
-		}
+		t.places = append(t.places, places...)
 	}
 	return t, nil
+}
+
+// measureFile returns the share of one file of each total, and its places.
+func measureFile(p, scope string, text []byte) (counts, []place) {
+	var c counts
+	if bytes.IndexByte(text, 0) >= 0 {
+		return c, nil // not text
+	}
+	first := firstLine(text)
+	switch {
+	case strings.HasSuffix(p, ".py") || shebangRe.MatchString(first):
+		c[pyFiles], c[pyFileLines] = 1, countLines(text)
+	case readsEmbedded(p, scope, first):
+		s := string(text)
+		if actionFile(p) {
+			c[embeddedLines], s = pythonSteps(s)
+		}
+		c[embeddedLines] += embedded(s)
+		c[invokeLines] = invocations(string(text))
+	}
+	var places []place
+	if scope != "" {
+		places = scan(scope, p, string(text))
+		c[sovereignPlaces] = len(places)
+	}
+	return c, places
 }
 
 func readHead(fsys fs.FS, name string, n int) ([]byte, error) {
@@ -393,8 +455,8 @@ func scopeOf(p string, charts map[string]bool) string {
 	if strings.HasPrefix(name, "Containerfile") || strings.HasPrefix(name, "Dockerfile") {
 		return scopeImage
 	}
-	if strings.HasPrefix(p, "infra/providers/") && cloudInitName.MatchString(name) {
-		return scopeCloudInit
+	if strings.HasPrefix(p, "infra/providers/") && (cloudInitName.MatchString(name) || strings.HasSuffix(name, ".tf")) {
+		return scopeNode
 	}
 	parts := strings.Split(p, "/")
 	for i := len(parts) - 1; i >= 1; i-- {
@@ -411,7 +473,8 @@ func scopeOf(p string, charts map[string]bool) string {
 	return ""
 }
 
-// readsEmbedded is true when a file of another language is read for Python inside it.
+// readsEmbedded is true for a command file: one that is read for Python inside it and for
+// lines that run python.
 func readsEmbedded(p, scope, first string) bool {
 	name := path.Base(p)
 	if strings.HasSuffix(name, ".md") || strings.HasSuffix(name, ".txt") {
@@ -428,9 +491,174 @@ func readsEmbedded(p, scope, first string) bool {
 	return false
 }
 
+// actionFile is true for a workflow or an action, whose steps may name a shell.
+func actionFile(p string) bool {
+	ext, name := path.Ext(p), path.Base(p)
+	return (strings.HasPrefix(p, ".github/workflows/") && (ext == ".yaml" || ext == ".yml")) ||
+		name == "action.yml" || name == "action.yaml"
+}
+
+// invocations counts the lines that name python as a command; a comment line is not read.
+func invocations(text string) int {
+	n := 0
+	for _, line := range strings.Split(text, "\n") {
+		t := strings.TrimSpace(line)
+		if t == "" || strings.HasPrefix(t, "#") || strings.HasPrefix(t, "//") {
+			continue
+		}
+		if invokeRe.MatchString(t) {
+			n++
+		}
+	}
+	return n
+}
+
 func indentOf(line string) int {
 	return len(line) - len(strings.TrimLeft(line, " \t"))
 }
+
+// ---- the steps of a workflow or an action whose shell is python
+
+// yamlLine is one line of a YAML file, read as far as the steps need it.
+type yamlLine struct {
+	indent int // the spaces before its text; -1 for a blank line or a comment line
+	col    int // the column of its key; -1 when it has none
+	dash   bool
+	key    string
+	value  string
+}
+
+func readYAML(lines []string) []yamlLine {
+	out := make([]yamlLine, len(lines))
+	for i, l := range lines {
+		t := strings.TrimSpace(l)
+		if t == "" || strings.HasPrefix(t, "#") {
+			out[i] = yamlLine{indent: -1, col: -1}
+			continue
+		}
+		y := yamlLine{indent: indentOf(l), col: -1}
+		if m := yamlKeyRe.FindStringSubmatch(strings.TrimRight(l, " \t\r")); m != nil {
+			y.col, y.dash, y.key, y.value = len(m[1])+len(m[2]), m[2] != "", m[3], strings.TrimSpace(m[4])
+		}
+		out[i] = y
+	}
+	return out
+}
+
+// mapping returns the lines [s, e) of the mapping that holds the key of line r, at column k.
+func mapping(ys []yamlLine, r, k int) (int, int) {
+	s := r
+	if !ys[r].dash || ys[r].col != k {
+		for s = r - 1; s >= 0; s-- {
+			if y := ys[s]; y.indent >= 0 && (y.dash && y.col == k || y.indent < k) {
+				if !y.dash || y.col != k {
+					s++
+				}
+				break
+			}
+		}
+		s = max(s, 0)
+	}
+	e := r + 1
+	for e < len(ys) && (ys[e].indent < 0 || ys[e].indent >= k) {
+		e++
+	}
+	return s, e
+}
+
+// parentKey returns the line of the key that holds the key of line i, or -1.
+func parentKey(ys []yamlLine, i int) int {
+	for j := i - 1; j >= 0; j-- {
+		if ys[j].indent >= 0 && ys[j].indent < ys[i].indent {
+			if ys[j].col < 0 {
+				return -1
+			}
+			return j
+		}
+	}
+	return -1
+}
+
+// pythonShell is true when the value of a shell key runs python.
+func pythonShell(v string) bool {
+	if i := strings.Index(v, " #"); i >= 0 {
+		v = v[:i]
+	}
+	return invokeRe.MatchString(strings.Trim(strings.TrimSpace(v), `"'`))
+}
+
+// pythonSteps counts the lines of the run of every step whose shell is python, and returns the
+// text with those lines blanked, so that they are not read again as Python inside the file.
+func pythonSteps(text string) (int, string) {
+	lines := strings.Split(text, "\n")
+	ys := readYAML(lines)
+	type rule struct {
+		s, e, depth int
+		python      bool
+	}
+	var defaults []rule
+	for i, y := range ys {
+		if y.key != "shell" {
+			continue
+		}
+		run := parentKey(ys, i)
+		if run < 0 || ys[run].key != "run" {
+			continue
+		}
+		def := parentKey(ys, run)
+		if def < 0 || ys[def].key != "defaults" {
+			continue
+		}
+		s, e := mapping(ys, def, ys[def].col)
+		defaults = append(defaults, rule{s, e, ys[def].col, pythonShell(y.value)})
+	}
+	n := 0
+	for r, y := range ys {
+		if y.key != "run" || y.value == "" {
+			continue // a run that is a mapping holds no program: the run default of a job
+		}
+		s, e := mapping(ys, r, y.col)
+		python, own := false, false
+		for j := s; j < e; j++ {
+			if ys[j].col == y.col && ys[j].key == "shell" {
+				python, own = pythonShell(ys[j].value), true
+			}
+		}
+		if !own {
+			depth := -1
+			for _, d := range defaults {
+				if r >= d.s && r < d.e && d.depth > depth {
+					python, depth = d.python, d.depth
+				}
+			}
+		}
+		if !python {
+			continue
+		}
+		if !blockValRe.MatchString(y.value) {
+			n += 1 + escapedNewlines(y.value)
+			lines[r] = ""
+			continue
+		}
+		last := r
+		for j := r + 1; j < len(lines); j++ {
+			if strings.TrimSpace(lines[j]) == "" {
+				continue
+			}
+			if indentOf(lines[j]) <= y.col {
+				break
+			}
+			last = j
+		}
+		n += last - r
+		for j := r; j <= last; j++ {
+			lines[j] = ""
+		}
+	}
+	return n, strings.Join(lines, "\n")
+}
+
+// ---- Python inside a file of another language
 
 // embedded returns the lines of Python inside a file of another language.
 func embedded(text string) int {
@@ -653,6 +881,23 @@ func pythonBlock(lines []string, i int) (int, int, bool) {
 	return last - i, last + 1, true
 }
 
+// escapedNewlines counts the \n of a quoted string of YAML, JSON or a template: a \\n is a
+// backslash and an n, not a line.
+func escapedNewlines(s string) int {
+	n := 0
+	for i := 0; i < len(s)-1; i++ {
+		if s[i] == '\\' {
+			if s[i+1] == 'n' {
+				n++
+			}
+			i++
+		}
+	}
+	return n
+}
+
+// ---- places where Python runs on a Sovereign or is installed in a shipped image
+
 // scan returns the places of one file of a scope.
 func scan(scope, p, text string) []place {
 	var out []place
@@ -723,197 +968,38 @@ func classify(scope, line string) []string {
 
 // ---- the baseline
 
-func parseBaseline(data []byte, where string) (*baseline, error) {
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
-	var b baseline
-	if err := dec.Decode(&b); err != nil {
-		return nil, fmt.Errorf("%s: %v", where, err)
+func parseBaseline(data []byte, where string) (counts, error) {
+	var c counts
+	keys := "the keys schema (" + schema + ") and " + strings.Join(totalNames[:], ", ")
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return c, fmt.Errorf("%s: %v", where, err)
 	}
-	if b.Schema != schema || b.Exceptions == nil || b.PythonFiles == nil || b.Sites == nil {
-		return nil, fmt.Errorf("%s: need schema %s and the keys exceptions, python_files and sites", where, schema)
+	var s string
+	if len(raw) != nTotals+1 || json.Unmarshal(raw["schema"], &s) != nil || s != schema {
+		return c, fmt.Errorf("%s: need exactly %s", where, keys)
 	}
-	for p, n := range b.PythonFiles {
-		if p == "" || n < 1 {
-			return nil, fmt.Errorf("%s: python_files.%s is %d; a listed file holds 1 line of Python or more", where, p, n)
+	for i, name := range totalNames {
+		v, ok := raw[name]
+		if !ok || json.Unmarshal(v, &c[i]) != nil || c[i] < 0 {
+			return c, fmt.Errorf("%s: need exactly %s, each a whole number of 0 or more (%s)", where, keys, name)
 		}
 	}
-	if len(b.Sites) != len(kinds) {
-		return nil, fmt.Errorf("%s: sites holds exactly the kinds %s", where, strings.Join(kinds, ", "))
-	}
-	for _, kind := range kinds {
-		paths, ok := b.Sites[kind]
-		if !ok || paths == nil {
-			return nil, fmt.Errorf("%s: sites holds exactly the kinds %s", where, strings.Join(kinds, ", "))
-		}
-		for p, n := range paths {
-			if n < 1 {
-				return nil, fmt.Errorf("%s: sites.%s.%s is %d; a listed path holds 1 place or more", where, kind, p, n)
-			}
-		}
-	}
-	return &b, nil
+	return c, nil
 }
 
-// holdsPython is true when a path is a Python file or holds a place.
-func (t *tree) holdsPython(p string) bool {
-	if _, ok := t.python[p]; ok {
-		return true
+func encodeBaseline(c counts) []byte {
+	var b strings.Builder
+	b.WriteString("{\n  \"schema\": \"" + schema + "\"")
+	for i, name := range totalNames {
+		fmt.Fprintf(&b, ",\n  %q: %d", name, c[i])
 	}
-	for _, pl := range t.places {
-		if pl.path == p {
-			return true
-		}
-	}
-	return false
+	b.WriteString("\n}\n")
+	return []byte(b.String())
 }
 
-// checkExceptions returns the paths the exception list takes out and a failure per bad entry (rule 4).
-func checkExceptions(b *baseline, t *tree) (map[string]bool, []string) {
-	out, seen := map[string]bool{}, map[string]bool{}
-	var fails []string
-	for i, e := range b.Exceptions {
-		where := fmt.Sprintf("exceptions[%d] (%s)", i, e.Path)
-		reason := strings.TrimSpace(e.Reason)
-		switch {
-		case e.Path == "":
-			fails = append(fails, fmt.Sprintf("%s: an exception names a file", where))
-		case seen[e.Path]:
-			fails = append(fails, fmt.Sprintf("%s: a second exception for the same file", where))
-		case len(reason) < 10 || strings.ContainsAny(e.Reason, "\r\n"):
-			fails = append(fails, fmt.Sprintf("%s: an exception has a reason of one line and ten characters or more: why the file cannot be Go", where))
-		case !t.listed[e.Path]:
-			fails = append(fails, fmt.Sprintf("%s: Git lists no such file; remove the exception", where))
-		case !t.holdsPython(e.Path):
-			fails = append(fails, fmt.Sprintf("%s: the file holds no Python and no place; remove the exception", where))
-		default:
-			out[e.Path] = true
-		}
-		seen[e.Path] = true
-	}
-	return out, fails
-}
-
-func excepted(b *baseline, t *tree) map[string]bool {
-	out, _ := checkExceptions(b, t)
-	return out
-}
-
-// counted returns the files that hold Python with their lines, and the places, without the exceptions.
-func counted(t *tree, skip map[string]bool) (map[string]int, map[string]map[string][]int) {
-	files := map[string]int{}
-	for p, n := range t.python {
-		if !skip[p] {
-			files[p] = n
-		}
-	}
-	sites := map[string]map[string][]int{}
-	for _, kind := range kinds {
-		sites[kind] = map[string][]int{}
-	}
-	for _, pl := range t.places {
-		if !skip[pl.path] {
-			sites[pl.kind][pl.path] = append(sites[pl.kind][pl.path], pl.line)
-		}
-	}
-	return files, sites
-}
-
-func summary(t *tree, skip map[string]bool) string {
-	files, sites := counted(t, skip)
-	lines, inner, innerLines := 0, 0, 0
-	for p, n := range files {
-		lines += n
-		if t.embedded[p] {
-			inner++
-			innerLines += n
-		}
-	}
-	total, per := 0, []string{}
-	for _, kind := range kinds {
-		n := 0
-		for _, at := range sites[kind] {
-			n += len(at)
-		}
-		total += n
-		per = append(per, fmt.Sprintf("%s=%d", kind, n))
-	}
-	return fmt.Sprintf("python_files=%d python_lines=%d (inside other files: %d files, %d lines) places=%d (%s) exceptions=%d",
-		len(files), lines, inner, innerLines, total, strings.Join(per, " "), len(skip))
-}
-
-const lower = "lower the baseline with --write-baseline"
-
-// judge applies rules 1 to 5: grown is a file or place above the baseline (rules 1, 2, 3, 5),
-// stale is one below it (rule 4).
-func judge(t *tree, b *baseline) (grown, stale []string) {
-	skip, grown := checkExceptions(b, t)
-	files, sites := counted(t, skip)
-	for _, p := range unionKeys(files, b.PythonFiles) {
-		now, was := files[p], b.PythonFiles[p]
-		what := "a Python file"
-		if t.embedded[p] {
-			what = "a file with Python inside"
-		}
-		switch {
-		case now > was && was == 0:
-			grown = append(grown, fmt.Sprintf("a new file that holds Python: %s (%d lines, %s)", p, now, what))
-		case now > was:
-			grown = append(grown, fmt.Sprintf("%s holds %d lines of Python, the baseline allows %d", p, now, was))
-		case now < was && now == 0:
-			stale = append(stale, fmt.Sprintf("%s is listed with %d lines but holds no counted Python now; %s", p, was, lower))
-		case now < was:
-			stale = append(stale, fmt.Sprintf("%s holds %d lines of Python, the baseline still says %d; %s", p, now, was, lower))
-		}
-	}
-	for _, kind := range kinds {
-		at := map[string]int{}
-		for p, lines := range sites[kind] {
-			at[p] = len(lines)
-		}
-		for _, p := range unionKeys(at, b.Sites[kind]) {
-			now, was := at[p], b.Sites[kind][p]
-			switch {
-			case now > was && was == 0:
-				grown = append(grown, fmt.Sprintf("a new place where Python runs or is installed: %s %s (line %s)", kind, p, joinInts(sites[kind][p])))
-			case now > was:
-				grown = append(grown, fmt.Sprintf("%s: %s has %d places, the baseline allows %d (lines %s)", kind, p, now, was, joinInts(sites[kind][p])))
-			case now < was:
-				stale = append(stale, fmt.Sprintf("%s: %s has %d places, the baseline still says %d; %s", kind, p, now, was, lower))
-			}
-		}
-	}
-	return grown, stale
-}
-
-func unionKeys(a, b map[string]int) []string {
-	seen := map[string]bool{}
-	for k := range a {
-		seen[k] = true
-	}
-	for k := range b {
-		seen[k] = true
-	}
-	out := make([]string, 0, len(seen))
-	for k := range seen {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func joinInts(xs []int) string {
-	s := make([]string, len(xs))
-	for i, x := range xs {
-		s[i] = strconv.Itoa(x)
-	}
-	return strings.Join(s, ", ")
-}
-
-// writeBaseline writes the baseline from the tree, or refuses when that would raise it.
+// writeBaseline writes the totals of the tree, or refuses when that would raise a total.
 func writeBaseline(root string, t *tree, out io.Writer) (int, error) {
-	target := filepath.Join(root, baselinePath)
-	keep := []exception{}
 	data, err := fs.ReadFile(os.DirFS(root), baselinePath)
 	switch {
 	case err == nil:
@@ -921,136 +1007,54 @@ func writeBaseline(root string, t *tree, out io.Writer) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		if fails, _ := judge(t, old); len(fails) > 0 {
-			for _, f := range fails {
-				say(out, "%s: FAIL %s\n", me, f)
+		if rose, _ := judge(t.total, old); len(rose) > 0 {
+			for _, i := range rose {
+				say(out, "%s: FAIL %s is %d, %d more than the baseline %d\n", me, totalNames[i], t.total[i], t.total[i]-old[i], old[i])
 			}
-			say(out, "%s: the baseline was not written: a baseline only falls, and it never gains a file or a place. %s\n", me, goLine)
+			say(out, "%s: the baseline was not written: it is only lowered. %s\n", me, goLine)
 			return 1, nil
 		}
-		keep = old.Exceptions
 	case errors.Is(err, fs.ErrNotExist):
-		// The first write: the exception list starts empty.
+		// The first write.
 	default:
 		return 0, fmt.Errorf("%s cannot be read: %v", baselinePath, err)
 	}
-	skip, _ := checkExceptions(&baseline{Exceptions: keep}, t)
-	files, sites := counted(t, skip)
-	nb := baseline{Exceptions: keep, PythonFiles: files, Schema: schema, Sites: map[string]map[string]int{}}
-	for _, kind := range kinds {
-		nb.Sites[kind] = map[string]int{}
-		for p, at := range sites[kind] {
-			nb.Sites[kind][p] = len(at)
-		}
-	}
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(nb); err != nil {
-		return 0, err
-	}
+	target := filepath.Join(root, filepath.FromSlash(baselinePath))
 	if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
 		return 0, err
 	}
-	if err := os.WriteFile(target, buf.Bytes(), 0o600); err != nil {
+	if err := os.WriteFile(target, encodeBaseline(t.total), 0o600); err != nil {
 		return 0, err
 	}
 	say(out, "%s: wrote %s\n", me, baselinePath)
 	return 0, nil
 }
 
-// ---- rule 5: the baseline at the base commit
-
-// catFile reads one object of the repository at root; ok is false when it does not exist.
-func catFile(root, object string) (kind string, body []byte, ok bool, err error) {
-	cmd := exec.Command("git", "cat-file", "--batch")
-	cmd.Dir = root
-	cmd.Stdin = strings.NewReader(object + "\n")
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	b, err := cmd.Output()
-	if err != nil {
-		return "", nil, false, fmt.Errorf("git cat-file in %s: %v %s", root, err, strings.TrimSpace(stderr.String()))
+func summary(t *tree) string {
+	per := map[string]int{}
+	for _, pl := range t.places {
+		per[pl.kind]++
 	}
-	nl := bytes.IndexByte(b, '\n')
-	if nl < 0 {
-		return "", nil, false, fmt.Errorf("git cat-file gave no answer for %s", object)
-	}
-	header := string(b[:nl])
-	if strings.HasSuffix(header, " missing") || strings.HasSuffix(header, " ambiguous") {
-		return "", nil, false, nil
-	}
-	fields := strings.Fields(header)
-	if len(fields) != 3 {
-		return "", nil, false, fmt.Errorf("git cat-file: unexpected answer %q for %s", header, object)
-	}
-	size, err := strconv.Atoi(fields[2])
-	if err != nil || len(b) < nl+1+size {
-		return "", nil, false, fmt.Errorf("git cat-file: unexpected answer %q for %s", header, object)
-	}
-	return fields[1], b[nl+1 : nl+1+size], true, nil
-}
-
-func compareBase(root, base string, cur *baseline) (fails []string, note string, err error) {
-	kind, _, ok, err := catFile(root, base+"^{commit}")
-	if err != nil {
-		return nil, "", err
-	}
-	if !ok || kind != "commit" {
-		return nil, "", fmt.Errorf("the base %s is not a commit of this checkout", base)
-	}
-	kind, data, ok, err := catFile(root, base+":"+baselinePath)
-	if err != nil {
-		return nil, "", err
-	}
-	if !ok || kind != "blob" {
-		return nil, fmt.Sprintf("%s does not exist at %s; there is nothing to compare", baselinePath, base), nil
-	}
-	old, err := parseBaseline(data, baselinePath+" at "+base)
-	if err != nil {
-		return nil, "", err
-	}
-	for _, p := range sortedKeys(cur.PythonFiles) {
-		now, was := cur.PythonFiles[p], old.PythonFiles[p]
-		switch {
-		case was == 0:
-			fails = append(fails, fmt.Sprintf("%s: python_files lists %s, which it did not list at %s. A baseline only falls", baselinePath, p, base))
-		case now > was:
-			fails = append(fails, fmt.Sprintf("%s: python_files lists %s with %d, higher than %d at %s. A baseline only falls", baselinePath, p, now, was, base))
-		}
+	var parts, kindParts []string
+	for i, name := range totalNames {
+		parts = append(parts, fmt.Sprintf("%s=%d", name, t.total[i]))
 	}
 	for _, kind := range kinds {
-		for _, p := range sortedKeys(cur.Sites[kind]) {
-			if now, was := cur.Sites[kind][p], old.Sites[kind][p]; now > was {
-				fails = append(fails, fmt.Sprintf("%s: sites.%s lists %s with %d, %d at %s. A baseline only falls", baselinePath, kind, p, now, was, base))
-			}
-		}
+		kindParts = append(kindParts, fmt.Sprintf("%s=%d", kind, per[kind]))
 	}
-	return fails, "", nil
-}
-
-func sortedKeys(m map[string]int) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
+	return strings.Join(parts, " ") + " (" + strings.Join(kindParts, " ") + ")"
 }
 
 func printList(t *tree, out io.Writer) {
-	files := make([]string, 0, len(t.python))
-	for p := range t.python {
-		files = append(files, p)
+	paths := make([]string, 0, len(t.files))
+	for p := range t.files {
+		paths = append(paths, p)
 	}
-	sort.Strings(files)
-	for _, p := range files {
-		how := "file  "
-		if t.embedded[p] {
-			how = "inside"
-		}
-		say(out, "%s %6d %s\n", how, t.python[p], p)
+	sort.Strings(paths)
+	say(out, "files  lines embedded invokes places path\n")
+	for _, p := range paths {
+		c := t.files[p]
+		say(out, "%5d %6d %8d %7d %6d %s\n", c[pyFiles], c[pyFileLines], c[embeddedLines], c[invokeLines], c[sovereignPlaces], p)
 	}
 	places := append([]place(nil), t.places...)
 	sort.SliceStable(places, func(i, j int) bool {
@@ -1067,17 +1071,154 @@ func printList(t *tree, out io.Writer) {
 	}
 }
 
-// escapedNewlines counts the \n of a quoted string of YAML, JSON or a template: a \\n is a
-// backslash and an n, not a line.
-func escapedNewlines(s string) int {
-	n := 0
-	for i := 0; i < len(s)-1; i++ {
-		if s[i] == '\\' {
-			if s[i+1] == 'n' {
-				n++
-			}
-			i++
+// ---- the base commit
+
+type object struct {
+	kind string
+	body []byte
+	ok   bool
+}
+
+// catObjects reads objects of the repository at root, in order; ok is false for one that does not
+// exist.
+func catObjects(root string, names []string) ([]object, error) {
+	if len(names) == 0 {
+		return nil, nil
+	}
+	cmd := exec.Command("git", "cat-file", "--batch")
+	cmd.Dir = root
+	cmd.Stdin = strings.NewReader(strings.Join(names, "\n") + "\n")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	b, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git cat-file in %s: %v %s", root, err, strings.TrimSpace(stderr.String()))
+	}
+	out := make([]object, len(names))
+	for i := range names {
+		nl := bytes.IndexByte(b, '\n')
+		if nl < 0 {
+			return nil, fmt.Errorf("git cat-file gave no answer for %s", names[i])
+		}
+		header := string(b[:nl])
+		b = b[nl+1:]
+		if strings.HasSuffix(header, " missing") || strings.HasSuffix(header, " ambiguous") {
+			continue
+		}
+		fields := strings.Fields(header)
+		size := -1
+		if len(fields) == 3 {
+			size, _ = strconv.Atoi(fields[2])
+		}
+		if size < 0 || len(b) < size+1 {
+			return nil, fmt.Errorf("git cat-file: unexpected answer %q for %s", header, names[i])
+		}
+		out[i] = object{fields[1], b[:size], true}
+		b = b[size+1:]
+	}
+	return out, nil
+}
+
+// lowerToBase checks the base commit and lowers each total of limit to the baseline file at the
+// base commit, when that is lower.
+func lowerToBase(root, base string, limit *counts) ([]string, error) {
+	objs, err := catObjects(root, []string{base + "^{commit}", base + ":" + baselinePath})
+	if err != nil {
+		return nil, err
+	}
+	if !objs[0].ok || objs[0].kind != "commit" {
+		return nil, fmt.Errorf("the base %s is not a commit of this checkout", base)
+	}
+	if !objs[1].ok || objs[1].kind != "blob" {
+		return []string{fmt.Sprintf("%s does not exist at %s; the baseline file alone is used", baselinePath, base)}, nil
+	}
+	old, err := parseBaseline(objs[1].body, baselinePath+" at "+base)
+	if err != nil {
+		return []string{fmt.Sprintf("%v; the baseline file alone is used", err)}, nil
+	}
+	var notes []string
+	for i := range limit {
+		if limit[i] > old[i] {
+			notes = append(notes, fmt.Sprintf("the baseline file raises %s from %d at %s to %d; %d is used", totalNames[i], old[i], base, limit[i], old[i]))
+			limit[i] = old[i]
 		}
 	}
-	return n
+	return notes, nil
+}
+
+// grownFiles returns, per total, the files of the change whose share of that total grew against
+// base: the files that differ from base in the work tree, and the new files Git does not ignore.
+// A renamed or moved file is compared with its old path.
+func grownFiles(root, base string, t *tree) ([nTotals][]string, error) {
+	var out [nTotals][]string
+	diff, err := gitOut(root, "diff", "-z", "-M", "--name-status", base, "--")
+	if err != nil {
+		return out, err
+	}
+	untracked, err := gitOut(root, "ls-files", "-z", "--others", "--exclude-standard")
+	if err != nil {
+		return out, err
+	}
+	names, err := gitOut(root, "ls-tree", "-r", "-z", "--name-only", base)
+	if err != nil {
+		return out, err
+	}
+	type change struct{ now, was string } // was is "" for a new file
+	var changes []change
+	f := splitZ(diff)
+	for i := 0; i+1 < len(f); {
+		switch f[i][0] {
+		case 'R', 'C':
+			if i+2 < len(f) {
+				changes = append(changes, change{f[i+2], f[i+1]})
+			}
+			i += 3
+		case 'A':
+			changes = append(changes, change{f[i+1], ""})
+			i += 2
+		case 'D':
+			i += 2
+		default:
+			changes = append(changes, change{f[i+1], f[i+1]})
+			i += 2
+		}
+	}
+	for _, p := range splitZ(untracked) {
+		changes = append(changes, change{p, ""})
+	}
+	var objNames []string
+	for _, c := range changes {
+		if c.was != "" {
+			objNames = append(objNames, base+":"+c.was)
+		}
+	}
+	objs, err := catObjects(root, objNames)
+	if err != nil {
+		return out, err
+	}
+	charts := chartsOf(splitZ(names))
+	next := 0
+	for _, c := range changes {
+		var was counts
+		if c.was != "" {
+			if o := objs[next]; o.ok && o.kind == "blob" {
+				was, _ = measureFile(c.was, scopeOf(c.was, charts), o.body)
+			}
+			next++
+		}
+		now := t.files[c.now]
+		name := c.now
+		if c.was != "" && c.was != c.now {
+			name += " (was " + c.was + ")"
+		}
+		for i := range now {
+			if now[i] > was[i] {
+				out[i] = append(out[i], fmt.Sprintf("%s grew from %d to %d", name, was[i], now[i]))
+			}
+		}
+	}
+	for i := range out {
+		sort.Strings(out[i])
+	}
+	return out, nil
 }

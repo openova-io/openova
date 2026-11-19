@@ -665,15 +665,15 @@ Before every sub-agent dispatch, output this briefing to the operator in the sam
 
 Rules: total briefing ≤ 6 lines — don't restate the full agent prompt; one briefing per agent (N briefings for parallel multi-dispatch turns); after the agent returns, its report is a CLAIM — re-query live state (rule IV.2-7) before propagating. Exception: trivial <2-min sync lookups → a single sentence.
 
-### IV.4 — Languages: Go; existing Python is debt that only shrinks (founder mandate, restated 2026-11-19)
+### IV.4 — Languages: Go; no new Python (founder mandate, restated 2026-11-19)
 
-First-party code and tooling of this repository are written in **Go**, and in **Rust** where a design record ([`docs/adr/`](adr/)) says so. **TypeScript** is the language of the consoles. **Shell** is for a few lines of glue. **Python** is not a language of this repository: no new Python is written, and a file may be Python only as a named exception (an entry of the exception list of `scripts/baselines/python.json`, with a one-line reason, where the file cannot be Go, such as a third-party tool that is itself Python).
+First-party code and tooling of this repository are written in **Go**, and in **Rust** where a design record ([`docs/adr/`](adr/)) says so. **TypeScript** is the language of the consoles. **Shell** is for a few lines of glue. **No new Python is written anywhere**, neither as a file (a new `.py` file of a product, chart, image, CI guard, generator, test helper or tool) nor inside another file (a `python3 -c` one-liner, a here-document program in a shell script, a workflow step with `shell: python`, a Python line in a chart template or in node start-up data).
 
-**The tree does not meet this yet.** Measured 2026-11-19 by `python-shrinks`: 152 Python files (51,582 lines), Python inside 174 shell, workflow, chart and plan files (11,587 lines: here-documents given to python, `python -c` programs, `.py` keys of ConfigMaps), and 18 places where Python runs on a Sovereign or is installed in a shipped image. None of it is an exception (the exception list is empty); all of it is debt, listed file by file in the baseline so that it can only shrink.
+**The existing Python is debt.** Measured 2026-11-19 by `python-shrinks` on main `4f27748dab`: 152 Python files; 51,582 lines in them; 11,598 lines of Python inside other files; 1,878 lines of other files that run python as a command (900 of them in `docs/ledger/plan.yaml`); 20 places where Python runs on a Sovereign or is installed in a shipped image. That Python stays for now. Whether and how it is refactored is decided in the plan's final stage.
 
-- New repository tooling (a guard, a generator, a check, a one-off tool, a test helper, an acceptance command of the plan) is a command of the Go module [`tools/guards`](../tools/guards/README.md) (`cmd/<name>`, its tests beside it), or a few lines of POSIX shell. It is never a new `.py` file, in any folder, and never Python inside another file (a here-document or `-c` program given to python, a `.py` key of a ConfigMap).
-- The Python that exists is removed tool by tool. Each removal ports the tool to Go with a parity proof (the Go tool and the Python tool give the same answer on the same inputs, shown in the pull request), deletes the Python, and lowers the baseline in the same change (`cd tools/guards && go run ./cmd/python-shrinks --write-baseline`).
-- `tools/guards/cmd/python-shrinks`, a step of `tree-guards`, holds the rule file by file: it fails on a new file that holds Python, on more lines of Python in any one file, on a new place where Python runs on a Sovereign or is put into a shipped image (chart templates and chart files, cloud-init templates, container files), and on a baseline that was not lowered after Python was removed. An exception takes out one file and frees no room for any other. The baseline only falls; `--write-baseline` refuses to raise it, and the file has a code owner (`.github/CODEOWNERS`), so an exception is added only with that review.
+- New repository tooling (a guard, a generator, a check, a one-off tool, a test helper, an acceptance command of the plan) is a command of the Go module [`tools/guards`](../tools/guards/README.md) (`cmd/<name>`, its tests beside it), or a few lines of POSIX shell.
+- An existing Python file is edited only where a change must alter what it does, and it is not grown when the same change can live in Go.
+- `tools/guards/cmd/python-shrinks`, a step of `tree-guards`, holds the five numbers above as totals in `scripts/baselines/python.json` (`python_files`, `python_file_lines`, `embedded_lines`, `invoke_lines`, `sovereign_places`). It fails only when a total is higher than its baseline, and names the total, by how much, and the files that grew against the base commit. A total that falls passes and says that the baseline can be lowered (`cd tools/guards && go run ./cmd/python-shrinks --write-baseline`, which never raises a number). There is no file list and no exception list, so a rename or a move passes. The baseline file has a code owner (`.github/CODEOWNERS`).
 
 ---
 
@@ -730,7 +730,7 @@ When you catch a new shape of failure in a PR review, add an A19+ entry here wit
 - Is the work actually done, or did I write "scaffolding" and call it done?
 - Did I scan the diff for the A1-A18 shapes?
 - Is my PR body using `Refs #N` (default) rather than `Closes #N`?
-- Did I add Python, as a file or inside another file? New code and tooling are Go (Part IV.4); existing Python only shrinks, and a new Python file is only a named exception.
+- Did I add Python, as a file or inside another file? New code and tooling are Go (Part IV.4); no new Python anywhere, and the existing Python stays until the plan's final stage decides its refactor.
 
 ---
 

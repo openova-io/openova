@@ -20,8 +20,8 @@ tooling is written here, in Go, never as a new Python file (docs/PRINCIPLES.md I
 
 | Command | What it holds |
 |---|---|
-| `cmd/python-shrinks` | Python only shrinks, file by file: no new file that holds Python (a `.py` file, a python `#!` script, or Python inside a shell, workflow, chart, plan or template file: a here-document or `-c` program given to python, a `.py` key of a ConfigMap), no file with more lines of Python than its baseline, no new place where Python runs on a Sovereign or is put into a shipped image. Baseline `scripts/baselines/python.json` (code owner review). |
+| `cmd/python-shrinks` | No new Python. Five totals never rise above `scripts/baselines/python.json` (code owner review): `python_files` (`.py` files and python `#!` scripts), `python_file_lines`, `embedded_lines` (Python inside shell, workflow, chart, plan, Terraform and template files: a here-document or `-c` program given to python, a `.py` key of a ConfigMap, the run of a `shell: python` step), `invoke_lines` (lines of those files that run python as a command, such as `python3 <path>`), `sovereign_places` (where Python runs on a Sovereign or is installed in a shipped image: chart templates and files, cloud-init templates and the Terraform under `infra/providers/`, container files). No file list, no exception list: a rename passes. |
 
-`go run ./cmd/python-shrinks --list` prints every file that holds Python (`file` or `inside`) and every place it counts;
-`--write-baseline` lowers the baseline after Python was removed (the guard fails until it is lowered) and refuses to raise it;
-`--base <commit>` also fails when the baseline file is higher than at that commit.
+`go run ./cmd/python-shrinks --list` prints the share of every file of each total and every place it counts;
+`--write-baseline` writes the totals of the tree and refuses to raise any (a total that fell passes and says the baseline can be lowered);
+`--base <commit>` lists the files that grew against that commit and uses the lower of the baseline file and the file at that commit.

@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -21,7 +20,10 @@ const (
 	tool      = "scripts/tool.py"
 	shellTool = "scripts/check.sh"
 	cloudInit = "infra/providers/x/cloudinit-worker.tftpl"
+	nodeTF    = "infra/providers/x/main.tf"
 	image     = "products/img/Containerfile"
+	ciFlow    = ".github/workflows/ci.yaml"
+	pyStep    = ".github/workflows/py.yaml"
 )
 
 func fixture() map[string]string {
@@ -35,34 +37,51 @@ func fixture() map[string]string {
 		"platform/app/chart/templates/NOTES.txt": "python3 is used by the Job\n",
 		template: "kind: Job\nspec:\n  template:\n    spec:\n      containers:\n        - name: run\n" +
 			"          # python3 runs the script of files/\n          command:\n            - /usr/bin/python3\n            - /scripts/run.py\n",
-		cloudInit:                   "runcmd:\n  - python3 -c 'print(1)'\n",
-		image:                       "FROM alpine:3.20\nRUN apk add --no-cache bash python3\n",
-		"core/x/main.go":            "package main\n\nfunc main() {}\n",
-		"docs/README.md":            "Run python3 scripts/tool.py.\n",
-		shellTool:                   "#!/usr/bin/env bash\nset -eu\nexec python3 - \"$@\" <<'PY'\nimport sys\nprint(sys.argv)\nPY\n",
-		configMap:                   "kind: ConfigMap\ndata:\n  reload.py: |\n    import os\n    print(os.environ)\n",
-		".github/workflows/ci.yaml": "jobs:\n  a:\n    steps:\n      - run: python3 -c 'import json; print(1)'\n",
+		cloudInit: "runcmd:\n  - python3 -c 'print(1)'\n  ${indent(2, put_block)}\n",
+		nodeTF: "locals {\n  put_block = <<-PUT\n- |\n  curl -s https://example.invalid/healthz\nPUT\n" +
+			"  user_data = templatefile(\"${path.module}/cloudinit-worker.tftpl\", {\n    put_block = local.put_block\n  })\n}\n",
+		image:            "FROM alpine:3.20\nRUN apk add --no-cache bash python3\n",
+		"core/x/main.go": "package main\n\nfunc main() {}\n",
+		"docs/README.md": "Run python3 scripts/tool.py.\n",
+		shellTool:        "#!/usr/bin/env bash\nset -eu\nexec python3 - \"$@\" <<'PY'\nimport sys\nprint(sys.argv)\nPY\n",
+		configMap:        "kind: ConfigMap\ndata:\n  reload.py: |\n    import os\n    print(os.environ)\n",
+		ciFlow:           "jobs:\n  a:\n    steps:\n      - run: python3 -c 'import json; print(1)'\n",
+		pyStep: "jobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - name: report\n        shell: python\n" +
+			"        run: |\n          import os\n          print(os.environ[\"GITHUB_SHA\"])\n",
 	}
 }
 
-// The fixture holds 4 Python files of 3 + 1 + 1 + 3 lines; Python inside 5 other files: the
-// here-document of check.sh (2), reload.py of the ConfigMap (2), and one python -c line in each of
-// the workflow, the cloud-init template and values.yaml; and 4 places.
-const fixtureSummary = "python_files=9 python_lines=15 (inside other files: 5 files, 7 lines) places=4 (install=1 invoke=2 shebang=1) exceptions=0"
+// The fixture holds 4 Python files of 3 + 1 + 1 + 3 lines. Python inside other files: the
+// here-document of check.sh (2), reload.py of the ConfigMap (2), the run of the shell: python step
+// (2), and one python -c line in each of the workflow, the cloud-init template and values.yaml.
+// The lines that run python: values.yaml, job.yaml, the cloud-init template, the Containerfile,
+// check.sh, ci.yaml and the shell: python line of py.yaml. The places: the #! of files/run.py,
+// python3 in job.yaml and in the cloud-init template, the apk add of the Containerfile.
+const fixtureSummary = "python_files=4 python_file_lines=8 embedded_lines=9 invoke_lines=7 sovereign_places=4 (install=1 invoke=2 shebang=1)"
 
-func gitRun(t *testing.T, dir string, cmd *exec.Cmd) {
+func gitRun(t *testing.T, dir string, args ...string) {
 	t.Helper()
+	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("%v: %v\n%s", cmd.Args, err, out)
+		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
 }
 
 func commitAll(t *testing.T, dir string) {
 	t.Helper()
-	gitRun(t, dir, exec.Command("git", "add", "-A"))
-	gitRun(t, dir, exec.Command("git", "-c", "user.name=guard-test", "-c", "user.email=guard-test@example.invalid",
-		"-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", "commit", "-q", "--allow-empty", "-m", "fixture"))
+	gitRun(t, dir, "add", "-A")
+	gitRun(t, dir, "-c", "user.name=guard-test", "-c", "user.email=guard-test@example.invalid",
+		"-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", "commit", "-q", "--allow-empty", "-m", "fixture")
+}
+
+// move renames a file with git mv, into a folder that may not exist yet.
+func move(t *testing.T, root, from, to string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(root, filepath.Dir(filepath.FromSlash(to))), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, root, "mv", from, to)
 }
 
 func put(t *testing.T, root, p, text string) {
@@ -102,7 +121,7 @@ func guardOn(root string, args ...string) (int, string) {
 func seeded(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	gitRun(t, dir, exec.Command("git", "init", "-q"))
+	gitRun(t, dir, "init", "-q")
 	for p, text := range fixture() {
 		put(t, dir, p, text)
 	}
@@ -112,18 +131,23 @@ func seeded(t *testing.T) string {
 	return dir
 }
 
-func editBaseline(t *testing.T, root string, change func(b *baseline)) {
+func editBaseline(t *testing.T, root string, change func(c *counts)) {
 	t.Helper()
-	b, err := parseBaseline([]byte(get(t, root, baselinePath)), baselinePath)
+	c, err := parseBaseline([]byte(get(t, root, baselinePath)), baselinePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	change(b)
-	data, err := json.MarshalIndent(b, "", "  ")
+	change(&c)
+	put(t, root, baselinePath, string(encodeBaseline(c)))
+}
+
+func readBaseline(t *testing.T, root string) counts {
+	t.Helper()
+	c, err := parseBaseline([]byte(get(t, root, baselinePath)), baselinePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	put(t, root, baselinePath, string(data)+"\n")
+	return c
 }
 
 func want(t *testing.T, code int, out string, wantCode int, needles ...string) {
@@ -138,281 +162,243 @@ func want(t *testing.T, code int, out string, wantCode int, needles ...string) {
 	}
 }
 
+// failLines returns the FAIL lines of the output and the lines that list a file under them.
+func failLines(out string) []string {
+	var got []string
+	for _, l := range strings.Split(out, "\n") {
+		if strings.HasPrefix(l, me+": FAIL ") || strings.HasPrefix(l, me+":   ") {
+			got = append(got, strings.TrimPrefix(l, me+": "))
+		}
+	}
+	return got
+}
+
+func wantFails(t *testing.T, code int, out string, lines ...string) {
+	t.Helper()
+	if code != 1 {
+		t.Fatalf("exit %d, want 1\n%s", code, out)
+	}
+	if got := failLines(out); !reflect.DeepEqual(got, lines) {
+		t.Fatalf("the failures are\n%s\nwant\n%s\n\n%s", strings.Join(got, "\n"), strings.Join(lines, "\n"), out)
+	}
+	if !strings.Contains(out, goLine) {
+		t.Fatalf("the output does not end with the rule\n%s", out)
+	}
+}
+
 func TestUnchangedTreePasses(t *testing.T) {
 	dir := seeded(t)
 	code, out := guardOn(dir)
 	want(t, code, out, 0, fixtureSummary)
+	if strings.Contains(out, "FAIL") || strings.Contains(out, "lower than") {
+		t.Fatalf("an unchanged tree has nothing to say\n%s", out)
+	}
 }
 
-func TestNewPythonFileFails(t *testing.T) {
-	dir := seeded(t)
-	put(t, dir, "scripts/new_tool.py", "print('new')\n")
-	code, out := guardOn(dir)
-	want(t, code, out, 1, "FAIL a new file that holds Python: scripts/new_tool.py (1 lines, a Python file)", "New tooling is written in Go")
-}
-
-func TestNewPythonScriptWithoutSuffixFails(t *testing.T) {
-	dir := seeded(t)
-	put(t, dir, "scripts/new-tool", "#!/usr/bin/env python3\nprint('new')\n")
-	code, out := guardOn(dir)
-	want(t, code, out, 1, "FAIL a new file that holds Python: scripts/new-tool (2 lines, a Python file)")
-}
-
-func TestShellScriptIsNotPython(t *testing.T) {
-	dir := seeded(t)
-	put(t, dir, "scripts/new-tool.sh", "#!/bin/sh\n# python3 - <<'PY' is not run here\npython3 scripts/tool.py\ncat <<'EOF'\nprint(1)\nEOF\n")
-	code, out := guardOn(dir)
-	want(t, code, out, 0, fixtureSummary)
-}
-
-// The bypass a reviewer named: a .sh file that hands a here-document to python.
-func TestPythonHereDocumentInANewShellScriptFails(t *testing.T) {
-	dir := seeded(t)
-	body := strings.Repeat("print('a line of Python')\n", 1000)
-	put(t, dir, "scripts/new-guard.sh", "#!/usr/bin/env bash\nset -eu\nexec python3 - \"$@\" <<'PY'\n"+body+"PY\n")
-	code, out := guardOn(dir)
-	want(t, code, out, 1, "FAIL a new file that holds Python: scripts/new-guard.sh (1000 lines, a file with Python inside)")
-}
-
-func TestInlinePythonInANewWorkflowFails(t *testing.T) {
-	dir := seeded(t)
-	put(t, dir, ".github/workflows/new.yaml", "jobs:\n  a:\n    steps:\n      - run: |\n          python3 -c \"\n          import json\n          print(1)\n          \"\n")
-	code, out := guardOn(dir)
-	want(t, code, out, 1, "FAIL a new file that holds Python: .github/workflows/new.yaml (4 lines, a file with Python inside)")
-}
-
-func TestGrowthOfAHereDocumentFails(t *testing.T) {
-	dir := seeded(t)
-	put(t, dir, shellTool, strings.Replace(get(t, dir, shellTool), "print(sys.argv)\n", "print(sys.argv)\nprint(len(sys.argv))\n", 1))
-	code, out := guardOn(dir)
-	want(t, code, out, 1, "FAIL "+shellTool+" holds 3 lines of Python, the baseline allows 2")
-}
-
-// Python in a ConfigMap of a chart runs on a Sovereign: its lines are counted, not only the call.
-func TestGrowthOfAProgramInAConfigMapFails(t *testing.T) {
-	for name, more := range map[string]string{
-		"a longer reload.py":    "    print(1)\n",
-		"a second key of a .py": "  check.py: |\n    import sys\n",
-	} {
-		t.Run(name, func(t *testing.T) {
+// A rise of each total fails, names the total and by how much, and with --base lists the file.
+func TestRiseOfEachTotalFails(t *testing.T) {
+	cases := []struct {
+		name   string
+		change func(t *testing.T, dir string)
+		fail   string
+		grew   string
+	}{
+		{"python_files: a new empty .py file", func(t *testing.T, dir string) { put(t, dir, "scripts/empty.py", "") },
+			"FAIL python_files is 5, 1 more than the baseline 4", "scripts/empty.py grew from 0 to 1"},
+		{"python_file_lines: one more line in a .py file", func(t *testing.T, dir string) { put(t, dir, tool, get(t, dir, tool)+"print(3)\n") },
+			"FAIL python_file_lines is 9, 1 more than the baseline 8", tool + " grew from 3 to 4"},
+		{"embedded_lines: one more line in a here-document", func(t *testing.T, dir string) {
+			put(t, dir, shellTool, strings.Replace(get(t, dir, shellTool), "print(sys.argv)\n", "print(sys.argv)\nprint(len(sys.argv))\n", 1))
+		}, "FAIL embedded_lines is 10, 1 more than the baseline 9", shellTool + " grew from 2 to 3"},
+		{"invoke_lines: python3 <path> of a program without the .py suffix", func(t *testing.T, dir string) {
+			put(t, dir, shellTool, get(t, dir, shellTool)+"python3 scripts/new-check --flag\n")
+		}, "FAIL invoke_lines is 8, 1 more than the baseline 7", shellTool + " grew from 1 to 2"},
+		{"sovereign_places: a python image in a chart template", func(t *testing.T, dir string) {
+			put(t, dir, template, get(t, dir, template)+"        - image: docker.io/library/python:3.12-slim\n")
+		}, "FAIL sovereign_places is 5, 1 more than the baseline 4", template + " grew from 1 to 2"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
 			dir := seeded(t)
-			put(t, dir, configMap, get(t, dir, configMap)+more)
+			commitAll(t, dir)
+			c.change(t, dir)
 			code, out := guardOn(dir)
-			want(t, code, out, 1, "FAIL "+configMap+" holds 3 lines of Python, the baseline allows 2")
+			wantFails(t, code, out, c.fail)
+			code, out = guardOn(dir, "--base", "HEAD")
+			wantFails(t, code, out, c.fail, "  "+c.grew+" against HEAD")
 		})
 	}
 }
 
-func TestGrowthOfAFileFails(t *testing.T) {
-	dir := seeded(t)
-	put(t, dir, tool, get(t, dir, tool)+"print(3)\n")
-	code, out := guardOn(dir)
-	want(t, code, out, 1, "FAIL "+tool+" holds 4 lines of Python, the baseline allows 3")
-}
-
-// Every file has its own number: Python removed from one file is no room for another.
-func TestOneFileCannotGrowWhileAnotherShrinks(t *testing.T) {
-	dir := seeded(t)
-	put(t, dir, tool, get(t, dir, tool)+"print(3)\n")
-	remove(t, dir, "scripts/lib/helper.py")
-	code, out := guardOn(dir)
-	want(t, code, out, 1, "FAIL "+tool+" holds 4 lines of Python, the baseline allows 3",
-		"FAIL scripts/lib/helper.py is listed with 1 lines but holds no counted Python now")
-	code, out = guardOn(dir, "--write-baseline")
-	want(t, code, out, 1, "the baseline was not written")
-}
-
-// A fall fails until the baseline is lowered, so the room cannot be taken again by a later change.
-func TestFallFailsUntilWriteBaselineLowersIt(t *testing.T) {
-	dir := seeded(t)
-	put(t, dir, tool, "#!/usr/bin/env python3\nprint(1)\n")
-	remove(t, dir, "scripts/lib/helper.py")
-	code, out := guardOn(dir)
-	want(t, code, out, 1, "FAIL "+tool+" holds 2 lines of Python, the baseline still says 3; lower the baseline with --write-baseline",
-		"FAIL scripts/lib/helper.py is listed with 1 lines but holds no counted Python now")
-	code, out = guardOn(dir, "--write-baseline")
-	want(t, code, out, 0, "wrote "+baselinePath, "python_files=8 python_lines=13")
-	b, err := parseBaseline([]byte(get(t, dir, baselinePath)), baselinePath)
-	if err != nil {
-		t.Fatal(err)
+// A fall of each total passes, with one line that says the baseline can be lowered.
+func TestFallOfEachTotalPasses(t *testing.T) {
+	cases := []struct {
+		name   string
+		change func(t *testing.T, dir string)
+		lower  string
+	}{
+		{"python_files", func(t *testing.T, dir string) { remove(t, dir, "scripts/lib/helper.py") },
+			"python_files 3 (baseline 4), python_file_lines 7 (baseline 8)"},
+		{"python_file_lines", func(t *testing.T, dir string) { put(t, dir, tool, "#!/usr/bin/env python3\nprint(1)\n") },
+			"python_file_lines 7 (baseline 8)"},
+		{"embedded_lines", func(t *testing.T, dir string) {
+			put(t, dir, shellTool, strings.Replace(get(t, dir, shellTool), "print(sys.argv)\n", "", 1))
+		}, "embedded_lines 8 (baseline 9)"},
+		{"invoke_lines", func(t *testing.T, dir string) {
+			put(t, dir, ciFlow, strings.Replace(get(t, dir, ciFlow), "python3 -c 'import json; print(1)'", "go version", 1))
+		}, "embedded_lines 8 (baseline 9), invoke_lines 6 (baseline 7)"},
+		{"sovereign_places", func(t *testing.T, dir string) {
+			put(t, dir, image, strings.Replace(get(t, dir, image), " python3", "", 1))
+		}, "invoke_lines 6 (baseline 7), sovereign_places 3 (baseline 4)"},
 	}
-	if _, ok := b.PythonFiles["scripts/lib/helper.py"]; ok || b.PythonFiles[tool] != 2 {
-		t.Fatalf("the written baseline holds %v, want %s at 2 and no scripts/lib/helper.py", b.PythonFiles, tool)
-	}
-	code, out = guardOn(dir)
-	if code != 0 || strings.Contains(out, "FAIL") {
-		t.Fatalf("after the write the tree passes: exit %d\n%s", code, out)
-	}
-	put(t, dir, tool, "#!/usr/bin/env python3\nprint(1)\nprint(2)\n")
-	code, out = guardOn(dir)
-	want(t, code, out, 1, "FAIL "+tool+" holds 3 lines of Python, the baseline allows 2")
-}
-
-func TestWriteBaselineRefusesARise(t *testing.T) {
-	dir := seeded(t)
-	before := get(t, dir, baselinePath)
-	put(t, dir, tool, get(t, dir, tool)+"print(3)\n")
-	code, out := guardOn(dir, "--write-baseline")
-	want(t, code, out, 1, "the baseline was not written")
-	if get(t, dir, baselinePath) != before {
-		t.Fatal("a refused write changed the baseline")
-	}
-}
-
-func TestWriteBaselineRefusesANewFile(t *testing.T) {
-	dir := seeded(t)
-	before := get(t, dir, baselinePath)
-	remove(t, dir, "scripts/lib/helper.py")
-	put(t, dir, "scripts/other.py", "x = 2\n") // the total stays at 15
-	code, out := guardOn(dir, "--write-baseline")
-	want(t, code, out, 1, "a new file that holds Python: scripts/other.py", "the baseline was not written")
-	if get(t, dir, baselinePath) != before {
-		t.Fatal("a refused write changed the baseline")
-	}
-}
-
-func TestNewInvocationInAChartTemplateFails(t *testing.T) {
-	dir := seeded(t)
-	put(t, dir, template, get(t, dir, template)+"            - sh\n            - -c\n            - python3 -c 'import os'\n")
-	code, out := guardOn(dir)
-	want(t, code, out, 1, "FAIL invoke: "+template+" has 2 places, the baseline allows 1 (lines 9, 13)")
-}
-
-func TestInvocationInANewChartTemplateFails(t *testing.T) {
-	dir := seeded(t)
-	put(t, dir, "platform/app/chart/templates/cron.yaml", "args: [\"python3\", \"/s/x.py\"]\n")
-	code, out := guardOn(dir)
-	want(t, code, out, 1, "FAIL a new place where Python runs or is installed: invoke platform/app/chart/templates/cron.yaml (line 1)")
-}
-
-func TestNewInstallInAnImageFails(t *testing.T) {
-	dir := seeded(t)
-	put(t, dir, "products/other/Dockerfile", "FROM docker.io/library/python:3.12-slim\n")
-	code, out := guardOn(dir)
-	want(t, code, out, 1, "FAIL a new place where Python runs or is installed: install products/other/Dockerfile (line 1)")
-}
-
-func TestRemovedInvocationFailsUntilTheBaselineIsLowered(t *testing.T) {
-	dir := seeded(t)
-	put(t, dir, template, strings.Replace(get(t, dir, template), "/usr/bin/python3", "/usr/local/bin/run", 1))
-	code, out := guardOn(dir)
-	want(t, code, out, 1, "FAIL invoke: "+template+" has 0 places, the baseline still says 1; lower the baseline")
-	code, out = guardOn(dir, "--write-baseline")
-	want(t, code, out, 0, "places=3 (install=1 invoke=1 shebang=1)")
-	b, err := parseBaseline([]byte(get(t, dir, baselinePath)), baselinePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := b.Sites["invoke"][template]; ok {
-		t.Fatalf("the written baseline still lists %s", template)
-	}
-}
-
-func TestExceptionWithoutAReasonFails(t *testing.T) {
-	for name, reason := range map[string]string{"empty": "", "short": "vendored", "two lines": "a tool of a vendor\nthat is Python"} {
-		t.Run(name, func(t *testing.T) {
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
 			dir := seeded(t)
-			editBaseline(t, dir, func(b *baseline) { b.Exceptions = []exception{{Path: tool, Reason: reason}} })
-			code, out := guardOn(dir)
-			want(t, code, out, 1, "exceptions[0] ("+tool+"): an exception has a reason of one line and ten characters or more")
+			commitAll(t, dir)
+			c.change(t, dir)
+			for _, args := range [][]string{nil, {"--base", "HEAD"}} {
+				code, out := guardOn(dir, args...)
+				want(t, code, out, 0, me+": lower than the baseline: "+c.lower+"; "+lowerLine+"\n")
+				if strings.Contains(out, "FAIL") || strings.Count(out, "lower than") != 1 {
+					t.Fatalf("a fall passes with one line\n%s", out)
+				}
+			}
 		})
 	}
 }
 
-func TestExceptionWithoutAReasonKeyFails(t *testing.T) {
+// There is no list of files: a rename or a move changes no total.
+func TestRenameOrMoveOfAPythonFilePasses(t *testing.T) {
 	dir := seeded(t)
-	text := strings.Replace(get(t, dir, baselinePath), `"exceptions": []`, `"exceptions": [{"path": "`+tool+`"}]`, 1)
-	put(t, dir, baselinePath, text)
-	code, out := guardOn(dir)
-	want(t, code, out, 1, "an exception has a reason of one line")
-}
-
-func TestExceptionNamesAThirdPartyPythonFile(t *testing.T) {
-	dir := seeded(t)
-	put(t, dir, "third_party/vendor_tool.py", "print('vendor')\n")
-	editBaseline(t, dir, func(b *baseline) {
-		b.Exceptions = []exception{{Path: "third_party/vendor_tool.py", Reason: "the vendor ships this tool in Python only"}}
-	})
-	code, out := guardOn(dir)
-	want(t, code, out, 0, "python_files=9 python_lines=15", "exceptions=1")
-}
-
-// An exception takes one file out; the other files keep their own numbers.
-func TestAnExceptionFreesNoRoomForOtherFiles(t *testing.T) {
-	dir := seeded(t)
-	if code, out := guardOn(dir, "--write-baseline"); code != 0 {
-		t.Fatalf("exit %d\n%s", code, out)
-	}
-	editBaseline(t, dir, func(b *baseline) {
-		b.Exceptions = []exception{{Path: tool, Reason: "the port of this tool to Go is tracked"}}
-		delete(b.PythonFiles, tool)
-	})
-	put(t, dir, "scripts/lib/helper.py", "x = 1\ny = 2\n")
-	code, out := guardOn(dir)
-	want(t, code, out, 1, "FAIL scripts/lib/helper.py holds 2 lines of Python, the baseline allows 1", "exceptions=1")
-}
-
-func TestExceptionForAMissingOrNonPythonFileFails(t *testing.T) {
-	dir := seeded(t)
-	editBaseline(t, dir, func(b *baseline) {
-		b.Exceptions = []exception{
-			{Path: "scripts/gone.py", Reason: "the vendor ships this tool in Python only"},
-			{Path: "core/x/main.go", Reason: "the vendor ships this tool in Python only"},
+	commitAll(t, dir)
+	move(t, dir, tool, "tools/py/renamed.py")
+	move(t, dir, "platform/app/chart/tests/check.py", "scripts/check_chart.py")
+	for _, args := range [][]string{nil, {"--base", "HEAD"}} {
+		code, out := guardOn(dir, args...)
+		want(t, code, out, 0, fixtureSummary)
+		if strings.Contains(out, "FAIL") || strings.Contains(out, "lower than") {
+			t.Fatalf("a rename changes no total\n%s", out)
 		}
-	})
-	code, out := guardOn(dir)
-	want(t, code, out, 1, "exceptions[0] (scripts/gone.py): Git lists no such file", "exceptions[1] (core/x/main.go): the file holds no Python")
-}
-
-func TestBaseRefusesARaisedBaseline(t *testing.T) {
-	dir := seeded(t)
-	commitAll(t, dir)
-	editBaseline(t, dir, func(b *baseline) {
-		b.PythonFiles[tool] += 10
-		b.PythonFiles["scripts/later.py"] = 1
-		b.Sites["invoke"]["platform/app/chart/templates/later.yaml"] = 1
-	})
-	code, out := guardOn(dir, "--base", "HEAD")
-	want(t, code, out, 1, "python_files lists "+tool+" with 13, higher than 3 at HEAD. A baseline only falls",
-		"python_files lists scripts/later.py, which it did not list at HEAD",
-		"sites.invoke lists platform/app/chart/templates/later.yaml with 1, 0 at HEAD")
-}
-
-func TestBaseAcceptsALoweredBaseline(t *testing.T) {
-	dir := seeded(t)
-	commitAll(t, dir)
-	remove(t, dir, "scripts/lib/helper.py")
-	if code, out := guardOn(dir, "--write-baseline"); code != 0 {
-		t.Fatalf("exit %d\n%s", code, out)
 	}
-	code, out := guardOn(dir, "--base", "HEAD")
-	want(t, code, out, 0, "python_lines=14")
 }
 
-func TestBaseWithoutABaselineHasNothingToCompare(t *testing.T) {
+// A file that grew in a rename is compared with its old path.
+func TestBaseComparesARenamedFileWithItsOldPath(t *testing.T) {
+	dir := seeded(t)
+	commitAll(t, dir)
+	move(t, dir, tool, "tools/py/renamed.py")
+	put(t, dir, "tools/py/renamed.py", get(t, dir, "tools/py/renamed.py")+"print(3)\n")
+	code, out := guardOn(dir, "--base", "HEAD")
+	wantFails(t, code, out, "FAIL python_file_lines is 9, 1 more than the baseline 8",
+		"  tools/py/renamed.py (was "+tool+") grew from 3 to 4 against HEAD")
+}
+
+// The reviewer's bypass: a step whose shell is python is Python inside the workflow.
+func TestShellPythonStepIsCounted(t *testing.T) {
+	dir := seeded(t)
+	put(t, dir, ".github/workflows/new.yaml", "jobs:\n  b:\n    steps:\n      - name: new\n        shell: python3\n"+
+		"        run: |\n          import json\n          print(json.dumps({}))\n          print(1)\n")
+	code, out := guardOn(dir)
+	wantFails(t, code, out, "FAIL embedded_lines is 12, 3 more than the baseline 9", "FAIL invoke_lines is 8, 1 more than the baseline 7")
+}
+
+// The reviewer's other bypass: a Python program saved without the .py suffix and run as python3 <path>.
+func TestPythonProgramWithoutSuffixIsCountedByItsCommand(t *testing.T) {
+	dir := seeded(t)
+	put(t, dir, "scripts/new-check", "import sys\nprint(sys.argv)\n")
+	put(t, dir, ".github/workflows/new.yaml", "jobs:\n  b:\n    steps:\n      - run: python3 scripts/new-check\n")
+	code, out := guardOn(dir)
+	wantFails(t, code, out, "FAIL invoke_lines is 8, 1 more than the baseline 7")
+	put(t, dir, "scripts/new-check", "#!/usr/bin/env python3\nprint(1)\n")
+	code, out = guardOn(dir)
+	wantFails(t, code, out, "FAIL python_files is 5, 1 more than the baseline 4",
+		"FAIL python_file_lines is 10, 2 more than the baseline 8", "FAIL invoke_lines is 8, 1 more than the baseline 7")
+}
+
+// The reviewer's undercount: a here-document of a Terraform file that templatefile() puts into
+// the cloud-init of the nodes runs on a Sovereign.
+func TestPythonInTerraformStartUpDataIsAPlace(t *testing.T) {
+	dir := seeded(t)
+	commitAll(t, dir)
+	put(t, dir, nodeTF, strings.Replace(get(t, dir, nodeTF), "  curl -s https://example.invalid/healthz\n",
+		"  curl -s https://example.invalid/healthz\n  python3 -c \"import json; print(json.dumps({'a': 1}))\" > /tmp/body.json\n", 1))
+	code, out := guardOn(dir, "--base", "HEAD")
+	wantFails(t, code, out,
+		"FAIL embedded_lines is 10, 1 more than the baseline 9", "  "+nodeTF+" grew from 0 to 1 against HEAD",
+		"FAIL invoke_lines is 8, 1 more than the baseline 7", "  "+nodeTF+" grew from 0 to 1 against HEAD",
+		"FAIL sovereign_places is 5, 1 more than the baseline 4", "  "+nodeTF+" grew from 0 to 1 against HEAD")
+}
+
+func TestWriteBaselineLowersAndRefusesARise(t *testing.T) {
+	dir := seeded(t)
+	remove(t, dir, "scripts/lib/helper.py")
+	code, out := guardOn(dir, "--write-baseline")
+	want(t, code, out, 0, "wrote "+baselinePath)
+	if strings.Contains(out, "lower than") {
+		t.Fatalf("after the write the baseline is the tree\n%s", out)
+	}
+	if got, wantC := readBaseline(t, dir), (counts{3, 7, 9, 7, 4}); got != wantC {
+		t.Fatalf("the written baseline is %v, want %v", got, wantC)
+	}
+
+	before := get(t, dir, baselinePath)
+	put(t, dir, "scripts/lib/helper.py", "x = 1\n")
+	code, out = guardOn(dir, "--write-baseline")
+	want(t, code, out, 1, "FAIL python_files is 4, 1 more than the baseline 3", "the baseline was not written")
+	if get(t, dir, baselinePath) != before {
+		t.Fatal("a refused write changed the baseline")
+	}
+
+	// One total that rises is refused also when another falls.
+	put(t, dir, tool, "print(1)\n")
+	code, out = guardOn(dir, "--write-baseline")
+	want(t, code, out, 1, "FAIL python_files is 4, 1 more than the baseline 3", "the baseline was not written")
+	if get(t, dir, baselinePath) != before {
+		t.Fatal("a refused write changed the baseline")
+	}
+}
+
+// With --base, a baseline raised in the change under test raises nothing.
+func TestBaseUsesTheLowerBaseline(t *testing.T) {
+	dir := seeded(t)
+	commitAll(t, dir)
+	editBaseline(t, dir, func(c *counts) { c[pyFiles]++ })
+	put(t, dir, "scripts/new.py", "")
+	code, out := guardOn(dir)
+	want(t, code, out, 0)
+	code, out = guardOn(dir, "--base", "HEAD")
+	wantFails(t, code, out, "FAIL python_files is 5, 1 more than the baseline 4", "  scripts/new.py grew from 0 to 1 against HEAD")
+	want(t, code, out, 1, "note: the baseline file raises python_files from 4 at HEAD to 5; 4 is used")
+}
+
+func TestBaseWithoutABaselineUsesTheFile(t *testing.T) {
 	dir := seeded(t)
 	baselineText := get(t, dir, baselinePath)
 	remove(t, dir, baselinePath)
 	commitAll(t, dir)
 	put(t, dir, baselinePath, baselineText)
 	code, out := guardOn(dir, "--base", "HEAD")
-	want(t, code, out, 0, "does not exist at HEAD; there is nothing to compare")
+	want(t, code, out, 0, "does not exist at HEAD; the baseline file alone is used")
 }
 
 func TestUnreadableInputsCannotBeJudged(t *testing.T) {
 	cases := map[string]func(t *testing.T, dir string){
 		"a missing baseline": func(t *testing.T, dir string) { remove(t, dir, baselinePath) },
 		"another schema": func(t *testing.T, dir string) {
-			editBaseline(t, dir, func(b *baseline) { b.Schema = "other" })
+			put(t, dir, baselinePath, strings.Replace(get(t, dir, baselinePath), schema, "openova.io/guard-baseline/v1", 1))
 		},
-		"a missing kind": func(t *testing.T, dir string) {
-			editBaseline(t, dir, func(b *baseline) { delete(b.Sites, "shebang") })
-		},
-		"a listed file of 0 lines": func(t *testing.T, dir string) {
-			editBaseline(t, dir, func(b *baseline) { b.PythonFiles[tool] = 0 })
+		"a missing total": func(t *testing.T, dir string) {
+			put(t, dir, baselinePath, strings.Replace(get(t, dir, baselinePath), `,
+  "sovereign_places": 4`, "", 1))
 		},
 		"an unknown key": func(t *testing.T, dir string) {
-			put(t, dir, baselinePath, strings.Replace(get(t, dir, baselinePath), `"exceptions"`, `"extra": 1, "exceptions"`, 1))
+			put(t, dir, baselinePath, strings.Replace(get(t, dir, baselinePath), `"schema"`, `"extra": 1, "schema"`, 1))
+		},
+		"a negative total": func(t *testing.T, dir string) {
+			put(t, dir, baselinePath, strings.Replace(get(t, dir, baselinePath), `"python_files": 4`, `"python_files": -1`, 1))
+		},
+		"a total that is not a whole number": func(t *testing.T, dir string) {
+			put(t, dir, baselinePath, strings.Replace(get(t, dir, baselinePath), `"python_files": 4`, `"python_files": 4.5`, 1))
 		},
 	}
 	for name, change := range cases {
@@ -444,11 +430,15 @@ func TestScope(t *testing.T) {
 		"platform/app/chart/tests/check.py":                  "",
 		"platform/app/chart/charts/sub/values.yaml":          "",
 		"platform/other/templates/job.yaml":                  "",
-		"infra/providers/x/cloudinit-worker.tftpl":           scopeCloudInit,
-		"infra/providers/_shared/cloud-init-control.yaml":    scopeCloudInit,
+		"infra/providers/x/cloudinit-worker.tftpl":           scopeNode,
+		"infra/providers/_shared/cloud-init-control.yaml":    scopeNode,
+		"infra/providers/huawei/main.tf":                     scopeNode,
+		"infra/providers/huawei/variables.tf":                scopeNode,
 		"infra/providers/_shared/tests/cloudinit_render.hcl": "",
 		"infra/providers/x/provider-substitutes.yaml.tftpl":  "",
+		"infra/providers/huawei/tests/user_data.py":          "",
 		"infra/other/cloudinit-worker.tftpl":                 "",
+		"infra/other/main.tf":                                "",
 		"products/img/Containerfile":                         scopeImage,
 		"core/x/Containerfile.test":                          scopeImage,
 		"core/x/Dockerfile":                                  scopeImage,
@@ -473,7 +463,10 @@ func TestPatterns(t *testing.T) {
 		{"python3 right before a here-document", scopeChart, "t.yaml", "python3<<'PY'\n", []string{"invoke"}},
 		{"python3 as the default of a variable", scopeChart, "t.yaml", "\"${PYTHON:-python3}\" /s/run.py\n", []string{"invoke"}},
 		{"python3 right before a redirect", scopeChart, "t.yaml", "python3>/tmp/out -V\n", []string{"invoke"}},
-		{"python3 after env", scopeCloudInit, "c.tftpl", "  - /usr/bin/env python3 -c 'import socket'\n", []string{"invoke"}},
+		{"python3 after env", scopeNode, "c.tftpl", "  - /usr/bin/env python3 -c 'import socket'\n", []string{"invoke"}},
+		{"python3 -c in a here-document of Terraform", scopeNode, "main.tf",
+			"  put = <<-PUT\n- |\n  python3 -c \"import json,os; print(json.dumps({}))\" > /tmp/b.json\nPUT\n", []string{"invoke"}},
+		{"a Terraform comment", scopeNode, "outputs.tf", "# python3 scripts/check.py r.json\n", nil},
 		{"a continued line counts once", scopeChart, "t.yaml", "python3 /scripts/reload.py \\\n  --fast || \\\n  echo done\n", []string{"invoke"}},
 		{"a comment holds no place", scopeChart, "t.yaml", "# python3 runs here\n  # and python here\n", nil},
 		{"a template comment holds no place", scopeChart, "t.yaml", "{{- /* Generated by python3 x.py */ -}}\n{{/*\npython3 y.py\n*/}}\nkind: Job\n", nil},
@@ -549,10 +542,69 @@ func TestEmbedded(t *testing.T) {
 	}
 }
 
+// The run of a step whose shell is python is counted in embedded_lines, once.
+func TestPythonSteps(t *testing.T) {
+	step := func(shell, run string) string {
+		return "jobs:\n  a:\n    steps:\n      - name: s\n" + shell + run
+	}
+	block := "        run: |\n          import os\n\n          print(os.sep)\n"
+	cases := []struct {
+		name, path, text string
+		want             int
+	}{
+		{"shell: python before the run", ".github/workflows/a.yaml", step("        shell: python\n", block), 3},
+		{"shell: python3 after the run", ".github/workflows/a.yml", step("", block+"        shell: python3\n"), 3},
+		{"shell: python {0}", ".github/workflows/a.yaml", step("        shell: 'python {0}'\n", block), 3},
+		{"shell: a path to python3", ".github/workflows/a.yaml", step("        shell: /usr/bin/python3 {0}\n", block), 3},
+		{"shell: bash", ".github/workflows/a.yaml", step("        shell: bash\n", block), 0},
+		{"an inline run", ".github/workflows/a.yaml", step("        shell: python\n", "        run: print(1)\n"), 1},
+		{"the run is the first key of the step", ".github/workflows/a.yaml",
+			"jobs:\n  a:\n    steps:\n      - run: |\n          print(1)\n        shell: python\n      - run: echo hi\n", 1},
+		{"the next step has its own shell", ".github/workflows/a.yaml",
+			step("        shell: python\n", block) + "      - name: t\n        run: |\n          echo hi\n", 3},
+		{"the run default of the workflow", ".github/workflows/a.yaml",
+			"defaults:\n  run:\n    shell: python\njobs:\n  a:\n    steps:\n      - run: |\n          print(1)\n      - shell: bash\n        run: echo hi\n", 1},
+		{"the run default of the job wins over the workflow", ".github/workflows/a.yaml",
+			"defaults:\n  run:\n    shell: python\njobs:\n  a:\n    defaults:\n      run:\n        shell: bash\n    steps:\n      - run: |\n          echo hi\n  b:\n    steps:\n      - run: print(1)\n", 1},
+		{"a step of a composite action", "tools/act/action.yml",
+			"runs:\n  using: composite\n  steps:\n    - shell: python\n      run: |\n        import sys\n        print(sys.argv)\n", 2},
+		{"python3 -c inside the Python of the step is counted once", ".github/workflows/a.yaml",
+			step("        shell: python\n", "        run: |\n          import subprocess\n          subprocess.run([\"python3\", \"-c\", \"print(1)\"])\n"), 2},
+		{"another YAML file is not read for steps", "platform/x/steps.yaml", step("        shell: python\n", block), 0},
+	}
+	for _, c := range cases {
+		got, _ := measureFile(c.path, "", []byte(c.text))
+		if got[embeddedLines] != c.want {
+			t.Errorf("%s: embedded_lines %d, want %d", c.name, got[embeddedLines], c.want)
+		}
+	}
+}
+
+func TestInvocations(t *testing.T) {
+	cases := []struct {
+		name, text string
+		want       int
+	}{
+		{"python3 <path>", "python3 scripts/new-check\n", 1},
+		{"a run step", "      - run: python3 scripts/x --self-test\n", 1},
+		{"python in a Makefile recipe", "check:\n\tpython tools/check\n", 1},
+		{"shell: python", "        shell: python\n", 1},
+		{"package.json script", `    "check": "python3 tools/check",` + "\n", 1},
+		{"a comment", "# python3 scripts/x\n// python3 y\n", 0},
+		{"a word inside another word", "inject-python: true\nmypython3 x\npython3-pip\n", 0},
+		{"two lines", "python3 a\npython b\n", 2},
+	}
+	for _, c := range cases {
+		if got := invocations(c.text); got != c.want {
+			t.Errorf("%s: %d lines, want %d", c.name, got, c.want)
+		}
+	}
+}
+
 func TestReadsEmbedded(t *testing.T) {
 	cases := map[string]bool{
 		"scripts/x.sh": true, ".github/workflows/x.yaml": true, ".github/actions/a/action.yml": true,
-		"infra/providers/huawei/main.tf": true, "Makefile": true, "core/x/main.go": false,
+		"infra/providers/huawei/main.tf": true, "Makefile": true, "package.json": true, "core/x/main.go": false,
 		"docs/RUNBOOKS.md": false, "notes.txt": false, "scripts/no-suffix": false,
 	}
 	for p, wantRead := range cases {
