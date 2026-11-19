@@ -1236,8 +1236,7 @@ fi
 # The initdb block must carry a `secret:` naming the owner's role Secret.
 initdb_secret=$(printf '%s' "${seed_out}" \
   | awk '/^  bootstrap:/,/^  managed:/' | awk '/^      secret:/{f=1;next} f&&/name:/{print $2;exit}')
-role_secret=$(printf '%s' "${seed_out}" \
-  | awk '/^    roles:/{f=1} f&&/- name: "harbor"/{g=1} g&&/name:/&&!/- name:/{print $2;exit}')
+role_secret=$(awk '/^    roles:/{f=1} f&&/- name: "harbor"/{g=1} g&&/name:/&&!/- name:/{print $2;exit}' <<<"${seed_out}")
 
 if [ -z "${initdb_secret}" ]; then
   echo "FAIL (#5504): bootstrap.initdb has no 'secret:' — the owner will be minted with the" >&2

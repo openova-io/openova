@@ -106,14 +106,14 @@ if ! grep -q "name: wait-for-sql-dsn" <<<"$full"; then
   echo "FAIL: wait-for-sql-dsn initContainer did not render"
   exit 1
 fi
-gate_vol=$(echo "$full" | awk '/name: sql-dsn-gate/{f=1} f&&/secretName:/{print; exit}')
+gate_vol=$(awk '/name: sql-dsn-gate/{f=1} f&&/secretName:/{print; exit}' <<<"$full")
 if ! grep -q "secretName: ${dsn_secret_name}" <<<"$gate_vol"; then
   echo "FAIL: sql-dsn-gate volume does not mount ${dsn_secret_name}"
   echo "      (got: ${gate_vol})"
   exit 1
 fi
 # The Deployment's SQL_DSN env secretKeyRef must target the same Secret.
-sqldsn_ref=$(echo "$full" | awk '/name: SQL_DSN/{f=1} f&&/name: '"${dsn_secret_name}"'/{print; exit}')
+sqldsn_ref=$(awk '/name: SQL_DSN/{f=1} f&&/name: '"${dsn_secret_name}"'/{print; exit}' <<<"$full")
 if [ -z "$sqldsn_ref" ]; then
   echo "FAIL: Deployment SQL_DSN secretKeyRef does not reference ${dsn_secret_name}"
   exit 1
