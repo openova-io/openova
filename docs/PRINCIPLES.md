@@ -665,6 +665,14 @@ Before every sub-agent dispatch, output this briefing to the operator in the sam
 
 Rules: total briefing ≤ 6 lines — don't restate the full agent prompt; one briefing per agent (N briefings for parallel multi-dispatch turns); after the agent returns, its report is a CLAIM — re-query live state (rule IV.2-7) before propagating. Exception: trivial <2-min sync lookups → a single sentence.
 
+### IV.4 — Languages: Go, and Python only as a named exception (founder mandate, restated 2026-11-19)
+
+First-party code and tooling of this repository are written in **Go**, and in **Rust** where a design record ([`docs/adr/`](adr/)) says so. **TypeScript** is the language of the consoles. **Shell** is for a few lines of glue. **Python** exists only as a named exception: a file in the exception list of `scripts/baselines/python.json`, with a one-line reason, where the file cannot be Go (a third-party tool that is itself Python).
+
+- New repository tooling (a guard, a generator, a check, a one-off tool, a test helper) is a command of the Go module [`tools/guards`](../tools/guards/README.md) (`cmd/<name>`, its tests beside it), or a few lines of POSIX shell. It is never a new `.py` file, in any folder.
+- The Python that exists is removed tool by tool. Each removal ports the tool to Go with a parity proof (the Go tool and the Python tool give the same answer on the same inputs, shown in the pull request), deletes the Python, and lowers the baseline in the same change (`cd tools/guards && go run ./cmd/python-shrinks --write-baseline`).
+- `tools/guards/cmd/python-shrinks`, a step of `tree-guards`, holds the rule: it fails on a new Python file, on more lines of Python, and on a new place where Python runs on a Sovereign or is put into a shipped image (chart templates and chart files, cloud-init templates, container files). Its baseline only falls; `--write-baseline` refuses to raise it.
+
 ---
 
 ## Part V — How these relate
@@ -720,6 +728,7 @@ When you catch a new shape of failure in a PR review, add an A19+ entry here wit
 - Is the work actually done, or did I write "scaffolding" and call it done?
 - Did I scan the diff for the A1-A18 shapes?
 - Is my PR body using `Refs #N` (default) rather than `Closes #N`?
+- Did I add Python? New code and tooling are Go (Part IV.4); Python is only a named exception.
 
 ---
 
