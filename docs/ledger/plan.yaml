@@ -5837,24 +5837,31 @@ packages:
   size: XS
   lane: CHARTS
   depends_on: [CLD-064]
-  after: [FND-011, SVC-040, SVC-041]
+  after: [FND-011]
   touches:
   - platform/crossplane/chart/Chart.yaml
   - platform/crossplane/chart/values.yaml
+  - platform/crossplane/chart/tests/image-proxy-route.sh
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c -x -F '    version: \"1.20.14\"' platform/crossplane/chart/Chart.yaml"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "python3 -c \"import yaml; c = yaml.safe_load(open('platform/crossplane/chart/Chart.yaml')); assert c['dependencies'] == [{'name': 'crossplane', 'version': '2.4.3', 'repository': 'https://charts.crossplane.io/stable'}], c['dependencies']; v = yaml.safe_load(open('platform/crossplane/chart/values.yaml')); assert v['catalystBlueprint'] == {'upstream': {'chart': 'crossplane', 'version': '2.4.3', 'repo': 'https://charts.crossplane.io/stable'}}, v['catalystBlueprint']; assert v['crossplane'] == {'image': {'repository': 'harbor.openova.io/proxy-dockerhub/crossplane/crossplane'}, 'resourcesCrossplane': {'requests': {'cpu': '100m', 'memory': '1Gi'}, 'limits': {'memory': '4Gi'}}, 'metrics': {'enabled': False}}, v['crossplane']\" && test \"$(cat platform/crossplane/chart/Chart.yaml platform/crossplane/chart/values.yaml platform/crossplane/chart/tests/image-proxy-route.sh | grep -c -F -e '1.20.14' -e '1\\.20\\.14')\" = 0 && test \"$(grep -c -F '2\\.4\\.3' platform/crossplane/chart/tests/image-proxy-route.sh)\" = 2"
+  - id: A2
+    run: "d=\"$(mktemp -d)\" && mkdir -p \"$d/platform/crossplane\" \"$d/scripts\" && cp -R platform/crossplane/chart \"$d/platform/crossplane/chart\" && cp scripts/check-function-test.py \"$d/scripts/\" && c=\"$d/platform/crossplane/chart\" && (cd \"$c\" && HELM_CONFIG_HOME=\"$d/config\" HELM_CACHE_HOME=\"$d/cache\" HELM_DATA_HOME=\"$d/data\" helm dependency update > /dev/null) && test \"$(ls \"$c/charts\")\" = crossplane-2.4.3.tgz && bash \"$c/tests/image-proxy-route.sh\" \"$c\" && bash \"$c/tests/observability-toggle.sh\" \"$c\" && bash \"$c/tests/function-test-render.sh\" \"$c\""
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Core at highest 2.4 patch
+  delivers: The Crossplane chart installs Crossplane core 2.4.3, the highest patch of the 2.4 line, through the same registry route as before, and its chart test asserts that tag.
 - id: CLD-066
   title: provider-opentofu v1.1.11 by digest
   area: CLD
@@ -14518,7 +14525,7 @@ packages:
   size: S
   lane: CHARTS
   depends_on: [SEC-271, FND-063, SOV-230]
-  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-074, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, FND-155, FND-206, FND-207, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-135, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-335, SEC-040, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-133, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-150, SVC-159, SVC-190, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-020, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-101, AIP-102, AIP-105, AIP-108, AIP-111, AIP-113, AIP-120, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-501, PRD-503, PRD-508, PRD-513]
+  after: [FND-026, FND-011, FND-018, FND-019, FND-020, FND-024, FND-025, FND-027, FND-028, FND-029, FND-055, FND-057, FND-074, FND-101, FND-103, FND-105, FND-107, FND-110, FND-151, FND-153, FND-155, FND-206, FND-207, CLD-010, CLD-023, CLD-030, CLD-063, CLD-064, CLD-090, CLD-092, CLD-093, CLD-094, CLD-103, CLD-104, CLD-108, CLD-111, CLD-112, CLD-113, CLD-131, CLD-132, CLD-134, CLD-211, SOV-040, SOV-050, SOV-135, SOV-142, SOV-143, SOV-144, SOV-151, SOV-175, SOV-180, SOV-190, SOV-335, SEC-040, SEC-095, SEC-096, SEC-104, SEC-105, SEC-127, NET-012, NET-030, NET-032, NET-033, NET-040, NET-041, NET-050, NET-071, NET-090, NET-098, NET-100, NET-110, NET-120, NET-133, NET-190, NET-212, NET-221, SVC-020, SVC-040, SVC-041, SVC-080, SVC-090, SVC-100, SVC-130, SVC-150, SVC-159, SVC-163, SVC-190, CTL-020, CTL-038, CTL-041, CTL-151, CTL-160, CTL-201, CTL-223, CTL-231, CTL-300, CTL-320, CTL-331, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-420, CMP-012, CMP-014, CMP-020, CMP-036, CMP-073, BSS-040, BSS-050, BSS-141, AIP-101, AIP-102, AIP-105, AIP-108, AIP-111, AIP-113, AIP-120, AIP-221, AIP-229, INF-010, INF-040, INF-050, INF-053, INF-110, INF-120, INF-130, INF-135, INF-140, ACC-010, ACC-040, ACC-050, PRD-030, PRD-101, PRD-102, PRD-106, PRD-501, PRD-503, PRD-508, PRD-513]
   touches:
   - platform/kyverno-policies/chart/templates/baseline/18-cosign-verified.yaml
   - platform/kyverno-policies/chart/values.yaml
@@ -17917,7 +17924,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [NET-324]
-  after: [CLD-075, CLD-086, CLD-090, CLD-092, CLD-131, CLD-132, CLD-134, SOV-131, SOV-133, SOV-140, SOV-141, SOV-335, SEC-020, SEC-030, SEC-040, SEC-150, NET-010, NET-011, NET-040, NET-100, NET-110, NET-210, SVC-040, SVC-041, SVC-090, SVC-159]
+  after: [CLD-075, CLD-086, CLD-090, CLD-092, CLD-131, CLD-132, CLD-134, SOV-131, SOV-133, SOV-140, SOV-141, SOV-335, SEC-020, SEC-030, SEC-040, SEC-150, NET-010, NET-011, NET-040, NET-100, NET-110, NET-210, SVC-040, SVC-041, SVC-090, SVC-159, SVC-163]
   touches:
   - infra/providers/huawei/
   - platform/cilium/
@@ -17945,7 +17952,7 @@ packages:
   size: S
   lane: SUBSTRATE
   depends_on: [NET-324]
-  after: [NET-040, NET-110, SVC-040, SVC-041, SVC-090, SVC-159]
+  after: [NET-040, NET-110, SVC-040, SVC-041, SVC-090, SVC-159, SVC-163]
   touches:
   - platform/cilium/
   resources: []
@@ -19160,16 +19167,17 @@ packages:
   size: M
   lane: RAILS
   depends_on: [SVC-159]
-  after: [SEC-103, SVC-060, ACC-050]
+  after: []
   touches:
+  - .github/workflows/check-catalog-seed-lockstep.yaml
   - platform/bge/blueprint.yaml
   - platform/cilium/blueprint.yaml
   - platform/clickhouse/blueprint.yaml
   - platform/cluster-autoscaler-hcloud/blueprint.yaml
-  - platform/cnpg-pair/blueprint.yaml
   - platform/cnpg/blueprint.yaml
-  - platform/external-secrets-stores/blueprint.yaml
+  - platform/cnpg-pair/blueprint.yaml
   - platform/external-secrets/blueprint.yaml
+  - platform/external-secrets-stores/blueprint.yaml
   - platform/gateway-api/blueprint.yaml
   - platform/grafana/blueprint.yaml
   - platform/guacamole/blueprint.yaml
@@ -19207,16 +19215,22 @@ packages:
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "grep -c -x 'NOT_COMPARED_YET = {\"configSchema\": \"SVC-163\"}' scripts/check-seed-equals-blueprints.py"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "out=\"$(python3 scripts/check-seed-equals-blueprints.py --self-test)\" && printf '%s\\n' \"$out\" && for t in 'a configSchema that differs is a difference' 'a configSchema only the file has is a difference' 'a configSchema only the seed has is a difference'; do printf '%s\\n' \"$out\" | grep -qx \"ok   $t (1 differences)\"; done"
+  - id: A2
+    run: "out=\"$(python3 scripts/check-seed-equals-blueprints.py)\" && printf '%s\\n' \"$out\" && test \"$(printf '%s\\n' \"$out\" | wc -l)\" = 1 && printf '%s\\n' \"$out\" | grep -qx 'check-seed-equals-blueprints: [0-9]* seed objects equal their Blueprint files' && python3 scripts/generate-catalog.py --check && python3 scripts/generators/components.py --check && python3 scripts/check-provider-leaks.py --check && bash scripts/check-access-guards.sh && python3 scripts/check-service-model.py && bash scripts/check-upstream-literals.sh && bash scripts/check-catalog-seed-lockstep.sh"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'The 40 Blueprint files whose configSchema differed from the hand-written seed carry the seed''s configSchema, absence included. The equality check of SVC-159 compares configSchema too: it compares every field the application controller or the console reads with no exception, and its output names none. The seed and outputs 1 and 2 of the generator are not changed.'
+  delivers: The 40 Blueprint files whose configSchema differed from the hand-written seed carry the seed's configSchema, absence included, and scripts/check-seed-equals-blueprints.py compares configSchema too, so it compares every field the application controller or the console reads with no exception and its output names none; the seed and outputs 1 and 2 of the generator are not changed.
 - id: SVC-164
   title: Delete the OpenMeter Blueprint
   area: SVC
@@ -28060,7 +28074,7 @@ packages:
   size: M
   lane: CHARTS
   depends_on: [AIP-250, AIP-151]
-  after: [FND-011, SVC-040, SVC-159, AIP-101, AIP-102, AIP-105, AIP-108, AIP-111]
+  after: [FND-011, SVC-040, SVC-159, SVC-163, AIP-101, AIP-102, AIP-105, AIP-108, AIP-111]
   touches:
   - products/agenity/chart/templates/externalsecret-mcp-bearer.yaml
   - products/agenity/chart/templates/externalsecret-anthropic.yaml
