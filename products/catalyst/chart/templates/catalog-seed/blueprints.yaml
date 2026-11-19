@@ -399,7 +399,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ $managedBy }}
     app.kubernetes.io/instance: {{ $instance }}
 spec:
-  version: 1.1.1
+  version: 1.1.2
   card:
     title: cert-manager PowerDNS Webhook
     summary: ACME DNS-01 solver webhook that lets cert-manager satisfy Let's Encrypt DNS-01 challenges against the Sovereign's own PowerDNS authoritative zones.
@@ -414,7 +414,7 @@ spec:
     type: oci
     url: oci://ghcr.io/openova-io
     chart: bp-cert-manager-powerdns-webhook
-    version: 1.1.1
+    version: 1.1.2
   topology:
     supported: [singleton]
     defaults:
