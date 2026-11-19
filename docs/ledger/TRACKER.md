@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T09:00:03Z` |
+| Last refreshed | `2026-11-19T09:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,9 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7922](https://github.com/openova-io/openova/issues/7922) | flight 3: defects that healed alone | Other |
-| [#7936](https://github.com/openova-io/openova/issues/7936) | SOV-175 The Sovereign object gets its writer | Other |
-| [#7938](https://github.com/openova-io/openova/issues/7938) | Deliver a later release candidate to a Sovereign that has cut over | Other |
 | [#7964](https://github.com/openova-io/openova/issues/7964) | AIP-112 Streamed responses are metered | Other |
 | [#7965](https://github.com/openova-io/openova/issues/7965) | AIP-120 Agent tokens and the signer key set route | Other |
 | [#7966](https://github.com/openova-io/openova/issues/7966) | CLD-062 Crossplane 1.19 to 1.20 | Other |
@@ -300,6 +297,9 @@ flowchart LR
 | [#8298](https://github.com/openova-io/openova/issues/8298) | SVC-250 Spike: composite resources in a release; bucket provisioning for an Orga | Other |
 | [#8302](https://github.com/openova-io/openova/issues/8302) | PRD-061 Spike: vector search with the readable principals on the chunk row | Other |
 | [#8306](https://github.com/openova-io/openova/issues/8306) | NET-251 Decision record: firewall mechanism and the package list of epic NET-250 | Other |
+| [#8311](https://github.com/openova-io/openova/issues/8311) | AIP-201 Node preparation for the sandbox class, exactly as the spike recorded | Other |
+| [#8312](https://github.com/openova-io/openova/issues/8312) | BSS-060 Gate check: self-service onboarding | Other |
+| [#8313](https://github.com/openova-io/openova/issues/8313) | SOV-321 Spike: the Sovereign's own mail server on a running Sovereign | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-19T09:09 | [#8309](https://github.com/openova-io/openova/pull/8309) | #7087 | docs(ledger): plan update |
 | 2026-11-19T08:48 | [#8305](https://github.com/openova-io/openova/pull/8305) | #7087 | docs(ledger): plan update |
 | 2026-11-19T08:38 | [#8304](https://github.com/openova-io/openova/pull/8304) | #8302 | docs(ledger): result of the lab test PRD-061, vector search  |
 | 2026-11-19T08:53 | [#8303](https://github.com/openova-io/openova/pull/8303) | fix(gate): the zero-touch check measures retry calls |  |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-19T04:23 | [#8267](https://github.com/openova-io/openova/pull/8267) | #7087 | docs(ledger): plan update |
 | 2026-11-19T05:21 | [#8266](https://github.com/openova-io/openova/pull/8266) | #8265 | feat(machine-runner): the passive web profile of the task te |
 | 2026-11-19T04:14 | [#8263](https://github.com/openova-io/openova/pull/8263) | #7087 | docs(ledger): plan update |
-| 2026-11-19T04:05 | [#8262](https://github.com/openova-io/openova/pull/8262) | #8247 | fix(gate): the parent Job asks for what the parent can sched |
 
 ---
 
