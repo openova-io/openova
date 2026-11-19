@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T15:30:06Z` |
+| Last refreshed | `2026-11-19T15:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,10 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7976](https://github.com/openova-io/openova/issues/7976) | FND-080 Set the manifest from the baseline | Other |
-| [#7977](https://github.com/openova-io/openova/issues/7977) | FND-153 The suite image and its signed build | Other |
-| [#7978](https://github.com/openova-io/openova/issues/7978) | FND-154 Check FND-G01 in its self form | Other |
-| [#7979](https://github.com/openova-io/openova/issues/7979) | INF-060 Remove the reboot settings from cloud-init | Other |
 | [#7980](https://github.com/openova-io/openova/issues/7980) | INF-135 Lock stage machine-ops in audit | Other |
 | [#7981](https://github.com/openova-io/openova/issues/7981) | NET-012 Second provider firewall to the same rule | Other |
 | [#7982](https://github.com/openova-io/openova/issues/7982) | NET-040 Remove the unwired firewall and the unused SPIRE chart | Other |
@@ -300,6 +296,10 @@ flowchart LR
 | [#8356](https://github.com/openova-io/openova/issues/8356) | SVC-220 Ring labels on the kit | Other |
 | [#8358](https://github.com/openova-io/openova/issues/8358) | FND-076 The standing environment is updated through the release route by a workf | Other |
 | [#8359](https://github.com/openova-io/openova/issues/8359) | INF-210 Spike: composite resource in an Organization's release, changed placemen | Other |
+| [#8363](https://github.com/openova-io/openova/issues/8363) | AIP-151 Tool answers are fitted and made inert | Other |
+| [#8364](https://github.com/openova-io/openova/issues/8364) | AIP-250 Spike: agent workspace on the Organization's own sign-in with a short-li | Other |
+| [#8365](https://github.com/openova-io/openova/issues/8365) | SOV-154 First boot applies one root Kustomization; its children come from Git | Other |
+| [#8368](https://github.com/openova-io/openova/issues/8368) | SOV-322 Sign-in mail from the Sovereign's own server: kit slot, settings, and th | Other |
 
 ---
 
@@ -307,6 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-19T15:44 | [#8366](https://github.com/openova-io/openova/pull/8366) | #8355 | docs(ledger): result of the lab test NET-280, the overlay pr |
+| 2026-11-19T15:39 | [#8360](https://github.com/openova-io/openova/pull/8360) | #8359 | docs(ledger): result of the spike INF-210, composite resourc |
+| 2026-11-19T15:32 | [#8357](https://github.com/openova-io/openova/pull/8357) | #7087 | docs(ledger): plan update |
 | 2026-11-19T15:27 | [#8354](https://github.com/openova-io/openova/pull/8354) | #7087 | docs(ledger): plan update |
 | 2026-11-19T15:07 | [#8351](https://github.com/openova-io/openova/pull/8351) | #7087 | docs(ledger): plan update |
 | 2026-11-19T15:14 | [#8350](https://github.com/openova-io/openova/pull/8350) | #8083 | fix(openova-mcp): the tool server accepts agent tokens and i |
@@ -334,9 +337,6 @@ flowchart LR
 | 2026-11-19T10:40 | [#8321](https://github.com/openova-io/openova/pull/8321) | #7087 | docs(ledger): plan update |
 | 2026-11-19T10:06 | [#8319](https://github.com/openova-io/openova/pull/8319) | #7087 | docs(ledger): plan update |
 | 2026-11-19T10:18 | [#8318](https://github.com/openova-io/openova/pull/8318) | #8312 | test(gate): check BSS-G01 walks the self-service onboarding  |
-| 2026-11-19T09:56 | [#8315](https://github.com/openova-io/openova/pull/8315) | #7087 | docs(ledger): plan update |
-| 2026-11-19T12:12 | [#8314](https://github.com/openova-io/openova/pull/8314) | #8311 | fix(cloud-init): turn on the Pod Certificate gates from k3s  |
-| 2026-11-19T09:38 | [#8310](https://github.com/openova-io/openova/pull/8310) | #7087 | docs(ledger): plan update |
 
 ---
 
