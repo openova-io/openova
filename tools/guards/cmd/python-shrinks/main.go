@@ -13,7 +13,12 @@
 // template (.tpl .tftpl .j2), Terraform or HCL (.tf .hcl), a make or just file,
 // Go (.go), Rust (.rs), TypeScript or JavaScript (.ts .tsx .mts .cts .js .jsx
 // .mjs .cjs), a file of a scope below, or a file whose first line is a #! line;
-// never a .md or .txt file. A comment line is one that starts with # or //, but
+// never a file of notCommandFiles, the one list of documentation: every path
+// under docs/ (the plan and its ledger, tickets, spikes, gates, acceptance
+// records, generated documents, decision records) and a .md or .txt file
+// anywhere. They quote the commands of existing tools and run nothing; a Python
+// file among them still counts in python_files and python_file_lines, and a
+// file of a scope in sovereign_places. A comment line is one that starts with # or //, but
 // not a //go:generate line, which runs its command. Of a Go, Rust, TypeScript or
 // JavaScript file only the lines that can run python are read: a //go:generate
 // line, a line that holds a string that is only the name of python ("python3"),
@@ -110,8 +115,9 @@
 // each file of the change added, a deleted file included), so room that an
 // earlier change freed without lowering the baseline file is not taken again.
 // A total lower than the baseline file passes, with one line that says the
-// baseline can be lowered. There is no list of files and no exception list: a
-// rename or a move changes no total, and a new .py file raises python_files.
+// baseline can be lowered. There is no list of files and no exception list
+// besides notCommandFiles: a rename or a move changes no total, and a new .py
+// file raises python_files, under docs/ too.
 //
 // What the guard does not see, by design: Python assembled or fetched at run
 // time (a program built from pieces, downloaded, or read from a Secret), an
@@ -482,7 +488,7 @@ func measure(root string) (*tree, error) {
 		}
 		scope := scopeOf(p, charts)
 		var text []byte
-		if strings.HasSuffix(p, ".py") || readsEmbedded(p, scope, "") {
+		if strings.HasSuffix(p, ".py") || scope != "" || readsEmbedded(p, scope, "") {
 			text, err = fs.ReadFile(fsys, p)
 		} else if text, err = readHead(fsys, p, 512); err == nil && bytes.HasPrefix(text, []byte("#!")) {
 			text, err = fs.ReadFile(fsys, p)
@@ -594,13 +600,39 @@ func scopeOf(p string, charts map[string]bool) string {
 	return ""
 }
 
+// notCommandFiles is the one list of the files that are never command files, so never read for
+// embedded_lines and invoke_lines: documentation and the ledger, which quote the commands of
+// existing tools (python3 scripts/plan.py accept ...) and run nothing. An entry that ends in / is
+// every path under that folder of the repository; an entry *.x is every file whose name ends in
+// .x, anywhere. A Python file among them (a .py path, or a first line #! that names python) still
+// counts in python_files and python_file_lines, and a file of a scope in sovereign_places.
+var notCommandFiles = []string{
+	"docs/", // the plan and its ledger, tickets, spikes, gates, acceptance records, generated documents, decision records
+	"*.md",  // Markdown
+	"*.txt", // plain text
+}
+
+// notCommandFile is true for a path of notCommandFiles.
+func notCommandFile(p string) bool {
+	for _, entry := range notCommandFiles {
+		if suffix, ok := strings.CutPrefix(entry, "*"); ok {
+			if strings.HasSuffix(path.Base(p), suffix) {
+				return true
+			}
+		} else if strings.HasPrefix(p, entry) {
+			return true
+		}
+	}
+	return false
+}
+
 // readsEmbedded is true for a command file: one that is read for Python inside it and for
 // lines that run python.
 func readsEmbedded(p, scope, first string) bool {
-	name := path.Base(p)
-	if strings.HasSuffix(name, ".md") || strings.HasSuffix(name, ".txt") {
+	if notCommandFile(p) {
 		return false
 	}
+	name := path.Base(p)
 	if scope != "" || embeddedExts[path.Ext(name)] || codeExts[path.Ext(name)] || strings.HasPrefix(first, "#!") {
 		return true
 	}

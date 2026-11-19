@@ -20,7 +20,7 @@ tooling is written here, in Go, never as a new Python file (docs/PRINCIPLES.md I
 
 | Command | What it holds |
 |---|---|
-| `cmd/python-shrinks` | No new Python. Five totals never rise above `scripts/baselines/python.json` (code owner review). No file list, no exception list: a rename passes. What each total counts is below. |
+| `cmd/python-shrinks` | No new Python. Five totals never rise above `scripts/baselines/python.json` (code owner review). No file list and no exception list besides the documentation that is not read (below): a rename passes. What each total counts is below. |
 
 `go run ./cmd/python-shrinks --list` prints the share of every file of each total and every place it counts;
 `--write-baseline` writes the totals of the tree and refuses to raise any (a total that fell passes and says the baseline can be lowered);
@@ -30,9 +30,11 @@ tooling is written here, in Go, never as a new Python file (docs/PRINCIPLES.md I
 
 It reads the files Git lists (tracked, and new files Git does not ignore).
 
+Not read for `embedded_lines` and `invoke_lines`: documentation, the one list `notCommandFiles` in `cmd/python-shrinks/main.go`. It is every path under `docs/` (the plan and its ledger, tickets, spikes, gates, acceptance records, generated documents, decision records) and every `.md` and `.txt` file anywhere. These quote the commands of existing tools (`python3 scripts/plan.py accept ...`) and run nothing; every published plan update adds such lines. A `.py` file there still counts in `python_files` and `python_file_lines` (`docs/training/bss/*.py`), and a file of a scope still counts in `sovereign_places`. Everything that executes stays counted: workflows, shell scripts, chart templates and files, cloud-init templates, container files, Go, Rust and TypeScript.
+
 - `python_files`: every file whose path ends in `.py`, and every other file whose first line is a `#!` line that names python.
 - `python_file_lines`: the lines of those files.
-- `embedded_lines`: the lines of Python inside every other file of code or configuration: shell, YAML, JSON, templates (`.tpl` `.tftpl` `.j2`), Terraform and HCL, make and just files, Go, Rust, TypeScript, JavaScript, a chart template or file, and any file whose first line is a `#!` line; never a `.md` or `.txt` file. Counted:
+- `embedded_lines`: the lines of Python inside every other file of code or configuration: shell, YAML, JSON, templates (`.tpl` `.tftpl` `.j2`), Terraform and HCL, make and just files, Go, Rust, TypeScript, JavaScript, a chart template or file, and any file whose first line is a `#!` line; never documentation (above). Counted:
   - the body of a here-document opened on a line that runs python or writes a `.py` file;
   - the body of any other here-document whose first line is a python `#!` line, that line included (`cat > "$BIN/curl" <<'PY'` and then `#!/usr/bin/env python3`: a program saved without the `.py` suffix and run later);
   - the program of `python -c` and of a here-string (`<<<`) given to python, from quote to quote; when it is `"$NAME"`, the text or here-document assigned to `NAME`;

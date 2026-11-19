@@ -293,6 +293,77 @@ func TestBaseComparesARenamedFileWithItsOldPath(t *testing.T) {
 		"  tools/py/renamed.py (was "+tool+") grew from 3 to 4 against HEAD")
 }
 
+// wantUnchanged runs the guard with and without --base HEAD and wants every total of the fixture,
+// with nothing to say.
+func wantUnchanged(t *testing.T, dir, why string) {
+	t.Helper()
+	for _, args := range [][]string{nil, {"--base", "HEAD"}} {
+		code, out := guardOn(dir, args...)
+		want(t, code, out, 0, fixtureSummary)
+		if strings.Contains(out, "FAIL") || strings.Contains(out, "lower than") {
+			t.Fatalf("%s\n%s", why, out)
+		}
+	}
+}
+
+// Documentation and the ledger quote the commands of existing tools and run nothing: a line that
+// names python there changes no total. On a guard that reads docs/ each case fails.
+func TestDocumentationAndTheLedgerChangeNoTotal(t *testing.T) {
+	plan := "stories:\n  - id: AIP-150\n    accept:\n      - python3 scripts/plan.py accept AIP-150\n"
+	cases := []struct{ name, path, before, after string }{
+		{"a new acceptance command in the plan", "docs/ledger/plan.yaml", plan,
+			plan + "  - id: AIP-151\n    accept:\n      - python3 scripts/plan.py accept AIP-151\n      - python3 scripts/check-pins.py --base HEAD^1\n"},
+		{"a here-document run by python in a file under docs/", "docs/runbooks/drill.sh", "",
+			"set -eu\npython3 - \"$@\" <<'PY'\nimport sys\nprint(sys.argv)\nPY\n"},
+		{"python -c in a generated document under docs/", "docs/ledger/gates.json", "",
+			"{\"gate\": \"python3 -c 'import json; print(1)'\"}\n"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := seeded(t)
+			if c.before != "" {
+				put(t, dir, c.path, c.before)
+			}
+			commitAll(t, dir)
+			put(t, dir, c.path, c.after)
+			wantUnchanged(t, dir, "documentation changes no total")
+		})
+	}
+}
+
+// The same line that the plan quotes, in a workflow, runs python: invoke_lines rises and fails.
+func TestTheLedgerLineInAWorkflowFails(t *testing.T) {
+	dir := seeded(t)
+	commitAll(t, dir)
+	put(t, dir, ".github/workflows/x.yaml", "jobs:\n  a:\n    steps:\n      - run: python3 scripts/plan.py accept AIP-151\n")
+	code, out := guardOn(dir)
+	wantFails(t, code, out, "FAIL invoke_lines is 8, 1 more than the baseline 7")
+	code, out = guardOn(dir, "--base", "HEAD")
+	wantFails(t, code, out, "FAIL invoke_lines is 8, 1 more than the baseline 7", "  .github/workflows/x.yaml grew from 0 to 1 against HEAD")
+}
+
+// A .py file is a Python file wherever it is, under docs/ too.
+func TestPythonFileUnderDocsIsCounted(t *testing.T) {
+	dir := seeded(t)
+	commitAll(t, dir)
+	put(t, dir, "docs/x.py", "print(1)\n")
+	code, out := guardOn(dir)
+	wantFails(t, code, out, "FAIL python_files is 5, 1 more than the baseline 4", "FAIL python_file_lines is 9, 1 more than the baseline 8")
+	code, out = guardOn(dir, "--base", "HEAD")
+	wantFails(t, code, out, "FAIL python_files is 5, 1 more than the baseline 4", "  docs/x.py grew from 0 to 1 against HEAD",
+		"FAIL python_file_lines is 9, 1 more than the baseline 8", "  docs/x.py grew from 0 to 1 against HEAD")
+}
+
+// A line that names python, moved from one counted file to another, changes no total.
+func TestMovingALineThatNamesPythonPasses(t *testing.T) {
+	dir := seeded(t)
+	commitAll(t, dir)
+	line := "python3 -c 'import json; print(1)'"
+	put(t, dir, ciFlow, strings.Replace(get(t, dir, ciFlow), line, "go version", 1))
+	put(t, dir, ".github/workflows/moved.yaml", "jobs:\n  b:\n    steps:\n      - run: "+line+"\n")
+	wantUnchanged(t, dir, "a moved line changes no total")
+}
+
 // The reviewer's bypass: a step whose shell is python is Python inside the workflow.
 func TestShellPythonStepIsCounted(t *testing.T) {
 	dir := seeded(t)
@@ -756,6 +827,8 @@ func TestReadsEmbedded(t *testing.T) {
 		"infra/providers/huawei/main.tf": true, "Makefile": true, "package.json": true, "core/x/main.go": true,
 		"core/x/main_test.go": true, "core/x/src/main.rs": true, "web/src/run.ts": true, "web/src/App.tsx": true, "web/lib/x.mjs": true, "web/lib/x.js": true,
 		"docs/RUNBOOKS.md": false, "notes.txt": false, "scripts/no-suffix": false, "web/logo.svg": false,
+		"docs/ledger/plan.yaml": false, "docs/ledger/gates.json": false, "docs/runbooks/drill.sh": false, "docs/training/bss/shoot.js": false,
+		"platform/app/chart/README.md": false, "core/docs/x.yaml": true, "scripts/docs/x.sh": true,
 	}
 	for p, wantRead := range cases {
 		if got := readsEmbedded(p, "", ""); got != wantRead {
@@ -764,5 +837,8 @@ func TestReadsEmbedded(t *testing.T) {
 	}
 	if !readsEmbedded("scripts/no-suffix", "", "#!/usr/bin/env bash") {
 		t.Error("a file with a #! line is read")
+	}
+	if readsEmbedded("docs/no-suffix", "", "#!/usr/bin/env bash") || readsEmbedded("docs/x/Containerfile", scopeImage, "") {
+		t.Error("a file under docs/ is not a command file, whatever its first line or scope")
 	}
 }
