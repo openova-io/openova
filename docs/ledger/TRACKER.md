@@ -4,8 +4,8 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T23:30:05Z` |
-| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 9m ago) |
+| Last refreshed | `2026-11-19T23:45:03Z` |
+| Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
 | Open TBD-* regressions | 0 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7991](https://github.com/openova-io/openova/issues/7991) | SOV-241 Follower regions pivot the image registry of the other kit workloads tha | Other |
 | [#7992](https://github.com/openova-io/openova/issues/7992) | SOV-750 Spike: an auto-scaling group worker pool on the reference cloud | Other |
 | [#7993](https://github.com/openova-io/openova/issues/7993) | SVC-190 Delete the Blueprint controller | Other |
 | [#8035](https://github.com/openova-io/openova/issues/8035) | ACC-010 Close the default-install exposure of the access gateway | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8414](https://github.com/openova-io/openova/issues/8414) | SOV-341 The kubeconfig route serves the primary region's file that the parent ho | Other |
 | [#8415](https://github.com/openova-io/openova/issues/8415) | SVC-166 The umbrella chart's Blueprint file moves beside its chart | Other |
 | [#8418](https://github.com/openova-io/openova/issues/8418) | SOV-522 The release stage applies the provider pivot again where a candidate cha | Other |
+| [#8423](https://github.com/openova-io/openova/issues/8423) | AIP-131 Model checks AIP-G02 to AIP-G05 as expected-fail | Other |
 
 ---
 
@@ -308,6 +308,7 @@ flowchart LR
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
 | 2026-11-19T23:20 | [#8417](https://github.com/openova-io/openova/pull/8417) | #7087 | docs(ledger): plan update |
+| 2026-11-19T23:37 | [#8416](https://github.com/openova-io/openova/pull/8416) | #8414 | fix(api): the kubeconfig route serves the primary region fil |
 | 2026-11-19T23:00 | [#8413](https://github.com/openova-io/openova/pull/8413) | #7087 | docs(ledger): plan update |
 | 2026-11-19T22:53 | [#8412](https://github.com/openova-io/openova/pull/8412) | #7087 | docs(ledger): plan update |
 | 2026-11-19T23:22 | [#8411](https://github.com/openova-io/openova/pull/8411) | #8410 | test(acceptance): a client of the model contract for the gat |
@@ -317,6 +318,7 @@ flowchart LR
 | 2026-11-19T22:24 | [#8406](https://github.com/openova-io/openova/pull/8406) | #7087 | docs(ledger): plan update |
 | 2026-11-19T23:28 | [#8405](https://github.com/openova-io/openova/pull/8405) | #8402 | refactor(cloud-init): first boot pulls no image ahead of tim |
 | 2026-11-19T22:37 | [#8404](https://github.com/openova-io/openova/pull/8404) | #5245 | fix(install): the platform's own automation leaves no hand's |
+| 2026-11-19T23:32 | [#8403](https://github.com/openova-io/openova/pull/8403) | #3695 | fix(charts): a function test reaches the API server the way  |
 | 2026-11-19T21:16 | [#8401](https://github.com/openova-io/openova/pull/8401) | #7087 | docs(ledger): plan update |
 | 2026-11-19T21:19 | [#8400](https://github.com/openova-io/openova/pull/8400) | #8398 | feat(cortex): ingestion of uploads with the job table, the d |
 | 2026-11-19T21:49 | [#8399](https://github.com/openova-io/openova/pull/8399) | #8396 | feat(gate): BSS-G01 reads its sign-in code from a mailbox on |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-19T18:19 | [#8375](https://github.com/openova-io/openova/pull/8375) | #8364 | docs(ledger): result of the lab test AIP-250, the agent work |
 | 2026-11-19T18:38 | [#8374](https://github.com/openova-io/openova/pull/8374) | #8363 | fix(openova-mcp): every tool answer is redacted, made inert  |
 | 2026-11-19T16:14 | [#8372](https://github.com/openova-io/openova/pull/8372) | #7087 | docs(ledger): plan update |
-| 2026-11-19T16:20 | [#8371](https://github.com/openova-io/openova/pull/8371) | #8365 | refactor(cloud-init): first boot applies one root Kustomizat |
-| 2026-11-19T16:27 | [#8370](https://github.com/openova-io/openova/pull/8370) | #8356 | refactor(kit): every kit release carries its ring label, the |
 
 ---
 
