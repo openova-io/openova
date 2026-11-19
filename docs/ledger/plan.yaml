@@ -29166,23 +29166,31 @@ packages:
   size: M
   lane: CONTROL
   depends_on: [AIP-120, AIP-222]
-  after: [SVC-040]
+  after: []
   touches:
   - products/ops-records/internal/judge/**
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e products/ops-records/internal/judge; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "cd products/ops-records && go vet ./... && go test -count=1 -race ./internal/judge/"
+  - id: A2
+    run: "cd products/ops-records && go test -count=1 -race -v -run '^(TestFakeAgent|TestLaneLimit|TestCancelledTurnFreesItsSlot|TestTokenRequestCarriesServiceAccountToken|TestValidateCorrelation|TestRevise)$' ./internal/judge/ | grep -c -E -- '--- PASS: (TestFakeAgent/(valid|invalid|late_and_valid|never)|TestLaneLimit|TestCancelledTurnFreesItsSlot|TestTokenRequestCarriesServiceAccountToken|TestValidateCorrelation|TestRevise) ' | grep -qx 9"
+  - id: A3
+    run: "test -f products/ops-records/internal/judge/dispatcher.go && python3 scripts/check-no-new-polling.py"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: Bounded-judge contract of section 4.10.4 in code
+  delivers: The package products/ops-records/internal/judge asks an agent one bounded question over A2A with an agent token, writes the rule result when the agent is invalid, unavailable or late, applies a valid correlator answer before the deadline and revises the records with a valid late one, and records every outcome in ops.judgements.
 - id: AIP-224
   title: Guard library agentguard and its adversarial corpus
   area: AIP
