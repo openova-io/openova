@@ -1,6 +1,6 @@
 # Expected dependsOn DAG for the top-level Flux Kustomizations that the
 # control-plane cloud-init bootstraps (infra/providers/_shared/
-# cloudinit-control-plane.tftpl).
+# cloudinit-control-plane.tftpl), the root and its children in clusters/_template/root (SOV-154).
 #
 # WHY THIS FILE EXISTS (#3380 row D — sovereign-tls dependsOn drift guard):
 # the bootstrap-kit dependency-graph audit (scripts/check-bootstrap-deps.sh)
@@ -44,6 +44,8 @@
 # absent for some providers — its absence is NOT drift, but when present
 # its dependsOn must match.
 kustomizations:
+  - name: sovereign-root
+    depends_on: []
   - name: bootstrap-kit
     depends_on: []
   - name: sovereign-tls
@@ -72,11 +74,11 @@ kustomizations:
     # region repo from its own Gitea (clusters/_template/sovereign-region).
     # NO dependsOn: wait:false + retryInterval, retrying until Gitea and the
     # region repo exist. Rendered for every provider except Hetzner (32576 B
-    # user-data cap; applied by hand there). Present in the .tftpl text.
+    # user-data cap; applied by hand there). Present in root/base-primary.
     depends_on: []
   - name: infrastructure-providers
     # #4521 — LAYER 1 of the two-layer Crossplane bootstrap. The ONLY crossplane
-    # Flux Kustomization INLINED in cloud-init: it installs the Provider PACKAGE
+    # Flux Kustomization applied at first boot: it installs the Provider PACKAGE
     # CRs (provider-opentofu + native provider-hcloud on Hetzner) via a
     # cloud-conditional `path` (Huawei → .../infrastructure/providers ; Hetzner →
     # .../providers/hetzner). NO dependsOn (depends_on: []): the Provider CR's

@@ -42,13 +42,18 @@ run "hetzner_render_is_valid" {
 
   # #4521 — the Crossplane Provider + ProviderConfig MUST NOT be batched in one
   # Flux Kustomization (atomic dry-run deadlock). LAYER 1
-  # (`infrastructure-providers`) is inlined in cloud-init and points at the
+  # (`infrastructure-providers`) is a child of the root (SOV-154) and points at the
   # providers/ tree; LAYER 2 (`infrastructure-config`) ships as a COMMITTED
   # Flux Kustomization CR (kept off the byte-capped cloud-init) that
   # `dependsOn`s LAYER 1.
   assert {
     condition     = output.has_providers_kustomization == true
-    error_message = "#4521 regression: the inline `infrastructure-providers` Flux Kustomization (Provider-install LAYER 1) is missing — the Provider + ProviderConfig got re-batched into one Kustomization → atomic dry-run deadlock."
+    error_message = "#4521 regression: the `infrastructure-providers` Flux Kustomization (Provider-install LAYER 1) under clusters/_template/root is missing — the Provider + ProviderConfig got re-batched into one Kustomization → atomic dry-run deadlock."
+  }
+
+  assert {
+    condition     = output.root.names == ["sovereign-root"] && output.root.path == "clusters/_template/providers/hetzner/root/primary" && output.root.folder
+    error_message = "SOV-154: flux-bootstrap.yaml must hold one Flux Kustomization, sovereign-root, with the path ./clusters/_template/providers/hetzner/root/primary, a folder of the repository with a kustomization.yaml."
   }
 
   assert {
@@ -104,7 +109,7 @@ run "hetzner_render_is_valid" {
   }
 
   # SOV-130 — the substituted values live in ConfigMap
-  # flux-system/sovereign-variables, which every inline Kustomization reads
+  # flux-system/sovereign-variables, which the root Kustomization reads
   # with postBuild.substituteFrom. No Kustomization keeps an inline
   # substitute map, and the DNS-01 API key is only in the Secret
   # flux-system/sovereign-tls-secrets.
@@ -114,8 +119,8 @@ run "hetzner_render_is_valid" {
   }
 
   assert {
-    condition     = length(regexall("(?m)^        name: sovereign-variables$", output.flux_bootstrap_yaml)) == 4
-    error_message = "SOV-130: every inline Flux Kustomization (4 in this fixture) must list ConfigMap sovereign-variables under postBuild.substituteFrom."
+    condition     = length(regexall("(?m)^        name: sovereign-variables$", output.flux_bootstrap_yaml)) == 1
+    error_message = "SOV-130, SOV-154: the root Kustomization must list ConfigMap sovereign-variables under postBuild.substituteFrom."
   }
 
   assert {
@@ -241,11 +246,16 @@ run "huawei_render_is_valid" {
   }
 
   # #4521 — Huawei is the branch the keystone walk (dep 25aadcfc) hit the
-  # deadlock on. The inline LAYER-1 Kustomization + the committed LAYER-2 CRs'
+  # deadlock on. The LAYER-1 Kustomization + the committed LAYER-2 CRs'
   # dependsOn ordering must hold on the Huawei branch too.
   assert {
     condition     = output.has_providers_kustomization == true
-    error_message = "#4521 regression (huawei branch): inline `infrastructure-providers` Kustomization missing — provider-opentofu will never install (the live 25aadcfc fault)."
+    error_message = "#4521 regression (huawei branch): `infrastructure-providers` Kustomization missing under clusters/_template/root — provider-opentofu will never install (the live 25aadcfc fault)."
+  }
+
+  assert {
+    condition     = output.root.names == ["sovereign-root"] && output.root.path == "clusters/_template/root/base-primary" && output.root.folder
+    error_message = "SOV-154 (huawei branch): flux-bootstrap.yaml must hold one Flux Kustomization, sovereign-root, with the path ./clusters/_template/root/base-primary, a folder of the repository with a kustomization.yaml."
   }
 
   assert {
@@ -282,7 +292,7 @@ run "huawei_render_is_valid" {
   }
 
   # SOV-130 (huawei branch) — the substituted values live in ConfigMap
-  # flux-system/sovereign-variables, which every inline Kustomization reads
+  # flux-system/sovereign-variables, which the root Kustomization reads
   # with postBuild.substituteFrom. No Kustomization keeps an inline
   # substitute map, and the DNS-01 API key is only in the Secret
   # flux-system/sovereign-tls-secrets.
@@ -292,8 +302,8 @@ run "huawei_render_is_valid" {
   }
 
   assert {
-    condition     = length(regexall("(?m)^        name: sovereign-variables$", output.flux_bootstrap_yaml)) == 5
-    error_message = "SOV-130 (huawei branch): every inline Flux Kustomization (5 in this fixture) must list ConfigMap sovereign-variables under postBuild.substituteFrom."
+    condition     = length(regexall("(?m)^        name: sovereign-variables$", output.flux_bootstrap_yaml)) == 1
+    error_message = "SOV-130, SOV-154 (huawei branch): the root Kustomization must list ConfigMap sovereign-variables under postBuild.substituteFrom."
   }
 
   assert {
