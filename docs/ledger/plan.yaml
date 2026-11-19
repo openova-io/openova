@@ -29591,13 +29591,13 @@ packages:
   - id: A1
     run: "test -s docs/ledger/plan/spikes/INF-020.md && grep -q '^## Evidence' docs/ledger/plan/spikes/INF-020.md"
   - id: A2
-    run: "sha256sum docs/ledger/plan/spikes/INF-020.md | cut -d' ' -f1 | grep -qx 02abf8abd396618c388fed52a3513a8f6160a3dd3c7478329dddf2c7b03ae346"
+    run: "sha256sum docs/ledger/plan/spikes/INF-020.md | cut -d' ' -f1 | grep -qx f8d98cc275d5d557bf2e145b734767196f127d101db7214e0f5f23ab395b6967"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 1
+  ticket_rev: 2
   dropped: false
   delivers: The repository holds the result of the spike that read /dev/kvm and the CPU virtualisation flags on every node of the standing test environment, with the flavours, the answer per pack, what was not measured and what the KubeVirt epic, the sandbox class and the migration area must do with it.
 - id: INF-030
