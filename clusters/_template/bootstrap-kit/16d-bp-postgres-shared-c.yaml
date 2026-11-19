@@ -36,6 +36,7 @@ metadata:
   namespace: flux-system
   labels:
     catalyst.openova.io/slot: "16d"
+    catalyst.openova.io/ring: foundation
     catalyst.openova.io/data-instance: shared-pg-c
 spec:
   test:

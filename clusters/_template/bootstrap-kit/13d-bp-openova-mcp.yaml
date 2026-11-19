@@ -64,6 +64,7 @@ metadata:
   namespace: flux-system  # placement-generated (#3373) — source: placement.yaml; edit THAT file + run scripts/render-slot-placement.py fix
   labels:
     catalyst.openova.io/slot: "13d"
+    catalyst.openova.io/ring: ai
     catalyst.openova.io/component: openova-mcp
     catalyst.openova.io/region-role: primary
 spec:
