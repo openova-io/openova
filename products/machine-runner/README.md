@@ -16,9 +16,11 @@ in its decision record,
 
 - `/usr/local/bin/machine-runner`, built from `products/catalyst/bootstrap/api/cmd/machine-runner`.
 - The tools of `tools.lock.yaml`, each at an exact version whose SHA-256 the build checks:
-  ansible-core, ansible-runner, Trivy, the OpenSCAP scanner with `oscap-chroot`, and the
+  ansible-core, ansible-runner, Trivy, the OpenSCAP scanner with `oscap-chroot`, the
   ComplianceAsCode data streams of the Ubuntu and RHEL families under
-  `/content/scap/<release>/`.
+  `/content/scap/<release>/`, and Nuclei with the signed templates of one template release
+  under `/content/nuclei-templates/` (only the folders of the protocols tcp, ssl, dns and
+  http).
 - `LICENSES.md`: the licence of each tool and how it is used.
 
 The default user is `65534`. A node-mode Job runs as root with a read-only root file system and
@@ -39,16 +41,43 @@ read-only root file system, and nothing stays from one run to the next.
 
 The inventory task updates no database and fetches nothing. A node whose release has no data
 stream in the image gets outcome `Succeeded` with no rule and the message
-`no-profile-for-release`. Every other task and SSH mode give outcome `Refused`.
+`no-profile-for-release`.
+
+## Task test (the Job shape of SSH mode, no SSH session)
+
+`--task=test --mode=ssh` runs the passive profiles of a test scope against one declared machine.
+It opens no SSH session: the Job's egress policy allows the target address on the scope's ports
+only. The target list is built from `--address` and `--ports` and nothing else, one line
+`<address>:<port>` per port; it is written, read back and checked before the tool starts. An
+address that is not one unicast address of a machine (a name, a range, loopback, link-local,
+multicast, broadcast, unspecified) and a port outside 1 to 65535 or given twice give outcome
+`Refused` and start nothing.
+
+| Profile | Tool | File stored |
+|---|---|---|
+| `network-passive` | `nuclei -duc -t /content/nuclei-templates -l <targets> -pt tcp,ssl,dns,http -dut -tags tech,detect,ssl,tls,dns -etags intrusive,dos,fuzz,bruteforce,default-login,vuln -ni -dr -rl <requests per second> -se <file> -silent -nc` | `test.sarif.json` |
+| `web-passive` | not in this version: outcome `Refused`, `not-supported: test-profile web-passive` | |
+
+Profile `network-passive` runs signed templates only, of the protocols tcp, ssl, dns and http;
+no code, headless or fuzzing template runs. It runs only fingerprints of services and
+technologies and the TLS and DNS checks, never a template that changes state, denies service,
+guesses passwords or probes a vulnerability (vulnerabilities come from the bill of materials).
+There is no update check, no template download, no out-of-band interaction server and no HTTP
+redirect. A tcp template may dial its own port; the egress policy drops it unless it is a port
+of the scope. `test.sarif.json` (evidence kind `test-sarif`) holds one SARIF 2.1.0 run per tool
+run; the result member `test` gives the number of results and the object key of the file.
+`--task=test --mode=node` and every other task in SSH mode give outcome `Refused`.
 
 ## Arguments
 
-`machine-runner --task=<inventory|hardening> --mode=node --machine=<namespace>/<name>
+`machine-runner --task=<inventory|hardening|test> --mode=<node|ssh> --machine=<namespace>/<name>
 --run=<namespace>/<name> --os-family=<family> --os-version=<version>
 --evidence-endpoint=https://<host>[:<port>] --evidence-region=<region>
 --evidence-bucket=<bucket> --evidence-prefix=<machine namespace>/<machine name>/<run name>/`,
-and for `hardening` also `--profile-id`, `--content-release` and `--disabled-rules`
-(comma-separated XCCDF rule identifiers).
+for `hardening` also `--profile-id`, `--content-release` and `--disabled-rules`
+(comma-separated XCCDF rule identifiers), and for `test` also `--address`, `--ports`
+(comma-separated), `--test-profile` (comma-separated, each once) and `--requests-per-second`
+(1 to 50, default 10).
 
 ## Evidence and result
 
