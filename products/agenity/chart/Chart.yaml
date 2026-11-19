@@ -367,7 +367,9 @@ version: 0.5.34
 # distinct value keeps the hardened-pipeline image from masquerading under the
 # old tag. Chart version bumped 0.5.2 -> 0.5.3 to publish the no-cache-HTML
 # HTTPRoute change (the durable fix for the founder's stale-browser-cache view).
-appVersion: "0.9.7"
+# 0.9.8 (AIP-150): the image embeds the openova-mcp binary that accepts agent
+# tokens.
+appVersion: "0.9.8"
 keywords:
   - agenity
   - agent-runtime

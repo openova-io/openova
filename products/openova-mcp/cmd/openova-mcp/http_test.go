@@ -10,6 +10,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
+	"github.com/openova-io/openova/products/openova-mcp/internal/catalystapi"
 	"github.com/openova-io/openova/products/openova-mcp/internal/identity"
 	"github.com/openova-io/openova/products/openova-mcp/internal/tools"
 )
@@ -148,17 +149,54 @@ func TestHTTP_EmptyBodyIs400(t *testing.T) {
 	}
 }
 
-func TestBearerFromRequest_Precedence(t *testing.T) {
+// The HTTP transport reads the bearer from the Authorization header and from
+// nothing else: no header, no bearer.
+func TestBearerFromRequest_HeaderOnly(t *testing.T) {
 	r := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(nil))
-	if got := bearerFromRequest(r, "process-fallback"); got != "process-fallback" {
-		t.Fatalf("no header: got %q", got)
+	if got := bearerFromRequest(r); got != "" {
+		t.Fatalf("no header: got %q, want no bearer", got)
 	}
 	r.Header.Set("Authorization", "Bearer header-token")
-	if got := bearerFromRequest(r, "process-fallback"); got != "header-token" {
-		t.Fatalf("header wins: got %q", got)
+	if got := bearerFromRequest(r); got != "header-token" {
+		t.Fatalf("header: got %q", got)
 	}
 	r.Header.Set("Authorization", "raw-token-no-scheme")
-	if got := bearerFromRequest(r, "process-fallback"); got != "raw-token-no-scheme" {
+	if got := bearerFromRequest(r); got != "raw-token-no-scheme" {
 		t.Fatalf("raw header: got %q", got)
+	}
+}
+
+// An agent token never takes the /whoami fallback: when the resolver cannot
+// accept it, catalyst-api is not asked, even though it would vouch for it.
+func TestResolveBearer_AgentTokenNeverTakesWhoamiFallback(t *testing.T) {
+	calls := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		_, _ = w.Write([]byte(`{"email":"probe@acme.agents.invalid","verified":true,"mode":"organization","tier":"admin","org":"acme","orgScoped":true}`))
+	}))
+	defer ts.Close()
+
+	srv := &server{
+		reg:      tools.NewRegistry(catalystapi.New(ts.URL)),
+		resolver: identity.NewDegradedResolver("no session pubkey", ""),
+	}
+	agent := mintUnsigned(t, jwt.MapClaims{
+		"sub": "agent:acme/probe", "typ": "agent", "agent": "probe", "org_id": "acme", "tier": "viewer",
+		"aud": []string{"model-gateway", "platform-tools", "catalyst-api"},
+	})
+	if _, err := srv.resolveBearer(agent); err == nil {
+		t.Fatal("an agent token the resolver refused was accepted")
+	}
+	if calls != 0 {
+		t.Fatalf("an agent token took the /whoami fallback (%d calls)", calls)
+	}
+
+	// Control: a session token the resolver refuses still takes the fallback.
+	session := mintUnsigned(t, jwt.MapClaims{"sub": "user-1", "org_id": "acme", "tier": "org-admin", "typ": "session"})
+	if _, err := srv.resolveBearer(session); err != nil {
+		t.Fatalf("session token: the /whoami fallback no longer works: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("session token: /whoami called %d times, want 1", calls)
 	}
 }

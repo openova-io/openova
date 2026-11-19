@@ -8,8 +8,8 @@
 //
 // Wire model (this slice): JSON-RPC 2.0 over stdio (Content-Length-framed),
 // the same proven transport the sandbox MCP uses. The bearer is supplied
-// per `tools/call` (and `tools/list`) via the `_auth.token` argument OR the
-// OPENOVA_MCP_BEARER env fallback, validated into the shared
+// per `tools/call` (and `tools/list`) via the `_auth.token` argument OR (on
+// stdio only) the OPENOVA_MCP_BEARER env fallback, validated into the shared
 // auth.Claims, and resolved into the (context, tier, scope) identity that
 // drives both RBAC layers. The streamable-HTTP/SSE transport + chepherd
 // injection are DEFERRED to follow-ups (#3988 §4.3, §5).
@@ -29,6 +29,11 @@
 //	                              verify=rs256.
 //	OPENOVA_MCP_HS256_SECRET      HS256 shared secret when verify=hs256.
 //	OPENOVA_MCP_BEARER            fallback bearer when a call omits _auth.
+//	                              Stdio transport only: the HTTP transport
+//	                              reads the Authorization header alone.
+//	OPENOVA_MCP_AGENT_ISSUER      optional exact `iss` an agent token (typ
+//	                              agent) must carry. Empty = no agent issuer
+//	                              pin. Session tokens are not affected.
 //	OPENOVA_MCP_EXPECTED_ISSUER   optional exact `iss` claim pin — the
 //	                              instance-level trusted-realm boundary
 //	                              (#3988 §4.3). Empty = no issuer pin.
@@ -143,16 +148,17 @@ func main() {
 	if api != nil {
 		tenantHostLog = api.TenantHost()
 	}
-	log.Printf("env: catalyst_api=%q context_pin=%q verify=%q bearer_fallback=%v tenant_host=%q issuer_pin=%q org_scope=%q listen=%q",
+	log.Printf("env: catalyst_api=%q context_pin=%q verify=%q bearer_fallback=%v tenant_host=%q issuer_pin=%q agent_issuer=%q org_scope=%q listen=%q",
 		apiURL, os.Getenv("OPENOVA_MCP_CONTEXT"), verifyMode(), os.Getenv("OPENOVA_MCP_BEARER") != "", tenantHostLog,
-		os.Getenv("OPENOVA_MCP_EXPECTED_ISSUER"), os.Getenv("OPENOVA_MCP_ORG_SCOPE"), os.Getenv("OPENOVA_MCP_LISTEN"))
+		os.Getenv("OPENOVA_MCP_EXPECTED_ISSUER"), os.Getenv("OPENOVA_MCP_AGENT_ISSUER"), os.Getenv("OPENOVA_MCP_ORG_SCOPE"), os.Getenv("OPENOVA_MCP_LISTEN"))
 
 	// ── Streamable-HTTP transport (#3988 §4.3, the standalone Service
 	// topology bp-openova-mcp deploys) — selected by OPENOVA_MCP_LISTEN.
 	// Stdio below stays the default so the agenity in-pod child contract
-	// (#4010/#4097) is byte-identical when the env is unset.
+	// (#4010/#4097) is byte-identical when the env is unset. The HTTP
+	// transport has no fallback bearer: each request carries its own.
 	if listen := strings.TrimSpace(os.Getenv("OPENOVA_MCP_LISTEN")); listen != "" {
-		if err := serveHTTP(listen, reg, resolver, os.Getenv("OPENOVA_MCP_BEARER")); err != nil {
+		if err := serveHTTP(listen, reg, resolver); err != nil {
 			log.Fatalf("http: %v", err)
 		}
 		return
@@ -287,11 +293,17 @@ func (s *server) resolveFromParams(params json.RawMessage) (*identity.Identity, 
 
 func (s *server) resolveBearer(bearer string) (*identity.Identity, error) {
 	if bearer == "" {
-		return nil, errors.New("no bearer (set _auth.token in arguments or OPENOVA_MCP_BEARER)")
+		return nil, errors.New("no bearer (send Authorization: Bearer <token>, or set _auth.token in arguments)")
 	}
 	id, err := s.resolver.Resolve(bearer)
 	if err == nil {
 		return id, nil
+	}
+	// An agent token is accepted by the local checks of the resolver or not
+	// at all: the /whoami fallback below knows nothing of its audience, its
+	// key identifier or its tier cap.
+	if identity.IsAgentToken(bearer) {
+		return nil, err
 	}
 	// #5175 — the MCP is configured with the mothership HANDOVER public key,
 	// but real callers present catalyst-api SESSION tokens signed with a
@@ -502,6 +514,7 @@ func buildResolver() (*identity.Resolver, error) {
 	// Instance-level trust pins (#3988 §4.3): the exact issuer this
 	// instance trusts + the Org scope a per-Org instance is confined to.
 	return r.WithExpectedIssuer(os.Getenv("OPENOVA_MCP_EXPECTED_ISSUER")).
+		WithAgentIssuer(os.Getenv("OPENOVA_MCP_AGENT_ISSUER")).
 		WithOrgPin(os.Getenv("OPENOVA_MCP_ORG_SCOPE")), nil
 }
 

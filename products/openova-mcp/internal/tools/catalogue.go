@@ -154,6 +154,7 @@ func handleWhoami(_ context.Context, id *identity.Identity, _ *catalystapi.Clien
 		"deployment_id":   id.DeploymentID,
 		"sovereign_fqdn":  id.SovereignFQDN,
 		"sovereign_admin": id.Tier == identity.TierSovereignAdmin,
+		"agent":           id.Agent,
 	}, nil
 }
 
