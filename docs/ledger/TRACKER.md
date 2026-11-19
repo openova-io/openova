@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T14:15:04Z` |
+| Last refreshed | `2026-11-19T14:30:06Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7970](https://github.com/openova-io/openova/issues/7970) | CLD-131 Provider substitutes move from the template into the modules (pure move) | Other |
 | [#7971](https://github.com/openova-io/openova/issues/7971) | CLD-134 The reference cloud's profile declares its user-data limit; the guard ch | Other |
 | [#7972](https://github.com/openova-io/openova/issues/7972) | CTL-223 Settings, Menu accepts console pages as menu candidates | Other |
 | [#7973](https://github.com/openova-io/openova/issues/7973) | CTL-231 Resource browser: Git-owned objects refused, break-glass for the rest | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8326](https://github.com/openova-io/openova/issues/8326) | AIP-031 Spike: one sandbox substrate shared by Organizations, with grants scoped | Other |
 | [#8334](https://github.com/openova-io/openova/issues/8334) | PRD-203 cortex query process: token check, gateway client, search, definitions l | Other |
 | [#8341](https://github.com/openova-io/openova/issues/8341) | NET-255 Journey WAF, its corpus and gate check NET-G15 as expected-fail | Other |
+| [#8346](https://github.com/openova-io/openova/issues/8346) | NET-330 Spike: a bridged secondary network for virtual machines (conditional, dr | Other |
 
 ---
 
@@ -307,7 +307,9 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-19T14:17 | [#8340](https://github.com/openova-io/openova/pull/8340) | #7087 | docs(ledger): plan update |
 | 2026-11-19T14:12 | [#8339](https://github.com/openova-io/openova/pull/8339) | #7087 | docs(ledger): plan update |
+| 2026-11-19T14:16 | [#8338](https://github.com/openova-io/openova/pull/8338) | fix(ci): the local pack's teardown no longer fails a run who |  |
 | 2026-11-19T13:52 | [#8337](https://github.com/openova-io/openova/pull/8337) | #7087 | docs(ledger): plan update |
 | 2026-11-19T13:35 | [#8336](https://github.com/openova-io/openova/pull/8336) | #7087 | docs(ledger): plan update |
 | 2026-11-19T13:08 | [#8333](https://github.com/openova-io/openova/pull/8333) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-19T08:09 | [#8300](https://github.com/openova-io/openova/pull/8300) | #8298 | docs(ledger): result of the spike SVC-250, composite resourc |
 | 2026-11-19T12:01 | [#8299](https://github.com/openova-io/openova/pull/8299) | #8256 | fix(crossplane): package runtimes pass admission with real p |
 | 2026-11-19T07:46 | [#8297](https://github.com/openova-io/openova/pull/8297) | #7087 | docs(ledger): plan update |
-| 2026-11-19T08:33 | [#8296](https://github.com/openova-io/openova/pull/8296) | fix(prov): the fire pre-flight judges the parent against the |  |
-| 2026-11-19T07:25 | [#8295](https://github.com/openova-io/openova/pull/8295) | #8292 | docs(ledger): result of the spike INF-710, the host security |
 
 ---
 
