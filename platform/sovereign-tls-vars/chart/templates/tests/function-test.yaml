@@ -119,6 +119,7 @@ spec:
       args:
         - |
           set -u
+          {{- include "kube-access-lib.in-cluster-kubeconfig" . | nindent 10 }}
           fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
           for key in ${KEYS}; do
             value="$(kubectl --request-timeout=15s -n flux-system get configmap sovereign-tls-vars -o "jsonpath={.data.${key}}" 2>/tmp/error)" \

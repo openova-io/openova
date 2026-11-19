@@ -351,3 +351,10 @@ maintainers:
 # bp-crossplane-claims (XRDs + Compositions, no upstream Crossplane subchart).
 annotations:
   catalyst.openova.io/no-upstream: "true"
+
+dependencies:
+  # The shared API access set-up of the test hook that runs kubectl
+  # (platform/kube-access-lib, vendored by `helm dependency build`).
+  - name: kube-access-lib
+    version: "0.1.0"
+    repository: "file://../../kube-access-lib/chart"

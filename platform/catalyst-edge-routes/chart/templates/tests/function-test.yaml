@@ -141,6 +141,7 @@ spec:
       args:
         - |
           set -u
+          {{- include "kube-access-lib.in-cluster-kubeconfig" . | nindent 10 }}
           fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
           deadline=$(( $(date +%s) + 180 ))
           for route in ${ROUTES}; do

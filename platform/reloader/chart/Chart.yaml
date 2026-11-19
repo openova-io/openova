@@ -29,6 +29,11 @@ maintainers:
 # on 2026-04-29. Per docs/INVIOLABLE-PRINCIPLES.md #4 (never hardcode) the
 # version is operator-bumpable via PR + Blueprint release.
 dependencies:
+  # The shared API access set-up of the test hook that runs kubectl
+  # (platform/kube-access-lib, vendored by `helm dependency build`).
+  - name: kube-access-lib
+    version: "0.1.0"
+    repository: "file://../../kube-access-lib/chart"
   - name: reloader
     version: "2.2.11"
     repository: "https://stakater.github.io/stakater-charts"

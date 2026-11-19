@@ -35,6 +35,7 @@ echo "[function-test] Case 1: default render lists Providers and reads the core 
 helm template crossplane . --namespace crossplane-system > "$TMP/default.yaml"
 python3 "$CHECK" --chart bp-crossplane --release crossplane < "$TMP/default.yaml"
 helm template crossplane . --namespace crossplane-system --show-only "$TEST" > "$TMP/default-test.yaml"
+sh "$CHART_DIR/../../../scripts/check-kube-access-rendered.sh" "$TMP/default-test.yaml" || fail "the test hook runs kubectl before it sets up its API access through kube-access-lib"
 [ "$(core "$TMP/default.yaml")" = crossplane ] || fail "the subchart no longer names its core Deployment crossplane"
 grep -q -F 'value: "crossplane"' "$TMP/default-test.yaml" || fail "the test does not read the core Deployment crossplane"
 grep -q -F 'get providers.pkg.crossplane.io' "$TMP/default-test.yaml" || fail "the test does not list Providers"

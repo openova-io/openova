@@ -22,6 +22,7 @@ echo "[function-test] Case 1: default render changes a scratch ConfigMap and wai
 helm template reloader . --namespace reloader > "$TMP/default.yaml"
 python3 "$CHECK" --chart bp-reloader --release reloader < "$TMP/default.yaml"
 helm template reloader . --namespace reloader --show-only "$TEST" > "$TMP/default-test.yaml"
+sh "$CHART_DIR/../../../scripts/check-kube-access-rendered.sh" "$TMP/default-test.yaml" || fail "the test hook runs kubectl before it sets up its API access through kube-access-lib"
 grep -q -F 'value: "reloader-function-test-probe"' "$TMP/default-test.yaml" || fail "the scratch objects are not named <release>-function-test-probe"
 grep -q -F '"configmap.reloader.stakater.com/reload":"'"'"'"${PROBE}"' "$TMP/default-test.yaml" || fail "the scratch Deployment does not name the scratch ConfigMap for Reloader"
 grep -q -F 'reloader\.stakater\.com/last-reloaded-from' "$TMP/default-test.yaml" || fail "the test does not read the annotation Reloader writes"
@@ -35,7 +36,8 @@ grep -q -F 'verbs: ["get", "create", "delete"]' "$TMP/default-test.yaml" || fail
 if grep -q -E '^kind: (ClusterRole|ClusterRoleBinding)$' "$TMP/default-test.yaml"; then
   fail "the test grants a right outside its namespace"
 fi
-if grep -q -i 'secret' "$TMP/default-test.yaml"; then
+# The ServiceAccount mount path of the kube-access-lib set-up names no Secret.
+if sed 's#/var/run/secrets/kubernetes.io/serviceaccount##g' "$TMP/default-test.yaml" | grep -q -i 'secret'; then
   fail "the test names a Secret"
 fi
 grep -q -E '^ *reloadStrategy: "?annotations"?$' values.yaml || fail "the chart no longer sets reloadStrategy annotations, which the test reads"

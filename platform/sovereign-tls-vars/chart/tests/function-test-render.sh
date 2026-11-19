@@ -17,6 +17,7 @@ cd "$CHART_DIR"
 
 echo "[function-test] Case 1: with a Sovereign FQDN the test reads every key of the ConfigMap"
 helm template sovereign-tls-vars . --namespace flux-system --set global.sovereignFQDN=t1.omani.works > "$TMP/fqdn.yaml"
+sh "$CHART_DIR/../../../scripts/check-kube-access-rendered.sh" "$TMP/fqdn.yaml" || fail "the test hook runs kubectl before it sets up its API access through kube-access-lib"
 python3 "$CHECK" --chart bp-sovereign-tls-vars --release sovereign-tls-vars < "$TMP/fqdn.yaml"
 helm template sovereign-tls-vars . --namespace flux-system --set global.sovereignFQDN=t1.omani.works \
   --show-only templates/configmap.yaml > "$TMP/configmap.yaml"
