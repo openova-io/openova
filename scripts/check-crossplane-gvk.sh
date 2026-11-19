@@ -110,7 +110,7 @@ for f in "${PROVIDER_FILE}" "${PROVIDERCONFIG_FILE}" "${COMPOSITION_FILE}"; do
 done
 
 # 1. The Provider package must be provider-opentofu (the group registrar).
-if grep -qE '^\s*package:\s*\S*/provider-opentofu:' "${PROVIDER_FILE}"; then
+if grep -qE '^\s*package:\s*\S*/provider-opentofu[:@]' "${PROVIDER_FILE}"; then
   echo "OK — ${PROVIDER_FILE} pins upbound/provider-opentofu."
 else
   fail "${PROVIDER_FILE} no longer pins provider-opentofu — update the consumer GVKs + this guard's allowlist in lockstep."
