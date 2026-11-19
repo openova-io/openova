@@ -11573,28 +11573,37 @@ packages:
   size: S
   lane: CONTROL
   depends_on: [SOV-521]
-  after: [FND-011, SVC-040, SVC-041]
+  after: [FND-011]
   touches:
-  - products/catalyst/bootstrap/api/internal/lifecycle/release/release-region.sh
   - platform/self-sovereign-cutover/chart/files/release/release-region.sh
   - platform/self-sovereign-cutover/chart/templates/11-crossplane-provider-pivot-job.yaml
+  - platform/self-sovereign-cutover/chart/tests/step6490-secondary-gitea-mirror.sh
+  - platform/self-sovereign-cutover/chart/tests/step7938-stage-reapplies-provider-pivot.sh
+  - products/catalyst/bootstrap/api/internal/lifecycle/release/release-region.sh
   - products/catalyst/bootstrap/api/internal/lifecycle/release_job.go
   - products/catalyst/bootstrap/api/internal/lifecycle/release_run_test.go
-  - platform/self-sovereign-cutover/chart/tests/step7938-stage-reapplies-provider-pivot.sh
   resources: []
   flips: []
   implements: []
   proven_by: null
-  precondition: null
-  acceptance: []
+  precondition:
+    run: "test -e platform/self-sovereign-cutover/chart/tests/step7938-stage-reapplies-provider-pivot.sh; echo $?"
+    expect: "1"
+  acceptance:
+  - id: A1
+    run: "cd products/catalyst/bootstrap/api && go build ./... && go vet ./internal/lifecycle/ && out=\"$(go test ./internal/lifecycle/ -count=1 -v 2>&1)\" || { printf '%s\\n' \"$out\" | tail -n 80; exit 1; }; for t in TestReleaseBootstrapCarriesTheProviderPivotOfStep11 TestReleaseStageReappliesTheProviderPivotOfStep11 TestReleaseStagesMergesAndPromotes TestReleaseConflictMovesNothing TestReleaseNeverForcesTheBranchFluxFollows TestReleaseScriptsAreTheCutoverChartsOwn; do grep -q -e \"--- PASS: $t (\" <<<\"$out\" || { echo \"this test did not pass: $t\"; exit 1; }; done"
+  - id: A2
+    run: "cmp products/catalyst/bootstrap/api/internal/lifecycle/release/release-region.sh platform/self-sovereign-cutover/chart/files/release/release-region.sh && test \"$(cat platform/self-sovereign-cutover/chart/files/release/contract)\" = 1 && grep -q '^  provider-pivot.sh: |$' platform/self-sovereign-cutover/chart/templates/11-crossplane-provider-pivot-job.yaml && grep -q '^            \\. /provider-pivot/provider-pivot\\.sh$' platform/self-sovereign-cutover/chart/templates/11-crossplane-provider-pivot-job.yaml && grep -q 'provider_pivot_file \"${p}\"' platform/self-sovereign-cutover/chart/files/release/release-region.sh"
+  - id: A3
+    run: "bash platform/self-sovereign-cutover/chart/tests/step7938-stage-reapplies-provider-pivot.sh"
   rollback: revert
   adr: null
   due: null
   budget: null
   repeatable: false
-  ticket_rev: 0
+  ticket_rev: 1
   dropped: false
-  delivers: 'The release route delivers a candidate that changes a Provider package line to a Sovereign whose cutover has run. Cutover step 11 (crossplane-provider-pivot) rewrites each Provider''s package line in the region''s Git to the Sovereign''s own registry; the stage of the route now treats that rewrite as this region''s pivot, as it already treats the kit-folder rewrite of step 06: a conflicted file whose region side is exactly step 11''s rewrite of the merge base is taken from the candidate and the rewrite is applied again on top of the candidate''s line, with the same bytes step 11 applies. Any other conflict is refused as today, with the file named and nothing moved; no conflict is resolved by hand.'
+  delivers: The release stage of a Sovereign that has cut over takes a candidate's change to a Provider package line that cutover step 11 rewrote in the primary region, applies step 11's own rewrite (the key provider-pivot.sh of its ConfigMap, which step 11 itself runs) again on top of the candidate's line, and refuses only a conflict that rewrite does not explain.
 - id: SOV-530
   title: Offline bundle load
   area: SOV
@@ -18534,7 +18543,7 @@ packages:
   size: M
   lane: CONSOLE
   depends_on: [NET-322, NET-327]
-  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-105, CLD-108, CLD-109, CLD-111, CLD-112, CLD-113, CLD-114, CLD-115, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-141, SOV-154, SOV-175, SOV-180, SOV-181, SOV-322, SOV-323, SOV-338, SOV-341, SOV-521, SEC-103, SEC-104, SEC-105, SEC-150, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-212, NET-221, SVC-030, SVC-040, SVC-041, SVC-060, SVC-150, SVC-159, SVC-160, SVC-162, SVC-164, SVC-166, SVC-170, SVC-220, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CMP-016, CMP-020, CMP-030, BSS-141, AIP-040, AIP-041, AIP-120, INF-040, INF-110, INF-112, INF-120, INF-130, INF-135, INF-140, INF-512, INF-513, ACC-050]
+  after: [FND-014, FND-071, FND-077, FND-093, FND-094, FND-096, FND-098, FND-099, FND-171, CLD-021, CLD-022, CLD-023, CLD-086, CLD-090, CLD-092, CLD-094, CLD-101, CLD-102, CLD-103, CLD-104, CLD-105, CLD-108, CLD-109, CLD-111, CLD-112, CLD-113, CLD-114, CLD-115, CLD-131, CLD-132, CLD-134, CLD-142, CLD-161, SOV-030, SOV-035, SOV-131, SOV-135, SOV-141, SOV-154, SOV-175, SOV-180, SOV-181, SOV-322, SOV-323, SOV-338, SOV-341, SOV-521, SOV-522, SEC-103, SEC-104, SEC-105, SEC-150, NET-011, NET-032, NET-040, NET-071, NET-102, NET-125, NET-212, NET-221, SVC-030, SVC-040, SVC-041, SVC-060, SVC-150, SVC-159, SVC-160, SVC-162, SVC-164, SVC-166, SVC-170, SVC-220, CTL-030, CTL-035, CTL-038, CTL-039, CTL-040, CTL-045, CTL-160, CTL-223, CTL-230, CTL-231, CTL-233, CTL-240, CTL-320, CTL-340, CTL-345, CTL-346, CTL-347, CTL-348, CTL-350, CTL-355, CTL-700, CMP-016, CMP-020, CMP-030, BSS-141, AIP-040, AIP-041, AIP-120, INF-040, INF-110, INF-112, INF-120, INF-130, INF-135, INF-140, INF-512, INF-513, ACC-050]
   touches:
   - products/catalyst/bootstrap/ui/src/pages/sovereign/
   - products/catalyst/bootstrap/api/
@@ -19904,7 +19913,7 @@ packages:
   - id: A1
     run: "test ! -e platform/catalyst-platform && grep -q -x -F platform/catalyst-platform docs/ledger/deleted-paths.txt && python3 scripts/check-repo-hygiene.py paths > /dev/null && grep -q -x '  name: bp-catalyst-platform' products/catalyst/blueprint.yaml"
   - id: A2
-    run: "c=\"$(git log --diff-filter=A --format=%H -1 -- products/catalyst/blueprint.yaml)\" && test -n \"$c\" && v=\"$(git show \"$c:products/catalyst/chart/Chart.yaml\" | awk '/^version:/{print $2; exit}')\" && test \"$(git show \"$c:products/catalyst/blueprint.yaml\" | awk '/^  version:/{print $2; exit}')\" = \"$v\" && test \"$v\" != 0.0.0"
+    run: "c=\"$(git log --diff-filter=A --format=%H -1 -- products/catalyst/blueprint.yaml)\" && test -n \"$c\" && v=\"$(git show \"$c:products/catalyst/chart/Chart.yaml\" | awk '/^version:/ && v == \"\" {v = $2} END {print v}')\" && test \"$(git show \"$c:products/catalyst/blueprint.yaml\" | awk '/^  version:/ && v == \"\" {v = $2} END {print v}')\" = \"$v\" && test -n \"$v\" && test \"$v\" != 0.0.0"
   - id: A3
     run: "python3 scripts/generate-catalog.py --check > /dev/null && python3 scripts/generators/components.py --check > /dev/null && test -z \"$(grep -l -F bp-catalyst-platform platform/_catalog/chart-locations.yaml)\" && test \"$(grep -c -F 'version: {{ .Chart.Version | quote }}' products/catalyst/chart/templates/catalog-seed/blueprints.yaml)\" = 2 && test -z \"$(git grep -l catalyst-platform -- scripts/generate-catalog.py)\""
   - id: A4
