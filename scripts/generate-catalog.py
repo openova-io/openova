@@ -1,20 +1,38 @@
 #!/usr/bin/env python3
 """Generate the Blueprint catalogue from every platform/<name>/blueprint.yaml and products/<name>/blueprint.yaml.
 
-Outputs (both committed; the pull request that changes an input commits them):
+Outputs (all three committed; the pull request that changes an input commits them):
   1. products/catalyst/bootstrap/api/internal/catalog/blueprints.json   (embedded by the catalyst-api)
   2. products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts   (the console)
+  3. products/catalyst/chart/templates/catalog-seed/blueprints.yaml   (the seed: the Blueprint objects of every
+     Sovereign, a template of the chart products/catalyst/chart)
+
+The seed holds one object for every Blueprint file that no seed-exclusions.yaml names. Its spec is the file's spec
+without the keys no reader reads from the object (NOT_SEEDED), with spec.source derived (kind HelmRepository, type
+oci, url oci://ghcr.io/openova-io, chart the Blueprint's name, version its version) and card.category from a
+category data file when the file has none. The version is the file's spec.version, except: a Blueprint that
+platform/_catalog/chart-locations.yaml maps to a chart folder takes that chart's version, written as the template
+{{ .Chart.Version }} when the folder is the chart that holds the seed (Helm renders it there); a Blueprint without a
+chart folder takes the version that scripts/expected-unpublished-catalog-seed-pins.yaml registers for it. The labels
+are SEED_LABELS, the file's labels and the two of the Helm release. Every literal {{ and }} of a value is escaped.
+The data files are the shared ones under platform/_catalog/ and, for a provider's Blueprint (its folder is listed in
+spec.charts of infra/providers/<provider>/pack.yaml), that provider's own infra/providers/<provider>/<file>: a
+Blueprint is named only in the data file of its owner. A category is said in one place: never for a Blueprint whose
+file carries card.category. Outputs 1 and 2 carry the declared category too.
 
 Modes:
-  python3 scripts/generate-catalog.py                 write both outputs in place
+  python3 scripts/generate-catalog.py                 write the outputs in place
   python3 scripts/generate-catalog.py --check         write nothing; exit 1 when a committed output differs
-  python3 scripts/generate-catalog.py --dry-run DIR   write both outputs under DIR at their repository paths
+  python3 scripts/generate-catalog.py --dry-run DIR   write the outputs under DIR at their repository paths
   python3 scripts/generate-catalog.py --self-test     prove every failure rule can fail
 
 Exit codes: 0 done or in sync; 1 --check found a stale output; 2 an input is wrong (one line per error, naming
 the file): a blueprint.yaml that is not YAML or not a Blueprint (kind Blueprint, metadata.name bp-<folder> or
 <folder>); two Blueprints with one name; a depends entry that names no Blueprint; a missing input folder
-(platform/, products/ or the kit folder), which would otherwise write an empty catalogue or kit.
+(platform/, products/ or the kit folder), which would otherwise write an empty catalogue or kit; a Blueprint file
+that carries spec.source; a data file entry that names no Blueprint file, names a Blueprint twice or outside its
+owner's file, a category for a Blueprint that is not seeded or whose file has one, a chart location whose
+Chart.yaml is missing or has another name; a seeded Blueprint with no chart folder, chart location or registered pin.
 
 generatedAt marks when the catalogue content last changed: it keeps the committed stamp while the content is
 unchanged, else it is the current time (SOURCE_DATE_EPOCH, when set, gives the time instead).
@@ -33,7 +51,24 @@ import yaml
 
 OUT_JSON = "products/catalyst/bootstrap/api/internal/catalog/blueprints.json"
 OUT_TS = "products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts"
+OUT_SEED = "products/catalyst/chart/templates/catalog-seed/blueprints.yaml"
+SEED_CHART = "products/catalyst/chart"
 KIT = "clusters/_template/bootstrap-kit"
+CATALOG = "platform/_catalog"
+PROVIDERS = "infra/providers"
+CATEGORIES = "card-categories.yaml"
+EXCLUSIONS = "seed-exclusions.yaml"
+CHART_LOCATIONS = CATALOG + "/chart-locations.yaml"
+UNPUBLISHED = "scripts/expected-unpublished-catalog-seed-pins.yaml"
+SOURCE = (("kind", "HelmRepository"), ("type", "oci"), ("url", "oci://ghcr.io/openova-io"))
+# Keys of a Blueprint file that neither the application controller nor the console reads from the object; the
+# seed does not carry them (catalyst-catalog reads upgrades from Git, core/services/catalyst-catalog/internal/source).
+NOT_SEEDED = ("upgrades", "owner", "observability", "outputs", "dependsOn")
+SEED_LABELS = (("catalyst.openova.io/managed-by", "catalog-seed"), ("catalyst.openova.io/origin", "openova-public"),
+               ("catalyst.openova.io/curation", "openova-public"))
+# Values written in place of a Helm template, then replaced by it once the objects are escaped.
+HELM = {"seed-chart-version-0f3a": "{{ .Chart.Version | quote }}", "release-service-0f3a": "{{ $managedBy }}",
+        "release-name-0f3a": "{{ $instance }}"}
 # Output 1 is JSON, which has no comment: its first key names the generator, as the first lines of output 2 do, so
 # that scripts/generator_registry.py lists it.
 CLAIM = "Generated by python3 scripts/generate-catalog.py from every blueprint.yaml and bootstrap-kit slot. Do not edit."
@@ -189,7 +224,8 @@ def entry(rel, doc, errors):
     }
 
 
-def blueprints(root, errors):
+def blueprints(root, errors, docs=None):
+    """The catalogue entries, sorted by id. docs, when given, receives {id: (path, document)}."""
     out, where = [], {}
     for top in SOURCES:
         base = os.path.join(root, top)
@@ -211,6 +247,8 @@ def blueprints(root, errors):
                 continue
             where[e["id"]] = rel
             out.append(e)
+            if docs is not None:
+                docs[e["id"]] = (rel, doc)
     for e in out:
         for d in e["depends"]:
             if d not in where:
@@ -242,9 +280,17 @@ def render(root, env=None):
               for d in SOURCES + (KIT,) if not os.path.isdir(os.path.join(root, d))]
     if errors:
         return errors, {}
-    entries = blueprints(root, errors)
+    docs = {}
+    entries = blueprints(root, errors, docs)
     if errors:
         return errors, {}
+    categories, excluded = data_files(root, docs, errors)
+    seed = seed_text(root, docs, categories, excluded, errors)
+    if errors:
+        return errors, {}
+    for e in entries:
+        if e["category"] is None and e["id"] in categories:
+            e["category"] = categories[e["id"]]
     payload = {"comment": CLAIM, "blueprints": entries, "bootstrapKit": kit(root)}
     stamp = None
     try:
@@ -258,7 +304,164 @@ def render(root, env=None):
     files = sorted({"platform/%s/blueprint.yaml" % e["slug"] for e in entries})
     parts = {"ENTRIES": js_json(entries), "FILES": js_json(files), "KIT": js_json(payload["bootstrapKit"])}
     ts = re.sub(r"@(ENTRIES|FILES|KIT)@", lambda m: parts[m.group(1)], TS)
-    return [], {OUT_JSON: js_json(body) + "\n", OUT_TS: ts}
+    return [], {OUT_JSON: js_json(body) + "\n", OUT_TS: ts, OUT_SEED: seed}
+
+
+def read_yaml(root, rel, errors):
+    """The one document of a data file as a mapping, {} when the file is absent, None (with an error) when unreadable."""
+    p = os.path.join(root, rel)
+    if not os.path.isfile(p):
+        return {}
+    try:
+        with open(p, encoding="utf-8") as f:
+            doc = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        errors.append("%s: not YAML: %s" % (rel, str(e).replace("\n", " ")))
+        return None
+    if doc is None:
+        return {}
+    if not isinstance(doc, dict):
+        errors.append("%s: not a mapping" % rel)
+        return None
+    return doc
+
+
+def data_files(root, docs, errors):
+    """({name: category}, {name: reason}) from the shared data files under platform/_catalog/ and each provider's own.
+
+    The owner of a Blueprint whose folder a provider's pack.yaml lists in spec.charts is that provider's data file;
+    the owner of every other Blueprint is the shared one. An entry outside its owner's file is an error."""
+    base = os.path.join(root, PROVIDERS)
+    packs = sorted(p for p in os.listdir(base) if os.path.isfile(os.path.join(base, p, "pack.yaml"))) if os.path.isdir(base) else []
+    owner = {}
+    for p in packs:
+        pack = read_yaml(root, "%s/%s/pack.yaml" % (PROVIDERS, p), errors) or {}
+        for c in (mapping(pack.get("spec")) or {}).get("charts") or []:
+            owner["platform/%s/blueprint.yaml" % c] = "%s/%s" % (PROVIDERS, p)
+    homes = [CATALOG] + ["%s/%s" % (PROVIDERS, p) for p in packs]
+
+    def entries(name_of_file, key):
+        """[(file, name, value)] of the list or mapping `key` of every data file of that name."""
+        out = []
+        for home in homes:
+            rel = "%s/%s" % (home, name_of_file)
+            doc = read_yaml(root, rel, errors)
+            if not doc:
+                continue
+            v = doc.get(key)
+            if key == "categories" and isinstance(v, dict):
+                out += [(rel, n, c) for n, c in sorted(v.items())]
+            elif key == "exclusions" and isinstance(v, list):
+                for x in v:
+                    if isinstance(x, dict) and isinstance(x.get("blueprint"), str) and isinstance(x.get("reason"), str) and x["reason"].strip():
+                        out.append((rel, x["blueprint"], x["reason"]))
+                    else:
+                        errors.append("%s: an entry of exclusions needs a blueprint and a reason, got %r" % (rel, x))
+            elif v is not None:
+                errors.append("%s: %s must be a %s" % (rel, key, "mapping" if key == "categories" else "list"))
+        return out
+
+    def owned(rel, name, what):
+        if name not in docs:
+            errors.append("%s: %s names %s, which no blueprint.yaml declares" % (rel, what, name))
+            return False
+        home = owner.get(docs[name][0], CATALOG)
+        if not rel.startswith(home + "/"):
+            errors.append("%s: %s names %s; it is declared in %s/%s" % (rel, what, name, home, os.path.basename(rel)))
+            return False
+        return True
+
+    excluded = {}
+    for rel, name, reason in entries(EXCLUSIONS, "exclusions"):
+        if owned(rel, name, "exclusions"):
+            if name in excluded:
+                errors.append("%s: exclusions names %s twice" % (rel, name))
+            excluded[name] = reason
+    categories = {}
+    for rel, name, category in entries(CATEGORIES, "categories"):
+        if not owned(rel, name, "categories"):
+            continue
+        if name in excluded:
+            errors.append("%s: categories names %s, which is not seeded; delete the entry" % (rel, name))
+        elif "category" in (mapping((mapping(docs[name][1].get("spec")) or {}).get("card")) or {}):
+            errors.append("%s: categories names %s, whose file %s carries card.category; say it in one place"
+                          % (rel, name, docs[name][0]))
+        else:
+            categories[name] = js_str(category)
+    return categories, excluded
+
+
+class SeedDumper(yaml.SafeDumper):
+    """Block YAML whose quoted scalars are double-quoted and whose lists of scalars are written [a, b]: the line
+    readers of the seed strip only double quotes, and some read a list of modes in that form."""
+
+    def choose_scalar_style(self):
+        style = super().choose_scalar_style()
+        return '"' if style == "'" else style
+
+
+SeedDumper.add_representer(list, lambda d, v: d.represent_sequence(
+    "tag:yaml.org,2002:seq", v, flow_style=all(not isinstance(x, (dict, list)) for x in v)))
+
+
+def seed_text(root, docs, categories, excluded, errors):
+    """Output 3: the seed template. Errors are appended to errors."""
+    locations = read_yaml(root, CHART_LOCATIONS, errors) or {}
+    locations = mapping(locations.get("charts")) or {}
+    for name, folder in sorted(locations.items()):
+        chart = read_yaml(root, "%s/Chart.yaml" % folder, errors) if isinstance(folder, str) else None
+        if name not in docs:
+            errors.append("%s: charts names %s, which no blueprint.yaml declares" % (CHART_LOCATIONS, name))
+        elif not chart or chart.get("name") != name:
+            errors.append("%s: %s maps to %s, whose Chart.yaml is missing or names another chart" % (CHART_LOCATIONS, name, folder))
+    registered = {}
+    for x in (read_yaml(root, UNPUBLISHED, errors) or {}).get("unpublished") or []:
+        if isinstance(x, dict) and x.get("chart"):
+            registered[x["chart"]] = js_str(x.get("version"))
+    objects = []
+    for name in sorted(docs):
+        if name in excluded:
+            continue
+        rel, doc = docs[name]
+        spec = mapping(doc.get("spec")) or {}
+        if "source" in spec:
+            errors.append("%s: spec.source is derived from the name and the version; delete it" % rel)
+            continue
+        version = js_str(spec.get("version"))
+        if name in locations:
+            if locations[name] == SEED_CHART:
+                version = "seed-chart-version-0f3a"
+            else:
+                version = js_str((read_yaml(root, "%s/Chart.yaml" % locations[name], []) or {}).get("version"))
+        elif not os.path.isfile(os.path.join(root, os.path.dirname(rel), "chart", "Chart.yaml")):
+            if name not in registered:
+                errors.append("%s: %s is seeded and has no chart folder, no entry in %s and no pin in %s; "
+                              "add its chart or exclude it in %s" % (rel, name, CHART_LOCATIONS, UNPUBLISHED, EXCLUSIONS))
+                continue
+            version = registered[name]
+        source = dict(SOURCE + (("chart", name), ("version", version)))
+        out = {}
+        for k, v in spec.items():
+            if k in NOT_SEEDED:
+                continue
+            out[k] = version if k == "version" else v
+            if k == "manifests":
+                out["source"] = source
+        out.setdefault("source", source)
+        card = mapping(out.get("card"))
+        if name in categories:
+            out["card"] = dict(card or {}, category=categories[name])
+        labels = dict(SEED_LABELS)
+        for k, v in (mapping((mapping(doc.get("metadata")) or {}).get("labels")) or {}).items():
+            labels.setdefault(k, v)
+        labels.update({"app.kubernetes.io/managed-by": "release-service-0f3a", "app.kubernetes.io/instance": "release-name-0f3a"})
+        objects.append({"apiVersion": "catalyst.openova.io/v1", "kind": "Blueprint",
+                        "metadata": {"name": name, "labels": labels}, "spec": out})
+    body = "".join("---\n" + yaml.dump(o, Dumper=SeedDumper, sort_keys=False, default_flow_style=False,
+                                        width=1 << 20, allow_unicode=True) for o in objects)
+    body = re.sub(r"\{\{|\}\}", lambda m: '{{ "%s" }}' % m.group(0), body)
+    body = re.sub("|".join(HELM), lambda m: HELM[m.group(0)], body)
+    return SEED_HEAD + body + "{{- end }}\n"
 
 
 def write(base, outputs):
@@ -297,17 +500,20 @@ def main(argv=None, env=None):
                 print("generate-catalog: %s is stale; run %s and commit the result" % (rel, COMMAND), file=sys.stderr)
                 sys.stderr.writelines(list(difflib.unified_diff(old.splitlines(True), text.splitlines(True), rel, rel + " (generated)"))[:60])
         if not stale:
-            print("generate-catalog: %s and %s are in sync" % (OUT_JSON, OUT_TS))
+            print("generate-catalog: %s are in sync" % ", ".join(sorted(outputs)))
         return stale
     write(a.dry_run or a.root, outputs)
-    print("generate-catalog: wrote %d Blueprints and %d kit slots to %s" % (
-        len(json.loads(outputs[OUT_JSON])["blueprints"]), len(json.loads(outputs[OUT_JSON])["bootstrapKit"]), a.dry_run or "the repository"))
+    print("generate-catalog: wrote %d Blueprints, %d kit slots and %d seed objects to %s" % (
+        len(json.loads(outputs[OUT_JSON])["blueprints"]), len(json.loads(outputs[OUT_JSON])["bootstrapKit"]),
+        outputs[OUT_SEED].count("\nkind: Blueprint\n"), a.dry_run or "the repository"))
     return 0
 
 
 def self_test():
     """One failing case per rule, in a scratch tree; each must give its exit code."""
     good = "kind: Blueprint\nmetadata:\n  name: bp-%s\nspec:\n  version: 1.0.0\n  card:\n    summary: |\n      Two\n      lines\n"
+    nocat = good.replace("  card:\n", "  card:\n    category: data\n")
+    pack = PROVIDERS + "/p/pack.yaml"
     cases = [
         ("a clean tree generates", {}, [], 0),
         ("a file that is not YAML exits 2", {"platform/b/blueprint.yaml": "kind: [\n"}, [], 2),
@@ -319,6 +525,20 @@ def self_test():
         ("--check on a fresh generation exits 0", {}, ["check"], 0),
         ("two runs give the same bytes", {}, ["twice"], 0),
         ("a missing kit folder exits 2", {}, ["nokit"], 2),
+        ("--check after a hand edit of the seed exits 1", {}, ["seed"], 1),
+        ("a Blueprint file that carries spec.source exits 2", {"platform/b/blueprint.yaml": good % "b" + "  source:\n    kind: x\n"}, [], 2),
+        ("an exclusion that names no Blueprint file exits 2", {CATALOG + "/" + EXCLUSIONS: "exclusions:\n- {blueprint: bp-z, reason: r}\n"}, [], 2),
+        ("an exclusion without a reason exits 2", {CATALOG + "/" + EXCLUSIONS: "exclusions:\n- {blueprint: bp-b}\n"}, [], 2),
+        ("a Blueprint excluded twice exits 2", {CATALOG + "/" + EXCLUSIONS: "exclusions:\n- {blueprint: bp-b, reason: r}\n- {blueprint: bp-b, reason: r}\n"}, [], 2),
+        ("a provider's Blueprint excluded in the shared file exits 2", {pack: "spec:\n  charts: [b]\n",
+                                                                         CATALOG + "/" + EXCLUSIONS: "exclusions:\n- {blueprint: bp-b, reason: r}\n"}, [], 2),
+        ("a provider's file naming a Blueprint its pack does not list exits 2", {pack: "spec:\n  charts: [a]\n",
+                                                                                  PROVIDERS + "/p/" + EXCLUSIONS: "exclusions:\n- {blueprint: bp-b, reason: r}\n"}, [], 2),
+        ("a category for a Blueprint whose file has one exits 2", {"platform/b/blueprint.yaml": nocat % "b", CATALOG + "/" + CATEGORIES: "categories:\n  bp-b: data\n"}, [], 2),
+        ("a category for a Blueprint that is not seeded exits 2", {CATALOG + "/" + EXCLUSIONS: "exclusions:\n- {blueprint: bp-b, reason: r}\n",
+                                                                    CATALOG + "/" + CATEGORIES: "categories:\n  bp-b: data\n"}, [], 2),
+        ("a chart location whose chart has another name exits 2", {CHART_LOCATIONS: "charts:\n  bp-b: platform/a/chart\n"}, [], 2),
+        ("a seeded Blueprint without a chart, a chart location or a registered pin exits 2", {"platform/d/blueprint.yaml": good % "d"}, [], 2),
     ]
     failed = 0
     for title, extra, how, want in cases:
@@ -326,6 +546,8 @@ def self_test():
         try:
             files = {"platform/a/blueprint.yaml": good % "a", "platform/b/blueprint.yaml": good % "b",
                      "products/c/blueprint.yaml": good % "c", KIT + "/01-a.yaml": "kind: HelmRelease\n"}
+            for n, top in (("a", "platform"), ("b", "platform"), ("c", "products")):
+                files["%s/%s/chart/Chart.yaml" % (top, n)] = "name: bp-%s\nversion: 1.0.0\n" % n
             files.update(extra)
             for rel, text in files.items():
                 os.makedirs(os.path.dirname(os.path.join(d, rel)), exist_ok=True)
@@ -339,6 +561,9 @@ def self_test():
                 if "edit" in how:
                     with open(os.path.join(d, OUT_TS), "a") as f:
                         f.write("// hand edit\n")
+                if "seed" in how:
+                    with open(os.path.join(d, OUT_SEED), "a") as f:
+                        f.write("# hand edit\n")
                 if "twice" in how:
                     first = _read(d)
                     _quiet(["--root", d], {})
@@ -366,11 +591,23 @@ def _quiet(argv, env):
 
 def _read(d):
     out = {}
-    for rel in (OUT_JSON, OUT_TS):
+    for rel in (OUT_JSON, OUT_TS, OUT_SEED):
         with open(os.path.join(d, rel)) as f:
             out[rel] = f.read()
     return out
 
+
+SEED_HEAD = """{{- /* Generated by python3 scripts/generate-catalog.py from every blueprint.yaml. Do not edit: change the Blueprint file and run the generator. */ -}}
+{{- /*
+The Blueprint objects every Sovereign holds from its first install, so /api/v1/catalog lists the catalogue from
+handover on: one object for each platform/<name>/blueprint.yaml and products/<name>/blueprint.yaml that no
+seed-exclusions.yaml names. The whole set is gated on .Values.catalogSeed.enabled, and every object carries the
+label catalyst.openova.io/managed-by: catalog-seed. See _README.txt beside this file.
+*/ -}}
+{{- if .Values.catalogSeed.enabled }}
+{{- $managedBy := .Release.Service -}}
+{{- $instance := .Release.Name -}}
+"""
 
 TS = """// AUTO-GENERATED — do not edit by hand.
 //

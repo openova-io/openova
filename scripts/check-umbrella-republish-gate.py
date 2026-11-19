@@ -83,7 +83,11 @@ failure the base has too (same entry, same field, same version, same
 last-touching commit) is printed as INHERITED and does not count. On a pull
 request the base is HEAD^1, the main the change was merged onto. A change
 that moves a catalogue pin by hand rewrites its line, so blame names the
-change's own commit and the failure is new.
+change's own commit and the failure is new. A change that rewrites a pin's
+line and keeps its value (the seed is generated, SVC-160: a change of the
+generator or of the order of the objects rewrites lines) does not move the
+pin: a failure whose entry and field hold the same version on the base is
+printed as UNMOVED and does not count either.
 
 Exit codes:
   0 — every non-templated catalog-seed pin's last-touching commit sits behind
@@ -255,6 +259,7 @@ def _evaluate(ref, err, repo_root, seed_path, umbrella_path):
 
     checked = 0
     failures = []
+    values = {}
     for e in entries:
         name = e["name"]
         if name is None or name in SELF_REFERENTIAL:
@@ -266,6 +271,7 @@ def _evaluate(ref, err, repo_root, seed_path, umbrella_path):
             if token is None:
                 # Templated line (e.g. `{{ … }}`) — nothing static to date.
                 continue
+            values[(name, kind)] = token
             lineno = idx + 1
             seed_commit = seed_blame.get(lineno)
             if seed_commit is None:
@@ -316,7 +322,7 @@ def _evaluate(ref, err, repo_root, seed_path, umbrella_path):
         print("ERROR: zero comparable (static-version) catalog-seed entries were found — "
               "the guard would never be able to go red; refusing to report a vacuous PASS", file=err)
         return 2
-    return failures, checked, entries, umbrella_version_at_ref
+    return failures, checked, entries, umbrella_version_at_ref, values
 
 
 def _failure_key(f):
@@ -328,20 +334,30 @@ def run(ref, out=sys.stdout, err=sys.stderr, repo_root=REPO_ROOT,
     result = _evaluate(ref, err, repo_root, seed_path, umbrella_path)
     if isinstance(result, int):
         return result
-    failures, checked, entries, umbrella_version_at_ref = result
+    failures, checked, entries, umbrella_version_at_ref = result[:4]
 
     # FND-020: with a base, a failure the base has too is inherited, not added.
-    inherited = []
+    # SVC-160: a failure of a pin whose value the base holds too is not moved by
+    # this change, only its line rewritten; it is not added either.
+    inherited, unmoved = [], []
     if base is not None:
         at_base = _evaluate(base, err, repo_root, seed_path, umbrella_path)
         if isinstance(at_base, int):
             return at_base
         seen = {_failure_key(f) for f in at_base[0]}
+        base_values = at_base[4]
         inherited = [f for f in failures if _failure_key(f) in seen]
-        failures = [f for f in failures if _failure_key(f) not in seen]
+        unmoved = [f for f in failures if _failure_key(f) not in seen
+                   and base_values.get((f["name"], f["kind"])) == f["version"]]
+        failures = [f for f in failures if _failure_key(f) not in seen and f not in unmoved]
         for f in inherited:
             print("  INHERITED %s %s = %r (blueprints.yaml:%d, last touched by commit %s): %s "
                   "has the same failure; not added by this change (FND-020)" %
+                  (f["name"], f["kind"], f["version"], f["line"], f["seed_commit"][:12], base),
+                  file=out)
+        for f in unmoved:
+            print("  UNMOVED %s %s = %r (blueprints.yaml:%d, line rewritten by commit %s): %s "
+                  "holds the same version; the change does not move this pin (SVC-160)" %
                   (f["name"], f["kind"], f["version"], f["line"], f["seed_commit"][:12], base),
                   file=out)
 
@@ -363,9 +379,10 @@ def run(ref, out=sys.stdout, err=sys.stderr, repo_root=REPO_ROOT,
             )
         return 1
 
-    if inherited:
+    if inherited or unmoved:
         print("PASS: umbrella-republish gate (#5734) — this change adds no failure; %d "
-              "inherited from %s (FND-020)." % (len(inherited), base), file=out)
+              "inherited from %s (FND-020), %d pin line(s) rewritten with the same version "
+              "(SVC-160)." % (len(inherited), base, len(unmoved)), file=out)
         return 0
     print("PASS: umbrella-republish gate (#5734) — checked %d catalog-seed pin(s) across "
           "%d Blueprint(s); the umbrella (now at %s) has been re-bumped at or after every "
@@ -402,7 +419,7 @@ def _self_test():
         os.makedirs(seed_dir, exist_ok=True)
         os.makedirs(chart_dir, exist_ok=True)
 
-        def write_seed(fake_version):
+        def write_seed(fake_version, quote='"'):
             with open(os.path.join(seed_dir, "blueprints.yaml"), "w") as fh:
                 fh.write(
                     "---\n"
@@ -411,12 +428,12 @@ def _self_test():
                     "metadata:\n"
                     "  name: bp-selftest-fixture\n"
                     "spec:\n"
-                    "  version: \"%s\"\n"
+                    "  version: %s%s%s\n"
                     "  manifests:\n"
                     "    chart: bp-selftest-fixture\n"
                     "  source:\n"
                     "    chart: bp-selftest-fixture\n"
-                    "    version: \"%s\"\n" % (fake_version, fake_version)
+                    "    version: %s%s%s\n" % (quote, fake_version, quote, quote, fake_version, quote)
                 )
 
         def write_chart(fake_version, quoted=False):
@@ -509,10 +526,31 @@ def _self_test():
                   "with --base (got %d)" % rc_added, file=sys.stderr)
             return 2
 
+        # SVC-160, --base: on a main that passes (the umbrella caught up), a change
+        # that rewrites the pin lines and keeps their version moves no pin: exit 0
+        # with --base; without --base the rewritten lines still fail, until the
+        # umbrella is released after the change.
+        write_chart("1.0.4")
+        run_git("add", "-A")
+        run_git("commit", "-q", "-m", "c8: umbrella catch-up")
+        write_seed("1.0.3", quote="")
+        run_git("add", "-A")
+        run_git("commit", "-q", "-m", "c9: the pin lines rewritten, the version kept")
+        rc_unmoved = run("HEAD", repo_root=tmp, seed_path=fixture_seed_path,
+                         umbrella_path=fixture_umbrella_path, base="HEAD^1")
+        rc_unmoved_full = run("HEAD", repo_root=tmp, seed_path=fixture_seed_path,
+                              umbrella_path=fixture_umbrella_path)
+        if rc_unmoved != 0 or rc_unmoved_full != 1:
+            print("SELF-TEST FAIL: a change that rewrites a pin line with the same version should "
+                  "return exit 0 with --base (got %d) and exit 1 without it (got %d)"
+                  % (rc_unmoved, rc_unmoved_full), file=sys.stderr)
+            return 2
+
         print("SELF-TEST PASS: synthetic RED (seed-only bump) -> exit 1; "
               "synthetic GREEN (umbrella catch-up) -> exit 0; "
               "synthetic RED (revert-shape umbrella touch) -> exit 1; "
-              "--base: inherited failure -> exit 0, added failure -> exit 1.")
+              "--base: inherited failure -> exit 0, added failure -> exit 1, "
+              "rewritten line with the same version -> exit 0.")
         return 0
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

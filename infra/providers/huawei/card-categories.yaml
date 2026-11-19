@@ -2,6 +2,6 @@
 # spec.card.category, as the hand-written seed (products/catalyst/chart/templates/catalog-seed/blueprints.yaml)
 # says it. A provider's Blueprint is one whose folder this pack's pack.yaml lists in spec.charts; its category
 # is declared here and never in the shared platform/_catalog/card-categories.yaml.
-# Read by scripts/check-seed-equals-blueprints.py; scripts/generate-catalog.py reads it from SVC-160 on.
+# Read by scripts/generate-catalog.py, which writes the category into the seed and the generated catalogue.
 categories:
   bp-velero-hcs: observability

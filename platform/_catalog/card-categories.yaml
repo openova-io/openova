@@ -3,7 +3,7 @@
 # A category is said in one place: here or in the Blueprint's own file, never both. The category of a
 # provider's Blueprint (a folder its pack.yaml lists in spec.charts) is declared in that provider's own
 # infra/providers/<provider>/card-categories.yaml, never here.
-# Read by scripts/check-seed-equals-blueprints.py; scripts/generate-catalog.py reads it from SVC-160 on.
+# Read by scripts/generate-catalog.py, which writes the category into the seed and the generated catalogue.
 categories:
   bp-alloy: observability
   bp-catalyst-platform: platform

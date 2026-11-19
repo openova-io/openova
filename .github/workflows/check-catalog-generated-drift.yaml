@@ -1,13 +1,16 @@
 name: check — generated catalog is in sync (#5520)
 
-# The committed `blueprints.json` + `catalog.generated.ts` are GENERATED:
+# The committed `blueprints.json`, `catalog.generated.ts` and the catalogue seed
+# (products/catalyst/chart/templates/catalog-seed/blueprints.yaml) are GENERATED:
 # `python3 scripts/generate-catalog.py` writes them from every
 # platform/<name>/blueprint.yaml, products/<name>/blueprint.yaml and
-# bootstrap-kit slot. The pull request that changes one of those inputs runs
-# the generator and commits both files; nothing edits them by hand. The same
+# bootstrap-kit slot, the data files under platform/_catalog/ and a provider's
+# own under infra/providers/<provider>/, the register of unpublished seed pins
+# and the chart folders. The pull request that changes one of those inputs runs
+# the generator and commits the three files; nothing edits them by hand. The same
 # job checks `docs/generated/components.md`, which
 # `python3 scripts/generators/components.py` writes, so that
-# scripts/generator_registry.py lists all three.
+# scripts/generator_registry.py lists all four.
 #
 # This gate makes drift impossible to accumulate silently (the 508-line drift
 # of #5520): `--check` regenerates in memory and fails when a committed file
@@ -28,6 +31,14 @@ on:
       - 'scripts/tests/test_generate_catalog.py'
       - 'products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts'
       - 'products/catalyst/bootstrap/api/internal/catalog/blueprints.json'
+      - 'platform/_catalog/**'
+      - 'infra/providers/*/pack.yaml'
+      - 'infra/providers/*/card-categories.yaml'
+      - 'infra/providers/*/seed-exclusions.yaml'
+      - 'scripts/expected-unpublished-catalog-seed-pins.yaml'
+      - 'platform/*/chart/Chart.yaml'
+      - 'products/*/chart/Chart.yaml'
+      - 'products/catalyst/chart/templates/catalog-seed/blueprints.yaml'
       - 'scripts/generators/components.py'
       - 'docs/generated/components.md'
       - '.github/workflows/check-catalog-generated-drift.yaml'
@@ -41,6 +52,14 @@ on:
       - 'scripts/generate-catalog.py'
       - 'products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts'
       - 'products/catalyst/bootstrap/api/internal/catalog/blueprints.json'
+      - 'platform/_catalog/**'
+      - 'infra/providers/*/pack.yaml'
+      - 'infra/providers/*/card-categories.yaml'
+      - 'infra/providers/*/seed-exclusions.yaml'
+      - 'scripts/expected-unpublished-catalog-seed-pins.yaml'
+      - 'platform/*/chart/Chart.yaml'
+      - 'products/*/chart/Chart.yaml'
+      - 'products/catalyst/chart/templates/catalog-seed/blueprints.yaml'
       - 'scripts/generators/components.py'
       - 'docs/generated/components.md'
   workflow_dispatch:
@@ -58,6 +77,10 @@ jobs:
 
       - name: Install PyYAML
         run: pip install --quiet pyyaml
+
+      # The seed tests render the generated seed with helm template; Helm is installed on ubuntu-latest.
+      - name: Helm
+        run: helm version --short
 
       - name: Test the generator
         run: |

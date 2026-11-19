@@ -41,7 +41,6 @@ on:
       - 'scripts/lib/ghcr-tags.sh'
       - 'scripts/check-bootstrap-kit-pin-sync.sh'
       - 'scripts/test-ghcr-not-measured.sh'
-      - 'scripts/check-seed-equals-blueprints.py'
       - 'scripts/generate-catalog.py'
       - 'platform/_catalog/card-categories.yaml'
       - 'infra/providers/*/card-categories.yaml'
@@ -63,7 +62,6 @@ on:
       - 'scripts/lib/ghcr-tags.sh'
       - 'scripts/check-bootstrap-kit-pin-sync.sh'
       - 'scripts/test-ghcr-not-measured.sh'
-      - 'scripts/check-seed-equals-blueprints.py'
       - 'scripts/generate-catalog.py'
       - 'platform/_catalog/card-categories.yaml'
       - 'infra/providers/*/card-categories.yaml'
@@ -104,18 +102,8 @@ jobs:
       # test runs both GHCR guards against a fake gh; no network.
       - name: GHCR listing errors are not missing pins (#7922)
         run: bash scripts/test-ghcr-not-measured.sh
-      # SVC-159 — every seeded Blueprint file says what the hand-written seed says,
-      # field by field, configSchema included (SVC-163). SVC-160 generates the seed
-      # and replaces this check with scripts/generate-catalog.py --check.
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Install PyYAML
-        run: pip install --quiet pyyaml
-      - name: Prove the seed-equals-files check can fail (SVC-159)
-        run: python3 scripts/check-seed-equals-blueprints.py --self-test
-      - name: The Blueprint files say what the seed says (SVC-159)
-        run: python3 scripts/check-seed-equals-blueprints.py
+      # SVC-160 — scripts/generate-catalog.py writes the seed from the Blueprint files; the job
+      # "regenerate and prove no diff" of check-catalog-generated-drift.yaml proves it current.
 
   ghcr-pin-existence:
     # #5559 (UAT row R21) — every catalog-seed `source.chart`:`source.version`

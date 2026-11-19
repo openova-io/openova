@@ -14,8 +14,10 @@ never changes these values of a file that exists before and after it:
       the deploy jobs write together with its version.
   R3  the first line `  version:` (spec.version) of a `kind: Blueprint` manifest at
       platform/<x>/blueprint.yaml, products/<x>/blueprint.yaml or products/<x>/chart/blueprint.yaml.
-  R4  spec.version and source.version of each entry, by name, of
-      products/catalyst/chart/templates/catalog-seed/blueprints.yaml.
+  R4  retired (SVC-160): the seed products/catalyst/chart/templates/catalog-seed/blueprints.yaml
+      is written by scripts/generate-catalog.py from the files of R3, so a pull request moves
+      a seed version only by moving the spec.version that R3 refuses, and the job "regenerate
+      and prove no diff" refuses a hand edit. A push judges it as a generated file (P2).
   R5  the chart pin (the first line `      version:`) of a slot file
       clusters/_template/bootstrap-kit/<file>.yaml.
 
@@ -30,9 +32,9 @@ the push is judged by what it changes, git diff <before> <after>, file by file:
 
   P1  a gate record: a file docs/ledger/acceptance/<name>.json that the push adds.
   P2  a site file that exists before and after the push: a Chart.yaml, blueprint.yaml
-      or slot file of R1 to R5, the two generated catalogue files
-      products/catalyst/bootstrap/api/internal/catalog/blueprints.json and
-      products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts, the
+      or slot file of R1 to R5, the three generated catalogue files
+      products/catalyst/bootstrap/api/internal/catalog/blueprints.json,
+      products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts and the seed, the
       funnel pin file core/services/provisioning/gitops/helmrelease_apps.go (the release
       writer moves an entry of its constant DefaultHRAppChartVersions, #7829), or a
       chart's values.yaml or template, (platform|products)/<x>/chart/values.yaml and
@@ -90,7 +92,7 @@ SLOT = re.compile(r"^clusters/_template/bootstrap-kit/[^/]+\.yaml$")
 QUEUE = "github-merge-queue[bot]"
 GATE_RECORD = re.compile(r"^docs/ledger/acceptance/[^/]+\.json$")
 GENERATED = ("products/catalyst/bootstrap/api/internal/catalog/blueprints.json",
-             "products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts")
+             "products/catalyst/bootstrap/ui/src/shared/constants/catalog.generated.ts", SEED)
 FUNNEL = "core/services/provisioning/gitops/helmrelease_apps.go"
 CHART_FILE = re.compile(r"^(platform|products)/[^/]+/chart/(values\.yaml|templates/.+\.yaml)$")
 VERSION_VALUE = re.compile(
@@ -114,41 +116,6 @@ def value(text, key_re):
     return m.group(1).strip().strip('"').strip("'")
 
 
-def seed_entries(text):
-    """Map entry name -> list of (spec version, delivery version) for the seed template. Line shape, not YAML: it is a Helm template."""
-    out, cur, in_source = {}, None, False
-
-    def flush():
-        if cur is not None and cur["name"] is not None:
-            out.setdefault(cur["name"], []).append((cur["spec"], cur["source"]))
-
-    for ln in text.split("\n"):
-        if re.match(r"^kind:[ \t]*Blueprint[ \t]*$", ln):
-            flush()
-            cur, in_source = {"name": None, "spec": None, "source": None}, False
-            continue
-        if cur is None:
-            continue
-        if re.match(r"^  source:[ \t]*$", ln):
-            in_source = True
-            continue
-        if in_source and ln.strip() and not ln.startswith("    "):
-            in_source = False
-        m = re.match(r"^  name:[ \t]*([^\n#]*)", ln)
-        if m and cur["name"] is None:
-            cur["name"] = m.group(1).strip().strip('"').strip("'")
-            continue
-        m = re.match(r"^    version:[ \t]*([^\n#]*)", ln)
-        if m and in_source and cur["source"] is None:
-            cur["source"] = m.group(1).strip().strip('"').strip("'")
-            continue
-        m = re.match(r"^  version:[ \t]*([^\n#]*)", ln)
-        if m and not in_source and cur["spec"] is None:
-            cur["spec"] = m.group(1).strip().strip('"').strip("'")
-    flush()
-    return out
-
-
 def judge(path, old, new):
     """The refused values of one file that exists before and after the change. Returns a list of finding lines."""
     found = []
@@ -168,11 +135,6 @@ def judge(path, old, new):
         a, b = value(old, r"  version:"), value(new, r"  version:")
         if a != b:
             found.append("R3 %s: spec.version %s -> %s" % (path, a, b))
-    elif path == SEED:
-        a, b = seed_entries(old), seed_entries(new)
-        for name in sorted(set(a) & set(b)):
-            if a[name] != b[name]:
-                found.append("R4 %s: entry %s: (spec.version, source.version) %s -> %s" % (path, name, a[name], b[name]))
     elif SLOT.match(path):
         a, b = value(old, r"      version:"), value(new, r"      version:")
         if a != b:
@@ -195,14 +157,14 @@ def pr_findings(root, base, head):
         status, path = st[n], st[n + 1]
         if status != "M":
             continue
-        if not (CHART.match(path) or BLUEPRINT.match(path) or path == SEED or SLOT.match(path)):
+        if not (CHART.match(path) or BLUEPRINT.match(path) or SLOT.match(path)):
             continue
         found += judge(path, git(root, "show", "%s:%s" % (mb, path)), git(root, "show", "%s:%s" % (head, path)))
     return found
 
 
 def site_file(path):
-    return bool(CHART.match(path) or BLUEPRINT.match(path) or path == SEED or SLOT.match(path)
+    return bool(CHART.match(path) or BLUEPRINT.match(path) or SLOT.match(path)
                 or path in GENERATED or path == FUNNEL or CHART_FILE.match(path))
 
 
@@ -325,6 +287,7 @@ def self_test():
         cases.append((name, ok, got))
 
     c, u, bp, sl = "platform/x/chart/Chart.yaml", UMBRELLA, "platform/x/blueprint.yaml", "clusters/_template/bootstrap-kit/40-x.yaml"
+    vc = value_changes
     case("R1 refuses a changed chart version", judge(c, CHART_OLD, CHART_OLD.replace("version: 1.0.3", "version: 1.0.4")), "R1 ")
     case("R1 refuses a changed version in products/<x>/chart", judge("products/y/chart/Chart.yaml", CHART_OLD, CHART_OLD.replace("version: 1.0.3", "version: 2.0.0")), "R1 ")
     case("R1 allows a changed dependency version and template text", judge(c, CHART_OLD, CHART_OLD.replace('version: "2.0.0"', 'version: "2.1.0"') + "description: x\n"), 0)
@@ -337,15 +300,12 @@ def self_test():
     case("R3 refuses it in products/<x>/chart/blueprint.yaml", judge("products/y/chart/blueprint.yaml", BP_OLD, BP_OLD.replace("  version: 1.0.3", "  version: 1.1.0")), "R3 ")
     case("R3 allows a deeper version line", judge(bp, BP_OLD, BP_OLD.replace("    version: 0.9.0", "    version: 0.9.1")), 0)
     case("R3 exempts a manifest that is not a Blueprint", judge("products/y/chart/blueprint.yaml", CRD_OLD, CRD_OLD.replace("v1\n", "v2\n")), 0)
-    case("R4 refuses a changed seed spec.version", judge(SEED, SEED_OLD, SEED_OLD.replace('  version: "1.0.3"', '  version: "1.0.4"', 1)), "R4 ")
-    case("R4 refuses a changed seed source.version", judge(SEED, SEED_OLD, SEED_OLD.replace('    version: "1.0.3"', '    version: "1.0.4"', 1)), "R4 ")
-    case("R4 allows a new seed entry", judge(SEED, SEED_OLD, SEED_OLD + "---\nkind: Blueprint\nmetadata:\n  name: bp-new\nspec:\n  version: \"0.1.0\"\n"), 0)
-    case("R4 allows removing a seed entry", judge(SEED, SEED_OLD, SEED_OLD.split("---\napiVersion: catalyst.openova.io/v1alpha1\nkind: Blueprint\nmetadata:\n  name: bp-catalyst-platform")[0]), 0)
-    case("R4 allows a changed card line", judge(SEED, SEED_OLD, SEED_OLD.replace("supported: []", "supported: [singleton]")), 0)
+    case("R4 retired: the generated seed is judged at its Blueprint files, not by a pull request", judge(SEED, SEED_OLD, SEED_OLD.replace('  version: "1.0.3"', '  version: "1.0.4"', 1)), 0)
+    case("P2 judges the generated seed as a site file", [p for p in GENERATED if not site_file(p)] + [p for p in [SEED] if p not in GENERATED], 0)
+    case("P2 allows a moved seed version and refuses another seed change", vc(SEED, '@@ -7 +7 @@\n-  version: "1.0.3"\n+  version: "1.0.4"\n') + vc(SEED, "@@ -9 +9 @@\n-    chart: bp-x\n+    chart: bp-y\n"), 1)
     case("R5 refuses a changed slot pin", judge(sl, SLOT_OLD, SLOT_OLD.replace("      version: 1.0.3", "      version: 1.0.4")), "R5 ")
     case("R5 allows a changed value deeper in the slot", judge(sl, SLOT_OLD, SLOT_OLD.replace("        version: 7", "        version: 8")), 0)
     case("unrelated file is not judged", judge("platform/x/chart/values.yaml", "version: 1\n", "version: 2\n"), 0)
-    vc = value_changes
     case("P2 allows a changed image tag", vc("v", '@@ -3 +3 @@\n-    tag: "28d6575"\n+    tag: "2c1f5b0"\n'), 0)
     case("P2 allows a changed digest in either form", vc("v", '@@ -4,2 +4,2 @@\n-    digest: "sha256:%s"\n-    tag: "5ea1b38" # OVERRIDE\n+    digest: "sha256:%s"\n+    tag: "sha256-%s" # OVERRIDE\n' % ("a" * 64, "b" * 64, "c" * 64)), 0)
     case("P2 allows a version with a dropped comment and new quotes", vc("c", "@@ -6 +6 @@\n-  version: 1.0.3  # lockstep with chart\n+  version: \"1.0.4\"\n"), 0)

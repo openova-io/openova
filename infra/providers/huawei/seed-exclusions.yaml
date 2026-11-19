@@ -1,0 +1,10 @@
+# The Blueprints of this provider (folders its pack.yaml lists in spec.charts) that the seed
+# (products/catalyst/chart/templates/catalog-seed/blueprints.yaml) does not hold, each with the reason.
+# scripts/generate-catalog.py reads this file with platform/_catalog/seed-exclusions.yaml, which names no
+# provider's Blueprint.
+exclusions:
+  - blueprint: bp-huawei-evs-csi
+    reason: >-
+      Bootstrap-kit-owned — installs from slot 55b (55b-bp-huawei-evs-csi.yaml). Provider storage
+      driver, selected by the deployment's cloud provider at provision time; never installed from
+      the catalog.
