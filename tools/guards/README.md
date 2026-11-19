@@ -20,6 +20,7 @@ tooling is written here, in Go, never as a new Python file (docs/PRINCIPLES.md I
 
 | Command | What it holds |
 |---|---|
+| `cmd/kube-access` | Every Helm test hook under `platform/*/chart` and `products/*/chart` whose script runs kubectl includes `kube-access-lib.in-cluster-kubeconfig` (`platform/kube-access-lib`) before its first kubectl call, and its chart declares that library; the template still builds the kubeconfig from the Pod's ServiceAccount. Without it a client flag such as `--request-timeout` sends kubectl to `http://localhost:8080`. |
 | `cmd/python-shrinks` | No new Python. Four totals never rise above `scripts/baselines/python.json` (code owner review). No file list, no exception list: a rename passes. What each total counts is below. |
 
 `go run ./cmd/python-shrinks --list` prints the share of every file of each total and every place it counts;

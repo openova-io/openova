@@ -415,6 +415,9 @@ jobs:
       - name: 'python-shrinks | Tests of the guard (every rule can fail)'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: cd tools/guards && go test -count=1 ./...
+      - name: 'kube-access | Every test hook that runs kubectl reaches the API server through kube-access-lib'
+        if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
+        run: cd tools/guards && go run ./cmd/kube-access
       - name: 'python-shrinks | No total of Python above its baseline: Python files, their lines, Python inside other files, places on a Sovereign'
         if: ${{ !cancelled() && github.event_name != 'workflow_dispatch' }}
         run: cd tools/guards && go run ./cmd/python-shrinks --base HEAD^1

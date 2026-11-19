@@ -150,17 +150,15 @@ data:
             value: {{ .Values.egressTest.callHomeAssertion.timeoutSeconds | default 5 | quote }}
           - name: CALL_HOME_HOSTS
             value: {{ .Values.egressTest.callHomeAssertion.hosts | default (list "https://console.openova.io/healthz") | join " " | quote }}
-          {{- /*
-           #3695 — host GitOps loop gate. The root bootstrap-kit Kustomization
-           (+ sovereign-tls + org-tenants) MUST be Ready=True at the
-           post-cutover revision or the proof fails BEFORE the window.
-          */}}
+          {{- /* #3695 host GitOps loop gate: the Kustomizations, and how long a progressing one is waited for. */}}
           - name: HOST_KS_GATE_ENABLED
             value: {{ eq (toString .Values.egressTest.hostKustomizationGate.enabled) "true" | quote }}
           - name: HOST_KS_NAMESPACE
             value: {{ .Values.egressTest.hostKustomizationGate.namespace | default "flux-system" | quote }}
           - name: HOST_KS_NAMES
             value: {{ .Values.egressTest.hostKustomizationGate.names | default (list "bootstrap-kit") | join " " | quote }}
+          - name: HOST_KS_READY_WAIT_SECONDS
+            value: {{ .Values.egressTest.hostKustomizationGate.readyWaitSeconds | default 600 | quote }}
           {{- /*
            #3695 — roll EVERY external-registry workload under deny-egress,
            not one hand-picked openova-io Deployment.
@@ -2305,35 +2303,37 @@ data:
             fi
 
             {{- /*
-             ── #3695 HOST GITOPS LOOP GATE ───────────────────────────────
-             HARD gate, NOT subject to the baseline-exclude below. The root
-             bootstrap-kit Kustomization owns all 63 bp-* HRs with prune=true
-             — if it cannot build (e.g. step-10's awk injector duplicated a
-             `values:` key on 13b-bp-sso-bridge.yaml, hw150), the Sovereign
-             can no longer apply ANY git change and is not operable as a
-             GitOps cluster, even though every already-running pod stays up
-             and the survival poll would pass. Assert each host Kustomization
-             is Ready=True NOW; any NotReady fails the proof before the window.
+             ── #3695 HOST GITOPS LOOP GATE ── HARD gate: the kit Kustomization owns every bp-* HR (prune=true). Ready=False or none fails at once;
+             Ready=Unknown (PROGRESSING: the roll above restarts helm-controller, which re-runs in-flight tests, v1.1.0 state.go:169-173,
+             hw307-a 19 Nov 2026) is waited for up to HOST_KS_READY_WAIT_SECONDS. A failure names the unsettled HelmReleases of its inventory.
             */}}
-            if [ "${HOST_KS_GATE_ENABLED}" = "true" ]; then
-              echo "[egress-block-test] #3695: asserting host GitOps Kustomizations are Ready (the loop that reconciles local git)"
-              host_ks_bad=""
-              for ks in ${HOST_KS_NAMES}; do
-                ready=$(kubectl get kustomization "${ks}" -n "${HOST_KS_NAMESPACE}" \
-                  -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
-                if [ "${ready}" = "True" ]; then
-                  rev=$(kubectl get kustomization "${ks}" -n "${HOST_KS_NAMESPACE}" \
-                    -o jsonpath='{.status.lastAppliedRevision}' 2>/dev/null || echo "?")
-                  echo "  OK — kustomization/${ks} Ready=True (lastAppliedRevision=${rev})"
-                else
-                  msg=$(kubectl get kustomization "${ks}" -n "${HOST_KS_NAMESPACE}" \
-                    -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}' 2>/dev/null || echo "")
-                  echo "  FAIL — kustomization/${ks} Ready=${ready:-<missing>}: ${msg}"
-                  host_ks_bad="${host_ks_bad} ${ks}"
-                fi
+            host_ks_ready() { kubectl get kustomization "$1" -n "${HOST_KS_NAMESPACE}" -o "jsonpath={.status.conditions[?(@.type==\"Ready\")].$2}" 2>/dev/null || echo ""; }
+            host_ks_holders() {
+              _hh_inv=$(kubectl get kustomization "$1" -n "${HOST_KS_NAMESPACE}" -o jsonpath='{range .status.inventory.entries[*]}{.id}{"\n"}{end}' 2>/dev/null | awk -F_ '$NF == "HelmRelease" { print $1 "/" $2 }' | tr '\n' ' ')
+              _hh_rows=$(kubectl get helmreleases.helm.toolkit.fluxcd.io -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{"|"}{.status.conditions[?(@.type=="Ready")].status}{"|"}{.status.conditions[?(@.type=="Reconciling")].status}{"|"}{.status.conditions[?(@.type=="Reconciling")].message}{"|"}{.status.conditions[?(@.type=="Ready")].message}{"\n"}{end}' 2>/dev/null) || { echo "    the HelmReleases holding kustomization/$1 could not be listed"; return 0; }
+              printf '%s\n' "${_hh_rows}" | awk -F'|' -v inv=" ${_hh_inv}" -v ks="$1" '$1 == "" || NF < 5 || (inv != " " && index(inv, " " $1 " ") == 0) { next }
+                $3 == "True" { print "    held by HelmRelease/" $1 ": Reconciling: " $4; n++; next } $2 != "True" { print "    held by HelmRelease/" $1 ": Ready=" ($2 == "" ? "<missing>" : $2) ": " $5; n++ }
+                END { if (n == 0) print "    no HelmRelease of kustomization/" ks " is unsettled; its own message above is the cause" }'
+            }
+            host_ks_wait_ready() {
+              _hk_deadline=$(( $(date +%s) + HOST_KS_READY_WAIT_SECONDS )); _hk_left=${HOST_KS_READY_WAIT_SECONDS}
+              while [ "${_hk_left}" -ge 0 ]; do
+                _hk_pending=""; host_ks_bad=""; _hk_why="FAIL"
+                for ks in ${HOST_KS_NAMES}; do case "$(host_ks_ready "${ks}" status)" in True) ;; Unknown) _hk_pending="${_hk_pending} ${ks}" ;; *) host_ks_bad="${host_ks_bad} ${ks}" ;; esac; done
+                [ -z "${host_ks_bad}" ] || break
+                if [ -z "${_hk_pending}" ]; then for ks in ${HOST_KS_NAMES}; do echo "  OK — kustomization/${ks} Ready=True (lastAppliedRevision=$(kubectl get kustomization "${ks}" -n "${HOST_KS_NAMESPACE}" -o jsonpath='{.status.lastAppliedRevision}' 2>/dev/null || echo "?"))"; done
+                  return 0; fi
+                host_ks_bad="${_hk_pending}"; _hk_why="FAIL — still not Ready after ${HOST_KS_READY_WAIT_SECONDS}s"
+                _hk_left=$(( _hk_deadline - $(date +%s) )); [ "${_hk_left}" -gt 0 ] || break
+                for ks in ${_hk_pending}; do echo "  WAIT — kustomization/${ks} Ready=Unknown (progressing): $(host_ks_ready "${ks}" message) (${_hk_left}s left of ${HOST_KS_READY_WAIT_SECONDS}s)"; done
+                sleep "${HOST_KS_POLL_SECONDS:-15}"
               done
-              if [ -n "${host_ks_bad}" ]; then
-                {{- /* Tear down any applied policy before failing. */}}
+              for ks in ${host_ks_bad}; do _hk_r=$(host_ks_ready "${ks}" status); echo "  ${_hk_why} — kustomization/${ks} Ready=${_hk_r:-<missing>}: $(host_ks_ready "${ks}" message)"; host_ks_holders "${ks}"; done
+              return 1
+            }
+            if [ "${HOST_KS_GATE_ENABLED}" = "true" ]; then
+              echo "[egress-block-test] #3695: asserting host GitOps Kustomizations are Ready (the loop that reconciles local git; a progressing one is waited for up to ${HOST_KS_READY_WAIT_SECONDS}s)"
+              if ! host_ks_wait_ready; then
                 [ -n "${POLICY_APPLIED}" ] && kubectl delete ciliumclusterwidenetworkpolicy cutover-egress-block --ignore-not-found=true || true
                 echo "[egress-block-test] #3695 FAIL — host GitOps loop not reconciling (NotReady:${host_ks_bad}); the cutover corrupted its own git loop — sovereignty proof FAILED"
                 exit 1

@@ -19,6 +19,7 @@ fi
 
 echo "[function-test] Case 1: default render (webhook configurations created) carries the test"
 helm template cnpg . --namespace cnpg-system > "$TMP/default.yaml"
+sh "$CHART_DIR/../../../scripts/check-kube-access-rendered.sh" "$TMP/default.yaml" || fail "the test hook runs kubectl before it sets up its API access through kube-access-lib"
 python3 "$CHECK" --chart bp-cnpg --release cnpg < "$TMP/default.yaml"
 grep -q -F 'kubectl create --dry-run=server' "$TMP/default.yaml" || fail "the test does not make a server-side dry-run create"
 grep -q -F 'resources: ["clusters"]' "$TMP/default.yaml" || fail "the test Role does not name the resource clusters"

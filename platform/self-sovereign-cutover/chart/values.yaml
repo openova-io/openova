@@ -2294,6 +2294,18 @@ egressTest:
       - "bootstrap-kit"
       - "sovereign-tls"
       - "org-tenants"
+    # A Kustomization that is still PROGRESSING (Ready=Unknown, "Reconciliation
+    # in progress") is not a corrupted Git loop. This step's own fresh-pull roll
+    # restarts the Flux controllers just before the gate, and a restarted
+    # helm-controller runs again every Helm test it had in flight, so the kit
+    # reads Ready=Unknown for minutes (hw307 region a, 19 Nov 2026: the gate
+    # failed on its first reading while bp-sso-bridge re-ran its test). The gate
+    # waits up to readyWaitSeconds for Ready=True, reading every 15 seconds.
+    # Ready=False or no Ready condition fails at once; still not Ready after the
+    # bound fails. Both failures name the HelmReleases of that Kustomization that
+    # are not settled. 600 s = one helm test timeout (5m) plus the kit's own
+    # health-check timeout (5m).
+    readyWaitSeconds: 600
   # #3695 — the fresh-pull proof must roll EVERY workload whose image host is
   # NOT the local registry, not one hand-picked openova-io Deployment. When
   # true, Step-08 enumerates all Deployments/DaemonSets/StatefulSets across

@@ -49,6 +49,7 @@ spec:
       args:
         - |
           set -euo pipefail
+          {{- include "kube-access-lib.in-cluster-kubeconfig" . | nindent 10 }}
           PRIMARY={{ include "cnpg-pair.primaryName" . }}
           MESH={{ include "cnpg-pair.replicationServiceName" . }}
           NS=$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)

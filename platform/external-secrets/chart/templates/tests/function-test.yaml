@@ -133,6 +133,7 @@ spec:
       args:
         - |
           set -u
+          {{- include "kube-access-lib.in-cluster-kubeconfig" . | nindent 10 }}
           fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
           oneline() { tr '\n' ' ' < "$1" | cut -c1-200; }
           head='{"apiVersion":"'"${ES_API_VERSION}"'","kind":"ExternalSecret","metadata":{"name":"function-test-probe","namespace":"'"${TEST_NAMESPACE}"'"},"spec":{"secretStoreRef":{"kind":"ClusterSecretStore","name":"vault-region1"},"target":{"name":"function-test-probe"}'

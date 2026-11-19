@@ -19,6 +19,7 @@ echo "[function-test] Case 1: one region: the test reads the store vault-region1
 helm template external-secrets-stores . --namespace external-secrets-system > "$TMP/default.yaml"
 python3 "$CHECK" --chart bp-external-secrets-stores --release external-secrets-stores < "$TMP/default.yaml"
 helm template external-secrets-stores . --namespace external-secrets-system --show-only "$TEST" > "$TMP/default-test.yaml"
+sh "$CHART_DIR/../../../scripts/check-kube-access-rendered.sh" "$TMP/default-test.yaml" || fail "the test hook runs kubectl before it sets up its API access through kube-access-lib"
 grep -q -F 'value: "vault-region1"' "$TMP/default-test.yaml" || fail "the test does not read exactly the store vault-region1"
 grep -q -F '{.status.conditions[?(@.type=="Ready")].status}' "$TMP/default-test.yaml" || fail "the test does not read the condition Ready"
 grep -q -F 'resources: ["clustersecretstores"]' "$TMP/default-test.yaml" || fail "the test ClusterRole does not name clustersecretstores"

@@ -121,6 +121,7 @@ spec:
       args:
         - |
           set -u
+          {{- include "kube-access-lib.in-cluster-kubeconfig" . | nindent 10 }}
           fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
           crd=gateways.gateway.networking.k8s.io
           [ -n "${WANT_VERSION}" ] || fail "the chart pins no Gateway API version"

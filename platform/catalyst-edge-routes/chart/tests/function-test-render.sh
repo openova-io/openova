@@ -78,6 +78,7 @@ check_routes mcp --set ingress.hosts.mcp.host=mcp.t1.omani.works
 
 echo "[function-test] Case 4: no HTTPRoute (chart default) renders no test"
 helm template catalyst-secondary-edge . --namespace catalyst-system > "$TMP/default.yaml"
+sh "$CHART_DIR/../../../scripts/check-kube-access-rendered.sh" "$TMP/default.yaml" || fail "the test hook runs kubectl before it sets up its API access through kube-access-lib"
 python3 "$CHECK" --chart bp-catalyst-edge-routes --release catalyst-secondary-edge --absent < "$TMP/default.yaml"
 
 echo "function-test-render: all cases passed"

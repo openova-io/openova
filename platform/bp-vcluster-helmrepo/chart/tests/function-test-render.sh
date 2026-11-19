@@ -19,6 +19,7 @@ echo "[function-test] Case 1: default render reads the HelmRepository vcluster-s
 helm template vcluster-helmrepo . --namespace flux-system > "$TMP/default.yaml"
 python3 "$CHECK" --chart bp-vcluster-helmrepo --release vcluster-helmrepo < "$TMP/default.yaml"
 helm template vcluster-helmrepo . --namespace flux-system --show-only "$TEST" > "$TMP/default-test.yaml"
+sh "$CHART_DIR/../../../scripts/check-kube-access-rendered.sh" "$TMP/default-test.yaml" || fail "the test hook runs kubectl before it sets up its API access through kube-access-lib"
 helm template vcluster-helmrepo . --namespace flux-system --show-only templates/helmrepository.yaml > "$TMP/default-repo.yaml"
 grep -q -E '^  name: "loft"$' "$TMP/default-repo.yaml" || fail "the chart renders no HelmRepository loft"
 grep -q -E '^  namespace: "vcluster-system"$' "$TMP/default-repo.yaml" || fail "the chart renders the HelmRepository outside vcluster-system"

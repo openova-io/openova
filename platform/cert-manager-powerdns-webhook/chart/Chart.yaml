@@ -61,6 +61,11 @@ maintainers:
 # the rendered manifests of bp-cert-manager-powerdns-webhook. Mirrors
 # bp-coraza which uses the same pattern for the same reason.
 dependencies:
+  # The shared API access set-up of the test hook that runs kubectl
+  # (platform/kube-access-lib, vendored by `helm dependency build`).
+  - name: kube-access-lib
+    version: "0.1.0"
+    repository: "file://../../kube-access-lib/chart"
   - name: common
     version: "0.1.3"
     repository: "https://sigstore.github.io/helm-charts"

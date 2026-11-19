@@ -91,6 +91,7 @@ spec:
       args:
         - |
           set -u
+          {{- include "kube-access-lib.in-cluster-kubeconfig" . | nindent 10 }}
           fail() { echo "FUNCTION-TEST fail {{ .Chart.Name }} $1"; exit 1; }
           if ! counts="$(kubectl -n "${TEST_NAMESPACE}" get daemonset kured -o jsonpath='{.status.desiredNumberScheduled} {.status.numberReady}' 2>/tmp/error)"; then
             fail "the DaemonSet kured cannot be read: $(tr '\n' ' ' </tmp/error | cut -c1-200)"
