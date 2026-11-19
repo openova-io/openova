@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T00:30:06Z` |
+| Last refreshed | `2026-11-19T00:45:04Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,8 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7863](https://github.com/openova-io/openova/issues/7863) | FND-027 A moved funnel pin rebuilds the provisioning image; the openclaw build w | Other |
-| [#7864](https://github.com/openova-io/openova/issues/7864) | FND-028 Four image builds and the catalog build are green on main again | Other |
 | [#7865](https://github.com/openova-io/openova/issues/7865) | INF-052 Check INF-G01: upgrade windows and recovery; set to required | Other |
 | [#7866](https://github.com/openova-io/openova/issues/7866) | INF-053 Capability flag node-reboot: a gate run restarts nodes only when it decl | Other |
 | [#7881](https://github.com/openova-io/openova/issues/7881) | AIP-111 Move the sidecar, take identity from the gateway, publish quantity | Other |
@@ -300,6 +298,8 @@ flowchart LR
 | [#8232](https://github.com/openova-io/openova/issues/8232) | FND-156 The conformance account exists on every Sovereign | Other |
 | [#8235](https://github.com/openova-io/openova/issues/8235) | FND-207 A check stays green on the newest valid pair until a newer record says o | Other |
 | [#8238](https://github.com/openova-io/openova/issues/8238) | FND-079 The gate has a scoped access to the parent | Other |
+| [#8244](https://github.com/openova-io/openova/issues/8244) | CLD-111 Wipe and janitor through capabilities | Other |
+| [#8247](https://github.com/openova-io/openova/issues/8247) | FND-078 The gate's cluster jobs run as a Job on the parent | Other |
 
 ---
 
@@ -307,6 +307,8 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-19T00:43 | [#8246](https://github.com/openova-io/openova/pull/8246) | #7087 | docs(ledger): plan update |
+| 2026-11-19T00:37 | [#8243](https://github.com/openova-io/openova/pull/8243) | #7087 | docs(ledger): plan update |
 | 2026-11-18T23:51 | [#8240](https://github.com/openova-io/openova/pull/8240) | #8238 | docs(ledger): result of the operator action FND-079 (FND-079 |
 | 2026-11-18T23:49 | [#8239](https://github.com/openova-io/openova/pull/8239) | #7087 | docs(ledger): plan update |
 | 2026-11-18T23:42 | [#8237](https://github.com/openova-io/openova/pull/8237) | #7087 | docs(ledger): plan update |
@@ -335,8 +337,6 @@ flowchart LR
 | 2026-11-18T20:11 | [#8202](https://github.com/openova-io/openova/pull/8202) | #8201 | fix(axon): stream one chunk per upstream event and close the |
 | 2026-11-18T19:35 | [#8200](https://github.com/openova-io/openova/pull/8200) | #7087 | docs(ledger): plan update |
 | 2026-11-18T20:37 | [#8199](https://github.com/openova-io/openova/pull/8199) | #7938 | fix(build): a version tag that exists is never pushed again |
-| 2026-11-18T19:20 | [#8198](https://github.com/openova-io/openova/pull/8198) | #7087 | docs(ledger): plan update |
-| 2026-11-18T19:12 | [#8197](https://github.com/openova-io/openova/pull/8197) | #7087 | docs(ledger): plan update |
 
 ---
 
