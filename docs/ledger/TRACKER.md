@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T08:00:03Z` |
+| Last refreshed | `2026-11-19T08:15:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-19T08:09 | [#8300](https://github.com/openova-io/openova/pull/8300) | #8298 | docs(ledger): result of the spike SVC-250, composite resourc |
 | 2026-11-19T07:46 | [#8297](https://github.com/openova-io/openova/pull/8297) | #7087 | docs(ledger): plan update |
 | 2026-11-19T07:25 | [#8295](https://github.com/openova-io/openova/pull/8295) | #8292 | docs(ledger): result of the spike INF-710, the host security |
 | 2026-11-19T07:24 | [#8294](https://github.com/openova-io/openova/pull/8294) | #8293 | docs(ledger): result of the spike NET-270, firewall attachme |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-19T02:28 | [#8255](https://github.com/openova-io/openova/pull/8255) | #7087 | docs(ledger): plan update |
 | 2026-11-19T02:23 | [#8253](https://github.com/openova-io/openova/pull/8253) | #7087 | docs(ledger): plan update |
 | 2026-11-19T06:13 | [#8252](https://github.com/openova-io/openova/pull/8252) | #8227 | fix(mesh): name a restarted mesh container and its cause in  |
-| 2026-11-19T01:43 | [#8250](https://github.com/openova-io/openova/pull/8250) | #7087 | docs(ledger): plan update |
 
 ---
 
