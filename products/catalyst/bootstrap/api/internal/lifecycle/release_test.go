@@ -231,6 +231,9 @@ func TestReleaseRequestRefusals(t *testing.T) {
 	}
 	followersOnly := append(installed(false, false),
 		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: secondaryKubeconfigs, Namespace: testNS}, Data: map[string][]byte{"region-b.yaml": []byte("x")}})
+	// SOV-521: what an earlier request recorded, of this candidate or another.
+	primaryOnly := append(installed(true, true), promotedState(testCandidate, "primary"))
+	otherCandidate := append(installed(true, true), promotedState("20261116T080000Z-0123456", "region-b"))
 	for _, c := range []struct {
 		name, body string
 		objs       []runtime.Object
@@ -270,6 +273,17 @@ func TestReleaseRequestRefusals(t *testing.T) {
 		{"a Flux-applied pull secret", `{"candidate":"` + testCandidate + `","pullSecret":"flux-pull"}`, append(installed(false, false), managed("flux-pull", func(s *corev1.Secret) {
 			s.Labels = map[string]string{"kustomize.toolkit.fluxcd.io/name": "bootstrap-kit"}
 		})), nil, 422, "managed by Flux"},
+		// SOV-521: region names primary or a follower; a rollback names a
+		// region the state records a promote of this candidate for, and
+		// carries no dry run and no pull credential.
+		{"a region that is not one of the Sovereign", `{"candidate":"` + testCandidate + `","dryRun":true,"region":"region-z"}`, installed(true, true), nil, 400, "bad-region"},
+		{"a follower name on a Sovereign without followers", `{"candidate":"` + testCandidate + `","dryRun":true,"region":"region-b"}`, installed(false, false), nil, 400, "bad-region"},
+		{"a rollback without a region", `{"candidate":"` + testCandidate + `","rollback":true}`, installed(true, true), nil, 400, "rollback-without-region"},
+		{"a rollback with a dry run", `{"candidate":"` + testCandidate + `","rollback":true,"region":"region-b","dryRun":true}`, installed(true, true), nil, 400, "rollback-dry-run"},
+		{"a rollback with a pull secret", `{"candidate":"` + testCandidate + `","rollback":true,"region":"region-b","pullSecret":"release-pull"}`, installed(true, true), nil, 400, "rollback-pull-secret"},
+		{"a rollback of a region this candidate never promoted", `{"candidate":"` + testCandidate + `","rollback":true,"region":"region-b"}`, primaryOnly, nil, 409, "not-promoted"},
+		{"a rollback when the state is of another candidate", `{"candidate":"` + testCandidate + `","rollback":true,"region":"region-b"}`, otherCandidate, nil, 409, "not-promoted"},
+		{"a rollback with no state", `{"candidate":"` + testCandidate + `","rollback":true,"region":"primary"}`, installed(true, true), nil, 409, "not-promoted"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			cs := fake.NewSimpleClientset(c.objs...)
@@ -513,8 +527,9 @@ func TestReleaseRouteVerbsAreGranted(t *testing.T) {
 	if err := yaml.Unmarshal(b, &role); err != nil || len(role.Rules) == 0 {
 		t.Fatalf("%s: %v", path, err)
 	}
-	for _, body := range []string{`{"candidate":"` + testCandidate + `","pullSecret":"release-pull"}`, `{"candidate":"` + testCandidate + `","dryRun":true}`} {
-		cs := fake.NewSimpleClientset(installed(true, true)...)
+	for _, body := range []string{`{"candidate":"` + testCandidate + `","pullSecret":"release-pull"}`, `{"candidate":"` + testCandidate + `","dryRun":true}`,
+		`{"candidate":"` + testCandidate + `","pullSecret":"release-pull","region":"region-b"}`, `{"candidate":"` + testCandidate + `","rollback":true,"region":"region-b"}`} {
+		cs := fake.NewSimpleClientset(append(installed(true, true), promotedState(testCandidate, "region-b"))...)
 		// A second request replaces the status and scripts it finds: update.
 		for i := 0; i < 2; i++ {
 			if i == 1 {
@@ -566,4 +581,148 @@ func granted(rules []rbacv1.PolicyRule, verb, group, resource, name string) bool
 		}
 	}
 	return false
+}
+
+// The commits a promote recorded in the tests' state ConfigMap.
+const (
+	recordedMain     = "1111111111111111111111111111111111111111"
+	recordedPromoted = "2222222222222222222222222222222222222222"
+)
+
+// promotedState is the state ConfigMap after candidate's promote of regions.
+func promotedState(candidate string, regions ...string) *corev1.ConfigMap {
+	data := map[string]string{"candidate": candidate, "phase": "delivered", "job": "sovereign-release-1", "primary.stage": "region=primary phase=staged"}
+	for _, r := range regions {
+		data[r+".promotedFrom"], data[r+".promotedTo"], data[r+".phase"] = recordedMain, recordedPromoted, "promoted"
+	}
+	return cm(ReleaseStatusConfigMap, data)
+}
+
+func statusOf(t *testing.T, cs kubernetes.Interface) map[string]string {
+	t.Helper()
+	st, err := cs.CoreV1().ConfigMaps(testNS).Get(context.Background(), ReleaseStatusConfigMap, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return st.Data
+}
+
+// SOV-521: a request that names a region gives it to every container of the
+// bootstrap, which hands it on to the candidate's mechanism; a whole request
+// names none, as before.
+func TestReleaseRegionRequestNamesTheRegionToTheBootstrap(t *testing.T) {
+	for _, c := range []struct{ name, body, region string }{
+		{"region b", `{"candidate":"` + testCandidate + `","pullSecret":"release-pull","region":"region-b"}`, "region-b"},
+		{"the primary, dry run", `{"candidate":"` + testCandidate + `","dryRun":true,"region":"primary"}`, "primary"},
+		{"every region", `{"candidate":"` + testCandidate + `","pullSecret":"release-pull"}`, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			cs := fake.NewSimpleClientset(installed(true, true)...)
+			w := put(t, route(cs, nil), admin, c.body)
+			if w.Code != http.StatusAccepted {
+				t.Fatalf("code %d: %s", w.Code, w.Body)
+			}
+			pod := onlyJob(t, cs).Spec.Template.Spec
+			for _, ctr := range append(append([]corev1.Container{}, pod.InitContainers...), pod.Containers...) {
+				e := env(ctr, "RELEASE_REGION")
+				switch {
+				case c.region == "" && e != nil:
+					t.Fatalf("a whole request sets RELEASE_REGION=%q in %s", e.Value, ctr.Name)
+				case c.region != "" && (e == nil || e.Value != c.region):
+					t.Fatalf("%s sets RELEASE_REGION %v, want %q", ctr.Name, e, c.region)
+				}
+				for _, n := range []string{"PROMOTED_FROM", "PROMOTED_TO"} {
+					if env(ctr, n) != nil {
+						t.Fatalf("a delivery sets %s in %s", n, ctr.Name)
+					}
+				}
+			}
+			st := statusOf(t, cs)
+			if st["region"] != c.region || st["rollback"] != "" {
+				t.Fatalf("state region %q rollback %q, want region %q", st["region"], st["rollback"], c.region)
+			}
+		})
+	}
+}
+
+// SOV-521: a rollback is the rollback container alone, with the commits the
+// promote of this candidate recorded for the region; no stage, no prewarm, no
+// credential.
+func TestReleaseRollbackRequestIsTheRollbackContainerAlone(t *testing.T) {
+	cs := fake.NewSimpleClientset(append(installed(true, true), promotedState(testCandidate, "primary", "region-b"))...)
+	w := put(t, route(cs, nil), admin, `{"candidate":"`+testCandidate+`","rollback":true,"region":"region-b"}`)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("code %d: %s", w.Code, w.Body)
+	}
+	job := onlyJob(t, cs)
+	pod := job.Spec.Template.Spec
+	if len(pod.InitContainers) != 0 || len(pod.Containers) != 1 || pod.Containers[0].Name != "rollback" {
+		t.Fatalf("a rollback runs the rollback container alone; init %v, containers %v", pod.InitContainers, pod.Containers)
+	}
+	c := pod.Containers[0]
+	if strings.Join(c.Command, " ") != "/bin/sh /release/release-run.sh rollback" || c.Image != cutoverImage || pod.ServiceAccountName != runnerSA {
+		t.Fatalf("rollback: command %v, image %s, SA %s", c.Command, c.Image, pod.ServiceAccountName)
+	}
+	for k, v := range map[string]string{"RELEASE_REGION": "region-b", "PROMOTED_FROM": recordedMain, "PROMOTED_TO": recordedPromoted, "CANDIDATE": testCandidate} {
+		if e := env(c, k); e == nil || e.Value != v {
+			t.Fatalf("rollback sets %s=%v, want %q", k, e, v)
+		}
+	}
+	if env(c, "PULL_SECRET") != nil || *job.Spec.ActiveDeadlineSeconds != releaseGitSeconds {
+		t.Fatalf("a rollback names a pull credential (%v) or has the deadline of a delivery (%d)", env(c, "PULL_SECRET"), *job.Spec.ActiveDeadlineSeconds)
+	}
+	scripts, _ := cs.CoreV1().ConfigMaps(testNS).Get(context.Background(), releaseScriptsConfigMap, metav1.GetOptions{})
+	if scripts.Data["follower-job.yaml"] == "" {
+		t.Fatal("the scripts of a rollback in a follower region lack the follower Job")
+	}
+	st := statusOf(t, cs)
+	if st["phase"] != "requested" || st["rollback"] != "true" || st["region"] != "region-b" || st["region-b.promotedTo"] != recordedPromoted || st["primary.stage"] != "" {
+		t.Fatalf("state %v", st)
+	}
+}
+
+// SOV-521: across the requests of one candidate the state keeps what each
+// region's promote recorded, and GET answers it; a request of another
+// candidate starts clean.
+func TestReleaseStateKeepsWhatEachRegionPromotedAcrossTheRequestsOfOneCandidate(t *testing.T) {
+	cs := fake.NewSimpleClientset(append(installed(true, true), promotedState(testCandidate, "primary", "region-b"))...)
+	if w := put(t, route(cs, nil), admin, `{"candidate":"`+testCandidate+`","dryRun":true,"region":"region-b"}`); w.Code != http.StatusAccepted {
+		t.Fatalf("code %d: %s", w.Code, w.Body)
+	}
+	st := statusOf(t, cs)
+	for _, r := range []string{"primary", "region-b"} {
+		if st[r+".promotedFrom"] != recordedMain || st[r+".promotedTo"] != recordedPromoted || st[r+".phase"] != "promoted" {
+			t.Fatalf("a second request of the candidate lost what %s recorded: %v", r, st)
+		}
+	}
+	if st["phase"] != "requested" || st["primary.stage"] != "" {
+		t.Fatalf("the rest of the state is the new request's: %v", st)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sovereign/release", nil)
+	req = req.WithContext(context.WithValue(req.Context(), auth.ClaimsKey, admin))
+	w := httptest.NewRecorder()
+	route(cs, nil).Status(w, req)
+	var v struct {
+		Promoted map[string]map[string]string `json:"promoted"`
+	}
+	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &v) != nil ||
+		v.Promoted["region-b"]["promotedFrom"] != recordedMain || v.Promoted["region-b"]["promotedTo"] != recordedPromoted || v.Promoted["primary"]["phase"] != "promoted" {
+		t.Fatalf("GET: code %d, %s", w.Code, w.Body)
+	}
+
+	jobs, _ := cs.BatchV1().Jobs(testNS).List(context.Background(), metav1.ListOptions{})
+	for _, j := range jobs.Items {
+		if err := cs.BatchV1().Jobs(testNS).Delete(context.Background(), j.Name, metav1.DeleteOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if w := put(t, route(cs, nil), admin, `{"candidate":"20261116T100000Z-fedcba9","dryRun":true}`); w.Code != http.StatusAccepted {
+		t.Fatalf("code %d: %s", w.Code, w.Body)
+	}
+	for k := range statusOf(t, cs) {
+		if strings.HasSuffix(k, ".promotedTo") || strings.HasSuffix(k, ".promotedFrom") {
+			t.Fatalf("a request of another candidate kept %s", k)
+		}
+	}
 }

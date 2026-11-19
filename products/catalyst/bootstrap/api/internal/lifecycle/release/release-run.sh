@@ -1,6 +1,6 @@
 #!/bin/sh
-# release-run.sh <stage|deliver|verify|compose|prewarm|promote> - the containers
-# of a release delivery (#7922, #7938).
+# release-run.sh <stage|deliver|verify|compose|prewarm|promote|rollback> - the
+# containers of a release delivery (#7922, #7938, SOV-521).
 #
 # A delivery runs the mechanism of the release it delivers. PUT
 # /api/v1/sovereign/release starts the BOOTSTRAP Job, in the primary region, in
@@ -37,7 +37,27 @@
 #            line that names the cause.
 #   promote  (its container) release-region.sh check in every region, then
 #            promote in every region, the followers first. A branch that moved
-#            after staging stops the run before any region is pushed.
+#            after staging stops the run before any region is pushed. Each
+#            region whose main it moves is recorded in the state:
+#            <region>.promotedFrom (the main recorded at stage),
+#            <region>.promotedTo (the commit pushed) and <region>.phase.
+#
+# One region (SOV-521). A request may name one region, RELEASE_REGION: primary
+# or a follower's name (the basename of its kubeconfig). The stage and the
+# prewarm run as above, in every region, so a conflict anywhere moves nothing;
+# promote checks and pushes that region only. Without it every region is
+# promoted, as above. The bootstrap's stage refuses a region request when the
+# candidate's release-run.sh has no phase rollback (read as verify is read), and
+# nothing moves: that mechanism promotes every region.
+#
+#   rollback (the bootstrap's only container of a rollback request) puts
+#            RELEASE_REGION back to PROMOTED_FROM, the main recorded at the
+#            stage of the request that promoted it, as one commit on top of
+#            PROMOTED_TO, the commit that promote pushed (release-region.sh
+#            rollback): a fast-forward, never a force push. No stage, no
+#            prewarm, no credential. The route sends it only when the state
+#            records that promote of this candidate, which only a
+#            release-run.sh with this phase records.
 #
 # The contract between the bootstrap and a cutover chart is stated in
 # platform/self-sovereign-cutover/chart/README.md, "Release mechanism".
@@ -66,6 +86,7 @@ set -eu
 : "${MECHANISM_SUFFIX:=-release}" "${RELEASE_JOB:=sovereign-release}" "${STATE_SEED:=}"
 : "${SECONDARY_KUBECONFIGS_SECRET:=cutover-secondary-kubeconfigs}"
 : "${SERVER_DRY_RUN:=false}" "${DRY_RUN_PULL_SECRET:=release-pull-dry-run}"
+: "${RELEASE_REGION:=}" "${PROMOTED_FROM:=}" "${PROMOTED_TO:=}"
 mkdir -p "${STATE}"
 # A delivery Job starts with what the bootstrap's stage recorded (STATE_SEED).
 if [ -n "${STATE_SEED}" ] && [ -d "${STATE_SEED}" ]; then
@@ -135,6 +156,21 @@ record() {
 
 followers() {
   for _kc in "${SECONDARY_KUBECONFIGS}"/*.yaml; do [ -e "${_kc}" ] && echo "${_kc}"; done
+}
+
+# selected <region>: whether promote acts on <region>: every region when the
+# request names none, else the one it names (RELEASE_REGION).
+selected() { [ -z "${RELEASE_REGION}" ] || [ "${RELEASE_REGION}" = "$1" ]; }
+
+# region_check: the region a request names is primary or a follower of this
+# Sovereign; otherwise _region_why says so and it fails.
+_region_why=""
+region_check() {
+  if [ -z "${RELEASE_REGION}" ] || [ "${RELEASE_REGION}" = primary ] || [ -e "${SECONDARY_KUBECONFIGS}/${RELEASE_REGION}.yaml" ]; then
+    return 0
+  fi
+  _region_why="no region ${RELEASE_REGION}: a region is primary or a follower of this Sovereign (followers:$(for _kc in $(followers); do printf ' %s' "$(basename "${_kc}" .yaml)"; done))"
+  return 1
 }
 
 # registry_storage [<kubeconfig>]: where a region's registry stores, from the
@@ -317,7 +353,7 @@ compose_delivery() {
   done
   jq -n --slurpfile p3 "${MECH}/p03.json" --slurpfile p1 "${MECH}/p01.json" --arg job "${RELEASE_JOB}-delivery" \
     --arg ns "${RELEASE_NAMESPACE}" --arg cand "${CANDIDATE}" --arg pull "${_pull:-${PULL_SECRET}}" --arg sfx "${MECHANISM_SUFFIX}" \
-    --arg st "${RELEASE_STATUS_CM}" --arg kcs "${SECONDARY_KUBECONFIGS_SECRET}" --arg fns "${SECONDARY_GITEA_NAMESPACE}" '
+    --arg st "${RELEASE_STATUS_CM}" --arg kcs "${SECONDARY_KUBECONFIGS_SECRET}" --arg fns "${SECONDARY_GITEA_NAMESPACE}" --arg region "${RELEASE_REGION}" '
     def plain($n; $v): {name: $n, value: $v};
     def setenv($e): if any(.[]; .name == $e.name) then map(if .name == $e.name then $e else . end) else . + [$e] end;
     def setall($es): reduce $es[] as $e (.; setenv($e));
@@ -340,7 +376,8 @@ compose_delivery() {
     ($s1.containers[0] | .name = "promote" | .command = ["/bin/sh", "/release/release-run.sh", "promote"] | del(.args)
       | .env = ((.env // []) | setall([plain("HOME"; "/tmp")] + $common + [plain("UPSTREAM_PREFIX"; envof($c3; "UPSTREAM_PREFIX")),
           plain("KIT_REWRITE"; "/kit-rewrite/kit-rewrite.sh"), plain("PIN_EXTRACTOR"; "/pin-extractor/extract-pins.sh"),
-          plain("SECONDARY_KUBECONFIGS"; "/secondary-kubeconfigs"), plain("SECONDARY_GITEA_NAMESPACE"; $fns)]))
+          plain("SECONDARY_KUBECONFIGS"; "/secondary-kubeconfigs"), plain("SECONDARY_GITEA_NAMESPACE"; $fns)]
+          + (if $region == "" then [] else [plain("RELEASE_REGION"; $region)] end)))
       | .volumeMounts = [{name: "release-scripts", mountPath: "/release", readOnly: true}, {name: "release-kit-rewrite", mountPath: "/kit-rewrite", readOnly: true},
           {name: "release-pins", mountPath: "/pin-extractor", readOnly: true}, {name: "release-state", mountPath: "/release-state"},
           {name: "release-recorded", mountPath: "/release-recorded", readOnly: true},
@@ -719,6 +756,20 @@ run_follower() {
   [ "${_end}" = ok ]
 }
 
+# promote_region <region> <command...>: "<command...> promote" for one region;
+# when it succeeds the state keeps what moved, for a rollback (SOV-521):
+# <region>.promotedFrom, the main recorded at stage, <region>.promotedTo, the
+# commit pushed, and <region>.phase. A region whose main already held the
+# candidate at stage (staged = main, up-to-date) moved nothing: the record of
+# the request that promoted it, or of its rollback, stays as it is.
+promote_region() {
+  _pr="$1"; shift
+  _from=$(state_get "${_pr}" main); _to=$(state_get "${_pr}" staged)
+  "$@" promote || return 1
+  [ "${_from}" != "${_to}" ] || return 0
+  status_put --arg "${_pr}.promotedFrom" "${_from}" --arg "${_pr}.promotedTo" "${_to}" --arg "${_pr}.phase" promoted --arg updatedAt "$(now)"
+}
+
 # verdict <phase>: the worst phase any region recorded for <phase>.
 verdict() {
   _worst=""
@@ -736,6 +787,12 @@ verdict() {
 
 case "${1:-}" in
   stage)
+    if ! region_check; then
+      status_put --arg phase refused --arg failedStep stage --arg message "${_region_why}; nothing moved in any region" --arg updatedAt "$(now)"
+      say "REFUSED: ${_region_why}"
+      [ "${DRY_RUN}" = "true" ] || credential_remove || true
+      exit 1
+    fi
     status_put --arg phase staging --arg updatedAt "$(now)"
     _rc=0
     run_primary stage || _rc=1
@@ -756,6 +813,16 @@ case "${1:-}" in
     fi
     status_put --arg mechanism "$(cat "${MECH}/version"), the candidate's, rendered from release/${CANDIDATE}; the installed step 03 does not run" --arg updatedAt "$(now)"
     say "the delivery runs the candidate's mechanism: $(cat "${MECH}/version")"
+    # A request for one region is promoted by the candidate's mechanism, which
+    # promotes one region only if its release-run.sh has the phase rollback
+    # (SOV-521); an earlier one would promote every region.
+    if [ -n "${RELEASE_REGION}" ] && ! grep -q '^  rollback)' "${MECH}/release-run.sh"; then
+      _why="the release-run.sh of rc/${CANDIDATE} has no phase rollback, so it promotes every region and cannot promote region ${RELEASE_REGION} alone: deliver rc/${CANDIDATE} with no region"
+      status_put --arg phase refused --arg failedStep stage --arg message "${_why}; nothing moved in any region" --arg updatedAt "$(now)"
+      say "REFUSED: ${_why}; nothing moved in any region"
+      [ "${DRY_RUN}" = "true" ] || credential_remove || true
+      exit 1
+    fi
     # Whether a follower's registry gets what the release pins depends on the
     # step 03 that runs: the candidate's.
     if jq -r '.data["run.sh"] // ""' "${MECH}/cm/cutover-step-03-harbor-prewarm.json" | grep -q "${FOLLOWER_PREWARM_MARKER:-also mirrors the pins of}"; then
@@ -865,9 +932,18 @@ case "${1:-}" in
     # A deletion the prewarm could not finish is tried again; nothing is left
     # to delete on the usual path.
     credential_remove || true
+    if ! region_check; then
+      status_put --arg phase refused --arg message "${_region_why}; no region was promoted" --arg updatedAt "$(now)"
+      say "REFUSED: ${_region_why}"
+      exit 1
+    fi
+    # Only the regions promote acts on are checked: a request for one region
+    # moves that region alone (selected).
     _rc=0
-    run_primary check || _rc=1
-    for kc in $(followers); do run_follower "${kc}" check || _rc=1; done
+    if selected primary; then run_primary check || _rc=1; fi
+    for kc in $(followers); do
+      if selected "$(basename "${kc}" .yaml)"; then run_follower "${kc}" check || _rc=1; fi
+    done
     if [ "${_rc}" -ne 0 ]; then
       _v=$(verdict check); _v="${_v:-failed}"
       case "${_v}" in
@@ -878,14 +954,63 @@ case "${1:-}" in
       say "check ${_v}: no region was promoted"
       exit 1
     fi
-    for kc in $(followers); do run_follower "${kc}" promote || _rc=1; done
-    [ "${_rc}" -ne 0 ] || run_primary promote || _rc=1
+    for kc in $(followers); do
+      _r=$(basename "${kc}" .yaml)
+      if selected "${_r}"; then promote_region "${_r}" run_follower "${kc}" || _rc=1; fi
+    done
+    if [ "${_rc}" -eq 0 ] && selected primary; then promote_region primary run_primary || _rc=1; fi
     if [ "${_rc}" -ne 0 ]; then
-      status_put --arg phase partial --arg message "a promote failed after every region checked clean; <region>.promote names which regions moved" --arg updatedAt "$(now)"
+      if [ -n "${RELEASE_REGION}" ]; then
+        _v=$(verdict promote); _v="${_v:-failed}"
+        status_put --arg phase "${_v}" --arg message "the promote of region ${RELEASE_REGION} ended ${_v} after it checked clean (${RELEASE_REGION}.promote names why); no other region was promoted" --arg updatedAt "$(now)"
+      else
+        status_put --arg phase partial --arg message "a promote failed after every region checked clean; <region>.promote names which regions moved" --arg updatedAt "$(now)"
+      fi
       exit 1
     fi
-    status_put --arg phase delivered --arg message "every region follows rc/${CANDIDATE} merged with its own commits" --arg deliveredAt "$(now)" --arg updatedAt "$(now)"
-    say "delivered rc/${CANDIDATE}"
+    if [ -n "${RELEASE_REGION}" ]; then
+      status_put --arg phase delivered --arg message "region ${RELEASE_REGION} follows rc/${CANDIDATE} merged with its own commits; no other region was promoted" --arg deliveredAt "$(now)" --arg updatedAt "$(now)"
+      say "delivered rc/${CANDIDATE} to region ${RELEASE_REGION}"
+    else
+      status_put --arg phase delivered --arg message "every region follows rc/${CANDIDATE} merged with its own commits" --arg deliveredAt "$(now)" --arg updatedAt "$(now)"
+      say "delivered rc/${CANDIDATE}"
+    fi
     ;;
-  *) say "usage: release-run.sh stage|deliver|verify|compose|prewarm <command...>|promote"; exit 2 ;;
+  rollback)
+    # The bootstrap's only container of a rollback request (SOV-521). The
+    # region's recorded commits come from the route, which read them from the
+    # state of this candidate's promote.
+    if [ -z "${RELEASE_REGION}" ] || [ -z "${PROMOTED_FROM}" ] || [ -z "${PROMOTED_TO}" ]; then
+      _why="a rollback names a region (RELEASE_REGION) and the commits its promote recorded (PROMOTED_FROM, PROMOTED_TO)"
+      status_put --arg phase refused --arg failedStep rollback --arg message "${_why}; nothing was pushed" --arg updatedAt "$(now)"
+      say "REFUSED: ${_why}"
+      exit 1
+    fi
+    if ! region_check; then
+      status_put --arg phase refused --arg failedStep rollback --arg message "${_region_why}; nothing was pushed" --arg updatedAt "$(now)"
+      say "REFUSED: ${_region_why}"
+      exit 1
+    fi
+    status_put --arg phase rolling-back --arg updatedAt "$(now)"
+    printf '%s' "${PROMOTED_FROM}" >"${STATE}/${RELEASE_REGION}.main"
+    printf '%s' "${PROMOTED_TO}" >"${STATE}/${RELEASE_REGION}.staged"
+    _rc=0
+    if [ "${RELEASE_REGION}" = primary ]; then
+      run_primary rollback || _rc=1
+    else
+      run_follower "${SECONDARY_KUBECONFIGS}/${RELEASE_REGION}.yaml" rollback || _rc=1
+    fi
+    if [ "${_rc}" -ne 0 ]; then
+      _v=$(verdict rollback); _v="${_v:-failed}"
+      status_put --arg phase "${_v}" --arg failedStep rollback \
+        --arg message "the rollback of region ${RELEASE_REGION} ended ${_v} (${RELEASE_REGION}.rollback.report names why); no other region was touched" --arg updatedAt "$(now)"
+      say "rollback ${_v}: region ${RELEASE_REGION}"
+      exit 1
+    fi
+    status_put --arg phase rolled-back --arg "${RELEASE_REGION}.phase" rolled-back \
+      --arg message "region ${RELEASE_REGION} runs the tree of ${PROMOTED_FROM} again, the main recorded at the stage of rc/${CANDIDATE}, as a commit on top of ${PROMOTED_TO}, the commit its promote pushed; Flux applies it on its next interval" \
+      --arg updatedAt "$(now)"
+    say "rolled back region ${RELEASE_REGION} to the tree of ${PROMOTED_FROM}"
+    ;;
+  *) say "usage: release-run.sh stage|deliver|verify|compose|prewarm <command...>|promote|rollback"; exit 2 ;;
 esac
