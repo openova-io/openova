@@ -71,6 +71,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	orgapi "github.com/openova-io/openova/core/controllers/organization/internal/orgapi"
+	"github.com/openova-io/openova/core/controllers/pkg/orgdns"
 )
 
 // poolDNSTTL is the TTL stamped on the per-Org pool A-records. 300s matches the
@@ -107,18 +108,15 @@ type poolDNSRecord struct {
 // call, so a steady-state re-reconcile produces an identical record (no churn,
 // no error on an existing rrset — the #4236 idempotency requirement).
 func (r *Reconciler) reconcileTenantDNS(ctx context.Context, org *orgapi.Organization) (bool, error) {
-	tp := org.Spec.TenantPublic
-	parentDomain, zones := tenantDNSParent(org)
-	if parentDomain == "" {
+	o := tenantDNSOrg(org)
+	parentDomain, zones := orgdns.Parent(o)
+	names := orgdns.RecordSetNames(o)
+	if parentDomain == "" || len(names) == 0 {
 		// Feature disabled — Org has no pool-parent public hostname. The
 		// Sovereign-wide `*.<sovFQDN>` apex wildcard covers single-domain Orgs.
 		return false, nil
 	}
-
-	subdomain := strings.TrimSpace(tp.Subdomain)
-	if subdomain == "" {
-		subdomain = org.Spec.Slug
-	}
+	subdomain := orgdns.Label(o)
 
 	baseURL := strings.TrimSpace(r.PoolPowerDNSURL)
 	if baseURL == "" {
@@ -179,9 +177,10 @@ func (r *Reconciler) reconcileTenantDNS(ctx context.Context, org *orgapi.Organiz
 	// by a prior env and resolves to a DEAD IP. REPLACE shadows that apex
 	// wildcard for this Org's entire subtree and pins it to THIS Sovereign's
 	// current console-ELB IP.
-	rrsets := make([]poolDNSRRSet, 0, 2)
-	for _, prefix := range []string{"console", "*"} {
-		fqdn := fmt.Sprintf("%s.%s.%s.", prefix, subdomain, parentDomain)
+	// The names come from core/controllers/pkg/orgdns, the function the wipe of
+	// the parent's engine uses to release them.
+	rrsets := make([]poolDNSRRSet, 0, len(names))
+	for _, fqdn := range names {
 		rrsets = append(rrsets, poolDNSRRSet{
 			Name:       fqdn,
 			Type:       "A",
@@ -217,15 +216,13 @@ func (r *Reconciler) reconcileTenantDNS(ctx context.Context, org *orgapi.Organiz
 // writer is unwired. Idempotent: deleting an already-absent rrset is a 2xx
 // no-op on PowerDNS.
 func (r *Reconciler) teardownTenantDNS(ctx context.Context, org *orgapi.Organization) (bool, error) {
-	tp := org.Spec.TenantPublic
-	parentDomain, zones := tenantDNSParent(org)
-	if parentDomain == "" {
+	o := tenantDNSOrg(org)
+	parentDomain, zones := orgdns.Parent(o)
+	names := orgdns.RecordSetNames(o)
+	if parentDomain == "" || len(names) == 0 {
 		return false, nil
 	}
-	subdomain := strings.TrimSpace(tp.Subdomain)
-	if subdomain == "" {
-		subdomain = org.Spec.Slug
-	}
+	subdomain := orgdns.Label(o)
 	baseURL := strings.TrimSpace(r.PoolPowerDNSURL)
 	// #4459 self-heal parity: resolve the key the SAME way the write path
 	// (reconcileTenantDNS) does — prefer the env-frozen value but fall back to a
@@ -245,9 +242,8 @@ func (r *Reconciler) teardownTenantDNS(ctx context.Context, org *orgapi.Organiza
 		return false, nil
 	}
 
-	rrsets := make([]poolDNSRRSet, 0, 2)
-	for _, prefix := range []string{"console", "*"} {
-		fqdn := fmt.Sprintf("%s.%s.%s.", prefix, subdomain, parentDomain)
+	rrsets := make([]poolDNSRRSet, 0, len(names))
+	for _, fqdn := range names {
 		rrsets = append(rrsets, poolDNSRRSet{
 			Name:       fqdn,
 			Type:       "A",
@@ -478,20 +474,21 @@ func poolZoneCanonical(zone string) string {
 //     Organization had no DNS until the records were written).
 //
 // So the zones are the Sovereign FQDN first and its parent second; poolZoneFor
-// picks the first one the server holds.
+// picks the first one the server holds. The rule itself lives in
+// core/controllers/pkg/orgdns, shared with the wipe of the parent's engine.
 func tenantDNSParent(org *orgapi.Organization) (parent string, zones []string) {
-	parent = strings.TrimSpace(org.Spec.TenantPublic.ParentDomain)
-	if parent != "" {
-		return parent, []string{parent}
+	return orgdns.Parent(tenantDNSOrg(org))
+}
+
+// tenantDNSOrg is the part of the Organization the record-set names depend on.
+func tenantDNSOrg(org *orgapi.Organization) orgdns.Org {
+	return orgdns.Org{
+		Slug:         org.Spec.Slug,
+		Kind:         org.Spec.Kind,
+		SovereignRef: org.Spec.SovereignRef,
+		ParentDomain: org.Spec.TenantPublic.ParentDomain,
+		Subdomain:    org.Spec.TenantPublic.Subdomain,
 	}
-	if !strings.EqualFold(strings.TrimSpace(org.Spec.Kind), "internal") {
-		return "", nil
-	}
-	sov := strings.ToLower(strings.TrimSpace(org.Spec.SovereignRef))
-	if strings.Count(sov, ".") < 2 {
-		return "", nil
-	}
-	return sov, []string{sov, sov[strings.Index(sov, ".")+1:]}
 }
 
 // poolZoneFor returns the first of zones that the PowerDNS server holds. Each
