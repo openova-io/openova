@@ -4,7 +4,7 @@ Regenerated every 15 min by `/home/openova/bin/refresh-dod-dashboard.sh`. Every 
 
 |  |  |
 |---|---|
-| Last refreshed | `2026-11-19T05:30:07Z` |
+| Last refreshed | `2026-11-19T05:45:03Z` |
 | Deploy cron (#799) | ✓ deploy-cron healthy (image-reroll last ran 10m ago) |
 | Open issues | 100 |
 | Open DoD gates | 0 / 41 |
@@ -200,7 +200,6 @@ flowchart LR
 
 | # | Title | Bucket |
 |---|---|---|
-| [#7885](https://github.com/openova-io/openova/issues/7885) | FND-151 The suite as an image, with the self selection | Other |
 | [#7886](https://github.com/openova-io/openova/issues/7886) | SEC-095 Exception register, source guard and Secret census | Other |
 | [#7893](https://github.com/openova-io/openova/issues/7893) | a fresh two-region installation: the control-plane user data is 32,931 bytes, ov | Other |
 | [#7900](https://github.com/openova-io/openova/issues/7900) | a fresh two-region Sovereign: six defects of the hand-over chain (hook wait, pro | Other |
@@ -300,6 +299,7 @@ flowchart LR
 | [#8264](https://github.com/openova-io/openova/issues/8264) | CLD-066 provider-opentofu v1.1.11 by digest | Other |
 | [#8265](https://github.com/openova-io/openova/issues/8265) | INF-513 Runner test task: the ZAP baseline scan and its SARIF report (profile we | Other |
 | [#8270](https://github.com/openova-io/openova/issues/8270) | SVC-160 One generator, part 2: the seed becomes generated | Other |
+| [#8273](https://github.com/openova-io/openova/issues/8273) | SVC-161 The seed sync script is deleted with its three importers and four order  | Other |
 
 ---
 
@@ -307,6 +307,7 @@ flowchart LR
 
 | Merged | PR | Issue closed | Title |
 |---|---|---|---|
+| 2026-11-19T05:33 | [#8272](https://github.com/openova-io/openova/pull/8272) | #7087 | docs(ledger): plan update |
 | 2026-11-19T05:14 | [#8271](https://github.com/openova-io/openova/pull/8271) | #8270 | refactor(catalog): the catalogue seed is generated from the  |
 | 2026-11-19T04:43 | [#8269](https://github.com/openova-io/openova/pull/8269) | #7087 | docs(ledger): plan update |
 | 2026-11-19T04:51 | [#8268](https://github.com/openova-io/openova/pull/8268) | #8264 | fix(crossplane): pin provider-opentofu v1.1.11 by digest (CL |
@@ -336,7 +337,6 @@ flowchart LR
 | 2026-11-18T23:42 | [#8233](https://github.com/openova-io/openova/pull/8233) | #8232 | feat(chart): bp-catalyst-platform creates the conformance ac |
 | 2026-11-18T23:18 | [#8231](https://github.com/openova-io/openova/pull/8231) | #7087 | docs(ledger): plan update |
 | 2026-11-18T23:05 | [#8229](https://github.com/openova-io/openova/pull/8229) | #7087 | docs(ledger): plan update |
-| 2026-11-18T23:28 | [#8228](https://github.com/openova-io/openova/pull/8228) | #8225 | refactor(provisioner): the VPC pre-flight becomes the Prefli |
 
 ---
 
